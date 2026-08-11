@@ -507,7 +507,10 @@ describe("Yoklama Takvimi gün kutusu — gerçek Geldi/İşlendi/Telafi statüs
     if (!monthRes.ok) return;
     const day = monthRes.data.days.find((d) => d.date === lesson.startAt.slice(0, 10))!;
     expect(day.lessons).toHaveLength(1);
-    expect(day.lessons[0]).toEqual({ lessonId, opsStatus: "attended" });
+    // İş 2 — lessons[] artık saat/öğretmen/enstrüman/oda/süre de taşır
+    // (aynı gündeki birden fazla dersi ayırt etmek için); burada yalnızca
+    // bu testin ilgilendiği opsStatus alanı doğrulanır.
+    expect(day.lessons[0]).toMatchObject({ lessonId, opsStatus: "attended" });
   });
 
   it("İşlendi'ye geçiş sonrası (confirmSwitch) takvimdeki opsStatus da 'processed'e günceller — mükerrer/eski statü kalmaz", async () => {
@@ -522,7 +525,8 @@ describe("Yoklama Takvimi gün kutusu — gerçek Geldi/İşlendi/Telafi statüs
     expect(monthRes.ok).toBe(true);
     if (!monthRes.ok) return;
     const day = monthRes.data.days.find((d) => d.date === lesson.startAt.slice(0, 10))!;
-    expect(day.lessons).toEqual([{ lessonId, opsStatus: "processed" }]);
+    expect(day.lessons).toHaveLength(1);
+    expect(day.lessons[0]).toMatchObject({ lessonId, opsStatus: "processed" });
   });
 
   it("henüz hiçbir statü işaretlenmemiş ders için opsStatus null döner (kutu 'planlı' rengiyle gösterilir, 'Geldi' varsayılmaz)", async () => {
@@ -535,7 +539,8 @@ describe("Yoklama Takvimi gün kutusu — gerçek Geldi/İşlendi/Telafi statüs
     expect(monthRes.ok).toBe(true);
     if (!monthRes.ok) return;
     const day = monthRes.data.days.find((d) => d.date === lesson.startAt.slice(0, 10))!;
-    expect(day.lessons).toEqual([{ lessonId, opsStatus: null }]);
+    expect(day.lessons).toHaveLength(1);
+    expect(day.lessons[0]).toMatchObject({ lessonId, opsStatus: null });
   });
 
   it("aynı günde İKİ ders FARKLI statülerde ise ikisi de lessons[] içinde ayrı ayrı, kendi gerçek statüsüyle döner — biri diğerini gizlemez", async () => {

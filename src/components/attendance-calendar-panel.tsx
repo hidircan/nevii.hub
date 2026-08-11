@@ -19,7 +19,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { cn } from "@/lib/utils";
+import { cn, formatTime } from "@/lib/utils";
+import { TriangleAlert } from "lucide-react";
 import { LessonOpsActions } from "./lesson-ops-actions";
 import { AttendanceCalendarCollectPaymentButton } from "./attendance-calendar-collect-payment-button";
 import {
@@ -73,6 +74,12 @@ type LessonPaymentInfo = {
 type DayLessonOpsInfo = {
   lessonId: string;
   opsStatus: "attended" | "processed" | "makeup" | "absent" | "excused" | null;
+  startAt: string;
+  durationMinutes: number;
+  teacherName?: string;
+  instrument: string;
+  roomName?: string;
+  availabilityOverride: boolean;
 };
 
 type DayInfo = {
@@ -715,6 +722,32 @@ export function AttendanceCalendarPanel({
   );
 }
 
+/**
+ * İş 2 — aynı günün birden fazla dersini ayırt etmek için minimum kimlik
+ * bilgisi: saat, öğretmen, enstrüman, oda, süre. Öğretmen müsaitlik dışı
+ * onaylı planlandıysa (bkz. İş 3 availabilityOverride) küçük bir uyarı
+ * ikonuyla işaretlenir.
+ */
+function LessonSummaryLine({ lesson }: { lesson: DayLessonOpsInfo }) {
+  return (
+    <p className="mb-1 flex flex-wrap items-center gap-1 text-[11px] font-medium text-[var(--color-text)]">
+      <span>{formatTime(lesson.startAt)}</span>
+      <span className="text-[var(--color-text-muted)]">· {lesson.durationMinutes} dk</span>
+      {lesson.teacherName ? <span className="text-[var(--color-text-muted)]">· {lesson.teacherName}</span> : null}
+      <span className="text-[var(--color-text-muted)]">· {lesson.instrument}</span>
+      {lesson.roomName ? <span className="text-[var(--color-text-muted)]">· {lesson.roomName}</span> : null}
+      {lesson.availabilityOverride ? (
+        <span
+          title="Öğretmen bu saatte müsait görünmüyordu — onaylı planlandı"
+          className="inline-flex items-center gap-0.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold text-amber-800"
+        >
+          <TriangleAlert className="h-2.5 w-2.5" /> müsaitlik dışı
+        </span>
+      ) : null}
+    </p>
+  );
+}
+
 function LegendDot({ color, label }: { color: string; label: string }) {
   return (
     <span className="flex items-center gap-1.5">
@@ -769,26 +802,42 @@ function DayDetail({
       ) : day.lessonIds.length === 0 ? (
         <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">Bu gün ders yok.</p>
       ) : readOnly ? (
-        <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">
-          Bu gün {day.lessonIds.length} ders planlı. Durum güncellemeleri okul yönetimi tarafından yapılır.
-        </p>
-      ) : (
         <div className="mt-2 space-y-2">
+          {day.lessons.map((l) => (
+            <LessonSummaryLine key={l.lessonId} lesson={l} />
+          ))}
+          <p className="text-[11px] text-[var(--color-text-muted)]">
+            Durum güncellemeleri okul yönetimi tarafından yapılır.
+          </p>
+        </div>
+      ) : (
+        <div className="mt-2 space-y-3">
+          {/*
+            İş 2 — aynı gün birden fazla ders varsa (day.lessonIds.length > 1)
+            her ders kendi satırında, kendi kimlik bilgisiyle (saat/öğretmen/
+            enstrüman/oda/süre) ve BAĞIMSIZ Geldi/İşlendi/Telafi kontrolleriyle
+            gösterilir — bir dersin durumu değiştirilmesi diğerini asla
+            etkilemez (her biri kendi lessonId'siyle ayrı bir API çağrısı
+            yapar, bkz. LessonOpsActions/setLessonOpsFlagTool).
+          */}
           {day.lessonIds.map((lessonId) => {
-            const opsStatus = day.lessons.find((l) => l.lessonId === lessonId)?.opsStatus ?? null;
+            const lessonInfo = day.lessons.find((l) => l.lessonId === lessonId);
+            const opsStatus = lessonInfo?.opsStatus ?? null;
             return (
-              <LessonOpsActions
-                key={lessonId}
-                lessonId={lessonId}
-                compact
-                studentAttended={opsStatus === "attended"}
-                lessonProcessed={opsStatus === "processed"}
-                opsMakeupFlag={opsStatus === "makeup"}
-                studentAbsent={opsStatus === "absent"}
-                studentExcused={opsStatus === "excused"}
-                onStatusChange={onLessonStatusChange}
-                onSettled={onLessonOpsSettled}
-              />
+              <div key={lessonId} className="rounded-md border border-[var(--color-border)] p-1.5">
+                {lessonInfo ? <LessonSummaryLine lesson={lessonInfo} /> : null}
+                <LessonOpsActions
+                  lessonId={lessonId}
+                  compact
+                  studentAttended={opsStatus === "attended"}
+                  lessonProcessed={opsStatus === "processed"}
+                  opsMakeupFlag={opsStatus === "makeup"}
+                  studentAbsent={opsStatus === "absent"}
+                  studentExcused={opsStatus === "excused"}
+                  onStatusChange={onLessonStatusChange}
+                  onSettled={onLessonOpsSettled}
+                />
+              </div>
             );
           })}
         </div>

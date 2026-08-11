@@ -5088,6 +5088,21 @@ export type AttendanceCalendarLessonOpsInfo = {
   lessonId: string;
   /** effectiveLessonOpsStatus(lesson) — İşlendi > Geldi > Telafi > Gelmedi > Mazeretli öncelikli, TEK statü; hiçbiri set değilse null. */
   opsStatus: "attended" | "processed" | "makeup" | "absent" | "excused" | null;
+  /**
+   * İş 2 — aynı günde birden fazla ders olduğunda hangi satırın hangi
+   * derse ait olduğunu ayırt etmek için gereken minimum bağlam (ders
+   * saati, öğretmen, enstrüman, oda, süre). Önceden bu bilgi hiç
+   * taşınmıyordu — DayDetail yalnızca lessonId ile eşleşen ayrı
+   * Geldi/İşlendi/Telafi butonları gösteriyordu ama hangi butonun HANGİ
+   * derse ait olduğu görünür değildi.
+   */
+  startAt: string;
+  durationMinutes: number;
+  teacherName?: string;
+  instrument: string;
+  roomName?: string;
+  /** bkz. Lesson.availabilityOverride — öğretmen müsait olmadığı bir saatte, onaylı planlandı. */
+  availabilityOverride: boolean;
 };
 
 export async function getAttendanceCalendarMonthTool(
@@ -5149,10 +5164,26 @@ export async function getAttendanceCalendarMonthTool(
     // yukarıda `s.status` ile çözülmüş durumda; bu liste yalnızca AÇIK
     // günlerde anlamlıdır ama kapalı günlerde de (varsa, tutarlılık için)
     // aynen döner — UI kapalı günde zaten statü render ETMEZ.
-    const lessons: AttendanceCalendarLessonOpsInfo[] = dayLessons.map((l) => ({
-      lessonId: l.id,
-      opsStatus: effectiveLessonOpsStatus(l),
-    }));
+    const lessons: AttendanceCalendarLessonOpsInfo[] = dayLessons
+      .slice()
+      .sort((a, b) => a.startAt.localeCompare(b.startAt))
+      .map((l) => {
+        const teacher = data.teachers.find((t) => t.id === l.teacherId);
+        const room = data.rooms.find((r) => r.id === l.roomId);
+        const durationMinutes = Math.round(
+          (new Date(l.endAt).getTime() - new Date(l.startAt).getTime()) / 60_000
+        );
+        return {
+          lessonId: l.id,
+          opsStatus: effectiveLessonOpsStatus(l),
+          startAt: l.startAt,
+          durationMinutes,
+          teacherName: teacher?.name,
+          instrument: l.instrument,
+          roomName: room?.name,
+          availabilityOverride: Boolean(l.availabilityOverride),
+        };
+      });
     // ÖNCELİK 4 (devam) — TEK kaynak: mevcut Payment modeli (source:"lesson_ops"),
     // ikinci/çelişkili bir kayıt yaratılmaz — yalnızca OKUNUR ve gösterilir.
     const payments: AttendanceCalendarLessonPaymentInfo[] = dayLessons
