@@ -1051,7 +1051,14 @@ export interface InstrumentCatalogEntry {
  * atomic JSON dosyası json/memory modda, Prisma tablosu db modda). Hard
  * delete yok; `status:"passive"` ile pasife alınır.
  */
-export type StaffMemberStatus = "active" | "passive";
+/**
+ * İş 3 — "active" öğretmen modelindeki gibi tek bir "aktif" bayrağı değil,
+ * gerçek özlük durumu (izinliyken listede görünür kalmalı ama farklı
+ * işaretlenmeli). Hard delete hâlâ yok: "terminated" (ayrıldı) de bir
+ * silme değil, kalıcı bir durumdur — audit/bordro geçmişi korunur.
+ */
+export type StaffMemberStatus = "active" | "on_leave" | "passive" | "terminated";
+export type StaffEmploymentType = "full_time" | "part_time" | "contract" | "intern";
 
 export interface StaffMember {
   id: string;
@@ -1060,12 +1067,109 @@ export interface StaffMember {
   position: string;
   phone?: string;
   email?: string;
+  address?: string;
+  birthDate?: string;
+  photoUrl?: string;
+  /** AES-GCM şifreli — bkz. src/lib/pii/tc-identity.ts, Student.nationalIdCipher ile AYNI mekanizma. */
+  nationalIdCipher?: string;
+  nationalIdLast2?: string;
+  employeeNumber?: string;
+  hireDate?: string;
+  terminationDate?: string;
+  department?: string;
+  /** Başka bir StaffMember.id — raporlama/yönetici ilişkisi. Döngü kontrolü UI/tool katmanında yapılır. */
+  reportsToStaffId?: string;
+  employmentType?: StaffEmploymentType;
   branchId?: BranchId;
   status: StaffMemberStatus;
+  /**
+   * Yıllık izin bakiyesi (gün) — yasal hesaplama motoru DEĞİL, kurumun
+   * kendi belirlediği/güncellediği basit bir sayı (bkz. LeaveRequest).
+   */
+  annualLeaveAllowanceDays?: number;
+  /** Yalnız admin/super admin görünürlüğünde — bkz. canViewStaffSensitive. */
+  personnelNotes?: string;
   notes?: string;
+  /**
+   * Maaş yapısı — öğretmen hakedişinden (Teacher/TeacherFeeRule) BİLİNÇLİ
+   * olarak ayrı (bkz. PayrollRecord yorumu). Yalnızca hassas bordro
+   * yetkisi olan roller (bkz. canViewStaffPayroll) görebilir/düzenleyebilir.
+   */
+  monthlySalary?: number;
+  hourlyRate?: number;
+  defaultBonus?: number;
+  defaultAllowances?: number;
+  defaultDeductions?: number;
   createdBy: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export type PayrollStatus = "draft" | "pending_approval" | "approved" | "paid" | "cancelled";
+
+/**
+ * Aylık bordro kaydı — TEK kaynak StaffMember bordrosu için; öğretmenlerin
+ * ders bazlı hakedişi (TeacherPayout) burada YOK, kasıtlı olarak ayrı
+ * tutulur (bkz. dosya başı yorumu — "öğretmenlerin ders bazlı
+ * hakedişlerini otomatik olarak genel personel maaşına yanlışlıkla dahil
+ * etme"). staffId bir öğretmene karşılık gelen bir StaffMember DEĞİLDİR —
+ * öğretmenler bu modülde ayrı bir kayıt olarak temsil edilmez.
+ */
+export interface PayrollRecord {
+  id: string;
+  staffId: string;
+  /** yyyy-MM */
+  month: string;
+  grossAmount: number;
+  netAmount: number;
+  extraPayment?: number;
+  deduction?: number;
+  status: PayrollStatus;
+  paymentDate?: string;
+  paymentMethod?: string;
+  note?: string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type LeaveType = "annual" | "sick" | "unpaid" | "other";
+export type LeaveStatus = "draft" | "pending_approval" | "approved" | "rejected";
+
+export interface LeaveRequest {
+  id: string;
+  staffId: string;
+  type: LeaveType;
+  startDate: string;
+  endDate: string;
+  /** Saf hesaplama — hafta sonu/tatil düşülmez (bilinçli basit tutuldu, bkz. dosya başı yorumu). */
+  dayCount: number;
+  description?: string;
+  status: LeaveStatus;
+  approvedBy?: string;
+  approvedAt?: string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * Kurum sahibi mali dashboard'u — henüz izlenmeyen gider türleri (kira,
+ * fatura, sarf malzemesi, diğer). Bordro (PayrollRecord) ve öğretmen
+ * hakedişi (TeacherPayout) BURADA TEKRARLANMAZ — dashboard bu ikisini
+ * kendi tablolarından toplar, ExpenseRecord yalnızca ÖNCEDEN HİÇBİR
+ * YERDE tutulmayan gider türleri içindir.
+ */
+export type ExpenseCategory = "rent" | "utilities" | "supplies" | "other";
+
+export interface ExpenseRecord {
+  id: string;
+  category: ExpenseCategory;
+  amount: number;
+  date: string;
+  note?: string;
+  createdBy: string;
+  createdAt: string;
 }
 
 export type ClosedDayKind = "public_holiday" | "custom";

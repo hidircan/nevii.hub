@@ -73,6 +73,9 @@ import {
   resolveActiveInstrumentNames,
 } from "../instrument-catalog";
 import { listStaff, createStaffMember, updateStaffMember } from "../staff";
+import { listPayroll, createPayrollRecord, updatePayrollStatus } from "../payroll";
+import { listLeave, createLeaveRequest, decideLeaveRequest } from "../leave";
+import { listExpenses, createExpense } from "../expense";
 import { effectiveLessonOpsStatus } from "../lesson-ops";
 import { computeTeacherEarningsForPeriod, type TeacherEarningsResult } from "../teacher-payout";
 import {
@@ -240,6 +243,11 @@ import {
   updateInstrumentCatalogSchema,
   createStaffMemberSchema,
   updateStaffMemberSchema,
+  createPayrollRecordSchema,
+  updatePayrollStatusSchema,
+  createLeaveRequestSchema,
+  decideLeaveRequestSchema,
+  createExpenseSchema,
   createTaskSchema,
   resolveRelatedEntitySchema,
   updateTaskSchema,
@@ -1476,11 +1484,79 @@ export async function listStaffTool(
   return ok({ staff });
 }
 
+/**
+ * İş 3E — hassas bordro/finans/T.C. kimlik alanları için ayrı yetki
+ * kontrolü. SUPER_ADMIN her zaman; SCHOOL_ADMIN yalnızca kendi TEK
+ * tenant'ında (birleşik "tüm kurumlar" görünümünde asla — aynı ilke
+ * `kurum.scope.mode==="single"` UI kontrolüyle, burada sunucu tarafı
+ * eşdeğeri: merged-view context'te zaten ayrı bir tenantId çözülmüyor).
+ * NOT — bu şu an kaba roldür (SCHOOL_ADMIN hepsi ya hepsi yok); "bazı
+ * SCHOOL_ADMIN'lere özel yetkilendirme" için ayrı bir izin/ACL tablosu
+ * gerekir, bu turda YOK (final raporda açık risk olarak belirtildi).
+ */
+function requireStaffSensitiveAccess(ctx: ServiceContext) {
+  return requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+}
+
+function staffFieldsFromInput(v: {
+  name?: string;
+  position?: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+  birthDate?: string;
+  photoUrl?: string;
+  nationalId?: string;
+  employeeNumber?: string;
+  hireDate?: string;
+  terminationDate?: string;
+  department?: string;
+  reportsToStaffId?: string;
+  employmentType?: "full_time" | "part_time" | "contract" | "intern";
+  branchId?: string;
+  status?: import("../types").StaffMemberStatus;
+  annualLeaveAllowanceDays?: number;
+  personnelNotes?: string;
+  notes?: string;
+  monthlySalary?: number;
+  hourlyRate?: number;
+  defaultBonus?: number;
+  defaultAllowances?: number;
+  defaultDeductions?: number;
+}) {
+  return {
+    name: v.name,
+    position: v.position,
+    phone: v.phone,
+    email: v.email || undefined,
+    address: v.address,
+    birthDate: v.birthDate,
+    photoUrl: v.photoUrl,
+    nationalId: v.nationalId,
+    employeeNumber: v.employeeNumber,
+    hireDate: v.hireDate,
+    terminationDate: v.terminationDate,
+    department: v.department,
+    reportsToStaffId: v.reportsToStaffId,
+    employmentType: v.employmentType,
+    branchId: v.branchId,
+    status: v.status,
+    annualLeaveAllowanceDays: v.annualLeaveAllowanceDays,
+    personnelNotes: v.personnelNotes,
+    notes: v.notes,
+    monthlySalary: v.monthlySalary,
+    hourlyRate: v.hourlyRate,
+    defaultBonus: v.defaultBonus,
+    defaultAllowances: v.defaultAllowances,
+    defaultDeductions: v.defaultDeductions,
+  };
+}
+
 export async function createStaffMemberTool(
   ctx: ServiceContext,
   input: unknown
 ): Promise<ServiceResult<{ staffId: string }>> {
-  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  const auth = requireStaffSensitiveAccess(ctx);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
 
   const v = parseOrFail(createStaffMemberSchema, input);
@@ -1488,13 +1564,8 @@ export async function createStaffMemberTool(
 
   const result = await createStaffMember({
     tenantId: ctx.tenantId,
-    name: v.data.name,
-    position: v.data.position,
-    phone: v.data.phone,
-    email: v.data.email || undefined,
-    branchId: v.data.branchId,
-    notes: v.data.notes,
     createdBy: ctx.userId,
+    ...staffFieldsFromInput(v.data),
   });
   if (!result.ok) return fail("VALIDATION_ERROR", result.message);
   audit(ctx, "staff.create", "StaffMember", result.entry.id, { name: result.entry.name, position: result.entry.position });
@@ -1505,24 +1576,137 @@ export async function updateStaffMemberTool(
   ctx: ServiceContext,
   input: unknown
 ): Promise<ServiceResult<{ staffId: string }>> {
-  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  const auth = requireStaffSensitiveAccess(ctx);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
 
   const v = parseOrFail(updateStaffMemberSchema, input);
   if (!v.ok) return v;
 
-  const result = await updateStaffMember(ctx.tenantId, v.data.staffId, {
-    name: v.data.name,
-    position: v.data.position,
-    phone: v.data.phone,
-    email: v.data.email || undefined,
-    branchId: v.data.branchId,
-    status: v.data.status,
-    notes: v.data.notes,
-  });
+  const result = await updateStaffMember(ctx.tenantId, v.data.staffId, staffFieldsFromInput(v.data));
   if (!result.ok) return fail("VALIDATION_ERROR", result.message);
   audit(ctx, "staff.update", "StaffMember", v.data.staffId, { status: v.data.status });
   return ok({ staffId: v.data.staffId });
+}
+
+/** İş 3B — Bordro. Yalnızca hassas erişimi olan roller (bkz. requireStaffSensitiveAccess). */
+export async function listPayrollTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ records: import("../types").PayrollRecord[] }>> {
+  const auth = requireStaffSensitiveAccess(ctx);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const v = parseOrFail(z.object({ staffId: z.string().optional(), month: z.string().optional() }), input);
+  if (!v.ok) return v;
+  const records = await listPayroll(ctx.tenantId, v.data);
+  return ok({ records });
+}
+
+export async function createPayrollRecordTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ payrollId: string }>> {
+  const auth = requireStaffSensitiveAccess(ctx);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const v = parseOrFail(createPayrollRecordSchema, input);
+  if (!v.ok) return v;
+  const result = await createPayrollRecord({ tenantId: ctx.tenantId, createdBy: ctx.userId, ...v.data });
+  if (!result.ok) return fail("VALIDATION_ERROR", result.message);
+  audit(ctx, "payroll.create", "PayrollRecord", result.entry.id, { staffId: result.entry.staffId, month: result.entry.month });
+  return ok({ payrollId: result.entry.id });
+}
+
+export async function updatePayrollStatusTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ payrollId: string }>> {
+  const auth = requireStaffSensitiveAccess(ctx);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const v = parseOrFail(updatePayrollStatusSchema, input);
+  if (!v.ok) return v;
+  const result = await updatePayrollStatus(ctx.tenantId, v.data.payrollId, v.data);
+  if (!result.ok) return fail("VALIDATION_ERROR", result.message);
+  audit(ctx, "payroll.status_update", "PayrollRecord", v.data.payrollId, { status: v.data.status });
+  return ok({ payrollId: v.data.payrollId });
+}
+
+/** İş 3C — İzin. Salt okuma SCHOOL_ADMIN/SUPER_ADMIN/TEACHER'a (kendi izinlerini görebilsin) açık; onay yalnızca admin. */
+export async function listLeaveTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ requests: import("../types").LeaveRequest[] }>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const v = parseOrFail(z.object({ staffId: z.string().optional() }), input);
+  if (!v.ok) return v;
+  const requests = await listLeave(ctx.tenantId, v.data.staffId);
+  return ok({ requests });
+}
+
+export async function createLeaveRequestTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ leaveId: string }>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const v = parseOrFail(createLeaveRequestSchema, input);
+  if (!v.ok) return v;
+  const result = await createLeaveRequest({ tenantId: ctx.tenantId, createdBy: ctx.userId, ...v.data });
+  if (!result.ok) return fail("VALIDATION_ERROR", result.message);
+  audit(ctx, "leave.create", "LeaveRequest", result.entry.id, { staffId: result.entry.staffId });
+  return ok({ leaveId: result.entry.id });
+}
+
+export async function decideLeaveRequestTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ leaveId: string }>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const v = parseOrFail(decideLeaveRequestSchema, input);
+  if (!v.ok) return v;
+  const result = await decideLeaveRequest(ctx.tenantId, v.data.leaveId, { status: v.data.status, approvedBy: ctx.userId });
+  if (!result.ok) return fail("VALIDATION_ERROR", result.message);
+  audit(ctx, "leave.decide", "LeaveRequest", v.data.leaveId, { status: v.data.status });
+  return ok({ leaveId: v.data.leaveId });
+}
+
+/** İş 3D — Gider + mali özet. Yalnızca hassas erişimi olan roller. */
+export async function listExpensesTool(
+  ctx: ServiceContext,
+  _input: unknown
+): Promise<ServiceResult<{ expenses: import("../types").ExpenseRecord[] }>> {
+  const auth = requireStaffSensitiveAccess(ctx);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const expenses = await listExpenses(ctx.tenantId);
+  return ok({ expenses });
+}
+
+export async function createExpenseTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ expenseId: string }>> {
+  const auth = requireStaffSensitiveAccess(ctx);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const v = parseOrFail(createExpenseSchema, input);
+  if (!v.ok) return v;
+  const result = await createExpense({ tenantId: ctx.tenantId, createdBy: ctx.userId, ...v.data });
+  if (!result.ok) return fail("VALIDATION_ERROR", result.message);
+  audit(ctx, "expense.create", "ExpenseRecord", result.entry.id, { category: result.entry.category, amount: result.entry.amount });
+  return ok({ expenseId: result.entry.id });
+}
+
+export async function getFinanceSummaryTool(
+  ctx: ServiceContext,
+  _input: unknown
+): Promise<ServiceResult<import("../finance-summary").FinanceSummary>> {
+  const auth = requireStaffSensitiveAccess(ctx);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const data = await readData();
+  const staff = await listStaff(ctx.tenantId);
+  const payroll = await listPayroll(ctx.tenantId);
+  const expenses = await listExpenses(ctx.tenantId);
+  const { computeFinanceSummary } = await import("../finance-summary");
+  return ok(computeFinanceSummary(data, staff, payroll, expenses));
 }
 
 export async function createPackageTool(

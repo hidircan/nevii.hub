@@ -81,6 +81,11 @@ import {
   updateInstrumentCatalogTool,
   createStaffMemberTool,
   updateStaffMemberTool,
+  createPayrollRecordTool,
+  updatePayrollStatusTool,
+  createLeaveRequestTool,
+  decideLeaveRequestTool,
+  createExpenseTool,
   createTaskTool,
   updateTaskTool,
   changeTaskStatusTool,
@@ -757,18 +762,39 @@ export async function actionUpdateInstrument(input: {
 
 export type CreateStaffActionResult = { ok: true } | { ok: false; message: string };
 
-/** Personel Modülü — yeni kayıt. */
+function staffFormFields(formData: FormData) {
+  const str = (key: string) => String(formData.get(key) || "") || undefined;
+  return {
+    name: str("name"),
+    position: str("position"),
+    phone: str("phone"),
+    email: str("email"),
+    address: str("address"),
+    birthDate: str("birthDate"),
+    nationalId: str("nationalId"),
+    employeeNumber: str("employeeNumber"),
+    hireDate: str("hireDate"),
+    terminationDate: str("terminationDate"),
+    department: str("department"),
+    reportsToStaffId: str("reportsToStaffId"),
+    employmentType: str("employmentType") as "full_time" | "part_time" | "contract" | "intern" | undefined,
+    branchId: str("branchId"),
+    annualLeaveAllowanceDays: str("annualLeaveAllowanceDays") ? Number(str("annualLeaveAllowanceDays")) : undefined,
+    personnelNotes: str("personnelNotes"),
+    notes: str("notes"),
+    monthlySalary: str("monthlySalary") ? Number(str("monthlySalary")) : undefined,
+    hourlyRate: str("hourlyRate") ? Number(str("hourlyRate")) : undefined,
+    defaultBonus: str("defaultBonus") ? Number(str("defaultBonus")) : undefined,
+    defaultAllowances: str("defaultAllowances") ? Number(str("defaultAllowances")) : undefined,
+    defaultDeductions: str("defaultDeductions") ? Number(str("defaultDeductions")) : undefined,
+  };
+}
+
+/** Personel Modülü — yeni kayıt (tam özlük dosyası + maaş yapısı alanları). */
 export async function actionCreateStaffMember(formData: FormData): Promise<CreateStaffActionResult> {
   try {
     const result = await withAuthContext("actionCreateStaffMember", (ctx) =>
-      createStaffMemberTool(ctx, {
-        name: String(formData.get("name") || ""),
-        position: String(formData.get("position") || ""),
-        phone: String(formData.get("phone") || "") || undefined,
-        email: String(formData.get("email") || "") || undefined,
-        branchId: String(formData.get("branchId") || "") || undefined,
-        notes: String(formData.get("notes") || "") || undefined,
-      })
+      createStaffMemberTool(ctx, staffFormFields(formData))
     );
     if (!result.ok) return { ok: false, message: result.error.message };
     revalidateAll();
@@ -782,16 +808,11 @@ export async function actionCreateStaffMember(formData: FormData): Promise<Creat
 
 export type UpdateStaffActionResult = { ok: true } | { ok: false; message: string };
 
-/** Personel Modülü — düzenleme / aktif-pasif. */
+/** Personel Modülü — düzenleme / durum değişikliği. */
 export async function actionUpdateStaffMember(input: {
   staffId: string;
-  name?: string;
-  position?: string;
-  phone?: string;
-  email?: string;
-  branchId?: string;
-  status?: "active" | "passive";
-  notes?: string;
+  status?: "active" | "on_leave" | "passive" | "terminated";
+  [key: string]: unknown;
 }): Promise<UpdateStaffActionResult> {
   try {
     const result = await withAuthContext("actionUpdateStaffMember", (ctx) => updateStaffMemberTool(ctx, input));
@@ -802,6 +823,117 @@ export async function actionUpdateStaffMember(input: {
     logger.error("actionUpdateStaffMember failed", error);
     if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
     return { ok: false, message: "Personel güncellenirken beklenmeyen bir hata oluştu." };
+  }
+}
+
+export type PayrollActionResult = { ok: true } | { ok: false; message: string };
+
+/** İş 3B — Bordro oluştur. */
+export async function actionCreatePayrollRecord(formData: FormData): Promise<PayrollActionResult> {
+  try {
+    const result = await withAuthContext("actionCreatePayrollRecord", (ctx) =>
+      createPayrollRecordTool(ctx, {
+        staffId: String(formData.get("staffId") || ""),
+        month: String(formData.get("month") || ""),
+        grossAmount: Number(formData.get("grossAmount") || 0),
+        netAmount: Number(formData.get("netAmount") || 0),
+        extraPayment: formData.get("extraPayment") ? Number(formData.get("extraPayment")) : undefined,
+        deduction: formData.get("deduction") ? Number(formData.get("deduction")) : undefined,
+        paymentMethod: String(formData.get("paymentMethod") || "") || undefined,
+        note: String(formData.get("note") || "") || undefined,
+      })
+    );
+    if (!result.ok) return { ok: false, message: result.error.message };
+    revalidateAll();
+    return { ok: true };
+  } catch (error) {
+    logger.error("actionCreatePayrollRecord failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "Bordro oluşturulurken beklenmeyen bir hata oluştu." };
+  }
+}
+
+/** İş 3B — Bordro statü ilerlet (draft→pending_approval→approved→paid, veya cancelled). */
+export async function actionUpdatePayrollStatus(input: {
+  payrollId: string;
+  status: "draft" | "pending_approval" | "approved" | "paid" | "cancelled";
+  paymentDate?: string;
+  paymentMethod?: string;
+  note?: string;
+}): Promise<PayrollActionResult> {
+  try {
+    const result = await withAuthContext("actionUpdatePayrollStatus", (ctx) => updatePayrollStatusTool(ctx, input));
+    if (!result.ok) return { ok: false, message: result.error.message };
+    revalidateAll();
+    return { ok: true };
+  } catch (error) {
+    logger.error("actionUpdatePayrollStatus failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "Bordro güncellenirken beklenmeyen bir hata oluştu." };
+  }
+}
+
+export type LeaveActionResult = { ok: true } | { ok: false; message: string };
+
+/** İş 3C — İzin talebi oluştur. */
+export async function actionCreateLeaveRequest(formData: FormData): Promise<LeaveActionResult> {
+  try {
+    const result = await withAuthContext("actionCreateLeaveRequest", (ctx) =>
+      createLeaveRequestTool(ctx, {
+        staffId: String(formData.get("staffId") || ""),
+        type: String(formData.get("type") || "annual"),
+        startDate: String(formData.get("startDate") || ""),
+        endDate: String(formData.get("endDate") || ""),
+        description: String(formData.get("description") || "") || undefined,
+      })
+    );
+    if (!result.ok) return { ok: false, message: result.error.message };
+    revalidateAll();
+    return { ok: true };
+  } catch (error) {
+    logger.error("actionCreateLeaveRequest failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "İzin talebi oluşturulurken beklenmeyen bir hata oluştu." };
+  }
+}
+
+/** İş 3C — İzin talebini onayla/reddet. */
+export async function actionDecideLeaveRequest(input: {
+  leaveId: string;
+  status: "approved" | "rejected";
+}): Promise<LeaveActionResult> {
+  try {
+    const result = await withAuthContext("actionDecideLeaveRequest", (ctx) => decideLeaveRequestTool(ctx, input));
+    if (!result.ok) return { ok: false, message: result.error.message };
+    revalidateAll();
+    return { ok: true };
+  } catch (error) {
+    logger.error("actionDecideLeaveRequest failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "İzin talebi karara bağlanırken beklenmeyen bir hata oluştu." };
+  }
+}
+
+export type ExpenseActionResult = { ok: true } | { ok: false; message: string };
+
+/** İş 3D — Gider kaydı (kira/fatura/sarf/diğer). */
+export async function actionCreateExpense(formData: FormData): Promise<ExpenseActionResult> {
+  try {
+    const result = await withAuthContext("actionCreateExpense", (ctx) =>
+      createExpenseTool(ctx, {
+        category: String(formData.get("category") || "other"),
+        amount: Number(formData.get("amount") || 0),
+        date: String(formData.get("date") || ""),
+        note: String(formData.get("note") || "") || undefined,
+      })
+    );
+    if (!result.ok) return { ok: false, message: result.error.message };
+    revalidateAll();
+    return { ok: true };
+  } catch (error) {
+    logger.error("actionCreateExpense failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "Gider eklenirken beklenmeyen bir hata oluştu." };
   }
 }
 

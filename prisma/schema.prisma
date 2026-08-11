@@ -40,6 +40,9 @@ model Tenant {
   discountCampaigns DiscountCampaign[]
   instrumentCatalogEntries InstrumentCatalogEntry[]
   staffMembers StaffMember[]
+  payrollRecords PayrollRecord[]
+  leaveRequests LeaveRequest[]
+  expenseRecords ExpenseRecord[]
   closedDays ClosedDay[]
   trialLessons TrialLesson[]
   documentTemplates DocumentTemplate[]
@@ -1005,6 +1008,8 @@ model InstrumentCatalogEntry {
 /// vb.). Teacher'dan bilinçli olarak AYRI (bkz. src/lib/types.ts
 /// StaffMember yorumu) — ileride bir muhasebe modülü bu id'yi FK olarak
 /// referans alabilir. Hard delete YOK: `status:"passive"` ile pasife alınır.
+/// İş 3 — tam özlük dosyası + maaş yapısı alanları. Öğretmen (Teacher)
+/// modeliyle BİLİNÇLİ olarak birleştirilmez (bkz. PayrollRecord yorumu).
 model StaffMember {
   id        String   @id
   tenantId  String
@@ -1013,16 +1018,108 @@ model StaffMember {
   position  String
   phone     String?
   email     String?
+  address   String?
+  birthDate DateTime?
+  photoUrl  String?
+  /// AES-GCM şifreli — bkz. src/lib/pii/tc-identity.ts, Student.nationalIdCipher ile AYNI mekanizma.
+  nationalIdCipher String?
+  nationalIdLast2  String?
+  employeeNumber   String?
+  hireDate         DateTime?
+  terminationDate  DateTime?
+  department       String?
+  reportsToStaffId String?
+  /// "full_time" | "part_time" | "contract" | "intern"
+  employmentType   String?
   branchId  String?
-  /// "active" | "passive"
+  /// "active" | "on_leave" | "passive" | "terminated"
   status    String   @default("active")
+  annualLeaveAllowanceDays Int?
+  /// Yalnız admin/super admin görünürlüğü — bkz. canViewStaffSensitive.
+  personnelNotes String?
   notes     String?
+  /// Maaş yapısı — bordro oluşturulurken varsayılan önerilir, öğretmen hakedişinden AYRI.
+  monthlySalary      Int?
+  hourlyRate         Int?
+  defaultBonus       Int?
+  defaultAllowances  Int?
+  defaultDeductions  Int?
   createdBy String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([tenantId])
   @@index([tenantId, status])
+}
+
+/// İş 3B — StaffMember aylık bordro kaydı. TeacherPayout (ders bazlı öğretmen
+/// hakedişi) ile HİÇBİR otomatik bağlantısı yok — bilinçli ayrım.
+model PayrollRecord {
+  id            String   @id
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  staffId       String
+  /// yyyy-MM
+  month         String
+  grossAmount   Int
+  netAmount     Int
+  extraPayment  Int?
+  deduction     Int?
+  /// "draft" | "pending_approval" | "approved" | "paid" | "cancelled"
+  status        String   @default("draft")
+  paymentDate   DateTime?
+  paymentMethod String?
+  note          String?
+  createdBy     String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([tenantId])
+  @@index([tenantId, staffId, month])
+  @@unique([tenantId, staffId, month])
+}
+
+/// İş 3C — personel izin talebi. Yasal/otomatik bakiye hesaplama motoru
+/// DEĞİL — bkz. StaffMember.annualLeaveAllowanceDays yorumu.
+model LeaveRequest {
+  id          String   @id
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  staffId     String
+  /// "annual" | "sick" | "unpaid" | "other"
+  type        String
+  startDate   DateTime
+  endDate     DateTime
+  dayCount    Int
+  description String?
+  /// "draft" | "pending_approval" | "approved" | "rejected"
+  status      String   @default("pending_approval")
+  approvedBy  String?
+  approvedAt  DateTime?
+  createdBy   String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([tenantId])
+  @@index([tenantId, staffId])
+}
+
+/// İş 3D — kurum sahibi mali dashboard'u için, ÖNCEDEN hiçbir yerde
+/// izlenmeyen gider türleri (bkz. src/lib/expense.ts modül yorumu).
+model ExpenseRecord {
+  id        String   @id
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// "rent" | "utilities" | "supplies" | "other"
+  category  String
+  amount    Int
+  date      DateTime
+  note      String?
+  createdBy String
+  createdAt DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([tenantId, date])
 }
 
 /// ÖNCELİK 4 (devam) — Paket Yönetimi. Additive/yeni: mevcut serbest metin

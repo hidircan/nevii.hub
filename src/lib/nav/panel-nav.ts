@@ -66,6 +66,9 @@ export const PANEL_OPS_NAV: PanelNavItem[] = [
   /** İnsan-odaklı operasyon görev takibi — /panel/workflows (AI otomasyonu) ile İLGİSİZ, ayrı modül. */
   { href: "/panel/is-takip", label: "İş Takip", icon: ListChecks },
   { href: "/panel/personel", label: "Personel", icon: UserCog, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
+  { href: "/panel/personel/bordrolar", label: "Bordrolar", icon: Wallet, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
+  { href: "/panel/personel/izinler", label: "İzinler", icon: CalendarDays, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
+  { href: "/panel/finans-ozeti", label: "Finans Özeti", icon: CreditCard, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
   { href: "/panel/evraklar", label: "Evraklar", icon: FileText },
   { href: "/panel/deneme", label: "Deneme Dersleri", icon: FlaskConical },
   { href: "/panel/ders-duzeltme", label: "Ders düzeltme", icon: Wrench },

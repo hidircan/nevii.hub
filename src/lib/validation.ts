@@ -862,24 +862,82 @@ export const updateInstrumentCatalogSchema = z.object({
 });
 
 /** Personel Modülü — bkz. src/lib/staff.ts / src/lib/types.ts StaffMember. */
-export const createStaffMemberSchema = z.object({
+const staffMemberBaseFields = {
   name: z.string().min(1),
   position: z.string().min(1),
   phone: z.string().optional(),
   email: z.string().email().optional().or(z.literal("")),
+  address: z.string().optional(),
+  birthDate: z.string().optional(),
+  photoUrl: z.string().optional(),
+  nationalId: z.string().optional(),
+  employeeNumber: z.string().optional(),
+  hireDate: z.string().optional(),
+  terminationDate: z.string().optional(),
+  department: z.string().optional(),
+  reportsToStaffId: z.string().optional(),
+  employmentType: z.enum(["full_time", "part_time", "contract", "intern"]).optional(),
   branchId: z.string().optional(),
+  annualLeaveAllowanceDays: z.coerce.number().int().min(0).optional(),
+  personnelNotes: z.string().optional(),
   notes: z.string().optional(),
+  monthlySalary: z.coerce.number().int().min(0).optional(),
+  hourlyRate: z.coerce.number().int().min(0).optional(),
+  defaultBonus: z.coerce.number().int().min(0).optional(),
+  defaultAllowances: z.coerce.number().int().min(0).optional(),
+  defaultDeductions: z.coerce.number().int().min(0).optional(),
+};
+
+export const createStaffMemberSchema = z.object(staffMemberBaseFields);
+
+export const updateStaffMemberSchema = z
+  .object({ staffId: z.string().min(1), status: z.enum(["active", "on_leave", "passive", "terminated"]).optional() })
+  .extend({
+    ...staffMemberBaseFields,
+    name: z.string().min(1).optional(),
+    position: z.string().min(1).optional(),
+  });
+
+/** İş 3B — Bordro. */
+export const createPayrollRecordSchema = z.object({
+  staffId: z.string().min(1),
+  month: z.string().regex(/^\d{4}-\d{2}$/, 'Ay "yyyy-aa" biçiminde olmalı.'),
+  grossAmount: z.coerce.number().int().min(0),
+  netAmount: z.coerce.number().int().min(0),
+  extraPayment: z.coerce.number().int().min(0).optional(),
+  deduction: z.coerce.number().int().min(0).optional(),
+  paymentMethod: z.string().optional(),
+  note: z.string().optional(),
 });
 
-export const updateStaffMemberSchema = z.object({
+export const updatePayrollStatusSchema = z.object({
+  payrollId: z.string().min(1),
+  status: z.enum(["draft", "pending_approval", "approved", "paid", "cancelled"]),
+  paymentDate: z.string().optional(),
+  paymentMethod: z.string().optional(),
+  note: z.string().optional(),
+});
+
+/** İş 3C — İzin. */
+export const createLeaveRequestSchema = z.object({
   staffId: z.string().min(1),
-  name: z.string().min(1).optional(),
-  position: z.string().min(1).optional(),
-  phone: z.string().optional(),
-  email: z.string().email().optional().or(z.literal("")),
-  branchId: z.string().optional(),
-  status: z.enum(["active", "passive"]).optional(),
-  notes: z.string().optional(),
+  type: z.enum(["annual", "sick", "unpaid", "other"]),
+  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  description: z.string().optional(),
+});
+
+export const decideLeaveRequestSchema = z.object({
+  leaveId: z.string().min(1),
+  status: z.enum(["approved", "rejected"]),
+});
+
+/** İş 3D — Gider (yalnızca kira/fatura/sarf/diğer — bordro/hakediş burada YOK, bkz. expense.ts). */
+export const createExpenseSchema = z.object({
+  category: z.enum(["rent", "utilities", "supplies", "other"]),
+  amount: z.coerce.number().int().min(1),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  note: z.string().optional(),
 });
 
 const packageDurationSchema = z.coerce.number().int().refine((v) => [30, 40, 50].includes(v), {
