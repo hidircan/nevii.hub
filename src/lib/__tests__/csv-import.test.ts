@@ -467,16 +467,17 @@ describe("validateStudentRows (ÖNCELİK 4 devam — CSV şablon revizyonu)", ()
     // bu kural store/action seviyesinde ayrıca test edilir.
   });
 
-  // MT-003 — enstrüman + öğretmen kombinasyonu. Seed'de t1 = Piyano/Şan, t2 = Gitar.
+  // MT-003 — enstrüman + öğretmen kombinasyonu. Seed'de t1 (Turgay Hoşbaş) =
+  // Piyano/Gitar/Elektro Gitar/Şan/Yan Flüt öğretir — Keman öğretmez.
   it("MT-003: öğretmenin öğretmediği enstrüman satırı anlaşılır hata ile reddedilir", () => {
     const t1 = t1Name;
-    const csv = HEADER + "\n" + buildRow({ ...baseFields, ogretmen: t1, enstruman: "Gitar" }) + "\n";
+    const csv = HEADER + "\n" + buildRow({ ...baseFields, ogretmen: t1, enstruman: "Keman" }) + "\n";
     const { records } = rowsToRecords(parseCsv(csv));
     const result = validateStudentRows(data, records);
     expect(result.errorCount).toBeGreaterThan(0);
     const err = result.errors.find((e) => e.field === "ogretmen");
     expect(err).toBeDefined();
-    expect(err?.message).toContain("Gitar");
+    expect(err?.message).toContain("Keman");
     expect(result.validCount).toBe(0);
   });
 
@@ -495,5 +496,28 @@ describe("validateStudentRows (ÖNCELİK 4 devam — CSV şablon revizyonu)", ()
     const result = validateStudentRows(data, records);
     expect(result.errorCount).toBe(0);
     expect(result.validCount).toBe(1);
+  });
+
+  // Kök neden regresyonu — CSV'de enstrüman farklı yazımla (küçük harf,
+  // fazla boşluk, aksansız) girildiğinde önceden isInstrument() gevşek
+  // eşleşiyor ama kayda HAM CSV değeri yazılıyordu; bu ham değer öğretmenin
+  // `instruments` dizisiyle (kataloğun kanonik yazımı) TAM eşleşmediği için
+  // "öğretmen bu enstrümanı öğretmiyor" hatası YANLIŞLIKLA üretiliyordu.
+  it("enstrüman farklı büyük/küçük harf ve fazla boşlukla yazılsa bile kanonik değere çözülür ve öğretmen eşleşmesi bozulmaz", () => {
+    const csv = HEADER + "\n" + buildRow({ ...baseFields, ogretmen: t1Name, enstruman: "  piyano  " }) + "\n";
+    const { records } = rowsToRecords(parseCsv(csv));
+    const result = validateStudentRows(data, records);
+    expect(result.errorCount).toBe(0);
+    expect(result.validCount).toBe(1);
+    expect(result.valid[0]!.instrument).toBe("Piyano");
+    expect(result.valid[0]!.teacherId).toBe("t1");
+  });
+
+  it("öğretmen adı fazla boşluk/farklı harf büyüklüğüyle yazılsa bile eşleşir", () => {
+    const csv = HEADER + "\n" + buildRow({ ...baseFields, ogretmen: t1Name.toUpperCase(), enstruman: "Piyano" }) + "\n";
+    const { records } = rowsToRecords(parseCsv(csv));
+    const result = validateStudentRows(data, records);
+    expect(result.errorCount).toBe(0);
+    expect(result.valid[0]!.teacherId).toBe("t1");
   });
 });

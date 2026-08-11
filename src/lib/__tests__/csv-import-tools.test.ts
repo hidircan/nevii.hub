@@ -157,7 +157,7 @@ describe("ÖNCELİK 4 (devam) — öğrenci CSV importunda T.C. kimlik + sosyal 
   it("T.C. kimlik no şifreli saklanır; commit sonucunda/export edilebilir hiçbir yerde düz metin yok", async () => {
     const studentCsv =
       "ad_soyad,veli_ad_soyad,veli_telefon,ogrenci_telefon,sube,enstruman,ogretmen,paket,ders_suresi,haftalik_ders_sayisi,aylik_ucret,tc_kimlik_no\n" +
-      "Kimlikli Öğrenci,Veli Adı,0555 666 6661,0555 666 6662,Erzene,Piyano,Nilüfer Acar,Paket,30,1,3000,10000000146\n";
+      "Kimlikli Öğrenci,Veli Adı,0555 666 6661,0555 666 6662,Erzene,Piyano,Turgay Hoşbaş,Paket,30,1,3000,10000000146\n";
 
     const commit = await commitStudentImportTool(ctx(), { csvText: studentCsv });
     expect(commit.ok).toBe(true);
@@ -175,7 +175,7 @@ describe("ÖNCELİK 4 (devam) — öğrenci CSV importunda T.C. kimlik + sosyal 
   it("sosyal medya izni (Evet/Hayır) import sonrası mevcut SocialMediaConsent modeline yazılır", async () => {
     const studentCsv =
       "ad_soyad,veli_ad_soyad,veli_telefon,ogrenci_telefon,sube,enstruman,ogretmen,paket,ders_suresi,haftalik_ders_sayisi,aylik_ucret,sosyal_medya_izni\n" +
-      "İzinli Öğrenci,Veli Adı,0555 777 7771,0555 777 7772,Erzene,Piyano,Nilüfer Acar,Paket,30,1,3000,Evet\n";
+      "İzinli Öğrenci,Veli Adı,0555 777 7771,0555 777 7772,Erzene,Piyano,Turgay Hoşbaş,Paket,30,1,3000,Evet\n";
 
     const commit = await commitStudentImportTool(ctx(), { csvText: studentCsv });
     expect(commit.ok).toBe(true);

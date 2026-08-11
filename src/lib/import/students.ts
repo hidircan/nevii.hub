@@ -5,6 +5,7 @@ import type { ImportPreview, ImportRowError, ImportReadRow } from "./types";
 import { IMPORT_READ_ROWS_PREVIEW_LIMIT } from "./types";
 import { resolveBranchId, resolveTeacherIdByName } from "./branch-lookup";
 import { encryptNationalId, isValidTurkishNationalId } from "../pii/tc-identity";
+import { resolveCanonicalValue } from "../normalize";
 
 export type StudentImportRow = {
   name: string;
@@ -81,16 +82,26 @@ export const STUDENT_CSV_COLUMNS = [
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export const STUDENT_CSV_SAMPLE = `ad_soyad,veli_ad_soyad,veli_telefon,ogrenci_telefon,sube,enstruman,ogretmen,paket,ders_suresi,haftalik_ders_sayisi,aylik_ucret,tc_kimlik_no,dogum_tarihi,dogum_yeri,okul_meslek,ev_adresi,sosyal_medya_izni,kayit_tarihi,notlar
-Deniz Ak,Ayşe Ak,0555 222 2222,0555 222 2223,Erzene,Piyano,Nilüfer Acar,Bireysel Aylık — 4 ders,30,1,3000,,2015-03-22,İzmir,Erzene İlkokulu 4-A,Bornova Mah. No:12,Evet,2026-09-01,
-Ece Yılmaz,Merve Yılmaz,0555 333 3333,0555 333 3334,Evka 3,Keman,Elif Kaya,Bireysel Aylık — 8 ders,40,2,5800,,2013-11-08,Ankara,Konak Ortaokulu 6-B,Konak Mah. No:45,Hayır,2026-09-01,Grup dersine de katılıyor
-Kerem Doğan,Fatma Doğan,0555 444 4444,0555 444 4445,Erzene,Gitar,Can Yılmaz,Bireysel Aylık — 4 ders,50,1,4200,,2010-05-14,İstanbul,Lise 11. sınıf,Evka 3 Mah. No:7,Evet,2026-09-01,
+Deniz Ak,Ayşe Ak,0555 222 2222,0555 222 2223,Erzene,Piyano,Turgay Hoşbaş,Bireysel Aylık — 4 ders,30,1,3000,,2015-03-22,İzmir,Erzene İlkokulu 4-A,Bornova Mah. No:12,Evet,2026-09-01,
+Ece Yılmaz,Merve Yılmaz,0555 333 3333,0555 333 3334,Evka 3,Keman,Ebru Şirince,Bireysel Aylık — 8 ders,40,2,5800,,2013-11-08,Ankara,Konak Ortaokulu 6-B,Konak Mah. No:45,Hayır,2026-09-01,Grup dersine de katılıyor
+Kerem Doğan,Fatma Doğan,0555 444 4444,0555 444 4445,Erzene,Gitar,Olcay Özdemir,Bireysel Aylık — 4 ders,50,1,4200,,2010-05-14,İstanbul,Lise 11. sınıf,Evka 3 Mah. No:7,Evet,2026-09-01,
 `;
 
 const PHONE_RE = /^[0-9()+\-\s]{7,}$/;
 const LESSON_DURATIONS = [30, 40, 50] as const;
 
-function isInstrument(value: string, activeInstrumentNames: string[]): boolean {
-  return activeInstrumentNames.some((n) => n.toLocaleLowerCase("tr") === value.toLocaleLowerCase("tr"));
+/**
+ * Kanonik enstrüman adını döner (ör. "yan flut" / "Yanflüt" girilse bile
+ * kataloğun kendi yazımı olan "Yan Flüt" döner) — bulunamazsa `null`.
+ * Kök neden notu: önceden burada yalnızca büyük/küçük harften bağımsız bir
+ * `boolean` doğrulaması yapılıyor, ama kayda HAM CSV değeri yazılıyordu;
+ * bu da öğretmenin `instruments` dizisiyle (kataloğun kanonik yazımıyla
+ * dolu) sonraki TAM eşleşme kontrollerinin (aşağıda, MT-003) sessizce
+ * başarısız olmasına yol açıyordu — "öğretmen bu enstrümanı öğretmiyor"
+ * hatası, aslında aynı enstrümanın farklı yazımı yüzünden çıkıyordu.
+ */
+function resolveInstrument(value: string, activeInstrumentNames: string[]): string | null {
+  return resolveCanonicalValue(value, activeInstrumentNames);
 }
 
 function parseSocialMediaConsent(value: string): SocialMediaConsentStatus | undefined | "invalid" {
@@ -185,14 +196,18 @@ export function validateStudentRows(
       else branchId = resolved.branchId;
     }
 
+    let canonicalInstrument: string | null = null;
     if (!instrumentValue) {
       errors.push({ row, field: "enstruman", message: "Enstrüman boş olamaz." });
-    } else if (!isInstrument(instrumentValue, activeInstrumentNames)) {
-      errors.push({
-        row,
-        field: "enstruman",
-        message: `Geçersiz enstrüman: "${instrumentValue}". Geçerli değerler: ${INSTRUMENTS.join(", ")} (kurumunuz Enstrümanlar ekranından ek enstrüman tanımlamış olabilir).`,
-      });
+    } else {
+      canonicalInstrument = resolveInstrument(instrumentValue, activeInstrumentNames);
+      if (!canonicalInstrument) {
+        errors.push({
+          row,
+          field: "enstruman",
+          message: `Geçersiz enstrüman: "${instrumentValue}". Geçerli değerler: ${INSTRUMENTS.join(", ")} (kurumunuz Enstrümanlar ekranından ek enstrüman tanımlamış olabilir).`,
+        });
+      }
     }
 
     let teacherId: string | null = null;
@@ -202,11 +217,15 @@ export function validateStudentRows(
       const resolved = resolveTeacherIdByName(data, teacherValue);
       if (!resolved.ok) {
         errors.push({ row, field: "ogretmen", message: resolved.message });
-      } else if (instrumentValue && isInstrument(instrumentValue, activeInstrumentNames)) {
+      } else if (canonicalInstrument) {
         // MT-003 — enstrüman + öğretmen kombinasyonu uyumsuzsa satır reddedilir
-        // (öğretmenin BİRDEN FAZLA enstrümanı varsa eşleşen herhangi biri yeterli).
+        // (öğretmenin BİRDEN FAZLA enstrümanı varsa eşleşen herhangi biri
+        // yeterli). Kanonik enstrüman adı kullanılır — CSV'deki ham yazım
+        // (büyük/küçük harf, fazla boşluk farkı) öğretmenin `instruments`
+        // dizisiyle (kataloğun kendi kanonik yazımı) TAM eşleşmeyip yanlış
+        // "öğretmiyor" hatası üretmesin diye.
         const teacher = data.teachers.find((t) => t.id === resolved.teacherId);
-        if (!teacher || !teacher.instruments.includes(instrumentValue as Instrument)) {
+        if (!teacher || !teacher.instruments.includes(canonicalInstrument as Instrument)) {
           errors.push({
             row,
             field: "ogretmen",
@@ -298,7 +317,7 @@ export function validateStudentRows(
       parentName &&
       parentPhone &&
       branchId &&
-      isInstrument(instrumentValue, activeInstrumentNames) &&
+      canonicalInstrument &&
       teacherId &&
       packageName &&
       lessonDurationMinutes !== null &&
@@ -316,7 +335,7 @@ export function validateStudentRows(
         parentName,
         parentPhone,
         branchId,
-        instrument: instrumentValue as Instrument,
+        instrument: canonicalInstrument as Instrument,
         teacherId,
         packageName,
         weeklyLessonCount,

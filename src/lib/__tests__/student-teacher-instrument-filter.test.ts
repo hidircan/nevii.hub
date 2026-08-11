@@ -45,7 +45,8 @@ beforeEach(async () => {
 /**
  * MT-003 — öğrenci oluşturmada enstrümana göre öğretmen seçimi sunucu
  * tarafında da doğrulanır (filtre yalnız UI'da kalmaz). Seed'de t1
- * (Piyano, Şan), t2 (Gitar) öğretmenleri var — bkz. src/lib/seed.ts.
+ * (Turgay Hoşbaş) Piyano/Gitar/Elektro Gitar/Şan/Yan Flüt öğretir, Keman
+ * öğretmez — bkz. src/lib/seed.ts.
  */
 describe("createStudentTool — MT-003 enstrüman/öğretmen uyumu", () => {
   it("öğretmen seçilen enstrümanı öğretiyorsa öğrenci oluşturulur", async () => {
@@ -59,7 +60,7 @@ describe("createStudentTool — MT-003 enstrüman/öğretmen uyumu", () => {
   });
 
   it("öğretmen seçilen enstrümanı öğretmiyorsa reddedilir", async () => {
-    const res = await createStudentTool(ctx(), baseStudentInput({ instrument: "Gitar", teacherId: "t1" }));
+    const res = await createStudentTool(ctx(), baseStudentInput({ instrument: "Keman", teacherId: "t1" }));
     expect(res.ok).toBe(false);
     if (res.ok) return;
     expect(res.error.code).toBe("VALIDATION_ERROR");

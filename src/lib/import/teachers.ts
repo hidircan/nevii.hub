@@ -4,6 +4,7 @@ import type { CsvRecord } from "./csv";
 import type { ImportPreview, ImportRowError, ImportReadRow } from "./types";
 import { IMPORT_READ_ROWS_PREVIEW_LIMIT } from "./types";
 import { resolveBranchId } from "./branch-lookup";
+import { resolveCanonicalValue } from "../normalize";
 
 export type TeacherImportRow = {
   name: string;
@@ -103,7 +104,13 @@ function parseInstrumentLevels(
   for (let i = 0; i < instrumentNames.length; i++) {
     const instrument = instrumentNames[i]!;
     const level = levelNames[i]!;
-    if (!activeInstrumentNames.some((n) => n.toLocaleLowerCase("tr") === instrument.toLocaleLowerCase("tr"))) {
+    // Kök neden — bkz. src/lib/import/students.ts `resolveInstrument`
+    // yorumu: kayda HAM CSV yazımı değil, kataloğun kanonik yazımı yazılır
+    // ki öğrencinin bu öğretmene atanması sırasındaki TAM eşleşme kontrolü
+    // ("öğretmen bu enstrümanı öğretmiyor") yazım farkı yüzünden yanlışlıkla
+    // başarısız olmasın.
+    const canonical = resolveCanonicalValue(instrument, activeInstrumentNames);
+    if (!canonical) {
       return {
         ok: false,
         message: `Geçersiz veya pasif enstrüman: "${instrument}". Geçerli değerler: ${activeInstrumentNames.join(", ")}.`,
@@ -115,7 +122,7 @@ function parseInstrumentLevels(
         message: `Geçersiz seviye: "${level}". Geçerli değerler: ${INSTRUMENT_LEVELS.join(", ")}.`,
       };
     }
-    const key = instrument.toLocaleLowerCase("tr");
+    const key = canonical.toLocaleLowerCase("tr");
     if (seen.has(key)) {
       return { ok: false, message: `Aynı enstrüman ("${instrument}") satırda birden fazla kez geçemez.` };
     }
@@ -123,7 +130,7 @@ function parseInstrumentLevels(
     // Dinamik (katalog) enstrüman adları statik `Instrument` union'ının
     // dışında olabilir (ör. "Bas Gitar") — runtime doğrulama yukarıda
     // (activeInstrumentNames) yapıldı; bu bilinçli bir tip genişletmesidir.
-    rows.push({ instrument: instrument as Instrument, level });
+    rows.push({ instrument: canonical as Instrument, level });
   }
   return { ok: true, rows };
 }
@@ -201,6 +208,7 @@ export function validateTeacherRows(
     // Çoklu enstrüman/seviye — verilmemişse legacy tek-enstrüman kolonuna düşer.
     let instrumentLevels: TeacherInstrumentSkill[] = [];
     let legacyInstrumentOk = false;
+    let canonicalLegacyInstrument: string | null = null;
     const multiParsed = parseInstrumentLevels(instrumentsRaw, levelsRaw, activeInstrumentNames);
     if (!multiParsed.ok) {
       errors.push({ row, field: "enstrumanlar", message: multiParsed.message });
@@ -210,16 +218,17 @@ export function validateTeacherRows(
       // Legacy: `enstrumanlar` boş — `enstruman` kolonuna bak.
       if (!legacyInstrumentValue) {
         errors.push({ row, field: "enstrumanlar", message: "Enstrüman boş olamaz (enstrumanlar veya enstruman kolonu doldurulmalı)." });
-      } else if (
-        !activeInstrumentNames.some((n) => n.toLocaleLowerCase("tr") === legacyInstrumentValue.toLocaleLowerCase("tr"))
-      ) {
-        errors.push({
-          row,
-          field: "enstruman",
-          message: `Geçersiz veya pasif enstrüman: "${legacyInstrumentValue}". Geçerli değerler: ${activeInstrumentNames.join(", ")}.`,
-        });
       } else {
-        legacyInstrumentOk = true;
+        canonicalLegacyInstrument = resolveCanonicalValue(legacyInstrumentValue, activeInstrumentNames);
+        if (!canonicalLegacyInstrument) {
+          errors.push({
+            row,
+            field: "enstruman",
+            message: `Geçersiz veya pasif enstrüman: "${legacyInstrumentValue}". Geçerli değerler: ${activeInstrumentNames.join(", ")}.`,
+          });
+        } else {
+          legacyInstrumentOk = true;
+        }
       }
     }
 
@@ -258,7 +267,7 @@ export function validateTeacherRows(
         email,
         phone,
         branchId,
-        instrument: instrumentLevels.length > 0 ? instrumentLevels[0]!.instrument : (legacyInstrumentValue as Instrument),
+        instrument: instrumentLevels.length > 0 ? instrumentLevels[0]!.instrument : (canonicalLegacyInstrument as Instrument),
         instrumentLevels: instrumentLevels.length > 0 ? instrumentLevels : undefined,
         highSchool: highSchool || undefined,
         university: university || undefined,

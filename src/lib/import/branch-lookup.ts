@@ -1,14 +1,5 @@
 import type { AppData } from "../types";
-
-/**
- * Unicode NFC'ye normalize edip küçük harfe çevirir. Türkçe karakterler
- * (ör. "ı", "ş", "ğ") bazı uygulamalarda NFD (ayrıştırılmış) biçimde
- * kaydedilir; normalize edilmeden yapılan karşılaştırma görsel olarak aynı
- * görünen ama kod noktası düzeyinde farklı iki string'i eşleştiremez.
- */
-function normalizeKey(value: string): string {
-  return value.trim().normalize("NFC").toLowerCase();
-}
+import { normalizeMatchKey as normalizeKey } from "../normalize";
 
 /**
  * Şube eşlemesi kısa ad veya ada göre yapılır. Belirsiz veya bulunamayan
