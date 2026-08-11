@@ -153,7 +153,7 @@ function NavSection({
               title={collapsed ? item.label : undefined}
               aria-label={item.label}
               className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition",
+                "panel-nav-link flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition",
                 active ? "font-semibold" : "font-normal hover:opacity-80",
                 collapsed && "justify-center px-2"
               )}

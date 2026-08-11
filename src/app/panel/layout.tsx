@@ -1,8 +1,11 @@
 import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
 import { Sidebar } from "@/components/sidebar";
-import { CommandPalette } from "@/components/command-palette";
+import { PanelHeader } from "@/components/panel-header";
 import { requireSessionContext } from "@/lib/auth/session";
+import { getUserById } from "@/lib/auth/users";
 import { getInstitutionContext } from "@/lib/institution/context";
+import { DENSITY_COOKIE, normalizeDensity } from "@/lib/theme";
 
 export const dynamic = "force-dynamic";
 
@@ -23,7 +26,13 @@ export default async function PanelLayout({
   if (session.role === "PARENT") redirect("/veli");
   if (session.role === "STUDENT") redirect("/ogrenci");
 
-  const kurum = await getInstitutionContext(session);
+  const [kurum, user, jar] = await Promise.all([
+    getInstitutionContext(session),
+    getUserById(session.userId),
+    cookies(),
+  ]);
+  const currentKurum = kurum.available.find((k) => k.tenantId === session.tenantId);
+  const density = normalizeDensity(jar.get(DENSITY_COOKIE)?.value);
 
   return (
     <div className="flex min-h-screen">
@@ -36,14 +45,8 @@ export default async function PanelLayout({
         canSeeAllKurumlar={session.role === "SUPER_ADMIN"}
       />
       <main className="flex-1 overflow-auto">
-        <div className="mx-auto max-w-7xl px-6 py-8 lg:px-10">
-          <div className="mb-6 flex justify-end">
-            <div className="w-full sm:w-80">
-              <CommandPalette role={session.role} />
-            </div>
-          </div>
-          {children}
-        </div>
+        <PanelHeader role={session.role} email={user?.email ?? null} kurumName={currentKurum?.name ?? null} density={density} />
+        <div className="mx-auto max-w-7xl px-6 py-8 lg:px-10">{children}</div>
       </main>
     </div>
   );

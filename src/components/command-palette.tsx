@@ -247,7 +247,7 @@ export function CommandPalette({ role }: { role?: AppRole }) {
         type="button"
         onClick={() => setOpen(true)}
         aria-label="Uygulamada ara"
-        className="flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm transition hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]"
+        className="flex h-9 w-9 shrink-0 items-center justify-center gap-2 rounded-full border text-left text-sm transition hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)] sm:h-9 sm:w-auto sm:justify-start sm:rounded-lg sm:px-3 sm:py-2"
         style={{ borderColor: "var(--color-border)", color: "var(--color-text-muted)", background: "var(--color-surface)" }}
       >
         <Search className="h-4 w-4 shrink-0" />

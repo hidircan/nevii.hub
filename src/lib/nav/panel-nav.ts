@@ -25,7 +25,6 @@ import {
   Workflow,
   Building2,
   Wrench,
-  Palette,
   Package as PackageIcon,
   Music,
   ListChecks,
@@ -92,7 +91,13 @@ export const PANEL_AI_NAV: PanelNavItem[] = [
 export const PANEL_SYSTEM_NAV: PanelNavItem[] = [
   { href: "/panel/kurulum", label: "Kurulum Merkezi", icon: Settings },
   { href: "/panel/veri-aktar", label: "Veri Aktarım Merkezi", icon: Upload },
-  { href: "/gorunum-ayarlari", label: "Görünüm Ayarları", icon: Palette },
+  /**
+   * "Görünüm Ayarları" BİLİNÇLİ olarak burada YOK — kişisel bir tercih,
+   * uygulama/iş navigasyonu değil; artık yalnız sağ üst kullanıcı
+   * menüsünün "Görünüm" grubundan erişilir (bkz. user-menu.tsx). Rota
+   * (`/gorunum-ayarlari`) ve cookie tabanlı tercih SAKLI kalır — yalnız
+   * sidebar girdisi kaldırıldı.
+   */
   /** Kim, ne zaman, hangi ekranda/varlıkta hangi kritik işlemi yaptı. */
   { href: "/panel/denetim-kaydi", label: "Denetim Kaydı", icon: ScrollText, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
 ];

@@ -11,7 +11,14 @@ import { cookies } from "next/headers";
 import { logger } from "./logger";
 import { KURUM_COOKIE, listAvailableKurumlar, pickInstitutionSelection } from "./institution/context";
 import { resolveWriteScope, WriteScopeDeniedError } from "./institution/write-scope";
-import { THEME_PROFILE_COOKIE, FONT_COOKIE, normalizeThemeProfile, normalizeFontChoice } from "./theme";
+import {
+  THEME_PROFILE_COOKIE,
+  FONT_COOKIE,
+  DENSITY_COOKIE,
+  normalizeThemeProfile,
+  normalizeFontChoice,
+  normalizeDensity,
+} from "./theme";
 import { auditLog } from "./auth/audit";
 import { uid } from "./utils";
 import {
@@ -255,6 +262,19 @@ export async function actionResetThemePreferences(): Promise<void> {
   const jar = await cookies();
   jar.delete(THEME_PROFILE_COOKIE);
   jar.delete(FONT_COOKIE);
+  revalidatePath("/", "layout");
+}
+
+/** Yoğunluk tercihi (Rahat/Kompakt) — tema profili ile AYNI cookie mekanizması. */
+export async function actionSetDensity(density: string): Promise<void> {
+  const normalized = normalizeDensity(density);
+  const jar = await cookies();
+  jar.set(DENSITY_COOKIE, normalized, {
+    httpOnly: false,
+    sameSite: "lax",
+    path: "/",
+    maxAge: 60 * 60 * 24 * 365,
+  });
   revalidatePath("/", "layout");
 }
 

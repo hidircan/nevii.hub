@@ -3,7 +3,14 @@ import localFont from "next/font/local";
 import { Inter, Noto_Sans } from "next/font/google";
 import { cookies } from "next/headers";
 import "./globals.css";
-import { THEME_PROFILE_COOKIE, FONT_COOKIE, normalizeThemeProfile, normalizeFontChoice } from "@/lib/theme";
+import {
+  THEME_PROFILE_COOKIE,
+  FONT_COOKIE,
+  DENSITY_COOKIE,
+  normalizeThemeProfile,
+  normalizeFontChoice,
+  normalizeDensity,
+} from "@/lib/theme";
 import { BRAND } from "@/lib/brand";
 import { AssistantProvider } from "@/components/ai/assistant-context";
 import { GlobalAssistant } from "@/components/ai/global-assistant";
@@ -73,6 +80,7 @@ export default async function RootLayout({
   const jar = await cookies();
   const themeProfile = normalizeThemeProfile(jar.get(THEME_PROFILE_COOKIE)?.value);
   const font = normalizeFontChoice(jar.get(FONT_COOKIE)?.value);
+  const density = normalizeDensity(jar.get(DENSITY_COOKIE)?.value);
 
   return (
     <html
@@ -80,6 +88,7 @@ export default async function RootLayout({
       className={`${robotoSerif.variable} ${playfairDisplay.variable} ${inter.variable} ${notoSans.variable} h-full antialiased`}
       data-theme-profile={themeProfile}
       data-font={font}
+      data-density={density}
     >
       <body className="min-h-full">
         <AssistantProvider>

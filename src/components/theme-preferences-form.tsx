@@ -23,6 +23,7 @@ const PROFILE_SWATCH: Record<ThemeProfile, { accent: string; bg?: string }> = {
   burgundy: { accent: "#6b1f2b" },
   ocean: { accent: "#0e7490" },
   lavender: { accent: "#5b4b8a" },
+  atolye: { accent: "#93441c", bg: "#f1ece1" },
 };
 
 /** Önizleme, globals.css'teki gerçek `[data-font]` eşlemesiyle BİREBİR aynı font ailesini kullanır. */
