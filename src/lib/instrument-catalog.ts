@@ -16,6 +16,8 @@ import { isDbMode, resolveDataDir } from "./config";
 import { uid } from "./utils";
 import { INSTRUMENTS } from "./types";
 import type { InstrumentCatalogEntry, InstrumentCatalogStatus } from "./types";
+import { normalizeMatchKey } from "./normalize";
+import { withFileLock, writeJsonFileAtomic } from "./atomic-json-file";
 
 const FILE = path.join(resolveDataDir(path.join(process.cwd(), "data")), "instrument-catalog.json");
 export const INSTRUMENT_CATALOG_FILE = FILE;
@@ -31,10 +33,21 @@ async function loadAll(): Promise<Stored[]> {
   }
 }
 
+/**
+ * Kök neden (enstrüman kataloğunda Piyano/Gitar/Keman/Bateri/Şan/Yan Flüt
+ * gibi varsayılanların kaybolması) — bu dosya önceden kilitsiz, düz
+ * `fs.writeFile` ile yazılıyordu; `ensureDefaultCatalogSeeded` de ilk
+ * doldurmayı TEK bir toplu yazım yerine 10 ayrı `loadAll → saveAll`
+ * round-trip'iyle yapıyordu. İki eşzamanlı process (ör. bu depoda aynı
+ * `data/` dizinini paylaşan paralel çalışan birden fazla `npm test`/dev
+ * sunucusu) bu döngüler arasına girdiğinde, BİRİNİN yazdığı daha KÜÇÜK
+ * bir liste diğerinin henüz eklediği satırları SESSİZCE eziyordu (lost
+ * update) — data/store.json'daki bozulmayla aynı kök sınıf, farklı
+ * belirti. `writeJsonFileAtomic` + `withFileLock` (bkz. atomic-json-file.ts)
+ * bunu hem bozulmaya hem kayıp güncellemeye karşı kapatır.
+ */
 async function saveAll(rows: Stored[]) {
-  const fs = await import("fs/promises");
-  await fs.mkdir(path.dirname(FILE), { recursive: true });
-  await fs.writeFile(FILE, JSON.stringify(rows, null, 2));
+  await writeJsonFileAtomic(FILE, rows);
 }
 
 function toPublic(r: Stored): InstrumentCatalogEntry {
@@ -44,7 +57,7 @@ function toPublic(r: Stored): InstrumentCatalogEntry {
 }
 
 function normalizedName(name: string): string {
-  return name.trim().toLocaleLowerCase("tr");
+  return normalizeMatchKey(name);
 }
 
 export type CreateInstrumentCatalogEntryResult =
@@ -84,22 +97,24 @@ export async function createInstrumentCatalogEntry(input: {
     };
   }
 
-  const all = await loadAll();
-  const tenantRows = all.filter((r) => r.tenantId === input.tenantId);
-  if (tenantRows.some((r) => normalizedName(r.name) === normalizedName(trimmed))) {
-    return { ok: false, message: `"${trimmed}" bu kurumda zaten kayıtlı.` };
-  }
-  const row: Stored = {
-    id: uid("instr"),
-    tenantId: input.tenantId,
-    name: trimmed,
-    status: "active",
-    createdBy: input.createdBy,
-    createdAt: now,
-    updatedAt: now,
-  };
-  await saveAll([...all, row]);
-  return { ok: true, entry: toPublic(row) };
+  return withFileLock(FILE, async () => {
+    const all = await loadAll();
+    const tenantRows = all.filter((r) => r.tenantId === input.tenantId);
+    if (tenantRows.some((r) => normalizedName(r.name) === normalizedName(trimmed))) {
+      return { ok: false, message: `"${trimmed}" bu kurumda zaten kayıtlı.` };
+    }
+    const row: Stored = {
+      id: uid("instr"),
+      tenantId: input.tenantId,
+      name: trimmed,
+      status: "active",
+      createdBy: input.createdBy,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await saveAll([...all, row]);
+    return { ok: true, entry: toPublic(row) };
+  });
 }
 
 export type UpdateInstrumentCatalogEntryResult =
@@ -141,25 +156,27 @@ export async function updateInstrumentCatalogEntry(
     };
   }
 
-  const all = await loadAll();
-  const idx = all.findIndex((r) => r.id === entryId && r.tenantId === tenantId);
-  if (idx === -1) return { ok: false, message: "Enstrüman bulunamadı." };
-  if (trimmedName) {
-    const dup = all.some(
-      (r, i) => i !== idx && r.tenantId === tenantId && normalizedName(r.name) === normalizedName(trimmedName)
-    );
-    if (dup) return { ok: false, message: `"${trimmedName}" bu kurumda zaten kayıtlı.` };
-  }
-  const updated: Stored = {
-    ...all[idx]!,
-    name: trimmedName ?? all[idx]!.name,
-    status: patch.status ?? all[idx]!.status,
-    updatedAt: now,
-  };
-  const next = [...all];
-  next[idx] = updated;
-  await saveAll(next);
-  return { ok: true, entry: toPublic(updated) };
+  return withFileLock(FILE, async () => {
+    const all = await loadAll();
+    const idx = all.findIndex((r) => r.id === entryId && r.tenantId === tenantId);
+    if (idx === -1) return { ok: false, message: "Enstrüman bulunamadı." };
+    if (trimmedName) {
+      const dup = all.some(
+        (r, i) => i !== idx && r.tenantId === tenantId && normalizedName(r.name) === normalizedName(trimmedName)
+      );
+      if (dup) return { ok: false, message: `"${trimmedName}" bu kurumda zaten kayıtlı.` };
+    }
+    const updated: Stored = {
+      ...all[idx]!,
+      name: trimmedName ?? all[idx]!.name,
+      status: patch.status ?? all[idx]!.status,
+      updatedAt: now,
+    };
+    const next = [...all];
+    next[idx] = updated;
+    await saveAll(next);
+    return { ok: true, entry: toPublic(updated) };
+  });
 }
 
 /**
@@ -201,11 +218,47 @@ async function listInstrumentCatalogRaw(tenantId: string): Promise<InstrumentCat
  * mekanizması değildir.
  */
 async function ensureDefaultCatalogSeeded(tenantId: string): Promise<void> {
-  const existing = await listInstrumentCatalogRaw(tenantId);
-  if (existing.length > 0) return;
-  for (const name of [...INSTRUMENTS, "Bas Gitar", "Ukulele"]) {
-    await createInstrumentCatalogEntry({ tenantId, name, createdBy: "seed" });
+  if (isDbMode) {
+    const { prisma } = await import("./db");
+    const count = await prisma.instrumentCatalogEntry.count({ where: { tenantId } });
+    if (count > 0) return;
+    const now = new Date();
+    await prisma.instrumentCatalogEntry.createMany({
+      data: [...INSTRUMENTS, "Bas Gitar", "Ukulele"].map((name) => ({
+        id: uid("instr"),
+        tenantId,
+        name,
+        status: "active" as const,
+        createdBy: "seed",
+        createdAt: now,
+        updatedAt: now,
+      })),
+      skipDuplicates: true,
+    });
+    return;
   }
+
+  // Kök neden düzeltmesi — bu ilk toplu doldurma önceden N (10) ayrı
+  // `createInstrumentCatalogEntry` çağrısıyla, her biri kendi
+  // loadAll→saveAll round-trip'iyle yapılıyordu; aralarına giren eşzamanlı
+  // bir process'in yazımı bazı satırları sessizce ezebiliyordu. Artık TEK
+  // bir kilit altında tek okuma + tek yazımla yapılır — ya HİÇ satır
+  // eklenmez ya da TÜMÜ birden, ara bir yarım durum asla dosyaya yazılmaz.
+  await withFileLock(FILE, async () => {
+    const all = await loadAll();
+    if (all.some((r) => r.tenantId === tenantId)) return;
+    const now = new Date().toISOString();
+    const rows: Stored[] = [...INSTRUMENTS, "Bas Gitar", "Ukulele"].map((name) => ({
+      id: uid("instr"),
+      tenantId,
+      name,
+      status: "active",
+      createdBy: "seed",
+      createdAt: now,
+      updatedAt: now,
+    }));
+    await saveAll([...all, ...rows]);
+  });
 }
 
 /** Dış çağıranlar (tool/UI) bunu kullanmalı — tenant'ın kataloğu boşsa Bas Gitar/Ukulele ile otomatik doldurur. */
@@ -235,7 +288,9 @@ export async function clearInstrumentCatalog(tenantId: string): Promise<void> {
     await prisma.instrumentCatalogEntry.deleteMany({ where: { tenantId } });
     return;
   }
-  const all = await loadAll();
-  const remaining = all.filter((r) => r.tenantId !== tenantId);
-  if (remaining.length !== all.length) await saveAll(remaining);
+  await withFileLock(FILE, async () => {
+    const all = await loadAll();
+    const remaining = all.filter((r) => r.tenantId !== tenantId);
+    if (remaining.length !== all.length) await saveAll(remaining);
+  });
 }

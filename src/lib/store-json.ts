@@ -1,6 +1,7 @@
 import { promises as fs } from "fs";
 import path from "path";
 import { resolveDataDir } from "./config";
+import { withFileLock, writeJsonFileAtomic } from "./atomic-json-file";
 import { createSeedData, createEmptyTemplateData } from "./seed";
 import { tryTenantId } from "./tenant-context";
 import { DEFAULT_TENANT_ID } from "./auth/config";
@@ -88,7 +89,10 @@ async function ensureDataFile() {
   } catch {
     await fs.mkdir(DATA_DIR, { recursive: true });
     const seed = createSeedData();
-    await fs.writeFile(DATA_FILE, JSON.stringify(seed, null, 2), "utf-8");
+    // Atomic yol — bkz. writeData yorumu. Soğuk başlangıçta birden fazla
+    // eşzamanlı readData() çağrısı buraya düşebilir; writeQueue + geçici
+    // dosya + rename deseni burada da aynı korumayı sağlar.
+    await writeData(seed);
   }
 }
 
@@ -114,10 +118,32 @@ export async function readData(): Promise<AppData> {
   return data;
 }
 
+/**
+ * Kök neden (data/store.json bozulması) — önceden `writeData` doğrudan
+ * `fs.writeFile(DATA_FILE, ..., "utf-8")` kullanıyordu. Node'da `'w'`
+ * bayrağı dosyayı yalnızca `open()` ANINDA truncate eder; iki eşzamanlı
+ * `writeData` çağrısı (ör. aynı process içinde art arda gelen iki panel
+ * action'ı/agent tool çağrısı) ayrı dosya tanımlayıcılarıyla açılırsa, GEÇ
+ * biten yazım, ERKEN biten (ve daha KISA) yazımın kapattığı dosyanın
+ * SONUNA kendi kalan baytlarını ekleyebilir — gözlemlenen bozulma tam
+ * olarak buydu: geçerli/kısa bir JSON'un hemen ardından, daha ÖNCEKİ/uzun
+ * bir yazımın yarım kalmış kuyruğu (`}0"..."` gibi) ekleniyordu.
+ *
+ * Çözüm iki katmanlı (bkz. atomic-json-file.ts — aynı desen depodaki TÜM
+ * JSON-dosya tabanlı modüllerde kullanılır):
+ * 1) `withFileLock` — aynı process içindeki TÜM `writeData` çağrıları bir
+ *    promise kuyruğunda SERİLEŞTİRİLİR; iki yazım asla aynı anda dosyaya
+ *    dokunmaz.
+ * 2) `writeJsonFileAtomic` — her yazım önce BENZERSİZ bir geçici dosyaya
+ *    yazılır, geri okunup `JSON.parse` ile doğrulanır, ancak SONRA
+ *    `fs.rename` ile hedefin yerine konur. POSIX'te aynı dosya sistemi
+ *    içinde `rename` ATOMİKTİR — store.json okuyan hiçbir süreç asla
+ *    yarım/karışık bir dosya GÖREMEZ; ya eski tam içerik ya da yeni tam
+ *    içerik görünür, üçüncü bir hâl yoktur.
+ */
 export async function writeData(data: AppData): Promise<void> {
   assertTenant(data);
-  await fs.mkdir(DATA_DIR, { recursive: true });
-  await fs.writeFile(DATA_FILE, JSON.stringify(data, null, 2), "utf-8");
+  await withFileLock(DATA_FILE, () => writeJsonFileAtomic(DATA_FILE, data));
 }
 
 export async function resetData(): Promise<AppData> {
