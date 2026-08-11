@@ -25,6 +25,35 @@ const BOOTSTRAP: BootstrapUser[] = [
     tenantId: DEFAULT_TENANT_ID,
   },
   /**
+   * İş 4 — rol hiyerarşisi: Nilüfer Acar (kurum sahibi) SUPER_ADMIN,
+   * Ezgi Güçlü (kurum yöneticisi) SCHOOL_ADMIN, `tenant_nilufer_acar`
+   * (=DEFAULT_TENANT_ID) ile sınırlı. Gerçek e-postaları verilmedi —
+   * deterministik, normalize edilmiş kurumsal placeholder üretildi (aynı
+   * `ad.soyad@niluferacar.com.tr` deseni, seed.ts'teki t1..t7 öğretmen
+   * e-postalarıyla AYNI kural). Gerçek e-postaya geçiş: bu iki `email`
+   * alanını (ve varsa .env'deki AUTH_OWNER_EMAIL/AUTH_MANAGER_EMAIL'i,
+   * eklenmiş değilse env override YOK, doğrudan burada değiştirilmeli)
+   * güncelleyin — kod başka hiçbir yerde bu e-postaları sabit varsaymaz.
+   * Şifre: env var öncelikli (AUTH_OWNER_PASSWORD/AUTH_MANAGER_PASSWORD),
+   * yoksa yalnızca bu dosyadaki diğer demo hesaplarla AYNI desende
+   * belgelenmiş bir geçici şifreye düşer — düz metin hiçbir DB/store
+   * satırına yazılmaz, yalnızca bcrypt hash'i (`HASHED` — aşağıda) saklanır.
+   */
+  {
+    userId: "user_owner_nilufer",
+    email: "nilufer.acar@niluferacar.com.tr",
+    password: process.env.AUTH_OWNER_PASSWORD || "demo-owner-nilufer",
+    role: "SUPER_ADMIN",
+    tenantId: DEFAULT_TENANT_ID,
+  },
+  {
+    userId: "user_manager_ezgi",
+    email: "ezgi.guclu@niluferacar.com.tr",
+    password: process.env.AUTH_MANAGER_PASSWORD || "demo-manager-ezgi",
+    role: "SCHOOL_ADMIN",
+    tenantId: DEFAULT_TENANT_ID,
+  },
+  /**
    * KÖK NEDEN (öğretmen girişi çalışmıyordu) — `src/lib/seed.ts`'teki t1..t7
    * öğretmenleri (CSV'den içe aktarılan gerçek isimler/e-postalar) yalnızca
    * `STORE_MODE=db`'de, `scripts/seed-demo-csv-teachers.ts` çalıştırıldığında
