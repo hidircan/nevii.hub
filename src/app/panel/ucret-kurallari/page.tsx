@@ -3,6 +3,7 @@ import { requireSessionContext } from "@/lib/auth/session";
 import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { PageHeader } from "@/components/ui";
+import { BackButton } from "@/components/back-button";
 import { FeeRuleManager } from "@/components/fee-rule-manager";
 import { FeeRoundingModeSelector } from "@/components/fee-rounding-mode-selector";
 
@@ -25,6 +26,7 @@ export default async function FeeRulesPage() {
   return (
     <div>
       <KurumScopeNote scope={kurum.scope} />
+      <BackButton fallbackHref="/panel" label="Panele dön" className="mb-3" />
       <PageHeader title="Ücret Kuralları" />
       <FeeRoundingModeSelector
         currentMode={data.settings.feeRoundingMode}

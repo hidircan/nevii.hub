@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { ArrowLeft, ArrowRight } from "lucide-react";
+import { ArrowRight } from "lucide-react";
+import { BackButton } from "@/components/back-button";
 import { readData } from "@/lib/store";
 import { actionAddPayment } from "@/lib/actions";
 import { Badge, Button, Card, EmptyState, Input, Label, PageHeader, StatCard } from "@/components/ui";
@@ -30,12 +31,11 @@ export default async function StudentPaymentProfilePage({
           title="Öğrenci bulunamadı"
           description="Bu öğrenci mevcut okulunuza kayıtlı değil veya kaldırılmış olabilir."
         />
-        <Link
-          href="/panel/odemeler"
-          className="mt-4 inline-flex items-center gap-1.5 text-sm font-medium text-amber-600 hover:text-amber-700"
-        >
-          <ArrowLeft className="h-4 w-4" /> Ödemelere dön
-        </Link>
+        <BackButton
+          fallbackHref="/panel/odemeler"
+          label="Ödemelere dön"
+          className="mt-4 text-amber-600 hover:text-amber-700"
+        />
       </div>
     );
   }
@@ -88,12 +88,11 @@ export default async function StudentPaymentProfilePage({
               returnTo={`/panel/odemeler/${student.id}`}
               className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-3.5 py-2 text-sm font-medium text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)]"
             />
-            <Link
-              href="/panel/odemeler"
-              className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-3.5 py-2 text-sm font-medium text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)]"
-            >
-              <ArrowLeft className="h-4 w-4" /> Tüm ödemeler
-            </Link>
+            <BackButton
+              fallbackHref="/panel/odemeler"
+              label="Tüm ödemeler"
+              className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-3.5 py-2 hover:bg-[var(--color-surface-muted)]"
+            />
           </div>
         }
       />

@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { requireSessionContext } from "@/lib/auth/session";
 import { readData } from "@/lib/store";
 import { EmptyState, PageHeader } from "@/components/ui";
+import { BackButton } from "@/components/back-button";
 import { TeacherPayoutHistory } from "@/components/teacher-payout-history";
 import { AssistantPageContext } from "@/components/ai/assistant-page-context";
 
@@ -36,12 +37,7 @@ export default async function TeacherPayoutHistoryPage({
           title="Öğretmen bulunamadı"
           description="Bu öğretmen kurumunuza kayıtlı değil veya kaldırılmış olabilir."
         />
-        <Link
-          href="/panel/ogretmenler"
-          className="mt-4 inline-block text-sm font-medium text-amber-600 hover:text-amber-700"
-        >
-          Öğretmenlere dön
-        </Link>
+        <BackButton fallbackHref="/panel/ogretmenler" label="Öğretmenlere dön" className="mt-4 text-amber-600 hover:text-amber-700" />
       </div>
     );
   }
@@ -51,6 +47,7 @@ export default async function TeacherPayoutHistoryPage({
   return (
     <div>
       <AssistantPageContext entity={{ kind: "teacher", id: teacher.id, label: teacher.name }} />
+      <BackButton fallbackHref={`/panel/ogretmenler/${teacher.id}`} label="Öğretmen detayına dön" className="mb-3" />
       <PageHeader
         title={`${teacher.name} — Ödeme Geçmişi`}
         actions={

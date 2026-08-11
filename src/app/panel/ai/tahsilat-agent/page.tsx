@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { AlertTriangle, ArrowRight, CircleDollarSign, Target, TrendingUp } from "lucide-react";
 import { Card, PageHeader, StatCard } from "@/components/ui";
+import { BackButton } from "@/components/back-button";
 import { formatMoney } from "@/lib/utils";
 import { TahsilatQueue } from "@/components/tahsilat-queue";
 import { getCollectionRoi, listFollowUpCases, mergeCollectionRoi } from "@/lib/tahsilat/cases";
@@ -43,6 +44,7 @@ export default async function TahsilatAgentPage({
   return (
     <div>
       <KurumScopeNote scope={kurum.scope} />
+      <BackButton fallbackHref="/panel/ai" label="AI Özet'e dön" className="mb-3" />
       <PageHeader
         title="Tahsilat"
         actions={

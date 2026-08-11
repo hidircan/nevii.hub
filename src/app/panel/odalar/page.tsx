@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { Badge, Button, Card, Input, Label, PageHeader, Select } from "@/components/ui";
 import { INSTRUMENTS } from "@/lib/types";
 import { RoomArchiveToggle } from "@/components/room-archive-toggle";
+import { BackButton } from "@/components/back-button";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +27,7 @@ export default async function OdalarPage() {
 
   return (
     <div>
+      <BackButton fallbackHref="/panel/kurulum" label="Kurulum Merkezine dön" className="mb-3" />
       <PageHeader title="Odalar" />
 
       <div className="grid gap-6 lg:grid-cols-3">

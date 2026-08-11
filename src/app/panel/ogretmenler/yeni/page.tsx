@@ -1,6 +1,5 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
+import { BackButton } from "@/components/back-button";
 import { actionAddTeacher } from "@/lib/actions";
 import { Button, Card, Input, Label, PageHeader, Select } from "@/components/ui";
 import { requireSessionContext } from "@/lib/auth/session";
@@ -38,12 +37,7 @@ export default async function NewTeacherPage() {
     <div>
       <KurumScopeNote scope={kurum.scope} />
       <div className="mb-4">
-        <Link
-          href="/panel/ogretmenler"
-          className="inline-flex items-center gap-1.5 text-sm font-medium text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
-        >
-          <ArrowLeft className="h-4 w-4" /> Öğretmenlere dön
-        </Link>
+        <BackButton fallbackHref="/panel/ogretmenler" label="Öğretmenlere dön" />
       </div>
       <PageHeader title="Yeni Öğretmen Kaydı" />
 

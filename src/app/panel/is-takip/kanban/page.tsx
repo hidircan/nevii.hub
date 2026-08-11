@@ -3,6 +3,7 @@ import { requireSessionContext } from "@/lib/auth/session";
 import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { PageHeader } from "@/components/ui";
+import { BackButton } from "@/components/back-button";
 import { listTasksTool } from "@/lib/services";
 import { TaskKanbanBoard } from "@/components/task-kanban-board";
 import { listAssignableStaff } from "@/lib/staff-directory";
@@ -36,6 +37,7 @@ export default async function IsTakipKanbanPage() {
   return (
     <div>
       <KurumScopeNote scope={kurum.scope} />
+      <BackButton fallbackHref="/panel/is-takip" label="İş Takip'e dön" className="mb-3" />
       <PageHeader
         title="İş Takip — Kanban"
         description="Görevleri durumlarına göre sürükleyip bırakmak yerine, her kartın altındaki menüden durumunu değiştirin."

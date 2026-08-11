@@ -6,6 +6,7 @@ import { documentKindLabel } from "@/lib/documents";
 import { listAuditLogs } from "@/lib/audit/log";
 import { readData } from "@/lib/store";
 import { Badge, Card, EmptyState, PageHeader } from "@/components/ui";
+import { BackButton } from "@/components/back-button";
 import { DocumentSignedUpload } from "@/components/document-signed-upload";
 import { QuickTaskLink } from "@/components/quick-task-link";
 import { DocumentSignedVersions, type SignedVersionRow } from "@/components/document-signed-versions";
@@ -35,9 +36,7 @@ export default async function DocumentDetailPage({
       <div>
         <PageHeader title="Evrak bulunamadı" />
         <EmptyState title="Evrak bulunamadı" description="Bu belge mevcut kurum kapsamınızda değil veya kaldırılmış olabilir." />
-        <Link href="/panel/evraklar" className="mt-4 inline-block text-sm font-medium text-[var(--color-primary)] hover:text-[var(--color-primary-hover)]">
-          ← Evraklar Merkezine dön
-        </Link>
+        <BackButton fallbackHref="/panel/evraklar" label="Evraklar Merkezine dön" className="mt-4" />
       </div>
     );
   }
@@ -56,6 +55,7 @@ export default async function DocumentDetailPage({
 
   return (
     <div>
+      <BackButton fallbackHref="/panel/evraklar" label="Evraklar Merkezine dön" className="mb-3" />
       <PageHeader
         title={doc.reference}
         description={documentKindLabel(doc.kind)}

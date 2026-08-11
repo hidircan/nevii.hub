@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import {
-  ArrowLeft,
   BookOpen,
   CalendarDays,
   ClipboardList,
@@ -9,6 +8,7 @@ import {
   GraduationCap,
   User,
 } from "lucide-react";
+import { BackButton } from "@/components/back-button";
 import { readData } from "@/lib/store";
 import { requireSessionContext } from "@/lib/auth/session";
 import { findOwnStudent, ownStudentLessons } from "@/lib/teacher-portal-scope";
@@ -145,12 +145,7 @@ export default async function TeacherStudentWorkspacePage({
     <div className="min-h-screen bg-gradient-to-b from-cyan-50 to-slate-50">
       <header className="border-b border-cyan-100 bg-[var(--color-surface)]/90 backdrop-blur">
         <div className="mx-auto flex max-w-lg items-center justify-between px-4 py-4">
-          <Link
-            href="/ogretmen"
-            className="inline-flex items-center gap-1.5 text-sm font-medium text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]"
-          >
-            <ArrowLeft className="h-4 w-4" aria-hidden /> Geri
-          </Link>
+          <BackButton fallbackHref="/ogretmen" />
           <p className="text-sm font-semibold text-[var(--color-text)] dark:text-slate-50">Öğrenci</p>
           <span className="w-10" aria-hidden />
         </div>
@@ -593,12 +588,7 @@ function NotFoundShell({ backHref, message }: { backHref: string; message: strin
     <div className="min-h-screen bg-gradient-to-b from-cyan-50 to-slate-50">
       <header className="border-b border-cyan-100 bg-[var(--color-surface)]/90 backdrop-blur">
         <div className="mx-auto flex max-w-lg items-center gap-3 px-4 py-4">
-          <Link
-            href={backHref}
-            className="inline-flex items-center gap-1.5 text-sm font-medium text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]"
-          >
-            <ArrowLeft className="h-4 w-4" aria-hidden /> Geri
-          </Link>
+          <BackButton fallbackHref={backHref} />
         </div>
       </header>
       <main className="mx-auto max-w-lg px-4 py-8">

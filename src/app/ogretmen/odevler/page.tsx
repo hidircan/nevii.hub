@@ -1,6 +1,5 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
+import { BackButton } from "@/components/back-button";
 import { readData } from "@/lib/store";
 import { requireSessionContext } from "@/lib/auth/session";
 import { listHomeworkForTeacherTool, listHomeworkSubmissionsTool } from "@/lib/services";
@@ -56,9 +55,7 @@ export default async function TeacherHomeworkPage() {
     <div className="min-h-screen bg-gradient-to-b from-cyan-50 to-slate-50">
       <header className="border-b border-cyan-100 bg-[var(--color-surface)]/90 backdrop-blur">
         <div className="mx-auto flex max-w-lg items-center justify-between px-4 py-4">
-          <Link href="/ogretmen" className="inline-flex items-center gap-1.5 text-sm font-medium text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
-            <ArrowLeft className="h-4 w-4" /> Geri
-          </Link>
+          <BackButton fallbackHref="/ogretmen" />
           <p className="text-sm font-semibold text-[var(--color-text)] dark:text-slate-50">Ödevler</p>
           <span className="w-10" />
         </div>

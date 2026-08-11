@@ -1,9 +1,9 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requireSessionContext } from "@/lib/auth/session";
 import { readData } from "@/lib/store";
 import { listTeacherFeedbackForReviewTool } from "@/lib/services";
 import { Card, EmptyState, PageHeader, StatCard } from "@/components/ui";
+import { BackButton } from "@/components/back-button";
 import { TeacherFeedbackReviewList } from "@/components/teacher-feedback-review-list";
 import { TEACHER_FEEDBACK_CRITERIA } from "@/lib/teacher-feedback";
 import type { TeacherFeedbackCriterionKey } from "@/lib/types";
@@ -39,6 +39,7 @@ export default async function TeacherFeedbackReviewPage({
   if (!teacher) {
     return (
       <div>
+        <BackButton fallbackHref="/panel/ogretmenler" label="Öğretmenlere dön" className="mb-3" />
         <PageHeader title="Öğretmen bulunamadı" />
         <EmptyState title="Öğretmen bulunamadı" description="Bu kayıt mevcut kurum kapsamınızda değil." />
       </div>
@@ -62,14 +63,10 @@ export default async function TeacherFeedbackReviewPage({
 
   return (
     <div>
+      <BackButton fallbackHref={`/panel/ogretmenler/${teacher.id}`} label="Öğretmen detayına dön" className="mb-3" />
       <PageHeader
         title={`${teacher.name} — Geri Bildirim İncelemesi`}
         description="Ham öğrenci kimliği varsayılan gizli; her satırdan gerekçeli/audit'li olarak açılabilir."
-        actions={
-          <Link href={`/panel/ogretmenler/${teacher.id}`} className="text-sm font-medium text-[var(--color-primary)] hover:text-[var(--color-primary-hover)]">
-            ← Öğretmen detayına dön
-          </Link>
-        }
       />
 
       <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">

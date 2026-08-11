@@ -1,6 +1,5 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
+import { BackButton } from "@/components/back-button";
 import { actionAddStudent } from "@/lib/actions";
 import { Button, Card, Input, Label, PageHeader, Select } from "@/components/ui";
 import { StudentInstrumentTeacherFields } from "@/components/student-instrument-teacher-fields";
@@ -33,18 +32,13 @@ export default async function NewStudentPage() {
   const catalogResult = await listInstrumentCatalogTool(session, {});
   const instrumentOptions = catalogResult.ok
     ? catalogResult.data.entries.filter((e) => e.status === "active").map((e) => e.name)
-    : ["Piyano", "Yan Flüt", "Gitar", "Bateri", "Keman", "Şan"];
+    : ["Piyano", "Yan Flüt", "Gitar", "Bateri", "Keman", "Şan", "Elektro Gitar", "Bağlama"];
 
   return (
     <div>
       <KurumScopeNote scope={kurum.scope} />
       <div className="mb-4">
-        <Link
-          href="/panel/ogrenciler"
-          className="inline-flex items-center gap-1.5 text-sm font-medium text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
-        >
-          <ArrowLeft className="h-4 w-4" /> Öğrencilere dön
-        </Link>
+        <BackButton fallbackHref="/panel/ogrenciler" label="Öğrencilere dön" />
       </div>
       <PageHeader title="Yeni Öğrenci Kaydı" />
 

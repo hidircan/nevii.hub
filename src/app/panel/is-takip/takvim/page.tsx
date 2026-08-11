@@ -4,6 +4,7 @@ import { requireSessionContext } from "@/lib/auth/session";
 import { getInstitutionContext } from "@/lib/institution/context";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { Badge, Card, PageHeader } from "@/components/ui";
+import { BackButton } from "@/components/back-button";
 import { listTasksTool } from "@/lib/services";
 import { groupTasksForCalendarMonth, isTaskOverdue } from "@/lib/task-calendar";
 import { ATTENDANCE_CALENDAR_COLORS } from "@/lib/attendance-calendar";
@@ -68,6 +69,7 @@ export default async function IsTakipTakvimPage({
   return (
     <div>
       <KurumScopeNote scope={kurum.scope} />
+      <BackButton fallbackHref="/panel/is-takip" label="İş Takip'e dön" className="mb-3" />
       <PageHeader
         title="İş Takip — Takvim"
         actions={

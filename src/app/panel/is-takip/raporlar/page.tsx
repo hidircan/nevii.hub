@@ -4,6 +4,7 @@ import { requireSessionContext } from "@/lib/auth/session";
 import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { Card, EmptyState, Input, Label, PageHeader, StatCard } from "@/components/ui";
+import { BackButton } from "@/components/back-button";
 import { getTaskReportTool } from "@/lib/services";
 import type { TaskReport } from "@/lib/task-report";
 import { listAssignableStaff, resolveStaffLabel, type AssignableStaff } from "@/lib/staff-directory";
@@ -48,14 +49,8 @@ export default async function IsTakipRaporlarPage({
   return (
     <div>
       <KurumScopeNote scope={kurum.scope} />
-      <PageHeader
-        title="İş Takip — Raporlar"
-        actions={
-          <Link href="/panel/is-takip" className="text-sm font-medium text-[var(--color-primary)] hover:underline">
-            ← İş Takip&apos;e dön
-          </Link>
-        }
-      />
+      <BackButton fallbackHref="/panel/is-takip" label="İş Takip'e dön" className="mb-3" />
+      <PageHeader title="İş Takip — Raporlar" />
 
       {!reportRes.ok ? (
         <EmptyState title="Rapor yüklenemedi" description={reportRes.error.message} />
