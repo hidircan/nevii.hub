@@ -576,8 +576,8 @@ async function main() {
           data: {
             id: uid("user"),
             tenantId: DEFAULT_TENANT_ID,
-            email: login.email,
-            passwordHash: hashPasswordSync(process.env[`AUTH_DEMO_CSV_${login.email}`] || login.password),
+            email: login.email.toLowerCase(),
+            passwordHash: hashPasswordSync(login.password),
             role: login.role,
             teacherId: "teacherId" in login ? login.teacherId : undefined,
             studentId: "studentId" in login ? login.studentId : undefined,

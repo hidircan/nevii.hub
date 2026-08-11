@@ -7,6 +7,7 @@
 import { z } from "zod";
 import { differenceInCalendarDays, parseISO } from "date-fns";
 import { prisma } from "../db";
+import { provisionEntityLogin } from "../auth/users";
 import {
   addBranch,
   addLesson,
@@ -969,7 +970,7 @@ export async function sendTeacherMessageTool(
 export async function createStudentTool(
   ctx: ServiceContext,
   input: unknown
-): Promise<ServiceResult<{ studentId: string }>> {
+): Promise<ServiceResult<{ studentId: string; tempLoginPassword?: string }>> {
   const auth = requireRole(ctx, ["SCHOOL_ADMIN", "AI_AGENT", "SUPER_ADMIN"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
 
@@ -1063,7 +1064,33 @@ export async function createStudentTool(
     if (created) {
       audit(ctx, "student.create", "Student", created.id, v.data.packageId ? { pricing } : undefined);
     }
-    return ok({ studentId: created?.id ?? "unknown" });
+
+    // EPIC 6A gap — Student kaydı oluşturmak tek başına giriş sağlamıyordu
+    // (bkz. provisionEntityLogin yorumu). E-posta verildiyse otomatik bir
+    // login hesabı sağlanır; STORE_MODE=db dışında (json/memory) veya
+    // e-posta boşsa sessizce atlanır.
+    let tempLoginPassword: string | undefined;
+    if (created && v.data.email) {
+      const provisioned = await provisionEntityLogin({
+        tenantId: ctx.tenantId,
+        email: v.data.email,
+        role: "STUDENT",
+        studentId: created.id,
+      });
+      if (provisioned) {
+        audit(ctx, "student.login_provisioned", "Student", created.id);
+        // Geçici şifre yalnızca doğrudan insan yönetici çağrısında API
+        // yanıtına dahil edilir — AI_AGENT rolüyle (sohbet/otonom akış)
+        // oluşturulduysa dönmez, çünkü LLM tool-result'ı sohbette anlatabilir
+        // ve şifre bu yolla sızabilir. Hesap her koşulda oluşur; yönetici
+        // şifreyi yalnızca kendi doğrudan isteğiyle görür (tek seferlik).
+        if (ctx.role === "SCHOOL_ADMIN" || ctx.role === "SUPER_ADMIN") {
+          tempLoginPassword = provisioned.tempPassword;
+        }
+      }
+    }
+
+    return ok({ studentId: created?.id ?? "unknown", tempLoginPassword });
   } catch (e) {
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "createStudent failed");
   }
@@ -1203,7 +1230,7 @@ export async function updateStudentPaymentProfileTool(
 export async function createTeacherTool(
   ctx: ServiceContext,
   input: unknown
-): Promise<ServiceResult<{ teacherId: string }>> {
+): Promise<ServiceResult<{ teacherId: string; tempLoginPassword?: string }>> {
   const auth = requireRole(ctx, ["SCHOOL_ADMIN", "AI_AGENT", "SUPER_ADMIN"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
 
@@ -1269,7 +1296,26 @@ export async function createTeacherTool(
     const after = await readData();
     const created = after.teachers.find((t) => !ids.has(t.id));
     if (created) audit(ctx, "teacher.create", "Teacher", created.id, { instrumentCount: instruments.length });
-    return ok({ teacherId: created?.id ?? "unknown" });
+
+    // EPIC 6A gap — bkz. createStudentTool'daki aynı desen/yorum.
+    let tempLoginPassword: string | undefined;
+    if (created && v.data.email) {
+      const provisioned = await provisionEntityLogin({
+        tenantId: ctx.tenantId,
+        email: v.data.email,
+        role: "TEACHER",
+        teacherId: created.id,
+      });
+      if (provisioned) {
+        audit(ctx, "teacher.login_provisioned", "Teacher", created.id);
+        // bkz. createStudentTool — AI_AGENT çağrısında şifre döndürülmez.
+        if (ctx.role === "SCHOOL_ADMIN" || ctx.role === "SUPER_ADMIN") {
+          tempLoginPassword = provisioned.tempPassword;
+        }
+      }
+    }
+
+    return ok({ teacherId: created?.id ?? "unknown", tempLoginPassword });
   } catch (e) {
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "createTeacher failed");
   }

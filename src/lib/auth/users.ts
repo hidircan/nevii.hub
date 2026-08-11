@@ -4,6 +4,7 @@ import { APP_ROLES } from "./types";
 import { hashPasswordSync, verifyPassword } from "./password";
 import { isDbMode } from "../config";
 import { auditLog } from "./audit";
+import { uid } from "../utils";
 
 type BootstrapUser = AuthUser & { password: string };
 
@@ -115,6 +116,55 @@ const BOOTSTRAP: BootstrapUser[] = [
     role: "STUDENT",
     tenantId: DEFAULT_TENANT_ID,
     studentId: "s1",
+  },
+  /**
+   * KÖK NEDEN (öğrenci girişi çalışmıyordu) — login-form.tsx'teki 5 "Öğrenci
+   * — CSV" demo persona'sı (Ada Yılmaz vd.), t1..t7 öğretmen girişindeki
+   * köküyle AYNI mode-parity sorunu yüzünden json/memory modunda hiç giriş
+   * yapamıyordu: bu kimlikler yalnızca STORE_MODE=db'de
+   * scripts/seed-demo-csv-teachers.ts çalıştırıldığında oluşuyordu. Karşılık
+   * gelen Student kayıtları seed.ts'e s_csv_1..5 id'leriyle eklendi; burada da
+   * aynı e-posta/şifre ile BOOTSTRAP girişleri eklendi.
+   */
+  {
+    userId: "user_student_csv_1",
+    email: "ada.yilmaz.demo@email.com",
+    password: process.env.AUTH_DEMO_CSV_STUDENT_1 || "demo-student-csv-1",
+    role: "STUDENT",
+    tenantId: DEFAULT_TENANT_ID,
+    studentId: "s_csv_1",
+  },
+  {
+    userId: "user_student_csv_2",
+    email: "kerem.sahin.demo@email.com",
+    password: process.env.AUTH_DEMO_CSV_STUDENT_2 || "demo-student-csv-2",
+    role: "STUDENT",
+    tenantId: DEFAULT_TENANT_ID,
+    studentId: "s_csv_2",
+  },
+  {
+    userId: "user_student_csv_3",
+    email: "nehir.kaya.demo@email.com",
+    password: process.env.AUTH_DEMO_CSV_STUDENT_3 || "demo-student-csv-3",
+    role: "STUDENT",
+    tenantId: DEFAULT_TENANT_ID,
+    studentId: "s_csv_3",
+  },
+  {
+    userId: "user_student_csv_4",
+    email: "toprak.demir.demo@email.com",
+    password: process.env.AUTH_DEMO_CSV_STUDENT_4 || "demo-student-csv-4",
+    role: "STUDENT",
+    tenantId: DEFAULT_TENANT_ID,
+    studentId: "s_csv_4",
+  },
+  {
+    userId: "user_student_csv_5",
+    email: "elif.aksoy.demo@email.com",
+    password: process.env.AUTH_DEMO_CSV_STUDENT_5 || "demo-student-csv-5",
+    role: "STUDENT",
+    tenantId: DEFAULT_TENANT_ID,
+    studentId: "s_csv_5",
   },
   {
     /** Demo persona: gecikmiş ödeme + açık telafi talebi (s5) */
@@ -301,6 +351,59 @@ export async function getUserById(userId: string): Promise<AuthUser | null> {
   const row = HASHED.find((u) => u.userId === userId);
   if (!row) return null;
   return toAuthUser(row);
+}
+
+/**
+ * Öğrenci/öğretmen kaydı oluşturulduğunda kendi login `User` satırını
+ * otomatik sağlar (EPIC 6A gap kapatma — daha önce panelden eklenen hiçbir
+ * öğrenci/öğretmen giriş yapamıyordu, çünkü `createStudentTool`/
+ * `createTeacherTool` yalnızca iş kaydını (Student/Teacher) yazıyor,
+ * hiçbir yol `User` satırı oluşturmuyordu).
+ *
+ * Yalnızca `STORE_MODE=db`'de çalışır: `json`/`memory` modundaki BOOTSTRAP
+ * listesi derleme zamanında sabit bir dizi — çalışma zamanında yeni girişler
+ * eklenemez (bkz. dosya başındaki mode-parity notları). Bu iki demo/test
+ * modu zaten üretimde kullanılmıyor (CLAUDE.md), üretimde her zaman `db`
+ * modu kullanılır — bu yüzden gerçek kullanıcılar için hiçbir işlevsellik
+ * kaybı yok.
+ *
+ * E-posta zaten bir `User`'a aitse (aynı tenant) dokunulmaz — idempotent.
+ * Başarıyla yeni bir hesap oluşturulursa geçici şifreyi döner (admin'in
+ * öğrenciye/öğretmene iletmesi için); aksi halde `null`.
+ */
+export async function provisionEntityLogin(params: {
+  tenantId: string;
+  email: string;
+  role: Extract<AppRole, "STUDENT" | "TEACHER">;
+  studentId?: string;
+  teacherId?: string;
+}): Promise<{ tempPassword: string } | null> {
+  if (!isDbMode) return null;
+  const email = params.email.trim().toLowerCase();
+  if (!email) return null;
+
+  const { getPrisma } = await import("../db");
+  const prisma = getPrisma();
+
+  const existing = await prisma.user.findFirst({
+    where: { tenantId: params.tenantId, email },
+  });
+  if (existing) return null;
+
+  const tempPassword = Math.random().toString(36).slice(2, 10);
+  await prisma.user.create({
+    data: {
+      id: uid("user"),
+      tenantId: params.tenantId,
+      email,
+      passwordHash: hashPasswordSync(tempPassword),
+      role: params.role,
+      teacherId: params.teacherId,
+      studentId: params.studentId,
+      active: true,
+    },
+  });
+  return { tempPassword };
 }
 
 /** @deprecated use authenticateUser */
