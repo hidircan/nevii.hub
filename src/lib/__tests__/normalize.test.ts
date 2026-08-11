@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { normalizeMatchKey, looseMatchKey, resolveCanonicalValue } from "../normalize";
+import { normalizeMatchKey, looseMatchKey, resolveCanonicalValue, foldTurkishForSearch } from "../normalize";
 
 describe("normalizeMatchKey", () => {
   it("Türkçe büyük/küçük harfi doğru katlar (İ/I/ı/i)", () => {
@@ -39,5 +39,24 @@ describe("resolveCanonicalValue", () => {
 
   it("hiçbir aday eşleşmezse null döner (asla tahmin etmez)", () => {
     expect(resolveCanonicalValue("Ukulele", candidates)).toBeNull();
+  });
+});
+
+/** İş 1 (yoklama takvimi öğrenci arama) — bkz. student-attendance-picker.tsx. */
+describe("foldTurkishForSearch", () => {
+  it("Türkçe harfleri ASCII karşılıklarına katlar — 'Çağla' ile 'cagla' eşleşir", () => {
+    expect(foldTurkishForSearch("Çağla")).toBe(foldTurkishForSearch("cagla"));
+  });
+
+  it("'Şule' ile 'sule' eşleşir", () => {
+    expect(foldTurkishForSearch("Şule")).toBe(foldTurkishForSearch("sule"));
+  });
+
+  it("büyük/küçük harf ve baş/son boşluğa toleranslıdır", () => {
+    expect(foldTurkishForSearch("  ÖZLEM  ")).toBe(foldTurkishForSearch("özlem"));
+  });
+
+  it("ilgisiz iki isim aynı anahtara çözülmez", () => {
+    expect(foldTurkishForSearch("Çağla")).not.toBe(foldTurkishForSearch("Deniz"));
   });
 });

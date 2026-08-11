@@ -316,6 +316,7 @@ export default async function VeliPortalPage() {
               termType={student.termType ?? "guz"}
               canEdit={false}
               readOnly
+              showWeekdayLabels={false}
             />
           </Card>
         </section>

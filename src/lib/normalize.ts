@@ -55,3 +55,33 @@ export function resolveCanonicalValue(
   const looseMatch = candidates.find((c) => looseMatchKey(c) === loose);
   return looseMatch ?? null;
 }
+
+const TURKISH_FOLD_MAP: Record<string, string> = {
+  ı: "i",
+  İ: "i",
+  ş: "s",
+  Ş: "s",
+  ç: "c",
+  Ç: "c",
+  ğ: "g",
+  Ğ: "g",
+  ü: "u",
+  Ü: "u",
+  ö: "o",
+  Ö: "o",
+};
+
+/**
+ * ARAMA anahtarı — `normalizeMatchKey`'den FARKLI bir amaç için: kullanıcı
+ * Türkçe klavye/karakter kullanmadan ("cagla" ile "Çağla", "sule" ile
+ * "Şule") arama yapabilsin diye Türkçe harfleri ASCII karşılıklarına
+ * KATLAR (ç→c, ğ→g, ı/İ→i, ö→o, ş→s, ü→u). CSV import normalizasyonunda
+ * (resolveCanonicalValue) KASITLI OLARAK kullanılmaz — orada farklı
+ * enstrüman/isim yazımlarının YANLIŞLIKLA aynı kanonik değere düşmesi
+ * istenmez (ör. "Çelik" ile "Celik" farklı iki kişi olabilir); yalnızca
+ * bu tür serbest-metin ARAMA kutularında güvenlidir.
+ */
+export function foldTurkishForSearch(value: string): string {
+  const normalized = normalizeMatchKey(value);
+  return normalized.replace(/[ışğüöçİŞĞÜÖÇ]/g, (ch) => TURKISH_FOLD_MAP[ch] ?? ch);
+}

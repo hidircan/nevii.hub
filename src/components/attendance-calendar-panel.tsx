@@ -35,6 +35,12 @@ import {
 
 /** Pazartesi→Pazar — takvim grid header'ı ve boş hücre hizalaması bu sırayı kullanır. */
 const WEEKDAY_LABELS = ["Pzt", "Sal", "Çar", "Per", "Cum", "Cts", "Paz"];
+const WEEKDAY_FULL_NAMES = ["Pazar", "Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi"];
+
+/** `yyyy-MM-dd` → tam gün adı — İş 2: başlık satırı gizlense bile ekran okuyucular için gün bilgisini korur. */
+export function weekdayFullNameFor(dateStr: string): string {
+  return WEEKDAY_FULL_NAMES[new Date(`${dateStr}T00:00:00`).getDay()] ?? "";
+}
 
 /**
  * Asıl tanım `src/lib/attendance-calendar.ts`'de (`currentAcademicAnchorYear`)
@@ -192,6 +198,7 @@ export function AttendanceCalendarPanel({
   studentActive = true,
   defaultMonthlyFee,
   defaultMonthlyAmount,
+  showWeekdayLabels = true,
 }: {
   studentId: string;
   /** Öğrencinin kayıtlı dönemi — ilk açılışta seçili dönem olarak kullanılır, kullanıcı değiştirebilir. */
@@ -212,6 +219,16 @@ export function AttendanceCalendarPanel({
    * bir tutar girip Kaydet edebilir, bu yalnızca bir başlangıç değeridir.
    */
   defaultMonthlyAmount?: number;
+  /**
+   * İş 2 — veli portalinde Pzt/Sal/Çar/… başlık satırı mobilde ekranı
+   * sıkıştırıyordu. Varsayılan true (panel/admin/öğretmen kullanımları
+   * ETKİLENMEZ) — yalnızca veli sayfası açıkça `false` geçer. Başlıklar
+   * gizlense bile grid hizası bozulmasın diye header satırı KALDIRILMAZ,
+   * yalnızca metin boş bırakılır (7 hücre + boş gün hücreleri aynı 7
+   * kolonluk grid'de kalır) ve erişilebilirlik için her gün hücresine
+   * `aria-label` (tarih + gün adı) eklenir.
+   */
+  showWeekdayLabels?: boolean;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -660,24 +677,32 @@ export function AttendanceCalendarPanel({
                 </p>
               ) : (
                 <div className="grid grid-cols-7 gap-1">
-                  {WEEKDAY_LABELS.map((label) => (
-                    <span
-                      key={label}
-                      className="pb-0.5 text-center text-[9px] font-semibold uppercase text-[var(--color-text-muted)]"
-                    >
-                      {label}
-                    </span>
-                  ))}
+                  {showWeekdayLabels
+                    ? WEEKDAY_LABELS.map((label) => (
+                        <span
+                          key={label}
+                          className="pb-0.5 text-center text-[9px] font-semibold uppercase text-[var(--color-text-muted)]"
+                        >
+                          {label}
+                        </span>
+                      ))
+                    : // Grid hizası (7 sütun) korunur — yalnızca görünür metin
+                      // kaldırılır, boş dekoratif hücreler ekran okuyucudan
+                      // gizlenir (gün bilgisi zaten her gün hücresinin kendi
+                      // aria-label'ında var, bkz. aşağısı).
+                      WEEKDAY_LABELS.map((label) => <span key={label} aria-hidden="true" />)}
                   {Array.from({ length: leadingBlankDayCount(m.year, m.month) }).map((_, i) => (
                     <span key={`lead-${i}`} aria-hidden="true" />
                   ))}
                   {data.days.map((day) => {
                     const { style, segmentCount } = dayFillStyle(day);
+                    const dayTitle = `${day.date} — ${weekdayFullNameFor(day.date)} — ${day.label}${day.lessonIds.length ? ` · ${day.lessonIds.length} ders` : ""}`;
                     return (
                       <button
                         key={day.date}
                         type="button"
-                        title={`${day.date} — ${day.label}${day.lessonIds.length ? ` · ${day.lessonIds.length} ders` : ""}`}
+                        title={dayTitle}
+                        aria-label={dayTitle}
                         onClick={() => onDayClick(day)}
                         className={cn(
                           "relative aspect-square rounded text-[10px] font-semibold transition",
