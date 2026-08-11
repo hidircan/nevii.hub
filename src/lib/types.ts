@@ -1041,6 +1041,33 @@ export interface InstrumentCatalogEntry {
   updatedAt: string;
 }
 
+/**
+ * Personel Modülü — öğretmen DIŞI personel (idari, muhasebe, resepsiyon vb.)
+ * için genel amaçlı bir kayıt. Bilinçli olarak Teacher'dan AYRI: Teacher
+ * zaten kendi ders/hakediş/enstrüman iş akışına sahip, bunu genişletmek
+ * yerine ayrı, sade bir "kişi + rol + iletişim + şube + durum" modeli
+ * kuruldu — ileride ör. bir muhasebe modülü StaffMember.id'yi foreign key
+ * olarak referans alabilir (bkz. instrument-catalog.ts ile aynı desen:
+ * atomic JSON dosyası json/memory modda, Prisma tablosu db modda). Hard
+ * delete yok; `status:"passive"` ile pasife alınır.
+ */
+export type StaffMemberStatus = "active" | "passive";
+
+export interface StaffMember {
+  id: string;
+  name: string;
+  /** Serbest metin — "Muhasebe", "Resepsiyon", "İdari İşler" vb. Sabit bir enum'a kilitlenmez. */
+  position: string;
+  phone?: string;
+  email?: string;
+  branchId?: BranchId;
+  status: StaffMemberStatus;
+  notes?: string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export type ClosedDayKind = "public_holiday" | "custom";
 
 /** PRODUCT_BACKLOG §4.2 — kapalı gün (resmî tatil veya özel) */

@@ -39,6 +39,7 @@ model Tenant {
   packages   Package[]
   discountCampaigns DiscountCampaign[]
   instrumentCatalogEntries InstrumentCatalogEntry[]
+  staffMembers StaffMember[]
   closedDays ClosedDay[]
   trialLessons TrialLesson[]
   documentTemplates DocumentTemplate[]
@@ -992,6 +993,30 @@ model InstrumentCatalogEntry {
   name      String
   /// "active" | "archived"
   status    String   @default("active")
+  createdBy String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+}
+
+/// Personel Modülü — öğretmen DIŞI personel (idari, muhasebe, resepsiyon
+/// vb.). Teacher'dan bilinçli olarak AYRI (bkz. src/lib/types.ts
+/// StaffMember yorumu) — ileride bir muhasebe modülü bu id'yi FK olarak
+/// referans alabilir. Hard delete YOK: `status:"passive"` ile pasife alınır.
+model StaffMember {
+  id        String   @id
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name      String
+  position  String
+  phone     String?
+  email     String?
+  branchId  String?
+  /// "active" | "passive"
+  status    String   @default("active")
+  notes     String?
   createdBy String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

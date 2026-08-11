@@ -76,6 +76,8 @@ import {
   updateRoomTool,
   createInstrumentCatalogTool,
   updateInstrumentCatalogTool,
+  createStaffMemberTool,
+  updateStaffMemberTool,
   createTaskTool,
   updateTaskTool,
   changeTaskStatusTool,
@@ -746,6 +748,56 @@ export async function actionUpdateInstrument(input: {
     logger.error("actionUpdateInstrument failed", error);
     if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
     return { ok: false, message: "Enstrüman güncellenirken beklenmeyen bir hata oluştu." };
+  }
+}
+
+export type CreateStaffActionResult = { ok: true } | { ok: false; message: string };
+
+/** Personel Modülü — yeni kayıt. */
+export async function actionCreateStaffMember(formData: FormData): Promise<CreateStaffActionResult> {
+  try {
+    const result = await withAuthContext("actionCreateStaffMember", (ctx) =>
+      createStaffMemberTool(ctx, {
+        name: String(formData.get("name") || ""),
+        position: String(formData.get("position") || ""),
+        phone: String(formData.get("phone") || "") || undefined,
+        email: String(formData.get("email") || "") || undefined,
+        branchId: String(formData.get("branchId") || "") || undefined,
+        notes: String(formData.get("notes") || "") || undefined,
+      })
+    );
+    if (!result.ok) return { ok: false, message: result.error.message };
+    revalidateAll();
+    return { ok: true };
+  } catch (error) {
+    logger.error("actionCreateStaffMember failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "Personel eklenirken beklenmeyen bir hata oluştu." };
+  }
+}
+
+export type UpdateStaffActionResult = { ok: true } | { ok: false; message: string };
+
+/** Personel Modülü — düzenleme / aktif-pasif. */
+export async function actionUpdateStaffMember(input: {
+  staffId: string;
+  name?: string;
+  position?: string;
+  phone?: string;
+  email?: string;
+  branchId?: string;
+  status?: "active" | "passive";
+  notes?: string;
+}): Promise<UpdateStaffActionResult> {
+  try {
+    const result = await withAuthContext("actionUpdateStaffMember", (ctx) => updateStaffMemberTool(ctx, input));
+    if (!result.ok) return { ok: false, message: result.error.message };
+    revalidateAll();
+    return { ok: true };
+  } catch (error) {
+    logger.error("actionUpdateStaffMember failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "Personel güncellenirken beklenmeyen bir hata oluştu." };
   }
 }
 

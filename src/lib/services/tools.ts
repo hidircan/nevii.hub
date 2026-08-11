@@ -72,6 +72,7 @@ import {
   listInstrumentCatalog,
   resolveActiveInstrumentNames,
 } from "../instrument-catalog";
+import { listStaff, createStaffMember, updateStaffMember } from "../staff";
 import { effectiveLessonOpsStatus } from "../lesson-ops";
 import { computeTeacherEarningsForPeriod, type TeacherEarningsResult } from "../teacher-payout";
 import {
@@ -236,6 +237,8 @@ import {
   socialMediaConsentSchema,
   createInstrumentCatalogSchema,
   updateInstrumentCatalogSchema,
+  createStaffMemberSchema,
+  updateStaffMemberSchema,
   createTaskSchema,
   resolveRelatedEntitySchema,
   updateTaskSchema,
@@ -1454,6 +1457,71 @@ export async function updateInstrumentCatalogTool(
     status: v.data.status,
   });
   return ok({ entryId: v.data.entryId });
+}
+
+/**
+ * Personel Modülü — öğretmen dışı personel (idari/muhasebe/resepsiyon).
+ * Salt okuma SCHOOL_ADMIN/SUPER_ADMIN'e açık (öğretmen kendi kadrosunu
+ * yönetmez); yazma da aynı ikisiyle sınırlı — ayrı bir "yalnızca okuma"
+ * rolü şimdilik yok, ihtiyaç olursa requireRole listesi genişletilebilir.
+ */
+export async function listStaffTool(
+  ctx: ServiceContext,
+  _input: unknown
+): Promise<ServiceResult<{ staff: import("../types").StaffMember[] }>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const staff = await listStaff(ctx.tenantId);
+  return ok({ staff });
+}
+
+export async function createStaffMemberTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ staffId: string }>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+
+  const v = parseOrFail(createStaffMemberSchema, input);
+  if (!v.ok) return v;
+
+  const result = await createStaffMember({
+    tenantId: ctx.tenantId,
+    name: v.data.name,
+    position: v.data.position,
+    phone: v.data.phone,
+    email: v.data.email || undefined,
+    branchId: v.data.branchId,
+    notes: v.data.notes,
+    createdBy: ctx.userId,
+  });
+  if (!result.ok) return fail("VALIDATION_ERROR", result.message);
+  audit(ctx, "staff.create", "StaffMember", result.entry.id, { name: result.entry.name, position: result.entry.position });
+  return ok({ staffId: result.entry.id });
+}
+
+export async function updateStaffMemberTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ staffId: string }>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+
+  const v = parseOrFail(updateStaffMemberSchema, input);
+  if (!v.ok) return v;
+
+  const result = await updateStaffMember(ctx.tenantId, v.data.staffId, {
+    name: v.data.name,
+    position: v.data.position,
+    phone: v.data.phone,
+    email: v.data.email || undefined,
+    branchId: v.data.branchId,
+    status: v.data.status,
+    notes: v.data.notes,
+  });
+  if (!result.ok) return fail("VALIDATION_ERROR", result.message);
+  audit(ctx, "staff.update", "StaffMember", v.data.staffId, { status: v.data.status });
+  return ok({ staffId: v.data.staffId });
 }
 
 export async function createPackageTool(

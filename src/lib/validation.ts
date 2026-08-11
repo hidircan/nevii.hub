@@ -861,6 +861,27 @@ export const updateInstrumentCatalogSchema = z.object({
   status: z.enum(["active", "archived"]).optional(),
 });
 
+/** Personel Modülü — bkz. src/lib/staff.ts / src/lib/types.ts StaffMember. */
+export const createStaffMemberSchema = z.object({
+  name: z.string().min(1),
+  position: z.string().min(1),
+  phone: z.string().optional(),
+  email: z.string().email().optional().or(z.literal("")),
+  branchId: z.string().optional(),
+  notes: z.string().optional(),
+});
+
+export const updateStaffMemberSchema = z.object({
+  staffId: z.string().min(1),
+  name: z.string().min(1).optional(),
+  position: z.string().min(1).optional(),
+  phone: z.string().optional(),
+  email: z.string().email().optional().or(z.literal("")),
+  branchId: z.string().optional(),
+  status: z.enum(["active", "passive"]).optional(),
+  notes: z.string().optional(),
+});
+
 const packageDurationSchema = z.coerce.number().int().refine((v) => [30, 40, 50].includes(v), {
   message: "Varsayılan ders süresi yalnızca 30, 40 veya 50 dakika olabilir.",
 });
