@@ -435,6 +435,52 @@ export async function provisionEntityLogin(params: {
   return { tempPassword };
 }
 
+export type ChangeOwnPasswordResult =
+  | { ok: true }
+  | { ok: false; code: "MODE_NOT_SUPPORTED" | "USER_NOT_FOUND" | "WRONG_PASSWORD" | "WEAK_PASSWORD" };
+
+/**
+ * Hesabım ekranındaki "şifre değiştir" — yalnızca KENDİ hesabı (userId
+ * session'dan gelir, hiçbir zaman body'den) ve yalnızca `STORE_MODE=db`'de
+ * çalışır: `json`/`memory` modundaki kullanıcılar `BOOTSTRAP`/`HASHED`
+ * (bu dosyanın başında) derleme zamanında sabit bir dizi — çalışma
+ * zamanında değiştirilemez (bkz. `provisionEntityLogin` ile AYNI mode-parity
+ * kısıtı). Üretimde her zaman `db` modu kullanıldığından (CLAUDE.md) gerçek
+ * kullanıcılar için işlevsellik kaybı yok; json/memory'de açık bir
+ * MODE_NOT_SUPPORTED döner (sessizce yok saymak yerine).
+ */
+export async function changeOwnPassword(
+  userId: string,
+  currentPassword: string,
+  newPassword: string
+): Promise<ChangeOwnPasswordResult> {
+  if (!isDbMode) return { ok: false, code: "MODE_NOT_SUPPORTED" };
+  if (newPassword.length < 8) return { ok: false, code: "WEAK_PASSWORD" };
+
+  const { getPrisma } = await import("../db");
+  const prisma = getPrisma();
+
+  const row = await prisma.user.findFirst({ where: { id: userId, active: true } });
+  if (!row) return { ok: false, code: "USER_NOT_FOUND" };
+
+  const valid = await verifyPassword(currentPassword, row.passwordHash);
+  if (!valid) return { ok: false, code: "WRONG_PASSWORD" };
+
+  await prisma.user.update({
+    where: { id: userId },
+    data: { passwordHash: hashPasswordSync(newPassword) },
+  });
+  auditLog({
+    action: "auth.password_changed",
+    requestId: uid("req"),
+    userId,
+    tenantId: row.tenantId,
+    role: row.role as AppRole,
+    outcome: "success",
+  });
+  return { ok: true };
+}
+
 /** @deprecated use authenticateUser */
 export async function authenticateDemoUser(
   email: string,
