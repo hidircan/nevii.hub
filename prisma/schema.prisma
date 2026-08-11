@@ -387,6 +387,12 @@ model Lesson {
   /// yıl/dönemini alır.
   term                String?
   academicYearStart   Int?
+  /// İş 3 — öğretmenin kendi bildirdiği çalışma saatleri DIŞINDA, kullanıcının
+  /// "Yine de planla" onayıyla oluşturuldu (bkz. OVERRIDABLE_SLOT_CODES,
+  /// src/lib/makeup-engine.ts). Diğer tüm çakışma/uyumsuzluk türleri asla
+  /// override edilemez — bu iki alan yalnızca bu TEK durum için dolar.
+  availabilityOverrideBy String?
+  availabilityOverrideAt DateTime?
   attendances     Attendance[]
 
   @@index([tenantId])

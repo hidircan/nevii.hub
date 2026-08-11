@@ -130,11 +130,42 @@ export type ValidatedSlot = {
   teacherId: string;
   roomId: string;
   branchId: BranchId;
+  /**
+   * İş 3 — öğretmen bu saatte kendi bildirdiği çalışma saatleri DIŞINDA ama
+   * çağıran taraf `allowAvailabilityOverride` ile bunu bilinçli kabul etti.
+   * Yalnızca TEACHER_UNAVAILABLE için mümkündür — diğer tüm ihlaller
+   * (çakışma, enstrüman uyumsuzluğu, pasif öğretmen vb.) HER ZAMAN hard
+   * block'tur, hiçbir override bunları atlatamaz.
+   */
+  availabilityOverridden?: boolean;
 };
 
 type SlotValidationResult =
   | { ok: true; slot: ValidatedSlot }
   | { ok: false; code: SlotValidationCode; message: string };
+
+/**
+ * `SlotValidationCode` içinden yalnızca TEACHER_UNAVAILABLE "soft warning" —
+ * kullanıcı açıkça onaylarsa planlamaya devam edilebilir. Listedeki her
+ * diğer kod (çakışma, enstrüman/oda uyumsuzluğu, pasif öğretmen, geçmiş
+ * tarih vb.) veri tutarsızlığı yaratacağı veya teknik olarak imkansız
+ * olduğu için HER ZAMAN hard block'tur.
+ */
+export const OVERRIDABLE_SLOT_CODES: readonly SlotValidationCode[] = ["TEACHER_UNAVAILABLE"];
+
+export function isOverridableSlotCode(code: SlotValidationCode): boolean {
+  return (OVERRIDABLE_SLOT_CODES as readonly string[]).includes(code);
+}
+
+/** `addLesson`/`createLessonTool` zincirinde yapılandırılmış hata — hangi kuralın hangi kod ile ihlal edildiğini korur (mesaj string'ini ayrıştırmaya gerek kalmaz). */
+export class LessonSlotValidationError extends Error {
+  code: SlotValidationCode;
+  constructor(code: SlotValidationCode, message: string) {
+    super(message);
+    this.name = "LessonSlotValidationError";
+    this.code = code;
+  }
+}
 
 /**
  * Doğrulama için gerekli en küçük bağlam. Bir telafi talebi (MakeupRequest)
@@ -159,7 +190,13 @@ export function validateLessonSlot(
   data: AppData,
   context: SlotValidationContext,
   input: { teacherId: string; roomId: string; startAt: string },
-  options?: { excludeLessonId?: string; now?: Date; durationMinutes?: number }
+  options?: {
+    excludeLessonId?: string;
+    now?: Date;
+    durationMinutes?: number;
+    /** İş 3 — TEACHER_UNAVAILABLE'ı hard block yerine soft-onaylı geçişe çevirir. */
+    allowAvailabilityOverride?: boolean;
+  }
 ): SlotValidationResult {
   const fail = (code: SlotValidationCode): SlotValidationResult => ({
     ok: false,
@@ -215,7 +252,8 @@ export function validateLessonSlot(
   // Package D — öğretmen odanın şubesinde fiilen ders veriyor olmalı
   // (birincil VEYA ek atanmış şube); tek-şube eşitliği yerine.
   if (!teacherServesBranch(teacher, room.branchId)) return fail("ROOM_BRANCH_MISMATCH");
-  if (!teacherAvailableOnDay(teacher, day, start, end, room.branchId)) return fail("TEACHER_UNAVAILABLE");
+  const teacherAvailable = teacherAvailableOnDay(teacher, day, start, end, room.branchId);
+  if (!teacherAvailable && !options?.allowAvailabilityOverride) return fail("TEACHER_UNAVAILABLE");
   if (!teacherFree(teacher.id, start, end, data.lessons, options?.excludeLessonId)) {
     return fail("TEACHER_CONFLICT");
   }
@@ -242,6 +280,7 @@ export function validateLessonSlot(
       teacherId: teacher.id,
       roomId: room.id,
       branchId: room.branchId,
+      availabilityOverridden: !teacherAvailable,
     },
   };
 }

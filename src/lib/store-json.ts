@@ -30,6 +30,7 @@ import {
   confirmMakeupSlot,
   cancelMakeupData,
   validateLessonSlot,
+  LessonSlotValidationError,
   type MakeupDecision,
 } from "./makeup-engine";
 import { applyLessonScheduleUpdate, applyLessonCancel } from "./lesson-update";
@@ -515,15 +516,19 @@ export async function addLesson(input: {
   durationMinutes?: number;
   term?: import("./types").StudentTermType;
   academicYearStart?: number;
+  /** İş 3 — bkz. validateLessonSlot allowAvailabilityOverride yorumu. */
+  allowAvailabilityOverride?: boolean;
+  /** Override uygulanırsa Lesson.availabilityOverride.by'a yazılan aktör. */
+  overriddenByUserId?: string;
 }): Promise<AppData> {
   const data = await readData();
   const validation = validateLessonSlot(
     data,
     { instrument: input.instrument, studentId: input.studentId },
     { teacherId: input.teacherId, roomId: input.roomId, startAt: input.startAt },
-    { durationMinutes: input.durationMinutes }
+    { durationMinutes: input.durationMinutes, allowAvailabilityOverride: input.allowAvailabilityOverride }
   );
-  if (!validation.ok) throw new Error(validation.message);
+  if (!validation.ok) throw new LessonSlotValidationError(validation.code, validation.message);
   const slot = validation.slot;
   const lesson: Lesson = {
     id: uid("les"),
@@ -538,6 +543,10 @@ export async function addLesson(input: {
     status: "scheduled",
     term: input.term,
     academicYearStart: input.academicYearStart,
+    availabilityOverride:
+      slot.availabilityOverridden && input.overriddenByUserId
+        ? { by: input.overriddenByUserId, at: new Date().toISOString() }
+        : undefined,
   };
   const next = { ...data, lessons: [...data.lessons, lesson] };
   await writeData(next);

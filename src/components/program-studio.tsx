@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "rea
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ExternalLink, Loader2, Sparkles, X } from "lucide-react";
+import { ExternalLink, Loader2, Sparkles, TriangleAlert, X } from "lucide-react";
 import { addMinutes, differenceInMinutes, format, isSameDay, parseISO, startOfDay } from "date-fns";
 import { tr } from "date-fns/locale";
 import {
@@ -240,6 +240,14 @@ function LessonCardBody({
   const timeRange = `${format(parseISO(lesson.startAt), "HH:mm")}–${format(parseISO(lesson.endAt), "HH:mm")}`;
   return (
     <>
+      {lesson.availabilityOverride ? (
+        <TriangleAlert
+          className="absolute right-1 top-1 h-3 w-3 text-amber-500"
+          aria-hidden
+        >
+          <title>Öğretmenin müsait olmadığı bir saatte, onayla planlandı</title>
+        </TriangleAlert>
+      ) : null}
       <p
         className={`truncate font-bold leading-tight text-[var(--color-text)] ${
           tier === "full" ? "text-[13px]" : "text-[11px]"
@@ -478,6 +486,16 @@ export function ProgramStudio({
   const [durationMinutes, setDurationMinutes] = useState<number>(DEFAULT_LESSON_DURATION_MINUTES);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  /**
+   * İş 3 — öğretmen seçilen saatte müsait görünmüyorsa (hard block değil,
+   * SOFT uyarı) sunucu `overridable: true` ile başarısız döner; formu
+   * kırmızı hatayla göstermek yerine onay modalı açılır. Kullanıcı "Yine
+   * de planla" derse AYNI form verisiyle `overrideAvailability=true`
+   * eklenerek yeniden gönderilir — onay olmadan hiçbir uyarı otomatik
+   * atlanmaz (bkz. actionAddLesson/createLessonTool).
+   */
+  const [availabilityWarningOpen, setAvailabilityWarningOpen] = useState(false);
+  const pendingLessonFormData = useRef<FormData | null>(null);
   const [lastCreated, setLastCreated] = useState<{
     parent: LessonCommunicationMessage;
     teacher: LessonCommunicationMessage;
@@ -786,6 +804,28 @@ export function ProgramStudio({
     setSuggestions(null);
   }
 
+  async function submitLessonForm(fd: FormData) {
+    setSubmitting(true);
+    const result = await actionAddLesson(fd);
+    setSubmitting(false);
+    if (!result.ok) {
+      if (result.overridable) {
+        // Hard error göstermek yerine onay modalı aç — kullanıcı karar versin.
+        pendingLessonFormData.current = fd;
+        setAvailabilityWarningOpen(true);
+        return;
+      }
+      setFormError(result.message);
+      return;
+    }
+    if (result.communication) setLastCreated(result.communication);
+    setActivePanel("none");
+    setSuggestions(null);
+    setAvailabilityWarningOpen(false);
+    pendingLessonFormData.current = null;
+    router.refresh();
+  }
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setFormError(null);
@@ -793,7 +833,6 @@ export function ProgramStudio({
       setFormError("Şube, öğrenci, öğretmen, oda ve tarih/saat seçimi zorunludur.");
       return;
     }
-    setSubmitting(true);
     const fd = new FormData();
     fd.set("studentId", studentId);
     fd.set("teacherId", teacherId);
@@ -804,16 +843,20 @@ export function ProgramStudio({
     // ÖNCELİK 4 (devam) — yeni tek ders, program ekranında seçili akademik yıl/dönemi devralır.
     if (selectedTerm) fd.set("term", selectedTerm);
     if (selectedAcademicYearStart) fd.set("academicYearStart", String(selectedAcademicYearStart));
-    const result = await actionAddLesson(fd);
-    setSubmitting(false);
-    if (!result.ok) {
-      setFormError(result.message);
-      return;
-    }
-    if (result.communication) setLastCreated(result.communication);
-    setActivePanel("none");
-    setSuggestions(null);
-    router.refresh();
+    await submitLessonForm(fd);
+  }
+
+  async function confirmAvailabilityOverride() {
+    const fd = pendingLessonFormData.current;
+    if (!fd) return;
+    fd.set("overrideAvailability", "true");
+    setAvailabilityWarningOpen(false);
+    await submitLessonForm(fd);
+  }
+
+  function cancelAvailabilityOverride() {
+    setAvailabilityWarningOpen(false);
+    pendingLessonFormData.current = null;
   }
 
   function openDetail(lesson: Lesson) {
@@ -1082,6 +1125,27 @@ export function ProgramStudio({
 
         {formError ? <p className="sm:col-span-2 lg:col-span-3 text-sm text-rose-600">{formError}</p> : null}
       </form>
+
+      {availabilityWarningOpen ? (
+        <FormModal title="Öğretmen müsait görünmüyor" onClose={cancelAvailabilityOverride}>
+          <p className="text-sm text-[var(--color-text)] dark:text-slate-200">
+            Öğretmen bu saatte müsait görünmüyor. Yine de planlamak istiyor musunuz?
+          </p>
+          <p className="mt-1 text-xs text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
+            Seçilen saat, öğretmenin bildirdiği çalışma saatlerinin dışında. Bu ders yine de
+            oluşturulursa &quot;müsaitlik dışı&quot; olarak işaretlenir ve raporlarda görünür.
+          </p>
+          <div className="mt-4 flex justify-end gap-2">
+            <Button type="button" variant="secondary" onClick={cancelAvailabilityOverride} disabled={submitting}>
+              Vazgeç
+            </Button>
+            <Button type="button" variant="danger" onClick={() => void confirmAvailabilityOverride()} disabled={submitting}>
+              {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              Yine de planla
+            </Button>
+          </div>
+        </FormModal>
+      ) : null}
 
       {suggestError ? <p className="mt-3 text-sm text-rose-600">{suggestError}</p> : null}
 

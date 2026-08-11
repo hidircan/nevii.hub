@@ -1300,7 +1300,7 @@ export async function actionAddRoom(formData: FormData) {
 
 export type LessonActionResult =
   | { ok: true; lessonId: string; communication: LessonCommunicationDraft | null }
-  | { ok: false; message: string };
+  | { ok: false; message: string; overridable?: boolean };
 
 /**
  * Hata durumunda fırlatmaz — Program Stüdyosu client bileşeni sonucu
@@ -1325,9 +1325,11 @@ export async function actionAddLesson(formData: FormData): Promise<LessonActionR
         durationMinutes: durationRaw ? Number(durationRaw) : undefined,
         term: termRaw === "guz" || termRaw === "yaz" ? termRaw : undefined,
         academicYearStart: academicYearStartRaw ? Number(academicYearStartRaw) : undefined,
+        overrideAvailability: formData.get("overrideAvailability") === "true",
       });
       if (!created.ok) {
-        return { ok: false as const, message: created.error.message };
+        const details = created.error.details as { overridable?: boolean } | undefined;
+        return { ok: false as const, message: created.error.message, overridable: details?.overridable };
       }
 
       const data = await readData();

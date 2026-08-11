@@ -526,6 +526,21 @@ export interface Lesson {
   term?: StudentTermType;
   /** Akademik yılın başlangıç takvim yılı (ör. 2026 => "2026–2027 Güz"). */
   academicYearStart?: number;
+  /**
+   * İş 3 — bu ders, öğretmenin kendi bildirdiği çalışma saatleri DIŞINDA,
+   * kullanıcının "Yine de planla" onayıyla oluşturuldu (bkz.
+   * validateLessonSlot/OVERRIDABLE_SLOT_CODES). Yalnızca bu TEK durum için
+   * geçerli — diğer tüm çakışma/uyumsuzluk türleri asla override edilemez,
+   * bu yüzden bu bayrak "planlama onaylı ama riskli" anlamına gelir,
+   * "herhangi bir kural atlandı" anlamına gelmez. Raporlanabilir olsun diye
+   * kalıcı tutulur (ders taşınsa/güncellense bile geçmişte override
+   * edildiği bilgisi silinmez — yalnızca yeni bir override olursa üzerine
+   * yazılır).
+   */
+  availabilityOverride?: {
+    by: string;
+    at: string;
+  };
 }
 
 export type LessonSeriesStatus = "active" | "ended" | "cancelled";

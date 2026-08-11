@@ -152,3 +152,74 @@ describe("validateLessonSlot — okul mesai kısıtı kaldırıldı", () => {
     if (!result.ok) expect(result.code).toBe("TEACHER_CONFLICT");
   });
 });
+
+/**
+ * İş 3 — TEACHER_UNAVAILABLE tek "soft warning" kodu: kullanıcı açıkça
+ * onaylarsa (`allowAvailabilityOverride: true`) planlama devam eder ve
+ * `slot.availabilityOverridden` işaretlenir. Diğer TÜM ihlaller (çakışma,
+ * enstrüman/oda uyumsuzluğu vb.) override edilse bile hard block kalır.
+ */
+describe("validateLessonSlot — allowAvailabilityOverride (İş 3)", () => {
+  it("varsayılan (override verilmeden) TEACHER_UNAVAILABLE hard block kalır", () => {
+    const data = buildData({
+      teacherAvailability: [{ dayOfWeek: 1, start: "09:00", end: "18:00" }],
+    });
+    const result = validateLessonSlot(
+      data,
+      { instrument: "Piyano", studentId: "s1" },
+      { teacherId: "t1", roomId: "r1", startAt: nextSunday(11) }
+    );
+    expect(result.ok).toBe(false);
+  });
+
+  it("allowAvailabilityOverride:true ile TEACHER_UNAVAILABLE atlanır ve slot.availabilityOverridden=true döner", () => {
+    const data = buildData({
+      teacherAvailability: [{ dayOfWeek: 1, start: "09:00", end: "18:00" }],
+    });
+    const result = validateLessonSlot(
+      data,
+      { instrument: "Piyano", studentId: "s1" },
+      { teacherId: "t1", roomId: "r1", startAt: nextSunday(11) },
+      { allowAvailabilityOverride: true }
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.slot.availabilityOverridden).toBe(true);
+  });
+
+  it("müsait bir saatte allowAvailabilityOverride:true verilse bile availabilityOverridden=false kalır", () => {
+    const data = buildData();
+    const result = validateLessonSlot(
+      data,
+      { instrument: "Piyano", studentId: "s1" },
+      { teacherId: "t1", roomId: "r1", startAt: nextSunday(11) },
+      { allowAvailabilityOverride: true }
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.slot.availabilityOverridden).toBe(false);
+  });
+
+  it("allowAvailabilityOverride:true olsa bile TEACHER_CONFLICT (çakışma) hard block kalır — override yalnızca müsaitlik için geçerlidir", () => {
+    const data = buildData();
+    const existingLesson = {
+      id: "l1",
+      studentId: "s1",
+      teacherId: "t1",
+      roomId: "r1",
+      branchId: "erzene" as const,
+      instrument: "Piyano" as const,
+      startAt: nextSunday(11),
+      endAt: nextSunday(11, 40),
+      type: "regular" as const,
+      status: "scheduled" as const,
+    };
+    const withLesson = { ...data, lessons: [existingLesson] };
+    const result = validateLessonSlot(
+      withLesson,
+      { instrument: "Piyano", studentId: "s1" },
+      { teacherId: "t1", roomId: "r1", startAt: nextSunday(11, 20) },
+      { allowAvailabilityOverride: true }
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("TEACHER_CONFLICT");
+  });
+});

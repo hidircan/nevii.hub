@@ -77,6 +77,8 @@ import { computeTeacherEarningsForPeriod, type TeacherEarningsResult } from "../
 import {
   suggestMakeupSlots,
   resolveSlaEscalationLevel,
+  LessonSlotValidationError,
+  isOverridableSlotCode,
   type MakeupSlaEscalation,
 } from "../makeup-engine";
 import { suggestLessonSlots, type LessonSlotSuggestion } from "../lesson-scheduling";
@@ -1956,11 +1958,22 @@ export async function createLessonTool(
       durationMinutes: v.data.durationMinutes ?? DEFAULT_LESSON_DURATION_MINUTES,
       term: v.data.term,
       academicYearStart: v.data.academicYearStart,
+      allowAvailabilityOverride: v.data.overrideAvailability,
+      overriddenByUserId: v.data.overrideAvailability ? ctx.userId : undefined,
     });
     const after = await readData();
     const created = after.lessons.find((l) => !ids.has(l.id));
     return ok({ lessonId: created?.id ?? "unknown" });
   } catch (e) {
+    // İş 3 — TEACHER_UNAVAILABLE tek "soft warning" kodu: `details` içinde
+    // yapılandırılmış olarak taşınır ki çağıran (actionAddLesson) mesaj
+    // metnini ayrıştırmadan "override edilebilir mi" karar verebilsin.
+    if (e instanceof LessonSlotValidationError) {
+      return fail("VALIDATION_ERROR", e.message, {
+        slotValidationCode: e.code,
+        overridable: isOverridableSlotCode(e.code),
+      });
+    }
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "createLesson failed");
   }
 }

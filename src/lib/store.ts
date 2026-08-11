@@ -93,6 +93,8 @@ type StoreApi = {
     durationMinutes?: number;
     term?: StudentTermType;
     academicYearStart?: number;
+    allowAvailabilityOverride?: boolean;
+    overriddenByUserId?: string;
   }) => Promise<AppData>;
   addPayment: (input: {
     studentId: string;
@@ -378,6 +380,8 @@ export async function addLesson(input: {
   durationMinutes?: number;
   term?: import("./types").StudentTermType;
   academicYearStart?: number;
+  allowAvailabilityOverride?: boolean;
+  overriddenByUserId?: string;
 }): Promise<AppData> {
   return withTenantScope(() => store.addLesson(input));
 }

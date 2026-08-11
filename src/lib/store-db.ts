@@ -25,6 +25,7 @@ import {
   confirmMakeupSlot,
   computeSlaDeadline,
   validateLessonSlot,
+  LessonSlotValidationError,
   type MakeupDecision,
 } from "./makeup-engine";
 import { applyLessonScheduleUpdate, applyLessonCancel } from "./lesson-update";
@@ -291,6 +292,11 @@ function mapSchoolToAppData(school: PrismaSchoolWithRelations): AppData {
       opsClosedFlagBy: (lesson as { opsClosedFlagBy?: string | null }).opsClosedFlagBy ?? undefined,
       term: (lesson as { term?: string | null }).term as import("./types").StudentTermType | undefined ?? undefined,
       academicYearStart: (lesson as { academicYearStart?: number | null }).academicYearStart ?? undefined,
+      availabilityOverride: (() => {
+        const by = (lesson as { availabilityOverrideBy?: string | null }).availabilityOverrideBy;
+        const at = (lesson as { availabilityOverrideAt?: Date | null }).availabilityOverrideAt;
+        return by && at ? { by, at: at.toISOString() } : undefined;
+      })(),
       actualStartAt: lesson.actualStartAt?.toISOString() ?? undefined,
       actualEndAt: lesson.actualEndAt?.toISOString() ?? undefined,
       startCorrectedBy: lesson.startCorrectedBy ?? undefined,
@@ -1652,6 +1658,8 @@ export async function addLesson(input: {
   durationMinutes?: number;
   term?: import("./types").StudentTermType;
   academicYearStart?: number;
+  allowAvailabilityOverride?: boolean;
+  overriddenByUserId?: string;
 }): Promise<AppData> {
   logger.info("addLesson", input.studentId, input.teacherId, input.roomId);
   const tid = requireTenantId();
@@ -1660,9 +1668,9 @@ export async function addLesson(input: {
     data,
     { instrument: input.instrument, studentId: input.studentId },
     { teacherId: input.teacherId, roomId: input.roomId, startAt: input.startAt },
-    { durationMinutes: input.durationMinutes }
+    { durationMinutes: input.durationMinutes, allowAvailabilityOverride: input.allowAvailabilityOverride }
   );
-  if (!validation.ok) throw new Error(validation.message);
+  if (!validation.ok) throw new LessonSlotValidationError(validation.code, validation.message);
   const slot = validation.slot;
 
   const branch = await prisma.branch.findFirst({
@@ -1670,6 +1678,7 @@ export async function addLesson(input: {
   });
   if (!branch) throw new Error("Şube bulunamadı");
 
+  const override = slot.availabilityOverridden && input.overriddenByUserId;
   await prisma.lesson.create({
     data: {
       id: `les_${Date.now().toString(36)}`,
@@ -1686,6 +1695,8 @@ export async function addLesson(input: {
       status: "scheduled",
       term: input.term,
       academicYearStart: input.academicYearStart,
+      availabilityOverrideBy: override ? input.overriddenByUserId : undefined,
+      availabilityOverrideAt: override ? new Date() : undefined,
     },
   });
   return readData();

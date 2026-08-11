@@ -309,6 +309,13 @@ export const lessonSchema = z.object({
   /** ÖNCELİK 4 (devam) — opsiyonel akademik dönem etiketi; verilmezse legacy (undefined). */
   term: z.enum(["guz", "yaz"]).optional(),
   academicYearStart: z.coerce.number().int().min(2000).max(2100).optional(),
+  /**
+   * İş 3 — kullanıcı "Öğretmen bu saatte müsait görünmüyor, yine de
+   * planlansın mı?" uyarısını AÇIKÇA onayladıysa true. Yalnızca
+   * TEACHER_UNAVAILABLE'ı atlatır; varsayılan false/undefined — onay
+   * olmadan hiçbir uyarı otomatik bypass edilmez.
+   */
+  overrideAvailability: z.coerce.boolean().optional(),
 });
 
 export const paymentRecordSchema = z.object({
