@@ -214,9 +214,16 @@ export default async function OgretmenPortalPage() {
         </section>
 
         <section>
-          <div className="mb-2 flex items-center gap-2 px-1">
-            <Users className="h-4 w-4 text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]" />
-            <h2 className="text-sm font-semibold text-[var(--color-text)] dark:text-slate-200">Öğrencilerim</h2>
+          <div className="mb-2 flex items-center justify-between gap-2 px-1">
+            <div className="flex items-center gap-2">
+              <Users className="h-4 w-4 text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]" />
+              <h2 className="text-sm font-semibold text-[var(--color-text)] dark:text-slate-200">Öğrencilerim</h2>
+            </div>
+            {students.length > 5 ? (
+              <Link href="/ogretmen/ogrenciler" className="text-xs font-medium text-cyan-700 hover:text-cyan-800">
+                Tümünü gör ({students.length}) →
+              </Link>
+            ) : null}
           </div>
           <div className="space-y-2">
             {students.length === 0 ? (
@@ -224,7 +231,7 @@ export default async function OgretmenPortalPage() {
                 <p className="text-sm text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">Aktif öğrenciniz yok.</p>
               </Card>
             ) : (
-              students.map((s) => (
+              students.slice(0, 5).map((s) => (
                 <Link key={s.id} href={`/ogretmen/ogrenciler/${s.id}`} className="block">
                   <Card className="!p-3 transition hover:border-cyan-200">
                     <div className="flex items-center justify-between">

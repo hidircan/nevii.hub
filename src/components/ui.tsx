@@ -1,5 +1,6 @@
 import { cn, statusColor, statusLabel } from "@/lib/utils";
-import { Loader2 } from "lucide-react";
+import { Loader2, ChevronLeft, ChevronRight } from "lucide-react";
+import Link from "next/link";
 import type { ReactNode } from "react";
 
 export function Badge({ status, children }: { status?: string; children?: ReactNode }) {
@@ -221,4 +222,68 @@ export function Select(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
 
 export function Label({ children }: { children: ReactNode }) {
   return <label className="mb-1 block text-xs font-medium text-[var(--color-text-muted)]">{children}</label>;
+}
+
+/**
+ * Ortak, tekrar kullanılabilir sayfalama bileşeni — sunucu bileşeni
+ * sayfalarında (searchParams tabanlı) client JS gerektirmeden çalışır:
+ * her buton gerçek bir `<Link>`, aktif sayfa `?page=N` ile URL'de tutulur.
+ * `hrefForPage` çağıran tarafın diğer query parametrelerini (arama/filtre)
+ * korumasını sağlar.
+ */
+export function Pagination({
+  page,
+  totalPages,
+  hrefForPage,
+}: {
+  page: number;
+  totalPages: number;
+  hrefForPage: (page: number) => string;
+}) {
+  if (totalPages <= 1) return null;
+  const prevDisabled = page <= 1;
+  const nextDisabled = page >= totalPages;
+  return (
+    <nav
+      aria-label="Sayfalama"
+      className="mt-4 flex flex-wrap items-center justify-center gap-3 sm:justify-between"
+    >
+      {prevDisabled ? (
+        <span className="inline-flex items-center gap-1 rounded-[var(--radius-md)] px-3 py-2 text-sm font-medium text-[var(--color-text-muted)] opacity-40">
+          <ChevronLeft className="h-4 w-4" /> Önceki
+        </span>
+      ) : (
+        <Link
+          href={hrefForPage(page - 1)}
+          aria-label="Önceki sayfa"
+          className="inline-flex items-center gap-1 rounded-[var(--radius-md)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3 py-2 text-sm font-medium text-[var(--color-text)] transition hover:bg-[var(--color-surface-muted)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-focus-ring)]"
+        >
+          <ChevronLeft className="h-4 w-4" /> Önceki
+        </Link>
+      )}
+      <p className="text-sm font-medium text-[var(--color-text-muted)]" aria-live="polite">
+        Sayfa {page} / {totalPages}
+      </p>
+      {nextDisabled ? (
+        <span className="inline-flex items-center gap-1 rounded-[var(--radius-md)] px-3 py-2 text-sm font-medium text-[var(--color-text-muted)] opacity-40">
+          Sonraki <ChevronRight className="h-4 w-4" />
+        </span>
+      ) : (
+        <Link
+          href={hrefForPage(page + 1)}
+          aria-label="Sonraki sayfa"
+          className="inline-flex items-center gap-1 rounded-[var(--radius-md)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3 py-2 text-sm font-medium text-[var(--color-text)] transition hover:bg-[var(--color-surface-muted)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-focus-ring)]"
+        >
+          Sonraki <ChevronRight className="h-4 w-4" />
+        </Link>
+      )}
+    </nav>
+  );
+}
+
+/** Bir sayfa değerini geçerli, 1..totalPages aralığına kırpar. */
+export function clampPage(raw: string | undefined, totalPages: number): number {
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 1) return 1;
+  return Math.min(n, Math.max(totalPages, 1));
 }
