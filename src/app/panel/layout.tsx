@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { Sidebar } from "@/components/sidebar";
+import { CommandPalette } from "@/components/command-palette";
 import { requireSessionContext } from "@/lib/auth/session";
 import { getInstitutionContext } from "@/lib/institution/context";
 
@@ -35,7 +36,14 @@ export default async function PanelLayout({
         canSeeAllKurumlar={session.role === "SUPER_ADMIN"}
       />
       <main className="flex-1 overflow-auto">
-        <div className="mx-auto max-w-7xl px-6 py-8 lg:px-10">{children}</div>
+        <div className="mx-auto max-w-7xl px-6 py-8 lg:px-10">
+          <div className="mb-6 flex justify-end">
+            <div className="w-full sm:w-80">
+              <CommandPalette role={session.role} />
+            </div>
+          </div>
+          {children}
+        </div>
       </main>
     </div>
   );

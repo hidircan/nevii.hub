@@ -7,6 +7,7 @@
 import { z } from "zod";
 import { differenceInCalendarDays, parseISO } from "date-fns";
 import { prisma } from "../db";
+import { foldTurkishForSearch } from "../normalize";
 import { provisionEntityLogin } from "../auth/users";
 import {
   addBranch,
@@ -769,6 +770,67 @@ export async function findPersonScheduleTool(
     .sort((a, b) => a.startAt.localeCompare(b.startAt))
     .slice(0, 5);
   return ok({ matchType: "teacher", id: t.id, name: t.name, upcomingLessons });
+}
+
+export type GlobalSearchResultItem = {
+  kind: "student" | "teacher" | "staff";
+  id: string;
+  label: string;
+  description?: string;
+};
+
+/**
+ * Panel command palette'in varlık araması — öğrenci/öğretmen/personel.
+ * `findPersonScheduleTool` ile AYNI RBAC kapsamlama deseni (canAccessStudent/
+ * canAccessTeacher, TEACHER yalnız kendi öğrencilerini/kendini görür) ama
+ * "tam eşleşmeyi çöz" değil "ilk N eşleşmeyi listele" amaçlı — arama kutusu
+ * içindir, tek bir sonuca zorlamaz. Personel yalnız SCHOOL_ADMIN/SUPER_ADMIN
+ * için döner (listStaffTool ile AYNI yetki sınırı). Türkçe/ASCII toleranslı
+ * arama TEK kaynak `foldTurkishForSearch` ile yapılır (StudentAttendancePicker
+ * ile aynı fonksiyon, ikinci bir normalize mantığı yazılmadı).
+ */
+export async function globalSearchTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ items: GlobalSearchResultItem[] }>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "TEACHER", "SUPER_ADMIN", "AI_AGENT"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+
+  const v = parseOrFail(z.object({ query: z.string().min(1).max(120) }), input);
+  if (!v.ok) return v;
+
+  const needle = foldTurkishForSearch(v.data.query);
+  if (!needle) return ok({ items: [] });
+
+  const data = await readData();
+  const branchShortName = (branchId?: string) =>
+    branchId ? data.settings.branches.find((b) => b.id === branchId)?.shortName : undefined;
+
+  const students: GlobalSearchResultItem[] = data.students
+    .filter(
+      (s) =>
+        s.active &&
+        foldTurkishForSearch(s.name).includes(needle) &&
+        canAccessStudent(ctx, s.id, { teacherId: s.teacherId })
+    )
+    .slice(0, 6)
+    .map((s) => ({ kind: "student" as const, id: s.id, label: s.name, description: branchShortName(s.branchId) }));
+
+  const teachers: GlobalSearchResultItem[] = data.teachers
+    .filter((t) => t.active && foldTurkishForSearch(t.name).includes(needle) && canAccessTeacher(ctx, t.id))
+    .slice(0, 6)
+    .map((t) => ({ kind: "teacher" as const, id: t.id, label: t.name, description: t.instruments?.join(", ") }));
+
+  let staff: GlobalSearchResultItem[] = [];
+  if (ctx.role === "SCHOOL_ADMIN" || ctx.role === "SUPER_ADMIN") {
+    const staffList = await listStaff(ctx.tenantId);
+    staff = staffList
+      .filter((p) => p.status !== "terminated" && foldTurkishForSearch(p.name).includes(needle))
+      .slice(0, 6)
+      .map((p) => ({ kind: "staff" as const, id: p.id, label: p.name, description: p.position }));
+  }
+
+  return ok({ items: [...students, ...teachers, ...staff] });
 }
 
 export async function getParentBalanceTool(

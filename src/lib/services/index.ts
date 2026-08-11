@@ -124,6 +124,7 @@ export {
   listInstrumentCatalogTool,
   createInstrumentCatalogTool,
   updateInstrumentCatalogTool,
+  globalSearchTool,
   listStaffTool,
   createStaffMemberTool,
   updateStaffMemberTool,
