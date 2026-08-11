@@ -162,6 +162,7 @@ import { validateTeacherRows, type TeacherImportRow } from "../import/teachers";
 import { validateRoomRows, type RoomImportRow } from "../import/rooms";
 import { validateStudentRows, type StudentImportRow } from "../import/students";
 import { validateLessonRows, type LessonImportRow } from "../import/lessons";
+import { validateLessonScheduleRows, type LessonScheduleImportPreview } from "../import/lesson-schedule";
 import type { ImportPreview } from "../import/types";
 import type { ImportCommitResult } from "../import/commit-result";
 import {
@@ -1723,6 +1724,17 @@ export async function updateBranchTool(
 
 const csvInputSchema = z.object({ csvText: z.string().min(1) });
 
+/** İş 1 — Ders Programı CSV importu (tekrarlayan seri desteği). */
+const lessonScheduleCsvInputSchema = z.object({
+  csvText: z.string().min(1),
+  term: z.enum(["guz", "yaz"]).optional(),
+  academicYearStart: z.coerce.number().int().min(2000).max(2100).optional(),
+});
+const commitLessonScheduleCsvInputSchema = lessonScheduleCsvInputSchema.extend({
+  /** Kullanıcı "uyarılı satırları da dahil et" derse true — açık onay olmadan uyarı satırları atlanır. */
+  allowAvailabilityOverride: z.coerce.boolean().optional(),
+});
+
 function csvRecords(csvText: string) {
   return rowsToRecords(parseCsv(csvText)).records;
 }
@@ -1882,6 +1894,147 @@ export async function commitLessonImportTool(
     return ok({ data: latest, created, updated: 0, skipped });
   } catch (e) {
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "importLessons failed");
+  }
+}
+
+/**
+ * İş 1 — Ders Programı CSV importuna tekrarlayan (haftalık) seri desteği.
+ * bkz. src/lib/import/lesson-schedule.ts modül yorumu — geriye dönük
+ * uyumlu (tekil ders satırları eski davranışla birebir), müsaitlik dışı
+ * satırlar hard error değil `warnings`'e düşer.
+ */
+export async function previewLessonScheduleImportTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<LessonScheduleImportPreview>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const v = parseOrFail(lessonScheduleCsvInputSchema, input);
+  if (!v.ok) return v;
+  const data = await readData();
+  const activeInstrumentNames = await resolveActiveInstrumentNames(ctx.tenantId);
+  return ok(
+    validateLessonScheduleRows(data, csvRecords(v.data.csvText), activeInstrumentNames, {
+      term: v.data.term,
+      academicYearStart: v.data.academicYearStart,
+    })
+  );
+}
+
+export type LessonScheduleImportCommitResult = {
+  createdSeriesCount: number;
+  createdSingleLessonCount: number;
+  createdTotalLessonCount: number;
+  skippedCount: number;
+  warningCount: number;
+  rowMessages: { row: number; field: string; message: string }[];
+};
+
+/**
+ * Onaylı önizlemeden SONRA çağrılır (bkz. veri-aktar UI akışı — önce
+ * preview, kullanıcı warnings'i görür, "uyarılı satırları da dahil et"
+ * derse `allowAvailabilityOverride: true` ile TEKRAR preview + commit
+ * çağrılır). Hard error varsa (errorCount > 0) hiçbir kayıt YAZILMAZ —
+ * diğer tüm importer'larla aynı ilke. `allowAvailabilityOverride:false`
+ * (varsayılan) iken warning'li satırlar da YAZILMAZ, atlanır ve
+ * `skippedCount`'a sayılır — kullanıcı onayı olmadan hiçbir uyarı
+ * otomatik bypass edilmez.
+ */
+export async function commitLessonScheduleImportTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<LessonScheduleImportCommitResult>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const v = parseOrFail(commitLessonScheduleCsvInputSchema, input);
+  if (!v.ok) return v;
+  const data = await readData();
+  const activeInstrumentNames = await resolveActiveInstrumentNames(ctx.tenantId);
+  const preview = validateLessonScheduleRows(data, csvRecords(v.data.csvText), activeInstrumentNames, {
+    term: v.data.term,
+    academicYearStart: v.data.academicYearStart,
+  });
+  if (preview.errorCount > 0) {
+    return fail("VALIDATION_ERROR", "CSV içinde hatalı satır var; hiçbir kayıt eklenmedi.", preview.errors);
+  }
+  if (preview.valid.length === 0) return fail("VALIDATION_ERROR", "İçe aktarılacak geçerli satır yok.");
+
+  const allowOverride = Boolean(v.data.allowAvailabilityOverride);
+  let createdSeriesCount = 0;
+  let createdSingleLessonCount = 0;
+  let createdTotalLessonCount = 0;
+  let skippedCount = 0;
+  const rowMessages: { row: number; field: string; message: string }[] = [];
+
+  try {
+    for (const plan of preview.valid) {
+      if (plan.duplicate) {
+        skippedCount++;
+        rowMessages.push({ row: plan.row, field: "-", message: "Zaten var — atlandı (idempotent)." });
+        continue;
+      }
+      if (plan.kind === "single") {
+        if (plan.availabilityWarning && !allowOverride) {
+          skippedCount++;
+          rowMessages.push({
+            row: plan.row,
+            field: "baslangic_saati",
+            message: "Öğretmen müsaitlik dışı — onay verilmediği için atlandı.",
+          });
+          continue;
+        }
+        await addLesson({
+          studentId: plan.studentId,
+          teacherId: plan.teacherId,
+          roomId: plan.roomId,
+          instrument: plan.instrument,
+          startAt: plan.startAt,
+          durationMinutes: plan.durationMinutes,
+          allowAvailabilityOverride: Boolean(plan.availabilityWarning) && allowOverride,
+          overriddenByUserId: plan.availabilityWarning && allowOverride ? ctx.userId : undefined,
+        });
+        createdSingleLessonCount++;
+        createdTotalLessonCount++;
+        continue;
+      }
+      // series
+      if (plan.availabilityWarnings.length > 0 && !allowOverride) {
+        skippedCount++;
+        rowMessages.push({
+          row: plan.row,
+          field: "baslangic_saati",
+          message: `${plan.availabilityWarnings.length} oluşumda öğretmen müsaitlik dışı — onay verilmediği için tüm satır atlandı.`,
+        });
+        continue;
+      }
+      for (const params of plan.seriesParams) {
+        const result = await addLessonSeries(params, {
+          allowAvailabilityOverride: allowOverride,
+          overriddenByUserId: allowOverride ? ctx.userId : undefined,
+        });
+        if (!result.ok) {
+          rowMessages.push({ row: plan.row, field: "-", message: result.message });
+          continue;
+        }
+        createdSeriesCount++;
+        createdTotalLessonCount += result.createdLessonIds.length;
+      }
+    }
+    audit(ctx, "lesson_schedule.import", "Lesson", "bulk", {
+      createdSeriesCount,
+      createdSingleLessonCount,
+      skippedCount,
+    });
+    return ok({
+      createdSeriesCount,
+      createdSingleLessonCount,
+      createdTotalLessonCount,
+      skippedCount,
+      warningCount: preview.warningCount,
+      rowMessages,
+    });
+  } catch (e) {
+    return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "importLessonSchedule failed");
   }
 }
 

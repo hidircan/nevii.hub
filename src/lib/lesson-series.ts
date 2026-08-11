@@ -90,7 +90,7 @@ export function buildSeriesPreviewText(params: {
 }
 
 export type SeriesOccurrenceCheck =
-  | { startAt: string; endAt: string; ok: true }
+  | { startAt: string; endAt: string; ok: true; availabilityOverridden?: boolean }
   | { startAt: string; endAt: string; ok: false; code: SlotValidationCode; message: string };
 
 /**
@@ -102,17 +102,24 @@ export function checkSeriesOccurrences(
   data: AppData,
   params: Pick<SeriesParams, "studentId" | "teacherId" | "roomId" | "instrument">,
   occurrences: SeriesOccurrence[],
-  now: Date = new Date()
+  now: Date = new Date(),
+  /** İş 1 — bkz. makeup-engine.ts allowAvailabilityOverride yorumu; yalnızca TEACHER_UNAVAILABLE'ı atlatır. */
+  allowAvailabilityOverride = false
 ): SeriesOccurrenceCheck[] {
   return occurrences.map((occ) => {
     const result = validateLessonSlot(
       data,
       { instrument: params.instrument, studentId: params.studentId },
       { teacherId: params.teacherId, roomId: params.roomId, startAt: occ.startAt },
-      { now }
+      { now, allowAvailabilityOverride }
     );
     if (result.ok) {
-      return { startAt: result.slot.startAt, endAt: result.slot.endAt, ok: true };
+      return {
+        startAt: result.slot.startAt,
+        endAt: result.slot.endAt,
+        ok: true,
+        availabilityOverridden: result.slot.availabilityOverridden,
+      };
     }
     return { startAt: occ.startAt, endAt: occ.endAt, ok: false, code: result.code, message: result.message };
   });
@@ -138,11 +145,17 @@ export type CreateSeriesResult =
 export function createLessonSeriesData(
   data: AppData,
   params: SeriesParams,
-  options: { skipConflicts?: boolean; now?: Date } = {}
+  options: {
+    skipConflicts?: boolean;
+    now?: Date;
+    /** İş 1 — CSV toplu içe aktarımda kullanıcı onayı sonrası TEACHER_UNAVAILABLE'ı atlatır. */
+    allowAvailabilityOverride?: boolean;
+    overriddenByUserId?: string;
+  } = {}
 ): CreateSeriesResult {
   const now = options.now ?? new Date();
   const occurrences = computeSeriesOccurrences(params);
-  const checks = checkSeriesOccurrences(data, params, occurrences, now);
+  const checks = checkSeriesOccurrences(data, params, occurrences, now, options.allowAvailabilityOverride);
   const conflicts = checks.filter((c): c is Extract<SeriesOccurrenceCheck, { ok: false }> => !c.ok);
 
   if (conflicts.length > 0 && !options.skipConflicts) {
@@ -200,6 +213,10 @@ export function createLessonSeriesData(
     // Seriden üretilen ders serinin dönem etiketini miras alır.
     term: params.term,
     academicYearStart: params.academicYearStart,
+    availabilityOverride:
+      c.availabilityOverridden && options.overriddenByUserId
+        ? { by: options.overriddenByUserId, at: nowIso }
+        : undefined,
   }));
 
   const nextData: AppData = {

@@ -147,7 +147,7 @@ type StoreApi = {
   importStudents: (rows: StudentImportRow[]) => Promise<ImportCommitResult>;
   addLessonSeries: (
     params: SeriesParams,
-    options?: { skipConflicts?: boolean }
+    options?: { skipConflicts?: boolean; allowAvailabilityOverride?: boolean; overriddenByUserId?: string }
   ) => Promise<CreateSeriesResult>;
   cancelLessonSeriesFromLesson: (lessonId: string) => Promise<SeriesCancelResult>;
   cancelEntireLessonSeries: (seriesId: string) => Promise<SeriesCancelResult>;
@@ -477,7 +477,7 @@ export async function importStudents(rows: StudentImportRow[]): Promise<ImportCo
 
 export async function addLessonSeries(
   params: SeriesParams,
-  options?: { skipConflicts?: boolean }
+  options?: { skipConflicts?: boolean; allowAvailabilityOverride?: boolean; overriddenByUserId?: string }
 ): Promise<CreateSeriesResult> {
   return withTenantScope(() => store.addLessonSeries(params, options));
 }

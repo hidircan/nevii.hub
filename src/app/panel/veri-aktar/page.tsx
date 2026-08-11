@@ -1,5 +1,6 @@
 import { PageHeader } from "@/components/ui";
 import { CsvImportSection } from "@/components/csv-import-section";
+import { LessonScheduleImportSection } from "@/components/lesson-schedule-import-section";
 import {
   actionPreviewBranchImport,
   actionCommitBranchImport,
@@ -9,14 +10,11 @@ import {
   actionCommitRoomImport,
   actionPreviewStudentImport,
   actionCommitStudentImport,
-  actionPreviewLessonImport,
-  actionCommitLessonImport,
 } from "@/lib/actions";
 import { BRANCH_CSV_COLUMNS, BRANCH_CSV_SAMPLE } from "@/lib/import/branches";
 import { TEACHER_CSV_COLUMNS, TEACHER_CSV_SAMPLE } from "@/lib/import/teachers";
 import { ROOM_CSV_COLUMNS, ROOM_CSV_SAMPLE } from "@/lib/import/rooms";
 import { STUDENT_CSV_COLUMNS, STUDENT_CSV_SAMPLE } from "@/lib/import/students";
-import { LESSON_CSV_COLUMNS, LESSON_CSV_SAMPLE } from "@/lib/import/lessons";
 
 export const dynamic = "force-dynamic";
 
@@ -88,24 +86,7 @@ export default function VeriAktarPage() {
           onCommit={actionCommitStudentImport}
         />
 
-        <CsvImportSection
-          title="5. Ders Programı"
-          description={
-            "Öğrenci ve öğretmen AD SOYADI ile eşleşir (aynı adda birden fazla aktif kayıt varsa " +
-            '"Ad Soyad (kod)" ile netleştirin). tarih "yyyy-aa-gg", saat "SS:DD" biçiminde olmalı. sure_dk ' +
-            "opsiyoneldir (30/40/50); boşsa okulun varsayılan ders süresi kullanılır. Aynı öğretmen+oda+saatte " +
-            "zaten bir ders varsa o satır atlanır (kör duplicate oluşturulmaz) — CSV'yi güvenle tekrar " +
-            "yükleyebilirsiniz. Diğer satırlarla aynı program/telafi çakışma kurallarına (müsaitlik, oda/öğretmen " +
-            "çakışması, günlük ders limiti) tabidir; hatalı satır varsa hiçbir ders eklenmez."
-          }
-          columns={LESSON_CSV_COLUMNS}
-          sampleCsv={LESSON_CSV_SAMPLE}
-          sampleFileName="ders_programi_ornek.csv"
-          successHref="/panel/program"
-          successLinkLabel="Ders programını görüntüle"
-          onPreview={actionPreviewLessonImport}
-          onCommit={actionCommitLessonImport}
-        />
+        <LessonScheduleImportSection />
       </div>
     </div>
   );

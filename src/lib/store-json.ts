@@ -612,7 +612,7 @@ function assertLessonSeriesRefsExist(data: AppData, params: SeriesParams) {
  */
 export async function addLessonSeries(
   params: SeriesParams,
-  options?: { skipConflicts?: boolean }
+  options?: { skipConflicts?: boolean; allowAvailabilityOverride?: boolean; overriddenByUserId?: string }
 ): Promise<CreateSeriesResult> {
   const data = await readData();
   assertLessonSeriesRefsExist(data, params);

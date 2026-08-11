@@ -37,6 +37,9 @@ import {
   commitRoomImportTool,
   previewLessonImportTool,
   commitLessonImportTool,
+  previewLessonScheduleImportTool,
+  commitLessonScheduleImportTool,
+  type LessonScheduleImportCommitResult,
   previewStudentImportTool,
   commitStudentImportTool,
   createRoomTool,
@@ -108,6 +111,7 @@ import type { TeacherImportRow } from "./import/teachers";
 import type { RoomImportRow } from "./import/rooms";
 import type { StudentImportRow } from "./import/students";
 import type { LessonImportRow } from "./import/lessons";
+import type { LessonScheduleImportPreview } from "./import/lesson-schedule";
 import type { ServiceContext } from "./services/context";
 
 function revalidateAll() {
@@ -1297,6 +1301,50 @@ export async function actionCommitLessonImport(csvText: string): Promise<ImportC
     return { ok: true, result: result.data };
   } catch (error) {
     logger.error("actionCommitLessonImport failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    if (error instanceof WriteScopeDeniedError) return { ok: false, message: error.message };
+    return { ok: false, message: "İçe aktarım sırasında beklenmeyen bir hata oluştu." };
+  }
+}
+
+export type LessonScheduleImportPreviewActionResult =
+  | { ok: true; preview: LessonScheduleImportPreview }
+  | { ok: false; message: string };
+
+/** İş 1 — Ders Programı CSV importu (tekrarlayan seri desteği). */
+export async function actionPreviewLessonScheduleImport(csvText: string): Promise<LessonScheduleImportPreviewActionResult> {
+  try {
+    const result = await withAuthContext("actionPreviewLessonScheduleImport", (ctx) =>
+      previewLessonScheduleImportTool(ctx, { csvText })
+    );
+    if (!result.ok) return { ok: false, message: result.error.message };
+    return { ok: true, preview: result.data };
+  } catch (error) {
+    logger.error("actionPreviewLessonScheduleImport failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    if (error instanceof WriteScopeDeniedError) return { ok: false, message: error.message };
+    return { ok: false, message: "Önizleme sırasında beklenmeyen bir hata oluştu." };
+  }
+}
+
+export type LessonScheduleImportCommitActionResult =
+  | { ok: true; result: LessonScheduleImportCommitResult }
+  | { ok: false; message: string };
+
+/** `allowAvailabilityOverride: true` yalnızca kullanıcı önizlemedeki uyarıları görüp AÇIKÇA onayladıysa gönderilmeli. */
+export async function actionCommitLessonScheduleImport(
+  csvText: string,
+  allowAvailabilityOverride?: boolean
+): Promise<LessonScheduleImportCommitActionResult> {
+  try {
+    const result = await withAuthContext("actionCommitLessonScheduleImport", (ctx) =>
+      commitLessonScheduleImportTool(ctx, { csvText, allowAvailabilityOverride })
+    );
+    if (!result.ok) return { ok: false, message: result.error.message };
+    revalidateAll();
+    return { ok: true, result: result.data };
+  } catch (error) {
+    logger.error("actionCommitLessonScheduleImport failed", error);
     if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
     if (error instanceof WriteScopeDeniedError) return { ok: false, message: error.message };
     return { ok: false, message: "İçe aktarım sırasında beklenmeyen bir hata oluştu." };

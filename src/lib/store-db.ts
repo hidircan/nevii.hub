@@ -1979,7 +1979,7 @@ export async function correctLessonTimesLive(
  */
 export async function addLessonSeries(
   params: SeriesParams,
-  options?: { skipConflicts?: boolean }
+  options?: { skipConflicts?: boolean; allowAvailabilityOverride?: boolean; overriddenByUserId?: string }
 ): Promise<CreateSeriesResult> {
   logger.info("addLessonSeries", params.studentId, params.teacherId);
   const tid = requireTenantId();
@@ -2035,6 +2035,8 @@ export async function addLessonSeries(
           seriesId: result.seriesId,
           term: lesson.term,
           academicYearStart: lesson.academicYearStart,
+          availabilityOverrideBy: lesson.availabilityOverride?.by,
+          availabilityOverrideAt: lesson.availabilityOverride ? new Date(lesson.availabilityOverride.at) : undefined,
         },
       });
     }
