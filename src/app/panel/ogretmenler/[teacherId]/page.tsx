@@ -15,7 +15,8 @@ import { getInstitutionContext, readScopedData } from "@/lib/institution/context
 import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { listStudentDocumentsTool, listInstrumentCatalogTool } from "@/lib/services";
 import type { Instrument } from "@/lib/types";
-import { Badge, Card, EmptyState, PageHeader } from "@/components/ui";
+import { Badge, Card, EmptyState, PageHeader, Pagination, clampPage } from "@/components/ui";
+import { FeeRuleManager } from "@/components/fee-rule-manager";
 import { NationalIdReveal } from "@/components/national-id-reveal";
 import { maskNationalId } from "@/lib/pii/tc-identity";
 import { canViewFullNationalId } from "@/lib/pii";
@@ -37,16 +38,22 @@ const SECTIONS = [
   { href: "#program", icon: CalendarDays, label: "Ders Programı" },
   { href: "#ogrenciler", icon: Users, label: "Öğrenciler" },
   { href: "#hakedis", icon: Wallet, label: "Hakedişler" },
+  { href: "#ucret", icon: Wallet, label: "Saatlik Ücret" },
   { href: "#odeme", icon: CreditCard, label: "Ödemeler" },
   { href: "#evrak", icon: FileText, label: "Evraklar" },
 ] as const;
 
+const STUDENTS_PAGE_SIZE = 5;
+
 export default async function TeacherDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ teacherId: string }>;
+  searchParams: Promise<{ ogrenciSayfa?: string }>;
 }) {
   const { teacherId } = await params;
+  const { ogrenciSayfa } = await searchParams;
   let session;
   try {
     session = await requireSessionContext();
@@ -82,7 +89,16 @@ export default async function TeacherDetailPage({
   const branch = data.settings.branches.find((b) => b.id === teacher.branchId);
   const canViewSensitive = session.role === "SUPER_ADMIN" || session.role === "SCHOOL_ADMIN";
 
-  const students = data.students.filter((s) => s.teacherId === teacher.id);
+  const students = data.students
+    .filter((s) => s.teacherId === teacher.id)
+    .sort((a, b) => a.name.localeCompare(b.name, "tr"));
+  const studentsTotalPages = Math.max(1, Math.ceil(students.length / STUDENTS_PAGE_SIZE));
+  const studentsPage = clampPage(ogrenciSayfa, studentsTotalPages);
+  const pagedStudents = students.slice(
+    (studentsPage - 1) * STUDENTS_PAGE_SIZE,
+    studentsPage * STUDENTS_PAGE_SIZE
+  );
+  const teacherFeeRules = data.teacherFeeRules.filter((r) => r.teacherId === teacher.id);
   const lessons = data.lessons
     .filter((l) => l.teacherId === teacher.id)
     .sort((a, b) => b.startAt.localeCompare(a.startAt));
@@ -333,22 +349,31 @@ export default async function TeacherDetailPage({
       </section>
 
       <section id="ogrenciler" className="mb-8 scroll-mt-4">
-        <h2 className="mb-3 text-sm font-semibold text-[var(--color-text)]">Öğrenciler</h2>
+        <h2 className="mb-3 text-sm font-semibold text-[var(--color-text)]">
+          Öğrenciler {students.length > 0 ? <span className="text-[var(--color-text-muted)]">({students.length})</span> : null}
+        </h2>
         {students.length === 0 ? (
           <EmptyState title="Atanmış öğrenci yok" />
         ) : (
-          <div className="space-y-2">
-            {students.map((s) => (
-              <Link key={s.id} href={`/panel/ogrenciler/${s.id}`}>
-                <Card className="!p-3 transition hover:border-[var(--color-primary)]">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-sm font-medium text-[var(--color-text)]">{s.name}</p>
-                    <Badge status={s.active ? "confirmed" : "cancelled"}>{s.active ? "Aktif" : "Pasif"}</Badge>
-                  </div>
-                </Card>
-              </Link>
-            ))}
-          </div>
+          <>
+            <div className="space-y-2">
+              {pagedStudents.map((s) => (
+                <Link key={s.id} href={`/panel/ogrenciler/${s.id}`}>
+                  <Card className="!p-3 transition hover:border-[var(--color-primary)]">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm font-medium text-[var(--color-text)]">{s.name}</p>
+                      <Badge status={s.active ? "confirmed" : "cancelled"}>{s.active ? "Aktif" : "Pasif"}</Badge>
+                    </div>
+                  </Card>
+                </Link>
+              ))}
+            </div>
+            <Pagination
+              page={studentsPage}
+              totalPages={studentsTotalPages}
+              hrefForPage={(p) => `/panel/ogretmenler/${teacher.id}?ogrenciSayfa=${p}#ogrenciler`}
+            />
+          </>
         )}
       </section>
 
@@ -363,6 +388,22 @@ export default async function TeacherDetailPage({
           <MiniStat label="Bu ay bekleyen" value={formatMoney(earnings.totalAmount)} />
           <MiniStat label="Bu ay ödenen" value={formatMoney(paidThisMonth)} />
         </div>
+      </section>
+
+      <section id="ucret" className="mb-8 scroll-mt-4">
+        <h2 className="mb-3 text-sm font-semibold text-[var(--color-text)]">Saatlik Hakediş Ücreti</h2>
+        <p className="mb-3 text-xs text-[var(--color-text-muted)]">
+          Bu öğretmenin dakika-başı ücret kuralı (bkz. Ücret Kuralları ekranıyla AYNI kaynak — burada yalnızca bu
+          öğretmene daraltılmış görünür). Yeni bir kural eklemek geçmişte zaten onaylanmış/ödenmiş hakediş
+          kayıtlarını ASLA değiştirmez; yalnızca bundan sonraki hesaplamalara veya belirttiğiniz geçerlilik
+          tarihinden sonrasına uygulanır.
+        </p>
+        <FeeRuleManager
+          teachers={[{ id: teacher.id, name: teacher.name }]}
+          branches={data.settings.branches.map((b) => ({ id: b.id, shortName: b.shortName }))}
+          rules={teacherFeeRules}
+          canWrite={kurum.scope.mode === "single"}
+        />
       </section>
 
       <section id="odeme" className="mb-8 scroll-mt-4">
