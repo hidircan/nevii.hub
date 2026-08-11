@@ -143,6 +143,48 @@
 }
 
 /**
+ * Atölye — İş 4B: renk değişiminin ötesinde, gerçekten farklı bir görsel
+ * karakter. Sıcak kağıt tonlu yüzeyler, kömür metin, TEK seçkin vurgu
+ * (derin bakır) — editoryal/çalışma masası estetiği. Diğer altı profilden
+ * farkı yalnız renk değil: köşeler daha keskin (küçük radius), gölge yerine
+ * daha belirgin çizgisel sınırlar (`--shadow-*` neredeyse düz, `--color-
+ * border-strong` daha koyu) kullanılır — bkz. aşağıdaki `--radius-*`/
+ * `--shadow-*` override bloğu. Success/warning/danger/info anlamı diğer
+ * profillerle AYNI kalır (yalnızca durum bildirir, kararı etkilemez).
+ */
+:root[data-theme-profile="atolye"] {
+  --color-bg: #f1ece1; /* sıcak kağıt */
+  --color-surface: #faf7ef;
+  --color-surface-muted: #ece4d3;
+  --color-border: #d9cdb3;
+  --color-border-strong: #b9a97f;
+
+  --color-text: #2a2318;
+  --color-text-muted: #6e6248;
+  --color-text-inverted: #faf7ef;
+  --text-primary: rgba(42, 35, 24, 0.96);
+  --text-secondary: rgba(42, 35, 24, 0.78);
+  --text-tertiary: rgba(42, 35, 24, 0.6);
+
+  /* TEK vurgu: derin bakır */
+  --color-primary: #93441c;
+  --color-primary-hover: #74350f;
+  --color-primary-soft: #f0dfce;
+  --color-primary-soft-text: #5c2b0d;
+
+  --color-success: #3c5f2e;
+  --color-success-soft: #e4ead9;
+  --color-warning: #8a5a12;
+  --color-warning-soft: #f0e2c8;
+  --color-danger: #8c3226;
+  --color-danger-soft: #f0ded9;
+  --color-info: #3d5a70;
+  --color-info-soft: #dfe6ea;
+
+  --color-focus-ring: #93441c;
+}
+
+/**
  * Gece Obsidyen — bu sistemdeki TEK gerçek koyu tema. Yalnızca vurgu rengini
  * değil, yüzey/metin/durum token'larının TAMAMINI tersine çevirir (diğer
  * profiller yalnızca vurgu rengini değiştiren açık temalardır). Açık tema
@@ -316,6 +358,25 @@ summary,
   --shadow-material-hover: 0 1px 1px rgb(0 0 0 / 0.4), 0 18px 34px -18px rgb(0 0 0 / 0.86);
 }
 
+/**
+ * Atölye — köşeler keskinleşir, kartlar "yüzen" gölgeden çok çizgisel
+ * sınırlara dayanır (gölge neredeyse düz, sınır rengi daha koyu/belirgin).
+ * Bu, aynı token sözlüğü içinde kalarak (hiçbir bileşen değişmeden)
+ * sidebar/header/dashboard yoğunluğunu diğer profillerden gözle görülür
+ * biçimde ayırır.
+ */
+:root[data-theme-profile="atolye"] {
+  --radius-sm: 2px;
+  --radius-md: 3px;
+  --radius-lg: 4px;
+  --shadow-sm: 0 1px 0 0 rgb(42 35 24 / 0.12);
+  --shadow-md: 0 1px 0 0 rgb(42 35 24 / 0.16);
+  --texture-line: rgb(42 35 24 / 0.05);
+  --texture-grain: rgb(120 96 60 / 0.05);
+  --shadow-material: 0 1px 0 0 rgb(42 35 24 / 0.14);
+  --shadow-material-hover: 0 1px 0 0 rgb(42 35 24 / 0.2);
+}
+
 body {
   min-height: 100dvh;
   background-color: var(--color-bg);
@@ -358,4 +419,22 @@ a[href],
 ::selection {
   background: color-mix(in srgb, var(--color-primary) 18%, transparent);
   color: var(--text-primary);
+}
+
+/**
+ * Yoğunluk tercihi (İş 4D, `src/lib/theme.ts` Density) — yalnız MASAÜSTÜNDE
+ * (min-width: 768px) header/sidebar dikey boşluğunu azaltır. Mobilde
+ * KASITLI olarak hiç uygulanmaz — dokunma hedefleri 44px altına düşmesin
+ * diye. `.panel-header`/`.panel-nav-link` sınıfları yalnız bu iki bileşende
+ * kullanılır (bkz. panel-header.tsx, sidebar.tsx).
+ */
+@media (min-width: 768px) {
+  [data-density="compact"] .panel-header {
+    padding-top: var(--space-1);
+    padding-bottom: var(--space-1);
+  }
+  [data-density="compact"] .panel-nav-link {
+    padding-top: 4px;
+    padding-bottom: 4px;
+  }
 }

@@ -23,14 +23,20 @@ import { KurumScopeNote } from "@/components/kurum-scope-note";
 
 export const dynamic = "force-dynamic";
 
-type ActionTone = "rose" | "amber" | "gold" | "sky";
+/**
+ * İş 4A — "Bugünün aksiyonları" TAMAMEN token tabanlı: her aksiyon türü
+ * ayrı parlak bir kart rengiyle boyanmaz, durum yalnız kontrollü bir
+ * durum tonuyla (success/warning/danger/info token'ları) anlatılır — hepsi
+ * `globals.css`'teki tek token sözlüğünden gelir, bu yüzden Kurumsal ve
+ * Atölye temalarında otomatik olarak doğru/profesyonel görünür.
+ */
+type ActionTone = "danger" | "warning" | "primary" | "info";
 
-const TONE_CLASSES: Record<ActionTone, string> = {
-  rose: "block rounded-lg border border-rose-200 bg-rose-50/70 px-4 py-3 text-rose-900 transition hover:bg-rose-100",
-  amber:
-    "block rounded-lg border border-amber-200 bg-amber-50/70 px-4 py-3 text-amber-900 transition hover:bg-amber-100",
-  gold: "block rounded-lg border border-[var(--color-primary)]/30 bg-[var(--color-primary-soft)] px-4 py-3 text-[var(--color-primary-soft-text)] transition hover:bg-[var(--color-primary-soft)]/70",
-  sky: "block rounded-lg border border-sky-200 bg-sky-50/70 px-4 py-3 text-sky-900 transition hover:bg-sky-100",
+const TONE_STYLE: Record<ActionTone, { border: string; bg: string; text: string }> = {
+  danger: { border: "var(--color-danger)", bg: "var(--color-danger-soft)", text: "var(--color-danger)" },
+  warning: { border: "var(--color-warning)", bg: "var(--color-warning-soft)", text: "var(--color-warning)" },
+  primary: { border: "var(--color-primary)", bg: "var(--color-primary-soft)", text: "var(--color-primary-soft-text)" },
+  info: { border: "var(--color-info)", bg: "var(--color-info-soft)", text: "var(--color-info)" },
 };
 
 export default async function DashboardPage() {
@@ -90,7 +96,7 @@ export default async function DashboardPage() {
       href: "/panel/ai/tahsilat-agent",
       label: hasOverduePayment ? "Gecikmiş tahsilat" : "Bekleyen tahsilat",
       detail: formatMoney(totalOutstanding),
-      tone: hasOverduePayment ? "rose" : "amber",
+      tone: hasOverduePayment ? "danger" : "warning",
     });
   }
 
@@ -100,7 +106,7 @@ export default async function DashboardPage() {
       href: "/panel/telafi",
       label: "Telafi bekliyor",
       detail: `${openMakeupRequests.length} talep`,
-      tone: "amber",
+      tone: "warning",
     });
   }
 
@@ -110,7 +116,7 @@ export default async function DashboardPage() {
       href: "/panel/yoklama",
       label: "Yoklama bekliyor",
       detail: `${pendingAttendanceLessons.length} ders`,
-      tone: "gold",
+      tone: "primary",
     });
   }
 
@@ -120,7 +126,7 @@ export default async function DashboardPage() {
       href: "/panel/bildirimler",
       label: "Bekleyen WhatsApp mesajı",
       detail: `${pendingMessageCount} mesaj`,
-      tone: "sky",
+      tone: "info",
     });
   }
 
@@ -158,17 +164,28 @@ export default async function DashboardPage() {
       <div className="mb-6">
         <h2 className="mb-3 text-sm font-semibold text-[var(--color-text-muted)]">Bugünün aksiyonları</h2>
         {actionCards.length === 0 ? (
-          <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 px-4 py-3 text-sm text-emerald-800">
+          <div
+            className="rounded-lg border px-4 py-3 text-sm"
+            style={{ borderColor: "var(--color-success)", background: "var(--color-success-soft)", color: "var(--color-success)" }}
+          >
             Bugün için bekleyen aksiyon bulunmuyor.
           </div>
         ) : (
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            {actionCards.map((card) => (
-              <Link key={card.key} href={card.href} className={TONE_CLASSES[card.tone]}>
-                <p className="text-sm font-semibold">{card.label}</p>
-                <p className="mt-1 text-lg font-semibold">{card.detail}</p>
-              </Link>
-            ))}
+            {actionCards.map((card) => {
+              const tone = TONE_STYLE[card.tone];
+              return (
+                <Link
+                  key={card.key}
+                  href={card.href}
+                  className="block rounded-lg border px-4 py-3 transition hover:opacity-90"
+                  style={{ borderColor: `color-mix(in srgb, ${tone.border} 35%, transparent)`, background: tone.bg, color: tone.text }}
+                >
+                  <p className="text-sm font-semibold">{card.label}</p>
+                  <p className="mt-1 text-lg font-semibold">{card.detail}</p>
+                </Link>
+              );
+            })}
           </div>
         )}
       </div>
@@ -251,7 +268,7 @@ export default async function DashboardPage() {
         <div className="space-y-6">
           <Card>
             <div className="mb-3 flex items-center gap-2">
-              <RefreshCcw className="h-4 w-4 text-amber-600" />
+              <RefreshCcw className="h-4 w-4" style={{ color: "var(--color-warning)" }} />
               <h2 className="font-semibold text-[var(--color-text)]">Bekleyen telafiler</h2>
             </div>
             {openMakeups.length === 0 ? (
@@ -261,7 +278,11 @@ export default async function DashboardPage() {
                 {openMakeups.map((m) => {
                   const student = data.students.find((s) => s.id === m.studentId);
                   return (
-                    <li key={m.id} className="rounded-xl border border-amber-100 bg-amber-50/50 p-3">
+                    <li
+                      key={m.id}
+                      className="rounded-xl border p-3"
+                      style={{ borderColor: "var(--color-warning-soft)", background: "var(--color-warning-soft)" }}
+                    >
                       <div className="flex items-start justify-between gap-2">
                         <div>
                           <p className="text-sm font-medium text-[var(--color-text)]">{student?.name}</p>
@@ -289,7 +310,7 @@ export default async function DashboardPage() {
 
           <Card>
             <div className="mb-3 flex items-center gap-2">
-              <AlertTriangle className="h-4 w-4 text-rose-600" />
+              <AlertTriangle className="h-4 w-4" style={{ color: "var(--color-danger)" }} />
               <h2 className="font-semibold text-[var(--color-text)]">Tahsilat uyarısı</h2>
             </div>
             {urgentPayments.length === 0 ? (
@@ -318,21 +339,24 @@ export default async function DashboardPage() {
               <h2 className="font-semibold text-[var(--color-text)]">Öğretmen Hakedişleri</h2>
             </div>
             <div className="grid grid-cols-2 gap-3 text-center">
-              <div className="rounded-xl bg-amber-50 p-3">
-                <p className="text-lg font-semibold text-amber-700">
+              <div className="rounded-xl p-3" style={{ background: "var(--color-warning-soft)" }}>
+                <p className="text-lg font-semibold" style={{ color: "var(--color-warning)" }}>
                   {formatMoney(payoutOverview.pendingTotal)}
                 </p>
                 <p className="text-[11px] text-[var(--color-text-muted)]">Bu ay bekleyen</p>
               </div>
-              <div className="rounded-xl bg-emerald-50 p-3">
-                <p className="text-lg font-semibold text-emerald-700">
+              <div className="rounded-xl p-3" style={{ background: "var(--color-success-soft)" }}>
+                <p className="text-lg font-semibold" style={{ color: "var(--color-success)" }}>
                   {formatMoney(payoutOverview.paidTotal)}
                 </p>
                 <p className="text-[11px] text-[var(--color-text-muted)]">Bu ay ödenen</p>
               </div>
             </div>
             {payoutOverview.missingFeeRuleLessonCount > 0 ? (
-              <p className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-800">
+              <p
+                className="mt-3 rounded-lg px-3 py-2 text-xs"
+                style={{ background: "var(--color-danger-soft)", color: "var(--color-danger)" }}
+              >
                 {payoutOverview.missingFeeRuleLessonCount} tamamlanmış derste ücret kuralı eksik —
                 hakediş eksiksiz hesaplanamıyor.
               </p>
