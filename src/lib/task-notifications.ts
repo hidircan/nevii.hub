@@ -147,22 +147,32 @@ export async function notifyTaskReminder(input: {
   }
 }
 
-/** Sorumlu atandığında bildirim — best-effort, hata fırlatmaz (görev işlemini bloklamaz). */
+/**
+ * Sorumlu atandığında bildirim — best-effort, hata fırlatmaz.
+ * `task_new_assignment` kategori tercihi kapalıysa oluşturmaz (İş 4).
+ * kind: `task_new_assignment` (eski `task_assigned` ile href çözümlemesi uyumlu).
+ */
 export async function notifyTaskAssigned(
   tenantId: string,
   assigneeId: string | undefined,
-  taskTitle: string
+  taskTitle: string,
+  taskId?: string
 ): Promise<void> {
   const targetUserId = await resolveTaskNotifyUserId(tenantId, assigneeId);
   if (!targetUserId) return;
   try {
+    const { isCategoryEnabledForUser } = await import("./notification-preferences");
+    const enabled = await isCategoryEnabledForUser(tenantId, targetUserId, "task_new_assignment");
+    if (!enabled) return;
+
     const { createNotification } = await import("./notifications");
+    const detail = taskId ? ` Detay: /panel/is-takip/${taskId}` : " Detay: /panel/is-takip";
     await createNotification({
       tenantId,
       targetUserId,
-      kind: "task_assigned",
+      kind: "task_new_assignment",
       title: "Yeni görev atandı",
-      body: `"${taskTitle}" görevi size atandı.`,
+      body: `"${taskTitle}" görevi size atandı.${detail}`,
     });
   } catch {
     // best-effort — bildirim oluşturulamasa bile görev ataması geçerli kalır.

@@ -158,4 +158,7 @@ export {
   getTaskAttachmentFileTool,
   getTaskReminderPreferenceTool,
   updateTaskReminderPreferenceTool,
+  getNotificationPreferencesTool,
+  setNotificationPreferencesTool,
+  resetNotificationPreferencesTool,
 } from "./tools";

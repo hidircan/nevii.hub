@@ -264,6 +264,7 @@ import {
   addTaskLinkAttachmentSchema,
   deleteTaskAttachmentSchema,
   updateTaskReminderPreferenceSchema,
+  setNotificationPreferencesSchema,
   listTasksFilterSchema,
 } from "../validation";
 import {
@@ -1716,6 +1717,22 @@ export async function createLeaveRequestTool(
   const result = await createLeaveRequest({ tenantId: ctx.tenantId, createdBy: ctx.userId, ...v.data });
   if (!result.ok) return fail("VALIDATION_ERROR", result.message);
   audit(ctx, "leave.create", "LeaveRequest", result.entry.id, { staffId: result.entry.staffId });
+  // Yönetici bildirimleri — talep oluşturan kişi hariç (kendi bildirimi almaz).
+  try {
+    const { notifyAdmins } = await import("../manager-notifications");
+    const range = `${result.entry.startDate} – ${result.entry.endDate}`;
+    await notifyAdmins(
+      ctx.tenantId,
+      "leave_new_request",
+      {
+        title: "Yeni izin talebi",
+        body: `Onay bekleyen izin talebi (${range}, ${result.entry.dayCount} gün). Detay: /panel/personel/izinler`,
+      },
+      { excludeUserId: ctx.userId, dedupeKey: result.entry.id }
+    );
+  } catch {
+    // best-effort
+  }
   return ok({ leaveId: result.entry.id });
 }
 
@@ -2991,6 +3008,22 @@ export async function scanOverduePaymentsTool(
         body: `${payment.description} için ${formatMoney(remaining)} tutarında ödemeniz gecikmiştir.`,
       });
       notificationsCreated++;
+
+      // Aynı frekans kapısından geçen tarama → yöneticilere de (tercihe tabi, 24s dedupe).
+      try {
+        const { notifyAdmins } = await import("../manager-notifications");
+        await notifyAdmins(
+          ctx.tenantId,
+          "payment_overdue",
+          {
+            title: "Vadesi geçmiş ödeme",
+            body: `${student.name}: ${payment.description} — ${formatMoney(remaining)} gecikmiş. Detay: /panel/odemeler`,
+          },
+          { excludeUserId: ctx.userId, dedupeKey: payment.id }
+        );
+      } catch {
+        // best-effort
+      }
 
       audit(ctx, "collections.reminder_scan", "PaymentFollowUpCase", nextCase.id, {
         paymentId: payment.id,
@@ -5854,7 +5887,7 @@ export async function createTaskTool(
     }
     if (task.assigneeId) {
       const { notifyTaskAssigned } = await import("../task-notifications");
-      await notifyTaskAssigned(ctx.tenantId, task.assigneeId, task.title);
+      await notifyTaskAssigned(ctx.tenantId, task.assigneeId, task.title, task.id);
     }
     return ok({ taskId: task.id });
   } catch (e) {
@@ -6187,7 +6220,7 @@ export async function updateTaskTool(
     audit(ctx, "task.update", "Task", updated.id, { changedFields: Object.keys(patch) });
     if ("assigneeId" in v.data && updated.assigneeId && updated.assigneeId !== task.assigneeId) {
       const { notifyTaskAssigned } = await import("../task-notifications");
-      await notifyTaskAssigned(ctx.tenantId, updated.assigneeId, updated.title);
+      await notifyTaskAssigned(ctx.tenantId, updated.assigneeId, updated.title, updated.id);
     }
     return ok({ taskId: updated.id });
   } catch (e) {
@@ -6732,6 +6765,90 @@ export async function updateTaskReminderPreferenceTool(
     return ok(pref);
   } catch (e) {
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "updateTaskReminderPreference failed");
+  }
+}
+
+// ─── Yönetici bildirim tercihleri (İş 4) — her zaman yalnız ctx.userId ───
+
+export async function getNotificationPreferencesTool(
+  ctx: ServiceContext
+): Promise<
+  ServiceResult<{
+    preferences: Array<{ category: string; inAppEnabled: boolean; pushEnabled: boolean }>;
+  }>
+> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN", "TEACHER"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  try {
+    const { getNotificationPreferences } = await import("../notification-preferences");
+    const preferences = await getNotificationPreferences(ctx.tenantId, ctx.userId);
+    return ok({ preferences });
+  } catch (e) {
+    return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "getNotificationPreferences failed");
+  }
+}
+
+export async function setNotificationPreferencesTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<
+  ServiceResult<{
+    preferences: Array<{ category: string; inAppEnabled: boolean; pushEnabled: boolean }>;
+  }>
+> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN", "TEACHER"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const v = parseOrFail(setNotificationPreferencesSchema, input);
+  if (!v.ok) return v;
+  try {
+    const { isNotificationCategory, getCategoryDef } = await import("../notification-categories");
+    const { setNotificationPreferences, getNotificationPreferences } = await import(
+      "../notification-preferences"
+    );
+    const updates = [];
+    for (const u of v.data.updates) {
+      if (!isNotificationCategory(u.category)) {
+        return fail("VALIDATION_ERROR", `Bilinmeyen bildirim kategorisi: ${u.category}`);
+      }
+      const def = getCategoryDef(u.category);
+      if (!def?.implemented) {
+        return fail("VALIDATION_ERROR", `"${def?.label ?? u.category}" henüz etkin değil; tercih değiştirilemez.`);
+      }
+      if (def.criticalLocked && !u.inAppEnabled) {
+        return fail("VALIDATION_ERROR", `"${def.label}" kapatılamaz.`);
+      }
+      updates.push({ category: u.category, inAppEnabled: u.inAppEnabled, pushEnabled: false as const });
+    }
+    await setNotificationPreferences(ctx.tenantId, ctx.userId, updates);
+    audit(ctx, "notification.preference.update", "NotificationPreference", ctx.userId, {
+      count: updates.length,
+    });
+    const preferences = await getNotificationPreferences(ctx.tenantId, ctx.userId);
+    return ok({ preferences });
+  } catch (e) {
+    return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "setNotificationPreferences failed");
+  }
+}
+
+export async function resetNotificationPreferencesTool(
+  ctx: ServiceContext
+): Promise<
+  ServiceResult<{
+    preferences: Array<{ category: string; inAppEnabled: boolean; pushEnabled: boolean }>;
+  }>
+> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN", "TEACHER"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  try {
+    const { resetNotificationPreferences, getNotificationPreferences } = await import(
+      "../notification-preferences"
+    );
+    await resetNotificationPreferences(ctx.tenantId, ctx.userId);
+    audit(ctx, "notification.preference.reset", "NotificationPreference", ctx.userId, {});
+    const preferences = await getNotificationPreferences(ctx.tenantId, ctx.userId);
+    return ok({ preferences });
+  } catch (e) {
+    return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "resetNotificationPreferences failed");
   }
 }
 

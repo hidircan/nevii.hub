@@ -6,15 +6,19 @@
  * filtrelemesi zaten `listNotificationsForUser`'da yapılıyor, burada ikinci
  * bir yetki kontrolü icat edilmedi. Görünür sekmede odaklanınca yeniden
  * çeker; arka planda agresif polling yapmaz.
+ * Tıklanınca okundu + güvenli dahili rotaya gider (notification-href).
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Bell, Check, CheckCheck } from "lucide-react";
 import { formatDateTime } from "@/lib/utils";
 import { actionMarkNotificationRead } from "@/lib/actions";
+import { resolveNotificationHref } from "@/lib/notification-href";
 import type { Notification } from "@/lib/types";
 
 export function NotificationBell() {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -74,6 +78,13 @@ export function NotificationBell() {
       setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, readAt: new Date().toISOString() } : n)));
     }
     setPendingId(null);
+  }
+
+  async function openNotification(n: Notification) {
+    if (!n.readAt) await markRead(n.id);
+    const href = resolveNotificationHref(n.kind, n.body);
+    setOpen(false);
+    if (href) router.push(href);
   }
 
   async function markAllRead() {
@@ -154,7 +165,11 @@ export function NotificationBell() {
                     style={{ background: n.readAt ? "var(--color-border-strong)" : "var(--color-primary)" }}
                     aria-hidden
                   />
-                  <div className="min-w-0 flex-1">
+                  <button
+                    type="button"
+                    onClick={() => void openNotification(n)}
+                    className="min-w-0 flex-1 text-left"
+                  >
                     <p className="truncate text-sm font-medium" style={{ color: "var(--color-text)" }}>
                       {n.title}
                     </p>
@@ -164,11 +179,14 @@ export function NotificationBell() {
                     <p className="mt-1 text-[11px]" style={{ color: "var(--color-text-muted)" }}>
                       {formatDateTime(n.createdAt)}
                     </p>
-                  </div>
+                  </button>
                   {!n.readAt ? (
                     <button
                       type="button"
-                      onClick={() => void markRead(n.id)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void markRead(n.id);
+                      }}
                       disabled={pendingId === n.id}
                       aria-label="Okundu işaretle"
                       className="shrink-0 rounded-md p-1 transition hover:bg-[var(--color-surface-muted)] disabled:opacity-50"
@@ -181,7 +199,19 @@ export function NotificationBell() {
             )}
           </div>
 
-          <div className="border-t px-4 py-2.5" style={{ borderColor: "var(--color-border)" }}>
+          <div
+            className="flex flex-wrap items-center justify-between gap-2 border-t px-4 py-2.5"
+            style={{ borderColor: "var(--color-border)" }}
+          >
+            <Link
+              href="/panel/ayarlar/bildirimler"
+              role="menuitem"
+              onClick={() => setOpen(false)}
+              className="text-xs font-medium hover:underline"
+              style={{ color: "var(--color-primary)" }}
+            >
+              Bildirim ayarları
+            </Link>
             <Link
               href="/panel/bildirimler"
               role="menuitem"
@@ -189,7 +219,7 @@ export function NotificationBell() {
               className="text-xs font-medium hover:underline"
               style={{ color: "var(--color-primary)" }}
             >
-              Tüm bildirimleri gör →
+              WhatsApp şablonları →
             </Link>
           </div>
         </div>

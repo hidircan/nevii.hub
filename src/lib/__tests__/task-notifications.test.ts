@@ -36,7 +36,7 @@ describe("İş Takip → kurum-içi bildirim (yalnızca sorumlu atama)", () => {
     expect(res.ok).toBe(true);
 
     const notifications = await listAllNotifications(DEFAULT_TENANT_ID);
-    const taskNotif = notifications.find((n) => n.kind === "task_assigned");
+    const taskNotif = notifications.find((n) => n.kind === "task_new_assignment" || n.kind === "task_assigned");
     expect(taskNotif).toBeDefined();
     expect(taskNotif?.targetUserId).toBe("user_teacher_t2");
     expect(taskNotif?.body).toContain("Kayıt formunu güncelle");
@@ -46,7 +46,9 @@ describe("İş Takip → kurum-içi bildirim (yalnızca sorumlu atama)", () => {
     const res = await createTaskTool(ctx(), { title: "Sorumlusuz görev", category: "Kayıt" });
     expect(res.ok).toBe(true);
     const notifications = await listAllNotifications(DEFAULT_TENANT_ID);
-    expect(notifications.filter((n) => n.kind === "task_assigned")).toHaveLength(0);
+    expect(
+      notifications.filter((n) => n.kind === "task_new_assignment" || n.kind === "task_assigned")
+    ).toHaveLength(0);
   });
 
   it("sonradan sorumlu atanırsa (updateTaskTool) bildirim gider; sorumlu DEĞİŞMEZSE tekrar bildirim gitmez", async () => {
@@ -57,13 +59,17 @@ describe("İş Takip → kurum-içi bildirim (yalnızca sorumlu atama)", () => {
     const assign = await updateTaskTool(ctx(), { taskId: created.data.taskId, assigneeId: "t2" });
     expect(assign.ok).toBe(true);
     let notifications = await listAllNotifications(DEFAULT_TENANT_ID);
-    expect(notifications.filter((n) => n.kind === "task_assigned")).toHaveLength(1);
+    expect(
+      notifications.filter((n) => n.kind === "task_new_assignment" || n.kind === "task_assigned")
+    ).toHaveLength(1);
 
     // Aynı sorumluyla tekrar güncelleme — YENİ bir bildirim OLUŞMAMALI.
     const noChange = await updateTaskTool(ctx(), { taskId: created.data.taskId, title: "Sonradan atanacak (2)" });
     expect(noChange.ok).toBe(true);
     notifications = await listAllNotifications(DEFAULT_TENANT_ID);
-    expect(notifications.filter((n) => n.kind === "task_assigned")).toHaveLength(1);
+    expect(
+      notifications.filter((n) => n.kind === "task_new_assignment" || n.kind === "task_assigned")
+    ).toHaveLength(1);
   });
 
   it("bilinmeyen/eşleşmeyen bir assigneeId için sessizce bildirim ÜRETİLMEZ, görev işlemi yine de başarılı olur", async () => {
@@ -74,6 +80,8 @@ describe("İş Takip → kurum-içi bildirim (yalnızca sorumlu atama)", () => {
     });
     expect(res.ok).toBe(true);
     const notifications = await listAllNotifications(DEFAULT_TENANT_ID);
-    expect(notifications.filter((n) => n.kind === "task_assigned")).toHaveLength(0);
+    expect(
+      notifications.filter((n) => n.kind === "task_new_assignment" || n.kind === "task_assigned")
+    ).toHaveLength(0);
   });
 });

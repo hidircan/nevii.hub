@@ -1176,6 +1176,19 @@ export const updateTaskReminderPreferenceSchema = z.object({
   overdueEnabled: z.boolean(),
 });
 
+/** Bildirim ayarları — yalnız kendi tercihi; userId input'ta yok. */
+export const setNotificationPreferencesSchema = z.object({
+  updates: z
+    .array(
+      z.object({
+        category: z.string().min(1).max(64),
+        inAppEnabled: z.boolean(),
+      })
+    )
+    .min(1)
+    .max(40),
+});
+
 export const listTasksFilterSchema = z.object({
   status: z.array(z.enum(TASK_STATUS_ENUM)).optional(),
   priority: z.enum(TASK_PRIORITY_ENUM).optional(),

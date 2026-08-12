@@ -109,6 +109,9 @@ import {
   deleteTaskAttachmentTool,
   getTaskReminderPreferenceTool,
   updateTaskReminderPreferenceTool,
+  getNotificationPreferencesTool,
+  setNotificationPreferencesTool,
+  resetNotificationPreferencesTool,
 } from "./services/tools";
 import { runWithTenantAsync } from "./tenant-context";
 import { getSessionContext, requireSessionContext } from "./auth/session";
@@ -2323,5 +2326,59 @@ export async function actionUpdateTaskReminderPreference(input: {
     logger.error("actionUpdateTaskReminderPreference failed", error);
     if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
     return { ok: false, message: "Hatırlatma tercihleri kaydedilirken beklenmeyen bir hata oluştu." };
+  }
+}
+
+export type NotificationPreferencesActionResult =
+  | {
+      ok: true;
+      data: { preferences: Array<{ category: string; inAppEnabled: boolean; pushEnabled: boolean }> };
+    }
+  | { ok: false; message: string };
+
+/** Her zaman çağıranın kendi tercihleri — userId parametresi yok. */
+export async function actionGetNotificationPreferences(): Promise<NotificationPreferencesActionResult> {
+  try {
+    const result = await withAuthContext("actionGetNotificationPreferences", (ctx) =>
+      getNotificationPreferencesTool(ctx)
+    );
+    if (!result.ok) return { ok: false, message: result.error.message };
+    return { ok: true, data: result.data };
+  } catch (error) {
+    logger.error("actionGetNotificationPreferences failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "Bildirim tercihleri okunurken beklenmeyen bir hata oluştu." };
+  }
+}
+
+export async function actionSetNotificationPreferences(input: {
+  updates: Array<{ category: string; inAppEnabled: boolean }>;
+}): Promise<NotificationPreferencesActionResult> {
+  try {
+    const result = await withAuthContext("actionSetNotificationPreferences", (ctx) =>
+      setNotificationPreferencesTool(ctx, input)
+    );
+    if (!result.ok) return { ok: false, message: result.error.message };
+    revalidateAll();
+    return { ok: true, data: result.data };
+  } catch (error) {
+    logger.error("actionSetNotificationPreferences failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "Bildirim tercihleri kaydedilirken beklenmeyen bir hata oluştu." };
+  }
+}
+
+export async function actionResetNotificationPreferences(): Promise<NotificationPreferencesActionResult> {
+  try {
+    const result = await withAuthContext("actionResetNotificationPreferences", (ctx) =>
+      resetNotificationPreferencesTool(ctx)
+    );
+    if (!result.ok) return { ok: false, message: result.error.message };
+    revalidateAll();
+    return { ok: true, data: result.data };
+  } catch (error) {
+    logger.error("actionResetNotificationPreferences failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "Bildirim tercihleri sıfırlanırken beklenmeyen bir hata oluştu." };
   }
 }

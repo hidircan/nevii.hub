@@ -27,6 +27,7 @@ model Tenant {
   teacherFeeRules TeacherFeeRule[]
   teacherPayouts  TeacherPayout[]
   notifications   Notification[]
+  notificationPreferences NotificationPreference[]
   announcements   Announcement[]
   lessonAssessments LessonAssessment[]
   teacherAvailabilityRequests TeacherAvailabilityRequest[]
@@ -633,6 +634,30 @@ model Notification {
 
   @@index([tenantId, targetUserId])
   @@index([tenantId, targetStudentId])
+}
+
+/// İş 4 (yönetici bildirim tercihleri sprint'i) — kullanıcı+kategori bazlı
+/// bildirim tercihi. userId + category tenant-safe bir çift olarak
+/// benzersizdir (bir kullanıcı bir kategoriyi yalnızca BİR kez ayarlar).
+/// pushEnabled şimdilik yalnızca ileriye dönük alan — bu sprintte gerçek
+/// push altyapısı YOK, her zaman false/opsiyonel kalır (bkz.
+/// src/lib/notification-categories.ts).
+///
+/// Migration NOT çalıştırıldı — gerekirse:
+///   npx prisma migrate dev --name notification_preferences
+model NotificationPreference {
+  id            String   @id
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId        String
+  category      String
+  inAppEnabled  Boolean  @default(true)
+  pushEnabled   Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([tenantId, userId, category])
+  @@index([tenantId, userId])
 }
 
 /// EPIC 5 (IMPLEMENTATION_PLAN.md) — duyuru merkezi. `audienceType`:

@@ -378,6 +378,33 @@ export async function getUserIdByTeacherId(tenantId: string, teacherId: string):
   return row?.userId ?? null;
 }
 
+/**
+ * İş 4 — tenant'ın TÜM yönetici (SCHOOL_ADMIN + SUPER_ADMIN) kullanıcı
+ * id'leri. Şube-bazlı bir "sorumlu yönetici" ilişkisi bu veri modelinde
+ * (User'da branchId yok — bkz. final rapor) mevcut değil; bu yüzden
+ * kapsam güvenle çözülebilen TEK sınır olan tenant'a göre belirlenir —
+ * her iki admin rolü de zaten bu tenant'ın TÜM şubelerini yönetir
+ * (bkz. /panel/subeler, hiçbir admin ekranı şube bazlı kısıtlama yapmaz).
+ */
+export async function listAdminUserIdsForTenant(tenantId: string): Promise<string[]> {
+  if (isDbMode) {
+    try {
+      const { getPrisma } = await import("../db");
+      const prisma = getPrisma();
+      const rows = await prisma.user.findMany({
+        where: { tenantId, active: true, role: { in: ["SCHOOL_ADMIN", "SUPER_ADMIN"] } },
+        select: { id: true },
+      });
+      return rows.map((r) => r.id);
+    } catch {
+      return [];
+    }
+  }
+  return HASHED.filter((u) => u.tenantId === tenantId && (u.role === "SCHOOL_ADMIN" || u.role === "SUPER_ADMIN")).map(
+    (u) => u.userId
+  );
+}
+
 export async function getUserById(userId: string): Promise<AuthUser | null> {
   if (isDbMode) {
     try {
