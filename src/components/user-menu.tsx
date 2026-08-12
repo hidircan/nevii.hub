@@ -11,7 +11,7 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronDown, KeyRound, LogOut, Monitor, Settings, UserRound } from "lucide-react";
+import { KeyRound, LogOut, Monitor, Settings, UserRound } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { AppRole } from "@/lib/auth/types";
 import { roleLabelTr, initialsFromEmail } from "@/lib/auth/role-labels";
@@ -84,7 +84,7 @@ export function UserMenu({
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label="Kullanıcı menüsü"
-        className="flex h-10 min-h-10 items-center gap-2 rounded-full border px-1.5 py-1 pr-2.5 text-left transition hover:opacity-85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)] sm:pr-3"
+        className="flex h-10 min-h-10 w-10 min-w-10 items-center justify-center rounded-full border transition hover:opacity-85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]"
         style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
       >
         <span
@@ -94,15 +94,6 @@ export function UserMenu({
         >
           {initials}
         </span>
-        <span className="hidden min-w-0 flex-col sm:flex">
-          <span className="truncate text-xs font-medium" style={{ color: "var(--color-text)" }}>
-            {email ?? "Hesap"}
-          </span>
-          <span className="truncate text-[11px]" style={{ color: "var(--color-text-muted)" }}>
-            {roleLabelTr(role)}
-          </span>
-        </span>
-        <ChevronDown className="hidden h-3.5 w-3.5 shrink-0 sm:block" style={{ color: "var(--color-text-muted)" }} />
       </button>
 
       {open ? (

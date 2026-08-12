@@ -1,4 +1,5 @@
 import { CommandPalette } from "@/components/command-palette";
+import { NotificationBell } from "@/components/notification-bell";
 import { UserMenu } from "@/components/user-menu";
 import type { AppRole } from "@/lib/auth/types";
 import type { Density } from "@/lib/theme";
@@ -27,6 +28,7 @@ export function PanelHeader({
       style={{ borderColor: "var(--color-border)", background: "color-mix(in srgb, var(--color-surface) 92%, transparent)" }}
     >
       <CommandPalette role={role} />
+      <NotificationBell />
       <UserMenu email={email} role={role} kurumName={kurumName} initialDensity={density} />
     </header>
   );
