@@ -268,16 +268,15 @@ export default async function TeacherDetailPage({
               <Field label="Acil durum telefonu" value={teacher.emergencyContactPhone || "Eklenmemiş"} />
             </dl>
           }
-          edit={({ close }) => (
+          edit={
             <TeacherProfileEditor
               teacherId={teacher.id}
               primaryBranchId={teacher.branchId}
               branches={data.settings.branches.map((b) => ({ id: b.id, name: b.name }))}
               hasNationalId={!!teacher.nationalIdCipher}
               initial={profileEditorInitial}
-              onSaved={close}
             />
-          )}
+          }
         />
       </section>
 
@@ -299,7 +298,7 @@ export default async function TeacherDetailPage({
               </div>
             )
           }
-          edit={({ close }) => (
+          edit={
             <TeacherInstrumentsEditor
               teacherId={teacher.id}
               instrumentOptions={instrumentOptions}
@@ -308,9 +307,8 @@ export default async function TeacherDetailPage({
                   ? teacher.instrumentLevels
                   : teacher.instruments.map((i) => ({ instrument: i, level: "Başlangıç" as const }))
               }
-              onSaved={close}
             />
-          )}
+          }
         />
       </section>
 
@@ -345,16 +343,15 @@ export default async function TeacherDetailPage({
               <Field label="Özlük notu" value={teacher.personnelNotes || "Eklenmemiş"} />
             </dl>
           }
-          edit={({ close }) => (
+          edit={
             <TeacherProfileEditor
               teacherId={teacher.id}
               primaryBranchId={teacher.branchId}
               branches={data.settings.branches.map((b) => ({ id: b.id, name: b.name }))}
               hasNationalId={!!teacher.nationalIdCipher}
               initial={profileEditorInitial}
-              onSaved={close}
             />
-          )}
+          }
         />
       </section>
 

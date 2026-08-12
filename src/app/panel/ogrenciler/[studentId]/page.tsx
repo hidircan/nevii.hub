@@ -250,15 +250,14 @@ export default async function StudentDetailPage({
               <Field label="Okulu / mesleği" value={student.schoolOrOccupation ?? "Eklenmemiş"} />
             </dl>
           }
-          edit={({ close }) => (
+          edit={
             <StudentProfileEditor
               studentId={student.id}
               branches={data.settings.branches.map((b) => ({ id: b.id, name: b.name }))}
               hasNationalId={!!student.nationalIdCipher}
               initial={profileEditorInitial}
-              onSaved={close}
             />
-          )}
+          }
         />
 
         <Card className="mt-3">
@@ -308,15 +307,14 @@ export default async function StudentDetailPage({
               <Field label="İletişim tercihi" value={student.communicationOptOut ? "Tahsilat hatırlatmalarından çıktı" : "Standart"} />
             </dl>
           }
-          edit={({ close }) => (
+          edit={
             <StudentProfileEditor
               studentId={student.id}
               branches={data.settings.branches.map((b) => ({ id: b.id, name: b.name }))}
               hasNationalId={!!student.nationalIdCipher}
               initial={profileEditorInitial}
-              onSaved={close}
             />
-          )}
+          }
         />
       </section>
 
@@ -428,7 +426,7 @@ export default async function StudentDetailPage({
               />
             </dl>
           }
-          edit={({ close }) => (
+          edit={
             <StudentPaymentProfileEditor
               studentId={student.id}
               packages={packages}
@@ -439,9 +437,8 @@ export default async function StudentDetailPage({
               initialDiscountType={student.discountType === "percentage" || student.discountType === "fixed" ? student.discountType : undefined}
               initialDiscountValue={student.discountValue}
               initialOverrideAmount={student.paymentAmount}
-              onSaved={close}
             />
-          )}
+          }
         />
 
         <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">Ödeme Geçmişi</h3>

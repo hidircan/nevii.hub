@@ -3,15 +3,18 @@
 /**
  * Read-only-by-default, section-by-section edit container. Wraps a Card:
  * shows `readOnly` content with a top-right "Düzenle" button when `canEdit`
- * is true; clicking it swaps in `edit({ close })` (a form). The form itself
- * still owns its own save/error/success state and server action call — this
- * component only owns the open/closed toggle. Call `close()` from the form
- * (e.g. after a successful save) to collapse back to read-only.
+ * is true; clicking it swaps in the serializable `edit` ReactNode (a form).
+ *
+ * Server Components MUST NOT pass function props into this client component.
+ * After a successful save, if the edit child accepts optional `onSaved`, it is
+ * injected here on the client via cloneElement so the section collapses.
  */
 
-import { useState, type ReactNode } from "react";
+import { cloneElement, isValidElement, useState, type ReactElement, type ReactNode } from "react";
 import { Pencil } from "lucide-react";
 import { Card } from "@/components/ui";
+
+type WithOnSaved = { onSaved?: () => void };
 
 export function SectionEditCard({
   canEdit,
@@ -21,11 +24,23 @@ export function SectionEditCard({
 }: {
   canEdit: boolean;
   readOnly: ReactNode;
-  edit: (helpers: { close: () => void }) => ReactNode;
+  /** Form / editor tree — plain ReactNode only (no render props from Server Components). */
+  edit: ReactNode;
   className?: string;
 }) {
   const [editing, setEditing] = useState(false);
   const close = () => setEditing(false);
+
+  const editNode =
+    editing && isValidElement(edit)
+      ? cloneElement(edit as ReactElement<WithOnSaved>, {
+          onSaved: () => {
+            const prev = (edit as ReactElement<WithOnSaved>).props.onSaved;
+            prev?.();
+            close();
+          },
+        })
+      : edit;
 
   return (
     <Card className={className}>
@@ -51,7 +66,7 @@ export function SectionEditCard({
           </button>
         </div>
       ) : null}
-      {editing ? edit({ close }) : readOnly}
+      {editing ? editNode : readOnly}
     </Card>
   );
 }
