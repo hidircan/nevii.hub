@@ -10,7 +10,18 @@
  * Pure client-side UI state — no message content, no API calls. The actual
  * chat still goes through the unchanged `/api/v1/chat*` routes.
  */
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type Dispatch,
+  type ReactNode,
+  type SetStateAction,
+} from "react";
 
 export type AssistantEntity =
   | { kind: "student"; id: string; label: string }
@@ -25,7 +36,7 @@ type OpenOptions = { mode?: AssistantMode; prefill?: string };
 
 type AssistantApi = {
   entity: AssistantEntity | null;
-  setEntity: (entity: AssistantEntity | null) => void;
+  setEntity: Dispatch<SetStateAction<AssistantEntity | null>>;
   isOpen: boolean;
   mode: AssistantMode;
   setMode: (mode: AssistantMode) => void;
@@ -83,7 +94,15 @@ export function useAssistantEntity(entity: AssistantEntity | null) {
   const key = entity ? JSON.stringify(entity) : "null";
   useEffect(() => {
     setEntity?.(entity);
-    return () => setEntity?.(null);
+    return () => {
+      // Başka sayfa yeni entity kaydettiyse unmount eski entity'yi silmesin
+      // (route geçişinde cleanup sırası race'i).
+      setEntity?.((prev) => {
+        if (prev == null) return null;
+        if (entity == null) return prev;
+        return JSON.stringify(prev) === key ? null : prev;
+      });
+    };
     // `entity` itself is intentionally not a dep — `key` is its stable
     // stand-in so identical-shape objects don't re-trigger the effect.
     // eslint-disable-next-line react-hooks/exhaustive-deps

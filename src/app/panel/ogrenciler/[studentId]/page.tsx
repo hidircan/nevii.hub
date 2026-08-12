@@ -41,6 +41,7 @@ import { formatDate, formatDateTime, formatMoney } from "@/lib/utils";
 import { computeAge } from "@/lib/utils";
 import { documentKindLabel } from "@/lib/documents";
 import { QuickTaskLink } from "@/components/quick-task-link";
+import { AssistantPageContext } from "@/components/ai/assistant-page-context";
 
 export const dynamic = "force-dynamic";
 
@@ -155,6 +156,7 @@ export default async function StudentDetailPage({
   return (
     <div>
       <KurumScopeNote scope={kurum.scope} />
+      <AssistantPageContext entity={{ kind: "student", id: student.id, label: student.name }} />
       <BackButton fallbackHref="/panel/ogrenciler" label="Öğrencilere dön" className="mb-3" />
       <PageHeader
         title={student.name}

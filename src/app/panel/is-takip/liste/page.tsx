@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { requireSessionContext } from "@/lib/auth/session";
 import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
+import { AssistantPageContext } from "@/components/ai/assistant-page-context";
 import { BackButton } from "@/components/back-button";
 import { Badge, Button, Card, EmptyState, Input, Label, PageHeader, Select } from "@/components/ui";
 import { StatCard } from "@/components/ui";
@@ -148,6 +149,7 @@ export default async function IsTakipListePage({
   return (
     <div>
       <KurumScopeNote scope={kurum.scope} />
+      <AssistantPageContext entity={{ kind: "page", label: "İş Takip" }} />
       <BackButton fallbackHref="/panel/is-takip/kanban" label="İş Takip'e dön" className="mb-3" />
       <PageHeader
         title="İş Takip — Liste"

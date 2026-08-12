@@ -6,6 +6,7 @@ import { dayName } from "@/lib/utils";
 import { requireSessionContext } from "@/lib/auth/session";
 import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
+import { AssistantPageContext } from "@/components/ai/assistant-page-context";
 import { computeTeacherPerformanceScore } from "@/lib/insights/teacher-performance";
 import { AiInsightTrigger } from "@/components/ai/ai-insight-trigger";
 import { TeacherArchiveAction } from "@/components/teacher-archive-action";
@@ -40,6 +41,7 @@ export default async function OgretmenlerPage({
   return (
     <div>
       <KurumScopeNote scope={kurum.scope} />
+      <AssistantPageContext entity={{ kind: "page", label: "Öğretmenler" }} />
       <PageHeader
         title="Öğretmenler"
         actions={

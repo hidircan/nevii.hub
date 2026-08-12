@@ -18,264 +18,204 @@ function normalizePath(pathname: string | null | undefined): string {
   return base;
 }
 
+function pushUnique(actions: QuickAction[], next: QuickAction[]) {
+  const seen = new Set(actions.map((a) => a.id));
+  for (const a of next) {
+    if (seen.has(a.id)) continue;
+    seen.add(a.id);
+    actions.push(a);
+  }
+}
+
 /** Pathname-first starters; entity refines wording when present. */
 export function getRouteQuickActions(
   pathname: string | null | undefined,
   session: AssistantSession,
   entity: AssistantEntity | null
 ): QuickAction[] {
+  // Auth henüz yoksa hiç chip üretme (flicker / boş liste yok).
+  if (!session?.role) return [];
+
   const path = normalizePath(pathname);
-  const role = session?.role;
-  const isStaff = role ? STAFF.includes(role) : false;
+  const role = session.role;
+  const isStaff = STAFF.includes(role);
   const actions: QuickAction[] = [];
 
-  // --- Entity-specific (student / teacher detail or payment subpages) ---
-  if (entity?.kind === "student") {
-    const who = `${entity.label} (${entity.id})`;
-    if (path.includes("/odemeler/") || path.endsWith(`/odemeler/${entity.id}`)) {
-      actions.push(
-        {
-          id: "route-student-payment-status",
-          label: "Tahsilat durumu",
-          message: `${who} tahsilat durumunu değerlendir`,
-        },
-        {
-          id: "route-student-payment-plan",
-          label: "Ödeme planı",
-          message: `${who} için ödeme planı ve gecikme riskini özetle`,
-        },
-        {
-          id: "route-student-payment-next",
-          label: "Sonraki adım",
-          message: `${who} için tahsilatta sonraki operasyon adımlarını öner`,
-        }
-      );
+  const studentEntity = entity?.kind === "student" ? entity : null;
+  const teacherEntity = entity?.kind === "teacher" ? entity : null;
+
+  const studentIdFromPath = path.match(/^\/panel\/ogrenciler\/([^/]+)$/)?.[1];
+  const teacherIdFromPath = path.match(/^\/panel\/ogretmenler\/([^/]+)$/)?.[1];
+  const paymentStudentFromPath = path.match(/^\/panel\/odemeler\/([^/]+)$/)?.[1];
+
+  // --- Student detail / student payment ---
+  if (studentEntity || (isStaff && studentIdFromPath && studentIdFromPath !== "yeni")) {
+    const id = studentEntity?.id ?? studentIdFromPath!;
+    const who = studentEntity ? `${studentEntity.label} (${studentEntity.id})` : `Öğrenci (${id})`;
+    const onPayment =
+      path.includes("/odemeler/") ||
+      (paymentStudentFromPath != null && paymentStudentFromPath === id);
+
+    if (onPayment) {
+      pushUnique(actions, [
+        { id: "route-student-payment-status", label: "Tahsilat durumu", message: `${who} tahsilat durumunu değerlendir` },
+        { id: "route-student-payment-plan", label: "Ödeme planı", message: `${who} için ödeme planı ve gecikme riskini özetle` },
+        { id: "route-student-payment-next", label: "Sonraki adım", message: `${who} için tahsilatta sonraki operasyon adımlarını öner` },
+      ]);
     } else {
-      actions.push(
-        {
-          id: "route-student-risk",
-          label: "Program ve devam",
-          message: `${who} program ve devamlılık risklerini değerlendir`,
-        },
-        {
-          id: "route-student-schedule",
-          label: "Programını göster",
-          message: `${who} programı`,
-        }
-      );
+      pushUnique(actions, [
+        { id: "route-student-risk", label: "Program ve devam", message: `${who} program ve devamlılık risklerini değerlendir` },
+        { id: "route-student-schedule", label: "Programını göster", message: `${who} programı` },
+      ]);
       if (isStaff || role === "PARENT") {
-        actions.push({
-          id: "route-student-balance",
-          label: "Bakiye",
-          message: `${who} bakiyesi`,
-        });
+        pushUnique(actions, [{ id: "route-student-balance", label: "Bakiye", message: `${who} bakiyesi` }]);
       }
       if (isStaff) {
-        actions.push({
-          id: "route-student-progress",
-          label: "Gelişim özeti",
-          message: `${who} gelişim ve yoklama özetini çıkar`,
-        });
+        pushUnique(actions, [
+          { id: "route-student-progress", label: "Gelişim özeti", message: `${who} gelişim ve yoklama özetini çıkar` },
+        ]);
       }
     }
   }
 
-  if (entity?.kind === "teacher") {
-    const who = `${entity.label} (${entity.id})`;
-    actions.push(
-      {
-        id: "route-teacher-perf",
-        label: "Performans özeti",
-        message: `${who} performans verisini özetle`,
-      },
-      {
-        id: "route-teacher-schedule",
-        label: "Programını göster",
-        message: `${who} programı`,
-      }
-    );
+  // --- Teacher detail ---
+  if (teacherEntity || (isStaff && teacherIdFromPath && teacherIdFromPath !== "yeni")) {
+    const id = teacherEntity?.id ?? teacherIdFromPath!;
+    const who = teacherEntity ? `${teacherEntity.label} (${teacherEntity.id})` : `Öğretmen (${id})`;
+    pushUnique(actions, [
+      { id: "route-teacher-perf", label: "Performans özeti", message: `${who} performans verisini özetle` },
+      { id: "route-teacher-schedule", label: "Programını göster", message: `${who} programı` },
+    ]);
     if (isStaff) {
-      actions.push(
-        {
-          id: "route-teacher-availability",
-          label: "Uygunluk",
-          message: `${who} müsaitlik ve yük dengesini değerlendir`,
-        },
-        {
-          id: "route-teacher-payout",
-          label: "Hakediş bağlamı",
-          message: `${who} hakediş ve ücret kuralı bağlamını özetle`,
-        }
-      );
+      pushUnique(actions, [
+        { id: "route-teacher-availability", label: "Uygunluk", message: `${who} müsaitlik ve yük dengesini değerlendir` },
+        { id: "route-teacher-payout", label: "Hakediş bağlamı", message: `${who} hakediş ve ücret kuralı bağlamını özetle` },
+      ]);
     }
   }
 
-  // --- Path-based (no entity or fill remaining slots) ---
+  // --- Path / page context (staff) ---
   if (isStaff) {
-    if (path === "/panel" || path === "/panel/") {
-      actions.push(
-        {
-          id: "route-panel-critical",
-          label: "Bugünün kritikleri",
-          message: "Bugünün kritik operasyonlarını özetle",
-        },
-        {
-          id: "route-panel-priorities",
-          label: "Kurum öncelikleri",
-          message: "Kurum genelinde öncelikli işleri ve riskleri listele",
-        },
-        {
-          id: "route-panel-collections",
-          label: "Tahsilat özeti",
-          message: "Bu ayki tahsilat özetini göster",
-        }
-      );
+    if (path === "/panel") {
+      pushUnique(actions, [
+        { id: "route-panel-critical", label: "Bugünün kritikleri", message: "Bugünün kritik operasyonlarını özetle" },
+        { id: "route-panel-priorities", label: "Kurum öncelikleri", message: "Kurum genelinde öncelikli işleri ve riskleri listele" },
+        { id: "route-panel-collections", label: "Tahsilat özeti", message: "Bu ayki tahsilat özetini göster" },
+      ]);
     }
 
     if (path === "/panel/odemeler" || path.startsWith("/panel/odemeler/")) {
       if (!actions.some((a) => a.id.startsWith("route-student-payment"))) {
-        actions.push(
-          {
-            id: "route-payments-overdue",
-            label: "Gecikmiş ödemeler",
-            message: "Gecikmiş ödemeleri ve öncelikli tahsilatları özetle",
-          },
-          {
-            id: "route-payments-month",
-            label: "Aylık tahsilat",
-            message: "Bu ayki tahsilat özetini göster",
-          }
-        );
+        pushUnique(actions, [
+          { id: "route-payments-overdue", label: "Gecikmiş ödemeler", message: "Gecikmiş ödemeleri özetle" },
+          { id: "route-payments-month", label: "Bu ayki tahsilat", message: "Bu ayki tahsilatı göster" },
+          { id: "route-payments-priority", label: "Öncelikli tahsilatlar", message: "Öncelikli tahsilat adımlarını öner" },
+        ]);
       }
     }
 
     if (path === "/panel/telafi" || path.startsWith("/panel/telafi")) {
-      actions.push(
-        {
-          id: "route-makeup-priority",
-          label: "Açık talepleri önceliklendir",
-          message: "Açık telafi taleplerini önceliklendir",
-        },
-        {
-          id: "route-makeup-plan",
-          label: "Planlama önerisi",
-          message: "Telafi planlama için operasyonel öneriler ver",
-        },
-        {
-          id: "route-makeup-sla",
-          label: "SLA riski",
-          message: "Süresi yaklaşan veya geciken telafi taleplerini özetle",
-        }
-      );
+      pushUnique(actions, [
+        { id: "route-makeup-priority", label: "Açık telafileri önceliklendir", message: "Açık telafileri önceliklendir" },
+        { id: "route-makeup-plan", label: "Önerilen planları değerlendir", message: "Önerilen planları değerlendir" },
+        { id: "route-makeup-sla", label: "SLA riski", message: "Süresi yaklaşan veya geciken telafi taleplerini özetle" },
+      ]);
     }
 
     if (path === "/panel/is-takip" || path.startsWith("/panel/is-takip")) {
-      actions.push(
-        {
-          id: "route-tasks-overdue",
-          label: "Geciken işler",
-          message: "Geciken ve bugün tamamlanması gereken işleri özetle",
-        },
-        {
-          id: "route-tasks-assign",
-          label: "Atamalar",
-          message: "Atanmış açık görevleri ve yoğun sorumluları özetle",
-        },
-        {
-          id: "route-tasks-kanban",
-          label: "Kanban özeti",
-          message: "İş takip panosundaki öncelikleri özetle",
-        }
-      );
+      pushUnique(actions, [
+        { id: "route-tasks-overdue", label: "Geciken işler", message: "Geciken ve bugün tamamlanması gereken işleri özetle" },
+        { id: "route-tasks-assign", label: "Atamalar", message: "Atanmış açık görevleri ve yoğun sorumluları özetle" },
+        { id: "route-tasks-kanban", label: "Kanban özeti", message: "İş takip panosundaki öncelikleri özetle" },
+      ]);
     }
 
-    if (path === "/panel/ogretmenler" || path.startsWith("/panel/ogretmenler")) {
-      if (!actions.some((a) => a.id.startsWith("route-teacher"))) {
-        actions.push(
-          {
-            id: "route-teachers-list",
-            label: "Öğretmen yükü",
-            message: "Öğretmen yükü ve performans görünümünü özetle",
-          },
-          {
-            id: "route-teachers-guitar",
-            label: "Gitar öğretmenleri",
-            message: "Gitar öğretmenlerini listele",
-          }
-        );
-      }
+    if (path === "/panel/ogretmenler") {
+      pushUnique(actions, [
+        { id: "route-teachers-list", label: "Öğretmen yükü", message: "Öğretmen yükü ve performans görünümünü özetle" },
+        { id: "route-teachers-guitar", label: "Gitar öğretmenleri", message: "Gitar öğretmenlerini listele" },
+      ]);
+    }
+
+    if (path === "/panel/ogrenciler" || path === "/panel/ogrenciler/yeni") {
+      pushUnique(actions, [
+        { id: "route-students-list", label: "Öğrenci riskleri", message: "Devam ve tahsilat riski yüksek öğrencileri özetle" },
+        { id: "route-students-balance", label: "Açık bakiyeler", message: "Açık bakiyesi olan öğrencileri özetle" },
+      ]);
     }
 
     if (path === "/panel/yoklama" || path.startsWith("/panel/yoklama")) {
-      actions.push({
-        id: "route-attendance",
-        label: "Yoklama özeti",
-        message: "Yoklama ve devam risklerini özetle",
-      });
+      pushUnique(actions, [
+        { id: "route-attendance-today", label: "Bugünkü yoklama", message: "Bugünkü yoklama özetini çıkar" },
+        { id: "route-attendance-risk", label: "Devamsızlık riskleri", message: "Devamsızlık risklerini özetle" },
+        { id: "route-attendance-followup", label: "Takip gerekenler", message: "Yoklamaya göre takip gereken öğrencileri listele" },
+      ]);
     }
 
     if (path === "/panel/program" || path.startsWith("/panel/program")) {
-      actions.push({
-        id: "route-schedule",
-        label: "Program densitesi",
-        message: "Ders programı yoğunluğunu ve boşlukları özetle",
-      });
+      pushUnique(actions, [
+        { id: "route-schedule", label: "Program densitesi", message: "Ders programı yoğunluğunu ve boşlukları özetle" },
+        { id: "route-schedule-conflicts", label: "Çakışma riski", message: "Programda olası çakışma veya boşlukları değerlendir" },
+      ]);
     }
 
     if (path === "/panel/paketler" || path.startsWith("/panel/paketler")) {
-      actions.push({
-        id: "route-packages",
-        label: "Paketler",
-        message: "Aktif paket ve fiyat yapısını özetle",
-      });
+      pushUnique(actions, [
+        { id: "route-packages-fill", label: "Paket doluluk", message: "Paket doluluk ve aktif kullanımını özetle" },
+        { id: "route-packages-sales", label: "Paket–satış", message: "Paketlerin kayıt ve satış etkisini değerlendir" },
+        { id: "route-packages-payment", label: "Ödemeye etkisi", message: "Paket fiyatlandırmasının tahsilata etkisini özetle" },
+      ]);
+    }
+
+    // kind: "page" — path eşleşmediyse etiketle genel ama ekran odaklı 1–2 chip
+    if (entity?.kind === "page" && actions.length < 2) {
+      pushUnique(actions, [
+        {
+          id: "route-page-context",
+          label: `${entity.label} özeti`,
+          message: `${entity.label} ekranı için kritik operasyonları özetle`,
+        },
+        {
+          id: "route-page-next",
+          label: "Sonraki adımlar",
+          message: `${entity.label} için önerilen sonraki adımları listele`,
+        },
+      ]);
     }
   }
 
   // Session self-shortcuts
-  if (role === "TEACHER" && session?.teacherId && entity?.kind !== "teacher") {
-    actions.push({
-      id: "self-teacher-schedule",
-      label: "Bugünkü programım",
-      message: `${session.teacherId} programı`,
-    });
+  if (role === "TEACHER" && session.teacherId && entity?.kind !== "teacher") {
+    pushUnique(actions, [
+      { id: "self-teacher-schedule", label: "Bugünkü programım", message: `${session.teacherId} programı` },
+    ]);
   }
-  if (role === "PARENT" && session?.studentId && entity?.kind !== "student") {
-    actions.push(
-      {
-        id: "self-student-schedule",
-        label: "Çocuğumun programı",
-        message: `${session.studentId} programı`,
-      },
-      {
-        id: "self-student-balance",
-        label: "Bakiyem ne kadar?",
-        message: `${session.studentId} bakiyesi`,
-      }
-    );
+  if (role === "PARENT" && session.studentId && entity?.kind !== "student") {
+    pushUnique(actions, [
+      { id: "self-student-schedule", label: "Çocuğumun programı", message: `${session.studentId} programı` },
+      { id: "self-student-balance", label: "Bakiyem ne kadar?", message: `${session.studentId} bakiyesi` },
+    ]);
   }
 
-  // Generic fill
-  if (isStaff) {
-    actions.push(
+  // Generic fill (staff) — yalnız yer kaldıysa
+  if (isStaff && actions.length < 5) {
+    pushUnique(actions, [
+      { id: "generic-collections", label: "Tahsilat özeti", message: "Bu ayki tahsilat özetini göster" },
       { id: "generic-teachers", label: "Gitar öğretmenleri", message: "Gitar öğretmenlerini listele" },
-      { id: "generic-collections", label: "Tahsilat özeti", message: "Bu ayki tahsilat özetini göster" }
-    );
+    ]);
   }
-  if (role === "TEACHER") {
-    actions.push({
-      id: "generic-teacher-slots",
-      label: "Piyano öğretmenleri",
-      message: "Piyano öğretmenlerini listele",
-    });
+  if (role === "TEACHER" && actions.length < 5) {
+    pushUnique(actions, [
+      { id: "generic-teacher-slots", label: "Piyano öğretmenleri", message: "Piyano öğretmenlerini listele" },
+    ]);
   }
-  actions.push({
-    id: "generic-identity",
-    label: "Hangi yapay zekasın?",
-    message: "Hangi modelsin?",
-  });
+  if (actions.length < 5) {
+    pushUnique(actions, [
+      { id: "generic-identity", label: "Hangi yapay zekasın?", message: "Hangi modelsin?" },
+    ]);
+  }
 
-  const seen = new Set<string>();
-  return actions.filter((a) => (seen.has(a.id) ? false : (seen.add(a.id), true))).slice(0, 5);
+  return actions.slice(0, 5);
 }
 
 /** Backward-compatible entry — prefers entity-only when pathname unknown. */

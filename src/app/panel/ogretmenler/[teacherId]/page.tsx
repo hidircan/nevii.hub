@@ -29,6 +29,7 @@ import { SectionEditCard } from "@/components/section-edit-card";
 import { BackButton } from "@/components/back-button";
 import { TeacherArchiveAction } from "@/components/teacher-archive-action";
 import { QuickTaskLink } from "@/components/quick-task-link";
+import { AssistantPageContext } from "@/components/ai/assistant-page-context";
 
 export const dynamic = "force-dynamic";
 
@@ -148,6 +149,7 @@ export default async function TeacherDetailPage({
   return (
     <div>
       <KurumScopeNote scope={kurum.scope} />
+      <AssistantPageContext entity={{ kind: "teacher", id: teacher.id, label: teacher.name }} />
       <BackButton fallbackHref="/panel/ogretmenler" label="Öğretmenlere dön" className="mb-3" />
 
       {/*

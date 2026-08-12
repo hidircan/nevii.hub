@@ -8,6 +8,7 @@ import { PaymentsTable, type PaymentRow } from "@/components/payments-table";
 import { requireSessionContext } from "@/lib/auth/session";
 import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
+import { AssistantPageContext } from "@/components/ai/assistant-page-context";
 
 export const dynamic = "force-dynamic";
 
@@ -49,6 +50,7 @@ export default async function OdemelerPage() {
   return (
     <div>
       <KurumScopeNote scope={kurum.scope} />
+      <AssistantPageContext entity={{ kind: "page", label: "Ödemeler" }} />
       <PageHeader
         title="Ödemeler"
         actions={

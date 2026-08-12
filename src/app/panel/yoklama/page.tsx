@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { requireSessionContext } from "@/lib/auth/session";
 import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
+import { AssistantPageContext } from "@/components/ai/assistant-page-context";
 import { PageHeader, EmptyState } from "@/components/ui";
 import { AttendanceCalendarPanel } from "@/components/attendance-calendar-panel";
 import { StudentAttendancePicker } from "@/components/student-attendance-picker";
@@ -58,6 +59,11 @@ export default async function YoklamaPage({
   return (
     <div>
       <KurumScopeNote scope={kurum.scope} />
+      {student ? (
+        <AssistantPageContext entity={{ kind: "student", id: student.id, label: student.name }} />
+      ) : (
+        <AssistantPageContext entity={{ kind: "page", label: "Yoklama Takvimi" }} />
+      )}
       <PageHeader title="Yoklama Takvimi" />
 
       <div className="mb-4">

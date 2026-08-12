@@ -13,7 +13,7 @@
  * `assistant-context.tsx` for callers that pass them (backward compat), but
  * this component ignores the value and always renders the popup.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { Bot, GraduationCap, Sparkles, Users, X } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -33,6 +33,7 @@ function renderEntityIcon(entity: AssistantEntity | null) {
   const className = "h-4 w-4 shrink-0 opacity-90";
   if (entity?.kind === "student") return <GraduationCap className={className} />;
   if (entity?.kind === "teacher") return <Users className={className} />;
+  // page / lesson / payment / none → generic
   return <Bot className={className} />;
 }
 
@@ -82,17 +83,30 @@ export function GlobalAssistant() {
       try {
         const res = await fetch("/api/v1/auth/me", { credentials: "include" });
         if (!res.ok) {
-          if (!cancelled) setSession(null);
+          if (!cancelled) {
+            setSession(null);
+            setAuthChecked(true);
+          }
           return;
         }
         const json = await res.json();
-        if (!cancelled && json.ok) {
-          setSession({ role: json.data.role as AppRole, teacherId: json.data.teacherId, studentId: json.data.studentId });
+        if (!cancelled) {
+          if (json.ok) {
+            setSession({
+              role: json.data.role as AppRole,
+              teacherId: json.data.teacherId,
+              studentId: json.data.studentId,
+            });
+          } else {
+            setSession(null);
+          }
+          setAuthChecked(true);
         }
       } catch {
-        if (!cancelled) setSession(null);
-      } finally {
-        if (!cancelled) setAuthChecked(true);
+        if (!cancelled) {
+          setSession(null);
+          setAuthChecked(true);
+        }
       }
     })();
     return () => {
@@ -180,9 +194,14 @@ export function GlobalAssistant() {
     });
   }
 
-  if (!authChecked || !session) return null;
+  // Auth hazır değilse boş dizi — chip alanı basılmaz; hazır olunca route/entity chip'leri.
+  const quickActions = useMemo(() => {
+    if (!authChecked || !session) return [];
+    return getRouteQuickActions(pathname, session, entity);
+  }, [authChecked, session, pathname, entity]);
 
-  const quickActions = getRouteQuickActions(pathname, session, entity);
+  // Auth bitmeden ne launcher ne chip — boş flicker yok.
+  if (!authChecked || !session) return null;
 
   return (
     <>

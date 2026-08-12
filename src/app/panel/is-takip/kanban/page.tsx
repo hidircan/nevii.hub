@@ -3,6 +3,7 @@ import Link from "next/link";
 import { requireSessionContext } from "@/lib/auth/session";
 import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
+import { AssistantPageContext } from "@/components/ai/assistant-page-context";
 import { PageHeader } from "@/components/ui";
 import { listTasksTool } from "@/lib/services";
 import { TaskKanbanBoard } from "@/components/task-kanban-board";
@@ -36,6 +37,7 @@ export default async function IsTakipKanbanPage() {
   return (
     <div>
       <KurumScopeNote scope={kurum.scope} />
+      <AssistantPageContext entity={{ kind: "page", label: "İş Takip Kanban" }} />
       <PageHeader
         title="İş Takip — Kanban"
         description="Görevleri durumlarına göre sürükleyip bırakmak yerine, her kartın altındaki menüden durumunu değiştirin."

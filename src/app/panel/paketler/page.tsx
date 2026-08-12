@@ -4,6 +4,7 @@ import { Plus } from "lucide-react";
 import { requireSessionContext } from "@/lib/auth/session";
 import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
+import { AssistantPageContext } from "@/components/ai/assistant-page-context";
 import { PageHeader } from "@/components/ui";
 import { PackageManager } from "@/components/package-manager";
 import { DiscountCampaignManager } from "@/components/discount-campaign-manager";
@@ -33,6 +34,7 @@ export default async function PackagesPage() {
   return (
     <div>
       <KurumScopeNote scope={kurum.scope} />
+      <AssistantPageContext entity={{ kind: "page", label: "Paketler" }} />
       <PageHeader
         title="Paketler"
         description="Öğrenci kaydında seçilebilecek ders paketlerini yönetin — 30/40/50 dk süreye göre fiyatlandırma."
