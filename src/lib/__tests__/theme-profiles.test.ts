@@ -41,8 +41,18 @@ describe("normalizeFontChoice — varsayılan Inter", () => {
 });
 
 describe("Sabitler", () => {
-  it("THEME_PROFILE_VALUES tam olarak yedi profili içerir", () => {
-    expect(THEME_PROFILE_VALUES).toEqual(["gold", "obsidian", "navy", "forest", "burgundy", "ocean", "lavender"]);
+  it("THEME_PROFILE_VALUES tam olarak dokuz profili içerir", () => {
+    expect(THEME_PROFILE_VALUES).toEqual([
+      "gold",
+      "obsidian",
+      "navy",
+      "forest",
+      "burgundy",
+      "ocean",
+      "lavender",
+      "atolye",
+      "murekkep",
+    ]);
   });
 
   it("FONT_VALUES tam olarak dört fontu içerir", () => {

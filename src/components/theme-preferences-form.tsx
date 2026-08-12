@@ -5,16 +5,20 @@ import {
   THEME_PROFILE_VALUES,
   FONT_VALUES,
   THEME_PROFILE_LABELS,
+  THEME_PROFILE_DESCRIPTIONS,
   FONT_LABELS,
   DEFAULT_THEME_PROFILE,
   DEFAULT_FONT_CHOICE,
+  DENSITY_VALUES,
+  DENSITY_LABELS,
   type ThemeProfile,
   type FontChoice,
+  type Density,
 } from "@/lib/theme";
-import { actionSetThemeProfile, actionSetFont, actionResetThemePreferences } from "@/lib/actions";
+import { actionSetThemeProfile, actionSetFont, actionResetThemePreferences, actionSetDensity } from "@/lib/actions";
 import { Button, Card } from "@/components/ui";
 
-/** İkinci renk — koyu temalarda (obsidian) arka plan da gösterilir, yalnız vurgu rengi yeterli kontrast vermez. */
+/** İkinci renk — koyu/nötr temalarda arka plan da gösterilir, yalnız vurgu rengi yeterli kontrast vermez. */
 const PROFILE_SWATCH: Record<ThemeProfile, { accent: string; bg?: string }> = {
   gold: { accent: "#A56A00" },
   obsidian: { accent: "#d4a017", bg: "#0b0b0d" },
@@ -24,6 +28,7 @@ const PROFILE_SWATCH: Record<ThemeProfile, { accent: string; bg?: string }> = {
   ocean: { accent: "#0e7490" },
   lavender: { accent: "#5b4b8a" },
   atolye: { accent: "#93441c", bg: "#f1ece1" },
+  murekkep: { accent: "#14213d", bg: "#eef0f2" },
 };
 
 /** Önizleme, globals.css'teki gerçek `[data-font]` eşlemesiyle BİREBİR aynı font ailesini kullanır. */
@@ -37,13 +42,24 @@ const FONT_PREVIEW_STYLE: Record<FontChoice, string> = {
 export function ThemePreferencesForm({
   initialProfile,
   initialFont,
+  initialDensity,
 }: {
   initialProfile: ThemeProfile;
   initialFont: FontChoice;
+  initialDensity: Density;
 }) {
   const [profile, setProfile] = useState<ThemeProfile>(initialProfile);
   const [font, setFont] = useState<FontChoice>(initialFont);
+  const [density, setDensity] = useState<Density>(initialDensity);
   const [, startTransition] = useTransition();
+
+  function applyDensity(next: Density) {
+    setDensity(next);
+    document.documentElement.setAttribute("data-density", next);
+    startTransition(() => {
+      void actionSetDensity(next);
+    });
+  }
 
   function applyProfile(next: ThemeProfile) {
     setProfile(next);
@@ -96,7 +112,29 @@ export function ThemePreferencesForm({
                   style={{ background: PROFILE_SWATCH[value].accent }}
                 />
               </span>
-              <span className="text-sm font-medium text-[var(--color-text)]">{THEME_PROFILE_LABELS[value]}</span>
+              <span className="block text-sm font-medium text-[var(--color-text)]">{THEME_PROFILE_LABELS[value]}</span>
+              <span className="mt-0.5 block text-xs text-[var(--color-text-muted)]">{THEME_PROFILE_DESCRIPTIONS[value]}</span>
+            </button>
+          ))}
+        </div>
+      </Card>
+
+      <Card>
+        <p className="mb-3 text-sm font-semibold text-[var(--color-text)]">Yoğunluk</p>
+        <div className="grid grid-cols-2 gap-3 sm:max-w-xs">
+          {DENSITY_VALUES.map((value) => (
+            <button
+              key={value}
+              type="button"
+              aria-pressed={density === value}
+              onClick={() => applyDensity(value)}
+              className={`rounded-[var(--radius-lg)] border p-3 text-left transition ${
+                density === value
+                  ? "border-[var(--color-primary)] ring-2 ring-[var(--color-focus-ring)]/30"
+                  : "border-[var(--color-border-strong)] hover:border-[var(--color-primary)]"
+              }`}
+            >
+              <span className="block text-sm font-medium text-[var(--color-text)]">{DENSITY_LABELS[value]}</span>
             </button>
           ))}
         </div>

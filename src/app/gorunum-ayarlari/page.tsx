@@ -3,7 +3,14 @@ import { ArrowLeft } from "lucide-react";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { requireSessionContext, homePathForRole } from "@/lib/auth/session";
-import { THEME_PROFILE_COOKIE, FONT_COOKIE, normalizeThemeProfile, normalizeFontChoice } from "@/lib/theme";
+import {
+  THEME_PROFILE_COOKIE,
+  FONT_COOKIE,
+  DENSITY_COOKIE,
+  normalizeThemeProfile,
+  normalizeFontChoice,
+  normalizeDensity,
+} from "@/lib/theme";
 import { ThemePreferencesForm } from "@/components/theme-preferences-form";
 
 export const dynamic = "force-dynamic";
@@ -25,6 +32,7 @@ export default async function AppearanceSettingsPage() {
   const jar = await cookies();
   const profile = normalizeThemeProfile(jar.get(THEME_PROFILE_COOKIE)?.value);
   const font = normalizeFontChoice(jar.get(FONT_COOKIE)?.value);
+  const density = normalizeDensity(jar.get(DENSITY_COOKIE)?.value);
   const backHref = homePathForRole(session.role);
 
   return (
@@ -41,7 +49,7 @@ export default async function AppearanceSettingsPage() {
         <p className="text-sm text-[var(--color-text-muted)]">
           Renk teması ve yazı tipini kişisel tercihinize göre seçin — canlı önizleme ile.
         </p>
-        <ThemePreferencesForm initialProfile={profile} initialFont={font} />
+        <ThemePreferencesForm initialProfile={profile} initialFont={font} initialDensity={density} />
       </main>
     </div>
   );

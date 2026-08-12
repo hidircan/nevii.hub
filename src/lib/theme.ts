@@ -17,7 +17,8 @@ export type ThemeProfile =
   | "burgundy"
   | "ocean"
   | "lavender"
-  | "atolye";
+  | "atolye"
+  | "murekkep";
 export type FontChoice = "roboto_serif" | "playfair_display" | "inter" | "noto_sans";
 
 export const THEME_PROFILE_COOKIE = "notaplan_theme_profile";
@@ -32,6 +33,7 @@ export const THEME_PROFILE_VALUES: readonly ThemeProfile[] = [
   "ocean",
   "lavender",
   "atolye",
+  "murekkep",
 ];
 export const FONT_VALUES: readonly FontChoice[] = ["roboto_serif", "playfair_display", "inter", "noto_sans"];
 
@@ -44,20 +46,39 @@ export const THEME_PROFILE_LABELS: Record<ThemeProfile, string> = {
   ocean: "Okyanus Mavisi",
   lavender: "Lavanta Grafit",
   atolye: "Atölye",
+  murekkep: "Mürekkep",
+};
+
+/** Görünüm ayarları ekranındaki 1 satırlık tema açıklamaları (İş 3C). */
+export const THEME_PROFILE_DESCRIPTIONS: Record<ThemeProfile, string> = {
+  gold: "Sıcak, kurumsal varsayılan — altın vurgulu açık zemin.",
+  obsidian: "Antrasit koyu arayüz, altın vurgu — yoğun/gece kullanımı için.",
+  navy: "Lacivert vurgulu, resmi kurumsal görünüm.",
+  forest: "Sakin yeşil vurgulu açık tema.",
+  burgundy: "Bordo vurgulu, klasik akademik hava.",
+  ocean: "Okyanus mavisi vurgulu, ferah açık tema.",
+  lavender: "Grafit-lavanta vurgulu, nötr açık tema.",
+  atolye: "Sıcak kağıt dokusu, toprak tonu vurgu — atölye/stüdyo hissi.",
+  murekkep: "Gri-krem zemin, lacivert mürekkep metin — tablo/liste odaklı, resmi akademi karakteri.",
 };
 
 /**
- * Kullanıcı menüsündeki sadeleştirilmiş 3 seçenekli hızlı tema seçimi (İş 4C)
- * — tüm 7 profilin tamamı yerine yalnız "Sistem / Kurumsal / Atölye" sunar.
- * "system" bir gerçek `ThemeProfile` DEĞİLDİR — cookie'yi TAMAMEN temizleyip
- * fabrika varsayılanına (gold = "Kurumsal Altın") dönmek anlamına gelir
- * (`actionResetThemePreferences` ile aynı mekanizma). Gelişmiş 7 profilin
- * tamamı `/gorunum-ayarlari` sayfasında hâlâ erişilebilir kalır.
+ * Kullanıcı menüsündeki sadeleştirilmiş hızlı tema seçimi (İş 3C) — tüm
+ * profillerin tamamı yerine 5 küratörlü seçenek sunar: "Sistem / Kurumsal /
+ * Atölye / Gece Vardiyası / Mürekkep". "system" bir gerçek `ThemeProfile`
+ * DEĞİLDİR — cookie'yi TAMAMEN temizleyip fabrika varsayılanına (gold =
+ * "Kurumsal Altın") dönmek anlamına gelir (`actionResetThemePreferences` ile
+ * aynı mekanizma). "Gece Vardiyası" burada mevcut "obsidian" profiline
+ * eşlenir — sistemdeki TEK gerçek koyu tema zaten bu spesifikasyona uyuyor,
+ * ikinci bir neredeyse-özdeş koyu profil icat edilmedi. Gelişmiş tüm
+ * profiller `/gorunum-ayarlari` sayfasında hâlâ erişilebilir kalır.
  */
-export type QuickThemeChoice = "system" | "kurumsal" | "atolye";
+export type QuickThemeChoice = "system" | "kurumsal" | "atolye" | "gece" | "murekkep";
 export const QUICK_THEME_TO_PROFILE: Record<Exclude<QuickThemeChoice, "system">, ThemeProfile> = {
   kurumsal: "gold",
   atolye: "atolye",
+  gece: "obsidian",
+  murekkep: "murekkep",
 };
 
 export const FONT_LABELS: Record<FontChoice, string> = {

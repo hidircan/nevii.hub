@@ -147,6 +147,8 @@ export function UserMenu({
               <QuickThemeButton label="Sistem" icon={<Monitor className="h-3.5 w-3.5" />} onClick={() => applyQuickTheme("system")} />
               <QuickThemeButton label="Kurumsal" onClick={() => applyQuickTheme("kurumsal")} />
               <QuickThemeButton label="Atölye" onClick={() => applyQuickTheme("atolye")} />
+              <QuickThemeButton label="Gece" onClick={() => applyQuickTheme("gece")} />
+              <QuickThemeButton label="Mürekkep" onClick={() => applyQuickTheme("murekkep")} />
             </div>
             <div className="mb-2 flex gap-1.5">
               <DensityButton label="Rahat" active={density === "comfortable"} onClick={() => applyDensity("comfortable")} />
