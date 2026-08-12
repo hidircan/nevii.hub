@@ -20,7 +20,7 @@ import { cn } from "@/lib/utils";
 import type { AppRole } from "@/lib/auth/types";
 import { useAssistant, type AssistantEntity } from "./assistant-context";
 import { AssistantChatBody } from "./assistant-chat-body";
-import { getQuickActions, type AssistantSession } from "./assistant-quick-actions";
+import { getRouteQuickActions, type AssistantSession } from "./assistant-quick-actions";
 
 const POSITION_STORAGE_KEY = "notaplan.assistant.popupPosition";
 const POPUP_WIDTH = 352;
@@ -182,7 +182,7 @@ export function GlobalAssistant() {
 
   if (!authChecked || !session) return null;
 
-  const quickActions = getQuickActions(session, entity);
+  const quickActions = getRouteQuickActions(pathname, session, entity);
 
   return (
     <>
