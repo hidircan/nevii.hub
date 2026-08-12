@@ -417,31 +417,72 @@ export default async function TeacherDetailPage({
       </section>
 
       <section id="hakedis" className="mb-8 scroll-mt-4">
-        <h2 className="mb-3 flex items-center justify-between text-sm font-semibold text-[var(--color-text)]">
+        <h2 className="mb-3 flex flex-wrap items-center justify-between gap-2 text-sm font-semibold text-[var(--color-text)]">
           Hakedişler
-          <Link href={`/panel/ogretmenler/${teacher.id}/hakedis`} className="text-xs font-medium text-[var(--color-primary)] hover:text-[var(--color-primary-hover)]">
-            Hakediş Detayında Aç →
-          </Link>
+          <div className="flex flex-wrap items-center gap-2">
+            {canEditProfile ? (
+              <a
+                href="#ucret"
+                className="inline-flex items-center rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2.5 py-1.5 text-xs font-medium text-[var(--color-text)] hover:bg-[var(--color-surface-muted)]"
+              >
+                {teacherFeeRules.length > 0 ? "Hakediş ücretini düzenle" : "Hakediş ücretini belirle"}
+              </a>
+            ) : null}
+            <Link
+              href={`/panel/ogretmenler/${teacher.id}/hakedis?returnTo=${encodeURIComponent(`/panel/ogretmenler/${teacher.id}`)}`}
+              className="text-xs font-medium text-[var(--color-primary)] hover:text-[var(--color-primary-hover)]"
+            >
+              Hakediş detayı →
+            </Link>
+          </div>
         </h2>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="mb-3 grid grid-cols-2 gap-3">
           <MiniStat label="Bu ay bekleyen" value={formatMoney(earnings.totalAmount)} />
           <MiniStat label="Bu ay ödenen" value={formatMoney(paidThisMonth)} />
         </div>
+        {teacherFeeRules.length > 0 ? (
+          <p className="text-xs text-[var(--color-text-muted)]">
+            Aktif ücret kuralları:{" "}
+            {teacherFeeRules
+              .slice(0, 3)
+              .map((r) => {
+                const hourly = Math.round(r.perMinuteRate * 60 * 100) / 100;
+                const scope = [r.branchId ? data.settings.branches.find((b) => b.id === r.branchId)?.shortName : null, r.instrument]
+                  .filter(Boolean)
+                  .join(" · ");
+                return `${formatMoney(hourly)}/saat${scope ? ` (${scope})` : ""}`;
+              })
+              .join(" · ")}
+            {teacherFeeRules.length > 3 ? ` · +${teacherFeeRules.length - 3} kural` : ""}
+          </p>
+        ) : (
+          <p className="text-xs text-[var(--color-text-muted)]">
+            Henüz dakika/saatlik ücret kuralı yok — hakediş hesaplaması için tanımlayın.
+          </p>
+        )}
       </section>
 
       <section id="ucret" className="mb-8 scroll-mt-4">
-        <h2 className="mb-3 text-sm font-semibold text-[var(--color-text)]">Saatlik Hakediş Ücreti</h2>
+        <h2 className="mb-3 flex flex-wrap items-center justify-between gap-2 text-sm font-semibold text-[var(--color-text)]">
+          Saatlik Hakediş Ücreti
+          {canEditProfile ? (
+            <Link
+              href={`/panel/ogretmenler/${teacher.id}/hakedis?returnTo=${encodeURIComponent(`/panel/ogretmenler/${teacher.id}`)}`}
+              className="text-xs font-medium text-[var(--color-primary)] hover:underline"
+            >
+              Dönem hakediş ekranı →
+            </Link>
+          ) : null}
+        </h2>
         <p className="mb-3 text-xs text-[var(--color-text-muted)]">
-          Bu öğretmenin dakika-başı ücret kuralı (bkz. Ücret Kuralları ekranıyla AYNI kaynak — burada yalnızca bu
-          öğretmene daraltılmış görünür). Yeni bir kural eklemek geçmişte zaten onaylanmış/ödenmiş hakediş
-          kayıtlarını ASLA değiştirmez; yalnızca bundan sonraki hesaplamalara veya belirttiğiniz geçerlilik
-          tarihinden sonrasına uygulanır.
+          Dakika-başı ücret kuralı (Ücret Kuralları ile aynı kaynak; burada yalnız bu öğretmen). Yeni kural
+          geçmiş ödenmiş hakediş kayıtlarını değiştirmez.
         </p>
         <FeeRuleManager
           teachers={[{ id: teacher.id, name: teacher.name }]}
           branches={data.settings.branches.map((b) => ({ id: b.id, shortName: b.shortName }))}
           rules={teacherFeeRules}
-          canWrite={kurum.scope.mode === "single"}
+          canWrite={kurum.scope.mode === "single" && canEditProfile}
         />
       </section>
 
