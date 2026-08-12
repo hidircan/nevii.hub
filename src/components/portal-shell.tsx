@@ -1,0 +1,128 @@
+"use client";
+
+/**
+ * İş 5A — öğretmen/veli/öğrenci için ortak, role-uyarlanabilir portal
+ * kabuğu. Panel'deki desen (PanelHeader: NotificationBell + UserMenu)
+ * BİREBİR yeniden kullanılır — ikinci bir avatar/bildirim sistemi icat
+ * edilmedi. Masaüstünde üst navigasyon satırı, mobilde (< 768px) sabit alt
+ * navigasyon (en fazla 4 hedef + "Diğer") gösterir. `children` şu an hâlâ
+ * kendi `max-w-lg` gövdesini taşıyan mevcut sayfa içerikleridir — sayfa
+ * gövdelerini masaüstünde genişletmek ayrı, kapsam dışı bırakılan bir
+ * takip işidir (bkz. final rapor).
+ */
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { NotificationBell } from "@/components/notification-bell";
+import { UserMenu } from "@/components/user-menu";
+import { cn } from "@/lib/utils";
+import type { AppRole } from "@/lib/auth/types";
+import type { Density } from "@/lib/theme";
+import { TEACHER_PORTAL_NAV, PARENT_PORTAL_NAV, STUDENT_PORTAL_NAV } from "@/lib/nav/portal-nav";
+
+export type PortalKind = "teacher" | "parent" | "student";
+
+/**
+ * Nav dizileri (icon: LucideIcon FONKSİYONLARI içerir) burada, Client
+ * Component'in KENDİSİNDE import edilir — Server Component layout'undan
+ * prop olarak GEÇİRİLMEZ. React, fonksiyon/component referanslarını
+ * server→client sınırı üzerinden serileştiremez ("Only plain objects can
+ * be passed to Client Components" hatası); bu yüzden `portal-nav.ts`'i
+ * doğrudan import eden panel `Sidebar.tsx` ile AYNI deseni izler.
+ */
+const PORTAL_NAV: Record<PortalKind, typeof TEACHER_PORTAL_NAV> = {
+  teacher: TEACHER_PORTAL_NAV,
+  parent: PARENT_PORTAL_NAV,
+  student: STUDENT_PORTAL_NAV,
+};
+
+function isActive(pathname: string, href: string): boolean {
+  const base = href.split("#")[0] || href;
+  if (base === "") return false;
+  const isHome = base === "/ogretmen" || base === "/veli" || base === "/ogrenci";
+  if (isHome) return pathname === base;
+  return pathname === base || pathname.startsWith(`${base}/`);
+}
+
+export function PortalShell({
+  role,
+  email,
+  portalLabel,
+  portalKind,
+  density,
+  children,
+}: {
+  role: AppRole;
+  email: string | null;
+  portalLabel: string;
+  portalKind: PortalKind;
+  density: Density;
+  children: React.ReactNode;
+}) {
+  const pathname = usePathname();
+  const navItems = PORTAL_NAV[portalKind];
+  const mobileItems = navItems.filter((i) => i.mobile).slice(0, 5);
+
+  return (
+    <div className="min-h-screen" style={{ background: "var(--color-bg)" }}>
+      <header
+        className="sticky top-0 z-30 border-b backdrop-blur"
+        style={{ borderColor: "var(--color-border)", background: "color-mix(in srgb, var(--color-surface) 92%, transparent)" }}
+      >
+        <div className="mx-auto flex max-w-5xl items-center justify-between gap-3 px-4 py-2.5 lg:px-8">
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold" style={{ color: "var(--color-text)" }}>
+              {portalLabel}
+            </p>
+          </div>
+          <nav className="hidden items-center gap-1 md:flex" aria-label="Portal navigasyonu">
+            {navItems.map((item) => {
+              const active = isActive(pathname, item.href);
+              const Icon = item.icon;
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  aria-current={active ? "page" : undefined}
+                  className={cn("flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm transition", active ? "font-semibold" : "hover:opacity-80")}
+                  style={active ? { background: "var(--color-primary-soft)", color: "var(--color-primary-soft-text)" } : { color: "var(--color-text-muted)" }}
+                >
+                  <Icon className="h-4 w-4" />
+                  {item.label}
+                </Link>
+              );
+            })}
+          </nav>
+          <div className="flex items-center gap-2">
+            <NotificationBell />
+            <UserMenu email={email} role={role} kurumName={null} initialDensity={density} />
+          </div>
+        </div>
+      </header>
+
+      <main className="pb-20 md:pb-6">{children}</main>
+
+      <nav
+        className="fixed inset-x-0 bottom-0 z-30 flex items-stretch justify-around border-t md:hidden"
+        style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+        aria-label="Alt navigasyon"
+      >
+        {mobileItems.map((item) => {
+          const active = isActive(pathname, item.href);
+          const Icon = item.icon;
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              aria-current={active ? "page" : undefined}
+              className="flex min-h-11 min-w-11 flex-1 flex-col items-center justify-center gap-0.5 py-1.5 text-[11px] font-medium"
+              style={{ color: active ? "var(--color-primary)" : "var(--color-text-muted)" }}
+            >
+              <Icon className="h-5 w-5" />
+              {item.label}
+            </Link>
+          );
+        })}
+      </nav>
+    </div>
+  );
+}
