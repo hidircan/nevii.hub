@@ -179,24 +179,16 @@ function NavSection({
 }
 
 export function Sidebar({
-  schoolName,
-  userLabel,
-  roleLabel,
   role,
   kurumlar: _kurumlar,
   kurumSelection: _kurumSelection,
   canSeeAllKurumlar: _canSeeAllKurumlar,
 }: {
-  schoolName?: string;
-  userLabel?: string;
-  roleLabel?: string;
-  /** RBAC filtresi için — `roleLabel` yalnız görsel metindir, filtre bu alanı kullanır. */
   role?: SessionRole;
   kurumlar?: unknown;
   kurumSelection?: string;
   canSeeAllKurumlar?: boolean;
 }) {
-  const schoolNameSafe = schoolName ?? BRAND.name;
   void _kurumlar;
   void _kurumSelection;
   void _canSeeAllKurumlar;
@@ -258,6 +250,16 @@ export function Sidebar({
         {collapsed ? <ChevronsRight className="h-3.5 w-3.5" /> : <ChevronsLeft className="h-3.5 w-3.5" />}
       </button>
 
+      {/*
+       * İş 1 (bu sprint) — marka alanında yalnız logomark + kelime markası
+       * kalır. Daha önce burada bir kurum-adı/rol kartı vardı
+       * (`{roleLabel} · {userLabel}` — roleLabel çağıran layout'tan HAM
+       * enum değeriyle geliyordu, ör. "SCHOOL_ADMIN", Türkçeleştirilmemiş
+       * "School Admin" benzeri metnin kaynağı buydu). O bilgi kaybolmadı:
+       * kurum adı zaten `UserMenu` dropdown'ında (`{roleLabelTr(role)} ·
+       * {kurumName}`) gösteriliyor — burada ikinci kez, çevrilmemiş
+       * biçimde tekrar edilmiyor.
+       */}
       <div className="border-b px-3 py-5" style={{ borderColor: "var(--color-border)" }}>
         <div className={cn("flex items-center gap-2.5", collapsed && "justify-center")}>
           <Image
@@ -270,26 +272,13 @@ export function Sidebar({
           />
           {!collapsed ? (
             <p
-              className="truncate text-2xl font-extrabold uppercase tracking-wide"
+              className="truncate text-[1.7rem] font-extrabold uppercase tracking-tight"
               style={{ color: "var(--color-primary)" }}
             >
               {BRAND.name}
             </p>
           ) : null}
         </div>
-        {!collapsed ? (
-          <div
-            className="mt-3 rounded-lg border px-3 py-2"
-            style={{ background: "var(--color-surface)", borderColor: "var(--color-border)" }}
-          >
-            <p className="truncate text-xs font-medium" style={{ color: "var(--color-primary-soft-text)" }}>
-              {schoolNameSafe}
-            </p>
-            <p className="text-[10px]" style={{ color: "var(--color-text-muted)" }}>
-              {roleLabel || "Oturum"} · {userLabel || "—"}
-            </p>
-          </div>
-        ) : null}
       </div>
 
       <nav className="flex-1 space-y-5 overflow-y-auto px-3 py-4">
