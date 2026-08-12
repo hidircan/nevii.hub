@@ -45,70 +45,70 @@ export default async function TelafiPage() {
     <div>
       <KurumScopeNote scope={kurum.scope} />
       <AssistantPageContext entity={{ kind: "page", label: "Telafi Merkezi" }} />
-      <PageHeader title="Telafi Merkezi" />
+      <PageHeader
+        title="Telafi Merkezi"
+        description="Açık talepleri planlayın, onaylayın veya iptal edin."
+      />
 
-      <div className="mb-6 grid gap-4 sm:grid-cols-3">
-        <Card className="bg-amber-50 border-amber-100">
-          <p className="text-sm text-amber-800">Açık talep</p>
-          <p className="mt-1 text-3xl font-semibold text-amber-950">{open.length}</p>
-        </Card>
-        <Card className="bg-emerald-50 border-emerald-100">
-          <p className="text-sm text-emerald-800">Onaylanan</p>
-          <p className="mt-1 text-3xl font-semibold text-emerald-950">
+      <div className="mb-4 flex flex-wrap items-stretch gap-2 rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] p-2 sm:p-2.5">
+        <div className="flex min-w-[7.5rem] flex-1 flex-col justify-center rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-3 py-2">
+          <p className="text-[11px] font-medium uppercase tracking-wide text-[var(--color-text-muted)]">Açık talepler</p>
+          <p className="text-xl font-semibold tabular-nums text-[var(--color-text)]">{open.length}</p>
+        </div>
+        <div className="flex min-w-[7.5rem] flex-1 flex-col justify-center rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-3 py-2">
+          <p className="text-[11px] font-medium uppercase tracking-wide text-[var(--color-text-muted)]">Onaylanan</p>
+          <p className="text-xl font-semibold tabular-nums text-[var(--color-text)]">
             {requests.filter((r) => r.status === "confirmed").length}
           </p>
-        </Card>
-        <Card className="bg-amber-50 border-amber-100">
-          <MakeupWindowDaysEditor currentDays={data.settings.makeupWindowDays} canWrite={canWrite} />
-        </Card>
+        </div>
+        <div className="flex min-w-[10rem] flex-[1.4] flex-col justify-center rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-3 py-2">
+          <MakeupWindowDaysEditor currentDays={data.settings.makeupWindowDays} canWrite={canWrite} compact />
+        </div>
+        {open.length > 0 ? (
+          <div className="flex items-center justify-end sm:ml-auto">
+            <AiInsightTrigger
+              capabilityId="makeupSlotSuggestion"
+              label="AI ile öncelik özeti"
+              compact
+              payload={{
+                openCount: open.length,
+                oldestRequestAt: open.reduce(
+                  (min, r) => (r.createdAt < min ? r.createdAt : min),
+                  open[0].createdAt
+                ),
+                byInstrument: open.reduce<Record<string, number>>((acc, r) => {
+                  acc[r.instrument] = (acc[r.instrument] || 0) + 1;
+                  return acc;
+                }, {}),
+                expiringSoon: open.filter(
+                  (r) => new Date(r.expiresAt).getTime() - nowMs < 3 * 24 * 60 * 60 * 1000
+                ).length,
+              }}
+            />
+          </div>
+        ) : null}
       </div>
 
       {!canWrite ? (
-        <p className="mb-6 rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3 text-sm font-medium text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+        <p className="mb-4 rounded-[var(--radius-md)] border border-[var(--color-warning)]/30 bg-[var(--color-warning-soft,var(--color-surface-muted))] px-3 py-2 text-xs font-medium text-[var(--color-warning)]">
           &quot;Tüm kurumlar&quot; görünümündesiniz — telafi onayı/iptali/planlaması için üstteki kurum
           seçiciden tek bir kurum seçin.
         </p>
       ) : null}
 
-      {open.length > 0 ? (
-        <Card className="mb-6">
-          <p className="mb-2 text-sm font-medium text-[var(--color-text)] dark:text-slate-200">
-            {open.length} açık talep — hangisine önce bakmalısınız?
-          </p>
-          <AiInsightTrigger
-            capabilityId="makeupSlotSuggestion"
-            label="AI ile öncelik özeti"
-            payload={{
-              openCount: open.length,
-              oldestRequestAt: open.reduce(
-                (min, r) => (r.createdAt < min ? r.createdAt : min),
-                open[0].createdAt
-              ),
-              byInstrument: open.reduce<Record<string, number>>((acc, r) => {
-                acc[r.instrument] = (acc[r.instrument] || 0) + 1;
-                return acc;
-              }, {}),
-              expiringSoon: open.filter(
-                (r) => new Date(r.expiresAt).getTime() - nowMs < 3 * 24 * 60 * 60 * 1000
-              ).length,
-            }}
-          />
-        </Card>
-      ) : null}
-
-      <h2 className="mb-3 text-lg font-semibold text-[var(--color-text)] dark:text-slate-50">Aksiyon bekleyenler</h2>
+      <h2 className="mb-2 text-base font-semibold text-[var(--color-text)]">Aksiyon bekleyenler</h2>
       {open.length === 0 ? (
         <EmptyState
           title="Açık telafi talebi yok"
-          description="Gelmedi veya okul iptalini işaretlediğiniz dersler buraya gelir; ardından uygun slot önerisi yapabilirsiniz."
+          description="Gelmedi veya okul iptalini işaretlediğiniz dersler buraya gelir; ardından uygun plan önerisi yapabilirsiniz."
         />
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-3">
           {open.map((req) => {
             const student = data.students.find((s) => s.id === req.studentId);
             const teacher = data.teachers.find((t) => t.id === req.teacherId);
             return (
-              <Card key={req.id} className="border-amber-100">
+              <Card key={req.id}>
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
@@ -171,11 +171,11 @@ export default async function TelafiPage() {
 
                 {req.suggestedSlots.length > 0 ? (
                   <div className="mt-5 border-t border-[var(--color-border)] pt-4">
-                    <p className="text-sm font-medium text-[var(--color-text)] dark:text-slate-200">
-                      Önerilen slotlar (skora göre sıralı)
+                    <p className="text-sm font-medium text-[var(--color-text)]">
+                      Önerilen planlar (skora göre sıralı)
                     </p>
-                    <p className="mb-3 mt-1 text-xs text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
-                      Bunlar en yüksek puanlı uygun seçeneklerdir; başka bir saat da
+                    <p className="mb-3 mt-1 text-xs text-[var(--color-text-muted)]">
+                      Bunlar en yüksek puanlı uygun seçeneklerdir; başka bir saat de
                       planlayabilirsiniz.
                     </p>
                     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -186,28 +186,28 @@ export default async function TelafiPage() {
                         return (
                           <div
                             key={`${slot.startAt}-${slot.teacherId}-${idx}`}
-                            className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-muted)]/80 p-4"
+                            className="rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3.5"
                           >
                             <div className="flex items-start justify-between gap-2">
                               <div>
-                                <p className="font-semibold text-[var(--color-text)] dark:text-slate-50">
+                                <p className="font-semibold text-[var(--color-text)]">
                                   {formatDateTime(slot.startAt)}
                                 </p>
-                                <p className="text-sm text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
+                                <p className="text-sm text-[var(--color-text-muted)]">
                                   {formatTime(slot.startAt)}–{formatTime(slot.endAt)} ·{" "}
                                   {slotTeacher?.name}
                                 </p>
-                                <p className="text-xs text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
+                                <p className="text-xs text-[var(--color-text-muted)]">
                                   {branch?.shortName} · {room?.name}
                                 </p>
                               </div>
-                              <span className="rounded-lg bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-700">
+                              <span className="rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-0.5 text-xs font-semibold text-[var(--color-text-muted)]">
                                 Skor {slot.score}
                               </span>
                             </div>
                             <ul className="mt-2 space-y-0.5">
                               {slot.reasons.map((r) => (
-                                <li key={r} className="text-[11px] text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
+                                <li key={r} className="text-[11px] text-[var(--color-text-muted)]">
                                   · {r}
                                 </li>
                               ))}
@@ -222,7 +222,7 @@ export default async function TelafiPage() {
                                 placeholder="Onay notu (zorunlu)…"
                               >
                                 <CheckCircle2 className="h-4 w-4" />
-                                Bu slota onayla
+                                Planı onayla
                               </MakeupDecisionForm>
                             </div>
                           </div>

@@ -7,10 +7,13 @@ import { actionUpdateMakeupWindowDays } from "@/lib/actions";
 export function MakeupWindowDaysEditor({
   currentDays,
   canWrite,
+  compact = false,
 }: {
   currentDays: number;
   /** "Tüm kurumlar" görünümünde false — politika değiştirilemez. */
   canWrite: boolean;
+  /** Üst özet satırında daha sıkı tipografi. */
+  compact?: boolean;
 }) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
@@ -39,9 +42,25 @@ export function MakeupWindowDaysEditor({
   if (!editing) {
     return (
       <div>
-        <p className="text-sm text-amber-800">Politika penceresi</p>
-        <div className="mt-1 flex items-center gap-2">
-          <p className="text-3xl font-semibold text-amber-950">{currentDays} gün</p>
+        <p
+          className={
+            compact
+              ? "text-[11px] font-medium uppercase tracking-wide text-[var(--color-text-muted)]"
+              : "text-sm text-[var(--color-text-muted)]"
+          }
+        >
+          Politika penceresi
+        </p>
+        <div className="mt-0.5 flex items-center gap-2">
+          <p
+            className={
+              compact
+                ? "text-xl font-semibold tabular-nums text-[var(--color-text)]"
+                : "text-2xl font-semibold text-[var(--color-text)]"
+            }
+          >
+            {currentDays} gün
+          </p>
           {canWrite ? (
             <button
               type="button"
@@ -50,7 +69,7 @@ export function MakeupWindowDaysEditor({
                 setError(null);
                 setEditing(true);
               }}
-              className="rounded-md border border-amber-300 bg-white px-2 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100"
+              className="rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-0.5 text-[11px] font-medium text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)]"
             >
               Düzenle
             </button>
@@ -62,8 +81,10 @@ export function MakeupWindowDaysEditor({
 
   return (
     <div>
-      <p className="text-sm text-amber-800">Politika penceresi</p>
-      <div className="mt-1 flex items-center gap-2">
+      <p className="text-[11px] font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
+        Politika penceresi
+      </p>
+      <div className="mt-1 flex flex-wrap items-center gap-1.5">
         <input
           type="number"
           min={1}
@@ -71,15 +92,15 @@ export function MakeupWindowDaysEditor({
           value={value}
           onChange={(e) => setValue(e.target.value)}
           aria-label="Telafi politika penceresi (gün)"
-          className="w-20 rounded-md border border-amber-300 bg-white px-2 py-1 text-lg font-semibold text-amber-950 outline-none focus:ring-2 focus:ring-amber-300"
+          className="w-16 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-sm font-semibold text-[var(--color-text)] outline-none focus:ring-2 focus:ring-[var(--color-focus-ring)]"
         />
         <button
           type="button"
           disabled={submitting}
           onClick={() => void handleSave()}
-          className="rounded-md bg-amber-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+          className="rounded-md bg-[var(--color-primary)] px-2 py-1 text-[11px] font-medium text-white hover:bg-[var(--color-primary-hover)] disabled:opacity-50"
         >
-          {submitting ? "Kaydediliyor…" : "Kaydet"}
+          {submitting ? "…" : "Kaydet"}
         </button>
         <button
           type="button"
@@ -88,12 +109,12 @@ export function MakeupWindowDaysEditor({
             setEditing(false);
             setError(null);
           }}
-          className="rounded-md border border-amber-300 bg-white px-2.5 py-1.5 text-xs font-medium text-amber-800 hover:bg-amber-100"
+          className="rounded-md border border-[var(--color-border)] px-2 py-1 text-[11px] font-medium text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)]"
         >
           Vazgeç
         </button>
       </div>
-      {error ? <p className="mt-1 text-xs font-medium text-rose-600">{error}</p> : null}
+      {error ? <p className="mt-1 text-[11px] font-medium text-[var(--color-danger)]">{error}</p> : null}
     </div>
   );
 }
