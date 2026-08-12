@@ -10,7 +10,6 @@ import { getTaskKpiSummaryTool, listTasksTool, getDocumentInstanceTool } from "@
 import { TASK_CATEGORIES, TASK_PRIORITIES, TASK_PRIORITY_LABEL, TASK_STATUSES, type TaskStatus } from "@/lib/types";
 import { actionCreateTaskForm } from "@/lib/actions";
 import { cn, formatDate } from "@/lib/utils";
-import { resolveSafeReturnTo } from "@/lib/safe-return-to";
 import { listAssignableStaff, resolveStaffLabel } from "@/lib/staff-directory";
 import { TaskReminderPreferencesModal } from "@/components/task-reminder-preferences-modal";
 import { documentKindLabel } from "@/lib/documents";
@@ -119,7 +118,6 @@ export default async function IsTakipListePage({
   const prefillRelatedType = sp.newTaskRelatedType || "";
   const prefillRelatedId = sp.newTaskRelatedId || "";
   const prefillRelatedLabel = sp.newTaskRelatedLabel || "";
-  const safeReturnTo = resolveSafeReturnTo(sp.returnTo);
   const hasContext = Boolean(
     prefillStudentId ||
       prefillTeacherId ||
@@ -151,14 +149,6 @@ export default async function IsTakipListePage({
     <div>
       <KurumScopeNote scope={kurum.scope} />
       <BackButton fallbackHref="/panel/is-takip/kanban" label="İş Takip'e dön" className="mb-3" />
-      {safeReturnTo ? (
-        <Link
-          href={safeReturnTo}
-          className="mb-3 inline-block text-sm font-medium text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
-        >
-          ← Geri dön
-        </Link>
-      ) : null}
       <PageHeader
         title="İş Takip — Liste"
         actions={

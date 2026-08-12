@@ -30,9 +30,19 @@ describe("resolveSafeReturnTo — Ödemeler → Kaynak ders → güvenli geri d�
     expect(resolveSafeReturnTo("/panel/odemeler/s1:@evil.com")).toBeNull();
   });
 
-  it("allowlist dışı bir panel yolunu (ör. /panel/kurulum) reddeder", () => {
-    expect(resolveSafeReturnTo("/panel/kurulum")).toBeNull();
-    expect(resolveSafeReturnTo("/panel/ogretmenler")).toBeNull();
+  it("allowlist dışı bir panel yolunu (ör. /panel/paketler) reddeder", () => {
+    expect(resolveSafeReturnTo("/panel/paketler")).toBeNull();
+    expect(resolveSafeReturnTo("/panel/duyurular")).toBeNull();
+  });
+
+  it("İş 5 — geri navigasyon standardizasyonuyla eklenen yolları kabul eder", () => {
+    expect(resolveSafeReturnTo("/panel/telafi")).toBe("/panel/telafi");
+    expect(resolveSafeReturnTo("/panel/kurulum")).toBe("/panel/kurulum");
+    expect(resolveSafeReturnTo("/panel/ders-duzeltme")).toBe("/panel/ders-duzeltme");
+    expect(resolveSafeReturnTo("/panel/subeler")).toBe("/panel/subeler");
+    expect(resolveSafeReturnTo("/panel/evraklar/doc1")).toBe("/panel/evraklar/doc1");
+    expect(resolveSafeReturnTo("/panel/personel")).toBe("/panel/personel");
+    expect(resolveSafeReturnTo("/panel/bildirimler")).toBe("/panel/bildirimler");
   });
 
   it("cross-tenant/yetkisiz bir studentId formatça geçerli görünse de yalnızca yol biçimini doğrular — asıl erişim kontrolü hedef sayfada yeniden yapılır", () => {

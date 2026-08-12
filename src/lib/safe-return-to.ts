@@ -1,6 +1,9 @@
 /**
- * Ödemeler → Kaynak ders → Ödemelere geri dön akışı (ve benzer panel-içi
- * "bağlamı taşı, geri dön" linkleri) için `returnTo` query param doğrulayıcı.
+ * Panel-içi "bağlamı taşı, geri dön" linkleri için `returnTo` query param
+ * doğrulayıcı — TEK kaynak. İş 5 (bu sprint) itibarıyla hem tek tek sayfaların
+ * kendi manuel "← Geri dön" linklerinde HEM DE `BackButton`'ın otomatik
+ * `?returnTo=` algılamasında AYNI fonksiyon kullanılır — ikinci bir
+ * allowlist icat edilmedi.
  *
  * Yalnızca UYGULAMA İÇİ, allowlist edilmiş panel yollarına izin verir —
  * open redirect'e KAPALI: mutlak URL ("https://…"), protokol-göreli
@@ -22,6 +25,13 @@ const ALLOWED_RETURN_TO_PREFIXES = [
   "/panel/ogretmenler/",
   "/panel/program",
   "/panel/is-takip",
+  "/panel/telafi",
+  "/panel/kurulum",
+  "/panel/ders-duzeltme",
+  "/panel/subeler",
+  "/panel/evraklar",
+  "/panel/personel",
+  "/panel/bildirimler",
 ] as const;
 
 export function resolveSafeReturnTo(raw: string | undefined | null): string | null {
