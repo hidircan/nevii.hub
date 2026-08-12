@@ -36,6 +36,7 @@ import {
   PANEL_OPS_NAV,
   PANEL_AI_NAV,
   PANEL_SYSTEM_NAV,
+  PANEL_SEARCH_ONLY_NAV,
   type PanelNavItem,
 } from "@/lib/nav/panel-nav";
 
@@ -46,6 +47,7 @@ const ALL_PAGES: PanelNavItem[] = [
   ...PANEL_OPS_NAV,
   ...PANEL_AI_NAV,
   ...PANEL_SYSTEM_NAV,
+  ...PANEL_SEARCH_ONLY_NAV,
 ];
 
 type QuickAction = {

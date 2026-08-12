@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -258,27 +259,23 @@ export function Sidebar({
       </button>
 
       <div className="border-b px-3 py-5" style={{ borderColor: "var(--color-border)" }}>
-        <div className={cn("flex items-center gap-3", collapsed && "justify-center")}>
-          {collapsed ? (
+        <div className={cn("flex items-center gap-2.5", collapsed && "justify-center")}>
+          <Image
+            src={BRAND.sidebarLogoPath}
+            alt=""
+            width={collapsed ? 28 : 32}
+            height={collapsed ? 28 : 32}
+            className="shrink-0 rounded-md"
+            aria-hidden
+          />
+          {!collapsed ? (
             <p
-              className="text-lg font-extrabold uppercase tracking-wide"
+              className="truncate text-2xl font-extrabold uppercase tracking-wide"
               style={{ color: "var(--color-primary)" }}
             >
-              {BRAND.name.charAt(0)}
+              {BRAND.name}
             </p>
-          ) : (
-            <div className="min-w-0">
-              <p
-                className="truncate text-xl font-extrabold uppercase tracking-wide"
-                style={{ color: "var(--color-primary)" }}
-              >
-                {BRAND.name}
-              </p>
-              <p className="text-[11px]" style={{ color: "var(--color-text-muted)" }}>
-                Kurum yönetimi
-              </p>
-            </div>
-          )}
+          ) : null}
         </div>
         {!collapsed ? (
           <div

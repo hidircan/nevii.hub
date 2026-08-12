@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, BellRing, CheckCircle2, Circle, Download, RefreshCcw, Upload } from "lucide-react";
+import { ArrowRight, BellRing, Building2, CheckCircle2, Circle, DoorOpen, Download, Music, RefreshCcw, Upload } from "lucide-react";
 import { actionResetDemo, actionResetToCleanTemplate } from "@/lib/actions";
 import { readData } from "@/lib/store";
 import { Badge, Card, PageHeader } from "@/components/ui";
@@ -163,6 +163,42 @@ export default async function KurulumPage() {
           </Link>
         </Card>
       </div>
+
+      {/* İş 2B — Şubeler/Enstrümanlar/Odalar artık ana sidebar'da değil, kurulum
+          altında toplu bir yönetim kartı olarak burada. Route/RBAC AYNEN. */}
+      <Card className="mt-6 border-[var(--color-border)]">
+        <p className="font-semibold text-[var(--color-text)] dark:text-slate-50">Kurum yapısı</p>
+        <p className="mt-1 text-sm text-[var(--color-text-muted)]">Şube, oda ve enstrüman kataloğunu buradan yönetin.</p>
+        <div className="mt-3 grid gap-3 sm:grid-cols-3">
+          <Link href="/panel/subeler">
+            <Card className="!p-4 transition hover:border-[var(--color-primary)]">
+              <div className="flex items-center gap-2 text-[var(--color-primary)]">
+                <Building2 className="h-4 w-4" />
+                <p className="text-sm font-semibold">Şubeler</p>
+              </div>
+              <p className="mt-1 text-xs text-[var(--color-text-muted)]">Şube listesi ve yönetimi</p>
+            </Card>
+          </Link>
+          <Link href="/panel/odalar">
+            <Card className="!p-4 transition hover:border-[var(--color-primary)]">
+              <div className="flex items-center gap-2 text-[var(--color-primary)]">
+                <DoorOpen className="h-4 w-4" />
+                <p className="text-sm font-semibold">Odalar</p>
+              </div>
+              <p className="mt-1 text-xs text-[var(--color-text-muted)]">Oda listesi ve kapasite</p>
+            </Card>
+          </Link>
+          <Link href="/panel/enstrumanlar">
+            <Card className="!p-4 transition hover:border-[var(--color-primary)]">
+              <div className="flex items-center gap-2 text-[var(--color-primary)]">
+                <Music className="h-4 w-4" />
+                <p className="text-sm font-semibold">Enstrümanlar</p>
+              </div>
+              <p className="mt-1 text-xs text-[var(--color-text-muted)]">Enstrüman kataloğu</p>
+            </Card>
+          </Link>
+        </div>
+      </Card>
 
       <Card className="mt-6 border-[var(--color-border)]">
         <div className="flex items-start gap-3">

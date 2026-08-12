@@ -23,12 +23,12 @@ import {
   ScrollText,
   Brain,
   Workflow,
-  Building2,
   Wrench,
   Package as PackageIcon,
-  Music,
   ListChecks,
   UserCog,
+  Building2 as Building2Icon,
+  Music as MusicIcon,
 } from "lucide-react";
 
 export type PanelNavItem = {
@@ -61,21 +61,22 @@ export const PANEL_FINANCE_NAV: PanelNavItem[] = [
   { href: "/panel/paketler", label: "Paketler", icon: PackageIcon, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
 ];
 
+/**
+ * İş 2 — Kurulum Merkezi + Personel altına taşınanlar: Şubeler, Enstrümanlar,
+ * Bordrolar, İzinler artık burada AYRI girdi değil. Route'lar ve RBAC
+ * AYNEN kalır (bkz. src/app/panel/kurulum, src/app/panel/personel) —
+ * yalnız üst-seviye navigasyon konumu değişti.
+ */
 export const PANEL_OPS_NAV: PanelNavItem[] = [
   /** İnsan-odaklı operasyon görev takibi — /panel/workflows (AI otomasyonu) ile İLGİSİZ, ayrı modül. */
   { href: "/panel/is-takip", label: "İş Takip", icon: ListChecks },
   { href: "/panel/personel", label: "Personel", icon: UserCog, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
-  { href: "/panel/personel/bordrolar", label: "Bordrolar", icon: Wallet, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
-  { href: "/panel/personel/izinler", label: "İzinler", icon: CalendarDays, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
   { href: "/panel/finans-ozeti", label: "Finans Özeti", icon: CreditCard, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
   { href: "/panel/evraklar", label: "Evraklar", icon: FileText },
   { href: "/panel/deneme", label: "Deneme Dersleri", icon: FlaskConical },
   { href: "/panel/ders-duzeltme", label: "Ders düzeltme", icon: Wrench },
   { href: "/panel/duyurular", label: "Duyurular", icon: MessageCircle },
   { href: "/panel/bildirimler", label: "WhatsApp", icon: MessageCircle },
-  { href: "/panel/subeler", label: "Şubeler", icon: Building2 },
-  /** ÖNCELİK 4 (devam) — Yönetilebilir Enstrüman Kataloğu: yalnız admin roller. */
-  { href: "/panel/enstrumanlar", label: "Enstrümanlar", icon: Music, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
   /** Paket 7 — ödev atama/teslim raporu. */
   { href: "/panel/odev-raporu", label: "Ödev Raporu", icon: FileText, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
 ];
@@ -100,6 +101,18 @@ export const PANEL_SYSTEM_NAV: PanelNavItem[] = [
    */
   /** Kim, ne zaman, hangi ekranda/varlıkta hangi kritik işlemi yaptı. */
   { href: "/panel/denetim-kaydi", label: "Denetim Kaydı", icon: ScrollText, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
+];
+
+/**
+ * İş 2D — sidebar'da artık girdisi olmayan ama global arama/komut
+ * paletinde bulunabilir kalması gereken sayfalar (bkz. panel-nav.ts
+ * başındaki not). Etiket, taşındıkları üst bağlamı gösterir.
+ */
+export const PANEL_SEARCH_ONLY_NAV: PanelNavItem[] = [
+  { href: "/panel/subeler", label: "Kurulum Merkezi › Şubeler", icon: Building2Icon },
+  { href: "/panel/enstrumanlar", label: "Kurulum Merkezi › Enstrümanlar", icon: MusicIcon, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
+  { href: "/panel/personel/bordrolar", label: "Personel › Bordrolar", icon: Wallet, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
+  { href: "/panel/personel/izinler", label: "Personel › İzinler", icon: CalendarDays, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
 ];
 
 export function isNavActive(pathname: string, href: string): boolean {
