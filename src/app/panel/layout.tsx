@@ -43,7 +43,15 @@ export default async function PanelLayout({
         canSeeAllKurumlar={session.role === "SUPER_ADMIN"}
       />
       <main className="flex-1 overflow-auto">
-        <PanelHeader role={session.role} email={user?.email ?? null} kurumName={currentKurum?.name ?? null} density={density} />
+        <PanelHeader
+          role={session.role}
+          email={user?.email ?? null}
+          kurumName={currentKurum?.name ?? null}
+          kurumAvailable={kurum.available}
+          kurumSelection={kurum.selection}
+          canSeeAllKurumlar={session.role === "SUPER_ADMIN"}
+          density={density}
+        />
         <div className="mx-auto max-w-7xl px-6 py-8 lg:px-10">{children}</div>
       </main>
     </div>
