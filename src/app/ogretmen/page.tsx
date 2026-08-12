@@ -7,9 +7,8 @@ import { Badge, Card } from "@/components/ui";
 import { formatDate, formatDateTime, formatMoney, formatTime } from "@/lib/utils";
 import { actionMarkAttendance } from "@/lib/actions";
 import { computeTeacherEarningsForPeriod } from "@/lib/teacher-payout";
-import { CalendarDays, Home, Music2, Palette, Users, Wallet } from "lucide-react";
+import { CalendarDays, Music2, Users, Wallet } from "lucide-react";
 import { requireSessionContext } from "@/lib/auth/session";
-import { LogoutButton } from "@/components/logout-button";
 import { TelafiSubmitButton } from "@/components/telafi-submit-button";
 import { AssistantPageContext } from "@/components/ai/assistant-page-context";
 import { computeLiveDisplayStatus } from "@/lib/lesson-live-status";
@@ -32,7 +31,6 @@ export default async function OgretmenPortalPage() {
   const teacherId = session.teacherId || "t2";
   const teacher = data.teachers.find((t) => t.id === teacherId) ?? data.teachers[0];
   if (!teacher) redirect("/login");
-  const branch = data.settings.branches.find((b) => b.id === teacher.branchId);
   const students = data.students.filter((s) => s.teacherId === teacher.id && s.active);
 
   const today = new Date().toISOString().slice(0, 10);
@@ -61,41 +59,10 @@ export default async function OgretmenPortalPage() {
     .slice(0, 3);
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-cyan-50 to-slate-50">
+    <div>
       <AssistantPageContext entity={{ kind: "teacher", id: teacher.id, label: teacher.name }} />
-      <header className="border-b border-cyan-100 bg-[var(--color-surface)]/90 backdrop-blur">
-        <div className="mx-auto flex max-w-lg items-center justify-between px-4 py-4">
-          <div className="flex items-center gap-2">
-            <div
-              className="flex h-9 w-9 items-center justify-center rounded-xl text-sm font-bold text-white"
-              style={{ background: teacher.color }}
-            >
-              {teacher.name
-                .split(" ")
-                .map((p) => p[0])
-                .join("")
-                .slice(0, 2)}
-            </div>
-            <div>
-              <p className="text-sm font-semibold text-[var(--color-text)] dark:text-slate-50">{teacher.name}</p>
-              <p className="text-[11px] text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
-                Öğretmen · {branch?.shortName} · {teacher.instruments.join(", ")}
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <Link href="/gorunum-ayarlari" className="text-[var(--color-text-muted)] hover:text-[var(--color-text-muted)]" aria-label="Görünüm ayarları">
-              <Palette className="h-4 w-4" />
-            </Link>
-            <LogoutButton className="!text-xs" />
-            <Link href="/" className="text-[var(--color-text-muted)]">
-              <Home className="h-4 w-4" />
-            </Link>
-          </div>
-        </div>
-      </header>
 
-      <main className="mx-auto max-w-lg space-y-4 px-4 py-6 pb-24">
+      <main className="mx-auto max-w-lg space-y-4 px-4 py-6">
         <Card className="border-cyan-100">
           <div className="flex items-center gap-2 text-cyan-700">
             <Music2 className="h-4 w-4" />

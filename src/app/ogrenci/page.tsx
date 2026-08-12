@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ChevronLeft, ChevronRight, Bell, BookOpen, CalendarDays, FileText, Home, Megaphone, Music2, Palette, Video } from "lucide-react";
+import { ChevronLeft, ChevronRight, Bell, BookOpen, CalendarDays, FileText, Megaphone, Video } from "lucide-react";
 import { addDays, isSameDay, parseISO } from "date-fns";
 import { requireSessionContext } from "@/lib/auth/session";
 import { readData } from "@/lib/store";
@@ -120,31 +120,8 @@ export default async function OgrenciPortalPage({
   const overallPercent = curriculumResult.ok ? curriculumResult.data.overallPercent : null;
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-emerald-50 to-slate-50">
-      <header className="border-b border-emerald-100 bg-[var(--color-surface)]/90 backdrop-blur">
-        <div className="mx-auto flex max-w-lg items-center justify-between px-4 py-4">
-          <div className="flex items-center gap-2">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-600 text-white">
-              <Music2 className="h-4 w-4" />
-            </div>
-            <div>
-              <p className="text-sm font-semibold text-[var(--color-text)]">{data.settings.shortName}</p>
-              <p className="text-[11px] text-[var(--color-text-muted)]">Öğrenci portalı</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <Link href="/gorunum-ayarlari" className="text-[var(--color-text-muted)] hover:text-[var(--color-text-muted)]" aria-label="Görünüm ayarları">
-              <Palette className="h-4 w-4" />
-            </Link>
-            <LogoutButton className="!text-xs text-[var(--color-text-muted)]" />
-            <Link href="/" className="text-xs text-emerald-600">
-              <Home className="h-4 w-4" />
-            </Link>
-          </div>
-        </div>
-      </header>
-
-      <main className="mx-auto max-w-lg space-y-4 px-4 py-6 pb-24">
+    <div>
+      <main className="mx-auto max-w-lg space-y-4 px-4 py-6">
         <Card className="border-emerald-100 bg-[var(--color-surface)]">
           <p className="text-xs font-medium uppercase tracking-wide text-emerald-600">Merhaba</p>
           <h1 className="mt-1 text-xl font-semibold text-[var(--color-text)]">{student.name}</h1>

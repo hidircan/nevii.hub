@@ -9,17 +9,13 @@ import {
   CalendarDays,
   CheckCircle2,
   FileText,
-  Home,
   Megaphone,
   MessageCircle,
-  Music2,
   RefreshCcw,
   CreditCard,
   Star,
-  Palette,
 } from "lucide-react";
 import { requireSessionContext } from "@/lib/auth/session";
-import { LogoutButton } from "@/components/logout-button";
 import { AssistantPageContext } from "@/components/ai/assistant-page-context";
 import { listNotificationsForUser } from "@/lib/notifications";
 import { NotificationList } from "@/components/notification-list";
@@ -79,7 +75,6 @@ export default async function VeliPortalPage() {
     userId: session.userId,
     studentId: student.id,
   });
-  const unreadCount = notifications.filter((n) => !n.readAt).length;
 
   const announcementsResult = await listAnnouncementsForUserTool(session);
   const announcements = announcementsResult.ok ? announcementsResult.data.announcements : [];
@@ -135,40 +130,10 @@ export default async function VeliPortalPage() {
     ) : null;
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-amber-50 to-slate-50">
+    <div>
       <AssistantPageContext entity={{ kind: "student", id: student.id, label: student.name }} />
-      <header className="border-b border-amber-100 bg-[var(--color-surface)]/90 backdrop-blur">
-        <div className="mx-auto flex max-w-lg items-center justify-between px-4 py-4">
-          <div className="flex items-center gap-2">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-600 text-white">
-              <Music2 className="h-4 w-4" />
-            </div>
-            <div>
-              <p className="text-sm font-semibold text-[var(--color-text)] dark:text-slate-50">{data.settings.shortName}</p>
-              <p className="text-[11px] text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">Veli portalı</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <a href="#bildirimler" className="relative text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
-              <Bell className="h-4 w-4" />
-              {unreadCount > 0 ? (
-                <span className="absolute -right-1.5 -top-1.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-rose-500 text-[9px] font-semibold text-white">
-                  {unreadCount}
-                </span>
-              ) : null}
-            </a>
-            <Link href="/gorunum-ayarlari" className="text-[var(--color-text-muted)] hover:text-[var(--color-text-muted)]" aria-label="Görünüm ayarları">
-              <Palette className="h-4 w-4" />
-            </Link>
-            <LogoutButton className="!text-xs text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]" />
-            <Link href="/" className="text-xs text-amber-600">
-              <Home className="h-4 w-4" />
-            </Link>
-          </div>
-        </div>
-      </header>
 
-      <main className="mx-auto max-w-lg space-y-4 px-4 py-6 pb-24">
+      <main className="mx-auto max-w-lg space-y-4 px-4 py-6">
         <Card className="border-amber-100 bg-[var(--color-surface)]">
           <p className="text-xs font-medium uppercase tracking-wide text-amber-600">Veliler için demo</p>
           <h1 className="mt-1 text-xl font-semibold text-[var(--color-text)] dark:text-slate-50">{student.parentName}</h1>
@@ -265,7 +230,7 @@ export default async function VeliPortalPage() {
           paymentSummaryCard
         )}
 
-        <section>
+        <section id="program">
           <div className="mb-2 flex items-center gap-2 px-1">
             <CalendarDays className="h-4 w-4 text-amber-600" />
             <h2 className="text-sm font-semibold text-[var(--color-text)] dark:text-slate-200">Yaklaşan dersler (5 gün içinde)</h2>
@@ -353,7 +318,7 @@ export default async function VeliPortalPage() {
           )}
         </section>
 
-        <section>
+        <section id="odemeler">
           <div className="mb-2 flex items-center gap-2 px-1">
             <CreditCard className="h-4 w-4 text-emerald-600" />
             <h2 className="text-sm font-semibold text-[var(--color-text)] dark:text-slate-200">Ödemeler</h2>

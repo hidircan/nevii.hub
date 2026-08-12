@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { BackButton } from "@/components/back-button";
 import { addDays, isSameDay, parseISO } from "date-fns";
 import { readData } from "@/lib/store";
 import { requireSessionContext } from "@/lib/auth/session";
@@ -20,7 +19,6 @@ import { LessonLiveActions } from "@/components/lesson-live-actions";
 import { LessonCountdown } from "@/components/lesson-countdown";
 import { LessonOpsActions, LessonOpsBadges } from "@/components/lesson-ops-actions";
 import { isMonday } from "@/lib/closed-days";
-import { NotificationBell } from "@/components/notification-bell";
 import { ProgramLiveRefresh } from "@/components/program-live-refresh";
 
 export const dynamic = "force-dynamic";
@@ -72,18 +70,10 @@ export default async function TeacherOwnProgramPage({
   );
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-cyan-50 to-slate-50">
-      <header className="border-b border-cyan-100 bg-[var(--color-surface)]/90 backdrop-blur">
-        <div className="mx-auto flex max-w-lg items-center justify-between px-4 py-4">
-          <BackButton fallbackHref="/ogretmen" />
-          <p className="text-sm font-semibold text-[var(--color-text)] dark:text-slate-50">Ders Programım</p>
-          <NotificationBell />
-        </div>
-      </header>
-
+    <div>
       <ProgramLiveRefresh />
 
-      <main className="mx-auto max-w-lg space-y-3 px-4 py-6 pb-24">
+      <main className="mx-auto max-w-lg space-y-3 px-4 py-6">
         <div className="flex flex-wrap items-center justify-between gap-2 px-1">
           <Link
             href={prevHref}
