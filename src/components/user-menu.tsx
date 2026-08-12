@@ -11,7 +11,7 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Bell, KeyRound, LogOut, Monitor, Settings, UserRound } from "lucide-react";
+import { Bell, CircleHelp, KeyRound, LogOut, Monitor, Settings, UserRound } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { AppRole } from "@/lib/auth/types";
 import { roleLabelTr, initialsFromEmail } from "@/lib/auth/role-labels";
@@ -145,6 +145,16 @@ export function UserMenu({
             >
               <Bell className="h-4 w-4" style={{ color: "var(--color-text-muted)" }} />
               Bildirim ayarları
+            </Link>
+            <Link
+              href="/panel/yardim"
+              role="menuitem"
+              onClick={() => setOpen(false)}
+              className="flex items-center gap-2.5 px-4 py-2 text-sm transition hover:bg-[var(--color-surface-muted)]"
+              style={{ color: "var(--color-text)" }}
+            >
+              <CircleHelp className="h-4 w-4" style={{ color: "var(--color-text-muted)" }} />
+              Yardım Merkezi
             </Link>
           </div>
 

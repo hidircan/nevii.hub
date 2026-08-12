@@ -9,6 +9,7 @@ import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { computeTeacherPerformanceScore } from "@/lib/insights/teacher-performance";
 import { AiInsightTrigger } from "@/components/ai/ai-insight-trigger";
 import { TeacherArchiveAction } from "@/components/teacher-archive-action";
+import { TeacherPerformanceInfo } from "@/components/teacher-performance-info";
 
 export const dynamic = "force-dynamic";
 
@@ -144,23 +145,29 @@ export default async function OgretmenlerPage({
                     {(() => {
                       const perf = computeTeacherPerformanceScore(data, t.id);
                       return (
-                        <>
-                          <p className="mb-2 text-sm text-[var(--color-text-muted)] dark:text-slate-300">
-                            Performans skoru:{" "}
-                            <span className="font-semibold text-[var(--color-text)] dark:text-slate-50">
-                              {perf.score === null ? "yetersiz veri" : `${perf.score}/100`}
-                            </span>{" "}
-                            <span className="text-xs text-[var(--color-text-muted)]">
-                              ({perf.gradedLessonCount} işlenmiş ders · {perf.presentCount} geldi ·{" "}
-                              {perf.schoolCancelledCount} okul iptal)
-                            </span>
-                          </p>
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <p className="text-sm text-[var(--color-text-muted)]">
+                                Performans skoru:{" "}
+                                <span className="font-semibold text-[var(--color-text)]">
+                                  {perf.score === null ? "yetersiz veri" : `${perf.score}/100`}
+                                </span>
+                              </p>
+                              <TeacherPerformanceInfo />
+                            </div>
+                            <p className="mt-0.5 text-xs text-[var(--color-text-muted)]">
+                              {perf.gradedLessonCount} işlenmiş ders · {perf.presentCount} geldi ·{" "}
+                              {perf.schoolCancelledCount} okul iptal
+                            </p>
+                          </div>
                           <AiInsightTrigger
                             capabilityId="teacherPerformanceScore"
-                            label="AI ile yorumla"
+                            label="AI ile performans yorumu"
+                            iconOnly
                             payload={{ teacherName: t.name, ...perf }}
                           />
-                        </>
+                        </div>
                       );
                     })()}
                   </div>

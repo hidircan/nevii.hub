@@ -29,6 +29,7 @@ import {
   UserCog,
   Building2 as Building2Icon,
   Music as MusicIcon,
+  CircleHelp,
 } from "lucide-react";
 
 export type PanelNavItem = {
@@ -113,6 +114,7 @@ export const PANEL_SEARCH_ONLY_NAV: PanelNavItem[] = [
   { href: "/panel/enstrumanlar", label: "Kurulum Merkezi › Enstrümanlar", icon: MusicIcon, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
   { href: "/panel/personel/bordrolar", label: "Personel › Bordrolar", icon: Wallet, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
   { href: "/panel/personel/izinler", label: "Personel › İzinler", icon: CalendarDays, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
+  { href: "/panel/yardim", label: "Yardım Merkezi", icon: CircleHelp },
 ];
 
 export function isNavActive(pathname: string, href: string): boolean {
