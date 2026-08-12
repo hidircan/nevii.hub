@@ -64,7 +64,7 @@ export default async function IsTakipDetailPage({
           Görev oluşturuldu.
         </p>
       ) : null}
-      <BackButton fallbackHref="/panel/is-takip" label="İş Takip'e dön" className="mb-3" />
+      <BackButton fallbackHref="/panel/is-takip/kanban" label="İş Takip'e dön" className="mb-3" />
       {!detailRes.ok ? (
         <>
           <PageHeader title="Görev bulunamadı" />

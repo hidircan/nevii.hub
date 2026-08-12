@@ -4,7 +4,7 @@ import type { RelatedEntityType } from "@/lib/types";
 
 /**
  * Package E — bağlamdan hızlı görev oluşturma. İkinci bir görev sistemi
- * KURMAZ: mevcut `/panel/is-takip` sayfası zaten `newTask*` query param'ları
+ * KURMAZ: mevcut `/panel/is-takip/liste` sayfası zaten `newTask*` query param'ları
  * ile öğrenci/öğretmen/ders/ödeme/evrak/şube bağlamını okuyup formu
  * önceden dolduruyor ve kaydedince `task-detail-panel.tsx` "X'e git →"
  * linkleriyle kaynağa geri dönüyor — bu bileşen yalnızca o akışa giden
@@ -77,7 +77,7 @@ export function QuickTaskLink({
 
   return (
     <Link
-      href={`/panel/is-takip?${params.toString()}`}
+      href={`/panel/is-takip/liste?${params.toString()}`}
       className={
         className ??
         "inline-flex items-center gap-1.5 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2.5 py-1.5 text-xs font-medium text-[var(--color-text)] hover:border-[var(--color-primary)]"

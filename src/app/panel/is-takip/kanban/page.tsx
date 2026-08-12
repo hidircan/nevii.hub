@@ -1,13 +1,12 @@
 import { redirect } from "next/navigation";
+import Link from "next/link";
 import { requireSessionContext } from "@/lib/auth/session";
 import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { PageHeader } from "@/components/ui";
-import { BackButton } from "@/components/back-button";
 import { listTasksTool } from "@/lib/services";
 import { TaskKanbanBoard } from "@/components/task-kanban-board";
 import { listAssignableStaff } from "@/lib/staff-directory";
-import { IsTakipViewLink } from "@/components/is-takip-view-preference";
 
 export const dynamic = "force-dynamic";
 
@@ -37,14 +36,27 @@ export default async function IsTakipKanbanPage() {
   return (
     <div>
       <KurumScopeNote scope={kurum.scope} />
-      <BackButton fallbackHref="/panel/is-takip" label="İş Takip'e dön" className="mb-3" />
       <PageHeader
         title="İş Takip — Kanban"
         description="Görevleri durumlarına göre sürükleyip bırakmak yerine, her kartın altındaki menüden durumunu değiştirin."
         actions={
-          <IsTakipViewLink href="/panel/is-takip" view="liste" className="text-sm font-medium text-[var(--color-primary)] hover:underline">
-            ← Liste görünümü
-          </IsTakipViewLink>
+          <div className="flex flex-wrap items-center gap-3">
+            <Link
+              href="/panel/is-takip/liste#yeni-gorev"
+              className="rounded-md bg-[var(--color-primary)] px-3 py-1.5 text-sm font-medium text-[var(--color-primary-contrast,#fff)] hover:opacity-90"
+            >
+              + Yeni Görev
+            </Link>
+            <Link href="/panel/is-takip/liste" className="text-sm font-medium text-[var(--color-primary)] hover:underline">
+              Liste görünümü
+            </Link>
+            <Link href="/panel/is-takip/takvim" className="text-sm font-medium text-[var(--color-primary)] hover:underline">
+              Takvim görünümü
+            </Link>
+            <Link href="/panel/is-takip/raporlar" className="text-sm font-medium text-[var(--color-primary)] hover:underline">
+              Raporlar
+            </Link>
+          </div>
         }
       />
       <TaskKanbanBoard tasks={tasks} isAdmin assigneeLabels={assigneeLabels} />

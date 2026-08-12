@@ -69,12 +69,12 @@ export default async function IsTakipTakvimPage({
   return (
     <div>
       <KurumScopeNote scope={kurum.scope} />
-      <BackButton fallbackHref="/panel/is-takip" label="İş Takip'e dön" className="mb-3" />
+      <BackButton fallbackHref="/panel/is-takip/kanban" label="İş Takip'e dön" className="mb-3" />
       <PageHeader
         title="İş Takip — Takvim"
         actions={
-          <Link href="/panel/is-takip" className="text-sm font-medium text-[var(--color-primary)] hover:underline">
-            ← Liste görünümü
+          <Link href="/panel/is-takip/liste" className="text-sm font-medium text-[var(--color-primary)] hover:underline">
+            Liste görünümü
           </Link>
         }
       />

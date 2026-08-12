@@ -49,7 +49,7 @@ export default async function IsTakipRaporlarPage({
   return (
     <div>
       <KurumScopeNote scope={kurum.scope} />
-      <BackButton fallbackHref="/panel/is-takip" label="İş Takip'e dön" className="mb-3" />
+      <BackButton fallbackHref="/panel/is-takip/kanban" label="İş Takip'e dön" className="mb-3" />
       <PageHeader title="İş Takip — Raporlar" />
 
       {!reportRes.ok ? (

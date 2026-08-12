@@ -1924,7 +1924,7 @@ function DetailPanel({
           studentExcused={lesson.studentExcused}
         />
         <Link
-          href={`/panel/is-takip?newTaskLessonId=${lesson.id}${student ? `&newTaskStudentId=${student.id}` : ""}${
+          href={`/panel/is-takip/liste?newTaskLessonId=${lesson.id}${student ? `&newTaskStudentId=${student.id}` : ""}${
             teacher ? `&newTaskTeacherId=${teacher.id}` : ""
           }&returnTo=${encodeURIComponent("/panel/program")}`}
           className="mt-2 inline-block text-xs font-medium text-[var(--color-primary)] hover:underline"
