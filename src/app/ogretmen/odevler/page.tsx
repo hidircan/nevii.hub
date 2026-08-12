@@ -67,7 +67,9 @@ export default async function TeacherHomeworkPage() {
             Yeni ödev ver
           </p>
           {students.length === 0 ? (
-            <p className="text-sm text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">Aktif öğrenciniz yok.</p>
+            <p className="text-sm text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
+              Ödev verebileceğiniz aktif öğrenci bulunamadı.
+            </p>
           ) : (
             <HomeworkCreateForm students={students} />
           )}
