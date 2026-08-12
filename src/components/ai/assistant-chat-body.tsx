@@ -323,14 +323,14 @@ export function AssistantChatBody({
       {/* Persistent (not just empty-state) so a quick action stays reachable
           after the page context changes mid-conversation. */}
       {quickActions.length ? (
-        <div className="flex shrink-0 gap-1.5 overflow-x-auto border-t border-[var(--color-border)] px-3 pt-2.5 pb-1 dark:border-slate-800">
+        <div className="flex shrink-0 flex-wrap gap-1.5 border-t border-[var(--color-border)] px-3 pt-2.5 pb-1 sm:flex-nowrap sm:overflow-x-auto">
           {quickActions.map((qa) => (
             <button
               key={qa.id}
               type="button"
               disabled={loading}
               onClick={() => void send(qa.message)}
-              className="shrink-0 whitespace-nowrap rounded-full border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-medium text-violet-800 transition hover:bg-violet-100 disabled:opacity-40 dark:border-violet-800 dark:bg-violet-950/40 dark:text-violet-300 dark:hover:bg-violet-950/70"
+              className="max-w-full shrink-0 rounded-full border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-3 py-1.5 text-left text-xs font-medium text-[var(--color-text)] transition hover:border-[var(--color-primary)] disabled:opacity-40"
             >
               {qa.label}
             </button>
