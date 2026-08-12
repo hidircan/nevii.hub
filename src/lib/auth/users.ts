@@ -355,6 +355,29 @@ export async function authenticateUser(
   return toAuthUser(row);
 }
 
+/**
+ * Öğretmenin (Teacher.id) kendi login `User.id`'sini bulur — ders bildirimi
+ * gönderirken (İş 4) `targetUserId` çözmek için. Eşleşme yoksa (öğretmenin
+ * henüz login hesabı yoksa) `null` — çağıran bildirim gönderimini sessizce
+ * atlar, ders kaydını ETKİLEMEZ.
+ */
+export async function getUserIdByTeacherId(tenantId: string, teacherId: string): Promise<string | null> {
+  if (isDbMode) {
+    try {
+      const { getPrisma } = await import("../db");
+      const prisma = getPrisma();
+      const row = await prisma.user.findFirst({
+        where: { tenantId, teacherId, active: true },
+      });
+      return row?.id ?? null;
+    } catch {
+      return null;
+    }
+  }
+  const row = HASHED.find((u) => u.tenantId === tenantId && u.teacherId === teacherId);
+  return row?.userId ?? null;
+}
+
 export async function getUserById(userId: string): Promise<AuthUser | null> {
   if (isDbMode) {
     try {

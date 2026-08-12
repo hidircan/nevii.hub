@@ -20,6 +20,8 @@ import { LessonLiveActions } from "@/components/lesson-live-actions";
 import { LessonCountdown } from "@/components/lesson-countdown";
 import { LessonOpsActions, LessonOpsBadges } from "@/components/lesson-ops-actions";
 import { isMonday } from "@/lib/closed-days";
+import { NotificationBell } from "@/components/notification-bell";
+import { ProgramLiveRefresh } from "@/components/program-live-refresh";
 
 export const dynamic = "force-dynamic";
 
@@ -75,9 +77,11 @@ export default async function TeacherOwnProgramPage({
         <div className="mx-auto flex max-w-lg items-center justify-between px-4 py-4">
           <BackButton fallbackHref="/ogretmen" />
           <p className="text-sm font-semibold text-[var(--color-text)] dark:text-slate-50">Ders Programım</p>
-          <span className="w-10" />
+          <NotificationBell />
         </div>
       </header>
+
+      <ProgramLiveRefresh />
 
       <main className="mx-auto max-w-lg space-y-3 px-4 py-6 pb-24">
         <div className="flex flex-wrap items-center justify-between gap-2 px-1">

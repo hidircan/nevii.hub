@@ -10,6 +10,9 @@ import {
 } from "../services/tools";
 import { readData } from "../store";
 import { DEFAULT_TENANT_ID } from "../auth/config";
+import { listNotificationsForUser, NOTIFICATIONS_FILE } from "../notifications";
+import { createLessonTool } from "../services/tools";
+import { findOpenLessonSlot } from "./helpers/lesson-slot";
 import type { ServiceContext } from "../services/context";
 import type { AppData, Lesson } from "../types";
 import { isWeeklyClosedDayForTerm } from "../attendance-calendar";
@@ -51,6 +54,7 @@ function pickConflictSeedLesson(data: AppData): Lesson {
 
 beforeEach(async () => {
   await fs.rm(DATA_FILE, { force: true });
+  await fs.rm(NOTIFICATIONS_FILE, { force: true });
 });
 
 const baseInput = {
@@ -104,6 +108,24 @@ describe("createLessonSeriesTool", () => {
 
     const data = await readData();
     expect(data.lessonSeries.some((s) => s.id === res.data.seriesId)).toBe(true);
+  });
+
+  it("İş 4A — tek özet bildirim üretir (oluşum başına DEĞİL), öğretmene ulaşır", async () => {
+    const res = await createLessonSeriesTool(ctx(), baseInput);
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.createdLessonIds).toHaveLength(3);
+
+    const notifications = await listNotificationsForUser({
+      tenantId: DEFAULT_TENANT_ID,
+      userId: "user_teacher_t1",
+    });
+    const seriesNotifications = notifications.filter((n) => n.kind === "lesson_planned");
+    expect(seriesNotifications).toHaveLength(1);
+    expect(seriesNotifications[0]?.body).toContain("3 ders");
+
+    const otherTeacher = await listNotificationsForUser({ tenantId: DEFAULT_TENANT_ID, userId: "user_teacher_t2" });
+    expect(otherTeacher).toHaveLength(0);
   });
 
   it("varsayılan davranışta çakışma varsa CONFLICT döner, hiçbir kayıt yazılmaz", async () => {
@@ -207,5 +229,31 @@ describe("cancelSeriesFromLessonTool / cancelEntireSeriesTool", () => {
     const res = await cancelEntireSeriesTool(ctx({ role: "TEACHER" }), { seriesId: created.data.seriesId });
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.error.code).toBe("FORBIDDEN");
+  });
+});
+
+describe("createLessonTool — İş 4A tekil ders bildirimi", () => {
+  it("başarılı ders oluşturmada ilgili öğretmene tek bildirim gider", async () => {
+    const data = await readData();
+    const startAt = await findOpenLessonSlot(data, "s1", "t1", "r1");
+    const res = await createLessonTool(ctx(), { studentId: "s1", teacherId: "t1", roomId: "r1", instrument: "Piyano", startAt });
+    expect(res.ok).toBe(true);
+
+    const notifications = await listNotificationsForUser({ tenantId: DEFAULT_TENANT_ID, userId: "user_teacher_t1" });
+    expect(notifications.filter((n) => n.kind === "lesson_planned")).toHaveLength(1);
+  });
+
+  it("başarısız ders oluşturmada (oda çakışması) bildirim gitmez", async () => {
+    const data = await readData();
+    const startAt = await findOpenLessonSlot(data, "s1", "t1", "r1");
+    const first = await createLessonTool(ctx(), { studentId: "s1", teacherId: "t1", roomId: "r1", instrument: "Piyano", startAt });
+    expect(first.ok).toBe(true);
+
+    // aynı oda + aynı saat, farklı öğrenci/öğretmen — oda çakışması reddedilmeli.
+    const conflict = await createLessonTool(ctx(), { studentId: "s3", teacherId: "t3", roomId: "r1", instrument: "Piyano", startAt });
+    expect(conflict.ok).toBe(false);
+
+    const notifications = await listNotificationsForUser({ tenantId: DEFAULT_TENANT_ID, userId: "user_teacher_t3" });
+    expect(notifications).toHaveLength(0);
   });
 });

@@ -8,7 +8,8 @@ import { z } from "zod";
 import { differenceInCalendarDays, parseISO } from "date-fns";
 import { prisma } from "../db";
 import { foldTurkishForSearch } from "../normalize";
-import { provisionEntityLogin } from "../auth/users";
+import { provisionEntityLogin, getUserIdByTeacherId } from "../auth/users";
+import { logger } from "../logger";
 import {
   addBranch,
   addLesson,
@@ -159,7 +160,7 @@ import {
   setTeacherFeedbackShared,
   computeTeacherFeedbackSummary,
 } from "../teacher-feedback";
-import { formatMoney, uid } from "../utils";
+import { formatMoney, formatDate, formatTime, uid } from "../utils";
 import { parseCsv, rowsToRecords } from "../import/csv";
 import { validateBranchRows, type BranchImportRow } from "../import/branches";
 import { validateTeacherRows, type TeacherImportRow } from "../import/teachers";
@@ -2390,6 +2391,33 @@ export async function suggestLessonSlotsTool(
   return ok({ suggestions });
 }
 
+/**
+ * İş 4A — ders planlandığında öğretmene bildirim. Tekil çağrı; seri
+ * oluşturmada spam olmaması için CAĞIRAN (createLessonSeriesTool) TEK bir
+ * özet bildirim üretir, oluşum başına değil. Bildirim gönderimi ders
+ * kaydını asla ETKİLEMEZ — öğretmenin henüz login hesabı yoksa (userId
+ * bulunamazsa) veya bildirim store'u hata verirse sessizce atlanır, loglanır.
+ */
+async function notifyTeacherLessonPlanned(
+  tenantId: string,
+  teacherId: string,
+  notification: { title: string; body: string }
+): Promise<void> {
+  try {
+    const targetUserId = await getUserIdByTeacherId(tenantId, teacherId);
+    if (!targetUserId) return;
+    await createNotification({
+      tenantId,
+      targetUserId,
+      kind: "lesson_planned",
+      title: notification.title,
+      body: notification.body,
+    });
+  } catch (e) {
+    logger.error("notifyTeacherLessonPlanned failed", e);
+  }
+}
+
 export async function createLessonTool(
   ctx: ServiceContext,
   input: unknown
@@ -2430,6 +2458,17 @@ export async function createLessonTool(
     });
     const after = await readData();
     const created = after.lessons.find((l) => !ids.has(l.id));
+    if (created) {
+      const student = after.students.find((s) => s.id === created.studentId);
+      const room = after.rooms.find((r) => r.id === created.roomId);
+      const branch = after.settings.branches.find((b) => b.id === created.branchId);
+      const durationMinutes = v.data.durationMinutes ?? DEFAULT_LESSON_DURATION_MINUTES;
+      const locationLabel = [branch?.shortName, room?.name].filter(Boolean).join(" · ");
+      await notifyTeacherLessonPlanned(ctx.tenantId, v.data.teacherId, {
+        title: "Yeni ders planlandı",
+        body: `${student?.name ?? "Öğrenci"} — ${formatDate(created.startAt)} ${formatTime(created.startAt)}, ${durationMinutes} dk, ${created.instrument}${locationLabel ? ` (${locationLabel})` : ""}.`,
+      });
+    }
     return ok({ lessonId: created?.id ?? "unknown" });
   } catch (e) {
     // İş 3 — TEACHER_UNAVAILABLE tek "soft warning" kodu: `details` içinde
@@ -2567,6 +2606,28 @@ export async function createLessonSeriesTool(
     const { skipConflicts, ...params } = v.data;
     const result = await addLessonSeries(params, { skipConflicts });
     if (!result.ok) return fail("CONFLICT", result.message, result.conflicts);
+
+    // İş 4A — seri için TEK özet bildirim (oluşum başına DEĞİL, spam yok).
+    // Aynı Türkçe cümle üretimi `previewLessonSeriesTool` ile PAYLAŞILIR
+    // (buildSeriesPreviewText) — ikinci bir metin şablonu icat edilmedi.
+    if (result.createdLessonIds.length > 0) {
+      const data = await readData();
+      const student = data.students.find((s) => s.id === v.data.studentId);
+      const summary = buildSeriesPreviewText({
+        studentName: student?.name ?? "Öğrenci",
+        weekday: v.data.weekday,
+        startTime: v.data.startTime,
+        durationMinutes: v.data.durationMinutes ?? DEFAULT_LESSON_DURATION_MINUTES,
+        startsOn: v.data.startsOn,
+        endsOn: v.data.endsOn,
+        occurrenceCount: result.createdLessonIds.length,
+      });
+      await notifyTeacherLessonPlanned(ctx.tenantId, v.data.teacherId, {
+        title: "Yeni ders serisi planlandı",
+        body: summary,
+      });
+    }
+
     return ok({
       seriesId: result.seriesId,
       createdLessonIds: result.createdLessonIds,
