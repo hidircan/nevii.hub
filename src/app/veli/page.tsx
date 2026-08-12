@@ -134,13 +134,13 @@ export default async function VeliPortalPage() {
       <AssistantPageContext entity={{ kind: "student", id: student.id, label: student.name }} />
 
       <main className="mx-auto max-w-lg space-y-4 px-4 py-6">
-        <Card className="border-amber-100 bg-[var(--color-surface)]">
+        <Card className="glass-hero border-amber-100 bg-[var(--hero-bg)]">
           <p className="text-xs font-medium uppercase tracking-wide text-amber-600">Veliler için demo</p>
-          <h1 className="mt-1 text-xl font-semibold text-[var(--color-text)] dark:text-slate-50">{student.parentName}</h1>
-          <p className="mt-1 text-sm text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
+          <h1 className="mt-1 text-xl font-semibold text-[var(--hero-text)]">{student.parentName}</h1>
+          <p className="mt-1 text-sm text-[var(--hero-text-muted)]">
             Öğrenci: <strong>{student.name}</strong> · {student.instruments.join(", ")}
           </p>
-          <p className="text-sm text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
+          <p className="text-sm text-[var(--hero-text-muted)]">
             {branch?.name} · Öğretmen: {teacher?.name}
           </p>
         </Card>

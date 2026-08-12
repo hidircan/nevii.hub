@@ -482,3 +482,112 @@ a[href],
     padding-bottom: 4px;
   }
 }
+
+/**
+ * İş 3 (bu sprint) — "Glass 3D Mobile" portal sunumu (`src/lib/theme.ts`
+ * `PortalPresentation`). Tema profilinden TAMAMEN bağımsız, sabit tek yön:
+ * derin gece-mavisi taban + tek mat/buzlu teal vurgu. Neon/mor-mavi
+ * gradient, parlak blob YOK. `/panel` bu tokenlardan HİÇ etkilenmez —
+ * yalnız portal shell'in kendi işaretlediği `.glass-chrome`/`.glass-hero`
+ * yüzeyleri, VE yalnız <1024px + `[data-portal-presentation="glass"]`
+ * ikisi birden sağlandığında. Sayfa gövdesi/liste/takvim yüzeyleri
+ * BİLİNÇLİ olarak dokunulmadan seçili temanın normal yüzeyinde kalır —
+ * kontrast garantisi böylece küçük, kendi içinde tutarlı chrome/hero
+ * alanlarına sınırlı kalır (bkz. portal-shell.tsx, ogretmen/veli/ogrenci
+ * page.tsx'teki `glass-hero` kartları).
+ *
+ * `--chrome-*`/`--hero-*` her zaman TANIMLI (varsayılanı normal tema
+ * tokenlarına eşit) — bileşenler bu değişkenleri KOŞULSUZ kullanır, glass
+ * aktif değilken sıradan görünüme sorunsuz düşer.
+ */
+:root {
+  --glass-bg: #0c1119;
+  --glass-surface: rgba(255, 255, 255, 0.07);
+  --glass-border: rgba(255, 255, 255, 0.14);
+  --glass-text: #eef3f2;
+  --glass-text-muted: rgba(238, 243, 242, 0.7);
+  --glass-accent: #4fb8ab;
+  --glass-accent-soft: rgba(79, 184, 171, 0.2);
+  --glass-shadow: 0 10px 28px -10px rgba(0, 0, 0, 0.6);
+  --glass-blur: none;
+}
+
+@media (max-width: 1023.98px) {
+  @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+    :root {
+      --glass-blur: blur(18px) saturate(150%);
+    }
+  }
+}
+
+.glass-chrome,
+.glass-hero {
+  --chrome-bg: var(--color-surface);
+  --chrome-border: var(--color-border);
+  --chrome-text: var(--color-text);
+  --chrome-text-muted: var(--color-text-muted);
+  --chrome-active-bg: var(--color-primary-soft);
+  --chrome-active-text: var(--color-primary-soft-text);
+  --chrome-icon: var(--color-text-muted);
+  --chrome-icon-active: var(--color-primary);
+  --hero-bg: var(--color-surface);
+  --hero-border: var(--color-border);
+  --hero-text: var(--color-text);
+  --hero-text-muted: var(--color-text-muted);
+}
+
+@media (max-width: 1023.98px) {
+  [data-portal-presentation="glass"] .glass-chrome {
+    --chrome-bg: color-mix(in srgb, var(--glass-bg) 80%, transparent);
+    --chrome-border: var(--glass-border);
+    --chrome-text: var(--glass-text);
+    --chrome-text-muted: var(--glass-text-muted);
+    --chrome-active-bg: var(--glass-accent-soft);
+    --chrome-active-text: var(--glass-accent);
+    --chrome-icon: var(--glass-text-muted);
+    --chrome-icon-active: var(--glass-accent);
+    background: var(--chrome-bg);
+    border-color: var(--chrome-border);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    box-shadow: var(--glass-shadow);
+  }
+
+  [data-portal-presentation="glass"] .glass-hero {
+    --hero-bg: linear-gradient(
+      160deg,
+      color-mix(in srgb, var(--glass-bg) 92%, transparent),
+      color-mix(in srgb, var(--glass-bg) 72%, transparent)
+    );
+    --hero-border: var(--glass-border);
+    --hero-text: var(--glass-text);
+    --hero-text-muted: var(--glass-text-muted);
+    background: var(--hero-bg);
+    border-color: var(--hero-border);
+    box-shadow: var(--glass-shadow);
+    border-radius: 20px;
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+  }
+
+  /* Dokunsal geri bildirim — yalnız glass mobil kartlarda, mikro translateY/scale. */
+  [data-portal-presentation="glass"] .glass-tap {
+    transition: transform 160ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  [data-portal-presentation="glass"] .glass-tap:active {
+    transform: translateY(1px) scale(0.98);
+  }
+}
+
+/* Portal bottom nav — sabit alan, cihaz "safe area"sını her zaman hesaba katar (glass'tan bağımsız genel doğruluk). */
+.portal-bottom-nav {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-portal-presentation="glass"] .glass-tap,
+  [data-portal-presentation="glass"] .glass-tap:active {
+    transition: none;
+    transform: none;
+  }
+}

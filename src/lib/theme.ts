@@ -121,3 +121,28 @@ export const DEFAULT_DENSITY: Density = "comfortable";
 export function normalizeDensity(value: string | undefined | null): Density {
   return (DENSITY_VALUES as readonly string[]).includes(value ?? "") ? (value as Density) : DEFAULT_DENSITY;
 }
+
+/**
+ * İş 3 (bu sprint) — öğretmen/veli/öğrenci portal MOBİL sunumu için ayrı bir
+ * tercih; kasıtlı olarak `ThemeProfile`'dan BAĞIMSIZ ("Kurumsal"/"Gece"/…
+ * ile karışmaz, ikisi birlikte de seçilebilir). "glass" seçiliyken bile
+ * gerçek etkisi yalnız <1024px genişlikte ve yalnız portal shell'lerinde
+ * uygulanır (`portal-shell.tsx` + `globals.css` `.portal-glass` kapsamı) —
+ * `/panel` HİÇ etkilenmez, masaüstü portal görünümü de HİÇ etkilenmez. Aynı
+ * cookie mekanizması (kişisel, kimlik/kurum kapsamından bağımsız, no
+ * localStorage) — ikinci bir tercih sistemi icat edilmedi.
+ */
+export type PortalPresentation = "standard" | "glass";
+export const PORTAL_PRESENTATION_COOKIE = "notaplan_portal_presentation";
+export const PORTAL_PRESENTATION_VALUES: readonly PortalPresentation[] = ["standard", "glass"];
+export const PORTAL_PRESENTATION_LABELS: Record<PortalPresentation, string> = {
+  standard: "Standart",
+  glass: "Glass 3D Mobile",
+};
+export const DEFAULT_PORTAL_PRESENTATION: PortalPresentation = "standard";
+
+export function normalizePortalPresentation(value: string | undefined | null): PortalPresentation {
+  return (PORTAL_PRESENTATION_VALUES as readonly string[]).includes(value ?? "")
+    ? (value as PortalPresentation)
+    : DEFAULT_PORTAL_PRESENTATION;
+}

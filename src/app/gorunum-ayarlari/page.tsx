@@ -7,11 +7,14 @@ import {
   THEME_PROFILE_COOKIE,
   FONT_COOKIE,
   DENSITY_COOKIE,
+  PORTAL_PRESENTATION_COOKIE,
   normalizeThemeProfile,
   normalizeFontChoice,
   normalizeDensity,
+  normalizePortalPresentation,
 } from "@/lib/theme";
 import { ThemePreferencesForm } from "@/components/theme-preferences-form";
+import { PortalPresentationForm } from "@/components/portal-presentation-form";
 
 export const dynamic = "force-dynamic";
 
@@ -33,6 +36,7 @@ export default async function AppearanceSettingsPage() {
   const profile = normalizeThemeProfile(jar.get(THEME_PROFILE_COOKIE)?.value);
   const font = normalizeFontChoice(jar.get(FONT_COOKIE)?.value);
   const density = normalizeDensity(jar.get(DENSITY_COOKIE)?.value);
+  const portalPresentation = normalizePortalPresentation(jar.get(PORTAL_PRESENTATION_COOKIE)?.value);
   const backHref = homePathForRole(session.role);
 
   return (
@@ -50,6 +54,7 @@ export default async function AppearanceSettingsPage() {
           Renk teması ve yazı tipini kişisel tercihinize göre seçin — canlı önizleme ile.
         </p>
         <ThemePreferencesForm initialProfile={profile} initialFont={font} initialDensity={density} />
+        <PortalPresentationForm initialPresentation={portalPresentation} />
       </main>
     </div>
   );

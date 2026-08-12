@@ -16,7 +16,7 @@ import { NotificationBell } from "@/components/notification-bell";
 import { UserMenu } from "@/components/user-menu";
 import { cn } from "@/lib/utils";
 import type { AppRole } from "@/lib/auth/types";
-import type { Density } from "@/lib/theme";
+import type { Density, PortalPresentation } from "@/lib/theme";
 import { TEACHER_PORTAL_NAV, PARENT_PORTAL_NAV, STUDENT_PORTAL_NAV } from "@/lib/nav/portal-nav";
 
 export type PortalKind = "teacher" | "parent" | "student";
@@ -49,6 +49,7 @@ export function PortalShell({
   portalLabel,
   portalKind,
   density,
+  presentation,
   children,
 }: {
   role: AppRole;
@@ -56,6 +57,8 @@ export function PortalShell({
   portalLabel: string;
   portalKind: PortalKind;
   density: Density;
+  /** İş 3 — "standard" | "glass". <1024px + bu prop "glass" olduğunda chrome cam yüzeye geçer; masaüstünde her zaman standart. */
+  presentation: PortalPresentation;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
@@ -63,14 +66,14 @@ export function PortalShell({
   const mobileItems = navItems.filter((i) => i.mobile).slice(0, 5);
 
   return (
-    <div className="min-h-screen" style={{ background: "var(--color-bg)" }}>
+    <div className="min-h-screen" style={{ background: "var(--color-bg)" }} data-portal-presentation={presentation}>
       <header
-        className="sticky top-0 z-30 border-b backdrop-blur"
-        style={{ borderColor: "var(--color-border)", background: "color-mix(in srgb, var(--color-surface) 92%, transparent)" }}
+        className="glass-chrome sticky top-0 z-30 border-b backdrop-blur"
+        style={{ borderColor: "var(--chrome-border)", background: "var(--chrome-bg)" }}
       >
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-3 px-4 py-2.5 lg:px-8">
           <div className="min-w-0">
-            <p className="truncate text-sm font-semibold" style={{ color: "var(--color-text)" }}>
+            <p className="truncate text-sm font-semibold" style={{ color: "var(--chrome-text)" }}>
               {portalLabel}
             </p>
           </div>
@@ -84,7 +87,7 @@ export function PortalShell({
                   href={item.href}
                   aria-current={active ? "page" : undefined}
                   className={cn("flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm transition", active ? "font-semibold" : "hover:opacity-80")}
-                  style={active ? { background: "var(--color-primary-soft)", color: "var(--color-primary-soft-text)" } : { color: "var(--color-text-muted)" }}
+                  style={active ? { background: "var(--chrome-active-bg)", color: "var(--chrome-active-text)" } : { color: "var(--chrome-text-muted)" }}
                 >
                   <Icon className="h-4 w-4" />
                   {item.label}
@@ -102,8 +105,8 @@ export function PortalShell({
       <main className="pb-20 md:pb-6">{children}</main>
 
       <nav
-        className="fixed inset-x-0 bottom-0 z-30 flex items-stretch justify-around border-t md:hidden"
-        style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+        className="glass-chrome portal-bottom-nav fixed inset-x-0 bottom-0 z-30 flex items-stretch justify-around border-t md:hidden"
+        style={{ borderColor: "var(--chrome-border)", background: "var(--chrome-bg)" }}
         aria-label="Alt navigasyon"
       >
         {mobileItems.map((item) => {
@@ -114,8 +117,8 @@ export function PortalShell({
               key={item.href}
               href={item.href}
               aria-current={active ? "page" : undefined}
-              className="flex min-h-11 min-w-11 flex-1 flex-col items-center justify-center gap-0.5 py-1.5 text-[11px] font-medium"
-              style={{ color: active ? "var(--color-primary)" : "var(--color-text-muted)" }}
+              className="glass-tap flex min-h-11 min-w-11 flex-1 flex-col items-center justify-center gap-0.5 py-1.5 text-[11px] font-medium"
+              style={{ color: active ? "var(--chrome-icon-active)" : "var(--chrome-icon)" }}
             >
               <Icon className="h-5 w-5" />
               {item.label}

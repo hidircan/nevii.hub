@@ -63,13 +63,13 @@ export default async function OgretmenPortalPage() {
       <AssistantPageContext entity={{ kind: "teacher", id: teacher.id, label: teacher.name }} />
 
       <main className="mx-auto max-w-lg space-y-4 px-4 py-6">
-        <Card className="border-cyan-100">
+        <Card className="glass-hero border-cyan-100">
           <div className="flex items-center gap-2 text-cyan-700">
             <Music2 className="h-4 w-4" />
             <p className="text-xs font-medium uppercase tracking-wide">{data.settings.name}</p>
           </div>
-          <h1 className="mt-2 text-xl font-semibold text-[var(--color-text)] dark:text-slate-50">Bugünkü programın</h1>
-          <p className="text-sm text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
+          <h1 className="mt-2 text-xl font-semibold text-[var(--hero-text)]">Bugünkü programın</h1>
+          <p className="text-sm text-[var(--hero-text-muted)]">
             {todayLessons.length} ders · {students.length} aktif öğrenci
           </p>
           <Link

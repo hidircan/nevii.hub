@@ -15,9 +15,11 @@ import {
   THEME_PROFILE_COOKIE,
   FONT_COOKIE,
   DENSITY_COOKIE,
+  PORTAL_PRESENTATION_COOKIE,
   normalizeThemeProfile,
   normalizeFontChoice,
   normalizeDensity,
+  normalizePortalPresentation,
 } from "./theme";
 import { auditLog } from "./auth/audit";
 import { uid } from "./utils";
@@ -270,6 +272,23 @@ export async function actionSetDensity(density: string): Promise<void> {
   const normalized = normalizeDensity(density);
   const jar = await cookies();
   jar.set(DENSITY_COOKIE, normalized, {
+    httpOnly: false,
+    sameSite: "lax",
+    path: "/",
+    maxAge: 60 * 60 * 24 * 365,
+  });
+  revalidatePath("/", "layout");
+}
+
+/**
+ * İş 3 — öğretmen/veli/öğrenci portal mobil sunumu (Standart/Glass 3D
+ * Mobile). Tema profili/yoğunlukla AYNI cookie mekanizması; kimlik/kurum
+ * kapsamından bağımsız, oturum gerektirmez.
+ */
+export async function actionSetPortalPresentation(presentation: string): Promise<void> {
+  const normalized = normalizePortalPresentation(presentation);
+  const jar = await cookies();
+  jar.set(PORTAL_PRESENTATION_COOKIE, normalized, {
     httpOnly: false,
     sameSite: "lax",
     path: "/",

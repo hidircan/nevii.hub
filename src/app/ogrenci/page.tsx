@@ -122,10 +122,10 @@ export default async function OgrenciPortalPage({
   return (
     <div>
       <main className="mx-auto max-w-lg space-y-4 px-4 py-6">
-        <Card className="border-emerald-100 bg-[var(--color-surface)]">
+        <Card className="glass-hero border-emerald-100 bg-[var(--hero-bg)]">
           <p className="text-xs font-medium uppercase tracking-wide text-emerald-600">Merhaba</p>
-          <h1 className="mt-1 text-xl font-semibold text-[var(--color-text)]">{student.name}</h1>
-          <p className="mt-1 text-sm text-[var(--color-text-muted)]">
+          <h1 className="mt-1 text-xl font-semibold text-[var(--hero-text)]">{student.name}</h1>
+          <p className="mt-1 text-sm text-[var(--hero-text-muted)]">
             {student.instruments.join(", ")} · Öğretmen: {teacher?.name ?? "—"}
           </p>
         </Card>

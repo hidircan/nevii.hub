@@ -10,6 +10,9 @@ import {
   DEFAULT_FONT_CHOICE,
   THEME_PROFILE_LABELS,
   FONT_LABELS,
+  normalizePortalPresentation,
+  PORTAL_PRESENTATION_COOKIE,
+  DEFAULT_PORTAL_PRESENTATION,
 } from "../theme";
 
 describe("normalizeThemeProfile — varsayılan Kurumsal Altın", () => {
@@ -105,5 +108,23 @@ describe("Görünüm tercihi kurum/yetki kararlarından bağımsızdır", () => 
   it("normalizeThemeProfile/normalizeFontChoice hiçbir rol, tenant veya oturum parametresi almaz", () => {
     expect(normalizeThemeProfile.length).toBe(1);
     expect(normalizeFontChoice.length).toBe(1);
+  });
+});
+
+describe("PortalPresentation (İş 3 — Glass 3D Mobile)", () => {
+  it("cookie yoksa/geçersizse 'standard'a düşer, asla hata fırlatmaz", () => {
+    expect(normalizePortalPresentation(undefined)).toBe("standard");
+    expect(normalizePortalPresentation(null)).toBe("standard");
+    expect(normalizePortalPresentation("neon-purple")).toBe("standard");
+  });
+
+  it("'glass' geçerli bir değer olarak aynen korunur", () => {
+    expect(normalizePortalPresentation("glass")).toBe("glass");
+  });
+
+  it("varsayılan 'standard'dır ve ThemeProfile cookie'sinden AYRI bir cookie adı kullanır", () => {
+    expect(DEFAULT_PORTAL_PRESENTATION).toBe("standard");
+    expect(PORTAL_PRESENTATION_COOKIE).toBe("notaplan_portal_presentation");
+    expect(PORTAL_PRESENTATION_COOKIE).not.toBe(THEME_PROFILE_COOKIE);
   });
 });
