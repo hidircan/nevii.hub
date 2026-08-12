@@ -18,10 +18,13 @@ export function TeacherInstrumentsEditor({
   teacherId,
   initialRows,
   instrumentOptions,
+  onSaved,
 }: {
   teacherId: string;
   initialRows: InstrumentSkillRow[];
   instrumentOptions?: Instrument[];
+  /** Called after a successful save (e.g. to collapse the section back to read-only). */
+  onSaved?: () => void;
 }) {
   const router = useRouter();
   const [rows, setRows] = useState<InstrumentSkillRow[]>(initialRows);
@@ -46,6 +49,7 @@ export function TeacherInstrumentsEditor({
       }
       setSaved(true);
       router.refresh();
+      onSaved?.();
     });
   }
 

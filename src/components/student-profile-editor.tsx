@@ -80,6 +80,7 @@ export function StudentProfileEditor({
   branches,
   initial,
   hasNationalId = false,
+  onSaved,
 }: {
   studentId: string;
   branches: StudentProfileEditorBranch[];
@@ -100,6 +101,8 @@ export function StudentProfileEditor({
     communicationOptOut?: boolean;
   };
   hasNationalId?: boolean;
+  /** Called after a successful save (e.g. to collapse the section back to read-only). */
+  onSaved?: () => void;
 }) {
   const router = useRouter();
   const [name, setName] = useState(initial.name);
@@ -191,6 +194,7 @@ export function StudentProfileEditor({
       setFieldErrors({});
       setSaved(true);
       router.refresh();
+      onSaved?.();
     });
   }
 

@@ -25,6 +25,7 @@ import { computeAge } from "@/lib/utils";
 import { computeTeacherEarningsForPeriod } from "@/lib/teacher-payout";
 import { TeacherInstrumentsEditor } from "@/components/teacher-instruments-editor";
 import { TeacherProfileEditor } from "@/components/teacher-profile-editor";
+import { SectionEditCard } from "@/components/section-edit-card";
 import { BackButton } from "@/components/back-button";
 import { TeacherArchiveAction } from "@/components/teacher-archive-action";
 import { QuickTaskLink } from "@/components/quick-task-link";
@@ -33,7 +34,9 @@ export const dynamic = "force-dynamic";
 
 const SECTIONS = [
   { href: "#genel", icon: User, label: "Genel Bilgiler" },
+  { href: "#iletisim", icon: Users, label: "İletişim" },
   { href: "#uzmanlik", icon: GraduationCap, label: "Uzmanlık ve Branşlar" },
+  { href: "#ozluk", icon: ScrollText, label: "Özlük / İstihdam" },
   { href: "#sozlesme", icon: ScrollText, label: "Sözleşme" },
   { href: "#program", icon: CalendarDays, label: "Ders Programı" },
   { href: "#ogrenciler", icon: Users, label: "Öğrenciler" },
@@ -125,6 +128,22 @@ export default async function TeacherDetailPage({
   const contractDaysLeft = teacher.contractEndDate
     ? Math.ceil((new Date(teacher.contractEndDate).getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
     : null;
+  const canEditProfile = session.role === "SCHOOL_ADMIN" || session.role === "SUPER_ADMIN";
+  const profileEditorInitial = {
+    name: teacher.name,
+    email: teacher.email,
+    phone: teacher.phone,
+    branchIds: teacher.branchIds,
+    employmentType: teacher.employmentType,
+    hireDate: teacher.hireDate?.slice(0, 10),
+    terminationDate: teacher.terminationDate?.slice(0, 10),
+    contractStartDate: teacher.contractStartDate?.slice(0, 10),
+    contractEndDate: teacher.contractEndDate?.slice(0, 10),
+    address: teacher.address,
+    emergencyContactName: teacher.emergencyContactName,
+    emergencyContactPhone: teacher.emergencyContactPhone,
+    personnelNotes: teacher.personnelNotes,
+  };
 
   return (
     <div>
@@ -201,8 +220,8 @@ export default async function TeacherDetailPage({
       <section id="genel" className="mb-8 scroll-mt-4">
         <h2 className="mb-3 text-sm font-semibold text-[var(--color-text)]">Genel Bilgiler</h2>
         <Card>
-          <dl className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-3">
-            <Field label="Doğum tarihi" value={teacher.birthDate ? `${formatDate(teacher.birthDate)}${age !== null ? ` (${age} yaş)` : ""}` : "Belirtilmemiş"} />
+          <dl className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
+            <Field label="Doğum tarihi" value={teacher.birthDate ? `${formatDate(teacher.birthDate)}${age !== null ? ` (${age} yaş)` : ""}` : "Eklenmemiş"} />
             <Field
               label="T.C. kimlik no"
               custom={
@@ -218,12 +237,10 @@ export default async function TeacherDetailPage({
                 )
               }
             />
-            <Field label="E-posta" value={teacher.email} />
-            <Field label="Adres" value={canViewSensitive ? teacher.address || "Belirtilmemiş" : "Yalnız yetkili rol görebilir"} />
-            <Field label="Lise" value={teacher.highSchool || "Belirtilmemiş"} />
-            <Field label="Üniversite" value={teacher.university || "Belirtilmemiş"} />
-            <Field label="Mezuniyet yılı" value={teacher.graduationYear ? String(teacher.graduationYear) : "Belirtilmemiş"} />
-            <Field label="Şube" value={branch?.name ?? "—"} />
+            <Field label="Lise" value={teacher.highSchool || "Eklenmemiş"} />
+            <Field label="Üniversite" value={teacher.university || "Eklenmemiş"} />
+            <Field label="Mezuniyet yılı" value={teacher.graduationYear ? String(teacher.graduationYear) : "Eklenmemiş"} />
+            <Field label="Şube" value={branch?.name ?? "Eklenmemiş"} />
             <Field label="Günlük ders limiti" value={String(teacher.maxDailyLessons)} />
             <Field
               label="Ek atanmış şubeler"
@@ -234,86 +251,111 @@ export default async function TeacherDetailPage({
                   .join(", ") || "Yok"
               }
             />
-            <Field
-              label="Çalışma türü"
-              value={
-                teacher.employmentType === "tam_zamanli"
-                  ? "Tam zamanlı"
-                  : teacher.employmentType === "yari_zamanli"
-                    ? "Yarı zamanlı"
-                    : teacher.employmentType === "serbest"
-                      ? "Serbest"
-                      : "Belirtilmemiş"
-              }
-            />
-            <Field label="İşe giriş" value={teacher.hireDate ? formatDate(teacher.hireDate) : "Belirtilmemiş"} />
-            <Field label="Ayrılış" value={teacher.terminationDate ? formatDate(teacher.terminationDate) : "—"} />
-            <Field
-              label="Sözleşme"
-              value={
-                teacher.contractStartDate
-                  ? `${formatDate(teacher.contractStartDate)} – ${teacher.contractEndDate ? formatDate(teacher.contractEndDate) : "belirsiz"}`
-                  : "Belirtilmemiş"
-              }
-            />
-            <Field label="Acil durum kişisi" value={teacher.emergencyContactName || "Belirtilmemiş"} />
-            <Field label="Acil durum telefonu" value={teacher.emergencyContactPhone || "Belirtilmemiş"} />
           </dl>
         </Card>
+      </section>
 
-        {session.role === "SCHOOL_ADMIN" || session.role === "SUPER_ADMIN" ? (
-          <div className="mt-3">
-            <h3 className="mb-2 text-xs font-semibold text-[var(--color-text-muted)]">Özlük Bilgilerini Düzenle</h3>
+      <section id="iletisim" className="mb-8 scroll-mt-4">
+        <h2 className="mb-3 text-sm font-semibold text-[var(--color-text)]">İletişim</h2>
+        <SectionEditCard
+          canEdit={canEditProfile}
+          readOnly={
+            <dl className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
+              <Field label="E-posta" value={teacher.email || "Eklenmemiş"} />
+              <Field label="Telefon" value={teacher.phone || "Eklenmemiş"} />
+              <Field label="Adres" value={canViewSensitive ? teacher.address || "Eklenmemiş" : "Yalnız yetkili rol görebilir"} />
+              <Field label="Acil durum kişisi" value={teacher.emergencyContactName || "Eklenmemiş"} />
+              <Field label="Acil durum telefonu" value={teacher.emergencyContactPhone || "Eklenmemiş"} />
+            </dl>
+          }
+          edit={({ close }) => (
             <TeacherProfileEditor
               teacherId={teacher.id}
               primaryBranchId={teacher.branchId}
               branches={data.settings.branches.map((b) => ({ id: b.id, name: b.name }))}
               hasNationalId={!!teacher.nationalIdCipher}
-              initial={{
-                name: teacher.name,
-                email: teacher.email,
-                phone: teacher.phone,
-                branchIds: teacher.branchIds,
-                employmentType: teacher.employmentType,
-                hireDate: teacher.hireDate?.slice(0, 10),
-                terminationDate: teacher.terminationDate?.slice(0, 10),
-                contractStartDate: teacher.contractStartDate?.slice(0, 10),
-                contractEndDate: teacher.contractEndDate?.slice(0, 10),
-                address: teacher.address,
-                emergencyContactName: teacher.emergencyContactName,
-                emergencyContactPhone: teacher.emergencyContactPhone,
-                personnelNotes: teacher.personnelNotes,
-              }}
+              initial={profileEditorInitial}
+              onSaved={close}
             />
-          </div>
-        ) : null}
+          )}
+        />
       </section>
 
       <section id="uzmanlik" className="mb-8 scroll-mt-4">
         <h2 className="mb-3 text-sm font-semibold text-[var(--color-text)]">Uzmanlık ve Branşlar</h2>
-        {!teacher.instrumentLevels || teacher.instrumentLevels.length === 0 ? (
-          <EmptyState title="Enstrüman seviyesi tanımlanmamış" />
-        ) : (
-          <div className="mb-3 flex flex-wrap gap-2">
-            {teacher.instrumentLevels.map((skill) => (
-              <Card key={skill.instrument} className="!p-3">
-                <p className="text-sm font-medium text-[var(--color-text)]">{skill.instrument}</p>
-                <p className="text-xs text-[var(--color-text-muted)]">{skill.level}</p>
-              </Card>
-            ))}
-          </div>
-        )}
-        {session.role === "SCHOOL_ADMIN" || session.role === "SUPER_ADMIN" ? (
-          <TeacherInstrumentsEditor
-            teacherId={teacher.id}
-            instrumentOptions={instrumentOptions}
-            initialRows={
-              teacher.instrumentLevels && teacher.instrumentLevels.length > 0
-                ? teacher.instrumentLevels
-                : teacher.instruments.map((i) => ({ instrument: i, level: "Başlangıç" as const }))
-            }
-          />
-        ) : null}
+        <SectionEditCard
+          canEdit={canEditProfile}
+          readOnly={
+            !teacher.instrumentLevels || teacher.instrumentLevels.length === 0 ? (
+              <EmptyState title="Enstrüman seviyesi tanımlanmamış" />
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {teacher.instrumentLevels.map((skill) => (
+                  <div key={skill.instrument} className="rounded-[var(--radius-md)] bg-[var(--color-surface-muted)] px-3 py-2">
+                    <p className="text-sm font-medium text-[var(--color-text)]">{skill.instrument}</p>
+                    <p className="text-xs text-[var(--color-text-muted)]">{skill.level}</p>
+                  </div>
+                ))}
+              </div>
+            )
+          }
+          edit={({ close }) => (
+            <TeacherInstrumentsEditor
+              teacherId={teacher.id}
+              instrumentOptions={instrumentOptions}
+              initialRows={
+                teacher.instrumentLevels && teacher.instrumentLevels.length > 0
+                  ? teacher.instrumentLevels
+                  : teacher.instruments.map((i) => ({ instrument: i, level: "Başlangıç" as const }))
+              }
+              onSaved={close}
+            />
+          )}
+        />
+      </section>
+
+      <section id="ozluk" className="mb-8 scroll-mt-4">
+        <h2 className="mb-3 text-sm font-semibold text-[var(--color-text)]">Özlük / İstihdam</h2>
+        <SectionEditCard
+          canEdit={canEditProfile}
+          readOnly={
+            <dl className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
+              <Field
+                label="Çalışma türü"
+                value={
+                  teacher.employmentType === "tam_zamanli"
+                    ? "Tam zamanlı"
+                    : teacher.employmentType === "yari_zamanli"
+                      ? "Yarı zamanlı"
+                      : teacher.employmentType === "serbest"
+                        ? "Serbest"
+                        : "Eklenmemiş"
+                }
+              />
+              <Field label="İşe giriş" value={teacher.hireDate ? formatDate(teacher.hireDate) : "Eklenmemiş"} />
+              <Field label="Ayrılış" value={teacher.terminationDate ? formatDate(teacher.terminationDate) : "Eklenmemiş"} />
+              <Field
+                label="Sözleşme"
+                value={
+                  teacher.contractStartDate
+                    ? `${formatDate(teacher.contractStartDate)} – ${teacher.contractEndDate ? formatDate(teacher.contractEndDate) : "belirsiz"}`
+                    : "Eklenmemiş"
+                }
+              />
+              <Field label="Özlük notu" value={teacher.personnelNotes || "Eklenmemiş"} />
+            </dl>
+          }
+          edit={({ close }) => (
+            <TeacherProfileEditor
+              teacherId={teacher.id}
+              primaryBranchId={teacher.branchId}
+              branches={data.settings.branches.map((b) => ({ id: b.id, name: b.name }))}
+              hasNationalId={!!teacher.nationalIdCipher}
+              initial={profileEditorInitial}
+              onSaved={close}
+            />
+          )}
+        />
       </section>
 
       <section id="sozlesme" className="mb-8 scroll-mt-4">

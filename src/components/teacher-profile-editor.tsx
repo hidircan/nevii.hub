@@ -20,10 +20,13 @@ export function TeacherProfileEditor({
   branches,
   initial,
   hasNationalId,
+  onSaved,
 }: {
   teacherId: string;
   primaryBranchId: string;
   branches: TeacherProfileEditorBranch[];
+  /** Called after a successful save (e.g. to collapse the section back to read-only). */
+  onSaved?: () => void;
   initial: {
     name: string;
     email?: string;
@@ -102,6 +105,7 @@ export function TeacherProfileEditor({
       }
       setSaved(true);
       router.refresh();
+      onSaved?.();
     });
   }
 

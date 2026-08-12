@@ -39,6 +39,7 @@ export function StudentPaymentProfileEditor({
   initialDiscountType,
   initialDiscountValue,
   initialOverrideAmount,
+  onSaved,
 }: {
   studentId: string;
   packages: Package[];
@@ -49,6 +50,8 @@ export function StudentPaymentProfileEditor({
   initialDiscountType?: DiscountType;
   initialDiscountValue?: number;
   initialOverrideAmount?: number;
+  /** Called after a successful save (e.g. to collapse the section back to read-only). */
+  onSaved?: () => void;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -119,6 +122,7 @@ export function StudentPaymentProfileEditor({
       }
       setSaved(true);
       router.refresh();
+      onSaved?.();
     });
   }
 

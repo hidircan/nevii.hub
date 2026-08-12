@@ -32,6 +32,7 @@ import { AttendanceCalendarPanel } from "@/components/attendance-calendar-panel"
 import { StudentTermTypeEditor } from "@/components/student-term-type-editor";
 import { StudentProfileEditor } from "@/components/student-profile-editor";
 import { StudentArchiveToggle } from "@/components/student-archive-toggle";
+import { SectionEditCard } from "@/components/section-edit-card";
 import { BackButton } from "@/components/back-button";
 import { NationalIdReveal } from "@/components/national-id-reveal";
 import { maskNationalId } from "@/lib/pii/tc-identity";
@@ -133,6 +134,23 @@ export default async function StudentDetailPage({
   );
 
   const age = student.birthDate ? computeAge(student.birthDate) : null;
+  const canEditProfile = session.role === "SCHOOL_ADMIN" || session.role === "SUPER_ADMIN";
+  const profileEditorInitial = {
+    name: student.name,
+    email: student.email,
+    branchId: student.branchId,
+    educationMethod: student.educationMethod,
+    phone: student.phone,
+    parentName: student.parentName,
+    parentPhone: student.parentPhone,
+    motherName: student.motherName,
+    fatherName: student.fatherName,
+    address: student.address,
+    birthDate: student.birthDate,
+    birthPlace: student.birthPlace,
+    schoolOrOccupation: student.schoolOrOccupation,
+    communicationOptOut: student.communicationOptOut,
+  };
 
   return (
     <div>
@@ -200,64 +218,58 @@ export default async function StudentDetailPage({
       </nav>
 
       <section id="genel" className="mb-8 scroll-mt-4">
-        <h2 className="mb-3 text-sm font-semibold text-[var(--color-text)]">Genel Bilgiler</h2>
-        <Card>
-          <dl className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-3">
-            <Field label="Doğum tarihi" value={student.birthDate ? `${formatDate(student.birthDate)}${age !== null ? ` (${age} yaş)` : ""}` : "Belirtilmemiş"} />
-            <Field
-              label="T.C. kimlik no"
-              custom={
-                student.nationalIdCipher ? (
-                  <NationalIdReveal
-                    entity="student"
-                    entityId={student.id}
-                    masked={maskNationalId(student.nationalIdLast2)}
-                    canReveal={canViewSensitive && canViewFullNationalId(session.role)}
-                  />
-                ) : (
-                  <span className="text-[var(--color-text-muted)]">Girilmemiş</span>
-                )
-              }
+        <h2 className="mb-3 text-sm font-semibold text-[var(--color-text)]">Temel Bilgiler</h2>
+        <SectionEditCard
+          canEdit={canEditProfile}
+          readOnly={
+            <dl className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
+              <Field label="Doğum tarihi" value={student.birthDate ? `${formatDate(student.birthDate)}${age !== null ? ` (${age} yaş)` : ""}` : "Eklenmemiş"} />
+              <Field
+                label="T.C. kimlik no"
+                custom={
+                  student.nationalIdCipher ? (
+                    <NationalIdReveal
+                      entity="student"
+                      entityId={student.id}
+                      masked={maskNationalId(student.nationalIdLast2)}
+                      canReveal={canViewSensitive && canViewFullNationalId(session.role)}
+                    />
+                  ) : (
+                    <span className="text-[var(--color-text-muted)]">Girilmemiş</span>
+                  )
+                }
+              />
+              <Field label="Adres" value={canViewSensitive ? student.address || "Eklenmemiş" : "Yalnız yetkili rol görebilir"} />
+              <Field label="Şube" value={branch?.name ?? "Eklenmemiş"} />
+              <Field label="Paket" value={student.packageName.split("—")[0]?.trim() ?? student.packageName} />
+              <Field label="Eğitim metodu" value={student.educationMethod ?? "Eklenmemiş"} />
+              <Field label="Seviye" value={student.level ?? "Eklenmemiş"} />
+              <Field label="Kayıt başlangıç tarihi" value={student.enrollmentStartDate ? formatDate(student.enrollmentStartDate) : "Eklenmemiş"} />
+              <Field label="Ders süresi" value={student.lessonDurationMinutes ? `${student.lessonDurationMinutes} dk` : "Eklenmemiş"} />
+              <Field label="Doğum yeri" value={student.birthPlace ?? "Eklenmemiş"} />
+              <Field label="Okulu / mesleği" value={student.schoolOrOccupation ?? "Eklenmemiş"} />
+            </dl>
+          }
+          edit={({ close }) => (
+            <StudentProfileEditor
+              studentId={student.id}
+              branches={data.settings.branches.map((b) => ({ id: b.id, name: b.name }))}
+              hasNationalId={!!student.nationalIdCipher}
+              initial={profileEditorInitial}
+              onSaved={close}
             />
-            <Field label="Adres" value={canViewSensitive ? student.address || "Belirtilmemiş" : "Yalnız yetkili rol görebilir"} />
-            <Field label="Şube" value={branch?.name ?? "—"} />
-            <Field label="Paket" value={student.packageName.split("—")[0]?.trim() ?? student.packageName} />
-            <Field label="Eğitim metodu" value={student.educationMethod ?? "Belirtilmemiş"} />
-            <Field label="Seviye" value={student.level ?? "Belirtilmemiş"} />
-            <Field label="Kayıt başlangıç tarihi" value={student.enrollmentStartDate ? formatDate(student.enrollmentStartDate) : "Belirtilmemiş"} />
-            <Field label="Ders süresi" value={student.lessonDurationMinutes ? `${student.lessonDurationMinutes} dk` : "Belirtilmemiş"} />
+          )}
+        />
+
+        <Card className="mt-3">
+          <dl className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
             <Field
               label="Yoklama Takvimi dönemi"
               custom={
-                session.role === "SCHOOL_ADMIN" || session.role === "SUPER_ADMIN" ? (
+                canEditProfile ? (
                   <StudentTermTypeEditor studentId={student.id} initialTermType={student.termType ?? "guz"} />
                 ) : (
                   <span className="text-[var(--color-text)]">{student.termType === "yaz" ? "Yaz Dönemi" : "Güz Dönemi"}</span>
-                )
-              }
-            />
-            <Field label="Doğum yeri" value={student.birthPlace ?? "Belirtilmemiş"} />
-            <Field label="Okulu / mesleği" value={student.schoolOrOccupation ?? "Belirtilmemiş"} />
-            <Field
-              label="Ödeme profili"
-              custom={
-                canManagePaymentProfile ? (
-                  <StudentPaymentProfileEditor
-                    studentId={student.id}
-                    packages={packages}
-                    initialPackageId={student.packageId}
-                    initialDurationMinutes={student.lessonDurationMinutes}
-                    initialPaymentMethod={student.paymentMethod}
-                    initialPaymentDueDay={student.paymentDueDay}
-                    initialDiscountType={student.discountType}
-                    initialDiscountValue={student.discountValue}
-                    initialOverrideAmount={student.paymentAmount}
-                  />
-                ) : (
-                  <span className="text-[var(--color-text)]">
-                    {studentPackage ? studentPackage.title : "Seçilmedi (serbest metin paket kullanılıyor)"}
-                    {monthlyAmount.netAmount !== null ? ` — Net: ${formatMoney(monthlyAmount.netAmount)}` : ""}
-                  </span>
                 )
               }
             />
@@ -284,42 +296,28 @@ export default async function StudentDetailPage({
       </section>
 
       <section id="veli" className="mb-8 scroll-mt-4">
-        <h2 className="mb-3 text-sm font-semibold text-[var(--color-text)]">Veli ve İletişim</h2>
-        <Card>
-          <dl className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-3">
-            <Field label="Veli adı" value={student.parentName || "—"} />
-            <Field label="Veli telefonu" value={student.parentPhone || "—"} />
-            <Field label="Öğrenci telefonu" value={student.phone || "—"} />
-            <Field label="E-posta" value={student.email || "—"} />
-            <Field label="İletişim tercihi" value={student.communicationOptOut ? "Tahsilat hatırlatmalarından çıktı" : "Standart"} />
-          </dl>
-        </Card>
-        {session.role === "SCHOOL_ADMIN" || session.role === "SUPER_ADMIN" ? (
-          <div className="mt-3">
-            <h3 className="mb-2 text-xs font-semibold text-[var(--color-text-muted)]">İletişim/Kişisel Bilgileri Düzenle</h3>
+        <h2 className="mb-3 text-sm font-semibold text-[var(--color-text)]">İletişim</h2>
+        <SectionEditCard
+          canEdit={canEditProfile}
+          readOnly={
+            <dl className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
+              <Field label="Veli adı" value={student.parentName || "Eklenmemiş"} />
+              <Field label="Veli telefonu" value={student.parentPhone || "Eklenmemiş"} />
+              <Field label="Öğrenci telefonu" value={student.phone || "Eklenmemiş"} />
+              <Field label="E-posta" value={student.email || "Eklenmemiş"} />
+              <Field label="İletişim tercihi" value={student.communicationOptOut ? "Tahsilat hatırlatmalarından çıktı" : "Standart"} />
+            </dl>
+          }
+          edit={({ close }) => (
             <StudentProfileEditor
               studentId={student.id}
               branches={data.settings.branches.map((b) => ({ id: b.id, name: b.name }))}
               hasNationalId={!!student.nationalIdCipher}
-              initial={{
-                name: student.name,
-                email: student.email,
-                branchId: student.branchId,
-                educationMethod: student.educationMethod,
-                phone: student.phone,
-                parentName: student.parentName,
-                parentPhone: student.parentPhone,
-                motherName: student.motherName,
-                fatherName: student.fatherName,
-                address: student.address,
-                birthDate: student.birthDate,
-                birthPlace: student.birthPlace,
-                schoolOrOccupation: student.schoolOrOccupation,
-                communicationOptOut: student.communicationOptOut,
-              }}
+              initial={profileEditorInitial}
+              onSaved={close}
             />
-          </div>
-        ) : null}
+          )}
+        />
       </section>
 
       <section id="program" className="mb-8 scroll-mt-4">
@@ -379,7 +377,7 @@ export default async function StudentDetailPage({
 
       <section id="odeme" className="mb-8 scroll-mt-4">
         <h2 className="mb-3 flex items-center justify-between text-sm font-semibold text-[var(--color-text)]">
-          Ödemeler ve Tahsilatlar
+          Finans / Ödeme
           <Link href={`/panel/odemeler/${student.id}`} className="text-xs font-medium text-[var(--color-primary)] hover:text-[var(--color-primary-hover)]">
             Ödeme Detayında Aç →
           </Link>
@@ -390,9 +388,47 @@ export default async function StudentDetailPage({
           <MiniStat label="Kalan" value={formatMoney(paymentSummary.remaining)} />
           <MiniStat label="Gecikmiş kalan" value={formatMoney(paymentSummary.overdueRemaining)} />
         </div>
-        {session.role === "SCHOOL_ADMIN" || session.role === "SUPER_ADMIN" ? (
-          <div className="mb-4">
-            <h3 className="mb-2 text-xs font-semibold text-[var(--color-text-muted)]">Paket / Ödeme Profili</h3>
+
+        <SectionEditCard
+          canEdit={canManagePaymentProfile}
+          className="mb-6"
+          readOnly={
+            <dl className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
+              <Field label="Paket" value={studentPackage ? studentPackage.title : "Seçilmedi (serbest metin paket kullanılıyor)"} />
+              <Field label="Ders süresi" value={student.lessonDurationMinutes ? `${student.lessonDurationMinutes} dk` : "Eklenmemiş"} />
+              <Field
+                label="Ödeme yöntemi"
+                value={
+                  student.paymentMethod === "credit_card"
+                    ? "Kredi kartı"
+                    : student.paymentMethod === "cash"
+                      ? "Nakit"
+                      : student.paymentMethod === "transfer"
+                        ? "Havale/EFT"
+                        : "Eklenmemiş"
+                }
+              />
+              <Field label="Ödeme günü" value={student.paymentDueDay ? `Ayın ${student.paymentDueDay}. günü` : "Eklenmemiş"} />
+              <Field
+                label="İndirim"
+                value={
+                  student.discountType && student.discountValue
+                    ? `${student.discountType === "percentage" ? `%${student.discountValue}` : formatMoney(student.discountValue)}`
+                    : "Yok"
+                }
+              />
+              <Field label="Özel tutar (override)" value={student.paymentAmount ? formatMoney(student.paymentAmount) : "Yok"} />
+              <Field
+                label="Beklenen net aylık tutar"
+                value={
+                  monthlyAmount.netAmount !== null
+                    ? `${formatMoney(monthlyAmount.netAmount)}${monthlyAmount.overrideAmount !== null ? " (override)" : ""}`
+                    : "Belirlenemedi"
+                }
+              />
+            </dl>
+          }
+          edit={({ close }) => (
             <StudentPaymentProfileEditor
               studentId={student.id}
               packages={packages}
@@ -403,16 +439,12 @@ export default async function StudentDetailPage({
               initialDiscountType={student.discountType === "percentage" || student.discountType === "fixed" ? student.discountType : undefined}
               initialDiscountValue={student.discountValue}
               initialOverrideAmount={student.paymentAmount}
+              onSaved={close}
             />
-          </div>
-        ) : monthlyAmount.netAmount !== null ? (
-          <p className="mb-3 text-xs text-[var(--color-text-muted)]">
-            Beklenen aylık tutar (ödeme profilinden): {formatMoney(monthlyAmount.netAmount)}
-            {monthlyAmount.listPrice !== null ? ` · Liste: ${formatMoney(monthlyAmount.listPrice)}` : ""}
-            {monthlyAmount.discountAmount > 0 ? ` · İndirim: -${formatMoney(monthlyAmount.discountAmount)}` : ""}
-            {monthlyAmount.overrideAmount !== null ? " · Override uygulanıyor" : ""}
-          </p>
-        ) : null}
+          )}
+        />
+
+        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">Ödeme Geçmişi</h3>
         {payments.length === 0 ? (
           <EmptyState title="Ödeme kaydı yok" />
         ) : (
