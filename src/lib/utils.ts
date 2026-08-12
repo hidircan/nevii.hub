@@ -19,8 +19,17 @@ export function formatDate(iso: string, pattern = "d MMM yyyy") {
   return format(parseISO(iso), pattern, { locale: tr });
 }
 
+/** Türkçe okunur tarih+saat — örn. "12 Ağustos 2026, 18:35". */
 export function formatDateTime(iso: string) {
-  return format(parseISO(iso), "d MMM yyyy · HH:mm", { locale: tr });
+  return format(parseISO(iso), "d MMMM yyyy, HH:mm", { locale: tr });
+}
+
+/** Ödeme kaynağı — kullanıcıya görünen kısa etiket. */
+export function paymentSourceLabel(source: string | undefined, hasLessonId?: boolean): string | null {
+  if (source === "lesson_ops" || (!source && hasLessonId)) return "Yoklama takviminden tahsil edildi";
+  if (source === "monthly_plan") return "Aylık plan tahsilatı";
+  if (source === "manual") return "Manuel kayıt";
+  return null;
 }
 
 export function formatTime(iso: string) {

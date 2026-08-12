@@ -3,6 +3,7 @@
 import { useEffect, useId, useState } from "react";
 import { useRouter } from "next/navigation";
 import { actionMarkPaymentPaidDetailed, actionUpdatePayment } from "@/lib/actions";
+import { formatDate, formatDateTime, formatMoney, paymentSourceLabel } from "@/lib/utils";
 
 type PaymentMethod = "credit_card" | "cash" | "transfer";
 
@@ -16,6 +17,25 @@ function todayIso() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function toDatetimeLocal(iso: string | undefined): string {
+  if (!iso) {
+    const n = new Date();
+    const pad = (x: number) => String(x).padStart(2, "0");
+    return `${n.getFullYear()}-${pad(n.getMonth() + 1)}-${pad(n.getDate())}T${pad(n.getHours())}:${pad(n.getMinutes())}`;
+  }
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return todayIso() + "T12:00";
+  const pad = (x: number) => String(x).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function datetimeLocalToIso(value: string): string {
+  if (!value) return new Date().toISOString();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return new Date(`${value}T12:00:00`).toISOString();
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
+}
+
 export function PaymentMarkPaidModal({
   paymentId,
   studentName,
@@ -23,23 +43,33 @@ export function PaymentMarkPaidModal({
   mode,
   initialMethod,
   initialNote,
+  initialPaidAt,
+  dueDate,
+  description,
+  source,
+  lessonId,
   onClose,
 }: {
   paymentId: string;
   studentName: string;
   defaultAmount: number;
-  /** "create" — henüz ödenmemiş kaydı ödendi işaretler; "edit" — zaten ödenmiş kaydı düzenler. */
+  /** "create" — henüz ödenmemiş; "edit" — tamamlanmış kaydı düzenler (önce özet). */
   mode: "create" | "edit";
   initialMethod?: PaymentMethod;
   initialNote?: string;
+  initialPaidAt?: string;
+  dueDate?: string;
+  description?: string;
+  source?: string;
+  lessonId?: string;
   onClose: () => void;
 }) {
   const router = useRouter();
   const titleId = useId();
-  const [step, setStep] = useState<"form" | "confirm">("form");
+  const [step, setStep] = useState<"summary" | "form" | "confirm">(mode === "edit" ? "summary" : "form");
   const [method, setMethod] = useState<PaymentMethod>(initialMethod ?? "transfer");
   const [amount, setAmount] = useState(String(defaultAmount));
-  const [paidAt, setPaidAt] = useState(todayIso());
+  const [paidAtLocal, setPaidAtLocal] = useState(toDatetimeLocal(initialPaidAt));
   const [note, setNote] = useState(initialNote ?? "");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -54,11 +84,17 @@ export function PaymentMarkPaidModal({
 
   const parsedAmount = Number(amount);
   const amountValid = Number.isFinite(parsedAmount) && parsedAmount > 0;
+  const sourceLabel = paymentSourceLabel(source, Boolean(lessonId));
+  const methodLabel = METHOD_OPTIONS.find((o) => o.value === method)?.label ?? method;
 
   function goToConfirm() {
     setError(null);
     if (!amountValid) {
       setError("Geçerli bir tutar girin.");
+      return;
+    }
+    if (!paidAtLocal) {
+      setError("Tahsilat tarih/saatini girin.");
       return;
     }
     setStep("confirm");
@@ -67,13 +103,14 @@ export function PaymentMarkPaidModal({
   async function handleConfirm() {
     setSubmitting(true);
     setError(null);
+    const paidAtIso = datetimeLocalToIso(paidAtLocal);
     const result =
       mode === "create"
         ? await actionMarkPaymentPaidDetailed({
             paymentId,
             method,
             amount: parsedAmount,
-            paidAt,
+            paidAt: paidAtIso,
             paymentNote: note.trim() || undefined,
           })
         : await actionUpdatePayment({
@@ -81,6 +118,7 @@ export function PaymentMarkPaidModal({
             method,
             amount: parsedAmount,
             paymentNote: note.trim() || undefined,
+            paidAt: paidAtIso,
           });
     setSubmitting(false);
     if (!result.ok) {
@@ -103,20 +141,88 @@ export function PaymentMarkPaidModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="w-full max-w-md rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] p-5 shadow-[var(--shadow-md)]"
+        className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] p-5 shadow-[var(--shadow-md)]"
       >
+        {step === "summary" ? (
+          <>
+            <h2 id={titleId} className="text-base font-semibold text-[var(--color-text)]">
+              Ödeme detayı
+            </h2>
+            <p className="mt-0.5 text-xs text-[var(--color-text-muted)]">{studentName}</p>
+            <dl className="mt-4 space-y-2 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3 text-sm">
+              {description ? (
+                <div className="flex justify-between gap-3">
+                  <dt className="text-[var(--color-text-muted)]">Açıklama</dt>
+                  <dd className="text-right font-medium text-[var(--color-text)]">{description}</dd>
+                </div>
+              ) : null}
+              {dueDate ? (
+                <div className="flex justify-between gap-3">
+                  <dt className="text-[var(--color-text-muted)]">Vade tarihi</dt>
+                  <dd className="text-right text-[var(--color-text)]">{formatDate(dueDate)}</dd>
+                </div>
+              ) : null}
+              <div className="flex justify-between gap-3">
+                <dt className="text-[var(--color-text-muted)]">Tahsil edildiği an</dt>
+                <dd className="text-right font-medium text-[var(--color-text)]">
+                  {initialPaidAt ? formatDateTime(initialPaidAt) : "—"}
+                </dd>
+              </div>
+              <div className="flex justify-between gap-3">
+                <dt className="text-[var(--color-text-muted)]">Tutar</dt>
+                <dd className="text-right font-medium text-[var(--color-text)]">{formatMoney(defaultAmount)}</dd>
+              </div>
+              <div className="flex justify-between gap-3">
+                <dt className="text-[var(--color-text-muted)]">Yöntem</dt>
+                <dd className="text-right text-[var(--color-text)]">{methodLabel}</dd>
+              </div>
+              {note.trim() ? (
+                <div className="flex justify-between gap-3">
+                  <dt className="text-[var(--color-text-muted)]">Referans / not</dt>
+                  <dd className="text-right text-[var(--color-text)]">{note.trim()}</dd>
+                </div>
+              ) : null}
+              {sourceLabel ? (
+                <div className="flex justify-between gap-3 border-t border-[var(--color-border)] pt-2">
+                  <dt className="text-[var(--color-text-muted)]">Kaynak</dt>
+                  <dd className="text-right text-xs font-medium text-[var(--color-text)]">{sourceLabel}</dd>
+                </div>
+              ) : null}
+            </dl>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className="rounded-lg border border-[var(--color-border)] px-3.5 py-2 text-sm font-medium text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)]"
+              >
+                Kapat
+              </button>
+              <button
+                type="button"
+                onClick={() => setStep("form")}
+                className="rounded-lg bg-[var(--color-primary)] px-3.5 py-2 text-sm font-medium text-white hover:bg-[var(--color-primary-hover)]"
+              >
+                Düzenle
+              </button>
+            </div>
+          </>
+        ) : null}
+
         {step === "form" ? (
           <>
             <h2 id={titleId} className="text-base font-semibold text-[var(--color-text)]">
               {mode === "create" ? "Ödendi işaretle" : "Ödemeyi düzenle"}
             </h2>
             <p className="mt-0.5 text-xs text-[var(--color-text-muted)]">{studentName}</p>
+            {sourceLabel ? (
+              <p className="mt-2 rounded-md border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-2.5 py-1.5 text-[11px] text-[var(--color-text-muted)]">
+                {sourceLabel} — kaydı düzenleyebilirsiniz.
+              </p>
+            ) : null}
 
             <div className="mt-4 space-y-3">
               <div>
-                <label className="mb-1 block text-xs font-medium text-[var(--color-text-muted)]">
-                  Ödeme yöntemi
-                </label>
+                <label className="mb-1 block text-xs font-medium text-[var(--color-text-muted)]">Ödeme yöntemi</label>
                 <select
                   value={method}
                   onChange={(e) => setMethod(e.target.value as PaymentMethod)}
@@ -144,19 +250,20 @@ export function PaymentMarkPaidModal({
                 />
               </div>
 
-              {mode === "create" ? (
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-[var(--color-text-muted)]">
-                    Ödeme tarihi
-                  </label>
-                  <input
-                    type="date"
-                    value={paidAt}
-                    onChange={(e) => setPaidAt(e.target.value)}
-                    className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text)] outline-none focus:ring-2 focus:ring-[var(--color-focus-ring)]"
-                  />
-                </div>
-              ) : null}
+              <div>
+                <label className="mb-1 block text-xs font-medium text-[var(--color-text-muted)]">
+                  Tahsilat tarihi ve saati
+                </label>
+                <input
+                  type="datetime-local"
+                  value={paidAtLocal}
+                  onChange={(e) => setPaidAtLocal(e.target.value)}
+                  className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text)] outline-none focus:ring-2 focus:ring-[var(--color-focus-ring)]"
+                />
+                {dueDate ? (
+                  <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">Vade: {formatDate(dueDate)} (ayrı alan)</p>
+                ) : null}
+              </div>
 
               <div>
                 <label className="mb-1 block text-xs font-medium text-[var(--color-text-muted)]">
@@ -172,12 +279,16 @@ export function PaymentMarkPaidModal({
               </div>
             </div>
 
-            {error ? <p className="mt-2 text-xs font-medium text-rose-600">{error}</p> : null}
+            {error ? (
+              <p className="mt-2 text-xs font-medium text-[var(--color-danger)]" role="alert">
+                {error}
+              </p>
+            ) : null}
 
             <div className="mt-5 flex justify-end gap-2">
               <button
                 type="button"
-                onClick={onClose}
+                onClick={() => (mode === "edit" ? setStep("summary") : onClose())}
                 className="rounded-lg border border-[var(--color-border)] px-3.5 py-2 text-sm font-medium text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)]"
               >
                 Vazgeç
@@ -191,7 +302,9 @@ export function PaymentMarkPaidModal({
               </button>
             </div>
           </>
-        ) : (
+        ) : null}
+
+        {step === "confirm" ? (
           <>
             <h2 id={titleId} className="text-base font-semibold text-[var(--color-text)]">
               Ödemeyi kaydetmek istediğinize emin misiniz?
@@ -201,12 +314,14 @@ export function PaymentMarkPaidModal({
                 <span className="text-[var(--color-text-muted)]">Öğrenci:</span> {studentName}
               </p>
               <p>
-                <span className="text-[var(--color-text-muted)]">Tutar:</span>{" "}
-                {new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY" }).format(parsedAmount)}
+                <span className="text-[var(--color-text-muted)]">Tutar:</span> {formatMoney(parsedAmount)}
               </p>
               <p>
-                <span className="text-[var(--color-text-muted)]">Yöntem:</span>{" "}
-                {METHOD_OPTIONS.find((o) => o.value === method)?.label}
+                <span className="text-[var(--color-text-muted)]">Yöntem:</span> {methodLabel}
+              </p>
+              <p>
+                <span className="text-[var(--color-text-muted)]">Tahsilat anı:</span>{" "}
+                {formatDateTime(datetimeLocalToIso(paidAtLocal))}
               </p>
               {note.trim() ? (
                 <p>
@@ -214,7 +329,11 @@ export function PaymentMarkPaidModal({
                 </p>
               ) : null}
             </div>
-            {error ? <p className="mt-2 text-xs font-medium text-rose-600">{error}</p> : null}
+            {error ? (
+              <p className="mt-2 text-xs font-medium text-[var(--color-danger)]" role="alert">
+                {error}
+              </p>
+            ) : null}
             <div className="mt-5 flex justify-end gap-2">
               <button
                 type="button"
@@ -228,13 +347,13 @@ export function PaymentMarkPaidModal({
                 type="button"
                 onClick={() => void handleConfirm()}
                 disabled={submitting}
-                className="rounded-lg bg-emerald-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+                className="rounded-lg bg-[var(--color-success)] px-3.5 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
               >
                 {submitting ? "Kaydediliyor…" : "Evet, kaydet"}
               </button>
             </div>
           </>
-        )}
+        ) : null}
       </div>
     </div>
   );

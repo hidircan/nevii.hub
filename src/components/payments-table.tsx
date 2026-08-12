@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { Receipt } from "lucide-react";
 import { Badge, Button, Card } from "@/components/ui";
-import { formatDate, formatMoney } from "@/lib/utils";
+import { formatDate, formatDateTime, formatMoney, paymentSourceLabel } from "@/lib/utils";
 import { PaymentMarkPaidModal } from "@/components/payment-mark-paid-modal";
 import { PaginationControls, usePagination } from "@/components/pagination-controls";
 import type { PaymentStatus } from "@/lib/types";
@@ -23,6 +23,9 @@ export type PaymentRow = {
   lessonId?: string;
   lessonDate?: string;
   paymentNote?: string;
+  paidAt?: string;
+  createdAt?: string;
+  source?: string;
 };
 
 type StatusFilter = "all" | PaymentStatus;
@@ -116,6 +119,7 @@ export function PaymentsTable({ rows, canWrite }: { rows: PaymentRow[]; canWrite
               <th className="px-4 py-3">Öğrenci</th>
               <th className="px-4 py-3">Açıklama</th>
               <th className="px-4 py-3">Vade</th>
+              <th className="px-4 py-3">Tahsil anı</th>
               <th className="px-4 py-3">Tutar</th>
               <th className="px-4 py-3">Durum</th>
               <th className="px-4 py-3">İşlem</th>
@@ -124,38 +128,50 @@ export function PaymentsTable({ rows, canWrite }: { rows: PaymentRow[]; canWrite
           <tbody>
             {pageItems.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-sm text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
+                <td colSpan={7} className="px-4 py-8 text-center text-sm text-[var(--color-text-muted)]">
                   Bu filtreye uyan ödeme bulunamadı.
                 </td>
               </tr>
             ) : (
-              pageItems.map((p) => (
-                <tr key={p.id} className="border-b border-slate-50 dark:border-slate-800">
-                  <td className="px-4 py-3 font-medium text-[var(--color-text)] dark:text-slate-50">
+              pageItems.map((p) => {
+                const sourceLabel = paymentSourceLabel(p.source, Boolean(p.lessonId));
+                return (
+                <tr key={p.id} className="border-b border-[var(--color-border)]">
+                  <td className="px-4 py-3 font-medium text-[var(--color-text)]">
                     <Link
                       href={`/panel/odemeler/${p.studentId}`}
-                      className="hover:text-amber-600 hover:underline"
+                      className="hover:text-[var(--color-primary)] hover:underline"
                     >
                       {p.studentName}
                     </Link>
                   </td>
-                  <td className="px-4 py-3 text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
+                  <td className="px-4 py-3 text-[var(--color-text-muted)]">
                     {p.description}
                     {p.method ? (
                       <span className="block text-xs text-[var(--color-text-muted)]">{p.method}</span>
+                    ) : null}
+                    {sourceLabel ? (
+                      <span className="mt-0.5 block text-[11px] text-[var(--color-text-muted)]">{sourceLabel}</span>
                     ) : null}
                     {p.lessonId ? (
                       <Link
                         href={`/panel/program?studentId=${p.studentId}&returnTo=${encodeURIComponent(
                           `/panel/odemeler/${p.studentId}`
                         )}`}
-                        className="mt-0.5 block text-xs font-medium text-amber-700 hover:underline"
+                        className="mt-0.5 block text-xs font-medium text-[var(--color-primary)] hover:underline"
                       >
                         Kaynak ders{p.lessonDate ? `: ${formatDate(p.lessonDate)}` : ""} →
                       </Link>
                     ) : null}
                   </td>
-                  <td className="px-4 py-3 text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">{formatDate(p.dueDate)}</td>
+                  <td className="px-4 py-3 text-[var(--color-text-muted)]">{formatDate(p.dueDate)}</td>
+                  <td className="px-4 py-3 text-[var(--color-text)]">
+                    {p.status === "paid" && p.paidAt ? (
+                      <span className="text-xs font-medium sm:text-sm">{formatDateTime(p.paidAt)}</span>
+                    ) : (
+                      <span className="text-[var(--color-text-muted)]">—</span>
+                    )}
+                  </td>
                   <td className="px-4 py-3">
                     <span className="font-medium">{formatMoney(p.amount)}</span>
                     {p.paidAmount > 0 && p.paidAmount < p.amount ? (
@@ -189,9 +205,9 @@ export function PaymentsTable({ rows, canWrite }: { rows: PaymentRow[]; canWrite
                       <div className="flex flex-wrap items-center gap-2">
                         <Link
                           href={`/makbuz/${p.id}`}
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100"
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-xs font-medium text-[var(--color-text)] hover:bg-[var(--color-surface-muted)]"
                         >
-                          <Receipt className="h-3.5 w-3.5" /> Makbuzu görüntüle
+                          <Receipt className="h-3.5 w-3.5" /> Makbuz
                         </Link>
                         {canWrite ? (
                           <button
@@ -202,14 +218,15 @@ export function PaymentsTable({ rows, canWrite }: { rows: PaymentRow[]; canWrite
                             }}
                             className="rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-xs font-medium text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)]"
                           >
-                            Düzenle
+                            Detayı gör / düzenle
                           </button>
                         ) : null}
                       </div>
                     )}
                   </td>
                 </tr>
-              ))
+              );
+              })
             )}
           </tbody>
         </table>
@@ -237,6 +254,11 @@ export function PaymentsTable({ rows, canWrite }: { rows: PaymentRow[]; canWrite
             modalMode === "edit" && isPaymentMethod(modalPayment.method) ? modalPayment.method : undefined
           }
           initialNote={modalMode === "edit" ? modalPayment.paymentNote : undefined}
+          initialPaidAt={modalMode === "edit" ? modalPayment.paidAt : undefined}
+          dueDate={modalPayment.dueDate}
+          description={modalPayment.description}
+          source={modalPayment.source}
+          lessonId={modalPayment.lessonId}
           onClose={() => setModalPayment(null)}
         />
       ) : null}

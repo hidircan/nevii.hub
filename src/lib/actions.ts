@@ -429,6 +429,8 @@ export type UpdatePaymentInput = {
   method: "credit_card" | "cash" | "transfer";
   amount: number;
   paymentNote?: string;
+  /** ISO datetime veya yyyy-MM-dd — tahsilat anı. */
+  paidAt?: string;
 };
 
 export type UpdatePaymentResult = { ok: true } | { ok: false; message: string };

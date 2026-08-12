@@ -449,6 +449,8 @@ export type UpdatePaymentPatch = {
   method?: string;
   paidAmount?: number;
   paymentNote?: string;
+  /** Tahsilat anı (ISO) — raporlar paidAt üzerinden gider. */
+  paidAt?: string;
 };
 
 export async function updatePayment(paymentId: string, patch: UpdatePaymentPatch): Promise<AppData> {
@@ -460,6 +462,7 @@ export async function updatePayment(paymentId: string, patch: UpdatePaymentPatch
       ...(patch.method !== undefined ? { method: patch.method } : {}),
       ...(patch.paidAmount !== undefined ? { paidAmount: patch.paidAmount } : {}),
       ...(patch.paymentNote !== undefined ? { paymentNote: patch.paymentNote } : {}),
+      ...(patch.paidAt !== undefined ? { paidAt: patch.paidAt } : {}),
     };
   });
   const next = { ...data, payments };

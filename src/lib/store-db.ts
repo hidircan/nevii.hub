@@ -1285,9 +1285,10 @@ export type UpdatePaymentPatch = {
   method?: string;
   paidAmount?: number;
   paymentNote?: string;
+  paidAt?: string;
 };
 
-/** Zaten "paid" bir ödemenin yöntem/tutar/not alanlarını düzenler — Paket 5 "Düzenle" akışı. */
+/** Zaten "paid" bir ödemenin yöntem/tutar/not/tahsilat-anı alanlarını düzenler. */
 export async function updatePayment(paymentId: string, patch: UpdatePaymentPatch): Promise<AppData> {
   const tid = requireTenantId();
   const payment = await prisma.payment.findFirst({ where: { id: paymentId, tenantId: tid } });
@@ -1299,6 +1300,7 @@ export async function updatePayment(paymentId: string, patch: UpdatePaymentPatch
       ...(patch.method !== undefined ? { method: patch.method } : {}),
       ...(patch.paidAmount !== undefined ? { paidAmount: patch.paidAmount } : {}),
       ...(patch.paymentNote !== undefined ? { paymentNote: patch.paymentNote } : {}),
+      ...(patch.paidAt !== undefined ? { paidAt: new Date(patch.paidAt) } : {}),
     },
   });
 

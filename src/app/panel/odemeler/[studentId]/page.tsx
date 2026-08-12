@@ -1,16 +1,18 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { ArrowRight } from "lucide-react";
 import { BackButton } from "@/components/back-button";
-import { readData } from "@/lib/store";
 import { actionAddPayment } from "@/lib/actions";
-import { Badge, Button, Card, EmptyState, Input, Label, PageHeader, StatCard } from "@/components/ui";
-import { formatDate, formatMoney } from "@/lib/utils";
+import { Button, Card, EmptyState, Input, Label, PageHeader, StatCard } from "@/components/ui";
+import { formatMoney } from "@/lib/utils";
 import { computeStudentPaymentSummary, filterPaymentHistory, sortPaymentsForProfile } from "@/lib/payment-profile";
 import { computeStudentMonthlyAmount } from "@/lib/student-payment-profile";
 import { AssistantPageContext } from "@/components/ai/assistant-page-context";
 import { StudentPaymentHistoryTable } from "@/components/student-payment-history-table";
 import { getUserById } from "@/lib/auth/users";
 import { QuickTaskLink } from "@/components/quick-task-link";
+import { requireSessionContext } from "@/lib/auth/session";
+import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
 
 export const dynamic = "force-dynamic";
 
@@ -20,8 +22,17 @@ export default async function StudentPaymentProfilePage({
   params: Promise<{ studentId: string }>;
 }) {
   const { studentId } = await params;
-  const data = await readData();
+  let session;
+  try {
+    session = await requireSessionContext();
+  } catch {
+    redirect(`/login?next=/panel/odemeler/${studentId}`);
+  }
+  const kurum = await getInstitutionContext(session);
+  const data = await readScopedData(kurum.scope);
   const student = data.students.find((s) => s.id === studentId);
+  const canWrite =
+    kurum.scope.mode === "single" && (session.role === "SCHOOL_ADMIN" || session.role === "SUPER_ADMIN");
 
   if (!student) {
     return (
@@ -173,7 +184,11 @@ export default async function StudentPaymentProfilePage({
         Ödemeler ekranındaki tam liste) bu filtreden ETKİLENMEZ — `payments`
         değişkeni burada değiştirilmiyor, yalnız görüntülenen alt küme.
       */}
-      <StudentPaymentHistoryTable payments={historyPayments} />
+      <StudentPaymentHistoryTable
+        payments={historyPayments}
+        canWrite={canWrite}
+        studentName={student.name}
+      />
     </div>
   );
 }

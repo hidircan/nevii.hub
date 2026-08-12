@@ -916,7 +916,7 @@ export async function updatePaymentTool(
   ctx: ServiceContext,
   input: unknown
 ): Promise<ServiceResult<{ paymentId: string }>> {
-  /** Zaten "paid" bir ödemenin yöntem/tutar/not alanlarını düzenler — Paket 5 "Düzenle" akışı. */
+  /** Zaten "paid" bir ödemenin yöntem/tutar/not/tahsilat anı alanlarını düzenler. */
   const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
 
@@ -926,6 +926,8 @@ export async function updatePaymentTool(
       method: z.enum(["credit_card", "cash", "transfer"]).optional(),
       amount: z.number().positive().optional(),
       paymentNote: z.string().max(500).optional(),
+      /** ISO datetime veya yyyy-MM-dd — tahsilat anı. */
+      paidAt: z.string().min(1).optional(),
     }),
     input
   );
@@ -939,14 +941,25 @@ export async function updatePaymentTool(
       return fail("VALIDATION_ERROR", "Yalnızca tamamlanmış ödemeler düzenlenebilir.");
     }
 
+    let paidAt = v.data.paidAt;
+    if (paidAt && /^\d{4}-\d{2}-\d{2}$/.test(paidAt)) {
+      // Yalnız tarih geldiyse mevcut saati (veya öğlen) koru.
+      const prev = existing.paidAt ? new Date(existing.paidAt) : new Date();
+      const [y, m, d] = paidAt.split("-").map(Number);
+      prev.setFullYear(y!, m! - 1, d);
+      paidAt = prev.toISOString();
+    }
+
     await updatePayment(v.data.paymentId, {
       method: v.data.method,
       paidAmount: v.data.amount,
       paymentNote: v.data.paymentNote,
+      paidAt,
     });
     audit(ctx, "payment.update", "Payment", v.data.paymentId, {
       method: v.data.method,
       amount: v.data.amount,
+      paidAt,
     });
     return ok({ paymentId: v.data.paymentId });
   } catch (e) {
