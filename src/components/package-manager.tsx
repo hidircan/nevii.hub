@@ -1,10 +1,8 @@
 "use client";
 
 /**
- * ÖNCELİK 4 (devam) — Paket Yönetimi ekranı. Liste + "Yeni Paket" formu +
- * mevcut paketi düzenleme/arşivleme. Hard delete YOK — yalnız
- * status:"active"|"archived" arasında geçiş. Aynı desen `fee-rule-manager.tsx`
- * ile (server action + router.refresh()).
+ * Paket listesi + inline düzenleme/arşiv. Oluşturma ayrı route:
+ * `/panel/paketler/yeni` (PackageCreateForm).
  */
 
 import { useState, useTransition, type FormEvent } from "react";
@@ -15,6 +13,103 @@ import { Badge, Button, Card, Input, Label, Select } from "@/components/ui";
 import { formatMoney } from "@/lib/utils";
 import { activeStudentCountForPackage, packageStatusLabel } from "@/lib/packages";
 import type { Package, Student } from "@/lib/types";
+
+/** Odaklı oluşturma formu — `/panel/paketler/yeni` ve testler için paylaşılır. */
+export function PackageCreateForm({ onCreated }: { onCreated?: (packageId: string) => void }) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const [formError, setFormError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  function onCreate(formData: FormData) {
+    setFormError(null);
+    setSuccess(null);
+    startTransition(async () => {
+      const result = await actionCreatePackage(formData);
+      if (!result.ok) {
+        setFormError(result.message);
+        return;
+      }
+      setSuccess("Paket oluşturuldu.");
+      if (onCreated) onCreated(result.packageId);
+      else router.push("/panel/paketler");
+      router.refresh();
+    });
+  }
+
+  return (
+    <form action={onCreate} className="space-y-3">
+      <div>
+        <Label>Başlık</Label>
+        <Input name="title" required placeholder="Örn. Bireysel ders + 4 grup solfej dersi" />
+      </div>
+      <div>
+        <Label>Açıklama</Label>
+        <Input name="description" placeholder="Örn. 8 özel ders + 8 grup solfej hediye" />
+      </div>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+        <div>
+          <Label>30 dk fiyatı (TL)</Label>
+          <Input name="price30Min" type="number" min={0} step={1} required />
+        </div>
+        <div>
+          <Label>40 dk fiyatı (TL)</Label>
+          <Input name="price40Min" type="number" min={0} step={1} required />
+        </div>
+        <div>
+          <Label>50 dk fiyatı (TL)</Label>
+          <Input name="price50Min" type="number" min={0} step={1} required />
+        </div>
+      </div>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <div>
+          <Label>Aylık ders adedi (opsiyonel)</Label>
+          <Input name="monthlyLessonCount" type="number" min={0} step={1} />
+        </div>
+        <div>
+          <Label>Grup solfej / ek ders adedi (opsiyonel)</Label>
+          <Input name="groupLessonCount" type="number" min={0} step={1} />
+        </div>
+      </div>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <div>
+          <Label>Varsayılan ders süresi (opsiyonel)</Label>
+          <Select name="defaultDurationMinutes" defaultValue="">
+            <option value="">Belirtilmemiş</option>
+            <option value="30">30 dk</option>
+            <option value="40">40 dk</option>
+            <option value="50">50 dk</option>
+          </Select>
+        </div>
+        <div>
+          <Label>Varsayılan ödeme günü (opsiyonel)</Label>
+          <Input name="defaultPaymentDueDay" type="number" min={1} max={28} step={1} />
+        </div>
+      </div>
+      <div>
+        <Label>Dönem etiketi (opsiyonel)</Label>
+        <Select name="termLabel" defaultValue="">
+          <option value="">Genel (her iki dönem)</option>
+          <option value="guz">Güz</option>
+          <option value="yaz">Yaz</option>
+        </Select>
+      </div>
+      <div>
+        <Label>Kapsam notu (opsiyonel)</Label>
+        <Input name="notes" placeholder="Paket kapsamını açıklayan not" />
+      </div>
+      {formError ? (
+        <p className="text-xs font-medium text-[var(--color-danger)]" role="alert">
+          {formError}
+        </p>
+      ) : null}
+      {success ? <p className="text-xs font-medium text-[var(--color-success)]">{success}</p> : null}
+      <Button type="submit" disabled={pending} className="w-full sm:w-auto">
+        {pending ? "Kaydediliyor…" : "Paketi oluştur"}
+      </Button>
+    </form>
+  );
+}
 
 export function PackageManager({
   packages,
@@ -29,18 +124,6 @@ export function PackageManager({
   const [pending, startTransition] = useTransition();
   const [formError, setFormError] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
-
-  async function onCreate(formData: FormData) {
-    setFormError(null);
-    startTransition(async () => {
-      const result = await actionCreatePackage(formData);
-      if (!result.ok) {
-        setFormError(result.message);
-        return;
-      }
-      router.refresh();
-    });
-  }
 
   function toggleStatus(pkg: Package) {
     if (pkg.status === "active") {
@@ -163,75 +246,10 @@ export function PackageManager({
         )}
       </Card>
 
-      {canWrite ? (
-        <Card>
-          <h2 className="mb-3 font-semibold text-[var(--color-text)]">Yeni Paket</h2>
-          <form action={onCreate} className="space-y-3">
-            <div>
-              <Label>Başlık</Label>
-              <Input name="title" required placeholder="Örn. Bireysel ders + 4 grup solfej dersi" />
-            </div>
-            <div>
-              <Label>Açıklama</Label>
-              <Input name="description" placeholder="Örn. 8 özel ders + 8 grup solfej hediye" />
-            </div>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-              <div>
-                <Label>30 dk fiyatı (TL)</Label>
-                <Input name="price30Min" type="number" min={0} step={1} required />
-              </div>
-              <div>
-                <Label>40 dk fiyatı (TL)</Label>
-                <Input name="price40Min" type="number" min={0} step={1} required />
-              </div>
-              <div>
-                <Label>50 dk fiyatı (TL)</Label>
-                <Input name="price50Min" type="number" min={0} step={1} required />
-              </div>
-            </div>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              <div>
-                <Label>Aylık ders adedi (opsiyonel)</Label>
-                <Input name="monthlyLessonCount" type="number" min={0} step={1} />
-              </div>
-              <div>
-                <Label>Grup solfej / ek ders adedi (opsiyonel)</Label>
-                <Input name="groupLessonCount" type="number" min={0} step={1} />
-              </div>
-            </div>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              <div>
-                <Label>Varsayılan ders süresi (opsiyonel)</Label>
-                <Select name="defaultDurationMinutes" defaultValue="">
-                  <option value="">Belirtilmemiş</option>
-                  <option value="30">30 dk</option>
-                  <option value="40">40 dk</option>
-                  <option value="50">50 dk</option>
-                </Select>
-              </div>
-              <div>
-                <Label>Varsayılan ödeme günü (opsiyonel)</Label>
-                <Input name="defaultPaymentDueDay" type="number" min={1} max={28} step={1} />
-              </div>
-            </div>
-            <div>
-              <Label>Dönem etiketi (opsiyonel)</Label>
-              <Select name="termLabel" defaultValue="">
-                <option value="">Genel (her iki dönem)</option>
-                <option value="guz">Güz</option>
-                <option value="yaz">Yaz</option>
-              </Select>
-            </div>
-            <div>
-              <Label>Kapsam notu (opsiyonel)</Label>
-              <Input name="notes" placeholder="Paket kapsamını açıklayan not" />
-            </div>
-            {formError ? <p className="text-xs font-medium text-[#8b3a3a]">{formError}</p> : null}
-            <Button type="submit" disabled={pending} className="w-full">
-              {pending ? "Kaydediliyor…" : "Paketi oluştur"}
-            </Button>
-          </form>
-        </Card>
+      {formError ? (
+        <p className="text-xs font-medium text-[var(--color-danger)]" role="alert">
+          {formError}
+        </p>
       ) : null}
     </div>
   );
