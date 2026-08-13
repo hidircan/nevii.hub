@@ -45,15 +45,38 @@ type AssistantApi = {
   toggle: () => void;
   /** One-shot: reads AND clears the pending prefill text, if any. */
   takePrefill: () => string | null;
+  /** Küçük popup ile /panel/maestron-ai arasında paylaşılan sohbet id. */
+  activeConversationId: string | null;
+  setActiveConversationId: (id: string | null) => void;
 };
 
 const AssistantCtx = createContext<AssistantApi | null>(null);
+
+const CONV_STORAGE_KEY = "maestron.ai.activeConversationId";
 
 export function AssistantProvider({ children }: { children: ReactNode }) {
   const [entity, setEntity] = useState<AssistantEntity | null>(null);
   const [isOpen, setIsOpen] = useState(false);
   const [mode, setMode] = useState<AssistantMode>("popup");
+  const [activeConversationId, setActiveConversationIdState] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      return sessionStorage.getItem(CONV_STORAGE_KEY);
+    } catch {
+      return null;
+    }
+  });
   const prefillRef = useRef<string | null>(null);
+
+  const setActiveConversationId = useCallback((id: string | null) => {
+    setActiveConversationIdState(id);
+    try {
+      if (id) sessionStorage.setItem(CONV_STORAGE_KEY, id);
+      else sessionStorage.removeItem(CONV_STORAGE_KEY);
+    } catch {
+      // ignore
+    }
+  }, []);
 
   const open = useCallback((opts?: OpenOptions) => {
     if (opts?.mode) setMode(opts.mode);
@@ -69,8 +92,20 @@ export function AssistantProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo<AssistantApi>(
-    () => ({ entity, setEntity, isOpen, mode, setMode, open, close, toggle, takePrefill }),
-    [entity, isOpen, mode, open, close, toggle, takePrefill]
+    () => ({
+      entity,
+      setEntity,
+      isOpen,
+      mode,
+      setMode,
+      open,
+      close,
+      toggle,
+      takePrefill,
+      activeConversationId,
+      setActiveConversationId,
+    }),
+    [entity, isOpen, mode, open, close, toggle, takePrefill, activeConversationId, setActiveConversationId]
   );
 
   return <AssistantCtx.Provider value={value}>{children}</AssistantCtx.Provider>;

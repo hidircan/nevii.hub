@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, Bot, History, Loader2, Send, Sparkles, Wrench, X } from "lucide-react";
+import { AlertTriangle, Bot, History, Loader2, Maximize2, Send, Sparkles, Wrench, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { QuickAction } from "./assistant-quick-actions";
 
@@ -31,15 +31,28 @@ export function AssistantChatBody({
   prefillText,
   onPrefillConsumed,
   onProviderChange,
+  initialConversationId,
+  onConversationIdChange,
+  hideChrome = false,
+  expandHref,
 }: {
   quickActions: QuickAction[];
   prefillText?: string | null;
   onPrefillConsumed?: () => void;
   onProviderChange?: (provider: string) => void;
+  /** Popup ↔ büyük ekran arasında paylaşılan sohbet. */
+  initialConversationId?: string | null;
+  onConversationIdChange?: (id: string | null) => void;
+  /** Büyük sayfa kendi PageHeader'ını kullanır. */
+  hideChrome?: boolean;
+  /** Küçük popup'ta büyütme linki (/panel/maestron-ai). */
+  expandHref?: string;
 }) {
   const [conversations, setConversations] = useState<ConvSummary[]>([]);
   const [showHistory, setShowHistory] = useState(false);
-  const [conversationId, setConversationId] = useState<string | undefined>();
+  const [conversationId, setConversationId] = useState<string | undefined>(
+    initialConversationId ?? undefined
+  );
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -48,6 +61,7 @@ export function AssistantChatBody({
   const [streamingText, setStreamingText] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const bootstrappedRef = useRef(false);
 
   // Apply an incoming prefill during render (React's documented pattern for
   // "adjust state when a prop changes") rather than in an effect — it's a
@@ -86,6 +100,27 @@ export function AssistantChatBody({
     };
   }, []);
 
+  // Paylaşılan conversationId ile büyük/küçük ekran senkronu.
+  useEffect(() => {
+    if (bootstrappedRef.current) return;
+    if (!initialConversationId) return;
+    bootstrappedRef.current = true;
+    void (async () => {
+      const res = await fetch(`/api/v1/chat/${initialConversationId}`, { credentials: "include" });
+      const json = await res.json();
+      if (!json.ok) return;
+      setConversationId(initialConversationId);
+      const raw = (json.data.conversation.messages || []) as UiMessage[];
+      setMessages(
+        raw.filter(
+          (msg) =>
+            msg.role !== "tool" ||
+            (msg.toolName && DRAFT_TOOLS.has(msg.toolName) && msg.toolStatus === "success")
+        )
+      );
+    })();
+  }, [initialConversationId]);
+
   async function loadConversation(id: string) {
     setError(null);
     setShowHistory(false);
@@ -96,12 +131,21 @@ export function AssistantChatBody({
       return;
     }
     setConversationId(id);
-    setMessages(json.data.conversation.messages || []);
+    onConversationIdChange?.(id);
+    const raw = (json.data.conversation.messages || []) as UiMessage[];
+    setMessages(
+      raw.filter(
+        (msg) =>
+          msg.role !== "tool" ||
+          (msg.toolName && DRAFT_TOOLS.has(msg.toolName) && msg.toolStatus === "success")
+      )
+    );
     setStreamingText("");
   }
 
   function newChat() {
     setConversationId(undefined);
+    onConversationIdChange?.(null);
     setMessages([]);
     setStreamingText("");
     setError(null);
@@ -171,26 +215,40 @@ export function AssistantChatBody({
 
             if (event.type === "meta") {
               setConversationId(event.conversationId);
+              onConversationIdChange?.(event.conversationId);
               setProvider(event.provider);
               onProviderChange?.(event.provider);
             } else if (event.type === "tool_start") {
-              setMessages((m) => [
-                ...m,
-                { id: event.messageId, role: "tool", content: `Çalıştırılıyor: ${event.tool}…`, toolName: event.tool, toolStatus: "pending" },
-              ]);
+              // Normal kullanıcıya tool/debug satırı gösterme.
             } else if (event.type === "tool_end") {
-              setMessages((m) => [
-                ...m.filter((x) => !(x.toolName === event.tool && x.toolStatus === "pending")),
-                { id: event.messageId, role: "tool", content: event.content, toolName: event.tool, toolStatus: event.ok ? "success" : "error" },
-              ]);
+              // Draft araçları (WhatsApp vb.) için yalnız güvenli özet; ham tool adı yok.
+              if (event.ok && DRAFT_TOOLS.has(event.tool) && event.content?.trim()) {
+                setMessages((m) => [
+                  ...m,
+                  {
+                    id: event.messageId,
+                    role: "tool",
+                    content: event.content,
+                    toolName: event.tool,
+                    toolStatus: "success",
+                  },
+                ]);
+              }
             } else if (event.type === "token") {
               liveAssistant += event.text;
               setStreamingText(liveAssistant);
             } else if (event.type === "done") {
               setConversationId(event.conversationId);
+              onConversationIdChange?.(event.conversationId);
               setProvider(event.provider);
               onProviderChange?.(event.provider);
-              setMessages(event.messages || []);
+              // Tool satırlarını sohbet geçmişinden süz (draft hariç).
+              const cleaned = (event.messages || []).filter(
+                (msg) =>
+                  msg.role !== "tool" ||
+                  (msg.toolName && DRAFT_TOOLS.has(msg.toolName) && msg.toolStatus === "success")
+              );
+              setMessages(cleaned);
               setStreamingText("");
               await loadList();
             } else if (event.type === "error") {
@@ -204,7 +262,7 @@ export function AssistantChatBody({
         setLoading(false);
       }
     },
-    [input, loading, conversationId, loadList, onProviderChange]
+    [input, loading, conversationId, loadList, onProviderChange, onConversationIdChange]
   );
 
   const isEmpty = !messages.length && !streamingText;
@@ -212,16 +270,27 @@ export function AssistantChatBody({
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* Header */}
+      {!hideChrome ? (
       <div className="flex shrink-0 items-center gap-2 border-b border-[var(--color-border)] px-4 py-3 dark:border-slate-800">
         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500 to-fuchsia-500 text-white shadow-sm">
           <Sparkles className="h-4 w-4" />
         </div>
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-[var(--color-text)] dark:text-slate-50">NotaPlan Asistan</p>
+          <p className="text-sm font-semibold text-[var(--color-text)] dark:text-slate-50">Maestron AI</p>
           <p className="truncate text-[11px] text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
-            {provider ? `Aktif: ${provider}` : "Agent Runtime · Tool Registry"}
+            {provider ? `Aktif: ${provider}` : "Operasyon asistanı"}
           </p>
         </div>
+        {expandHref ? (
+          <a
+            href={expandHref}
+            aria-label="Maestron AI'yi büyüt"
+            title="Büyüt"
+            className="rounded-lg p-1.5 text-[var(--color-text-muted)] transition hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-text)]"
+          >
+            <Maximize2 className="h-4 w-4" />
+          </a>
+        ) : null}
         <button
           type="button"
           onClick={newChat}
@@ -243,6 +312,25 @@ export function AssistantChatBody({
           <History className="h-4 w-4" />
         </button>
       </div>
+      ) : (
+        <div className="flex shrink-0 items-center justify-end gap-2 border-b border-[var(--color-border)] px-4 py-2">
+          <button
+            type="button"
+            onClick={newChat}
+            className="rounded-lg px-2 py-1.5 text-xs font-medium text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)]"
+          >
+            Yeni sohbet
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowHistory((v) => !v)}
+            aria-label="Sohbet geçmişi"
+            className="rounded-lg p-1.5 text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)]"
+          >
+            <History className="h-4 w-4" />
+          </button>
+        </div>
+      )}
 
       {/* History dropdown */}
       {showHistory ? (
@@ -385,28 +473,8 @@ function MessageBubble({ message: m }: { message: UiMessage }) {
         </div>
       );
     }
-    return (
-      <div className="flex justify-start">
-        <div
-          className={cn(
-            "max-w-[88%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed",
-            m.toolStatus === "error"
-              ? "border border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-300"
-              : "border border-[var(--color-border)] bg-[var(--color-surface-muted)] text-[var(--color-text-muted)] dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300"
-          )}
-        >
-          <p className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
-            {m.toolStatus === "pending" ? (
-              <Loader2 className="h-3 w-3 animate-spin" />
-            ) : (
-              <Wrench className="h-3 w-3" />
-            )}
-            {m.toolName} {m.toolStatus && m.toolStatus !== "pending" ? `· ${m.toolStatus}` : ""}
-          </p>
-          <p className="whitespace-pre-wrap">{m.content}</p>
-        </div>
-      </div>
-    );
+    // Teknik tool/debug satırları kullanıcıya gösterilmez.
+    return null;
   }
 
   return (
