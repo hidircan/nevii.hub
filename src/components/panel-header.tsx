@@ -35,7 +35,7 @@ export function PanelHeader({
 }) {
   return (
     <header
-      className="panel-header sticky top-0 z-30 flex items-center justify-between gap-2 border-b px-6 py-2.5 backdrop-blur lg:px-10"
+      className="panel-header sticky top-0 z-40 flex items-center justify-between gap-2 border-b px-6 py-2.5 backdrop-blur lg:px-10"
       style={{ borderColor: "var(--color-border)", background: "color-mix(in srgb, var(--color-surface) 92%, transparent)" }}
     >
       <ContextHeader

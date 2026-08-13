@@ -124,7 +124,7 @@ export function NotificationBell() {
         <div
           role="menu"
           aria-label="Bildirimler"
-          className="absolute right-0 top-full z-40 mt-2 w-80 overflow-hidden rounded-[var(--radius-lg)] border shadow-[var(--shadow-md)]"
+          className="absolute right-0 top-full z-50 mt-2 w-80 overflow-hidden rounded-[var(--radius-lg)] border shadow-[var(--shadow-md)]"
           style={{ background: "var(--color-surface)", borderColor: "var(--color-border)" }}
         >
           <div className="flex items-center justify-between border-b px-4 py-2.5" style={{ borderColor: "var(--color-border)" }}>

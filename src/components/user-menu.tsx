@@ -100,7 +100,7 @@ export function UserMenu({
         <div
           role="menu"
           aria-label="Kullanıcı menüsü"
-          className="absolute right-0 top-full z-40 mt-2 w-72 overflow-hidden rounded-[var(--radius-lg)] border shadow-[var(--shadow-md)]"
+          className="absolute right-0 top-full z-50 mt-2 w-72 overflow-hidden rounded-[var(--radius-lg)] border shadow-[var(--shadow-md)]"
           style={{ background: "var(--color-surface)", borderColor: "var(--color-border)" }}
         >
           {/* 1) Kullanıcı özeti */}

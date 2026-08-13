@@ -1582,7 +1582,7 @@ export function ProgramStudio({
 
       {calendarView === "week" ? (
       <div className="overflow-x-auto rounded-[var(--radius-lg)] border border-[var(--color-border-strong)] bg-[var(--color-surface)]">
-        <div className="flex sticky top-0 z-30 bg-[var(--color-surface)]">
+        <div className="flex sticky top-0 z-10 bg-[var(--color-surface)]">
           <div className="w-16 shrink-0 border-b border-r border-[var(--color-border-strong)]" />
           {visibleDays.map((dayIso) => {
             const day = parseISO(dayIso);
@@ -1609,7 +1609,7 @@ export function ProgramStudio({
         </div>
 
         <div className="flex">
-          <div className="sticky left-0 z-20 w-16 shrink-0 bg-[var(--color-surface)]">
+          <div className="sticky left-0 z-[5] w-16 shrink-0 bg-[var(--color-surface)]">
             {slots.map((min) => {
               const onHour = min % 60 === 0;
               return (
@@ -1711,7 +1711,7 @@ export function ProgramStudio({
                         }
                       }}
                       aria-label={lessonAccessibleLabel(lesson, student, teacher, room, branchNames[lesson.branchId])}
-                      className={`absolute z-10 overflow-hidden rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface)] p-1.5 text-[10px] shadow-[var(--shadow-sm)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-focus-ring)] ${
+                      className={`absolute z-[1] overflow-hidden rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface)] p-1.5 text-[10px] shadow-[var(--shadow-sm)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-focus-ring)] ${
                         editable ? "cursor-grab active:cursor-grabbing" : "cursor-pointer opacity-90"
                       }`}
                       style={{
