@@ -4,32 +4,17 @@
  * Yoklama Takvimi gün kutusundan tahsilat — TEK finansal gerçek kaynağı
  * (Payment) hiç dallandırmadan, Ödemeler ekranının "Ödendi işaretle" ile
  * BİREBİR AYNI uç noktayı (`POST /api/v1/payments/:paymentId/pay` →
- * createPaymentTool → markPaymentPaid) çağırır — yeni/paralel bir tahsilat
- * yolu YOK. Bu uç nokta zaten:
- *   - RBAC'i (yalnızca `payments:write` izni olan roller — SCHOOL_ADMIN/
- *     SUPER_ADMIN) sunucu tarafında kesin olarak uygular,
- *   - "Tüm kurumlar" (merged) görünümünde yazmayı FORBIDDEN ile reddeder
- *     (resolveWriteScope) — tenant izolasyonu burada YENİDEN yazılmaz,
- *   - audit log'a "payments.pay" olarak yazar (auditLog + audit(payment.mark_paid)),
- *   - iptal edilmiş (voided) bir tahsilatı zaten `status !== "voided"` filtre
- *     ile bu bileşene hiç ulaştırmaz (bkz. attendance-calendar-panel.tsx).
- * Çift tahsilat: buton yalnızca `status !== "paid" && status !== "voided"`
- * iken render edilir (çağıran taraf), başarılı istekten sonra ay verisi
- * tazelenip status "paid" olur — buton bir daha render edilmez (idempotent
- * UI); art arda tıklamaya karşı `pending` durumunda buton disabled'dır.
- *
- * Paket 6 — kayıt sırasında belirlenen o aya ait tutar (`registeredAmount`)
- * bilgi amaçlı gösterilir; yönetici teyit için tahsil edilen tutarı elle
- * girer (varsayılan olarak kayıtlı tutarla doldurulur, değiştirilebilir).
+ * createPaymentTool → markPaymentPaid) çağırır.
  */
 
-import { useId, useState, useTransition } from "react";
+import { useEffect, useId, useState, useTransition } from "react";
 import type { StudentPaymentMethod } from "@/lib/types";
+import { formatMoney, paymentMethodLabelTr } from "@/lib/utils";
 
 const PAYMENT_METHOD_OPTIONS: { value: StudentPaymentMethod; label: string }[] = [
-  { value: "cash", label: "Nakit" },
-  { value: "transfer", label: "Havale" },
-  { value: "credit_card", label: "Kredi Kartı" },
+  { value: "cash", label: paymentMethodLabelTr("cash") },
+  { value: "transfer", label: paymentMethodLabelTr("transfer") },
+  { value: "credit_card", label: paymentMethodLabelTr("credit_card") },
 ];
 
 export function AttendanceCalendarCollectPaymentButton({
@@ -41,17 +26,7 @@ export function AttendanceCalendarCollectPaymentButton({
 }: {
   paymentId: string;
   lessonId: string;
-  /**
-   * Öğrencinin kayıtlı ödeme yöntemi (veya dersin zaten taşıdığı method) —
-   * tool katmanından zaten `method ?? student.paymentMethod` olarak çözülüp
-   * geliyor (bkz. getAttendanceCalendarMonthTool). Seçim kutusu ilk açılışta
-   * bu değerle önceden doldurulur; kullanıcı değiştirmezse hiç `method`
-   * gönderilmez ve backend AYNI varsayılan zinciri (`method ?? payment.method
-   * ?? student.paymentMethod ?? "Havale"`) ile devam eder — mevcut güvenli
-   * davranış korunur.
-   */
   defaultMethod?: string;
-  /** O ayın kayıt sırasında belirlenen paket/tahsilat tutarı — yalnız bilgi/varsayılan. */
   registeredAmount: number;
   onSettled: (lessonId: string) => void;
 }) {
@@ -59,12 +34,20 @@ export function AttendanceCalendarCollectPaymentButton({
   const amountId = useId();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [successFlash, setSuccessFlash] = useState(false);
   const initialMethod = PAYMENT_METHOD_OPTIONS.some((o) => o.value === defaultMethod)
     ? (defaultMethod as StudentPaymentMethod)
     : "";
   const [method, setMethod] = useState<StudentPaymentMethod | "">(initialMethod);
   const [amount, setAmount] = useState(String(registeredAmount));
   const [confirmOpen, setConfirmOpen] = useState(false);
+
+  useEffect(() => {
+    if (!successFlash) return;
+    const t = setTimeout(() => setSuccessFlash(false), 2500);
+    return () => clearTimeout(t);
+  }, [successFlash]);
 
   function onRequestCollect() {
     const parsedAmount = Number(amount);
@@ -73,6 +56,7 @@ export function AttendanceCalendarCollectPaymentButton({
       return;
     }
     setError(null);
+    setSuccessMsg(null);
     setConfirmOpen(true);
   }
 
@@ -89,13 +73,19 @@ export function AttendanceCalendarCollectPaymentButton({
         const res = await fetch(`/api/v1/payments/${paymentId}/pay`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...(method ? { method } : {}), amount: parsedAmount }),
+          body: JSON.stringify({
+            ...(method ? { method } : {}),
+            amount: parsedAmount,
+            paidAt: new Date().toISOString(),
+          }),
         });
         const json = (await res.json()) as { ok: boolean; error?: { message: string } };
         if (!json.ok) {
           setError(json.error?.message || "Tahsilat alınamadı.");
           return;
         }
+        setSuccessMsg(`${formatMoney(parsedAmount)} tahsil edildi.`);
+        setSuccessFlash(true);
       } catch {
         setError("Bağlantı hatası. Tekrar deneyin.");
       } finally {
@@ -107,7 +97,8 @@ export function AttendanceCalendarCollectPaymentButton({
   return (
     <div className="space-y-1.5">
       <p className="text-[11px] text-[var(--color-text-muted)]">
-        Kayıtlı tutar: <span className="font-medium text-[var(--color-text)]">{registeredAmount.toLocaleString("tr-TR")} ₺</span>
+        Kayıtlı tutar:{" "}
+        <span className="font-medium text-[var(--color-text)]">{formatMoney(registeredAmount)}</span>
       </p>
       <div className="flex flex-wrap items-center gap-1.5">
         <label htmlFor={amountId} className="text-[11px] text-[var(--color-text-muted)]">
@@ -119,7 +110,7 @@ export function AttendanceCalendarCollectPaymentButton({
           min={1}
           step={1}
           value={amount}
-          disabled={pending}
+          disabled={pending || successFlash}
           onChange={(e) => setAmount(e.target.value)}
           className="w-20 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-1.5 py-1 text-[11px] text-[var(--color-text)] disabled:opacity-50"
         />
@@ -129,7 +120,7 @@ export function AttendanceCalendarCollectPaymentButton({
         <select
           id={selectId}
           value={method}
-          disabled={pending}
+          disabled={pending || successFlash}
           onChange={(e) => setMethod(e.target.value as StudentPaymentMethod | "")}
           className="rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-1.5 py-1 text-[11px] text-[var(--color-text)] disabled:opacity-50"
         >
@@ -142,15 +133,24 @@ export function AttendanceCalendarCollectPaymentButton({
         </select>
         <button
           type="button"
-          disabled={pending}
+          disabled={pending || successFlash}
           onClick={onRequestCollect}
-          className="inline-flex items-center rounded-md border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
+          className={
+            successFlash
+              ? "inline-flex items-center rounded-md border border-[var(--color-success)] bg-[var(--color-success)] px-2.5 py-1 text-[11px] font-semibold text-white"
+              : "inline-flex items-center rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2.5 py-1 text-[11px] font-semibold text-[var(--color-text)] hover:bg-[var(--color-surface-muted)] disabled:opacity-50"
+          }
         >
-          {pending ? "İşleniyor…" : "Tahsil Et"}
+          {pending ? "İşleniyor…" : successFlash ? "✓ Tahsil edildi" : "Tahsil Et"}
         </button>
       </div>
+      {successMsg ? (
+        <p className="text-[11px] font-medium text-[var(--color-success)]" role="status">
+          {successMsg}
+        </p>
+      ) : null}
       {error ? (
-        <p className="font-medium text-[#8b3a3a]" role="alert">
+        <p className="text-[11px] font-medium text-[var(--color-danger)]" role="alert">
           {error}
         </p>
       ) : null}
@@ -165,9 +165,9 @@ export function AttendanceCalendarCollectPaymentButton({
           <div className="w-full max-w-sm rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5 shadow-xl">
             <h3 className="text-base font-semibold text-[var(--color-text)]">Tahsilatı onaylıyor musunuz?</h3>
             <p className="mt-2 text-sm text-[var(--color-text-muted)]">
-              {Number(amount).toLocaleString("tr-TR")} ₺
-              {method ? ` — ${PAYMENT_METHOD_OPTIONS.find((o) => o.value === method)?.label}` : ""} tutarında bir
-              tahsilat kaydedilecek ve ödeme durumu &quot;Ödendi&quot; olarak işaretlenecek. Bu işlem geri alınamaz.
+              {formatMoney(Number(amount))}
+              {method ? ` — ${paymentMethodLabelTr(method)}` : ""} tutarında bir tahsilat kaydedilecek ve ödeme
+              durumu &quot;Ödendi&quot; olarak işaretlenecek.
             </p>
             <div className="mt-4 flex justify-end gap-2">
               <button
@@ -182,7 +182,7 @@ export function AttendanceCalendarCollectPaymentButton({
                 type="button"
                 disabled={pending}
                 onClick={onCollect}
-                className="rounded-lg bg-emerald-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+                className="rounded-lg bg-[var(--color-success)] px-3.5 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
               >
                 {pending ? "İşleniyor…" : "Evet, tahsil et"}
               </button>

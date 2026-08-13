@@ -267,7 +267,7 @@ describe("Yoklama Takvimi'nden tahsilat — ödeme yöntemi seçimi", () => {
 
     const after = await readData();
     const finalPayment = after.payments.find((p) => p.id === payment.id)!;
-    expect(finalPayment.method).toBe("Havale");
+    expect(finalPayment.method).toBe("transfer");
   });
 
   it("geçersiz bir ödeme yöntemi değeri reddedilir", async () => {

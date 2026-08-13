@@ -18,6 +18,11 @@ export const POST = withApiHandler(
     /** Paket 6 — Yoklama Takvimi'nden tahsilat: yönetici tutarı elle girebilir. */
     const amount = typeof b.amount === "number" ? b.amount : undefined;
     const paymentNote = typeof b.paymentNote === "string" ? b.paymentNote : undefined;
+    /** Bilinçli gönderilmezse fiili tahsil anı = şimdi (vade/ay ile karışmasın). */
+    const paidAt =
+      typeof b.paidAt === "string" && b.paidAt.trim()
+        ? b.paidAt
+        : new Date().toISOString();
     const writeScope = await resolveWriteScope(ctx);
     if (writeScope.mode !== "single") {
       auditLog({
@@ -39,6 +44,7 @@ export const POST = withApiHandler(
         ...(method ? { method } : {}),
         ...(amount !== undefined ? { amount } : {}),
         ...(paymentNote !== undefined ? { paymentNote } : {}),
+        paidAt,
       })
     );
     if (result.ok) {

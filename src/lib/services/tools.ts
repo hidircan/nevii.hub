@@ -894,16 +894,23 @@ export async function createPaymentTool(
     if (existing.status === "paid") {
       return ok({ paymentId: v.data.paymentId, status: "paid" });
     }
+    // paidAt bilinçli verilmezse fiili tahsil anı = şimdi (vade/createdAt kullanılmaz).
+    let paidAt = v.data.paidAt;
+    if (!paidAt) paidAt = new Date().toISOString();
+    else if (/^\d{4}-\d{2}-\d{2}$/.test(paidAt)) {
+      paidAt = new Date(`${paidAt}T12:00:00`).toISOString();
+    }
     await markPaymentPaid(v.data.paymentId, {
       method: v.data.method,
       amount: v.data.amount,
-      paidAt: v.data.paidAt,
+      paidAt,
       paymentNote: v.data.paymentNote,
       receivedByUserId: ctx.userId,
     });
     audit(ctx, "payment.mark_paid", "Payment", v.data.paymentId, {
       method: v.data.method,
       amount: v.data.amount,
+      paidAt,
       receivedByUserId: ctx.userId,
     });
     return ok({ paymentId: v.data.paymentId, status: "paid" });

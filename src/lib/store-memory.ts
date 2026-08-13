@@ -378,7 +378,7 @@ export async function markPaymentPaid(paymentId: string, opts?: string | MarkPay
       status: "paid",
       paidAmount: normalized.amount ?? p.amount,
       paidAt: normalized.paidAt ?? new Date().toISOString(),
-      method: normalized.method || p.method || student?.paymentMethod || "Havale",
+      method: normalized.method || p.method || student?.paymentMethod || "transfer",
       ...(normalized.paymentNote !== undefined ? { paymentNote: normalized.paymentNote } : {}),
       ...(normalized.receivedByUserId !== undefined ? { receivedByUserId: normalized.receivedByUserId } : {}),
     };

@@ -32,6 +32,64 @@ export function paymentSourceLabel(source: string | undefined, hasLessonId?: boo
   return null;
 }
 
+/** Merkezi ödeme yöntemi → Türkçe etiket (UI'da enum sızmasın). */
+export function paymentMethodLabelTr(method: string | undefined | null): string {
+  if (!method) return "—";
+  const key = method.trim().toLowerCase().replace(/\s+/g, "_");
+  const map: Record<string, string> = {
+    cash: "Nakit",
+    nakit: "Nakit",
+    transfer: "Havale / EFT",
+    havale: "Havale / EFT",
+    "havale/eft": "Havale / EFT",
+    eft: "Havale / EFT",
+    credit_card: "Kredi Kartı",
+    creditcard: "Kredi Kartı",
+    "kredi_kartı": "Kredi Kartı",
+    "kredi kartı": "Kredi Kartı",
+    card: "Kredi Kartı",
+  };
+  return map[key] ?? method;
+}
+
+/** API/store'a yazılacak kanonik yöntem enum'u. */
+export function normalizePaymentMethodEnum(
+  method: string | undefined | null
+): "cash" | "transfer" | "credit_card" | undefined {
+  if (!method) return undefined;
+  const key = method.trim().toLowerCase().replace(/\s+/g, "_");
+  if (key === "cash" || key === "nakit") return "cash";
+  if (key === "transfer" || key === "havale" || key === "havale/eft" || key === "eft") return "transfer";
+  if (
+    key === "credit_card" ||
+    key === "creditcard" ||
+    key === "kredi_kartı" ||
+    key === "kredi_karti" ||
+    key === "card"
+  ) {
+    return "credit_card";
+  }
+  return undefined;
+}
+
+/**
+ * Ödeme detay cümlesi — yalnız paidAt (fiili tahsil anı).
+ * Örn. "13 Ağustos 2026, 14:12 tarihinde Ayşe tarafından 2.500 TL Havale / EFT olarak tahsil edildi."
+ */
+export function formatPaymentCollectionSummary(input: {
+  paidAt?: string;
+  amount: number;
+  method?: string;
+  collectorName?: string | null;
+}): string | null {
+  if (!input.paidAt) return null;
+  const when = formatDateTime(input.paidAt);
+  const who = input.collectorName?.trim() || "Kayıtlı değil";
+  const how = paymentMethodLabelTr(input.method);
+  const money = formatMoney(input.amount);
+  return `${when} tarihinde ${who} tarafından ${money} ${how} olarak tahsil edildi.`;
+}
+
 export function formatTime(iso: string) {
   return format(parseISO(iso), "HH:mm", { locale: tr });
 }

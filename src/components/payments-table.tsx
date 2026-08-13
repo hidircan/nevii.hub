@@ -4,7 +4,14 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { Receipt } from "lucide-react";
 import { Badge, Button, Card } from "@/components/ui";
-import { formatDate, formatDateTime, formatMoney, paymentSourceLabel } from "@/lib/utils";
+import {
+  formatDate,
+  formatDateTime,
+  formatMoney,
+  formatPaymentCollectionSummary,
+  paymentMethodLabelTr,
+  paymentSourceLabel,
+} from "@/lib/utils";
 import { PaymentMarkPaidModal } from "@/components/payment-mark-paid-modal";
 import { PaginationControls, usePagination } from "@/components/pagination-controls";
 import type { PaymentStatus } from "@/lib/types";
@@ -148,7 +155,18 @@ export function PaymentsTable({ rows, canWrite }: { rows: PaymentRow[]; canWrite
                   <td className="px-4 py-3 text-[var(--color-text-muted)]">
                     {p.description}
                     {p.method ? (
-                      <span className="block text-xs text-[var(--color-text-muted)]">{p.method}</span>
+                      <span className="block text-xs text-[var(--color-text-muted)]">
+                        {paymentMethodLabelTr(p.method)}
+                      </span>
+                    ) : null}
+                    {p.status === "paid" && p.paidAt ? (
+                      <span className="mt-0.5 block text-[11px] text-[var(--color-text-muted)]">
+                        {formatPaymentCollectionSummary({
+                          paidAt: p.paidAt,
+                          amount: p.paidAmount || p.amount,
+                          method: p.method,
+                        })}
+                      </span>
                     ) : null}
                     {sourceLabel ? (
                       <span className="mt-0.5 block text-[11px] text-[var(--color-text-muted)]">{sourceLabel}</span>

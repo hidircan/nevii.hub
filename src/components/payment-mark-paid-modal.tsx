@@ -3,14 +3,21 @@
 import { useEffect, useId, useState } from "react";
 import { useRouter } from "next/navigation";
 import { actionMarkPaymentPaidDetailed, actionUpdatePayment } from "@/lib/actions";
-import { formatDate, formatDateTime, formatMoney, paymentSourceLabel } from "@/lib/utils";
+import {
+  formatDate,
+  formatDateTime,
+  formatMoney,
+  formatPaymentCollectionSummary,
+  paymentMethodLabelTr,
+  paymentSourceLabel,
+} from "@/lib/utils";
 
 type PaymentMethod = "credit_card" | "cash" | "transfer";
 
 const METHOD_OPTIONS: { value: PaymentMethod; label: string }[] = [
-  { value: "transfer", label: "Havale/EFT" },
-  { value: "credit_card", label: "Kredi Kartı" },
-  { value: "cash", label: "Nakit" },
+  { value: "transfer", label: paymentMethodLabelTr("transfer") },
+  { value: "credit_card", label: paymentMethodLabelTr("credit_card") },
+  { value: "cash", label: paymentMethodLabelTr("cash") },
 ];
 
 function todayIso() {
@@ -48,6 +55,7 @@ export function PaymentMarkPaidModal({
   description,
   source,
   lessonId,
+  collectorName,
   onClose,
 }: {
   paymentId: string;
@@ -62,6 +70,7 @@ export function PaymentMarkPaidModal({
   description?: string;
   source?: string;
   lessonId?: string;
+  collectorName?: string | null;
   onClose: () => void;
 }) {
   const router = useRouter();
@@ -85,7 +94,13 @@ export function PaymentMarkPaidModal({
   const parsedAmount = Number(amount);
   const amountValid = Number.isFinite(parsedAmount) && parsedAmount > 0;
   const sourceLabel = paymentSourceLabel(source, Boolean(lessonId));
-  const methodLabel = METHOD_OPTIONS.find((o) => o.value === method)?.label ?? method;
+  const methodLabel = paymentMethodLabelTr(method);
+  const collectionSummary = formatPaymentCollectionSummary({
+    paidAt: initialPaidAt,
+    amount: defaultAmount,
+    method,
+    collectorName,
+  });
 
   function goToConfirm() {
     setError(null);
@@ -182,6 +197,10 @@ export function PaymentMarkPaidModal({
                   <dd className="text-right text-[var(--color-text)]">{note.trim()}</dd>
                 </div>
               ) : null}
+              <div className="flex justify-between gap-3">
+                <dt className="text-[var(--color-text-muted)]">Tahsil eden</dt>
+                <dd className="text-right text-[var(--color-text)]">{collectorName?.trim() || "Kayıtlı değil"}</dd>
+              </div>
               {sourceLabel ? (
                 <div className="flex justify-between gap-3 border-t border-[var(--color-border)] pt-2">
                   <dt className="text-[var(--color-text-muted)]">Kaynak</dt>
@@ -189,6 +208,9 @@ export function PaymentMarkPaidModal({
                 </div>
               ) : null}
             </dl>
+            {collectionSummary ? (
+              <p className="mt-3 text-xs leading-relaxed text-[var(--color-text-muted)]">{collectionSummary}</p>
+            ) : null}
             <div className="mt-5 flex justify-end gap-2">
               <button
                 type="button"

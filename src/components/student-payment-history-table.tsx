@@ -4,7 +4,14 @@ import { useState } from "react";
 import Link from "next/link";
 import { Receipt } from "lucide-react";
 import { Badge, Card, EmptyState } from "@/components/ui";
-import { formatDate, formatDateTime, formatMoney, paymentSourceLabel } from "@/lib/utils";
+import {
+  formatDate,
+  formatDateTime,
+  formatMoney,
+  formatPaymentCollectionSummary,
+  paymentMethodLabelTr,
+  paymentSourceLabel,
+} from "@/lib/utils";
 import { PaginationControls, usePagination } from "@/components/pagination-controls";
 import { PaymentMarkPaidModal } from "@/components/payment-mark-paid-modal";
 import type { Payment, PaymentSource } from "@/lib/types";
@@ -84,16 +91,26 @@ export function StudentPaymentHistoryTable({
                       ) : null}
                     </td>
                     <td className="px-4 py-3 text-[var(--color-text-muted)]">
-                      {p.method ?? "—"}
+                      {paymentMethodLabelTr(p.method)}
                       {sourceLabel ? (
                         <span className="mt-0.5 block text-[11px] text-[var(--color-text-muted)]">{sourceLabel}</span>
+                      ) : null}
+                      {p.status === "paid" ? (
+                        <span className="mt-0.5 block text-[11px] text-[var(--color-text-muted)]">
+                          {formatPaymentCollectionSummary({
+                            paidAt: p.paidAt,
+                            amount: p.paidAmount || p.amount,
+                            method: p.method,
+                            collectorName: p.receivedByName ?? null,
+                          }) ?? "Tahsil anı kayıtlı değil"}
+                        </span>
                       ) : null}
                     </td>
                     <td className="px-4 py-3">
                       <Badge status={p.status} />
-                      {p.receivedByName ? (
-                        <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">Alan: {p.receivedByName}</p>
-                      ) : null}
+                      <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">
+                        Tahsil eden: {p.receivedByName?.trim() || "Kayıtlı değil"}
+                      </p>
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap items-center gap-2">
@@ -145,6 +162,7 @@ export function StudentPaymentHistoryTable({
           description={modalPayment.description}
           source={modalPayment.source}
           lessonId={modalPayment.lessonId}
+          collectorName={modalPayment.receivedByName}
           onClose={() => setModalPayment(null)}
         />
       ) : null}
