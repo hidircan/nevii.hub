@@ -7,7 +7,13 @@ import { readData } from "../store";
 import { DEFAULT_TENANT_ID } from "../auth/config";
 import type { ServiceContext } from "../services/context";
 import { findOpenLessonSlot } from "./helpers/lesson-slot";
-import { resolveStudentIdByName } from "../import/branch-lookup";
+import {
+  resolveStudentIdByName,
+  resolveStudentIdByCode,
+  resolveTeacherIdByCode,
+  resolveStudentForScheduleRow,
+  resolveTeacherForScheduleRow,
+} from "../import/branch-lookup";
 
 const DATA_FILE = path.join(resolveDataDir(path.join(process.cwd(), "data")), "store.json");
 
@@ -34,9 +40,11 @@ function ymdHm(iso: string): { date: string; time: string } {
 
 async function buildValidCsv(): Promise<{ csv: string; date: string; time: string }> {
   const data = await readData();
+  const student = data.students.find((s) => s.id === "s1")!;
+  const teacher = data.teachers.find((t) => t.id === "t1")!;
   const startAt = await findOpenLessonSlot(data, "s1", "t1", "r1");
   const { date, time } = ymdHm(startAt);
-  const csv = `ogrenci,ogretmen,sube,oda,enstruman,tarih,saat,sure_dk\nZeynep Arslan,Nilüfer Acar,Erzene,Stüdyo 1 — Piyano,Piyano,${date},${time},40\n`;
+  const csv = `ogrenci,ogretmen,sube,oda,enstruman,tarih,saat,sure_dk\n${student.name},${teacher.name},Erzene,Stüdyo 1 — Piyano,Piyano,${date},${time},40\n`;
   return { csv, date, time };
 }
 
@@ -58,6 +66,65 @@ describe("resolveStudentIdByName (saf helper)", () => {
     const data = await readData();
     const res = resolveStudentIdByName(data, "  ");
     expect(res.ok).toBe(false);
+  });
+
+  it("aynı adda iki aktif öğrenci varsa tahmin etmez ve kod listeler", async () => {
+    const data = await readData();
+    const base = data.students.find((s) => s.id === "s1");
+    if (!base) throw new Error("seed s1 missing");
+    const dup = { ...base, id: "s_dup_same_name", name: base.name, parentName: "Diğer Veli", parentPhone: "05551112233" };
+    const data2 = { ...data, students: [...data.students, dup] };
+    const res = resolveStudentIdByName(data2, base.name);
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.message).toContain("ogrenci_kodu");
+      expect(res.message).toContain("s1");
+      expect(res.message).toContain("s_dup_same_name");
+    }
+  });
+});
+
+describe("öğrenci/öğretmen kod çözümleme", () => {
+  it("ogrenci_kodu ile net çözümler; ad doğrulaması geçer", async () => {
+    const data = await readData();
+    const s = data.students.find((x) => x.id === "s1")!;
+    const res = resolveStudentIdByCode(data, "s1", s.name);
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.studentId).toBe("s1");
+  });
+
+  it("kod-ad çelişkisinde hard error", async () => {
+    const data = await readData();
+    const res = resolveStudentIdByCode(data, "s1", "Tamamen Farklı İsim");
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.message).toMatch(/çelişiyor/);
+  });
+
+  it("geçersiz kod reddedilir", async () => {
+    const data = await readData();
+    expect((await Promise.resolve(resolveStudentIdByCode(data, "no_such_id"))).ok).toBe(false);
+    expect(resolveTeacherIdByCode(data, "no_such_t").ok).toBe(false);
+  });
+
+  it("kod öncelikli satır çözümlemesi ad olmadan da çalışır", async () => {
+    const data = await readData();
+    const res = resolveStudentForScheduleRow(data, "", "s1");
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.studentId).toBe("s1");
+  });
+
+  it("eski CSV (yalnız ad) kod sütunu olmadan çalışır", async () => {
+    const data = await readData();
+    const res = resolveStudentForScheduleRow(data, "Zeynep Arslan", "");
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.studentId).toBe("s1");
+  });
+
+  it("öğretmen kod + ad tutarlılığı", async () => {
+    const data = await readData();
+    const t = data.teachers.find((x) => x.id === "t1")!;
+    expect(resolveTeacherForScheduleRow(data, t.name, "t1").ok).toBe(true);
+    expect(resolveTeacherForScheduleRow(data, "Yanlış Ad", "t1").ok).toBe(false);
   });
 });
 
@@ -90,7 +157,7 @@ describe("previewLessonImportTool", () => {
   it("geçersiz tarih/saat/süre biçimi reddedilir", async () => {
     const csv =
       "ogrenci,ogretmen,sube,oda,enstruman,tarih,saat,sure_dk\n" +
-      "Zeynep Arslan,Nilüfer Acar,Erzene,Stüdyo 1 — Piyano,Piyano,07-09-2026,14h00,35\n";
+      "Zeynep Arslan,Turgay Hoşbaş,Erzene,Stüdyo 1 — Piyano,Piyano,07-09-2026,14h00,35\n";
     const res = await previewLessonImportTool(ctx(), { csvText: csv });
     expect(res.ok).toBe(true);
     if (!res.ok) return;
@@ -103,8 +170,8 @@ describe("previewLessonImportTool", () => {
     const { date, time } = await buildValidCsv();
     const csv =
       "ogrenci,ogretmen,sube,oda,enstruman,tarih,saat,sure_dk\n" +
-      `Zeynep Arslan,Nilüfer Acar,Erzene,Stüdyo 1 — Piyano,Piyano,${date},${time},40\n` +
-      `Zeynep Arslan,Nilüfer Acar,Erzene,Stüdyo 1 — Piyano,Piyano,${date},${time},40\n`;
+      `Zeynep Arslan,Turgay Hoşbaş,Erzene,Stüdyo 1 — Piyano,Piyano,${date},${time},40\n` +
+      `Zeynep Arslan,Turgay Hoşbaş,Erzene,Stüdyo 1 — Piyano,Piyano,${date},${time},40\n`;
     const res = await previewLessonImportTool(ctx(), { csvText: csv });
     expect(res.ok).toBe(true);
     if (!res.ok) return;
@@ -160,7 +227,7 @@ describe("commitLessonImportTool", () => {
 
   it("bir satır bile hatalıysa hiçbir ders eklenmez (atomik)", async () => {
     const { csv: validCsv, date, time } = await buildValidCsv();
-    const badLine = `Olmayan Kişi,Nilüfer Acar,Erzene,Stüdyo 1 — Piyano,Piyano,${date},${time},40\n`;
+    const badLine = `Olmayan Kişi,Turgay Hoşbaş,Erzene,Stüdyo 1 — Piyano,Piyano,${date},${time},40\n`;
     const csv = validCsv + badLine;
     const before = await readData();
     const beforeCount = before.lessons.length;

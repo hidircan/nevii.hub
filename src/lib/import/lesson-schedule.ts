@@ -22,7 +22,11 @@ import { INSTRUMENTS } from "../types";
 import type { CsvRecord } from "./csv";
 import type { ImportRowError, ImportReadRow } from "./types";
 import { IMPORT_READ_ROWS_PREVIEW_LIMIT } from "./types";
-import { resolveBranchId, resolveTeacherIdByName, resolveStudentIdByName } from "./branch-lookup";
+import {
+  resolveBranchId,
+  resolveStudentForScheduleRow,
+  resolveTeacherForScheduleRow,
+} from "./branch-lookup";
 import { resolveCanonicalValue } from "../normalize";
 import { validateLessonSlot } from "../makeup-engine";
 import { computeSeriesOccurrences, checkSeriesOccurrences, type SeriesParams } from "../lesson-series";
@@ -30,7 +34,9 @@ import { LESSON_DURATION_OPTIONS } from "../lesson-duration";
 
 export const LESSON_SCHEDULE_CSV_COLUMNS = [
   "ogrenci",
+  "ogrenci_kodu",
   "ogretmen",
+  "ogretmen_kodu",
   "sube",
   "enstruman",
   "oda",
@@ -45,10 +51,10 @@ export const LESSON_SCHEDULE_CSV_COLUMNS = [
   "notlar",
 ] as const;
 
-export const LESSON_SCHEDULE_CSV_SAMPLE = `ogrenci,ogretmen,sube,enstruman,oda,baslangic_tarihi,bitis_tarihi,baslangic_saati,ders_suresi_dk,tekrar_tipi,tekrar_gunleri,tekrar_araligi,toplam_tekrar,notlar
-Zeynep Yıldız,Nilüfer Acar,Erzene,Piyano,Stüdyo 1 — Piyano,2026-09-07,,14:00,40,once,,,,
-Ece Yılmaz,Nilüfer Acar,Erzene,Keman,Stüdyo 3 — Flüt/Keman,2026-09-01,2027-06-30,17:00,40,weekly,Salı,1,,
-Kerem Doğan,Nilüfer Acar,Erzene,Gitar,Stüdyo 2 — Gitar,2026-09-01,2027-06-30,16:00,30,weekly,Pazartesi|Çarşamba,1,,İki gün üst üste
+export const LESSON_SCHEDULE_CSV_SAMPLE = `ogrenci,ogrenci_kodu,ogretmen,ogretmen_kodu,sube,enstruman,oda,baslangic_tarihi,bitis_tarihi,baslangic_saati,ders_suresi_dk,tekrar_tipi,tekrar_gunleri,tekrar_araligi,toplam_tekrar,notlar
+Zeynep Arslan,,Turgay Hoşbaş,,Erzene,Piyano,Stüdyo 1 — Piyano,2026-09-07,,14:00,40,once,,,,
+Zeynep Arslan,s1,Turgay Hoşbaş,t1,Erzene,Piyano,Stüdyo 1 — Piyano,2026-09-14,,15:00,40,once,,,,Kod ile netleştirme örneği
+Lara Yıldız,,Turgay Hoşbaş,,Erzene,Piyano,Stüdyo 1 — Piyano,2026-09-01,2027-06-30,16:00,30,weekly,Pazartesi,1,,
 `;
 
 /**
@@ -205,7 +211,9 @@ export function validateLessonScheduleRows(
   records.forEach((rec, idx) => {
     const row = idx + 2;
     const studentValue = rec["ogrenci"] ?? "";
+    const studentCodeValue = rec["ogrenci_kodu"] ?? "";
     const teacherValue = rec["ogretmen"] ?? "";
+    const teacherCodeValue = rec["ogretmen_kodu"] ?? "";
     const branchValue = rec["sube"] ?? "";
     const roomValue = rec["oda"] ?? "";
     const instrumentValue = rec["enstruman"] ?? "";
@@ -221,28 +229,36 @@ export function validateLessonScheduleRows(
     if (readRows.length < IMPORT_READ_ROWS_PREVIEW_LIMIT) {
       readRows.push({
         row,
-        summary: `${studentValue || "(öğrenci boş)"} — ${teacherValue || "(öğretmen boş)"} — ${
+        summary: `${studentValue || studentCodeValue || "(öğrenci boş)"} — ${
+          teacherValue || teacherCodeValue || "(öğretmen boş)"
+        } — ${
           repeatTypeValue === "once" ? `${dateValue || "?"} ${timeValue || "?"}` : `${repeatTypeValue} · ${repeatDaysValue || "?"}`
         }`,
       });
     }
 
     let studentId: string | null = null;
-    if (!studentValue) {
-      errors.push({ row, field: "ogrenci", message: "Öğrenci adı boş olamaz." });
-    } else {
-      const resolved = resolveStudentIdByName(data, studentValue);
-      if (!resolved.ok) errors.push({ row, field: "ogrenci", message: resolved.message });
-      else studentId = resolved.studentId;
+    {
+      const resolved = resolveStudentForScheduleRow(data, studentValue, studentCodeValue);
+      if (!resolved.ok) {
+        errors.push({
+          row,
+          field: studentCodeValue.trim() ? "ogrenci_kodu" : "ogrenci",
+          message: resolved.message,
+        });
+      } else studentId = resolved.studentId;
     }
 
     let teacherId: string | null = null;
-    if (!teacherValue) {
-      errors.push({ row, field: "ogretmen", message: "Öğretmen adı boş olamaz." });
-    } else {
-      const resolved = resolveTeacherIdByName(data, teacherValue);
-      if (!resolved.ok) errors.push({ row, field: "ogretmen", message: resolved.message });
-      else teacherId = resolved.teacherId;
+    {
+      const resolved = resolveTeacherForScheduleRow(data, teacherValue, teacherCodeValue);
+      if (!resolved.ok) {
+        errors.push({
+          row,
+          field: teacherCodeValue.trim() ? "ogretmen_kodu" : "ogretmen",
+          message: resolved.message,
+        });
+      } else teacherId = resolved.teacherId;
     }
 
     let branchId: string | null = null;
@@ -252,6 +268,33 @@ export function validateLessonScheduleRows(
       const resolved = resolveBranchId(data, branchValue);
       if (!resolved.ok) errors.push({ row, field: "sube", message: resolved.message });
       else branchId = resolved.branchId;
+    }
+
+    // Şube tutarlılığı (kod/ad ile çözülen kişi CSV şubesiyle uyumlu mu?)
+    if (branchId && studentId) {
+      const student = data.students.find((s) => s.id === studentId);
+      if (student && student.branchId !== branchId) {
+        errors.push({
+          row,
+          field: "sube",
+          message: `Öğrenci "${student.name}" (${student.id}) şubesi CSV şubesiyle uyuşmuyor.`,
+        });
+      }
+    }
+    if (branchId && teacherId) {
+      const teacher = data.teachers.find((t) => t.id === teacherId);
+      if (teacher) {
+        const serves =
+          teacher.branchId === branchId ||
+          (teacher.branchIds ?? []).includes(branchId);
+        if (!serves) {
+          errors.push({
+            row,
+            field: "sube",
+            message: `Öğretmen "${teacher.name}" (${teacher.id}) bu şubede atanmış görünmüyor.`,
+          });
+        }
+      }
     }
 
     let roomId: string | null = null;

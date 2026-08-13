@@ -109,13 +109,12 @@ export function LessonScheduleImportSection() {
         <div>
           <h3 className="font-semibold text-[var(--color-text)] dark:text-slate-50">5. Ders Programı</h3>
           <p className="mt-1 text-sm text-[var(--color-text-muted)]">
-            Öğrenci ve öğretmen AD SOYADI ile eşleşir. Tekil ders için <code>tekrar_tipi</code> boş bırakın veya
-            &quot;once&quot; yazın (eski şablonla birebir uyumlu — <code>tarih</code>/<code>saat</code>/
-            <code>sure_dk</code> kolonları da hâlâ okunur). Haftalık tekrarlayan bir seri için{" "}
-            <code>tekrar_tipi=weekly</code>, <code>tekrar_gunleri</code> (ör. &quot;Pazartesi|Çarşamba&quot;) ve{" "}
-            <code>bitis_tarihi</code> (veya <code>toplam_tekrar</code>) verin. Öğretmen o saatte müsait
-            görünmüyorsa satır hata ile reddedilmez — önizlemede uyarı olarak listelenir, siz onaylamadan
-            oluşturulmaz.
+            Öğrenci ve öğretmen önce opsiyonel <code>ogrenci_kodu</code> / <code>ogretmen_kodu</code> (sistem
+            kimliği) ile, yoksa AD SOYADI ile eşleşir. Aynı isimde birden fazla kişi varsa kod zorunludur —
+            sistem rastgele seçim yapmaz. Tekil ders için <code>tekrar_tipi</code> boş veya &quot;once&quot;
+            (eski şablon uyumlu: <code>tarih</code>/<code>saat</code>/<code>sure_dk</code>). Haftalık seri:{" "}
+            <code>tekrar_tipi=weekly</code>, <code>tekrar_gunleri</code>, <code>bitis_tarihi</code> veya{" "}
+            <code>toplam_tekrar</code>. Müsaitlik dışı saatler uyarıdır; onayınız olmadan oluşmaz.
           </p>
           <p className="mt-1 text-xs text-[var(--color-text-muted)]">Sütunlar: {LESSON_SCHEDULE_CSV_COLUMNS.join(", ")}</p>
         </div>

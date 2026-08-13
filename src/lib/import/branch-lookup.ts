@@ -1,4 +1,4 @@
-import type { AppData } from "../types";
+import type { AppData, Student, Teacher } from "../types";
 import { normalizeMatchKey as normalizeKey } from "../normalize";
 
 /**
@@ -49,13 +49,103 @@ export function resolveTeacherIdByEmail(
   return { ok: true, teacherId: matches[0].id };
 }
 
+function branchLabel(data: AppData, branchId: string): string {
+  const b = data.settings.branches.find((x) => x.id === branchId);
+  return b?.shortName || b?.name || branchId;
+}
+
+function phoneLast4(phone: string | undefined): string {
+  const digits = (phone ?? "").replace(/\D/g, "");
+  if (digits.length < 4) return "—";
+  return digits.slice(-4);
+}
+
+/** Çoklu eşleşmede kopyalanabilir kod + ayırt edici güvenli alanlar. */
+export function formatStudentDisambiguation(data: AppData, students: Student[]): string {
+  return students
+    .map((s) => {
+      const branch = branchLabel(data, s.branchId);
+      const parent = s.parentName?.trim() || "veli yok";
+      const tail = phoneLast4(s.parentPhone);
+      return `"${s.name}" kod=${s.id} · şube=${branch} · veli=${parent} · tel…${tail}`;
+    })
+    .join("; ");
+}
+
+export function formatTeacherDisambiguation(data: AppData, teachers: Teacher[]): string {
+  return teachers
+    .map((t) => {
+      const branch = branchLabel(data, t.branchId);
+      return `"${t.name}" kod=${t.id} · şube=${branch} · e-posta=${t.email || "—"}`;
+    })
+    .join("; ");
+}
+
 /**
- * ÖNCELİK 4 (devam) — öğrenci CSV'sinde öğretmen artık e-posta ile değil,
- * AD ile eşleşir (yalnızca aynı tenant içindeki AKTİF öğretmenler arasında).
- * Aynı adda birden fazla (veya hiç) aktif öğretmen varsa asla tahmin
- * EDİLMEZ — satır açık bir hatayla reddedilir. Güvenilir/benzersiz eşleşme
- * için şablon yardımında "Ad Soyad (öğretmen kodu: tch_xxx)" biçiminde bir
- * id de kabul edilir — parantez içindeki id tam eşleşirse öncelik alır.
+ * Stabil öğretmen kodu (Teacher.id). Aktif kayıt zorunlu.
+ * Opsiyonel ad ile doğrulama: ad doluysa ve eşleşmezse hard error.
+ */
+export function resolveTeacherIdByCode(
+  data: AppData,
+  code: string,
+  nameForVerify?: string
+): { ok: true; teacherId: string } | { ok: false; message: string } {
+  const id = code.trim();
+  if (!id) return { ok: false, message: "Öğretmen kodu boş olamaz." };
+  const teacher = data.teachers.find((t) => t.id === id);
+  if (!teacher) {
+    return { ok: false, message: `Öğretmen kodu bulunamadı: "${id}".` };
+  }
+  if (!teacher.active) {
+    return { ok: false, message: `Öğretmen kodu arşivli/pasif: "${id}" (${teacher.name}).` };
+  }
+  const name = (nameForVerify ?? "").trim();
+  if (name) {
+    const nameOnly = name.replace(/\([^()]*\)\s*$/, "").trim();
+    if (normalizeKey(nameOnly) !== normalizeKey(teacher.name)) {
+      return {
+        ok: false,
+        message: `Öğretmen kodu "${id}" (${teacher.name}) ile ad "${name}" çelişiyor — satır reddedildi.`,
+      };
+    }
+  }
+  return { ok: true, teacherId: teacher.id };
+}
+
+/**
+ * Stabil öğrenci kodu (Student.id). Aktif kayıt zorunlu.
+ * Opsiyonel ad ile doğrulama: ad doluysa ve eşleşmezse hard error.
+ */
+export function resolveStudentIdByCode(
+  data: AppData,
+  code: string,
+  nameForVerify?: string
+): { ok: true; studentId: string } | { ok: false; message: string } {
+  const id = code.trim();
+  if (!id) return { ok: false, message: "Öğrenci kodu boş olamaz." };
+  const student = data.students.find((s) => s.id === id);
+  if (!student) {
+    return { ok: false, message: `Öğrenci kodu bulunamadı: "${id}".` };
+  }
+  if (!student.active) {
+    return { ok: false, message: `Öğrenci kodu arşivli/pasif: "${id}" (${student.name}).` };
+  }
+  const name = (nameForVerify ?? "").trim();
+  if (name) {
+    const nameOnly = name.replace(/\([^()]*\)\s*$/, "").trim();
+    if (normalizeKey(nameOnly) !== normalizeKey(student.name)) {
+      return {
+        ok: false,
+        message: `Öğrenci kodu "${id}" (${student.name}) ile ad "${name}" çelişiyor — satır reddedildi.`,
+      };
+    }
+  }
+  return { ok: true, studentId: student.id };
+}
+
+/**
+ * Öğretmen AD ile eşleşir (yalnızca AKTİF). "Ad Soyad (kod)" parantez id
+ * önceliklidir. Birden fazla eşleşmede tahmin yok — kod listesi verilir.
  */
 export function resolveTeacherIdByName(
   data: AppData,
@@ -64,7 +154,6 @@ export function resolveTeacherIdByName(
   const raw = value.trim();
   if (!raw) return { ok: false, message: "Öğretmen adı boş olamaz." };
 
-  // "Ad Soyad (tch_abc123)" biçimindeki güvenilir/benzersiz id referansı.
   const idMatch = raw.match(/\(([^()]+)\)\s*$/);
   if (idMatch) {
     const byId = data.teachers.find((t) => t.id === idMatch[1]!.trim() && t.active);
@@ -79,17 +168,15 @@ export function resolveTeacherIdByName(
   if (matches.length > 1) {
     return {
       ok: false,
-      message: `"${value}" adında birden fazla aktif öğretmen var — satırı öğretmen kodu ile netleştirin (ör. "${matches[0]!.name} (${matches[0]!.id})").`,
+      message: `"${value}" adında birden fazla aktif öğretmen var — ogretmen_kodu kullanın. Eşleşmeler: ${formatTeacherDisambiguation(data, matches)}`,
     };
   }
   return { ok: true, teacherId: matches[0]!.id };
 }
 
 /**
- * Ders programı importu — öğrenci AD ile eşleşir (aynı tenant içindeki
- * AKTİF öğrenciler arasında), `resolveTeacherIdByName` ile birebir aynı
- * kural: belirsiz/bulunamayan eşleşme asla tahmin edilmez, "Ad Soyad
- * (öğrenci kodu)" ile netleştirilebilir.
+ * Öğrenci AD ile eşleşir (yalnızca AKTİF). "Ad Soyad (kod)" parantez id
+ * önceliklidir. Birden fazla eşleşmede tahmin yok — kod listesi verilir.
  */
 export function resolveStudentIdByName(
   data: AppData,
@@ -112,8 +199,36 @@ export function resolveStudentIdByName(
   if (matches.length > 1) {
     return {
       ok: false,
-      message: `"${value}" adında birden fazla aktif öğrenci var — satırı öğrenci kodu ile netleştirin (ör. "${matches[0]!.name} (${matches[0]!.id})").`,
+      message: `"${value}" adında birden fazla aktif öğrenci var — ogrenci_kodu kullanın. Eşleşmeler: ${formatStudentDisambiguation(data, matches)}`,
     };
   }
   return { ok: true, studentId: matches[0]!.id };
+}
+
+/**
+ * Ders programı satırı: kod sütunu doluysa kod öncelikli; ad doğrulama.
+ * Kod boşsa ad çözümlemesi (eski CSV uyumu).
+ */
+export function resolveStudentForScheduleRow(
+  data: AppData,
+  nameValue: string,
+  codeValue: string
+): { ok: true; studentId: string } | { ok: false; message: string } {
+  const code = (codeValue ?? "").trim();
+  const name = (nameValue ?? "").trim();
+  if (code) return resolveStudentIdByCode(data, code, name || undefined);
+  if (!name) return { ok: false, message: "Öğrenci adı veya ogrenci_kodu zorunludur." };
+  return resolveStudentIdByName(data, name);
+}
+
+export function resolveTeacherForScheduleRow(
+  data: AppData,
+  nameValue: string,
+  codeValue: string
+): { ok: true; teacherId: string } | { ok: false; message: string } {
+  const code = (codeValue ?? "").trim();
+  const name = (nameValue ?? "").trim();
+  if (code) return resolveTeacherIdByCode(data, code, name || undefined);
+  if (!name) return { ok: false, message: "Öğretmen adı veya ogretmen_kodu zorunludur." };
+  return resolveTeacherIdByName(data, name);
 }
