@@ -6,6 +6,7 @@ export type ServiceErrorCode =
   | "FORBIDDEN"
   | "NOT_FOUND"
   | "CONFLICT"
+  | "RATE_LIMITED"
   | "INTERNAL_ERROR";
 
 export type ServiceSuccess<T> = {

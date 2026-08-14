@@ -33,6 +33,8 @@ export function UserMenu({
   const [open, setOpen] = useState(false);
   const [density, setDensity] = useState<Density>(initialDensity);
   const [, startTransition] = useTransition();
+  const [loggingOut, setLoggingOut] = useState(false);
+  const [logoutError, setLogoutError] = useState<string | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -69,9 +71,29 @@ export function UserMenu({
   }
 
   async function logout() {
-    await fetch("/api/v1/auth/logout", { method: "POST", credentials: "include" });
-    router.replace("/login");
-    router.refresh();
+    // Double-click/retry guard — a second concurrent call must not fire a second
+    // request (duplicate audit rows / a race where one succeeds and one is rejected).
+    if (loggingOut) return;
+    setLoggingOut(true);
+    setLogoutError(null);
+    try {
+      const res = await fetch("/api/v1/auth/logout", { method: "POST", credentials: "include" });
+      if (!res.ok) {
+        // Previously this navigated to /login unconditionally even when the server
+        // call failed (e.g. CSRF/origin rejection, network error) — cookies stayed
+        // valid, so the user only *looked* logged out until the next /panel visit
+        // silently let them back in. Surface a real, non-leaking error instead.
+        setLogoutError("Çıkış yapılamadı. Lütfen tekrar deneyin.");
+        setLoggingOut(false);
+        return;
+      }
+      setOpen(false);
+      router.replace("/login");
+      router.refresh();
+    } catch {
+      setLogoutError("Çıkış yapılamadı. Bağlantınızı kontrol edip tekrar deneyin.");
+      setLoggingOut(false);
+    }
   }
 
   const initials = initialsFromEmail(email, role.slice(0, 2));
@@ -187,15 +209,21 @@ export function UserMenu({
 
           {/* 4) Oturum */}
           <div className="py-1.5">
+            {logoutError ? (
+              <p className="px-4 pb-1.5 text-xs" style={{ color: "var(--color-danger)" }} role="alert">
+                {logoutError}
+              </p>
+            ) : null}
             <button
               type="button"
               role="menuitem"
-              onClick={logout}
-              className="flex w-full items-center gap-2.5 px-4 py-2 text-left text-sm transition hover:bg-[var(--color-surface-muted)]"
+              onClick={() => void logout()}
+              disabled={loggingOut}
+              className="flex w-full items-center gap-2.5 px-4 py-2 text-left text-sm transition hover:bg-[var(--color-surface-muted)] disabled:cursor-not-allowed disabled:opacity-60"
               style={{ color: "var(--color-text-muted)" }}
             >
               <LogOut className="h-4 w-4" />
-              Çıkış yap
+              {loggingOut ? "Çıkış yapılıyor…" : "Çıkış yap"}
             </button>
           </div>
         </div>

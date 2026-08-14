@@ -21,12 +21,22 @@ describe("validateUploadedFile", () => {
   });
 
   it("geçerli bir jpeg dosyasını kabul eder", () => {
+    const jpegBytes = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.from("fake rest of jpeg")]);
     const res = validateUploadedFile({
       fileName: "a.jpg",
       fileMimeType: "image/jpeg",
-      fileData: Buffer.from("hello world").toString("base64"),
+      fileData: jpegBytes.toString("base64"),
     });
     expect(res.ok).toBe(true);
+  });
+
+  it("magic-byte imzası MIME type ile uyuşmayan dosyayı reddeder (K — upload parity)", () => {
+    const res = validateUploadedFile({
+      fileName: "fake.jpg",
+      fileMimeType: "image/jpeg",
+      fileData: Buffer.from("not actually a jpeg").toString("base64"),
+    });
+    expect(res.ok).toBe(false);
   });
 
   it("8MB'ı aşan dosyayı reddeder", () => {

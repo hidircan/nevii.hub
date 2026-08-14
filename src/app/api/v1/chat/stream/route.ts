@@ -4,8 +4,13 @@ import { authenticateRequest } from "@/lib/auth/authenticate";
 import { assertPermission } from "@/lib/auth/rbac";
 import { buildServiceContext } from "@/lib/api/context";
 import { runWithTenantAsync } from "@/lib/tenant-context";
+import { consumeRateLimit } from "@/lib/rate-limit";
+import { isCrossSiteMutation } from "@/lib/api/csrf-guard";
 
 export const dynamic = "force-dynamic";
+
+const CHAT_STREAM_RATE_WINDOW_MS = 60_000;
+const CHAT_STREAM_RATE_MAX = 20;
 
 const bodySchema = z.object({
   message: z.string().min(1).max(4000),
@@ -28,6 +33,16 @@ export async function POST(request: Request) {
     });
   }
 
+  if (auth.via === "cookie" && isCrossSiteMutation(request)) {
+    return new Response(
+      JSON.stringify({
+        ok: false,
+        error: { code: "FORBIDDEN", message: "Cross-origin request rejected" },
+      }),
+      { status: 403, headers: { "Content-Type": "application/json" } }
+    );
+  }
+
   const perm = assertPermission(auth.user.role, "tools:catalog");
   if (!perm.ok) {
     return new Response(
@@ -36,6 +51,24 @@ export async function POST(request: Request) {
         error: { code: "FORBIDDEN", message: perm.message },
       }),
       { status: 403, headers: { "Content-Type": "application/json" } }
+    );
+  }
+
+  if (
+    !consumeRateLimit("chat-stream-turn", auth.user.userId, {
+      windowMs: CHAT_STREAM_RATE_WINDOW_MS,
+      max: CHAT_STREAM_RATE_MAX,
+    })
+  ) {
+    return new Response(
+      JSON.stringify({
+        ok: false,
+        error: { code: "RATE_LIMITED", message: "Çok fazla istek gönderildi. Lütfen biraz sonra tekrar deneyin." },
+      }),
+      {
+        status: 429,
+        headers: { "Content-Type": "application/json", "Retry-After": String(Math.ceil(CHAT_STREAM_RATE_WINDOW_MS / 1000)) },
+      }
     );
   }
 

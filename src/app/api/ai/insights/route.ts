@@ -77,6 +77,8 @@ export const POST = withApiHandler(async ({ ctx, body }) => {
 
     return ok({ result: execution.result, status: "completed" as const, invocationId });
   } catch (error) {
+    // Provider error detail is audited server-side only — never returned to the client,
+    // which could leak provider identity, keys-adjacent config, or internal request shape.
     await recordAiAuditLog({
       id: invocationId,
       tenantId: ctx.tenantId,
@@ -89,6 +91,6 @@ export const POST = withApiHandler(async ({ ctx, body }) => {
       durationMs: Date.now() - t0,
       approvalStatus: "not_required",
     });
-    return fail("INTERNAL_ERROR", error instanceof Error ? error.message : "AI çağrısı başarısız oldu.");
+    return fail("INTERNAL_ERROR", "AI çağrısı başarısız oldu.", { invocationId });
   }
 });

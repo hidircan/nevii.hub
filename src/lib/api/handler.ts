@@ -5,6 +5,7 @@ import { fromServiceResult, jsonFail, readJsonBody } from "./http";
 import { buildServiceContext } from "./context";
 import type { ServiceResult } from "../services/result";
 import { authenticateRequest } from "../auth/authenticate";
+import { isCrossSiteMutation } from "./csrf-guard";
 import { assertPermission, type Permission } from "../auth/rbac";
 import { auditLog } from "../auth/audit";
 import { runWithTenantAsync } from "../tenant-context";
@@ -57,6 +58,23 @@ export function withApiHandler(handler: ApiHandler, options: ApiHandlerOptions =
           return jsonFail("UNAUTHORIZED", auth.message);
         }
 
+        // CSRF defense-in-depth: only cookie-authenticated (browser) requests are at
+        // risk — Bearer-token requests are never auto-attached by a browser, so they're
+        // exempt. See src/lib/api/csrf-guard.ts for the full rationale.
+        if (auth.via === "cookie" && isCrossSiteMutation(request)) {
+          auditLog({
+            action: "csrf.rejected",
+            requestId,
+            userId: auth.user.userId,
+            tenantId: auth.user.tenantId,
+            role: auth.user.role,
+            path: new URL(request.url).pathname,
+            method: request.method,
+            outcome: "denied",
+          });
+          return jsonFail("FORBIDDEN", "Cross-origin request rejected");
+        }
+
         if (options.permission) {
           const perm = assertPermission(auth.user.role, options.permission);
           if (!perm.ok) {
@@ -104,7 +122,9 @@ export function withApiHandler(handler: ApiHandler, options: ApiHandlerOptions =
       if (result instanceof NextResponse) return result;
       return fromServiceResult(result);
     } catch (error) {
-      logger.error("API handler error", error);
+      // Internal error detail (DB/provider/stack) is logged and audited server-side only —
+      // never returned to the client, which would leak schema/infra/credential-adjacent info.
+      logger.error(`API handler error [${requestId}]`, error);
       auditLog({
         action: "api.error",
         requestId,
@@ -115,7 +135,8 @@ export function withApiHandler(handler: ApiHandler, options: ApiHandlerOptions =
       });
       return jsonFail(
         "INTERNAL_ERROR",
-        error instanceof Error ? error.message : "Unexpected server error"
+        "Beklenmeyen bir hata oluştu. Sorun devam ederse destek ekibine başvurun.",
+        { requestId }
       );
     }
   };

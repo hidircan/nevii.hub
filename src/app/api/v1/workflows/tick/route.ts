@@ -26,5 +26,5 @@ export const POST = withApiHandler(
       },
     });
   },
-  { permission: "tools:catalog" }
+  { permission: "workflows:manage" }
 );

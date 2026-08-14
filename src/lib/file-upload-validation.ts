@@ -7,6 +7,8 @@
  * hem öğretim materyali BU fonksiyonu çağırır — ayrı ayrı kural YOK.
  */
 
+import { checkFileMagicBytes } from "./storage/file-guards";
+
 /**
  * ~2MB — base64 kodlanmış küçük dosya/foto/kısa video için üst sınır.
  * Mevcut `fileUploadSchema` (src/lib/validation.ts) zaten `fileData`'yı
@@ -34,6 +36,12 @@ export const ALLOWED_UPLOAD_MIME_TYPES = [
 ] as const;
 
 export type UploadValidationResult = { ok: true } | { ok: false; message: string };
+
+/** Base64 payload → Buffer, stripping an optional data-URI prefix. */
+function base64ToBuffer(base64: string): Buffer {
+  const stripped = base64.includes(",") ? base64.slice(base64.indexOf(",") + 1) : base64;
+  return Buffer.from(stripped, "base64");
+}
 
 /** Base64 (data URI önekiyle veya önek olmadan) gövdenin bayt cinsinden yaklaşık boyutu. */
 export function base64ByteSize(base64: string): number {
@@ -65,6 +73,12 @@ export function validateUploadedFile(input: {
   }
   if (size === 0) {
     return { ok: false, message: "Dosya içeriği boş görünüyor. Lütfen tekrar deneyin." };
+  }
+  // Magic-byte check for the image types we have a signature for (jpeg/png/webp/gif);
+  // video/audio/pdf pass through on MIME-allowlist alone (see checkFileMagicBytes).
+  const buffer = base64ToBuffer(fileData);
+  if (!checkFileMagicBytes(buffer, fileMimeType)) {
+    return { ok: false, message: "Dosya içeriği beyan edilen türle uyuşmuyor." };
   }
   return { ok: true };
 }

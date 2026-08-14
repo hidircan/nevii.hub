@@ -3,20 +3,21 @@ import type { AuthUser, JwtClaims } from "./types";
 import { auditLog } from "./audit";
 import { ACCESS_COOKIE, parseCookieHeader } from "./cookies";
 
+export type AuthMethod = "bearer" | "cookie";
+
 export type AuthenticateResult =
-  | { ok: true; user: AuthUser; claims: JwtClaims }
+  | { ok: true; user: AuthUser; claims: JwtClaims; via: AuthMethod }
   | { ok: false; code: "UNAUTHORIZED"; message: string };
 
-function extractAccessToken(request: Request): string | null {
+function extractAccessToken(request: Request): { token: string; via: AuthMethod } | null {
   const header = request.headers.get("authorization");
   if (header?.toLowerCase().startsWith("bearer ")) {
     const t = header.slice(7).trim();
-    return t || null;
+    return t ? { token: t, via: "bearer" } : null;
   }
   // Browser session (HttpOnly cookie)
-  return (
-    parseCookieHeader(request.headers.get("cookie"), ACCESS_COOKIE) || null
-  );
+  const cookieToken = parseCookieHeader(request.headers.get("cookie"), ACCESS_COOKIE);
+  return cookieToken ? { token: cookieToken, via: "cookie" } : null;
 }
 
 /**
@@ -27,8 +28,8 @@ export async function authenticateRequest(
   request: Request,
   requestId: string
 ): Promise<AuthenticateResult> {
-  const token = extractAccessToken(request);
-  if (!token) {
+  const extracted = extractAccessToken(request);
+  if (!extracted) {
     auditLog({
       action: "auth.missing_token",
       requestId,
@@ -38,6 +39,7 @@ export async function authenticateRequest(
     });
     return { ok: false, code: "UNAUTHORIZED", message: "Missing Bearer token" };
   }
+  const { token, via } = extracted;
 
   try {
     const claims = await verifyAccessToken(token);
@@ -80,7 +82,7 @@ export async function authenticateRequest(
       outcome: "success",
     });
 
-    return { ok: true, user, claims };
+    return { ok: true, user, claims, via };
   } catch {
     auditLog({
       action: "auth.invalid_token",

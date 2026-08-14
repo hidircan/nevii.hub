@@ -17,6 +17,7 @@ export function createMetaTransport(): WhatsAppTransport {
       const mode = query.get("hub.mode");
       const token = query.get("hub.verify_token");
       const challenge = query.get("hub.challenge");
+      if (!cfg.verifyToken) return null; // fail closed: no configured token, no match possible
       if (mode === "subscribe" && token === cfg.verifyToken && challenge) {
         return challenge;
       }

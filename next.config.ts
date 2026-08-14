@@ -1,8 +1,57 @@
 import type { NextConfig } from "next";
 
+// Fonts are self-hosted via next/font (no Google Fonts CDN at runtime); Supabase is
+// only ever called server-side (SUPABASE_SERVICE_ROLE_KEY, no NEXT_PUBLIC_SUPABASE_URL
+// fetch from the browser) — so CSP can stay 'self'-only with no external connect-src.
+// style-src needs 'unsafe-inline' because Next.js injects critical CSS as inline
+// <style> tags. script-src needs it too: the App Router streams RSC payloads and
+// hydration data via inline <script> tags (the self.__next_r/__next_f bootstrap) —
+// without 'unsafe-inline' the browser silently blocks those scripts, which breaks
+// hydration app-wide (dead click handlers everywhere, nothing throws visibly).
+// The fully strict alternative is a per-request nonce via proxy.ts (see Next's own
+// CSP guide, node_modules/next/dist/docs/01-app/02-guides/content-security-policy.md),
+// but that requires opting every page into dynamic rendering — out of scope here.
+const isDev = process.env.NODE_ENV !== "production";
+
+const CSP = [
+  "default-src 'self'",
+  // Dev-only 'unsafe-eval': Next.js dev server (Fast Refresh / Turbopack HMR) evals
+  // source maps. Never present in a production build.
+  isDev ? "script-src 'self' 'unsafe-inline' 'unsafe-eval'" : "script-src 'self' 'unsafe-inline'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob:",
+  "font-src 'self' data:",
+  "connect-src 'self'",
+  "frame-ancestors 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+].join("; ");
+
+const SECURITY_HEADERS = [
+  { key: "Content-Security-Policy", value: CSP },
+  { key: "X-Content-Type-Options", value: "nosniff" },
+  { key: "X-Frame-Options", value: "DENY" },
+  { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+  {
+    key: "Permissions-Policy",
+    value: "camera=(), microphone=(), geolocation=(), payment=()",
+  },
+  ...(process.env.NODE_ENV === "production"
+    ? [{ key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload" }]
+    : []),
+];
+
 const nextConfig: NextConfig = {
   turbopack: {
     root: __dirname,
+  },
+  async headers() {
+    return [
+      {
+        source: "/:path*",
+        headers: SECURITY_HEADERS,
+      },
+    ];
   },
 };
 

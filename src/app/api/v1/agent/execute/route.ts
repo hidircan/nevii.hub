@@ -3,8 +3,12 @@ import { withApiHandler } from "@/lib/api/handler";
 import { jsonFail, fromServiceResult } from "@/lib/api/http";
 import { executeAgentTool, isRegisteredTool } from "@/lib/agent";
 import type { AgentToolName } from "@/lib/agent";
+import { enforceUserRateLimit } from "@/lib/api/rate-limit-guard";
 
 export const dynamic = "force-dynamic";
+
+const AGENT_EXECUTE_RATE_WINDOW_MS = 60_000;
+const AGENT_EXECUTE_RATE_MAX = 60;
 
 const bodySchema = z.object({
   tool: z.string().min(1),
@@ -22,6 +26,12 @@ const bodySchema = z.object({
  */
 export const POST = withApiHandler(
   async ({ ctx, body }) => {
+    const limited = enforceUserRateLimit("agent-execute", ctx.userId, {
+      windowMs: AGENT_EXECUTE_RATE_WINDOW_MS,
+      max: AGENT_EXECUTE_RATE_MAX,
+    });
+    if (limited) return limited;
+
     const parsed = bodySchema.safeParse(body);
     if (!parsed.success) {
       return jsonFail("VALIDATION_ERROR", "Invalid agent execute payload", parsed.error.flatten());

@@ -13,6 +13,7 @@ import { getWhatsAppTransport } from "./provider-factory";
 import type { InboundWhatsAppMessage } from "./types";
 import { recordAiExecution } from "../ai/metrics";
 import { getProviderConfig } from "../ai/config";
+import { claimSmsInboundEvent } from "../sms/inbound-store";
 
 async function getOrCreateWaConversation(
   tenantId: string,
@@ -101,6 +102,13 @@ export async function processWhatsAppWebhook(
 
   for (const msg of messages) {
     if (!msg.text?.trim()) continue;
+    // Replay protection: same provider message id (e.g. redelivered webhook) processed once.
+    const claim = await claimSmsInboundEvent({
+      providerMessageId: msg.id,
+      kind: "whatsapp",
+      processedAt: new Date().toISOString(),
+    });
+    if (claim === "duplicate") continue;
     const r = await handleInboundWhatsAppMessage(msg);
     processed += 1;
     if (r.error && r.error !== "unmapped_phone") errors.push(r.error);

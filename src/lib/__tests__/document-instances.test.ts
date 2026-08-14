@@ -113,7 +113,7 @@ describe("uploadSignedDocumentTool — imzalı sürüm", () => {
       documentId,
       fileName: "imzali.pdf",
       fileMimeType: "application/pdf",
-      fileData: Buffer.from("test-content").toString("base64"),
+      fileData: Buffer.concat([Buffer.from("%PDF-1.4\n"), Buffer.from("test-content")]).toString("base64"),
     });
     expect(res.ok).toBe(true);
     if (!res.ok) return;
@@ -124,6 +124,19 @@ describe("uploadSignedDocumentTool — imzalı sürüm", () => {
     if (!fetched.ok) return;
     expect(fetched.data.document.fileName).toBe("imzali.pdf");
     expect(fetched.data.document.signedUploadedAt).toBeDefined();
+  });
+
+  it("magic-byte imzası MIME type ile uyuşmayan dosyayı reddeder (upload parity)", async () => {
+    const documentId = await seedTemplateAndDoc();
+    const res = await uploadSignedDocumentTool(ctx(), {
+      documentId,
+      fileName: "sahte.pdf",
+      fileMimeType: "application/pdf",
+      fileData: Buffer.from("bu bir PDF değil").toString("base64"),
+    });
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.error.code).toBe("VALIDATION_ERROR");
   });
 
   it("aşırı büyük fileData zod tarafından reddedilir", async () => {

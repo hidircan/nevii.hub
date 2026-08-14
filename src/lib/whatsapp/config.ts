@@ -11,12 +11,17 @@ export function getWhatsAppProviderName(): WhatsAppProviderName {
 export function getWhatsAppConfig() {
   return {
     provider: getWhatsAppProviderName(),
-    verifyToken: process.env.WHATSAPP_VERIFY_TOKEN || "notaplan-wa-verify",
+    // No predictable default in production — an unset verify token must fail closed,
+    // never fall back to a guessable constant an attacker could pass on `hub.verify_token`.
+    verifyToken:
+      process.env.WHATSAPP_VERIFY_TOKEN ||
+      (process.env.NODE_ENV === "production" ? "" : "notaplan-wa-verify"),
     // Meta Cloud API
     metaToken: process.env.WHATSAPP_META_TOKEN || process.env.META_WA_TOKEN || "",
     metaPhoneNumberId:
       process.env.WHATSAPP_META_PHONE_NUMBER_ID || process.env.META_WA_PHONE_NUMBER_ID || "",
     metaApiVersion: process.env.WHATSAPP_META_API_VERSION || "v19.0",
+    metaAppSecret: process.env.WHATSAPP_META_APP_SECRET || process.env.META_WA_APP_SECRET || "",
     // Twilio
     twilioAccountSid: process.env.TWILIO_ACCOUNT_SID || "",
     twilioAuthToken: process.env.TWILIO_AUTH_TOKEN || "",

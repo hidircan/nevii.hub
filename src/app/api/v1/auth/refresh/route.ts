@@ -13,6 +13,7 @@ import {
   applyAuthCookies,
   parseCookieHeader,
 } from "@/lib/auth/cookies";
+import { isCrossSiteMutation } from "@/lib/api/csrf-guard";
 
 export const dynamic = "force-dynamic";
 
@@ -31,12 +32,23 @@ export const POST = withApiHandler(
       return jsonFail("VALIDATION_ERROR", "Invalid refresh payload", parsed.error.flatten());
     }
 
-    const token =
-      parsed.data.refreshToken ||
-      parseCookieHeader(request.headers.get("cookie"), REFRESH_COOKIE);
+    const cookieToken = parseCookieHeader(request.headers.get("cookie"), REFRESH_COOKIE);
+    const token = parsed.data.refreshToken || cookieToken;
 
     if (!token) {
       return jsonFail("UNAUTHORIZED", "Missing refresh token");
+    }
+
+    // CSRF defense-in-depth: only when the browser cookie is the source of the
+    // refresh token (no explicit body.refreshToken — that's the mobile/API flow,
+    // never auto-attached by a browser, so not at risk).
+    if (!parsed.data.refreshToken && cookieToken && isCrossSiteMutation(request)) {
+      auditLog({
+        action: "auth.refresh_csrf_rejected",
+        requestId: ctx.requestId || "unknown",
+        outcome: "denied",
+      });
+      return jsonFail("FORBIDDEN", "Cross-origin request rejected");
     }
 
     try {

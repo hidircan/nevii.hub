@@ -98,18 +98,4 @@ export async function requireSessionContext(): Promise<ServiceContext> {
   return ctx;
 }
 
-export function homePathForRole(role: AppRole): string {
-  switch (role) {
-    case "TEACHER":
-      return "/ogretmen";
-    case "PARENT":
-      return "/veli";
-    case "STUDENT":
-      return "/ogrenci";
-    case "AI_AGENT":
-    case "SCHOOL_ADMIN":
-    case "SUPER_ADMIN":
-    default:
-      return "/panel";
-  }
-}
+export { homePathForRole, notificationSettingsPathForRole, notificationListPathForRole } from "./role-routes";

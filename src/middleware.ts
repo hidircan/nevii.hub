@@ -2,23 +2,17 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { jwtVerify } from "jose";
 import { ACCESS_COOKIE, REFRESH_COOKIE } from "@/lib/auth/cookies";
+import { getJwtSecret } from "@/lib/auth/config";
 
 const PROTECTED = ["/panel", "/veli", "/ogretmen", "/ogrenci"];
-
-function getSecret() {
-  const secret =
-    process.env.JWT_SECRET ||
-    (process.env.NODE_ENV === "production"
-      ? ""
-      : "notaplan-dev-secret-change-me-in-production-32b");
-  return new TextEncoder().encode(secret || "notaplan-dev-secret-change-me-in-production-32b");
-}
 
 async function hasValidAccess(request: NextRequest): Promise<boolean> {
   const token = request.cookies.get(ACCESS_COOKIE)?.value;
   if (!token) return false;
   try {
-    await jwtVerify(token, getSecret(), {
+    // getJwtSecret() throws fail-closed if JWT_SECRET is missing/short in production —
+    // never fall back to a guessable dev secret to verify a real user's token.
+    await jwtVerify(token, getJwtSecret(), {
       issuer: "notaplan",
       audience: "notaplan-api",
     });

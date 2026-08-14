@@ -32,6 +32,7 @@ const ALLOWED_RETURN_TO_PREFIXES = [
   "/panel/evraklar",
   "/panel/personel",
   "/panel/bildirimler",
+  "/panel/iletisim-merkezi",
 ] as const;
 
 export function resolveSafeReturnTo(raw: string | undefined | null): string | null {

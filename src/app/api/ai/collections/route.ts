@@ -84,6 +84,6 @@ export const POST = withApiHandler(async ({ ctx, body }) => {
       durationMs: Date.now() - t0,
       approvalStatus: plan.capability.requiresApproval ? "pending_approval" : "not_required",
     });
-    return fail("INTERNAL_ERROR", error instanceof Error ? error.message : "AI çağrısı başarısız oldu.");
+    return fail("INTERNAL_ERROR", "AI çağrısı başarısız oldu.", { invocationId });
   }
 });

@@ -3,8 +3,12 @@ import { withApiHandler } from "@/lib/api/handler";
 import { jsonFail, fromServiceResult } from "@/lib/api/http";
 import { runChatTurn } from "@/lib/ai";
 import { createConversation, listConversations } from "@/lib/ai/conversations";
+import { enforceUserRateLimit } from "@/lib/api/rate-limit-guard";
 
 export const dynamic = "force-dynamic";
+
+const CHAT_RATE_WINDOW_MS = 60_000;
+const CHAT_RATE_MAX = 20;
 
 const postSchema = z.object({
   message: z.string().min(1).max(4000),
@@ -33,6 +37,12 @@ export const GET = withApiHandler(
 /** POST /api/v1/chat — send message, orchestrate tools via Agent Runtime */
 export const POST = withApiHandler(
   async ({ ctx, body }) => {
+    const limited = enforceUserRateLimit("chat-turn", ctx.userId, {
+      windowMs: CHAT_RATE_WINDOW_MS,
+      max: CHAT_RATE_MAX,
+    });
+    if (limited) return limited;
+
     const parsed = postSchema.safeParse(body);
     if (!parsed.success) {
       return jsonFail("VALIDATION_ERROR", "Invalid chat payload", parsed.error.flatten());

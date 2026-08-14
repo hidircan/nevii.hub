@@ -13,7 +13,8 @@
  *
  * Same accepted limitation as `AiAuditLog`: this only persists in
  * `STORE_MODE=db` (writes go through `prisma`, which requires a real
- * MySQL/MariaDB connection). In `json`/`memory` mode the write fails closed
+ * PostgreSQL connection — `src/lib/db.ts` connects via `@prisma/adapter-pg`
+ * over a `pg` `Pool`). In `json`/`memory` mode the write fails closed
  * (caught, `persisted:false`) rather than throwing — documented in
  * `DEVOPS_GUIDE.md`.
  */
@@ -41,10 +42,28 @@ export type AuditLogResult = {
   persisted: boolean;
 };
 
+/** `error.code`/`error.name` are safe, short, well-known identifiers (e.g. Postgres `23505`, Prisma `P2002`, `PrismaClientKnownRequestError`) — never the free-text message, which can embed a connection string or query fragment. */
+function safeErrorField(value: unknown): string | undefined {
+  if (typeof value === "string" && value.length <= 64) return value;
+  if (typeof value === "number") return String(value);
+  return undefined;
+}
+
+/**
+ * Never logs the raw error, its `message`, or its `stack` — those can carry
+ * a Postgres connection string, query text, or other sensitive detail.
+ * Only a fixed, structured shape of well-known-safe fields is emitted, and
+ * only when `AUDIT_LOG_DEBUG=1`.
+ */
 function debugLog(context: string, error: unknown) {
-  if (process.env.AUDIT_LOG_DEBUG === "1") {
-    console.error(`[audit] ${context}`, error);
-  }
+  if (process.env.AUDIT_LOG_DEBUG !== "1") return;
+  const err = error as { name?: unknown; code?: unknown } | null | undefined;
+  console.error("[audit]", {
+    event: "audit_log_write_failed",
+    context,
+    errorName: safeErrorField(err?.name),
+    errorCode: safeErrorField(err?.code),
+  });
 }
 
 /** Create one AuditLog row. Never throws. */

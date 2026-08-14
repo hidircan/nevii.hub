@@ -27,5 +27,5 @@ export const GET = withApiHandler(
       },
     });
   },
-  { permission: "tools:catalog" }
+  { permission: "workflows:manage" }
 );

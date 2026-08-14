@@ -45,6 +45,10 @@ describe("resolveSafeReturnTo — Ödemeler → Kaynak ders → güvenli geri d�
     expect(resolveSafeReturnTo("/panel/bildirimler")).toBe("/panel/bildirimler");
   });
 
+  it("İletişim Merkezi rotasını kabul eder (Bildirimler/İletişim Merkezi ayrımı sprinti)", () => {
+    expect(resolveSafeReturnTo("/panel/iletisim-merkezi")).toBe("/panel/iletisim-merkezi");
+  });
+
   it("cross-tenant/yetkisiz bir studentId formatça geçerli görünse de yalnızca yol biçimini doğrular — asıl erişim kontrolü hedef sayfada yeniden yapılır", () => {
     // Bu fonksiyon TENANT/ROL doğrulaması yapmaz (bilinçli tasarım, bkz. dosya
     // başlığı yorumu) — yalnızca "uygulama içi, allowlist'te bir yol mu" sorusuna
