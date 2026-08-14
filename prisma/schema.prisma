@@ -24,6 +24,7 @@ model Tenant {
   makeupRequests MakeupRequest[]
   payments  Payment[]
   followUpCases PaymentFollowUpCase[]
+  communicationMessages CommunicationMessage[]
   teacherFeeRules TeacherFeeRule[]
   teacherPayouts  TeacherPayout[]
   notifications   Notification[]
@@ -35,6 +36,7 @@ model Tenant {
   homeworkSubmissions HomeworkSubmission[]
   teachingMaterials   TeachingMaterial[]
   teacherFeedbacks    TeacherFeedback[]
+  studentFeedbacks    StudentFeedback[]
   studentCurriculumTopics StudentCurriculumTopic[]
   socialMediaConsents SocialMediaConsent[]
   packages   Package[]
@@ -87,6 +89,8 @@ model School {
   phone                 String
   logoUrl               String
   makeupWindowDays      Int
+  /// Aylık öğrenci başına telafi hakkı (varsayılan 2). 0 = telafi kapalı.
+  monthlyMakeupAllowance Int @default(2)
   lessonDurationMinutes Int
   workingHoursStart     String
   workingHoursEnd       String
@@ -608,11 +612,73 @@ model PaymentFollowUpCase {
   sentAt        DateTime?
   resolvedAt    DateTime?
   attributedAmount Int    @default(0)
+  openingBalance Int?
+  currentBalance Int?
+  currency      String?   @default("TRY")
+  dueDate       DateTime?
+  daysOverdue   Int?
+  selectedChannel String?
+  approvedMessage String?
+  lastError     String?
+  closedAt      DateTime?
+  attributedPaidSnapshot Int @default(0)
+  attempts      Json?
+  events        Json?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
   @@index([tenantId, status])
   @@index([paymentId])
+  @@index([tenantId, paymentId])
+}
+
+/// Kalıcı SMS/WhatsApp iletişim taslağı ve onay kaydı (İletişim Merkezi, FAZ2).
+/// Bildirimler (Notification modeli) ile karıştırılmaz — bu, dış SMS/WhatsApp kuyruğudur.
+model CommunicationMessage {
+  id                    String    @id
+  tenantId              String
+  tenant                Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  recipientType         String
+  recipientId           String
+  recipientName         String
+  recipientPhone        String
+  channel               String
+  messageType           String
+  resourceType          String
+  resourceId            String
+  status                String    @default("pending_approval")
+  draftBody             String
+  approvedBodySnapshot  String?
+  createdBy             String
+  approvedBy            String?
+  approvedAt            DateTime?
+  attemptCount          Int       @default(0)
+  providerResultCode    String?
+  providerResultSummary String?
+  blockedReasonCode     String?
+  blockedReasonMessage  String?
+  idempotencyKey        String
+  approvalBatchId       String?
+  events                Json?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@unique([tenantId, idempotencyKey])
+  @@index([tenantId, status])
+  @@index([tenantId, resourceType, resourceId])
+  @@index([tenantId, channel, messageType])
+}
+
+/// SMS inbound/delivery webhook idempotency (provider message id + kind).
+model SmsInboundEvent {
+  id                String   @id
+  providerMessageId String
+  kind              String
+  tenantId          String?
+  processedAt       DateTime @default(now())
+
+  @@unique([providerMessageId, kind])
+  @@index([tenantId])
 }
 
 /// EPIC 1 (IMPLEMENTATION_PLAN.md) — uygulama içi bildirim (veli portalı vb).
@@ -673,6 +739,8 @@ model Announcement {
   title         String
   body          String
   attachmentUrl String?
+  /// En fazla 3 ek: [{ id, fileName, mimeType, sizeBytes, storageKey, uploadedAt }]
+  attachments   Json?
   audienceType  String
   audienceRef   Json?
   /// "draft" | "published" | "archived"
@@ -861,6 +929,31 @@ model TeacherFeedback {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
+  @@index([tenantId, teacherId])
+  @@index([tenantId, status])
+  @@index([tenantId, studentId, teacherId])
+}
+
+/// Öğretmenin öğrenciyi değerlendirmesi (Karşılıklı Değerlendirmeler sprinti).
+/// TeacherFeedback'in TERSİ yönü — burada öğretmen değerlendiriyor, öğrenci/veli
+/// DEĞİL. Ham kayıt yalnızca yönetici ve ilgili öğretmene açık; öğrenci/veli
+/// göremez (bkz. src/lib/student-feedback.ts gizlilik notu).
+model StudentFeedback {
+  id          String   @id
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  teacherId   String
+  studentId   String
+  submittedBy String
+  /// { attendance, practice, progress, attitude, preparedness } → 1-5
+  scores      Json
+  comment     String?
+  /// "pending" | "reviewed" | "actioned" | "archived"
+  status      String   @default("pending")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([tenantId, studentId])
   @@index([tenantId, teacherId])
   @@index([tenantId, status])
   @@index([tenantId, studentId, teacherId])

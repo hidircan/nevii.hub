@@ -17,11 +17,24 @@ import {
   type NotificationCategory,
   type NotificationCategoryGroup,
 } from "@/lib/notification-categories";
+import type { AppRole } from "@/lib/auth/types";
 import { Button } from "@/components/ui";
 
 type PrefRow = { category: string; inAppEnabled: boolean; pushEnabled: boolean };
 
-export function NotificationPreferencesForm({ initialPreferences }: { initialPreferences: PrefRow[] }) {
+export function NotificationPreferencesForm({
+  initialPreferences,
+  role,
+}: {
+  initialPreferences: PrefRow[];
+  /**
+   * Yalnızca bu rol için gerçekten bir olay üreticisi olan kategoriler
+   * gösterilir (bkz. NotificationCategoryDef.roles) — role parametresi
+   * server component'te doğrulanmış session'dan gelir, client kendi
+   * kendine rol iddia edemez.
+   */
+  role: AppRole;
+}) {
   const [prefs, setPrefs] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(initialPreferences.map((p) => [p.category, p.inAppEnabled]))
   );
@@ -30,8 +43,8 @@ export function NotificationPreferencesForm({ initialPreferences }: { initialPre
   const [success, setSuccess] = useState<string | null>(null);
 
   const implemented = useMemo(
-    () => NOTIFICATION_CATEGORIES.filter((c) => c.implemented && !c.criticalLocked),
-    []
+    () => NOTIFICATION_CATEGORIES.filter((c) => c.implemented && !c.criticalLocked && c.roles.includes(role)),
+    [role]
   );
 
   function setCategory(category: string, enabled: boolean) {
@@ -106,7 +119,8 @@ export function NotificationPreferencesForm({ initialPreferences }: { initialPre
           color: "var(--color-text-muted)",
         }}
       >
-        Push bildirimleri yakında desteklenecek. Şimdilik yalnızca uygulama içi bildirimleri yönetebilirsiniz.
+        Uygulama içi bildirim tercihleri burada yönetilir. Her kategori için açma/kapama, tümünü aç/kapat ve
+        varsayılanlara dön işlevleri mevcuttur.
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -147,6 +161,7 @@ export function NotificationPreferencesForm({ initialPreferences }: { initialPre
         <CategoryGroup
           key={group}
           group={group}
+          role={role}
           prefs={prefs}
           disabled={pending}
           onToggle={setCategory}
@@ -158,16 +173,18 @@ export function NotificationPreferencesForm({ initialPreferences }: { initialPre
 
 function CategoryGroup({
   group,
+  role,
   prefs,
   disabled,
   onToggle,
 }: {
   group: NotificationCategoryGroup;
+  role: AppRole;
   prefs: Record<string, boolean>;
   disabled: boolean;
   onToggle: (category: string, enabled: boolean) => void;
 }) {
-  const items = NOTIFICATION_CATEGORIES.filter((c) => c.group === group);
+  const items = NOTIFICATION_CATEGORIES.filter((c) => c.group === group && c.roles.includes(role));
   if (items.length === 0) return null;
 
   return (

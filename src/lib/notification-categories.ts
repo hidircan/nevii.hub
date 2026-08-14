@@ -5,6 +5,8 @@
  * `implemented: false` olan kategoriler UI'da dürüstçe "henüz etkin değil"
  * olarak gösterilir — arka planda sahte bildirim üretilmez.
  */
+import type { AppRole } from "./auth/types";
+
 export type NotificationCategory =
   // Ders — zamanlı/scheduler gerektirenler henüz etkin değil.
   | "lesson_started"
@@ -15,6 +17,8 @@ export type NotificationCategory =
   | "payment_overdue"
   | "payment_failed_or_pending"
   | "payment_received"
+  | "collections_approval_pending"
+  | "collections_send_failed"
   // İş takip — atama burada; DUE_TODAY/OVERDUE ayrı TaskReminderPreferences.
   | "task_new_assignment"
   | "task_due_today"
@@ -25,7 +29,10 @@ export type NotificationCategory =
   // Öğrenci operasyonları
   | "student_new_registration"
   | "attendance_exception"
-  | "portal_request";
+  | "portal_request"
+  | "teacher_feedback_submitted"
+  | "student_feedback_submitted"
+  | "teacher_feedback_shared";
 
 export type NotificationCategoryGroup = "lessons" | "finance" | "tasks" | "staff" | "students";
 
@@ -36,6 +43,14 @@ export type NotificationCategoryDef = {
   description: string;
   /** false ise gerçek olay üretici yok — UI'da bilgilendirici, tercih kilitli. */
   implemented: boolean;
+  /**
+   * Bu kategori için gerçekten bir event producer'ın bildirim gönderdiği
+   * roller (bkz. lesson-notifications.ts/manager-notifications.ts/tools.ts
+   * — her satır kod-kanıtlı doğrulandı). Ayarlar ekranı yalnızca çağıranın
+   * rolü bu listede varsa kategoriyi gösterir — aksi halde etkisi olmayan
+   * bir toggle sunmuş oluruz (dürüstlük ilkesi, bkz. CLAUDE.md).
+   */
+  roles: AppRole[];
   /** Kullanıcı kapatamaz (kritik/güvenlik) — bu sprintte yok. */
   criticalLocked?: boolean;
   /** Kayıt yokken varsayılan in-app açık/kapalı. */
@@ -67,37 +82,36 @@ export const NOTIFICATION_CATEGORIES: NotificationCategoryDef[] = [
     group: "lessons",
     label: "Ders başladı",
     description: "Planlanan bir ders fiilen başladığında.",
-    implemented: false,
-    defaultInAppEnabled: false,
-    deferralNote: "Zamanlanmış kontrol altyapısı gerektiği için henüz etkin değil.",
+    implemented: true,
+    roles: ["STUDENT"],
+    defaultInAppEnabled: true,
   },
   {
     category: "lesson_upcoming",
     group: "lessons",
     label: "Yaklaşan ders",
     description: "Ders saati yaklaştığında hatırlatma.",
-    implemented: false,
-    defaultInAppEnabled: false,
-    deferralNote: "Zamanlanmış kontrol altyapısı gerektiği için henüz etkin değil.",
+    implemented: true,
+    roles: ["SCHOOL_ADMIN", "SUPER_ADMIN", "TEACHER", "PARENT", "STUDENT"],
+    defaultInAppEnabled: true,
   },
   {
     category: "lesson_cancelled",
     group: "lessons",
     label: "Ders iptal edildi",
     description: "Bir ders iptal edildiğinde (yönetici özeti).",
-    implemented: false,
+    implemented: true,
+    roles: ["SCHOOL_ADMIN", "SUPER_ADMIN", "TEACHER", "PARENT", "STUDENT"],
     defaultInAppEnabled: true,
-    deferralNote:
-      "Öğretmen ders planlama bildirimi zaten çalışıyor; yönetici iptal özeti bu sprintte bağlanmadı.",
   },
   {
     category: "lesson_rescheduled",
     group: "lessons",
     label: "Ders ertelendi / telafiye alındı",
     description: "Bir ders telafiye alındığında veya taşındığında.",
-    implemented: false,
+    implemented: true,
+    roles: ["SCHOOL_ADMIN", "SUPER_ADMIN", "TEACHER", "PARENT", "STUDENT"],
     defaultInAppEnabled: true,
-    deferralNote: "Güvenli yönetici özeti bağlanana kadar etkin değil.",
   },
   {
     category: "payment_overdue",
@@ -105,6 +119,7 @@ export const NOTIFICATION_CATEGORIES: NotificationCategoryDef[] = [
     label: "Vadesi geçmiş ödeme",
     description: "Gecikmiş ödeme taraması veliye hatırlatma açtığında yöneticilere de düşer.",
     implemented: true,
+    roles: ["SCHOOL_ADMIN", "SUPER_ADMIN"],
     defaultInAppEnabled: true,
   },
   {
@@ -112,18 +127,36 @@ export const NOTIFICATION_CATEGORIES: NotificationCategoryDef[] = [
     group: "finance",
     label: "Başarısız / bekleyen ödeme",
     description: "Ödeme başarısız veya uzun süredir beklemede olduğunda.",
-    implemented: false,
-    defaultInAppEnabled: false,
-    deferralNote: "Ayrı bir olay üretici henüz yok.",
+    implemented: true,
+    roles: ["SCHOOL_ADMIN", "SUPER_ADMIN"],
+    defaultInAppEnabled: true,
   },
   {
     category: "payment_received",
     group: "finance",
     label: "Ödeme alındı",
     description: "Bir tahsilat kaydedildiğinde.",
-    implemented: false,
-    defaultInAppEnabled: false,
-    deferralNote: "Ayrı bir olay üretici henüz yok (makbuz akışı etkilenmez).",
+    implemented: true,
+    roles: ["SCHOOL_ADMIN", "SUPER_ADMIN"],
+    defaultInAppEnabled: true,
+  },
+  {
+    category: "collections_approval_pending",
+    group: "finance",
+    label: "Onay bekleyen tahsilat mesajı",
+    description: "Tahsilat taslağı onaylandığında veya gönderime hazır olduğunda.",
+    implemented: true,
+    roles: ["SCHOOL_ADMIN", "SUPER_ADMIN"],
+    defaultInAppEnabled: true,
+  },
+  {
+    category: "collections_send_failed",
+    group: "finance",
+    label: "Tahsilat gönderimi başarısız",
+    description: "WhatsApp veya SMS gönderim denemesi başarısız olduğunda.",
+    implemented: true,
+    roles: ["SCHOOL_ADMIN", "SUPER_ADMIN"],
+    defaultInAppEnabled: true,
   },
   {
     category: "task_new_assignment",
@@ -131,6 +164,7 @@ export const NOTIFICATION_CATEGORIES: NotificationCategoryDef[] = [
     label: "Kendisine atanan yeni iş",
     description: "Size yeni bir görev atandığında.",
     implemented: true,
+    roles: ["SCHOOL_ADMIN", "SUPER_ADMIN", "TEACHER"],
     defaultInAppEnabled: true,
   },
   {
@@ -138,20 +172,18 @@ export const NOTIFICATION_CATEGORIES: NotificationCategoryDef[] = [
     group: "tasks",
     label: "Son tarihi bugün olan iş",
     description: "Görev son tarihi bugün olduğunda (hatırlatma motoru).",
-    implemented: false,
+    implemented: true,
+    roles: ["SCHOOL_ADMIN", "SUPER_ADMIN", "TEACHER"],
     defaultInAppEnabled: true,
-    deferralNote:
-      "İş Takip hatırlatmaları ayrı tercihlerden yönetilir (Hatırlatma tercihleri modalı / tick endpoint).",
   },
   {
     category: "task_overdue",
     group: "tasks",
     label: "Gecikmiş iş",
     description: "Görev son tarihi geçtiğinde (hatırlatma motoru).",
-    implemented: false,
+    implemented: true,
+    roles: ["SCHOOL_ADMIN", "SUPER_ADMIN", "TEACHER"],
     defaultInAppEnabled: true,
-    deferralNote:
-      "İş Takip hatırlatmaları ayrı tercihlerden yönetilir (Hatırlatma tercihleri modalı / tick endpoint).",
   },
   {
     category: "leave_new_request",
@@ -159,6 +191,7 @@ export const NOTIFICATION_CATEGORIES: NotificationCategoryDef[] = [
     label: "Yeni izin talebi",
     description: "Bir personel izin talebi oluşturduğunda (onay bekliyor).",
     implemented: true,
+    roles: ["SCHOOL_ADMIN", "SUPER_ADMIN"],
     defaultInAppEnabled: true,
   },
   {
@@ -166,36 +199,63 @@ export const NOTIFICATION_CATEGORIES: NotificationCategoryDef[] = [
     group: "staff",
     label: "Bekleyen izin onayı",
     description: "Onay bekleyen izinler için periyodik hatırlatma.",
-    implemented: false,
-    defaultInAppEnabled: false,
-    deferralNote: "Zamanlanmış tarama altyapısı gerektiği için henüz etkin değil.",
+    implemented: true,
+    roles: ["SCHOOL_ADMIN", "SUPER_ADMIN"],
+    defaultInAppEnabled: true,
   },
   {
     category: "student_new_registration",
     group: "students",
     label: "Yeni öğrenci kaydı",
     description: "Yeni bir öğrenci kaydedildiğinde.",
-    implemented: false,
+    implemented: true,
+    roles: ["SCHOOL_ADMIN", "SUPER_ADMIN"],
     defaultInAppEnabled: true,
-    deferralNote: "Kayıt akışına yönetici bildirimi bu sprintte bağlanmadı.",
   },
   {
     category: "attendance_exception",
     group: "students",
     label: "Devamsızlık istisnası",
     description: "Beklenmedik bir devamsızlık/yoklama istisnası oluştuğunda.",
-    implemented: false,
-    defaultInAppEnabled: false,
-    deferralNote: "Olay üretici henüz yok.",
+    implemented: true,
+    roles: ["SCHOOL_ADMIN", "SUPER_ADMIN"],
+    defaultInAppEnabled: true,
   },
   {
     category: "portal_request",
     group: "students",
     label: "Portal talebi",
     description: "Veli/öğrenci portalından gelen bir talep oluştuğunda.",
-    implemented: false,
-    defaultInAppEnabled: false,
-    deferralNote: "Portal talep kanalı henüz tanımlı değil.",
+    implemented: true,
+    roles: ["SCHOOL_ADMIN", "SUPER_ADMIN"],
+    defaultInAppEnabled: true,
+  },
+  {
+    category: "teacher_feedback_submitted",
+    group: "students",
+    label: "Öğretmen değerlendirmesi",
+    description: "Öğrenci veya veli bir öğretmeni değerlendirdiğinde yöneticilere bildirim gönderilir.",
+    implemented: true,
+    roles: ["SCHOOL_ADMIN", "SUPER_ADMIN"],
+    defaultInAppEnabled: true,
+  },
+  {
+    category: "student_feedback_submitted",
+    group: "students",
+    label: "Öğrenci değerlendirmesi",
+    description: "Öğretmen bir öğrenci için değerlendirme oluşturduğunda yöneticilere bildirim gönderilir.",
+    implemented: true,
+    roles: ["SCHOOL_ADMIN", "SUPER_ADMIN"],
+    defaultInAppEnabled: true,
+  },
+  {
+    category: "teacher_feedback_shared",
+    group: "students",
+    label: "Hakkımdaki değerlendirme paylaşıldı",
+    description: "Yönetici, hakkınızdaki bir değerlendirmeyi anonim özetinizde görünür kıldığında.",
+    implemented: true,
+    roles: ["TEACHER"],
+    defaultInAppEnabled: true,
   },
 ];
 

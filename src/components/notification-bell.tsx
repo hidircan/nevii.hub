@@ -15,10 +15,17 @@ import { Bell, Check, CheckCheck } from "lucide-react";
 import { formatDateTime } from "@/lib/utils";
 import { actionMarkNotificationRead } from "@/lib/actions";
 import { resolveNotificationHref } from "@/lib/notification-href";
+import { notificationSettingsPathForRole, notificationListPathForRole } from "@/lib/auth/role-routes";
 import type { Notification } from "@/lib/types";
+import type { AppRole } from "@/lib/auth/types";
 
-export function NotificationBell() {
+const ADMIN_ROLES: AppRole[] = ["SCHOOL_ADMIN", "SUPER_ADMIN"];
+
+export function NotificationBell({ role }: { role: AppRole }) {
   const router = useRouter();
+  const settingsHref = notificationSettingsPathForRole(role);
+  const listHref = notificationListPathForRole(role);
+  const isAdmin = ADMIN_ROLES.includes(role);
   const [open, setOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -204,7 +211,16 @@ export function NotificationBell() {
             style={{ borderColor: "var(--color-border)" }}
           >
             <Link
-              href="/panel/ayarlar/bildirimler"
+              href={listHref}
+              role="menuitem"
+              onClick={() => setOpen(false)}
+              className="text-xs font-medium hover:underline"
+              style={{ color: "var(--color-primary)" }}
+            >
+              Tüm bildirimler
+            </Link>
+            <Link
+              href={settingsHref}
               role="menuitem"
               onClick={() => setOpen(false)}
               className="text-xs font-medium hover:underline"
@@ -212,15 +228,17 @@ export function NotificationBell() {
             >
               Bildirim ayarları
             </Link>
-            <Link
-              href="/panel/bildirimler"
-              role="menuitem"
-              onClick={() => setOpen(false)}
-              className="text-xs font-medium hover:underline"
-              style={{ color: "var(--color-primary)" }}
-            >
-              WhatsApp şablonları →
-            </Link>
+            {isAdmin ? (
+              <Link
+                href="/panel/iletisim-merkezi"
+                role="menuitem"
+                onClick={() => setOpen(false)}
+                className="text-xs font-medium hover:underline"
+                style={{ color: "var(--color-primary)" }}
+              >
+                İletişim Merkezi →
+              </Link>
+            ) : null}
           </div>
         </div>
       ) : null}

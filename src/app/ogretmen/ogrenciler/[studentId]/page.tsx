@@ -26,6 +26,9 @@ import { HomeworkReviewForm } from "@/components/homework-review-form";
 import { LessonAssessmentForm } from "@/components/lesson-assessment-form";
 import { CurriculumTopicForm } from "@/components/curriculum-topic-form";
 import { CurriculumTopicUpdateForm } from "@/components/curriculum-topic-update-form";
+import { StudentFeedbackForm } from "@/components/student-feedback-form";
+import { getOwnStudentFeedbackThisMonthTool } from "@/lib/services";
+import { ClipboardCheck } from "lucide-react";
 import { formatDate, formatDateTime, formatTime } from "@/lib/utils";
 import { computeLiveDisplayStatus } from "@/lib/lesson-live-status";
 import { LessonLiveActions } from "@/components/lesson-live-actions";
@@ -141,6 +144,9 @@ export default async function TeacherStudentWorkspacePage({
     ? curriculumResult.data.progressExplanation
     : "Müfredat yüklenemedi.";
 
+  const ownFeedbackResult = await getOwnStudentFeedbackThisMonthTool(session, { studentId: student.id });
+  const ownFeedback = ownFeedbackResult.ok ? ownFeedbackResult.data.feedback : null;
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-cyan-50 to-slate-50">
       <header className="border-b border-cyan-100 bg-[var(--color-surface)]/90 backdrop-blur">
@@ -186,6 +192,7 @@ export default async function TeacherStudentWorkspacePage({
           <SectionChip href="#odevler" icon={<ClipboardList className="h-3 w-3" />} label="Ödevler" />
           <SectionChip href="#materyal" icon={<BookOpen className="h-3 w-3" />} label="Materyal" />
           <SectionChip href="#gelisim" icon={<GraduationCap className="h-3 w-3" />} label="Gelişim" />
+          <SectionChip href="#degerlendirme" icon={<ClipboardCheck className="h-3 w-3" />} label="Değerlendirme" />
         </nav>
 
         <section id="genel" aria-labelledby="genel-heading">
@@ -577,6 +584,19 @@ export default async function TeacherStudentWorkspacePage({
               ))}
             </div>
           )}
+        </section>
+
+        <section id="degerlendirme" aria-labelledby="degerlendirme-heading">
+          <h2 id="degerlendirme-heading" className="mb-2 px-1 text-sm font-semibold text-[var(--color-text)] dark:text-slate-200">
+            Öğrenci Değerlendirmesi
+          </h2>
+          <Card className="!p-4">
+            <StudentFeedbackForm
+              studentId={student.id}
+              studentName={student.name}
+              initialFeedback={ownFeedback ? { scores: ownFeedback.scores, comment: ownFeedback.comment } : null}
+            />
+          </Card>
         </section>
       </main>
     </div>

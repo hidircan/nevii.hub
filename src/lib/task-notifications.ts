@@ -113,6 +113,17 @@ export async function notifyTaskReminder(input: {
     input.kind === "DUE_SOON" ? "dueSoonEnabled" : input.kind === "DUE_TODAY" ? "dueTodayEnabled" : "overdueEnabled";
   if (!preference[preferenceKey]) return "skipped";
 
+  if (input.kind === "DUE_TODAY" || input.kind === "OVERDUE") {
+    try {
+      const { isCategoryEnabledForUser } = await import("./notification-preferences");
+      const cat = input.kind === "DUE_TODAY" ? "task_due_today" : "task_overdue";
+      const catalogOn = await isCategoryEnabledForUser(input.tenantId, targetUserId, cat);
+      if (!catalogOn) return "skipped";
+    } catch {
+      return "skipped";
+    }
+  }
+
   // Tekilleştirme anahtarı targetUserId (ÇÖZÜLMÜŞ User.id) ile — sorumlu bir
   // Teacher.id olsa bile hatırlatma HER ZAMAN aynı kişiye/gün/türe göre
   // tekilleşir; sorumlu değişirse yeni bir User.id → yeni anahtar → eski

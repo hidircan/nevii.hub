@@ -5,6 +5,7 @@ import { listTeacherFeedbackForReviewTool } from "@/lib/services";
 import { Card, EmptyState, PageHeader, StatCard } from "@/components/ui";
 import { BackButton } from "@/components/back-button";
 import { TeacherFeedbackReviewList } from "@/components/teacher-feedback-review-list";
+import { AiFeedbackSummaryButton } from "@/components/ai-feedback-summary-button";
 import { TEACHER_FEEDBACK_CRITERIA } from "@/lib/teacher-feedback";
 import type { TeacherFeedbackCriterionKey } from "@/lib/types";
 
@@ -91,6 +92,10 @@ export default async function TeacherFeedbackReviewPage({
           </div>
         </Card>
       ) : null}
+
+      <div className="mb-6">
+        <AiFeedbackSummaryButton subject="teacher" subjectId={teacher.id} />
+      </div>
 
       <TeacherFeedbackReviewList rows={rows} />
     </div>

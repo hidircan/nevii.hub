@@ -44,9 +44,9 @@ describe("Bildirim tercih store (json)", () => {
   it("kayıt yokken kategori varsayılanlarını döner", async () => {
     const prefs = await getNotificationPreferences(DEFAULT_TENANT_ID, "user_admin");
     const leave = prefs.find((p) => p.category === "leave_new_request");
-    const lesson = prefs.find((p) => p.category === "lesson_started");
+    const upcoming = prefs.find((p) => p.category === "lesson_upcoming");
     expect(leave?.inAppEnabled).toBe(true);
-    expect(lesson?.inAppEnabled).toBe(false);
+    expect(upcoming?.inAppEnabled).toBe(true);
   });
 
   it("upsert ve isCategoryEnabledForUser tutarlı", async () => {
@@ -97,17 +97,46 @@ describe("Bildirim tercih tools (RBAC)", () => {
     }
   });
 
-  it("henüz etkin olmayan kategori tercihini reddeder", async () => {
+  it("bilinmeyen kategori tercihini reddeder", async () => {
     const res = await setNotificationPreferencesTool(ctx(), {
-      updates: [{ category: "lesson_started", inAppEnabled: true }],
+      updates: [{ category: "not_a_real_category", inAppEnabled: true }],
     });
     expect(res.ok).toBe(false);
   });
 
-  it("PARENT tool'u kullanamaz", async () => {
-    const res = await getNotificationPreferencesTool(ctx({ role: "PARENT", studentId: "s1" }));
-    expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.error.code).toBe("FORBIDDEN");
+  it("PARENT/STUDENT kendi tercihini okur/yazar (Portal bildirim ayarları — FAZ1 düzeltmesi)", async () => {
+    // Bu tool önceden PARENT/STUDENT'ı tamamen reddediyordu — /veli ve /ogrenci
+    // ayarlar sayfaları bu yüzden hiç çalışmıyordu. Artık kendi (tenant, userId)
+    // kapsamında okuyup yazabiliyor; başka rolün verisine erişim yok (ayrı test).
+    const parentCtx = ctx({ role: "PARENT", userId: "parent1", studentId: "s1" });
+    const got = await getNotificationPreferencesTool(parentCtx);
+    expect(got.ok).toBe(true);
+
+    const set = await setNotificationPreferencesTool(parentCtx, {
+      updates: [{ category: "lesson_upcoming", inAppEnabled: false }],
+    });
+    expect(set.ok).toBe(true);
+    if (set.ok) {
+      expect(set.data.preferences.find((p) => p.category === "lesson_upcoming")?.inAppEnabled).toBe(false);
+    }
+
+    const studentCtx = ctx({ role: "STUDENT", userId: "student1", studentId: "s1" });
+    const gotStudent = await getNotificationPreferencesTool(studentCtx);
+    expect(gotStudent.ok).toBe(true);
+  });
+
+  it("PARENT'ın yazdığı tercih başka bir kullanıcıyı etkilemez", async () => {
+    const parentA = ctx({ role: "PARENT", userId: "parentA", studentId: "s1" });
+    const parentB = ctx({ role: "PARENT", userId: "parentB", studentId: "s2" });
+    await setNotificationPreferencesTool(parentA, {
+      updates: [{ category: "lesson_upcoming", inAppEnabled: false }],
+    });
+    const bPrefs = await getNotificationPreferencesTool(parentB);
+    expect(bPrefs.ok).toBe(true);
+    if (bPrefs.ok) {
+      // parentB never wrote an override — still sees the category default, untouched by parentA's write.
+      expect(bPrefs.data.preferences.find((p) => p.category === "lesson_upcoming")?.inAppEnabled).toBe(true);
+    }
   });
 
   it("reset tool varsayılana döner", async () => {

@@ -2,11 +2,13 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { promises as fs } from "fs";
 import path from "path";
 import { resolveDataDir } from "../config";
-import { submitTeacherFeedbackTool, listTeacherFeedbackTool } from "../services/tools";
+import { submitTeacherFeedbackTool, listTeacherFeedbackTool, setTeacherFeedbackSharedTool } from "../services/tools";
 import { TEACHER_FEEDBACK_FILE_PATH } from "../teacher-feedback";
 import { hasPermission } from "../auth/rbac";
 import { DEFAULT_TENANT_ID } from "../auth/config";
 import type { ServiceContext } from "../services/context";
+import { NOTIFICATIONS_FILE, listNotificationsForUser } from "../notifications";
+import { NOTIFICATION_PREFERENCES_FILE, setNotificationPreferences } from "../notification-preferences";
 
 const DATA_FILE = path.join(resolveDataDir(path.join(process.cwd(), "data")), "store.json");
 
@@ -30,6 +32,8 @@ const VALID_FEEDBACK = {
 beforeEach(async () => {
   await fs.rm(DATA_FILE, { force: true });
   await fs.rm(TEACHER_FEEDBACK_FILE_PATH, { force: true });
+  await fs.rm(NOTIFICATIONS_FILE, { force: true });
+  await fs.rm(NOTIFICATION_PREFERENCES_FILE, { force: true });
 });
 
 describe("EPIC 6C — submitTeacherFeedbackTool: yalnızca kendi çocuğu/kendisi için", () => {
@@ -153,5 +157,66 @@ describe("EPIC 6C — gizlilik: yalnızca SCHOOL_ADMIN/SUPER_ADMIN görebilir, �
     if (!result.ok) return;
     expect(result.data.feedback).toHaveLength(1);
     expect(result.data.feedback[0].teacherId).toBe("t2");
+  });
+});
+
+describe("yönetici bildirimi (teacher_feedback_submitted)", () => {
+  it("değerlendirme gönderilince yöneticilere bildirim oluşur, geri-bildirim ekranına yönlendirir, yorumu taşımaz", async () => {
+    await submitTeacherFeedbackTool(ctx({ role: "PARENT", studentId: "s1" }), VALID_FEEDBACK);
+    const notes = await listNotificationsForUser({ tenantId: DEFAULT_TENANT_ID, userId: "user_admin" });
+    const note = notes.find((n) => n.kind === "teacher_feedback_submitted");
+    expect(note).toBeDefined();
+    expect(note!.title).toBe("Yeni öğretmen değerlendirmesi");
+    expect(note!.body).toContain("/panel/ogretmenler/t1/geri-bildirim");
+    expect(note!.body).not.toContain(VALID_FEEDBACK.comment);
+  });
+
+  it("tercih kapalıyken bildirim oluşmaz", async () => {
+    await setNotificationPreferences(DEFAULT_TENANT_ID, "user_admin", [
+      { category: "teacher_feedback_submitted", inAppEnabled: false },
+    ]);
+    await submitTeacherFeedbackTool(ctx({ role: "PARENT", studentId: "s1" }), VALID_FEEDBACK);
+    const notes = await listNotificationsForUser({ tenantId: DEFAULT_TENANT_ID, userId: "user_admin" });
+    expect(notes.some((n) => n.kind === "teacher_feedback_submitted")).toBe(false);
+  });
+
+  it("aynı ay içindeki tekrar gönderim (update) duplicate bildirim üretmez", async () => {
+    await submitTeacherFeedbackTool(ctx({ role: "PARENT", studentId: "s1" }), VALID_FEEDBACK);
+    await submitTeacherFeedbackTool(ctx({ role: "PARENT", studentId: "s1" }), {
+      ...VALID_FEEDBACK,
+      comment: "İkinci deneme",
+    });
+    const notes = await listNotificationsForUser({ tenantId: DEFAULT_TENANT_ID, userId: "user_admin" });
+    expect(notes.filter((n) => n.kind === "teacher_feedback_submitted")).toHaveLength(1);
+  });
+});
+
+describe("öğretmen bildirimi (teacher_feedback_shared)", () => {
+  it("yönetici bir yorumu paylaşınca öğretmene bildirim gider", async () => {
+    const submitted = await submitTeacherFeedbackTool(ctx({ role: "PARENT", studentId: "s1" }), VALID_FEEDBACK);
+    expect(submitted.ok).toBe(true);
+    if (!submitted.ok) return;
+
+    const shared = await setTeacherFeedbackSharedTool(ctx({ role: "SCHOOL_ADMIN", studentId: undefined }), {
+      feedbackId: submitted.data.feedbackId,
+      shared: true,
+    });
+    expect(shared.ok).toBe(true);
+
+    const notes = await listNotificationsForUser({ tenantId: DEFAULT_TENANT_ID, userId: "user_teacher_t1" });
+    const note = notes.find((n) => n.kind === "teacher_feedback_shared");
+    expect(note).toBeDefined();
+    expect(note!.title).toBe("Hakkınızda değerlendirme var");
+  });
+
+  it("paylaşımı geri almak (shared:false) bildirim üretmez", async () => {
+    const submitted = await submitTeacherFeedbackTool(ctx({ role: "PARENT", studentId: "s1" }), VALID_FEEDBACK);
+    if (!submitted.ok) return;
+    await setTeacherFeedbackSharedTool(ctx({ role: "SCHOOL_ADMIN", studentId: undefined }), {
+      feedbackId: submitted.data.feedbackId,
+      shared: false,
+    });
+    const notes = await listNotificationsForUser({ tenantId: DEFAULT_TENANT_ID, userId: "user_teacher_t1" });
+    expect(notes.some((n) => n.kind === "teacher_feedback_shared")).toBe(false);
   });
 });

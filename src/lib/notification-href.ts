@@ -39,6 +39,9 @@ export function resolveNotificationHref(kind: string, body?: string): string | n
     case "payment_failed_or_pending":
     case "payment_received":
       return "/panel/odemeler";
+    case "collections_approval_pending":
+    case "collections_send_failed":
+      return "/panel/ai/tahsilat-agent";
     case "student_new_registration":
     case "student_new_enrollment":
       return "/panel/ogrenciler";
@@ -52,6 +55,13 @@ export function resolveNotificationHref(kind: string, body?: string): string | n
       return "/panel/yoklama";
     case "portal_request":
       return "/panel";
+    case "teacher_feedback_submitted":
+    case "student_feedback_submitted":
+      // Body always carries "Detay: /panel/ogretmenler/<id>/geri-bildirim" —
+      // this generic fallback only applies if that hint is ever missing.
+      return "/panel/ogretmenler";
+    case "teacher_feedback_shared":
+      return "/ogretmen/geri-bildirim";
     default:
       return null;
   }

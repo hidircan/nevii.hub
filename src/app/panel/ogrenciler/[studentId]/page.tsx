@@ -8,6 +8,7 @@ import {
   FileText,
   GraduationCap,
   RefreshCcw,
+  Star,
   User,
   Users,
 } from "lucide-react";
@@ -21,7 +22,18 @@ import {
   listStudentDocumentsTool,
   listTeachingMaterialsForStudentTool,
   getSocialMediaConsentTool,
+  listTeacherFeedbackTool,
+  listStudentFeedbackTool,
 } from "@/lib/services";
+import { TEACHER_FEEDBACK_CRITERIA } from "@/lib/teacher-feedback";
+import { AiFeedbackSummaryButton } from "@/components/ai-feedback-summary-button";
+import { STUDENT_FEEDBACK_CRITERIA } from "@/lib/student-feedback";
+import type {
+  TeacherFeedback,
+  TeacherFeedbackCriterionKey,
+  StudentFeedback,
+  StudentFeedbackCriterionKey,
+} from "@/lib/types";
 import { computeOverallScore } from "@/lib/assessment/score";
 import { computeStudentPaymentSummary, sortPaymentsForProfile } from "@/lib/payment-profile";
 import { computeStudentMonthlyAmount } from "@/lib/student-payment-profile";
@@ -56,6 +68,7 @@ const SECTIONS = [
   { href: "#gelisim", icon: GraduationCap, label: "Eğitim / Gelişim" },
   { href: "#odev", icon: BookOpen, label: "Ödev / Materyal" },
   { href: "#evrak", icon: FileText, label: "Evraklar" },
+  { href: "#degerlendirmeler", icon: Star, label: "Değerlendirmeler" },
 ] as const;
 
 export default async function StudentDetailPage({
@@ -118,6 +131,22 @@ export default async function StudentDetailPage({
       listStudentDocumentsTool(session, { studentId: student.id }),
       getSocialMediaConsentTool(session, { studentId: student.id }),
     ]);
+  // Karşılıklı Değerlendirmeler — yalnız admin, yalnız BU öğrenciye kapsamlı.
+  // Araçların studentId filtresi yok (yalnız teacherId) — tüm tenant kaydı
+  // çekilip burada studentId'ye göre daraltılır (demo ölçeğinde güvenle kabul edilir).
+  let teacherFeedbackAboutTeachers: TeacherFeedback[] = [];
+  let studentFeedbackFromTeachers: StudentFeedback[] = [];
+  if (canViewSensitive) {
+    const [tfResult, sfResult] = await Promise.all([
+      listTeacherFeedbackTool(session, {}),
+      listStudentFeedbackTool(session, { studentId: student.id }),
+    ]);
+    teacherFeedbackAboutTeachers = tfResult.ok
+      ? tfResult.data.feedback.filter((f) => f.studentId === student.id)
+      : [];
+    studentFeedbackFromTeachers = sfResult.ok ? sfResult.data.feedback : [];
+  }
+
   const homework = homeworkResult.ok ? homeworkResult.data.homework : [];
   const materials = materialsResult.ok ? materialsResult.data.materials : [];
   const curriculumTopics = curriculumResult.ok ? curriculumResult.data.topics : [];
@@ -569,6 +598,100 @@ export default async function StudentDetailPage({
           </div>
         )}
       </section>
+
+      {canViewSensitive ? (
+        <section id="degerlendirmeler" className="mb-8 scroll-mt-4">
+          <h2 className="mb-3 text-sm font-semibold text-[var(--color-text)]">Karşılıklı Değerlendirmeler</h2>
+
+          <div className="mb-4">
+            <AiFeedbackSummaryButton subject="student" subjectId={student.id} />
+          </div>
+
+          <div className="mb-4">
+            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
+              Öğrencinin öğretmen değerlendirmeleri
+            </p>
+            {teacherFeedbackAboutTeachers.length === 0 ? (
+              <EmptyState
+                title="Henüz değerlendirme yok"
+                description="Bu öğrencinin öğretmenleri hakkında yaptığı değerlendirme bulunmuyor."
+              />
+            ) : (
+              <div className="space-y-2">
+                {teacherFeedbackAboutTeachers.map((f) => {
+                  const t = data.teachers.find((tt) => tt.id === f.teacherId);
+                  return (
+                    <Card key={f.id} className="!p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-sm font-medium text-[var(--color-text)]">
+                          {t?.name ?? "Bilinmeyen öğretmen"}{" "}
+                          <span className="text-xs font-normal text-[var(--color-text-muted)]">
+                            · {formatDate(f.createdAt)}
+                          </span>
+                        </p>
+                        <Badge status={f.status}>{f.status}</Badge>
+                      </div>
+                      <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-5">
+                        {TEACHER_FEEDBACK_CRITERIA.map(({ key, label }: { key: TeacherFeedbackCriterionKey; label: string }) => (
+                          <div key={key} className="text-center">
+                            <p className="text-sm font-semibold text-[var(--color-primary)]">{f.scores[key]}</p>
+                            <p className="text-[10px] text-[var(--color-text-muted)]">{label}</p>
+                          </div>
+                        ))}
+                      </div>
+                      {f.comment ? (
+                        <p className="mt-2 text-xs text-[var(--color-text-muted)]">{f.comment}</p>
+                      ) : null}
+                    </Card>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          <div>
+            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
+              Öğretmenlerin öğrenci değerlendirmeleri
+            </p>
+            {studentFeedbackFromTeachers.length === 0 ? (
+              <EmptyState
+                title="Henüz değerlendirme yok"
+                description="Öğretmenlerin bu öğrenci için yaptığı değerlendirme bulunmuyor."
+              />
+            ) : (
+              <div className="space-y-2">
+                {studentFeedbackFromTeachers.map((f) => {
+                  const t = data.teachers.find((tt) => tt.id === f.teacherId);
+                  return (
+                    <Card key={f.id} className="!p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-sm font-medium text-[var(--color-text)]">
+                          {t?.name ?? "Bilinmeyen öğretmen"}{" "}
+                          <span className="text-xs font-normal text-[var(--color-text-muted)]">
+                            · {formatDate(f.createdAt)}
+                          </span>
+                        </p>
+                        <Badge status={f.status}>{f.status}</Badge>
+                      </div>
+                      <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-5">
+                        {STUDENT_FEEDBACK_CRITERIA.map(({ key, label }: { key: StudentFeedbackCriterionKey; label: string }) => (
+                          <div key={key} className="text-center">
+                            <p className="text-sm font-semibold text-[var(--color-primary)]">{f.scores[key]}</p>
+                            <p className="text-[10px] text-[var(--color-text-muted)]">{label}</p>
+                          </div>
+                        ))}
+                      </div>
+                      {f.comment ? (
+                        <p className="mt-2 text-xs text-[var(--color-text-muted)]">{f.comment}</p>
+                      ) : null}
+                    </Card>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </section>
+      ) : null}
     </div>
   );
 }
