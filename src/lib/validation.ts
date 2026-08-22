@@ -80,9 +80,32 @@ export const studentSchema = z.object({
   /** Yalnız yetkili yönetici (tool RBAC'ı) elle nihai ücret girebilir — verilirse gerekçe zorunludur. */
   monthlyFeeOverrideAmount: z.coerce.number().int().min(0).optional(),
   monthlyFeeOverrideReason: optionalTrimmed,
+  /**
+   * Karma Öğrenci Portalı — ödeme/iletişimde muhatap kararı (rol değil).
+   * Verilmezse "PARENT_MANAGED" (mevcut varsayılan davranış korunur).
+   */
+  accountResponsibility: z.enum(["PARENT_MANAGED", "SELF_MANAGED"]).optional(),
+  /**
+   * Yönetici bilinçli olarak işaretlerse (checkbox) VE `email` doluysa,
+   * öğrenci kaydı oluşturulurken aynı anda portal girişi + StudentPortalAccess
+   * (status=active) sağlanır. İşaretlenmezse yalnızca öğrenci kaydı oluşur —
+   * hiçbir hesap otomatik açılmaz (bkz. PROJECT kapsam dışı kuralı).
+   */
+  createPortalAccess: z.boolean().optional(),
+  portalAccessType: z.enum(["GUARDIAN", "SELF"]).optional(),
 }).refine((v) => v.monthlyFeeOverrideAmount === undefined || !!v.monthlyFeeOverrideReason, {
   message: "Manuel ücret girildiyse gerekçe zorunludur.",
   path: ["monthlyFeeOverrideReason"],
+}).refine((v) => !v.createPortalAccess || !!v.email, {
+  message: "Portal erişimi için e-posta zorunludur.",
+  path: ["email"],
+});
+
+/** Öğrenci düzenleme ekranından SONRADAN portal erişimi/davet oluşturma — task #34. */
+export const provisionStudentPortalAccessSchema = z.object({
+  studentId: z.string().min(1),
+  email: z.string().email(),
+  accessType: z.enum(["GUARDIAN", "SELF"]),
 });
 
 export const updateStudentProfileSchema = z
@@ -114,6 +137,8 @@ export const updateStudentProfileSchema = z
     birthPlace: optionalTrimmed,
     schoolOrOccupation: optionalTrimmed,
     communicationOptOut: z.boolean().optional(),
+    /** Karma Öğrenci Portalı — ödeme/iletişim muhatabı kararı (rol değil, iş kararı). */
+    accountResponsibility: z.enum(["PARENT_MANAGED", "SELF_MANAGED"]).optional(),
     /** Bu sprint — kayıt kimliği/eğitim profili düzenlemesi eklendi. */
     name: z.string().min(1).optional(),
     email: optionalEmail,
@@ -453,6 +478,11 @@ export const updateMakeupWindowDaysSchema = z.object({
   makeupWindowDays: z.number().int().min(1).max(365),
 });
 
+/** Aylık öğrenci telafi hakkı — 0 = kapalı, max 31. */
+export const updateMonthlyMakeupAllowanceSchema = z.object({
+  monthlyMakeupAllowance: z.number().int().min(0).max(31),
+});
+
 const weekdayArray = z.array(z.number().int().min(0).max(6)).max(7);
 
 /** Paket 6 — dönem bazlı haftalık çalışma takvimi (0=Pazar..6=Cumartesi). */
@@ -491,11 +521,19 @@ const STUDENT_TYPE_FOR_AUDIENCE = [
  * burada, şema seviyesinde zorlanır (branch→branchId, studentType→
  * studentType, selected→userIds; diğerleri ref gerektirmez).
  */
+const announcementAttachmentInputSchema = z.object({
+  fileName: z.string().min(1).max(255),
+  mimeType: z.string().min(1).max(120),
+  /** data URL veya ham base64 — sunucuda doğrulanır. */
+  fileData: z.string().min(1).max(4_000_000),
+});
+
 export const createAnnouncementSchema = z
   .object({
     title: z.string().min(1),
     body: z.string().min(1),
     attachmentUrl: z.string().url().optional(),
+    attachments: z.array(announcementAttachmentInputSchema).max(3).optional(),
     audienceType: z.enum(["all", "branch", "teachers", "parents", "students", "studentType", "selected"]),
     audienceRef: z
       .union([
@@ -672,6 +710,25 @@ export const submitTeacherFeedbackSchema = z.object({
   comment: z.string().max(1000).optional(),
 });
 
+/**
+ * Karşılıklı Değerlendirmeler sprinti — öğretmenin öğrenciyi yapılandırılmış
+ * değerlendirmesi. TeacherFeedback'in ters yönü, aynı "sabit beş kriter" ilkesi.
+ */
+const studentFeedbackScoreSchema = z.number().int().min(1).max(5);
+
+export const submitStudentFeedbackSchema = z.object({
+  studentId: z.string().min(1),
+  scores: z.object({
+    attendance: studentFeedbackScoreSchema,
+    practice: studentFeedbackScoreSchema,
+    progress: studentFeedbackScoreSchema,
+    attitude: studentFeedbackScoreSchema,
+    preparedness: studentFeedbackScoreSchema,
+  }),
+  /** Güvenli düz metin; HTML asla render edilmez (bkz. UI katmanı). */
+  comment: z.string().max(1000).optional(),
+});
+
 /** Müfredat konu durumu */
 export const curriculumTopicStatusSchema = z.enum([
   "planned",
@@ -703,6 +760,21 @@ export const updateCurriculumTopicSchema = z.object({
   changeNote: z.string().max(500).optional(),
 });
 
+
+/** TEACHER/SCHOOL_ADMIN/SUPER_ADMIN — seçilen öğrencilere toplu müfredat konusu atar. */
+export const bulkAssignCurriculumTopicsSchema = z.object({
+  studentIds: z.array(z.string().min(1)).min(1).max(200),
+  topics: z
+    .array(
+      z.object({
+        title: z.string().trim().min(1).max(200),
+        description: z.string().max(2000).optional(),
+        sortOrder: z.number().int().min(0).max(10_000).optional(),
+      })
+    )
+    .min(1)
+    .max(100),
+});
 
 export const EDUCATION_METHOD_ENUM = ["Suzuki","Klasik","LCM","MEB","Kurum İçi","Diğer"] as const;
 export const LESSON_DURATION_PREF_ENUM = [30, 40, 50] as const;

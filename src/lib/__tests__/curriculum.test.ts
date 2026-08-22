@@ -11,9 +11,12 @@ import {
   createCurriculumTopicTool,
   updateCurriculumTopicTool,
   listCurriculumForStudentTool,
+  bulkAssignCurriculumTopicsTool,
 } from "../services/tools";
 import { DEFAULT_TENANT_ID } from "../auth/config";
 import type { ServiceContext } from "../services/context";
+import { STUDENT_PORTAL_ACCESS_FILE } from "../student-portal-access";
+import { grantStudentAccess } from "./portal-access-test-helper";
 
 const DATA_FILE = path.join(resolveDataDir(path.join(process.cwd(), "data")), "store.json");
 
@@ -31,6 +34,7 @@ function ctx(overrides?: Partial<ServiceContext>): ServiceContext {
 beforeEach(async () => {
   await fs.rm(DATA_FILE, { force: true });
   await fs.rm(CURRICULUM_TOPICS_FILE, { force: true });
+  await fs.rm(STUDENT_PORTAL_ACCESS_FILE, { force: true });
 });
 
 describe("computeOverallCurriculumProgress", () => {
@@ -100,17 +104,16 @@ describe("listCurriculumForStudentTool — rol kapsamı", () => {
     expect(res.ok).toBe(false);
   });
 
-  it("PARENT özet görür (history/notes detayı yok)", async () => {
+  it("veli (STUDENT rolü, GUARDIAN erişimi) özet görür (history/notes detayı yok)", async () => {
     await createCurriculumTopicTool(ctx({ teacherId: "t1" }), {
       studentId: "s1",
       title: "Gam",
       notes: "gizli not",
       progressPercent: 30,
     });
-    const res = await listCurriculumForStudentTool(
-      ctx({ role: "PARENT", teacherId: undefined, studentId: "s1" }),
-      { studentId: "s1" }
-    );
+    const parentCtx = ctx({ role: "STUDENT", teacherId: undefined, studentId: "s1" });
+    await grantStudentAccess(parentCtx, "s1", "GUARDIAN");
+    const res = await listCurriculumForStudentTool(parentCtx, { studentId: "s1" });
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     expect(res.data.overallPercent).toBe(30);
@@ -118,6 +121,174 @@ describe("listCurriculumForStudentTool — rol kapsamı", () => {
     expect(topic.title).toBe("Gam");
     expect(topic.notes).toBeUndefined();
     expect(topic.history).toBeUndefined();
+  });
+});
+
+describe("createCurriculumTopicTool / updateCurriculumTopicTool — admin ve rol izinleri", () => {
+  it("SCHOOL_ADMIN kurumundaki herhangi bir öğrenci için konu oluşturur ve günceller", async () => {
+    const adminCtx = ctx({ role: "SCHOOL_ADMIN", teacherId: undefined, userId: "u_admin" });
+    const created = await createCurriculumTopicTool(adminCtx, {
+      studentId: "s1",
+      title: "Admin konusu",
+    });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+
+    const updated = await updateCurriculumTopicTool(adminCtx, {
+      topicId: created.data.topicId,
+      status: "in_progress",
+    });
+    expect(updated.ok).toBe(true);
+  });
+
+  it("STUDENT/GUARDIAN konu oluşturamaz/güncelleyemez (FORBIDDEN)", async () => {
+    const studentCtx = ctx({ role: "STUDENT", teacherId: undefined, userId: "u_student", studentId: "s1" });
+    const created = await createCurriculumTopicTool(studentCtx, {
+      studentId: "s1",
+      title: "İzinsiz konu",
+    });
+    expect(created.ok).toBe(false);
+    if (!created.ok) expect(created.error.code).toBe("FORBIDDEN");
+
+    const byAdmin = await createCurriculumTopicTool(
+      ctx({ role: "SCHOOL_ADMIN", teacherId: undefined, userId: "u_admin" }),
+      { studentId: "s1", title: "Admin konusu" }
+    );
+    expect(byAdmin.ok).toBe(true);
+    if (!byAdmin.ok) return;
+    const updatedByStudent = await updateCurriculumTopicTool(studentCtx, {
+      topicId: byAdmin.data.topicId,
+      status: "mastered",
+    });
+    expect(updatedByStudent.ok).toBe(false);
+    if (!updatedByStudent.ok) expect(updatedByStudent.error.code).toBe("FORBIDDEN");
+  });
+
+  it("Tenant A'da oluşturulan konu Tenant B'nin listesinde görünmez", async () => {
+    const created = await createCurriculumTopicTool(ctx({ teacherId: "t1", tenantId: "tenant-a" }), {
+      studentId: "s1",
+      title: "Tenant A konusu",
+    });
+    expect(created.ok).toBe(true);
+
+    const otherTenantList = await listCurriculumForStudentTool(
+      ctx({ role: "SCHOOL_ADMIN", teacherId: undefined, tenantId: "tenant-b" }),
+      { studentId: "s1" }
+    );
+    expect(otherTenantList.ok).toBe(true);
+    if (!otherTenantList.ok) return;
+    expect(otherTenantList.data.topics).toHaveLength(0);
+  });
+});
+
+describe("bulkAssignCurriculumTopicsTool", () => {
+  it("Admin, filtrelenmiş seçili öğrencilere (s1, s5 — t1'e ait) toplu konu atar", async () => {
+    const res = await bulkAssignCurriculumTopicsTool(
+      ctx({ role: "SCHOOL_ADMIN", teacherId: undefined, userId: "u_admin" }),
+      {
+        studentIds: ["s1", "s5"],
+        topics: [
+          { sortOrder: 1, title: "Bağlama giriş" },
+          { sortOrder: 2, title: "Düzen akort" },
+        ],
+      }
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.requestedStudents).toBe(2);
+    expect(res.data.requestedTopics).toBe(2);
+    expect(res.data.created).toBe(4);
+    expect(res.data.skippedInaccessible).toBe(0);
+    expect(res.data.skippedExisting).toBe(0);
+
+    const list = await listCurriculumForStudentTool(ctx({ teacherId: "t1" }), { studentId: "s1" });
+    expect(list.ok).toBe(true);
+    if (list.ok) expect(list.data.topics).toHaveLength(2);
+  });
+
+  it("Teacher kendi öğrencisine (s1) toplu atar, sahip olmadığı öğrenciyi (s2) atlar", async () => {
+    const res = await bulkAssignCurriculumTopicsTool(ctx({ teacherId: "t1" }), {
+      studentIds: ["s1", "s2"],
+      topics: [{ sortOrder: 1, title: "Etüt A" }],
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.created).toBe(1);
+    expect(res.data.skippedInaccessible).toBe(1);
+  });
+
+  it("STUDENT/GUARDIAN 403 alır", async () => {
+    const res = await bulkAssignCurriculumTopicsTool(
+      ctx({ role: "STUDENT", teacherId: undefined, userId: "u_student", studentId: "s1" }),
+      { studentIds: ["s1"], topics: [{ sortOrder: 1, title: "X" }] }
+    );
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error.code).toBe("FORBIDDEN");
+  });
+
+  it("Sahip olmayan öğretmen tüm öğrencileri erişimsiz olarak atlar (tenant/sahiplik sınırı)", async () => {
+    const res = await bulkAssignCurriculumTopicsTool(ctx({ teacherId: "t9" }), {
+      studentIds: ["s1"],
+      topics: [{ sortOrder: 1, title: "X" }],
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.created).toBe(0);
+    expect(res.data.skippedInaccessible).toBe(1);
+  });
+
+  it("aynı öğrenci + aynı başlık tekrar gönderimde çoğalmaz", async () => {
+    const first = await bulkAssignCurriculumTopicsTool(ctx({ teacherId: "t1" }), {
+      studentIds: ["s1"],
+      topics: [{ sortOrder: 1, title: "Tekrarlanan konu" }],
+    });
+    expect(first.ok).toBe(true);
+    if (first.ok) expect(first.data.created).toBe(1);
+
+    const second = await bulkAssignCurriculumTopicsTool(ctx({ teacherId: "t1" }), {
+      studentIds: ["s1"],
+      topics: [{ sortOrder: 1, title: "Tekrarlanan konu" }],
+    });
+    expect(second.ok).toBe(true);
+    if (!second.ok) return;
+    expect(second.data.created).toBe(0);
+    expect(second.data.skippedExisting).toBe(1);
+  });
+
+  it("aynı istekte tekrar eden başlık da yalnızca bir kez oluşturulur", async () => {
+    const res = await bulkAssignCurriculumTopicsTool(ctx({ teacherId: "t1" }), {
+      studentIds: ["s1"],
+      topics: [
+        { sortOrder: 1, title: "Aynı başlık" },
+        { sortOrder: 2, title: "Aynı başlık" },
+      ],
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.created).toBe(1);
+    expect(res.data.skippedExisting).toBe(1);
+  });
+
+  it("100 konu / 200 öğrenci sınırlarını aşan girdi reddedilir", async () => {
+    const tooManyTopics = await bulkAssignCurriculumTopicsTool(ctx({ teacherId: "t1" }), {
+      studentIds: ["s1"],
+      topics: Array.from({ length: 101 }, (_, i) => ({ sortOrder: i, title: `Konu ${i}` })),
+    });
+    expect(tooManyTopics.ok).toBe(false);
+
+    const tooManyStudents = await bulkAssignCurriculumTopicsTool(ctx({ teacherId: "t1" }), {
+      studentIds: Array.from({ length: 201 }, (_, i) => `s${i}`),
+      topics: [{ sortOrder: 1, title: "X" }],
+    });
+    expect(tooManyStudents.ok).toBe(false);
+  });
+
+  it("boş başlık reddedilir", async () => {
+    const res = await bulkAssignCurriculumTopicsTool(ctx({ teacherId: "t1" }), {
+      studentIds: ["s1"],
+      topics: [{ sortOrder: 1, title: "   " }],
+    });
+    expect(res.ok).toBe(false);
   });
 });
 

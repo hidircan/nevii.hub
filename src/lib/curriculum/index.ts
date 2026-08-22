@@ -369,6 +369,161 @@ export async function listAllCurriculumTopics(tenantId: string): Promise<Student
     .map(toPublic);
 }
 
+export type BulkCreateCurriculumTopicsInput = {
+  tenantId: string;
+  createdBy: string;
+  /** Zaten erişim/sahiplik doğrulanmış (studentId, o öğrencinin teacherId'si) çiftleri. */
+  assignments: { studentId: string; teacherId: string }[];
+  topics: { title: string; description?: string; sortOrder?: number }[];
+};
+
+export type BulkCreateCurriculumTopicsResult = {
+  created: number;
+  skippedExisting: number;
+};
+
+function normalizeTitleKey(title: string): string {
+  return title.trim().toLocaleLowerCase("tr");
+}
+
+/**
+ * Toplu atama — tek okuma + tek yazım round-trip'i (N ayrı create çağrısı
+ * DEĞİL). Aynı öğrenci+başlık zaten varsa (mevcut kayıtlarda VEYA aynı
+ * istek içinde tekrar ediyorsa) o satır atlanır, yeni kayıt oluşturulmaz.
+ */
+async function bulkCreateDb(
+  input: BulkCreateCurriculumTopicsInput
+): Promise<BulkCreateCurriculumTopicsResult> {
+  const { prisma } = await import("../db");
+  const studentIds = [...new Set(input.assignments.map((a) => a.studentId))];
+  const existingRows = await prisma.studentCurriculumTopic.findMany({
+    where: { tenantId: input.tenantId, studentId: { in: studentIds } },
+    select: { studentId: true, title: true },
+  });
+  const existing = new Set(existingRows.map((r) => `${r.studentId}::${normalizeTitleKey(r.title)}`));
+
+  const now = new Date();
+  const rows: {
+    id: string;
+    tenantId: string;
+    studentId: string;
+    teacherId: string;
+    title: string;
+    description: string | null;
+    status: string;
+    progressPercent: number;
+    sortOrder: number;
+    notes: string | null;
+    history: CurriculumTopicEvent[];
+    createdBy: string;
+    updatedBy: string;
+  }[] = [];
+  let skippedExisting = 0;
+  for (const a of input.assignments) {
+    for (const t of input.topics) {
+      const key = `${a.studentId}::${normalizeTitleKey(t.title)}`;
+      if (existing.has(key)) {
+        skippedExisting += 1;
+        continue;
+      }
+      existing.add(key);
+      const status: CurriculumTopicStatus = "planned";
+      const progress = defaultProgressForStatus(status);
+      const history: CurriculumTopicEvent[] = [
+        {
+          at: now.toISOString(),
+          byUserId: input.createdBy,
+          action: "created",
+          toStatus: status,
+          toProgress: progress,
+        },
+      ];
+      rows.push({
+        id: uid("cur"),
+        tenantId: input.tenantId,
+        studentId: a.studentId,
+        teacherId: a.teacherId,
+        title: t.title.trim(),
+        description: t.description ?? null,
+        status,
+        progressPercent: progress,
+        sortOrder: t.sortOrder ?? 0,
+        notes: null,
+        history,
+        createdBy: input.createdBy,
+        updatedBy: input.createdBy,
+      });
+    }
+  }
+  if (rows.length > 0) {
+    await prisma.studentCurriculumTopic.createMany({ data: rows });
+  }
+  return { created: rows.length, skippedExisting };
+}
+
+async function bulkCreateJson(
+  input: BulkCreateCurriculumTopicsInput
+): Promise<BulkCreateCurriculumTopicsResult> {
+  const all = await loadAll();
+  const existing = new Set(
+    all
+      .filter((t) => t.tenantId === input.tenantId)
+      .map((t) => `${t.studentId}::${normalizeTitleKey(t.title)}`)
+  );
+
+  const now = new Date().toISOString();
+  const newRows: StoredTopic[] = [];
+  let skippedExisting = 0;
+  for (const a of input.assignments) {
+    for (const t of input.topics) {
+      const key = `${a.studentId}::${normalizeTitleKey(t.title)}`;
+      if (existing.has(key)) {
+        skippedExisting += 1;
+        continue;
+      }
+      existing.add(key);
+      const status: CurriculumTopicStatus = "planned";
+      const progress = defaultProgressForStatus(status);
+      newRows.push({
+        id: uid("cur"),
+        tenantId: input.tenantId,
+        studentId: a.studentId,
+        teacherId: a.teacherId,
+        title: t.title.trim(),
+        description: t.description,
+        status,
+        progressPercent: progress,
+        sortOrder: t.sortOrder ?? 0,
+        notes: undefined,
+        history: [
+          {
+            at: now,
+            byUserId: input.createdBy,
+            action: "created",
+            toStatus: status,
+            toProgress: progress,
+          },
+        ],
+        createdBy: input.createdBy,
+        updatedBy: input.createdBy,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+  }
+  if (newRows.length > 0) {
+    await saveAll([...all, ...newRows]);
+  }
+  return { created: newRows.length, skippedExisting };
+}
+
+export async function bulkCreateCurriculumTopics(
+  input: BulkCreateCurriculumTopicsInput
+): Promise<BulkCreateCurriculumTopicsResult> {
+  if (isDbMode) return bulkCreateDb(input);
+  return bulkCreateJson(input);
+}
+
 /** Veli/öğrenci özeti — not ve history detayı sadeleştirilir. */
 export function toCurriculumSummary(topic: StudentCurriculumTopic): {
   id: string;

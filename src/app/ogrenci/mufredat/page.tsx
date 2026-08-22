@@ -15,7 +15,6 @@ export default async function StudentCurriculumPage() {
     redirect("/login?next=/ogrenci/mufredat");
   }
   if (session.role === "TEACHER") redirect("/ogretmen");
-  if (session.role === "PARENT") redirect("/veli/mufredat");
 
   const studentId = session.studentId;
   if (!studentId) {
