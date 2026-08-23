@@ -298,7 +298,7 @@ describe("Öğrenci ödeme profili — Tool Layer (RBAC, tenant, geçmiş Paymen
     expect(asTeacher.ok).toBe(false);
     if (!asTeacher.ok) expect(asTeacher.error.code).toBe("FORBIDDEN");
 
-    const asParent = await updateStudentProfileTool(ctx({ role: "PARENT", studentId }), {
+    const asParent = await updateStudentProfileTool(ctx({ role: "STUDENT", studentId }), {
       studentId,
       paymentAmount: 1,
     });

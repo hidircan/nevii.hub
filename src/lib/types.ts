@@ -181,6 +181,13 @@ export interface Student {
   phone: string;
   parentName: string;
   parentPhone: string;
+  /**
+   * Karma Öğrenci Portalı — bu, veli/öğrenci ROLÜ değildir (o artık
+   * StudentPortalAccess.accessType); bu tamamen iş/faturalama kararıdır:
+   * ödeme/iletişimde kimin muhatap alınacağı. Yoksa (eski kayıtlar)
+   * "PARENT_MANAGED" varsayılır — bkz. migration backfill.
+   */
+  accountResponsibility?: "PARENT_MANAGED" | "SELF_MANAGED";
   /** Paket 7 — TC kimlik alanından hemen sonra istenir; opsiyonel. */
   motherName?: string;
   fatherName?: string;
@@ -333,6 +340,7 @@ export type StudentProfilePatch = Partial<
     | "discountValue"
     | "monthlyFeeManualOverride"
     | "monthlyFeeOverrideReason"
+    | "accountResponsibility"
   >
 >;
 
@@ -393,11 +401,25 @@ export type AnnouncementAudienceRef =
 
 export type AnnouncementStatus = "draft" | "published" | "archived";
 
+/** Duyuru eki meta (max 3). `storageKey` yalnızca sunucu tarafında tutulur; client'a gönderilmez. */
+export type AnnouncementAttachment = {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  /** Tenant-scoped storage object key. Omit from public/API payloads. */
+  storageKey?: string;
+  uploadedAt: string;
+};
+
 export interface Announcement {
   id: string;
   title: string;
   body: string;
+  /** Legacy tek ek URL — geriye uyumlu. */
   attachmentUrl?: string;
+  /** En fazla 3 ek. */
+  attachments?: AnnouncementAttachment[];
   audienceType: AnnouncementAudienceType;
   audienceRef?: AnnouncementAudienceRef;
   status: AnnouncementStatus;
@@ -684,6 +706,11 @@ export interface SchoolSettings {
   phone: string;
   logoUrl: string;
   makeupWindowDays: number;
+  /**
+   * Aylık öğrenci başına telafi hakkı (varsayılan 2). 0 = telafi kapalı.
+   * pending/suggested/awaiting_info/confirmed sayılır; cancelled/expired sayılmaz.
+   */
+  monthlyMakeupAllowance?: number;
   lessonDurationMinutes: number;
   workingHours: { start: string; end: string };
   workingDays: number[];
@@ -904,6 +931,27 @@ export interface TeacherFeedback {
   status: TeacherFeedbackStatus;
   /** Yönetici bu yorumu öğretmenin anonim özetinde paylaşmayı SEÇTİYSE true. */
   sharedWithTeacher: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * Karşılıklı Değerlendirmeler sprinti — TeacherFeedback'in TERSİ yönü:
+ * öğretmen öğrenciyi değerlendirir. Ham kayıt yalnızca yönetici ve ilgili
+ * öğretmene açık (bkz. student-feedback.ts gizlilik notu).
+ */
+export type StudentFeedbackStatus = "pending" | "reviewed" | "actioned" | "archived";
+
+export type StudentFeedbackCriterionKey = "attendance" | "practice" | "progress" | "attitude" | "preparedness";
+
+export interface StudentFeedback {
+  id: string;
+  teacherId: string;
+  studentId: string;
+  submittedBy: string;
+  scores: Record<StudentFeedbackCriterionKey, number>;
+  comment?: string;
+  status: StudentFeedbackStatus;
   createdAt: string;
   updatedAt: string;
 }

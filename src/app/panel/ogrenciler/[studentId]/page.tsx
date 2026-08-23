@@ -180,6 +180,7 @@ export default async function StudentDetailPage({
     birthPlace: student.birthPlace,
     schoolOrOccupation: student.schoolOrOccupation,
     communicationOptOut: student.communicationOptOut,
+    accountResponsibility: student.accountResponsibility,
   };
 
   return (
@@ -287,6 +288,7 @@ export default async function StudentDetailPage({
               branches={data.settings.branches.map((b) => ({ id: b.id, name: b.name }))}
               hasNationalId={!!student.nationalIdCipher}
               initial={profileEditorInitial}
+              showPortalInvite={false}
             />
           }
         />

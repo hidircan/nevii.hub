@@ -41,7 +41,7 @@ describe("Kurulum Merkezi · oda oluşturma", () => {
   });
 
   it("veli rolü oda ekleyemez (FORBIDDEN)", async () => {
-    const res = await createRoomTool(ctx({ role: "PARENT" }), {
+    const res = await createRoomTool(ctx({ role: "STUDENT" }), {
       name: "X",
       branchId: "erzene",
       capacity: 2,
@@ -167,7 +167,7 @@ describe("Kurulum Merkezi · ders planlama", () => {
   });
 
   it("veli rolü ders planlayamaz (FORBIDDEN)", async () => {
-    const res = await createLessonTool(ctx({ role: "PARENT" }), {
+    const res = await createLessonTool(ctx({ role: "STUDENT" }), {
       studentId: "s1",
       teacherId: "t1",
       roomId: "r1",

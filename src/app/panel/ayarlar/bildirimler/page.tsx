@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { requireSessionContext } from "@/lib/auth/session";
+import { requireSessionContext, notificationSettingsPathForRole } from "@/lib/auth/session";
 import { getNotificationPreferences } from "@/lib/notification-preferences";
 import { PageHeader } from "@/components/ui";
 import { NotificationPreferencesForm } from "@/components/notification-preferences-form";
@@ -21,8 +21,8 @@ export default async function BildirimAyarlariPage() {
     redirect("/login?next=/panel/ayarlar/bildirimler");
   }
 
-  if (session.role === "PARENT" || session.role === "STUDENT") {
-    redirect("/panel");
+  if (session.role === "STUDENT") {
+    redirect(notificationSettingsPathForRole(session.role));
   }
 
   const preferences = await getNotificationPreferences(session.tenantId, session.userId);
@@ -34,7 +34,7 @@ export default async function BildirimAyarlariPage() {
         description="Hangi uygulama içi bildirimleri alacağınızı kategori bazında seçin. Tercihler yalnızca size aittir."
       />
 
-      <NotificationPreferencesForm initialPreferences={preferences} />
+      <NotificationPreferencesForm role={session.role} initialPreferences={preferences} />
 
       <div
         className="mt-8 rounded-[var(--radius-lg)] border p-4 sm:p-5"

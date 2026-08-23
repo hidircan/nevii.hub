@@ -63,7 +63,7 @@ describe("POST /api/ai/collections — tenant/rol yalnız oturumdan gelir", () =
   });
 
   it("PARENT rolü collectionsMessageDraft çalıştıramaz — 403 FORBIDDEN, hiçbir şey üretilmez", async () => {
-    mockUser.value = { userId: "user_parent", role: "PARENT", tenantId: TENANT };
+    mockUser.value = { userId: "user_parent", role: "STUDENT", tenantId: TENANT };
     const res = await collectionsPost(
       jsonRequest("http://localhost/api/ai/collections", {
         capabilityId: "collectionsMessageDraft",

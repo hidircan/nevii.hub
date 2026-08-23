@@ -46,7 +46,7 @@ export function PanelHeader({
       />
       <div className="flex shrink-0 items-center gap-2">
         <CommandPalette role={role} />
-        <NotificationBell />
+        <NotificationBell role={role} />
         <UserMenu email={email} role={role} kurumName={kurumName} initialDensity={density} />
       </div>
     </header>

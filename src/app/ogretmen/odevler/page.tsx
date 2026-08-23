@@ -25,7 +25,6 @@ export default async function TeacherHomeworkPage() {
   } catch {
     redirect("/login?next=/ogretmen/odevler");
   }
-  if (session.role === "PARENT") redirect("/veli");
 
   const data = await readData();
   const teacherId = session.teacherId || "t2";

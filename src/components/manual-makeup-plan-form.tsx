@@ -46,6 +46,13 @@ export function ManualMakeupPlanForm({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [draft, setDraft] = useState<{
+    smsSendable: boolean;
+    smsBlockReason?: string;
+    smsBody: string;
+    parent: { body: string; waLink: string | null; missingPhoneReason?: string };
+    whatsappDeliveryNote: string;
+  } | null>(null);
 
   function onTeacherChange(nextTeacherId: string) {
     setTeacherId(nextTeacherId);
@@ -95,13 +102,26 @@ export function ManualMakeupPlanForm({
           decisionNote,
         }),
       });
-      const json = (await res.json()) as { ok: boolean; error?: { message: string } };
+      const json = (await res.json()) as {
+        ok: boolean;
+        error?: { message: string };
+        data?: {
+          communication?: {
+            smsSendable: boolean;
+            smsBlockReason?: string;
+            smsBody: string;
+            parent: { body: string; waLink: string | null; missingPhoneReason?: string };
+            whatsappDeliveryNote: string;
+          } | null;
+        };
+      };
       if (!json.ok) {
         setError(json.error?.message || "Telafi dersi planlanamadı.");
         setBusy(false);
         return;
       }
       setSuccess(true);
+      setDraft(json.data?.communication ?? null);
       router.refresh();
     } catch {
       setError("Bağlantı hatası. Lütfen tekrar deneyin.");
@@ -217,9 +237,30 @@ export function ManualMakeupPlanForm({
       </div>
       {error ? <p className="mt-2 text-xs font-medium text-rose-600">{error}</p> : null}
       {success ? (
-        <p className="mt-2 text-xs font-medium text-emerald-600">
-          Telafi dersi programa eklendi.
-        </p>
+        <div className="mt-2 space-y-2 text-xs text-emerald-800">
+          <p className="font-medium">Telafi dersi programa eklendi. Program görünümleri otomatik yenilenir.</p>
+          {draft ? (
+            <div className="rounded-lg border border-emerald-100 bg-[var(--color-surface)] p-2 text-[var(--color-text-muted)]">
+              <p className="font-medium text-[var(--color-text)]">Veli iletişim taslağı (otomatik gönderilmez)</p>
+              <p className="mt-1 whitespace-pre-wrap">{draft.parent.body}</p>
+              {draft.parent.waLink ? (
+                <a href={draft.parent.waLink} target="_blank" rel="noreferrer" className="mt-1 inline-block text-emerald-700 underline">
+                  WhatsApp’ta aç
+                </a>
+              ) : (
+                <p className="mt-1">{draft.parent.missingPhoneReason ?? "WhatsApp taslağı gönderilemez."}</p>
+              )}
+              <p className="mt-1 text-[11px]">{draft.whatsappDeliveryNote}</p>
+              <p className="mt-2 font-medium">SMS taslağı</p>
+              <p className="whitespace-pre-wrap">{draft.smsBody}</p>
+              {draft.smsSendable ? (
+                <p className="mt-1">SMS gönderilebilir — mevcut onaylı SMS akışından elle başlatın.</p>
+              ) : (
+                <p className="mt-1 text-amber-700">{draft.smsBlockReason ?? "SMS gönderilemez."}</p>
+              )}
+            </div>
+          ) : null}
+        </div>
       ) : null}
     </form>
   );

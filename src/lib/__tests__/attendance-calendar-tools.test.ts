@@ -15,6 +15,8 @@ import { readData } from "../store";
 import { DEFAULT_TENANT_ID } from "../auth/config";
 import type { ServiceContext } from "../services/context";
 import { validateLessonSlot } from "../makeup-engine";
+import { STUDENT_PORTAL_ACCESS_FILE } from "../student-portal-access";
+import { grantStudentAccess } from "./portal-access-test-helper";
 
 const DATA_FILE = path.join(resolveDataDir(path.join(process.cwd(), "data")), "store.json");
 const CLOSED_DAYS_FILE = path.join(resolveDataDir(path.join(process.cwd(), "data")), "closed-days.json");
@@ -32,6 +34,7 @@ function ctx(overrides?: Partial<ServiceContext>): ServiceContext {
 beforeEach(async () => {
   await fs.rm(DATA_FILE, { force: true });
   await fs.rm(CLOSED_DAYS_FILE, { force: true });
+  await fs.rm(STUDENT_PORTAL_ACCESS_FILE, { force: true });
 });
 
 async function findOpenSlot(): Promise<string> {
@@ -119,7 +122,7 @@ describe("ÖNCELİK 4 — kapalı gün mali/yoklama gate", () => {
       name: "x",
     });
     expect(res1.ok).toBe(false);
-    const res2 = await setDayOverrideTool(ctx({ role: "PARENT", studentId: "s1" }), {
+    const res2 = await setDayOverrideTool(ctx({ role: "STUDENT", studentId: "s1" }), {
       date: "2026-08-08",
       isOpen: false,
       name: "x",
@@ -177,7 +180,7 @@ describe("Yoklama Takvimi ay kutusu — GERÇEK tahsilat (collectAttendanceCalen
   });
 
   it("PARENT (veli/salt-okunur) rolü ay kutusundan tahsilat yapamaz (RBAC)", async () => {
-    const res = await collectAttendanceCalendarPaymentTool(ctx({ role: "PARENT", studentId: "s1" }), {
+    const res = await collectAttendanceCalendarPaymentTool(ctx({ role: "STUDENT", studentId: "s1" }), {
       studentId: "s1",
       month: "2026-09",
       amount: 3000,
@@ -276,7 +279,8 @@ describe("ÖNCELİK 4 — takvim görünürlüğü (RBAC)", () => {
 
 describe("ÖNCELİK 4 — veli (PARENT) salt-okunur takvim erişimi", () => {
   it("veli KENDİ öğrencisinin takvimini görüntüleyebilir", async () => {
-    const res = await getAttendanceCalendarMonthTool(ctx({ role: "PARENT", studentId: "s1" }), {
+    await grantStudentAccess(ctx(), "s1", "GUARDIAN");
+    const res = await getAttendanceCalendarMonthTool(ctx({ role: "STUDENT", studentId: "s1" }), {
       studentId: "s1",
       year: 2026,
       month: 9,
@@ -285,7 +289,7 @@ describe("ÖNCELİK 4 — veli (PARENT) salt-okunur takvim erişimi", () => {
   });
 
   it("yetkisiz veli BAŞKA bir öğrencinin takvimini göremez (backend'de kesin engel)", async () => {
-    const res = await getAttendanceCalendarMonthTool(ctx({ role: "PARENT", studentId: "s2" }), {
+    const res = await getAttendanceCalendarMonthTool(ctx({ role: "STUDENT", studentId: "s2" }), {
       studentId: "s1",
       year: 2026,
       month: 9,
@@ -295,7 +299,7 @@ describe("ÖNCELİK 4 — veli (PARENT) salt-okunur takvim erişimi", () => {
   });
 
   it("veli gün istisnası (override) tanımlayamaz — ayrı bir salt-okunur endpoint dışında yazma yolu yok", async () => {
-    const res = await setDayOverrideTool(ctx({ role: "PARENT", studentId: "s1" }), {
+    const res = await setDayOverrideTool(ctx({ role: "STUDENT", studentId: "s1" }), {
       date: "2026-09-10",
       isOpen: false,
       name: "x",
@@ -304,7 +308,7 @@ describe("ÖNCELİK 4 — veli (PARENT) salt-okunur takvim erişimi", () => {
   });
 
   it("veli aylık Tutar'ı değiştiremez", async () => {
-    const res = await collectAttendanceCalendarPaymentTool(ctx({ role: "PARENT", studentId: "s1" }), {
+    const res = await collectAttendanceCalendarPaymentTool(ctx({ role: "STUDENT", studentId: "s1" }), {
       studentId: "s1",
       month: "2026-09",
       amount: 5000,
@@ -314,7 +318,7 @@ describe("ÖNCELİK 4 — veli (PARENT) salt-okunur takvim erişimi", () => {
 
   it("veli Geldi/İşlendi/Telafi işaretleyemez (yoklama oluşturamaz/değiştiremez)", async () => {
     const lessonId = await createTestLesson();
-    const res = await setLessonOpsFlagTool(ctx({ role: "PARENT", studentId: "s1" }), {
+    const res = await setLessonOpsFlagTool(ctx({ role: "STUDENT", studentId: "s1" }), {
       lessonId,
       flag: "attended",
     });
@@ -322,7 +326,8 @@ describe("ÖNCELİK 4 — veli (PARENT) salt-okunur takvim erişimi", () => {
   });
 
   it("admin bir günü kapatınca, aynı öğrencinin velisi de takvimde bu değişikliği görür (aynı kaynak)", async () => {
-    const before = await getAttendanceCalendarMonthTool(ctx({ role: "PARENT", studentId: "s1" }), {
+    await grantStudentAccess(ctx(), "s1", "GUARDIAN");
+    const before = await getAttendanceCalendarMonthTool(ctx({ role: "STUDENT", studentId: "s1" }), {
       studentId: "s1",
       year: 2026,
       month: 9,
@@ -334,7 +339,7 @@ describe("ÖNCELİK 4 — veli (PARENT) salt-okunur takvim erişimi", () => {
     const overrideRes = await setDayOverrideTool(ctx(), { date: day.date, isOpen: false, name: "Özel kapalı" });
     expect(overrideRes.ok).toBe(true);
 
-    const after = await getAttendanceCalendarMonthTool(ctx({ role: "PARENT", studentId: "s1" }), {
+    const after = await getAttendanceCalendarMonthTool(ctx({ role: "STUDENT", studentId: "s1" }), {
       studentId: "s1",
       year: 2026,
       month: 9,

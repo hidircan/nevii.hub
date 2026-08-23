@@ -5,6 +5,8 @@ import { resolveDataDir } from "../config";
 import { findPersonScheduleTool } from "../services/tools";
 import { DEFAULT_TENANT_ID } from "../auth/config";
 import type { ServiceContext } from "../services/context";
+import { STUDENT_PORTAL_ACCESS_FILE } from "../student-portal-access";
+import { grantStudentAccess } from "./portal-access-test-helper";
 
 /**
  * "when is Can's lesson" / "Ayşe öğretmenin programı" resolution — the one
@@ -27,6 +29,7 @@ function ctx(overrides?: Partial<ServiceContext>): ServiceContext {
 
 beforeEach(async () => {
   await fs.rm(DATA_FILE, { force: true });
+  await fs.rm(STUDENT_PORTAL_ACCESS_FILE, { force: true });
 });
 
 describe("findPersonScheduleTool — tek eşleşme", () => {
@@ -78,9 +81,11 @@ describe("findPersonScheduleTool — eşleşme yok / belirsiz", () => {
 });
 
 describe("findPersonScheduleTool — rol bazlı erişim kapsamı (canAccessStudent/canAccessTeacher ile aynı)", () => {
-  it("PARENT yalnızca KENDİ çocuğunu bulur — başka bir öğrenciyi tam adıyla arasa bile 'none' döner", async () => {
+  it("veli (STUDENT rolü) yalnızca KENDİ çocuğunu bulur — başka bir öğrenciyi tam adıyla arasa bile 'none' döner", async () => {
+    const parentCtx = ctx({ role: "STUDENT", studentId: "s1" });
+    await grantStudentAccess(parentCtx, "s1", "GUARDIAN");
     const res = await findPersonScheduleTool(
-      ctx({ role: "PARENT", studentId: "s1" }),
+      parentCtx,
       { query: "Emir Çelik" } // s2 — başka bir öğrenci
     );
     expect(res.ok).toBe(true);
@@ -88,8 +93,10 @@ describe("findPersonScheduleTool — rol bazlı erişim kapsamı (canAccessStude
     expect(res.data.matchType).toBe("none");
   });
 
-  it("PARENT kendi çocuğunu adıyla bulabilir", async () => {
-    const res = await findPersonScheduleTool(ctx({ role: "PARENT", studentId: "s1" }), {
+  it("veli (STUDENT rolü, GUARDIAN erişimi) kendi çocuğunu adıyla bulabilir", async () => {
+    const parentCtx = ctx({ role: "STUDENT", studentId: "s1" });
+    await grantStudentAccess(parentCtx, "s1", "GUARDIAN");
+    const res = await findPersonScheduleTool(parentCtx, {
       query: "Zeynep Arslan",
     });
     expect(res.ok).toBe(true);

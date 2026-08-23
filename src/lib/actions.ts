@@ -30,6 +30,7 @@ import {
   updatePaymentTool,
   createStudentTool,
   updateStudentProfileTool,
+  provisionStudentPortalAccessTool,
   updateStudentPaymentProfileTool,
   archiveStudentTool,
   listStudentListViewsTool,
@@ -68,6 +69,7 @@ import {
   markTeacherPayoutPaidTool,
   updateFeeRoundingModeTool,
   updateMakeupWindowDaysTool,
+  updateMonthlyMakeupAllowanceTool,
   updateTermWeeklyClosedDaysTool,
   findAvailableSlotsTool,
   markAttendanceTool,
@@ -147,6 +149,8 @@ function revalidateAll() {
   revalidatePath("/panel/kurulum");
   revalidatePath("/veli");
   revalidatePath("/ogretmen");
+  revalidatePath("/ogretmen/program");
+  revalidatePath("/ogrenci");
 }
 
 function assertOk<T>(result: { ok: true; data: T } | { ok: false; error: { message: string } }): T {
@@ -534,6 +538,17 @@ export async function actionAddStudent(formData: FormData) {
             const raw = String(formData.get("paymentDueDay") || "");
             return raw ? Number(raw) : undefined;
           })(),
+          accountResponsibility: (() => {
+            const raw = String(formData.get("accountResponsibility") || "");
+            return raw === "SELF_MANAGED" || raw === "PARENT_MANAGED" ? raw : undefined;
+          })(),
+          // Karma Öğrenci Portalı — bu form (plain <form action=...>, dönüş
+          // değeri UI'ya asla ulaşmaz) BİLİNÇLİ OLARAK giriş hesabı AÇMAZ —
+          // tempLoginPassword burada üretilse admin'e hiç gösterilemez ve
+          // hesap kalıcı olarak kullanılamaz kalırdı. Portal erişimi
+          // YALNIZCA düzenleme ekranındaki `actionProvisionStudentPortalAccess`
+          // (şifreyi bir kez, React state'te gösteren) üzerinden verilir.
+          createPortalAccess: false,
         })
       );
 
@@ -601,6 +616,7 @@ export async function actionUpdateStudentProfile(input: {
   discountType?: "percentage" | "fixed";
   discountValue?: number;
   paymentAmount?: number;
+  accountResponsibility?: "PARENT_MANAGED" | "SELF_MANAGED";
 }): Promise<UpdateStudentProfileActionResult> {
   try {
     const result = await withAuthContext("actionUpdateStudentProfile", (ctx) =>
@@ -613,6 +629,35 @@ export async function actionUpdateStudentProfile(input: {
     logger.error("actionUpdateStudentProfile failed", error);
     if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
     return { ok: false, message: "Öğrenci profili güncellenirken beklenmeyen bir hata oluştu." };
+  }
+}
+
+export type ProvisionStudentPortalAccessResult =
+  | { ok: true; tempLoginPassword?: string }
+  | { ok: false; message: string };
+
+/**
+ * Karma Öğrenci Portalı — öğrenci düzenleme ekranından "Portal erişimi
+ * oluştur / davet gönder" aksiyonu. Bilinçli, ayrı bir admin tetikleyicisi
+ * (task #34) — kayıt oluşturmadaki `createPortalAccess` checkbox'ından
+ * bağımsız, sonradan da tetiklenebilir.
+ */
+export async function actionProvisionStudentPortalAccess(input: {
+  studentId: string;
+  email: string;
+  accessType: "GUARDIAN" | "SELF";
+}): Promise<ProvisionStudentPortalAccessResult> {
+  try {
+    const result = await withAuthContext("actionProvisionStudentPortalAccess", (ctx) =>
+      provisionStudentPortalAccessTool(ctx, input)
+    );
+    if (!result.ok) return { ok: false, message: result.error.message };
+    revalidateAll();
+    return { ok: true, tempLoginPassword: result.data.tempLoginPassword };
+  } catch (error) {
+    logger.error("actionProvisionStudentPortalAccess failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "Portal erişimi oluşturulurken beklenmeyen bir hata oluştu." };
   }
 }
 
@@ -1971,6 +2016,28 @@ export async function actionUpdateMakeupWindowDays(
     if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
     if (error instanceof WriteScopeDeniedError) return { ok: false, message: error.message };
     return { ok: false, message: "Telafi politika penceresi güncellenirken beklenmeyen bir hata oluştu." };
+  }
+}
+
+export type UpdateMonthlyMakeupAllowanceActionResult =
+  | { ok: true; monthlyMakeupAllowance: number }
+  | { ok: false; message: string };
+
+export async function actionUpdateMonthlyMakeupAllowance(
+  monthlyMakeupAllowance: number
+): Promise<UpdateMonthlyMakeupAllowanceActionResult> {
+  try {
+    const result = await withAuthContext("actionUpdateMonthlyMakeupAllowance", (ctx) =>
+      updateMonthlyMakeupAllowanceTool(ctx, { monthlyMakeupAllowance })
+    );
+    if (!result.ok) return { ok: false, message: result.error.message };
+    revalidateAll();
+    return { ok: true, monthlyMakeupAllowance: result.data.monthlyMakeupAllowance };
+  } catch (error) {
+    logger.error("actionUpdateMonthlyMakeupAllowance failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    if (error instanceof WriteScopeDeniedError) return { ok: false, message: error.message };
+    return { ok: false, message: "Aylık telafi hakkı güncellenirken beklenmeyen bir hata oluştu." };
   }
 }
 

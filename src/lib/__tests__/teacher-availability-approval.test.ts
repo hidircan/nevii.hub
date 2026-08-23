@@ -63,7 +63,7 @@ describe("proposeTeacherAvailabilityTool — TEACHER kendi müsaitliğini DOĞRU
 
   it("PARENT/STUDENT öneri oluşturamaz", async () => {
     const asParent = await proposeTeacherAvailabilityTool(
-      ctx({ role: "PARENT", teacherId: undefined }),
+      ctx({ role: "STUDENT", teacherId: undefined }),
       VALID_PROPOSAL
     );
     expect(asParent.ok).toBe(false);

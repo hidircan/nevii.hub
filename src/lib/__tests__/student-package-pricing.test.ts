@@ -239,7 +239,7 @@ describe("Package C — updateStudentPaymentProfileTool", () => {
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.error.code).toBe("FORBIDDEN");
 
-    const res2 = await updateStudentPaymentProfileTool(ctx({ role: "PARENT", studentId }), {
+    const res2 = await updateStudentPaymentProfileTool(ctx({ role: "STUDENT", studentId }), {
       studentId,
       paymentDueDay: 10,
     });

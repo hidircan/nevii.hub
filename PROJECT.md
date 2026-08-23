@@ -24,7 +24,7 @@ occupancy, parent secretary). The first pilot school — **Nilüfer Acar Müzik 
 is live in the seed data and drives every product decision.
 
 Technically, NotaPlan is a **Next.js 16 + React 19 + TypeScript** application on **Vercel-ready
-serverless**, with **Prisma 7 (MySQL/MariaDB)** persistence, a **tenant-scoped REST API (v1)**,
+serverless**, with **Prisma 7 (PostgreSQL, `@prisma/adapter-pg`)** persistence, a **tenant-scoped REST API (v1)**,
 a **JWT + RBAC** authorization layer, and an **Agent Runtime** that exposes a guardrailed
 tool registry (15 tools today) to an LLM orchestrator, a **Workflow Engine** (6 autonomous jobs),
 and a **scoped Memory Layer** with optional vector storage.
@@ -91,7 +91,7 @@ paying customers is the prerequisite for a credible platform (see `PRODUCT_ROADM
    phone. Complexity is deferred to the platform, never surfaced to the user.
 6. **Demo first, production next.** The product supports a one-click demo dataset and
    store modes that let a sales demo run with zero infrastructure, while the same code paths
-   scale to MySQL-backed production (mode-parity is a hard requirement).
+   scale to PostgreSQL-backed production (mode-parity is a hard requirement).
 
 ---
 
@@ -185,7 +185,7 @@ UI (panel / portals)          REST API v1 (withApiHandler)
    Store layer (readData / cases / workflows)  ◄── LLM Orchestrator (plan → execute → narrate)
         │                                   │
         ▼                                   ▼
-   Prisma (MySQL/MariaDB) · JSON/memory    LLM providers (OpenAI / Grok / Gemini / local / heuristic)
+   Prisma (PostgreSQL, @prisma/adapter-pg) · JSON/memory    LLM providers (OpenAI / Grok / Gemini / local / heuristic)
 ```
 
 ### 8.2 The three AI execution surfaces
@@ -299,7 +299,7 @@ Chat / Workflow / external channel
 | Mode | Backend | Use |
 |------|---------|-----|
 | `json` | local file (`./data`) or `/tmp/notaplan-data` on Vercel | demos, local dev, tests |
-| `db` | Prisma → MySQL/MariaDB (`DATABASE_URL`) | production persistence |
+| `db` | Prisma → PostgreSQL via `@prisma/adapter-pg` (`DATABASE_URL`) | production persistence |
 | `memory` | in-process seed | serverless demo without disk |
 
 All three implement the same tenant-scoped `StoreApi`; the AI platform's own stores
@@ -327,7 +327,7 @@ All three implement the same tenant-scoped `StoreApi`; the AI platform's own sto
 | Framework | **Next.js 16** (App Router, React 19) | Serverless-ready; middleware route guards |
 | Language | **TypeScript 5** (strict) | `tsc --noEmit` as typecheck gate |
 | Styling | **Tailwind CSS 4** + `clsx`/`tailwind-merge` | `@tailwindcss/postcss` |
-| Persistence | **Prisma 7** + **`@prisma/adapter-mariadb`**, MySQL/MariaDB | `prisma validate` + `db:push`; migration history pending |
+| Persistence | **Prisma 7** + **`@prisma/adapter-pg`** (`pg` `Pool`), PostgreSQL | `prisma validate` + `prisma migrate deploy`; migration history under `prisma/migrations/` |
 | Runtime stores | `json` / `db` / `memory` via `STORE_MODE` | Parity contract |
 | Auth | **jose** (JWT access/refresh), **bcryptjs** password hashing | RBAC in `src/lib/auth/rbac.ts` |
 | Validation | **zod** | API payloads + tool schemas |
@@ -339,11 +339,13 @@ All three implement the same tenant-scoped `StoreApi`; the AI platform's own sto
 | Deploy | **Vercel** (framework preset) | `vercel.json`; `prebuild` runs `prisma generate` |
 
 Versions are pinned in `package.json` (Next 16.2.10, React 19.2.4, Prisma 7.8.x,
-@prisma/adapter-mariadb 7.9.1, Tailwind 4, vitest 4.1.10).
+@prisma/adapter-pg 7.9.1, Tailwind 4, vitest 4.1.10).
 
-> Note: the canonical DB dialect is MySQL/MariaDB (Prisma `provider = "mysql"`). `DATABASE_ARCHITECTURE.md`
-> documents the PostgreSQL migration path for future scale if vector search (pgvector) and
-> managed Postgres warrant it.
+> Note: the canonical DB dialect is **PostgreSQL** (`prisma/schema.prisma` → `datasource db { provider
+> = "postgresql" }`; runtime connects via `@prisma/adapter-pg` + `pg`, see `src/lib/db.ts`).
+> **Legacy:** this project ran on MySQL/MariaDB earlier in its history — `DATABASE_ARCHITECTURE.md`
+> and some older migration files still reflect that dialect and have not been updated; do not treat
+> them as the current source of truth for the DB dialect.
 
 ---
 
@@ -425,8 +427,8 @@ Versions are pinned in `package.json` (Next 16.2.10, React 19.2.4, Prisma 7.8.x,
 | **Query patterns** | Tenant-first composite indexes present on major models | Index coverage for every tenant-scoped read/write; no filesort scans |
 | **Autonomous jobs** | Single-process tick; workflow state not yet tenant-scoped | Durable, per-tenant scheduling with dead-letter handling |
 | **AI cost** | Per-execution `billableUnits` recorded | Tenant-attributed budgets, rate limiting, token budgets |
-| **Data** | JSON files + MySQL | MariaDB now; PostgreSQL/pgvector path for semantic search at scale |
-| **Testing at scale** | File-mode unit tests (27) | MariaDB CI integration tests for store parity |
+| **Data** | JSON files + PostgreSQL (legacy: MySQL/MariaDB) | pgvector path for semantic search at scale |
+| **Testing at scale** | File-mode unit tests (27) | PostgreSQL CI integration tests for store parity |
 
 Key non-negotiables: **tenant isolation at every scale**, **statelessness** (shared nothing
 except the DB), and **identical behavior** across store modes.

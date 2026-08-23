@@ -79,30 +79,35 @@ describe("EPIC 7 — computeTrend", () => {
 });
 
 describe("EPIC 7 — canViewParentPrivateNote / stripPrivateNoteForRecipient", () => {
-  it("PARENT/SCHOOL_ADMIN/SUPER_ADMIN/TEACHER/AI_AGENT her zaman görür", () => {
-    for (const role of ["PARENT", "SCHOOL_ADMIN", "SUPER_ADMIN", "TEACHER", "AI_AGENT"]) {
+  it("SCHOOL_ADMIN/SUPER_ADMIN/TEACHER/AI_AGENT her zaman görür", () => {
+    for (const role of ["SCHOOL_ADMIN", "SUPER_ADMIN", "TEACHER", "AI_AGENT"]) {
       expect(canViewParentPrivateNote(role, false)).toBe(true);
     }
   });
 
-  it("henüz var olmayan bir STUDENT rolü, parentNoteVisibleToStudent=false iken göremez", () => {
+  it("Karma Öğrenci Portalı — STUDENT rolü + accessType=GUARDIAN (eski PARENT rolünün karşılığı) her zaman görür", () => {
+    expect(canViewParentPrivateNote("STUDENT", false, "GUARDIAN")).toBe(true);
+  });
+
+  it("STUDENT rolü + accessType=SELF (öğrencinin kendisi), parentNoteVisibleToStudent=false iken göremez", () => {
+    expect(canViewParentPrivateNote("STUDENT", false, "SELF")).toBe(false);
     expect(canViewParentPrivateNote("STUDENT", false)).toBe(false);
   });
 
-  it("STUDENT rolü, öğretmen açıkça izin verdiyse (parentNoteVisibleToStudent=true) görebilir", () => {
-    expect(canViewParentPrivateNote("STUDENT", true)).toBe(true);
+  it("STUDENT rolü + accessType=SELF, öğretmen açıkça izin verdiyse (parentNoteVisibleToStudent=true) görebilir", () => {
+    expect(canViewParentPrivateNote("STUDENT", true, "SELF")).toBe(true);
   });
 
-  it("stripPrivateNoteForRecipient: izinsiz alıcı için parentPrivateNote yanıttan TAMAMEN çıkarılır", () => {
+  it("stripPrivateNoteForRecipient: izinsiz alıcı (SELF) için parentPrivateNote yanıttan TAMAMEN çıkarılır", () => {
     const a = assessment({ parentNoteVisibleToStudent: false });
-    const stripped = stripPrivateNoteForRecipient(a, "STUDENT");
+    const stripped = stripPrivateNoteForRecipient(a, "STUDENT", "SELF");
     expect(stripped.parentPrivateNote).toBeUndefined();
     expect("parentPrivateNote" in stripped).toBe(true); // alan var ama değeri undefined — response'ta hiç görünmemeli (JSON.stringify düşürür)
   });
 
-  it("stripPrivateNoteForRecipient: izinli alıcı için not olduğu gibi kalır", () => {
+  it("stripPrivateNoteForRecipient: izinli alıcı (GUARDIAN) için not olduğu gibi kalır", () => {
     const a = assessment({ parentPrivateNote: "gizli not" });
-    const kept = stripPrivateNoteForRecipient(a, "PARENT");
+    const kept = stripPrivateNoteForRecipient(a, "STUDENT", "GUARDIAN");
     expect(kept.parentPrivateNote).toBe("gizli not");
   });
 });

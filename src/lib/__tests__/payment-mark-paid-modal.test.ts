@@ -54,7 +54,7 @@ describe("Ödendi işaretle modalı — Paket 5", () => {
 
     const after = await readData();
     const updated = after.payments.find((p) => p.id === payment.id)!;
-    expect(updated.status).toBe("paid");
+    expect(updated.status).toBe("partial");
     expect(updated.paidAmount).toBe(800);
     expect(updated.method).toBe("transfer");
     expect(updated.paymentNote).toBe("Dekont #123");

@@ -7,12 +7,12 @@ import {
   CreditCard,
   RefreshCcw,
   GraduationCap,
-  Sparkles,
   Wallet,
 } from "lucide-react";
-import { Badge, Button, Card, PageHeader, StatCard } from "@/components/ui";
+import { Badge, Card, PageHeader, StatCard } from "@/components/ui";
 import { getDashboardStats } from "@/lib/store";
 import { actionResetDemo } from "@/lib/actions";
+import { SetupResetAction } from "@/components/setup-reset-action";
 import { formatDateTime, formatMoney, formatTime, isOutstandingPaymentStatus } from "@/lib/utils";
 import { buildDemoMessages } from "@/lib/whatsapp-templates";
 import { computeSetupProgress } from "@/lib/setup-progress";
@@ -124,7 +124,7 @@ export default async function DashboardPage() {
   if (pendingMessageCount > 0) {
     actionCards.push({
       key: "bildirim",
-      href: "/panel/bildirimler",
+      href: "/panel/iletisim-merkezi",
       label: "Bekleyen WhatsApp mesajı",
       detail: `${pendingMessageCount} mesaj`,
       tone: "info",
@@ -139,17 +139,18 @@ export default async function DashboardPage() {
         title="Günlük özet"
         actions={
           <>
-            <Link href="/panel/telafi">
-              <Button>
-                <Sparkles className="h-4 w-4" />
-                Telafi Merkezi
-              </Button>
-            </Link>
-            <form action={actionResetDemo}>
-              <Button type="submit" variant="secondary">
-                Demo verisini sıfırla
-              </Button>
-            </form>
+            <SetupResetAction
+              action={actionResetDemo}
+              triggerLabel="Demo verisini sıfırla"
+              triggerVariant="secondary"
+              title="Demo verisi sıfırlansın mı?"
+              bullets={[
+                "Mevcut tüm öğretmen/öğrenci/ders/ödeme kayıtları silinir.",
+                "Yerine örnek demo verisi (Nilüfer Acar Müzik Akademisi) yüklenir.",
+                "Bu işlem geri alınamaz.",
+              ]}
+              confirmLabel="Demo verisini sıfırla"
+            />
           </>
         }
       />

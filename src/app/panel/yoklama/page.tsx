@@ -31,7 +31,6 @@ export default async function YoklamaPage({
     redirect("/login?next=/panel/yoklama");
   }
   if (session.role === "TEACHER") redirect("/ogretmen");
-  if (session.role === "PARENT") redirect("/veli");
   if (session.role === "STUDENT") redirect("/ogrenci");
 
   const kurum = await getInstitutionContext(session);

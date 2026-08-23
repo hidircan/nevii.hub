@@ -47,7 +47,6 @@ const ALL: AppRole[] = [
   "SUPER_ADMIN",
   "SCHOOL_ADMIN",
   "TEACHER",
-  "PARENT",
   "STUDENT",
   "AI_AGENT",
 ];
@@ -208,7 +207,7 @@ export const TOOL_REGISTRY: Record<AgentToolName, ToolDefinition<any, any>> = {
       payments: z.array(z.unknown()),
       outstanding: z.number(),
     }),
-    requiredRoles: ["SUPER_ADMIN", "SCHOOL_ADMIN", "PARENT", "AI_AGENT"],
+    requiredRoles: ["SUPER_ADMIN", "SCHOOL_ADMIN", "STUDENT", "AI_AGENT"],
     execute: (ctx, input) => getParentBalanceTool(ctx, input),
   },
   createPayment: {

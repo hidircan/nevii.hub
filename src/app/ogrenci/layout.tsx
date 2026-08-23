@@ -15,7 +15,6 @@ export default async function OgrenciLayout({ children }: { children: React.Reac
     redirect("/login?next=/ogrenci");
   }
   if (session.role === "TEACHER") redirect("/ogretmen");
-  if (session.role === "PARENT") redirect("/veli");
 
   const [user, jar] = await Promise.all([getUserById(session.userId), cookies()]);
   const density = normalizeDensity(jar.get(DENSITY_COOKIE)?.value);

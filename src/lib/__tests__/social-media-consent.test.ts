@@ -114,7 +114,7 @@ describe("Veli onamı — durum, tarih, kapsam, belge bağlantısı", () => {
   });
 
   it("yalnız yönetici onam oluşturup güncelleyebilir — TEACHER/PARENT/STUDENT reddedilir", async () => {
-    for (const role of ["TEACHER", "PARENT", "STUDENT"] as const) {
+    for (const role of ["TEACHER", "STUDENT", "STUDENT"] as const) {
       const res = await setSocialMediaConsentTool(ctx({ role, teacherId: "t1", studentId: "s1" }), {
         studentId: "s1",
         status: "granted",

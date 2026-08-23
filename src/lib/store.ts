@@ -164,6 +164,7 @@ type StoreApi = {
   markTeacherPayoutPaid: (payoutId: string, method?: string) => Promise<MarkPayoutPaidResult>;
   updateFeeRoundingMode: (feeRoundingMode: FeeRoundingMode) => Promise<AppData>;
   updateMakeupWindowDays: (makeupWindowDays: number) => Promise<AppData>;
+  updateMonthlyMakeupAllowance: (monthlyMakeupAllowance: number) => Promise<AppData>;
   updateCollectionsSettings: (collectionsSettings: CollectionsSettings) => Promise<AppData>;
   updateTermWeeklyClosedDays: (termWeeklyClosedDays: { guz: number[]; yaz: number[] }) => Promise<AppData>;
   getDashboardStats: (data: AppData) => ReturnType<typeof jsonStore.getDashboardStats>;
@@ -522,6 +523,10 @@ export async function updateFeeRoundingMode(feeRoundingMode: FeeRoundingMode): P
 
 export async function updateMakeupWindowDays(makeupWindowDays: number): Promise<AppData> {
   return withTenantScope(() => store.updateMakeupWindowDays(makeupWindowDays));
+}
+
+export async function updateMonthlyMakeupAllowance(monthlyMakeupAllowance: number): Promise<AppData> {
+  return withTenantScope(() => store.updateMonthlyMakeupAllowance(monthlyMakeupAllowance));
 }
 
 export async function updateCollectionsSettings(

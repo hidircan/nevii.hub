@@ -73,23 +73,30 @@ export function computeTrend(assessments: LessonAssessment[], limit = 4): Assess
 }
 
 /**
- * EPIC 6A'dan önce ayrı bir STUDENT rolü yok — bu yüzden `role` düz string
- * alır (AppRole'e sıkı bağlı değil, forward-compat). Bugün var olan tüm
- * roller (TEACHER/PARENT/admin'ler/AI_AGENT) notu her zaman görür; yalnızca
- * henüz var olmayan bir "STUDENT" rolü, öğretmen açıkça izin vermedikçe
- * (parentNoteVisibleToStudent) görmez.
+ * `role` düz string alır (AppRole'e sıkı bağlı değil, forward-compat).
+ * Admin/öğretmen/AI_AGENT notu her zaman görür. Karma Öğrenci Portalı —
+ * "veli" artık ayrı bir rol değil (STUDENT + accessType=GUARDIAN), bu
+ * yüzden `accessType` AYRICA parametre olarak alınır: GUARDIAN her zaman
+ * görür (eski PARENT rolünün davranışı), SELF (öğrencinin kendisi) yalnızca
+ * öğretmen açıkça izin verdiyse (parentNoteVisibleToStudent) görür.
  */
-export function canViewParentPrivateNote(role: string, parentNoteVisibleToStudent: boolean): boolean {
-  const alwaysAllowed = ["PARENT", "SCHOOL_ADMIN", "SUPER_ADMIN", "TEACHER", "AI_AGENT"];
+export function canViewParentPrivateNote(
+  role: string,
+  parentNoteVisibleToStudent: boolean,
+  accessType?: "GUARDIAN" | "SELF"
+): boolean {
+  const alwaysAllowed = ["SCHOOL_ADMIN", "SUPER_ADMIN", "TEACHER", "AI_AGENT"];
   if (alwaysAllowed.includes(role)) return true;
+  if (role === "STUDENT" && accessType === "GUARDIAN") return true;
   return parentNoteVisibleToStudent;
 }
 
 /** parentPrivateNote'u yanıttan TAMAMEN çıkarır (yalnızca UI'da gizlemez) — bkz. canViewParentPrivateNote. */
 export function stripPrivateNoteForRecipient(
   assessment: LessonAssessment,
-  role: string
+  role: string,
+  accessType?: "GUARDIAN" | "SELF"
 ): LessonAssessment {
-  if (canViewParentPrivateNote(role, assessment.parentNoteVisibleToStudent)) return assessment;
+  if (canViewParentPrivateNote(role, assessment.parentNoteVisibleToStudent, accessType)) return assessment;
   return { ...assessment, parentPrivateNote: undefined };
 }

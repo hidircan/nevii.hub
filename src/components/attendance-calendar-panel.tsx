@@ -71,6 +71,8 @@ type LessonPaymentInfo = {
   paidAmount: number;
   /** "Tutar kayıt tarihi" — bu tutarın sisteme kaydedildiği tarih-saat. */
   recordedAt: string;
+  /** GERÇEK tahsilat anı — yalnızca status=paid'de dolu, recordedAt'tan AYRI. */
+  paidAt?: string;
   method?: string;
   methodIsStudentDefault: boolean;
   status: string;
@@ -888,16 +890,21 @@ function DayDetail({
                 {p.status === "voided" ? (
                   <p className="text-[var(--color-text-muted)]">Ders iptal edildiği için tahsilat iptal edildi.</p>
                 ) : p.status === "paid" ? (
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-semibold text-emerald-700 dark:text-emerald-400">
-                      Tahsil edildi — {formatMoneyTL(p.amount)}
-                    </span>
-                    <Link
-                      href={`/makbuz/${p.paymentId}`}
-                      className="font-medium text-[var(--color-primary)] hover:underline"
-                    >
-                      Makbuz →
-                    </Link>
+                  <div className="space-y-0.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-semibold text-emerald-700 dark:text-emerald-400">
+                        Tahsil edildi — {formatMoneyTL(p.amount)}
+                      </span>
+                      <Link
+                        href={`/makbuz/${p.paymentId}`}
+                        className="font-medium text-[var(--color-primary)] hover:underline"
+                      >
+                        Makbuz →
+                      </Link>
+                    </div>
+                    {p.paidAt ? (
+                      <p className="text-[var(--color-text-muted)]">Ödeme tarihi: {formatRecordedAt(p.paidAt)}</p>
+                    ) : null}
                   </div>
                 ) : (
                   <div className="space-y-1">

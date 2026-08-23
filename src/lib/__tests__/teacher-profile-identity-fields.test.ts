@@ -68,7 +68,7 @@ describe("updateTeacherProfileTool — kayıt kimliği alanları (bu sprint)", (
     const before = await readData();
     const target = before.teachers[0];
 
-    const result = await updateTeacherProfileTool(ctx({ role: "PARENT" }), {
+    const result = await updateTeacherProfileTool(ctx({ role: "STUDENT" }), {
       teacherId: target.id,
       email: "yetkisiz@example.com",
     });

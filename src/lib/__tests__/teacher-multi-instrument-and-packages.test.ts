@@ -183,7 +183,7 @@ describe("ÖNCELİK 4 (devam) — Paket Yönetimi", () => {
     });
     expect(res1.ok).toBe(false);
 
-    const res2 = await createPackageTool(ctx({ role: "PARENT", studentId: "s1" }), {
+    const res2 = await createPackageTool(ctx({ role: "STUDENT", studentId: "s1" }), {
       title: "X",
       price30Min: 100,
       price40Min: 100,
@@ -311,7 +311,7 @@ describe("ÖNCELİK 4 (devam) — sosyal medya izni (mevcut SocialMediaConsent m
   });
 
   it("PARENT/STUDENT rolü sosyal medya izni set edemez (RBAC)", async () => {
-    const res = await setSocialMediaConsentTool(ctx({ role: "PARENT", studentId: "s1" }), {
+    const res = await setSocialMediaConsentTool(ctx({ role: "STUDENT", studentId: "s1" }), {
       studentId: "s1",
       status: "granted",
       representativeName: "Veli",

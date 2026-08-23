@@ -132,13 +132,20 @@ export function CommandPalette({ role }: { role?: AppRole }) {
   // Türkçe/ASCII toleranslı varlık araması — debounce'lı, tenant-scoped
   // `/api/v1/search`; eski isteğin sonucu yeni sorgunun üstüne yazmasın diye
   // her isteğe artan bir sıra numarası verilip yalnız SONUNCUSU uygulanır.
+  // 1 karakterlik sorgu her tuş vuruşunda tüm öğrenci/öğretmen/personel
+  // listesine karşı geniş bir server-side taramayı tetikler; 2 karakter
+  // altını yerel sayfa/aksiyon eşleşmesine bırakıp entity fetch'ini atla.
+  // `entityItems`/`entityLoading` state'i yalnız aktif bir arama sırasında
+  // anlamlı — pasif durumda ham state'i effect içinde senkron temizlemek
+  // yerine (render'da kademeli re-render yaratan bir setState-in-effect
+  // deseni) render sırasında türetilmiş "efektif" değerler kullanılır.
+  const activeSearch = open && query.trim().length >= 2;
+  const effectiveEntityItems = activeSearch ? entityItems : [];
+  const effectiveEntityLoading = activeSearch ? entityLoading : false;
+
   useEffect(() => {
     const q = query.trim();
-    if (!open || !q) {
-      setEntityItems([]);
-      setEntityLoading(false);
-      return;
-    }
+    if (!open || q.length < 2) return;
     setEntityLoading(true);
     const seq = ++requestSeqRef.current;
     const timer = setTimeout(async () => {
@@ -199,7 +206,7 @@ export function CommandPalette({ role }: { role?: AppRole }) {
 
     if (q) {
       const byKind = (kind: EntityItem["kind"], title: string) => {
-        const items = entityItems.filter((i) => i.kind === kind);
+        const items = effectiveEntityItems.filter((i) => i.kind === kind);
         if (items.length === 0) return;
         result.push({
           title,
@@ -219,14 +226,21 @@ export function CommandPalette({ role }: { role?: AppRole }) {
 
     return result.filter((s) => s.options.length > 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, role, entityItems]);
+  }, [query, role, effectiveEntityItems]);
 
   const flat = useMemo(() => sections.flatMap((s) => s.options), [sections]);
   const totalResults = flat.length;
 
-  useEffect(() => {
+  // Reset the highlighted result when the result set changes shape (new query
+  // or a different section count) — adjusted synchronously during render
+  // (React's documented pattern for this) instead of a post-commit effect,
+  // which avoided an extra cascading render on every keystroke.
+  const resultsKey = `${query}:${sections.length}`;
+  const [prevResultsKey, setPrevResultsKey] = useState(resultsKey);
+  if (resultsKey !== prevResultsKey) {
+    setPrevResultsKey(resultsKey);
     setActiveIndex(0);
-  }, [sections.length, query]);
+  }
 
   function onInputKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === "ArrowDown") {
@@ -241,7 +255,7 @@ export function CommandPalette({ role }: { role?: AppRole }) {
     }
   }
 
-  const isEmpty = query.trim().length > 0 && !entityLoading && totalResults === 0;
+  const isEmpty = query.trim().length > 0 && !effectiveEntityLoading && totalResults === 0;
 
   return (
     <>
@@ -354,7 +368,7 @@ export function CommandPalette({ role }: { role?: AppRole }) {
                   </div>
                 ))
               )}
-              {entityLoading ? (
+              {effectiveEntityLoading ? (
                 <p className="px-3 py-2 text-xs" style={{ color: "var(--color-text-muted)" }}>
                   Aranıyor…
                 </p>

@@ -94,8 +94,20 @@ export default async function NewStudentPage() {
                   <Input name="phone" placeholder="05xx xxx xxxx" />
                 </div>
               </div>
+              <div>
+                <Label>Ödeme/iletişim muhatabı</Label>
+                <Select name="accountResponsibility" defaultValue="PARENT_MANAGED">
+                  <option value="PARENT_MANAGED">Veli (varsayılan)</option>
+                  <option value="SELF_MANAGED">Öğrencinin kendisi</option>
+                </Select>
+              </div>
             </div>
           </Card>
+
+          <p className="rounded-lg border border-dashed border-[var(--color-border)] px-3 py-2 text-xs text-[var(--color-text-muted)]">
+            Bu ekranda giriş hesabı oluşturulmaz. Öğrenci kaydedildikten sonra, düzenleme ekranındaki &ldquo;Öğrenci
+            Portalı erişimi&rdquo; bölümünden davet gönderin — geçici şifre yalnızca o an, bir kez gösterilir.
+          </p>
 
           <Card>
             <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-[var(--color-primary)]">

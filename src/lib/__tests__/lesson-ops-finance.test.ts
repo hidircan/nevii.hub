@@ -278,7 +278,7 @@ describe("Ders iptali — yoklama akışından doğmayan geçmiş kaydı yanlı�
 describe("Mali ayrım — RBAC (mevcut setLessonOpsFlagTool kurallarını miras alır)", () => {
   it("PARENT/STUDENT yoklama işaretleyemez, dolayısıyla mali kayıt da tetiklenmez", async () => {
     const lessonId = await createTestLesson();
-    const res = await setLessonOpsFlagTool(ctx({ role: "PARENT", studentId: "s1" }), {
+    const res = await setLessonOpsFlagTool(ctx({ role: "STUDENT", studentId: "s1" }), {
       lessonId,
       flag: "attended",
     });

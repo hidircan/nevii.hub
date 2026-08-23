@@ -40,7 +40,6 @@ export default async function TeacherOwnProgramPage({
   } catch {
     redirect("/login?next=/ogretmen/program");
   }
-  if (session.role === "PARENT") redirect("/veli");
 
   const data = await readData();
   const teacherId = session.teacherId;

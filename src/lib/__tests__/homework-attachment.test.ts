@@ -40,7 +40,7 @@ describe("Ödev — öğretmenin dosya/foto/video eklemesi (Paket 7)", () => {
   });
 
   it("geçerli bir jpeg dosyasıyla ödev oluşturulabilir ve öğrenci indirebilir", async () => {
-    const fileData = Buffer.from("fake image bytes").toString("base64");
+    const fileData = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.from("fake image bytes")]).toString("base64");
     const res = await createHomeworkTool(teacherCtx(), {
       ...BASE,
       fileName: "gam.jpg",
@@ -76,7 +76,7 @@ describe("Ödev — öğretmenin dosya/foto/video eklemesi (Paket 7)", () => {
   });
 
   it("başka bir öğrencinin ödev dosyasına erişim reddedilir (tenant/sahiplik kontrolü)", async () => {
-    const fileData = Buffer.from("fake").toString("base64");
+    const fileData = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.from("fake")]).toString("base64");
     const created = await createHomeworkTool(teacherCtx(), {
       ...BASE,
       fileName: "gam.jpg",

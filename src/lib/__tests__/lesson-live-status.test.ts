@@ -241,7 +241,7 @@ describe("startLessonTool / endLessonTool — TEACHER yalnızca kendi dersi", ()
   });
 
   it("PARENT/STUDENT dersi başlatamaz", async () => {
-    const asParent = await startLessonTool(ctx({ role: "PARENT", teacherId: undefined }), { lessonId: "l8" });
+    const asParent = await startLessonTool(ctx({ role: "STUDENT", teacherId: undefined }), { lessonId: "l8" });
     expect(asParent.ok).toBe(false);
     if (!asParent.ok) expect(asParent.error.code).toBe("FORBIDDEN");
 

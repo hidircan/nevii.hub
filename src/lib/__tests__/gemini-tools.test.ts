@@ -33,8 +33,8 @@ describe("buildGeminiToolDescriptors — kayıtlı olmayan araçları asla fırl
 });
 
 describe("buildGeminiToolDescriptorsForRole — rol filtresi", () => {
-  it("PARENT rolü yalnızca kendi kapsamındaki aracı görür (getStudentSchedule: ALL, getTeacherSchedule: STAFF)", () => {
-    const descriptors = buildGeminiToolDescriptorsForRole("attendanceDailySummary", "PARENT");
+  it("STUDENT rolü (veli/öğrenci) yalnızca kendi kapsamındaki aracı görür (getStudentSchedule: ALL, getTeacherSchedule: STAFF)", () => {
+    const descriptors = buildGeminiToolDescriptorsForRole("attendanceDailySummary", "STUDENT");
     expect(descriptors.map((d) => d.name)).toEqual(["getStudentSchedule"]);
   });
 

@@ -17,7 +17,7 @@ export default async function TrialLessonsPage() {
   } catch {
     redirect("/login?next=/panel/deneme");
   }
-  if (session.role === "PARENT" || session.role === "STUDENT") redirect("/login");
+  if (session.role === "STUDENT") redirect("/login");
 
   const data = await readData();
   const result = await listTrialLessonsTool(session);

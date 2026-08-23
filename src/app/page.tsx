@@ -129,10 +129,10 @@ export default async function LandingPage() {
             <ArrowRight className="h-4 w-4" />
           </Link>
           <Link
-            href="/login?next=/veli"
+            href="/login?next=/ogrenci"
             className="inline-flex items-center gap-2 rounded-xl border border-white/15 bg-[var(--color-surface)]/5 px-5 py-3 text-sm font-medium hover:bg-[var(--color-surface)]/10"
           >
-            Veli portalı
+            Öğrenci portalı
           </Link>
           <Link
             href="/login?next=/ogretmen"

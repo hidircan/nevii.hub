@@ -296,6 +296,22 @@ function formatCapabilityNarration(capabilityId: AiCapabilityId, context: Record
       if (top.length) parts.push(`öncelikli: ${top.join(", ")}`);
       return parts.join(", ") + ".";
     }
+    case "feedbackSummary": {
+      const responseCount = num(context.responseCount) ?? 0;
+      const averages = asRecord(context.criteriaAverages) ?? {};
+      const labels = asRecord(context.criteriaLabels) ?? {};
+      const themes = asArray(context.themes).map((t) => str(t)).filter((t): t is string => Boolean(t));
+      const avgLine = Object.entries(averages)
+        .map(([key, value]) => `${str(labels[key]) ?? key}: ${value}/5`)
+        .join(", ");
+      return [
+        "Genel eğilim",
+        `${responseCount} değerlendirme üzerinden kriter ortalamaları: ${avgLine || "veri yok"}.`,
+        "",
+        "Tekrarlayan temalar",
+        themes.length > 0 ? themes.join(", ") : "belirgin bir tekrar eden tema yok",
+      ].join("\n");
+    }
   }
 }
 

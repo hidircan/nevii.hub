@@ -9,7 +9,7 @@ describe("executeWithProvider — fail closed (planAiInvocation reddi)", () => {
       executeWithProvider(
         "collectionsROIReport",
         { prompt: "test" },
-        { callerRole: "PARENT", tenantId: TENANT, operation: "payments" }
+        { callerRole: "STUDENT", tenantId: TENANT, operation: "payments" }
       )
     ).rejects.toThrow();
   });

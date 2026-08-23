@@ -52,9 +52,8 @@ const SECTIONS = [
     title: "4. Portallar",
     items: [
       { href: "/ogretmen", label: "Öğretmen portalı", body: "Program, yoklama kapsamı, iş takip ve hakediş görünümü." },
-      { href: "/veli", label: "Veli portalı", body: "Çocuk programı, ödev ve değerlendirme (oturum rollerine bağlı)." },
-      { href: "/ogrenci", label: "Öğrenci portalı", body: "Öğrenci oturumu ile program, ödev ve materyaller." },
-      { href: "/panel", label: "Mobil kullanım", body: "Panel ve portallar responsive; Glass 3D sunum yalnız öğretmen/veli/öğrenci kabuklarında." },
+      { href: "/ogrenci", label: "Öğrenci portalı", body: "Öğrenci ve veli aynı oturumla — program, ödev, materyal, ödeme ve değerlendirme." },
+      { href: "/panel", label: "Mobil kullanım", body: "Panel ve portallar responsive; Glass 3D sunum yalnız öğretmen/öğrenci kabuklarında." },
     ],
   },
 ] as const;

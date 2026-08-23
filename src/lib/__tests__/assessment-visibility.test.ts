@@ -9,6 +9,8 @@ import {
 import { LESSON_ASSESSMENTS_FILE, clearAssessments } from "../assessment";
 import { DEFAULT_TENANT_ID } from "../auth/config";
 import type { ServiceContext } from "../services/context";
+import { STUDENT_PORTAL_ACCESS_FILE } from "../student-portal-access";
+import { grantStudentAccess } from "./portal-access-test-helper";
 
 function ctx(overrides?: Partial<ServiceContext>): ServiceContext {
   return {
@@ -51,6 +53,7 @@ async function createValidAssessment(overrides?: Partial<Record<string, unknown>
 
 beforeEach(async () => {
   await fs.rm(LESSON_ASSESSMENTS_FILE, { force: true });
+  await fs.rm(STUDENT_PORTAL_ACCESS_FILE, { force: true });
   await clearAssessments(DEFAULT_TENANT_ID);
 });
 
@@ -80,7 +83,7 @@ describe("EPIC 7 — createAssessmentTool: yalnızca kendi öğrencisi (TEACHER 
   });
 
   it("PARENT değerlendirme oluşturamaz (FORBIDDEN)", async () => {
-    const result = await createAssessmentTool(ctx({ role: "PARENT", teacherId: undefined, studentId: "s1" }), {
+    const result = await createAssessmentTool(ctx({ role: "STUDENT", teacherId: undefined, studentId: "s1" }), {
       lessonId: "l1",
       studentId: "s1",
       ...VALID_SCORES,
@@ -130,19 +133,15 @@ describe("EPIC 7 — listAssessmentsForStudentTool: erişim ve parentPrivateNote
     if (!result.ok) expect(result.error.code).toBe("FORBIDDEN");
   });
 
-  it("PARENT yalnızca kendi çocuğunun değerlendirmelerini görebilir", async () => {
+  it("veli (STUDENT rolü, GUARDIAN erişimi) yalnızca kendi çocuğunun değerlendirmelerini görebilir", async () => {
     await createValidAssessment();
-    const own = await listAssessmentsForStudentTool(
-      ctx({ role: "PARENT", teacherId: undefined, studentId: "s1" }),
-      { studentId: "s1" }
-    );
+    const parentCtx = ctx({ role: "STUDENT", teacherId: undefined, studentId: "s1" });
+    await grantStudentAccess(parentCtx, "s1", "GUARDIAN");
+    const own = await listAssessmentsForStudentTool(parentCtx, { studentId: "s1" });
     expect(own.ok).toBe(true);
     if (own.ok) expect(own.data.assessments).toHaveLength(1);
 
-    const other = await listAssessmentsForStudentTool(
-      ctx({ role: "PARENT", teacherId: undefined, studentId: "s1" }),
-      { studentId: "s2" }
-    );
+    const other = await listAssessmentsForStudentTool(parentCtx, { studentId: "s2" });
     expect(other.ok).toBe(false);
     if (!other.ok) expect(other.error.code).toBe("FORBIDDEN");
   });

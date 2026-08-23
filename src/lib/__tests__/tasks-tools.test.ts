@@ -271,14 +271,14 @@ describe("İş Takip — RBAC: çalışan (TEACHER) yalnızca kendi görevini g�
 describe("İş Takip — PARENT/STUDENT tamamen erişemez", () => {
   it("PARENT hiçbir görev tool'unu çağıramaz", async () => {
     const taskId = await createBasicTask();
-    const list = await listTasksTool(ctx({ role: "PARENT", studentId: "s1" }), {});
+    const list = await listTasksTool(ctx({ role: "STUDENT", studentId: "s1" }), {});
     expect(list.ok).toBe(false);
     if (!list.ok) expect(list.error.code).toBe("FORBIDDEN");
 
-    const get = await getTaskTool(ctx({ role: "PARENT", studentId: "s1" }), { taskId });
+    const get = await getTaskTool(ctx({ role: "STUDENT", studentId: "s1" }), { taskId });
     expect(get.ok).toBe(false);
 
-    const create = await createTaskTool(ctx({ role: "PARENT", studentId: "s1" }), {
+    const create = await createTaskTool(ctx({ role: "STUDENT", studentId: "s1" }), {
       title: "x",
       category: "Kayıt",
     });
@@ -549,7 +549,7 @@ describe("İş Takip — yönetici görev raporu (Faz 3B-3B) — RBAC/tenant", (
   });
 
   it("PARENT/STUDENT rapor alamaz", async () => {
-    const parentRes = await getTaskReportTool(ctx({ role: "PARENT" }), {});
+    const parentRes = await getTaskReportTool(ctx({ role: "STUDENT" }), {});
     expect(parentRes.ok).toBe(false);
     const studentRes = await getTaskReportTool(ctx({ role: "STUDENT" }), {});
     expect(studentRes.ok).toBe(false);

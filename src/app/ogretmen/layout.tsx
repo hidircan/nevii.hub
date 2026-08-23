@@ -14,7 +14,6 @@ export default async function OgretmenLayout({ children }: { children: React.Rea
   } catch {
     redirect("/login?next=/ogretmen");
   }
-  if (session.role === "PARENT") redirect("/veli");
   if (session.role === "STUDENT") redirect("/ogrenci");
 
   const [user, jar] = await Promise.all([getUserById(session.userId), cookies()]);

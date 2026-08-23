@@ -92,7 +92,7 @@ export const NOTIFICATION_CATEGORIES: NotificationCategoryDef[] = [
     label: "Yaklaşan ders",
     description: "Ders saati yaklaştığında hatırlatma.",
     implemented: true,
-    roles: ["SCHOOL_ADMIN", "SUPER_ADMIN", "TEACHER", "PARENT", "STUDENT"],
+    roles: ["SCHOOL_ADMIN", "SUPER_ADMIN", "TEACHER", "STUDENT"],
     defaultInAppEnabled: true,
   },
   {
@@ -101,7 +101,7 @@ export const NOTIFICATION_CATEGORIES: NotificationCategoryDef[] = [
     label: "Ders iptal edildi",
     description: "Bir ders iptal edildiğinde (yönetici özeti).",
     implemented: true,
-    roles: ["SCHOOL_ADMIN", "SUPER_ADMIN", "TEACHER", "PARENT", "STUDENT"],
+    roles: ["SCHOOL_ADMIN", "SUPER_ADMIN", "TEACHER", "STUDENT"],
     defaultInAppEnabled: true,
   },
   {
@@ -110,7 +110,7 @@ export const NOTIFICATION_CATEGORIES: NotificationCategoryDef[] = [
     label: "Ders ertelendi / telafiye alındı",
     description: "Bir ders telafiye alındığında veya taşındığında.",
     implemented: true,
-    roles: ["SCHOOL_ADMIN", "SUPER_ADMIN", "TEACHER", "PARENT", "STUDENT"],
+    roles: ["SCHOOL_ADMIN", "SUPER_ADMIN", "TEACHER", "STUDENT"],
     defaultInAppEnabled: true,
   },
   {

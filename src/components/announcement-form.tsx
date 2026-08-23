@@ -27,8 +27,34 @@ export function AnnouncementForm({ branches }: { branches: BranchOption[] }) {
   const [userIdsText, setUserIdsText] = useState("");
   const [publishNow, setPublishNow] = useState(true);
   const [pinned, setPinned] = useState(false);
+  const [files, setFiles] = useState<File[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const ACCEPT =
+    "application/pdf,image/jpeg,image/png,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,.pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx";
+
+  function inferAnnouncementMime(file: File): string {
+    if (file.type) return file.type;
+    const n = file.name.toLowerCase();
+    if (n.endsWith(".pdf")) return "application/pdf";
+    if (n.endsWith(".png")) return "image/png";
+    if (n.endsWith(".jpg") || n.endsWith(".jpeg")) return "image/jpeg";
+    if (n.endsWith(".doc")) return "application/msword";
+    if (n.endsWith(".docx")) return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    if (n.endsWith(".xls")) return "application/vnd.ms-excel";
+    if (n.endsWith(".xlsx")) return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+    return "application/octet-stream";
+  }
+
+  function readAsDataUrl(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(new Error("Dosya okunamadı"));
+      reader.readAsDataURL(file);
+    });
+  }
 
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -47,7 +73,25 @@ export function AnnouncementForm({ branches }: { branches: BranchOption[] }) {
       };
     }
 
+    if (files.length > 3) {
+      setError("En fazla 3 dosya eklenebilir.");
+      return;
+    }
+    for (const file of files) {
+      if (file.size > 2 * 1024 * 1024) {
+        setError(`${file.name} 2 MB üstünde.`);
+        return;
+      }
+    }
+
     try {
+      const attachments = await Promise.all(
+        files.map(async (file) => ({
+          fileName: file.name,
+          mimeType: inferAnnouncementMime(file),
+          fileData: await readAsDataUrl(file),
+        }))
+      );
       const res = await fetch("/api/v1/announcements", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -58,6 +102,7 @@ export function AnnouncementForm({ branches }: { branches: BranchOption[] }) {
           audienceRef,
           status: publishNow ? "published" : "draft",
           pinned,
+          attachments: attachments.length ? attachments : undefined,
         }),
       });
       const json = (await res.json()) as { ok: boolean; error?: { message: string } };
@@ -69,6 +114,7 @@ export function AnnouncementForm({ branches }: { branches: BranchOption[] }) {
       setTitle("");
       setBody("");
       setUserIdsText("");
+      setFiles([]);
       router.refresh();
     } catch {
       setError("Bağlantı hatası. Lütfen tekrar deneyin.");
@@ -161,6 +207,23 @@ export function AnnouncementForm({ branches }: { branches: BranchOption[] }) {
           />
         </div>
       ) : null}
+      <div>
+        <label className="mb-1 block text-xs font-medium text-[var(--color-text-muted)]">
+          Ekler (en fazla 3, her biri 2 MB — PDF, JPG, PNG, DOC/DOCX, XLS/XLSX)
+        </label>
+        <input
+          type="file"
+          accept={ACCEPT}
+          multiple
+          onChange={(event) => setFiles(Array.from(event.target.files ?? []).slice(0, 3))}
+          className="block w-full text-xs text-[var(--color-text-muted)] file:mr-2 file:rounded-md file:border-0 file:bg-[var(--color-surface-muted)] file:px-2 file:py-1"
+        />
+        {files.length > 0 ? (
+          <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">
+            {files.map((f) => f.name).join(", ")}
+          </p>
+        ) : null}
+      </div>
       <div className="flex flex-wrap items-center gap-4">
         <label className="flex items-center gap-2 text-sm text-[var(--color-text-muted)] dark:text-slate-300">
           <input

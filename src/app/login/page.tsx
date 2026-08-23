@@ -25,7 +25,7 @@ export default async function LoginPage({
           </p>
           <h1 className="mt-1 text-2xl font-semibold text-[var(--color-text)]">Giriş yap</h1>
           <p className="mt-2 text-sm text-[var(--color-text-muted)]">
-            Okul yönetimi, öğretmen ve veli portalları için oturum açın.
+            Okul yönetimi, öğretmen ve öğrenci portalları için oturum açın.
           </p>
         </div>
         <LoginForm nextPath={params.next} />

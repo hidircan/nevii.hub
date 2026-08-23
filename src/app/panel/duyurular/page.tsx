@@ -5,6 +5,7 @@ import { readData } from "@/lib/store";
 import { Badge, Card, EmptyState, PageHeader } from "@/components/ui";
 import { AnnouncementForm } from "@/components/announcement-form";
 import { AnnouncementStatusButton } from "@/components/announcement-status-button";
+import { AnnouncementAttachments } from "@/components/announcement-attachments";
 import { formatDateTime } from "@/lib/utils";
 import { Pin } from "lucide-react";
 
@@ -69,6 +70,7 @@ export default async function DuyurularPage() {
                     </span>
                   </div>
                   <p className="mt-1 text-sm text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">{a.body}</p>
+                  <AnnouncementAttachments announcementId={a.id} attachments={a.attachments} />
                   <p className="mt-1 text-xs text-[var(--color-text-muted)]">
                     Oluşturulma: {formatDateTime(a.createdAt)}
                   </p>

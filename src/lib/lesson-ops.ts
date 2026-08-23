@@ -21,6 +21,7 @@
 import type { AppData, Attendance, Lesson, MakeupRequest } from "./types";
 import { uid } from "./utils";
 import { addDays, formatISO } from "date-fns";
+import { assertCanCreateMakeup } from "./makeup-quota";
 
 export type LessonOpsFlag = "attended" | "processed" | "makeup" | "absent" | "excused";
 
@@ -194,6 +195,8 @@ export function applyLessonOpsFlag(
     (m) => m.sourceLessonId === lessonId && m.status !== "cancelled" && m.status !== "expired"
   );
   if (!existingMk) {
+    const quota = assertCanCreateMakeup(data, lesson.studentId, now);
+    if (!quota.ok) return { ok: false, message: quota.message };
     const branch = data.settings.branches.find((b) => b.id === lesson.branchId);
     const req: MakeupRequest = {
       id: uid("mk"),
@@ -208,7 +211,7 @@ export function applyLessonOpsFlag(
       expiresAt: formatISO(addDays(now, data.settings.makeupWindowDays)),
       suggestedSlots: [],
       createdAt: nowIso,
-      policyNote: `${data.settings.makeupWindowDays} gün · ${branch?.shortName ?? ""}`,
+      policyNote: `${data.settings.makeupWindowDays} gün pencere · ${data.settings.monthlyMakeupAllowance ?? 2}/ay hak · ${branch?.shortName ?? ""}`,
     };
     makeupRequests = [...makeupRequests, req];
   }

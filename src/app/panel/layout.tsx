@@ -23,7 +23,6 @@ export default async function PanelLayout({
 
   // School staff only for admin panel
   if (session.role === "TEACHER") redirect("/ogretmen");
-  if (session.role === "PARENT") redirect("/veli");
   if (session.role === "STUDENT") redirect("/ogrenci");
 
   const [kurum, user, jar] = await Promise.all([

@@ -17,6 +17,7 @@ import type { AppRole } from "@/lib/auth/types";
 import { roleLabelTr, initialsFromEmail } from "@/lib/auth/role-labels";
 import { actionSetThemeProfile, actionResetThemePreferences, actionSetDensity } from "@/lib/actions";
 import { QUICK_THEME_TO_PROFILE, type QuickThemeChoice, type Density } from "@/lib/theme";
+import { notificationSettingsPathForRole } from "@/lib/auth/role-routes";
 
 export function UserMenu({
   email,
@@ -159,7 +160,7 @@ export function UserMenu({
               Şifre değiştir
             </Link>
             <Link
-              href="/panel/ayarlar/bildirimler"
+              href={notificationSettingsPathForRole(role)}
               role="menuitem"
               onClick={() => setOpen(false)}
               className="flex items-center gap-2.5 px-4 py-2 text-sm transition hover:bg-[var(--color-surface-muted)]"

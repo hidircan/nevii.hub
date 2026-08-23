@@ -16,7 +16,6 @@ export default async function TeacherAssessmentStudentsPage() {
   } catch {
     redirect("/login?next=/ogretmen/degerlendirme");
   }
-  if (session.role === "PARENT") redirect("/veli");
 
   const data = await readData();
   const teacherId = session.teacherId || "t1";

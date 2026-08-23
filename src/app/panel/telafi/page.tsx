@@ -62,7 +62,12 @@ export default async function TelafiPage() {
           </p>
         </div>
         <div className="flex min-w-[10rem] flex-[1.4] flex-col justify-center rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-3 py-2">
-          <MakeupWindowDaysEditor currentDays={data.settings.makeupWindowDays} canWrite={canWrite} compact />
+          <MakeupWindowDaysEditor
+            currentDays={data.settings.makeupWindowDays}
+            monthlyAllowance={data.settings.monthlyMakeupAllowance ?? 2}
+            canWrite={canWrite}
+            compact
+          />
         </div>
         {open.length > 0 ? (
           <div className="flex items-center justify-end sm:ml-auto">
@@ -122,12 +127,19 @@ export default async function TelafiPage() {
                       {req.reason}
                     </p>
                     <p className="mt-1 text-xs text-[var(--color-text-muted)]">
-                      Oluşturulma: {formatDateTime(req.createdAt)} · Son kullanım:{" "}
+                      Oluşturulma: {formatDateTime(req.createdAt)} · Son kullanım: {" "}
                       {formatDateTime(req.expiresAt)}
                     </p>
-                    <p className="mt-2 inline-flex rounded-lg bg-[var(--color-surface-muted)] px-2 py-1 text-xs text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
-                      {req.policyNote}
-                    </p>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      {req.policyNote?.split("·").map((part, idx) => (
+                        <span
+                          key={idx}
+                          className="inline-flex items-center rounded-lg bg-[var(--color-surface-muted)] px-2 py-1 text-xs text-[var(--color-text-muted)]"
+                        >
+                          {part.trim()}
+                        </span>
+                      ))}
+                    </div>
                     {canWrite ? (
                       <div className="mt-2">
                         <QuickTaskLink

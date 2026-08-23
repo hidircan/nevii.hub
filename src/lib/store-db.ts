@@ -1,6 +1,11 @@
 import { applyLessonOpsFlag, switchLessonOpsFlag, type LessonOpsFlag, type ApplyLessonOpsResult } from "./lesson-ops";
 import { prisma } from "./db";
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
+import {
+  MAKEUP_QUOTA_COUNTING_STATUSES,
+  MakeupQuotaExceededError,
+  resolveMonthlyMakeupAllowance,
+} from "./makeup-quota";
 import { logger } from "./logger";
 import { createSeedData, createEmptyTemplateData } from "./seed";
 import type {
@@ -99,6 +104,61 @@ type PrismaSchoolWithRelations = Prisma.SchoolGetPayload<{
   };
 }>;
 
+function sleepMs(ms: number) {
+  return new Promise((res) => setTimeout(res, ms));
+}
+
+function isRetryablePrismaError(err: unknown): boolean {
+  if (!err) return false;
+  const e = err as { message?: unknown; code?: unknown };
+  const msg = typeof e.message === "string" ? e.message.toLowerCase() : "";
+  const code = typeof e.code === "string" ? e.code.toLowerCase() : "";
+  return (
+    msg.includes("could not serialize") ||
+    msg.includes("deadlock detected") ||
+    msg.includes("sqlstate 40001") ||
+    msg.includes("database is locked") ||
+    code === "40001" ||
+    code.includes("deadlock") ||
+    code === "p2034"
+  );
+}
+
+/** Serialize per tenant+student, then count counting-status makeups in the current calendar month. */
+async function assertStudentMakeupQuotaTx(
+  tx: {
+    $executeRaw: typeof prisma.$executeRaw;
+    makeupRequest: { count: (typeof prisma.makeupRequest)["count"] };
+    school: { findFirst: (typeof prisma.school)["findFirst"] };
+  },
+  tenantId: string,
+  studentId: string,
+  schoolId: string
+) {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${tenantId}), hashtext(${studentId}))`;
+  const now = new Date();
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  const used = await tx.makeupRequest.count({
+    where: {
+      tenantId,
+      studentId,
+      status: { in: [...MAKEUP_QUOTA_COUNTING_STATUSES] },
+      createdAt: { gte: monthStart, lt: monthEnd },
+    },
+  });
+  const school = await tx.school.findFirst({ where: { id: schoolId, tenantId } });
+  if (!school) throw new Error("Kurum bulunamadı");
+  const allowance = resolveMonthlyMakeupAllowance(school);
+  if (allowance === 0) {
+    throw new MakeupQuotaExceededError("Bu kurumda telafi talebi kapalıdır (aylık hak: 0).");
+  }
+  if (used >= allowance) {
+    throw new MakeupQuotaExceededError(`Bu öğrenci bu ayki ${allowance} telafi hakkını kullanmıştır.`);
+  }
+  return school;
+}
+
 function mapSchoolToAppData(school: PrismaSchoolWithRelations): AppData {
   return {
     settings: {
@@ -111,6 +171,7 @@ function mapSchoolToAppData(school: PrismaSchoolWithRelations): AppData {
       phone: school.phone,
       logoUrl: school.logoUrl,
       makeupWindowDays: school.makeupWindowDays,
+      monthlyMakeupAllowance: resolveMonthlyMakeupAllowance(school),
       lessonDurationMinutes: school.lessonDurationMinutes,
       workingHours: {
         start: school.workingHoursStart,
@@ -177,8 +238,13 @@ function mapSchoolToAppData(school: PrismaSchoolWithRelations): AppData {
       name: student.name,
       email: student.email,
       phone: student.phone,
-      parentName: student.parentName,
-      parentPhone: student.parentPhone,
+      parentName: student.parentName ?? "",
+      parentPhone: student.parentPhone ?? "",
+      accountResponsibility:
+        ((student as { accountResponsibility?: string | null }).accountResponsibility as
+          | "PARENT_MANAGED"
+          | "SELF_MANAGED"
+          | undefined) ?? "PARENT_MANAGED",
       motherName: (student as { motherName?: string | null }).motherName ?? undefined,
       fatherName: (student as { fatherName?: string | null }).fatherName ?? undefined,
       branchId: student.branchId as BranchId,
@@ -465,6 +531,7 @@ export async function seedDatabase(seed: AppData) {
       phone: seed.settings.phone,
       logoUrl: seed.settings.logoUrl,
       makeupWindowDays: seed.settings.makeupWindowDays,
+      monthlyMakeupAllowance: resolveMonthlyMakeupAllowance(seed.settings),
       lessonDurationMinutes: seed.settings.lessonDurationMinutes,
       workingHoursStart: seed.settings.workingHours.start,
       workingHoursEnd: seed.settings.workingHours.end,
@@ -849,96 +916,81 @@ export async function markAttendance(input: {
   logger.info("markAttendance", input.lessonId, input.status);
 
   const tid = requireTenantId();
-  const lesson = await prisma.lesson.findFirst({
-    where: { id: input.lessonId, tenantId: tid },
-  });
-  if (!lesson) throw new Error("Ders bulunamadı");
+  const maxRetries = 3;
 
-  const createsMakeupCredit =
-    input.status === "absent" || input.status === "cancelled_by_school";
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      await prisma.$transaction(
+        async (tx) => {
+          const lesson = await tx.lesson.findFirst({ where: { id: input.lessonId, tenantId: tid } });
+          if (!lesson) throw new Error("Ders bulunamadı");
 
-  // Geldi/geç: katılım; dersi otomatik completed yapma (İşlendi ayrı).
-  const lessonStatus =
-    input.status === "absent"
-      ? "no_show"
-      : input.status === "cancelled_by_school"
-      ? "cancelled"
-      : lesson.status;
+          const createsMakeupCredit =
+            input.status === "absent" || input.status === "cancelled_by_school";
 
-  await prisma.lesson.updateMany({
-    where: { id: input.lessonId, tenantId: tid },
-    data: { status: lessonStatus },
-  });
+          const lessonStatus =
+            input.status === "absent"
+              ? "no_show"
+              : input.status === "cancelled_by_school"
+              ? "cancelled"
+              : lesson.status;
 
-  let attendanceId: string;
-  const existingAttendance = await prisma.attendance.findFirst({
-    where: { lessonId: input.lessonId, tenantId: tid },
-  });
+          await tx.lesson.updateMany({ where: { id: input.lessonId, tenantId: tid }, data: { status: lessonStatus } });
 
-  if (existingAttendance) {
-    const updated = await prisma.attendance.update({
-      where: { id: existingAttendance.id },
-      data: {
-        status: input.status,
-        reason: input.reason,
-        markedAt: new Date(),
-        createsMakeupCredit,
-      },
-    });
-    attendanceId = updated.id;
-  } else {
-    const created = await prisma.attendance.create({
-      data: {
-        tenantId: tid,
-        lessonId: input.lessonId,
-        studentId: lesson.studentId,
-        schoolId: lesson.schoolId,
-        status: input.status,
-        reason: input.reason,
-        markedAt: new Date(),
-        createsMakeupCredit,
-      },
-    });
-    attendanceId = created.id;
+          let attendanceId: string;
+          const existingAttendance = await tx.attendance.findFirst({ where: { lessonId: input.lessonId, tenantId: tid } });
+          if (existingAttendance) {
+            const updated = await tx.attendance.update({ where: { id: existingAttendance.id }, data: { status: input.status, reason: input.reason, markedAt: new Date(), createsMakeupCredit } });
+            attendanceId = updated.id;
+          } else {
+            const created = await tx.attendance.create({ data: { tenantId: tid, lessonId: input.lessonId, studentId: lesson.studentId, schoolId: lesson.schoolId, status: input.status, reason: input.reason, markedAt: new Date(), createsMakeupCredit } });
+            attendanceId = created.id;
+          }
+
+          await tx.makeupRequest.deleteMany({ where: { sourceLessonId: input.lessonId, tenantId: tid } });
+
+          if (createsMakeupCredit) {
+            const school = await assertStudentMakeupQuotaTx(tx, tid, lesson.studentId, lesson.schoolId);
+            const branch = await tx.branch.findFirst({ where: { id: lesson.branchId, tenantId: tid } });
+            const allowance = resolveMonthlyMakeupAllowance(school);
+            const policyNote =
+              input.status === "cancelled_by_school"
+                ? `Okul kaynaklı iptal — öncelikli yerleştirme · ${branch?.shortName ?? ""}`
+                : `${school.makeupWindowDays} gün pencere · ${allowance}/ay hak · aynı öğretmen · ${branch?.shortName ?? ""}`;
+
+            await tx.makeupRequest.create({
+              data: {
+                tenantId: tid,
+                studentId: lesson.studentId,
+                teacherId: lesson.teacherId,
+                branchId: lesson.branchId,
+                schoolId: lesson.schoolId,
+                instrument: lesson.instrument,
+                sourceLessonId: lesson.id,
+                attendanceId,
+                status: "pending",
+                reason: input.reason || (input.status === "cancelled_by_school" ? "Okul iptali" : "Devamsızlık"),
+                expiresAt: addDays(new Date(), school?.makeupWindowDays ?? 0),
+                suggestedSlots: [],
+                createdAt: new Date(),
+                policyNote,
+              },
+            });
+          }
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+      );
+      return await readData();
+    } catch (err: unknown) {
+      if (isRetryablePrismaError(err) && attempt < maxRetries) {
+        logger.warn("markAttendance: transient DB error, retrying", attempt, (err as Error).message);
+        await sleepMs(50 * attempt);
+        continue;
+      }
+      throw err;
+    }
   }
-  await prisma.makeupRequest.deleteMany({
-    where: { sourceLessonId: input.lessonId, tenantId: tid },
-  });
-
-  if (createsMakeupCredit) {
-    const branch = await prisma.branch.findFirst({
-      where: { id: lesson.branchId, tenantId: tid },
-    });
-    const school = await prisma.school.findFirst({
-      where: { id: lesson.schoolId, tenantId: tid },
-    });
-    const policyNote =
-      input.status === "cancelled_by_school"
-        ? `Okul kaynaklı iptal — öncelikli yerleştirme · ${branch?.shortName ?? ""}`
-        : `${school?.makeupWindowDays ?? 0} gün içinde · aynı öğretmen · ${branch?.shortName ?? ""}`;
-
-    await prisma.makeupRequest.create({
-      data: {
-        tenantId: tid,
-        studentId: lesson.studentId,
-        teacherId: lesson.teacherId,
-        branchId: lesson.branchId,
-        schoolId: lesson.schoolId,
-        instrument: lesson.instrument,
-        sourceLessonId: lesson.id,
-        attendanceId,
-        status: "pending",
-        reason:
-          input.reason || (input.status === "cancelled_by_school" ? "Okul iptali" : "Devamsızlık"),
-        expiresAt: addDays(new Date(), school?.makeupWindowDays ?? 0),
-        suggestedSlots: [],
-        createdAt: new Date(),
-        policyNote,
-      },
-    });
-  }
-
-  return readData();
+  throw new Error("markAttendance failed after retries");
 }
 
 export async function generateSuggestions(
@@ -1122,6 +1174,7 @@ export async function updateStudentProfile(
       discountValue: patch.discountValue,
       monthlyFeeManualOverride: patch.monthlyFeeManualOverride,
       monthlyFeeOverrideReason: patch.monthlyFeeOverrideReason,
+      accountResponsibility: patch.accountResponsibility,
     },
   });
   if (result.count === 0) throw new Error("Öğrenci bulunamadı");
@@ -1175,8 +1228,7 @@ export async function updateTeacherAvailability(
   const tid = requireTenantId();
   const result = await prisma.teacher.updateMany({
     where: { id: teacherId, tenantId: tid },
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    data: { availability: availability as any },
+    data: { availability: availability === undefined ? undefined : (availability as unknown as Prisma.InputJsonValue) },
   });
   if (result.count === 0) return null;
   const data = await readData();
@@ -1194,10 +1246,13 @@ export async function updateTeacherInstruments(
   const result = await prisma.teacher.updateMany({
     where: { id: teacherId, tenantId: tid },
     data: {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      instruments: instruments as any,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      instrumentLevels: (instrumentLevels ?? null) as any,
+      instruments: instruments as unknown as Prisma.InputJsonValue,
+      instrumentLevels:
+        instrumentLevels === undefined
+          ? undefined
+          : instrumentLevels === null
+          ? Prisma.JsonNull
+          : (instrumentLevels as unknown as Prisma.InputJsonValue),
     },
   });
   if (result.count === 0) return null;
@@ -1224,8 +1279,12 @@ export async function updateTeacherProfile(
       nationalIdLast2: patch.nationalIdLast2,
       birthDate: patch.birthDate ? new Date(patch.birthDate) : undefined,
       address: patch.address,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      branchIds: patch.branchIds !== undefined ? (patch.branchIds as any) : undefined,
+      branchIds:
+        patch.branchIds !== undefined
+          ? patch.branchIds === null
+            ? Prisma.JsonNull
+            : (patch.branchIds as unknown as Prisma.InputJsonValue)
+          : undefined,
       contractStartDate: patch.contractStartDate ? new Date(patch.contractStartDate) : undefined,
       contractEndDate: patch.contractEndDate ? new Date(patch.contractEndDate) : undefined,
       employmentType: patch.employmentType,
@@ -1255,30 +1314,9 @@ export type MarkPaymentPaidOptions = {
 export async function markPaymentPaid(paymentId: string, opts?: string | MarkPaymentPaidOptions): Promise<AppData> {
   logger.info("markPaymentPaid", paymentId);
   const normalized: MarkPaymentPaidOptions = typeof opts === "string" ? { method: opts } : opts ?? {};
-  const tid = requireTenantId();
-  const payment = await prisma.payment.findFirst({
-    where: { id: paymentId, tenantId: tid },
-  });
-  if (!payment) throw new Error("Ödeme bulunamadı");
-
-  const student = payment.studentId
-    ? await prisma.student.findFirst({ where: { id: payment.studentId, tenantId: tid } })
-    : null;
-  const resolvedMethod = normalized.method || payment.method || student?.paymentMethod || undefined;
-
-  await prisma.payment.updateMany({
-    where: { id: paymentId, tenantId: tid },
-    data: {
-      status: "paid",
-      paidAmount: normalized.amount ?? payment.amount,
-      paidAt: normalized.paidAt ? new Date(normalized.paidAt) : new Date(),
-      ...(resolvedMethod ? { method: resolvedMethod } : {}),
-      ...(normalized.paymentNote !== undefined ? { paymentNote: normalized.paymentNote } : {}),
-      ...(normalized.receivedByUserId !== undefined ? { receivedByUserId: normalized.receivedByUserId } : {}),
-    },
-  });
-
-  return readData();
+  const { collectPayment } = await import("./payments/collect");
+  const { data } = await collectPayment(paymentId, normalized);
+  return data;
 }
 
 export type UpdatePaymentPatch = {
@@ -1425,8 +1463,12 @@ export async function importTeachers(rows: TeacherImportRow[]): Promise<ImportCo
             phone: row.phone,
             branchId: row.branchId,
             instruments,
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            instrumentLevels: (row.instrumentLevels ?? undefined) as any,
+                instrumentLevels:
+                  row.instrumentLevels === undefined
+                    ? undefined
+                    : row.instrumentLevels === null
+                    ? Prisma.JsonNull
+                    : (row.instrumentLevels as unknown as Prisma.InputJsonValue),
             highSchool: row.highSchool,
             university: row.university,
             graduationYear: row.graduationYear,
@@ -1446,8 +1488,12 @@ export async function importTeachers(rows: TeacherImportRow[]): Promise<ImportCo
             phone: row.phone,
             branchId: row.branchId,
             instruments,
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            instrumentLevels: (row.instrumentLevels ?? undefined) as any,
+            instrumentLevels:
+              row.instrumentLevels === undefined
+                ? undefined
+                : row.instrumentLevels === null
+                ? Prisma.JsonNull
+                : (row.instrumentLevels as unknown as Prisma.InputJsonValue),
             availability: [
               { dayOfWeek: 1, start: "10:00", end: "18:00" },
               { dayOfWeek: 2, start: "10:00", end: "18:00" },
@@ -1623,12 +1669,16 @@ export async function updateRoom(
   const tid = requireTenantId();
   const result = await prisma.room.updateMany({
     where: { id: roomId, tenantId: tid },
-    data: {
+      data: {
       name: patch.name,
       capacity: patch.capacity,
       branchId: patch.branchId,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      instruments: patch.instruments as any,
+      instruments:
+        patch.instruments === undefined
+          ? undefined
+          : patch.instruments === null
+          ? Prisma.JsonNull
+          : (patch.instruments as unknown as Prisma.InputJsonValue),
       active: patch.active,
       archivedAt: patch.archivedAt ? new Date(patch.archivedAt) : patch.archivedAt === undefined ? undefined : null,
     },
@@ -1660,12 +1710,13 @@ export async function addLesson(input: {
   durationMinutes?: number;
   term?: import("./types").StudentTermType;
   academicYearStart?: number;
+  /** İş 3 — bkz. validateLessonSlot allowAvailabilityOverride yorumu. */
   allowAvailabilityOverride?: boolean;
+  /** Override uygulanırsa Lesson.availabilityOverride.by'a yazılan aktör. */
   overriddenByUserId?: string;
 }): Promise<AppData> {
-  logger.info("addLesson", input.studentId, input.teacherId, input.roomId);
-  const tid = requireTenantId();
   const data = await readData();
+  const tid = requireTenantId();
   const validation = validateLessonSlot(
     data,
     { instrument: input.instrument, studentId: input.studentId },
@@ -1815,30 +1866,82 @@ async function persistLessonOpsResult(
   const tid = requireTenantId();
 
   const L = result.lesson;
-  await prisma.lesson.updateMany({
-    where: { id: lessonId, tenantId: tid },
-    data: {
-      studentAttended: L.studentAttended ?? false,
-      studentAttendedAt: L.studentAttendedAt ? new Date(L.studentAttendedAt) : null,
-      studentAttendedBy: L.studentAttendedBy ?? null,
-      lessonProcessed: L.lessonProcessed ?? false,
-      lessonProcessedAt: L.lessonProcessedAt ? new Date(L.lessonProcessedAt) : null,
-      lessonProcessedBy: L.lessonProcessedBy ?? null,
-      opsMakeupFlag: L.opsMakeupFlag ?? false,
-      opsMakeupFlagAt: L.opsMakeupFlagAt ? new Date(L.opsMakeupFlagAt) : null,
-      opsMakeupFlagBy: L.opsMakeupFlagBy ?? null,
-      studentAbsent: L.studentAbsent ?? false,
-      studentAbsentAt: L.studentAbsentAt ? new Date(L.studentAbsentAt) : null,
-      studentAbsentBy: L.studentAbsentBy ?? null,
-      studentExcused: L.studentExcused ?? false,
-      studentExcusedAt: L.studentExcusedAt ? new Date(L.studentExcusedAt) : null,
-      studentExcusedBy: L.studentExcusedBy ?? null,
-      status: L.status,
-      actualEndAt: L.actualEndAt ? new Date(L.actualEndAt) : undefined,
-    },
-  });
+  const lessonPatch = {
+    studentAttended: L.studentAttended ?? false,
+    studentAttendedAt: L.studentAttendedAt ? new Date(L.studentAttendedAt) : null,
+    studentAttendedBy: L.studentAttendedBy ?? null,
+    lessonProcessed: L.lessonProcessed ?? false,
+    lessonProcessedAt: L.lessonProcessedAt ? new Date(L.lessonProcessedAt) : null,
+    lessonProcessedBy: L.lessonProcessedBy ?? null,
+    opsMakeupFlag: L.opsMakeupFlag ?? false,
+    opsMakeupFlagAt: L.opsMakeupFlagAt ? new Date(L.opsMakeupFlagAt) : null,
+    opsMakeupFlagBy: L.opsMakeupFlagBy ?? null,
+    studentAbsent: L.studentAbsent ?? false,
+    studentAbsentAt: L.studentAbsentAt ? new Date(L.studentAbsentAt) : null,
+    studentAbsentBy: L.studentAbsentBy ?? null,
+    studentExcused: L.studentExcused ?? false,
+    studentExcusedAt: L.studentExcusedAt ? new Date(L.studentExcusedAt) : null,
+    studentExcusedBy: L.studentExcusedBy ?? null,
+    status: L.status,
+    actualEndAt: L.actualEndAt ? new Date(L.actualEndAt) : undefined,
+  };
 
-  // Sync attendance / makeup from pure result data for this lesson
+  if (flag === "makeup") {
+    const mk = result.data.makeupRequests.find((m) => m.sourceLessonId === lessonId);
+    const maxRetries = 3;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        await prisma.$transaction(
+          async (tx) => {
+            await tx.lesson.updateMany({ where: { id: lessonId, tenantId: tid }, data: lessonPatch });
+            if (!mk) return;
+            const exists = await tx.makeupRequest.findFirst({
+              where: { sourceLessonId: lessonId, tenantId: tid },
+            });
+            if (exists) return;
+            const les = await tx.lesson.findFirst({ where: { id: lessonId, tenantId: tid } });
+            if (!les) throw new Error("Ders bulunamadı");
+            await assertStudentMakeupQuotaTx(tx, tid, mk.studentId, les.schoolId);
+            await tx.makeupRequest.create({
+              data: {
+                id: mk.id,
+                tenantId: tid,
+                studentId: mk.studentId,
+                teacherId: mk.teacherId,
+                branchId: mk.branchId,
+                schoolId: les.schoolId,
+                instrument: mk.instrument,
+                sourceLessonId: mk.sourceLessonId,
+                attendanceId: mk.attendanceId,
+                status: mk.status,
+                reason: mk.reason,
+                expiresAt: new Date(mk.expiresAt),
+                suggestedSlots: mk.suggestedSlots as object,
+                createdAt: new Date(mk.createdAt),
+                policyNote: mk.policyNote,
+              },
+            });
+          },
+          { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+        );
+        break;
+      } catch (err: unknown) {
+        if (isRetryablePrismaError(err) && attempt < maxRetries) {
+          logger.warn("persistLessonOps makeup: transient DB error, retrying", attempt);
+          await sleepMs(50 * attempt);
+          continue;
+        }
+        throw err;
+      }
+    }
+  } else {
+    await prisma.lesson.updateMany({
+      where: { id: lessonId, tenantId: tid },
+      data: lessonPatch,
+    });
+  }
+
+  // Sync attendance from pure result data for this lesson
   const att = result.data.attendances.find((a) => a.lessonId === lessonId);
   if (att && flag === "attended") {
     const existing = await prisma.attendance.findFirst({ where: { lessonId, tenantId: tid } });
@@ -1856,36 +1959,6 @@ async function persistLessonOpsResult(
           schoolId: (await prisma.lesson.findFirst({ where: { id: lessonId } }))!.schoolId,
         },
       });
-    }
-  }
-  if (flag === "makeup") {
-    const mk = result.data.makeupRequests.find((m) => m.sourceLessonId === lessonId);
-    if (mk) {
-      const exists = await prisma.makeupRequest.findFirst({
-        where: { sourceLessonId: lessonId, tenantId: tid },
-      });
-      if (!exists) {
-        const les = await prisma.lesson.findFirst({ where: { id: lessonId, tenantId: tid } });
-        await prisma.makeupRequest.create({
-          data: {
-            id: mk.id,
-            tenantId: tid,
-            studentId: mk.studentId,
-            teacherId: mk.teacherId,
-            branchId: mk.branchId,
-            schoolId: les!.schoolId,
-            instrument: mk.instrument,
-            sourceLessonId: mk.sourceLessonId,
-            attendanceId: mk.attendanceId,
-            status: mk.status,
-            reason: mk.reason,
-            expiresAt: new Date(mk.expiresAt),
-            suggestedSlots: mk.suggestedSlots as object,
-            createdAt: new Date(mk.createdAt),
-            policyNote: mk.policyNote,
-          },
-        });
-      }
     }
   }
 
@@ -2323,6 +2396,15 @@ export async function markTeacherPayoutPaid(
 export async function updateFeeRoundingMode(feeRoundingMode: FeeRoundingMode): Promise<AppData> {
   const tid = requireTenantId();
   await prisma.school.update({ where: { tenantId: tid }, data: { feeRoundingMode } });
+  return readData();
+}
+
+export async function updateMonthlyMakeupAllowance(monthlyMakeupAllowance: number): Promise<AppData> {
+  const tid = requireTenantId();
+  await prisma.school.update({
+    where: { tenantId: tid },
+    data: { monthlyMakeupAllowance },
+  });
   return readData();
 }
 

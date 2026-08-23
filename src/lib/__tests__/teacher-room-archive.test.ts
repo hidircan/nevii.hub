@@ -138,7 +138,7 @@ describe("ÖNCELİK 4 (devam) — öğretmen arşivleme (hard delete yok)", () =
     });
     expect(res1.ok).toBe(false);
 
-    const res2 = await archiveTeacherTool(ctx({ role: "PARENT", studentId: "s1" }), {
+    const res2 = await archiveTeacherTool(ctx({ role: "STUDENT", studentId: "s1" }), {
       teacherId: "t1",
       archived: true,
     });
@@ -190,7 +190,7 @@ describe("ÖNCELİK 4 (devam) — oda düzenleme + pasife alma (hard delete yok)
     const res1 = await updateRoomTool(ctx({ role: "TEACHER", teacherId: "t1" }), { roomId: "r1", active: false });
     expect(res1.ok).toBe(false);
 
-    const res2 = await updateRoomTool(ctx({ role: "PARENT", studentId: "s1" }), { roomId: "r1", active: false });
+    const res2 = await updateRoomTool(ctx({ role: "STUDENT", studentId: "s1" }), { roomId: "r1", active: false });
     expect(res2.ok).toBe(false);
   });
 });

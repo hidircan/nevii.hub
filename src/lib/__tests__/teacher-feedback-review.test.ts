@@ -19,7 +19,7 @@ const TENANT_B = "tenant-feedback-review-b";
 
 function ctx(overrides?: Partial<ServiceContext>): ServiceContext {
   return {
-    role: "PARENT",
+    role: "STUDENT",
     userId: "u1",
     tenantId: DEFAULT_TENANT_ID,
     studentId: "s1",
@@ -36,7 +36,7 @@ beforeEach(async () => {
 });
 
 async function submit(studentId: string, overrides?: Record<string, unknown>) {
-  return submitTeacherFeedbackTool(ctx({ role: "PARENT", studentId }), {
+  return submitTeacherFeedbackTool(ctx({ role: "STUDENT", studentId }), {
     studentId,
     scores: FULL_SCORES,
     ...overrides,
@@ -58,7 +58,7 @@ describe("listTeacherFeedbackForReviewTool — kimlik varsayılan maskeli", () =
 
   it("TEACHER/PARENT/STUDENT için FORBIDDEN döner", async () => {
     await submit("s1");
-    for (const role of ["TEACHER", "PARENT", "STUDENT"] as const) {
+    for (const role of ["TEACHER", "STUDENT", "STUDENT"] as const) {
       const res = await listTeacherFeedbackForReviewTool(
         ctx({ role, teacherId: role === "TEACHER" ? "t1" : undefined, studentId: role === "TEACHER" ? undefined : "s1" }),
         {}
@@ -106,7 +106,7 @@ describe("listTeacherFeedbackForReviewTool — kimlik varsayılan maskeli", () =
   });
 
   it("cross-tenant: başka tenant'ın geri bildirimi görünmez", async () => {
-    await submitTeacherFeedbackTool(ctx({ role: "PARENT", studentId: "s1", tenantId: TENANT_B }), {
+    await submitTeacherFeedbackTool(ctx({ role: "STUDENT", studentId: "s1", tenantId: TENANT_B }), {
       studentId: "s1",
       scores: FULL_SCORES,
     });
@@ -147,7 +147,7 @@ describe("revealTeacherFeedbackIdentityTool — gerekçeli/audit'li kimlik açma
     const submitted = await submit("s1");
     expect(submitted.ok).toBe(true);
     if (!submitted.ok) return;
-    for (const role of ["TEACHER", "PARENT", "STUDENT"] as const) {
+    for (const role of ["TEACHER", "STUDENT", "STUDENT"] as const) {
       const res = await revealTeacherFeedbackIdentityTool(
         ctx({ role, teacherId: role === "TEACHER" ? "t1" : undefined, studentId: role === "TEACHER" ? undefined : "s1" }),
         { feedbackId: submitted.data.feedbackId, reason: "Yetkisiz deneme burada" }
@@ -192,7 +192,7 @@ describe("updateTeacherFeedbackStatusTool / setTeacherFeedbackSharedTool", () =>
     expect(submitted.ok).toBe(true);
     if (!submitted.ok) return;
 
-    const denied = await setTeacherFeedbackSharedTool(ctx({ role: "PARENT", studentId: "s1" }), {
+    const denied = await setTeacherFeedbackSharedTool(ctx({ role: "STUDENT", studentId: "s1" }), {
       feedbackId: submitted.data.feedbackId,
       shared: true,
     });
@@ -236,7 +236,7 @@ describe("getOwnTeacherFeedbackSummaryTool — anonim eşik + yalnız kendi öğ
       teacherId: "t1",
       studentId: "s-synthetic-3",
       submittedBy: "u-synthetic-3",
-      submitterRole: "PARENT",
+      submitterRole: "STUDENT",
       scores: { clarity: 1, communication: 1, effectiveness: 1, motivation: 1, punctuality: 1 },
       comment: "Üçüncü yorum, paylaşılmıyor",
     });
@@ -256,7 +256,7 @@ describe("getOwnTeacherFeedbackSummaryTool — anonim eşik + yalnız kendi öğ
   });
 
   it("PARENT/STUDENT/SCHOOL_ADMIN özet çağıramaz (yalnız TEACHER)", async () => {
-    for (const role of ["PARENT", "STUDENT", "SCHOOL_ADMIN"] as const) {
+    for (const role of ["STUDENT", "STUDENT", "SCHOOL_ADMIN"] as const) {
       const res = await getOwnTeacherFeedbackSummaryTool(
         ctx({ role, studentId: role === "SCHOOL_ADMIN" ? undefined : "s1" })
       );

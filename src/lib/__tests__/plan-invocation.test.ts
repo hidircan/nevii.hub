@@ -37,15 +37,15 @@ describe("planAiInvocation — fail closed (eksik bağlam)", () => {
 });
 
 describe("planAiInvocation — RBAC (yanlış rol)", () => {
-  it("PARENT rolü collectionsROIReport çalıştıramaz (yalnız SUPER_ADMIN/SCHOOL_ADMIN)", () => {
+  it("STUDENT rolü (veli/öğrenci) collectionsROIReport çalıştıramaz (yalnız SUPER_ADMIN/SCHOOL_ADMIN)", () => {
     const plan = planAiInvocation("collectionsROIReport", {
-      callerRole: "PARENT",
+      callerRole: "STUDENT",
       tenantId: TENANT,
       operation: "payments",
     });
     expect(plan.allowed).toBe(false);
     if (!plan.allowed) {
-      expect(plan.reason).toMatch(/PARENT/);
+      expect(plan.reason).toMatch(/STUDENT/);
       expect(plan.capability?.id).toBe("collectionsROIReport");
     }
   });

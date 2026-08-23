@@ -8,6 +8,7 @@ import { z } from "zod";
 import { differenceInCalendarDays, parseISO } from "date-fns";
 import { prisma } from "../db";
 import { foldTurkishForSearch } from "../normalize";
+import { checkFileMagicBytes } from "../storage/file-guards";
 import { provisionEntityLogin, getUserIdByTeacherId } from "../auth/users";
 import { logger } from "../logger";
 import {
@@ -35,8 +36,7 @@ import {
   importStudents,
   importTeachers,
   markAttendance,
-  markPaymentPaid,
-  updatePayment,
+
   markTeacherPayoutPaid,
   readData,
   resetData,
@@ -46,6 +46,7 @@ import {
   updateCollectionsSettings,
   updateFeeRoundingMode,
   updateMakeupWindowDays,
+  updateMonthlyMakeupAllowance,
   updateTermWeeklyClosedDays,
   updateLessonSchedule,
   updateMakeupSlaEscalation,
@@ -160,6 +161,13 @@ import {
   setTeacherFeedbackShared,
   computeTeacherFeedbackSummary,
 } from "../teacher-feedback";
+import {
+  clearStudentFeedback,
+  listStudentFeedback,
+  submitStudentFeedback,
+  findStudentFeedbackThisMonth,
+  updateStudentFeedbackStatus,
+} from "../student-feedback";
 import { formatMoney, formatDate, formatTime, uid } from "../utils";
 import { parseCsv, rowsToRecords } from "../import/csv";
 import { validateBranchRows, type BranchImportRow } from "../import/branches";
@@ -205,8 +213,10 @@ import {
   roomSchema,
   submitHomeworkSchema,
   submitTeacherFeedbackSchema,
+  submitStudentFeedbackSchema,
   createCurriculumTopicSchema,
   updateCurriculumTopicSchema,
+  bulkAssignCurriculumTopicsSchema,
   createTrialLessonSchema,
   updateTrialLessonStatusSchema,
   archiveStudentSchema,
@@ -229,10 +239,12 @@ import {
   updateCommunicationPreferenceSchema,
   updateFeeRoundingModeSchema,
   updateMakeupWindowDaysSchema,
+  updateMonthlyMakeupAllowanceSchema,
   updateTermWeeklyClosedDaysSchema,
   updateFeeRuleSchema,
   updateLessonScheduleSchema,
   updateStudentProfileSchema,
+  provisionStudentPortalAccessSchema,
   updateStudentPaymentProfileSchema,
   updateTeacherInstrumentsSchema,
   updateTeacherProfileSchema,
@@ -285,6 +297,8 @@ import {
   type Notification,
   type Student,
   type StudentProfilePatch,
+  type StudentFeedback,
+  type StudentFeedbackStatus,
   type Teacher,
   type TeacherAvailabilityRequest,
   type TeacherFeedback,
@@ -344,6 +358,7 @@ import {
   computeOverallCurriculumProgress,
   toCurriculumSummary,
   getCurriculumTopic,
+  bulkCreateCurriculumTopics,
 } from "../curriculum";
 import type { StudentCurriculumTopic, DocumentInstance, TeacherFeedbackStatus } from "../types";
 import { createTrialLesson, listTrialLessons, updateTrialLessonStatus, getTrialLesson } from "../trial-lessons";
@@ -389,6 +404,22 @@ function audit(
   });
 }
 
+/**
+ * Karma Öğrenci Portalı — çağıranın BU öğrenciye erişim türü (GUARDIAN/SELF).
+ * STAFF/AI_AGENT için her zaman `undefined` (rol bazlı tam erişimleri zaten
+ * ayrıca kontrol edilir). Yalnızca STUDENT rolü + geçerli studentId'de
+ * StudentPortalAccess'e bakar — `canViewParentPrivateNote`/audience eşleştirmesi
+ * gibi eski "PARENT rolü her zaman görür" davranışını korumak için kullanılır.
+ */
+async function resolveCallerAccessType(
+  ctx: ServiceContext,
+  studentId: string
+): Promise<"GUARDIAN" | "SELF" | undefined> {
+  if (ctx.role !== "STUDENT") return undefined;
+  const { getActiveAccessType } = await import("../student-portal-access");
+  return (await getActiveAccessType(ctx.tenantId, ctx.userId, studentId)) ?? undefined;
+}
+
 // ─── helpers ───────────────────────────────────────────────
 
 function parseOrFail<T>(schema: z.ZodType<T>, input: unknown): ServiceResult<T> {
@@ -398,6 +429,53 @@ function parseOrFail<T>(schema: z.ZodType<T>, input: unknown): ServiceResult<T> 
 }
 
 // ─── tools ─────────────────────────────────────────────────
+
+async function notifyAttendanceExceptionBestEffort(
+  ctx: ServiceContext,
+  lessonId: string,
+  status: string
+): Promise<void> {
+  try {
+    const data = await readData();
+    const lesson = data.lessons.find((l) => l.id === lessonId);
+    if (!lesson) return;
+    const { getUserIdByTeacherId } = await import("../auth/users");
+    const { isCategoryEnabledForUser } = await import("../notification-preferences");
+    const teacherUserId = await getUserIdByTeacherId(ctx.tenantId, lesson.teacherId);
+    if (teacherUserId && teacherUserId !== ctx.userId) {
+      const enabled = await isCategoryEnabledForUser(ctx.tenantId, teacherUserId, "attendance_exception");
+      if (enabled) {
+        await createNotification({
+          tenantId: ctx.tenantId,
+          targetUserId: teacherUserId,
+          kind: "attendance_exception",
+          title: "Devamsızlık bildirimi",
+          body: `"${lesson.instrument}" dersinde ${
+            status === "absent" ? "devamsızlık" : "okul iptali"
+          } kaydedildi. Detay: /panel/yoklama`,
+        });
+      }
+    }
+    try {
+      const { notifyAdmins } = await import("../manager-notifications");
+      await notifyAdmins(
+        ctx.tenantId,
+        "attendance_exception",
+        {
+          title: "Devamsızlık/iptal kaydı",
+          body: `"${lesson.instrument}" dersi için ${
+            status === "absent" ? "devamsızlık" : "okul iptali"
+          } kaydı yapıldı. Detay: /panel/yoklama`,
+        },
+        { excludeUserId: ctx.userId, dedupeKey: lesson.id }
+      );
+    } catch {
+      // best-effort
+    }
+  } catch {
+    // best-effort
+  }
+}
 
 export async function markAttendanceTool(
   ctx: ServiceContext,
@@ -420,8 +498,15 @@ export async function markAttendanceTool(
 
   try {
     await markAttendance(v.data);
+    if (v.data.status === "absent" || v.data.status === "cancelled_by_school") {
+      await notifyAttendanceExceptionBestEffort(ctx, v.data.lessonId, v.data.status);
+    }
     return ok({ lessonId: v.data.lessonId, status: v.data.status });
   } catch (e) {
+    const { isMakeupQuotaExceededError } = await import("../makeup-quota");
+    if (isMakeupQuotaExceededError(e)) {
+      return fail("VALIDATION_ERROR", e instanceof Error ? e.message : "Telafi kotası aşıldı");
+    }
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "markAttendance failed");
   }
 }
@@ -466,7 +551,13 @@ export async function findAvailableSlotsTool(
 export async function confirmMakeupLessonTool(
   ctx: ServiceContext,
   input: unknown
-): Promise<ServiceResult<{ requestId: string; lessonId?: string }>> {
+): Promise<
+  ServiceResult<{
+    requestId: string;
+    lessonId?: string;
+    communication?: import("../whatsapp-templates").MakeupLessonCommunicationDraft | null;
+  }>
+> {
   const auth = requireRole(ctx, ["SCHOOL_ADMIN", "AI_AGENT", "SUPER_ADMIN"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
 
@@ -487,11 +578,58 @@ export async function confirmMakeupLessonTool(
     });
     const data = await readData();
     const req = data.makeupRequests.find((m) => m.id === v.data.requestId);
+    const lesson = req?.confirmedLessonId
+      ? data.lessons.find((l) => l.id === req.confirmedLessonId)
+      : undefined;
     audit(ctx, "makeup.confirm", "MakeupRequest", v.data.requestId, {
       lessonId: req?.confirmedLessonId,
       decisionNote: v.data.decisionNote,
     });
-    return ok({ requestId: v.data.requestId, lessonId: req?.confirmedLessonId });
+    let communication: import("../whatsapp-templates").MakeupLessonCommunicationDraft | null = null;
+    try {
+      if (lesson) {
+        const { notifyMakeupLessonScheduled } = await import("../lesson-notifications");
+        await notifyMakeupLessonScheduled({
+          tenantId: ctx.tenantId,
+          lesson,
+          actorUserId: ctx.userId,
+        });
+        const student = data.students.find((s) => s.id === lesson.studentId);
+        const teacher = data.teachers.find((t) => t.id === lesson.teacherId);
+        const branch = data.settings.branches.find((b) => b.id === lesson.branchId);
+        if (student && teacher) {
+          const { buildMakeupLessonScheduledDraft } = await import("../whatsapp-templates");
+          communication = buildMakeupLessonScheduledDraft(
+            data.settings.name,
+            student,
+            teacher,
+            lesson,
+            branch?.shortName ?? ""
+          );
+          const { createMakeupLessonCommunicationDrafts } = await import("../communications/service");
+          await createMakeupLessonCommunicationDrafts({
+            tenantId: ctx.tenantId,
+            lessonId: lesson.id,
+            createdBy: ctx.userId,
+            parent: {
+              name: student.parentName,
+              phone: student.parentPhone,
+              studentId: student.id,
+              optOut: student.communicationOptOut,
+              smsBody: communication.smsBody,
+              whatsappBody: communication.parent.body,
+            },
+          });
+        }
+      }
+    } catch {
+      // best-effort — ders kaydı geri alınmaz; İletişim Merkezi taslağı oluşmasa da telafi kaydı kalıcıdır
+    }
+    return ok({
+      requestId: v.data.requestId,
+      lessonId: req?.confirmedLessonId,
+      communication,
+    });
   } catch (e) {
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "confirmMakeupLesson failed");
   }
@@ -523,12 +661,25 @@ export async function createMakeupLessonTool(
   }
 
   try {
+    // Kota (pending/suggested/awaiting_info/confirmed sayılır) — store da korur.
+    const before = await readData();
+    const lesson = before.lessons.find((l) => l.id === v.data.lessonId);
+    if (!lesson) return fail("NOT_FOUND", "Ders bulunamadı");
+    const { assertCanCreateMakeup } = await import("../makeup-quota");
+    const quota = assertCanCreateMakeup(before, lesson.studentId);
+    if (!quota.ok) return fail("VALIDATION_ERROR", quota.message);
+
     await markAttendance(v.data);
     const data = await readData();
     const req = data.makeupRequests.find((m) => m.sourceLessonId === v.data.lessonId);
     if (!req) return fail("CONFLICT", "Makeup request was not created");
+    await notifyAttendanceExceptionBestEffort(ctx, v.data.lessonId, v.data.status);
     return ok({ requestId: req.id });
   } catch (e) {
+    const { isMakeupQuotaExceededError } = await import("../makeup-quota");
+    if (isMakeupQuotaExceededError(e)) {
+      return fail("VALIDATION_ERROR", e instanceof Error ? e.message : "Telafi kotası aşıldı");
+    }
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "createMakeupLesson failed");
   }
 }
@@ -654,7 +805,6 @@ export async function getStudentScheduleTool(
   const auth = requireRole(ctx, [
     "SCHOOL_ADMIN",
     "TEACHER",
-    "PARENT",
     "STUDENT",
     "AI_AGENT",
     "SUPER_ADMIN",
@@ -666,7 +816,7 @@ export async function getStudentScheduleTool(
 
   const data = await readData();
   const student = data.students.find((s) => s.id === v.data.studentId);
-  const access = assertStudentAccess(ctx, student, v.data.studentId);
+  const access = await assertStudentAccess(ctx, student, v.data.studentId);
   if (!access.ok) return fail(access.code, access.message);
 
   const lessons = data.lessons
@@ -722,7 +872,7 @@ export async function findPersonScheduleTool(
   ctx: ServiceContext,
   input: unknown
 ): Promise<ServiceResult<FindPersonScheduleResult>> {
-  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "TEACHER", "PARENT", "AI_AGENT", "SUPER_ADMIN"]);
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "TEACHER", "STUDENT", "AI_AGENT", "SUPER_ADMIN"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
 
   const v = parseOrFail(z.object({ query: z.string().min(1).max(120) }), input);
@@ -732,12 +882,13 @@ export async function findPersonScheduleTool(
   if (!needle) return fail("VALIDATION_ERROR", "query boş olamaz");
 
   const data = await readData();
-  const students = data.students.filter(
-    (s) =>
-      s.active &&
-      s.name.toLocaleLowerCase("tr").includes(needle) &&
-      canAccessStudent(ctx, s.id, { teacherId: s.teacherId })
+  const nameMatchedStudents = data.students.filter(
+    (s) => s.active && s.name.toLocaleLowerCase("tr").includes(needle)
   );
+  const studentAccessFlags = await Promise.all(
+    nameMatchedStudents.map((s) => canAccessStudent(ctx, s.id, { teacherId: s.teacherId }))
+  );
+  const students = nameMatchedStudents.filter((_s, i) => studentAccessFlags[i]);
   const teachers = data.teachers.filter(
     (t) => t.active && t.name.toLocaleLowerCase("tr").includes(needle) && canAccessTeacher(ctx, t.id)
   );
@@ -808,13 +959,14 @@ export async function globalSearchTool(
   const branchShortName = (branchId?: string) =>
     branchId ? data.settings.branches.find((b) => b.id === branchId)?.shortName : undefined;
 
-  const students: GlobalSearchResultItem[] = data.students
-    .filter(
-      (s) =>
-        s.active &&
-        foldTurkishForSearch(s.name).includes(needle) &&
-        canAccessStudent(ctx, s.id, { teacherId: s.teacherId })
-    )
+  const nameMatchedStudents = data.students.filter(
+    (s) => s.active && foldTurkishForSearch(s.name).includes(needle)
+  );
+  const studentAccessFlags = await Promise.all(
+    nameMatchedStudents.map((s) => canAccessStudent(ctx, s.id, { teacherId: s.teacherId }))
+  );
+  const students: GlobalSearchResultItem[] = nameMatchedStudents
+    .filter((_s, i) => studentAccessFlags[i])
     .slice(0, 6)
     .map((s) => ({ kind: "student" as const, id: s.id, label: s.name, description: branchShortName(s.branchId) }));
 
@@ -845,7 +997,7 @@ export async function getParentBalanceTool(
     outstanding: number;
   }>
 > {
-  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "PARENT", "AI_AGENT", "SUPER_ADMIN"]);
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "STUDENT", "AI_AGENT", "SUPER_ADMIN"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
 
   const v = parseOrFail(z.object({ studentId: z.string().min(1) }), input);
@@ -853,7 +1005,7 @@ export async function getParentBalanceTool(
 
   const data = await readData();
   const student = data.students.find((s) => s.id === v.data.studentId);
-  const access = assertStudentAccess(ctx, student, v.data.studentId);
+  const access = await assertStudentAccess(ctx, student, v.data.studentId);
   if (!access.ok) return fail(access.code, access.message);
 
   const payments = data.payments.filter((p) => p.studentId === v.data.studentId);
@@ -900,20 +1052,61 @@ export async function createPaymentTool(
     else if (/^\d{4}-\d{2}-\d{2}$/.test(paidAt)) {
       paidAt = new Date(`${paidAt}T12:00:00`).toISOString();
     }
-    await markPaymentPaid(v.data.paymentId, {
+    const { collectPayment } = await import("../payments/collect");
+    const collected = await collectPayment(v.data.paymentId, {
       method: v.data.method,
       amount: v.data.amount,
       paidAt,
       paymentNote: v.data.paymentNote,
       receivedByUserId: ctx.userId,
+      actorUserId: ctx.userId,
+      tenantId: ctx.tenantId,
     });
+    // Notify admins and the student about the payment received.
+    try {
+      const { notifyAdmins } = await import("../manager-notifications");
+      await notifyAdmins(ctx.tenantId, "payment_received", {
+        title: "Ödeme alındı",
+        body: `Ödeme ${v.data.paymentId} tahsil edildi. Detay: /panel/odemeler/${v.data.paymentId}`,
+      }, { excludeUserId: ctx.userId, dedupeKey: v.data.paymentId });
+    } catch {
+      // best-effort
+    }
+    try {
+      const { getUserIdByStudentId } = await import("../auth/users");
+      const { isCategoryEnabledForUser } = await import("../notification-preferences");
+      const { createNotification, listNotificationsForUser } = await import("../notifications");
+      const data = await readData();
+      const payment = data.payments.find((p) => p.id === v.data.paymentId);
+      const studentUserId = payment ? await getUserIdByStudentId(ctx.tenantId, payment.studentId) : null;
+      if (studentUserId) {
+        const enabled = await isCategoryEnabledForUser(ctx.tenantId, studentUserId, "payment_received");
+        if (enabled) {
+          const since = Date.now() - 24 * 60 * 60 * 1000;
+          const existing = await listNotificationsForUser({ tenantId: ctx.tenantId, userId: studentUserId });
+          const dup = existing.some((n) => n.kind === "payment_received" && n.body.includes(v.data.paymentId) && new Date(n.createdAt).getTime() >= since);
+          if (!dup && payment) {
+            await createNotification({
+              tenantId: ctx.tenantId,
+              targetUserId: studentUserId,
+              kind: "payment_received",
+              title: "Ödemeniz alındı",
+              body: `Ödeme (${payment.amount} TL) kaydedildi. Detay: /panel/odemeler/${payment.id}`,
+            });
+          }
+        }
+      }
+    } catch {
+      // best-effort
+    }
     audit(ctx, "payment.mark_paid", "Payment", v.data.paymentId, {
       method: v.data.method,
-      amount: v.data.amount,
+      amount: collected.payment.paidAmount,
+      status: collected.payment.status,
       paidAt,
       receivedByUserId: ctx.userId,
     });
-    return ok({ paymentId: v.data.paymentId, status: "paid" });
+    return ok({ paymentId: v.data.paymentId, status: collected.payment.status });
   } catch (e) {
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "createPayment failed");
   }
@@ -944,8 +1137,8 @@ export async function updatePaymentTool(
     const data = await readData();
     const existing = data.payments.find((p) => p.id === v.data.paymentId);
     if (!existing) return fail("NOT_FOUND", "Ödeme bulunamadı");
-    if (existing.status !== "paid") {
-      return fail("VALIDATION_ERROR", "Yalnızca tamamlanmış ödemeler düzenlenebilir.");
+    if (existing.status !== "paid" && existing.status !== "partial") {
+      return fail("VALIDATION_ERROR", "Yalnızca tahsil edilmiş (paid/partial) ödemeler düzenlenebilir.");
     }
 
     let paidAt = v.data.paidAt;
@@ -957,11 +1150,15 @@ export async function updatePaymentTool(
       paidAt = prev.toISOString();
     }
 
-    await updatePayment(v.data.paymentId, {
+    const { collectPayment } = await import("../payments/collect");
+    await collectPayment(v.data.paymentId, {
       method: v.data.method,
-      paidAmount: v.data.amount,
+      amount: v.data.amount,
       paymentNote: v.data.paymentNote,
       paidAt,
+      actorUserId: ctx.userId,
+      tenantId: ctx.tenantId,
+      voided: v.data.amount === 0,
     });
     audit(ctx, "payment.update", "Payment", v.data.paymentId, {
       method: v.data.method,
@@ -972,6 +1169,135 @@ export async function updatePaymentTool(
   } catch (e) {
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "updatePayment failed");
   }
+}
+
+/**
+ * Karma Öğrenci Portalı — task #35. Sağlayıcı-barındırmalı (hosted) online
+ * kredi kartı checkout'u BAŞLATIR; asla kart/CVV verisi almaz/saklamaz
+ * (bkz. `src/lib/payment-provider/types.ts`). Gerçek bir sağlayıcı
+ * bağlanmadıkça (`getPaymentProvider().isConfigured()` false) FAIL-CLOSED
+ * döner — hiçbir sahte checkout URL'i üretilmez, hiçbir
+ * `PaymentCheckoutAttempt`/`Payment` durumu "pending"/"succeeded"e taşınmaz.
+ */
+export async function initiateStudentPaymentCheckoutTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ checkoutUrl: string }>> {
+  const auth = requireRole(ctx, ["STUDENT", "SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+
+  // successUrl/cancelUrl/buyerIp BİLİNÇLİ OLARAK client body'sinden DEĞİL —
+  // route katmanında sunucu tarafında (request.url origin + clientIp)
+  // hesaplanıp buraya geçirilir; yalnızca kullanıcı deneyimi (ödeme sonrası
+  // nereye döneceği) içindir, hiçbir yetkilendirme/ödeme kararına girmez —
+  // "paid" durumuna geçiş SADECE doğrulanmış webhook'la olur (bkz. webhook route).
+  const v = parseOrFail(
+    z.object({
+      paymentId: z.string().min(1),
+      successUrl: z.string().url(),
+      cancelUrl: z.string().url(),
+      buyerIp: z.string().min(1),
+    }),
+    input
+  );
+  if (!v.ok) return v;
+
+  const data = await readData();
+  const payment = data.payments.find((p) => p.id === v.data.paymentId);
+  if (!payment) return fail("NOT_FOUND", "Ödeme bulunamadı");
+
+  // Öğrenci sahipliği + AKTİF StudentPortalAccess (GUARDIAN veya SELF) —
+  // tek gerçek kaynak assertStudentAccess/canAccessStudent (async).
+  const student = data.students.find((s) => s.id === payment.studentId);
+  const access = await assertStudentAccess(ctx, student, payment.studentId);
+  if (!access.ok) return fail(access.code, access.message);
+
+  // Fail-closed: yalnızca gerçekten TAHSİL EDİLEBİLİR durumdaki ödemeler için
+  // checkout başlatılabilir. "voided" bir ödemenin amount/paidAmount farkı
+  // pozitif KALABİLİR (void, ödemeyi 0'a çekmez, yalnızca statüsünü
+  // değiştirir) — yalnızca kalan tutara bakmak "voided"/"paid" bir ödeme
+  // için checkout'a izin verebilirdi; status'u AYRICA açıkça doğrularız.
+  if (payment.status === "paid" || payment.status === "voided") {
+    return fail("VALIDATION_ERROR", "Bu ödeme için online tahsilat başlatılamaz (ödeme kapalı).");
+  }
+  const remaining = Math.max(payment.amount - payment.paidAmount, 0);
+  if (remaining <= 0) return fail("VALIDATION_ERROR", "Bu ödeme için kalan bakiye yok.");
+  if (!student) return fail("NOT_FOUND", "Öğrenci bulunamadı");
+
+  const { getPaymentProvider } = await import("../payment-provider/provider-factory");
+  const provider = getPaymentProvider();
+  // Fail-closed: sağlayıcı yapılandırılmadıysa hiçbir DB kaydı OLUŞTURULMAZ.
+  if (!provider.isConfigured()) {
+    return fail("CONFLICT", "Online ödeme sağlayıcısı henüz yapılandırılmadı.");
+  }
+
+  const {
+    findPendingCheckoutAttempt,
+    createCheckoutAttempt,
+    setCheckoutAttemptProviderDetails,
+    markCheckoutAttemptFailed,
+  } = await import("../payment-checkout");
+
+  // İdempotency — double-click/retry: hâlâ geçerli (pending, süresi
+  // geçmemiş) VE zaten bir checkoutUrl'i olan bir deneme varsa, sağlayıcıyı
+  // TEKRAR ÇAĞIRMADAN AYNI URL'i döneriz (ikinci bir sağlayıcı işlemi asla
+  // açılmaz).
+  const existingPending = await findPendingCheckoutAttempt(ctx.tenantId, v.data.paymentId);
+  if (existingPending?.checkoutUrl) {
+    audit(ctx, "payment.checkout_reused", "Payment", v.data.paymentId, { provider: existingPending.provider });
+    return ok({ checkoutUrl: existingPending.checkoutUrl });
+  }
+  const idempotencyKey = existingPending?.idempotencyKey ?? uid("checkout");
+
+  const branch = data.settings.branches.find((b) => b.id === student.branchId);
+  const [buyerName, ...buyerSurnameParts] = student.name.trim().split(/\s+/);
+  const result = await provider.createCheckout({
+    tenantId: ctx.tenantId,
+    paymentId: v.data.paymentId,
+    amount: remaining,
+    currency: "TRY",
+    description: payment.description,
+    successUrl: v.data.successUrl,
+    cancelUrl: v.data.cancelUrl,
+    idempotencyKey,
+    buyer: {
+      id: student.id,
+      name: buyerName || student.name,
+      surname: buyerSurnameParts.join(" ") || "-",
+      email: student.email || "odeme@notaplan.app",
+      phone: student.phone || student.parentPhone || "",
+      ip: v.data.buyerIp,
+      addressLine: branch?.address || data.settings.name || "-",
+      city: branch?.city || "İstanbul",
+      country: "Turkey",
+    },
+  });
+
+  const attempt =
+    existingPending ??
+    (await createCheckoutAttempt({
+      tenantId: ctx.tenantId,
+      paymentId: v.data.paymentId,
+      studentId: payment.studentId,
+      initiatedByUserId: ctx.userId,
+      provider: provider.name,
+      amount: remaining,
+      currency: "TRY",
+      idempotencyKey,
+    }));
+
+  if (!result.ok) {
+    await markCheckoutAttemptFailed(ctx.tenantId, attempt.id);
+    audit(ctx, "payment.checkout_failed", "Payment", v.data.paymentId, { errorCode: result.errorCode });
+    return fail("INTERNAL_ERROR", result.error);
+  }
+
+  await setCheckoutAttemptProviderDetails(ctx.tenantId, attempt.id, {
+    providerReference: result.providerReference,
+    checkoutUrl: result.checkoutUrl,
+  });
+  audit(ctx, "payment.checkout_initiated", "Payment", v.data.paymentId, { provider: provider.name });
+  return ok({ checkoutUrl: result.checkoutUrl });
 }
 
 export async function sendParentMessageTool(
@@ -993,7 +1319,7 @@ export async function sendParentMessageTool(
 
   const data = await readData();
   const student = data.students.find((s) => s.id === v.data.studentId);
-  const access = assertStudentAccess(ctx, student, v.data.studentId);
+  const access = await assertStudentAccess(ctx, student, v.data.studentId);
   if (!access.ok) return fail(access.code, access.message);
   if (!student) return fail("NOT_FOUND", "Student not found");
 
@@ -1147,7 +1473,13 @@ export async function createStudentTool(
     // gider ve "Unknown argument `instrument`" hatasıyla TÜM öğrenci
     // oluşturma db-modunda kırılır (json/memory modda sessizce yutulduğu
     // için bu hata testlerde hiç görünmüyordu — STORE_MODE=json'da çalışır).
-    const { monthlyFeeOverrideAmount: _ignoredOverrideAmount, instrument: _ignoredInstrument, ...studentInput } = v.data;
+    const {
+      monthlyFeeOverrideAmount: _ignoredOverrideAmount,
+      instrument: _ignoredInstrument,
+      createPortalAccess: _ignoredCreatePortalAccess,
+      portalAccessType: _ignoredPortalAccessType,
+      ...studentInput
+    } = v.data;
     const ids = new Set(before.students.map((s) => s.id));
     await addStudent({
       ...studentInput,
@@ -1161,14 +1493,27 @@ export async function createStudentTool(
     const created = after.students.find((s) => !ids.has(s.id));
     if (created) {
       audit(ctx, "student.create", "Student", created.id, v.data.packageId ? { pricing } : undefined);
+      // Notify admins about new student registration
+      try {
+        const { notifyAdmins } = await import("../manager-notifications");
+        await notifyAdmins(ctx.tenantId, "student_new_registration", {
+          title: "Yeni öğrenci kaydı",
+          body: `"${created.name}" öğrencisi kaydedildi. Detay: /panel/ogrenciler/${created.id}`,
+        });
+      } catch {
+        // best-effort
+      }
     }
 
-    // EPIC 6A gap — Student kaydı oluşturmak tek başına giriş sağlamıyordu
-    // (bkz. provisionEntityLogin yorumu). E-posta verildiyse otomatik bir
-    // login hesabı sağlanır; STORE_MODE=db dışında (json/memory) veya
-    // e-posta boşsa sessizce atlanır.
+    // Karma Öğrenci Portalı — hesap (User + StudentPortalAccess) YALNIZCA
+    // yönetici "Portal erişimi oluştur / davet gönder" kutusunu bilinçli
+    // olarak işaretlediyse oluşturulur. Eskiden (EPIC 6A) yalnızca `email`
+    // alanı doluysa örtük/otomatik bir hesap açılıyordu — bu, "veli
+    // telefonu/adı (veya e-postası) girmek asla otomatik hesap açmaz"
+    // kuralını ihlal ediyordu; kaldırıldı. `createPortalAccess`
+    // işaretlenmezse hiçbir User/StudentPortalAccess kaydı oluşmaz.
     let tempLoginPassword: string | undefined;
-    if (created && v.data.email) {
+    if (created && v.data.email && v.data.createPortalAccess) {
       const provisioned = await provisionEntityLogin({
         tenantId: ctx.tenantId,
         email: v.data.email,
@@ -1177,14 +1522,31 @@ export async function createStudentTool(
       });
       if (provisioned) {
         audit(ctx, "student.login_provisioned", "Student", created.id);
-        // Geçici şifre yalnızca doğrudan insan yönetici çağrısında API
-        // yanıtına dahil edilir — AI_AGENT rolüyle (sohbet/otonom akış)
+        // Geçici şifre yalnızca doğrudan insan yönetici çağrısında dönüş
+        // değerine dahil edilir — AI_AGENT rolüyle (sohbet/otonom akış)
         // oluşturulduysa dönmez, çünkü LLM tool-result'ı sohbette anlatabilir
-        // ve şifre bu yolla sızabilir. Hesap her koşulda oluşur; yönetici
-        // şifreyi yalnızca kendi doğrudan isteğiyle görür (tek seferlik).
+        // ve şifre bu yolla sızabilir. Yalnızca BİR KEZ, bu çağrının dönüş
+        // değerinde döner — hiçbir yerde kalıcı olarak saklanmaz/loglanmaz.
         if (ctx.role === "SCHOOL_ADMIN" || ctx.role === "SUPER_ADMIN") {
           tempLoginPassword = provisioned.tempPassword;
         }
+      }
+
+      // Hesabın YANINDA StudentPortalAccess da anında active olarak
+      // sağlanır — invite akışında ayrı bir "daveti kabul et" ekranı
+      // bilinçli olarak yok (bkz. provisionStudentPortalAccessTool yorumu).
+      if (provisioned) {
+        const { grantActiveStudentPortalAccess } = await import("../student-portal-access");
+        await grantActiveStudentPortalAccess({
+          tenantId: ctx.tenantId,
+          userId: provisioned.userId,
+          studentId: created.id,
+          accessType: v.data.portalAccessType ?? "SELF",
+          invitedBy: ctx.userId,
+        });
+        audit(ctx, "student.portal_access_granted", "Student", created.id, {
+          accessType: v.data.portalAccessType ?? "SELF",
+        });
       }
     }
 
@@ -1227,6 +1589,67 @@ export async function updateStudentProfileTool(
     return ok({ studentId });
   } catch (e) {
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "updateStudentProfile failed");
+  }
+}
+
+/**
+ * Karma Öğrenci Portalı — öğrenci düzenleme ekranından SONRADAN "Portal
+ * erişimi oluştur / davet gönder" aksiyonu (task #34). Kayıt oluşturma
+ * anındaki `createStudentTool`'un yanına, ikinci bir bilinçli admin
+ * tetikleyicisi olarak eklendi — hiçbir yerde otomatik/örtük çağrılmaz.
+ * Login hesabı yoksa oluşturur (provisionEntityLogin, idempotent), StudentPortalAccess'i
+ * anında active yapar (ayrı bir "daveti kabul et" ekranı BİLİNÇLİ OLARAK
+ * yok — minimal, güvenli kapsam; admin zaten kimlik doğrulanmış kişiye
+ * elden/WhatsApp ile geçici şifreyi iletir).
+ */
+export async function provisionStudentPortalAccessTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ studentId: string; tempLoginPassword?: string }>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+
+  const v = parseOrFail(provisionStudentPortalAccessSchema, input);
+  if (!v.ok) return v;
+
+  const data = await readData();
+  const student = data.students.find((s) => s.id === v.data.studentId);
+  if (!student) return fail("NOT_FOUND", "Öğrenci bulunamadı");
+
+  try {
+    const provisioned = await provisionEntityLogin({
+      tenantId: ctx.tenantId,
+      email: v.data.email,
+      role: "STUDENT",
+      studentId: v.data.studentId,
+    });
+
+    const { getUserIdByEmail } = await import("../auth/users");
+    const { grantActiveStudentPortalAccess } = await import("../student-portal-access");
+
+    // provisioned === null anlamı: bu e-posta zaten bir User'a bağlı
+    // (idempotent create) — o kullanıcının id'sini e-postadan bulup erişimi
+    // YİNE DE bu öğrenciye bağlarız (ör. aynı veli ikinci çocuğa erişim
+    // istiyor olabilir). Deprecated `User.studentId` alanı BİLİNÇLİ OLARAK
+    // burada okunmaz — StudentPortalAccess tek gerçek kaynaktır.
+    const userId = provisioned?.userId ?? (await getUserIdByEmail(ctx.tenantId, v.data.email));
+    if (!userId) return fail("INTERNAL_ERROR", "Kullanıcı hesabı oluşturulamadı/bulunamadı");
+
+    await grantActiveStudentPortalAccess({
+      tenantId: ctx.tenantId,
+      userId,
+      studentId: v.data.studentId,
+      accessType: v.data.accessType,
+      invitedBy: ctx.userId,
+    });
+    audit(ctx, "student.portal_access_granted", "Student", v.data.studentId, { accessType: v.data.accessType });
+
+    return ok({
+      studentId: v.data.studentId,
+      tempLoginPassword: provisioned?.tempPassword,
+    });
+  } catch (e) {
+    return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "provisionStudentPortalAccess failed");
   }
 }
 
@@ -1933,7 +2356,7 @@ export async function getSocialMediaConsentTool(
 
   const data = await readData();
   const student = data.students.find((s) => s.id === v.data.studentId);
-  const access = assertStudentAccess(ctx, student, v.data.studentId);
+  const access = await assertStudentAccess(ctx, student, v.data.studentId);
   if (!access.ok) return fail(access.code, access.message);
 
   const consent = await getLatestSocialMediaConsent(ctx.tenantId, v.data.studentId);
@@ -1958,7 +2381,7 @@ export async function listSocialMediaConsentHistoryTool(
 
   const data = await readData();
   const student = data.students.find((s) => s.id === v.data.studentId);
-  const access = assertStudentAccess(ctx, student, v.data.studentId);
+  const access = await assertStudentAccess(ctx, student, v.data.studentId);
   if (!access.ok) return fail(access.code, access.message);
 
   const history = await listSocialMediaConsentHistory(ctx.tenantId, v.data.studentId);
@@ -2546,10 +2969,26 @@ export async function updateLessonScheduleTool(
   }
 
   try {
+    const before = await readData();
+    const previous = before.lessons.find((l) => l.id === v.data.lessonId);
+    const previousStartAt = previous?.startAt;
     await updateLessonSchedule(v.data);
     const data = await readData();
     const lesson = data.lessons.find((l) => l.id === v.data.lessonId);
     if (!lesson) return fail("NOT_FOUND", "Ders bulunamadı");
+    if (previousStartAt && previousStartAt !== lesson.startAt) {
+      try {
+        const { notifyLessonRescheduled } = await import("../lesson-notifications");
+        await notifyLessonRescheduled({
+          tenantId: ctx.tenantId,
+          lesson,
+          previousStartAt,
+          actorUserId: ctx.userId,
+        });
+      } catch {
+        // best-effort
+      }
+    }
     return ok({ lessonId: lesson.id, startAt: lesson.startAt, endAt: lesson.endAt });
   } catch (e) {
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "updateLessonSchedule failed");
@@ -2567,7 +3006,22 @@ export async function cancelLessonTool(
   if (!v.ok) return v;
 
   try {
+    const before = await readData();
+    const lesson = before.lessons.find((l) => l.id === v.data.lessonId);
     await cancelLesson(v.data.lessonId);
+    if (lesson) {
+      try {
+        const { notifyLessonCancelled } = await import("../lesson-notifications");
+        await notifyLessonCancelled({
+          tenantId: ctx.tenantId,
+          lesson,
+          actorUserId: ctx.userId,
+          reason: typeof (v.data as { reason?: string }).reason === "string" ? (v.data as { reason?: string }).reason : undefined,
+        });
+      } catch {
+        // best-effort
+      }
+    }
     return ok({ lessonId: v.data.lessonId });
   } catch (e) {
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "cancelLesson failed");
@@ -2933,6 +3387,29 @@ export async function updateMakeupWindowDaysTool(
   }
 }
 
+export async function updateMonthlyMakeupAllowanceTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ monthlyMakeupAllowance: number }>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+
+  const v = parseOrFail(updateMonthlyMakeupAllowanceSchema, input);
+  if (!v.ok) return v;
+
+  try {
+    const data = await updateMonthlyMakeupAllowance(v.data.monthlyMakeupAllowance);
+    audit(ctx, "school.monthly_makeup_allowance.update", "School", ctx.tenantId, {
+      monthlyMakeupAllowance: v.data.monthlyMakeupAllowance,
+    });
+    return ok({
+      monthlyMakeupAllowance: data.settings.monthlyMakeupAllowance ?? v.data.monthlyMakeupAllowance,
+    });
+  } catch (e) {
+    return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "updateMonthlyMakeupAllowance failed");
+  }
+}
+
 /**
  * Paket 6 — Çalışma Takvimi: dönem bazlı haftalık kapalı gün kuralı
  * (ör. Yaz'da Pazartesi açık/hafta sonu kapalı, Güz'de tersi). Yalnızca
@@ -2996,7 +3473,11 @@ export async function scanOverduePaymentsTool(
       if (!student || student.communicationOptOut) continue;
 
       const openCase = existingCases.find(
-        (c) => c.paymentId === payment.id && c.status !== "paid" && c.status !== "lost"
+        (c) =>
+          c.paymentId === payment.id &&
+          c.status !== "paid" &&
+          c.status !== "lost" &&
+          c.status !== "dismissed"
       );
       const lastContactAt = openCase?.sentAt ?? openCase?.updatedAt;
       if (lastContactAt) {
@@ -3066,7 +3547,7 @@ export async function updateCommunicationPreferenceTool(
   const v = parseOrFail(updateCommunicationPreferenceSchema, input);
   if (!v.ok) return v;
 
-  const isOwnChild = ctx.role === "PARENT" && canAccessStudent(ctx, v.data.studentId);
+  const isOwnChild = ctx.role === "STUDENT" && (await canAccessStudent(ctx, v.data.studentId));
   if (!isOwnChild) {
     const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN", "AI_AGENT"]);
     if (!auth.ok) return fail("FORBIDDEN", auth.message);
@@ -3169,12 +3650,81 @@ export async function createAnnouncementTool(
   const v = parseOrFail(createAnnouncementSchema, input);
   if (!v.ok) return v;
 
+  const uploadedKeys: string[] = [];
   try {
+    const attachmentsIn = v.data.attachments ?? [];
+    if (attachmentsIn.length > 3) {
+      return fail("VALIDATION_ERROR", "En fazla 3 dosya eklenebilir.");
+    }
+    const [{ uid: makeId }, fileValidation, storage] = await Promise.all([
+      import("../utils").then((u) => ({ uid: u.uid })),
+      import("../file-upload-validation"),
+      import("../storage"),
+    ]);
+    const builtAttachments: Array<{
+      id: string;
+      fileName: string;
+      mimeType: string;
+      sizeBytes: number;
+      storageKey: string;
+      uploadedAt: string;
+    }> = [];
+
+    const decoded: Array<{ fileName: string; mimeType: string; buffer: Buffer }> = [];
+    for (const file of attachmentsIn) {
+      if (!storage.isAllowedAnnouncementMime(file.mimeType)) {
+        return fail(
+          "VALIDATION_ERROR",
+          `Desteklenmeyen dosya türü: ${file.mimeType}. PDF, JPG, PNG, DOC/DOCX, XLS/XLSX yükleyin.`
+        );
+      }
+      const size = fileValidation.base64ByteSize(file.fileData);
+      if (size <= 0 || size > storage.ANNOUNCEMENT_MAX_BYTES) {
+        return fail("VALIDATION_ERROR", `Dosya boyutu geçersiz veya 2 MB üstü: ${file.fileName}`);
+      }
+
+      const raw = file.fileData.includes(",")
+        ? file.fileData.slice(file.fileData.indexOf(",") + 1)
+        : file.fileData;
+      let buffer: Buffer;
+      try {
+        buffer = Buffer.from(raw, "base64");
+      } catch {
+        return fail("VALIDATION_ERROR", `Dosya içeriği okunamadı: ${file.fileName}`);
+      }
+      try {
+        storage.assertAnnouncementFileBuffer(buffer, file.mimeType);
+      } catch (guardErr) {
+        return fail("VALIDATION_ERROR", guardErr instanceof Error ? guardErr.message : "Dosya geçersiz");
+      }
+      decoded.push({ fileName: file.fileName, mimeType: file.mimeType, buffer });
+    }
+
+    for (const file of decoded) {
+      const uploadRes = await storage.uploadAnnouncementAttachment(
+        ctx.tenantId,
+        file.buffer,
+        file.fileName,
+        file.mimeType
+      );
+      uploadedKeys.push(uploadRes.storageKey);
+
+      builtAttachments.push({
+        id: makeId("annatt"),
+        fileName: file.fileName,
+        mimeType: file.mimeType,
+        sizeBytes: uploadRes.sizeBytes,
+        storageKey: uploadRes.storageKey,
+        uploadedAt: new Date().toISOString(),
+      });
+    }
+
     const announcement = await createAnnouncement({
       tenantId: ctx.tenantId,
       title: v.data.title,
       body: v.data.body,
       attachmentUrl: v.data.attachmentUrl,
+      attachments: builtAttachments.length ? builtAttachments : undefined,
       audienceType: v.data.audienceType,
       audienceRef: v.data.audienceRef as AnnouncementAudienceRef | undefined,
       status: v.data.status,
@@ -3186,10 +3736,70 @@ export async function createAnnouncementTool(
     audit(ctx, "announcement.create", "Announcement", announcement.id, {
       audienceType: v.data.audienceType,
       status: announcement.status,
+      attachmentCount: builtAttachments.length,
     });
     return ok({ announcementId: announcement.id });
   } catch (e) {
+    if (uploadedKeys.length) {
+      try {
+        const { deleteAnnouncementAttachment } = await import("../storage");
+        await Promise.all(uploadedKeys.map((k) => deleteAnnouncementAttachment(k)));
+      } catch {
+        // ignore cleanup errors
+      }
+    }
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "createAnnouncement failed");
+  }
+}
+
+export async function getAnnouncementAttachmentFileTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ fileName: string; fileMimeType: string; fileData: string }>> {
+  const v = parseOrFail(
+    z.object({ announcementId: z.string().min(1), attachmentId: z.string().min(1) }),
+    input
+  );
+  if (!v.ok) return v;
+
+  try {
+    const { getStoredAnnouncement } = await import("../announcements");
+    const stored = await getStoredAnnouncement(ctx.tenantId, v.data.announcementId);
+    if (!stored) return fail("NOT_FOUND", "Duyuru bulunamadı");
+
+    const isAdmin = ctx.role === "SCHOOL_ADMIN" || ctx.role === "SUPER_ADMIN";
+    if (!isAdmin) {
+      const data = await readData();
+      const recipient = {
+        role: ctx.role,
+        userId: ctx.userId,
+        teacherId: ctx.teacherId,
+        studentId: ctx.studentId,
+      };
+      const audienceContext = { students: data.students, teachers: data.teachers };
+      if (!isVisibleNow(stored) || !matchesAudience(stored, recipient, audienceContext)) {
+        return fail("FORBIDDEN", "Bu ek size açık değil");
+      }
+    }
+
+    const att = stored.attachments?.find((a) => a.id === v.data.attachmentId);
+    if (!att?.storageKey) return fail("NOT_FOUND", "Ek bulunamadı veya bozuk.");
+
+    const { downloadAnnouncementAttachment } = await import("../storage");
+    let buffer: Buffer;
+    try {
+      buffer = await downloadAnnouncementAttachment(ctx.tenantId, att.storageKey);
+    } catch {
+      return fail("NOT_FOUND", "Ek dosyası okunamadı (kırık veya eksik).");
+    }
+
+    return ok({
+      fileName: att.fileName,
+      fileMimeType: att.mimeType,
+      fileData: buffer.toString("base64"),
+    });
+  } catch (e) {
+    return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "getAnnouncementAttachmentFile failed");
   }
 }
 
@@ -3226,7 +3836,14 @@ export async function listAnnouncementsForUserTool(
 ): Promise<ServiceResult<{ announcements: Announcement[] }>> {
   try {
     const [data, all] = await Promise.all([readData(), listAnnouncements(ctx.tenantId)]);
-    const recipient = { role: ctx.role, userId: ctx.userId, teacherId: ctx.teacherId, studentId: ctx.studentId };
+    const accessType = ctx.studentId ? await resolveCallerAccessType(ctx, ctx.studentId) : undefined;
+    const recipient = {
+      role: ctx.role,
+      userId: ctx.userId,
+      teacherId: ctx.teacherId,
+      studentId: ctx.studentId,
+      accessType,
+    };
     const audienceContext = { students: data.students, teachers: data.teachers };
     const visible = all.filter(
       (a) => isVisibleNow(a) && matchesAudience(a, recipient, audienceContext)
@@ -3291,7 +3908,7 @@ export async function createAssessmentTool(
 
   const data = await readData();
   const student = data.students.find((s) => s.id === v.data.studentId);
-  const access = assertStudentAccess(ctx, student, v.data.studentId);
+  const access = await assertStudentAccess(ctx, student, v.data.studentId);
   if (!access.ok) return fail(access.code, access.message);
   if (!student) return fail("NOT_FOUND", "Öğrenci bulunamadı");
   const lesson = data.lessons.find((l) => l.id === v.data.lessonId);
@@ -3346,11 +3963,12 @@ export async function listAssessmentsForStudentTool(
   try {
     const data = await readData();
     const student = data.students.find((s) => s.id === v.data.studentId);
-    const access = assertStudentAccess(ctx, student, v.data.studentId);
+    const access = await assertStudentAccess(ctx, student, v.data.studentId);
     if (!access.ok) return fail(access.code, access.message);
 
     const assessments = await listAssessmentsForStudent(ctx.tenantId, v.data.studentId);
-    return ok({ assessments: assessments.map((a) => stripPrivateNoteForRecipient(a, ctx.role)) });
+    const accessType = await resolveCallerAccessType(ctx, v.data.studentId);
+    return ok({ assessments: assessments.map((a) => stripPrivateNoteForRecipient(a, ctx.role, accessType)) });
   } catch (e) {
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "listAssessmentsForStudent failed");
   }
@@ -3368,12 +3986,13 @@ export async function getAssessmentTool(
     if (!assessment) return fail("NOT_FOUND", "Değerlendirme bulunamadı");
     const data = await readData();
     const student = data.students.find((s) => s.id === assessment.studentId);
-    const access = assertStudentAccess(ctx, student, assessment.studentId);
+    const access = await assertStudentAccess(ctx, student, assessment.studentId);
     if (!access.ok) return fail(access.code, access.message);
     if (ctx.role === "TEACHER" && assessment.teacherId !== ctx.teacherId) {
       return fail("FORBIDDEN", "Bu kayda erişiminiz yok");
     }
-    return ok({ assessment: stripPrivateNoteForRecipient(assessment, ctx.role) });
+    const accessType = await resolveCallerAccessType(ctx, assessment.studentId);
+    return ok({ assessment: stripPrivateNoteForRecipient(assessment, ctx.role, accessType) });
   } catch (e) {
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "getAssessment failed");
   }
@@ -3390,13 +4009,14 @@ export async function getAssessmentReportTool(
   try {
     const data = await readData();
     const student = data.students.find((s) => s.id === v.data.studentId);
-    const access = assertStudentAccess(ctx, student, v.data.studentId);
+    const access = await assertStudentAccess(ctx, student, v.data.studentId);
     if (!access.ok) return fail(access.code, access.message);
 
     const assessments = await listAssessmentsForStudent(ctx.tenantId, v.data.studentId);
     const trend = computeTrend(assessments, 4);
+    const accessType = await resolveCallerAccessType(ctx, v.data.studentId);
     return ok({
-      assessments: assessments.map((a) => stripPrivateNoteForRecipient(a, ctx.role)),
+      assessments: assessments.map((a) => stripPrivateNoteForRecipient(a, ctx.role, accessType)),
       trend,
     });
   } catch (e) {
@@ -3431,6 +4051,32 @@ export async function startLessonTool(
     const result = await startLessonLive(v.data.lessonId);
     if (!result.ok) return fail("VALIDATION_ERROR", result.message);
     audit(ctx, "lesson.start", "Lesson", v.data.lessonId, {});
+    // Notify the student (if they have a login User) that the lesson started.
+    try {
+      const { getUserIdByStudentId } = await import("../auth/users");
+      const { isCategoryEnabledForUser } = await import("../notification-preferences");
+      const { createNotification, listNotificationsForUser } = await import("../notifications");
+      const studentUserId = await getUserIdByStudentId(ctx.tenantId, result.lesson.studentId);
+      if (studentUserId) {
+        const enabled = await isCategoryEnabledForUser(ctx.tenantId, studentUserId, "lesson_started");
+        if (enabled) {
+          const since = Date.now() - 60 * 60 * 1000; // 1 hour dedupe window
+          const existing = await listNotificationsForUser({ tenantId: ctx.tenantId, userId: studentUserId });
+          const dup = existing.some((n) => n.kind === "lesson_started" && n.body.includes(result.lesson.id) && new Date(n.createdAt).getTime() >= since);
+          if (!dup) {
+            await createNotification({
+              tenantId: ctx.tenantId,
+              targetUserId: studentUserId,
+              kind: "lesson_started",
+              title: "Ders başladı",
+              body: `"${result.lesson.instrument}" dersi başladı. Detay: /ogretmen/ogrenciler/${result.lesson.studentId}`,
+            });
+          }
+        }
+      }
+    } catch {
+      // best-effort
+    }
     return ok({ lessonId: v.data.lessonId, status: result.lesson.status });
   } catch (e) {
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "startLesson failed");
@@ -3529,6 +4175,20 @@ export async function proposeTeacherAvailabilityTool(
     audit(ctx, "teacher.availability_request.create", "TeacherAvailabilityRequest", request.id, {
       teacherId: ctx.teacherId,
     });
+    try {
+      const { notifyAdmins } = await import("../manager-notifications");
+      await notifyAdmins(
+        ctx.tenantId,
+        "portal_request",
+        {
+          title: "Portal talebi",
+          body: `Öğretmen müsaitlik önerisi geldi. Detay: /panel/ogretmenler`,
+        },
+        { excludeUserId: ctx.userId, dedupeKey: request.id }
+      );
+    } catch {
+      // best-effort
+    }
     return ok({ requestId: request.id });
   } catch (e) {
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "proposeTeacherAvailability failed");
@@ -3679,7 +4339,7 @@ export async function listHomeworkForStudentTool(
   try {
     const data = await readData();
     const student = data.students.find((s) => s.id === v.data.studentId);
-    const access = assertStudentAccess(ctx, student, v.data.studentId);
+    const access = await assertStudentAccess(ctx, student, v.data.studentId);
     if (!access.ok) return fail(access.code, access.message);
 
     const homework = await listHomeworkForStudent(ctx.tenantId, v.data.studentId);
@@ -3728,6 +4388,14 @@ export async function submitHomeworkTool(
   if (homework.studentId !== ctx.studentId) {
     return fail("FORBIDDEN", "Yalnızca kendi ödevinize teslim yükleyebilirsiniz.");
   }
+  // Karma Öğrenci Portalı — eski PARENT rolü ödev teslimi yükleyemiyordu;
+  // bu davranış korunur: STUDENT rolündeki bir GUARDIAN (veli) DEĞİL,
+  // yalnızca SELF (öğrencinin kendisi) teslim yükleyebilir.
+  const { getActiveAccessType } = await import("../student-portal-access");
+  const accessType = await getActiveAccessType(ctx.tenantId, ctx.userId, homework.studentId);
+  if (accessType !== "SELF") {
+    return fail("FORBIDDEN", "Yalnızca öğrencinin kendisi ödev teslimi yükleyebilir.");
+  }
 
   try {
     const submission = await submitHomework({
@@ -3762,7 +4430,7 @@ export async function listHomeworkSubmissionsTool(
   try {
     const data = await readData();
     const student = data.students.find((s) => s.id === homework.studentId);
-    const access = assertStudentAccess(ctx, student, homework.studentId);
+    const access = await assertStudentAccess(ctx, student, homework.studentId);
     if (!access.ok) return fail(access.code, access.message);
 
     const submissions = await listSubmissionsForHomework(ctx.tenantId, v.data.homeworkId);
@@ -3817,7 +4485,7 @@ export async function getHomeworkSubmissionFileTool(
   try {
     const data = await readData();
     const student = data.students.find((s) => s.id === submission.studentId);
-    const access = assertStudentAccess(ctx, student, submission.studentId);
+    const access = await assertStudentAccess(ctx, student, submission.studentId);
     if (!access.ok) return fail(access.code, access.message);
     if (!submission.fileData) return fail("NOT_FOUND", "Bu teslimde dosya yok");
 
@@ -3848,7 +4516,7 @@ export async function getHomeworkFileTool(
   try {
     const data = await readData();
     const student = data.students.find((s) => s.id === homework.studentId);
-    const access = assertStudentAccess(ctx, student, homework.studentId);
+    const access = await assertStudentAccess(ctx, student, homework.studentId);
     if (!access.ok) return fail(access.code, access.message);
     if (!homework.fileData) return fail("NOT_FOUND", "Bu ödevde dosya yok");
 
@@ -3913,7 +4581,7 @@ export async function listTeachingMaterialsForStudentTool(
   try {
     const data = await readData();
     const student = data.students.find((s) => s.id === v.data.studentId);
-    const access = assertStudentAccess(ctx, student, v.data.studentId);
+    const access = await assertStudentAccess(ctx, student, v.data.studentId);
     if (!access.ok) return fail(access.code, access.message);
     if (!student) return fail("NOT_FOUND", "Öğrenci bulunamadı");
 
@@ -3960,7 +4628,7 @@ export async function getTeachingMaterialFileTool(
 
   if (ctx.role === "TEACHER") {
     if (material.teacherId !== ctx.teacherId) return fail("FORBIDDEN", "Bu materyale erişiminiz yok");
-  } else if (ctx.role === "PARENT" || ctx.role === "STUDENT") {
+  } else if (ctx.role === "STUDENT") {
     if (!ctx.studentId) return fail("FORBIDDEN", "Bu materyale erişiminiz yok");
     const data = await readData();
     const student = data.students.find((s) => s.id === ctx.studentId);
@@ -3992,7 +4660,7 @@ export async function submitTeacherFeedbackTool(
   ctx: ServiceContext,
   input: unknown
 ): Promise<ServiceResult<{ feedbackId: string; updated: boolean }>> {
-  const auth = requireRole(ctx, ["PARENT", "STUDENT"]);
+  const auth = requireRole(ctx, ["STUDENT"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
 
   const v = parseOrFail(submitTeacherFeedbackSchema, input);
@@ -4008,12 +4676,18 @@ export async function submitTeacherFeedbackTool(
   if (!student) return fail("NOT_FOUND", "Öğrenci bulunamadı");
 
   try {
+    // Karma Öğrenci Portalı — ctx.role artık HER ZAMAN "STUDENT" (veli de
+    // öğrenci de). Admin inceleme ekranının "STUDENT"/"PARENT" kaynak
+    // filtresi anlamını korusun diye burada accessType'a göre eski
+    // etiketleme davranışı YENİDEN üretilir (GUARDIAN → "PARENT").
+    const accessType = await resolveCallerAccessType(ctx, v.data.studentId);
+    const submitterRole = accessType === "GUARDIAN" ? "PARENT" : "STUDENT";
     const { feedback, updated } = await submitTeacherFeedback({
       tenantId: ctx.tenantId,
       teacherId: student.teacherId,
       studentId: v.data.studentId,
       submittedBy: ctx.userId,
-      submitterRole: ctx.role,
+      submitterRole,
       scores: v.data.scores,
       continueWithTeacher: v.data.continueWithTeacher,
       comment: v.data.comment,
@@ -4021,6 +4695,24 @@ export async function submitTeacherFeedbackTool(
     audit(ctx, updated ? "teacher_feedback.update" : "teacher_feedback.submit", "TeacherFeedback", feedback.id, {
       teacherId: student.teacherId,
     });
+    try {
+      const teacher = data.teachers.find((t) => t.id === student.teacherId);
+      const { notifyAdmins } = await import("../manager-notifications");
+      // dedupeKey = feedback.id: aynı ay içindeki tekrar submit (update) aynı
+      // satırı güncellediği için aynı id kalır — 24 saat içinde ikinci kez
+      // "yeni değerlendirme" bildirimi üretilmez (bkz. notifyAdmins dedupe).
+      await notifyAdmins(
+        ctx.tenantId,
+        "teacher_feedback_submitted",
+        {
+          title: "Yeni öğretmen değerlendirmesi",
+          body: `${teacher?.name ?? "Bir öğretmen"} için yeni bir değerlendirme geldi. Detay: /panel/ogretmenler/${student.teacherId}/geri-bildirim (ref:${feedback.id})`,
+        },
+        { dedupeKey: feedback.id }
+      );
+    } catch {
+      // best-effort — bildirim gönderilemese de değerlendirme kaydı kalıcıdır
+    }
     return ok({ feedbackId: feedback.id, updated });
   } catch (e) {
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "submitTeacherFeedback failed");
@@ -4036,7 +4728,7 @@ export async function getOwnTeacherFeedbackThisMonthTool(
   ctx: ServiceContext,
   input: unknown
 ): Promise<ServiceResult<{ feedback: TeacherFeedback | null }>> {
-  const auth = requireRole(ctx, ["PARENT", "STUDENT"]);
+  const auth = requireRole(ctx, ["STUDENT"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
 
   const v = parseOrFail(z.object({ studentId: z.string().min(1), teacherId: z.string().min(1) }), input);
@@ -4202,6 +4894,24 @@ export async function setTeacherFeedbackSharedTool(
     const feedback = await setTeacherFeedbackShared(ctx.tenantId, v.data.feedbackId, v.data.shared);
     if (!feedback) return fail("NOT_FOUND", "Geri bildirim bulunamadı");
     audit(ctx, "teacher_feedback.set_shared", "TeacherFeedback", feedback.id, { shared: v.data.shared });
+    if (v.data.shared) {
+      try {
+        const { notifyUserIfEnabled } = await import("../notification-dispatch");
+        const teacherUserId = await getUserIdByTeacherId(ctx.tenantId, feedback.teacherId);
+        if (teacherUserId) {
+          await notifyUserIfEnabled({
+            tenantId: ctx.tenantId,
+            userId: teacherUserId,
+            category: "teacher_feedback_shared",
+            title: "Hakkınızda değerlendirme var",
+            body: `Yönetim, hakkınızdaki bir değerlendirmeyi anonim özetinizde görünür kıldı. Detay: /ogretmen/geri-bildirim`,
+            dedupeKey: feedback.id,
+          });
+        }
+      } catch {
+        // best-effort — paylaşım kaydı geri alınmaz
+      }
+    }
     return ok({ feedbackId: feedback.id, sharedWithTeacher: feedback.sharedWithTeacher });
   } catch (e) {
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "setTeacherFeedbackShared failed");
@@ -4228,6 +4938,143 @@ export async function getOwnTeacherFeedbackSummaryTool(
   }
 }
 
+/**
+ * Karşılıklı Değerlendirmeler sprinti — TEACHER kendi öğrencisini
+ * değerlendirir. Sahiplik `assertStudentAccess` ile ders/öğretmen-öğrenci
+ * ilişkisinden (Student.teacherId) doğrulanır — fail-closed: ownership
+ * verisi eksikse veya başka öğretmenin öğrencisiyse FORBIDDEN.
+ */
+export async function submitStudentFeedbackTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ feedbackId: string; updated: boolean }>> {
+  const auth = requireRole(ctx, ["TEACHER"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  if (!ctx.teacherId) return fail("FORBIDDEN", "Öğretmen kaydı bulunamadı");
+
+  const v = parseOrFail(submitStudentFeedbackSchema, input);
+  if (!v.ok) return v;
+
+  const data = await readData();
+  const student = data.students.find((s) => s.id === v.data.studentId);
+  const access = await assertStudentAccess(ctx, student, v.data.studentId);
+  if (!access.ok) return fail(access.code, access.message);
+
+  try {
+    const { feedback, updated } = await submitStudentFeedback({
+      tenantId: ctx.tenantId,
+      teacherId: ctx.teacherId,
+      studentId: v.data.studentId,
+      submittedBy: ctx.userId,
+      scores: v.data.scores,
+      comment: v.data.comment,
+    });
+    audit(ctx, updated ? "student_feedback.update" : "student_feedback.submit", "StudentFeedback", feedback.id, {
+      studentId: v.data.studentId,
+    });
+    try {
+      const { notifyAdmins } = await import("../manager-notifications");
+      await notifyAdmins(
+        ctx.tenantId,
+        "student_feedback_submitted",
+        {
+          title: "Öğrenci değerlendirmesi",
+          body: `${student!.name} için yeni bir öğretmen değerlendirmesi geldi. Detay: /panel/ogrenciler/${v.data.studentId} (ref:${feedback.id})`,
+        },
+        { dedupeKey: feedback.id }
+      );
+    } catch {
+      // best-effort
+    }
+    return ok({ feedbackId: feedback.id, updated });
+  } catch (e) {
+    return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "submitStudentFeedback failed");
+  }
+}
+
+/** Öğretmenin kendi öğrencisi için cari ayda zaten kaydı var mı — form "Güncelle" moduna geçsin diye. */
+export async function getOwnStudentFeedbackThisMonthTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ feedback: StudentFeedback | null }>> {
+  const auth = requireRole(ctx, ["TEACHER"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  if (!ctx.teacherId) return fail("FORBIDDEN", "Öğretmen kaydı bulunamadı");
+
+  const v = parseOrFail(z.object({ studentId: z.string().min(1) }), input);
+  if (!v.ok) return v;
+
+  const data = await readData();
+  const student = data.students.find((s) => s.id === v.data.studentId);
+  const access = await assertStudentAccess(ctx, student, v.data.studentId);
+  if (!access.ok) return fail(access.code, access.message);
+
+  try {
+    const feedback = await findStudentFeedbackThisMonth(ctx.tenantId, ctx.teacherId, v.data.studentId);
+    return ok({ feedback });
+  } catch (e) {
+    return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "getOwnStudentFeedbackThisMonth failed");
+  }
+}
+
+/**
+ * Yönetici: tenant içindeki TÜM öğrenci değerlendirmelerini görebilir
+ * (opsiyonel teacherId/studentId filtresiyle). Öğretmen: yalnızca KENDİ
+ * yazdıklarını (ctx.teacherId zorlanır — client'tan gelen teacherId asla
+ * güvenilmez).
+ */
+export async function listStudentFeedbackTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ feedback: StudentFeedback[] }>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN", "TEACHER"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+
+  const v = parseOrFail(
+    z.object({ teacherId: z.string().min(1).optional(), studentId: z.string().min(1).optional() }),
+    input
+  );
+  if (!v.ok) return v;
+
+  const isAdmin = ctx.role === "SCHOOL_ADMIN" || ctx.role === "SUPER_ADMIN";
+  if (!isAdmin) {
+    if (!ctx.teacherId) return fail("FORBIDDEN", "Öğretmen kaydı bulunamadı");
+  }
+  const filter = isAdmin
+    ? { teacherId: v.data.teacherId, studentId: v.data.studentId }
+    : { teacherId: ctx.teacherId, studentId: v.data.studentId };
+
+  try {
+    const feedback = await listStudentFeedback(ctx.tenantId, filter);
+    return ok({ feedback });
+  } catch (e) {
+    return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "listStudentFeedback failed");
+  }
+}
+
+export async function updateStudentFeedbackStatusTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ feedbackId: string; status: StudentFeedbackStatus }>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+
+  const v = parseOrFail(
+    z.object({ feedbackId: z.string().min(1), status: z.enum(["pending", "reviewed", "actioned", "archived"]) }),
+    input
+  );
+  if (!v.ok) return v;
+
+  try {
+    const feedback = await updateStudentFeedbackStatus(ctx.tenantId, v.data.feedbackId, v.data.status);
+    if (!feedback) return fail("NOT_FOUND", "Değerlendirme bulunamadı");
+    audit(ctx, "student_feedback.status_change", "StudentFeedback", feedback.id, { status: v.data.status });
+    return ok({ feedbackId: feedback.id, status: feedback.status });
+  } catch (e) {
+    return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "updateStudentFeedbackStatus failed");
+  }
+}
+
 export async function resetDemoTool(
   ctx: ServiceContext
 ): Promise<ServiceResult<{ reset: true }>> {
@@ -4246,6 +5093,7 @@ export async function resetDemoTool(
     await clearHomework(ctx.tenantId);
     await clearTeachingMaterials(ctx.tenantId);
     await clearTeacherFeedback(ctx.tenantId);
+    await clearStudentFeedback(ctx.tenantId);
     await clearTasksForTenant(ctx.tenantId);
     await seedDemoTasks(ctx.tenantId);
     audit(ctx, "setup.reset_demo_data", "Tenant", ctx.tenantId);
@@ -4359,6 +5207,7 @@ export async function resetToCleanTemplateTool(
     await clearHomework(ctx.tenantId);
     await clearTeachingMaterials(ctx.tenantId);
     await clearTeacherFeedback(ctx.tenantId);
+    await clearStudentFeedback(ctx.tenantId);
     await clearTasksForTenant(ctx.tenantId);
     audit(ctx, "setup.reset_clean_template", "Tenant", ctx.tenantId);
     return ok({ reset: true });
@@ -4372,28 +5221,31 @@ export async function resetToCleanTemplateTool(
  * Kept for backward-compatible imports.
  */
 
-/** TEACHER kendi öğrencisine müfredat konusu ekler. */
+/** TEACHER kendi öğrencisine, SCHOOL_ADMIN/SUPER_ADMIN kurumundaki herhangi bir öğrenciye müfredat konusu ekler. */
 export async function createCurriculumTopicTool(
   ctx: ServiceContext,
   input: unknown
 ): Promise<ServiceResult<{ topicId: string }>> {
-  const auth = requireRole(ctx, ["TEACHER"]);
+  const auth = requireRole(ctx, ["TEACHER", "SCHOOL_ADMIN", "SUPER_ADMIN"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
-  if (!ctx.teacherId) return fail("FORBIDDEN", "Öğretmen kimliği bulunamadı.");
+  if (ctx.role === "TEACHER" && !ctx.teacherId) {
+    return fail("FORBIDDEN", "Öğretmen kimliği bulunamadı.");
+  }
 
   const v = parseOrFail(createCurriculumTopicSchema, input);
   if (!v.ok) return v;
 
   const data = await readData();
   const student = data.students.find((s) => s.id === v.data.studentId);
-  const access = assertStudentAccess(ctx, student, v.data.studentId);
+  const access = await assertStudentAccess(ctx, student, v.data.studentId);
   if (!access.ok) return fail(access.code, access.message);
 
   try {
     const topic = await createCurriculumTopic({
       tenantId: ctx.tenantId,
       studentId: v.data.studentId,
-      teacherId: ctx.teacherId,
+      // Admin'in kendi teacherId'si yok — konu, öğrencinin kendi öğretmenine atanır (sahiplik değişmez).
+      teacherId: ctx.teacherId ?? student!.teacherId,
       title: v.data.title,
       description: v.data.description,
       status: v.data.status,
@@ -4411,27 +5263,29 @@ export async function createCurriculumTopicTool(
   }
 }
 
-/** TEACHER kendi öğrencisinin konusunu günceller. */
+/** TEACHER kendi öğrencisinin, SCHOOL_ADMIN/SUPER_ADMIN kurumundaki herhangi bir konuyu günceller. */
 export async function updateCurriculumTopicTool(
   ctx: ServiceContext,
   input: unknown
 ): Promise<ServiceResult<{ topicId: string }>> {
-  const auth = requireRole(ctx, ["TEACHER"]);
+  const auth = requireRole(ctx, ["TEACHER", "SCHOOL_ADMIN", "SUPER_ADMIN"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
-  if (!ctx.teacherId) return fail("FORBIDDEN", "Öğretmen kimliği bulunamadı.");
+  if (ctx.role === "TEACHER" && !ctx.teacherId) {
+    return fail("FORBIDDEN", "Öğretmen kimliği bulunamadı.");
+  }
 
   const v = parseOrFail(updateCurriculumTopicSchema, input);
   if (!v.ok) return v;
 
   const existing = await getCurriculumTopic(ctx.tenantId, v.data.topicId);
   if (!existing) return fail("NOT_FOUND", "Konu bulunamadı");
-  if (existing.teacherId !== ctx.teacherId) {
+  if (ctx.role === "TEACHER" && existing.teacherId !== ctx.teacherId) {
     return fail("FORBIDDEN", "Yalnızca kendi oluşturduğunuz konuları güncelleyebilirsiniz.");
   }
 
   const data = await readData();
   const student = data.students.find((s) => s.id === existing.studentId);
-  const access = assertStudentAccess(ctx, student, existing.studentId);
+  const access = await assertStudentAccess(ctx, student, existing.studentId);
   if (!access.ok) return fail(access.code, access.message);
 
   try {
@@ -4448,6 +5302,90 @@ export async function updateCurriculumTopicTool(
     return ok({ topicId });
   } catch (e) {
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "updateCurriculumTopic failed");
+  }
+}
+
+const BULK_CURRICULUM_MAX_RECORDS = 20_000;
+
+/**
+ * TEACHER (yalnız kendi öğrencileri) / SCHOOL_ADMIN / SUPER_ADMIN — seçilen
+ * öğrenci grubuna aynı konu listesini tek seferde atar. Sunucuda döngüyle
+ * mevcut tekil create endpoint'ini N kez ÇAĞIRMAZ — tek istek, tek
+ * store round-trip'i (`bulkCreateCurriculumTopics`). Erişilemeyen/bulunamayan
+ * öğrenciler sessizce atlanır (sayısı döner, kimliği/tenant'ı döndürülmez);
+ * aynı öğrenci+başlık zaten varsa yeni kayıt oluşturulmaz.
+ */
+export async function bulkAssignCurriculumTopicsTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<
+  ServiceResult<{
+    requestedStudents: number;
+    requestedTopics: number;
+    created: number;
+    skippedInaccessible: number;
+    skippedExisting: number;
+  }>
+> {
+  const auth = requireRole(ctx, ["TEACHER", "SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  if (ctx.role === "TEACHER" && !ctx.teacherId) {
+    return fail("FORBIDDEN", "Öğretmen kimliği bulunamadı.");
+  }
+
+  const v = parseOrFail(bulkAssignCurriculumTopicsSchema, input);
+  if (!v.ok) return v;
+
+  const uniqueStudentIds = [...new Set(v.data.studentIds)];
+  const totalRecords = uniqueStudentIds.length * v.data.topics.length;
+  if (totalRecords > BULK_CURRICULUM_MAX_RECORDS) {
+    return fail(
+      "VALIDATION_ERROR",
+      `Toplam kayıt sayısı (${totalRecords}) izin verilen ${BULK_CURRICULUM_MAX_RECORDS} sınırını aşıyor.`
+    );
+  }
+
+  const data = await readData();
+  const assignments: { studentId: string; teacherId: string }[] = [];
+  let skippedInaccessible = 0;
+  for (const studentId of uniqueStudentIds) {
+    const student = data.students.find((s) => s.id === studentId);
+    const access = await assertStudentAccess(ctx, student, studentId);
+    if (!access.ok || !student) {
+      skippedInaccessible += 1;
+      continue;
+    }
+    assignments.push({ studentId, teacherId: ctx.teacherId ?? student.teacherId });
+  }
+
+  try {
+    const result =
+      assignments.length > 0
+        ? await bulkCreateCurriculumTopics({
+            tenantId: ctx.tenantId,
+            createdBy: ctx.userId,
+            assignments,
+            topics: v.data.topics,
+          })
+        : { created: 0, skippedExisting: 0 };
+
+    audit(ctx, "curriculum.bulk_assign", "StudentCurriculumTopic", ctx.tenantId, {
+      requestedStudents: uniqueStudentIds.length,
+      requestedTopics: v.data.topics.length,
+      created: result.created,
+      skippedInaccessible,
+      skippedExisting: result.skippedExisting,
+    });
+
+    return ok({
+      requestedStudents: uniqueStudentIds.length,
+      requestedTopics: v.data.topics.length,
+      created: result.created,
+      skippedInaccessible,
+      skippedExisting: result.skippedExisting,
+    });
+  } catch (e) {
+    return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "bulkCreateCurriculumTopics failed");
   }
 }
 
@@ -4471,7 +5409,7 @@ export async function listCurriculumForStudentTool(
   try {
     const data = await readData();
     const student = data.students.find((s) => s.id === v.data.studentId);
-    const access = assertStudentAccess(ctx, student, v.data.studentId);
+    const access = await assertStudentAccess(ctx, student, v.data.studentId);
     if (!access.ok) return fail(access.code, access.message);
 
     const topics = await listCurriculumTopicsForStudent(ctx.tenantId, v.data.studentId);
@@ -4481,7 +5419,7 @@ export async function listCurriculumForStudentTool(
         ? "Henüz konu tanımlanmadı; genel ilerleme 0%."
         : `Genel ilerleme, ${topics.length} konunun progressPercent değerlerinin aritmetik ortalamasıdır (eşit ağırlık).`;
 
-    if (ctx.role === "PARENT" || ctx.role === "STUDENT") {
+    if (ctx.role === "STUDENT") {
       return ok({
         topics: topics.map(toCurriculumSummary),
         overallPercent,
@@ -5082,7 +6020,7 @@ export async function listStudentDocumentsTool(
   if (!v.ok) return v;
   const data = await readData();
   const student = data.students.find((s) => s.id === v.data.studentId);
-  const access = assertStudentAccess(ctx, student, v.data.studentId);
+  const access = await assertStudentAccess(ctx, student, v.data.studentId);
   if (!access.ok) return fail(access.code, access.message);
   try {
     const documents = await listDocumentsForStudent(ctx.tenantId, v.data.studentId);
@@ -5175,14 +6113,18 @@ function validateSignedDocumentFilePayload(input: {
   if (!DOCUMENT_SIGNED_FILE_ALLOWED_MIME.has(input.fileMimeType)) {
     return { ok: false, message: "Desteklenmeyen dosya türü — yalnız PDF veya görsel (PNG/JPEG/WEBP) yükleyin." };
   }
-  let byteLength = 0;
+  let buffer: Buffer;
   try {
-    byteLength = Buffer.from(input.fileData, "base64").length;
+    buffer = Buffer.from(input.fileData, "base64");
   } catch {
     return { ok: false, message: "Dosya verisi okunamadı." };
   }
+  const byteLength = buffer.length;
   if (byteLength <= 0) return { ok: false, message: "Boş dosya yüklenemez." };
   if (byteLength > DOCUMENT_SIGNED_FILE_MAX_BYTES) return { ok: false, message: "Dosya çok büyük (maks. 2MB)." };
+  if (!checkFileMagicBytes(buffer, input.fileMimeType)) {
+    return { ok: false, message: "Dosya içeriği beyan edilen türle uyuşmuyor." };
+  }
   return { ok: true, byteLength };
 }
 
@@ -5413,6 +6355,10 @@ export async function setLessonOpsFlagTool(
       message: result.message,
     });
   } catch (e) {
+    const { isMakeupQuotaExceededError } = await import("../makeup-quota");
+    if (isMakeupQuotaExceededError(e)) {
+      return fail("VALIDATION_ERROR", e instanceof Error ? e.message : "Telafi kotası aşıldı");
+    }
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "setLessonOpsFlag failed");
   }
 }
@@ -5437,6 +6383,8 @@ export type AttendanceCalendarLessonPaymentInfo = {
   paidAmount: number;
   /** ÖNCELİK 4 (devam) — "Tutar kayıt tarihi": bu Payment satırının SİSTEME kaydedildiği an. */
   recordedAt: string;
+  /** Ödeme merkezi — GERÇEK tahsilat anı (Payment.paidAt); yalnızca status=paid'de dolu. `recordedAt`'tan (tahakkuk anı) AYRIDIR. */
+  paidAt?: string;
   /** Nakit/Havale/Kredi Kartı — Payment.method varsa o, yoksa öğrencinin varsayılan ödeme yöntemi (tahmini olarak işaretlenir). */
   method?: string;
   methodIsStudentDefault: boolean;
@@ -5491,7 +6439,7 @@ export async function getAttendanceCalendarMonthTool(
     }>;
   }>
 > {
-  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "TEACHER", "SUPER_ADMIN", "AI_AGENT", "PARENT", "STUDENT"]);
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "TEACHER", "SUPER_ADMIN", "AI_AGENT", "STUDENT"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
 
   const v = parseOrFail(
@@ -5506,7 +6454,7 @@ export async function getAttendanceCalendarMonthTool(
 
   const data = await readData();
   const student = data.students.find((s) => s.id === v.data.studentId);
-  const access = assertStudentAccess(ctx, student, v.data.studentId);
+  const access = await assertStudentAccess(ctx, student, v.data.studentId);
   if (!access.ok) return fail(access.code, access.message);
   if (!student) return fail("NOT_FOUND", "Öğrenci bulunamadı");
 
@@ -5555,6 +6503,7 @@ export async function getAttendanceCalendarMonthTool(
         amount: p.amount,
         paidAmount: p.paidAmount,
         recordedAt: p.createdAt ?? p.dueDate,
+        paidAt: p.paidAt,
         method: p.method ?? student.paymentMethod,
         methodIsStudentDefault: !p.method && !!student.paymentMethod,
         status: p.status,
@@ -5657,11 +6606,14 @@ export async function collectAttendanceCalendarPaymentTool(
       dueDate: v.data.dueDate,
       method: v.data.method,
     });
-    await markPaymentPaid(paymentId, {
+    const { collectPayment } = await import("../payments/collect");
+    const collected = await collectPayment(paymentId, {
       amount: v.data.amount,
       method: v.data.method,
       paidAt: v.data.dueDate,
       receivedByUserId: ctx.userId,
+      actorUserId: ctx.userId,
+      tenantId: ctx.tenantId,
     });
     audit(ctx, "PAYMENT_COLLECTED_FROM_ATTENDANCE_CALENDAR", "Payment", paymentId, {
       studentId: v.data.studentId,
@@ -5671,7 +6623,13 @@ export async function collectAttendanceCalendarPaymentTool(
       dueDate: v.data.dueDate,
       receivedByUserId: ctx.userId,
     });
-    return ok({ paymentId, studentId: v.data.studentId, month: v.data.month, amount: v.data.amount, status: "paid" });
+    return ok({
+      paymentId,
+      studentId: v.data.studentId,
+      month: v.data.month,
+      amount: v.data.amount,
+      status: collected.payment.status,
+    });
   } catch (e) {
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "collectAttendanceCalendarPayment failed");
   }
@@ -6575,14 +7533,18 @@ function validateTaskFileAttachmentPayload(input: {
   if (!TASK_ATTACHMENT_ALLOWED_MIME.has(input.fileMimeType)) {
     return { ok: false, message: "Desteklenmeyen dosya türü." };
   }
-  let byteLength = 0;
+  let buffer: Buffer;
   try {
-    byteLength = Buffer.from(input.fileData, "base64").length;
+    buffer = Buffer.from(input.fileData, "base64");
   } catch {
     return { ok: false, message: "Dosya verisi okunamadı." };
   }
+  const byteLength = buffer.length;
   if (byteLength <= 0) return { ok: false, message: "Boş dosya yüklenemez." };
   if (byteLength > TASK_ATTACHMENT_MAX_BYTES) return { ok: false, message: "Dosya çok büyük (maks. 2MB)." };
+  if (!checkFileMagicBytes(buffer, input.fileMimeType)) {
+    return { ok: false, message: "Dosya içeriği beyan edilen türle uyuşmuyor." };
+  }
   return { ok: true, byteLength };
 }
 
@@ -6797,7 +7759,7 @@ export async function getNotificationPreferencesTool(
     preferences: Array<{ category: string; inAppEnabled: boolean; pushEnabled: boolean }>;
   }>
 > {
-  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN", "TEACHER"]);
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN", "TEACHER", "STUDENT"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
   try {
     const { getNotificationPreferences } = await import("../notification-preferences");
@@ -6816,7 +7778,7 @@ export async function setNotificationPreferencesTool(
     preferences: Array<{ category: string; inAppEnabled: boolean; pushEnabled: boolean }>;
   }>
 > {
-  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN", "TEACHER"]);
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN", "TEACHER", "STUDENT"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
   const v = parseOrFail(setNotificationPreferencesSchema, input);
   if (!v.ok) return v;
@@ -6857,7 +7819,7 @@ export async function resetNotificationPreferencesTool(
     preferences: Array<{ category: string; inAppEnabled: boolean; pushEnabled: boolean }>;
   }>
 > {
-  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN", "TEACHER"]);
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN", "TEACHER", "STUDENT"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
   try {
     const { resetNotificationPreferences, getNotificationPreferences } = await import(

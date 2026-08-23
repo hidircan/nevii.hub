@@ -19,6 +19,8 @@ import { HOMEWORK_FILE_PATH, HOMEWORK_SUBMISSIONS_FILE_PATH } from "../homework"
 import { TEACHING_MATERIALS_FILE_PATH } from "../teaching-materials";
 import { DEFAULT_TENANT_ID } from "../auth/config";
 import type { ServiceContext } from "../services/context";
+import { STUDENT_PORTAL_ACCESS_FILE } from "../student-portal-access";
+import { grantStudentAccess } from "./portal-access-test-helper";
 
 const DATA_FILE = path.join(resolveDataDir(path.join(process.cwd(), "data")), "store.json");
 
@@ -38,6 +40,7 @@ beforeEach(async () => {
   await fs.rm(HOMEWORK_FILE_PATH, { force: true });
   await fs.rm(HOMEWORK_SUBMISSIONS_FILE_PATH, { force: true });
   await fs.rm(TEACHING_MATERIALS_FILE_PATH, { force: true });
+  await fs.rm(STUDENT_PORTAL_ACCESS_FILE, { force: true });
 });
 
 const VALID_HOMEWORK = {
@@ -82,7 +85,7 @@ describe("createHomeworkTool — TEACHER yalnızca kendi öğrencisi", () => {
     expect(asStudent.ok).toBe(false);
 
     const asParent = await createHomeworkTool(
-      ctx({ role: "PARENT", teacherId: undefined, studentId: "s1" }),
+      ctx({ role: "STUDENT", teacherId: undefined, studentId: "s1" }),
       VALID_HOMEWORK
     );
     expect(asParent.ok).toBe(false);
@@ -93,27 +96,25 @@ describe("listHomeworkForStudentTool — erişim kapsaması", () => {
   it("STUDENT yalnızca kendi ödevlerini görebilir", async () => {
     const homeworkId = await createValidHomework();
 
-    const own = await listHomeworkForStudentTool(
-      ctx({ role: "STUDENT", teacherId: undefined, studentId: "s1" }),
-      { studentId: "s1" }
-    );
+    const ownCtx = ctx({ role: "STUDENT", teacherId: undefined, studentId: "s1" });
+    await grantStudentAccess(ownCtx, "s1", "SELF");
+    const own = await listHomeworkForStudentTool(ownCtx, { studentId: "s1" });
     expect(own.ok).toBe(true);
     if (own.ok) expect(own.data.homework.map((h) => h.id)).toContain(homeworkId);
 
     const other = await listHomeworkForStudentTool(
-      ctx({ role: "STUDENT", teacherId: undefined, studentId: "s2" }),
+      ctx({ role: "STUDENT", userId: "u-other", teacherId: undefined, studentId: "s2" }),
       { studentId: "s1" }
     );
     expect(other.ok).toBe(false);
     if (!other.ok) expect(other.error.code).toBe("FORBIDDEN");
   });
 
-  it("PARENT yalnızca kendi çocuğunun ödevlerini görebilir", async () => {
+  it("veli (STUDENT rolü, GUARDIAN erişimi) yalnızca kendi çocuğunun ödevlerini görebilir", async () => {
     await createValidHomework();
-    const result = await listHomeworkForStudentTool(
-      ctx({ role: "PARENT", teacherId: undefined, studentId: "s1" }),
-      { studentId: "s1" }
-    );
+    const parentCtx = ctx({ role: "STUDENT", teacherId: undefined, studentId: "s1" });
+    await grantStudentAccess(parentCtx, "s1", "GUARDIAN");
+    const result = await listHomeworkForStudentTool(parentCtx, { studentId: "s1" });
     expect(result.ok).toBe(true);
   });
 
@@ -137,10 +138,9 @@ describe("listHomeworkForTeacherTool", () => {
 describe("submitHomeworkTool — STUDENT yalnızca kendi ödevi", () => {
   it("STUDENT kendi ödevine teslim yükleyebilir", async () => {
     const homeworkId = await createValidHomework();
-    const result = await submitHomeworkTool(
-      ctx({ role: "STUDENT", teacherId: undefined, studentId: "s1" }),
-      { homeworkId, note: "Tamamladım" }
-    );
+    const selfCtx = ctx({ role: "STUDENT", teacherId: undefined, studentId: "s1" });
+    await grantStudentAccess(selfCtx, "s1", "SELF");
+    const result = await submitHomeworkTool(selfCtx, { homeworkId, note: "Tamamladım" });
     expect(result.ok).toBe(true);
   });
 
@@ -154,14 +154,13 @@ describe("submitHomeworkTool — STUDENT yalnızca kendi ödevi", () => {
     if (!result.ok) expect(result.error.code).toBe("FORBIDDEN");
   });
 
-  it("TEACHER/PARENT teslim yükleyemez", async () => {
+  it("TEACHER/veli (GUARDIAN erişimi) teslim yükleyemez — yalnızca SELF yükleyebilir", async () => {
     const homeworkId = await createValidHomework();
     const asTeacher = await submitHomeworkTool(ctx({ teacherId: "t1" }), { homeworkId });
     expect(asTeacher.ok).toBe(false);
-    const asParent = await submitHomeworkTool(
-      ctx({ role: "PARENT", teacherId: undefined, studentId: "s1" }),
-      { homeworkId }
-    );
+    const parentCtx = ctx({ role: "STUDENT", userId: "guardian-x", teacherId: undefined, studentId: "s1" });
+    await grantStudentAccess(parentCtx, "s1", "GUARDIAN");
+    const asParent = await submitHomeworkTool(parentCtx, { homeworkId });
     expect(asParent.ok).toBe(false);
   });
 });
@@ -169,8 +168,10 @@ describe("submitHomeworkTool — STUDENT yalnızca kendi ödevi", () => {
 describe("reviewHomeworkSubmissionTool / getHomeworkSubmissionFileTool — sahiplik", () => {
   async function createSubmissionWithFile() {
     const homeworkId = await createValidHomework("t1");
+    const selfCtx = ctx({ role: "STUDENT", teacherId: undefined, studentId: "s1" });
+    await grantStudentAccess(selfCtx, "s1", "SELF");
     const result = await submitHomeworkTool(
-      ctx({ role: "STUDENT", teacherId: undefined, studentId: "s1" }),
+      selfCtx,
       {
         homeworkId,
         note: "İşte teslimim",
@@ -222,7 +223,7 @@ describe("reviewHomeworkSubmissionTool / getHomeworkSubmissionFileTool — sahip
     if (asOwnStudent.ok) expect(asOwnStudent.data.fileData).toBeTruthy();
 
     const asOtherStudent = await getHomeworkSubmissionFileTool(
-      ctx({ role: "STUDENT", teacherId: undefined, studentId: "s2" }),
+      ctx({ role: "STUDENT", userId: "u-other", teacherId: undefined, studentId: "s2" }),
       { submissionId }
     );
     expect(asOtherStudent.ok).toBe(false);
@@ -258,10 +259,9 @@ describe("createTeachingMaterialTool — yalnızca TEACHER", () => {
 describe("listTeachingMaterialsForStudentTool — hedefleme + öğretmen sahipliği", () => {
   it("hedeflenmemiş (genel) materyal her öğrenciye görünür", async () => {
     await createTeachingMaterialTool(ctx({ teacherId: "t1" }), VALID_MATERIAL);
-    const result = await listTeachingMaterialsForStudentTool(
-      ctx({ role: "STUDENT", teacherId: undefined, studentId: "s1" }),
-      { studentId: "s1" }
-    );
+    const studentCtx = ctx({ role: "STUDENT", teacherId: undefined, studentId: "s1" });
+    await grantStudentAccess(studentCtx, "s1", "SELF");
+    const result = await listTeachingMaterialsForStudentTool(studentCtx, { studentId: "s1" });
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.data.materials).toHaveLength(1);
   });
@@ -272,10 +272,9 @@ describe("listTeachingMaterialsForStudentTool — hedefleme + öğretmen sahipli
       targetInstrument: "Gitar",
     });
     // s1 (t1) Piyano çalıyor — Gitar'a hedeflenmiş materyali GÖRMEMELİ.
-    const result = await listTeachingMaterialsForStudentTool(
-      ctx({ role: "STUDENT", teacherId: undefined, studentId: "s1" }),
-      { studentId: "s1" }
-    );
+    const studentCtx = ctx({ role: "STUDENT", teacherId: undefined, studentId: "s1" });
+    await grantStudentAccess(studentCtx, "s1", "SELF");
+    const result = await listTeachingMaterialsForStudentTool(studentCtx, { studentId: "s1" });
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.data.materials).toHaveLength(0);
   });
@@ -283,10 +282,9 @@ describe("listTeachingMaterialsForStudentTool — hedefleme + öğretmen sahipli
   it("başka öğretmenin materyali kendi öğrencisine görünmez", async () => {
     // t2'nin materyali — s1'in öğretmeni t1, dolayısıyla görünmemeli.
     await createTeachingMaterialTool(ctx({ teacherId: "t2" }), VALID_MATERIAL);
-    const result = await listTeachingMaterialsForStudentTool(
-      ctx({ role: "STUDENT", teacherId: undefined, studentId: "s1" }),
-      { studentId: "s1" }
-    );
+    const studentCtx = ctx({ role: "STUDENT", teacherId: undefined, studentId: "s1" });
+    await grantStudentAccess(studentCtx, "s1", "SELF");
+    const result = await listTeachingMaterialsForStudentTool(studentCtx, { studentId: "s1" });
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.data.materials).toHaveLength(0);
   });

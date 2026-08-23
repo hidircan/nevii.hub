@@ -20,7 +20,6 @@ export default async function TeacherMaterialsPage() {
   } catch {
     redirect("/login?next=/ogretmen/materyaller");
   }
-  if (session.role === "PARENT") redirect("/veli");
 
   const result = await listTeachingMaterialsForTeacherTool(session);
   const materials = result.ok ? result.data.materials : [];

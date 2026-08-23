@@ -232,7 +232,7 @@ export default async function KurulumPage() {
             <p className="font-semibold text-[var(--color-text)] dark:text-slate-50">Tahsilat Otomasyonu</p>
             <p className="mt-1 text-sm text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
               Gecikmiş ödemeler için taslak mesaj ve veli bildirimi ne sıklıkla hazırlansın?
-              Veliler kendi iletişim tercihlerini veli portalından değiştirebilir.
+              Veliler kendi iletişim tercihlerini öğrenci portalından değiştirebilir.
             </p>
             <CollectionsSettingsForm
               frequencyLimitDays={

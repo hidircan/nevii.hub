@@ -47,7 +47,7 @@ describe("submitStudentFeedbackTool — yalnızca kendi öğrencisi için", () =
   });
 
   it("PARENT/STUDENT/SCHOOL_ADMIN değerlendirme gönderemez", async () => {
-    const asParent = await submitStudentFeedbackTool(ctx({ role: "PARENT", studentId: "s1" }), VALID_FEEDBACK);
+    const asParent = await submitStudentFeedbackTool(ctx({ role: "STUDENT", studentId: "s1" }), VALID_FEEDBACK);
     expect(asParent.ok).toBe(false);
     const asAdmin = await submitStudentFeedbackTool(ctx({ role: "SCHOOL_ADMIN" }), VALID_FEEDBACK);
     expect(asAdmin.ok).toBe(false);
@@ -140,9 +140,9 @@ describe("görünürlük ve yetki", () => {
   });
 
   it("RBAC kataloğunda PARENT/STUDENT rolünün student_feedback izinleri YOK", () => {
-    expect(hasPermission("PARENT", "student_feedback:read")).toBe(false);
     expect(hasPermission("STUDENT", "student_feedback:read")).toBe(false);
-    expect(hasPermission("PARENT", "student_feedback:submit")).toBe(false);
+    expect(hasPermission("STUDENT", "student_feedback:read")).toBe(false);
+    expect(hasPermission("STUDENT", "student_feedback:submit")).toBe(false);
   });
 
   it("başka tenant'ın kaydı listeye sızmaz", async () => {

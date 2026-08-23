@@ -48,7 +48,7 @@ async function seedTemplateAndDoc() {
 
 describe("listDocumentInstancesTool — RBAC ve filtreleme", () => {
   it("PARENT rolü yetkisizdir (FORBIDDEN)", async () => {
-    const res = await listDocumentInstancesTool(ctx({ role: "PARENT" }), {});
+    const res = await listDocumentInstancesTool(ctx({ role: "STUDENT" }), {});
     expect(res.ok).toBe(false);
     if (res.ok) return;
     expect(res.error.code).toBe("FORBIDDEN");
@@ -152,7 +152,7 @@ describe("uploadSignedDocumentTool — imzalı sürüm", () => {
 
   it("PARENT yükleyemez (FORBIDDEN)", async () => {
     const documentId = await seedTemplateAndDoc();
-    const res = await uploadSignedDocumentTool(ctx({ role: "PARENT" }), {
+    const res = await uploadSignedDocumentTool(ctx({ role: "STUDENT" }), {
       documentId,
       fileName: "x.pdf",
       fileMimeType: "application/pdf",

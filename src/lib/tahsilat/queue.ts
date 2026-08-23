@@ -19,17 +19,25 @@ export function daysOverdue(dueDateIso: string, now: Date = new Date()): number 
 export function nextActionLabel(caseStatus: FollowUpStatus | undefined): string {
   switch (caseStatus) {
     case undefined:
+    case "open":
     case "draft":
+    case "draft_ready":
       return "Taslağı onayla";
     case "approved":
-      return "WhatsApp'tan gönder";
+      return "Mesajı gönder";
+    case "sending":
+      return "Gönderim sürüyor";
     case "sent":
       return "Yanıtı takip et";
     case "replied":
+    case "partial":
       return "Ödeme sonucunu işaretle";
+    case "failed":
+      return "Gönderimi yeniden dene";
     case "paid":
       return "Tamamlandı";
     case "lost":
+    case "dismissed":
       return "Yeniden takip başlat";
     default:
       return "Taslağı onayla";
@@ -79,7 +87,11 @@ export function buildTahsilatQueue(
       // sayılır — kapanmış bir vaka varsa yeni bir takip döngüsü başlatılabilir.
       // upsertFollowUpCase'deki dedup mantığıyla birebir aynı filtre.
       const openCase = cases.find(
-        (c) => c.paymentId === payment.id && c.status !== "paid" && c.status !== "lost"
+        (c) =>
+          c.paymentId === payment.id &&
+          c.status !== "paid" &&
+          c.status !== "lost" &&
+          c.status !== "dismissed"
       );
       const caseStatus: FollowUpStatus = openCase?.status ?? "draft";
       const overdueDays = payment.status === "overdue" ? daysOverdue(payment.dueDate, now) : 0;

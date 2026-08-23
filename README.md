@@ -50,33 +50,35 @@ npm run dev
 ## Canlıya alma
 
 ### Hızlı demo (varsayılan)
-`STORE_MODE=memory` veya `json` — Vercel üzerinde MySQL olmadan da çalışır (demo veri).
+`STORE_MODE=memory` veya `json` — Vercel üzerinde ayrı bir veritabanı olmadan da çalışır (demo veri).
 
 Vercel env:
 ```env
 STORE_MODE=memory
 ```
 
-### Kalıcı production (MySQL)
+### Kalıcı production (PostgreSQL)
 ```env
 STORE_MODE=db
-DATABASE_PROVIDER=mysql
-DATABASE_URL=mysql://user:password@host:3306/database
+DATABASE_URL=postgresql://user:password@host:5432/database
 ```
 
 1. GitHub repo: https://github.com/hidircan/notaplan
 2. [vercel.com/new](https://vercel.com/new) → Import `hidircan/notaplan`
 3. Env variables ekle → Deploy
 4. `prebuild` otomatik `prisma generate` çalıştırır
+5. Şema hazır değilse, kontrollü staging akışıyla uygula: `prisma validate` → `prisma migrate status` → (onaylandıktan sonra) `prisma migrate deploy`
 
-> Not: `STORE_MODE=db` için MySQL/MariaDB (PlanetScale, RDS, Aiven vb.) gerekir.
+> Not: `STORE_MODE=db` için PostgreSQL (Supabase, RDS, Neon vb.) gerekir — runtime `@prisma/adapter-pg` + `pg` `Pool` üzerinden bağlanır.
+>
+> **Legacy:** Bu proje eskiden MySQL/MariaDB üzerinde çalışıyordu; bu tarihsel bağlam, güncel olmayan bazı yorum/dokümanlarda hâlâ görülebilir — canonical runtime artık PostgreSQL'dir.
 
 ## Multi-Tenant Demo (kurum odağı doğrulaması)
 
 Kurum seçici ve yazma-kapsamı koruması (`src/lib/institution/*`) json/memory
 modunda tek kurumla çalışır ama gerçek çoklu-kurum davranışı yalnızca
 **`STORE_MODE=db`** ile, gerçekten 2+ ayrı `Tenant` satırı olan bir
-MySQL/MariaDB üzerinde gözlemlenebilir. Aşağıdaki adımlar iki izole,
+PostgreSQL veritabanı üzerinde gözlemlenebilir. Aşağıdaki adımlar iki izole,
 gerçek kurum (`NotaPlan Demo Akademi`, `NotaPlan Test Kampüs`) seed eder.
 
 > ⚠️ **Yalnızca yerel geliştirme/demo içindir.** Aşağıdaki şifreler
@@ -87,12 +89,17 @@ gerçek kurum (`NotaPlan Demo Akademi`, `NotaPlan Test Kampüs`) seed eder.
 ### 1) Veritabanı hazırla
 
 ```bash
-# MySQL/MariaDB'nin yerel/erişilebilir bir instance'ı olmalı
-mysql -u root -e "CREATE DATABASE notaplan_demo CHARACTER SET utf8mb4;"
+# PostgreSQL'in yerel/erişilebilir bir instance'ı olmalı
+createdb notaplan_demo
 
-export DATABASE_URL="mysql://root@localhost:3306/notaplan_demo"
-npx prisma db push --url="$DATABASE_URL" --accept-data-loss
+export DATABASE_URL="postgresql://postgres@localhost:5432/notaplan_demo"
+npx prisma migrate deploy
 ```
+
+> **Legacy:** Bu adım eskiden `mysql -u root -e "CREATE DATABASE ... CHARACTER SET utf8mb4;"` +
+> `prisma db push --accept-data-loss` ile yapılıyordu (MySQL/MariaDB dönemi). Güncel runtime
+> PostgreSQL olduğu için şema artık `prisma migrate deploy` ile, migration geçmişi üzerinden
+> uygulanır — `db push` günlük/staging akışı değildir.
 
 ### 2) İki kurumu seed et
 
@@ -162,7 +169,7 @@ Demo verisini sıfırlamak: panel özet sayfasındaki **Demo verisini sıfırla*
 ## Teknik
 
 - Next.js (App Router) + TypeScript + Tailwind
-- Prisma + MySQL production-ready persistence
+- Prisma + PostgreSQL (`@prisma/adapter-pg`) production-ready persistence
 - Telafi motoru: `src/lib/makeup-engine.ts` (şube + öğretmen + oda skoru)
 - WhatsApp şablonları: `src/lib/whatsapp-templates.ts`
 
@@ -175,3 +182,43 @@ Demo verisini sıfırlamak: panel özet sayfasındaki **Demo verisini sıfırla*
 ## Repo
 
 https://github.com/hidircan/notaplan
+
+## Supabase storage (announcement attachments)
+
+- `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` are safe for client use.
+- `SUPABASE_SERVICE_ROLE_KEY` is a server-only secret used for uploading to private buckets and generating signed URLs. Do NOT expose it to browsers or commit its value. See `.env.example` for variable names.
+
+## Deploy (staging / production)
+
+1. `npx prisma migrate deploy` — additive migrations (telafi kotası, duyuru ekleri, tahsilat v3, SMS inbound event).
+2. `npx prisma generate` (build zaten `prebuild` ile çalıştırır).
+3. Gerekli sunucu env: `DATABASE_URL`, `JWT_SECRET`, SMS/Twilio, Supabase storage.
+4. Geri dönüş: son migration’ı `prisma migrate resolve` / yeni kolonlar nullable/default olduğu için veri silmeden geri alınabilir; uygulama önceki koda dönebilir (yeni kolonlar kalır).
+
+## Tahsilat SMS ve WhatsApp
+
+- Gerçek SMS yalnızca yönetici son onayından sonra, sunucu tarafı sağlayıcı ile gider. UI asla sağlayıcıya doğrudan bağlanmaz.
+- `SMS_PROVIDER=twilio` + `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` / `TWILIO_SMS_FROM`.
+- Development/staging: `SMS_TEST_MODE=true` iken gerçek SMS yalnızca `SMS_TEST_ALLOWED_RECIPIENTS` allowlist’ine gider. Production’da test bypass yoktur.
+- Inbound webhook: `POST /api/v1/sms/webhook` (JWT yok). Twilio `X-Twilio-Signature` zorunlu. İmza URL’si için `SMS_WEBHOOK_PUBLIC_URL` (reverse proxy arkasında tam public HTTPS path) ayarlayın.
+- Allowlist, credential ve gerçek numaralar source/README’ye yazılmaz.
+- `wa.me` WhatsApp bağlantısı teslim kanıtı değildir; kayıt `manual_send_pending` olur.
+
+## Supabase storage (announcement attachments)
+
+- Private bucket adı: `announcement-attachments`.
+- `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` are safe for client use.
+- `SUPABASE_SERVICE_ROLE_KEY` is a server-only secret used for uploading to private buckets and generating signed URLs. Do NOT expose it to browsers or commit its value. See `.env.example` for variable names.
+
+## Bildirim taraması (cron)
+
+`POST /api/v1/notifications/tick` — yaklaşan ders, bekleyen ödeme, bekleyen izin.
+`Authorization: Bearer <NOTIFICATION_CRON_SECRET>` zorunlu; secret yoksa 403. JWT kabul edilmez.
+Önerilen sıklık: 15–30 dakika. Aynı ders/ödeme/izin için tekrar çağrı duplicate üretmez.
+
+İş Takip hatırlatmaları ayrıdır: `POST /api/v1/tasks/reminders/tick` + `TASK_REMINDER_CRON_SECRET`.
+
+## Health
+
+- `GET /api/v1/health` — liveness
+- `GET /api/v1/ready` — DB erişimi, SMS/storage env varlık bayrakları (secret yok)

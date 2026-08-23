@@ -12,6 +12,7 @@ import type {
   Announcement as DbAnnouncement,
   AnnouncementRead as DbAnnouncementRead,
 } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import type {
   Announcement,
   AnnouncementAudienceRef,
@@ -68,13 +69,32 @@ function toIso(date: Date | null): string | undefined {
   return date ? date.toISOString() : undefined;
 }
 
+function isAnnouncementAttachmentArray(v: unknown): v is Announcement["attachments"] {
+  if (!Array.isArray(v)) return false;
+  return v.every((it) => {
+    if (typeof it !== "object" || it === null) return false;
+    const r = it as Record<string, unknown>;
+    return (
+      typeof r.id === "string" &&
+      typeof r.fileName === "string" &&
+      typeof r.mimeType === "string" &&
+      typeof r.sizeBytes === "number" &&
+      typeof r.storageKey === "string" &&
+      typeof r.uploadedAt === "string"
+    );
+  });
+}
+
 function mapDbAnnouncement(a: DbAnnouncement): StoredAnnouncement {
+  const attachmentsRaw: unknown = a.attachments;
+  const attachments = isAnnouncementAttachmentArray(attachmentsRaw) ? attachmentsRaw : undefined;
   return {
     id: a.id,
     tenantId: a.tenantId,
     title: a.title,
     body: a.body,
     attachmentUrl: a.attachmentUrl ?? undefined,
+    attachments: Array.isArray(attachments) ? attachments : undefined,
     audienceType: a.audienceType as AnnouncementAudienceType,
     audienceRef: (a.audienceRef as AnnouncementAudienceRef | null) ?? undefined,
     status: a.status as AnnouncementStatus,
@@ -87,12 +107,24 @@ function mapDbAnnouncement(a: DbAnnouncement): StoredAnnouncement {
   };
 }
 
+function toPublicAttachments(attachments: Announcement["attachments"]): Announcement["attachments"] {
+  if (!attachments?.length) return undefined;
+  return attachments.map(({ id, fileName, mimeType, sizeBytes, uploadedAt }) => ({
+    id,
+    fileName,
+    mimeType,
+    sizeBytes,
+    uploadedAt,
+  }));
+}
+
 function toPublicAnnouncement(a: StoredAnnouncement): Announcement {
   return {
     id: a.id,
     title: a.title,
     body: a.body,
     attachmentUrl: a.attachmentUrl,
+    attachments: toPublicAttachments(a.attachments),
     audienceType: a.audienceType,
     audienceRef: a.audienceRef,
     status: a.status,
@@ -110,6 +142,7 @@ export type CreateAnnouncementInput = {
   title: string;
   body: string;
   attachmentUrl?: string;
+  attachments?: Announcement["attachments"];
   audienceType: AnnouncementAudienceType;
   audienceRef?: AnnouncementAudienceRef;
   status?: AnnouncementStatus;
@@ -128,9 +161,20 @@ async function createAnnouncementDb(input: CreateAnnouncementInput): Promise<Ann
       title: input.title,
       body: input.body,
       attachmentUrl: input.attachmentUrl ?? null,
+      // Prisma Json fields accept JsonValue — safely cast unknown -> JsonValue
+      attachments:
+        input.attachments === undefined
+          ? undefined
+          : input.attachments === null
+          ? Prisma.JsonNull
+          : (input.attachments as unknown as Prisma.InputJsonValue),
       audienceType: input.audienceType,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      audienceRef: (input.audienceRef ?? null) as any,
+      audienceRef:
+        input.audienceRef === undefined
+          ? undefined
+          : input.audienceRef === null
+          ? Prisma.JsonNull
+          : (input.audienceRef as unknown as Prisma.InputJsonValue),
       status: input.status ?? "draft",
       pinned: input.pinned ?? false,
       publishAt: input.publishAt ? new Date(input.publishAt) : null,
@@ -151,6 +195,7 @@ export async function createAnnouncement(input: CreateAnnouncementInput): Promis
     title: input.title,
     body: input.body,
     attachmentUrl: input.attachmentUrl,
+    attachments: input.attachments,
     audienceType: input.audienceType,
     audienceRef: input.audienceRef,
     status: input.status ?? "draft",
@@ -172,6 +217,20 @@ async function listAnnouncementsDb(tenantId: string): Promise<Announcement[]> {
     orderBy: [{ pinned: "desc" }, { createdAt: "desc" }],
   });
   return rows.map((r) => toPublicAnnouncement(mapDbAnnouncement(r)));
+}
+
+/** Sunucu içi: `storageKey` dahil. Client'a asla doğrudan dönme. */
+export async function getStoredAnnouncement(
+  tenantId: string,
+  id: string
+): Promise<StoredAnnouncement | null> {
+  if (isDbMode) {
+    const { prisma } = await import("../db");
+    const row = await prisma.announcement.findFirst({ where: { id, tenantId } });
+    return row ? mapDbAnnouncement(row) : null;
+  }
+  const all = await loadAll();
+  return all.find((a) => a.id === id && a.tenantId === tenantId) ?? null;
 }
 
 /** Tüm duyurular (durum fark etmeksizin) — yönetim ekranı içindir. */

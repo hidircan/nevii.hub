@@ -1,6 +1,18 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ChevronLeft, ChevronRight, Bell, BookOpen, CalendarDays, FileText, Megaphone, Video } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Bell,
+  BookOpen,
+  CalendarDays,
+  CheckCircle2,
+  CreditCard,
+  FileText,
+  Megaphone,
+  RefreshCcw,
+  Video,
+} from "lucide-react";
 import { addDays, isSameDay, parseISO } from "date-fns";
 import { requireSessionContext } from "@/lib/auth/session";
 import { readData } from "@/lib/store";
@@ -8,22 +20,40 @@ import { listAnnouncementsForUserTool, listCurriculumForStudentTool } from "@/li
 import { listNotificationsForUser } from "@/lib/notifications";
 import { listClosedDays } from "@/lib/closed-day-overrides";
 import { NotificationList } from "@/components/notification-list";
+import { AnnouncementAttachments } from "@/components/announcement-attachments";
 import { LogoutButton } from "@/components/logout-button";
 import { Badge, Card } from "@/components/ui";
 import { LessonOpsBadges } from "@/components/lesson-ops-actions";
-import { formatDateTime, formatDate, formatTime } from "@/lib/utils";
+import { AttendanceCalendarPanel } from "@/components/attendance-calendar-panel";
+import { AssistantPageContext } from "@/components/ai/assistant-page-context";
+import { PayNowButton } from "@/components/pay-now-button";
+import { formatDateTime, formatDate, formatTime, formatMoney } from "@/lib/utils";
 import { computeLiveDisplayStatus } from "@/lib/lesson-live-status";
 import { ownStudentWeekLessons } from "@/lib/student-portal-scope";
 import { normalizeWeekStart, previousWeekParam, nextWeekParam, todayWeekParam, isCurrentWeek } from "@/lib/program-week";
 import { weeklyClosedDaysForTerm, resolveDayStatus } from "@/lib/attendance-calendar";
+import { ProgramLiveRefresh } from "@/components/program-live-refresh";
 
 export const dynamic = "force-dynamic";
+
+function phoneToWa(phone: string) {
+  const digits = phone.replace(/\D/g, "");
+  if (digits.startsWith("0")) return `90${digits.slice(1)}`;
+  if (digits.startsWith("90")) return digits;
+  return digits;
+}
 
 /**
  * EPIC 6A/6B (IMPLEMENTATION_PLAN.md) — STUDENT rolü portalı. 6A'da yalnızca
  * program/bildirim/duyuru/gelişim raporuydu; 6B ile ödev ve materyal
  * bağlantıları eklendi (kendi alt-sayfaları, bkz. /ogrenci/odevlerim ve
  * /ogrenci/materyaller).
+ *
+ * Karma Öğrenci Portalı — eski /veli sayfası buraya birleşti; o sayfanın
+ * "Ödemeler" bölümü (bekleyen/gecikmiş özet kartı + ödeme geçmişi listesi +
+ * okulla WhatsApp iletişim kısayolu) burada AYNEN korunmuştur — GUARDIAN
+ * erişimiyle giren veliler bu sayfayı gördüğü için ödeme görünürlüğü
+ * kaybolmamalı.
  */
 export default async function OgrenciPortalPage({
   searchParams,
@@ -38,7 +68,6 @@ export default async function OgrenciPortalPage({
     redirect("/login?next=/ogrenci");
   }
   if (session.role === "TEACHER") redirect("/ogretmen");
-  if (session.role === "PARENT") redirect("/veli");
   if (session.role === "SCHOOL_ADMIN" || session.role === "SUPER_ADMIN") {
     // admins may preview; fall through
   } else if (session.role !== "STUDENT" && session.role !== "AI_AGENT") {
@@ -119,8 +148,36 @@ export default async function OgrenciPortalPage({
   const curriculumResult = await listCurriculumForStudentTool(session, { studentId: student.id });
   const overallPercent = curriculumResult.ok ? curriculumResult.data.overallPercent : null;
 
+  // Karma Öğrenci Portalı — ödemeler, KESİN olarak `student.id`'ye (session'dan
+  // çözülen) filtrelenir; başka bir öğrencinin ödeme kaydı asla görünmez.
+  const payments = data.payments.filter((p) => p.studentId === student.id);
+  const unpaidPayments = payments.filter((p) => p.status !== "paid");
+  const totalOutstanding = unpaidPayments.reduce((sum, p) => sum + Math.max(p.amount - p.paidAmount, 0), 0);
+  const hasOverduePayment = unpaidPayments.some((p) => p.status === "overdue");
+  const nextDuePayment = [...unpaidPayments].sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0] ?? null;
+  const schoolPhone = data.settings.phone;
+  const contactMessage = `Merhaba, ${student.name} için ödeme durumu hakkında bilgi almak istiyorum.`;
+  const contactWaLink = schoolPhone
+    ? `https://wa.me/${phoneToWa(schoolPhone)}?text=${encodeURIComponent(contactMessage)}`
+    : null;
+
+  // Telafi hakları — yalnızca bu öğrencinin (session'dan çözülen) makeupRequest'leri.
+  const makeups = data.makeupRequests.filter((m) => m.studentId === student.id);
+  const confirmedUpcomingMakeups: { request: (typeof makeups)[number]; lesson: (typeof data.lessons)[number] }[] = [];
+  for (const m of makeups) {
+    if (m.status !== "confirmed" || !m.confirmedLessonId) continue;
+    const lesson = data.lessons.find((l) => l.id === m.confirmedLessonId);
+    if (!lesson) continue;
+    if (new Date(lesson.startAt) < new Date()) continue;
+    confirmedUpcomingMakeups.push({ request: m, lesson });
+  }
+  confirmedUpcomingMakeups.sort((a, b) => a.lesson.startAt.localeCompare(b.lesson.startAt));
+  const hasMakeupHighlight = confirmedUpcomingMakeups.length > 0;
+
   return (
     <div>
+      <AssistantPageContext entity={{ kind: "student", id: student.id, label: student.name }} />
+      <ProgramLiveRefresh />
       <main className="mx-auto max-w-lg space-y-4 px-4 py-6">
         <Card className="glass-hero border-emerald-100 bg-[var(--hero-bg)]">
           <p className="text-xs font-medium uppercase tracking-wide text-emerald-600">Merhaba</p>
@@ -129,6 +186,46 @@ export default async function OgrenciPortalPage({
             {student.instruments.join(", ")} · Öğretmen: {teacher?.name ?? "—"}
           </p>
         </Card>
+
+        {/* Ödemelerim — Hero'nun hemen ardından, her zaman görünür (Karma Öğrenci Portalı kritik başarı kriteri). */}
+        <div id="odemelerim-ozet" role={hasOverduePayment ? "alert" : undefined}>
+          <Card
+            className={`!p-4 ${
+              hasOverduePayment
+                ? "border-rose-300 bg-rose-50"
+                : totalOutstanding > 0
+                  ? "border-amber-200 bg-amber-50/60"
+                  : "border-emerald-100"
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <CreditCard className={`h-4 w-4 ${hasOverduePayment ? "text-rose-700" : "text-emerald-600"}`} />
+              <h2 className="text-sm font-semibold text-[var(--color-text)]">Ödemelerim</h2>
+            </div>
+            {totalOutstanding > 0 ? (
+              <>
+                <p className={`mt-2 text-xl font-semibold ${hasOverduePayment ? "text-rose-700" : "text-[var(--color-text)]"}`}>
+                  {formatMoney(totalOutstanding)}
+                </p>
+                <p className="text-xs text-[var(--color-text-muted)]">
+                  {hasOverduePayment ? "Gecikmiş tutar dahil toplam kalan borç" : "Toplam kalan borç"}
+                  {nextDuePayment ? ` · En yakın vade: ${formatDate(nextDuePayment.dueDate)}` : ""}
+                </p>
+                <div className="mt-3">
+                  <PayNowButton
+                    paymentId={nextDuePayment ? nextDuePayment.id : unpaidPayments[0]!.id}
+                    contactWaLink={contactWaLink}
+                  />
+                </div>
+              </>
+            ) : (
+              <p className="mt-2 text-sm text-[var(--color-text-muted)]">Açık ödemen bulunmuyor.</p>
+            )}
+            <a href="#odemeler" className="mt-3 inline-block text-xs font-medium text-emerald-700 hover:underline">
+              Ödeme geçmişini gör →
+            </a>
+          </Card>
+        </div>
 
         {overallPercent !== null ? (
           <Link href="/ogrenci/mufredat">
@@ -185,6 +282,34 @@ export default async function OgrenciPortalPage({
           </Card>
         </Link>
 
+        {/* Telafi vurgusu, ödeme kartını GİZLEMEZ — ikisi de her zaman erişilebilir (kritik başarı kriteri #6). */}
+        {hasMakeupHighlight ? (
+          <div className="space-y-2">
+            {confirmedUpcomingMakeups.map(({ request, lesson }) => {
+              const makeupTeacher = data.teachers.find((t) => t.id === lesson.teacherId);
+              const makeupBranch = data.settings.branches.find((b) => b.id === lesson.branchId);
+              const makeupRoom = data.rooms.find((r) => r.id === lesson.roomId);
+              return (
+                <Card key={request.id} className="!p-4 border-emerald-200 bg-emerald-50/60">
+                  <div className="flex items-center gap-2 text-emerald-700">
+                    <CheckCircle2 className="h-4 w-4" />
+                    <p className="text-sm font-semibold">Telafi dersiniz onaylandı</p>
+                  </div>
+                  <p className="mt-2 text-base font-semibold text-[var(--color-text)]">{formatDateTime(lesson.startAt)}</p>
+                  <p className="text-sm text-[var(--color-text-muted)]">
+                    {formatTime(lesson.startAt)}–{formatTime(lesson.endAt)} · {lesson.instrument}
+                  </p>
+                  <p className="mt-1 text-sm text-[var(--color-text-muted)]">
+                    {makeupTeacher?.name} · {makeupBranch?.shortName}
+                    {makeupRoom ? ` · ${makeupRoom.name}` : ""}
+                  </p>
+                  <p className="mt-2 text-xs text-emerald-700">Programınıza eklendi.</p>
+                </Card>
+              );
+            })}
+          </div>
+        ) : null}
+
         <section>
           <div className="mb-2 flex items-center gap-2 px-1">
             <Bell className="h-4 w-4 text-emerald-600" />
@@ -204,6 +329,7 @@ export default async function OgrenciPortalPage({
                 <Card key={a.id} className={a.pinned ? "!p-4 border-emerald-200 bg-emerald-50/60" : "!p-4"}>
                   <p className="text-sm font-semibold text-[var(--color-text)]">{a.title}</p>
                   <p className="mt-1 text-sm text-[var(--color-text-muted)]">{a.body}</p>
+                  <AnnouncementAttachments announcementId={a.id} attachments={a.attachments} />
                 </Card>
               ))}
             </div>
@@ -310,6 +436,101 @@ export default async function OgrenciPortalPage({
                         })}
                       </div>
                     )}
+                  </Card>
+                );
+              })}
+            </div>
+          )}
+        </section>
+
+        <section id="yoklama-takvimi">
+          <div className="mb-2 flex items-center gap-2 px-1">
+            <CalendarDays className="h-4 w-4 text-emerald-600" />
+            <h2 className="text-sm font-semibold text-[var(--color-text)]">Yoklama Takvimi</h2>
+          </div>
+          <Card className="!p-3">
+            <AttendanceCalendarPanel
+              studentId={student.id}
+              termType={student.termType ?? "guz"}
+              canEdit={false}
+              readOnly
+              showWeekdayLabels={false}
+            />
+          </Card>
+        </section>
+
+        <section id="telafi">
+          <div className="mb-2 flex items-center gap-2 px-1">
+            <RefreshCcw className="h-4 w-4 text-emerald-600" />
+            <h2 className="text-sm font-semibold text-[var(--color-text)]">Telafi hakları</h2>
+          </div>
+          {makeups.length === 0 ? (
+            <Card>
+              <p className="text-sm text-[var(--color-text-muted)]">Açık telafi yok.</p>
+            </Card>
+          ) : (
+            <div className="space-y-2">
+              {makeups.map((m) => (
+                <Card key={m.id} className="!p-4 border-emerald-100 bg-emerald-50/40">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="font-medium text-[var(--color-text)]">{m.instrument}</p>
+                      <p className="text-sm text-[var(--color-text-muted)]">{m.reason}</p>
+                      <p className="mt-1 text-xs text-[var(--color-text-muted)]">Son: {formatDateTime(m.expiresAt)}</p>
+                    </div>
+                    <Badge status={m.status} />
+                  </div>
+                  <p className="mt-2 text-xs text-[var(--color-text-muted)]">
+                    Okul sizin için uygun saat önerecek. Onay sonrası burada görünür.
+                  </p>
+                </Card>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section id="odemeler">
+          <div className="mb-2 flex items-center gap-2 px-1">
+            <CreditCard className="h-4 w-4 text-emerald-600" />
+            <h2 className="text-sm font-semibold text-[var(--color-text)]">Ödemeler</h2>
+          </div>
+          {payments.length === 0 ? (
+            <Card>
+              <p className="text-sm text-[var(--color-text-muted)]">Henüz ödeme kaydı yok.</p>
+            </Card>
+          ) : (
+            <div className="space-y-2">
+              {payments.map((p) => {
+                const remaining = Math.max(p.amount - p.paidAmount, 0);
+                return (
+                  <Card key={p.id} className="!p-4">
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-medium text-[var(--color-text)]">{p.description}</p>
+                        <p className="text-xs text-[var(--color-text-muted)]">
+                          {p.status === "partial"
+                            ? `Ödenen: ${formatMoney(p.paidAmount)} · Kalan: ${formatMoney(remaining)}`
+                            : formatMoney(p.amount)}
+                        </p>
+                        {p.status !== "paid" ? (
+                          <p className="mt-0.5 text-xs text-[var(--color-text-muted)]">Vade: {formatDate(p.dueDate)}</p>
+                        ) : null}
+                      </div>
+                      <Badge status={p.status} />
+                    </div>
+                    {p.status !== "paid" && p.status !== "voided" ? (
+                      <div className="mt-3">
+                        <PayNowButton paymentId={p.id} contactWaLink={contactWaLink} label="Öde" />
+                      </div>
+                    ) : null}
+                    {p.status === "paid" ? (
+                      <Link
+                        href={`/makbuz/${p.id}`}
+                        className="mt-3 inline-block text-xs font-medium text-emerald-700 hover:underline"
+                      >
+                        Makbuzu görüntüle →
+                      </Link>
+                    ) : null}
                   </Card>
                 );
               })}

@@ -113,7 +113,7 @@ describe("İş Takip — yorum düzenleme/soft-delete", () => {
     const created = await addTaskCommentTool(ctx(), { taskId, body: "x" });
     if (!created.ok) throw new Error("setup failed");
 
-    const updateRes = await updateTaskCommentTool(ctx({ role: "PARENT", studentId: "s1" }), {
+    const updateRes = await updateTaskCommentTool(ctx({ role: "STUDENT", studentId: "s1" }), {
       taskId,
       commentId: created.data.commentId,
       body: "y",

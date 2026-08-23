@@ -29,7 +29,7 @@ beforeEach(async () => {
 describe("workflows/[id] RBAC (FAZ 4 düzeltmesi)", () => {
   it("PARENT/STUDENT/TEACHER route seviyesinde 403 alır (workflows:manage yok)", async () => {
     const { PATCH } = await import("../../app/api/v1/workflows/[id]/route");
-    for (const role of ["PARENT", "STUDENT", "TEACHER"] as const) {
+    for (const role of ["STUDENT", "STUDENT", "TEACHER"] as const) {
       mockUser.value = { userId: "u1", role, tenantId: DEFAULT_TENANT_ID };
       const req = new Request("https://example.test/api/v1/workflows/payment_reminders", {
         method: "PATCH",

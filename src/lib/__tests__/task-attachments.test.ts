@@ -93,7 +93,7 @@ describe("İş Takip — güvenli görev ekleri (Faz 3B-2A)", () => {
 
   it("yetkisiz rol (PARENT) ek ekleyemez", async () => {
     const taskId = await createBasicTask();
-    const res = await addTaskLinkAttachmentTool(ctx({ role: "PARENT" }), {
+    const res = await addTaskLinkAttachmentTool(ctx({ role: "STUDENT" }), {
       taskId,
       title: "Deneme",
       url: "https://example.com",

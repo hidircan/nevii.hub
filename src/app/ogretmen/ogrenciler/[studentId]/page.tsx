@@ -57,7 +57,6 @@ export default async function TeacherStudentWorkspacePage({
   } catch {
     redirect(`/login?next=/ogretmen/ogrenciler/${studentId}`);
   }
-  if (session.role === "PARENT") redirect("/veli");
   if (session.role === "STUDENT") redirect("/ogrenci");
 
   const data = await readData();

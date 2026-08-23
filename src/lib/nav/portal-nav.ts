@@ -5,7 +5,7 @@
  * fazla 4 gerçek hedef + "Diğer").
  */
 import type { LucideIcon } from "lucide-react";
-import { CalendarDays, ClipboardCheck, GraduationCap, Home, LayoutGrid, TrendingUp, Users, Wallet } from "lucide-react";
+import { CalendarDays, ClipboardCheck, GraduationCap, Home, LayoutGrid, Music, Users, Wallet } from "lucide-react";
 
 export type PortalNavItem = {
   href: string;
@@ -21,15 +21,8 @@ export const TEACHER_PORTAL_NAV: PortalNavItem[] = [
   { href: "/ogretmen/ogrenciler", label: "Öğrenciler", icon: Users, mobile: true },
   { href: "/ogretmen/hakedis", label: "Hakediş", icon: Wallet },
   { href: "/ogretmen/odevler", label: "Ödevler", icon: ClipboardCheck },
+  { href: "/ogretmen/mufredat", label: "Müfredat", icon: Music },
   { href: "/ogretmen/is-takip", label: "Diğer", icon: LayoutGrid, mobile: true },
-];
-
-export const PARENT_PORTAL_NAV: PortalNavItem[] = [
-  { href: "/veli", label: "Bugün", icon: Home, mobile: true },
-  { href: "/veli#program", label: "Program", icon: CalendarDays, mobile: true },
-  { href: "/veli/degerlendirme", label: "Gelişim", icon: TrendingUp, mobile: true },
-  { href: "/veli#odemeler", label: "Ödemeler", icon: Wallet, mobile: true },
-  { href: "/veli/odevler", label: "Diğer", icon: LayoutGrid },
 ];
 
 export const STUDENT_PORTAL_NAV: PortalNavItem[] = [

@@ -108,7 +108,7 @@ describe("nextActionLabel", () => {
   });
 
   it("onaylandıysa gönderim aksiyonu döner", () => {
-    expect(nextActionLabel("approved")).toBe("WhatsApp'tan gönder");
+    expect(nextActionLabel("approved")).toBe("Mesajı gönder");
   });
 
   it("gönderildiyse yanıt takibi döner", () => {

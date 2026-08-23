@@ -13,6 +13,7 @@ export type Permission =
   | "students:read"
   | "students:write"
   | "payments:write"
+  | "payments:checkout"
   | "messages:send"
   | "tools:catalog"
   | "demo:reset"
@@ -34,13 +35,16 @@ export type Permission =
   | "teacher_feedback:submit"
   | "teacher_feedback:read"
   | "teacher_feedback:summary"
+  | "student_feedback:submit"
+  | "student_feedback:read"
   | "curriculum:read"
   | "curriculum:write"
   | "pii:full"
   | "documents:read"
   | "documents:write"
   | "trials:read"
-  | "trials:write";
+  | "trials:write"
+  | "workflows:manage";
 
 const ROLE_PERMISSIONS: Record<AppRole, Permission[]> = {
   SUPER_ADMIN: [
@@ -52,6 +56,7 @@ const ROLE_PERMISSIONS: Record<AppRole, Permission[]> = {
     "students:read",
     "students:write",
     "payments:write",
+    "payments:checkout",
     "messages:send",
     "tools:catalog",
     "demo:reset",
@@ -67,12 +72,15 @@ const ROLE_PERMISSIONS: Record<AppRole, Permission[]> = {
     "homework:read",
     "materials:read",
     "teacher_feedback:read",
+    "student_feedback:read",
     "curriculum:read",
+    "curriculum:write",
     "pii:full",
     "documents:read",
     "documents:write",
     "trials:read",
     "trials:write",
+    "workflows:manage",
   ],
   SCHOOL_ADMIN: [
     "attendance:write",
@@ -83,6 +91,7 @@ const ROLE_PERMISSIONS: Record<AppRole, Permission[]> = {
     "students:read",
     "students:write",
     "payments:write",
+    "payments:checkout",
     "messages:send",
     "tools:catalog",
     "demo:reset",
@@ -97,12 +106,15 @@ const ROLE_PERMISSIONS: Record<AppRole, Permission[]> = {
     "homework:read",
     "materials:read",
     "teacher_feedback:read",
+    "student_feedback:read",
     "curriculum:read",
+    "curriculum:write",
     "pii:full",
     "documents:read",
     "documents:write",
     "trials:read",
     "trials:write",
+    "workflows:manage",
   ],
   TEACHER: [
     "attendance:write",
@@ -127,31 +139,26 @@ const ROLE_PERMISSIONS: Record<AppRole, Permission[]> = {
     "trials:read",
     "trials:write",
     "teacher_feedback:summary",
-  ],
-  PARENT: [
-    "students:read",
-    "tools:catalog",
-    "notifications:read",
-    "communication:write",
-    "announcements:read",
-    "assessments:read",
-    "homework:read",
-    "materials:read",
-    "teacher_feedback:submit",
-    "curriculum:read",
-    "documents:read",
+    "student_feedback:submit",
+    "student_feedback:read",
   ],
   /**
-   * EPIC 6A — bilinçli olarak dar bir izin seti: yalnızca kendi verisini
-   * OKUR (canAccessStudent ile kapsamlanır); opt-out/mesajlaşma/ödeme hâlâ
-   * veli veya admin kararıdır. EPIC 6B/6C ile İKİ dar YAZMA izni eklendi:
-   * kendi ödev teslimini yükleme ve öğretmen hakkında geri bildirim —
-   * ikisi de yalnızca kendi kaydına, tool katmanında ayrıca kapsamlanır.
+   * Karma Öğrenci Portalı — eski PARENT rolünün izinleri buraya birleştirildi
+   * (communication:write dahil), çünkü veli/öğrenci ayrımı artık bir rol değil,
+   * StudentPortalAccess.accessType ("GUARDIAN" | "SELF"). Rol düzeyinde tek bir
+   * izin seti; GUARDIAN'a özgü kısıtlar (varsa) tool katmanında, accessType
+   * kontrolü üzerinden uygulanır — bkz. src/lib/services/context.ts.
+   * EPIC 6A — bilinçli olarak dar bir izin seti: yalnızca kendi/erişimli
+   * öğrencinin verisini OKUR (canAccessStudent ile kapsamlanır). EPIC 6B/6C ile
+   * İKİ dar YAZMA izni eklendi: kendi ödev teslimini yükleme ve öğretmen
+   * hakkında geri bildirim — ikisi de yalnızca erişimli kayda, tool katmanında
+   * ayrıca kapsamlanır.
    */
   STUDENT: [
     "students:read",
     "tools:catalog",
     "notifications:read",
+    "communication:write",
     "announcements:read",
     "assessments:read",
     "homework:read",
@@ -160,6 +167,7 @@ const ROLE_PERMISSIONS: Record<AppRole, Permission[]> = {
     "teacher_feedback:submit",
     "curriculum:read",
     "documents:read",
+    "payments:checkout",
   ],
   AI_AGENT: [
     "attendance:write",
@@ -170,6 +178,7 @@ const ROLE_PERMISSIONS: Record<AppRole, Permission[]> = {
     "students:read",
     "students:write",
     "payments:write",
+    "payments:checkout",
     "messages:send",
     "tools:catalog",
     "notifications:read",

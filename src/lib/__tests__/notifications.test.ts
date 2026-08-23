@@ -15,10 +15,12 @@ import {
 import { readData } from "../store";
 import { DEFAULT_TENANT_ID } from "../auth/config";
 import type { ServiceContext } from "../services/context";
+import { STUDENT_PORTAL_ACCESS_FILE } from "../student-portal-access";
+import { grantStudentAccess } from "./portal-access-test-helper";
 
 function ctx(overrides?: Partial<ServiceContext>): ServiceContext {
   return {
-    role: "PARENT",
+    role: "STUDENT",
     userId: "parent1",
     tenantId: DEFAULT_TENANT_ID,
     channel: "web",
@@ -28,6 +30,7 @@ function ctx(overrides?: Partial<ServiceContext>): ServiceContext {
 
 beforeEach(async () => {
   await fs.rm(NOTIFICATIONS_FILE, { force: true });
+  await fs.rm(STUDENT_PORTAL_ACCESS_FILE, { force: true });
 });
 
 describe("EPIC 1 — notifications modülü (src/lib/notifications)", () => {
@@ -137,6 +140,7 @@ describe("EPIC 1 — updateCommunicationPreferenceTool (opt-out yetkisi)", () =>
   it("veli kendi çocuğu için opt-out ayarlayabilir", async () => {
     const data = await readData();
     const studentId = data.students[0].id;
+    await grantStudentAccess(ctx({ studentId }), studentId, "GUARDIAN");
     const result = await updateCommunicationPreferenceTool(ctx({ studentId }), {
       studentId,
       communicationOptOut: true,

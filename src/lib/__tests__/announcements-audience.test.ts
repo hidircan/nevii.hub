@@ -55,11 +55,12 @@ const TEACHERS: Teacher[] = [
 ];
 const CONTEXT = { students: STUDENTS, teachers: TEACHERS };
 
+/** Karma Öğrenci Portalı — veli artık ayrı bir rol değil, STUDENT + accessType=GUARDIAN. */
 function parent(studentId: string, userId = `parent-of-${studentId}`): AnnouncementRecipient {
-  return { role: "PARENT", userId, studentId };
+  return { role: "STUDENT", userId, studentId, accessType: "GUARDIAN" };
 }
 function studentRecipient(studentId: string, userId = `student-${studentId}`): AnnouncementRecipient {
-  return { role: "STUDENT", userId, studentId };
+  return { role: "STUDENT", userId, studentId, accessType: "SELF" };
 }
 function teacherRecipient(teacherId: string, userId = `user-${teacherId}`): AnnouncementRecipient {
   return { role: "TEACHER", userId, teacherId };
@@ -76,16 +77,17 @@ describe("EPIC 5 — matchesAudience: her audienceType için hedefte olan görü
     expect(matchesAudience(a, admin(), CONTEXT)).toBe(true);
   });
 
-  it("teachers: yalnızca TEACHER rolü görür, PARENT görmez", () => {
+  it("teachers: yalnızca TEACHER rolü görür, veli/öğrenci görmez", () => {
     const a = announcement({ audienceType: "teachers" });
     expect(matchesAudience(a, teacherRecipient("t-erzene"), CONTEXT)).toBe(true);
     expect(matchesAudience(a, parent("s-erzene-hobi"), CONTEXT)).toBe(false);
   });
 
-  it("parents: yalnızca PARENT rolü görür, TEACHER görmez", () => {
+  it("parents: yalnızca accessType=GUARDIAN olan STUDENT görür, TEACHER ve accessType=SELF görmez", () => {
     const a = announcement({ audienceType: "parents" });
     expect(matchesAudience(a, parent("s-erzene-hobi"), CONTEXT)).toBe(true);
     expect(matchesAudience(a, teacherRecipient("t-erzene"), CONTEXT)).toBe(false);
+    expect(matchesAudience(a, studentRecipient("s-erzene-hobi"), CONTEXT)).toBe(false);
   });
 
   it("branch: yalnızca o şubedeki öğretmen/veli/öğrenci görür, başka şube görmez", () => {
@@ -127,7 +129,7 @@ describe("EPIC 5 — matchesAudience: her audienceType için hedefte olan görü
     expect(matchesAudience(a, parent("s1", "user-x"), CONTEXT)).toBe(false);
   });
 
-  it("students: EPIC 6A sonrası yalnızca STUDENT rolü görür — PARENT/TEACHER görmez", () => {
+  it("students: Karma Öğrenci Portalı sonrası accessType=SELF (veya bilinmeyen) görür — GUARDIAN/TEACHER görmez", () => {
     const a = announcement({ audienceType: "students" });
     expect(matchesAudience(a, studentRecipient("s-erzene-hobi"), CONTEXT)).toBe(true);
     expect(matchesAudience(a, parent("s-erzene-hobi"), CONTEXT)).toBe(false);

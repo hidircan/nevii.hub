@@ -5,7 +5,6 @@ export const ROLE_LABELS_TR: Record<AppRole, string> = {
   SUPER_ADMIN: "Kurum Sahibi",
   SCHOOL_ADMIN: "Kurum Yöneticisi",
   TEACHER: "Öğretmen",
-  PARENT: "Veli",
   STUDENT: "Öğrenci",
   AI_AGENT: "Yapay Zekâ Ajanı",
 };

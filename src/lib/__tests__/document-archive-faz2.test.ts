@@ -116,7 +116,7 @@ describe("Evrak şablonları — CRUD, sanitizasyon, RBAC", () => {
   });
 
   it("TEACHER/PARENT/STUDENT şablon oluşturamaz", async () => {
-    for (const role of ["TEACHER", "PARENT", "STUDENT"] as const) {
+    for (const role of ["TEACHER", "STUDENT", "STUDENT"] as const) {
       const res = await createDocumentTemplateTool(ctx({ role, teacherId: "t1", studentId: "s1" }), {
         kind: "custom",
         name: "X",

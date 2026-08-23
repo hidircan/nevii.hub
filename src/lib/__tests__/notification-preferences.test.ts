@@ -108,7 +108,7 @@ describe("Bildirim tercih tools (RBAC)", () => {
     // Bu tool önceden PARENT/STUDENT'ı tamamen reddediyordu — /veli ve /ogrenci
     // ayarlar sayfaları bu yüzden hiç çalışmıyordu. Artık kendi (tenant, userId)
     // kapsamında okuyup yazabiliyor; başka rolün verisine erişim yok (ayrı test).
-    const parentCtx = ctx({ role: "PARENT", userId: "parent1", studentId: "s1" });
+    const parentCtx = ctx({ role: "STUDENT", userId: "parent1", studentId: "s1" });
     const got = await getNotificationPreferencesTool(parentCtx);
     expect(got.ok).toBe(true);
 
@@ -126,8 +126,8 @@ describe("Bildirim tercih tools (RBAC)", () => {
   });
 
   it("PARENT'ın yazdığı tercih başka bir kullanıcıyı etkilemez", async () => {
-    const parentA = ctx({ role: "PARENT", userId: "parentA", studentId: "s1" });
-    const parentB = ctx({ role: "PARENT", userId: "parentB", studentId: "s2" });
+    const parentA = ctx({ role: "STUDENT", userId: "parentA", studentId: "s1" });
+    const parentB = ctx({ role: "STUDENT", userId: "parentB", studentId: "s2" });
     await setNotificationPreferencesTool(parentA, {
       updates: [{ category: "lesson_upcoming", inAppEnabled: false }],
     });

@@ -17,9 +17,9 @@ import { UserMenu } from "@/components/user-menu";
 import { cn } from "@/lib/utils";
 import type { AppRole } from "@/lib/auth/types";
 import type { Density, PortalPresentation } from "@/lib/theme";
-import { TEACHER_PORTAL_NAV, PARENT_PORTAL_NAV, STUDENT_PORTAL_NAV } from "@/lib/nav/portal-nav";
+import { TEACHER_PORTAL_NAV, STUDENT_PORTAL_NAV } from "@/lib/nav/portal-nav";
 
-export type PortalKind = "teacher" | "parent" | "student";
+export type PortalKind = "teacher" | "student";
 
 /**
  * Nav dizileri (icon: LucideIcon FONKSİYONLARI içerir) burada, Client
@@ -31,7 +31,6 @@ export type PortalKind = "teacher" | "parent" | "student";
  */
 const PORTAL_NAV: Record<PortalKind, typeof TEACHER_PORTAL_NAV> = {
   teacher: TEACHER_PORTAL_NAV,
-  parent: PARENT_PORTAL_NAV,
   student: STUDENT_PORTAL_NAV,
 };
 
@@ -96,7 +95,7 @@ export function PortalShell({
             })}
           </nav>
           <div className="flex items-center gap-2">
-            <NotificationBell />
+            <NotificationBell role={role} />
             <UserMenu email={email} role={role} kurumName={null} initialDensity={density} />
           </div>
         </div>

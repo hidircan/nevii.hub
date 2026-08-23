@@ -23,7 +23,7 @@ beforeEach(async () => {
 const VALID_FILE = {
   fileName: "belge.pdf",
   fileMimeType: "application/pdf",
-  fileData: Buffer.from("fake pdf bytes").toString("base64"),
+  fileData: Buffer.concat([Buffer.from("%PDF-1.4\n"), Buffer.from("fake pdf bytes")]).toString("base64"),
 };
 
 describe("Evraklar — şablonsuz doğrudan dosya yükleme (Paket 7)", () => {

@@ -31,7 +31,7 @@ function parseEnvMap(): PhoneBinding[] {
       return {
         phone: normalizePhone(phone || ""),
         userId: userId || `wa_${normalizePhone(phone || "")}`,
-        role: (role as AppRole) || "PARENT",
+        role: (role as AppRole) || "STUDENT",
         tenantId: tenantId || DEFAULT_TENANT_ID,
       };
     })
@@ -45,7 +45,7 @@ function seedParentBindings(): PhoneBinding[] {
     .map((s) => ({
       phone: normalizePhone(s.parentPhone),
       userId: `user_parent_${s.id}`,
-      role: "PARENT" as AppRole,
+      role: "STUDENT" as AppRole,
       tenantId: seed.settings.tenantId || DEFAULT_TENANT_ID,
       studentId: s.id,
     }));
@@ -57,14 +57,14 @@ function defaultDemoBindings(): PhoneBinding[] {
     {
       phone: normalizePhone("05411000102"),
       userId: "user_parent_s1",
-      role: "PARENT",
+      role: "STUDENT",
       tenantId: DEFAULT_TENANT_ID,
       studentId: "s1",
     },
     {
       phone: normalizePhone("905411000102"),
       userId: "user_parent_s1",
-      role: "PARENT",
+      role: "STUDENT",
       tenantId: DEFAULT_TENANT_ID,
       studentId: "s1",
     },

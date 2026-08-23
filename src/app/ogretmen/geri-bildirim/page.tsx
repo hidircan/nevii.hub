@@ -19,7 +19,6 @@ export default async function TeacherFeedbackSummaryPage() {
   } catch {
     redirect("/login?next=/ogretmen/geri-bildirim");
   }
-  if (session.role === "PARENT") redirect("/veli");
   if (session.role === "STUDENT") redirect("/ogrenci");
 
   const result = await getOwnTeacherFeedbackSummaryTool(session);

@@ -4,7 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Home, UserRound, Users, ChevronsLeft, ChevronsRight } from "lucide-react";
+import { Home, Users, ChevronsLeft, ChevronsRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { LogoutButton } from "@/components/logout-button";
 import { BRAND } from "@/lib/brand";
@@ -54,7 +54,7 @@ function applyStoredOrder(sectionKey: string, items: PanelNavItem[]): PanelNavIt
   }
 }
 
-type SessionRole = "SUPER_ADMIN" | "SCHOOL_ADMIN" | "AI_AGENT" | "TEACHER" | "PARENT" | "STUDENT";
+type SessionRole = "SUPER_ADMIN" | "SCHOOL_ADMIN" | "AI_AGENT" | "TEACHER" | "STUDENT";
 
 /** Bir menü öğesi bu rolde görünür mü — `roles` verilmemişse tüm panel personeli görür. */
 function isVisibleForRole(item: PanelNavItem, role?: SessionRole): boolean {
@@ -299,15 +299,6 @@ export function Sidebar({
             style={{ color: "var(--color-text-muted)" }}
           >
             <Users className="h-4 w-4 shrink-0" /> {!collapsed ? "Öğretmen portalı" : null}
-          </Link>
-          <Link
-            href="/veli"
-            title={collapsed ? "Veli portalı" : undefined}
-            aria-label="Veli portalı"
-            className={cn(portalLinkClass, collapsed && "justify-center px-2")}
-            style={{ color: "var(--color-text-muted)" }}
-          >
-            <UserRound className="h-4 w-4 shrink-0" /> {!collapsed ? "Veli portalı" : null}
           </Link>
           <Link
             href="/ogrenci"

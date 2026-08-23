@@ -53,6 +53,7 @@ export const PANEL_MAIN_NAV: PanelNavItem[] = [
   { href: "/panel/telafi", label: "Telafi Merkezi", icon: RefreshCcw },
   { href: "/panel/ogrenciler", label: "Öğrenciler", icon: GraduationCap },
   { href: "/panel/ogretmenler", label: "Öğretmenler", icon: Users },
+  { href: "/panel/mufredat", label: "Müfredat", icon: MusicIcon },
 ];
 
 /** Paket 7 — Finans grubu: ödeme/hakediş/paket/kampanya ile ilgili tüm ekranlar tek yerde. */
@@ -77,13 +78,14 @@ export const PANEL_OPS_NAV: PanelNavItem[] = [
   { href: "/panel/deneme", label: "Deneme Dersleri", icon: FlaskConical },
   { href: "/panel/ders-duzeltme", label: "Ders düzeltme", icon: Wrench },
   { href: "/panel/duyurular", label: "Duyurular", icon: MessageCircle },
-  { href: "/panel/bildirimler", label: "WhatsApp", icon: MessageCircle },
+  { href: "/panel/bildirimler", label: "Bildirimler", icon: MessageCircle },
+  { href: "/panel/iletisim-merkezi", label: "İletişim Merkezi", icon: MessageCircle, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
   /** Paket 7 — ödev atama/teslim raporu. */
   { href: "/panel/odev-raporu", label: "Ödev Raporu", icon: FileText, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
 ];
 
 export const PANEL_AI_NAV: PanelNavItem[] = [
-  { href: "/panel/chat", label: "Asistan", icon: Sparkles },
+  { href: "/panel/maestron-ai", label: "Asistan", icon: Sparkles },
   { href: "/panel/ai", label: "AI Özet", icon: Activity },
   { href: "/panel/ai/logs", label: "AI Log", icon: ScrollText },
   { href: "/panel/ai/memory", label: "AI Bellek", icon: Brain },

@@ -9,6 +9,9 @@ import { executeAgentTool, listToolsForRole } from "../agent/executor";
 import { logAgentEvent } from "../agent/logging";
 import { DEFAULT_TENANT_ID } from "../auth/config";
 import type { ServiceContext } from "../services/context";
+import { grantStudentAccess } from "./portal-access-test-helper";
+import { STUDENT_PORTAL_ACCESS_FILE } from "../student-portal-access";
+import { promises as fs } from "fs";
 
 function ctx(overrides?: Partial<ServiceContext>): ServiceContext {
   return {
@@ -21,8 +24,9 @@ function ctx(overrides?: Partial<ServiceContext>): ServiceContext {
 }
 
 describe("agent executor", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.mocked(logAgentEvent).mockClear();
+    await fs.rm(STUDENT_PORTAL_ACCESS_FILE, { force: true });
   });
 
   it("bilinmeyen tool için NOT_FOUND döner", async () => {
@@ -37,7 +41,7 @@ describe("agent executor", () => {
   });
 
   it("rol yetkisiz tool için FORBIDDEN döner", async () => {
-    const res = await executeAgentTool(ctx({ role: "PARENT" }), {
+    const res = await executeAgentTool(ctx({ role: "STUDENT" }), {
       tool: "resetDemo",
       input: {},
     });
@@ -60,9 +64,11 @@ describe("agent executor", () => {
     }
   });
 
-  it("PARENT kendi öğrencisinin programını görebilir", async () => {
+  it("veli (STUDENT rolü, GUARDIAN erişimi) kendi öğrencisinin programını görebilir", async () => {
+    const parentCtx = ctx({ role: "STUDENT", studentId: "s1" });
+    await grantStudentAccess(parentCtx, "s1", "GUARDIAN");
     const res = await executeAgentTool(
-      ctx({ role: "PARENT", studentId: "s1" }),
+      parentCtx,
       { tool: "getStudentSchedule", input: { studentId: "s1" } }
     );
     expect(res.ok).toBe(true);
@@ -72,9 +78,9 @@ describe("agent executor", () => {
     }
   });
 
-  it("PARENT başkasının programına erişemez", async () => {
+  it("veli başkasının programına erişemez", async () => {
     const res = await executeAgentTool(
-      ctx({ role: "PARENT", studentId: "s1" }),
+      ctx({ role: "STUDENT", studentId: "s1" }),
       { tool: "getStudentSchedule", input: { studentId: "s2" } }
     );
     expect(res.ok).toBe(false);
@@ -95,8 +101,8 @@ describe("agent executor", () => {
     }
   });
 
-  it("listToolsForRole PARENT için yalnızca izinli tool'ları döner", () => {
-    const tools = listToolsForRole("PARENT");
+  it("listToolsForRole STUDENT için yalnızca izinli tool'ları döner", () => {
+    const tools = listToolsForRole("STUDENT");
     const names = tools.map((t) => t.name);
     expect(names).toContain("getStudentSchedule");
     expect(names).not.toContain("resetDemo");

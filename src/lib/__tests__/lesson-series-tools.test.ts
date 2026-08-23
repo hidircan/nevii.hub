@@ -176,7 +176,7 @@ describe("createLessonSeriesTool", () => {
   });
 
   it("veli rolü seri oluşturamaz (FORBIDDEN)", async () => {
-    const res = await createLessonSeriesTool(ctx({ role: "PARENT" }), baseInput);
+    const res = await createLessonSeriesTool(ctx({ role: "STUDENT" }), baseInput);
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.error.code).toBe("FORBIDDEN");
   });

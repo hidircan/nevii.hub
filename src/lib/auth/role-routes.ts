@@ -10,8 +10,6 @@ export function homePathForRole(role: AppRole): string {
   switch (role) {
     case "TEACHER":
       return "/ogretmen";
-    case "PARENT":
-      return "/veli";
     case "STUDENT":
       return "/ogrenci";
     case "AI_AGENT":
@@ -27,8 +25,6 @@ export function notificationSettingsPathForRole(role: AppRole): string {
   switch (role) {
     case "TEACHER":
       return "/ogretmen/ayarlar/bildirimler";
-    case "PARENT":
-      return "/veli/ayarlar/bildirimler";
     case "STUDENT":
       return "/ogrenci/ayarlar/bildirimler";
     case "AI_AGENT":

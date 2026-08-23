@@ -21,9 +21,17 @@ npm test                   # vitest run — full suite (src/lib/__tests__/**/*.t
 npx vitest run <path>       # a single test file, e.g. src/lib/__tests__/makeup-engine.test.ts
 npx vitest run <path> -t "<name>"   # a single test by name within a file
 npx prisma validate        # validate prisma/schema.prisma
-npx prisma db push         # sync MySQL/MariaDB schema (no migration history — the day-to-day path)
 npx prisma generate         # regenerate the Prisma client (also runs automatically as `prebuild`)
+npx prisma migrate status   # check applied/pending migrations against the target PostgreSQL DB
+npx prisma migrate deploy   # apply pending migrations — staging only, after explicit approval (see below)
 ```
+
+**Staging PostgreSQL migration flow** — `db push` is not the day-to-day path (that was true for a
+legacy MySQL/MariaDB setup this project no longer uses; see below). The controlled flow is:
+`prisma validate` → `prisma generate` → `prisma migrate status` → (only for an approved staging
+target) `prisma migrate deploy`. Never run `migrate deploy`/`db push`/`db reset` against
+production from an agent session without explicit, per-run human approval naming the target
+environment.
 
 **Validation gate before considering any change done** (in this order, per `AGENTS.md` §6):
 `npm run typecheck` → `npm run lint` → `npm test` → `npx prisma validate` → `npm run build`.
@@ -56,7 +64,7 @@ UI (panel / portals)              REST API v1 (withApiHandler)
   Store layer (readData / cases / workflows)  ◄──  LLM Orchestrator (plan → execute → narrate)
         │                                          │
         ▼                                          ▼
-  Prisma (MySQL/MariaDB) · JSON/memory        LLM providers (Gemini/Groq/NVIDIA NIM/Cerebras/heuristic)
+  Prisma (PostgreSQL, @prisma/adapter-pg) · JSON/memory   LLM providers (Gemini/Groq/NVIDIA NIM/Cerebras/heuristic)
 ```
 
 **Every business action — human or AI — goes through `src/lib/services/tools.ts` (the Tool
@@ -148,7 +156,7 @@ required to understand, the provider chain above.
 
 `STORE_MODE` env var picks one of three backends behind the same `StoreApi`
 (`src/lib/store.ts`, `store-json.ts`, `store-db.ts`, `store-memory.ts`): `json` (file-backed,
-local dev/tests/demo), `db` (Prisma → MySQL/MariaDB, production), `memory` (in-process, seeded on
+local dev/tests/demo), `db` (Prisma → PostgreSQL via `@prisma/adapter-pg`, production), `memory` (in-process, seeded on
 cold start, serverless demo without disk). On Vercel/Lambda, `json` mode writes to `/tmp`, not
 the repo (`resolveDataDir`). The AI platform's own persistence (follow-up cases, workflow
 state/runs, conversations, memory) follows the same per-mode parity contract.
@@ -166,3 +174,13 @@ state/runs, conversations, memory) follows the same per-mode parity contract.
 - `ServiceResult<T>` (`src/lib/services/result.ts`, `ok`/`fail`) is the uniform return shape for
   every service/tool function; API routes convert it via `fromServiceResult`
   (`src/lib/api/http.ts`). Don't throw from a tool for an expected failure — return `fail(...)`.
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->

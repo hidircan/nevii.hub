@@ -21,7 +21,8 @@ export type AiCapabilityId =
   | "collectionsMessageDraft"
   | "collectionsROIReport"
   | "teacherPerformanceScore"
-  | "attendanceRiskAssessment";
+  | "attendanceRiskAssessment"
+  | "feedbackSummary";
 
 export type AiCapabilityDefinition = {
   id: AiCapabilityId;
@@ -112,6 +113,20 @@ export const AI_CAPABILITIES: Record<AiCapabilityId, AiCapabilityDefinition> = {
     requiresApproval: false,
     // src/lib/insights/attendance-risk.ts — mevcut export
     linkedTools: ["computeStudentAttendanceRisk"],
+    preferredProvider: "groq",
+  },
+  feedbackSummary: {
+    id: "feedbackSummary",
+    description:
+      "Karşılıklı Değerlendirmeler sprinti — bir öğretmen hakkındaki öğrenci/veli değerlendirmelerinin veya " +
+      "bir öğrenci hakkındaki öğretmen değerlendirmelerinin yönetici için okunabilir özeti. Yalnızca yönetici " +
+      "isteğiyle çalışır (otomatik tetiklenmez); kriter ortalamaları ve temalar bu capability'den ÖNCE, " +
+      "LLM'siz hesaplanır — LLM yalnızca zaten anonimleştirilmiş/toplulaştırılmış veriyi yorumlar, ham yorum " +
+      "veya kimlik asla prompt'a girmez.",
+    allowedRoles: BUSINESS_OWNER,
+    requiresApproval: false,
+    // src/lib/feedback-summary.ts — mevcut export
+    linkedTools: ["computeFeedbackSummaryStats"],
     preferredProvider: "groq",
   },
 };

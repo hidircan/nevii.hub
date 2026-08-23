@@ -98,7 +98,7 @@ describe("ÖNCELİK 4 (devam) — Yönetilebilir Enstrüman Kataloğu", () => {
     const createRes = await createInstrumentCatalogTool(ctx({ role: "TEACHER", teacherId: "t1" }), { name: "Cajon" });
     expect(createRes.ok).toBe(false);
 
-    const updateRes = await updateInstrumentCatalogTool(ctx({ role: "PARENT", studentId: "s1" }), {
+    const updateRes = await updateInstrumentCatalogTool(ctx({ role: "STUDENT", studentId: "s1" }), {
       entryId: "whatever",
       status: "archived",
     });

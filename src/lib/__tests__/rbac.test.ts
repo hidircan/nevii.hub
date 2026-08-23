@@ -9,14 +9,14 @@ describe("RBAC", () => {
     expect(hasPermission("SUPER_ADMIN", "demo:reset")).toBe(true);
   });
 
-  it("PARENT yazma izinlerine sahip değildir", () => {
-    expect(hasPermission("PARENT", "payments:write")).toBe(false);
-    expect(hasPermission("PARENT", "attendance:write")).toBe(false);
-    expect(hasPermission("PARENT", "students:write")).toBe(false);
+  it("STUDENT (Karma Öğrenci Portalı — veli/öğrenci) yazma izinlerine sahip değildir", () => {
+    expect(hasPermission("STUDENT", "payments:write")).toBe(false);
+    expect(hasPermission("STUDENT", "attendance:write")).toBe(false);
+    expect(hasPermission("STUDENT", "students:write")).toBe(false);
   });
 
-  it("PARENT okuma izinlerine sahiptir", () => {
-    expect(hasPermission("PARENT", "students:read")).toBe(true);
+  it("STUDENT okuma izinlerine sahiptir", () => {
+    expect(hasPermission("STUDENT", "students:read")).toBe(true);
   });
 
   it("her rol tanımlı bir rol tipidir", () => {

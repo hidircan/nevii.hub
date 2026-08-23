@@ -152,7 +152,7 @@ describe("isLessonProcessedForPayout — hakediş/rapor kaynağı", () => {
 describe("setLessonOpsFlagTool — RBAC ve sahiplik (API/tool katmanı)", () => {
   it("PARENT rolü yetkisizdir (FORBIDDEN)", async () => {
     const lessonId = await createTestLesson();
-    const res = await setLessonOpsFlagTool(ctx({ role: "PARENT", teacherId: undefined }), {
+    const res = await setLessonOpsFlagTool(ctx({ role: "STUDENT", teacherId: undefined }), {
       lessonId,
       flag: "attended",
     });

@@ -5,6 +5,7 @@
 
 import type { AppRole } from "../auth/types";
 import { DEFAULT_TENANT_ID } from "../auth/config";
+import { hasActiveStudentAccess } from "../student-portal-access";
 
 export type ActorRole = AppRole;
 
@@ -53,19 +54,27 @@ export function requireRole(
  * Öğrenci erişim matrisi.
  *
  * TEACHER için sahiplik (`ownership.teacherId === ctx.teacherId`) ZORUNLUDUR.
- * ownership verilmezse fail-closed `false` — IDOR'u kapatır. Tool/API katmanı
- * öğrenciyi yükledikten sonra `canAccessStudent(ctx, id, { teacherId })` veya
- * `assertStudentAccess` kullanmalıdır.
+ * ownership verilmezse fail-closed `false` — IDOR'u kapatır. STUDENT rolü
+ * (Karma Öğrenci Portalı) için erişim ARTIK `ctx.studentId` karşılaştırması
+ * DEĞİL — her istekte `StudentPortalAccess(tenantId, userId, studentId,
+ * status=active)` async doğrulanır; hem GUARDIAN hem SELF accessType kabul
+ * edilir. Sonuç JWT'de veya request-scope dışında hiçbir yerde
+ * cache'lenmez — bir erişim iptali bir sonraki istekte hemen etkilidir.
+ * Tool/API katmanı öğrenciyi yükledikten sonra
+ * `await canAccessStudent(ctx, id, { teacherId })` veya
+ * `await assertStudentAccess` kullanmalıdır.
  */
-export function canAccessStudent(
+export async function canAccessStudent(
   ctx: ServiceContext,
   studentId: string,
   ownership?: { teacherId: string }
-): boolean {
+): Promise<boolean> {
   if (ctx.role === "SUPER_ADMIN" || ctx.role === "SCHOOL_ADMIN" || ctx.role === "AI_AGENT") {
     return true;
   }
-  if (ctx.role === "PARENT" || ctx.role === "STUDENT") return ctx.studentId === studentId;
+  if (ctx.role === "STUDENT") {
+    return hasActiveStudentAccess(ctx.tenantId, ctx.userId, studentId);
+  }
   if (ctx.role === "TEACHER") {
     if (!ctx.teacherId) return false;
     if (!ownership) return false;
@@ -78,15 +87,15 @@ export function canAccessStudent(
  * Tek giriş noktası: kayıt yoksa NOT_FOUND benzeri mesaj, sahiplik yoksa
  * FORBIDDEN. UI'daki `findOwnStudent` ile aynı kural tool/API'de.
  */
-export function assertStudentAccess(
+export async function assertStudentAccess(
   ctx: ServiceContext,
   student: { id: string; teacherId: string } | undefined | null,
   studentId: string
-): { ok: true } | { ok: false; code: "NOT_FOUND" | "FORBIDDEN"; message: string } {
+): Promise<{ ok: true } | { ok: false; code: "NOT_FOUND" | "FORBIDDEN"; message: string }> {
   if (!student || student.id !== studentId) {
     return { ok: false, code: "NOT_FOUND", message: "Öğrenci bulunamadı" };
   }
-  if (!canAccessStudent(ctx, studentId, { teacherId: student.teacherId })) {
+  if (!(await canAccessStudent(ctx, studentId, { teacherId: student.teacherId }))) {
     return {
       ok: false,
       code: "FORBIDDEN",

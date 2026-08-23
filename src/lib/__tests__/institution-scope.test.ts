@@ -19,7 +19,7 @@ describe("pickInstitutionSelection — kurum varsayılanı", () => {
 
   it("öğretmen/veli rolleri de varsayılan olarak kendi kurumunu görür", () => {
     expect(pickInstitutionSelection("TEACHER", "tenant_a", ONE, undefined)).toBe("tenant_a");
-    expect(pickInstitutionSelection("PARENT", "tenant_a", ONE, undefined)).toBe("tenant_a");
+    expect(pickInstitutionSelection("STUDENT", "tenant_a", ONE, undefined)).toBe("tenant_a");
   });
 });
 

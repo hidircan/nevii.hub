@@ -20,7 +20,6 @@ export default async function StudentTeacherFeedbackPage() {
     redirect("/login?next=/ogrenci/degerlendirme");
   }
   if (session.role === "TEACHER") redirect("/ogretmen");
-  if (session.role === "PARENT") redirect("/veli");
   if (session.role !== "STUDENT" && session.role !== "SCHOOL_ADMIN" && session.role !== "SUPER_ADMIN") {
     redirect("/login?next=/ogrenci/degerlendirme");
   }

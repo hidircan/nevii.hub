@@ -125,7 +125,7 @@ describe("cancelLessonTool · store entegrasyonu", () => {
 
   it("veli rolü ders iptal edemez (FORBIDDEN)", async () => {
     const lessonId = await scheduleFutureLesson();
-    const res = await cancelLessonTool(ctx({ role: "PARENT" }), { lessonId });
+    const res = await cancelLessonTool(ctx({ role: "STUDENT" }), { lessonId });
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.error.code).toBe("FORBIDDEN");
   });

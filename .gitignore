@@ -64,3 +64,6 @@ skills-lock.json
 .claude/
 dev.db
 skills-lock.json
+
+# Local generated reports and design artifacts
+.local-artifacts/

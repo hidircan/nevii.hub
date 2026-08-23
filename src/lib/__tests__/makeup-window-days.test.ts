@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { promises as fs } from "fs";
 import path from "path";
 import { resolveDataDir } from "../config";
-import { updateMakeupWindowDaysTool } from "../services/tools";
+import { updateMakeupWindowDaysTool, updateMonthlyMakeupAllowanceTool } from "../services/tools";
 import { readData } from "../store";
 import { DEFAULT_TENANT_ID } from "../auth/config";
 import type { ServiceContext } from "../services/context";
@@ -42,6 +42,29 @@ describe("Telafi Merkezi politika penceresi (makeupWindowDays) — Paket 5", () 
 
   it("yalnız SCHOOL_ADMIN/SUPER_ADMIN değiştirebilir (RBAC)", async () => {
     const res = await updateMakeupWindowDaysTool(ctx({ role: "TEACHER" }), { makeupWindowDays: 30 });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error.code).toBe("FORBIDDEN");
+  });
+});
+
+describe("Aylık telafi hakkı (monthlyMakeupAllowance)", () => {
+  it("geçerli değeri kaydeder", async () => {
+    const res = await updateMonthlyMakeupAllowanceTool(ctx(), { monthlyMakeupAllowance: 4 });
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.data.monthlyMakeupAllowance).toBe(4);
+    const data = await readData();
+    expect(data.settings.monthlyMakeupAllowance).toBe(4);
+  });
+
+  it("0-31 dışını reddeder", async () => {
+    expect((await updateMonthlyMakeupAllowanceTool(ctx(), { monthlyMakeupAllowance: -1 })).ok).toBe(false);
+    expect((await updateMonthlyMakeupAllowanceTool(ctx(), { monthlyMakeupAllowance: 32 })).ok).toBe(false);
+  });
+
+  it("öğretmen güncelleyemez", async () => {
+    const res = await updateMonthlyMakeupAllowanceTool(ctx({ role: "TEACHER" }), {
+      monthlyMakeupAllowance: 3,
+    });
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.error.code).toBe("FORBIDDEN");
   });

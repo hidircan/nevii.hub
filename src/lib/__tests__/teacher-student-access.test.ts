@@ -53,7 +53,7 @@ describe("getStudentScheduleTool — teacher ownership", () => {
 
   it("unauthorized PARENT başka çocuğa erişemez", async () => {
     const res = await getStudentScheduleTool(
-      ctx({ role: "PARENT", teacherId: undefined, studentId: "s2" }),
+      ctx({ role: "STUDENT", teacherId: undefined, studentId: "s2" }),
       { studentId: "s1" }
     );
     expect(res.ok).toBe(false);

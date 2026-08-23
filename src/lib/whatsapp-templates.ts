@@ -220,6 +220,14 @@ export type LessonCommunicationDraft = {
   teacher: LessonCommunicationMessage;
 };
 
+export type MakeupLessonCommunicationDraft = LessonCommunicationDraft & {
+  kind: "makeup_lesson_scheduled";
+  smsBody: string;
+  smsSendable: boolean;
+  smsBlockReason?: string;
+  whatsappDeliveryNote: string;
+};
+
 function buildLessonMessage(
   audience: LessonCommunicationMessage["audience"],
   toName: string,
@@ -313,6 +321,54 @@ export function buildLessonCommunicationDraft(
       teacher.phone,
       templateTeacherLessonAssigned(school, teacher, student, lesson, branchName)
     ),
+  };
+}
+
+export function templateMakeupLessonScheduledSms(
+  school: string,
+  student: Student,
+  lesson: Lesson
+): string {
+  return `${school}: ${student.name} için telafi dersi ${fmtWhen(lesson.startAt)} (${lesson.instrument}).`;
+}
+
+export function buildMakeupLessonScheduledDraft(
+  school: string,
+  student: Student,
+  teacher: Teacher,
+  lesson: Lesson,
+  branchName: string
+): MakeupLessonCommunicationDraft {
+  const parentBody =
+    `Merhaba ${student.parentName},\n\n` +
+    `${school}\n` +
+    `${student.name} için bir telafi dersi planlandı.\n\n` +
+    `📅 ${fmtWhen(lesson.startAt)}\n` +
+    `🎵 ${lesson.instrument}\n` +
+    `👩‍🏫 ${teacher.name}\n` +
+    `📍 ${branchName} şubesi\n\n` +
+    `Katılamayacaksanız lütfen önceden bildiriniz.`;
+  const teacherBody =
+    `Merhaba ${teacher.name},\n\n` +
+    `${school} — programınıza telafi dersi eklendi.\n\n` +
+    `Öğrenci: ${student.name}\n` +
+    `📅 ${fmtWhen(lesson.startAt)}\n` +
+    `🎵 ${lesson.instrument}\n` +
+    `📍 ${branchName}`;
+  const smsBody = templateMakeupLessonScheduledSms(school, student, lesson);
+  const optOut = Boolean(student.communicationOptOut);
+  const phoneOk = Boolean(student.parentPhone?.replace(/\D/g, ""));
+  let smsBlockReason: string | undefined;
+  if (optOut) smsBlockReason = "İletişim izni kapalı.";
+  else if (!phoneOk) smsBlockReason = "Veli telefonu kayıtlı değil.";
+  return {
+    kind: "makeup_lesson_scheduled",
+    parent: buildLessonMessage("veli", student.parentName, student.parentPhone, parentBody),
+    teacher: buildLessonMessage("öğretmen", teacher.name, teacher.phone, teacherBody),
+    smsBody,
+    smsSendable: !optOut && phoneOk,
+    smsBlockReason,
+    whatsappDeliveryNote: "wa.me bağlantısı teslim kanıtı değildir.",
   };
 }
 

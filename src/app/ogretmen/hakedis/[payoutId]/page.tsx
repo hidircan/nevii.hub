@@ -28,7 +28,6 @@ export default async function TeacherOwnPayoutDetailPage({
   } catch {
     redirect(`/login?next=/ogretmen/hakedis/${payoutId}`);
   }
-  if (session.role === "PARENT") redirect("/veli");
 
   const data = await readData();
   const teacherId = session.teacherId || "t2";

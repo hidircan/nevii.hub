@@ -111,7 +111,7 @@ export async function updateMemoryAfterTurn(args: {
     const kind: MemoryKind =
       ctx.role === "TEACHER"
         ? "teacher_preference"
-        : ctx.role === "PARENT"
+        : ctx.role === "STUDENT"
           ? "parent_preference"
           : "preference";
     written.push(

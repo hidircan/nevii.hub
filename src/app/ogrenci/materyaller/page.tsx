@@ -21,7 +21,6 @@ export default async function StudentMaterialsPage() {
     redirect("/login?next=/ogrenci/materyaller");
   }
   if (session.role === "TEACHER") redirect("/ogretmen");
-  if (session.role === "PARENT") redirect("/veli");
 
   const data = await readData();
   const studentId = session.studentId || "s1";

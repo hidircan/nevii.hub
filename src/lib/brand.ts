@@ -18,7 +18,7 @@ export const BRAND = {
   tagline: "Müzik Okulu Yönetimi",
   description:
     "Maestron, müzik okulları için program, yoklama, telafi ve ödeme yönetimi platformudur.",
-  assistantName: "Maestron Asistan",
+  assistantName: "Maestron AI",
   logoPath: "/brand/maestron-logo.png",
   logoSvgPath: "/brand/maestron-logo.svg",
   logoMarkPath: "/brand/maestron-mark.png",

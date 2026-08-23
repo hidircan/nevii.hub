@@ -81,7 +81,7 @@ describe("updateStudentProfileTool — kayıt kimliği/eğitim profili alanları
     const before = await readData();
     const target = before.students[0];
 
-    const result = await updateStudentProfileTool(ctx({ role: "PARENT", studentId: target.id }), {
+    const result = await updateStudentProfileTool(ctx({ role: "STUDENT", studentId: target.id }), {
       studentId: target.id,
       email: "yetkisiz@example.com",
     });

@@ -117,7 +117,7 @@ describe("createBranchTool / updateBranchTool", () => {
     expect(addRes.ok).toBe(false);
     if (!addRes.ok) expect(addRes.error.code).toBe("FORBIDDEN");
 
-    const updateRes = await updateBranchTool(ctx({ role: "PARENT" }), {
+    const updateRes = await updateBranchTool(ctx({ role: "STUDENT" }), {
       branchId: "erzene",
       phone: "0",
     });

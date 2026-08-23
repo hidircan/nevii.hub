@@ -80,6 +80,8 @@ import type { StudentImportRow } from "./import/students";
 import type { ImportCommitResult } from "./import/commit-result";
 import { uid, isOutstandingPaymentStatus } from "./utils";
 import { addDays, formatISO } from "date-fns";
+import { withKeyLock } from "./keyed-lock";
+import { calendarMonthKey, assertCanCreateMakeup, MakeupQuotaExceededError } from "./makeup-quota";
 
 const g = globalThis as unknown as { __notaplanByTenant?: Record<string, AppData> };
 
@@ -121,6 +123,21 @@ export async function writeData(data: AppData): Promise<void> {
   save(data);
 }
 
+export async function mutateStoreUnderLock(
+  fn: (data: AppData) => Promise<AppData>,
+  onWriteFail?: () => Promise<void>
+): Promise<AppData> {
+  return withKeyLock(`memory-store:${tenantKey()}`, async () => {
+    const next = await fn(load());
+    try {
+      return save(next);
+    } catch (err) {
+      if (onWriteFail) await onWriteFail();
+      throw err;
+    }
+  });
+}
+
 export async function resetData(): Promise<AppData> {
   return save(createSeedData());
 }
@@ -146,65 +163,71 @@ export async function markAttendance(input: {
   status: AttendanceStatus;
   reason?: string;
 }): Promise<AppData> {
-  const data = load();
-  const lesson = data.lessons.find((l) => l.id === input.lessonId);
-  if (!lesson) throw new Error("Ders bulunamadı");
+  // Acquire a keyed in-process lock per tenant:student:month to ensure
+  // counting + mutate happen on a transient copy and are atomically saved.
+    const preData = load();
+    const preLesson = preData.lessons.find((l) => l.id === input.lessonId);
+    if (!preLesson) throw new Error("Ders bulunamadı");
+    const key = `${tenantKey()}:${calendarMonthKey(new Date().toISOString())}:${preLesson.studentId}`;
 
-  const createsMakeupCredit =
-    input.status === "absent" || input.status === "cancelled_by_school";
+    return await withKeyLock(key, async () => {
+      const data = load();
+      const lesson = data.lessons.find((l) => l.id === input.lessonId);
+      if (!lesson) throw new Error("Ders bulunamadı");
+    const createsMakeupCredit =
+      input.status === "absent" || input.status === "cancelled_by_school";
 
-  const attendance: Attendance = {
-    id: uid("att"),
-    lessonId: input.lessonId,
-    studentId: lesson.studentId,
-    status: input.status,
-    reason: input.reason,
-    markedAt: new Date().toISOString(),
-    createsMakeupCredit,
-  };
-
-  const filtered = data.attendances.filter((a) => a.lessonId !== input.lessonId);
-
-  let lessonStatus: typeof lesson.status = lesson.status;
-  // Geldi/geç: katılım kaydı; dersi otomatik "completed" yapma (İşlendi ayrı bayrak).
-  // late hâlâ katılım sayılır. İşlendi → setLessonOpsFlag("processed").
-  if (input.status === "absent") lessonStatus = "no_show";
-  if (input.status === "cancelled_by_school") lessonStatus = "cancelled";
-
-  const lessons = data.lessons.map((l) =>
-    l.id === input.lessonId ? { ...l, status: lessonStatus } : l
-  );
-
-  let makeupRequests = data.makeupRequests.filter((m) => m.sourceLessonId !== input.lessonId);
-
-  if (createsMakeupCredit) {
-    const branch = data.settings.branches.find((b) => b.id === lesson.branchId);
-    const req: MakeupRequest = {
-      id: uid("mk"),
+    const attendance: Attendance = {
+      id: uid("att"),
+      lessonId: input.lessonId,
       studentId: lesson.studentId,
-      teacherId: lesson.teacherId,
-      branchId: lesson.branchId,
-      instrument: lesson.instrument,
-      sourceLessonId: lesson.id,
-      attendanceId: attendance.id,
-      status: "pending",
-      reason: input.reason || (input.status === "cancelled_by_school" ? "Okul iptali" : "Devamsızlık"),
-      expiresAt: formatISO(addDays(new Date(), data.settings.makeupWindowDays)),
-      suggestedSlots: [],
-      createdAt: new Date().toISOString(),
-      policyNote:
-        input.status === "cancelled_by_school"
-          ? `Okul kaynaklı iptal — öncelikli yerleştirme · ${branch?.shortName ?? ""}`
-          : `${data.settings.makeupWindowDays} gün içinde · aynı öğretmen · ${branch?.shortName ?? ""}`,
+      status: input.status,
+      reason: input.reason,
+      markedAt: new Date().toISOString(),
+      createsMakeupCredit,
     };
-    makeupRequests = [...makeupRequests, req];
-  }
 
-  return save({
-    ...data,
-    lessons,
-    attendances: [...filtered, attendance],
-    makeupRequests,
+    const filtered = data.attendances.filter((a) => a.lessonId !== input.lessonId);
+
+    let lessonStatus: typeof lesson.status = lesson.status;
+    if (input.status === "absent") lessonStatus = "no_show";
+    if (input.status === "cancelled_by_school") lessonStatus = "cancelled";
+
+    const lessons = data.lessons.map((l) => (l.id === input.lessonId ? { ...l, status: lessonStatus } : l));
+
+    let makeupRequests = data.makeupRequests.filter((m) => m.sourceLessonId !== input.lessonId);
+
+    if (createsMakeupCredit) {
+      const quota = assertCanCreateMakeup({ ...data, makeupRequests }, lesson.studentId);
+      if (!quota.ok) throw new MakeupQuotaExceededError(quota.message);
+      const branch = data.settings.branches.find((b) => b.id === lesson.branchId);
+      const req: MakeupRequest = {
+        id: uid("mk"),
+        studentId: lesson.studentId,
+        teacherId: lesson.teacherId,
+        branchId: lesson.branchId,
+        instrument: lesson.instrument,
+        sourceLessonId: lesson.id,
+        attendanceId: attendance.id,
+        status: "pending",
+        reason: input.reason || (input.status === "cancelled_by_school" ? "Okul iptali" : "Devamsızlık"),
+        expiresAt: formatISO(addDays(new Date(), data.settings.makeupWindowDays)),
+        suggestedSlots: [],
+        createdAt: new Date().toISOString(),
+        policyNote:
+          input.status === "cancelled_by_school"
+            ? `Okul kaynaklı iptal — öncelikli yerleştirme · ${branch?.shortName ?? ""}`
+            : `${data.settings.makeupWindowDays} gün pencere · ${data.settings.monthlyMakeupAllowance ?? 2}/ay hak · aynı öğretmen · ${branch?.shortName ?? ""}`,
+      };
+      makeupRequests = [...makeupRequests, req];
+    }
+
+    return save({
+      ...data,
+      lessons,
+      attendances: [...filtered, attendance],
+      makeupRequests,
+    });
   });
 }
 
@@ -369,21 +392,9 @@ export type MarkPaymentPaidOptions = {
 
 export async function markPaymentPaid(paymentId: string, opts?: string | MarkPaymentPaidOptions): Promise<AppData> {
   const normalized: MarkPaymentPaidOptions = typeof opts === "string" ? { method: opts } : opts ?? {};
-  const data = load();
-  const payments: Payment[] = data.payments.map((p) => {
-    if (p.id !== paymentId) return p;
-    const student = data.students.find((s) => s.id === p.studentId);
-    return {
-      ...p,
-      status: "paid",
-      paidAmount: normalized.amount ?? p.amount,
-      paidAt: normalized.paidAt ?? new Date().toISOString(),
-      method: normalized.method || p.method || student?.paymentMethod || "transfer",
-      ...(normalized.paymentNote !== undefined ? { paymentNote: normalized.paymentNote } : {}),
-      ...(normalized.receivedByUserId !== undefined ? { receivedByUserId: normalized.receivedByUserId } : {}),
-    };
-  });
-  return save({ ...data, payments });
+  const { collectPayment } = await import("./payments/collect");
+  const { data } = await collectPayment(paymentId, normalized);
+  return data;
 }
 
 export type UpdatePaymentPatch = {
@@ -638,6 +649,11 @@ export async function markTeacherPayoutPaid(
 export async function updateFeeRoundingMode(feeRoundingMode: FeeRoundingMode): Promise<AppData> {
   const data = load();
   return save({ ...data, settings: { ...data.settings, feeRoundingMode } });
+}
+
+export async function updateMonthlyMakeupAllowance(monthlyMakeupAllowance: number): Promise<AppData> {
+  const data = load();
+  return save({ ...data, settings: { ...data.settings, monthlyMakeupAllowance } });
 }
 
 export async function updateMakeupWindowDays(makeupWindowDays: number): Promise<AppData> {
@@ -924,17 +940,31 @@ export function getDashboardStats(data: AppData) {
 
 
 
+async function persistLessonOpsUnderLock(
+  lessonId: string,
+  _flag: LessonOpsFlag,
+  actorUserId: string,
+  apply: typeof applyLessonOpsFlag | typeof switchLessonOpsFlag
+): Promise<ReturnType<typeof applyLessonOpsFlag>> {
+  const pre = load();
+  const preLesson = pre.lessons.find((l) => l.id === lessonId);
+  const key = `${tenantKey()}:ops:${preLesson?.studentId ?? lessonId}`;
+  return withKeyLock(key, async () => {
+    const data = load();
+    const result = apply(data, lessonId, _flag, actorUserId);
+    if (result.ok && !result.alreadySet) {
+      save(result.data);
+    }
+    return result;
+  });
+}
+
 export async function applyLessonOpsFlagLive(
   lessonId: string,
   flag: LessonOpsFlag,
   actorUserId: string
 ): Promise<ReturnType<typeof applyLessonOpsFlag>> {
-  const data = await readData();
-  const result = applyLessonOpsFlag(data, lessonId, flag, actorUserId);
-  if (result.ok && !result.alreadySet) {
-    await writeData(result.data);
-  }
-  return result;
+  return persistLessonOpsUnderLock(lessonId, flag, actorUserId, applyLessonOpsFlag);
 }
 
 export async function switchLessonOpsFlagLive(
@@ -942,10 +972,5 @@ export async function switchLessonOpsFlagLive(
   flag: LessonOpsFlag,
   actorUserId: string
 ): Promise<ReturnType<typeof switchLessonOpsFlag>> {
-  const data = await readData();
-  const result = switchLessonOpsFlag(data, lessonId, flag, actorUserId);
-  if (result.ok && !result.alreadySet) {
-    await writeData(result.data);
-  }
-  return result;
+  return persistLessonOpsUnderLock(lessonId, flag, actorUserId, switchLessonOpsFlag);
 }

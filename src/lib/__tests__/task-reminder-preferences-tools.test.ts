@@ -74,7 +74,7 @@ describe("İş Takip hatırlatma tercihleri — RBAC ve varsayılanlar", () => {
   });
 
   it("PARENT/STUDENT tercih tool'larını çağıramaz", async () => {
-    const parentRes = await getTaskReminderPreferenceTool(ctx({ role: "PARENT", studentId: "s1" }));
+    const parentRes = await getTaskReminderPreferenceTool(ctx({ role: "STUDENT", studentId: "s1" }));
     expect(parentRes.ok).toBe(false);
     if (!parentRes.ok) expect(parentRes.error.code).toBe("FORBIDDEN");
 

@@ -118,7 +118,7 @@ describe("Yoklama kapanışı — Gelmedi / Mazeretli", () => {
 
   it("PARENT/STUDENT Gelmedi/Mazeretli işaretleyemez (RBAC)", async () => {
     const lessonId = await createTestLesson();
-    const res = await setLessonOpsFlagTool(ctx({ role: "PARENT", studentId: "s1" }), { lessonId, flag: "absent" });
+    const res = await setLessonOpsFlagTool(ctx({ role: "STUDENT", studentId: "s1" }), { lessonId, flag: "absent" });
     expect(res.ok).toBe(false);
   });
 

@@ -115,7 +115,7 @@ describe("updateStudentProfileTool — yetkilendirme ve kısmi güncelleme", () 
     const before = await readData();
     const target = before.students[0];
 
-    const result = await updateStudentProfileTool(ctx({ role: "PARENT", studentId: target.id }), {
+    const result = await updateStudentProfileTool(ctx({ role: "STUDENT", studentId: target.id }), {
       studentId: target.id,
       studentType: "Hobi",
     });
@@ -188,7 +188,7 @@ describe("updateStudentProfileTool — iletişim/kişisel alanlar (bu sprint)", 
     });
     expect(teacherRes.ok).toBe(false);
 
-    const parentRes = await updateStudentProfileTool(ctx({ role: "PARENT", studentId: target.id }), {
+    const parentRes = await updateStudentProfileTool(ctx({ role: "STUDENT", studentId: target.id }), {
       studentId: target.id,
       phone: "0555 000 0000",
     });

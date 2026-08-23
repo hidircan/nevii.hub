@@ -13,6 +13,13 @@ export type AnnouncementRecipient = {
   userId: string;
   teacherId?: string;
   studentId?: string;
+  /**
+   * Karma Öğrenci Portalı — veli/öğrenci ayrımı artık rol değil,
+   * StudentPortalAccess.accessType. "parents"/"students" audienceType
+   * eşleştirmesi BUNA göre yapılır (role tek başına yeterli değil, çünkü
+   * ikisi de artık "STUDENT").
+   */
+  accessType?: "GUARDIAN" | "SELF";
 };
 
 export type AudienceContext = {
@@ -31,18 +38,22 @@ export function matchesAudience(
     case "teachers":
       return recipient.role === "TEACHER";
     case "parents":
-      return recipient.role === "PARENT";
+      // Karma Öğrenci Portalı — "veli" artık bir rol değil, StudentPortalAccess
+      // accessType=GUARDIAN. role tek başına ARTIK YETERSİZ (hem veli hem
+      // öğrenci "STUDENT").
+      return recipient.role === "STUDENT" && recipient.accessType === "GUARDIAN";
     case "students":
-      // EPIC 6A — artık ayrı bir STUDENT rolü var; bu hedef yalnızca ona ulaşır
-      // (veli "parents" hedefiyle ayrıca kapsanır).
-      return recipient.role === "STUDENT";
+      // accessType=SELF → öğrencinin kendisi. accessType hiç çözülemediyse
+      // (ör. eski/legacy bir çağıran) fail-open yerine role'e düşer — en
+      // azından TEACHER/admin'e sızdırmaz.
+      return recipient.role === "STUDENT" && recipient.accessType !== "GUARDIAN";
     case "branch": {
       const ref = announcement.audienceRef as { branchId?: string } | undefined;
       if (!ref?.branchId) return false;
       if (recipient.role === "TEACHER") {
         return context.teachers.find((t) => t.id === recipient.teacherId)?.branchId === ref.branchId;
       }
-      if (recipient.role === "PARENT" || recipient.role === "STUDENT") {
+      if (recipient.role === "STUDENT") {
         return context.students.find((s) => s.id === recipient.studentId)?.branchId === ref.branchId;
       }
       return false;
@@ -50,7 +61,7 @@ export function matchesAudience(
     case "studentType": {
       const ref = announcement.audienceRef as { studentType?: string } | undefined;
       if (!ref?.studentType) return false;
-      if (recipient.role !== "PARENT" && recipient.role !== "STUDENT") return false;
+      if (recipient.role !== "STUDENT") return false;
       return (
         context.students.find((s) => s.id === recipient.studentId)?.studentType === ref.studentType
       );

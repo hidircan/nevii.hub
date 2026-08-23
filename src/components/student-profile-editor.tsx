@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button, Input, Label, Select } from "@/components/ui";
-import { actionSetNationalId, actionUpdateStudentProfile } from "@/lib/actions";
+import { actionProvisionStudentPortalAccess, actionSetNationalId, actionUpdateStudentProfile } from "@/lib/actions";
 import { EDUCATION_METHODS } from "@/lib/types";
 
 export type StudentProfileEditorBranch = { id: string; name: string };
@@ -81,6 +81,7 @@ export function StudentProfileEditor({
   initial,
   hasNationalId = false,
   onSaved,
+  showPortalInvite = true,
 }: {
   studentId: string;
   branches: StudentProfileEditorBranch[];
@@ -99,10 +100,13 @@ export function StudentProfileEditor({
     birthPlace?: string;
     schoolOrOccupation?: string;
     communicationOptOut?: boolean;
+    accountResponsibility?: "PARENT_MANAGED" | "SELF_MANAGED";
   };
   hasNationalId?: boolean;
   /** Called after a successful save (e.g. to collapse the section back to read-only). */
   onSaved?: () => void;
+  /** Bu bileşen aynı sayfada birden fazla yerde render edilebiliyor — davet widget'ı yalnızca birinde gösterilsin. */
+  showPortalInvite?: boolean;
 }) {
   const router = useRouter();
   const [name, setName] = useState(initial.name);
@@ -119,6 +123,9 @@ export function StudentProfileEditor({
   const [birthPlace, setBirthPlace] = useState(initial.birthPlace ?? "");
   const [schoolOrOccupation, setSchoolOrOccupation] = useState(initial.schoolOrOccupation ?? "");
   const [communicationOptOut, setCommunicationOptOut] = useState(!!initial.communicationOptOut);
+  const [accountResponsibility, setAccountResponsibility] = useState(
+    initial.accountResponsibility ?? "PARENT_MANAGED"
+  );
   const [nationalId, setNationalId] = useState("");
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -165,6 +172,7 @@ export function StudentProfileEditor({
         birthPlace: birthPlace || undefined,
         schoolOrOccupation: schoolOrOccupation || undefined,
         communicationOptOut,
+        accountResponsibility,
       });
 
       if (!result.ok) {
@@ -314,6 +322,17 @@ export function StudentProfileEditor({
         </p>
       </div>
 
+      <div>
+        <Label>Ödeme/iletişim muhatabı</Label>
+        <Select
+          value={accountResponsibility}
+          onChange={(e) => setAccountResponsibility(e.target.value as "PARENT_MANAGED" | "SELF_MANAGED")}
+        >
+          <option value="PARENT_MANAGED">Veli</option>
+          <option value="SELF_MANAGED">Öğrencinin kendisi</option>
+        </Select>
+      </div>
+
       <label className="flex items-center gap-2 text-sm text-[var(--color-text)]">
         <input type="checkbox" checked={communicationOptOut} onChange={(e) => setCommunicationOptOut(e.target.checked)} />
         Tahsilat / hatırlatma mesajlarından çıkar
@@ -327,6 +346,77 @@ export function StudentProfileEditor({
           {pending ? "Kaydediliyor..." : "Bilgileri Kaydet"}
         </Button>
       </div>
+
+      {showPortalInvite ? <StudentPortalInvite studentId={studentId} defaultEmail={email} /> : null}
+    </div>
+  );
+}
+
+/**
+ * Karma Öğrenci Portalı — "Portal erişimi oluştur / davet gönder"; kayıt
+ * oluşturma anındaki checkbox'tan bağımsız, sonradan tetiklenebilen İKİNCİ
+ * bilinçli admin aksiyonu (task #34). Ayrı bir "daveti kabul et" ekranı
+ * BİLİNÇLİ OLARAK yok — geçici şifre burada TEK SEFERLİK gösterilir,
+ * admin'in elden/WhatsApp ile iletmesi beklenir.
+ */
+function StudentPortalInvite({ studentId, defaultEmail }: { studentId: string; defaultEmail: string }) {
+  const [email, setEmail] = useState(defaultEmail);
+  const [accessType, setAccessType] = useState<"SELF" | "GUARDIAN">("SELF");
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const [tempPassword, setTempPassword] = useState<string | null>(null);
+
+  function onInvite() {
+    setError(null);
+    setTempPassword(null);
+    if (!email.trim()) {
+      setError("Davet göndermek için bir e-posta adresi girin.");
+      return;
+    }
+    startTransition(async () => {
+      const result = await actionProvisionStudentPortalAccess({ studentId, email: email.trim(), accessType });
+      if (!result.ok) {
+        setError(result.message);
+        return;
+      }
+      setTempPassword(result.tempLoginPassword ?? null);
+    });
+  }
+
+  return (
+    <div className="space-y-2 rounded-lg border border-dashed border-[var(--color-border)] p-3">
+      <p className="text-sm font-medium text-[var(--color-text)]">Öğrenci Portalı erişimi</p>
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <Label>E-posta</Label>
+          <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="ad@email.com" />
+        </div>
+        <div>
+          <Label>Erişim türü</Label>
+          <Select value={accessType} onChange={(e) => setAccessType(e.target.value as "SELF" | "GUARDIAN")}>
+            <option value="SELF">Öğrencinin kendisi</option>
+            <option value="GUARDIAN">Veli</option>
+          </Select>
+        </div>
+      </div>
+      {error ? <p className="text-xs text-red-600">{error}</p> : null}
+      {tempPassword ? (
+        <div className="space-y-1 rounded border border-emerald-200 bg-emerald-50 p-2">
+          <p className="text-xs text-emerald-800">
+            Erişim oluşturuldu. Geçici şifre (yalnızca ŞİMDİ görünür, bir daha gösterilmez):{" "}
+            <strong>{tempPassword}</strong>
+          </p>
+          <p className="text-[11px] text-emerald-700">
+            Şifreyi kopyalayıp ilgili kişiye elden/WhatsApp ile iletin, ardından kapatın.
+          </p>
+          <Button variant="ghost" onClick={() => setTempPassword(null)}>
+            Kapat
+          </Button>
+        </div>
+      ) : null}
+      <Button onClick={onInvite} disabled={pending} variant="secondary">
+        {pending ? "Gönderiliyor..." : "Portal erişimi oluştur / davet gönder"}
+      </Button>
     </div>
   );
 }

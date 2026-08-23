@@ -21,6 +21,8 @@ import { clearAnnouncements, ANNOUNCEMENTS_FILE, ANNOUNCEMENT_READS_FILE } from 
 import { LESSON_ASSESSMENTS_FILE, clearAssessments } from "../assessment";
 import { DEFAULT_TENANT_ID } from "../auth/config";
 import type { ServiceContext } from "../services/context";
+import { STUDENT_PORTAL_ACCESS_FILE } from "../student-portal-access";
+import { grantStudentAccess } from "./portal-access-test-helper";
 
 function studentCtx(overrides?: Partial<ServiceContext>): ServiceContext {
   return {
@@ -47,6 +49,7 @@ beforeEach(async () => {
   await fs.rm(NOTIFICATIONS_FILE, { force: true });
   await fs.rm(ANNOUNCEMENTS_FILE, { force: true });
   await fs.rm(ANNOUNCEMENT_READS_FILE, { force: true });
+  await fs.rm(STUDENT_PORTAL_ACCESS_FILE, { force: true });
   await clearAssessments(DEFAULT_TENANT_ID);
   await clearNotifications(DEFAULT_TENANT_ID);
   await clearAnnouncements(DEFAULT_TENANT_ID);
@@ -60,7 +63,10 @@ describe("EPIC 6A — RBAC: STUDENT yalnızca kendi verisini okur, hiçbir şey 
     expect(hasPermission("STUDENT", "assessments:read")).toBe(true);
 
     expect(hasPermission("STUDENT", "students:write")).toBe(false);
-    expect(hasPermission("STUDENT", "communication:write")).toBe(false);
+    // Karma Öğrenci Portalı — eski PARENT rolünün communication:write izni
+    // STUDENT'a birleştirildi (veli/öğrenci ayrımı artık rol değil,
+    // StudentPortalAccess.accessType). Bkz. src/lib/auth/rbac.ts STUDENT yorumu.
+    expect(hasPermission("STUDENT", "communication:write")).toBe(true);
     expect(hasPermission("STUDENT", "announcements:write")).toBe(false);
     expect(hasPermission("STUDENT", "assessments:write")).toBe(false);
     expect(hasPermission("STUDENT", "payments:write")).toBe(false);
@@ -72,9 +78,10 @@ describe("EPIC 6A — RBAC: STUDENT yalnızca kendi verisini okur, hiçbir şey 
     expect(isStaff(studentCtx())).toBe(false);
   });
 
-  it("canAccessStudent: yalnızca kendi studentId'si eşleşirse true, başka öğrenci için false", () => {
-    expect(canAccessStudent(studentCtx(), "s1")).toBe(true);
-    expect(canAccessStudent(studentCtx(), "s2")).toBe(false);
+  it("canAccessStudent: yalnızca aktif StudentPortalAccess'i olan öğrenciye true, başka öğrenci için false", async () => {
+    await grantStudentAccess(studentCtx(), "s1", "SELF");
+    expect(await canAccessStudent(studentCtx(), "s1")).toBe(true);
+    expect(await canAccessStudent(studentCtx(), "s2")).toBe(false);
   });
 
   it("canAccessTeacher: STUDENT hiçbir öğretmene 'sahip' değildir (false)", () => {
@@ -82,6 +89,7 @@ describe("EPIC 6A — RBAC: STUDENT yalnızca kendi verisini okur, hiçbir şey 
   });
 
   it("getStudentScheduleTool: STUDENT kendi programını görebilir", async () => {
+    await grantStudentAccess(studentCtx(), "s1", "SELF");
     const result = await getStudentScheduleTool(studentCtx(), { studentId: "s1" });
     expect(result.ok).toBe(true);
   });
@@ -157,6 +165,7 @@ describe("EPIC 6A — RBAC: STUDENT yalnızca kendi verisini okur, hiçbir şey 
     });
     expect(created.ok).toBe(true);
 
+    await grantStudentAccess(studentCtx(), "s1", "SELF");
     const result = await listAssessmentsForStudentTool(studentCtx(), { studentId: "s1" });
     expect(result.ok).toBe(true);
     if (!result.ok) return;

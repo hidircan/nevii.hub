@@ -25,7 +25,6 @@ export default async function OgretmenPortalPage() {
   } catch {
     redirect("/login?next=/ogretmen");
   }
-  if (session.role === "PARENT") redirect("/veli");
 
   const data = await readData();
   const teacherId = session.teacherId || "t2";

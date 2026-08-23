@@ -77,7 +77,7 @@ describe("globalSearchTool — rol bazlı kapsam", () => {
   });
 
   it("PARENT bu araç için yetkisiz sayılır (FORBIDDEN)", async () => {
-    const res = await globalSearchTool(ctx({ role: "PARENT", studentId: "s1" }), { query: "Zeynep" });
+    const res = await globalSearchTool(ctx({ role: "STUDENT", studentId: "s1" }), { query: "Zeynep" });
     expect(res.ok).toBe(false);
   });
 

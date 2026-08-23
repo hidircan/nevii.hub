@@ -150,6 +150,10 @@ describe("Yoklama Takvimi'nden tahsilat — GEÇMİŞ lesson_ops kaydı üzerind
     const day = after.data.days.find((d) => d.date === lesson.startAt.slice(0, 10))!;
     expect(day.payments[0]!.status).toBe("paid");
     expect(day.payments[0]!.paidAmount).toBe(day.payments[0]!.amount);
+    // Ödeme merkezi/takvim senkronu — GERÇEK tahsilat anı (paidAt) takvim
+    // kutusuna kadar taşınıyor mu (Payment.paidAt'tan AYRI, "tutar kayıt
+    // tarihi"nden farklı bir alan).
+    expect(day.payments[0]!.paidAt).toBeTruthy();
   });
 
   it("aynı paymentId ile ikinci kez tahsil çağrısı çift tahsilata yol açmaz (idempotent — tutar iki katına çıkmaz)", async () => {
@@ -192,7 +196,7 @@ describe("Yoklama Takvimi'nden tahsilat — GEÇMİŞ lesson_ops kaydı üzerind
     expect(teacherRes.ok).toBe(false);
     if (!teacherRes.ok) expect(teacherRes.error.code).toBe("FORBIDDEN");
 
-    const parentRes = await createPaymentTool(ctx({ role: "PARENT", studentId: "s1" }), { paymentId: payment.id });
+    const parentRes = await createPaymentTool(ctx({ role: "STUDENT", studentId: "s1" }), { paymentId: payment.id });
     expect(parentRes.ok).toBe(false);
   });
 });

@@ -6,6 +6,7 @@ import {
   FileText,
   GraduationCap,
   ScrollText,
+  Star,
   User,
   Users,
   Wallet,
@@ -20,8 +21,9 @@ import { FeeRuleManager } from "@/components/fee-rule-manager";
 import { NationalIdReveal } from "@/components/national-id-reveal";
 import { maskNationalId } from "@/lib/pii/tc-identity";
 import { canViewFullNationalId } from "@/lib/pii";
-import { formatDate, formatMoney } from "@/lib/utils";
+import { formatDate, formatMoney, formatTime } from "@/lib/utils";
 import { computeAge } from "@/lib/utils";
+import { computeLessonDurationRow } from "@/lib/lesson-duration-report";
 import { computeTeacherEarningsForPeriod } from "@/lib/teacher-payout";
 import { TeacherInstrumentsEditor } from "@/components/teacher-instruments-editor";
 import { TeacherProfileEditor } from "@/components/teacher-profile-editor";
@@ -109,6 +111,16 @@ export default async function TeacherDetailPage({
   const now = new Date();
   const upcomingLessons = lessons.filter((l) => new Date(l.startAt) >= now).length;
   const weekLessonCount = lessons.filter((l) => l.status !== "cancelled").length;
+  // Yönetici, öğretmenin dersi ne zaman fiilen başlatıp bitirdiğini görebilsin —
+  // aynı süre-hesabı /panel/ders-duzeltme ile (computeLessonDurationRow), burada
+  // yalnızca bu öğretmenin son kayıtlarına daraltılmış salt-okunur özet.
+  const recentTimingRows = lessons
+    .filter((l) => l.status === "completed" || l.status === "in_progress" || l.actualStartAt)
+    .slice(0, 10)
+    .map((l) => {
+      const student = data.students.find((s) => s.id === l.studentId);
+      return { ...computeLessonDurationRow(l), studentName: student?.name ?? "—" };
+    });
 
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
   const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
@@ -165,28 +177,6 @@ export default async function TeacherDetailPage({
         <p className="mt-1.5 text-sm text-[var(--color-text-muted)]">
           {branch?.shortName ?? "—"} · {teacher.instruments.join(", ")}
         </p>
-        <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
-          <Link
-            href={`/panel/ogretmenler/${teacher.id}/geri-bildirim`}
-            className="text-sm font-medium text-[var(--color-primary)] hover:text-[var(--color-primary-hover)]"
-          >
-            Geri Bildirim İncelemesi →
-          </Link>
-          {session.role === "SCHOOL_ADMIN" || session.role === "SUPER_ADMIN" ? (
-            <QuickTaskLink
-              relatedEntityType="teacher"
-              relatedEntityId={teacher.id}
-              relatedEntityLabel={teacher.name}
-              title={`Öğretmen takibi — ${teacher.name}`}
-              label="Bu öğretmen için görev oluştur"
-              returnTo={`/panel/ogretmenler/${teacher.id}`}
-              className="text-sm font-medium text-[var(--color-primary)] hover:text-[var(--color-primary-hover)]"
-            />
-          ) : null}
-          {session.role === "SCHOOL_ADMIN" || session.role === "SUPER_ADMIN" ? (
-            <TeacherArchiveAction teacherId={teacher.id} teacherName={teacher.name} archived={!teacher.active} />
-          ) : null}
-        </div>
       </div>
 
       <Card className="mb-6 !p-4">
@@ -206,17 +196,43 @@ export default async function TeacherDetailPage({
         </div>
       </Card>
 
-      <nav aria-label="Bölümler" className="mb-6 flex flex-wrap gap-2">
-        {SECTIONS.map((s) => (
-          <a
-            key={s.href}
-            href={s.href}
+      <nav aria-label="Bölümler" className="mb-6 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap gap-2">
+          {SECTIONS.map((s) => (
+            <a
+              key={s.href}
+              href={s.href}
+              className="inline-flex items-center gap-1.5 rounded-[var(--radius-md)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2.5 py-1.5 text-xs font-medium text-[var(--color-text)] hover:border-[var(--color-primary)]"
+            >
+              <s.icon className="h-3.5 w-3.5" aria-hidden />
+              {s.label}
+            </a>
+          ))}
+          <Link
+            href={`/panel/ogretmenler/${teacher.id}/geri-bildirim`}
             className="inline-flex items-center gap-1.5 rounded-[var(--radius-md)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2.5 py-1.5 text-xs font-medium text-[var(--color-text)] hover:border-[var(--color-primary)]"
           >
-            <s.icon className="h-3.5 w-3.5" aria-hidden />
-            {s.label}
-          </a>
-        ))}
+            <Star className="h-3.5 w-3.5" aria-hidden />
+            Geri Bildirim İncelemesi
+          </Link>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          {session.role === "SCHOOL_ADMIN" || session.role === "SUPER_ADMIN" ? (
+            <QuickTaskLink
+              relatedEntityType="teacher"
+              relatedEntityId={teacher.id}
+              relatedEntityLabel={teacher.name}
+              title={`Öğretmen takibi — ${teacher.name}`}
+              label="Bu öğretmen için görev oluştur"
+              returnTo={`/panel/ogretmenler/${teacher.id}`}
+              className="text-xs font-medium text-[var(--color-primary)] hover:text-[var(--color-primary-hover)]"
+            />
+          ) : null}
+          {session.role === "SCHOOL_ADMIN" || session.role === "SUPER_ADMIN" ? (
+            <TeacherArchiveAction teacherId={teacher.id} teacherName={teacher.name} archived={!teacher.active} />
+          ) : null}
+        </div>
       </nav>
 
       <section id="genel" className="mb-8 scroll-mt-4">
@@ -387,6 +403,44 @@ export default async function TeacherDetailPage({
         <Link href="/panel/program" className="mt-3 inline-block text-sm font-medium text-[var(--color-primary)] hover:text-[var(--color-primary-hover)]">
           Programda Aç →
         </Link>
+
+        <div className="mt-6">
+          <h3 className="mb-2 flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
+            Fiili başlangıç / bitiş kayıtları
+            <Link href="/panel/ders-duzeltme" className="text-xs font-medium text-[var(--color-primary)] hover:text-[var(--color-primary-hover)]">
+              Tüm kayıtlar →
+            </Link>
+          </h3>
+          {recentTimingRows.length === 0 ? (
+            <p className="text-sm text-[var(--color-text-muted)]">Henüz başlatılmış/tamamlanmış ders kaydı yok.</p>
+          ) : (
+            <div className="space-y-1.5">
+              {recentTimingRows.map((r) => (
+                <Card key={r.lessonId} className="!p-2.5 text-sm">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-[var(--color-text)]">
+                      {formatDate(r.plannedStartAt)} · {r.studentName}
+                    </span>
+                    <span className="text-xs text-[var(--color-text-muted)]">
+                      Planlanan {formatTime(r.plannedStartAt)}–{formatTime(r.plannedEndAt)}
+                      {" · "}
+                      Fiili{" "}
+                      {r.actualStartAt ? formatTime(r.actualStartAt) : "—"}–
+                      {r.actualEndAt ? formatTime(r.actualEndAt) : "—"}
+                      {r.diffMinutes !== undefined ? (
+                        <span className={r.diffMinutes < 0 ? "text-rose-600" : r.diffMinutes > 0 ? "text-amber-600" : ""}>
+                          {" "}
+                          ({r.diffMinutes > 0 ? "+" : ""}
+                          {r.diffMinutes} dk)
+                        </span>
+                      ) : null}
+                    </span>
+                  </div>
+                </Card>
+              ))}
+            </div>
+          )}
+        </div>
       </section>
 
       <section id="ogrenciler" className="mb-8 scroll-mt-4">

@@ -91,19 +91,19 @@ const DEMO_PERSONAS: DemoPersona[] = [
     password: "demo-student-csv-5",
   },
   {
-    label: "Veli — Zeynep'in velisi",
+    label: "Öğrenci Portalı — Zeynep'in velisi",
     hint: "Ödemesi güncel, açık aksiyon yok",
     email: "selin@email.com",
     password: "demo-parent",
   },
   {
-    label: "Veli — Lara'nın velisi",
+    label: "Öğrenci Portalı — Lara'nın velisi",
     hint: "Gecikmiş ödeme + açık telafi",
     email: "deniz@email.com",
     password: "demo-parent",
   },
   {
-    label: "Veli — Ali'nin velisi",
+    label: "Öğrenci Portalı — Ali'nin velisi",
     hint: "Kısmi ödeme + telafi",
     email: "mehmet@email.com",
     password: "demo-parent",
@@ -142,7 +142,6 @@ export function LoginForm({ nextPath }: { nextPath?: string }) {
       let dest = nextPath || "/panel";
       if (!nextPath) {
         if (role === "TEACHER") dest = "/ogretmen";
-        else if (role === "PARENT") dest = "/veli";
         else if (role === "STUDENT") dest = "/ogrenci";
         else dest = "/panel";
       }

@@ -106,7 +106,7 @@ describe("POST /api/ai/insights — read-only, no-approval capabilities", () => 
   });
 
   it("attendanceRiskAssessment: PARENT rolü çalıştıramaz — 403", async () => {
-    mockUser.value = { userId: "user_parent", role: "PARENT", tenantId: TENANT };
+    mockUser.value = { userId: "user_parent", role: "STUDENT", tenantId: TENANT };
     const res = await POST(
       jsonRequest("http://localhost/api/ai/insights", {
         capabilityId: "attendanceRiskAssessment",

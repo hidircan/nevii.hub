@@ -14,7 +14,7 @@ const DATA_FILE = path.join(resolveDataDir(path.join(process.cwd(), "data")), "s
 
 function ctx(overrides?: Partial<ServiceContext>): ServiceContext {
   return {
-    role: "PARENT",
+    role: "STUDENT",
     userId: "u1",
     tenantId: DEFAULT_TENANT_ID,
     studentId: "s1",
@@ -38,7 +38,7 @@ beforeEach(async () => {
 
 describe("EPIC 6C — submitTeacherFeedbackTool: yalnızca kendi çocuğu/kendisi için", () => {
   it("PARENT kendi çocuğu için geri bildirim gönderebilir", async () => {
-    const result = await submitTeacherFeedbackTool(ctx({ role: "PARENT", studentId: "s1" }), VALID_FEEDBACK);
+    const result = await submitTeacherFeedbackTool(ctx({ role: "STUDENT", studentId: "s1" }), VALID_FEEDBACK);
     expect(result.ok).toBe(true);
   });
 
@@ -48,7 +48,7 @@ describe("EPIC 6C — submitTeacherFeedbackTool: yalnızca kendi çocuğu/kendis
   });
 
   it("PARENT başka bir çocuk için geri bildirim gönderemez (FORBIDDEN)", async () => {
-    const result = await submitTeacherFeedbackTool(ctx({ role: "PARENT", studentId: "s2" }), VALID_FEEDBACK);
+    const result = await submitTeacherFeedbackTool(ctx({ role: "STUDENT", studentId: "s2" }), VALID_FEEDBACK);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe("FORBIDDEN");
   });
@@ -68,7 +68,7 @@ describe("EPIC 6C — submitTeacherFeedbackTool: yalnızca kendi çocuğu/kendis
   });
 
   it("puan aralığı dışı (0 veya 6) VALIDATION_ERROR döner", async () => {
-    const result = await submitTeacherFeedbackTool(ctx({ role: "PARENT", studentId: "s1" }), {
+    const result = await submitTeacherFeedbackTool(ctx({ role: "STUDENT", studentId: "s1" }), {
       ...VALID_FEEDBACK,
       scores: { ...VALID_FEEDBACK.scores, clarity: 6 },
     });
@@ -79,7 +79,7 @@ describe("EPIC 6C — submitTeacherFeedbackTool: yalnızca kendi çocuğu/kendis
   it("beş kriterden biri eksikse VALIDATION_ERROR döner", async () => {
     const { punctuality: _omit, ...incompleteScores } = VALID_FEEDBACK.scores;
     void _omit;
-    const result = await submitTeacherFeedbackTool(ctx({ role: "PARENT", studentId: "s1" }), {
+    const result = await submitTeacherFeedbackTool(ctx({ role: "STUDENT", studentId: "s1" }), {
       studentId: "s1",
       scores: incompleteScores,
     });
@@ -90,12 +90,12 @@ describe("EPIC 6C — submitTeacherFeedbackTool: yalnızca kendi çocuğu/kendis
 
 describe("EPIC 6C — aynı ay tekrar kuralı: ikinci gönderim yeni kayıt değil, güncelleme", () => {
   it("aynı ay içinde aynı öğrenci+öğretmen için ikinci gönderim mevcut kaydı günceller", async () => {
-    const first = await submitTeacherFeedbackTool(ctx({ role: "PARENT", studentId: "s1" }), VALID_FEEDBACK);
+    const first = await submitTeacherFeedbackTool(ctx({ role: "STUDENT", studentId: "s1" }), VALID_FEEDBACK);
     expect(first.ok).toBe(true);
     if (!first.ok) return;
     expect(first.data.updated).toBe(false);
 
-    const second = await submitTeacherFeedbackTool(ctx({ role: "PARENT", studentId: "s1" }), {
+    const second = await submitTeacherFeedbackTool(ctx({ role: "STUDENT", studentId: "s1" }), {
       ...VALID_FEEDBACK,
       scores: { ...VALID_FEEDBACK.scores, clarity: 2 },
       comment: "Güncellenmiş yorum",
@@ -121,20 +121,20 @@ describe("EPIC 6C — gizlilik: yalnızca SCHOOL_ADMIN/SUPER_ADMIN görebilir, �
   });
 
   it("listTeacherFeedbackTool TEACHER için FORBIDDEN döner", async () => {
-    await submitTeacherFeedbackTool(ctx({ role: "PARENT", studentId: "s1" }), VALID_FEEDBACK);
+    await submitTeacherFeedbackTool(ctx({ role: "STUDENT", studentId: "s1" }), VALID_FEEDBACK);
     const result = await listTeacherFeedbackTool(ctx({ role: "TEACHER", teacherId: "t1", studentId: undefined }), {});
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe("FORBIDDEN");
   });
 
   it("listTeacherFeedbackTool PARENT/STUDENT için de FORBIDDEN döner", async () => {
-    await submitTeacherFeedbackTool(ctx({ role: "PARENT", studentId: "s1" }), VALID_FEEDBACK);
-    const asParent = await listTeacherFeedbackTool(ctx({ role: "PARENT", studentId: "s1" }), {});
+    await submitTeacherFeedbackTool(ctx({ role: "STUDENT", studentId: "s1" }), VALID_FEEDBACK);
+    const asParent = await listTeacherFeedbackTool(ctx({ role: "STUDENT", studentId: "s1" }), {});
     expect(asParent.ok).toBe(false);
   });
 
   it("SCHOOL_ADMIN gönderilen geri bildirimi görebilir", async () => {
-    await submitTeacherFeedbackTool(ctx({ role: "PARENT", studentId: "s1" }), VALID_FEEDBACK);
+    await submitTeacherFeedbackTool(ctx({ role: "STUDENT", studentId: "s1" }), VALID_FEEDBACK);
     const result = await listTeacherFeedbackTool(ctx({ role: "SCHOOL_ADMIN", studentId: undefined }), {});
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -144,8 +144,8 @@ describe("EPIC 6C — gizlilik: yalnızca SCHOOL_ADMIN/SUPER_ADMIN görebilir, �
   });
 
   it("teacherId filtresiyle yalnızca o öğretmenin geri bildirimleri döner", async () => {
-    await submitTeacherFeedbackTool(ctx({ role: "PARENT", studentId: "s1" }), VALID_FEEDBACK); // t1
-    await submitTeacherFeedbackTool(ctx({ role: "PARENT", studentId: "s2" }), {
+    await submitTeacherFeedbackTool(ctx({ role: "STUDENT", studentId: "s1" }), VALID_FEEDBACK); // t1
+    await submitTeacherFeedbackTool(ctx({ role: "STUDENT", studentId: "s2" }), {
       ...VALID_FEEDBACK,
       studentId: "s2",
     }); // t2
@@ -162,7 +162,7 @@ describe("EPIC 6C — gizlilik: yalnızca SCHOOL_ADMIN/SUPER_ADMIN görebilir, �
 
 describe("yönetici bildirimi (teacher_feedback_submitted)", () => {
   it("değerlendirme gönderilince yöneticilere bildirim oluşur, geri-bildirim ekranına yönlendirir, yorumu taşımaz", async () => {
-    await submitTeacherFeedbackTool(ctx({ role: "PARENT", studentId: "s1" }), VALID_FEEDBACK);
+    await submitTeacherFeedbackTool(ctx({ role: "STUDENT", studentId: "s1" }), VALID_FEEDBACK);
     const notes = await listNotificationsForUser({ tenantId: DEFAULT_TENANT_ID, userId: "user_admin" });
     const note = notes.find((n) => n.kind === "teacher_feedback_submitted");
     expect(note).toBeDefined();
@@ -175,14 +175,14 @@ describe("yönetici bildirimi (teacher_feedback_submitted)", () => {
     await setNotificationPreferences(DEFAULT_TENANT_ID, "user_admin", [
       { category: "teacher_feedback_submitted", inAppEnabled: false },
     ]);
-    await submitTeacherFeedbackTool(ctx({ role: "PARENT", studentId: "s1" }), VALID_FEEDBACK);
+    await submitTeacherFeedbackTool(ctx({ role: "STUDENT", studentId: "s1" }), VALID_FEEDBACK);
     const notes = await listNotificationsForUser({ tenantId: DEFAULT_TENANT_ID, userId: "user_admin" });
     expect(notes.some((n) => n.kind === "teacher_feedback_submitted")).toBe(false);
   });
 
   it("aynı ay içindeki tekrar gönderim (update) duplicate bildirim üretmez", async () => {
-    await submitTeacherFeedbackTool(ctx({ role: "PARENT", studentId: "s1" }), VALID_FEEDBACK);
-    await submitTeacherFeedbackTool(ctx({ role: "PARENT", studentId: "s1" }), {
+    await submitTeacherFeedbackTool(ctx({ role: "STUDENT", studentId: "s1" }), VALID_FEEDBACK);
+    await submitTeacherFeedbackTool(ctx({ role: "STUDENT", studentId: "s1" }), {
       ...VALID_FEEDBACK,
       comment: "İkinci deneme",
     });
@@ -193,7 +193,7 @@ describe("yönetici bildirimi (teacher_feedback_submitted)", () => {
 
 describe("öğretmen bildirimi (teacher_feedback_shared)", () => {
   it("yönetici bir yorumu paylaşınca öğretmene bildirim gider", async () => {
-    const submitted = await submitTeacherFeedbackTool(ctx({ role: "PARENT", studentId: "s1" }), VALID_FEEDBACK);
+    const submitted = await submitTeacherFeedbackTool(ctx({ role: "STUDENT", studentId: "s1" }), VALID_FEEDBACK);
     expect(submitted.ok).toBe(true);
     if (!submitted.ok) return;
 
@@ -210,7 +210,7 @@ describe("öğretmen bildirimi (teacher_feedback_shared)", () => {
   });
 
   it("paylaşımı geri almak (shared:false) bildirim üretmez", async () => {
-    const submitted = await submitTeacherFeedbackTool(ctx({ role: "PARENT", studentId: "s1" }), VALID_FEEDBACK);
+    const submitted = await submitTeacherFeedbackTool(ctx({ role: "STUDENT", studentId: "s1" }), VALID_FEEDBACK);
     if (!submitted.ok) return;
     await setTeacherFeedbackSharedTool(ctx({ role: "SCHOOL_ADMIN", studentId: undefined }), {
       feedbackId: submitted.data.feedbackId,

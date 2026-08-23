@@ -7,6 +7,7 @@ import {
   markAnnouncementReadTool,
   listAnnouncementReadersTool,
   updateAnnouncementStatusTool,
+  getAnnouncementAttachmentFileTool,
 } from "../services/tools";
 import { readData } from "../store";
 import {
@@ -84,7 +85,7 @@ describe("EPIC 5 — listAnnouncementsForUserTool (portal görünümü, hedef ki
     const data = await readData();
     const student = data.students[0];
     const result = await listAnnouncementsForUserTool(
-      ctx({ role: "PARENT", userId: "parent1", studentId: student.id })
+      ctx({ role: "STUDENT", userId: "parent1", studentId: student.id })
     );
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -104,7 +105,7 @@ describe("EPIC 5 — listAnnouncementsForUserTool (portal görünümü, hedef ki
     const teacher = data.teachers[0];
 
     const parentView = await listAnnouncementsForUserTool(
-      ctx({ role: "PARENT", userId: "parent1", studentId: student.id })
+      ctx({ role: "STUDENT", userId: "parent1", studentId: student.id })
     );
     expect(parentView.ok).toBe(true);
     if (parentView.ok) expect(parentView.data.announcements).toHaveLength(1);
@@ -133,13 +134,13 @@ describe("EPIC 5 — listAnnouncementsForUserTool (portal görünümü, hedef ki
     });
 
     const inBranch = await listAnnouncementsForUserTool(
-      ctx({ role: "PARENT", userId: "p1", studentId: erzeneStudent.id })
+      ctx({ role: "STUDENT", userId: "p1", studentId: erzeneStudent.id })
     );
     expect(inBranch.ok).toBe(true);
     if (inBranch.ok) expect(inBranch.data.announcements).toHaveLength(1);
 
     const outOfBranch = await listAnnouncementsForUserTool(
-      ctx({ role: "PARENT", userId: "p2", studentId: evka3Student.id })
+      ctx({ role: "STUDENT", userId: "p2", studentId: evka3Student.id })
     );
     expect(outOfBranch.ok).toBe(true);
     if (outOfBranch.ok) expect(outOfBranch.data.announcements).toHaveLength(0);
@@ -156,7 +157,7 @@ describe("EPIC 5 — listAnnouncementsForUserTool (portal görünümü, hedef ki
     });
     const data = await readData();
     const result = await listAnnouncementsForUserTool(
-      ctx({ role: "PARENT", userId: "p1", studentId: data.students[0].id })
+      ctx({ role: "STUDENT", userId: "p1", studentId: data.students[0].id })
     );
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.data.announcements).toHaveLength(0);
@@ -174,10 +175,10 @@ describe("EPIC 5 — markAnnouncementReadTool / listAnnouncementReadersTool", ()
     expect(created.ok).toBe(true);
     if (!created.ok) return;
 
-    await markAnnouncementReadTool(ctx({ role: "PARENT", userId: "parent-x" }), {
+    await markAnnouncementReadTool(ctx({ role: "STUDENT", userId: "parent-x" }), {
       announcementId: created.data.announcementId,
     });
-    await markAnnouncementReadTool(ctx({ role: "PARENT", userId: "parent-x" }), {
+    await markAnnouncementReadTool(ctx({ role: "STUDENT", userId: "parent-x" }), {
       announcementId: created.data.announcementId,
     });
 
@@ -216,7 +217,7 @@ describe("EPIC 5 — updateAnnouncementStatusTool", () => {
 
     const data = await readData();
     const before = await listAnnouncementsForUserTool(
-      ctx({ role: "PARENT", userId: "p1", studentId: data.students[0].id })
+      ctx({ role: "STUDENT", userId: "p1", studentId: data.students[0].id })
     );
     if (before.ok) expect(before.data.announcements).toHaveLength(0);
 
@@ -227,7 +228,7 @@ describe("EPIC 5 — updateAnnouncementStatusTool", () => {
     expect(updated.ok).toBe(true);
 
     const after = await listAnnouncementsForUserTool(
-      ctx({ role: "PARENT", userId: "p1", studentId: data.students[0].id })
+      ctx({ role: "STUDENT", userId: "p1", studentId: data.students[0].id })
     );
     if (after.ok) expect(after.data.announcements).toHaveLength(1);
   });
@@ -239,5 +240,96 @@ describe("EPIC 5 — updateAnnouncementStatusTool", () => {
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe("NOT_FOUND");
+  });
+});
+
+const TINY_PNG_B64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
+describe("Duyuru ekleri", () => {
+  it("geçerli PNG ekler, storageKey client listesine sızmaz, yetkili indirebilir", async () => {
+    const created = await createAnnouncementTool(ctx(), {
+      title: "Ekli duyuru",
+      body: "dosya var",
+      audienceType: "all",
+      status: "published",
+      attachments: [{ fileName: "not.png", mimeType: "image/png", fileData: TINY_PNG_B64 }],
+    });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+
+    const listed = await listAllAnnouncementsTool(ctx());
+    expect(listed.ok).toBe(true);
+    if (!listed.ok) return;
+    const found = listed.data.announcements.find((a) => a.id === created.data.announcementId);
+    expect(found?.attachments).toHaveLength(1);
+    expect(found?.attachments?.[0]?.fileName).toBe("not.png");
+    expect(found?.attachments?.[0]?.storageKey).toBeUndefined();
+
+    const file = await getAnnouncementAttachmentFileTool(ctx(), {
+      announcementId: created.data.announcementId,
+      attachmentId: found!.attachments![0]!.id,
+    });
+    expect(file.ok).toBe(true);
+    if (file.ok) expect(file.data.fileMimeType).toBe("image/png");
+  });
+
+  it("desteklenmeyen MIME reddedilir", async () => {
+    const res = await createAnnouncementTool(ctx(), {
+      title: "x",
+      body: "y",
+      audienceType: "all",
+      attachments: [{ fileName: "x.exe", mimeType: "application/x-msdownload", fileData: TINY_PNG_B64 }],
+    });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("başka tenant ek indiremez", async () => {
+    const created = await createAnnouncementTool(ctx(), {
+      title: "gizli",
+      body: "y",
+      audienceType: "all",
+      status: "published",
+      attachments: [{ fileName: "not.png", mimeType: "image/png", fileData: TINY_PNG_B64 }],
+    });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    const listed = await listAllAnnouncementsTool(ctx());
+    if (!listed.ok) return;
+    const found = listed.data.announcements.find((a) => a.id === created.data.announcementId);
+    const stolen = await getAnnouncementAttachmentFileTool(
+      ctx({ tenantId: "other-tenant", role: "SCHOOL_ADMIN", userId: "admin-other" }),
+      {
+        announcementId: created.data.announcementId,
+        attachmentId: found!.attachments![0]!.id,
+      }
+    );
+    expect(stolen.ok).toBe(false);
+    if (!stolen.ok) expect(stolen.error.code).toBe("NOT_FOUND");
+  });
+
+  it("hedef kitle dışı kullanıcı ek indiremez", async () => {
+    const created = await createAnnouncementTool(ctx(), {
+      title: "öğretmenlere",
+      body: "y",
+      audienceType: "teachers",
+      status: "published",
+      attachments: [{ fileName: "not.png", mimeType: "image/png", fileData: TINY_PNG_B64 }],
+    });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    const listed = await listAllAnnouncementsTool(ctx());
+    if (!listed.ok) return;
+    const found = listed.data.announcements.find((a) => a.id === created.data.announcementId);
+    const parent = await getAnnouncementAttachmentFileTool(
+      ctx({ role: "STUDENT", userId: "p1", studentId: "s1" }),
+      {
+        announcementId: created.data.announcementId,
+        attachmentId: found!.attachments![0]!.id,
+      }
+    );
+    expect(parent.ok).toBe(false);
+    if (!parent.ok) expect(parent.error.code).toBe("FORBIDDEN");
   });
 });
