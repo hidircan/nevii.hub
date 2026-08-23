@@ -26,11 +26,16 @@ async function listAdminStaff(tenantId: string): Promise<AssignableStaff[]> {
     return users.map((u) => ({ id: u.id, label: u.email, role: u.role as AssignableStaff["role"] }));
   }
   // json/memory demo modu — dinamik bir User tablosu yok; sabit bootstrap
-  // kimlikleri (bkz. src/lib/auth/users.ts) yalnızca OKUNUR.
-  const { getBootstrapUsersForSeed } = await import("./auth/users");
-  return getBootstrapUsersForSeed(tenantId)
-    .filter((u) => u.role === "SCHOOL_ADMIN" || u.role === "SUPER_ADMIN")
-    .map((u) => ({ id: u.id, label: u.email, role: u.role as AssignableStaff["role"] }));
+  // kimlikleri (bkz. src/lib/auth/users.ts) yalnızca OKUNUR. `passwordHash`e
+  // hiç ihtiyaç yok — `getBootstrapUsersForSeed` (seed amaçlı) DEĞİL, onu
+  // hiç tetiklemeyen `listAdminUsersForTenant` kullanılır (kök neden:
+  // seed fonksiyonu passwordHash'i okuyup lazy bcrypt getter'ını tetikler).
+  const { listAdminUsersForTenant } = await import("./auth/users");
+  return listAdminUsersForTenant(tenantId).map((u) => ({
+    id: u.id,
+    label: u.email,
+    role: u.role as AssignableStaff["role"],
+  }));
 }
 
 /**

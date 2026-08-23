@@ -129,7 +129,7 @@ const BOOTSTRAP: BootstrapUser[] = [
     userId: "user_parent_s1",
     email: "selin@email.com",
     password: process.env.AUTH_PARENT_PASSWORD || "demo-parent",
-    role: "PARENT",
+    role: "STUDENT",
     tenantId: DEFAULT_TENANT_ID,
     studentId: "s1",
   },
@@ -200,7 +200,7 @@ const BOOTSTRAP: BootstrapUser[] = [
     userId: "user_parent_s5",
     email: "deniz@email.com",
     password: process.env.AUTH_PARENT_PASSWORD || "demo-parent",
-    role: "PARENT",
+    role: "STUDENT",
     tenantId: DEFAULT_TENANT_ID,
     studentId: "s5",
   },
@@ -209,7 +209,7 @@ const BOOTSTRAP: BootstrapUser[] = [
     userId: "user_parent_s4",
     email: "mehmet@email.com",
     password: process.env.AUTH_PARENT_PASSWORD || "demo-parent",
-    role: "PARENT",
+    role: "STUDENT",
     tenantId: DEFAULT_TENANT_ID,
     studentId: "s4",
   },
@@ -236,10 +236,33 @@ const BOOTSTRAP: BootstrapUser[] = [
   },
 ];
 
-const HASHED = BOOTSTRAP.map((u) => ({
-  ...u,
-  passwordHash: hashPasswordSync(u.password),
-}));
+/**
+ * Kök neden düzeltmesi — `passwordHash` eskiden modül yüklenirken TÜM
+ * bootstrap kullanıcıları (25 hesap) için EAGER olarak hesaplanıyordu
+ * (`bcrypt.hashSync`, bcryptjs — native değil, saf JS, 12 round). Bu tek
+ * seferlik maliyet ~6sn sürüyor. Çoğu test dosyasında bu modül BAŞKA bir
+ * yerden (statik import) test TOPLAMA aşamasında zaten ısıtılıyordu — ama
+ * `student-portal-access.ts`'teki `bootstrapFallbackAccessType` bu modülü
+ * BİLİNÇLİ olarak DİNAMİK import ediyor (db modunda hiç yüklenmesin diye).
+ * O dinamik import ilk kez bir testin GÖVDESİ içinde tetiklenirse, 6sn'lik
+ * senkron bcrypt maliyeti o testin 5sn'lik zaman aşımı bütçesine düşüyor
+ * (bkz. access-control-matrix.test.ts regresyonu). `getUserById` gibi
+ * çağıranların çoğu `passwordHash`'e hiç dokunmaz (`toAuthUser` onu
+ * atar) — bu yüzden hash'i eager DEĞİL, yalnızca gerçekten okunduğunda
+ * (login/seed) hesaplayıp bellekte önbelleğe alan bir getter'a çevirmek,
+ * DAVRANIŞI değiştirmeden (aynı sonuç, aynı memoization) modülün
+ * import/yükleme maliyetini sıfıra indiriyor.
+ */
+const HASHED = BOOTSTRAP.map((u) => {
+  let cached: string | undefined;
+  return Object.defineProperty({ ...u }, "passwordHash", {
+    enumerable: true,
+    get(): string {
+      if (cached === undefined) cached = hashPasswordSync(u.password);
+      return cached;
+    },
+  }) as BootstrapUser & { passwordHash: string };
+});
 
 function toAuthUser(u: {
   userId: string;
@@ -261,6 +284,24 @@ function toAuthUser(u: {
 
 function isAppRole(value: string): value is AppRole {
   return (APP_ROLES as readonly string[]).includes(value);
+}
+
+/**
+ * Kök neden düzeltmesi — `getBootstrapUsersForSeed` DB seed'i için
+ * bilinçli olarak `passwordHash`'i okur (lazy getter'ı tetikler, bkz.
+ * `HASHED`). Yalnızca id/email/role'e ihtiyaç duyan çağıranlar (ör.
+ * `staff-directory.ts`'teki personel dizini görüntülemesi)
+ * `getBootstrapUsersForSeed`'i kullanırsa, ihtiyaçları olmayan
+ * `passwordHash`'i de tetiklemiş olur — her admin için ~saniyeler
+ * süren bcrypt maliyetine yol açar. Bu, aynı alanları passwordHash'e
+ * HİÇ dokunmadan döner.
+ */
+export function listAdminUsersForTenant(
+  tenantId: string
+): { id: string; email: string; role: AppRole }[] {
+  return HASHED.filter((u) => u.tenantId === tenantId || u.role === "SUPER_ADMIN")
+    .filter((u) => u.role === "SCHOOL_ADMIN" || u.role === "SUPER_ADMIN")
+    .map((u) => ({ id: u.userId, email: u.email!, role: u.role }));
 }
 
 /** Seed users for Prisma (tenant-scoped) */
@@ -379,6 +420,69 @@ export async function getUserIdByTeacherId(tenantId: string, teacherId: string):
 }
 
 /**
+ * @deprecated Karma Öğrenci Portalı — "PARENT" artık bir rol değil. Bu
+ * fonksiyon şimdilik yalnızca eski `User.studentId` skalasına dayanan
+ * STUDENT-role kullanıcıları döndürür (backward-compat); asıl kaynak
+ * StudentPortalAccess olacak (bkz. src/lib/services/student-portal-access.ts).
+ */
+export async function getParentUserIdsByStudentId(tenantId: string, studentId: string): Promise<string[]> {
+  if (isDbMode) {
+    try {
+      const { getPrisma } = await import("../db");
+      const prisma = getPrisma();
+      const rows = await prisma.user.findMany({
+        where: { tenantId, studentId, role: "STUDENT", active: true },
+        select: { id: true },
+      });
+      return rows.map((r) => r.id);
+    } catch {
+      return [];
+    }
+  }
+  return HASHED.filter((u) => u.tenantId === tenantId && u.studentId === studentId && u.role === "STUDENT").map(
+    (u) => u.userId
+  );
+}
+
+export async function getUserIdByStudentId(tenantId: string, studentId: string): Promise<string | null> {
+  if (isDbMode) {
+    try {
+      const { getPrisma } = await import("../db");
+      const prisma = getPrisma();
+      const row = await prisma.user.findFirst({ where: { tenantId, studentId, active: true } });
+      return row?.id ?? null;
+    } catch {
+      return null;
+    }
+  }
+  const row = HASHED.find((u) => u.tenantId === tenantId && u.studentId === studentId);
+  return row?.userId ?? null;
+}
+
+/**
+ * Karma Öğrenci Portalı — e-posta → userId. `getParentUserIdsByStudentId`/
+ * `getUserIdByStudentId`'nin aksine deprecated `User.studentId` alanına
+ * BAKMAZ; StudentPortalAccess akışı (provisionStudentPortalAccessTool) bir
+ * kullanıcıyı ikinci bir öğrenciye bağlarken bu yüzden bunu kullanır.
+ */
+export async function getUserIdByEmail(tenantId: string, email: string): Promise<string | null> {
+  const normalized = email.trim().toLowerCase();
+  if (!normalized) return null;
+  if (isDbMode) {
+    try {
+      const { getPrisma } = await import("../db");
+      const prisma = getPrisma();
+      const row = await prisma.user.findFirst({ where: { tenantId, email: normalized, active: true } });
+      return row?.id ?? null;
+    } catch {
+      return null;
+    }
+  }
+  const row = HASHED.find((u) => u.tenantId === tenantId && u.email?.toLowerCase() === normalized);
+  return row?.userId ?? null;
+}
+
+/**
  * İş 4 — tenant'ın TÜM yönetici (SCHOOL_ADMIN + SUPER_ADMIN) kullanıcı
  * id'leri. Şube-bazlı bir "sorumlu yönetici" ilişkisi bu veri modelinde
  * (User'da branchId yok — bkz. final rapor) mevcut değil; bu yüzden
@@ -456,7 +560,7 @@ export async function provisionEntityLogin(params: {
   role: Extract<AppRole, "STUDENT" | "TEACHER">;
   studentId?: string;
   teacherId?: string;
-}): Promise<{ tempPassword: string } | null> {
+}): Promise<{ tempPassword: string; userId: string } | null> {
   if (!isDbMode) return null;
   const email = params.email.trim().toLowerCase();
   if (!email) return null;
@@ -470,9 +574,10 @@ export async function provisionEntityLogin(params: {
   if (existing) return null;
 
   const tempPassword = Math.random().toString(36).slice(2, 10);
+  const userId = uid("user");
   await prisma.user.create({
     data: {
-      id: uid("user"),
+      id: userId,
       tenantId: params.tenantId,
       email,
       passwordHash: hashPasswordSync(tempPassword),
@@ -482,7 +587,7 @@ export async function provisionEntityLogin(params: {
       active: true,
     },
   });
-  return { tempPassword };
+  return { tempPassword, userId };
 }
 
 export type ChangeOwnPasswordResult =
