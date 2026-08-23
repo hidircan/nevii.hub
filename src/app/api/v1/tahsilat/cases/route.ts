@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { withApiHandler } from "@/lib/api/handler";
 import { fromServiceResult, jsonFail } from "@/lib/api/http";
-import { listFollowUpCases, upsertFollowUpCase, getCollectionRoi } from "@/lib/tahsilat/cases";
+import { listFollowUpCases, upsertFollowUpCase, getCollectionRoi, getCollectionsDashboard, toPublicCase } from "@/lib/tahsilat/cases";
+import { FOLLOW_UP_STATUSES } from "@/lib/tahsilat/status";
 import { resolveWriteScope } from "@/lib/institution/write-scope";
 import { auditLog } from "@/lib/auth/audit";
 import { uid } from "@/lib/utils";
@@ -9,11 +10,15 @@ import { uid } from "@/lib/utils";
 export const dynamic = "force-dynamic";
 
 export const GET = withApiHandler(async ({ ctx }) => {
-  const [cases, roi] = await Promise.all([
+  const [cases, roi, dashboard] = await Promise.all([
     listFollowUpCases(ctx.tenantId),
     getCollectionRoi(ctx.tenantId),
+    getCollectionsDashboard(ctx.tenantId),
   ]);
-  return fromServiceResult({ ok: true as const, data: { cases, roi } });
+  return fromServiceResult({
+    ok: true as const,
+    data: { cases: cases.map(toPublicCase), roi, dashboard },
+  });
 });
 
 const patchSchema = z
@@ -21,15 +26,15 @@ const patchSchema = z
     id: z.string().optional(),
     paymentId: z.string(),
     studentId: z.string(),
-    status: z.enum(["draft", "approved", "sent", "replied", "paid", "lost"]),
+    status: z.enum(FOLLOW_UP_STATUSES),
+    selectedChannel: z.enum(["whatsapp", "sms", "manual"]).optional(),
+    approvedMessage: z.string().optional(),
     messageDraft: z.string().default(""),
     attributedAmount: z.number().default(0),
   })
   .strict();
 
 export const POST = withApiHandler(async ({ ctx, body }) => {
-  if (ctx.role === "PARENT") return jsonFail("FORBIDDEN", "Insufficient role");
-
   const writeScope = await resolveWriteScope(ctx);
   if (writeScope.mode !== "single") {
     auditLog({

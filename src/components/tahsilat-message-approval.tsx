@@ -12,7 +12,21 @@ function phoneToWa(phone: string) {
   return digits;
 }
 
-type FollowUpStatus = "draft" | "approved" | "sent" | "replied" | "paid" | "lost";
+type FollowUpStatus =
+  | "draft"
+  | "open"
+  | "draft_ready"
+  | "approved"
+  | "sending"
+  | "sent"
+  | "replied"
+  | "partial"
+  | "paid"
+  | "lost"
+  | "dismissed"
+  | "failed";
+
+type Channel = "whatsapp" | "sms" | "manual";
 
 export function TahsilatMessageApproval({
   caseId,
@@ -53,6 +67,16 @@ export function TahsilatMessageApproval({
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [channel, setChannel] = useState<Channel>("whatsapp");
+  const [smsPreview, setSmsPreview] = useState<{
+    chars: number;
+    smsSegments: number;
+    recipientMasked: string | null;
+    smsTestMode: boolean;
+    smsConfigured: boolean;
+    costNote: string;
+  } | null>(null);
+  const [confirmSms, setConfirmSms] = useState(false);
   const ai = useCollectionsAI(tenantId);
   const hasPhone = parentPhone.trim().length > 0;
   const waLink = useMemo(
@@ -60,7 +84,7 @@ export function TahsilatMessageApproval({
     [hasPhone, message, parentPhone]
   );
   const hasCase = Boolean(caseId);
-  const approved = status !== "draft";
+  const approved = status !== "draft" && status !== "open" && status !== "draft_ready";
 
   async function saveStatus(nextStatus: FollowUpStatus) {
     setBusy(true);
@@ -121,14 +145,20 @@ export function TahsilatMessageApproval({
   }
 
   const statusLabel: Record<FollowUpStatus, string> = {
+    open: "Açık · taslak yok",
     draft: "Taslak · henüz takip başlatılmadı",
+    draft_ready: "Taslak hazır · onay bekliyor",
     approved: "Onaylandı · gönderime hazır",
-    sent: "Sistemde gönderildi olarak kaydedildi",
+    sending: "Gönderiliyor",
+    sent: "İletildi / manuel bekleniyor",
     replied: "Yanıt alındı · ödeme sözü takip ediliyor",
+    partial: "Kısmi tahsilat",
     paid: "Ödendi · ROI'ye eklendi",
     lost: "Sonuçsuz kapatıldı",
+    dismissed: "Kapatıldı",
+    failed: "Gönderim başarısız",
   };
-  const isTerminal = status === "paid" || status === "lost";
+  const isTerminal = status === "paid" || status === "lost" || status === "dismissed";
 
   return (
     <div className="mt-3 rounded-xl border border-amber-100 bg-[var(--color-surface)] p-3">
@@ -233,27 +263,120 @@ export function TahsilatMessageApproval({
           <button type="button" onClick={() => setEditing((v) => !v)} className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm font-medium text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)]">
             <PencilLine className="h-4 w-4" /> {editing ? "Taslağı kaydet" : "Düzenle"}
           </button>
-          {status === "draft" && (
+          {(status === "draft" || status === "open" || status === "draft_ready") && (
             <button type="button" disabled={busy} onClick={() => void saveStatus("approved")} className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-50">
               <CheckCircle2 className="h-4 w-4" /> {hasCase ? "Onayla" : "Takip başlat"}
             </button>
           )}
-          {approved && hasPhone ? (
+          <label className="inline-flex items-center gap-1 text-xs text-[var(--color-text-muted)]">
+            Kanal
+            <select
+              value={channel}
+              onChange={(e) => setChannel(e.target.value as Channel)}
+              className="rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-1.5 py-1 text-xs"
+            >
+              <option value="whatsapp">WhatsApp</option>
+              <option value="sms">SMS</option>
+              <option value="manual">Manuel</option>
+            </select>
+          </label>
+          {approved && channel === "whatsapp" && hasPhone ? (
             <a
               href={waLink ?? undefined}
               target="_blank"
               rel="noreferrer"
+              onClick={() => {
+                if (caseId) {
+                  void fetch(`/api/v1/tahsilat/cases/${caseId}/send`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ channel: "whatsapp", confirm: true, markManualPending: true }),
+                  });
+                }
+              }}
               className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-700"
             >
               <ExternalLink className="h-4 w-4" />
               WhatsApp&apos;ta aç
             </a>
-          ) : approved ? (
-            <span className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--color-surface-muted)] px-3 py-2 text-sm font-medium text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
+          ) : approved && channel === "whatsapp" ? (
+            <span className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--color-surface-muted)] px-3 py-2 text-sm font-medium text-[var(--color-text-muted)]">
               <Send className="h-4 w-4" /> Veli telefonu eksik — WhatsApp linki oluşturulamıyor
             </span>
           ) : null}
-          {status === "approved" && (
+          {approved && channel === "whatsapp" ? (
+            <p className="basis-full text-[11px] text-[var(--color-text-muted)]">
+              wa.me bağlantısı teslim kanıtı değildir; tıklanınca kayıt &quot;manuel gönderim bekleniyor&quot; olur.
+            </p>
+          ) : null}
+          {approved && channel === "sms" && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={async () => {
+                const res = await fetch("/api/v1/sms/status");
+                const json = (await res.json()) as { ok: boolean; data?: { testMode: boolean; configured: boolean } };
+                setSmsPreview({
+                  chars: message.length,
+                  smsSegments: Math.max(1, Math.ceil(message.length / 153)),
+                  recipientMasked: hasPhone ? "kayıtlı veli hattı" : null,
+                  smsTestMode: Boolean(json.ok && json.data?.testMode),
+                  smsConfigured: Boolean(json.ok && json.data?.configured),
+                  costNote: "Sağlayıcıya göre değişir",
+                });
+                setConfirmSms(true);
+              }}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-medium text-sky-800"
+            >
+              SMS gönderimini onayla
+            </button>
+          )}
+          {confirmSms && smsPreview ? (
+            <div className="basis-full rounded-lg border border-sky-200 bg-sky-50/80 p-3 text-xs text-sky-950">
+              <p className="font-semibold">Son onay — SMS</p>
+              <p className="mt-1">Alıcı: {smsPreview.recipientMasked ?? "telefon yok"}</p>
+              <p>Karakter / segment: {smsPreview.chars} / {smsPreview.smsSegments}</p>
+              <p>Tahmini ücret: {smsPreview.costNote}</p>
+              {smsPreview.smsTestMode ? (
+                <p className="mt-1 font-medium">Test modu: yalnızca allowlist alıcılarına gerçek SMS gider.</p>
+              ) : null}
+              {!smsPreview.smsConfigured ? <p className="mt-1">Sağlayıcı yapılandırılmadı — gerçek istek atılmaz.</p> : null}
+              <div className="mt-2 flex gap-2">
+                <button
+                  type="button"
+                  disabled={busy || !caseId}
+                  onClick={async () => {
+                    if (!caseId) return;
+                    setBusy(true);
+                    setError(null);
+                    try {
+                      const res = await fetch(`/api/v1/tahsilat/cases/${caseId}/send`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ channel: "sms", confirm: true }),
+                      });
+                      const json = (await res.json()) as { ok: boolean; error?: { message: string } };
+                      if (!json.ok) setError(json.error?.message || "SMS gönderilemedi");
+                      else {
+                        setStatus("sent");
+                        setConfirmSms(false);
+                        router.refresh();
+                      }
+                    } finally {
+                      setBusy(false);
+                    }
+                  }}
+                  className="rounded-md bg-sky-700 px-2 py-1 text-white"
+                >
+                  Gönder
+                </button>
+                <button type="button" onClick={() => setConfirmSms(false)} className="rounded-md border px-2 py-1">
+                  Vazgeç
+                </button>
+              </div>
+            </div>
+          ) : null}
+          {status === "approved" && channel !== "sms" && (
             <button
               type="button"
               disabled={busy}

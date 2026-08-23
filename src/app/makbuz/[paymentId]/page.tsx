@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requireSessionContext, homePathForRole } from "@/lib/auth/session";
 import { readData } from "@/lib/store";
+import { assertStudentAccess } from "@/lib/services/context";
 import { buildReceiptViewModel, canViewReceipt, receiptIneligibleReason } from "@/lib/receipt";
 import { formatDate, formatMoney } from "@/lib/utils";
 import { Badge } from "@/components/ui";
@@ -47,7 +48,14 @@ export default async function ReceiptPage({
   } catch {
     redirect(`/login?next=/makbuz/${paymentId}`);
   }
-  if (session.role !== "SCHOOL_ADMIN" && session.role !== "SUPER_ADMIN") {
+  // Karma Öğrenci Portalı — admin/super_admin her zaman görebilir (tenant
+  // izolasyonu zaten `readData()`'da). STUDENT rolü (hem self-managed
+  // öğrenci hem GUARDIAN veli) YALNIZCA kendi bağlı öğrencisinin makbuzunu
+  // görebilir — bu, önceden STUDENT'ı bütünüyle dışlayan bir role gate'ti
+  // (veli/öğrenci kendi makbuzunu HİÇ göremiyordu); studentId çözülene kadar
+  // burada karar VERİLMEZ, aşağıda ownership doğrulanır.
+  const isStaff = session.role === "SCHOOL_ADMIN" || session.role === "SUPER_ADMIN";
+  if (!isStaff && session.role !== "STUDENT") {
     redirect(homePathForRole(session.role));
   }
 
@@ -59,14 +67,29 @@ export default async function ReceiptPage({
       <NoticeScreen
         title="Ödeme kaydı bulunamadı."
         description="Bu ödeme silinmiş olabilir veya kurumunuza ait değil."
-        backHref="/panel/odemeler"
-        backLabel="Ödemelere dön"
+        backHref={isStaff ? "/panel/odemeler" : "/ogrenci"}
+        backLabel={isStaff ? "Ödemelere dön" : "Öğrenci portalına dön"}
       />
     );
   }
 
   const student = data.students.find((s) => s.id === payment.studentId);
-  const backHref = student ? `/panel/odemeler/${student.id}` : "/panel/odemeler";
+
+  if (!isStaff) {
+    const access = await assertStudentAccess(session, student, payment.studentId);
+    if (!access.ok) {
+      return (
+        <NoticeScreen
+          title="Bu makbuza erişiminiz yok."
+          description="Yalnızca kendi bağlı olduğunuz öğrencinin ödeme makbuzunu görüntüleyebilirsiniz."
+          backHref="/ogrenci"
+          backLabel="Öğrenci portalına dön"
+        />
+      );
+    }
+  }
+
+  const backHref = isStaff ? (student ? `/panel/odemeler/${student.id}` : "/panel/odemeler") : "/ogrenci#odemeler";
 
   if (!canViewReceipt(payment)) {
     return (

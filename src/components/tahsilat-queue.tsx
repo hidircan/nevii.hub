@@ -37,8 +37,16 @@ export function TahsilatQueue({
   const counts = useMemo(() => {
     const map: Record<StageFilter, number> = { all: rows.length, draft: 0, approved: 0, sent: 0, replied: 0 };
     for (const row of rows) {
-      if (row.caseStatus === "draft" || row.caseStatus === "approved" || row.caseStatus === "sent" || row.caseStatus === "replied") {
-        map[row.caseStatus] += 1;
+      const mapped =
+        row.caseStatus === "open" || row.caseStatus === "draft_ready" || row.caseStatus === "failed"
+          ? "draft"
+          : row.caseStatus === "sending"
+            ? "approved"
+            : row.caseStatus === "partial"
+              ? "replied"
+              : row.caseStatus;
+      if (mapped === "draft" || mapped === "approved" || mapped === "sent" || mapped === "replied") {
+        map[mapped] += 1;
       }
     }
     return map;
@@ -48,7 +56,15 @@ export function TahsilatQueue({
     const query = search.trim().toLowerCase();
     return rows.filter((row) => {
       if (query && !row.studentName.toLowerCase().includes(query)) return false;
-      if (stage !== "all" && row.caseStatus !== stage) return false;
+      const mapped =
+        row.caseStatus === "open" || row.caseStatus === "draft_ready" || row.caseStatus === "failed"
+          ? "draft"
+          : row.caseStatus === "sending"
+            ? "approved"
+            : row.caseStatus === "partial"
+              ? "replied"
+              : row.caseStatus;
+      if (stage !== "all" && mapped !== stage) return false;
       return true;
     });
   }, [rows, search, stage]);
