@@ -133,8 +133,8 @@ describe("createTaskTool — relatedEntity bağlamsal görev oluşturma", () => 
     expect(res.error.code).toBe("FORBIDDEN");
   });
 
-  it("PARENT görev oluşturamaz (fail döner, throw etmez)", async () => {
-    const res = await createTaskTool(ctx({ role: "PARENT", userId: "u-p1", studentId: "s1" }), {
+  it("STUDENT görev oluşturamaz (fail döner, throw etmez)", async () => {
+    const res = await createTaskTool(ctx({ role: "STUDENT", userId: "u-p1", studentId: "s1" }), {
       title: "Veli görevi",
       category: "Veli İletişimi",
       relatedEntityType: "student",
@@ -197,8 +197,8 @@ describe("resolveTaskRelatedEntityTool — tenant-safe ilişkili kayıt çözüm
     expect(res.data.href).toBeUndefined();
   });
 
-  it("PARENT/STUDENT görev görüntüleme rolüne sahip olmadığından reddedilir", async () => {
-    const res = await resolveTaskRelatedEntityTool(ctx({ role: "PARENT", studentId: "s1" }), {
+  it("STUDENT görev görüntüleme rolüne sahip olmadığından reddedilir", async () => {
+    const res = await resolveTaskRelatedEntityTool(ctx({ role: "STUDENT", studentId: "s1" }), {
       relatedEntityType: "student",
       relatedEntityId: "s1",
     });

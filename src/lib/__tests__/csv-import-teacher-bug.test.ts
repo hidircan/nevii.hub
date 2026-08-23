@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { promises as fs } from "fs";
 import path from "path";
 import { readFileSync } from "fs";
@@ -6,6 +6,7 @@ import { resolveDataDir } from "../config";
 import { createBranchTool, previewTeacherImportTool, commitTeacherImportTool } from "../services/tools";
 import { readData } from "../store";
 import { DEFAULT_TENANT_ID } from "../auth/config";
+import { clearInstrumentCatalog, resolveActiveInstrumentNames } from "../instrument-catalog";
 import type { ServiceContext } from "../services/context";
 import { runWithTenantAsync } from "../tenant-context";
 
@@ -38,6 +39,12 @@ const { default: OgretmenlerPage } = await import("../../app/panel/ogretmenler/p
 
 beforeEach(async () => {
   await fs.rm(DATA_FILE, { force: true });
+  await clearInstrumentCatalog(DEFAULT_TENANT_ID);
+  await resolveActiveInstrumentNames(DEFAULT_TENANT_ID);
+});
+
+afterEach(async () => {
+  await clearInstrumentCatalog(DEFAULT_TENANT_ID);
 });
 
 const HEADER = "ad,eposta,telefon,sube,enstruman";
@@ -168,7 +175,7 @@ describe("Kritik hata: 4 satırlı öğretmen CSV'si — kök neden regresyonu",
     }
   });
 
-  it("kullanıcının orijinal CSV'si ('Bağlama' enstrümanıyla): satır sayısı doğru okunur, ama Bağlama desteklenmediği için 2 satır enstrüman hatasıyla reddedilir (parser hatasından bağımsız, ayrı ve beklenen bir durum)", async () => {
+  it("kullanıcının orijinal CSV'si ('Bağlama' enstrümanıyla): dört satır doğru okunur ve etkin katalog enstrümanı olarak kabul edilir", async () => {
     const branchRes = await createBranchTool(ctx(), {
       name: "Bostanlı Şubesi",
       shortName: "Bostanlı",
@@ -193,9 +200,9 @@ describe("Kritik hata: 4 satırlı öğretmen CSV'si — kök neden regresyonu",
     // hepsi görülüyor, sadece "Bağlama" gerçekten desteklenmediği için hata alıyor.
     expect(preview.data.totalRows).toBe(4);
     expect(preview.data.readRows).toHaveLength(4);
-    expect(preview.data.validCount).toBe(2);
-    expect(preview.data.errorCount).toBe(2);
-    expect(preview.data.errors.every((e) => e.field === "enstruman")).toBe(true);
+    expect(preview.data.validCount).toBe(4);
+    expect(preview.data.errorCount).toBe(0);
+    expect(preview.data.errors).toEqual([]);
   });
 
   it("Veri Aktarım Merkezi'nde öğretmen başarı linki /panel/ogretmenler'e gider", () => {
