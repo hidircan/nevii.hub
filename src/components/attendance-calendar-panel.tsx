@@ -20,6 +20,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { cn, formatTime } from "@/lib/utils";
+import { apiFetch } from "@/lib/api/client-fetch";
 import { TriangleAlert } from "lucide-react";
 import { LessonOpsActions } from "./lesson-ops-actions";
 import { AttendanceCalendarCollectPaymentButton } from "./attendance-calendar-collect-payment-button";
@@ -306,7 +307,7 @@ export function AttendanceCalendarPanel({
       let anyFailure = false;
       for (const m of months) {
         try {
-          const res = await fetch(
+          const res = await apiFetch(
             `/api/v1/attendance-calendar/month?studentId=${studentId}&year=${m.year}&month=${m.month}`,
             { signal }
           );
@@ -389,7 +390,7 @@ export function AttendanceCalendarPanel({
       const [key, month] = monthEntry;
       void (async () => {
         try {
-          const res = await fetch(
+          const res = await apiFetch(
             `/api/v1/attendance-calendar/month?studentId=${studentId}&year=${month.year}&month=${month.month}`
           );
           const json = (await res.json()) as { ok: boolean; data?: MonthResponse };
@@ -406,7 +407,7 @@ export function AttendanceCalendarPanel({
     if (!canEdit || readOnly) return;
     setError(null);
     try {
-      const res = await fetch("/api/v1/attendance-calendar/day-override", {
+      const res = await apiFetch("/api/v1/attendance-calendar/day-override", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -421,7 +422,7 @@ export function AttendanceCalendarPanel({
         return;
       }
       const [y, m] = day.date.split("-");
-      const res2 = await fetch(
+      const res2 = await apiFetch(
         `/api/v1/attendance-calendar/month?studentId=${studentId}&year=${y}&month=${Number(m)}`
       );
       const json2 = (await res2.json()) as { ok: boolean; data?: MonthResponse };
@@ -451,7 +452,7 @@ export function AttendanceCalendarPanel({
       const monthStr = `${year}-${String(month).padStart(2, "0")}`;
       const dueDate = dueDates[key];
       const method = methods[key];
-      const res = await fetch("/api/v1/attendance-calendar/monthly-plan", {
+      const res = await apiFetch("/api/v1/attendance-calendar/monthly-plan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
