@@ -170,7 +170,7 @@ describe("createTaskTool — relatedEntity bağlamsal görev oluşturma", () => 
     });
     expect(res.ok).toBe(true);
     const notes = await listNotificationsForUser({ tenantId: DEFAULT_TENANT_ID, userId: "user_teacher_t2" });
-    expect(notes.some((n) => n.kind === "task_assigned")).toBe(true);
+    expect(notes.some((n) => n.kind === "task_new_assignment")).toBe(true);
   });
 });
 
