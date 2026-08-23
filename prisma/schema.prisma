@@ -23,6 +23,8 @@ model Tenant {
   attendances Attendance[]
   makeupRequests MakeupRequest[]
   payments  Payment[]
+  studentPortalAccess StudentPortalAccess[]
+  paymentCheckoutAttempts PaymentCheckoutAttempt[]
   followUpCases PaymentFollowUpCase[]
   communicationMessages CommunicationMessage[]
   teacherFeeRules TeacherFeeRule[]
@@ -67,6 +69,9 @@ model User {
   passwordHash String
   role         String
   teacherId    String?
+  /// DEPRECATED — Karma Öğrenci Portalı öncesi tekil öğrenci bağlantısı.
+  /// Geriye dönük uyumluluk/migration kaynağı olarak korunuyor; yeni
+  /// authorization kodu bunu OKUMAZ (bkz. StudentPortalAccess).
   studentId    String?
   active       Boolean  @default(true)
   createdAt    DateTime @default(now())
@@ -75,6 +80,34 @@ model User {
   @@unique([tenantId, email])
   @@index([email])
   @@index([tenantId])
+}
+
+/// Karma Öğrenci Portalı — bir kullanıcının hangi öğrenci(ler)e, hangi
+/// erişim türüyle bağlı olduğu. Bir kullanıcı birden fazla öğrenciye
+/// (GUARDIAN — birden çok çocuk) bağlı olabilir; bir öğrenci birden fazla
+/// kullanıcıya bağlı olabilir (ör. iki veli). `NotificationPreference` ile
+/// AYNI stil (bkz. o modelin yorumu).
+model StudentPortalAccess {
+  id          String    @id
+  tenantId    String
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId      String
+  studentId   String
+  /// "GUARDIAN" | "SELF"
+  accessType  String
+  /// "invited" (davet gönderildi, şifre henüz belirlenmedi/ilk giriş yapılmadı)
+  /// | "active" | "revoked" (admin tarafından iptal edildi — sonraki request'te etkisiz)
+  status      String    @default("invited")
+  invitedBy   String?
+  invitedAt   DateTime  @default(now())
+  activatedAt DateTime?
+  revokedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([tenantId, userId, studentId])
+  @@index([tenantId, studentId])
+  @@index([tenantId, userId])
 }
 
 model School {
@@ -224,8 +257,14 @@ model Student {
   name              String
   email             String
   phone             String
-  parentName        String
-  parentPhone       String
+  /// SELF_MANAGED öğrencide boş olabilir — bkz. accountResponsibility.
+  parentName        String?
+  parentPhone       String?
+  /// Karma Öğrenci Portalı — "PARENT_MANAGED" (varsayılan, veli iletişim/tahsilat
+  /// muhatabı) | "SELF_MANAGED" (öğrenci kendi muhatabı). Erişim TÜRÜ (kimin portal
+  /// hesabı olduğu) burada değil, StudentPortalAccess.accessType'ta tutulur — bu
+  /// alan yalnızca "tahsilat/iletişim kime gider" iş kararıdır.
+  accountResponsibility String @default("PARENT_MANAGED")
   /// Paket 7 — TC kimlik alanından hemen sonra istenir; opsiyonel.
   motherName        String?
   fatherName        String?
@@ -596,6 +635,42 @@ model Payment {
 
   @@index([tenantId])
   @@index([tenantId, lessonId])
+}
+
+/// Online kredi kartı checkout denemesi — provider-hosted (kart verisi asla
+/// bu tabloya veya uygulamaya gelmez, yalnızca sağlayıcının checkout URL'i +
+/// referansı). `Payment`'a alan EKLENMEDİ (bilinçli karar) — mevcut manuel
+/// tahsilat/geçmiş/void/idempotency akışı hiç değişmiyor; bu tablo yalnızca
+/// "hangi checkout denemeleri oldu" izlenebilirliği için ayrı ve additive.
+model PaymentCheckoutAttempt {
+  id               String    @id
+  tenantId         String
+  tenant           Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  paymentId        String
+  studentId        String
+  initiatedByUserId String
+  /// "console" | "iyzico" | "stripe" — bkz. src/lib/payment-provider/config.ts
+  provider         String
+  providerReference String?
+  /// Sağlayıcının barındırdığı checkout sayfası URL'i — YALNIZCA idempotent
+  /// tekrar kullanım için (double-click/retry aynı pending attempt'i tekrar
+  /// provider'ı ÇAĞIRMADAN döner). Kart/CVV verisi DEĞİLDİR — kullanıcının
+  /// zaten görebileceği, tek-kullanımlık bir yönlendirme linkidir.
+  checkoutUrl      String?
+  /// "pending" | "succeeded" | "failed" | "expired"
+  status           String    @default("pending")
+  amount           Int
+  currency         String
+  idempotencyKey   String
+  expiresAt        DateTime?
+  completedAt      DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@unique([tenantId, idempotencyKey])
+  @@index([tenantId, paymentId])
+  @@index([tenantId, studentId])
+  @@index([tenantId, providerReference])
 }
 
 model PaymentFollowUpCase {
