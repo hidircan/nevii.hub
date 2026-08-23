@@ -5,6 +5,8 @@ import {
   isValidDueDay,
   resolveCollectionsIban,
 } from "../collections-due";
+import { templatePaymentReminder } from "../whatsapp-templates";
+import type { Student } from "../types";
 
 describe("due windows", () => {
   it("kredi kartı 1–5", () => {
@@ -31,5 +33,52 @@ describe("IBAN bank selection", () => {
     });
     expect(r.bankLabel).toBe("VakıfBank");
     expect(r.iban).toBe("TR00VAKIF");
+  });
+
+  it("MEB olmayan öğrenci Halkbank IBAN'ını alır", () => {
+    const r = resolveCollectionsIban("Hobi", {
+      vakifbankIban: "TR00VAKIF",
+      halkbankIban: "TR00HALK",
+    });
+    expect(r.bankLabel).toBe("Halkbank");
+    expect(r.iban).toBe("TR00HALK");
+  });
+});
+
+function makeStudent(overrides: Partial<Student> = {}): Student {
+  return {
+    id: "s1",
+    name: "Test Öğrenci",
+    email: "",
+    phone: "05551112233",
+    parentName: "Veli",
+    parentPhone: "05551112233",
+    branchId: "b1",
+    instruments: ["Piyano"],
+    teacherId: "t1",
+    packageName: "Standart",
+    weeklyLessonCount: 1,
+    monthlyFee: 1000,
+    active: true,
+    notes: "",
+    createdAt: new Date().toISOString(),
+    ...overrides,
+  };
+}
+
+describe("payment reminder IBAN inclusion", () => {
+  it("IBAN yoksa eski ödeme-teyit metnini üretmeye devam eder", () => {
+    const msg = templatePaymentReminder("Okul", makeStudent(), 1000, "2026-09-01");
+    expect(msg.body).not.toContain("IBAN:");
+    expect(msg.body).toContain("Ödeme bilgisini okuldan teyit edebilirsiniz.");
+  });
+
+  it("IBAN varsa banka ve IBAN metne eklenir", () => {
+    const msg = templatePaymentReminder("Okul", makeStudent(), 1000, "2026-09-01", {
+      bankLabel: "VakıfBank",
+      iban: "TR000000000000000000000000",
+    });
+    expect(msg.body).toContain("Banka: VakıfBank");
+    expect(msg.body).toContain("IBAN: TR000000000000000000000000");
   });
 });

@@ -3581,7 +3581,12 @@ export async function updateCollectionsSettingsTool(
 
   try {
     await updateCollectionsSettings(v.data);
-    audit(ctx, "school.collections_settings_update", "School", ctx.tenantId, v.data);
+    audit(ctx, "school.collections_settings_update", "School", ctx.tenantId, {
+      frequencyLimitDays: v.data.frequencyLimitDays,
+      autoSendEnabled: v.data.autoSendEnabled,
+      vakifbankIbanSet: !!v.data.vakifbankIban,
+      halkbankIbanSet: !!v.data.halkbankIban,
+    });
     return ok({ collectionsSettings: v.data });
   } catch (e) {
     return fail(

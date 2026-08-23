@@ -243,6 +243,8 @@ export default async function KurulumPage() {
                 data.settings.collectionsSettings?.autoSendEnabled ??
                 DEFAULT_COLLECTIONS_SETTINGS.autoSendEnabled
               }
+              vakifbankIban={data.settings.collectionsSettings?.vakifbankIban}
+              halkbankIban={data.settings.collectionsSettings?.halkbankIban}
             />
           </div>
         </div>

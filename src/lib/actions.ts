@@ -1052,6 +1052,8 @@ export type UpdateCollectionsSettingsActionResult = { ok: true } | { ok: false; 
 export async function actionUpdateCollectionsSettings(input: {
   frequencyLimitDays: number;
   autoSendEnabled: boolean;
+  vakifbankIban?: string;
+  halkbankIban?: string;
 }): Promise<UpdateCollectionsSettingsActionResult> {
   try {
     const result = await withAuthContext("actionUpdateCollectionsSettings", (ctx) =>

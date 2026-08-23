@@ -1,6 +1,8 @@
 import { format, isSameDay, parseISO } from "date-fns";
 import { tr } from "date-fns/locale";
 import type { AppData, Lesson, MakeupRequest, Student, Teacher } from "./types";
+import { DEFAULT_COLLECTIONS_SETTINGS } from "./types";
+import { resolveCollectionsIban } from "./collections-due";
 
 function phoneToWa(phone: string) {
   const digits = phone.replace(/\D/g, "");
@@ -122,14 +124,18 @@ export function templatePaymentReminder(
   school: string,
   student: Student,
   amount: number,
-  dueDate: string
+  dueDate: string,
+  paymentDetails?: { bankLabel?: string; iban?: string }
 ): WaMessage {
+  const bankLine =
+    paymentDetails?.iban ? `Banka: ${paymentDetails.bankLabel}\nIBAN: ${paymentDetails.iban}\n\n` : "";
   const body =
     `Merhaba ${student.parentName},\n\n` +
     `${school} ödeme hatırlatması.\n` +
     `Öğrenci: ${student.name}\n` +
     `Tutar: ${new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY", maximumFractionDigits: 0 }).format(amount)}\n` +
     `Vade: ${format(new Date(dueDate), "d MMMM yyyy", { locale: tr })}\n\n` +
+    bankLine +
     `Ödeme bilgisini okuldan teyit edebilirsiniz.\nTeşekkürler.`;
   return build(student.parentName, student.parentPhone, "Ödeme hatırlatması", "veli", body);
 }
@@ -195,10 +201,14 @@ export function buildDemoMessages(data: AppData): WaMessage[] {
     msgs.push(templateLessonReminder(school, student, lesson, teacher, branch?.shortName || ""));
   }
 
+  const collectionsSettings = data.settings.collectionsSettings ?? DEFAULT_COLLECTIONS_SETTINGS;
   for (const p of data.payments.filter((x) => x.status === "overdue" || x.status === "pending")) {
     const student = data.students.find((s) => s.id === p.studentId);
     if (!student) continue;
-    msgs.push(templatePaymentReminder(school, student, p.amount - p.paidAmount, p.dueDate));
+    const { bankLabel, iban } = resolveCollectionsIban(student.studentType, collectionsSettings);
+    msgs.push(
+      templatePaymentReminder(school, student, p.amount - p.paidAmount, p.dueDate, { bankLabel, iban })
+    );
   }
 
   return msgs;

@@ -497,10 +497,22 @@ export const updateCommunicationPreferenceSchema = z.object({
   communicationOptOut: z.boolean(),
 });
 
+/** PRODUCT_BACKLOG §2.2 — TR ile başlayan, boşluksuz 26 karakter IBAN. */
+const optionalIban = z
+  .string()
+  .optional()
+  .transform((v) => (v && v.trim() ? v.trim().toUpperCase().replace(/\s+/g, "") : undefined))
+  .refine((v) => v === undefined || /^TR\d{24}$/.test(v), {
+    message: "IBAN, TR ile başlayan 26 karakterlik geçerli bir IBAN olmalıdır.",
+  });
+
 /** EPIC 1 — okulun gecikmiş tahsilat otomasyon ayarları. */
 export const updateCollectionsSettingsSchema = z.object({
   frequencyLimitDays: z.number().int().min(1).max(30),
   autoSendEnabled: z.boolean(),
+  /** PRODUCT_BACKLOG §2.2 — MEB → VakıfBank, diğer → Halkbank */
+  vakifbankIban: optionalIban,
+  halkbankIban: optionalIban,
 });
 
 export const markNotificationReadSchema = z.object({
