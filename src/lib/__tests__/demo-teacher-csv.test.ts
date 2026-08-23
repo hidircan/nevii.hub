@@ -4,7 +4,7 @@ import { parseTeacherCsvContent } from "../import/demo-teacher-csv";
 const SAMPLE_CSV = `ad;eposta;telefon;sube;enstruman
 Turgay Hoşbaş;turgay.hosbas@niluferacar.com.tr;0545 341 09 19;Evka 3;Piyano
 Olcay Özdemir;olcay.ozdemir@niluferacar.com.tr;0535 262 06 23;Evka 3;Gitar
-Ebru Şirince:ebru.sirince@niluferacar.com.tr;0 507 361 78 90;Evka 3;Keman
+Ebru Şirince;ebru.sirince@niluferacar.com.tr;0 507 361 78 90;Evka 3;Keman
 `;
 
 describe("parseTeacherCsvContent — Öğretmenler.csv (ad;eposta;telefon;sube;enstruman)", () => {
