@@ -42,9 +42,11 @@ export async function resolveTaskNotifyUserId(
     }
     // json/memory demo modu — dinamik bir User tablosu yok, sabit bootstrap
     // kimlikleri var (bkz. src/lib/auth/users.ts). Yalnızca OKUNUR, hiçbir
-    // alan değiştirilmez/eklenmez.
-    const { getBootstrapUsersForSeed } = await import("./auth/users");
-    const users = getBootstrapUsersForSeed(tenantId);
+    // alan değiştirilmez/eklenmez. `listBootstrapUsersForTenant` kullanılır
+    // (getBootstrapUsersForSeed DEĞİL) — burada passwordHash'e hiç ihtiyaç
+    // yok ve ona dokunmak gereksiz bcrypt maliyetine yol açar.
+    const { listBootstrapUsersForTenant } = await import("./auth/users");
+    const users = listBootstrapUsersForTenant(tenantId);
     if (users.some((u) => u.id === assigneeId)) return assigneeId;
     return users.find((u) => u.teacherId === assigneeId)?.id;
   } catch {
@@ -75,8 +77,8 @@ export async function isTaskAssigneeActive(tenantId: string, assigneeId: string)
     if (teacher) return teacher.active;
     // Bootstrap admin kimlikleri (json/memory) her zaman aktif kabul edilir —
     // bu demo modunda pasifleştirme mekanizması yok.
-    const { getBootstrapUsersForSeed } = await import("./auth/users");
-    return getBootstrapUsersForSeed(tenantId).some((u) => u.id === assigneeId);
+    const { listBootstrapUsersForTenant } = await import("./auth/users");
+    return listBootstrapUsersForTenant(tenantId).some((u) => u.id === assigneeId);
   } catch {
     return false;
   }

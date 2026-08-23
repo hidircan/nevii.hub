@@ -304,6 +304,28 @@ export function listAdminUsersForTenant(
     .map((u) => ({ id: u.userId, email: u.email!, role: u.role }));
 }
 
+/**
+ * Kök neden düzeltmesi (görev/bildirim zinciri) — `task-notifications.ts`
+ * (`resolveTaskNotifyUserId`/`isTaskAssigneeActive`) yalnızca id/teacherId
+ * eşleşmesi arıyordu ama bunun için `getBootstrapUsersForSeed`'i
+ * çağırıyordu; o da her eşleşen satır için `passwordHash`'i okuyup lazy
+ * bcrypt getter'ını tetikliyordu (bkz. `HASHED`, `listAdminUsersForTenant`
+ * ile AYNI kök neden sınıfı — bu sefer admin dizini değil, görev
+ * atama/bildirim çözümleme yolunda). `passwordHash`e HİÇ dokunmadan aynı
+ * id/teacherId/rol alanlarını döner.
+ */
+export function listBootstrapUsersForTenant(
+  tenantId: string
+): { id: string; email: string; role: AppRole; teacherId?: string; studentId?: string }[] {
+  return HASHED.filter((u) => u.tenantId === tenantId || u.role === "SUPER_ADMIN").map((u) => ({
+    id: u.userId,
+    email: u.email!,
+    role: u.role,
+    teacherId: u.teacherId,
+    studentId: u.studentId,
+  }));
+}
+
 /** Seed users for Prisma (tenant-scoped) */
 export function getBootstrapUsersForSeed(tenantId: string) {
   return HASHED.filter((u) => u.tenantId === tenantId || u.role === "SUPER_ADMIN").map(
