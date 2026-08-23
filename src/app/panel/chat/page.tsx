@@ -1,28 +1,12 @@
-import { PageHeader } from "@/components/ui";
-import { OpenAssistantCta } from "@/components/ai/open-assistant-cta";
-import { Bot } from "lucide-react";
-import { BRAND } from "@/lib/brand";
-
-export const dynamic = "force-dynamic";
+import { redirect } from "next/navigation";
 
 /**
- * The chat experience moved off this dedicated page and into a floating,
- * app-wide assistant (bottom-right on every screen). This route stays alive
- * — for bookmarks/back-navigation/AI log links (`/panel/ai/logs` labels its
- * history with this path) — and now just opens the same assistant panel.
+ * The chat experience moved off this dedicated page and into the full-screen
+ * assistant panel at /panel/maestron-ai. This route stays alive — for
+ * bookmarks/back-navigation/AI log links (`/panel/ai/logs` labels its
+ * history with this path) — and now redirects straight to that big screen
+ * instead of showing a placeholder that only opened the small popup.
  */
 export default function PanelChatPage() {
-  return (
-    <div>
-      <PageHeader title="AI Asistan" />
-      <div className="flex flex-col items-center gap-4 rounded-lg border border-dashed border-[var(--color-border)] bg-[var(--color-surface-muted)] px-6 py-16 text-center dark:border-slate-700 dark:bg-slate-900/50">
-        <Bot className="h-10 w-10 text-amber-400" />
-        <p className="max-w-sm text-sm text-[var(--color-text-muted)] dark:text-slate-300">
-          {BRAND.assistantName} artık her ekranda kullanılabilir; hangi öğrenci, öğretmen veya
-          program sayfasındaysanız oradan da bağlam alır. Aşağıdaki butonla açabilirsiniz.
-        </p>
-        <OpenAssistantCta label="Asistanı aç" />
-      </div>
-    </div>
-  );
+  redirect("/panel/maestron-ai");
 }

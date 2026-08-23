@@ -67,7 +67,7 @@ export function getRouteQuickActions(
         { id: "route-student-risk", label: "Program ve devam", message: `${who} program ve devamlılık risklerini değerlendir` },
         { id: "route-student-schedule", label: "Programını göster", message: `${who} programı` },
       ]);
-      if (isStaff || role === "PARENT") {
+      if (isStaff || role === "STUDENT") {
         pushUnique(actions, [{ id: "route-student-balance", label: "Bakiye", message: `${who} bakiyesi` }]);
       }
       if (isStaff) {
@@ -190,7 +190,7 @@ export function getRouteQuickActions(
       { id: "self-teacher-schedule", label: "Bugünkü programım", message: `${session.teacherId} programı` },
     ]);
   }
-  if (role === "PARENT" && session.studentId && entity?.kind !== "student") {
+  if (role === "STUDENT" && session.studentId && entity?.kind !== "student") {
     pushUnique(actions, [
       { id: "self-student-schedule", label: "Çocuğumun programı", message: `${session.studentId} programı` },
       { id: "self-student-balance", label: "Bakiyem ne kadar?", message: `${session.studentId} bakiyesi` },

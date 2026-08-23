@@ -8,6 +8,7 @@ import { AssistantChatBody } from "@/components/ai/assistant-chat-body";
 import { getRouteQuickActions, type AssistantSession } from "@/components/ai/assistant-quick-actions";
 import { useEffect, useMemo, useState } from "react";
 import type { AppRole } from "@/lib/auth/types";
+import { BRAND } from "@/lib/brand";
 
 /**
  * Maestron AI büyük sohbet — popup ile aynı conversationId / geçmiş.
@@ -54,7 +55,7 @@ export default function MaestronAiPage() {
     <div className="mx-auto flex h-[calc(100vh-6rem)] max-w-4xl flex-col">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h1 className="text-lg font-semibold text-[var(--color-text)]">Maestron AI</h1>
+          <h1 className="text-lg font-semibold text-[var(--color-text)]">{BRAND.assistantName}</h1>
           <p className="text-xs text-[var(--color-text-muted)]">
             {entity ? `Bağlam: ${entity.label}` : "Operasyon asistanı — ekran bağlamına göre öneriler"}
           </p>

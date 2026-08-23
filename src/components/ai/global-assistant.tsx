@@ -6,12 +6,13 @@
  * Renders nothing until the auth check resolves (avoids a flash on /login),
  * and nothing at all when unauthenticated.
  *
- * Deliberately a SINGLE surface: a small draggable popup anchored near the
- * launcher. There is no docked side-panel or fullscreen takeover — this is a
- * lightweight, always-dismissable helper, never a mode that occupies most of
- * the screen. `AssistantMode`/`open({ mode })` still exist in
- * `assistant-context.tsx` for callers that pass them (backward compat), but
- * this component ignores the value and always renders the popup.
+ * The launcher ALWAYS opens the small draggable popup, on every route
+ * (including `/panel/*`) — it never redirects to the full-screen
+ * "Maestron AI" panel (`/panel/maestron-ai`). The full-screen panel is a
+ * SEPARATE, additional access point (reached via the popup's own
+ * "Tam ekranda aç" button, `AssistantChatBody`'s `expandHref`), not a
+ * replacement for the popup — both must stay independently reachable at
+ * all times, on every `/panel/*` screen.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname } from "next/navigation";

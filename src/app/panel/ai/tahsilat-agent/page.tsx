@@ -5,7 +5,8 @@ import { Card, PageHeader, StatCard } from "@/components/ui";
 import { BackButton } from "@/components/back-button";
 import { formatMoney } from "@/lib/utils";
 import { TahsilatQueue } from "@/components/tahsilat-queue";
-import { getCollectionRoi, listFollowUpCases, mergeCollectionRoi } from "@/lib/tahsilat/cases";
+import { getCollectionRoi, getCollectionsDashboard, listFollowUpCases, mergeCollectionRoi } from "@/lib/tahsilat/cases";
+import { isSmsTestMode, isSmsProviderConfigured } from "@/lib/sms";
 import { buildTahsilatQueue } from "@/lib/tahsilat/queue";
 import { requireSessionContext } from "@/lib/auth/session";
 import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
@@ -31,7 +32,11 @@ export default async function TahsilatAgentPage({
   const tenantIds = kurum.scope.mode === "all" ? kurum.scope.tenantIds : [kurum.scope.tenantId];
   const data = await readScopedData(kurum.scope);
   const roi = mergeCollectionRoi(await Promise.all(tenantIds.map((tid) => getCollectionRoi(tid))));
+  const dashboards = await Promise.all(tenantIds.map((tid) => getCollectionsDashboard(tid)));
+  const dashboard = dashboards[0];
   const followUpCases = (await Promise.all(tenantIds.map((tid) => listFollowUpCases(tid)))).flat();
+  const smsTestMode = isSmsTestMode();
+  const smsConfigured = isSmsProviderConfigured();
   const filteredStudent = studentFilter
     ? data.students.find((s) => s.id === studentFilter)
     : undefined;
@@ -72,6 +77,15 @@ export default async function TahsilatAgentPage({
         </Card>
       ) : null}
 
+      {smsTestMode ? (
+        <Card className="mb-4 border-amber-200 bg-amber-50/80">
+          <p className="text-sm font-medium text-amber-900">
+            SMS test modu açık — gerçek SMS yalnızca sunucu allowlist’indeki alıcılara gidebilir.
+            {smsConfigured ? "" : " SMS sağlayıcısı henüz yapılandırılmadı."}
+          </p>
+        </Card>
+      ) : null}
+
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           label="Takip edilen alacak"
@@ -106,6 +120,35 @@ export default async function TahsilatAgentPage({
           icon={<Target className="h-5 w-5" />}
         />
       </div>
+
+      {dashboard ? (
+        <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <StatCard
+            label="Taslak / onay bekleyen"
+            value={dashboard.draftPending}
+            hint="Açık vakalarda henüz gönderilmedi"
+            accent="info"
+          />
+          <StatCard
+            label="Gönderim denemeleri"
+            value={
+              dashboard.sendAttempts.whatsapp + dashboard.sendAttempts.sms + dashboard.sendAttempts.manual
+            }
+            hint={`WA ${dashboard.sendAttempts.whatsapp} · SMS ${dashboard.sendAttempts.sms} · manuel ${dashboard.sendAttempts.manual}`}
+          />
+          <StatCard
+            label="Teslim doğrulanmamış"
+            value={dashboard.sendOutcomes.unverified}
+            hint={`Başarısız ${dashboard.sendOutcomes.failed} · teslim ${dashboard.sendOutcomes.delivered}`}
+          />
+          <StatCard
+            label="Gönderim → ödeme"
+            value={dashboard.conversionRate === null ? "—" : `%${Math.round(dashboard.conversionRate * 100)}`}
+            hint={`7g ${formatMoney(dashboard.last7DaysAttributed)} · 30g ${formatMoney(dashboard.last30DaysAttributed)}`}
+            accent="success"
+          />
+        </div>
+      ) : null}
 
       {(session.role === "SUPER_ADMIN" || session.role === "SCHOOL_ADMIN") && kurum.scope.mode === "single" ? (
         (() => {
