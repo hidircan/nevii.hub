@@ -44,7 +44,9 @@ export type Permission =
   | "documents:write"
   | "trials:read"
   | "trials:write"
-  | "workflows:manage";
+  | "workflows:manage"
+  | "crm:read"
+  | "crm:write";
 
 const ROLE_PERMISSIONS: Record<AppRole, Permission[]> = {
   SUPER_ADMIN: [
@@ -81,6 +83,8 @@ const ROLE_PERMISSIONS: Record<AppRole, Permission[]> = {
     "trials:read",
     "trials:write",
     "workflows:manage",
+    "crm:read",
+    "crm:write",
   ],
   SCHOOL_ADMIN: [
     "attendance:write",
@@ -115,6 +119,8 @@ const ROLE_PERMISSIONS: Record<AppRole, Permission[]> = {
     "trials:read",
     "trials:write",
     "workflows:manage",
+    "crm:read",
+    "crm:write",
   ],
   TEACHER: [
     "attendance:write",

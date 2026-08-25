@@ -95,7 +95,7 @@ export const studentSchema = z.object({
   motherName: optionalTrimmed,
   fatherName: optionalTrimmed,
   branchId: z.string().min(1),
-  instrument: z.enum(["Piyano", "Yan Flüt", "Gitar", "Bateri", "Keman", "Şan"]),
+  instrument: z.enum(["Piyano", "Yan Flüt", "Gitar", "Bateri", "Keman", "Şan", "Bağlama", "Elektro Gitar"]),
   teacherId: z.string().min(1),
   packageName: z.string().min(1),
   weeklyLessonCount: z.coerce.number().int().min(1),
@@ -250,7 +250,7 @@ export const updateStudentPaymentProfileSchema = z
     path: ["monthlyFeeOverrideReason"],
   });
 
-const TEACHER_INSTRUMENT_ENUM = ["Piyano", "Yan Flüt", "Gitar", "Bateri", "Keman", "Şan"] as const;
+const TEACHER_INSTRUMENT_ENUM = ["Piyano", "Yan Flüt", "Gitar", "Bateri", "Keman", "Şan", "Bağlama", "Elektro Gitar"] as const;
 const INSTRUMENT_LEVEL_ENUM = ["Başlangıç", "Orta", "İleri"] as const;
 
 /**
@@ -370,7 +370,7 @@ export const roomSchema = z.object({
   branchId: z.string().min(1),
   capacity: z.coerce.number().int().min(1),
   instruments: z
-    .array(z.enum(["Piyano", "Yan Flüt", "Gitar", "Bateri", "Keman", "Şan"]))
+    .array(z.enum(["Piyano", "Yan Flüt", "Gitar", "Bateri", "Keman", "Şan", "Bağlama", "Elektro Gitar"]))
     .min(1),
 });
 
@@ -378,7 +378,7 @@ export const lessonSchema = z.object({
   studentId: z.string().min(1),
   teacherId: z.string().min(1),
   roomId: z.string().min(1),
-  instrument: z.enum(["Piyano", "Yan Flüt", "Gitar", "Bateri", "Keman", "Şan"]),
+  instrument: z.enum(["Piyano", "Yan Flüt", "Gitar", "Bateri", "Keman", "Şan", "Bağlama", "Elektro Gitar"]),
   startAt: z.string().min(1),
   durationMinutes: z.coerce.number().refine((v) => (LESSON_DURATION_OPTIONS as readonly number[]).includes(v), {
     message: "Ders süresi yalnızca 30, 40 veya 50 dakika olabilir.",
@@ -418,7 +418,7 @@ export const cancelLessonSchema = z.object({
 
 export const suggestLessonSlotsSchema = z.object({
   studentId: z.string().min(1),
-  instrument: z.enum(["Piyano", "Yan Flüt", "Gitar", "Bateri", "Keman", "Şan"]),
+  instrument: z.enum(["Piyano", "Yan Flüt", "Gitar", "Bateri", "Keman", "Şan", "Bağlama", "Elektro Gitar"]),
   teacherId: z.string().min(1).optional(),
   daysAhead: z.coerce.number().int().positive().max(60).optional(),
   maxSlots: z.coerce.number().int().positive().max(50).optional(),
@@ -430,7 +430,7 @@ export const lessonSeriesParamsBaseSchema = z.object({
   teacherId: z.string().min(1),
   roomId: z.string().min(1),
   branchId: z.string().min(1),
-  instrument: z.enum(["Piyano", "Yan Flüt", "Gitar", "Bateri", "Keman", "Şan"]),
+  instrument: z.enum(["Piyano", "Yan Flüt", "Gitar", "Bateri", "Keman", "Şan", "Bağlama", "Elektro Gitar"]),
   weekday: z.coerce.number().int().min(0).max(6),
   startTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Saat HH:mm biçiminde olmalı"),
   durationMinutes: z.coerce.number().int().min(15).max(240),
@@ -489,7 +489,7 @@ export const makeupSlotSchema = z.object({
   reasons: z.array(z.string()),
 });
 
-const INSTRUMENT_ENUM = ["Piyano", "Yan Flüt", "Gitar", "Bateri", "Keman", "Şan"] as const;
+const INSTRUMENT_ENUM = ["Piyano", "Yan Flüt", "Gitar", "Bateri", "Keman", "Şan", "Bağlama", "Elektro Gitar"] as const;
 
 export const createFeeRuleSchema = z.object({
   teacherId: z.string().min(1),
@@ -756,7 +756,7 @@ const STUDENT_TYPE_FOR_HOMEWORK = [
   "Konservatuvar Hazırlık",
   "Güzel Sanatlar Lisesi Hazırlık",
 ] as const;
-const INSTRUMENT_FOR_HOMEWORK = ["Piyano", "Yan Flüt", "Gitar", "Bateri", "Keman", "Şan"] as const;
+const INSTRUMENT_FOR_HOMEWORK = ["Piyano", "Yan Flüt", "Gitar", "Bateri", "Keman", "Şan", "Bağlama", "Elektro Gitar"] as const;
 
 /**
  * EPIC 6B — küçük dosya/foto/kısa video için base64; ~2MB ham veri sınırı
@@ -1032,71 +1032,6 @@ export const socialMediaConsentSchema = z.object({
   relationship: z.string().min(1),
   scopes: z.array(z.enum(["photo","video","name","voice","website","instagram","other"])).min(1),
   sourceDocumentRef: z.string().optional(),
-});
-
-/** Faz 8 — KVKK açık rıza yönetimi. */
-export const createConsentTextVersionSchema = z.object({
-  consentType: z.string().min(1),
-  bodyText: z.string().min(1),
-  effectiveFrom: z.string().min(1),
-});
-
-export const grantKvkkConsentSchema = z.object({
-  subjectType: z.enum(["student", "parent", "user"]),
-  subjectId: z.string().min(1),
-  consentType: z.string().min(1),
-  channel: z.string().min(1),
-  /** Yalnızca consentSettings.recordDeviceInfo=true iken kalıcılaştırılır. */
-  deviceInfo: z.object({ ip: z.string().optional(), userAgent: z.string().optional() }).optional(),
-});
-
-export const withdrawKvkkConsentSchema = z.object({
-  consentId: z.string().min(1),
-  reason: z.string().optional(),
-});
-
-export const updateConsentSettingsSchema = z.object({
-  restrictedFeatures: z.array(z.string()),
-  recordDeviceInfo: z.boolean(),
-});
-
-/** Faz 11 — CRM arama/mesaj günlüğü. */
-export const createCallLogSchema = z.object({
-  callerNumber: z.string().min(1),
-  callerName: z.string().optional(),
-  direction: z.enum(["inbound", "outbound"]),
-  answered: z.boolean(),
-  durationSeconds: z.coerce.number().int().min(0).optional(),
-  occurredAt: z.string().min(1),
-  note: z.string().optional(),
-});
-
-export const assignCallContactSchema = z.object({
-  callId: z.string().min(1),
-  contactType: z.enum(["student", "parent", "lead"]),
-  contactId: z.string().min(1),
-});
-
-export const markCallbackDoneSchema = z.object({
-  callId: z.string().min(1),
-});
-
-export const createMessageLogSchema = z.object({
-  channel: z.enum(["sms", "whatsapp", "email", "other"]),
-  senderIdentifier: z.string().min(1),
-  occurredAt: z.string().min(1),
-  contentOrSummary: z.string().min(1),
-});
-
-export const assignMessageContactSchema = z.object({
-  messageId: z.string().min(1),
-  contactType: z.enum(["student", "parent", "lead"]),
-  contactId: z.string().min(1),
-});
-
-export const setMessageStatusSchema = z.object({
-  messageId: z.string().min(1),
-  status: z.enum(["unread", "read", "replied"]),
 });
 
 export const closedDaySchema = z.object({
@@ -1527,4 +1462,83 @@ export const listTasksFilterSchema = z.object({
   dueBefore: z.string().optional(),
   dueAfter: z.string().optional(),
   quickFilter: z.enum(["all", "mine", "today", "week", "overdue", "completed", "archived"]).optional(),
+});
+
+// Faz 11 — CRM (arama/mesaj günlüğü). `contactType`/`contactId` create
+// şemalarında YOK — otomatik telefon eşleştirme `createCallLogTool`/
+// `createMessageLogTool` içinde (crm-contact-matching.ts) yapılır, manuel
+// atama ayrı bir tool/schema (`assign*ContactSchema`) ile yapılır.
+const CRM_CONTACT_TYPE_ENUM = ["student", "parent", "lead"] as const;
+
+/** Manuel arama günlüğü — telefoni entegrasyonu yok, serbest metin numara (kısa dahili numaralar da geçerli). */
+export const createCallLogSchema = z.object({
+  callerNumber: z.string().min(3).max(32),
+  callerName: z.string().min(1).max(200).optional(),
+  direction: z.enum(["inbound", "outbound"]),
+  answered: z.boolean(),
+  durationSeconds: z.coerce.number().int().min(0).max(24 * 60 * 60).optional(),
+  occurredAt: z.string().datetime(),
+  note: z.string().max(2000).optional(),
+});
+
+export const assignCallContactSchema = z.object({
+  callId: z.string().min(1),
+  contactType: z.enum(CRM_CONTACT_TYPE_ENUM),
+  contactId: z.string().min(1),
+});
+
+export const markCallbackDoneSchema = z.object({
+  callId: z.string().min(1),
+});
+
+/** `senderIdentifier` telefon VEYA e-posta olabilir (channel="email"), bu yüzden serbest metin. */
+export const createMessageLogSchema = z.object({
+  channel: z.enum(["sms", "whatsapp", "email", "other"]),
+  senderIdentifier: z.string().min(3).max(320),
+  occurredAt: z.string().datetime(),
+  contentOrSummary: z.string().min(1).max(10000),
+});
+
+export const assignMessageContactSchema = z.object({
+  messageId: z.string().min(1),
+  contactType: z.enum(CRM_CONTACT_TYPE_ENUM),
+  contactId: z.string().min(1),
+});
+
+/**
+ * "unread" yalnızca `createMessageLog` tarafından oluşturuşta atanan başlangıç
+ * durumudur — bir kullanıcı eylemiyle geri DÖNÜLEMEZ; bu yüzden hedef durum
+ * kümesi kasıtlı olarak "read"/"replied" ile sınırlıdır.
+ */
+export const setMessageStatusSchema = z.object({
+  messageId: z.string().min(1),
+  status: z.enum(["read", "replied"]),
+});
+
+// Faz 8 — KVKK rıza yönetimi.
+const CONSENT_SUBJECT_TYPE_ENUM = ["student", "parent", "user"] as const;
+
+/** Yeni hukuki metin versiyonu — append-only, mevcut versiyonlar hiç düzenlenmez. */
+export const createConsentTextVersionSchema = z.object({
+  consentType: z.string().min(1).max(100),
+  bodyText: z.string().min(1).max(50000),
+  effectiveFrom: z.string().datetime(),
+});
+
+export const grantKvkkConsentSchema = z.object({
+  subjectType: z.enum(CONSENT_SUBJECT_TYPE_ENUM),
+  subjectId: z.string().min(1),
+  consentType: z.string().min(1).max(100),
+  channel: z.string().min(1).max(100),
+  deviceInfo: z.object({ ip: z.string().max(64).optional(), userAgent: z.string().max(500).optional() }).optional(),
+});
+
+export const withdrawKvkkConsentSchema = z.object({
+  consentId: z.string().min(1),
+  reason: z.string().max(2000).optional(),
+});
+
+export const updateConsentSettingsSchema = z.object({
+  restrictedFeatures: z.array(z.string().min(1).max(100)).max(100),
+  recordDeviceInfo: z.boolean(),
 });
