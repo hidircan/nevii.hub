@@ -204,6 +204,63 @@ export function lessonCardTier(heightPx: number): "min" | "compact" | "full" {
   return "full";
 }
 
+/**
+ * Ders hover kartındaki satırlar — saf fonksiyon, DOM'\''dan bağımsız birim
+ * testlerinde kullanılır (bkz. `LessonHoverCard`, tek tüketicisi).
+ */
+export function lessonHoverCardLines(
+  lesson: Lesson,
+  student?: Student,
+  teacher?: Teacher,
+  room?: Room,
+  branchName?: string
+): string[] {
+  const timeRange = `${format(parseISO(lesson.startAt), "HH:mm")}–${format(parseISO(lesson.endAt), "HH:mm")}`;
+  const dateLabel = format(parseISO(lesson.startAt), "d MMMM yyyy, EEEE", { locale: tr });
+  const lines = [student?.name ?? "Öğrenci bilinmiyor", dateLabel, timeRange];
+  if (teacher?.name) lines.push(`Öğretmen: ${teacher.name}`);
+  if (lesson.instrument) lines.push(`Enstrüman: ${lesson.instrument}`);
+  if (room?.name) lines.push(`Salon: ${room.name}`);
+  if (branchName) lines.push(`Şube: ${branchName}`);
+  if (lesson.type === "makeup") lines.push("Telafi dersi");
+  if (lesson.availabilityOverride) lines.push("Öğretmenin müsait olmadığı bir saat");
+  return lines;
+}
+
+function LessonHoverCard({
+  lesson,
+  student,
+  teacher,
+  room,
+  branchName,
+}: {
+  lesson: Lesson;
+  student?: Student;
+  teacher?: Teacher;
+  room?: Room;
+  branchName?: string;
+}) {
+  const [name, dateLabel, timeRange, ...rest] = lessonHoverCardLines(lesson, student, teacher, room, branchName);
+  return (
+    <div
+      role="tooltip"
+      className="pointer-events-none absolute left-1/2 top-full z-50 mt-1.5 w-56 -translate-x-1/2 rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)] p-2.5 text-left text-[11px] leading-snug text-[var(--color-text)] opacity-0 shadow-[var(--shadow-md)] transition-opacity delay-150 duration-100 group-hover:opacity-100"
+    >
+      <p className="font-bold">{name}</p>
+      <p className="text-[var(--color-text-muted)]">{dateLabel}</p>
+      <p className="text-[var(--color-text-muted)]">{timeRange}</p>
+      {rest.map((line) => (
+        <p
+          key={line}
+          className={line === "Telafi dersi" || line === "Öğretmenin müsait olmadığı bir saat" ? "mt-1 font-medium text-amber-600" : undefined}
+        >
+          {line}
+        </p>
+      ))}
+    </div>
+  );
+}
+
 /** Ders kartının erişilebilir açıklaması — ekran okuyucu için tüm bağlamı tek cümlede verir. */
 export function lessonAccessibleLabel(
   lesson: Lesson,
@@ -1715,7 +1772,7 @@ export function ProgramStudio({
                         }
                       }}
                       aria-label={lessonAccessibleLabel(lesson, student, teacher, room, branchNames[lesson.branchId])}
-                      className={`absolute z-[1] overflow-hidden rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface)] p-1.5 text-[10px] shadow-[var(--shadow-sm)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-focus-ring)] ${
+                      className={`group absolute z-[1] rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface)] p-1.5 text-[10px] shadow-[var(--shadow-sm)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-focus-ring)] hover:z-[20] ${
                         editable ? "cursor-grab active:cursor-grabbing" : "cursor-pointer opacity-90"
                       }`}
                       style={{
@@ -1732,6 +1789,13 @@ export function ProgramStudio({
                         lesson={lesson}
                         branchName={branchNames[lesson.branchId]}
                         tier={tier}
+                      />
+                      <LessonHoverCard
+                        lesson={lesson}
+                        student={student}
+                        teacher={teacher}
+                        room={room}
+                        branchName={branchNames[lesson.branchId]}
                       />
                       {tier !== "min" ? (
                         <div className="mt-0.5 flex flex-wrap items-center gap-0.5">

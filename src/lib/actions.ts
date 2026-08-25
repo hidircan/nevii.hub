@@ -564,6 +564,11 @@ export async function actionAddStudent(formData: FormData) {
             const raw = String(formData.get("paymentDueDay") || "");
             return raw ? Number(raw) : undefined;
           })(),
+          paymentDueRanges: (() => {
+            const start = String(formData.get("paymentDueRangeStart") || "");
+            const end = String(formData.get("paymentDueRangeEnd") || "");
+            return start && end ? [{ start: Number(start), end: Number(end) }] : undefined;
+          })(),
           accountResponsibility: (() => {
             const raw = String(formData.get("accountResponsibility") || "");
             return raw === "SELF_MANAGED" || raw === "PARENT_MANAGED" ? raw : undefined;

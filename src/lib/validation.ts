@@ -128,6 +128,8 @@ export const studentSchema = z.object({
   discountValue: z.coerce.number().min(0).optional(),
   paymentMethod: z.enum(["credit_card", "cash", "transfer"]).optional(),
   paymentDueDay: z.coerce.number().int().min(1).max(31).optional(),
+  /** Verilirse tekil `paymentDueDay`'in YERİNE birincil kaynak olur (bkz. actionUpdateStudentProfile). */
+  paymentDueRanges: paymentDueRangesSchema,
   /** Yalnız yetkili yönetici (tool RBAC'ı) elle nihai ücret girebilir — verilirse gerekçe zorunludur. */
   monthlyFeeOverrideAmount: z.coerce.number().int().min(0).optional(),
   monthlyFeeOverrideReason: optionalTrimmed,

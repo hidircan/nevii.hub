@@ -1,40 +1,47 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui";
-import { INSTRUMENTS, STUDENT_TYPES, type AnnouncementAudienceType, type Instrument } from "@/lib/types";
 
-type BranchOption = { id: string; shortName: string };
-
-const AUDIENCE_LABELS: Record<AnnouncementAudienceType, string> = {
-  all: "Herkes",
-  branch: "Belirli bir şube",
-  teachers: "Yalnızca öğretmenler",
-  parents: "Yalnızca veliler",
-  students: "Yalnızca öğrenciler",
-  studentType: "Belirli bir öğrenci türü",
-  instrument: "Belirli bir enstrüman (çalan öğrenci + öğreten öğretmen)",
-  selected: "Seçili kullanıcılar (userId listesi)",
+export type AnnouncementRecipientOption = {
+  userId: string;
+  name: string;
+  role: string;
+  subLabel?: string;
 };
 
-export function AnnouncementForm({ branches }: { branches: BranchOption[] }) {
+/** Duyurular artık yalnız şahsa özel (seçili kullanıcı) gönderilebilir — bkz. listAnnouncementRecipientsTool. */
+export function AnnouncementForm({ recipients }: { recipients: AnnouncementRecipientOption[] }) {
   const router = useRouter();
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
-  const [audienceType, setAudienceType] = useState<AnnouncementAudienceType>("all");
-  const [branchId, setBranchId] = useState(branches[0]?.id ?? "");
-  const [studentType, setStudentType] = useState(STUDENT_TYPES[0]);
-  const [instrument, setInstrument] = useState<Instrument>(INSTRUMENTS[0]);
-  const [userIdsText, setUserIdsText] = useState("");
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [search, setSearch] = useState("");
   const [publishNow, setPublishNow] = useState(true);
   const [pinned, setPinned] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const pickerRef = useRef<HTMLDivElement>(null);
 
   const ACCEPT =
     "application/pdf,image/jpeg,image/png,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,.pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx";
+
+  const filteredRecipients = useMemo(() => {
+    const q = search.trim().toLocaleLowerCase("tr");
+    if (!q) return recipients;
+    return recipients.filter(
+      (r) => r.name.toLocaleLowerCase("tr").includes(q) || r.role.toLocaleLowerCase("tr").includes(q)
+    );
+  }, [recipients, search]);
+
+  const selectedRecipients = recipients.filter((r) => selectedIds.includes(r.userId));
+
+  function toggleRecipient(userId: string) {
+    setSelectedIds((prev) => (prev.includes(userId) ? prev.filter((id) => id !== userId) : [...prev, userId]));
+  }
 
   function inferAnnouncementMime(file: File): string {
     if (file.type) return file.type;
@@ -60,22 +67,12 @@ export function AnnouncementForm({ branches }: { branches: BranchOption[] }) {
 
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault();
-    setBusy(true);
     setError(null);
 
-    let audienceRef: Record<string, unknown> | undefined;
-    if (audienceType === "branch") audienceRef = { branchId };
-    if (audienceType === "studentType") audienceRef = { studentType };
-    if (audienceType === "instrument") audienceRef = { instrument: [instrument] };
-    if (audienceType === "selected") {
-      audienceRef = {
-        userIds: userIdsText
-          .split(/[,\n]/)
-          .map((s) => s.trim())
-          .filter(Boolean),
-      };
+    if (selectedIds.length === 0) {
+      setError("En az bir alıcı seçin.");
+      return;
     }
-
     if (files.length > 3) {
       setError("En fazla 3 dosya eklenebilir.");
       return;
@@ -87,6 +84,7 @@ export function AnnouncementForm({ branches }: { branches: BranchOption[] }) {
       }
     }
 
+    setBusy(true);
     try {
       const attachments = await Promise.all(
         files.map(async (file) => ({
@@ -101,8 +99,8 @@ export function AnnouncementForm({ branches }: { branches: BranchOption[] }) {
         body: JSON.stringify({
           title,
           body,
-          audienceType,
-          audienceRef,
+          audienceType: "selected",
+          audienceRef: { userIds: selectedIds },
           status: publishNow ? "published" : "draft",
           pinned,
           attachments: attachments.length ? attachments : undefined,
@@ -116,7 +114,7 @@ export function AnnouncementForm({ branches }: { branches: BranchOption[] }) {
       }
       setTitle("");
       setBody("");
-      setUserIdsText("");
+      setSelectedIds([]);
       setFiles([]);
       router.refresh();
     } catch {
@@ -129,7 +127,7 @@ export function AnnouncementForm({ branches }: { branches: BranchOption[] }) {
   return (
     <form onSubmit={(event) => void onSubmit(event)} className="space-y-3">
       <div>
-        <label className="mb-1 block text-xs font-medium text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">Başlık</label>
+        <label className="mb-1 block text-xs font-medium text-[var(--color-text-muted)]">Başlık</label>
         <input
           value={title}
           onChange={(event) => setTitle(event.target.value)}
@@ -138,7 +136,7 @@ export function AnnouncementForm({ branches }: { branches: BranchOption[] }) {
         />
       </div>
       <div>
-        <label className="mb-1 block text-xs font-medium text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">İçerik</label>
+        <label className="mb-1 block text-xs font-medium text-[var(--color-text-muted)]">İçerik</label>
         <textarea
           value={body}
           onChange={(event) => setBody(event.target.value)}
@@ -147,87 +145,93 @@ export function AnnouncementForm({ branches }: { branches: BranchOption[] }) {
           className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-muted)] outline-none ring-amber-200 focus:ring-2 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
         />
       </div>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div>
-          <label className="mb-1 block text-xs font-medium text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">Hedef kitle</label>
-          <select
-            value={audienceType}
-            onChange={(event) => setAudienceType(event.target.value as AnnouncementAudienceType)}
-            className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-muted)] outline-none ring-amber-200 focus:ring-2 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
-          >
-            {(Object.keys(AUDIENCE_LABELS) as AnnouncementAudienceType[]).map((key) => (
-              <option key={key} value={key}>
-                {AUDIENCE_LABELS[key]}
-              </option>
-            ))}
-          </select>
-        </div>
-        {audienceType === "branch" ? (
-          <div>
-            <label className="mb-1 block text-xs font-medium text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">Şube</label>
-            <select
-              value={branchId}
-              onChange={(event) => setBranchId(event.target.value)}
-              className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-muted)] outline-none ring-amber-200 focus:ring-2 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
-            >
-              {branches.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.shortName}
-                </option>
-              ))}
-            </select>
-          </div>
-        ) : null}
-        {audienceType === "studentType" ? (
-          <div>
-            <label className="mb-1 block text-xs font-medium text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
-              Öğrenci türü
-            </label>
-            <select
-              value={studentType}
-              onChange={(event) => setStudentType(event.target.value as typeof studentType)}
-              className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-muted)] outline-none ring-amber-200 focus:ring-2 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
-            >
-              {STUDENT_TYPES.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </select>
-          </div>
-        ) : null}
-        {audienceType === "instrument" ? (
-          <div>
-            <label className="mb-1 block text-xs font-medium text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
-              Enstrüman
-            </label>
-            <select
-              value={instrument}
-              onChange={(event) => setInstrument(event.target.value as Instrument)}
-              className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-muted)] outline-none ring-amber-200 focus:ring-2 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
-            >
-              {INSTRUMENTS.map((i) => (
-                <option key={i} value={i}>
-                  {i}
-                </option>
-              ))}
-            </select>
+
+      <div ref={pickerRef} className="relative">
+        <label className="mb-1 block text-xs font-medium text-[var(--color-text-muted)]">
+          Alıcılar (şahsa özel — en az 1 kişi seçin)
+        </label>
+        <button
+          type="button"
+          onClick={() => setPickerOpen((v) => !v)}
+          className="flex w-full flex-wrap items-center gap-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-left text-sm outline-none ring-amber-200 focus:ring-2 dark:border-slate-700 dark:bg-slate-900"
+        >
+          {selectedRecipients.length === 0 ? (
+            <span className="text-[var(--color-text-muted)]">Kişi seçmek için tıklayın…</span>
+          ) : (
+            selectedRecipients.map((r) => (
+              <span
+                key={r.userId}
+                className="flex items-center gap-1 rounded-full bg-[var(--color-primary-soft)] px-2 py-0.5 text-xs font-medium text-[var(--color-primary)]"
+              >
+                {r.name}
+                <span
+                  role="button"
+                  tabIndex={-1}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleRecipient(r.userId);
+                  }}
+                  className="cursor-pointer text-[var(--color-primary)]/70 hover:text-[var(--color-primary)]"
+                  aria-label={`${r.name} kaldır`}
+                >
+                  ×
+                </span>
+              </span>
+            ))
+          )}
+        </button>
+
+        {pickerOpen ? (
+          <div className="absolute z-30 mt-1 w-full rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)] shadow-[var(--shadow-md)] dark:border-slate-700 dark:bg-slate-900">
+            <div className="border-b border-[var(--color-border)] p-2">
+              <input
+                autoFocus
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="İsim veya rol ara…"
+                className="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-sm outline-none dark:border-slate-700 dark:bg-slate-900"
+              />
+            </div>
+            <div className="max-h-60 overflow-y-auto p-1">
+              {filteredRecipients.length === 0 ? (
+                <p className="px-2 py-3 text-center text-xs text-[var(--color-text-muted)]">Sonuç yok.</p>
+              ) : (
+                filteredRecipients.map((r) => (
+                  <label
+                    key={r.userId}
+                    className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-[var(--color-surface-muted)] dark:hover:bg-slate-800"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.includes(r.userId)}
+                      onChange={() => toggleRecipient(r.userId)}
+                      className="h-4 w-4 rounded border-slate-300"
+                    />
+                    <span className="flex-1">
+                      <span className="block text-[var(--color-text)]">{r.name}</span>
+                      <span className="block text-[11px] text-[var(--color-text-muted)]">
+                        {r.role}
+                        {r.subLabel ? ` · ${r.subLabel}` : ""}
+                      </span>
+                    </span>
+                  </label>
+                ))
+              )}
+            </div>
+            <div className="flex items-center justify-between border-t border-[var(--color-border)] p-2">
+              <span className="text-[11px] text-[var(--color-text-muted)]">{selectedIds.length} kişi seçildi</span>
+              <button
+                type="button"
+                onClick={() => setPickerOpen(false)}
+                className="rounded-md bg-[var(--color-primary)] px-2.5 py-1 text-xs font-medium text-white"
+              >
+                Tamam
+              </button>
+            </div>
           </div>
         ) : null}
       </div>
-      {audienceType === "selected" ? (
-        <div>
-          <label className="mb-1 block text-xs font-medium text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
-            Kullanıcı ID listesi (virgül veya satırla ayırın)
-          </label>
-          <textarea
-            value={userIdsText}
-            onChange={(event) => setUserIdsText(event.target.value)}
-            rows={2}
-            className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-muted)] outline-none ring-amber-200 focus:ring-2 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
-          />
-        </div>
-      ) : null}
+
       <div>
         <label className="mb-1 block text-xs font-medium text-[var(--color-text-muted)]">
           Ekler (en fazla 3, her biri 2 MB — PDF, JPG, PNG, DOC/DOCX, XLS/XLSX)
@@ -240,9 +244,7 @@ export function AnnouncementForm({ branches }: { branches: BranchOption[] }) {
           className="block w-full text-xs text-[var(--color-text-muted)] file:mr-2 file:rounded-md file:border-0 file:bg-[var(--color-surface-muted)] file:px-2 file:py-1"
         />
         {files.length > 0 ? (
-          <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">
-            {files.map((f) => f.name).join(", ")}
-          </p>
+          <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">{files.map((f) => f.name).join(", ")}</p>
         ) : null}
       </div>
       <div className="flex flex-wrap items-center gap-4">

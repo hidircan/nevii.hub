@@ -1596,11 +1596,14 @@ export async function createStudentTool(
       email: v.data.email ?? "",
       notes: v.data.notes ?? "",
       lessonDurationMinutes: v.data.lessonDurationMinutes as Student["lessonDurationMinutes"],
-      // Faz 1A — kayıt formu hâlâ tekil bir gün alıyor; tek-elemanlı bir
-      // aralık olarak da saklanır ki öğrenci detayı/tahsilat ekranları baştan
-      // itibaren yeni modeli okuyabilsin. Yönetici sonradan düzenleme
-      // ekranından birden fazla aralık ekleyebilir.
-      paymentDueRanges: v.data.paymentDueDay ? [{ start: v.data.paymentDueDay, end: v.data.paymentDueDay }] : undefined,
+      // Faz 1A — kayıt formu artık bir aralık (start-end) da alabilir;
+      // verilirse tekil `paymentDueDay`'in yerine birincil kaynaktır. Yalnız
+      // tekil gün girildiyse geriye dönük tek-elemanlı aralık üretilir.
+      paymentDueRanges: v.data.paymentDueRanges?.length
+        ? v.data.paymentDueRanges
+        : v.data.paymentDueDay
+          ? [{ start: v.data.paymentDueDay, end: v.data.paymentDueDay }]
+          : undefined,
       // Faz 1B — explicit studentTypes yoksa legacy tekil studentType'tan türetilir.
       studentTypes: v.data.studentTypes?.length ? v.data.studentTypes : v.data.studentType ? [v.data.studentType] : undefined,
       ...pricing,
@@ -4457,6 +4460,50 @@ export async function listAllAnnouncementsTool(
     return ok({ announcements });
   } catch (e) {
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "listAllAnnouncements failed");
+  }
+}
+
+/** Şahsa özel duyuru gönderirken seçilecek gerçek kullanıcı listesi: aktif öğretmenler + portal erişimi olan veli/öğrenciler. */
+export async function listAnnouncementRecipientsTool(
+  ctx: ServiceContext
+): Promise<ServiceResult<{ recipients: { userId: string; name: string; role: string; subLabel?: string }[] }>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+
+  try {
+    const data = await readData();
+
+    const teacherEntries = await Promise.all(
+      data.teachers
+        .filter((t) => t.active)
+        .map(async (t) => {
+          const userId = await getUserIdByTeacherId(ctx.tenantId, t.id);
+          return userId ? { userId, name: t.name, role: "Öğretmen" } : null;
+        })
+    );
+
+    const { listActiveAccessForTenant } = await import("../student-portal-access");
+    const access = await listActiveAccessForTenant(ctx.tenantId);
+    const studentById = new Map(data.students.map((s) => [s.id, s]));
+    const studentEntries = access
+      .map((a) => {
+        const student = studentById.get(a.studentId);
+        if (!student) return null;
+        return a.accessType === "SELF"
+          ? { userId: a.userId, name: student.name, role: "Öğrenci" }
+          : { userId: a.userId, name: student.parentName || `${student.name} velisi`, role: "Veli", subLabel: student.name };
+      })
+      .filter((e): e is NonNullable<typeof e> => e != null);
+
+    const seen = new Set<string>();
+    const recipients = [...teacherEntries, ...studentEntries]
+      .filter((e): e is NonNullable<typeof e> => e != null)
+      .filter((r) => (seen.has(r.userId) ? false : (seen.add(r.userId), true)))
+      .sort((a, b) => a.name.localeCompare(b.name, "tr"));
+
+    return ok({ recipients });
+  } catch (e) {
+    return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "listAnnouncementRecipients failed");
   }
 }
 

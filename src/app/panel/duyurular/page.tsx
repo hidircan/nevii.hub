@@ -1,7 +1,6 @@
 import { redirect } from "next/navigation";
 import { requireSessionContext } from "@/lib/auth/session";
-import { listAllAnnouncementsTool } from "@/lib/services";
-import { readData } from "@/lib/store";
+import { listAllAnnouncementsTool, listAnnouncementRecipientsTool } from "@/lib/services";
 import { Badge, Card, EmptyState, PageHeader } from "@/components/ui";
 import { AnnouncementForm } from "@/components/announcement-form";
 import { AnnouncementStatusButton } from "@/components/announcement-status-button";
@@ -33,8 +32,12 @@ export default async function DuyurularPage() {
     redirect("/panel");
   }
 
-  const [result, data] = await Promise.all([listAllAnnouncementsTool(ctx), readData()]);
+  const [result, recipientsResult] = await Promise.all([
+    listAllAnnouncementsTool(ctx),
+    listAnnouncementRecipientsTool(ctx),
+  ]);
   const announcements = result.ok ? result.data.announcements : [];
+  const recipients = recipientsResult.ok ? recipientsResult.data.recipients : [];
 
   return (
     <div>
@@ -45,9 +48,7 @@ export default async function DuyurularPage() {
 
       <Card className="mb-6">
         <h2 className="mb-3 text-sm font-semibold text-[var(--color-text)] dark:text-slate-200">Yeni duyuru</h2>
-        <AnnouncementForm
-          branches={data.settings.branches.map((b) => ({ id: b.id, shortName: b.shortName }))}
-        />
+        <AnnouncementForm recipients={recipients} />
       </Card>
 
       <h2 className="mb-3 text-lg font-semibold text-[var(--color-text)] dark:text-slate-50">Duyurular</h2>

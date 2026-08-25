@@ -52,6 +52,7 @@ export {
   listNotificationsTool,
   markNotificationReadTool,
   listAllAnnouncementsTool,
+  listAnnouncementRecipientsTool,
   createAnnouncementTool,
   updateAnnouncementStatusTool,
   listAnnouncementsForUserTool,

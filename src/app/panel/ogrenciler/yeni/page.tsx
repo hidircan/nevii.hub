@@ -199,8 +199,12 @@ export default async function NewStudentPage() {
                   </Select>
                 </div>
                 <div>
-                  <Label>Ödeme günü (1–31, opsiyonel)</Label>
-                  <Input name="paymentDueDay" type="number" min={1} max={31} />
+                  <Label>Ödeme günü aralığı (1–31, opsiyonel)</Label>
+                  <div className="flex items-center gap-2">
+                    <Input name="paymentDueRangeStart" type="number" min={1} max={31} placeholder="Örn. 1" />
+                    <span className="text-sm text-[var(--color-text-muted)]">–</span>
+                    <Input name="paymentDueRangeEnd" type="number" min={1} max={31} placeholder="Örn. 5" />
+                  </div>
                 </div>
               </div>
             </div>
