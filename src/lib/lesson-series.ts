@@ -37,6 +37,8 @@ export type SeriesParams = {
    */
   term?: StudentTermType;
   academicYearStart?: number;
+  /** Faz 6 — demo/test amaçlı otomatik üretim etiketi; verilmezse gerçek (undefined) seri. */
+  demoTag?: string;
 };
 
 /**
@@ -196,6 +198,7 @@ export function createLessonSeriesData(
     updatedAt: nowIso,
     term: params.term,
     academicYearStart: params.academicYearStart,
+    demoTag: params.demoTag,
   };
 
   const newLessons: Lesson[] = validChecks.map((c) => ({

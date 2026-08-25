@@ -10,6 +10,8 @@
     "lint": "eslint",
     "prisma:generate": "prisma generate",
     "db:push": "npx prisma db push",
+    "seed:demo-schedule": "npx tsx scripts/seed-demo-schedule.ts",
+    "backfill:display-ids": "npx tsx scripts/backfill-display-ids.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },

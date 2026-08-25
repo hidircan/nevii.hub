@@ -47,6 +47,24 @@ npm run dev
 
 → [http://localhost:3000](http://localhost:3000)
 
+## Demo ders programı seed'i (Faz 6)
+
+`npm run seed:demo-schedule` — aktif, henüz hiçbir programı olmayan HER öğrenci
+için kendi atanmış öğretmen/şube/enstrümanıyla, bugünden başlayıp en az 1 ay
+sonrasına uzanan tekrarlayan bir ders serisi oluşturur. Tool Layer'dan
+(`createLessonSeriesTool`) geçtiği için mevcut çakışma/müsaitlik kuralları
+aynen uygulanır. Oluşturulan seriler `demoTag:"demo-schedule-seed-v1"` ile
+işaretlenir — gerçek (insan tarafından girilen) serilerden ayırt edilebilir.
+İdempotent: zaten bir programı olan öğrenciye asla dokunmaz, tekrar
+çalıştırmak yeni kayıt üretmez.
+
+**Uyarı — `STORE_MODE=json`**: bu script ayrı bir process olarak çalışır;
+`data/store.json` dosyası üzerinde process'ler arası kilit YOKTUR (bkz.
+`src/lib/atomic-json-file.ts`). `npm run dev` AÇIKKEN bu scripti
+çalıştırmayın — önce dev server'ı durdurun, seed'i çalıştırın, sonra tekrar
+başlatın. `STORE_MODE=db` modunda bu kısıt geçerli değildir (Postgres
+transaction'ları eşzamanlılığı zaten güvenli yönetir).
+
 ## Canlıya alma
 
 ### Hızlı demo (varsayılan)
