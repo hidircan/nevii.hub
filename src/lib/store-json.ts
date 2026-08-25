@@ -6,12 +6,16 @@ import { createSeedData, createEmptyTemplateData } from "./seed";
 import { tryTenantId } from "./tenant-context";
 import { DEFAULT_TENANT_ID } from "./auth/config";
 import { applyLessonOpsFlag, switchLessonOpsFlag, type LessonOpsFlag } from "./lesson-ops";
+import { allocateSequenceValue, formatDisplayId } from "./entity-sequence";
+import { markTeacherAttendance, type TeacherAttendanceStatus } from "./teacher-attendance";
+import { reassignLessonTeacherOrBranch, type ReassignLessonInput, type ReassignLessonResult } from "./lesson-reassignment";
 import type {
   AppData,
   Attendance,
   AttendanceStatus,
   Branch,
   CollectionsSettings,
+  ConsentSettings,
   FeeRoundingMode,
   Instrument,
   Lesson,
@@ -85,16 +89,25 @@ const DATA_DIR = resolveDataDir(path.join(process.cwd(), "data"));
 const DATA_FILE = path.join(DATA_DIR, "store.json");
 
 async function ensureDataFile() {
-  try {
-    await fs.access(DATA_FILE);
-  } catch {
-    await fs.mkdir(DATA_DIR, { recursive: true });
-    const seed = createSeedData();
-    // Atomic yol — bkz. writeData yorumu. Soğuk başlangıçta birden fazla
-    // eşzamanlı readData() çağrısı buraya düşebilir; writeQueue + geçici
-    // dosya + rename deseni burada da aynı korumayı sağlar.
-    await writeData(seed);
-  }
+  // Faz 12 doğrulaması sırasında bulunan kök neden düzeltmesi: `fs.access`
+  // kontrolü ÖNCEDEN kilit DIŞINDAYDI — soğuk başlangıçta eşzamanlı birden
+  // fazla çağrı hepsi "dosya yok" görüp BAĞIMSIZ birer `createSeedData()` +
+  // yazım yapabiliyordu; `writeData` kendi içinde kilitli olsa bile her biri
+  // TAM bir reseed'di (birleştirme değil), son biten öncekini SİLERDİ — bu,
+  // eşzamanlı ilk-istek senaryosunda veri kaybına yol açan gerçek bir
+  // yarış durumuydu (yalnızca displayId sayaçlarına özgü değil). Artık TÜM
+  // kontrol+yazım TEK kilit altında; `writeData` yerine doğrudan
+  // `writeJsonFileAtomic` çağrılır (aksi hâlde `withFileLock` kendi kendini
+  // bekleyip kilitlenirdi — reentrant değildir).
+  await withFileLock(DATA_FILE, async () => {
+    try {
+      await fs.access(DATA_FILE);
+    } catch {
+      await fs.mkdir(DATA_DIR, { recursive: true });
+      const seed = createSeedData();
+      await writeJsonFileAtomic(DATA_FILE, seed);
+    }
+  });
 }
 
 function assertTenant(data: AppData) {
@@ -354,17 +367,22 @@ export async function updateBranch(
 export async function addStudent(
   student: Omit<Student, "id" | "createdAt" | "active">
 ): Promise<AppData> {
-  const data = await readData();
-  assertBranchExists(data, student.branchId);
-  const s: Student = {
-    ...student,
-    id: uid("stu"),
-    active: true,
-    createdAt: new Date().toISOString(),
-  };
-  const next = { ...data, students: [...data.students, s] };
-  await writeData(next);
-  return next;
+  // Faz 12 — displayId sıra numarası oku-artır-yaz gerektirir; tek başına
+  // readData()+writeData() (writeData yalnızca YAZMAYI kilitler, okumayı
+  // değil) eşzamanlı iki çağrının AYNI numarayı görmesine izin verirdi.
+  // mutateStoreUnderLock TÜM oku-değiştir-yaz döngüsünü tek kilit altına alır.
+  return mutateStoreUnderLock(async (data) => {
+    assertBranchExists(data, student.branchId);
+    const { assigned, records } = allocateSequenceValue(data.entitySequences ?? [], DEFAULT_TENANT_ID, "student");
+    const s: Student = {
+      ...student,
+      id: uid("stu"),
+      active: true,
+      createdAt: new Date().toISOString(),
+      displayId: formatDisplayId("student", assigned),
+    };
+    return { ...data, students: [...data.students, s], entitySequences: records };
+  });
 }
 
 export async function updateStudentProfile(
@@ -382,18 +400,21 @@ export async function updateStudentProfile(
 export async function addTeacher(
   teacher: Omit<Teacher, "id" | "active" | "color">
 ): Promise<AppData> {
-  const data = await readData();
-  assertBranchExists(data, teacher.branchId);
-  const colors = ["#7c3aed", "#0891b2", "#db2777", "#ea580c", "#059669", "#4f46e5"];
-  const t: Teacher = {
-    ...teacher,
-    id: uid("tch"),
-    active: true,
-    color: colors[data.teachers.length % colors.length],
-  };
-  const next = { ...data, teachers: [...data.teachers, t] };
-  await writeData(next);
-  return next;
+  // Faz 12 — bkz. addStudent'taki aynı yorum: mutateStoreUnderLock, displayId
+  // sıra numarasının eşzamanlı iki çağrıda asla çakışmamasını garanti eder.
+  return mutateStoreUnderLock(async (data) => {
+    assertBranchExists(data, teacher.branchId);
+    const colors = ["#7c3aed", "#0891b2", "#db2777", "#ea580c", "#059669", "#4f46e5"];
+    const { assigned, records } = allocateSequenceValue(data.entitySequences ?? [], DEFAULT_TENANT_ID, "teacher");
+    const t: Teacher = {
+      ...teacher,
+      id: uid("tch"),
+      active: true,
+      color: colors[data.teachers.length % colors.length],
+      displayId: formatDisplayId("teacher", assigned),
+    };
+    return { ...data, teachers: [...data.teachers, t], entitySequences: records };
+  });
 }
 
 /**

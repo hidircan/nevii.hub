@@ -1,4 +1,7 @@
 import { applyLessonOpsFlag, switchLessonOpsFlag, type LessonOpsFlag } from "./lesson-ops";
+import { allocateSequenceValue, formatDisplayId } from "./entity-sequence";
+import { markTeacherAttendance, type TeacherAttendanceStatus } from "./teacher-attendance";
+import { reassignLessonTeacherOrBranch, type ReassignLessonInput, type ReassignLessonResult } from "./lesson-reassignment";
 /**
  * Serverless / demo memory store.
  * Process warm olduğu sürece veri kalır; cold start'ta seed yeniden yüklenir.
@@ -302,13 +305,15 @@ export async function addStudent(
 ): Promise<AppData> {
   const data = load();
   assertBranchExists(data, student.branchId);
+  const { assigned, records } = allocateSequenceValue(data.entitySequences ?? [], DEFAULT_TENANT_ID, "student");
   const s: Student = {
     ...student,
     id: uid("stu"),
     active: true,
     createdAt: new Date().toISOString(),
+    displayId: formatDisplayId("student", assigned),
   };
-  return save({ ...data, students: [...data.students, s] });
+  return save({ ...data, students: [...data.students, s], entitySequences: records });
 }
 
 export async function updateStudentProfile(
@@ -327,13 +332,15 @@ export async function addTeacher(
   const data = load();
   assertBranchExists(data, teacher.branchId);
   const colors = ["#7c3aed", "#0891b2", "#db2777", "#ea580c", "#059669", "#4f46e5"];
+  const { assigned, records } = allocateSequenceValue(data.entitySequences ?? [], DEFAULT_TENANT_ID, "teacher");
   const t: Teacher = {
     ...teacher,
     id: uid("tch"),
     active: true,
     color: colors[data.teachers.length % colors.length],
+    displayId: formatDisplayId("teacher", assigned),
   };
-  return save({ ...data, teachers: [...data.teachers, t] });
+  return save({ ...data, teachers: [...data.teachers, t], entitySequences: records });
 }
 
 export async function updateTeacherAvailability(

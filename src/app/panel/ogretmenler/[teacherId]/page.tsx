@@ -175,6 +175,7 @@ export default async function TeacherDetailPage({
       <div className="mb-6 text-center">
         <h1 className="text-3xl font-bold tracking-tight text-[var(--color-text)] sm:text-4xl">{teacher.name}</h1>
         <p className="mt-1.5 text-sm text-[var(--color-text-muted)]">
+          {teacher.displayId ? `${teacher.displayId} · ` : ""}
           {branch?.shortName ?? "—"} · {teacher.instruments.join(", ")}
         </p>
       </div>

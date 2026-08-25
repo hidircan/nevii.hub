@@ -971,13 +971,16 @@ export async function globalSearchTool(
 
   const needle = foldTurkishForSearch(v.data.query);
   if (!needle) return ok({ items: [] });
+  // Faz 12 — insan-okunur numaradan da (ör. "S00012") aranabilsin.
+  const displayIdNeedle = v.data.query.trim().toUpperCase();
+  const matchesDisplayId = (displayId?: string) => !!displayId && displayId.toUpperCase().includes(displayIdNeedle);
 
   const data = await readData();
   const branchShortName = (branchId?: string) =>
     branchId ? data.settings.branches.find((b) => b.id === branchId)?.shortName : undefined;
 
   const nameMatchedStudents = data.students.filter(
-    (s) => s.active && foldTurkishForSearch(s.name).includes(needle)
+    (s) => s.active && (foldTurkishForSearch(s.name).includes(needle) || matchesDisplayId(s.displayId))
   );
   const studentAccessFlags = await Promise.all(
     nameMatchedStudents.map((s) => canAccessStudent(ctx, s.id, { teacherId: s.teacherId }))
@@ -985,20 +988,44 @@ export async function globalSearchTool(
   const students: GlobalSearchResultItem[] = nameMatchedStudents
     .filter((_s, i) => studentAccessFlags[i])
     .slice(0, 6)
-    .map((s) => ({ kind: "student" as const, id: s.id, label: s.name, description: branchShortName(s.branchId) }));
+    .map((s) => ({
+      kind: "student" as const,
+      id: s.id,
+      label: s.name,
+      description: [s.displayId, branchShortName(s.branchId)].filter(Boolean).join(" · ") || undefined,
+    }));
 
   const teachers: GlobalSearchResultItem[] = data.teachers
-    .filter((t) => t.active && foldTurkishForSearch(t.name).includes(needle) && canAccessTeacher(ctx, t.id))
+    .filter(
+      (t) =>
+        t.active &&
+        (foldTurkishForSearch(t.name).includes(needle) || matchesDisplayId(t.displayId)) &&
+        canAccessTeacher(ctx, t.id)
+    )
     .slice(0, 6)
-    .map((t) => ({ kind: "teacher" as const, id: t.id, label: t.name, description: t.instruments?.join(", ") }));
+    .map((t) => ({
+      kind: "teacher" as const,
+      id: t.id,
+      label: t.name,
+      description: [t.displayId, t.instruments?.join(", ")].filter(Boolean).join(" · ") || undefined,
+    }));
 
   let staff: GlobalSearchResultItem[] = [];
   if (ctx.role === "SCHOOL_ADMIN" || ctx.role === "SUPER_ADMIN") {
     const staffList = await listStaff(ctx.tenantId);
     staff = staffList
-      .filter((p) => p.status !== "terminated" && foldTurkishForSearch(p.name).includes(needle))
+      .filter(
+        (p) =>
+          p.status !== "terminated" &&
+          (foldTurkishForSearch(p.name).includes(needle) || matchesDisplayId(p.displayId))
+      )
       .slice(0, 6)
-      .map((p) => ({ kind: "staff" as const, id: p.id, label: p.name, description: p.position }));
+      .map((p) => ({
+        kind: "staff" as const,
+        id: p.id,
+        label: p.name,
+        description: [p.displayId, p.position].filter(Boolean).join(" · ") || undefined,
+      }));
   }
 
   return ok({ items: [...students, ...teachers, ...staff] });

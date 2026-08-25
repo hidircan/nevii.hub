@@ -193,7 +193,7 @@ export default async function StudentDetailPage({
       <BackButton fallbackHref="/panel/ogrenciler" label="Öğrencilere dön" className="mb-3" />
       <PageHeader
         title={student.name}
-        description={`${branch?.shortName ?? "—"} · ${student.packageName.split("—")[0]?.trim() ?? student.packageName}`}
+        description={`${student.displayId ? `${student.displayId} · ` : ""}${branch?.shortName ?? "—"} · ${student.packageName.split("—")[0]?.trim() ?? student.packageName}`}
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <QuickTaskLink

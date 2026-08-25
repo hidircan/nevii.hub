@@ -1,4 +1,7 @@
 import { applyLessonOpsFlag, switchLessonOpsFlag, type LessonOpsFlag, type ApplyLessonOpsResult } from "./lesson-ops";
+import { allocateSequenceValueDb, formatDisplayId } from "./entity-sequence";
+import { markTeacherAttendance, type TeacherAttendanceStatus } from "./teacher-attendance";
+import { reassignLessonTeacherOrBranch, type ReassignLessonInput, type ReassignLessonResult } from "./lesson-reassignment";
 import { prisma } from "./db";
 import { Prisma } from "@prisma/client";
 import {
@@ -194,6 +197,7 @@ function mapSchoolToAppData(school: PrismaSchoolWithRelations): AppData {
     },
     teachers: school.teachers.map((teacher) => ({
       id: teacher.id,
+      displayId: (teacher as { displayId?: string | null }).displayId ?? undefined,
       name: teacher.name,
       email: teacher.email,
       phone: teacher.phone,
@@ -235,6 +239,7 @@ function mapSchoolToAppData(school: PrismaSchoolWithRelations): AppData {
     })),
     students: school.students.map((student) => ({
       id: student.id,
+      displayId: (student as { displayId?: string | null }).displayId ?? undefined,
       name: student.name,
       email: student.email,
       phone: student.phone,
@@ -564,6 +569,7 @@ export async function seedDatabase(seed: AppData) {
       prisma.teacher.create({
         data: {
           id: teacher.id,
+      displayId: (teacher as { displayId?: string | null }).displayId ?? undefined,
           tenantId: tid,
           name: teacher.name,
           email: teacher.email,
@@ -624,6 +630,7 @@ export async function seedDatabase(seed: AppData) {
       prisma.student.create({
         data: {
           id: student.id,
+      displayId: (student as { displayId?: string | null }).displayId ?? undefined,
           tenantId: tid,
           name: student.name,
           email: student.email,
@@ -1114,14 +1121,22 @@ export async function addStudent(
     where: { id: student.branchId, tenantId: tid },
   });
   if (!branch) throw new Error("Şube bulunamadı");
+  const displayId = formatDisplayId("student", await allocateSequenceValueDb(tid, "student"));
   await prisma.student.create({
     data: {
       ...student,
-      id: `stu_${Date.now().toString(36)}`,
+      // Faz 12 doğrulaması sırasında bulunan kök neden düzeltmesi: salt
+      // `Date.now()` tabanlı id, gerçek eşzamanlı isteklerde (ör. Promise.all
+      // ile 10 öğrenci) AYNI milisaniyede çakışıp `id` primary key ihlaliyle
+      // isteği tamamen reddedebiliyordu — `uid()` (json/memory modda zaten
+      // kullanılan, rastgelelik içeren) ile aynı çarpışma-güvenli desene
+      // getirildi.
+      id: uid("stu"),
       tenantId: tid,
       schoolId: branch.schoolId,
       active: true,
       createdAt: new Date(),
+      displayId,
       instruments: student.instruments,
       enrollmentStartDate: student.enrollmentStartDate ? new Date(student.enrollmentStartDate) : undefined,
       enrollmentEndDate: student.enrollmentEndDate ? new Date(student.enrollmentEndDate) : undefined,
@@ -1200,6 +1215,7 @@ export async function addTeacher(
   });
   if (!branch) throw new Error("Şube bulunamadı");
   const colors = ["#7c3aed", "#0891b2", "#db2777", "#ea580c", "#059669", "#4f46e5"];
+  const displayId = formatDisplayId("teacher", await allocateSequenceValueDb(tid, "teacher"));
   // Paket 7 — kayıt anında da girilebilen tarih alanları: `...teacher` blind
   // spread bunları HAM ISO STRING olarak geçirirdi (Prisma DateTime kolonu
   // bir Date nesnesi bekler, updateTeacherProfile'daki AYNI dönüşüm kuralı
@@ -1207,10 +1223,12 @@ export async function addTeacher(
   await prisma.teacher.create({
     data: {
       ...teacher,
-      id: `tch_${Date.now().toString(36)}`,
+      // Faz 12 doğrulaması — bkz. addStudent'taki aynı kök neden düzeltmesi.
+      id: uid("tch"),
       tenantId: tid,
       schoolId: branch.schoolId,
       active: true,
+      displayId,
       color: colors[Math.floor(Math.random() * colors.length)],
       instruments: teacher.instruments,
       instrumentLevels: teacher.instrumentLevels ?? undefined,

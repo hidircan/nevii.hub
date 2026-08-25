@@ -181,6 +181,8 @@ export const STUDENT_TYPES: StudentType[] = [
 
 export interface Student {
   id: string;
+  /** Faz 12 — insan-okunur, değişmez kurum numarası (ör. "S00001"). */
+  displayId?: string;
   name: string;
   email: string;
   phone: string;
@@ -823,7 +825,13 @@ export interface AppData {
    * Kampanyası"). Opsiyonel — bkz. `packages?` üstteki not, aynı gerekçe.
    */
   discountCampaigns?: DiscountCampaign[];
+  /** Faz 12 — insan-okunur numara sayaçları (öğrenci/öğretmen). Opsiyonel, aynı gerekçe (üstteki not). */
+  entitySequences?: EntitySequenceRecord[];
 }
+
+/** Faz 12 — bkz. src/lib/entity-sequence.ts. */
+export type EntityTypeForSequence = "student" | "teacher" | "staff";
+export type EntitySequenceRecord = { tenantId: string; entityType: EntityTypeForSequence; nextValue: number };
 
 export type DiscountCampaignKind = "sibling";
 
@@ -1136,6 +1144,8 @@ export type StaffEmploymentType = "full_time" | "part_time" | "contract" | "inte
 
 export interface StaffMember {
   id: string;
+  /** Faz 12 — insan-okunur, değişmez kurum numarası (ör. "P00001"). */
+  displayId?: string;
   name: string;
   /** Serbest metin — "Muhasebe", "Resepsiyon", "İdari İşler" vb. Sabit bir enum'a kilitlenmez. */
   position: string;

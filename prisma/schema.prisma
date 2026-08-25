@@ -188,6 +188,8 @@ model Teacher {
   id              String   @id
   tenantId        String
   tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// Faz 12 — insan-okunur, değişmez kurum numarası (ör. "T00001").
+  displayId       String?
   name            String
   email           String
   phone           String
@@ -246,14 +248,33 @@ model Teacher {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
+  @@unique([tenantId, displayId])
   @@index([tenantId])
   @@index([schoolId])
+}
+
+/// Faz 12 — tenant-kapsamlı, çarpışmasız, insan-okunur numara sayacı.
+/// `entityType`: "student" | "teacher" | "staff". Atomik artış YALNIZCA
+/// tek bir `INSERT ... ON CONFLICT ... DO UPDATE ... RETURNING` ifadesiyle
+/// yapılır (bkz. src/lib/entity-sequence.ts) — okuma-artırma-yazma ARASINA
+/// başka bir işlem giremez, eşzamanlı iki kayıt asla aynı numarayı almaz.
+model EntitySequence {
+  tenantId   String
+  entityType String
+  /// Bir SONRAKİ çağrıya atanacak numara (1'den başlar).
+  nextValue  Int    @default(1)
+
+  @@id([tenantId, entityType])
 }
 
 model Student {
   id                String    @id
   tenantId          String
   tenant            Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// Faz 12 — insan-okunur, değişmez kurum numarası (ör. "S00001").
+  /// NULL = henüz numara atanmamış eski kayıt (backfill script'i doldurur).
+  /// Kullanıcı tarafından değiştirilemez; yalnızca oluşturma anında/backfill'de yazılır.
+  displayId         String?
   name              String
   email             String
   phone             String
@@ -352,6 +373,7 @@ model Student {
   payments          Payment[]
   makeupRequests    MakeupRequest[]
 
+  @@unique([tenantId, displayId])
   @@index([tenantId])
   @@index([schoolId])
 }
@@ -1220,6 +1242,8 @@ model StaffMember {
   id        String   @id
   tenantId  String
   tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// Faz 12 — insan-okunur, değişmez kurum numarası (ör. "P00001").
+  displayId String?
   name      String
   position  String
   phone     String?
@@ -1254,6 +1278,7 @@ model StaffMember {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@unique([tenantId, displayId])
   @@index([tenantId])
   @@index([tenantId, status])
 }
