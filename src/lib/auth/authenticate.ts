@@ -1,4 +1,4 @@
-import { verifyAccessToken } from "./jwt";
+import { verifyAccessToken, verifyRefreshToken } from "./jwt";
 import type { AuthUser, JwtClaims } from "./types";
 import { auditLog } from "./audit";
 import { ACCESS_COOKIE, parseCookieHeader } from "./cookies";
@@ -29,20 +29,20 @@ export async function authenticateRequest(
   requestId: string
 ): Promise<AuthenticateResult> {
   const extracted = extractAccessToken(request);
-  if (!extracted) {
-    auditLog({
-      action: "auth.missing_token",
-      requestId,
-      path: new URL(request.url).pathname,
-      method: request.method,
-      outcome: "denied",
-    });
-    return { ok: false, code: "UNAUTHORIZED", message: "Missing Bearer token" };
-  }
-  const { token, via } = extracted;
+  let claims: JwtClaims;
+  let via: AuthMethod;
 
   try {
-    const claims = await verifyAccessToken(token);
+    if (extracted) {
+      claims = await verifyAccessToken(extracted.token);
+      via = extracted.via;
+    } else {
+      const refreshToken = parseCookieHeader(request.headers.get("cookie"), "np_refresh");
+      if (!refreshToken) throw new Error("Missing access and refresh tokens");
+      claims = await verifyRefreshToken(refreshToken);
+      via = "cookie";
+    }
+
     const user: AuthUser = {
       userId: claims.sub,
       role: claims.role,
