@@ -7,6 +7,7 @@ import { requireSessionContext } from "@/lib/auth/session";
 import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { computeAllStudentAttendanceRisks } from "@/lib/insights/attendance-risk";
+import { effectiveStudentTypes } from "@/lib/student-types";
 import { AiInsightTrigger } from "@/components/ai/ai-insight-trigger";
 import { AssistantPageContext } from "@/components/ai/assistant-page-context";
 
@@ -52,7 +53,7 @@ export default async function OgrencilerPage() {
       packageName: s.packageName,
       monthlyFee: s.monthlyFee,
       active: s.active,
-      studentType: s.studentType,
+      studentTypes: effectiveStudentTypes(s),
       enrollmentStartDate: s.enrollmentStartDate,
       enrollmentEndDate: s.enrollmentEndDate,
       level: s.level,

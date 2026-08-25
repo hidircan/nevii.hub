@@ -257,6 +257,8 @@ function mapSchoolToAppData(school: PrismaSchoolWithRelations): AppData {
       notes: student.notes,
       createdAt: student.createdAt.toISOString(),
       studentType: (student.studentType as StudentType) ?? undefined,
+      studentTypes:
+        ((student as { studentTypes?: unknown }).studentTypes as StudentType[] | undefined) ?? undefined,
       enrollmentStartDate: student.enrollmentStartDate?.toISOString() ?? undefined,
       enrollmentEndDate: student.enrollmentEndDate?.toISOString() ?? undefined,
       level: student.level ?? undefined,
@@ -302,6 +304,10 @@ function mapSchoolToAppData(school: PrismaSchoolWithRelations): AppData {
         | undefined ?? undefined,
       paymentAmount: (student as { paymentAmount?: number | null }).paymentAmount ?? undefined,
       paymentDueDay: (student as { paymentDueDay?: number | null }).paymentDueDay ?? undefined,
+      paymentDueRanges:
+        ((student as { paymentDueRanges?: unknown }).paymentDueRanges as
+          | import("./types").PaymentDueRange[]
+          | undefined) ?? undefined,
       packageBaseMonthlyFee:
         (student as { packageBaseMonthlyFee?: number | null }).packageBaseMonthlyFee ?? undefined,
       discountType: (student as { discountType?: string | null }).discountType as
@@ -1140,6 +1146,7 @@ export async function updateStudentProfile(
       branchId: patch.branchId,
       educationMethod: patch.educationMethod,
       studentType: patch.studentType,
+      studentTypes: patch.studentTypes,
       enrollmentStartDate: patch.enrollmentStartDate ? new Date(patch.enrollmentStartDate) : undefined,
       enrollmentEndDate: patch.enrollmentEndDate ? new Date(patch.enrollmentEndDate) : undefined,
       level: patch.level,
@@ -1169,6 +1176,7 @@ export async function updateStudentProfile(
       paymentMethod: patch.paymentMethod,
       paymentAmount: patch.paymentAmount,
       paymentDueDay: patch.paymentDueDay,
+      paymentDueRanges: patch.paymentDueRanges,
       monthlyFee: patch.monthlyFee,
       packageBaseMonthlyFee: patch.packageBaseMonthlyFee,
       discountType: patch.discountType,

@@ -217,15 +217,15 @@ export default async function NewStudentPage() {
                 </Select>
               </div>
               <div>
-                <Label>Öğrenci türü (opsiyonel)</Label>
-                <Select name="studentType" defaultValue="">
-                  <option value="">Belirtilmemiş</option>
+                <Label>Öğrenci türleri (opsiyonel, birden fazla seçilebilir)</Label>
+                <div className="flex flex-wrap gap-x-4 gap-y-1">
                   {STUDENT_TYPES.map((t) => (
-                    <option key={t} value={t}>
+                    <label key={t} className="flex items-center gap-1.5 text-sm text-[var(--color-text)]">
+                      <input type="checkbox" name="studentTypes" value={t} />
                       {t}
-                    </option>
+                    </label>
                   ))}
-                </Select>
+                </div>
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div>

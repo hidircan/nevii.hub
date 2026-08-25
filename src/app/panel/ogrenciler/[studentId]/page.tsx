@@ -37,6 +37,8 @@ import type {
 import { computeOverallScore } from "@/lib/assessment/score";
 import { computeStudentPaymentSummary, sortPaymentsForProfile } from "@/lib/payment-profile";
 import { computeStudentMonthlyAmount } from "@/lib/student-payment-profile";
+import { effectivePaymentDueRanges, formatPaymentDueRanges } from "@/lib/payment-due-ranges";
+import { effectiveStudentTypes } from "@/lib/student-types";
 import { StudentPaymentProfileEditor } from "@/components/student-payment-profile-editor";
 import { Badge, Card, EmptyState, PageHeader } from "@/components/ui";
 import { StudentUpcomingLessons, StudentPastLessons, StudentAttendanceList } from "@/components/student-lesson-lists";
@@ -181,6 +183,7 @@ export default async function StudentDetailPage({
     schoolOrOccupation: student.schoolOrOccupation,
     communicationOptOut: student.communicationOptOut,
     accountResponsibility: student.accountResponsibility,
+    studentTypes: effectiveStudentTypes(student),
   };
 
   return (
@@ -212,7 +215,9 @@ export default async function StudentDetailPage({
           <Badge status={student.active ? "confirmed" : "cancelled"}>
             {student.active ? "Aktif" : "Pasif"}
           </Badge>
-          {student.studentType ? <Badge>{student.studentType}</Badge> : null}
+          {effectiveStudentTypes(student).map((t) => (
+            <Badge key={t}>{t}</Badge>
+          ))}
           {student.educationMethod ? <Badge>{student.educationMethod}</Badge> : null}
           <span className="text-sm text-[var(--color-text-muted)]">
             Öğretmen: {teacher?.name ?? "—"} · Kayıt: {student.enrollmentStartDate ? formatDate(student.enrollmentStartDate) : formatDate(student.createdAt)}
@@ -439,7 +444,7 @@ export default async function StudentDetailPage({
                         : "Eklenmemiş"
                 }
               />
-              <Field label="Ödeme günü" value={student.paymentDueDay ? `Ayın ${student.paymentDueDay}. günü` : "Eklenmemiş"} />
+              <Field label="Ödeme günü" value={formatPaymentDueRanges(effectivePaymentDueRanges(student))} />
               <Field
                 label="İndirim"
                 value={
@@ -466,7 +471,7 @@ export default async function StudentDetailPage({
               initialPackageId={student.packageId}
               initialDurationMinutes={student.lessonDurationMinutes}
               initialPaymentMethod={student.paymentMethod}
-              initialPaymentDueDay={student.paymentDueDay}
+              initialPaymentDueRanges={effectivePaymentDueRanges(student)}
               initialDiscountType={student.discountType === "percentage" || student.discountType === "fixed" ? student.discountType : undefined}
               initialDiscountValue={student.discountValue}
               initialOverrideAmount={student.paymentAmount}

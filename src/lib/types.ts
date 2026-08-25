@@ -64,11 +64,16 @@ export type LessonType = "regular" | "makeup" | "trial" | "group";
  */
 export type AvailabilityWindow = { dayOfWeek: number; start: string; end: string; branchId?: BranchId };
 
+/** Faz 1A — öğrencinin ay-içi ödeme günü tercih aralığı (dahil): 1 ≤ start ≤ end ≤ 31. */
+export type PaymentDueRange = { start: number; end: number };
+
 /** Package D — öğretmenin çalışma biçimi. Serbest metin değil, sabit küme. */
 export type TeacherEmploymentType = "tam_zamanli" | "yari_zamanli" | "serbest";
 
 export interface Teacher {
   id: string;
+  /** Faz 12 — insan-okunur, değişmez kurum numarası (ör. "T00001"). */
+  displayId?: string;
   name: string;
   email: string;
   phone: string;
@@ -202,6 +207,14 @@ export interface Student {
   createdAt: string;
   /** EPIC 4 — hepsi opsiyonel; boşsa UI "Belirtilmemiş" gösterir, hata vermez. */
   studentType?: StudentType;
+  /**
+   * Faz 1B — öğrenci aynı anda birden fazla türde olabilir (ör. hem "MEB"
+   * hem "London College of Music Hazırlık"). `studentType` (tekil) geriye
+   * dönük uyumluluk için KORUNUR ve bu alan güncellenince ilk türle senkron
+   * tutulur (bkz. src/lib/student-types.ts effectiveStudentTypes) — eski
+   * okuyucular hâlâ anlamlı bir değer görür.
+   */
+  studentTypes?: StudentType[];
   /** ISO tarih */
   enrollmentStartDate?: string;
   /** ISO tarih — verilmezse açık uçlu (hâlâ kayıtlı) */
@@ -230,6 +243,15 @@ export interface Student {
   paymentAmount?: number;
   /** Ayın günü (1–31) vade hedefi — ay sonu taşması mevcut ödeme motoru (dueWindowForPaymentMethod) davranışıyla çözülür. */
   paymentDueDay?: number;
+  /**
+   * Faz 1A — birden fazla ödeme günü/aralık tercihi (ör. "1–5" ve "4–15"
+   * birlikte). `paymentDueDay` (tekil) geriye dönük uyumluluk için KORUNUR
+   * ve bu alan güncellenince ilk aralığın başlangıcıyla senkron tutulur
+   * (bkz. src/lib/payment-due-ranges.ts) — eski okuyucular (belge şablonu
+   * vb.) hâlâ anlamlı bir değer görür. Boş/undefined = yalnızca legacy
+   * tekil gün (varsa) geçerlidir.
+   */
+  paymentDueRanges?: PaymentDueRange[];
   /**
    * Package C — paket+süre indirim öncesi liste fiyatı (Package.priceXMin,
    * `computeMonthlyFee` ile hesaplanır). Yalnız bilgi/audit amaçlı; paket
@@ -306,6 +328,7 @@ export type StudentProfilePatch = Partial<
     | "email"
     | "branchId"
     | "studentType"
+    | "studentTypes"
     | "enrollmentStartDate"
     | "enrollmentEndDate"
     | "level"
@@ -324,6 +347,7 @@ export type StudentProfilePatch = Partial<
     | "paymentMethod"
     | "paymentAmount"
     | "paymentDueDay"
+    | "paymentDueRanges"
     | "firstLessonAt"
     | "archivedAt"
     | "active"
@@ -1371,12 +1395,26 @@ export function isLcmStudentType(t?: StudentType): boolean {
   return t === "London College of Music Hazırlık";
 }
 
-export function studentLevelVisible(t?: StudentType): boolean {
-  return isMebStudentType(t) || isLcmStudentType(t);
+/**
+ * Faz 1B — öğrenci artık BİRDEN FAZLA türe sahip olabilir; bu fonksiyonlar
+ * "atanmış türlerden HERHANGİ biri X mi?" sorusunu yanıtlar. Bir öğrenci
+ * MEB + başka bir tür taşıyorsa MEB'in daha KATI kuralı (seviye zorunlu)
+ * her zaman kazanır — bkz. studentLevelRequired.
+ */
+export function hasMebStudentType(types: StudentType[]): boolean {
+  return types.some(isMebStudentType);
 }
 
-export function studentLevelRequired(t?: StudentType): boolean {
-  return isMebStudentType(t);
+export function hasLcmStudentType(types: StudentType[]): boolean {
+  return types.some(isLcmStudentType);
+}
+
+export function studentLevelVisible(types: StudentType[]): boolean {
+  return hasMebStudentType(types) || hasLcmStudentType(types);
+}
+
+export function studentLevelRequired(types: StudentType[]): boolean {
+  return hasMebStudentType(types);
 }
 
 /**

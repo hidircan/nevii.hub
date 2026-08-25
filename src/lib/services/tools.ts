@@ -62,6 +62,23 @@ import {
   addDiscountCampaign,
   updateDiscountCampaign,
 } from "../store";
+import { normalizePaymentDueRanges, effectivePaymentDueRanges, formatPaymentDueRanges } from "../payment-due-ranges";
+import { effectiveStudentTypes } from "../student-types";
+import { markTeacherAttendanceLive } from "../store";
+import { computeTeacherPerformanceReport, type TeacherPerformanceReport } from "../teacher-performance";
+import { markTeacherAttendanceSchema, teacherPerformanceReportSchema, reassignLessonTeacherOrBranchSchema } from "../validation";
+import { reassignLessonTeacherOrBranchLive } from "../store";
+import { notifyLessonReassigned } from "../lesson-notifications";
+import {
+  createPeriodicAssessment,
+  listPeriodicAssessmentsForStudent,
+  listPeriodicAssessmentsForTeacher,
+  computePendingPeriodicAssessmentPeriods,
+  type PendingPeriod,
+} from "../periodic-assessment";
+import { createPeriodicAssessmentSchema } from "../validation";
+import type { PeriodicAssessment } from "../types";
+import { checkAndNotifyMissingHomework } from "../homework-lesson-check";
 import { setClosedDay, listClosedDays } from "../closed-day-overrides";
 import { resolveDayStatus, isWeeklyClosedDayForTerm } from "../attendance-calendar";
 import {
@@ -1487,6 +1504,13 @@ export async function createStudentTool(
       email: v.data.email ?? "",
       notes: v.data.notes ?? "",
       lessonDurationMinutes: v.data.lessonDurationMinutes as Student["lessonDurationMinutes"],
+      // Faz 1A — kayıt formu hâlâ tekil bir gün alıyor; tek-elemanlı bir
+      // aralık olarak da saklanır ki öğrenci detayı/tahsilat ekranları baştan
+      // itibaren yeni modeli okuyabilsin. Yönetici sonradan düzenleme
+      // ekranından birden fazla aralık ekleyebilir.
+      paymentDueRanges: v.data.paymentDueDay ? [{ start: v.data.paymentDueDay, end: v.data.paymentDueDay }] : undefined,
+      // Faz 1B — explicit studentTypes yoksa legacy tekil studentType'tan türetilir.
+      studentTypes: v.data.studentTypes?.length ? v.data.studentTypes : v.data.studentType ? [v.data.studentType] : undefined,
       ...pricing,
     });
     const after = await readData();
@@ -1580,9 +1604,23 @@ export async function updateStudentProfileTool(
 
   try {
     const { studentId, ...patch } = v.data;
+    // Faz 1A — aralıklar verildiyse (boş dizi dahil, "tümünü temizle" anlamına
+    // gelir) sistematik birleştirilir ve tekil `paymentDueDay` ilk aralığın
+    // başlangıcıyla senkron tutulur — eski okuyucular (belge şablonu vb.)
+    // hâlâ anlamlı bir değer görür. Ranges verilmediyse legacy tekil alan
+    // (varsa) DOKUNULMADAN kendi başına güncellenmeye devam eder.
+    const normalizedRanges = patch.paymentDueRanges ? normalizePaymentDueRanges(patch.paymentDueRanges) : undefined;
+    // Faz 1B — aynı desen: studentTypes verildiyse (boş dizi dahil) birincil
+    // kaynak olur, tekil `studentType` ilk türle senkron tutulur.
     const profilePatch: StudentProfilePatch = {
       ...patch,
       lessonDurationMinutes: patch.lessonDurationMinutes as LessonDurationPreference | undefined,
+      ...(normalizedRanges
+        ? { paymentDueRanges: normalizedRanges, paymentDueDay: normalizedRanges[0]?.start ?? patch.paymentDueDay }
+        : {}),
+      ...(patch.studentTypes
+        ? { studentTypes: patch.studentTypes, studentType: patch.studentTypes[0] ?? patch.studentType }
+        : {}),
     };
     await updateStudentProfile(studentId, profilePatch);
     audit(ctx, "student.profile_update", "Student", studentId, patch);
@@ -5924,7 +5962,7 @@ export async function createDocumentInstanceTool(
       ? new Date(student.enrollmentStartDate).toLocaleDateString("tr-TR")
       : "",
     paymentPlan: student?.paymentMethod
-      ? `${student.paymentMethod} · ${student.paymentAmount ?? student.monthlyFee} ₺ · gün ${student.paymentDueDay ?? "—"}`
+      ? `${student.paymentMethod} · ${student.paymentAmount ?? student.monthlyFee} ₺ · ${formatPaymentDueRanges(effectivePaymentDueRanges(student))}`
       : "",
     freeText: "",
     scopes: "",
@@ -6269,7 +6307,7 @@ export async function resolveCollectionsIbanTool(
   const student = data.students.find((s) => s.id === v.data.studentId);
   if (!student) return fail("NOT_FOUND", "Öğrenci yok");
   const settings = data.settings.collectionsSettings ?? { frequencyLimitDays: 3, autoSendEnabled: false };
-  const r = resolveCollectionsIban(student.studentType, settings);
+  const r = resolveCollectionsIban(effectiveStudentTypes(student), settings);
   return ok({ bank: r.bank, bankLabel: r.bankLabel, iban: r.iban });
 }
 

@@ -1,5 +1,17 @@
 import { z } from "zod";
 import { LESSON_DURATION_OPTIONS } from "./lesson-duration";
+import { INSTRUMENTS } from "./types";
+
+/** Faz 1A — tek bir ödeme günü aralığı (1–31, dahil, start ≤ end). */
+export const paymentDueRangeSchema = z
+  .object({
+    start: z.coerce.number().int().min(1).max(31),
+    end: z.coerce.number().int().min(1).max(31),
+  })
+  .refine((v) => v.start <= v.end, { message: "Aralık başlangıcı bitişten büyük olamaz.", path: ["end"] });
+
+/** En fazla 10 aralık — sınırsız çoğaltmayı engeller, gerçek ihtiyacı fazlasıyla karşılar. */
+export const paymentDueRangesSchema = z.array(paymentDueRangeSchema).max(10).optional();
 
 export const branchSchema = z.object({
   name: z.string().min(1),
@@ -33,6 +45,9 @@ const STUDENT_TYPE_ENUM = [
   "Güzel Sanatlar Lisesi Hazırlık",
 ] as const;
 
+/** Faz 1B — birden fazla öğrenci türü; tekrarsız, en fazla küme boyutu kadar. */
+const studentTypesSchema = z.array(z.enum(STUDENT_TYPE_ENUM)).max(STUDENT_TYPE_ENUM.length).optional();
+
 /** EPIC 4 — öğrenci profil alanları hepsi opsiyonel; boş bırakılırsa "" olarak değil undefined olarak normalize edilir. */
 const optionalTrimmed = z
   .string()
@@ -56,6 +71,8 @@ export const studentSchema = z.object({
   monthlyFee: z.coerce.number().int().min(0),
   notes: z.string().optional(),
   studentType: z.enum(STUDENT_TYPE_ENUM).optional(),
+  /** Faz 1B — verilirse tekil studentType'ın YERİNE birincil kaynak olur. */
+  studentTypes: studentTypesSchema,
   enrollmentStartDate: optionalTrimmed,
   enrollmentEndDate: optionalTrimmed,
   level: optionalTrimmed,
@@ -112,6 +129,8 @@ export const updateStudentProfileSchema = z
   .object({
     studentId: z.string().min(1),
     studentType: z.enum(STUDENT_TYPE_ENUM).optional(),
+    /** Faz 1B — verilirse tekil studentType'ın YERİNE birincil kaynak olur. */
+    studentTypes: studentTypesSchema,
     enrollmentStartDate: optionalTrimmed,
     enrollmentEndDate: optionalTrimmed,
     level: optionalTrimmed,
@@ -160,6 +179,8 @@ export const updateStudentProfileSchema = z
     }).optional(),
     paymentMethod: z.enum(["credit_card", "cash", "transfer"]).optional(),
     paymentDueDay: z.coerce.number().int().min(1).max(28).optional(),
+    /** Faz 1A — verilirse tekil `paymentDueDay`'in YERİNE birincil kaynak olur (bkz. updateStudentProfileTool senkron kuralı). */
+    paymentDueRanges: paymentDueRangesSchema,
     discountType: z.enum(["percentage", "fixed"]).optional(),
     discountValue: z.coerce.number().int().min(0).optional(),
     /** Öğrenciye özel override tutar (TL) — set edilirse paket/indirim hesabının yerine geçer. */

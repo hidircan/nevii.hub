@@ -4,7 +4,8 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button, Input, Label, Select } from "@/components/ui";
 import { actionProvisionStudentPortalAccess, actionSetNationalId, actionUpdateStudentProfile } from "@/lib/actions";
-import { EDUCATION_METHODS } from "@/lib/types";
+import { EDUCATION_METHODS, STUDENT_TYPES } from "@/lib/types";
+import type { StudentType } from "@/lib/types";
 
 export type StudentProfileEditorBranch = { id: string; name: string };
 
@@ -101,6 +102,8 @@ export function StudentProfileEditor({
     schoolOrOccupation?: string;
     communicationOptOut?: boolean;
     accountResponsibility?: "PARENT_MANAGED" | "SELF_MANAGED";
+    /** Faz 1B — birden fazla öğrenci türü; boşsa "hiç seçilmemiş" demektir. */
+    studentTypes?: StudentType[];
   };
   hasNationalId?: boolean;
   /** Called after a successful save (e.g. to collapse the section back to read-only). */
@@ -113,6 +116,7 @@ export function StudentProfileEditor({
   const [email, setEmail] = useState(initial.email ?? "");
   const [branchId, setBranchId] = useState(initial.branchId ?? "");
   const [educationMethod, setEducationMethod] = useState(initial.educationMethod ?? "");
+  const [studentTypes, setStudentTypes] = useState<StudentType[]>(initial.studentTypes ?? []);
   const [phone, setPhone] = useState(initial.phone);
   const [parentName, setParentName] = useState(initial.parentName);
   const [parentPhone, setParentPhone] = useState(initial.parentPhone);
@@ -173,6 +177,7 @@ export function StudentProfileEditor({
         schoolOrOccupation: schoolOrOccupation || undefined,
         communicationOptOut,
         accountResponsibility,
+        studentTypes,
       });
 
       if (!result.ok) {
@@ -246,6 +251,24 @@ export function StudentProfileEditor({
             ))}
           </Select>
           {fieldErrors.educationMethod ? <p className="mt-1 text-xs text-red-600">{fieldErrors.educationMethod}</p> : null}
+        </div>
+      </div>
+
+      <div>
+        <Label>Öğrenci türleri (birden fazla seçilebilir)</Label>
+        <div className="flex flex-wrap gap-x-4 gap-y-1">
+          {STUDENT_TYPES.map((t) => (
+            <label key={t} className="flex items-center gap-1.5 text-sm text-[var(--color-text)]">
+              <input
+                type="checkbox"
+                checked={studentTypes.includes(t)}
+                onChange={(e) =>
+                  setStudentTypes((prev) => (e.target.checked ? [...prev, t] : prev.filter((x) => x !== t)))
+                }
+              />
+              {t}
+            </label>
+          ))}
         </div>
       </div>
 

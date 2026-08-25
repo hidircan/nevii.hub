@@ -20,7 +20,12 @@ import { Button, Input, Label, Select } from "@/components/ui";
 import { formatMoney } from "@/lib/utils";
 import { activePackages, packageStatusLabel, priceForDuration } from "@/lib/packages";
 import { computeStudentMonthlyAmount } from "@/lib/student-payment-profile";
-import type { DiscountType, LessonDurationPreference, Package, StudentPaymentMethod } from "@/lib/types";
+import type { DiscountType, LessonDurationPreference, Package, PaymentDueRange, StudentPaymentMethod } from "@/lib/types";
+
+type RangeRow = { key: string; start: string; end: string };
+function newRangeRow(start = "", end = ""): RangeRow {
+  return { key: crypto.randomUUID(), start, end };
+}
 
 const DURATIONS: LessonDurationPreference[] = [30, 40, 50];
 const PAYMENT_METHOD_LABELS: Record<StudentPaymentMethod, string> = {
@@ -35,7 +40,7 @@ export function StudentPaymentProfileEditor({
   initialPackageId,
   initialDurationMinutes,
   initialPaymentMethod,
-  initialPaymentDueDay,
+  initialPaymentDueRanges,
   initialDiscountType,
   initialDiscountValue,
   initialOverrideAmount,
@@ -46,7 +51,8 @@ export function StudentPaymentProfileEditor({
   initialPackageId?: string;
   initialDurationMinutes?: LessonDurationPreference;
   initialPaymentMethod?: StudentPaymentMethod;
-  initialPaymentDueDay?: number;
+  /** Faz 1A — birden fazla ödeme günü aralığı; boşsa "hiç ayarlanmamış" demektir. */
+  initialPaymentDueRanges?: PaymentDueRange[];
   initialDiscountType?: DiscountType;
   initialDiscountValue?: number;
   initialOverrideAmount?: number;
@@ -61,7 +67,11 @@ export function StudentPaymentProfileEditor({
   const [packageId, setPackageId] = useState(initialPackageId ?? "");
   const [durationMinutes, setDurationMinutes] = useState<LessonDurationPreference>(initialDurationMinutes ?? 30);
   const [paymentMethod, setPaymentMethod] = useState<StudentPaymentMethod | "">(initialPaymentMethod ?? "");
-  const [paymentDueDay, setPaymentDueDay] = useState(initialPaymentDueDay ? String(initialPaymentDueDay) : "");
+  const [dueRanges, setDueRanges] = useState<RangeRow[]>(() =>
+    initialPaymentDueRanges && initialPaymentDueRanges.length > 0
+      ? initialPaymentDueRanges.map((r) => newRangeRow(String(r.start), String(r.end)))
+      : [newRangeRow()]
+  );
   const [discountType, setDiscountType] = useState<"percentage" | "fixed" | "">(
     initialDiscountType === "percentage" || initialDiscountType === "fixed" ? initialDiscountType : ""
   );
@@ -94,6 +104,16 @@ export function StudentPaymentProfileEditor({
     [selectedPackage, durationMinutes, discountType, discountValue, overrideAmount]
   );
 
+  function addDueRange() {
+    setDueRanges((rows) => [...rows, newRangeRow()]);
+  }
+  function removeDueRange(key: string) {
+    setDueRanges((rows) => (rows.length > 1 ? rows.filter((r) => r.key !== key) : rows));
+  }
+  function updateDueRange(key: string, field: "start" | "end", value: string) {
+    setDueRanges((rows) => rows.map((r) => (r.key === key ? { ...r, [field]: value } : r)));
+  }
+
   function onSave() {
     setError(null);
     setSaved(false);
@@ -105,13 +125,30 @@ export function StudentPaymentProfileEditor({
       setError("İndirim türü gerekli.");
       return;
     }
+
+    const filledRows = dueRanges.filter((r) => r.start.trim() !== "" || r.end.trim() !== "");
+    const parsedRanges: PaymentDueRange[] = [];
+    for (const row of filledRows) {
+      const start = Number(row.start);
+      const end = Number(row.end || row.start);
+      if (!Number.isInteger(start) || !Number.isInteger(end) || start < 1 || end > 31) {
+        setError("Ödeme günü aralığı 1–31 arasında tam sayı olmalı.");
+        return;
+      }
+      if (start > end) {
+        setError("Aralık başlangıcı bitişten büyük olamaz.");
+        return;
+      }
+      parsedRanges.push({ start, end });
+    }
+
     startTransition(async () => {
       const result = await actionUpdateStudentProfile({
         studentId,
         packageId: packageId || undefined,
         lessonDurationMinutes: durationMinutes,
         paymentMethod: paymentMethod || undefined,
-        paymentDueDay: paymentDueDay.trim() === "" ? undefined : Number(paymentDueDay),
+        paymentDueRanges: parsedRanges,
         discountType: discountType || undefined,
         discountValue: discountValue.trim() === "" ? undefined : Number(discountValue),
         paymentAmount: overrideAmount.trim() === "" ? undefined : Number(overrideAmount),
@@ -174,16 +211,44 @@ export function StudentPaymentProfileEditor({
             placeholder={discountType === "percentage" ? "Örn. 10" : "Örn. 500"}
           />
         </div>
-        <div>
-          <Label>Ödeme günü</Label>
-          <Input
-            type="number"
-            min={1}
-            max={28}
-            value={paymentDueDay}
-            onChange={(e) => setPaymentDueDay(e.target.value)}
-            placeholder="Ayın günü (1–28)"
-          />
+        <div className="sm:col-span-2">
+          <Label>Ödeme günü aralıkları</Label>
+          <div className="space-y-2">
+            {dueRanges.map((row) => (
+              <div key={row.key} className="flex items-center gap-2">
+                <Input
+                  type="number"
+                  min={1}
+                  max={31}
+                  value={row.start}
+                  onChange={(e) => updateDueRange(row.key, "start", e.target.value)}
+                  placeholder="Başlangıç (ör. 1)"
+                  className="w-28"
+                />
+                <span className="text-xs text-[var(--color-text-muted)]">–</span>
+                <Input
+                  type="number"
+                  min={1}
+                  max={31}
+                  value={row.end}
+                  onChange={(e) => updateDueRange(row.key, "end", e.target.value)}
+                  placeholder="Bitiş (ör. 5)"
+                  className="w-28"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  disabled={dueRanges.length === 1}
+                  onClick={() => removeDueRange(row.key)}
+                >
+                  Kaldır
+                </Button>
+              </div>
+            ))}
+          </div>
+          <Button type="button" variant="ghost" onClick={addDueRange} className="mt-1">
+            + Aralık ekle
+          </Button>
         </div>
         <div>
           <Label>Ödeme türü</Label>

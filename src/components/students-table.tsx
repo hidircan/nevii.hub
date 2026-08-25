@@ -24,7 +24,8 @@ export type StudentRow = {
   packageName: string;
   monthlyFee: number;
   active: boolean;
-  studentType?: string;
+  /** Faz 1B — öğrenci birden fazla türe sahip olabilir; boş dizi = belirtilmemiş. */
+  studentTypes: string[];
   enrollmentStartDate?: string;
   enrollmentEndDate?: string;
   level?: string;
@@ -158,7 +159,7 @@ export function StudentsTable({
   }, []);
 
   const branchOptions = useMemo(() => uniqueSorted(rows.map((r) => r.branchName)), [rows]);
-  const typeOptions = useMemo(() => uniqueSorted(rows.map((r) => r.studentType)), [rows]);
+  const typeOptions = useMemo(() => uniqueSorted(rows.flatMap((r) => r.studentTypes)), [rows]);
   const packageOptions = useMemo(() => uniqueSorted(rows.map((r) => r.packageName)), [rows]);
   const teacherOptions = useMemo(() => uniqueSorted(rows.map((r) => r.teacherName)), [rows]);
   const methodOptions = useMemo(() => uniqueSorted(rows.map((r) => r.educationMethod)), [rows]);
@@ -224,7 +225,7 @@ export function StudentsTable({
     if (filterQuery && !row.name.toLowerCase().includes(filterQuery)) return false;
     if (statusFilter === "active" && !row.active) return false;
     if (statusFilter === "inactive" && row.active) return false;
-    if (typeFilter.length && !(row.studentType && typeFilter.includes(row.studentType))) return false;
+    if (typeFilter.length && !row.studentTypes.some((t) => typeFilter.includes(t))) return false;
     if (branchFilter.length && !(row.branchName && branchFilter.includes(row.branchName))) return false;
     if (packageFilter.length && !packageFilter.includes(row.packageName)) return false;
     if (teacherFilter.length && !(row.teacherName && teacherFilter.includes(row.teacherName))) return false;
@@ -554,7 +555,15 @@ export function StudentsTable({
                         <span className="text-[var(--color-text-muted)]">{s.branchName ?? "—"}</span>
                       ) : key === "type" ? (
                         <>
-                          {s.studentType ? <Badge>{s.studentType}</Badge> : <span className="text-xs text-[var(--color-text-muted)]">Belirtilmemiş</span>}
+                          {s.studentTypes.length > 0 ? (
+                            <span className="flex flex-wrap gap-1">
+                              {s.studentTypes.map((t) => (
+                                <Badge key={t}>{t}</Badge>
+                              ))}
+                            </span>
+                          ) : (
+                            <span className="text-xs text-[var(--color-text-muted)]">Belirtilmemiş</span>
+                          )}
                           {s.level ? <p className="mt-1 text-xs text-[var(--color-text-muted)]">Seviye: {s.level}</p> : null}
                         </>
                       ) : key === "instruments" ? (

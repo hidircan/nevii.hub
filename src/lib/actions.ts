@@ -121,8 +121,8 @@ import { readData } from "./store";
 import { buildLessonCommunicationDraft, type LessonCommunicationDraft } from "./whatsapp-templates";
 import type { LessonSlotSuggestion } from "./lesson-scheduling";
 import type { SeriesOccurrenceCheck } from "./lesson-series";
-import type { TeacherEarningsResult } from "./teacher-payout";
-import type { FeeRoundingMode, TeacherFeeRule, TeacherPayout, TaskStatus, TaskPriority, TaskCategory } from "./types";
+import type { TeacherEarningsResult, TeacherPayoutPaymentMethodInfo } from "./teacher-payout";
+import type { FeeRoundingMode, TeacherFeeRule, TeacherPayout, TaskStatus, TaskPriority, TaskCategory, PaymentDueRange, StudentType } from "./types";
 import type { ImportPreview } from "./import/types";
 import type { ImportCommitResult } from "./import/commit-result";
 import type { BranchImportRow } from "./import/branches";
@@ -503,7 +503,11 @@ export async function actionAddStudent(formData: FormData) {
           weeklyLessonCount: Number(formData.get("weeklyLessonCount") || 1),
           monthlyFee: Number(formData.get("monthlyFee") || 3000),
           notes: String(formData.get("notes") || ""),
-          studentType: String(formData.get("studentType") || "") || undefined,
+          // Faz 1B — çoklu seçim checkbox grubu; boşsa undefined (eski davranışla aynı).
+          studentTypes: (() => {
+            const values = formData.getAll("studentTypes").map(String).filter(Boolean);
+            return values.length > 0 ? (values as StudentType[]) : undefined;
+          })(),
           enrollmentStartDate: String(formData.get("enrollmentStartDate") || "") || undefined,
           level: String(formData.get("level") || "") || undefined,
           targetExam: String(formData.get("targetExam") || "") || undefined,
@@ -587,6 +591,8 @@ export type UpdateStudentProfileActionResult = { ok: true } | { ok: false; messa
 export async function actionUpdateStudentProfile(input: {
   studentId: string;
   studentType?: string;
+  /** Faz 1B — verilirse tekil studentType'ın YERİNE birincil kaynak olur. */
+  studentTypes?: StudentType[];
   enrollmentStartDate?: string;
   enrollmentEndDate?: string;
   level?: string;
@@ -613,6 +619,8 @@ export async function actionUpdateStudentProfile(input: {
   lessonDurationMinutes?: number;
   paymentMethod?: "credit_card" | "cash" | "transfer";
   paymentDueDay?: number;
+  /** Faz 1A — verilirse tekil paymentDueDay'in yerine birincil kaynak olur. */
+  paymentDueRanges?: PaymentDueRange[];
   discountType?: "percentage" | "fixed";
   discountValue?: number;
   paymentAmount?: number;

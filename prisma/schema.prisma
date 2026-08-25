@@ -286,6 +286,10 @@ model Student {
   /// eder. "Hobi" | "MEB" | "London College of Music Hazırlık" |
   /// "Konservatuvar Hazırlık" | "Güzel Sanatlar Lisesi Hazırlık"
   studentType          String?
+  /// Faz 1B — birden fazla öğrenci türü: string[] (StudentType değerleri).
+  /// `studentType` (tekil) geriye dönük uyumluluk için korunur ve bu alan
+  /// güncellenince ilk türle senkron tutulur (bkz. src/lib/student-types.ts).
+  studentTypes         Json?
   enrollmentStartDate  DateTime?
   enrollmentEndDate    DateTime?
   level                String?
@@ -308,6 +312,11 @@ model Student {
   /// Ayın günü (1–31) vade hedefi — ay sonu taşması mevcut ödeme motoru
   /// (dueWindowForPaymentMethod) davranışıyla çözülür, burada özel bir hack yok.
   paymentDueDay          Int?
+  /// Faz 1A — birden fazla ödeme günü/aralık tercihi: {start,end}[] (1-31,
+  /// dahil). `paymentDueDay` (tekil) geriye dönük uyumluluk için korunur ve
+  /// bu alan güncellenince ilk aralığın başlangıcıyla senkron tutulur (bkz.
+  /// src/lib/payment-due-ranges.ts). NULL = yalnızca legacy tekil gün geçerli.
+  paymentDueRanges       Json?
   /// Package C — paket+süre indirim ÖNCESİ liste fiyatı (bilgi/audit amaçlı).
   /// `monthlyFee` HER ZAMAN nihai (indirim/override uygulanmış) ücrettir.
   packageBaseMonthlyFee  Int?
