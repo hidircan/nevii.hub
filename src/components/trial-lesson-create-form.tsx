@@ -114,7 +114,7 @@ export function TrialLessonCreateForm({
           type="number"
           min={1}
           max={240}
-          step={5}
+          step={1}
           value={durationMinutes}
           onChange={(e) => setDurationMinutes(e.target.value)}
           required
