@@ -65,7 +65,9 @@ export function TeacherPerformancePanel({
     (signal: { cancelled: boolean }) => {
       setLoading(true);
       setError(null);
-      fetch(`/api/v1/teachers/${teacherId}/performance?periodStart=${periodStart}&periodEnd=${periodEnd}`)
+      fetch(`/api/v1/teachers/${teacherId}/performance?periodStart=${periodStart}&periodEnd=${periodEnd}`, {
+        credentials: "same-origin",
+      })
         .then((r) => r.json())
         .then((json) => {
           if (signal.cancelled) return;
