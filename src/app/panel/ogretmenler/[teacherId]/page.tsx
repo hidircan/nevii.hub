@@ -7,10 +7,12 @@ import {
   GraduationCap,
   ScrollText,
   Star,
+  TrendingUp,
   User,
   Users,
   Wallet,
 } from "lucide-react";
+import { TeacherPerformancePanel } from "@/components/teacher-performance-panel";
 import { requireSessionContext } from "@/lib/auth/session";
 import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
@@ -42,6 +44,7 @@ const SECTIONS = [
   { href: "#ozluk", icon: ScrollText, label: "Özlük / İstihdam" },
   { href: "#sozlesme", icon: ScrollText, label: "Sözleşme" },
   { href: "#program", icon: CalendarDays, label: "Ders Programı" },
+  { href: "#performans", icon: TrendingUp, label: "Performans" },
   { href: "#ogrenciler", icon: Users, label: "Öğrenciler" },
   { href: "#hakedis", icon: Wallet, label: "Hakedişler" },
   { href: "#ucret", icon: Wallet, label: "Saatlik Ücret" },
@@ -111,6 +114,25 @@ export default async function TeacherDetailPage({
   const now = new Date();
   const upcomingLessons = lessons.filter((l) => new Date(l.startAt) >= now).length;
   const weekLessonCount = lessons.filter((l) => l.status !== "cancelled").length;
+  // Faz 2 — son 30 gündeki, geçmişte kalmış (gelecekte henüz işaretlenemez),
+  // öğretmen yoklaması hâlâ Bekliyor olan dersler — Performans sekmesindeki
+  // hızlı işaretleme listesi için.
+  const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+  const pendingTeacherAttendanceLessons = lessons
+    .filter(
+      (l) =>
+        l.status !== "cancelled" &&
+        !l.teacherAttendanceStatus &&
+        new Date(l.startAt) <= now &&
+        new Date(l.startAt) >= thirtyDaysAgo
+    )
+    .map((l) => ({
+      id: l.id,
+      startAt: l.startAt,
+      endAt: l.endAt,
+      studentName: data.students.find((s) => s.id === l.studentId)?.name ?? "—",
+    }))
+    .sort((a, b) => b.startAt.localeCompare(a.startAt));
   // Yönetici, öğretmenin dersi ne zaman fiilen başlatıp bitirdiğini görebilsin —
   // aynı süre-hesabı /panel/ders-duzeltme ile (computeLessonDurationRow), burada
   // yalnızca bu öğretmenin son kayıtlarına daraltılmış salt-okunur özet.
@@ -442,6 +464,15 @@ export default async function TeacherDetailPage({
             </div>
           )}
         </div>
+      </section>
+
+      <section id="performans" className="mb-8 scroll-mt-4">
+        <h2 className="mb-3 text-sm font-semibold text-[var(--color-text)]">Performans</h2>
+        <TeacherPerformancePanel
+          teacherId={teacher.id}
+          canMark={canEditProfile}
+          pendingLessons={pendingTeacherAttendanceLessons}
+        />
       </section>
 
       <section id="ogrenciler" className="mb-8 scroll-mt-4">
