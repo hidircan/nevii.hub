@@ -14,7 +14,7 @@ export function NationalIdReveal({
   masked,
   canReveal,
 }: {
-  entity: "student" | "teacher";
+  entity: "student" | "teacher" | "staff";
   entityId: string;
   masked: string;
   canReveal: boolean;

@@ -93,7 +93,15 @@ import {
   listInstrumentCatalog,
   resolveActiveInstrumentNames,
 } from "../instrument-catalog";
-import { listStaff, createStaffMember, updateStaffMember } from "../staff";
+import { listStaff, createStaffMember, updateStaffMember, getStaffMember } from "../staff";
+import {
+  listStaffAdvances,
+  createStaffAdvance,
+  decideStaffAdvance,
+  markStaffAdvancePaid,
+  cancelStaffAdvance,
+  sumApprovedOrPaidForYear,
+} from "../staff-advance";
 import { listPayroll, createPayrollRecord, updatePayrollStatus } from "../payroll";
 import { listLeave, createLeaveRequest, decideLeaveRequest } from "../leave";
 import { listExpenses, createExpense } from "../expense";
@@ -286,6 +294,10 @@ import {
   updatePayrollStatusSchema,
   createLeaveRequestSchema,
   decideLeaveRequestSchema,
+  createStaffAdvanceSchema,
+  decideStaffAdvanceSchema,
+  markStaffAdvancePaidSchema,
+  cancelStaffAdvanceSchema,
   createExpenseSchema,
   createTaskSchema,
   resolveRelatedEntitySchema,
@@ -2104,6 +2116,13 @@ function staffFieldsFromInput(v: {
   defaultBonus?: number;
   defaultAllowances?: number;
   defaultDeductions?: number;
+  emergencyContactName?: string;
+  emergencyContactPhone?: string;
+  contractStartDate?: string;
+  contractEndDate?: string;
+  sgkStatus?: string;
+  iban?: string;
+  annualAdvanceLimit?: number;
 }) {
   return {
     name: v.name,
@@ -2130,6 +2149,13 @@ function staffFieldsFromInput(v: {
     defaultBonus: v.defaultBonus,
     defaultAllowances: v.defaultAllowances,
     defaultDeductions: v.defaultDeductions,
+    emergencyContactName: v.emergencyContactName,
+    emergencyContactPhone: v.emergencyContactPhone,
+    contractStartDate: v.contractStartDate,
+    contractEndDate: v.contractEndDate,
+    sgkStatus: v.sgkStatus,
+    iban: v.iban,
+    annualAdvanceLimit: v.annualAdvanceLimit,
   };
 }
 
@@ -2265,6 +2291,93 @@ export async function decideLeaveRequestTool(
   if (!result.ok) return fail("VALIDATION_ERROR", result.message);
   audit(ctx, "leave.decide", "LeaveRequest", v.data.leaveId, { status: v.data.status });
   return ok({ leaveId: v.data.leaveId });
+}
+
+/** Faz 9B — Avans modülü. leave.ts'teki `requireStaffSensitiveAccess`/RBAC deseniyle AYNI. */
+export async function listStaffAdvancesTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ advances: import("../types").StaffAdvance[] }>> {
+  const auth = requireStaffSensitiveAccess(ctx);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const v = parseOrFail(z.object({ staffId: z.string().optional() }), input);
+  if (!v.ok) return v;
+  const advances = await listStaffAdvances(ctx.tenantId, v.data.staffId);
+  return ok({ advances });
+}
+
+export async function createStaffAdvanceTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ advanceId: string }>> {
+  const auth = requireStaffSensitiveAccess(ctx);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const v = parseOrFail(createStaffAdvanceSchema, input);
+  if (!v.ok) return v;
+
+  const staffMember = await getStaffMember(ctx.tenantId, v.data.staffId);
+  if (!staffMember) return fail("NOT_FOUND", "Personel kaydı bulunamadı.");
+
+  if (staffMember.annualAdvanceLimit !== undefined) {
+    const year = Number(v.data.requestDate.slice(0, 4));
+    const usedThisYear = await sumApprovedOrPaidForYear(ctx.tenantId, v.data.staffId, year);
+    if (usedThisYear + v.data.amount > staffMember.annualAdvanceLimit) {
+      return fail(
+        "VALIDATION_ERROR",
+        `Yıllık avans limiti aşılıyor (${year} kullanım: ${usedThisYear}, limit: ${staffMember.annualAdvanceLimit}).`
+      );
+    }
+  }
+
+  const result = await createStaffAdvance({ tenantId: ctx.tenantId, createdBy: ctx.userId, ...v.data });
+  if (!result.ok) return fail("VALIDATION_ERROR", result.message);
+  audit(ctx, "staff_advance.create", "StaffAdvance", result.entry.id, {
+    staffId: result.entry.staffId,
+    amount: result.entry.amount,
+  });
+  return ok({ advanceId: result.entry.id });
+}
+
+export async function decideStaffAdvanceTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ advanceId: string }>> {
+  const auth = requireStaffSensitiveAccess(ctx);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const v = parseOrFail(decideStaffAdvanceSchema, input);
+  if (!v.ok) return v;
+  const result = await decideStaffAdvance(ctx.tenantId, v.data.advanceId, { status: v.data.status, approvedBy: ctx.userId });
+  if (!result.ok) return fail("VALIDATION_ERROR", result.message);
+  audit(ctx, "staff_advance.decide", "StaffAdvance", v.data.advanceId, { status: v.data.status });
+  return ok({ advanceId: v.data.advanceId });
+}
+
+export async function markStaffAdvancePaidTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ advanceId: string }>> {
+  const auth = requireStaffSensitiveAccess(ctx);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const v = parseOrFail(markStaffAdvancePaidSchema, input);
+  if (!v.ok) return v;
+  const result = await markStaffAdvancePaid(ctx.tenantId, v.data.advanceId, { paymentMethod: v.data.paymentMethod });
+  if (!result.ok) return fail("VALIDATION_ERROR", result.message);
+  audit(ctx, "staff_advance.mark_paid", "StaffAdvance", v.data.advanceId, {});
+  return ok({ advanceId: v.data.advanceId });
+}
+
+export async function cancelStaffAdvanceTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ advanceId: string }>> {
+  const auth = requireStaffSensitiveAccess(ctx);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const v = parseOrFail(cancelStaffAdvanceSchema, input);
+  if (!v.ok) return v;
+  const result = await cancelStaffAdvance(ctx.tenantId, v.data.advanceId);
+  if (!result.ok) return fail("VALIDATION_ERROR", result.message);
+  audit(ctx, "staff_advance.cancel", "StaffAdvance", v.data.advanceId, {});
+  return ok({ advanceId: v.data.advanceId });
 }
 
 /** İş 3D — Gider + mali özet. Yalnızca hassas erişimi olan roller. */
@@ -6108,26 +6221,53 @@ export async function revealNationalIdTool(
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
   if (!canViewFullNationalId(ctx.role)) return fail("FORBIDDEN", "Yetkiniz yok");
   const v = parseOrFail(z.object({
-    entity: z.enum(["student", "teacher"]),
+    entity: z.enum(["student", "teacher", "staff"]),
     entityId: z.string().min(1),
   }), input);
   if (!v.ok) return v;
-  const data = await readData();
   const entity =
-    v.data.entity === "student"
-      ? data.students.find((s) => s.id === v.data.entityId)
-      : data.teachers.find((t) => t.id === v.data.entityId);
+    v.data.entity === "staff"
+      ? await getStaffMember(ctx.tenantId, v.data.entityId)
+      : await (async () => {
+          const data = await readData();
+          return v.data.entity === "student"
+            ? data.students.find((s) => s.id === v.data.entityId)
+            : data.teachers.find((t) => t.id === v.data.entityId);
+        })();
   if (!entity || !("nationalIdCipher" in entity) || !entity.nationalIdCipher) {
     return fail("NOT_FOUND", "Kimlik kaydı yok");
   }
+  const entityType = v.data.entity === "student" ? "Student" : v.data.entity === "teacher" ? "Teacher" : "StaffMember";
   try {
     const { decryptNationalId } = await import("../pii");
     const nationalId = decryptNationalId(entity.nationalIdCipher as string);
-    audit(ctx, "pii.national_id.reveal", v.data.entity === "student" ? "Student" : "Teacher", v.data.entityId, {});
+    audit(ctx, "pii.national_id.reveal", entityType, v.data.entityId, {});
     return ok({
       nationalId,
       masked: maskNationalId((entity as { nationalIdLast2?: string }).nationalIdLast2),
     });
+  } catch (e) {
+    return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "reveal failed");
+  }
+}
+
+/** Faz 9A — IBAN tam çözümleme (StaffMember) — revealNationalIdTool ile AYNI desen (pii:full + audit). */
+export async function revealStaffIbanTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ iban: string; masked: string }>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  if (!canViewFullNationalId(ctx.role)) return fail("FORBIDDEN", "Yetkiniz yok");
+  const v = parseOrFail(z.object({ staffId: z.string().min(1) }), input);
+  if (!v.ok) return v;
+  const staffMember = await getStaffMember(ctx.tenantId, v.data.staffId);
+  if (!staffMember?.ibanCipher) return fail("NOT_FOUND", "IBAN kaydı yok");
+  try {
+    const { decryptIban, maskIban } = await import("../pii");
+    const iban = decryptIban(staffMember.ibanCipher);
+    audit(ctx, "pii.iban.reveal", "StaffMember", v.data.staffId, {});
+    return ok({ iban, masked: maskIban(staffMember.ibanLast4) });
   } catch (e) {
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "reveal failed");
   }

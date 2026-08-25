@@ -46,6 +46,7 @@ model Tenant {
   discountCampaigns DiscountCampaign[]
   instrumentCatalogEntries InstrumentCatalogEntry[]
   staffMembers StaffMember[]
+  staffAdvances StaffAdvance[]
   payrollRecords PayrollRecord[]
   leaveRequests LeaveRequest[]
   expenseRecords ExpenseRecord[]
@@ -1328,12 +1329,52 @@ model StaffMember {
   defaultBonus       Int?
   defaultAllowances  Int?
   defaultDeductions  Int?
+  /// Faz 9A — özlük genişletmesi.
+  emergencyContactName  String?
+  emergencyContactPhone String?
+  contractStartDate     DateTime?
+  contractEndDate       DateTime?
+  sgkStatus             String?
+  /// AES-GCM şifreli — bkz. src/lib/pii/iban.ts, nationalIdCipher ile AYNI mekanizma.
+  ibanCipher String?
+  ibanLast4  String?
+  /// Faz 9B — yıllık avans üst sınırı. Tanımsızsa kontrol edilmez.
+  annualAdvanceLimit Int?
   createdBy String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  advances  StaffAdvance[]
+
   @@unique([tenantId, displayId])
   @@index([tenantId])
+  @@index([tenantId, status])
+}
+
+/// Faz 9B — personel maaş avansı talebi. leave.ts'in durum-geçiş deseniyle
+/// AYNI (pending_approval -> approved|rejected -> paid|cancelled), ayrıca
+/// StaffMember.annualAdvanceLimit karşısında yıl içi kullanım toplamıyla
+/// sınırlandırılır (bkz. src/lib/staff-advance.ts).
+model StaffAdvance {
+  id            String       @id
+  tenantId      String
+  tenant        Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  staffId       String
+  staffMember   StaffMember  @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  amount        Int
+  requestDate   DateTime
+  /// "pending_approval" | "approved" | "rejected" | "paid" | "cancelled"
+  status        String       @default("pending_approval")
+  approvedBy    String?
+  approvedAt    DateTime?
+  paidAt        DateTime?
+  paymentMethod String?
+  description   String?
+  createdBy     String
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  @@index([tenantId, staffId])
   @@index([tenantId, status])
 }
 

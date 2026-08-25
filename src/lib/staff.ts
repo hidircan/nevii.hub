@@ -18,6 +18,8 @@ import { isDbMode, resolveDataDir } from "./config";
 import { uid } from "./utils";
 import { withFileLock, writeJsonFileAtomic } from "./atomic-json-file";
 import { encryptNationalId, isValidTurkishNationalId } from "./pii/tc-identity";
+import { encryptIban, isValidIban } from "./pii/iban";
+import { allocateSequenceValueDb, allocateSequenceValueFile, formatDisplayId } from "./entity-sequence";
 import type { StaffMember, StaffMemberStatus, StaffEmploymentType } from "./types";
 
 const FILE = path.join(resolveDataDir(path.join(process.cwd(), "data")), "staff.json");
@@ -52,10 +54,18 @@ export type StaffMemberFields = Partial<
     | "defaultBonus"
     | "defaultAllowances"
     | "defaultDeductions"
+    | "emergencyContactName"
+    | "emergencyContactPhone"
+    | "contractStartDate"
+    | "contractEndDate"
+    | "sgkStatus"
+    | "annualAdvanceLimit"
   >
 > & {
   /** Ham T.C. kimlik — şifrelenmeden ASLA saklanmaz; burada yalnızca girdi olarak kabul edilir. */
   nationalId?: string;
+  /** Ham IBAN — şifrelenmeden ASLA saklanmaz; burada yalnızca girdi olarak kabul edilir. */
+  iban?: string;
 };
 
 async function loadAll(): Promise<Stored[]> {
@@ -80,6 +90,7 @@ function toPublic(r: Stored): StaffMember {
 function dbRowToPublic(r: Record<string, unknown>): StaffMember {
   return {
     id: r.id as string,
+    displayId: (r.displayId as string) ?? undefined,
     name: r.name as string,
     position: r.position as string,
     phone: (r.phone as string) ?? undefined,
@@ -105,6 +116,14 @@ function dbRowToPublic(r: Record<string, unknown>): StaffMember {
     defaultBonus: (r.defaultBonus as number) ?? undefined,
     defaultAllowances: (r.defaultAllowances as number) ?? undefined,
     defaultDeductions: (r.defaultDeductions as number) ?? undefined,
+    emergencyContactName: (r.emergencyContactName as string) ?? undefined,
+    emergencyContactPhone: (r.emergencyContactPhone as string) ?? undefined,
+    contractStartDate: (r.contractStartDate as Date | null)?.toISOString().slice(0, 10) ?? undefined,
+    contractEndDate: (r.contractEndDate as Date | null)?.toISOString().slice(0, 10) ?? undefined,
+    sgkStatus: (r.sgkStatus as string) ?? undefined,
+    ibanCipher: (r.ibanCipher as string) ?? undefined,
+    ibanLast4: (r.ibanLast4 as string) ?? undefined,
+    annualAdvanceLimit: (r.annualAdvanceLimit as number) ?? undefined,
     createdBy: r.createdBy as string,
     createdAt: (r.createdAt as Date).toISOString(),
     updatedAt: (r.updatedAt as Date).toISOString(),
@@ -122,6 +141,14 @@ function encryptNationalIdField(fields: StaffMemberFields): { cipher?: string; l
   if (!isValidTurkishNationalId(fields.nationalId)) return { error: "Geçersiz T.C. kimlik numarası." };
   const enc = encryptNationalId(fields.nationalId);
   return { cipher: enc.cipher, last2: enc.last2 };
+}
+
+/** `nationalId` alanıyla AYNI desen — ham IBAN varsa şifreleyip cipher/last4 çiftine çevirir. */
+function encryptIbanField(fields: StaffMemberFields): { cipher?: string; last4?: string } | { error: string } | null {
+  if (!fields.iban) return null;
+  if (!isValidIban(fields.iban)) return { error: "Geçersiz IBAN (yalnızca TR formatı desteklenir)." };
+  const enc = encryptIban(fields.iban);
+  return { cipher: enc.cipher, last4: enc.last4 };
 }
 
 export async function listStaff(tenantId: string): Promise<StaffMember[]> {
@@ -153,6 +180,8 @@ export async function createStaffMember(
   if (!position) return { ok: false, message: "Rol/görev boş olamaz." };
   const nationalId = encryptNationalIdField(input);
   if (nationalId && "error" in nationalId) return { ok: false, message: nationalId.error };
+  const iban = encryptIbanField(input);
+  if (iban && "error" in iban) return { ok: false, message: iban.error };
   const now = new Date().toISOString();
 
   const dbFields = {
@@ -181,20 +210,31 @@ export async function createStaffMember(
     defaultBonus: input.defaultBonus,
     defaultAllowances: input.defaultAllowances,
     defaultDeductions: input.defaultDeductions,
+    emergencyContactName: input.emergencyContactName || undefined,
+    emergencyContactPhone: input.emergencyContactPhone || undefined,
+    contractStartDate: input.contractStartDate ? new Date(input.contractStartDate) : undefined,
+    contractEndDate: input.contractEndDate ? new Date(input.contractEndDate) : undefined,
+    sgkStatus: input.sgkStatus || undefined,
+    ibanCipher: iban?.cipher,
+    ibanLast4: iban?.last4,
+    annualAdvanceLimit: input.annualAdvanceLimit,
   };
 
   if (isDbMode) {
     const { prisma } = await import("./db");
+    const displayId = formatDisplayId("staff", await allocateSequenceValueDb(input.tenantId, "staff"));
     const created = await prisma.staffMember.create({
-      data: { id: uid("staff"), tenantId: input.tenantId, createdBy: input.createdBy, ...dbFields },
+      data: { id: uid("staff"), tenantId: input.tenantId, createdBy: input.createdBy, displayId, ...dbFields },
     });
     return { ok: true, entry: dbRowToPublic(created as unknown as Record<string, unknown>) };
   }
 
+  const displayId = formatDisplayId("staff", await allocateSequenceValueFile(input.tenantId, "staff"));
   return withFileLock(FILE, async () => {
     const all = await loadAll();
     const row: Stored = {
       id: uid("staff"),
+      displayId,
       tenantId: input.tenantId,
       createdBy: input.createdBy,
       createdAt: now,
@@ -224,6 +264,14 @@ export async function createStaffMember(
       defaultBonus: input.defaultBonus,
       defaultAllowances: input.defaultAllowances,
       defaultDeductions: input.defaultDeductions,
+      emergencyContactName: input.emergencyContactName || undefined,
+      emergencyContactPhone: input.emergencyContactPhone || undefined,
+      contractStartDate: input.contractStartDate || undefined,
+      contractEndDate: input.contractEndDate || undefined,
+      sgkStatus: input.sgkStatus || undefined,
+      ibanCipher: iban?.cipher,
+      ibanLast4: iban?.last4,
+      annualAdvanceLimit: input.annualAdvanceLimit,
     };
     await saveAll([...all, row]);
     return { ok: true, entry: toPublic(row) };
@@ -243,6 +291,8 @@ export async function updateStaffMember(
   if (trimmedPosition !== undefined && !trimmedPosition) return { ok: false, message: "Rol/görev boş olamaz." };
   const nationalId = encryptNationalIdField(patch);
   if (nationalId && "error" in nationalId) return { ok: false, message: nationalId.error };
+  const iban = encryptIbanField(patch);
+  if (iban && "error" in iban) return { ok: false, message: iban.error };
   const now = new Date().toISOString();
 
   if (isDbMode) {
@@ -277,6 +327,14 @@ export async function updateStaffMember(
         defaultBonus: patch.defaultBonus,
         defaultAllowances: patch.defaultAllowances,
         defaultDeductions: patch.defaultDeductions,
+        emergencyContactName: patch.emergencyContactName,
+        emergencyContactPhone: patch.emergencyContactPhone,
+        contractStartDate: patch.contractStartDate ? new Date(patch.contractStartDate) : undefined,
+        contractEndDate: patch.contractEndDate ? new Date(patch.contractEndDate) : undefined,
+        sgkStatus: patch.sgkStatus,
+        ibanCipher: iban?.cipher,
+        ibanLast4: iban?.last4,
+        annualAdvanceLimit: patch.annualAdvanceLimit,
       },
     });
     return { ok: true, entry: dbRowToPublic(updated as unknown as Record<string, unknown>) };
@@ -314,11 +372,42 @@ export async function updateStaffMember(
       defaultBonus: patch.defaultBonus ?? current.defaultBonus,
       defaultAllowances: patch.defaultAllowances ?? current.defaultAllowances,
       defaultDeductions: patch.defaultDeductions ?? current.defaultDeductions,
+      emergencyContactName:
+        patch.emergencyContactName !== undefined ? patch.emergencyContactName || undefined : current.emergencyContactName,
+      emergencyContactPhone:
+        patch.emergencyContactPhone !== undefined ? patch.emergencyContactPhone || undefined : current.emergencyContactPhone,
+      contractStartDate:
+        patch.contractStartDate !== undefined ? patch.contractStartDate || undefined : current.contractStartDate,
+      contractEndDate: patch.contractEndDate !== undefined ? patch.contractEndDate || undefined : current.contractEndDate,
+      sgkStatus: patch.sgkStatus !== undefined ? patch.sgkStatus || undefined : current.sgkStatus,
+      ibanCipher: iban?.cipher ?? current.ibanCipher,
+      ibanLast4: iban?.last4 ?? current.ibanLast4,
+      annualAdvanceLimit: patch.annualAdvanceLimit ?? current.annualAdvanceLimit,
       updatedAt: now,
     };
     const next = [...all];
     next[idx] = updated;
     await saveAll(next);
     return { ok: true, entry: toPublic(updated) };
+  });
+}
+
+/**
+ * Faz 12 — YALNIZCA `scripts/backfill-display-ids.ts` için: mevcut (json/
+ * memory modu) personel kaydına `displayId` yazar. Kasıtlı olarak
+ * `StaffMemberFields`'in DIŞINDA, ayrı bir dar fonksiyon — normal
+ * `updateStaffMember` yolu `displayId`'yi hiçbir zaman kabul etmez
+ * (kullanıcı tarafından değiştirilemez alan). DB modu için ayrı bir yola
+ * gerek yok — backfill script'i o modda doğrudan `prisma.staffMember.update`
+ * kullanır.
+ */
+export async function backfillStaffDisplayId(tenantId: string, staffId: string, displayId: string): Promise<void> {
+  await withFileLock(FILE, async () => {
+    const all = await loadAll();
+    const idx = all.findIndex((r) => r.id === staffId && r.tenantId === tenantId);
+    if (idx === -1) return;
+    const next = [...all];
+    next[idx] = { ...next[idx]!, displayId, updatedAt: new Date().toISOString() };
+    await saveAll(next);
   });
 }

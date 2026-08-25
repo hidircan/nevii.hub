@@ -98,6 +98,10 @@ import {
   updatePayrollStatusTool,
   createLeaveRequestTool,
   decideLeaveRequestTool,
+  createStaffAdvanceTool,
+  decideStaffAdvanceTool,
+  markStaffAdvancePaidTool,
+  cancelStaffAdvanceTool,
   createExpenseTool,
   createTaskTool,
   updateTaskTool,
@@ -886,6 +890,13 @@ function staffFormFields(formData: FormData) {
     defaultBonus: str("defaultBonus") ? Number(str("defaultBonus")) : undefined,
     defaultAllowances: str("defaultAllowances") ? Number(str("defaultAllowances")) : undefined,
     defaultDeductions: str("defaultDeductions") ? Number(str("defaultDeductions")) : undefined,
+    emergencyContactName: str("emergencyContactName"),
+    emergencyContactPhone: str("emergencyContactPhone"),
+    contractStartDate: str("contractStartDate"),
+    contractEndDate: str("contractEndDate"),
+    sgkStatus: str("sgkStatus"),
+    iban: str("iban"),
+    annualAdvanceLimit: str("annualAdvanceLimit") ? Number(str("annualAdvanceLimit")) : undefined,
   };
 }
 
@@ -1013,6 +1024,76 @@ export async function actionDecideLeaveRequest(input: {
   }
 }
 
+export type StaffAdvanceActionResult = { ok: true } | { ok: false; message: string };
+
+/** Faz 9B — Avans talebi oluştur. */
+export async function actionCreateStaffAdvance(formData: FormData): Promise<StaffAdvanceActionResult> {
+  try {
+    const result = await withAuthContext("actionCreateStaffAdvance", (ctx) =>
+      createStaffAdvanceTool(ctx, {
+        staffId: String(formData.get("staffId") || ""),
+        amount: Number(formData.get("amount") || 0),
+        requestDate: String(formData.get("requestDate") || ""),
+        description: String(formData.get("description") || "") || undefined,
+      })
+    );
+    if (!result.ok) return { ok: false, message: result.error.message };
+    revalidateAll();
+    return { ok: true };
+  } catch (error) {
+    logger.error("actionCreateStaffAdvance failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "Avans talebi oluşturulurken beklenmeyen bir hata oluştu." };
+  }
+}
+
+/** Faz 9B — Avans talebini onayla/reddet. */
+export async function actionDecideStaffAdvance(input: {
+  advanceId: string;
+  status: "approved" | "rejected";
+}): Promise<StaffAdvanceActionResult> {
+  try {
+    const result = await withAuthContext("actionDecideStaffAdvance", (ctx) => decideStaffAdvanceTool(ctx, input));
+    if (!result.ok) return { ok: false, message: result.error.message };
+    revalidateAll();
+    return { ok: true };
+  } catch (error) {
+    logger.error("actionDecideStaffAdvance failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "Avans talebi karara bağlanırken beklenmeyen bir hata oluştu." };
+  }
+}
+
+/** Faz 9B — Onaylanmış avansı ödenmiş olarak işaretle. */
+export async function actionMarkStaffAdvancePaid(input: {
+  advanceId: string;
+  paymentMethod?: string;
+}): Promise<StaffAdvanceActionResult> {
+  try {
+    const result = await withAuthContext("actionMarkStaffAdvancePaid", (ctx) => markStaffAdvancePaidTool(ctx, input));
+    if (!result.ok) return { ok: false, message: result.error.message };
+    revalidateAll();
+    return { ok: true };
+  } catch (error) {
+    logger.error("actionMarkStaffAdvancePaid failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "Avans ödenmiş işaretlenirken beklenmeyen bir hata oluştu." };
+  }
+}
+
+/** Faz 9B — Avans talebini iptal et. */
+export async function actionCancelStaffAdvance(input: { advanceId: string }): Promise<StaffAdvanceActionResult> {
+  try {
+    const result = await withAuthContext("actionCancelStaffAdvance", (ctx) => cancelStaffAdvanceTool(ctx, input));
+    if (!result.ok) return { ok: false, message: result.error.message };
+    revalidateAll();
+    return { ok: true };
+  } catch (error) {
+    logger.error("actionCancelStaffAdvance failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "Avans talebi iptal edilirken beklenmeyen bir hata oluştu." };
+  }
+}
 export type ExpenseActionResult = { ok: true } | { ok: false; message: string };
 
 /** İş 3D — Gider kaydı (kira/fatura/sarf/diğer). */

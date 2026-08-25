@@ -1076,6 +1076,16 @@ const staffMemberBaseFields = {
   defaultBonus: z.coerce.number().int().min(0).optional(),
   defaultAllowances: z.coerce.number().int().min(0).optional(),
   defaultDeductions: z.coerce.number().int().min(0).optional(),
+  /** Faz 9A — özlük genişletmesi. */
+  emergencyContactName: z.string().optional(),
+  emergencyContactPhone: z.string().optional(),
+  contractStartDate: z.string().optional(),
+  contractEndDate: z.string().optional(),
+  sgkStatus: z.string().optional(),
+  /** Ham IBAN — şifrelenmeden ASLA saklanmaz (bkz. src/lib/pii/iban.ts). */
+  iban: z.string().optional(),
+  /** Faz 9B — yıllık avans üst sınırı. */
+  annualAdvanceLimit: z.coerce.number().int().min(0).optional(),
 };
 
 export const createStaffMemberSchema = z.object(staffMemberBaseFields);
@@ -1087,6 +1097,28 @@ export const updateStaffMemberSchema = z
     name: z.string().min(1).optional(),
     position: z.string().min(1).optional(),
   });
+
+/** Faz 9B — Avans modülü. */
+export const createStaffAdvanceSchema = z.object({
+  staffId: z.string().min(1),
+  amount: z.coerce.number().int().positive(),
+  requestDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  description: z.string().optional(),
+});
+
+export const decideStaffAdvanceSchema = z.object({
+  advanceId: z.string().min(1),
+  status: z.enum(["approved", "rejected"]),
+});
+
+export const markStaffAdvancePaidSchema = z.object({
+  advanceId: z.string().min(1),
+  paymentMethod: z.string().optional(),
+});
+
+export const cancelStaffAdvanceSchema = z.object({
+  advanceId: z.string().min(1),
+});
 
 /** İş 3B — Bordro. */
 export const createPayrollRecordSchema = z.object({

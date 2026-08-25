@@ -1239,19 +1239,56 @@ export interface StaffMember {
    * kendi belirlediği/güncellediği basit bir sayı (bkz. LeaveRequest).
    */
   annualLeaveAllowanceDays?: number;
-  /** Yalnız admin/super admin görünürlüğünde — bkz. canViewStaffSensitive. */
+  /** Yalnız admin/super admin görünürlüğünde — bkz. requireStaffSensitiveAccess (tools.ts). */
   personnelNotes?: string;
   notes?: string;
   /**
    * Maaş yapısı — öğretmen hakedişinden (Teacher/TeacherFeeRule) BİLİNÇLİ
    * olarak ayrı (bkz. PayrollRecord yorumu). Yalnızca hassas bordro
-   * yetkisi olan roller (bkz. canViewStaffPayroll) görebilir/düzenleyebilir.
+   * yetkisi olan roller (bkz. requireStaffSensitiveAccess) görebilir/düzenleyebilir.
    */
   monthlySalary?: number;
   hourlyRate?: number;
   defaultBonus?: number;
   defaultAllowances?: number;
   defaultDeductions?: number;
+  /** Faz 9A — özlük genişletmesi. */
+  emergencyContactName?: string;
+  emergencyContactPhone?: string;
+  contractStartDate?: string;
+  contractEndDate?: string;
+  /** SGK/iş ilişkisi — serbest metin, hukuki kesinlik gerektirmeyen bilgi alanı. */
+  sgkStatus?: string;
+  /** AES-GCM şifreli — bkz. src/lib/pii/iban.ts, nationalIdCipher ile AYNI mekanizma. */
+  ibanCipher?: string;
+  ibanLast4?: string;
+  /** Faz 9B — yıllık avans üst sınırı (kuruş/tam sayı). Tanımsızsa kontrol edilmez. */
+  annualAdvanceLimit?: number;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type StaffAdvanceStatus = "pending_approval" | "approved" | "rejected" | "paid" | "cancelled";
+
+/**
+ * Faz 9B — personel maaş avansı talebi. `leave.ts`'in durum-geçiş desenini
+ * izler ama ayrıca `StaffMember.annualAdvanceLimit` karşısında yıl içi
+ * kullanım toplamıyla sınırlandırılır (bkz. src/lib/staff-advance.ts).
+ */
+export interface StaffAdvance {
+  id: string;
+  staffId: string;
+  /** Tam sayı (kuruş değil TL — mevcut Payment/PayrollRecord ile AYNI para kuralı: her zaman Int). */
+  amount: number;
+  /** yyyy-MM-dd */
+  requestDate: string;
+  status: StaffAdvanceStatus;
+  approvedBy?: string;
+  approvedAt?: string;
+  paidAt?: string;
+  paymentMethod?: string;
+  description?: string;
   createdBy: string;
   createdAt: string;
   updatedAt: string;

@@ -11,6 +11,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { actionCreateStaffMember, actionUpdateStaffMember } from "@/lib/actions";
 import { Badge, Button, Card, Input, Label, Select } from "@/components/ui";
 import { usePagination, PaginationControls } from "@/components/pagination-controls";
@@ -127,6 +128,7 @@ export function StaffManager({
                   <th className="px-4 py-3">E-posta</th>
                   <th className="px-4 py-3">Şube</th>
                   <th className="px-4 py-3">Durum</th>
+                  <th className="px-4 py-3">Detay</th>
                   {canWrite ? <th className="px-4 py-3">İşlemler</th> : null}
                 </tr>
               </thead>
@@ -180,6 +182,7 @@ export function StaffManager({
                               {member.status === "active" ? "Aktif" : "Pasif"}
                             </Badge>
                           </td>
+                          <td className="px-4 py-2 text-[var(--color-text-muted)]">—</td>
                           <td className="px-4 py-2">
                             <div className="flex gap-1.5">
                               <button
@@ -214,6 +217,14 @@ export function StaffManager({
                             <Badge status={member.status === "active" ? "confirmed" : "archived"}>
                               {member.status === "active" ? "Aktif" : "Pasif"}
                             </Badge>
+                          </td>
+                          <td className="px-4 py-2">
+                            <Link
+                              href={`/panel/personel/${member.id}`}
+                              className="text-xs font-medium text-[var(--color-primary)] hover:underline"
+                            >
+                              Detay →
+                            </Link>
                           </td>
                           {canWrite ? (
                             <td className="px-4 py-2">
