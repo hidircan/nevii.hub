@@ -595,6 +595,8 @@ export interface LessonSeries {
   /** ÖNCELİK 4 (devam) — bkz. Lesson.term; seriden üretilen her Lesson bunu miras alır. */
   term?: StudentTermType;
   academicYearStart?: number;
+  /** Faz 6 — demo/test amaçlı otomatik üretilmiş serileri işaretler. NULL = gerçek seri. */
+  demoTag?: string;
 }
 
 export interface Attendance {

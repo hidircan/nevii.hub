@@ -486,6 +486,10 @@ model LessonSeries {
   /// Akademik yılın başlangıç takvim yılı (ör. 2026 => "2026–2027 Güz" ya da
   /// "2026 Yaz"). NULL = legacy, aynı fallback kuralı geçerli.
   academicYearStart Int?
+  /// Faz 6 — demo/test amaçlı otomatik üretilmiş serileri işaretler (ör.
+  /// "demo-schedule-seed"). NULL = gerçek (insan tarafından oluşturulmuş)
+  /// seri. Yalnızca tanımlayıcı bir etiket — hiçbir iş kuralı buna bakmaz.
+  demoTag         String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 

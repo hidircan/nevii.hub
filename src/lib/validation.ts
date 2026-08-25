@@ -387,6 +387,8 @@ export const lessonSeriesParamsBaseSchema = z.object({
   /** ÖNCELİK 4 (devam) — opsiyonel akademik dönem etiketi; verilmezse legacy (undefined). */
   term: z.enum(["guz", "yaz"]).optional(),
   academicYearStart: z.coerce.number().int().min(2000).max(2100).optional(),
+  /** Faz 6 — demo/test amaçlı otomatik üretim etiketi (bkz. scripts/seed-demo-schedule.ts). */
+  demoTag: z.string().min(1).optional(),
 });
 
 /**

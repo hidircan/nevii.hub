@@ -387,6 +387,7 @@ function mapSchoolToAppData(school: PrismaSchoolWithRelations): AppData {
       updatedAt: series.updatedAt.toISOString(),
       term: (series as { term?: string | null }).term as import("./types").StudentTermType | undefined ?? undefined,
       academicYearStart: (series as { academicYearStart?: number | null }).academicYearStart ?? undefined,
+      demoTag: (series as { demoTag?: string | null }).demoTag ?? undefined,
     })),
     attendances: school.attendances.map((attendance) => ({
       id: attendance.id,
@@ -2090,6 +2091,7 @@ export async function addLessonSeries(
         status: "active",
         term: params.term,
         academicYearStart: params.academicYearStart,
+        demoTag: params.demoTag,
       },
     });
     for (const lesson of newLessons) {
