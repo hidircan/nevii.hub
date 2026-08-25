@@ -192,6 +192,21 @@ export async function listAccessForStudent(
 }
 
 /**
+ * Faz 4 — duyuru hedef kitlesi çözümü (`announcements/index.ts`
+ * `buildAnnouncementRecipientCandidates`) için tenant'ın TÜM aktif
+ * (status="active") erişim kayıtları — hem SELF hem GUARDIAN.
+ */
+export async function listActiveAccessForTenant(tenantId: string): Promise<StudentPortalAccessRecord[]> {
+  if (isDbMode) {
+    const { prisma } = await import("./db");
+    const rows = await prisma.studentPortalAccess.findMany({ where: { tenantId, status: "active" } });
+    return rows.map(toRecord);
+  }
+  const all = await loadAll();
+  return all.filter((r) => r.tenantId === tenantId && r.status === "active");
+}
+
+/**
  * @deprecated Yalnızca gerçek bir e-posta/SMS davet akışı eklenirse
  * kullanılacak alt-seviye primitif — bkz. `grantActiveStudentPortalAccess`.
  * Davet oluşturma (status=invited) — hiçbir zaman otomatik `active` yapmaz.

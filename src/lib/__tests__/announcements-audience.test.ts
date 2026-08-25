@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { matchesAudience, isVisibleNow, type AnnouncementRecipient } from "../announcements/audience";
+import { matchesAudience, isVisibleNow, resolveAudienceRecipients, type AnnouncementRecipient } from "../announcements/audience";
 import type { Announcement, Student, Teacher } from "../types";
 
 function student(overrides: Partial<Student>): Student {
@@ -40,14 +40,20 @@ function teacher(overrides: Partial<Teacher>): Teacher {
 }
 
 function announcement(
-  overrides: Partial<Pick<Announcement, "audienceType" | "audienceRef">>
-): Pick<Announcement, "audienceType" | "audienceRef"> {
+  overrides: Partial<Pick<Announcement, "audienceType" | "audienceRef" | "rules">>
+): Pick<Announcement, "audienceType" | "audienceRef" | "rules"> {
   return { audienceType: "all", ...overrides };
 }
 
 const STUDENTS: Student[] = [
   student({ id: "s-erzene-hobi", branchId: "erzene" as Student["branchId"], studentType: "Hobi" }),
   student({ id: "s-alsancak-meb", branchId: "alsancak" as Student["branchId"], studentType: "MEB" }),
+  // Faz 1B — birden fazla türe sahip öğrenci (yeni studentTypes dizisi).
+  student({
+    id: "s-erzene-hobi-lcm",
+    branchId: "erzene" as Student["branchId"],
+    studentTypes: ["Hobi", "London College of Music Hazırlık"],
+  }),
 ];
 const TEACHERS: Teacher[] = [
   teacher({ id: "t-erzene", branchId: "erzene" as Teacher["branchId"] }),
@@ -113,6 +119,17 @@ describe("EPIC 5 — matchesAudience: her audienceType için hedefte olan görü
     expect(matchesAudience(a, studentRecipient("s-alsancak-meb"), CONTEXT)).toBe(false);
   });
 
+  it("Faz 1B — birden fazla türe sahip öğrenci, atanmış türlerden HERHANGİ biri hedeflenirse görür", () => {
+    const targetHobi = announcement({ audienceType: "studentType", audienceRef: { studentType: "Hobi" } });
+    const targetLcm = announcement({
+      audienceType: "studentType",
+      audienceRef: { studentType: "London College of Music Hazırlık" },
+    });
+    expect(matchesAudience(targetHobi, parent("s-erzene-hobi-lcm"), CONTEXT)).toBe(true);
+    expect(matchesAudience(targetLcm, parent("s-erzene-hobi-lcm"), CONTEXT)).toBe(true);
+    expect(matchesAudience(targetLcm, parent("s-erzene-hobi"), CONTEXT)).toBe(false);
+  });
+
   it("studentType: TEACHER rolü asla görmez (yalnızca veli hedeflemesi)", () => {
     const a = announcement({ audienceType: "studentType", audienceRef: { studentType: "Hobi" } });
     expect(matchesAudience(a, teacherRecipient("t-erzene"), CONTEXT)).toBe(false);
@@ -134,6 +151,66 @@ describe("EPIC 5 — matchesAudience: her audienceType için hedefte olan görü
     expect(matchesAudience(a, studentRecipient("s-erzene-hobi"), CONTEXT)).toBe(true);
     expect(matchesAudience(a, parent("s-erzene-hobi"), CONTEXT)).toBe(false);
     expect(matchesAudience(a, teacherRecipient("t-erzene"), CONTEXT)).toBe(false);
+  });
+});
+
+describe("Faz 4 — instrument segmenti", () => {
+  const piyanoStudent = student({ id: "s-piyano", instruments: ["Piyano"] });
+  const kemanStudent = student({ id: "s-keman", instruments: ["Keman"] });
+  const piyanoTeacher = teacher({ id: "t-piyano", instruments: ["Piyano", "Gitar"] });
+  const kemanTeacher = teacher({ id: "t-keman", instruments: ["Keman"] });
+  const ctx = { students: [piyanoStudent, kemanStudent], teachers: [piyanoTeacher, kemanTeacher] };
+
+  it("bu enstrümanı ÇALAN öğrenci ve ÖĞRETEN öğretmen görür, diğerleri görmez", () => {
+    const a = announcement({ audienceType: "instrument", audienceRef: { instrument: ["Piyano"] } });
+    expect(matchesAudience(a, studentRecipient("s-piyano"), ctx)).toBe(true);
+    expect(matchesAudience(a, teacherRecipient("t-piyano"), ctx)).toBe(true);
+    expect(matchesAudience(a, studentRecipient("s-keman"), ctx)).toBe(false);
+    expect(matchesAudience(a, teacherRecipient("t-keman"), ctx)).toBe(false);
+  });
+
+  it("audienceRef.instrument boş/eksikse kimse görmez (fail-closed)", () => {
+    const a = announcement({ audienceType: "instrument", audienceRef: { instrument: [] } });
+    expect(matchesAudience(a, studentRecipient("s-piyano"), ctx)).toBe(false);
+  });
+});
+
+describe("Faz 4 — resolveAudienceRecipients: çoklu kural (rules[]) ve tekilleştirme", () => {
+  it("iki farklı kuralla eşleşen aynı kullanıcı listede TEK kez döner", () => {
+    const pianoTeacher = teacher({ id: "t-piyano", instruments: ["Piyano"] });
+    const ctx2 = { students: [], teachers: [pianoTeacher] };
+    const a = announcement({
+      audienceType: "teachers",
+      rules: [
+        { audienceType: "teachers" },
+        { audienceType: "instrument", audienceRef: { instrument: ["Piyano"] } },
+      ],
+    });
+    const candidates: AnnouncementRecipient[] = [teacherRecipient("t-piyano")];
+    const result = resolveAudienceRecipients(a, candidates, ctx2);
+    expect(result).toHaveLength(1);
+  });
+
+  it("aynı userId iki farklı aday satırında (ör. iki öğrencinin velisi) tek kez döner", () => {
+    const s1 = student({ id: "s-a", branchId: "erzene" as Student["branchId"] });
+    const s2 = student({ id: "s-b", branchId: "erzene" as Student["branchId"] });
+    const ctx2 = { students: [s1, s2], teachers: [] };
+    const a = announcement({ audienceType: "branch", audienceRef: { branchId: "erzene" } });
+    const candidates: AnnouncementRecipient[] = [
+      { role: "STUDENT", userId: "guardian-x", studentId: "s-a", accessType: "GUARDIAN" },
+      { role: "STUDENT", userId: "guardian-x", studentId: "s-b", accessType: "GUARDIAN" },
+    ];
+    const result = resolveAudienceRecipients(a, candidates, ctx2);
+    expect(result).toHaveLength(1);
+    expect(result[0]!.userId).toBe("guardian-x");
+  });
+
+  it("hedef dışı aday listede hiç görünmez", () => {
+    const ctx2 = CONTEXT;
+    const a = announcement({ audienceType: "teachers" });
+    const candidates: AnnouncementRecipient[] = [teacherRecipient("t-erzene"), parent("s-erzene-hobi")];
+    const result = resolveAudienceRecipients(a, candidates, ctx2);
+    expect(result.map((r) => r.userId)).toEqual(["user-t-erzene"]);
   });
 });
 

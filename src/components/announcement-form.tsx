@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui";
-import { STUDENT_TYPES, type AnnouncementAudienceType } from "@/lib/types";
+import { INSTRUMENTS, STUDENT_TYPES, type AnnouncementAudienceType, type Instrument } from "@/lib/types";
 
 type BranchOption = { id: string; shortName: string };
 
@@ -14,6 +14,7 @@ const AUDIENCE_LABELS: Record<AnnouncementAudienceType, string> = {
   parents: "Yalnızca veliler",
   students: "Yalnızca öğrenciler",
   studentType: "Belirli bir öğrenci türü",
+  instrument: "Belirli bir enstrüman (çalan öğrenci + öğreten öğretmen)",
   selected: "Seçili kullanıcılar (userId listesi)",
 };
 
@@ -24,6 +25,7 @@ export function AnnouncementForm({ branches }: { branches: BranchOption[] }) {
   const [audienceType, setAudienceType] = useState<AnnouncementAudienceType>("all");
   const [branchId, setBranchId] = useState(branches[0]?.id ?? "");
   const [studentType, setStudentType] = useState(STUDENT_TYPES[0]);
+  const [instrument, setInstrument] = useState<Instrument>(INSTRUMENTS[0]);
   const [userIdsText, setUserIdsText] = useState("");
   const [publishNow, setPublishNow] = useState(true);
   const [pinned, setPinned] = useState(false);
@@ -64,6 +66,7 @@ export function AnnouncementForm({ branches }: { branches: BranchOption[] }) {
     let audienceRef: Record<string, unknown> | undefined;
     if (audienceType === "branch") audienceRef = { branchId };
     if (audienceType === "studentType") audienceRef = { studentType };
+    if (audienceType === "instrument") audienceRef = { instrument: [instrument] };
     if (audienceType === "selected") {
       audienceRef = {
         userIds: userIdsText
@@ -188,6 +191,24 @@ export function AnnouncementForm({ branches }: { branches: BranchOption[] }) {
               {STUDENT_TYPES.map((t) => (
                 <option key={t} value={t}>
                   {t}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : null}
+        {audienceType === "instrument" ? (
+          <div>
+            <label className="mb-1 block text-xs font-medium text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
+              Enstrüman
+            </label>
+            <select
+              value={instrument}
+              onChange={(event) => setInstrument(event.target.value as Instrument)}
+              className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-muted)] outline-none ring-amber-200 focus:ring-2 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+            >
+              {INSTRUMENTS.map((i) => (
+                <option key={i} value={i}>
+                  {i}
                 </option>
               ))}
             </select>

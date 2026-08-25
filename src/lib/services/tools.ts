@@ -130,14 +130,16 @@ import {
   markNotificationRead,
 } from "../notifications";
 import {
+  buildAnnouncementRecipientCandidates,
   clearAnnouncements,
   createAnnouncement,
   listAnnouncements,
   listReadUserIds,
   markAnnouncementRead,
+  setAnnouncementRecipientCount,
   updateAnnouncementStatus,
 } from "../announcements";
-import { isVisibleNow, matchesAudience } from "../announcements/audience";
+import { isVisibleNow, matchesAudience, resolveAudienceRecipients } from "../announcements/audience";
 import {
   clearAssessments,
   createAssessment,
@@ -308,6 +310,7 @@ import {
   type Announcement,
   type AnnouncementAudienceRef,
   type AnnouncementStatus,
+  type AudienceRule,
   type BranchId,
   type CollectionsSettings,
   type FeeRoundingMode,
@@ -3857,6 +3860,48 @@ export async function listAllAnnouncementsTool(
   }
 }
 
+/**
+ * Faz 4 — PUSH: bir duyuru YAYINDA (published + görünürlük penceresi
+ * içinde) hale geldiğinde hedef kitleyi TEK SEFERDE çözer, her benzersiz
+ * kullanıcıya bir `Notification` materyalize eder (`resolveAudienceRecipients`
+ * zaten userId'ye göre tekilleştiriyor) ve sonucu `recipientCount` olarak
+ * kalıcılaştırır. `publishAt` gelecekteyse (henüz `isVisibleNow`=false)
+ * BİLİNÇLİ OLARAK atlanır — zamanlanmış duyuruları canlıya alacak bir
+ * scheduler bu sprintin kapsamında yok (mevcut PULL modelinde de aynı
+ * kısıt zaten vardı); alıcılar içeriği normal pull akışıyla keşfeder.
+ * Best-effort: hiçbir hata createAnnouncementTool/updateAnnouncementStatusTool
+ * çağrısını bozmaz.
+ */
+async function publishAnnouncementToRecipients(tenantId: string, announcement: Announcement): Promise<void> {
+  if (!isVisibleNow(announcement)) return;
+  try {
+    const data = await readData();
+    const candidates = await buildAnnouncementRecipientCandidates(tenantId, data.teachers, data.students);
+    const recipients = resolveAudienceRecipients(announcement, candidates, {
+      students: data.students,
+      teachers: data.teachers,
+    });
+    const { notifyUserIfEnabled } = await import("../notification-dispatch");
+    for (const r of recipients) {
+      try {
+        await notifyUserIfEnabled({
+          tenantId,
+          userId: r.userId,
+          category: "announcement_published",
+          title: "Yeni duyuru",
+          body: announcement.title,
+          dedupeKey: `${announcement.id}:announcement_published`,
+        });
+      } catch {
+        // best-effort — tek kullanıcı hatası diğerlerini bozmasın
+      }
+    }
+    await setAnnouncementRecipientCount(tenantId, announcement.id, recipients.length);
+  } catch {
+    // best-effort — duyuru oluşturma/durum güncelleme akışını bloklamaz
+  }
+}
+
 export async function createAnnouncementTool(
   ctx: ServiceContext,
   input: unknown
@@ -3944,6 +3989,7 @@ export async function createAnnouncementTool(
       attachments: builtAttachments.length ? builtAttachments : undefined,
       audienceType: v.data.audienceType,
       audienceRef: v.data.audienceRef as AnnouncementAudienceRef | undefined,
+      rules: v.data.rules as AudienceRule[] | undefined,
       status: v.data.status,
       pinned: v.data.pinned,
       publishAt: v.data.publishAt,
@@ -3955,6 +4001,9 @@ export async function createAnnouncementTool(
       status: announcement.status,
       attachmentCount: builtAttachments.length,
     });
+    if (announcement.status === "published") {
+      await publishAnnouncementToRecipients(ctx.tenantId, announcement);
+    }
     return ok({ announcementId: announcement.id });
   } catch (e) {
     if (uploadedKeys.length) {
@@ -4031,11 +4080,18 @@ export async function updateAnnouncementStatusTool(
   if (!v.ok) return v;
 
   try {
+    const { getStoredAnnouncement } = await import("../announcements");
+    const before = await getStoredAnnouncement(ctx.tenantId, v.data.announcementId);
     const updated = await updateAnnouncementStatus(ctx.tenantId, v.data.announcementId, v.data.status);
     if (!updated) return fail("NOT_FOUND", "Duyuru bulunamadı");
     audit(ctx, "announcement.status_update", "Announcement", v.data.announcementId, {
       status: v.data.status,
     });
+    // Faz 4 — yalnızca GERÇEK bir "yayına girme" geçişinde bildirim üret
+    // (published → published tekrar çağrısı spam üretmez).
+    if (v.data.status === "published" && before?.status !== "published") {
+      await publishAnnouncementToRecipients(ctx.tenantId, updated);
+    }
     return ok({ announcementId: v.data.announcementId, status: v.data.status });
   } catch (e) {
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "updateAnnouncementStatus failed");

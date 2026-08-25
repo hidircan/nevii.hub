@@ -603,34 +603,59 @@ const announcementAttachmentInputSchema = z.object({
   fileData: z.string().min(1).max(4_000_000),
 });
 
+const ANNOUNCEMENT_AUDIENCE_TYPES = [
+  "all",
+  "branch",
+  "teachers",
+  "parents",
+  "students",
+  "studentType",
+  "instrument",
+  "selected",
+] as const;
+
+const announcementAudienceRefSchema = z.union([
+  z.object({ branchId: z.string().min(1) }),
+  z.object({ studentType: z.enum(STUDENT_TYPE_FOR_AUDIENCE) }),
+  z.object({ instrument: z.array(z.enum(INSTRUMENTS as [string, ...string[]])).min(1) }),
+  z.object({ userIds: z.array(z.string().min(1)).min(1) }),
+]);
+
+function audienceRefMatchesType(audienceType: string, audienceRef: unknown): boolean {
+  if (audienceType === "branch") return !!audienceRef && "branchId" in (audienceRef as object);
+  if (audienceType === "studentType") return !!audienceRef && "studentType" in (audienceRef as object);
+  if (audienceType === "instrument") return !!audienceRef && "instrument" in (audienceRef as object);
+  if (audienceType === "selected") return !!audienceRef && "userIds" in (audienceRef as object);
+  return true;
+}
+
+/** Faz 4 — çoklu segment (OR). En az 1, en fazla 10 kural. */
+const audienceRuleSchema = z
+  .object({
+    audienceType: z.enum(ANNOUNCEMENT_AUDIENCE_TYPES),
+    audienceRef: announcementAudienceRefSchema.optional(),
+  })
+  .refine((r) => audienceRefMatchesType(r.audienceType, r.audienceRef), {
+    message: "audienceType için gerekli audienceRef alanı eksik",
+  });
+
 export const createAnnouncementSchema = z
   .object({
     title: z.string().min(1),
     body: z.string().min(1),
     attachmentUrl: z.string().url().optional(),
     attachments: z.array(announcementAttachmentInputSchema).max(3).optional(),
-    audienceType: z.enum(["all", "branch", "teachers", "parents", "students", "studentType", "selected"]),
-    audienceRef: z
-      .union([
-        z.object({ branchId: z.string().min(1) }),
-        z.object({ studentType: z.enum(STUDENT_TYPE_FOR_AUDIENCE) }),
-        z.object({ userIds: z.array(z.string().min(1)).min(1) }),
-      ])
-      .optional(),
+    audienceType: z.enum(ANNOUNCEMENT_AUDIENCE_TYPES),
+    audienceRef: announcementAudienceRefSchema.optional(),
+    rules: z.array(audienceRuleSchema).min(1).max(10).optional(),
     status: z.enum(["draft", "published", "archived"]).optional(),
     pinned: z.boolean().optional(),
     publishAt: z.string().min(1).optional(),
     expireAt: z.string().min(1).optional(),
   })
-  .refine(
-    (d) => {
-      if (d.audienceType === "branch") return !!d.audienceRef && "branchId" in d.audienceRef;
-      if (d.audienceType === "studentType") return !!d.audienceRef && "studentType" in d.audienceRef;
-      if (d.audienceType === "selected") return !!d.audienceRef && "userIds" in d.audienceRef;
-      return true;
-    },
-    { message: "audienceType için gerekli audienceRef alanı eksik" }
-  );
+  .refine((d) => audienceRefMatchesType(d.audienceType, d.audienceRef), {
+    message: "audienceType için gerekli audienceRef alanı eksik",
+  });
 
 export const updateAnnouncementStatusSchema = z.object({
   announcementId: z.string().min(1),

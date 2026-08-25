@@ -18,7 +18,11 @@ import type {
   AnnouncementAudienceRef,
   AnnouncementAudienceType,
   AnnouncementStatus,
+  AudienceRule,
+  Student,
+  Teacher,
 } from "../types";
+import type { AnnouncementRecipient } from "./audience";
 
 const FILE = path.join(resolveDataDir(path.join(process.cwd(), "data")), "announcements.json");
 const READS_FILE = path.join(
@@ -85,9 +89,15 @@ function isAnnouncementAttachmentArray(v: unknown): v is Announcement["attachmen
   });
 }
 
+function isAudienceRuleArray(v: unknown): v is AudienceRule[] {
+  if (!Array.isArray(v)) return false;
+  return v.every((it) => typeof it === "object" && it !== null && typeof (it as { audienceType?: unknown }).audienceType === "string");
+}
+
 function mapDbAnnouncement(a: DbAnnouncement): StoredAnnouncement {
   const attachmentsRaw: unknown = a.attachments;
   const attachments = isAnnouncementAttachmentArray(attachmentsRaw) ? attachmentsRaw : undefined;
+  const rulesRaw: unknown = a.rules;
   return {
     id: a.id,
     tenantId: a.tenantId,
@@ -97,6 +107,7 @@ function mapDbAnnouncement(a: DbAnnouncement): StoredAnnouncement {
     attachments: Array.isArray(attachments) ? attachments : undefined,
     audienceType: a.audienceType as AnnouncementAudienceType,
     audienceRef: (a.audienceRef as AnnouncementAudienceRef | null) ?? undefined,
+    rules: isAudienceRuleArray(rulesRaw) ? rulesRaw : undefined,
     status: a.status as AnnouncementStatus,
     pinned: a.pinned,
     publishAt: toIso(a.publishAt),
@@ -104,6 +115,7 @@ function mapDbAnnouncement(a: DbAnnouncement): StoredAnnouncement {
     createdBy: a.createdBy,
     createdAt: a.createdAt.toISOString(),
     updatedAt: a.updatedAt.toISOString(),
+    recipientCount: a.recipientCount ?? undefined,
   };
 }
 
@@ -127,6 +139,7 @@ function toPublicAnnouncement(a: StoredAnnouncement): Announcement {
     attachments: toPublicAttachments(a.attachments),
     audienceType: a.audienceType,
     audienceRef: a.audienceRef,
+    rules: a.rules,
     status: a.status,
     pinned: a.pinned,
     publishAt: a.publishAt,
@@ -134,6 +147,7 @@ function toPublicAnnouncement(a: StoredAnnouncement): Announcement {
     createdBy: a.createdBy,
     createdAt: a.createdAt,
     updatedAt: a.updatedAt,
+    recipientCount: a.recipientCount,
   };
 }
 
@@ -145,6 +159,7 @@ export type CreateAnnouncementInput = {
   attachments?: Announcement["attachments"];
   audienceType: AnnouncementAudienceType;
   audienceRef?: AnnouncementAudienceRef;
+  rules?: AudienceRule[];
   status?: AnnouncementStatus;
   pinned?: boolean;
   publishAt?: string;
@@ -175,6 +190,10 @@ async function createAnnouncementDb(input: CreateAnnouncementInput): Promise<Ann
           : input.audienceRef === null
           ? Prisma.JsonNull
           : (input.audienceRef as unknown as Prisma.InputJsonValue),
+      rules:
+        input.rules === undefined
+          ? undefined
+          : (input.rules as unknown as Prisma.InputJsonValue),
       status: input.status ?? "draft",
       pinned: input.pinned ?? false,
       publishAt: input.publishAt ? new Date(input.publishAt) : null,
@@ -198,6 +217,7 @@ export async function createAnnouncement(input: CreateAnnouncementInput): Promis
     attachments: input.attachments,
     audienceType: input.audienceType,
     audienceRef: input.audienceRef,
+    rules: input.rules,
     status: input.status ?? "draft",
     pinned: input.pinned ?? false,
     publishAt: input.publishAt,
@@ -351,4 +371,55 @@ export async function clearAnnouncements(tenantId: string): Promise<void> {
     const remainingReads = reads.filter((r) => !idsToRemove.has(r.announcementId));
     if (remainingReads.length !== reads.length) await saveAllReads(remainingReads);
   }
+}
+
+async function setAnnouncementRecipientCountDb(tenantId: string, id: string, count: number): Promise<void> {
+  const { prisma } = await import("../db");
+  await prisma.announcement.updateMany({ where: { id, tenantId }, data: { recipientCount: count } });
+}
+
+/** Faz 4 — yayınlama anında çözülen benzersiz alıcı sayısını kalıcılaştırır. */
+export async function setAnnouncementRecipientCount(tenantId: string, id: string, count: number): Promise<void> {
+  if (isDbMode) return setAnnouncementRecipientCountDb(tenantId, id, count);
+  const all = await loadAll();
+  const idx = all.findIndex((a) => a.id === id && a.tenantId === tenantId);
+  if (idx === -1) return;
+  const next = [...all];
+  next[idx] = { ...next[idx], recipientCount: count, updatedAt: new Date().toISOString() };
+  await saveAll(next);
+}
+
+/**
+ * Faz 4 — duyuru yayınlandığında PUSH gönderilecek gerçek kullanıcı
+ * hesaplarının adayı (I/O burada yapılır; `audience.ts` saf kalır).
+ * Her aktif öğretmen için tek aday, her aktif StudentPortalAccess kaydı
+ * (SELF veya GUARDIAN, öğrenci başına) için tek aday — bir veli birden
+ * fazla öğrenciye bağlıysa aynı userId birden fazla aday satırında
+ * görünebilir; nihai tekilleştirme `resolveAudienceRecipients`de olur.
+ */
+export async function buildAnnouncementRecipientCandidates(
+  tenantId: string,
+  teachers: Teacher[],
+  students: Student[]
+): Promise<AnnouncementRecipient[]> {
+  const { getUserIdByTeacherId } = await import("../auth/users");
+  const { listActiveAccessForTenant } = await import("../student-portal-access");
+
+  const candidates: AnnouncementRecipient[] = [];
+
+  const activeTeachers = teachers.filter((t) => t.active);
+  const teacherUserIds = await Promise.all(activeTeachers.map((t) => getUserIdByTeacherId(tenantId, t.id)));
+  activeTeachers.forEach((t, i) => {
+    const userId = teacherUserIds[i];
+    if (userId) candidates.push({ role: "TEACHER", userId, teacherId: t.id });
+  });
+
+  const activeStudentIds = new Set(students.filter((s) => s.active).map((s) => s.id));
+  const access = await listActiveAccessForTenant(tenantId);
+  for (const a of access) {
+    if (!activeStudentIds.has(a.studentId)) continue;
+    candidates.push({ role: "STUDENT", userId: a.userId, studentId: a.studentId, accessType: a.accessType });
+  }
+
+  return candidates;
 }

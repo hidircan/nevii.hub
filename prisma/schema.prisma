@@ -861,6 +861,8 @@ model Announcement {
   attachments   Json?
   audienceType  String
   audienceRef   Json?
+  /// Faz 4 — çoklu segment (OR): [{ audienceType, audienceRef }]. Yoksa audienceType/audienceRef tek kural sayılır.
+  rules         Json?
   /// "draft" | "published" | "archived"
   status        String    @default("draft")
   pinned        Boolean   @default(false)
@@ -869,6 +871,8 @@ model Announcement {
   createdBy     String
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
+  /// Faz 4 — yayınlanma anında çözülen benzersiz alıcı (Notification) sayısı.
+  recipientCount Int?
   reads         AnnouncementRead[]
 
   @@index([tenantId, status])

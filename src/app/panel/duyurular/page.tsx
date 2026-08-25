@@ -18,6 +18,7 @@ const AUDIENCE_LABELS: Record<string, string> = {
   parents: "Veliler",
   students: "Öğrenciler",
   studentType: "Öğrenci türü",
+  instrument: "Enstrüman",
   selected: "Seçili kullanıcılar",
 };
 
@@ -73,6 +74,7 @@ export default async function DuyurularPage() {
                   <AnnouncementAttachments announcementId={a.id} attachments={a.attachments} />
                   <p className="mt-1 text-xs text-[var(--color-text-muted)]">
                     Oluşturulma: {formatDateTime(a.createdAt)}
+                    {typeof a.recipientCount === "number" ? ` · ${a.recipientCount} alıcıya bildirim gönderildi` : ""}
                   </p>
                 </div>
                 <div className="flex shrink-0 gap-2">

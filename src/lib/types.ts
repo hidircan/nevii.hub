@@ -417,13 +417,26 @@ export type AnnouncementAudienceType =
   | "parents"
   | "students"
   | "studentType"
+  | "instrument"
   | "selected";
 
 export type AnnouncementAudienceRef =
   | { branchId: string }
   | { studentType: StudentType }
+  | { instrument: Instrument[] }
   | { userIds: string[] }
   | Record<string, never>;
+
+/**
+ * Faz 4 — bir duyuru BİRDEN FAZLA hedef segmentini OR'layarak kapsayabilir
+ * (ör. "erzene şubesi" VEYA "piyano çalanlar"). `rules` verilmemişse (eski
+ * kayıtlar, tekil segment) `audienceType`/`audienceRef` tek kurallı bir
+ * dizi gibi davranır — bkz. `matchesAudience` (src/lib/announcements/audience.ts).
+ */
+export type AudienceRule = {
+  audienceType: AnnouncementAudienceType;
+  audienceRef?: AnnouncementAudienceRef;
+};
 
 export type AnnouncementStatus = "draft" | "published" | "archived";
 
@@ -448,6 +461,8 @@ export interface Announcement {
   attachments?: AnnouncementAttachment[];
   audienceType: AnnouncementAudienceType;
   audienceRef?: AnnouncementAudienceRef;
+  /** Faz 4 — çoklu segment (OR). Verilmemişse `audienceType`/`audienceRef` tek kural sayılır. */
+  rules?: AudienceRule[];
   status: AnnouncementStatus;
   pinned: boolean;
   /** ISO tarih — verilmezse hemen yayında sayılır (status published ise) */
@@ -457,6 +472,8 @@ export interface Announcement {
   createdBy: string;
   createdAt: string;
   updatedAt: string;
+  /** Faz 4 — yayınlanma anında hedef kitleye materyalize edilen Notification sayısı (benzersiz kullanıcı). */
+  recipientCount?: number;
 }
 
 /**
