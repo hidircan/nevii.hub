@@ -15,6 +15,7 @@ import type {
   AttendanceStatus,
   Branch,
   CollectionsSettings,
+  ConsentSettings,
   FeeRoundingMode,
   Instrument,
   Lesson,
@@ -694,6 +695,11 @@ export async function updateTermWeeklyClosedDays(
 ): Promise<AppData> {
   const data = load();
   return save({ ...data, settings: { ...data.settings, termWeeklyClosedDays } });
+}
+
+export async function updateConsentSettings(consentSettings: ConsentSettings): Promise<AppData> {
+  const data = load();
+  return save({ ...data, settings: { ...data.settings, consentSettings } });
 }
 
 const TEACHER_COLORS = ["#7c3aed", "#0891b2", "#db2777", "#ea580c", "#059669", "#4f46e5"];

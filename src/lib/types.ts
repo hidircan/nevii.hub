@@ -819,7 +819,27 @@ export interface SchoolSettings {
    * 0=Pazar..6=Cumartesi.
    */
   termWeeklyClosedDays?: { guz: number[]; yaz: number[] };
+  /** Faz 8 (KVKK) — boşsa DEFAULT_CONSENT_SETTINGS uygulanır (veri minimizasyonu: recordDeviceInfo=false). */
+  consentSettings?: ConsentSettings;
 }
+
+/**
+ * Faz 8 (KVKK) — tenant düzeyinde yönetilen rıza ayarları.
+ * `restrictedFeatures`: geçerli rızası olmayan bir kişi için hangi
+ * özellikler kısıtlanır (ör. "whatsapp_messaging", "photo_sharing" — serbest
+ * metin anahtar, sabit bir enum'a KİLİTLENMEZ, kurumun kendi tanımladığı bir
+ * liste). `recordDeviceInfo`: KvkkConsent.deviceInfo'nun doldurulup
+ * doldurulmayacağı — varsayılan false (spec'in "veri minimizasyonu" talebi).
+ */
+export type ConsentSettings = {
+  restrictedFeatures: string[];
+  recordDeviceInfo: boolean;
+};
+
+export const DEFAULT_CONSENT_SETTINGS: ConsentSettings = {
+  restrictedFeatures: [],
+  recordDeviceInfo: false,
+};
 
 /**
  * Öğretmenin dakika başı ücreti. `branchId`/`instrument` verilmezse o alan
@@ -1170,6 +1190,93 @@ export interface SocialMediaConsent {
   sourceDocumentRef?: string;
   withdrawnAt?: string;
   history: SocialMediaConsentEvent[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * Faz 8 (KVKK) — hukuki metnin versiyonlu geçmişi (append-only, bkz.
+ * prisma/schema.prisma ConsentTextVersion yorumu). `consentType` serbest
+ * metin (ör. "kvkk_general", "photo_sharing") — kurum kendi rıza türlerini
+ * tanımlar, sabit bir enum'a kilitlenmez.
+ */
+export interface ConsentTextVersion {
+  id: string;
+  consentType: string;
+  version: number;
+  bodyText: string;
+  effectiveFrom: string;
+  createdBy: string;
+  createdAt: string;
+}
+
+export type ConsentSubjectType = "student" | "parent" | "user";
+
+/** Faz 8 (KVKK) — `SocialMediaConsent` ile AYNI iskelet (grant/withdraw). */
+export interface KvkkConsent {
+  id: string;
+  subjectType: ConsentSubjectType;
+  subjectId: string;
+  consentType: string;
+  textVersionId: string;
+  acceptedAt: string;
+  channel: string;
+  withdrawnAt?: string;
+  withdrawalReason?: string;
+  /** Yalnızca ConsentSettings.recordDeviceInfo=true iken dolu. */
+  deviceInfo?: { ip?: string; userAgent?: string };
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Faz 8 (KVKK) — bir konu+tür için geçerli rızanın efektif durumu (okuma anında hesaplanır, kalıcı yazılmaz). */
+export type ConsentEffectiveStatus = "valid" | "missing" | "outdated" | "withdrawn";
+
+/** Faz 11 — CRM arama/mesaj altyapısı. */
+export type CrmContactType = "student" | "parent" | "lead";
+export type CallDirection = "inbound" | "outbound";
+
+export interface CallLog {
+  id: string;
+  callerNumber: string;
+  callerName?: string;
+  contactType?: CrmContactType;
+  contactId?: string;
+  direction: CallDirection;
+  answered: boolean;
+  durationSeconds?: number;
+  occurredAt: string;
+  callbackDone: boolean;
+  callbackAt?: string;
+  callbackByUserId?: string;
+  note?: string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type MessageChannel = "sms" | "whatsapp" | "email" | "other";
+export type MessageLogStatus = "unread" | "read" | "replied";
+
+/**
+ * `contentOrSummary` her zaman TAM içeriği taşır (tek alan — ayrı bir
+ * "summary" kolonu İCAT EDİLMEDİ); erişimi sınırlandırma LİSTE fonksiyonu
+ * seviyesinde yapılır (`toPublicMessageLogSummary` — Homework.fileData'nın
+ * listede "1" ile değiştirilmesiyle AYNI desen). Tam içerik yalnızca
+ * `getMessageLogTool` (audit'li) ile görülür.
+ */
+export interface MessageLog {
+  id: string;
+  channel: MessageChannel;
+  senderIdentifier: string;
+  occurredAt: string;
+  contentOrSummary: string;
+  status: MessageLogStatus;
+  contactType?: CrmContactType;
+  contactId?: string;
+  responderUserId?: string;
+  createdBy: string;
   createdAt: string;
   updatedAt: string;
 }

@@ -45,6 +45,7 @@ import {
   startLessonLive,
   updateBranch,
   updateCollectionsSettings,
+  updateConsentSettings,
   updateFeeRoundingMode,
   updateMakeupWindowDays,
   updateMonthlyMakeupAllowance,
@@ -87,6 +88,19 @@ import {
   getLatestSocialMediaConsent,
   listSocialMediaConsentHistory,
 } from "../social-media-consent";
+import {
+  listConsentTextVersions,
+  getCurrentConsentTextVersion,
+  createConsentTextVersion,
+  grantKvkkConsent,
+  withdrawKvkkConsent,
+  getKvkkConsentById,
+  listKvkkConsentHistory,
+  getEffectiveConsentStatus,
+} from "../kvkk-consent";
+import { listCallLogs, createCallLog, assignCallContact, markCallbackDone } from "../call-log";
+import { listMessageLogs, getMessageLog, createMessageLog, assignMessageContact, setMessageStatus, toPublicSummary } from "../message-log";
+import { matchContactByPhone } from "../crm-contact-matching";
 import {
   createInstrumentCatalogEntry,
   updateInstrumentCatalogEntry,
@@ -294,6 +308,16 @@ import {
   createDiscountCampaignSchema,
   updateDiscountCampaignSchema,
   socialMediaConsentSchema,
+  createConsentTextVersionSchema,
+  grantKvkkConsentSchema,
+  withdrawKvkkConsentSchema,
+  updateConsentSettingsSchema,
+  createCallLogSchema,
+  assignCallContactSchema,
+  markCallbackDoneSchema,
+  createMessageLogSchema,
+  assignMessageContactSchema,
+  setMessageStatusSchema,
   createInstrumentCatalogSchema,
   updateInstrumentCatalogSchema,
   createStaffMemberSchema,
@@ -330,6 +354,8 @@ import {
 } from "../validation";
 import {
   DEFAULT_COLLECTIONS_SETTINGS,
+  DEFAULT_CONSENT_SETTINGS,
+  type ConsentSubjectType,
   INSTRUMENTS,
   type Announcement,
   type AnnouncementAudienceRef,
@@ -2688,6 +2714,346 @@ export async function listSocialMediaConsentHistoryTool(
 
   const history = await listSocialMediaConsentHistory(ctx.tenantId, v.data.studentId);
   return ok({ history });
+}
+
+/** Faz 8 — KVKK rıza kayıtları hassas kişisel veridir; requireStaffSensitiveAccess ile AYNI düzey. */
+function requireConsentAccess(ctx: ServiceContext) {
+  return requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+}
+
+/** Admin her zaman; konu kendisi (subjectType=user → userId, student/parent → StudentPortalAccess). */
+async function canAccessConsentSubject(
+  ctx: ServiceContext,
+  subjectType: ConsentSubjectType,
+  subjectId: string
+): Promise<boolean> {
+  if (ctx.role === "SCHOOL_ADMIN" || ctx.role === "SUPER_ADMIN" || ctx.role === "AI_AGENT") return true;
+  if (subjectType === "user") return ctx.userId === subjectId;
+  if (subjectType === "student" || subjectType === "parent") return canAccessStudent(ctx, subjectId);
+  return false;
+}
+
+/** Bir `consentType` için TÜM hukuki metin versiyonları — yönetim ekranı. */
+export async function listConsentTextVersionsTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ versions: import("../types").ConsentTextVersion[] }>> {
+  const auth = requireConsentAccess(ctx);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const v = parseOrFail(z.object({ consentType: z.string().min(1) }), input);
+  if (!v.ok) return v;
+  const versions = await listConsentTextVersions(ctx.tenantId, v.data.consentType);
+  return ok({ versions });
+}
+
+/**
+ * Yürürlükteki metnin KENDİSİ hassas değildir (rıza vermeden ÖNCE okunması
+ * gerekir) — bu yüzden `requireConsentAccess` (admin-only) İLE KİLİTLENMEZ,
+ * herhangi bir kimliği doğrulanmış rol okuyabilir (portal first-login
+ * gate'i bunu kullanır).
+ */
+export async function getCurrentConsentTextVersionTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ version: import("../types").ConsentTextVersion | undefined }>> {
+  const v = parseOrFail(z.object({ consentType: z.string().min(1) }), input);
+  if (!v.ok) return v;
+  const version = await getCurrentConsentTextVersion(ctx.tenantId, v.data.consentType);
+  return ok({ version });
+}
+
+/** Yeni bir hukuki metin versiyonu yayınlar (append-only — mevcut versiyonlar ASLA değişmez). */
+export async function createConsentTextVersionTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ textVersionId: string; version: number }>> {
+  const auth = requireConsentAccess(ctx);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const v = parseOrFail(createConsentTextVersionSchema, input);
+  if (!v.ok) return v;
+  const result = await createConsentTextVersion({ tenantId: ctx.tenantId, createdBy: ctx.userId, ...v.data });
+  if (!result.ok) return fail("VALIDATION_ERROR", result.message);
+  audit(ctx, "kvkk.consent_text.create", "ConsentTextVersion", result.entry.id, {
+    consentType: result.entry.consentType,
+    version: result.entry.version,
+  });
+  return ok({ textVersionId: result.entry.id, version: result.entry.version });
+}
+
+/**
+ * Bir konu için rıza kaydeder — çağıranın kendisi hakkında (portal ilk-giriş
+ * ekranı) VEYA admin başka bir konu adına. `consentType` için yayınlanmış
+ * (yürürlükte) bir metin yoksa reddedilir — "neye rıza gösterildiği"
+ * belirsiz bir kayıt asla oluşturulmaz.
+ */
+export async function grantKvkkConsentTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ consentId: string }>> {
+  const v = parseOrFail(grantKvkkConsentSchema, input);
+  if (!v.ok) return v;
+  const allowed = await canAccessConsentSubject(ctx, v.data.subjectType, v.data.subjectId);
+  if (!allowed) return fail("FORBIDDEN", "Bu kişi adına rıza kaydı oluşturamazsınız.");
+
+  const currentVersion = await getCurrentConsentTextVersion(ctx.tenantId, v.data.consentType);
+  if (!currentVersion) return fail("NOT_FOUND", "Bu rıza türü için yürürlükte bir hukuki metin tanımlı değil.");
+
+  const data = await readData();
+  const settings = data.settings.consentSettings ?? DEFAULT_CONSENT_SETTINGS;
+  const record = await grantKvkkConsent({
+    tenantId: ctx.tenantId,
+    subjectType: v.data.subjectType,
+    subjectId: v.data.subjectId,
+    consentType: v.data.consentType,
+    textVersionId: currentVersion.id,
+    channel: v.data.channel,
+    deviceInfo: settings.recordDeviceInfo ? v.data.deviceInfo : undefined,
+    createdBy: ctx.userId,
+  });
+  audit(ctx, "kvkk.consent.grant", "KvkkConsent", record.id, {
+    subjectType: v.data.subjectType,
+    subjectId: v.data.subjectId,
+    consentType: v.data.consentType,
+  });
+  return ok({ consentId: record.id });
+}
+
+/**
+ * Bir rızayı geri çeker — konu kendisi VEYA admin. Erişim kontrolü
+ * MUTASYONDAN ÖNCE yapılır (`getKvkkConsentById` salt-okunur) — yetkisiz
+ * bir çağrının önce geri çekip SONRA reddedilmesi gibi bir sıra HATASI
+ * burada yok.
+ */
+export async function withdrawKvkkConsentTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ consentId: string }>> {
+  const v = parseOrFail(withdrawKvkkConsentSchema, input);
+  if (!v.ok) return v;
+
+  const existing = await getKvkkConsentById(ctx.tenantId, v.data.consentId);
+  if (!existing) return fail("NOT_FOUND", "Rıza kaydı bulunamadı.");
+
+  const allowed = await canAccessConsentSubject(ctx, existing.subjectType, existing.subjectId);
+  if (!allowed) return fail("FORBIDDEN", "Bu rızayı geri çekemezsiniz.");
+
+  const result = await withdrawKvkkConsent(ctx.tenantId, v.data.consentId, { reason: v.data.reason });
+  if (!result.ok) return fail("VALIDATION_ERROR", result.message);
+
+  audit(ctx, "kvkk.consent.withdraw", "KvkkConsent", v.data.consentId, {
+    subjectType: result.entry.subjectType,
+    subjectId: result.entry.subjectId,
+  });
+  return ok({ consentId: v.data.consentId });
+}
+
+/** Bir konunun rıza tarihçesi — admin herkes, konu kendisi. */
+export async function listKvkkConsentHistoryTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ history: import("../types").KvkkConsent[] }>> {
+  const v = parseOrFail(z.object({ subjectType: z.enum(["student", "parent", "user"]), subjectId: z.string().min(1) }), input);
+  if (!v.ok) return v;
+  const allowed = await canAccessConsentSubject(ctx, v.data.subjectType, v.data.subjectId);
+  if (!allowed) return fail("FORBIDDEN", "Bu kişinin rıza tarihçesini göremezsiniz.");
+  const history = await listKvkkConsentHistory(ctx.tenantId, v.data.subjectType, v.data.subjectId);
+  return ok({ history });
+}
+
+/** Bir konunun bir rıza türü için EFEKTİF durumu — portal first-login gate'i bunu kullanır. */
+export async function getConsentStatusTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ status: import("../types").ConsentEffectiveStatus }>> {
+  const v = parseOrFail(
+    z.object({ subjectType: z.enum(["student", "parent", "user"]), subjectId: z.string().min(1), consentType: z.string().min(1) }),
+    input
+  );
+  if (!v.ok) return v;
+  const allowed = await canAccessConsentSubject(ctx, v.data.subjectType, v.data.subjectId);
+  if (!allowed) return fail("FORBIDDEN", "Bu kişinin rıza durumunu göremezsiniz.");
+  const status = await getEffectiveConsentStatus(ctx.tenantId, v.data.subjectType, v.data.subjectId, v.data.consentType);
+  return ok({ status });
+}
+
+/** Tenant düzeyinde kısıtlanan özellik listesi + cihaz bilgisi kaydı ayarı. */
+export async function updateConsentSettingsTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ consentSettings: import("../types").ConsentSettings }>> {
+  const auth = requireConsentAccess(ctx);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const v = parseOrFail(updateConsentSettingsSchema, input);
+  if (!v.ok) return v;
+  await updateConsentSettings(v.data);
+  audit(ctx, "school.consent_settings_update", "School", ctx.tenantId, { restrictedFeatures: v.data.restrictedFeatures });
+  return ok({ consentSettings: v.data });
+}
+
+/** Faz 11 — CRM arama/mesaj günlüğü. Hassas iletişim verisi — yönetici/SUPER_ADMIN düzeyi. */
+function requireCrmAccess(ctx: ServiceContext) {
+  return requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+}
+
+export async function listCallLogsTool(
+  ctx: ServiceContext,
+  _input: unknown
+): Promise<ServiceResult<{ calls: import("../types").CallLog[] }>> {
+  const auth = requireCrmAccess(ctx);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const calls = await listCallLogs(ctx.tenantId);
+  return ok({ calls });
+}
+
+/** Manuel arama kaydı — telefon numarasından otomatik kişi eşleştirme denenir (tekil eşleşmede). */
+export async function createCallLogTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ callId: string; matchStatus: "matched" | "ambiguous" | "none" }>> {
+  const auth = requireCrmAccess(ctx);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const v = parseOrFail(createCallLogSchema, input);
+  if (!v.ok) return v;
+
+  const data = await readData();
+  const matchResult = matchContactByPhone(v.data.callerNumber, data.students, data.teachers);
+  const result = await createCallLog({
+    tenantId: ctx.tenantId,
+    createdBy: ctx.userId,
+    ...v.data,
+    contactType: matchResult.status === "matched" ? matchResult.match.contactType : undefined,
+    contactId: matchResult.status === "matched" ? matchResult.match.contactId : undefined,
+  });
+  if (!result.ok) return fail("VALIDATION_ERROR", result.message);
+  audit(ctx, "crm.call_log.create", "CallLog", result.entry.id, {
+    matchStatus: matchResult.status,
+    autoAssigned: matchResult.status === "matched",
+  });
+  return ok({ callId: result.entry.id, matchStatus: matchResult.status });
+}
+
+/** Otomatik eşleştirme belirsiz/başarısızsa manuel kişi ataması — audit'li. */
+export async function assignCallContactTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ callId: string }>> {
+  const auth = requireCrmAccess(ctx);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const v = parseOrFail(assignCallContactSchema, input);
+  if (!v.ok) return v;
+  const result = await assignCallContact(ctx.tenantId, v.data.callId, {
+    contactType: v.data.contactType,
+    contactId: v.data.contactId,
+  });
+  if (!result.ok) return fail("NOT_FOUND", result.message);
+  audit(ctx, "crm.call_log.assign_contact", "CallLog", v.data.callId, {
+    contactType: v.data.contactType,
+    contactId: v.data.contactId,
+  });
+  return ok({ callId: v.data.callId });
+}
+
+export async function markCallbackDoneTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ callId: string }>> {
+  const auth = requireCrmAccess(ctx);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const v = parseOrFail(markCallbackDoneSchema, input);
+  if (!v.ok) return v;
+  const result = await markCallbackDone(ctx.tenantId, v.data.callId, { callbackByUserId: ctx.userId });
+  if (!result.ok) return fail("NOT_FOUND", result.message);
+  audit(ctx, "crm.call_log.callback_done", "CallLog", v.data.callId, {});
+  return ok({ callId: v.data.callId });
+}
+
+/** Liste görünümü — ham içerik YOK, yalnızca kırpılmış özet (bkz. message-log.ts dosya başı notu). */
+export async function listMessageLogsTool(
+  ctx: ServiceContext,
+  _input: unknown
+): Promise<ServiceResult<{ messages: import("../types").MessageLog[] }>> {
+  const auth = requireCrmAccess(ctx);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const messages = await listMessageLogs(ctx.tenantId);
+  return ok({ messages: messages.map(toPublicSummary) });
+}
+
+/** Tam içerik — her görüntüleme audit'e yazılır (hassas iletişim verisi). */
+export async function getMessageLogTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ message: import("../types").MessageLog }>> {
+  const auth = requireCrmAccess(ctx);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const v = parseOrFail(z.object({ messageId: z.string().min(1) }), input);
+  if (!v.ok) return v;
+  const message = await getMessageLog(ctx.tenantId, v.data.messageId);
+  if (!message) return fail("NOT_FOUND", "Mesaj kaydı bulunamadı.");
+  audit(ctx, "crm.message_log.reveal", "MessageLog", v.data.messageId, {});
+  return ok({ message });
+}
+
+export async function createMessageLogTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ messageId: string; matchStatus: "matched" | "ambiguous" | "none" }>> {
+  const auth = requireCrmAccess(ctx);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const v = parseOrFail(createMessageLogSchema, input);
+  if (!v.ok) return v;
+
+  const data = await readData();
+  const matchResult = matchContactByPhone(v.data.senderIdentifier, data.students, data.teachers);
+  const result = await createMessageLog({
+    tenantId: ctx.tenantId,
+    createdBy: ctx.userId,
+    ...v.data,
+    contactType: matchResult.status === "matched" ? matchResult.match.contactType : undefined,
+    contactId: matchResult.status === "matched" ? matchResult.match.contactId : undefined,
+  });
+  if (!result.ok) return fail("VALIDATION_ERROR", result.message);
+  audit(ctx, "crm.message_log.create", "MessageLog", result.entry.id, {
+    matchStatus: matchResult.status,
+    autoAssigned: matchResult.status === "matched",
+  });
+  return ok({ messageId: result.entry.id, matchStatus: matchResult.status });
+}
+
+export async function assignMessageContactTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ messageId: string }>> {
+  const auth = requireCrmAccess(ctx);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const v = parseOrFail(assignMessageContactSchema, input);
+  if (!v.ok) return v;
+  const result = await assignMessageContact(ctx.tenantId, v.data.messageId, {
+    contactType: v.data.contactType,
+    contactId: v.data.contactId,
+  });
+  if (!result.ok) return fail("NOT_FOUND", result.message);
+  audit(ctx, "crm.message_log.assign_contact", "MessageLog", v.data.messageId, {
+    contactType: v.data.contactType,
+    contactId: v.data.contactId,
+  });
+  return ok({ messageId: v.data.messageId });
+}
+
+export async function setMessageStatusTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ messageId: string }>> {
+  const auth = requireCrmAccess(ctx);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const v = parseOrFail(setMessageStatusSchema, input);
+  if (!v.ok) return v;
+  const result = await setMessageStatus(ctx.tenantId, v.data.messageId, {
+    status: v.data.status,
+    responderUserId: v.data.status === "replied" ? ctx.userId : undefined,
+  });
+  if (!result.ok) return fail("NOT_FOUND", result.message);
+  audit(ctx, "crm.message_log.set_status", "MessageLog", v.data.messageId, { status: v.data.status });
+  return ok({ messageId: v.data.messageId });
 }
 
 export async function createBranchTool(

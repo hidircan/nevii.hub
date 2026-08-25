@@ -807,6 +807,13 @@ export async function updateTermWeeklyClosedDays(
   return next;
 }
 
+export async function updateConsentSettings(consentSettings: ConsentSettings): Promise<AppData> {
+  const data = await readData();
+  const next = { ...data, settings: { ...data.settings, consentSettings } };
+  await writeData(next);
+  return next;
+}
+
 const TEACHER_COLORS = ["#7c3aed", "#0891b2", "#db2777", "#ea580c", "#059669", "#4f46e5"];
 
 /**

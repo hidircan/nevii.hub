@@ -82,6 +82,17 @@ import {
   resetToCleanTemplateTool,
   setNationalIdTool,
   setSocialMediaConsentTool,
+  getCurrentConsentTextVersionTool,
+  createConsentTextVersionTool,
+  grantKvkkConsentTool,
+  withdrawKvkkConsentTool,
+  updateConsentSettingsTool,
+  createCallLogTool,
+  assignCallContactTool,
+  markCallbackDoneTool,
+  createMessageLogTool,
+  assignMessageContactTool,
+  setMessageStatusTool,
   updateTeacherInstrumentsTool,
   updateTeacherProfileTool,
   createPackageTool,
@@ -588,6 +599,24 @@ export async function actionAddStudent(formData: FormData) {
         // kaydedilir — asıl karar `status` alanıdır (granted/denied).
         scopes: socialMediaConsent === "granted" ? (["photo", "video", "name"] as const) : (["name"] as const),
       });
+
+      // Faz 8 (KVKK) — yalnızca tenant için yürürlükte bir "kvkk_general" metni
+      // TANIMLIYSA rıza kaydedilir (henüz metin girilmemiş tenant'larda öğrenci
+      // kaydı SESSİZCE ENGELLENMEZ — mevcut davranış korunur). Checkbox
+      // işaretliyse "portal" kanalından, sistem tarafından (createdBy=admin)
+      // ADMIN'in kaydı üzerinden alınmış rıza olarak işlenir.
+      const kvkkConsent = formData.get("kvkkConsent") === "granted";
+      if (kvkkConsent) {
+        const currentVersion = await getCurrentConsentTextVersionTool(ctx, { consentType: "kvkk_general" });
+        if (currentVersion.ok && currentVersion.data.version) {
+          await grantKvkkConsentTool(ctx, {
+            subjectType: "parent",
+            subjectId: created.studentId,
+            consentType: "kvkk_general",
+            channel: "kayit_formu",
+          });
+        }
+      }
     });
     revalidateAll();
   } catch (error) {
@@ -2716,5 +2745,200 @@ export async function actionResetNotificationPreferences(): Promise<Notification
     logger.error("actionResetNotificationPreferences failed", error);
     if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
     return { ok: false, message: "Bildirim tercihleri sıfırlanırken beklenmeyen bir hata oluştu." };
+  }
+}
+
+export type KvkkActionResult = { ok: true } | { ok: false; message: string };
+
+/** Faz 8 (KVKK) — yeni hukuki metin versiyonu yayınla (admin). */
+export async function actionCreateConsentTextVersion(formData: FormData): Promise<KvkkActionResult> {
+  try {
+    const result = await withAuthContext("actionCreateConsentTextVersion", (ctx) =>
+      createConsentTextVersionTool(ctx, {
+        consentType: String(formData.get("consentType") || ""),
+        bodyText: String(formData.get("bodyText") || ""),
+        effectiveFrom: String(formData.get("effectiveFrom") || ""),
+      })
+    );
+    if (!result.ok) return { ok: false, message: result.error.message };
+    revalidateAll();
+    return { ok: true };
+  } catch (error) {
+    logger.error("actionCreateConsentTextVersion failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "Metin versiyonu yayınlanırken beklenmeyen bir hata oluştu." };
+  }
+}
+
+/** Faz 8 (KVKK) — tenant kısıtlanan-özellik listesi + cihaz bilgisi kaydı ayarı (admin). */
+export async function actionUpdateConsentSettings(formData: FormData): Promise<KvkkActionResult> {
+  try {
+    const restrictedFeatures = String(formData.get("restrictedFeatures") || "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const result = await withAuthContext("actionUpdateConsentSettings", (ctx) =>
+      updateConsentSettingsTool(ctx, {
+        restrictedFeatures,
+        recordDeviceInfo: formData.get("recordDeviceInfo") === "on",
+      })
+    );
+    if (!result.ok) return { ok: false, message: result.error.message };
+    revalidateAll();
+    return { ok: true };
+  } catch (error) {
+    logger.error("actionUpdateConsentSettings failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "Rıza ayarları güncellenirken beklenmeyen bir hata oluştu." };
+  }
+}
+
+/** Faz 8 (KVKK) — portal first-login gate'inde veya ayarlarda rıza ver (konu kendisi). */
+export async function actionGrantKvkkConsent(input: {
+  subjectType: "student" | "parent" | "user";
+  subjectId: string;
+  consentType: string;
+  channel: string;
+}): Promise<KvkkActionResult> {
+  try {
+    const result = await withAuthContext("actionGrantKvkkConsent", (ctx) => grantKvkkConsentTool(ctx, input));
+    if (!result.ok) return { ok: false, message: result.error.message };
+    revalidateAll();
+    return { ok: true };
+  } catch (error) {
+    logger.error("actionGrantKvkkConsent failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "Rıza kaydedilirken beklenmeyen bir hata oluştu." };
+  }
+}
+
+/** Faz 8 (KVKK) — bir rızayı geri çek (konu kendisi veya admin). */
+export async function actionWithdrawKvkkConsent(input: {
+  consentId: string;
+  reason?: string;
+}): Promise<KvkkActionResult> {
+  try {
+    const result = await withAuthContext("actionWithdrawKvkkConsent", (ctx) => withdrawKvkkConsentTool(ctx, input));
+    if (!result.ok) return { ok: false, message: result.error.message };
+    revalidateAll();
+    return { ok: true };
+  } catch (error) {
+    logger.error("actionWithdrawKvkkConsent failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "Rıza geri çekilirken beklenmeyen bir hata oluştu." };
+  }
+}
+
+export type CrmActionResult = { ok: true } | { ok: false; message: string };
+
+/** Faz 11 — manuel arama kaydı. */
+export async function actionCreateCallLog(formData: FormData): Promise<CrmActionResult> {
+  try {
+    const result = await withAuthContext("actionCreateCallLog", (ctx) =>
+      createCallLogTool(ctx, {
+        callerNumber: String(formData.get("callerNumber") || ""),
+        callerName: String(formData.get("callerName") || "") || undefined,
+        direction: String(formData.get("direction") || "inbound"),
+        answered: formData.get("answered") === "on",
+        durationSeconds: formData.get("durationSeconds") ? Number(formData.get("durationSeconds")) : undefined,
+        occurredAt: String(formData.get("occurredAt") || ""),
+        note: String(formData.get("note") || "") || undefined,
+      })
+    );
+    if (!result.ok) return { ok: false, message: result.error.message };
+    revalidateAll();
+    return { ok: true };
+  } catch (error) {
+    logger.error("actionCreateCallLog failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "Arama kaydı oluşturulurken beklenmeyen bir hata oluştu." };
+  }
+}
+
+/** Faz 11 — arama kaydına manuel kişi ataması. */
+export async function actionAssignCallContact(input: {
+  callId: string;
+  contactType: "student" | "parent" | "lead";
+  contactId: string;
+}): Promise<CrmActionResult> {
+  try {
+    const result = await withAuthContext("actionAssignCallContact", (ctx) => assignCallContactTool(ctx, input));
+    if (!result.ok) return { ok: false, message: result.error.message };
+    revalidateAll();
+    return { ok: true };
+  } catch (error) {
+    logger.error("actionAssignCallContact failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "Kişi ataması yapılırken beklenmeyen bir hata oluştu." };
+  }
+}
+
+/** Faz 11 — geri arama tamamlandı işaretle. */
+export async function actionMarkCallbackDone(input: { callId: string }): Promise<CrmActionResult> {
+  try {
+    const result = await withAuthContext("actionMarkCallbackDone", (ctx) => markCallbackDoneTool(ctx, input));
+    if (!result.ok) return { ok: false, message: result.error.message };
+    revalidateAll();
+    return { ok: true };
+  } catch (error) {
+    logger.error("actionMarkCallbackDone failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "Geri arama işaretlenirken beklenmeyen bir hata oluştu." };
+  }
+}
+
+/** Faz 11 — manuel mesaj kaydı. */
+export async function actionCreateMessageLog(formData: FormData): Promise<CrmActionResult> {
+  try {
+    const result = await withAuthContext("actionCreateMessageLog", (ctx) =>
+      createMessageLogTool(ctx, {
+        channel: String(formData.get("channel") || "sms"),
+        senderIdentifier: String(formData.get("senderIdentifier") || ""),
+        occurredAt: String(formData.get("occurredAt") || ""),
+        contentOrSummary: String(formData.get("contentOrSummary") || ""),
+      })
+    );
+    if (!result.ok) return { ok: false, message: result.error.message };
+    revalidateAll();
+    return { ok: true };
+  } catch (error) {
+    logger.error("actionCreateMessageLog failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "Mesaj kaydı oluşturulurken beklenmeyen bir hata oluştu." };
+  }
+}
+
+/** Faz 11 — mesaj kaydına manuel kişi ataması. */
+export async function actionAssignMessageContact(input: {
+  messageId: string;
+  contactType: "student" | "parent" | "lead";
+  contactId: string;
+}): Promise<CrmActionResult> {
+  try {
+    const result = await withAuthContext("actionAssignMessageContact", (ctx) => assignMessageContactTool(ctx, input));
+    if (!result.ok) return { ok: false, message: result.error.message };
+    revalidateAll();
+    return { ok: true };
+  } catch (error) {
+    logger.error("actionAssignMessageContact failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "Kişi ataması yapılırken beklenmeyen bir hata oluştu." };
+  }
+}
+
+/** Faz 11 — mesaj durumu güncelle (unread/read/replied). */
+export async function actionSetMessageStatus(input: {
+  messageId: string;
+  status: "unread" | "read" | "replied";
+}): Promise<CrmActionResult> {
+  try {
+    const result = await withAuthContext("actionSetMessageStatus", (ctx) => setMessageStatusTool(ctx, input));
+    if (!result.ok) return { ok: false, message: result.error.message };
+    revalidateAll();
+    return { ok: true };
+  } catch (error) {
+    logger.error("actionSetMessageStatus failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "Mesaj durumu güncellenirken beklenmeyen bir hata oluştu." };
   }
 }

@@ -42,6 +42,8 @@ model Tenant {
   studentFeedbacks    StudentFeedback[]
   studentCurriculumTopics StudentCurriculumTopic[]
   socialMediaConsents SocialMediaConsent[]
+  consentTextVersions ConsentTextVersion[]
+  kvkkConsents KvkkConsent[]
   packages   Package[]
   discountCampaigns DiscountCampaign[]
   instrumentCatalogEntries InstrumentCatalogEntry[]
@@ -148,6 +150,10 @@ model School {
   /// { guz: number[]; yaz: number[] } (0=Pazar..6=Cumartesi). null ise
   /// src/lib/attendance-calendar.ts'teki sabit varsayılanlar kullanılır.
   termWeeklyClosedDays  Json?
+  /// Faz 8 (KVKK) — { restrictedFeatures: string[]; recordDeviceInfo: boolean }. null ise
+  /// uygulama katmanı varsayılanları (boş kısıtlı-özellik listesi, recordDeviceInfo: false —
+  /// "veri minimizasyonu") uygular.
+  consentSettings       Json?
   branches              Branch[]
   teachers              Teacher[]
   students              Student[]
@@ -1240,6 +1246,120 @@ model SocialMediaConsent {
   updatedAt          DateTime @updatedAt
 
   @@index([tenantId, studentId])
+}
+
+/// Faz 8 (KVKK) — hukuki metnin VERSİYONLU geçmişi. `DocumentTemplate`'in
+/// "in-place mutate + version++" deseninin AKSİNE, buradaki her düzenleme
+/// YENİ bir satır ekler (mevcut satırlar ASLA güncellenmez) — bir kullanıcının
+/// tam olarak HANGİ metne onay verdiğini ispatlayabilmek KVKK'nın kendisi
+/// için zorunlu; metin sonradan değişse bile eski onayın referans aldığı
+/// metin kaybolmaz.
+model ConsentTextVersion {
+  id            String   @id
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  consentType   String
+  version       Int
+  bodyText      String
+  effectiveFrom DateTime
+  createdBy     String
+  createdAt     DateTime @default(now())
+
+  @@unique([tenantId, consentType, version])
+  @@index([tenantId, consentType, effectiveFrom])
+}
+
+/// Faz 8 (KVKK) — `SocialMediaConsent` ile AYNI iskelet (append-only tarihçe,
+/// grant/withdraw). ip/device alanları BİLİNÇLİ OLARAK ayrı, opsiyonel bir
+/// Json alt-küme (`deviceInfo`) — yalnızca tenant `consentSettings.
+/// recordDeviceInfo=true` ise doldurulur (veri minimizasyonu, spec'in kendi
+/// isteği).
+model KvkkConsent {
+  id               String    @id
+  tenantId         String
+  tenant           Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// "student" | "parent" | "user"
+  subjectType      String
+  subjectId        String
+  consentType      String
+  textVersionId    String
+  acceptedAt       DateTime
+  /// "portal" | "form" | "admin" vb. — hangi kanaldan onay alındığı.
+  channel          String
+  withdrawnAt      DateTime?
+  withdrawalReason String?
+  /// Yalnızca consentSettings.recordDeviceInfo=true iken dolu: { ip?, userAgent? }.
+  deviceInfo       Json?
+  createdBy        String
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([tenantId, subjectType, subjectId])
+  @@index([tenantId, consentType])
+}
+
+/// Faz 11 — CRM arama günlüğü (sağlayıcıdan bağımsız; gerçek telefoni
+/// entegrasyonu YOK, bu turda manuel giriş + webhook-idempotency iskeleti).
+model CallLog {
+  id              String    @id
+  tenantId        String
+  tenant          Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  callerNumber    String
+  callerName      String?
+  /// "student" | "parent" | "lead"
+  contactType     String?
+  contactId       String?
+  /// "inbound" | "outbound"
+  direction       String
+  answered        Boolean
+  durationSeconds Int?
+  occurredAt      DateTime
+  callbackDone    Boolean   @default(false)
+  callbackAt      DateTime?
+  callbackByUserId String?
+  note            String?
+  createdBy       String
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([tenantId, occurredAt])
+  @@index([tenantId, contactType, contactId])
+}
+
+/// Faz 11 — CRM mesaj günlüğü. `contentOrSummary` ham içeriği taşır;
+/// erişim sınırlaması uygulama katmanında (liste vs detay) yapılır.
+model MessageLog {
+  id               String   @id
+  tenantId         String
+  tenant           Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// "sms" | "whatsapp" | "email" | "other"
+  channel          String
+  senderIdentifier String
+  occurredAt       DateTime
+  contentOrSummary String
+  /// "unread" | "read" | "replied"
+  status           String   @default("unread")
+  contactType      String?
+  contactId        String?
+  responderUserId  String?
+  createdBy        String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([tenantId, occurredAt])
+  @@index([tenantId, contactType, contactId])
+}
+
+/// Faz 11 — iletişim sağlayıcı webhook idempotency (SmsInboundEvent ile AYNI desen).
+model CommunicationInboundEvent {
+  id                String   @id
+  providerMessageId String
+  kind              String
+  tenantId          String?
+  processedAt       DateTime @default(now())
+
+  @@unique([providerMessageId, kind])
+  @@index([tenantId])
 }
 
 /// PRODUCT_BACKLOG §4.2

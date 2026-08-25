@@ -1034,6 +1034,71 @@ export const socialMediaConsentSchema = z.object({
   sourceDocumentRef: z.string().optional(),
 });
 
+/** Faz 8 — KVKK açık rıza yönetimi. */
+export const createConsentTextVersionSchema = z.object({
+  consentType: z.string().min(1),
+  bodyText: z.string().min(1),
+  effectiveFrom: z.string().min(1),
+});
+
+export const grantKvkkConsentSchema = z.object({
+  subjectType: z.enum(["student", "parent", "user"]),
+  subjectId: z.string().min(1),
+  consentType: z.string().min(1),
+  channel: z.string().min(1),
+  /** Yalnızca consentSettings.recordDeviceInfo=true iken kalıcılaştırılır. */
+  deviceInfo: z.object({ ip: z.string().optional(), userAgent: z.string().optional() }).optional(),
+});
+
+export const withdrawKvkkConsentSchema = z.object({
+  consentId: z.string().min(1),
+  reason: z.string().optional(),
+});
+
+export const updateConsentSettingsSchema = z.object({
+  restrictedFeatures: z.array(z.string()),
+  recordDeviceInfo: z.boolean(),
+});
+
+/** Faz 11 — CRM arama/mesaj günlüğü. */
+export const createCallLogSchema = z.object({
+  callerNumber: z.string().min(1),
+  callerName: z.string().optional(),
+  direction: z.enum(["inbound", "outbound"]),
+  answered: z.boolean(),
+  durationSeconds: z.coerce.number().int().min(0).optional(),
+  occurredAt: z.string().min(1),
+  note: z.string().optional(),
+});
+
+export const assignCallContactSchema = z.object({
+  callId: z.string().min(1),
+  contactType: z.enum(["student", "parent", "lead"]),
+  contactId: z.string().min(1),
+});
+
+export const markCallbackDoneSchema = z.object({
+  callId: z.string().min(1),
+});
+
+export const createMessageLogSchema = z.object({
+  channel: z.enum(["sms", "whatsapp", "email", "other"]),
+  senderIdentifier: z.string().min(1),
+  occurredAt: z.string().min(1),
+  contentOrSummary: z.string().min(1),
+});
+
+export const assignMessageContactSchema = z.object({
+  messageId: z.string().min(1),
+  contactType: z.enum(["student", "parent", "lead"]),
+  contactId: z.string().min(1),
+});
+
+export const setMessageStatusSchema = z.object({
+  messageId: z.string().min(1),
+  status: z.enum(["unread", "read", "replied"]),
+});
+
 export const closedDaySchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   name: z.string().min(1).max(120),

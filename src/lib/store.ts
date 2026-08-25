@@ -5,6 +5,7 @@ import type {
   AttendanceStatus,
   Branch,
   CollectionsSettings,
+  ConsentSettings,
   FeeRoundingMode,
   Instrument,
   MakeupSlot,
@@ -175,16 +176,17 @@ type StoreApi = {
     periodEnd: string,
     paymentMethodOverride?: TeacherPayoutPaymentMethod
   ) => Promise<CreateTeacherPayoutResult>;
+  markTeacherPayoutPaid: (payoutId: string, method?: string) => Promise<MarkPayoutPaidResult>;
   updateTeacherPayoutPaymentMethod: (
     payoutId: string,
     method: TeacherPayoutPaymentMethod
   ) => Promise<UpdateTeacherPayoutPaymentMethodResult>;
-  markTeacherPayoutPaid: (payoutId: string, method?: string) => Promise<MarkPayoutPaidResult>;
   updateFeeRoundingMode: (feeRoundingMode: FeeRoundingMode) => Promise<AppData>;
   updateMakeupWindowDays: (makeupWindowDays: number) => Promise<AppData>;
   updateMonthlyMakeupAllowance: (monthlyMakeupAllowance: number) => Promise<AppData>;
   updateCollectionsSettings: (collectionsSettings: CollectionsSettings) => Promise<AppData>;
   updateTermWeeklyClosedDays: (termWeeklyClosedDays: { guz: number[]; yaz: number[] }) => Promise<AppData>;
+  updateConsentSettings: (consentSettings: ConsentSettings) => Promise<AppData>;
   getDashboardStats: (data: AppData) => ReturnType<typeof jsonStore.getDashboardStats>;
   listTenants: () => Promise<{ tenantId: string; name: string }[]>;
 };
@@ -578,6 +580,10 @@ export async function updateCollectionsSettings(
   collectionsSettings: CollectionsSettings
 ): Promise<AppData> {
   return withTenantScope(() => store.updateCollectionsSettings(collectionsSettings));
+}
+
+export async function updateConsentSettings(consentSettings: ConsentSettings): Promise<AppData> {
+  return withTenantScope(() => store.updateConsentSettings(consentSettings));
 }
 
 export async function updateTermWeeklyClosedDays(

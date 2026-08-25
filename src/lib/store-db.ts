@@ -16,6 +16,7 @@ import type {
   AttendanceStatus,
   BranchId,
   CollectionsSettings,
+  ConsentSettings,
   FeeRoundingMode,
   Instrument,
   LessonSeriesStatus,
@@ -189,6 +190,7 @@ function mapSchoolToAppData(school: PrismaSchoolWithRelations): AppData {
       collectionsSettings: (school.collectionsSettings as CollectionsSettings | null) ?? undefined,
       termWeeklyClosedDays:
         (school.termWeeklyClosedDays as { guz: number[]; yaz: number[] } | null) ?? undefined,
+      consentSettings: (school.consentSettings as ConsentSettings | null) ?? undefined,
       branches: school.branches.map((branch) => ({
         id: branch.id as BranchId,
         name: branch.name,
@@ -2556,6 +2558,15 @@ export async function updateTermWeeklyClosedDays(
   await prisma.school.update({
     where: { tenantId: tid },
     data: { termWeeklyClosedDays: termWeeklyClosedDays as unknown as Prisma.InputJsonValue },
+  });
+  return readData();
+}
+
+export async function updateConsentSettings(consentSettings: ConsentSettings): Promise<AppData> {
+  const tid = requireTenantId();
+  await prisma.school.update({
+    where: { tenantId: tid },
+    data: { consentSettings: consentSettings as unknown as Prisma.InputJsonValue },
   });
   return readData();
 }
