@@ -21,6 +21,8 @@ import {
   Upload,
   Activity,
   ScrollText,
+  ShieldCheck,
+  PhoneCall,
   Brain,
   Workflow,
   Wrench,
@@ -104,6 +106,10 @@ export const PANEL_SYSTEM_NAV: PanelNavItem[] = [
    */
   /** Kim, ne zaman, hangi ekranda/varlıkta hangi kritik işlemi yaptı. */
   { href: "/panel/denetim-kaydi", label: "Denetim Kaydı", icon: ScrollText, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
+  /** Faz 8 — hukuki metin versiyonları + tenant rıza ayarları. */
+  { href: "/panel/ayarlar/kvkk", label: "KVKK Ayarları", icon: ShieldCheck, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
+  /** Faz 11 — CRM arama/mesaj geçmişi (sağlayıcıdan bağımsız, manuel giriş). */
+  { href: "/panel/crm", label: "CRM Geçmişi", icon: PhoneCall, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
 ];
 
 /**
