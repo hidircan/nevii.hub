@@ -4,7 +4,7 @@
  */
 
 import type { StudentPaymentMethod, StudentType } from "./types";
-import { isMebStudentType } from "./types";
+import { hasMebStudentType } from "./types";
 
 export type DueWindow = { minDay: number; maxDay: number; label: string };
 
@@ -26,15 +26,21 @@ export function isValidDueDay(method: StudentPaymentMethod | undefined, day: num
  */
 export type BankIbanKey = "vakifbank" | "halkbank";
 
-export function bankForStudentType(studentType: StudentType | undefined): BankIbanKey {
-  return isMebStudentType(studentType) ? "vakifbank" : "halkbank";
+/**
+ * Faz 1B — öğrenci artık birden fazla türe sahip olabilir. Ürün kararı:
+ * atanmış türlerden HERHANGİ biri MEB ise VakıfBank kullanılır (MEB'in
+ * uyumluluk gereksinimi diğer türlerle birlikte de geçerliliğini korur);
+ * aksi halde Halkbank.
+ */
+export function bankForStudentType(studentTypes: StudentType[]): BankIbanKey {
+  return hasMebStudentType(studentTypes) ? "vakifbank" : "halkbank";
 }
 
 export function resolveCollectionsIban(
-  studentType: StudentType | undefined,
+  studentTypes: StudentType[],
   settings: { vakifbankIban?: string; halkbankIban?: string }
 ): { bank: BankIbanKey; iban: string | undefined; bankLabel: string } {
-  const bank = bankForStudentType(studentType);
+  const bank = bankForStudentType(studentTypes);
   if (bank === "vakifbank") {
     return { bank, iban: settings.vakifbankIban, bankLabel: "VakıfBank" };
   }

@@ -3,9 +3,16 @@
  */
 
 import type { StudentType } from "./types";
-import { isLcmStudentType, isMebStudentType, studentLevelRequired, studentLevelVisible } from "./types";
+import {
+  isLcmStudentType,
+  isMebStudentType,
+  hasLcmStudentType,
+  hasMebStudentType,
+  studentLevelRequired,
+  studentLevelVisible,
+} from "./types";
 
-export { isLcmStudentType, isMebStudentType, studentLevelRequired, studentLevelVisible };
+export { isLcmStudentType, isMebStudentType, hasLcmStudentType, hasMebStudentType, studentLevelRequired, studentLevelVisible };
 
 const MEB_LEVELS = ["1", "2", "3", "4", "5", "6", "7", "8"] as const;
 export type MebLevel = (typeof MEB_LEVELS)[number];
@@ -16,22 +23,21 @@ export function isValidMebLevel(level: string | undefined): level is MebLevel {
 }
 
 /**
- * Validation helper: returns error message or null if ok.
- * - MEB: level zorunlu 1–8
- * - LCM: level opsiyonel (serbest metin)
+ * Validation helper: returns error message or null if ok. Faz 1B — öğrenci
+ * birden fazla türe sahip olabilir; MEB'in KATI kuralı (seviye zorunlu 1–8)
+ * diğer türlerle birlikte atanmışsa bile her zaman kazanır.
+ * - Türlerden biri MEB ise: level zorunlu 1–8
+ * - Türlerden biri (MEB hariç) LCM ise: level opsiyonel (serbest metin)
  * - Diğer: level olmamalı (varsa yok sayılır / hata)
  */
-export function validateStudentLevel(
-  studentType: StudentType | undefined,
-  level: string | undefined
-): string | null {
-  if (isMebStudentType(studentType)) {
+export function validateStudentLevel(studentTypes: StudentType[], level: string | undefined): string | null {
+  if (hasMebStudentType(studentTypes)) {
     if (!level || !isValidMebLevel(level)) {
       return "MEB öğrencilerinde seviye 1–8 zorunludur.";
     }
     return null;
   }
-  if (isLcmStudentType(studentType)) {
+  if (hasLcmStudentType(studentTypes)) {
     return null; // optional free text
   }
   if (level && level.trim()) {

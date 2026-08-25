@@ -3,6 +3,7 @@ import { tr } from "date-fns/locale";
 import type { AppData, Lesson, MakeupRequest, Student, Teacher } from "./types";
 import { DEFAULT_COLLECTIONS_SETTINGS } from "./types";
 import { resolveCollectionsIban } from "./collections-due";
+import { effectiveStudentTypes } from "./student-types";
 
 function phoneToWa(phone: string) {
   const digits = phone.replace(/\D/g, "");
@@ -205,7 +206,7 @@ export function buildDemoMessages(data: AppData): WaMessage[] {
   for (const p of data.payments.filter((x) => x.status === "overdue" || x.status === "pending")) {
     const student = data.students.find((s) => s.id === p.studentId);
     if (!student) continue;
-    const { bankLabel, iban } = resolveCollectionsIban(student.studentType, collectionsSettings);
+    const { bankLabel, iban } = resolveCollectionsIban(effectiveStudentTypes(student), collectionsSettings);
     msgs.push(
       templatePaymentReminder(school, student, p.amount - p.paidAmount, p.dueDate, { bankLabel, iban })
     );

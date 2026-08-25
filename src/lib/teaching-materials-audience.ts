@@ -9,12 +9,15 @@
  */
 
 import type { Instrument, StudentType, TeachingMaterial } from "./types";
+import { effectiveStudentTypes } from "./student-types";
 
 export function matchesMaterialAudience(
   material: Pick<TeachingMaterial, "targetStudentType" | "targetInstrument" | "targetLevel">,
-  student: { studentType?: StudentType; instruments: Instrument[]; level?: string }
+  student: { studentType?: StudentType; studentTypes?: StudentType[]; instruments: Instrument[]; level?: string }
 ): boolean {
-  if (material.targetStudentType && material.targetStudentType !== student.studentType) {
+  // Faz 1B — öğrenci birden fazla türe sahip olabilir; hedeflenen tür
+  // ATANMIŞ türlerden HERHANGİ biriyse eşleşir (exact-match yerine includes).
+  if (material.targetStudentType && !effectiveStudentTypes(student).includes(material.targetStudentType)) {
     return false;
   }
   if (
