@@ -316,6 +316,9 @@ export default async function TeacherStudentWorkspacePage({
               students={[{ id: student.id, name: student.name }]}
               defaultStudentId={student.id}
               lockStudent
+              lessonsByStudent={{
+                [student.id]: lessons.map((l) => ({ id: l.id, startAt: l.startAt, instrument: l.instrument })),
+              }}
             />
           </Card>
 
