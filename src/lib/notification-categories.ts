@@ -13,6 +13,7 @@ export type NotificationCategory =
   | "lesson_upcoming"
   | "lesson_cancelled"
   | "lesson_rescheduled"
+  | "lesson_reassigned"
   | "homework_missing_for_lesson"
   // Ödeme ve finans
   | "payment_overdue"
@@ -33,9 +34,10 @@ export type NotificationCategory =
   | "portal_request"
   | "teacher_feedback_submitted"
   | "student_feedback_submitted"
-  | "teacher_feedback_shared";
+  | "teacher_feedback_shared"
+  | "announcement_published";
 
-export type NotificationCategoryGroup = "lessons" | "finance" | "tasks" | "staff" | "students";
+export type NotificationCategoryGroup = "lessons" | "finance" | "tasks" | "staff" | "students" | "announcements";
 
 export type NotificationCategoryDef = {
   category: NotificationCategory;
@@ -66,6 +68,7 @@ export const NOTIFICATION_CATEGORY_GROUPS: Record<NotificationCategoryGroup, str
   tasks: "İş takip",
   staff: "Personel ve izin",
   students: "Öğrenci operasyonları",
+  announcements: "Duyurular",
 };
 
 /** Grup sırası — ayarlar ekranı ve toplu aksiyonlar için. */
@@ -75,6 +78,7 @@ export const NOTIFICATION_GROUP_ORDER: NotificationCategoryGroup[] = [
   "tasks",
   "staff",
   "students",
+  "announcements",
 ];
 
 export const NOTIFICATION_CATEGORIES: NotificationCategoryDef[] = [
@@ -110,6 +114,15 @@ export const NOTIFICATION_CATEGORIES: NotificationCategoryDef[] = [
     group: "lessons",
     label: "Ders ertelendi / telafiye alındı",
     description: "Bir ders telafiye alındığında veya taşındığında.",
+    implemented: true,
+    roles: ["SCHOOL_ADMIN", "SUPER_ADMIN", "TEACHER", "STUDENT"],
+    defaultInAppEnabled: true,
+  },
+  {
+    category: "lesson_reassigned",
+    group: "lessons",
+    label: "Ders öğretmeni/şubesi değişti",
+    description: "Bir dersin öğretmeni veya şubesi değiştirildiğinde (Faz 13).",
     implemented: true,
     roles: ["SCHOOL_ADMIN", "SUPER_ADMIN", "TEACHER", "STUDENT"],
     defaultInAppEnabled: true,
@@ -265,6 +278,15 @@ export const NOTIFICATION_CATEGORIES: NotificationCategoryDef[] = [
     description: "Yönetici, hakkınızdaki bir değerlendirmeyi anonim özetinizde görünür kıldığında.",
     implemented: true,
     roles: ["TEACHER"],
+    defaultInAppEnabled: true,
+  },
+  {
+    category: "announcement_published",
+    group: "announcements",
+    label: "Yeni duyuru",
+    description: "Hedef kitlenizde olduğunuz bir duyuru yayınlandığında (Faz 4).",
+    implemented: true,
+    roles: ["TEACHER", "STUDENT"],
     defaultInAppEnabled: true,
   },
 ];
