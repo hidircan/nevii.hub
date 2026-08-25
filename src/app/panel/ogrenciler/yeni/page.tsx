@@ -8,7 +8,7 @@ import { requireSessionContext } from "@/lib/auth/session";
 import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { STUDENT_TYPES } from "@/lib/types";
-import { listInstrumentCatalogTool } from "@/lib/services";
+import { listInstrumentCatalogTool, getCurrentConsentTextVersionTool } from "@/lib/services";
 
 export const dynamic = "force-dynamic";
 
@@ -33,6 +33,8 @@ export default async function NewStudentPage() {
   const instrumentOptions = catalogResult.ok
     ? catalogResult.data.entries.filter((e) => e.status === "active").map((e) => e.name)
     : ["Piyano", "Yan Flüt", "Gitar", "Bateri", "Keman", "Şan", "Elektro Gitar", "Bağlama"];
+  const kvkkTextResult = await getCurrentConsentTextVersionTool(session, { consentType: "kvkk_general" });
+  const kvkkText = kvkkTextResult.ok ? kvkkTextResult.data.version : undefined;
 
   return (
     <div>
@@ -251,6 +253,22 @@ export default async function NewStudentPage() {
                   Sosyal medya paylaşım izni var
                 </label>
               </div>
+              {kvkkText ? (
+                <div className="rounded-lg border border-[var(--color-border)] p-3">
+                  <p className="mb-2 text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
+                    KVKK Açık Rıza Metni (v{kvkkText.version})
+                  </p>
+                  <p className="mb-2 max-h-32 overflow-y-auto whitespace-pre-wrap text-xs text-[var(--color-text-muted)]">
+                    {kvkkText.bodyText}
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <input id="kvkk-consent" type="checkbox" name="kvkkConsent" value="granted" className="h-4 w-4" />
+                    <label htmlFor="kvkk-consent" className="text-sm text-[var(--color-text)]">
+                      Veli/vasi yukarıdaki KVKK aydınlatma/açık rıza metnini okudu, onaylıyor
+                    </label>
+                  </div>
+                </div>
+              ) : null}
             </div>
           </Card>
 
