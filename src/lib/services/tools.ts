@@ -98,7 +98,12 @@ import { listPayroll, createPayrollRecord, updatePayrollStatus } from "../payrol
 import { listLeave, createLeaveRequest, decideLeaveRequest } from "../leave";
 import { listExpenses, createExpense } from "../expense";
 import { effectiveLessonOpsStatus } from "../lesson-ops";
-import { computeTeacherEarningsForPeriod, type TeacherEarningsResult } from "../teacher-payout";
+import {
+  computeTeacherEarningsForPeriod,
+  computeTeacherPayoutPaymentMethodInfo,
+  type TeacherEarningsResult,
+  type TeacherPayoutPaymentMethodInfo,
+} from "../teacher-payout";
 import {
   suggestMakeupSlots,
   resolveSlaEscalationLevel,
@@ -3230,6 +3235,97 @@ export async function cancelEntireSeriesTool(
     return ok({ cancelledLessonIds: result.cancelledLessonIds });
   } catch (e) {
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "cancelEntireSeries failed");
+  }
+}
+
+/**
+ * Faz 13 — bir dersin öğretmenini ve/veya şubesini/odasını değiştirir.
+ * "single" | "fromHereOnward" | "entireSeries" — bkz. lesson-reassignment.ts.
+ * Değişiklik öncesi öğretmen/oda geçerliliği + çakışma kontrolü yapılır;
+ * başarılıysa audit + idempotent bildirim (eski/yeni öğretmen, öğrenci,
+ * yöneticiler — bkz. notifyLessonReassigned).
+ */
+export async function changeLessonTeacherOrBranchTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<
+  ServiceResult<{
+    affectedLessonIds: string[];
+    newTeacherId: string;
+    newBranchId: string;
+    newRoomId: string;
+  }>
+> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+
+  const v = parseOrFail(reassignLessonTeacherOrBranchSchema, input);
+  if (!v.ok) return v;
+
+  const data = await readData();
+  const lesson = data.lessons.find((l) => l.id === v.data.lessonId);
+  if (!lesson) return fail("NOT_FOUND", "Ders bulunamadı.");
+
+  if (v.data.newTeacherId) {
+    const newTeacher = data.teachers.find((t) => t.id === v.data.newTeacherId);
+    if (!newTeacher) return fail("VALIDATION_ERROR", "Seçilen öğretmen bulunamadı.");
+    if (!isTeacherSchedulable(newTeacher)) {
+      return fail("VALIDATION_ERROR", `"${newTeacher.name}" pasif/işten ayrılmış — aktif bir öğretmen seçin.`);
+    }
+    if (!newTeacher.instruments.includes(lesson.instrument)) {
+      return fail("VALIDATION_ERROR", `"${newTeacher.name}" "${lesson.instrument}" enstrümanını öğretmiyor.`);
+    }
+  }
+  if (v.data.newRoomId) {
+    const newRoom = data.rooms.find((r) => r.id === v.data.newRoomId);
+    if (!newRoom) return fail("VALIDATION_ERROR", "Seçilen oda bulunamadı.");
+    if (v.data.newBranchId && newRoom.branchId !== v.data.newBranchId) {
+      return fail("VALIDATION_ERROR", "Seçilen oda, seçilen şubeye ait değil.");
+    }
+    if (!newRoom.instruments.includes(lesson.instrument)) {
+      return fail("VALIDATION_ERROR", `Seçilen oda "${lesson.instrument}" enstrümanına uygun değil.`);
+    }
+  }
+
+  try {
+    const result = await reassignLessonTeacherOrBranchLive(v.data);
+    if (!result.ok) {
+      if (result.code === "BLOCKED_BY_CONFLICT") return fail("CONFLICT", result.message, result.conflicts);
+      return fail("VALIDATION_ERROR", result.message);
+    }
+
+    audit(ctx, "lesson.reassign", "Lesson", v.data.lessonId, {
+      scope: v.data.scope,
+      previousTeacherId: result.preview.previousTeacherId,
+      previousBranchId: result.preview.previousBranchId,
+      newTeacherId: result.preview.newTeacherId,
+      newBranchId: result.preview.newBranchId,
+      affectedLessonCount: result.preview.affectedLessonIds.length,
+    });
+
+    try {
+      const updatedLesson = result.data.lessons.find((l) => l.id === v.data.lessonId);
+      if (updatedLesson) {
+        await notifyLessonReassigned({
+          tenantId: ctx.tenantId,
+          lesson: updatedLesson,
+          previousTeacherId: result.preview.previousTeacherId,
+          previousBranchId: result.preview.previousBranchId,
+          actorUserId: ctx.userId,
+        });
+      }
+    } catch {
+      // best-effort
+    }
+
+    return ok({
+      affectedLessonIds: result.preview.affectedLessonIds,
+      newTeacherId: result.preview.newTeacherId,
+      newBranchId: result.preview.newBranchId,
+      newRoomId: result.preview.newRoomId,
+    });
+  } catch (e) {
+    return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "changeLessonTeacherOrBranch failed");
   }
 }
 

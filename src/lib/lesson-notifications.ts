@@ -104,6 +104,70 @@ export async function notifyLessonRescheduled(input: {
   }
 }
 
+/**
+ * Faz 13 — bir dersin öğretmeni ve/veya şubesi değiştirildiğinde. Eski VE
+ * yeni öğretmen (farklıysa) ayrı ayrı bilgilendirilir; `dedupeKey` yeni
+ * atamayı da içerir ki AYNI değişiklik ikinci kez bildirim üretmesin, ama
+ * FARKLI bir sonraki değişiklik (ör. tekrar başka bir öğretmene) yeni bir
+ * bildirim üretsin.
+ */
+export async function notifyLessonReassigned(input: {
+  tenantId: string;
+  lesson: Lesson;
+  previousTeacherId: string;
+  previousBranchId: string;
+  actorUserId?: string;
+}): Promise<void> {
+  if (input.previousTeacherId === input.lesson.teacherId && input.previousBranchId === input.lesson.branchId) return;
+  const title = "Ders ataması değişti";
+  const dedupeKey = `${input.lesson.id}:${input.lesson.teacherId}:${input.lesson.branchId}`;
+  try {
+    if (input.previousTeacherId !== input.lesson.teacherId) {
+      const oldTeacherUserId = await getUserIdByTeacherId(input.tenantId, input.previousTeacherId);
+      if (oldTeacherUserId) {
+        await notifyUserIfEnabled({
+          tenantId: input.tenantId,
+          userId: oldTeacherUserId,
+          category: "lesson_reassigned",
+          title,
+          body: `"${input.lesson.instrument}" dersiniz (${fmt(input.lesson.startAt)}) başka bir öğretmene devredildi.`,
+          dedupeKey: `${dedupeKey}:old`,
+        });
+      }
+      const newTeacherUserId = await getUserIdByTeacherId(input.tenantId, input.lesson.teacherId);
+      if (newTeacherUserId) {
+        await notifyUserIfEnabled({
+          tenantId: input.tenantId,
+          userId: newTeacherUserId,
+          category: "lesson_reassigned",
+          title,
+          body: `"${input.lesson.instrument}" dersi (${fmt(input.lesson.startAt)}) size atandı. Detay: ${lessonHref("teacher")}`,
+          dedupeKey: `${dedupeKey}:new`,
+        });
+      }
+    }
+    await notifyStudentIfEnabled({
+      tenantId: input.tenantId,
+      studentId: input.lesson.studentId,
+      category: "lesson_reassigned",
+      title,
+      body: `"${input.lesson.instrument}" dersinizin öğretmeni/şubesi güncellendi (${fmt(input.lesson.startAt)}). Detay: ${lessonHref("student")}`,
+      dedupeKey,
+    });
+    await notifyAdmins(
+      input.tenantId,
+      "lesson_reassigned",
+      {
+        title,
+        body: `"${input.lesson.instrument}" dersi (${fmt(input.lesson.startAt)}) yeniden atandı. Detay: ${lessonHref("admin")}`,
+      },
+      { excludeUserId: input.actorUserId, dedupeKey }
+    );
+  } catch {
+    // best-effort
+  }
+}
+
 /** Telafi planı — lesson_rescheduled (ayrı kategori yok). */
 export async function notifyMakeupLessonScheduled(input: {
   tenantId: string;

@@ -38,6 +38,24 @@ export const markTeacherAttendanceSchema = z.object({
   note: z.string().max(500).optional(),
 });
 
+/** Faz 13 — bir dersin öğretmeni ve/veya şubesi/odası değişimi. */
+export const reassignLessonTeacherOrBranchSchema = z
+  .object({
+    lessonId: z.string().min(1),
+    scope: z.enum(["single", "fromHereOnward", "entireSeries"]),
+    newTeacherId: z.string().min(1).optional(),
+    newBranchId: z.string().min(1).optional(),
+    newRoomId: z.string().min(1).optional(),
+  })
+  .refine((v) => v.newTeacherId || v.newBranchId || v.newRoomId, {
+    message: "En az öğretmen veya şube/oda değişikliği belirtin.",
+    path: ["newTeacherId"],
+  })
+  .refine((v) => !v.newBranchId || v.newRoomId, {
+    message: "Şube değişiyorsa yeni oda da belirtilmelidir.",
+    path: ["newRoomId"],
+  });
+
 export const teacherPerformanceReportSchema = z.object({
   teacherId: z.string().min(1),
   periodStart: z.string().min(1),

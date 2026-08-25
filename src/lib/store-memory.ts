@@ -1008,3 +1008,11 @@ export async function markTeacherAttendanceLive(
   if (result.ok && !result.alreadySet) save(result.data);
   return result;
 }
+
+/** Faz 13 — ders öğretmeni/şube değişimi (tek/bundan sonrası/tüm seri). */
+export async function reassignLessonTeacherOrBranchLive(input: ReassignLessonInput): Promise<ReassignLessonResult> {
+  const data = load();
+  const result = reassignLessonTeacherOrBranch(data, input);
+  if (result.ok) save(result.data);
+  return result;
+}

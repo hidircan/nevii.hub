@@ -61,6 +61,7 @@ import {
   createLessonSeriesTool,
   cancelSeriesFromLessonTool,
   cancelEntireSeriesTool,
+  changeLessonTeacherOrBranchTool,
   createPaymentRecordTool,
   createFeeRuleTool,
   updateFeeRuleTool,
@@ -1855,6 +1856,41 @@ export async function actionCancelEntireSeries(input: { seriesId: string }): Pro
     if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
     if (error instanceof WriteScopeDeniedError) return { ok: false, message: error.message };
     return { ok: false, message: "Seri iptal edilirken beklenmeyen bir hata oluştu." };
+  }
+}
+
+export type ChangeLessonAssignmentActionResult =
+  | { ok: true; affectedLessonIds: string[] }
+  | { ok: false; message: string; conflicts?: { lessonId: string; startAt: string; message: string }[] };
+
+/** Faz 13 — ders öğretmeni/şube/oda değişimi. */
+export async function actionChangeLessonTeacherOrBranch(input: {
+  lessonId: string;
+  scope: "single" | "fromHereOnward" | "entireSeries";
+  newTeacherId?: string;
+  newBranchId?: string;
+  newRoomId?: string;
+}): Promise<ChangeLessonAssignmentActionResult> {
+  try {
+    const result = await withAuthContext("actionChangeLessonTeacherOrBranch", (ctx) =>
+      changeLessonTeacherOrBranchTool(ctx, input)
+    );
+    if (!result.ok) {
+      return {
+        ok: false,
+        message: result.error.message,
+        conflicts: Array.isArray(result.error.details)
+          ? (result.error.details as { lessonId: string; startAt: string; message: string }[])
+          : undefined,
+      };
+    }
+    revalidateAll();
+    return { ok: true, affectedLessonIds: result.data.affectedLessonIds };
+  } catch (error) {
+    logger.error("actionChangeLessonTeacherOrBranch failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    if (error instanceof WriteScopeDeniedError) return { ok: false, message: error.message };
+    return { ok: false, message: "Ders ataması değiştirilirken beklenmeyen bir hata oluştu." };
   }
 }
 

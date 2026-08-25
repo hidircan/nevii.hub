@@ -144,6 +144,10 @@ type StoreApi = {
     actorUserId: string,
     note: string | undefined
   ) => Promise<ReturnType<typeof import("./teacher-attendance").markTeacherAttendance>>;
+  /** Faz 13 — ders öğretmeni/şube değişimi. */
+  reassignLessonTeacherOrBranchLive: (
+    input: import("./lesson-reassignment").ReassignLessonInput
+  ) => Promise<import("./lesson-reassignment").ReassignLessonResult>;
   correctLessonTimesLive: (
     lessonId: string,
     correction: LessonTimeCorrection
@@ -464,6 +468,13 @@ export async function markTeacherAttendanceLive(
   note: string | undefined
 ): Promise<ReturnType<typeof import("./teacher-attendance").markTeacherAttendance>> {
   return withTenantScope(() => store.markTeacherAttendanceLive(lessonId, status, actorUserId, note));
+}
+
+/** Faz 13 — ders öğretmeni/şube değişimi. */
+export async function reassignLessonTeacherOrBranchLive(
+  input: import("./lesson-reassignment").ReassignLessonInput
+): Promise<import("./lesson-reassignment").ReassignLessonResult> {
+  return withTenantScope(() => store.reassignLessonTeacherOrBranchLive(input));
 }
 
 export async function correctLessonTimesLive(

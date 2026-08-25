@@ -1139,3 +1139,13 @@ export async function markTeacherAttendanceLive(
   });
   return result;
 }
+
+/** Faz 13 — ders öğretmeni/şube değişimi (tek/bundan sonrası/tüm seri). */
+export async function reassignLessonTeacherOrBranchLive(input: ReassignLessonInput): Promise<ReassignLessonResult> {
+  let result!: ReassignLessonResult;
+  await mutateStoreUnderLock(async (data) => {
+    result = reassignLessonTeacherOrBranch(data, input);
+    return result.ok ? result.data : data;
+  });
+  return result;
+}

@@ -100,6 +100,7 @@ export {
   setLessonOpsFlagTool,
   markTeacherAttendanceTool,
   getTeacherPerformanceReportTool,
+  changeLessonTeacherOrBranchTool,
   listPendingPeriodicAssessmentsTool,
   createPeriodicAssessmentTool,
   listPeriodicAssessmentsForStudentTool,

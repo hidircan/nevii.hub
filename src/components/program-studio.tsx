@@ -22,6 +22,7 @@ import type { LessonSlotSuggestion } from "@/lib/lesson-scheduling";
 import type { SeriesOccurrenceCheck } from "@/lib/lesson-series";
 import { Badge, Button, Card, Input, Label, Select } from "@/components/ui";
 import { LessonOpsActions, LessonOpsBadges } from "@/components/lesson-ops-actions";
+import { LessonReassignmentModal } from "@/components/lesson-reassignment-modal";
 import { INSTRUMENTS, type Instrument, type Lesson, type Room, type Student, type Teacher } from "@/lib/types";
 import { dayName } from "@/lib/utils";
 import { DEFAULT_LESSON_DURATION_MINUTES, LESSON_DURATION_OPTIONS } from "@/lib/lesson-duration";
@@ -1577,6 +1578,9 @@ export function ProgramStudio({
           onCancelLesson={submitDetailCancel}
           onCancelSeriesFromLesson={submitCancelSeriesFromLesson}
           onCancelEntireSeries={submitCancelEntireSeries}
+          allTeachers={teachers}
+          allRooms={rooms}
+          branchNames={branchNames}
         />
       ) : null}
 
@@ -1850,6 +1854,9 @@ function DetailPanel({
   onCancelLesson,
   onCancelSeriesFromLesson,
   onCancelEntireSeries,
+  allTeachers,
+  allRooms,
+  branchNames,
 }: {
   lesson: Lesson;
   student?: Student;
@@ -1868,6 +1875,10 @@ function DetailPanel({
   onCancelLesson: () => void;
   onCancelSeriesFromLesson: () => void;
   onCancelEntireSeries: () => void;
+  /** Faz 13 — öğretmen/şube değiştirme formunun ihtiyaç duyduğu tam listeler. */
+  allTeachers: Teacher[];
+  allRooms: Room[];
+  branchNames: Record<string, string>;
 }) {
   const canMove = canMoveOrResize(lesson, now);
   const canCancelLesson = canCancel(lesson);
@@ -1973,6 +1984,10 @@ function DetailPanel({
             </Button>
           </>
         ) : null}
+      </div>
+
+      <div className="mt-2">
+        <LessonReassignmentModal lesson={lesson} teachers={allTeachers} rooms={allRooms} branchNames={branchNames} />
       </div>
 
       {moveOpen ? (

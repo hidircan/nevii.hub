@@ -372,6 +372,14 @@ function mapSchoolToAppData(school: PrismaSchoolWithRelations): AppData {
       opsClosedFlagBy: (lesson as { opsClosedFlagBy?: string | null }).opsClosedFlagBy ?? undefined,
       term: (lesson as { term?: string | null }).term as import("./types").StudentTermType | undefined ?? undefined,
       academicYearStart: (lesson as { academicYearStart?: number | null }).academicYearStart ?? undefined,
+      teacherAttendanceStatus:
+        ((lesson as { teacherAttendanceStatus?: string | null }).teacherAttendanceStatus as
+          | import("./teacher-attendance").TeacherAttendanceStatus
+          | undefined) ?? undefined,
+      teacherAttendanceAt:
+        (lesson as { teacherAttendanceAt?: Date | null }).teacherAttendanceAt?.toISOString?.() ?? undefined,
+      teacherAttendanceBy: (lesson as { teacherAttendanceBy?: string | null }).teacherAttendanceBy ?? undefined,
+      teacherAttendanceNote: (lesson as { teacherAttendanceNote?: string | null }).teacherAttendanceNote ?? undefined,
       availabilityOverride: (() => {
         const by = (lesson as { availabilityOverrideBy?: string | null }).availabilityOverrideBy;
         const at = (lesson as { availabilityOverrideAt?: Date | null }).availabilityOverrideAt;
@@ -383,14 +391,6 @@ function mapSchoolToAppData(school: PrismaSchoolWithRelations): AppData {
       startCorrectionNote: lesson.startCorrectionNote ?? undefined,
       endCorrectedBy: lesson.endCorrectedBy ?? undefined,
       endCorrectionNote: lesson.endCorrectionNote ?? undefined,
-      teacherAttendanceStatus:
-        ((lesson as { teacherAttendanceStatus?: string | null }).teacherAttendanceStatus as
-          | import("./teacher-attendance").TeacherAttendanceStatus
-          | undefined) ?? undefined,
-      teacherAttendanceAt:
-        (lesson as { teacherAttendanceAt?: Date | null }).teacherAttendanceAt?.toISOString?.() ?? undefined,
-      teacherAttendanceBy: (lesson as { teacherAttendanceBy?: string | null }).teacherAttendanceBy ?? undefined,
-      teacherAttendanceNote: (lesson as { teacherAttendanceNote?: string | null }).teacherAttendanceNote ?? undefined,
     })),
     lessonSeries: school.lessonSeries.map((series) => ({
       id: series.id,
@@ -2082,6 +2082,45 @@ export async function markTeacherAttendanceLive(
     },
   });
   if (updateResult.count === 0) return { ok: false, message: "Ders bulunamadı." };
+  return { ...result, data: await readData() };
+}
+
+/**
+ * Faz 13 — ders öğretmeni/şube değişimi. Çakışma hesabı `reassignLessonTeacherOrBranch`
+ * (saf fonksiyon) ile yapılır; burada yalnızca sonucun TEK `$transaction` içinde
+ * (kısmi yazım riski olmadan) Prisma'ya yazılması vardır.
+ */
+export async function reassignLessonTeacherOrBranchLive(input: ReassignLessonInput): Promise<ReassignLessonResult> {
+  logger.info("reassignLessonTeacherOrBranchLive", input.lessonId, input.scope);
+  const tid = requireTenantId();
+  const data = await readData();
+  const result = reassignLessonTeacherOrBranch(data, input);
+  if (!result.ok) return result;
+
+  await prisma.$transaction(async (tx) => {
+    await tx.lesson.updateMany({
+      where: { id: { in: result.preview.affectedLessonIds }, tenantId: tid },
+      data: {
+        teacherId: result.preview.newTeacherId,
+        branchId: result.preview.newBranchId,
+        roomId: result.preview.newRoomId,
+      },
+    });
+    if (input.scope !== "single") {
+      const lesson = data.lessons.find((l) => l.id === input.lessonId);
+      if (lesson?.seriesId) {
+        await tx.lessonSeries.updateMany({
+          where: { id: lesson.seriesId, tenantId: tid },
+          data: {
+            teacherId: result.preview.newTeacherId,
+            branchId: result.preview.newBranchId,
+            roomId: result.preview.newRoomId,
+          },
+        });
+      }
+    }
+  });
+
   return { ...result, data: await readData() };
 }
 
