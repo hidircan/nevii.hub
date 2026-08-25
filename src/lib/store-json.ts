@@ -58,10 +58,13 @@ import {
   updateTeacherFeeRuleData,
   createTeacherPayoutSnapshot,
   markTeacherPayoutPaidData,
+  updateTeacherPayoutPaymentMethodData,
   type FeeRuleInput,
   type FeeRuleMutationResult,
   type CreateTeacherPayoutResult,
   type MarkPayoutPaidResult,
+  type TeacherPayoutPaymentMethod,
+  type UpdateTeacherPayoutPaymentMethodResult,
 } from "./teacher-payout";
 import {
   createPackageData,
@@ -732,11 +735,22 @@ export async function updateTeacherFeeRule(
 export async function createTeacherPayout(
   teacherId: string,
   periodStart: string,
-  periodEnd: string
+  periodEnd: string,
+  paymentMethodOverride?: TeacherPayoutPaymentMethod
 ): Promise<CreateTeacherPayoutResult> {
   const data = await readData();
   assertTeacherExists(data, teacherId);
-  const result = createTeacherPayoutSnapshot(data, teacherId, periodStart, periodEnd);
+  const result = createTeacherPayoutSnapshot(data, teacherId, periodStart, periodEnd, new Date(), paymentMethodOverride);
+  if (result.ok) await writeData(result.data);
+  return result;
+}
+
+export async function updateTeacherPayoutPaymentMethod(
+  payoutId: string,
+  method: TeacherPayoutPaymentMethod
+): Promise<UpdateTeacherPayoutPaymentMethodResult> {
+  const data = await readData();
+  const result = updateTeacherPayoutPaymentMethodData(data, payoutId, method);
   if (result.ok) await writeData(result.data);
   return result;
 }
@@ -1109,4 +1123,19 @@ export async function switchLessonOpsFlagLive(
   actorUserId: string
 ): Promise<ReturnType<typeof switchLessonOpsFlag>> {
   return persistLessonOpsUnderLock(lessonId, flag, actorUserId, switchLessonOpsFlag);
+}
+
+/** Faz 2 — öğretmen yoklaması, öğrenci ops bayraklarından tamamen ayrı bir yol. */
+export async function markTeacherAttendanceLive(
+  lessonId: string,
+  status: TeacherAttendanceStatus,
+  actorUserId: string,
+  note: string | undefined
+): Promise<ReturnType<typeof markTeacherAttendance>> {
+  let result!: ReturnType<typeof markTeacherAttendance>;
+  await mutateStoreUnderLock(async (data) => {
+    result = markTeacherAttendance(data, lessonId, status, actorUserId, note);
+    return result.ok ? result.data : data;
+  });
+  return result;
 }

@@ -67,6 +67,7 @@ import {
   computeTeacherPayoutTool,
   createTeacherPayoutTool,
   markTeacherPayoutPaidTool,
+  updateTeacherPayoutPaymentMethodTool,
   updateFeeRoundingModeTool,
   updateMakeupWindowDaysTool,
   updateMonthlyMakeupAllowanceTool,
@@ -1927,7 +1928,11 @@ export async function actionUpdateFeeRule(input: UpdateFeeRuleActionInput): Prom
 }
 
 export type ComputeTeacherPayoutActionResult =
-  | ({ ok: true } & TeacherEarningsResult)
+  | ({
+      ok: true;
+      paymentMethodInfo: TeacherPayoutPaymentMethodInfo | null;
+      existingPayout: { id: string; method?: string; status: string } | null;
+    } & TeacherEarningsResult)
   | { ok: false; message: string };
 
 /** Salt-okunur önizleme — hiçbir kayıt yazmaz. */
@@ -1954,6 +1959,7 @@ export async function actionCreateTeacherPayout(input: {
   teacherId: string;
   periodStart: string;
   periodEnd: string;
+  paymentMethod?: "cash" | "transfer";
 }): Promise<TeacherPayoutActionResult> {
   try {
     const result = await withAuthContext("actionCreateTeacherPayout", (ctx) => createTeacherPayoutTool(ctx, input));
@@ -1965,6 +1971,26 @@ export async function actionCreateTeacherPayout(input: {
     if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
     if (error instanceof WriteScopeDeniedError) return { ok: false, message: error.message };
     return { ok: false, message: "Hakediş kaydı oluşturulurken beklenmeyen bir hata oluştu." };
+  }
+}
+
+/** PRODUCT_BACKLOG §3.4 — yönetici override: nakit/havale seçimini açıkça değiştirir. */
+export async function actionUpdateTeacherPayoutPaymentMethod(input: {
+  payoutId: string;
+  method: "cash" | "transfer";
+}): Promise<TeacherPayoutActionResult> {
+  try {
+    const result = await withAuthContext("actionUpdateTeacherPayoutPaymentMethod", (ctx) =>
+      updateTeacherPayoutPaymentMethodTool(ctx, input)
+    );
+    if (!result.ok) return { ok: false, message: result.error.message };
+    revalidateAll();
+    return { ok: true, payout: result.data.payout };
+  } catch (error) {
+    logger.error("actionUpdateTeacherPayoutPaymentMethod failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    if (error instanceof WriteScopeDeniedError) return { ok: false, message: error.message };
+    return { ok: false, message: "Hakediş ödeme yöntemi güncellenirken beklenmeyen bir hata oluştu." };
   }
 }
 

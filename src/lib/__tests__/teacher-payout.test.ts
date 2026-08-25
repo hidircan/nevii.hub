@@ -2,9 +2,11 @@ import { describe, it, expect } from "vitest";
 import {
   resolveFeeRule,
   computeTeacherEarningsForPeriod,
+  computeTeacherPayoutPaymentMethodInfo,
   createTeacherPayoutSnapshot,
   createTeacherFeeRuleData,
   updateTeacherFeeRuleData,
+  updateTeacherPayoutPaymentMethodData,
   validateFeeRuleInput,
   markTeacherPayoutPaidData,
 } from "../teacher-payout";
@@ -644,6 +646,188 @@ describe("markTeacherPayoutPaidData", () => {
   it("var olmayan hakediş için NOT_FOUND döner", () => {
     const data = makeData();
     const result = markTeacherPayoutPaidData(data, "does-not-exist");
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("NOT_FOUND");
+  });
+});
+
+/**
+ * PRODUCT_BACKLOG §3.4 — hakediş / ödeme eşiği. 2 haftalık (14 gün, dahil)
+ * bir dönem kullanılır ki "haftalık ortalama" hesabı kesirsiz, tam sayı
+ * olsun ve testler okunaklı kalsın.
+ */
+describe("computeTeacherPayoutPaymentMethodInfo — nakit/havale eşiği", () => {
+  const TWO_WEEK_START = "2026-08-01";
+  const TWO_WEEK_END = "2026-08-14"; // dahil 14 gün = tam 2 hafta
+
+  function twoWeekLessons(totalMinutes: number): Lesson[] {
+    // Tek bir ders olarak modellenir — periyot boyunca dağılımı hesaba
+    // katmaz, yalnızca toplam süre önemlidir (bkz. computeTeacherEarningsForPeriod).
+    return [
+      makeLesson({
+        startAt: "2026-08-05T10:00:00+03:00",
+        endAt: new Date(new Date("2026-08-05T10:00:00+03:00").getTime() + totalMinutes * 60_000).toISOString(),
+      }),
+    ];
+  }
+
+  it("eşik üstü → nakit", () => {
+    const data = makeData({
+      teachers: [makeTeacher({ weeklyHoursThreshold: 5 })],
+      lessons: twoWeekLessons(840), // 14 saat / 2 hafta = haftalık 7 saat
+      teacherFeeRules: [makeFeeRule()],
+    });
+    const info = computeTeacherPayoutPaymentMethodInfo(data, "t1", TWO_WEEK_START, TWO_WEEK_END);
+    expect(info?.weeklyHours).toBe(7);
+    expect(info?.defaultMethod).toBe("cash");
+  });
+
+  it("eşiğe eşit → havale", () => {
+    const data = makeData({
+      teachers: [makeTeacher({ weeklyHoursThreshold: 5 })],
+      lessons: twoWeekLessons(600), // 10 saat / 2 hafta = haftalık 5 saat
+      teacherFeeRules: [makeFeeRule()],
+    });
+    const info = computeTeacherPayoutPaymentMethodInfo(data, "t1", TWO_WEEK_START, TWO_WEEK_END);
+    expect(info?.weeklyHours).toBe(5);
+    expect(info?.defaultMethod).toBe("transfer");
+  });
+
+  it("eşik altı → havale", () => {
+    const data = makeData({
+      teachers: [makeTeacher({ weeklyHoursThreshold: 5 })],
+      lessons: twoWeekLessons(360), // 6 saat / 2 hafta = haftalık 3 saat
+      teacherFeeRules: [makeFeeRule()],
+    });
+    const info = computeTeacherPayoutPaymentMethodInfo(data, "t1", TWO_WEEK_START, TWO_WEEK_END);
+    expect(info?.weeklyHours).toBe(3);
+    expect(info?.defaultMethod).toBe("transfer");
+  });
+
+  it("weeklyHoursThreshold yoksa yöntem üretilmez", () => {
+    const data = makeData({
+      teachers: [makeTeacher({ weeklyHoursThreshold: undefined })],
+      lessons: twoWeekLessons(840),
+      teacherFeeRules: [makeFeeRule()],
+    });
+    const info = computeTeacherPayoutPaymentMethodInfo(data, "t1", TWO_WEEK_START, TWO_WEEK_END);
+    expect(info?.threshold).toBeUndefined();
+    expect(info?.defaultMethod).toBeUndefined();
+  });
+
+  it("farklı haftalara yayılan (31 günlük) dönemde sabit 4 hafta VARSAYILMAZ — kesirli hafta sayısıyla doğru hesap", () => {
+    // 31 gün / 7 = ~4.42857 hafta. 620 dakika (≈10.333 saat) toplam süre,
+    // sabit 4 hafta varsayılsaydı 2.583 sa/hafta çıkardı — gerçek (kesirli)
+    // hafta sayısıyla farklı (daha düşük) bir değer çıkmalı.
+    const data = makeData({
+      teachers: [makeTeacher({ weeklyHoursThreshold: 2 })],
+      lessons: [
+        makeLesson({ startAt: "2026-08-05T10:00:00+03:00", endAt: "2026-08-05T20:20:00+03:00" }), // 620 dk
+      ],
+      teacherFeeRules: [makeFeeRule()],
+    });
+    const info = computeTeacherPayoutPaymentMethodInfo(data, "t1", PERIOD_START, PERIOD_END);
+    const expectedWeeks = 31 / 7;
+    const expectedWeeklyHours = 620 / 60 / expectedWeeks;
+    expect(info?.weeklyHours).toBeCloseTo(expectedWeeklyHours, 6);
+    // Kaba (yanlış) sabit-4-hafta varsayımından KESİNLİKLE farklı olmalı.
+    expect(info?.weeklyHours).not.toBeCloseTo(620 / 60 / 4, 6);
+  });
+
+  it("öğretmen bulunamazsa null döner", () => {
+    const data = makeData();
+    expect(computeTeacherPayoutPaymentMethodInfo(data, "yok", PERIOD_START, PERIOD_END)).toBeNull();
+  });
+
+  it("farklı tenant verisi (ayrı AppData) hesaplamaya karışmaz — fonksiyon yalnızca kendi `data` parametresini okur", () => {
+    const tenantA = makeData({
+      teachers: [makeTeacher({ id: "t1", weeklyHoursThreshold: 5 })],
+      lessons: twoWeekLessons(840), // haftalık 7 sa → nakit
+      teacherFeeRules: [makeFeeRule({ teacherId: "t1" })],
+    });
+    const tenantB = makeData({
+      teachers: [makeTeacher({ id: "t1", weeklyHoursThreshold: 5 })],
+      lessons: twoWeekLessons(360), // aynı teacherId, FARKLI AppData → haftalık 3 sa → havale
+      teacherFeeRules: [makeFeeRule({ teacherId: "t1" })],
+    });
+
+    const infoA = computeTeacherPayoutPaymentMethodInfo(tenantA, "t1", TWO_WEEK_START, TWO_WEEK_END);
+    const infoB = computeTeacherPayoutPaymentMethodInfo(tenantB, "t1", TWO_WEEK_START, TWO_WEEK_END);
+
+    expect(infoA?.defaultMethod).toBe("cash");
+    expect(infoB?.defaultMethod).toBe("transfer");
+  });
+});
+
+describe("createTeacherPayoutSnapshot — ödeme yöntemi ön-doldurma ve yönetici override", () => {
+  it("eşik tanımlıysa hakediş oluşturulurken varsayılan yöntem ön-doldurulur", () => {
+    const data = makeData({
+      teachers: [makeTeacher({ weeklyHoursThreshold: 5 })],
+      lessons: [makeLesson({ startAt: "2026-08-05T10:00:00+03:00", endAt: "2026-08-05T20:00:00+03:00" })],
+      teacherFeeRules: [makeFeeRule()],
+    });
+    const created = createTeacherPayoutSnapshot(data, "t1", "2026-08-01", "2026-08-14");
+    expect(created.ok).toBe(true);
+    if (created.ok) expect(["cash", "transfer"]).toContain(created.payout.method);
+  });
+
+  it("yönetici override'ı varsayılanı ezer ve kayıtta korunur", () => {
+    const data = makeData({
+      // weeklyHours düşük → varsayılan "transfer" olurdu, ama admin "cash" seçiyor.
+      teachers: [makeTeacher({ weeklyHoursThreshold: 100 })],
+      lessons: [makeLesson({ startAt: "2026-08-05T10:00:00+03:00", endAt: "2026-08-05T11:00:00+03:00" })],
+      teacherFeeRules: [makeFeeRule()],
+    });
+    const created = createTeacherPayoutSnapshot(data, "t1", "2026-08-01", "2026-08-14", new Date(), "cash");
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    expect(created.payout.method).toBe("cash");
+
+    // Aynı kaydı ödendi işaretlerken method VERİLMEZSE override SİLİNMEZ.
+    const paid = markTeacherPayoutPaidData(created.data, created.payout.id);
+    expect(paid.ok).toBe(true);
+    if (paid.ok) expect(paid.payout.method).toBe("cash");
+  });
+
+  it("weeklyHoursThreshold yoksa varsayılan yöntem üretilmez, payout.method undefined kalır", () => {
+    const data = makeData({
+      teachers: [makeTeacher({ weeklyHoursThreshold: undefined })],
+      lessons: [makeLesson({ startAt: "2026-08-05T10:00:00+03:00", endAt: "2026-08-05T11:00:00+03:00" })],
+      teacherFeeRules: [makeFeeRule()],
+    });
+    const created = createTeacherPayoutSnapshot(data, "t1", "2026-08-01", "2026-08-14");
+    expect(created.ok).toBe(true);
+    if (created.ok) expect(created.payout.method).toBeUndefined();
+  });
+});
+
+describe("updateTeacherPayoutPaymentMethodData — yönetici override, sonraki hesaplamalarda ezilmez", () => {
+  it("mevcut kaydın yöntemini değiştirir, tutar/ders sayısı/statü değişmez", () => {
+    const data = makeData({
+      teachers: [makeTeacher({ weeklyHoursThreshold: 5 })],
+      lessons: [makeLesson({ startAt: "2026-08-05T10:00:00+03:00", endAt: "2026-08-05T11:00:00+03:00" })],
+      teacherFeeRules: [makeFeeRule()],
+    });
+    const created = createTeacherPayoutSnapshot(data, "t1", "2026-08-01", "2026-08-14");
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+
+    const overridden = updateTeacherPayoutPaymentMethodData(created.data, created.payout.id, "cash");
+    expect(overridden.ok).toBe(true);
+    if (!overridden.ok) return;
+    expect(overridden.payout.method).toBe("cash");
+    expect(overridden.payout.totalAmount).toBe(created.payout.totalAmount);
+    expect(overridden.payout.status).toBe(created.payout.status);
+
+    // Override sonrası, ödendi işaretlense bile (method verilmeden) korunur.
+    const paid = markTeacherPayoutPaidData(overridden.data, created.payout.id);
+    expect(paid.ok).toBe(true);
+    if (paid.ok) expect(paid.payout.method).toBe("cash");
+  });
+
+  it("var olmayan hakediş için NOT_FOUND döner", () => {
+    const data = makeData();
+    const result = updateTeacherPayoutPaymentMethodData(data, "does-not-exist", "cash");
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.code).toBe("NOT_FOUND");
   });

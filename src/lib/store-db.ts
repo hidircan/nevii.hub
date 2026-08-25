@@ -57,10 +57,13 @@ import {
   updateTeacherFeeRuleData,
   createTeacherPayoutSnapshot,
   markTeacherPayoutPaidData,
+  updateTeacherPayoutPaymentMethodData,
   type FeeRuleInput,
   type FeeRuleMutationResult,
   type CreateTeacherPayoutResult,
   type MarkPayoutPaidResult,
+  type TeacherPayoutPaymentMethod,
+  type UpdateTeacherPayoutPaymentMethodResult,
 } from "./teacher-payout";
 import {
   createPackageData,
@@ -380,6 +383,14 @@ function mapSchoolToAppData(school: PrismaSchoolWithRelations): AppData {
       startCorrectionNote: lesson.startCorrectionNote ?? undefined,
       endCorrectedBy: lesson.endCorrectedBy ?? undefined,
       endCorrectionNote: lesson.endCorrectionNote ?? undefined,
+      teacherAttendanceStatus:
+        ((lesson as { teacherAttendanceStatus?: string | null }).teacherAttendanceStatus as
+          | import("./teacher-attendance").TeacherAttendanceStatus
+          | undefined) ?? undefined,
+      teacherAttendanceAt:
+        (lesson as { teacherAttendanceAt?: Date | null }).teacherAttendanceAt?.toISOString?.() ?? undefined,
+      teacherAttendanceBy: (lesson as { teacherAttendanceBy?: string | null }).teacherAttendanceBy ?? undefined,
+      teacherAttendanceNote: (lesson as { teacherAttendanceNote?: string | null }).teacherAttendanceNote ?? undefined,
     })),
     lessonSeries: school.lessonSeries.map((series) => ({
       id: series.id,
@@ -2048,6 +2059,32 @@ export async function switchLessonOpsFlagLive(
   return persistLessonOpsResult(lessonId, flag, result);
 }
 
+/** Faz 2 — öğretmen yoklaması, öğrenci ops bayraklarından tamamen ayrı bir yol/tablo alanı. */
+export async function markTeacherAttendanceLive(
+  lessonId: string,
+  status: TeacherAttendanceStatus,
+  actorUserId: string,
+  note: string | undefined
+): Promise<ReturnType<typeof markTeacherAttendance>> {
+  logger.info("markTeacherAttendanceLive", lessonId, status);
+  const tid = requireTenantId();
+  const data = await readData();
+  const result = markTeacherAttendance(data, lessonId, status, actorUserId, note);
+  if (!result.ok || result.alreadySet) return result;
+
+  const updateResult = await prisma.lesson.updateMany({
+    where: { id: lessonId, tenantId: tid },
+    data: {
+      teacherAttendanceStatus: status,
+      teacherAttendanceAt: result.lesson.teacherAttendanceAt ? new Date(result.lesson.teacherAttendanceAt) : null,
+      teacherAttendanceBy: actorUserId,
+      teacherAttendanceNote: note ?? null,
+    },
+  });
+  if (updateResult.count === 0) return { ok: false, message: "Ders bulunamadı." };
+  return { ...result, data: await readData() };
+}
+
 export async function correctLessonTimesLive(
   lessonId: string,
   correction: LessonTimeCorrection
@@ -2376,12 +2413,13 @@ export async function updateTeacherFeeRule(
 export async function createTeacherPayout(
   teacherId: string,
   periodStart: string,
-  periodEnd: string
+  periodEnd: string,
+  paymentMethodOverride?: TeacherPayoutPaymentMethod
 ): Promise<CreateTeacherPayoutResult> {
   logger.info("createTeacherPayout", teacherId, periodStart, periodEnd);
   const tid = requireTenantId();
   const data = await readData();
-  const result = createTeacherPayoutSnapshot(data, teacherId, periodStart, periodEnd);
+  const result = createTeacherPayoutSnapshot(data, teacherId, periodStart, periodEnd, new Date(), paymentMethodOverride);
   if (!result.ok) return result;
 
   const schoolId = await requireTeacherSchoolId(tid, teacherId);
@@ -2396,8 +2434,27 @@ export async function createTeacherPayout(
       totalMinutes: result.payout.totalMinutes,
       totalAmount: result.payout.totalAmount,
       status: result.payout.status,
+      method: result.payout.method,
       generatedAt: new Date(result.payout.generatedAt),
     },
+  });
+
+  return { ok: true, data: await readData(), payout: result.payout };
+}
+
+export async function updateTeacherPayoutPaymentMethod(
+  payoutId: string,
+  method: TeacherPayoutPaymentMethod
+): Promise<UpdateTeacherPayoutPaymentMethodResult> {
+  logger.info("updateTeacherPayoutPaymentMethod", payoutId, method);
+  const tid = requireTenantId();
+  const data = await readData();
+  const result = updateTeacherPayoutPaymentMethodData(data, payoutId, method);
+  if (!result.ok) return result;
+
+  await prisma.teacherPayout.updateMany({
+    where: { id: payoutId, tenantId: tid },
+    data: { method },
   });
 
   return { ok: true, data: await readData(), payout: result.payout };

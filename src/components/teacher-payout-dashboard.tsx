@@ -8,10 +8,16 @@ import { tr } from "date-fns/locale";
 import {
   actionComputeTeacherPayout,
   actionCreateTeacherPayout,
+  actionUpdateTeacherPayoutPaymentMethod,
   type ComputeTeacherPayoutActionResult,
 } from "@/lib/actions";
 import { Badge, Button, Card, Select } from "@/components/ui";
 import { formatDate, formatMoney } from "@/lib/utils";
+
+const PAYMENT_METHOD_LABEL: Record<"cash" | "transfer", string> = {
+  cash: "Nakit",
+  transfer: "Havale",
+};
 
 const MONTHS = [
   "Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran",
@@ -46,9 +52,50 @@ export function TeacherPayoutDashboard({
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [createMessage, setCreateMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const [selectedMethod, setSelectedMethod] = useState<"" | "cash" | "transfer">(
+    initialResult.ok
+      ? ((initialResult.existingPayout?.method as "cash" | "transfer" | undefined) ??
+          initialResult.paymentMethodInfo?.defaultMethod ??
+          "")
+      : ""
+  );
+  const [updatingMethod, setUpdatingMethod] = useState(false);
+  const [methodMessage, setMethodMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  // Dönem her değiştiğinde seçim, o dönemin varsayılanına sıfırlanır — önceki
+  // dönemden kalan bir seçim yanlışlıkla farklı bir döneme taşınmaz. Render
+  // sırasında koşullu setState (React'ın önerdiği "adjust state on prop/state
+  // change" deseni) — bir efekt DEĞİL, bu yüzden ekstra bir render turu/lint
+  // uyarısı yaratmaz.
+  const [syncedResult, setSyncedResult] = useState(result);
+  if (result !== syncedResult) {
+    setSyncedResult(result);
+    setSelectedMethod(
+      result.ok
+        ? (result.existingPayout?.method as "cash" | "transfer" | undefined) ?? result.paymentMethodInfo?.defaultMethod ?? ""
+        : ""
+    );
+    setMethodMessage(null);
+  }
 
   const currentYear = new Date().getFullYear();
   const years = [currentYear - 1, currentYear, currentYear + 1];
+
+  async function handleUpdateMethod() {
+    if (!result.ok || !result.existingPayout || !selectedMethod) return;
+    setUpdatingMethod(true);
+    setMethodMessage(null);
+    const updated = await actionUpdateTeacherPayoutPaymentMethod({
+      payoutId: result.existingPayout.id,
+      method: selectedMethod,
+    });
+    setUpdatingMethod(false);
+    if (!updated.ok) {
+      setMethodMessage({ ok: false, text: updated.message });
+      return;
+    }
+    setMethodMessage({ ok: true, text: "Ödeme yöntemi güncellendi." });
+    await fetchPeriod(year, month);
+  }
 
   async function fetchPeriod(nextYear: number, nextMonth: number) {
     setLoading(true);
@@ -64,7 +111,12 @@ export function TeacherPayoutDashboard({
     setCreating(true);
     setCreateMessage(null);
     const { periodStart, periodEnd } = periodFor(year, month);
-    const created = await actionCreateTeacherPayout({ teacherId, periodStart, periodEnd });
+    const created = await actionCreateTeacherPayout({
+      teacherId,
+      periodStart,
+      periodEnd,
+      paymentMethod: selectedMethod || undefined,
+    });
     setCreating(false);
     if (!created.ok) {
       setCreateMessage({ ok: false, text: created.message });
@@ -74,6 +126,7 @@ export function TeacherPayoutDashboard({
       ok: true,
       text: `Hakediş kaydı oluşturuldu: ${formatMoney(created.payout.totalAmount)}. Ödeme geçmişinden görüntüleyebilirsiniz.`,
     });
+    await fetchPeriod(year, month);
   }
 
   return (
@@ -144,6 +197,72 @@ export function TeacherPayoutDashboard({
             </Card>
           </div>
 
+          <Card className="mb-6">
+            <p className="text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
+              Ödeme yöntemi eşiği (PRODUCT_BACKLOG §3.4)
+            </p>
+            {result.paymentMethodInfo?.threshold === undefined ? (
+              <p className="mt-1 text-sm text-[var(--color-text-muted)]">
+                Eşik tanımlı değil — öğretmen profilinden haftalık ders saati eşiği girilmeden varsayılan yöntem
+                üretilmez.
+              </p>
+            ) : (
+              <p className="mt-1 text-sm text-[var(--color-text-muted)]">
+                Bu dönemdeki haftalık ortalama <strong>{result.paymentMethodInfo.weeklyHours.toFixed(1)} sa</strong>{" "}
+                — eşik <strong>{result.paymentMethodInfo.threshold} sa</strong>. Varsayılan yöntem:{" "}
+                <strong>
+                  {result.paymentMethodInfo.defaultMethod ? PAYMENT_METHOD_LABEL[result.paymentMethodInfo.defaultMethod] : "—"}
+                </strong>
+                .
+              </p>
+            )}
+
+            {result.existingPayout ? (
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <span className="text-sm text-[var(--color-text-muted)]">
+                  Bu dönem için kayıt zaten oluşturulmuş — mevcut yöntem:{" "}
+                  <strong>
+                    {result.existingPayout.method
+                      ? PAYMENT_METHOD_LABEL[result.existingPayout.method as "cash" | "transfer"]
+                      : "—"}
+                  </strong>
+                </span>
+                <Select
+                  value={selectedMethod}
+                  onChange={(e) => setSelectedMethod(e.target.value as "cash" | "transfer")}
+                  className="w-auto"
+                  disabled={!canWrite}
+                >
+                  <option value="cash">Nakit</option>
+                  <option value="transfer">Havale</option>
+                </Select>
+                <Button type="button" variant="secondary" onClick={handleUpdateMethod} disabled={updatingMethod || !canWrite}>
+                  {updatingMethod ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                  Yöntemi güncelle
+                </Button>
+              </div>
+            ) : (
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <label className="text-sm text-[var(--color-text-muted)]">Oluştururken kullanılacak yöntem:</label>
+                <Select
+                  value={selectedMethod}
+                  onChange={(e) => setSelectedMethod(e.target.value as "" | "cash" | "transfer")}
+                  className="w-auto"
+                  disabled={!canWrite}
+                >
+                  <option value="">Varsayılanı kullan</option>
+                  <option value="cash">Nakit</option>
+                  <option value="transfer">Havale</option>
+                </Select>
+              </div>
+            )}
+            {methodMessage ? (
+              <p className={`mt-2 text-sm ${methodMessage.ok ? "text-emerald-600" : "text-rose-600"}`}>
+                {methodMessage.text}
+              </p>
+            ) : null}
+          </Card>
+
           {result.missingFeeRuleLessonIds.length > 0 ? (
             <Card className="mb-6 border-amber-200 bg-amber-50/60">
               <p className="text-sm text-amber-900">
@@ -170,7 +289,6 @@ export function TeacherPayoutDashboard({
                     <th className="px-4 py-3">Tarih</th>
                     <th className="px-4 py-3">Öğrenci</th>
                     <th className="px-4 py-3">Şube</th>
-                    <th className="px-4 py-3">Enstrüman</th>
                     <th className="px-4 py-3">Süre</th>
                     <th className="px-4 py-3">Saatlik ücret</th>
                     <th className="px-4 py-3">Tutar</th>
@@ -195,7 +313,6 @@ export function TeacherPayoutDashboard({
                         </Link>
                       </td>
                       <td className="px-4 py-3 text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">{line.branchName ?? "—"}</td>
-                      <td className="px-4 py-3 text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">{line.instrument}</td>
                       <td className="px-4 py-3 text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">{line.durationMinutes} dk</td>
                       <td className="px-4 py-3 text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
                         {line.perMinuteRate

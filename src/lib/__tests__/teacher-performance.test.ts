@@ -1,175 +1,261 @@
-import { describe, it, expect } from "vitest";
-import { computeTeacherPerformanceScore, computeAllTeacherPerformanceScores } from "../insights/teacher-performance";
-import type { AppData, Attendance, Lesson, Student, Teacher } from "../types";
+import { describe, it, expect, beforeEach } from "vitest";
+import { promises as fs } from "fs";
+import path from "path";
+import { resolveDataDir } from "../config";
+import { readData } from "../store";
+import { DEFAULT_TENANT_ID } from "../auth/config";
+import { computeTeacherPerformanceReport } from "../teacher-performance";
+import { markTeacherAttendance } from "../teacher-attendance";
+import { markTeacherAttendanceTool, getTeacherPerformanceReportTool } from "../services/tools";
+import { submitTeacherFeedback, TEACHER_FEEDBACK_FILE_PATH } from "../teacher-feedback";
+import type { AppData, Lesson } from "../types";
+import type { ServiceContext } from "../services/context";
 
-const BRANCH_A = "erzene";
+const DATA_FILE = path.join(resolveDataDir(path.join(process.cwd(), "data")), "store.json");
 
-function makeTeacher(overrides: Partial<Teacher> = {}): Teacher {
-  return {
-    id: "t1",
-    name: "Ada Öğretmen",
-    email: "",
-    phone: "",
-    branchId: BRANCH_A,
-    instruments: ["Piyano"],
-    availability: [],
-    maxDailyLessons: 8,
-    active: true,
-    color: "#7c3aed",
-    ...overrides,
-  };
+function ctx(overrides?: Partial<ServiceContext>): ServiceContext {
+  return { role: "SCHOOL_ADMIN", userId: "u1", tenantId: DEFAULT_TENANT_ID, channel: "web", ...overrides };
 }
 
-function makeStudent(overrides: Partial<Student> = {}): Student {
-  return {
-    id: "s1",
-    name: "Ece Öğrenci",
-    email: "",
-    phone: "",
-    parentName: "",
-    parentPhone: "",
-    branchId: BRANCH_A,
-    instruments: ["Piyano"],
-    teacherId: "t1",
-    packageName: "",
-    weeklyLessonCount: 1,
-    monthlyFee: 0,
-    active: true,
-    notes: "",
-    createdAt: "2026-01-01T00:00:00+03:00",
-    ...overrides,
-  };
-}
+beforeEach(async () => {
+  await fs.rm(DATA_FILE, { force: true });
+  await fs.rm(TEACHER_FEEDBACK_FILE_PATH, { force: true });
+});
 
-function makeLesson(overrides: Partial<Lesson> = {}): Lesson {
+function lesson(overrides: Partial<Lesson> & Pick<Lesson, "id" | "startAt">): Lesson {
   return {
-    id: "l1",
     studentId: "s1",
     teacherId: "t1",
     roomId: "r1",
-    branchId: BRANCH_A,
+    branchId: "erzene" as Lesson["branchId"],
     instrument: "Piyano",
-    startAt: "2026-08-10T10:00:00+03:00",
-    endAt: "2026-08-10T10:30:00+03:00",
+    endAt: overrides.startAt,
     type: "regular",
     status: "completed",
     ...overrides,
   };
 }
 
-function makeAttendance(overrides: Partial<Attendance> = {}): Attendance {
-  return {
-    id: "a1",
-    lessonId: "l1",
-    studentId: "s1",
-    status: "present",
-    markedAt: "2026-08-10T10:30:00+03:00",
-    createsMakeupCredit: false,
-    ...overrides,
-  };
-}
+const PERIOD_START = "2026-01-01";
+const PERIOD_END = "2026-01-31";
 
-function makeData(overrides: Partial<AppData> = {}): AppData {
-  return {
-    settings: {
-      tenantId: "demo-tenant",
-      name: "Test Okulu",
-      shortName: "Test",
-      city: "İzmir",
-      website: "",
-      email: "",
-      phone: "",
-      logoUrl: "",
-      makeupWindowDays: 14,
-      lessonDurationMinutes: 45,
-      workingHours: { start: "09:00", end: "21:00" },
-      workingDays: [1, 2, 3, 4, 5, 6],
-      currency: "TRY",
-      feeRoundingMode: "exact_minutes",
-      branches: [],
-    },
-    teachers: [makeTeacher()],
-    students: [makeStudent()],
-    rooms: [],
-    lessons: [],
-    lessonSeries: [],
-    attendances: [],
-    makeupRequests: [],
-    payments: [],
-    teacherFeeRules: [],
-    teacherPayouts: [],
-    ...overrides,
-  };
-}
+describe("computeTeacherPerformanceReport — Faz 2 kuralı: öğrenci yoklaması skora GİRMEZ", () => {
+  it("öğrenci yoklaması (studentAttended/studentAbsent) farklı olsa bile, öğretmen katılımı aynıysa skor AYNIDIR", async () => {
+    const base = await readData();
 
-describe("computeTeacherPerformanceScore", () => {
-  it("yeterli işlenmiş ders yoksa score:null döner (yetersiz veri, uydurma skor yok)", () => {
-    const data = makeData({
-      lessons: [makeLesson({ id: "l1" }), makeLesson({ id: "l2" })],
-      attendances: [makeAttendance({ id: "a1", lessonId: "l1", status: "present" })],
-    });
-    const result = computeTeacherPerformanceScore(data, "t1");
-    expect(result.score).toBeNull();
-    expect(result.gradedLessonCount).toBe(1);
-  });
+    const lessonsWithStudentPresent: Lesson[] = [
+      lesson({ id: "perf-l1", startAt: "2026-01-05T10:00:00.000Z", teacherAttendanceStatus: "geldi", studentAttended: true }),
+      lesson({ id: "perf-l2", startAt: "2026-01-06T10:00:00.000Z", teacherAttendanceStatus: "geldi", studentAttended: true }),
+      lesson({ id: "perf-l3", startAt: "2026-01-07T10:00:00.000Z", teacherAttendanceStatus: "gelmedi", studentAttended: true }),
+    ];
+    const lessonsWithStudentAbsent: Lesson[] = [
+      lesson({ id: "perf-l1", startAt: "2026-01-05T10:00:00.000Z", teacherAttendanceStatus: "geldi", studentAbsent: true }),
+      lesson({ id: "perf-l2", startAt: "2026-01-06T10:00:00.000Z", teacherAttendanceStatus: "geldi", studentAbsent: true }),
+      lesson({ id: "perf-l3", startAt: "2026-01-07T10:00:00.000Z", teacherAttendanceStatus: "gelmedi", studentExcused: true }),
+    ];
 
-  it("tamamı 'present' ise skor 100 olur", () => {
-    const lessons = [makeLesson({ id: "l1" }), makeLesson({ id: "l2" }), makeLesson({ id: "l3" })];
-    const attendances = lessons.map((l, i) =>
-      makeAttendance({ id: `a${i}`, lessonId: l.id, status: "present" })
+    const reportA = await computeTeacherPerformanceReport(
+      { ...base, lessons: lessonsWithStudentPresent },
+      DEFAULT_TENANT_ID,
+      "t1",
+      PERIOD_START,
+      PERIOD_END
     );
-    const data = makeData({ lessons, attendances });
-    const result = computeTeacherPerformanceScore(data, "t1");
-    expect(result.score).toBe(100);
-    expect(result.gradedLessonCount).toBe(3);
+    const reportB = await computeTeacherPerformanceReport(
+      { ...base, lessons: lessonsWithStudentAbsent },
+      DEFAULT_TENANT_ID,
+      "t1",
+      PERIOD_START,
+      PERIOD_END
+    );
+
+    expect(reportA.attendanceRate).toBe(reportB.attendanceRate);
+    expect(reportA.score).toBe(reportB.score);
+    expect(reportA.attendedCount).toBe(2);
+    expect(reportA.absentCount).toBe(1);
   });
 
-  it("okul kaynaklı iptaller skoru düşürür (öğretmen/okul kaynaklı olduğu için)", () => {
-    const lessons = [makeLesson({ id: "l1" }), makeLesson({ id: "l2" }), makeLesson({ id: "l3" })];
-    const attendances = [
-      makeAttendance({ id: "a1", lessonId: "l1", status: "present" }),
-      makeAttendance({ id: "a2", lessonId: "l2", status: "present" }),
-      makeAttendance({ id: "a3", lessonId: "l3", status: "cancelled_by_school" }),
+  it("öğrenci yoklaması hiç işaretlenmemiş olsa bile öğretmen katılımı doğru sayılır", async () => {
+    const base = await readData();
+    const lessons: Lesson[] = [
+      lesson({ id: "perf-l4", startAt: "2026-01-10T10:00:00.000Z", teacherAttendanceStatus: "geldi" }),
+      lesson({ id: "perf-l5", startAt: "2026-01-11T10:00:00.000Z", teacherAttendanceStatus: "mazeretli" }),
     ];
-    const data = makeData({ lessons, attendances });
-    const result = computeTeacherPerformanceScore(data, "t1");
-    expect(result.score).not.toBeNull();
-    expect(result.score as number).toBeLessThan(100);
+    const report = await computeTeacherPerformanceReport(
+      { ...base, lessons },
+      DEFAULT_TENANT_ID,
+      "t1",
+      PERIOD_START,
+      PERIOD_END
+    );
+    expect(report.attendedCount).toBe(1);
+    expect(report.excusedCount).toBe(1);
+    expect(report.attendanceRate).toBe(0.5);
+  });
+});
+
+describe("computeTeacherPerformanceReport — veri yokken güvenli davranış", () => {
+  it("dönemde hiç ders yoksa attendanceRate null, score null", async () => {
+    const base = await readData();
+    const report = await computeTeacherPerformanceReport(
+      { ...base, lessons: [] },
+      DEFAULT_TENANT_ID,
+      "t1",
+      PERIOD_START,
+      PERIOD_END
+    );
+    expect(report.plannedLessonCount).toBe(0);
+    expect(report.attendanceRate).toBeNull();
+    expect(report.feedbackAverage).toBeNull();
+    expect(report.score).toBeNull();
   });
 
-  it("başka öğretmenin dersleri/yoklamaları skoru etkilemez (tenant/teacher izolasyonu)", () => {
-    const lessons = [
-      makeLesson({ id: "l1", teacherId: "t1" }),
-      makeLesson({ id: "l2", teacherId: "t1" }),
-      makeLesson({ id: "l3", teacherId: "t1" }),
-      makeLesson({ id: "l4", teacherId: "t2" }),
-    ];
-    const attendances = [
-      makeAttendance({ id: "a1", lessonId: "l1", status: "present" }),
-      makeAttendance({ id: "a2", lessonId: "l2", status: "present" }),
-      makeAttendance({ id: "a3", lessonId: "l3", status: "present" }),
-      makeAttendance({ id: "a4", lessonId: "l4", status: "absent" }),
-    ];
-    const data = makeData({
-      teachers: [makeTeacher({ id: "t1" }), makeTeacher({ id: "t2" })],
-      lessons,
-      attendances,
+  it("dersler var ama hiçbiri işaretlenmemişse (hepsi Bekliyor) attendanceRate null kalır", async () => {
+    const base = await readData();
+    const lessons: Lesson[] = [lesson({ id: "perf-l6", startAt: "2026-01-12T10:00:00.000Z" })];
+    const report = await computeTeacherPerformanceReport(
+      { ...base, lessons },
+      DEFAULT_TENANT_ID,
+      "t1",
+      PERIOD_START,
+      PERIOD_END
+    );
+    expect(report.plannedLessonCount).toBe(1);
+    expect(report.pendingCount).toBe(1);
+    expect(report.attendanceRate).toBeNull();
+  });
+});
+
+describe("computeTeacherPerformanceReport — geri bildirim bileşeni", () => {
+  it("eşik altı (< 3) geri bildirim varsa feedbackAverage null kalır (anonimlik eşiği)", async () => {
+    const base = await readData();
+    await submitTeacherFeedback({
+      tenantId: DEFAULT_TENANT_ID,
+      teacherId: "t1",
+      studentId: "s1",
+      submittedBy: "s1",
+      submitterRole: "STUDENT",
+      scores: { clarity: 5, communication: 5, effectiveness: 5, motivation: 5, punctuality: 5 },
     });
-    const result = computeTeacherPerformanceScore(data, "t1");
-    expect(result.score).toBe(100);
-    expect(result.gradedLessonCount).toBe(3);
+    const report = await computeTeacherPerformanceReport(
+      { ...base, lessons: [] },
+      DEFAULT_TENANT_ID,
+      "t1",
+      PERIOD_START,
+      PERIOD_END
+    );
+    expect(report.feedbackAverage).toBeNull();
   });
 
-  it("hiç ders/öğrenci yoksa fırlatmaz, score:null ve sayaçlar 0 döner", () => {
-    const data = makeData({ lessons: [], attendances: [], students: [] });
-    const result = computeTeacherPerformanceScore(data, "t1");
-    expect(result.score).toBeNull();
-    expect(result.activeStudentCount).toBe(0);
+  it("eşik üstü (>= 3) geri bildirim varsa feedbackAverage hesaplanır ve skora girer", async () => {
+    const base = await readData();
+    for (const studentId of ["s1", "s2", "s3"]) {
+      await submitTeacherFeedback({
+        tenantId: DEFAULT_TENANT_ID,
+        teacherId: "t1",
+        studentId,
+        submittedBy: studentId,
+        submitterRole: "STUDENT",
+        scores: { clarity: 5, communication: 5, effectiveness: 5, motivation: 5, punctuality: 5 },
+      });
+    }
+    const report = await computeTeacherPerformanceReport(
+      { ...base, lessons: [] },
+      DEFAULT_TENANT_ID,
+      "t1",
+      PERIOD_START,
+      PERIOD_END
+    );
+    expect(report.feedbackAverage).toBe(5);
+    expect(report.feedbackCount).toBe(3);
+    // Yalnız feedback verisi varken (katılım verisi yok) skor 1-5 → 0-100 ölçeğine taşınır: (5-1)/4*100=100.
+    expect(report.score).toBe(100);
   });
 
-  it("computeAllTeacherPerformanceScores tüm öğretmenler için bir sonuç döner", () => {
-    const data = makeData({ teachers: [makeTeacher({ id: "t1" }), makeTeacher({ id: "t2" })] });
-    const results = computeAllTeacherPerformanceScores(data);
-    expect(results.map((r) => r.teacherId).sort()).toEqual(["t1", "t2"]);
+  it("hem katılım hem geri bildirim varsa skor ağırlıklı toplamdır (%60 + %40)", async () => {
+    const base = await readData();
+    const lessons: Lesson[] = [
+      lesson({ id: "perf-l7", startAt: "2026-01-15T10:00:00.000Z", teacherAttendanceStatus: "geldi" }),
+    ];
+    for (const studentId of ["s1", "s2", "s3"]) {
+      await submitTeacherFeedback({
+        tenantId: DEFAULT_TENANT_ID,
+        teacherId: "t1",
+        studentId,
+        submittedBy: studentId,
+        submitterRole: "STUDENT",
+        scores: { clarity: 5, communication: 5, effectiveness: 5, motivation: 5, punctuality: 5 },
+      });
+    }
+    const report = await computeTeacherPerformanceReport(
+      { ...base, lessons },
+      DEFAULT_TENANT_ID,
+      "t1",
+      PERIOD_START,
+      PERIOD_END
+    );
+    // Katılım %100 * 60 + feedback (5→100) * 40 = 60 + 40 = 100.
+    expect(report.score).toBe(100);
+  });
+});
+
+describe("markTeacherAttendance (saf fonksiyon)", () => {
+  it("aynı statü + aynı not tekrar gönderilirse alreadySet:true döner", async () => {
+    const data: AppData = { ...(await readData()), lessons: [lesson({ id: "perf-l8", startAt: "2026-01-20T10:00:00.000Z" })] };
+    const first = markTeacherAttendance(data, "perf-l8", "geldi", "admin1", undefined);
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    const second = markTeacherAttendance(first.data, "perf-l8", "geldi", "admin1", undefined);
+    expect(second.ok && second.alreadySet).toBe(true);
+  });
+
+  it("ders bulunamazsa ok:false döner", () => {
+    const data = { lessons: [] } as unknown as AppData;
+    const result = markTeacherAttendance(data, "yok", "geldi", "admin1", undefined);
+    expect(result.ok).toBe(false);
+  });
+});
+
+describe("markTeacherAttendanceTool — RBAC", () => {
+  it("TEACHER rolü kendi katılımını kendi işaretleyemez (FORBIDDEN)", async () => {
+    const res = await markTeacherAttendanceTool(ctx({ role: "TEACHER", teacherId: "t1" }), {
+      lessonId: "l14",
+      status: "geldi",
+    });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error.code).toBe("FORBIDDEN");
+  });
+
+  it("SCHOOL_ADMIN işaretleyebilir", async () => {
+    const res = await markTeacherAttendanceTool(ctx(), { lessonId: "l14", status: "geldi" });
+    expect(res.ok).toBe(true);
+  });
+});
+
+describe("getTeacherPerformanceReportTool — RBAC + görünürlük", () => {
+  it("öğretmen yalnızca kendi raporunu görebilir", async () => {
+    const own = await getTeacherPerformanceReportTool(ctx({ role: "TEACHER", teacherId: "t1" }), {
+      teacherId: "t1",
+      periodStart: PERIOD_START,
+      periodEnd: PERIOD_END,
+    });
+    expect(own.ok).toBe(true);
+
+    const other = await getTeacherPerformanceReportTool(ctx({ role: "TEACHER", teacherId: "t1" }), {
+      teacherId: "t2",
+      periodStart: PERIOD_START,
+      periodEnd: PERIOD_END,
+    });
+    expect(other.ok).toBe(false);
+    if (!other.ok) expect(other.error.code).toBe("FORBIDDEN");
+  });
+
+  it("SCHOOL_ADMIN herhangi bir öğretmenin raporunu görebilir", async () => {
+    const res = await getTeacherPerformanceReportTool(ctx(), {
+      teacherId: "t1",
+      periodStart: PERIOD_START,
+      periodEnd: PERIOD_END,
+    });
+    expect(res.ok).toBe(true);
   });
 });

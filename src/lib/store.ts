@@ -27,6 +27,8 @@ import type {
   FeeRuleMutationResult,
   CreateTeacherPayoutResult,
   MarkPayoutPaidResult,
+  TeacherPayoutPaymentMethod,
+  UpdateTeacherPayoutPaymentMethodResult,
 } from "./teacher-payout";
 import type { MakeupDecision } from "./makeup-engine";
 import type { LessonTimeCorrection, LessonLiveUpdateResult } from "./lesson-live-status";
@@ -135,6 +137,13 @@ type StoreApi = {
     flag: import("./lesson-ops").LessonOpsFlag,
     actorUserId: string
   ) => Promise<import("./lesson-ops").ApplyLessonOpsResult>;
+  /** Faz 2 — öğretmen yoklaması, öğrenci ops bayraklarından tamamen ayrı bir yol. */
+  markTeacherAttendanceLive: (
+    lessonId: string,
+    status: import("./teacher-attendance").TeacherAttendanceStatus,
+    actorUserId: string,
+    note: string | undefined
+  ) => Promise<ReturnType<typeof import("./teacher-attendance").markTeacherAttendance>>;
   correctLessonTimesLive: (
     lessonId: string,
     correction: LessonTimeCorrection
@@ -159,8 +168,13 @@ type StoreApi = {
   createTeacherPayout: (
     teacherId: string,
     periodStart: string,
-    periodEnd: string
+    periodEnd: string,
+    paymentMethodOverride?: TeacherPayoutPaymentMethod
   ) => Promise<CreateTeacherPayoutResult>;
+  updateTeacherPayoutPaymentMethod: (
+    payoutId: string,
+    method: TeacherPayoutPaymentMethod
+  ) => Promise<UpdateTeacherPayoutPaymentMethodResult>;
   markTeacherPayoutPaid: (payoutId: string, method?: string) => Promise<MarkPayoutPaidResult>;
   updateFeeRoundingMode: (feeRoundingMode: FeeRoundingMode) => Promise<AppData>;
   updateMakeupWindowDays: (makeupWindowDays: number) => Promise<AppData>;
@@ -442,6 +456,16 @@ export async function switchLessonOpsFlagLive(
   return withTenantScope(() => store.switchLessonOpsFlagLive(lessonId, flag, actorUserId));
 }
 
+/** Faz 2 — öğretmen yoklaması, öğrenci ops bayraklarından tamamen ayrı bir yol. */
+export async function markTeacherAttendanceLive(
+  lessonId: string,
+  status: import("./teacher-attendance").TeacherAttendanceStatus,
+  actorUserId: string,
+  note: string | undefined
+): Promise<ReturnType<typeof import("./teacher-attendance").markTeacherAttendance>> {
+  return withTenantScope(() => store.markTeacherAttendanceLive(lessonId, status, actorUserId, note));
+}
+
 export async function correctLessonTimesLive(
   lessonId: string,
   correction: LessonTimeCorrection
@@ -505,9 +529,19 @@ export async function updateTeacherFeeRule(
 export async function createTeacherPayout(
   teacherId: string,
   periodStart: string,
-  periodEnd: string
+  periodEnd: string,
+  paymentMethodOverride?: TeacherPayoutPaymentMethod
 ): Promise<CreateTeacherPayoutResult> {
-  return withTenantScope(() => store.createTeacherPayout(teacherId, periodStart, periodEnd));
+  return withTenantScope(() =>
+    store.createTeacherPayout(teacherId, periodStart, periodEnd, paymentMethodOverride)
+  );
+}
+
+export async function updateTeacherPayoutPaymentMethod(
+  payoutId: string,
+  method: TeacherPayoutPaymentMethod
+): Promise<UpdateTeacherPayoutPaymentMethodResult> {
+  return withTenantScope(() => store.updateTeacherPayoutPaymentMethod(payoutId, method));
 }
 
 export async function markTeacherPayoutPaid(

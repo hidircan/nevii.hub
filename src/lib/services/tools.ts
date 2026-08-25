@@ -38,6 +38,7 @@ import {
   markAttendance,
 
   markTeacherPayoutPaid,
+  updateTeacherPayoutPaymentMethod,
   readData,
   resetData,
   resetToCleanTemplate,
@@ -3328,7 +3329,15 @@ export async function updateFeeRuleTool(
 export async function computeTeacherPayoutTool(
   ctx: ServiceContext,
   input: unknown
-): Promise<ServiceResult<TeacherEarningsResult>> {
+): Promise<
+  ServiceResult<
+    TeacherEarningsResult & {
+      paymentMethodInfo: TeacherPayoutPaymentMethodInfo | null;
+      /** Bu dönem için zaten oluşturulmuş bir kayıt varsa — o kaydın ödeme yöntemi (varsayılan veya override) ASLA burada yeniden hesaplanmaz. */
+      existingPayout: { id: string; method?: string; status: string } | null;
+    }
+  >
+> {
   const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
 
@@ -3346,7 +3355,19 @@ export async function computeTeacherPayoutTool(
     v.data.periodStart,
     v.data.periodEnd
   );
-  return ok(result);
+  const paymentMethodInfo = computeTeacherPayoutPaymentMethodInfo(
+    data,
+    v.data.teacherId,
+    v.data.periodStart,
+    v.data.periodEnd
+  );
+  const existing = data.teacherPayouts.find(
+    (p) =>
+      p.teacherId === v.data.teacherId && p.periodStart === v.data.periodStart && p.periodEnd === v.data.periodEnd
+  );
+  const existingPayout = existing ? { id: existing.id, method: existing.method, status: existing.status } : null;
+
+  return ok({ ...result, paymentMethodInfo, existingPayout });
 }
 
 /**
@@ -3365,7 +3386,12 @@ export async function createTeacherPayoutTool(
   if (!v.ok) return v;
 
   try {
-    const result = await createTeacherPayout(v.data.teacherId, v.data.periodStart, v.data.periodEnd);
+    const result = await createTeacherPayout(
+      v.data.teacherId,
+      v.data.periodStart,
+      v.data.periodEnd,
+      v.data.paymentMethod
+    );
     if (!result.ok) {
       const code = result.code === "MISSING_FEE_RULE" ? "VALIDATION_ERROR" : "CONFLICT";
       const details = result.code === "MISSING_FEE_RULE" ? result.missingFeeRuleLessonIds : undefined;
@@ -3374,6 +3400,31 @@ export async function createTeacherPayoutTool(
     return ok({ payout: result.payout });
   } catch (e) {
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "createTeacherPayout failed");
+  }
+}
+
+/**
+ * PRODUCT_BACKLOG §3.4 — yönetici override: mevcut bir hakediş kaydının
+ * nakit/havale seçimini açıkça değiştirir. Tutarı/ders sayısını/statüyü
+ * ASLA değiştirmez — yalnızca `method`. Bu değer bir sonraki hesaplamada
+ * (`computeTeacherPayoutTool`, `existingPayout.method`) AYNEN korunur.
+ */
+export async function updateTeacherPayoutPaymentMethodTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ payout: TeacherPayout }>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+
+  const v = parseOrFail(updateTeacherPayoutPaymentMethodSchema, input);
+  if (!v.ok) return v;
+
+  try {
+    const result = await updateTeacherPayoutPaymentMethod(v.data.payoutId, v.data.method);
+    if (!result.ok) return fail("NOT_FOUND", result.message);
+    return ok({ payout: result.payout });
+  } catch (e) {
+    return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "updateTeacherPayoutPaymentMethod failed");
   }
 }
 

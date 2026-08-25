@@ -1,4 +1,4 @@
-import { differenceInMinutes, format, parseISO } from "date-fns";
+import { differenceInCalendarDays, differenceInMinutes, format, parseISO } from "date-fns";
 import type { AppData, BranchId, Instrument, TeacherFeeRule, TeacherPayout } from "./types";
 import { uid } from "./utils";
 import { isLessonProcessedForPayout } from "./lesson-ops";
@@ -319,18 +319,78 @@ export type CreateTeacherPayoutResult =
   | { ok: false; code: "MISSING_FEE_RULE"; message: string; missingFeeRuleLessonIds: string[] }
   | { ok: false; code: "PAYOUT_ALREADY_EXISTS"; message: string; existingPayoutId: string };
 
+/** PRODUCT_BACKLOG §3.4 — hakediş ödeme yöntemi eşiği (nakit/havale). */
+export type TeacherPayoutPaymentMethod = "cash" | "transfer";
+
+export type TeacherPayoutPaymentMethodInfo = {
+  /** Dönem boyunca gerçekleşen (hakedişe giren) toplam ders saati, dönemin kapsadığı takvim haftası sayısına bölünmüş ortalama. */
+  weeklyHours: number;
+  /** `Teacher.weeklyHoursThreshold` — tanımlı değilse `defaultMethod` de üretilmez. */
+  threshold?: number;
+  /** Eşik ÜSTÜNDE nakit, eşiğe EŞİT veya ALTINDA havale. Eşik yoksa `undefined`. */
+  defaultMethod?: TeacherPayoutPaymentMethod;
+};
+
+/**
+ * Bir dönemin kapsadığı takvim haftası sayısı — kestirme "sabit 4 hafta"
+ * VARSAYILMAZ, dönemin gerçek gün sayısı (dahil) 7'ye bölünerek kesirli
+ * hesaplanır (ör. 31 günlük bir ay ≈ 4.43 hafta). Bu, haftalık ortalama
+ * ders saatinin dönem uzunluğundan (28/30/31 gün) bağımsız, tutarlı ve
+ * test edilebilir olmasını sağlar.
+ */
+function calendarWeeksInPeriod(periodStart: string, periodEnd: string): number {
+  const days = differenceInCalendarDays(parseISO(periodEnd), parseISO(periodStart)) + 1;
+  return days > 0 ? days / 7 : 0;
+}
+
+/**
+ * PRODUCT_BACKLOG §3.4 — öğretmenin `weeklyHoursThreshold` değeriyle, verilen
+ * dönemdeki GERÇEK (hakedişe giren) ders saatini karşılaştırır. Süre kaynağı
+ * `computeTeacherEarningsForPeriod`'un ZATEN hesapladığı `totalMinutes`'tır
+ * (lesson start/end farkı) — burada yeni bir süre varsayımı ÜRETİLMEZ, mevcut
+ * hakediş motorunun davranışı (hangi dersler sayılır/sayılmaz) aynen korunur.
+ * Öğretmen bulunamazsa `null` döner.
+ */
+export function computeTeacherPayoutPaymentMethodInfo(
+  data: AppData,
+  teacherId: string,
+  periodStart: string,
+  periodEnd: string
+): TeacherPayoutPaymentMethodInfo | null {
+  const teacher = data.teachers.find((t) => t.id === teacherId);
+  if (!teacher) return null;
+
+  const earnings = computeTeacherEarningsForPeriod(data, teacherId, periodStart, periodEnd);
+  const weeks = calendarWeeksInPeriod(periodStart, periodEnd);
+  const weeklyHours = weeks > 0 ? earnings.totalMinutes / 60 / weeks : 0;
+  const threshold = teacher.weeklyHoursThreshold;
+  const defaultMethod: TeacherPayoutPaymentMethod | undefined =
+    threshold === undefined ? undefined : weeklyHours > threshold ? "cash" : "transfer";
+
+  return { weeklyHours, threshold, defaultMethod };
+}
+
 /**
  * Bir dönem için hakediş snapshot'ı oluşturur. `totalMinutes`/`totalAmount`
  * bu anda donar — `TeacherFeeRule` sonradan değişse bile bu kayıt bir daha
  * yeniden hesaplanmaz. Aynı teacherId+periodStart+periodEnd için ikinci kez
  * çağrılırsa reddedilir. Eksik ücret kurallı ders varsa oluşturulmaz.
+ *
+ * Ödeme yöntemi (`method`): yönetici `paymentMethodOverride` verdiyse AYNEN
+ * kullanılır; vermediyse `computeTeacherPayoutPaymentMethodInfo`'nun ürettiği
+ * varsayım (`defaultMethod`, eşik yoksa `undefined`) ile ÖN-DOLDURULUR. Bu
+ * yalnızca kayıt oluşturma ANINDA olur — kayıt oluştuktan sonra `method`
+ * yalnızca `updateTeacherPayoutPaymentMethodData`/`markTeacherPayoutPaidData`
+ * ile DEĞİŞTİRİLEBİLİR; bu fonksiyon bir daha ÇAĞRILMAZ (idempotent create),
+ * dolayısıyla bir override sonraki hesaplamalarda asla ezilmez.
  */
 export function createTeacherPayoutSnapshot(
   data: AppData,
   teacherId: string,
   periodStart: string,
   periodEnd: string,
-  now: Date = new Date()
+  now: Date = new Date(),
+  paymentMethodOverride?: TeacherPayoutPaymentMethod
 ): CreateTeacherPayoutResult {
   const existing = data.teacherPayouts.find(
     (p) => p.teacherId === teacherId && p.periodStart === periodStart && p.periodEnd === periodEnd
@@ -354,6 +414,9 @@ export function createTeacherPayoutSnapshot(
     };
   }
 
+  const methodInfo = computeTeacherPayoutPaymentMethodInfo(data, teacherId, periodStart, periodEnd);
+  const method = paymentMethodOverride ?? methodInfo?.defaultMethod;
+
   const payout: TeacherPayout = {
     id: uid("payout"),
     teacherId,
@@ -363,16 +426,45 @@ export function createTeacherPayoutSnapshot(
     totalAmount: earnings.totalAmount,
     status: "pending",
     generatedAt: now.toISOString(),
+    method,
   };
 
   return { ok: true, data: { ...data, teacherPayouts: [...data.teacherPayouts, payout] }, payout };
+}
+
+export type UpdateTeacherPayoutPaymentMethodResult =
+  | { ok: true; data: AppData; payout: TeacherPayout }
+  | { ok: false; code: "NOT_FOUND"; message: string };
+
+/**
+ * Yönetici override'ı — mevcut bir hakediş kaydının ödeme yöntemini (nakit/
+ * havale) açıkça değiştirir. Tutarı/ders sayısını/statüyü ASLA değiştirmez;
+ * yalnızca `method` alanını yazar. `markTeacherPayoutPaidData` sonrasında da
+ * çağrılabilir (ödendi işaretlenmiş bir kaydın yöntemi düzeltilebilir).
+ */
+export function updateTeacherPayoutPaymentMethodData(
+  data: AppData,
+  payoutId: string,
+  method: TeacherPayoutPaymentMethod
+): UpdateTeacherPayoutPaymentMethodResult {
+  const existing = data.teacherPayouts.find((p) => p.id === payoutId);
+  if (!existing) return { ok: false, code: "NOT_FOUND", message: "Hakediş kaydı bulunamadı." };
+
+  const updated: TeacherPayout = { ...existing, method };
+  const teacherPayouts = data.teacherPayouts.map((p) => (p.id === payoutId ? updated : p));
+  return { ok: true, data: { ...data, teacherPayouts }, payout: updated };
 }
 
 export type MarkPayoutPaidResult =
   | { ok: true; data: AppData; payout: TeacherPayout }
   | { ok: false; code: "NOT_FOUND" | "ALREADY_PAID"; message: string };
 
-/** Bekleyen bir hakedişi ödendi olarak işaretler. Tutarı asla değiştirmez. */
+/**
+ * Bekleyen bir hakedişi ödendi olarak işaretler. Tutarı asla değiştirmez.
+ * `method` verilmezse (madde 3 — override korunmalı) mevcut kayıttaki
+ * (oluşturma anında ön-doldurulmuş varsayım VEYA yönetici override'ı) değer
+ * AYNEN korunur — `undefined` geçilmesi onu SİLMEZ.
+ */
 export function markTeacherPayoutPaidData(
   data: AppData,
   payoutId: string,
@@ -385,7 +477,12 @@ export function markTeacherPayoutPaidData(
     return { ok: false, code: "ALREADY_PAID", message: "Bu hakediş zaten ödendi olarak işaretlenmiş." };
   }
 
-  const updated: TeacherPayout = { ...existing, status: "paid", paidAt: now.toISOString(), method };
+  const updated: TeacherPayout = {
+    ...existing,
+    status: "paid",
+    paidAt: now.toISOString(),
+    method: method ?? existing.method,
+  };
   const teacherPayouts = data.teacherPayouts.map((p) => (p.id === payoutId ? updated : p));
   return { ok: true, data: { ...data, teacherPayouts }, payout: updated };
 }

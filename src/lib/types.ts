@@ -589,6 +589,17 @@ export interface Lesson {
     by: string;
     at: string;
   };
+  /**
+   * Faz 2 — öğretmenin KENDİ derse gelip gelmediği. Öğrenci yoklamasından
+   * (studentAttended/studentAbsent/studentExcused) TAMAMEN BAĞIMSIZ bir alan
+   * kümesi — öğretmen performans skoru YALNIZCA buna bakar, öğrenci
+   * yoklamasına asla bakmaz (bkz. src/lib/teacher-performance.ts). undefined
+   * = "Bekliyor" (henüz işaretlenmedi); ayrı bir enum değeri gerekmez.
+   */
+  teacherAttendanceStatus?: "geldi" | "gelmedi" | "mazeretli";
+  teacherAttendanceAt?: string;
+  teacherAttendanceBy?: string;
+  teacherAttendanceNote?: string;
 }
 
 export type LessonSeriesStatus = "active" | "ended" | "cancelled";

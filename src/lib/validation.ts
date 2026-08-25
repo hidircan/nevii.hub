@@ -31,6 +31,19 @@ export const attendanceSchema = z.object({
   reason: z.string().optional(),
 });
 
+/** Faz 2 — öğretmenin KENDİ derse gelip gelmediği; öğrenci yoklamasından tamamen ayrı. */
+export const markTeacherAttendanceSchema = z.object({
+  lessonId: z.string().min(1),
+  status: z.enum(["geldi", "gelmedi", "mazeretli"]),
+  note: z.string().max(500).optional(),
+});
+
+export const teacherPerformanceReportSchema = z.object({
+  teacherId: z.string().min(1),
+  periodStart: z.string().min(1),
+  periodEnd: z.string().min(1),
+});
+
 const optionalEmail = z
   .string()
   .optional()
@@ -485,11 +498,20 @@ export const computeTeacherPayoutSchema = z.object({
   periodEnd: z.string().min(1),
 });
 
-export const createTeacherPayoutSchema = computeTeacherPayoutSchema;
+/** PRODUCT_BACKLOG §3.4 — oluşturma anında yönetici açıkça nakit/havale seçerek varsayılan eşiği ezebilir. */
+export const createTeacherPayoutSchema = computeTeacherPayoutSchema.extend({
+  paymentMethod: z.enum(["cash", "transfer"]).optional(),
+});
 
 export const markTeacherPayoutPaidSchema = z.object({
   payoutId: z.string().min(1),
   method: z.string().min(1).optional(),
+});
+
+/** PRODUCT_BACKLOG §3.4 — yönetici override: mevcut bir hakediş kaydının ödeme yöntemini (nakit/havale) değiştirir. */
+export const updateTeacherPayoutPaymentMethodSchema = z.object({
+  payoutId: z.string().min(1),
+  method: z.enum(["cash", "transfer"]),
 });
 
 export const updateFeeRoundingModeSchema = z.object({

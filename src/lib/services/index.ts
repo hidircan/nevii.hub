@@ -97,6 +97,8 @@ export {
   bulkAssignCurriculumTopicsTool,
   listCurriculumForStudentTool,
   setLessonOpsFlagTool,
+  markTeacherAttendanceTool,
+  getTeacherPerformanceReportTool,
   archiveStudentTool,
   setNationalIdTool,
   revealNationalIdTool,
