@@ -25,9 +25,9 @@ describe("due windows", () => {
 
 describe("IBAN bank selection", () => {
   it("MEB → VakıfBank, diğer → Halkbank", () => {
-    expect(bankForStudentType("MEB")).toBe("vakifbank");
-    expect(bankForStudentType("Hobi")).toBe("halkbank");
-    const r = resolveCollectionsIban("MEB", {
+    expect(bankForStudentType(["MEB"])).toBe("vakifbank");
+    expect(bankForStudentType(["Hobi"])).toBe("halkbank");
+    const r = resolveCollectionsIban(["MEB"], {
       vakifbankIban: "TR00VAKIF",
       halkbankIban: "TR00HALK",
     });
@@ -36,12 +36,25 @@ describe("IBAN bank selection", () => {
   });
 
   it("MEB olmayan öğrenci Halkbank IBAN'ını alır", () => {
-    const r = resolveCollectionsIban("Hobi", {
+    const r = resolveCollectionsIban(["Hobi"], {
       vakifbankIban: "TR00VAKIF",
       halkbankIban: "TR00HALK",
     });
     expect(r.bankLabel).toBe("Halkbank");
     expect(r.iban).toBe("TR00HALK");
+  });
+
+  it("Faz 1B — MEB + başka bir tür birlikte atanmışsa MEB kuralı kazanır (VakıfBank)", () => {
+    expect(bankForStudentType(["Hobi", "MEB"])).toBe("vakifbank");
+    const r = resolveCollectionsIban(["London College of Music Hazırlık", "MEB"], {
+      vakifbankIban: "TR00VAKIF",
+      halkbankIban: "TR00HALK",
+    });
+    expect(r.bankLabel).toBe("VakıfBank");
+  });
+
+  it("hiç tür atanmamışsa (boş dizi) Halkbank varsayılanına düşer", () => {
+    expect(bankForStudentType([])).toBe("halkbank");
   });
 });
 
