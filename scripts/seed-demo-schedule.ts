@@ -67,6 +67,26 @@ function iso(d: Date): string {
   return format(d, "yyyy-MM-dd");
 }
 
+function toMinutes(hhmm: string): number {
+  const [h, m] = hhmm.split(":").map(Number);
+  return h * 60 + m;
+}
+
+function toHHMM(totalMinutes: number): string {
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+/** Bir müsaitlik penceresi içindeki tüm olası ders başlangıç saatleri (durationMinutes adımlarla). */
+function candidateStartTimes(window: { start: string; end: string }, durationMinutes: number): string[] {
+  const times: string[] = [];
+  for (let t = toMinutes(window.start); t + durationMinutes <= toMinutes(window.end); t += durationMinutes) {
+    times.push(toHHMM(t));
+  }
+  return times;
+}
+
 const today = new Date();
 
 async function main() {
@@ -103,18 +123,20 @@ async function main() {
         continue;
       }
 
-      const room = data.rooms.find(
+      const candidateRooms = data.rooms.filter(
         (r) => r.branchId === student.branchId && (r.active ?? true) && r.instruments.includes(instrument)
       );
-      if (!room) {
+      if (candidateRooms.length === 0) {
         console.log(`Atlandı (şubede uygun oda yok): ${student.name}`);
         skippedNoMatch += 1;
         continue;
       }
 
-      // Basit demo eşleştirici — her müsaitlik penceresinin YALNIZ başlangıç
-      // saati denenir (tam bir slot-optimizasyonu değil); çakışırsa bir
-      // sonraki pencereye geçilir, hiçbiri uymazsa öğrenci atlanır.
+      // Demo eşleştirici — her müsaitlik penceresi, durationMinutes adımlarla
+      // TÜM olası başlangıç saatleri VE şubedeki enstrümanı destekleyen TÜM
+      // odalar denenerek taranır (yalnızca pencere başlangıcı/ilk oda değil);
+      // çakışırsa bir sonrakine geçilir, hiçbiri uymazsa öğrenci atlanır.
+      const durationMinutes = student.lessonDurationMinutes ?? 40;
       const candidateWindows = (teacher.availability ?? []).filter(
         (w) => w.dayOfWeek !== 1 && (!w.branchId || w.branchId === student.branchId)
       );
@@ -124,29 +146,35 @@ async function main() {
         const startsOn = nextDateForWeekday(today, window.dayOfWeek);
         const endsOn = addDays(startsOn, (WEEKS - 1) * 7);
 
-        const res = await createLessonSeriesTool(ctx, {
-          studentId: student.id,
-          teacherId: teacher.id,
-          roomId: room.id,
-          branchId: student.branchId,
-          instrument,
-          weekday: window.dayOfWeek,
-          startTime: window.start,
-          durationMinutes: student.lessonDurationMinutes ?? 40,
-          startsOn: iso(startsOn),
-          endsOn: iso(endsOn),
-          demoTag: DEMO_TAG,
-        });
+        for (const startTime of candidateStartTimes(window, durationMinutes)) {
+          for (const room of candidateRooms) {
+            const res = await createLessonSeriesTool(ctx, {
+              studentId: student.id,
+              teacherId: teacher.id,
+              roomId: room.id,
+              branchId: student.branchId,
+              instrument,
+              weekday: window.dayOfWeek,
+              startTime,
+              durationMinutes,
+              startsOn: iso(startsOn),
+              endsOn: iso(endsOn),
+              demoTag: DEMO_TAG,
+            });
 
-        if (res.ok) {
-          matched = true;
-          created += 1;
-          console.log(
-            `Oluşturuldu: ${student.name} (${teacher.name}) — ${iso(startsOn)}'dan ${iso(endsOn)}'a, ` +
-              `${res.data.createdLessonIds.length} ders`
-          );
-          break;
+            if (res.ok) {
+              matched = true;
+              created += 1;
+              console.log(
+                `Oluşturuldu: ${student.name} (${teacher.name}) — ${iso(startsOn)}'dan ${iso(endsOn)}'a, ` +
+                  `${res.data.createdLessonIds.length} ders`
+              );
+              break;
+            }
+          }
+          if (matched) break;
         }
+        if (matched) break;
       }
 
       if (!matched) {

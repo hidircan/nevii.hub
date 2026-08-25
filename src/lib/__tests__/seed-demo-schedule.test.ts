@@ -9,7 +9,7 @@ import { NOTIFICATIONS_FILE } from "../notifications";
 
 const DATA_FILE = path.join(resolveDataDir(path.join(process.cwd(), "data")), "store.json");
 const SCRIPT_PATH = path.join(process.cwd(), "scripts", "seed-demo-schedule.ts");
-const DEMO_TAG = "demo-schedule-seed-v1";
+const DEMO_TAG = "demo-schedule-seed-v2-3ay";
 
 function runSeedScript(): string {
   return execFileSync("npx", ["tsx", SCRIPT_PATH], { encoding: "utf8", env: process.env });
