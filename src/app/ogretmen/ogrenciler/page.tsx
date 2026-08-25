@@ -5,6 +5,7 @@ import { readData } from "@/lib/store";
 import { requireSessionContext } from "@/lib/auth/session";
 import { ownStudents } from "@/lib/teacher-portal-scope";
 import { Badge, Card, EmptyState, Input, Pagination, clampPage } from "@/components/ui";
+import { effectiveStudentTypes } from "@/lib/student-types";
 
 export const dynamic = "force-dynamic";
 
@@ -101,9 +102,9 @@ export default async function OgretmenOgrencilerPage({
                       <p className="text-xs text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
                         {s.instruments.join(", ")} · Veli: {s.parentName}
                       </p>
-                      {s.studentType || s.targetExam ? (
+                      {effectiveStudentTypes(s).length > 0 || s.targetExam ? (
                         <p className="mt-0.5 text-xs text-amber-600">
-                          {[s.studentType, s.targetExam].filter(Boolean).join(" · ")}
+                          {[effectiveStudentTypes(s).join(", "), s.targetExam].filter(Boolean).join(" · ")}
                         </p>
                       ) : null}
                     </div>

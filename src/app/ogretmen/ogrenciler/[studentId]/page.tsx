@@ -33,6 +33,7 @@ import { formatDate, formatDateTime, formatTime } from "@/lib/utils";
 import { computeLiveDisplayStatus } from "@/lib/lesson-live-status";
 import { LessonLiveActions } from "@/components/lesson-live-actions";
 import type { StudentCurriculumTopic } from "@/lib/types";
+import { effectiveStudentTypes, formatStudentTypes } from "@/lib/student-types";
 
 export const dynamic = "force-dynamic";
 
@@ -200,7 +201,7 @@ export default async function TeacherStudentWorkspacePage({
           </h2>
           <Card className="!p-4">
             <dl className="grid grid-cols-2 gap-3 text-sm">
-              <ProfileField label="Eğitim türü" value={student.studentType ?? "Belirtilmemiş"} />
+              <ProfileField label="Eğitim türü" value={formatStudentTypes(effectiveStudentTypes(student))} />
               <ProfileField label="Seviye" value={student.level ?? "Belirtilmemiş"} />
               <ProfileField label="Hedef" value={student.targetExam ?? "—"} />
               <ProfileField
@@ -384,7 +385,7 @@ export default async function TeacherStudentWorkspacePage({
           <Card className="mb-3 !p-4">
             <p className="text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">Profil</p>
             <dl className="mt-2 grid grid-cols-2 gap-3 text-sm">
-              <ProfileField label="Program türü" value={student.studentType ?? "Belirtilmemiş"} />
+              <ProfileField label="Program türü" value={formatStudentTypes(effectiveStudentTypes(student))} />
               <ProfileField label="Seviye" value={student.level ?? "Belirtilmemiş"} />
               <ProfileField label="Hedef sınav" value={student.targetExam ?? "—"} />
               <ProfileField label="Enstrüman" value={student.instruments.join(", ") || "—"} />
