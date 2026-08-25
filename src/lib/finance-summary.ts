@@ -16,7 +16,7 @@
 
 import type { AppData } from "./types";
 import type { PayrollRecord } from "./types";
-import type { ExpenseRecord } from "./types";
+import type { ExpenseRecord, ExpenseCategory, Budget } from "./types";
 
 export type FinanceSummary = {
   month: string; // yyyy-MM — "bu ay"
@@ -30,12 +30,42 @@ export type FinanceSummary = {
   netCashThisMonth: number;
   /** ExpenseRecord hiç girilmemişse true — "toplam gider" rakamı eksik olabilir. */
   expenseDataIncomplete: boolean;
-  /** Şube bazlı personel maliyeti (yalnızca PayrollRecord — StaffMember.branchId üzerinden). */
+  /** Şube bazlı toplam maliyet (bu ay) — PayrollRecord + ExpenseRecord.branchId birleşik. */
   costByBranch: { branchId: string; branchName: string; amount: number }[];
   /** Son 6 ay gelir/gider trendi. */
   trend: { month: string; income: number; expense: number }[];
   upcomingPayrollWarnings: { staffId: string; staffName: string; month: string; status: string }[];
+  /** Faz 10 — bu ayki giderlerin kategori kırılımı. */
+  expenseByCategory: { category: ExpenseCategory; amount: number }[];
+  /**
+   * Faz 10 — ödenmemiş, `dueDate`si olan giderler (yaklaşan + geciken).
+   * "overdue" burada hiçbir zaman kalıcı bir DB değeri değil — `dueDate`
+   * karşısında OKUMA anında türetilir (bkz. expense.ts dosya başı notu).
+   */
+  upcomingExpenseWarnings: {
+    expenseId: string;
+    category: ExpenseCategory;
+    amount: number;
+    dueDate: string;
+    status: "pending" | "overdue";
+  }[];
+  /** Faz 10 — bu ayki bütçe hedefleri vs gerçekleşen gider. */
+  budgetComparison: {
+    category: ExpenseCategory;
+    branchId?: string;
+    branchName?: string;
+    targetAmount: number;
+    actualAmount: number;
+  }[];
 };
+
+/** "paid" dışında hiçbir zaman kalıcı yazılmaz — bkz. expense.ts. */
+export function effectiveExpensePaymentStatus(e: Pick<ExpenseRecord, "paymentStatus" | "dueDate">, now: Date): "pending" | "paid" | "overdue" {
+  const stored = e.paymentStatus ?? "paid";
+  if (stored === "paid") return "paid";
+  if (e.dueDate && new Date(e.dueDate) < now) return "overdue";
+  return "pending";
+}
 
 function monthKey(dateIso: string): string {
   return dateIso.slice(0, 7);
@@ -46,7 +76,8 @@ export function computeFinanceSummary(
   staff: { id: string; name: string; branchId?: string }[],
   payroll: PayrollRecord[],
   expenses: ExpenseRecord[],
-  now: Date = new Date()
+  now: Date = new Date(),
+  budgets: Budget[] = []
 ): FinanceSummary {
   const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 
@@ -86,11 +117,47 @@ export function computeFinanceSummary(
     if (!s?.branchId) continue;
     costByBranchMap.set(s.branchId, (costByBranchMap.get(s.branchId) ?? 0) + p.netAmount);
   }
+  // Faz 10 — ExpenseRecord.branchId ile zenginleştirme (yalnızca bordro değil, bu ayki giderler de dahil).
+  for (const e of expensesThisMonth) {
+    if (!e.branchId) continue;
+    costByBranchMap.set(e.branchId, (costByBranchMap.get(e.branchId) ?? 0) + e.amount);
+  }
   const costByBranch = Array.from(costByBranchMap.entries()).map(([branchId, amount]) => ({
     branchId,
     branchName: branchMap.get(branchId) ?? branchId,
     amount,
   }));
+
+  // Faz 10 — kategori kırılımı (bu ay).
+  const expenseByCategoryMap = new Map<ExpenseCategory, number>();
+  for (const e of expensesThisMonth) {
+    expenseByCategoryMap.set(e.category, (expenseByCategoryMap.get(e.category) ?? 0) + e.amount);
+  }
+  const expenseByCategory = Array.from(expenseByCategoryMap.entries()).map(([category, amount]) => ({ category, amount }));
+
+  // Faz 10 — yaklaşan/geciken ödemeler (dueDate varsa VE henüz ödenmemişse).
+  const upcomingExpenseWarnings = expenses
+    .filter((e) => e.dueDate)
+    .map((e) => ({ e, status: effectiveExpensePaymentStatus(e, now) }))
+    .filter((x): x is { e: ExpenseRecord; status: "pending" | "overdue" } => x.status !== "paid")
+    .sort((a, b) => a.e.dueDate!.localeCompare(b.e.dueDate!))
+    .map(({ e, status }) => ({ expenseId: e.id, category: e.category, amount: e.amount, dueDate: e.dueDate!, status }));
+
+  // Faz 10 — bu ayki bütçe hedefleri vs gerçekleşen.
+  const budgetComparison = budgets
+    .filter((b) => b.period === currentMonth)
+    .map((b) => {
+      const actualAmount = expensesThisMonth
+        .filter((e) => e.category === b.category && (!b.branchId || e.branchId === b.branchId))
+        .reduce((s, e) => s + e.amount, 0);
+      return {
+        category: b.category,
+        branchId: b.branchId,
+        branchName: b.branchId ? (branchMap.get(b.branchId) ?? b.branchId) : undefined,
+        targetAmount: b.targetAmount,
+        actualAmount,
+      };
+    });
 
   const trend: { month: string; income: number; expense: number }[] = [];
   for (let i = 5; i >= 0; i--) {
@@ -131,5 +198,8 @@ export function computeFinanceSummary(
     costByBranch,
     trend,
     upcomingPayrollWarnings,
+    expenseByCategory,
+    upcomingExpenseWarnings,
+    budgetComparison,
   };
 }

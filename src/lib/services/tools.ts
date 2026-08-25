@@ -104,7 +104,14 @@ import {
 } from "../staff-advance";
 import { listPayroll, createPayrollRecord, updatePayrollStatus } from "../payroll";
 import { listLeave, createLeaveRequest, decideLeaveRequest } from "../leave";
-import { listExpenses, createExpense } from "../expense";
+import { listExpenses, createExpense, markExpensePaid } from "../expense";
+import {
+  listRecurringExpenseRules,
+  createRecurringExpenseRule,
+  setRecurringExpenseRuleActive,
+  tickRecurringExpenseRules,
+} from "../recurring-expense";
+import { listBudgets, upsertBudget } from "../budget";
 import { effectiveLessonOpsStatus } from "../lesson-ops";
 import {
   computeTeacherEarningsForPeriod,
@@ -281,6 +288,7 @@ import {
   updateStudentPaymentProfileSchema,
   updateTeacherInstrumentsSchema,
   updateTeacherProfileSchema,
+  updateTeacherPayoutPaymentMethodSchema,
   createPackageSchema,
   updatePackageSchema,
   createDiscountCampaignSchema,
@@ -299,6 +307,10 @@ import {
   markStaffAdvancePaidSchema,
   cancelStaffAdvanceSchema,
   createExpenseSchema,
+  markExpensePaidSchema,
+  createRecurringExpenseRuleSchema,
+  setRecurringExpenseRuleActiveSchema,
+  upsertBudgetSchema,
   createTaskSchema,
   resolveRelatedEntitySchema,
   updateTaskSchema,
@@ -2405,6 +2417,108 @@ export async function createExpenseTool(
   return ok({ expenseId: result.entry.id });
 }
 
+/** Faz 10 — bir gideri ödenmiş işaretler ("bekliyor"/"gecikmiş" listesinden çıkar). */
+export async function markExpensePaidTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ expenseId: string }>> {
+  const auth = requireStaffSensitiveAccess(ctx);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const v = parseOrFail(markExpensePaidSchema, input);
+  if (!v.ok) return v;
+  const result = await markExpensePaid(ctx.tenantId, v.data.expenseId, { paymentMethod: v.data.paymentMethod });
+  if (!result.ok) return fail("VALIDATION_ERROR", result.message);
+  audit(ctx, "expense.mark_paid", "ExpenseRecord", v.data.expenseId, {});
+  return ok({ expenseId: v.data.expenseId });
+}
+
+/** Faz 10 (adım 3) — tekrarlayan gider kuralları. */
+export async function listRecurringExpenseRulesTool(
+  ctx: ServiceContext,
+  _input: unknown
+): Promise<ServiceResult<{ rules: import("../types").RecurringExpenseRule[] }>> {
+  const auth = requireStaffSensitiveAccess(ctx);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const rules = await listRecurringExpenseRules(ctx.tenantId);
+  return ok({ rules });
+}
+
+export async function createRecurringExpenseRuleTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ ruleId: string }>> {
+  const auth = requireStaffSensitiveAccess(ctx);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const v = parseOrFail(createRecurringExpenseRuleSchema, input);
+  if (!v.ok) return v;
+  const result = await createRecurringExpenseRule({ tenantId: ctx.tenantId, createdBy: ctx.userId, ...v.data });
+  if (!result.ok) return fail("VALIDATION_ERROR", result.message);
+  audit(ctx, "recurring_expense_rule.create", "RecurringExpenseRule", result.entry.id, {
+    category: result.entry.category,
+    frequency: result.entry.frequency,
+  });
+  return ok({ ruleId: result.entry.id });
+}
+
+export async function setRecurringExpenseRuleActiveTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ ruleId: string }>> {
+  const auth = requireStaffSensitiveAccess(ctx);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const v = parseOrFail(setRecurringExpenseRuleActiveSchema, input);
+  if (!v.ok) return v;
+  const result = await setRecurringExpenseRuleActive(ctx.tenantId, v.data.ruleId, v.data.active);
+  if (!result.ok) return fail("VALIDATION_ERROR", result.message);
+  audit(ctx, "recurring_expense_rule.set_active", "RecurringExpenseRule", v.data.ruleId, { active: v.data.active });
+  return ok({ ruleId: v.data.ruleId });
+}
+
+/**
+ * Faz 10 (adım 3) — vadesi gelmiş tekrarlayan gider kurallarını çalıştırır.
+ * İNSAN TARAFINDAN TETİKLENİR (bkz. recurring-expense.ts dosya başı notu —
+ * bilinçli olarak workflows/* otonom motoruna bağlanmadı).
+ */
+export async function tickRecurringExpenseRulesTool(
+  ctx: ServiceContext,
+  _input: unknown
+): Promise<ServiceResult<{ generated: number }>> {
+  const auth = requireStaffSensitiveAccess(ctx);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const result = await tickRecurringExpenseRules(ctx.tenantId);
+  if (result.generated > 0) {
+    audit(ctx, "recurring_expense_rule.tick", "RecurringExpenseRule", ctx.tenantId, { generated: result.generated });
+  }
+  return ok(result);
+}
+
+/** Faz 10 (adım 3) — kategori/şube/dönem bazlı hedef gider tutarı. */
+export async function listBudgetsTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ budgets: import("../types").Budget[] }>> {
+  const auth = requireStaffSensitiveAccess(ctx);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const v = parseOrFail(z.object({ period: z.string().optional() }), input);
+  if (!v.ok) return v;
+  const budgets = await listBudgets(ctx.tenantId, v.data.period);
+  return ok({ budgets });
+}
+
+export async function upsertBudgetTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ budgetId: string }>> {
+  const auth = requireStaffSensitiveAccess(ctx);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const v = parseOrFail(upsertBudgetSchema, input);
+  if (!v.ok) return v;
+  const result = await upsertBudget({ tenantId: ctx.tenantId, createdBy: ctx.userId, ...v.data });
+  if (!result.ok) return fail("VALIDATION_ERROR", result.message);
+  audit(ctx, "budget.upsert", "Budget", result.entry.id, { category: result.entry.category, period: result.entry.period });
+  return ok({ budgetId: result.entry.id });
+}
+
 export async function getFinanceSummaryTool(
   ctx: ServiceContext,
   _input: unknown
@@ -2415,8 +2529,9 @@ export async function getFinanceSummaryTool(
   const staff = await listStaff(ctx.tenantId);
   const payroll = await listPayroll(ctx.tenantId);
   const expenses = await listExpenses(ctx.tenantId);
+  const budgets = await listBudgets(ctx.tenantId);
   const { computeFinanceSummary } = await import("../finance-summary");
-  return ok(computeFinanceSummary(data, staff, payroll, expenses));
+  return ok(computeFinanceSummary(data, staff, payroll, expenses, new Date(), budgets));
 }
 
 export async function createPackageTool(

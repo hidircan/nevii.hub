@@ -103,6 +103,11 @@ import {
   markStaffAdvancePaidTool,
   cancelStaffAdvanceTool,
   createExpenseTool,
+  markExpensePaidTool,
+  createRecurringExpenseRuleTool,
+  setRecurringExpenseRuleActiveTool,
+  tickRecurringExpenseRulesTool,
+  upsertBudgetTool,
   createTaskTool,
   updateTaskTool,
   changeTaskStatusTool,
@@ -936,6 +941,11 @@ export async function actionUpdateStaffMember(input: {
   }
 }
 
+/** Faz 9A — personel detay sayfasındaki özlük düzenleme formu (FormData, actionCreateStaffMember ile AYNI alan seti). */
+export async function actionUpdateStaffMemberExtended(staffId: string, formData: FormData): Promise<UpdateStaffActionResult> {
+  return actionUpdateStaffMember({ staffId, ...staffFormFields(formData) });
+}
+
 export type PayrollActionResult = { ok: true } | { ok: false; message: string };
 
 /** İş 3B — Bordro oluştur. */
@@ -1094,17 +1104,26 @@ export async function actionCancelStaffAdvance(input: { advanceId: string }): Pr
     return { ok: false, message: "Avans talebi iptal edilirken beklenmeyen bir hata oluştu." };
   }
 }
+
 export type ExpenseActionResult = { ok: true } | { ok: false; message: string };
 
-/** İş 3D — Gider kaydı (kira/fatura/sarf/diğer). */
+/** İş 3D — Gider kaydı (kira/fatura/sarf/diğer). Faz 10 — genişletilmiş alanlar. */
 export async function actionCreateExpense(formData: FormData): Promise<ExpenseActionResult> {
   try {
+    const str = (key: string) => String(formData.get(key) || "") || undefined;
     const result = await withAuthContext("actionCreateExpense", (ctx) =>
       createExpenseTool(ctx, {
         category: String(formData.get("category") || "other"),
         amount: Number(formData.get("amount") || 0),
         date: String(formData.get("date") || ""),
-        note: String(formData.get("note") || "") || undefined,
+        note: str("note"),
+        subcategory: str("subcategory"),
+        supplier: str("supplier"),
+        branchId: str("branchId"),
+        taxAmount: str("taxAmount") ? Number(str("taxAmount")) : undefined,
+        dueDate: str("dueDate"),
+        paymentStatus: str("paymentStatus") as "pending" | "paid" | undefined,
+        paymentMethod: str("paymentMethod"),
       })
     );
     if (!result.ok) return { ok: false, message: result.error.message };
@@ -1114,6 +1133,101 @@ export async function actionCreateExpense(formData: FormData): Promise<ExpenseAc
     logger.error("actionCreateExpense failed", error);
     if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
     return { ok: false, message: "Gider eklenirken beklenmeyen bir hata oluştu." };
+  }
+}
+
+/** Faz 10 — bir gideri ödenmiş işaretle. */
+export async function actionMarkExpensePaid(input: { expenseId: string }): Promise<ExpenseActionResult> {
+  try {
+    const result = await withAuthContext("actionMarkExpensePaid", (ctx) => markExpensePaidTool(ctx, input));
+    if (!result.ok) return { ok: false, message: result.error.message };
+    revalidateAll();
+    return { ok: true };
+  } catch (error) {
+    logger.error("actionMarkExpensePaid failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "Gider ödenmiş işaretlenirken beklenmeyen bir hata oluştu." };
+  }
+}
+
+/** Faz 10 (adım 3) — tekrarlayan gider kuralı oluştur. */
+export async function actionCreateRecurringExpenseRule(formData: FormData): Promise<ExpenseActionResult> {
+  try {
+    const str = (key: string) => String(formData.get(key) || "") || undefined;
+    const result = await withAuthContext("actionCreateRecurringExpenseRule", (ctx) =>
+      createRecurringExpenseRuleTool(ctx, {
+        category: String(formData.get("category") || "other"),
+        amount: Number(formData.get("amount") || 0),
+        frequency: String(formData.get("frequency") || "monthly"),
+        nextRunDate: String(formData.get("nextRunDate") || ""),
+        subcategory: str("subcategory"),
+        supplier: str("supplier"),
+        branchId: str("branchId"),
+        note: str("note"),
+      })
+    );
+    if (!result.ok) return { ok: false, message: result.error.message };
+    revalidateAll();
+    return { ok: true };
+  } catch (error) {
+    logger.error("actionCreateRecurringExpenseRule failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "Tekrarlayan gider kuralı oluşturulurken beklenmeyen bir hata oluştu." };
+  }
+}
+
+/** Faz 10 (adım 3) — tekrarlayan gider kuralını aktif/pasif yap. */
+export async function actionSetRecurringExpenseRuleActive(input: {
+  ruleId: string;
+  active: boolean;
+}): Promise<ExpenseActionResult> {
+  try {
+    const result = await withAuthContext("actionSetRecurringExpenseRuleActive", (ctx) =>
+      setRecurringExpenseRuleActiveTool(ctx, input)
+    );
+    if (!result.ok) return { ok: false, message: result.error.message };
+    revalidateAll();
+    return { ok: true };
+  } catch (error) {
+    logger.error("actionSetRecurringExpenseRuleActive failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "Kural güncellenirken beklenmeyen bir hata oluştu." };
+  }
+}
+
+/** Faz 10 (adım 3) — vadesi gelmiş tekrarlayan gider kurallarını şimdi çalıştır. */
+export async function actionTickRecurringExpenseRules(): Promise<ExpenseActionResult> {
+  try {
+    const result = await withAuthContext("actionTickRecurringExpenseRules", (ctx) => tickRecurringExpenseRulesTool(ctx, {}));
+    if (!result.ok) return { ok: false, message: result.error.message };
+    revalidateAll();
+    return { ok: true };
+  } catch (error) {
+    logger.error("actionTickRecurringExpenseRules failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "Tekrarlayan giderler çalıştırılırken beklenmeyen bir hata oluştu." };
+  }
+}
+
+/** Faz 10 (adım 3) — kategori/şube/dönem bazlı hedef gider tutarını oluştur/güncelle. */
+export async function actionUpsertBudget(formData: FormData): Promise<ExpenseActionResult> {
+  try {
+    const str = (key: string) => String(formData.get(key) || "") || undefined;
+    const result = await withAuthContext("actionUpsertBudget", (ctx) =>
+      upsertBudgetTool(ctx, {
+        category: String(formData.get("category") || "other"),
+        branchId: str("branchId"),
+        period: String(formData.get("period") || ""),
+        targetAmount: Number(formData.get("targetAmount") || 0),
+      })
+    );
+    if (!result.ok) return { ok: false, message: result.error.message };
+    revalidateAll();
+    return { ok: true };
+  } catch (error) {
+    logger.error("actionUpsertBudget failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "Bütçe kaydedilirken beklenmeyen bir hata oluştu." };
   }
 }
 

@@ -50,6 +50,8 @@ model Tenant {
   payrollRecords PayrollRecord[]
   leaveRequests LeaveRequest[]
   expenseRecords ExpenseRecord[]
+  recurringExpenseRules RecurringExpenseRule[]
+  budgets Budget[]
   closedDays ClosedDay[]
   trialLessons TrialLesson[]
   documentTemplates DocumentTemplate[]
@@ -1443,9 +1445,65 @@ model ExpenseRecord {
   note      String?
   createdBy String
   createdAt DateTime @default(now())
+  /// Faz 10 — genişletme (hepsi additive/nullable).
+  subcategory   String?
+  supplier      String?
+  branchId      String?
+  currency      String   @default("TRY")
+  taxAmount     Int?
+  dueDate       DateTime?
+  /// "pending" | "paid" | "overdue" — tanımsızsa "paid" sayılır (eski kayıtlar).
+  paymentStatus String?
+  paymentMethod String?
+  /// "pending" | "approved" | "rejected"
+  approvalStatus String?
+  approvedBy     String?
+  recurringRuleId String?
 
   @@index([tenantId])
   @@index([tenantId, date])
+  @@index([tenantId, branchId])
+}
+
+/// Faz 10 — periyodik olarak otomatik ExpenseRecord üreten kural.
+model RecurringExpenseRule {
+  id           String   @id
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  category     String
+  subcategory  String?
+  supplier     String?
+  branchId     String?
+  amount       Int
+  /// "monthly" | "quarterly" | "yearly"
+  frequency    String
+  nextRunDate  DateTime
+  note         String?
+  active       Boolean  @default(true)
+  createdBy    String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([tenantId])
+  @@index([tenantId, active, nextRunDate])
+}
+
+/// Faz 10 — kategori/şube/dönem bazlı hedef gider tutarı.
+model Budget {
+  id           String   @id
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  category     String
+  branchId     String?
+  /// yyyy-MM
+  period       String
+  targetAmount Int
+  createdBy    String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([tenantId, category, branchId, period])
+  @@index([tenantId, period])
 }
 
 /// ÖNCELİK 4 (devam) — Paket Yönetimi. Additive/yeni: mevcut serbest metin

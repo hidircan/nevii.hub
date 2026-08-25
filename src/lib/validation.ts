@@ -1155,11 +1155,49 @@ export const decideLeaveRequestSchema = z.object({
 });
 
 /** İş 3D — Gider (yalnızca kira/fatura/sarf/diğer — bordro/hakediş burada YOK, bkz. expense.ts). */
+const EXPENSE_CATEGORY = ["rent", "utilities", "supplies", "other"] as const;
 export const createExpenseSchema = z.object({
-  category: z.enum(["rent", "utilities", "supplies", "other"]),
+  category: z.enum(EXPENSE_CATEGORY),
   amount: z.coerce.number().int().min(1),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   note: z.string().optional(),
+  /** Faz 10 — genişletme. */
+  subcategory: z.string().optional(),
+  supplier: z.string().optional(),
+  branchId: z.string().optional(),
+  currency: z.string().optional(),
+  taxAmount: z.coerce.number().int().min(0).optional(),
+  dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  paymentStatus: z.enum(["pending", "paid"]).optional(),
+  paymentMethod: z.string().optional(),
+});
+
+export const markExpensePaidSchema = z.object({
+  expenseId: z.string().min(1),
+  paymentMethod: z.string().optional(),
+});
+
+export const createRecurringExpenseRuleSchema = z.object({
+  category: z.enum(EXPENSE_CATEGORY),
+  subcategory: z.string().optional(),
+  supplier: z.string().optional(),
+  branchId: z.string().optional(),
+  amount: z.coerce.number().int().min(1),
+  frequency: z.enum(["monthly", "quarterly", "yearly"]),
+  nextRunDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  note: z.string().optional(),
+});
+
+export const setRecurringExpenseRuleActiveSchema = z.object({
+  ruleId: z.string().min(1),
+  active: z.boolean(),
+});
+
+export const upsertBudgetSchema = z.object({
+  category: z.enum(EXPENSE_CATEGORY),
+  branchId: z.string().optional(),
+  period: z.string().regex(/^\d{4}-\d{2}$/),
+  targetAmount: z.coerce.number().int().min(1),
 });
 
 const packageDurationSchema = z.coerce.number().int().refine((v) => [30, 40, 50].includes(v), {

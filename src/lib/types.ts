@@ -1350,6 +1350,8 @@ export interface LeaveRequest {
  * YERDE tutulmayan gider türleri içindir.
  */
 export type ExpenseCategory = "rent" | "utilities" | "supplies" | "other";
+export type ExpensePaymentStatus = "pending" | "paid" | "overdue";
+export type ExpenseApprovalStatus = "pending" | "approved" | "rejected";
 
 export interface ExpenseRecord {
   id: string;
@@ -1359,6 +1361,54 @@ export interface ExpenseRecord {
   note?: string;
   createdBy: string;
   createdAt: string;
+  /** Faz 10 — genişletme (hepsi additive/opsiyonel, eski kayıtları etkilemez). */
+  subcategory?: string;
+  supplier?: string;
+  branchId?: BranchId;
+  /** Varsayılan "TRY" — sunucu tarafında set edilir. */
+  currency?: string;
+  taxAmount?: number;
+  dueDate?: string;
+  /** Tanımsızsa "paid" sayılır (eski kayıtlarla geriye uyumlu). */
+  paymentStatus?: ExpensePaymentStatus;
+  paymentMethod?: string;
+  approvalStatus?: ExpenseApprovalStatus;
+  approvedBy?: string;
+  /** Bu kaydı üreten RecurringExpenseRule (varsa) — bkz. src/lib/recurring-expense.ts. */
+  recurringRuleId?: string;
+}
+
+/** Faz 10 — periyodik olarak otomatik ExpenseRecord üreten kural. */
+export type RecurringExpenseFrequency = "monthly" | "quarterly" | "yearly";
+
+export interface RecurringExpenseRule {
+  id: string;
+  category: ExpenseCategory;
+  subcategory?: string;
+  supplier?: string;
+  branchId?: BranchId;
+  amount: number;
+  frequency: RecurringExpenseFrequency;
+  /** yyyy-MM-dd — bu tarihte (ve sonrasında ilk tick'te) bir ExpenseRecord üretilir. */
+  nextRunDate: string;
+  note?: string;
+  active: boolean;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Faz 10 — kategori/şube/dönem bazlı hedef gider tutarı; dashboard'da gerçekleşenle karşılaştırılır. */
+export interface Budget {
+  id: string;
+  category: ExpenseCategory;
+  branchId?: BranchId;
+  /** yyyy-MM */
+  period: string;
+  targetAmount: number;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export type ClosedDayKind = "public_holiday" | "custom";
