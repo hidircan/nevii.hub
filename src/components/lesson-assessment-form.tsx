@@ -34,6 +34,11 @@ export function LessonAssessmentForm({
   const router = useRouter();
   const [lessonId, setLessonId] = useState(lessons[0]?.id ?? "");
   const [scores, setScores] = useState<AssessmentScores>(DEFAULT_SCORES);
+  // Faz 3A — "çalışılan konular", hepsi opsiyonel.
+  const [piecesWorked, setPiecesWorked] = useState("");
+  const [etudesWorked, setEtudesWorked] = useState("");
+  const [technicalWork, setTechnicalWork] = useState("");
+  const [theoryWork, setTheoryWork] = useState("");
   const [strengthNote, setStrengthNote] = useState("");
   const [nextStepsNote, setNextStepsNote] = useState("");
   const [improvementNote, setImprovementNote] = useState("");
@@ -73,6 +78,10 @@ export function LessonAssessmentForm({
           lessonId,
           studentId,
           ...scores,
+          piecesWorked: piecesWorked.trim() || undefined,
+          etudesWorked: etudesWorked.trim() || undefined,
+          technicalWork: technicalWork.trim() || undefined,
+          theoryWork: theoryWork.trim() || undefined,
           strengthNote,
           nextStepsNote,
           improvementNote,
@@ -144,6 +153,50 @@ export function LessonAssessmentForm({
           </div>
         </div>
       ))}
+
+      <div className="rounded-xl border border-[var(--color-border)] p-3">
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
+          Çalışılan konular (opsiyonel)
+        </p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-[var(--color-text-muted)]">Bu hafta işlenen parçalar</label>
+            <textarea
+              value={piecesWorked}
+              onChange={(event) => setPiecesWorked(event.target.value)}
+              rows={2}
+              className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-muted)] outline-none ring-amber-200 focus:ring-2"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-[var(--color-text-muted)]">İşlenen etütler</label>
+            <textarea
+              value={etudesWorked}
+              onChange={(event) => setEtudesWorked(event.target.value)}
+              rows={2}
+              className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-muted)] outline-none ring-amber-200 focus:ring-2"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-[var(--color-text-muted)]">Teknik çalışmalar</label>
+            <textarea
+              value={technicalWork}
+              onChange={(event) => setTechnicalWork(event.target.value)}
+              rows={2}
+              className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-muted)] outline-none ring-amber-200 focus:ring-2"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-[var(--color-text-muted)]">Teorik/pratik konular</label>
+            <textarea
+              value={theoryWork}
+              onChange={(event) => setTheoryWork(event.target.value)}
+              rows={2}
+              className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-muted)] outline-none ring-amber-200 focus:ring-2"
+            />
+          </div>
+        </div>
+      </div>
 
       <div>
         <label className="mb-1 block text-xs font-medium text-[var(--color-text-muted)]">Güçlü yönler</label>

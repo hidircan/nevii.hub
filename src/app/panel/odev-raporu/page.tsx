@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import Link from "next/link";
 import { requireSessionContext } from "@/lib/auth/session";
 import { readData } from "@/lib/store";
 import { listAllHomework, listAllHomeworkSubmissions } from "@/lib/homework";
@@ -50,6 +51,11 @@ export default async function HomeworkReportPage() {
   return (
     <div>
       <PageHeader title="Ödev Raporu" />
+      <p className="-mt-4 mb-6">
+        <Link href="/panel/odev-raporu/detay" className="text-sm font-medium text-cyan-700 hover:underline">
+          Satır bazlı detaylı görünüm →
+        </Link>
+      </p>
 
       <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Toplam ödev" value={homework.length} accent="primary" />

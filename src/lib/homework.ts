@@ -68,6 +68,7 @@ function mapDbHomework(h: DbHomework): StoredHomework {
     tenantId: h.tenantId,
     teacherId: h.teacherId,
     studentId: h.studentId,
+    lessonId: h.lessonId ?? undefined,
     title: h.title,
     description: h.description,
     dueDate: h.dueDate.toISOString(),
@@ -85,6 +86,7 @@ function toPublicHomeworkSummary(h: StoredHomework): Homework {
     id: h.id,
     teacherId: h.teacherId,
     studentId: h.studentId,
+    lessonId: h.lessonId,
     title: h.title,
     description: h.description,
     dueDate: h.dueDate,
@@ -102,6 +104,7 @@ function toPublicHomework(h: StoredHomework): Homework {
     id: h.id,
     teacherId: h.teacherId,
     studentId: h.studentId,
+    lessonId: h.lessonId,
     title: h.title,
     description: h.description,
     dueDate: h.dueDate,
@@ -164,6 +167,8 @@ export type CreateHomeworkInput = {
   tenantId: string;
   teacherId: string;
   studentId: string;
+  /** Faz 3C — bu ödevin verildiği ders (opsiyonel). */
+  lessonId?: string;
   title: string;
   description: string;
   dueDate: string;
@@ -180,6 +185,7 @@ async function createHomeworkDb(input: CreateHomeworkInput): Promise<Homework> {
       tenantId: input.tenantId,
       teacherId: input.teacherId,
       studentId: input.studentId,
+      lessonId: input.lessonId ?? null,
       title: input.title,
       description: input.description,
       dueDate: new Date(input.dueDate),
@@ -200,6 +206,7 @@ export async function createHomework(input: CreateHomeworkInput): Promise<Homewo
     tenantId: input.tenantId,
     teacherId: input.teacherId,
     studentId: input.studentId,
+    lessonId: input.lessonId,
     title: input.title,
     description: input.description,
     dueDate: input.dueDate,
@@ -399,6 +406,17 @@ export async function listAllHomework(tenantId: string): Promise<Homework[]> {
     .filter((h) => h.tenantId === tenantId)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
     .map(toPublicHomeworkSummary);
+}
+
+/** Faz 3C — bu ders için (herhangi bir öğretmen tarafından) zaten ödev verilmiş mi? */
+export async function hasHomeworkForLesson(tenantId: string, lessonId: string): Promise<boolean> {
+  if (isDbMode) {
+    const { prisma } = await import("./db");
+    const count = await prisma.homework.count({ where: { tenantId, lessonId } });
+    return count > 0;
+  }
+  const all = await loadHomework();
+  return all.some((h) => h.tenantId === tenantId && h.lessonId === lessonId);
 }
 
 async function listAllSubmissionsDb(tenantId: string): Promise<HomeworkSubmission[]> {

@@ -51,6 +51,10 @@ function mapDbAssessment(a: DbLessonAssessment): StoredAssessment {
     motivasyon: a.motivasyon,
     genelIlerleme: a.genelIlerleme,
     hedefeUlasma: a.hedefeUlasma,
+    piecesWorked: a.piecesWorked ?? undefined,
+    etudesWorked: a.etudesWorked ?? undefined,
+    technicalWork: a.technicalWork ?? undefined,
+    theoryWork: a.theoryWork ?? undefined,
     strengthNote: a.strengthNote,
     nextStepsNote: a.nextStepsNote,
     improvementNote: a.improvementNote,
@@ -79,6 +83,10 @@ function toPublicAssessment(a: StoredAssessment): LessonAssessment {
     motivasyon: a.motivasyon,
     genelIlerleme: a.genelIlerleme,
     hedefeUlasma: a.hedefeUlasma,
+    piecesWorked: a.piecesWorked,
+    etudesWorked: a.etudesWorked,
+    technicalWork: a.technicalWork,
+    theoryWork: a.theoryWork,
     strengthNote: a.strengthNote,
     nextStepsNote: a.nextStepsNote,
     improvementNote: a.improvementNote,
@@ -96,6 +104,11 @@ export type CreateAssessmentInput = AssessmentScores & {
   lessonId: string;
   studentId: string;
   teacherId: string;
+  /** Faz 3A — "çalışılan konular", hepsi opsiyonel. */
+  piecesWorked?: string;
+  etudesWorked?: string;
+  technicalWork?: string;
+  theoryWork?: string;
   strengthNote: string;
   nextStepsNote: string;
   improvementNote: string;
@@ -123,6 +136,10 @@ async function createAssessmentDb(input: CreateAssessmentInput): Promise<LessonA
       motivasyon: input.motivasyon,
       genelIlerleme: input.genelIlerleme,
       hedefeUlasma: input.hedefeUlasma,
+      piecesWorked: input.piecesWorked ?? null,
+      etudesWorked: input.etudesWorked ?? null,
+      technicalWork: input.technicalWork ?? null,
+      theoryWork: input.theoryWork ?? null,
       strengthNote: input.strengthNote,
       nextStepsNote: input.nextStepsNote,
       improvementNote: input.improvementNote,
@@ -156,6 +173,10 @@ export async function createAssessment(input: CreateAssessmentInput): Promise<Le
     motivasyon: input.motivasyon,
     genelIlerleme: input.genelIlerleme,
     hedefeUlasma: input.hedefeUlasma,
+    piecesWorked: input.piecesWorked,
+    etudesWorked: input.etudesWorked,
+    technicalWork: input.technicalWork,
+    theoryWork: input.theoryWork,
     strengthNote: input.strengthNote,
     nextStepsNote: input.nextStepsNote,
     improvementNote: input.improvementNote,

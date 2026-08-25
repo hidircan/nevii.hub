@@ -4,7 +4,8 @@ import { ArrowRight } from "lucide-react";
 import { BackButton } from "@/components/back-button";
 import { readData } from "@/lib/store";
 import { requireSessionContext } from "@/lib/auth/session";
-import { Card, EmptyState } from "@/components/ui";
+import { Card, EmptyState, Badge } from "@/components/ui";
+import { listPendingPeriodicAssessmentsTool } from "@/lib/services";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +21,11 @@ export default async function TeacherAssessmentStudentsPage() {
   const data = await readData();
   const teacherId = session.teacherId || "t1";
   const students = data.students.filter((s) => s.active && s.teacherId === teacherId);
+  const pendingResult = await listPendingPeriodicAssessmentsTool(
+    { role: session.role, userId: session.userId, tenantId: session.tenantId, teacherId: session.teacherId, channel: "web" },
+    {}
+  );
+  const pendingCount = pendingResult.ok ? pendingResult.data.items.length : 0;
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-cyan-50 to-slate-50">
@@ -32,6 +38,18 @@ export default async function TeacherAssessmentStudentsPage() {
       </header>
 
       <main className="mx-auto max-w-lg space-y-2 px-4 py-6 pb-24">
+        <Link href="/ogretmen/donemsel-degerlendirme">
+          <Card className="!p-4 hover:border-amber-200">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-medium text-[var(--color-text)]">4 Haftalık Genel Değerlendirme</p>
+                <p className="text-sm text-[var(--color-text-muted)]">Dönemsel gelişim değerlendirmelerini gönder</p>
+              </div>
+              {pendingCount > 0 ? <Badge status="pending">{pendingCount} bekliyor</Badge> : <ArrowRight className="h-4 w-4 text-[var(--color-text-muted)]" />}
+            </div>
+          </Card>
+        </Link>
+
         {students.length === 0 ? (
           <EmptyState
             title="Öğrenci bulunamadı"

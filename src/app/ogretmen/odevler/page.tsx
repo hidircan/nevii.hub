@@ -7,6 +7,7 @@ import { Badge, Card, EmptyState } from "@/components/ui";
 import { HomeworkCreateForm } from "@/components/homework-create-form";
 import { HomeworkReviewForm } from "@/components/homework-review-form";
 import { formatDate, formatDateTime } from "@/lib/utils";
+import { ownStudentLessons } from "@/lib/teacher-portal-scope";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +35,13 @@ export default async function TeacherHomeworkPage() {
   const students = data.students
     .filter((s) => s.active && s.teacherId === teacher.id)
     .map((s) => ({ id: s.id, name: s.name }));
+
+  const lessonsByStudent: Record<string, { id: string; startAt: string; instrument: string }[]> = {};
+  for (const s of students) {
+    lessonsByStudent[s.id] = ownStudentLessons(data.lessons, teacher.id, s.id)
+      .slice(0, 10)
+      .map((l) => ({ id: l.id, startAt: l.startAt, instrument: l.instrument }));
+  }
 
   const homeworkResult = await listHomeworkForTeacherTool(session);
   const homework = homeworkResult.ok ? homeworkResult.data.homework : [];
@@ -70,7 +78,7 @@ export default async function TeacherHomeworkPage() {
               Ödev verebileceğiniz aktif öğrenci bulunamadı.
             </p>
           ) : (
-            <HomeworkCreateForm students={students} />
+            <HomeworkCreateForm students={students} lessonsByStudent={lessonsByStudent} />
           )}
         </Card>
 

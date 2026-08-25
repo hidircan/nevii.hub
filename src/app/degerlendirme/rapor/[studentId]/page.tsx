@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requireSessionContext, homePathForRole } from "@/lib/auth/session";
 import { readData } from "@/lib/store";
-import { getAssessmentReportTool } from "@/lib/services";
+import { getAssessmentReportTool, listPeriodicAssessmentsForStudentTool } from "@/lib/services";
 import { computeOverallScore } from "@/lib/assessment/score";
 import { formatDate } from "@/lib/utils";
 import { AssessmentActions } from "@/components/assessment-actions";
@@ -40,6 +40,8 @@ export default async function AssessmentReportPage({
   const data = await readData();
   const student = data.students.find((s) => s.id === studentId);
   const { assessments, trend } = result.data;
+  const periodicResult = await listPeriodicAssessmentsForStudentTool(session, { studentId });
+  const periodicAssessments = periodicResult.ok ? periodicResult.data.assessments : [];
 
   return (
     <div className="min-h-screen bg-[#f4f2f8] px-4 py-8 print:bg-[var(--color-surface)] print:p-0 sm:px-6">
@@ -92,6 +94,37 @@ export default async function AssessmentReportPage({
               </div>
             </>
           )}
+
+          {periodicAssessments.length > 0 ? (
+            <div className="mt-6 space-y-3 border-t border-[var(--color-border)] pt-6">
+              <p className="text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
+                4 Haftalık Genel Değerlendirmeler
+              </p>
+              {periodicAssessments.map((pa) => (
+                <div key={pa.id} className="rounded-lg border border-[var(--color-border)] p-3 print:break-inside-avoid">
+                  <p className="text-sm font-semibold text-[var(--color-text)]">
+                    {formatDate(pa.periodStart)} – {formatDate(pa.periodEnd)}
+                  </p>
+                  <p className="mt-1 text-sm text-[var(--color-text)]">{pa.overallProgressNote}</p>
+                  {pa.strengthsNote ? (
+                    <p className="mt-1 text-xs text-[var(--color-text-muted)]">
+                      <span className="font-medium">Güçlü yönler:</span> {pa.strengthsNote}
+                    </p>
+                  ) : null}
+                  {pa.areasForImprovementNote ? (
+                    <p className="mt-1 text-xs text-[var(--color-text-muted)]">
+                      <span className="font-medium">Gelişime açık alanlar:</span> {pa.areasForImprovementNote}
+                    </p>
+                  ) : null}
+                  {pa.recommendationNote ? (
+                    <p className="mt-1 text-xs text-[var(--color-text-muted)]">
+                      <span className="font-medium">Öneriler:</span> {pa.recommendationNote}
+                    </p>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          ) : null}
 
           <p className="mt-10 text-center text-[11px] text-[var(--color-text-muted)]">
             Bu rapor sistem tarafından oluşturulmuştur.

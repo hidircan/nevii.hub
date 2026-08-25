@@ -222,6 +222,7 @@ export function LessonOpsBadges({
   studentAbsent,
   studentExcused,
   opsClosedFlag,
+  missingHomework,
 }: {
   studentAttended?: boolean;
   lessonProcessed?: boolean;
@@ -229,6 +230,8 @@ export function LessonOpsBadges({
   studentAbsent?: boolean;
   studentExcused?: boolean;
   opsClosedFlag?: boolean;
+  /** Faz 3C — ders işlendi ama bu derse bağlı ödev yok. */
+  missingHomework?: boolean;
 }) {
   return (
     <div className="flex flex-wrap gap-1">
@@ -260,6 +263,11 @@ export function LessonOpsBadges({
       {opsClosedFlag ? (
         <span className="rounded-full bg-black px-2 py-0.5 text-[10px] font-semibold text-white">
           Kapalı
+        </span>
+      ) : null}
+      {missingHomework ? (
+        <span className="rounded-full bg-stone-300 px-2 py-0.5 text-[10px] font-semibold text-stone-800">
+          Ödev yok
         </span>
       ) : null}
     </div>

@@ -482,6 +482,15 @@ export interface LessonAssessment extends AssessmentScores {
   lessonId: string;
   studentId: string;
   teacherId: string;
+  /**
+   * Faz 3A — "çalışılan konular". Hepsi opsiyonel serbest metin — mevcut
+   * skorlu alanların YANINA eklendi, onları değiştirmez. Boşsa UI
+   * "Belirtilmemiş" gösterir, hata vermez (geçmiş kayıtlarda hiçbiri yok).
+   */
+  piecesWorked?: string;
+  etudesWorked?: string;
+  technicalWork?: string;
+  theoryWork?: string;
   strengthNote: string;
   nextStepsNote: string;
   improvementNote: string;
@@ -492,6 +501,31 @@ export interface LessonAssessment extends AssessmentScores {
   teacherSignedName: string;
   /** ISO tarih — sunucu saatiyle damgalanır, client'tan gelen tarihe güvenilmez. */
   teacherSignedAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * Faz 3B — dört haftalık genel gelişim değerlendirmesi. Bu tabloda YALNIZCA
+ * gönderilmiş (submitted) kayıtlar bulunur — "bekliyor" durumu her zaman
+ * TAZE hesaplanır (bkz. src/lib/periodic-assessment/index.ts
+ * computePendingPeriodicAssessmentPeriods), ayrı bir "pending" satırı YOK.
+ */
+export interface PeriodicAssessment {
+  id: string;
+  studentId: string;
+  teacherId: string;
+  /** ISO tarih (dahil) — dönemin ilk günü. */
+  periodStart: string;
+  /** ISO tarih (dahil) — dönemin son günü. */
+  periodEnd: string;
+  relatedLessonIds: string[];
+  overallProgressNote: string;
+  strengthsNote?: string;
+  areasForImprovementNote?: string;
+  recommendationNote?: string;
+  submittedBy: string;
+  submittedAt: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -888,6 +922,12 @@ export interface Homework {
   id: string;
   teacherId: string;
   studentId: string;
+  /**
+   * Faz 3C — bu ödevin verildiği DERS. Opsiyonel (geçmiş kayıtlar + ders
+   * dışı/genel ödevler için) — dolu olduğunda "bu ders için ödev verildi mi"
+   * kontrolü (bkz. src/lib/homework-lesson-check.ts) bu alana bakar.
+   */
+  lessonId?: string;
   title: string;
   description: string;
   /** ISO tarih */

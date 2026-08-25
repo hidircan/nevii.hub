@@ -24,22 +24,27 @@ export function HomeworkCreateForm({
   students,
   defaultStudentId,
   lockStudent = false,
+  lessonsByStudent,
 }: {
   students: { id: string; name: string }[];
   /** Önceden seçili öğrenci (çalışma alanı gibi tek-öğrenci bağlamında). */
   defaultStudentId?: string;
   /** true ise öğrenci seçici gizlenir (yalnızca defaultStudentId kullanılır). */
   lockStudent?: boolean;
+  /** Öğrenci başına son dersler (Faz 3C — ödevi opsiyonel olarak bir derse bağlamak için). */
+  lessonsByStudent?: Record<string, { id: string; startAt: string; instrument: string }[]>;
 }) {
   const router = useRouter();
   const [studentId, setStudentId] = useState(defaultStudentId ?? students[0]?.id ?? "");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [dueDate, setDueDate] = useState("");
+  const [lessonId, setLessonId] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const studentLessons = lessonsByStudent?.[studentId] ?? [];
 
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -64,6 +69,7 @@ export function HomeworkCreateForm({
           title: title.trim(),
           description: description.trim(),
           dueDate: new Date(dueDate).toISOString(),
+          lessonId: lessonId || undefined,
           fileName: file?.name,
           fileMimeType: file?.type,
           fileData,
@@ -79,6 +85,7 @@ export function HomeworkCreateForm({
       setTitle("");
       setDescription("");
       setDueDate("");
+      setLessonId("");
       setFile(null);
       router.refresh();
     } catch {
@@ -95,7 +102,13 @@ export function HomeworkCreateForm({
       ) : (
         <div>
           <Label>Öğrenci</Label>
-          <Select value={studentId} onChange={(e) => setStudentId(e.target.value)}>
+          <Select
+            value={studentId}
+            onChange={(e) => {
+              setStudentId(e.target.value);
+              setLessonId("");
+            }}
+          >
             {students.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.name}
@@ -104,6 +117,19 @@ export function HomeworkCreateForm({
           </Select>
         </div>
       )}
+      {studentLessons.length > 0 ? (
+        <div>
+          <Label>Bağlı ders (opsiyonel)</Label>
+          <Select value={lessonId} onChange={(e) => setLessonId(e.target.value)}>
+            <option value="">Derse bağlama</option>
+            {studentLessons.map((l) => (
+              <option key={l.id} value={l.id}>
+                {new Date(l.startAt).toLocaleDateString("tr-TR")} · {l.instrument}
+              </option>
+            ))}
+          </Select>
+        </div>
+      ) : null}
       <div>
         <Label>Başlık</Label>
         <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Gam çalışması" />

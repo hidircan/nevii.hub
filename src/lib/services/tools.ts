@@ -4057,6 +4057,10 @@ export async function createAssessmentTool(
       motivasyon: v.data.motivasyon,
       genelIlerleme: v.data.genelIlerleme,
       hedefeUlasma: v.data.hedefeUlasma,
+      piecesWorked: v.data.piecesWorked,
+      etudesWorked: v.data.etudesWorked,
+      technicalWork: v.data.technicalWork,
+      theoryWork: v.data.theoryWork,
       strengthNote: v.data.strengthNote,
       nextStepsNote: v.data.nextStepsNote,
       improvementNote: v.data.improvementNote,
@@ -4142,6 +4146,163 @@ export async function getAssessmentReportTool(
     });
   } catch (e) {
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "getAssessmentReport failed");
+  }
+}
+
+/**
+ * Faz 3B — bir öğretmenin (veya adminin, tüm öğretmenler için) BEKLEYEN
+ * dört haftalık değerlendirmelerini listeler. Saf hesaplama (bkz.
+ * computePendingPeriodicAssessmentPeriods) — hiçbir "pending" satırı
+ * okunmaz/yazılmaz, her çağrıda taze hesaplanır.
+ */
+export async function listPendingPeriodicAssessmentsTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<
+  ServiceResult<{
+    items: { studentId: string; studentName: string; teacherId: string; periodStart: string; periodEnd: string }[];
+  }>
+> {
+  const auth = requireRole(ctx, ["TEACHER", "SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+
+  const v = parseOrFail(z.object({ teacherId: z.string().min(1).optional() }), input);
+  if (!v.ok) return v;
+
+  if (ctx.role === "TEACHER" && v.data.teacherId && v.data.teacherId !== ctx.teacherId) {
+    return fail("FORBIDDEN", "Yalnızca kendi bekleyen değerlendirmelerinizi görebilirsiniz.");
+  }
+
+  try {
+    const data = await readData();
+    const targetTeacherIds =
+      ctx.role === "TEACHER"
+        ? [ctx.teacherId!]
+        : v.data.teacherId
+          ? [v.data.teacherId]
+          : [...new Set(data.teachers.map((t) => t.id))];
+
+    const items: { studentId: string; studentName: string; teacherId: string; periodStart: string; periodEnd: string }[] =
+      [];
+    for (const teacherId of targetTeacherIds) {
+      const submitted = await listPeriodicAssessmentsForTeacher(ctx.tenantId, teacherId);
+      const submittedByStudent = new Map<string, PendingPeriod[]>();
+      for (const s of submitted) {
+        const arr = submittedByStudent.get(s.studentId) ?? [];
+        arr.push({ periodStart: s.periodStart, periodEnd: s.periodEnd });
+        submittedByStudent.set(s.studentId, arr);
+      }
+      const students = data.students.filter((s) => s.teacherId === teacherId && s.active);
+      for (const student of students) {
+        const pending = computePendingPeriodicAssessmentPeriods(student, submittedByStudent.get(student.id) ?? []);
+        for (const period of pending) {
+          items.push({ studentId: student.id, studentName: student.name, teacherId, ...period });
+        }
+      }
+    }
+
+    return ok({ items });
+  } catch (e) {
+    return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "listPendingPeriodicAssessments failed");
+  }
+}
+
+/**
+ * Faz 3B — bir dönem için genel gelişim değerlendirmesi gönderir. Talep
+ * edilen dönem `computePendingPeriodicAssessmentPeriods`'un ÜRETTİĞİ
+ * dönemlerden biriyle EŞLEŞMEK zorundadır (rastgele bir tarih aralığı kabul
+ * edilmez) — bu, hem tutarlılığı hem idempotency'yi (aynı dönem ikinci kez
+ * gönderilemez) garanti eder.
+ */
+export async function createPeriodicAssessmentTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ id: string }>> {
+  const auth = requireRole(ctx, ["TEACHER", "SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+
+  const v = parseOrFail(createPeriodicAssessmentSchema, input);
+  if (!v.ok) return v;
+
+  const data = await readData();
+  const student = data.students.find((s) => s.id === v.data.studentId);
+  if (!student) return fail("NOT_FOUND", "Öğrenci bulunamadı");
+  if (ctx.role === "TEACHER" && student.teacherId !== ctx.teacherId) {
+    return fail("FORBIDDEN", "Yalnızca kendi öğrenciniz için değerlendirme gönderebilirsiniz.");
+  }
+
+  const submitted = await listPeriodicAssessmentsForTeacher(ctx.tenantId, student.teacherId);
+  const submittedForStudent = submitted
+    .filter((s) => s.studentId === student.id)
+    .map((s) => ({ periodStart: s.periodStart, periodEnd: s.periodEnd }));
+  const pending = computePendingPeriodicAssessmentPeriods(student, submittedForStudent);
+  const matches = pending.some((p) => p.periodStart === v.data.periodStart && p.periodEnd === v.data.periodEnd);
+  if (!matches) {
+    return fail(
+      "VALIDATION_ERROR",
+      "Belirtilen dönem şu anda bekleyen bir değerlendirme değil (zaten gönderilmiş veya henüz tamamlanmamış olabilir)."
+    );
+  }
+
+  const relatedLessonIds = data.lessons
+    .filter(
+      (l) =>
+        l.studentId === student.id &&
+        new Date(l.startAt) >= new Date(v.data.periodStart) &&
+        new Date(l.startAt) <= new Date(v.data.periodEnd)
+    )
+    .map((l) => l.id);
+
+  try {
+    const result = await createPeriodicAssessment({
+      tenantId: ctx.tenantId,
+      studentId: student.id,
+      teacherId: student.teacherId,
+      periodStart: v.data.periodStart,
+      periodEnd: v.data.periodEnd,
+      relatedLessonIds,
+      overallProgressNote: v.data.overallProgressNote,
+      strengthsNote: v.data.strengthsNote,
+      areasForImprovementNote: v.data.areasForImprovementNote,
+      recommendationNote: v.data.recommendationNote,
+      submittedBy: ctx.userId,
+    });
+    if (!result.ok) return fail("CONFLICT", result.message);
+    audit(ctx, "periodic_assessment.create", "PeriodicAssessment", result.assessment.id, {
+      studentId: student.id,
+      periodStart: v.data.periodStart,
+      periodEnd: v.data.periodEnd,
+    });
+    return ok({ id: result.assessment.id });
+  } catch (e) {
+    return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "createPeriodicAssessment failed");
+  }
+}
+
+/**
+ * Faz 3B — bir öğrencinin gönderilmiş dönemsel değerlendirmelerini listeler.
+ * Görünürlük `assertStudentAccess` (mevcut, tüm rollerde tutarlı kapsam
+ * kontrolü) ile aynı — admin tümünü, öğretmen kendi öğrencisini, veli/
+ * öğrenci portalı yalnızca KENDİ öğrencisini görür (bu tablo zaten yalnızca
+ * "submitted" kayıt tutar, ayrı bir filtre gerekmez).
+ */
+export async function listPeriodicAssessmentsForStudentTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ assessments: PeriodicAssessment[] }>> {
+  const v = parseOrFail(z.object({ studentId: z.string().min(1) }), input);
+  if (!v.ok) return v;
+
+  try {
+    const data = await readData();
+    const student = data.students.find((s) => s.id === v.data.studentId);
+    const access = await assertStudentAccess(ctx, student, v.data.studentId);
+    if (!access.ok) return fail(access.code, access.message);
+
+    const assessments = await listPeriodicAssessmentsForStudent(ctx.tenantId, v.data.studentId);
+    return ok({ assessments });
+  } catch (e) {
+    return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "listPeriodicAssessmentsForStudent failed");
   }
 }
 
@@ -4426,12 +4587,20 @@ export async function createHomeworkTool(
   if (student.teacherId !== ctx.teacherId) {
     return fail("FORBIDDEN", "Yalnızca kendi öğrenciniz için ödev oluşturabilirsiniz.");
   }
+  if (v.data.lessonId) {
+    const lesson = data.lessons.find((l) => l.id === v.data.lessonId);
+    if (!lesson) return fail("NOT_FOUND", "Seçilen ders bulunamadı.");
+    if (lesson.studentId !== v.data.studentId || lesson.teacherId !== ctx.teacherId) {
+      return fail("VALIDATION_ERROR", "Seçilen ders bu öğrenci/öğretmen ile eşleşmiyor.");
+    }
+  }
 
   try {
     const homework = await createHomework({
       tenantId: ctx.tenantId,
       teacherId: ctx.teacherId!,
       studentId: v.data.studentId,
+      lessonId: v.data.lessonId,
       title: v.data.title,
       description: v.data.description,
       dueDate: v.data.dueDate,
@@ -6468,6 +6637,10 @@ export async function setLessonOpsFlagTool(
         flag: v.data.flag,
         switchedFrom: current !== v.data.flag ? current : undefined,
       });
+      // Faz 3C — ders "İşlendi" olduğunda ödev eksikse tek seferlik hatırlatma.
+      if (v.data.flag === "processed") {
+        await checkAndNotifyMissingHomework(ctx.tenantId, result.lesson);
+      }
     }
     return ok({
       lessonId: v.data.lessonId,
@@ -6482,6 +6655,67 @@ export async function setLessonOpsFlagTool(
     }
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "setLessonOpsFlag failed");
   }
+}
+
+/**
+ * Faz 2 — öğretmenin KENDİ derse gelip gelmediğini işaretler. Öğrenci
+ * yoklamasından (setLessonOpsFlagTool) TAMAMEN AYRI — kasıtlı olarak
+ * yalnız yönetici işaretleyebilir (öğretmen kendi katılımını kendi
+ * onaylayamaz — çıkar çatışması, bkz. plan dokümanı).
+ */
+export async function markTeacherAttendanceTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ lessonId: string; status: string; alreadySet: boolean }>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+
+  const v = parseOrFail(markTeacherAttendanceSchema, input);
+  if (!v.ok) return v;
+
+  try {
+    const result = await markTeacherAttendanceLive(v.data.lessonId, v.data.status, ctx.userId, v.data.note);
+    if (!result.ok) return fail("NOT_FOUND", result.message);
+    if (!result.alreadySet) {
+      audit(ctx, "lesson.teacher_attendance", "Lesson", v.data.lessonId, { status: v.data.status });
+    }
+    return ok({ lessonId: v.data.lessonId, status: v.data.status, alreadySet: result.alreadySet });
+  } catch (e) {
+    return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "markTeacherAttendance failed");
+  }
+}
+
+/**
+ * Faz 2 — açıklanabilir öğretmen performans raporu. Görünürlük: SCHOOL_ADMIN/
+ * SUPER_ADMIN (tüm öğretmenler) + öğretmenin KENDİSİ (yalnız kendi raporu,
+ * salt okunur — TeacherFeedback'in aksine bu ÖZNEL değil, objektif bir
+ * katılım+geri bildirim metriğidir).
+ */
+export async function getTeacherPerformanceReportTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<TeacherPerformanceReport>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN", "TEACHER"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+
+  const v = parseOrFail(teacherPerformanceReportSchema, input);
+  if (!v.ok) return v;
+
+  if (ctx.role === "TEACHER" && ctx.teacherId !== v.data.teacherId) {
+    return fail("FORBIDDEN", "Yalnızca kendi performans raporunuzu görüntüleyebilirsiniz.");
+  }
+
+  const data = await readData();
+  if (!data.teachers.some((t) => t.id === v.data.teacherId)) return fail("NOT_FOUND", "Öğretmen bulunamadı.");
+
+  const report = await computeTeacherPerformanceReport(
+    data,
+    ctx.tenantId,
+    v.data.teacherId,
+    v.data.periodStart,
+    v.data.periodEnd
+  );
+  return ok(report);
 }
 
 /**

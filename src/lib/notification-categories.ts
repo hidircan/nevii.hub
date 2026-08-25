@@ -13,6 +13,7 @@ export type NotificationCategory =
   | "lesson_upcoming"
   | "lesson_cancelled"
   | "lesson_rescheduled"
+  | "homework_missing_for_lesson"
   // Ödeme ve finans
   | "payment_overdue"
   | "payment_failed_or_pending"
@@ -111,6 +112,15 @@ export const NOTIFICATION_CATEGORIES: NotificationCategoryDef[] = [
     description: "Bir ders telafiye alındığında veya taşındığında.",
     implemented: true,
     roles: ["SCHOOL_ADMIN", "SUPER_ADMIN", "TEACHER", "STUDENT"],
+    defaultInAppEnabled: true,
+  },
+  {
+    category: "homework_missing_for_lesson",
+    group: "lessons",
+    label: "Ödev eksik",
+    description: "Bir ders işlendi olarak işaretlendiğinde ödev verilmemişse (Faz 3C).",
+    implemented: true,
+    roles: ["TEACHER"],
     defaultInAppEnabled: true,
   },
   {

@@ -83,6 +83,38 @@ export default async function AssessmentPage({
             </div>
           </div>
 
+          {assessment.piecesWorked || assessment.etudesWorked || assessment.technicalWork || assessment.theoryWork ? (
+            <div className="mt-6 space-y-3 border-t border-[var(--color-border)] pt-6 text-sm">
+              <p className="text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
+                Çalışılan konular
+              </p>
+              {assessment.piecesWorked ? (
+                <div>
+                  <p className="text-xs text-[var(--color-text-muted)]">İşlenen parçalar</p>
+                  <p className="mt-0.5 text-[var(--color-text)]">{assessment.piecesWorked}</p>
+                </div>
+              ) : null}
+              {assessment.etudesWorked ? (
+                <div>
+                  <p className="text-xs text-[var(--color-text-muted)]">İşlenen etütler</p>
+                  <p className="mt-0.5 text-[var(--color-text)]">{assessment.etudesWorked}</p>
+                </div>
+              ) : null}
+              {assessment.technicalWork ? (
+                <div>
+                  <p className="text-xs text-[var(--color-text-muted)]">Teknik çalışmalar</p>
+                  <p className="mt-0.5 text-[var(--color-text)]">{assessment.technicalWork}</p>
+                </div>
+              ) : null}
+              {assessment.theoryWork ? (
+                <div>
+                  <p className="text-xs text-[var(--color-text-muted)]">Teorik/pratik konular</p>
+                  <p className="mt-0.5 text-[var(--color-text)]">{assessment.theoryWork}</p>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
           <div className="mt-6 space-y-4 border-t border-[var(--color-border)] pt-6">
             {ASSESSMENT_SECTIONS.map((section) => (
               <div key={section.id} className="print:break-inside-avoid">

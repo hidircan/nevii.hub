@@ -33,6 +33,7 @@ model Tenant {
   notificationPreferences NotificationPreference[]
   announcements   Announcement[]
   lessonAssessments LessonAssessment[]
+  periodicAssessments PeriodicAssessment[]
   teacherAvailabilityRequests TeacherAvailabilityRequest[]
   homeworks           Homework[]
   homeworkSubmissions HomeworkSubmission[]
@@ -54,6 +55,7 @@ model Tenant {
   documentInstances DocumentInstance[]
   tasks Task[]
   taskReminderLogs TaskReminderLog[]
+  lessonHomeworkReminderLogs LessonHomeworkReminderLog[]
   taskReminderPreferences TaskReminderPreference[]
   studentListViews StudentListView[]
   createdAt DateTime @default(now())
@@ -912,6 +914,11 @@ model LessonAssessment {
   /// E. Genel Gelişim
   genelIlerleme Int
   hedefeUlasma  Int
+  /// Faz 3A — "çalışılan konular" (hepsi opsiyonel serbest metin).
+  piecesWorked   String? @db.Text
+  etudesWorked   String? @db.Text
+  technicalWork  String? @db.Text
+  theoryWork     String? @db.Text
   strengthNote    String
   nextStepsNote   String
   improvementNote String
@@ -928,6 +935,40 @@ model LessonAssessment {
   @@index([tenantId, studentId])
   @@index([tenantId, teacherId])
   @@index([lessonId])
+}
+
+/// Faz 3B — dört haftalık genel gelişim değerlendirmesi. `LessonAssessment`
+/// (ders bazlı) İLE KARIŞMAZ — bu, bir DÖNEM (periodStart..periodEnd)
+/// boyunca genel bir değerlendirmedir. "Bekleyen" (henüz gönderilmemiş)
+/// değerlendirmeler bu tabloda hiç YOK — pending durumu her zaman TAZE
+/// hesaplanır (bkz. src/lib/periodic-assessment/index.ts
+/// computePendingPeriodicAssessmentPeriods): öğrencinin ilk ders tarihinden
+/// başlayarak 4 haftalık dönemler türetilir, HANGİLERİ için bu tabloda
+/// zaten "submitted" bir kayıt YOKSA o dönem "bekliyor" sayılır. Böylece
+/// aynı öğrenci+dönem için asla İKİNCİ bir satır oluşmaz (`@@unique`) ve
+/// ayrı bir zamanlanmış iş/worker GEREKMEZ.
+model PeriodicAssessment {
+  id          String   @id
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  studentId   String
+  teacherId   String
+  periodStart DateTime
+  periodEnd   DateTime
+  /// İlişkili derslerin id'leri (bilgi amaçlı, denormalize — bkz. Task.relatedEntityLabel deseni).
+  relatedLessonIds Json
+  overallProgressNote     String @db.Text
+  strengthsNote           String? @db.Text
+  areasForImprovementNote String? @db.Text
+  recommendationNote      String? @db.Text
+  submittedBy String
+  submittedAt DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([tenantId, studentId, teacherId, periodStart, periodEnd])
+  @@index([tenantId, studentId])
+  @@index([tenantId, teacherId])
 }
 
 /// EPIC 9 (IMPLEMENTATION_PLAN.md) — öğretmenin müsaitlik değişikliği önerisi.
@@ -962,6 +1003,8 @@ model Homework {
   tenant      Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   teacherId   String
   studentId   String
+  /// Faz 3C — bu ödevin verildiği ders (opsiyonel — geçmiş/ders-dışı ödevler için NULL).
+  lessonId    String?
   title       String
   description String
   dueDate     DateTime
@@ -975,6 +1018,7 @@ model Homework {
 
   @@index([tenantId, studentId])
   @@index([tenantId, teacherId])
+  @@index([tenantId, lessonId])
 }
 
 /// Öğrencinin bir ödeve yaptığı teslim. Dosya küçük dosya/foto/kısa video
@@ -1652,6 +1696,20 @@ model TaskReminderLog {
 
   @@unique([tenantId, taskId, assigneeUserId, kind, calendarDay])
   @@index([tenantId, taskId])
+}
+
+/// Faz 3C — "ders işlendi ama ödev verilmedi" hatırlatmasının tekilleştirme
+/// kaydı. `TaskReminderLog` İLE AYNI desen ama daha basit: bu olay ders
+/// başına EN FAZLA BİR KEZ gerçekleşir (günlük tekrar YOK, `calendarDay`
+/// gerekmez) — `@@unique([tenantId, lessonId])` tek başına yeterli garanti.
+model LessonHomeworkReminderLog {
+  id        String   @id
+  tenantId  String   @db.VarChar(100)
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  lessonId  String   @db.VarChar(100)
+  createdAt DateTime @default(now())
+
+  @@unique([tenantId, lessonId])
 }
 
 /// İş Takip Faz 3A — kullanıcı bazlı hatırlatma tercihleri. Sorumlu ATAMA

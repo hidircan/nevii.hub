@@ -639,12 +639,28 @@ export const createAssessmentSchema = z.object({
   motivasyon: scoreItem(),
   genelIlerleme: scoreItem(),
   hedefeUlasma: scoreItem(),
+  /** Faz 3A — "çalışılan konular", hepsi opsiyonel. */
+  piecesWorked: z.string().max(2000).optional(),
+  etudesWorked: z.string().max(2000).optional(),
+  technicalWork: z.string().max(2000).optional(),
+  theoryWork: z.string().max(2000).optional(),
   strengthNote: z.string().min(1),
   nextStepsNote: z.string().min(1),
   improvementNote: z.string().min(1),
   parentPrivateNote: z.string().optional(),
   parentNoteVisibleToStudent: z.boolean().optional(),
   teacherSignedName: z.string().min(1),
+});
+
+/** Faz 3B — dört haftalık genel gelişim değerlendirmesi. */
+export const createPeriodicAssessmentSchema = z.object({
+  studentId: z.string().min(1),
+  periodStart: z.string().min(1),
+  periodEnd: z.string().min(1),
+  overallProgressNote: z.string().min(1).max(4000),
+  strengthsNote: z.string().max(2000).optional(),
+  areasForImprovementNote: z.string().max(2000).optional(),
+  recommendationNote: z.string().max(2000).optional(),
 });
 
 export const startLessonSchema = z.object({
@@ -715,6 +731,8 @@ const fileUploadSchema = z.object({
 export const createHomeworkSchema = z
   .object({
     studentId: z.string().min(1),
+    /** Faz 3C — bu ödevin verildiği ders (opsiyonel, "ders başına ödev zorunluluğu" takibi için). */
+    lessonId: z.string().min(1).optional(),
     title: z.string().min(1),
     description: z.string().min(1),
     dueDate: z.string().min(1),
