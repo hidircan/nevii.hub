@@ -17,12 +17,15 @@ export function Badge({ status, children }: { status?: string; children?: ReactN
 export function Card({
   children,
   className,
+  id,
 }: {
   children: ReactNode;
   className?: string;
+  id?: string;
 }) {
   return (
     <div
+      id={id}
       className={cn(
         "rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] p-5 shadow-[var(--shadow-sm)]",
         className

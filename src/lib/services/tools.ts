@@ -68,7 +68,13 @@ import { normalizePaymentDueRanges, effectivePaymentDueRanges, formatPaymentDueR
 import { effectiveStudentTypes } from "../student-types";
 import { markTeacherAttendanceLive } from "../store";
 import { computeTeacherPerformanceReport, type TeacherPerformanceReport } from "../teacher-performance";
-import { markTeacherAttendanceSchema, teacherPerformanceReportSchema, reassignLessonTeacherOrBranchSchema } from "../validation";
+import { computeTeacherPerformanceReportV2, type TeacherPerformanceReportV2 } from "../teacher-performance-v2";
+import {
+  markTeacherAttendanceSchema,
+  teacherPerformanceReportSchema,
+  teacherPerformanceReportV2Schema,
+  reassignLessonTeacherOrBranchSchema,
+} from "../validation";
 import { reassignLessonTeacherOrBranchLive } from "../store";
 import { notifyLessonReassigned } from "../lesson-notifications";
 import {
@@ -7482,6 +7488,39 @@ export async function getTeacherPerformanceReportTool(
   if (!data.teachers.some((t) => t.id === v.data.teacherId)) return fail("NOT_FOUND", "Öğretmen bulunamadı.");
 
   const report = await computeTeacherPerformanceReport(
+    data,
+    ctx.tenantId,
+    v.data.teacherId,
+    v.data.periodStart,
+    v.data.periodEnd
+  );
+  return ok(report);
+}
+
+/**
+ * teacher-performance-v2 — 4 bileşenli açıklanabilir rapor (yoklama %30,
+ * geri bildirim %25, iş takip %20, ödev %25). Görünürlük aynı:
+ * SCHOOL_ADMIN/SUPER_ADMIN (tüm öğretmenler) + öğretmenin KENDİSİ (yalnız
+ * kendi raporu).
+ */
+export async function getTeacherPerformanceReportV2Tool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<TeacherPerformanceReportV2>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN", "TEACHER"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+
+  const v = parseOrFail(teacherPerformanceReportV2Schema, input);
+  if (!v.ok) return v;
+
+  if (ctx.role === "TEACHER" && ctx.teacherId !== v.data.teacherId) {
+    return fail("FORBIDDEN", "Yalnızca kendi performans raporunuzu görüntüleyebilirsiniz.");
+  }
+
+  const data = await readData();
+  if (!data.teachers.some((t) => t.id === v.data.teacherId)) return fail("NOT_FOUND", "Öğretmen bulunamadı.");
+
+  const report = await computeTeacherPerformanceReportV2(
     data,
     ctx.tenantId,
     v.data.teacherId,

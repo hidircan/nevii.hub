@@ -62,6 +62,9 @@ export const teacherPerformanceReportSchema = z.object({
   periodEnd: z.string().min(1),
 });
 
+/** teacher-performance-v2 için aynı şema (ayrı isim — çağıranlar arasında karışmasın). */
+export const teacherPerformanceReportV2Schema = teacherPerformanceReportSchema;
+
 const optionalEmail = z
   .string()
   .optional()

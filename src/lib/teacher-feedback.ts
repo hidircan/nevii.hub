@@ -342,9 +342,16 @@ export type TeacherFeedbackSummary = {
  */
 export async function computeTeacherFeedbackSummary(
   tenantId: string,
-  teacherId: string
+  teacherId: string,
+  /** Faz — teacher-performance-v2: opsiyonel dönem filtresi. Verilmezse (v1 çağrısı) tüm-zamanlar davranışı AYNI kalır. */
+  periodStart?: string,
+  periodEnd?: string
 ): Promise<TeacherFeedbackSummary> {
-  const all = await listTeacherFeedback(tenantId, teacherId);
+  const unfiltered = await listTeacherFeedback(tenantId, teacherId);
+  const all =
+    periodStart && periodEnd
+      ? unfiltered.filter((f) => f.createdAt.slice(0, 10) >= periodStart && f.createdAt.slice(0, 10) <= periodEnd)
+      : unfiltered;
   const responseCount = all.length;
   const eligible = responseCount >= TEACHER_FEEDBACK_MIN_ANONYMOUS_RESPONSES;
   if (!eligible) {

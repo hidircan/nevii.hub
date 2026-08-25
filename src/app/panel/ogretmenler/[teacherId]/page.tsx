@@ -467,7 +467,15 @@ export default async function TeacherDetailPage({
       </section>
 
       <section id="performans" className="mb-8 scroll-mt-4">
-        <h2 className="mb-3 text-sm font-semibold text-[var(--color-text)]">Performans</h2>
+        <h2 className="mb-3 flex flex-wrap items-center justify-between gap-2 text-sm font-semibold text-[var(--color-text)]">
+          Performans
+          <Link
+            href={`/panel/ogretmenler/${teacher.id}/performans`}
+            className="text-xs font-medium text-[var(--color-primary)] hover:text-[var(--color-primary-hover)]"
+          >
+            Detaylı performansı görüntüle →
+          </Link>
+        </h2>
         <TeacherPerformancePanel
           teacherId={teacher.id}
           canMark={canEditProfile}
