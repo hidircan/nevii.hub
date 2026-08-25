@@ -44,6 +44,8 @@ model Tenant {
   socialMediaConsents SocialMediaConsent[]
   consentTextVersions ConsentTextVersion[]
   kvkkConsents KvkkConsent[]
+  callLogs CallLog[]
+  messageLogs MessageLog[]
   packages   Package[]
   discountCampaigns DiscountCampaign[]
   instrumentCatalogEntries InstrumentCatalogEntry[]
