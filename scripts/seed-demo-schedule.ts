@@ -1,7 +1,7 @@
 /**
- * Demo ders programı seed script'i — bugünden başlayıp en az 1 ay sonrasına
- * uzanan, TEKRARLAYAN (haftalık) ders serileri oluşturur (Faz 6, bkz.
- * docs/implementation-plans/notaplan-product-expansion.md).
+ * Demo ders programı seed script'i — mevcut haftadan başlayıp en az 3 ay
+ * sonrasına uzanan, TEKRARLAYAN (haftalık) ders serileri oluşturur (Faz 6,
+ * bkz. docs/implementation-plans/notaplan-product-expansion.md).
  *
  * Aktif, henüz hiçbir aktif seriye sahip olmayan HER öğrenci için: öğrencinin
  * KENDİ atanmış öğretmeni/şubesi/enstrümanı kullanılır (yeni bir eşleştirme
@@ -43,14 +43,15 @@ const ctx: ServiceContext = {
   channel: "web",
 };
 
-const DEMO_TAG = "demo-schedule-seed-v1";
+const DEMO_TAG = "demo-schedule-seed-v2-3ay";
 
 /**
- * "En az 1 ay" garantisi BUGÜNDEN itibarendir; en kötü durumda (öğretmenin
- * müsait olduğu gün BUGÜNSE) startsOn=bugün olur — bu yüzden yalnızca
- * (WEEKS-1)*7 gün ile ölçüldüğünde bile 30 günü aşacak kadar geniş tutulur.
+ * "En az 3 ay" garantisi mevcut haftadan (BUGÜNDEN) itibarendir; en kötü
+ * durumda (öğretmenin müsait olduğu gün BUGÜNSE) startsOn=bugün olur — bu
+ * yüzden yalnızca (WEEKS-1)*7 gün ile ölçüldüğünde bile 90 günü aşacak kadar
+ * geniş tutulur.
  */
-const WEEKS = 6;
+const WEEKS = 13;
 
 function nextDateForWeekday(from: Date, weekday: number): Date {
   let cursor = from;
