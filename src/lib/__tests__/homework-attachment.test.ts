@@ -10,6 +10,8 @@ import {
 import { HOMEWORK_FILE_PATH, HOMEWORK_SUBMISSIONS_FILE_PATH } from "../homework";
 import { DEFAULT_TENANT_ID } from "../auth/config";
 import type { ServiceContext } from "../services/context";
+import { STUDENT_PORTAL_ACCESS_FILE } from "../student-portal-access";
+import { grantStudentAccess } from "./portal-access-test-helper";
 
 const DATA_FILE = path.join(resolveDataDir(path.join(process.cwd(), "data")), "store.json");
 
@@ -24,6 +26,13 @@ beforeEach(async () => {
   await fs.rm(DATA_FILE, { force: true });
   await fs.rm(HOMEWORK_FILE_PATH, { force: true });
   await fs.rm(HOMEWORK_SUBMISSIONS_FILE_PATH, { force: true });
+  // Kok neden duzeltmesi (2026-08-31): assertStudentAccess/canAccessStudent
+  // STUDENT rolu icin artik ctx.studentId karsilastirmasi DEGIL, aktif bir
+  // StudentPortalAccess kaydi ariyor (bkz. portal-access-test-helper.ts).
+  // Bu dosya o degisiklikten once yazilmisti ve hicbir yerde erisim
+  // GRANT etmiyordu — her STUDENT cagrisi artik FORBIDDEN donuyordu. Her
+  // testin kendi (varsa) grant'ini izole tutmak icin dosya da sifirlanir.
+  await fs.rm(STUDENT_PORTAL_ACCESS_FILE, { force: true });
 });
 
 const BASE = {
@@ -40,6 +49,9 @@ describe("Ödev — öğretmenin dosya/foto/video eklemesi (Paket 7)", () => {
   });
 
   it("geçerli bir jpeg dosyasıyla ödev oluşturulabilir ve öğrenci indirebilir", async () => {
+    // Öğrenci portalı erişimi artık örtük değil — bkz. beforeEach notu.
+    await grantStudentAccess(studentCtx(), "s1", "SELF");
+
     const fileData = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.from("fake image bytes")]).toString("base64");
     const res = await createHomeworkTool(teacherCtx(), {
       ...BASE,
