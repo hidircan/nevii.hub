@@ -38,6 +38,9 @@ yarn-error.log*
 # local demo data store
 /data
 
+# şifrelenmiş yerel yedekler — asla commit edilmez (bkz. docs/project-brain)
+.private-backups/
+
 # vercel
 .vercel
 

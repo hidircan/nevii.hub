@@ -1,4 +1,4 @@
-# NotaPlan — Onaylı Ürün Backlog
+# Nevii Hub — Onaylı Ürün Backlog
 
 > **Durum:** Onaylı gereksinimler · canlıya alma / deploy / push bu belgenin uygulama
 > kapsamında **yoktur**.  

@@ -1,4 +1,4 @@
-# NotaPlan
+# Nevii Hub
 
 Müzik okulları için operasyon SaaS: **program, yoklama, telafi planlama, ödemeler, WhatsApp şablonları, veli & öğretmen portalı**.
 
@@ -97,7 +97,7 @@ Kurum seçici ve yazma-kapsamı koruması (`src/lib/institution/*`) json/memory
 modunda tek kurumla çalışır ama gerçek çoklu-kurum davranışı yalnızca
 **`STORE_MODE=db`** ile, gerçekten 2+ ayrı `Tenant` satırı olan bir
 PostgreSQL veritabanı üzerinde gözlemlenebilir. Aşağıdaki adımlar iki izole,
-gerçek kurum (`NotaPlan Demo Akademi`, `NotaPlan Test Kampüs`) seed eder.
+gerçek kurum (`Nevii Hub Demo Akademi`, `Nevii Hub Test Kampüs`) seed eder.
 
 > ⚠️ **Yalnızca yerel geliştirme/demo içindir.** Aşağıdaki şifreler
 > ortam değişkeni verilmezse sabit demo değerlerine düşer — bunları asla
@@ -125,8 +125,8 @@ npx prisma migrate deploy
 STORE_MODE=db DATABASE_URL="$DATABASE_URL" npx tsx scripts/seed-multi-tenant.ts
 ```
 
-Bu betik `NotaPlan Demo Akademi` (mevcut varsayılan tenant) ve
-`NotaPlan Test Kampüs` (yeni, ayrı bir tenant) için şube/öğretmen/öğrenci/
+Bu betik `Nevii Hub Demo Akademi` (mevcut varsayılan tenant) ve
+`Nevii Hub Test Kampüs` (yeni, ayrı bir tenant) için şube/öğretmen/öğrenci/
 oda/ders/yoklama/ödeme oluşturur — **hiçbir kimlik paylaşılmaz** — ve
 ardından `listTenants`/`readData`/`mergeAppData`'yı bu canlı veriye karşı
 çalıştırıp sonucu konsola yazdırır. Yeniden çalıştırmak güvenlidir (her
@@ -143,8 +143,8 @@ STORE_MODE=db DATABASE_URL="$DATABASE_URL" npm run dev
 | Rol | E-posta | Şifre (env değişkeni / varsayılan) | Kapsam |
 |-----|---------|-------------------------------------|--------|
 | Kurum sahibi (SUPER_ADMIN) | `super@notaplan.app` | `AUTH_SUPER_PASSWORD` / `demo-super` | Her iki kurum, varsayılan "Tüm kurumlar" |
-| Kurum müdürü (SCHOOL_ADMIN) | `admin@niluferacar.com.tr` | `AUTH_ADMIN_PASSWORD` / `demo-admin` | Yalnızca NotaPlan Demo Akademi |
-| Kurum müdürü (SCHOOL_ADMIN) | `admin@testkampus.notaplan.app` | `AUTH_TEST_ADMIN_PASSWORD` / `demo-test-admin` | Yalnızca NotaPlan Test Kampüs |
+| Kurum müdürü (SCHOOL_ADMIN) | `admin@niluferacar.com.tr` | `AUTH_ADMIN_PASSWORD` / `demo-admin` | Yalnızca Nevii Hub Demo Akademi |
+| Kurum müdürü (SCHOOL_ADMIN) | `admin@testkampus.notaplan.app` | `AUTH_TEST_ADMIN_PASSWORD` / `demo-test-admin` | Yalnızca Nevii Hub Test Kampüs |
 
 ### Manuel doğrulama akışı
 
@@ -159,12 +159,12 @@ STORE_MODE=db DATABASE_URL="$DATABASE_URL" npm run dev
    dene (ör. yeni öğrenci ekle, yoklama işaretle, ödeme kaydet) — hepsinin
    **"Tüm kurumlar görünümünde işlem yapılamaz. Lütfen önce tek bir kurum
    seçin."** mesajıyla engellendiğini doğrula.
-4. Kurum seçiciden **NotaPlan Demo Akademi**'yi seç → her ekranda birer
+4. Kurum seçiciden **Nevii Hub Demo Akademi**'yi seç → her ekranda birer
    kayıt oluştur/düzenle (öğrenci ekle, yoklama al, ödeme kaydet vb.).
-5. Kurum seçiciden **NotaPlan Test Kampüs**'e geç → 4. adımda oluşturulan
+5. Kurum seçiciden **Nevii Hub Test Kampüs**'e geç → 4. adımda oluşturulan
    kayıtların **görünmediğini** (izolasyon) doğrula.
 6. Çıkış yap, **kurum müdürü** (`admin@niluferacar.com.tr`) olarak giriş
-   yap → kurum seçici yerine düz "NotaPlan Demo Akademi" etiketinin
+   yap → kurum seçici yerine düz "Nevii Hub Demo Akademi" etiketinin
    göründüğünü, Test Kampüs'e dair hiçbir verinin görünmediğini doğrula.
 7. Tarayıcı geliştirici araçlarından `notaplan_kurum` cookie'sini elle
    `tenant_test_kampus` yap (sahte/forge deneme) ve sayfayı yenile →

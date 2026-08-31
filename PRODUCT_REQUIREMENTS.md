@@ -1,6 +1,6 @@
-# NotaPlan — Product Requirements Document
+# Nevii Hub — Product Requirements Document
 
-**Status:** Approved by Sentinel review — PRODREQ-F1 resolved (R1 exit criteria → 27 tests). Part of the NotaPlan Engineering Handbook.
+**Status:** Approved by Sentinel review — PRODREQ-F1 resolved (R1 exit criteria → 27 tests). Part of the Nevii Hub Engineering Handbook.
 **Owner:** Orion (Product Owner)
 **Sources of truth:** README.md, PRODUCT_ROADMAP.md, PRODUCTION_AUDIT.md, src/lib/auth (RBAC), src/lib/seed.ts, sprint planning docs
 **First customer (reference):** Nilüfer Acar Müzik Akademisi — İzmir (2 branches: Erzene, Evka 3)
@@ -259,5 +259,5 @@ Ranked by business impact / effort (RICE-style), current date 2026-07-31:
 
 ---
 
-*This document is part of the NotaPlan Engineering Handbook and is subject to the
+*This document is part of the Nevii Hub Engineering Handbook and is subject to the
 unified review performed by Sentinel before being considered canonical.*

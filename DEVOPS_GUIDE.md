@@ -1,6 +1,6 @@
 # DEVOPS_GUIDE.md
 
-**NotaPlan Engineering Handbook — Operations & Deployment**
+**Nevii Hub Engineering Handbook — Operations & Deployment**
 
 | | |
 |---|---|
@@ -9,7 +9,7 @@
 | **Status** | Official handbook section |
 | **Last validated** | 2026-07-31 · HEAD `0cab45d` |
 
-This guide is the canonical reference for how NotaPlan is built, deployed, operated, and recovered. Follow it in every environment: local development, CI, preview, and production.
+This guide is the canonical reference for how Nevii Hub is built, deployed, operated, and recovered. Follow it in every environment: local development, CI, preview, and production.
 
 ---
 
@@ -77,7 +77,7 @@ npm run db:push      # sync dev DB schema (non-production only, see §8.4)
 
 ## 3. Docker
 
-> **Current state:** NotaPlan deploys to Vercel today and has no committed `Dockerfile`. Docker is the recommended path for self-hosting, Railway, and local DB parity.
+> **Current state:** Nevii Hub deploys to Vercel today and has no committed `Dockerfile`. Docker is the recommended path for self-hosting, Railway, and local DB parity.
 
 ### 3.1 When to use Docker
 
@@ -333,7 +333,7 @@ The cron route MUST validate the Vercel-provided `x-vercel-cron` header (and a `
 | Secret | Guidance |
 |--------|----------|
 | `JWT_SECRET` | Generate with `openssl rand -hex 64`. Rotate by issuing new tokens with the new secret; never truncate below 32 chars. |
-| `DATABASE_URL` | Least-privilege DB user; scope to the NotaPlan schema. |
+| `DATABASE_URL` | Least-privilege DB user; scope to the Nevii Hub schema. |
 | `AUTH_*_PASSWORD` | Must be overridden in prod. The code must refuse demo fallbacks under `NODE_ENV=production`. |
 | LLM / WhatsApp keys | Provider-scoped tokens with minimal permission; rotate immediately on leak. |
 
@@ -356,7 +356,7 @@ The cron route MUST validate the Vercel-provided `x-vercel-cron` header (and a `
 
 ### 9.1 Current state
 
-- `src/lib/logger.ts`: structured-ish console logging with a `[notaplan]` prefix; errors logged via the API handler wrapper.
+- `src/lib/logger.ts`: structured-ish console logging with a `[nevii-hub]` prefix; errors logged via the API handler wrapper.
 - `src/lib/auth/audit.ts` (`auditLog()`): authorization/authentication/error events. **Now persists** (EPIC 0, `IMPLEMENTATION_PLAN.md`) to `AuditLog` via `src/lib/audit/log.ts` — previously a documented no-op. Only persists in `STORE_MODE=db` (writes go through `prisma`); fails closed (silently, logged only via `AUDIT_LOG_DEBUG=1`) in `json`/`memory` mode, same accepted limitation as `AiAuditLog` below.
 - `src/lib/audit/log.ts` (`AuditLog` table): general critical-action trail — payments marked paid, teacher fee rule create/update, makeup confirm/cancel, student create, plus everything already routed through `auditLog()` (login success/failure, authz denials, API errors). Tenant-scoped reads via `listAuditLogs(tenantId)`.
 - `src/lib/ai/audit-hook.ts` (`AiAuditLog` table): AI capability invocations specifically (separate table, same fire-and-forget/DB-only pattern).

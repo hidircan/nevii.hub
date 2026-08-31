@@ -1,4 +1,4 @@
-# NotaPlan — Production Audit & ROI Roadmap
+# Nevii Hub — Production Audit & ROI Roadmap
 **Tarih:** 29 Temmuz 2026 · **Doğrulama:** lint ✅ · prisma validate ✅ · prisma generate ✅ · tsc kaynak temiz ✅
 **Build notu:** `npm run build` bu ajan sandbox'ında OS engeli nedeniyle çalışmıyor (postcss worker `binding to a port: Operation not permitted`). Kodda hata yok; normal kullanıcı terminalinde (port kısıtlaması yok) geçecektir. Fontlar sistem yığınına çevrildiği için build artık ağ bağımsız.
 

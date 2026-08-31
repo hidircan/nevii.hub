@@ -10,6 +10,12 @@ this repo — read it before making non-trivial changes. `PROJECT.md` is the can
 truth for product/business context (mission, roadmap, pricing) if that's ever needed; it is not
 duplicated here.
 
+**Before starting any non-trivial task, read `docs/agent-memory/PROJECT_STATE.md`** (cheap,
+low-token "resume from here" snapshot of current focus and open work) **and
+`docs/agent-memory/LESSONS_LEARNED.md`** (mistakes already made and corrected — don't repeat
+them). Update `PROJECT_STATE.md`'s "Current focus"/"Open work" at the end of a work session, and
+append to `LESSONS_LEARNED.md` when a real mistake is found and fixed.
+
 ## Commands
 
 ```bash
@@ -47,7 +53,7 @@ this; it's intentional. Tests always run with `STORE_MODE=json`, `VERCEL=1`.
 
 ## Architecture
 
-NotaPlan is a Next.js 16 (App Router) + React 19 + TypeScript, multi-tenant SaaS for music
+Nevii Hub is a Next.js 16 (App Router) + React 19 + TypeScript, multi-tenant SaaS for music
 schools, with an AI agent layer that is architecturally *forced* through the same authorization
 path as every human-driven request — there is no AI-only shortcut to the database.
 

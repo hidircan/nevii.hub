@@ -1,4 +1,4 @@
-# NotaPlan Ürün Genişletme — Uygulama Planı
+# Nevii Hub Ürün Genişletme — Uygulama Planı
 
 Durum: **YAŞAYAN DOKÜMAN** — her faz tamamlandıkça "İlerleme" bölümü güncellenir.
 Kapsam: 2026-08-25 tarihli 14 fazlık ürün talebinin Faz 0 keşif + fazlı uygulama planı.

@@ -1,6 +1,6 @@
 # DATABASE_ARCHITECTURE.md
 
-**NotaPlan Engineering Handbook — Data Architecture**
+**Nevii Hub Engineering Handbook — Data Architecture**
 
 | | |
 |---|---|
@@ -8,19 +8,20 @@
 | **Audience** | All engineers, AI coding assistants, DBA/on-call operators |
 | **Status** | Draft · awaiting independent review by Sentinel before it becomes part of the official Engineering Handbook |
 | **Last validated** | 2026-07-31 · HEAD `f2fe8d83` (schema & deps unchanged since `0cab45d`) |
+| **⚠️ Düzeltme (2026-08-31)** | Bu belgenin altındaki "MySQL/MariaDB" anlatısı ARTIK YANLIŞ. `prisma/schema.prisma` (`provider = "postgresql"`), `package.json` (`@prisma/adapter-pg`, mariadb bağımlılığı YOK) ve `src/lib/db.ts` (`PrismaPg` adapter) koddan DOĞRULANDI: proje PostgreSQL kullanıyor — canlı veritabanı Supabase Postgres 17 (`db.uqkafczrplqitzumtrqy.supabase.co`, proje adı Supabase panelinde hâlâ eski "Maestron Project" — kozmetik, yeniden adlandırılabilir). §1, §2, §7.4, §15, §18 aşağıda düzeltildi. §8/§9/§13'teki MySQL'e özgü ayrıntılar (mysqldump, MariaDB CI vb.) henüz tek tek doğrulanmadı — Postgres için DevOps tarafından yeniden gözden geçirilmeli, DOĞRULANMADI olarak işaretli bırakıldı. `PROJECT.md` §12 ve `DEVOPS_GUIDE.md` de AYNI eski MySQL varsayımını taşıyor — bu belge düzeltilirken onlar HENÜZ düzeltilmedi, bkz. `docs/project-brain/KNOWN_GAPS.md`. |
 
-This document is the canonical reference for how NotaPlan models, persists, migrates, queries, and protects its data. It is written to optimize for **long-term scalability**: a clean, tenant-isolated core that survives from one pilot school to thousands of schools.
+This document is the canonical reference for how Nevii Hub models, persists, migrates, queries, and protects its data. It is written to optimize for **long-term scalability**: a clean, tenant-isolated core that survives from one pilot school to thousands of schools.
 
 ---
 
-## 1. Scope and Reality Check
+## 1. Scope and Reality Check (düzeltildi 2026-08-31)
 
-The original assignment asked for "PostgreSQL architecture." The repository's **current reality is MySQL/MariaDB** via Prisma (`provider = "mysql"`, `@prisma/adapter-mariadb`). This document therefore:
+**Repo'nun güncel gerçeği: PostgreSQL**, Prisma üzerinden (`provider = "postgresql"`, `@prisma/adapter-pg`), production'da **Supabase** üzerinde barındırılıyor, hosting/deploy **Vercel**. Bu belgenin önceki hali "mevcut gerçeklik MySQL/MariaDB" diyordu — bu artık DOĞRU DEĞİL; § 15'te anlatılan geçiş zaten TAMAMLANMIŞ (ne zaman/nasıl yapıldığı bu taramada doğrulanmadı, yalnızca BUGÜNKÜ hedef durum doğrulandı).
 
-1. **Documents the MySQL/MariaDB architecture that actually exists** — because a handbook that describes a database that isn't deployed is fiction, and the first rule of this handbook is that every claim is verifiable against the repo.
-2. **Specifies the PostgreSQL migration path** (§ 17) as the future target for semantic search (pgvector) and managed-Postgres scale — the exact decision that `PROJECT.md` §12 already defers to this document.
+1. **Bu belge artık PostgreSQL gerçeğini belgelemeli** — MySQL'e özgü anlatılan bölümler (§ 2 tablosu, § 7.4, § 15, § 18) aşağıda düzeltildi. Kalan bazı MySQL'e özgü ayrıntılar (§ 8/§ 9/§ 13 içindeki mysqldump/EXPLAIN gibi araç-spesifik cümleler) henüz tek tek Postgres için yeniden doğrulanmadı — DOĞRULANMADI etiketiyle bırakıldı, DevOps/Helios tarafından ayrı bir geçişte tamamlanmalı.
+2. `PROJECT.md` §12 ve `DEVOPS_GUIDE.md` hâlâ eski MySQL varsayımını taşıyor olabilir — bu belgeyle senkron değiller, ayrı düzeltme gerektiriyor (bkz. `docs/project-brain/KNOWN_GAPS.md`).
 
-Both dialects share the same Prisma schema surface, the same multi-tenant rules, and the same operational contracts (migrations, transactions, backups). The dialect switch is a discrete, reversible migration — not a rewrite.
+Multi-tenant kurallar, migration/transaction/backup sözleşmeleri dialekt-bağımsızdır ve bu belgenin geri kalanında halen geçerlidir.
 
 ---
 
@@ -28,14 +29,15 @@ Both dialects share the same Prisma schema surface, the same multi-tenant rules,
 
 | Concern | Current state |
 |---|---|
-| ORM | **Prisma 7.8.x** with **`@prisma/adapter-mariadb` 7.9.1** (driver adapter, no `DATABASE_URL` in schema) |
-| Dialect | MySQL/MariaDB (`provider = "mysql"`), `datasource db` in `prisma/schema.prisma` |
+| ORM | **Prisma 7.8.x** with **`@prisma/adapter-pg` 7.9.1** (driver adapter, no `DATABASE_URL` literal in schema) — DOĞRULANDI (`src/lib/db.ts`, `package.json`) |
+| Dialect | **PostgreSQL** (`provider = "postgresql"`), `datasource db` in `prisma/schema.prisma` — DOĞRULANDI |
+| Hosting | **Supabase** (production Postgres, `db.uqkafczrplqitzumtrqy.supabase.co`, Postgres 17, `ap-southeast-1`) · **Vercel** (app hosting/deploy) — DOĞRULANDI via Supabase/Vercel proje kayıtları, bu belgede önceden yoktu |
 | Config | `prisma/prisma.config.ts` — schema path + `DATABASE_URL` from env (Prisma 7 config split) |
-| Runtime selection | `STORE_MODE` in `src/lib/config.ts`: `json` (file demo) · `db` (MySQL, production) · `memory` (in-process demo) |
-| Client wiring | `src/lib/db.ts` — lazy `PrismaClient` + `PrismaMariaDb` adapter; only constructed in `db` mode |
-| Migration tooling | `db:push` only (`package.json`). **No committed migrations** — adoption is a backlog item (§ 7) |
-| Schema size | 14 models, 317 lines (`prisma/schema.prisma`) |
-| Vector memory | Optional `pgvector-store.ts` connects directly to a Postgres URL for AI semantic memory (§ 17.3) |
+| Runtime selection | `STORE_MODE` in `src/lib/config.ts`: `json` (file demo) · `db` (Postgres/Supabase, production) · `memory` (in-process demo) |
+| Client wiring | `src/lib/db.ts` — lazy `PrismaClient` + `PrismaPg` adapter (`@prisma/adapter-pg`, `pg` pool); only constructed in `db` mode — DOĞRULANDI |
+| Migration tooling | `prisma/migrations/` — **60 committed migration klasörü DOĞRULANDI** (bu belgenin önceki "no committed migrations" iddiası YANLIŞTI) |
+| Schema size | Bu taramada yeniden sayılmadı — DOĞRULANMADI, orijinal "14 models, 317 lines" iddiası güncel şemaya karşı tazelenmeli |
+| Vector memory | Optional `pgvector-store.ts` connects directly to a Postgres URL for AI semantic memory — artık operasyonel DB ile AYNI ailede (ikisi de Postgres), ayrı dialekt değil |
 
 ### 2.1 Store-mode parity (hard contract)
 
@@ -163,9 +165,9 @@ Every Prisma `find*`/`update*`/`delete*` on a tenant-owned model **must** includ
 - **Data backfills are reviewed:** an `UPDATE` over a production table runs in batches, not one giant statement.
 - Every schema change keeps `npx prisma validate` green (PROJECT.md §14 validation gate).
 
-### 7.4 Dialect change
+### 7.4 Dialect change (tarihsel — TAMAMLANDI)
 
-Switching `provider` from `"mysql"` to `"postgresql"` is a **full migration-planning exercise**, not a config flip (see § 17). The two must never run side by side against one `DATABASE_URL`.
+Proje `"mysql"`'den `"postgresql"`'e ZATEN geçti (bkz. § 15, düzeltilmiş). Bu bölüm artık ileriye dönük bir plan değil, geçmiş bir geçişin notudur — geçişin ne zaman/hangi commit'te yapıldığı bu taramada doğrulanmadı.
 
 ---
 
@@ -326,27 +328,27 @@ Non-negotiables: **tenant isolation at every scale**, **statelessness** (shared 
 
 ---
 
-## 15. PostgreSQL Migration Path
+## 15. PostgreSQL Migration — TAMAMLANDI (düzeltildi 2026-08-31)
 
-This section is the concrete plan referenced by `PROJECT.md` §12. It is **not active** — it becomes active only when semantic search / vector memory is a core product path, or managed MySQL hits a hard scaling wall.
+Bu bölüm önceden "ileride yapılacak plan" olarak yazılmıştı. **Artık geçmiş zaman**: operasyonel veritabanı ZATEN PostgreSQL/Supabase (§ 2 DOĞRULANDI). Aşağıdaki alt bölümler tarihsel referans olarak bırakıldı; ne zaman/nasıl uygulandığı bu taramada doğrulanmadı.
 
-### 15.1 Decision triggers (any one justifies the move)
+### 15.1 (tarihsel) Geçişi tetikleyen kararlar — artık geçerli değil, gerçekleşmiş durum
 
-1. **pgvector becomes the memory backend of record** for the AI layer at multi-tenant scale (today `VECTOR_BACKEND=pgvector` is optional, see § 15.3).
-2. Managed MySQL/MariaDB can no longer serve connection limits or read scaling for serverless.
-3. JSONB + advanced types (arrays, `tsvector`) earn their keep in product requirements.
+Orijinal tetikleyiciler (pgvector'ün ana bellek katmanı olması, MySQL ölçek sınırı, JSONB ihtiyacı) — hangisinin/hangilerinin fiilen gerekçe olduğu doğrulanmadı, sonuç aynı: proje Postgres'te.
 
-### 15.2 Migration steps (ordered, two-phase per change)
+### 15.2 (tarihsel) Geçiş adımları — referans, doğrulanmadı
 
-1. **Plan as a project, not a patch:** map every Prisma model, every `Json` column, every index to its Postgres equivalent. `Json` → `Jsonb`; `DateTime` semantics carry over; `cuid` strings carry over.
-2. **Branch the schema:** `provider = "postgresql"`, adapter `@prisma/adapter-pg`, `DATABASE_URL` → `postgres://…`. Regenerate migrations for the Postgres target.
-3. **Freeze writes, sync, cut over:** maintain MySQL as source of truth, replay changes to Postgres (change-data-capture or downtime window), verify checksums on tenant-scoped samples, then flip reads. Never dual-run application code that assumes one dialect.
-4. **Re-validate indexes:** Postgres indexes differ (GiST/HNSW for vectors, `BRIN` for time-series, expression indexes). The § 8 principles (tenant-first) survive verbatim.
-5. **Point-in-time recovery:** `pg_dump`/WAL PITR replaces `mysqldump`/binlog; re-run the § 13 backup contract against Postgres tooling.
+Bu adımların (checksum doğrulama, freeze-sync-cutover, index yeniden doğrulama) fiilen bu şekilde uygulanıp uygulanmadığı DOĞRULANMADI — orijinal plan metni referans için korundu, DevOps geçmişiyle karşılaştırılmalı:
 
-### 15.3 What already exists in the code
+1. Her Prisma modeli, her `Json` kolonu, her index Postgres karşılığına eşlendi (`Json`→`Jsonb`, `DateTime`/`cuid` aynen taşındı) — DOĞRULANMADI.
+2. `provider = "postgresql"`, adapter `@prisma/adapter-pg` — DOĞRULANDI (bugünkü kod).
+3. Kesme/senkron/cutover süreci nasıl yürütüldü — DOĞRULANMADI.
+4. Index'lerin Postgres'e göre yeniden doğrulanması (GiST/HNSW/BRIN/expression index) — DOĞRULANMADI, § 8 prensipleri (tenant-first) hâlâ geçerli.
+5. Point-in-time recovery `pg_dump`/WAL tabanlı mı kuruldu — DOĞRULANMADI, § 13/DEVOPS_GUIDE ile birlikte DevOps tarafından teyit edilmeli.
 
-`src/lib/ai/memory/vector/pgvector-store.ts` is a **standalone vector store** that connects directly to a Postgres URL (`DATABASE_URL` starting with `postgres`, or `PGVECTOR_URL`), creates `ai_memory_vectors (id, tenant_id, embedding, payload JSONB)` with PK `(tenant_id, id)`, and searches by cosine distance. It is tenant-scoped and used only for **AI memory embeddings** — it is *not* the operational data store. Operational data stays on MySQL until § 15.2 is executed.
+### 15.3 Bugün kodda var olan
+
+`src/lib/ai/memory/vector/pgvector-store.ts` bağımsız bir vektör deposu — artık operasyonel DB ile AYNI Postgres ailesinde (ayrı dialekt değil, ayrı bir bağlantı/şema olabilir, bu taramada ayrımı doğrulanmadı). Tenant-kapsamlı, yalnızca AI bellek embedding'leri için kullanılıyor.
 
 ---
 
@@ -379,7 +381,7 @@ Tracked for the next sprints; **owned by Prisma, severity-graded like security f
 | DB-7 | **Medium** | `createdAt`/`updatedAt` inconsistent: absent on `Branch`, `Room`, `Lesson`, `Attendance`, `WorkflowRun`; `Student`/`MakeupRequest` have `createdAt` but no `updatedAt` | Add uniformly in a migration |
 | DB-8 | **Low** | App-generated string IDs (`stu_…`) vs cuid inconsistency | Standardize on cuid for new models |
 | DB-9 | **Low** | Money as `Int` (whole TL) | `Decimal` if sub-lira/multi-currency needed |
-| DB-10 | **Medium** | No DB-mode integration tests; parity only file-mode tested | MariaDB CI integration tests (store parity) |
+| DB-10 | **Medium** | No DB-mode integration tests; parity only file-mode tested | Postgres/Supabase CI integration tests (store parity) — düzeltildi 2026-08-31, önceki hali "MariaDB CI" diyordu |
 
 ---
 
@@ -387,11 +389,11 @@ Tracked for the next sprints; **owned by Prisma, severity-graded like security f
 
 Cross-checked against the sibling documents at `HEAD f2fe8d83` (schema/deps unchanged since `0cab45d`):
 
-1. **Dialect statement is aligned with PROJECT.md §12** ("canonical DB dialect is MySQL/MariaDB … DATABASE_ARCHITECTURE.md documents the PostgreSQL migration path") — § 15 above is that promised content. **Flag for the human:** the original assignment said "PostgreSQL architecture"; the repo is MySQL/MariaDB. This document documents reality + the Postgres plan rather than describing a non-existent Postgres deployment.
-2. **Migrations:** `DEVOPS_GUIDE.md` §11.3 (migrate adoption, never `db:push` in prod) matches § 7 here. The CI "fail PR without migration" gate appears in both (DEVOPS §4.2, here § 7.2).
-3. **`DEVOPS_GUIDE.md` §2.2** claims a local `.env` ships `DATABASE_URL="file:./dev.db"` (SQLite-style) for the demo path. **This conflicts with `src/lib/db.ts`**, which throws on `file:` URLs, and with `provider = "mysql"`. The demo path is `STORE_MODE=json`, not a file DB URL. Not corrected here (Helios owns that doc) — flagging for the consolidated review.
+1. **DÜZELTME (2026-08-31):** bu maddenin orijinali "canonical dialect MySQL/MariaDB" diyordu — YANLIŞTI. Gerçek dialekt PostgreSQL/Supabase (§ 1, § 2 DOĞRULANDI). `PROJECT.md` §12 hâlâ eski ifadeyi taşıyor olabilir — bu belgeyle senkronize edilmedi, ayrı görev (bkz. `docs/project-brain/KNOWN_GAPS.md`).
+2. **Migrations:** `DEVOPS_GUIDE.md` §11.3 (migrate adoption, never `db:push` in prod) matches § 7 here. The CI "fail PR without migration" gate appears in both (DEVOPS §4.2, here § 7.2). 60 migration klasörü DOĞRULANDI (§ 2) — "no committed migrations" iddiası da düzeltildi.
+3. **`DEVOPS_GUIDE.md` §2.2** claims a local `.env` ships `DATABASE_URL="file:./dev.db"` (SQLite-style) for the demo path — bu belgede henüz düzeltilmedi, DevOps/Helios sahipliğinde ayrı görev.
 4. **Multi-tenancy:** `PROJECT.md` §10, `AGENTS.md`, and this § 4 agree on ALS + tenant-first + `WorkflowState` known gap.
-5. **Backups:** `DEVOPS_GUIDE.md` §10 (mysqldump, PITR, retention, restore test) matches § 13 here.
+5. **Backups:** `DEVOPS_GUIDE.md` §10'daki mysqldump/PITR anlatısı Postgres için henüz yeniden doğrulanmadı (Supabase kendi otomatik backup/PITR mekanizmasını sağlıyor olabilir — bu taramada Supabase panelinden teyit edilmedi). DOĞRULANMADI.
 6. **`WorkflowRun` tenant history** and `PaymentFollowUpCase` already persist in `db` mode; only `WorkflowState` and AI memory/metrics remain partially file-based in `db` mode (AI metrics persist to file even in `db` mode — see `DEVOPS_GUIDE.md` §9.2 and the PRODUCTION_AUDIT backlog).
 
 ---

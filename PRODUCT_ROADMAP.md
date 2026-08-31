@@ -1,4 +1,4 @@
-# NotaPlan — Ürün Değerlendirmesi & Para Kazanma Yol Haritası
+# Nevii Hub — Ürün Değerlendirmesi & Para Kazanma Yol Haritası
 **Tarih:** 29 Temmuz 2026 · **Hedef:** Dikey AI-Agent SaaS ile gelir üretmek
 
 ---
@@ -45,7 +45,7 @@
 **"Horizontal AI agent platformu" satmak henüz erken. Kazandıracak yol:**
 
 ```
-NotaPlan (dikey SaaS, müzik okulları)
+Nevii Hub (dikey SaaS, müzik okulları)
   → AI Agent eklentileri (her biri ayrı para basan modül)
     → İlk 5 ödeyen müşteri + case study
       → Dikey genişleme (dil, dans, spor akademileri)
@@ -97,7 +97,7 @@ Kural: **Her geliştirme önce müşteri para kazandıran/kazandırmayı ö
 
 ### Faz 4 — Platform aşaması (6+ ay, ancak gelir varken)
 - Agent Studio: müşterinin kendi agent kurallarını tanımlaması
-- MCP server: dış agent'ların NotaPlan'a bağlanması
+- MCP server: dış agent'ların Nevii Hub'a bağlanması
 - White-label: eğitim zincirlerine lisans
 - (İsteğe bağlı) Voice agent — ancak dikey kanıtlandıktan sonra
 

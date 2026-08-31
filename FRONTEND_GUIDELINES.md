@@ -1,6 +1,6 @@
-# FRONTEND GUIDELINES — NotaPlan
+# FRONTEND GUIDELINES — Nevii Hub
 
-Canonical frontend engineering handbook for the NotaPlan SaaS platform.
+Canonical frontend engineering handbook for the Nevii Hub SaaS platform.
 Applies to every engineer and every AI coding assistant working on this codebase.
 
 - Stack: Next.js 16 (App Router) · React 19 · TypeScript 5 (strict) · Tailwind CSS 4
@@ -150,4 +150,4 @@ src/
 
 ---
 
-*This document is part of the NotaPlan Engineering Handbook. When the design system, Tailwind tokens, or component structure evolve, update this file in the same change — it is the contract every page is built against.*
+*This document is part of the Nevii Hub Engineering Handbook. When the design system, Tailwind tokens, or component structure evolve, update this file in the same change — it is the contract every page is built against.*

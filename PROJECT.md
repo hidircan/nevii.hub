@@ -1,7 +1,7 @@
-# NotaPlan — Project
+# Nevii Hub — Project
 
-> **Canonical source of truth for every engineer and every AI coding assistant working on NotaPlan.**
-> This document defines what NotaPlan is, why it exists, how it is engineered, and where it is going.
+> **Canonical source of truth for every engineer and every AI coding assistant working on Nevii Hub.**
+> This document defines what Nevii Hub is, why it exists, how it is engineered, and where it is going.
 > Read it before touching the repository. Companion documents: `AGENTS.md` (roles & pipeline),
 > `DATABASE_ARCHITECTURE.md` (Prisma), `FRONTEND_GUIDELINES.md` (Nova), `DEVOPS_GUIDE.md` (Helios),
 > `PRODUCT_REQUIREMENTS.md` (Orion), `PRODUCT_ROADMAP.md`, `PRODUCTION_AUDIT.md`.
@@ -12,7 +12,7 @@
 
 ## 1. Executive Summary
 
-NotaPlan is an AI-first, multi-tenant SaaS platform that runs music schools: **scheduling,
+Nevii Hub is an AI-first, multi-tenant SaaS platform that runs music schools: **scheduling,
 attendance, makeup-lesson planning, tuition payments, WhatsApp parent communication, and
 administrative portals**, with AI agents that automate the operational work a small school
 owner does by hand every day.
@@ -23,7 +23,7 @@ that each solve a concrete, revenue-relevant problem (collections, makeup planni
 occupancy, parent secretary). The first pilot school — **Nilüfer Acar Müzik Akademisi** (İzmir) —
 is live in the seed data and drives every product decision.
 
-Technically, NotaPlan is a **Next.js 16 + React 19 + TypeScript** application on **Vercel-ready
+Technically, Nevii Hub is a **Next.js 16 + React 19 + TypeScript** application on **Vercel-ready
 serverless**, with **Prisma 7 (PostgreSQL, `@prisma/adapter-pg`)** persistence, a **tenant-scoped REST API (v1)**,
 a **JWT + RBAC** authorization layer, and an **Agent Runtime** that exposes a guardrailed
 tool registry (15 tools today) to an LLM orchestrator, a **Workflow Engine** (6 autonomous jobs),
@@ -43,11 +43,11 @@ integration testing are the known next investments.
 
 Small music schools run on paper, spreadsheets, and WhatsApp threads. Lessons get missed,
 makeup rights expire unused, tuition goes uncollected, and the owner is the only person who
-knows what is actually happening. NotaPlan's mission is to give a small school the operational
+knows what is actually happening. Nevii Hub's mission is to give a small school the operational
 back office of a large academy, at a price a small school can afford, without adding admin work
 for teachers or parents.
 
-The mission is *operational, not transactional*: NotaPlan does not merely record lessons and
+The mission is *operational, not transactional*: Nevii Hub does not merely record lessons and
 payments — it closes loops (absent lesson → makeup right → scheduled makeup → parent notified)
 and chases outcomes (overdue tuition → follow-up case → payment) autonomously.
 
@@ -55,10 +55,10 @@ and chases outcomes (overdue tuition → follow-up case → payment) autonomousl
 
 ## 3. Vision
 
-NotaPlan becomes the **default operating system for small music schools**, and then the
+Nevii Hub becomes the **default operating system for small music schools**, and then the
 **default vertical AI platform for skills academies**.
 
-- **Short-term (0–6 months):** Every operational loop in a music school runs on NotaPlan.
+- **Short-term (0–6 months):** Every operational loop in a music school runs on Nevii Hub.
   AI agents visibly collect tuition, protect revenue from missed lessons, and remind parents —
   with human approval before anything is sent.
 - **Mid-term (6–18 months):** The AI agent line becomes a product of its own — each agent is a
@@ -166,7 +166,7 @@ AI platform (live):
 
 ## 8. AI-First Architecture
 
-NotaPlan is AI-first by design, not by add-on. The architecture makes one guarantee:
+Nevii Hub is AI-first by design, not by add-on. The architecture makes one guarantee:
 
 > **Every business action the AI performs goes through the Agent Runtime's tool registry,
 > which applies the same RBAC and tenant scoping as a human API call. No AI code path touches
@@ -229,7 +229,7 @@ customers** (`PRODUCT_ROADMAP.md` §5).
 
 ### 9.2 Inside the engineering team (delivery pipeline)
 
-NotaPlan is built by a fixed team of specialized AI agents operating in a strict review
+Nevii Hub is built by a fixed team of specialized AI agents operating in a strict review
 pipeline — **Orion (product) → Atlas (architecture) → Prisma / Nova / Helios (independent
 review) → Forge (implementation) → Sentinel (independent approval gate)**. Full role
 definitions, decision authority, collaboration rules, and constraints are in `AGENTS.md`.

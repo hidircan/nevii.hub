@@ -1,4 +1,4 @@
-# NotaPlan — Change Log (this session)
+# Nevii Hub — Change Log (this session)
 
 ## A. Attendance calendar bug fix (`src/components/attendance-calendar-panel.tsx`)
 
