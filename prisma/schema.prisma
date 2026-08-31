@@ -8,65 +8,68 @@ datasource db {
 
 /// Top-level multi-tenant boundary
 model Tenant {
-  id        String   @id @default(cuid())
-  name      String
-  slug      String   @unique
-  active    Boolean  @default(true)
-  users     User[]
-  schools   School[]
-  branches  Branch[]
-  teachers  Teacher[]
-  students  Student[]
-  rooms     Room[]
-  lessons   Lesson[]
-  lessonSeries LessonSeries[]
-  attendances Attendance[]
-  makeupRequests MakeupRequest[]
-  payments  Payment[]
-  studentPortalAccess StudentPortalAccess[]
-  paymentCheckoutAttempts PaymentCheckoutAttempt[]
-  followUpCases PaymentFollowUpCase[]
-  communicationMessages CommunicationMessage[]
-  teacherFeeRules TeacherFeeRule[]
-  teacherPayouts  TeacherPayout[]
-  notifications   Notification[]
-  notificationPreferences NotificationPreference[]
-  announcements   Announcement[]
-  lessonAssessments LessonAssessment[]
-  periodicAssessments PeriodicAssessment[]
+  id                          String                       @id @default(cuid())
+  name                        String
+  slug                        String                       @unique
+  active                      Boolean                      @default(true)
+  users                       User[]
+  schools                     School[]
+  branches                    Branch[]
+  teachers                    Teacher[]
+  students                    Student[]
+  rooms                       Room[]
+  lessons                     Lesson[]
+  lessonSeries                LessonSeries[]
+  attendances                 Attendance[]
+  makeupRequests              MakeupRequest[]
+  payments                    Payment[]
+  studentPortalAccess         StudentPortalAccess[]
+  paymentCheckoutAttempts     PaymentCheckoutAttempt[]
+  followUpCases               PaymentFollowUpCase[]
+  communicationMessages       CommunicationMessage[]
+  teacherFeeRules             TeacherFeeRule[]
+  teacherPayouts              TeacherPayout[]
+  notifications               Notification[]
+  notificationPreferences     NotificationPreference[]
+  announcements               Announcement[]
+  lessonAssessments           LessonAssessment[]
+  periodicAssessments         PeriodicAssessment[]
   teacherAvailabilityRequests TeacherAvailabilityRequest[]
-  homeworks           Homework[]
-  homeworkSubmissions HomeworkSubmission[]
-  teachingMaterials   TeachingMaterial[]
-  teacherFeedbacks    TeacherFeedback[]
-  studentFeedbacks    StudentFeedback[]
-  studentCurriculumTopics StudentCurriculumTopic[]
-  socialMediaConsents SocialMediaConsent[]
-  consentTextVersions ConsentTextVersion[]
-  kvkkConsents KvkkConsent[]
-  callLogs CallLog[]
-  messageLogs MessageLog[]
-  packages   Package[]
-  discountCampaigns DiscountCampaign[]
-  instrumentCatalogEntries InstrumentCatalogEntry[]
-  staffMembers StaffMember[]
-  staffAdvances StaffAdvance[]
-  payrollRecords PayrollRecord[]
-  leaveRequests LeaveRequest[]
-  expenseRecords ExpenseRecord[]
-  recurringExpenseRules RecurringExpenseRule[]
-  budgets Budget[]
-  closedDays ClosedDay[]
-  trialLessons TrialLesson[]
-  documentTemplates DocumentTemplate[]
-  documentInstances DocumentInstance[]
-  tasks Task[]
-  taskReminderLogs TaskReminderLog[]
-  lessonHomeworkReminderLogs LessonHomeworkReminderLog[]
-  taskReminderPreferences TaskReminderPreference[]
-  studentListViews StudentListView[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  homeworks                   Homework[]
+  homeworkSubmissions         HomeworkSubmission[]
+  teachingMaterials           TeachingMaterial[]
+  teacherFeedbacks            TeacherFeedback[]
+  studentFeedbacks            StudentFeedback[]
+  studentCurriculumTopics     StudentCurriculumTopic[]
+  socialMediaConsents         SocialMediaConsent[]
+  consentTextVersions         ConsentTextVersion[]
+  kvkkConsents                KvkkConsent[]
+  callLogs                    CallLog[]
+  messageLogs                 MessageLog[]
+  packages                    Package[]
+  discountCampaigns           DiscountCampaign[]
+  instrumentCatalogEntries    InstrumentCatalogEntry[]
+  staffMembers                StaffMember[]
+  staffAdvances               StaffAdvance[]
+  payrollRecords              PayrollRecord[]
+  leaveRequests               LeaveRequest[]
+  expenseRecords              ExpenseRecord[]
+  recurringExpenseRules       RecurringExpenseRule[]
+  budgets                     Budget[]
+  closedDays                  ClosedDay[]
+  trialLessons                TrialLesson[]
+  documentTemplates           DocumentTemplate[]
+  documentInstances           DocumentInstance[]
+  studentContracts            StudentContract[]
+  tasks                       Task[]
+  taskReminderLogs            TaskReminderLog[]
+  lessonHomeworkReminderLogs  LessonHomeworkReminderLog[]
+  taskReminderPreferences     TaskReminderPreference[]
+  studentListViews            StudentListView[]
+  profilePhotos               ProfilePhoto[]
+  passwordResetTokens         PasswordResetToken[]
+  createdAt                   DateTime                     @default(now())
+  updatedAt                   DateTime                     @updatedAt
 }
 
 /// Auth identity — passwordHash is Argon2/bcrypt; never store plaintext
@@ -119,78 +122,119 @@ model StudentPortalAccess {
   @@index([tenantId, userId])
 }
 
+/// Öğrenci/öğretmen/kullanıcı profil fotoğrafı — DocumentInstance ile AYNI mevcut
+/// mimari (base64 gövde DB satırında; bu proje hiçbir blob/S3 depolamasına bağlı
+/// değil, ayrı bir dış bağımlılık eklenmez). Ana Student/Teacher tablolarına
+/// GÖMÜLMEZ (liste sorgularının her satırda büyük bir base64 gövde taşımaması
+/// için). "user" ownerType, Student/Teacher gibi ayrı bir domain kaydı olmayan
+/// roller (veli, admin) için kendi User.id'sine bağlı hesap fotoğrafıdır.
+model ProfilePhoto {
+  id           String   @id
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// "student" | "teacher" | "user"
+  ownerType    String
+  ownerId      String
+  fileMimeType String
+  fileData     String
+  fileSize     Int
+  uploadedBy   String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([tenantId, ownerType, ownerId])
+  @@index([tenantId, ownerType, ownerId])
+}
+
+/// Şifremi unuttum akışı — tek kullanımlık sıfırlama kodu. Ham kod ASLA
+/// saklanmaz, yalnızca sha256 hash'i (`tokenHash`). `usedAt` set edilince
+/// (bkz. consumePasswordResetToken) kod bir daha kullanılamaz.
+model PasswordResetToken {
+  id        String    @id
+  tenantId  String
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId    String
+  tokenHash String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([tokenHash])
+  @@index([userId])
+}
+
 model School {
-  id                    String    @id @default(cuid())
-  tenantId              String
-  tenant                Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  name                  String
-  shortName             String
-  city                  String
-  website               String
-  email                 String
-  phone                 String
-  logoUrl               String
-  makeupWindowDays      Int
+  id                     String           @id @default(cuid())
+  tenantId               String
+  tenant                 Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name                   String
+  shortName              String
+  city                   String
+  website                String
+  email                  String
+  phone                  String
+  logoUrl                String
+  makeupWindowDays       Int
   /// Aylık öğrenci başına telafi hakkı (varsayılan 2). 0 = telafi kapalı.
-  monthlyMakeupAllowance Int @default(2)
-  lessonDurationMinutes Int
-  workingHoursStart     String
-  workingHoursEnd       String
-  workingDays           Json
-  currency              String
+  monthlyMakeupAllowance Int              @default(2)
+  lessonDurationMinutes  Int
+  workingHoursStart      String
+  workingHoursEnd        String
+  workingDays            Json
+  currency               String
   /// EPIC 3 (IMPLEMENTATION_PLAN.md): "exact_minutes" | "round_30" | "fixed_package" —
   /// how a lesson's actual duration is converted to payable minutes in
   /// computeTeacherEarningsForPeriod (src/lib/teacher-payout.ts). Never
   /// changes a TeacherPayout snapshot already generated — only affects
   /// future computations.
-  feeRoundingMode       String    @default("exact_minutes")
+  feeRoundingMode        String           @default("exact_minutes")
   /// EPIC 1 (IMPLEMENTATION_PLAN.md) — gecikmiş tahsilat otomasyon ayarları:
   /// { frequencyLimitDays: number; autoSendEnabled: boolean }. null ise
   /// uygulama katmanı varsayılanları (3 gün, autoSendEnabled: false) uygular.
-  collectionsSettings   Json?
+  collectionsSettings    Json?
   /// Paket 6 — dönem bazlı haftalık kapalı gün özelleştirmesi:
   /// { guz: number[]; yaz: number[] } (0=Pazar..6=Cumartesi). null ise
   /// src/lib/attendance-calendar.ts'teki sabit varsayılanlar kullanılır.
-  termWeeklyClosedDays  Json?
+  termWeeklyClosedDays   Json?
   /// Faz 8 (KVKK) — { restrictedFeatures: string[]; recordDeviceInfo: boolean }. null ise
   /// uygulama katmanı varsayılanları (boş kısıtlı-özellik listesi, recordDeviceInfo: false —
   /// "veri minimizasyonu") uygular.
-  consentSettings       Json?
-  branches              Branch[]
-  teachers              Teacher[]
-  students              Student[]
-  rooms                 Room[]
-  lessons               Lesson[]
-  lessonSeries          LessonSeries[]
-  attendances           Attendance[]
-  makeupRequests        MakeupRequest[]
-  payments              Payment[]
-  teacherFeeRules       TeacherFeeRule[]
-  teacherPayouts        TeacherPayout[]
-  createdAt             DateTime  @default(now())
-  updatedAt             DateTime  @updatedAt
+  consentSettings        Json?
+  branches               Branch[]
+  teachers               Teacher[]
+  students               Student[]
+  rooms                  Room[]
+  lessons                Lesson[]
+  lessonSeries           LessonSeries[]
+  attendances            Attendance[]
+  makeupRequests         MakeupRequest[]
+  payments               Payment[]
+  teacherFeeRules        TeacherFeeRule[]
+  teacherPayouts         TeacherPayout[]
+  createdAt              DateTime         @default(now())
+  updatedAt              DateTime         @updatedAt
 
   @@unique([tenantId])
   @@index([tenantId])
 }
 
 model Branch {
-  id             String    @id
-  tenantId       String
-  tenant         Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  school         School    @relation(fields: [schoolId], references: [id], onDelete: Cascade)
-  schoolId       String
-  name           String
-  shortName      String
-  address        String
-  phone          String
-  city           String
-  teachers       Teacher[]
-  students       Student[]
-  rooms          Room[]
-  lessons        Lesson[]
-  lessonSeries   LessonSeries[]
-  makeupRequests MakeupRequest[]
+  id              String           @id
+  tenantId        String
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  school          School           @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  schoolId        String
+  name            String
+  shortName       String
+  address         String
+  phone           String
+  city            String
+  teachers        Teacher[]
+  students        Student[]
+  rooms           Room[]
+  lessons         Lesson[]
+  lessonSeries    LessonSeries[]
+  makeupRequests  MakeupRequest[]
   teacherFeeRules TeacherFeeRule[]
 
   @@index([tenantId])
@@ -198,45 +242,45 @@ model Branch {
 }
 
 model Teacher {
-  id              String   @id
-  tenantId        String
-  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id                    String           @id
+  tenantId              String
+  tenant                Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   /// Faz 12 — insan-okunur, değişmez kurum numarası (ör. "T00001").
-  displayId       String?
-  name            String
-  email           String
-  phone           String
-  branch          Branch   @relation(fields: [branchId], references: [id])
-  branchId        String
-  school          School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
-  schoolId        String
-  instruments     Json
+  displayId             String?
+  name                  String
+  email                 String
+  phone                 String
+  branch                Branch           @relation(fields: [branchId], references: [id])
+  branchId              String
+  school                School           @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  schoolId              String
+  instruments           Json
   /// ÖNCELİK 4 (devam) — çoklu enstrüman + seviye çiftleri: [{instrument, level}].
   /// NULL = legacy kayıt (bu alan eklenmeden önce oluşturuldu); UI bu durumda
   /// yalnızca `instruments`'ı (seviyesiz) gösterir, hata vermez.
-  instrumentLevels Json?
-  availability    Json
-  maxDailyLessons Int
-  active          Boolean
+  instrumentLevels      Json?
+  availability          Json
+  maxDailyLessons       Int
+  active                Boolean
   /// ÖNCELİK 4 (devam) — öğretmen arşivleme (hard delete YOK). NULL = aktif
   /// veya legacy kayıt; set edilmişse arşivlenme anı. `active=false` ile
   /// birlikte kullanılır — bkz. src/lib/services/tools.ts archiveTeacherTool.
-  archivedAt      DateTime?
+  archivedAt            DateTime?
   /// ÖNCELİK 4 (devam) — öğretmen CSV çoklu enstrüman revizyonu: bu 5 alan
   /// TS tipinde (Teacher) zaten vardı ama hiçbir zaman DB'de karşılığı yoktu
   /// (db modunda hep sessizce kayboluyordu) — CSV'nin `lise/universite/
   /// mezuniyet/sozlesme_baslangic/sozlesme_bitis` kolonlarını db modunda da
   /// kalıcı kılmak için burada eklendi.
-  highSchool          String?
-  university          String?
-  graduationYear      Int?
-  contractStartDate   DateTime?
-  contractEndDate     DateTime?
+  highSchool            String?
+  university            String?
+  graduationYear        Int?
+  contractStartDate     DateTime?
+  contractEndDate       DateTime?
   /// Package D — özlük/idari alanlar + çoklu şube ataması. Additive; hepsi
   /// opsiyonel, legacy kayıtlar kırılmaz. `nationalIdCipher`/`birthDate`/
   /// `address` TS tipinde (Teacher) zaten vardı ama hiçbir zaman DB'de
   /// karşılığı yoktu (db modunda hep sessizce kayboluyordu) — burada eklendi.
-  nationalIdCipher      String?   @db.Text
+  nationalIdCipher      String?          @db.Text
   nationalIdLast2       String?
   birthDate             DateTime?
   address               String?
@@ -250,16 +294,16 @@ model Teacher {
   terminationDate       DateTime?
   emergencyContactName  String?
   emergencyContactPhone String?
-  personnelNotes        String?   @db.Text
-  color           String
-  students        Student[]
-  lessons         Lesson[]
-  lessonSeries    LessonSeries[]
-  makeupRequests  MakeupRequest[]
-  teacherFeeRules TeacherFeeRule[]
-  teacherPayouts  TeacherPayout[]
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  personnelNotes        String?          @db.Text
+  color                 String
+  students              Student[]
+  lessons               Lesson[]
+  lessonSeries          LessonSeries[]
+  makeupRequests        MakeupRequest[]
+  teacherFeeRules       TeacherFeeRule[]
+  teacherPayouts        TeacherPayout[]
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
 
   @@unique([tenantId, displayId])
   @@index([tenantId])
@@ -281,110 +325,123 @@ model EntitySequence {
 }
 
 model Student {
-  id                String    @id
-  tenantId          String
-  tenant            Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id                       String            @id
+  tenantId                 String
+  tenant                   Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   /// Faz 12 — insan-okunur, değişmez kurum numarası (ör. "S00001").
   /// NULL = henüz numara atanmamış eski kayıt (backfill script'i doldurur).
   /// Kullanıcı tarafından değiştirilemez; yalnızca oluşturma anında/backfill'de yazılır.
-  displayId         String?
-  name              String
-  email             String
-  phone             String
+  displayId                String?
+  name                     String
+  email                    String
+  phone                    String
   /// SELF_MANAGED öğrencide boş olabilir — bkz. accountResponsibility.
-  parentName        String?
-  parentPhone       String?
+  parentName               String?
+  parentPhone              String?
   /// Karma Öğrenci Portalı — "PARENT_MANAGED" (varsayılan, veli iletişim/tahsilat
   /// muhatabı) | "SELF_MANAGED" (öğrenci kendi muhatabı). Erişim TÜRÜ (kimin portal
   /// hesabı olduğu) burada değil, StudentPortalAccess.accessType'ta tutulur — bu
   /// alan yalnızca "tahsilat/iletişim kime gider" iş kararıdır.
-  accountResponsibility String @default("PARENT_MANAGED")
+  accountResponsibility    String            @default("PARENT_MANAGED")
   /// Paket 7 — TC kimlik alanından hemen sonra istenir; opsiyonel.
-  motherName        String?
-  fatherName        String?
-  branch            Branch    @relation(fields: [branchId], references: [id])
-  branchId          String
-  school            School    @relation(fields: [schoolId], references: [id], onDelete: Cascade)
-  schoolId          String
-  instruments       Json
-  teacher           Teacher   @relation(fields: [teacherId], references: [id])
-  teacherId         String
-  packageName       String
-  weeklyLessonCount Int
-  monthlyFee        Int
-  active            Boolean
-  notes             String
-  createdAt         DateTime  @default(now())
+  motherName               String?
+  fatherName               String?
+  branch                   Branch            @relation(fields: [branchId], references: [id])
+  branchId                 String
+  school                   School            @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  schoolId                 String
+  instruments              Json
+  teacher                  Teacher           @relation(fields: [teacherId], references: [id])
+  teacherId                String
+  packageName              String
+  weeklyLessonCount        Int
+  monthlyFee               Int
+  active                   Boolean
+  notes                    String
+  createdAt                DateTime          @default(now())
   /// EPIC 4 (IMPLEMENTATION_PLAN.md) — hepsi opsiyonel: geçmiş öğrenci
   /// kayıtları zorunlu backfill istemeden migration sonrası çalışmaya devam
   /// eder. "Hobi" | "MEB" | "London College of Music Hazırlık" |
   /// "Konservatuvar Hazırlık" | "Güzel Sanatlar Lisesi Hazırlık"
-  studentType          String?
+  studentType              String?
   /// Faz 1B — birden fazla öğrenci türü: string[] (StudentType değerleri).
   /// `studentType` (tekil) geriye dönük uyumluluk için korunur ve bu alan
   /// güncellenince ilk türle senkron tutulur (bkz. src/lib/student-types.ts).
-  studentTypes         Json?
-  enrollmentStartDate  DateTime?
-  enrollmentEndDate    DateTime?
-  level                String?
-  targetExam           String?
-  specialNotes         String?
+  studentTypes             Json?
+  enrollmentStartDate      DateTime?
+  enrollmentEndDate        DateTime?
+  level                    String?
+  targetExam               String?
+  specialNotes             String?
   /// EPIC 1 (IMPLEMENTATION_PLAN.md) — true ise veli otomatik tahsilat
   /// hatırlatma mesajlarından çıkmıştır; payment_reminders workflow'u ve
   /// scanOverduePaymentsTool bu öğrenciyi atlar. Manuel/idari mesajlaşmayı
   /// engellemez.
-  communicationOptOut Boolean   @default(false)
+  communicationOptOut      Boolean           @default(false)
   /// PRODUCT_BACKLOG
-  birthDate              DateTime?
-  address                String?
-  nationalIdCipher       String?   @db.Text
-  nationalIdLast2        String?
-  educationMethod        String?
-  lessonDurationMinutes  Int?
-  paymentMethod          String?
-  paymentAmount          Int?
+  birthDate                DateTime?
+  address                  String?
+  nationalIdCipher         String?           @db.Text
+  nationalIdLast2          String?
+  educationMethod          String?
+  lessonDurationMinutes    Int?
+  paymentMethod            String?
+  paymentAmount            Int?
   /// Ayın günü (1–31) vade hedefi — ay sonu taşması mevcut ödeme motoru
   /// (dueWindowForPaymentMethod) davranışıyla çözülür, burada özel bir hack yok.
-  paymentDueDay          Int?
+  paymentDueDay            Int?
   /// Faz 1A — birden fazla ödeme günü/aralık tercihi: {start,end}[] (1-31,
   /// dahil). `paymentDueDay` (tekil) geriye dönük uyumluluk için korunur ve
   /// bu alan güncellenince ilk aralığın başlangıcıyla senkron tutulur (bkz.
   /// src/lib/payment-due-ranges.ts). NULL = yalnızca legacy tekil gün geçerli.
-  paymentDueRanges       Json?
+  paymentDueRanges         Json?
   /// Package C — paket+süre indirim ÖNCESİ liste fiyatı (bilgi/audit amaçlı).
   /// `monthlyFee` HER ZAMAN nihai (indirim/override uygulanmış) ücrettir.
-  packageBaseMonthlyFee  Int?
+  packageBaseMonthlyFee    Int?
   /// Package C: "percent" | "amount" (bkz. src/lib/packages.ts computeMonthlyFee).
   /// Paket Yönetimi (ÖNCELİK 4 devam): "percentage" | "fixed" (bkz.
   /// src/lib/student-payment-profile.ts computeStudentMonthlyAmount). İki ayrı
   /// yazma yolu aynı alanı paylaşır — bkz. src/lib/types.ts DiscountType.
   /// discountValue olmadan tek başına anlamsız — ikisi birlikte set edilir.
-  discountType           String?
-  discountValue          Float?
+  discountType             String?
+  discountValue            Float?
   /// true ise monthlyFee hesaplanan değerden farklı, admin tarafından elle girilmiştir.
-  monthlyFeeManualOverride Boolean @default(false)
-  monthlyFeeOverrideReason String? @db.Text
-  firstLessonAt          DateTime?
-  archivedAt             DateTime?
+  monthlyFeeManualOverride Boolean           @default(false)
+  monthlyFeeOverrideReason String?           @db.Text
+  firstLessonAt            DateTime?
+  archivedAt               DateTime?
   /// ÖNCELİK 4 — "guz" (Eylül-Haziran) | "yaz" (Temmuz-Ağustos). Boşsa "guz"
   /// varsayılır (mevcut kayıtların çoğu normal dönem öğrencisi).
-  termType               String?
+  termType                 String?
   /// ÖNCELİK 4 (devam) — Paket Yönetimi entegrasyonu. Additive: legacy
   /// öğrenciler packageId=NULL kalır ve serbest metin `packageName` ile
   /// görünmeye devam eder — bu FK hiçbir mevcut kaydı bozmaz/backfill etmez.
   /// Paket SİLİNMEZ (yalnız arşivlenir), bu yüzden onDelete: Restrict.
-  package                Package?  @relation(fields: [packageId], references: [id])
-  packageId              String?
-  birthPlace             String?
-  schoolOrOccupation     String?
+  package                  Package?          @relation(fields: [packageId], references: [id])
+  packageId                String?
+  birthPlace               String?
+  schoolOrOccupation       String?
+  /// Nilüfer Acar politikası §1E — gecikmiş ödeme nedeniyle YETKİLİ personelin
+  /// bilinçli kararıyla ders programını geçici durdurması. Otomatik set EDİLMEZ
+  /// (bkz. src/lib/services/tools.ts pauseStudentLessonScheduleTool) — yalnızca
+  /// `active`/enrollment durumundan AYRI bir alan (kayıt sonlandırma/arşivleme
+  /// ile karıştırılmasın diye). NULL = duraklatılmamış. Geçmiş yoklama/ders/
+  /// ödeme kayıtları bu alandan ETKİLENMEZ, silinmez. Tam tarihçe AuditLog'da
+  /// (contract/student pause/reactivate action'ları) tutulur; buradaki alanlar
+  /// yalnızca GÜNCEL durumu taşır.
+  paymentPauseStatus       String?
+  paymentPausedAt          DateTime?
+  paymentPauseReason       String?           @db.Text
+  paymentPausedBy          String?
   /// Sosyal medya izni — MEVCUT `SocialMediaConsent` modelinde tutulur
   /// (öğrenci başına en güncel kayıt + tarihçe); Student üzerinde ayrı bir
   /// alan/paralel model YOK — bkz. src/lib/social-media-consent.ts.
-  lessons           Lesson[]
-  lessonSeries      LessonSeries[]
-  attendances       Attendance[]
-  payments          Payment[]
-  makeupRequests    MakeupRequest[]
+  lessons                  Lesson[]
+  lessonSeries             LessonSeries[]
+  attendances              Attendance[]
+  payments                 Payment[]
+  makeupRequests           MakeupRequest[]
+  contracts                StudentContract[]
 
   @@unique([tenantId, displayId])
   @@index([tenantId])
@@ -392,106 +449,106 @@ model Student {
 }
 
 model Room {
-  id          String   @id
-  tenantId    String
-  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  name        String
-  branch      Branch   @relation(fields: [branchId], references: [id])
-  branchId    String
-  school      School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
-  schoolId    String
-  capacity    Int
-  instruments Json
+  id           String         @id
+  tenantId     String
+  tenant       Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name         String
+  branch       Branch         @relation(fields: [branchId], references: [id])
+  branchId     String
+  school       School         @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  schoolId     String
+  capacity     Int
+  instruments  Json
   /// ÖNCELİK 4 (devam) — oda pasife alma (hard delete YOK). Varsayılan true —
   /// mevcut odalar migration sonrası hiçbir davranış değişikliği görmez.
-  active      Boolean  @default(true)
-  archivedAt  DateTime?
-  lessons     Lesson[]
+  active       Boolean        @default(true)
+  archivedAt   DateTime?
+  lessons      Lesson[]
   lessonSeries LessonSeries[]
 
   @@index([tenantId])
 }
 
 model Lesson {
-  id              String       @id
-  tenantId        String
-  tenant          Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  student         Student      @relation(fields: [studentId], references: [id])
-  studentId       String
-  teacher         Teacher      @relation(fields: [teacherId], references: [id])
-  teacherId       String
-  room            Room         @relation(fields: [roomId], references: [id])
-  roomId          String
-  branch          Branch       @relation(fields: [branchId], references: [id])
-  branchId        String
-  school          School       @relation(fields: [schoolId], references: [id], onDelete: Cascade)
-  schoolId        String
-  instrument      String
-  startAt         DateTime
-  endAt           DateTime
-  type            String
+  id                      String        @id
+  tenantId                String
+  tenant                  Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  student                 Student       @relation(fields: [studentId], references: [id])
+  studentId               String
+  teacher                 Teacher       @relation(fields: [teacherId], references: [id])
+  teacherId               String
+  room                    Room          @relation(fields: [roomId], references: [id])
+  roomId                  String
+  branch                  Branch        @relation(fields: [branchId], references: [id])
+  branchId                String
+  school                  School        @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  schoolId                String
+  instrument              String
+  startAt                 DateTime
+  endAt                   DateTime
+  type                    String
   /// EPIC 8 (IMPLEMENTATION_PLAN.md) — "scheduled"|"in_progress"|"completed"|
   /// "cancelled"|"no_show". Canlı durum (gecikmiş vb.) SAKLANMAZ, her zaman
   /// startAt/actualStartAt'tan TÜRETİLİR (bkz. src/lib/lesson-live-status.ts).
-  status          String
-  makeupRequestId String?
-  series          LessonSeries? @relation(fields: [seriesId], references: [id])
-  seriesId        String?
-  notes           String?
+  status                  String
+  makeupRequestId         String?
+  series                  LessonSeries? @relation(fields: [seriesId], references: [id])
+  seriesId                String?
+  notes                   String?
   /// EPIC 8 — öğretmenin "Dersi başlat"/"Dersi bitir" ile damgaladığı GERÇEK
   /// zaman damgaları (planlanan startAt/endAt'tan bağımsız, nullable —
   /// geçmiş dersler dolu olmayabilir). Düzeltme yalnızca admin tarafından ve
   /// yalnızca zorunlu bir notla yapılabilir (bkz. correctLessonTimesTool).
-  actualStartAt       DateTime?
-  actualEndAt         DateTime?
-  startCorrectedBy    String?
-  startCorrectionNote String?
-  endCorrectedBy      String?
-  endCorrectionNote   String?
+  actualStartAt           DateTime?
+  actualEndAt             DateTime?
+  startCorrectedBy        String?
+  startCorrectionNote     String?
+  endCorrectedBy          String?
+  endCorrectionNote       String?
   /// Geldi / İşlendi / Telafi operasyonel bayraklar
-  studentAttended     Boolean  @default(false)
-  studentAttendedAt   DateTime?
-  studentAttendedBy   String?
-  lessonProcessed     Boolean  @default(false)
-  lessonProcessedAt   DateTime?
-  lessonProcessedBy   String?
-  opsMakeupFlag       Boolean  @default(false)
-  opsMakeupFlagAt     DateTime?
-  opsMakeupFlagBy     String?
+  studentAttended         Boolean       @default(false)
+  studentAttendedAt       DateTime?
+  studentAttendedBy       String?
+  lessonProcessed         Boolean       @default(false)
+  lessonProcessedAt       DateTime?
+  lessonProcessedBy       String?
+  opsMakeupFlag           Boolean       @default(false)
+  opsMakeupFlagAt         DateTime?
+  opsMakeupFlagBy         String?
   /// Yoklama kapanışı — Gelmedi (mazeretsiz) / Mazeretli. Geldi/İşlendi/
   /// Telafi ile AYNI birbirini dışlayan tek-statü mekanizması, mali sonuç yok.
-  studentAbsent       Boolean  @default(false)
-  studentAbsentAt     DateTime?
-  studentAbsentBy     String?
-  studentExcused      Boolean  @default(false)
-  studentExcusedAt    DateTime?
-  studentExcusedBy    String?
+  studentAbsent           Boolean       @default(false)
+  studentAbsentAt         DateTime?
+  studentAbsentBy         String?
+  studentExcused          Boolean       @default(false)
+  studentExcusedAt        DateTime?
+  studentExcusedBy        String?
   /// ÖNCELİK 4 — Yoklama Takvimi'nin 4. statüsü ("Kapalı", siyah). Telafi
   /// gibi hiçbir mali sonuç doğurmaz; yalnız yeni takvim ekranından set
   /// edilir, mevcut Program/Yoklama'nın 3 butonlu hızlı aksiyonuna eklenmez.
-  opsClosedFlag       Boolean  @default(false)
-  opsClosedFlagAt     DateTime?
-  opsClosedFlagBy     String?
+  opsClosedFlag           Boolean       @default(false)
+  opsClosedFlagAt         DateTime?
+  opsClosedFlagBy         String?
   /// ÖNCELİK 4 (devam) — akademik dönem etiketi, LessonSeries ile aynı kural
   /// (NULL = legacy, tarih tabanlı fallback ile çözülür). Seriden üretilen
   /// dersler serinin term/academicYearStart'ını miras alır; tek seferlik
   /// (seriye bağlı olmayan) dersler oluşturma anında UI'nin seçili
   /// yıl/dönemini alır.
-  term                String?
-  academicYearStart   Int?
+  term                    String?
+  academicYearStart       Int?
   /// İş 3 — öğretmenin kendi bildirdiği çalışma saatleri DIŞINDA, kullanıcının
   /// "Yine de planla" onayıyla oluşturuldu (bkz. OVERRIDABLE_SLOT_CODES,
   /// src/lib/makeup-engine.ts). Diğer tüm çakışma/uyumsuzluk türleri asla
   /// override edilemez — bu iki alan yalnızca bu TEK durum için dolar.
-  availabilityOverrideBy String?
-  availabilityOverrideAt DateTime?
+  availabilityOverrideBy  String?
+  availabilityOverrideAt  DateTime?
   /// Faz 2 — öğretmenin KENDİ derse gelip gelmediği, öğrenci yoklamasından
   /// bağımsız. "geldi" | "gelmedi" | "mazeretli"; NULL = Bekliyor.
   teacherAttendanceStatus String?
   teacherAttendanceAt     DateTime?
   teacherAttendanceBy     String?
-  teacherAttendanceNote   String?   @db.Text
-  attendances     Attendance[]
+  teacherAttendanceNote   String?       @db.Text
+  attendances             Attendance[]
 
   @@index([tenantId])
   @@index([schoolId])
@@ -503,29 +560,29 @@ model Lesson {
 /// kayıtlarının kaynağı. Lesson.seriesId ile bağlanır; seri silinmez,
 /// yalnızca status ile pasifleştirilir (cancelled/ended).
 model LessonSeries {
-  id              String   @id
-  tenantId        String
-  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  student         Student  @relation(fields: [studentId], references: [id])
-  studentId       String
-  teacher         Teacher  @relation(fields: [teacherId], references: [id])
-  teacherId       String
-  room            Room     @relation(fields: [roomId], references: [id])
-  roomId          String
-  branch          Branch   @relation(fields: [branchId], references: [id])
-  branchId        String
-  school          School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
-  schoolId        String
-  instrument      String
+  id                String   @id
+  tenantId          String
+  tenant            Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  student           Student  @relation(fields: [studentId], references: [id])
+  studentId         String
+  teacher           Teacher  @relation(fields: [teacherId], references: [id])
+  teacherId         String
+  room              Room     @relation(fields: [roomId], references: [id])
+  roomId            String
+  branch            Branch   @relation(fields: [branchId], references: [id])
+  branchId          String
+  school            School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  schoolId          String
+  instrument        String
   /// 0=Pazar ... 6=Cumartesi (mevcut Teacher.availability ile aynı kural)
-  weekday         Int
+  weekday           Int
   /// "HH:mm" — mevcut workingHours alanlarıyla aynı biçim
-  startTime       String
-  durationMinutes Int
-  startsOn        DateTime
-  endsOn          DateTime
-  status          String
-  lessons         Lesson[]
+  startTime         String
+  durationMinutes   Int
+  startsOn          DateTime
+  endsOn            DateTime
+  status            String
+  lessons           Lesson[]
   /// ÖNCELİK 4 (devam) — akademik dönem etiketi ("guz"|"yaz"). NULL = legacy
   /// kayıt (bu alan eklenmeden önce oluşturuldu); okuma tarafı NULL'ı asla
   /// hata saymaz, tarihe göre güvenli fallback uygular (bkz.
@@ -539,9 +596,9 @@ model LessonSeries {
   /// Faz 6 — demo/test amaçlı otomatik üretilmiş serileri işaretler (ör.
   /// "demo-schedule-seed"). NULL = gerçek (insan tarafından oluşturulmuş)
   /// seri. Yalnızca tanımlayıcı bir etiket — hiçbir iş kuralı buna bakmaz.
-  demoTag         String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  demoTag           String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   @@index([tenantId])
   @@index([schoolId])
@@ -593,102 +650,130 @@ model TeacherPayout {
   method       String?
   generatedAt  DateTime  @default(now())
 
+  @@unique([teacherId, periodStart, periodEnd])
   @@index([tenantId])
   @@index([teacherId])
-  @@unique([teacherId, periodStart, periodEnd])
 }
 
 model Attendance {
-  id                  String         @id @default(cuid())
-  tenantId            String
-  tenant              Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  lesson              Lesson         @relation(fields: [lessonId], references: [id])
-  lessonId            String         @unique
-  student             Student        @relation(fields: [studentId], references: [id])
-  studentId           String
-  status              String
-  reason              String?
-  markedAt            DateTime
-  createsMakeupCredit Boolean
-  school              School         @relation(fields: [schoolId], references: [id], onDelete: Cascade)
-  schoolId            String
-  makeupRequest       MakeupRequest?
+  id                             String         @id @default(cuid())
+  tenantId                       String
+  tenant                         Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  lesson                         Lesson         @relation(fields: [lessonId], references: [id])
+  lessonId                       String         @unique
+  student                        Student        @relation(fields: [studentId], references: [id])
+  studentId                      String
+  status                         String
+  reason                         String?
+  markedAt                       DateTime
+  createsMakeupCredit            Boolean
+  school                         School         @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  schoolId                       String
+  makeupRequest                  MakeupRequest?
+  /// 2026-2027 sözleşme kaynağı Madde 8 — "aynı gün bildirilen iptal" kuralını
+  /// GÜVENİLİR şekilde uygulamak için `markedAt`'tan (personelin yoklamayı
+  /// İŞLEME zamanı) AYRI, açıkça personel tarafından girilen iptal bildirim
+  /// alanları. Hepsi nullable/opsiyonel — mevcut/legacy kayıtlar bozulmaz,
+  /// bu alanlar YALNIZCA UI bunları açıkça sunduğunda doldurulur (bkz.
+  /// docs/roadmap/NEVIIHUB_ADMIN_CONTRACTS_POLICY_REMAINING_WORK.md §5 — UI
+  /// wiring henüz YAPILMADI, bu şema yalnızca forward-compatible zemin).
+  cancellationSource             String?
+  cancellationNoticeAt           DateTime?
+  cancellationReason             String?
+  cancellationEvidenceDocumentId String?
+  /// Hesaplanan telafi uygunluk sonucu — nullable (legacy kayıtlarda hiç
+  /// hesaplanmamıştır, "bilinmiyor" ile "uygun değil"i KARIŞTIRMAZ).
+  telafiEligible                 Boolean?
 
   @@index([tenantId])
 }
 
 model MakeupRequest {
-  id                String     @id @default(cuid())
-  tenantId          String
-  tenant            Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  student           Student    @relation(fields: [studentId], references: [id])
-  studentId         String
-  teacher           Teacher    @relation(fields: [teacherId], references: [id])
-  teacherId         String
-  branch            Branch     @relation(fields: [branchId], references: [id])
-  branchId          String
-  school            School     @relation(fields: [schoolId], references: [id], onDelete: Cascade)
-  schoolId          String
-  instrument        String
-  sourceLessonId    String
-  attendance        Attendance @relation(fields: [attendanceId], references: [id])
-  attendanceId      String     @unique
-  status            String
-  reason            String
-  expiresAt         DateTime
-  suggestedSlots    Json
-  confirmedLessonId String?
-  createdAt         DateTime
-  policyNote        String
+  id                 String     @id @default(cuid())
+  tenantId           String
+  tenant             Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  student            Student    @relation(fields: [studentId], references: [id])
+  studentId          String
+  teacher            Teacher    @relation(fields: [teacherId], references: [id])
+  teacherId          String
+  branch             Branch     @relation(fields: [branchId], references: [id])
+  branchId           String
+  school             School     @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  schoolId           String
+  instrument         String
+  sourceLessonId     String
+  attendance         Attendance @relation(fields: [attendanceId], references: [id])
+  attendanceId       String     @unique
+  status             String
+  reason             String
+  expiresAt          DateTime
+  suggestedSlots     Json
+  confirmedLessonId  String?
+  createdAt          DateTime
+  policyNote         String
   /// EPIC 10 (IMPLEMENTATION_PLAN.md) — hepsi opsiyonel/additive. decisionNote
   /// yalnızca uygulama katmanında (confirmMakeupLessonTool/cancelMakeupLessonTool)
   /// zorunlu kılınır, şemada nullable kalır ki geçmiş kayıtlar bozulmasın.
   /// slaDeadline yalnızca onaylandığında set edilir; slaEscalationLevel:
   /// 0=yok 1=15gün 2=7gün 3=3gün 4=1gün 5=aşıldı (bkz. resolveSlaEscalationLevel).
-  decisionNote        String?
-  decidedBy           String?
-  decidedAt           DateTime?
-  slaDeadline         DateTime?
-  slaEscalationLevel  Int       @default(0)
+  decisionNote       String?
+  decidedBy          String?
+  decidedAt          DateTime?
+  slaDeadline        DateTime?
+  slaEscalationLevel Int        @default(0)
 
   @@index([tenantId])
   @@index([sourceLessonId])
 }
 
 model Payment {
-  id          String    @id
-  tenantId    String
-  followUps   PaymentFollowUpCase[]
-  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  student     Student   @relation(fields: [studentId], references: [id])
-  studentId   String
-  school      School    @relation(fields: [schoolId], references: [id], onDelete: Cascade)
-  schoolId    String
-  amount      Int
-  paidAmount  Int
-  status      String
-  dueDate     DateTime
-  paidAt      DateTime?
-  description String
-  method      String?
+  id                  String                @id
+  tenantId            String
+  followUps           PaymentFollowUpCase[]
+  tenant              Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  student             Student               @relation(fields: [studentId], references: [id])
+  studentId           String
+  school              School                @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  schoolId            String
+  amount              Int
+  paidAmount          Int
+  status              String
+  dueDate             DateTime
+  paidAt              DateTime?
+  description         String
+  method              String?
   /// Paket 5 — "Ödendi işaretle" modalında girilen isteğe bağlı referans/açıklama notu.
-  paymentNote String?
+  paymentNote         String?
   /// Otomatik ders bazlı tahsilatın kaynak dersi — manuel/paket ödemelerde NULL.
-  lessonId    String?
+  lessonId            String?
   /// "manual" (varsayılan, mevcut tüm kayıtlar) | "lesson_ops" (Geldi/İşlendi otomatik oluşturdu)
-  source      String    @default("manual")
+  source              String                @default("manual")
   /// Tahsilatı ALAN kullanıcının kalıcı kimliği — `markPaymentPaid`'in ortak
   /// yolundan (Ödemeler "Ödendi işaretle", Yoklama Takvimi "Tahsil Et" ve ay
   /// kutusu Kaydet) her "ödendi" geçişinde `ctx.userId`'den yazılır. FK YOK
   /// (AuditLog/AiAuditLog ile aynı gerekçe — tahsilatı yapan kullanıcı
   /// silinse bile geçmiş kayıt okunabilir kalır). NULL = henüz tahsil
   /// edilmemiş veya bu alan eklenmeden önce tahsil edilmiş (legacy).
-  receivedByUserId String?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  receivedByUserId    String?
+  /// FEATURE A (versioned enrollment contracts) — bu ödeme bir
+  /// `StudentContract` taksit planının parçasıysa dolu. Additive/nullable:
+  /// mevcut hiçbir `Payment` satırını etkilemez, mevcut tahsilat/makbuz/
+  /// hatırlatma/gecikme akışları bu satırları normal `Payment` gibi işlemeye
+  /// devam eder (bkz. src/lib/contracts.ts — kasıtlı olarak
+  /// `upsertMonthlyPlanPayment`'ı YENİDEN KULLANMAZ: o, öğrencinin AÇIK UÇLU
+  /// süregelen aylık faturalama motorudur — contractId'li satırlar ise BELİRLİ
+  /// bir sözleşmenin SABİT SAYIDA taksitidir; ikisini aynı upsert yoluna
+  /// sokmak iki farklı yaşam döngüsünü birbirine karıştırırdı).
+  contractId          String?
+  contract            StudentContract?      @relation(fields: [contractId], references: [id])
+  /// 1-tabanlı taksit sırası — yalnızca contractId doluyken anlamlı.
+  installmentSequence Int?
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
 
   @@index([tenantId])
   @@index([tenantId, lessonId])
+  @@index([tenantId, contractId])
 }
 
 /// Online kredi kartı checkout denemesi — provider-hosted (kart verisi asla
@@ -697,29 +782,29 @@ model Payment {
 /// tahsilat/geçmiş/void/idempotency akışı hiç değişmiyor; bu tablo yalnızca
 /// "hangi checkout denemeleri oldu" izlenebilirliği için ayrı ve additive.
 model PaymentCheckoutAttempt {
-  id               String    @id
-  tenantId         String
-  tenant           Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  paymentId        String
-  studentId        String
+  id                String    @id
+  tenantId          String
+  tenant            Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  paymentId         String
+  studentId         String
   initiatedByUserId String
   /// "console" | "iyzico" | "stripe" — bkz. src/lib/payment-provider/config.ts
-  provider         String
+  provider          String
   providerReference String?
   /// Sağlayıcının barındırdığı checkout sayfası URL'i — YALNIZCA idempotent
   /// tekrar kullanım için (double-click/retry aynı pending attempt'i tekrar
   /// provider'ı ÇAĞIRMADAN döner). Kart/CVV verisi DEĞİLDİR — kullanıcının
   /// zaten görebileceği, tek-kullanımlık bir yönlendirme linkidir.
-  checkoutUrl      String?
+  checkoutUrl       String?
   /// "pending" | "succeeded" | "failed" | "expired"
-  status           String    @default("pending")
-  amount           Int
-  currency         String
-  idempotencyKey   String
-  expiresAt        DateTime?
-  completedAt      DateTime?
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  status            String    @default("pending")
+  amount            Int
+  currency          String
+  idempotencyKey    String
+  expiresAt         DateTime?
+  completedAt       DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   @@unique([tenantId, idempotencyKey])
   @@index([tenantId, paymentId])
@@ -728,33 +813,33 @@ model PaymentCheckoutAttempt {
 }
 
 model PaymentFollowUpCase {
-  id            String    @id
-  tenantId      String
-  tenant        Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  paymentId     String
-  payment       Payment   @relation(fields: [paymentId], references: [id], onDelete: Cascade)
-  studentId     String
-  status        String    @default("draft")
-  messageDraft  String
-  approvedBy    String?
-  approvedAt    DateTime?
-  sentAt        DateTime?
-  resolvedAt    DateTime?
-  attributedAmount Int    @default(0)
-  openingBalance Int?
-  currentBalance Int?
-  currency      String?   @default("TRY")
-  dueDate       DateTime?
-  daysOverdue   Int?
-  selectedChannel String?
-  approvedMessage String?
-  lastError     String?
-  closedAt      DateTime?
-  attributedPaidSnapshot Int @default(0)
-  attempts      Json?
-  events        Json?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id                     String    @id
+  tenantId               String
+  tenant                 Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  paymentId              String
+  payment                Payment   @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  studentId              String
+  status                 String    @default("draft")
+  messageDraft           String
+  approvedBy             String?
+  approvedAt             DateTime?
+  sentAt                 DateTime?
+  resolvedAt             DateTime?
+  attributedAmount       Int       @default(0)
+  openingBalance         Int?
+  currentBalance         Int?
+  currency               String?   @default("TRY")
+  dueDate                DateTime?
+  daysOverdue            Int?
+  selectedChannel        String?
+  approvedMessage        String?
+  lastError              String?
+  closedAt               DateTime?
+  attributedPaidSnapshot Int       @default(0)
+  attempts               Json?
+  events                 Json?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
 
   @@index([tenantId, status])
   @@index([paymentId])
@@ -841,15 +926,15 @@ model Notification {
 /// Migration NOT çalıştırıldı — gerekirse:
 ///   npx prisma migrate dev --name notification_preferences
 model NotificationPreference {
-  id            String   @id
-  tenantId      String
-  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  userId        String
-  category      String
-  inAppEnabled  Boolean  @default(true)
-  pushEnabled   Boolean  @default(false)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id           String   @id
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId       String
+  category     String
+  inAppEnabled Boolean  @default(true)
+  pushEnabled  Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   @@unique([tenantId, userId, category])
   @@index([tenantId, userId])
@@ -862,29 +947,29 @@ model NotificationPreference {
 /// eşleştirmesi SUNUCU tarafında yapılır (src/lib/announcements), asla
 /// client'a hedef-dışı veri gönderilmez.
 model Announcement {
-  id            String    @id
-  tenantId      String
-  tenant        Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  title         String
-  body          String
-  attachmentUrl String?
+  id             String             @id
+  tenantId       String
+  tenant         Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  title          String
+  body           String
+  attachmentUrl  String?
   /// En fazla 3 ek: [{ id, fileName, mimeType, sizeBytes, storageKey, uploadedAt }]
-  attachments   Json?
-  audienceType  String
-  audienceRef   Json?
+  attachments    Json?
+  audienceType   String
+  audienceRef    Json?
   /// Faz 4 — çoklu segment (OR): [{ audienceType, audienceRef }]. Yoksa audienceType/audienceRef tek kural sayılır.
-  rules         Json?
+  rules          Json?
   /// "draft" | "published" | "archived"
-  status        String    @default("draft")
-  pinned        Boolean   @default(false)
-  publishAt     DateTime?
-  expireAt      DateTime?
-  createdBy     String
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  status         String             @default("draft")
+  pinned         Boolean            @default(false)
+  publishAt      DateTime?
+  expireAt       DateTime?
+  createdBy      String
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
   /// Faz 4 — yayınlanma anında çözülen benzersiz alıcı (Notification) sayısı.
   recipientCount Int?
-  reads         AnnouncementRead[]
+  reads          AnnouncementRead[]
 
   @@index([tenantId, status])
 }
@@ -892,11 +977,11 @@ model Announcement {
 /// Bir kullanıcının bir duyuruyu okuduğu an — @@unique çift okuma kaydı
 /// oluşmasını engeller (aynı kullanıcı tekrar "okundu" işaretlerse upsert).
 model AnnouncementRead {
-  id             String   @id
+  id             String       @id
   announcementId String
   announcement   Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
   userId         String
-  readAt         DateTime @default(now())
+  readAt         DateTime     @default(now())
 
   @@unique([announcementId, userId])
 }
@@ -908,35 +993,35 @@ model AnnouncementRead {
 /// gerekçe — bu sprint yalnızca bu tabloyu ekliyor, başka model dokunulmuyor;
 /// erişim her zaman tenantId + studentId/teacherId ile kapsamlanır).
 model LessonAssessment {
-  id       String @id
-  tenantId String
-  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  lessonId  String
-  studentId String
-  teacherId String
+  id                         String   @id
+  tenantId                   String
+  tenant                     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  lessonId                   String
+  studentId                  String
+  teacherId                  String
   /// A. Teknik
-  teknikBecerisi Int
-  notaOkuma      Int
+  teknikBecerisi             Int
+  notaOkuma                  Int
   /// B. Müzikalite
-  muzikalite  Int
-  ritimDuyusu Int
+  muzikalite                 Int
+  ritimDuyusu                Int
   /// C. Çalışma Disiplini
-  calismaDuzeni    Int
-  evOdeviTamamlama Int
+  calismaDuzeni              Int
+  evOdeviTamamlama           Int
   /// D. Katılım
-  dersKatilimi Int
-  motivasyon   Int
+  dersKatilimi               Int
+  motivasyon                 Int
   /// E. Genel Gelişim
-  genelIlerleme Int
-  hedefeUlasma  Int
+  genelIlerleme              Int
+  hedefeUlasma               Int
   /// Faz 3A — "çalışılan konular" (hepsi opsiyonel serbest metin).
-  piecesWorked   String? @db.Text
-  etudesWorked   String? @db.Text
-  technicalWork  String? @db.Text
-  theoryWork     String? @db.Text
-  strengthNote    String
-  nextStepsNote   String
-  improvementNote String
+  piecesWorked               String?  @db.Text
+  etudesWorked               String?  @db.Text
+  technicalWork              String?  @db.Text
+  theoryWork                 String?  @db.Text
+  strengthNote               String
+  nextStepsNote              String
+  improvementNote            String
   /// Yalnızca veli/yönetici görür; öğrenciye gösterilmesi için öğretmen
   /// açıkça parentNoteVisibleToStudent'ı true yapmalı (varsayılan false).
   parentPrivateNote          String?
@@ -963,23 +1048,23 @@ model LessonAssessment {
 /// aynı öğrenci+dönem için asla İKİNCİ bir satır oluşmaz (`@@unique`) ve
 /// ayrı bir zamanlanmış iş/worker GEREKMEZ.
 model PeriodicAssessment {
-  id          String   @id
-  tenantId    String
-  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  studentId   String
-  teacherId   String
-  periodStart DateTime
-  periodEnd   DateTime
+  id                      String   @id
+  tenantId                String
+  tenant                  Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  studentId               String
+  teacherId               String
+  periodStart             DateTime
+  periodEnd               DateTime
   /// İlişkili derslerin id'leri (bilgi amaçlı, denormalize — bkz. Task.relatedEntityLabel deseni).
-  relatedLessonIds Json
-  overallProgressNote     String @db.Text
-  strengthsNote           String? @db.Text
-  areasForImprovementNote String? @db.Text
-  recommendationNote      String? @db.Text
-  submittedBy String
-  submittedAt DateTime @default(now())
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  relatedLessonIds        Json
+  overallProgressNote     String   @db.Text
+  strengthsNote           String?  @db.Text
+  areasForImprovementNote String?  @db.Text
+  recommendationNote      String?  @db.Text
+  submittedBy             String
+  submittedAt             DateTime @default(now())
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
 
   @@unique([tenantId, studentId, teacherId, periodStart, periodEnd])
   @@index([tenantId, studentId])
@@ -1013,19 +1098,19 @@ model TeacherAvailabilityRequest {
 
 /// EPIC 6B (IMPLEMENTATION_PLAN.md) — öğretmenin bir öğrenciye verdiği ödev.
 model Homework {
-  id          String               @id
-  tenantId    String
-  tenant      Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  teacherId   String
-  studentId   String
+  id           String               @id
+  tenantId     String
+  tenant       Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  teacherId    String
+  studentId    String
   /// Faz 3C — bu ödevin verildiği ders (opsiyonel — geçmiş/ders-dışı ödevler için NULL).
-  lessonId    String?
-  title       String
-  description String
-  dueDate     DateTime
-  createdAt   DateTime             @default(now())
-  updatedAt   DateTime             @updatedAt
-  submissions HomeworkSubmission[]
+  lessonId     String?
+  title        String
+  description  String
+  dueDate      DateTime
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+  submissions  HomeworkSubmission[]
   /// Paket 7 — öğretmenin ödevi verirken eklediği isteğe bağlı dosya/foto/video (base64).
   fileName     String?
   fileMimeType String?
@@ -1086,23 +1171,23 @@ model TeachingMaterial {
 /// yalnızca SCHOOL_ADMIN/SUPER_ADMIN görür. Öğretmen kendi ortalamasını
 /// GÖRMEZ (ilk sürüm, kötüye kullanım riskini azaltmak için bilinçli karar).
 model TeacherFeedback {
-  id            String   @id
-  tenantId      String
-  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  teacherId     String
-  studentId     String
-  submittedBy   String
-  submitterRole String
-  scores        Json
+  id                  String   @id
+  tenantId            String
+  tenant              Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  teacherId           String
+  studentId           String
+  submittedBy         String
+  submitterRole       String
+  scores              Json
   /// "yes" | "unsure" | "no"
   continueWithTeacher String?
-  comment       String?
+  comment             String?
   /// "pending" | "reviewed" | "actioned" | "archived"
-  status        String   @default("pending")
+  status              String   @default("pending")
   /// Yönetici bu yorumu öğretmenin anonim özetinde paylaşmayı SEÇTİYSE true.
-  sharedWithTeacher Boolean @default(false)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  sharedWithTeacher   Boolean  @default(false)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
   @@index([tenantId, teacherId])
   @@index([tenantId, status])
@@ -1170,7 +1255,7 @@ model AuditLog {
 
 /// One execution of an autonomous workflow (history)
 model WorkflowRun {
-  id         String    @id
+  id         String   @id
   workflowId String
   tenantId   String
   startedAt  DateTime
@@ -1212,7 +1297,6 @@ model StudentCurriculumTopic {
 
 /// PRODUCT_BACKLOG §1.4
 
-
 model AiAuditLog {
   id             String    @id
   tenantId       String
@@ -1227,14 +1311,15 @@ model AiAuditLog {
   approvedAt     DateTime?
   approvedBy     String?
   createdAt      DateTime  @default(now())
+
   @@index([tenantId, capabilityId])
   @@index([tenantId, approvalStatus])
 }
 
 model SocialMediaConsent {
-  id                 String   @id
+  id                 String    @id
   tenantId           String
-  tenant             Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant             Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   studentId          String
   status             String
   representativeName String
@@ -1244,8 +1329,8 @@ model SocialMediaConsent {
   sourceDocumentRef  String?
   withdrawnAt        DateTime?
   history            Json
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
   @@index([tenantId, studentId])
 }
@@ -1303,26 +1388,26 @@ model KvkkConsent {
 /// Faz 11 — CRM arama günlüğü (sağlayıcıdan bağımsız; gerçek telefoni
 /// entegrasyonu YOK, bu turda manuel giriş + webhook-idempotency iskeleti).
 model CallLog {
-  id              String    @id
-  tenantId        String
-  tenant          Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  callerNumber    String
-  callerName      String?
+  id               String    @id
+  tenantId         String
+  tenant           Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  callerNumber     String
+  callerName       String?
   /// "student" | "parent" | "lead"
-  contactType     String?
-  contactId       String?
+  contactType      String?
+  contactId        String?
   /// "inbound" | "outbound"
-  direction       String
-  answered        Boolean
-  durationSeconds Int?
-  occurredAt      DateTime
-  callbackDone    Boolean   @default(false)
-  callbackAt      DateTime?
+  direction        String
+  answered         Boolean
+  durationSeconds  Int?
+  occurredAt       DateTime
+  callbackDone     Boolean   @default(false)
+  callbackAt       DateTime?
   callbackByUserId String?
-  note            String?
-  createdBy       String
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  note             String?
+  createdBy        String
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   @@index([tenantId, occurredAt])
   @@index([tenantId, contactType, contactId])
@@ -1418,57 +1503,57 @@ model InstrumentCatalogEntry {
 /// İş 3 — tam özlük dosyası + maaş yapısı alanları. Öğretmen (Teacher)
 /// modeliyle BİLİNÇLİ olarak birleştirilmez (bkz. PayrollRecord yorumu).
 model StaffMember {
-  id        String   @id
-  tenantId  String
-  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id                       String    @id
+  tenantId                 String
+  tenant                   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   /// Faz 12 — insan-okunur, değişmez kurum numarası (ör. "P00001").
-  displayId String?
-  name      String
-  position  String
-  phone     String?
-  email     String?
-  address   String?
-  birthDate DateTime?
-  photoUrl  String?
+  displayId                String?
+  name                     String
+  position                 String
+  phone                    String?
+  email                    String?
+  address                  String?
+  birthDate                DateTime?
+  photoUrl                 String?
   /// AES-GCM şifreli — bkz. src/lib/pii/tc-identity.ts, Student.nationalIdCipher ile AYNI mekanizma.
-  nationalIdCipher String?
-  nationalIdLast2  String?
-  employeeNumber   String?
-  hireDate         DateTime?
-  terminationDate  DateTime?
-  department       String?
-  reportsToStaffId String?
+  nationalIdCipher         String?
+  nationalIdLast2          String?
+  employeeNumber           String?
+  hireDate                 DateTime?
+  terminationDate          DateTime?
+  department               String?
+  reportsToStaffId         String?
   /// "full_time" | "part_time" | "contract" | "intern"
-  employmentType   String?
-  branchId  String?
+  employmentType           String?
+  branchId                 String?
   /// "active" | "on_leave" | "passive" | "terminated"
-  status    String   @default("active")
+  status                   String    @default("active")
   annualLeaveAllowanceDays Int?
   /// Yalnız admin/super admin görünürlüğü — bkz. canViewStaffSensitive.
-  personnelNotes String?
-  notes     String?
+  personnelNotes           String?
+  notes                    String?
   /// Maaş yapısı — bordro oluşturulurken varsayılan önerilir, öğretmen hakedişinden AYRI.
-  monthlySalary      Int?
-  hourlyRate         Int?
-  defaultBonus       Int?
-  defaultAllowances  Int?
-  defaultDeductions  Int?
+  monthlySalary            Int?
+  hourlyRate               Int?
+  defaultBonus             Int?
+  defaultAllowances        Int?
+  defaultDeductions        Int?
   /// Faz 9A — özlük genişletmesi.
-  emergencyContactName  String?
-  emergencyContactPhone String?
-  contractStartDate     DateTime?
-  contractEndDate       DateTime?
-  sgkStatus             String?
+  emergencyContactName     String?
+  emergencyContactPhone    String?
+  contractStartDate        DateTime?
+  contractEndDate          DateTime?
+  sgkStatus                String?
   /// AES-GCM şifreli — bkz. src/lib/pii/iban.ts, nationalIdCipher ile AYNI mekanizma.
-  ibanCipher String?
-  ibanLast4  String?
+  ibanCipher               String?
+  ibanLast4                String?
   /// Faz 9B — yıllık avans üst sınırı. Tanımsızsa kontrol edilmez.
-  annualAdvanceLimit Int?
-  createdBy String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  annualAdvanceLimit       Int?
+  createdBy                String
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
 
-  advances  StaffAdvance[]
+  advances StaffAdvance[]
 
   @@unique([tenantId, displayId])
   @@index([tenantId])
@@ -1480,23 +1565,23 @@ model StaffMember {
 /// StaffMember.annualAdvanceLimit karşısında yıl içi kullanım toplamıyla
 /// sınırlandırılır (bkz. src/lib/staff-advance.ts).
 model StaffAdvance {
-  id            String       @id
+  id            String      @id
   tenantId      String
-  tenant        Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant        Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   staffId       String
-  staffMember   StaffMember  @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  staffMember   StaffMember @relation(fields: [staffId], references: [id], onDelete: Cascade)
   amount        Int
   requestDate   DateTime
   /// "pending_approval" | "approved" | "rejected" | "paid" | "cancelled"
-  status        String       @default("pending_approval")
+  status        String      @default("pending_approval")
   approvedBy    String?
   approvedAt    DateTime?
   paidAt        DateTime?
   paymentMethod String?
   description   String?
   createdBy     String
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
 
   @@index([tenantId, staffId])
   @@index([tenantId, status])
@@ -1505,9 +1590,9 @@ model StaffAdvance {
 /// İş 3B — StaffMember aylık bordro kaydı. TeacherPayout (ders bazlı öğretmen
 /// hakedişi) ile HİÇBİR otomatik bağlantısı yok — bilinçli ayrım.
 model PayrollRecord {
-  id            String   @id
+  id            String    @id
   tenantId      String
-  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant        Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   staffId       String
   /// yyyy-MM
   month         String
@@ -1516,25 +1601,25 @@ model PayrollRecord {
   extraPayment  Int?
   deduction     Int?
   /// "draft" | "pending_approval" | "approved" | "paid" | "cancelled"
-  status        String   @default("draft")
+  status        String    @default("draft")
   paymentDate   DateTime?
   paymentMethod String?
   note          String?
   createdBy     String
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
+  @@unique([tenantId, staffId, month])
   @@index([tenantId])
   @@index([tenantId, staffId, month])
-  @@unique([tenantId, staffId, month])
 }
 
 /// İş 3C — personel izin talebi. Yasal/otomatik bakiye hesaplama motoru
 /// DEĞİL — bkz. StaffMember.annualLeaveAllowanceDays yorumu.
 model LeaveRequest {
-  id          String   @id
+  id          String    @id
   tenantId    String
-  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   staffId     String
   /// "annual" | "sick" | "unpaid" | "other"
   type        String
@@ -1543,12 +1628,12 @@ model LeaveRequest {
   dayCount    Int
   description String?
   /// "draft" | "pending_approval" | "approved" | "rejected"
-  status      String   @default("pending_approval")
+  status      String    @default("pending_approval")
   approvedBy  String?
   approvedAt  DateTime?
   createdBy   String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   @@index([tenantId])
   @@index([tenantId, staffId])
@@ -1557,29 +1642,29 @@ model LeaveRequest {
 /// İş 3D — kurum sahibi mali dashboard'u için, ÖNCEDEN hiçbir yerde
 /// izlenmeyen gider türleri (bkz. src/lib/expense.ts modül yorumu).
 model ExpenseRecord {
-  id        String   @id
-  tenantId  String
-  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id              String    @id
+  tenantId        String
+  tenant          Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   /// "rent" | "utilities" | "supplies" | "other"
-  category  String
-  amount    Int
-  date      DateTime
-  note      String?
-  createdBy String
-  createdAt DateTime @default(now())
+  category        String
+  amount          Int
+  date            DateTime
+  note            String?
+  createdBy       String
+  createdAt       DateTime  @default(now())
   /// Faz 10 — genişletme (hepsi additive/nullable).
-  subcategory   String?
-  supplier      String?
-  branchId      String?
-  currency      String   @default("TRY")
-  taxAmount     Int?
-  dueDate       DateTime?
+  subcategory     String?
+  supplier        String?
+  branchId        String?
+  currency        String    @default("TRY")
+  taxAmount       Int?
+  dueDate         DateTime?
   /// "pending" | "paid" | "overdue" — tanımsızsa "paid" sayılır (eski kayıtlar).
-  paymentStatus String?
-  paymentMethod String?
+  paymentStatus   String?
+  paymentMethod   String?
   /// "pending" | "approved" | "rejected"
-  approvalStatus String?
-  approvedBy     String?
+  approvalStatus  String?
+  approvedBy      String?
   recurringRuleId String?
 
   @@index([tenantId])
@@ -1589,22 +1674,22 @@ model ExpenseRecord {
 
 /// Faz 10 — periyodik olarak otomatik ExpenseRecord üreten kural.
 model RecurringExpenseRule {
-  id           String   @id
-  tenantId     String
-  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  category     String
-  subcategory  String?
-  supplier     String?
-  branchId     String?
-  amount       Int
+  id          String   @id
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  category    String
+  subcategory String?
+  supplier    String?
+  branchId    String?
+  amount      Int
   /// "monthly" | "quarterly" | "yearly"
-  frequency    String
-  nextRunDate  DateTime
-  note         String?
-  active       Boolean  @default(true)
-  createdBy    String
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  frequency   String
+  nextRunDate DateTime
+  note        String?
+  active      Boolean  @default(true)
+  createdBy   String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   @@index([tenantId])
   @@index([tenantId, active, nextRunDate])
@@ -1639,33 +1724,33 @@ model Budget {
 /// fiyatını DEĞİL öğrencinin kendi monthlyFee'sini kullanır; paket fiyatı
 /// yalnızca YENİ öğrenci kaydında/ileriye dönük referans amaçlıdır).
 model Package {
-  id          String    @id
-  tenantId    String
-  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  title       String
-  description String?
+  id                     String    @id
+  tenantId               String
+  tenant                 Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  title                  String
+  description            String?
   /// "active" | "archived" — pasif/arşivlenmiş paket yeni öğrenci kaydında seçilemez.
-  status      String    @default("active")
+  status                 String    @default("active")
   /// TL, tam sayı (kuruş hassasiyeti gerekmiyor — mevcut Payment.amount ile aynı kural).
-  price30Min  Int
-  price40Min  Int
-  price50Min  Int
+  price30Min             Int
+  price40Min             Int
+  price50Min             Int
   /// "guz" | "yaz" | null (Genel — her iki dönemde de geçerli).
-  termLabel   String?
+  termLabel              String?
   /// Aylık (bireysel) ders adedi.
-  monthlyLessonCount    Int?
+  monthlyLessonCount     Int?
   /// Grup solfej / ek ders adedi (aylık).
-  groupLessonCount      Int?
+  groupLessonCount       Int?
   /// Öğrenci kaydında önerilen varsayılan ders süresi (30/40/50).
   defaultDurationMinutes Int?
   /// Öğrenci kaydında önerilen varsayılan ödeme günü (1–28).
-  defaultPaymentDueDay  Int?
+  defaultPaymentDueDay   Int?
   /// Paket kapsamını açıklayan serbest metin not.
-  notes       String?   @db.Text
-  createdBy   String
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  students    Student[]
+  notes                  String?   @db.Text
+  createdBy              String
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+  students               Student[]
 
   @@index([tenantId])
   @@index([tenantId, status])
@@ -1696,23 +1781,23 @@ model DiscountCampaign {
 
 /// PRODUCT_BACKLOG §5
 model TrialLesson {
-  id                  String   @id
-  tenantId            String
-  tenant              Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  name                String
-  phone               String
-  instrument          String
-  branchId            String
-  teacherId           String
-  startAt             DateTime
-  endAt               DateTime
-  durationMinutes     Int
-  status              String   @default("planned")
-  convertedStudentId  String?
-  notes               String?
-  createdBy           String
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  id                 String   @id
+  tenantId           String
+  tenant             Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name               String
+  phone              String
+  instrument         String
+  branchId           String
+  teacherId          String
+  startAt            DateTime
+  endAt              DateTime
+  durationMinutes    Int
+  status             String   @default("planned")
+  convertedStudentId String?
+  notes              String?
+  createdBy          String
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
   @@index([tenantId, status])
   @@index([tenantId, teacherId])
@@ -1720,55 +1805,144 @@ model TrialLesson {
 
 /// PRODUCT_BACKLOG §6 Faz 1
 model DocumentTemplate {
-  id          String   @id
-  tenantId    String
-  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  kind        String
-  name        String
-  bodyHtml    String
-  active      Boolean  @default(true)
+  id                 String    @id
+  tenantId           String
+  tenant             Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  kind               String
+  name               String
+  bodyHtml           String
+  active             Boolean   @default(true)
   /// Şablonu oluşturan yönetici — varsayılan (otomatik seed) şablonlarda null.
-  createdById String?
+  createdById        String?
   /// Her düzenlemede +1 — "versiyon/oluşturma bilgisi" gereksinimi (Evraklar Faz 2).
-  version     Int      @default(1)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  version            Int       @default(1)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  /// P0 (2026-08-30, DOCX-öncelikli şablon iş akışı) — admin'in yüklediği ORİJİNAL
+  /// .docx dosyası base64 olarak burada saklanır, yetkili admin'e AYNEN indirilebilir.
+  /// `bodyHtml` mammoth ile üretilen bir HTML önizlemesidir, DOCX'in kayıpsız
+  /// karşılığı DEĞİLDİR. Yalnızca DOCX'ten yüklenen şablonlarda dolu olur.
+  sourceFileData     String?
+  sourceFileName     String?
+  sourceMimeType     String?
+  sourceUploadedAt   DateTime?
+  sourceUploadedById String?
 
   @@index([tenantId, kind])
 }
 
 model DocumentInstance {
-  id           String   @id
-  tenantId     String
-  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  templateId   String
-  kind         String
-  reference    String
-  status       String   @default("draft")
-  studentId    String?
-  teacherId    String?
-  trialLessonId String?
-  branchId     String?
-  fieldValues  Json
-  renderedHtml String?
-  printCount   Int      @default(0)
-  createdBy    String
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  fileName     String?
-  fileMimeType String?
-  fileData     String?
-  fileSize     Int?
+  id               String    @id
+  tenantId         String
+  tenant           Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  templateId       String
+  kind             String
+  reference        String
+  status           String    @default("draft")
+  studentId        String?
+  teacherId        String?
+  trialLessonId    String?
+  branchId         String?
+  fieldValues      Json
+  renderedHtml     String?
+  printCount       Int       @default(0)
+  createdBy        String
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  fileName         String?
+  fileMimeType     String?
+  fileData         String?
+  fileSize         Int?
   signedUploadedAt DateTime?
   /// İmzalı sürümü yükleyen sorumlu (kural E).
-  signedBy     String?
+  signedBy         String?
   /// Append-only imzalı sürüm YÜKLEME geçmişi (metadata) — bkz.
   /// src/lib/documents/index.ts uploadSignedDocumentFile/softDeleteSignedVersion.
-  signedVersions Json?
+  signedVersions   Json?
 
   @@unique([tenantId, reference])
   @@index([tenantId, studentId])
   @@index([tenantId, kind])
+}
+
+/// FEATURE A (versioned öğrenci kayıt sözleşmesi + ödeme planı) — additive.
+/// Gerçek PDF üretimi/yazdırma/ıslak-imza-tarama-yükleme MEVCUT
+/// DocumentTemplate/DocumentInstance altyapısını (bkz. yukarı) TEKRARLAMAZ —
+/// her sözleşme versiyonu tam olarak BİR `DocumentInstance` (kind=
+/// "student_enrollment_contract") ile 1:1 eşleşir; o satırın `reference`'ı
+/// aynı zamanda bu satırın `contractNumber`'ıdır (tek üretici: documents/
+/// index.ts createDocumentInstance → buildDocumentReference). Bu model
+/// yalnızca sözleşmeye özgü versiyon zinciri + ödeme planı alanlarını tutar.
+/// Taksitler AYRI bir model DEĞİL — mevcut `Payment` satırlarına
+/// `contractId`/`installmentSequence` ile bağlanır (kural: mevcut tahsilat/
+/// makbuz/hatırlatma/gecikme motorları taksitler için OTOMATİK çalışır).
+model StudentContract {
+  id                    String            @id
+  tenantId              String
+  tenant                Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  studentId             String
+  student               Student           @relation(fields: [studentId], references: [id])
+  /// = documentInstance.reference (bkz. yukarıdaki not) — ayrıca burada
+  /// tutulur ki liste/arama ekranları DocumentInstance'a join YAPMADAN
+  /// çalışabilsin.
+  contractNumber        String
+  versionNumber         Int
+  /// "initial" | "renewal" | "amendment"
+  contractType          String
+  previousContractId    String?
+  previousContract      StudentContract?  @relation("ContractVersionChain", fields: [previousContractId], references: [id])
+  nextVersions          StudentContract[] @relation("ContractVersionChain")
+  /// Bu sözleşmenin PDF render/yazdırma/imzalı-tarama-yükleme'sini yürüten
+  /// DocumentInstance satırı — CRUD BURADA DEĞİL, src/lib/documents/index.ts
+  /// mevcut fonksiyonlarında (createDocumentInstance/markDocumentPrinted/
+  /// uploadSignedDocumentFile) yürütülür. 1-2 aylık "tanışma" kayıtlarında
+  /// (durationMonths < 3) NULL — resmi sözleşme/PDF üretilmez (kural: trial
+  /// paketler için formal sözleşme belgesi ZORUNLU DEĞİL).
+  documentInstanceId    String?           @unique
+  /// createDocumentInstance çağrıldığı andaki DocumentTemplate.version —
+  /// şablon SONRADAN değişse/versiyonu artsa bile bu sözleşmenin HANGİ
+  /// metne dayandığı kalıcı olarak bellidir. Trial kayıtlarda NULL.
+  templateVersion       Int?
+  /// "draft" | "generated" | "printed" | "wet_signature_pending" | "signed"
+  /// | "superseded" | "cancelled" | "recorded" — bkz. src/lib/contracts.ts
+  /// CONTRACT_STATUSES. "recorded" = 1-2 aylık trial kaydı, formal belge YOK,
+  /// yazdırma/imza adımları geçerli değil. DocumentInstance.status (draft/
+  /// printed/uploaded/...) İLE AYNI ALAN DEĞİLDİR — o belge-dosyası yaşam
+  /// döngüsü, bu SÖZLEŞME iş süreci yaşam döngüsüdür (kural 13:
+  /// aktivasyon/imza durumları ayrı kalmalı).
+  status                String            @default("generated")
+  /// Üretim anındaki TÜM alanların DEĞİŞMEZ anlık görüntüsü (program, veli/
+  /// imzalayan bilgisi, tarihler, tutar, taksit listesi) — Student satırı
+  /// sonradan değişse bile bu sözleşmenin GERÇEKTEN neyi vaat ettiği
+  /// kaybolmaz (kural 3 — immutable data snapshot).
+  contractDataSnapshot  Json
+  programmeName         String
+  enrollmentStartDate   DateTime
+  enrollmentEndDate     DateTime
+  durationMonths        Int
+  monthlyAmount         Int
+  installmentCount      Int
+  totalContractAmount   Int
+  depositAmount         Int?
+  paymentMethod         String?
+  signatoryFullName     String
+  signatoryNationalId   String?
+  signatoryAddress      String?
+  /// "veli" | "öğrenci" (18 yaş+ kendisi imzalıyorsa)
+  signatoryRelationship String?
+  installments          Payment[]
+  createdBy             String
+  generatedBy           String
+  printedBy             String?
+  printedAt             DateTime?
+  signedAt              DateTime?
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+
+  @@unique([tenantId, contractNumber])
+  @@index([tenantId, studentId])
+  @@index([tenantId, status])
+  @@index([previousContractId])
 }
 
 /// İş Takip modülü (insan-odaklı operasyon görev takibi — /panel/is-takip,
@@ -1778,41 +1952,41 @@ model DocumentInstance {
 /// silme/tenant-taşıma ile ilgili kısıtlama zinciri oluşturmasın diye;
 /// aynı-tenant doğrulaması uygulama katmanında (src/lib/tasks.ts) yapılır.
 model Task {
-  id           String    @id
-  tenantId     String
-  tenant       Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  title        String
-  description  String?   @db.Text
+  id                 String    @id
+  tenantId           String
+  tenant             Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  title              String
+  description        String?   @db.Text
   /// TODO | IN_PROGRESS | BLOCKED | COMPLETED | CANCELLED | ARCHIVED
-  status       String    @default("TODO")
+  status             String    @default("TODO")
   /// LOW | MEDIUM | HIGH | URGENT
-  priority     String    @default("MEDIUM")
+  priority           String    @default("MEDIUM")
   /// Kayıt | Eğitim | Tahsilat | Veli İletişimi | Öğretmen | Program | Evrak | Teknik
-  category     String
-  assigneeId   String?
-  followerIds  Json      @default("[]")
-  createdById  String
-  startDate    DateTime?
-  dueDate      DateTime?
-  completedAt  DateTime?
-  cancelledAt  DateTime?
-  archivedAt   DateTime?
-  progressPercent Int    @default(0)
-  tags         Json      @default("[]")
-  studentId    String?
-  teacherId    String?
-  branchId     String?
-  lessonId     String?
-  paymentId    String?
-  documentId   String?
+  category           String
+  assigneeId         String?
+  followerIds        Json      @default("[]")
+  createdById        String
+  startDate          DateTime?
+  dueDate            DateTime?
+  completedAt        DateTime?
+  cancelledAt        DateTime?
+  archivedAt         DateTime?
+  progressPercent    Int       @default(0)
+  tags               Json      @default("[]")
+  studentId          String?
+  teacherId          String?
+  branchId           String?
+  lessonId           String?
+  paymentId          String?
+  documentId         String?
   /// Genel ilişkili-kayıt bağlantısı (student|teacher|payment|document|makeup|lessonCorrection|branch) —
   /// yukarıdaki özel FK alanlarına (studentId vb.) EK olarak, onlar karşılamadığında (telafi/ders düzeltme) kullanılır.
   relatedEntityType  String?
   relatedEntityId    String?
   /// Oluşturma anında alınmış, denormalize görüntü etiketi (kayıt sonradan değişse/silinse bile bağlam korunur).
   relatedEntityLabel String?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
   checklistItems TaskChecklistItem[]
   comments       TaskComment[]
@@ -1942,14 +2116,14 @@ model LessonHomeworkReminderLog {
 /// task-notifications.ts notifyTaskAssigned) — yalnızca DUE_SOON/DUE_TODAY/
 /// OVERDUE hatırlatmaları bu tercihlere tabidir.
 model TaskReminderPreference {
-  id               String   @id
-  tenantId         String
-  tenant           Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  userId           String
-  dueSoonEnabled   Boolean  @default(true)
-  dueTodayEnabled  Boolean  @default(true)
-  overdueEnabled   Boolean  @default(true)
-  updatedAt        DateTime @updatedAt
+  id              String   @id
+  tenantId        String
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId          String
+  dueSoonEnabled  Boolean  @default(true)
+  dueTodayEnabled Boolean  @default(true)
+  overdueEnabled  Boolean  @default(true)
+  updatedAt       DateTime @updatedAt
 
   @@unique([tenantId, userId])
 }
