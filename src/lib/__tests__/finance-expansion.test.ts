@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { promises as fs } from "fs";
 import {
   createExpenseTool,
@@ -22,15 +22,36 @@ function ctx(overrides?: Partial<ServiceContext>): ServiceContext {
   return { role: "SCHOOL_ADMIN", userId: "u1", tenantId: DEFAULT_TENANT_ID, channel: "web", ...overrides };
 }
 
+/**
+ * Kok neden duzeltmesi (2026-08-31 test kosusu): bu dosya onceden gercek
+ * `new Date()` kullaniyordu - `todayIso` UTC bazli (`toISOString().slice`),
+ * ama `computeFinanceSummary`'nin "bu ay" filtresi YEREL takvim (`getFullYear`/
+ * `getMonth`) kullaniyor. Ay sonuna yakin, UTC ofsetinin YEREL tarihi bir
+ * sonraki aya tasidigi saatlerde ikisi FARKLI ay uretip bu ayki giderleri
+ * sessizce eliyordu (expenseByCategory/costByBranch/budgetComparison
+ * undefined/0 kaliyordu - hicbiri kod regresyonu degil, testin kendisi
+ * gercek saate bagimliydi). lesson-*.test.ts dosyalarindaki FIXED_NOW
+ * deseniyle ayni yaklasim: saat dondurulur, "bugun" HER YERDE ayni sabit
+ * ana gore YEREL takvim parcalariyla turetilir (UTC slice YOK).
+ */
+const FIXED_NOW = new Date("2026-08-15T12:00:00");
+
 beforeEach(async () => {
+  process.env.TZ = "Europe/Istanbul";
+  vi.useFakeTimers();
+  vi.setSystemTime(FIXED_NOW);
   await fs.rm(EXPENSE_FILE, { force: true });
   await fs.rm(RECURRING_EXPENSE_RULE_FILE, { force: true });
   await fs.rm(BUDGET_FILE, { force: true });
 });
 
-const now = new Date();
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+const now = FIXED_NOW;
 const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-const todayIso = now.toISOString().slice(0, 10);
+const todayIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 
 describe("Faz 10 — effectiveExpensePaymentStatus (pure)", () => {
   it("paymentStatus tanımsızsa (eski kayıt) 'paid' sayılır", () => {

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { promises as fs } from "fs";
 import {
   createStaffMemberTool,
@@ -22,11 +22,27 @@ function ctx(overrides?: Partial<ServiceContext>): ServiceContext {
   return { role: "SCHOOL_ADMIN", userId: "u1", tenantId: DEFAULT_TENANT_ID, channel: "web", ...overrides };
 }
 
+/**
+ * Kok neden duzeltmesi (2026-08-31 test kosusu) - ayni sinif: finance-expansion.test.ts
+ * ile PAYLASILAN kok neden. `today` onceden UTC bazliydi (`toISOString().slice`), ama
+ * `computeFinanceSummary`'nin "bu ay" filtresi YEREL takvim kullaniyor - ay sonuna
+ * yakin ikisi farkli ay uretip "totalExpenseThisMonth" 0 kaliyordu. FIXED_NOW +
+ * YEREL takvim parcalari (lesson-*.test.ts ile ayni desen) bunu kokten kaldirir.
+ */
+const FIXED_NOW = new Date("2026-08-15T12:00:00");
+
 beforeEach(async () => {
+  process.env.TZ = "Europe/Istanbul";
+  vi.useFakeTimers();
+  vi.setSystemTime(FIXED_NOW);
   await fs.rm(STAFF_FILE, { force: true });
   await fs.rm(PAYROLL_FILE, { force: true });
   await fs.rm(LEAVE_FILE, { force: true });
   await fs.rm(EXPENSE_FILE, { force: true });
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 async function createStaff() {
@@ -35,8 +51,8 @@ async function createStaff() {
   return res.data.staffId;
 }
 
-const thisMonth = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`;
-const today = new Date().toISOString().slice(0, 10);
+const thisMonth = `${FIXED_NOW.getFullYear()}-${String(FIXED_NOW.getMonth() + 1).padStart(2, "0")}`;
+const today = `${FIXED_NOW.getFullYear()}-${String(FIXED_NOW.getMonth() + 1).padStart(2, "0")}-${String(FIXED_NOW.getDate()).padStart(2, "0")}`;
 
 describe("İş 3B — Bordro RBAC + statü akışı", () => {
   it("TEACHER bordro göremez/oluşturamaz", async () => {
