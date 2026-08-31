@@ -1,77 +1,66 @@
 name: Production DB Migration
 
-# Runs ONLY when prisma/migrations/** changes land on main — app code changes
-# alone never trigger this. Kept fully separate from .github/workflows/ci.yml
-# (build/lint/test/typecheck) and from app deployment (handled by Vercel's own
-# GitHub integration, outside GitHub Actions) — a migration failure here never
-# blocks or is blocked by the app build/deploy path.
+# Runs when prisma/migrations/** changes land on main, OR on-demand via the
+# Actions tab (workflow_dispatch) for an auditable manual trigger. App code
+# changes alone never fire this. Kept fully separate from
+# .github/workflows/ci.yml (build/lint/test/typecheck) and from app
+# deployment (handled by Vercel's own GitHub integration, outside GitHub
+# Actions — this repo has no app-deploy job to separate from) — a migration
+# failure here never blocks or is blocked by the app build/deploy path.
 on:
   push:
     branches: [main]
     paths:
       - "prisma/migrations/**"
+  workflow_dispatch: {}
 
 permissions:
   contents: read
 
+# Never run two migration deploys against production at the same time; never
+# cancel one mid-flight (a cancelled `prisma migrate deploy` can leave the
+# _prisma_migrations table in a partial state).
+concurrency:
+  group: production-migrations
+  cancel-in-progress: false
+
 jobs:
   safety-check:
     runs-on: ubuntu-latest
-    outputs:
-      changed_migrations: ${{ steps.list.outputs.files }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: List migration.sql files changed by this push
-        id: list
-        run: |
-          before="${{ github.event.before }}"
-          # First push to an existing branch has a real "before" SHA; a brand
-          # new branch/force-created ref can report all-zeros — fall back to
-          # diffing against the previous commit in that case.
-          if [ -z "$before" ] || [ "$before" = "0000000000000000000000000000000000000000" ]; then
-            before="HEAD~1"
-          fi
-          files=$(git diff --name-only --diff-filter=ACM "$before" "${{ github.sha }}" -- 'prisma/migrations/**/migration.sql' || true)
-          echo "Changed migration files:"
-          echo "$files"
-          {
-            echo "files<<EOF"
-            echo "$files"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
 
       - name: Block destructive SQL without an explicit override
-        # Any newly-added/changed migration.sql containing a genuinely
-        # dangerous statement fails the job by default. To ship an
+        # Scans every migration.sql in the repo (not just ones changed by
+        # this push) — cheap at this repo's size, and robust across both
+        # trigger types (push diffing is fragile for workflow_dispatch,
+        # which has no "before" commit). Any migration.sql containing a
+        # genuinely dangerous statement fails the job by default. To ship an
         # intentionally destructive migration, add a comment line
         # "-- migration-safety: acknowledged <short reason>" inside that
-        # specific migration.sql — this is a deliberate, reviewable opt-out,
-        # never a silent bypass.
+        # specific migration.sql — a deliberate, reviewable opt-out, never a
+        # silent bypass.
         run: |
-          files="${{ steps.list.outputs.changed_migrations }}"
-          if [ -z "$files" ]; then
-            echo "No changed migration.sql files in this push — nothing to check."
-            exit 0
-          fi
           fail=0
-          for f in $files; do
+          shopt -s globstar nullglob
+          for f in prisma/migrations/**/migration.sql; do
             [ -f "$f" ] || continue
-            echo "Checking $f"
-            if grep -Eqi 'DROP[[:space:]]+TABLE|DROP[[:space:]]+COLUMN|TRUNCATE|DELETE[[:space:]]+FROM' "$f"; then
-              if grep -qi 'migration-safety: acknowledged' "$f"; then
-                echo "  destructive statement found, but explicitly acknowledged — allowing."
+            acknowledged=0
+            grep -qi 'migration-safety: acknowledged' "$f" && acknowledged=1
+
+            if grep -Eqi 'DROP[[:space:]]+TABLE|DROP[[:space:]]+COLUMN|TRUNCATE|DELETE[[:space:]]+FROM|ALTER[[:space:]]+TABLE.*DROP' "$f"; then
+              if [ "$acknowledged" = "1" ]; then
+                echo "$f: destructive statement found, but explicitly acknowledged — allowing."
               else
-                echo "  BLOCKED: destructive statement (DROP TABLE/COLUMN, TRUNCATE, or DELETE) with no"
-                echo "  '-- migration-safety: acknowledged <reason>' comment in $f."
+                echo "$f: BLOCKED — destructive statement (DROP TABLE/COLUMN, ALTER TABLE ... DROP,"
+                echo "  TRUNCATE, or DELETE FROM) with no '-- migration-safety: acknowledged <reason>' comment."
                 fail=1
               fi
             fi
-            if grep -Eqi 'ALTER[[:space:]]+TABLE.*ALTER COLUMN.*SET NOT NULL' "$f" && ! grep -qi 'migration-safety: acknowledged' "$f"; then
-              echo "  BLOCKED: SET NOT NULL on an existing column with no explicit backfill/default and no"
-              echo "  '-- migration-safety: acknowledged <reason>' comment in $f (can fail on existing NULL rows)."
+
+            if grep -Eqi 'ALTER[[:space:]]+TABLE.*ALTER COLUMN.*SET NOT NULL' "$f" && [ "$acknowledged" != "1" ]; then
+              echo "$f: BLOCKED — SET NOT NULL on an existing column with no explicit backfill/default"
+              echo "  and no '-- migration-safety: acknowledged <reason>' comment (can fail on existing NULL rows)."
               fail=1
             fi
           done
@@ -79,7 +68,7 @@ jobs:
             echo ""
             echo "One or more migrations look potentially destructive. Review manually, then add"
             echo "'-- migration-safety: acknowledged <short reason>' to the specific migration.sql"
-            echo "file(s) and push again."
+            echo "file(s) and push (or re-run) again."
             exit 1
           fi
           echo "No unacknowledged destructive statements found."
@@ -104,5 +93,10 @@ jobs:
           # Add DATABASE_URL as a Secret on the "production" GitHub
           # Environment (Settings → Environments → production → Secrets).
           # Never put the connection string in this file, a commit, or any
-          # workflow log.
+          # workflow log — and never echo/print this env var in any step.
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+      - name: Verify migration status
+        run: npx prisma migrate status
+        env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
