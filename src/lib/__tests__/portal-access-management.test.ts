@@ -52,6 +52,16 @@ import {
 } from "../services/tools";
 
 const PASSWORD_RESET_FILE = path.join(resolveDataDir(path.join(process.cwd(), "data")), "password-reset-tokens.json");
+// Kok neden duzeltmesi (2026-08-31): bu dosyanin beforeEach'i ana veri
+// deposunu (store.json — ogretmen/ogrenci fixture'lari, orn. t7'nin
+// e-postasi) hicbir zaman sifirlamiyordu; sibling test dosyalari
+// (find-person-schedule.test.ts, homework-attachment.test.ts) bunu zaten
+// yapiyor. fileParallelism:false altinda TUM dosyalar AYNI store.json'u
+// paylastigindan, bu dosyadan once calisan baska bir test store.json'u
+// silmeden birakirsa (ya da mutasyona ugratirsa) buradaki testler o STALE
+// veriyi devralabiliyordu — "t7 e-postasi bos" onkosul hatasinin kok nedeni
+// buydu (kod regresyonu degil, izolasyon eksikligi).
+const DATA_FILE = path.join(resolveDataDir(path.join(process.cwd(), "data")), "store.json");
 
 function adminCtx(overrides?: Partial<ServiceContext>): ServiceContext {
   return { role: "SCHOOL_ADMIN", userId: "u1", tenantId: DEFAULT_TENANT_ID, channel: "web", ...overrides };
@@ -71,6 +81,7 @@ function extractResetCode(input: EmailSendInput): string {
 }
 
 beforeEach(async () => {
+  await fs.rm(DATA_FILE, { force: true });
   await fs.rm(STUDENT_PORTAL_ACCESS_FILE, { force: true });
   await fs.rm(DYNAMIC_USERS_FILE, { force: true });
   setEmailTransportForTests(null);
