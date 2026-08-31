@@ -117,7 +117,7 @@ describe("public whatsapp webhook", () => {
   it("GET doğrulama: hardcoded/predictable token kabul edilmez, sadece configured token geçer", async () => {
     const badUrl = new URL("https://example.test/api/v1/whatsapp/webhook");
     badUrl.searchParams.set("hub.mode", "subscribe");
-    badUrl.searchParams.set("hub.verify_token", "notaplan-wa-verify"); // old hardcoded default
+    badUrl.searchParams.set("hub.verify_token", "nevii-hub-wa-verify"); // old hardcoded default
     badUrl.searchParams.set("hub.challenge", "chal123");
     const badRes = await webhookGet(new Request(badUrl));
     expect(badRes.status).toBe(403);

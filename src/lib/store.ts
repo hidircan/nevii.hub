@@ -6,11 +6,15 @@ import type {
   Branch,
   CollectionsSettings,
   ConsentSettings,
+  ContractInstallmentSnapshot,
+  ContractInstallmentView,
   FeeRoundingMode,
   Instrument,
   MakeupSlot,
+  Payment,
   Room,
   Student,
+  StudentPaymentPauseState,
   StudentProfilePatch,
   StudentTermType,
   Teacher,
@@ -49,6 +53,7 @@ type StoreApi = {
   updateMakeupSlaEscalation: (requestId: string, level: number) => Promise<AppData>;
   addStudent: (student: Omit<Student, "id" | "createdAt" | "active">) => Promise<AppData>;
   updateStudentProfile: (studentId: string, patch: StudentProfilePatch) => Promise<AppData>;
+  setStudentPaymentPause: (studentId: string, state: StudentPaymentPauseState) => Promise<AppData>;
   addTeacher: (teacher: Omit<Teacher, "id" | "active" | "color">) => Promise<AppData>;
   updateTeacherAvailability: (
     teacherId: string,
@@ -119,6 +124,34 @@ type StoreApi = {
     /** Ödeme şekli (nakit/kredi kartı/havale) — verilmezse mevcut/varsayılan değer korunur. */
     method?: string;
   }) => Promise<{ data: AppData; paymentId: string }>;
+  /** Owner policy (2026-08-30) — kayıt tamamlanma anında tahsil edilen ilk ödeme; idempotent (bkz. store-json.ts). */
+  addRegistrationFirstPayment: (input: {
+    studentId: string;
+    method: string;
+    amount: number;
+    collectedAt: string;
+    reference?: string;
+    note?: string;
+    receivedByUserId: string;
+  }) => Promise<{ data: AppData; paymentId: string }>;
+  /**
+   * FEATURE A — bir `StudentContract`'ın SABİT SAYIDA taksitini gerçek
+   * `Payment` satırları olarak TEK seferde ekler (contractId/
+   * installmentSequence ile etiketlenir). `upsertMonthlyPlanPayment`'tan
+   * KASITLI OLARAK AYRI: o AÇIK UÇLU süregelen aylık faturalama, bu ise
+   * BELİRLİ bir sözleşmenin sabit taksit planı (bkz. src/lib/contracts.ts).
+   */
+  addContractInstallments: (input: {
+    contractId: string;
+    studentId: string;
+    installments: ContractInstallmentSnapshot[];
+    /** Owner policy — kayıt esnasında tahsil edilen ilk ödeme; verilirse 1. taksit "paid" olarak yaratılır. Yalnızca renewal/amendment için (initial artık reuseFirstPaymentId kullanır). */
+    firstPaymentCollected?: { method: string; amount: number; collectedAt: string; reference?: string; note?: string };
+    /** P0 dedup fix (2026-08-30) — initial sözleşme için, kayıt sırasında zaten oluşturulan `registration_first_payment` Payment satırının id'si. Verilirse 1. taksit için YENİ satır yaratılmaz — mevcut satır contractId/installmentSequence ile bu sözleşmeye BAĞLANIR (tek gerçek Payment kaydı). */
+    reuseFirstPaymentId?: string;
+  }) => Promise<{ data: AppData; installments: ContractInstallmentView[] }>;
+  /** P0 dedup fix (2026-08-30) — bir öğrencinin kayıt anında tahsil edilen ilk ödeme satırını bulur (bkz. addRegistrationFirstPayment). Sözleşme oluşturmanın bunu YENİDEN yaratması yerine BULUP yeniden kullanması için. */
+  getRegistrationFirstPayment: (studentId: string) => Promise<Payment | null>;
   updateLessonSchedule: (input: {
     lessonId: string;
     startAt?: string;
@@ -309,6 +342,10 @@ export async function updateStudentProfile(
   return withTenantScope(() => store.updateStudentProfile(studentId, patch));
 }
 
+export async function setStudentPaymentPause(studentId: string, state: StudentPaymentPauseState): Promise<AppData> {
+  return withTenantScope(() => store.setStudentPaymentPause(studentId, state));
+}
+
 export async function addTeacher(
   teacher: Omit<Teacher, "id" | "active" | "color">
 ): Promise<AppData> {
@@ -416,6 +453,21 @@ export async function addPayment(input: {
   return withTenantScope(() => store.addPayment(input));
 }
 
+export async function addContractInstallments(input: {
+  contractId: string;
+  studentId: string;
+  installments: ContractInstallmentSnapshot[];
+  firstPaymentCollected?: { method: string; amount: number; collectedAt: string; reference?: string; note?: string };
+  reuseFirstPaymentId?: string;
+}): Promise<{ data: AppData; installments: ContractInstallmentView[] }> {
+  return withTenantScope(() => store.addContractInstallments(input));
+}
+
+/** P0 dedup fix (2026-08-30) — bkz. StoreApi.getRegistrationFirstPayment. */
+export async function getRegistrationFirstPayment(studentId: string): Promise<Payment | null> {
+  return withTenantScope(() => store.getRegistrationFirstPayment(studentId));
+}
+
 export async function upsertMonthlyPlanPayment(input: {
   studentId: string;
   month: string;
@@ -424,6 +476,19 @@ export async function upsertMonthlyPlanPayment(input: {
   method?: string;
 }): Promise<{ data: AppData; paymentId: string }> {
   return withTenantScope(() => store.upsertMonthlyPlanPayment(input));
+}
+
+/** Owner policy (2026-08-30) — bkz. store-json.ts addRegistrationFirstPayment. */
+export async function addRegistrationFirstPayment(input: {
+  studentId: string;
+  method: string;
+  amount: number;
+  collectedAt: string;
+  reference?: string;
+  note?: string;
+  receivedByUserId: string;
+}): Promise<{ data: AppData; paymentId: string }> {
+  return withTenantScope(() => store.addRegistrationFirstPayment(input));
 }
 
 export async function updateLessonSchedule(input: {

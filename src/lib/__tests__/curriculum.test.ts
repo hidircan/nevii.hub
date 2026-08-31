@@ -80,17 +80,17 @@ describe("listCurriculumForStudentTool — rol kapsamı", () => {
     await createCurriculumTopicTool(ctx({ teacherId: "t1" }), {
       studentId: "s1",
       title: "A",
-      progressPercent: 40,
+      status: "in_progress",
     });
     await createCurriculumTopicTool(ctx({ teacherId: "t1" }), {
       studentId: "s1",
       title: "B",
-      progressPercent: 80,
+      status: "mastered",
     });
     const res = await listCurriculumForStudentTool(ctx({ teacherId: "t1" }), { studentId: "s1" });
     expect(res.ok).toBe(true);
     if (!res.ok) return;
-    expect(res.data.overallPercent).toBe(60);
+    expect(res.data.overallPercent).toBe(75);
     expect(res.data.topics).toHaveLength(2);
     expect(res.data.progressExplanation).toContain("aritmetik ortalama");
   });
@@ -109,14 +109,14 @@ describe("listCurriculumForStudentTool — rol kapsamı", () => {
       studentId: "s1",
       title: "Gam",
       notes: "gizli not",
-      progressPercent: 30,
+      status: "in_progress",
     });
     const parentCtx = ctx({ role: "STUDENT", teacherId: undefined, studentId: "s1" });
     await grantStudentAccess(parentCtx, "s1", "GUARDIAN");
     const res = await listCurriculumForStudentTool(parentCtx, { studentId: "s1" });
     expect(res.ok).toBe(true);
     if (!res.ok) return;
-    expect(res.data.overallPercent).toBe(30);
+    expect(res.data.overallPercent).toBe(50);
     const topic = res.data.topics[0] as { title: string; notes?: string; history?: unknown };
     expect(topic.title).toBe("Gam");
     expect(topic.notes).toBeUndefined();

@@ -171,3 +171,90 @@ describe("EPIC 1 — updateCommunicationPreferenceTool (opt-out yetkisi)", () =>
     expect(result.ok).toBe(true);
   });
 });
+
+describe("EPIC 1 — listNotificationsTool cursor sayfalama", () => {
+  async function seed(n: number) {
+    for (let i = 0; i < n; i++) {
+      await createNotification({
+        tenantId: DEFAULT_TENANT_ID,
+        targetUserId: "user_page",
+        kind: "info",
+        title: `Bildirim ${i}`,
+        body: "x",
+      });
+    }
+  }
+
+  it("ilk sayfa: limit kadar döner ve nextCursor verir", async () => {
+    await seed(5);
+    const result = await listNotificationsTool(ctx({ userId: "user_page" }), { limit: 3 });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.notifications).toHaveLength(3);
+    expect(result.data.nextCursor).not.toBeNull();
+    expect(result.data.unreadCount).toBe(5);
+  });
+
+  it("ikinci sayfa: cursor ile devam eder, tekrar/eksik olmadan tüm öğeleri kapsar, kararlı sırada", async () => {
+    await seed(5);
+    const page1 = await listNotificationsTool(ctx({ userId: "user_page" }), { limit: 3 });
+    if (!page1.ok || !page1.data.nextCursor) throw new Error("page1 failed");
+    const page2 = await listNotificationsTool(ctx({ userId: "user_page" }), {
+      cursor: page1.data.nextCursor,
+      limit: 3,
+    });
+    expect(page2.ok).toBe(true);
+    if (!page2.ok) return;
+    expect(page2.data.notifications).toHaveLength(2);
+    expect(page2.data.nextCursor).toBeNull();
+
+    const ids1 = page1.data.notifications.map((n) => n.id);
+    const ids2 = page2.data.notifications.map((n) => n.id);
+    expect(new Set([...ids1, ...ids2]).size).toBe(5);
+    const all = await listNotificationsTool(ctx({ userId: "user_page" }), { limit: 100 });
+    if (!all.ok) throw new Error("all failed");
+    expect([...ids1, ...ids2]).toEqual(all.data.notifications.map((n) => n.id));
+  });
+
+  it("geçersiz cursor: temiz doğrulama hatası döner, crash olmaz", async () => {
+    await seed(1);
+    const result = await listNotificationsTool(ctx({ userId: "user_page" }), { cursor: "not-base64-json" });
+    expect(result.ok).toBe(false);
+  });
+
+  it("tenant/kullanıcı izolasyonu sayfalamada da korunur", async () => {
+    await seed(3);
+    await createNotification({
+      tenantId: DEFAULT_TENANT_ID,
+      targetUserId: "other_user",
+      kind: "info",
+      title: "başkasının",
+      body: "x",
+    });
+    const result = await listNotificationsTool(ctx({ userId: "user_page" }), { limit: 100 });
+    if (!result.ok) throw new Error("failed");
+    expect(result.data.notifications.every((n) => n.title !== "başkasının")).toBe(true);
+  });
+
+  it("unreadCount toplam gelen kutusunu yansıtır, yalnızca yüklenen sayfayı değil", async () => {
+    await seed(5);
+    const page1 = await listNotificationsTool(ctx({ userId: "user_page" }), { limit: 1 });
+    if (!page1.ok) throw new Error("failed");
+    expect(page1.data.notifications).toHaveLength(1);
+    expect(page1.data.unreadCount).toBe(5);
+  });
+
+  it("markNotificationRead sayfalamadan sonra da çalışmaya devam eder", async () => {
+    await seed(1);
+    const page = await listNotificationsTool(ctx({ userId: "user_page" }), { limit: 10 });
+    if (!page.ok) throw new Error("failed");
+    const target = page.data.notifications[0];
+    const marked = await markNotificationReadTool(ctx({ userId: "user_page" }), {
+      notificationId: target.id,
+    });
+    expect(marked.ok).toBe(true);
+    const after = await listNotificationsTool(ctx({ userId: "user_page" }), { limit: 10 });
+    if (!after.ok) throw new Error("failed");
+    expect(after.data.unreadCount).toBe(0);
+  });
+});

@@ -3,9 +3,16 @@ import { listNotificationsTool, markNotificationReadTool } from "@/lib/services"
 
 export const dynamic = "force-dynamic";
 
-/** GET /api/v1/notifications — yalnızca çağıranın kendi bildirimleri (userId veya studentId). */
+/**
+ * GET /api/v1/notifications?cursor=&limit= — yalnızca çağıranın kendi bildirimleri
+ * (userId veya studentId). cursor/limit opsiyonel, verilmezse ilk sayfa döner.
+ */
 export const GET = withApiHandler(
-  async ({ ctx }) => listNotificationsTool(ctx),
+  async ({ ctx, searchParams }) =>
+    listNotificationsTool(ctx, {
+      cursor: searchParams.get("cursor") ?? undefined,
+      limit: searchParams.get("limit") ?? undefined,
+    }),
   { permission: "notifications:read" }
 );
 

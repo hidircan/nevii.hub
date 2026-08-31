@@ -406,17 +406,65 @@ export async function authenticateUser(
   }
 
   const row = HASHED.find((u) => u.email?.toLowerCase() === email);
-  if (!row) {
+  if (row) {
+    const isActive = activeOverrides.get(row.userId) ?? true;
+    if (!isActive) {
+      logAuthFailureReason(email, "inactive", row.tenantId);
+      return null;
+    }
+    const currentHash = passwordOverrides.get(row.userId) ?? row.passwordHash;
+    const valid = await verifyPassword(password, currentHash);
+    if (!valid) {
+      logAuthFailureReason(email, "bad_password", row.tenantId);
+      return null;
+    }
+    return toAuthUser(row);
+  }
+
+  // Portal Erişim Yönetimi kök neden düzeltmesi (2026-08-31) — HASHED yalnızca
+  // derleme-zamanı demo/bootstrap hesaplarını kapsar. Gerçek öğrenci/öğretmen
+  // hesapları (json/memory modunda `provisionEntityLogin` ile ÇALIŞMA
+  // ZAMANINDA oluşturulur, bkz. `dynamic-users.ts`) burada da kontrol
+  // edilmezse GERÇEK kullanıcılar asla giriş yapamaz.
+  const { findDynamicUserByEmailAnyTenant } = await import("./dynamic-users");
+  const dynRow = await findDynamicUserByEmailAnyTenant(email);
+  if (!dynRow) {
     logAuthFailureReason(email, "no_such_user");
     return null;
   }
-  const valid = await verifyPassword(password, row.passwordHash);
-  if (!valid) {
-    logAuthFailureReason(email, "bad_password", row.tenantId);
+  if (!dynRow.active) {
+    logAuthFailureReason(email, "inactive", dynRow.tenantId);
     return null;
   }
-  return toAuthUser(row);
+  const dynValid = await verifyPassword(password, dynRow.passwordHash);
+  if (!dynValid) {
+    logAuthFailureReason(email, "bad_password", dynRow.tenantId);
+    return null;
+  }
+  if (!isAppRole(dynRow.role)) {
+    logAuthFailureReason(email, "bad_role", dynRow.tenantId);
+    return null;
+  }
+  return toAuthUser({
+    userId: dynRow.userId,
+    role: dynRow.role,
+    tenantId: dynRow.tenantId,
+    email: dynRow.email,
+    teacherId: dynRow.teacherId ?? undefined,
+    studentId: dynRow.studentId ?? undefined,
+  });
 }
+
+/**
+ * Kök neden — `changeOwnPassword`/şifre sıfırlama akışı json/memory modunda
+ * BOOTSTRAP dizisini (derleme zamanında sabit) mutasyona uğratamaz. `db`
+ * modu gerçek `User.passwordHash` sütununa yazar; bu Map yalnızca
+ * json/memory'nin süreç-ömürlü (process-lifetime) eşdeğeridir — kalıcı
+ * DEĞİLDİR, süreç yeniden başlarsa sıfırlanır (demo/test modunda beklenen
+ * davranış). `authenticateUser`/`verifyCurrentPassword`nin json/memory
+ * dalları bu haritayı `row.passwordHash`in ÖNÜNE kontrol eder.
+ */
+const passwordOverrides = new Map<string, string>();
 
 /**
  * Öğretmenin (Teacher.id) kendi login `User.id`'sini bulur — ders bildirimi
@@ -438,7 +486,10 @@ export async function getUserIdByTeacherId(tenantId: string, teacherId: string):
     }
   }
   const row = HASHED.find((u) => u.tenantId === tenantId && u.teacherId === teacherId);
-  return row?.userId ?? null;
+  if (row) return row.userId;
+  const { findDynamicUserByTeacherId } = await import("./dynamic-users");
+  const dyn = await findDynamicUserByTeacherId(tenantId, teacherId);
+  return dyn && dyn.active ? dyn.userId : null;
 }
 
 /**
@@ -478,7 +529,10 @@ export async function getUserIdByStudentId(tenantId: string, studentId: string):
     }
   }
   const row = HASHED.find((u) => u.tenantId === tenantId && u.studentId === studentId);
-  return row?.userId ?? null;
+  if (row) return row.userId;
+  const { findDynamicUserByStudentId } = await import("./dynamic-users");
+  const dyn = await findDynamicUserByStudentId(tenantId, studentId);
+  return dyn && dyn.active ? dyn.userId : null;
 }
 
 /**
@@ -501,7 +555,10 @@ export async function getUserIdByEmail(tenantId: string, email: string): Promise
     }
   }
   const row = HASHED.find((u) => u.tenantId === tenantId && u.email?.toLowerCase() === normalized);
-  return row?.userId ?? null;
+  if (row) return row.userId;
+  const { findDynamicUserByEmail } = await import("./dynamic-users");
+  const dyn = await findDynamicUserByEmail(tenantId, normalized);
+  return dyn && dyn.active ? dyn.userId : null;
 }
 
 /**
@@ -554,8 +611,18 @@ export async function getUserById(userId: string): Promise<AuthUser | null> {
   }
 
   const row = HASHED.find((u) => u.userId === userId);
-  if (!row) return null;
-  return toAuthUser(row);
+  if (row) return toAuthUser(row);
+  const { findDynamicUserById } = await import("./dynamic-users");
+  const dyn = await findDynamicUserById(userId);
+  if (!dyn || !isAppRole(dyn.role)) return null;
+  return toAuthUser({
+    userId: dyn.userId,
+    role: dyn.role,
+    tenantId: dyn.tenantId,
+    email: dyn.email,
+    teacherId: dyn.teacherId ?? undefined,
+    studentId: dyn.studentId ?? undefined,
+  });
 }
 
 /**
@@ -565,16 +632,24 @@ export async function getUserById(userId: string): Promise<AuthUser | null> {
  * `createTeacherTool` yalnızca iş kaydını (Student/Teacher) yazıyor,
  * hiçbir yol `User` satırı oluşturmuyordu).
  *
- * Yalnızca `STORE_MODE=db`'de çalışır: `json`/`memory` modundaki BOOTSTRAP
- * listesi derleme zamanında sabit bir dizi — çalışma zamanında yeni girişler
- * eklenemez (bkz. dosya başındaki mode-parity notları). Bu iki demo/test
- * modu zaten üretimde kullanılmıyor (CLAUDE.md), üretimde her zaman `db`
- * modu kullanılır — bu yüzden gerçek kullanıcılar için hiçbir işlevsellik
- * kaybı yok.
+ * KÖK NEDEN DÜZELTMESİ (2026-08-31, CEO bildirdi — "mevcut öğrenciye davet
+ * gönderilemedi"): Bu fonksiyon eskiden yalnızca `STORE_MODE=db`'de
+ * çalışıyordu; "json/memory üretimde kullanılmıyor, üretimde her zaman db
+ * modu kullanılır" varsayımına dayanıyordu. Bu varsayım GERÇEK DIŞI —
+ * gerçek müşteri (Nilüfer Acar) BUGÜN `STORE_MODE=json` altında çalışıyor
+ * (bkz. `docs/project-brain/KNOWN_GAPS.md` #1-2). Artık `json`/`memory`
+ * modunda da (BOOTSTRAP listesindeki demo hesapların DIŞINDA) yeni bir
+ * "çalışma zamanı" kullanıcı satırı oluşturabiliyor — bkz. `dynamic-users.ts`
+ * (dosya-tabanlı kalıcı depo, `StudentPortalAccess`/`PasswordResetToken`
+ * ile AYNI desen). `db` modunun kendi mantığı DEĞİŞMEDİ.
  *
- * E-posta zaten bir `User`'a aitse (aynı tenant) dokunulmaz — idempotent.
- * Başarıyla yeni bir hesap oluşturulursa geçici şifreyi döner (admin'in
- * öğrenciye/öğretmene iletmesi için); aksi halde `null`.
+ * E-posta zaten bir `User`'a aitse (aynı tenant, active durumundan
+ * BAĞIMSIZ — `db` modundaki mevcut `findFirst` sorgusuyla AYNI, kasıtlı
+ * olarak `active` filtrelemez ki kapalı bir hesap için YANLIŞLIKLA ikinci
+ * bir kopya OLUŞTURULMASIN) dokunulmaz — idempotent. Başarıyla yeni bir
+ * hesap oluşturulursa geçici şifreyi döner (yalnızca "anlık erişim"
+ * aracının admin'e göstermesi için — davet e-postası akışı bunu hiç
+ * kullanmaz, kullanıcı kendi şifresini linkle belirler); aksi halde `null`.
  */
 export async function provisionEntityLogin(params: {
   tenantId: string;
@@ -583,79 +658,304 @@ export async function provisionEntityLogin(params: {
   studentId?: string;
   teacherId?: string;
 }): Promise<{ tempPassword: string; userId: string } | null> {
-  if (!isDbMode) return null;
   const email = params.email.trim().toLowerCase();
   if (!email) return null;
 
-  const { getPrisma } = await import("../db");
-  const prisma = getPrisma();
+  if (isDbMode) {
+    const { getPrisma } = await import("../db");
+    const prisma = getPrisma();
 
-  const existing = await prisma.user.findFirst({
-    where: { tenantId: params.tenantId, email },
-  });
-  if (existing) return null;
+    const existing = await prisma.user.findFirst({
+      where: { tenantId: params.tenantId, email },
+    });
+    if (existing) return null;
+
+    const tempPassword = Math.random().toString(36).slice(2, 10);
+    const userId = uid("user");
+    await prisma.user.create({
+      data: {
+        id: userId,
+        tenantId: params.tenantId,
+        email,
+        passwordHash: hashPasswordSync(tempPassword),
+        role: params.role,
+        teacherId: params.teacherId,
+        studentId: params.studentId,
+        active: true,
+      },
+    });
+    return { tempPassword, userId };
+  }
+
+  // json/memory modu — önce HASHED (demo/bootstrap), sonra dynamic-users
+  // deposunda bu e-posta zaten var mı diye bak (active durumundan bağımsız,
+  // db moduyla AYNI idempotency garantisi).
+  const existingHashed = HASHED.find((u) => u.tenantId === params.tenantId && u.email?.toLowerCase() === email);
+  if (existingHashed) return null;
+
+  const { findDynamicUserByEmail, createDynamicUser } = await import("./dynamic-users");
+  const existingDynamic = await findDynamicUserByEmail(params.tenantId, email);
+  if (existingDynamic) return null;
 
   const tempPassword = Math.random().toString(36).slice(2, 10);
-  const userId = uid("user");
-  await prisma.user.create({
-    data: {
-      id: userId,
-      tenantId: params.tenantId,
-      email,
-      passwordHash: hashPasswordSync(tempPassword),
-      role: params.role,
-      teacherId: params.teacherId,
-      studentId: params.studentId,
-      active: true,
-    },
+  const created = await createDynamicUser({
+    tenantId: params.tenantId,
+    email,
+    passwordHash: hashPasswordSync(tempPassword),
+    role: params.role,
+    teacherId: params.teacherId,
+    studentId: params.studentId,
   });
-  return { tempPassword, userId };
+  return { tempPassword, userId: created.userId };
 }
 
 export type ChangeOwnPasswordResult =
   | { ok: true }
-  | { ok: false; code: "MODE_NOT_SUPPORTED" | "USER_NOT_FOUND" | "WRONG_PASSWORD" | "WEAK_PASSWORD" };
+  | { ok: false; code: "USER_NOT_FOUND" | "WRONG_PASSWORD" | "WEAK_PASSWORD" };
+
+/**
+ * Tüm parola yazma yollarının (Hesabım'daki "şifre değiştir" VE şifremi
+ * unuttum → sıfırlama akışı) kullandığı TEK yazma yolu — `db` modunda
+ * gerçek `User.passwordHash` sütununa, json/memory modunda
+ * `passwordOverrides`e (süreç-ömürlü) yazar. İki ayrı yazma mantığının
+ * (ve dolayısıyla birbirinden sapma riskinin) önüne geçer.
+ */
+/**
+ * Portal erişim yönetimi (görev: "portal erişimini aç/kapat") — `passwordOverrides`
+ * ile AYNI desen: `db` modunda gerçek `User.active` sütunu, `json`/`memory`
+ * modunda süreç-ömürlü bir override map'i (yalnızca BOOTSTRAP kullanıcıları için
+ * anlamlı — bu iki mod zaten yeni öğrenci/öğretmen User satırı OLUŞTURMAZ, bkz.
+ * `provisionEntityLogin` yorumu). Erişimi kapatmak `active=false` yazar — login
+ * (`authenticateUser`) bunu HER istekte kontrol eder, JWT'de cache'lenmez, bu
+ * yüzden iptal bir sonraki girişte hemen etkilidir. Hiçbir öğrenci/öğretmen/ödeme/
+ * sözleşme verisi silinmez veya değiştirilmez — yalnızca bu bir User satırı.
+ */
+const activeOverrides = new Map<string, boolean>();
+
+export async function setUserActive(userId: string, active: boolean): Promise<boolean> {
+  if (isDbMode) {
+    try {
+      const { getPrisma } = await import("../db");
+      const prisma = getPrisma();
+      await prisma.user.update({ where: { id: userId }, data: { active } });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  if (HASHED.some((u) => u.userId === userId)) {
+    activeOverrides.set(userId, active);
+    return true;
+  }
+  const { setDynamicUserActive } = await import("./dynamic-users");
+  return setDynamicUserActive(userId, active);
+}
+
+export type UserAccountStatus = {
+  userId: string;
+  email: string;
+  role: AppRole;
+  tenantId: string;
+  active: boolean;
+};
+
+/**
+ * `getUserById`'den FARKLI olarak `active` filtrelemez — kapalı bir hesabın
+ * durumunu (admin ekranında "Kapalı" göstermek için) doğru okuyabilmek
+ * gerekir; `getUserById` yalnızca aktif hesaplar için tasarlanmış (auth
+ * doğrulaması), buradaki amaç DURUM GÖRÜNTÜLEME.
+ */
+export async function getUserAccountStatus(userId: string): Promise<UserAccountStatus | null> {
+  if (isDbMode) {
+    try {
+      const { getPrisma } = await import("../db");
+      const prisma = getPrisma();
+      const row = await prisma.user.findUnique({ where: { id: userId } });
+      if (!row || !isAppRole(row.role)) return null;
+      return { userId: row.id, email: row.email, role: row.role, tenantId: row.tenantId, active: row.active };
+    } catch {
+      return null;
+    }
+  }
+  const row = HASHED.find((u) => u.userId === userId);
+  if (row) {
+    return {
+      userId: row.userId,
+      email: row.email ?? "",
+      role: row.role,
+      tenantId: row.tenantId,
+      active: activeOverrides.get(userId) ?? true,
+    };
+  }
+  const { findDynamicUserById } = await import("./dynamic-users");
+  const dyn = await findDynamicUserById(userId);
+  if (!dyn) return null;
+  return { userId: dyn.userId, email: dyn.email, role: dyn.role, tenantId: dyn.tenantId, active: dyn.active };
+}
+
+/** `getUserIdByTeacherId`'den FARKLI olarak `active` filtrelemez — kapalı bir öğretmen hesabını da bulabilmek için (durum kartı + yeniden açma). */
+export async function getUserAccountStatusForTeacher(tenantId: string, teacherId: string): Promise<UserAccountStatus | null> {
+  if (isDbMode) {
+    try {
+      const { getPrisma } = await import("../db");
+      const prisma = getPrisma();
+      const row = await prisma.user.findFirst({ where: { tenantId, teacherId } });
+      if (!row || !isAppRole(row.role)) return null;
+      return { userId: row.id, email: row.email, role: row.role, tenantId: row.tenantId, active: row.active };
+    } catch {
+      return null;
+    }
+  }
+  const row = HASHED.find((u) => u.tenantId === tenantId && u.teacherId === teacherId);
+  if (row) {
+    return {
+      userId: row.userId,
+      email: row.email ?? "",
+      role: row.role,
+      tenantId: row.tenantId,
+      active: activeOverrides.get(row.userId) ?? true,
+    };
+  }
+  const { findDynamicUserByTeacherId } = await import("./dynamic-users");
+  const dyn = await findDynamicUserByTeacherId(tenantId, teacherId);
+  if (!dyn) return null;
+  return { userId: dyn.userId, email: dyn.email, role: dyn.role, tenantId: dyn.tenantId, active: dyn.active };
+}
+
+export async function updatePasswordHash(userId: string, newHash: string): Promise<boolean> {
+  if (isDbMode) {
+    try {
+      const { getPrisma } = await import("../db");
+      const prisma = getPrisma();
+      await prisma.user.update({ where: { id: userId }, data: { passwordHash: newHash } });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  if (HASHED.some((u) => u.userId === userId)) {
+    passwordOverrides.set(userId, newHash);
+    return true;
+  }
+  const { setDynamicUserPasswordHash } = await import("./dynamic-users");
+  return setDynamicUserPasswordHash(userId, newHash);
+}
 
 /**
  * Hesabım ekranındaki "şifre değiştir" — yalnızca KENDİ hesabı (userId
- * session'dan gelir, hiçbir zaman body'den) ve yalnızca `STORE_MODE=db`'de
- * çalışır: `json`/`memory` modundaki kullanıcılar `BOOTSTRAP`/`HASHED`
- * (bu dosyanın başında) derleme zamanında sabit bir dizi — çalışma
- * zamanında değiştirilemez (bkz. `provisionEntityLogin` ile AYNI mode-parity
- * kısıtı). Üretimde her zaman `db` modu kullanıldığından (CLAUDE.md) gerçek
- * kullanıcılar için işlevsellik kaybı yok; json/memory'de açık bir
- * MODE_NOT_SUPPORTED döner (sessizce yok saymak yerine).
+ * session'dan gelir, hiçbir zaman body'den). `db` modunda gerçek
+ * `User.passwordHash` sütununu okur/yazar; `json`/`memory` modunda
+ * `passwordOverrides` (bkz. yukarı) üzerinden AYNI davranışı (değişiklik
+ * kalıcı olmasa da doğru doğrulanır/yansır) verir — eskiden json/memory'de
+ * sessizce MODE_NOT_SUPPORTED dönüyordu, bu artık yalnızca gerçek bir
+ * DB yazma hatasında (bkz. updatePasswordHash) oluşabilir.
  */
 export async function changeOwnPassword(
   userId: string,
   currentPassword: string,
   newPassword: string
 ): Promise<ChangeOwnPasswordResult> {
-  if (!isDbMode) return { ok: false, code: "MODE_NOT_SUPPORTED" };
   if (newPassword.length < 8) return { ok: false, code: "WEAK_PASSWORD" };
 
-  const { getPrisma } = await import("../db");
-  const prisma = getPrisma();
+  if (isDbMode) {
+    const { getPrisma } = await import("../db");
+    const prisma = getPrisma();
 
-  const row = await prisma.user.findFirst({ where: { id: userId, active: true } });
-  if (!row) return { ok: false, code: "USER_NOT_FOUND" };
+    const row = await prisma.user.findFirst({ where: { id: userId, active: true } });
+    if (!row) return { ok: false, code: "USER_NOT_FOUND" };
 
-  const valid = await verifyPassword(currentPassword, row.passwordHash);
-  if (!valid) return { ok: false, code: "WRONG_PASSWORD" };
+    const valid = await verifyPassword(currentPassword, row.passwordHash);
+    if (!valid) return { ok: false, code: "WRONG_PASSWORD" };
 
-  await prisma.user.update({
-    where: { id: userId },
-    data: { passwordHash: hashPasswordSync(newPassword) },
-  });
+    await updatePasswordHash(userId, hashPasswordSync(newPassword));
+    auditLog({
+      action: "auth.password_changed",
+      requestId: uid("req"),
+      userId,
+      tenantId: row.tenantId,
+      role: row.role as AppRole,
+      outcome: "success",
+    });
+    return { ok: true };
+  }
+
+  const row = HASHED.find((u) => u.userId === userId);
+  if (row) {
+    const currentHash = passwordOverrides.get(userId) ?? row.passwordHash;
+    const valid = await verifyPassword(currentPassword, currentHash);
+    if (!valid) return { ok: false, code: "WRONG_PASSWORD" };
+
+    await updatePasswordHash(userId, hashPasswordSync(newPassword));
+    auditLog({
+      action: "auth.password_changed",
+      requestId: uid("req"),
+      userId,
+      tenantId: row.tenantId,
+      role: row.role,
+      outcome: "success",
+    });
+    return { ok: true };
+  }
+
+  const { findDynamicUserById } = await import("./dynamic-users");
+  const dyn = await findDynamicUserById(userId);
+  if (!dyn) return { ok: false, code: "USER_NOT_FOUND" };
+
+  const dynValid = await verifyPassword(currentPassword, dyn.passwordHash);
+  if (!dynValid) return { ok: false, code: "WRONG_PASSWORD" };
+
+  await updatePasswordHash(userId, hashPasswordSync(newPassword));
   auditLog({
     action: "auth.password_changed",
     requestId: uid("req"),
     userId,
-    tenantId: row.tenantId,
-    role: row.role as AppRole,
+    tenantId: dyn.tenantId,
+    role: dyn.role,
     outcome: "success",
   });
   return { ok: true };
+}
+
+/**
+ * Şifremi unuttum akışı için — şifre doğrulaması YAPMADAN e-postayla kullanıcı arar.
+ * Yalnızca hesabın var olup olmadığını AÇIĞA ÇIKARMAYAN çağıranlar (`forgot-password`
+ * route'u her zaman aynı nötr yanıtı döner) tarafından kullanılmalıdır.
+ */
+export async function findUserByEmail(emailInput: string): Promise<AuthUser | null> {
+  const email = emailInput.trim().toLowerCase();
+
+  if (isDbMode) {
+    try {
+      const { getPrisma } = await import("../db");
+      const prisma = getPrisma();
+      const row = await prisma.user.findFirst({ where: { email, active: true } });
+      if (!row || !isAppRole(row.role)) return null;
+      return toAuthUser({
+        userId: row.id,
+        role: row.role,
+        tenantId: row.tenantId,
+        email: row.email,
+        teacherId: row.teacherId,
+        studentId: row.studentId,
+      });
+    } catch {
+      // fall through to bootstrap if DB unavailable
+    }
+  }
+
+  const row = HASHED.find((u) => u.email?.toLowerCase() === email);
+  if (row) return toAuthUser(row);
+  const { findDynamicUserByEmailAnyTenant } = await import("./dynamic-users");
+  const dyn = await findDynamicUserByEmailAnyTenant(email);
+  if (!dyn) return null;
+  return toAuthUser({
+    userId: dyn.userId,
+    role: dyn.role,
+    tenantId: dyn.tenantId,
+    email: dyn.email,
+    teacherId: dyn.teacherId ?? undefined,
+    studentId: dyn.studentId ?? undefined,
+  });
 }
 
 /** @deprecated use authenticateUser */

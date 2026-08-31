@@ -16,6 +16,8 @@ import type {
   Branch,
   CollectionsSettings,
   ConsentSettings,
+  ContractInstallmentSnapshot,
+  ContractInstallmentView,
   FeeRoundingMode,
   Instrument,
   Lesson,
@@ -25,6 +27,7 @@ import type {
   Room,
   Student,
   StudentProfilePatch,
+  StudentPaymentPauseState,
   Teacher,
   TeacherFeeRule,
   TeacherProfilePatch,
@@ -181,6 +184,7 @@ export async function markAttendance(input: {
       const data = load();
       const lesson = data.lessons.find((l) => l.id === input.lessonId);
       if (!lesson) throw new Error("Ders bulunamadı");
+    // Nilüfer Acar politikası §3.5 — bilinçli olarak UYGULANMADI, bkz. store-json.ts aynı satır için yorum.
     const createsMakeupCredit =
       input.status === "absent" || input.status === "cancelled_by_school";
 
@@ -205,7 +209,7 @@ export async function markAttendance(input: {
     let makeupRequests = data.makeupRequests.filter((m) => m.sourceLessonId !== input.lessonId);
 
     if (createsMakeupCredit) {
-      const quota = assertCanCreateMakeup({ ...data, makeupRequests }, lesson.studentId);
+      const quota = assertCanCreateMakeup({ ...data, makeupRequests }, lesson.studentId, new Date(), lesson.id);
       if (!quota.ok) throw new MakeupQuotaExceededError(quota.message);
       const branch = data.settings.branches.find((b) => b.id === lesson.branchId);
       const req: MakeupRequest = {
@@ -218,13 +222,14 @@ export async function markAttendance(input: {
         attendanceId: attendance.id,
         status: "pending",
         reason: input.reason || (input.status === "cancelled_by_school" ? "Okul iptali" : "Devamsızlık"),
-        expiresAt: formatISO(addDays(new Date(), data.settings.makeupWindowDays)),
+        // §3.4 — 30 günlük telafi süresi ORİJİNAL kayıp ders tarihinden başlar, admin onay anından DEĞİL.
+        expiresAt: formatISO(addDays(new Date(lesson.startAt), data.settings.makeupWindowDays)),
         suggestedSlots: [],
         createdAt: new Date().toISOString(),
         policyNote:
           input.status === "cancelled_by_school"
             ? `Okul kaynaklı iptal — öncelikli yerleştirme · ${branch?.shortName ?? ""}`
-            : `${data.settings.makeupWindowDays} gün pencere · ${data.settings.monthlyMakeupAllowance ?? 2}/ay hak · aynı öğretmen · ${branch?.shortName ?? ""}`,
+            : `${data.settings.makeupWindowDays} gün pencere · ${data.settings.monthlyMakeupAllowance ?? 2}/dönem hak · aynı öğretmen · ${branch?.shortName ?? ""}`,
       };
       makeupRequests = [...makeupRequests, req];
     }
@@ -327,6 +332,24 @@ export async function updateStudentProfile(
   const data = load();
   if (!data.students.some((s) => s.id === studentId)) throw new Error("Öğrenci bulunamadı");
   const students = data.students.map((s) => (s.id === studentId ? { ...s, ...patch } : s));
+  return save({ ...data, students });
+}
+
+/** Nilüfer Acar politikası §1E — bkz. store-json.ts aynı adlı fonksiyon (aynı davranış, in-memory). */
+export async function setStudentPaymentPause(studentId: string, state: StudentPaymentPauseState): Promise<AppData> {
+  const data = load();
+  if (!data.students.some((s) => s.id === studentId)) throw new Error("Öğrenci bulunamadı");
+  const students = data.students.map((s) =>
+    s.id === studentId
+      ? {
+          ...s,
+          paymentPauseStatus: state ? ("paused" as const) : undefined,
+          paymentPausedAt: state?.pausedAt,
+          paymentPauseReason: state?.reason,
+          paymentPausedBy: state?.pausedBy,
+        }
+      : s
+  );
   return save({ ...data, students });
 }
 
@@ -886,6 +909,71 @@ export async function addPayment(input: {
   return save({ ...data, payments: [...data.payments, payment] });
 }
 
+/** FEATURE A — bkz. store.ts yorumu. */
+export async function addContractInstallments(input: {
+  contractId: string;
+  studentId: string;
+  installments: ContractInstallmentSnapshot[];
+  firstPaymentCollected?: { method: string; amount: number; collectedAt: string; reference?: string; note?: string };
+  reuseFirstPaymentId?: string;
+}): Promise<{ data: AppData; installments: ContractInstallmentView[] }> {
+  const data = load();
+  const now = new Date().toISOString();
+  const fp = input.firstPaymentCollected;
+  const reuseId = input.reuseFirstPaymentId;
+  const newRows: Payment[] = input.installments
+    .filter((inst) => !(inst.sequence === 1 && reuseId))
+    .map((inst) => {
+      const isFirstCollected = inst.sequence === 1 && !!fp;
+      const noteSuffix = fp?.reference || fp?.note
+        ? ` (${[fp.reference && `ref:${fp.reference}`, fp.note].filter(Boolean).join(" · ")})`
+        : "";
+      return {
+        id: uid("pay"),
+        studentId: input.studentId,
+        amount: inst.amount,
+        paidAmount: isFirstCollected ? fp!.amount : 0,
+        status: isFirstCollected ? "paid" : "pending",
+        dueDate: inst.dueDate,
+        paidAt: isFirstCollected ? fp!.collectedAt : undefined,
+        description: `Sözleşme taksiti ${inst.sequence}/${input.installments.length}${isFirstCollected ? ` — Kayıt anında tahsil edildi${noteSuffix}` : ""}`,
+        method: isFirstCollected ? fp!.method : inst.paymentMethod,
+        source: "contract",
+        contractId: input.contractId,
+        installmentSequence: inst.sequence,
+        createdAt: now,
+      };
+    });
+  let reusedRow: Payment | undefined;
+  let payments = data.payments;
+  if (reuseId) {
+    const firstInst = input.installments.find((i) => i.sequence === 1);
+    payments = payments.map((p) => {
+      if (p.id !== reuseId) return p;
+      reusedRow = {
+        ...p,
+        amount: firstInst?.amount ?? p.amount,
+        contractId: input.contractId,
+        installmentSequence: 1,
+        description: `Sözleşme taksiti 1/${input.installments.length} — Kayıt anında tahsil edildi (kayıt ödemesi)`,
+      };
+      return reusedRow;
+    });
+  }
+  const next = save({ ...data, payments: [...payments, ...newRows] });
+  const installmentRows = reusedRow ? [reusedRow, ...newRows] : newRows;
+  const installments: ContractInstallmentView[] = installmentRows.map((r) => ({
+    paymentId: r.id,
+    sequence: r.installmentSequence ?? 0,
+    dueDate: r.dueDate,
+    amount: r.amount,
+    paidAmount: r.paidAmount,
+    status: r.status,
+    paymentMethod: r.method,
+  }));
+  return { data: next, installments };
+}
+
 export async function upsertMonthlyPlanPayment(input: {
   studentId: string;
   month: string;
@@ -934,6 +1022,49 @@ export async function upsertMonthlyPlanPayment(input: {
   }
   const next = save({ ...data, payments });
   return { data: next, paymentId };
+}
+
+/** Bkz. store-json.ts addRegistrationFirstPayment — aynı davranış/idempotency (mode parity). */
+export async function addRegistrationFirstPayment(input: {
+  studentId: string;
+  method: string;
+  amount: number;
+  collectedAt: string;
+  reference?: string;
+  note?: string;
+  receivedByUserId: string;
+}): Promise<{ data: AppData; paymentId: string }> {
+  const data = load();
+  const existing = data.payments.find(
+    (p) => p.studentId === input.studentId && p.source === "registration_first_payment"
+  );
+  if (existing) return { data, paymentId: existing.id };
+  const noteSuffix = input.reference || input.note
+    ? ` (${[input.reference && `ref:${input.reference}`, input.note].filter(Boolean).join(" · ")})`
+    : "";
+  const payment: Payment = {
+    id: uid("pay"),
+    studentId: input.studentId,
+    amount: input.amount,
+    paidAmount: input.amount,
+    status: "paid",
+    dueDate: input.collectedAt,
+    paidAt: input.collectedAt,
+    description: `İlk Ödeme — Kayıt Anında Tahsil Edildi${noteSuffix}`,
+    method: input.method,
+    source: "registration_first_payment",
+    receivedByUserId: input.receivedByUserId,
+    paymentNote: input.note,
+    createdAt: new Date().toISOString(),
+  };
+  const next = save({ ...data, payments: [...data.payments, payment] });
+  return { data: next, paymentId: payment.id };
+}
+
+/** P0 dedup fix (2026-08-30) — bkz. store.ts StoreApi.getRegistrationFirstPayment. */
+export async function getRegistrationFirstPayment(studentId: string): Promise<Payment | null> {
+  const data = load();
+  return data.payments.find((p) => p.studentId === studentId && p.source === "registration_first_payment") ?? null;
 }
 
 export function getDashboardStats(data: AppData) {

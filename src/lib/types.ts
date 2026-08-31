@@ -283,7 +283,20 @@ export interface Student {
   packageId?: string;
   birthPlace?: string;
   schoolOrOccupation?: string;
+  /**
+   * Nilüfer Acar politikası §1E — yetkili personelin gecikmiş ödeme nedeniyle
+   * bilinçli kararıyla ders programını geçici durdurması. Otomatik SET
+   * EDİLMEZ — yalnızca pauseStudentLessonScheduleTool/reactivate...Tool
+   * yazar. `active` (kayıt/enrollment durumu) İLE AYNI ALAN DEĞİLDİR.
+   */
+  paymentPauseStatus?: "paused";
+  paymentPausedAt?: string;
+  paymentPauseReason?: string;
+  paymentPausedBy?: string;
 }
+
+/** null = reactivate (tüm alanlar temizlenir). */
+export type StudentPaymentPauseState = { reason: string; pausedBy: string; pausedAt: string } | null;
 
 /** ÖNCELİK 4 — Yoklama Takvimi'nin gösterdiği ay aralığını belirler. */
 export type StudentTermType = "guz" | "yaz";
@@ -384,6 +397,24 @@ export interface CollectionsSettings {
   /** PRODUCT_BACKLOG §2.2 — MEB → VakıfBank, diğer → Halkbank */
   vakifbankIban?: string;
   halkbankIban?: string;
+  /**
+   * Kayıt sözleşmesi ödeme politikası (Faz 2) — YALNIZCA yeni/gelecek
+   * sözleşmeleri etkiler, mevcut sözleşmelerin immutable
+   * `contractDataSnapshot`'ı asla geriye dönük değişmez (bkz.
+   * src/lib/contracts.ts resolveContractPaymentDueRule). undefined ise
+   * kurumun varsayılan politikası uygulanır: kredi kartı 1–5, havale/
+   * EFT/nakit en geç 15.
+   */
+  contractCardWindowEndDay?: number;
+  contractBankCashDueDay?: number;
+  /**
+   * 2026-2027 sözleşme kaynağı Madde 4 — "KDV: Dahil/Hariç" işareti. Kurumun
+   * güncel vergi/fiyatlandırma uygulaması BİLİNMEDEN varsayılan tahmin
+   * YAPILMAZ; undefined ise şablon "Dahil" gösterir (yaygın kurs ücreti
+   * uygulaması) ve bu varsayım ACTIVE_TEMPLATE_RECOVERY_REPORT.md'de sahibi
+   * onayı gereken bir madde olarak işaretlenir.
+   */
+  contractVatInclusive?: boolean;
 }
 
 export const DEFAULT_COLLECTIONS_SETTINGS: CollectionsSettings = {
@@ -687,6 +718,9 @@ export interface LessonSeries {
   demoTag?: string;
 }
 
+/** Madde 8 — kim bildirdi. UI/mantık HENÜZ bağlanmadı (bkz. Attendance alanları altındaki not). */
+export type CancellationSource = "student" | "guardian" | "teacher" | "institution" | "other";
+
 export interface Attendance {
   id: string;
   lessonId: string;
@@ -695,6 +729,19 @@ export interface Attendance {
   reason?: string;
   markedAt: string;
   createsMakeupCredit: boolean;
+  /**
+   * 2026-2027 sözleşme kaynağı Madde 8 — "aynı gün bildirilen iptal" kuralını
+   * `markedAt`'tan (personelin yoklamayı İŞLEME zamanı) AYRI, güvenilir bir
+   * bildirim kaydıyla uygulamak için forward-compatible alanlar. Şema/tip
+   * düzeyinde eklendi; store/tool/UI katmanlarında henüz OKUNMUYOR/YAZILMIYOR
+   * (bkz. docs/roadmap/NEVIIHUB_ADMIN_CONTRACTS_POLICY_REMAINING_WORK.md §5) —
+   * bilinçli olarak heuristic/tahmin ile doldurulmadı.
+   */
+  cancellationSource?: CancellationSource;
+  cancellationNoticeAt?: string;
+  cancellationReason?: string;
+  cancellationEvidenceDocumentId?: string;
+  telafiEligible?: boolean;
 }
 
 export interface MakeupRequest {
@@ -734,7 +781,7 @@ export interface MakeupSlot {
   reasons: string[];
 }
 
-export type PaymentSource = "manual" | "lesson_ops" | "monthly_plan";
+export type PaymentSource = "manual" | "lesson_ops" | "monthly_plan" | "contract" | "registration_first_payment";
 
 export interface Payment {
   id: string;
@@ -772,6 +819,10 @@ export interface Payment {
    * durumda satırı hiç göstermez, hata vermez.
    */
   receivedByUserId?: string;
+  /** FEATURE A — bu ödeme bir `StudentContract` taksit planının parçasıysa dolu. */
+  contractId?: string;
+  /** 1-tabanlı taksit sırası — yalnızca contractId doluyken anlamlı. */
+  installmentSequence?: number;
 }
 
 /**
@@ -1169,7 +1220,16 @@ export type SocialMediaScope =
   | "voice"
   | "website"
   | "instagram"
-  | "other";
+  | "other"
+  /**
+   * 2026-2027 Fotoğraf/Video Açık Rıza Formu — kalan 3 kanal. Formun 5
+   * kanalının HER BİRİ ayrı ayrı değerlendirilir (bkz. kaynak belge madde
+   * "Aşağıdaki seçeneklerden her biri ayrı ayrı değerlendirilir"); "website"
+   * ve "instagram" zaten mevcuttu.
+   */
+  | "print_materials"
+  | "digital_ads"
+  | "in_house_board";
 
 export interface SocialMediaConsentEvent {
   at: string;
@@ -1608,6 +1668,21 @@ export interface DocumentTemplate {
   version: number;
   createdAt: string;
   updatedAt: string;
+  /**
+   * P0 (2026-08-30, DOCX-öncelikli şablon iş akışı) — admin bir .docx
+   * yüklediğinde, ORİJİNAL dosya baytları (base64) burada değişmeden
+   * saklanır ve yetkili admin'e AYNEN geri indirilebilir. `bodyHtml`
+   * mammoth ile üretilen bir HTML ÖNİZLEMESİDİR — DOCX biçimlendirmesinin
+   * bire bir/kayıpsız karşılığı OLDUĞU İDDİA EDİLMEZ (bkz.
+   * docs/contracts/TEMPLATE_EDITOR_AND_DOCX_WORKFLOW_REPORT.md). Bu alanlar
+   * yalnızca DOCX'ten yüklenen şablonlarda dolu olur; eski/manuel HTML
+   * şablonlarında hepsi undefined kalır.
+   */
+  sourceFileData?: string;
+  sourceFileName?: string;
+  sourceMimeType?: string;
+  sourceUploadedAt?: string;
+  sourceUploadedById?: string;
 }
 
 /** PRODUCT_BACKLOG §6 — evrak örneği; aynı basımda referans korunur */
@@ -1661,6 +1736,133 @@ export type DocumentSignedVersion = {
 /** MEB seviye 1–8; LCM serbest; diğer türlerde yok */
 export function isMebStudentType(t?: StudentType): boolean {
   return t === "MEB";
+}
+
+/** FEATURE A — versiyonlu öğrenci kayıt sözleşmesi. */
+export type ContractType = "initial" | "renewal" | "amendment";
+
+export const CONTRACT_TYPES: ContractType[] = ["initial", "renewal", "amendment"];
+
+/**
+ * Sözleşme İŞ SÜRECİ yaşam döngüsü — bağlı `DocumentInstance.status` (belge-
+ * dosyası yaşam döngüsü: draft/printed/uploaded/...) İLE AYNI ALAN DEĞİLDİR,
+ * bkz. prisma/schema.prisma StudentContract yorumu.
+ */
+export type ContractStatus =
+  | "draft"
+  | "generated"
+  | "printed"
+  | "wet_signature_pending"
+  | "signed"
+  | "recorded"
+  | "superseded"
+  | "cancelled";
+
+export const CONTRACT_STATUSES: ContractStatus[] = [
+  "draft",
+  "generated",
+  "printed",
+  "wet_signature_pending",
+  "signed",
+  "recorded",
+  "superseded",
+  "cancelled",
+];
+
+/** Sözleşme oluşturma anında SUNULAN, sonradan Student değişse bile sabit kalan taksit satırı. */
+export interface ContractInstallmentSnapshot {
+  sequence: number;
+  dueDate: string;
+  amount: number;
+  paymentMethod?: string;
+}
+
+/** `contractDataSnapshot` JSON alanının şekli — üretim anındaki DEĞİŞMEZ görüntü. */
+export interface ContractDataSnapshot {
+  studentName: string;
+  programmeName: string;
+  enrollmentStartDate: string;
+  enrollmentEndDate: string;
+  durationMonths: number;
+  monthlyAmount: number;
+  installmentCount: number;
+  totalContractAmount: number;
+  depositAmount?: number;
+  paymentMethod?: string;
+  signatoryFullName: string;
+  signatoryNationalId?: string;
+  signatoryAddress?: string;
+  signatoryRelationship?: string;
+  isMinor: boolean;
+  installments: ContractInstallmentSnapshot[];
+  photoVideoConsent?: { granted: boolean; representativeName: string; relationship: string; scopes?: SocialMediaScope[] };
+  /**
+   * Faz 2 — sözleşme anında GEÇERLİ olan ödeme kuralı, immutable snapshot.
+   * Kurum politikası sonradan değişse bile bu sözleşme sürümü ETKİLENMEZ.
+   */
+  paymentDueRuleText?: string;
+  paymentDueWindowStartDay?: number;
+  paymentDueWindowEndDay?: number;
+  /** İlk taksit tarihi ödeme penceresi DIŞINDAysa zorunlu personel gerekçesi (audit'lenir). */
+  firstPaymentExceptionReason?: string;
+  /**
+   * 2026-2027 sözleşme kaynağı, KAYIT VE İMZA BİLGİLERİ bölümü — "KVKK
+   * Aydınlatma Metni ayrıca teslim edilmiş/bilgilendirme yapılmıştır: Evet/
+   * Hayır" işareti. Bu SADECE bir TESLİMAT/bilgilendirme kaydıdır, açık rıza
+   * DEĞİLDİR (bkz. KvkkConsent — ayrı ve gerektiğinde kullanılan bir
+   * mekanizma). Bilinçli olarak KvkkConsent/ConsentTextVersion modelleri
+   * ÜZERİNDEN YÜRÜTÜLMEDİ: o modeller versiyonlu HUKUKİ METNE onay içindir,
+   * burada sadece "personel metni teslim etti mi" ikili işareti gerekir.
+   */
+  kvkkNoticeDelivered?: boolean;
+  /** Fotoğraf/Video Açık Rıza Formu personel tarafından SUNULDU mu (izin verilsin/verilmesin) — "Evet/Hayır" işareti. */
+  photoVideoConsentFormPresented?: boolean;
+}
+
+/** İş katmanı dönüş görünümü — taksitler `Payment` satırlarından türetilir, ayrı bir tablo DEĞİLDİR. */
+export interface ContractInstallmentView {
+  paymentId: string;
+  sequence: number;
+  dueDate: string;
+  amount: number;
+  paidAmount: number;
+  status: string;
+  paidAt?: string;
+  paymentMethod?: string;
+}
+
+export interface StudentContract {
+  id: string;
+  studentId: string;
+  contractNumber: string;
+  versionNumber: number;
+  contractType: ContractType;
+  previousContractId?: string;
+  /** 1-2 aylık trial kayıtlarda (status="recorded") YOK — formal belge üretilmedi. */
+  documentInstanceId?: string;
+  templateVersion?: number;
+  status: ContractStatus;
+  contractDataSnapshot: ContractDataSnapshot;
+  programmeName: string;
+  enrollmentStartDate: string;
+  enrollmentEndDate: string;
+  durationMonths: number;
+  monthlyAmount: number;
+  installmentCount: number;
+  totalContractAmount: number;
+  depositAmount?: number;
+  paymentMethod?: string;
+  signatoryFullName: string;
+  signatoryNationalId?: string;
+  signatoryAddress?: string;
+  signatoryRelationship?: string;
+  createdBy: string;
+  generatedBy: string;
+  printedBy?: string;
+  printedAt?: string;
+  signedAt?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export function isLcmStudentType(t?: StudentType): boolean {

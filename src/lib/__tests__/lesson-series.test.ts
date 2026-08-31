@@ -198,6 +198,18 @@ describe("createLessonSeriesData", () => {
     expect(result.skippedOccurrences.length).toBeGreaterThan(0);
     expect(result.skippedOccurrences.some((s) => s.startAt.startsWith(conflictDate))).toBe(true);
   });
+
+  it("ödeme nedeniyle duraklatılmış öğrenci için yeni seri oluşturmayı engeller", () => {
+    const data = createSeedData();
+    const student = data.students.find((s) => s.id === baseParams.studentId)!;
+    student.paymentPauseStatus = "paused";
+    const before = data.lessons.length;
+    const result = createLessonSeriesData(data, baseParams, { now: FIXED_NOW });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe("STUDENT_PAYMENT_PAUSED");
+    expect(data.lessons.length).toBe(before);
+  });
 });
 
 describe("cancelSeriesFromLesson", () => {

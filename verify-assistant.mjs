@@ -24,7 +24,7 @@ async function shot(name) {
 }
 
 const FAB = 'button[aria-label="AI Asistanı aç"]';
-const DIALOG = '[role="dialog"][aria-label="NotaPlan AI Asistan"]';
+const DIALOG = '[role="dialog"][aria-label="Nevii Hub AI"]';
 
 console.log("\n== 1) /login — no FAB, no popup ==");
 await page.goto("http://localhost:3000/login");

@@ -251,6 +251,7 @@ async function main() {
         packageName: "Bireysel Aylık — 4 ders",
         weeklyLessonCount: 1,
         monthlyFee: 3200,
+        firstPaymentCollected: { method: "cash", amount: 3200, collectedAt: new Date().toISOString().slice(0, 10) },
       });
       if (!res.ok) {
         console.error(`HATA — öğrenci ${name}: ${res.error.message}`);

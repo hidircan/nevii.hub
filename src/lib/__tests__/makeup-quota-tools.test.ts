@@ -80,6 +80,12 @@ describe("telafi kotası — tool katmanı", () => {
 
   it("2 hak dolunca 3. markAttendance VALIDATION_ERROR döner", async () => {
     await updateMonthlyMakeupAllowanceTool(ctx(), { monthlyMakeupAllowance: 2 });
+    // Kota artık DÖNEM bazlı (Nilüfer Acar politikası §3) — seed talepleri,
+    // asıl test dersiyle AYNI eğitim dönemine düşen gerçek derslere bağlanmalı
+    // (yoksa periodKeyForLesson farklı/"bilinmeyen-donem" döner ve kota
+    // yanlışlıkla sıfırlanmış görünür).
+    const seedLessonId1 = await createTestLesson();
+    const seedLessonId2 = await createTestLesson();
     const data = await readData();
     const now = new Date().toISOString();
     await writeData({
@@ -92,7 +98,7 @@ describe("telafi kotası — tool katmanı", () => {
           teacherId: "t1",
           branchId: "erzene",
           instrument: "Piyano",
-          sourceLessonId: "old1",
+          sourceLessonId: seedLessonId1,
           attendanceId: "a1",
           status: "pending",
           reason: "seed",
@@ -107,7 +113,7 @@ describe("telafi kotası — tool katmanı", () => {
           teacherId: "t1",
           branchId: "erzene",
           instrument: "Piyano",
-          sourceLessonId: "old2",
+          sourceLessonId: seedLessonId2,
           attendanceId: "a2",
           status: "confirmed",
           reason: "seed",

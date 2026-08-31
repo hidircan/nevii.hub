@@ -15,6 +15,7 @@ export type NotificationCategory =
   | "lesson_rescheduled"
   | "lesson_reassigned"
   | "homework_missing_for_lesson"
+  | "homework_due_date_changed"
   // Ödeme ve finans
   | "payment_overdue"
   | "payment_failed_or_pending"
@@ -134,6 +135,15 @@ export const NOTIFICATION_CATEGORIES: NotificationCategoryDef[] = [
     description: "Bir ders işlendi olarak işaretlendiğinde ödev verilmemişse (Faz 3C).",
     implemented: true,
     roles: ["TEACHER"],
+    defaultInAppEnabled: true,
+  },
+  {
+    category: "homework_due_date_changed",
+    group: "lessons",
+    label: "Ödev son teslim tarihi değişti",
+    description: "Öğretmen, verilen bir ödevin son teslim tarihini değiştirdiğinde.",
+    implemented: true,
+    roles: ["STUDENT"],
     defaultInAppEnabled: true,
   },
   {

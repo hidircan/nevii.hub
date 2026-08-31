@@ -72,6 +72,7 @@ describe("createBranchTool / updateBranchTool", () => {
       packageName: "Bireysel Aylık — 4 ders",
       weeklyLessonCount: 1,
       monthlyFee: 3000,
+      firstPaymentCollected: { method: "cash", amount: 3000, collectedAt: "2026-08-30" },
       notes: "",
     });
     expect(studentRes.ok).toBe(true);

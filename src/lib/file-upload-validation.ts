@@ -28,8 +28,12 @@ export const ALLOWED_UPLOAD_MIME_TYPES = [
   "video/webm",
   "application/pdf",
   // Müzik okulu bağlamında ses kaydı (çalım/şan pratiği) da olağan bir ödev/teslim türüdür.
+  // "audio/mp4"/"audio/x-m4a" ikisi de .m4a için tarayıcıya/cihaza göre değişir (iOS/Safari
+  // sık sık x-m4a bildirir — bkz. TASK_ATTACHMENT_ALLOWED_MIME, tools.ts); "audio/aac" ham AAC içindir.
   "audio/mpeg",
   "audio/mp4",
+  "audio/x-m4a",
+  "audio/aac",
   "audio/wav",
   "audio/webm",
   "audio/ogg",
@@ -64,12 +68,16 @@ export function validateUploadedFile(input: {
   if (!(ALLOWED_UPLOAD_MIME_TYPES as readonly string[]).includes(fileMimeType)) {
     return {
       ok: false,
-      message: "Desteklenmeyen dosya türü. Yalnız fotoğraf (jpg/png/webp/gif), video (mp4/mov/webm) veya PDF yükleyebilirsiniz.",
+      message:
+        "Desteklenmeyen dosya türü. Yalnız fotoğraf (jpg/png/webp/gif), video (mp4/mov/webm), ses (mp3/m4a/aac/wav/ogg) veya PDF yükleyebilirsiniz.",
     };
   }
   const size = base64ByteSize(fileData);
   if (size > MAX_UPLOAD_BYTES) {
-    return { ok: false, message: `Dosya çok büyük (${Math.round(size / (1024 * 1024))} MB). En fazla 8 MB yükleyebilirsiniz.` };
+    return {
+      ok: false,
+      message: `Dosya çok büyük (${Math.round(size / (1024 * 1024))} MB). En fazla ${Math.round(MAX_UPLOAD_BYTES / (1024 * 1024))} MB yükleyebilirsiniz.`,
+    };
   }
   if (size === 0) {
     return { ok: false, message: "Dosya içeriği boş görünüyor. Lütfen tekrar deneyin." };

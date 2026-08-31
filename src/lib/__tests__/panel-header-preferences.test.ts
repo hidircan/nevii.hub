@@ -85,10 +85,12 @@ describe("panel-nav.ts — Görünüm Ayarları sidebar'dan kaldırıldı (İş 
   });
 });
 
-describe("changeOwnPassword — mode parity (json/memory'de kalıcı değil)", () => {
-  it("STORE_MODE=json altında (bu test ortamı) MODE_NOT_SUPPORTED döner, sessizce başarılı görünmez", async () => {
+describe("changeOwnPassword — mode parity (Paket 2 itibarıyla json/memory'de de KALICI değil ama ÇALIŞIR — bkz. src/lib/__tests__/change-password-route.test.ts için tam kapsam)", () => {
+  it("STORE_MODE=json altında (bu test ortamı) artık MODE_NOT_SUPPORTED DEĞİL, gerçekten değiştirir (process-lifetime override)", async () => {
     const res = await changeOwnPassword("user_admin", "demo-admin", "yeni-guclu-sifre-123");
-    expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.code).toBe("MODE_NOT_SUPPORTED");
+    expect(res.ok).toBe(true);
+    // Restore so this test file doesn't leave permanent cross-test state (shared json store, fileParallelism:false).
+    const restore = await changeOwnPassword("user_admin", "yeni-guclu-sifre-123", "demo-admin");
+    expect(restore.ok).toBe(true);
   });
 });

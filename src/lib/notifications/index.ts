@@ -147,8 +147,61 @@ export async function listNotificationsForUser(
         ((recipient.userId && n.targetUserId === recipient.userId) ||
           (recipient.studentId && n.targetStudentId === recipient.studentId))
     )
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id))
     .map(toPublicNotification);
+}
+
+/** cursor := base64(JSON {createdAt,id}) of the last item seen on the previous page. */
+function encodeCursor(n: Notification): string {
+  return Buffer.from(JSON.stringify({ createdAt: n.createdAt, id: n.id })).toString("base64");
+}
+
+function decodeCursor(cursor: string): { createdAt: string; id: string } | null {
+  try {
+    const parsed = JSON.parse(Buffer.from(cursor, "base64").toString("utf8"));
+    if (typeof parsed?.createdAt === "string" && typeof parsed?.id === "string") return parsed;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+const DEFAULT_NOTIFICATIONS_PAGE_SIZE = 20;
+
+export type ListNotificationsPage = {
+  notifications: Notification[];
+  nextCursor: string | null;
+  unreadCount: number;
+};
+
+/**
+ * Sayfalı bildirim listesi — createdAt+id bileşik sıralamasıyla kararlı (aynı createdAt'te
+ * tekrar/eksik satır olmaz). cursor/limit verilmezse ilk sayfayı döner (eski çağıranlarla uyumlu).
+ */
+export async function listNotificationsPageForUser(
+  recipient: NotificationRecipient,
+  page?: { cursor?: string; limit?: number }
+): Promise<ListNotificationsPage> {
+  const all = await listNotificationsForUser(recipient);
+  const unreadCount = all.filter((n) => !n.readAt).length;
+
+  let rows = all;
+  if (page?.cursor) {
+    const decoded = decodeCursor(page.cursor);
+    if (!decoded) return { notifications: [], nextCursor: null, unreadCount };
+    rows = all.filter(
+      (n) =>
+        n.createdAt < decoded.createdAt ||
+        (n.createdAt === decoded.createdAt && n.id < decoded.id)
+    );
+  }
+
+  const limit = page?.limit ?? DEFAULT_NOTIFICATIONS_PAGE_SIZE;
+  const pageRows = rows.slice(0, limit);
+  const nextCursor =
+    rows.length > limit ? encodeCursor(pageRows[pageRows.length - 1]) : null;
+
+  return { notifications: pageRows, nextCursor, unreadCount };
 }
 
 async function markNotificationReadDb(

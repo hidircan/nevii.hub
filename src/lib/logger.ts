@@ -1,13 +1,13 @@
 export const logger = {
   info: (...args: unknown[]) => {
     if (process.env.NODE_ENV !== "test") {
-      console.info("[notaplan]", ...args);
+      console.info("[nevii-hub]", ...args);
     }
   },
   warn: (...args: unknown[]) => {
-    console.warn("[notaplan]", ...args);
+    console.warn("[nevii-hub]", ...args);
   },
   error: (...args: unknown[]) => {
-    console.error("[notaplan]", ...args);
+    console.error("[nevii-hub]", ...args);
   },
 };

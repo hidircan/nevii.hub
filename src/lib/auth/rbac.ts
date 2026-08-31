@@ -46,7 +46,13 @@ export type Permission =
   | "trials:write"
   | "workflows:manage"
   | "crm:read"
-  | "crm:write";
+  | "crm:write"
+  | "profile_photo:read"
+  | "profile_photo:write"
+  | "tasks:read"
+  | "tasks:write"
+  | "contracts:read"
+  | "contracts:write";
 
 const ROLE_PERMISSIONS: Record<AppRole, Permission[]> = {
   SUPER_ADMIN: [
@@ -85,6 +91,12 @@ const ROLE_PERMISSIONS: Record<AppRole, Permission[]> = {
     "workflows:manage",
     "crm:read",
     "crm:write",
+    "profile_photo:read",
+    "profile_photo:write",
+    "tasks:read",
+    "tasks:write",
+    "contracts:read",
+    "contracts:write",
   ],
   SCHOOL_ADMIN: [
     "attendance:write",
@@ -121,6 +133,12 @@ const ROLE_PERMISSIONS: Record<AppRole, Permission[]> = {
     "workflows:manage",
     "crm:read",
     "crm:write",
+    "profile_photo:read",
+    "profile_photo:write",
+    "tasks:read",
+    "tasks:write",
+    "contracts:read",
+    "contracts:write",
   ],
   TEACHER: [
     "attendance:write",
@@ -147,6 +165,10 @@ const ROLE_PERMISSIONS: Record<AppRole, Permission[]> = {
     "teacher_feedback:summary",
     "student_feedback:submit",
     "student_feedback:read",
+    "profile_photo:read",
+    "profile_photo:write",
+    "tasks:read",
+    "tasks:write",
   ],
   /**
    * Karma Öğrenci Portalı — eski PARENT rolünün izinleri buraya birleştirildi
@@ -174,6 +196,9 @@ const ROLE_PERMISSIONS: Record<AppRole, Permission[]> = {
     "curriculum:read",
     "documents:read",
     "payments:checkout",
+    "profile_photo:read",
+    "profile_photo:write",
+    "contracts:read",
   ],
   AI_AGENT: [
     "attendance:write",

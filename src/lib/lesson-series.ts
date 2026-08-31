@@ -135,7 +135,8 @@ export type CreateSeriesResult =
       createdLessonIds: string[];
       skippedOccurrences: { startAt: string; code: SlotValidationCode; message: string }[];
     }
-  | { ok: false; code: "BLOCKED_BY_CONFLICT" | "NO_VALID_OCCURRENCES"; message: string; conflicts: SeriesOccurrenceCheck[] };
+  | { ok: false; code: "BLOCKED_BY_CONFLICT" | "NO_VALID_OCCURRENCES"; message: string; conflicts: SeriesOccurrenceCheck[] }
+  | { ok: false; code: "STUDENT_PAYMENT_PAUSED"; message: string; conflicts: [] };
 
 /**
  * Saf veri dönüşümü: verilen AppData'ya yeni bir LessonSeries + ürettiği
@@ -156,6 +157,18 @@ export function createLessonSeriesData(
   } = {}
 ): CreateSeriesResult {
   const now = options.now ?? new Date();
+  // Nilüfer Acar politikası §1E — ödeme nedeniyle duraklatılmış öğrenci için
+  // yeni gelecek ders üretimi engellenir; mevcut ders/yoklama/ödeme kayıtları
+  // bu kontrolden etkilenmez, yalnızca YENİ seri/ders oluşturma durur.
+  const pausedStudent = data.students.find((s) => s.id === params.studentId);
+  if (pausedStudent?.paymentPauseStatus === "paused") {
+    return {
+      ok: false,
+      code: "STUDENT_PAYMENT_PAUSED",
+      message: "Bu öğrencinin ders programı ödeme nedeniyle duraklatılmış; yeni ders serisi oluşturulamaz. Önce yeniden aktifleştirin.",
+      conflicts: [],
+    };
+  }
   const occurrences = computeSeriesOccurrences(params);
   const checks = checkSeriesOccurrences(data, params, occurrences, now, options.allowAvailabilityOverride);
   const conflicts = checks.filter((c): c is Extract<SeriesOccurrenceCheck, { ok: false }> => !c.ok);

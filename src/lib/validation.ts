@@ -98,7 +98,22 @@ export const studentSchema = z.object({
   motherName: optionalTrimmed,
   fatherName: optionalTrimmed,
   branchId: z.string().min(1),
-  instrument: z.enum(["Piyano", "Yan Flüt", "Gitar", "Bateri", "Keman", "Şan", "Bağlama", "Elektro Gitar"]),
+  /**
+   * KÖK NEDEN DÜZELTMESİ (2026-08-29, P0-1 "Invalid input" runtime hatası) —
+   * enstrüman kataloğu (`instrument-catalog.json`, bkz. `createInstrumentCatalogTool`)
+   * yönetici tarafından SERBESTÇE genişletilebilir ("Bas Gitar"/"Ukulele" gibi
+   * yeni girişler eklenebilir) ama bu alan SABİT 8'li bir enum'a kilitliydi —
+   * kayıt formu (yeni/page.tsx) dropdown'ı kataloğun GÜNCEL/aktif listesini
+   * gösterdiğinden, katalogda olup enum'da OLMAYAN bir enstrüman seçilince
+   * (gerçek, geçerli bir kullanıcı eylemi) sunucu tarafı doğrulama jenerik
+   * "Invalid input" ile REDDEDİYOR ve bu, `<form action=...>` (useActionState
+   * YOK) deseninde yakalanmamış bir sunucu hatası olarak istemciye sızıyordu.
+   * Asıl anlamlı doğrulama zaten `createStudentTool`'da GERÇEK veriyle
+   * yapılıyor (öğretmen var mı/aktif mi/bu enstrümanı biliyor mu) — statik
+   * enum burada YALNIZCA kataloğu YOK SAYAN, gereksiz ve şimdi zararlı bir
+   * ikinci kapıydı.
+   */
+  instrument: z.string().min(1),
   teacherId: z.string().min(1),
   packageName: z.string().min(1),
   weeklyLessonCount: z.coerce.number().int().min(1),
@@ -146,6 +161,24 @@ export const studentSchema = z.object({
    */
   createPortalAccess: z.boolean().optional(),
   portalAccessType: z.enum(["GUARDIAN", "SELF"]).optional(),
+  /**
+   * Owner policy (2026-08-30) — "İlk ödeme her zaman kayıt esnasında alınacaktır."
+   * `createContract`'taki (contracts.ts) AYNI şekil (method/amount/collectedAt/
+   * reference/note) — kasıtlı olarak burada TEKRARLANIYOR: bu, kayıt TAMAMLANMA
+   * anındaki (createStudentTool) tahsilat, sözleşme oluşturmadan (ayrı, sonraki
+   * bir adım) BAĞIMSIZ ve ondan ÖNCE gelen bir zorunluluk.
+   */
+  firstPaymentCollected: z
+    .object({
+      method: z.enum(["credit_card", "cash", "transfer"]),
+      amount: z.coerce.number().int().positive(),
+      collectedAt: z.string().min(1),
+      reference: optionalTrimmed,
+      note: optionalTrimmed,
+    })
+    .optional(),
+  /** Yalnızca gerçekten istisnai/gecikmeli ilk tahsilat için — yetkili personel gerekçesi zorunlu, gün-of-ay tetiklemez (bkz. createStudentTool). */
+  firstPaymentExceptionReason: optionalTrimmed,
 }).refine((v) => v.monthlyFeeOverrideAmount === undefined || !!v.monthlyFeeOverrideReason, {
   message: "Manuel ücret girildiyse gerekçe zorunludur.",
   path: ["monthlyFeeOverrideReason"],
@@ -255,7 +288,6 @@ export const updateStudentPaymentProfileSchema = z
     path: ["monthlyFeeOverrideReason"],
   });
 
-const TEACHER_INSTRUMENT_ENUM = ["Piyano", "Yan Flüt", "Gitar", "Bateri", "Keman", "Şan", "Bağlama", "Elektro Gitar"] as const;
 const INSTRUMENT_LEVEL_ENUM = ["Başlangıç", "Orta", "İleri"] as const;
 
 /**
@@ -287,7 +319,14 @@ export const teacherSchema = z
     email: optionalEmail,
     phone: z.string().min(1),
     branchId: z.string().min(1),
-    instrument: z.enum(TEACHER_INSTRUMENT_ENUM),
+    /**
+     * P0-1 (2026-08-29) — `instrumentLevels[].instrument` gibi BİLİNÇLİ
+     * OLARAK serbest string (yukarıdaki yorum) — bu tekil (legacy) alan da
+     * AYNI sabit-enum/katalog senkron-dışılığı yaşıyordu (bkz.
+     * studentSchema.instrument yorumu). Gerçek doğrulama artık
+     * `createTeacherTool`'da `resolveActiveInstrumentNames` ile yapılır.
+     */
+    instrument: z.string().min(1),
     /**
      * ÖNCELİK 4 (devam) — çoklu enstrüman+seviye. Verilmezse legacy tek
      * enstrüman davranışı (yalnızca `instrument`) korunur — geriye dönük
@@ -374,16 +413,16 @@ export const roomSchema = z.object({
   name: z.string().min(1),
   branchId: z.string().min(1),
   capacity: z.coerce.number().int().min(1),
-  instruments: z
-    .array(z.enum(["Piyano", "Yan Flüt", "Gitar", "Bateri", "Keman", "Şan", "Bağlama", "Elektro Gitar"]))
-    .min(1),
+  /** Bkz. studentSchema.instrument yorumu — sabit enum yerine katalog-uyumlu serbest metin. */
+  instruments: z.array(z.string().min(1)).min(1),
 });
 
 export const lessonSchema = z.object({
   studentId: z.string().min(1),
   teacherId: z.string().min(1),
   roomId: z.string().min(1),
-  instrument: z.enum(["Piyano", "Yan Flüt", "Gitar", "Bateri", "Keman", "Şan", "Bağlama", "Elektro Gitar"]),
+  /** Bkz. studentSchema.instrument yorumu — sabit enum yerine katalog-uyumlu serbest metin; gerçek eşleşme kontrolü makeup-engine.ts'te yapılır. */
+  instrument: z.string().min(1),
   startAt: z.string().min(1),
   durationMinutes: z.coerce.number().refine((v) => (LESSON_DURATION_OPTIONS as readonly number[]).includes(v), {
     message: "Ders süresi yalnızca 30, 40 veya 50 dakika olabilir.",
@@ -423,7 +462,8 @@ export const cancelLessonSchema = z.object({
 
 export const suggestLessonSlotsSchema = z.object({
   studentId: z.string().min(1),
-  instrument: z.enum(["Piyano", "Yan Flüt", "Gitar", "Bateri", "Keman", "Şan", "Bağlama", "Elektro Gitar"]),
+  /** Bkz. studentSchema.instrument yorumu — sabit enum yerine katalog-uyumlu serbest metin; gerçek eşleşme kontrolü makeup-engine.ts'te yapılır. */
+  instrument: z.string().min(1),
   teacherId: z.string().min(1).optional(),
   daysAhead: z.coerce.number().int().positive().max(60).optional(),
   maxSlots: z.coerce.number().int().positive().max(50).optional(),
@@ -435,7 +475,8 @@ export const lessonSeriesParamsBaseSchema = z.object({
   teacherId: z.string().min(1),
   roomId: z.string().min(1),
   branchId: z.string().min(1),
-  instrument: z.enum(["Piyano", "Yan Flüt", "Gitar", "Bateri", "Keman", "Şan", "Bağlama", "Elektro Gitar"]),
+  /** Bkz. studentSchema.instrument yorumu — sabit enum yerine katalog-uyumlu serbest metin; gerçek eşleşme kontrolü makeup-engine.ts'te yapılır. */
+  instrument: z.string().min(1),
   weekday: z.coerce.number().int().min(0).max(6),
   startTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Saat HH:mm biçiminde olmalı"),
   durationMinutes: z.coerce.number().int().min(15).max(240),
@@ -581,10 +622,31 @@ export const updateCollectionsSettingsSchema = z.object({
   /** PRODUCT_BACKLOG §2.2 — MEB → VakıfBank, diğer → Halkbank */
   vakifbankIban: optionalIban,
   halkbankIban: optionalIban,
+  /** Faz 2 — kayıt sözleşmesi ödeme penceresi (yalnız gelecek sözleşmeleri etkiler). */
+  contractCardWindowEndDay: z.number().int().min(1).max(28).optional(),
+  contractBankCashDueDay: z.number().int().min(1).max(28).optional(),
 });
 
 export const markNotificationReadSchema = z.object({
   notificationId: z.string().min(1),
+});
+
+function isValidNotificationsCursor(cursor: string): boolean {
+  try {
+    const parsed = JSON.parse(Buffer.from(cursor, "base64").toString("utf8"));
+    return typeof parsed?.createdAt === "string" && typeof parsed?.id === "string";
+  } catch {
+    return false;
+  }
+}
+
+export const listNotificationsSchema = z.object({
+  cursor: z
+    .string()
+    .min(1)
+    .refine(isValidNotificationsCursor, { message: "Geçersiz cursor" })
+    .optional(),
+  limit: z.coerce.number().int().min(1).max(100).optional(),
 });
 
 const STUDENT_TYPE_FOR_AUDIENCE = [
@@ -866,18 +928,16 @@ export const createCurriculumTopicSchema = z.object({
   title: z.string().min(1).max(200),
   description: z.string().max(2000).optional(),
   status: curriculumTopicStatusSchema.optional(),
-  progressPercent: z.number().int().min(0).max(100).optional(),
   sortOrder: z.number().int().min(0).max(10_000).optional(),
   notes: z.string().max(2000).optional(),
 });
 
-/** TEACHER — konu günceller (durum/ilerleme/not) */
+/** TEACHER — konu günceller (durum/not). İlerleme yüzdesi artık manuel girilmez, durumdan otomatik hesaplanır. */
 export const updateCurriculumTopicSchema = z.object({
   topicId: z.string().min(1),
   title: z.string().min(1).max(200).optional(),
   description: z.string().max(2000).nullable().optional(),
   status: curriculumTopicStatusSchema.optional(),
-  progressPercent: z.number().int().min(0).max(100).optional(),
   sortOrder: z.number().int().min(0).max(10_000).optional(),
   notes: z.string().max(2000).nullable().optional(),
   changeNote: z.string().max(500).optional(),
@@ -1025,6 +1085,30 @@ export const archiveDocumentTemplateSchema = z.object({
   active: z.boolean(),
 });
 
+/** P0 (2026-08-30) — DOCX-öncelikli şablon yükleme. Yalnızca .docx kabul edilir; .doc/.pdf tools.ts'te ayrı, dostane mesajlarla reddedilir. */
+export const uploadDocumentTemplateDocxSchema = z.object({
+  kind: z.enum([
+    "student_enrollment_contract",
+    "parent_social_media_consent",
+    "kvkk",
+    "teacher_contract",
+    "teacher_info_form",
+    "trial_form",
+    "makeup_request",
+    "payment_commitment",
+    "petition",
+    "custom",
+  ]),
+  name: z.string().min(1).max(200),
+  fileName: z.string().min(1).max(255),
+  fileMimeType: z.string().min(1).max(200),
+  fileData: z.string().min(1).max(14_000_000),
+});
+
+export const getDocumentTemplateSourceFileSchema = z.object({
+  templateId: z.string().min(1),
+});
+
 export const deleteSignedDocumentVersionSchema = z.object({
   documentId: z.string().min(1),
   versionId: z.string().min(1),
@@ -1035,7 +1119,7 @@ export const socialMediaConsentSchema = z.object({
   status: z.enum(["granted","denied","withdrawn","expired"]),
   representativeName: z.string().min(1),
   relationship: z.string().min(1),
-  scopes: z.array(z.enum(["photo","video","name","voice","website","instagram","other"])).min(1),
+  scopes: z.array(z.enum(["photo","video","name","voice","website","instagram","other","print_materials","digital_ads","in_house_board"])).min(1),
   sourceDocumentRef: z.string().optional(),
 });
 
@@ -1546,4 +1630,22 @@ export const withdrawKvkkConsentSchema = z.object({
 export const updateConsentSettingsSchema = z.object({
   restrictedFeatures: z.array(z.string().min(1).max(100)).max(100),
   recordDeviceInfo: z.boolean(),
+});
+
+/**
+ * Profil fotoğrafı — `fileData` üst sınırı BİLİNÇLİ olarak dostane domain
+ * limitinden (2 MB, bkz. profile-photo-validation.ts) geniştir; aksi halde
+ * gerçek dünya boyutundaki normal fotoğraflar burada jenerik "Invalid input"
+ * hatasına takılır, hiçbir zaman dostane boyut mesajına ulaşamaz.
+ */
+export const uploadProfilePhotoSchema = z.object({
+  ownerType: z.enum(["student", "teacher", "user"]),
+  ownerId: z.string().min(1),
+  fileMimeType: z.string().min(1).max(100),
+  fileData: z.string().min(1).max(10_000_000),
+});
+
+export const deleteProfilePhotoSchema = z.object({
+  ownerType: z.enum(["student", "teacher", "user"]),
+  ownerId: z.string().min(1),
 });

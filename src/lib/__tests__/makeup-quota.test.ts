@@ -23,6 +23,23 @@ function mk(partial: Partial<MakeupRequest> & Pick<MakeupRequest, "id" | "studen
   };
 }
 
+// Dönem-bazlı kota (Nilüfer Acar politikası §3) döneme her isteğin
+// `sourceLessonId`'sinin gösterdiği gerçek dersten türetilir; bu yüzden
+// testlerde her istek AYNI (Ağustos 2026 = "2026-yaz" dönemi) bir derse
+// bağlanır.
+const SAME_PERIOD_LESSON = {
+  id: "l1",
+  studentId: "s1",
+  teacherId: "t1",
+  branchId: "erzene",
+  roomId: "r1",
+  instrument: "Piyano",
+  startAt: "2026-08-10T10:00:00.000Z",
+  endAt: "2026-08-10T10:40:00.000Z",
+  type: "regular" as const,
+  status: "scheduled" as const,
+};
+
 function baseData(requests: Partial<MakeupRequest>[], allowance?: number): AppData {
   return {
     settings: {
@@ -46,7 +63,7 @@ function baseData(requests: Partial<MakeupRequest>[], allowance?: number): AppDa
     teachers: [],
     students: [],
     rooms: [],
-    lessons: [],
+    lessons: [SAME_PERIOD_LESSON],
     lessonSeries: [],
     attendances: [],
     makeupRequests: requests as unknown as MakeupRequest[],
@@ -99,15 +116,16 @@ describe("makeup-quota", () => {
       "s1",
       new Date("2026-08-12T12:00:00.000Z")
     );
-    expect(formatMakeupQuotaLabel(snap)).toContain("1 / 2");
-    expect(formatMakeupQuotaLabel(snap)).toContain("1 hak kaldı");
+    // Sahibi onaylı zorunlu metin: "<yıl> eğitim dönemi için kalan telafi hakkı: X / 2".
+    expect(formatMakeupQuotaLabel(snap)).toContain("eğitim dönemi için kalan telafi hakkı: 1 / 2");
+    expect(formatMakeupQuotaLabel(snap)).toMatch(/^\d{4}-\d{4} eğitim dönemi/);
   });
 
   it("ay anahtarı YYYY-MM", () => {
     expect(calendarMonthKey("2026-08-13T10:00:00.000Z")).toMatch(/^\d{4}-\d{2}$/);
   });
 
-  it("yeni ay kotayı sıfırlar", () => {
+  it("aynı eğitim dönemi içinde ay değişse bile kota sıfırlanmaz (§3 — dönem bazlı, AY bazlı değil)", () => {
     const data = baseData(
       [
         mk({ id: "1", studentId: "s1", status: "pending", createdAt: "2026-07-31T10:00:00.000Z" }),
@@ -115,7 +133,52 @@ describe("makeup-quota", () => {
       ],
       2
     );
+    // sourceLessonId hâlâ Ağustos 2026 = "2026-yaz" dönemindeki l1'e bağlı;
+    // ay Temmuz→Ağustos'a geçse de dönem AYNI kaldığı için kota TÜKENMİŞ kalmalı.
     const res = assertCanCreateMakeup(data, "s1", new Date("2026-08-01T12:00:00.000Z"));
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.snapshot.used).toBe(2);
+  });
+
+  it("sahibi onaylı NİHAİ karar — Güz + Yaz AYRI AYRI 2'şer değil, aynı eğitim yılında TOPLAM 2 hak (Madde 11)", () => {
+    // Güz dersi (Ekim 2026 → academicYearStart=2026, term=guz) — 2 hak kullanılmış.
+    const guzLesson = {
+      ...SAME_PERIOD_LESSON,
+      id: "l_guz",
+      startAt: "2026-10-05T10:00:00.000Z",
+      endAt: "2026-10-05T10:40:00.000Z",
+    };
+    // Yaz dersi AYNI akademik yılda (Ağustos 2026 → academicYearStart=2026, term=yaz) — 3. talebin kaynağı.
+    const yazLesson = {
+      ...SAME_PERIOD_LESSON,
+      id: "l_yaz",
+      startAt: "2026-08-20T10:00:00.000Z",
+      endAt: "2026-08-20T10:40:00.000Z",
+    };
+    const data = baseData(
+      [
+        mk({ id: "1", studentId: "s1", status: "pending", createdAt: "2026-10-05T10:00:00.000Z", sourceLessonId: "l_guz" }),
+        mk({ id: "2", studentId: "s1", status: "confirmed", createdAt: "2026-10-06T10:00:00.000Z", sourceLessonId: "l_guz" }),
+      ],
+      2
+    );
+    data.lessons = [guzLesson, yazLesson] as unknown as AppData["lessons"];
+    const res = assertCanCreateMakeup(data, "s1", new Date("2026-08-21T12:00:00.000Z"), "l_yaz");
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.snapshot.used).toBe(2);
+      expect(res.message).toContain("2026-2027");
+    }
+  });
+
+  it("farklı eğitim döneminden kaynaklanan talepler kotayı etkilemez", () => {
+    const guzLesson = { ...SAME_PERIOD_LESSON, id: "l2", startAt: "2025-10-10T10:00:00.000Z", endAt: "2025-10-10T10:40:00.000Z" };
+    const data = baseData(
+      [mk({ id: "1", studentId: "s1", status: "pending", createdAt: "2025-10-10T10:00:00.000Z", sourceLessonId: "l2" })],
+      2
+    );
+    data.lessons.push(guzLesson as unknown as AppData["lessons"][number]);
+    const res = assertCanCreateMakeup(data, "s1", new Date("2026-08-12T12:00:00.000Z"));
     expect(res.ok).toBe(true);
     if (res.ok) expect(res.snapshot.used).toBe(0);
   });

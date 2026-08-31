@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { withApiHandler } from "@/lib/api/handler";
 import { jsonFail } from "@/lib/api/http";
 import { readData } from "@/lib/store";
+import { runWithTenantAsync } from "@/lib/tenant-context";
 import { resolveWriteScope, ALL_MODE_WRITE_DENIED_MESSAGE } from "@/lib/institution/write-scope";
 import {
   buildInstitutionExport,
@@ -29,6 +30,18 @@ export const dynamic = "force-dynamic";
  * "Tüm kurumlar" görünümü (SUPER_ADMIN) için de export REDDEDİLİR — mevcut
  * "Tüm kurumlar görünümünde işlem yapılamaz" yazma-engelleme desenine
  * paralel (bkz. `resolveWriteScope`).
+ *
+ * DÜZELTME (Faz 2 güvenlik taraması) — yukarıdaki "readData() zaten ALS'e
+ * göre tenant-scoped" varsayımı SUPER_ADMIN'in kendi JWT'sindeki ana kurum
+ * DIŞINDA bir kurum seçtiği (kurum cookie) senaryoda YANLIŞTI:
+ * `withApiHandler` ALS'yi ctx.tenantId (oturumun ANA kurumu) ile kurar,
+ * ancak `scope.tenantId` (resolveWriteScope) seçili kurumu yansıtır — bu
+ * ikisi SUPER_ADMIN çoklu-kurum akışında AYRIŞABİLİR. Açık sarmalama
+ * olmadan `readData()` yanlış kurumun ana varlık verisini (students/
+ * payments/lessons) dönebilirken, aşağıdaki `extra.*` alanları zaten doğru
+ * `scope.tenantId` ile çağrılıyordu — tutarsız, kurumlar-arası karışık bir
+ * export'a yol açardı. `runWithTenantAsync(scope.tenantId, ...)` ile
+ * sarmalamak `readData()`'yı da aynı (seçili) kuruma sabitler.
  */
 export const GET = withApiHandler(
   async ({ ctx, searchParams }) => {
@@ -49,7 +62,7 @@ export const GET = withApiHandler(
     }
     const entity = entityParam as ExportEntity;
 
-    const data = await readData();
+    const data = await runWithTenantAsync(scope.tenantId, () => readData());
     const extra: StandaloneExportData = {};
     switch (entity) {
       case "notifications":

@@ -13,19 +13,24 @@
  * ETKİLEMEZ.
  */
 export const BRAND = {
-  name: "Maestron",
-  shortName: "Maestron",
-  tagline: "Müzik Okulu Yönetimi",
+  name: "Nevii Hub",
+  shortName: "NeviiHub",
+  tagline: "Everything. Connected.",
   description:
-    "Maestron, müzik okulları için program, yoklama, telafi ve ödeme yönetimi platformudur.",
-  assistantName: "Maestron AI",
-  logoPath: "/brand/maestron-logo.png",
-  logoSvgPath: "/brand/maestron-logo.svg",
-  logoMarkPath: "/brand/maestron-mark.png",
-  /** Şeffaf arka planlı mark — koyu/renkli zeminlerde beyaz kutu olmadan kullanmak için (ör. Gece Obsidyen). */
-  logoMarkTransparentPath: "/brand/maestron-mark-transparent.png",
-  /** Sidebar marka alanı — İş 2A: sade, tek logomark (bkz. sidebar.tsx). */
-  sidebarLogoPath: "/brand/maestron-svg-logo.png",
+    "NeviiHub, Kurumlar için program, yoklama, telafi ve ödeme yönetimi platformudur.",
+  assistantName: "NeviiHub AI",
+  /**
+   * P0 (2026-08-30, temiz karşılama ekranı) — onaylı NeviiHub "N" monogram
+   * markası `public/brand/logo.png` altında mevcut; welcome/login ekranları
+   * artık bunu kullanır. `logoMarkPath` küçük/kare kullanım (favicon,
+   * sidebar) için aynı dosyayı işaret eder — ayrı bir asset yoksa fallback
+   * metin/monogram render'a düşülür.
+   */
+  logoPath: "/brand/logo.png" as string | null,
+  logoSvgPath: null as string | null,
+  logoMarkPath: "/brand/logo.png" as string | null,
+  logoMarkTransparentPath: null as string | null,
+  sidebarLogoPath: "/icon.png",
   faviconPath: "/icon.png",
-  ogImagePath: "/brand/maestron-logo.png",
+  ogImagePath: null as string | null,
 } as const;

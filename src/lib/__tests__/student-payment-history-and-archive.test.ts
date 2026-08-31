@@ -67,6 +67,7 @@ describe("archiveStudentTool — öğrenci arşivleme/geri alma", () => {
     packageName: "Bireysel Aylık — 4 ders",
     weeklyLessonCount: 1,
     monthlyFee: 3000,
+    firstPaymentCollected: { method: "cash", amount: 3000, collectedAt: "2026-08-30" },
   };
 
   it("arşivlenen öğrenci active=false ve archivedAt dolu olur; normal listeden düşer", async () => {

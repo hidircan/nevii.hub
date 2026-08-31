@@ -205,6 +205,15 @@ describe("notifyAdmins + olay köprüleri", () => {
   });
 });
 
+describe("mobil ayar ekranı rol filtresi ön koşulu", () => {
+  it("TEACHER, SCHOOL_ADMIN ve STUDENT (Karma Öğrenci Portalı — veli/öğrenci) en az bir implemented kategoride uygun", async () => {
+    const { NOTIFICATION_CATEGORIES } = await import("../notification-categories");
+    expect(NOTIFICATION_CATEGORIES.some((c) => c.implemented && c.roles.includes("TEACHER"))).toBe(true);
+    expect(NOTIFICATION_CATEGORIES.some((c) => c.implemented && c.roles.includes("SCHOOL_ADMIN"))).toBe(true);
+    expect(NOTIFICATION_CATEGORIES.some((c) => c.implemented && c.roles.includes("STUDENT"))).toBe(true);
+  });
+});
+
 describe("resolveNotificationHref", () => {
   it("body Detay yolunu ve kind varsayılanını güvenle çözümler", () => {
     expect(resolveNotificationHref("task_new_assignment", 'x Detay: /panel/is-takip/abc')).toBe(

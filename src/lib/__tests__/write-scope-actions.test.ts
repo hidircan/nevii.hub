@@ -68,7 +68,22 @@ function studentFormData(): FormData {
   fd.set("branchId", "erzene");
   fd.set("instrument", "Piyano");
   fd.set("teacherId", "t1");
+  // Owner policy (2026-08-30) — createStudentTool artık ilk ödeme zorunlu kılıyor.
+  fd.set("firstPaymentMethod", "cash");
+  fd.set("firstPaymentAmount", "3000");
+  fd.set("firstPaymentDate", "2026-08-30");
   return fd;
+}
+
+/**
+ * Faz 4 — başarılı kayıttan sonra `actionAddStudent` artık öğrenci detayına
+ * (`?yeniKayit=1#sozlesme`) `redirect()` eder; Next.js'in `redirect()`'i
+ * TASARIM GEREĞİ bir NEXT_REDIRECT hatası fırlatır (App Router server action
+ * deseni). Bu yüzden "başarılı" senaryo burada rejection'ı BEKLEYEREK
+ * doğrulanır — asıl mutasyonun gerçekleştiği ayrıca kontrol edilir.
+ */
+async function addStudentExpectingRedirect(fd: FormData) {
+  await expect(actions.actionAddStudent(null, fd)).rejects.toThrow("NEXT_REDIRECT");
 }
 
 describe("Yazma kapsamı koruması — Öğrenciler (actionAddStudent)", () => {
@@ -79,9 +94,12 @@ describe("Yazma kapsamı koruması — Öğrenciler (actionAddStudent)", () => {
       { tenantId: "tenant_other", name: "Diğer Kurum" },
     ];
     const before = await readData();
-    await expect(actions.actionAddStudent(studentFormData())).rejects.toThrow(
-      ALL_MODE_WRITE_DENIED_MESSAGE
-    );
+    // P0-2 (2026-08-29) — kurum kapsamı reddi artık THROW ETMEZ, diğer tüm
+    // action'larla AYNI grasyollu desenle `NewStudentFormState` döner (form
+    // açık kalır, kullanıcı üstte Türkçe mesajı görür).
+    const result = await actions.actionAddStudent(null, studentFormData());
+    expect(result?.ok).toBe(false);
+    expect(result?.formError).toBe(ALL_MODE_WRITE_DENIED_MESSAGE);
     const after = await readData();
     expect(after.students.length).toBe(before.students.length);
   });
@@ -91,7 +109,7 @@ describe("Yazma kapsamı koruması — Öğrenciler (actionAddStudent)", () => {
     mockTenants.list = [{ tenantId: DEFAULT_TENANT_ID, name: "Nilüfer Açar Müzik Akademisi" }];
     mockCookieValue.value = DEFAULT_TENANT_ID;
     const before = await readData();
-    await actions.actionAddStudent(studentFormData());
+    await addStudentExpectingRedirect(studentFormData());
     const after = await readData();
     expect(after.students.length).toBe(before.students.length + 1);
     expect(after.students.some((s) => s.name === "Test Öğrenci")).toBe(true);
@@ -102,7 +120,7 @@ describe("Yazma kapsamı koruması — Öğrenciler (actionAddStudent)", () => {
     mockTenants.list = [{ tenantId: DEFAULT_TENANT_ID, name: "Nilüfer Açar Müzik Akademisi" }];
     mockCookieValue.value = "tenant_forged_other_school";
     const before = await readData();
-    await actions.actionAddStudent(studentFormData());
+    await addStudentExpectingRedirect(studentFormData());
     const after = await readData();
     // Sahte cookie yok sayılır, varsayılan (kendi) kuruma yazılır — hiç
     // başka bir kuruma sızma olmadığı, aynı (tek) veri dosyasında öğrencinin
@@ -114,9 +132,97 @@ describe("Yazma kapsamı koruması — Öğrenciler (actionAddStudent)", () => {
     mockSession.ctx = { role: "SCHOOL_ADMIN", userId: "admin1", tenantId: DEFAULT_TENANT_ID, channel: "web" };
     mockCookieValue.value = "ALL";
     const before = await readData();
-    await actions.actionAddStudent(studentFormData());
+    await addStudentExpectingRedirect(studentFormData());
     const after = await readData();
     expect(after.students.length).toBe(before.students.length + 1);
+  });
+});
+
+/**
+ * FAZ (2026-2027 SÖZLEŞME KAYNAĞI) — formal (3-12 ay) kayıt Bağımsız
+ * Sözleşme Merkezi'ne (`/sozlesmeler`) yönlendirilir; tanışma paketi (1-2 ay)
+ * öğrenci detayında kalır. Next.js `redirect()` hedefi `error.digest`
+ * içinde (`NEXT_REDIRECT;push;<url>;...`) taşınır — bkz. yukarıdaki
+ * addStudentExpectingRedirect yorumu.
+ */
+describe("actionAddStudent — kayıt sonrası yönlendirme (formal/tanışma ayrımı)", () => {
+  beforeEach(() => {
+    mockSession.ctx = { role: "SCHOOL_ADMIN", userId: "admin1", tenantId: DEFAULT_TENANT_ID, channel: "web" };
+    mockCookieValue.value = DEFAULT_TENANT_ID;
+  });
+
+  it("3 aylık (formal) kayıt Sözleşme Merkezi'ne (/sozlesmeler) yönlendirir", async () => {
+    const fd = studentFormData();
+    fd.set("intendedDurationMonths", "3");
+    let digest = "";
+    try {
+      await actions.actionAddStudent(null, fd);
+    } catch (e) {
+      digest = (e as { digest?: string }).digest ?? "";
+    }
+    expect(digest).toContain("/sozlesmeler?yeniKayit=1&sure=3");
+  });
+
+  it("1 aylık (tanışma) kayıt öğrenci detayında kalır — /sozlesmeler'e YÖNLENDİRMEZ", async () => {
+    const fd = studentFormData();
+    fd.set("intendedDurationMonths", "1");
+    let digest = "";
+    try {
+      await actions.actionAddStudent(null, fd);
+    } catch (e) {
+      digest = (e as { digest?: string }).digest ?? "";
+    }
+    expect(digest).not.toContain("/sozlesmeler");
+    expect(digest).toContain("?yeniKayit=1&sure=1");
+  });
+});
+
+/**
+ * P0-2 (2026-08-29) — normal kullanıcı hataları (eksik/geçersiz alan, iş
+ * kuralı ihlali) artık `actionAddStudent`'ı THROW ETTİRMEZ; `NewStudentFormState`
+ * döner. Bu, P0-1'in kök nedeni olan "Invalid input" runtime hatasının bir
+ * DAHA geri gelmemesini (herhangi bir gelecekteki doğrulama boşluğu için de)
+ * garanti eden YAPISAL düzeltmedir.
+ */
+describe("actionAddStudent — P0-2 zarif doğrulama hatası davranışı (throw YOK)", () => {
+  beforeEach(() => {
+    mockSession.ctx = { role: "SCHOOL_ADMIN", userId: "admin1", tenantId: DEFAULT_TENANT_ID, channel: "web" };
+    mockCookieValue.value = DEFAULT_TENANT_ID;
+  });
+
+  it("boş 'Ad soyad' — THROW ETMEZ, alan bazlı Türkçe hata döner, öğrenci OLUŞTURULMAZ", async () => {
+    const fd = studentFormData();
+    fd.set("name", "");
+    const before = await readData();
+    const result = await actions.actionAddStudent(null, fd);
+    expect(result?.ok).toBe(false);
+    expect(result?.fieldErrors?.name).toBeTruthy();
+    expect(result?.formError).toBeTruthy();
+    const after = await readData();
+    expect(after.students.length).toBe(before.students.length);
+  });
+
+  it("var olmayan öğretmen — iş kuralı hatası THROW ETMEZ, üstte Türkçe özet döner", async () => {
+    const fd = studentFormData();
+    fd.set("teacherId", "no-such-teacher");
+    const before = await readData();
+    const result = await actions.actionAddStudent(null, fd);
+    expect(result?.ok).toBe(false);
+    expect(result?.formError).toContain("Seçilen öğretmen bulunamadı");
+    const after = await readData();
+    expect(after.students.length).toBe(before.students.length);
+  });
+
+  it("düzeltme sonrası tekrar gönderim başarılı olur (aynı action, geçerli veriyle)", async () => {
+    const fd = studentFormData();
+    fd.set("name", "");
+    const failed = await actions.actionAddStudent(null, fd);
+    expect(failed?.ok).toBe(false);
+
+    fd.set("name", "Düzeltilmiş Öğrenci");
+    await expect(actions.actionAddStudent(null, fd)).rejects.toThrow("NEXT_REDIRECT");
+    const after = await readData();
+    expect(after.students.some((s) => s.name === "Düzeltilmiş Öğrenci")).toBe(true);
   });
 });
 
@@ -131,9 +237,23 @@ describe("Yazma kapsamı koruması — Yoklama (actionMarkAttendance)", () => {
     const fd = new FormData();
     fd.set("lessonId", before.lessons[0].id);
     fd.set("status", "present");
-    await expect(actions.actionMarkAttendance(fd)).rejects.toThrow(ALL_MODE_WRITE_DENIED_MESSAGE);
+    // P0-2 (2026-08-29) — diğer action'larla AYNI grasyollu desen: THROW ETMEZ, state döner.
+    const result = await actions.actionMarkAttendance(null, fd);
+    expect(result?.ok).toBe(false);
+    expect(result?.message).toBe(ALL_MODE_WRITE_DENIED_MESSAGE);
     const after = await readData();
     expect(after.attendances.length).toBe(before.attendances.length);
+  });
+
+  it("var olmayan ders — VALIDATION_ERROR THROW ETMEZ, mesaj döner", async () => {
+    mockSession.ctx = { role: "TEACHER", userId: "t1", tenantId: DEFAULT_TENANT_ID, channel: "web", teacherId: "t1" };
+    mockCookieValue.value = DEFAULT_TENANT_ID;
+    const fd = new FormData();
+    fd.set("lessonId", "no-such-lesson");
+    fd.set("status", "present");
+    const result = await actions.actionMarkAttendance(null, fd);
+    expect(result?.ok).toBe(false);
+    expect(result?.message).toBeTruthy();
   });
 });
 
@@ -150,7 +270,164 @@ describe("Yazma kapsamı koruması — Öğretmenler (actionAddTeacher)", () => 
     fd.set("phone", "05551111111");
     fd.set("branchId", "erzene");
     fd.set("instrument", "Piyano");
-    await expect(actions.actionAddTeacher(fd)).rejects.toThrow(ALL_MODE_WRITE_DENIED_MESSAGE);
+    // P0-2 (2026-08-29) — diğer tüm action'larla AYNI grasyollu desen: THROW ETMEZ, state döner.
+    const result = await actions.actionAddTeacher(null, fd);
+    expect(result?.ok).toBe(false);
+    expect((result as { ok: false; formError?: string } | null)?.formError).toBe(ALL_MODE_WRITE_DENIED_MESSAGE);
+  });
+
+  it("kataloga yeni eklenmiş bir enstrüman (ör. 'Bas Gitar') şema seviyesinde REDDEDİLMEZ, THROW ETMEZ", async () => {
+    mockSession.ctx = { role: "SCHOOL_ADMIN", userId: "admin1", tenantId: DEFAULT_TENANT_ID, channel: "web" };
+    mockCookieValue.value = DEFAULT_TENANT_ID;
+    const fd = new FormData();
+    fd.set("name", "Bas Gitar Öğretmeni");
+    fd.set("email", "basgitar-actions@test.com");
+    fd.set("phone", "05551112222");
+    fd.set("branchId", "erzene");
+    fd.set("instrument", "Bas Gitar");
+    const result = await actions.actionAddTeacher(null, fd);
+    expect(result).toBeNull(); // null = başarı (redirect yok, mevcut davranış korunur)
+  });
+
+  it("boş isim (gerçek geçersiz girdi) THROW ETMEZ, alan bazlı Türkçe hata döner", async () => {
+    mockSession.ctx = { role: "SCHOOL_ADMIN", userId: "admin1", tenantId: DEFAULT_TENANT_ID, channel: "web" };
+    mockCookieValue.value = DEFAULT_TENANT_ID;
+    const fd = new FormData();
+    fd.set("name", "");
+    fd.set("email", "eksik@test.com");
+    fd.set("phone", "05551113333");
+    fd.set("branchId", "erzene");
+    fd.set("instrument", "Piyano");
+    const result = await actions.actionAddTeacher(null, fd);
+    expect(result?.ok).toBe(false);
+    expect((result as { ok: false; fieldErrors?: Record<string, string> } | null)?.fieldErrors?.name).toBeTruthy();
+  });
+});
+
+describe("actionAddRoom — P0-2 zarif doğrulama hatası davranışı (throw YOK)", () => {
+  it("SUPER_ADMIN 'Tüm kurumlar' modunda THROW ETMEZ, formError döner", async () => {
+    mockSession.ctx = { role: "SUPER_ADMIN", userId: "super1", tenantId: DEFAULT_TENANT_ID, channel: "web" };
+    mockTenants.list = [
+      { tenantId: DEFAULT_TENANT_ID, name: "A" },
+      { tenantId: "tenant_other", name: "B" },
+    ];
+    const fd = new FormData();
+    fd.set("name", "Stüdyo Test");
+    fd.set("branchId", "erzene");
+    fd.set("capacity", "2");
+    fd.set("instruments", "Piyano");
+    const result = await actions.actionAddRoom(null, fd);
+    expect(result?.ok).toBe(false);
+    expect(result?.formError).toBe(ALL_MODE_WRITE_DENIED_MESSAGE);
+  });
+
+  it("hiç enstrüman seçilmemesi (gerçek geçersiz girdi) THROW ETMEZ, alan bazlı hata döner", async () => {
+    mockSession.ctx = { role: "SCHOOL_ADMIN", userId: "admin1", tenantId: DEFAULT_TENANT_ID, channel: "web" };
+    mockCookieValue.value = DEFAULT_TENANT_ID;
+    const fd = new FormData();
+    fd.set("name", "Stüdyo Test");
+    fd.set("branchId", "erzene");
+    fd.set("capacity", "2");
+    const result = await actions.actionAddRoom(null, fd);
+    expect(result?.ok).toBe(false);
+    expect(result?.fieldErrors?.instruments).toBeTruthy();
+  });
+
+  it("kataloga yeni eklenmiş bir enstrüman (ör. 'Bas Gitar' — checkbox listesinde olmasa bile formdan gönderilirse) REDDEDİLMEZ", async () => {
+    mockSession.ctx = { role: "SCHOOL_ADMIN", userId: "admin1", tenantId: DEFAULT_TENANT_ID, channel: "web" };
+    mockCookieValue.value = DEFAULT_TENANT_ID;
+    const fd = new FormData();
+    fd.set("name", "Bas Gitar Stüdyosu");
+    fd.set("branchId", "erzene");
+    fd.set("capacity", "2");
+    fd.set("instruments", "Bas Gitar");
+    const result = await actions.actionAddRoom(null, fd);
+    expect(result).toBeNull();
+  });
+});
+
+describe("actionAddBranch / actionUpdateBranch — P0-2 zarif doğrulama hatası davranışı (throw YOK)", () => {
+  it("actionAddBranch: SUPER_ADMIN 'Tüm kurumlar' modunda THROW ETMEZ, formError döner", async () => {
+    mockSession.ctx = { role: "SUPER_ADMIN", userId: "super1", tenantId: DEFAULT_TENANT_ID, channel: "web" };
+    mockTenants.list = [
+      { tenantId: DEFAULT_TENANT_ID, name: "A" },
+      { tenantId: "tenant_other", name: "B" },
+    ];
+    const fd = new FormData();
+    fd.set("name", "Test Şube");
+    fd.set("shortName", "Test");
+    fd.set("city", "İzmir");
+    fd.set("phone", "05551234567");
+    fd.set("address", "Test adres");
+    const result = await actions.actionAddBranch(null, fd);
+    expect(result?.ok).toBe(false);
+    expect(result?.formError).toBe(ALL_MODE_WRITE_DENIED_MESSAGE);
+  });
+
+  it("actionAddBranch: boş ad (gerçek geçersiz girdi) THROW ETMEZ, alan bazlı hata döner", async () => {
+    mockSession.ctx = { role: "SCHOOL_ADMIN", userId: "admin1", tenantId: DEFAULT_TENANT_ID, channel: "web" };
+    mockCookieValue.value = DEFAULT_TENANT_ID;
+    const fd = new FormData();
+    fd.set("name", "");
+    fd.set("shortName", "Test");
+    fd.set("city", "İzmir");
+    fd.set("phone", "05551234567");
+    fd.set("address", "Test adres");
+    const result = await actions.actionAddBranch(null, fd);
+    expect(result?.ok).toBe(false);
+    expect(result?.fieldErrors?.name).toBeTruthy();
+  });
+
+  it("actionUpdateBranch: var olmayan şube — iş kuralı hatası THROW ETMEZ, üstte mesaj döner", async () => {
+    mockSession.ctx = { role: "SCHOOL_ADMIN", userId: "admin1", tenantId: DEFAULT_TENANT_ID, channel: "web" };
+    mockCookieValue.value = DEFAULT_TENANT_ID;
+    const fd = new FormData();
+    fd.set("branchId", "no-such-branch");
+    fd.set("name", "Test Şube");
+    fd.set("shortName", "Test");
+    fd.set("city", "İzmir");
+    fd.set("phone", "05551234567");
+    fd.set("address", "Test adres");
+    const result = await actions.actionUpdateBranch(null, fd);
+    expect(result?.ok).toBe(false);
+    expect(result?.formError).toBeTruthy();
+  });
+});
+
+describe("actionCreateTaskForm — P0-2 zarif doğrulama hatası davranışı (throw YOK)", () => {
+  it("SUPER_ADMIN 'Tüm kurumlar' modunda THROW ETMEZ, mesaj döner", async () => {
+    mockSession.ctx = { role: "SUPER_ADMIN", userId: "super1", tenantId: DEFAULT_TENANT_ID, channel: "web" };
+    mockTenants.list = [
+      { tenantId: DEFAULT_TENANT_ID, name: "A" },
+      { tenantId: "tenant_other", name: "B" },
+    ];
+    const fd = new FormData();
+    fd.set("title", "Test görev");
+    fd.set("category", "Kayıt");
+    const result = await actions.actionCreateTaskForm(null, fd);
+    expect(result?.ok).toBe(false);
+    expect(result?.message).toBe(ALL_MODE_WRITE_DENIED_MESSAGE);
+  });
+
+  it("boş başlık (gerçek geçersiz girdi) THROW ETMEZ, mesaj döner", async () => {
+    mockSession.ctx = { role: "SCHOOL_ADMIN", userId: "admin1", tenantId: DEFAULT_TENANT_ID, channel: "web" };
+    mockCookieValue.value = DEFAULT_TENANT_ID;
+    const fd = new FormData();
+    fd.set("title", "");
+    fd.set("category", "Kayıt");
+    const result = await actions.actionCreateTaskForm(null, fd);
+    expect(result?.ok).toBe(false);
+    expect(result?.message).toBeTruthy();
+  });
+
+  it("geçerli veriyle THROW ETMEZ, başarıyla döner (bağlamsız görev — redirect YOK, null döner)", async () => {
+    mockSession.ctx = { role: "SCHOOL_ADMIN", userId: "admin1", tenantId: DEFAULT_TENANT_ID, channel: "web" };
+    mockCookieValue.value = DEFAULT_TENANT_ID;
+    const fd = new FormData();
+    fd.set("title", "Test görev");
+    fd.set("category", "Kayıt");
+    const result = await actions.actionCreateTaskForm(null, fd);
+    expect(result).toBeNull();
   });
 });
 
@@ -166,10 +443,18 @@ describe("Yazma kapsamı koruması — Ödemeler (actionAddPayment / actionMarkP
     fd.set("description", "Test ödeme");
     fd.set("amount", "1000");
     fd.set("dueDate", "2026-12-01");
-    await expect(actions.actionAddPayment(fd)).rejects.toThrow(ALL_MODE_WRITE_DENIED_MESSAGE);
+    // P0-2 (2026-08-29) — diğer action'larla AYNI grasyollu desen: THROW ETMEZ, state döner.
+    const result = await actions.actionAddPayment(null, fd);
+    expect(result?.ok).toBe(false);
+    expect(result?.formError).toBe(ALL_MODE_WRITE_DENIED_MESSAGE);
   });
 
-  it("actionMarkPaymentPaid SUPER_ADMIN 'Tüm kurumlar' modunda reddedilir, ödeme durumu değişmez", async () => {
+  it("actionMarkPaymentPaidDetailed SUPER_ADMIN 'Tüm kurumlar' modunda reddedilir, ödeme durumu değişmez", async () => {
+    // NOT (2026-08-29): eski `actionMarkPaymentPaid` (assertOk/throw deseni,
+    // AYNI P0 çökme sınıfı) hiçbir UI'dan ÇAĞRILMIYORDU — tamamen
+    // `actionMarkPaymentPaidDetailed`'in (zaten grasyollu) süperseti tarafından
+    // örtülüyordu. Ölü kod olarak SİLİNDİ; bu test aynı korumayı gerçek
+    // çağıran üzerinden doğrular.
     mockSession.ctx = { role: "SUPER_ADMIN", userId: "super1", tenantId: DEFAULT_TENANT_ID, channel: "web" };
     mockTenants.list = [
       { tenantId: DEFAULT_TENANT_ID, name: "A" },
@@ -177,9 +462,15 @@ describe("Yazma kapsamı koruması — Ödemeler (actionAddPayment / actionMarkP
     ];
     const before = await readData();
     const unpaid = before.payments.find((p) => p.status !== "paid")!;
-    const fd = new FormData();
-    fd.set("paymentId", unpaid.id);
-    await expect(actions.actionMarkPaymentPaid(fd)).rejects.toThrow(ALL_MODE_WRITE_DENIED_MESSAGE);
+    const result = await actions.actionMarkPaymentPaidDetailed({
+      paymentId: unpaid.id,
+      method: "cash",
+      amount: unpaid.amount,
+      paidAt: "2026-08-29",
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.message).toBe(ALL_MODE_WRITE_DENIED_MESSAGE);
     const after = await readData();
     expect(after.payments.find((p) => p.id === unpaid.id)?.status).toBe(unpaid.status);
   });
@@ -196,7 +487,10 @@ describe("Yazma kapsamı koruması — Telafi (actionCancelMakeup / actionGenera
     const req = before.makeupRequests[0];
     const fd = new FormData();
     fd.set("requestId", req.id);
-    await expect(actions.actionCancelMakeup(fd)).rejects.toThrow(ALL_MODE_WRITE_DENIED_MESSAGE);
+    // P0-2 (2026-08-29) — diğer action'larla AYNI grasyollu desen: THROW ETMEZ, state döner.
+    const result = await actions.actionCancelMakeup(null, fd);
+    expect(result?.ok).toBe(false);
+    expect(result?.message).toBe(ALL_MODE_WRITE_DENIED_MESSAGE);
     const after = await readData();
     expect(after.makeupRequests.find((m) => m.id === req.id)?.status).toBe(req.status);
   });
@@ -211,7 +505,21 @@ describe("Yazma kapsamı koruması — Telafi (actionCancelMakeup / actionGenera
     const req = before.makeupRequests[0];
     const fd = new FormData();
     fd.set("requestId", req.id);
-    await expect(actions.actionGenerateSuggestions(fd)).rejects.toThrow(ALL_MODE_WRITE_DENIED_MESSAGE);
+    const result = await actions.actionGenerateSuggestions(null, fd);
+    expect(result?.ok).toBe(false);
+    expect(result?.message).toBe(ALL_MODE_WRITE_DENIED_MESSAGE);
+  });
+
+  it("actionConfirmSlot: var olmayan istek — VALIDATION_ERROR THROW ETMEZ, mesaj döner", async () => {
+    mockSession.ctx = { role: "SCHOOL_ADMIN", userId: "admin1", tenantId: DEFAULT_TENANT_ID, channel: "web" };
+    mockCookieValue.value = DEFAULT_TENANT_ID;
+    const fd = new FormData();
+    fd.set("requestId", "no-such-request");
+    fd.set("slot", JSON.stringify({ teacherId: "t1", roomId: "r1", branchId: "erzene", startAt: "2026-09-01T10:00:00.000Z", endAt: "2026-09-01T10:30:00.000Z" }));
+    fd.set("decisionNote", "Test onay notu");
+    const result = await actions.actionConfirmSlot(null, fd);
+    expect(result?.ok).toBe(false);
+    expect(result?.message).toBeTruthy();
   });
 });
 

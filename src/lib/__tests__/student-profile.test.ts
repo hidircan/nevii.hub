@@ -37,6 +37,7 @@ describe("createStudentTool — EPIC 4 profil alanları", () => {
       packageName: "Bireysel Aylık — 4 ders",
       weeklyLessonCount: 1,
       monthlyFee: 3000,
+      firstPaymentCollected: { method: "cash", amount: 3000, collectedAt: "2026-01-15" },
       studentType: "Konservatuvar Hazırlık",
       enrollmentStartDate: "2026-01-15",
       level: "İleri",
@@ -66,6 +67,7 @@ describe("createStudentTool — EPIC 4 profil alanları", () => {
       packageName: "Bireysel Aylık — 4 ders",
       weeklyLessonCount: 1,
       monthlyFee: 3000,
+      firstPaymentCollected: { method: "cash", amount: 3000, collectedAt: "2026-08-30" },
     });
     expect(created.ok).toBe(true);
     if (!created.ok) return;

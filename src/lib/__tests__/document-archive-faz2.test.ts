@@ -17,7 +17,7 @@ import {
 } from "../services/tools";
 import { buildDocumentReference } from "../document-reference";
 import { sanitizeTemplateHtml } from "../document-sanitize";
-import { renderTemplate } from "../documents";
+import { renderTemplate, stripUnusedInstallmentRows } from "../documents";
 import { DEFAULT_TENANT_ID } from "../auth/config";
 import type { ServiceContext } from "../services/context";
 
@@ -251,6 +251,54 @@ describe("Placeholder doldurma — noktalı namespace + güvenli boş davranış
   it("bulunmayan herhangi bir placeholder hata fırlatmadan boş string olur", () => {
     expect(() => renderTemplate("<p>{{hic.olmayan.alan}}</p>", {})).not.toThrow();
     expect(renderTemplate("<p>{{hic.olmayan.alan}}</p>", {})).toBe("<p></p>");
+  });
+});
+
+describe("stripUnusedInstallmentRows — P0 (2026-08-30) boş taksit satırı düzeltmesi", () => {
+  function buildTaksitTable(): string {
+    const rows = Array.from(
+      { length: 12 },
+      (_, i) =>
+        `<tr><td>EĞİTİM</td><td>${i + 1}</td><td>{{taksit${i + 1}Tarih}}</td><td>{{taksit${i + 1}Tutar}} TL</td></tr>`
+    ).join("\n");
+    return `<table><thead><tr><th>H</th></tr></thead><tbody>\n${rows}\n</tbody></table>`;
+  }
+
+  it("installmentCount=5 → yalnızca 1-5 satırları kalır, 6-12 tamamen kaldırılır", () => {
+    const stripped = stripUnusedInstallmentRows(buildTaksitTable(), 5);
+    for (let i = 1; i <= 5; i++) {
+      expect(stripped).toContain(`{{taksit${i}Tarih}}`);
+    }
+    for (let i = 6; i <= 12; i++) {
+      expect(stripped).not.toContain(`{{taksit${i}Tarih}}`);
+      expect(stripped).not.toContain(`{{taksit${i}Tutar}}`);
+    }
+  });
+
+  it("7, 8, 9, 10, 11 aylık planlar için de doğru satır sayısı kalır", () => {
+    for (const count of [7, 8, 9, 10, 11]) {
+      const stripped = stripUnusedInstallmentRows(buildTaksitTable(), count);
+      const remainingRows = stripped.match(/<tr>/g)?.length ?? 0;
+      // +1 için thead'daki <tr> satırı.
+      expect(remainingRows).toBe(count + 1);
+    }
+  });
+
+  it("installmentCount=12 → hiçbir şey kaldırılmaz (idempotent, dokunmadan geçer)", () => {
+    const table = buildTaksitTable();
+    expect(stripUnusedInstallmentRows(table, 12)).toBe(table);
+  });
+
+  it("render sonrası boş tarih/'TL' kalıntısı içermez (gerçek uçtan uca kontrol)", () => {
+    const stripped = stripUnusedInstallmentRows(buildTaksitTable(), 3);
+    const fieldValues: Record<string, string> = {};
+    for (let i = 1; i <= 3; i++) {
+      fieldValues[`taksit${i}Tarih`] = "01.09.2026";
+      fieldValues[`taksit${i}Tutar`] = "1.000";
+    }
+    const rendered = renderTemplate(stripped, fieldValues);
+    expect(rendered).not.toMatch(/<td>\s*<\/td>\s*<td>\s*TL<\/td>/);
+    expect((rendered.match(/<tr>/g)?.length ?? 0)).toBe(4); // thead + 3 taksit satırı
   });
 });
 

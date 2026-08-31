@@ -195,7 +195,7 @@ export function applyLessonOpsFlag(
     (m) => m.sourceLessonId === lessonId && m.status !== "cancelled" && m.status !== "expired"
   );
   if (!existingMk) {
-    const quota = assertCanCreateMakeup(data, lesson.studentId, now);
+    const quota = assertCanCreateMakeup(data, lesson.studentId, now, lesson.id);
     if (!quota.ok) return { ok: false, message: quota.message };
     const branch = data.settings.branches.find((b) => b.id === lesson.branchId);
     const req: MakeupRequest = {

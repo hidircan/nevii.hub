@@ -260,6 +260,7 @@ describe("ÖNCELİK 4 (devam) — Paket Yönetimi", () => {
       notes: "",
       packageId: pkgRes.data.packageId,
       lessonDurationMinutes: 30,
+      firstPaymentCollected: { method: "cash", amount: 1000, collectedAt: "2026-08-30" },
     });
     expect(studentRes.ok).toBe(true);
     if (!studentRes.ok) return;
@@ -288,6 +289,7 @@ describe("ÖNCELİK 4 (devam) — sosyal medya izni (mevcut SocialMediaConsent m
       packageName: "Manuel Paket",
       weeklyLessonCount: 1,
       monthlyFee: 1000,
+      firstPaymentCollected: { method: "cash", amount: 1000, collectedAt: "2026-08-30" },
       notes: "",
     });
     expect(studentRes.ok).toBe(true);

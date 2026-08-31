@@ -87,6 +87,7 @@ describe("createStudentTool · Faz 1B — tekil studentType tek-elemanlı diziye
       packageName: "Bireysel Aylık — 4 ders",
       weeklyLessonCount: 1,
       monthlyFee: 3000,
+      firstPaymentCollected: { method: "cash", amount: 3000, collectedAt: "2026-08-30" },
       notes: "",
       studentType: "MEB",
     });

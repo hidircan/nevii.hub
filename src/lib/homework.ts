@@ -269,6 +269,27 @@ export async function getHomework(tenantId: string, id: string): Promise<Homewor
   return found ? toPublicHomework(found) : null;
 }
 
+async function updateHomeworkDueDateDb(tenantId: string, id: string, dueDate: string): Promise<Homework | null> {
+  const { prisma } = await import("./db");
+  const existing = await prisma.homework.findFirst({ where: { id, tenantId } });
+  if (!existing) return null;
+  const row = await prisma.homework.update({ where: { id }, data: { dueDate: new Date(dueDate) } });
+  return toPublicHomework(mapDbHomework(row));
+}
+
+/** FEATURE C — teslim/derecelendirme verisi ve `createdAt` KORUNUR, yalnızca `dueDate` değişir. */
+export async function updateHomeworkDueDate(tenantId: string, id: string, dueDate: string): Promise<Homework | null> {
+  if (isDbMode) return updateHomeworkDueDateDb(tenantId, id, dueDate);
+  const all = await loadHomework();
+  const idx = all.findIndex((h) => h.id === id && h.tenantId === tenantId);
+  if (idx === -1) return null;
+  const updated: StoredHomework = { ...all[idx], dueDate, updatedAt: new Date().toISOString() };
+  const next = [...all];
+  next[idx] = updated;
+  await saveHomework(next);
+  return toPublicHomework(updated);
+}
+
 export type SubmitHomeworkInput = {
   tenantId: string;
   homeworkId: string;

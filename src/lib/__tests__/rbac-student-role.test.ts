@@ -127,6 +127,7 @@ describe("EPIC 6A — RBAC: STUDENT yalnızca kendi verisini okur, hiçbir şey 
       packageName: "Bireysel Aylık — 4 ders",
       weeklyLessonCount: 1,
       monthlyFee: 1000,
+      firstPaymentCollected: { method: "cash", amount: 1000, collectedAt: "2026-08-30" },
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe("FORBIDDEN");

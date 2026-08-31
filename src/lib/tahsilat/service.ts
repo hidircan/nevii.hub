@@ -2,6 +2,7 @@ import { requireRole, type ServiceContext } from "../services/context";
 import { fail, ok, type ServiceResult } from "../services/result";
 import { recordAuditLog } from "../audit/log";
 import { readData } from "../store";
+import { runWithTenantAsync } from "../tenant-context";
 import { getWhatsAppTransport } from "../whatsapp";
 import {
   estimateSmsSegments,
@@ -57,7 +58,14 @@ export async function approveFollowUpCaseTool(
   const message = sanitizeCollectionsMessage(input.message);
   if (!message) return fail("VALIDATION_ERROR", "Onaylanacak mesaj boş olamaz.");
 
-  const data = await readData();
+  // ctx.tenantId may have been overridden by the caller (route katmanı, bkz.
+  // resolveWriteScope — SUPER_ADMIN başka bir kurum seçmiş olabilir) ama
+  // ambient ALS (AsyncLocalStorage) hâlâ withApiHandler'ın kurduğu ORİJİNAL
+  // oturum kurumunu taşır. readData() önce ALS'ye bakar — açıkça
+  // runWithTenantAsync(ctx.tenantId, ...) ile sarmalamazsak, seçili kurum
+  // yerine yanlış kurumun verisi okunur (bkz. payments/[paymentId]/pay
+  // route'undaki aynı desen).
+  const data = await runWithTenantAsync(ctx.tenantId, () => readData());
   const payment = data.payments.find((p) => p.id === input.paymentId);
   if (!payment) return fail("NOT_FOUND", "Ödeme bulunamadı");
   const student = data.students.find((s) => s.id === input.studentId);
@@ -164,7 +172,9 @@ export async function sendFollowUpMessageTool(
   }
   const body = current.approvedMessage;
 
-  const data = await readData();
+  // bkz. approveFollowUpCaseTool'daki aynı yorum — ctx.tenantId (seçili
+  // kurum) ile ambient ALS uyuşmayabilir, açıkça sarmalanır.
+  const data = await runWithTenantAsync(ctx.tenantId, () => readData());
   const student = data.students.find((s) => s.id === current.studentId);
   if (!student) return fail("NOT_FOUND", "Öğrenci bulunamadı");
   if (student.communicationOptOut) {

@@ -15,7 +15,7 @@ export function getWhatsAppConfig() {
     // never fall back to a guessable constant an attacker could pass on `hub.verify_token`.
     verifyToken:
       process.env.WHATSAPP_VERIFY_TOKEN ||
-      (process.env.NODE_ENV === "production" ? "" : "notaplan-wa-verify"),
+      (process.env.NODE_ENV === "production" ? "" : "nevii-hub-wa-verify"),
     // Meta Cloud API
     metaToken: process.env.WHATSAPP_META_TOKEN || process.env.META_WA_TOKEN || "",
     metaPhoneNumberId:

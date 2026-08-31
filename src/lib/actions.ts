@@ -22,6 +22,7 @@ import {
   normalizePortalPresentation,
 } from "./theme";
 import { auditLog } from "./auth/audit";
+import { isFormalContractDuration } from "./contracts";
 import { uid } from "./utils";
 import {
   cancelMakeupLessonTool,
@@ -30,7 +31,18 @@ import {
   updatePaymentTool,
   createStudentTool,
   updateStudentProfileTool,
+  pauseStudentLessonScheduleTool,
+  reactivateStudentLessonScheduleTool,
   provisionStudentPortalAccessTool,
+  inviteStudentPortalAccessTool,
+  inviteTeacherAccountTool,
+  getStudentPortalAccessTool,
+  revokeStudentPortalAccessTool,
+  reactivateStudentPortalAccessTool,
+  sendStudentPortalPasswordResetTool,
+  getTeacherAccountStatusTool,
+  setTeacherAccountActiveTool,
+  sendTeacherPasswordResetTool,
   updateStudentPaymentProfileTool,
   archiveStudentTool,
   listStudentListViewsTool,
@@ -52,6 +64,8 @@ import {
   type LessonScheduleImportCommitResult,
   previewStudentImportTool,
   commitStudentImportTool,
+  previewHistoricalContractImportTool,
+  commitHistoricalContractImportTool,
   createRoomTool,
   createLessonTool,
   suggestLessonSlotsTool,
@@ -86,6 +100,9 @@ import {
   createConsentTextVersionTool,
   grantKvkkConsentTool,
   withdrawKvkkConsentTool,
+  withdrawSocialMediaConsentTool,
+  generateKvkkNoticeDocumentTool,
+  generatePhotoVideoConsentDocumentTool,
   updateConsentSettingsTool,
   createCallLogTool,
   assignCallContactTool,
@@ -151,6 +168,7 @@ import type { BranchImportRow } from "./import/branches";
 import type { TeacherImportRow } from "./import/teachers";
 import type { RoomImportRow } from "./import/rooms";
 import type { StudentImportRow } from "./import/students";
+import type { HistoricalContractImportRow } from "./import/historical-contracts";
 import type { LessonImportRow } from "./import/lessons";
 import type { LessonScheduleImportPreview } from "./import/lesson-schedule";
 import type { ServiceContext } from "./services/context";
@@ -326,100 +344,144 @@ export async function actionSetPortalPresentation(presentation: string): Promise
   revalidatePath("/", "layout");
 }
 
-export async function actionMarkAttendance(formData: FormData) {
+/**
+ * P0 (2026-08-29) — `actionAddStudent`/`actionAddTeacher` ile AYNI YAPISAL
+ * kusur: `assertOk` throw ediyordu, form `useActionState` YOK bir
+ * `<form action={actionMarkAttendance}>` ile bağlıydı. Bu action ÖZELLİKLE
+ * yüksek risk taşıyor — öğretmenler tarafından HER ders için, GÜN İÇİNDE
+ * ONLARCA KEZ tetiklenir (kayıt formlarının aksine, nadir bir admin eylemi
+ * DEĞİL). Herhangi bir `markAttendanceTool` VALIDATION_ERROR'u (ör. dersin
+ * zaten işaretlenmiş olması, geçersiz status) tüm öğretmen portalını
+ * çökertirdi.
+ */
+export type MarkAttendanceFormState = { ok: false; message: string } | null;
+
+export async function actionMarkAttendance(_prevState: MarkAttendanceFormState, formData: FormData): Promise<MarkAttendanceFormState> {
   try {
     await withAuthContext("actionMarkAttendance", async (ctx) => {
-      assertOk(
-        await markAttendanceTool(ctx, {
-          lessonId: String(formData.get("lessonId") || ""),
-          status: String(formData.get("status") || ""),
-          reason: String(formData.get("reason") || "") || undefined,
-        })
-      );
+      const result = await markAttendanceTool(ctx, {
+        lessonId: String(formData.get("lessonId") || ""),
+        status: String(formData.get("status") || ""),
+        reason: String(formData.get("reason") || "") || undefined,
+      });
+      if (!result.ok) {
+        throw new ToolValidationFailure(result.error);
+      }
     });
     revalidateAll();
   } catch (error) {
-    logger.error("actionMarkAttendance failed", error);
     if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
-    throw error;
+    if (error instanceof WriteScopeDeniedError) {
+      return { ok: false, message: error.message };
+    }
+    if (error instanceof ToolValidationFailure) {
+      logger.warn("actionMarkAttendance — doğrulama hatası (kullanıcıya gösterildi)", {
+        code: error.serviceError.code,
+        message: error.serviceError.message,
+      });
+      return { ok: false, message: error.serviceError.message };
+    }
+    logger.error("actionMarkAttendance failed", error);
+    return { ok: false, message: "Yoklama kaydedilirken beklenmeyen bir hata oluştu. Lütfen tekrar deneyin." };
   }
+  return null;
 }
 
-export async function actionGenerateSuggestions(formData: FormData) {
+/** Bu dosyada tekrarlanan basit "hata mesajı YA DA başarı (null)" şekli — bkz. MarkAttendanceFormState ile AYNI. */
+export type SimpleActionFormState = { ok: false; message: string } | null;
+
+/** P0 (2026-08-29) — `actionAddStudent` ile AYNI çökme deseni taşıyordu; AYNI düzeltme uygulandı. */
+export async function actionGenerateSuggestions(_prevState: SimpleActionFormState, formData: FormData): Promise<SimpleActionFormState> {
   try {
     const rawMaxSlots = Number(formData.get("maxSlots"));
     const maxSlots = Number.isFinite(rawMaxSlots) && rawMaxSlots > 0 ? rawMaxSlots : undefined;
     await withAuthContext("actionGenerateSuggestions", async (ctx) => {
-      assertOk(
-        await findAvailableSlotsTool(ctx, {
-          requestId: String(formData.get("requestId") || ""),
-          maxSlots,
-        })
-      );
+      const result = await findAvailableSlotsTool(ctx, {
+        requestId: String(formData.get("requestId") || ""),
+        maxSlots,
+      });
+      if (!result.ok) {
+        throw new ToolValidationFailure(result.error);
+      }
     });
     revalidateAll();
   } catch (error) {
-    logger.error("actionGenerateSuggestions failed", error);
     if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
-    throw error;
+    if (error instanceof WriteScopeDeniedError) return { ok: false, message: error.message };
+    if (error instanceof ToolValidationFailure) {
+      logger.warn("actionGenerateSuggestions — doğrulama hatası (kullanıcıya gösterildi)", {
+        code: error.serviceError.code,
+        message: error.serviceError.message,
+      });
+      return { ok: false, message: error.serviceError.message };
+    }
+    logger.error("actionGenerateSuggestions failed", error);
+    return { ok: false, message: "Uygun saatler aranırken beklenmeyen bir hata oluştu. Lütfen tekrar deneyin." };
   }
+  return null;
 }
 
-export async function actionConfirmSlot(formData: FormData) {
+/** P0 (2026-08-29) — AYNI düzeltme. */
+export async function actionConfirmSlot(_prevState: SimpleActionFormState, formData: FormData): Promise<SimpleActionFormState> {
   try {
     await withAuthContext("actionConfirmSlot", async (ctx) => {
       const slotJson = String(formData.get("slot") || "");
       const slot = JSON.parse(slotJson);
-      assertOk(
-        await confirmMakeupLessonTool(ctx, {
-          requestId: String(formData.get("requestId") || ""),
-          slot,
-          decisionNote: String(formData.get("decisionNote") || ""),
-        })
-      );
+      const result = await confirmMakeupLessonTool(ctx, {
+        requestId: String(formData.get("requestId") || ""),
+        slot,
+        decisionNote: String(formData.get("decisionNote") || ""),
+      });
+      if (!result.ok) {
+        throw new ToolValidationFailure(result.error);
+      }
     });
     revalidateAll();
   } catch (error) {
-    logger.error("actionConfirmSlot failed", error);
     if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
-    throw error;
+    if (error instanceof WriteScopeDeniedError) return { ok: false, message: error.message };
+    if (error instanceof ToolValidationFailure) {
+      logger.warn("actionConfirmSlot — doğrulama hatası (kullanıcıya gösterildi)", {
+        code: error.serviceError.code,
+        message: error.serviceError.message,
+      });
+      return { ok: false, message: error.serviceError.message };
+    }
+    logger.error("actionConfirmSlot failed", error);
+    return { ok: false, message: "Telafi planı onaylanırken beklenmeyen bir hata oluştu. Lütfen tekrar deneyin." };
   }
+  return null;
 }
 
-export async function actionCancelMakeup(formData: FormData) {
+/** P0 (2026-08-29) — AYNI düzeltme. */
+export async function actionCancelMakeup(_prevState: SimpleActionFormState, formData: FormData): Promise<SimpleActionFormState> {
   try {
     await withAuthContext("actionCancelMakeup", async (ctx) => {
-      assertOk(
-        await cancelMakeupLessonTool(ctx, {
-          requestId: String(formData.get("requestId") || ""),
-          decisionNote: String(formData.get("decisionNote") || ""),
-        })
-      );
+      const result = await cancelMakeupLessonTool(ctx, {
+        requestId: String(formData.get("requestId") || ""),
+        decisionNote: String(formData.get("decisionNote") || ""),
+      });
+      if (!result.ok) {
+        throw new ToolValidationFailure(result.error);
+      }
     });
     revalidateAll();
   } catch (error) {
-    logger.error("actionCancelMakeup failed", error);
     if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
-    throw error;
+    if (error instanceof WriteScopeDeniedError) return { ok: false, message: error.message };
+    if (error instanceof ToolValidationFailure) {
+      logger.warn("actionCancelMakeup — doğrulama hatası (kullanıcıya gösterildi)", {
+        code: error.serviceError.code,
+        message: error.serviceError.message,
+      });
+      return { ok: false, message: error.serviceError.message };
+    }
+    logger.error("actionCancelMakeup failed", error);
+    return { ok: false, message: "Telafi iptal edilirken beklenmeyen bir hata oluştu. Lütfen tekrar deneyin." };
   }
+  return null;
 }
 
-export async function actionMarkPaymentPaid(formData: FormData) {
-  try {
-    await withAuthContext("actionMarkPaymentPaid", async (ctx) => {
-      assertOk(
-        await createPaymentTool(ctx, {
-          paymentId: String(formData.get("paymentId") || ""),
-        })
-      );
-    });
-    revalidateAll();
-  } catch (error) {
-    logger.error("actionMarkPaymentPaid failed", error);
-    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
-    throw error;
-  }
-}
 
 export type MarkPaymentPaidDetailedInput = {
   paymentId: string;
@@ -506,11 +568,63 @@ export async function actionResetToCleanTemplate() {
   }
 }
 
-export async function actionAddStudent(formData: FormData) {
+/**
+ * P0-1/P0-2 (2026-08-29, "Invalid input" runtime hatası düzeltmesi) — bu
+ * action ÖNCEDEN düz `<form action={actionAddStudent}>` (useActionState YOK)
+ * ile bağlıydı; `assertOk` doğrulama hatasında `throw new Error(result.error.message)`
+ * atıyordu ve bu THROW, sunucu action'ları için hiçbir hata sınırı olmayan bu
+ * desende doğrudan istemciye "Runtime Error" olarak sızıyordu (kök neden:
+ * enstrüman kataloğu — bkz. validation.ts studentSchema.instrument yorumu —
+ * ile sabit zod enum'unun senkron dışı kalması; ama YAPISAL sorun her
+ * `VALIDATION_ERROR`/beklenmeyen hata için AYNIYDI). Artık `useActionState`
+ * ile çağrılır: normal kullanıcı hataları (eksik/geçersiz alan) ASLA THROW
+ * ETMEZ, bunun yerine `NewStudentFormState` döner — form AÇIK kalır (React
+ * DOM'u yeniden monte etmez), girilmiş değerler (uncontrolled input'lar)
+ * KORUNUR, alan bazlı Türkçe hatalar `fieldErrors`'ta taşınır.
+ */
+export type NewStudentFormState = {
+  ok: false;
+  formError?: string;
+  fieldErrors?: Record<string, string>;
+} | null;
+
+/**
+ * `withAuthContext`'in generic dönüş tipini bozmadan `createStudentTool`
+ * doğrulama hatasını dışarı (catch bloğuna) taşımak için kullanılan iç
+ * işaretleyici — asla kullanıcıya bu sınıf adıyla gösterilmez, yalnızca
+ * `error.details` (zod `.flatten()` çıktısı, VARSA) `fieldErrors`'a çevrilir.
+ */
+/** Yalnızca `actionAddStudent` DEĞİL — AYNI throw-based crash deseni taşıyan `actionAddTeacher` da bunu paylaşır. */
+class ToolValidationFailure extends Error {
+  readonly serviceError: { code: string; message: string; details?: unknown };
+  constructor(serviceError: { code: string; message: string; details?: unknown }) {
+    super(serviceError.message);
+    this.serviceError = serviceError;
+  }
+}
+
+/** zod `.flatten()` → `{field: "ilk Türkçe hata mesajı"}`; alan bilgisi yoksa (business-rule hatası) boş obje döner. */
+function fieldErrorsFromZodFlatten(details: unknown): Record<string, string> {
+  if (!details || typeof details !== "object" || !("fieldErrors" in details)) return {};
+  const raw = (details as { fieldErrors: Record<string, string[] | undefined> }).fieldErrors;
+  const out: Record<string, string> = {};
+  for (const [key, messages] of Object.entries(raw)) {
+    if (messages && messages.length > 0) out[key] = messages[0]!;
+  }
+  return out;
+}
+
+export async function actionAddStudent(_prevState: NewStudentFormState, formData: FormData): Promise<NewStudentFormState> {
+  // Faz 4 — kayıt başarılı olursa admin BOŞ forma değil, öğrenci detayındaki
+  // "Kayıt ve Ödeme Planı / Sözleşmeler" bölümüne yönlendirilir (server action
+  // dönüş değeri BAŞARI durumunda kullanılmaz — yönlendirme TEK geri bildirim
+  // yoludur); HATA durumunda ise dönüş değeri ARTIK doğrudan `useActionState`
+  // ile forma ulaşır (bkz. new-student-form.tsx).
+  let newStudentId: string | undefined;
+  let inviteWarning: string | undefined;
   try {
     await withAuthContext("actionAddStudent", async (ctx) => {
-      const created = assertOk(
-        await createStudentTool(ctx, {
+      const createdResult = await createStudentTool(ctx, {
           name: String(formData.get("name") || ""),
           email: String(formData.get("email") || ""),
           phone: String(formData.get("phone") || ""),
@@ -573,6 +687,23 @@ export async function actionAddStudent(formData: FormData) {
             const raw = String(formData.get("accountResponsibility") || "");
             return raw === "SELF_MANAGED" || raw === "PARENT_MANAGED" ? raw : undefined;
           })(),
+          // Owner policy (2026-08-30) — "İlk Ödeme / Kayıt Anı Tahsilatı": kayıt bu
+          // alanlar olmadan TAMAMLANAMAZ (bkz. createStudentTool gate). Tutar alanı
+          // metin/inputMode="decimal" ile alınır (native number spinner yok).
+          firstPaymentCollected: (() => {
+            const method = String(formData.get("firstPaymentMethod") || "");
+            const amountRaw = String(formData.get("firstPaymentAmount") || "").replace(/[^\d]/g, "");
+            const collectedAt = String(formData.get("firstPaymentDate") || "");
+            if (!method || !amountRaw || !collectedAt) return undefined;
+            return {
+              method: method as "credit_card" | "cash" | "transfer",
+              amount: Number(amountRaw),
+              collectedAt,
+              reference: String(formData.get("firstPaymentReference") || "") || undefined,
+              note: String(formData.get("firstPaymentNote") || "") || undefined,
+            };
+          })(),
+          firstPaymentExceptionReason: String(formData.get("firstPaymentExceptionReason") || "") || undefined,
           // Karma Öğrenci Portalı — bu form (plain <form action=...>, dönüş
           // değeri UI'ya asla ulaşmaz) BİLİNÇLİ OLARAK giriş hesabı AÇMAZ —
           // tempLoginPassword burada üretilse admin'e hiç gösterilemez ve
@@ -580,8 +711,12 @@ export async function actionAddStudent(formData: FormData) {
           // YALNIZCA düzenleme ekranındaki `actionProvisionStudentPortalAccess`
           // (şifreyi bir kez, React state'te gösteren) üzerinden verilir.
           createPortalAccess: false,
-        })
-      );
+        });
+      if (!createdResult.ok) {
+        throw new ToolValidationFailure(createdResult.error);
+      }
+      const created = createdResult.data;
+      newStudentId = created.studentId;
 
       // T.C. kimlik — şifreli saklama, mevcut setNationalIdTool üzerinden
       // (asla düz metin Student.nationalIdCipher dışında bir yere yazılmaz).
@@ -622,13 +757,104 @@ export async function actionAddStudent(formData: FormData) {
           });
         }
       }
+
+      // Faz 1F — kayıt ekranından tek adımda GERÇEK e-posta daveti (düz metin
+      // şifre YOK, mevcut inviteStudentPortalAccessTool — bkz. actionInviteStudentPortalAccess).
+      // İşaretlenmediyse veya e-posta boşsa SESSİZCE atlanır — bu ekranda
+      // giriş hesabı açmak DEFAULT DEĞİL, açıkça tercih edilmelidir.
+      const inviteToPortal = formData.get("inviteToPortal") === "1";
+      const invitePortalEmail = String(formData.get("invitePortalEmail") || "").trim();
+      if (inviteToPortal && invitePortalEmail) {
+        const accessType = formData.get("invitePortalAccessType") === "SELF" ? "SELF" : "GUARDIAN";
+        try {
+          const inviteResult = await inviteStudentPortalAccessTool(ctx, {
+            studentId: created.studentId,
+            email: invitePortalEmail,
+            accessType,
+          });
+          // Hata düzeltmesi (2026-08-31): bu sonuç ÖNCEDEN hiç kontrol
+          // edilmiyordu. inviteStudentPortalAccessTool bir ServiceResult
+          // (ok/fail) döner, BEKLENEN hatalarda throw ETMEZ — bu yüzden
+          // rate-limit / SMTP yapılandırılmamış / gönderim hatası gibi
+          // durumlarda admin hiçbir uyarı görmüyordu, öğrenci "davet
+          // gönderildi" sanıyordu. Artık sonuç `inviteWarning`'e yazılıp
+          // aşağıdaki redirect query'siyle başarı paneline taşınıyor.
+          if (!inviteResult.ok) {
+            inviteWarning = inviteResult.error.message;
+            logger.warn("actionAddStudent — portal daveti reddedildi", {
+              code: inviteResult.error.code,
+              message: inviteResult.error.message,
+            });
+          } else if (!inviteResult.data.delivered) {
+            inviteWarning = inviteResult.data.blocked
+              ? "E-posta sağlayıcısı yapılandırılmamış — davet e-postası gönderilemedi."
+              : "Davet e-postası gönderilemedi (sunucu hatası) — lütfen tekrar deneyin.";
+            logger.warn("actionAddStudent — davet e-postası teslim edilemedi", {
+              blocked: inviteResult.data.blocked,
+            });
+          }
+        } catch (e) {
+          // Öğrenci kaydı zaten oluşturuldu — bu istisna kaydı geri almaz,
+          // yalnızca daveti başarısız sayar ve admin'e görünür kılar.
+          inviteWarning = "Davet e-postası gönderilirken beklenmeyen bir hata oluştu.";
+          logger.warn("actionAddStudent — davet e-postası istisnası", {
+            error: e instanceof Error ? e.message : String(e),
+          });
+        }
+      }
     });
     revalidateAll();
   } catch (error) {
-    logger.error("actionAddStudent failed", error);
     if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
-    throw error;
+    // Diğer tüm action'larla AYNI, kurulu desen (bkz. actionUpdateStudentProfile
+    // vb.) — kurum kapsamı reddi normal, beklenen bir kullanıcı durumudur
+    // (ör. SUPER_ADMIN "Tüm kurumlar" görünümünde), teknik bir hata DEĞİLDİR.
+    if (error instanceof WriteScopeDeniedError) {
+      return { ok: false, formError: error.message };
+    }
+    if (error instanceof ToolValidationFailure) {
+      // P0-2 — normal kullanıcı hatası: form AÇIK kalır, girilen değerler
+      // (uncontrolled input) KORUNUR, alan bazlı Türkçe hata + üstte özet
+      // gösterilir. Geçersiz kayıt/veri HİÇBİR ŞEKİLDE persist edilmedi —
+      // `createStudentTool` doğrulamayı YAZMADAN ÖNCE reddetti.
+      logger.warn("actionAddStudent — doğrulama hatası (kullanıcıya gösterildi)", {
+        code: error.serviceError.code,
+        message: error.serviceError.message,
+      });
+      const fieldErrors = fieldErrorsFromZodFlatten(error.serviceError.details);
+      return {
+        ok: false,
+        formError:
+          error.serviceError.message === "Invalid input"
+            ? "Formda düzeltilmesi gereken alanlar var — aşağıda işaretlendi."
+            : error.serviceError.message,
+        fieldErrors,
+      };
+    }
+    // Beklenmeyen hata — P0-2: bu action'a bağlı `<form>` bir runtime overlay
+    // GÖRMEMELİ; jenerik ama erişilebilir bir Türkçe hata döner, tam hata
+    // sunucu loguna yazılır (bkz. logger.error).
+    logger.error("actionAddStudent failed", error);
+    return { ok: false, formError: "Kayıt oluşturulurken beklenmeyen bir hata oluştu. Lütfen tekrar deneyin." };
   }
+  if (newStudentId) {
+    // Faz 3/4 (ENROLLMENT_PAYMENT_RENEWAL_VALIDATION_FIX) — Student modeline
+    // İŞLENMEZ (yeni bir kolon/migration YOK); yalnızca başarı banner'ının
+    // trial/formal sınıflandırmasını ve sözleşme formunun süre ön-doldurmasını
+    // belirlemek için redirect query'sinde taşınır.
+    const rawDuration = Number(formData.get("intendedDurationMonths") || 3);
+    const intendedDurationMonths = Number.isInteger(rawDuration) && rawDuration >= 1 && rawDuration <= 12 ? rawDuration : 3;
+    // FAZ (2026-2027 SÖZLEŞME KAYNAĞI) — formal kayıt (3-12 ay) doğrudan
+    // Bağımsız Sözleşme Merkezi'ne (bkz. [studentId]/sozlesmeler) yönlendirilir;
+    // tanışma paketi (1-2 ay) öğrenci detayında kalır (formal sözleşme
+    // üretim CTA'sı GÖSTERİLMEZ — bkz. RegistrationSuccessPanel).
+    const destination = isFormalContractDuration(intendedDurationMonths)
+      ? `/panel/ogrenciler/${newStudentId}/sozlesmeler`
+      : `/panel/ogrenciler/${newStudentId}`;
+    const inviteWarningQuery = inviteWarning ? `&davetUyari=${encodeURIComponent(inviteWarning)}` : "";
+    redirect(`${destination}?yeniKayit=1&sure=${intendedDurationMonths}${inviteWarningQuery}`);
+  }
+  return null;
 }
 
 export type UpdateStudentProfileActionResult = { ok: true } | { ok: false; message: string };
@@ -685,6 +911,45 @@ export async function actionUpdateStudentProfile(input: {
   }
 }
 
+export type PauseStudentLessonScheduleActionResult = { ok: true } | { ok: false; message: string };
+
+/** Nilüfer Acar politikası §1E — yetkili personelin, gecikmiş ödeme nedeniyle GEREKÇELİ ve BİLİNÇLİ kararıyla. */
+export async function actionPauseStudentLessonSchedule(input: {
+  studentId: string;
+  reason: string;
+  effectiveDate?: string;
+}): Promise<PauseStudentLessonScheduleActionResult> {
+  try {
+    const result = await withAuthContext("actionPauseStudentLessonSchedule", (ctx) =>
+      pauseStudentLessonScheduleTool(ctx, input)
+    );
+    if (!result.ok) return { ok: false, message: result.error.message };
+    revalidateAll();
+    return { ok: true };
+  } catch (error) {
+    logger.error("actionPauseStudentLessonSchedule failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "Ders programı duraklatılırken beklenmeyen bir hata oluştu." };
+  }
+}
+
+export async function actionReactivateStudentLessonSchedule(input: {
+  studentId: string;
+}): Promise<PauseStudentLessonScheduleActionResult> {
+  try {
+    const result = await withAuthContext("actionReactivateStudentLessonSchedule", (ctx) =>
+      reactivateStudentLessonScheduleTool(ctx, input)
+    );
+    if (!result.ok) return { ok: false, message: result.error.message };
+    revalidateAll();
+    return { ok: true };
+  } catch (error) {
+    logger.error("actionReactivateStudentLessonSchedule failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "Ders programı yeniden etkinleştirilirken beklenmeyen bir hata oluştu." };
+  }
+}
+
 export type ProvisionStudentPortalAccessResult =
   | { ok: true; tempLoginPassword?: string }
   | { ok: false; message: string };
@@ -711,6 +976,149 @@ export async function actionProvisionStudentPortalAccess(input: {
     logger.error("actionProvisionStudentPortalAccess failed", error);
     if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
     return { ok: false, message: "Portal erişimi oluşturulurken beklenmeyen bir hata oluştu." };
+  }
+}
+
+export type SendInvitationActionResult = { ok: true; delivered: boolean; blocked?: boolean } | { ok: false; message: string };
+
+/**
+ * Faz 4 — GERÇEK e-posta davet akışı (`actionProvisionStudentPortalAccess`'in
+ * yanına eklenen ikinci, bağımsız aksiyon — hiçbir şifre admin'e gösterilmez,
+ * kullanıcı linkle kendi şifresini belirler).
+ */
+export async function actionInviteStudentPortalAccess(input: {
+  studentId: string;
+  email: string;
+  accessType: "GUARDIAN" | "SELF";
+}): Promise<SendInvitationActionResult> {
+  try {
+    const result = await withAuthContext("actionInviteStudentPortalAccess", (ctx) =>
+      inviteStudentPortalAccessTool(ctx, input)
+    );
+    if (!result.ok) return { ok: false, message: result.error.message };
+    revalidateAll();
+    return { ok: true, delivered: result.data.delivered, blocked: result.data.blocked };
+  } catch (error) {
+    logger.error("actionInviteStudentPortalAccess failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "Davet gönderilirken beklenmeyen bir hata oluştu." };
+  }
+}
+
+/** Faz 4 — öğretmen için GERÇEK e-posta davet akışı, AYNI desen. */
+export async function actionInviteTeacherAccount(input: { teacherId: string }): Promise<SendInvitationActionResult> {
+  try {
+    const result = await withAuthContext("actionInviteTeacherAccount", (ctx) => inviteTeacherAccountTool(ctx, input));
+    if (!result.ok) return { ok: false, message: result.error.message };
+    revalidateAll();
+    return { ok: true, delivered: result.data.delivered, blocked: result.data.blocked };
+  } catch (error) {
+    logger.error("actionInviteTeacherAccount failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "Davet gönderilirken beklenmeyen bir hata oluştu." };
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Portal erişim yönetimi kartı — öğrenci/öğretmen detay ekranı         */
+/* ------------------------------------------------------------------ */
+
+export type StudentPortalAccessListResult =
+  | { ok: true; accounts: import("./services/tools").StudentPortalAccessSummaryRow[] }
+  | { ok: false; message: string };
+
+export async function actionGetStudentPortalAccess(input: { studentId: string }): Promise<StudentPortalAccessListResult> {
+  try {
+    const result = await withAuthContext("actionGetStudentPortalAccess", (ctx) => getStudentPortalAccessTool(ctx, input));
+    if (!result.ok) return { ok: false, message: result.error.message };
+    return { ok: true, accounts: result.data.accounts };
+  } catch (error) {
+    logger.error("actionGetStudentPortalAccess failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "Portal erişim durumu okunurken beklenmeyen bir hata oluştu." };
+  }
+}
+
+export type PortalAccessActionResult = { ok: true } | { ok: false; message: string };
+
+export async function actionRevokeStudentPortalAccess(input: { studentId: string; userId: string }): Promise<PortalAccessActionResult> {
+  try {
+    const result = await withAuthContext("actionRevokeStudentPortalAccess", (ctx) => revokeStudentPortalAccessTool(ctx, input));
+    if (!result.ok) return { ok: false, message: result.error.message };
+    revalidateAll();
+    return { ok: true };
+  } catch (error) {
+    logger.error("actionRevokeStudentPortalAccess failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "Erişim kapatılırken beklenmeyen bir hata oluştu." };
+  }
+}
+
+export async function actionReactivateStudentPortalAccess(input: { studentId: string; userId: string }): Promise<PortalAccessActionResult> {
+  try {
+    const result = await withAuthContext("actionReactivateStudentPortalAccess", (ctx) => reactivateStudentPortalAccessTool(ctx, input));
+    if (!result.ok) return { ok: false, message: result.error.message };
+    revalidateAll();
+    return { ok: true };
+  } catch (error) {
+    logger.error("actionReactivateStudentPortalAccess failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "Erişim yeniden açılırken beklenmeyen bir hata oluştu." };
+  }
+}
+
+export async function actionSendStudentPortalPasswordReset(input: { studentId: string; userId: string }): Promise<SendInvitationActionResult> {
+  try {
+    const result = await withAuthContext("actionSendStudentPortalPasswordReset", (ctx) => sendStudentPortalPasswordResetTool(ctx, input));
+    if (!result.ok) return { ok: false, message: result.error.message };
+    revalidateAll();
+    return { ok: true, delivered: result.data.delivered, blocked: result.data.blocked };
+  } catch (error) {
+    logger.error("actionSendStudentPortalPasswordReset failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "Şifre sıfırlama bağlantısı gönderilirken beklenmeyen bir hata oluştu." };
+  }
+}
+
+export type TeacherAccountStatusResult =
+  | { ok: true; status: import("./services/tools").TeacherAccountStatusSummary }
+  | { ok: false; message: string };
+
+export async function actionGetTeacherAccountStatus(input: { teacherId: string }): Promise<TeacherAccountStatusResult> {
+  try {
+    const result = await withAuthContext("actionGetTeacherAccountStatus", (ctx) => getTeacherAccountStatusTool(ctx, input));
+    if (!result.ok) return { ok: false, message: result.error.message };
+    return { ok: true, status: result.data };
+  } catch (error) {
+    logger.error("actionGetTeacherAccountStatus failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "Portal erişim durumu okunurken beklenmeyen bir hata oluştu." };
+  }
+}
+
+export async function actionSetTeacherAccountActive(input: { teacherId: string; active: boolean }): Promise<PortalAccessActionResult> {
+  try {
+    const result = await withAuthContext("actionSetTeacherAccountActive", (ctx) => setTeacherAccountActiveTool(ctx, input));
+    if (!result.ok) return { ok: false, message: result.error.message };
+    revalidateAll();
+    return { ok: true };
+  } catch (error) {
+    logger.error("actionSetTeacherAccountActive failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "Erişim durumu güncellenirken beklenmeyen bir hata oluştu." };
+  }
+}
+
+export async function actionSendTeacherPasswordReset(input: { teacherId: string }): Promise<SendInvitationActionResult> {
+  try {
+    const result = await withAuthContext("actionSendTeacherPasswordReset", (ctx) => sendTeacherPasswordResetTool(ctx, input));
+    if (!result.ok) return { ok: false, message: result.error.message };
+    revalidateAll();
+    return { ok: true, delivered: result.data.delivered, blocked: result.data.blocked };
+  } catch (error) {
+    logger.error("actionSendTeacherPasswordReset failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "Şifre sıfırlama bağlantısı gönderilirken beklenmeyen bir hata oluştu." };
   }
 }
 
@@ -1331,7 +1739,21 @@ export async function actionMarkNotificationRead(
   }
 }
 
-export async function actionAddTeacher(formData: FormData) {
+/**
+ * P0 (2026-08-29) — `actionAddStudent` ile AYNI YAPISAL kusuru taşıyordu:
+ * `assertOk` doğrulama hatasında throw ediyordu, form `useActionState` YOK
+ * bir `<form action={actionAddTeacher}>` ile bağlıydı — herhangi bir
+ * `createTeacherTool` VALIDATION_ERROR'u (ör. bu oturumda eklenen "Geçersiz
+ * veya pasif enstrüman" kontrolü) doğrudan istemciye Runtime Error olarak
+ * sızardı. `actionAddStudent` ile AYNI düzeltme uygulandı.
+ */
+export type NewTeacherFormState =
+  | { ok: false; formError?: string; fieldErrors?: Record<string, string> }
+  | { ok: true; inviteWarning: string }
+  | null;
+
+export async function actionAddTeacher(_prevState: NewTeacherFormState, formData: FormData): Promise<NewTeacherFormState> {
+  let inviteWarning: string | undefined;
   try {
     await withAuthContext("actionAddTeacher", async (ctx) => {
       // ÖNCELİK 4 (devam) — çoklu enstrüman+seviye, "TeacherInstrumentsField"
@@ -1360,39 +1782,41 @@ export async function actionAddTeacher(formData: FormData) {
           // geçersiz JSON — varsayılan müsaitliğe düş
         }
       }
-      const created = assertOk(
-        await createTeacherTool(ctx, {
-          name: String(formData.get("name") || ""),
-          email: String(formData.get("email") || ""),
-          phone: String(formData.get("phone") || ""),
-          branchId: String(formData.get("branchId") || ""),
-          instrument: String(formData.get("instrument") || "Piyano"),
-          instrumentLevels,
-          availability,
-          highSchool: String(formData.get("highSchool") || "") || undefined,
-          university: String(formData.get("university") || "") || undefined,
-          graduationYear: (() => {
-            const raw = String(formData.get("graduationYear") || "");
-            return raw ? Number(raw) : undefined;
-          })(),
-          birthDate: String(formData.get("birthDate") || "") || undefined,
-          address: String(formData.get("address") || "") || undefined,
-          contractStartDate: String(formData.get("contractStartDate") || "") || undefined,
-          contractEndDate: String(formData.get("contractEndDate") || "") || undefined,
-          employmentType: (() => {
-            const raw = String(formData.get("employmentType") || "");
-            return raw === "tam_zamanli" || raw === "yari_zamanli" || raw === "serbest" ? raw : undefined;
-          })(),
-          hireDate: String(formData.get("hireDate") || "") || undefined,
-          emergencyContactName: String(formData.get("emergencyContactName") || "") || undefined,
-          emergencyContactPhone: String(formData.get("emergencyContactPhone") || "") || undefined,
-          weeklyHoursThreshold: (() => {
-            const raw = String(formData.get("weeklyHoursThreshold") || "");
-            return raw ? Number(raw) : undefined;
-          })(),
-          personnelNotes: String(formData.get("personnelNotes") || "") || undefined,
-        })
-      );
+      const createdResult = await createTeacherTool(ctx, {
+        name: String(formData.get("name") || ""),
+        email: String(formData.get("email") || ""),
+        phone: String(formData.get("phone") || ""),
+        branchId: String(formData.get("branchId") || ""),
+        instrument: String(formData.get("instrument") || "Piyano"),
+        instrumentLevels,
+        availability,
+        highSchool: String(formData.get("highSchool") || "") || undefined,
+        university: String(formData.get("university") || "") || undefined,
+        graduationYear: (() => {
+          const raw = String(formData.get("graduationYear") || "");
+          return raw ? Number(raw) : undefined;
+        })(),
+        birthDate: String(formData.get("birthDate") || "") || undefined,
+        address: String(formData.get("address") || "") || undefined,
+        contractStartDate: String(formData.get("contractStartDate") || "") || undefined,
+        contractEndDate: String(formData.get("contractEndDate") || "") || undefined,
+        employmentType: (() => {
+          const raw = String(formData.get("employmentType") || "");
+          return raw === "tam_zamanli" || raw === "yari_zamanli" || raw === "serbest" ? raw : undefined;
+        })(),
+        hireDate: String(formData.get("hireDate") || "") || undefined,
+        emergencyContactName: String(formData.get("emergencyContactName") || "") || undefined,
+        emergencyContactPhone: String(formData.get("emergencyContactPhone") || "") || undefined,
+        weeklyHoursThreshold: (() => {
+          const raw = String(formData.get("weeklyHoursThreshold") || "");
+          return raw ? Number(raw) : undefined;
+        })(),
+        personnelNotes: String(formData.get("personnelNotes") || "") || undefined,
+      });
+      if (!createdResult.ok) {
+        throw new ToolValidationFailure(createdResult.error);
+      }
+      const created = createdResult.data;
 
       // T.C. kimlik — şifreli saklama, mevcut setNationalIdTool üzerinden
       // (öğrenci create formuyla aynı desen — asla düz metin bir yere yazılmaz).
@@ -1400,13 +1824,57 @@ export async function actionAddTeacher(formData: FormData) {
       if (nationalId) {
         await setNationalIdTool(ctx, { entity: "teacher", entityId: created.teacherId, nationalId });
       }
+
+      // Portal erişim yönetimi görevi — `actionAddStudent`'taki AYNI desen:
+      // işaretlenmediyse SESSİZCE atlanır (bu ekranda giriş hesabı açmak
+      // DEFAULT DEĞİL). Davet gönderimi BAŞARISIZ olursa öğretmen kaydı
+      // BAŞARISIZ SAYILMAZ — yalnızca bir uyarı olarak taşınır.
+      const inviteToPortal = formData.get("inviteToPortal") === "1";
+      if (inviteToPortal) {
+        try {
+          const inviteResult = await inviteTeacherAccountTool(ctx, { teacherId: created.teacherId });
+          if (!inviteResult.ok) {
+            inviteWarning = inviteResult.error.message;
+            logger.warn("actionAddTeacher — portal daveti reddedildi", {
+              code: inviteResult.error.code,
+              message: inviteResult.error.message,
+            });
+          } else if (!inviteResult.data.delivered) {
+            inviteWarning =
+              "Davet kaydı oluşturuldu ama e-posta gönderilemedi (e-posta sağlayıcısı yapılandırılmamış olabilir).";
+          }
+        } catch (inviteError) {
+          inviteWarning = "Davet gönderilirken beklenmeyen bir hata oluştu.";
+          logger.error("actionAddTeacher — portal daveti sırasında beklenmeyen hata", inviteError);
+        }
+      }
     });
     revalidateAll();
   } catch (error) {
-    logger.error("actionAddTeacher failed", error);
     if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
-    throw error;
+    if (error instanceof WriteScopeDeniedError) {
+      return { ok: false, formError: error.message };
+    }
+    if (error instanceof ToolValidationFailure) {
+      logger.warn("actionAddTeacher — doğrulama hatası (kullanıcıya gösterildi)", {
+        code: error.serviceError.code,
+        message: error.serviceError.message,
+      });
+      const fieldErrors = fieldErrorsFromZodFlatten(error.serviceError.details);
+      return {
+        ok: false,
+        formError:
+          error.serviceError.message === "Invalid input"
+            ? "Formda düzeltilmesi gereken alanlar var — aşağıda işaretlendi."
+            : error.serviceError.message,
+        fieldErrors,
+      };
+    }
+    logger.error("actionAddTeacher failed", error);
+    return { ok: false, formError: "Öğretmen oluşturulurken beklenmeyen bir hata oluştu. Lütfen tekrar deneyin." };
   }
+  if (inviteWarning) return { ok: true, inviteWarning };
+  return null;
 }
 
 export type UpdateTeacherInstrumentsActionResult = { ok: true } | { ok: false; message: string };
@@ -1610,47 +2078,101 @@ export async function actionUpdateDiscountCampaign(
   }
 }
 
-export async function actionAddBranch(formData: FormData) {
+export type AddBranchFormState = {
+  ok: false;
+  formError?: string;
+  fieldErrors?: Record<string, string>;
+} | null;
+
+/** P0 (2026-08-29) — `actionAddStudent` ile AYNI çökme deseni taşıyordu; AYNI düzeltme uygulandı. */
+export async function actionAddBranch(_prevState: AddBranchFormState, formData: FormData): Promise<AddBranchFormState> {
   try {
     await withAuthContext("actionAddBranch", async (ctx) => {
-      assertOk(
-        await createBranchTool(ctx, {
-          name: String(formData.get("name") || ""),
-          shortName: String(formData.get("shortName") || ""),
-          city: String(formData.get("city") || ""),
-          phone: String(formData.get("phone") || ""),
-          address: String(formData.get("address") || ""),
-        })
-      );
+      const result = await createBranchTool(ctx, {
+        name: String(formData.get("name") || ""),
+        shortName: String(formData.get("shortName") || ""),
+        city: String(formData.get("city") || ""),
+        phone: String(formData.get("phone") || ""),
+        address: String(formData.get("address") || ""),
+      });
+      if (!result.ok) {
+        throw new ToolValidationFailure(result.error);
+      }
     });
     revalidateAll();
   } catch (error) {
-    logger.error("actionAddBranch failed", error);
     if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
-    throw error;
+    if (error instanceof WriteScopeDeniedError) {
+      return { ok: false, formError: error.message };
+    }
+    if (error instanceof ToolValidationFailure) {
+      logger.warn("actionAddBranch — doğrulama hatası (kullanıcıya gösterildi)", {
+        code: error.serviceError.code,
+        message: error.serviceError.message,
+      });
+      const fieldErrors = fieldErrorsFromZodFlatten(error.serviceError.details);
+      return {
+        ok: false,
+        formError:
+          error.serviceError.message === "Invalid input"
+            ? "Formda düzeltilmesi gereken alanlar var — aşağıda işaretlendi."
+            : error.serviceError.message,
+        fieldErrors,
+      };
+    }
+    logger.error("actionAddBranch failed", error);
+    return { ok: false, formError: "Şube oluşturulurken beklenmeyen bir hata oluştu. Lütfen tekrar deneyin." };
   }
+  return null;
 }
 
-export async function actionUpdateBranch(formData: FormData) {
+export type UpdateBranchFormState = {
+  ok: false;
+  formError?: string;
+  fieldErrors?: Record<string, string>;
+} | null;
+
+/** P0 (2026-08-29) — `actionAddBranch` ile AYNI düzeltme. */
+export async function actionUpdateBranch(_prevState: UpdateBranchFormState, formData: FormData): Promise<UpdateBranchFormState> {
   try {
     await withAuthContext("actionUpdateBranch", async (ctx) => {
-      assertOk(
-        await updateBranchTool(ctx, {
-          branchId: String(formData.get("branchId") || ""),
-          name: String(formData.get("name") || ""),
-          shortName: String(formData.get("shortName") || ""),
-          city: String(formData.get("city") || ""),
-          phone: String(formData.get("phone") || ""),
-          address: String(formData.get("address") || ""),
-        })
-      );
+      const result = await updateBranchTool(ctx, {
+        branchId: String(formData.get("branchId") || ""),
+        name: String(formData.get("name") || ""),
+        shortName: String(formData.get("shortName") || ""),
+        city: String(formData.get("city") || ""),
+        phone: String(formData.get("phone") || ""),
+        address: String(formData.get("address") || ""),
+      });
+      if (!result.ok) {
+        throw new ToolValidationFailure(result.error);
+      }
     });
     revalidateAll();
   } catch (error) {
-    logger.error("actionUpdateBranch failed", error);
     if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
-    throw error;
+    if (error instanceof WriteScopeDeniedError) {
+      return { ok: false, formError: error.message };
+    }
+    if (error instanceof ToolValidationFailure) {
+      logger.warn("actionUpdateBranch — doğrulama hatası (kullanıcıya gösterildi)", {
+        code: error.serviceError.code,
+        message: error.serviceError.message,
+      });
+      const fieldErrors = fieldErrorsFromZodFlatten(error.serviceError.details);
+      return {
+        ok: false,
+        formError:
+          error.serviceError.message === "Invalid input"
+            ? "Formda düzeltilmesi gereken alanlar var — aşağıda işaretlendi."
+            : error.serviceError.message,
+        fieldErrors,
+      };
+    }
+    logger.error("actionUpdateBranch failed", error);
+    return { ok: false, formError: "Şube güncellenirken beklenmeyen bir hata oluştu. Lütfen tekrar deneyin." };
   }
+  return null;
 }
 
 export type ImportPreviewActionResult<T> =
@@ -1840,24 +2362,86 @@ export async function actionCommitStudentImport(csvText: string): Promise<Import
   }
 }
 
-export async function actionAddRoom(formData: FormData) {
+export async function actionPreviewHistoricalContractImport(
+  csvText: string
+): Promise<ImportPreviewActionResult<HistoricalContractImportRow>> {
+  try {
+    const result = await withAuthContext("actionPreviewHistoricalContractImport", (ctx) =>
+      previewHistoricalContractImportTool(ctx, { csvText })
+    );
+    if (!result.ok) return { ok: false, message: result.error.message };
+    return { ok: true, preview: result.data };
+  } catch (error) {
+    logger.error("actionPreviewHistoricalContractImport failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    if (error instanceof WriteScopeDeniedError) return { ok: false, message: error.message };
+    return { ok: false, message: "Önizleme sırasında beklenmeyen bir hata oluştu." };
+  }
+}
+
+export async function actionCommitHistoricalContractImport(
+  csvText: string
+): Promise<{ ok: true; result: { created: number; updated: number; skipped: number } } | { ok: false; message: string }> {
+  try {
+    const result = await withAuthContext("actionCommitHistoricalContractImport", (ctx) =>
+      commitHistoricalContractImportTool(ctx, { csvText })
+    );
+    if (!result.ok) return { ok: false, message: result.error.message };
+    revalidateAll();
+    return { ok: true, result: { created: result.data.created, updated: 0, skipped: result.data.skipped } };
+  } catch (error) {
+    logger.error("actionCommitHistoricalContractImport failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    if (error instanceof WriteScopeDeniedError) return { ok: false, message: error.message };
+    return { ok: false, message: "İçe aktarım sırasında beklenmeyen bir hata oluştu." };
+  }
+}
+
+export type AddRoomFormState = {
+  ok: false;
+  formError?: string;
+  fieldErrors?: Record<string, string>;
+} | null;
+
+/** P0 (2026-08-29) — `actionAddStudent` ile AYNI çökme deseni taşıyordu; AYNI düzeltme uygulandı. */
+export async function actionAddRoom(_prevState: AddRoomFormState, formData: FormData): Promise<AddRoomFormState> {
   try {
     await withAuthContext("actionAddRoom", async (ctx) => {
-      assertOk(
-        await createRoomTool(ctx, {
-          name: String(formData.get("name") || ""),
-          branchId: String(formData.get("branchId") || ""),
-          capacity: Number(formData.get("capacity") || 2),
-          instruments: formData.getAll("instruments").map(String),
-        })
-      );
+      const result = await createRoomTool(ctx, {
+        name: String(formData.get("name") || ""),
+        branchId: String(formData.get("branchId") || ""),
+        capacity: Number(formData.get("capacity") || 2),
+        instruments: formData.getAll("instruments").map(String),
+      });
+      if (!result.ok) {
+        throw new ToolValidationFailure(result.error);
+      }
     });
     revalidateAll();
   } catch (error) {
-    logger.error("actionAddRoom failed", error);
     if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
-    throw error;
+    if (error instanceof WriteScopeDeniedError) {
+      return { ok: false, formError: error.message };
+    }
+    if (error instanceof ToolValidationFailure) {
+      logger.warn("actionAddRoom — doğrulama hatası (kullanıcıya gösterildi)", {
+        code: error.serviceError.code,
+        message: error.serviceError.message,
+      });
+      const fieldErrors = fieldErrorsFromZodFlatten(error.serviceError.details);
+      return {
+        ok: false,
+        formError:
+          error.serviceError.message === "Invalid input"
+            ? "Formda düzeltilmesi gereken alanlar var — aşağıda işaretlendi."
+            : error.serviceError.message,
+        fieldErrors,
+      };
+    }
+    logger.error("actionAddRoom failed", error);
+    return { ok: false, formError: "Oda oluşturulurken beklenmeyen bir hata oluştu. Lütfen tekrar deneyin." };
   }
+  return null;
 }
 
 export type LessonActionResult =
@@ -2123,24 +2707,51 @@ export async function actionChangeLessonTeacherOrBranch(input: {
   }
 }
 
-export async function actionAddPayment(formData: FormData) {
+export type AddPaymentFormState = {
+  ok: false;
+  formError?: string;
+  fieldErrors?: Record<string, string>;
+} | null;
+
+/** P0 (2026-08-29) — `actionAddStudent` ile AYNI çökme deseni taşıyordu; AYNI düzeltme uygulandı. */
+export async function actionAddPayment(_prevState: AddPaymentFormState, formData: FormData): Promise<AddPaymentFormState> {
   try {
     await withAuthContext("actionAddPayment", async (ctx) => {
-      assertOk(
-        await createPaymentRecordTool(ctx, {
-          studentId: String(formData.get("studentId") || ""),
-          description: String(formData.get("description") || ""),
-          amount: Number(formData.get("amount") || 0),
-          dueDate: String(formData.get("dueDate") || ""),
-        })
-      );
+      const result = await createPaymentRecordTool(ctx, {
+        studentId: String(formData.get("studentId") || ""),
+        description: String(formData.get("description") || ""),
+        amount: Number(formData.get("amount") || 0),
+        dueDate: String(formData.get("dueDate") || ""),
+      });
+      if (!result.ok) {
+        throw new ToolValidationFailure(result.error);
+      }
     });
     revalidateAll();
   } catch (error) {
-    logger.error("actionAddPayment failed", error);
     if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
-    throw error;
+    if (error instanceof WriteScopeDeniedError) {
+      return { ok: false, formError: error.message };
+    }
+    if (error instanceof ToolValidationFailure) {
+      logger.warn("actionAddPayment — doğrulama hatası (kullanıcıya gösterildi)", {
+        code: error.serviceError.code,
+        message: error.serviceError.message,
+      });
+      const fieldErrors = fieldErrorsFromZodFlatten(error.serviceError.details);
+      return {
+        ok: false,
+        formError:
+          error.serviceError.message === "Invalid input"
+            ? "Formda düzeltilmesi gereken alanlar var — aşağıda işaretlendi."
+            : error.serviceError.message,
+        fieldErrors,
+      };
+    }
+    logger.error("actionAddPayment failed", error);
+    return { ok: false, formError: "Ödeme kaydı oluşturulurken beklenmeyen bir hata oluştu. Lütfen tekrar deneyin." };
   }
+  return null;
 }
 
 export type CreateFeeRuleActionInput = {
@@ -2423,8 +3034,12 @@ async function createTaskFromFormData(formData: FormData): Promise<TaskActionRes
     revalidateAll();
     return { ok: true, data: { taskId: result.data.taskId } };
   } catch (error) {
-    logger.error("actionCreateTask failed", error);
     if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    // P0-2 (2026-08-29) — diğer TÜM action'larla AYNI, kurulu desen; bu
+    // özel durum eksikti, kurum kapsamı reddi jenerik bir mesajın ARKASINA
+    // gizleniyordu.
+    if (error instanceof WriteScopeDeniedError) return { ok: false, message: error.message };
+    logger.error("actionCreateTask failed", error);
     return { ok: false, message: "Görev oluşturulurken beklenmeyen bir hata oluştu." };
   }
 }
@@ -2436,17 +3051,23 @@ export async function actionCreateTask(
   return createTaskFromFormData(formData);
 }
 
+export type CreateTaskFormState = { ok: false; message: string } | null;
+
 /**
- * `<form action={...}>` ile doğrudan kullanım için — Next.js form action'ları
- * `void | Promise<void>` bekler; hata varsa (ör. FORBIDDEN, VALIDATION_ERROR)
- * `logger.error` ile kaydedilip Next'in hata sınırına düşer (mevcut
- * `actionAddStudent` ile aynı davranış deseni), başarılıysa listeye döner.
+ * P0 (2026-08-29) — bu yorum ÖNCEDEN "mevcut actionAddStudent ile aynı
+ * davranış deseni" diyordu (yani throw eder) — bu artık YANLIŞ/ESKİMİŞ bir
+ * referanstı, çünkü `actionAddStudent` P0-1/P0-2'de TAM OLARAK bu throw
+ * deseninden kurtarılmıştı. `actionCreateTaskForm` bu düzeltmeyi HİÇ
+ * ALMAMIŞTI — AYNI çökme riski (görev oluşturma formu, `QuickTaskLink`
+ * aracılığıyla UYGULAMA GENELİNDE onlarca yerden erişilebilir) burada da
+ * mevcuttu. Artık `useActionState` uyumlu: throw ETMEZ, `CreateTaskFormState`
+ * döner; yalnızca BAŞARI durumunda (bağlamsal görevlerde) redirect eder.
  */
-export async function actionCreateTaskForm(formData: FormData): Promise<void> {
+export async function actionCreateTaskForm(_prevState: CreateTaskFormState, formData: FormData): Promise<CreateTaskFormState> {
   const result = await createTaskFromFormData(formData);
   if (!result.ok) {
-    logger.error("actionCreateTaskForm failed", new Error(result.message));
-    throw new Error(result.message);
+    logger.warn("actionCreateTaskForm — doğrulama/iş kuralı hatası (kullanıcıya gösterildi)", { message: result.message });
+    return { ok: false, message: result.message };
   }
   // Bağlamsal (İlişkili kayıt üzerinden açılan) görevlerde doğrudan görev
   // detayına yönlendir — "Görevi görüntüle" davranışı (madde 4 gereksinimi).
@@ -2454,6 +3075,7 @@ export async function actionCreateTaskForm(formData: FormData): Promise<void> {
   if (String(formData.get("relatedEntityType") || "")) {
     redirect(`/panel/is-takip/${result.data.taskId}?created=1`);
   }
+  return null;
 }
 
 export async function actionUpdateTask(input: {
@@ -2832,6 +3454,61 @@ export async function actionWithdrawKvkkConsent(input: {
     if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
     return { ok: false, message: "Rıza geri çekilirken beklenmeyen bir hata oluştu." };
   }
+}
+
+/** 2026-2027 kaynağı Fotoğraf/Video Açık Rıza Formu — "geleceğe etkili" geri çekme, PORTAL-CONTRACT-001. */
+export async function actionWithdrawSocialMediaConsent(input: { studentId: string; reason?: string }): Promise<KvkkActionResult> {
+  try {
+    const result = await withAuthContext("actionWithdrawSocialMediaConsent", (ctx) => withdrawSocialMediaConsentTool(ctx, input));
+    if (!result.ok) return { ok: false, message: result.error.message };
+    revalidateAll();
+    return { ok: true };
+  } catch (error) {
+    logger.error("actionWithdrawSocialMediaConsent failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "İzin geri çekilirken beklenmeyen bir hata oluştu." };
+  }
+}
+
+export type GenerateDocumentActionResult = { ok: false; message: string } | void;
+
+/**
+ * 2026-2027 kaynağı Madde 20 — KVKK Aydınlatma Metni, sözleşmeden AYRI belge
+ * (bkz. docs/contracts/2026_2027_CONTRACT_DOCUMENT_TYPE_MAPPING.md).
+ * Başarılıysa `actionAddStudent` ile AYNI desen: doğrudan yazdırma sayfasına
+ * `redirect()` eder (NEXT_REDIRECT fırlatır) — hata durumunda geriye döner.
+ */
+export async function actionGenerateKvkkNoticeDocument(input: { studentId: string }): Promise<GenerateDocumentActionResult> {
+  let documentId: string;
+  try {
+    const result = await withAuthContext("actionGenerateKvkkNoticeDocument", (ctx) => generateKvkkNoticeDocumentTool(ctx, input));
+    if (!result.ok) return { ok: false, message: result.error.message };
+    documentId = result.data.documentId;
+  } catch (error) {
+    logger.error("actionGenerateKvkkNoticeDocument failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "KVKK Aydınlatma Metni oluşturulurken beklenmeyen bir hata oluştu." };
+  }
+  revalidateAll();
+  redirect(`/evrak-yazdir/${documentId}`);
+}
+
+/** 2026-2027 kaynağı Madde 19 — Fotoğraf/Video Açık Rıza Formu, kaydedilmiş SocialMediaConsent kararının yazılı belgesi. */
+export async function actionGeneratePhotoVideoConsentDocument(input: { studentId: string }): Promise<GenerateDocumentActionResult> {
+  let documentId: string;
+  try {
+    const result = await withAuthContext("actionGeneratePhotoVideoConsentDocument", (ctx) =>
+      generatePhotoVideoConsentDocumentTool(ctx, input)
+    );
+    if (!result.ok) return { ok: false, message: result.error.message };
+    documentId = result.data.documentId;
+  } catch (error) {
+    logger.error("actionGeneratePhotoVideoConsentDocument failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "Fotoğraf/Video Açık Rıza Formu oluşturulurken beklenmeyen bir hata oluştu." };
+  }
+  revalidateAll();
+  redirect(`/evrak-yazdir/${documentId}`);
 }
 
 export type CrmActionResult = { ok: true } | { ok: false; message: string };

@@ -116,6 +116,7 @@ describe("Package C — createStudentTool paket fiyatlandırma", () => {
       ...baseStudentInput,
       packageId,
       lessonDurationMinutes: 40,
+      firstPaymentCollected: { method: "cash", amount: 2500, collectedAt: "2026-08-30" },
     });
     expect(res.ok).toBe(true);
     if (!res.ok) return;
@@ -134,6 +135,7 @@ describe("Package C — createStudentTool paket fiyatlandırma", () => {
       lessonDurationMinutes: 40,
       discountType: "percent",
       discountValue: 20,
+      firstPaymentCollected: { method: "cash", amount: 2000, collectedAt: "2026-08-30" },
     });
     expect(res.ok).toBe(true);
     if (!res.ok) return;
@@ -156,7 +158,11 @@ describe("Package C — createStudentTool paket fiyatlandırma", () => {
   });
 
   it("paketsiz (legacy) akışta serbest monthlyFee aynen kaydedilir", async () => {
-    const res = await createStudentTool(ctx(), { ...baseStudentInput, monthlyFee: 4200 });
+    const res = await createStudentTool(ctx(), {
+      ...baseStudentInput,
+      monthlyFee: 4200,
+      firstPaymentCollected: { method: "cash", amount: 4200, collectedAt: "2026-08-30" },
+    });
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     const data = await readData();
@@ -173,7 +179,12 @@ describe("Package C — createStudentTool paket fiyatlandırma", () => {
   });
 
   it("paymentDueDay 1-31 aralığında kabul edilir", async () => {
-    const res = await createStudentTool(ctx(), { ...baseStudentInput, paymentDueDay: 15, paymentMethod: "cash" });
+    const res = await createStudentTool(ctx(), {
+      ...baseStudentInput,
+      paymentDueDay: 15,
+      paymentMethod: "cash",
+      firstPaymentCollected: { method: "cash", amount: baseStudentInput.monthlyFee, collectedAt: "2026-08-30" },
+    });
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     const data = await readData();
@@ -211,6 +222,7 @@ describe("Package C — createStudentTool paket fiyatlandırma", () => {
       lessonDurationMinutes: 40,
       monthlyFeeOverrideAmount: 1800,
       monthlyFeeOverrideReason: "Kardeş indirimi anlaşması",
+      firstPaymentCollected: { method: "cash", amount: 1800, collectedAt: "2026-08-30" },
     });
     expect(withReason.ok).toBe(true);
     if (!withReason.ok) return;
@@ -224,7 +236,11 @@ describe("Package C — createStudentTool paket fiyatlandırma", () => {
 
 describe("Package C — updateStudentPaymentProfileTool", () => {
   async function createBaseStudent(): Promise<string> {
-    const res = await createStudentTool(ctx(), { ...baseStudentInput, monthlyFee: 3000 });
+    const res = await createStudentTool(ctx(), {
+      ...baseStudentInput,
+      monthlyFee: 3000,
+      firstPaymentCollected: { method: "cash", amount: 3000, collectedAt: "2026-08-30" },
+    });
     expect(res.ok).toBe(true);
     if (!res.ok) throw new Error(res.error.message);
     return res.data.studentId;

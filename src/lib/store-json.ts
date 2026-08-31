@@ -16,6 +16,8 @@ import type {
   Branch,
   CollectionsSettings,
   ConsentSettings,
+  ContractInstallmentSnapshot,
+  ContractInstallmentView,
   FeeRoundingMode,
   Instrument,
   Lesson,
@@ -25,6 +27,7 @@ import type {
   Room,
   Student,
   StudentProfilePatch,
+  StudentPaymentPauseState,
   Teacher,
   TeacherFeeRule,
   TeacherProfilePatch,
@@ -230,6 +233,15 @@ export async function markAttendance(input: {
     const lesson = data.lessons.find((l) => l.id === input.lessonId);
     if (!lesson) throw new Error("Ders bulunamadı");
 
+    // Nilüfer Acar politikası §3.5 — öğrencinin AYNI GÜN kendi iptali telafi
+    // hakkı doğurmamalı. BİLİNÇLİ OLARAK burada UYGULANMADI: `markedAt` (personel
+    // yoklamayı ne zaman işlediği) ile "öğrenci dersten ÖNCE aynı gün iptal etti"
+    // birbirinden AYRI kavramlar — yoklama neredeyse HER ZAMAN dersle aynı gün
+    // işlenir, bu yüzden markedAt/lesson.startAt karşılaştırması normal
+    // devamsızlık akışının TAMAMINI yanlışlıkla hariç bırakır (doğrulandı: bkz.
+    // makeup-quota-concurrency.test.ts regresyonu). Doğru çözüm, personelin
+    // yoklama ekranında "Öğrenci dersten önce aynı gün iptal etti" diye AYRI bir
+    // seçenek işaretlemesi (yeni bir alan/UI) — bu oturumun kapsamı dışında.
     const createsMakeupCredit =
       input.status === "absent" || input.status === "cancelled_by_school";
 
@@ -255,7 +267,7 @@ export async function markAttendance(input: {
 
     if (createsMakeupCredit) {
       const { assertCanCreateMakeup, MakeupQuotaExceededError } = await import("./makeup-quota");
-      const quota = assertCanCreateMakeup({ ...data, makeupRequests }, lesson.studentId);
+      const quota = assertCanCreateMakeup({ ...data, makeupRequests }, lesson.studentId, new Date(), lesson.id);
       if (!quota.ok) throw new MakeupQuotaExceededError(quota.message);
 
       const branch = data.settings.branches.find((b) => b.id === lesson.branchId);
@@ -269,13 +281,14 @@ export async function markAttendance(input: {
         attendanceId: attendance.id,
         status: "pending",
         reason: input.reason || (input.status === "cancelled_by_school" ? "Okul iptali" : "Devamsızlık"),
-        expiresAt: formatISO(addDays(new Date(), data.settings.makeupWindowDays)),
+        // §3.4 — 30 günlük telafi süresi ORİJİNAL kayıp ders tarihinden başlar, admin onay anından DEĞİL.
+        expiresAt: formatISO(addDays(new Date(lesson.startAt), data.settings.makeupWindowDays)),
         suggestedSlots: [],
         createdAt: new Date().toISOString(),
         policyNote:
           input.status === "cancelled_by_school"
             ? `Okul kaynaklı iptal — öncelikli yerleştirme · ${branch?.shortName ?? ""}`
-            : `${data.settings.makeupWindowDays} gün pencere · ${data.settings.monthlyMakeupAllowance ?? 2}/ay hak · aynı öğretmen · ${branch?.shortName ?? ""}`,
+            : `${data.settings.makeupWindowDays} gün pencere · ${data.settings.monthlyMakeupAllowance ?? 2}/dönem hak · aynı öğretmen · ${branch?.shortName ?? ""}`,
       };
       makeupRequests = [...makeupRequests, req];
     }
@@ -395,6 +408,26 @@ export async function updateStudentProfile(
   const data = await readData();
   if (!data.students.some((s) => s.id === studentId)) throw new Error("Öğrenci bulunamadı");
   const students = data.students.map((s) => (s.id === studentId ? { ...s, ...patch } : s));
+  const next = { ...data, students };
+  await writeData(next);
+  return next;
+}
+
+/** Nilüfer Acar politikası §1E — pause/reactivate TEK yol; `state=null` reaktivasyon (alanları temizler). */
+export async function setStudentPaymentPause(studentId: string, state: StudentPaymentPauseState): Promise<AppData> {
+  const data = await readData();
+  if (!data.students.some((s) => s.id === studentId)) throw new Error("Öğrenci bulunamadı");
+  const students = data.students.map((s) =>
+    s.id === studentId
+      ? {
+          ...s,
+          paymentPauseStatus: state ? ("paused" as const) : undefined,
+          paymentPausedAt: state?.pausedAt,
+          paymentPauseReason: state?.reason,
+          paymentPausedBy: state?.pausedBy,
+        }
+      : s
+  );
   const next = { ...data, students };
   await writeData(next);
   return next;
@@ -1014,6 +1047,82 @@ export async function addPayment(input: {
   return next;
 }
 
+/** FEATURE A — bkz. store.ts yorumu. `mutateStoreUnderLock` altında TEK atomik oku-değiştir-yaz. */
+export async function addContractInstallments(input: {
+  contractId: string;
+  studentId: string;
+  installments: ContractInstallmentSnapshot[];
+  firstPaymentCollected?: { method: string; amount: number; collectedAt: string; reference?: string; note?: string };
+  reuseFirstPaymentId?: string;
+}): Promise<{ data: AppData; installments: ContractInstallmentView[] }> {
+  const now = new Date().toISOString();
+  const fp = input.firstPaymentCollected;
+  const reuseId = input.reuseFirstPaymentId;
+  // P0 dedup fix — sequence 1 için reuseFirstPaymentId verilmişse (initial sözleşme, kayıt
+  // sırasında zaten tahsil edilmiş) YENİ bir Payment satırı YARATILMAZ; mevcut
+  // `registration_first_payment` satırı bu sözleşmeye bağlanır. Diğer taksitler her zaman
+  // yeni `pending` satırlar olarak eklenir.
+  const newRows: Payment[] = input.installments
+    .filter((inst) => !(inst.sequence === 1 && reuseId))
+    .map((inst) => {
+      const isFirstCollected = inst.sequence === 1 && !!fp;
+      const noteSuffix = fp?.reference || fp?.note
+        ? ` (${[fp.reference && `ref:${fp.reference}`, fp.note].filter(Boolean).join(" · ")})`
+        : "";
+      return {
+        id: uid("pay"),
+        studentId: input.studentId,
+        amount: inst.amount,
+        paidAmount: isFirstCollected ? fp!.amount : 0,
+        status: isFirstCollected ? "paid" : "pending",
+        dueDate: inst.dueDate,
+        paidAt: isFirstCollected ? fp!.collectedAt : undefined,
+        description: `Sözleşme taksiti ${inst.sequence}/${input.installments.length}${isFirstCollected ? ` — Kayıt anında tahsil edildi${noteSuffix}` : ""}`,
+        method: isFirstCollected ? fp!.method : inst.paymentMethod,
+        source: "contract",
+        contractId: input.contractId,
+        installmentSequence: inst.sequence,
+        createdAt: now,
+      };
+    });
+  let reusedRow: Payment | undefined;
+  const data = await mutateStoreUnderLock(async (d) => {
+    let payments = d.payments;
+    if (reuseId) {
+      const firstInst = input.installments.find((i) => i.sequence === 1);
+      payments = payments.map((p) => {
+        if (p.id !== reuseId) return p;
+        reusedRow = {
+          ...p,
+          amount: firstInst?.amount ?? p.amount,
+          contractId: input.contractId,
+          installmentSequence: 1,
+          description: `Sözleşme taksiti 1/${input.installments.length} — Kayıt anında tahsil edildi (kayıt ödemesi)`,
+        };
+        return reusedRow;
+      });
+    }
+    return { ...d, payments: [...payments, ...newRows] };
+  });
+  const installmentRows = reusedRow ? [reusedRow, ...newRows] : newRows;
+  const installments: ContractInstallmentView[] = installmentRows.map((r) => ({
+    paymentId: r.id,
+    sequence: r.installmentSequence ?? 0,
+    dueDate: r.dueDate,
+    amount: r.amount,
+    paidAmount: r.paidAmount,
+    status: r.status,
+    paymentMethod: r.method,
+  }));
+  return { data, installments };
+}
+
+/** P0 dedup fix (2026-08-30) — bkz. store.ts StoreApi.getRegistrationFirstPayment. */
+export async function getRegistrationFirstPayment(studentId: string): Promise<Payment | null> {
+  const data = await readData();
+  return data.payments.find((p) => p.studentId === studentId && p.source === "registration_first_payment") ?? null;
+}
+
 export function getDashboardStats(data: AppData) {
   const pendingMakeup = data.makeupRequests.filter(
     (m) => m.status === "pending" || m.status === "suggested" || m.status === "awaiting_info"
@@ -1094,6 +1203,54 @@ export async function upsertMonthlyPlanPayment(input: {
   return { data: next, paymentId };
 }
 
+/**
+ * Owner policy (2026-08-30) — kayıt (createStudentTool) TAMAMLANMA anında tahsil edilen
+ * ilk ödeme. `addContractInstallments`'ın `firstPaymentCollected` satırıyla AYNI şekli
+ * paylaşır ama contractId GEREKTİRMEZ (henüz sözleşme yok — kayıt sözleşmeden önce gelir).
+ * İdempotent: aynı öğrenci için `source:"registration_first_payment"` zaten varsa YENİ
+ * satır yaratılmaz, mevcut olan döner (çift gönderim/retry güvenli).
+ */
+export async function addRegistrationFirstPayment(input: {
+  studentId: string;
+  method: string;
+  amount: number;
+  collectedAt: string;
+  reference?: string;
+  note?: string;
+  receivedByUserId: string;
+}): Promise<{ data: AppData; paymentId: string }> {
+  let paymentId = "";
+  const data = await mutateStoreUnderLock(async (d) => {
+    const existing = d.payments.find(
+      (p) => p.studentId === input.studentId && p.source === "registration_first_payment"
+    );
+    if (existing) {
+      paymentId = existing.id;
+      return d;
+    }
+    const noteSuffix = input.reference || input.note
+      ? ` (${[input.reference && `ref:${input.reference}`, input.note].filter(Boolean).join(" · ")})`
+      : "";
+    const payment: Payment = {
+      id: uid("pay"),
+      studentId: input.studentId,
+      amount: input.amount,
+      paidAmount: input.amount,
+      status: "paid",
+      dueDate: input.collectedAt,
+      paidAt: input.collectedAt,
+      description: `İlk Ödeme — Kayıt Anında Tahsil Edildi${noteSuffix}`,
+      method: input.method,
+      source: "registration_first_payment",
+      receivedByUserId: input.receivedByUserId,
+      paymentNote: input.note,
+      createdAt: new Date().toISOString(),
+    };
+    paymentId = payment.id;
+    return { ...d, payments: [...d.payments, payment] };
+  });
+  return { data, paymentId };
+}
 
 async function persistLessonOpsUnderLock(
   lessonId: string,

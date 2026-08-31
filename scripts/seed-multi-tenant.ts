@@ -1,7 +1,7 @@
 /**
  * Gerçek çoklu-kurum (multi-tenant) db-modu demosu için seed betiği.
  *
- * NotaPlan Demo Akademi (mevcut DEFAULT_TENANT_ID) ve NotaPlan Test Kampüs
+ * Nevii Hub Demo Akademi (mevcut DEFAULT_TENANT_ID) ve Nevii Hub Test Kampüs
  * (yeni, tamamen ayrı bir tenant) adında iki izole kurum oluşturur — hiçbir
  * kimlik (branch/teacher/student/room/lesson/…) paylaşılmaz. Ardından
  * `listTenants`/`readData`/`mergeAppData`'yı GERÇEK, canlı veriye karşı
@@ -90,19 +90,19 @@ async function main() {
     throw new Error("Bu betik yalnızca STORE_MODE=db ile çalışır. Örnek: STORE_MODE=db npx tsx scripts/seed-multi-tenant.ts");
   }
 
-  console.log("== 1/3 Kurum A: NotaPlan Demo Akademi (tenant:", DEFAULT_TENANT_ID, ") ==");
+  console.log("== 1/3 Kurum A: Nevii Hub Demo Akademi (tenant:", DEFAULT_TENANT_ID, ") ==");
   const demoAkademi = createSeedData();
   demoAkademi.settings.tenantId = DEFAULT_TENANT_ID;
-  demoAkademi.settings.name = "NotaPlan Demo Akademi";
+  demoAkademi.settings.name = "Nevii Hub Demo Akademi";
   demoAkademi.settings.shortName = "Demo Akademi";
   await seedDatabase(demoAkademi);
   console.log("   ✓ seed edildi:", demoAkademi.students.length, "öğrenci,", demoAkademi.teachers.length, "öğretmen,", demoAkademi.lessons.length, "ders");
 
-  console.log("== 2/3 Kurum B: NotaPlan Test Kampüs (tenant:", TEST_KAMPUS_TENANT_ID, ") ==");
+  console.log("== 2/3 Kurum B: Nevii Hub Test Kampüs (tenant:", TEST_KAMPUS_TENANT_ID, ") ==");
   const testKampusBase = createSeedData();
   const testKampus = remapIds(testKampusBase, "tk_");
   testKampus.settings.tenantId = TEST_KAMPUS_TENANT_ID;
-  testKampus.settings.name = "NotaPlan Test Kampüs";
+  testKampus.settings.name = "Nevii Hub Test Kampüs";
   testKampus.settings.shortName = "Test Kampüs";
   testKampus.settings.city = "Ankara";
   await seedDatabase(testKampus);

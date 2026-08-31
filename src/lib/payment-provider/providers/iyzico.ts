@@ -1,6 +1,6 @@
 /**
  * iyzico Hosted Checkout Form entegrasyonu. Kart/CVV verisi HİÇBİR ZAMAN bu
- * koda veya NotaPlan sunucularına ulaşmaz — yalnızca iyzico'nun barındırdığı
+ * koda veya Nevii Hub sunucularına ulaşmaz — yalnızca iyzico'nun barındırdığı
  * ödeme sayfasının URL'i alınıp kullanıcı oraya yönlendirilir.
  *
  * Bu dosyadaki istek imzalama (IYZWSv2/HMACSHA256) ve webhook doğrulama
