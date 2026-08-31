@@ -13,6 +13,21 @@
 @custom-variant dark (&:where([data-theme="__never__"], [data-theme="__never__"] *));
 
 /**
+ * P0 (2026-08-30, para giriş alanları) — tutar `<input type="number">`
+ * alanlarında tarayıcı üstü/altı ok (spinner) kontrollerini kaldırır.
+ * Klavye ile giriş, min/max/negatif engelleme değişmez; yalnızca görsel
+ * spinner gizlenir. `.no-spinner` class'ı taşıyan number input'lara uygulanır.
+ */
+.no-spinner::-webkit-outer-spin-button,
+.no-spinner::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.no-spinner[type="number"] {
+  -moz-appearance: textfield;
+}
+
+/**
  * Kurumsal tasarım sistemi — token bazlı 7 Tema Profili (bkz.
  * src/lib/theme.ts). Varsayılan "Kurumsal Altın" aşağıdaki `:root`'ta
  * tanımlı; her profil aynı token sözlüğünü (yüzey/metin/vurgu/durum)
@@ -385,7 +400,7 @@ summary,
   }
 }
 
-/* MAESTRON material surface layer — subtle paper grain and disciplined physical depth. */
+/* NEVII HUB material surface layer — subtle paper grain and disciplined physical depth. */
 :root {
   --texture-line: rgb(36 28 20 / 0.035);
   --texture-grain: rgb(80 64 42 / 0.028);

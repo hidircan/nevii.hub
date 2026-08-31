@@ -66,7 +66,9 @@ export default async function StudentHomeworkPage() {
                     <p className="font-medium text-[var(--color-text)] dark:text-slate-50">{hw.title}</p>
                     <p className="mt-1 text-sm text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">{hw.description}</p>
                     <p className="mt-1 text-xs text-[var(--color-text-muted)]">Son teslim: {formatDate(hw.dueDate)}</p>
-                    {hw.fileData ? (
+                    {hw.fileData && hw.fileMimeType?.startsWith("audio/") ? (
+                      <audio controls src={`/api/v1/homework/${hw.id}/file`} className="mt-1 h-8 w-full" />
+                    ) : hw.fileData ? (
                       <a
                         href={`/api/v1/homework/${hw.id}/file`}
                         target="_blank"
@@ -86,7 +88,9 @@ export default async function StudentHomeworkPage() {
                   <div key={s.id} className="mt-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-2 text-xs dark:border-slate-800 dark:bg-slate-900">
                     <p className="text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">Teslim: {formatDateTime(s.submittedAt)}</p>
                     {s.note ? <p className="mt-0.5 text-[var(--color-text-muted)] dark:text-slate-300">{s.note}</p> : null}
-                    {s.fileData ? (
+                    {s.fileData && s.fileMimeType?.startsWith("audio/") ? (
+                      <audio controls src={`/api/v1/homework-submissions/${s.id}/file`} className="mt-1 h-8 w-full" />
+                    ) : s.fileData ? (
                       <a
                         href={`/api/v1/homework-submissions/${s.id}/file`}
                         target="_blank"

@@ -2,8 +2,8 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowRight } from "lucide-react";
 import { BackButton } from "@/components/back-button";
-import { actionAddPayment } from "@/lib/actions";
-import { Button, Card, EmptyState, Input, Label, PageHeader, StatCard } from "@/components/ui";
+import { AddPaymentForm } from "@/components/add-payment-form";
+import { Card, EmptyState, PageHeader, StatCard } from "@/components/ui";
 import { formatMoney } from "@/lib/utils";
 import { computeStudentPaymentSummary, filterPaymentHistory, sortPaymentsForProfile } from "@/lib/payment-profile";
 import { computeStudentMonthlyAmount } from "@/lib/student-payment-profile";
@@ -155,24 +155,11 @@ export default async function StudentPaymentProfilePage({
         <summary className="cursor-pointer text-sm font-medium text-[var(--color-text-muted)] dark:text-slate-300">
           Yeni ödeme kaydı ekle
         </summary>
-        <form action={actionAddPayment} className="mt-4 grid gap-3 sm:grid-cols-3">
-          <input type="hidden" name="studentId" value={student.id} />
-          <div>
-            <Label>Açıklama / dönem</Label>
-            <Input name="description" required placeholder="Örn. Ağustos 2026 — Piyano" />
-          </div>
-          <div>
-            <Label>Tutar (₺)</Label>
-            <Input name="amount" type="number" min={1} defaultValue={monthlyAmount.netAmount ?? student.monthlyFee} required />
-          </div>
-          <div>
-            <Label>Vade tarihi</Label>
-            <Input name="dueDate" type="date" required />
-          </div>
-          <div className="sm:col-span-3">
-            <Button type="submit">Ödeme kaydı ekle</Button>
-          </div>
-        </form>
+        <AddPaymentForm
+          fixedStudentId={student.id}
+          defaultAmount={monthlyAmount.netAmount ?? student.monthlyFee}
+          gridClassName="mt-4 grid gap-3 sm:grid-cols-3"
+        />
       </details>
 
       <h2 className="mb-3 text-lg font-semibold text-[var(--color-text)] dark:text-slate-50">Ödeme geçmişi</h2>

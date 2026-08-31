@@ -244,7 +244,7 @@ function LessonHoverCard({
   return (
     <div
       role="tooltip"
-      className="pointer-events-none absolute left-1/2 top-full z-50 mt-1.5 w-56 -translate-x-1/2 rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)] p-2.5 text-left text-[11px] leading-snug text-[var(--color-text)] opacity-0 shadow-[var(--shadow-md)] transition-opacity delay-150 duration-100 group-hover:opacity-100"
+      className="pointer-events-none absolute left-1/2 top-full z-50 mt-1.5 w-56 -translate-x-1/2 rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)] p-2.5 text-left text-[11px] leading-snug text-[var(--color-text)] opacity-0 shadow-[var(--shadow-md)] transition-opacity delay-150 duration-100 group-hover:opacity-100 group-focus-visible:opacity-100 group-focus-within:opacity-100"
     >
       <p className="font-bold">{name}</p>
       <p className="text-[var(--color-text-muted)]">{dateLabel}</p>
@@ -1797,11 +1797,6 @@ export function ProgramStudio({
                         room={room}
                         branchName={branchNames[lesson.branchId]}
                       />
-                      {tier !== "min" ? (
-                        <div className="mt-0.5 flex flex-wrap items-center gap-0.5">
-                          <Badge status={lesson.type === "makeup" ? "makeup" : lesson.status} />
-                        </div>
-                      ) : null}
                       {tier === "full" &&
                       (lesson.studentAttended || lesson.lessonProcessed || lesson.opsMakeupFlag) ? (
                         <LessonOpsBadges

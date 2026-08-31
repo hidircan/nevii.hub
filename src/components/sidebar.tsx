@@ -1,10 +1,9 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Home, Users, ChevronsLeft, ChevronsRight } from "lucide-react";
+import { ChevronsLeft, ChevronsRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { LogoutButton } from "@/components/logout-button";
 import { BRAND } from "@/lib/brand";
@@ -222,7 +221,6 @@ export function Sidebar({
     });
   }
 
-  const portalLinkClass = cn("flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:opacity-80");
 
   return (
     <aside
@@ -262,14 +260,17 @@ export function Sidebar({
        */}
       <div className="border-b px-3 py-5" style={{ borderColor: "var(--color-border)" }}>
         <div className={cn("flex items-center gap-2.5", collapsed && "justify-center")}>
-          <Image
-            src={BRAND.sidebarLogoPath}
-            alt=""
-            width={collapsed ? 28 : 32}
-            height={collapsed ? 28 : 32}
-            className="shrink-0 rounded-md"
+          {/* ponytail: no approved Nevii Hub logo asset yet — text/monogram fallback (see src/lib/brand.ts). Swap for <Image> once a real mark exists. */}
+          <span
             aria-hidden
-          />
+            className={cn(
+              "flex shrink-0 items-center justify-center rounded-md font-extrabold uppercase text-white",
+              collapsed ? "h-7 w-7 text-xs" : "h-8 w-8 text-sm"
+            )}
+            style={{ background: "var(--color-primary)" }}
+          >
+            NH
+          </span>
           {!collapsed ? (
             <p
               className="truncate text-[1.7rem] font-extrabold uppercase tracking-tight"
@@ -290,26 +291,6 @@ export function Sidebar({
 
       <div className="space-y-3 border-t px-3 py-4" style={{ borderColor: "var(--color-border)" }}>
         <NavSection sectionKey="system" title="Sistem" items={PANEL_SYSTEM_NAV} pathname={pathname} role={role} collapsed={collapsed} />
-        <div className="space-y-0.5 px-0">
-          <Link
-            href="/ogretmen"
-            title={collapsed ? "Öğretmen portalı" : undefined}
-            aria-label="Öğretmen portalı"
-            className={cn(portalLinkClass, collapsed && "justify-center px-2")}
-            style={{ color: "var(--color-text-muted)" }}
-          >
-            <Users className="h-4 w-4 shrink-0" /> {!collapsed ? "Öğretmen portalı" : null}
-          </Link>
-          <Link
-            href="/ogrenci"
-            title={collapsed ? "Öğrenci portalı" : undefined}
-            aria-label="Öğrenci portalı"
-            className={cn(portalLinkClass, collapsed && "justify-center px-2")}
-            style={{ color: "var(--color-text-muted)" }}
-          >
-            <Home className="h-4 w-4 shrink-0" /> {!collapsed ? "Öğrenci portalı" : null}
-          </Link>
-        </div>
         <div className={cn("pt-1", collapsed ? "px-0 text-center" : "px-3")}>
           <LogoutButton className="!text-xs" />
         </div>

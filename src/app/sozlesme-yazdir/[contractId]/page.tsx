@@ -1,0 +1,155 @@
+import Link from "next/link";
+import { redirect } from "next/navigation";
+import type { Metadata } from "next";
+import { requireSessionContext } from "@/lib/auth/session";
+import { getContractHtmlTool } from "@/lib/services";
+import { DocumentPrintActions } from "@/components/document-print-actions";
+
+export const dynamic = "force-dynamic";
+
+/** Faz 6 — sekme başlığı (ve tarayıcının "PDF olarak kaydet" varsayılan dosya adı) jenerik değil, öğrenci/dönem/versiyon içerir. */
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ contractId: string }>;
+}): Promise<Metadata> {
+  const { contractId } = await params;
+  try {
+    const session = await requireSessionContext();
+    const result = await getContractHtmlTool(session, { contractId });
+    if (result.ok) {
+      return { title: result.data.titleMain };
+    }
+  } catch {
+    // oturum yoksa/erişim yoksa jenerik başlığa düşülür — sayfa gövdesi zaten login'e yönlendirir.
+  }
+  return {};
+}
+
+/**
+ * Sözleşme — A4 yazdırma görünümü. `/evrak-yazdir/[documentId]` ile AYNI
+ * desen (panel layout DIŞINDA, kendi kök sayfası) ama admin-only DEĞİL:
+ * erişim `getContractHtmlTool` içindeki `canAccessStudent` ile belirlenir —
+ * staff (öğretmen HARİÇ) veya sözleşmenin sahibi öğrenci/veli görebilir.
+ * Bu sayfa yalnızca GÖRÜNTÜLER/tarayıcı yazdırma diyaloğunu açar — "Yazdırıldı"
+ * durumunu değiştiren asıl işlem (printCount++) admin panelindeki ayrı bir
+ * aksiyon düğmesidir (bkz. src/app/panel/ogrenciler/[studentId]/contracts).
+ */
+export default async function ContractPrintPage({
+  params,
+}: {
+  params: Promise<{ contractId: string }>;
+}) {
+  const { contractId } = await params;
+  let session;
+  try {
+    session = await requireSessionContext();
+  } catch {
+    redirect(`/login?next=/sozlesme-yazdir/${contractId}`);
+  }
+
+  const result = await getContractHtmlTool(session, { contractId });
+  if (!result.ok) {
+    return (
+      <div className="mx-auto max-w-lg px-6 py-20 text-center">
+        <p className="text-lg font-semibold text-[var(--color-text)]">Sözleşme bulunamadı.</p>
+        <p className="mt-2 text-sm text-[var(--color-text-muted)]">
+          Bu sözleşme silinmiş olabilir veya erişim yetkiniz yok.
+        </p>
+        <Link href="/" className="mt-6 inline-block text-sm font-medium text-amber-600 hover:text-amber-700">
+          Ana sayfaya dön
+        </Link>
+      </div>
+    );
+  }
+
+  const isStaff = session.role === "SCHOOL_ADMIN" || session.role === "SUPER_ADMIN";
+  const backHref = isStaff
+    ? `/panel/ogrenciler/${result.data.studentId}`
+    : "/ogrenci/sozlesmelerim";
+
+  return (
+    <div className="min-h-screen bg-[#f4f2f8] px-4 py-8 print:bg-[var(--color-surface)] print:p-0 sm:px-6">
+      <style>{CONTRACT_PRINT_CSS}</style>
+      <div className="mx-auto max-w-2xl">
+        <DocumentPrintActions backHref={backHref} />
+        <p className="mb-3 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800 print:hidden">
+          Sayfa numarası ve tarih bilgisi için yazdırma penceresinde &quot;Üstbilgiler ve altbilgiler&quot;
+          (Headers and footers) seçeneğini açık bırakın — tarayıcı bunu otomatik ekler.
+        </p>
+        <div className="contract-print-surface rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-6 shadow-sm print:rounded-none print:border-0 print:p-0 print:shadow-none sm:p-10">
+          <div className="contract-body">
+            <div dangerouslySetInnerHTML={{ __html: result.data.html }} />
+          </div>
+          <p className="mt-10 text-center text-[11px] text-[var(--color-text-muted)] print:mt-6 print:text-[7pt]">
+            Bu belge sistem tarafından oluşturulmuştur ve tek başına imzalı bir sözleşme yerine geçmez.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * P0 (2026-08-30, profesyonel sözleşme baskı tasarımı) — A4/Times New
+ * Roman/8pt gövde metni, kurumsal kağıt görünümü. Sayfa numarası ("Sayfa
+ * X / Y") CSS Paged Media (`@page { @bottom-center }` / `running()` +
+ * `element()`) hiçbir ana akım tarayıcının (Chrome/Edge/Firefox/Safari)
+ * `window.print()` motorunda DESTEKLENMEZ — bunu güvenilir şekilde
+ * uygulamanın tek yolu sunucu taraflı bir PDF motoru (ör. Puppeteer/headless
+ * Chromium) kurmaktır; bu, ayrı bir altyapı kararı gerektirir (bkz.
+ * docs/contracts/CONTRACT_PRINT_DESIGN_REPORT.md §sayfa numarası). Bu yüzden
+ * burada SAHTE bir sayaç YAZILMADI — bunun yerine tarayıcının kendi native
+ * "Headers and footers" yazdırma seçeneği (Chrome/Edge bunu gerçek "1/3"
+ * biçiminde otomatik ekler) kullanıcıya ekranda (yazdırılmayan) bir ipucuyla
+ * önerilir.
+ */
+const CONTRACT_PRINT_CSS = `
+  .contract-body {
+    font-family: "Times New Roman", Times, "Liberation Serif", serif;
+    font-size: 10.5pt;
+    line-height: 1.5;
+    color: #1a1a1a;
+  }
+  .contract-body h1 { font-size: 15pt; font-weight: 700; margin: 0 0 4pt; }
+  .contract-body h2 { font-size: 12.5pt; font-weight: 700; margin: 10pt 0 4pt; }
+  .contract-body h3 { font-size: 10.5pt; font-weight: 700; margin: 10pt 0 4pt; page-break-after: avoid; }
+  .contract-body p { margin: 0 0 6pt; text-align: justify; orphans: 3; widows: 3; }
+  .contract-body strong { font-weight: 700; }
+  .contract-body em { font-style: italic; }
+  .contract-body table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 8pt 0;
+    page-break-inside: avoid;
+  }
+  .contract-body th,
+  .contract-body td {
+    border: 1pt solid #333;
+    padding: 4pt 6pt;
+    font-size: 10pt;
+    text-align: left;
+    vertical-align: top;
+  }
+  .contract-body thead th {
+    background: #eee;
+    font-weight: 700;
+  }
+  .contract-body tr { page-break-inside: avoid; }
+  /* Taksit/tutar hücreleri sağa hizalı — TL tutarları tutarlı okunur. */
+  .contract-body td:nth-last-child(1):not(:first-child) { text-align: right; }
+
+  @media print {
+    @page { size: A4; margin: 16mm 14mm; }
+    .contract-print-surface { padding: 0; }
+    .contract-body {
+      font-size: 8pt;
+      line-height: 1.35;
+    }
+    .contract-body h1 { font-size: 12pt; }
+    .contract-body h2 { font-size: 10pt; }
+    .contract-body h3 { font-size: 8pt; }
+    .contract-body th,
+    .contract-body td { font-size: 7.5pt; padding: 3pt 4pt; }
+  }
+`;

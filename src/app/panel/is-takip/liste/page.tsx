@@ -9,7 +9,7 @@ import { Badge, Button, Card, EmptyState, Input, Label, PageHeader, Select } fro
 import { StatCard } from "@/components/ui";
 import { getTaskKpiSummaryTool, listTasksTool, getDocumentInstanceTool } from "@/lib/services";
 import { TASK_CATEGORIES, TASK_PRIORITIES, TASK_PRIORITY_LABEL, TASK_STATUSES, type TaskStatus } from "@/lib/types";
-import { actionCreateTaskForm } from "@/lib/actions";
+import { NewTaskForm } from "@/components/new-task-form";
 import { cn, formatDate } from "@/lib/utils";
 import { listAssignableStaff, resolveStaffLabel } from "@/lib/staff-directory";
 import { TaskReminderPreferencesModal } from "@/components/task-reminder-preferences-modal";
@@ -332,93 +332,23 @@ export default async function IsTakipListePage({
               &quot;Tüm kurumlar&quot; görünümündesiniz — yeni görev eklemek için üstteki kurum seçiciden tek bir kurum seçin.
             </p>
           ) : (
-            <form action={actionCreateTaskForm} className="space-y-3">
-              {hasContext ? (
-                <p className="rounded-md bg-[var(--color-bg)] px-3 py-2 text-xs text-[var(--color-text-muted)]">
-                  Bu görev otomatik olarak bağlı kayda bağlanacak.
-                </p>
-              ) : null}
-              <input type="hidden" name="studentId" value={prefillStudentId} />
-              <input type="hidden" name="teacherId" value={prefillTeacherId} />
-              <input type="hidden" name="lessonId" value={prefillLessonId} />
-              <input type="hidden" name="paymentId" value={prefillPaymentId} />
-              <input type="hidden" name="documentId" value={prefillDocumentId} />
-              <input type="hidden" name="relatedEntityType" value={prefillRelatedType} />
-              <input type="hidden" name="relatedEntityId" value={prefillRelatedId} />
-              <input type="hidden" name="relatedEntityLabel" value={prefillRelatedLabel} />
-              <div>
-                <Label>Başlık</Label>
-                <Input
-                  name="title"
-                  required
-                  defaultValue={prefillTitle}
-                  placeholder="Örn. Kayıt formunu güncelle"
-                />
-              </div>
-              <div>
-                <Label>Açıklama (opsiyonel)</Label>
-                <Input name="description" placeholder="Kısa açıklama" />
-              </div>
-              <div>
-                <Label>Kategori</Label>
-                <Select name="category" defaultValue="Kayıt">
-                  {TASK_CATEGORIES.map((c) => (
-                    <option key={c} value={c}>
-                      {c}
-                    </option>
-                  ))}
-                </Select>
-              </div>
-              <div>
-                <Label>Öncelik</Label>
-                <Select name="priority" defaultValue="MEDIUM">
-                  {TASK_PRIORITIES.map((p) => (
-                    <option key={p} value={p}>
-                      {TASK_PRIORITY_LABEL[p]}
-                    </option>
-                  ))}
-                </Select>
-              </div>
-              <div>
-                <Label>Sorumlu (opsiyonel)</Label>
-                <Select name="assigneeId" defaultValue="">
-                  <option value="">Atanmadı</option>
-                  {staff.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.label} {s.role !== "TEACHER" ? "(yönetici)" : ""}
-                    </option>
-                  ))}
-                </Select>
-              </div>
-              <div>
-                <Label>Şube (opsiyonel)</Label>
-                <Select name="branchId" defaultValue={prefillBranchId}>
-                  <option value="">Seçilmedi</option>
-                  {data.settings.branches.map((b) => (
-                    <option key={b.id} value={b.id}>
-                      {b.name}
-                    </option>
-                  ))}
-                </Select>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <Label>Başlangıç (opsiyonel)</Label>
-                  <Input name="startDate" type="date" />
-                </div>
-                <div>
-                  <Label>Son tarih (opsiyonel)</Label>
-                  <Input name="dueDate" type="date" />
-                </div>
-              </div>
-              <div>
-                <Label>Etiketler (virgülle ayır, opsiyonel)</Label>
-                <Input name="tags" placeholder="ör. acil, form" />
-              </div>
-              <Button type="submit" className="w-full">
-                Görev oluştur
-              </Button>
-            </form>
+            <NewTaskForm
+              hasContext={hasContext}
+              prefill={{
+                studentId: prefillStudentId,
+                teacherId: prefillTeacherId,
+                lessonId: prefillLessonId,
+                paymentId: prefillPaymentId,
+                documentId: prefillDocumentId,
+                relatedEntityType: prefillRelatedType,
+                relatedEntityId: prefillRelatedId,
+                relatedEntityLabel: prefillRelatedLabel,
+                title: prefillTitle,
+                branchId: prefillBranchId,
+              }}
+              staff={staff}
+              branches={data.settings.branches.map((b) => ({ id: b.id, name: b.name }))}
+            />
           )}
         </Card>
       </div>

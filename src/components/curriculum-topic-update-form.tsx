@@ -15,15 +15,12 @@ const STATUSES: { value: CurriculumTopicStatus; label: string }[] = [
 export function CurriculumTopicUpdateForm({
   topicId,
   currentStatus,
-  currentProgress,
 }: {
   topicId: string;
   currentStatus: CurriculumTopicStatus;
-  currentProgress: number;
 }) {
   const router = useRouter();
   const [status, setStatus] = useState(currentStatus);
-  const [progressPercent, setProgressPercent] = useState(String(currentProgress));
   const [changeNote, setChangeNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -38,7 +35,6 @@ export function CurriculumTopicUpdateForm({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           status,
-          progressPercent: Number(progressPercent),
           changeNote: changeNote.trim() || undefined,
         }),
       });
@@ -59,27 +55,15 @@ export function CurriculumTopicUpdateForm({
 
   return (
     <form onSubmit={(e) => void onSubmit(e)} className="mt-2 space-y-1.5 border-t border-[var(--color-border)] pt-2">
-      <div className="grid grid-cols-2 gap-2">
-        <div>
-          <Label>Durum</Label>
-          <Select value={status} onChange={(e) => setStatus(e.target.value as CurriculumTopicStatus)}>
-            {STATUSES.map((s) => (
-              <option key={s.value} value={s.value}>
-                {s.label}
-              </option>
-            ))}
-          </Select>
-        </div>
-        <div>
-          <Label>İlerleme %</Label>
-          <Input
-            type="number"
-            min={0}
-            max={100}
-            value={progressPercent}
-            onChange={(e) => setProgressPercent(e.target.value)}
-          />
-        </div>
+      <div>
+        <Label>Durum</Label>
+        <Select value={status} onChange={(e) => setStatus(e.target.value as CurriculumTopicStatus)}>
+          {STATUSES.map((s) => (
+            <option key={s.value} value={s.value}>
+              {s.label}
+            </option>
+          ))}
+        </Select>
       </div>
       <Input
         value={changeNote}

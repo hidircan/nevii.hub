@@ -6,6 +6,7 @@ import { listHomeworkForTeacherTool, listHomeworkSubmissionsTool } from "@/lib/s
 import { Badge, Card, EmptyState } from "@/components/ui";
 import { HomeworkCreateForm } from "@/components/homework-create-form";
 import { HomeworkReviewForm } from "@/components/homework-review-form";
+import { HomeworkDueDateEditForm } from "@/components/homework-due-date-edit-form";
 import { formatDate, formatDateTime } from "@/lib/utils";
 import { ownStudentLessons } from "@/lib/teacher-portal-scope";
 
@@ -99,6 +100,7 @@ export default async function TeacherHomeworkPage() {
                       </p>
                       <p className="mt-1 text-sm text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">{hw.description}</p>
                       <p className="mt-1 text-xs text-[var(--color-text-muted)]">Son teslim: {formatDate(hw.dueDate)}</p>
+                      <HomeworkDueDateEditForm homeworkId={hw.id} currentDueDate={hw.dueDate} />
                     </div>
                     <Badge status={submissions.length > 0 ? "completed" : "pending"}>
                       {submissions.length > 0 ? "Teslim edildi" : "Bekliyor"}
@@ -114,7 +116,9 @@ export default async function TeacherHomeworkPage() {
                         Teslim: {formatDateTime(s.submittedAt)}
                       </p>
                       {s.note ? <p className="mt-0.5 text-[var(--color-text-muted)] dark:text-slate-300">{s.note}</p> : null}
-                      {s.fileData ? (
+                      {s.fileData && s.fileMimeType?.startsWith("audio/") ? (
+                        <audio controls src={`/api/v1/homework-submissions/${s.id}/file`} className="mt-1 h-8 w-full" />
+                      ) : s.fileData ? (
                         <a
                           href={`/api/v1/homework-submissions/${s.id}/file`}
                           target="_blank"

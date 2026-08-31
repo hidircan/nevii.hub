@@ -10,11 +10,14 @@ import {
   actionCommitRoomImport,
   actionPreviewStudentImport,
   actionCommitStudentImport,
+  actionPreviewHistoricalContractImport,
+  actionCommitHistoricalContractImport,
 } from "@/lib/actions";
 import { BRANCH_CSV_COLUMNS, BRANCH_CSV_SAMPLE } from "@/lib/import/branches";
 import { TEACHER_CSV_COLUMNS, TEACHER_CSV_SAMPLE } from "@/lib/import/teachers";
 import { ROOM_CSV_COLUMNS, ROOM_CSV_SAMPLE } from "@/lib/import/rooms";
 import { STUDENT_CSV_COLUMNS, STUDENT_CSV_SAMPLE } from "@/lib/import/students";
+import { HISTORICAL_CONTRACT_CSV_COLUMNS, HISTORICAL_CONTRACT_CSV_SAMPLE } from "@/lib/import/historical-contracts";
 
 export const dynamic = "force-dynamic";
 
@@ -87,6 +90,26 @@ export default function VeriAktarPage() {
         />
 
         <LessonScheduleImportSection />
+
+        <CsvImportSection
+          title="5. Tarihi Sözleşme Aktarımı (toplu, CSV)"
+          description={
+            "Geçmişte (sistem dışında) yapılmış öğrenci kayıt sözleşmelerini TOPLU olarak arşive alın — " +
+            "en az 100 satır tek seferde desteklenir. Kolonlar sözleşme oluşturma ekranındaki alanlarla AYNIDIR. " +
+            "ogrenci_adi ile eşleştirilir; aynı adda birden fazla aktif öğrenci varsa \"Ad Soyad (öğrenci kodu)\" " +
+            "biçimi veya ogrenci_kodu kolonu kullanılır. sozlesme_turu: ilk/yenileme/degisiklik. odeme_yontemi: " +
+            "nakit/havale/kredi_karti. belge_durumu: arsiv_belgesi/imzali_nusha_mevcut/imza_durumu_bilinmiyor. " +
+            "Tüm tarihler yyyy-aa-gg. Bu satırlar YALNIZCA arşiv belgesi olarak eklenir — aktif şablonu ETKİLEMEZ, " +
+            "yeni ödeme/taksit kaydı OLUŞTURMAZ, ıslak imza VARSAYMAZ (belge_durumu ile beyan edilen durum aynen kaydedilir)."
+          }
+          columns={HISTORICAL_CONTRACT_CSV_COLUMNS}
+          sampleCsv={HISTORICAL_CONTRACT_CSV_SAMPLE}
+          sampleFileName="tarihi_sozlesmeler_sablonu.csv"
+          successHref="/panel/evraklar"
+          successLinkLabel="Evraklar Merkezi'nde görüntüle"
+          onPreview={actionPreviewHistoricalContractImport}
+          onCommit={actionCommitHistoricalContractImport}
+        />
       </div>
     </div>
   );

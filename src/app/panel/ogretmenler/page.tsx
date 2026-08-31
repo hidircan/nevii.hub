@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { subDays, format } from "date-fns";
 import { CreditCard, UserPlus, Wallet } from "lucide-react";
 import { Badge, Card, PageHeader } from "@/components/ui";
 import { dayName } from "@/lib/utils";
@@ -7,7 +8,7 @@ import { requireSessionContext } from "@/lib/auth/session";
 import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { AssistantPageContext } from "@/components/ai/assistant-page-context";
-import { computeTeacherPerformanceScore } from "@/lib/insights/teacher-performance";
+import { computeTeacherPerformanceReportV2 } from "@/lib/teacher-performance-v2";
 import { AiInsightTrigger } from "@/components/ai/ai-insight-trigger";
 import { TeacherArchiveAction } from "@/components/teacher-archive-action";
 import { TeacherPerformanceInfo } from "@/components/teacher-performance-info";
@@ -29,6 +30,25 @@ export default async function OgretmenlerPage({
   const data = await readScopedData(kurum.scope);
   const canSeePerformance = session.role === "SUPER_ADMIN" || session.role === "SCHOOL_ADMIN";
   const canManage = session.role === "SCHOOL_ADMIN" || session.role === "SUPER_ADMIN";
+
+  // Liste görünümü artık eski (all-time) computeTeacherPerformanceScore yerine
+  // teacher-performance-v2 kullanır — aynı skor modeli/ağırlıklandırma detay
+  // ekranıyla (/panel/ogretmenler/[teacherId]/performans) birebir tutarlı olsun
+  // diye. Varsayılan dönem son 30 gün (detay ekranıyla aynı varsayılan).
+  // `readScopedData` zaten tüm öğretmenleri tek seferde getirdiği için, burada
+  // N+1 STORE okuması yok — yalnızca teacher başına v2'nin kendi iç
+  // feedback/task/homework sorguları paralel (`Promise.all`) çalışır.
+  const now = new Date();
+  const periodStart = format(subDays(now, 30), "yyyy-MM-dd");
+  const periodEnd = format(now, "yyyy-MM-dd");
+  const performanceEntries = canSeePerformance
+    ? await Promise.all(
+        data.teachers
+          .filter((t) => t.active)
+          .map(async (t) => [t.id, await computeTeacherPerformanceReportV2(data, session.tenantId, t.id, periodStart, periodEnd)] as const)
+      )
+    : [];
+  const performanceById = new Map(performanceEntries);
 
   // ÖNCELİK 4 (devam) — varsayılan yalnız Aktif Öğretmenler; "Arşivlenmiş
   // Öğretmenler" ayrı bir sekme/filtre. Arşiv öğretmenler burada dahi (CSV
@@ -142,26 +162,27 @@ export default async function OgretmenlerPage({
                   </div>
                 </div>
 
-                {canSeePerformance ? (
+                {canSeePerformance && performanceById.get(t.id) ? (
                   <div className="mt-4 border-t border-[var(--color-border)] pt-4">
                     {(() => {
-                      const perf = computeTeacherPerformanceScore(data, t.id);
+                      const perf = performanceById.get(t.id)!;
                       return (
-                        <div className="flex flex-wrap items-start justify-between gap-2">
+                        <Link
+                          href={`/panel/ogretmenler/${t.id}/performans`}
+                          className="flex flex-wrap items-start justify-between gap-2 rounded-lg -m-1 p-1 hover:bg-[var(--color-surface-muted)]"
+                        >
                           <div className="min-w-0 flex-1">
                             <div className="flex flex-wrap items-center gap-1.5">
                               <p className="text-sm text-[var(--color-text-muted)]">
                                 Performans skoru:{" "}
                                 <span className="font-semibold text-[var(--color-text)]">
-                                  {perf.score === null ? "yetersiz veri" : `${perf.score}/100`}
+                                  {perf.score === null ? "Yetersiz veri" : `${perf.score}/100`}
                                 </span>
                               </p>
+                              <Badge status="scheduled">v2</Badge>
                               <TeacherPerformanceInfo />
                             </div>
-                            <p className="mt-0.5 text-xs text-[var(--color-text-muted)]">
-                              {perf.gradedLessonCount} işlenmiş ders · {perf.presentCount} geldi ·{" "}
-                              {perf.schoolCancelledCount} okul iptal
-                            </p>
+                            <p className="mt-0.5 text-xs text-[var(--color-text-muted)]">Son 30 gün · detay için tıklayın</p>
                           </div>
                           <AiInsightTrigger
                             capabilityId="teacherPerformanceScore"
@@ -169,7 +190,7 @@ export default async function OgretmenlerPage({
                             iconOnly
                             payload={{ teacherName: t.name, ...perf }}
                           />
-                        </div>
+                        </Link>
                       );
                     })()}
                   </div>

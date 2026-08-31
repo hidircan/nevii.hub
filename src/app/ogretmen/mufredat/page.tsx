@@ -218,7 +218,6 @@ export default async function OgretmenMufredatPage({
                         <CurriculumTopicUpdateForm
                           topicId={topic.id}
                           currentStatus={topic.status}
-                          currentProgress={topic.progressPercent}
                         />
                       </Card>
                     ))}

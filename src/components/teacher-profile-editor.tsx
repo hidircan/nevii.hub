@@ -10,7 +10,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button, Input, Label, Select } from "@/components/ui";
-import { actionUpdateTeacherProfile, actionSetNationalId } from "@/lib/actions";
+import { actionUpdateTeacherProfile, actionSetNationalId, actionInviteTeacherAccount } from "@/lib/actions";
 
 export type TeacherProfileEditorBranch = { id: string; name: string };
 
@@ -218,6 +218,53 @@ export function TeacherProfileEditor({
       </Button>
       {error ? <p className="text-xs font-medium text-rose-600">{error}</p> : null}
       {saved ? <p className="text-xs font-medium text-emerald-600">Kaydedildi.</p> : null}
+
+      {initial.email ? <TeacherAccountInvite teacherId={teacherId} /> : null}
+    </div>
+  );
+}
+
+/**
+ * Faz 4 — öğretmen hesap daveti. Hiçbir şifre gösterilmez/e-postalanmaz;
+ * öğretmen `/hesap-aktivasyon` linkiyle kendi şifresini belirler
+ * (bkz. `inviteTeacherAccountTool`, `StudentPortalInvite` ile AYNI desen).
+ */
+function TeacherAccountInvite({ teacherId }: { teacherId: string }) {
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<{ delivered: boolean; blocked?: boolean } | null>(null);
+
+  function onInvite() {
+    setError(null);
+    setStatus(null);
+    startTransition(async () => {
+      const result = await actionInviteTeacherAccount({ teacherId });
+      if (!result.ok) {
+        setError(result.message);
+        return;
+      }
+      setStatus({ delivered: result.delivered, blocked: result.blocked });
+    });
+  }
+
+  return (
+    <div className="space-y-2 rounded-lg border border-dashed border-[var(--color-border)] p-3">
+      <p className="text-sm font-medium text-[var(--color-text)]">Öğretmen Portalı erişimi</p>
+      {error ? <p className="text-xs text-red-600">{error}</p> : null}
+      {status ? (
+        status.delivered ? (
+          <p className="rounded border border-emerald-200 bg-emerald-50 p-2 text-xs text-emerald-800">
+            Davet e-postası gönderildi. Öğretmen linke tıklayıp kendi şifresini belirleyene kadar hesap pasif kalır.
+          </p>
+        ) : (
+          <p className="rounded border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800">
+            Davet kaydı oluşturuldu ama e-posta GÖNDERİLEMEDİ — bu ortamda e-posta sağlayıcısı (SMTP) yapılandırılmamış.
+          </p>
+        )
+      ) : null}
+      <Button type="button" onClick={onInvite} disabled={pending} variant="secondary">
+        {pending ? "Gönderiliyor..." : "Giriş daveti gönder"}
+      </Button>
     </div>
   );
 }

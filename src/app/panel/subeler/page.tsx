@@ -1,7 +1,8 @@
-import { actionAddBranch, actionUpdateBranch } from "@/lib/actions";
 import { readData } from "@/lib/store";
-import { Button, Card, Input, Label, PageHeader } from "@/components/ui";
+import { Card, PageHeader } from "@/components/ui";
 import { QuickTaskLink } from "@/components/quick-task-link";
+import { NewBranchForm } from "@/components/new-branch-form";
+import { UpdateBranchForm } from "@/components/update-branch-form";
 
 export const dynamic = "force-dynamic";
 
@@ -68,34 +69,7 @@ export default async function SubelerPage() {
                     <summary className="cursor-pointer text-sm font-medium text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
                       Düzenle
                     </summary>
-                    <form action={actionUpdateBranch} className="mt-3 grid gap-3 sm:grid-cols-2">
-                      <input type="hidden" name="branchId" value={b.id} />
-                      <div>
-                        <Label>Ad</Label>
-                        <Input name="name" defaultValue={b.name} required />
-                      </div>
-                      <div>
-                        <Label>Kısa ad</Label>
-                        <Input name="shortName" defaultValue={b.shortName} required />
-                      </div>
-                      <div>
-                        <Label>Şehir</Label>
-                        <Input name="city" defaultValue={b.city} required />
-                      </div>
-                      <div>
-                        <Label>Telefon</Label>
-                        <Input name="phone" defaultValue={b.phone} required />
-                      </div>
-                      <div className="sm:col-span-2">
-                        <Label>Adres</Label>
-                        <Input name="address" defaultValue={b.address} required />
-                      </div>
-                      <div className="sm:col-span-2">
-                        <Button type="submit" variant="secondary">
-                          Kaydet
-                        </Button>
-                      </div>
-                    </form>
+                    <UpdateBranchForm branch={b} />
                   </details>
                 </Card>
               );
@@ -105,31 +79,7 @@ export default async function SubelerPage() {
 
         <Card>
           <h2 className="mb-4 font-semibold text-[var(--color-text)] dark:text-slate-50">Yeni şube</h2>
-          <form action={actionAddBranch} className="space-y-3">
-            <div>
-              <Label>Ad</Label>
-              <Input name="name" required placeholder="Örn. Bostanlı Şubesi" />
-            </div>
-            <div>
-              <Label>Kısa ad</Label>
-              <Input name="shortName" required placeholder="Örn. Bostanlı" />
-            </div>
-            <div>
-              <Label>Şehir</Label>
-              <Input name="city" required placeholder="Örn. İzmir" />
-            </div>
-            <div>
-              <Label>Telefon</Label>
-              <Input name="phone" required placeholder="05xx xxx xxxx" />
-            </div>
-            <div>
-              <Label>Adres</Label>
-              <Input name="address" required placeholder="Açık adres" />
-            </div>
-            <Button type="submit" className="w-full">
-              Şube ekle
-            </Button>
-          </form>
+          <NewBranchForm />
         </Card>
       </div>
     </div>

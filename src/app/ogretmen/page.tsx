@@ -5,11 +5,10 @@ import { tr } from "date-fns/locale";
 import { readData } from "@/lib/store";
 import { Badge, Card } from "@/components/ui";
 import { formatDate, formatDateTime, formatMoney, formatTime } from "@/lib/utils";
-import { actionMarkAttendance } from "@/lib/actions";
 import { computeTeacherEarningsForPeriod } from "@/lib/teacher-payout";
 import { CalendarDays, Music2, Users, Wallet } from "lucide-react";
 import { requireSessionContext } from "@/lib/auth/session";
-import { TelafiSubmitButton } from "@/components/telafi-submit-button";
+import { AttendanceQuickActionForm } from "@/components/attendance-quick-action-form";
 import { AssistantPageContext } from "@/components/ai/assistant-page-context";
 import { computeLiveDisplayStatus } from "@/lib/lesson-live-status";
 import { LessonLiveActions } from "@/components/lesson-live-actions";
@@ -121,56 +120,44 @@ export default async function OgretmenPortalPage() {
                     {!attendance &&
                     (lesson.status === "scheduled" || lesson.status === "in_progress") ? (
                       <div className="mt-3 flex flex-wrap gap-2">
-                        <form action={actionMarkAttendance}>
-                          <input type="hidden" name="lessonId" value={lesson.id} />
-                          <input type="hidden" name="status" value="present" />
-                          <TelafiSubmitButton
-                            variant="success"
-                            className="!py-1.5 text-xs"
-                            pendingLabel="Kaydediliyor..."
-                          >
-                            Geldi
-                          </TelafiSubmitButton>
-                        </form>
-                        <form action={actionMarkAttendance}>
-                          <input type="hidden" name="lessonId" value={lesson.id} />
-                          <input type="hidden" name="status" value="late" />
-                          <TelafiSubmitButton
-                            variant="secondary"
-                            className="!py-1.5 text-xs"
-                            pendingLabel="Kaydediliyor..."
-                          >
-                            Geç kaldı
-                          </TelafiSubmitButton>
-                        </form>
-                        <form action={actionMarkAttendance}>
-                          <input type="hidden" name="lessonId" value={lesson.id} />
-                          <input type="hidden" name="status" value="absent" />
-                          <input type="hidden" name="reason" value="Öğretmen kaydı — gelmedi" />
-                          <TelafiSubmitButton
-                            variant="danger"
-                            className="!py-1.5 text-xs"
-                            pendingLabel="Kaydediliyor..."
-                          >
-                            Gelmedi
-                          </TelafiSubmitButton>
-                        </form>
-                        <form action={actionMarkAttendance}>
-                          <input type="hidden" name="lessonId" value={lesson.id} />
-                          <input type="hidden" name="status" value="cancelled_by_school" />
-                          <input
-                            type="hidden"
-                            name="reason"
-                            value="Öğretmen kaydı — okul/öğretmen kaynaklı iptal"
-                          />
-                          <TelafiSubmitButton
-                            variant="secondary"
-                            className="!py-1.5 text-xs"
-                            pendingLabel="Kaydediliyor..."
-                          >
-                            Okul iptal
-                          </TelafiSubmitButton>
-                        </form>
+                        <AttendanceQuickActionForm
+                          lessonId={lesson.id}
+                          status="present"
+                          variant="success"
+                          className="!py-1.5 text-xs"
+                          pendingLabel="Kaydediliyor..."
+                        >
+                          Geldi
+                        </AttendanceQuickActionForm>
+                        <AttendanceQuickActionForm
+                          lessonId={lesson.id}
+                          status="late"
+                          variant="secondary"
+                          className="!py-1.5 text-xs"
+                          pendingLabel="Kaydediliyor..."
+                        >
+                          Geç kaldı
+                        </AttendanceQuickActionForm>
+                        <AttendanceQuickActionForm
+                          lessonId={lesson.id}
+                          status="absent"
+                          reason="Öğretmen kaydı — gelmedi"
+                          variant="danger"
+                          className="!py-1.5 text-xs"
+                          pendingLabel="Kaydediliyor..."
+                        >
+                          Gelmedi
+                        </AttendanceQuickActionForm>
+                        <AttendanceQuickActionForm
+                          lessonId={lesson.id}
+                          status="cancelled_by_school"
+                          reason="Öğretmen kaydı — okul/öğretmen kaynaklı iptal"
+                          variant="secondary"
+                          className="!py-1.5 text-xs"
+                          pendingLabel="Kaydediliyor..."
+                        >
+                          Okul iptal
+                        </AttendanceQuickActionForm>
                       </div>
                     ) : null}
                   </Card>

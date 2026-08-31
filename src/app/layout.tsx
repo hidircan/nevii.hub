@@ -68,7 +68,8 @@ export const metadata: Metadata = {
   openGraph: {
     title: `${BRAND.name} — ${BRAND.tagline}`,
     description: BRAND.description,
-    images: [BRAND.ogImagePath],
+    // ponytail: no approved Nevii Hub og-image asset yet — omit rather than
+    // reference the stale Maestron one. Add back once a real asset exists.
   },
 };
 

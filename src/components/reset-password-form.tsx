@@ -1,0 +1,92 @@
+"use client";
+
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { Button, Input, Label } from "@/components/ui";
+
+/**
+ * Portal erişim yönetimi görevi — şifre sıfırlama formu. `accept-invitation-form.tsx`
+ * ile AYNI kalıp (fetch → başarıda /login'e yönlendir). Kod alanı `initialToken`
+ * ile (varsa, e-posta linkinden) önceden doldurulur ama salt-okunur DEĞİLDİR —
+ * kod elle yazılabilir olacak şekilde tasarlandı (bkz. password-reset.ts).
+ */
+export function ResetPasswordForm({ initialToken }: { initialToken: string }) {
+  const router = useRouter();
+  const [code, setCode] = useState(initialToken);
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
+
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    if (!code.trim()) {
+      setError("Lütfen e-postanızdaki kodu girin.");
+      return;
+    }
+    if (newPassword.length < 8) {
+      setError("Şifre en az 8 karakter olmalı.");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setError("Şifreler eşleşmiyor.");
+      return;
+    }
+    setPending(true);
+    try {
+      const res = await fetch("/api/v1/auth/reset-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: code.trim(), newPassword }),
+      });
+      const json = (await res.json()) as { ok: boolean; error?: { message: string } };
+      if (!json.ok) {
+        setError(json.error?.message || "Kod geçersiz veya süresi dolmuş.");
+        return;
+      }
+      setDone(true);
+      setTimeout(() => router.push("/login"), 1500);
+    } catch {
+      setError("Bağlantı hatası. Lütfen tekrar deneyin.");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  if (done) {
+    return (
+      <p className="text-sm font-medium text-emerald-700 dark:text-emerald-400">
+        Şifreniz güncellendi. Giriş sayfasına yönlendiriliyorsunuz…
+      </p>
+    );
+  }
+
+  return (
+    <form onSubmit={onSubmit} className="space-y-4">
+      <div>
+        <Label>E-postanızdaki kod</Label>
+        <Input
+          value={code}
+          onChange={(e) => setCode(e.target.value)}
+          placeholder="Örn. AB3XQ9K2"
+          autoCapitalize="characters"
+          required
+        />
+      </div>
+      <div>
+        <Label>Yeni şifre</Label>
+        <Input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} minLength={8} required />
+      </div>
+      <div>
+        <Label>Yeni şifre (tekrar)</Label>
+        <Input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} minLength={8} required />
+      </div>
+      {error ? <p className="text-xs font-medium text-rose-600">{error}</p> : null}
+      <Button type="submit" disabled={pending} className="w-full">
+        {pending ? "İşleniyor…" : "Şifremi Güncelle"}
+      </Button>
+    </form>
+  );
+}

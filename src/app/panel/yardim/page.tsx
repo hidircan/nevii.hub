@@ -69,7 +69,7 @@ export default async function YardimMerkeziPage() {
     <div className="mx-auto max-w-3xl">
       <PageHeader
         title="Yardım Merkezi"
-        description="Maestron / NotaPlan paneli için kısa kullanım rehberi. Yalnızca mevcut özellikler anlatılır."
+        description="Nevii Hub paneli için kısa kullanım rehberi. Yalnızca mevcut özellikler anlatılır."
       />
 
       <nav aria-label="Yardım içinde gezin" className="mb-6 flex flex-wrap gap-2">

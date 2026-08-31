@@ -8,7 +8,8 @@
  *
  * The launcher ALWAYS opens the small draggable popup, on every route
  * (including `/panel/*`) — it never redirects to the full-screen
- * "Maestron AI" panel (`/panel/maestron-ai`). The full-screen panel is a
+ * "Nevii Hub AI" panel (`/panel/maestron-ai` — route slug unchanged, see
+ * BRAND_MIGRATION_INVENTORY.md). The full-screen panel is a
  * SEPARATE, additional access point (reached via the popup's own
  * "Tam ekranda aç" button, `AssistantChatBody`'s `expandHref`), not a
  * replacement for the popup — both must stay independently reachable at
@@ -212,7 +213,7 @@ export function GlobalAssistant() {
       <button
         type="button"
         onClick={toggle}
-        aria-label="Maestron AI'yi aç"
+        aria-label="Nevii Hub AI'yi aç"
         className={cn(
           "print:hidden fixed bottom-5 right-5 z-40 flex h-13 w-13 items-center justify-center rounded-full",
           "bg-gradient-to-br from-violet-500 to-fuchsia-500 text-white shadow-lg shadow-violet-600/40",
@@ -242,7 +243,7 @@ export function GlobalAssistant() {
             half-faded "bleed-through" frame. */}
         <div
           role="dialog"
-          aria-label="Maestron AI"
+          aria-label="Nevii Hub AI"
           aria-hidden={!isOpen}
           className={cn(
             "flex h-full w-full origin-bottom-right flex-col overflow-hidden rounded-3xl border border-[var(--color-border)] bg-[var(--color-surface)] shadow-2xl shadow-slate-900/10",
@@ -259,7 +260,7 @@ export function GlobalAssistant() {
           >
             {renderEntityIcon(entity)}
             <p className="min-w-0 flex-1 select-none truncate text-xs font-medium opacity-95">
-              {entity ? `Maestron AI · ${entity.label}` : "Maestron AI"}
+              {entity ? `Nevii Hub AI · ${entity.label}` : "Nevii Hub AI"}
             </p>
             <button type="button" onClick={close} aria-label="Kapat" className="rounded-lg p-1 hover:bg-[var(--color-surface)]/15">
               <X className="h-4 w-4" />

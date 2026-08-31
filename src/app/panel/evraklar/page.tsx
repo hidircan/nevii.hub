@@ -6,6 +6,7 @@ import { Card, EmptyState, PageHeader } from "@/components/ui";
 import { DocumentCreateForm } from "@/components/document-create-form";
 import { DocumentsTable, type DocumentRow } from "@/components/documents-table";
 import { DocumentTemplateManager } from "@/components/document-template-manager";
+import { ContractTemplateDiagnosticsPanel } from "@/components/contract-template-diagnostics";
 import { DocumentDirectUploadForm } from "@/components/document-direct-upload-form";
 import { readData } from "@/lib/store";
 
@@ -73,6 +74,33 @@ export default async function DocumentsCenterPage({
         <DocumentDirectUploadForm students={students} teachers={teachers} />
       </Card>
 
+      <Card className="mb-6">
+        <p className="mb-3 text-xs font-medium uppercase tracking-wide text-[var(--color-primary)]">
+          Sözleşme Şablonları
+        </p>
+        <p className="mb-3 text-xs text-[var(--color-text-muted)]">
+          Yalnızca öğrenci kayıt sözleşmesi şablonları — formal sözleşme PDF&apos;i her zaman aşağıdaki AKTİF
+          şablondan üretilir. Şablonu güncellemek yeni bir versiyon oluşturur; halihazırda üretilmiş sözleşmeler
+          KENDİ şablon sürümlerini (immutable snapshot) korur, geriye dönük ETKİLENMEZ.
+        </p>
+        <ContractTemplateDiagnosticsPanel />
+        <DocumentTemplateManager
+          lockKind="student_enrollment_contract"
+          templates={allTemplates
+            .filter((t) => t.kind === "student_enrollment_contract")
+            .map((t) => ({
+              id: t.id,
+              name: t.name,
+              kind: t.kind,
+              active: t.active,
+              version: t.version,
+              updatedAt: t.updatedAt,
+              bodyHtml: t.bodyHtml,
+              hasSourceFile: !!t.sourceFileData,
+            }))}
+        />
+      </Card>
+
       {SHOW_TEMPLATE_SECTIONS ? (
         <>
           <Card className="mb-6">
@@ -102,6 +130,8 @@ export default async function DocumentsCenterPage({
                 active: t.active,
                 version: t.version,
                 updatedAt: t.updatedAt,
+                bodyHtml: t.bodyHtml,
+                hasSourceFile: !!t.sourceFileData,
               }))}
             />
           </Card>

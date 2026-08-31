@@ -1,13 +1,20 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { useActionState } from "react";
 import { TelafiSubmitButton } from "@/components/telafi-submit-button";
+import type { SimpleActionFormState } from "@/lib/actions";
 
 /**
  * EPIC 10 — onay/iptal/ret kararında karar notu ZORUNLU. Ayrı bir modal
  * yerine bilinçli olarak inline bir form kullanılıyor (kapsam/zaman kararı) —
  * fonksiyonel gereksinim (`required` textarea, boş gönderilemez) aynı,
  * yalnızca sunum daha basit.
+ *
+ * P0 (2026-08-29) — `action` ÖNCEDEN throw eden, `useActionState` YOK bir
+ * server action'du (`actionConfirmSlot`/`actionCancelMakeup` — bkz.
+ * actions.ts yorumu). Artık `useActionState` ile bağlanır, hata mesajı
+ * form altında gösterilir, THROW ETMEZ.
  */
 export function MakeupDecisionForm({
   action,
@@ -18,7 +25,7 @@ export function MakeupDecisionForm({
   placeholder,
   children,
 }: {
-  action: (formData: FormData) => void;
+  action: (prevState: SimpleActionFormState, formData: FormData) => Promise<SimpleActionFormState>;
   hiddenFields: Record<string, string>;
   pendingLabel: string;
   variant?: "primary" | "secondary" | "ghost" | "danger" | "success";
@@ -26,8 +33,9 @@ export function MakeupDecisionForm({
   placeholder?: string;
   children: ReactNode;
 }) {
+  const [state, formAction] = useActionState<SimpleActionFormState, FormData>(action, null);
   return (
-    <form action={action} className="flex flex-col gap-1.5">
+    <form action={formAction} className="flex flex-col gap-1.5">
       {Object.entries(hiddenFields).map(([name, value]) => (
         <input key={name} type="hidden" name={name} value={value} />
       ))}
@@ -42,6 +50,11 @@ export function MakeupDecisionForm({
       <TelafiSubmitButton pendingLabel={pendingLabel} variant={variant} disabled={disabled}>
         {children}
       </TelafiSubmitButton>
+      {state?.ok === false ? (
+        <p role="alert" className="text-xs font-medium text-rose-600">
+          {state.message}
+        </p>
+      ) : null}
     </form>
   );
 }

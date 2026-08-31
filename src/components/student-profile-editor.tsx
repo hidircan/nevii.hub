@@ -3,7 +3,12 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button, Input, Label, Select } from "@/components/ui";
-import { actionProvisionStudentPortalAccess, actionSetNationalId, actionUpdateStudentProfile } from "@/lib/actions";
+import {
+  actionProvisionStudentPortalAccess,
+  actionInviteStudentPortalAccess,
+  actionSetNationalId,
+  actionUpdateStudentProfile,
+} from "@/lib/actions";
 import { EDUCATION_METHODS, STUDENT_TYPES } from "@/lib/types";
 import type { StudentType } from "@/lib/types";
 
@@ -378,25 +383,39 @@ export function StudentProfileEditor({
 /**
  * Karma Öğrenci Portalı — "Portal erişimi oluştur / davet gönder"; kayıt
  * oluşturma anındaki checkbox'tan bağımsız, sonradan tetiklenebilen İKİNCİ
- * bilinçli admin aksiyonu (task #34). Ayrı bir "daveti kabul et" ekranı
- * BİLİNÇLİ OLARAK yok — geçici şifre burada TEK SEFERLİK gösterilir,
- * admin'in elden/WhatsApp ile iletmesi beklenir.
+ * bilinçli admin aksiyonu (task #34). Faz 4 — iki mod: "E-posta ile davet"
+ * (varsayılan, önerilen — hiçbir şifre admin'e/e-postaya açık gösterilmez,
+ * kullanıcı `/hesap-aktivasyon` linkiyle KENDİ şifresini belirler) veya
+ * "Anında erişim" (eski davranış — geçici şifre TEK SEFERLİK gösterilir,
+ * admin elden/WhatsApp ile iletir; SMTP yapılandırılmamış ortamlarda yedek).
  */
 function StudentPortalInvite({ studentId, defaultEmail }: { studentId: string; defaultEmail: string }) {
   const [email, setEmail] = useState(defaultEmail);
   const [accessType, setAccessType] = useState<"SELF" | "GUARDIAN">("SELF");
+  const [mode, setMode] = useState<"email" | "instant">("email");
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [tempPassword, setTempPassword] = useState<string | null>(null);
+  const [emailStatus, setEmailStatus] = useState<{ delivered: boolean; blocked?: boolean } | null>(null);
 
   function onInvite() {
     setError(null);
     setTempPassword(null);
+    setEmailStatus(null);
     if (!email.trim()) {
       setError("Davet göndermek için bir e-posta adresi girin.");
       return;
     }
     startTransition(async () => {
+      if (mode === "email") {
+        const result = await actionInviteStudentPortalAccess({ studentId, email: email.trim(), accessType });
+        if (!result.ok) {
+          setError(result.message);
+          return;
+        }
+        setEmailStatus({ delivered: result.delivered, blocked: result.blocked });
+        return;
+      }
       const result = await actionProvisionStudentPortalAccess({ studentId, email: email.trim(), accessType });
       if (!result.ok) {
         setError(result.message);
@@ -422,6 +441,13 @@ function StudentPortalInvite({ studentId, defaultEmail }: { studentId: string; d
           </Select>
         </div>
       </div>
+      <div>
+        <Label>Yöntem</Label>
+        <Select value={mode} onChange={(e) => setMode(e.target.value as "email" | "instant")}>
+          <option value="email">E-posta ile davet gönder (kullanıcı kendi şifresini oluşturur)</option>
+          <option value="instant">Anında erişim (geçici şifre bir kez gösterilir)</option>
+        </Select>
+      </div>
       {error ? <p className="text-xs text-red-600">{error}</p> : null}
       {tempPassword ? (
         <div className="space-y-1 rounded border border-emerald-200 bg-emerald-50 p-2">
@@ -436,6 +462,19 @@ function StudentPortalInvite({ studentId, defaultEmail }: { studentId: string; d
             Kapat
           </Button>
         </div>
+      ) : null}
+      {emailStatus ? (
+        emailStatus.delivered ? (
+          <p className="rounded border border-emerald-200 bg-emerald-50 p-2 text-xs text-emerald-800">
+            Davet e-postası gönderildi. Kullanıcı linke tıklayıp kendi şifresini belirleyene kadar erişim
+            &quot;davet edildi&quot; durumunda kalır.
+          </p>
+        ) : (
+          <p className="rounded border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800">
+            Davet kaydı oluşturuldu ama e-posta GÖNDERİLEMEDİ — bu ortamda e-posta sağlayıcısı (SMTP)
+            yapılandırılmamış. Üretim ortamında SMTP eklenene kadar &quot;Anında erişim&quot; yöntemini kullanın.
+          </p>
+        )
       ) : null}
       <Button onClick={onInvite} disabled={pending} variant="secondary">
         {pending ? "Gönderiliyor..." : "Portal erişimi oluştur / davet gönder"}

@@ -1,12 +1,8 @@
 import { redirect } from "next/navigation";
-import {
-  actionCancelMakeup,
-  actionConfirmSlot,
-  actionGenerateSuggestions,
-} from "@/lib/actions";
+import { actionCancelMakeup, actionConfirmSlot } from "@/lib/actions";
 import { Badge, Card, EmptyState, PageHeader } from "@/components/ui";
-import { TelafiSubmitButton } from "@/components/telafi-submit-button";
 import { MakeupDecisionForm } from "@/components/makeup-decision-form";
+import { GenerateSuggestionsForm } from "@/components/generate-suggestions-form";
 import { ManualMakeupPlanForm } from "@/components/manual-makeup-plan-form";
 import { formatDateTime, formatTime } from "@/lib/utils";
 import { CheckCircle2, Download, Sparkles, X } from "lucide-react";
@@ -152,13 +148,10 @@ export default async function TelafiPage() {
                   </div>
 
                   <div className="flex flex-wrap gap-2">
-                    <form action={actionGenerateSuggestions}>
-                      <input type="hidden" name="requestId" value={req.id} />
-                      <TelafiSubmitButton pendingLabel="Aranıyor..." disabled={!canWrite}>
-                        <Sparkles className="h-4 w-4" />
-                        {req.suggestedSlots.length ? "Saatleri yenile" : "En uygun saatleri bul"}
-                      </TelafiSubmitButton>
-                    </form>
+                    <GenerateSuggestionsForm requestId={req.id} pendingLabel="Aranıyor..." disabled={!canWrite}>
+                      <Sparkles className="h-4 w-4" />
+                      {req.suggestedSlots.length ? "Saatleri yenile" : "En uygun saatleri bul"}
+                    </GenerateSuggestionsForm>
                     <MakeupDecisionForm
                       action={actionCancelMakeup}
                       hiddenFields={{ requestId: req.id }}
@@ -241,13 +234,16 @@ export default async function TelafiPage() {
                         );
                       })}
                     </div>
-                    <form action={actionGenerateSuggestions} className="mt-3">
-                      <input type="hidden" name="requestId" value={req.id} />
-                      <input type="hidden" name="maxSlots" value={MORE_SUGGESTIONS_COUNT} />
-                      <TelafiSubmitButton variant="secondary" pendingLabel="Aranıyor..." disabled={!canWrite}>
-                        Daha fazla uygun saat göster
-                      </TelafiSubmitButton>
-                    </form>
+                    <GenerateSuggestionsForm
+                      requestId={req.id}
+                      maxSlots={MORE_SUGGESTIONS_COUNT}
+                      variant="secondary"
+                      pendingLabel="Aranıyor..."
+                      disabled={!canWrite}
+                      className="mt-3"
+                    >
+                      Daha fazla uygun saat göster
+                    </GenerateSuggestionsForm>
                   </div>
                 ) : (
                   <p className="mt-4 text-sm text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">

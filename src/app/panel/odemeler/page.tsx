@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowRight } from "lucide-react";
-import { actionAddPayment } from "@/lib/actions";
-import { Button, Input, Label, PageHeader, Select, StatCard } from "@/components/ui";
+import { AddPaymentForm } from "@/components/add-payment-form";
+import { PageHeader, StatCard } from "@/components/ui";
 import { formatMoney, isOutstandingPaymentStatus } from "@/lib/utils";
 import { PaymentsTable, type PaymentRow } from "@/components/payments-table";
 import { requireSessionContext } from "@/lib/auth/session";
@@ -74,35 +74,10 @@ export default async function OdemelerPage() {
           <summary className="cursor-pointer text-sm font-medium text-[var(--color-text-muted)] dark:text-slate-300">
             Yeni ödeme kaydı ekle
           </summary>
-          <form action={actionAddPayment} className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <div>
-              <Label>Öğrenci</Label>
-              <Select name="studentId" defaultValue={data.students.find((s) => s.active)?.id}>
-                {data.students
-                  .filter((s) => s.active)
-                  .map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                    </option>
-                  ))}
-              </Select>
-            </div>
-            <div>
-              <Label>Açıklama / dönem</Label>
-              <Input name="description" required placeholder="Örn. Ağustos 2026 — Piyano" />
-            </div>
-            <div>
-              <Label>Tutar (₺)</Label>
-              <Input name="amount" type="number" min={1} defaultValue={3000} required />
-            </div>
-            <div>
-              <Label>Vade tarihi</Label>
-              <Input name="dueDate" type="date" required />
-            </div>
-            <div className="sm:col-span-2 lg:col-span-4">
-              <Button type="submit">Ödeme kaydı ekle</Button>
-            </div>
-          </form>
+          <AddPaymentForm
+            students={data.students.filter((s) => s.active).map((s) => ({ id: s.id, name: s.name }))}
+            gridClassName="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4"
+          />
         </details>
       ) : (
         <p className="mb-6 rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3 text-sm font-medium text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300">

@@ -36,7 +36,20 @@ import { cn } from "@/lib/utils";
 
 export type AttendanceStudentOption = { id: string; name: string; branchName?: string };
 
-const RESULT_LIMIT = 10;
+/**
+ * Saf filtre fonksiyonu — arama boşsa TÜM öğrenciler döner (önceden burada
+ * ilk 10 sonuçla sınırlayan bir RESULT_LIMIT vardı; kaydırılabilir listbox
+ * zaten kullanılabilirlik sınırını sağladığı için kaldırıldı). Birim
+ * testlerinde DOM'suz doğrudan çağrılabilir.
+ */
+export function filterAttendanceStudents(
+  students: AttendanceStudentOption[],
+  query: string
+): AttendanceStudentOption[] {
+  const q = foldTurkishForSearch(query);
+  if (!q) return students;
+  return students.filter((s) => foldTurkishForSearch(s.name).includes(q));
+}
 
 export function StudentAttendancePicker({
   students,
@@ -62,18 +75,24 @@ export function StudentAttendancePicker({
   // Seçili öğrenci sayfa dışından (ör. tarayıcı geri/ileri, ?studentId
   // değişimi) değişirse input metni senkron kalsın.
   useEffect(() => {
+    // Seçili öğrenci DIŞARIDAN (tarayıcı geri/ileri, ?studentId) değiştiğinde
+    // input metnini senkronlamak KASITLI — kontrollü input'un tek doğruluk
+    // kaynağı burasıdır.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setQuery(selectedStudent?.name ?? "");
   }, [selectedStudent]);
 
-  const filtered = useMemo(() => {
-    const q = foldTurkishForSearch(query);
-    if (!q) return students;
-    return students.filter((s) => foldTurkishForSearch(s.name).includes(q));
-  }, [students, query]);
+  const filtered = useMemo(() => filterAttendanceStudents(students, query), [students, query]);
 
-  const visible = filtered.slice(0, RESULT_LIMIT);
+  // İş 3 — önceden ilk 10 sonuçla sınırlıydı (RESULT_LIMIT); kaydırılabilir
+  // listbox (aşağıda `max-h-80 overflow-y-auto`) zaten performans/kullanılabilirlik
+  // sınırını sağlıyor, artık ayrı bir üst sınır YOK — tüm eşleşenler (veya
+  // arama boşsa tüm öğrenciler) kaydırarak erişilebilir.
+  const visible = filtered;
 
   useEffect(() => {
+    // Arama metni/açık-kapalı durumu değişince vurgulanan satırı sıfırla — KASITLI.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setActiveIndex(0);
   }, [query, isOpen]);
 
@@ -172,12 +191,12 @@ export function StudentAttendancePicker({
             id="attendance-student-listbox"
             role="listbox"
             aria-label="Öğrenci sonuçları"
-            className="absolute left-0 right-0 top-full z-20 mt-1 max-h-64 overflow-y-auto rounded-lg border shadow-lg"
+            className="absolute left-0 right-0 top-full z-20 mt-1 max-h-80 overflow-y-auto rounded-lg border shadow-lg"
             style={{ background: "var(--color-surface)", borderColor: "var(--color-border)" }}
           >
             {visible.length === 0 ? (
               <p className="px-3 py-3 text-xs" style={{ color: "var(--color-text-muted)" }}>
-                {query ? "Bu aramayla eşleşen öğrenci bulunamadı." : "Öğrenci adı yazın"}
+                &quot;Bu aramayla eşleşen öğrenci bulunamadı.&quot;
               </p>
             ) : (
               visible.map((s, idx) => {

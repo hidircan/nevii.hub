@@ -6,6 +6,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button, Card, EmptyState } from "@/components/ui";
 import { formatDate } from "@/lib/utils";
+import { apiFetchJson } from "@/lib/api/client-fetch";
 
 export type PendingPeriodicItem = {
   studentId: string;
@@ -31,7 +32,7 @@ function PendingItemForm({ item, onSubmitted }: { item: PendingPeriodicItem; onS
     }
     setBusy(true);
     setError(null);
-    const res = await fetch("/api/v1/periodic-assessments", {
+    const result = await apiFetchJson("/api/v1/periodic-assessments", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -44,10 +45,9 @@ function PendingItemForm({ item, onSubmitted }: { item: PendingPeriodicItem; onS
         recommendationNote: recommendationNote.trim() || undefined,
       }),
     });
-    const json = await res.json();
     setBusy(false);
-    if (!json.ok) {
-      setError(json.error?.message || "Gönderilemedi.");
+    if (!result.ok) {
+      setError(result.error.message || "Gönderilemedi.");
       return;
     }
     onSubmitted();

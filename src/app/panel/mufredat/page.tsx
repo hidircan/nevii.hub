@@ -244,7 +244,6 @@ export default async function PanelMufredatPage({
                           <CurriculumTopicUpdateForm
                             topicId={topic.id}
                             currentStatus={topic.status}
-                            currentProgress={topic.progressPercent}
                           />
                         ) : null}
                       </Card>

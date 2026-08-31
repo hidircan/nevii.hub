@@ -257,6 +257,12 @@ export default async function OgrenciPortalPage({
               <p className="mt-1 text-sm font-semibold text-[var(--color-text)]">Materyaller</p>
             </Card>
           </Link>
+          <Link href="/ogrenci/sozlesmelerim">
+            <Card className="!p-4 hover:border-emerald-200">
+              <FileText className="h-4 w-4 text-emerald-600" />
+              <p className="mt-1 text-sm font-semibold text-[var(--color-text)]">Sözleşmelerim</p>
+            </Card>
+          </Link>
           <Link href="/ogrenci/mufredat" className="col-span-2">
             <Card className="!p-4 hover:border-emerald-200">
               <p className="text-sm font-semibold text-[var(--color-text)]">Müfredatım</p>

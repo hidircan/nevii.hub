@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Badge, Button } from "@/components/ui";
 import { formatDateTime } from "@/lib/utils";
+import { apiFetchJson } from "@/lib/api/client-fetch";
 import type { TeacherFeedbackCriterionKey, TeacherFeedbackStatus } from "@/lib/types";
 
 const CRITERIA_LABELS: Record<TeacherFeedbackCriterionKey, string> = {
@@ -38,57 +39,65 @@ export function TeacherFeedbackReviewList({ rows }: { rows: ReviewFeedbackRow[] 
   const [reason, setReason] = useState("");
   const [revealed, setRevealed] = useState<Record<string, { studentName: string; submittedBy: string }>>({});
   const [busy, setBusy] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  // Satır bazlı — üç ayrı aksiyon (reveal/status/toggle) aynı satırda
+  // paylaşılan tek bir global hata state'ine yazarsa, hata yanlış satırın
+  // altında (veya reveal paneli kapalıyken hiç) görünmez olurdu.
+  const [error, setError] = useState<{ rowId: string; message: string } | null>(null);
 
   async function onReveal(feedbackId: string) {
     if (reason.trim().length < 5) {
-      setError("Gerekçe en az 5 karakter olmalı.");
+      setError({ rowId: feedbackId, message: "Gerekçe en az 5 karakter olmalı." });
       return;
     }
     setBusy(feedbackId);
     setError(null);
-    try {
-      const res = await fetch("/api/v1/teacher-feedback/reveal-identity", {
+    const result = await apiFetchJson<{ studentName: string; submittedBy: string }>(
+      "/api/v1/teacher-feedback/reveal-identity",
+      {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ feedbackId, reason: reason.trim() }),
-      });
-      const json = (await res.json()) as {
-        ok: boolean;
-        data?: { studentName: string; submittedBy: string };
-        error?: { message: string };
-      };
-      if (!json.ok || !json.data) {
-        setError(json.error?.message || "Kimlik açılamadı");
-        return;
       }
-      setRevealed((prev) => ({ ...prev, [feedbackId]: json.data! }));
-      setRevealingId(null);
-      setReason("");
-    } finally {
-      setBusy(null);
+    );
+    setBusy(null);
+    if (!result.ok) {
+      setError({ rowId: feedbackId, message: result.error.message || "Kimlik açılamadı" });
+      return;
     }
+    setRevealed((prev) => ({ ...prev, [feedbackId]: result.data }));
+    setRevealingId(null);
+    setReason("");
   }
 
   async function onStatusChange(feedbackId: string, status: TeacherFeedbackStatus) {
     setBusy(feedbackId);
-    await fetch("/api/v1/teacher-feedback/status", {
+    setError(null);
+    const result = await apiFetchJson("/api/v1/teacher-feedback/status", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ feedbackId, status }),
     });
     setBusy(null);
+    if (!result.ok) {
+      setError({ rowId: feedbackId, message: result.error.message || "Durum güncellenemedi." });
+      return;
+    }
     router.refresh();
   }
 
   async function onToggleShared(feedbackId: string, shared: boolean) {
     setBusy(feedbackId);
-    await fetch("/api/v1/teacher-feedback/shared", {
+    setError(null);
+    const result = await apiFetchJson("/api/v1/teacher-feedback/shared", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ feedbackId, shared }),
     });
     setBusy(null);
+    if (!result.ok) {
+      setError({ rowId: feedbackId, message: result.error.message || "Paylaşım tercihi güncellenemedi." });
+      return;
+    }
     router.refresh();
   }
 
@@ -153,8 +162,14 @@ export function TeacherFeedbackReviewList({ rows }: { rows: ReviewFeedbackRow[] 
                   Vazgeç
                 </Button>
               </div>
-              {error ? <p className="mt-1 text-[11px] text-[var(--color-danger)]">{error}</p> : null}
+              {error?.rowId === row.id ? (
+                <p className="mt-1 text-[11px] text-[var(--color-danger)]">{error.message}</p>
+              ) : null}
             </div>
+          ) : null}
+
+          {error?.rowId === row.id && revealingId !== row.id ? (
+            <p className="mt-1.5 text-[11px] text-[var(--color-danger)]">{error.message}</p>
           ) : null}
 
           <div className="mt-3 grid grid-cols-2 gap-1.5 sm:grid-cols-5">

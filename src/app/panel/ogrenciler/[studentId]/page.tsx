@@ -7,6 +7,7 @@ import {
   CreditCard,
   FileText,
   GraduationCap,
+  KeyRound,
   RefreshCcw,
   Star,
   User,
@@ -24,7 +25,9 @@ import {
   getSocialMediaConsentTool,
   listTeacherFeedbackTool,
   listStudentFeedbackTool,
+  listStudentContractsTool,
 } from "@/lib/services";
+import { RegistrationSuccessPanel } from "@/components/registration-success-panel";
 import { TEACHER_FEEDBACK_CRITERIA } from "@/lib/teacher-feedback";
 import { AiFeedbackSummaryButton } from "@/components/ai-feedback-summary-button";
 import { STUDENT_FEEDBACK_CRITERIA } from "@/lib/student-feedback";
@@ -37,14 +40,17 @@ import type {
 import { computeOverallScore } from "@/lib/assessment/score";
 import { computeStudentPaymentSummary, sortPaymentsForProfile } from "@/lib/payment-profile";
 import { computeStudentMonthlyAmount } from "@/lib/student-payment-profile";
+import { contractStatusLabel } from "@/lib/contracts";
 import { effectivePaymentDueRanges, formatPaymentDueRanges } from "@/lib/payment-due-ranges";
 import { effectiveStudentTypes } from "@/lib/student-types";
 import { StudentPaymentProfileEditor } from "@/components/student-payment-profile-editor";
+import { StudentLessonPauseControl } from "@/components/student-lesson-pause-control";
 import { Badge, Card, EmptyState, PageHeader } from "@/components/ui";
 import { StudentUpcomingLessons, StudentPastLessons, StudentAttendanceList } from "@/components/student-lesson-lists";
 import { AttendanceCalendarPanel } from "@/components/attendance-calendar-panel";
 import { StudentTermTypeEditor } from "@/components/student-term-type-editor";
 import { StudentProfileEditor } from "@/components/student-profile-editor";
+import { StudentPortalAccessCard } from "@/components/portal-access-card";
 import { StudentArchiveToggle } from "@/components/student-archive-toggle";
 import { SectionEditCard } from "@/components/section-edit-card";
 import { BackButton } from "@/components/back-button";
@@ -62,11 +68,13 @@ export const dynamic = "force-dynamic";
 const SECTIONS = [
   { href: "#genel", icon: User, label: "Genel Bilgiler" },
   { href: "#veli", icon: Users, label: "Veli ve İletişim" },
+  { href: "#portal-erisimi", icon: KeyRound, label: "Portal Erişimi" },
   { href: "#program", icon: CalendarDays, label: "Dersler ve Program" },
   { href: "#yoklama", icon: ClipboardCheck, label: "Yoklama" },
   { href: "#yoklama-takvimi", icon: CalendarDays, label: "Yoklama Takvimi" },
   { href: "#telafi", icon: RefreshCcw, label: "Telafiler" },
   { href: "#odeme", icon: CreditCard, label: "Ödemeler" },
+  { href: "#sozlesme", icon: FileText, label: "Sözleşmeler" },
   { href: "#gelisim", icon: GraduationCap, label: "Eğitim / Gelişim" },
   { href: "#odev", icon: BookOpen, label: "Ödev / Materyal" },
   { href: "#evrak", icon: FileText, label: "Evraklar" },
@@ -75,10 +83,17 @@ const SECTIONS = [
 
 export default async function StudentDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ studentId: string }>;
+  searchParams: Promise<{ yeniKayit?: string; sure?: string; davetUyari?: string }>;
 }) {
   const { studentId } = await params;
+  const { yeniKayit, sure, davetUyari } = await searchParams;
+  const isNewStudent = yeniKayit === "1";
+  const rawIntendedDuration = Number(sure);
+  const intendedDurationMonths =
+    Number.isInteger(rawIntendedDuration) && rawIntendedDuration >= 1 && rawIntendedDuration <= 12 ? rawIntendedDuration : 3;
   let session;
   try {
     session = await requireSessionContext();
@@ -124,7 +139,7 @@ export default async function StudentDetailPage({
   const payments = sortPaymentsForProfile(data.payments.filter((p) => p.studentId === student.id));
   const paymentSummary = computeStudentPaymentSummary(payments);
 
-  const [homeworkResult, materialsResult, curriculumResult, assessmentResult, documentsResult, consentResult] =
+  const [homeworkResult, materialsResult, curriculumResult, assessmentResult, documentsResult, consentResult, contractsResult] =
     await Promise.all([
       listHomeworkForStudentTool(session, { studentId: student.id }),
       listTeachingMaterialsForStudentTool(session, { studentId: student.id }),
@@ -132,6 +147,7 @@ export default async function StudentDetailPage({
       getAssessmentReportTool(session, { studentId: student.id }),
       listStudentDocumentsTool(session, { studentId: student.id }),
       getSocialMediaConsentTool(session, { studentId: student.id }),
+      listStudentContractsTool(session, { studentId: student.id }),
     ]);
   // Karşılıklı Değerlendirmeler — yalnız admin, yalnız BU öğrenciye kapsamlı.
   // Araçların studentId filtresi yok (yalnız teacherId) — tüm tenant kaydı
@@ -156,6 +172,7 @@ export default async function StudentDetailPage({
   const assessments = assessmentResult.ok ? assessmentResult.data.assessments : [];
   const documents = documentsResult.ok ? documentsResult.data.documents : [];
   const socialMediaConsent = consentResult.ok ? consentResult.data.consent : undefined;
+  const contracts = contractsResult.ok ? contractsResult.data.contracts : [];
   const packages = data.packages ?? [];
   const canManagePaymentProfile = session.role === "SCHOOL_ADMIN" || session.role === "SUPER_ADMIN";
   const studentPackage = packages.find((p) => p.id === student.packageId);
@@ -209,6 +226,19 @@ export default async function StudentDetailPage({
           </div>
         }
       />
+
+      {isNewStudent ? (
+        <RegistrationSuccessPanel
+          studentId={student.id}
+          studentName={student.name}
+          packageLabel={student.packageName.split("—")[0]?.trim() ?? student.packageName}
+          monthlyFee={student.monthlyFee}
+          paymentMethod={student.paymentMethod}
+          enrollmentStartDate={student.enrollmentStartDate}
+          intendedDurationMonths={intendedDurationMonths}
+          inviteWarning={davetUyari}
+        />
+      ) : null}
 
       <Card className="mb-6 !p-4">
         <div className="flex flex-wrap items-center gap-3">
@@ -351,10 +381,18 @@ export default async function StudentDetailPage({
               branches={data.settings.branches.map((b) => ({ id: b.id, name: b.name }))}
               hasNationalId={!!student.nationalIdCipher}
               initial={profileEditorInitial}
+              showPortalInvite={false}
             />
           }
         />
       </section>
+
+      {canEditProfile ? (
+        <section id="portal-erisimi" className="mb-8 scroll-mt-4">
+          <h2 className="mb-3 text-sm font-semibold text-[var(--color-text)]">Portal Erişimi</h2>
+          <StudentPortalAccessCard studentId={student.id} defaultEmail={student.email || undefined} />
+        </section>
+      ) : null}
 
       <section id="program" className="mb-8 scroll-mt-4">
         <h2 className="mb-3 flex items-center justify-between text-sm font-semibold text-[var(--color-text)]">
@@ -424,6 +462,14 @@ export default async function StudentDetailPage({
           <MiniStat label="Kalan" value={formatMoney(paymentSummary.remaining)} />
           <MiniStat label="Gecikmiş kalan" value={formatMoney(paymentSummary.overdueRemaining)} />
         </div>
+
+        <StudentLessonPauseControl
+          studentId={student.id}
+          canManage={canManagePaymentProfile}
+          paymentPauseStatus={student.paymentPauseStatus}
+          paymentPausedAt={student.paymentPausedAt}
+          paymentPauseReason={student.paymentPauseReason}
+        />
 
         <SectionEditCard
           canEdit={canManagePaymentProfile}
@@ -505,6 +551,28 @@ export default async function StudentDetailPage({
             ))}
           </div>
         )}
+      </section>
+
+      <section id="sozlesme" className="mb-8 scroll-mt-4">
+        <h2 className="mb-3 text-sm font-semibold text-[var(--color-text)]">Sözleşmeler ve Belgeler</h2>
+        <Card className="!p-4">
+          {contracts.length === 0 ? (
+            <p className="text-sm text-[var(--color-text-muted)]">Bu öğrenci için henüz bir sözleşme kaydı oluşturulmamış.</p>
+          ) : (
+            <div className="flex flex-wrap items-center gap-2 text-sm">
+              <span className="text-[var(--color-text-muted)]">Güncel sözleşme:</span>
+              <span className="font-medium text-[var(--color-text)]">{contracts[0]!.contractNumber}</span>
+              <Badge status={contracts[0]!.status}>{contractStatusLabel(contracts[0]!.status)}</Badge>
+              <span className="text-xs text-[var(--color-text-muted)]">({contracts.length} kayıt)</span>
+            </div>
+          )}
+          <Link
+            href={`/panel/ogrenciler/${student.id}/sozlesmeler`}
+            className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-[var(--color-primary)] px-3 py-1.5 text-sm font-medium text-white hover:bg-[var(--color-primary-hover)]"
+          >
+            Sözleşme Merkezi&apos;ne Git →
+          </Link>
+        </Card>
       </section>
 
       <section id="gelisim" className="mb-8 scroll-mt-4">

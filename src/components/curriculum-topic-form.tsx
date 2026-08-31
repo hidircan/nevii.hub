@@ -16,7 +16,6 @@ export function CurriculumTopicForm({ studentId }: { studentId: string }) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [status, setStatus] = useState<string>("planned");
-  const [progressPercent, setProgressPercent] = useState("");
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -39,9 +38,6 @@ export function CurriculumTopicForm({ studentId }: { studentId: string }) {
         status,
         notes: notes.trim() || undefined,
       };
-      if (progressPercent !== "") {
-        body.progressPercent = Number(progressPercent);
-      }
       const res = await fetch("/api/v1/curriculum", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -57,7 +53,6 @@ export function CurriculumTopicForm({ studentId }: { studentId: string }) {
       setTitle("");
       setDescription("");
       setNotes("");
-      setProgressPercent("");
       setStatus("planned");
       router.refresh();
     } catch {
@@ -86,28 +81,15 @@ export function CurriculumTopicForm({ studentId }: { studentId: string }) {
           className="w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text)] outline-none ring-cyan-500/30 focus:ring-2 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
         />
       </div>
-      <div className="grid grid-cols-2 gap-2">
-        <div>
-          <Label>Durum</Label>
-          <Select value={status} onChange={(e) => setStatus(e.target.value)}>
-            {STATUSES.map((s) => (
-              <option key={s.value} value={s.value}>
-                {s.label}
-              </option>
-            ))}
-          </Select>
-        </div>
-        <div>
-          <Label>İlerleme % (isteğe bağlı)</Label>
-          <Input
-            type="number"
-            min={0}
-            max={100}
-            value={progressPercent}
-            onChange={(e) => setProgressPercent(e.target.value)}
-            placeholder="Duruma göre"
-          />
-        </div>
+      <div>
+        <Label>Durum</Label>
+        <Select value={status} onChange={(e) => setStatus(e.target.value)}>
+          {STATUSES.map((s) => (
+            <option key={s.value} value={s.value}>
+              {s.label}
+            </option>
+          ))}
+        </Select>
       </div>
       <div>
         <Label>Not (isteğe bağlı)</Label>

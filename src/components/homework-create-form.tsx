@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button, Input, Label, Select } from "@/components/ui";
+import { formatDateTr } from "@/lib/timezone";
 
 /** ~2MB ham dosya sınırı — createHomeworkSchema (validation.ts) ile tutarlı. */
 const MAX_FILE_BYTES = 2_000_000;
@@ -124,7 +125,7 @@ export function HomeworkCreateForm({
             <option value="">Derse bağlama</option>
             {studentLessons.map((l) => (
               <option key={l.id} value={l.id}>
-                {new Date(l.startAt).toLocaleDateString("tr-TR")} · {l.instrument}
+                {formatDateTr(l.startAt)} · {l.instrument}
               </option>
             ))}
           </Select>
@@ -148,7 +149,7 @@ export function HomeworkCreateForm({
         <Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
       </div>
       <div>
-        <Label>Dosya / fotoğraf / video (opsiyonel)</Label>
+        <Label>Dosya / fotoğraf / video / ses dosyası (opsiyonel)</Label>
         <input
           type="file"
           accept="image/*,video/*,audio/*,application/pdf"

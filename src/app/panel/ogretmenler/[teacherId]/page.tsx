@@ -5,6 +5,7 @@ import {
   CreditCard,
   FileText,
   GraduationCap,
+  KeyRound,
   ScrollText,
   Star,
   TrendingUp,
@@ -34,12 +35,14 @@ import { BackButton } from "@/components/back-button";
 import { TeacherArchiveAction } from "@/components/teacher-archive-action";
 import { QuickTaskLink } from "@/components/quick-task-link";
 import { AssistantPageContext } from "@/components/ai/assistant-page-context";
+import { TeacherPortalAccessCard } from "@/components/portal-access-card";
 
 export const dynamic = "force-dynamic";
 
 const SECTIONS = [
   { href: "#genel", icon: User, label: "Genel Bilgiler" },
   { href: "#iletisim", icon: Users, label: "İletişim" },
+  { href: "#portal-erisimi", icon: KeyRound, label: "Portal Erişimi" },
   { href: "#uzmanlik", icon: GraduationCap, label: "Uzmanlık ve Branşlar" },
   { href: "#ozluk", icon: ScrollText, label: "Özlük / İstihdam" },
   { href: "#sozlesme", icon: ScrollText, label: "Sözleşme" },
@@ -320,6 +323,13 @@ export default async function TeacherDetailPage({
           }
         />
       </section>
+
+      {canEditProfile ? (
+        <section id="portal-erisimi" className="mb-8 scroll-mt-4">
+          <h2 className="mb-3 text-sm font-semibold text-[var(--color-text)]">Portal Erişimi</h2>
+          <TeacherPortalAccessCard teacherId={teacher.id} defaultEmail={teacher.email || undefined} />
+        </section>
+      ) : null}
 
       <section id="uzmanlik" className="mb-8 scroll-mt-4">
         <h2 className="mb-3 text-sm font-semibold text-[var(--color-text)]">Uzmanlık ve Branşlar</h2>

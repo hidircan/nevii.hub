@@ -1,9 +1,8 @@
-import { actionAddRoom } from "@/lib/actions";
 import { readData } from "@/lib/store";
 import { requireSessionContext } from "@/lib/auth/session";
 import { redirect } from "next/navigation";
-import { Badge, Button, Card, Input, Label, PageHeader, Select } from "@/components/ui";
-import { INSTRUMENTS } from "@/lib/types";
+import { Badge, Card, PageHeader } from "@/components/ui";
+import { NewRoomForm } from "@/components/new-room-form";
 import { RoomArchiveToggle } from "@/components/room-archive-toggle";
 import { BackButton } from "@/components/back-button";
 
@@ -78,40 +77,7 @@ export default async function OdalarPage() {
 
         <Card>
           <h2 className="mb-4 font-semibold text-[var(--color-text)] dark:text-slate-50">Yeni oda</h2>
-          <form action={actionAddRoom} className="space-y-3">
-            <div>
-              <Label>Ad</Label>
-              <Input name="name" required placeholder="Örn. Stüdyo 3" />
-            </div>
-            <div>
-              <Label>Şube</Label>
-              <Select name="branchId" defaultValue={data.settings.branches[0]?.id}>
-                {data.settings.branches.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.name}
-                  </option>
-                ))}
-              </Select>
-            </div>
-            <div>
-              <Label>Kapasite</Label>
-              <Input name="capacity" type="number" defaultValue={2} min={1} />
-            </div>
-            <div>
-              <Label>Desteklenen enstrümanlar</Label>
-              <div className="grid grid-cols-2 gap-2 rounded-xl border border-[var(--color-border)] p-3">
-                {INSTRUMENTS.map((instrument) => (
-                  <label key={instrument} className="flex items-center gap-2 text-sm text-[var(--color-text-muted)] dark:text-slate-300">
-                    <input type="checkbox" name="instruments" value={instrument} />
-                    {instrument}
-                  </label>
-                ))}
-              </div>
-            </div>
-            <Button type="submit" className="w-full">
-              Oda ekle
-            </Button>
-          </form>
+          <NewRoomForm branches={data.settings.branches.map((b) => ({ id: b.id, name: b.name }))} />
         </Card>
       </div>
 

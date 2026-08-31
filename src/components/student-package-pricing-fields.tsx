@@ -101,6 +101,7 @@ export function StudentPackagePricingFields({
                 name="discountValue"
                 type="number"
                 min={0}
+                className="no-spinner"
                 disabled={!discountType}
                 value={discountValue}
                 onChange={(e) => setDiscountValue(e.target.value)}
@@ -136,6 +137,7 @@ export function StudentPackagePricingFields({
             name="monthlyFee"
             type="number"
             min={0}
+            className="no-spinner"
             value={legacyMonthlyFee}
             onChange={(e) => setLegacyMonthlyFee(Number(e.target.value))}
           />

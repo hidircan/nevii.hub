@@ -276,7 +276,7 @@ export function AssistantChatBody({
           <Sparkles className="h-4 w-4" />
         </div>
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-[var(--color-text)] dark:text-slate-50">Maestron AI</p>
+          <p className="text-sm font-semibold text-[var(--color-text)] dark:text-slate-50">Nevii Hub AI</p>
           <p className="truncate text-[11px] text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
             {provider ? `Aktif: ${provider}` : "Operasyon asistanı"}
           </p>
@@ -284,7 +284,7 @@ export function AssistantChatBody({
         {expandHref ? (
           <a
             href={expandHref}
-            aria-label="Maestron AI'yi büyüt"
+            aria-label="Nevii Hub AI'yi büyüt"
             title="Büyüt"
             className="rounded-lg p-1.5 text-[var(--color-text-muted)] transition hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-text)]"
           >

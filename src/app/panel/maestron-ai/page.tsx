@@ -11,9 +11,10 @@ import type { AppRole } from "@/lib/auth/types";
 import { BRAND } from "@/lib/brand";
 
 /**
- * Maestron AI büyük sohbet — popup ile aynı conversationId / geçmiş.
+ * Nevii Hub AI büyük sohbet — popup ile aynı conversationId / geçmiş.
+ * (Route slug /panel/maestron-ai kalıyor — bkz. BRAND_MIGRATION_INVENTORY.md.)
  */
-export default function MaestronAiPage() {
+export default function NeviiHubAiPage() {
   const pathname = usePathname();
   const { entity, activeConversationId, setActiveConversationId, close } = useAssistant();
   const [session, setSession] = useState<AssistantSession>(null);
