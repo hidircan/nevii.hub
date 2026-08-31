@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 410" width="480" height="410" role="img" aria-label="Maestron">
-  <!--
-    Kaynak yalnızca raster (PNG) — gerçek vektör anahat verisi yok. Bu SVG,
-    temiz/uyumlu bir fallback olarak PNG lockup'ı gömer (data URI yok, ayrı
-    dosyaya referans) — SVG kullanan yerlerde (ör. boyutlandırılabilir
-    img/object) tutarlı bir dosya uzantısı sağlamak için.
-  -->
-  <image href="./maestron-logo.png" x="0" y="0" width="480" height="410" preserveAspectRatio="xMidYMid meet" />
-</svg>
