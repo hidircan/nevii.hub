@@ -48,7 +48,14 @@ describe("suggestLessonSlots", () => {
 describe("validateLessonSlot · sıradan ders planlama (telafi dışı)", () => {
   it("öğretmenin müsaitlik penceresi dışındaki saat reddedilir (TEACHER_UNAVAILABLE)", () => {
     const data = createSeedData();
-    // t4 Mert Öztürk: Salı–Cumartesi müsait, Pazartesi değil.
+    // Test verisi düzeltmesi (2026-08-31): t4 artık "Mert Öztürk"/Bateri değil —
+    // seed.ts'de t4 = "Şevval Aydın" (Piyano/Şan/Yan Flüt, evka3, yalnız
+    // Salı–Cumartesi müsait, Pazartesi değil). Eski senaryo "Bateri" enstrümanı
+    // istiyordu ki bu artık t4'ün öğrettiği bir enstrüman değil — bu da
+    // TEACHER_UNAVAILABLE'a ulaşmadan TEACHER_INSTRUMENT_MISMATCH'e düşüyordu
+    // (bkz. makeup-engine.ts kontrol sırası: enstrüman → oda → müsaitlik).
+    // Senaryonun asıl amacı (Pazartesi müsait olmayan bir öğretmen) korunur —
+    // yalnızca enstrüman/oda t4'ün GERÇEK verdiği derse (Piyano, r4) güncellendi.
     let mondayOffset = -1;
     for (let d = 1; d <= 14; d++) {
       const day = addDays(startOfDay(FIXED_NOW), d);
@@ -63,8 +70,8 @@ describe("validateLessonSlot · sıradan ders planlama (telafi dışı)", () => 
 
     const result = validateLessonSlot(
       data,
-      { instrument: "Bateri", studentId: "s4" },
-      { teacherId: "t4", roomId: "r6", startAt },
+      { instrument: "Piyano", studentId: "s4" },
+      { teacherId: "t4", roomId: "r4", startAt },
       { now: FIXED_NOW }
     );
     expect(result.ok).toBe(false);

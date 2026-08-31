@@ -44,8 +44,25 @@ describe("applyLessonScheduleUpdate · taşıma (drag)", () => {
   });
 
   it("öğretmenin müsaitlik penceresi dışına taşıma reddedilir (TEACHER_UNAVAILABLE)", () => {
-    const data = createSeedData();
-    // t4 Mert Öztürk Pazartesi müsait değil.
+    // Test verisi düzeltmesi (2026-08-31): seed'deki l11 artık t2/r6/Bağlama
+    // taşıyor — r6 yalnızca "Bateri" destekliyor (ROOM_INSTRUMENT_MISMATCH ile
+    // zaten tutarsız bir fixture) ve t2 Pazartesi zaten müsait — bu senaryonun
+    // amacına (Pazartesi müsait olmayan bir öğretmen) uymuyordu. Aynı senaryoyu
+    // t4 "Şevval Aydın" (Piyano/Şan/Yan Flüt, yalnız Salı–Cumartesi müsait) ve
+    // onun gerçekten verdiği bir dersle (r4, Piyano) kurar — geçerli bir dersten
+    // (l12) türetilir, seed'e tutarsız veri EKLEMEZ.
+    const base = createSeedData();
+    const template = base.lessons.find((l) => l.id === "l12")!;
+    const movable: Lesson = {
+      ...template,
+      id: "fake_teacher_unavailable_move",
+      teacherId: "t4",
+      roomId: "r4",
+      branchId: "evka3",
+      instrument: "Piyano",
+    };
+    const data = { ...base, lessons: [...base.lessons, movable] };
+
     let mondayOffset = -1;
     for (let d = 1; d <= 14; d++) {
       const day = new Date(FIXED_NOW);
@@ -59,7 +76,11 @@ describe("applyLessonScheduleUpdate · taşıma (drag)", () => {
     day.setDate(day.getDate() + mondayOffset);
     day.setHours(15, 0, 0, 0);
 
-    const result = applyLessonScheduleUpdate(data, { lessonId: "l11", startAt: day.toISOString() }, FIXED_NOW);
+    const result = applyLessonScheduleUpdate(
+      data,
+      { lessonId: "fake_teacher_unavailable_move", startAt: day.toISOString() },
+      FIXED_NOW
+    );
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.code).toBe("TEACHER_UNAVAILABLE");
   });
