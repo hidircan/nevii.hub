@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { promises as fs } from "fs";
 import path from "path";
 import { resolveDataDir } from "../config";
@@ -7,6 +7,7 @@ import { NOTIFICATIONS_FILE, listAllNotifications } from "../notifications";
 import { runTeacherContractReminderTick } from "../teacher-contract-reminder-tick";
 import { DEFAULT_TENANT_ID } from "../auth/config";
 import type { ServiceContext } from "../services/context";
+import { toZonedYmd, DEFAULT_APP_TIMEZONE } from "../timezone";
 
 const DATA_FILE = path.join(resolveDataDir(path.join(process.cwd(), "data")), "store.json");
 
@@ -20,13 +21,39 @@ function ctx(overrides?: Partial<ServiceContext>): ServiceContext {
   };
 }
 
+/**
+ * Kok neden duzeltmesi (2026-08-31 test kosusu): `ymdDaysFromNow` onceden
+ * `new Date(Date.now() + days*86400000).toISOString().slice(0,10)` — yani
+ * UTC bazli bir takvim gunu — uretiyordu. Ama sinifladirma motoru
+ * (classifyTeacherContractReminder → teacher-contract-reminders.ts) "bugun"u
+ * KASITLI OLARAK uygulamanin kanonik saat dilimi olan Europe/Istanbul'da
+ * (`toZonedYmd`, bkz. timezone.ts) hesapliyor. UTC gunubirlik siniri ile
+ * Istanbul (UTC+3) gunubirlik siniri arasindaki ~3 saatlik fark yuzunden,
+ * testin "gercek simdi"si UTC'de hala bir onceki takvim gunundeyken Istanbul
+ * takviminde zaten bir sonraki gune gecmis olabiliyordu — bu da testin "31
+ * gun kala" olarak kurguladigi sozlesme bitisinin, Istanbul takviminde
+ * GERCEKTE yalnizca 30 gun uzakta olmasina (ve hatirlatma penceresine
+ * yanlislikla girmesine) yol aciyordu. Kod (timezone.ts) DOGRU calisiyor —
+ * hatali olan, testin kendi UTC bazli yardimcisiydi. Saat artik dondurulur
+ * (FIXED_NOW, diger test dosyalariyla ayni desen) ve `ymdDaysFromNow`
+ * sinifladirma motoruyla AYNI `toZonedYmd`/Europe-Istanbul yontemini kullanir.
+ */
+const FIXED_NOW = new Date("2026-08-15T12:00:00");
+
 beforeEach(async () => {
+  process.env.TZ = "Europe/Istanbul";
+  vi.useFakeTimers();
+  vi.setSystemTime(FIXED_NOW);
   await fs.rm(DATA_FILE, { force: true });
   await fs.rm(NOTIFICATIONS_FILE, { force: true });
 });
 
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 function ymdDaysFromNow(days: number): string {
-  return new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
+  return toZonedYmd(new Date(FIXED_NOW.getTime() + days * 86_400_000), DEFAULT_APP_TIMEZONE);
 }
 
 async function createTeacherWithContractEnd(contractEndDate: string) {
