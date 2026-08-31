@@ -1,0 +1,41 @@
+import { Tabs } from "expo-router";
+import { PersonaGuard } from "../../src/components/persona-guard";
+import { Icon } from "../../src/components/ui";
+import { useTheme } from "../../src/theme/theme-context";
+
+export default function AdminLayout() {
+  const t = useTheme();
+  return (
+    <PersonaGuard persona="admin">
+      <Tabs
+        screenOptions={{
+          headerShown: false,
+          tabBarActiveTintColor: t.colors.primary,
+          tabBarInactiveTintColor: t.colors.textMuted,
+          tabBarStyle: { backgroundColor: t.colors.bg, borderTopColor: t.colors.border },
+        }}
+      >
+        <Tabs.Screen
+          name="ozet"
+          options={{ title: "Özet", tabBarIcon: ({ color, size }) => <Icon name="grid-outline" size={size} color={color} /> }}
+        />
+        <Tabs.Screen
+          name="program"
+          options={{ title: "Program", tabBarIcon: ({ color, size }) => <Icon name="calendar-outline" size={size} color={color} /> }}
+        />
+        <Tabs.Screen
+          name="kisiler"
+          options={{ title: "Kişiler", tabBarIcon: ({ color, size }) => <Icon name="people-outline" size={size} color={color} /> }}
+        />
+        <Tabs.Screen
+          name="islemler"
+          options={{ title: "İşlemler", tabBarIcon: ({ color, size }) => <Icon name="briefcase-outline" size={size} color={color} /> }}
+        />
+        <Tabs.Screen
+          name="hesabim"
+          options={{ title: "Hesabım", tabBarIcon: ({ color, size }) => <Icon name="person-circle-outline" size={size} color={color} /> }}
+        />
+      </Tabs>
+    </PersonaGuard>
+  );
+}
