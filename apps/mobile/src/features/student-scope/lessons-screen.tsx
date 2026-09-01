@@ -6,6 +6,7 @@ import { useAuth } from "../../auth/auth-context";
 import { AppHeader, Avatar, Button, Card, EmptyState, ErrorState, Icon, LessonCard, LoadingSkeleton, Screen, StatusBadge, TextField } from "../../components/ui";
 import { useApiGet } from "../../hooks/use-api";
 import { useFocusRefetch } from "../../hooks/use-focus-refetch";
+import { useNow } from "../../hooks/use-now";
 import { addDays, format, isSameDay, shortDayMonth, startOfDay, startOfWeek } from "../../lib/date";
 import { lessonStatusBadge } from "../../lib/lesson-status";
 import { useTheme } from "../../theme/theme-context";
@@ -272,6 +273,7 @@ function AbsenceNoticeSection({ lessonId, studentId }: { lessonId: string; stude
 export function StudentScopeLessonDetailScreen({ lessonId }: { lessonId: string }) {
   const t = useTheme();
   const { user } = useAuth();
+  const now = useNow();
   const res = useApiGet<ScheduleResponse>(user?.studentId ? `/api/v1/students/${user.studentId}/schedule` : "");
 
   if (res.status === "loading") {
@@ -329,7 +331,7 @@ export function StudentScopeLessonDetailScreen({ lessonId }: { lessonId: string 
         </View>
       </Card>
 
-      {user?.studentId && new Date(lesson.startAt).getTime() > Date.now() ? (
+      {user?.studentId && new Date(lesson.startAt).getTime() > now ? (
         <AbsenceNoticeSection lessonId={lesson.id} studentId={user.studentId} />
       ) : null}
     </Screen>

@@ -19,8 +19,9 @@ import {
   TextField,
 } from "../../../src/components/ui";
 import { useApiGet } from "../../../src/hooks/use-api";
+import { useNow } from "../../../src/hooks/use-now";
 import { useFocusRefetch } from "../../../src/hooks/use-focus-refetch";
-import { relativeDayLabel } from "../../../src/lib/date";
+import { isPast, relativeDayLabel } from "../../../src/lib/date";
 import { useTheme } from "../../../src/theme/theme-context";
 import type {
   AssessmentsResponse,
@@ -66,6 +67,7 @@ const STATUS_OPTIONS = (Object.keys(STATUS_LABEL) as CurriculumTopicStatus[]).ma
 export default function StudentDetailScreen() {
   const t = useTheme();
   const router = useRouter();
+  const now = useNow();
   const { studentId } = useLocalSearchParams<{ studentId: string }>();
 
   const profile = useApiGet<StudentProfile>(`/api/v1/students/${studentId}`);
@@ -152,7 +154,7 @@ export default function StudentDetailScreen() {
 
   const pastLessons =
     schedule.status === "success"
-      ? schedule.data.lessons.filter((l) => new Date(l.endAt).getTime() < Date.now()).slice(-3).reverse()
+      ? schedule.data.lessons.filter((l) => isPast(l.endAt, now)).slice(-3).reverse()
       : [];
   const mostRecentLesson = pastLessons[0];
 

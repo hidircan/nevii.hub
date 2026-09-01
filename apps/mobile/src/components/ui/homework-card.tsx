@@ -1,6 +1,7 @@
 import { StyleSheet, Text, View } from "react-native";
-import { relativeDayLabel } from "../../lib/date";
+import { isPast, relativeDayLabel } from "../../lib/date";
 import { useTheme } from "../../theme/theme-context";
+import { useNow } from "../../hooks/use-now";
 import { Card } from "./card";
 import { Icon } from "./icon";
 import { StatusBadge, type BadgeTone } from "./status-badge";
@@ -20,8 +21,9 @@ type Props = {
 
 export function HomeworkCard({ homework, showStudentName = true, onPress }: Props) {
   const t = useTheme();
+  const now = useNow();
   const status = STATUS_MAP[homework.status ?? "PENDING"] ?? { label: homework.status ?? "Bekliyor", tone: "neutral" as BadgeTone };
-  const overdue = homework.dueDate && homework.status !== "REVIEWED" && new Date(homework.dueDate).getTime() < Date.now();
+  const overdue = homework.dueDate && homework.status !== "REVIEWED" && isPast(homework.dueDate, now);
 
   return (
     <Card onPress={onPress}>

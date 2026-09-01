@@ -3,6 +3,7 @@ import {
   addDays,
   format,
   formatCurrency,
+  isPast,
   isSameDay,
   relativeDayLabel,
   shortDayMonth,
@@ -103,6 +104,22 @@ describe("isSameDay", () => {
 
   it("farklı günler için false döner", () => {
     expect(isSameDay(new Date(2024, 0, 1), new Date(2024, 0, 2))).toBe(false);
+  });
+});
+
+describe("isPast", () => {
+  const now = new Date(2024, 0, 10, 12, 0, 0).getTime();
+
+  it("nowMs'ten önceki bir ISO zaman damgası için true döner", () => {
+    expect(isPast(new Date(2024, 0, 10, 11, 59, 59).toISOString(), now)).toBe(true);
+  });
+
+  it("nowMs'ten sonraki bir ISO zaman damgası için false döner", () => {
+    expect(isPast(new Date(2024, 0, 10, 12, 0, 1).toISOString(), now)).toBe(false);
+  });
+
+  it("nowMs ile tam eşit zaman damgası için false döner (yalnız kesin küçüklük)", () => {
+    expect(isPast(new Date(now).toISOString(), now)).toBe(false);
   });
 });
 

@@ -4,6 +4,7 @@ import { Text, View } from "react-native";
 import { useAuth } from "../../auth/auth-context";
 import { AppHeader, Card, EmptyState, ErrorState, Icon, LoadingSkeleton, ProgressBar, Screen, SectionHeader } from "../../components/ui";
 import { useApiGet } from "../../hooks/use-api";
+import { useNow } from "../../hooks/use-now";
 import { relativeDayLabel } from "../../lib/date";
 import { useTheme } from "../../theme/theme-context";
 import type { AssessmentsResponse, AttendanceSummary, CurriculumResponse, ScheduleResponse, StudentProfile } from "../../types/api";
@@ -13,6 +14,7 @@ const RECENT_LESSON_WINDOW_DAYS = 90;
 export function StudentScopeGelisimScreen({ basePath }: { basePath: "/(parent)" | "/(student)" }) {
   const t = useTheme();
   const router = useRouter();
+  const now = useNow();
   const { user } = useAuth();
   const studentId = user?.studentId;
 
@@ -27,7 +29,7 @@ export function StudentScopeGelisimScreen({ basePath }: { basePath: "/(parent)" 
   // bu öğrenciyle dersi olan tüm öğretmenler (öğretmen değişikliği geçmişini kapsar).
   const eligibleTeachers = useMemo(() => {
     if (profile.status !== "success") return [];
-    const cutoff = Date.now() - RECENT_LESSON_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+    const cutoff = now - RECENT_LESSON_WINDOW_DAYS * 24 * 60 * 60 * 1000;
     const byId = new Map<string, { teacherId: string; teacherName: string; lastLessonAt?: string }>();
     if (profile.data.teacherId) {
       byId.set(profile.data.teacherId, { teacherId: profile.data.teacherId, teacherName: profile.data.teacherName ?? "" });
@@ -46,7 +48,7 @@ export function StudentScopeGelisimScreen({ basePath }: { basePath: "/(parent)" 
       }
     }
     return [...byId.values()].sort((a, b) => a.teacherName.localeCompare(b.teacherName, "tr"));
-  }, [profile, schedule]);
+  }, [profile, schedule, now]);
 
   if (!studentId) {
     return (

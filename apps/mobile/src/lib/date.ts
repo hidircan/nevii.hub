@@ -57,6 +57,17 @@ export function isSameDay(a: Date, b: Date): boolean {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 }
 
+/**
+ * Verilen ISO zaman damgası `nowMs`'ten (render sırasında `Date.now()`
+ * çağırmak yerine çağıranın ürettiği, dışarıdan geçirilen bir referans
+ * zaman) önce mi — "geçmiş/gecikmiş" göstergelerinin ortak kök taşı.
+ * `now`'ı NASIL ürettiğine (bkz. `useNow` hook'u) karışmaz, yalnız
+ * karşılaştırır — bu yüzden saf ve test edilebilir.
+ */
+export function isPast(dateIso: string, nowMs: number): boolean {
+  return new Date(dateIso).getTime() < nowMs;
+}
+
 /** Para biçimi — Türkçe yerel ayarlarla (₺). */
 export function formatCurrency(amount: number): string {
   return new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY", maximumFractionDigits: 0 }).format(amount);

@@ -2,7 +2,8 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { Pressable, Text, View } from "react-native";
 import { AppHeader, Avatar, Card, ErrorState, Icon, LoadingSkeleton, Screen, SectionHeader, StatusBadge } from "../../../../../src/components/ui";
 import { useApiGet } from "../../../../../src/hooks/use-api";
-import { format } from "../../../../../src/lib/date";
+import { useNow } from "../../../../../src/hooks/use-now";
+import { format, isPast } from "../../../../../src/lib/date";
 import { useTheme } from "../../../../../src/theme/theme-context";
 import type { ScheduleResponse, TasksResponse, TeacherPerformanceV2Response, TeachersResponse } from "../../../../../src/types/api";
 
@@ -13,6 +14,7 @@ const perfPeriodEnd = format(now, "yyyy-MM-dd");
 export default function TeacherDetailScreen() {
   const t = useTheme();
   const router = useRouter();
+  const now = useNow();
   const { id } = useLocalSearchParams<{ id: string }>();
 
   const teachers = useApiGet<TeachersResponse>("/api/v1/teachers");
@@ -41,7 +43,7 @@ export default function TeacherDetailScreen() {
     );
   }
 
-  const upcomingCount = schedule.status === "success" ? schedule.data.lessons.filter((l) => new Date(l.startAt).getTime() >= Date.now()).length : null;
+  const upcomingCount = schedule.status === "success" ? schedule.data.lessons.filter((l) => !isPast(l.startAt, now)).length : null;
   const openTaskCount = tasks.status === "success" ? tasks.data.tasks.filter((tk) => tk.status !== "COMPLETED" && tk.status !== "ARCHIVED").length : null;
 
   return (

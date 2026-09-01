@@ -1,6 +1,7 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { relativeDayLabel } from "../../lib/date";
+import { isPast, relativeDayLabel } from "../../lib/date";
 import { useTheme } from "../../theme/theme-context";
+import { useNow } from "../../hooks/use-now";
 import { Card } from "./card";
 import { Icon } from "./icon";
 import { StatusBadge, type BadgeTone } from "./status-badge";
@@ -21,9 +22,10 @@ type Props = {
 
 export function TaskCard({ task, onPress, onComplete }: Props) {
   const t = useTheme();
+  const now = useNow();
   const priority = task.priority ? PRIORITY_MAP[task.priority] ?? { label: task.priority, tone: "neutral" as BadgeTone } : null;
   const isDone = task.status === "COMPLETED" || task.status === "ARCHIVED";
-  const overdue = !isDone && task.dueDate ? new Date(task.dueDate).getTime() < Date.now() : false;
+  const overdue = !isDone && task.dueDate ? isPast(task.dueDate, now) : false;
 
   return (
     <Card onPress={onPress}>

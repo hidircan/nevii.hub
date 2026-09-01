@@ -19,9 +19,10 @@ import {
   StatusBadge,
 } from "../../../src/components/ui";
 import { useApiGet } from "../../../src/hooks/use-api";
+import { useNow } from "../../../src/hooks/use-now";
 import { useAppForegroundRefetch } from "../../../src/hooks/use-app-foreground-refetch";
 import { useFocusRefetch } from "../../../src/hooks/use-focus-refetch";
-import { format } from "../../../src/lib/date";
+import { format, isPast } from "../../../src/lib/date";
 import { lessonStatusBadge } from "../../../src/lib/lesson-status";
 import { useTheme } from "../../../src/theme/theme-context";
 import type { HomeworkResponse, ScheduleResponse } from "../../../src/types/api";
@@ -29,6 +30,7 @@ import type { HomeworkResponse, ScheduleResponse } from "../../../src/types/api"
 export default function LessonDetailScreen() {
   const t = useTheme();
   const router = useRouter();
+  const now = useNow();
   const { user } = useAuth();
   const { lessonId } = useLocalSearchParams<{ lessonId: string }>();
   const [busyAction, setBusyAction] = useState<string | null>(null);
@@ -91,7 +93,7 @@ export default function LessonDetailScreen() {
   }
 
   const badge = lessonStatusBadge(lesson);
-  const past = new Date(lesson.endAt).getTime() < Date.now();
+  const past = isPast(lesson.endAt, now);
 
   return (
     <Screen onRefresh={schedule.refresh} refreshing={false}>

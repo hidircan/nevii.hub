@@ -17,7 +17,8 @@ import {
   StatusBadge,
 } from "../../../../src/components/ui";
 import { useApiGet } from "../../../../src/hooks/use-api";
-import { formatCurrency, shortDayMonth } from "../../../../src/lib/date";
+import { useNow } from "../../../../src/hooks/use-now";
+import { formatCurrency, isPast, shortDayMonth } from "../../../../src/lib/date";
 import { useTheme } from "../../../../src/theme/theme-context";
 import type {
   AttendanceSummary,
@@ -39,6 +40,7 @@ const CONSENT_STATUS_LABEL: Record<string, string> = {
 
 export default function AdminStudentDetail() {
   const t = useTheme();
+  const now = useNow();
   const { id } = useLocalSearchParams<{ id: string }>();
 
   const profile = useApiGet<StudentProfile>(`/api/v1/students/${id}`);
@@ -80,7 +82,7 @@ export default function AdminStudentDetail() {
   }
 
   const student = profile.data;
-  const upcoming = schedule.status === "success" ? schedule.data.lessons.filter((l) => new Date(l.startAt).getTime() >= Date.now()).length : null;
+  const upcoming = schedule.status === "success" ? schedule.data.lessons.filter((l) => !isPast(l.startAt, now)).length : null;
 
   return (
     <Screen>

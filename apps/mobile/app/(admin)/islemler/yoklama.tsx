@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Text, View } from "react-native";
 import { apiPost } from "../../../src/api/client";
+import { isPast } from "../../../src/lib/date";
 import {
   AppHeader,
   Button,
@@ -15,11 +16,13 @@ import {
   StatusBadge,
 } from "../../../src/components/ui";
 import { useApiGet } from "../../../src/hooks/use-api";
+import { useNow } from "../../../src/hooks/use-now";
 import { useTheme } from "../../../src/theme/theme-context";
 import type { AdminStudentsResponse, AttendanceSummary, ScheduleResponse } from "../../../src/types/api";
 
 export default function AdminYoklama() {
   const t = useTheme();
+  const now = useNow();
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [busyLessonId, setBusyLessonId] = useState<string | null>(null);
@@ -37,9 +40,8 @@ export default function AdminYoklama() {
 
   const pendingLessons = useMemo(() => {
     if (schedule.status !== "success") return [];
-    const now = Date.now();
-    return schedule.data.lessons.filter((l) => new Date(l.endAt).getTime() < now && !l.lessonProcessed && !l.studentAttended && !l.studentAbsent && !l.studentExcused);
-  }, [schedule]);
+    return schedule.data.lessons.filter((l) => isPast(l.endAt, now) && !l.lessonProcessed && !l.studentAttended && !l.studentAbsent && !l.studentExcused);
+  }, [schedule, now]);
 
   async function markAttendance(lessonId: string, flag: "attended" | "absent" | "excused") {
     setBusyLessonId(lessonId);

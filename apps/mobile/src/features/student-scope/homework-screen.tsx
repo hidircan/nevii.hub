@@ -6,7 +6,8 @@ import { useAuth } from "../../auth/auth-context";
 import { AppHeader, Button, Card, EmptyState, ErrorState, FilterChip, HomeworkCard, LoadingSkeleton, Screen, SectionHeader, TextField } from "../../components/ui";
 import { useApiGet } from "../../hooks/use-api";
 import { useFocusRefetch } from "../../hooks/use-focus-refetch";
-import { format } from "../../lib/date";
+import { useNow } from "../../hooks/use-now";
+import { format, isPast } from "../../lib/date";
 import { useTheme } from "../../theme/theme-context";
 import type { HomeworkResponse } from "../../types/api";
 
@@ -15,20 +16,20 @@ type Filter = "pending" | "reviewed" | "past";
 export function StudentScopeHomeworkListScreen({ basePath }: { basePath: "/(parent)" | "/(student)" }) {
   const { user } = useAuth();
   const router = useRouter();
+  const now = useNow();
   const [filter, setFilter] = useState<Filter>("pending");
   const res = useApiGet<HomeworkResponse>(user?.studentId ? `/api/v1/students/${user.studentId}/homework` : "");
   useFocusRefetch(res.refresh);
 
   const filtered = useMemo(() => {
     if (res.status !== "success") return [];
-    const now = Date.now();
     return res.data.homework.filter((h) => {
-      const overdue = h.dueDate ? new Date(h.dueDate).getTime() < now : false;
+      const overdue = h.dueDate ? isPast(h.dueDate, now) : false;
       if (filter === "reviewed") return h.status === "REVIEWED";
       if (filter === "past") return overdue && h.status !== "PENDING";
       return h.status === "PENDING" || !overdue;
     });
-  }, [res, filter]);
+  }, [res, filter, now]);
 
   return (
     <Screen onRefresh={res.refresh} refreshing={res.status === "loading"}>

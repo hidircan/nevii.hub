@@ -16,7 +16,8 @@ import {
   SectionHeader,
 } from "../../components/ui";
 import { useApiGet } from "../../hooks/use-api";
-import { format, formatCurrency, relativeDayLabel } from "../../lib/date";
+import { useNow } from "../../hooks/use-now";
+import { format, formatCurrency, isPast, relativeDayLabel } from "../../lib/date";
 import { useTheme } from "../../theme/theme-context";
 import type {
   AssessmentsResponse,
@@ -39,6 +40,7 @@ export function StudentScopeHomeScreen({ basePath }: { basePath: "/(parent)" | "
   const { user } = useAuth();
   const t = useTheme();
   const router = useRouter();
+  const now = useNow();
   const studentId = user?.studentId;
 
   const profile = useApiGet<StudentProfile>(studentId ? `/api/v1/students/${studentId}` : "");
@@ -54,19 +56,17 @@ export function StudentScopeHomeScreen({ basePath }: { basePath: "/(parent)" | "
 
   const nextLesson = useMemo(() => {
     if (schedule.status !== "success") return null;
-    const now = Date.now();
-    return schedule.data.lessons.filter((l) => new Date(l.startAt).getTime() >= now).sort((a, b) => a.startAt.localeCompare(b.startAt))[0] ?? null;
-  }, [schedule]);
+    return schedule.data.lessons.filter((l) => !isPast(l.startAt, now)).sort((a, b) => a.startAt.localeCompare(b.startAt))[0] ?? null;
+  }, [schedule, now]);
 
   const thisWeekLessons = useMemo(() => {
     if (schedule.status !== "success") return [];
-    const now = Date.now();
     const weekAhead = now + 7 * 86400000;
     return schedule.data.lessons.filter((l) => {
       const ts = new Date(l.startAt).getTime();
       return ts >= now && ts <= weekAhead;
     });
-  }, [schedule]);
+  }, [schedule, now]);
 
   const pendingHomework = homework.status === "success" ? homework.data.homework.filter((h) => h.status !== "REVIEWED") : [];
   const latestAssessment = assessments.status === "success" ? assessments.data.assessments[assessments.data.assessments.length - 1] : null;
