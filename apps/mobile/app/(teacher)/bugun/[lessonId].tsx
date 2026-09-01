@@ -199,7 +199,7 @@ export default function LessonDetailScreen() {
       <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 8 }}>
         <Icon name="information-circle-outline" size={14} color={t.colors.textFaint} />
         <Text style={[t.typography.caption, { color: t.colors.textFaint }]}>
-          İletişim ve gelişim notları için "Gelişim değerlendirmesi ekle" kullanılır.
+          İletişim ve gelişim notları için &quot;Gelişim değerlendirmesi ekle&quot; kullanılır.
         </Text>
       </View>
     </Screen>
