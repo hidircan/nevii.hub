@@ -77,7 +77,7 @@ export default async function StudentContractsCenterPage({
           </p>
           <p className="mt-1 text-sm text-amber-900/80 dark:text-amber-300/80">{davetUyari}</p>
           <p className="mt-2 text-xs text-amber-900/70 dark:text-amber-300/70">
-            Daveti öğrenci detay sayfasından ("Portal Erişimi" bölümü) tekrar gönderebilirsiniz.
+            Daveti öğrenci detay sayfasından (&quot;Portal Erişimi&quot; bölümü) tekrar gönderebilirsiniz.
           </p>
         </Card>
       ) : null}
