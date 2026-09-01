@@ -31,6 +31,30 @@ beforeEach(async () => {
   await fs.rm(CLOSED_DAYS_FILE, { force: true });
 });
 
+/**
+ * Kök neden düzeltmesi — bu dosyadaki "Güz 2026" senaryoları sabit
+ * guzDay(0) tabanlı literal tarihler kullanıyordu (bkz. AYNI sınıf
+ * düzeltme: lesson-reassignment.test.ts / lesson-series-*.test.ts).
+ * Takvim bu tarihe ulaştığında serinin ilk oluşumu geçmişe düşer,
+ * validateLessonSlot PAST_START ile reddeder. Ürün davranışı doğru;
+ * tüm "Güz 2026" tarihleri artık bugünden en az 8 gün sonraki ortak bir
+ * referans noktasından (GUZ_2026_ANCHOR) göreli olarak hesaplanıyor —
+ * aralarındaki gün farkları (0/4/7/14/18) korunuyor, yalnızca taban
+ * kayıyor. 2027 Yaz senaryoları zaten güvenle gelecekte, dokunulmadı.
+ */
+function guzAnchorDate(daysFromToday: number): Date {
+  const d = new Date();
+  d.setDate(d.getDate() + daysFromToday);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+const GUZ_2026_ANCHOR = guzAnchorDate(8);
+function guzDay(offsetDays: number): string {
+  const d = new Date(GUZ_2026_ANCHOR);
+  d.setDate(d.getDate() + offsetDays);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 async function findOpenSlot(weekday: number, hour: number): Promise<string | null> {
   const data = await readData();
   for (let offset = 1; offset <= 60; offset++) {
@@ -60,8 +84,8 @@ describe("ÖNCELİK 4 (devam) — Program ekranı akademik dönem/yıl etiketi",
       weekday: 2,
       startTime: "11:00",
       durationMinutes: 40,
-      startsOn: "2026-09-01",
-      endsOn: "2026-09-15",
+      startsOn: guzDay(0),
+      endsOn: guzDay(14),
       term: "guz",
       academicYearStart: 2026,
     });
@@ -91,8 +115,8 @@ describe("ÖNCELİK 4 (devam) — Program ekranı akademik dönem/yıl etiketi",
       weekday: 2, // Salı
       startTime: "11:00",
       durationMinutes: 40,
-      startsOn: "2026-09-01",
-      endsOn: "2026-09-15",
+      startsOn: guzDay(0),
+      endsOn: guzDay(14),
       term: "guz",
       academicYearStart: 2026,
     });
@@ -134,8 +158,8 @@ describe("ÖNCELİK 4 (devam) — Program ekranı akademik dönem/yıl etiketi",
       weekday: 2,
       startTime: "11:00",
       durationMinutes: 40,
-      startsOn: "2026-09-01",
-      endsOn: "2026-09-08",
+      startsOn: guzDay(0),
+      endsOn: guzDay(7),
       term: "guz",
       academicYearStart: 2026,
     });
@@ -148,8 +172,8 @@ describe("ÖNCELİK 4 (devam) — Program ekranı akademik dönem/yıl etiketi",
       weekday: 3,
       startTime: "12:00",
       durationMinutes: 40,
-      startsOn: "2026-09-01",
-      endsOn: "2026-09-08",
+      startsOn: guzDay(0),
+      endsOn: guzDay(7),
       term: "guz",
       academicYearStart: 2026,
     });
@@ -191,8 +215,8 @@ describe("ÖNCELİK 4 (devam) — Program ekranı akademik dönem/yıl etiketi",
       weekday: 2,
       startTime: "11:00",
       durationMinutes: 40,
-      startsOn: "2026-09-01",
-      endsOn: "2026-09-08",
+      startsOn: guzDay(0),
+      endsOn: guzDay(7),
       term: "guz",
       academicYearStart: 2026,
     });
@@ -221,8 +245,8 @@ describe("ÖNCELİK 4 (devam) — Program ekranı akademik dönem/yıl etiketi",
       weekday: 2,
       startTime: "11:00",
       durationMinutes: 40,
-      startsOn: "2026-09-01",
-      endsOn: "2026-09-08",
+      startsOn: guzDay(0),
+      endsOn: guzDay(7),
       term: "guz",
       academicYearStart: 2026,
     });
@@ -241,8 +265,8 @@ describe("ÖNCELİK 4 (devam) — Program ekranı: döneme göre gün grid'i (ba
       weekday: 1, // Pazartesi
       startTime: "11:00",
       durationMinutes: 40,
-      startsOn: "2026-09-01",
-      endsOn: "2026-09-15",
+      startsOn: guzDay(0),
+      endsOn: guzDay(14),
       term: "guz",
       academicYearStart: 2026,
     });
@@ -257,8 +281,8 @@ describe("ÖNCELİK 4 (devam) — Program ekranı: döneme göre gün grid'i (ba
       weekday: 6, // Cumartesi
       startTime: "11:00",
       durationMinutes: 40,
-      startsOn: "2026-09-05",
-      endsOn: "2026-09-19",
+      startsOn: guzDay(4),
+      endsOn: guzDay(18),
       term: "guz",
       academicYearStart: 2026,
     });
@@ -325,8 +349,8 @@ describe("ÖNCELİK 4 (devam) — Program ekranı: döneme göre gün grid'i (ba
       weekday: 1,
       startTime: "11:00",
       durationMinutes: 40,
-      startsOn: "2026-09-01",
-      endsOn: "2026-09-15",
+      startsOn: guzDay(0),
+      endsOn: guzDay(14),
       // term verilmedi
     });
     expect(monday.ok).toBe(false);
@@ -340,8 +364,8 @@ describe("ÖNCELİK 4 (devam) — Program ekranı: döneme göre gün grid'i (ba
       weekday: 6,
       startTime: "11:00",
       durationMinutes: 40,
-      startsOn: "2026-09-05",
-      endsOn: "2026-09-19",
+      startsOn: guzDay(4),
+      endsOn: guzDay(18),
     });
     expect(saturday.ok).toBe(true);
   });
