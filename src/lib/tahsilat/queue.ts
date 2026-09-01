@@ -1,6 +1,7 @@
-import { differenceInCalendarDays, parseISO } from "date-fns";
+import { parseISO } from "date-fns";
 import type { AppData, Payment } from "../types";
 import { formatMoney } from "../utils";
+import { calendarDaysBetween, DEFAULT_APP_TIMEZONE, toZonedYmd } from "../timezone";
 import type { FollowUpCase, FollowUpStatus } from "./cases";
 
 const PRIORITY_RANK: Record<string, number> = {
@@ -9,9 +10,25 @@ const PRIORITY_RANK: Record<string, number> = {
   pending: 2,
 };
 
-/** Gecikmiş bir ödeme için vade tarihinden bugüne kaç gün geçtiği (negatifse 0). */
+/**
+ * Gecikmiş bir ödeme için vade tarihinden bugüne kaç gün geçtiği (negatifse 0).
+ *
+ * Kök neden düzeltmesi — `date-fns`in `differenceInCalendarDays` fonksiyonu
+ * her iki Date'i de ÇALIŞAN MAKİNENİN yerel saat dilimine göre takvim
+ * gününe indirger. Bu fonksiyon sunucu tarafında (bkz. tahsilat-agent/page.tsx
+ * — Server Component, `buildTahsilatQueue` çağırır) çalışır; Vercel'in
+ * varsayılan UTC saat dilimi Europe/Istanbul'dan (+03:00) farklı olduğundan,
+ * "vade 2026-08-01T00:00+03:00" gibi bir tarih UTC takviminde hâlâ
+ * "2026-07-31" görünür ve gecikme günü 1 fazla/az hesaplanır — işletme
+ * sahibine YANLIŞ bir gecikme süresi gösterilir (P0: finans/tahsilat).
+ * Düzeltme AYNI kanonik desen (timezone.ts:calendarDaysBetween/toZonedYmd) —
+ * her iki tarih AÇIKÇA Europe/Istanbul takvim gününe çevrilir, hangi
+ * sunucu/makine saat diliminde çalışırsa çalışsın sonuç her zaman doğru.
+ */
 export function daysOverdue(dueDateIso: string, now: Date = new Date()): number {
-  const days = differenceInCalendarDays(now, parseISO(dueDateIso));
+  const nowYmd = toZonedYmd(now, DEFAULT_APP_TIMEZONE);
+  const dueYmd = toZonedYmd(parseISO(dueDateIso), DEFAULT_APP_TIMEZONE);
+  const days = calendarDaysBetween(dueYmd, nowYmd);
   return Math.max(days, 0);
 }
 
