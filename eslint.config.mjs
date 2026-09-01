@@ -12,6 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // .claude/worktrees altındaki agent kopyaları lint kapsamına girmesin.
+    ".claude/**",
+    // Projenin herhangi bir alt dizinindeki generated .next çıktıları lint kapsamına girmesin.
+    "**/.next/**",
   ]),
 ]);
 
