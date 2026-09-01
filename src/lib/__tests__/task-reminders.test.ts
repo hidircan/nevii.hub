@@ -1,12 +1,22 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { classifyTaskReminder, DUE_TODAY_MORNING_HOUR, buildTaskReminderText, taskReminderNotificationKind } from "../task-reminders";
 import { toZonedYmd } from "../timezone";
 
 const TZ = "Europe/Istanbul";
+const FIXED_NOW = new Date("2026-03-15T12:00:00Z");
+
+beforeEach(() => {
+  process.env.TZ = TZ;
+  vi.useFakeTimers();
+  vi.setSystemTime(FIXED_NOW);
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 function isoAtLocalNoon(daysFromToday: number, timeZone = TZ): string {
-  const now = new Date();
-  const target = new Date(now.getTime() + daysFromToday * 86_400_000);
+  const target = new Date(FIXED_NOW.getTime() + daysFromToday * 86_400_000);
   const ymd = toZonedYmd(target, timeZone);
   const [y, m, d] = ymd.split("-").map(Number);
   return new Date(Date.UTC(y!, m! - 1, d!, 9, 0, 0)).toISOString();
@@ -14,43 +24,42 @@ function isoAtLocalNoon(daysFromToday: number, timeZone = TZ): string {
 
 describe("İş Takip hatırlatma sınıflandırması — classifyTaskReminder", () => {
   it("dueDate yoksa hiçbir hatırlatma üretmez", () => {
-    expect(classifyTaskReminder({ status: "TODO", dueDate: undefined }, new Date(), TZ)).toBeNull();
+    expect(classifyTaskReminder({ status: "TODO", dueDate: undefined }, FIXED_NOW, TZ)).toBeNull();
   });
 
   it("COMPLETED/CANCELLED/ARCHIVED görevler için hiç hatırlatma üretmez (dueDate geçmiş olsa bile)", () => {
     const pastDue = isoAtLocalNoon(-5);
-    expect(classifyTaskReminder({ status: "COMPLETED", dueDate: pastDue }, new Date(), TZ)).toBeNull();
-    expect(classifyTaskReminder({ status: "CANCELLED", dueDate: pastDue }, new Date(), TZ)).toBeNull();
-    expect(classifyTaskReminder({ status: "ARCHIVED", dueDate: pastDue }, new Date(), TZ)).toBeNull();
+    expect(classifyTaskReminder({ status: "COMPLETED", dueDate: pastDue }, FIXED_NOW, TZ)).toBeNull();
+    expect(classifyTaskReminder({ status: "CANCELLED", dueDate: pastDue }, FIXED_NOW, TZ)).toBeNull();
+    expect(classifyTaskReminder({ status: "ARCHIVED", dueDate: pastDue }, FIXED_NOW, TZ)).toBeNull();
   });
 
   it("tam olarak yarın son tarihi olan açık bir görev DUE_SOON döner", () => {
     const tomorrow = isoAtLocalNoon(1);
-    const result = classifyTaskReminder({ status: "TODO", dueDate: tomorrow }, new Date(), TZ);
+    const result = classifyTaskReminder({ status: "TODO", dueDate: tomorrow }, FIXED_NOW, TZ);
     expect(result?.kind).toBe("DUE_SOON");
   });
 
   it("2+ gün sonrası son tarihli görev için hiçbir hatırlatma üretmez", () => {
     const inTwoDays = isoAtLocalNoon(3);
-    expect(classifyTaskReminder({ status: "IN_PROGRESS", dueDate: inTwoDays }, new Date(), TZ)).toBeNull();
+    expect(classifyTaskReminder({ status: "IN_PROGRESS", dueDate: inTwoDays }, FIXED_NOW, TZ)).toBeNull();
   });
 
   it("son tarih bugünse VE saat sabah eşiğinden sonraysa DUE_TODAY döner", () => {
-    const todayYmd = toZonedYmd(new Date(), TZ);
+    const todayYmd = toZonedYmd(FIXED_NOW, TZ);
     const [y, m, d] = todayYmd.split("-").map(Number);
     const dueToday = new Date(Date.UTC(y!, m! - 1, d!, 9, 0, 0)).toISOString();
-    // "Şimdi" saat eşiğinden sonra bir saat olsun.
-    const now = new Date();
+    const now = new Date(FIXED_NOW.getTime());
     now.setHours(DUE_TODAY_MORNING_HOUR + 2, 0, 0, 0);
     const result = classifyTaskReminder({ status: "BLOCKED", dueDate: dueToday }, now, TZ);
     expect(result?.kind).toBe("DUE_TODAY");
   });
 
   it("son tarih bugün AMA henüz sabah eşiği geçmediyse null döner (bir sonraki tick'te tekrar denenir)", () => {
-    const todayYmd = toZonedYmd(new Date(), TZ);
+    const todayYmd = toZonedYmd(FIXED_NOW, TZ);
     const [y, m, d] = todayYmd.split("-").map(Number);
     const dueToday = new Date(Date.UTC(y!, m! - 1, d!, 9, 0, 0)).toISOString();
-    const earlyMorning = new Date();
+    const earlyMorning = new Date(FIXED_NOW.getTime());
     earlyMorning.setHours(0, 30, 0, 0);
     const result = classifyTaskReminder({ status: "TODO", dueDate: dueToday }, earlyMorning, TZ);
     expect(result).toBeNull();
@@ -58,15 +67,14 @@ describe("İş Takip hatırlatma sınıflandırması — classifyTaskReminder", 
 
   it("geçmiş tarihli açık bir görev için OVERDUE döner", () => {
     const past = isoAtLocalNoon(-3);
-    const result = classifyTaskReminder({ status: "TODO", dueDate: past }, new Date(), TZ);
+    const result = classifyTaskReminder({ status: "TODO", dueDate: past }, FIXED_NOW, TZ);
     expect(result?.kind).toBe("OVERDUE");
   });
 
   it("OVERDUE'nun calendarDay değeri BUGÜNÜN günüdür (dueDate'in günü değil) — 'günde en fazla 1' tekilleştirmesinin temeli", () => {
     const past = isoAtLocalNoon(-10);
-    const now = new Date();
-    const result = classifyTaskReminder({ status: "TODO", dueDate: past }, now, TZ);
-    expect(result?.calendarDay).toBe(toZonedYmd(now, TZ));
+    const result = classifyTaskReminder({ status: "TODO", dueDate: past }, FIXED_NOW, TZ);
+    expect(result?.calendarDay).toBe(toZonedYmd(FIXED_NOW, TZ));
   });
 });
 
