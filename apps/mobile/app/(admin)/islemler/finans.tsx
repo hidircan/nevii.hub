@@ -1,4 +1,4 @@
-import { AppHeader, Card, EmptyState, ErrorState, LoadingSkeleton, Screen, SectionHeader, StatusBadge } from "../../../src/components/ui";
+import { AppHeader, Card, EmptyState, ErrorState, LoadingSkeleton, Screen, SectionHeader } from "../../../src/components/ui";
 import { useApiGet } from "../../../src/hooks/use-api";
 import type { AdminDashboardSummary } from "../../../src/types/api";
 import { Text } from "react-native";

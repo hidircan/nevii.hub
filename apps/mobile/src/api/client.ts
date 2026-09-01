@@ -40,7 +40,7 @@ function hostOf(url: string): string {
  * hata sayfası — route hiç yok veya yanlış sunucuya bağlanılmış demektir).
  * Dev modunda status kodu ve hedef URL console'a yazılır (asla token/secret).
  */
-function unexpectedResponseResult<T>(url: string, status: number): { ok: false; error: { code: string; message: string } } {
+function unexpectedResponseResult(url: string, status: number): { ok: false; error: { code: string; message: string } } {
   if (__DEV__) {
     console.warn(`[Nevii Hub API] ${url} → HTTP ${status} ama beklenen JSON gövdesi değil (route yok mu / yanlış sunucu mu?).`);
     return {
@@ -59,7 +59,7 @@ function unexpectedResponseResult<T>(url: string, status: number): { ok: false; 
  * sunucuya hiç ulaşılamadı). Dev modunda hedef host/port ve gerçek fetch hatası
  * console'a yazılır (asla token/secret); production'da yalnız genel mesaj gösterilir.
  */
-function networkErrorResult<T>(url: string, err: unknown): { ok: false; error: { code: string; message: string } } {
+function networkErrorResult(url: string, err: unknown): { ok: false; error: { code: string; message: string } } {
   const detail = err instanceof Error ? err.message : String(err);
 
   if (__DEV__) {
@@ -81,7 +81,7 @@ async function parseApiResponse<T>(res: Response, url: string): Promise<ApiResul
   try {
     return (await res.json()) as ApiResult<T>;
   } catch {
-    return unexpectedResponseResult<T>(url, res.status);
+    return unexpectedResponseResult(url, res.status);
   }
 }
 

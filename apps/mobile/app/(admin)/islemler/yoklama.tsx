@@ -13,7 +13,6 @@ import {
   Screen,
   SearchInput,
   SectionHeader,
-  StatusBadge,
 } from "../../../src/components/ui";
 import { useApiGet } from "../../../src/hooks/use-api";
 import { useNow } from "../../../src/hooks/use-now";

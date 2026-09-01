@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Pressable, Text } from "react-native";
 import { apiPatch } from "../../../src/api/client";
 import { useAuth } from "../../../src/auth/auth-context";
 import { AppHeader, Card, ErrorState, Icon, LoadingSkeleton, Screen } from "../../../src/components/ui";
