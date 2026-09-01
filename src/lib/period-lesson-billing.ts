@@ -1,0 +1,252 @@
+/**
+ * P0-1 — ders başı NET ücret birincil taban ücrettir; dönem tahsilatı
+ * ücretlendirilebilir planlı ders sayısı × ders başı net ücret olarak
+ * hesaplanır (aylık ücretten TÜRETME YOK — önceki taslağın tersiydi, bkz.
+ * docs/implementation-plans/per-lesson-billing-and-attendance-risk-scope.md
+ * §A.7 not). Bu dosyadaki her fonksiyon SAF'tır: I/O yok, store/DB
+ * yazmaz, aynı girişe her zaman aynı çıkışı verir. Kayıt önizlemesi, ödeme
+ * simülasyonu, sözleşme ödeme tablosu ve gerçek tahsilat planı — dördü de
+ * BU dosyadan `computePeriodBillingLines`'ı çağırmalı (ayrı, birbirinden
+ * bağımsız kopya hesap mantığı YOK).
+ *
+ * Takvim günü karşılaştırmaları HER ZAMAN Europe/Istanbul saat dilimiyle
+ * yapılır (`toZonedYmd`) — çıplak UTC gün veya sunucu yerel saati YOK.
+ */
+
+import { toZonedYmd, DEFAULT_APP_TIMEZONE } from "./timezone";
+
+export type BillableLessonType = "regular" | "makeup" | "trial" | "group";
+export type BillableLessonStatus = "scheduled" | "in_progress" | "completed" | "cancelled" | "no_show";
+
+/** Ücretlendirilebilir hesap motorunun ihtiyaç duyduğu minimal ders alanları. */
+export interface BillableLessonCandidate {
+  id: string;
+  studentId: string;
+  /** ISO 8601 zaman damgası. */
+  startAt: string;
+  type: BillableLessonType;
+  status: BillableLessonStatus;
+  /** ÖNCELİK 4 — kurumun kapalı günü olarak işaretlenmiş ders. */
+  opsClosedFlag?: boolean;
+  /** Yeni — açık ücretsiz/ikram ders bayrağı (schema'da henüz YOK, bkz. rapor §A.7). */
+  isFreeLesson?: boolean;
+}
+
+/** `MakeupRequest`'in hesap motoru için gereken minimal alanları. */
+export interface MakeupLinkCandidate {
+  sourceLessonId: string;
+  status: string;
+}
+
+/** Öğrencinin dondurulmuş olduğu takvim-günü aralığı (Europe/Istanbul, ikisi de dahil). */
+export interface FrozenRange {
+  start: string; // yyyy-MM-dd
+  end: string; // yyyy-MM-dd
+}
+
+export interface BillableLessonContext {
+  /** `resolveExcludedMakeupSourceLessonIds` ile üretilir — telafiye giden kaynak dersler. */
+  excludedSourceLessonIds: ReadonlySet<string>;
+  frozenRanges: FrozenRange[];
+}
+
+function lessonCalendarDay(lesson: Pick<BillableLessonCandidate, "startAt">): string {
+  return toZonedYmd(new Date(lesson.startAt), DEFAULT_APP_TIMEZONE);
+}
+
+function isWithinFrozenRange(day: string, ranges: FrozenRange[]): boolean {
+  return ranges.some((r) => day >= r.start && day <= r.end);
+}
+
+/**
+ * Bir `MakeupRequest` listesinden, telafiye giden (henüz iptal/expired
+ * olmamış) KAYNAK derslerin id kümesini çıkarır — `lesson-ops.ts`'teki
+ * `existingMk` filtresiyle (status !== "cancelled" && status !== "expired")
+ * BİREBİR aynı kural, yeni bir kavram icat edilmedi.
+ */
+export function resolveExcludedMakeupSourceLessonIds(
+  makeupRequests: MakeupLinkCandidate[]
+): Set<string> {
+  const excluded = new Set<string>();
+  for (const m of makeupRequests) {
+    if (m.status === "cancelled" || m.status === "expired") continue;
+    excluded.add(m.sourceLessonId);
+  }
+  return excluded;
+}
+
+/**
+ * Tek bir dersin ücretlendirilebilir olup olmadığı — TEK kaynak fonksiyon.
+ * Kurallar (P0-1 spec §C):
+ * - deneme dersi: ücretsiz
+ * - iptal edilmiş ders: ücretsiz
+ * - kurumun kapalı günü: ücretsiz
+ * - açık ücretsiz/ikram bayrağı: ücretsiz
+ * - telafiye giden KAYNAK ders: ücretsiz (yerini telafi dersi alır, çift
+ *   sayım olmaz — telafi dersinin kendisi `type:"makeup"` olarak zaten
+ *   normal şekilde sayılır)
+ * - dondurma aralığına düşen ders: ücretsiz
+ * - normal planlı ders / geldi / gelmedi / mazeretli: ücretli (bunların
+ *   hiçbiri bu fonksiyona ayrı bir statü olarak girmez — ops-flag'ler
+ *   yoklama/telafi operasyonudur, faturalandırmayı ETKİLEMEZ; yalnız temel
+ *   `status`/`type`/bayraklar faturalandırmayı belirler)
+ */
+export function isBillableLesson(
+  lesson: BillableLessonCandidate,
+  context: BillableLessonContext
+): boolean {
+  if (lesson.type === "trial") return false;
+  if (lesson.status === "cancelled") return false;
+  if (lesson.opsClosedFlag) return false;
+  if (lesson.isFreeLesson) return false;
+  if (context.excludedSourceLessonIds.has(lesson.id)) return false;
+  if (isWithinFrozenRange(lessonCalendarDay(lesson), context.frozenRanges)) return false;
+  return true;
+}
+
+/** Bir öğrencinin, verilen (dahil) takvim-günü aralığındaki ücretlendirilebilir ders sayısı. */
+export function countBillableLessonsInRange(
+  lessons: BillableLessonCandidate[],
+  studentId: string,
+  rangeStartDay: string,
+  rangeEndDay: string,
+  context: BillableLessonContext
+): number {
+  return lessons.filter((l) => {
+    if (l.studentId !== studentId) return false;
+    const day = lessonCalendarDay(l);
+    if (day < rangeStartDay || day > rangeEndDay) return false;
+    return isBillableLesson(l, context);
+  }).length;
+}
+
+export type PeriodKind = "start" | "full" | "end" | "single";
+
+export interface PeriodBoundary {
+  periodStart: string; // yyyy-MM-dd
+  periodEnd: string; // yyyy-MM-dd
+  kind: PeriodKind;
+}
+
+function daysInMonth(year: number, month1to12: number): number {
+  return new Date(Date.UTC(year, month1to12, 0)).getUTCDate();
+}
+
+function pad2(n: number): string {
+  return String(n).padStart(2, "0");
+}
+
+/**
+ * Bir kayıt/sözleşme aralığını (enrollmentStart/End, ikisi de dahil) takvim
+ * aylarına böler — ilk ve son ay kısmi (gerçek başlangıç/bitiş tarihine
+ * kenetlenir), aradakiler tam ay. Aynı takvim ayına düşerse TEK "single"
+ * dönem döner. Saf, I/O yok.
+ */
+export function splitEnrollmentIntoMonthlyPeriods(
+  enrollmentStartDay: string,
+  enrollmentEndDay: string
+): PeriodBoundary[] {
+  if (enrollmentEndDay < enrollmentStartDay) {
+    throw new Error("enrollmentEndDay, enrollmentStartDay'den önce olamaz");
+  }
+  const startYear = Number(enrollmentStartDay.slice(0, 4));
+  const startMonth = Number(enrollmentStartDay.slice(5, 7));
+  const endYear = Number(enrollmentEndDay.slice(0, 4));
+  const endMonth = Number(enrollmentEndDay.slice(5, 7));
+
+  const periods: PeriodBoundary[] = [];
+  let cursorYear = startYear;
+  let cursorMonth = startMonth;
+
+  while (cursorYear < endYear || (cursorYear === endYear && cursorMonth <= endMonth)) {
+    const isFirst = cursorYear === startYear && cursorMonth === startMonth;
+    const isLast = cursorYear === endYear && cursorMonth === endMonth;
+
+    const monthStart = `${cursorYear}-${pad2(cursorMonth)}-01`;
+    const monthEnd = `${cursorYear}-${pad2(cursorMonth)}-${pad2(daysInMonth(cursorYear, cursorMonth))}`;
+
+    const periodStart = isFirst ? enrollmentStartDay : monthStart;
+    const periodEnd = isLast ? enrollmentEndDay : monthEnd;
+
+    let kind: PeriodKind;
+    if (isFirst && isLast) kind = "single";
+    else if (isFirst) kind = "start";
+    else if (isLast) kind = "end";
+    else kind = "full";
+
+    periods.push({ periodStart, periodEnd, kind });
+
+    cursorMonth += 1;
+    if (cursorMonth > 12) {
+      cursorMonth = 1;
+      cursorYear += 1;
+    }
+  }
+  return periods;
+}
+
+export interface PeriodBillingLine {
+  periodStart: string;
+  periodEnd: string;
+  kind: PeriodKind;
+  billableLessonCount: number;
+  perLessonNetFee: number;
+  /** billableLessonCount × perLessonNetFee — tam sayı TL, kuruş/float aritmetiği YOK. */
+  autoCalculatedAmount: number;
+}
+
+export interface ComputePeriodBillingLinesInput {
+  enrollmentStartDay: string; // yyyy-MM-dd
+  enrollmentEndDay: string; // yyyy-MM-dd
+  /** Tam sayı TL — ders başı net (birincil) ücret. */
+  perLessonNetFee: number;
+  lessons: BillableLessonCandidate[];
+  studentId: string;
+  makeupRequests: MakeupLinkCandidate[];
+  frozenRanges?: FrozenRange[];
+}
+
+/**
+ * TEK, paylaşılan hesap motoru — kayıt önizlemesi, ödeme simülasyonu,
+ * sözleşme ödeme tablosu ve gerçek tahsilat planının HEPSİ bu fonksiyonu
+ * çağırmalı. Saf: aynı girdi → aynı çıktı, store/DB'ye dokunmaz.
+ */
+export function computePeriodBillingLines(
+  input: ComputePeriodBillingLinesInput
+): PeriodBillingLine[] {
+  if (!Number.isInteger(input.perLessonNetFee) || input.perLessonNetFee < 0) {
+    throw new Error("perLessonNetFee tam sayı ve negatif olmayan bir TL tutarı olmalı");
+  }
+  const excludedSourceLessonIds = resolveExcludedMakeupSourceLessonIds(input.makeupRequests);
+  const frozenRanges = input.frozenRanges ?? [];
+  const periods = splitEnrollmentIntoMonthlyPeriods(input.enrollmentStartDay, input.enrollmentEndDay);
+
+  return periods.map((p) => {
+    const billableLessonCount = countBillableLessonsInRange(
+      input.lessons,
+      input.studentId,
+      p.periodStart,
+      p.periodEnd,
+      { excludedSourceLessonIds, frozenRanges }
+    );
+    return {
+      periodStart: p.periodStart,
+      periodEnd: p.periodEnd,
+      kind: p.kind,
+      billableLessonCount,
+      perLessonNetFee: input.perLessonNetFee,
+      autoCalculatedAmount: billableLessonCount * input.perLessonNetFee,
+    };
+  });
+}
+
+const PERIOD_LABELS: Record<PeriodKind, string> = {
+  start: "Başlangıç dönemi",
+  full: "Tam dönem",
+  end: "Bitiş dönemi",
+  single: "Tek kısa dönem",
+};
+
+export function periodKindLabel(kind: PeriodKind): string {
+  return PERIOD_LABELS[kind];
+}

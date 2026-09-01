@@ -9629,6 +9629,13 @@ export async function getAttendanceCalendarMonthTool(
     month: number;
     term: string;
     withinTerm: boolean;
+    billing?: {
+      plannedLessonCount: number;
+      /** LEGACY tahmin — aylık ücretten türetilmiş, `Student.perLessonNetFee` eklenene kadar. */
+      legacyUnitFee: number;
+      suggestedAmount: number;
+      usedFallback: boolean;
+    };
     days: Array<{
       date: string;
       status: string;
@@ -9727,7 +9734,51 @@ export async function getAttendanceCalendarMonthTool(
     return { ...s, lessonIds, lessons, payments };
   });
 
-  return ok({ year: v.data.year, month: v.data.month, term, withinTerm, days });
+  // P0-1 düzeltmesi — ücretlendirilebilir ders TANIMI artık TEK kaynaktan
+  // (period-lesson-billing.ts `isBillableLesson`) geliyor: deneme/iptal/
+  // kurum-kapalı/telafi-kaynağı dersler burada da hariç tutulur (eski
+  // `countPlannedLessonsInMonth` yalnız `status!=="cancelled"` bakıyordu).
+  // `Student.perLessonNetFee` (birincil ders başı ücret) alanı henüz
+  // migration'a bağlanmadı (bkz. per-lesson-billing-and-attendance-risk-scope.md
+  // §A.7) — bu ekran o alan gelene kadar aylık ücretten türetilen LEGACY
+  // bir tahmini gösterir, yeni birincil model DEĞİLDİR.
+  const { countBillableLessonsInRange, resolveExcludedMakeupSourceLessonIds } = await import(
+    "../period-lesson-billing"
+  );
+  const pkg = student.packageId ? data.packages?.find((p) => p.id === student.packageId) : undefined;
+  const monthPrefix = `${v.data.year}-${String(v.data.month).padStart(2, "0")}`;
+  const monthStartDay = `${monthPrefix}-01`;
+  const monthEndDay = `${monthPrefix}-${String(new Date(Date.UTC(v.data.year, v.data.month, 0)).getUTCDate()).padStart(2, "0")}`;
+  const excludedSourceLessonIds = resolveExcludedMakeupSourceLessonIds(
+    data.makeupRequests.map((m) => ({ sourceLessonId: m.sourceLessonId, status: m.status }))
+  );
+  const plannedLessonCount = countBillableLessonsInRange(
+    data.lessons.map((l) => ({
+      id: l.id,
+      studentId: l.studentId,
+      startAt: l.startAt,
+      type: l.type,
+      status: l.status,
+      opsClosedFlag: l.opsClosedFlag,
+    })),
+    student.id,
+    monthStartDay,
+    monthEndDay,
+    { excludedSourceLessonIds, frozenRanges: [] }
+  );
+  const legacyTypicalMonthlyLessonCount =
+    pkg?.monthlyLessonCount && pkg.monthlyLessonCount > 0
+      ? pkg.monthlyLessonCount
+      : Math.max(1, student.weeklyLessonCount) * 4;
+  const legacyUnitFee = Math.round(student.monthlyFee / Math.max(1, legacyTypicalMonthlyLessonCount));
+  const billing = {
+    plannedLessonCount,
+    legacyUnitFee,
+    suggestedAmount: plannedLessonCount > 0 ? legacyUnitFee * plannedLessonCount : Math.max(0, Math.round(student.monthlyFee)),
+    usedFallback: plannedLessonCount <= 0,
+  };
+
+  return ok({ year: v.data.year, month: v.data.month, term, withinTerm, billing, days });
 }
 
 /** ÖNCELİK 4 — admin özel kapalı/zorla-açık gün istisnası (audit'li). */

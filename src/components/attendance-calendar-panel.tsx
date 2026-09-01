@@ -123,6 +123,13 @@ type MonthResponse = {
   year: number;
   month: number;
   term: string;
+  billing?: {
+    plannedLessonCount: number;
+    /** LEGACY tahmin — aylık ücretten türetilmiş, `Student.perLessonNetFee` eklenene kadar. */
+    legacyUnitFee: number;
+    suggestedAmount: number;
+    usedFallback: boolean;
+  };
   days: DayInfo[];
 };
 
@@ -439,7 +446,7 @@ export function AttendanceCalendarPanel({
     const raw = amounts[key];
     const amount =
       raw === undefined || raw.trim() === ""
-        ? defaultMonthlyAmount
+        ? (byMonth[key]?.billing?.suggestedAmount ?? defaultMonthlyAmount)
         : Number(raw);
     if (amount === undefined || !Number.isFinite(amount) || amount < 0) {
       setError("Geçerli bir tutar girin.");
@@ -619,7 +626,13 @@ export function AttendanceCalendarPanel({
                   <h3 className="text-sm font-semibold text-[var(--color-text)]">
                     {MONTH_LABELS[m.month - 1]} {m.year}
                   </h3>
-                  {canEdit && !readOnly && typeof defaultMonthlyFee === "number" ? (
+                  {canEdit && !readOnly && data?.billing ? (
+                    <p className="text-[10px] text-[var(--color-text-muted)]">
+                      {data.billing.plannedLessonCount} planlanan ücretlendirilebilir ders ×{" "}
+                      {formatMoneyTL(data.billing.legacyUnitFee)} = {formatMoneyTL(data.billing.suggestedAmount)}
+                      {data.billing.usedFallback ? " (plan yok, aylık paket)" : ""}
+                    </p>
+                  ) : canEdit && !readOnly && typeof defaultMonthlyFee === "number" ? (
                     <p className="text-[10px] text-[var(--color-text-muted)]">
                       Varsayılan aylık ücret: {formatMoneyTL(defaultMonthlyFee)}
                     </p>
@@ -631,7 +644,11 @@ export function AttendanceCalendarPanel({
                       type="number"
                       min={0}
                       placeholder={
-                        defaultMonthlyAmount !== undefined ? String(defaultMonthlyAmount) : "Tutar"
+                        data?.billing?.suggestedAmount !== undefined
+                          ? String(data.billing.suggestedAmount)
+                          : defaultMonthlyAmount !== undefined
+                            ? String(defaultMonthlyAmount)
+                            : "Tutar"
                       }
                       value={amounts[key] ?? ""}
                       onChange={(e) => setAmounts((prev) => ({ ...prev, [key]: e.target.value }))}

@@ -183,6 +183,28 @@ verification (Chrome install needs sudo, unavailable in this environment).
 
 ## Open work (large, still not attempted)
 
+- [ ] **Per-lesson period billing + admin attendance-risk report** (owner
+      request, 2026-09-02): read-only audit + spec written to
+      `docs/implementation-plans/per-lesson-billing-and-attendance-risk-scope.md`
+      — no code changed. Key findings: existing uncommitted
+      `src/lib/period-lesson-billing.ts` derives per-lesson fee FROM the
+      monthly fee (opposite direction from the new requirement, which wants
+      per-lesson fee as the primary field) and is wired into only one screen
+      (attendance calendar panel), not the 4 required surfaces; "billable
+      lesson" has no single definition today (trial/closed-day/makeup-source/
+      freeze not excluded); first-payment flow currently REJECTS any manual
+      amount that doesn't match the calculated fee (no override+audit path
+      yet) but its double-write-prevention (`reuseFirstPaymentId`) is already
+      solid and should be reused as-is. Attendance side: `lesson-ops.ts`'s
+      "İşlendi"/"Telafi" flags have no reason capture today (makeup's
+      `MakeupRequest.reason` is hardcoded, not real user input);
+      `notifyAdmins()`/`listAdminUserIdsForTenant()` already give tenant+
+      role-scoped admin notification for free but its dedupe is a 24h window,
+      not monthly; `LessonOpsBadges`' current colors are inverted vs. the
+      requested scheme (İşlendi is reddish today, should be yellow; Telafi is
+      yellow today, should be red). Owner decisions needed before
+      implementation: same-day-cancellation dependency, new "free lesson"/
+      "per-lesson primary fee" concepts need DECISIONS.md entries.
 - [ ] Puppeteer-based (or similar) PDF pipeline for real page-number
       footers — infra decision (bundle size, serverless cold start).
 - [ ] "Ödeme Şekli" column fix to the active contract template's payment
