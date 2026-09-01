@@ -1,9 +1,16 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useState } from "react";
 import { Animated, StyleSheet, View } from "react-native";
 import { useTheme } from "../../theme/theme-context";
 
 function useShimmer() {
-  const value = useRef(new Animated.Value(0.4)).current;
+  // `Animated.Value` render boyunca kimliği SABİT kalması gereken, mutasyonu
+  // React state'i üzerinden değil kendi (native sürücülü) iç mekanizmasıyla
+  // yapılan bir nesne — bu yüzden `useRef` yerine `useState`'in lazy
+  // initializer'ında tutuyoruz (setter'ı hiç çağrılmıyor, kimlik `useRef`
+  // ile aynı şekilde stabil kalıyor). react-hooks/refs, render sırasında
+  // `.current` okumayı yasaklıyor; `useState`'in lazy initializer'ı ise
+  // (tek seferlik, render'a bağlı olmayan üretim) bu kısıtlamadan muaf.
+  const [value] = useState(() => new Animated.Value(0.4));
   useEffect(() => {
     const loop = Animated.loop(
       Animated.sequence([
