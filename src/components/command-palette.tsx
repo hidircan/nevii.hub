@@ -146,7 +146,6 @@ export function CommandPalette({ role }: { role?: AppRole }) {
   useEffect(() => {
     const q = query.trim();
     if (!open || q.length < 2) return;
-    setEntityLoading(true);
     const seq = ++requestSeqRef.current;
     const timer = setTimeout(async () => {
       try {
@@ -301,7 +300,17 @@ export function CommandPalette({ role }: { role?: AppRole }) {
                 ref={inputRef}
                 type="text"
                 value={query}
-                onChange={(e) => setQuery(e.target.value)}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setQuery(next);
+                  // Yeni sorgu aktif aramayı tetikleyecekse yükleme durumunu
+                  // BURADA (olay işleyicisinde) senkron ayarla — effect'in
+                  // gövdesinde senkron setState kademeli render'a yol açar
+                  // (react-hooks/set-state-in-effect); asıl fetch/debounce
+                  // effect'te kalır, yalnızca "yükleniyor" bayrağı sorgunun
+                  // kendi kaynağına (bu olay) taşındı.
+                  if (open && next.trim().length >= 2) setEntityLoading(true);
+                }}
                 onKeyDown={onInputKeyDown}
                 placeholder="Sayfa, işlem, öğrenci, öğretmen veya personel ara…"
                 autoComplete="off"
