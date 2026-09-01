@@ -20,18 +20,50 @@ beforeEach(async () => {
   await fs.rm(NOTIFICATIONS_FILE, { force: true });
 });
 
+/**
+ * Kök neden düzeltmesi — startsOn/endsOn eskiden sabit "2026-09-01"/"2026-09-15"
+ * literal tarihleriydi. Takvim bu tarihe ulaştığında (paket tam o gün ya da
+ * sonrasında çalıştırıldığında) serinin ilk oluşumu "bugün, saat 13:00" olur
+ * ve gün ilerledikçe bu saat GEÇMİŞE düşer — validateLessonSlot PAST_START
+ * ile reddeder; createLessonSeriesTool skipConflicts vermediğinden TEK bir
+ * geçmiş oluşum bile TÜM seriyi engeller (bkz. lesson-series.ts
+ * createLessonSeriesData — "TEK bir çakışma bile tüm seriyi engeller").
+ * Bu ÜRÜN davranışı doğru (geçmişe ders planlanamaz) — düzeltme burada,
+ * testin HER ZAMAN bugünden en az bir hafta sonraki bir Salı'dan başlamasını
+ * sağlamakta; hangi gün/saatte çalıştırılırsa çalıştırılsın asla geçmişe
+ * düşmez, weekday=Salı (t1 + alternatif öğretmenin uygun olduğu gün) korunur.
+ */
+const SERIES_WEEKDAY = 2; // Salı
+
+function nextWeekdayAtLeastOneWeekOut(weekday: number): Date {
+  const now = new Date();
+  const daysAhead = ((weekday - now.getDay() + 7) % 7) + 7;
+  const d = new Date(now);
+  d.setDate(d.getDate() + daysAhead);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function ymd(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+const seriesStartsOn = nextWeekdayAtLeastOneWeekOut(SERIES_WEEKDAY);
+const seriesEndsOn = new Date(seriesStartsOn);
+seriesEndsOn.setDate(seriesEndsOn.getDate() + 14);
+
 const seriesInput = {
   studentId: "s1",
   teacherId: "t1",
   roomId: "r1",
   branchId: "erzene",
   instrument: "Piyano",
-  weekday: 2,
+  weekday: SERIES_WEEKDAY,
   // 13:00 — t1 (10-19) VE alternatif t2 (12-20) için AYNI ANDA uygun, erzene şubesinde.
   startTime: "13:00",
   durationMinutes: 40,
-  startsOn: "2026-09-01",
-  endsOn: "2026-09-15",
+  startsOn: ymd(seriesStartsOn),
+  endsOn: ymd(seriesEndsOn),
 };
 
 async function createTestSeries() {
