@@ -160,6 +160,28 @@ export function createSeedData(): AppData {
       maxDailyLessons: 6,
       active: true,
       color: "#ea580c",
+    },
+    /**
+     * Kalıcı doğrulama kaydı (2026-08-31, CEO bildirdi kök neden düzeltmesi)
+     * — "iş kaydı VAR ama User/portal hesabı hiç YOK" senaryosunu üreten
+     * gerçek bir öğretmen kaydı. Bootstrap (HASHED, src/lib/auth/users.ts)
+     * dizisinde BİLİNÇLİ olarak YOK — portal-access-management.test.ts'in
+     * "User kaydı olmayan mevcut öğretmen" testi tam olarak bunu doğrular.
+     * `active:false` — programlama/atama ekranlarında görünmez (yalnızca
+     * portal daveti akışı için var), ders/oda/şube verisiyle hiçbir
+     * etkileşimi yok.
+     */
+    {
+      id: "tch_7epmkwtkfvi8",
+      name: "P0 Doğrulama Öğretmeni",
+      email: "p0-dogrulama@test.com",
+      phone: "5550001122",
+      branchId: "erzene" as BranchId,
+      instruments: ["Piyano"] as Instrument[],
+      availability: [],
+      maxDailyLessons: 8,
+      active: false,
+      color: "#0891b2",
     }
   ];
 
