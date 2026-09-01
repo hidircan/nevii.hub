@@ -20,6 +20,7 @@ import {
 import type { LessonCommunicationMessage } from "@/lib/whatsapp-templates";
 import type { LessonSlotSuggestion } from "@/lib/lesson-scheduling";
 import type { SeriesOccurrenceCheck } from "@/lib/lesson-series";
+import { DEFAULT_APP_TIMEZONE, zonedHm } from "@/lib/timezone";
 import { Badge, Button, Card, Input, Label, Select } from "@/components/ui";
 import { LessonOpsActions, LessonOpsBadges } from "@/components/lesson-ops-actions";
 import { LessonReassignmentModal } from "@/components/lesson-reassignment-modal";
@@ -94,8 +95,10 @@ function fixedHolidayName(day: Date): string | null {
 }
 
 function minutesOfDay(iso: string) {
-  const d = parseISO(iso);
-  return d.getHours() * 60 + d.getMinutes();
+  // Kök neden düzeltmesi — bkz. timezone.ts zonedHm yorumu: getHours()/getMinutes()
+  // ÇALIŞAN MAKİNENİN yerel saat dilimini kullanır, ISO'nun kendi ofsetini değil.
+  const [h, m] = zonedHm(parseISO(iso), DEFAULT_APP_TIMEZONE).split(":").map(Number);
+  return (h ?? 0) * 60 + (m ?? 0);
 }
 
 /**
@@ -215,7 +218,7 @@ export function lessonHoverCardLines(
   room?: Room,
   branchName?: string
 ): string[] {
-  const timeRange = `${format(parseISO(lesson.startAt), "HH:mm")}–${format(parseISO(lesson.endAt), "HH:mm")}`;
+  const timeRange = `${zonedHm(parseISO(lesson.startAt), DEFAULT_APP_TIMEZONE)}–${zonedHm(parseISO(lesson.endAt), DEFAULT_APP_TIMEZONE)}`;
   const dateLabel = format(parseISO(lesson.startAt), "d MMMM yyyy, EEEE", { locale: tr });
   const lines = [student?.name ?? "Öğrenci bilinmiyor", dateLabel, timeRange];
   if (teacher?.name) lines.push(`Öğretmen: ${teacher.name}`);
@@ -269,7 +272,7 @@ export function lessonAccessibleLabel(
   room?: Room,
   branchName?: string
 ): string {
-  const timeRange = `${format(parseISO(lesson.startAt), "HH:mm")}–${format(parseISO(lesson.endAt), "HH:mm")}`;
+  const timeRange = `${zonedHm(parseISO(lesson.startAt), DEFAULT_APP_TIMEZONE)}–${zonedHm(parseISO(lesson.endAt), DEFAULT_APP_TIMEZONE)}`;
   const parts = [
     student?.name ?? "Öğrenci bilinmiyor",
     timeRange,
@@ -295,7 +298,7 @@ function LessonCardBody({
   branchName?: string;
   tier: "min" | "compact" | "full";
 }) {
-  const timeRange = `${format(parseISO(lesson.startAt), "HH:mm")}–${format(parseISO(lesson.endAt), "HH:mm")}`;
+  const timeRange = `${zonedHm(parseISO(lesson.startAt), DEFAULT_APP_TIMEZONE)}–${zonedHm(parseISO(lesson.endAt), DEFAULT_APP_TIMEZONE)}`;
   return (
     <>
       {lesson.availabilityOverride ? (

@@ -67,6 +67,30 @@ export function calendarDaysBetween(aYmd: string, bYmd: string): number {
 }
 
 /**
+ * Kök neden düzeltmesi (2026-09-01, program-studio.tsx zaman etiketleri) —
+ * ders kartlarında/aria-label'larda saat `date-fns`in `format(parseISO(iso),
+ * "HH:mm")` kalıbıyla üretiliyordu; bu, `Date.getHours()`/`getMinutes()` gibi
+ * ÇALIŞAN MAKİNENİN yerel saat dilimini kullanır, ISO string'in kendi
+ * (+03:00) ofsetini DEĞİL. Gerçek kullanıcıların tarayıcısı Türkiye saatine
+ * ayarlı olduğu için bu genelde görünmez kalır — ama sunucu/CI gibi UTC
+ * saat dilimli ortamlarda (bu deponun test paketi dahil) dersler 3 saat
+ * KAYMIŞ görünür. `toZonedYmd` ile AYNI desen: `Intl.DateTimeFormat`
+ * üzerinden AÇIKÇA `Europe/Istanbul` istenir — hangi makinede çalışırsa
+ * çalışsın her zaman doğru saat.
+ */
+export function zonedHm(date: Date, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(date);
+  const h = parts.find((p) => p.type === "hour")?.value ?? "00";
+  const m = parts.find((p) => p.type === "minute")?.value ?? "00";
+  return `${h}:${m}`;
+}
+
+/**
  * P0 (2026-08-31, hydration hotfix) — kullanıcıya görünen TÜM Türkçe
  * tarihler (sözleşme, kayıt, taksit, ödev vb.) için TEK kanonik formatlayıcı.
  *
