@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { LESSON_DURATION_OPTIONS } from "./lesson-duration";
+import { LESSON_DURATION_OPTIONS, TRIAL_LESSON_DURATION_OPTIONS } from "./lesson-duration";
 import { INSTRUMENTS } from "./types";
 
 /** Faz 1A — tek bir ödeme günü aralığı (1–31, dahil, start ≤ end). */
@@ -970,13 +970,19 @@ export const createTrialLessonSchema = z.object({
   teacherId: z.string().min(1),
   startAt: z.string().min(1),
   /**
-   * Deneme dersi normal ders serisi/paket planlamasından AYRI bir akıştır —
-   * bu yüzden normal derslerin sabit 30/40/50 dk kısıtına (bkz.
-   * `src/lib/lesson-duration.ts` LESSON_DURATION_OPTIONS) tabi DEĞİLDİR.
-   * Yalnızca makul bir aralıkla (1 dk – 4 saat) sınırlanır; kayıt öncesi
-   * tanıtım dersi olduğu için süresi okulun kendi takdirine bırakılmıştır.
+   * KESİN İŞ KURALI (2026-09-01 revizyonu) — deneme dersleri öğretmenlerin
+   * ders araları için planlanır ve yalnızca 10, 15 veya 20 dakika olabilir
+   * (bkz. `src/lib/lesson-duration.ts` TRIAL_LESSON_DURATION_OPTIONS).
+   * Normal ders serisinin sabit 30/40/50 dk kısıtıyla (LESSON_DURATION_OPTIONS)
+   * KARIŞTIRILMAMALI — bu iki küme birbirinden bağımsızdır. 20 dakikadan
+   * uzun bir deneme dersi ASLA kabul edilmez; istemci yalnızca 10/15/20
+   * sunsa bile sunucu bu kuralı bağımsız olarak doğrular.
    */
-  durationMinutes: z.coerce.number().int().min(1).max(240),
+  durationMinutes: z.coerce
+    .number()
+    .refine((v) => (TRIAL_LESSON_DURATION_OPTIONS as readonly number[]).includes(v), {
+      message: "Deneme dersi süresi yalnızca 10, 15 veya 20 dakika olabilir.",
+    }),
   notes: z.string().max(2000).optional(),
 });
 

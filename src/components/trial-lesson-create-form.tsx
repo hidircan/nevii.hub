@@ -20,7 +20,7 @@ export function TrialLessonCreateForm({
   const [branchId, setBranchId] = useState(branches[0]?.id ?? "");
   const [teacherId, setTeacherId] = useState(teachers[0]?.id ?? "");
   const [startAt, setStartAt] = useState("");
-  const [durationMinutes, setDurationMinutes] = useState("40");
+  const [durationMinutes, setDurationMinutes] = useState("15");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -105,20 +105,19 @@ export function TrialLessonCreateForm({
       <div>
         <Label>Süre (dk)</Label>
         {/*
-          Deneme dersi normal derslerin sabit 30/40/50 dk seçenekleriyle
-          SINIRLI DEĞİL — okul, tanıtım dersini istediği süreyle
-          planlayabilir (bkz. createTrialLessonSchema, yalnızca 1-240 dk
-          aralığıyla sınırlı).
+          KESİN İŞ KURALI (2026-09-01 revizyonu) — deneme dersleri
+          öğretmenlerin ders araları için planlanır, yalnızca 10, 15 veya 20
+          dakika olabilir (bkz. createTrialLessonSchema /
+          TRIAL_LESSON_DURATION_OPTIONS). Normal ders serisinin 30/40/50 dk
+          seçenekleriyle KARIŞTIRILMAMALI. Backend bu kuralı istemciden
+          bağımsız olarak da doğrular — bu select yalnızca kullanıcı
+          deneyimi içindir.
         */}
-        <Input
-          type="number"
-          min={1}
-          max={240}
-          step={1}
-          value={durationMinutes}
-          onChange={(e) => setDurationMinutes(e.target.value)}
-          required
-        />
+        <Select value={durationMinutes} onChange={(e) => setDurationMinutes(e.target.value)}>
+          <option value="10">10 dk</option>
+          <option value="15">15 dk</option>
+          <option value="20">20 dk</option>
+        </Select>
       </div>
       {error ? (
         <p className="sm:col-span-2 text-xs font-medium text-rose-600" role="alert">
