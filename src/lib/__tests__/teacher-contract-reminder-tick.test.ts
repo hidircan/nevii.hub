@@ -4,6 +4,7 @@ import path from "path";
 import { resolveDataDir } from "../config";
 import { createTeacherTool, archiveTeacherTool, updateTeacherProfileTool } from "../services/tools";
 import { NOTIFICATIONS_FILE, listAllNotifications } from "../notifications";
+import { INSTRUMENT_CATALOG_FILE } from "../instrument-catalog";
 import { runTeacherContractReminderTick } from "../teacher-contract-reminder-tick";
 import { DEFAULT_TENANT_ID } from "../auth/config";
 import type { ServiceContext } from "../services/context";
@@ -46,6 +47,7 @@ beforeEach(async () => {
   vi.setSystemTime(FIXED_NOW);
   await fs.rm(DATA_FILE, { force: true });
   await fs.rm(NOTIFICATIONS_FILE, { force: true });
+  await fs.rm(INSTRUMENT_CATALOG_FILE, { force: true });
 });
 
 afterEach(() => {

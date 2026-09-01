@@ -7,6 +7,7 @@ import { readData } from "../store";
 import { DEFAULT_TENANT_ID } from "../auth/config";
 import type { ServiceContext } from "../services/context";
 import { validateLessonSlot } from "../makeup-engine";
+import { INSTRUMENT_CATALOG_FILE } from "../instrument-catalog";
 
 const DATA_FILE = path.join(resolveDataDir(path.join(process.cwd(), "data")), "store.json");
 
@@ -22,6 +23,7 @@ function ctx(overrides?: Partial<ServiceContext>): ServiceContext {
 
 beforeEach(async () => {
   await fs.rm(DATA_FILE, { force: true });
+  await fs.rm(INSTRUMENT_CATALOG_FILE, { force: true });
 });
 
 describe("öğretmen oluşturma anında müsaitlik", () => {
