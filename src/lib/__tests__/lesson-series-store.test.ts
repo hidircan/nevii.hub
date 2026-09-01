@@ -16,17 +16,45 @@ beforeEach(async () => {
   await fs.rm(DATA_FILE, { force: true });
 });
 
+/**
+ * Kök neden düzeltmesi — startsOn/endsOn eskiden sabit "2026-09-01"/"2026-09-15"
+ * literal tarihleriydi (bkz. lesson-reassignment.test.ts / lesson-series-tools.test.ts'deki
+ * AYNI sınıf düzeltme). Takvim bu tarihe ulaştığında serinin ilk oluşumu
+ * geçmişe düşer, validateLessonSlot PAST_START ile reddeder ve addLessonSeries
+ * skipConflicts vermediğinden TÜM seri engellenir. Ürün davranışı doğru;
+ * düzeltme testin HER ZAMAN bugünden en az bir hafta sonraki bir Salı'dan
+ * başlamasını sağlamakta.
+ */
+const BASE_PARAMS_WEEKDAY = 2; // Salı
+
+function nextWeekdayAtLeastOneWeekOut(weekday: number): Date {
+  const now = new Date();
+  const daysAhead = ((weekday - now.getDay() + 7) % 7) + 7;
+  const d = new Date(now);
+  d.setDate(d.getDate() + daysAhead);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function ymd(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+const baseParamsStartsOn = nextWeekdayAtLeastOneWeekOut(BASE_PARAMS_WEEKDAY);
+const baseParamsEndsOn = new Date(baseParamsStartsOn);
+baseParamsEndsOn.setDate(baseParamsEndsOn.getDate() + 14);
+
 const baseParams: SeriesParams = {
   studentId: "s1",
   teacherId: "t1",
   roomId: "r1",
   branchId: "erzene",
   instrument: "Piyano",
-  weekday: 2,
+  weekday: BASE_PARAMS_WEEKDAY,
   startTime: "11:00",
   durationMinutes: 45,
-  startsOn: "2026-09-01",
-  endsOn: "2026-09-15",
+  startsOn: ymd(baseParamsStartsOn),
+  endsOn: ymd(baseParamsEndsOn),
 };
 
 describe("addLessonSeries (store)", () => {
