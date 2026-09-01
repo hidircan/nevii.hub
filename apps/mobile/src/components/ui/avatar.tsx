@@ -34,10 +34,19 @@ type Props = {
 export function Avatar({ name, size = 40, photoPath, onPhotoLoad, onPhotoError }: Props) {
   const t = useTheme();
   const [authHeader, setAuthHeader] = useState<string | null>(null);
-  const [failed, setFailed] = useState(false);
+  // `failed`i effect gövdesinde senkron `setFailed(false)` ile sıfırlamak
+  // yerine (react-hooks/set-state-in-effect), hangi photoPath için
+  // başarısız olduğunu tutup render sırasında karşılaştırıyoruz — photoPath
+  // değiştiğinde otomatik olarak "başarısız değil" olarak türetiliyor.
+  // (Bilinen küçük sınır durumu: aynı photoPath değerine ikinci kez, arada
+  // FARKLI bir photoPath'ten geçmeden dönülürse — pratikte bu bileşenin
+  // kullanım biçiminde olmuyor, her Avatar sabit bir kişiye bağlı — eski
+  // başarısızlık damgası hâlâ eşleşir ve fallback'te kalır; fotoğraf
+  // gerçekten değiştiğinde her zaman doğru sıfırlanır.)
+  const [failedFor, setFailedFor] = useState<string | null>(null);
+  const failed = !!photoPath && failedFor === photoPath;
 
   useEffect(() => {
-    setFailed(false);
     if (!photoPath) {
       onPhotoError?.();
       return;
@@ -61,7 +70,7 @@ export function Avatar({ name, size = 40, photoPath, onPhotoLoad, onPhotoError }
         source={{ uri: `${API_BASE_URL}${photoPath}`, headers: { Authorization: authHeader } }}
         style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: bg }}
         onError={() => {
-          setFailed(true);
+          setFailedFor(photoPath ?? null);
           onPhotoError?.();
         }}
         onLoad={onPhotoLoad}

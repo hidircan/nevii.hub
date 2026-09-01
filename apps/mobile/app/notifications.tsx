@@ -20,15 +20,25 @@ export default function NotificationsScreen() {
   const [readIds, setReadIds] = useState<Set<string>>(new Set());
   const fetchingRef = useRef(false);
 
-  const loadFirstPage = useCallback(() => {
-    setState({ status: "loading" });
+  // Mount effect'i, senkron setState yapan loadFirstPage'i DEĞİL, yalnız
+  // asenkron işi içeren fetchFirstPage'i çağırıyor (react-hooks/set-state-in-effect
+  // effect gövdesinden [transitif olarak da] senkron setState'i yasaklıyor).
+  // loadFirstPage hâlâ var ve `setState({status:"loading"})` içeriyor —
+  // ama yalnız onRetry/onRefresh'ten (event handler, effect değil)
+  // çağrıldığı için kural onu sorun etmiyor.
+  const fetchFirstPage = useCallback(() => {
     apiGet<NotificationsResponse>("/api/v1/notifications").then((res) => {
       if (res.ok) setState({ status: "success", notifications: res.data.notifications, nextCursor: res.data.nextCursor ?? null });
       else setState({ status: "error", message: res.error.message });
     });
   }, []);
 
-  useEffect(() => loadFirstPage(), [loadFirstPage]);
+  const loadFirstPage = useCallback(() => {
+    setState({ status: "loading" });
+    fetchFirstPage();
+  }, [fetchFirstPage]);
+
+  useEffect(() => fetchFirstPage(), [fetchFirstPage]);
 
   async function loadMore() {
     if (state.status !== "success" || !state.nextCursor || fetchingRef.current) return;
