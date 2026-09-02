@@ -4,13 +4,14 @@ import { startOfMonth, endOfMonth, format } from "date-fns";
 import { tr } from "date-fns/locale";
 import { readData } from "@/lib/store";
 import { Badge, Card } from "@/components/ui";
+import { LessonStatusBadge } from "@/components/lesson-status-badge";
 import { formatDate, formatDateTime, formatMoney, formatTime } from "@/lib/utils";
 import { computeTeacherEarningsForPeriod } from "@/lib/teacher-payout";
 import { CalendarDays, Music2, Users, Wallet } from "lucide-react";
 import { requireSessionContext } from "@/lib/auth/session";
 import { AttendanceQuickActionForm } from "@/components/attendance-quick-action-form";
 import { AssistantPageContext } from "@/components/ai/assistant-page-context";
-import { computeLiveDisplayStatus } from "@/lib/lesson-live-status";
+import { computeLiveDisplayStatus, resolveLessonFinalStatus } from "@/lib/lesson-live-status";
 import { LessonLiveActions } from "@/components/lesson-live-actions";
 import { LessonCountdown } from "@/components/lesson-countdown";
 import { effectiveStudentTypes } from "@/lib/student-types";
@@ -111,7 +112,7 @@ export default async function OgretmenPortalPage() {
                           {lesson.type === "makeup" ? " · Telafi" : ""}
                         </p>
                       </div>
-                      <Badge status={attendance?.status ?? liveStatus} />
+                      <LessonStatusBadge status={resolveLessonFinalStatus(lesson)} />
                     </div>
                     <LessonLiveActions lessonId={lesson.id} displayStatus={liveStatus} />
                     {liveStatus === "in_progress" && lesson.actualStartAt ? (

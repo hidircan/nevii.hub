@@ -13,6 +13,7 @@ function lesson(overrides: Partial<AttendanceReportLessonInput> & { id: string; 
     roomId: "r1",
     instrument: "Piyano",
     status: "scheduled",
+    type: "regular",
     ...overrides,
   };
 }
@@ -60,7 +61,7 @@ describe("buildAttendanceReport", () => {
       lesson({ id: "l1", startAt: "2026-09-05T08:00:00.000Z" }),
       lesson({ id: "l2", startAt: "2026-10-05T08:00:00.000Z" }),
     ];
-    const res = buildAttendanceReport(lessons, [], { from: "2026-09-01", to: "2026-09-30" });
+    const res = buildAttendanceReport(lessons, [], { from: "2026-09-01", to: "2026-09-30" }, new Date("2026-09-10T12:00:00+03:00"));
     expect(res.rows.map((r) => r.lessonId)).toEqual(["l1"]);
   });
 
@@ -74,7 +75,7 @@ describe("buildAttendanceReport", () => {
     expect(buildAttendanceReport(lessons, [], { ...range, studentId: "s1" }).rows).toHaveLength(2);
     expect(buildAttendanceReport(lessons, [], { ...range, teacherId: "t2" }).rows).toHaveLength(1);
     expect(buildAttendanceReport(lessons, [], { ...range, branchId: "b2" }).rows).toHaveLength(1);
-    expect(buildAttendanceReport(lessons, [], { ...range, status: "cancelled" }).rows).toHaveLength(1);
+    expect(buildAttendanceReport(lessons, [], { ...range, status: "cancelled" }, new Date("2026-09-10T12:00:00+03:00")).rows).toHaveLength(1);
     expect(buildAttendanceReport(lessons, [], { ...range, instrument: "Keman" }).rows).toHaveLength(0);
   });
 
@@ -88,12 +89,12 @@ describe("buildAttendanceReport", () => {
       lesson({ id: "l6", startAt: "2026-09-06T08:00:00.000Z", status: "cancelled" }),
       lesson({ id: "l7", startAt: "2026-09-07T08:00:00.000Z" }),
     ];
-    const res = buildAttendanceReport(lessons, [], { from: "2026-09-01", to: "2026-09-30" });
+    const res = buildAttendanceReport(lessons, [], { from: "2026-09-01", to: "2026-09-30" }, new Date("2026-09-10T12:00:00+03:00"));
     expect(res.summary).toEqual({
       totalPlanned: 7,
       attended: 1,
-      absent: 1,
-      excused: 1,
+      absent: 0,
+      excused: 0,
       processed: 1,
       makeup: 1,
       cancelled: 1,

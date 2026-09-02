@@ -149,6 +149,7 @@ import { uploadProfilePhotoSchema, deleteProfilePhotoSchema } from "../validatio
 import { getActiveAccessType } from "../student-portal-access";
 import { ownStudents, ownPayouts } from "../teacher-portal-scope";
 import { effectiveLessonOpsStatus } from "../lesson-ops";
+import { resolveLessonFinalStatus, type LessonFinalStatus } from "../lesson-live-status";
 import {
   computeTeacherEarningsForPeriod,
   computeTeacherPayoutPaymentMethodInfo,
@@ -9732,8 +9733,8 @@ export type AttendanceCalendarLessonPaymentInfo = {
 
 export type AttendanceCalendarLessonOpsInfo = {
   lessonId: string;
-  /** effectiveLessonOpsStatus(lesson) — İşlendi > Geldi > Telafi > Gelmedi > Mazeretli öncelikli, TEK statü; hiçbiri set değilse null. */
-  opsStatus: "attended" | "processed" | "makeup" | "absent" | "excused" | null;
+  /** Kullanıcıya gösterilen canonical ders statüsü; legacy yoklama alanları ayrı statüye dönüşmez. */
+  opsStatus: LessonFinalStatus;
   /**
    * İş 2 — aynı günde birden fazla ders olduğunda hangi satırın hangi
    * derse ait olduğunu ayırt etmek için gereken minimum bağlam (ders
@@ -9836,7 +9837,7 @@ export async function getAttendanceCalendarMonthTool(
         );
         return {
           lessonId: l.id,
-          opsStatus: effectiveLessonOpsStatus(l),
+          opsStatus: resolveLessonFinalStatus(l),
           startAt: l.startAt,
           durationMinutes,
           teacherName: teacher?.name,
@@ -11416,7 +11417,7 @@ export async function getAttendanceReportTool(
       branchId: z.string().optional(),
       instrument: z.string().optional(),
       roomId: z.string().optional(),
-      status: z.enum(["attended", "processed", "makeup", "absent", "excused", "cancelled", "planned"]).optional(),
+      status: z.enum(["attended", "processed", "makeup", "cancelled", "planned"]).optional(),
     }),
     input
   );

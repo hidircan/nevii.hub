@@ -23,12 +23,12 @@ import { NotificationList } from "@/components/notification-list";
 import { AnnouncementAttachments } from "@/components/announcement-attachments";
 import { LogoutButton } from "@/components/logout-button";
 import { Badge, Card } from "@/components/ui";
-import { LessonOpsBadges } from "@/components/lesson-ops-actions";
+import { LessonStatusBadge } from "@/components/lesson-status-badge";
 import { AttendanceCalendarPanel } from "@/components/attendance-calendar-panel";
 import { AssistantPageContext } from "@/components/ai/assistant-page-context";
 import { PayNowButton } from "@/components/pay-now-button";
 import { formatDateTime, formatDate, formatTime, formatMoney } from "@/lib/utils";
-import { computeLiveDisplayStatus } from "@/lib/lesson-live-status";
+import { resolveLessonFinalStatus } from "@/lib/lesson-live-status";
 import { ownStudentWeekLessons } from "@/lib/student-portal-scope";
 import { normalizeWeekStart, previousWeekParam, nextWeekParam, todayWeekParam, isCurrentWeek } from "@/lib/program-week";
 import { weeklyClosedDaysForTerm, resolveDayStatus } from "@/lib/attendance-calendar";
@@ -415,7 +415,6 @@ export default async function OgrenciPortalPage({
                       <div className="space-y-2">
                         {dayLessons.map((l) => {
                           const lessonTeacher = data.teachers.find((t) => t.id === l.teacherId);
-                          const liveStatus = computeLiveDisplayStatus(l);
                           return (
                             <div
                               key={l.id}
@@ -427,15 +426,7 @@ export default async function OgrenciPortalPage({
                               </p>
                               <p className="text-[var(--color-text-muted)]">{lessonTeacher?.name ?? "—"}</p>
                               <div className="mt-1 flex flex-wrap items-center gap-1">
-                                <Badge status={l.type === "makeup" ? "makeup" : liveStatus} />
-                                <LessonOpsBadges
-                                  studentAttended={l.studentAttended}
-                                  lessonProcessed={l.lessonProcessed}
-                                  opsMakeupFlag={l.opsMakeupFlag}
-                                  studentAbsent={l.studentAbsent}
-                                  studentExcused={l.studentExcused}
-                                  opsClosedFlag={l.opsClosedFlag}
-                                />
+                                <LessonStatusBadge status={resolveLessonFinalStatus(l, now)} />
                               </div>
                             </div>
                           );
@@ -559,18 +550,9 @@ export default async function OgrenciPortalPage({
                 <Card key={l.id} className="!p-4">
                   <div className="flex items-start justify-between gap-2">
                     <p className="font-medium text-[var(--color-text)]">{formatDateTime(l.startAt)}</p>
-                    <Badge status={l.type === "makeup" ? "makeup" : l.status} />
+                    <LessonStatusBadge status={resolveLessonFinalStatus(l, now)} />
                   </div>
                   <p className="text-sm text-[var(--color-text-muted)]">{l.instrument}</p>
-                  <div className="mt-1.5">
-                    <LessonOpsBadges
-                      studentAttended={l.studentAttended}
-                      lessonProcessed={l.lessonProcessed}
-                      opsMakeupFlag={l.opsMakeupFlag}
-                      studentAbsent={l.studentAbsent}
-                      studentExcused={l.studentExcused}
-                    />
-                  </div>
                 </Card>
               ))}
             </div>

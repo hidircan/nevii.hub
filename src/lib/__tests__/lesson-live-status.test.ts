@@ -4,6 +4,7 @@ import path from "path";
 import { resolveDataDir } from "../config";
 import {
   computeLiveDisplayStatus,
+  resolveLessonFinalStatus,
   startLesson,
   endLesson,
   correctLessonTimes,
@@ -68,6 +69,39 @@ describe("computeLiveDisplayStatus", () => {
     expect(computeLiveDisplayStatus(lesson({ status: "completed" }), now)).toBe("completed");
     expect(computeLiveDisplayStatus(lesson({ status: "cancelled" }), now)).toBe("cancelled");
     expect(computeLiveDisplayStatus(lesson({ status: "no_show" }), now)).toBe("no_show");
+  });
+});
+
+describe("resolveLessonFinalStatus", () => {
+  const now = new Date("2026-09-10T12:00:00+03:00");
+
+  it.each([
+    [{ studentAttended: true }, "attended"],
+    [{ lessonProcessed: true, studentAttended: true }, "processed"],
+    [{ opsMakeupFlag: true, lessonProcessed: true, studentAttended: true }, "makeup"],
+    [{ status: "cancelled", opsMakeupFlag: true, lessonProcessed: true, studentAttended: true }, "cancelled"],
+  ] as const)("geçmiş ders için %j → %s önceliğini uygular", (overrides, expected) => {
+    expect(resolveLessonFinalStatus(lesson(overrides), now)).toBe(expected);
+  });
+
+  it("future ders legacy alanları dolu olsa da planlı kalır", () => {
+    expect(
+      resolveLessonFinalStatus(
+        lesson({
+          startAt: "2026-09-11T10:00:00+03:00",
+          status: "cancelled",
+          opsMakeupFlag: true,
+          lessonProcessed: true,
+          studentAttended: true,
+        }),
+        now
+      )
+    ).toBe("planned");
+  });
+
+  it("Gelmedi/Mazeretli geçmiş legacy alanları ayrı nihai statü üretmez", () => {
+    expect(resolveLessonFinalStatus(lesson({ studentAbsent: true } as Partial<Lesson>), now)).toBe("planned");
+    expect(resolveLessonFinalStatus(lesson({ studentExcused: true } as Partial<Lesson>), now)).toBe("planned");
   });
 });
 

@@ -434,7 +434,8 @@ describe("ÖNCELİK 4 (devam) — öğrenci dönemine göre varsayılan takvim",
       packageName: "Bireysel Aylık — 4 ders",
       weeklyLessonCount: 1,
       monthlyFee: 3000,
-      firstPaymentCollected: { method: "cash", amount: 3000, collectedAt: "2026-08-30" },
+      lessonDays: [2],
+      firstPaymentCollected: { method: "cash", amount: 3750, collectedAt: "2026-08-30" },
       enrollmentStartDate: "2026-09-01",
       notes: "",
       termType: "yaz",
@@ -460,6 +461,7 @@ describe("ÖNCELİK 4 (devam) — öğrenci dönemine göre varsayılan takvim",
       packageName: "Bireysel Aylık — 4 ders",
       weeklyLessonCount: 1,
       monthlyFee: 3000,
+      lessonDays: [2],
       firstPaymentCollected: { method: "cash", amount: 3000, collectedAt: "2026-08-30" },
       enrollmentStartDate: "2026-09-01",
       notes: "",
@@ -481,7 +483,8 @@ describe("ÖNCELİK 4 (devam) — öğrenci dönemine göre varsayılan takvim",
       packageName: "Bireysel Aylık — 4 ders",
       weeklyLessonCount: 1,
       monthlyFee: 3000,
-      firstPaymentCollected: { method: "cash", amount: 3000, collectedAt: "2026-08-30" },
+      lessonDays: [2],
+      firstPaymentCollected: { method: "cash", amount: 3750, collectedAt: "2026-08-30" },
       enrollmentStartDate: "2026-09-01",
       notes: "",
       // termType verilmedi — legacy senaryo
@@ -504,7 +507,7 @@ describe("ÖNCELİK 4 (devam) — öğrenci dönemine göre varsayılan takvim",
 });
 
 describe("Yoklama Takvimi gün kutusu — gerçek Geldi/İşlendi/Telafi statüsü takvime taşınır", () => {
-  it("Geldi işaretlenen dersin günü, lessons[] içinde opsStatus='attended' döner (kutu rengi buradan hesaplanır)", async () => {
+  it("gelecekteki Geldi işaretli dersin günü, lessons[] içinde opsStatus='planned' döner", async () => {
     const lessonId = await createTestLesson();
     const setRes = await setLessonOpsFlagTool(ctx(), { lessonId, flag: "attended" });
     expect(setRes.ok).toBe(true);
@@ -521,10 +524,10 @@ describe("Yoklama Takvimi gün kutusu — gerçek Geldi/İşlendi/Telafi statüs
     // İş 2 — lessons[] artık saat/öğretmen/enstrüman/oda/süre de taşır
     // (aynı gündeki birden fazla dersi ayırt etmek için); burada yalnızca
     // bu testin ilgilendiği opsStatus alanı doğrulanır.
-    expect(day.lessons[0]).toMatchObject({ lessonId, opsStatus: "attended" });
+    expect(day.lessons[0]).toMatchObject({ lessonId, opsStatus: "planned" });
   });
 
-  it("İşlendi'ye geçiş sonrası (confirmSwitch) takvimdeki opsStatus da 'processed'e günceller — mükerrer/eski statü kalmaz", async () => {
+  it("gelecekteki İşlendi işaretli ders de takvimde planlı kalır", async () => {
     const lessonId = await createTestLesson();
     await setLessonOpsFlagTool(ctx(), { lessonId, flag: "attended" });
     await setLessonOpsFlagTool(ctx(), { lessonId, flag: "processed", confirmSwitch: true, reason: "Ders fiilen işlendi" });
@@ -537,10 +540,10 @@ describe("Yoklama Takvimi gün kutusu — gerçek Geldi/İşlendi/Telafi statüs
     if (!monthRes.ok) return;
     const day = monthRes.data.days.find((d) => d.date === lesson.startAt.slice(0, 10))!;
     expect(day.lessons).toHaveLength(1);
-    expect(day.lessons[0]).toMatchObject({ lessonId, opsStatus: "processed" });
+    expect(day.lessons[0]).toMatchObject({ lessonId, opsStatus: "planned" });
   });
 
-  it("henüz hiçbir statü işaretlenmemiş ders için opsStatus null döner (kutu 'planlı' rengiyle gösterilir, 'Geldi' varsayılmaz)", async () => {
+  it("henüz hiçbir statü işaretlenmemiş ders için opsStatus planned döner", async () => {
     const lessonId = await createTestLesson();
     const data = await readData();
     const lesson = data.lessons.find((l) => l.id === lessonId)!;
@@ -551,10 +554,10 @@ describe("Yoklama Takvimi gün kutusu — gerçek Geldi/İşlendi/Telafi statüs
     if (!monthRes.ok) return;
     const day = monthRes.data.days.find((d) => d.date === lesson.startAt.slice(0, 10))!;
     expect(day.lessons).toHaveLength(1);
-    expect(day.lessons[0]).toMatchObject({ lessonId, opsStatus: null });
+    expect(day.lessons[0]).toMatchObject({ lessonId, opsStatus: "planned" });
   });
 
-  it("aynı günde İKİ ders FARKLI statülerde ise ikisi de lessons[] içinde ayrı ayrı, kendi gerçek statüsüyle döner — biri diğerini gizlemez", async () => {
+  it("aynı gelecekteki günde İKİ ders de planned olarak ayrı ayrı döner", async () => {
     const startAt1 = await findOpenSlot();
     const d1 = new Date(startAt1);
     // Aynı gün, en az 2 saat sonrası — aynı öğretmen/oda ile çakışmasın.
@@ -591,8 +594,8 @@ describe("Yoklama Takvimi gün kutusu — gerçek Geldi/İşlendi/Telafi statüs
     const day = monthRes.data.days.find((d) => d.date === startAt1.slice(0, 10))!;
     expect(day.lessons).toHaveLength(2);
     const byId = Object.fromEntries(day.lessons.map((l) => [l.lessonId, l.opsStatus]));
-    expect(byId[res1.data.lessonId]).toBe("attended");
-    expect(byId[res2.data.lessonId]).toBe("makeup");
+    expect(byId[res1.data.lessonId]).toBe("planned");
+    expect(byId[res2.data.lessonId]).toBe("planned");
   });
 
   it("başka öğretmenin/tenant dışının LessonOps değişiklikleri bu takvime sızmaz (IDOR ile aynı sınır zaten engelliyor)", async () => {

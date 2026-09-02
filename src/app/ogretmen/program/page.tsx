@@ -13,14 +13,14 @@ import {
   isCurrentWeek,
 } from "@/lib/program-week";
 import { Badge, Card } from "@/components/ui";
+import { LessonStatusBadge } from "@/components/lesson-status-badge";
 import { formatDate, formatTime } from "@/lib/utils";
-import { computeLiveDisplayStatus } from "@/lib/lesson-live-status";
+import { computeLiveDisplayStatus, resolveLessonFinalStatus } from "@/lib/lesson-live-status";
 import { LessonLiveActions } from "@/components/lesson-live-actions";
 import { LessonCountdown } from "@/components/lesson-countdown";
-import { LessonOpsActions, LessonOpsBadges } from "@/components/lesson-ops-actions";
+import { LessonOpsActions } from "@/components/lesson-ops-actions";
 import { isMonday } from "@/lib/closed-days";
 import { ProgramLiveRefresh } from "@/components/program-live-refresh";
-import { listAllHomework } from "@/lib/homework";
 
 export const dynamic = "force-dynamic";
 
@@ -68,10 +68,6 @@ export default async function TeacherOwnProgramPage({
     weekStart.toISOString(),
     weekEndExclusive.toISOString()
   );
-
-  // Faz 3C — hangi derslerin zaten bir ödevi var, tek toplu sorguyla (N async çağrı yerine).
-  const homework = await listAllHomework(session.tenantId);
-  const lessonIdsWithHomework = new Set(homework.map((h) => h.lessonId).filter((id): id is string => Boolean(id)));
 
   return (
     <div>
@@ -158,15 +154,7 @@ export default async function TeacherOwnProgramPage({
                           {lesson.instrument} · {branch?.shortName ?? "—"} · {room?.name ?? "—"}
                         </p>
                         <div className="mt-1 flex flex-wrap items-center gap-1">
-                          <Badge status={lesson.type === "makeup" ? "makeup" : liveStatus} />
-                          <LessonOpsBadges
-                            studentAttended={lesson.studentAttended}
-                            lessonProcessed={lesson.lessonProcessed}
-                            opsMakeupFlag={lesson.opsMakeupFlag}
-                            studentAbsent={lesson.studentAbsent}
-                            studentExcused={lesson.studentExcused}
-                            missingHomework={Boolean(lesson.lessonProcessed) && !lessonIdsWithHomework.has(lesson.id)}
-                          />
+                          <LessonStatusBadge status={resolveLessonFinalStatus(lesson, now)} />
                         </div>
                         {today ? (
                           <>

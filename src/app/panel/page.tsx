@@ -10,7 +10,9 @@ import {
   Wallet,
 } from "lucide-react";
 import { Badge, Card, PageHeader, StatCard } from "@/components/ui";
+import { LessonStatusBadge } from "@/components/lesson-status-badge";
 import { getDashboardStats } from "@/lib/store";
+import { resolveLessonFinalStatus } from "@/lib/lesson-live-status";
 import { actionResetDemo } from "@/lib/actions";
 import { SetupResetAction } from "@/components/setup-reset-action";
 import { formatDateTime, formatMoney, formatTime, isOutstandingPaymentStatus } from "@/lib/utils";
@@ -260,7 +262,7 @@ export default async function DashboardPage() {
                         </p>
                       </div>
                     </div>
-                    <Badge status={lesson.type === "makeup" ? "makeup" : lesson.status} />
+                    <LessonStatusBadge status={resolveLessonFinalStatus(lesson)} />
                   </div>
                 );
               })}
