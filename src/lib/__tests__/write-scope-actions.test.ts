@@ -3,6 +3,7 @@ import { promises as fs } from "fs";
 import path from "path";
 import { resolveDataDir } from "../config";
 import { DEFAULT_TENANT_ID } from "../auth/config";
+import { clearInstrumentCatalog } from "../instrument-catalog";
 import type { ServiceContext } from "../services/context";
 
 /**
@@ -53,6 +54,14 @@ const { ALL_MODE_WRITE_DENIED_MESSAGE } = await import("../institution/write-sco
 
 beforeEach(async () => {
   await fs.rm(DATA_FILE, { force: true });
+  // P0-A — `createStudentTool` artık `resolveActiveInstrumentNames`'e (tenant
+  // kataloğu) bağımlı; katalog `store.json`'dan AYRI bir dosyada yaşıyor ve
+  // önceki test dosyalarının (ör. instrument-catalog.test.ts) bıraktığı
+  // pasif/arşivlenmiş kayıtlar burada sızıntı yapıp "Piyano" gibi varsayılan
+  // enstrümanları yanlışlıkla pasif gösterebilir — her testten önce temizlenip
+  // `ensureDefaultCatalogSeeded` ile TÜM varsayılanlar (Piyano dahil) aktif
+  // olarak yeniden tohumlanır.
+  await clearInstrumentCatalog(DEFAULT_TENANT_ID);
   mockCookieValue.value = undefined;
   mockSession.ctx = { role: "SCHOOL_ADMIN", userId: "u1", tenantId: DEFAULT_TENANT_ID, channel: "web" };
   mockTenants.list = [{ tenantId: DEFAULT_TENANT_ID, name: "Nilüfer Açar Müzik Akademisi" }];

@@ -132,6 +132,42 @@ export function NewStudentForm({
 
   const firstPeriodAutoAmount = preview?.firstPeriodSuggestedAmount;
 
+  // P0-A (2026-09-02) — GERÇEK kök neden (react-dom kaynağından doğrulandı,
+  // bkz. `updateOptions`/`postMountWrapper` react-dom-client.development.js):
+  // React 19 form action'ları tamamlandığında (başarı/hata fark etmeksizin)
+  // native `<form>.reset()` çağırır. Metin `<input>`larında ZARARSIZDIR
+  // (`.defaultValue` gerçekten `value` İÇERİK ATTRIBUTE'unu yansıtır, reset
+  // doğru değere döner). AMA `<select>` için React eşleşen `<option>`'a
+  // YALNIZ `.selected` IDL PROPERTY'sini yazar — `.defaultSelected`/`selected`
+  // İÇERİK ATTRIBUTE'unu ASLA yazmaz — bu, controlled/uncontrolled/`key` ile
+  // yeniden-mount fark etmeksizin GEÇERLİDİR (yeniden mount edilen bir
+  // <select> bile, taze DOM node'unda AYNI eksik-attribute sorununu taşır).
+  // Sonuç: tarayıcının native reset() algoritması hiçbir option'da
+  // `defaultSelected` bulamaz ve HER ZAMAN ilk option'a ("Piyano" vb.) döner
+  // — React'ın KENDİ state'i (ör. `instrument`) hâlâ doğru değeri bilir,
+  // yalnız GÖRÜNEN DOM/bir sonraki submit'te taşınacak FormData yanlış olur.
+  // `key` ile yeniden-mount denemesi (önceki deneme) BU YÜZDEN işe yaramadı.
+  // Tek güvenilir çözüm: reset SONRASI, formdaki HER `<select>`/`<input>`ın
+  // DOM değerini son GERÇEKTEN gönderilen `values`'tan (submit anında,
+  // reset'ten ÖNCE `captureStudentFormValues` ile yakalanan FormData —
+  // bkz. actions.ts) doğrudan DOM üzerinden GERİ YAZMAK. Tek noktadan tüm
+  // alanlar için (yalnız enstrüman değil — aynı kusur `branchId`/`termType`/
+  // `firstPaymentMethod`/`packageId`/`discountType` vb. HER <select>'i
+  // etkiler), hidden/checkbox/radio hariç.
+  useEffect(() => {
+    const form = formRef.current;
+    if (!form) return;
+    for (const el of Array.from(form.elements)) {
+      if (!(el instanceof HTMLSelectElement || el instanceof HTMLInputElement)) continue;
+      if (el instanceof HTMLInputElement && (el.type === "checkbox" || el.type === "radio" || el.type === "hidden")) {
+        continue;
+      }
+      if (!el.name || !(el.name in values)) continue;
+      const wanted = values[el.name];
+      if (wanted !== undefined && el.value !== wanted) el.value = wanted;
+    }
+  }, [state]);
+
   useEffect(() => {
     if (hasError) summaryRef.current?.focus();
   }, [hasError, state]);

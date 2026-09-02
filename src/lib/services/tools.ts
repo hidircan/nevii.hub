@@ -1811,6 +1811,19 @@ export async function createStudentTool(
     // seçilen enstrümana yetkin olduğu sunucuda doğrulanır; filtre yalnız
     // UI'da kalmaz. Öğretmenin birden fazla enstrümanı varsa eşleşen
     // herhangi biri yeterlidir.
+    // P0-A — enstrüman TEK gerçek kaynak: tenant'ın aktif kataloğu
+    // (`resolveActiveInstrumentNames` — CSV import/öğretmen formlarının
+    // ZATEN kullandığı AYNI merkez fonksiyon, öğrenci kaydında eksikti).
+    // Bu, öğretmenin `instruments` listesinden BAĞIMSIZ bir kontroldür:
+    // pasife alınmış veya hiç var olmayan bir enstrüman, bir öğretmenin
+    // eski/tutarsız `instruments` verisinde görünse bile reddedilir.
+    const activeInstrumentNames = await resolveActiveInstrumentNames(ctx.tenantId);
+    if (!activeInstrumentNames.includes(v.data.instrument)) {
+      return fail(
+        "VALIDATION_ERROR",
+        `"${v.data.instrument}" bu kurumda aktif bir enstrüman değil. Enstrüman kataloğundan aktif bir enstrüman seçin.`
+      );
+    }
     const teacher = before.teachers.find((t) => t.id === v.data.teacherId);
     if (!teacher) {
       return fail("VALIDATION_ERROR", "Seçilen öğretmen bulunamadı veya bu kuruma ait değil.");
