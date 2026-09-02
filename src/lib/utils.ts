@@ -189,6 +189,17 @@ export function statusColor(status: string) {
     scheduled: "bg-indigo-100 text-indigo-800",
     /* Telafi her yerde kırmızı — LessonOpsBadges ile aynı anlam/renk dili. */
     makeup: "bg-rose-100 text-rose-800",
+    /**
+     * P0-F (2026-09-02) — Yoklama Raporu'nda Gelmedi/Mazeretli, paylaşılan
+     * `absent`/`late` anahtarlarını (başka ekranlarda ZATEN farklı anlamda
+     * kullanılıyor — ör. `absent` kırmızı, ödeme/telafi bağlamında "acil"
+     * anlamına geliyor) YENİDEN KULLANMAK yerine kendi ayrı anahtarlarını
+     * alır — böylece Telafi (kırmızı) ile Gelmedi GÖRSEL OLARAK KARIŞMAZ,
+     * ve diğer hiçbir ekranın rengi bu değişiklikten ETKİLENMEZ (yalnız
+     * EKLEME, mevcut hiçbir anahtar değiştirilmedi).
+     */
+    lesson_absent: "bg-orange-100 text-orange-800",
+    lesson_excused: "bg-violet-100 text-violet-800",
     draft: "bg-slate-100 text-slate-600",
     approved: "bg-sky-100 text-sky-800",
     sent: "bg-indigo-100 text-indigo-800",

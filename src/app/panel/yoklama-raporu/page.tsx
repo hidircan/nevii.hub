@@ -18,13 +18,22 @@ const STATUS_LABEL: Record<string, string> = {
   planned: "Planlandı",
 };
 
+/**
+ * P0-F (2026-09-02) — her durum GÖRSEL OLARAK AYRI bir renk taşımalı
+ * (Geldi=yeşil, İşlendi=sarı, Telafi=kırmızı, Gelmedi=gri/turuncu,
+ * Mazeretli=mor/nötr mavi, İptal=koyu gri). Önceden Gelmedi paylaşılan
+ * `absent` anahtarını (Telafi ile AYNI kırmızı) kullanıyordu — ikisi
+ * görsel olarak ayırt edilemiyordu; artık kendi anahtarları var (bkz.
+ * utils.ts statusColor — yalnız EKLEME, başka hiçbir ekranın rengini
+ * değiştirmez).
+ */
 const STATUS_BADGE: Record<string, string> = {
-  attended: "completed",
-  processed: "pending",
-  makeup: "makeup",
-  absent: "absent",
-  excused: "late",
-  cancelled: "cancelled",
+  attended: "completed", // yeşil
+  processed: "pending", // sarı
+  makeup: "makeup", // kırmızı
+  absent: "lesson_absent", // turuncu
+  excused: "lesson_excused", // mor
+  cancelled: "cancelled", // koyu gri
   planned: "scheduled",
 };
 
