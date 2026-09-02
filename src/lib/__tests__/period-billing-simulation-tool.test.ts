@@ -82,6 +82,46 @@ describe("previewPeriodBillingSimulationTool — kayıt-öncesi ham simülasyon 
     if (!res.ok) return;
     expect(res.data.lines[0]!.cumulativeTotal).toBe(100);
     expect(res.data.grandTotal).toBe(100);
+    // P0-B — otomatik/manuel-fark/net artık AYRI, açık alanlar olarak döner
+    // (ÖNCEDEN yalnız `cumulativeTotal`a karışıyordu, istemcinin ayrı kalem
+    // olarak gösterebileceği bir alan yoktu).
+    expect(res.data.lines[0]!.netAmount).toBe(100);
+    expect(res.data.lines[0]!.autoCalculatedAmount).not.toBe(100);
+    expect(res.data.lines[0]!.manualAdjustmentDelta).toBe(100 - res.data.lines[0]!.autoCalculatedAmount);
+  });
+
+  it("P0-B worked example — otomatik 2.000, fiili 1.800: 'İlk dönem otomatik/manuel düzeltme/net tahsilat' ayrı kalemler, negatif/float YOK", async () => {
+    const res = await previewPeriodBillingSimulationTool(ctx(), {
+      enrollmentStartDate: "2026-09-15",
+      enrollmentEndDate: "2026-10-31",
+      weeklyLessonCount: 2,
+      monthlyFee: 4000,
+      firstPeriodManualNetAmount: 1800,
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const [first, second] = res.data.lines;
+    // İlk dönem otomatik: 2.000 TL
+    expect(first!.autoCalculatedAmount).toBe(2000);
+    // İlk ödeme manuel düzeltmesi: -200 TL
+    expect(first!.manualAdjustmentDelta).toBe(-200);
+    // İlk dönem net tahsilat: 1.800 TL
+    expect(first!.netAmount).toBe(1800);
+    // Ara toplam (ilk dönem sonrası kümülatif)
+    expect(first!.cumulativeTotal).toBe(1800);
+    // İkinci (tam) dönem düzeltmeden ETKİLENMEZ — kendi otomatik tutarıyla devam eder.
+    expect(second!.manualAdjustmentDelta).toBeUndefined();
+    expect(second!.netAmount).toBe(second!.autoCalculatedAmount);
+    // Net/dip toplam
+    expect(res.data.grandTotal).toBe(1800 + second!.autoCalculatedAmount);
+    expect(second!.cumulativeTotal).toBe(res.data.grandTotal);
+    // Tüm tutarlar tam sayı TL — negatif toplam/float artığı yok.
+    for (const line of res.data.lines) {
+      expect(Number.isInteger(line.netAmount)).toBe(true);
+      expect(line.netAmount).toBeGreaterThanOrEqual(0);
+      expect(Number.isInteger(line.cumulativeTotal)).toBe(true);
+    }
+    expect(Number.isInteger(res.data.grandTotal)).toBe(true);
   });
 });
 

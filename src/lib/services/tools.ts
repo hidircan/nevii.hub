@@ -11431,7 +11431,14 @@ export async function previewPeriodBillingSimulationTool(
 ): Promise<
   ServiceResult<{
     lines: Array<
-      import("../period-lesson-billing").PeriodBillingLine & { dueDate: string; cumulativeTotal: number }
+      import("../period-lesson-billing").PeriodBillingLine & {
+        dueDate: string;
+        /** Bu dönem için FİİLEN kullanılan tutar — manuel düzeltme yoksa `autoCalculatedAmount` ile aynı. */
+        netAmount: number;
+        /** Yalnız ilk dönemde ve yalnız manuel net ≠ otomatik tutarsa dolu (netAmount - autoCalculatedAmount). */
+        manualAdjustmentDelta?: number;
+        cumulativeTotal: number;
+      }
     >;
     grandTotal: number;
     firstPeriodManualNetAmount?: number;
@@ -11507,12 +11514,21 @@ export async function previewPeriodBillingSimulationTool(
   const rule = resolveContractPaymentDueRule(v.data.paymentMethod);
   let cumulativeTotal = 0;
   const enrichedLines = lines.map((line, i) => {
-    const amount =
-      i === 0 && v.data.firstPeriodManualNetAmount !== undefined ? v.data.firstPeriodManualNetAmount : line.autoCalculatedAmount;
-    cumulativeTotal += amount;
+    const hasFirstPeriodOverride = i === 0 && v.data.firstPeriodManualNetAmount !== undefined;
+    // P0-B — bu `netAmount` ÖNCEDEN yalnız `cumulativeTotal`ı doğru
+    // toplamak için kullanılan bir yerel değişkendi, dönen satıra HİÇ
+    // yazılmıyordu: istemci `autoCalculatedAmount`ı (her zaman otomatik
+    // 2000 gibi) "fiili tahsilat" sanıp yanlış gösterebiliyor, manuel
+    // düzeltmeyi (-200) AYRI bir kalem olarak göstermenin hiçbir yolu
+    // yoktu. Artık ilk dönem için otomatik/manuel-fark/net üç ayrı alan
+    // olarak dönüyor — negatif/float yok, tüm aritmetik tam sayı TL.
+    const netAmount = hasFirstPeriodOverride ? v.data.firstPeriodManualNetAmount! : line.autoCalculatedAmount;
+    cumulativeTotal += netAmount;
     return {
       ...line,
       dueDate: i === 0 ? enrollmentStartDay! : `${line.periodStart.slice(0, 7)}-${String(rule.windowEndDay).padStart(2, "0")}`,
+      netAmount,
+      manualAdjustmentDelta: hasFirstPeriodOverride ? netAmount - line.autoCalculatedAmount : undefined,
       cumulativeTotal,
     };
   });
