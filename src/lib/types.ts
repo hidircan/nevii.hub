@@ -626,6 +626,12 @@ export interface Lesson {
   lessonProcessed?: boolean;
   lessonProcessedAt?: string;
   lessonProcessedBy?: string;
+  /**
+   * P0-2 — "İşlendi" işaretlenirken zorunlu, kullanıcı girdisi gerekçe.
+   * Boş/undefined kayıt YOK — `switchLessonOpsFlag`/`applyLessonOpsFlag`
+   * flag==="processed" için bunu zorunlu kılar (bkz. lesson-ops.ts).
+   */
+  lessonProcessedReason?: string;
   opsMakeupFlag?: boolean;
   opsMakeupFlagAt?: string;
   opsMakeupFlagBy?: string;

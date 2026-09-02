@@ -32,6 +32,7 @@ export type NotificationCategory =
   // Öğrenci operasyonları
   | "student_new_registration"
   | "attendance_exception"
+  | "student_attendance_risk"
   | "portal_request"
   | "teacher_feedback_submitted"
   | "student_feedback_submitted"
@@ -250,6 +251,17 @@ export const NOTIFICATION_CATEGORIES: NotificationCategoryDef[] = [
     group: "students",
     label: "Devamsızlık istisnası",
     description: "Beklenmedik bir devamsızlık/yoklama istisnası oluştuğunda.",
+    implemented: true,
+    roles: ["SCHOOL_ADMIN", "SUPER_ADMIN"],
+    defaultInAppEnabled: true,
+  },
+  {
+    // P0-2D — bu tenant'ın SCHOOL_ADMIN/SUPER_ADMIN kullanıcıları DIŞINDA
+    // (öğretmen/veli/başka tenant) KİMSE görmemeli — bkz. attendance-risk-check.ts.
+    category: "student_attendance_risk",
+    group: "students",
+    label: "Öğrenci devam riski",
+    description: "Aynı öğrenci, aynı ay içinde 2'den fazla 'İşlendi' ders aldığında.",
     implemented: true,
     roles: ["SCHOOL_ADMIN", "SUPER_ADMIN"],
     defaultInAppEnabled: true,

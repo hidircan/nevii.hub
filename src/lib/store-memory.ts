@@ -725,6 +725,11 @@ export async function updateConsentSettings(consentSettings: ConsentSettings): P
   return save({ ...data, settings: { ...data.settings, consentSettings } });
 }
 
+export async function updateSchoolLogoUrl(logoUrl: string): Promise<AppData> {
+  const data = load();
+  return save({ ...data, settings: { ...data.settings, logoUrl } });
+}
+
 const TEACHER_COLORS = ["#7c3aed", "#0891b2", "#db2777", "#ea580c", "#059669", "#4f46e5"];
 
 export async function importBranches(rows: BranchImportRow[]): Promise<ImportCommitResult> {
@@ -1102,14 +1107,15 @@ async function persistLessonOpsUnderLock(
   lessonId: string,
   _flag: LessonOpsFlag,
   actorUserId: string,
-  apply: typeof applyLessonOpsFlag | typeof switchLessonOpsFlag
+  apply: typeof applyLessonOpsFlag | typeof switchLessonOpsFlag,
+  reason?: string
 ): Promise<ReturnType<typeof applyLessonOpsFlag>> {
   const pre = load();
   const preLesson = pre.lessons.find((l) => l.id === lessonId);
   const key = `${tenantKey()}:ops:${preLesson?.studentId ?? lessonId}`;
   return withKeyLock(key, async () => {
     const data = load();
-    const result = apply(data, lessonId, _flag, actorUserId);
+    const result = apply(data, lessonId, _flag, actorUserId, undefined, reason);
     if (result.ok && !result.alreadySet) {
       save(result.data);
     }
@@ -1120,17 +1126,19 @@ async function persistLessonOpsUnderLock(
 export async function applyLessonOpsFlagLive(
   lessonId: string,
   flag: LessonOpsFlag,
-  actorUserId: string
+  actorUserId: string,
+  reason?: string
 ): Promise<ReturnType<typeof applyLessonOpsFlag>> {
-  return persistLessonOpsUnderLock(lessonId, flag, actorUserId, applyLessonOpsFlag);
+  return persistLessonOpsUnderLock(lessonId, flag, actorUserId, applyLessonOpsFlag, reason);
 }
 
 export async function switchLessonOpsFlagLive(
   lessonId: string,
   flag: LessonOpsFlag,
-  actorUserId: string
+  actorUserId: string,
+  reason?: string
 ): Promise<ReturnType<typeof switchLessonOpsFlag>> {
-  return persistLessonOpsUnderLock(lessonId, flag, actorUserId, switchLessonOpsFlag);
+  return persistLessonOpsUnderLock(lessonId, flag, actorUserId, switchLessonOpsFlag, reason);
 }
 
 /** Faz 2 — memory modu tamamen senkron; ekstra kilit gerekmez. */

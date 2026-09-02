@@ -64,6 +64,7 @@ model Tenant {
   tasks                       Task[]
   taskReminderLogs            TaskReminderLog[]
   lessonHomeworkReminderLogs  LessonHomeworkReminderLog[]
+  studentAttendanceRiskLogs   StudentAttendanceRiskLog[]
   taskReminderPreferences     TaskReminderPreference[]
   studentListViews            StudentListView[]
   profilePhotos               ProfilePhoto[]
@@ -512,6 +513,8 @@ model Lesson {
   lessonProcessed         Boolean       @default(false)
   lessonProcessedAt       DateTime?
   lessonProcessedBy       String?
+  /// P0-2 — "İşlendi" işaretlenirken zorunlu, kullanıcı girdisi gerekçe.
+  lessonProcessedReason   String?
   opsMakeupFlag           Boolean       @default(false)
   opsMakeupFlagAt         DateTime?
   opsMakeupFlagBy         String?
@@ -2109,6 +2112,25 @@ model LessonHomeworkReminderLog {
   createdAt DateTime @default(now())
 
   @@unique([tenantId, lessonId])
+}
+
+/// P0-2 — aynı öğrenci/aynı takvim ayı/aynı tenant için "işlenmiş ders"
+/// risk bildiriminin İKİNCİ KEZ üretilmesini engelleyen kalıcı kayıt.
+/// `LessonHomeworkReminderLog` İLE AYNI desen — bu olay öğrenci başına ay
+/// başına EN FAZLA BİR KEZ gerçekleşir, `@@unique([tenantId, studentId,
+/// calendarMonth])` tek başına yeterli garanti (bkz. attendance-risk.ts).
+model StudentAttendanceRiskLog {
+  id                  String   @id
+  tenantId            String   @db.VarChar(100)
+  tenant              Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  studentId           String   @db.VarChar(100)
+  calendarMonth       String   @db.VarChar(7)
+  threshold           Int
+  triggeredAt         DateTime @default(now())
+  triggeredByLessonId String   @db.VarChar(100)
+
+  @@unique([tenantId, studentId, calendarMonth])
+  @@index([tenantId, studentId])
 }
 
 /// İş Takip Faz 3A — kullanıcı bazlı hatırlatma tercihleri. Sorumlu ATAMA

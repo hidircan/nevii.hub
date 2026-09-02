@@ -58,10 +58,11 @@ describe("Geldi/İşlendi/Telafi — applyLessonOpsFlag (saf mantık)", () => {
   it("yalnız İşlendi işaretlenirse ders status=completed olur, Geldi/Telafi etkilenmez", async () => {
     const lessonId = await createTestLesson();
     const data = await readData();
-    const result = applyLessonOpsFlag(data, lessonId, "processed", "u1");
+    const result = applyLessonOpsFlag(data, lessonId, "processed", "u1", undefined, "Ders fiilen işlendi");
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.lesson.lessonProcessed).toBe(true);
+    expect(result.lesson.lessonProcessedReason).toBe("Ders fiilen işlendi");
     expect(result.lesson.status).toBe("completed");
     expect(result.lesson.studentAttended).toBeFalsy();
     expect(result.lesson.opsMakeupFlag).toBeFalsy();
@@ -74,7 +75,7 @@ describe("Geldi/İşlendi/Telafi — applyLessonOpsFlag (saf mantık)", () => {
     expect(r1.ok).toBe(true);
     if (!r1.ok) return;
     data = r1.data;
-    const r2 = applyLessonOpsFlag(data, lessonId, "processed", "u1");
+    const r2 = applyLessonOpsFlag(data, lessonId, "processed", "u1", undefined, "Ders fiilen işlendi");
     expect(r2.ok).toBe(true);
     if (!r2.ok) return;
     expect(r2.lesson.studentAttended).toBe(true);
@@ -84,13 +85,25 @@ describe("Geldi/İşlendi/Telafi — applyLessonOpsFlag (saf mantık)", () => {
   it("Telafi işaretlenirse opsMakeupFlag set edilir ve bir MakeupRequest oluşur", async () => {
     const lessonId = await createTestLesson();
     const data = await readData();
-    const result = applyLessonOpsFlag(data, lessonId, "makeup", "u1");
+    const result = applyLessonOpsFlag(data, lessonId, "makeup", "u1", undefined, "Öğrenci hastaydı");
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.lesson.opsMakeupFlag).toBe(true);
     const mk = result.data.makeupRequests.find((m) => m.sourceLessonId === lessonId);
     expect(mk).toBeDefined();
     expect(mk?.status).toBe("pending");
+    expect(mk?.reason).toBe("Öğrenci hastaydı");
+  });
+
+  it("İşlendi/Telafi gerekçesiz reddedilir (P0-2)", async () => {
+    const lessonId = await createTestLesson();
+    const data = await readData();
+    const processedNoReason = applyLessonOpsFlag(data, lessonId, "processed", "u1");
+    expect(processedNoReason.ok).toBe(false);
+    const processedBlankReason = applyLessonOpsFlag(data, lessonId, "processed", "u1", undefined, "   ");
+    expect(processedBlankReason.ok).toBe(false);
+    const makeupNoReason = applyLessonOpsFlag(data, lessonId, "makeup", "u1");
+    expect(makeupNoReason.ok).toBe(false);
   });
 
   it("aynı bayrak tekrar uygulanırsa idempotent döner (alreadySet=true), veri değişmez", async () => {
@@ -114,11 +127,11 @@ describe("Geldi/İşlendi/Telafi — applyLessonOpsFlag (saf mantık)", () => {
   it("Telafi tekrar çağrılırsa ikinci bir MakeupRequest OLUŞTURULMAZ", async () => {
     const lessonId = await createTestLesson();
     let data = await readData();
-    const first = applyLessonOpsFlag(data, lessonId, "makeup", "u1");
+    const first = applyLessonOpsFlag(data, lessonId, "makeup", "u1", undefined, "Öğrenci hastaydı");
     expect(first.ok).toBe(true);
     if (!first.ok) return;
     data = first.data;
-    const second = applyLessonOpsFlag(data, lessonId, "makeup", "u1");
+    const second = applyLessonOpsFlag(data, lessonId, "makeup", "u1", undefined, "Öğrenci hastaydı");
     expect(second.ok).toBe(true);
     if (!second.ok) return;
     expect(second.alreadySet).toBe(true);
@@ -197,8 +210,23 @@ describe("setLessonOpsFlagTool — RBAC ve sahiplik (API/tool katmanı)", () => 
     const res = await setLessonOpsFlagTool(ctx({ role: "SUPER_ADMIN" }), {
       lessonId,
       flag: "processed",
+      reason: "Ders fiilen işlendi",
     });
     expect(res.ok).toBe(true);
+  });
+
+  it("gerekçesiz 'İşlendi' backend tarafından reddedilir (P0-2)", async () => {
+    const lessonId = await createTestLesson();
+    const res = await setLessonOpsFlagTool(ctx(), { lessonId, flag: "processed" });
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.error.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("yalnız boşluklardan oluşan gerekçe de reddedilir (P0-2)", async () => {
+    const lessonId = await createTestLesson();
+    const res = await setLessonOpsFlagTool(ctx(), { lessonId, flag: "processed", reason: "   " });
+    expect(res.ok).toBe(false);
   });
 
   it("olmayan bir lessonId için NOT_FOUND döner, hiçbir kayıt sızdırmaz", async () => {

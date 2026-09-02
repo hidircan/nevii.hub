@@ -98,7 +98,11 @@ describe("getAttendanceCalendarMonthTool — aynı gün birden fazla ders (İş 
 
     const flag1 = await setLessonOpsFlagTool(ctx(), { lessonId: l1.data.lessonId, flag: "attended" });
     expect(flag1.ok).toBe(true);
-    const flag2 = await setLessonOpsFlagTool(ctx(), { lessonId: l2.data.lessonId, flag: "makeup" });
+    const flag2 = await setLessonOpsFlagTool(ctx(), {
+      lessonId: l2.data.lessonId,
+      flag: "makeup",
+      reason: "Öğrenci hastaydı",
+    });
     expect(flag2.ok).toBe(true);
 
     const [year, month] = dateKey.split("-").map(Number) as [number, number];

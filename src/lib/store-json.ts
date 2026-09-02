@@ -847,6 +847,13 @@ export async function updateConsentSettings(consentSettings: ConsentSettings): P
   return next;
 }
 
+export async function updateSchoolLogoUrl(logoUrl: string): Promise<AppData> {
+  const data = await readData();
+  const next = { ...data, settings: { ...data.settings, logoUrl } };
+  await writeData(next);
+  return next;
+}
+
 const TEACHER_COLORS = ["#7c3aed", "#0891b2", "#db2777", "#ea580c", "#059669", "#4f46e5"];
 
 /**
@@ -1256,7 +1263,8 @@ async function persistLessonOpsUnderLock(
   lessonId: string,
   _flag: LessonOpsFlag,
   actorUserId: string,
-  apply: typeof applyLessonOpsFlag | typeof switchLessonOpsFlag
+  apply: typeof applyLessonOpsFlag | typeof switchLessonOpsFlag,
+  reason?: string
 ): Promise<ReturnType<typeof applyLessonOpsFlag>> {
   await ensureDataFile();
   return withFileLock(DATA_FILE, async () => {
@@ -1264,7 +1272,7 @@ async function persistLessonOpsUnderLock(
     const data = JSON.parse(raw) as AppData;
     if (!data.settings.tenantId) data.settings.tenantId = DEFAULT_TENANT_ID;
     assertTenant(data);
-    const result = apply(data, lessonId, _flag, actorUserId);
+    const result = apply(data, lessonId, _flag, actorUserId, undefined, reason);
     if (result.ok && !result.alreadySet) {
       await writeJsonFileAtomic(DATA_FILE, result.data);
     }
@@ -1275,18 +1283,20 @@ async function persistLessonOpsUnderLock(
 export async function applyLessonOpsFlagLive(
   lessonId: string,
   flag: LessonOpsFlag,
-  actorUserId: string
+  actorUserId: string,
+  reason?: string
 ): Promise<ReturnType<typeof applyLessonOpsFlag>> {
-  return persistLessonOpsUnderLock(lessonId, flag, actorUserId, applyLessonOpsFlag);
+  return persistLessonOpsUnderLock(lessonId, flag, actorUserId, applyLessonOpsFlag, reason);
 }
 
 /** ÖNCELİK 4 (devam) — onaylı statü DEĞİŞİMİ (bkz. lesson-ops.ts switchLessonOpsFlag). */
 export async function switchLessonOpsFlagLive(
   lessonId: string,
   flag: LessonOpsFlag,
-  actorUserId: string
+  actorUserId: string,
+  reason?: string
 ): Promise<ReturnType<typeof switchLessonOpsFlag>> {
-  return persistLessonOpsUnderLock(lessonId, flag, actorUserId, switchLessonOpsFlag);
+  return persistLessonOpsUnderLock(lessonId, flag, actorUserId, switchLessonOpsFlag, reason);
 }
 
 /** Faz 2 — öğretmen yoklaması, öğrenci ops bayraklarından tamamen ayrı bir yol. */

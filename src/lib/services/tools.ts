@@ -91,6 +91,7 @@ import {
 import { createPeriodicAssessmentSchema } from "../validation";
 import type { PeriodicAssessment } from "../types";
 import { checkAndNotifyMissingHomework } from "../homework-lesson-check";
+import { notifyAttendanceRiskIfThresholdCrossed } from "../attendance-risk-check";
 import { setClosedDay, listClosedDays } from "../closed-day-overrides";
 import { resolveDayStatus, isWeeklyClosedDayForTerm } from "../attendance-calendar";
 import {
@@ -9411,6 +9412,8 @@ export async function setLessonOpsFlagTool(
       flag: z.enum(["attended", "processed", "makeup", "absent", "excused"]),
       /** Kullanıcı, farklı bir statüden geçişi onay popup'ında ONAYLADIYSA true. */
       confirmSwitch: z.boolean().optional(),
+      /** P0-2 — "İşlendi"/"Telafi" için zorunlu, gerçek kullanıcı gerekçesi (lesson-ops.ts uygular). */
+      reason: z.string().optional(),
     }),
     input
   );
@@ -9449,16 +9452,20 @@ export async function setLessonOpsFlagTool(
   }
 
   try {
-    const result = await switchLessonOpsFlagLive(v.data.lessonId, v.data.flag, ctx.userId);
+    const result = await switchLessonOpsFlagLive(v.data.lessonId, v.data.flag, ctx.userId, v.data.reason);
     if (!result.ok) return fail("VALIDATION_ERROR", result.message);
     if (!result.alreadySet) {
       audit(ctx, `lesson.ops.${v.data.flag}`, "Lesson", v.data.lessonId, {
         flag: v.data.flag,
         switchedFrom: current !== v.data.flag ? current : undefined,
+        reason: v.data.reason,
       });
       // Faz 3C — ders "İşlendi" olduğunda ödev eksikse tek seferlik hatırlatma.
       if (v.data.flag === "processed") {
         await checkAndNotifyMissingHomework(ctx.tenantId, result.lesson);
+        // P0-2D — aynı ay içinde 3. "İşlendi" ders: tenant admin/superadmin'e
+        // BİR KEZ risk bildirimi (idempotency: student-attendance-risk-log.ts).
+        await notifyAttendanceRiskIfThresholdCrossed(ctx.tenantId, result.lesson);
       }
     }
     return ok({

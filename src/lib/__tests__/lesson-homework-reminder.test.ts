@@ -102,7 +102,7 @@ describe("createHomeworkTool — lessonId eşleşme doğrulaması", () => {
 describe("setLessonOpsFlagTool → checkAndNotifyMissingHomework entegrasyonu", () => {
   it("ödevsiz bir ders işlendi olarak işaretlenince öğretmene TEK bildirim düşer", async () => {
     const lessonId = await createTestLesson();
-    await setLessonOpsFlagTool(adminCtx(), { lessonId, flag: "processed" });
+    await setLessonOpsFlagTool(adminCtx(), { lessonId, flag: "processed", reason: "Ders fiilen işlendi" });
 
     const list1 = await listNotificationsTool(teacherCtx());
     expect(list1.ok).toBe(true);
@@ -111,7 +111,7 @@ describe("setLessonOpsFlagTool → checkAndNotifyMissingHomework entegrasyonu", 
     expect(missing1).toHaveLength(1);
 
     // Aynı ders tekrar "işlendi" olarak işaretlenmeye çalışılırsa (idempotent no-op) — ikinci bildirim OLUŞMAZ.
-    await setLessonOpsFlagTool(adminCtx(), { lessonId, flag: "processed" });
+    await setLessonOpsFlagTool(adminCtx(), { lessonId, flag: "processed", reason: "Ders fiilen işlendi" });
     const list2 = await listNotificationsTool(teacherCtx());
     expect(list2.ok).toBe(true);
     if (!list2.ok) return;
@@ -130,7 +130,7 @@ describe("setLessonOpsFlagTool → checkAndNotifyMissingHomework entegrasyonu", 
     });
     expect(hw.ok).toBe(true);
 
-    await setLessonOpsFlagTool(adminCtx(), { lessonId, flag: "processed" });
+    await setLessonOpsFlagTool(adminCtx(), { lessonId, flag: "processed", reason: "Ders fiilen işlendi" });
 
     const list = await listNotificationsTool(teacherCtx());
     expect(list.ok).toBe(true);

@@ -386,7 +386,7 @@ describe("ÖNCELİK 4 (devam) / Package B — Yoklama takviminde tutar/ödeme bi
   it("statü değişse bile (confirmSwitch) hiç tahsilat üretilmez", async () => {
     const lessonId = await createTestLesson();
     await setLessonOpsFlagTool(ctx(), { lessonId, flag: "attended" });
-    await setLessonOpsFlagTool(ctx(), { lessonId, flag: "processed", confirmSwitch: true });
+    await setLessonOpsFlagTool(ctx(), { lessonId, flag: "processed", confirmSwitch: true, reason: "Ders fiilen işlendi" });
 
     const data = await readData();
     const lesson = data.lessons.find((l) => l.id === lessonId)!;
@@ -524,7 +524,7 @@ describe("Yoklama Takvimi gün kutusu — gerçek Geldi/İşlendi/Telafi statüs
   it("İşlendi'ye geçiş sonrası (confirmSwitch) takvimdeki opsStatus da 'processed'e günceller — mükerrer/eski statü kalmaz", async () => {
     const lessonId = await createTestLesson();
     await setLessonOpsFlagTool(ctx(), { lessonId, flag: "attended" });
-    await setLessonOpsFlagTool(ctx(), { lessonId, flag: "processed", confirmSwitch: true });
+    await setLessonOpsFlagTool(ctx(), { lessonId, flag: "processed", confirmSwitch: true, reason: "Ders fiilen işlendi" });
 
     const data = await readData();
     const lesson = data.lessons.find((l) => l.id === lessonId)!;
@@ -579,7 +579,7 @@ describe("Yoklama Takvimi gün kutusu — gerçek Geldi/İşlendi/Telafi statüs
     if (!res2.ok) return;
 
     await setLessonOpsFlagTool(ctx(), { lessonId: res1.data.lessonId, flag: "attended" });
-    await setLessonOpsFlagTool(ctx(), { lessonId: res2.data.lessonId, flag: "makeup" });
+    await setLessonOpsFlagTool(ctx(), { lessonId: res2.data.lessonId, flag: "makeup", reason: "Öğrenci hastaydı" });
 
     const [y, m] = startAt1.slice(0, 7).split("-").map(Number);
     const monthRes = await getAttendanceCalendarMonthTool(ctx(), { studentId: "s1", year: y!, month: m! });

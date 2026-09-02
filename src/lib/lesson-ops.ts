@@ -34,6 +34,7 @@ export type LessonOpsPatch = Partial<
     | "lessonProcessed"
     | "lessonProcessedAt"
     | "lessonProcessedBy"
+    | "lessonProcessedReason"
     | "opsMakeupFlag"
     | "opsMakeupFlagAt"
     | "opsMakeupFlagBy"
@@ -65,15 +66,29 @@ export function isLessonProcessedForPayout(lesson: Pick<Lesson, "status" | "less
   return lesson.status === "completed";
 }
 
+/** Boş/yalnızca-boşluk gerekçeyi de reddeder — "gerekçesiz" ile aynı muamele. */
+function isBlankReason(reason?: string): boolean {
+  return !reason || reason.trim().length === 0;
+}
+
 export function applyLessonOpsFlag(
   data: AppData,
   lessonId: string,
   flag: LessonOpsFlag,
   actorUserId: string,
-  now: Date = new Date()
+  now: Date = new Date(),
+  reason?: string
 ): ApplyLessonOpsResult {
   const lesson = data.lessons.find((l) => l.id === lessonId);
   if (!lesson) return { ok: false, message: "Ders bulunamadı." };
+
+  // P0-2 — "İşlendi" ve "Telafi" zorunlu, gerçek kullanıcı gerekçesi ister;
+  // boş/yalnız-boşluk gerekçe de reddedilir. Diğer bayraklar (Geldi/Gelmedi/
+  // Mazeretli) etkilenmez.
+  if ((flag === "processed" || flag === "makeup") && isBlankReason(reason)) {
+    const label = flag === "processed" ? "İşlendi" : "Telafi";
+    return { ok: false, message: `"${label}" olarak işaretlemek için gerekçe zorunludur.` };
+  }
 
   const nowIso = now.toISOString();
 
@@ -128,6 +143,7 @@ export function applyLessonOpsFlag(
       lessonProcessed: true,
       lessonProcessedAt: nowIso,
       lessonProcessedBy: actorUserId,
+      lessonProcessedReason: reason!.trim(),
       status: "completed",
       actualEndAt: lesson.actualEndAt ?? nowIso,
     };
@@ -207,7 +223,7 @@ export function applyLessonOpsFlag(
       sourceLessonId: lesson.id,
       attendanceId: data.attendances.find((a) => a.lessonId === lessonId)?.id ?? uid("att"),
       status: "pending",
-      reason: "Program/yoklama — Telafi işaretlendi",
+      reason: reason!.trim(),
       expiresAt: formatISO(addDays(now, data.settings.makeupWindowDays)),
       suggestedSlots: [],
       createdAt: nowIso,
@@ -256,7 +272,8 @@ export function switchLessonOpsFlag(
   lessonId: string,
   flag: LessonOpsFlag,
   actorUserId: string,
-  now: Date = new Date()
+  now: Date = new Date(),
+  reason?: string
 ): ApplyLessonOpsResult {
   const lesson = data.lessons.find((l) => l.id === lessonId);
   if (!lesson) return { ok: false, message: "Ders bulunamadı." };
@@ -264,11 +281,11 @@ export function switchLessonOpsFlag(
   const current = effectiveLessonOpsStatus(lesson);
   if (current === flag) {
     // Zaten bu statüde — applyLessonOpsFlag kendi "alreadySet" mesajını üretir.
-    return applyLessonOpsFlag(data, lessonId, flag, actorUserId, now);
+    return applyLessonOpsFlag(data, lessonId, flag, actorUserId, now, reason);
   }
   if (current === null) {
     // Hiçbir statü etkin değil — ilk tıklama, doğrudan set.
-    return applyLessonOpsFlag(data, lessonId, flag, actorUserId, now);
+    return applyLessonOpsFlag(data, lessonId, flag, actorUserId, now, reason);
   }
 
   // Farklı bir statüden geçiş — önce diğer bayrakları temizle (mali kayıt DOKUNULMAZ).
@@ -280,6 +297,7 @@ export function switchLessonOpsFlag(
     lessonProcessed: false,
     lessonProcessedAt: undefined,
     lessonProcessedBy: undefined,
+    lessonProcessedReason: undefined,
     opsMakeupFlag: false,
     opsMakeupFlagAt: undefined,
     opsMakeupFlagBy: undefined,
@@ -294,5 +312,5 @@ export function switchLessonOpsFlag(
     ...data,
     lessons: data.lessons.map((l) => (l.id === lessonId ? cleared : l)),
   };
-  return applyLessonOpsFlag(clearedData, lessonId, flag, actorUserId, now);
+  return applyLessonOpsFlag(clearedData, lessonId, flag, actorUserId, now, reason);
 }

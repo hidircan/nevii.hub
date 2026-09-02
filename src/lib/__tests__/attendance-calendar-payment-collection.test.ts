@@ -92,7 +92,7 @@ describe("Yoklama Takvimi — yeni Geldi/İşlendi/Telafi işlemleri artık Paym
 
   it("Telafi tek başına tahsilat oluşturmaz — takvimde payments boş kalır", async () => {
     const lessonId = await createTestLesson();
-    const res = await setLessonOpsFlagTool(ctx(), { lessonId, flag: "makeup" });
+    const res = await setLessonOpsFlagTool(ctx(), { lessonId, flag: "makeup", reason: "Öğrenci hastaydı" });
     expect(res.ok).toBe(true);
 
     const data = await readData();

@@ -60,7 +60,7 @@ describe("Geldi/İşlendi/Telafi — artık hiçbir Payment üretmez (Package B)
 
   it("İşlendi işaretlenince (Geldi olmadan) yeni lesson_ops Payment oluşmaz", async () => {
     const lessonId = await createTestLesson();
-    const res = await setLessonOpsFlagTool(ctx(), { lessonId, flag: "processed" });
+    const res = await setLessonOpsFlagTool(ctx(), { lessonId, flag: "processed", reason: "Ders fiilen işlendi" });
     expect(res.ok).toBe(true);
 
     const after = await readData();
@@ -82,7 +82,7 @@ describe("Geldi/İşlendi/Telafi — artık hiçbir Payment üretmez (Package B)
         },
       },
     };
-    const result = applyLessonOpsFlag(withLegacySetting, lessonId, "makeup", "u1");
+    const result = applyLessonOpsFlag(withLegacySetting, lessonId, "makeup", "u1", undefined, "Öğrenci hastaydı");
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.data.payments.filter((p) => p.lessonId === lessonId)).toHaveLength(0);
@@ -91,7 +91,7 @@ describe("Geldi/İşlendi/Telafi — artık hiçbir Payment üretmez (Package B)
   it("Geldi -> İşlendi geçişinde (confirmSwitch) hiç Payment oluşmaz", async () => {
     const lessonId = await createTestLesson();
     await setLessonOpsFlagTool(ctx(), { lessonId, flag: "attended" });
-    const processed = await setLessonOpsFlagTool(ctx(), { lessonId, flag: "processed", confirmSwitch: true });
+    const processed = await setLessonOpsFlagTool(ctx(), { lessonId, flag: "processed", confirmSwitch: true, reason: "Ders fiilen işlendi" });
     expect(processed.ok).toBe(true);
 
     const after = await readData();
@@ -111,7 +111,7 @@ describe("Geldi/İşlendi/Telafi — artık hiçbir Payment üretmez (Package B)
 
   it("gerçekleşen telafi dersinin KENDİSİ Geldi/İşlendi işaretlense bile yeni Payment oluşmaz", async () => {
     const sourceLessonId = await createTestLesson();
-    const makeupRes = await setLessonOpsFlagTool(ctx(), { lessonId: sourceLessonId, flag: "makeup" });
+    const makeupRes = await setLessonOpsFlagTool(ctx(), { lessonId: sourceLessonId, flag: "makeup", reason: "Öğrenci hastaydı" });
     expect(makeupRes.ok).toBe(true);
     const afterMakeup = await readData();
     expect(afterMakeup.payments.filter((p) => p.lessonId === sourceLessonId)).toHaveLength(0);
@@ -129,6 +129,7 @@ describe("Geldi/İşlendi/Telafi — artık hiçbir Payment üretmez (Package B)
     const realizedProcessed = await setLessonOpsFlagTool(ctx(), {
       lessonId: realizedLesson.data.lessonId,
       flag: "processed",
+      reason: "Ders fiilen işlendi",
     });
     expect(realizedProcessed.ok).toBe(true);
 
@@ -181,7 +182,7 @@ describe("Geçmiş lesson_ops Payment kayıtları — dokunulmadan okunabilir ka
     await writeData({ ...data, payments: [...data.payments, historicalPayment] });
 
     // Aynı ders üzerinde yeni bir yoklama işlemi (statü değişimi) yap.
-    const res = await setLessonOpsFlagTool(ctx(), { lessonId, flag: "processed", confirmSwitch: true });
+    const res = await setLessonOpsFlagTool(ctx(), { lessonId, flag: "processed", confirmSwitch: true, reason: "Ders fiilen işlendi" });
     expect(res.ok).toBe(true);
 
     const after = await readData();

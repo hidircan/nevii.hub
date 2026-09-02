@@ -169,7 +169,8 @@ type StoreApi = {
   switchLessonOpsFlagLive: (
     lessonId: string,
     flag: import("./lesson-ops").LessonOpsFlag,
-    actorUserId: string
+    actorUserId: string,
+    reason?: string
   ) => Promise<import("./lesson-ops").ApplyLessonOpsResult>;
   /** Faz 2 — öğretmen yoklaması, öğrenci ops bayraklarından tamamen ayrı bir yol. */
   markTeacherAttendanceLive: (
@@ -220,6 +221,7 @@ type StoreApi = {
   updateCollectionsSettings: (collectionsSettings: CollectionsSettings) => Promise<AppData>;
   updateTermWeeklyClosedDays: (termWeeklyClosedDays: { guz: number[]; yaz: number[] }) => Promise<AppData>;
   updateConsentSettings: (consentSettings: ConsentSettings) => Promise<AppData>;
+  updateSchoolLogoUrl: (logoUrl: string) => Promise<AppData>;
   getDashboardStats: (data: AppData) => ReturnType<typeof jsonStore.getDashboardStats>;
   listTenants: () => Promise<{ tenantId: string; name: string }[]>;
 };
@@ -522,9 +524,10 @@ export async function applyLessonOpsFlagLive(
 export async function switchLessonOpsFlagLive(
   lessonId: string,
   flag: import("./lesson-ops").LessonOpsFlag,
-  actorUserId: string
+  actorUserId: string,
+  reason?: string
 ): Promise<import("./lesson-ops").ApplyLessonOpsResult> {
-  return withTenantScope(() => store.switchLessonOpsFlagLive(lessonId, flag, actorUserId));
+  return withTenantScope(() => store.switchLessonOpsFlagLive(lessonId, flag, actorUserId, reason));
 }
 
 /** Faz 2 — öğretmen yoklaması, öğrenci ops bayraklarından tamamen ayrı bir yol. */
@@ -649,6 +652,10 @@ export async function updateCollectionsSettings(
 
 export async function updateConsentSettings(consentSettings: ConsentSettings): Promise<AppData> {
   return withTenantScope(() => store.updateConsentSettings(consentSettings));
+}
+
+export async function updateSchoolLogoUrl(logoUrl: string): Promise<AppData> {
+  return withTenantScope(() => store.updateSchoolLogoUrl(logoUrl));
 }
 
 export async function updateTermWeeklyClosedDays(

@@ -138,7 +138,7 @@ describe("telafi kotası — tool katmanı", () => {
 
     await updateMonthlyMakeupAllowanceTool(ctx(), { monthlyMakeupAllowance: 0 });
     const lessonId = await createTestLesson();
-    const res = await setLessonOpsFlagTool(ctx(), { lessonId, flag: "makeup" });
+    const res = await setLessonOpsFlagTool(ctx(), { lessonId, flag: "makeup", reason: "Öğrenci hastaydı" });
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.error.code).toBe("VALIDATION_ERROR");
   });

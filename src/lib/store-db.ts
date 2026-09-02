@@ -404,6 +404,8 @@ function mapSchoolToAppData(school: PrismaSchoolWithRelations): AppData {
       lessonProcessed: (lesson as { lessonProcessed?: boolean }).lessonProcessed ?? undefined,
       lessonProcessedAt: (lesson as { lessonProcessedAt?: Date | null }).lessonProcessedAt?.toISOString?.() ?? undefined,
       lessonProcessedBy: (lesson as { lessonProcessedBy?: string | null }).lessonProcessedBy ?? undefined,
+      lessonProcessedReason:
+        (lesson as { lessonProcessedReason?: string | null }).lessonProcessedReason ?? undefined,
       opsMakeupFlag: (lesson as { opsMakeupFlag?: boolean }).opsMakeupFlag ?? undefined,
       opsMakeupFlagAt: (lesson as { opsMakeupFlagAt?: Date | null }).opsMakeupFlagAt?.toISOString?.() ?? undefined,
       opsMakeupFlagBy: (lesson as { opsMakeupFlagBy?: string | null }).opsMakeupFlagBy ?? undefined,
@@ -1978,6 +1980,7 @@ async function persistLessonOpsResult(
     lessonProcessed: L.lessonProcessed ?? false,
     lessonProcessedAt: L.lessonProcessedAt ? new Date(L.lessonProcessedAt) : null,
     lessonProcessedBy: L.lessonProcessedBy ?? null,
+    lessonProcessedReason: L.lessonProcessedReason ?? null,
     opsMakeupFlag: L.opsMakeupFlag ?? false,
     opsMakeupFlagAt: L.opsMakeupFlagAt ? new Date(L.opsMakeupFlagAt) : null,
     opsMakeupFlagBy: L.opsMakeupFlagBy ?? null,
@@ -2106,11 +2109,12 @@ async function persistLessonOpsResult(
 export async function applyLessonOpsFlagLive(
   lessonId: string,
   flag: LessonOpsFlag,
-  actorUserId: string
+  actorUserId: string,
+  reason?: string
 ): Promise<ApplyLessonOpsResult> {
   logger.info("applyLessonOpsFlagLive", lessonId, flag);
   const data = await readData();
-  const result = applyLessonOpsFlag(data, lessonId, flag, actorUserId);
+  const result = applyLessonOpsFlag(data, lessonId, flag, actorUserId, undefined, reason);
   return persistLessonOpsResult(lessonId, flag, result);
 }
 
@@ -2118,11 +2122,12 @@ export async function applyLessonOpsFlagLive(
 export async function switchLessonOpsFlagLive(
   lessonId: string,
   flag: LessonOpsFlag,
-  actorUserId: string
+  actorUserId: string,
+  reason?: string
 ): Promise<ApplyLessonOpsResult> {
   logger.info("switchLessonOpsFlagLive", lessonId, flag);
   const data = await readData();
-  const result = switchLessonOpsFlag(data, lessonId, flag, actorUserId);
+  const result = switchLessonOpsFlag(data, lessonId, flag, actorUserId, undefined, reason);
   return persistLessonOpsResult(lessonId, flag, result);
 }
 
@@ -2633,6 +2638,12 @@ export async function updateConsentSettings(consentSettings: ConsentSettings): P
     where: { tenantId: tid },
     data: { consentSettings: consentSettings as unknown as Prisma.InputJsonValue },
   });
+  return readData();
+}
+
+export async function updateSchoolLogoUrl(logoUrl: string): Promise<AppData> {
+  const tid = requireTenantId();
+  await prisma.school.update({ where: { tenantId: tid }, data: { logoUrl } });
   return readData();
 }
 

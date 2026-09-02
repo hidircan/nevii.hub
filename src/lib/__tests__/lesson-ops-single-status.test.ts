@@ -90,7 +90,7 @@ describe("ÖNCELİK 4 (devam) — Geldi/İşlendi/Telafi tek, dışlayan statü 
     const lessonId = await createTestLesson();
     await setLessonOpsFlagTool(ctx(), { lessonId, flag: "attended" });
 
-    const res = await setLessonOpsFlagTool(ctx(), { lessonId, flag: "processed" });
+    const res = await setLessonOpsFlagTool(ctx(), { lessonId, flag: "processed", reason: "Ders fiilen işlendi" });
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     expect(res.data.needsConfirmation).toBe(true);
@@ -106,7 +106,7 @@ describe("ÖNCELİK 4 (devam) — Geldi/İşlendi/Telafi tek, dışlayan statü 
     const lessonId = await createTestLesson();
     await setLessonOpsFlagTool(ctx(), { lessonId, flag: "attended" });
 
-    const res = await setLessonOpsFlagTool(ctx(), { lessonId, flag: "processed", confirmSwitch: true });
+    const res = await setLessonOpsFlagTool(ctx(), { lessonId, flag: "processed", confirmSwitch: true, reason: "Ders fiilen işlendi" });
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     expect(res.data.needsConfirmation).toBeFalsy();
@@ -140,7 +140,7 @@ describe("ÖNCELİK 4 (devam) — Geldi/İşlendi/Telafi tek, dışlayan statü 
     };
     await writeData({ ...beforeSwitch, payments: [...beforeSwitch.payments, seeded] });
 
-    await setLessonOpsFlagTool(ctx(), { lessonId, flag: "processed", confirmSwitch: true });
+    await setLessonOpsFlagTool(ctx(), { lessonId, flag: "processed", confirmSwitch: true, reason: "Ders fiilen işlendi" });
 
     const after = await readData();
     const paymentsForLesson = after.payments.filter((p) => p.lessonId === lessonId);
