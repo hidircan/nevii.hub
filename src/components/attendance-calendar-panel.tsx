@@ -125,7 +125,7 @@ type MonthResponse = {
   term: string;
   billing?: {
     plannedLessonCount: number;
-    /** LEGACY tahmin — aylık ücretten türetilmiş, `Student.perLessonNetFee` eklenene kadar. */
+    /** `Student.derivedPerLessonAmount` (kayıt anındaki snapshot) varsa o, yoksa (eski kayıt) taze türetilir. */
     legacyUnitFee: number;
     suggestedAmount: number;
     usedFallback: boolean;

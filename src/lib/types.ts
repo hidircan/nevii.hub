@@ -272,14 +272,15 @@ export interface Student {
   /** Override yapıldıysa zorunlu gerekçe metni — audit'te de ayrıca saklanır. */
   monthlyFeeOverrideReason?: string;
   /**
-   * P0-1 — ana ücret modeli. Yoksa (undefined) LEGACY aylık paket kaydı
-   * sayılır ve `monthlyFee` birincil kaynak olmaya devam eder — eski
-   * kayıtlar ASLA otomatik "per_lesson"a dönüştürülmez, yalnızca YENİ
-   * kayıtlar bu alanı açıkça "per_lesson" seçebilir.
+   * P0-1 (2026-09-02 düzeltme) — yöneticinin girmediği, SİSTEMİN
+   * `derivePerLessonAmount(monthlyFee, weeklyLessonCount)` ile ürettiği
+   * hesaplama snapshot'ı (tam sayı TL). Yoksa (undefined) bu öğrenci
+   * ESKİ/legacy kayıttır — `monthlyFee` düz aylık ücret olarak kullanılmaya
+   * devam eder, hiçbir dönemsel oran uygulanmaz. Bu alan asla client
+   * girdisi DEĞİLDİR (bkz. validation.ts studentSchema notu) — yalnız
+   * `createStudentTool` her yeni kayıtta otomatik yazar.
    */
-  pricingModel?: "per_lesson" | "monthly_legacy";
-  /** `pricingModel==="per_lesson"` ise birincil taban ücret — tam sayı TL. */
-  perLessonNetFee?: number;
+  derivedPerLessonAmount?: number;
   firstLessonAt?: string;
   /** Soft-archive; hard delete yok */
   archivedAt?: string;

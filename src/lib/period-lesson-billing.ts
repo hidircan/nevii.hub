@@ -1,19 +1,41 @@
 /**
- * P0-1 — ders başı NET ücret birincil taban ücrettir; dönem tahsilatı
- * ücretlendirilebilir planlı ders sayısı × ders başı net ücret olarak
- * hesaplanır (aylık ücretten TÜRETME YOK — önceki taslağın tersiydi, bkz.
- * docs/implementation-plans/per-lesson-billing-and-attendance-risk-scope.md
- * §A.7 not). Bu dosyadaki her fonksiyon SAF'tır: I/O yok, store/DB
- * yazmaz, aynı girişe her zaman aynı çıkışı verir. Kayıt önizlemesi, ödeme
- * simülasyonu, sözleşme ödeme tablosu ve gerçek tahsilat planı — dördü de
- * BU dosyadan `computePeriodBillingLines`'ı çağırmalı (ayrı, birbirinden
- * bağımsız kopya hesap mantığı YOK).
+ * P0-1 (2026-09-02 ürün kuralı DÜZELTMESİ) — ders başı ücret yöneticinin
+ * girdiği/seçtiği bir alan DEĞİLDİR. Yönetici hâlâ yalnız AYLIK ücret +
+ * haftalık ders sıklığı girer; sistem `derivePerLessonAmount` ile ders başı
+ * karşılığını SESSİZCE türetir (referans ders adedi = haftalık × 4, sabit —
+ * gerçek takvime bakmaz). Dönem tahsilatı, bu türetilmiş ders başı tutarı ×
+ * O DÖNEMDEKİ GERÇEK/planlı ücretlendirilebilir ders sayısı ile hesaplanır
+ * — kısa dönemler orantılı olarak az, yoğun aylar (referanstan fazla ders)
+ * orantılı olarak fazla tahsil eder. Bu dosyadaki her fonksiyon SAF'tır:
+ * I/O yok, store/DB yazmaz, aynı girişe her zaman aynı çıkışı verir. Kayıt
+ * önizlemesi, ödeme simülasyonu, sözleşme ödeme tablosu ve gerçek tahsilat
+ * planı — dördü de BU dosyadan `computePeriodBillingLines`'ı çağırmalı
+ * (ayrı, birbirinden bağımsız kopya hesap mantığı YOK).
  *
  * Takvim günü karşılaştırmaları HER ZAMAN Europe/Istanbul saat dilimiyle
  * yapılır (`toZonedYmd`) — çıplak UTC gün veya sunucu yerel saati YOK.
  */
 
 import { toZonedYmd, DEFAULT_APP_TIMEZONE } from "./timezone";
+
+/** Referans aylık ders adedi — HER ZAMAN haftalık sıklık × 4, gerçek takvime bakmaz (sabit). */
+export function referenceMonthlyLessonCount(weeklyLessonCount: number): number {
+  return Math.max(1, Math.round(weeklyLessonCount)) * 4;
+}
+
+/**
+ * Ders başı sistem karşılığı — yöneticiden ASLA doğrudan alınmaz, aylık
+ * ücret ve haftalık sıklıktan türetilir: aylık ücret ÷ (haftalık × 4).
+ * Tam sayı TL'ye yuvarlanır (kuruş/float aritmetiği yok). Bu, dönem
+ * tahsilatı hesaplarken kullanılacak TEK ders-başı tutarıdır — bir client
+ * bu değeri doğrudan göndermeye çalışsa bile (ör. sahte `perLessonNetFee`)
+ * sunucu ASLA güvenmez, her zaman burada yeniden hesaplar.
+ */
+export function derivePerLessonAmount(monthlyFee: number, weeklyLessonCount: number): number {
+  if (!Number.isFinite(monthlyFee) || monthlyFee < 0) return 0;
+  const referenceCount = referenceMonthlyLessonCount(weeklyLessonCount);
+  return Math.round(monthlyFee / referenceCount);
+}
 
 export type BillableLessonType = "regular" | "makeup" | "trial" | "group";
 export type BillableLessonStatus = "scheduled" | "in_progress" | "completed" | "cancelled" | "no_show";
@@ -269,7 +291,15 @@ export function estimateBillableLessonCount(
 ): number {
   if (!Number.isInteger(weeklyLessonCount) || weeklyLessonCount <= 0) return 0;
   const days = inclusiveDayCount(periodStartDay, periodEndDay);
-  return Math.max(0, Math.round((weeklyLessonCount * days) / 7));
+  // P0-1 (2026-09-02) — `derivePerLessonAmount`in referans ders adedine
+  // (haftalık×4) ORANTILI: TAM bir takvim ayı süren ilk dönem, her zaman
+  // TAM referans adedini (ve dolayısıyla TAM aylık ücreti) üretir — eski
+  // "haftalık×gün/7" formülü 30/31 günlük aylarda haftada 2 ders için
+  // referanstan (8) FARKLI (9) bir sayı üretiyordu, bu tutarsızdı.
+  const [y, m] = periodStartDay.slice(0, 7).split("-").map(Number) as [number, number];
+  const daysInThatMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const reference = referenceMonthlyLessonCount(weeklyLessonCount);
+  return Math.max(0, Math.round((reference * days) / daysInThatMonth));
 }
 
 export interface EstimatePeriodBillingLinesInput {

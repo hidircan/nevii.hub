@@ -374,10 +374,8 @@ function mapSchoolToAppData(school: PrismaSchoolWithRelations): AppData {
         (student as { monthlyFeeManualOverride?: boolean | null }).monthlyFeeManualOverride ?? undefined,
       monthlyFeeOverrideReason:
         (student as { monthlyFeeOverrideReason?: string | null }).monthlyFeeOverrideReason ?? undefined,
-      pricingModel: (student as { pricingModel?: string | null }).pricingModel as
-        | import("./types").Student["pricingModel"]
-        | undefined ?? undefined,
-      perLessonNetFee: (student as { perLessonNetFee?: number | null }).perLessonNetFee ?? undefined,
+      derivedPerLessonAmount:
+        (student as { derivedPerLessonAmount?: number | null }).derivedPerLessonAmount ?? undefined,
     })),
     rooms: school.rooms.map((room) => ({
       id: room.id,

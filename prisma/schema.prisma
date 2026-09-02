@@ -409,12 +409,11 @@ model Student {
   /// true ise monthlyFee hesaplanan değerden farklı, admin tarafından elle girilmiştir.
   monthlyFeeManualOverride Boolean           @default(false)
   monthlyFeeOverrideReason String?           @db.Text
-  /// P0-1 — ana ücret modeli. NULL = LEGACY aylık paket kaydı (mevcut tüm
-  /// kayıtlar); yalnız YENİ kayıtlar açıkça "per_lesson" seçebilir, eski
-  /// kayıtlar ASLA otomatik dönüştürülmez.
-  pricingModel             String?
-  /// pricingModel="per_lesson" ise birincil taban ücret — tam sayı TL.
-  perLessonNetFee          Int?
+  /// P0-1 (2026-09-02 düzeltme) — yönetici girmez; `derivePerLessonAmount`
+  /// (monthlyFee ÷ (weeklyLessonCount×4)) ile sistemin ürettiği hesaplama
+  /// snapshot'ı. NULL = LEGACY kayıt (mevcut tüm kayıtlar, düz monthlyFee),
+  /// yalnız YENİ kayıtlarda otomatik dolar — asla client girdisi değildir.
+  derivedPerLessonAmount   Int?
   firstLessonAt            DateTime?
   archivedAt               DateTime?
   /// ÖNCELİK 4 — "guz" (Eylül-Haziran) | "yaz" (Temmuz-Ağustos). Boşsa "guz"

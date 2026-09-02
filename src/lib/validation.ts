@@ -180,23 +180,20 @@ export const studentSchema = z.object({
   /** Yalnızca gerçekten istisnai/gecikmeli ilk tahsilat için — yetkili personel gerekçesi zorunlu, gün-of-ay tetiklemez (bkz. createStudentTool). */
   firstPaymentExceptionReason: optionalTrimmed,
   /**
-   * P0-1 — ana ücret modeli. Verilmezse (undefined) LEGACY aylık akış
-   * DEĞİŞMEDEN çalışır — bu alan yalnızca "per_lesson" seçildiğinde yeni
-   * ders-başı motoru devreye girer, eski entegrasyonlar/testler etkilenmez.
-   */
-  pricingModel: z.enum(["per_lesson", "monthly_legacy"]).optional(),
-  /** `pricingModel==="per_lesson"` ise zorunlu — tam sayı TL, birincil taban ücret. */
-  perLessonNetFee: z.coerce.number().int().min(0).optional(),
-  /**
+   * P0-1 (2026-09-02 düzeltme) — "ders başı ücret" yöneticinin girdiği bir
+   * alan DEĞİLDİR ve ücretlendirme modeli SEÇİLEMEZ; sistem her yeni
+   * kayıtta aylık ücret + haftalık sıklıktan otomatik türetir (bkz.
+   * `derivePerLessonAmount`, period-lesson-billing.ts). Bilinçli olarak bu
+   * şemada `pricingModel`/`perLessonNetFee` alanı YOK — zod bilinmeyen
+   * alanları sessizce ATAR (strip), yani bir istemci sahte bir
+   * `perLessonNetFee` gönderse bile `createStudentTool`'a hiç ulaşmaz.
+   *
    * İlk tahsilat, motorun ürettiği otomatik ilk dönem tutarından FARKLI
-   * girildiyse zorunlu (bkz. `first-payment-adjustment.ts`) — serbest,
-   * izsiz bir istisna alanı DEĞİL, `createStudentTool` otomatik tutarla
-   * karşılaştırıp reddeder/kabul eder, asla sessizce geçmez.
+   * girildiyse gerekçe zorunlu (bkz. `first-payment-adjustment.ts`) —
+   * serbest, izsiz bir istisna alanı DEĞİL, `createStudentTool` otomatik
+   * tutarla karşılaştırıp reddeder/kabul eder, asla sessizce geçmez.
    */
   firstPaymentAdjustmentReason: optionalTrimmed,
-}).refine((v) => v.pricingModel !== "per_lesson" || v.perLessonNetFee !== undefined, {
-  message: "Ders başı ücretlendirme modeli seçildiyse ders başı net ücret zorunludur.",
-  path: ["perLessonNetFee"],
 }).refine((v) => v.monthlyFeeOverrideAmount === undefined || !!v.monthlyFeeOverrideReason, {
   message: "Manuel ücret girildiyse gerekçe zorunludur.",
   path: ["monthlyFeeOverrideReason"],

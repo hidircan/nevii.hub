@@ -1884,27 +1884,27 @@ export async function createStudentTool(
       return fail("VALIDATION_ERROR", "İlk ödeme kayıt sırasında tahsil edilmeden kayıt tamamlanamaz.");
     }
 
-    // P0-1B — otomatik önerilen ilk dönem tutarı. "per_lesson" modelinde
-    // TEK motordan (period-lesson-billing.ts) gelir — henüz gerçek ders
-    // programı yokken `estimatePeriodBillingLines` PROJEKSİYON üretir (bkz.
-    // o dosyadaki `estimated` bayrağı notu). Legacy (pricingModel yoksa)
-    // davranış TAMAMEN DEĞİŞMEDEN korunur: otomatik tutar `pricing.monthlyFee`.
-    let autoSuggestedAmount = pricing.monthlyFee;
-    if (v.data.pricingModel === "per_lesson") {
-      const { estimatePeriodBillingLines } = await import("../period-lesson-billing");
-      const startDay = v.data.enrollmentStartDate || toZonedYmd(new Date(), resolveAppTimezone());
-      const [sy, sm] = startDay.slice(0, 7).split("-").map(Number) as [number, number];
-      const monthEndDay = `${startDay.slice(0, 7)}-${String(new Date(Date.UTC(sy, sm, 0)).getUTCDate()).padStart(2, "0")}`;
-      const firstPeriodEnd =
-        v.data.enrollmentEndDate && v.data.enrollmentEndDate < monthEndDay ? v.data.enrollmentEndDate : monthEndDay;
-      const lines = estimatePeriodBillingLines({
-        enrollmentStartDay: startDay,
-        enrollmentEndDay: firstPeriodEnd,
-        perLessonNetFee: v.data.perLessonNetFee!,
-        weeklyLessonCount: v.data.weeklyLessonCount,
-      });
-      autoSuggestedAmount = lines[0]!.autoCalculatedAmount;
-    }
+    // P0-1B (2026-09-02 düzeltme) — ders başı ücret yöneticinin girdiği bir
+    // alan DEĞİL; HER yeni kayıtta otomatik ve KOŞULSUZ türetilir (aylık
+    // ücret ÷ referans ders adedi = haftalık×4, bkz. `derivePerLessonAmount`).
+    // Bu artık bir "opsiyonel model" değil — yeni kayıtların TAMAMI için
+    // geçerli, tek yol. Otomatik önerilen ilk dönem tutarı, henüz gerçek
+    // ders programı yokken `estimatePeriodBillingLines` PROJEKSİYONUYLA
+    // (bkz. o dosyadaki `estimated` bayrağı notu) hesaplanır.
+    const { estimatePeriodBillingLines, derivePerLessonAmount } = await import("../period-lesson-billing");
+    const derivedPerLessonAmount = derivePerLessonAmount(pricing.monthlyFee, v.data.weeklyLessonCount);
+    const startDay = v.data.enrollmentStartDate || toZonedYmd(new Date(), resolveAppTimezone());
+    const [sy, sm] = startDay.slice(0, 7).split("-").map(Number) as [number, number];
+    const monthEndDay = `${startDay.slice(0, 7)}-${String(new Date(Date.UTC(sy, sm, 0)).getUTCDate()).padStart(2, "0")}`;
+    const firstPeriodEnd =
+      v.data.enrollmentEndDate && v.data.enrollmentEndDate < monthEndDay ? v.data.enrollmentEndDate : monthEndDay;
+    const firstPeriodLines = estimatePeriodBillingLines({
+      enrollmentStartDay: startDay,
+      enrollmentEndDay: firstPeriodEnd,
+      perLessonNetFee: derivedPerLessonAmount,
+      weeklyLessonCount: v.data.weeklyLessonCount,
+    });
+    const autoSuggestedAmount = firstPeriodLines[0]!.autoCalculatedAmount;
 
     const { resolveFirstPaymentAdjustment } = await import("../first-payment-adjustment");
     const adjustment = resolveFirstPaymentAdjustment({
@@ -1971,6 +1971,8 @@ export async function createStudentTool(
       // Faz 1B — explicit studentTypes yoksa legacy tekil studentType'tan türetilir.
       studentTypes: v.data.studentTypes?.length ? v.data.studentTypes : v.data.studentType ? [v.data.studentType] : undefined,
       ...pricing,
+      // P0-1B — client'tan ASLA gelmez, yalnız sunucunun kendi hesabı.
+      derivedPerLessonAmount,
     });
     const after = await readData();
     const created = after.students.find((s) => !ids.has(s.id));
@@ -9688,7 +9690,7 @@ export async function getAttendanceCalendarMonthTool(
     withinTerm: boolean;
     billing?: {
       plannedLessonCount: number;
-      /** LEGACY tahmin — aylık ücretten türetilmiş, `Student.perLessonNetFee` eklenene kadar. */
+      /** `Student.derivedPerLessonAmount` (kayıt anındaki snapshot) varsa o, yoksa (eski kayıt) taze türetilir. */
       legacyUnitFee: number;
       suggestedAmount: number;
       usedFallback: boolean;
@@ -9795,14 +9797,13 @@ export async function getAttendanceCalendarMonthTool(
   // (period-lesson-billing.ts `isBillableLesson`) geliyor: deneme/iptal/
   // kurum-kapalı/telafi-kaynağı dersler burada da hariç tutulur (eski
   // `countPlannedLessonsInMonth` yalnız `status!=="cancelled"` bakıyordu).
-  // `Student.perLessonNetFee` (birincil ders başı ücret) alanı henüz
-  // migration'a bağlanmadı (bkz. per-lesson-billing-and-attendance-risk-scope.md
-  // §A.7) — bu ekran o alan gelene kadar aylık ücretten türetilen LEGACY
-  // bir tahmini gösterir, yeni birincil model DEĞİLDİR.
-  const { countBillableLessonsInRange, resolveExcludedMakeupSourceLessonIds } = await import(
+  // Ders başı karşılık artık `Student.derivedPerLessonAmount` (kayıt
+  // anında yazılan snapshot) VARSA onu kullanır — yoksa (eski/legacy
+  // kayıt) `derivePerLessonAmount` ile aynı formülle taze türetir, AYRI
+  // bir "legacy tahmin" formülü İCAT EDİLMEZ.
+  const { countBillableLessonsInRange, resolveExcludedMakeupSourceLessonIds, derivePerLessonAmount } = await import(
     "../period-lesson-billing"
   );
-  const pkg = student.packageId ? data.packages?.find((p) => p.id === student.packageId) : undefined;
   const monthPrefix = `${v.data.year}-${String(v.data.month).padStart(2, "0")}`;
   const monthStartDay = `${monthPrefix}-01`;
   const monthEndDay = `${monthPrefix}-${String(new Date(Date.UTC(v.data.year, v.data.month, 0)).getUTCDate()).padStart(2, "0")}`;
@@ -9823,11 +9824,8 @@ export async function getAttendanceCalendarMonthTool(
     monthEndDay,
     { excludedSourceLessonIds, frozenRanges: [] }
   );
-  const legacyTypicalMonthlyLessonCount =
-    pkg?.monthlyLessonCount && pkg.monthlyLessonCount > 0
-      ? pkg.monthlyLessonCount
-      : Math.max(1, student.weeklyLessonCount) * 4;
-  const legacyUnitFee = Math.round(student.monthlyFee / Math.max(1, legacyTypicalMonthlyLessonCount));
+  const legacyUnitFee =
+    student.derivedPerLessonAmount ?? derivePerLessonAmount(student.monthlyFee, student.weeklyLessonCount);
   const billing = {
     plannedLessonCount,
     legacyUnitFee,
@@ -11393,12 +11391,15 @@ export async function getAttendanceReportTool(
 }
 
 /**
- * P0-1C — Ödeme simülasyonu. Var olan bir öğrenci (`studentId`, gerçek ders
- * kayıtları varsa onları kullanır) VEYA kayıt-öncesi "ne olurdu" keşfi
- * (ham `enrollmentStartDate`/`weeklyLessonCount`/`perLessonNetFee`) kabul
- * eder — ikisi de TEK motordan (`period-lesson-billing.ts`) geçer, sözleşme
- * tablosuyla (bkz. `buildPerLessonInstallmentSchedule`, `contracts.ts`)
- * aynı `autoCalculatedAmount` değerlerini üretir. Yalnız OKUR, hiçbir kayıt
+ * P0-1C (2026-09-02 düzeltme) — Ödeme simülasyonu. Var olan bir öğrenci
+ * (`studentId`, gerçek ders kayıtları varsa onları kullanır) VEYA kayıt-
+ * öncesi "ne olurdu" keşfi (ham `enrollmentStartDate`/`weeklyLessonCount`/
+ * `monthlyFee`) kabul eder — ders başı karşılık HER İKİ yolda da yalnız
+ * `derivePerLessonAmount(monthlyFee, weeklyLessonCount)` ile sunucuda
+ * türetilir, client bunu ASLA doğrudan göndermez. İkisi de TEK motordan
+ * (`period-lesson-billing.ts`) geçer, sözleşme tablosuyla (bkz.
+ * `buildPerLessonInstallmentSchedule`, `contracts.ts`) aynı
+ * `autoCalculatedAmount` değerlerini üretir. Yalnız OKUR, hiçbir kayıt
  * yazmaz/değiştirmez.
  */
 export async function previewPeriodBillingSimulationTool(
@@ -11422,7 +11423,11 @@ export async function previewPeriodBillingSimulationTool(
       enrollmentStartDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
       enrollmentEndDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
       weeklyLessonCount: z.number().int().min(1).max(2).optional(),
-      perLessonNetFee: z.number().int().min(0).optional(),
+      // P0-1 (2026-09-02 düzeltme) — ders başı ücret client'tan ASLA
+      // alınmaz; yalnız `monthlyFee` girilebilir, ders başı karşılığı
+      // sunucuda `derivePerLessonAmount`den türetilir (bkz. studentId
+      // verilmediği "kayıt öncesi ne olurdu" senaryosu).
+      monthlyFee: z.number().int().min(0).optional(),
       firstPeriodManualNetAmount: z.number().int().min(0).optional(),
       paymentMethod: z.enum(["credit_card", "cash", "transfer"]).optional(),
     }),
@@ -11430,37 +11435,33 @@ export async function previewPeriodBillingSimulationTool(
   );
   if (!v.ok) return v;
 
-  const { computePeriodBillingPreview } = await import("../period-lesson-billing");
+  const { computePeriodBillingPreview, derivePerLessonAmount } = await import("../period-lesson-billing");
   const data = await readData();
 
   let enrollmentStartDay = v.data.enrollmentStartDate;
   let enrollmentEndDay = v.data.enrollmentEndDate;
   let weeklyLessonCount = v.data.weeklyLessonCount;
-  let perLessonNetFee = v.data.perLessonNetFee;
+  let monthlyFee = v.data.monthlyFee;
   let studentId = v.data.studentId ?? "__simulation__";
 
   if (v.data.studentId) {
     const student = data.students.find((s) => s.id === v.data.studentId);
     if (!student) return fail("NOT_FOUND", "Öğrenci bulunamadı");
-    if (student.pricingModel !== "per_lesson" || !student.perLessonNetFee) {
-      return fail(
-        "VALIDATION_ERROR",
-        "Bu öğrenci ders başı ücretlendirme modelinde değil — simülasyon yalnızca per_lesson öğrenciler içindir."
-      );
-    }
     studentId = student.id;
     enrollmentStartDay = enrollmentStartDay || student.enrollmentStartDate || toZonedYmd(new Date(), resolveAppTimezone());
     enrollmentEndDay = enrollmentEndDay || student.enrollmentEndDate || enrollmentStartDay;
     weeklyLessonCount = weeklyLessonCount ?? student.weeklyLessonCount;
-    perLessonNetFee = perLessonNetFee ?? student.perLessonNetFee;
+    monthlyFee = monthlyFee ?? student.monthlyFee;
   }
 
-  if (!enrollmentStartDay || !enrollmentEndDay || !weeklyLessonCount || perLessonNetFee === undefined) {
+  if (!enrollmentStartDay || !enrollmentEndDay || !weeklyLessonCount || monthlyFee === undefined) {
     return fail(
       "VALIDATION_ERROR",
-      "Simülasyon için enrollmentStartDate/enrollmentEndDate/weeklyLessonCount/perLessonNetFee (veya per_lesson bir studentId) gerekir."
+      "Simülasyon için enrollmentStartDate/enrollmentEndDate/weeklyLessonCount/monthlyFee (veya bir studentId) gerekir."
     );
   }
+  // TEK kaynak — ders başı karşılığı burada, HER ZAMAN sunucuda türetilir.
+  const perLessonNetFee = derivePerLessonAmount(monthlyFee, weeklyLessonCount);
 
   const lines = computePeriodBillingPreview({
     enrollmentStartDay,
