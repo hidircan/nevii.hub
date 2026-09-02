@@ -92,6 +92,12 @@ export function NewStudentForm({
     firstPeriodPlannedLessons: number;
     firstPeriodSuggestedAmount: number;
   } | null>(null);
+  // P0-B (2026-09-02) — kayıt esnasında fiilen girilen tutarı CANLI izler
+  // (sistem önerisiyle karşılaştırıp "Fark" satırını göstermek için).
+  const [enteredFirstPayment, setEnteredFirstPayment] = useState<number | undefined>(() => {
+    const raw = v("firstPaymentAmount");
+    return raw ? Number(raw.replace(/[^\d]/g, "")) : undefined;
+  });
 
   function recomputePreview() {
     const form = formRef.current;
@@ -100,6 +106,8 @@ export function NewStudentForm({
     const monthlyFee = Number(fd.get("monthlyFee") || 0);
     const weeklyLessonCount = Number(fd.get("weeklyLessonCount") || 0);
     const startDay = String(fd.get("enrollmentStartDate") || "") || new Date().toISOString().slice(0, 10);
+    const firstPaymentRaw = String(fd.get("firstPaymentAmount") || "").replace(/[^\d]/g, "");
+    setEnteredFirstPayment(firstPaymentRaw ? Number(firstPaymentRaw) : undefined);
     if (!Number.isInteger(monthlyFee) || monthlyFee <= 0 || weeklyLessonCount <= 0) {
       setPreview(null);
       return;
@@ -131,6 +139,11 @@ export function NewStudentForm({
   }, []);
 
   const firstPeriodAutoAmount = preview?.firstPeriodSuggestedAmount;
+  // P0-B — yalnız İKİSİ de bilinip GERÇEKTEN farklıysa "düzeltme" durumu.
+  const hasFirstPaymentMismatch =
+    firstPeriodAutoAmount !== undefined &&
+    enteredFirstPayment !== undefined &&
+    enteredFirstPayment !== firstPeriodAutoAmount;
 
   // P0-A (2026-09-02) — GERÇEK kök neden (react-dom kaynağından doğrulandı,
   // bkz. `updateOptions`/`postMountWrapper` react-dom-client.development.js):
@@ -494,6 +507,31 @@ export function NewStudentForm({
               tutar tahsil ettiyseniz onu girin, aşağıya gerekçe yazın.
             </p>
           ) : null}
+          {/* P0-B (2026-09-02) — fiili tutar sistem önerisinden farklı girildiğinde
+              CANLI fark dökümü (Sistem önerisi / Fiili tahsilat / Fark). */}
+          {hasFirstPaymentMismatch ? (
+            <div
+              role="status"
+              className="space-y-1 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200"
+            >
+              <div className="flex items-center justify-between">
+                <span>Sistem önerisi</span>
+                <span className="font-semibold">{formatTL(firstPeriodAutoAmount!)}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span>Fiili tahsilat</span>
+                <span className="font-semibold">{formatTL(enteredFirstPayment!)}</span>
+              </div>
+              <div className="flex items-center justify-between border-t border-amber-300/60 pt-1 dark:border-amber-800/60">
+                <span>Fark</span>
+                <span className="font-semibold">
+                  {enteredFirstPayment! - firstPeriodAutoAmount! > 0 ? "+" : ""}
+                  {formatTL(enteredFirstPayment! - firstPeriodAutoAmount!)}
+                </span>
+              </div>
+              <p className="pt-1">Tutar farklı olduğundan aşağıdaki düzeltme gerekçesi zorunludur.</p>
+            </div>
+          ) : null}
           <div className="grid grid-cols-2 gap-2">
             <div>
               <Label>Ödeme yöntemi</Label>
@@ -536,11 +574,16 @@ export function NewStudentForm({
             <Input name="firstPaymentNote" defaultValue={v("firstPaymentNote")} placeholder="Opsiyonel" />
           </div>
           <div>
-            <Label>Düzeltme gerekçesi (yalnız tutar otomatik önerilenden farklıysa zorunlu)</Label>
+            <Label>
+              Düzeltme gerekçesi (yalnız tutar otomatik önerilenden farklıysa zorunlu)
+              {hasFirstPaymentMismatch ? <span className="text-rose-600"> *</span> : null}
+            </Label>
             <Input
               name="firstPaymentAdjustmentReason"
               defaultValue={v("firstPaymentAdjustmentReason")}
               placeholder="Örn. Aile maddi zorluk, yönetici onayı"
+              required={hasFirstPaymentMismatch}
+              aria-required={hasFirstPaymentMismatch}
               aria-invalid={!!fieldErrors.firstPaymentAdjustmentReason}
             />
             <FieldError message={fieldErrors.firstPaymentAdjustmentReason} />

@@ -235,6 +235,92 @@ describe("actionAddStudent — P0-2 zarif doğrulama hatası davranışı (throw
   });
 });
 
+/**
+ * P0-B (2026-09-02) — kök neden: `actionAddStudent` formdan
+ * `firstPaymentAdjustmentReason`'ı HİÇ okumuyordu (yalnız yeniden-gösterim
+ * için `STUDENT_FORM_VALUE_KEYS`'e alınıyordu, asıl `createStudentTool`
+ * çağrısına hiç iletilmiyordu) — kullanıcı geçerli bir gerekçe yazsa bile
+ * sunucu bunu HİÇ GÖRMÜYOR, "gerekçe zorunludur" hatası koşulsuz dönüyordu.
+ * Bu testler gerçek action katmanını (yalnızca createStudentTool'u değil)
+ * FormData ile uçtan uca çalıştırır — hata tam olarak burada yaşıyordu.
+ */
+describe("actionAddStudent — P0-B: ilk ödeme düzeltme gerekçesi", () => {
+  beforeEach(() => {
+    mockSession.ctx = { role: "SCHOOL_ADMIN", userId: "admin1", tenantId: DEFAULT_TENANT_ID, channel: "web" };
+    mockCookieValue.value = DEFAULT_TENANT_ID;
+  });
+
+  it("(A) otomatik öneri === fiili tutar (ayın 1'i, tam ay) — gerekçe İSTENMEZ, kayıt başarılı olur", async () => {
+    const fd = studentFormData();
+    fd.set("enrollmentStartDate", "2026-09-01");
+    fd.set("firstPaymentAmount", "3000"); // monthlyFee=3000 (varsayılan), weeklyLessonCount=1 → tam ay otomatik öneri = 3000
+    fd.set("firstPaymentDate", "2026-09-01");
+    await expect(actions.actionAddStudent(null, fd)).rejects.toThrow("NEXT_REDIRECT");
+    const after = await readData();
+    const student = after.students.find((s) => s.name === "Test Öğrenci");
+    expect(student).toBeDefined();
+    const payment = after.payments.find(
+      (p) => p.studentId === student!.id && p.source === "registration_first_payment"
+    );
+    expect(payment?.paidAmount).toBe(3000);
+  });
+
+  it("(C) otomatik öneri ≠ fiili tutar, gerekçe HİÇ girilmedi — alan bazlı hata döner (genel 'Invalid input' DEĞİL), form verisi korunur, kayıt OLUŞTURULMAZ", async () => {
+    const fd = studentFormData();
+    fd.set("enrollmentStartDate", "2026-09-05"); // tam ay değil → otomatik öneri 3000'den farklı
+    fd.set("firstPaymentAmount", "3000");
+    fd.set("firstPaymentDate", "2026-09-10");
+    const before = await readData();
+    const result = await actions.actionAddStudent(null, fd);
+    expect(result?.ok).toBe(false);
+    expect(result?.formError).toContain("gerekçe zorunludur");
+    expect(result?.formError).not.toBe("Invalid input");
+    // Alan bazlı hata — yalnız üstteki genel özet DEĞİL, `FieldError` bileşeninin
+    // okuduğu `fieldErrors.firstPaymentAdjustmentReason` altında da gösterilir.
+    expect(result?.fieldErrors?.firstPaymentAdjustmentReason).toContain("gerekçe zorunludur");
+    // Diğer form verisi (P0-4 deseni) korunur — kullanıcı her şeyi yeniden yazmaz.
+    expect(result && "values" in result ? result.values?.firstPaymentAmount : undefined).toBe("3000");
+    expect(result && "values" in result ? result.values?.enrollmentStartDate : undefined).toBe("2026-09-05");
+    const after = await readData();
+    expect(after.students.length).toBe(before.students.length);
+  });
+
+  it("(C variant) yalnızca BOŞLUK içeren gerekçe de reddedilir — trim edilince boş", async () => {
+    const fd = studentFormData();
+    fd.set("enrollmentStartDate", "2026-09-05");
+    fd.set("firstPaymentAmount", "3000");
+    fd.set("firstPaymentDate", "2026-09-10");
+    fd.set("firstPaymentAdjustmentReason", "   ");
+    const before = await readData();
+    const result = await actions.actionAddStudent(null, fd);
+    expect(result?.ok).toBe(false);
+    expect(result?.fieldErrors?.firstPaymentAdjustmentReason).toContain("gerekçe zorunludur");
+    const after = await readData();
+    expect(after.students.length).toBe(before.students.length);
+  });
+
+  it("(B) otomatik öneri ≠ fiili tutar, GEÇERLİ (trim edilmiş) bir gerekçe girildi — kayıt başarılı olur, Payment'a tam düzeltme izi yazılır", async () => {
+    const fd = studentFormData();
+    fd.set("enrollmentStartDate", "2026-09-05");
+    fd.set("firstPaymentAmount", "3000");
+    fd.set("firstPaymentDate", "2026-09-10");
+    fd.set("firstPaymentAdjustmentReason", "  Kardeş indirimi  ");
+    await expect(actions.actionAddStudent(null, fd)).rejects.toThrow("NEXT_REDIRECT");
+
+    const after = await readData();
+    const student = after.students.find((s) => s.name === "Test Öğrenci");
+    expect(student).toBeDefined();
+    const payment = after.payments.find(
+      (p) => p.studentId === student!.id && p.source === "registration_first_payment"
+    );
+    expect(payment).toBeDefined();
+    expect(payment?.paidAmount).toBe(3000);
+    expect(payment?.adjustmentReason).toBe("Kardeş indirimi"); // trim edilmiş
+    expect(payment?.autoSuggestedAmount).toBeDefined();
+    expect(payment?.autoSuggestedAmount).not.toBe(3000);
+  });
+});
+
 describe("Yazma kapsamı koruması — Yoklama (actionMarkAttendance)", () => {
   it("SUPER_ADMIN 'Tüm kurumlar' modunda reddedilir, yoklama kaydedilmez", async () => {
     mockSession.ctx = { role: "SUPER_ADMIN", userId: "super1", tenantId: DEFAULT_TENANT_ID, channel: "web" };

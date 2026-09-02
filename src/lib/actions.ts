@@ -85,6 +85,7 @@ import {
   updateTeacherPayoutPaymentMethodTool,
   updateFeeRoundingModeTool,
   updateMakeupWindowDaysTool,
+  updateSchoolLogoTool,
   updateMonthlyMakeupAllowanceTool,
   updateTermWeeklyClosedDaysTool,
   findAvailableSlotsTool,
@@ -771,6 +772,16 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
             };
           })(),
           firstPaymentExceptionReason: String(formData.get("firstPaymentExceptionReason") || "") || undefined,
+          // P0-B (2026-09-02) — kök neden: bu alan formda toplanıyor
+          // (`new-student-form.tsx` `name="firstPaymentAdjustmentReason"`) ve
+          // hata sonrası yeniden gösterim için `STUDENT_FORM_VALUE_KEYS`'e
+          // dahildi, ama BURADA — asıl `createStudentTool` çağrı payload'ında —
+          // hiç OKUNMUYORDU. Sonuç: `v.data.firstPaymentAdjustmentReason` sunucuda
+          // HER ZAMAN undefined'dı, kullanıcı geçerli bir gerekçe yazsa bile
+          // `resolveFirstPaymentAdjustment` gerekçeyi HİÇ GÖRMÜYOR ve otomatik≠
+          // manuel farkında KOŞULSUZ "gerekçe zorunludur" hatası veriyordu.
+          firstPaymentAdjustmentReason:
+            String(formData.get("firstPaymentAdjustmentReason") || "") || undefined,
           // Karma Öğrenci Portalı — bu form (plain <form action=...>, dönüş
           // değeri UI'ya asla ulaşmaz) BİLİNÇLİ OLARAK giriş hesabı AÇMAZ —
           // tempLoginPassword burada üretilse admin'e hiç gösterilemez ve
@@ -3000,6 +3011,25 @@ export async function actionUpdateMakeupWindowDays(
     if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
     if (error instanceof WriteScopeDeniedError) return { ok: false, message: error.message };
     return { ok: false, message: "Telafi politika penceresi güncellenirken beklenmeyen bir hata oluştu." };
+  }
+}
+
+export type UpdateSchoolLogoActionResult = { ok: true; logoUrl: string } | { ok: false; message: string };
+
+export async function actionUpdateSchoolLogo(input: {
+  fileMimeType: string;
+  fileData: string;
+}): Promise<UpdateSchoolLogoActionResult> {
+  try {
+    const result = await withAuthContext("actionUpdateSchoolLogo", (ctx) => updateSchoolLogoTool(ctx, input));
+    if (!result.ok) return { ok: false, message: result.error.message };
+    revalidateAll();
+    return { ok: true, logoUrl: result.data.logoUrl };
+  } catch (error) {
+    logger.error("actionUpdateSchoolLogo failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    if (error instanceof WriteScopeDeniedError) return { ok: false, message: error.message };
+    return { ok: false, message: "Kurum logosu güncellenirken beklenmeyen bir hata oluştu." };
   }
 }
 

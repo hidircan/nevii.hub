@@ -1925,7 +1925,17 @@ export async function createStudentTool(
       manualNetAmount: firstPaymentCollected.amount,
       reason: v.data.firstPaymentAdjustmentReason,
     });
-    if (!adjustment.ok) return fail("VALIDATION_ERROR", adjustment.message);
+    // P0-B — bu hata ÖNCEDEN yalnız üstteki genel `formError` özetinde
+    // görünüyordu; `firstPaymentAdjustmentReason` alanının ALTINDA (bkz.
+    // new-student-form.tsx `<FieldError message={fieldErrors.firstPaymentAdjustmentReason} />`)
+    // hiç gösterilmiyordu — `actionAddStudent`'ın `fieldErrorsFromZodFlatten`
+    // yardımcı fonksiyonuyla AYNI `{fieldErrors: {alan: [mesaj]}}` şeklini
+    // taşıyarak alan bazlı gösterime bağlanır.
+    if (!adjustment.ok) {
+      return fail("VALIDATION_ERROR", adjustment.message, {
+        fieldErrors: { firstPaymentAdjustmentReason: [adjustment.message] },
+      });
+    }
 
     // Çift gönderim/retry koruması — aynı personel aynı öğrenciyi (ad+telefon+
     // veli telefonu+öğretmen+şube+tutar) 60sn içinde tekrar gönderirse (ör. çift
