@@ -23,7 +23,7 @@ import { Button, Card, Input, Label, Select } from "@/components/ui";
 import { StudentInstrumentTeacherFields, type TeacherOption } from "@/components/student-instrument-teacher-fields";
 import { StudentPackagePricingFields, type PricingPackageOption } from "@/components/student-package-pricing-fields";
 import { STUDENT_TYPES } from "@/lib/types";
-import { estimatePeriodBillingLines, periodKindLabel, type PeriodBillingLine } from "@/lib/period-lesson-billing";
+import { estimatePeriodBillingLines, derivePerLessonAmount, referenceMonthlyLessonCount } from "@/lib/period-lesson-billing";
 
 function formatTL(amount: number): string {
   return new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY", maximumFractionDigits: 0 }).format(
@@ -75,45 +75,53 @@ export function NewStudentForm({
   const selectedStudentTypes = new Set((values.studentTypes ?? "").split(",").filter(Boolean));
   const checkedVal = (key: string, expected: string): boolean => v(key) === expected;
 
-  // P0-1 — ders başı net ücret önizlemesi. Formun geri kalanı bilinçli olarak
-  // uncontrolled kaldığı için (bkz. üstteki not) bu alanları ayrıca controlled
-  // state'e ALMAK yerine, `<form>` seviyesinde `onInput` ile her değişiklikte
-  // `FormData` okunup TEK, paylaşılan saf motorla (period-lesson-billing.ts —
-  // sunucudaki `createStudentTool`'un kullandığı AYNI fonksiyon) yeniden
-  // hesaplanır. Böylece hiçbir mevcut alanın controlled/uncontrolled doğası
-  // değişmez.
+  // P0-1 (2026-09-02 düzeltme) — ders başı ücret yöneticinin girdiği/seçtiği
+  // BİR ALAN DEĞİL: yönetici yalnız aylık ücret + haftalık ders sıklığı
+  // girer, ders başı karşılığı salt-okunur bir bilgi kartında GÖSTERİLİR
+  // (`derivePerLessonAmount` — sunucudaki `createStudentTool`'un kullandığı
+  // AYNI saf fonksiyon). Formun geri kalanı bilinçli olarak uncontrolled
+  // kaldığı için (bkz. üstteki not) bu alanları ayrıca controlled state'e
+  // ALMAK yerine, `<form>` seviyesinde `onInput` ile her değişiklikte
+  // `FormData` okunup yeniden hesaplanır.
   const formRef = useRef<HTMLFormElement>(null);
-  const [pricingModel, setPricingModel] = useState<"per_lesson" | "monthly_legacy">(
-    (v("pricingModel") as "per_lesson" | "monthly_legacy") || "per_lesson"
-  );
-  const [previewLines, setPreviewLines] = useState<PeriodBillingLine[]>([]);
+  const [preview, setPreview] = useState<{
+    monthlyFee: number;
+    weeklyLessonCount: number;
+    referenceCount: number;
+    derivedPerLessonAmount: number;
+    firstPeriodPlannedLessons: number;
+    firstPeriodSuggestedAmount: number;
+  } | null>(null);
 
   function recomputePreview() {
     const form = formRef.current;
     if (!form) return;
     const fd = new FormData(form);
-    const model = String(fd.get("pricingModel") || "per_lesson");
-    if (model !== "per_lesson") {
-      setPreviewLines([]);
-      return;
-    }
-    const perLessonNetFee = Number(fd.get("perLessonNetFee") || 0);
+    const monthlyFee = Number(fd.get("monthlyFee") || 0);
     const weeklyLessonCount = Number(fd.get("weeklyLessonCount") || 0);
     const startDay = String(fd.get("enrollmentStartDate") || "") || new Date().toISOString().slice(0, 10);
-    if (!Number.isInteger(perLessonNetFee) || perLessonNetFee <= 0 || weeklyLessonCount <= 0) {
-      setPreviewLines([]);
+    if (!Number.isInteger(monthlyFee) || monthlyFee <= 0 || weeklyLessonCount <= 0) {
+      setPreview(null);
       return;
     }
     try {
+      const derived = derivePerLessonAmount(monthlyFee, weeklyLessonCount);
       const lines = estimatePeriodBillingLines({
         enrollmentStartDay: startDay,
         enrollmentEndDay: monthEndDay(startDay),
-        perLessonNetFee,
+        perLessonNetFee: derived,
         weeklyLessonCount,
       });
-      setPreviewLines(lines);
+      setPreview({
+        monthlyFee,
+        weeklyLessonCount,
+        referenceCount: referenceMonthlyLessonCount(weeklyLessonCount),
+        derivedPerLessonAmount: derived,
+        firstPeriodPlannedLessons: lines[0]?.billableLessonCount ?? 0,
+        firstPeriodSuggestedAmount: lines[0]?.autoCalculatedAmount ?? 0,
+      });
     } catch {
-      setPreviewLines([]);
+      setPreview(null);
     }
   }
 
@@ -122,7 +130,7 @@ export function NewStudentForm({
     recomputePreview();
   }, []);
 
-  const firstPeriodAutoAmount = previewLines[0]?.autoCalculatedAmount;
+  const firstPeriodAutoAmount = preview?.firstPeriodSuggestedAmount;
 
   useEffect(() => {
     if (hasError) summaryRef.current?.focus();
@@ -393,74 +401,45 @@ export function NewStudentForm({
 
       <Card>
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-[var(--color-primary)]">
-          Ücretlendirme modeli
+          Ders başı hesap karşılığı (bilgi amaçlı)
         </h2>
         <p className="mb-3 text-xs text-[var(--color-text-muted)]">
-          Kurumun ana ücret modeli artık <strong>ders başı net ücrettir</strong> — aşağıdaki seçim, altındaki
-          &quot;İlk Ödeme&quot; bölümünün otomatik önerdiği tutarı belirler. &quot;Aylık paket (eski sistem)&quot;
-          yalnızca yukarıdaki Paket ve Ödeme bölümündeki aylık ücreti kullanan geçmiş kayıt tarzını korumak
-          isteyen durumlar için — mevcut öğrencilerin ücretleri bu ekrandan ASLA otomatik değiştirilmez.
+          Bu alanı siz girmezsiniz — yukarıdaki aylık ücret ve haftalık ders sıklığından sistem otomatik
+          hesaplar. Yalnız fiilen tahsil ettiğiniz tutarı aşağıdaki &quot;İlk Ödeme&quot; bölümünde teyit
+          edersiniz.
         </p>
-        <div className="space-y-3">
-          <div className="flex flex-col gap-2 sm:flex-row sm:gap-4">
-            <label className="flex items-center gap-1.5 text-sm text-[var(--color-text)]">
-              <input
-                type="radio"
-                name="pricingModel"
-                value="per_lesson"
-                checked={pricingModel === "per_lesson"}
-                onChange={() => setPricingModel("per_lesson")}
-              />
-              Ders başı net ücret (önerilen)
-            </label>
-            <label className="flex items-center gap-1.5 text-sm text-[var(--color-text)]">
-              <input
-                type="radio"
-                name="pricingModel"
-                value="monthly_legacy"
-                checked={pricingModel === "monthly_legacy"}
-                onChange={() => setPricingModel("monthly_legacy")}
-              />
-              Aylık paket (eski sistem)
-            </label>
-          </div>
-          {pricingModel === "per_lesson" ? (
-            <>
-              <div>
-                <Label>Ders başı net ücret (TL)</Label>
-                <Input
-                  name="perLessonNetFee"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  defaultValue={v("perLessonNetFee")}
-                  placeholder="Örn. 500"
-                  aria-invalid={!!fieldErrors.perLessonNetFee}
-                />
-                <FieldError message={fieldErrors.perLessonNetFee} />
-              </div>
-              {previewLines.length > 0 ? (
-                <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3 text-xs">
-                  <p className="mb-1.5 font-semibold text-[var(--color-text)]">
-                    Ödeme önizlemesi (tahmini — henüz ders programı oluşturulmadı)
-                  </p>
-                  <ul className="space-y-1">
-                    {previewLines.map((line) => (
-                      <li key={line.periodStart} className="flex justify-between gap-2 text-[var(--color-text-muted)]">
-                        <span>
-                          {periodKindLabel(line.kind)} ({line.periodStart} – {line.periodEnd}):{" "}
-                          {line.billableLessonCount} ders × {formatTL(line.perLessonNetFee)}
-                        </span>
-                        <span className="font-semibold text-[var(--color-text)]">
-                          {formatTL(line.autoCalculatedAmount)}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
-            </>
-          ) : null}
-        </div>
+        {preview ? (
+          <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-3">
+            <div>
+              <dt className="text-xs text-[var(--color-text-muted)]">Aylık referans ücret</dt>
+              <dd className="font-semibold text-[var(--color-text)]">{formatTL(preview.monthlyFee)}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-[var(--color-text-muted)]">Haftalık ders sıklığı</dt>
+              <dd className="font-semibold text-[var(--color-text)]">{preview.weeklyLessonCount}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-[var(--color-text-muted)]">Referans aylık ders adedi</dt>
+              <dd className="font-semibold text-[var(--color-text)]">{preview.referenceCount}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-[var(--color-text-muted)]">Sistem ders başı hesap karşılığı</dt>
+              <dd className="font-semibold text-[var(--color-text)]">{formatTL(preview.derivedPerLessonAmount)}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-[var(--color-text-muted)]">Bu ilk dönemde planlanan ders</dt>
+              <dd className="font-semibold text-[var(--color-text)]">{preview.firstPeriodPlannedLessons}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-[var(--color-text-muted)]">Sistem önerilen ilk tahsilat</dt>
+              <dd className="font-semibold text-[var(--color-text)]">{formatTL(preview.firstPeriodSuggestedAmount)}</dd>
+            </div>
+          </dl>
+        ) : (
+          <p className="text-xs text-[var(--color-text-muted)]">
+            Aylık ücret ve haftalık ders sıklığı girildiğinde burada otomatik hesap gösterilir.
+          </p>
+        )}
       </Card>
 
       <Card>
@@ -473,10 +452,10 @@ export function NewStudentForm({
           gerekçe zorunludur ve fark audit kaydına yazılır.
         </p>
         <div className="space-y-3">
-          {pricingModel === "per_lesson" && firstPeriodAutoAmount !== undefined ? (
+          {firstPeriodAutoAmount !== undefined ? (
             <p className="rounded-lg border border-cyan-200 bg-cyan-50/70 px-3 py-2 text-xs font-medium text-cyan-900 dark:border-cyan-900 dark:bg-cyan-950/30 dark:text-cyan-200">
-              Otomatik önerilen ilk dönem tutarı: <strong>{formatTL(firstPeriodAutoAmount)}</strong> — farklı bir
-              tutar girecekseniz aşağıya gerekçe yazın.
+              Sistem önerilen ilk tahsilat: <strong>{formatTL(firstPeriodAutoAmount)}</strong> — fiilen farklı bir
+              tutar tahsil ettiyseniz onu girin, aşağıya gerekçe yazın.
             </p>
           ) : null}
           <div className="grid grid-cols-2 gap-2">
@@ -501,11 +480,7 @@ export function NewStudentForm({
                 inputMode="numeric"
                 pattern="[0-9]*"
                 defaultValue={v("firstPaymentAmount")}
-                placeholder={
-                  pricingModel === "per_lesson" && firstPeriodAutoAmount !== undefined
-                    ? String(firstPeriodAutoAmount)
-                    : "Örn. 3000"
-                }
+                placeholder={firstPeriodAutoAmount !== undefined ? String(firstPeriodAutoAmount) : "Örn. 3000"}
                 required
               />
             </div>

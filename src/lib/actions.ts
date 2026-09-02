@@ -655,7 +655,6 @@ const STUDENT_FORM_VALUE_KEYS = [
   "firstPaymentDate",
   "firstPaymentReference",
   "firstPaymentNote",
-  "firstPaymentManualNetAmount",
   "firstPaymentAdjustmentReason",
   "termType",
   "enrollmentStartDate",
