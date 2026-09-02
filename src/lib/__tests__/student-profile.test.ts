@@ -71,6 +71,12 @@ describe("createStudentTool — EPIC 4 profil alanları", () => {
       packageName: "Bireysel Aylık — 4 ders",
       weeklyLessonCount: 1,
       monthlyFee: 3000,
+      // P0-C (2026-09-02) — enrollmentStartDate artık şema seviyesinde
+      // zorunlu (bu testin KONUSU DEĞİL — testin amacı studentType/level
+      // gibi HÂLÂ opsiyonel kalan alanların undefined kalması); ayın 1'i
+      // seçilerek otomatik önerilen tutar tam 3000 çıkar, düzeltme
+      // gerekçesi gerektirmez.
+      enrollmentStartDate: "2026-08-01",
       firstPaymentCollected: { method: "cash", amount: 3000, collectedAt: "2026-08-30" },
     });
     expect(created.ok).toBe(true);

@@ -261,6 +261,7 @@ describe("ÖNCELİK 4 (devam) — Paket Yönetimi", () => {
       packageId: pkgRes.data.packageId,
       lessonDurationMinutes: 30,
       firstPaymentCollected: { method: "cash", amount: 1000, collectedAt: "2026-08-30" },
+      enrollmentStartDate: "2026-09-01",
     });
     expect(studentRes.ok).toBe(true);
     if (!studentRes.ok) return;
@@ -290,6 +291,7 @@ describe("ÖNCELİK 4 (devam) — sosyal medya izni (mevcut SocialMediaConsent m
       weeklyLessonCount: 1,
       monthlyFee: 1000,
       firstPaymentCollected: { method: "cash", amount: 1000, collectedAt: "2026-08-30" },
+      enrollmentStartDate: "2026-09-01",
       notes: "",
     });
     expect(studentRes.ok).toBe(true);

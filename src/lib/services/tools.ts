@@ -1838,6 +1838,21 @@ export async function createStudentTool(
       );
     }
 
+    // P0-C (2026-09-02) — `lessonDays` GÖNDERİLDİYSE (boş dizi/undefined
+    // ise bu kontrol atlanır — geriye dönük uyum: mevcut çağıranlar/testler
+    // bu alanı hiç bilmiyordu), `weeklyLessonCount` ile TAM ve TEKİL
+    // eşleşmesi sunucuda zorunlu kılınır — istemcinin `required` işaretine
+    // GÜVENİLMEZ. Gerçek kayıt formu akışında (`actionAddStudent`) bu alan
+    // AYRICA kesin zorunlu kılınır (bkz. actions.ts) — burada yalnız
+    // GÖNDERİLDİĞİNDE şekli doğru mu diye bakılır.
+    if (v.data.lessonDays && v.data.lessonDays.length > 0) {
+      const uniqueLessonDays = new Set(v.data.lessonDays);
+      if (v.data.lessonDays.length !== v.data.weeklyLessonCount || uniqueLessonDays.size !== v.data.lessonDays.length) {
+        const msg = `Haftalık ${v.data.weeklyLessonCount} ders için ${v.data.weeklyLessonCount} farklı ders günü seçmelisiniz.`;
+        return fail("VALIDATION_ERROR", msg, { fieldErrors: { lessonDays: [msg] } });
+      }
+    }
+
     // Package C — paket seçildiyse aylık ücret HER ZAMAN sunucuda, tek
     // merkez helper (computeMonthlyFee) ile hesaplanır; istemciden gelen
     // `monthlyFee` paket akışında YOK SAYILIR (iki çelişkili fiyat kaynağı

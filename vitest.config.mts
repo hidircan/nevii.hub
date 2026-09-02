@@ -10,6 +10,7 @@ export default defineConfig({
     // /tmp/notaplan-data/store.json dosyasını kullanıyor; dosyalar paralel
     // çalışırsa birbirinin verisini sıfırlayıp bozabiliyor (flaky testler).
     fileParallelism: false,
+    setupFiles: ["./vitest.setup.ts"],
     env: {
       STORE_MODE: "json",
       VERCEL: "1",

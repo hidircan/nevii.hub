@@ -81,6 +81,12 @@ function studentFormData(): FormData {
   fd.set("firstPaymentMethod", "cash");
   fd.set("firstPaymentAmount", "3000");
   fd.set("firstPaymentDate", "2026-08-30");
+  // P0-C (2026-09-02) — enrollmentStartDate artık zorunlu (studentSchema);
+  // lessonDays weeklyLessonCount'a (varsayılan 1) karşılık gelen tam/tekil
+  // sayıda gün olmalı — ikisi de actionAddStudent'ın YENİ sunucu-taraflı
+  // gate'lerinden geçmek için gerekli.
+  fd.set("enrollmentStartDate", "2026-09-01");
+  fd.append("lessonDays", "1");
   return fd;
 }
 
@@ -318,6 +324,77 @@ describe("actionAddStudent — P0-B: ilk ödeme düzeltme gerekçesi", () => {
     expect(payment?.adjustmentReason).toBe("Kardeş indirimi"); // trim edilmiş
     expect(payment?.autoSuggestedAmount).toBeDefined();
     expect(payment?.autoSuggestedAmount).not.toBe(3000);
+  });
+});
+
+/**
+ * P0-C (2026-09-02) — kayıt formunun iki YENİ zorunlu alanı: ilk ödeme
+ * TÜRÜ ve haftalık ders sayısına karşılık gelen ders GÜNLERİ. İkisi de
+ * yalnız istemcinin `required` işaretine GÜVENMEZ — `actionAddStudent`
+ * içinde `createStudentTool`'a ULAŞMADAN, alan-bazlı Türkçe hatayla
+ * reddedilir (öğrenci hiç OLUŞTURULMAZ).
+ */
+describe("actionAddStudent — P0-C: ilk ödeme türü ve ders günü zorunluluğu", () => {
+  beforeEach(() => {
+    mockSession.ctx = { role: "SCHOOL_ADMIN", userId: "admin1", tenantId: DEFAULT_TENANT_ID, channel: "web" };
+    mockCookieValue.value = DEFAULT_TENANT_ID;
+  });
+
+  it("firstPaymentMethod seçilmezse 'İlk ödeme türü seçilmelidir.' alan bazlı hatası döner, öğrenci OLUŞTURULMAZ", async () => {
+    const fd = studentFormData();
+    fd.delete("firstPaymentMethod");
+    fd.set("firstPaymentMethod", "");
+    const before = await readData();
+    const result = await actions.actionAddStudent(null, fd);
+    expect(result?.ok).toBe(false);
+    expect(result?.fieldErrors?.firstPaymentMethod).toBe("İlk ödeme türü seçilmelidir.");
+    expect(result?.formError).toBe("İlk ödeme türü seçilmelidir.");
+    const after = await readData();
+    expect(after.students.length).toBe(before.students.length);
+  });
+
+  it("weeklyLessonCount=1 iken ders günü HİÇ seçilmezse reddedilir, öğrenci OLUŞTURULMAZ", async () => {
+    const fd = studentFormData();
+    fd.delete("lessonDays");
+    const before = await readData();
+    const result = await actions.actionAddStudent(null, fd);
+    expect(result?.ok).toBe(false);
+    expect(result?.fieldErrors?.lessonDays).toContain("Haftalık 1 ders için 1 farklı ders günü seçmelisiniz.");
+    const after = await readData();
+    expect(after.students.length).toBe(before.students.length);
+  });
+
+  it("weeklyLessonCount=2 iken yalnız 1 gün seçilirse reddedilir — 'Haftalık 2 ders için 2 farklı ders günü seçmelisiniz.'", async () => {
+    const fd = studentFormData();
+    fd.set("weeklyLessonCount", "2");
+    // studentFormData() zaten 1 gün ekliyor (lessonDays=1); ikinci gün YOK.
+    const before = await readData();
+    const result = await actions.actionAddStudent(null, fd);
+    expect(result?.ok).toBe(false);
+    expect(result?.fieldErrors?.lessonDays).toBe("Haftalık 2 ders için 2 farklı ders günü seçmelisiniz.");
+    const after = await readData();
+    expect(after.students.length).toBe(before.students.length);
+  });
+
+  it("weeklyLessonCount=2 iken AYNI gün iki kez seçilirse (yinelenen) reddedilir", async () => {
+    const fd = studentFormData();
+    fd.set("weeklyLessonCount", "2");
+    fd.append("lessonDays", "1"); // zaten var olan "1" ile birlikte [1,1] — yinelenen
+    const before = await readData();
+    const result = await actions.actionAddStudent(null, fd);
+    expect(result?.ok).toBe(false);
+    expect(result?.fieldErrors?.lessonDays).toBe("Haftalık 2 ders için 2 farklı ders günü seçmelisiniz.");
+    const after = await readData();
+    expect(after.students.length).toBe(before.students.length);
+  });
+
+  it("weeklyLessonCount=2 ve 2 FARKLI gün seçilirse kayıt başarılı olur", async () => {
+    const fd = studentFormData();
+    fd.set("weeklyLessonCount", "2");
+    fd.append("lessonDays", "4"); // [1,4] — 2 farklı gün
+    await expect(actions.actionAddStudent(null, fd)).rejects.toThrow("NEXT_REDIRECT");
+    const after = await readData();
+    expect(after.students.some((s) => s.name === "Test Öğrenci")).toBe(true);
   });
 });
 

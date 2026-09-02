@@ -155,6 +155,7 @@ describe("İş 4 — saatlik hakediş ücreti (TeacherFeeRule) uçtan uca", () =
       weeklyLessonCount: 1,
       monthlyFee: 3000,
       firstPaymentCollected: { method: "cash", amount: 3000, collectedAt: "2026-08-30" },
+      enrollmentStartDate: "2026-09-01",
       lessonDurationMinutes: 30,
     });
     expect(student.ok).toBe(true);

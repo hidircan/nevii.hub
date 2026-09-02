@@ -73,6 +73,7 @@ describe("createBranchTool / updateBranchTool", () => {
       weeklyLessonCount: 1,
       monthlyFee: 3000,
       firstPaymentCollected: { method: "cash", amount: 3000, collectedAt: "2026-08-30" },
+      enrollmentStartDate: "2026-09-01",
       notes: "",
     });
     expect(studentRes.ok).toBe(true);

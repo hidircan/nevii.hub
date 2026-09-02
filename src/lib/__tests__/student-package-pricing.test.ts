@@ -117,6 +117,7 @@ describe("Package C — createStudentTool paket fiyatlandırma", () => {
       packageId,
       lessonDurationMinutes: 40,
       firstPaymentCollected: { method: "cash", amount: 2500, collectedAt: "2026-08-30" },
+      enrollmentStartDate: "2026-09-01",
     });
     expect(res.ok).toBe(true);
     if (!res.ok) return;
@@ -136,6 +137,7 @@ describe("Package C — createStudentTool paket fiyatlandırma", () => {
       discountType: "percent",
       discountValue: 20,
       firstPaymentCollected: { method: "cash", amount: 2000, collectedAt: "2026-08-30" },
+      enrollmentStartDate: "2026-09-01",
     });
     expect(res.ok).toBe(true);
     if (!res.ok) return;
@@ -162,6 +164,7 @@ describe("Package C — createStudentTool paket fiyatlandırma", () => {
       ...baseStudentInput,
       monthlyFee: 4200,
       firstPaymentCollected: { method: "cash", amount: 4200, collectedAt: "2026-08-30" },
+      enrollmentStartDate: "2026-09-01",
     });
     expect(res.ok).toBe(true);
     if (!res.ok) return;
@@ -184,6 +187,7 @@ describe("Package C — createStudentTool paket fiyatlandırma", () => {
       paymentDueDay: 15,
       paymentMethod: "cash",
       firstPaymentCollected: { method: "cash", amount: baseStudentInput.monthlyFee, collectedAt: "2026-08-30" },
+      enrollmentStartDate: "2026-09-01",
       // P0-1 (2026-09-02) — baseStudentInput.monthlyFee (1 TL, testin gerçek
       // konusu olmayan bir değer) türetilmiş ders başı tutarla eşleşmiyor;
       // bu testin amacı paymentDueDay kabulü, tutar eşleşmesi değil.
@@ -205,6 +209,7 @@ describe("Package C — createStudentTool paket fiyatlandırma", () => {
       lessonDurationMinutes: 40,
       monthlyFeeOverrideAmount: 1,
       monthlyFeeOverrideReason: "test",
+      enrollmentStartDate: "2026-09-01",
     });
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.error.code).toBe("FORBIDDEN");
@@ -227,6 +232,7 @@ describe("Package C — createStudentTool paket fiyatlandırma", () => {
       monthlyFeeOverrideAmount: 1800,
       monthlyFeeOverrideReason: "Kardeş indirimi anlaşması",
       firstPaymentCollected: { method: "cash", amount: 1800, collectedAt: "2026-08-30" },
+      enrollmentStartDate: "2026-09-01",
     });
     expect(withReason.ok).toBe(true);
     if (!withReason.ok) return;
@@ -244,6 +250,7 @@ describe("Package C — updateStudentPaymentProfileTool", () => {
       ...baseStudentInput,
       monthlyFee: 3000,
       firstPaymentCollected: { method: "cash", amount: 3000, collectedAt: "2026-08-30" },
+      enrollmentStartDate: "2026-09-01",
     });
     expect(res.ok).toBe(true);
     if (!res.ok) throw new Error(res.error.message);

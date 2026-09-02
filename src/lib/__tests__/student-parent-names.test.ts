@@ -36,6 +36,7 @@ describe("Öğrenci kaydında anne adı / baba adı (Paket 7)", () => {
       weeklyLessonCount: 1,
       monthlyFee: 3000,
       firstPaymentCollected: { method: "cash", amount: 3000, collectedAt: "2026-08-30" },
+      enrollmentStartDate: "2026-09-01",
     });
     expect(res.ok).toBe(true);
     if (!res.ok) return;
@@ -62,6 +63,7 @@ describe("Öğrenci kaydında anne adı / baba adı (Paket 7)", () => {
       weeklyLessonCount: 1,
       monthlyFee: 3000,
       firstPaymentCollected: { method: "cash", amount: 3000, collectedAt: "2026-08-30" },
+      enrollmentStartDate: "2026-09-01",
     });
     expect(res.ok).toBe(true);
     if (!res.ok) return;

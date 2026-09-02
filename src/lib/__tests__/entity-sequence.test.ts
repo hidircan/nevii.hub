@@ -78,6 +78,7 @@ describe("Faz 12 — createStudentTool displayId tahsisi (json modu)", () => {
       weeklyLessonCount: 1,
       monthlyFee: 3000,
       firstPaymentCollected: { method: "cash" as const, amount: 3000, collectedAt: "2026-08-30" },
+      enrollmentStartDate: "2026-09-01",
       notes: "",
     };
 

@@ -11,6 +11,7 @@ import {
   periodKindLabel,
   derivePerLessonAmount,
   referenceMonthlyLessonCount,
+  countExactWeekdayLessons,
   type BillableLessonCandidate,
 } from "../period-lesson-billing";
 
@@ -470,5 +471,24 @@ describe("derivePerLessonAmount — ACİL DÜZELTME (2026-09-02): yöneticinin g
     });
     expect(lines[0].billableLessonCount).toBe(10);
     expect(lines[0].autoCalculatedAmount).toBe(5000);
+  });
+});
+
+describe("countExactWeekdayLessons — P0-C seçilen ders günlerinin dönem içinde TAM sayısı", () => {
+  it("tek gün (Pazartesi=1), tam Eylül 2026 ayı: 4 Pazartesi", () => {
+    expect(countExactWeekdayLessons("2026-09-01", "2026-09-30", [1])).toBe(4);
+  });
+
+  it("iki farklı gün (Pazartesi+Perşembe), tam Eylül 2026 ayı: 4+4=8", () => {
+    expect(countExactWeekdayLessons("2026-09-01", "2026-09-30", [1, 4])).toBe(8);
+  });
+
+  it("kısa ilk dönem (15 Eylül - 30 Eylül), yalnız Pazartesi: 21 ve 28 → 2", () => {
+    expect(countExactWeekdayLessons("2026-09-15", "2026-09-30", [1])).toBe(2);
+  });
+
+  it("boş gün listesi → 0, aralık ters ise → 0 (negatif/hatalı değer YOK)", () => {
+    expect(countExactWeekdayLessons("2026-09-01", "2026-09-30", [])).toBe(0);
+    expect(countExactWeekdayLessons("2026-09-30", "2026-09-01", [1])).toBe(0);
   });
 });

@@ -435,6 +435,7 @@ describe("ÖNCELİK 4 (devam) — öğrenci dönemine göre varsayılan takvim",
       weeklyLessonCount: 1,
       monthlyFee: 3000,
       firstPaymentCollected: { method: "cash", amount: 3000, collectedAt: "2026-08-30" },
+      enrollmentStartDate: "2026-09-01",
       notes: "",
       termType: "yaz",
     });
@@ -460,6 +461,7 @@ describe("ÖNCELİK 4 (devam) — öğrenci dönemine göre varsayılan takvim",
       weeklyLessonCount: 1,
       monthlyFee: 3000,
       firstPaymentCollected: { method: "cash", amount: 3000, collectedAt: "2026-08-30" },
+      enrollmentStartDate: "2026-09-01",
       notes: "",
       termType: "yaz",
     });
@@ -480,6 +482,7 @@ describe("ÖNCELİK 4 (devam) — öğrenci dönemine göre varsayılan takvim",
       weeklyLessonCount: 1,
       monthlyFee: 3000,
       firstPaymentCollected: { method: "cash", amount: 3000, collectedAt: "2026-08-30" },
+      enrollmentStartDate: "2026-09-01",
       notes: "",
       // termType verilmedi — legacy senaryo
     });

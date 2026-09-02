@@ -278,6 +278,31 @@ function inclusiveDayCount(startDay: string, endDay: string): number {
 }
 
 /**
+ * P0-C (2026-09-02) — kullanıcı TAM OLARAK hangi haftalık günlerde ders
+ * alınacağını seçtiyse (`lessonDays`, `Date.getUTCDay()` ile AYNI 0=Pazar..
+ * 6=Cumartesi kodlaması — kodda zaten yaygın `dayOfWeek` konvansiyonu,
+ * bkz. `AvailabilityWindow`), dönem içinde bu günlerin KAÇ KEZ geçtiğini
+ * TAM OLARAK sayar — `estimateBillableLessonCount`in oransal
+ * PROJEKSİYONUNDAN daha isabetlidir. Yalnızca İSTEMCİ ÖNİZLEMESİNİ
+ * (new-student-form.tsx `recomputePreview`) daha isabetli göstermek için;
+ * sunucudaki resmi `autoSuggestedAmount`/audit edilmiş
+ * `estimateBillableLessonCount` formülünü DEĞİŞTİRMEZ/yerine geçmez —
+ * o formülün P0-1'de bilinçli olarak sabitlenen davranışı korunur.
+ */
+export function countExactWeekdayLessons(periodStartDay: string, periodEndDay: string, weekdays: number[]): number {
+  if (weekdays.length === 0 || periodEndDay < periodStartDay) return 0;
+  const set = new Set(weekdays);
+  let count = 0;
+  const cursor = new Date(`${periodStartDay}T00:00:00Z`);
+  const end = new Date(`${periodEndDay}T00:00:00Z`);
+  while (cursor <= end) {
+    if (set.has(cursor.getUTCDay())) count++;
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return count;
+}
+
+/**
  * Henüz GERÇEK bir ders programı (LessonSeries/Lesson) yokken — tipik olarak
  * kayıt anında — bir dönemdeki ücretlendirilebilir ders sayısının
  * PROJEKSİYONU: haftalık ders sıklığı × dönem gün sayısı / 7, en yakın tam

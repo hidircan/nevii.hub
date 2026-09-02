@@ -667,7 +667,7 @@ const STUDENT_FORM_VALUE_KEYS = [
 ] as const;
 
 /** Aynı `name`'i birden çok checkbox paylaşan tek alan — virgülle birleştirilip taşınır (değerlerde virgül YOK, sabit STUDENT_TYPES enum'undan gelir). */
-const STUDENT_FORM_MULTI_VALUE_KEYS = ["studentTypes"] as const;
+const STUDENT_FORM_MULTI_VALUE_KEYS = ["studentTypes", "lessonDays"] as const;
 
 function captureStudentFormValues(formData: FormData): Record<string, string> {
   const out: Record<string, string> = {};
@@ -692,6 +692,40 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
   let inviteWarning: string | undefined;
   try {
     await withAuthContext("actionAddStudent", async (ctx) => {
+      // P0-C (2026-09-02) — "İlk ödeme türü seçilmelidir" alan-bazlı hata:
+      // yöntem seçilmezse aşağıdaki `firstPaymentCollected` builder'ı TÜM
+      // alt-alanları (yöntem/tutar/tarih) TEK bir `undefined`'a çöker,
+      // `createStudentTool` yalnız JENERİK "tahsil edilmeden kayıt
+      // tamamlanamaz" mesajı görür — HANGİ alanın eksik olduğunu bilemez.
+      // Burada, istemcinin `required` attribute'una GÜVENMEDEN, yöntem
+      // özel olarak ayrıca kontrol edilir ve gerçek bir öğrenci OLUŞMADAN
+      // (createStudentTool'a hiç ulaşmadan) reddedilir.
+      const firstPaymentMethodRaw = String(formData.get("firstPaymentMethod") || "");
+      if (!firstPaymentMethodRaw) {
+        throw new ToolValidationFailure({
+          code: "VALIDATION_ERROR",
+          message: "İlk ödeme türü seçilmelidir.",
+          details: { fieldErrors: { firstPaymentMethod: ["İlk ödeme türü seçilmelidir."] } },
+        });
+      }
+
+      // P0-C — haftalık ders sayısına karşılık gelen ders günleri seçilmeden
+      // kayıt/ilk tahsilat planı KESİNLEŞTİRİLEMEZ (owner politikası).
+      // `createStudentTool` bu alanı yalnız GÖNDERİLDİYSE şekil olarak
+      // doğrular (geriye dönük uyum — testler/CSV/AI-agent çağrıları bunu
+      // hiç bilmiyordu); GERÇEK kayıt formu akışı içinse burada AYRICA
+      // kesin zorunlu kılınır.
+      const lessonDaysRaw = formData.getAll("lessonDays").map(Number).filter((n) => Number.isInteger(n));
+      const weeklyLessonCountRaw = Number(formData.get("weeklyLessonCount") || 1);
+      if (lessonDaysRaw.length !== weeklyLessonCountRaw || new Set(lessonDaysRaw).size !== lessonDaysRaw.length) {
+        const msg = `Haftalık ${weeklyLessonCountRaw} ders için ${weeklyLessonCountRaw} farklı ders günü seçmelisiniz.`;
+        throw new ToolValidationFailure({
+          code: "VALIDATION_ERROR",
+          message: msg,
+          details: { fieldErrors: { lessonDays: [msg] } },
+        });
+      }
+
       const createdResult = await createStudentTool(ctx, {
           name: String(formData.get("name") || ""),
           email: String(formData.get("email") || ""),
@@ -705,6 +739,7 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
           teacherId: String(formData.get("teacherId") || ""),
           packageName: String(formData.get("packageName") || "Bireysel Aylık — 4 ders"),
           weeklyLessonCount: Number(formData.get("weeklyLessonCount") || 1),
+          lessonDays: lessonDaysRaw,
           monthlyFee: Number(formData.get("monthlyFee") || 3000),
           notes: String(formData.get("notes") || ""),
           // Faz 1B — çoklu seçim checkbox grubu; boşsa undefined (eski davranışla aynı).

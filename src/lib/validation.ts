@@ -122,8 +122,23 @@ export const studentSchema = z.object({
   studentType: z.enum(STUDENT_TYPE_ENUM).optional(),
   /** Faz 1B — verilirse tekil studentType'ın YERİNE birincil kaynak olur. */
   studentTypes: studentTypesSchema,
-  enrollmentStartDate: optionalTrimmed,
+  /**
+   * P0-C (2026-09-02) — ÖNCEDEN opsiyoneldi (`optionalTrimmed`); ilk dönem
+   * tahsilatı/ders planı bu tarihe bağlı olduğundan artık ZORUNLU — sunucu
+   * (buradaki zod mesajı, yalnız istemcinin `required` attribute'una
+   * GÜVENMEDEN) SPESİFİK bir Türkçe alan hatası üretir.
+   */
+  enrollmentStartDate: z.string().trim().min(1, "Kayıt başlangıç tarihi zorunludur."),
   enrollmentEndDate: optionalTrimmed,
+  /**
+   * P0-C (2026-09-02) — haftalık ders sıklığına karşılık gelen GERÇEK ders
+   * günleri (`Date.getUTCDay()` ile aynı 0=Pazar..6=Cumartesi kodlaması,
+   * kodda zaten yaygın `dayOfWeek` konvansiyonu). Tam sayı/tekrarsızlık şema
+   * seviyesinde; `weeklyLessonCount`e göre TAM SAYI eşleşmesi (ör. haftada 2
+   * ders için 2 FARKLI gün) `createStudentTool`da iş kuralı olarak
+   * doğrulanır (schema burada yalnız şekil kontrolü yapar).
+   */
+  lessonDays: z.array(z.coerce.number().int().min(0).max(6)).optional(),
   level: optionalTrimmed,
   targetExam: optionalTrimmed,
   specialNotes: optionalTrimmed,

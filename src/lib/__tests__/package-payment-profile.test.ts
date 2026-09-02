@@ -240,6 +240,7 @@ describe("Öğrenci ödeme profili — Tool Layer (RBAC, tenant, geçmiş Paymen
       weeklyLessonCount: 1,
       monthlyFee: 7000,
       firstPaymentCollected: { method: "cash", amount: 7000, collectedAt: "2026-08-30" },
+      enrollmentStartDate: "2026-09-01",
       notes: "",
     });
     if (!studentRes.ok) throw new Error("öğrenci oluşturulamadı: " + studentRes.error.message);

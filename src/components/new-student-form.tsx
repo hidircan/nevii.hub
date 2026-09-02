@@ -23,7 +23,12 @@ import { Button, Card, Input, Label, Select } from "@/components/ui";
 import { StudentInstrumentTeacherFields, type TeacherOption } from "@/components/student-instrument-teacher-fields";
 import { StudentPackagePricingFields, type PricingPackageOption } from "@/components/student-package-pricing-fields";
 import { STUDENT_TYPES } from "@/lib/types";
-import { estimatePeriodBillingLines, derivePerLessonAmount, referenceMonthlyLessonCount } from "@/lib/period-lesson-billing";
+import {
+  estimatePeriodBillingLines,
+  derivePerLessonAmount,
+  referenceMonthlyLessonCount,
+  countExactWeekdayLessons,
+} from "@/lib/period-lesson-billing";
 
 function formatTL(amount: number): string {
   return new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY", maximumFractionDigits: 0 }).format(
@@ -40,12 +45,33 @@ function monthEndDay(startDay: string): string {
 type BranchOption = { id: string; name: string };
 type KvkkTextOption = { version: number; bodyText: string };
 
+/** P0-C — `Date.getUTCDay()` ile aynı 0=Pazar..6=Cumartesi kodlaması (kodda zaten yaygın `dayOfWeek` konvansiyonu). */
+const WEEKDAY_OPTIONS: { value: number; label: string }[] = [
+  { value: 1, label: "Pazartesi" },
+  { value: 2, label: "Salı" },
+  { value: 3, label: "Çarşamba" },
+  { value: 4, label: "Perşembe" },
+  { value: 5, label: "Cuma" },
+  { value: 6, label: "Cumartesi" },
+  { value: 0, label: "Pazar" },
+];
+
 function FieldError({ message }: { message?: string }) {
   if (!message) return null;
   return (
     <p className="mt-1 text-xs font-medium text-rose-600" role="alert">
       {message}
     </p>
+  );
+}
+
+/** P0-C — tüm zorunlu alan etiketlerinde AYNI görsel işaretçi (kırmızı `*`, ekran okuyucu için erişilebilir). */
+function RequiredMark() {
+  return (
+    <span className="text-rose-600" aria-hidden="true">
+      {" "}
+      *
+    </span>
   );
 }
 
@@ -91,6 +117,8 @@ export function NewStudentForm({
     derivedPerLessonAmount: number;
     firstPeriodPlannedLessons: number;
     firstPeriodSuggestedAmount: number;
+    /** P0-C — true ise `firstPeriodPlannedLessons` seçilen GERÇEK ders günlerinden kesin sayıldı, projeksiyon DEĞİL. */
+    lessonsAreExact: boolean;
   } | null>(null);
   // P0-B (2026-09-02) — kayıt esnasında fiilen girilen tutarı CANLI izler
   // (sistem önerisiyle karşılaştırıp "Fark" satırını göstermek için).
@@ -98,6 +126,15 @@ export function NewStudentForm({
     const raw = v("firstPaymentAmount");
     return raw ? Number(raw.replace(/[^\d]/g, "")) : undefined;
   });
+  // P0-C — seçilen ders günlerini CANLI izler (weeklyLessonCount ile
+  // TAM/TEKİL eşleşmesini göstermek ve önizlemeyi GERÇEK günlerle
+  // yeniden hesaplamak için).
+  const [selectedLessonDays, setSelectedLessonDays] = useState<number[]>(() =>
+    (values.lessonDays ?? "")
+      .split(",")
+      .filter(Boolean)
+      .map(Number)
+  );
 
   function recomputePreview() {
     const form = formRef.current;
@@ -108,25 +145,38 @@ export function NewStudentForm({
     const startDay = String(fd.get("enrollmentStartDate") || "") || new Date().toISOString().slice(0, 10);
     const firstPaymentRaw = String(fd.get("firstPaymentAmount") || "").replace(/[^\d]/g, "");
     setEnteredFirstPayment(firstPaymentRaw ? Number(firstPaymentRaw) : undefined);
+    const lessonDays = fd.getAll("lessonDays").map(Number);
+    setSelectedLessonDays(lessonDays);
     if (!Number.isInteger(monthlyFee) || monthlyFee <= 0 || weeklyLessonCount <= 0) {
       setPreview(null);
       return;
     }
     try {
       const derived = derivePerLessonAmount(monthlyFee, weeklyLessonCount);
+      const endDay = monthEndDay(startDay);
       const lines = estimatePeriodBillingLines({
         enrollmentStartDay: startDay,
-        enrollmentEndDay: monthEndDay(startDay),
+        enrollmentEndDay: endDay,
         perLessonNetFee: derived,
         weeklyLessonCount,
       });
+      // P0-C — TAM OLARAK weeklyLessonCount kadar GERÇEK gün seçildiyse
+      // (ör. haftada 2 ders için 2 farklı gün), projeksiyon yerine o
+      // günlerin ilk dönem içinde KAÇ KEZ geçtiğini TAM sayarak daha
+      // isabetli bir önizleme gösterilir — sunucudaki resmi
+      // `autoSuggestedAmount` hesabını DEĞİŞTİRMEZ, yalnız istemci
+      // önizlemesini iyileştirir (bkz. period-lesson-billing.ts yorumu).
+      const hasExactDays = lessonDays.length === weeklyLessonCount && new Set(lessonDays).size === weeklyLessonCount;
+      const exactCount = hasExactDays ? countExactWeekdayLessons(startDay, lines[0]?.periodEnd ?? endDay, lessonDays) : null;
+      const plannedLessons = exactCount ?? lines[0]?.billableLessonCount ?? 0;
       setPreview({
         monthlyFee,
         weeklyLessonCount,
         referenceCount: referenceMonthlyLessonCount(weeklyLessonCount),
         derivedPerLessonAmount: derived,
-        firstPeriodPlannedLessons: lines[0]?.billableLessonCount ?? 0,
-        firstPeriodSuggestedAmount: lines[0]?.autoCalculatedAmount ?? 0,
+        firstPeriodPlannedLessons: plannedLessons,
+        firstPeriodSuggestedAmount: plannedLessons * derived,
+        lessonsAreExact: hasExactDays,
       });
     } catch {
       setPreview(null);
@@ -185,6 +235,28 @@ export function NewStudentForm({
     if (hasError) summaryRef.current?.focus();
   }, [hasError, state]);
 
+  // P0-C (2026-09-02) — üstteki genel özet ("Formda düzeltilmesi gereken
+  // alanlar var") ODAKLANIR ama HANGİ alanın hatalı olduğunu göstermez;
+  // kullanıcı formu elle kaydırıp bulmak zorunda kalıyordu. Alan-bazlı bir
+  // hata varsa (ör. "İlk ödeme türü seçilmelidir", "Kayıt başlangıç tarihi
+  // zorunludur") ilgili form kontrolüne (native `form.elements.namedItem` —
+  // `name` ile eşleşen HERHANGİ bir alan/alan grubu için çalışır, ayrı ref
+  // gerektirmez) otomatik kaydırılıp odaklanılır.
+  useEffect(() => {
+    const errorKeys = Object.keys(fieldErrors);
+    const form = formRef.current;
+    if (errorKeys.length === 0 || !form) return;
+    for (const key of errorKeys) {
+      const el = form.elements.namedItem(key);
+      const target = el instanceof RadioNodeList ? el[0] : el;
+      if (target instanceof HTMLElement) {
+        target.scrollIntoView({ behavior: "smooth", block: "center" });
+        target.focus({ preventScroll: true });
+        break;
+      }
+    }
+  }, [state]);
+
   return (
     <form ref={formRef} action={formAction} onInput={recomputePreview} onChange={recomputePreview} className="space-y-6" noValidate>
       {hasError ? (
@@ -198,9 +270,10 @@ export function NewStudentForm({
         </div>
       ) : null}
 
+      {/* 1. Temel Bilgiler — Öğrenci türü + Temel bilgiler + (eski ayrı "Kişisel bilgiler" başlığı KALDIRILDI, alanları buraya taşındı, yinelenmedi). */}
       <Card>
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-[var(--color-primary)]">
-          Öğrenci türü
+          Temel Bilgiler
         </h2>
         <div className="space-y-3">
           <div>
@@ -217,17 +290,12 @@ export function NewStudentForm({
               Öğrencinin bağlı olduğu akademik program/kurum türü — paket önerisi ve raporlamayı etkiler.
             </p>
           </div>
-        </div>
-      </Card>
-
-      <Card>
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-[var(--color-primary)]">
-          Temel bilgiler
-        </h2>
-        <div className="space-y-3">
           <div>
-            <Label>Ad soyad</Label>
-            <Input name="name" required defaultValue={v("name")} placeholder="Örn. Deniz Ak" aria-invalid={!!fieldErrors.name} />
+            <Label>
+              Ad soyad
+              <RequiredMark />
+            </Label>
+            <Input name="name" required aria-required defaultValue={v("name")} placeholder="Örn. Deniz Ak" aria-invalid={!!fieldErrors.name} />
             <FieldError message={fieldErrors.name} />
           </div>
           <div>
@@ -246,25 +314,55 @@ export function NewStudentForm({
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <Label>Veli adı</Label>
-              <Input name="parentName" defaultValue={v("parentName")} placeholder="Veli adı" aria-invalid={!!fieldErrors.parentName} />
+              <Label>
+                Veli adı
+                <RequiredMark />
+              </Label>
+              <Input
+                name="parentName"
+                required
+                aria-required
+                defaultValue={v("parentName")}
+                placeholder="Veli adı"
+                aria-invalid={!!fieldErrors.parentName}
+              />
               <FieldError message={fieldErrors.parentName} />
             </div>
             <div>
-              <Label>Veli telefon</Label>
-              <Input name="parentPhone" defaultValue={v("parentPhone")} placeholder="05xx xxx xxxx" aria-invalid={!!fieldErrors.parentPhone} />
+              <Label>
+                Veli telefon
+                <RequiredMark />
+              </Label>
+              <Input
+                name="parentPhone"
+                required
+                aria-required
+                defaultValue={v("parentPhone")}
+                placeholder="05xx xxx xxxx"
+                aria-invalid={!!fieldErrors.parentPhone}
+              />
               <FieldError message={fieldErrors.parentPhone} />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <Label>Öğrenci e-posta</Label>
+              <Label>Öğrenci e-posta (opsiyonel)</Label>
               <Input name="email" type="email" defaultValue={v("email")} placeholder="ogrenci@email.com" aria-invalid={!!fieldErrors.email} />
               <FieldError message={fieldErrors.email} />
             </div>
             <div>
-              <Label>Öğrenci telefon</Label>
-              <Input name="phone" defaultValue={v("phone")} placeholder="05xx xxx xxxx" aria-invalid={!!fieldErrors.phone} />
+              <Label>
+                Öğrenci telefon
+                <RequiredMark />
+              </Label>
+              <Input
+                name="phone"
+                required
+                aria-required
+                defaultValue={v("phone")}
+                placeholder="05xx xxx xxxx"
+                aria-invalid={!!fieldErrors.phone}
+              />
               <FieldError message={fieldErrors.phone} />
             </div>
           </div>
@@ -275,44 +373,6 @@ export function NewStudentForm({
               <option value="SELF_MANAGED">Öğrencinin kendisi</option>
             </Select>
           </div>
-        </div>
-      </Card>
-
-      <Card>
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-[var(--color-primary)]">
-          Portal erişimi (opsiyonel)
-        </h2>
-        <div className="space-y-3">
-          <label className="flex items-center gap-2 text-sm text-[var(--color-text)]">
-            <input type="checkbox" name="inviteToPortal" value="1" defaultChecked={checkedVal("inviteToPortal", "1")} />
-            Kayıt tamamlanınca portal davet e-postası gönder
-          </label>
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <Label>Davet edilecek</Label>
-              <Select name="invitePortalAccessType" defaultValue={v("invitePortalAccessType") || "GUARDIAN"}>
-                <option value="GUARDIAN">Veli</option>
-                <option value="SELF">Öğrencinin kendisi</option>
-              </Select>
-            </div>
-            <div>
-              <Label>Davet e-postası</Label>
-              <Input name="invitePortalEmail" type="email" defaultValue={v("invitePortalEmail")} placeholder="veli@email.com" />
-            </div>
-          </div>
-          <p className="text-xs text-[var(--color-text-muted)]">
-            Düz metin şifre asla gönderilmez — alıcı, e-postadaki tek kullanımlık bağlantıyla kendi şifresini
-            oluşturur. İşaretlemezseniz giriş hesabı oluşturulmaz; daveti daha sonra öğrenci düzenleme ekranından da
-            gönderebilirsiniz.
-          </p>
-        </div>
-      </Card>
-
-      <Card>
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-[var(--color-primary)]">
-          Kişisel bilgiler
-        </h2>
-        <div className="space-y-3">
           <div className="grid grid-cols-2 gap-2">
             <div>
               <Label>Doğum tarihi (opsiyonel)</Label>
@@ -334,14 +394,24 @@ export function NewStudentForm({
         </div>
       </Card>
 
+      {/* 2. Akademik Bilgiler — şube/enstrüman/öğretmen BURADA, Temel Bilgiler'den hemen sonra; enstrüman burada değiştirilebilir (bkz. P0-A). */}
       <Card>
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-[var(--color-primary)]">
-          Şube, enstrüman ve öğretmen
+          Akademik Bilgiler
         </h2>
         <div className="space-y-3">
           <div>
-            <Label>Şube</Label>
-            <Select name="branchId" defaultValue={v("branchId") || branches[0]?.id} aria-invalid={!!fieldErrors.branchId}>
+            <Label>
+              Şube
+              <RequiredMark />
+            </Label>
+            <Select
+              name="branchId"
+              required
+              aria-required
+              defaultValue={v("branchId") || branches[0]?.id}
+              aria-invalid={!!fieldErrors.branchId}
+            >
               {branches.map((b) => (
                 <option key={b.id} value={b.id}>
                   {b.name}
@@ -350,17 +420,73 @@ export function NewStudentForm({
             </Select>
             <FieldError message={fieldErrors.branchId} />
           </div>
-          <StudentInstrumentTeacherFields
-            instrumentOptions={instrumentOptions}
-            teachers={teachers}
-            defaultInstrument={v("instrument")}
-            defaultTeacherId={v("teacherId")}
-          />
+          <div>
+            <Label>
+              Enstrüman / Öğretmen
+              <RequiredMark />
+            </Label>
+            <StudentInstrumentTeacherFields
+              instrumentOptions={instrumentOptions}
+              teachers={teachers}
+              defaultInstrument={v("instrument")}
+              defaultTeacherId={v("teacherId")}
+            />
+          </div>
           <FieldError message={fieldErrors.instrument ?? fieldErrors.teacherId} />
           <div>
-            <Label>Haftalık ders sıklığı</Label>
+            <Label>Yoklama Takvimi dönemi</Label>
+            <Select name="termType" defaultValue={v("termType") || "guz"}>
+              <option value="guz">Güz Dönemi</option>
+              <option value="yaz">Yaz Dönemi</option>
+            </Select>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <Label>
+                Kayıt başlangıç tarihi
+                <RequiredMark />
+              </Label>
+              <Input
+                name="enrollmentStartDate"
+                type="date"
+                required
+                aria-required
+                defaultValue={v("enrollmentStartDate")}
+                aria-invalid={!!fieldErrors.enrollmentStartDate}
+              />
+              <FieldError message={fieldErrors.enrollmentStartDate} />
+            </div>
+            <div>
+              <Label>Seviye (opsiyonel)</Label>
+              <Input name="level" defaultValue={v("level")} placeholder="Örn. Başlangıç, Orta, İleri" />
+            </div>
+          </div>
+          <div>
+            <Label>Hedef sınav / performans dönemi (opsiyonel)</Label>
+            <Input name="targetExam" defaultValue={v("targetExam")} placeholder="Örn. 2027 Konservatuvar giriş sınavı" />
+          </div>
+          <div>
+            <Label>Not (opsiyonel)</Label>
+            <Input name="notes" defaultValue={v("notes")} placeholder="Opsiyonel" />
+          </div>
+        </div>
+      </Card>
+
+      {/* 3. Ders Planı ve Ücretlendirme — haftalık ders sayısı, gerekli ders günleri, süre, paket/ücret, ders başı hesap karşılığı (bilgi amaçlı) hep burada. */}
+      <Card>
+        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-[var(--color-primary)]">
+          Ders Planı ve Ücretlendirme
+        </h2>
+        <div className="space-y-3">
+          <div>
+            <Label>
+              Haftalık ders sıklığı
+              <RequiredMark />
+            </Label>
             <Select
               name="weeklyLessonCount"
+              required
+              aria-required
               defaultValue={state && "values" in state && state.values?.weeklyLessonCount ? state.values.weeklyLessonCount : "1"}
               aria-invalid={!!fieldErrors.weeklyLessonCount}
             >
@@ -369,14 +495,27 @@ export function NewStudentForm({
             </Select>
             <FieldError message={fieldErrors.weeklyLessonCount} />
           </div>
-        </div>
-      </Card>
-
-      <Card>
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-[var(--color-primary)]">
-          Kayıt süresi
-        </h2>
-        <div className="space-y-3">
+          <div>
+            <Label>
+              Ders günleri (haftalık ders sayısı kadar farklı gün seçin)
+              <RequiredMark />
+            </Label>
+            <div className="flex flex-wrap gap-x-4 gap-y-1">
+              {WEEKDAY_OPTIONS.map((d) => (
+                <label key={d.value} className="flex items-center gap-1.5 text-sm text-[var(--color-text)]">
+                  <input
+                    type="checkbox"
+                    name="lessonDays"
+                    value={d.value}
+                    defaultChecked={selectedLessonDays.includes(d.value)}
+                    aria-invalid={!!fieldErrors.lessonDays}
+                  />
+                  {d.label}
+                </label>
+              ))}
+            </div>
+            <FieldError message={fieldErrors.lessonDays} />
+          </div>
           <div>
             <Label>Kayıt süresi (ay)</Label>
             <Select name="intendedDurationMonths" defaultValue={v("intendedDurationMonths") || "3"}>
@@ -392,14 +531,6 @@ export function NewStudentForm({
               onaylanır.
             </p>
           </div>
-        </div>
-      </Card>
-
-      <Card>
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-[var(--color-primary)]">
-          Paket ve ödeme
-        </h2>
-        <div className="space-y-3">
           <div>
             <Label>Paket (serbest metin — geçmişle uyum için)</Label>
             <Input
@@ -445,52 +576,61 @@ export function NewStudentForm({
               </p>
             </div>
           </div>
+          <div className="border-t border-[var(--color-border)] pt-3">
+            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
+              Ders başı hesap karşılığı (bilgi amaçlı)
+            </h3>
+            <p className="mb-3 text-xs text-[var(--color-text-muted)]">
+              Bu alanı siz girmezsiniz — yukarıdaki aylık ücret ve haftalık ders sıklığından sistem otomatik
+              hesaplar. Yalnız fiilen tahsil ettiğiniz tutarı aşağıdaki &quot;İlk Ödeme&quot; bölümünde teyit
+              edersiniz.
+            </p>
+            {preview ? (
+              <>
+                <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-3">
+                  <div>
+                    <dt className="text-xs text-[var(--color-text-muted)]">Aylık referans ücret</dt>
+                    <dd className="font-semibold text-[var(--color-text)]">{formatTL(preview.monthlyFee)}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-[var(--color-text-muted)]">Haftalık ders sıklığı</dt>
+                    <dd className="font-semibold text-[var(--color-text)]">{preview.weeklyLessonCount}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-[var(--color-text-muted)]">Referans aylık ders adedi</dt>
+                    <dd className="font-semibold text-[var(--color-text)]">{preview.referenceCount}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-[var(--color-text-muted)]">Sistem ders başı hesap karşılığı</dt>
+                    <dd className="font-semibold text-[var(--color-text)]">{formatTL(preview.derivedPerLessonAmount)}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-[var(--color-text-muted)]">
+                      Bu ilk dönemde planlanan ders {preview.lessonsAreExact ? "(kesin)" : "(tahmini)"}
+                    </dt>
+                    <dd className="font-semibold text-[var(--color-text)]">{preview.firstPeriodPlannedLessons}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-[var(--color-text-muted)]">Sistem önerilen ilk tahsilat</dt>
+                    <dd className="font-semibold text-[var(--color-text)]">{formatTL(preview.firstPeriodSuggestedAmount)}</dd>
+                  </div>
+                </dl>
+                {!preview.lessonsAreExact ? (
+                  <p className="mt-2 text-[11px] text-amber-700 dark:text-amber-400">
+                    Bu bir tahmindir — kesinleşmesi için ders günlerini seçin.
+                  </p>
+                ) : null}
+              </>
+            ) : (
+              <p className="text-xs text-[var(--color-text-muted)]">
+                Aylık ücret ve haftalık ders sıklığı girildiğinde burada otomatik hesap gösterilir.
+              </p>
+            )}
+          </div>
         </div>
       </Card>
 
-      <Card>
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-[var(--color-primary)]">
-          Ders başı hesap karşılığı (bilgi amaçlı)
-        </h2>
-        <p className="mb-3 text-xs text-[var(--color-text-muted)]">
-          Bu alanı siz girmezsiniz — yukarıdaki aylık ücret ve haftalık ders sıklığından sistem otomatik
-          hesaplar. Yalnız fiilen tahsil ettiğiniz tutarı aşağıdaki &quot;İlk Ödeme&quot; bölümünde teyit
-          edersiniz.
-        </p>
-        {preview ? (
-          <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-3">
-            <div>
-              <dt className="text-xs text-[var(--color-text-muted)]">Aylık referans ücret</dt>
-              <dd className="font-semibold text-[var(--color-text)]">{formatTL(preview.monthlyFee)}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-[var(--color-text-muted)]">Haftalık ders sıklığı</dt>
-              <dd className="font-semibold text-[var(--color-text)]">{preview.weeklyLessonCount}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-[var(--color-text-muted)]">Referans aylık ders adedi</dt>
-              <dd className="font-semibold text-[var(--color-text)]">{preview.referenceCount}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-[var(--color-text-muted)]">Sistem ders başı hesap karşılığı</dt>
-              <dd className="font-semibold text-[var(--color-text)]">{formatTL(preview.derivedPerLessonAmount)}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-[var(--color-text-muted)]">Bu ilk dönemde planlanan ders</dt>
-              <dd className="font-semibold text-[var(--color-text)]">{preview.firstPeriodPlannedLessons}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-[var(--color-text-muted)]">Sistem önerilen ilk tahsilat</dt>
-              <dd className="font-semibold text-[var(--color-text)]">{formatTL(preview.firstPeriodSuggestedAmount)}</dd>
-            </div>
-          </dl>
-        ) : (
-          <p className="text-xs text-[var(--color-text-muted)]">
-            Aylık ücret ve haftalık ders sıklığı girildiğinde burada otomatik hesap gösterilir.
-          </p>
-        )}
-      </Card>
-
+      {/* 4. İlk Ödeme */}
       <Card>
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-[var(--color-primary)]">
           İlk Ödeme / Kayıt Anı Tahsilatı
@@ -534,21 +674,29 @@ export function NewStudentForm({
           ) : null}
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <Label>Ödeme yöntemi</Label>
+              <Label>
+                Ödeme yöntemi
+                <RequiredMark />
+              </Label>
               <Select
                 name="firstPaymentMethod"
                 defaultValue={v("firstPaymentMethod") || ""}
                 required
-                aria-invalid={!!fieldErrors.firstPaymentCollected}
+                aria-required
+                aria-invalid={!!fieldErrors.firstPaymentMethod || !!fieldErrors.firstPaymentCollected}
               >
                 <option value="">Seçiniz</option>
                 <option value="cash">Nakit</option>
                 <option value="transfer">Havale/EFT</option>
                 <option value="credit_card">Kredi Kartı</option>
               </Select>
+              <FieldError message={fieldErrors.firstPaymentMethod} />
             </div>
             <div>
-              <Label>Tahsil edilen tutar (TL)</Label>
+              <Label>
+                Tahsil edilen tutar (TL)
+                <RequiredMark />
+              </Label>
               <Input
                 name="firstPaymentAmount"
                 inputMode="numeric"
@@ -556,13 +704,18 @@ export function NewStudentForm({
                 defaultValue={v("firstPaymentAmount")}
                 placeholder={firstPeriodAutoAmount !== undefined ? String(firstPeriodAutoAmount) : "Örn. 3000"}
                 required
+                aria-required
+                aria-invalid={!!fieldErrors.firstPaymentCollected}
               />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <Label>Tahsilat tarihi</Label>
-              <Input name="firstPaymentDate" type="date" defaultValue={v("firstPaymentDate")} required />
+              <Label>
+                Tahsilat tarihi
+                <RequiredMark />
+              </Label>
+              <Input name="firstPaymentDate" type="date" defaultValue={v("firstPaymentDate")} required aria-required />
             </div>
             <div>
               <Label>Dekont / referans no (varsa)</Label>
@@ -576,7 +729,7 @@ export function NewStudentForm({
           <div>
             <Label>
               Düzeltme gerekçesi (yalnız tutar otomatik önerilenden farklıysa zorunlu)
-              {hasFirstPaymentMismatch ? <span className="text-rose-600"> *</span> : null}
+              {hasFirstPaymentMismatch ? <RequiredMark /> : null}
             </Label>
             <Input
               name="firstPaymentAdjustmentReason"
@@ -591,36 +744,12 @@ export function NewStudentForm({
         </div>
       </Card>
 
+      {/* 5. Sözleşme / KVKK / Fotoğraf-Video (varsa) */}
       <Card>
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-[var(--color-primary)]">
-          Akademik bilgiler
+          Sözleşme / KVKK / Fotoğraf-Video İzni
         </h2>
         <div className="space-y-3">
-          <div>
-            <Label>Yoklama Takvimi dönemi</Label>
-            <Select name="termType" defaultValue={v("termType") || "guz"}>
-              <option value="guz">Güz Dönemi</option>
-              <option value="yaz">Yaz Dönemi</option>
-            </Select>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <Label>Kayıt başlangıç tarihi (opsiyonel)</Label>
-              <Input name="enrollmentStartDate" type="date" defaultValue={v("enrollmentStartDate")} />
-            </div>
-            <div>
-              <Label>Seviye (opsiyonel)</Label>
-              <Input name="level" defaultValue={v("level")} placeholder="Örn. Başlangıç, Orta, İleri" />
-            </div>
-          </div>
-          <div>
-            <Label>Hedef sınav / performans dönemi (opsiyonel)</Label>
-            <Input name="targetExam" defaultValue={v("targetExam")} placeholder="Örn. 2027 Konservatuvar giriş sınavı" />
-          </div>
-          <div>
-            <Label>Not</Label>
-            <Input name="notes" defaultValue={v("notes")} placeholder="Opsiyonel" />
-          </div>
           <div className="flex items-center gap-2">
             <input
               id="social-media-consent"
@@ -631,7 +760,7 @@ export function NewStudentForm({
               className="h-4 w-4"
             />
             <label htmlFor="social-media-consent" className="text-sm text-[var(--color-text)]">
-              Sosyal medya paylaşım izni var
+              Sosyal medya paylaşım (fotoğraf/video) izni var
             </label>
           </div>
           {kvkkText ? (
@@ -657,6 +786,37 @@ export function NewStudentForm({
               </div>
             </div>
           ) : null}
+        </div>
+      </Card>
+
+      {/* 6. Portal Erişimi — SPESİFİK OLARAK en altta (P0-C). */}
+      <Card>
+        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-[var(--color-primary)]">
+          Portal erişimi (opsiyonel)
+        </h2>
+        <div className="space-y-3">
+          <label className="flex items-center gap-2 text-sm text-[var(--color-text)]">
+            <input type="checkbox" name="inviteToPortal" value="1" defaultChecked={checkedVal("inviteToPortal", "1")} />
+            Kayıt tamamlanınca portal davet e-postası gönder
+          </label>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <Label>Davet edilecek</Label>
+              <Select name="invitePortalAccessType" defaultValue={v("invitePortalAccessType") || "GUARDIAN"}>
+                <option value="GUARDIAN">Veli</option>
+                <option value="SELF">Öğrencinin kendisi</option>
+              </Select>
+            </div>
+            <div>
+              <Label>Davet e-postası</Label>
+              <Input name="invitePortalEmail" type="email" defaultValue={v("invitePortalEmail")} placeholder="veli@email.com" />
+            </div>
+          </div>
+          <p className="text-xs text-[var(--color-text-muted)]">
+            Düz metin şifre asla gönderilmez — alıcı, e-postadaki tek kullanımlık bağlantıyla kendi şifresini
+            oluşturur. İşaretlemezseniz giriş hesabı oluşturulmaz; daveti daha sonra öğrenci düzenleme ekranından da
+            gönderebilirsiniz.
+          </p>
         </div>
       </Card>
 

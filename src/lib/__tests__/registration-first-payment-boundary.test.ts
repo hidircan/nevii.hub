@@ -39,6 +39,11 @@ function baseInput(overrides?: Record<string, unknown>) {
     packageName: "Bireysel Aylık — 4 ders",
     weeklyLessonCount: 1,
     monthlyFee: 3000,
+    // P0-C (2026-09-02) — enrollmentStartDate artık şema seviyesinde
+    // zorunlu; testler açıkça FARKLI bir tarihi konu edinmedikçe (ör. ayın
+    // 1'i/31'i sınır testleri, kendi override'larını verir) bu varsayılan
+    // kullanılır.
+    enrollmentStartDate: "2026-09-01",
     ...overrides,
   };
 }
@@ -133,7 +138,10 @@ describe("createStudentTool — kayıt tamamlanma sınırında ilk ödeme zorunl
   it("P0-1B — tahsil edilen tutar otomatik tutardan farklı ve GEREKÇESİZ ise reddedilir (sahte/izsiz kayıt engeli)", async () => {
     const res = await createStudentTool(
       ctx(),
-      baseInput({ firstPaymentCollected: { method: "cash", amount: 1, collectedAt: "2026-08-30" } })
+      baseInput({
+        enrollmentStartDate: "2026-09-01",
+        firstPaymentCollected: { method: "cash", amount: 1, collectedAt: "2026-08-30" },
+      })
     );
     expect(res.ok).toBe(false);
     if (res.ok) return;
@@ -144,6 +152,7 @@ describe("createStudentTool — kayıt tamamlanma sınırında ilk ödeme zorunl
     const res = await createStudentTool(
       ctx(),
       baseInput({
+        enrollmentStartDate: "2026-09-01",
         firstPaymentCollected: { method: "cash", amount: 1, collectedAt: "2026-08-30" },
         firstPaymentAdjustmentReason: "Aile maddi zorluk, yönetici onayı",
       })
@@ -163,6 +172,7 @@ describe("createStudentTool — kayıt tamamlanma sınırında ilk ödeme zorunl
 
   it("çift gönderim/retry ikinci bir öğrenci/ödeme YARATMAZ, ilk oluşturulan kayıt döner", async () => {
     const input = baseInput({
+      enrollmentStartDate: "2026-09-01",
       firstPaymentCollected: { method: "cash", amount: 3000, collectedAt: "2026-08-30" },
     });
     const first = await createStudentTool(ctx(), input);
@@ -201,3 +211,69 @@ describe("createStudentTool — kayıt tamamlanma sınırında ilk ödeme zorunl
  * student-teacher-instrument-filter.test.ts) zaten aynı `data.teachers`
  * tenant-scoped arama davranışını dolaylı olarak kapsıyor.
  */
+
+/**
+ * P0-C (2026-09-02) — `createStudentTool` bu alanı yalnız GÖNDERİLDİYSE
+ * (boş dizi/undefined ise atlanır — geriye dönük uyum) şekil olarak
+ * doğrular: `weeklyLessonCount` ile TAM ve TEKİL eşleşme. Gerçek kayıt
+ * formu akışının bunu KOŞULSUZ zorunlu kılması `write-scope-actions.test.ts`
+ * (actionAddStudent üzerinden) test edilir — burada yalnız doğrudan
+ * `createStudentTool` çağıranlar için "gönderildiyse şekli doğru mu" testi.
+ */
+describe("createStudentTool — P0-C lessonDays (gönderildiyse) weeklyLessonCount ile TAM/TEKİL eşleşmeli", () => {
+  it("lessonDays hiç gönderilmezse (undefined) geriye dönük uyum — reddedilmez", async () => {
+    const res = await createStudentTool(
+      ctx(),
+      baseInput({
+        enrollmentStartDate: "2026-09-01",
+        firstPaymentCollected: { method: "cash", amount: 3000, collectedAt: "2026-09-01" },
+      })
+    );
+    expect(res.ok).toBe(true);
+  });
+
+  it("weeklyLessonCount=2 iken 1 gün gönderilirse reddedilir", async () => {
+    const res = await createStudentTool(
+      ctx(),
+      baseInput({
+        enrollmentStartDate: "2026-09-01",
+        weeklyLessonCount: 2,
+        lessonDays: [1],
+        firstPaymentCollected: { method: "cash", amount: 3000, collectedAt: "2026-09-01" },
+      })
+    );
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.error.message).toBe("Haftalık 2 ders için 2 farklı ders günü seçmelisiniz.");
+    const details = res.error.details as { fieldErrors?: Record<string, string[]> };
+    expect(details.fieldErrors?.lessonDays?.[0]).toBe("Haftalık 2 ders için 2 farklı ders günü seçmelisiniz.");
+  });
+
+  it("weeklyLessonCount=2 iken AYNI gün iki kez gönderilirse (yinelenen) reddedilir", async () => {
+    const res = await createStudentTool(
+      ctx(),
+      baseInput({
+        enrollmentStartDate: "2026-09-01",
+        weeklyLessonCount: 2,
+        lessonDays: [1, 1],
+        firstPaymentCollected: { method: "cash", amount: 3000, collectedAt: "2026-09-01" },
+      })
+    );
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.error.message).toBe("Haftalık 2 ders için 2 farklı ders günü seçmelisiniz.");
+  });
+
+  it("weeklyLessonCount=2 ve 2 FARKLI gün gönderilirse kabul edilir", async () => {
+    const res = await createStudentTool(
+      ctx(),
+      baseInput({
+        enrollmentStartDate: "2026-09-01",
+        weeklyLessonCount: 2,
+        lessonDays: [1, 4],
+        firstPaymentCollected: { method: "cash", amount: 3000, collectedAt: "2026-09-01" },
+      })
+    );
+    expect(res.ok).toBe(true);
+  });
+});
