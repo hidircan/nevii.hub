@@ -1883,12 +1883,36 @@ export async function createStudentTool(
     if (!firstPaymentCollected) {
       return fail("VALIDATION_ERROR", "İlk ödeme kayıt sırasında tahsil edilmeden kayıt tamamlanamaz.");
     }
-    if (firstPaymentCollected.amount !== pricing.monthlyFee) {
-      return fail(
-        "VALIDATION_ERROR",
-        `Tahsil edilen ilk ödeme tutarı (${firstPaymentCollected.amount}) hesaplanan aylık ücretle (${pricing.monthlyFee}) eşleşmiyor.`
-      );
+
+    // P0-1B — otomatik önerilen ilk dönem tutarı. "per_lesson" modelinde
+    // TEK motordan (period-lesson-billing.ts) gelir — henüz gerçek ders
+    // programı yokken `estimatePeriodBillingLines` PROJEKSİYON üretir (bkz.
+    // o dosyadaki `estimated` bayrağı notu). Legacy (pricingModel yoksa)
+    // davranış TAMAMEN DEĞİŞMEDEN korunur: otomatik tutar `pricing.monthlyFee`.
+    let autoSuggestedAmount = pricing.monthlyFee;
+    if (v.data.pricingModel === "per_lesson") {
+      const { estimatePeriodBillingLines } = await import("../period-lesson-billing");
+      const startDay = v.data.enrollmentStartDate || toZonedYmd(new Date(), resolveAppTimezone());
+      const [sy, sm] = startDay.slice(0, 7).split("-").map(Number) as [number, number];
+      const monthEndDay = `${startDay.slice(0, 7)}-${String(new Date(Date.UTC(sy, sm, 0)).getUTCDate()).padStart(2, "0")}`;
+      const firstPeriodEnd =
+        v.data.enrollmentEndDate && v.data.enrollmentEndDate < monthEndDay ? v.data.enrollmentEndDate : monthEndDay;
+      const lines = estimatePeriodBillingLines({
+        enrollmentStartDay: startDay,
+        enrollmentEndDay: firstPeriodEnd,
+        perLessonNetFee: v.data.perLessonNetFee!,
+        weeklyLessonCount: v.data.weeklyLessonCount,
+      });
+      autoSuggestedAmount = lines[0]!.autoCalculatedAmount;
     }
+
+    const { resolveFirstPaymentAdjustment } = await import("../first-payment-adjustment");
+    const adjustment = resolveFirstPaymentAdjustment({
+      autoSuggestedAmount,
+      manualNetAmount: firstPaymentCollected.amount,
+      reason: v.data.firstPaymentAdjustmentReason,
+    });
+    if (!adjustment.ok) return fail("VALIDATION_ERROR", adjustment.message);
 
     // Çift gönderim/retry koruması — aynı personel aynı öğrenciyi (ad+telefon+
     // veli telefonu+öğretmen+şube+tutar) 60sn içinde tekrar gönderirse (ör. çift
@@ -1964,12 +1988,38 @@ export async function createStudentTool(
         reference: firstPaymentCollected.reference,
         note: firstPaymentCollected.note,
         receivedByUserId: ctx.userId,
+        // P0-1B — yalnız GERÇEK bir manuel düzeltme varsa dolu; otomatik
+        // tutarla birebir eşleşen normal bir ilk ödemede bu dört alan da
+        // undefined kalır (bkz. Payment.autoSuggestedAmount yorumu).
+        ...(adjustment.result.isManualOverride
+          ? {
+              autoSuggestedAmount: adjustment.result.autoSuggestedAmount,
+              adjustmentReason: adjustment.result.reason,
+              adjustedBy: ctx.userId,
+              adjustedAt: new Date().toISOString(),
+            }
+          : {}),
       });
       audit(ctx, "student.first_payment_collected", "Payment", fp.paymentId, {
         studentId: created.id,
         method: firstPaymentCollected.method,
         amount: firstPaymentCollected.amount,
       });
+      if (adjustment.result.isManualOverride) {
+        const { buildFirstPaymentAdjustmentAuditEntry } = await import("../first-payment-adjustment");
+        audit(
+          ctx,
+          "student.first_payment_adjusted",
+          "Payment",
+          fp.paymentId,
+          { ...buildFirstPaymentAdjustmentAuditEntry(adjustment.result, {
+              tenantId: ctx.tenantId,
+              studentId: created.id,
+              paymentId: fp.paymentId,
+              adjustedBy: ctx.userId,
+            }) }
+        );
+      }
       // Notify admins about new student registration
       try {
         const { notifyAdmins } = await import("../manager-notifications");

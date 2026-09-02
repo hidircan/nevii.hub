@@ -5,6 +5,9 @@ import {
   countBillableLessonsInRange,
   splitEnrollmentIntoMonthlyPeriods,
   computePeriodBillingLines,
+  estimateBillableLessonCount,
+  estimatePeriodBillingLines,
+  computePeriodBillingPreview,
   periodKindLabel,
   type BillableLessonCandidate,
 } from "../period-lesson-billing";
@@ -344,5 +347,84 @@ describe("computePeriodBillingLines — P0-1 senaryoları", () => {
     };
     expect(() => computePeriodBillingLines({ ...base, perLessonNetFee: -1 })).toThrow();
     expect(() => computePeriodBillingLines({ ...base, perLessonNetFee: 500.5 })).toThrow();
+  });
+
+  it("computePeriodBillingLines her satırı estimated:false olarak işaretler", () => {
+    const lines = computePeriodBillingLines({
+      enrollmentStartDay: "2026-09-01",
+      enrollmentEndDay: "2026-09-30",
+      perLessonNetFee: 500,
+      lessons: [lesson("l1", "2026-09-07")],
+      studentId: "s1",
+      makeupRequests,
+    });
+    expect(lines[0].estimated).toBe(false);
+  });
+});
+
+describe("estimateBillableLessonCount — henüz program yokken PROJEKSİYON", () => {
+  it("haftada 2 ders, 14 günlük dönem → 4 ders tahmini", () => {
+    expect(estimateBillableLessonCount("2026-09-01", "2026-09-14", 2)).toBe(4);
+  });
+
+  it("haftada 1 ders, 30 günlük ay → ~4 ders tahmini", () => {
+    expect(estimateBillableLessonCount("2026-09-01", "2026-09-30", 1)).toBe(4);
+  });
+
+  it("geçersiz/sıfır haftalık sıklıkta 0 döner", () => {
+    expect(estimateBillableLessonCount("2026-09-01", "2026-09-30", 0)).toBe(0);
+  });
+});
+
+describe("estimatePeriodBillingLines — kayıt önizlemesi (gerçek ders YOK)", () => {
+  it("ilk kısa dönem + tam dönem + son kısa dönem için tahmini tutar üretir, estimated:true", () => {
+    const lines = estimatePeriodBillingLines({
+      enrollmentStartDay: "2026-09-15",
+      enrollmentEndDay: "2026-11-20",
+      perLessonNetFee: 500,
+      weeklyLessonCount: 2,
+    });
+    expect(lines).toHaveLength(3);
+    for (const line of lines) {
+      expect(line.estimated).toBe(true);
+      expect(line.autoCalculatedAmount).toBe(line.billableLessonCount * 500);
+      expect(line.autoCalculatedAmount).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it("negatif ders başı ücret reddedilir", () => {
+    expect(() =>
+      estimatePeriodBillingLines({
+        enrollmentStartDay: "2026-09-01",
+        enrollmentEndDay: "2026-09-30",
+        perLessonNetFee: -1,
+        weeklyLessonCount: 2,
+      })
+    ).toThrow();
+  });
+});
+
+describe("computePeriodBillingPreview — TEK giriş noktası (kayıt önizlemesi + simülasyon)", () => {
+  const previewBase = {
+    enrollmentStartDay: "2026-09-15",
+    enrollmentEndDay: "2026-09-29",
+    perLessonNetFee: 500,
+    studentId: "s1",
+    makeupRequests: [] as { sourceLessonId: string; status: string }[],
+    weeklyLessonCount: 2,
+  };
+
+  it("gerçek ders YOKSA tahmine düşer (estimated:true)", () => {
+    const lines = computePeriodBillingPreview({ ...previewBase, lessons: [] });
+    expect(lines[0].estimated).toBe(true);
+  });
+
+  it("gerçek ders VARSA kesin sayar (estimated:false), tahmini YOK SAYAR", () => {
+    const lines = computePeriodBillingPreview({
+      ...previewBase,
+      lessons: [lesson("l1", "2026-09-15"), lesson("l2", "2026-09-17")],
+    });
+    expect(lines[0].estimated).toBe(false);
+    expect(lines[0].billableLessonCount).toBe(2);
   });
 });

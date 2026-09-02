@@ -116,7 +116,7 @@ export const studentSchema = z.object({
   instrument: z.string().min(1),
   teacherId: z.string().min(1),
   packageName: z.string().min(1),
-  weeklyLessonCount: z.coerce.number().int().min(1),
+  weeklyLessonCount: z.coerce.number().int().min(1).max(2),
   monthlyFee: z.coerce.number().int().min(0),
   notes: z.string().optional(),
   studentType: z.enum(STUDENT_TYPE_ENUM).optional(),
@@ -179,6 +179,24 @@ export const studentSchema = z.object({
     .optional(),
   /** Yalnızca gerçekten istisnai/gecikmeli ilk tahsilat için — yetkili personel gerekçesi zorunlu, gün-of-ay tetiklemez (bkz. createStudentTool). */
   firstPaymentExceptionReason: optionalTrimmed,
+  /**
+   * P0-1 — ana ücret modeli. Verilmezse (undefined) LEGACY aylık akış
+   * DEĞİŞMEDEN çalışır — bu alan yalnızca "per_lesson" seçildiğinde yeni
+   * ders-başı motoru devreye girer, eski entegrasyonlar/testler etkilenmez.
+   */
+  pricingModel: z.enum(["per_lesson", "monthly_legacy"]).optional(),
+  /** `pricingModel==="per_lesson"` ise zorunlu — tam sayı TL, birincil taban ücret. */
+  perLessonNetFee: z.coerce.number().int().min(0).optional(),
+  /**
+   * İlk tahsilat, motorun ürettiği otomatik ilk dönem tutarından FARKLI
+   * girildiyse zorunlu (bkz. `first-payment-adjustment.ts`) — serbest,
+   * izsiz bir istisna alanı DEĞİL, `createStudentTool` otomatik tutarla
+   * karşılaştırıp reddeder/kabul eder, asla sessizce geçmez.
+   */
+  firstPaymentAdjustmentReason: optionalTrimmed,
+}).refine((v) => v.pricingModel !== "per_lesson" || v.perLessonNetFee !== undefined, {
+  message: "Ders başı ücretlendirme modeli seçildiyse ders başı net ücret zorunludur.",
+  path: ["perLessonNetFee"],
 }).refine((v) => v.monthlyFeeOverrideAmount === undefined || !!v.monthlyFeeOverrideReason, {
   message: "Manuel ücret girildiyse gerekçe zorunludur.",
   path: ["monthlyFeeOverrideReason"],
@@ -585,6 +603,11 @@ export const updateFeeRoundingModeSchema = z.object({
 /** Telafi Merkezi politika penceresi — 1-365 gün arası, yalnız ileri yönlü etkilidir. */
 export const updateMakeupWindowDaysSchema = z.object({
   makeupWindowDays: z.number().int().min(1).max(365),
+});
+
+export const updateSchoolLogoSchema = z.object({
+  fileMimeType: z.string().min(1),
+  fileData: z.string().min(1),
 });
 
 /** Aylık öğrenci telafi hakkı — 0 = kapalı, max 31. */

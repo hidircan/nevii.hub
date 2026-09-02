@@ -374,6 +374,10 @@ function mapSchoolToAppData(school: PrismaSchoolWithRelations): AppData {
         (student as { monthlyFeeManualOverride?: boolean | null }).monthlyFeeManualOverride ?? undefined,
       monthlyFeeOverrideReason:
         (student as { monthlyFeeOverrideReason?: string | null }).monthlyFeeOverrideReason ?? undefined,
+      pricingModel: (student as { pricingModel?: string | null }).pricingModel as
+        | import("./types").Student["pricingModel"]
+        | undefined ?? undefined,
+      perLessonNetFee: (student as { perLessonNetFee?: number | null }).perLessonNetFee ?? undefined,
     })),
     rooms: school.rooms.map((room) => ({
       id: room.id,
@@ -506,6 +510,10 @@ function mapSchoolToAppData(school: PrismaSchoolWithRelations): AppData {
       createdAt: (payment as { createdAt?: Date }).createdAt?.toISOString() ?? undefined,
       paymentNote: payment.paymentNote ?? undefined,
       receivedByUserId: payment.receivedByUserId ?? undefined,
+      autoSuggestedAmount: payment.autoSuggestedAmount ?? undefined,
+      adjustmentReason: payment.adjustmentReason ?? undefined,
+      adjustedBy: payment.adjustedBy ?? undefined,
+      adjustedAt: payment.adjustedAt?.toISOString() ?? undefined,
     })),
     teacherFeeRules: school.teacherFeeRules.map((rule) => ({
       id: rule.id,
@@ -2776,6 +2784,10 @@ export async function getRegistrationFirstPayment(studentId: string): Promise<im
     createdAt: (row as { createdAt?: Date }).createdAt?.toISOString() ?? undefined,
     paymentNote: row.paymentNote ?? undefined,
     receivedByUserId: row.receivedByUserId ?? undefined,
+    autoSuggestedAmount: row.autoSuggestedAmount ?? undefined,
+    adjustmentReason: row.adjustmentReason ?? undefined,
+    adjustedBy: row.adjustedBy ?? undefined,
+    adjustedAt: row.adjustedAt?.toISOString() ?? undefined,
   };
 }
 
@@ -2848,6 +2860,10 @@ export async function addRegistrationFirstPayment(input: {
   reference?: string;
   note?: string;
   receivedByUserId: string;
+  autoSuggestedAmount?: number;
+  adjustmentReason?: string;
+  adjustedBy?: string;
+  adjustedAt?: string;
 }): Promise<{ data: AppData; paymentId: string }> {
   const tid = requireTenantId();
   const student = await prisma.student.findFirst({ where: { id: input.studentId, tenantId: tid } });
@@ -2879,6 +2895,10 @@ export async function addRegistrationFirstPayment(input: {
         source: "registration_first_payment",
         receivedByUserId: input.receivedByUserId,
         paymentNote: input.note,
+        autoSuggestedAmount: input.autoSuggestedAmount,
+        adjustmentReason: input.adjustmentReason,
+        adjustedBy: input.adjustedBy,
+        adjustedAt: input.adjustedAt ? new Date(input.adjustedAt) : undefined,
       },
     });
   }

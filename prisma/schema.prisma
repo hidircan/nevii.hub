@@ -409,6 +409,12 @@ model Student {
   /// true ise monthlyFee hesaplanan değerden farklı, admin tarafından elle girilmiştir.
   monthlyFeeManualOverride Boolean           @default(false)
   monthlyFeeOverrideReason String?           @db.Text
+  /// P0-1 — ana ücret modeli. NULL = LEGACY aylık paket kaydı (mevcut tüm
+  /// kayıtlar); yalnız YENİ kayıtlar açıkça "per_lesson" seçebilir, eski
+  /// kayıtlar ASLA otomatik dönüştürülmez.
+  pricingModel             String?
+  /// pricingModel="per_lesson" ise birincil taban ücret — tam sayı TL.
+  perLessonNetFee          Int?
   firstLessonAt            DateTime?
   archivedAt               DateTime?
   /// ÖNCELİK 4 — "guz" (Eylül-Haziran) | "yaz" (Temmuz-Ağustos). Boşsa "guz"
@@ -771,6 +777,14 @@ model Payment {
   contract            StudentContract?      @relation(fields: [contractId], references: [id])
   /// 1-tabanlı taksit sırası — yalnızca contractId doluyken anlamlı.
   installmentSequence Int?
+  /// P0-1B — bu ödeme, motorun ürettiği otomatik tutardan MANUEL olarak
+  /// farklı girildiyse dolu (bkz. src/lib/first-payment-adjustment.ts).
+  /// `amount` HER ZAMAN fiilen tahsil edilen net tutardır — bu 4 alan
+  /// yalnızca "otomatik hesaplananla farkı" audit için ayrıca taşır.
+  autoSuggestedAmount Int?
+  adjustmentReason    String?
+  adjustedBy          String?
+  adjustedAt          DateTime?
   createdAt           DateTime              @default(now())
   updatedAt           DateTime              @updatedAt
 

@@ -271,6 +271,15 @@ export interface Student {
   monthlyFeeManualOverride?: boolean;
   /** Override yapıldıysa zorunlu gerekçe metni — audit'te de ayrıca saklanır. */
   monthlyFeeOverrideReason?: string;
+  /**
+   * P0-1 — ana ücret modeli. Yoksa (undefined) LEGACY aylık paket kaydı
+   * sayılır ve `monthlyFee` birincil kaynak olmaya devam eder — eski
+   * kayıtlar ASLA otomatik "per_lesson"a dönüştürülmez, yalnızca YENİ
+   * kayıtlar bu alanı açıkça "per_lesson" seçebilir.
+   */
+  pricingModel?: "per_lesson" | "monthly_legacy";
+  /** `pricingModel==="per_lesson"` ise birincil taban ücret — tam sayı TL. */
+  perLessonNetFee?: number;
   firstLessonAt?: string;
   /** Soft-archive; hard delete yok */
   archivedAt?: string;
@@ -829,6 +838,18 @@ export interface Payment {
   contractId?: string;
   /** 1-tabanlı taksit sırası — yalnızca contractId doluyken anlamlı. */
   installmentSequence?: number;
+  /**
+   * P0-1B — bu ödeme, motorun ürettiği otomatik tutardan MANUEL olarak
+   * farklı girildiyse dolu (bkz. `first-payment-adjustment.ts`). `amount`
+   * HER ZAMAN fiilen tahsil edilen net tutardır — bu alanlar yalnızca
+   * "otomatik hesaplananla farkı" audit için ayrıca taşır, `amount`'ı
+   * gizlemez/değiştirmez. Dördü de yoksa (undefined) düzeltme YAPILMAMIŞ
+   * demektir — normal, otomatik tutarla birebir eşleşen bir ödeme.
+   */
+  autoSuggestedAmount?: number;
+  adjustmentReason?: string;
+  adjustedBy?: string;
+  adjustedAt?: string;
 }
 
 /**

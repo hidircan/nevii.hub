@@ -1225,6 +1225,10 @@ export async function addRegistrationFirstPayment(input: {
   reference?: string;
   note?: string;
   receivedByUserId: string;
+  autoSuggestedAmount?: number;
+  adjustmentReason?: string;
+  adjustedBy?: string;
+  adjustedAt?: string;
 }): Promise<{ data: AppData; paymentId: string }> {
   let paymentId = "";
   const data = await mutateStoreUnderLock(async (d) => {
@@ -1252,6 +1256,10 @@ export async function addRegistrationFirstPayment(input: {
       receivedByUserId: input.receivedByUserId,
       paymentNote: input.note,
       createdAt: new Date().toISOString(),
+      autoSuggestedAmount: input.autoSuggestedAmount,
+      adjustmentReason: input.adjustmentReason,
+      adjustedBy: input.adjustedBy,
+      adjustedAt: input.adjustedAt,
     };
     paymentId = payment.id;
     return { ...d, payments: [...d.payments, payment] };

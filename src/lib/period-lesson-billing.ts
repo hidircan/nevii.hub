@@ -193,6 +193,14 @@ export interface PeriodBillingLine {
   perLessonNetFee: number;
   /** billableLessonCount × perLessonNetFee — tam sayı TL, kuruş/float aritmetiği YOK. */
   autoCalculatedAmount: number;
+  /**
+   * true ise `billableLessonCount` GERÇEK ders kayıtlarından değil,
+   * haftalık sıklık × takvim günü PROJEKSİYONUNDAN geldi (henüz ders
+   * programı oluşturulmamış — bkz. `estimatePeriodBillingLines`). Sözleşme/
+   * gerçek tahsilat planı bu bayrağı ASLA true görmemeli; yalnız kayıt
+   * önizlemesi/ödeme simülasyonu için.
+   */
+  estimated: boolean;
 }
 
 export interface ComputePeriodBillingLinesInput {
@@ -236,7 +244,83 @@ export function computePeriodBillingLines(
       billableLessonCount,
       perLessonNetFee: input.perLessonNetFee,
       autoCalculatedAmount: billableLessonCount * input.perLessonNetFee,
+      estimated: false,
     };
+  });
+}
+
+function inclusiveDayCount(startDay: string, endDay: string): number {
+  const start = new Date(`${startDay}T00:00:00Z`).getTime();
+  const end = new Date(`${endDay}T00:00:00Z`).getTime();
+  return Math.round((end - start) / 86_400_000) + 1;
+}
+
+/**
+ * Henüz GERÇEK bir ders programı (LessonSeries/Lesson) yokken — tipik olarak
+ * kayıt anında — bir dönemdeki ücretlendirilebilir ders sayısının
+ * PROJEKSİYONU: haftalık ders sıklığı × dönem gün sayısı / 7, en yakın tam
+ * sayıya yuvarlanır. Hangi haftanın günlerinde ders olacağı henüz
+ * belirlenmediği için bu KESİN bir sayı DEĞİLDİR — yalnızca öngörü.
+ */
+export function estimateBillableLessonCount(
+  periodStartDay: string,
+  periodEndDay: string,
+  weeklyLessonCount: number
+): number {
+  if (!Number.isInteger(weeklyLessonCount) || weeklyLessonCount <= 0) return 0;
+  const days = inclusiveDayCount(periodStartDay, periodEndDay);
+  return Math.max(0, Math.round((weeklyLessonCount * days) / 7));
+}
+
+export interface EstimatePeriodBillingLinesInput {
+  enrollmentStartDay: string;
+  enrollmentEndDay: string;
+  perLessonNetFee: number;
+  weeklyLessonCount: number;
+}
+
+/** `computePeriodBillingLines`'ın projeksiyon karşılığı — bkz. `estimateBillableLessonCount`. */
+export function estimatePeriodBillingLines(input: EstimatePeriodBillingLinesInput): PeriodBillingLine[] {
+  if (!Number.isInteger(input.perLessonNetFee) || input.perLessonNetFee < 0) {
+    throw new Error("perLessonNetFee tam sayı ve negatif olmayan bir TL tutarı olmalı");
+  }
+  const periods = splitEnrollmentIntoMonthlyPeriods(input.enrollmentStartDay, input.enrollmentEndDay);
+  return periods.map((p) => {
+    const billableLessonCount = estimateBillableLessonCount(p.periodStart, p.periodEnd, input.weeklyLessonCount);
+    return {
+      periodStart: p.periodStart,
+      periodEnd: p.periodEnd,
+      kind: p.kind,
+      billableLessonCount,
+      perLessonNetFee: input.perLessonNetFee,
+      autoCalculatedAmount: billableLessonCount * input.perLessonNetFee,
+      estimated: true,
+    };
+  });
+}
+
+export interface ComputePeriodBillingPreviewInput extends ComputePeriodBillingLinesInput {
+  weeklyLessonCount: number;
+}
+
+/**
+ * Kayıt önizlemesi ve ödeme simülasyonu için TEK giriş noktası: öğrencinin
+ * GERÇEK ders kaydı varsa (`lessons` doluysa) `computePeriodBillingLines`
+ * ile KESİN sayar; hiç gerçek ders yoksa (yeni kayıt, program henüz
+ * oluşturulmadı) `estimatePeriodBillingLines` ile PROJEKSİYON üretir —
+ * ikisi de aynı `PeriodBillingLine[]` biçimini döner, `estimated` bayrağıyla
+ * ayrılır. Sözleşme tablosu/gerçek tahsilat planı BUNU DEĞİL, doğrudan
+ * `computePeriodBillingLines`'ı kullanmalı (asla tahmine dayalı tutar
+ * üretmemeli).
+ */
+export function computePeriodBillingPreview(input: ComputePeriodBillingPreviewInput): PeriodBillingLine[] {
+  const hasRealLessons = input.lessons.some((l) => l.studentId === input.studentId);
+  if (hasRealLessons) return computePeriodBillingLines(input);
+  return estimatePeriodBillingLines({
+    enrollmentStartDay: input.enrollmentStartDay,
+    enrollmentEndDay: input.enrollmentEndDay,
+    perLessonNetFee: input.perLessonNetFee,
+    weeklyLessonCount: input.weeklyLessonCount,
   });
 }
 

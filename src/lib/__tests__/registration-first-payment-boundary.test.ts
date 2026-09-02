@@ -118,14 +118,35 @@ describe("createStudentTool — kayıt tamamlanma sınırında ilk ödeme zorunl
     expect(res.ok).toBe(true);
   });
 
-  it("tahsil edilen tutar hesaplanan aylık ücretle eşleşmezse reddedilir (sahte kayıt engeli)", async () => {
+  it("P0-1B — tahsil edilen tutar otomatik tutardan farklı ve GEREKÇESİZ ise reddedilir (sahte/izsiz kayıt engeli)", async () => {
     const res = await createStudentTool(
       ctx(),
       baseInput({ firstPaymentCollected: { method: "cash", amount: 1, collectedAt: "2026-08-30" } })
     );
     expect(res.ok).toBe(false);
     if (res.ok) return;
-    expect(res.error.message).toContain("eşleşmiyor");
+    expect(res.error.message).toContain("gerekçe zorunludur");
+  });
+
+  it("P0-1B — otomatik tutardan farklı ama GERÇEK GEREKÇELİ ilk ödeme kabul edilir, audit izi bırakır", async () => {
+    const res = await createStudentTool(
+      ctx(),
+      baseInput({
+        firstPaymentCollected: { method: "cash", amount: 1, collectedAt: "2026-08-30" },
+        firstPaymentAdjustmentReason: "Aile maddi zorluk, yönetici onayı",
+      })
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const data = await readData();
+    const payment = data.payments.find(
+      (p) => p.studentId === res.data.studentId && p.source === "registration_first_payment"
+    );
+    expect(payment?.amount).toBe(1);
+    expect(payment?.autoSuggestedAmount).toBe(3000);
+    expect(payment?.adjustmentReason).toBe("Aile maddi zorluk, yönetici onayı");
+    expect(payment?.adjustedBy).toBeTruthy();
+    expect(payment?.adjustedAt).toBeTruthy();
   });
 
   it("çift gönderim/retry ikinci bir öğrenci/ödeme YARATMAZ, ilk oluşturulan kayıt döner", async () => {
