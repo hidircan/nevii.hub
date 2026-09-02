@@ -236,7 +236,7 @@ export default async function AttendanceReportPage({
             {rows.length === 0 ? (
               <tr>
                 <td colSpan={8} className="px-4 py-8 text-center text-sm text-[var(--color-text-muted)]">
-                  Bu filtrelerle eşleşen ders yok.
+                  Henüz bu filtrelere uygun yoklama kaydı bulunmuyor.
                 </td>
               </tr>
             ) : (

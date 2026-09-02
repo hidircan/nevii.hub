@@ -84,6 +84,16 @@ export const PANEL_OPS_NAV: PanelNavItem[] = [
   { href: "/panel/iletisim-merkezi", label: "İletişim Merkezi", icon: MessageCircle, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
   /** Paket 7 — ödev atama/teslim raporu. */
   { href: "/panel/odev-raporu", label: "Ödev Raporu", icon: FileText, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
+  /**
+   * P0-F (2026-09-02) — kök neden: `/panel/yoklama-raporu` sayfası
+   * (P0-2C, `745de96`) daha önce üretilmişti ama HİÇ menü girdisi
+   * eklenmemişti — yalnız URL'yi bilenler erişebiliyordu. Sayfanın
+   * kendisi ZATEN sunucu tarafında SCHOOL_ADMIN/SUPER_ADMIN'e kilitli
+   * (redirect + getAttendanceReportTool içinde ayrıca RBAC) — bu girdi
+   * yalnız `roles` ile AYNI kısıtı görünür/keşfedilebilir kılar,
+   * öğretmen/öğrenci/veliye asla görünmez.
+   */
+  { href: "/panel/yoklama-raporu", label: "Yoklama Raporu", icon: FileText, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
 ];
 
 export const PANEL_AI_NAV: PanelNavItem[] = [
