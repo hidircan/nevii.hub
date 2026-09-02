@@ -11392,6 +11392,114 @@ export async function getAttendanceReportTool(
   return ok({ range, summary, rows: enrichedRows });
 }
 
+/**
+ * P0-1C — Ödeme simülasyonu. Var olan bir öğrenci (`studentId`, gerçek ders
+ * kayıtları varsa onları kullanır) VEYA kayıt-öncesi "ne olurdu" keşfi
+ * (ham `enrollmentStartDate`/`weeklyLessonCount`/`perLessonNetFee`) kabul
+ * eder — ikisi de TEK motordan (`period-lesson-billing.ts`) geçer, sözleşme
+ * tablosuyla (bkz. `buildPerLessonInstallmentSchedule`, `contracts.ts`)
+ * aynı `autoCalculatedAmount` değerlerini üretir. Yalnız OKUR, hiçbir kayıt
+ * yazmaz/değiştirmez.
+ */
+export async function previewPeriodBillingSimulationTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<
+  ServiceResult<{
+    lines: Array<
+      import("../period-lesson-billing").PeriodBillingLine & { dueDate: string; cumulativeTotal: number }
+    >;
+    grandTotal: number;
+    firstPeriodManualNetAmount?: number;
+  }>
+> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN", "AI_AGENT"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+
+  const v = parseOrFail(
+    z.object({
+      studentId: z.string().optional(),
+      enrollmentStartDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      enrollmentEndDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      weeklyLessonCount: z.number().int().min(1).max(2).optional(),
+      perLessonNetFee: z.number().int().min(0).optional(),
+      firstPeriodManualNetAmount: z.number().int().min(0).optional(),
+      paymentMethod: z.enum(["credit_card", "cash", "transfer"]).optional(),
+    }),
+    input
+  );
+  if (!v.ok) return v;
+
+  const { computePeriodBillingPreview } = await import("../period-lesson-billing");
+  const data = await readData();
+
+  let enrollmentStartDay = v.data.enrollmentStartDate;
+  let enrollmentEndDay = v.data.enrollmentEndDate;
+  let weeklyLessonCount = v.data.weeklyLessonCount;
+  let perLessonNetFee = v.data.perLessonNetFee;
+  let studentId = v.data.studentId ?? "__simulation__";
+
+  if (v.data.studentId) {
+    const student = data.students.find((s) => s.id === v.data.studentId);
+    if (!student) return fail("NOT_FOUND", "Öğrenci bulunamadı");
+    if (student.pricingModel !== "per_lesson" || !student.perLessonNetFee) {
+      return fail(
+        "VALIDATION_ERROR",
+        "Bu öğrenci ders başı ücretlendirme modelinde değil — simülasyon yalnızca per_lesson öğrenciler içindir."
+      );
+    }
+    studentId = student.id;
+    enrollmentStartDay = enrollmentStartDay || student.enrollmentStartDate || toZonedYmd(new Date(), resolveAppTimezone());
+    enrollmentEndDay = enrollmentEndDay || student.enrollmentEndDate || enrollmentStartDay;
+    weeklyLessonCount = weeklyLessonCount ?? student.weeklyLessonCount;
+    perLessonNetFee = perLessonNetFee ?? student.perLessonNetFee;
+  }
+
+  if (!enrollmentStartDay || !enrollmentEndDay || !weeklyLessonCount || perLessonNetFee === undefined) {
+    return fail(
+      "VALIDATION_ERROR",
+      "Simülasyon için enrollmentStartDate/enrollmentEndDate/weeklyLessonCount/perLessonNetFee (veya per_lesson bir studentId) gerekir."
+    );
+  }
+
+  const lines = computePeriodBillingPreview({
+    enrollmentStartDay,
+    enrollmentEndDay,
+    perLessonNetFee,
+    weeklyLessonCount,
+    studentId,
+    lessons: data.lessons.map((l) => ({
+      id: l.id,
+      studentId: l.studentId,
+      startAt: l.startAt,
+      type: l.type,
+      status: l.status,
+      opsClosedFlag: l.opsClosedFlag,
+    })),
+    makeupRequests: data.makeupRequests.map((m) => ({ sourceLessonId: m.sourceLessonId, status: m.status })),
+  });
+
+  const { resolveContractPaymentDueRule } = await import("../contracts");
+  const rule = resolveContractPaymentDueRule(v.data.paymentMethod);
+  let cumulativeTotal = 0;
+  const enrichedLines = lines.map((line, i) => {
+    const amount =
+      i === 0 && v.data.firstPeriodManualNetAmount !== undefined ? v.data.firstPeriodManualNetAmount : line.autoCalculatedAmount;
+    cumulativeTotal += amount;
+    return {
+      ...line,
+      dueDate: i === 0 ? enrollmentStartDay! : `${line.periodStart.slice(0, 7)}-${String(rule.windowEndDay).padStart(2, "0")}`,
+      cumulativeTotal,
+    };
+  });
+
+  return ok({
+    lines: enrichedLines,
+    grandTotal: cumulativeTotal,
+    firstPeriodManualNetAmount: v.data.firstPeriodManualNetAmount,
+  });
+}
+
 export const TOOL_CATALOG = [
   { name: "markAttendance", description: "Mark lesson attendance; may create makeup credit" },
   { name: "findAvailableSlots", description: "Suggest makeup slots for a request" },

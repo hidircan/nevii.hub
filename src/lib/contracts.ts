@@ -200,6 +200,39 @@ export function buildInstallmentSchedule(input: {
 }
 
 /**
+ * P0-1D (hazırlık — bkz. per-lesson-billing-and-attendance-risk-scope.md
+ * §A.5) — `buildInstallmentSchedule`'ın per-lesson karşılığı: SABİT SAYIDA
+ * eşit taksit YERİNE, `period-lesson-billing.ts`'in ürettiği her takvim-ayı
+ * döneminin KENDİ (ders sayısına göre değişen) tutarını bir taksit satırı
+ * olarak kullanır. İlk dönem manuel düzeltilmişse (bkz.
+ * `first-payment-adjustment.ts`) o satırda otomatik DEĞİL net tutar
+ * kullanılır. **Henüz `createContract`/`addContractInstallments`'a
+ * BAĞLANMADI** — bu bilinçli bir kapsam sınırı, aşağıdaki fonksiyonun kendi
+ * yorumuna bkz.
+ */
+export function buildPerLessonInstallmentSchedule(input: {
+  billingLines: import("./period-lesson-billing").PeriodBillingLine[];
+  /** İlk dönem otomatik tutardan manuel olarak farklı girildiyse. */
+  firstPeriodManualNetAmount?: number;
+  firstDueDate: string;
+  paymentMethod?: string;
+  paymentPolicy?: Pick<CollectionsSettings, "contractCardWindowEndDay" | "contractBankCashDueDay">;
+}): ContractInstallmentSnapshot[] {
+  if (input.billingLines.length === 0) return [];
+  const rule = resolveContractPaymentDueRule(input.paymentMethod, input.paymentPolicy);
+  return input.billingLines.map((line, i) => {
+    const amount =
+      i === 0 && input.firstPeriodManualNetAmount !== undefined
+        ? input.firstPeriodManualNetAmount
+        : line.autoCalculatedAmount;
+    // İlk taksit personelin girdiği tarihtir (createContract ile AYNI kural);
+    // sonraki her dönem kendi ayının kurum ödeme-penceresi gününe normalize edilir.
+    const dueDate = i === 0 ? input.firstDueDate : setDayOfMonthClamped(line.periodStart, rule.windowEndDay);
+    return { sequence: i + 1, dueDate, amount, paymentMethod: input.paymentMethod };
+  });
+}
+
+/**
  * İş kuralı (Faz 1A/1B): 1-2 aylık kayıtlar "tanışma/trial" paketidir, formal
  * kayıt sözleşmesi PDF'i ZORUNLU DEĞİLDİR — yalnızca kayıt/ödeme planı
  * kaydedilir. 3-12 ay her zaman formal sözleşme (PDF + yazdır + ıslak imza +

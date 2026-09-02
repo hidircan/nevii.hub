@@ -103,6 +103,7 @@ export {
   listCurriculumForStudentTool,
   setLessonOpsFlagTool,
   getAttendanceReportTool,
+  previewPeriodBillingSimulationTool,
   markTeacherAttendanceTool,
   getTeacherPerformanceReportTool,
   getTeacherPerformanceReportV2Tool,
