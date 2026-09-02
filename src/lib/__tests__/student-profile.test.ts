@@ -38,6 +38,10 @@ describe("createStudentTool — EPIC 4 profil alanları", () => {
       weeklyLessonCount: 1,
       monthlyFee: 3000,
       firstPaymentCollected: { method: "cash", amount: 3000, collectedAt: "2026-01-15" },
+      // P0-1 (2026-09-02) — ay ortası enrollmentStartDate ile otomatik
+      // türetilen (kısmi dönem) tutar 3000'den farklı çıkar; bu testin
+      // konusu profil alanlarının kaydedilmesi, tutar eşleşmesi değil.
+      firstPaymentAdjustmentReason: "Test — tutar eşleşmesi bu testin konusu değil",
       studentType: "Konservatuvar Hazırlık",
       enrollmentStartDate: "2026-01-15",
       level: "İleri",

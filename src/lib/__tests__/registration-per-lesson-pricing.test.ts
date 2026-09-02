@@ -8,11 +8,13 @@ import { DEFAULT_TENANT_ID } from "../auth/config";
 import type { ServiceContext } from "../services/context";
 
 /**
- * P0-1 — "yeni öğrenci kayıt ödeme önizlemesi" yüzeyinin gerçek entegrasyonu:
- * `pricingModel:"per_lesson"` seçildiğinde `createStudentTool`, otomatik ilk
- * dönem tutarını `period-lesson-billing.ts`'teki TEK motordan (henüz gerçek
- * ders programı yokken `estimatePeriodBillingLines` PROJEKSİYONU) alır —
- * eski `monthlyFee` karşılaştırması DEĞİL.
+ * P0-1 (2026-09-02 ACİL DÜZELTME) — ders başı ücret yöneticinin girdiği/
+ * seçtiği bir alan DEĞİLDİR: yönetici yalnız aylık ücret + haftalık ders
+ * sıklığı girer, sistem `derivePerLessonAmount` ile (aylık ücret ÷
+ * (haftalık×4)) ders başı karşılığı SESSİZCE türetir — bu HER yeni kayıt
+ * için koşulsuzdur, seçilebilir bir "model" değildir. Bu testler
+ * `createStudentTool`'un bu türetmeyi gerçekten uyguladığını, client'tan
+ * gelen sahte bir ders-başı tutarına asla güvenmediğini kanıtlar.
  */
 const DATA_FILE = path.join(resolveDataDir(path.join(process.cwd(), "data")), "store.json");
 
@@ -39,20 +41,19 @@ function baseInput(overrides?: Record<string, unknown>) {
     teacherId: "t1",
     packageName: "Bireysel Aylık — 4 ders",
     weeklyLessonCount: 2,
-    monthlyFee: 3000,
-    pricingModel: "per_lesson" as const,
-    perLessonNetFee: 500,
+    monthlyFee: 4000,
     enrollmentStartDate: "2026-09-15",
     ...overrides,
   };
 }
 
-describe("createStudentTool — per_lesson ücretlendirme modeli (P0-1)", () => {
-  it("1) ay ortası başlangıç: otomatik ilk dönem tutarı PROJEKSİYON motorundan gelir, monthlyFee'den DEĞİL", async () => {
-    // 2026-09-15 → 2026-09-30 (16 gün), haftada 2 ders: tahmini round(2*16/7)=5, 5*500=2500.
+describe("createStudentTool — ders başı karşılık otomatik türetilir (P0-1, 2026-09-02 düzeltmesi)", () => {
+  it("1) aylık 4.000 TL + haftada 2 ders → türetilmiş ders başı 500 TL, öğrenci kaydına snapshot olarak yazılır", async () => {
+    // 2026-09-15 → 2026-09-30 (16 gün, Eylül 30 gün çeker), referans 8 ders:
+    // tahmini round(8*16/30)=4, 4*500=2000.
     const res = await createStudentTool(
       ctx(),
-      baseInput({ firstPaymentCollected: { method: "cash", amount: 2500, collectedAt: "2026-09-15" } })
+      baseInput({ firstPaymentCollected: { method: "cash", amount: 2000, collectedAt: "2026-09-15" } })
     );
     expect(res.ok).toBe(true);
     if (!res.ok) return;
@@ -60,14 +61,14 @@ describe("createStudentTool — per_lesson ücretlendirme modeli (P0-1)", () => 
     const payment = data.payments.find(
       (p) => p.studentId === res.data.studentId && p.source === "registration_first_payment"
     );
-    expect(payment?.amount).toBe(2500);
+    expect(payment?.amount).toBe(2000);
     expect(payment?.autoSuggestedAmount).toBeUndefined(); // eşleşti, düzeltme YOK
     const student = data.students.find((s) => s.id === res.data.studentId);
-    expect(student?.pricingModel).toBe("per_lesson");
-    expect(student?.perLessonNetFee).toBe(500);
+    expect(student?.derivedPerLessonAmount).toBe(500);
+    expect(student?.monthlyFee).toBe(4000);
   });
 
-  it("perLessonNetFee ile eşleşmeyen tutar gerekçesiz reddedilir", async () => {
+  it("türetilen tutarla eşleşmeyen ilk ödeme gerekçesiz reddedilir", async () => {
     const res = await createStudentTool(
       ctx(),
       baseInput({ firstPaymentCollected: { method: "cash", amount: 999, collectedAt: "2026-09-15" } })
@@ -77,32 +78,58 @@ describe("createStudentTool — per_lesson ücretlendirme modeli (P0-1)", () => 
     expect(res.error.message).toContain("gerekçe zorunludur");
   });
 
-  it("pricingModel=per_lesson ama perLessonNetFee yoksa zod reddeder", async () => {
+  it("10) gerekçeli farklı ilk ödeme kabul edilir ve audit'e yazılır", async () => {
     const res = await createStudentTool(
       ctx(),
       baseInput({
-        perLessonNetFee: undefined,
-        firstPaymentCollected: { method: "cash", amount: 2500, collectedAt: "2026-09-15" },
+        firstPaymentCollected: { method: "cash", amount: 1500, collectedAt: "2026-09-15" },
+        firstPaymentAdjustmentReason: "Aile maddi zorluk, yönetici onayı",
       })
     );
-    expect(res.ok).toBe(false);
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const data = await readData();
+    const payment = data.payments.find(
+      (p) => p.studentId === res.data.studentId && p.source === "registration_first_payment"
+    );
+    expect(payment?.amount).toBe(1500);
+    expect(payment?.autoSuggestedAmount).toBe(2000);
+    expect(payment?.adjustmentReason).toBe("Aile maddi zorluk, yönetici onayı");
+    expect(payment?.adjustedBy).toBeTruthy();
+    expect(payment?.adjustedAt).toBeTruthy();
   });
 
-  it("18) pricingModel verilmeyen (legacy) kayıt eski monthlyFee davranışını KORUR", async () => {
+  it("6/7) client sahte bir 'perLessonNetFee'/'pricingModel' gönderse bile zod tarafından SESSİZCE silinir, yeniden türetilir", async () => {
     const res = await createStudentTool(
       ctx(),
       baseInput({
-        pricingModel: undefined,
-        perLessonNetFee: undefined,
-        firstPaymentCollected: { method: "cash", amount: 3000, collectedAt: "2026-09-15" },
+        // Kasıtlı olarak artık şemada olmayan alanlar — zod .strip() ile sessizce düşmeli.
+        pricingModel: "per_lesson",
+        perLessonNetFee: 999999,
+        firstPaymentCollected: { method: "cash", amount: 2000, collectedAt: "2026-09-15" },
       })
     );
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     const data = await readData();
     const student = data.students.find((s) => s.id === res.data.studentId);
-    expect(student?.pricingModel).toBeUndefined();
-    expect(student?.perLessonNetFee).toBeUndefined();
-    expect(student?.monthlyFee).toBe(3000);
+    // 999999 DEĞİL — gerçek türetilmiş değer (500) kullanıldı.
+    expect(student?.derivedPerLessonAmount).toBe(500);
+  });
+
+  it("12) legacy aylık paketli bir öğrenci sonradan bu alanı KAZANMAZ (yalnız YENİ kayıtlarda dolar)", async () => {
+    // Bu test yalnızca yeni bir kayıt oluşturmanın davranışını doğrular —
+    // gerçek "legacy" senaryo (derivedPerLessonAmount hiç yazılmamış eski
+    // kayıt) migration hiç uygulanmadığı için canlı DB'de zaten böyledir;
+    // burada yeni kayıtların HER ZAMAN bu alanı aldığını kanıtlıyoruz.
+    const res = await createStudentTool(
+      ctx(),
+      baseInput({ firstPaymentCollected: { method: "cash", amount: 2000, collectedAt: "2026-09-15" } })
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const data = await readData();
+    const student = data.students.find((s) => s.id === res.data.studentId);
+    expect(student?.derivedPerLessonAmount).toBeDefined();
   });
 });

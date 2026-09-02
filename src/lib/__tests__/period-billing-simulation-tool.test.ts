@@ -6,6 +6,12 @@ import { createStudentTool, previewPeriodBillingSimulationTool } from "../servic
 import { DEFAULT_TENANT_ID } from "../auth/config";
 import type { ServiceContext } from "../services/context";
 
+/**
+ * P0-1 (2026-09-02 düzeltme) — simülasyon artık `perLessonNetFee`'yi
+ * client'tan ASLA kabul etmez; yalnız `monthlyFee` girilebilir, ders başı
+ * karşılığı sunucuda `derivePerLessonAmount` ile türetilir — kayıt akışıyla
+ * (createStudentTool) BİREBİR aynı motor/formül.
+ */
 const DATA_FILE = path.join(resolveDataDir(path.join(process.cwd(), "data")), "store.json");
 
 function ctx(overrides?: Partial<ServiceContext>): ServiceContext {
@@ -25,22 +31,36 @@ describe("previewPeriodBillingSimulationTool — RBAC", () => {
   });
 });
 
-describe("previewPeriodBillingSimulationTool — kayıt-öncesi ham simülasyon", () => {
-  it("örnek senaryo: ilk kısa dönem 4×500=2000, tam dönem 8×500=4000 tahmini toplamı 6000", async () => {
+describe("previewPeriodBillingSimulationTool — kayıt-öncesi ham simülasyon (yalnız monthlyFee, perLessonNetFee YOK)", () => {
+  it("1) aylık 4.000 TL + haftada 2 ders: ilk kısa dönem 2.000, tam dönem 4.000, toplam 6.000", async () => {
     const res = await previewPeriodBillingSimulationTool(ctx(), {
       enrollmentStartDate: "2026-09-15",
       enrollmentEndDate: "2026-10-31",
       weeklyLessonCount: 2,
-      perLessonNetFee: 500,
+      monthlyFee: 4000,
     });
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     expect(res.data.lines).toHaveLength(2);
+    expect(res.data.lines[0]!.perLessonNetFee).toBe(500);
     expect(res.data.lines.every((l) => l.estimated)).toBe(true);
     expect(res.data.grandTotal).toBe(res.data.lines[0]!.autoCalculatedAmount + res.data.lines[1]!.autoCalculatedAmount);
     expect(res.data.lines[0]!.dueDate).toBe("2026-09-15");
     expect(res.data.lines[0]!.cumulativeTotal).toBe(res.data.lines[0]!.autoCalculatedAmount);
     expect(res.data.lines[1]!.cumulativeTotal).toBe(res.data.grandTotal);
+  });
+
+  it("6) client 'perLessonNetFee' gönderse bile zod tarafından silinir — monthlyFee'den yeniden türetilir", async () => {
+    const res = await previewPeriodBillingSimulationTool(ctx(), {
+      enrollmentStartDate: "2026-09-15",
+      enrollmentEndDate: "2026-09-30",
+      weeklyLessonCount: 2,
+      monthlyFee: 4000,
+      perLessonNetFee: 999999,
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.lines[0]!.perLessonNetFee).toBe(500);
   });
 
   it("eksik alan VALIDATION_ERROR döner", async () => {
@@ -55,7 +75,7 @@ describe("previewPeriodBillingSimulationTool — kayıt-öncesi ham simülasyon"
       enrollmentStartDate: "2026-09-15",
       enrollmentEndDate: "2026-09-30",
       weeklyLessonCount: 2,
-      perLessonNetFee: 500,
+      monthlyFee: 4000,
       firstPeriodManualNetAmount: 100,
     });
     expect(res.ok).toBe(true);
@@ -65,8 +85,8 @@ describe("previewPeriodBillingSimulationTool — kayıt-öncesi ham simülasyon"
   });
 });
 
-describe("previewPeriodBillingSimulationTool — var olan per_lesson öğrenci", () => {
-  async function createPerLessonStudent() {
+describe("previewPeriodBillingSimulationTool — var olan öğrenci", () => {
+  async function createStudent(monthlyFee: number, weeklyLessonCount: number) {
     const res = await createStudentTool(ctx(), {
       name: "Simülasyon Öğrencisi",
       email: "",
@@ -77,43 +97,28 @@ describe("previewPeriodBillingSimulationTool — var olan per_lesson öğrenci",
       instrument: "Piyano",
       teacherId: "t1",
       packageName: "Bireysel Aylık — 4 ders",
-      weeklyLessonCount: 1,
-      monthlyFee: 2000,
-      pricingModel: "per_lesson",
-      perLessonNetFee: 400,
+      weeklyLessonCount,
+      monthlyFee,
       enrollmentStartDate: "2026-09-01",
-      firstPaymentCollected: { method: "cash", amount: 400 * 4, collectedAt: "2026-09-01" },
+      firstPaymentCollected: { method: "cash", amount: monthlyFee, collectedAt: "2026-09-01" },
     });
     if (!res.ok) throw new Error(JSON.stringify(res.error));
     return res.data.studentId;
   }
 
-  it("studentId verilirse öğrencinin kendi perLessonNetFee/weeklyLessonCount'u kullanılır", async () => {
-    const studentId = await createPerLessonStudent();
+  it("13) studentId verilirse öğrencinin kendi (kayıt anında türetilmiş) ders başı karşılığı kullanılır — kayıtla AYNI motor", async () => {
+    const studentId = await createStudent(2000, 1); // derived = round(2000/4) = 500
     const res = await previewPeriodBillingSimulationTool(ctx(), { studentId, enrollmentEndDate: "2026-09-30" });
     expect(res.ok).toBe(true);
     if (!res.ok) return;
-    expect(res.data.lines[0]!.perLessonNetFee).toBe(400);
+    expect(res.data.lines[0]!.perLessonNetFee).toBe(500);
   });
 
-  it("17) legacy (monthly) öğrenci için simülasyon reddedilir", async () => {
-    const res = await createStudentTool(ctx(), {
-      name: "Legacy Öğrenci",
-      email: "",
-      phone: "5551230003",
-      parentName: "Veli",
-      parentPhone: "5559870003",
-      branchId: "erzene",
-      instrument: "Piyano",
-      teacherId: "t1",
-      packageName: "Bireysel Aylık — 4 ders",
-      weeklyLessonCount: 1,
-      monthlyFee: 3000,
-      firstPaymentCollected: { method: "cash", amount: 3000, collectedAt: "2026-09-01" },
-    });
+  it("her yeni kayıt (eskiden 'legacy' sayılan monthlyFee-only girişler dahil) artık aynı türetmeyi otomatik alır", async () => {
+    const studentId = await createStudent(3000, 1); // derived = round(3000/4) = 750
+    const res = await previewPeriodBillingSimulationTool(ctx(), { studentId, enrollmentEndDate: "2026-09-30" });
     expect(res.ok).toBe(true);
     if (!res.ok) return;
-    const sim = await previewPeriodBillingSimulationTool(ctx(), { studentId: res.data.studentId });
-    expect(sim.ok).toBe(false);
+    expect(res.data.lines[0]!.perLessonNetFee).toBe(750);
   });
 });

@@ -9,6 +9,8 @@ import {
   estimatePeriodBillingLines,
   computePeriodBillingPreview,
   periodKindLabel,
+  derivePerLessonAmount,
+  referenceMonthlyLessonCount,
   type BillableLessonCandidate,
 } from "../period-lesson-billing";
 
@@ -426,5 +428,47 @@ describe("computePeriodBillingPreview — TEK giriş noktası (kayıt önizlemes
     });
     expect(lines[0].estimated).toBe(false);
     expect(lines[0].billableLessonCount).toBe(2);
+  });
+});
+
+describe("derivePerLessonAmount — ACİL DÜZELTME (2026-09-02): yöneticinin girdiği değil, sistemin türettiği ders başı tutar", () => {
+  it("1) aylık 4.000 TL + haftada 2 ders → referans 8 ders → türetilmiş 500 TL", () => {
+    expect(referenceMonthlyLessonCount(2)).toBe(8);
+    expect(derivePerLessonAmount(4000, 2)).toBe(500);
+  });
+
+  it("aylık 3.000 TL + haftada 1 ders → referans 4 ders → türetilmiş 750 TL", () => {
+    expect(referenceMonthlyLessonCount(1)).toBe(4);
+    expect(derivePerLessonAmount(3000, 1)).toBe(750);
+  });
+
+  it("14) tam bölünmeyen tutarlar en yakın tam sayı TL'ye yuvarlanır (kuruş/float YOK)", () => {
+    // 1000 / 8 = 125 tam; 1000 / (1*4)=250 tam; kesirli örnek: 1000/3 haftalık değil ama
+    // referans sabit 4/8 olduğundan gerçek kesirli durum yalnız bölünmeyen aylık ücrette olur.
+    expect(derivePerLessonAmount(1001, 2)).toBe(Math.round(1001 / 8)); // 125.125 -> 125
+    expect(Number.isInteger(derivePerLessonAmount(1001, 2))).toBe(true);
+  });
+
+  it("negatif/geçersiz aylık ücrette 0 döner, NaN/Infinity üretmez", () => {
+    expect(derivePerLessonAmount(-1, 2)).toBe(0);
+    expect(derivePerLessonAmount(NaN, 2)).toBe(0);
+    expect(Number.isFinite(derivePerLessonAmount(0, 1))).toBe(true);
+  });
+
+  it("4) gerçek takvimde referanstan FAZLA ders varsa dönem tutarı da fazla olur (10 ders × 500 = 5.000)", () => {
+    const derived = derivePerLessonAmount(4000, 2);
+    const lessons = [1, 3, 5, 8, 10, 15, 17, 20, 24, 27].map((d, i) =>
+      lesson(`d${i}`, `2026-09-${String(d).padStart(2, "0")}`)
+    );
+    const lines = computePeriodBillingLines({
+      enrollmentStartDay: "2026-09-01",
+      enrollmentEndDay: "2026-09-30",
+      perLessonNetFee: derived,
+      lessons,
+      studentId: "s1",
+      makeupRequests: [],
+    });
+    expect(lines[0].billableLessonCount).toBe(10);
+    expect(lines[0].autoCalculatedAmount).toBe(5000);
   });
 });

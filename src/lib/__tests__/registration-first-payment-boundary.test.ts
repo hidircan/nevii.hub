@@ -75,11 +75,17 @@ describe("createStudentTool — kayıt tamamlanma sınırında ilk ödeme zorunl
   });
 
   it("ayın 31'inde tahsil edilen ilk ödeme de İSTİSNA GEREKÇESİ İSTEMEDEN kabul edilir (gün-of-ay penceresi burada uygulanmaz)", async () => {
+    // P0-1 (2026-09-02) — `firstPaymentExceptionReason` (bu testin konusu,
+    // TARİH istisnası) hâlâ gerekmiyor; ama enrollmentStartDate=ayın SON
+    // günü artık 1 günlük bir "ilk dönem" ürettiği için otomatik önerilen
+    // TUTAR da (ayrı, yeni bir kavram — `firstPaymentAdjustmentReason`)
+    // 3000'den farklı çıkıyor — bu İKİSİ birbirinden bağımsız gerekçe alanı.
     const res = await createStudentTool(
       ctx(),
       baseInput({
         enrollmentStartDate: "2026-08-31",
         firstPaymentCollected: { method: "transfer", amount: 3000, collectedAt: "2026-08-31" },
+        firstPaymentAdjustmentReason: "Ay sonu kayıt — tam aylık tutar tahsil edildi",
       })
     );
     expect(res.ok).toBe(true);
@@ -90,11 +96,16 @@ describe("createStudentTool — kayıt tamamlanma sınırında ilk ödeme zorunl
   });
 
   it("Owner policy (2026-08-30, final) — tahsilat tarihi ile enrollmentStartDate (ders/eğitim başlangıcı) FARKLI olsa da istisna/gerekçe GEREKTİRMEZ, normal kabul edilir", async () => {
+    // Bu testin konusu TARİH istisnası (firstPaymentExceptionReason, aşağıda);
+    // P0-1 (2026-09-02) ay-ortası enrollmentStartDate ile otomatik türetilen
+    // TUTAR da 3000'den farklı çıktığı için (ayrı, yeni bir kavram) ayrıca
+    // firstPaymentAdjustmentReason gerekiyor — ikisi birbirinden bağımsız.
     const res = await createStudentTool(
       ctx(),
       baseInput({
         enrollmentStartDate: "2026-09-05",
         firstPaymentCollected: { method: "cash", amount: 3000, collectedAt: "2026-09-10" },
+        firstPaymentAdjustmentReason: "Test — tam aylık tutar tahsil edildi",
       })
     );
     expect(res.ok).toBe(true);
@@ -113,6 +124,7 @@ describe("createStudentTool — kayıt tamamlanma sınırında ilk ödeme zorunl
         enrollmentStartDate: "2026-09-05",
         firstPaymentCollected: { method: "cash", amount: 3000, collectedAt: "2026-09-10" },
         firstPaymentExceptionReason: "Veli bankada gecikme yaşadı, yetkili onayı ile kabul edildi.",
+        firstPaymentAdjustmentReason: "Test — tam aylık tutar tahsil edildi",
       })
     );
     expect(res.ok).toBe(true);

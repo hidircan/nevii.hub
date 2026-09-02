@@ -184,6 +184,10 @@ describe("Package C — createStudentTool paket fiyatlandırma", () => {
       paymentDueDay: 15,
       paymentMethod: "cash",
       firstPaymentCollected: { method: "cash", amount: baseStudentInput.monthlyFee, collectedAt: "2026-08-30" },
+      // P0-1 (2026-09-02) — baseStudentInput.monthlyFee (1 TL, testin gerçek
+      // konusu olmayan bir değer) türetilmiş ders başı tutarla eşleşmiyor;
+      // bu testin amacı paymentDueDay kabulü, tutar eşleşmesi değil.
+      firstPaymentAdjustmentReason: "Test — tutar eşleşmesi bu testin konusu değil",
     });
     expect(res.ok).toBe(true);
     if (!res.ok) return;
