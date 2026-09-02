@@ -405,6 +405,8 @@ export type CreateContractInput = {
   studentEmail?: string;
   institutionName: string;
   institutionAddress: string;
+  /** P0-E (2026-09-02) — oluşturma anında aktif kurum logosu; `contractDataSnapshot.logoUrl`'a donuk (immutable) olarak yazılır. */
+  logoUrl?: string;
   createdBy: string;
   /** Yenileme/değişiklikte önceki sözleşmenin bitişiyle YENİ başlangıç arasında boşluk/örtüşme varsa açık onay. */
   allowOverlap?: boolean;
@@ -680,6 +682,7 @@ export async function createContract(input: CreateContractInput): Promise<Create
     firstPaymentExceptionReason: input.firstPaymentExceptionReason,
     kvkkNoticeDelivered: input.kvkkNoticeDelivered,
     photoVideoConsentFormPresented: input.photoVideoConsentFormPresented,
+    logoUrl: input.logoUrl,
   };
 
   const now = new Date().toISOString();

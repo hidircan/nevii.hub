@@ -1825,6 +1825,13 @@ export interface ContractDataSnapshot {
   installments: ContractInstallmentSnapshot[];
   photoVideoConsent?: { granted: boolean; representativeName: string; relationship: string; scopes?: SocialMediaScope[] };
   /**
+   * P0-E (2026-09-02) — sözleşme oluşturulduğu ANDA aktif olan kurum logosu
+   * (`School.logoUrl`), immutable snapshot — AYNI desen: kurum daha sonra
+   * logosunu değiştirse/kaldırsa bile bu sözleşme sürümünde gösterilen logo
+   * SESSİZCE değişmez. Yeni sözleşmeler her zaman o anki güncel logoyu alır.
+   */
+  logoUrl?: string;
+  /**
    * Faz 2 — sözleşme anında GEÇERLİ olan ödeme kuralı, immutable snapshot.
    * Kurum politikası sonradan değişse bile bu sözleşme sürümü ETKİLENMEZ.
    */

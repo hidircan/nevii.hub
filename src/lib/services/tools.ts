@@ -9124,6 +9124,12 @@ export async function createStudentContractTool(
       studentEmail: student.email,
       institutionName: data.settings.name ?? "",
       institutionAddress: branch?.address ?? "",
+      // P0-E (2026-09-02) — sözleşme oluşturma anındaki AKTİF kurum logosu
+      // burada dondurulur (contractDataSnapshot.logoUrl); kurum daha sonra
+      // logosunu değiştirse/kaldırsa bile bu sözleşme SESSİZCE değişmez
+      // (bkz. getContractHtmlTool — CANLI data.settings.logoUrl DEĞİL, bu
+      // donmuş snapshot okunur).
+      logoUrl: data.settings.logoUrl,
       createdBy: ctx.userId,
       allowOverlap: v.data.allowOverlap,
       overlapReason: v.data.overlapReason,
@@ -9292,8 +9298,23 @@ export async function getContractHtmlTool(
       durationMonths: contract.durationMonths,
       versionNumber: contract.versionNumber,
     });
+    const data = await readData();
+    const { prependInstitutionLogo } = await import("../institution-logo");
+    // P0-E (2026-09-02) — kök neden: burada CANLI `data.settings.logoUrl`
+    // okunuyordu, yani kurum logosunu DEĞİŞTİRDİĞİNDE (hatta imzalanmış)
+    // TÜM eski sözleşmeler görüntülenirken SESSİZCE yeni logoyu gösterirdi.
+    // Artık sözleşme OLUŞTURULDUĞU andaki donmuş logo (`contractDataSnapshot.logoUrl`
+    // — bkz. createStudentContractTool/contracts.ts createContract) okunur;
+    // bu alan hiç var olmadan üretilmiş eski sözleşmelerde undefined kalır,
+    // ki bu da DOĞRU davranıştır (o sözleşmeler zaten hiçbir zaman logo
+    // GÖSTERMİYORDU — canlı logoya sessizce geçmemeliler).
+    const html = prependInstitutionLogo(
+      doc.renderedHtml ?? "",
+      contract.contractDataSnapshot.logoUrl,
+      data.settings.name ?? ""
+    );
     return ok({
-      html: doc.renderedHtml ?? "",
+      html,
       contractNumber: contract.contractNumber,
       status: contract.status,
       studentId: contract.studentId,
