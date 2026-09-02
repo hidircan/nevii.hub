@@ -398,6 +398,55 @@ describe("actionAddStudent — P0-C: ilk ödeme türü ve ders günü zorunlulu�
   });
 });
 
+/**
+ * P0-D (2026-09-02) — "Öğrencinin kendisi" (SELF) portal davetinde e-posta
+ * senkronu istemci tarafında yapılır (`new-student-form.tsx`); burada yalnız
+ * SUNUCU tarafı güvenlik ağı test edilir — istemci senkronu atlanıp boş bir
+ * `invitePortalEmail` gönderilse bile (ör. eski/bozuk istemci), kayıt
+ * ENGELLENMEZ (davet best-effort'tur, `firstPaymentMethod`/`lessonDays`
+ * gibi kaydı bloklayan zorunlu alanlardan FARKLI) ama admin'e artık
+ * SESSİZCE değil, açık bir uyarı ile bildirilir.
+ */
+describe("actionAddStudent — P0-D: portal daveti (SELF) e-posta boşsa açık uyarı, kayıt ENGELLENMEZ", () => {
+  beforeEach(() => {
+    mockSession.ctx = { role: "SCHOOL_ADMIN", userId: "admin1", tenantId: DEFAULT_TENANT_ID, channel: "web" };
+    mockCookieValue.value = DEFAULT_TENANT_ID;
+  });
+
+  it("inviteToPortal işaretli + SELF + boş invitePortalEmail — kayıt BAŞARILI olur, redirect'e açık uyarı eklenir", async () => {
+    const fd = studentFormData();
+    fd.set("inviteToPortal", "1");
+    fd.set("invitePortalAccessType", "SELF");
+    fd.set("invitePortalEmail", "");
+    let digest = "";
+    try {
+      await actions.actionAddStudent(null, fd);
+    } catch (e) {
+      digest = (e as { digest?: string }).digest ?? "";
+    }
+    expect(digest).toContain("NEXT_REDIRECT");
+    expect(digest).toContain("davetUyari=");
+    expect(decodeURIComponent(digest)).toContain("öğrenci e-postası boş");
+    const after = await readData();
+    expect(after.students.some((s) => s.name === "Test Öğrenci")).toBe(true);
+  });
+
+  it("inviteToPortal işaretli + SELF + dolu invitePortalEmail — normal davet akışı ÇALIŞIR, ekstra uyarı EKLENMEZ", async () => {
+    const fd = studentFormData();
+    fd.set("inviteToPortal", "1");
+    fd.set("invitePortalAccessType", "SELF");
+    fd.set("invitePortalEmail", "ogrenci@example.com");
+    let digest = "";
+    try {
+      await actions.actionAddStudent(null, fd);
+    } catch (e) {
+      digest = (e as { digest?: string }).digest ?? "";
+    }
+    expect(digest).toContain("NEXT_REDIRECT");
+    expect(decodeURIComponent(digest)).not.toContain("öğrenci e-postası boş");
+  });
+});
+
 describe("Yazma kapsamı koruması — Yoklama (actionMarkAttendance)", () => {
   it("SUPER_ADMIN 'Tüm kurumlar' modunda reddedilir, yoklama kaydedilmez", async () => {
     mockSession.ctx = { role: "SUPER_ADMIN", userId: "super1", tenantId: DEFAULT_TENANT_ID, channel: "web" };

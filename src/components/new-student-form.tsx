@@ -135,6 +135,20 @@ export function NewStudentForm({
       .filter(Boolean)
       .map(Number)
   );
+  // P0-D (2026-09-02) — öğrenci e-postasını ve portal erişim türünü CANLI
+  // izler: "Öğrencinin kendisi" seçiliyken davet e-postası alanı öğrenci
+  // e-postasıyla SENKRON kalır, kullanıcı aynı e-postayı iki kez yazmaz.
+  const [studentEmailLive, setStudentEmailLive] = useState(() => v("email") ?? "");
+  const [portalAccessType, setPortalAccessType] = useState(() => v("invitePortalAccessType") || "GUARDIAN");
+  const [inviteToPortalChecked, setInviteToPortalChecked] = useState(() => checkedVal("inviteToPortal", "1"));
+  // Varsayılan: öğrenci e-postasını OTOMATİK kullan. Yalnız önceki bir
+  // gönderimde (hata sonrası) fiilen FARKLI bir davet e-postası girilmişse
+  // (bilinçli bir override'ın kanıtı) override açık başlar — aksi halde
+  // kullanıcının az önce yazdığı farklı e-posta sessizce öğrenci
+  // e-postasıyla EZİLİR.
+  const [useDifferentPortalEmail, setUseDifferentPortalEmail] = useState(
+    () => portalAccessType === "SELF" && !!v("invitePortalEmail") && v("invitePortalEmail") !== v("email")
+  );
 
   function recomputePreview() {
     const form = formRef.current;
@@ -147,6 +161,9 @@ export function NewStudentForm({
     setEnteredFirstPayment(firstPaymentRaw ? Number(firstPaymentRaw) : undefined);
     const lessonDays = fd.getAll("lessonDays").map(Number);
     setSelectedLessonDays(lessonDays);
+    setStudentEmailLive(String(fd.get("email") || ""));
+    setPortalAccessType(String(fd.get("invitePortalAccessType") || "GUARDIAN"));
+    setInviteToPortalChecked(fd.get("inviteToPortal") === "1");
     if (!Number.isInteger(monthlyFee) || monthlyFee <= 0 || weeklyLessonCount <= 0) {
       setPreview(null);
       return;
@@ -809,9 +826,47 @@ export function NewStudentForm({
             </div>
             <div>
               <Label>Davet e-postası</Label>
-              <Input name="invitePortalEmail" type="email" defaultValue={v("invitePortalEmail")} placeholder="veli@email.com" />
+              {/* P0-D (2026-09-02) — "Öğrencinin kendisi" seçiliyken (SELF) ve
+                  kullanıcı bilinçli olarak "Farklı e-posta" DEMEDİYSE, bu alan
+                  yukarıdaki öğrenci e-postasıyla OTOMATİK senkron kalır —
+                  kullanıcı aynı e-postayı iki kez yazmak ZORUNDA kalmaz.
+                  `readOnly` (disabled DEĞİL) — form submit'inde değeri yine
+                  gönderilir. Veli (GUARDIAN) modunda davranış DEĞİŞMEDİ. */}
+              {portalAccessType === "SELF" && !useDifferentPortalEmail ? (
+                <Input
+                  name="invitePortalEmail"
+                  type="email"
+                  value={studentEmailLive}
+                  readOnly
+                  placeholder="Önce öğrenci e-postasını girin"
+                  className="cursor-not-allowed opacity-80"
+                />
+              ) : (
+                <Input
+                  name="invitePortalEmail"
+                  type="email"
+                  defaultValue={v("invitePortalEmail")}
+                  placeholder={portalAccessType === "SELF" ? "ogrenci@email.com" : "veli@email.com"}
+                />
+              )}
+              {inviteToPortalChecked && portalAccessType === "SELF" && !studentEmailLive && !useDifferentPortalEmail ? (
+                <p className="mt-1 text-xs font-medium text-rose-600" role="alert">
+                  Öğrencinin kendisine davet göndermek için yukarıda &quot;Temel Bilgiler&quot; bölümündeki öğrenci
+                  e-postasını girin, ya da farklı bir davet e-postası kullanın.
+                </p>
+              ) : null}
             </div>
           </div>
+          {portalAccessType === "SELF" ? (
+            <label className="flex items-center gap-2 text-xs text-[var(--color-text-muted)]">
+              <input
+                type="checkbox"
+                checked={useDifferentPortalEmail}
+                onChange={(e) => setUseDifferentPortalEmail(e.target.checked)}
+              />
+              Farklı portal e-postası kullan (öğrenci e-postasından farklı bir adrese davet gönder)
+            </label>
+          ) : null}
           <p className="text-xs text-[var(--color-text-muted)]">
             Düz metin şifre asla gönderilmez — alıcı, e-postadaki tek kullanımlık bağlantıyla kendi şifresini
             oluşturur. İşaretlemezseniz giriş hesabı oluşturulmaz; daveti daha sonra öğrenci düzenleme ekranından da

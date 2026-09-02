@@ -873,12 +873,24 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
 
       // Faz 1F — kayıt ekranından tek adımda GERÇEK e-posta daveti (düz metin
       // şifre YOK, mevcut inviteStudentPortalAccessTool — bkz. actionInviteStudentPortalAccess).
-      // İşaretlenmediyse veya e-posta boşsa SESSİZCE atlanır — bu ekranda
-      // giriş hesabı açmak DEFAULT DEĞİL, açıkça tercih edilmelidir.
+      // İşaretlenmediyse SESSİZCE atlanır — bu ekranda giriş hesabı açmak
+      // DEFAULT DEĞİL, açıkça tercih edilmelidir.
       const inviteToPortal = formData.get("inviteToPortal") === "1";
       const invitePortalEmail = String(formData.get("invitePortalEmail") || "").trim();
+      const invitePortalAccessTypeRaw = formData.get("invitePortalAccessType") === "SELF" ? "SELF" : "GUARDIAN";
+      // P0-D (2026-09-02) — kayıt ARTIK OLUŞTU (bu blok `created.studentId`
+      // sonrasında); portal daveti bu yüzden İSTEĞE BAĞLI "en iyi çaba"
+      // olarak tasarlanmıştır (SMTP hatası vb. AYNI `inviteWarning`
+      // deseniyle raporlanır) — davet e-postası boşsa kaydı GERİYE
+      // ALMAK/bloklamak YERİNE, ÖNCEDEN sessizce atlanan bu durum artık
+      // AÇIKÇA bir uyarı olarak raporlanır (istemci tarafında da
+      // `new-student-form.tsx` bu durumu önden gösterir — bkz. P0-D).
+      if (inviteToPortal && invitePortalAccessTypeRaw === "SELF" && !invitePortalEmail) {
+        inviteWarning =
+          "Öğrencinin kendisine portal daveti gönderilemedi: öğrenci e-postası boş. Öğrenci e-postasını girin veya farklı bir davet e-postası kullanın.";
+      }
       if (inviteToPortal && invitePortalEmail) {
-        const accessType = formData.get("invitePortalAccessType") === "SELF" ? "SELF" : "GUARDIAN";
+        const accessType = invitePortalAccessTypeRaw;
         try {
           const inviteResult = await inviteStudentPortalAccessTool(ctx, {
             studentId: created.studentId,
