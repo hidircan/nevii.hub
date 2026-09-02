@@ -253,12 +253,19 @@ export function lessonMatchesAcademicPeriod(
  * "closed" (kapalı gün) ve "planned"/"open" (ders var ama statü yok / hiç
  * ders yok) durumları.
  */
+/**
+ * P0-2E (2026-09-02) düzeltmesi — bu sözlük daha önce İşlendi/Telafi'yi TERS
+ * atamıştı (yorum "düzeltildi" diyordu ama spesifikasyonla hâlâ tutarsızdı):
+ * İşlendi=SARI, Telafi=KIRMIZI olmalı (owner talimatı). Mazeretli de
+ * turuncudan mor/nötr bir tona alındı (spec: "mor veya nötr mavi") —
+ * Gelmedi'nin gri/turuncu seçeneğiyle karışmasın diye.
+ */
 export const ATTENDANCE_CALENDAR_COLORS = {
-  attended: "#16a34a", // green-600 — Geldi
-  processed: "#dc2626", // red-600 — İşlendi
-  makeup: "#ca8a04", // yellow-600 — Telafi
+  attended: "#16a34a", // green-600 — Geldi/tamamlandı
+  processed: "#ca8a04", // yellow-600 — İşlendi
+  makeup: "#dc2626", // red-600 — Telafi
   absent: "#57534e", // stone-600 — Gelmedi (mazeretsiz)
-  excused: "#f97316", // orange-500 — Mazeretli
+  excused: "#7c3aed", // violet-600 — Mazeretli
   closed: "#0a0a0a", // near-black — Kapalı
   planned: "#93c5fd", // blue-300 — planlı dersi var, statü henüz girilmemiş
   open: "#e5e7eb", // gray-200 — Açık, ders yok/işaretsiz
@@ -303,12 +310,12 @@ export function resolveAttendanceCalendarStudentId(
 }
 
 /**
- * Dolgu üzerindeki metnin erişilebilir kontrastı: kırmızı/yeşil/siyah/mavi
- * dolgularda AÇIK (beyaz) metin, sarı (Telafi) dolguda KOYU metin — sarı
+ * Dolgu üzerindeki metnin erişilebilir kontrastı: kırmızı/yeşil/mor/siyah/mavi
+ * dolgularda AÇIK (beyaz) metin, sarı (İşlendi) dolguda KOYU metin — sarı
  * zeminde beyaz metnin kontrast oranı WCAG AA eşiğinin altında kalır.
  */
 export function attendanceCalendarTextColor(key: AttendanceCalendarColorKey): "#ffffff" | "#1c1503" {
-  return key === "makeup" || key === "excused" ? "#1c1503" : "#ffffff";
+  return key === "processed" ? "#1c1503" : "#ffffff";
 }
 
 /**

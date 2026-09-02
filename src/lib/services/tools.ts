@@ -11260,6 +11260,88 @@ export async function listProfilePhotoMetaTool(
   return result;
 }
 
+/**
+ * P0-2C — Yönetici Yoklama Raporu. Yalnız SCHOOL_ADMIN/SUPER_ADMIN erişebilir
+ * (öğretmen/öğrenci/veli göremez). Tenant scoping `readData()`'dan miras —
+ * bu fonksiyon başka hiçbir tenant'ın verisini okumaz. Hesaplama TAMAMEN
+ * `attendance-report.ts`'teki saf fonksiyonlara devredilir.
+ */
+export async function getAttendanceReportTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<
+  ServiceResult<{
+    range: { from: string; to: string };
+    summary: import("../attendance-report").AttendanceReportSummary;
+    rows: Array<
+      import("../attendance-report").AttendanceReportRow & {
+        studentName: string;
+        teacherName: string;
+        branchName?: string;
+        roomName?: string;
+      }
+    >;
+  }>
+> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+
+  const v = parseOrFail(
+    z.object({
+      datePreset: z.enum(["today", "this_week", "this_month", "custom"]).default("this_month"),
+      from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      studentId: z.string().optional(),
+      teacherId: z.string().optional(),
+      branchId: z.string().optional(),
+      instrument: z.string().optional(),
+      roomId: z.string().optional(),
+      status: z.enum(["attended", "processed", "makeup", "absent", "excused", "cancelled", "planned"]).optional(),
+    }),
+    input
+  );
+  if (!v.ok) return v;
+
+  const { resolveReportDateRange, buildAttendanceReport } = await import("../attendance-report");
+
+  let range: { from: string; to: string };
+  try {
+    range = resolveReportDateRange(
+      v.data.datePreset,
+      v.data.datePreset === "custom" ? { from: v.data.from ?? "", to: v.data.to ?? "" } : undefined
+    );
+  } catch (e) {
+    return fail("VALIDATION_ERROR", e instanceof Error ? e.message : "Geçersiz tarih aralığı");
+  }
+
+  const data = await readData();
+  const { rows, summary } = buildAttendanceReport(data.lessons, data.makeupRequests, {
+    from: range.from,
+    to: range.to,
+    studentId: v.data.studentId,
+    teacherId: v.data.teacherId,
+    branchId: v.data.branchId,
+    instrument: v.data.instrument,
+    roomId: v.data.roomId,
+    status: v.data.status,
+  });
+
+  const studentById = new Map(data.students.map((s) => [s.id, s]));
+  const teacherById = new Map(data.teachers.map((t) => [t.id, t]));
+  const roomById = new Map(data.rooms.map((r) => [r.id, r]));
+  const branchById = new Map(data.settings.branches.map((b) => [b.id, b]));
+
+  const enrichedRows = rows.map((r) => ({
+    ...r,
+    studentName: studentById.get(r.studentId)?.name ?? "Bilinmeyen öğrenci",
+    teacherName: teacherById.get(r.teacherId)?.name ?? "Bilinmeyen öğretmen",
+    branchName: branchById.get(r.branchId)?.name,
+    roomName: roomById.get(r.roomId)?.name,
+  }));
+
+  return ok({ range, summary, rows: enrichedRows });
+}
+
 export const TOOL_CATALOG = [
   { name: "markAttendance", description: "Mark lesson attendance; may create makeup credit" },
   { name: "findAvailableSlots", description: "Suggest makeup slots for a request" },

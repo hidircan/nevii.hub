@@ -46,7 +46,10 @@ export function LessonOpsActions({
     excused: !!studentExcused,
   });
   /** ÖNCELİK 4 (devam) — farklı bir statüden geçiş istendiğinde onay bekleyen aksiyon. */
-  const [pendingSwitch, setPendingSwitch] = useState<{ from: Flag; to: Flag } | null>(null);
+  const [pendingSwitch, setPendingSwitch] = useState<{ from: Flag; to: Flag; reason?: string } | null>(null);
+  /** P0-2 — "İşlendi"/"Telafi" gerekçesi zorunlu; tıklamada önce bu prompt açılır. */
+  const [reasonPrompt, setReasonPrompt] = useState<{ flag: "processed" | "makeup" } | null>(null);
+  const [reasonDraft, setReasonDraft] = useState("");
   const inFlight = useRef(false);
 
   const effective: Flag | null = local.processed
@@ -73,10 +76,10 @@ export function LessonOpsActions({
    * statüden geçişte önce onay popup'ı açılır; yalnızca onaylanırsa gerçek
    * geçiş `confirmSwitch:true` ile tetiklenir.
    */
-  async function onFlag(flag: Flag, confirmSwitch = false) {
+  async function onFlag(flag: Flag, confirmSwitch = false, reason?: string) {
     if (inFlight.current) return;
     if (!confirmSwitch && effective !== null && effective !== flag) {
-      setPendingSwitch({ from: effective, to: flag });
+      setPendingSwitch({ from: effective, to: flag, reason });
       return;
     }
     setPendingSwitch(null);
@@ -98,7 +101,7 @@ export function LessonOpsActions({
       const res = await fetch(`/api/v1/lessons/${lessonId}/ops`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ flag, confirmSwitch }),
+        body: JSON.stringify({ flag, confirmSwitch, reason }),
       });
       const json = (await res.json()) as {
         ok: boolean;
@@ -113,7 +116,7 @@ export function LessonOpsActions({
       if (json.data?.needsConfirmation) {
         // Yarış durumu — sunucuda arada başka bir statü set edilmiş; tekrar sor.
         setLocal(previous);
-        setPendingSwitch({ from: (json.data.currentStatus as Flag) ?? effective ?? flag, to: flag });
+        setPendingSwitch({ from: (json.data.currentStatus as Flag) ?? effective ?? flag, to: flag, reason });
         return;
       }
       router.refresh();
@@ -128,27 +131,52 @@ export function LessonOpsActions({
   }
 
   /**
-   * ÖNCELİK 4 (devam) — tüm portallarda TEK renk sözlüğü:
-   * Geldi=yeşil, İşlendi=kırmızı, Telafi=sarı, Kapalı=siyah (bkz.
-   * ATTENDANCE_CALENDAR_COLORS, src/lib/attendance-calendar.ts). Önceki
-   * sürümde İşlendi de yeşil, Telafi kırmızı boyanıyordu — spesifikasyonla
-   * tutarsızdı; burada düzeltildi.
+   * P0-2 — "İşlendi"/"Telafi" tıklaması ANINDA API'ye gitmez; önce zorunlu
+   * gerekçe promptu açılır (bkz. `reasonPrompt`). Diğer bayraklar (Geldi/
+   * Gelmedi/Mazeretli) değişmeden anında `onFlag` çağırır.
    */
-  const TONE_CLASS: Record<"green" | "red" | "yellow" | "stone" | "orange", string> = {
-    green: "border-[#2f6b4f] bg-[#e8f2ec] text-[#1e4d36]",
-    red: "border-[#8b3a3a] bg-[#f8ecec] text-[#6b2424]",
-    yellow: "border-[#8a6d1d] bg-[#fbf3d9] text-[#5c4a12]",
-    stone: "border-stone-500 bg-stone-100 text-stone-700",
-    orange: "border-orange-500 bg-orange-50 text-orange-800",
+  function handleButtonClick(flag: Flag) {
+    if (flag === "processed" || flag === "makeup") {
+      setReasonDraft("");
+      setReasonPrompt({ flag });
+      return;
+    }
+    void onFlag(flag);
+  }
+
+  function submitReasonPrompt() {
+    if (!reasonPrompt) return;
+    const reason = reasonDraft.trim();
+    if (!reason) return;
+    const { flag } = reasonPrompt;
+    setReasonPrompt(null);
+    void onFlag(flag, false, reason);
+  }
+
+  /**
+   * P0-2 (2026-09-02) düzeltmesi — tüm portallarda TEK renk sözlüğü:
+   * Geldi=yeşil, İşlendi=SARI, Telafi=KIRMIZI, Kapalı=siyah (bkz.
+   * ATTENDANCE_CALENDAR_COLORS, src/lib/attendance-calendar.ts — TEK kaynak).
+   * Bir önceki "düzeltme" bunu TERSİNE çevirmişti (İşlendi=kırmızı,
+   * Telafi=sarı) — owner talimatıyla burada asıl doğru yöne çevrildi. Koyu
+   * tema: her tonun `dark:` varyantı var (yalnız renge güvenme kuralı zaten
+   * etiket metniyle karşılanıyor, bkz. buton/badge metinleri).
+   */
+  const TONE_CLASS: Record<"green" | "red" | "yellow" | "stone" | "violet", string> = {
+    green: "border-[#2f6b4f] bg-[#e8f2ec] text-[#1e4d36] dark:border-emerald-700 dark:bg-emerald-950 dark:text-emerald-300",
+    red: "border-[#8b3a3a] bg-[#f8ecec] text-[#6b2424] dark:border-red-700 dark:bg-red-950 dark:text-red-300",
+    yellow: "border-[#8a6d1d] bg-[#fbf3d9] text-[#5c4a12] dark:border-amber-700 dark:bg-amber-950 dark:text-amber-300",
+    stone: "border-stone-500 bg-stone-100 text-stone-700 dark:border-stone-500 dark:bg-stone-800 dark:text-stone-200",
+    violet: "border-violet-500 bg-violet-50 text-violet-800 dark:border-violet-600 dark:bg-violet-950 dark:text-violet-300",
   };
 
-  const btn = (flag: Flag, label: string, active: boolean, tone: "green" | "red" | "yellow" | "stone" | "orange") => (
+  const btn = (flag: Flag, label: string, active: boolean, tone: "green" | "red" | "yellow" | "stone" | "violet") => (
     <button
       type="button"
       disabled={busy !== null}
       aria-pressed={active}
       aria-label={label}
-      onClick={() => void onFlag(flag)}
+      onClick={() => handleButtonClick(flag)}
       className={cn(
         "inline-flex items-center rounded-md border px-2.5 py-1.5 text-xs font-semibold transition disabled:opacity-50",
         compact && "px-2 py-1 text-[11px]",
@@ -172,8 +200,8 @@ export function LessonOpsActions({
     <div className={cn("mt-2", compact && "mt-1.5")}>
       <div className="flex flex-wrap gap-1.5" role="group" aria-label="Ders operasyon durumları">
         {btn("attended", "Geldi", local.attended, "green")}
-        {btn("processed", "İşlendi", local.processed, "red")}
-        {btn("makeup", "Telafi", local.makeup, "yellow")}
+        {btn("processed", "İşlendi", local.processed, "yellow")}
+        {btn("makeup", "Telafi", local.makeup, "red")}
         {/* Paket 6 — "Gelmedi"/"Mazeretli" aksiyon butonları buradan kaldırıldı
             (yalnız UI; flag/veri modeli ve geçmiş kayıtlar korunuyor — bkz.
             LessonOpsBadges'in bu iki statüyü hâlâ salt-okunur göstermesi). */}
@@ -196,7 +224,7 @@ export function LessonOpsActions({
           <div className="mt-1.5 flex gap-1.5">
             <button
               type="button"
-              onClick={() => void onFlag(pendingSwitch.to, true)}
+              onClick={() => void onFlag(pendingSwitch.to, true, pendingSwitch.reason)}
               className="rounded-md border border-amber-400 bg-amber-100 px-2 py-1 text-[11px] font-semibold text-amber-900 hover:bg-amber-200"
             >
               Onayla ve değiştir
@@ -204,6 +232,42 @@ export function LessonOpsActions({
             <button
               type="button"
               onClick={() => setPendingSwitch(null)}
+              className="rounded-md border border-stone-300 bg-[var(--color-surface)] px-2 py-1 text-[11px] font-semibold text-stone-700 hover:bg-stone-50"
+            >
+              Vazgeç
+            </button>
+          </div>
+        </div>
+      ) : null}
+      {reasonPrompt ? (
+        <div
+          role="alertdialog"
+          aria-label={`${FLAG_LABEL[reasonPrompt.flag]} gerekçesi`}
+          className="mt-2 rounded-md border border-stone-300 bg-[var(--color-surface)] p-2 text-[11px]"
+        >
+          <label htmlFor={`ops-reason-${lessonId}`} className="font-medium text-stone-800">
+            &quot;{FLAG_LABEL[reasonPrompt.flag]}&quot; için gerekçe (zorunlu)
+          </label>
+          <textarea
+            id={`ops-reason-${lessonId}`}
+            value={reasonDraft}
+            onChange={(e) => setReasonDraft(e.target.value)}
+            rows={2}
+            className="mt-1 w-full rounded-md border border-stone-300 bg-[var(--color-surface)] px-2 py-1 text-[11px]"
+            placeholder="Örn. Ders fiilen işlendi / Öğrenci hastaydı"
+          />
+          <div className="mt-1.5 flex gap-1.5">
+            <button
+              type="button"
+              disabled={reasonDraft.trim().length === 0}
+              onClick={submitReasonPrompt}
+              className="rounded-md border border-[#A56A00] bg-[#fbf6ee] px-2 py-1 text-[11px] font-semibold text-[#7a4f00] hover:bg-[#f6ecd8] disabled:opacity-50"
+            >
+              Kaydet
+            </button>
+            <button
+              type="button"
+              onClick={() => setReasonPrompt(null)}
               className="rounded-md border border-stone-300 bg-[var(--color-surface)] px-2 py-1 text-[11px] font-semibold text-stone-700 hover:bg-stone-50"
             >
               Vazgeç
@@ -222,6 +286,7 @@ export function LessonOpsBadges({
   studentAbsent,
   studentExcused,
   opsClosedFlag,
+  cancelled,
   missingHomework,
 }: {
   studentAttended?: boolean;
@@ -230,43 +295,50 @@ export function LessonOpsBadges({
   studentAbsent?: boolean;
   studentExcused?: boolean;
   opsClosedFlag?: boolean;
+  /** P0-2 — İptal (temel `Lesson.status==="cancelled"`, bir ops-flag DEĞİL). */
+  cancelled?: boolean;
   /** Faz 3C — ders işlendi ama bu derse bağlı ödev yok. */
   missingHomework?: boolean;
 }) {
   return (
     <div className="flex flex-wrap gap-1">
       {studentAttended ? (
-        <span className="rounded-full bg-[#e8f2ec] px-2 py-0.5 text-[10px] font-semibold text-[#1e4d36]">
+        <span className="rounded-full bg-[#e8f2ec] px-2 py-0.5 text-[10px] font-semibold text-[#1e4d36] dark:bg-emerald-950 dark:text-emerald-300">
           Geldi
         </span>
       ) : null}
       {lessonProcessed ? (
-        <span className="rounded-full bg-[#f8ecec] px-2 py-0.5 text-[10px] font-semibold text-[#6b2424]">
+        <span className="rounded-full bg-[#fbf3d9] px-2 py-0.5 text-[10px] font-semibold text-[#5c4a12] dark:bg-amber-950 dark:text-amber-300">
           İşlendi
         </span>
       ) : null}
       {opsMakeupFlag ? (
-        <span className="rounded-full bg-[#fbf3d9] px-2 py-0.5 text-[10px] font-semibold text-[#5c4a12]">
+        <span className="rounded-full bg-[#f8ecec] px-2 py-0.5 text-[10px] font-semibold text-[#6b2424] dark:bg-red-950 dark:text-red-300">
           Telafi
         </span>
       ) : null}
       {studentAbsent ? (
-        <span className="rounded-full bg-stone-200 px-2 py-0.5 text-[10px] font-semibold text-stone-700">
+        <span className="rounded-full bg-stone-200 px-2 py-0.5 text-[10px] font-semibold text-stone-700 dark:bg-stone-800 dark:text-stone-200">
           Gelmedi
         </span>
       ) : null}
       {studentExcused ? (
-        <span className="rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-semibold text-orange-800">
+        <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold text-violet-800 dark:bg-violet-950 dark:text-violet-300">
           Mazeretli
         </span>
       ) : null}
       {opsClosedFlag ? (
-        <span className="rounded-full bg-black px-2 py-0.5 text-[10px] font-semibold text-white">
+        <span className="rounded-full bg-black px-2 py-0.5 text-[10px] font-semibold text-white dark:bg-stone-950 dark:text-stone-200">
           Kapalı
         </span>
       ) : null}
+      {cancelled ? (
+        <span className="rounded-full bg-stone-700 px-2 py-0.5 text-[10px] font-semibold text-white dark:bg-stone-900 dark:text-stone-300">
+          İptal
+        </span>
+      ) : null}
       {missingHomework ? (
-        <span className="rounded-full bg-stone-300 px-2 py-0.5 text-[10px] font-semibold text-stone-800">
+        <span className="rounded-full bg-stone-300 px-2 py-0.5 text-[10px] font-semibold text-stone-800 dark:bg-stone-700 dark:text-stone-100">
           Ödev yok
         </span>
       ) : null}

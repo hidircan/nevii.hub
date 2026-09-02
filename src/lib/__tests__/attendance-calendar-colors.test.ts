@@ -54,17 +54,18 @@ describe("Yoklama Takvimi — gün kutusu dolgu rengi (tek kaynak)", () => {
     expect(segments).toEqual(["attended", "processed", "planned"]);
   });
 
-  it("Geldi=yeşil, İşlendi=kırmızı, Telafi=sarı, Kapalı=siyah renk sözleşmesi korunur", () => {
+  it("P0-2 (2026-09-02) — Geldi=yeşil, İşlendi=sarı, Telafi=kırmızı, Kapalı=siyah renk sözleşmesi", () => {
     expect(ATTENDANCE_CALENDAR_COLORS.attended).toBe("#16a34a");
-    expect(ATTENDANCE_CALENDAR_COLORS.processed).toBe("#dc2626");
-    expect(ATTENDANCE_CALENDAR_COLORS.makeup).toBe("#ca8a04");
+    expect(ATTENDANCE_CALENDAR_COLORS.processed).toBe("#ca8a04");
+    expect(ATTENDANCE_CALENDAR_COLORS.makeup).toBe("#dc2626");
+    expect(ATTENDANCE_CALENDAR_COLORS.excused).toBe("#7c3aed");
     expect(ATTENDANCE_CALENDAR_COLORS.closed).toBe("#0a0a0a");
   });
 
-  it("erişilebilir kontrast: sarı (Telafi) dolguda koyu metin, diğerlerinde açık metin", () => {
-    expect(attendanceCalendarTextColor("makeup")).toBe("#1c1503");
+  it("erişilebilir kontrast: sarı (İşlendi) dolguda koyu metin, diğerlerinde açık metin", () => {
+    expect(attendanceCalendarTextColor("processed")).toBe("#1c1503");
     expect(attendanceCalendarTextColor("attended")).toBe("#ffffff");
-    expect(attendanceCalendarTextColor("processed")).toBe("#ffffff");
+    expect(attendanceCalendarTextColor("makeup")).toBe("#ffffff");
     expect(attendanceCalendarTextColor("closed")).toBe("#ffffff");
   });
 });
