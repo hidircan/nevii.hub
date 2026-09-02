@@ -45,6 +45,18 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: __dirname,
   },
+  experimental: {
+    // Server Actions default to a 1MB request body cap — too small for a
+    // base64-encoded logo upload: `validateProfilePhoto` already allows up
+    // to 2MB of actual file bytes, which is ~2.7MB once base64-encoded
+    // plus the request envelope. Without this, uploads over ~750KB never
+    // even reach that validation — they fail at the framework transport
+    // layer with a raw "Body exceeded 1 MB limit" runtime error instead of
+    // the friendly Turkish message.
+    serverActions: {
+      bodySizeLimit: "4mb",
+    },
+  },
   async headers() {
     return [
       {
