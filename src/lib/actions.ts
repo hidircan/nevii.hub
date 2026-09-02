@@ -586,6 +586,7 @@ export type NewStudentFormState = {
   ok: false;
   formError?: string;
   fieldErrors?: Record<string, string>;
+  values?: Record<string, string>;
 } | null;
 
 /**
@@ -610,6 +611,73 @@ function fieldErrorsFromZodFlatten(details: unknown): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [key, messages] of Object.entries(raw)) {
     if (messages && messages.length > 0) out[key] = messages[0]!;
+  }
+  return out;
+}
+
+// P0-4 — React 19 form actions RESET uncontrolled fields after every
+// submission (success OR failure), not just on success — so a validation
+// error wipes every field that isn't explicitly re-fed back through
+// `defaultValue`/`defaultChecked` from this captured state. Every field the
+// form actually collects must be listed here; missing one means it silently
+// goes blank on the next failed submit, which is exactly the bug being fixed.
+const STUDENT_FORM_VALUE_KEYS = [
+  "name",
+  "nationalId",
+  "motherName",
+  "fatherName",
+  "parentName",
+  "parentPhone",
+  "email",
+  "phone",
+  "accountResponsibility",
+  "inviteToPortal",
+  "invitePortalAccessType",
+  "invitePortalEmail",
+  "birthDate",
+  "birthPlace",
+  "schoolOrOccupation",
+  "address",
+  "branchId",
+  "instrument",
+  "teacherId",
+  "weeklyLessonCount",
+  "intendedDurationMonths",
+  "packageName",
+  "lessonDurationMinutes",
+  "packageId",
+  "monthlyFee",
+  "discountType",
+  "discountValue",
+  "paymentMethod",
+  "firstPaymentAmount",
+  "firstPaymentMethod",
+  "firstPaymentDate",
+  "firstPaymentReference",
+  "firstPaymentNote",
+  "firstPaymentManualNetAmount",
+  "firstPaymentAdjustmentReason",
+  "termType",
+  "enrollmentStartDate",
+  "level",
+  "targetExam",
+  "notes",
+  "socialMediaConsent",
+  "kvkkConsent",
+] as const;
+
+/** Aynı `name`'i birden çok checkbox paylaşan tek alan — virgülle birleştirilip taşınır (değerlerde virgül YOK, sabit STUDENT_TYPES enum'undan gelir). */
+const STUDENT_FORM_MULTI_VALUE_KEYS = ["studentTypes"] as const;
+
+function captureStudentFormValues(formData: FormData): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const key of STUDENT_FORM_VALUE_KEYS) {
+    const value = String(formData.get(key) ?? "");
+    if (value) out[key] = value;
+  }
+  for (const key of STUDENT_FORM_MULTI_VALUE_KEYS) {
+    const values = formData.getAll(key).map(String).filter(Boolean);
+    if (values.length > 0) out[key] = values.join(",");
   }
   return out;
 }
@@ -810,7 +878,7 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
     // vb.) — kurum kapsamı reddi normal, beklenen bir kullanıcı durumudur
     // (ör. SUPER_ADMIN "Tüm kurumlar" görünümünde), teknik bir hata DEĞİLDİR.
     if (error instanceof WriteScopeDeniedError) {
-      return { ok: false, formError: error.message };
+      return { ok: false, formError: error.message, values: captureStudentFormValues(formData) };
     }
     if (error instanceof ToolValidationFailure) {
       // P0-2 — normal kullanıcı hatası: form AÇIK kalır, girilen değerler
@@ -829,13 +897,18 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
             ? "Formda düzeltilmesi gereken alanlar var — aşağıda işaretlendi."
             : error.serviceError.message,
         fieldErrors,
+        values: captureStudentFormValues(formData),
       };
     }
     // Beklenmeyen hata — P0-2: bu action'a bağlı `<form>` bir runtime overlay
     // GÖRMEMELİ; jenerik ama erişilebilir bir Türkçe hata döner, tam hata
     // sunucu loguna yazılır (bkz. logger.error).
     logger.error("actionAddStudent failed", error);
-    return { ok: false, formError: "Kayıt oluşturulurken beklenmeyen bir hata oluştu. Lütfen tekrar deneyin." };
+    return {
+      ok: false,
+      formError: "Kayıt oluşturulurken beklenmeyen bir hata oluştu. Lütfen tekrar deneyin.",
+      values: captureStudentFormValues(formData),
+    };
   }
   if (newStudentId) {
     // Faz 3/4 (ENROLLMENT_PAYMENT_RENEWAL_VALIDATION_FIX) — Student modeline

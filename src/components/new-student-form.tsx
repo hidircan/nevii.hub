@@ -17,12 +17,25 @@
  * butonu devre dışı bırakılır — çift submit duplicate kayıt OLUŞTURMAZ.
  */
 
-import { useActionState, useEffect, useRef } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import { actionAddStudent, type NewStudentFormState } from "@/lib/actions";
 import { Button, Card, Input, Label, Select } from "@/components/ui";
 import { StudentInstrumentTeacherFields, type TeacherOption } from "@/components/student-instrument-teacher-fields";
 import { StudentPackagePricingFields, type PricingPackageOption } from "@/components/student-package-pricing-fields";
 import { STUDENT_TYPES } from "@/lib/types";
+import { estimatePeriodBillingLines, periodKindLabel, type PeriodBillingLine } from "@/lib/period-lesson-billing";
+
+function formatTL(amount: number): string {
+  return new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY", maximumFractionDigits: 0 }).format(
+    amount
+  );
+}
+
+/** Ayın son günü — istemci tarafı önizleme için (sunucudaki asıl hesap `period-lesson-billing.ts`'in AYNISI). */
+function monthEndDay(startDay: string): string {
+  const [y, m] = startDay.slice(0, 7).split("-").map(Number) as [number, number];
+  return `${startDay.slice(0, 7)}-${String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, "0")}`;
+}
 
 type BranchOption = { id: string; name: string };
 type KvkkTextOption = { version: number; bodyText: string };
@@ -53,13 +66,70 @@ export function NewStudentForm({
   const summaryRef = useRef<HTMLDivElement>(null);
   const fieldErrors = state?.fieldErrors ?? {};
   const hasError = !!state?.formError;
+  // P0-4 — form action'ları başarı/hata fark etmeksizin uncontrolled alanları
+  // SIFIRLAR; her alan burada yeniden beslenmezse bir doğrulama hatasında
+  // sessizce boşalır. `v(key)` tüm düz metin/select/tarih alanları için TEK
+  // kaynak; checkbox'lar `checkedVal` ile ayrıca ele alınır.
+  const values = state && "values" in state ? (state.values ?? {}) : {};
+  const v = (key: string): string | undefined => values[key];
+  const selectedStudentTypes = new Set((values.studentTypes ?? "").split(",").filter(Boolean));
+  const checkedVal = (key: string, expected: string): boolean => v(key) === expected;
+
+  // P0-1 — ders başı net ücret önizlemesi. Formun geri kalanı bilinçli olarak
+  // uncontrolled kaldığı için (bkz. üstteki not) bu alanları ayrıca controlled
+  // state'e ALMAK yerine, `<form>` seviyesinde `onInput` ile her değişiklikte
+  // `FormData` okunup TEK, paylaşılan saf motorla (period-lesson-billing.ts —
+  // sunucudaki `createStudentTool`'un kullandığı AYNI fonksiyon) yeniden
+  // hesaplanır. Böylece hiçbir mevcut alanın controlled/uncontrolled doğası
+  // değişmez.
+  const formRef = useRef<HTMLFormElement>(null);
+  const [pricingModel, setPricingModel] = useState<"per_lesson" | "monthly_legacy">(
+    (v("pricingModel") as "per_lesson" | "monthly_legacy") || "per_lesson"
+  );
+  const [previewLines, setPreviewLines] = useState<PeriodBillingLine[]>([]);
+
+  function recomputePreview() {
+    const form = formRef.current;
+    if (!form) return;
+    const fd = new FormData(form);
+    const model = String(fd.get("pricingModel") || "per_lesson");
+    if (model !== "per_lesson") {
+      setPreviewLines([]);
+      return;
+    }
+    const perLessonNetFee = Number(fd.get("perLessonNetFee") || 0);
+    const weeklyLessonCount = Number(fd.get("weeklyLessonCount") || 0);
+    const startDay = String(fd.get("enrollmentStartDate") || "") || new Date().toISOString().slice(0, 10);
+    if (!Number.isInteger(perLessonNetFee) || perLessonNetFee <= 0 || weeklyLessonCount <= 0) {
+      setPreviewLines([]);
+      return;
+    }
+    try {
+      const lines = estimatePeriodBillingLines({
+        enrollmentStartDay: startDay,
+        enrollmentEndDay: monthEndDay(startDay),
+        perLessonNetFee,
+        weeklyLessonCount,
+      });
+      setPreviewLines(lines);
+    } catch {
+      setPreviewLines([]);
+    }
+  }
+
+  // İlk mont'ta (ör. hatalı bir gönderimden dönen `state.values` ile) da hesapla.
+  useEffect(() => {
+    recomputePreview();
+  }, []);
+
+  const firstPeriodAutoAmount = previewLines[0]?.autoCalculatedAmount;
 
   useEffect(() => {
     if (hasError) summaryRef.current?.focus();
   }, [hasError, state]);
 
   return (
-    <form action={formAction} className="space-y-6" noValidate>
+    <form ref={formRef} action={formAction} onInput={recomputePreview} onChange={recomputePreview} className="space-y-6" noValidate>
       {hasError ? (
         <div
           ref={summaryRef}
@@ -81,7 +151,7 @@ export function NewStudentForm({
             <div className="flex flex-wrap gap-x-4 gap-y-1">
               {STUDENT_TYPES.map((t) => (
                 <label key={t} className="flex items-center gap-1.5 text-sm text-[var(--color-text)]">
-                  <input type="checkbox" name="studentTypes" value={t} />
+                  <input type="checkbox" name="studentTypes" value={t} defaultChecked={selectedStudentTypes.has(t)} />
                   {t}
                 </label>
               ))}
@@ -100,50 +170,50 @@ export function NewStudentForm({
         <div className="space-y-3">
           <div>
             <Label>Ad soyad</Label>
-            <Input name="name" required placeholder="Örn. Deniz Ak" aria-invalid={!!fieldErrors.name} />
+            <Input name="name" required defaultValue={v("name")} placeholder="Örn. Deniz Ak" aria-invalid={!!fieldErrors.name} />
             <FieldError message={fieldErrors.name} />
           </div>
           <div>
             <Label>T.C. kimlik no (opsiyonel — şifreli saklanır)</Label>
-            <Input name="nationalId" inputMode="numeric" maxLength={11} placeholder="11 haneli" />
+            <Input name="nationalId" defaultValue={v("nationalId")} inputMode="numeric" maxLength={11} placeholder="11 haneli" />
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div>
               <Label>Anne adı (opsiyonel)</Label>
-              <Input name="motherName" placeholder="Anne adı" />
+              <Input name="motherName" defaultValue={v("motherName")} placeholder="Anne adı" />
             </div>
             <div>
               <Label>Baba adı (opsiyonel)</Label>
-              <Input name="fatherName" placeholder="Baba adı" />
+              <Input name="fatherName" defaultValue={v("fatherName")} placeholder="Baba adı" />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div>
               <Label>Veli adı</Label>
-              <Input name="parentName" placeholder="Veli adı" aria-invalid={!!fieldErrors.parentName} />
+              <Input name="parentName" defaultValue={v("parentName")} placeholder="Veli adı" aria-invalid={!!fieldErrors.parentName} />
               <FieldError message={fieldErrors.parentName} />
             </div>
             <div>
               <Label>Veli telefon</Label>
-              <Input name="parentPhone" placeholder="05xx xxx xxxx" aria-invalid={!!fieldErrors.parentPhone} />
+              <Input name="parentPhone" defaultValue={v("parentPhone")} placeholder="05xx xxx xxxx" aria-invalid={!!fieldErrors.parentPhone} />
               <FieldError message={fieldErrors.parentPhone} />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div>
               <Label>Öğrenci e-posta</Label>
-              <Input name="email" type="email" placeholder="ogrenci@email.com" aria-invalid={!!fieldErrors.email} />
+              <Input name="email" type="email" defaultValue={v("email")} placeholder="ogrenci@email.com" aria-invalid={!!fieldErrors.email} />
               <FieldError message={fieldErrors.email} />
             </div>
             <div>
               <Label>Öğrenci telefon</Label>
-              <Input name="phone" placeholder="05xx xxx xxxx" aria-invalid={!!fieldErrors.phone} />
+              <Input name="phone" defaultValue={v("phone")} placeholder="05xx xxx xxxx" aria-invalid={!!fieldErrors.phone} />
               <FieldError message={fieldErrors.phone} />
             </div>
           </div>
           <div>
             <Label>Ödeme/iletişim muhatabı</Label>
-            <Select name="accountResponsibility" defaultValue="PARENT_MANAGED">
+            <Select name="accountResponsibility" defaultValue={v("accountResponsibility") || "PARENT_MANAGED"}>
               <option value="PARENT_MANAGED">Veli (varsayılan)</option>
               <option value="SELF_MANAGED">Öğrencinin kendisi</option>
             </Select>
@@ -157,20 +227,20 @@ export function NewStudentForm({
         </h2>
         <div className="space-y-3">
           <label className="flex items-center gap-2 text-sm text-[var(--color-text)]">
-            <input type="checkbox" name="inviteToPortal" value="1" />
+            <input type="checkbox" name="inviteToPortal" value="1" defaultChecked={checkedVal("inviteToPortal", "1")} />
             Kayıt tamamlanınca portal davet e-postası gönder
           </label>
           <div className="grid grid-cols-2 gap-2">
             <div>
               <Label>Davet edilecek</Label>
-              <Select name="invitePortalAccessType" defaultValue="GUARDIAN">
+              <Select name="invitePortalAccessType" defaultValue={v("invitePortalAccessType") || "GUARDIAN"}>
                 <option value="GUARDIAN">Veli</option>
                 <option value="SELF">Öğrencinin kendisi</option>
               </Select>
             </div>
             <div>
               <Label>Davet e-postası</Label>
-              <Input name="invitePortalEmail" type="email" placeholder="veli@email.com" />
+              <Input name="invitePortalEmail" type="email" defaultValue={v("invitePortalEmail")} placeholder="veli@email.com" />
             </div>
           </div>
           <p className="text-xs text-[var(--color-text-muted)]">
@@ -189,20 +259,20 @@ export function NewStudentForm({
           <div className="grid grid-cols-2 gap-2">
             <div>
               <Label>Doğum tarihi (opsiyonel)</Label>
-              <Input name="birthDate" type="date" />
+              <Input name="birthDate" type="date" defaultValue={v("birthDate")} />
             </div>
             <div>
               <Label>Doğum yeri (opsiyonel)</Label>
-              <Input name="birthPlace" placeholder="Örn. İzmir" />
+              <Input name="birthPlace" defaultValue={v("birthPlace")} placeholder="Örn. İzmir" />
             </div>
           </div>
           <div>
             <Label>Okulu / mesleği (opsiyonel)</Label>
-            <Input name="schoolOrOccupation" placeholder="Örn. Erzene İlkokulu 3-A" />
+            <Input name="schoolOrOccupation" defaultValue={v("schoolOrOccupation")} placeholder="Örn. Erzene İlkokulu 3-A" />
           </div>
           <div>
             <Label>Ev adresi (opsiyonel)</Label>
-            <Input name="address" placeholder="Opsiyonel" />
+            <Input name="address" defaultValue={v("address")} placeholder="Opsiyonel" />
           </div>
         </div>
       </Card>
@@ -214,7 +284,7 @@ export function NewStudentForm({
         <div className="space-y-3">
           <div>
             <Label>Şube</Label>
-            <Select name="branchId" defaultValue={branches[0]?.id} aria-invalid={!!fieldErrors.branchId}>
+            <Select name="branchId" defaultValue={v("branchId") || branches[0]?.id} aria-invalid={!!fieldErrors.branchId}>
               {branches.map((b) => (
                 <option key={b.id} value={b.id}>
                   {b.name}
@@ -223,11 +293,23 @@ export function NewStudentForm({
             </Select>
             <FieldError message={fieldErrors.branchId} />
           </div>
-          <StudentInstrumentTeacherFields instrumentOptions={instrumentOptions} teachers={teachers} />
+          <StudentInstrumentTeacherFields
+            instrumentOptions={instrumentOptions}
+            teachers={teachers}
+            defaultInstrument={v("instrument")}
+            defaultTeacherId={v("teacherId")}
+          />
           <FieldError message={fieldErrors.instrument ?? fieldErrors.teacherId} />
           <div>
-            <Label>Haftalık ders</Label>
-            <Input name="weeklyLessonCount" type="number" defaultValue={1} min={1} aria-invalid={!!fieldErrors.weeklyLessonCount} />
+            <Label>Haftalık ders sıklığı</Label>
+            <Select
+              name="weeklyLessonCount"
+              defaultValue={state && "values" in state && state.values?.weeklyLessonCount ? state.values.weeklyLessonCount : "1"}
+              aria-invalid={!!fieldErrors.weeklyLessonCount}
+            >
+              <option value="1">Haftada 1 ders</option>
+              <option value="2">Haftada 2 ders</option>
+            </Select>
             <FieldError message={fieldErrors.weeklyLessonCount} />
           </div>
         </div>
@@ -240,7 +322,7 @@ export function NewStudentForm({
         <div className="space-y-3">
           <div>
             <Label>Kayıt süresi (ay)</Label>
-            <Select name="intendedDurationMonths" defaultValue="3">
+            <Select name="intendedDurationMonths" defaultValue={v("intendedDurationMonths") || "3"}>
               {Array.from({ length: 12 }, (_, i) => i + 1).map((month) => (
                 <option key={month} value={month}>
                   {month} Aylık Kayıt {month <= 2 ? "(Tanışma)" : "(Formal sözleşme)"}
@@ -263,14 +345,35 @@ export function NewStudentForm({
         <div className="space-y-3">
           <div>
             <Label>Paket (serbest metin — geçmişle uyum için)</Label>
-            <Input name="packageName" defaultValue="Bireysel Aylık — 4 ders" aria-invalid={!!fieldErrors.packageName} />
+            <Input
+              name="packageName"
+              defaultValue={v("packageName") || "Bireysel Aylık — 4 ders"}
+              aria-invalid={!!fieldErrors.packageName}
+            />
             <FieldError message={fieldErrors.packageName} />
           </div>
-          <StudentPackagePricingFields packages={packages} />
+          <StudentPackagePricingFields
+            packages={packages}
+            initialPackageId={state && "values" in state ? state.values?.packageId : undefined}
+            initialDuration={
+              state && "values" in state && state.values?.lessonDurationMinutes
+                ? Number(state.values.lessonDurationMinutes)
+                : undefined
+            }
+            initialDiscountType={
+              state && "values" in state && (state.values?.discountType === "percent" || state.values?.discountType === "amount")
+                ? state.values.discountType
+                : undefined
+            }
+            initialDiscountValue={state && "values" in state ? state.values?.discountValue : undefined}
+            initialMonthlyFee={
+              state && "values" in state && state.values?.monthlyFee ? Number(state.values.monthlyFee) : undefined
+            }
+          />
           <div className="grid grid-cols-2 gap-2">
             <div>
               <Label>Ödeme türü (opsiyonel)</Label>
-              <Select name="paymentMethod" defaultValue="">
+              <Select name="paymentMethod" defaultValue={v("paymentMethod") || ""}>
                 <option value="">Belirtilmemiş</option>
                 <option value="cash">Nakit</option>
                 <option value="transfer">Havale</option>
@@ -290,17 +393,101 @@ export function NewStudentForm({
 
       <Card>
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-[var(--color-primary)]">
+          Ücretlendirme modeli
+        </h2>
+        <p className="mb-3 text-xs text-[var(--color-text-muted)]">
+          Kurumun ana ücret modeli artık <strong>ders başı net ücrettir</strong> — aşağıdaki seçim, altındaki
+          &quot;İlk Ödeme&quot; bölümünün otomatik önerdiği tutarı belirler. &quot;Aylık paket (eski sistem)&quot;
+          yalnızca yukarıdaki Paket ve Ödeme bölümündeki aylık ücreti kullanan geçmiş kayıt tarzını korumak
+          isteyen durumlar için — mevcut öğrencilerin ücretleri bu ekrandan ASLA otomatik değiştirilmez.
+        </p>
+        <div className="space-y-3">
+          <div className="flex flex-col gap-2 sm:flex-row sm:gap-4">
+            <label className="flex items-center gap-1.5 text-sm text-[var(--color-text)]">
+              <input
+                type="radio"
+                name="pricingModel"
+                value="per_lesson"
+                checked={pricingModel === "per_lesson"}
+                onChange={() => setPricingModel("per_lesson")}
+              />
+              Ders başı net ücret (önerilen)
+            </label>
+            <label className="flex items-center gap-1.5 text-sm text-[var(--color-text)]">
+              <input
+                type="radio"
+                name="pricingModel"
+                value="monthly_legacy"
+                checked={pricingModel === "monthly_legacy"}
+                onChange={() => setPricingModel("monthly_legacy")}
+              />
+              Aylık paket (eski sistem)
+            </label>
+          </div>
+          {pricingModel === "per_lesson" ? (
+            <>
+              <div>
+                <Label>Ders başı net ücret (TL)</Label>
+                <Input
+                  name="perLessonNetFee"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  defaultValue={v("perLessonNetFee")}
+                  placeholder="Örn. 500"
+                  aria-invalid={!!fieldErrors.perLessonNetFee}
+                />
+                <FieldError message={fieldErrors.perLessonNetFee} />
+              </div>
+              {previewLines.length > 0 ? (
+                <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3 text-xs">
+                  <p className="mb-1.5 font-semibold text-[var(--color-text)]">
+                    Ödeme önizlemesi (tahmini — henüz ders programı oluşturulmadı)
+                  </p>
+                  <ul className="space-y-1">
+                    {previewLines.map((line) => (
+                      <li key={line.periodStart} className="flex justify-between gap-2 text-[var(--color-text-muted)]">
+                        <span>
+                          {periodKindLabel(line.kind)} ({line.periodStart} – {line.periodEnd}):{" "}
+                          {line.billableLessonCount} ders × {formatTL(line.perLessonNetFee)}
+                        </span>
+                        <span className="font-semibold text-[var(--color-text)]">
+                          {formatTL(line.autoCalculatedAmount)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+            </>
+          ) : null}
+        </div>
+      </Card>
+
+      <Card>
+        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-[var(--color-primary)]">
           İlk Ödeme / Kayıt Anı Tahsilatı
         </h2>
         <p className="mb-3 text-xs text-[var(--color-text-muted)]">
           Owner politikası: ilk ödeme kayıt sırasında (ay içindeki günden bağımsız) tahsil edilmeden kayıt
-          tamamlanamaz. Tutar, yukarıdaki aylık ücretle aynı olmalıdır.
+          tamamlanamaz. Tutar otomatik önerilenle aynıysa gerekçe istenmez; farklı bir net tutar girerseniz
+          gerekçe zorunludur ve fark audit kaydına yazılır.
         </p>
         <div className="space-y-3">
+          {pricingModel === "per_lesson" && firstPeriodAutoAmount !== undefined ? (
+            <p className="rounded-lg border border-cyan-200 bg-cyan-50/70 px-3 py-2 text-xs font-medium text-cyan-900 dark:border-cyan-900 dark:bg-cyan-950/30 dark:text-cyan-200">
+              Otomatik önerilen ilk dönem tutarı: <strong>{formatTL(firstPeriodAutoAmount)}</strong> — farklı bir
+              tutar girecekseniz aşağıya gerekçe yazın.
+            </p>
+          ) : null}
           <div className="grid grid-cols-2 gap-2">
             <div>
               <Label>Ödeme yöntemi</Label>
-              <Select name="firstPaymentMethod" defaultValue="" required aria-invalid={!!fieldErrors.firstPaymentCollected}>
+              <Select
+                name="firstPaymentMethod"
+                defaultValue={v("firstPaymentMethod") || ""}
+                required
+                aria-invalid={!!fieldErrors.firstPaymentCollected}
+              >
                 <option value="">Seçiniz</option>
                 <option value="cash">Nakit</option>
                 <option value="transfer">Havale/EFT</option>
@@ -313,7 +500,12 @@ export function NewStudentForm({
                 name="firstPaymentAmount"
                 inputMode="numeric"
                 pattern="[0-9]*"
-                placeholder="Örn. 3000"
+                defaultValue={v("firstPaymentAmount")}
+                placeholder={
+                  pricingModel === "per_lesson" && firstPeriodAutoAmount !== undefined
+                    ? String(firstPeriodAutoAmount)
+                    : "Örn. 3000"
+                }
                 required
               />
             </div>
@@ -321,16 +513,26 @@ export function NewStudentForm({
           <div className="grid grid-cols-2 gap-2">
             <div>
               <Label>Tahsilat tarihi</Label>
-              <Input name="firstPaymentDate" type="date" required />
+              <Input name="firstPaymentDate" type="date" defaultValue={v("firstPaymentDate")} required />
             </div>
             <div>
               <Label>Dekont / referans no (varsa)</Label>
-              <Input name="firstPaymentReference" placeholder="Opsiyonel" />
+              <Input name="firstPaymentReference" defaultValue={v("firstPaymentReference")} placeholder="Opsiyonel" />
             </div>
           </div>
           <div>
             <Label>Tahsilat notu (opsiyonel)</Label>
-            <Input name="firstPaymentNote" placeholder="Opsiyonel" />
+            <Input name="firstPaymentNote" defaultValue={v("firstPaymentNote")} placeholder="Opsiyonel" />
+          </div>
+          <div>
+            <Label>Düzeltme gerekçesi (yalnız tutar otomatik önerilenden farklıysa zorunlu)</Label>
+            <Input
+              name="firstPaymentAdjustmentReason"
+              defaultValue={v("firstPaymentAdjustmentReason")}
+              placeholder="Örn. Aile maddi zorluk, yönetici onayı"
+              aria-invalid={!!fieldErrors.firstPaymentAdjustmentReason}
+            />
+            <FieldError message={fieldErrors.firstPaymentAdjustmentReason} />
           </div>
         </div>
       </Card>
@@ -342,7 +544,7 @@ export function NewStudentForm({
         <div className="space-y-3">
           <div>
             <Label>Yoklama Takvimi dönemi</Label>
-            <Select name="termType" defaultValue="guz">
+            <Select name="termType" defaultValue={v("termType") || "guz"}>
               <option value="guz">Güz Dönemi</option>
               <option value="yaz">Yaz Dönemi</option>
             </Select>
@@ -350,23 +552,30 @@ export function NewStudentForm({
           <div className="grid grid-cols-2 gap-2">
             <div>
               <Label>Kayıt başlangıç tarihi (opsiyonel)</Label>
-              <Input name="enrollmentStartDate" type="date" />
+              <Input name="enrollmentStartDate" type="date" defaultValue={v("enrollmentStartDate")} />
             </div>
             <div>
               <Label>Seviye (opsiyonel)</Label>
-              <Input name="level" placeholder="Örn. Başlangıç, Orta, İleri" />
+              <Input name="level" defaultValue={v("level")} placeholder="Örn. Başlangıç, Orta, İleri" />
             </div>
           </div>
           <div>
             <Label>Hedef sınav / performans dönemi (opsiyonel)</Label>
-            <Input name="targetExam" placeholder="Örn. 2027 Konservatuvar giriş sınavı" />
+            <Input name="targetExam" defaultValue={v("targetExam")} placeholder="Örn. 2027 Konservatuvar giriş sınavı" />
           </div>
           <div>
             <Label>Not</Label>
-            <Input name="notes" placeholder="Opsiyonel" />
+            <Input name="notes" defaultValue={v("notes")} placeholder="Opsiyonel" />
           </div>
           <div className="flex items-center gap-2">
-            <input id="social-media-consent" type="checkbox" name="socialMediaConsent" value="granted" className="h-4 w-4" />
+            <input
+              id="social-media-consent"
+              type="checkbox"
+              name="socialMediaConsent"
+              value="granted"
+              defaultChecked={checkedVal("socialMediaConsent", "granted")}
+              className="h-4 w-4"
+            />
             <label htmlFor="social-media-consent" className="text-sm text-[var(--color-text)]">
               Sosyal medya paylaşım izni var
             </label>
@@ -380,7 +589,14 @@ export function NewStudentForm({
                 {kvkkText.bodyText}
               </p>
               <div className="flex items-center gap-2">
-                <input id="kvkk-consent" type="checkbox" name="kvkkConsent" value="granted" className="h-4 w-4" />
+                <input
+                  id="kvkk-consent"
+                  type="checkbox"
+                  name="kvkkConsent"
+                  value="granted"
+                  defaultChecked={checkedVal("kvkkConsent", "granted")}
+                  className="h-4 w-4"
+                />
                 <label htmlFor="kvkk-consent" className="text-sm text-[var(--color-text)]">
                   Veli/vasi yukarıdaki KVKK aydınlatma/açık rıza metnini okudu, onaylıyor
                 </label>
