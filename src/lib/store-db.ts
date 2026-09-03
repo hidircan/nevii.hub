@@ -8,6 +8,7 @@ import {
   MAKEUP_QUOTA_COUNTING_STATUSES,
   MakeupQuotaExceededError,
   resolveMonthlyMakeupAllowance,
+  formatEducationPeriodLabel,
 } from "./makeup-quota";
 import { logger } from "./logger";
 import { createSeedData, createEmptyTemplateData } from "./seed";
@@ -134,12 +135,10 @@ function isRetryablePrismaError(err: unknown): boolean {
   );
 }
 
-/** Serialize per tenant+student, then count counting-status makeups in the current full education year. */
+/** Serialize per tenant+student, then count counting-status makeups in the current education term. */
 /**
- * Sahibi onaylı NİHAİ karar (2026-08-29) — hak TAKVİM AYI değil, Güz/Yaz da
- * AYRI AYRI değil, TAM EĞİTİM YILI (`academicYearStart`) başına sayılır.
- * `term` bileşeni BİLEREK yok sayılır — aynı akademik yılın Güz ve Yaz
- * dersleri AYNI kotayı paylaşır (bkz. makeup-quota.ts başlık yorumu).
+ * P0 ürün kararı — hak TAKVİM AYI değil, aktif eğitim dönemi (`term` +
+ * `academicYearStart`) başına sayılır. Güz ve Yaz ayrı sayaçlardır.
  * `sourceLessonId`'nin akademik yılı `resolveLessonAcademicPeriod`
  * (attendance-calendar.ts, Program ekranıyla PAYLAŞILAN tek kaynak) ile
  * çözülür; aynı öğrencinin diğer telafi taleplerinin kaynağı olan
@@ -189,19 +188,19 @@ async function assertStudentMakeupQuotaTx(
       { startAt: l.startAt.toISOString(), term: (l.term as "guz" | "yaz" | null) ?? undefined, academicYearStart: l.academicYearStart ?? undefined },
       termFallback
     );
-    return p.academicYearStart === period.academicYearStart;
+    return p.academicYearStart === period.academicYearStart && p.term === period.term;
   }).length;
 
   const school = await tx.school.findFirst({ where: { id: schoolId, tenantId } });
   if (!school) throw new Error("Kurum bulunamadı");
   const allowance = resolveMonthlyMakeupAllowance(school);
   const { formatEducationYearLabel } = await import("./makeup-quota");
-  const yearLabel = formatEducationYearLabel(period.academicYearStart);
+  const periodLabel = formatEducationPeriodLabel(period.term, period.academicYearStart);
   if (allowance === 0) {
     throw new MakeupQuotaExceededError("Bu kurumda telafi talebi kapalıdır (eğitim yılı başına hak: 0).");
   }
   if (used >= allowance) {
-    throw new MakeupQuotaExceededError(`Bu öğrenci ${yearLabel} eğitim döneminde ${allowance} telafi hakkını kullanmıştır.`);
+    throw new MakeupQuotaExceededError(`Bu öğrenci ${periodLabel} içinde ${allowance} telafi hakkını kullanmıştır.`);
   }
   return school;
 }

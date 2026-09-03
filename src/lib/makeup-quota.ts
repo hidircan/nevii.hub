@@ -1,20 +1,10 @@
 /**
- * Kurum geneli telafi kotası — sahibi onaylı NİHAİ karar (2026-08-29,
- * `docs/contracts/LEGAL_POLICY_TEXT_DISCREPANCY_REPORT.md` ve
- * `docs/roadmap/NEVIIHUB_ADMIN_CONTRACTS_POLICY_REMAINING_WORK.md`): hak,
- * TAKVİM AYI değil de TAM EĞİTİM YILI (2026-2027'nin TAMAMI) başına
- * sayılır — Güz+Yaz AYRI AYRI 2'şer hak DEĞİL, TÜMÜ birlikte toplam 2 hak.
- * Önceki bir oturumda `resolveLessonAcademicPeriod`'un döndürdüğü
- * `${academicYearStart}-${term}` (Güz/Yaz'ı AYIRAN) anahtar kullanılmıştı —
- * bu sahibi kararıyla YANLIŞ olduğu netleşti, DÜZELTİLDİ: yalnızca
- * `academicYearStart` kullanılır, `term` OKUNMAZ/YOK SAYILIR — aynı akademik
- * yılın Güz ve Yaz dersleri artık AYNI kota anahtarına düşer. Akademik yıl
- * sınırının kendisi (hangi ayın yıl başlangıcı sayıldığı) hâlâ
- * `resolveLessonAcademicPeriod` (attendance-calendar.ts) ile PAYLAŞILAN tek
- * kaynaktan gelir — ikinci bir "yıl" hesaplama mantığı İCAT EDİLMEDİ,
- * yalnızca `term` bileşeni kota anahtarından ÇIKARILDI.
- * `monthlyMakeupAllowance` ayar alanı adı (teknik tanımlayıcı, DB şeması)
- * DEĞİŞTİRİLMEDİ; anlamı artık "eğitim yılı başına hak".
+ * Kurum geneli telafi kotası — hak TAKVİM AYI değil, AKTİF EĞİTİM DÖNEMİ
+ * (Güz/Yaz + akademik yıl) başına sayılır. Dönem çözümlemesi, program ve
+ * yoklama takviminin ortak `resolveLessonAcademicPeriod` yardımcısından gelir;
+ * ikinci bir tarih aralığı kuralı icat edilmez.
+ * `monthlyMakeupAllowance` ayar alanı adı (geriye dönük teknik tanımlayıcı)
+ * DEĞİŞTİRİLMEDİ; anlamı artık "eğitim dönemi başına hak".
  * Tüketir/rezerve eder: pending | suggested | awaiting_info | confirmed
  * Tüketmez: cancelled | expired (+ rejected yoksa ignored)
  */
@@ -26,7 +16,9 @@ export function formatEducationYearLabel(academicYearStart: number): string {
   return `${academicYearStart}-${academicYearStart + 1}`;
 }
 
-export const DEFAULT_MONTHLY_MAKEUP_ALLOWANCE = 2;
+export const TERM_MAKEUP_LIMIT = 2;
+/** @deprecated Teknik ayar adı geriye dönük uyumluluk için korunur. */
+export const DEFAULT_MONTHLY_MAKEUP_ALLOWANCE = TERM_MAKEUP_LIMIT;
 
 /** Kotaya yazılan durumlar (açık + onaylı). */
 export const MAKEUP_QUOTA_COUNTING_STATUSES: readonly MakeupStatus[] = [
@@ -40,7 +32,7 @@ export function isMakeupStatusCountingTowardQuota(status: MakeupStatus): boolean
   return (MAKEUP_QUOTA_COUNTING_STATUSES as readonly string[]).includes(status);
 }
 
-/** Kurum timezone bağımsız takvim ayı anahtarı YYYY-MM (ISO anın yerel ayı). */
+/** @deprecated Yeni kota hesabında eğitim dönemi anahtarı kullanılır. */
 export function calendarMonthKey(iso: string, now: Date = new Date()): string {
   const d = iso ? new Date(iso) : now;
   if (Number.isNaN(d.getTime())) {
@@ -54,16 +46,20 @@ export function resolveMonthlyMakeupAllowance(settings: {
 }): number {
   const v = settings.monthlyMakeupAllowance;
   if (typeof v === "number" && Number.isInteger(v) && v >= 0) return v;
-  return DEFAULT_MONTHLY_MAKEUP_ALLOWANCE;
+  return TERM_MAKEUP_LIMIT;
 }
 
-/** Bir dersin ait olduğu TAM EĞİTİM YILI anahtarı (Güz/Yaz AYIRT EDİLMEZ), ör. "2026". */
+export function formatEducationPeriodLabel(term: "guz" | "yaz", academicYearStart: number): string {
+  return `${academicYearStart} ${term === "guz" ? "Güz" : "Yaz"} Dönemi`;
+}
+
+/** Bir dersin ait olduğu eğitim dönemi anahtarı, ör. "2026-guz". */
 export function periodKeyForLesson(data: AppData, lessonId: string): string {
   const lesson = data.lessons.find((l) => l.id === lessonId);
   if (!lesson) return "bilinmeyen-donem";
   const student = data.students.find((s) => s.id === lesson.studentId);
   const period = resolveLessonAcademicPeriod(lesson, student?.termType ?? "guz");
-  return String(period.academicYearStart);
+  return `${period.academicYearStart}-${period.term}`;
 }
 
 export function countStudentMakeupsInPeriod(data: AppData, studentId: string, periodKey: string): number {
@@ -74,7 +70,7 @@ export function countStudentMakeupsInPeriod(data: AppData, studentId: string, pe
   }).length;
 }
 
-/** @deprecated Dönem-bazlı `countStudentMakeupsInPeriod` kullan — takvim ayı politika ile UYUMSUZ. */
+/** @deprecated Dönem-bazlı `countStudentMakeupsInPeriod` kullan. */
 export function countStudentMakeupsInMonth(
   requests: MakeupRequest[],
   studentId: string,
@@ -87,12 +83,23 @@ export function countStudentMakeupsInMonth(
   }).length;
 }
 
+/** confirmed = "kullanıldı"; pending/suggested/awaiting_info = "rezerve edildi". */
+export const MAKEUP_QUOTA_RESERVED_STATUSES: readonly MakeupStatus[] = [
+  "pending",
+  "suggested",
+  "awaiting_info",
+] as const;
+
 export type MakeupQuotaSnapshot = {
   allowance: number;
   used: number;
+  confirmedUsed: number;
+  reservedUsed: number;
   remaining: number;
   periodKey: string;
-  /** Kullanıcıya gösterilecek eğitim yılı, ör. "2026-2027" — hiçbir yerde sabitlenmez. */
+  periodLabel: string;
+  periodResolved: boolean;
+  /** Geriye dönük API alanı; yeni UI `periodLabel` kullanır. */
   educationYearLabel: string;
 };
 
@@ -109,25 +116,51 @@ export function getStudentMakeupQuota(
   sourceLessonId?: string
 ): MakeupQuotaSnapshot {
   const allowance = resolveMonthlyMakeupAllowance(data.settings);
-  const academicYearStart = sourceLessonId
-    ? (() => {
-        const lesson = data.lessons.find((l) => l.id === sourceLessonId);
-        const student = data.students.find((s) => s.id === (lesson?.studentId ?? studentId));
-        const period = resolveLessonAcademicPeriod(
-          lesson ?? { startAt: now.toISOString() },
-          student?.termType ?? "guz"
-        );
-        return period.academicYearStart;
-      })()
-    : (() => {
-        const student = data.students.find((s) => s.id === studentId);
-        const period = resolveLessonAcademicPeriod({ startAt: now.toISOString() }, student?.termType ?? "guz");
-        return period.academicYearStart;
-      })();
-  const periodKey = String(academicYearStart);
-  const used = countStudentMakeupsInPeriod(data, studentId, periodKey);
+  const sourceLesson = sourceLessonId ? data.lessons.find((l) => l.id === sourceLessonId) : undefined;
+  const student = data.students.find((s) => s.id === (sourceLesson?.studentId ?? studentId));
+  // `sourceLessonId` verildiği halde derse ulaşılamıyorsa (silinmiş/tutarsız
+  // veri) dönem güvenilir biçimde çözülemez — sessizce `now`'a düşülmez.
+  const unresolvable = Boolean(sourceLessonId) && !sourceLesson;
+  const period = unresolvable
+    ? null
+    : sourceLesson
+      ? resolveLessonAcademicPeriod(sourceLesson, student?.termType ?? "guz")
+      : resolveLessonAcademicPeriod({ startAt: now.toISOString() }, student?.termType ?? "guz");
+  if (!period) {
+    return {
+      allowance,
+      used: 0,
+      confirmedUsed: 0,
+      reservedUsed: 0,
+      remaining: 0,
+      periodKey: "bilinmeyen-donem",
+      periodLabel: "Aktif eğitim dönemi belirlenemedi",
+      periodResolved: false,
+      educationYearLabel: "Aktif eğitim dönemi belirlenemedi",
+    };
+  }
+  const activePeriodKey = `${period.academicYearStart}-${period.term}`;
+  const periodLabel = formatEducationPeriodLabel(period.term, period.academicYearStart);
+  const periodRequests = data.makeupRequests.filter(
+    (m) => m.studentId === studentId && periodKeyForLesson(data, m.sourceLessonId) === activePeriodKey
+  );
+  const confirmedUsed = periodRequests.filter((m) => m.status === "confirmed").length;
+  const reservedUsed = periodRequests.filter((m) =>
+    (MAKEUP_QUOTA_RESERVED_STATUSES as readonly string[]).includes(m.status)
+  ).length;
+  const used = confirmedUsed + reservedUsed;
   const remaining = Math.max(0, allowance - used);
-  return { allowance, used, remaining, periodKey, educationYearLabel: formatEducationYearLabel(academicYearStart) };
+  return {
+    allowance,
+    used,
+    confirmedUsed,
+    reservedUsed,
+    remaining,
+    periodKey: activePeriodKey,
+    periodLabel,
+    periodResolved: true,
+    educationYearLabel: periodLabel,
+  };
 }
 
 export function assertCanCreateMakeup(
@@ -137,6 +170,13 @@ export function assertCanCreateMakeup(
   sourceLessonId?: string
 ): { ok: true; snapshot: MakeupQuotaSnapshot } | { ok: false; message: string; snapshot: MakeupQuotaSnapshot } {
   const snapshot = getStudentMakeupQuota(data, studentId, now, sourceLessonId);
+  if (!snapshot.periodResolved) {
+    return {
+      ok: false,
+      message: "Aktif eğitim dönemi belirlenemediği için telafi hakkı hesaplanamadı.",
+      snapshot,
+    };
+  }
   if (snapshot.allowance === 0) {
     return {
       ok: false,
@@ -147,16 +187,30 @@ export function assertCanCreateMakeup(
   if (snapshot.used >= snapshot.allowance) {
     return {
       ok: false,
-      message: `Bu öğrenci ${snapshot.educationYearLabel} eğitim döneminde ${snapshot.allowance} telafi hakkını kullanmıştır.`,
+      message: `Bu öğrenci ${snapshot.periodLabel} içinde ${snapshot.allowance} telafi hakkını kullanmıştır.`,
       snapshot,
     };
   }
   return { ok: true, snapshot };
 }
 
-/** Sahibi onaylı zorunlu metin: "2026-2027 eğitim dönemi için kalan telafi hakkı: X / 2". */
+/**
+ * Kullanıcıya gösterilecek zorunlu sayaç metni. "kullanıldı" yalnız
+ * onaylanmış (confirmed) telafiyi sayar; açık talepler (pending/suggested/
+ * awaiting_info) ayrı olarak "rezerve edildi" ile gösterilir — kotayı
+ * tüketmiş gibi görünmemeli ama kapasiteyi de gizlememeli.
+ */
 export function formatMakeupQuotaLabel(snapshot: MakeupQuotaSnapshot): string {
-  return `${snapshot.educationYearLabel} eğitim dönemi için kalan telafi hakkı: ${snapshot.remaining} / ${snapshot.allowance}`;
+  const parts = [`${snapshot.confirmedUsed} / ${snapshot.allowance} kullanıldı`];
+  if (snapshot.reservedUsed > 0) {
+    parts.push(`${snapshot.reservedUsed} hak rezerve edildi`);
+  }
+  if (snapshot.remaining > 0) {
+    parts.push(`${snapshot.remaining} hak kaldı`);
+  } else {
+    parts.push(snapshot.reservedUsed > 0 ? "Yeni telafi hakkı yok" : "Hak kalmadı");
+  }
+  return parts.join(" · ");
 }
 
 export class MakeupQuotaExceededError extends Error {

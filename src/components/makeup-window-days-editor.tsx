@@ -32,7 +32,7 @@ export function MakeupWindowDaysEditor({
       return;
     }
     if (!Number.isInteger(parsedAllowance) || parsedAllowance < 0 || parsedAllowance > 31) {
-      setError("Aylık hak: 0-31.");
+      setError("Dönem başına hak: 0-31.");
       return;
     }
     setError(null);
@@ -77,7 +77,7 @@ export function MakeupWindowDaysEditor({
             {currentDays} gün pencere
           </p>
           <p className="text-sm font-semibold tabular-nums text-[var(--color-text)]">
-            {monthlyAllowance}/ay hak
+            Dönem başına {monthlyAllowance} hak
           </p>
           {canWrite ? (
             <button
@@ -115,14 +115,14 @@ export function MakeupWindowDaysEditor({
           />
         </label>
         <label className="text-[10px] text-[var(--color-text-muted)]">
-          Aylık hak
+          Dönem başına hak
           <input
             type="number"
             min={0}
             max={31}
             value={allowance}
             onChange={(e) => setAllowance(e.target.value)}
-            aria-label="Aylık telafi hakkı"
+            aria-label="Dönem başına telafi hakkı"
             className="ml-1 w-14 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-sm font-semibold text-[var(--color-text)] outline-none focus:ring-2 focus:ring-[var(--color-focus-ring)]"
           />
         </label>

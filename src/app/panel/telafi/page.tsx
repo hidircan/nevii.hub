@@ -13,6 +13,7 @@ import { AiInsightTrigger } from "@/components/ai/ai-insight-trigger";
 import { AssistantPageContext } from "@/components/ai/assistant-page-context";
 import { QuickTaskLink } from "@/components/quick-task-link";
 import { MakeupWindowDaysEditor } from "@/components/makeup-window-days-editor";
+import { MakeupPolicyDialog } from "@/components/makeup-policy-dialog";
 
 const MORE_SUGGESTIONS_COUNT = 18;
 
@@ -44,6 +45,7 @@ export default async function TelafiPage() {
       <PageHeader
         title="Telafi Merkezi"
         description="Açık talepleri planlayın, onaylayın veya iptal edin."
+        actions={<MakeupPolicyDialog />}
       />
 
       <div className="mb-4 flex flex-wrap items-stretch gap-2 rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] p-2 sm:p-2.5">
