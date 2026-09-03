@@ -24,6 +24,7 @@
 import path from "path";
 import { isDbMode, resolveDataDir } from "./config";
 import { uid } from "./utils";
+import { resolveFirstCollectionMergeThreshold } from "./types";
 import {
   findMissingRequiredContractPlaceholders,
   selectEligibleActiveTemplateForContract,
@@ -236,25 +237,129 @@ export function buildInstallmentSchedule(input: {
  * BAĞLANMADI** — bu bilinçli bir kapsam sınırı, aşağıdaki fonksiyonun kendi
  * yorumuna bkz.
  */
+const TR_MONTHS = [
+  "Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran",
+  "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık",
+];
+
+function ymdParts(day: string): { y: number; m: number; d: number } {
+  const [y, m, d] = day.split("-").map(Number);
+  return { y, m, d };
+}
+
+/** "2026-09-17" → "17 Eylül 2026". */
+function formatDayTr(day: string): string {
+  const { y, m, d } = ymdParts(day);
+  return `${d} ${TR_MONTHS[m - 1]} ${y}`;
+}
+
+/** Bir `PeriodBillingLine` için okunabilir dönem etiketi — tam bir takvim ayını kapsıyorsa "Ekim 2026", kısmi ise "17–30 Eylül 2026". */
+function formatPeriodLabel(line: Pick<import("./period-lesson-billing").PeriodBillingLine, "periodStart" | "periodEnd">): string {
+  const start = ymdParts(line.periodStart);
+  const end = ymdParts(line.periodEnd);
+  const sameMonth = start.m === end.m && start.y === end.y;
+  const lastDayOfMonth = new Date(Date.UTC(start.y, start.m, 0)).getUTCDate();
+  // `kind` (start/full/end/single) yerine GERÇEK gün sınırına bakılır — bir
+  // "end" dönemi, `enrollmentEndDate` tam o ayın son gününe denk gelirse
+  // pratikte TAM bir ay kapsar ve öyle gösterilmelidir (kind etiketi bunu
+  // ayırt etmez, yalnız kayıt aralığındaki KONUMU söyler).
+  if (sameMonth && start.d === 1 && end.d === lastDayOfMonth) {
+    return `${TR_MONTHS[start.m - 1]} ${start.y}`;
+  }
+  if (sameMonth) {
+    return `${start.d}–${end.d} ${TR_MONTHS[start.m - 1]} ${start.y}`;
+  }
+  return `${formatDayTr(line.periodStart)} – ${formatDayTr(line.periodEnd)}`;
+}
+
+/**
+ * P0 (2026-09-03) — sabit sayıda eşit taksit YERİNE, `period-lesson-billing.ts`'in
+ * ürettiği her takvim-ayı döneminin KENDİ (ders sayısına göre değişen) tutarını
+ * bir taksit satırı olarak kullanır. "3 ders eşiği" kuralı burada uygulanır:
+ * kayıt ayında (`billingLines[0]`) kalan ders sayısı `mergeThresholdLessons`'a
+ * eşit veya azsa, ilk iki dönem TEK bir "first_collection_combined" satırında
+ * birleştirilir (kayıt ayı tutarı + takip eden TAM ayın tam ücreti); fazlaysa
+ * ilk dönem kendi başına "first_collection" satırı olarak kalır. İlk dönem
+ * manuel düzeltilmişse (bkz. `first-payment-adjustment.ts`) o satırda otomatik
+ * DEĞİL net tutar kullanılır — birleştirilmiş satırda da yalnız kayıt ayı
+ * bileşenini geçersiz kılar, takip eden ayın tam ücretini ETKİLEMEZ.
+ */
 export function buildPerLessonInstallmentSchedule(input: {
   billingLines: import("./period-lesson-billing").PeriodBillingLine[];
   /** İlk dönem otomatik tutardan manuel olarak farklı girildiyse. */
   firstPeriodManualNetAmount?: number;
+  /** "3 ders eşiği" — bkz. `resolveFirstCollectionMergeThreshold` (types.ts). */
+  mergeThresholdLessons: number;
   firstDueDate: string;
   paymentMethod?: string;
   paymentPolicy?: Pick<CollectionsSettings, "contractCardWindowEndDay" | "contractBankCashDueDay">;
 }): ContractInstallmentSnapshot[] {
   if (input.billingLines.length === 0) return [];
   const rule = resolveContractPaymentDueRule(input.paymentMethod, input.paymentPolicy);
+  const [firstLine, secondLine, ...restLines] = input.billingLines;
+  const firstMonthAutoAmount = firstLine!.autoCalculatedAmount;
+  const shouldMerge = firstLine!.billableLessonCount <= input.mergeThresholdLessons && !!secondLine;
+
+  const rows: ContractInstallmentSnapshot[] = [];
+  if (shouldMerge) {
+    // `firstPeriodManualNetAmount` — merge durumunda — ilk satırın (Eylül+Ekim
+    // BİRLEŞİK) TAMAMI için fiilen tahsil edilen tutardır (veli/kayıt
+    // görevlisinin GERÇEKTEN aldığı TEK tutar), yalnız Eylül bileşeni için
+    // DEĞİL. `breakdown` yine de her zaman OTOMATİK hesaplanan bileşenleri
+    // gösterir (P0-5D — "sistem otomatik hesaplama yaptıysa kullanıcıya
+    // hesaplamanın nasıl oluştuğunu görünür biçimde göster") — manuel tutar
+    // yalnız `amount`'ı değiştirir, şeffaflığı gizlemez.
+    const autoCombinedAmount = firstMonthAutoAmount + secondLine!.autoCalculatedAmount;
+    const combinedAmount = input.firstPeriodManualNetAmount ?? autoCombinedAmount;
+    const isCombinedManual = input.firstPeriodManualNetAmount !== undefined && combinedAmount !== autoCombinedAmount;
+    rows.push({
+      sequence: 1,
+      dueDate: input.firstDueDate,
+      amount: combinedAmount,
+      paymentMethod: input.paymentMethod,
+      kind: "first_collection_combined",
+      periodLabel: `${formatPeriodLabel(firstLine!)} + ${formatPeriodLabel(secondLine!)}`,
+      breakdown: [
+        { periodLabel: formatPeriodLabel(firstLine!), amount: firstMonthAutoAmount },
+        { periodLabel: formatPeriodLabel(secondLine!), amount: secondLine!.autoCalculatedAmount },
+      ],
+      computationSource: isCombinedManual ? "manual" : "auto",
+    });
+    let seq = 2;
+    for (const line of restLines) {
+      rows.push({
+        sequence: seq,
+        dueDate: setDayOfMonthClamped(line.periodStart, rule.windowEndDay),
+        amount: line.autoCalculatedAmount,
+        paymentMethod: input.paymentMethod,
+        kind: "period_fee",
+        periodLabel: formatPeriodLabel(line),
+        computationSource: "auto",
+      });
+      seq += 1;
+    }
+    return rows;
+  }
+
+  // Birleşme YOKSA `firstPeriodManualNetAmount` yalnızca ilk (kayıt ayı)
+  // satırının kendi tutarını geçersiz kılar (AYNI, önceki davranış).
+  const firstMonthAmount = input.firstPeriodManualNetAmount ?? firstMonthAutoAmount;
+  const isFirstMonthManual = input.firstPeriodManualNetAmount !== undefined && firstMonthAmount !== firstMonthAutoAmount;
   return input.billingLines.map((line, i) => {
-    const amount =
-      i === 0 && input.firstPeriodManualNetAmount !== undefined
-        ? input.firstPeriodManualNetAmount
-        : line.autoCalculatedAmount;
+    const isFirst = i === 0;
+    const amount = isFirst ? firstMonthAmount : line.autoCalculatedAmount;
     // İlk taksit personelin girdiği tarihtir (createContract ile AYNI kural);
     // sonraki her dönem kendi ayının kurum ödeme-penceresi gününe normalize edilir.
-    const dueDate = i === 0 ? input.firstDueDate : setDayOfMonthClamped(line.periodStart, rule.windowEndDay);
-    return { sequence: i + 1, dueDate, amount, paymentMethod: input.paymentMethod };
+    const dueDate = isFirst ? input.firstDueDate : setDayOfMonthClamped(line.periodStart, rule.windowEndDay);
+    return {
+      sequence: i + 1,
+      dueDate,
+      amount,
+      paymentMethod: input.paymentMethod,
+      kind: isFirst ? "first_collection" : "period_fee",
+      periodLabel: formatPeriodLabel(line),
+      computationSource: isFirst && isFirstMonthManual ? "manual" : "auto",
+    };
   });
 }
 
@@ -457,12 +562,32 @@ export type CreateContractInput = {
     reference?: string;
     note?: string;
   };
+  /**
+   * P0 (2026-09-03) — verilirse taksit planı `buildInstallmentSchedule`'ın
+   * SABİT SAYIDA eşit taksit modeli YERİNE `buildPerLessonInstallmentSchedule`
+   * ile — her dönemin GERÇEK ders sayısına göre DEĞİŞEN tutarıyla — üretilir
+   * (bkz. period-lesson-billing.ts computePeriodBillingPreview; çağıran
+   * — tools.ts createStudentContractTool — öğrencinin per-lesson fiyatlama
+   * kullandığını `Student.derivedPerLessonAmount` doluluğundan anlar).
+   * undefined ise davranış TAMAMEN ESKİSİ GİBİDİR (mevcut fixed-fee
+   * sözleşmeler/testler ETKİLENMEZ).
+   */
+  perLessonBillingLines?: import("./period-lesson-billing").PeriodBillingLine[];
+  /** Yalnız `perLessonBillingLines` ile birlikte anlamlı — bkz. `resolveFirstCollectionMergeThreshold`. */
+  firstCollectionMergeThresholdLessons?: number;
 };
 
 export type CreateContractResult = { contract: StudentContract; installments: ContractInstallmentView[] };
 
 export const FIRST_PAYMENT_REQUIRED_MESSAGE =
   "İlk ödeme kayıt sırasında tahsil edilmeden kayıt tamamlanamaz.";
+
+const INSTALLMENT_KIND_LABELS_TR: Record<string, string> = {
+  deposit: "Kaparo",
+  first_collection: "İlk tahsilat",
+  first_collection_combined: "İlk tahsilat (birleştirilmiş)",
+  period_fee: "Dönem ücreti",
+};
 
 const CONTRACT_TYPE_LABELS: Record<ContractType, string> = {
   initial: "İlk Kayıt",
@@ -562,29 +687,50 @@ export async function createContract(input: CreateContractInput): Promise<Create
     }
   }
 
-  const totalContractAmount = input.durationMonths * input.monthlyAmount;
-  const installments = buildInstallmentSchedule({
-    totalContractAmount,
-    depositAmount: input.depositAmount,
-    installmentCount: input.installmentCount,
-    firstDueDate: input.firstDueDate,
-    paymentMethod: input.paymentMethod,
-    paymentPolicy: input.paymentPolicy,
-  });
+  // P0 (2026-09-03) — `perLessonBillingLines` verilmişse (öğrenci per-lesson
+  // fiyatlandırma kullanıyor, bkz. CreateContractInput yorumu) taksit planı
+  // SABİT SAYIDA eşit satır YERİNE her dönemin GERÇEK ders sayısına göre
+  // değişen tutarıyla, "3 ders eşiği" birleştirme kuralı dahil üretilir.
+  // Gerçek tahsil edilen ilk ödeme tutarı DOĞRUDAN motora verilir — eski
+  // eşitlik kontrolü (aşağıdaki `else` dalı) burada GEREKSİZDİR: motor zaten
+  // fiili tutarı satıra yazar, "eşleşmiyor" diye reddetmez.
+  const firstPaymentActualAmount = registrationFirstPayment?.amount ?? input.firstPaymentCollected?.amount;
+  const installments = input.perLessonBillingLines
+    ? buildPerLessonInstallmentSchedule({
+        billingLines: input.perLessonBillingLines,
+        firstPeriodManualNetAmount: firstPaymentActualAmount,
+        mergeThresholdLessons: resolveFirstCollectionMergeThreshold({
+          firstCollectionMergeThresholdLessons: input.firstCollectionMergeThresholdLessons,
+        }),
+        firstDueDate: input.firstDueDate,
+        paymentMethod: input.paymentMethod,
+        paymentPolicy: input.paymentPolicy,
+      })
+    : buildInstallmentSchedule({
+        totalContractAmount: input.durationMonths * input.monthlyAmount,
+        depositAmount: input.depositAmount,
+        installmentCount: input.installmentCount,
+        firstDueDate: input.firstDueDate,
+        paymentMethod: input.paymentMethod,
+        paymentPolicy: input.paymentPolicy,
+      });
+  const totalContractAmount = installments.reduce((s, r) => s + r.amount, 0) + (input.depositAmount ?? 0);
 
-  if (registrationFirstPayment) {
-    const firstInstallmentAmount = installments[0]?.amount ?? 0;
-    if (registrationFirstPayment.amount !== firstInstallmentAmount) {
-      throw new Error(
-        `Kayıt sırasında tahsil edilen ilk ödeme tutarı (${registrationFirstPayment.amount}) hesaplanan 1. taksit tutarıyla (${firstInstallmentAmount}) eşleşmiyor.`
-      );
-    }
-  } else if (requiresFirstPaymentAtRegistration && input.firstPaymentCollected) {
-    const firstInstallmentAmount = installments[0]?.amount ?? 0;
-    if (input.firstPaymentCollected.amount !== firstInstallmentAmount) {
-      throw new Error(
-        `Tahsil edilen ilk ödeme tutarı (${input.firstPaymentCollected.amount}) hesaplanan 1. taksit tutarıyla (${firstInstallmentAmount}) eşleşmiyor.`
-      );
+  if (!input.perLessonBillingLines) {
+    if (registrationFirstPayment) {
+      const firstInstallmentAmount = installments[0]?.amount ?? 0;
+      if (registrationFirstPayment.amount !== firstInstallmentAmount) {
+        throw new Error(
+          `Kayıt sırasında tahsil edilen ilk ödeme tutarı (${registrationFirstPayment.amount}) hesaplanan 1. taksit tutarıyla (${firstInstallmentAmount}) eşleşmiyor.`
+        );
+      }
+    } else if (requiresFirstPaymentAtRegistration && input.firstPaymentCollected) {
+      const firstInstallmentAmount = installments[0]?.amount ?? 0;
+      if (input.firstPaymentCollected.amount !== firstInstallmentAmount) {
+        throw new Error(
+          `Tahsil edilen ilk ödeme tutarı (${input.firstPaymentCollected.amount}) hesaplanan 1. taksit tutarıyla (${firstInstallmentAmount}) eşleşmiyor.`
+        );
+      }
     }
   }
 
@@ -671,6 +817,15 @@ export async function createContract(input: CreateContractInput): Promise<Create
       const row = installments[i - 1];
       fieldValues[`taksit${i}Tarih`] = row ? formatDateTr(row.dueDate) : "";
       fieldValues[`taksit${i}Tutar`] = row ? new Intl.NumberFormat("tr-TR").format(row.amount) : "";
+      // P0 (2026-09-03) — per-lesson sözleşmelerde her taksitin tür/dönem
+      // açıklaması, ör. "İlk tahsilat (birleştirilmiş) — 17–30 Eylül 2026 +
+      // Ekim 2026". Hukuki şablon metni BU turda değiştirilmedi (mevcut
+      // şablonlar bu placeholder'ı KULLANMIYOR, dolayısıyla görünmez) —
+      // yalnız YENİ/güncellenmiş şablonlar isteğe bağlı kullanabilsin diye
+      // eklendi; `findMissingRequiredContractPlaceholders` bunu ZORUNLU
+      // saymaz.
+      fieldValues[`taksit${i}Aciklama`] =
+        row?.kind && row.periodLabel ? `${INSTALLMENT_KIND_LABELS_TR[row.kind]} — ${row.periodLabel}` : "";
     }
 
     doc = await createDocumentInstance({

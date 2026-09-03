@@ -420,6 +420,7 @@ import {
   type TaskActivityAction,
   type TaskAttachment,
   OPEN_TASK_STATUSES,
+  resolveFirstCollectionMergeThreshold,
 } from "../types";
 import {
   createTask,
@@ -505,6 +506,7 @@ import {
   uploadContractSignedScan,
   cancelContract,
   buildInstallmentSchedule,
+  buildPerLessonInstallmentSchedule,
   isFormalContractDuration,
   TrialContractHasNoDocumentError,
   ContractTemplateIncompleteError,
@@ -8844,6 +8846,11 @@ const contractInstallmentPlanSchema = z.object({
   firstDueDate: z.string().min(1),
   depositAmount: z.number().int().min(0).optional(),
   paymentMethod: z.string().max(50).optional(),
+  /** Bkz. createStudentContractTool şema yorumu — AYNI opt-in, önizlemenin GERÇEK planla tutarlı kalması için. */
+  usePerLessonBilling: z.boolean().optional(),
+  studentId: z.string().min(1).optional(),
+  enrollmentStartDate: z.string().min(1).optional(),
+  enrollmentEndDate: z.string().min(1).optional(),
 });
 
 /** Oluşturmadan ÖNCE taksit planı + toplam tutarı önizler — hiçbir kalıcı kayıt yazmaz. */
@@ -8853,7 +8860,7 @@ export async function previewContractInstallmentPlanTool(
 ): Promise<
   ServiceResult<{
     totalContractAmount: number;
-    installments: ReturnType<typeof buildInstallmentSchedule>;
+    installments: import("../types").ContractInstallmentSnapshot[];
     isFormal: boolean;
     paymentDueRuleText: string;
     firstDueDateInWindow: boolean;
@@ -8866,15 +8873,54 @@ export async function previewContractInstallmentPlanTool(
   try {
     const data = await readData();
     const paymentPolicy = data.settings.collectionsSettings;
-    const totalContractAmount = v.data.durationMonths * v.data.monthlyAmount;
-    const installments = buildInstallmentSchedule({
-      totalContractAmount,
-      depositAmount: v.data.depositAmount,
-      installmentCount: v.data.installmentCount,
-      firstDueDate: v.data.firstDueDate,
-      paymentMethod: v.data.paymentMethod,
-      paymentPolicy,
-    });
+    let installments: import("../types").ContractInstallmentSnapshot[];
+    let totalContractAmount: number;
+    const student = v.data.studentId ? data.students.find((s) => s.id === v.data.studentId) : undefined;
+    if (
+      v.data.usePerLessonBilling &&
+      student?.derivedPerLessonAmount != null &&
+      student.weeklyLessonCount &&
+      v.data.enrollmentStartDate &&
+      v.data.enrollmentEndDate
+    ) {
+      const { computePeriodBillingPreview } = await import("../period-lesson-billing");
+      const billingLines = computePeriodBillingPreview({
+        enrollmentStartDay: v.data.enrollmentStartDate,
+        enrollmentEndDay: v.data.enrollmentEndDate,
+        perLessonNetFee: student.derivedPerLessonAmount,
+        weeklyLessonCount: student.weeklyLessonCount,
+        studentId: student.id,
+        lessons: data.lessons.map((l) => ({
+          id: l.id,
+          studentId: l.studentId,
+          startAt: l.startAt,
+          type: l.type,
+          status: l.status,
+          opsClosedFlag: l.opsClosedFlag,
+        })),
+        makeupRequests: data.makeupRequests.map((m) => ({ sourceLessonId: m.sourceLessonId, status: m.status })),
+      });
+      installments = buildPerLessonInstallmentSchedule({
+        billingLines,
+        mergeThresholdLessons: resolveFirstCollectionMergeThreshold({
+          firstCollectionMergeThresholdLessons: paymentPolicy?.firstCollectionMergeThresholdLessons,
+        }),
+        firstDueDate: v.data.firstDueDate,
+        paymentMethod: v.data.paymentMethod,
+        paymentPolicy,
+      });
+      totalContractAmount = installments.reduce((s, r) => s + r.amount, 0) + (v.data.depositAmount ?? 0);
+    } else {
+      totalContractAmount = v.data.durationMonths * v.data.monthlyAmount;
+      installments = buildInstallmentSchedule({
+        totalContractAmount,
+        depositAmount: v.data.depositAmount,
+        installmentCount: v.data.installmentCount,
+        firstDueDate: v.data.firstDueDate,
+        paymentMethod: v.data.paymentMethod,
+        paymentPolicy,
+      });
+    }
     const rule = resolveContractPaymentDueRule(v.data.paymentMethod, paymentPolicy);
     const firstDueDay = new Date(v.data.firstDueDate).getUTCDate();
     const firstDueDateInWindow = firstDueDay >= rule.windowStartDay && firstDueDay <= rule.windowEndDay;
@@ -9074,6 +9120,17 @@ const createStudentContractSchema = z.object({
       note: z.string().max(500).optional(),
     })
     .optional(),
+  /**
+   * P0 (2026-09-03) — açık OPT-IN: verilmezse (varsayılan/eski davranış)
+   * taksit planı `monthlyAmount` üzerinden SABİT SAYIDA eşit satır olarak
+   * üretilir (DEĞİŞMEDİ). true ise — yalnız `Student.derivedPerLessonAmount`
+   * dolu (yeni, per-lesson fiyatlandırma kullanan) öğrenciler için —
+   * `computePeriodBillingPreview`'in GERÇEK/tahmini dönem ders sayılarına
+   * göre değişen taksit satırları + "3 ders eşiği" birleştirme kuralı
+   * uygulanır. Mevcut sözleşme oluşturma çağrıları (ör. yenileme ekranı)
+   * bu alanı GÖNDERMEDİĞİ sürece hiçbir davranış değişikliği görmez.
+   */
+  usePerLessonBilling: z.boolean().optional(),
 });
 
 /** İlk kayıt / yenileme / değişiklik — hepsi TEK giriş noktası, `contractType` iş akışını belirler. */
@@ -9108,6 +9165,31 @@ export async function createStudentContractTool(
     } catch {
       // sözleşme üretimini durdurmaz — alan boş bırakılır, personel gerekirse elle ekler.
     }
+  }
+
+  // P0 (2026-09-03) — bkz. şema yorumu: yalnız açıkça istenmişse VE öğrenci
+  // gerçekten per-lesson fiyatlandırma kullanıyorsa (derivedPerLessonAmount
+  // dolu) hesaplanır; aksi halde undefined kalır ve createContract eski
+  // (fixed, SABİT SAYIDA eşit taksit) davranışını AYNEN sürdürür.
+  let perLessonBillingLines: import("../period-lesson-billing").PeriodBillingLine[] | undefined;
+  if (v.data.usePerLessonBilling && student.derivedPerLessonAmount != null && student.weeklyLessonCount) {
+    const { computePeriodBillingPreview } = await import("../period-lesson-billing");
+    perLessonBillingLines = computePeriodBillingPreview({
+      enrollmentStartDay: v.data.enrollmentStartDate,
+      enrollmentEndDay: v.data.enrollmentEndDate,
+      perLessonNetFee: student.derivedPerLessonAmount,
+      weeklyLessonCount: student.weeklyLessonCount,
+      studentId: student.id,
+      lessons: data.lessons.map((l) => ({
+        id: l.id,
+        studentId: l.studentId,
+        startAt: l.startAt,
+        type: l.type,
+        status: l.status,
+        opsClosedFlag: l.opsClosedFlag,
+      })),
+      makeupRequests: data.makeupRequests.map((m) => ({ sourceLessonId: m.sourceLessonId, status: m.status })),
+    });
   }
 
   try {
@@ -9160,6 +9242,8 @@ export async function createStudentContractTool(
       firstPaymentExceptionReason: v.data.firstPaymentExceptionReason,
       renewalDebtOverrideReason: v.data.renewalDebtOverrideReason,
       firstPaymentCollected: v.data.firstPaymentCollected,
+      perLessonBillingLines,
+      firstCollectionMergeThresholdLessons: data.settings.collectionsSettings?.firstCollectionMergeThresholdLessons,
     });
 
     if (v.data.contractType !== "initial" && v.data.renewalDebtOverrideReason?.trim()) {

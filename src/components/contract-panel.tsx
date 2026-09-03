@@ -37,7 +37,22 @@ type ContractRow = {
   documentInstanceId?: string;
 };
 
-type InstallmentPreviewRow = { sequence: number; dueDate: string; amount: number };
+type InstallmentPreviewRow = {
+  sequence: number;
+  dueDate: string;
+  amount: number;
+  kind?: "deposit" | "first_collection" | "first_collection_combined" | "period_fee";
+  periodLabel?: string;
+  breakdown?: { periodLabel: string; amount: number }[];
+  computationSource?: "auto" | "manual";
+};
+
+const INSTALLMENT_KIND_LABELS: Record<string, string> = {
+  deposit: "Kaparo",
+  first_collection: "İlk tahsilat",
+  first_collection_combined: "İlk tahsilat (birleştirilmiş)",
+  period_fee: "Dönem ücreti",
+};
 
 const STATUS_LABELS: Record<string, string> = {
   draft: "Taslak",
@@ -81,6 +96,8 @@ type ContractPrefill = {
   paymentMethod?: string;
   enrollmentStartDate?: string;
   durationMonths?: number;
+  /** P0 (2026-09-03) — öğrenci per-lesson fiyatlandırma kullanıyorsa (Student.derivedPerLessonAmount dolu) true. */
+  usePerLessonBilling?: boolean;
 };
 
 type FieldErrors = Record<string, string>;
@@ -110,6 +127,10 @@ function ContractForm({
   const router = useRouter();
   const isRenewal = !!previousContract;
   const [programmeName, setProgrammeName] = useState(previousContract?.programmeName ?? prefill?.programmeName ?? "");
+  // P0 (2026-09-03) — yalnız YENİ (initial) kayıt akışından, per-lesson
+  // fiyatlandırma kullanan bir öğrenci için gelir; yenilemede prefill zaten
+  // undefined olduğundan bu her zaman false kalır — eski davranış korunur.
+  const usePerLessonBilling = !isRenewal && (prefill?.usePerLessonBilling ?? false);
   const [lessonScheduleText, setLessonScheduleText] = useState("");
   const [enrollmentStartDate, setEnrollmentStartDate] = useState(
     isRenewal
@@ -241,6 +262,10 @@ function ContractForm({
       firstDueDate,
       depositAmount: depositAmount === "" ? undefined : depositAmount,
       paymentMethod,
+      usePerLessonBilling,
+      studentId,
+      enrollmentStartDate: toIsoDateOrNull(enrollmentStartDate) ?? undefined,
+      enrollmentEndDate: toIsoDateOrNull(enrollmentEndDate) ?? undefined,
     });
     setBusy(false);
     if (!res.ok) {
@@ -320,6 +345,7 @@ function ContractForm({
       durationMonths,
       monthlyAmount,
       installmentCount,
+      usePerLessonBilling,
       firstDueDate: toIsoDateOrNull(firstDueDate),
       depositAmount: depositAmount === "" ? undefined : depositAmount,
       paymentMethod,
@@ -755,17 +781,43 @@ function ContractForm({
           <table className="w-full text-left">
             <thead>
               <tr className="text-[var(--color-text-muted)]">
-                <th className="pr-2">Taksit</th>
-                <th className="pr-2">Tarih</th>
+                <th className="pr-2">Sıra</th>
+                <th className="pr-2">Tahsilat türü</th>
+                <th className="pr-2">Kapsanan dönem</th>
+                <th className="pr-2">Vade</th>
                 <th>Tutar</th>
               </tr>
             </thead>
             <tbody>
               {preview.installments.map((row) => (
-                <tr key={row.sequence}>
-                  <td className="pr-2">{row.sequence}</td>
-                  <td className="pr-2">{formatDateTr(row.dueDate)}</td>
-                  <td>{formatTL(row.amount)}</td>
+                <tr key={row.sequence} className="align-top">
+                  <td className="pr-2 py-1">{row.sequence}</td>
+                  <td className="pr-2 py-1">
+                    {row.kind ? INSTALLMENT_KIND_LABELS[row.kind] ?? row.kind : "—"}
+                    {row.computationSource === "manual" ? (
+                      <span className="ml-1 rounded bg-amber-100 px-1 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-950/50 dark:text-amber-300">
+                        manuel düzenlendi
+                      </span>
+                    ) : row.kind ? (
+                      <span className="ml-1 rounded bg-slate-100 px-1 py-0.5 text-[10px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                        otomatik hesaplandı
+                      </span>
+                    ) : null}
+                  </td>
+                  <td className="pr-2 py-1">
+                    {row.periodLabel ?? "—"}
+                    {row.breakdown ? (
+                      <ul className="mt-0.5 text-[10px] text-[var(--color-text-muted)]">
+                        {row.breakdown.map((b) => (
+                          <li key={b.periodLabel}>
+                            {b.periodLabel}: {formatTL(b.amount)}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </td>
+                  <td className="pr-2 py-1">{formatDateTr(row.dueDate)}</td>
+                  <td className="py-1">{formatTL(row.amount)}</td>
                 </tr>
               ))}
             </tbody>

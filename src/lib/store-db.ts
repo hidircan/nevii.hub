@@ -510,6 +510,12 @@ function mapSchoolToAppData(school: PrismaSchoolWithRelations): AppData {
       adjustmentReason: payment.adjustmentReason ?? undefined,
       adjustedBy: payment.adjustedBy ?? undefined,
       adjustedAt: payment.adjustedAt?.toISOString() ?? undefined,
+      installmentKind: (payment.installmentKind as import("./types").ContractInstallmentKind | undefined) ?? undefined,
+      installmentPeriodLabel: payment.installmentPeriodLabel ?? undefined,
+      installmentBreakdown:
+        (payment.installmentBreakdown as { periodLabel: string; amount: number }[] | undefined) ?? undefined,
+      installmentComputationSource: (payment.installmentComputationSource as "auto" | "manual" | undefined) ?? undefined,
+      installmentNote: payment.installmentNote ?? undefined,
     })),
     teacherFeeRules: school.teacherFeeRules.map((rule) => ({
       id: rule.id,
@@ -2715,12 +2721,32 @@ export async function addContractInstallments(input: {
         source: "contract",
         contractId: input.contractId,
         installmentSequence: inst.sequence,
+        installmentKind: inst.kind,
+        installmentPeriodLabel: inst.periodLabel,
+        installmentBreakdown: inst.breakdown as unknown as import("@prisma/client").Prisma.InputJsonValue | undefined,
+        installmentComputationSource: inst.computationSource,
+        installmentNote: inst.note,
       };
     });
   if (rows.length > 0) {
     await prisma.payment.createMany({ data: rows });
   }
-  let reusedRow: { id: string; sequence: number; dueDate: Date; amount: number; paidAmount: number; status: string; method: string | null } | undefined;
+  let reusedRow:
+    | {
+        id: string;
+        sequence: number;
+        dueDate: Date;
+        amount: number;
+        paidAmount: number;
+        status: string;
+        method: string | null;
+        installmentKind: string | null;
+        installmentPeriodLabel: string | null;
+        installmentBreakdown: unknown;
+        installmentComputationSource: string | null;
+        installmentNote: string | null;
+      }
+    | undefined;
   if (reuseId) {
     const firstInst = input.installments.find((i) => i.sequence === 1);
     const updated = await prisma.payment.update({
@@ -2730,6 +2756,11 @@ export async function addContractInstallments(input: {
         contractId: input.contractId,
         installmentSequence: 1,
         description: `Sözleşme taksiti 1/${input.installments.length} — Kayıt anında tahsil edildi (kayıt ödemesi)`,
+        installmentKind: firstInst?.kind,
+        installmentPeriodLabel: firstInst?.periodLabel,
+        installmentBreakdown: firstInst?.breakdown as unknown as import("@prisma/client").Prisma.InputJsonValue | undefined,
+        installmentComputationSource: firstInst?.computationSource,
+        installmentNote: firstInst?.note,
       },
     });
     reusedRow = {
@@ -2740,6 +2771,11 @@ export async function addContractInstallments(input: {
       paidAmount: updated.paidAmount,
       status: updated.status,
       method: updated.method,
+      installmentKind: updated.installmentKind,
+      installmentPeriodLabel: updated.installmentPeriodLabel,
+      installmentBreakdown: updated.installmentBreakdown,
+      installmentComputationSource: updated.installmentComputationSource,
+      installmentNote: updated.installmentNote,
     };
   }
   const data = await readData();
@@ -2754,6 +2790,11 @@ export async function addContractInstallments(input: {
     paidAmount: r.paidAmount,
     status: r.status,
     paymentMethod: r.method ?? undefined,
+    kind: (r.installmentKind as import("./types").ContractInstallmentKind | null | undefined) ?? undefined,
+    periodLabel: r.installmentPeriodLabel ?? undefined,
+    breakdown: (r.installmentBreakdown as { periodLabel: string; amount: number }[] | null | undefined) ?? undefined,
+    computationSource: (r.installmentComputationSource as "auto" | "manual" | null | undefined) ?? undefined,
+    note: r.installmentNote ?? undefined,
   }));
   return { data, installments };
 }

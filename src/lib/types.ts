@@ -425,12 +425,33 @@ export interface CollectionsSettings {
    * onayı gereken bir madde olarak işaretlenir.
    */
   contractVatInclusive?: boolean;
+  /**
+   * P0 (2026-09-03) — "3 ders eşiği": kayıt ayında kalan GERÇEK planlı ders
+   * sayısı bu değerden AZ veya EŞİTSE, kayıt ayı tutarı sonraki ayın TAM
+   * dönem ücretiyle TEK bir "birleştirilmiş ilk tahsilat" satırında toplanır
+   * (bkz. `resolveFirstCollectionMergeThreshold`, `period-lesson-billing.ts`
+   * `computeFirstCollectionPlan`). undefined ise varsayılan 3 kullanılır —
+   * kurum bunu kendi ürün kararına göre özelleştirebilir; kod içinde magic
+   * number olarak TEKRARLANMAZ.
+   */
+  firstCollectionMergeThresholdLessons?: number;
 }
 
 export const DEFAULT_COLLECTIONS_SETTINGS: CollectionsSettings = {
   frequencyLimitDays: 3,
   autoSendEnabled: false,
 };
+
+/** `firstCollectionMergeThresholdLessons` ayarlanmamışsa uygulanan varsayılan eşik. */
+export const DEFAULT_FIRST_COLLECTION_MERGE_THRESHOLD_LESSONS = 3;
+
+export function resolveFirstCollectionMergeThreshold(settings: {
+  firstCollectionMergeThresholdLessons?: number;
+}): number {
+  const v = settings.firstCollectionMergeThresholdLessons;
+  if (typeof v === "number" && Number.isInteger(v) && v >= 0) return v;
+  return DEFAULT_FIRST_COLLECTION_MERGE_THRESHOLD_LESSONS;
+}
 
 /** EPIC 1 — uygulama içi bildirim (veli portalı, admin panel bildirim çanı). */
 export interface Notification {
@@ -851,6 +872,16 @@ export interface Payment {
   adjustmentReason?: string;
   adjustedBy?: string;
   adjustedAt?: string;
+  /**
+   * P0 (2026-09-03) — bkz. `ContractInstallmentSnapshot`. Yalnız
+   * `contractId` dolu (taksit) satırlarda anlamlıdır; eski/legacy Payment
+   * kayıtlarında YOK — `undefined` her yerde güvenle ele alınır.
+   */
+  installmentKind?: ContractInstallmentKind;
+  installmentPeriodLabel?: string;
+  installmentBreakdown?: { periodLabel: string; amount: number }[];
+  installmentComputationSource?: "auto" | "manual";
+  installmentNote?: string;
 }
 
 /**
@@ -1797,12 +1828,36 @@ export const CONTRACT_STATUSES: ContractStatus[] = [
   "cancelled",
 ];
 
+/**
+ * P0 (2026-09-03) — bir taksit satırının GÖRÜNÜR anlamı: "hangi tahsilat
+ * türü". `first_collection`: normal ilk tahsilat (yalnız kayıt ayı).
+ * `first_collection_combined`: 3-ders eşiği altına düşünce kayıt ayı +
+ * takip eden ayın TAM ücretinin BİRLEŞTİĞİ ilk tahsilat.
+ * `period_fee`: normal dönem ücreti. `deposit`: kaparo (varsa, sıra 0).
+ */
+export type ContractInstallmentKind = "deposit" | "first_collection" | "first_collection_combined" | "period_fee";
+
 /** Sözleşme oluşturma anında SUNULAN, sonradan Student değişse bile sabit kalan taksit satırı. */
 export interface ContractInstallmentSnapshot {
   sequence: number;
   dueDate: string;
   amount: number;
   paymentMethod?: string;
+  /**
+   * P0 (2026-09-03) — geriye dönük UYUMLU alanlar (hepsi opsiyonel): eski
+   * sözleşmelerin `contractDataSnapshot.installments`'ında bu alanlar YOK —
+   * UI bunları `undefined` gördüğünde eski, sade satır görünümüne düşer,
+   * hata vermez. Yalnız YENİ (per-lesson) sözleşme akışı bunları doldurur.
+   */
+  kind?: ContractInstallmentKind;
+  /** Kapsanan dönem(ler)in okunabilir etiketi, ör. "17–30 Eylül 2026 + Ekim 2026". */
+  periodLabel?: string;
+  /** `kind==="first_collection_combined"` iken tutarın dönem bazlı kırılımı. */
+  breakdown?: { periodLabel: string; amount: number }[];
+  /** Bu satırın tutarı otomatik mi hesaplandı yoksa personel/veli tarafından mı manuel belirlendi. */
+  computationSource?: "auto" | "manual";
+  /** `computationSource==="manual"` ise personelin girdiği gerekçe. */
+  note?: string;
 }
 
 /** `contractDataSnapshot` JSON alanının şekli — üretim anındaki DEĞİŞMEZ görüntü. */
@@ -1864,6 +1919,12 @@ export interface ContractInstallmentView {
   status: string;
   paidAt?: string;
   paymentMethod?: string;
+  /** Bkz. `ContractInstallmentSnapshot` — canlı görünüm, snapshot'la AYNI opsiyonel alanlar. */
+  kind?: ContractInstallmentKind;
+  periodLabel?: string;
+  breakdown?: { periodLabel: string; amount: number }[];
+  computationSource?: "auto" | "manual";
+  note?: string;
 }
 
 export interface StudentContract {

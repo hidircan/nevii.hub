@@ -1153,3 +1153,179 @@ describe("computeContractEndDate — müşterinin sözleşme bitiş tercihi (tar
     expect(computeContractEndDate("2026-09-30", 3, "month_end")).toBe("2026-12-31");
   });
 });
+
+// P0 (2026-09-03) — uçtan uca: createStudentContractTool → createContract →
+// buildPerLessonInstallmentSchedule zincirinin GERÇEK bir per-lesson öğrenci
+// için doğru çalıştığını doğrular (yalnız pure-function testleri değil).
+describe("createStudentContractTool — per-lesson öğrenci (usePerLessonBilling)", () => {
+  async function seedPerLessonStudent(overrides?: { weeklyLessonCount?: number; monthlyFee?: number }) {
+    const { readData, writeData } = await import("../store-json");
+    const data = await readData();
+    const monthlyFee = overrides?.monthlyFee ?? 1500;
+    const weeklyLessonCount = overrides?.weeklyLessonCount ?? 1;
+    const derivedPerLessonAmount = Math.round(monthlyFee / (weeklyLessonCount * 4));
+    data.students.push({
+      id: "s_perlesson",
+      name: "Per Lesson Öğrenci",
+      email: "",
+      phone: "5551234567",
+      parentName: "Veli",
+      parentPhone: "5559876543",
+      branchId: "erzene",
+      instruments: ["Piyano"],
+      teacherId: "t1",
+      weeklyLessonCount,
+      monthlyFee,
+      derivedPerLessonAmount,
+      enrollmentStartDate: "2026-09-17",
+      active: true,
+      notes: "",
+      createdAt: "2026-09-17T00:00:00.000Z",
+      lessonDurationMinutes: 40,
+    } as unknown as (typeof data.students)[number]);
+    // Eylül: yalnız 1 ders (17 Eylül'ün kendisi) → eşik (3) altı → birleşir.
+    // Ekim: 4 ders (5,12,19,26).
+    const lessonDates = ["2026-09-17", "2026-10-05", "2026-10-12", "2026-10-19", "2026-10-26"];
+    for (const [i, day] of lessonDates.entries()) {
+      data.lessons.push({
+        id: `les_pl_${i}`,
+        studentId: "s_perlesson",
+        teacherId: "t1",
+        roomId: "r1",
+        branchId: "erzene",
+        instrument: "Piyano",
+        startAt: `${day}T10:00:00.000Z`,
+        endAt: `${day}T10:40:00.000Z`,
+        type: "regular",
+        status: "scheduled",
+      } as unknown as (typeof data.lessons)[number]);
+    }
+    await writeData(data);
+    return { monthlyFee, derivedPerLessonAmount };
+  }
+
+  it("17 Eylül kayıt, Eylül'de 1 ders (<3) → Eylül+Ekim TEK birleştirilmiş ilk tahsilatta, Kasım'dan itibaren normal dönem ücreti", async () => {
+    const { monthlyFee, derivedPerLessonAmount } = await seedPerLessonStudent();
+    const { addRegistrationFirstPayment } = await import("../store-json");
+    const septAmount = 1 * derivedPerLessonAmount;
+    const octAmount = 4 * derivedPerLessonAmount;
+    const combinedAmount = septAmount + octAmount;
+    await addRegistrationFirstPayment({
+      studentId: "s_perlesson",
+      method: "cash",
+      amount: combinedAmount,
+      collectedAt: "2026-09-17",
+      receivedByUserId: "u1",
+    });
+
+    const res = await createStudentContractTool(adminCtx(), {
+      studentId: "s_perlesson",
+      contractType: "initial",
+      programmeName: "Piyano",
+      enrollmentStartDate: "2026-09-17",
+      enrollmentEndDate: "2026-11-30",
+      durationMonths: 3,
+      monthlyAmount: monthlyFee,
+      installmentCount: 3,
+      firstDueDate: "2026-09-17",
+      signatoryFullName: "Veli Adı",
+      signatoryRelationship: "veli",
+      usePerLessonBilling: true,
+      firstPaymentExceptionReason: "Kayıt tarihi (17 Eylül) kurumun 1-15 ödeme penceresi dışında — normal kayıt anı tahsilatı.",
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+
+    const [first, second] = res.data.installments;
+    expect(first!.amount).toBe(combinedAmount);
+    expect(first!.kind).toBe("first_collection_combined");
+    expect(first!.periodLabel).toContain("Eylül");
+    expect(first!.periodLabel).toContain("Ekim");
+    expect(first!.breakdown).toEqual([
+      { periodLabel: expect.stringContaining("Eylül") as unknown as string, amount: septAmount },
+      { periodLabel: "Ekim 2026", amount: octAmount },
+    ]);
+    expect(second!.kind).toBe("period_fee");
+    expect(second!.periodLabel).toBe("Kasım 2026");
+    expect(second!.amount).toBe(0); // Kasım'da hiç ders yok (seed'de) → 0, kopyalanmadı
+
+    // Toplam sözleşme tutarı = taksit satırlarının toplamı (item 7 gereksinimi).
+    const sum = res.data.installments.reduce((s, i) => s + i.amount, 0);
+    expect(sum).toBe(res.data.contract.totalContractAmount);
+  });
+
+  it("kayıt ayında 4+ ders varsa birleşme OLMAZ, ilk ay kendi tutarında kalır, sonraki aya kopyalanmaz", async () => {
+    const { readData, writeData, addRegistrationFirstPayment } = await import("../store-json");
+    const data = await readData();
+    const monthlyFee = 4000;
+    const weeklyLessonCount = 1;
+    const derivedPerLessonAmount = Math.round(monthlyFee / (weeklyLessonCount * 4));
+    data.students.push({
+      id: "s_perlesson2",
+      name: "Per Lesson Öğrenci 2",
+      email: "",
+      phone: "5551112222",
+      parentName: "Veli",
+      parentPhone: "5559991111",
+      branchId: "erzene",
+      instruments: ["Piyano"],
+      teacherId: "t1",
+      weeklyLessonCount,
+      monthlyFee,
+      derivedPerLessonAmount,
+      enrollmentStartDate: "2026-09-01",
+      active: true,
+      notes: "",
+      createdAt: "2026-09-01T00:00:00.000Z",
+      lessonDurationMinutes: 40,
+    } as unknown as (typeof data.students)[number]);
+    // Eylül: 4 ders (eşik üstü) → birleşmez.
+    const septDates = ["2026-09-07", "2026-09-14", "2026-09-21", "2026-09-28"];
+    const octDates = ["2026-10-05", "2026-10-12"];
+    for (const [i, day] of [...septDates, ...octDates].entries()) {
+      data.lessons.push({
+        id: `les_pl2_${i}`,
+        studentId: "s_perlesson2",
+        teacherId: "t1",
+        roomId: "r1",
+        branchId: "erzene",
+        instrument: "Piyano",
+        startAt: `${day}T10:00:00.000Z`,
+        endAt: `${day}T10:40:00.000Z`,
+        type: "regular",
+        status: "scheduled",
+      } as unknown as (typeof data.lessons)[number]);
+    }
+    await writeData(data);
+    const septAmount = 4 * derivedPerLessonAmount;
+    await addRegistrationFirstPayment({
+      studentId: "s_perlesson2",
+      method: "cash",
+      amount: septAmount,
+      collectedAt: "2026-09-01",
+      receivedByUserId: "u1",
+    });
+
+    const res = await createStudentContractTool(adminCtx(), {
+      studentId: "s_perlesson2",
+      contractType: "initial",
+      programmeName: "Piyano",
+      enrollmentStartDate: "2026-09-01",
+      enrollmentEndDate: "2026-10-31",
+      durationMonths: 2,
+      monthlyAmount: monthlyFee,
+      installmentCount: 2,
+      firstDueDate: "2026-09-01",
+      signatoryFullName: "Veli Adı",
+      signatoryRelationship: "veli",
+      usePerLessonBilling: true,
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const [first, second] = res.data.installments;
+    expect(first!.kind).toBe("first_collection");
+    expect(first!.amount).toBe(septAmount);
+    expect(second!.amount).toBe(2 * derivedPerLessonAmount); // Ekim kendi (farklı) tutarı, Eylül'e eşit KOPYALANMADI
+    expect(second!.amount).not.toBe(first!.amount);
+  });
+});
