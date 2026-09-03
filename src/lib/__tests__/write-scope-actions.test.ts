@@ -273,7 +273,7 @@ describe("actionAddStudent — P0-B: ilk ödeme düzeltme gerekçesi", () => {
 
   it("(C) otomatik öneri ≠ fiili tutar, gerekçe HİÇ girilmedi — alan bazlı hata döner (genel 'Invalid input' DEĞİL), form verisi korunur, kayıt OLUŞTURULMAZ", async () => {
     const fd = studentFormData();
-    fd.set("enrollmentStartDate", "2026-09-05"); // tam ay değil → otomatik öneri 3000'den farklı
+    fd.set("enrollmentStartDate", "2026-09-08"); // tam ay değil, lessonDays=[1] Pazartesi → dönemde 3 Pazartesi (KESİN) → otomatik öneri 2250, 3000'den farklı
     fd.set("firstPaymentAmount", "3000");
     fd.set("firstPaymentDate", "2026-09-10");
     const before = await readData();
@@ -286,14 +286,14 @@ describe("actionAddStudent — P0-B: ilk ödeme düzeltme gerekçesi", () => {
     expect(result?.fieldErrors?.firstPaymentAdjustmentReason).toContain("gerekçe zorunludur");
     // Diğer form verisi (P0-4 deseni) korunur — kullanıcı her şeyi yeniden yazmaz.
     expect(result && "values" in result ? result.values?.firstPaymentAmount : undefined).toBe("3000");
-    expect(result && "values" in result ? result.values?.enrollmentStartDate : undefined).toBe("2026-09-05");
+    expect(result && "values" in result ? result.values?.enrollmentStartDate : undefined).toBe("2026-09-08");
     const after = await readData();
     expect(after.students.length).toBe(before.students.length);
   });
 
   it("(C variant) yalnızca BOŞLUK içeren gerekçe de reddedilir — trim edilince boş", async () => {
     const fd = studentFormData();
-    fd.set("enrollmentStartDate", "2026-09-05");
+    fd.set("enrollmentStartDate", "2026-09-08");
     fd.set("firstPaymentAmount", "3000");
     fd.set("firstPaymentDate", "2026-09-10");
     fd.set("firstPaymentAdjustmentReason", "   ");
@@ -307,7 +307,7 @@ describe("actionAddStudent — P0-B: ilk ödeme düzeltme gerekçesi", () => {
 
   it("(B) otomatik öneri ≠ fiili tutar, GEÇERLİ (trim edilmiş) bir gerekçe girildi — kayıt başarılı olur, Payment'a tam düzeltme izi yazılır", async () => {
     const fd = studentFormData();
-    fd.set("enrollmentStartDate", "2026-09-05");
+    fd.set("enrollmentStartDate", "2026-09-08");
     fd.set("firstPaymentAmount", "3000");
     fd.set("firstPaymentDate", "2026-09-10");
     fd.set("firstPaymentAdjustmentReason", "  Kardeş indirimi  ");

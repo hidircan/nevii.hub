@@ -1919,20 +1919,33 @@ export async function createStudentTool(
     // geçerli, tek yol. Otomatik önerilen ilk dönem tutarı, henüz gerçek
     // ders programı yokken `estimatePeriodBillingLines` PROJEKSİYONUYLA
     // (bkz. o dosyadaki `estimated` bayrağı notu) hesaplanır.
-    const { estimatePeriodBillingLines, derivePerLessonAmount } = await import("../period-lesson-billing");
+    const { estimatePeriodBillingLines, derivePerLessonAmount, countExactWeekdayLessons } = await import(
+      "../period-lesson-billing"
+    );
     const derivedPerLessonAmount = derivePerLessonAmount(pricing.monthlyFee, v.data.weeklyLessonCount);
     const startDay = v.data.enrollmentStartDate || toZonedYmd(new Date(), resolveAppTimezone());
     const [sy, sm] = startDay.slice(0, 7).split("-").map(Number) as [number, number];
     const monthEndDay = `${startDay.slice(0, 7)}-${String(new Date(Date.UTC(sy, sm, 0)).getUTCDate()).padStart(2, "0")}`;
     const firstPeriodEnd =
       v.data.enrollmentEndDate && v.data.enrollmentEndDate < monthEndDay ? v.data.enrollmentEndDate : monthEndDay;
-    const firstPeriodLines = estimatePeriodBillingLines({
-      enrollmentStartDay: startDay,
-      enrollmentEndDay: firstPeriodEnd,
-      perLessonNetFee: derivedPerLessonAmount,
-      weeklyLessonCount: v.data.weeklyLessonCount,
-    });
-    const autoSuggestedAmount = firstPeriodLines[0]!.autoCalculatedAmount;
+    // P0 fix (2026-09-03) — `lessonDays` GÖNDERİLDİYSE ve haftalık sıklıkla
+    // TAM eşleşiyorsa (üstteki doğrulama zaten bunu zorunlu kılıyor),
+    // ilk dönem tutarı ARTIK gün-oranlı PROJEKSİYONDAN değil, o dönemde
+    // seçilen günlerin KAÇ KEZ geçtiğinin TAM sayımından türetilir —
+    // UI'da (`new-student-form.tsx`) "kesin" olarak gösterilen sayı ile
+    // burada Payment/audit'e yazılan tutar artık AYNI kaynaktan gelir.
+    // `lessonDays` yoksa (geriye dönük çağıranlar) eski projeksiyon kalır.
+    const hasExactLessonDays =
+      v.data.lessonDays && v.data.lessonDays.length === v.data.weeklyLessonCount;
+    const firstPeriodBillableCount = hasExactLessonDays
+      ? countExactWeekdayLessons(startDay, firstPeriodEnd, v.data.lessonDays!)
+      : estimatePeriodBillingLines({
+          enrollmentStartDay: startDay,
+          enrollmentEndDay: firstPeriodEnd,
+          perLessonNetFee: derivedPerLessonAmount,
+          weeklyLessonCount: v.data.weeklyLessonCount,
+        })[0]!.billableLessonCount;
+    const autoSuggestedAmount = firstPeriodBillableCount * derivedPerLessonAmount;
 
     const { resolveFirstPaymentAdjustment } = await import("../first-payment-adjustment");
     const adjustment = resolveFirstPaymentAdjustment({

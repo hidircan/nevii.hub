@@ -276,4 +276,53 @@ describe("createStudentTool — P0-C lessonDays (gönderildiyse) weeklyLessonCou
     );
     expect(res.ok).toBe(true);
   });
+
+  it("aynı tarih aralığı + aynı haftalık sıklık, FARKLI lessonDays → FARKLI autoSuggestedAmount (UI ile aynı KESİN sayım)", async () => {
+    // 15-29 Eylül 2026: Salı/Perşembe (2,4) o dönemde 5 kez, Pazartesi/Çarşamba
+    // (1,3) 4 kez geçer — `countExactWeekdayLessons` ile doğrulanmış gerçek
+    // takvim farkı (gün-oranlı projeksiyon bu farkı YANSITMAZDI, ikisi de
+    // aynı gün sayısı/haftalık sıklık için aynı projeksiyonu üretirdi).
+    const tueThu = await createStudentTool(
+      ctx(),
+      baseInput({
+        phone: "5551110001",
+        enrollmentStartDate: "2026-09-15",
+        enrollmentEndDate: "2026-09-29",
+        weeklyLessonCount: 2,
+        monthlyFee: 3000,
+        lessonDays: [2, 4],
+        firstPaymentCollected: { method: "cash", amount: 3000, collectedAt: "2026-09-15" },
+        firstPaymentAdjustmentReason: "test",
+      })
+    );
+    expect(tueThu.ok).toBe(true);
+    if (!tueThu.ok) return;
+
+    const monWed = await createStudentTool(
+      ctx(),
+      baseInput({
+        phone: "5551110002",
+        enrollmentStartDate: "2026-09-15",
+        enrollmentEndDate: "2026-09-29",
+        weeklyLessonCount: 2,
+        monthlyFee: 3000,
+        lessonDays: [1, 3],
+        firstPaymentCollected: { method: "cash", amount: 3000, collectedAt: "2026-09-15" },
+        firstPaymentAdjustmentReason: "test",
+      })
+    );
+    expect(monWed.ok).toBe(true);
+    if (!monWed.ok) return;
+
+    const data = await readData();
+    const paymentFor = (studentId: string) =>
+      data.payments.find((p) => p.studentId === studentId && p.source === "registration_first_payment");
+
+    // derivePerLessonAmount(3000, 2) = 3000 / (2*4) = 375/ders
+    const tueThuPayment = paymentFor(tueThu.data.studentId);
+    const monWedPayment = paymentFor(monWed.data.studentId);
+    expect(tueThuPayment?.autoSuggestedAmount).toBe(5 * 375);
+    expect(monWedPayment?.autoSuggestedAmount).toBe(4 * 375);
+    expect(tueThuPayment?.autoSuggestedAmount).not.toBe(monWedPayment?.autoSuggestedAmount);
+  });
 });
