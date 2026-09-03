@@ -227,7 +227,7 @@ export function applyLessonOpsFlag(
       expiresAt: formatISO(addDays(now, data.settings.makeupWindowDays)),
       suggestedSlots: [],
       createdAt: nowIso,
-      policyNote: `${data.settings.makeupWindowDays} gün pencere · ${data.settings.monthlyMakeupAllowance ?? 2}/ay hak · ${branch?.shortName ?? ""}`,
+      policyNote: `${data.settings.makeupWindowDays} gün pencere · ${data.settings.monthlyMakeupAllowance ?? 2}/dönem hak · ${branch?.shortName ?? ""}`,
     };
     makeupRequests = [...makeupRequests, req];
   }

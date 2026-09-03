@@ -48,6 +48,7 @@ import {
   createTeacherTool,
   createRoomTool,
   createStudentTool,
+  createLessonTool,
   setLessonOpsFlagTool,
   cancelLessonTool,
 } from "../src/lib/services/tools";
@@ -264,12 +265,41 @@ async function main() {
       );
     }
 
+    // 8) GÜNCEL/GELECEK DERSLER — Ders Programı ekranı varsayılan olarak
+    // İÇİNDE BULUNULAN HAFTAYI gösterir; yukarıdaki 6 ders KASITLI olarak
+    // GEÇMİŞTE (2026-08, Yoklama Raporu testi için) — bu yüzden demo
+    // öğrencisi Ders Programı'nı bugün açan bir kullanıcıya HİÇ görünmezdi
+    // (kök neden: seed verisi ekranın varsayılan tarih aralığının DIŞINDA,
+    // bir filtre/ilişki hatası DEĞİL). Bunu gidermek için AYNI öğrenciye
+    // `createLessonTool` ile (gerçek gelecek tarih, gerçek kapalı-gün
+    // kuralından geçerek) birkaç GÜNCEL/gelecek ders eklenir — Ders
+    // Programı'nda da normal bir öğrenci gibi görünür.
+    const upcomingLessonIds: string[] = [];
+    for (const offsetDays of [1, 3, 8]) {
+      const day = new Date();
+      day.setUTCDate(day.getUTCDate() + offsetDays);
+      if (day.getUTCDay() === 1) day.setUTCDate(day.getUTCDate() + 1); // Pazartesi kapalı — legacy kural
+      day.setUTCHours(11, 0, 0, 0);
+      const created = await requireOk(
+        "createLessonTool",
+        createLessonTool(ctx, {
+          studentId: statusStudentId,
+          teacherId,
+          roomId,
+          instrument: INSTRUMENT,
+          startAt: day.toISOString(),
+        })
+      );
+      upcomingLessonIds.push(created.lessonId);
+    }
+
     console.log("Tamamlandı — Yoklama Raporu demo verisi oluşturuldu:");
     console.log(`  Öğretmen: ${DEMO_TEACHER_NAME} (${teacherId})`);
     console.log(`  Oda: ${DEMO_ROOM_NAME} (${roomId})`);
-    console.log(`  Durum vitrini öğrencisi: ${DEMO_STUDENT_STATUS_NAME} (${statusStudentId}) — 6 ders (Geldi/İşlendi/Telafi/Gelmedi/Mazeretli/İptal)`);
+    console.log(`  Durum vitrini öğrencisi: ${DEMO_STUDENT_STATUS_NAME} (${statusStudentId}) — 6 geçmiş ders (Geldi/İşlendi/Telafi/Gelmedi/Mazeretli/İptal) + ${upcomingLessonIds.length} güncel/gelecek Planlandı ders`);
     console.log(`  Risk öğrencisi: ${DEMO_STUDENT_RISK_NAME} (${riskStudentId}) — 3 "İşlendi" ders, ${DEMO_MONTH} ayında`);
     console.log("  Rapor: /panel/yoklama-raporu — filtre 'Özel aralık' ile 2026-08-01 – 2026-08-31 seçin.");
+    console.log("  Ders Programı: /panel/program — içinde bulunulan hafta veya sonraki haftalarda görünür.");
   });
 }
 

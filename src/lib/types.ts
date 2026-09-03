@@ -907,8 +907,14 @@ export interface SchoolSettings {
   logoUrl: string;
   makeupWindowDays: number;
   /**
-   * Aylık öğrenci başına telafi hakkı (varsayılan 2). 0 = telafi kapalı.
-   * pending/suggested/awaiting_info/confirmed sayılır; cancelled/expired sayılmaz.
+   * P0 (2026-09-03) — DÖNEM BAŞINA öğrenci başına telafi hakkı (varsayılan
+   * 2), TAKVİM AYI DEĞİL (bkz. src/lib/makeup-quota.ts — dönem, ay içinde
+   * değişse bile sıfırlanmaz, yalnız yeni eğitim döneminde yeniden dolar).
+   * Alan adı ("monthlyMakeupAllowance") geriye dönük DB uyumluluğu için
+   * DEĞİŞTİRİLMEDİ — anlamı artık "dönem başına hak"tır, kod/UI her yerde
+   * bu şekilde ele alınır. 0 = telafi kapalı. confirmed="kullanıldı";
+   * pending/suggested/awaiting_info="rezerve edildi"; cancelled/expired
+   * sayılmaz.
    */
   monthlyMakeupAllowance?: number;
   lessonDurationMinutes: number;

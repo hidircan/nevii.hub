@@ -143,7 +143,11 @@ function ContractForm({
   // gün-of-month) veya "month_end" (N. ayın takvim sonu). İkisi de aynı
   // `enrollmentEndDate` alanına yazılır — yeni bir şema/migration YOK.
   const [endDatePreference, setEndDatePreference] = useState<"date_based" | "month_end">("date_based");
-  const [monthlyAmount, setMonthlyAmount] = useState(previousContract?.monthlyAmount ?? prefill?.monthlyAmount ?? 0);
+  // P0 (2026-09-03) — `firstPaymentAmount`/`depositAmount` ile AYNI desen
+  // (new-student-form.tsx'te de kullanılan proje standardı): başlangıçta
+  // BOŞ, "0" görünmez, kullanıcı doğrudan yazar. `!monthlyAmount` guard'ı
+  // (validateForm) "" için zaten falsy döner, otomatik 0'a ÇEVİRMEZ.
+  const [monthlyAmount, setMonthlyAmount] = useState<number | "">(previousContract?.monthlyAmount ?? prefill?.monthlyAmount ?? "");
   const [installmentCount, setInstallmentCount] = useState(isRenewal ? 3 : (prefill?.durationMonths ?? 1));
   const [firstDueDate, setFirstDueDate] = useState(
     isRenewal ? previousContract!.enrollmentEndDate.slice(0, 10) : (prefill?.enrollmentStartDate?.slice(0, 10) ?? "")
@@ -499,10 +503,14 @@ function ContractForm({
         <div>
           <Label>Aylık ücret (TL)</Label>
           <Input
-            type="number"
-            min={1}
-            value={monthlyAmount}
-            onChange={(e) => setMonthlyAmount(Number(e.target.value) || 0)}
+            inputMode="numeric"
+            pattern="[0-9]*"
+            placeholder="Örn. 3000"
+            value={monthlyAmount === "" ? "" : String(monthlyAmount)}
+            onChange={(e) => {
+              const digits = e.target.value.replace(/[^0-9]/g, "");
+              setMonthlyAmount(digits === "" ? "" : Number(digits));
+            }}
             aria-invalid={!!fieldErrors.monthlyAmount}
           />
           <FieldError message={fieldErrors.monthlyAmount} />
@@ -543,10 +551,14 @@ function ContractForm({
         <div>
           <Label>Kaparo / depozito (opsiyonel, TL)</Label>
           <Input
-            type="number"
-            min={0}
-            value={depositAmount}
-            onChange={(e) => setDepositAmount(e.target.value === "" ? "" : Number(e.target.value))}
+            inputMode="numeric"
+            pattern="[0-9]*"
+            placeholder="Opsiyonel"
+            value={depositAmount === "" ? "" : String(depositAmount)}
+            onChange={(e) => {
+              const digits = e.target.value.replace(/[^0-9]/g, "");
+              setDepositAmount(digits === "" ? "" : Number(digits));
+            }}
           />
         </div>
         <div>
@@ -610,10 +622,14 @@ function ContractForm({
               <Label>Tahsil edilen tutar (TL)</Label>
               <Input
                 id="firstPaymentAmount"
-                type="number"
-                min={1}
-                value={firstPaymentAmount}
-                onChange={(e) => setFirstPaymentAmount(e.target.value === "" ? "" : Number(e.target.value))}
+                inputMode="numeric"
+                pattern="[0-9]*"
+                placeholder="Örn. 3000"
+                value={firstPaymentAmount === "" ? "" : String(firstPaymentAmount)}
+                onChange={(e) => {
+                  const digits = e.target.value.replace(/[^0-9]/g, "");
+                  setFirstPaymentAmount(digits === "" ? "" : Number(digits));
+                }}
                 aria-invalid={!!fieldErrors.firstPaymentAmount}
               />
               <FieldError message={fieldErrors.firstPaymentAmount} />
