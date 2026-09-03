@@ -246,6 +246,11 @@ export function NewStudentForm({
       const wanted = values[el.name];
       if (wanted !== undefined && el.value !== wanted) el.value = wanted;
     }
+    // `values` bilerek deps dışı: bu efekt yalnız server action `state`
+    // DEĞİŞTİĞİNDE (reset sonrası DOM'u son gönderilen değerlere geri
+    // yazmak için) çalışmalı — her tuş vuruşunda `values` değiştiğinde
+    // YENİDEN çalışırsa kullanıcı yazarken DOM'a müdahale eder.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state]);
 
   useEffect(() => {
@@ -272,6 +277,9 @@ export function NewStudentForm({
         break;
       }
     }
+    // `fieldErrors` bilerek deps dışı: aynı `state`ten türetilir, yalnız
+    // `state` değiştiğinde (yeni submit sonucu) bir kez kaydırıp odaklanmalı.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state]);
 
   return (
