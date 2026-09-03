@@ -28,6 +28,7 @@ import {
   contractTitleFields,
   formatCheckboxOptionsText,
   createContract,
+  computeContractEndDate,
 } from "../contracts";
 import { DOCUMENT_TEMPLATES_FILE, DOCUMENT_INSTANCES_FILE } from "../documents";
 import { DEFAULT_TENANT_ID } from "../auth/config";
@@ -1127,5 +1128,28 @@ describe("Owner policy (2026-08-30, final) — İlk ödeme kayıt anında alın�
       })
     );
     expect(res.ok).toBe(true);
+  });
+});
+
+describe("computeContractEndDate — müşterinin sözleşme bitiş tercihi (tarih bazlı / takvim ayı sonu)", () => {
+  it("15 Eylül + 3 ay + tarih bazlı → 15 Aralık", () => {
+    expect(computeContractEndDate("2026-09-15", 3, "date_based")).toBe("2026-12-15");
+  });
+
+  it("15 Eylül + 3 ay + takvim ayı sonu → 31 Aralık", () => {
+    expect(computeContractEndDate("2026-09-15", 3, "month_end")).toBe("2026-12-31");
+  });
+
+  it("varsayılan tercih tarih bazlıdır (preference verilmezse)", () => {
+    expect(computeContractEndDate("2026-09-15", 3)).toBe("2026-12-15");
+  });
+
+  it("ay sonu taşması tarih bazlı modda hedef ayın son gününe kenetlenir (31 Ocak + 1 ay → 28/29 Şubat)", () => {
+    expect(computeContractEndDate("2026-01-31", 1, "date_based")).toBe("2026-02-28");
+  });
+
+  it("takvim ayı sonu modunda başlangıç günü sonucu etkilemez", () => {
+    expect(computeContractEndDate("2026-09-01", 3, "month_end")).toBe("2026-12-31");
+    expect(computeContractEndDate("2026-09-30", 3, "month_end")).toBe("2026-12-31");
   });
 });

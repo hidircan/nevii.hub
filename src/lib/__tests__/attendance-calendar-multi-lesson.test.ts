@@ -4,9 +4,12 @@ import path from "path";
 import { resolveDataDir } from "../config";
 import { createLessonTool, setLessonOpsFlagTool, getAttendanceCalendarMonthTool } from "../services/tools";
 import { readData } from "../store";
+import { readData as readDataJson, writeData as writeDataJson } from "../store-json";
 import { DEFAULT_TENANT_ID } from "../auth/config";
 import type { ServiceContext } from "../services/context";
 import { validateLessonSlot } from "../makeup-engine";
+import { uid } from "../utils";
+import type { Lesson } from "../types";
 
 const DATA_FILE = path.join(resolveDataDir(path.join(process.cwd(), "data")), "store.json");
 
@@ -38,6 +41,22 @@ async function findFreeWeekday(): Promise<string> {
     if (!busyDates.has(dateKey)) return dateKey;
   }
   throw new Error("no free weekday found");
+}
+
+/** `findFreeWeekday` ile AYNI, yalnız GEÇMİŞE doğru arar (ops-flag testleri geçmiş bir ders ister). */
+async function findFreePastWeekday(): Promise<string> {
+  const data = await readData();
+  const busyDates = new Set(
+    data.lessons.filter((l) => l.studentId === "s1" || l.teacherId === "t1").map((l) => l.startAt.slice(0, 10))
+  );
+  for (let offset = 1; offset <= 20; offset++) {
+    const d = new Date();
+    d.setDate(d.getDate() - offset);
+    if (d.getDay() === 0 || d.getDay() === 1) continue;
+    const dateKey = d.toISOString().slice(0, 10);
+    if (!busyDates.has(dateKey)) return dateKey;
+  }
+  throw new Error("no free past weekday found");
 }
 
 /**
@@ -87,19 +106,43 @@ describe("getAttendanceCalendarMonthTool — aynı gün birden fazla ders (İş 
   });
 
   it("bir dersi 'telafi', diğerini 'geldi' işaretlemek birbirinden bağımsız kalır", async () => {
-    const dateKey = await findFreeWeekday();
+    // `resolveLessonFinalStatus` (lesson-live-status.ts) KASITLI olarak
+    // gelecekteki dersleri ops-bayrağı ne olursa olsun her zaman "planned"
+    // gösterir (bkz. lesson-live-status.test.ts "future ders legacy alanları
+    // dolu olsa da planlı kalır") — bu yüzden bu test GEÇMİŞ bir derse ihtiyaç
+    // duyar. `createLessonTool` geçmiş `startAt`'ı reddettiğinden (gerçek
+    // kullanıcı hatalarını önleyen kasıtlı korumadır), scripts/seed-*.ts'in
+    // AYNI, önceden kabul edilmiş deseniyle `addLesson` (store.ts) doğrudan
+    // çağrılır — yalnız ders OLUŞTURMA adımı için; ops-flag geçişleri yine
+    // GERÇEK `setLessonOpsFlagTool` çağrılarıyla yapılır.
+    const dateKey = await findFreePastWeekday();
     const morning = `${dateKey}T10:00:00.000Z`;
     const afternoon = `${dateKey}T14:00:00.000Z`;
 
-    const l1 = await createLessonTool(ctx(), { studentId: "s1", teacherId: "t1", roomId: "r1", instrument: "Piyano", startAt: morning });
-    const l2 = await createLessonTool(ctx(), { studentId: "s1", teacherId: "t1", roomId: "r1", instrument: "Piyano", startAt: afternoon });
-    expect(l1.ok && l2.ok).toBe(true);
-    if (!l1.ok || !l2.ok) return;
+    function pastLesson(startAt: string): Lesson {
+      return {
+        id: uid("les"),
+        studentId: "s1",
+        teacherId: "t1",
+        roomId: "r1",
+        branchId: "erzene",
+        instrument: "Piyano",
+        startAt,
+        endAt: new Date(new Date(startAt).getTime() + 40 * 60_000).toISOString(),
+        type: "regular",
+        status: "scheduled",
+      } as Lesson;
+    }
+    const l1 = pastLesson(morning);
+    const l2 = pastLesson(afternoon);
+    const jsonData = await readDataJson();
+    jsonData.lessons.push(l1, l2);
+    await writeDataJson(jsonData);
 
-    const flag1 = await setLessonOpsFlagTool(ctx(), { lessonId: l1.data.lessonId, flag: "attended" });
+    const flag1 = await setLessonOpsFlagTool(ctx(), { lessonId: l1.id, flag: "attended" });
     expect(flag1.ok).toBe(true);
     const flag2 = await setLessonOpsFlagTool(ctx(), {
-      lessonId: l2.data.lessonId,
+      lessonId: l2.id,
       flag: "makeup",
       reason: "Öğrenci hastaydı",
     });
@@ -111,8 +154,8 @@ describe("getAttendanceCalendarMonthTool — aynı gün birden fazla ders (İş 
     if (!monthRes.ok) return;
     const day = monthRes.data.days.find((d) => d.date === dateKey)!;
 
-    const status1 = day.lessons.find((l) => l.lessonId === l1.data.lessonId)?.opsStatus;
-    const status2 = day.lessons.find((l) => l.lessonId === l2.data.lessonId)?.opsStatus;
+    const status1 = day.lessons.find((l) => l.lessonId === l1.id)?.opsStatus;
+    const status2 = day.lessons.find((l) => l.lessonId === l2.id)?.opsStatus;
     expect(status1).toBe("attended");
     expect(status2).toBe("makeup");
   });

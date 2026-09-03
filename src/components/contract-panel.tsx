@@ -117,6 +117,11 @@ function ContractForm({
       : (prefill?.enrollmentStartDate?.slice(0, 10) ?? "")
   );
   const [durationMonths, setDurationMonths] = useState(isRenewal ? 3 : (prefill?.durationMonths ?? 1));
+  // P0 (2026-09-03) — müşteri, kayıt ortasında başlasa bile sözleşmenin nasıl
+  // biteceğini seçebilmeli: "date_based" (başlangıçtan itibaren N ay, aynı
+  // gün-of-month) veya "month_end" (N. ayın takvim sonu). İkisi de aynı
+  // `enrollmentEndDate` alanına yazılır — yeni bir şema/migration YOK.
+  const [endDatePreference, setEndDatePreference] = useState<"date_based" | "month_end">("date_based");
   const [monthlyAmount, setMonthlyAmount] = useState(previousContract?.monthlyAmount ?? prefill?.monthlyAmount ?? 0);
   const [installmentCount, setInstallmentCount] = useState(isRenewal ? 3 : (prefill?.durationMonths ?? 1));
   const [firstDueDate, setFirstDueDate] = useState(
@@ -149,11 +154,22 @@ function ContractForm({
   // dilimi kaymasına yol açabilir. `parseDateOnlyInput` her zaman UTC
   // öğlende ayrıştırır, `setUTCMonth` ile AYNI saat diliminde ilerletilir —
   // kayma imkansızdır. Geçersiz/boş girdide SESSİZCE "" döner (fırlatmaz).
+  // `contracts.ts` `computeContractEndDate` ile AYNI algoritma — o dosya
+  // sunucu-only import'lar (fs/path) taşıdığından client bileşenine
+  // doğrudan import edilemez, bilerek burada yansıtılır (server-side test
+  // kapsamı `contracts.test.ts`'te).
   const enrollmentEndDate = (() => {
     const start = parseDateOnlyInput(enrollmentStartDate);
     if (!start || !durationMonths) return "";
     const d = new Date(start);
     d.setUTCMonth(d.getUTCMonth() + durationMonths);
+    if (endDatePreference === "month_end") {
+      // N. ayın takvim sonu — ör. 15 Eylül + 3 ay → Aralık ayının son günü.
+      return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).toISOString().slice(0, 10);
+    }
+    // Tarih bazlı — ör. 15 Eylül + 3 ay → 15 Aralık (ay sonu taşması ayın son gününe kenetlenir).
+    const lastDayOfTargetMonth = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
+    d.setUTCDate(Math.min(start.getUTCDate(), lastDayOfTargetMonth));
     return d.toISOString().slice(0, 10);
   })();
 
@@ -422,7 +438,18 @@ function ContractForm({
           <FieldError message={fieldErrors.durationMonths} />
         </div>
         <div>
-          <Label>Bitiş tarihi (otomatik)</Label>
+          <Label>Sözleşme bitiş tercihi</Label>
+          <select
+            value={endDatePreference}
+            onChange={(e) => setEndDatePreference(e.target.value as "date_based" | "month_end")}
+            className="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text)]"
+          >
+            <option value="date_based">Başlangıç tarihinden itibaren</option>
+            <option value="month_end">Takvim ayı sonuna kadar</option>
+          </select>
+        </div>
+        <div>
+          <Label>Sözleşme bitiş tarihi (otomatik)</Label>
           <Input type="date" value={enrollmentEndDate} disabled />
         </div>
         <div className="sm:col-span-2">

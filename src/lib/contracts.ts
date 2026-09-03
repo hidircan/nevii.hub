@@ -98,6 +98,32 @@ function addMonthsClamped(isoDate: string, months: number): string {
   return target.toISOString();
 }
 
+export type ContractEndDatePreference = "date_based" | "month_end";
+
+/**
+ * P0 (2026-09-03) — müşteri, kayıt ortasında başlasa bile sözleşmenin nasıl
+ * biteceğini seçebilir: "date_based" (başlangıçtan itibaren N ay, aynı
+ * gün-of-month, ay sonu taşması kenetlenir — `addMonthsClamped` ile AYNI
+ * kural) veya "month_end" (N. ayın takvim sonu). TEK kaynak — UI önizlemesi
+ * (contract-panel.tsx) ve sözleşme oluşturma AYNI fonksiyonu çağırmalı.
+ * yyyy-MM-dd (gün-yalnız) girer, yyyy-MM-dd döner — saat dilimi kayması yok.
+ */
+export function computeContractEndDate(
+  startDay: string,
+  durationMonths: number,
+  preference: ContractEndDatePreference = "date_based"
+): string {
+  const start = new Date(`${startDay}T00:00:00Z`);
+  const target = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + durationMonths, 1));
+  const lastDayOfTargetMonth = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)).getUTCDate();
+  if (preference === "month_end") {
+    target.setUTCDate(lastDayOfTargetMonth);
+  } else {
+    target.setUTCDate(Math.min(start.getUTCDate(), lastDayOfTargetMonth));
+  }
+  return target.toISOString().slice(0, 10);
+}
+
 /** Aynı ay içinde `day`'e (ayın son gününe kenetlenerek) kaydırır — hedef ay `isoDate`'in ayıdır. */
 function setDayOfMonthClamped(isoDate: string, day: number): string {
   const d = new Date(isoDate);

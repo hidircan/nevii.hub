@@ -1946,7 +1946,16 @@ export async function createStudentTool(
           perLessonNetFee: derivedPerLessonAmount,
           weeklyLessonCount: v.data.weeklyLessonCount,
         })[0]!.billableLessonCount;
-    const autoSuggestedAmount = firstPeriodBillableCount * derivedPerLessonAmount;
+    // P0 (2026-09-03) — "3 ders eşiği": kayıt ayında kalan GERÇEK ders sayısı
+    // 3'ten azsa, o kadar az bir ilk tahsilat nakit akışı açısından yetersiz
+    // sayılır — sonraki takvim ayının TAM aylık ücreti de öneriye eklenir.
+    // 3 veya daha fazlaysa yalnız kayıt ayı kalan dersleri önerilir. Bu bir
+    // ZORUNLULUK değil (kullanıcı farklı tutar girebilir, bkz. aşağıdaki
+    // `resolveFirstPaymentAdjustment`) — yalnız öneri hesabını etkiler.
+    const autoSuggestedAmount =
+      firstPeriodBillableCount >= 3
+        ? firstPeriodBillableCount * derivedPerLessonAmount
+        : firstPeriodBillableCount * derivedPerLessonAmount + pricing.monthlyFee;
 
     const { resolveFirstPaymentAdjustment } = await import("../first-payment-adjustment");
     const adjustment = resolveFirstPaymentAdjustment({

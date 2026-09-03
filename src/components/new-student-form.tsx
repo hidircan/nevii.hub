@@ -186,13 +186,18 @@ export function NewStudentForm({
       const hasExactDays = lessonDays.length === weeklyLessonCount && new Set(lessonDays).size === weeklyLessonCount;
       const exactCount = hasExactDays ? countExactWeekdayLessons(startDay, lines[0]?.periodEnd ?? endDay, lessonDays) : null;
       const plannedLessons = exactCount ?? lines[0]?.billableLessonCount ?? 0;
+      // P0 (2026-09-03) — "3 ders eşiği": sunucudaki (createStudentTool)
+      // AYNI kural — kayıt ayında kalan gerçek ders sayısı 3'ten azsa
+      // sonraki ayın tam ücreti de öneriye eklenir. Tek kaynak sunucudur;
+      // burası yalnız İSTEMCİ önizlemesi, resmi hesap değildir.
+      const suggestedAmount = plannedLessons >= 3 ? plannedLessons * derived : plannedLessons * derived + monthlyFee;
       setPreview({
         monthlyFee,
         weeklyLessonCount,
         referenceCount: referenceMonthlyLessonCount(weeklyLessonCount),
         derivedPerLessonAmount: derived,
         firstPeriodPlannedLessons: plannedLessons,
-        firstPeriodSuggestedAmount: plannedLessons * derived,
+        firstPeriodSuggestedAmount: suggestedAmount,
         lessonsAreExact: hasExactDays,
       });
     } catch {
