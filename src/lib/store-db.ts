@@ -194,7 +194,6 @@ async function assertStudentMakeupQuotaTx(
   const school = await tx.school.findFirst({ where: { id: schoolId, tenantId } });
   if (!school) throw new Error("Kurum bulunamadı");
   const allowance = resolveMonthlyMakeupAllowance(school);
-  const { formatEducationYearLabel } = await import("./makeup-quota");
   const periodLabel = formatEducationPeriodLabel(period.term, period.academicYearStart);
   if (allowance === 0) {
     throw new MakeupQuotaExceededError("Bu kurumda telafi talebi kapalıdır (eğitim yılı başına hak: 0).");
