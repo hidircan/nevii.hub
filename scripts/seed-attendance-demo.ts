@@ -87,9 +87,13 @@ async function requireOk<T>(label: string, promise: Promise<{ ok: true; data: T 
 }
 
 async function main() {
-  if (process.env.NODE_ENV === "production") {
+  // P0 (2026-09-03) — `NODE_ENV=production` tek başına Vercel prod'u
+  // yakalamayabilir (Vercel preview deploy'ları da `NODE_ENV=production`
+  // set edebilir, AMA gerçek prod ayrıca `VERCEL_ENV=production` taşır) —
+  // ikisinden BİRİ bile prod işareti taşıyorsa KOŞULSUZ reddedilir.
+  if (process.env.NODE_ENV === "production" || process.env.VERCEL_ENV === "production") {
     console.error(
-      "[HATA] Bu script PRODUCTION ortamında ÇALIŞTIRILAMAZ (NODE_ENV=production). " +
+      "[HATA] Bu script PRODUCTION ortamında ÇALIŞTIRILAMAZ (NODE_ENV/VERCEL_ENV=production). " +
         "Yalnız dev/demo ortamları içindir."
     );
     process.exit(1);
