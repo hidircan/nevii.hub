@@ -1393,6 +1393,103 @@ describe("createStudentContractTool — per-lesson öğrenci (usePerLessonBillin
     expect(createRes.data.contract.totalContractAmount).toBe(previewRes.data.totalContractAmount);
   });
 
+  it("önizleme, kayıt anında GERÇEKTEN tahsil edilen ilk ödemeyi kullanır — otomatik/projeksiyon tutarına eşit olmak ZORUNDA DEĞİLDİR", async () => {
+    // Regresyon — kullanıcı raporu: "ödeme önizlemesinde ilk tahsilat tutarı
+    // hatalı görünüyor". Kök neden: `previewContractInstallmentPlanTool`
+    // `buildPerLessonInstallmentSchedule`'ı `firstPeriodManualNetAmount`
+    // VERMEDEN çağırıyordu — `createContract` ise kayıt anında
+    // `getRegistrationFirstPayment` ile GERÇEK tahsilatı okuyup veriyordu.
+    // Yukarıdaki parite testi bunu YAKALAMADI çünkü orada manuel tutar
+    // tesadüfen otomatik hesapla AYNIYDI. Burada — tam kullanıcı örneğindeki
+    // gibi (17 Eylül, Eylül'de eşik-üstü 4 ders, normal dönem 6.000 TL) —
+    // manuel ilk tahsilat (3.500 TL) BİLEREK otomatik projeksiyondan (6.000
+    // TL) FARKLI: preview bunu göz ardı edip 6.000 TL göstermemeli.
+    const { readData, writeData, addRegistrationFirstPayment } = await import("../store-json");
+    const data = await readData();
+    const monthlyFee = 6000;
+    const weeklyLessonCount = 1;
+    const derivedPerLessonAmount = Math.round(monthlyFee / (weeklyLessonCount * 4)); // 1500
+    data.students.push({
+      id: "s_perlesson_manual_first",
+      name: "Manuel İlk Tahsilat Öğrenci",
+      email: "",
+      phone: "5551119999",
+      parentName: "Veli",
+      parentPhone: "5559998888",
+      branchId: "erzene",
+      instruments: ["Piyano"],
+      teacherId: "t1",
+      weeklyLessonCount,
+      monthlyFee,
+      derivedPerLessonAmount,
+      enrollmentStartDate: "2026-09-17",
+      active: true,
+      notes: "",
+      createdAt: "2026-09-17T00:00:00.000Z",
+      lessonDurationMinutes: 40,
+    } as unknown as (typeof data.students)[number]);
+    // Eylül: eşik-üstü 4 ders (17,18,19,20) → birleşme YOK, otomatik tutar 4*1500=6000.
+    const septDates = ["2026-09-17", "2026-09-18", "2026-09-19", "2026-09-20"];
+    for (const [i, day] of septDates.entries()) {
+      data.lessons.push({
+        id: `les_plm_${i}`,
+        studentId: "s_perlesson_manual_first",
+        teacherId: "t1",
+        roomId: "r1",
+        branchId: "erzene",
+        instrument: "Piyano",
+        startAt: `${day}T10:00:00.000Z`,
+        endAt: `${day}T10:40:00.000Z`,
+        type: "regular",
+        status: "scheduled",
+      } as unknown as (typeof data.lessons)[number]);
+    }
+    await writeData(data);
+    const manualFirstAmount = 3500; // Kullanıcının GERÇEKTEN tahsil ettiği tutar — otomatik 6.000'den bilerek farklı.
+    await addRegistrationFirstPayment({
+      studentId: "s_perlesson_manual_first",
+      method: "cash",
+      amount: manualFirstAmount,
+      collectedAt: "2026-09-17",
+      receivedByUserId: "u1",
+    });
+
+    const sharedInput = {
+      durationMonths: 3,
+      monthlyAmount: monthlyFee,
+      installmentCount: 3,
+      firstDueDate: "2026-09-17",
+      usePerLessonBilling: true,
+      studentId: "s_perlesson_manual_first",
+      enrollmentStartDate: "2026-09-17",
+      enrollmentEndDate: "2026-11-30",
+    };
+    const previewRes = await previewContractInstallmentPlanTool(adminCtx(), sharedInput);
+    expect(previewRes.ok).toBe(true);
+    if (!previewRes.ok) return;
+    const [previewFirst] = previewRes.data.installments;
+    expect(previewFirst!.kind).toBe("first_collection");
+    // Bu satır BEFORE fix idi: 6000 (otomatik) — fix SONRASI 3500 (gerçek) olmalı.
+    expect(previewFirst!.amount).toBe(manualFirstAmount);
+    expect(previewFirst!.amount).not.toBe(4 * derivedPerLessonAmount);
+
+    const createRes = await createStudentContractTool(adminCtx(), {
+      ...sharedInput,
+      contractType: "initial",
+      programmeName: "Piyano",
+      signatoryFullName: "Veli Adı",
+      signatoryRelationship: "veli",
+      firstPaymentExceptionReason:
+        "Kayıt tarihi (17 Eylül) kurumun 1-15 ödeme penceresi dışında — normal kayıt anı tahsilatı.",
+    });
+    expect(createRes.ok).toBe(true);
+    if (!createRes.ok) return;
+    const [createFirst] = createRes.data.installments;
+    expect(createFirst!.amount).toBe(manualFirstAmount);
+    // Önizleme ile sözleşme BİREBİR aynı ilk tahsilat tutarını göstermeli.
+    expect(previewFirst!.amount).toBe(createFirst!.amount);
+  });
+
   describe("son dönem ücretlendirme tercihi (lastPeriodPricingMode)", () => {
     it("'regular_fee' — kayıt sonundaki ders sayısı sıfır/az olsa bile son dönem normal ücrete sabitlenir, önizleme=sözleşme", async () => {
       const { monthlyFee, derivedPerLessonAmount } = await seedPerLessonStudent();

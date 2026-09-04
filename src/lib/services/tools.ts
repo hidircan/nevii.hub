@@ -64,6 +64,7 @@ import {
   switchLessonOpsFlagLive,
   upsertMonthlyPlanPayment,
   addRegistrationFirstPayment,
+  getRegistrationFirstPayment,
   addPackage,
   updatePackage,
   addDiscountCampaign,
@@ -8994,8 +8995,17 @@ export async function previewContractInstallmentPlanTool(
         })),
         makeupRequests: data.makeupRequests.map((m) => ({ sourceLessonId: m.sourceLessonId, status: m.status })),
       });
+      // Kayıt anında GERÇEKTEN tahsil edilen ilk ödeme — `createContract`'ın
+      // (bkz. contracts.ts `firstPaymentActualAmount`/`requiresFirstPaymentAtRegistration`)
+      // kullandığı AYNI kaynak ve AYNI koşul (yalnız FORMAL — >=3 ay — süre).
+      // Bu olmadan/koşulsuz kullanılırsa önizleme her zaman otomatik tutarı
+      // gösterir ya da informal (Tanışma) sürede create'ten FARKLI davranır.
+      const registrationFirstPayment = isFormalContractDuration(v.data.durationMonths)
+        ? await getRegistrationFirstPayment(student.id)
+        : null;
       installments = buildPerLessonInstallmentSchedule({
         billingLines,
+        firstPeriodManualNetAmount: registrationFirstPayment?.amount,
         mergeThresholdLessons: resolveFirstCollectionMergeThreshold({
           firstCollectionMergeThresholdLessons: paymentPolicy?.firstCollectionMergeThresholdLessons,
         }),
