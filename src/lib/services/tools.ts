@@ -51,6 +51,7 @@ import {
   updateFeeRoundingMode,
   updateMakeupWindowDays,
   updateMonthlyMakeupAllowance,
+  updateSchoolLogoUrl,
   updateTermWeeklyClosedDays,
   updateLessonSchedule,
   updateMakeupSlaEscalation,
@@ -5404,6 +5405,67 @@ export async function updateFeeRoundingModeTool(
     return ok({ feeRoundingMode: data.settings.feeRoundingMode });
   } catch (e) {
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "updateFeeRoundingMode failed");
+  }
+}
+
+const updateSchoolLogoSchema = z.object({
+  fileMimeType: z.string().min(1),
+  fileData: z.string().min(1),
+});
+
+const SCHOOL_LOGO_ALLOWED_MIME = new Set(["image/png", "image/jpeg", "image/webp"]);
+// Küçük, tek bir başlık logosu (institution-logo.ts'te 40-56px'e sabitlenmiş
+// render) — imzalı belge/ekli dosya limitleriyle (2MB) AYNI GEREKÇE yok,
+// çok daha küçük bir tavan yeterli.
+const SCHOOL_LOGO_MAX_BYTES = 500_000;
+
+/**
+ * Kurum logosu — `institution-logo.ts` (sanitizeLogoUrl/toLogoDataUrl) ve
+ * `store.ts` `updateSchoolLogoUrl` (json/db/memory parite) ZATEN mevcuttu;
+ * yalnızca bu ince RBAC/doğrulama sarmalayıcısı eksikti (contract-logo-
+ * snapshot.test.ts ve actions.ts actionUpdateSchoolLogo bunu ÖNCEDEN
+ * varsayıyordu). data-URI olarak saklanır — ayrı bir depolama sağlayıcısı
+ * YOK, mevcut base64-in-settings deseniyle AYNI.
+ */
+export async function updateSchoolLogoTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ logoUrl: string }>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+
+  const v = parseOrFail(updateSchoolLogoSchema, input);
+  if (!v.ok) return v;
+
+  if (!SCHOOL_LOGO_ALLOWED_MIME.has(v.data.fileMimeType)) {
+    return fail("VALIDATION_ERROR", "Desteklenmeyen logo türü — yalnız PNG, JPEG veya WEBP yükleyin.");
+  }
+  let buffer: Buffer;
+  try {
+    buffer = Buffer.from(v.data.fileData, "base64");
+  } catch {
+    return fail("VALIDATION_ERROR", "Logo dosyası okunamadı.");
+  }
+  if (buffer.length <= 0) return fail("VALIDATION_ERROR", "Boş dosya yüklenemez.");
+  if (buffer.length > SCHOOL_LOGO_MAX_BYTES) {
+    return fail("VALIDATION_ERROR", "Logo dosyası çok büyük (maks. 500KB) — daha küçük bir görsel yükleyin.");
+  }
+
+  const { toLogoDataUrl, sanitizeLogoUrl } = await import("../institution-logo");
+  const dataUrl = toLogoDataUrl(v.data.fileMimeType, v.data.fileData);
+  if (!sanitizeLogoUrl(dataUrl)) {
+    return fail("VALIDATION_ERROR", "Logo verisi geçersiz.");
+  }
+
+  try {
+    const data = await updateSchoolLogoUrl(dataUrl);
+    audit(ctx, "school.logo.update", "School", ctx.tenantId, {
+      byteLength: buffer.length,
+      mimeType: v.data.fileMimeType,
+    });
+    return ok({ logoUrl: data.settings.logoUrl });
+  } catch (e) {
+    return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "updateSchoolLogo failed");
   }
 }
 
