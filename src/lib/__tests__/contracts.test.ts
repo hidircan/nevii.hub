@@ -1392,4 +1392,110 @@ describe("createStudentContractTool — per-lesson öğrenci (usePerLessonBillin
     expect(strip(createRes.data.installments)).toEqual(strip(previewRes.data.installments));
     expect(createRes.data.contract.totalContractAmount).toBe(previewRes.data.totalContractAmount);
   });
+
+  describe("son dönem ücretlendirme tercihi (lastPeriodPricingMode)", () => {
+    it("'regular_fee' — kayıt sonundaki ders sayısı sıfır/az olsa bile son dönem normal ücrete sabitlenir, önizleme=sözleşme", async () => {
+      const { monthlyFee, derivedPerLessonAmount } = await seedPerLessonStudent();
+      const { addRegistrationFirstPayment } = await import("../store-json");
+      const combinedAmount = derivedPerLessonAmount + 4 * derivedPerLessonAmount;
+      await addRegistrationFirstPayment({
+        studentId: "s_perlesson",
+        method: "cash",
+        amount: combinedAmount,
+        collectedAt: "2026-09-17",
+        receivedByUserId: "u1",
+      });
+      const sharedInput = {
+        durationMonths: 3,
+        monthlyAmount: monthlyFee,
+        installmentCount: 3,
+        firstDueDate: "2026-09-17",
+        usePerLessonBilling: true,
+        studentId: "s_perlesson",
+        enrollmentStartDate: "2026-09-17",
+        enrollmentEndDate: "2026-11-30",
+        lastPeriodPricingMode: "regular_fee" as const,
+      };
+      const previewRes = await previewContractInstallmentPlanTool(adminCtx(), sharedInput);
+      expect(previewRes.ok).toBe(true);
+      if (!previewRes.ok) return;
+      // Seed'de Kasım'da hiç ders yok → gerçek ders sayısına göre 0 olurdu; "regular_fee" bunu normal aylık ücrete sabitler.
+      expect(previewRes.data.installments.at(-1)!.amount).toBe(monthlyFee);
+      expect(previewRes.data.installments.at(-1)!.computationSource).toBe("auto");
+
+      const createRes = await createStudentContractTool(adminCtx(), {
+        ...sharedInput,
+        contractType: "initial",
+        programmeName: "Piyano",
+        signatoryFullName: "Veli Adı",
+        signatoryRelationship: "veli",
+        firstPaymentExceptionReason:
+          "Kayıt tarihi (17 Eylül) kurumun 1-15 ödeme penceresi dışında — normal kayıt anı tahsilatı.",
+      });
+      expect(createRes.ok).toBe(true);
+      if (!createRes.ok) return;
+      expect(createRes.data.installments.at(-1)!.amount).toBe(monthlyFee);
+      expect(createRes.data.contract.contractDataSnapshot.installments.at(-1)!.amount).toBe(monthlyFee);
+    });
+
+    it("'manual' — son dönem tutarı personelin girdiği net tutarı kullanır ve sözleşme yeniden açıldığında AYNI görünür", async () => {
+      const { monthlyFee, derivedPerLessonAmount } = await seedPerLessonStudent();
+      const { addRegistrationFirstPayment } = await import("../store-json");
+      const combinedAmount = derivedPerLessonAmount + 4 * derivedPerLessonAmount;
+      await addRegistrationFirstPayment({
+        studentId: "s_perlesson",
+        method: "cash",
+        amount: combinedAmount,
+        collectedAt: "2026-09-17",
+        receivedByUserId: "u1",
+      });
+      const createRes = await createStudentContractTool(adminCtx(), {
+        durationMonths: 3,
+        monthlyAmount: monthlyFee,
+        installmentCount: 3,
+        firstDueDate: "2026-09-17",
+        usePerLessonBilling: true,
+        studentId: "s_perlesson",
+        enrollmentStartDate: "2026-09-17",
+        enrollmentEndDate: "2026-11-30",
+        lastPeriodPricingMode: "manual" as const,
+        lastPeriodManualAmount: 1234,
+        contractType: "initial",
+        programmeName: "Piyano",
+        signatoryFullName: "Veli Adı",
+        signatoryRelationship: "veli",
+        firstPaymentExceptionReason:
+          "Kayıt tarihi (17 Eylül) kurumun 1-15 ödeme penceresi dışında — normal kayıt anı tahsilatı.",
+      });
+      expect(createRes.ok).toBe(true);
+      if (!createRes.ok) return;
+      expect(createRes.data.installments.at(-1)!.amount).toBe(1234);
+      expect(createRes.data.installments.at(-1)!.computationSource).toBe("manual");
+
+      // "Sözleşme tekrar açıldığında" — donmuş contractDataSnapshot ÜZERİNDEN okunur, yeniden hesaplanmaz.
+      const reopened = await getContractHtmlTool(adminCtx(), { contractId: createRes.data.contract.id });
+      expect(reopened.ok).toBe(true);
+      expect(createRes.data.contract.contractDataSnapshot.installments.at(-1)!.amount).toBe(1234);
+      expect(createRes.data.contract.contractDataSnapshot.installments.at(-1)!.computationSource).toBe("manual");
+    });
+
+    it("'manual' seçilip tutar girilmezse net, alan-bazlı doğrulama hatası döner — belirsiz 'tutarlar uyuşmuyor' mesajı DEĞİL", async () => {
+      const { monthlyFee } = await seedPerLessonStudent();
+      const res = await previewContractInstallmentPlanTool(adminCtx(), {
+        durationMonths: 3,
+        monthlyAmount: monthlyFee,
+        installmentCount: 3,
+        firstDueDate: "2026-09-17",
+        usePerLessonBilling: true,
+        studentId: "s_perlesson",
+        enrollmentStartDate: "2026-09-17",
+        enrollmentEndDate: "2026-11-30",
+        lastPeriodPricingMode: "manual" as const,
+        // lastPeriodManualAmount kasıtlı olarak GÖNDERİLMEDİ.
+      });
+      expect(res.ok).toBe(false);
+      if (res.ok) return;
+      expect(res.error.message).toContain("Son dönem tutarı");
+    });
+  });
 });

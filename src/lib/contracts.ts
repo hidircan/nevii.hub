@@ -284,6 +284,51 @@ function formatPeriodLabel(line: Pick<import("./period-lesson-billing").PeriodBi
  * DEĞİL net tutar kullanılır — birleştirilmiş satırda da yalnız kayıt ayı
  * bileşenini geçersiz kılar, takip eden ayın tam ücretini ETKİLEMEZ.
  */
+/**
+ * P0 (2026-09-04) — sözleşmenin SON döneminde eksik kalan derslerin nasıl
+ * ücretlendirileceği tercihi. `remaining_lessons` (varsayılan/mevcut
+ * davranış — hiçbir şey DEĞİŞMEZ) son dönemi de diğer tüm ara dönemler gibi
+ * o dönemdeki GERÇEK ders sayısına göre bırakır. `regular_fee` son dönem
+ * satırını normal (tam) dönem ücretine sabitler — kısmi kalan ders sayısına
+ * bakmaz. `manual` personelin/velinin girdiği net tutarı kullanır.
+ */
+export type LastPeriodPricingMode = "remaining_lessons" | "regular_fee" | "manual";
+
+export type LastPeriodPricing = {
+  mode: LastPeriodPricingMode;
+  /** `mode==="regular_fee"` iken kullanılacak tam dönem ücreti (öğrencinin `monthlyFee`'si — per-lesson türetmenin dayandığı referans tutar, YENİDEN hesaplanmaz). */
+  regularFeeAmount?: number;
+  /** `mode==="manual"` iken zorunlu, personel/veli tarafından girilen net tutar. */
+  manualAmount?: number;
+};
+
+/**
+ * Üretilen satırların SON `period_fee` satırına (varsa) `lastPeriodPricing`
+ * tercihini uygular — birleştirilmiş ilk satır (`first_collection_combined`)
+ * AYNI ZAMANDA son satırsa (çok kısa/1-2 dönemlik sözleşme, nadir bir kenar
+ * durum) kasıtlı olarak DOKUNULMAZ: o satır zaten `firstPeriodManualNetAmount`
+ * ile yönetiliyor, iki bağımsız override AYNI satırda çakışmasın diye.
+ */
+function applyLastPeriodPricing(
+  rows: ContractInstallmentSnapshot[],
+  pricing: LastPeriodPricing | undefined
+): ContractInstallmentSnapshot[] {
+  if (!pricing || pricing.mode === "remaining_lessons") return rows;
+  const lastIndex = rows.length - 1;
+  const lastRow = rows[lastIndex];
+  if (!lastRow || lastRow.kind !== "period_fee") return rows;
+  if (pricing.mode === "regular_fee") {
+    if (pricing.regularFeeAmount === undefined) return rows;
+    if (pricing.regularFeeAmount === lastRow.amount) return rows;
+    rows[lastIndex] = { ...lastRow, amount: pricing.regularFeeAmount, computationSource: "auto" };
+    return rows;
+  }
+  // "manual"
+  if (pricing.manualAmount === undefined) return rows;
+  rows[lastIndex] = { ...lastRow, amount: pricing.manualAmount, computationSource: "manual" };
+  return rows;
+}
+
 export function buildPerLessonInstallmentSchedule(input: {
   billingLines: import("./period-lesson-billing").PeriodBillingLine[];
   /** İlk dönem otomatik tutardan manuel olarak farklı girildiyse. */
@@ -293,6 +338,8 @@ export function buildPerLessonInstallmentSchedule(input: {
   firstDueDate: string;
   paymentMethod?: string;
   paymentPolicy?: Pick<CollectionsSettings, "contractCardWindowEndDay" | "contractBankCashDueDay">;
+  /** P0 (2026-09-04) — son dönem ücretlendirme tercihi (bkz. `LastPeriodPricing`); undefined ise davranış TAMAMEN ESKİSİ GİBİDİR. */
+  lastPeriodPricing?: LastPeriodPricing;
 }): ContractInstallmentSnapshot[] {
   if (input.billingLines.length === 0) return [];
   const rule = resolveContractPaymentDueRule(input.paymentMethod, input.paymentPolicy);
@@ -338,14 +385,14 @@ export function buildPerLessonInstallmentSchedule(input: {
       });
       seq += 1;
     }
-    return rows;
+    return applyLastPeriodPricing(rows, input.lastPeriodPricing);
   }
 
   // Birleşme YOKSA `firstPeriodManualNetAmount` yalnızca ilk (kayıt ayı)
   // satırının kendi tutarını geçersiz kılar (AYNI, önceki davranış).
   const firstMonthAmount = input.firstPeriodManualNetAmount ?? firstMonthAutoAmount;
   const isFirstMonthManual = input.firstPeriodManualNetAmount !== undefined && firstMonthAmount !== firstMonthAutoAmount;
-  return input.billingLines.map((line, i) => {
+  const nonMergedRows = input.billingLines.map((line, i) => {
     const isFirst = i === 0;
     const amount = isFirst ? firstMonthAmount : line.autoCalculatedAmount;
     // İlk taksit personelin girdiği tarihtir (createContract ile AYNI kural);
@@ -359,8 +406,9 @@ export function buildPerLessonInstallmentSchedule(input: {
       kind: isFirst ? "first_collection" : "period_fee",
       periodLabel: formatPeriodLabel(line),
       computationSource: isFirst && isFirstMonthManual ? "manual" : "auto",
-    };
+    } satisfies ContractInstallmentSnapshot;
   });
+  return applyLastPeriodPricing(nonMergedRows, input.lastPeriodPricing);
 }
 
 /**
@@ -575,6 +623,8 @@ export type CreateContractInput = {
   perLessonBillingLines?: import("./period-lesson-billing").PeriodBillingLine[];
   /** Yalnız `perLessonBillingLines` ile birlikte anlamlı — bkz. `resolveFirstCollectionMergeThreshold`. */
   firstCollectionMergeThresholdLessons?: number;
+  /** P0 (2026-09-04) — yalnız `perLessonBillingLines` ile birlikte anlamlı; bkz. `LastPeriodPricing`. */
+  lastPeriodPricing?: LastPeriodPricing;
 };
 
 export type CreateContractResult = { contract: StudentContract; installments: ContractInstallmentView[] };
@@ -705,6 +755,7 @@ export async function createContract(input: CreateContractInput): Promise<Create
         firstDueDate: input.firstDueDate,
         paymentMethod: input.paymentMethod,
         paymentPolicy: input.paymentPolicy,
+        lastPeriodPricing: input.lastPeriodPricing,
       })
     : buildInstallmentSchedule({
         totalContractAmount: input.durationMonths * input.monthlyAmount,

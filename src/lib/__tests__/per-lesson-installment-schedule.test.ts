@@ -206,4 +206,80 @@ describe("buildPerLessonInstallmentSchedule", () => {
       expect(schedule[0]!.computationSource).toBe("auto");
     });
   });
+
+  describe("son dönem ücretlendirme tercihi (lastPeriodPricing)", () => {
+    function threeRowBillingLines() {
+      const lessons = [
+        ...["2026-09-15", "2026-09-17", "2026-09-22", "2026-09-24"].map((d, i) => lesson(`s${i}`, d)),
+        ...[1, 3, 8, 10, 15, 17, 22, 24].map((d, i) => lesson(`f${i}`, `2026-10-${String(d).padStart(2, "0")}`)),
+        ...["2026-11-02", "2026-11-05", "2026-11-09", "2026-11-12"].map((d, i) => lesson(`l${i}`, d)),
+      ];
+      return computePeriodBillingLines({
+        enrollmentStartDay: "2026-09-15",
+        enrollmentEndDay: "2026-11-14",
+        perLessonNetFee: 500,
+        lessons,
+        studentId: "s1",
+        makeupRequests: [],
+      });
+    }
+
+    it("mode undefined/'remaining_lessons' — davranış DEĞİŞMEZ, son dönem kendi gerçek ders sayısında kalır", () => {
+      const billingLines = threeRowBillingLines();
+      const schedule = buildPerLessonInstallmentSchedule({
+        billingLines,
+        mergeThresholdLessons: THRESHOLD,
+        firstDueDate: "2026-09-15",
+        lastPeriodPricing: { mode: "remaining_lessons" },
+      });
+      expect(schedule.map((s) => s.amount)).toEqual([2000, 4000, 2000]);
+      expect(schedule[2]!.computationSource).toBe("auto");
+    });
+
+    it("mode 'regular_fee' — son dönem satırı tam/normal dönem ücretine sabitlenir, kalan ders sayısına bakılmaz", () => {
+      const billingLines = threeRowBillingLines();
+      const schedule = buildPerLessonInstallmentSchedule({
+        billingLines,
+        mergeThresholdLessons: THRESHOLD,
+        firstDueDate: "2026-09-15",
+        lastPeriodPricing: { mode: "regular_fee", regularFeeAmount: 4000 },
+      });
+      // İlk iki satır ETKİLENMEZ, yalnız son (period_fee) satır 2000 → 4000.
+      expect(schedule.map((s) => s.amount)).toEqual([2000, 4000, 4000]);
+      expect(schedule[2]!.computationSource).toBe("auto");
+      expect(schedule[2]!.kind).toBe("period_fee");
+    });
+
+    it("mode 'manual' — son dönem satırı personelin girdiği net tutarı kullanır ve 'manual' işaretlenir", () => {
+      const billingLines = threeRowBillingLines();
+      const schedule = buildPerLessonInstallmentSchedule({
+        billingLines,
+        mergeThresholdLessons: THRESHOLD,
+        firstDueDate: "2026-09-15",
+        lastPeriodPricing: { mode: "manual", manualAmount: 1250 },
+      });
+      expect(schedule.map((s) => s.amount)).toEqual([2000, 4000, 1250]);
+      expect(schedule[2]!.computationSource).toBe("manual");
+    });
+
+    it("son satır period_fee DEĞİLSE (tek dönemlik sözleşme, first_collection) tercih uygulanmaz — ilk dönem override'ıyla ÇAKIŞMAZ", () => {
+      const billingLines = computePeriodBillingLines({
+        enrollmentStartDay: "2026-09-01",
+        enrollmentEndDay: "2026-09-30",
+        perLessonNetFee: 500,
+        lessons: [lesson("l1", "2026-09-07")],
+        studentId: "s1",
+        makeupRequests: [],
+      });
+      const schedule = buildPerLessonInstallmentSchedule({
+        billingLines,
+        mergeThresholdLessons: THRESHOLD,
+        firstDueDate: "2026-09-01",
+        lastPeriodPricing: { mode: "regular_fee", regularFeeAmount: 9999 },
+      });
+      expect(schedule.length).toBe(1);
+      expect(schedule[0]!.kind).toBe("first_collection");
+      expect(schedule[0]!.amount).not.toBe(9999); // tercih göz ardı edilir, ilk dönem tutarı korunur
+    });
+  });
 });
