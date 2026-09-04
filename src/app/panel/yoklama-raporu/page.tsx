@@ -63,8 +63,16 @@ export default async function AttendanceReportPage({
   const [result, data] = await Promise.all([
     getAttendanceReportTool(session, {
       datePreset,
-      from: sp.from,
-      to: sp.to,
+      // P0 (2026-09-05) — kök neden: filtre formu TEK bir <form method="get">
+      // (bkz. aşağıdaki JSX) — herhangi bir alan (ör. Öğrenci) değiştirilip
+      // gönderildiğinde datePreset "custom" olmasa bile boş `from=&to=` de
+      // AYNI istekle gider. Diğer TÜM filtreler `|| undefined` ile boş
+      // string'i normalize ederken bu ikisi ETMİYORDU — regex şeması boş
+      // string'i reddedip jenerik "Invalid input" (bkz. result.ts
+      // fromZodError) döndürüyordu; kullanıcı hatayı az önce dokunduğu
+      // Öğrenci alanına bağlıyordu, oysa gerçek kaynak bu ikisiydi.
+      from: sp.from || undefined,
+      to: sp.to || undefined,
       studentId: sp.studentId || undefined,
       teacherId: sp.teacherId || undefined,
       branchId: sp.branchId || undefined,
@@ -76,12 +84,19 @@ export default async function AttendanceReportPage({
   ]);
 
   if (!result.ok) {
+    // Zod'un jenerik "Invalid input" mesajı hangi filtrenin bozuk olduğunu
+    // söylemez; kullanıcıya teknik metin yerine filtreleri sıfırlamayı
+    // öneren anlaşılır bir mesaj gösterilir.
+    const friendlyMessage =
+      result.error.message === "Invalid input"
+        ? "Filtrelerden biri geçersiz görünüyor. Lütfen filtreleri sıfırlayıp tekrar deneyin."
+        : result.error.message;
     return (
       <div>
         <PageHeader title="Yoklama Raporu" />
         <Card>
           <p className="text-sm text-rose-700" role="alert">
-            {result.error.message}
+            {friendlyMessage}
           </p>
         </Card>
       </div>

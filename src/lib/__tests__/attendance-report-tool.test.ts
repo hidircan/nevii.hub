@@ -122,4 +122,38 @@ describe("getAttendanceReportTool — içerik", () => {
     if (res.ok) return;
     expect(res.error.code).toBe("VALIDATION_ERROR");
   });
+
+  /**
+   * Regresyon — kullanıcı raporu: "öğrenci filtresinden öğrenci seçildiğinde
+   * Invalid input hatası alıyorum". Kök neden burada değil (schema kendisi
+   * her zaman doğruydu) — kök neden `yoklama-raporu/page.tsx`'in TEK bir
+   * `<form method="get">` GÖNDERDİĞİ, her zaman DOM'da bulunan boş
+   * `from`/`to` <input type="date">'lerini `|| undefined` İLE
+   * NORMALİZE ETMEDEN doğrudan bu tool'a iletmesiydi. Aşağıdaki ilk test bu
+   * şemanın boş string'i GERÇEKTEN reddettiğini (sayfanın normalize etmek
+   * ZORUNDA olduğunu) belgeler; ikinci test sayfanın düzeltilmiş
+   * davranışını (boş → undefined) gerçek bir öğrenci filtresiyle doğrular.
+   */
+  it("regresyon — boş string from/to (düzeltme ÖNCESİ sayfa davranışı) VALIDATION_ERROR ('Invalid input') döner", async () => {
+    const res = await getAttendanceReportTool(ctx(), {
+      datePreset: "this_month",
+      from: "",
+      to: "",
+      studentId: "s1",
+    });
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.error.code).toBe("VALIDATION_ERROR");
+    expect(res.error.message).toBe("Invalid input");
+  });
+
+  it("regresyon — from/to undefined'a normalize edilince (düzeltme SONRASI sayfa davranışı) gerçek öğrenci filtresi hatasız çalışır", async () => {
+    const res = await getAttendanceReportTool(ctx(), {
+      datePreset: "this_month",
+      from: undefined,
+      to: undefined,
+      studentId: "s1",
+    });
+    expect(res.ok).toBe(true);
+  });
 });
