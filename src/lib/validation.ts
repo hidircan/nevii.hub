@@ -91,9 +91,20 @@ const optionalTrimmed = z
 export const studentSchema = z.object({
   name: z.string().min(1),
   email: optionalEmail,
-  phone: z.string().min(1),
+  /**
+   * P0 (2026-09-05) — kök neden: hem `phone` hem `parentPhone` KOŞULSUZ
+   * zorunluydu; `accountResponsibility` (ödeme/iletişim muhatabı) hangi
+   * tarafın telefonunun asıl gerekli olduğunu zaten belirtiyordu ama bu
+   * bilgi doğrulamada HİÇ kullanılmıyordu — personel muhatap olmayan tarafın
+   * telefonunu da uydurmak zorunda kalıyordu. Aşağıdaki iki `.refine()`
+   * asıl zorunluluğu `accountResponsibility`'e göre uygular (bkz. dosya
+   * sonu); `createStudentTool` eksik kalan tarafı diğerinin numarasıyla
+   * doldurur (bildirim akışları için `Student.phone`/`parentPhone` HÂLÂ
+   * her zaman dolu kalır — tip/model DEĞİŞMEDİ, yalnız GİRDİ zorunluluğu).
+   */
+  phone: optionalTrimmed,
   parentName: z.string().min(1),
-  parentPhone: z.string().min(1),
+  parentPhone: optionalTrimmed,
   /** Paket 7 — TC kimlik alanından hemen sonra istenir; opsiyonel (legacy kayıtlar kırılmaz). */
   motherName: optionalTrimmed,
   fatherName: optionalTrimmed,
@@ -215,6 +226,12 @@ export const studentSchema = z.object({
 }).refine((v) => !v.createPortalAccess || !!v.email, {
   message: "Portal erişimi için e-posta zorunludur.",
   path: ["email"],
+}).refine((v) => v.accountResponsibility === "SELF_MANAGED" || !!v.parentPhone, {
+  message: "Veli telefon zorunludur.",
+  path: ["parentPhone"],
+}).refine((v) => v.accountResponsibility !== "SELF_MANAGED" || !!v.phone, {
+  message: "Öğrenci telefon zorunludur.",
+  path: ["phone"],
 });
 
 /** Öğrenci düzenleme ekranından SONRADAN portal erişimi/davet oluşturma — task #34. */

@@ -140,6 +140,10 @@ export function NewStudentForm({
   // e-postasıyla SENKRON kalır, kullanıcı aynı e-postayı iki kez yazmaz.
   const [studentEmailLive, setStudentEmailLive] = useState(() => v("email") ?? "");
   const [portalAccessType, setPortalAccessType] = useState(() => v("invitePortalAccessType") || "GUARDIAN");
+  // P0 (2026-09-05) — ödeme/iletişim muhatabı seçimi, veli/öğrenci telefon
+  // alanlarının hangisinin zorunlu olduğunu CANLI belirler (bkz. aşağıdaki
+  // RequiredMark/required koşulları ve validation.ts studentSchema.refine).
+  const [accountResponsibility, setAccountResponsibility] = useState(() => v("accountResponsibility") || "PARENT_MANAGED");
   const [inviteToPortalChecked, setInviteToPortalChecked] = useState(() => checkedVal("inviteToPortal", "1"));
   // Varsayılan: öğrenci e-postasını OTOMATİK kullan. Yalnız önceki bir
   // gönderimde (hata sonrası) fiilen FARKLI bir davet e-postası girilmişse
@@ -328,6 +332,25 @@ export function NewStudentForm({
             <Input name="name" required aria-required defaultValue={v("name")} placeholder="Örn. Deniz Ak" aria-invalid={!!fieldErrors.name} />
             <FieldError message={fieldErrors.name} />
           </div>
+          {/* P0 (2026-09-05) — kullanıcı raporu: bu alan önceden veli/öğrenci
+              iletişim bilgilerinden SONRA geliyordu; hangi tarafın telefon/
+              iletişim muhatabı olduğu, o kişinin bilgilerini girmeden ÖNCE
+              bilinmesi daha mantıklı — bu yüzden buraya, iletişim
+              bilgilerinin HEMEN ÖNÜNE taşındı. */}
+          <div>
+            <Label>Ödeme/iletişim muhatabı</Label>
+            <Select
+              name="accountResponsibility"
+              value={accountResponsibility}
+              onChange={(e) => setAccountResponsibility(e.target.value)}
+            >
+              <option value="PARENT_MANAGED">Veli (varsayılan)</option>
+              <option value="SELF_MANAGED">Öğrencinin kendisi</option>
+            </Select>
+            <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">
+              Ödeme/iletişimin kime ait olduğunu belirler — aşağıdaki zorunlu telefon alanını etkiler.
+            </p>
+          </div>
           <div>
             <Label>T.C. kimlik no (opsiyonel — şifreli saklanır)</Label>
             <Input name="nationalId" defaultValue={v("nationalId")} inputMode="numeric" maxLength={11} placeholder="11 haneli" />
@@ -361,12 +384,12 @@ export function NewStudentForm({
             <div>
               <Label>
                 Veli telefon
-                <RequiredMark />
+                {accountResponsibility === "PARENT_MANAGED" ? <RequiredMark /> : null}
               </Label>
               <Input
                 name="parentPhone"
-                required
-                aria-required
+                required={accountResponsibility === "PARENT_MANAGED"}
+                aria-required={accountResponsibility === "PARENT_MANAGED"}
                 defaultValue={v("parentPhone")}
                 placeholder="05xx xxx xxxx"
                 aria-invalid={!!fieldErrors.parentPhone}
@@ -383,25 +406,18 @@ export function NewStudentForm({
             <div>
               <Label>
                 Öğrenci telefon
-                <RequiredMark />
+                {accountResponsibility === "SELF_MANAGED" ? <RequiredMark /> : null}
               </Label>
               <Input
                 name="phone"
-                required
-                aria-required
+                required={accountResponsibility === "SELF_MANAGED"}
+                aria-required={accountResponsibility === "SELF_MANAGED"}
                 defaultValue={v("phone")}
                 placeholder="05xx xxx xxxx"
                 aria-invalid={!!fieldErrors.phone}
               />
               <FieldError message={fieldErrors.phone} />
             </div>
-          </div>
-          <div>
-            <Label>Ödeme/iletişim muhatabı</Label>
-            <Select name="accountResponsibility" defaultValue={v("accountResponsibility") || "PARENT_MANAGED"}>
-              <option value="PARENT_MANAGED">Veli (varsayılan)</option>
-              <option value="SELF_MANAGED">Öğrencinin kendisi</option>
-            </Select>
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div>

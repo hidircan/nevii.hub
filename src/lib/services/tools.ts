@@ -2022,6 +2022,13 @@ export async function createStudentTool(
     await addStudent({
       ...studentInput,
       instruments: [v.data.instrument as Instrument],
+      // P0 (2026-09-05) — `accountResponsibility`e göre yalnız BİR taraf
+      // (veli/öğrenci) telefon girmek zorunda (bkz. validation.ts studentSchema
+      // .refine'ları); diğeri boş bırakılabilir. `Student.phone`/`parentPhone`
+      // modeli hâlâ HER ZAMAN dolu olmalı (SMS/WhatsApp bildirimleri buna
+      // güvenir) — eksik kalan taraf, GİRİLEN diğer numarayla doldurulur.
+      phone: v.data.phone ?? v.data.parentPhone ?? "",
+      parentPhone: v.data.parentPhone ?? v.data.phone ?? "",
       email: v.data.email ?? "",
       notes: v.data.notes ?? "",
       lessonDurationMinutes: v.data.lessonDurationMinutes as Student["lessonDurationMinutes"],
@@ -2461,6 +2468,7 @@ export async function inviteStudentPortalAccessTool(
       role: "STUDENT",
       schoolPhone: data.settings.phone || undefined,
       schoolWebsite: data.settings.website || undefined,
+      logoUrl: data.settings.logoUrl || undefined,
     });
 
     audit(ctx, "student.portal_invitation_sent", "Student", v.data.studentId, {
@@ -2541,6 +2549,7 @@ export async function inviteTeacherAccountTool(
       role: "TEACHER",
       schoolPhone: data.settings.phone || undefined,
       schoolWebsite: data.settings.website || undefined,
+      logoUrl: data.settings.logoUrl || undefined,
     });
 
     audit(ctx, "teacher.invitation_sent", "Teacher", teacher.id, { delivered: result.delivered });
@@ -2707,6 +2716,7 @@ export async function sendStudentPortalPasswordResetTool(
       email: account.email,
       recipientName: student?.name ?? "",
       institutionName: data.settings.name ?? "Nevii Hub",
+      logoUrl: data.settings.logoUrl || undefined,
     });
     audit(ctx, "student.portal_password_reset_sent", "Student", v.data.studentId, { userId: v.data.userId, delivered: result.delivered });
     return ok({ studentId: v.data.studentId, userId: v.data.userId, delivered: result.delivered, blocked: result.delivered ? undefined : result.blocked });
@@ -2806,6 +2816,7 @@ export async function sendTeacherPasswordResetTool(
       email: account.email,
       recipientName: teacher?.name ?? "",
       institutionName: data.settings.name ?? "Nevii Hub",
+      logoUrl: data.settings.logoUrl || undefined,
     });
     audit(ctx, "teacher.portal_password_reset_sent", "Teacher", v.data.teacherId, { delivered: result.delivered });
     return ok({ teacherId: v.data.teacherId, delivered: result.delivered, blocked: result.delivered ? undefined : result.blocked });
