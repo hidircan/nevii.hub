@@ -421,15 +421,6 @@ export function NewStudentForm({
             <Label>Ev adresi (opsiyonel)</Label>
             <Input name="address" defaultValue={v("address")} placeholder="Opsiyonel" />
           </div>
-        </div>
-      </Card>
-
-      {/* 2. Akademik Bilgiler — şube/enstrüman/öğretmen BURADA, Temel Bilgiler'den hemen sonra; enstrüman burada değiştirilebilir (bkz. P0-A). */}
-      <Card>
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-[var(--color-primary)]">
-          Akademik Bilgiler
-        </h2>
-        <div className="space-y-3">
           <div>
             <Label>
               Şube
@@ -450,6 +441,15 @@ export function NewStudentForm({
             </Select>
             <FieldError message={fieldErrors.branchId} />
           </div>
+        </div>
+      </Card>
+
+      {/* 2. Akademik Bilgiler — enstrüman/öğretmen BURADA, Temel Bilgiler'den hemen sonra; enstrüman burada değiştirilebilir (bkz. P0-A). Şube idari bir alan olduğu için Temel Bilgiler'e taşındı (2026-09-05). */}
+      <Card>
+        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-[var(--color-primary)]">
+          Akademik Bilgiler
+        </h2>
+        <div className="space-y-3">
           <div>
             <Label>
               Enstrüman / Öğretmen
