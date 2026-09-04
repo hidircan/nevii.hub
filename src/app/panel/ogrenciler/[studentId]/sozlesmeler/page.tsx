@@ -9,6 +9,7 @@ import { BackButton } from "@/components/back-button";
 import { Card, EmptyState, PageHeader } from "@/components/ui";
 import { isFormalContractDuration } from "@/lib/contracts";
 import { actionGenerateKvkkNoticeDocument, actionGeneratePhotoVideoConsentDocument } from "@/lib/actions";
+import { deriveLessonScheduleTextFromLessons } from "@/lib/lesson-schedule-text";
 
 /**
  * FAZ (2026-2027 SÖZLEŞME KAYNAĞI) — Bağımsız Sözleşme Merkezi. Önceden
@@ -107,6 +108,9 @@ export default async function StudentContractsCenterPage({
                   enrollmentStartDate: student.enrollmentStartDate,
                   durationMonths: intendedDurationMonths,
                   usePerLessonBilling: student.derivedPerLessonAmount != null,
+                  lessonScheduleText: deriveLessonScheduleTextFromLessons(
+                    data.lessons.filter((l) => l.studentId === student.id)
+                  ),
                 }
               : undefined
           }

@@ -19,12 +19,12 @@
 import { useId, useState } from "react";
 import { Button } from "@/components/ui";
 import { cn } from "@/lib/utils";
-
-const WEEKDAY_LABELS = ["Pazar", "Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi"];
-/** Görüntüleme sırası Pazartesi'den başlar (Türkiye takvim geleneği) — dahili değer hâlâ 0=Pazar..6=Cumartesi (LessonSeries ile aynı). */
-const DISPLAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
-
-type Slot = { weekday: number; time: string };
+import {
+  LESSON_SCHEDULE_WEEKDAY_LABELS as WEEKDAY_LABELS,
+  LESSON_SCHEDULE_DISPLAY_ORDER as DISPLAY_ORDER,
+  composeLessonScheduleText as composeText,
+  type LessonScheduleSlot as Slot,
+} from "@/lib/lesson-schedule-text";
 
 function parseSlots(text: string): Slot[] {
   if (!text.trim()) return [];
@@ -41,13 +41,6 @@ function parseSlots(text: string): Slot[] {
       return { weekday, time: m[2]! };
     })
     .filter((s): s is Slot => s !== null);
-}
-
-function composeText(slots: Slot[]): string {
-  return [...slots]
-    .sort((a, b) => DISPLAY_ORDER.indexOf(a.weekday) - DISPLAY_ORDER.indexOf(b.weekday) || a.time.localeCompare(b.time))
-    .map((s) => `${WEEKDAY_LABELS[s.weekday]} ${s.time}`)
-    .join(", ");
 }
 
 export function LessonScheduleSlotsPicker({

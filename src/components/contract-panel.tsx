@@ -98,6 +98,8 @@ type ContractPrefill = {
   durationMonths?: number;
   /** P0 (2026-09-03) — öğrenci per-lesson fiyatlandırma kullanıyorsa (Student.derivedPerLessonAmount dolu) true. */
   usePerLessonBilling?: boolean;
+  /** P0 (2026-09-05) — kayıt sırasında zaten seçilmiş GERÇEK ders günü/saatinden türetilir; kullanıcı aynı bilgiyi sıfırdan tekrar girmesin diye — hâlâ düzenlenebilir, zorunlu değil. */
+  lessonScheduleText?: string;
 };
 
 type FieldErrors = Record<string, string>;
@@ -131,7 +133,7 @@ function ContractForm({
   // fiyatlandırma kullanan bir öğrenci için gelir; yenilemede prefill zaten
   // undefined olduğundan bu her zaman false kalır — eski davranış korunur.
   const usePerLessonBilling = !isRenewal && (prefill?.usePerLessonBilling ?? false);
-  const [lessonScheduleText, setLessonScheduleText] = useState("");
+  const [lessonScheduleText, setLessonScheduleText] = useState(prefill?.lessonScheduleText ?? "");
   const [enrollmentStartDate, setEnrollmentStartDate] = useState(
     isRenewal
       ? previousContract!.enrollmentEndDate.slice(0, 10)
@@ -766,6 +768,11 @@ function ContractForm({
 
       <div className="mt-3">
         <Label>Ders günü / saati (opsiyonel)</Label>
+        {prefill?.lessonScheduleText ? (
+          <p className="mb-1 text-[11px] text-[var(--color-text-muted)]">
+            Kayıttaki ders programından otomatik dolduruldu — gerekirse düzenleyebilirsiniz.
+          </p>
+        ) : null}
         <LessonScheduleSlotsPicker value={lessonScheduleText} onChange={setLessonScheduleText} />
       </div>
 
