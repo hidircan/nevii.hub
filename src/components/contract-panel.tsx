@@ -143,6 +143,14 @@ function ContractForm({
   // gün-of-month) veya "month_end" (N. ayın takvim sonu). İkisi de aynı
   // `enrollmentEndDate` alanına yazılır — yeni bir şema/migration YOK.
   const [endDatePreference, setEndDatePreference] = useState<"date_based" | "month_end">("date_based");
+  // P0 (2026-09-04) — "Sözleşmenin son döneminde eksik kalan dersler nasıl
+  // ücretlendirilsin?" — yalnız per-lesson fiyatlandırma (usePerLessonBilling)
+  // kullanan öğrenciler için anlamlı; "remaining_lessons" (varsayılan/eski
+  // davranış) motorun zaten yaptığı şeydir, DEĞİŞİKLİK YOK.
+  const [lastPeriodPricingMode, setLastPeriodPricingMode] = useState<"remaining_lessons" | "regular_fee" | "manual">(
+    "remaining_lessons"
+  );
+  const [lastPeriodManualAmount, setLastPeriodManualAmount] = useState<number | "">("");
   // P0 (2026-09-03) — `firstPaymentAmount`/`depositAmount` ile AYNI desen
   // (new-student-form.tsx'te de kullanılan proje standardı): başlangıçta
   // BOŞ, "0" görünmez, kullanıcı doğrudan yazar. `!monthlyAmount` guard'ı
@@ -270,6 +278,11 @@ function ContractForm({
       studentId,
       enrollmentStartDate: toIsoDateOrNull(enrollmentStartDate) ?? undefined,
       enrollmentEndDate: toIsoDateOrNull(enrollmentEndDate) ?? undefined,
+      lastPeriodPricingMode: usePerLessonBilling ? lastPeriodPricingMode : undefined,
+      lastPeriodManualAmount:
+        usePerLessonBilling && lastPeriodPricingMode === "manual" && lastPeriodManualAmount !== ""
+          ? lastPeriodManualAmount
+          : undefined,
     });
     setBusy(false);
     if (!res.ok) {
@@ -315,6 +328,9 @@ function ContractForm({
           "İlk ödeme kayıt tarihinden farklı — istisnai/gecikmeli kayıt gerekçesi zorunludur.";
       }
     }
+    if (usePerLessonBilling && lastPeriodPricingMode === "manual" && (!lastPeriodManualAmount || lastPeriodManualAmount <= 0)) {
+      errors.lastPeriodManualAmount = "Son dönem tutarı manuel seçildiğinde sıfırdan büyük bir tutar girilmelidir.";
+    }
     if (!signatoryFullName.trim()) errors.signatoryFullName = "Yasal imza sahibi adı soyadı zorunludur.";
     if (isRenewal && hasOverlap) {
       if (!allowOverlap) {
@@ -350,6 +366,11 @@ function ContractForm({
       monthlyAmount,
       installmentCount,
       usePerLessonBilling,
+      lastPeriodPricingMode: usePerLessonBilling ? lastPeriodPricingMode : undefined,
+      lastPeriodManualAmount:
+        usePerLessonBilling && lastPeriodPricingMode === "manual" && lastPeriodManualAmount !== ""
+          ? lastPeriodManualAmount
+          : undefined,
       firstDueDate: toIsoDateOrNull(firstDueDate),
       depositAmount: depositAmount === "" ? undefined : depositAmount,
       paymentMethod,
@@ -482,6 +503,50 @@ function ContractForm({
           <Label>Sözleşme bitiş tarihi (otomatik)</Label>
           <Input type="date" value={enrollmentEndDate} disabled />
         </div>
+        {usePerLessonBilling ? (
+          <div className="sm:col-span-2">
+            <Label>Son dönemde eksik kalan dersler nasıl ücretlendirilsin?</Label>
+            <div className="mt-1 space-y-1.5">
+              {(
+                [
+                  { value: "remaining_lessons", label: "Kalan ders sayısına göre hesapla (varsayılan)" },
+                  { value: "regular_fee", label: "Normal dönem ücreti uygula" },
+                  { value: "manual", label: "Son dönem tutarını manuel belirle" },
+                ] as const
+              ).map((opt) => (
+                <label key={opt.value} className="flex items-center gap-2 text-sm text-[var(--color-text)]">
+                  <input
+                    type="radio"
+                    name="lastPeriodPricingMode"
+                    value={opt.value}
+                    checked={lastPeriodPricingMode === opt.value}
+                    onChange={() => setLastPeriodPricingMode(opt.value)}
+                  />
+                  {opt.label}
+                </label>
+              ))}
+            </div>
+            {lastPeriodPricingMode === "manual" ? (
+              <div className="mt-2">
+                <Input
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  placeholder="Son dönem tutarı (TL)"
+                  value={lastPeriodManualAmount === "" ? "" : String(lastPeriodManualAmount)}
+                  onChange={(e) => {
+                    const digits = e.target.value.replace(/[^0-9]/g, "");
+                    setLastPeriodManualAmount(digits === "" ? "" : Number(digits));
+                  }}
+                  aria-invalid={!!fieldErrors.lastPeriodManualAmount}
+                />
+                <FieldError message={fieldErrors.lastPeriodManualAmount} />
+              </div>
+            ) : null}
+            <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">
+              Bu seçim yalnızca sözleşmenin son dönemindeki tahsilatı etkiler.
+            </p>
+          </div>
+        ) : null}
         <div className="sm:col-span-2">
           <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-3 py-2 text-xs">
             {isFormal ? (
