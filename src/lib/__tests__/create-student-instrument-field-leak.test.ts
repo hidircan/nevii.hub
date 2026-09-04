@@ -56,4 +56,41 @@ describe("createStudentTool — 'instrument' (tekil) alanı addStudent'a sızmaz
     // Model dışı, sızmış "instrument" (tekil) alanı olmamalı.
     expect(Object.prototype.hasOwnProperty.call(created, "instrument")).toBe(false);
   });
+
+  /**
+   * Regresyon — "yeni öğrenci kaydında enstrüman seçimi Piyano dışına
+   * değiştirilemiyor" raporu. Formdaki `StudentInstrumentTeacherFields`
+   * (client) zaten controlled bir `<select value={instrument}>`; asıl kanıt
+   * gereken yer BURASI — `createStudentTool`'un gönderilen `instrument`
+   * değerini SESSİZCE "Piyano"ya düşürmediğini, GERÇEKTEN gönderileni
+   * kaydettiğini doğrular (bkz. actions.ts `String(formData.get("instrument")
+   * || "Piyano")` — yalnız BOŞ/eksikse "Piyano"ya düşer, dolu bir değeri
+   * ASLA değiştirmemeli).
+   */
+  it("piyano DIŞINDA seçilen bir enstrüman (Gitar) sessizce Piyano'ya düşmeden kaydedilir", async () => {
+    const res = await createStudentTool(ctx(), {
+      name: "Enstrüman Testi",
+      email: "",
+      phone: "5551234568",
+      parentName: "Veli",
+      parentPhone: "5559876544",
+      branchId: "erzene",
+      instrument: "Gitar",
+      teacherId: "t1",
+      packageName: "Bireysel Aylık — 4 ders",
+      weeklyLessonCount: 1,
+      monthlyFee: 3000,
+      firstPaymentCollected: { method: "cash", amount: 3000, collectedAt: "2026-08-30" },
+      enrollmentStartDate: "2026-09-01",
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+
+    const { readData } = await import("../store");
+    const data = await readData();
+    const created = data.students.find((s) => s.id === res.data.studentId) as unknown as Record<string, unknown>;
+    expect(created).toBeDefined();
+    expect(created.instruments).toEqual(["Gitar"]);
+    expect(created.instruments).not.toEqual(["Piyano"]);
+  });
 });
