@@ -16,7 +16,6 @@
  */
 import { createPasswordResetToken } from "./password-reset";
 import { getAppBaseUrl, getMobileAppLinks, sendEmail, type EmailSendResult } from "../email";
-import { BRAND } from "../brand";
 
 const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 gün — davet e-postası hemen açılmayabilir.
 
@@ -102,7 +101,7 @@ export async function sendAccountInvitationEmail(input: SendInvitationInput): Pr
     <tr><td align="center">
       <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;max-width:520px;background:#ffffff;border-radius:12px;overflow:hidden;">
         <tr><td style="background:#111827;padding:28px 32px;text-align:center;">
-          <span style="color:#ffffff;font-size:20px;font-weight:800;letter-spacing:0.04em;text-transform:uppercase;">${escapeHtml(BRAND.shortName)}</span>
+          <span style="color:#ffffff;font-size:19px;font-weight:700;">${institution}</span>
         </td></tr>
         <tr><td style="padding:32px 32px 8px;">
           <h1 style="margin:0 0 12px;font-size:20px;color:#111827;">${welcomeLine}</h1>
@@ -176,7 +175,7 @@ export async function sendPasswordResetEmail(input: SendPasswordResetInput): Pro
     <tr><td align="center">
       <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;max-width:520px;background:#ffffff;border-radius:12px;overflow:hidden;">
         <tr><td style="background:#111827;padding:28px 32px;text-align:center;">
-          <span style="color:#ffffff;font-size:20px;font-weight:800;letter-spacing:0.04em;text-transform:uppercase;">${escapeHtml(BRAND.shortName)}</span>
+          <span style="color:#ffffff;font-size:19px;font-weight:700;">${institution}</span>
         </td></tr>
         <tr><td style="padding:32px 32px 8px;">
           <h1 style="margin:0 0 12px;font-size:20px;color:#111827;">Şifre sıfırlama isteği</h1>
