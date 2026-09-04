@@ -68,6 +68,25 @@ describe("splitEnrollmentIntoMonthlyPeriods", () => {
     expect(() => splitEnrollmentIntoMonthlyPeriods("2026-09-15", "2026-09-01")).toThrow();
   });
 
+  it("regresyon (2026-09-05) — tam ISO datetime girdisi (contract-panel.tsx toIsoDateOrNull'ın ürettiği biçim) periodStart/periodEnd'e 'T00:00:00.000Z' SIZDIRMAZ", () => {
+    // Kök neden: bu fonksiyonun tipi 'yyyy-MM-dd' vaat eder ama gerçek
+    // çağıran (contract-panel.tsx) `Date.toISOString()` gönderiyordu;
+    // periodStart/periodEnd bunu OLDUĞU GİBİ taşıyınca `formatPeriodLabel`
+    // (contracts.ts) ödeme önizlemesinde "NaN–30 Eylül 2026" üretiyordu.
+    const periods = splitEnrollmentIntoMonthlyPeriods(
+      "2026-09-17T00:00:00.000Z",
+      "2026-12-01T00:00:00.000Z"
+    );
+    for (const p of periods) {
+      expect(p.periodStart).not.toContain("T");
+      expect(p.periodEnd).not.toContain("T");
+      expect(p.periodStart).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      expect(p.periodEnd).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    }
+    expect(periods[0]!.periodStart).toBe("2026-09-17");
+    expect(periods.at(-1)!.periodEnd).toBe("2026-12-01");
+  });
+
   it("periodKindLabel her tür için Türkçe etiket döner", () => {
     expect(periodKindLabel("start")).toBe("Başlangıç dönemi");
     expect(periodKindLabel("full")).toBe("Tam dönem");

@@ -173,7 +173,6 @@ function ContractForm({
   const [kvkkNoticeDelivered, setKvkkNoticeDelivered] = useState(false);
   const [allowOverlap, setAllowOverlap] = useState(false);
   const [overlapReason, setOverlapReason] = useState("");
-  const [firstPaymentExceptionReason, setFirstPaymentExceptionReason] = useState("");
   // Owner policy (2026-08-29) — "İlk ödeme her zaman kayıt esnasında alınacaktır." Kayıt anı
   // tahsilatı, taksit planındaki 1. taksitin (firstDueDate) ödeme PENCERESİ kontrolünden AYRI bir
   // olgu: bu, paranın GERÇEKTEN ne zaman/hangi yöntemle/ne kadar tahsil edildiğinin kaydıdır.
@@ -228,8 +227,10 @@ function ContractForm({
   const dueRule = describePaymentDueRule(paymentMethod);
   const firstDueDay = dayOfMonthUtc(toIsoDateOrNull(firstDueDate));
   const firstDueDateKnownInvalid = firstDueDate !== "" && firstDueDay === null;
-  const firstPaymentNeedsException =
-    firstDueDay !== null && (firstDueDay < dueRule.windowStartDay || firstDueDay > dueRule.windowEndDay);
+  // P0 (2026-09-05) — kurumun düzenli ödeme penceresi (kart 1-5, nakit/EFT
+  // 1-15) yalnız SONRAKİ dönem taksitleri içindir; ilk tahsilat serbest
+  // tarihlidir (bkz. contracts.ts createContract aynı gerekçe) — bu yüzden
+  // ilk taksit tarihi için artık "istisna gerekçesi" zorunluluğu YOK.
   // Owner policy — kayıt anı tahsilat tarihi, kayıt (enrollmentStartDate) tarihinden FARKLIYSA
   // istisnai/gecikmeli kayıt sayılır. Bu, yukarıdaki firstDueDate PENCERE kontrolünden AYRI bir
   // kontrol — sırf ilk taksit vadesi ayın 5/15'inden sonraysa bu alan GÖSTERİLMEZ.
@@ -309,11 +310,6 @@ function ContractForm({
     }
     if (!isValidDateOnlyInput(firstDueDate)) {
       errors.firstDueDate = "İlk ödeme tarihi zorunludur.";
-    } else if (firstPaymentNeedsException && !firstPaymentExceptionReason.trim()) {
-      errors.firstDueDate =
-        paymentMethod === "credit_card"
-          ? "İlk ödeme tarihi kredi kartı için ayın 1–5’i arasında olmalıdır veya istisna gerekçesi girilmelidir."
-          : "İlk ödeme tarihi havale/EFT/nakit için ayın 1–15’i arasında olmalıdır veya istisna gerekçesi girilmelidir.";
     }
     if (!paymentMethod) errors.paymentMethod = "Ödeme yöntemi seçilmelidir.";
     if (isFormal && isRenewal) {
@@ -383,12 +379,7 @@ function ContractForm({
       allowOverlap,
       overlapReason: overlapReason.trim() || undefined,
       firstPaymentExceptionReason:
-        [
-          firstPaymentNeedsException ? firstPaymentExceptionReason.trim() : "",
-          firstPaymentDateNeedsException ? firstPaymentDateExceptionReason.trim() : "",
-        ]
-          .filter(Boolean)
-          .join(" / ") || undefined,
+        (firstPaymentDateNeedsException ? firstPaymentDateExceptionReason.trim() : "") || undefined,
       firstPaymentCollected: isFormal && isRenewal
         ? {
             method: firstPaymentMethod,
@@ -612,6 +603,9 @@ function ContractForm({
             onChange={(e) => setFirstDueDate(e.target.value)}
             aria-invalid={!!fieldErrors.firstDueDate}
           />
+          <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">
+            İlk tahsilat herhangi bir günde alınabilir — yukarıdaki ödeme kuralı yalnız sonraki dönem taksitleri için geçerlidir.
+          </p>
           <FieldError message={fieldErrors.firstDueDate} />
           {firstDueDateKnownInvalid ? <FieldError message="Geçersiz tarih." /> : null}
         </div>
@@ -750,22 +744,6 @@ function ContractForm({
         </fieldset>
       ) : null}
 
-      {firstPaymentNeedsException ? (
-        <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs dark:border-amber-900 dark:bg-amber-950/30">
-          <Label>İstisnai ilk ödeme tarihi gerekçesi</Label>
-          <p className="mb-2 text-[var(--color-text-muted)]">
-            Bu alan, standart ödeme tarihinin dışındaki ilk ödeme planları için zorunludur.
-          </p>
-          <Input
-            placeholder="Örn. Kayıt tarihi nedeniyle ilk ödeme 12 Eylül tarihinde planlanmıştır."
-            value={firstPaymentExceptionReason}
-            onChange={(e) => setFirstPaymentExceptionReason(e.target.value.slice(0, 500))}
-            maxLength={500}
-            aria-invalid={!!fieldErrors.firstDueDate}
-          />
-        </div>
-      ) : null}
-
       <div className="mt-3">
         <Label>Ders günü / saati (opsiyonel)</Label>
         {prefill?.lessonScheduleText ? (
@@ -866,6 +844,32 @@ function ContractForm({
               dahildir, "+ KDV" hiçbir yerde gösterilmez, oran icat edilmez. */}
           <p className="mb-2 text-[var(--color-text-muted)]">Tüm eğitim ücretleri KDV dahildir.</p>
           <p className="mb-2 text-[var(--color-text-muted)]">{preview.paymentDueRuleText}</p>
+          {/* P0 (2026-09-05) — kullanıcı raporu: "ilk tahsilat tutarı ile aylık
+              dönem ücreti karışıyor". Bu dört alan HER ZAMAN ayrı ayrı,
+              tabloyu okumaya gerek kalmadan görünmeli — hepsi preview'daki
+              AYNI kaynaktan (installments[0] = TEK gerçek ilk tahsilat satırı). */}
+          {preview.installments[0] ? (
+            <dl className="mb-3 grid grid-cols-2 gap-x-4 gap-y-1.5 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] p-2.5 sm:grid-cols-4">
+              <div>
+                <dt className="text-[var(--color-text-muted)]">İlk Tahsilat Tutarı</dt>
+                <dd className="font-semibold text-[var(--color-text)]">{formatTL(preview.installments[0].amount)}</dd>
+              </div>
+              <div>
+                <dt className="text-[var(--color-text-muted)]">İlk Tahsilat Tarihi</dt>
+                <dd className="font-semibold text-[var(--color-text)]">{formatDateTr(preview.installments[0].dueDate)}</dd>
+              </div>
+              <div>
+                <dt className="text-[var(--color-text-muted)]">Aylık Dönem Ücreti</dt>
+                <dd className="font-semibold text-[var(--color-text)]">{formatTL(monthlyAmount === "" ? 0 : monthlyAmount)}</dd>
+              </div>
+              <div>
+                <dt className="text-[var(--color-text-muted)]">Kalan Borç</dt>
+                <dd className="font-semibold text-[var(--color-text)]">
+                  {formatTL(preview.installments.slice(1).reduce((s, r) => s + r.amount, 0))}
+                </dd>
+              </div>
+            </dl>
+          ) : null}
           <table className="w-full text-left">
             <thead>
               <tr className="text-[var(--color-text-muted)]">

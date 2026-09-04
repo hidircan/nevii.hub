@@ -683,14 +683,20 @@ describe("Faz 2 — ödeme politikası: kredi kartı 1–5, havale/EFT/nakit ≤
     expect(new Date(rows[2]!.dueDate).getUTCDate()).toBe(15);
   });
 
-  it("pencere dışı ilk taksit tarihi, gerekçe verilmeden REDDEDİLİR", async () => {
+  it("regresyon (2026-09-05) — pencere dışı İLK taksit tarihi artık gerekçe olmadan da KABUL edilir (ilk tahsilat serbest tarihlidir, pencere kuralı yalnız sonraki dönemler içindir)", async () => {
     const res = await createStudentContractTool(
       adminCtx(),
-      await initialInput({ paymentMethod: "credit_card", firstDueDate: "2026-09-20T00:00:00.000Z" })
+      await initialInput({
+        paymentMethod: "credit_card",
+        firstDueDate: "2026-09-20T00:00:00.000Z",
+        firstPaymentExceptionReason: undefined,
+      })
     );
-    expect(res.ok).toBe(false);
-    if (res.ok) return;
-    expect(res.error.code).toBe("VALIDATION_ERROR");
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.installments[0]!.status).toBe("paid");
+    // Sonraki (2., 3. ...) taksitlerin vadesi hâlâ kurumun normal penceresine (kart → ayın 5'i) normalize edilir — YALNIZ ilk tahsilat serbesttir.
+    expect(new Date(res.data.installments[1]!.dueDate).getUTCDate()).toBe(5);
   });
 
   it("pencere dışı ilk taksit tarihi, gerekçe İLE kabul edilir ve snapshot'a yazılır", async () => {
@@ -1129,6 +1135,22 @@ describe("Owner policy (2026-08-30, final) — İlk ödeme kayıt anında alın�
     );
     expect(res.ok).toBe(true);
   });
+
+  it("regresyon — üç ödeme yönteminin (nakit/kart/EFT) HİÇBİRİNDE ilk tahsilat tarihi gerekçe gerektirmez", async () => {
+    for (const paymentMethod of ["cash", "credit_card", "transfer"] as const) {
+      const res = await createStudentContractTool(
+        adminCtx(),
+        await initialInput({
+          paymentMethod,
+          firstDueDate: "2026-09-25T00:00:00.000Z", // her iki pencerenin de (1-5, 1-15) dışında
+          firstPaymentExceptionReason: undefined,
+        })
+      );
+      expect(res.ok).toBe(true);
+      if (!res.ok) continue;
+      expect(res.data.installments[0]!.status).toBe("paid");
+    }
+  });
 });
 
 describe("computeContractEndDate — müşterinin sözleşme bitiş tercihi (tarih bazlı / takvim ayı sonu)", () => {
@@ -1488,6 +1510,79 @@ describe("createStudentContractTool — per-lesson öğrenci (usePerLessonBillin
     expect(createFirst!.amount).toBe(manualFirstAmount);
     // Önizleme ile sözleşme BİREBİR aynı ilk tahsilat tutarını göstermeli.
     expect(previewFirst!.amount).toBe(createFirst!.amount);
+  });
+
+  it("regresyon (2026-09-05) — enrollmentStartDate/enrollmentEndDate TAM ISO datetime olarak gelse bile (contract-panel.tsx'in gerçekte gönderdiği biçim) hiçbir periodLabel'da 'NaN' görünmez", async () => {
+    const { monthlyFee } = await seedPerLessonStudent();
+    const previewRes = await previewContractInstallmentPlanTool(adminCtx(), {
+      durationMonths: 3,
+      monthlyAmount: monthlyFee,
+      installmentCount: 3,
+      firstDueDate: "2026-09-17",
+      usePerLessonBilling: true,
+      studentId: "s_perlesson",
+      // Kasıtlı: gerçek istemcinin (`toIsoDateOrNull` → `Date.toISOString()`)
+      // gönderdiği TAM ISO datetime — yalnızca "yyyy-MM-dd" DEĞİL.
+      enrollmentStartDate: "2026-09-17T00:00:00.000Z",
+      enrollmentEndDate: "2026-11-30T00:00:00.000Z",
+    });
+    expect(previewRes.ok).toBe(true);
+    if (!previewRes.ok) return;
+    for (const row of previewRes.data.installments) {
+      expect(row.periodLabel).not.toContain("NaN");
+      if (row.breakdown) {
+        for (const b of row.breakdown as Array<{ periodLabel: string }>) {
+          expect(b.periodLabel).not.toContain("NaN");
+        }
+      }
+    }
+  });
+
+  it("regresyon (2026-09-05) — sözleşme PDF/HTML çıktısında ilk tahsilat satırı 'İlk tahsilat' olarak, sonraki dönemler 'Dönem ücreti' olarak AYRI görünür (jenerik 'EĞİTİM' etiketiyle karışmaz)", async () => {
+    const { monthlyFee, derivedPerLessonAmount } = await seedPerLessonStudent();
+    const { addRegistrationFirstPayment } = await import("../store-json");
+    const septAmount = 1 * derivedPerLessonAmount;
+    const octAmount = 4 * derivedPerLessonAmount;
+    await addRegistrationFirstPayment({
+      studentId: "s_perlesson",
+      method: "cash",
+      amount: septAmount + octAmount,
+      collectedAt: "2026-09-17",
+      receivedByUserId: "u1",
+    });
+    const createRes = await createStudentContractTool(adminCtx(), {
+      studentId: "s_perlesson",
+      contractType: "initial",
+      programmeName: "Piyano",
+      enrollmentStartDate: "2026-09-17",
+      enrollmentEndDate: "2026-11-30",
+      durationMonths: 3,
+      monthlyAmount: monthlyFee,
+      installmentCount: 3,
+      firstDueDate: "2026-09-17",
+      signatoryFullName: "Veli Adı",
+      signatoryRelationship: "veli",
+      usePerLessonBilling: true,
+      firstPaymentExceptionReason: "Kayıt tarihi (17 Eylül) kurumun 1-15 ödeme penceresi dışında — normal kayıt anı tahsilatı.",
+    });
+    expect(createRes.ok).toBe(true);
+    if (!createRes.ok) return;
+
+    const htmlRes = await getContractHtmlTool(adminCtx(), { contractId: createRes.data.contract.id });
+    expect(htmlRes.ok).toBe(true);
+    if (!htmlRes.ok) return;
+    expect(htmlRes.data.html).toContain("İlk tahsilat");
+    expect(htmlRes.data.html).toContain("Dönem ücreti");
+  });
+
+  it("legacy (sabit ücret, per-lesson DEĞİL) sözleşmelerin PDF/HTML çıktısı önceki gibi 'EĞİTİM' gösterir — bu değişiklik geriye dönük görünümü BOZMAZ", async () => {
+    const createRes = await createStudentContractTool(adminCtx(), await initialInput());
+    expect(createRes.ok).toBe(true);
+    if (!createRes.ok) return;
+    const htmlRes = await getContractHtmlTool(adminCtx(), { contractId: createRes.data.contract.id });
+    expect(htmlRes.ok).toBe(true);
+    if (!htmlRes.ok) return;
+    expect(htmlRes.data.html).toContain("EĞİTİM");
   });
 
   describe("son dönem ücretlendirme tercihi (lastPeriodPricingMode)", () => {

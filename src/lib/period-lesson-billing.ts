@@ -165,9 +165,21 @@ function pad2(n: number): string {
  * dönem döner. Saf, I/O yok.
  */
 export function splitEnrollmentIntoMonthlyPeriods(
-  enrollmentStartDay: string,
-  enrollmentEndDay: string
+  enrollmentStartDayRaw: string,
+  enrollmentEndDayRaw: string
 ): PeriodBoundary[] {
+  // Regresyon (2026-09-05) — kök neden: bu fonksiyonun tipi "yyyy-MM-dd"
+  // vaat eder ama hiçbir çağıran (contract-panel.tsx `toIsoDateOrNull` →
+  // `Date.toISOString()`) buna GERÇEKTEN uymuyordu — tam bir ISO datetime
+  // ("2026-09-17T00:00:00.000Z") gönderiliyordu. `enrollmentStartDay`/
+  // `enrollmentEndDay` İLK ve SON dönemin `periodStart`/`periodEnd`'ine
+  // OLDUĞU GİBİ yazılıyordu (aşağıda), bu da `formatPeriodLabel`'in
+  // `ymdParts` ile "T00:00:00.000Z" son ekini `Number()`'a verip NaN
+  // üretmesine yol açıyordu ("İlk Tahsilat" ve son dönem satırlarında
+  // "NaN–30 Eylül 2026" gibi). Kaynakta (burada, TEK noktada) "yyyy-MM-dd"e
+  // normalize edilir — hem ISO datetime hem zaten-düz tarih için güvenli.
+  const enrollmentStartDay = enrollmentStartDayRaw.slice(0, 10);
+  const enrollmentEndDay = enrollmentEndDayRaw.slice(0, 10);
   if (enrollmentEndDay < enrollmentStartDay) {
     throw new Error("enrollmentEndDay, enrollmentStartDay'den önce olamaz");
   }

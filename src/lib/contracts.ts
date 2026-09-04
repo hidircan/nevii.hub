@@ -697,13 +697,16 @@ export async function createContract(input: CreateContractInput): Promise<Create
   }
 
   const paymentDueRule = resolveContractPaymentDueRule(input.paymentMethod, input.paymentPolicy);
-  const firstDueDay = new Date(input.firstDueDate).getUTCDate();
-  const firstDueDayInWindow = firstDueDay >= paymentDueRule.windowStartDay && firstDueDay <= paymentDueRule.windowEndDay;
-  if (!firstDueDayInWindow && !input.firstPaymentExceptionReason?.trim()) {
-    throw new Error(
-      `İlk taksit tarihi kurumun ödeme kuralının (${paymentDueRule.ruleText}) dışında. Bu kasıtlıysa firstPaymentExceptionReason ile yetkili personel gerekçesi belirtin.`
-    );
-  }
+  // P0 (2026-09-05) — kök neden düzeltmesi: kurumun düzenli aylık ödeme
+  // penceresi (kredi kartı 1-5, nakit/EFT 1-15) yalnız SONRAKİ dönem
+  // taksitlerinin vade günü içindir — Madde 4'ün kendisi de bunu ayrı ayrı
+  // tanımlar. İlk tahsilat (kayıt anında, ödeme yöntemi ne olursa olsun)
+  // GERÇEKTEN alındığı günde serbestçe kaydedilir; burada eskiden
+  // `firstDueDate` bu pencereye zorlanıp uymayınca personelden "istisna
+  // gerekçesi" isteniyordu — bu, normal bir kayıt anını yapay bir istisnaya
+  // çeviriyordu. Sonraki taksitlerin vadesi hâlâ `rule.windowEndDay`
+  // kullanılarak (aşağıda) doğru hesaplanır; burada değişen YALNIZCA ilk
+  // taksitin kendi tarihine yapay bir kısıtlama uygulanmaması.
 
   // Owner policy (2026-08-30) — İlk ödeme her zaman KAYIT ESNASINDA alınır ve normaldir,
   // istisna değildir (bkz. createStudentTool). Kapsam: FORMAL (>=3 ay) initial/renewal
@@ -868,15 +871,16 @@ export async function createContract(input: CreateContractInput): Promise<Create
       const row = installments[i - 1];
       fieldValues[`taksit${i}Tarih`] = row ? formatDateTr(row.dueDate) : "";
       fieldValues[`taksit${i}Tutar`] = row ? new Intl.NumberFormat("tr-TR").format(row.amount) : "";
-      // P0 (2026-09-03) — per-lesson sözleşmelerde her taksitin tür/dönem
+      // P0 (2026-09-03, genişletildi 2026-09-05) — her taksitin tür/dönem
       // açıklaması, ör. "İlk tahsilat (birleştirilmiş) — 17–30 Eylül 2026 +
-      // Ekim 2026". Hukuki şablon metni BU turda değiştirilmedi (mevcut
-      // şablonlar bu placeholder'ı KULLANMIYOR, dolayısıyla görünmez) —
-      // yalnız YENİ/güncellenmiş şablonlar isteğe bağlı kullanabilsin diye
-      // eklendi; `findMissingRequiredContractPlaceholders` bunu ZORUNLU
-      // saymaz.
+      // Ekim 2026". Per-lesson sözleşmelerde gerçek tür/dönem gösterilir;
+      // legacy (sabit ücret, `kind` yok) sözleşmelerde şablonun ESKİ sabit
+      // metniyle (aşağıya bkz. STUDENT_ENROLLMENT_CONTRACT_BODY MADDE 4)
+      // BİREBİR aynı "EĞİTİM" değerine düşülür — mevcut sözleşmelerin PDF
+      // çıktısı DEĞİŞMEZ, yalnız per-lesson sözleşmeler artık ilk tahsilatı
+      // dönem ücretinden AYRI, kendi gerçek etiketiyle gösterir.
       fieldValues[`taksit${i}Aciklama`] =
-        row?.kind && row.periodLabel ? `${INSTALLMENT_KIND_LABELS_TR[row.kind]} — ${row.periodLabel}` : "";
+        row?.kind && row.periodLabel ? `${INSTALLMENT_KIND_LABELS_TR[row.kind]} — ${row.periodLabel}` : "EĞİTİM";
     }
 
     doc = await createDocumentInstance({
