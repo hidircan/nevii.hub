@@ -570,24 +570,12 @@ export function NewStudentForm({
             />
             <FieldError message={fieldErrors.packageName} />
           </div>
-          <StudentPackagePricingFields
-            packages={packages}
-            initialPackageId={state && "values" in state ? state.values?.packageId : undefined}
-            initialDuration={
-              state && "values" in state && state.values?.lessonDurationMinutes
-                ? Number(state.values.lessonDurationMinutes)
-                : undefined
-            }
-            initialDiscountType={
-              state && "values" in state && (state.values?.discountType === "percent" || state.values?.discountType === "amount")
-                ? state.values.discountType
-                : undefined
-            }
-            initialDiscountValue={state && "values" in state ? state.values?.discountValue : undefined}
-            initialMonthlyFee={
-              state && "values" in state && state.values?.monthlyFee ? Number(state.values.monthlyFee) : undefined
-            }
-          />
+          {/* P0-A deseniyle AYNI: gönderim sonrası (başarı/hata fark etmeksizin) DOM
+              değerlerini geri yazan genel `useEffect` (yukarıda, [state] deps) zaten
+              packageId/discountType/discountValue/monthlyFee alanlarını KAPSAR (isim
+              eşleşmesiyle çalışır) — burada AYRI bir initial-value prop mekanizması
+              kurmak AYNI düzeltmeyi iki kez uygulamak olurdu, tek kaynak korunur. */}
+          <StudentPackagePricingFields packages={packages} />
           <div className="grid grid-cols-2 gap-2">
             <div>
               <Label>Ödeme türü (opsiyonel)</Label>
