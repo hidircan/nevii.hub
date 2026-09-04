@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { LessonStatusBadge } from "./lesson-status-badge";
 
 type Flag = "attended" | "processed" | "makeup" | "absent" | "excused";
 
@@ -283,9 +284,6 @@ export function LessonOpsBadges({
   studentAttended,
   lessonProcessed,
   opsMakeupFlag,
-  studentAbsent,
-  studentExcused,
-  opsClosedFlag,
   cancelled,
   missingHomework,
 }: {
@@ -300,43 +298,19 @@ export function LessonOpsBadges({
   /** Faz 3C — ders işlendi ama bu derse bağlı ödev yok. */
   missingHomework?: boolean;
 }) {
+  const finalStatus = cancelled
+    ? "cancelled"
+    : opsMakeupFlag
+      ? "makeup"
+      : lessonProcessed
+        ? "processed"
+        : studentAttended
+          ? "attended"
+          : "planned";
+
   return (
     <div className="flex flex-wrap gap-1">
-      {studentAttended ? (
-        <span className="rounded-full bg-[#e8f2ec] px-2 py-0.5 text-[10px] font-semibold text-[#1e4d36] dark:bg-emerald-950 dark:text-emerald-300">
-          Geldi
-        </span>
-      ) : null}
-      {lessonProcessed ? (
-        <span className="rounded-full bg-[#fbf3d9] px-2 py-0.5 text-[10px] font-semibold text-[#5c4a12] dark:bg-amber-950 dark:text-amber-300">
-          İşlendi
-        </span>
-      ) : null}
-      {opsMakeupFlag ? (
-        <span className="rounded-full bg-[#f8ecec] px-2 py-0.5 text-[10px] font-semibold text-[#6b2424] dark:bg-red-950 dark:text-red-300">
-          Telafi
-        </span>
-      ) : null}
-      {studentAbsent ? (
-        <span className="rounded-full bg-stone-200 px-2 py-0.5 text-[10px] font-semibold text-stone-700 dark:bg-stone-800 dark:text-stone-200">
-          Gelmedi
-        </span>
-      ) : null}
-      {studentExcused ? (
-        <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold text-violet-800 dark:bg-violet-950 dark:text-violet-300">
-          Mazeretli
-        </span>
-      ) : null}
-      {opsClosedFlag ? (
-        <span className="rounded-full bg-black px-2 py-0.5 text-[10px] font-semibold text-white dark:bg-stone-950 dark:text-stone-200">
-          Kapalı
-        </span>
-      ) : null}
-      {cancelled ? (
-        <span className="rounded-full bg-stone-700 px-2 py-0.5 text-[10px] font-semibold text-white dark:bg-stone-900 dark:text-stone-300">
-          İptal
-        </span>
-      ) : null}
+      <LessonStatusBadge status={finalStatus} />
       {missingHomework ? (
         <span className="rounded-full bg-stone-300 px-2 py-0.5 text-[10px] font-semibold text-stone-800 dark:bg-stone-700 dark:text-stone-100">
           Ödev yok

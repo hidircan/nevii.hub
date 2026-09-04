@@ -106,6 +106,7 @@ export default async function StudentContractsCenterPage({
                   paymentMethod: student.paymentMethod,
                   enrollmentStartDate: student.enrollmentStartDate,
                   durationMonths: intendedDurationMonths,
+                  usePerLessonBilling: student.derivedPerLessonAmount != null,
                 }
               : undefined
           }

@@ -264,6 +264,7 @@ export const ATTENDANCE_CALENDAR_COLORS = {
   attended: "#16a34a", // green-600 — Geldi/tamamlandı
   processed: "#ca8a04", // yellow-600 — İşlendi
   makeup: "#dc2626", // red-600 — Telafi
+  cancelled: "#475569", // slate-600 — İptal
   absent: "#57534e", // stone-600 — Gelmedi (mazeretsiz)
   excused: "#7c3aed", // violet-600 — Mazeretli
   closed: "#0a0a0a", // near-black — Kapalı
@@ -323,7 +324,7 @@ export function attendanceCalendarTextColor(key: AttendanceCalendarColorKey): "#
  * — TEK kaynak, UI'da ayrıca tahmin/hard-code EDİLMEZ. Öncelik sırası:
  *   1) Kapalı gün → tek segment "closed" (statü hiç yazılamaz, en yüksek öncelik).
  *   2) Hiç ders yoksa → tek segment "open".
- *   3) Dersler varsa → HER DERSİN KENDİ effectiveLessonOpsStatus'u kendi
+ *   3) Dersler varsa → HER DERSİN KENDİ nihai ders statüsü kendi
  *      segmentinde gösterilir (statüsüz ders "planned" rengiyle), sırasıyla
  *      lessonIds sırasında — böylece çoklu-dersli bir günde tek bir ders
  *      diğerini GİZLEMEZ, veri kaybı olmaz. Tek ders varsa (veya tüm
@@ -333,11 +334,15 @@ export function attendanceCalendarTextColor(key: AttendanceCalendarColorKey): "#
  */
 export function resolveDayFillSegments(
   dayStatus: DayStatus,
-  lessons: Array<{ lessonId: string; opsStatus: "attended" | "processed" | "makeup" | "absent" | "excused" | null }>
+  lessons: Array<{ lessonId: string; opsStatus: "attended" | "processed" | "makeup" | "cancelled" | "planned" | "absent" | "excused" | null }>
 ): AttendanceCalendarColorKey[] {
   if (dayStatus === "closed") return ["closed"];
   if (lessons.length === 0) return ["open"];
-  const perLesson = lessons.map((l): AttendanceCalendarColorKey => l.opsStatus ?? "planned");
+  const perLesson = lessons.map((l): AttendanceCalendarColorKey =>
+    l.opsStatus === "attended" || l.opsStatus === "processed" || l.opsStatus === "makeup" || l.opsStatus === "cancelled"
+      ? l.opsStatus
+      : "planned"
+  );
   const distinct = Array.from(new Set(perLesson));
   return distinct.length === 1 ? [distinct[0]!] : perLesson;
 }

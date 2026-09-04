@@ -784,6 +784,19 @@ model Payment {
   adjustmentReason    String?
   adjustedBy          String?
   adjustedAt          DateTime?
+  /// P0 (2026-09-03) — taksit satırının GÖRÜNÜR tahsilat türü ("first_collection" |
+  /// "first_collection_combined" | "period_fee" | "deposit"). Yalnızca contractId
+  /// dolu (taksit) satırlarda anlamlı; tüm mevcut Payment satırlarında NULL kalır,
+  /// geriye dönük hiçbir davranışı etkilemez (bkz. src/lib/types.ts ContractInstallmentKind).
+  installmentKind             String?
+  /// Kapsanan dönem(ler)in okunabilir etiketi, ör. "17–30 Eylül 2026 + Ekim 2026".
+  installmentPeriodLabel      String?
+  /// installmentKind="first_collection_combined" iken dönem bazlı tutar kırılımı (JSON dizi).
+  installmentBreakdown        Json?
+  /// Bu satırın tutarı otomatik mi hesaplandı yoksa manuel mi girildi ("auto" | "manual").
+  installmentComputationSource String?
+  /// computationSource="manual" ise personelin girdiği gerekçe.
+  installmentNote             String?
   createdAt           DateTime              @default(now())
   updatedAt           DateTime              @updatedAt
 

@@ -3098,7 +3098,7 @@ export async function actionUpdateMonthlyMakeupAllowance(
     logger.error("actionUpdateMonthlyMakeupAllowance failed", error);
     if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
     if (error instanceof WriteScopeDeniedError) return { ok: false, message: error.message };
-    return { ok: false, message: "Aylık telafi hakkı güncellenirken beklenmeyen bir hata oluştu." };
+    return { ok: false, message: "Dönem başına telafi hakkı güncellenirken beklenmeyen bir hata oluştu." };
   }
 }
 

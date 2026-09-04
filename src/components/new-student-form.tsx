@@ -186,13 +186,18 @@ export function NewStudentForm({
       const hasExactDays = lessonDays.length === weeklyLessonCount && new Set(lessonDays).size === weeklyLessonCount;
       const exactCount = hasExactDays ? countExactWeekdayLessons(startDay, lines[0]?.periodEnd ?? endDay, lessonDays) : null;
       const plannedLessons = exactCount ?? lines[0]?.billableLessonCount ?? 0;
+      // P0 (2026-09-03) — "3 ders eşiği": sunucudaki (createStudentTool)
+      // AYNI kural — kayıt ayında kalan gerçek ders sayısı 3'ten azsa
+      // sonraki ayın tam ücreti de öneriye eklenir. Tek kaynak sunucudur;
+      // burası yalnız İSTEMCİ önizlemesi, resmi hesap değildir.
+      const suggestedAmount = plannedLessons >= 3 ? plannedLessons * derived : plannedLessons * derived + monthlyFee;
       setPreview({
         monthlyFee,
         weeklyLessonCount,
         referenceCount: referenceMonthlyLessonCount(weeklyLessonCount),
         derivedPerLessonAmount: derived,
         firstPeriodPlannedLessons: plannedLessons,
-        firstPeriodSuggestedAmount: plannedLessons * derived,
+        firstPeriodSuggestedAmount: suggestedAmount,
         lessonsAreExact: hasExactDays,
       });
     } catch {
@@ -565,24 +570,12 @@ export function NewStudentForm({
             />
             <FieldError message={fieldErrors.packageName} />
           </div>
-          <StudentPackagePricingFields
-            packages={packages}
-            initialPackageId={state && "values" in state ? state.values?.packageId : undefined}
-            initialDuration={
-              state && "values" in state && state.values?.lessonDurationMinutes
-                ? Number(state.values.lessonDurationMinutes)
-                : undefined
-            }
-            initialDiscountType={
-              state && "values" in state && (state.values?.discountType === "percent" || state.values?.discountType === "amount")
-                ? state.values.discountType
-                : undefined
-            }
-            initialDiscountValue={state && "values" in state ? state.values?.discountValue : undefined}
-            initialMonthlyFee={
-              state && "values" in state && state.values?.monthlyFee ? Number(state.values.monthlyFee) : undefined
-            }
-          />
+          {/* P0-A deseniyle AYNI: gönderim sonrası (başarı/hata fark etmeksizin) DOM
+              değerlerini geri yazan genel `useEffect` (yukarıda, [state] deps) zaten
+              packageId/discountType/discountValue/monthlyFee alanlarını KAPSAR (isim
+              eşleşmesiyle çalışır) — burada AYRI bir initial-value prop mekanizması
+              kurmak AYNI düzeltmeyi iki kez uygulamak olurdu, tek kaynak korunur. */}
+          <StudentPackagePricingFields packages={packages} />
           <div className="grid grid-cols-2 gap-2">
             <div>
               <Label>Ödeme türü (opsiyonel)</Label>

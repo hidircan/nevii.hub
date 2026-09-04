@@ -326,3 +326,120 @@ describe("createStudentTool — P0-C lessonDays (gönderildiyse) weeklyLessonCou
     expect(tueThuPayment?.autoSuggestedAmount).not.toBe(monWedPayment?.autoSuggestedAmount);
   });
 });
+
+// P0 (2026-09-03) — "3 ders eşiği": kayıt ayında kalan gerçek ders sayısı
+// 3'ten azsa önerilen ilk tahsilata sonraki ayın TAM aylık ücreti de eklenir;
+// 3 veya daha fazlaysa yalnız kayıt ayı kalan dersleri önerilir.
+// weeklyLessonCount=1, lessonDays=[1] (Pazartesi), monthlyFee=3000 →
+// derivePerLessonAmount(3000, 1) = 750/ders. Eylül 2026 Pazartesileri:
+// 7, 14, 21, 28.
+describe("createStudentTool — 3 ders eşiği (kayıt ayı kalan ders sayısına göre önerilen ilk tahsilat)", () => {
+  it("kayıt ayında 4 (>=3) gerçek ders varsa yalnız kayıt ayı kalan dersleri önerilir", async () => {
+    const res = await createStudentTool(
+      ctx(),
+      baseInput({
+        phone: "5552220001",
+        enrollmentStartDate: "2026-09-01",
+        weeklyLessonCount: 1,
+        monthlyFee: 3000,
+        lessonDays: [1],
+        firstPaymentCollected: { method: "cash", amount: 3000, collectedAt: "2026-09-01" },
+      })
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const data = await readData();
+    const payment = data.payments.find(
+      (p) => p.studentId === res.data.studentId && p.source === "registration_first_payment"
+    );
+    expect(payment?.amount).toBe(4 * 750);
+    expect(payment?.autoSuggestedAmount).toBeUndefined(); // otomatikle birebir eşleşti, manuel düzeltme yok
+  });
+
+  it("kayıt ayında tam olarak 3 gerçek ders varsa yalnız kayıt ayı kalan dersleri önerilir", async () => {
+    const res = await createStudentTool(
+      ctx(),
+      baseInput({
+        phone: "5552220002",
+        enrollmentStartDate: "2026-09-08",
+        weeklyLessonCount: 1,
+        monthlyFee: 3000,
+        lessonDays: [1],
+        firstPaymentCollected: { method: "cash", amount: 2250, collectedAt: "2026-09-08" },
+      })
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const data = await readData();
+    const payment = data.payments.find(
+      (p) => p.studentId === res.data.studentId && p.source === "registration_first_payment"
+    );
+    expect(payment?.amount).toBe(3 * 750);
+  });
+
+  it("kayıt ayında 2 (<3) gerçek ders varsa kayıt ayı kalan dersleri + sonraki ay TAM ücreti önerilir", async () => {
+    const res = await createStudentTool(
+      ctx(),
+      baseInput({
+        phone: "5552220003",
+        enrollmentStartDate: "2026-09-15",
+        weeklyLessonCount: 1,
+        monthlyFee: 3000,
+        lessonDays: [1],
+        firstPaymentCollected: { method: "cash", amount: 2 * 750 + 3000, collectedAt: "2026-09-15" },
+      })
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const data = await readData();
+    const payment = data.payments.find(
+      (p) => p.studentId === res.data.studentId && p.source === "registration_first_payment"
+    );
+    expect(payment?.amount).toBe(2 * 750 + 3000);
+  });
+
+  it("kayıt ayında 0 gerçek ders varsa sonraki ay TAM ücreti önerilir (kayıt ayı katkısı 0)", async () => {
+    const res = await createStudentTool(
+      ctx(),
+      baseInput({
+        phone: "5552220004",
+        enrollmentStartDate: "2026-09-29",
+        weeklyLessonCount: 1,
+        monthlyFee: 3000,
+        lessonDays: [1],
+        firstPaymentCollected: { method: "cash", amount: 3000, collectedAt: "2026-09-29" },
+      })
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const data = await readData();
+    const payment = data.payments.find(
+      (p) => p.studentId === res.data.studentId && p.source === "registration_first_payment"
+    );
+    expect(payment?.amount).toBe(3000);
+  });
+
+  it("lessonDays yoksa (legacy) aynı 3-ders eşiği projeksiyon sayısına uygulanır", async () => {
+    // lessonDays verilmezse `estimatePeriodBillingLines` projeksiyonu kullanılır
+    // (mevcut geriye dönük davranış) — eşik AYNI kurala göre, o sayı üstünde çalışır.
+    const res = await createStudentTool(
+      ctx(),
+      baseInput({
+        phone: "5552220005",
+        enrollmentStartDate: "2026-09-29",
+        weeklyLessonCount: 1,
+        monthlyFee: 3000,
+        firstPaymentCollected: { method: "cash", amount: 3000, collectedAt: "2026-09-29" },
+      })
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const data = await readData();
+    const payment = data.payments.find(
+      (p) => p.studentId === res.data.studentId && p.source === "registration_first_payment"
+    );
+    // 1 günlük kalan dönem projeksiyonu (referans 4 ders × 2 gün / 30 gün ≈ 0) < 3
+    // → sonraki ay tam ücreti eklenmeli.
+    expect(payment?.amount).toBe(3000);
+  });
+});

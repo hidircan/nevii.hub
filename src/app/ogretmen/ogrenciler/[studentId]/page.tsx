@@ -21,6 +21,7 @@ import {
 } from "@/lib/services";
 import { computeOverallScore } from "@/lib/assessment/score";
 import { Badge, Card, EmptyState } from "@/components/ui";
+import { LessonStatusBadge } from "@/components/lesson-status-badge";
 import { HomeworkCreateForm } from "@/components/homework-create-form";
 import { HomeworkReviewForm } from "@/components/homework-review-form";
 import { LessonAssessmentForm } from "@/components/lesson-assessment-form";
@@ -30,7 +31,7 @@ import { StudentFeedbackForm } from "@/components/student-feedback-form";
 import { getOwnStudentFeedbackThisMonthTool } from "@/lib/services";
 import { ClipboardCheck } from "lucide-react";
 import { formatDate, formatDateTime, formatTime } from "@/lib/utils";
-import { computeLiveDisplayStatus } from "@/lib/lesson-live-status";
+import { computeLiveDisplayStatus, resolveLessonFinalStatus } from "@/lib/lesson-live-status";
 import { LessonLiveActions } from "@/components/lesson-live-actions";
 import type { StudentCurriculumTopic } from "@/lib/types";
 import { effectiveStudentTypes, formatStudentTypes } from "@/lib/student-types";
@@ -263,7 +264,7 @@ export default async function TeacherStudentWorkspacePage({
                           {lesson.type === "makeup" ? " · Telafi" : ""}
                         </p>
                       </div>
-                      <Badge status={liveStatus} />
+                      <LessonStatusBadge status={resolveLessonFinalStatus(lesson)} />
                     </div>
                     {(liveStatus === "scheduled" ||
                       liveStatus === "delayed" ||
@@ -294,7 +295,12 @@ export default async function TeacherStudentWorkspacePage({
                         </p>
                         <p className="text-xs text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">{lesson.instrument}</p>
                       </div>
-                      <Badge status={attendance?.status ?? lesson.status} />
+                      <LessonStatusBadge
+                        status={resolveLessonFinalStatus({
+                          ...lesson,
+                          studentAttended: attendance?.status === "present",
+                        })}
+                      />
                     </div>
                   </Card>
                 );

@@ -51,6 +51,7 @@ import {
   updateFeeRoundingMode,
   updateMakeupWindowDays,
   updateMonthlyMakeupAllowance,
+  updateSchoolLogoUrl,
   updateTermWeeklyClosedDays,
   updateLessonSchedule,
   updateMakeupSlaEscalation,
@@ -63,6 +64,7 @@ import {
   switchLessonOpsFlagLive,
   upsertMonthlyPlanPayment,
   addRegistrationFirstPayment,
+  getRegistrationFirstPayment,
   addPackage,
   updatePackage,
   addDiscountCampaign,
@@ -149,6 +151,7 @@ import { uploadProfilePhotoSchema, deleteProfilePhotoSchema } from "../validatio
 import { getActiveAccessType } from "../student-portal-access";
 import { ownStudents, ownPayouts } from "../teacher-portal-scope";
 import { effectiveLessonOpsStatus } from "../lesson-ops";
+import { resolveLessonFinalStatus, type LessonFinalStatus } from "../lesson-live-status";
 import {
   computeTeacherEarningsForPeriod,
   computeTeacherPayoutPaymentMethodInfo,
@@ -419,6 +422,7 @@ import {
   type TaskActivityAction,
   type TaskAttachment,
   OPEN_TASK_STATUSES,
+  resolveFirstCollectionMergeThreshold,
 } from "../types";
 import {
   createTask,
@@ -504,6 +508,7 @@ import {
   uploadContractSignedScan,
   cancelContract,
   buildInstallmentSchedule,
+  buildPerLessonInstallmentSchedule,
   isFormalContractDuration,
   TrialContractHasNoDocumentError,
   ContractTemplateIncompleteError,
@@ -1945,7 +1950,16 @@ export async function createStudentTool(
           perLessonNetFee: derivedPerLessonAmount,
           weeklyLessonCount: v.data.weeklyLessonCount,
         })[0]!.billableLessonCount;
-    const autoSuggestedAmount = firstPeriodBillableCount * derivedPerLessonAmount;
+    // P0 (2026-09-03) — "3 ders eşiği": kayıt ayında kalan GERÇEK ders sayısı
+    // 3'ten azsa, o kadar az bir ilk tahsilat nakit akışı açısından yetersiz
+    // sayılır — sonraki takvim ayının TAM aylık ücreti de öneriye eklenir.
+    // 3 veya daha fazlaysa yalnız kayıt ayı kalan dersleri önerilir. Bu bir
+    // ZORUNLULUK değil (kullanıcı farklı tutar girebilir, bkz. aşağıdaki
+    // `resolveFirstPaymentAdjustment`) — yalnız öneri hesabını etkiler.
+    const autoSuggestedAmount =
+      firstPeriodBillableCount >= 3
+        ? firstPeriodBillableCount * derivedPerLessonAmount
+        : firstPeriodBillableCount * derivedPerLessonAmount + pricing.monthlyFee;
 
     const { resolveFirstPaymentAdjustment } = await import("../first-payment-adjustment");
     const adjustment = resolveFirstPaymentAdjustment({
@@ -5395,6 +5409,67 @@ export async function updateFeeRoundingModeTool(
   }
 }
 
+const updateSchoolLogoSchema = z.object({
+  fileMimeType: z.string().min(1),
+  fileData: z.string().min(1),
+});
+
+const SCHOOL_LOGO_ALLOWED_MIME = new Set(["image/png", "image/jpeg", "image/webp"]);
+// Küçük, tek bir başlık logosu (institution-logo.ts'te 40-56px'e sabitlenmiş
+// render) — imzalı belge/ekli dosya limitleriyle (2MB) AYNI GEREKÇE yok,
+// çok daha küçük bir tavan yeterli.
+const SCHOOL_LOGO_MAX_BYTES = 500_000;
+
+/**
+ * Kurum logosu — `institution-logo.ts` (sanitizeLogoUrl/toLogoDataUrl) ve
+ * `store.ts` `updateSchoolLogoUrl` (json/db/memory parite) ZATEN mevcuttu;
+ * yalnızca bu ince RBAC/doğrulama sarmalayıcısı eksikti (contract-logo-
+ * snapshot.test.ts ve actions.ts actionUpdateSchoolLogo bunu ÖNCEDEN
+ * varsayıyordu). data-URI olarak saklanır — ayrı bir depolama sağlayıcısı
+ * YOK, mevcut base64-in-settings deseniyle AYNI.
+ */
+export async function updateSchoolLogoTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ logoUrl: string }>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+
+  const v = parseOrFail(updateSchoolLogoSchema, input);
+  if (!v.ok) return v;
+
+  if (!SCHOOL_LOGO_ALLOWED_MIME.has(v.data.fileMimeType)) {
+    return fail("VALIDATION_ERROR", "Desteklenmeyen logo türü — yalnız PNG, JPEG veya WEBP yükleyin.");
+  }
+  let buffer: Buffer;
+  try {
+    buffer = Buffer.from(v.data.fileData, "base64");
+  } catch {
+    return fail("VALIDATION_ERROR", "Logo dosyası okunamadı.");
+  }
+  if (buffer.length <= 0) return fail("VALIDATION_ERROR", "Boş dosya yüklenemez.");
+  if (buffer.length > SCHOOL_LOGO_MAX_BYTES) {
+    return fail("VALIDATION_ERROR", "Logo dosyası çok büyük (maks. 500KB) — daha küçük bir görsel yükleyin.");
+  }
+
+  const { toLogoDataUrl, sanitizeLogoUrl } = await import("../institution-logo");
+  const dataUrl = toLogoDataUrl(v.data.fileMimeType, v.data.fileData);
+  if (!sanitizeLogoUrl(dataUrl)) {
+    return fail("VALIDATION_ERROR", "Logo verisi geçersiz.");
+  }
+
+  try {
+    const data = await updateSchoolLogoUrl(dataUrl);
+    audit(ctx, "school.logo.update", "School", ctx.tenantId, {
+      byteLength: buffer.length,
+      mimeType: v.data.fileMimeType,
+    });
+    return ok({ logoUrl: data.settings.logoUrl });
+  } catch (e) {
+    return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "updateSchoolLogo failed");
+  }
+}
+
 /**
  * Telafi Merkezi politika penceresi (kaç gün içinde telafi hakkı kullanılmalı).
  * Yalnızca ileri yönlü etkilidir — zaten oluşturulmuş `MakeupRequest.expiresAt`
@@ -8827,6 +8902,29 @@ export async function deleteSignedDocumentVersionTool(
 /** Yalnızca yönetici/kurum admini — öğretmen dahil hiçbir başka rol sözleşme OLUŞTURAMAZ/YÖNETEMEZ. */
 const CONTRACT_STAFF: AppRole[] = ["SCHOOL_ADMIN", "SUPER_ADMIN"];
 
+/** P0 (2026-09-04) — bkz. contracts.ts `LastPeriodPricingMode`; preview ve create AYNI enum'u paylaşır. */
+const lastPeriodPricingModeSchema = z.enum(["remaining_lessons", "regular_fee", "manual"]);
+
+/**
+ * `lastPeriodPricingMode`/`lastPeriodManualAmount` girdisini `LastPeriodPricing`'e
+ * çözer — preview VE create TEK bu fonksiyonu çağırır (aynı doğrulama mesajı,
+ * aynı "regular_fee ⇒ monthlyAmount" kuralı, iki ayrı kopya YOK).
+ */
+function resolveLastPeriodPricing(input: {
+  mode?: z.infer<typeof lastPeriodPricingModeSchema>;
+  monthlyAmount: number;
+  manualAmount?: number;
+}): { ok: true; pricing: import("../contracts").LastPeriodPricing | undefined } | { ok: false; message: string } {
+  if (!input.mode || input.mode === "remaining_lessons") return { ok: true, pricing: undefined };
+  if (input.mode === "regular_fee") {
+    return { ok: true, pricing: { mode: "regular_fee", regularFeeAmount: input.monthlyAmount } };
+  }
+  if (!input.manualAmount || input.manualAmount <= 0) {
+    return { ok: false, message: "Son dönem tutarı manuel seçildiğinde sıfırdan büyük bir tutar girilmelidir." };
+  }
+  return { ok: true, pricing: { mode: "manual", manualAmount: input.manualAmount } };
+}
+
 const contractInstallmentPlanSchema = z.object({
   durationMonths: z.number().int().min(1).max(12),
   monthlyAmount: z.number().int().positive(),
@@ -8834,6 +8932,14 @@ const contractInstallmentPlanSchema = z.object({
   firstDueDate: z.string().min(1),
   depositAmount: z.number().int().min(0).optional(),
   paymentMethod: z.string().max(50).optional(),
+  /** Bkz. createStudentContractTool şema yorumu — AYNI opt-in, önizlemenin GERÇEK planla tutarlı kalması için. */
+  usePerLessonBilling: z.boolean().optional(),
+  studentId: z.string().min(1).optional(),
+  enrollmentStartDate: z.string().min(1).optional(),
+  enrollmentEndDate: z.string().min(1).optional(),
+  /** P0 (2026-09-04) — "Sözleşmenin son döneminde eksik kalan dersler nasıl ücretlendirilsin?" tercihi; bkz. `resolveLastPeriodPricing`. */
+  lastPeriodPricingMode: lastPeriodPricingModeSchema.optional(),
+  lastPeriodManualAmount: z.number().int().positive().optional(),
 });
 
 /** Oluşturmadan ÖNCE taksit planı + toplam tutarı önizler — hiçbir kalıcı kayıt yazmaz. */
@@ -8843,7 +8949,7 @@ export async function previewContractInstallmentPlanTool(
 ): Promise<
   ServiceResult<{
     totalContractAmount: number;
-    installments: ReturnType<typeof buildInstallmentSchedule>;
+    installments: import("../types").ContractInstallmentSnapshot[];
     isFormal: boolean;
     paymentDueRuleText: string;
     firstDueDateInWindow: boolean;
@@ -8853,18 +8959,73 @@ export async function previewContractInstallmentPlanTool(
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
   const v = parseOrFail(contractInstallmentPlanSchema, input);
   if (!v.ok) return v;
+  const lastPeriodResolved = resolveLastPeriodPricing({
+    mode: v.data.lastPeriodPricingMode,
+    monthlyAmount: v.data.monthlyAmount,
+    manualAmount: v.data.lastPeriodManualAmount,
+  });
+  if (!lastPeriodResolved.ok) return fail("VALIDATION_ERROR", lastPeriodResolved.message);
   try {
     const data = await readData();
     const paymentPolicy = data.settings.collectionsSettings;
-    const totalContractAmount = v.data.durationMonths * v.data.monthlyAmount;
-    const installments = buildInstallmentSchedule({
-      totalContractAmount,
-      depositAmount: v.data.depositAmount,
-      installmentCount: v.data.installmentCount,
-      firstDueDate: v.data.firstDueDate,
-      paymentMethod: v.data.paymentMethod,
-      paymentPolicy,
-    });
+    let installments: import("../types").ContractInstallmentSnapshot[];
+    let totalContractAmount: number;
+    const student = v.data.studentId ? data.students.find((s) => s.id === v.data.studentId) : undefined;
+    if (
+      v.data.usePerLessonBilling &&
+      student?.derivedPerLessonAmount != null &&
+      student.weeklyLessonCount &&
+      v.data.enrollmentStartDate &&
+      v.data.enrollmentEndDate
+    ) {
+      const { computePeriodBillingPreview } = await import("../period-lesson-billing");
+      const billingLines = computePeriodBillingPreview({
+        enrollmentStartDay: v.data.enrollmentStartDate,
+        enrollmentEndDay: v.data.enrollmentEndDate,
+        perLessonNetFee: student.derivedPerLessonAmount,
+        weeklyLessonCount: student.weeklyLessonCount,
+        studentId: student.id,
+        lessons: data.lessons.map((l) => ({
+          id: l.id,
+          studentId: l.studentId,
+          startAt: l.startAt,
+          type: l.type,
+          status: l.status,
+          opsClosedFlag: l.opsClosedFlag,
+        })),
+        makeupRequests: data.makeupRequests.map((m) => ({ sourceLessonId: m.sourceLessonId, status: m.status })),
+      });
+      // Kayıt anında GERÇEKTEN tahsil edilen ilk ödeme — `createContract`'ın
+      // (bkz. contracts.ts `firstPaymentActualAmount`/`requiresFirstPaymentAtRegistration`)
+      // kullandığı AYNI kaynak ve AYNI koşul (yalnız FORMAL — >=3 ay — süre).
+      // Bu olmadan/koşulsuz kullanılırsa önizleme her zaman otomatik tutarı
+      // gösterir ya da informal (Tanışma) sürede create'ten FARKLI davranır.
+      const registrationFirstPayment = isFormalContractDuration(v.data.durationMonths)
+        ? await getRegistrationFirstPayment(student.id)
+        : null;
+      installments = buildPerLessonInstallmentSchedule({
+        billingLines,
+        firstPeriodManualNetAmount: registrationFirstPayment?.amount,
+        mergeThresholdLessons: resolveFirstCollectionMergeThreshold({
+          firstCollectionMergeThresholdLessons: paymentPolicy?.firstCollectionMergeThresholdLessons,
+        }),
+        firstDueDate: v.data.firstDueDate,
+        paymentMethod: v.data.paymentMethod,
+        paymentPolicy,
+        lastPeriodPricing: lastPeriodResolved.pricing,
+      });
+      totalContractAmount = installments.reduce((s, r) => s + r.amount, 0) + (v.data.depositAmount ?? 0);
+    } else {
+      totalContractAmount = v.data.durationMonths * v.data.monthlyAmount;
+      installments = buildInstallmentSchedule({
+        totalContractAmount,
+        depositAmount: v.data.depositAmount,
+        installmentCount: v.data.installmentCount,
+        firstDueDate: v.data.firstDueDate,
+        paymentMethod: v.data.paymentMethod,
+        paymentPolicy,
+      });
+    }
     const rule = resolveContractPaymentDueRule(v.data.paymentMethod, paymentPolicy);
     const firstDueDay = new Date(v.data.firstDueDate).getUTCDate();
     const firstDueDateInWindow = firstDueDay >= rule.windowStartDay && firstDueDay <= rule.windowEndDay;
@@ -9064,6 +9225,20 @@ const createStudentContractSchema = z.object({
       note: z.string().max(500).optional(),
     })
     .optional(),
+  /**
+   * P0 (2026-09-03) — açık OPT-IN: verilmezse (varsayılan/eski davranış)
+   * taksit planı `monthlyAmount` üzerinden SABİT SAYIDA eşit satır olarak
+   * üretilir (DEĞİŞMEDİ). true ise — yalnız `Student.derivedPerLessonAmount`
+   * dolu (yeni, per-lesson fiyatlandırma kullanan) öğrenciler için —
+   * `computePeriodBillingPreview`'in GERÇEK/tahmini dönem ders sayılarına
+   * göre değişen taksit satırları + "3 ders eşiği" birleştirme kuralı
+   * uygulanır. Mevcut sözleşme oluşturma çağrıları (ör. yenileme ekranı)
+   * bu alanı GÖNDERMEDİĞİ sürece hiçbir davranış değişikliği görmez.
+   */
+  usePerLessonBilling: z.boolean().optional(),
+  /** P0 (2026-09-04) — "Sözleşmenin son döneminde eksik kalan dersler nasıl ücretlendirilsin?" tercihi; bkz. `resolveLastPeriodPricing`. Yalnız `usePerLessonBilling` ile birlikte anlamlı, undefined ise davranış DEĞİŞMEZ. */
+  lastPeriodPricingMode: lastPeriodPricingModeSchema.optional(),
+  lastPeriodManualAmount: z.number().int().positive().optional(),
 });
 
 /** İlk kayıt / yenileme / değişiklik — hepsi TEK giriş noktası, `contractType` iş akışını belirler. */
@@ -9075,6 +9250,12 @@ export async function createStudentContractTool(
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
   const v = parseOrFail(createStudentContractSchema, input);
   if (!v.ok) return v;
+  const lastPeriodResolved = resolveLastPeriodPricing({
+    mode: v.data.lastPeriodPricingMode,
+    monthlyAmount: v.data.monthlyAmount,
+    manualAmount: v.data.lastPeriodManualAmount,
+  });
+  if (!lastPeriodResolved.ok) return fail("VALIDATION_ERROR", lastPeriodResolved.message);
 
   const data = await readData();
   const student = data.students.find((s) => s.id === v.data.studentId);
@@ -9098,6 +9279,31 @@ export async function createStudentContractTool(
     } catch {
       // sözleşme üretimini durdurmaz — alan boş bırakılır, personel gerekirse elle ekler.
     }
+  }
+
+  // P0 (2026-09-03) — bkz. şema yorumu: yalnız açıkça istenmişse VE öğrenci
+  // gerçekten per-lesson fiyatlandırma kullanıyorsa (derivedPerLessonAmount
+  // dolu) hesaplanır; aksi halde undefined kalır ve createContract eski
+  // (fixed, SABİT SAYIDA eşit taksit) davranışını AYNEN sürdürür.
+  let perLessonBillingLines: import("../period-lesson-billing").PeriodBillingLine[] | undefined;
+  if (v.data.usePerLessonBilling && student.derivedPerLessonAmount != null && student.weeklyLessonCount) {
+    const { computePeriodBillingPreview } = await import("../period-lesson-billing");
+    perLessonBillingLines = computePeriodBillingPreview({
+      enrollmentStartDay: v.data.enrollmentStartDate,
+      enrollmentEndDay: v.data.enrollmentEndDate,
+      perLessonNetFee: student.derivedPerLessonAmount,
+      weeklyLessonCount: student.weeklyLessonCount,
+      studentId: student.id,
+      lessons: data.lessons.map((l) => ({
+        id: l.id,
+        studentId: l.studentId,
+        startAt: l.startAt,
+        type: l.type,
+        status: l.status,
+        opsClosedFlag: l.opsClosedFlag,
+      })),
+      makeupRequests: data.makeupRequests.map((m) => ({ sourceLessonId: m.sourceLessonId, status: m.status })),
+    });
   }
 
   try {
@@ -9150,6 +9356,9 @@ export async function createStudentContractTool(
       firstPaymentExceptionReason: v.data.firstPaymentExceptionReason,
       renewalDebtOverrideReason: v.data.renewalDebtOverrideReason,
       firstPaymentCollected: v.data.firstPaymentCollected,
+      perLessonBillingLines,
+      firstCollectionMergeThresholdLessons: data.settings.collectionsSettings?.firstCollectionMergeThresholdLessons,
+      lastPeriodPricing: lastPeriodResolved.pricing,
     });
 
     if (v.data.contractType !== "initial" && v.data.renewalDebtOverrideReason?.trim()) {
@@ -9732,8 +9941,8 @@ export type AttendanceCalendarLessonPaymentInfo = {
 
 export type AttendanceCalendarLessonOpsInfo = {
   lessonId: string;
-  /** effectiveLessonOpsStatus(lesson) — İşlendi > Geldi > Telafi > Gelmedi > Mazeretli öncelikli, TEK statü; hiçbiri set değilse null. */
-  opsStatus: "attended" | "processed" | "makeup" | "absent" | "excused" | null;
+  /** Kullanıcıya gösterilen canonical ders statüsü; legacy yoklama alanları ayrı statüye dönüşmez. */
+  opsStatus: LessonFinalStatus;
   /**
    * İş 2 — aynı günde birden fazla ders olduğunda hangi satırın hangi
    * derse ait olduğunu ayırt etmek için gereken minimum bağlam (ders
@@ -9836,7 +10045,7 @@ export async function getAttendanceCalendarMonthTool(
         );
         return {
           lessonId: l.id,
-          opsStatus: effectiveLessonOpsStatus(l),
+          opsStatus: resolveLessonFinalStatus(l),
           startAt: l.startAt,
           durationMinutes,
           teacherName: teacher?.name,
@@ -11416,7 +11625,7 @@ export async function getAttendanceReportTool(
       branchId: z.string().optional(),
       instrument: z.string().optional(),
       roomId: z.string().optional(),
-      status: z.enum(["attended", "processed", "makeup", "absent", "excused", "cancelled", "planned"]).optional(),
+      status: z.enum(["attended", "processed", "makeup", "cancelled", "planned"]).optional(),
     }),
     input
   );

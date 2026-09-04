@@ -1,12 +1,10 @@
 import { describe, it, expect } from "vitest";
 import {
   assertCanCreateMakeup,
-  calendarMonthKey,
-  countStudentMakeupsInMonth,
   formatMakeupQuotaLabel,
   getStudentMakeupQuota,
   resolveMonthlyMakeupAllowance,
-  DEFAULT_MONTHLY_MAKEUP_ALLOWANCE,
+  TERM_MAKEUP_LIMIT,
 } from "../makeup-quota";
 import type { AppData, MakeupRequest } from "../types";
 
@@ -23,10 +21,9 @@ function mk(partial: Partial<MakeupRequest> & Pick<MakeupRequest, "id" | "studen
   };
 }
 
-// Dönem-bazlı kota (Nilüfer Acar politikası §3) döneme her isteğin
-// `sourceLessonId`'sinin gösterdiği gerçek dersten türetilir; bu yüzden
-// testlerde her istek AYNI (Ağustos 2026 = "2026-yaz" dönemi) bir derse
-// bağlanır.
+// Dönem-bazlı kota her isteğin `sourceLessonId`'sinin gösterdiği gerçek
+// derse bağlıdır; testlerde aksi belirtilmedikçe her istek AYNI (Ağustos
+// 2026 = "2026-yaz" dönemi) derse bağlanır.
 const SAME_PERIOD_LESSON = {
   id: "l1",
   studentId: "s1",
@@ -73,34 +70,61 @@ function baseData(requests: Partial<MakeupRequest>[], allowance?: number): AppDa
   } as unknown as AppData;
 }
 
-describe("makeup-quota", () => {
+describe("makeup-quota — dönem başına 2 telafi hakkı", () => {
   it("varsayılan hak 2", () => {
-    expect(resolveMonthlyMakeupAllowance({})).toBe(DEFAULT_MONTHLY_MAKEUP_ALLOWANCE);
+    expect(resolveMonthlyMakeupAllowance({})).toBe(TERM_MAKEUP_LIMIT);
   });
 
-  it("pending/suggested/awaiting_info/confirmed sayar; cancelled/expired saymaz", () => {
-    const month = "2026-08";
-    const reqs = [
-      mk({ id: "1", studentId: "s1", status: "pending", createdAt: "2026-08-01T10:00:00.000Z" }),
-      mk({ id: "2", studentId: "s1", status: "confirmed", createdAt: "2026-08-05T10:00:00.000Z" }),
-      mk({ id: "3", studentId: "s1", status: "cancelled", createdAt: "2026-08-06T10:00:00.000Z" }),
-      mk({ id: "4", studentId: "s1", status: "expired", createdAt: "2026-08-07T10:00:00.000Z" }),
-      mk({ id: "5", studentId: "s1", status: "suggested", createdAt: "2026-07-01T10:00:00.000Z" }),
-    ] as unknown as MakeupRequest[];
-    expect(countStudentMakeupsInMonth(reqs, "s1", month)).toBe(2);
+  it("aktif dönemde 0 telafi → 0 / 2 kullanıldı", () => {
+    const snap = getStudentMakeupQuota(baseData([], 2), "s1", new Date("2026-08-12T12:00:00.000Z"));
+    expect(snap.used).toBe(0);
+    expect(snap.remaining).toBe(2);
+    expect(formatMakeupQuotaLabel(snap)).toBe("0 / 2 kullanıldı · 2 hak kaldı");
   });
 
-  it("2 hak dolunca 3. talebi engeller", () => {
+  it("aktif dönemde 1 confirmed telafi → 1 / 2 kullanıldı", () => {
+    const data = baseData([mk({ id: "1", studentId: "s1", status: "confirmed", createdAt: "2026-08-05T10:00:00.000Z" })], 2);
+    const snap = getStudentMakeupQuota(data, "s1", new Date("2026-08-12T12:00:00.000Z"));
+    expect(snap.used).toBe(1);
+    expect(snap.remaining).toBe(1);
+    expect(formatMakeupQuotaLabel(snap)).toBe("1 / 2 kullanıldı · 1 hak kaldı");
+  });
+
+  it("aktif dönemde 2 confirmed telafi → limit dolu, hak kalmadı", () => {
     const data = baseData(
       [
-        mk({ id: "1", studentId: "s1", status: "pending", createdAt: "2026-08-01T10:00:00.000Z" }),
+        mk({ id: "1", studentId: "s1", status: "confirmed", createdAt: "2026-08-01T10:00:00.000Z" }),
         mk({ id: "2", studentId: "s1", status: "confirmed", createdAt: "2026-08-05T10:00:00.000Z" }),
       ],
       2
     );
+    const snap = getStudentMakeupQuota(data, "s1", new Date("2026-08-12T12:00:00.000Z"));
+    expect(formatMakeupQuotaLabel(snap)).toBe("2 / 2 kullanıldı · Hak kalmadı");
     const res = assertCanCreateMakeup(data, "s1", new Date("2026-08-12T12:00:00.000Z"));
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.message).toContain("2 telafi hakkını kullanmıştır");
+  });
+
+  it("1 confirmed + 1 pending → kullanıldı/rezerve edildi/yeni hak yok ayrımı", () => {
+    const data = baseData(
+      [
+        mk({ id: "1", studentId: "s1", status: "confirmed", createdAt: "2026-08-01T10:00:00.000Z" }),
+        mk({ id: "2", studentId: "s1", status: "pending", createdAt: "2026-08-05T10:00:00.000Z" }),
+      ],
+      2
+    );
+    const snap = getStudentMakeupQuota(data, "s1", new Date("2026-08-12T12:00:00.000Z"));
+    expect(snap.confirmedUsed).toBe(1);
+    expect(snap.reservedUsed).toBe(1);
+    expect(formatMakeupQuotaLabel(snap)).toBe("1 / 2 kullanıldı · 1 hak rezerve edildi · Yeni telafi hakkı yok");
+  });
+
+  it("pending bir kayıt 'kullanıldı' olarak sayılmaz, yalnız confirmed sayılır", () => {
+    const data = baseData([mk({ id: "1", studentId: "s1", status: "pending", createdAt: "2026-08-01T10:00:00.000Z" })], 2);
+    const snap = getStudentMakeupQuota(data, "s1", new Date("2026-08-12T12:00:00.000Z"));
+    expect(snap.confirmedUsed).toBe(0);
+    expect(snap.reservedUsed).toBe(1);
+    expect(snap.remaining).toBe(1);
   });
 
   it("0 hak telafiyi kapatır", () => {
@@ -110,22 +134,7 @@ describe("makeup-quota", () => {
     if (!res.ok) expect(res.message).toMatch(/kapalı/);
   });
 
-  it("etiket metni kalan hakkı gösterir", () => {
-    const snap = getStudentMakeupQuota(
-      baseData([mk({ id: "1", studentId: "s1", status: "pending", createdAt: "2026-08-01T10:00:00.000Z" })], 2),
-      "s1",
-      new Date("2026-08-12T12:00:00.000Z")
-    );
-    // Sahibi onaylı zorunlu metin: "<yıl> eğitim dönemi için kalan telafi hakkı: X / 2".
-    expect(formatMakeupQuotaLabel(snap)).toContain("eğitim dönemi için kalan telafi hakkı: 1 / 2");
-    expect(formatMakeupQuotaLabel(snap)).toMatch(/^\d{4}-\d{4} eğitim dönemi/);
-  });
-
-  it("ay anahtarı YYYY-MM", () => {
-    expect(calendarMonthKey("2026-08-13T10:00:00.000Z")).toMatch(/^\d{4}-\d{2}$/);
-  });
-
-  it("aynı eğitim dönemi içinde ay değişse bile kota sıfırlanmaz (§3 — dönem bazlı, AY bazlı değil)", () => {
+  it("aynı eğitim dönemi içinde ay değişse bile kota sıfırlanmaz", () => {
     const data = baseData(
       [
         mk({ id: "1", studentId: "s1", status: "pending", createdAt: "2026-07-31T10:00:00.000Z" }),
@@ -140,7 +149,7 @@ describe("makeup-quota", () => {
     if (!res.ok) expect(res.snapshot.used).toBe(2);
   });
 
-  it("sahibi onaylı NİHAİ karar — Güz + Yaz AYRI AYRI 2'şer değil, aynı eğitim yılında TOPLAM 2 hak (Madde 11)", () => {
+  it("yeni eğitim dönemi kotayı 2'ye getirir — Güz ve Yaz ayrı sayaçlardır", () => {
     // Güz dersi (Ekim 2026 → academicYearStart=2026, term=guz) — 2 hak kullanılmış.
     const guzLesson = {
       ...SAME_PERIOD_LESSON,
@@ -148,7 +157,7 @@ describe("makeup-quota", () => {
       startAt: "2026-10-05T10:00:00.000Z",
       endAt: "2026-10-05T10:40:00.000Z",
     };
-    // Yaz dersi AYNI akademik yılda (Ağustos 2026 → academicYearStart=2026, term=yaz) — 3. talebin kaynağı.
+    // Yaz dersi AYNI akademik yılda (Ağustos 2026 → academicYearStart=2026, term=yaz) — ayrı dönem, dolu değil.
     const yazLesson = {
       ...SAME_PERIOD_LESSON,
       id: "l_yaz",
@@ -157,24 +166,21 @@ describe("makeup-quota", () => {
     };
     const data = baseData(
       [
-        mk({ id: "1", studentId: "s1", status: "pending", createdAt: "2026-10-05T10:00:00.000Z", sourceLessonId: "l_guz" }),
+        mk({ id: "1", studentId: "s1", status: "confirmed", createdAt: "2026-10-05T10:00:00.000Z", sourceLessonId: "l_guz" }),
         mk({ id: "2", studentId: "s1", status: "confirmed", createdAt: "2026-10-06T10:00:00.000Z", sourceLessonId: "l_guz" }),
       ],
       2
     );
     data.lessons = [guzLesson, yazLesson] as unknown as AppData["lessons"];
     const res = assertCanCreateMakeup(data, "s1", new Date("2026-08-21T12:00:00.000Z"), "l_yaz");
-    expect(res.ok).toBe(false);
-    if (!res.ok) {
-      expect(res.snapshot.used).toBe(2);
-      expect(res.message).toContain("2026-2027");
-    }
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.snapshot.used).toBe(0);
   });
 
-  it("farklı eğitim döneminden kaynaklanan talepler kotayı etkilemez", () => {
+  it("önceki dönemin telafileri aktif dönem kotasına dahil edilmez", () => {
     const guzLesson = { ...SAME_PERIOD_LESSON, id: "l2", startAt: "2025-10-10T10:00:00.000Z", endAt: "2025-10-10T10:40:00.000Z" };
     const data = baseData(
-      [mk({ id: "1", studentId: "s1", status: "pending", createdAt: "2025-10-10T10:00:00.000Z", sourceLessonId: "l2" })],
+      [mk({ id: "1", studentId: "s1", status: "confirmed", createdAt: "2025-10-10T10:00:00.000Z", sourceLessonId: "l2" })],
       2
     );
     data.lessons.push(guzLesson as unknown as AppData["lessons"][number]);
@@ -183,12 +189,29 @@ describe("makeup-quota", () => {
     if (res.ok) expect(res.snapshot.used).toBe(0);
   });
 
-  it("suggested ve awaiting_info sayılır", () => {
-    const reqs = [
-      mk({ id: "1", studentId: "s1", status: "suggested", createdAt: "2026-08-01T10:00:00.000Z" }),
-      mk({ id: "2", studentId: "s1", status: "awaiting_info", createdAt: "2026-08-02T10:00:00.000Z" }),
-    ] as unknown as MakeupRequest[];
-    expect(countStudentMakeupsInMonth(reqs, "s1", "2026-08")).toBe(2);
+  it("cancelled/expired telafi sayılmaz", () => {
+    const data = baseData(
+      [
+        mk({ id: "1", studentId: "s1", status: "cancelled", createdAt: "2026-08-01T10:00:00.000Z" }),
+        mk({ id: "2", studentId: "s1", status: "expired", createdAt: "2026-08-02T10:00:00.000Z" }),
+      ],
+      2
+    );
+    const snap = getStudentMakeupQuota(data, "s1", new Date("2026-08-12T12:00:00.000Z"));
+    expect(snap.used).toBe(0);
+  });
+
+  it("suggested ve awaiting_info rezerve edilmiş olarak sayılır", () => {
+    const data = baseData(
+      [
+        mk({ id: "1", studentId: "s1", status: "suggested", createdAt: "2026-08-01T10:00:00.000Z" }),
+        mk({ id: "2", studentId: "s1", status: "awaiting_info", createdAt: "2026-08-02T10:00:00.000Z" }),
+      ],
+      2
+    );
+    const snap = getStudentMakeupQuota(data, "s1", new Date("2026-08-12T12:00:00.000Z"));
+    expect(snap.reservedUsed).toBe(2);
+    expect(snap.confirmedUsed).toBe(0);
   });
 
   it("başka öğrencinin talebi kotayı etkilemez", () => {
@@ -203,7 +226,13 @@ describe("makeup-quota", () => {
     expect(res.ok).toBe(true);
   });
 
-  it("geçersiz ISO ayı now'a düşer", () => {
-    expect(calendarMonthKey("not-a-date", new Date("2026-03-05T00:00:00.000Z"))).toBe("2026-03");
+  it("sourceLessonId verilip kaynak ders bulunamazsa aktif dönem çözülemez", () => {
+    const data = baseData([], 2);
+    const res = assertCanCreateMakeup(data, "s1", new Date("2026-08-12T12:00:00.000Z"), "silinmis-ders-id");
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.snapshot.periodResolved).toBe(false);
+      expect(res.message).toBe("Aktif eğitim dönemi belirlenemediği için telafi hakkı hesaplanamadı.");
+    }
   });
 });

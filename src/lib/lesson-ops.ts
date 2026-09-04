@@ -227,7 +227,7 @@ export function applyLessonOpsFlag(
       expiresAt: formatISO(addDays(now, data.settings.makeupWindowDays)),
       suggestedSlots: [],
       createdAt: nowIso,
-      policyNote: `${data.settings.makeupWindowDays} gün pencere · ${data.settings.monthlyMakeupAllowance ?? 2}/ay hak · ${branch?.shortName ?? ""}`,
+      policyNote: `${data.settings.makeupWindowDays} gün pencere · ${data.settings.monthlyMakeupAllowance ?? 2}/dönem hak · ${branch?.shortName ?? ""}`,
     };
     makeupRequests = [...makeupRequests, req];
   }
@@ -245,13 +245,13 @@ export function applyLessonOpsFlag(
   };
 }
 
-/** Bir dersin o an "etkin" tek statüsü — öncelik: İşlendi > Geldi > Telafi > Gelmedi > Mazeretli. */
+/** Bir dersin operasyonel tek statüsü — öncelik: Telafi > İşlendi > Geldi > Gelmedi > Mazeretli. */
 export function effectiveLessonOpsStatus(
   lesson: Pick<Lesson, "studentAttended" | "lessonProcessed" | "opsMakeupFlag" | "studentAbsent" | "studentExcused">
 ): LessonOpsFlag | null {
+  if (lesson.opsMakeupFlag) return "makeup";
   if (lesson.lessonProcessed) return "processed";
   if (lesson.studentAttended) return "attended";
-  if (lesson.opsMakeupFlag) return "makeup";
   if (lesson.studentAbsent) return "absent";
   if (lesson.studentExcused) return "excused";
   return null;

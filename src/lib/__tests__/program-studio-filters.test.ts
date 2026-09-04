@@ -252,18 +252,18 @@ describe("computeGridWindow", () => {
 });
 
 describe("lessonCardTier", () => {
-  it("30 dakikadan kısa kartlarda yalnızca öğrenci+saat gösterilecek 'min' katmanı döner", () => {
+  it("40px'ten kısa kartlarda yalnızca öğrenci+saat gösterilecek 'min' katmanı döner", () => {
     expect(lessonCardTier(26)).toBe("min");
-    expect(lessonCardTier(29)).toBe("min");
+    expect(lessonCardTier(39)).toBe("min");
   });
 
   it("orta yükseklikte öğretmen satırı eklenen 'compact' katmanı döner", () => {
-    expect(lessonCardTier(30)).toBe("compact");
-    expect(lessonCardTier(45)).toBe("compact");
+    expect(lessonCardTier(40)).toBe("compact");
+    expect(lessonCardTier(63)).toBe("compact");
   });
 
   it("yeterli yükseklikte enstrüman/şube satırının da eklendiği 'full' katmanı döner", () => {
-    expect(lessonCardTier(46)).toBe("full");
+    expect(lessonCardTier(64)).toBe("full");
     expect(lessonCardTier(100)).toBe("full");
   });
 });

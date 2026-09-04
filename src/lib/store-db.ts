@@ -8,6 +8,7 @@ import {
   MAKEUP_QUOTA_COUNTING_STATUSES,
   MakeupQuotaExceededError,
   resolveMonthlyMakeupAllowance,
+  formatEducationPeriodLabel,
 } from "./makeup-quota";
 import { logger } from "./logger";
 import { createSeedData, createEmptyTemplateData } from "./seed";
@@ -134,12 +135,10 @@ function isRetryablePrismaError(err: unknown): boolean {
   );
 }
 
-/** Serialize per tenant+student, then count counting-status makeups in the current full education year. */
+/** Serialize per tenant+student, then count counting-status makeups in the current education term. */
 /**
- * Sahibi onaylı NİHAİ karar (2026-08-29) — hak TAKVİM AYI değil, Güz/Yaz da
- * AYRI AYRI değil, TAM EĞİTİM YILI (`academicYearStart`) başına sayılır.
- * `term` bileşeni BİLEREK yok sayılır — aynı akademik yılın Güz ve Yaz
- * dersleri AYNI kotayı paylaşır (bkz. makeup-quota.ts başlık yorumu).
+ * P0 ürün kararı — hak TAKVİM AYI değil, aktif eğitim dönemi (`term` +
+ * `academicYearStart`) başına sayılır. Güz ve Yaz ayrı sayaçlardır.
  * `sourceLessonId`'nin akademik yılı `resolveLessonAcademicPeriod`
  * (attendance-calendar.ts, Program ekranıyla PAYLAŞILAN tek kaynak) ile
  * çözülür; aynı öğrencinin diğer telafi taleplerinin kaynağı olan
@@ -189,19 +188,18 @@ async function assertStudentMakeupQuotaTx(
       { startAt: l.startAt.toISOString(), term: (l.term as "guz" | "yaz" | null) ?? undefined, academicYearStart: l.academicYearStart ?? undefined },
       termFallback
     );
-    return p.academicYearStart === period.academicYearStart;
+    return p.academicYearStart === period.academicYearStart && p.term === period.term;
   }).length;
 
   const school = await tx.school.findFirst({ where: { id: schoolId, tenantId } });
   if (!school) throw new Error("Kurum bulunamadı");
   const allowance = resolveMonthlyMakeupAllowance(school);
-  const { formatEducationYearLabel } = await import("./makeup-quota");
-  const yearLabel = formatEducationYearLabel(period.academicYearStart);
+  const periodLabel = formatEducationPeriodLabel(period.term, period.academicYearStart);
   if (allowance === 0) {
     throw new MakeupQuotaExceededError("Bu kurumda telafi talebi kapalıdır (eğitim yılı başına hak: 0).");
   }
   if (used >= allowance) {
-    throw new MakeupQuotaExceededError(`Bu öğrenci ${yearLabel} eğitim döneminde ${allowance} telafi hakkını kullanmıştır.`);
+    throw new MakeupQuotaExceededError(`Bu öğrenci ${periodLabel} içinde ${allowance} telafi hakkını kullanmıştır.`);
   }
   return school;
 }
@@ -512,6 +510,12 @@ function mapSchoolToAppData(school: PrismaSchoolWithRelations): AppData {
       adjustmentReason: payment.adjustmentReason ?? undefined,
       adjustedBy: payment.adjustedBy ?? undefined,
       adjustedAt: payment.adjustedAt?.toISOString() ?? undefined,
+      installmentKind: (payment.installmentKind as import("./types").ContractInstallmentKind | undefined) ?? undefined,
+      installmentPeriodLabel: payment.installmentPeriodLabel ?? undefined,
+      installmentBreakdown:
+        (payment.installmentBreakdown as { periodLabel: string; amount: number }[] | undefined) ?? undefined,
+      installmentComputationSource: (payment.installmentComputationSource as "auto" | "manual" | undefined) ?? undefined,
+      installmentNote: payment.installmentNote ?? undefined,
     })),
     teacherFeeRules: school.teacherFeeRules.map((rule) => ({
       id: rule.id,
@@ -2717,12 +2721,32 @@ export async function addContractInstallments(input: {
         source: "contract",
         contractId: input.contractId,
         installmentSequence: inst.sequence,
+        installmentKind: inst.kind,
+        installmentPeriodLabel: inst.periodLabel,
+        installmentBreakdown: inst.breakdown as unknown as import("@prisma/client").Prisma.InputJsonValue | undefined,
+        installmentComputationSource: inst.computationSource,
+        installmentNote: inst.note,
       };
     });
   if (rows.length > 0) {
     await prisma.payment.createMany({ data: rows });
   }
-  let reusedRow: { id: string; sequence: number; dueDate: Date; amount: number; paidAmount: number; status: string; method: string | null } | undefined;
+  let reusedRow:
+    | {
+        id: string;
+        sequence: number;
+        dueDate: Date;
+        amount: number;
+        paidAmount: number;
+        status: string;
+        method: string | null;
+        installmentKind: string | null;
+        installmentPeriodLabel: string | null;
+        installmentBreakdown: unknown;
+        installmentComputationSource: string | null;
+        installmentNote: string | null;
+      }
+    | undefined;
   if (reuseId) {
     const firstInst = input.installments.find((i) => i.sequence === 1);
     const updated = await prisma.payment.update({
@@ -2732,6 +2756,11 @@ export async function addContractInstallments(input: {
         contractId: input.contractId,
         installmentSequence: 1,
         description: `Sözleşme taksiti 1/${input.installments.length} — Kayıt anında tahsil edildi (kayıt ödemesi)`,
+        installmentKind: firstInst?.kind,
+        installmentPeriodLabel: firstInst?.periodLabel,
+        installmentBreakdown: firstInst?.breakdown as unknown as import("@prisma/client").Prisma.InputJsonValue | undefined,
+        installmentComputationSource: firstInst?.computationSource,
+        installmentNote: firstInst?.note,
       },
     });
     reusedRow = {
@@ -2742,6 +2771,11 @@ export async function addContractInstallments(input: {
       paidAmount: updated.paidAmount,
       status: updated.status,
       method: updated.method,
+      installmentKind: updated.installmentKind,
+      installmentPeriodLabel: updated.installmentPeriodLabel,
+      installmentBreakdown: updated.installmentBreakdown,
+      installmentComputationSource: updated.installmentComputationSource,
+      installmentNote: updated.installmentNote,
     };
   }
   const data = await readData();
@@ -2756,6 +2790,11 @@ export async function addContractInstallments(input: {
     paidAmount: r.paidAmount,
     status: r.status,
     paymentMethod: r.method ?? undefined,
+    kind: (r.installmentKind as import("./types").ContractInstallmentKind | null | undefined) ?? undefined,
+    periodLabel: r.installmentPeriodLabel ?? undefined,
+    breakdown: (r.installmentBreakdown as { periodLabel: string; amount: number }[] | null | undefined) ?? undefined,
+    computationSource: (r.installmentComputationSource as "auto" | "manual" | null | undefined) ?? undefined,
+    note: r.installmentNote ?? undefined,
   }));
   return { data, installments };
 }

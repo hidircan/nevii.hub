@@ -202,8 +202,14 @@ function assignLanes(dayLessons: Lesson[]): { laneOf: Map<string, number>; laneC
  * eklenir. Saf fonksiyon — birim testlerinde kullanılır.
  */
 export function lessonCardTier(heightPx: number): "min" | "compact" | "full" {
-  if (heightPx < 30) return "min";
-  if (heightPx < 46) return "compact";
+  // Eşikler `LessonCardBody`'nin gerçek satır yüksekliklerinden (leading-tight
+  // font boyutları + kartın p-1.5 dolgusu) türetilir — 46/30 eski eşikleri
+  // gerçekte gereken ~66px/~51px'in altındaydı, bu da "full"/"compact"
+  // katmanının kutuya SIĞMADAN seçilmesine (dikey taşma) yol açıyordu. Kart
+  // artık `overflow-hidden` ile de korunuyor (bkz. LessonCardBody sarmalayıcı
+  // div'i) — bu eşikler taşmayı ÖNLER, overflow-hidden ise son çare kesim.
+  if (heightPx < 40) return "min";
+  if (heightPx < 64) return "compact";
   return "full";
 }
 
@@ -1775,7 +1781,7 @@ export function ProgramStudio({
                         }
                       }}
                       aria-label={lessonAccessibleLabel(lesson, student, teacher, room, branchNames[lesson.branchId])}
-                      className={`group absolute z-[1] rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface)] p-1.5 text-[10px] shadow-[var(--shadow-sm)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-focus-ring)] hover:z-[20] ${
+                      className={`group absolute z-[1] flex flex-col rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface)] p-1.5 text-[10px] shadow-[var(--shadow-sm)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-focus-ring)] hover:z-[20] ${
                         editable ? "cursor-grab active:cursor-grabbing" : "cursor-pointer opacity-90"
                       }`}
                       style={{
@@ -1786,13 +1792,29 @@ export function ProgramStudio({
                         borderLeft: `3px solid ${teacher?.color ?? "#A56A00"}`,
                       }}
                     >
-                      <LessonCardBody
-                        student={student}
-                        teacher={teacher}
-                        lesson={lesson}
-                        branchName={branchNames[lesson.branchId]}
-                        tier={tier}
-                      />
+                      {/* `min-h-0` — flex çocukları varsayılan `min-height:auto` içerikten KÜÇÜK
+                          büzülemez; bu, sabit yükseklikli kartta dikey taşmanın gerçek nedeniydi.
+                          `overflow-hidden` son satırı gerekirse keser (metin `title`/hover kartıyla
+                          hâlâ tam erişilebilir), kutu sınırını asla BOZMAZ. */}
+                      <div className="min-h-0 flex-1 overflow-hidden">
+                        <LessonCardBody
+                          student={student}
+                          teacher={teacher}
+                          lesson={lesson}
+                          branchName={branchNames[lesson.branchId]}
+                          tier={tier}
+                        />
+                        {tier === "full" &&
+                        (lesson.studentAttended || lesson.lessonProcessed || lesson.opsMakeupFlag) ? (
+                          <LessonOpsBadges
+                            studentAttended={lesson.studentAttended}
+                            lessonProcessed={lesson.lessonProcessed}
+                            opsMakeupFlag={lesson.opsMakeupFlag}
+                            studentAbsent={lesson.studentAbsent}
+                            studentExcused={lesson.studentExcused}
+                          />
+                        ) : null}
+                      </div>
                       <LessonHoverCard
                         lesson={lesson}
                         student={student}
@@ -1800,16 +1822,6 @@ export function ProgramStudio({
                         room={room}
                         branchName={branchNames[lesson.branchId]}
                       />
-                      {tier === "full" &&
-                      (lesson.studentAttended || lesson.lessonProcessed || lesson.opsMakeupFlag) ? (
-                        <LessonOpsBadges
-                          studentAttended={lesson.studentAttended}
-                          lessonProcessed={lesson.lessonProcessed}
-                          opsMakeupFlag={lesson.opsMakeupFlag}
-                          studentAbsent={lesson.studentAbsent}
-                          studentExcused={lesson.studentExcused}
-                        />
-                      ) : null}
                       {editable ? (
                         <div
                           draggable={false}

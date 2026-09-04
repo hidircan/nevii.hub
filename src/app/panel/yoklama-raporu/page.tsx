@@ -2,8 +2,9 @@ import { redirect } from "next/navigation";
 import { getAttendanceReportTool } from "@/lib/services";
 import { readData } from "@/lib/store";
 import { requireSessionContext } from "@/lib/auth/session";
-import { Badge, Card, Input, Label, PageHeader, Select, StatCard } from "@/components/ui";
+import { Card, Input, Label, PageHeader, Select, StatCard } from "@/components/ui";
 import { formatDateTime } from "@/lib/utils";
+import { LessonStatusBadge } from "@/components/lesson-status-badge";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
@@ -12,8 +13,6 @@ const STATUS_LABEL: Record<string, string> = {
   attended: "Geldi",
   processed: "İşlendi",
   makeup: "Telafi",
-  absent: "Gelmedi",
-  excused: "Mazeretli",
   cancelled: "İptal",
   planned: "Planlandı",
 };
@@ -27,16 +26,6 @@ const STATUS_LABEL: Record<string, string> = {
  * utils.ts statusColor — yalnız EKLEME, başka hiçbir ekranın rengini
  * değiştirmez).
  */
-const STATUS_BADGE: Record<string, string> = {
-  attended: "completed", // yeşil
-  processed: "pending", // sarı
-  makeup: "makeup", // kırmızı
-  absent: "lesson_absent", // turuncu
-  excused: "lesson_excused", // mor
-  cancelled: "cancelled", // koyu gri
-  planned: "scheduled",
-};
-
 /**
  * P0-2C — Yönetici Yoklama Raporu. Yalnız SCHOOL_ADMIN/SUPER_ADMIN görebilir
  * (öğretmen/öğrenci/veli asla) — hem burada hem `getAttendanceReportTool`
@@ -219,8 +208,6 @@ export default async function AttendanceReportPage({
       <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-8">
         <StatCard label="Planlanan" value={summary.totalPlanned} />
         <StatCard label="Geldi" value={summary.attended} />
-        <StatCard label="Gelmedi" value={summary.absent} />
-        <StatCard label="Mazeretli" value={summary.excused} />
         <StatCard label="İşlendi" value={summary.processed} />
         <StatCard label="Telafi" value={summary.makeup} />
         <StatCard label="İptal" value={summary.cancelled} />
@@ -256,7 +243,7 @@ export default async function AttendanceReportPage({
                   <td className="px-4 py-2.5 text-[var(--color-text)]">{r.teacherName}</td>
                   <td className="px-4 py-2.5 text-[var(--color-text-muted)]">{r.branchName ?? "—"}</td>
                   <td className="px-4 py-2.5">
-                    <Badge status={STATUS_BADGE[r.status]}>{STATUS_LABEL[r.status]}</Badge>
+                    <LessonStatusBadge status={r.status} />
                   </td>
                   <td className="px-4 py-2.5 text-[var(--color-text-muted)]">
                     {r.processedReason ?? r.makeupReason ?? "—"}

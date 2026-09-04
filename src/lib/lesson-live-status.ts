@@ -7,6 +7,31 @@
 
 import type { AppData, Lesson } from "./types";
 
+export type LessonFinalStatus = "planned" | "attended" | "processed" | "makeup" | "cancelled";
+
+export type LessonFinalStatusInput = Pick<
+  Lesson,
+  | "status"
+  | "startAt"
+  | "type"
+  | "studentAttended"
+  | "lessonProcessed"
+  | "opsMakeupFlag"
+>;
+
+/** Kullanıcıya gösterilen tek nihai ders statüsü; gelecek dersler her zaman planlıdır. */
+export function resolveLessonFinalStatus(
+  lesson: LessonFinalStatusInput,
+  now: Date = new Date()
+): LessonFinalStatus {
+  if (new Date(lesson.startAt).getTime() > now.getTime()) return "planned";
+  if (lesson.status === "cancelled") return "cancelled";
+  if (lesson.type === "makeup" || lesson.opsMakeupFlag) return "makeup";
+  if (lesson.lessonProcessed) return "processed";
+  if (lesson.studentAttended || lesson.status === "completed") return "attended";
+  return "planned";
+}
+
 export type LiveDisplayStatus =
   | "scheduled"
   | "delayed"

@@ -1089,6 +1089,11 @@ export async function addContractInstallments(input: {
         source: "contract",
         contractId: input.contractId,
         installmentSequence: inst.sequence,
+        installmentKind: inst.kind,
+        installmentPeriodLabel: inst.periodLabel,
+        installmentBreakdown: inst.breakdown,
+        installmentComputationSource: inst.computationSource,
+        installmentNote: inst.note,
         createdAt: now,
       };
     });
@@ -1105,6 +1110,11 @@ export async function addContractInstallments(input: {
           contractId: input.contractId,
           installmentSequence: 1,
           description: `Sözleşme taksiti 1/${input.installments.length} — Kayıt anında tahsil edildi (kayıt ödemesi)`,
+          installmentKind: firstInst?.kind,
+          installmentPeriodLabel: firstInst?.periodLabel,
+          installmentBreakdown: firstInst?.breakdown,
+          installmentComputationSource: firstInst?.computationSource,
+          installmentNote: firstInst?.note,
         };
         return reusedRow;
       });
@@ -1120,6 +1130,11 @@ export async function addContractInstallments(input: {
     paidAmount: r.paidAmount,
     status: r.status,
     paymentMethod: r.method,
+    kind: r.installmentKind,
+    periodLabel: r.installmentPeriodLabel,
+    breakdown: r.installmentBreakdown,
+    computationSource: r.installmentComputationSource,
+    note: r.installmentNote,
   }));
   return { data, installments };
 }

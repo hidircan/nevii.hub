@@ -5,11 +5,11 @@
  * katmanının işi, burası yalnız hesaplama.
  */
 import { toZonedYmd, DEFAULT_APP_TIMEZONE } from "./timezone";
-import { effectiveLessonOpsStatus, type LessonOpsFlag } from "./lesson-ops";
+import { resolveLessonFinalStatus } from "./lesson-live-status";
 import { evaluateAttendanceRisk } from "./attendance-risk";
 
 export type AttendanceReportDatePreset = "today" | "this_week" | "this_month" | "custom";
-export type AttendanceReportRowStatus = LessonOpsFlag | "cancelled" | "planned";
+export type AttendanceReportRowStatus = "attended" | "processed" | "makeup" | "cancelled" | "planned";
 
 function todayYmd(now: Date): string {
   return toZonedYmd(now, DEFAULT_APP_TIMEZONE);
@@ -60,6 +60,7 @@ export interface AttendanceReportLessonInput {
   instrument: string;
   startAt: string;
   status: "scheduled" | "in_progress" | "completed" | "cancelled" | "no_show";
+  type: "regular" | "makeup" | "trial" | "group";
   studentAttended?: boolean;
   lessonProcessed?: boolean;
   lessonProcessedReason?: string;
@@ -114,9 +115,8 @@ export interface AttendanceReportResult {
   summary: AttendanceReportSummary;
 }
 
-function rowStatus(lesson: AttendanceReportLessonInput): AttendanceReportRowStatus {
-  if (lesson.status === "cancelled") return "cancelled";
-  return effectiveLessonOpsStatus(lesson) ?? "planned";
+function rowStatus(lesson: AttendanceReportLessonInput, now: Date): AttendanceReportRowStatus {
+  return resolveLessonFinalStatus(lesson, now);
 }
 
 /**
@@ -150,7 +150,8 @@ function computeRiskyStudentIds(allLessons: AttendanceReportLessonInput[]): Set<
 export function buildAttendanceReport(
   allLessons: AttendanceReportLessonInput[],
   makeupRequests: AttendanceReportMakeupInput[],
-  filters: AttendanceReportFilters
+  filters: AttendanceReportFilters,
+  now: Date = new Date()
 ): AttendanceReportResult {
   const makeupReasonBySourceLessonId = new Map(makeupRequests.map((m) => [m.sourceLessonId, m.reason]));
   const riskyStudentIds = computeRiskyStudentIds(allLessons);
@@ -174,7 +175,7 @@ export function buildAttendanceReport(
       roomId: l.roomId,
       instrument: l.instrument,
       startAt: l.startAt,
-      status: rowStatus(l),
+      status: rowStatus(l, now),
       processedReason: l.lessonProcessedReason,
       makeupReason: makeupReasonBySourceLessonId.get(l.id),
       studentAtRisk: riskyStudentIds.has(l.studentId),
@@ -185,8 +186,8 @@ export function buildAttendanceReport(
   const summary: AttendanceReportSummary = {
     totalPlanned: rows.length,
     attended: rows.filter((r) => r.status === "attended").length,
-    absent: rows.filter((r) => r.status === "absent").length,
-    excused: rows.filter((r) => r.status === "excused").length,
+    absent: 0,
+    excused: 0,
     processed: rows.filter((r) => r.status === "processed").length,
     makeup: rows.filter((r) => r.status === "makeup").length,
     cancelled: rows.filter((r) => r.status === "cancelled").length,

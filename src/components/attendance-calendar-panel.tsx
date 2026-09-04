@@ -23,6 +23,7 @@ import { cn, formatTime } from "@/lib/utils";
 import { apiFetch } from "@/lib/api/client-fetch";
 import { TriangleAlert } from "lucide-react";
 import { LessonOpsActions } from "./lesson-ops-actions";
+import { LessonStatusBadge } from "./lesson-status-badge";
 import { AttendanceCalendarCollectPaymentButton } from "./attendance-calendar-collect-payment-button";
 import {
   currentAcademicAnchorYear,
@@ -82,7 +83,7 @@ type LessonPaymentInfo = {
 
 type DayLessonOpsInfo = {
   lessonId: string;
-  opsStatus: "attended" | "processed" | "makeup" | "absent" | "excused" | null;
+  opsStatus: "attended" | "processed" | "makeup" | "cancelled" | "planned" | "absent" | "excused" | null;
   startAt: string;
   durationMinutes: number;
   teacherName?: string;
@@ -781,6 +782,16 @@ function LessonSummaryLine({ lesson }: { lesson: DayLessonOpsInfo }) {
       {lesson.teacherName ? <span className="text-[var(--color-text-muted)]">· {lesson.teacherName}</span> : null}
       <span className="text-[var(--color-text-muted)]">· {lesson.instrument}</span>
       {lesson.roomName ? <span className="text-[var(--color-text-muted)]">· {lesson.roomName}</span> : null}
+      <LessonStatusBadge
+        status={
+          lesson.opsStatus === "attended" ||
+          lesson.opsStatus === "processed" ||
+          lesson.opsStatus === "makeup" ||
+          lesson.opsStatus === "cancelled"
+            ? lesson.opsStatus
+            : "planned"
+        }
+      />
       {lesson.availabilityOverride ? (
         <span
           title="Öğretmen bu saatte müsait görünmüyordu — onaylı planlandı"
