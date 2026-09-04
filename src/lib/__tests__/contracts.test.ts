@@ -1328,4 +1328,68 @@ describe("createStudentContractTool — per-lesson öğrenci (usePerLessonBillin
     expect(second!.amount).toBe(2 * derivedPerLessonAmount); // Ekim kendi (farklı) tutarı, Eylül'e eşit KOPYALANMADI
     expect(second!.amount).not.toBe(first!.amount);
   });
+
+  it("önizleme (previewContractInstallmentPlanTool) ile oluşturulan sözleşmenin taksit planı BİREBİR aynıdır — iki ayrı hesaplama yok, tek motor", async () => {
+    const { monthlyFee, derivedPerLessonAmount } = await seedPerLessonStudent();
+    const { addRegistrationFirstPayment } = await import("../store-json");
+    const septAmount = 1 * derivedPerLessonAmount;
+    const octAmount = 4 * derivedPerLessonAmount;
+    const combinedAmount = septAmount + octAmount;
+    await addRegistrationFirstPayment({
+      studentId: "s_perlesson",
+      method: "cash",
+      amount: combinedAmount,
+      collectedAt: "2026-09-17",
+      receivedByUserId: "u1",
+    });
+
+    const sharedInput = {
+      durationMonths: 3,
+      monthlyAmount: monthlyFee,
+      installmentCount: 3,
+      firstDueDate: "2026-09-17",
+      usePerLessonBilling: true,
+      studentId: "s_perlesson",
+      enrollmentStartDate: "2026-09-17",
+      enrollmentEndDate: "2026-11-30",
+    };
+    const previewRes = await previewContractInstallmentPlanTool(adminCtx(), sharedInput);
+    expect(previewRes.ok).toBe(true);
+    if (!previewRes.ok) return;
+
+    const createRes = await createStudentContractTool(adminCtx(), {
+      ...sharedInput,
+      contractType: "initial",
+      programmeName: "Piyano",
+      signatoryFullName: "Veli Adı",
+      signatoryRelationship: "veli",
+      firstPaymentExceptionReason:
+        "Kayıt tarihi (17 Eylül) kurumun 1-15 ödeme penceresi dışında — normal kayıt anı tahsilatı.",
+    });
+    expect(createRes.ok).toBe(true);
+    if (!createRes.ok) return;
+
+    type ComparableRow = {
+      sequence: number;
+      dueDate: string;
+      amount: number;
+      kind?: string;
+      periodLabel?: string;
+      breakdown?: unknown;
+      computationSource?: string;
+    };
+    const strip = (rows: ComparableRow[]) =>
+      rows.map((r) => ({
+        sequence: r.sequence,
+        dueDate: r.dueDate,
+        amount: r.amount,
+        kind: r.kind,
+        periodLabel: r.periodLabel,
+        breakdown: r.breakdown,
+        computationSource: r.computationSource,
+      }));
+
+    expect(strip(createRes.data.installments)).toEqual(strip(previewRes.data.installments));
+    expect(createRes.data.contract.totalContractAmount).toBe(previewRes.data.totalContractAmount);
+  });
 });
