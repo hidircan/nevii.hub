@@ -11,6 +11,7 @@ import { TermWeeklyScheduleEditor } from "@/components/term-weekly-schedule-edit
 import { FALL_WEEKLY_CLOSED_DAYS, SUMMER_WEEKLY_CLOSED_DAYS } from "@/lib/attendance-calendar";
 import { SetupResetAction } from "@/components/setup-reset-action";
 import { QuickTaskLink } from "@/components/quick-task-link";
+import { SchoolLogoForm } from "@/components/school-logo-form";
 
 const EXPORT_LABELS: Record<ExportEntity, string> = {
   students: "Öğrenciler",
@@ -197,6 +198,21 @@ export default async function KurulumPage() {
               <p className="mt-1 text-xs text-[var(--color-text-muted)]">Enstrüman kataloğu</p>
             </Card>
           </Link>
+        </div>
+      </Card>
+
+      <Card className="mt-6 border-[var(--color-border)]">
+        <div className="flex items-start gap-3">
+          <Building2 className="mt-0.5 h-5 w-5 shrink-0 text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]" />
+          <div className="flex-1">
+            <p className="font-semibold text-[var(--color-text)] dark:text-slate-50">Kurum Logosu</p>
+            <p className="mt-1 text-sm text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
+              Sözleşme ekranında ve yazdırma çıktısında üstte ortalı olarak gösterilir.
+            </p>
+            <div className="mt-3">
+              <SchoolLogoForm currentLogoUrl={data.settings.logoUrl} />
+            </div>
+          </div>
         </div>
       </Card>
 
