@@ -16,6 +16,7 @@
  */
 import { createPasswordResetToken } from "./password-reset";
 import { getAppBaseUrl, getMobileAppLinks, sendEmail, type EmailSendResult } from "../email";
+import { institutionLogoHtml } from "../institution-logo";
 
 const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 gün — davet e-postası hemen açılmayabilir.
 
@@ -40,6 +41,8 @@ export type SendInvitationInput = {
   /** İsteğe bağlı — verilirse e-posta altbilgisinde kurum iletişim bilgisi gösterilir. */
   schoolPhone?: string;
   schoolWebsite?: string;
+  /** İsteğe bağlı — verilirse üst banner'da kurum ADI yerine gerçek logo gösterilir (bkz. institution-logo.ts). */
+  logoUrl?: string;
 };
 
 /**
@@ -100,8 +103,8 @@ export async function sendAccountInvitationEmail(input: SendInvitationInput): Pr
   <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;background:#f4f2f8;padding:32px 0;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
     <tr><td align="center">
       <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;max-width:520px;background:#ffffff;border-radius:12px;overflow:hidden;">
-        <tr><td style="background:#111827;padding:28px 32px;text-align:center;">
-          <span style="color:#ffffff;font-size:19px;font-weight:700;">${institution}</span>
+        <tr><td style="background:#ffffff;padding:28px 32px 20px;text-align:center;border-bottom:1px solid #e5e7eb;">
+          ${institutionLogoHtml(input.logoUrl, input.institutionName)}
         </td></tr>
         <tr><td style="padding:32px 32px 8px;">
           <h1 style="margin:0 0 12px;font-size:20px;color:#111827;">${welcomeLine}</h1>
@@ -140,6 +143,8 @@ export type SendPasswordResetInput = {
   email: string;
   recipientName: string;
   institutionName: string;
+  /** İsteğe bağlı — verilirse üst banner'da kurum ADI yerine gerçek logo gösterilir (bkz. institution-logo.ts). */
+  logoUrl?: string;
   /** Verilirse YENİ bir token üretilmez, bu ham değer e-postalanır — çağıran zaten
    * `createPasswordResetToken` çağırdıysa (ör. dev-mode token'ı yanıta da eklemek
    * için) token'ın İKİ KEZ üretilip birbirini geçersiz kılmasını önler. */
@@ -174,8 +179,8 @@ export async function sendPasswordResetEmail(input: SendPasswordResetInput): Pro
   <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;background:#f4f2f8;padding:32px 0;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
     <tr><td align="center">
       <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;max-width:520px;background:#ffffff;border-radius:12px;overflow:hidden;">
-        <tr><td style="background:#111827;padding:28px 32px;text-align:center;">
-          <span style="color:#ffffff;font-size:19px;font-weight:700;">${institution}</span>
+        <tr><td style="background:#ffffff;padding:28px 32px 20px;text-align:center;border-bottom:1px solid #e5e7eb;">
+          ${institutionLogoHtml(input.logoUrl, input.institutionName)}
         </td></tr>
         <tr><td style="padding:32px 32px 8px;">
           <h1 style="margin:0 0 12px;font-size:20px;color:#111827;">Şifre sıfırlama isteği</h1>

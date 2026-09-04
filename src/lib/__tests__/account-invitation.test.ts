@@ -149,6 +149,47 @@ describe("sendAccountInvitationEmail — domain katmanı", () => {
     expect(sent.text).toContain("ailesine hoş geldiniz");
   });
 
+  it("regresyon (2026-09-05) — logoUrl verilmezse banner'da 'NEVIIHUB'/platform markası DEĞİL, kurumun kendi adı görünür", async () => {
+    const captured: EmailSendInput[] = [];
+    setEmailTransportForTests({ name: "mock", async send(input) { captured.push(input); return { delivered: true }; } });
+    const user = await findUserByEmail("turgay.hosbas@niluferacar.com.tr");
+    if (!user) return;
+    await sendAccountInvitationEmail({
+      tenantId: user.tenantId,
+      userId: user.userId,
+      email: "turgay.hosbas@niluferacar.com.tr",
+      recipientName: "Turgay Hoşbaş",
+      institutionName: "Nilüfer Acar Sanat Kursu",
+      role: "TEACHER",
+    });
+    const sent = captured[0]!;
+    expect(sent.html).not.toContain("NEVIIHUB");
+    expect(sent.html).not.toContain("NeviiHub");
+    expect(sent.html).toContain("Nilüfer Acar Sanat Kursu");
+    expect(sent.html).not.toContain("<img"); // logo verilmedi → gerçek <img> YOK, yalnız metin fallback
+  });
+
+  it("regresyon (2026-09-05) — logoUrl verilirse banner'da gerçek <img> görünür (metin değil)", async () => {
+    const captured: EmailSendInput[] = [];
+    setEmailTransportForTests({ name: "mock", async send(input) { captured.push(input); return { delivered: true }; } });
+    const user = await findUserByEmail("turgay.hosbas@niluferacar.com.tr");
+    if (!user) return;
+    const fakeLogo =
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+    await sendAccountInvitationEmail({
+      tenantId: user.tenantId,
+      userId: user.userId,
+      email: "turgay.hosbas@niluferacar.com.tr",
+      recipientName: "Turgay Hoşbaş",
+      institutionName: "Nilüfer Acar Sanat Kursu",
+      role: "TEACHER",
+      logoUrl: fakeLogo,
+    });
+    const sent = captured[0]!;
+    expect(sent.html).toContain("<img");
+    expect(sent.html).toContain(fakeLogo);
+  });
+
   it("P0 (2026-08-31) — web portal linki her zaman içerilir (buton dışında düz metin de)", async () => {
     const captured: EmailSendInput[] = [];
     setEmailTransportForTests({ name: "mock", async send(input) { captured.push(input); return { delivered: true }; } });
