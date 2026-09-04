@@ -29,6 +29,7 @@ import { dayName } from "@/lib/utils";
 import { DEFAULT_LESSON_DURATION_MINUTES, LESSON_DURATION_OPTIONS } from "@/lib/lesson-duration";
 import { CALENDAR_START_HOUR, turkeyFixedPublicHolidays, toYmd } from "@/lib/closed-days";
 import { resolveLessonAcademicPeriod, lessonMatchesAcademicPeriod } from "@/lib/attendance-calendar";
+import { resolveLessonFinalStatus } from "@/lib/lesson-live-status";
 
 type ProgramStudioProps = {
   students: Student[];
@@ -213,6 +214,47 @@ export function lessonCardTier(heightPx: number): "min" | "compact" | "full" {
   return "full";
 }
 
+export type LessonCardStatusVisual = "attended" | "processed" | "makeup" | "default";
+
+/**
+ * P0 (2026-09-05) — kullanıcı raporu: ders kutucuklarında durum yalnızca
+ * detay modalındaki küçük bir `Badge`de görünüyordu, program IZGARASINDA
+ * (asıl günlük kullanım yeri) hiç görünmüyordu. Tek gerçek kaynak
+ * `resolveLessonFinalStatus` (lesson-live-status.ts, zaten test edilmiş) —
+ * burada YENİDEN sınıflandırma mantığı YAZILMAZ, yalnız 3 durumu (Geldi/
+ * İşlendi/Telafi) görsel bir kategoriye eşler. "planned"/"cancelled" bu
+ * turda İSTENMEDİ — mevcut nötr görünümleri KORUNUR.
+ */
+export function lessonCardStatusVisual(lesson: Lesson, now: Date = new Date()): LessonCardStatusVisual {
+  const status = resolveLessonFinalStatus(lesson, now);
+  if (status === "attended") return "attended";
+  if (status === "processed") return "processed";
+  if (status === "makeup") return "makeup";
+  return "default";
+}
+
+/** Kart arka planı — tam kutu, yalnız kenarlık/nokta DEĞİL (kullanıcı talebi). */
+const LESSON_CARD_STATUS_BG: Record<LessonCardStatusVisual, string> = {
+  attended: "bg-emerald-700 dark:bg-emerald-800",
+  processed: "bg-amber-400 dark:bg-amber-500",
+  makeup: "bg-rose-700 dark:bg-rose-800",
+  default: "bg-[var(--color-surface)]",
+};
+
+/** Doygun zeminlerde okunabilirlik için kontrastlı metin renkleri (koyu zeminde beyaz, sarıda koyu). */
+const LESSON_CARD_STATUS_TEXT: Record<LessonCardStatusVisual, { primary: string; muted: string }> = {
+  attended: { primary: "text-white", muted: "text-emerald-50" },
+  processed: { primary: "text-slate-900", muted: "text-slate-800" },
+  makeup: { primary: "text-white", muted: "text-rose-50" },
+  default: { primary: "text-[var(--color-text)]", muted: "text-[var(--color-text-muted)]" },
+};
+
+const LESSON_CARD_STATUS_LABEL: Partial<Record<LessonCardStatusVisual, string>> = {
+  attended: "Geldi",
+  processed: "İşlendi",
+  makeup: "Telafi",
+};
+
 /**
  * Ders hover kartındaki satırlar — saf fonksiyon, DOM'\''dan bağımsız birim
  * testlerinde kullanılır (bkz. `LessonHoverCard`, tek tüketicisi).
@@ -297,14 +339,18 @@ function LessonCardBody({
   lesson,
   branchName,
   tier,
+  statusVisual = "default",
 }: {
   student?: Student;
   teacher?: Teacher;
   lesson: Lesson;
   branchName?: string;
   tier: "min" | "compact" | "full";
+  statusVisual?: LessonCardStatusVisual;
 }) {
   const timeRange = `${zonedHm(parseISO(lesson.startAt), DEFAULT_APP_TIMEZONE)}–${zonedHm(parseISO(lesson.endAt), DEFAULT_APP_TIMEZONE)}`;
+  const text = LESSON_CARD_STATUS_TEXT[statusVisual];
+  const statusLabel = LESSON_CARD_STATUS_LABEL[statusVisual];
   return (
     <>
       {lesson.availabilityOverride ? (
@@ -316,7 +362,7 @@ function LessonCardBody({
         </TriangleAlert>
       ) : null}
       <p
-        className={`truncate font-bold leading-tight text-[var(--color-text)] ${
+        className={`truncate font-bold leading-tight ${text.primary} ${
           tier === "full" ? "text-[13px]" : "text-[11px]"
         }`}
         title={student?.name}
@@ -324,15 +370,17 @@ function LessonCardBody({
         {student?.name}
       </p>
       <p
-        className={`truncate font-medium leading-tight text-[var(--color-text-muted)] ${
+        className={`truncate font-medium leading-tight ${text.muted} ${
           tier === "full" ? "text-[11px]" : "text-[10px]"
         }`}
       >
         {timeRange}
+        {/* Renk yalnız görsel — durum burada METİN olarak da görünür (ekran okuyucu + renk körlüğü için). */}
+        {statusLabel ? ` · ${statusLabel}` : ""}
       </p>
       {tier !== "min" ? (
         <p
-          className="truncate text-[10px] leading-tight text-[var(--color-text-muted)]"
+          className={`truncate text-[10px] leading-tight ${text.muted}`}
           title={`${teacher?.name ?? ""}${branchName ? ` · ${branchName}` : ""}`}
         >
           {teacher?.name}
@@ -340,7 +388,7 @@ function LessonCardBody({
         </p>
       ) : null}
       {tier === "full" ? (
-        <p className="truncate text-[9px] leading-tight text-[var(--color-text-muted)]" title={lesson.instrument}>
+        <p className={`truncate text-[9px] leading-tight ${text.muted}`} title={lesson.instrument}>
           {lesson.instrument}
         </p>
       ) : null}
@@ -1761,6 +1809,7 @@ export function ProgramStudio({
 
                   const tier = lessonCardTier(height);
                   const room = rooms.find((r) => r.id === lesson.roomId);
+                  const statusVisual = lessonCardStatusVisual(lesson, now);
 
                   return (
                     <div
@@ -1781,7 +1830,7 @@ export function ProgramStudio({
                         }
                       }}
                       aria-label={lessonAccessibleLabel(lesson, student, teacher, room, branchNames[lesson.branchId])}
-                      className={`group absolute z-[1] flex flex-col rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface)] p-1.5 text-[10px] shadow-[var(--shadow-sm)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-focus-ring)] hover:z-[20] ${
+                      className={`group absolute z-[1] flex flex-col rounded-md border border-[var(--color-border-strong)] ${LESSON_CARD_STATUS_BG[statusVisual]} p-1.5 text-[10px] shadow-[var(--shadow-sm)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-focus-ring)] hover:z-[20] ${
                         editable ? "cursor-grab active:cursor-grabbing" : "cursor-pointer opacity-90"
                       }`}
                       style={{
@@ -1803,6 +1852,7 @@ export function ProgramStudio({
                           lesson={lesson}
                           branchName={branchNames[lesson.branchId]}
                           tier={tier}
+                          statusVisual={statusVisual}
                         />
                         {tier === "full" &&
                         (lesson.studentAttended || lesson.lessonProcessed || lesson.opsMakeupFlag) ? (
@@ -1867,13 +1917,16 @@ export function ProgramStudio({
                       const student = students.find((s) => s.id === lesson.studentId);
                       const teacher = teachers.find((t) => t.id === lesson.teacherId);
                       const room = rooms.find((r) => r.id === lesson.roomId);
+                      const statusVisual = lessonCardStatusVisual(lesson, now);
                       return (
                         <button
                           key={lesson.id}
                           type="button"
                           onClick={() => openDetail(lesson)}
                           aria-label={lessonAccessibleLabel(lesson, student, teacher, room, branchNames[lesson.branchId])}
-                          className="block w-full rounded-[var(--radius-md)] border border-[var(--color-border-strong)] bg-[var(--color-surface-muted)] p-2.5 text-left text-xs hover:border-[var(--color-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-focus-ring)]"
+                          className={`block w-full rounded-[var(--radius-md)] border border-[var(--color-border-strong)] ${
+                            statusVisual === "default" ? "bg-[var(--color-surface-muted)]" : LESSON_CARD_STATUS_BG[statusVisual]
+                          } p-2.5 text-left text-xs hover:border-[var(--color-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-focus-ring)]`}
                           style={{ borderLeft: `3px solid ${teacher?.color ?? "#A56A00"}` }}
                         >
                           <LessonCardBody
@@ -1882,6 +1935,7 @@ export function ProgramStudio({
                             lesson={lesson}
                             branchName={branchNames[lesson.branchId]}
                             tier="full"
+                            statusVisual={statusVisual}
                           />
                           <div className="mt-1.5 flex flex-wrap items-center gap-1">
                             <Badge status={lesson.type === "makeup" ? "makeup" : lesson.status} />

@@ -7,6 +7,7 @@ import {
   studentsForBranch,
   resolveStudentFilterForBranch,
   lessonCardTier,
+  lessonCardStatusVisual,
   computeGridWindow,
   lessonAccessibleLabel,
 } from "../../components/program-studio";
@@ -292,5 +293,34 @@ describe("lessonAccessibleLabel — ders kartının erişilebilir açıklaması"
     const label = lessonAccessibleLabel(l);
     expect(label).not.toMatch(/·\s*·/); // ardışık ayraç yok — hiçbir boş segment yok
     expect(label).toContain("Öğrenci bilinmiyor");
+  });
+});
+
+describe("lessonCardStatusVisual — ders programı tam-kutu durum renkleri (2026-09-05)", () => {
+  const now = new Date("2026-08-03T12:00:00+03:00"); // dersten (10:00-10:45) SONRA
+
+  it("gelecekteki (henüz gerçekleşmemiş) ders 'default' — mevcut nötr görünüm korunur", () => {
+    const l = lesson({ startAt: "2026-08-04T10:00:00+03:00", endAt: "2026-08-04T10:45:00+03:00" });
+    expect(lessonCardStatusVisual(l, now)).toBe("default");
+  });
+
+  it("öğrenci geldi (studentAttended) → 'attended'", () => {
+    const l = lesson({ studentAttended: true });
+    expect(lessonCardStatusVisual(l, now)).toBe("attended");
+  });
+
+  it("ders işlendi (lessonProcessed) → 'processed'", () => {
+    const l = lesson({ lessonProcessed: true });
+    expect(lessonCardStatusVisual(l, now)).toBe("processed");
+  });
+
+  it("telafi dersi (type='makeup' veya opsMakeupFlag) → 'makeup'", () => {
+    expect(lessonCardStatusVisual(lesson({ type: "makeup" }), now)).toBe("makeup");
+    expect(lessonCardStatusVisual(lesson({ opsMakeupFlag: true }), now)).toBe("makeup");
+  });
+
+  it("iptal edilmiş ders 'default' — bu turda renklendirilmesi İSTENMEDİ", () => {
+    const l = lesson({ status: "cancelled" });
+    expect(lessonCardStatusVisual(l, now)).toBe("default");
   });
 });
