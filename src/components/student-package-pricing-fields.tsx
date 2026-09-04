@@ -70,18 +70,19 @@ export function StudentPackagePricingFields({
         </Select>
       </div>
 
+      <div>
+        <Label>Ders süresi</Label>
+        <Select name="lessonDurationMinutes" value={duration} onChange={(e) => setDuration(Number(e.target.value))}>
+          {LESSON_DURATION_OPTIONS.map((d) => (
+            <option key={d} value={d}>
+              {d} dk
+            </option>
+          ))}
+        </Select>
+      </div>
+
       {selectedPackage ? (
         <>
-          <div>
-            <Label>Ders süresi</Label>
-            <Select name="lessonDurationMinutes" value={duration} onChange={(e) => setDuration(Number(e.target.value))}>
-              {LESSON_DURATION_OPTIONS.map((d) => (
-                <option key={d} value={d}>
-                  {d} dk
-                </option>
-              ))}
-            </Select>
-          </div>
           <div className="grid grid-cols-2 gap-2">
             <div>
               <Label>İndirim türü (opsiyonel)</Label>
