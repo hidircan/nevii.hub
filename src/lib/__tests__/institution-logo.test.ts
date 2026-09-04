@@ -29,6 +29,15 @@ describe("institution-logo", () => {
     expect(html).toMatch(/height:\s*(4[0-9]|5[0-6])px/);
   });
 
+  it("regresyon (2026-09-05) — img'in KENDİSİ display:block + margin:0 auto taşır (Tailwind preflight img{display:block} altında bile ortalanır, yalnız parent text-align'ına GÜVENMEZ)", () => {
+    const html = institutionLogoHtml("https://okul.example/logo.png", "Test Okul");
+    const imgTagMatch = html.match(/<img[^>]*>/);
+    expect(imgTagMatch).not.toBeNull();
+    const imgTag = imgTagMatch![0];
+    expect(imgTag).toContain("display:block");
+    expect(imgTag).toContain("margin:0 auto");
+  });
+
   it("P0-E — geçerli bir logo YOKSA (null/boş/güvensiz) render KIRILMAZ, kurum adı METİN olarak gösterilir", () => {
     const noneHtml = institutionLogoHtml(null, "Test Okul");
     expect(noneHtml).toContain("data-institution-logo");

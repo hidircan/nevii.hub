@@ -57,6 +57,17 @@ export function SchoolLogoForm({ currentLogoUrl }: { currentLogoUrl?: string }) 
             e.target.value = "";
           }}
         />
+        {/* P0 (2026-09-05) — kullanıcı raporu: logo yönergesi eksikti. Yalnız
+            GERÇEKTEN desteklenen formatlar/boyut yazılır — burada yazılan,
+            SCHOOL_LOGO_ALLOWED_MIME/SCHOOL_LOGO_MAX_BYTES (tools.ts) ile
+            BİREBİR aynı olmalı, aksi halde kullanıcı yönergeye güvenip
+            reddedilen bir dosya yükler. */}
+        <ul className="mt-1.5 list-disc space-y-0.5 pl-4 text-[11px] text-[var(--color-text-muted)]">
+          <li>Desteklenen formatlar: PNG, JPG/JPEG ve WEBP — SVG desteklenmez.</li>
+          <li>En iyi sonuç için şeffaf arka planlı PNG kullanın.</li>
+          <li>Dosya boyutu en fazla 500KB olmalı; çok koyu veya çok açık logolar açık bir kart zemininde gösterilir, kaybolmaz.</li>
+          <li>Logo; sözleşme ekranında/yazdırmada üst bölümde ve hoş geldiniz/şifre sıfırlama e-postalarında görüntülenir.</li>
+        </ul>
       </div>
       {error ? <p className="text-xs font-medium text-rose-600">{error}</p> : null}
       {pending ? <p className="text-xs text-[var(--color-text-muted)]">Yükleniyor…</p> : null}

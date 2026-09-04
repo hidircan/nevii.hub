@@ -37,7 +37,14 @@ export function institutionLogoHtml(logoUrl: string | undefined | null, institut
     // CSS custom property'yi paylaşarak açık/koyu temada okunur kalır.
     return `<div data-institution-logo="1" style="text-align:center;margin:0 0 16px;font-weight:600;font-size:14px;color:var(--color-text, #111827);">${alt}</div>`;
   }
-  return `<div data-institution-logo="1" style="text-align:center;margin:0 0 16px;"><img src="${safe}" alt="${alt}" style="height:48px;max-width:220px;object-fit:contain;"/></div>`;
+  // P0 (2026-09-05) — kök neden: yalnız kapsayan div'de `text-align:center`
+  // yeterli DEĞİL — bu blok Tailwind preflight'ı olan sayfalara gömülüyor
+  // (bkz. yukarıdaki yorum) ve Tailwind `img{display:block}` sıfırlaması,
+  // inline hizalamayı (text-align) img için ETKİSİZ kılıyordu (blok
+  // eleman parent'ın text-align'ından etkilenmez) — logo GERÇEKTE sol
+  // hizalı görünüyordu. `display:block;margin:0 auto` img'in KENDİ
+  // üzerinde, Tailwind'in reset'inden BAĞIMSIZ, her koşulda ortalar.
+  return `<div data-institution-logo="1" style="text-align:center;margin:0 0 16px;"><img src="${safe}" alt="${alt}" style="display:block;margin:0 auto;height:48px;max-width:220px;object-fit:contain;"/></div>`;
 }
 
 export function prependInstitutionLogo(
