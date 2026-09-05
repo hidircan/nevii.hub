@@ -14,6 +14,7 @@ import {
 import { BRAND } from "@/lib/brand";
 import { AssistantProvider } from "@/components/ai/assistant-context";
 import { GlobalAssistant } from "@/components/ai/global-assistant";
+import { ACCESS_COOKIE } from "@/lib/auth/cookies";
 
 /**
  * Dört font seçeneği (bkz. src/lib/theme.ts FontChoice) — hepsi burada
@@ -79,6 +80,13 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   const jar = await cookies();
+  // P1 (2026-09-05) — giriş ÖNCESİ (oturumsuz) sayfalarda AI asistan balonu
+  // gösterilmez: kurumsal karşılama sayfasında bağlamı yoktur ve API'ye
+  // yaptığı çağrılar konsolda 401 üretiyordu. Kurulum çerezleriyle AYNI
+  // yerden, ek bir istek olmadan (yalnız erişim çerezinin VARLIĞINA bakarak)
+  // karar verilir — bu bir YETKİ kontrolü DEĞİL, yalnız render kararıdır;
+  // gerçek yetki her istekte sunucuda ayrıca doğrulanır.
+  const hasSessionCookie = !!jar.get(ACCESS_COOKIE)?.value;
   const themeProfile = normalizeThemeProfile(jar.get(THEME_PROFILE_COOKIE)?.value);
   const font = normalizeFontChoice(jar.get(FONT_COOKIE)?.value);
   const density = normalizeDensity(jar.get(DENSITY_COOKIE)?.value);
@@ -94,7 +102,7 @@ export default async function RootLayout({
       <body className="min-h-full">
         <AssistantProvider>
           {children}
-          <GlobalAssistant />
+          {hasSessionCookie ? <GlobalAssistant /> : null}
         </AssistantProvider>
       </body>
     </html>
