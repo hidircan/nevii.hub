@@ -3660,6 +3660,45 @@ export async function actionGeneratePhotoVideoConsentDocument(input: { studentId
   redirect(`/evrak-yazdir/${documentId}`);
 }
 
+/**
+ * P0 (2026-09-05) — kullanıcı raporu: KVKK Aydınlatma Metni ve Fotoğraf/
+ * Video Açık Rıza Formu iki AYRI buton/iki ayrı belge basımı gerektiriyordu.
+ * Belge KAYITLARI kasıtlı olarak AYRI kalır (ikisi hukuken farklı belgeler,
+ * kendi versiyon/referans geçmişini korur — bkz. generateKvkkNoticeDocumentTool/
+ * generatePhotoVideoConsentDocumentTool, burada İKİSİ DE olduğu gibi
+ * KULLANILIR, mantık TEKRARLANMAZ). Yalnızca kullanıcı akışı birleşti: TEK
+ * bir tıklama iki belgeyi de oluşturur, `/evrak-yazdir/[kvkkId]?also=[fotoId]`
+ * tek bir yazdırma sayfasında iki belgeyi art arda (aralarında sayfa
+ * sonuyla) gösterir. Fotoğraf/video izin kararı henüz kaydedilmemişse
+ * (generatePhotoVideoConsentDocumentTool'un ÖN KOŞULU) KVKK belgesi de
+ * OLUŞTURULMAZ — yarım/tek belgelik bir sonuç yerine net hata döner.
+ */
+export async function actionGenerateKvkkAndPhotoVideoConsentDocuments(
+  input: { studentId: string }
+): Promise<GenerateDocumentActionResult> {
+  let kvkkDocumentId: string;
+  let photoDocumentId: string;
+  try {
+    const photoResult = await withAuthContext("actionGenerateKvkkAndPhotoVideoConsentDocuments", (ctx) =>
+      generatePhotoVideoConsentDocumentTool(ctx, input)
+    );
+    if (!photoResult.ok) return { ok: false, message: photoResult.error.message };
+    photoDocumentId = photoResult.data.documentId;
+
+    const kvkkResult = await withAuthContext("actionGenerateKvkkAndPhotoVideoConsentDocuments", (ctx) =>
+      generateKvkkNoticeDocumentTool(ctx, input)
+    );
+    if (!kvkkResult.ok) return { ok: false, message: kvkkResult.error.message };
+    kvkkDocumentId = kvkkResult.data.documentId;
+  } catch (error) {
+    logger.error("actionGenerateKvkkAndPhotoVideoConsentDocuments failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "KVKK ve Fotoğraf/Video belgeleri oluşturulurken beklenmeyen bir hata oluştu." };
+  }
+  revalidateAll();
+  redirect(`/evrak-yazdir/${kvkkDocumentId}?also=${photoDocumentId}`);
+}
+
 export type CrmActionResult = { ok: true } | { ok: false; message: string };
 
 /** Faz 11 — manuel arama kaydı. */

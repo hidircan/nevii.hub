@@ -105,3 +105,58 @@ describe("generatePhotoVideoConsentDocumentTool", () => {
     expect(res.ok).toBe(true);
   });
 });
+
+/**
+ * Regresyon (2026-09-05) — kullanıcı raporu: "KVKK + fotoğraf rıza dokümanı
+ * önceden birleşikti, şimdi bölünmüş". Belge KAYITLARI kasıtlı olarak AYRI
+ * kalır (bkz. yukarıdaki iki describe — her ikisi de kendi versiyon/referans
+ * geçmişini korur), ama kullanıcı AKIŞI artık tek adım:
+ * `actionGenerateKvkkAndPhotoVideoConsentDocuments` (bkz. actions.ts) önce
+ * fotoğraf/video belgesini (ön koşullu olan) üretir, YALNIZCA başarılıysa
+ * KVKK belgesini üretir, ikisini de `/evrak-yazdir/[kvkkId]?also=[fotoId]`
+ * TEK sayfasında gösterir. Bu testler actions.ts'in redirect()'ini
+ * (test ortamında çağrılamaz) değil, o sayfanın dayandığı iki koşulu
+ * doğrular: (a) ön koşul eksikse HİÇBİR belge üretilmemeli, (b) ikisi de
+ * üretildiğinde getDocumentInstanceTool ikisini de ayrı ayrı, doğru
+ * içerikle döndürebilmeli (sayfanın `also` parametresiyle ikinciyi
+ * çekebilmesinin ön koşulu budur).
+ */
+describe("birleşik KVKK + Fotoğraf/Video akışı (actionGenerateKvkkAndPhotoVideoConsentDocuments'ın dayandığı tool sırası)", () => {
+  it("fotoğraf/video ön koşulu (SocialMediaConsent) yoksa, KVKK belgesi hiç ÜRETİLMEMELİ (yarım/tek belgelik sonuç değil)", async () => {
+    const photoRes = await generatePhotoVideoConsentDocumentTool(adminCtx(), { studentId: "s1" });
+    expect(photoRes.ok).toBe(false);
+    // Kombine action, tam olarak bu senaryoda KVKK aracını hiç ÇAĞIRMAZ — burada
+    // ayrıca çağırıp öğrencide sıfır belge kaldığını doğruluyoruz (orphan yok).
+    if (photoRes.ok) return;
+    const { listDocumentsForStudent } = await import("../documents");
+    const docs = await listDocumentsForStudent(DEFAULT_TENANT_ID, "s1");
+    expect(docs).toHaveLength(0);
+  });
+
+  it("ön koşul VARSA, ikisi de üretilip getDocumentInstanceTool ile ayrı ayrı, tek sayfada birlikte gösterilecek şekilde okunabilir", async () => {
+    await setSocialMediaConsentTool(adminCtx(), {
+      studentId: "s1",
+      status: "granted",
+      representativeName: "Selin Arslan",
+      relationship: "veli",
+      scopes: ["website"],
+    });
+    const photoRes = await generatePhotoVideoConsentDocumentTool(adminCtx(), { studentId: "s1" });
+    expect(photoRes.ok).toBe(true);
+    if (!photoRes.ok) return;
+    const kvkkRes = await generateKvkkNoticeDocumentTool(adminCtx(), { studentId: "s1" });
+    expect(kvkkRes.ok).toBe(true);
+    if (!kvkkRes.ok) return;
+
+    // Sayfanın kendisi `?also=` ile ikinciyi çeker — burada AYNI mekanizmayı simüle ediyoruz.
+    const kvkkDoc = await getDocumentInstanceTool(adminCtx(), { documentId: kvkkRes.data.documentId });
+    const photoDoc = await getDocumentInstanceTool(adminCtx(), { documentId: photoRes.data.documentId });
+    expect(kvkkDoc.ok).toBe(true);
+    expect(photoDoc.ok).toBe(true);
+    if (!kvkkDoc.ok || !photoDoc.ok) return;
+    expect(kvkkDoc.data.document.kind).toBe("kvkk");
+    expect(photoDoc.data.document.kind).toBe("parent_social_media_consent");
+    // Farklı belgeler — birbirinin içeriğini EZMEMİŞ/karıştırmamış olmalı.
+    expect(kvkkDoc.data.document.id).not.toBe(photoDoc.data.document.id);
+  });
+});

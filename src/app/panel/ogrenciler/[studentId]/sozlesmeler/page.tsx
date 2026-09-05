@@ -8,7 +8,11 @@ import { ContractPanel } from "@/components/contract-panel";
 import { BackButton } from "@/components/back-button";
 import { Card, EmptyState, PageHeader } from "@/components/ui";
 import { isFormalContractDuration } from "@/lib/contracts";
-import { actionGenerateKvkkNoticeDocument, actionGeneratePhotoVideoConsentDocument } from "@/lib/actions";
+import {
+  actionGenerateKvkkNoticeDocument,
+  actionGeneratePhotoVideoConsentDocument,
+  actionGenerateKvkkAndPhotoVideoConsentDocuments,
+} from "@/lib/actions";
 import { deriveLessonScheduleTextFromLessons } from "@/lib/lesson-schedule-text";
 
 /**
@@ -121,39 +125,61 @@ export default async function StudentContractsCenterPage({
         <Card className="mt-4 !p-4">
           <h2 className="mb-1 text-sm font-semibold text-[var(--color-text)]">KVKK ve Fotoğraf/Video Belgeleri</h2>
           <p className="mb-3 text-xs text-[var(--color-text-muted)]">
-            Kayıt sözleşmesinden AYRI, kaynağın kendi yapısına uygun iki belge — Madde 19/20.
+            Kayıt sözleşmesinden AYRI, kaynağın kendi yapısına uygun iki belge — Madde 19/20. Aşağıdaki tek adım
+            ikisini birlikte oluşturup TEK bir yazdırma sayfasında (aralarında sayfa sonuyla) gösterir.
           </p>
           <div className="flex flex-wrap gap-2">
             <form
               action={async () => {
                 "use server";
-                await actionGenerateKvkkNoticeDocument({ studentId: student.id });
+                await actionGenerateKvkkAndPhotoVideoConsentDocuments({ studentId: student.id });
               }}
             >
               <button
                 type="submit"
                 className="rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-sm font-medium text-[var(--color-text)] hover:bg-[var(--color-bg)]"
               >
-                KVKK Aydınlatma Metni Oluştur
-              </button>
-            </form>
-            <form
-              action={async () => {
-                "use server";
-                await actionGeneratePhotoVideoConsentDocument({ studentId: student.id });
-              }}
-            >
-              <button
-                type="submit"
-                className="rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-sm font-medium text-[var(--color-text)] hover:bg-[var(--color-bg)]"
-              >
-                Fotoğraf/Video Açık Rıza Formu Oluştur
+                KVKK ve Fotoğraf/Video Belgesi Oluştur
               </button>
             </form>
           </div>
           <p className="mt-2 text-xs text-[var(--color-text-muted)]">
-            Fotoğraf/Video formu, önceden bu öğrenci için kaydedilmiş bir izin kararı (sözleşme oluşturma ekranı) gerektirir.
+            Fotoğraf/Video bölümü, önceden bu öğrenci için kaydedilmiş bir izin kararı (sözleşme oluşturma ekranı)
+            gerektirir — kaydedilmemişse hiçbir belge oluşturulmaz, önce sözleşme ekranından izni kaydedin.
           </p>
+          <details className="mt-3 text-xs text-[var(--color-text-muted)]">
+            <summary className="cursor-pointer select-none font-medium">
+              Yalnızca birini yeniden yazdırmam gerekiyor
+            </summary>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <form
+                action={async () => {
+                  "use server";
+                  await actionGenerateKvkkNoticeDocument({ studentId: student.id });
+                }}
+              >
+                <button
+                  type="submit"
+                  className="rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-xs font-medium text-[var(--color-text)] hover:bg-[var(--color-bg)]"
+                >
+                  Yalnız KVKK Aydınlatma Metni
+                </button>
+              </form>
+              <form
+                action={async () => {
+                  "use server";
+                  await actionGeneratePhotoVideoConsentDocument({ studentId: student.id });
+                }}
+              >
+                <button
+                  type="submit"
+                  className="rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-xs font-medium text-[var(--color-text)] hover:bg-[var(--color-bg)]"
+                >
+                  Yalnız Fotoğraf/Video Açık Rıza Formu
+                </button>
+              </form>
+            </div>
+          </details>
         </Card>
       ) : null}
     </div>
