@@ -93,6 +93,48 @@ describe("createStudentTool — accountResponsibility'e göre koşullu telefon z
     expect(created.parentPhone).toBe("5551239999");
   });
 
+  /**
+   * P0 (2026-09-05, ikinci tur) — AYNI kural VELİ ADI için de geçerli:
+   * SELF_MANAGED'de personel var olmayan bir veli adı uydurmak zorunda
+   * kalmamalı; PARENT_MANAGED'de ise veli adı gerçekten zorunlu olmalı ve
+   * hata jenerik "Invalid input" değil, ALANA ait Türkçe metin olmalı.
+   */
+  it("PARENT_MANAGED + veli adı YOK → reddedilir, alan hatası parentName'de ve Türkçe", async () => {
+    const input = baseInput({ accountResponsibility: "PARENT_MANAGED", parentPhone: "5559998877" });
+    delete (input as Record<string, unknown>).parentName;
+    const res = await createStudentTool(ctx(), input);
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.error.code).toBe("VALIDATION_ERROR");
+    const details = res.error.details as unknown as { fieldErrors?: Record<string, string[]> };
+    expect(details.fieldErrors?.parentName?.[0]).toContain("Veli adı soyadı zorunludur");
+    expect(details.fieldErrors?.parentName?.[0]).not.toContain("Invalid input");
+  });
+
+  it("SELF_MANAGED + veli adı YOK → kabul edilir, parentName öğrencinin kendi adıyla doldurulur", async () => {
+    const input = baseInput({ accountResponsibility: "SELF_MANAGED", phone: "5551239999" });
+    delete (input as Record<string, unknown>).parentName;
+    const res = await createStudentTool(ctx(), input);
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const { readData } = await import("../store-json");
+    const data = await readData();
+    const created = data.students.find((s) => s.id === res.data.studentId)!;
+    expect(created.parentName).toBe("Muhatap Testi");
+  });
+
+  it("SELF_MANAGED + veli adı VERİLDİ → opsiyonel alan olarak aynen saklanır", async () => {
+    const res = await createStudentTool(
+      ctx(),
+      baseInput({ accountResponsibility: "SELF_MANAGED", phone: "5551239999", parentName: "İsteğe Bağlı Veli" })
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const { readData } = await import("../store-json");
+    const data = await readData();
+    expect(data.students.find((s) => s.id === res.data.studentId)!.parentName).toBe("İsteğe Bağlı Veli");
+  });
+
   it("accountResponsibility belirtilmemiş (ör. CSV import/eski çağıran) → eski davranış korunur: veli telefonu zorunlu", async () => {
     const res = await createStudentTool(ctx(), baseInput({ phone: "5551112233" }));
     expect(res.ok).toBe(false);

@@ -28,6 +28,7 @@ import {
   derivePerLessonAmount,
   referenceMonthlyLessonCount,
   countExactWeekdayLessons,
+  resolveLessonStartDay,
 } from "@/lib/period-lesson-billing";
 
 function formatTL(amount: number): string {
@@ -107,8 +108,19 @@ export function NewStudentForm({
   // (`derivePerLessonAmount` — sunucudaki `createStudentTool`'un kullandığı
   // AYNI saf fonksiyon). Formun geri kalanı bilinçli olarak uncontrolled
   // kaldığı için (bkz. üstteki not) bu alanları ayrıca controlled state'e
-  // ALMAK yerine, `<form>` seviyesinde `onInput` ile her değişiklikte
+  // ALMAK yerine, `<form>` seviyesinde `onChange` ile her değişiklikte
   // `FormData` okunup yeniden hesaplanır.
+  //
+  // P0 (2026-09-05) — burada BİLEREK `onInput` YOK. React `<select>`'in
+  // `onChange`'ini native `change` olayından türetir, ama `onInput` native
+  // `input` olayında çalışır ve `input`, `change`'ten ÖNCE gelir. Formda bir
+  // `onInput` handler'ı olursa, kullanıcı bir `<select>`'i değiştirdiğinde:
+  // (1) `input` → `recomputePreview` → parent setState → React senkron
+  // yeniden render eder ve controlled `<select value={...}>` alanlarının DOM
+  // değerini ESKİ state'e GERİ YAZAR; (2) ardından gelen `change` olayı artık
+  // eski değeri taşır, alanın kendi `onChange`'i no-op olur. Sonuç: enstrüman/
+  // ders süresi/ödeme muhatabı seçimleri gerçek tarayıcıda hiç değişmiyormuş
+  // gibi görünür (native olaylarla doğrulandı: input=Keman → change=Piyano).
   const formRef = useRef<HTMLFormElement>(null);
   const [preview, setPreview] = useState<{
     monthlyFee: number;
@@ -153,6 +165,17 @@ export function NewStudentForm({
   const [useDifferentPortalEmail, setUseDifferentPortalEmail] = useState(
     () => portalAccessType === "SELF" && !!v("invitePortalEmail") && v("invitePortalEmail") !== v("email")
   );
+  // P0 (2026-09-05) — davet e-postası alanı HER ZAMAN controlled: önceden
+  // "Öğrencinin kendisi" (SELF) modunda `value`, diğer modlarda `defaultValue`
+  // kullanılıyordu. İkisi de AYNI konumdaki AYNI `<input>` olduğu için React
+  // alanı yeniden monte etmiyor, yalnızca controlled↔uncontrolled geçişi
+  // yapıyordu — konsolda "A component is changing an uncontrolled input to be
+  // controlled" uyarısı bundan çıkıyordu. Tek bir state ile çözülür; SELF
+  // modunda gösterilen değer öğrenci e-postasıdır (salt okunur), kullanıcının
+  // elle yazdığı adres bu state'te KORUNUR ve "farklı e-posta" seçilince geri
+  // gelir.
+  const [portalEmail, setPortalEmail] = useState(() => v("invitePortalEmail") ?? "");
+  const portalEmailMirrorsStudent = portalAccessType === "SELF" && !useDifferentPortalEmail;
 
   function recomputePreview() {
     const form = formRef.current;
@@ -160,7 +183,14 @@ export function NewStudentForm({
     const fd = new FormData(form);
     const monthlyFee = Number(fd.get("monthlyFee") || 0);
     const weeklyLessonCount = Number(fd.get("weeklyLessonCount") || 0);
-    const startDay = String(fd.get("enrollmentStartDate") || "") || new Date().toISOString().slice(0, 10);
+    // P0 (2026-09-05) — önizleme de sunucuyla AYNI kaynaktan (resolveLessonStartDay)
+    // ders başlangıç gününü çözer: ilk tahsilat kayıt tarihinden değil, ders
+    // başlangıcından itibaren sayar.
+    const startDay = resolveLessonStartDay({
+      lessonStartDate: String(fd.get("lessonStartDate") || ""),
+      enrollmentStartDate: String(fd.get("enrollmentStartDate") || ""),
+      fallbackToday: new Date().toISOString().slice(0, 10),
+    });
     const firstPaymentRaw = String(fd.get("firstPaymentAmount") || "").replace(/[^\d]/g, "");
     setEnteredFirstPayment(firstPaymentRaw ? Number(firstPaymentRaw) : undefined);
     const lessonDays = fd.getAll("lessonDays").map(Number);
@@ -292,7 +322,7 @@ export function NewStudentForm({
   }, [state]);
 
   return (
-    <form ref={formRef} action={formAction} onInput={recomputePreview} onChange={recomputePreview} className="space-y-6" noValidate>
+    <form ref={formRef} action={formAction} onChange={recomputePreview} className="space-y-6" noValidate>
       {hasError ? (
         <div
           ref={summaryRef}
@@ -369,14 +399,14 @@ export function NewStudentForm({
             <div>
               <Label>
                 Veli adı
-                <RequiredMark />
+                {accountResponsibility === "PARENT_MANAGED" ? <RequiredMark /> : null}
               </Label>
               <Input
                 name="parentName"
-                required
-                aria-required
+                required={accountResponsibility === "PARENT_MANAGED"}
+                aria-required={accountResponsibility === "PARENT_MANAGED"}
                 defaultValue={v("parentName")}
-                placeholder="Veli adı"
+                placeholder={accountResponsibility === "PARENT_MANAGED" ? "Veli adı" : "Veli adı (opsiyonel)"}
                 aria-invalid={!!fieldErrors.parentName}
               />
               <FieldError message={fieldErrors.parentName} />
@@ -486,10 +516,17 @@ export function NewStudentForm({
               <option value="yaz">Yaz Dönemi</option>
             </Select>
           </div>
+          {/*
+            P0 (2026-09-05) — KAYIT TARİHİ ile DERS BAŞLANGIÇ TARİHİ ayrı iki
+            alandır: öğrenci bugün kaydolup dersleri ileri bir tarihte
+            başlatabilir. İlk tahsilat/ders sayımı DERS BAŞLANGICINDAN itibaren
+            yapılır (bkz. resolveLessonStartDay — sunucu ve bu önizleme AYNI
+            fonksiyonu kullanır).
+          */}
           <div className="grid grid-cols-2 gap-2">
             <div>
               <Label>
-                Kayıt başlangıç tarihi
+                Kayıt tarihi
                 <RequiredMark />
               </Label>
               <Input
@@ -501,11 +538,26 @@ export function NewStudentForm({
                 aria-invalid={!!fieldErrors.enrollmentStartDate}
               />
               <FieldError message={fieldErrors.enrollmentStartDate} />
+              <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">Öğrencinin sisteme kaydedildiği gün.</p>
             </div>
             <div>
-              <Label>Seviye (opsiyonel)</Label>
-              <Input name="level" defaultValue={v("level")} placeholder="Örn. Başlangıç, Orta, İleri" />
+              <Label>Ders başlangıç tarihi (opsiyonel)</Label>
+              <Input
+                name="lessonStartDate"
+                type="date"
+                defaultValue={v("lessonStartDate")}
+                aria-invalid={!!fieldErrors.lessonStartDate}
+              />
+              <FieldError message={fieldErrors.lessonStartDate} />
+              <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">
+                Derslerin fiilen başladığı gün. Boş bırakılırsa kayıt tarihi kullanılır. İlk tahsilat yalnızca bu
+                tarihten sonraki dersleri sayar.
+              </p>
             </div>
+          </div>
+          <div>
+            <Label>Seviye (opsiyonel)</Label>
+            <Input name="level" defaultValue={v("level")} placeholder="Örn. Başlangıç, Orta, İleri" />
           </div>
           <div>
             <Label>Hedef sınav / performans dönemi (opsiyonel)</Label>
@@ -778,50 +830,41 @@ export function NewStudentForm({
         </div>
       </Card>
 
-      {/* 5. Sözleşme / KVKK / Fotoğraf-Video (varsa) */}
-      <Card>
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-[var(--color-primary)]">
-          Sözleşme / KVKK / Fotoğraf-Video İzni
-        </h2>
-        <div className="space-y-3">
-          <div className="flex items-center gap-2">
-            <input
-              id="social-media-consent"
-              type="checkbox"
-              name="socialMediaConsent"
-              value="granted"
-              defaultChecked={checkedVal("socialMediaConsent", "granted")}
-              className="h-4 w-4"
-            />
-            <label htmlFor="social-media-consent" className="text-sm text-[var(--color-text)]">
-              Sosyal medya paylaşım (fotoğraf/video) izni var
-            </label>
-          </div>
-          {kvkkText ? (
-            <div className="rounded-lg border border-[var(--color-border)] p-3">
-              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
-                KVKK Açık Rıza Metni (v{kvkkText.version})
-              </p>
-              <p className="mb-2 max-h-32 overflow-y-auto whitespace-pre-wrap text-xs text-[var(--color-text-muted)]">
-                {kvkkText.bodyText}
-              </p>
-              <div className="flex items-center gap-2">
-                <input
-                  id="kvkk-consent"
-                  type="checkbox"
-                  name="kvkkConsent"
-                  value="granted"
-                  defaultChecked={checkedVal("kvkkConsent", "granted")}
-                  className="h-4 w-4"
-                />
-                <label htmlFor="kvkk-consent" className="text-sm text-[var(--color-text)]">
-                  Veli/vasi yukarıdaki KVKK aydınlatma/açık rıza metnini okudu, onaylıyor
-                </label>
-              </div>
+      {/* 5. KVKK açık rıza — yalnız yürürlükte bir metin varsa.
+          P0 (2026-09-05) — "Sosyal medya paylaşım (fotoğraf/video) izni var"
+          onay kutusu BURADAN KALDIRILDI: aynı rıza sözleşme ekranındaki
+          Fotoğraf/Video Açık Rıza Formu akışında (Madde 19) zaten alınıyor,
+          aynı onay iki ayrı yerden sorulmuyor. Geçmiş kayıtlar
+          (`SocialMediaConsent`) DEĞİŞMEDİ; öğrenci detayındaki "SOSYAL MEDYA
+          İZNİ" alanı ve belge akışları aynen çalışmaya devam eder. */}
+      {kvkkText ? (
+        <Card>
+          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-[var(--color-primary)]">
+            KVKK Açık Rıza
+          </h2>
+          <div className="rounded-lg border border-[var(--color-border)] p-3">
+            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
+              KVKK Açık Rıza Metni (v{kvkkText.version})
+            </p>
+            <p className="mb-2 max-h-32 overflow-y-auto whitespace-pre-wrap text-xs text-[var(--color-text-muted)]">
+              {kvkkText.bodyText}
+            </p>
+            <div className="flex items-center gap-2">
+              <input
+                id="kvkk-consent"
+                type="checkbox"
+                name="kvkkConsent"
+                value="granted"
+                defaultChecked={checkedVal("kvkkConsent", "granted")}
+                className="h-4 w-4"
+              />
+              <label htmlFor="kvkk-consent" className="text-sm text-[var(--color-text)]">
+                Veli/vasi yukarıdaki KVKK aydınlatma/açık rıza metnini okudu, onaylıyor
+              </label>
             </div>
-          ) : null}
-        </div>
-      </Card>
+          </div>
+        </Card>
+      ) : null}
 
       {/* 6. Portal Erişimi — SPESİFİK OLARAK en altta (P0-C). */}
       <Card>
@@ -849,23 +892,21 @@ export function NewStudentForm({
                   kullanıcı aynı e-postayı iki kez yazmak ZORUNDA kalmaz.
                   `readOnly` (disabled DEĞİL) — form submit'inde değeri yine
                   gönderilir. Veli (GUARDIAN) modunda davranış DEĞİŞMEDİ. */}
-              {portalAccessType === "SELF" && !useDifferentPortalEmail ? (
-                <Input
-                  name="invitePortalEmail"
-                  type="email"
-                  value={studentEmailLive}
-                  readOnly
-                  placeholder="Önce öğrenci e-postasını girin"
-                  className="cursor-not-allowed opacity-80"
-                />
-              ) : (
-                <Input
-                  name="invitePortalEmail"
-                  type="email"
-                  defaultValue={v("invitePortalEmail")}
-                  placeholder={portalAccessType === "SELF" ? "ogrenci@email.com" : "veli@email.com"}
-                />
-              )}
+              <Input
+                name="invitePortalEmail"
+                type="email"
+                value={portalEmailMirrorsStudent ? studentEmailLive : portalEmail}
+                onChange={(e) => setPortalEmail(e.target.value)}
+                readOnly={portalEmailMirrorsStudent}
+                placeholder={
+                  portalEmailMirrorsStudent
+                    ? "Önce öğrenci e-postasını girin"
+                    : portalAccessType === "SELF"
+                      ? "ogrenci@email.com"
+                      : "veli@email.com"
+                }
+                className={portalEmailMirrorsStudent ? "cursor-not-allowed opacity-80" : undefined}
+              />
               {inviteToPortalChecked && portalAccessType === "SELF" && !studentEmailLive && !useDifferentPortalEmail ? (
                 <p className="mt-1 text-xs font-medium text-rose-600" role="alert">
                   Öğrencinin kendisine davet göndermek için yukarıda &quot;Temel Bilgiler&quot; bölümündeki öğrenci

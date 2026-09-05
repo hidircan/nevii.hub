@@ -103,7 +103,15 @@ export const studentSchema = z.object({
    * her zaman dolu kalır — tip/model DEĞİŞMEDİ, yalnız GİRDİ zorunluluğu).
    */
   phone: optionalTrimmed,
-  parentName: z.string().min(1),
+  /**
+   * P0 (2026-09-05, ikinci tur) — `parentPhone` zaten koşullu hale gelmişti
+   * ama `parentName` KOŞULSUZ zorunlu kalmıştı: ödeme/iletişim muhatabı
+   * "Öğrencinin kendisi" (SELF_MANAGED) seçildiğinde personel, var olmayan
+   * bir veli adı UYDURMAK zorunda kalıyordu. Artık ikisi de aynı kurala
+   * bağlı (bkz. dosya sonundaki `.refine`'lar); PARENT_MANAGED'de veli adı
+   * ZORUNLU, SELF_MANAGED'de OPSİYONEL (girilebilir, dayatılmaz).
+   */
+  parentName: optionalTrimmed,
   parentPhone: optionalTrimmed,
   /** Paket 7 — TC kimlik alanından hemen sonra istenir; opsiyonel (legacy kayıtlar kırılmaz). */
   motherName: optionalTrimmed,
@@ -139,7 +147,13 @@ export const studentSchema = z.object({
    * (buradaki zod mesajı, yalnız istemcinin `required` attribute'una
    * GÜVENMEDEN) SPESİFİK bir Türkçe alan hatası üretir.
    */
-  enrollmentStartDate: z.string().trim().min(1, "Kayıt başlangıç tarihi zorunludur."),
+  enrollmentStartDate: z.string().trim().min(1, "Kayıt tarihi zorunludur."),
+  /**
+   * P0 (2026-09-05) — DERS BAŞLANGIÇ TARİHİ, kayıt tarihinden BAĞIMSIZ.
+   * Opsiyonel: gönderilmezse kayıt tarihi kullanılır (eski çağıranlar/CSV/AI
+   * için davranış aynen korunur). İlk tahsilat bu tarihten itibaren sayar.
+   */
+  lessonStartDate: optionalTrimmed,
   enrollmentEndDate: optionalTrimmed,
   /**
    * P0-C (2026-09-02) — haftalık ders sıklığına karşılık gelen GERÇEK ders
@@ -226,11 +240,14 @@ export const studentSchema = z.object({
 }).refine((v) => !v.createPortalAccess || !!v.email, {
   message: "Portal erişimi için e-posta zorunludur.",
   path: ["email"],
+}).refine((v) => v.accountResponsibility === "SELF_MANAGED" || !!v.parentName, {
+  message: "Veli adı soyadı zorunludur — ödeme/iletişim muhatabı veli olarak seçili.",
+  path: ["parentName"],
 }).refine((v) => v.accountResponsibility === "SELF_MANAGED" || !!v.parentPhone, {
-  message: "Veli telefon zorunludur.",
+  message: "Veli telefonu zorunludur — ödeme/iletişim muhatabı veli olarak seçili.",
   path: ["parentPhone"],
 }).refine((v) => v.accountResponsibility !== "SELF_MANAGED" || !!v.phone, {
-  message: "Öğrenci telefon zorunludur.",
+  message: "Öğrenci telefonu zorunludur — ödeme/iletişim muhatabı öğrencinin kendisi olarak seçili.",
   path: ["phone"],
 });
 
@@ -248,6 +265,7 @@ export const updateStudentProfileSchema = z
     /** Faz 1B — verilirse tekil studentType'ın YERİNE birincil kaynak olur. */
     studentTypes: studentTypesSchema,
     enrollmentStartDate: optionalTrimmed,
+    lessonStartDate: optionalTrimmed,
     enrollmentEndDate: optionalTrimmed,
     level: optionalTrimmed,
     targetExam: optionalTrimmed,

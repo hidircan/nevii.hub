@@ -43,6 +43,15 @@ function validateStudentForm(input: {
   parentPhone: string;
   birthDate: string;
   nationalId: string;
+  /**
+   * P0 (2026-09-05, ikinci tur) — hangi telefon/ad alanının GERÇEKTEN
+   * zorunlu olduğunu ödeme/iletişim muhatabı belirler; kayıt formuyla
+   * (`new-student-form.tsx`) ve sunucu şemasıyla (`validation.ts`
+   * studentSchema `.refine`'ları) AYNI kural. Bu ekran daha önce üçünü de
+   * koşulsuz zorunlu tutuyordu — kayıt ekranında girilmesi gerekmeyen bir
+   * alan, düzenlemede kaydı bloke ediyordu.
+   */
+  accountResponsibility: "PARENT_MANAGED" | "SELF_MANAGED";
 }) {
   const errors: FieldErrors = {};
 
@@ -57,9 +66,16 @@ function validateStudentForm(input: {
   ) {
     errors.educationMethod = "Geçerli bir eğitim metodu seçin.";
   }
-  if (!input.phone.trim()) errors.phone = "Öğrenci telefonu boş bırakılamaz.";
-  if (!input.parentName.trim()) errors.parentName = "Veli adı boş bırakılamaz.";
-  if (!input.parentPhone.trim()) errors.parentPhone = "Veli telefonu boş bırakılamaz.";
+  const parentIsResponsible = input.accountResponsibility === "PARENT_MANAGED";
+  if (!parentIsResponsible && !input.phone.trim()) {
+    errors.phone = "Öğrenci telefonu zorunludur — ödeme/iletişim muhatabı öğrencinin kendisi olarak seçili.";
+  }
+  if (parentIsResponsible && !input.parentName.trim()) {
+    errors.parentName = "Veli adı soyadı zorunludur — ödeme/iletişim muhatabı veli olarak seçili.";
+  }
+  if (parentIsResponsible && !input.parentPhone.trim()) {
+    errors.parentPhone = "Veli telefonu zorunludur — ödeme/iletişim muhatabı veli olarak seçili.";
+  }
   if (input.birthDate.trim() && !/^\d{4}-\d{2}-\d{2}$/.test(input.birthDate.trim())) {
     errors.birthDate = "Doğum tarihini takvimden seçin.";
   }
@@ -106,6 +122,9 @@ export function StudentProfileEditor({
     birthPlace?: string;
     schoolOrOccupation?: string;
     communicationOptOut?: boolean;
+    /** P0 (2026-09-05) — kayıt tarihi ve DERS BAŞLANGIÇ tarihi ayrı iki alan. */
+    enrollmentStartDate?: string;
+    lessonStartDate?: string;
     accountResponsibility?: "PARENT_MANAGED" | "SELF_MANAGED";
     /** Faz 1B — birden fazla öğrenci türü; boşsa "hiç seçilmemiş" demektir. */
     studentTypes?: StudentType[];
@@ -132,6 +151,11 @@ export function StudentProfileEditor({
   const [birthPlace, setBirthPlace] = useState(initial.birthPlace ?? "");
   const [schoolOrOccupation, setSchoolOrOccupation] = useState(initial.schoolOrOccupation ?? "");
   const [communicationOptOut, setCommunicationOptOut] = useState(!!initial.communicationOptOut);
+  // P0 (2026-09-05) — sözleşme adımından "Öğrenci Kaydını Düzenle" ile dönen
+  // kullanıcı bu iki tarihi buradan düzeltir; ilk tahsilat/sözleşme önizlemesi
+  // dönüşte TAZE veriyle yeniden hesaplanır (bkz. resolveLessonStartDay).
+  const [enrollmentStartDate, setEnrollmentStartDate] = useState(initial.enrollmentStartDate?.slice(0, 10) ?? "");
+  const [lessonStartDate, setLessonStartDate] = useState(initial.lessonStartDate?.slice(0, 10) ?? "");
   const [accountResponsibility, setAccountResponsibility] = useState(
     initial.accountResponsibility ?? "PARENT_MANAGED"
   );
@@ -155,6 +179,7 @@ export function StudentProfileEditor({
       parentPhone,
       birthDate,
       nationalId,
+      accountResponsibility,
     });
 
     setFieldErrors(nextErrors);
@@ -181,6 +206,8 @@ export function StudentProfileEditor({
         birthPlace: birthPlace || undefined,
         schoolOrOccupation: schoolOrOccupation || undefined,
         communicationOptOut,
+        enrollmentStartDate: enrollmentStartDate || undefined,
+        lessonStartDate: lessonStartDate || undefined,
         accountResponsibility,
         studentTypes,
       });
@@ -279,7 +306,7 @@ export function StudentProfileEditor({
 
       <div className="grid grid-cols-2 gap-2">
         <div>
-          <Label>Öğrenci telefonu</Label>
+          <Label>Öğrenci telefonu{accountResponsibility === "PARENT_MANAGED" ? " (opsiyonel)" : ""}</Label>
           <Input className={inputClassName(!!fieldErrors.phone)} value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="05xx xxx xxxx" />
           {fieldErrors.phone ? <p className="mt-1 text-xs text-red-600">{fieldErrors.phone}</p> : null}
         </div>
@@ -293,13 +320,13 @@ export function StudentProfileEditor({
 
       <div className="grid grid-cols-2 gap-2">
         <div>
-          <Label>Veli adı</Label>
+          <Label>Veli adı{accountResponsibility === "SELF_MANAGED" ? " (opsiyonel)" : ""}</Label>
           <Input className={inputClassName(!!fieldErrors.parentName)} value={parentName} onChange={(e) => setParentName(e.target.value)} />
           {fieldErrors.parentName ? <p className="mt-1 text-xs text-red-600">{fieldErrors.parentName}</p> : null}
         </div>
 
         <div>
-          <Label>Veli telefonu</Label>
+          <Label>Veli telefonu{accountResponsibility === "SELF_MANAGED" ? " (opsiyonel)" : ""}</Label>
           <Input className={inputClassName(!!fieldErrors.parentPhone)} value={parentPhone} onChange={(e) => setParentPhone(e.target.value)} placeholder="05xx xxx xxxx" />
           {fieldErrors.parentPhone ? <p className="mt-1 text-xs text-red-600">{fieldErrors.parentPhone}</p> : null}
         </div>
@@ -313,6 +340,25 @@ export function StudentProfileEditor({
         <div>
           <Label>Baba adı</Label>
           <Input value={fatherName} onChange={(e) => setFatherName(e.target.value)} />
+        </div>
+      </div>
+
+      {/*
+        P0 (2026-09-05) — KAYIT tarihi ile DERS BAŞLANGIÇ tarihi ayrı iki
+        alandır; ilk tahsilat/sözleşme dönemi ders başlangıcından itibaren
+        hesaplanır (bkz. resolveLessonStartDay, period-lesson-billing.ts).
+      */}
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <Label>Kayıt tarihi</Label>
+          <Input type="date" value={enrollmentStartDate} onChange={(e) => setEnrollmentStartDate(e.target.value)} />
+        </div>
+        <div>
+          <Label>Ders başlangıç tarihi</Label>
+          <Input type="date" value={lessonStartDate} onChange={(e) => setLessonStartDate(e.target.value)} />
+          <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">
+            Boş bırakılırsa kayıt tarihi geçerlidir. İlk tahsilat yalnızca bu tarihten sonraki dersleri sayar.
+          </p>
         </div>
       </div>
 
