@@ -19,7 +19,7 @@ const STATUS_LABEL: Record<string, string> = {
 
 /**
  * P0-F (2026-09-02) — her durum GÖRSEL OLARAK AYRI bir renk taşımalı
- * (Geldi=yeşil, İşlendi=sarı, Telafi=kırmızı, Gelmedi=gri/turuncu,
+ * (Geldi=yeşil, İşlendi=kırmızı, Telafi=sarı, Gelmedi=gri/turuncu,
  * Mazeretli=mor/nötr mavi, İptal=koyu gri). Önceden Gelmedi paylaşılan
  * `absent` anahtarını (Telafi ile AYNI kırmızı) kullanıyordu — ikisi
  * görsel olarak ayırt edilemiyordu; artık kendi anahtarları var (bkz.

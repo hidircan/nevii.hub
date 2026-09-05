@@ -155,11 +155,10 @@ export function LessonOpsActions({
   }
 
   /**
-   * P0-2 (2026-09-02) düzeltmesi — tüm portallarda TEK renk sözlüğü:
-   * Geldi=yeşil, İşlendi=SARI, Telafi=KIRMIZI, Kapalı=siyah (bkz.
+   * P0 (2026-09-05) — tüm portallarda TEK renk sözlüğü:
+   * Geldi=yeşil, İşlendi=KIRMIZI, Telafi=SARI, Kapalı=siyah (bkz.
    * ATTENDANCE_CALENDAR_COLORS, src/lib/attendance-calendar.ts — TEK kaynak).
-   * Bir önceki "düzeltme" bunu TERSİNE çevirmişti (İşlendi=kırmızı,
-   * Telafi=sarı) — owner talimatıyla burada asıl doğru yöne çevrildi. Koyu
+   * İşlendi/Telafi bu turda owner talimatıyla YER DEĞİŞTİRDİ. Koyu
    * tema: her tonun `dark:` varyantı var (yalnız renge güvenme kuralı zaten
    * etiket metniyle karşılanıyor, bkz. buton/badge metinleri).
    */
@@ -201,8 +200,8 @@ export function LessonOpsActions({
     <div className={cn("mt-2", compact && "mt-1.5")}>
       <div className="flex flex-wrap gap-1.5" role="group" aria-label="Ders operasyon durumları">
         {btn("attended", "Geldi", local.attended, "green")}
-        {btn("processed", "İşlendi", local.processed, "yellow")}
-        {btn("makeup", "Telafi", local.makeup, "red")}
+        {btn("processed", "İşlendi", local.processed, "red")}
+        {btn("makeup", "Telafi", local.makeup, "yellow")}
         {/* Paket 6 — "Gelmedi"/"Mazeretli" aksiyon butonları buradan kaldırıldı
             (yalnız UI; flag/veri modeli ve geçmiş kayıtlar korunuyor — bkz.
             LessonOpsBadges'in bu iki statüyü hâlâ salt-okunur göstermesi). */}

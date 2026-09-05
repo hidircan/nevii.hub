@@ -254,16 +254,19 @@ export function lessonMatchesAcademicPeriod(
  * ders yok) durumları.
  */
 /**
- * P0-2E (2026-09-02) düzeltmesi — bu sözlük daha önce İşlendi/Telafi'yi TERS
- * atamıştı (yorum "düzeltildi" diyordu ama spesifikasyonla hâlâ tutarsızdı):
- * İşlendi=SARI, Telafi=KIRMIZI olmalı (owner talimatı). Mazeretli de
- * turuncudan mor/nötr bir tona alındı (spec: "mor veya nötr mavi") —
- * Gelmedi'nin gri/turuncu seçeneğiyle karışmasın diye.
+ * P0 (2026-09-05) — owner talimatıyla İşlendi/Telafi renkleri YER DEĞİŞTİRDİ:
+ * artık İşlendi=KIRMIZI, Telafi=SARI (Geldi=yeşil değişmedi). Bu, 2026-09-02
+ * tarihli P0-2E kararının bilinçli olarak tersine çevrilmesidir — sözlük TEK
+ * kaynak olduğu için takvim, program ızgarası, rozetler ve lejantlar bu
+ * değişikliği otomatik alır. Mazeretli mor/nötr tonda KALDI.
  */
+/** Sarı dolgu — beyaz metinle WCAG AA'yı geçmez, koyu metin ister (bkz. attendanceCalendarTextColor). */
+const YELLOW_FILL = "#ca8a04";
+
 export const ATTENDANCE_CALENDAR_COLORS = {
   attended: "#16a34a", // green-600 — Geldi/tamamlandı
-  processed: "#ca8a04", // yellow-600 — İşlendi
-  makeup: "#dc2626", // red-600 — Telafi
+  processed: "#dc2626", // red-600 — İşlendi
+  makeup: YELLOW_FILL, // yellow-600 — Telafi
   cancelled: "#475569", // slate-600 — İptal
   absent: "#57534e", // stone-600 — Gelmedi (mazeretsiz)
   excused: "#7c3aed", // violet-600 — Mazeretli
@@ -312,11 +315,12 @@ export function resolveAttendanceCalendarStudentId(
 
 /**
  * Dolgu üzerindeki metnin erişilebilir kontrastı: kırmızı/yeşil/mor/siyah/mavi
- * dolgularda AÇIK (beyaz) metin, sarı (İşlendi) dolguda KOYU metin — sarı
- * zeminde beyaz metnin kontrast oranı WCAG AA eşiğinin altında kalır.
+ * dolgularda AÇIK (beyaz) metin, sarı (artık Telafi) dolguda KOYU metin — sarı
+ * zeminde beyaz metnin kontrast oranı WCAG AA eşiğinin altında kalır. Anahtar
+ * DEĞİL, RENK belirleyicidir: sarıyı hangi statü taşıyorsa koyu metni o alır.
  */
 export function attendanceCalendarTextColor(key: AttendanceCalendarColorKey): "#ffffff" | "#1c1503" {
-  return key === "processed" ? "#1c1503" : "#ffffff";
+  return ATTENDANCE_CALENDAR_COLORS[key] === YELLOW_FILL ? "#1c1503" : "#ffffff";
 }
 
 /**

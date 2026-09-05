@@ -187,8 +187,10 @@ export function statusColor(status: string) {
     voided: "bg-stone-200 text-stone-600",
     late: "bg-orange-100 text-orange-800",
     scheduled: "bg-indigo-100 text-indigo-800",
-    /* Telafi her yerde kırmızı — LessonOpsBadges ile aynı anlam/renk dili. */
-    makeup: "bg-rose-100 text-rose-800",
+    /* P0 (2026-09-05) — Telafi her yerde SARI, İşlendi KIRMIZI (owner talimatı;
+       tek kaynak ATTENDANCE_CALENDAR_COLORS ile aynı anlam/renk dili). */
+    makeup: "bg-amber-100 text-amber-900",
+    processed: "bg-rose-100 text-rose-900",
     /**
      * P0-F (2026-09-02) — Yoklama Raporu'nda Gelmedi/Mazeretli, paylaşılan
      * `absent`/`late` anahtarlarını (başka ekranlarda ZATEN farklı anlamda

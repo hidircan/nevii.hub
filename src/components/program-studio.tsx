@@ -236,16 +236,16 @@ export function lessonCardStatusVisual(lesson: Lesson, now: Date = new Date()): 
 /** Kart arka planı — tam kutu, yalnız kenarlık/nokta DEĞİL (kullanıcı talebi). */
 const LESSON_CARD_STATUS_BG: Record<LessonCardStatusVisual, string> = {
   attended: "bg-emerald-700 dark:bg-emerald-800",
-  processed: "bg-amber-400 dark:bg-amber-500",
-  makeup: "bg-rose-700 dark:bg-rose-800",
+  processed: "bg-rose-700 dark:bg-rose-800",
+  makeup: "bg-amber-400 dark:bg-amber-500",
   default: "bg-[var(--color-surface)]",
 };
 
 /** Doygun zeminlerde okunabilirlik için kontrastlı metin renkleri (koyu zeminde beyaz, sarıda koyu). */
 const LESSON_CARD_STATUS_TEXT: Record<LessonCardStatusVisual, { primary: string; muted: string }> = {
   attended: { primary: "text-white", muted: "text-emerald-50" },
-  processed: { primary: "text-slate-900", muted: "text-slate-800" },
-  makeup: { primary: "text-white", muted: "text-rose-50" },
+  processed: { primary: "text-white", muted: "text-rose-50" },
+  makeup: { primary: "text-slate-900", muted: "text-slate-800" },
   default: { primary: "text-[var(--color-text)]", muted: "text-[var(--color-text-muted)]" },
 };
 
