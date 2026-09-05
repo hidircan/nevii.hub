@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { PORTAL_RECORD_MISSING_REDIRECT } from "@/lib/auth/portal-record-missing";
 import {
   ChevronLeft,
   ChevronRight,
@@ -76,9 +77,9 @@ export default async function OgrenciPortalPage({
 
   const data = await readData();
   const studentId = session.studentId;
-  if (!studentId) redirect("/login");
+  if (!studentId) redirect(PORTAL_RECORD_MISSING_REDIRECT);
   const student = data.students.find((s) => s.id === studentId);
-  if (!student) redirect("/login");
+  if (!student) redirect(PORTAL_RECORD_MISSING_REDIRECT);
 
   // Pasif/arşivlenmiş öğrenci: portala girebilir ama HİÇBİR ders/ödev/materyal/
   // rapor verisi görmez — yalnız güvenli, açıklayıcı bir ekran. Veri sızıntısı yok.

@@ -3,17 +3,22 @@ import { redirect } from "next/navigation";
 import { getSessionContext, homePathForRole } from "@/lib/auth/session";
 import { LoginForm } from "@/components/login-form";
 import { BRAND } from "@/lib/brand";
+import { PORTAL_RECORD_MISSING_PARAM } from "@/lib/auth/portal-record-missing";
 
 export const dynamic = "force-dynamic";
 
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ next?: string }>;
+  searchParams: Promise<{ next?: string; [PORTAL_RECORD_MISSING_PARAM]?: string }>;
 }) {
   const session = await getSessionContext();
   const params = await searchParams;
-  if (session) {
+  // P0 (2026-09-05) — YÖNLENDİRME DÖNGÜSÜ KIRICI: bir portal sayfası
+  // "oturum geçerli ama kuruma ait kaydı yok" diyerek buraya gönderdiyse,
+  // kullanıcıyı AYNI portala geri YOLLAMAYIZ (bkz. portal-record-missing.ts).
+  const portalRecordMissing = params[PORTAL_RECORD_MISSING_PARAM] === "1";
+  if (session && !portalRecordMissing) {
     redirect(params.next || homePathForRole(session.role));
   }
 
@@ -38,6 +43,15 @@ export default async function LoginPage({
             Okul yönetimi, öğretmen ve öğrenci portalları için oturum açın.
           </p>
         </div>
+        {portalRecordMissing ? (
+          <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-3" role="alert">
+            <p className="text-sm font-semibold text-amber-900">Hesabınıza bağlı kurum kaydı bulunamadı.</p>
+            <p className="mt-1 text-xs text-amber-900/80">
+              Girişiniz geçerli ancak bu hesaba bağlı öğrenci/öğretmen kaydı kaldırılmış görünüyor. Lütfen
+              kurumunuzla iletişime geçin ya da farklı bir hesapla giriş yapın.
+            </p>
+          </div>
+        ) : null}
         <LoginForm nextPath={params.next} />
       </div>
     </div>

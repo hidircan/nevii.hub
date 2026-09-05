@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { PORTAL_RECORD_MISSING_REDIRECT } from "@/lib/auth/portal-record-missing";
 import { ArrowLeft } from "lucide-react";
 import { requireSessionContext } from "@/lib/auth/session";
 import { readData } from "@/lib/store";
@@ -44,7 +45,7 @@ export default async function StudentContractsPage() {
   const data = await readData();
   const studentId = session.studentId || "s1";
   const student = data.students.find((s) => s.id === studentId) ?? data.students[0];
-  if (!student) redirect("/login");
+  if (!student) redirect(PORTAL_RECORD_MISSING_REDIRECT);
 
   const listResult = await listStudentContractsTool(session, { studentId: student.id });
   const contracts = listResult.ok ? listResult.data.contracts : [];

@@ -1,13 +1,16 @@
 import { z } from "zod";
 import { withApiHandler } from "@/lib/api/handler";
-import { jsonOk, jsonFail } from "@/lib/api/http";
+import { jsonFail } from "@/lib/api/http";
 import { consumePasswordResetToken, hashPassword, updatePasswordHash, auditLog, isRateLimited } from "@/lib/auth";
+import { buildPasswordSetupSessionResponse } from "@/lib/auth/password-setup-session";
 
 export const dynamic = "force-dynamic";
 
 const schema = z.object({
   token: z.string().min(1),
   newPassword: z.string().min(8, "Şifre en az 8 karakter olmalı."),
+  /** P0 (2026-09-05) — istemci ortamı; YALNIZ derin bağlantı/sunum seçimi için. Rol/portal kararını ETKİLEMEZ. */
+  surface: z.enum(["desktop_web", "mobile_web", "mobile_app"]).optional(),
 });
 
 const GENERIC_INVALID_MESSAGE =
@@ -51,7 +54,11 @@ export const POST = withApiHandler(
       outcome: "success",
     });
 
-    return jsonOk({});
+    return buildPasswordSetupSessionResponse({
+      userId: consumed.userId,
+      request,
+      surface: parsed.data.surface,
+    });
   },
   { public: true }
 );

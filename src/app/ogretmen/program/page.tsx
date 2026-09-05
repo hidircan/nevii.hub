@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { PORTAL_RECORD_MISSING_REDIRECT } from "@/lib/auth/portal-record-missing";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { addDays, isSameDay, parseISO } from "date-fns";
 import { readData } from "@/lib/store";
@@ -44,9 +45,9 @@ export default async function TeacherOwnProgramPage({
 
   const data = await readData();
   const teacherId = session.teacherId;
-  if (!teacherId) redirect("/login");
+  if (!teacherId) redirect(PORTAL_RECORD_MISSING_REDIRECT);
   const teacher = data.teachers.find((t) => t.id === teacherId);
-  if (!teacher) redirect("/login");
+  if (!teacher) redirect(PORTAL_RECORD_MISSING_REDIRECT);
 
   const { week } = await searchParams;
   const now = new Date();

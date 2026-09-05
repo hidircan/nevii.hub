@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { PORTAL_RECORD_MISSING_REDIRECT } from "@/lib/auth/portal-record-missing";
 import { ArrowLeft } from "lucide-react";
 import { readData } from "@/lib/store";
 import { requireSessionContext } from "@/lib/auth/session";
@@ -27,7 +28,7 @@ export default async function StudentHomeworkPage() {
   const data = await readData();
   const studentId = session.studentId || "s1";
   const student = data.students.find((s) => s.id === studentId) ?? data.students[0];
-  if (!student) redirect("/login");
+  if (!student) redirect(PORTAL_RECORD_MISSING_REDIRECT);
 
   const homeworkResult = await listHomeworkForStudentTool(session, { studentId: student.id });
   const homework = homeworkResult.ok ? homeworkResult.data.homework : [];

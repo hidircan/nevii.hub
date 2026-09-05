@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { PORTAL_RECORD_MISSING_REDIRECT } from "@/lib/auth/portal-record-missing";
 import { ArrowLeft, Users } from "lucide-react";
 import { readData } from "@/lib/store";
 import { requireSessionContext } from "@/lib/auth/session";
@@ -33,7 +34,7 @@ export default async function OgretmenOgrencilerPage({
   const data = await readData();
   const teacherId = session.teacherId || "t2";
   const teacher = data.teachers.find((t) => t.id === teacherId) ?? data.teachers[0];
-  if (!teacher) redirect("/login");
+  if (!teacher) redirect(PORTAL_RECORD_MISSING_REDIRECT);
 
   const { q, page: pageRaw } = await searchParams;
   const query = (q ?? "").trim().toLocaleLowerCase("tr");

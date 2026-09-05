@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { PORTAL_RECORD_MISSING_REDIRECT } from "@/lib/auth/portal-record-missing";
 import { BackButton } from "@/components/back-button";
 import { readData } from "@/lib/store";
 import { requireSessionContext } from "@/lib/auth/session";
@@ -21,7 +22,7 @@ export default async function TeacherOwnPayoutsPage() {
   const data = await readData();
   const teacherId = session.teacherId || "t2";
   const teacher = data.teachers.find((t) => t.id === teacherId) ?? data.teachers[0];
-  if (!teacher) redirect("/login");
+  if (!teacher) redirect(PORTAL_RECORD_MISSING_REDIRECT);
 
   const payouts = ownPayouts(data.teacherPayouts, teacher.id).sort((a, b) =>
     b.periodStart.localeCompare(a.periodStart)

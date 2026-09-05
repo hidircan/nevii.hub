@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { PORTAL_RECORD_MISSING_REDIRECT } from "@/lib/auth/portal-record-missing";
 import { startOfMonth, endOfMonth, format } from "date-fns";
 import { tr } from "date-fns/locale";
 import { readData } from "@/lib/store";
@@ -30,7 +31,7 @@ export default async function OgretmenPortalPage() {
   const data = await readData();
   const teacherId = session.teacherId || "t2";
   const teacher = data.teachers.find((t) => t.id === teacherId) ?? data.teachers[0];
-  if (!teacher) redirect("/login");
+  if (!teacher) redirect(PORTAL_RECORD_MISSING_REDIRECT);
   const students = data.students.filter((s) => s.teacherId === teacher.id && s.active);
 
   const today = new Date().toISOString().slice(0, 10);

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { PORTAL_RECORD_MISSING_REDIRECT } from "@/lib/auth/portal-record-missing";
 import { ArrowLeft } from "lucide-react";
 import { requireSessionContext } from "@/lib/auth/session";
 import { readData } from "@/lib/store";
@@ -26,9 +27,9 @@ export default async function StudentTeacherFeedbackPage() {
 
   const data = await readData();
   const studentId = session.studentId;
-  if (!studentId) redirect("/login");
+  if (!studentId) redirect(PORTAL_RECORD_MISSING_REDIRECT);
   const student = data.students.find((s) => s.id === studentId);
-  if (!student) redirect("/login");
+  if (!student) redirect(PORTAL_RECORD_MISSING_REDIRECT);
 
   // Değerlendirilebilir öğretmenler: mevcut atanmış öğretmen + son
   // RECENT_LESSON_WINDOW_DAYS içinde bu öğrenciyle dersi olan öğretmenler.
