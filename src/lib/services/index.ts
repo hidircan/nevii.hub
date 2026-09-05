@@ -138,6 +138,7 @@ export {
   getDocumentInstanceTool,
   previewContractInstallmentPlanTool,
   updateSchoolLogoTool,
+  importSchoolLogoFromCurrentUrlTool,
   previewHistoricalContractImportTool,
   commitHistoricalContractImportTool,
   createStudentContractTool,

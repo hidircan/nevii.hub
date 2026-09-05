@@ -44,7 +44,16 @@ export function institutionLogoHtml(logoUrl: string | undefined | null, institut
   // eleman parent'ın text-align'ından etkilenmez) — logo GERÇEKTE sol
   // hizalı görünüyordu. `display:block;margin:0 auto` img'in KENDİ
   // üzerinde, Tailwind'in reset'inden BAĞIMSIZ, her koşulda ortalar.
-  return `<div data-institution-logo="1" style="text-align:center;margin:0 0 16px;"><img src="${safe}" alt="${alt}" style="display:block;margin:0 auto;height:48px;max-width:220px;object-fit:contain;"/></div>`;
+  // P0 (2026-09-05) — logo "tam görünmüyor" raporu. Önceki sürüm SABİT
+  // `height:48px` + `max-width:220px` kullanıyordu: dar/kare olmayan (ör.
+  // 8:1) logolar bu kutuya sığdırılırken görünür biçimde KÜÇÜLÜYORDU.
+  // Artık kutu değil TAVAN verilir (`max-height`/`max-width`, `height:auto`)
+  // — görsel hiçbir zaman KIRPILMAZ, ORANI BOZULMAZ ve doğal boyutuna kadar
+  // büyüyebilir. Beyaz "güvenli alan" kartı, koyu temada koyu bir logonun
+  // kaybolmamasını sağlar (baskıda kâğıt zaten beyaz olduğu için görünmez).
+  // `-webkit-print-color-adjust` olmadan bazı tarayıcılar bu zemini baskıda
+  // atlar ve koyu logolar okunmaz kalır.
+  return `<div data-institution-logo="1" style="text-align:center;margin:0 0 16px;"><span style="display:inline-block;background:#ffffff;padding:6px 10px;border-radius:8px;-webkit-print-color-adjust:exact;print-color-adjust:exact;"><img src="${safe}" alt="${alt}" style="display:block;margin:0 auto;height:auto;width:auto;max-height:96px;max-width:100%;object-fit:contain;"/></span></div>`;
 }
 
 export function prependInstitutionLogo(

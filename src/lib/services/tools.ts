@@ -5482,6 +5482,80 @@ export async function updateSchoolLogoTool(
 }
 
 /**
+ * P0 (2026-09-05) — KÖK NEDEN: kurum logosu HARİCİ bir `https://…` adres
+ * olarak kayıtlıysa uygulamanın Content-Security-Policy'si
+ * (`img-src 'self' data: blob:`, bkz. next.config.ts) o görseli SESSİZCE
+ * ENGELLER — sözleşme ekranında/yazdırmada/PDF'te logo hiç görünmez, konsolda
+ * yalnız bir "csp" hatası kalır. CSP'yi keyfi dış hostlara açmak yerine logo
+ * KURUM TARAFINDAN İÇERİ ALINIR: yönetici bir kez bu işlemi çalıştırır,
+ * görsel sunucu tarafında indirilip yükleme akışıyla AYNI `data:` URI olarak
+ * saklanır ve bundan sonra her yerde (baskı/PDF/e-posta) sorunsuz görünür.
+ *
+ * SSRF: istemciden serbest URL KABUL EDİLMEZ (yalnız zaten kayıtlı kurum
+ * logosu adresi) — ama bu TEK BAŞINA yeterli DEĞİLDİR: dış istek
+ * `safeOutboundFetch` üzerinden gider; yalnız https, DNS'ten dönen tüm
+ * adresler özel/loopback/link-local bloklarına karşı doğrulanır ve
+ * yönlendirmeler her hop yeniden doğrulanarak elle izlenir. Yanıt boyutu ve
+ * içerik türü yükleme akışıyla AYNI sınırlara tabidir.
+ */
+export async function importSchoolLogoFromCurrentUrlTool(
+  ctx: ServiceContext
+): Promise<ServiceResult<{ logoUrl: string }>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+
+  const data = await readData();
+  const current = data.settings.logoUrl?.trim() ?? "";
+  if (!current) return fail("VALIDATION_ERROR", "Kurum logosu tanımlı değil — önce bir logo yükleyin.");
+  if (current.startsWith("data:")) {
+    return fail("VALIDATION_ERROR", "Logo zaten uygulama içinde saklanıyor; içeri aktarmaya gerek yok.");
+  }
+  if (!/^https:\/\//i.test(current)) {
+    return fail("VALIDATION_ERROR", "Yalnız https ile başlayan bir logo adresi içeri aktarılabilir.");
+  }
+
+  // SSRF: adres KAYITLI olsa bile doğrudan `fetch` GÜVENLİ DEĞİLDİR —
+  // `redirect: "follow"` ile meşru bir dış host, isteği 302 ile
+  // `169.254.169.254` gibi bir iç adrese taşıyabilir ve indirilen bayt
+  // burada SAKLANIP EKRANDA GÖSTERİLDİĞİ için içerik doğrudan sızardı.
+  // `safeOutboundFetch` yalnız https'e izin verir, DNS'ten dönen TÜM
+  // adresleri özel/loopback/link-local bloklarına karşı doğrular ve
+  // yönlendirmeleri HER HOP yeniden doğrulayarak elle izler.
+  const { safeOutboundFetch, readBodyWithLimit } = await import("../net/safe-outbound-fetch");
+  const fetched = await safeOutboundFetch(current, { timeoutMs: 10_000 });
+  if (!fetched.ok) return fail("VALIDATION_ERROR", fetched.reason);
+  const response = fetched.response;
+  if (!response.ok) {
+    return fail("VALIDATION_ERROR", `Logo indirilemedi (HTTP ${response.status}).`);
+  }
+  const mimeType = (response.headers.get("content-type") ?? "").split(";")[0]!.trim().toLowerCase();
+  if (!SCHOOL_LOGO_ALLOWED_MIME.has(mimeType)) {
+    return fail("VALIDATION_ERROR", "Adresteki dosya desteklenen bir görsel değil — yalnız PNG, JPEG veya WEBP.");
+  }
+  const bytes = await readBodyWithLimit(response, SCHOOL_LOGO_MAX_BYTES);
+  if (!bytes) {
+    return fail("VALIDATION_ERROR", "Logo dosyası çok büyük (maks. 500KB) — daha küçük bir görsel yükleyin.");
+  }
+  if (bytes.length <= 0) return fail("VALIDATION_ERROR", "Logo dosyası boş.");
+
+  const { toLogoDataUrl, sanitizeLogoUrl } = await import("../institution-logo");
+  const dataUrl = toLogoDataUrl(mimeType, bytes.toString("base64"));
+  if (!sanitizeLogoUrl(dataUrl)) return fail("VALIDATION_ERROR", "Logo verisi geçersiz.");
+
+  try {
+    const next = await updateSchoolLogoUrl(dataUrl);
+    audit(ctx, "school.logo.import_from_url", "School", ctx.tenantId, {
+      sourceUrl: current,
+      byteLength: bytes.length,
+      mimeType,
+    });
+    return ok({ logoUrl: next.settings.logoUrl });
+  } catch (e) {
+    return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "importSchoolLogoFromCurrentUrl failed");
+  }
+}
+
+/**
  * Telafi Merkezi politika penceresi (kaç gün içinde telafi hakkı kullanılmalı).
  * Yalnızca ileri yönlü etkilidir — zaten oluşturulmuş `MakeupRequest.expiresAt`
  * değerlerini yeniden hesaplamaz (bkz. buildMakeupRequest, store-json.ts).

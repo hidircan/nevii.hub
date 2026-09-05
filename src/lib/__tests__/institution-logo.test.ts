@@ -22,11 +22,23 @@ describe("institution-logo", () => {
     expect(twice.split("data-institution-logo").length - 1).toBe(1);
   });
 
-  it("P0-E — 40-56px aralığında, ortalanmış, banner/hero DEĞİL (en-boy oranı object-fit:contain ile korunur)", () => {
+  it("P0 (2026-09-05) — ortalanmış, KIRPILMAYAN, oranı bozulmayan logo: sabit kutu değil TAVAN (max-height/max-width) verilir", () => {
     const html = institutionLogoHtml("https://okul.example/logo.png", "Test Okul");
     expect(html).toContain("text-align:center");
     expect(html).toContain("object-fit:contain");
-    expect(html).toMatch(/height:\s*(4[0-9]|5[0-6])px/);
+    // `height:auto` + `max-height` → kırpma/daraltma yok, doğal oran korunur.
+    expect(html).toContain("height:auto");
+    expect(html).toMatch(/max-height:\s*96px/);
+    // Mobilde taşmaz.
+    expect(html).toContain("max-width:100%");
+    // Banner/hero DEĞİL — sabit üç haneli bir yükseklik asla yazılmaz.
+    expect(html).not.toMatch(/[^-]height:\s*\d{3,}px/);
+  });
+
+  it("P0 (2026-09-05) — koyu logolar koyu temada/baskıda kaybolmasın diye beyaz güvenli alan kartı taşır", () => {
+    const html = institutionLogoHtml("https://okul.example/logo.png", "Test Okul");
+    expect(html).toContain("background:#ffffff");
+    expect(html).toContain("print-color-adjust:exact");
   });
 
   it("regresyon (2026-09-05) — img'in KENDİSİ display:block + margin:0 auto taşır (Tailwind preflight img{display:block} altında bile ortalanır, yalnız parent text-align'ına GÜVENMEZ)", () => {
