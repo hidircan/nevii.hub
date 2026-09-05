@@ -279,6 +279,22 @@ const DEFAULT_BODIES: Partial<Record<DocumentTemplateKind, string>> = {
   trial_form: `<h1>Deneme Dersi Formu</h1><p>{{name}} · {{phone}} · {{date}} · {{reference}}</p>`,
 };
 
+/**
+ * P0 (2026-09-05) — KURUMSAL KAYNAK METNİNE DOĞRUDAN ERİŞİM.
+ *
+ * `DEFAULT_BODIES` zaten 2026-2027 kayıt sözleşmesi kaynağının (ana metin +
+ * KVKK Aydınlatma Metni + Fotoğraf/Video Açık Rıza Formu) kod içindeki
+ * kanonik karşılığıdır. Önceden bu metinlere yalnızca "yeni tenant için
+ * varsayılan şablon üret" ve "taslak oluştur" yollarından ulaşılabiliyordu;
+ * yani kurumda eski/kısa bir `kvkk` şablonu aktif kalmışsa sözleşme çıktısı,
+ * bir yönetici AYRI bir taslağı ETKİNLEŞTİRENE kadar hukuken zayıf kalıyordu.
+ * Birleşik sözleşme akışının (bkz. contract-annexes.ts) bu kaynağa doğrudan
+ * düşebilmesi için okunur bir erişim noktası. Metin BURADA DEĞİŞTİRİLMEZ.
+ */
+export function canonicalTemplateBody(kind: DocumentTemplateKind): string | undefined {
+  return DEFAULT_BODIES[kind];
+}
+
 export async function ensureDefaultTemplates(tenantId: string): Promise<DocumentTemplate[]> {
   if (isDbMode) {
     const { prisma } = await import("../db");
@@ -441,13 +457,25 @@ export async function createTemplate(input: CreateTemplateInput): Promise<Docume
  */
 export async function createContractTemplateDraftFromCanonicalSource(
   tenantId: string,
-  createdById: string
+  createdById: string,
+  /**
+   * P0 (2026-09-05) — artık yalnız kayıt sözleşmesi için değil: KVKK
+   * Aydınlatma Metni ve Fotoğraf/Video Açık Rıza Formu şablonları da AYNI
+   * kurumsal kaynaktan (DEFAULT_BODIES) taslak olarak üretilebilir. Bunlar
+   * sözleşmenin EK bölümlerini besler (bkz. contract-annexes.ts); kurumun
+   * elinde eski/eksik bir stub şablon kaldıysa çıktı hukuken zayıf kalıyordu.
+   * Taslak HER ZAMAN `active:false` üretilir — etkinleştirme AYRI, yetkili ve
+   * audit'lenen bir adımdır (activateTemplateExclusive), asla otomatik değil.
+   */
+  kind: DocumentTemplateKind = "student_enrollment_contract"
 ): Promise<DocumentTemplate> {
+  const bodyHtml = DEFAULT_BODIES[kind];
+  if (!bodyHtml) throw new Error(`Bu belge türü için kurumsal kaynak metni tanımlı değil: ${kind}`);
   return createTemplate({
     tenantId,
-    kind: "student_enrollment_contract",
-    name: `Öğrenci Kayıt Sözleşmesi (kurumsal kaynaktan taslak — ${formatDateTr(new Date())})`,
-    bodyHtml: STUDENT_ENROLLMENT_CONTRACT_BODY,
+    kind,
+    name: `${documentKindLabel(kind)} (kurumsal kaynaktan taslak — ${formatDateTr(new Date())})`,
+    bodyHtml,
     createdById,
     active: false,
   });

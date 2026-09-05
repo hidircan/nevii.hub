@@ -32,6 +32,7 @@ import {
 import { formatDateTr } from "./timezone";
 import type {
   CollectionsSettings,
+  ContractAnnexSnapshot,
   ContractDataSnapshot,
   ContractInstallmentSnapshot,
   ContractInstallmentView,
@@ -794,6 +795,7 @@ export async function createContract(input: CreateContractInput): Promise<Create
 
   let doc: { id: string; reference: string } | undefined;
   let templateVersionUsed: number | undefined;
+  let annexes: ContractAnnexSnapshot[] = [];
 
   if (isFormal) {
     const { ensureDefaultTemplates, listTemplates, createDocumentInstance } = await import("./documents");
@@ -892,6 +894,23 @@ export async function createContract(input: CreateContractInput): Promise<Create
       createdBy: input.createdBy,
       installmentCount: input.installmentCount,
     });
+
+    // P0 (2026-09-05) — TEK BİRLEŞİK ÇIKTI: KVKK ve Fotoğraf/Video ek
+    // bölümleri sözleşmeyle AYNI anda, o an aktif olan şablonlardan
+    // dondurulur (bkz. src/lib/contract-annexes.ts). Ayrı bir belge/kayıt
+    // ÜRETİLMEZ — bu yalnızca çıktı anlık görüntüsüdür; bağımsız KVKK/
+    // fotoğraf-video DocumentInstance akışı (yeniden basım) DEĞİŞMEDEN durur.
+    const { buildContractAnnexes } = await import("./contract-annexes");
+    annexes = buildContractAnnexes({
+      templates,
+      contractNumber: doc.reference,
+      institutionName: input.institutionName,
+      institutionAddress: input.institutionAddress,
+      studentName: input.studentName,
+      parentName: input.photoVideoConsent?.representativeName || input.parentName || input.signatoryFullName,
+      dateText: nowTr,
+      photoVideoConsent: input.photoVideoConsent,
+    });
   }
 
   const snapshot: ContractDataSnapshot = {
@@ -919,6 +938,7 @@ export async function createContract(input: CreateContractInput): Promise<Create
     kvkkNoticeDelivered: input.kvkkNoticeDelivered,
     photoVideoConsentFormPresented: input.photoVideoConsentFormPresented,
     logoUrl: input.logoUrl,
+    annexes,
   };
 
   const now = new Date().toISOString();

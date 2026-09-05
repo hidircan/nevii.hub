@@ -102,7 +102,7 @@ describe("createStudentContractTool / getContractHtmlTool — P0-E kurum logosu 
     expect(logoBlock.length).toBeGreaterThan(0);
   });
 
-  it("aktif kurum logosu VARSA sözleşmeye gömülür — küçük, ortalanmış (40-56px), banner DEĞİL", async () => {
+  it("aktif kurum logosu VARSA sözleşmeye gömülür — ortalanmış, kırpılmayan, banner DEĞİL", async () => {
     const logoRes = await updateSchoolLogoTool(adminCtx(), { fileMimeType: "image/png", fileData: "aaaabbbbAAAA" });
     expect(logoRes.ok).toBe(true);
 
@@ -114,10 +114,10 @@ describe("createStudentContractTool / getContractHtmlTool — P0-E kurum logosu 
     expect(htmlRes.ok).toBe(true);
     if (!htmlRes.ok) return;
     expect(htmlRes.data.html).toContain("<img");
-    expect(htmlRes.data.html).toContain("height:48px");
+    expect(htmlRes.data.html).toContain("max-height:96px");
     expect(htmlRes.data.html).toContain("text-align:center");
-    // Banner/hero DEĞİL — büyük bir yükseklik asla yazılmaz.
-    expect(htmlRes.data.html).not.toMatch(/height:\s*(\d{3,})px/);
+    // Banner/hero DEĞİL — sabit üç haneli bir yükseklik asla yazılmaz.
+    expect(htmlRes.data.html).not.toMatch(/[^-]height:\s*(\d{3,})px/);
   });
 
   it("sözleşme OLUŞTUKTAN SONRA kurum logosu değişse bile — o sözleşme SESSİZCE değişmez (donmuş snapshot)", async () => {
@@ -140,6 +140,53 @@ describe("createStudentContractTool / getContractHtmlTool — P0-E kurum logosu 
     // Eski (birinci) logo hâlâ gösteriliyor — YENİ logo DEĞİL.
     expect(htmlRes.data.html).toContain(first.data.logoUrl);
     expect(htmlRes.data.html).not.toContain(second.data.logoUrl);
+  });
+
+  it("P0 (2026-09-05) — donmuş logo harici bir http(s) URL ise (CSP `img-src` sessizce engeller) GÜVENLİ fallback: kurumun GÜNCEL data: URI logosu gösterilir, donmuş veri DEĞİŞTİRİLMEZ", async () => {
+    const { updateSchoolLogoUrl } = await import("../store-json");
+    await updateSchoolLogoUrl("https://okul.example/eski-logo.png");
+
+    const res = await createStudentContractTool(adminCtx(), await initialInput());
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    // Donmuş snapshot AYNEN harici URL'i taşımaya devam eder — tarihsel veri değişmez.
+    expect(res.data.contract.contractDataSnapshot.logoUrl).toBe("https://okul.example/eski-logo.png");
+
+    // Kurum SONRADAN gerçek yükleme akışına geçti (data: URI).
+    const updated = await updateSchoolLogoTool(adminCtx(), { fileMimeType: "image/png", fileData: "aaaabbbbAAAA" });
+    expect(updated.ok).toBe(true);
+    if (!updated.ok) return;
+
+    const htmlRes = await getContractHtmlTool(adminCtx(), { contractId: res.data.contract.id });
+    expect(htmlRes.ok).toBe(true);
+    if (!htmlRes.ok) return;
+    // Donmuş harici URL asla render edilmez (CSP zaten sessizce engelliyor,
+    // görünür hata yok) — görüntüleme fallback'i kurumun GÜNCEL logosunu kullanır.
+    expect(htmlRes.data.html).not.toContain("https://okul.example/eski-logo.png");
+    expect(htmlRes.data.html).toContain(updated.data.logoUrl);
+    expect(htmlRes.data.html).toContain("<img");
+
+    // Donmuş snapshot HÂLÂ (store'da) harici URL — yalnız GÖRÜNTÜLEME katmanında düzeltildi.
+    const reread = await getContractHtmlTool(adminCtx(), { contractId: res.data.contract.id });
+    expect(reread.ok).toBe(true);
+  });
+
+  it("P0 (2026-09-05) — donmuş harici logo URL'si var ama kurumun GÜNCEL logosu da harici/geçersizse kurum adı metnine güvenle düşülür (kırık img YOK)", async () => {
+    const { updateSchoolLogoUrl } = await import("../store-json");
+    await updateSchoolLogoUrl("https://okul.example/eski-logo.png");
+
+    const res = await createStudentContractTool(adminCtx(), await initialInput());
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+
+    // Kurumun GÜNCEL logosu da hâlâ harici bir URL (hiç içeri aktarılmamış).
+    const htmlRes = await getContractHtmlTool(adminCtx(), { contractId: res.data.contract.id });
+    expect(htmlRes.ok).toBe(true);
+    if (!htmlRes.ok) return;
+    expect(htmlRes.data.html).toContain('data-institution-logo="1"');
+    const logoBlock = htmlRes.data.html.match(/<div data-institution-logo="1"[^>]*>[\s\S]*?<\/div>/)?.[0] ?? "";
+    expect(logoBlock).not.toContain("<img");
+    expect(logoBlock.length).toBeGreaterThan(0);
   });
 
   it("YENİ bir sözleşme, logo değiştikten SONRA oluşturulursa GÜNCEL (yeni) logoyu kullanır", async () => {

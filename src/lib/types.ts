@@ -217,8 +217,23 @@ export interface Student {
    * okuyucular hâlâ anlamlı bir değer görür.
    */
   studentTypes?: StudentType[];
-  /** ISO tarih */
+  /**
+   * ISO tarih — KAYIT tarihi (öğrencinin sisteme kaydedildiği gün).
+   *
+   * P0 (2026-09-05) — DİKKAT: bu alan artık ders başlangıcı DEĞİLDİR.
+   * Öğrenci bugün kaydolup dersleri ileri bir tarihte başlatabilir; ders
+   * başlangıcı ayrı `lessonStartDate` alanıdır ve ilk tahsilat/ders sayımı
+   * O tarihten itibaren hesaplanır (bkz. resolveLessonStartDay).
+   */
   enrollmentStartDate?: string;
+  /**
+   * ISO tarih — DERSLERİN fiilen başladığı gün. Kayıt tarihinden BAĞIMSIZ
+   * seçilir. Verilmezse kayıt tarihi kullanılır (eski kayıtlar ve bu alanı
+   * hiç göndermeyen çağıranlar için geriye dönük uyum — davranış değişmez).
+   * İlk tahsilat, YALNIZCA bu tarihten itibaren gerçekleşen planlı dersleri
+   * sayar; bu tarihten ÖNCEKİ günler asla faturalandırılmaz.
+   */
+  lessonStartDate?: string;
   /** ISO tarih — verilmezse açık uçlu (hâlâ kayıtlı) */
   enrollmentEndDate?: string;
   level?: string;
@@ -355,6 +370,7 @@ export type StudentProfilePatch = Partial<
     | "studentType"
     | "studentTypes"
     | "enrollmentStartDate"
+    | "lessonStartDate"
     | "enrollmentEndDate"
     | "level"
     | "targetExam"
@@ -1867,6 +1883,14 @@ export interface ContractInstallmentSnapshot {
 }
 
 /** `contractDataSnapshot` JSON alanının şekli — üretim anındaki DEĞİŞMEZ görüntü. */
+/** Sözleşme çıktısının hukuken ayrı EK bölümü (KVKK / fotoğraf-video açık rıza). */
+export interface ContractAnnexSnapshot {
+  kind: "kvkk" | "parent_social_media_consent";
+  title: string;
+  reference: string;
+  html: string;
+}
+
 export interface ContractDataSnapshot {
   studentName: string;
   programmeName: string;
@@ -1913,6 +1937,15 @@ export interface ContractDataSnapshot {
   kvkkNoticeDelivered?: boolean;
   /** Fotoğraf/Video Açık Rıza Formu personel tarafından SUNULDU mu (izin verilsin/verilmesin) — "Evet/Hayır" işareti. */
   photoVideoConsentFormPresented?: boolean;
+  /**
+   * P0 (2026-09-05) — TEK BİRLEŞİK ÇIKTI. Sözleşme oluşturulduğu ANDA aktif
+   * olan KVKK ve Fotoğraf/Video şablonlarından render edilmiş EK bölümleri,
+   * immutable snapshot (logoUrl/paymentDueRuleText ile AYNI desen). Ana
+   * sözleşme, KVKK, fotoğraf/video sırasıyla TEK bir çıktı olarak basılır —
+   * bkz. src/lib/contract-annexes.ts. Bu alan olmadan üretilmiş ESKİ
+   * sözleşmelerde okuma anında aktif şablonlardan canlı üretilir.
+   */
+  annexes?: ContractAnnexSnapshot[];
 }
 
 /** İş katmanı dönüş görünümü — taksitler `Payment` satırlarından türetilir, ayrı bir tablo DEĞİLDİR. */

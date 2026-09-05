@@ -139,8 +139,24 @@ const CONTRACT_PRINT_CSS = `
   /* Taksit/tutar hücreleri sağa hizalı — TL tutarları tutarlı okunur. */
   .contract-body td:nth-last-child(1):not(:first-child) { text-align: right; }
 
+  /*
+    P0 (2026-09-05) — TEK BİRLEŞİK ÇIKTI: ana sözleşme + KVKK eki +
+    fotoğraf/video eki aynı sayfada art arda. Ekler ekranda kalın bir
+    ayraçla, baskıda ise KENDİ SAYFASINDA başlar (composeContractOutputHtml
+    satır-içi break-before verir; buradaki kural onu sınıf üzerinden de
+    garantiler).
+  */
+  .contract-body .contract-annex { margin-top: 32px; padding-top: 24px; }
+  .contract-body .contract-annex-ref {
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-weight: 700;
+    color: #444;
+  }
+
   @media print {
     @page { size: A4; margin: 16mm 14mm; }
+    .contract-body .contract-annex { break-before: page; page-break-before: always; border-top: none; }
+    .contract-body .contract-annex-ref { font-size: 7pt; }
     .contract-print-surface { padding: 0; }
     .contract-body {
       font-size: 8pt;

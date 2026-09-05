@@ -1924,11 +1924,18 @@ export async function createStudentTool(
     // geçerli, tek yol. Otomatik önerilen ilk dönem tutarı, henüz gerçek
     // ders programı yokken `estimatePeriodBillingLines` PROJEKSİYONUYLA
     // (bkz. o dosyadaki `estimated` bayrağı notu) hesaplanır.
-    const { estimatePeriodBillingLines, derivePerLessonAmount, countExactWeekdayLessons } = await import(
-      "../period-lesson-billing"
-    );
+    const { estimatePeriodBillingLines, derivePerLessonAmount, countExactWeekdayLessons, resolveLessonStartDay } =
+      await import("../period-lesson-billing");
     const derivedPerLessonAmount = derivePerLessonAmount(pricing.monthlyFee, v.data.weeklyLessonCount);
-    const startDay = v.data.enrollmentStartDate || toZonedYmd(new Date(), resolveAppTimezone());
+    // P0 (2026-09-05) — ilk tahsilat KAYIT tarihinden değil, DERS BAŞLANGIÇ
+    // tarihinden itibaren sayar (öğrenci bugün kaydolup ileri bir tarihte
+    // derse başlayabilir). `lessonStartDate` yoksa kayıt tarihine düşülür —
+    // eski kayıtlar/CSV/AI çağrıları için davranış AYNEN korunur.
+    const startDay = resolveLessonStartDay({
+      lessonStartDate: v.data.lessonStartDate,
+      enrollmentStartDate: v.data.enrollmentStartDate,
+      fallbackToday: toZonedYmd(new Date(), resolveAppTimezone()),
+    });
     const [sy, sm] = startDay.slice(0, 7).split("-").map(Number) as [number, number];
     const monthEndDay = `${startDay.slice(0, 7)}-${String(new Date(Date.UTC(sy, sm, 0)).getUTCDate()).padStart(2, "0")}`;
     const firstPeriodEnd =
@@ -2029,6 +2036,11 @@ export async function createStudentTool(
       // güvenir) — eksik kalan taraf, GİRİLEN diğer numarayla doldurulur.
       phone: v.data.phone ?? v.data.parentPhone ?? "",
       parentPhone: v.data.parentPhone ?? v.data.phone ?? "",
+      // Aynı gerekçe `parentName` için: SELF_MANAGED'de veli adı girilmesi
+      // ZORUNLU değildir, ama `Student.parentName` modeli her zaman dolu
+      // kalmalıdır (bildirim/sözleşme imza alanları buna güvenir) — boş
+      // kalırsa muhatap zaten öğrencinin kendisidir, kendi adı yazılır.
+      parentName: v.data.parentName ?? v.data.name,
       email: v.data.email ?? "",
       notes: v.data.notes ?? "",
       lessonDurationMinutes: v.data.lessonDurationMinutes as Student["lessonDurationMinutes"],
@@ -8549,12 +8561,24 @@ export async function getContractTemplateDiagnosticsTool(
  * activateContractTemplateTool).
  */
 export async function createContractTemplateDraftFromCanonicalSourceTool(
-  ctx: ServiceContext
+  ctx: ServiceContext,
+  input?: unknown
 ): Promise<ServiceResult<{ templateId: string }>> {
   const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  // P0 (2026-09-05) — `kind` opsiyonel; verilmezse ESKİ davranış (kayıt
+  // sözleşmesi) AYNEN korunur. KVKK/fotoğraf-video şablonları sözleşmenin ek
+  // bölümlerini besler (bkz. contract-annexes.ts).
+  const kindParse = z
+    .object({ kind: z.enum(["student_enrollment_contract", "kvkk", "parent_social_media_consent"]).optional() })
+    .safeParse(input ?? {});
+  if (!kindParse.success) return fail("VALIDATION_ERROR", "Geçersiz şablon türü.");
   try {
-    const tpl = await createContractTemplateDraftFromCanonicalSource(ctx.tenantId, ctx.userId);
+    const tpl = await createContractTemplateDraftFromCanonicalSource(
+      ctx.tenantId,
+      ctx.userId,
+      kindParse.data.kind ?? "student_enrollment_contract"
+    );
     audit(ctx, "document_template.create_canonical_draft", "DocumentTemplate", tpl.id, { kind: tpl.kind });
     return ok({ templateId: tpl.id });
   } catch (e) {
@@ -9615,11 +9639,53 @@ export async function getContractHtmlTool(
     // bu alan hiç var olmadan üretilmiş eski sözleşmelerde undefined kalır,
     // ki bu da DOĞRU davranıştır (o sözleşmeler zaten hiçbir zaman logo
     // GÖSTERMİYORDU — canlı logoya sessizce geçmemeliler).
-    const html = prependInstitutionLogo(
+    // P0 (2026-09-05) — CSP `img-src 'self' data: blob:` (next.config.ts) bir
+    // harici http(s) logo URL'ini SESSİZCE engeller, görünür hata vermez (bkz.
+    // LESSONS_LEARNED.md 2026-09-05 kaydı). Data-URI geçişinden ÖNCE dondurulmuş
+    // eski sözleşmelerin `logoUrl`si hâlâ böyle bir harici URL olabilir. Yalnız
+    // GÖRÜNTÜLEME katmanında güvenli fallback uygula — sözleşmenin dondurulmuş
+    // verisi asla değiştirilmez: frozen logo harici bir http(s) URL ise ve
+    // kurumun GÜNCEL logosu zaten güvenli bir data: URI ise onu göster, aksi
+    // halde kurum adı metnine düş. Frozen logo hiç yoksa (undefined) bu dal
+    // ATLANIR — P0-E kararı gereği o sözleşmeler canlı logoya sessizce geçmez.
+    const frozenLogoUrl = contract.contractDataSnapshot.logoUrl;
+    const isFrozenExternalLogo = typeof frozenLogoUrl === "string" && /^https?:\/\//i.test(frozenLogoUrl.trim());
+    const displayLogoUrl = isFrozenExternalLogo
+      ? (data.settings.logoUrl?.startsWith("data:image/") ? data.settings.logoUrl : null)
+      : frozenLogoUrl;
+    const mainHtml = prependInstitutionLogo(
       doc.renderedHtml ?? "",
-      contract.contractDataSnapshot.logoUrl,
+      displayLogoUrl,
       data.settings.name ?? ""
     );
+
+    // P0 (2026-09-05) — TEK BİRLEŞİK ÇIKTI: ana sözleşme → KVKK → fotoğraf/
+    // video, HEP bu sırada. Önizleme, yazdırma sayfası ve
+    // `/api/v1/contracts/:id/html` bu TEK fonksiyondan beslendiği için
+    // üçünün bölüm sırası birbirinden sapamaz. Sözleşme oluşturulurken
+    // dondurulmuş ekler varsa ONLAR kullanılır (immutable); bu alan
+    // eklenmeden önce üretilmiş ESKİ sözleşmeler için aktif şablonlardan
+    // canlı üretilir — aksi halde eski sözleşmeler birleşik çıktı alamazdı.
+    const { buildContractAnnexes, composeContractOutputHtml } = await import("../contract-annexes");
+    const snapshot = contract.contractDataSnapshot;
+    const student = data.students.find((s2) => s2.id === contract.studentId);
+    let annexes = snapshot.annexes ?? [];
+    if (annexes.length === 0) {
+      const templates = await listTemplates(ctx.tenantId);
+      annexes = buildContractAnnexes({
+        templates,
+        contractNumber: contract.contractNumber,
+        institutionName: data.settings.name ?? "",
+        institutionAddress:
+          data.settings.branches.find((b) => b.id === student?.branchId)?.address ?? data.settings.city ?? "",
+        studentName: snapshot.studentName,
+        parentName: snapshot.photoVideoConsent?.representativeName || snapshot.signatoryFullName,
+        dateText: formatDateTr(contract.createdAt),
+        photoVideoConsent: snapshot.photoVideoConsent,
+      });
+    }
+    const html = composeContractOutputHtml(mainHtml, annexes);
+
     return ok({
       html,
       contractNumber: contract.contractNumber,

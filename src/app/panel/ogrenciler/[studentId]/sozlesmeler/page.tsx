@@ -14,6 +14,9 @@ import {
   actionGenerateKvkkAndPhotoVideoConsentDocuments,
 } from "@/lib/actions";
 import { deriveLessonScheduleTextFromLessons } from "@/lib/lesson-schedule-text";
+import { diagnoseContractAnnexTemplates } from "@/lib/contract-annexes";
+import { listTemplates } from "@/lib/documents";
+import { ContractAnnexTemplateNotice } from "@/components/contract-annex-template-notice";
 
 /**
  * FAZ (2026-2027 SÖZLEŞME KAYNAĞI) — Bağımsız Sözleşme Merkezi. Önceden
@@ -68,12 +71,36 @@ export default async function StudentContractsCenterPage({
   const contracts = contractsResult.ok ? contractsResult.data.contracts : [];
   const canManagePaymentProfile = session.role === "SCHOOL_ADMIN" || session.role === "SUPER_ADMIN";
   const isFormal = isFormalContractDuration(intendedDurationMonths);
+  // P0 (2026-09-05) — birleşik çıktının EK bölümlerini besleyen şablonlar
+  // eksik/stub ise yöneticiye AÇIKÇA söylenir (sessizce zayıf belge üretilmez).
+  const annexDiagnostics = canManagePaymentProfile
+    ? diagnoseContractAnnexTemplates(await listTemplates(session.tenantId))
+    : [];
 
   return (
     <div>
       <KurumScopeNote scope={kurum.scope} />
       <BackButton fallbackHref={`/panel/ogrenciler/${student.id}`} label="Öğrenci detayına dön" className="mb-3" />
       <PageHeader title="Sözleşme Merkezi" description={`${student.name} — sözleşmeler ve belgeler`} />
+
+      {/*
+        P0 (2026-09-05) — sözleşme adımına gelen kullanıcı kayıt bilgilerinde
+        bir hata görürse TARAYICI GERİ TUŞUNA muhtaç kalmamalı. Bu görünür
+        aksiyon, kayıt bölümünü doğrudan düzenleme modunda açar ve süreyi
+        (`sure`) taşır; öğrenci verisi zaten kaydedilmiş olduğundan hiçbir
+        alan kaybolmaz, dönüşte bu sayfa (force-dynamic) TAZE veriyle yeniden
+        render edilir — bayat önizleme/tahsilat hesabı kalmaz.
+      */}
+      <ContractAnnexTemplateNotice diagnostics={annexDiagnostics} />
+
+      {canManagePaymentProfile ? (
+        <Link
+          href={`/panel/ogrenciler/${student.id}?duzenle=kayit&sozlesmeSure=${intendedDurationMonths}#genel`}
+          className="mb-4 inline-flex w-full items-center justify-center rounded-lg border-2 border-[var(--color-primary)] px-4 py-2.5 text-sm font-semibold text-[var(--color-primary)] hover:bg-[var(--color-primary)] hover:text-white sm:w-auto"
+        >
+          ← Öğrenci Kaydını Düzenle
+        </Link>
+      ) : null}
 
       {isNewStudent && davetUyari ? (
         <Card className="mb-4 !border-amber-300 !bg-amber-50 !p-4 dark:!border-amber-900 dark:!bg-amber-950/30">
@@ -109,7 +136,9 @@ export default async function StudentContractsCenterPage({
                   programmeName: student.instruments[0] ?? "",
                   monthlyAmount: student.monthlyFee,
                   paymentMethod: student.paymentMethod,
-                  enrollmentStartDate: student.enrollmentStartDate,
+                  // P0 (2026-09-05) — sözleşmenin EĞİTİM dönemi ders başlangıcından
+                  // başlar; kayıt tarihi ayrı bir alandır (bkz. resolveLessonStartDay).
+                  enrollmentStartDate: student.lessonStartDate ?? student.enrollmentStartDate,
                   durationMonths: intendedDurationMonths,
                   usePerLessonBilling: student.derivedPerLessonAmount != null,
                   lessonScheduleText: deriveLessonScheduleTextFromLessons(
@@ -123,10 +152,12 @@ export default async function StudentContractsCenterPage({
 
       {canManagePaymentProfile ? (
         <Card className="mt-4 !p-4">
-          <h2 className="mb-1 text-sm font-semibold text-[var(--color-text)]">KVKK ve Fotoğraf/Video Belgeleri</h2>
+          <h2 className="mb-1 text-sm font-semibold text-[var(--color-text)]">KVKK ve Fotoğraf/Video Belgeleri — ayrı arşiv nüshası</h2>
           <p className="mb-3 text-xs text-[var(--color-text-muted)]">
-            Kayıt sözleşmesinden AYRI, kaynağın kendi yapısına uygun iki belge — Madde 19/20. Aşağıdaki tek adım
-            ikisini birlikte oluşturup TEK bir yazdırma sayfasında (aralarında sayfa sonuyla) gösterir.
+            <strong>Normal akışta buna gerek yoktur:</strong> sözleşmeyi &quot;Görüntüle / Yazdır&quot; ile açtığınızda
+            KVKK ve Fotoğraf/Video bölümleri sözleşmenin ARDINA, bu sırayla, TEK çıktı olarak zaten eklenir. Bu bölüm
+            yalnızca aynı iki metnin kendi referans numaralı, ayrı arşiv belgesi olarak üretilmesi gerektiğinde
+            kullanılır (kaynağın Madde 19/20 yapısı).
           </p>
           <div className="flex flex-wrap gap-2">
             <form
