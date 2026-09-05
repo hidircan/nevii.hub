@@ -21,14 +21,21 @@ export function SectionEditCard({
   readOnly,
   edit,
   className,
+  defaultEditing = false,
 }: {
   canEdit: boolean;
   readOnly: ReactNode;
   /** Form / editor tree — plain ReactNode only (no render props from Server Components). */
   edit: ReactNode;
   className?: string;
+  /**
+   * P0 (2026-09-05) — sözleşme adımından "Öğrenci Kaydını Düzenle" ile
+   * gelindiğinde bölüm DOĞRUDAN düzenleme modunda açılır; kullanıcı ayrıca
+   * "Düzenle"ye tıklamak zorunda kalmaz.
+   */
+  defaultEditing?: boolean;
 }) {
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState(canEdit && defaultEditing);
   const close = () => setEditing(false);
 
   const editNode =

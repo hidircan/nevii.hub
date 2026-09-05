@@ -86,6 +86,7 @@ import {
   updateFeeRoundingModeTool,
   updateMakeupWindowDaysTool,
   updateSchoolLogoTool,
+  importSchoolLogoFromCurrentUrlTool,
   updateMonthlyMakeupAllowanceTool,
   updateTermWeeklyClosedDaysTool,
   findAvailableSlotsTool,
@@ -96,7 +97,6 @@ import {
   resetDemoTool,
   resetToCleanTemplateTool,
   setNationalIdTool,
-  setSocialMediaConsentTool,
   getCurrentConsentTextVersionTool,
   createConsentTextVersionTool,
   grantKvkkConsentTool,
@@ -659,10 +659,10 @@ const STUDENT_FORM_VALUE_KEYS = [
   "firstPaymentAdjustmentReason",
   "termType",
   "enrollmentStartDate",
+  "lessonStartDate",
   "level",
   "targetExam",
   "notes",
-  "socialMediaConsent",
   "kvkkConsent",
 ] as const;
 
@@ -748,6 +748,9 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
             return values.length > 0 ? (values as StudentType[]) : undefined;
           })(),
           enrollmentStartDate: String(formData.get("enrollmentStartDate") || "") || undefined,
+          // P0 (2026-09-05) — ders başlangıcı kayıt tarihinden AYRI; ilk
+          // tahsilat bu tarihten itibaren gerçekleşen dersleri sayar.
+          lessonStartDate: String(formData.get("lessonStartDate") || "") || undefined,
           level: String(formData.get("level") || "") || undefined,
           targetExam: String(formData.get("targetExam") || "") || undefined,
           termType: (() => {
@@ -838,20 +841,12 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
         await setNationalIdTool(ctx, { entity: "student", entityId: created.studentId, nationalId });
       }
 
-      // Sosyal medya izni — mevcut SocialMediaConsent modeli üzerinden.
-      // Checkbox işaretliyse "granted", işaretsizse (FormData'da hiç yoksa)
-      // "denied" — sessizce atlanmaz, her yeni öğrenci için açıkça kaydedilir.
-      const socialMediaConsent = formData.get("socialMediaConsent") === "granted" ? "granted" : "denied";
-      await setSocialMediaConsentTool(ctx, {
-        studentId: created.studentId,
-        status: socialMediaConsent,
-        representativeName: String(formData.get("parentName") || ""),
-        relationship: "Veli",
-        // socialMediaConsentSchema en az 1 scope ister; "Hayır" durumunda
-        // izin verilen kapsam yoktur ama şema formalitesi için "name" ile
-        // kaydedilir — asıl karar `status` alanıdır (granted/denied).
-        scopes: socialMediaConsent === "granted" ? (["photo", "video", "name"] as const) : (["name"] as const),
-      });
+      // P0 (2026-09-05) — sosyal medya (fotoğraf/video) izni ARTIK kayıt
+      // formundan SORULMAZ; aynı rıza sözleşme ekranındaki Fotoğraf/Video
+      // Açık Rıza Formu (Madde 19) akışında alınır ve `setSocialMediaConsentTool`
+      // oradan çağrılır. Burada varsayılan bir "denied" kaydı OLUŞTURULMAZ —
+      // aksi halde kullanıcının hiç vermediği bir karar kayda geçerdi.
+      // Geçmiş `SocialMediaConsent` kayıtları DEĞİŞMEDEN durur.
 
       // Faz 8 (KVKK) — yalnızca tenant için yürürlükte bir "kvkk_general" metni
       // TANIMLIYSA rıza kaydedilir (henüz metin girilmemiş tenant'larda öğrenci
@@ -995,6 +990,8 @@ export async function actionUpdateStudentProfile(input: {
   /** Faz 1B — verilirse tekil studentType'ın YERİNE birincil kaynak olur. */
   studentTypes?: StudentType[];
   enrollmentStartDate?: string;
+  /** P0 (2026-09-05) — ders başlangıç tarihi; kayıt tarihinden bağımsız düzenlenebilir. */
+  lessonStartDate?: string;
   enrollmentEndDate?: string;
   level?: string;
   targetExam?: string;
@@ -3077,6 +3074,27 @@ export async function actionUpdateSchoolLogo(input: {
     if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
     if (error instanceof WriteScopeDeniedError) return { ok: false, message: error.message };
     return { ok: false, message: "Kurum logosu güncellenirken beklenmeyen bir hata oluştu." };
+  }
+}
+
+/**
+ * P0 (2026-09-05) — harici (`https://…`) kayıtlı kurum logosunu uygulamanın
+ * içine alır (bkz. importSchoolLogoFromCurrentUrlTool — CSP dış görselleri
+ * engellediği için sözleşme/PDF/e-postada logo aksi halde hiç görünmez).
+ */
+export async function actionImportSchoolLogoFromUrl(): Promise<UpdateSchoolLogoActionResult> {
+  try {
+    const result = await withAuthContext("actionImportSchoolLogoFromUrl", (ctx) =>
+      importSchoolLogoFromCurrentUrlTool(ctx)
+    );
+    if (!result.ok) return { ok: false, message: result.error.message };
+    revalidateAll();
+    return { ok: true, logoUrl: result.data.logoUrl };
+  } catch (error) {
+    logger.error("actionImportSchoolLogoFromUrl failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    if (error instanceof WriteScopeDeniedError) return { ok: false, message: error.message };
+    return { ok: false, message: "Logo içeri aktarılırken beklenmeyen bir hata oluştu." };
   }
 }
 

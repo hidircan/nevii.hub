@@ -369,7 +369,14 @@ model Student {
   /// `studentType` (tekil) geriye dönük uyumluluk için korunur ve bu alan
   /// güncellenince ilk türle senkron tutulur (bkz. src/lib/student-types.ts).
   studentTypes             Json?
+  /// P0 (2026-09-05) — KAYIT tarihi (öğrenci sisteme kaydedildi). Ders
+  /// başlangıcı AYRI alandır: lessonStartDate.
   enrollmentStartDate      DateTime?
+  /// P0 (2026-09-05) — DERSLERİN fiilen başladığı gün; kayıt tarihinden
+  /// bağımsız seçilir. NULL = eski kayıt/gönderilmemiş → kayıt tarihi
+  /// kullanılır (geriye dönük uyum). İlk tahsilat bu tarihten itibaren
+  /// gerçekleşen dersleri sayar.
+  lessonStartDate          DateTime?
   enrollmentEndDate        DateTime?
   level                    String?
   targetExam               String?

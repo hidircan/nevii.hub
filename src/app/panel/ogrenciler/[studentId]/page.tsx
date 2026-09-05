@@ -86,10 +86,18 @@ export default async function StudentDetailPage({
   searchParams,
 }: {
   params: Promise<{ studentId: string }>;
-  searchParams: Promise<{ yeniKayit?: string; sure?: string; davetUyari?: string }>;
+  searchParams: Promise<{
+    yeniKayit?: string;
+    sure?: string;
+    davetUyari?: string;
+    /** P0 (2026-09-05) — sözleşme adımından dönüş: hangi bölüm düzenleme modunda açılsın. */
+    duzenle?: string;
+    /** Sözleşme adımına geri dönüş için taşınan süre (ay) — sözleşme formunun ön-doldurması. */
+    sozlesmeSure?: string;
+  }>;
 }) {
   const { studentId } = await params;
-  const { yeniKayit, sure, davetUyari } = await searchParams;
+  const { yeniKayit, sure, davetUyari, duzenle, sozlesmeSure } = await searchParams;
   const isNewStudent = yeniKayit === "1";
   const rawIntendedDuration = Number(sure);
   const intendedDurationMonths =
@@ -199,6 +207,8 @@ export default async function StudentDetailPage({
     birthPlace: student.birthPlace,
     schoolOrOccupation: student.schoolOrOccupation,
     communicationOptOut: student.communicationOptOut,
+    enrollmentStartDate: student.enrollmentStartDate,
+    lessonStartDate: student.lessonStartDate,
     accountResponsibility: student.accountResponsibility,
     studentTypes: effectiveStudentTypes(student),
   };
@@ -284,6 +294,30 @@ export default async function StudentDetailPage({
         ))}
       </nav>
 
+      {/*
+        P0 (2026-09-05) — sözleşme adımından "Öğrenci Kaydını Düzenle" ile
+        gelindiyse, sözleşmeye dönüş TEK tıkla ve AYNI süre bilgisiyle olur —
+        kullanıcı tarayıcı geri tuşuna muhtaç bırakılmaz. Öğrenci verisi
+        kaydedildiği için sözleşme sayfası (force-dynamic) dönüşte TAZE veriyle
+        yeniden hesaplanır; bayat sözleşme/önizleme durumu kalmaz.
+      */}
+      {sozlesmeSure ? (
+        <Card className="mb-6 !border-[var(--color-primary)] !p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-[var(--color-text)]">
+              Kayıt bilgilerini düzenliyorsunuz. Değişiklikleri kaydettikten sonra sözleşme adımına dönebilirsiniz —
+              sözleşme önizlemesi ve tahsilat hesabı güncel verilerle yeniden oluşturulur.
+            </p>
+            <Link
+              href={`/panel/ogrenciler/${student.id}/sozlesmeler?yeniKayit=1&sure=${encodeURIComponent(sozlesmeSure)}`}
+              className="inline-flex shrink-0 items-center rounded-lg bg-[var(--color-primary)] px-4 py-2 text-sm font-semibold text-white hover:bg-[var(--color-primary-hover)]"
+            >
+              Sözleşme adımına dön →
+            </Link>
+          </div>
+        </Card>
+      ) : null}
+
       <section id="genel" className="mb-8 scroll-mt-4">
         <h2 className="mb-3 text-sm font-semibold text-[var(--color-text)]">Temel Bilgiler</h2>
         <SectionEditCard
@@ -311,7 +345,18 @@ export default async function StudentDetailPage({
               <Field label="Paket" value={student.packageName.split("—")[0]?.trim() ?? student.packageName} />
               <Field label="Eğitim metodu" value={student.educationMethod ?? "Eklenmemiş"} />
               <Field label="Seviye" value={student.level ?? "Eklenmemiş"} />
-              <Field label="Kayıt başlangıç tarihi" value={student.enrollmentStartDate ? formatDate(student.enrollmentStartDate) : "Eklenmemiş"} />
+              <Field label="Kayıt tarihi" value={student.enrollmentStartDate ? formatDate(student.enrollmentStartDate) : "Eklenmemiş"} />
+              {/* P0 (2026-09-05) — ders başlangıcı kayıt tarihinden ayrı; girilmemişse kayıt tarihi geçerlidir. */}
+              <Field
+                label="Ders başlangıç tarihi"
+                value={
+                  student.lessonStartDate
+                    ? formatDate(student.lessonStartDate)
+                    : student.enrollmentStartDate
+                      ? `${formatDate(student.enrollmentStartDate)} (kayıt tarihi)`
+                      : "Eklenmemiş"
+                }
+              />
               <Field label="Ders süresi" value={student.lessonDurationMinutes ? `${student.lessonDurationMinutes} dk` : "Eklenmemiş"} />
               <Field label="Doğum yeri" value={student.birthPlace ?? "Eklenmemiş"} />
               <Field label="Okulu / mesleği" value={student.schoolOrOccupation ?? "Eklenmemiş"} />
@@ -326,6 +371,7 @@ export default async function StudentDetailPage({
               showPortalInvite={false}
             />
           }
+          defaultEditing={duzenle === "kayit"}
         />
 
         <Card className="mt-3">

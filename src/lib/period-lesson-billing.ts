@@ -18,6 +18,31 @@
 
 import { toZonedYmd, DEFAULT_APP_TIMEZONE } from "./timezone";
 
+/**
+ * P0 (2026-09-05) — İLK TAHSİLATIN BAŞLANGIÇ GÜNÜ.
+ *
+ * Kayıt tarihi (`enrollmentStartDate`) ile derslerin fiilen başladığı gün
+ * (`lessonStartDate`) FARKLI kavramlardır: öğrenci 5 Eylül'de kaydolup 20
+ * Eylül'de derse başlayabilir. İlk tahsilat, ders başlangıcından ÖNCEKİ
+ * günlerde geçen ders günlerini ASLA saymamalıdır.
+ *
+ * TEK KAYNAK: hem sunucu (createStudentTool) hem istemci önizlemesi
+ * (new-student-form) hem sözleşme öneri hesabı bu fonksiyondan geçer —
+ * ayrı/paralel bir "hangi tarihten başlayacağız" mantığı YAZILMAZ.
+ * `lessonStartDate` yoksa kayıt tarihine düşülür (eski kayıtlar için
+ * davranış AYNEN korunur).
+ */
+export function resolveLessonStartDay(input: {
+  lessonStartDate?: string | null;
+  enrollmentStartDate?: string | null;
+  fallbackToday: string;
+}): string {
+  const lesson = (input.lessonStartDate ?? "").slice(0, 10);
+  if (lesson) return lesson;
+  const enrollment = (input.enrollmentStartDate ?? "").slice(0, 10);
+  return enrollment || input.fallbackToday;
+}
+
 /** Referans aylık ders adedi — HER ZAMAN haftalık sıklık × 4, gerçek takvime bakmaz (sabit). */
 export function referenceMonthlyLessonCount(weeklyLessonCount: number): number {
   return Math.max(1, Math.round(weeklyLessonCount)) * 4;
