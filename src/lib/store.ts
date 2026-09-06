@@ -1,6 +1,8 @@
 import type { DemoSeedInput, DemoSeedResult } from "./demo-seed";
 import { STORE_MODE } from "./config";
 import * as jsonStore from "./store-json";
+import * as dbStore from "./store-db";
+import * as memoryStore from "./store-memory";
 import type {
   AppData,
   AttendanceStatus,
@@ -229,20 +231,26 @@ type StoreApi = {
   seedDemoRecords: (input: DemoSeedInput) => Promise<DemoSeedResult>;
 };
 
-function getStore(): StoreApi {
-  if (STORE_MODE === "db") {
-    // Lazy require: json deploy'da Prisma adapter yüklenmesin
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    return require("./store-db") as StoreApi;
-  }
-  if (STORE_MODE === "memory") {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    return require("./store-memory") as StoreApi;
-  }
-  return jsonStore;
-}
+/**
+ * Üç backend de STATİK import edilir ve `satisfies` ile derleme zamanında aynı
+ * sözleşmeye (StoreApi) bağlanır.
+ *
+ * Neden `require()` DEĞİL: eskiden db/memory backend'leri `require("./store-db")`
+ * ile çıplak çağrılıyordu. Turbopack (Next 16) bu çağrıyı production server
+ * bundle'ında ÇÖZMÜYOR — modülü hiç emit etmiyor, uyarı da vermiyor. Sonuç:
+ * `STORE_MODE=db` deploy'unda `store` boş kalıyordu ve /panel'in ilk store
+ * çağrısı `store.listTenants is not a function` ile 500 veriyordu. `as StoreApi`
+ * cast'i de aynı anda tip kontrolünü susturuyordu. Prisma zaten Tool Layer'dan
+ * (`services/tools.ts` → `./db`) her deploy'da yükleniyor; `./db`'deki istemci
+ * tembel bir Proxy olduğu için statik import bağlantı AÇMAZ.
+ */
+const STORES = {
+  json: jsonStore,
+  db: dbStore,
+  memory: memoryStore,
+} satisfies Record<typeof STORE_MODE, StoreApi>;
 
-const store = getStore();
+const store: StoreApi = STORES[STORE_MODE];
 
 /** Bind tenant from ALS or authenticated web session */
 async function withTenantScope<T>(fn: () => Promise<T>): Promise<T> {

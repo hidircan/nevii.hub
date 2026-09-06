@@ -550,3 +550,29 @@ bloğu, her tekrar çalıştırmada vitrine 8 ders DAHA ekledi.
 
 Ders: seed idempotency'sini **ilk** yazılan kayda değil **son** yazılan kayda
 bağla; aksi halde yarım kalan her çalıştırma ya kilitler ya da çoğaltır.
+
+## 2026-09-06 — Turbopack çıplak `require()` ile ulaşılan modülü SESSİZCE bundle'a koymaz
+
+`src/lib/store.ts` backend seçimini `require("./store-db")` /
+`require("./store-memory")` ile yapıyordu. Next 16 Turbopack production
+server build'inde bu çağrı için modül referansı emit ediliyor ama **modülün
+kendisi hiç emit edilmiyor** ve build hiçbir uyarı vermiyor
+(`.next/server/chunks` içinde `store-db` yalnızca `.map` dosyalarında geçiyordu).
+Sonuç: `STORE_MODE=db` deploy'unda `store` nesnesi boş kalıyor ve /panel'in ilk
+store çağrısı `TypeError: ae.listTenants is not a function` ile 500 dönüyordu.
+`store-memory` tesadüfen çalışıyordu — `payments/collect.ts` içindeki
+`await import("../store-memory")` onu bundle'a sokuyordu.
+
+İkinci kat: `require(...) as StoreApi` cast'i, tip kontrolünü de susturuyordu —
+backend'lerin sözleşmeye uyup uymadığı hiçbir zaman derlenmiyordu.
+
+Çözüm: üç backend de statik `import * as` ile alınır, seçim
+`satisfies Record<typeof STORE_MODE, StoreApi>` ile derleme zamanında bağlanır.
+"json deploy'da Prisma yüklenmesin" gerekçesi zaten geçersizdi: `services/tools.ts`
+her deploy'da `./db`'yi statik import ediyor ve oradaki istemci tembel bir Proxy
+(import bağlantı açmaz).
+
+Ders: bir modüle YALNIZCA `require()`/koşullu çağrı üzerinden ulaşılıyorsa,
+bundler onu düşürebilir ve bunu build hatası olarak GÖRMEZSİN — hata ancak o
+mod canlıda çalıştığında ortaya çıkar. Statik import + `satisfies` ile bağla.
+Koruma: `src/lib/__tests__/store-mode-parity.test.ts`.
