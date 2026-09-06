@@ -113,32 +113,49 @@ Tam kanıt/detay owner'a verilen "Canlıya Alım Hazırlık Raporu"nda — özet
 - Tam test suite: 2564/2565 geçti — tek hata bilinen/ilgisiz
   `lesson-series-tools.test.ts` kaydı (aşağıda zaten belgeli).
 
-## Current focus (last updated: 2026-09-06, Vercel test ortamı hazırlığı)
+## Current focus (last updated: 2026-09-06, test ortamı DB + migration + seed)
 
-Ayrı worktree `~/Projects/neviihub-vercel-test-environment`
-(branch `infra/vercel-test-environment`, taban `12060fa`) üzerinde **test
-ortamı güvenlik altyapısı** hazırlandı. Yalnız LOCAL commit — push/deploy/DNS/
-Supabase yazımı YOK.
+Worktree `~/Projects/neviihub-vercel-test-environment` (yerel branch
+`infra/vercel-test-environment`, `origin/test` ile aynı). Bu turda test
+ortamı veritabanı ayağa KALDIRILDI; `main`'e dokunulmadı (hâlâ `4ab2f3d`).
 
-**En önemli bulgu:** production Supabase boş çünkü **uygulama hiç veritabanı
-kullanmıyor** — canlı deployment `STORE_MODE=memory` ile çalışıyor
-(`/api/v1/health` kanıtı). Migration atmak tek başına yetmez. Tam kanıt tablosu:
-`docs/PRODUCTION_DATABASE_SOURCE_OF_TRUTH.md`. Ayrıca `neviihub.com` DNS'te hiç
-çözümlenmiyor; canlı adres yalnız `notaplan.vercel.app` ve build hâlâ `4ab2f3d`.
+**Test Supabase (`vxzewyiwfshobjizzetw`) artık DOLU ve erişilebilir:**
+70 tablo + `_prisma_migrations`, 65/65 migration kayıtlı, 132 tenantId
+index'i, A/B/C/D telafi + Program Vitrini demo verisi seed'li, çift
+çalıştırmada yinelenen kayıt 0. Yerel `npm run dev` bu DB'ye karşı
+`ready:true · storeMode:db · reachable:true` döndürüyor.
 
-Eklenenler: `src/lib/env/test-target-guard.ts` (fail-closed hedef guard'ı,
-25 test), 5 preflight/verify script'i + npm script'leri, `.env.test.example`,
-`prisma/migrations/migration_lock.toml` (eksikti), 7 demo seed script'inin
-tamamına production bloğu, 4 runbook.
+Push'lanan iki commit (`origin/test`): `6460b02` (bağlantı/TLS + errorClass),
+`d08da2a` (db-modu öğrenci/telafi yazımı + seed düzeltmeleri).
 
-### Open work (insan onayı bekliyor)
+**Migration geçmişi borcu (AÇIK):** 65 migration'ın 32'si MySQL-dönemi DDL'i
+ve PostgreSQL'de replay EDİLEMİYOR (`42601`). Test DB, operatör onayıyla
+`migrate diff --from-empty --to-schema` baseline'ı + 65 ×
+`migrate resolve --applied` ile kuruldu — repo geçmişi DEĞİŞTİRİLMEDİ.
+Production da aynı sorunu yaşayacak; kalıcı çözüm tek bir `0_init`'e squash
+(operatör kararı bekliyor).
 
-1. GitHub `test` branch + push, Vercel test environment + deployment.
-2. Cloudflare'de `test.neviihub.com` DNS + Vercel custom domain binding.
-3. Test Supabase'e `prisma migrate deploy` (session pooler, port 5432).
-4. Test Supabase'e A/B/C/D telafi + Program Vitrini demo seed + idempotency.
-5. Production için AYRI onay: `STORE_MODE`/`DATABASE_URL` doğrulaması,
-   şema kurulumu, 178 commit'in public repoya push'u.
+### Open work (insan aksiyonu bekliyor)
+
+1. **P0 — Vercel Preview `DATABASE_URL` parolası eski.** Rotasyon öncesi
+   değeri taşıyor → `28P01`. `/api/v1/ready` artık
+   `database.errorClass: "AUTHENTICATION"` ile bunu söylüyor (alan yalnız
+   preview/test/local'de görünür). Güncel test Transaction Pooler URL'si
+   (6543, `pgbouncer=true&connection_limit=1`) girilip Preview redeploy
+   edilmeli. Doğru parola `.env.test.migrate`'teki ile aynı; yereldeki
+   `.env.test` bu turda güncellendi ve doğrulandı.
+2. **Vercel Deployment Protection test domain'ini de kapatıyor.**
+   `ssoProtection = all_except_custom_domains`, ama projedeki TÜM
+   deployment'lar `target: null` (Preview) olduğu için `test.neviihub.com`
+   da SSO'ya 302 yapıyor — otomatik smoke test imkânsız. Seçenekler:
+   korumayı test projesinde kapatmak, Protection Bypass for Automation
+   token'ı üretmek, ya da test branch'ini Production target'ına almak.
+3. Phase 6 domain smoke testi (1) ve (2) çözülmeden çalıştırılamadı.
+   Yerelde test DB'ye karşı yapılan kısmi smoke: portallar fail-closed
+   (307 → /login), kimlik doğrulamalı API'ler 401, health/ready yeşil.
+4. `seed-attendance-demo.ts` AYNI `firstPaymentAdjustmentReason` boşluğunu
+   taşıyor (db modunda patlar) — bu turda kapsam dışı bırakıldı.
+5. Migration geçmişi squash kararı (yukarı bkz.).
 
 ## Önceki odak (2026-09-05, sürüm hazırlığı turu)
 

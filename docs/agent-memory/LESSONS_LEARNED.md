@@ -481,3 +481,72 @@ düşmesi (`?? "json"`) bu hatayı görünmez kılıyor; bu yüzden test ortamı
 İlgili dosyalar: `docs/PRODUCTION_DATABASE_SOURCE_OF_TRUTH.md`,
 `src/lib/env/test-target-guard.ts`, `src/app/api/v1/health/route.ts`,
 `src/lib/config.ts`.
+
+## 2026-09-06 — `STORE_MODE=json` yeşil test suite'i, db-modu kırıklarını GÖRMÜYOR
+
+Test Supabase'e yapılan İLK gerçek `STORE_MODE=db` seed denemesi, 2655 testin
+tamamı yeşilken üç ayrı üretim hatası ortaya çıkardı. Üçünün de ortak kök
+nedeni aynı: **json/memory store şemasız yazar, PostgreSQL yazmaz.**
+
+1. `Unknown argument` — `store-db.addStudent`, aldığı nesneyi
+   `prisma.student.create`'e `...student` ile spread ediyor. `Student` kolonu
+   olmayan girdi alanları için elle tutulan bir DENYLIST var; `lessonDays` ve
+   `firstPaymentAdjustmentReason` listeye yazılmamıştı. `lessonDays`'i gerçek
+   kayıt formu gönderiyor, yani db modunda ders günü seçilen HER kayıt
+   patlıyordu. Aynı hata daha önce `instrument` ile de yaşanmış (kod içinde
+   yorumu duruyor) — yani bu, üçüncü tekrarı.
+2. FK ihlali — `switchLessonOpsFlag`, yoklama kaydı yokken
+   `MakeupRequest.attendanceId` için `uid("att")` ile var olmayan bir id
+   uyduruyordu. json'da referans denetlenmiyor; db'de zorunlu + `@unique` FK.
+   "Telafi" işaretleme db modunda tamamen kırıktı.
+3. Migration geçmişi replay edilemiyor — 65 migration'ın 32'si PostgreSQL'e
+   geçişten önceki MySQL DDL'i (backtick, `VARCHAR(191)`, `utf8mb4`).
+   `migrate deploy` ilk MySQL migration'ında `42601` ile durdu. Test DB,
+   operatör onayıyla `migrate diff --from-empty --to-schema` baseline'ı +
+   65 × `migrate resolve --applied` ile kuruldu; repo geçmişi DEĞİŞTİRİLMEDİ,
+   borç açık kaldı.
+
+Ders: json modunda geçen bir test, db modunda geçeceğinin kanıtı DEĞİLDİR.
+Şema/FK gerektiren her yol için, db'ye bağlanmadan çalışan bir **parite testi**
+yazılabilir ve yazılmalıdır: `student-input-only-fields.test.ts` şema
+kolonlarını zod alanlarıyla karşılaştırıyor, `makeup-attendance-fk.test.ts`
+üretilen `attendanceId`'nin gerçek bir kayda işaret ettiğini doğruluyor.
+Elle tutulan denylist'ler sessizce eskiyor — testi denylist'e değil,
+**şemanın kendisine** bağla.
+
+## 2026-09-06 — `sslmode=require` artık libpq anlamına gelmiyor (pg 8.23)
+
+Supabase pooler sertifikasını kendi özel CA'sı ile imzalıyor; bu CA public
+trust store'da yok. `pg-connection-string` 2.14 ile `sslmode=require`
+libpq'daki "şifrele, doğrulama" anlamını KAYBETTİ — artık tam doğrulama
+yapıyor ve `SELF_SIGNED_CERT_IN_CHAIN` veriyor. Daha kötüsü: `sslmode` hiç
+verilmezse `pg` TLS'i tamamen kapatıyor, yani bağlantı sessizce ŞİFRESİZ
+kuruluyor.
+
+Çözüm `rejectUnauthorized: false` DEĞİL: Supabase'in yayınladığı kök sertifika
+(`prod-ca-2021`) `src/lib/db/connection.ts` içinde pinlendi ve doğrulama açık
+bırakıldı. Dikkat: `pg`, `new Pool({ connectionString, ssl })` çağrısında
+connection string'i parse edip açık `ssl` alanının ÜSTÜNE yazıyor
+(`Object.assign({}, config, parse(connectionString))`) — bu yüzden ssl
+parametreleri string'den TEMİZLENİYOR, aksi halde pinlenen CA sessizce yok
+sayılırdı.
+
+## 2026-09-06 — Seed script'lerinde sabit gün ofsetleri takvime bağlı hata üretir
+
+`isoDaysAgo(20)` gibi sabit ofsetler iki ayrı şekilde kırıldı: (a) kapalı güne
+(Pazartesi/dönem/tatil) denk gelince araçlar işlemi reddetti — seed
+çalıştırıldığı GÜNE göre bazen geçip bazen kaldı; (b) telafi kotası DÖNEM
+başına olduğu için, dönem başında çalıştırılan seed "aktif dönem"
+senaryolarını bir önceki döneme yazdı (Öğrenci B "2/2" yerine "0/2" göründü).
+Tarihler artık uygulamanın kendi `resolveDayStatus` /
+`resolveLessonAcademicPeriod` fonksiyonlarıyla seçiliyor.
+
+Ayrıca idempotency anahtarı **öğretmen adıydı** ve öğretmen İLK adımda
+yazılıyordu: yarıda kalan bir seed, scripti kalıcı olarak kilitliyordu
+("zaten seed edilmiş" deyip çıkıyor, öğrenci hiç oluşmuyordu). Anahtar,
+seed'in SON artefaktı olmalı (burada: vitrin öğrencisi + ≥3 gelecek ders) ve
+her blok kendi "zaten var mı" kontrolünü yapmalı. Koşulsuz bırakılan vitrin
+bloğu, her tekrar çalıştırmada vitrine 8 ders DAHA ekledi.
+
+Ders: seed idempotency'sini **ilk** yazılan kayda değil **son** yazılan kayda
+bağla; aksi halde yarım kalan her çalıştırma ya kilitler ya da çoğaltır.
