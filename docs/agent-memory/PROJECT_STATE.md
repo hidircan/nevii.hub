@@ -28,7 +28,174 @@ screens (login/welcome).
 - Full detail + rationale: `docs/contracts/LEGAL_POLICY_TEXT_DISCREPANCY_REPORT.md`,
   `docs/roadmap/NEVIIHUB_ADMIN_CONTRACTS_POLICY_REMAINING_WORK.md`.
 
-## Current focus (last updated: 2026-08-31)
+## Önceki odak (2026-09-05, geç oturum)
+
+Yedi kalemlik ürün güncellemesi paketi — hepsi `localhost:3000`e karşı
+GERÇEK Chromium'da doğrulandı (yalnız birim testi değil):
+
+1. **Ders statü renkleri TERS ÇEVRİLDİ (owner talimatı)**: İşlendi=KIRMIZI,
+   Telafi=SARI, Geldi=yeşil. Tek kaynak `ATTENDANCE_CALENDAR_COLORS`
+   (`attendance-calendar.ts`); Tailwind tarafı `lesson-status-badge.tsx`,
+   `lesson-ops-actions.tsx`, `program-studio.tsx` (tam kart dolgusu),
+   `utils.ts statusColor`. **2026-09-02 P0-2E kararının bilinçli tersi** —
+   yeniden "düzeltmeye" çalışmayın.
+2. **TEK BİRLEŞİK SÖZLEŞME ÇIKTISI**: ana sözleşme → KVKK → fotoğraf/video,
+   tek sayfada, aralarında sayfa sonu, her ek kendi başlığı/referansıyla
+   (`<sözleşmeNo>-EK1/EK2`). Yeni modül `src/lib/contract-annexes.ts`;
+   ekler sözleşme oluşturulurken `ContractDataSnapshot.annexes`e DONDURULUR,
+   eski sözleşmeler için okuma anında aktif şablondan üretilir.
+3. **Davet/şifre sonrası yönlendirme**: rol GÜVENİLİR sunucu verisinden
+   (`getUserById`), oturum KORUNUR (`issueTokenPair`+`applyAuthCookies`),
+   mobil derin bağlantı yalnız `MOBILE_APP_SCHEME` tanımlıysa üretilir.
+   Bkz. `src/lib/auth/post-password-routing.ts`.
+4. **Sözleşme adımından kayda dönüş**: Sözleşme Merkezi'nde
+   "← Öğrenci Kaydını Düzenle"; öğrenci detayında "Sözleşme adımına dön"
+   bandı + bölüm doğrudan düzenleme modunda açılır (`SectionEditCard`
+   `defaultEditing`).
+5. **`Student.lessonStartDate`** (yeni alan + Prisma migration
+   `20260905120000_student_lesson_start_date`): kayıt tarihinden BAĞIMSIZ.
+   İlk tahsilat artık `resolveLessonStartDay` üzerinden DERS BAŞLANGICINDAN
+   sayar (canlı doğrulandı: 05.09 kayıt → 7 ders/₺3.500; 20.09 ders
+   başlangıcı → 3 ders/₺1.500).
+6. **Logo**: kök neden CSP (`img-src 'self' data: blob:`) — harici
+   `https://` logo SESSİZCE engelleniyordu. `importSchoolLogoFromCurrentUrlTool`
+   logoyu bir kez indirip `data:` URI olarak saklar (Kurulum'da düğme).
+   Render artık sabit kutu değil TAVAN (`max-height:96px`, `height:auto`).
+   Bu indirme SSRF yüzeyidir (yanıt saklanıp gösteriliyor) — tüm dış istekler
+   `src/lib/net/safe-outbound-fetch.ts` üzerinden gider (https-only, DNS
+   blok listesi, elle doğrulanan yönlendirme zinciri, gövde boyut sınırı).
+7. **Giriş öncesi kurumsal site**: `src/lib/site-content.ts` (içerik) +
+   `src/components/site/sections.tsx` (bölümler) + `src/app/page.tsx`
+   (yalnız sıralar). Referans/fiyat/medya/iletişim UYDURMA VERİ İÇERMEZ.
+
+Yol boyunca bulunan ve düzeltilen GERÇEK hata: `/ogrenci → /login → /ogrenci`
+SONSUZ YÖNLENDİRME DÖNGÜSÜ (bkz. LESSONS_LEARNED 2026-09-05 girdisi).
+
+Bilinen, bu turda DEĞİŞTİRİLMEYEN ve bu paketle İLGİSİZ tek test hatası:
+`src/lib/__tests__/lesson-series-tools.test.ts > createLessonSeriesTool >
+"skipConflicts=true ile yalnızca çakışmayanlar oluşur"` — `git stash` ile
+kod değişiklikleri geri alınarak AYNI şekilde başarısız olduğu KANITLANDI
+(tarihe bağlı seed/çakışma varsayımı). 2557/2558 test geçiyor.
+
+Kurumun `kvkk` ve `parent_social_media_consent` AKTİF şablonları hâlâ eski
+tek satırlık "stub" metinler — birleşik çıktı çalışıyor ama o iki bölüm
+hukuken zayıf. Sözleşme Merkezi artık bunu AÇIKÇA uyarıyor ve tek tıkla
+kurumsal kaynaktan TASLAK oluşturuyor; taslağı Evraklar → Şablon Yönetimi'nden
+ETKİNLEŞTİRMEK kalan iş.
+
+## Release-blocker sprint (2026-09-05, gece) — canlıya alım öncesi son tur
+
+Owner'ın "release blocker" sprintinde yukarıdaki 7 kalemlik paket + migration
++ SSRF + auth yönlendirmesi tek tek KOD/VERİ üzerinden yeniden doğrulandı
+(hafızaya değil koda güvenilerek). Sonuç: **2 P0 hâlâ BLOKLU**, gerisi PASS.
+Tam kanıt/detay owner'a verilen "Canlıya Alım Hazırlık Raporu"nda — özet:
+
+- KVKK/foto-video: yukarıdaki not DOĞRULANDI (kvkk 83 char, foto/video 164
+  char, ikisi de `contract-annexes.ts`'nin 400-char stub eşiğini geçemiyor).
+  Gerçek kaynak metin `2026-2027-ogrenci-kayit-sozlesmesi-v1.md`'de var ve
+  `createContractTemplateDraftFromCanonicalSource` zaten TASLAK üretebiliyor
+  — kalan tek iş insan onayı + aktivasyon, kod değişikliği DEĞİL.
+- **YENİ DÜZELTME**: eski sözleşmelerin dondurulmuş harici (`https://`) logo
+  URL'si CSP tarafından sessizce engelleniyordu, hiçbir fallback yoktu —
+  `getContractHtmlTool` (tools.ts) artık bu durumda kurumun GÜNCEL `data:`
+  logosuna (varsa) veya kurum adı metnine düşüyor, dondurulmuş veri
+  DEĞİŞMİYOR. Bkz. LESSONS_LEARNED.md 2026-09-05 girdisi.
+- `lessonStartDate` migration'ı gerçek LOKAL Postgres'e (`notaplan` db,
+  localhost:5432, 78 öğrenci) `prisma migrate deploy` ile UYGULANDI — veri
+  kaybı yok, `migrate status` temiz. `.env.local`'deki `DATABASE_URL` aslında
+  UZAK bir Supabase pooler'ı (pgbouncer, 6543) — `migrate status/deploy` bu
+  URL'de SESSİZCE ASILI KALIYOR (Prisma/PgBouncer bilinen uyumsuzluğu), bkz.
+  LESSONS_LEARNED.md. Production'a uygulama HÂLÂ owner onayı bekliyor.
+- SSRF (`safe-outbound-fetch.ts`) ve auth/mobil yönlendirme (`post-password-routing.ts`)
+  bağımsız olarak yeniden doğrulandı, ikisi de PASS. Native mobil deep-link
+  hâlâ config bekliyor (`MOBILE_APP_SCHEME` vb. tanımlı değil) — bu DÜRÜSTÇE
+  "hazır değil" olarak raporlandı, sahte route YOK.
+- Tam test suite: 2564/2565 geçti — tek hata bilinen/ilgisiz
+  `lesson-series-tools.test.ts` kaydı (aşağıda zaten belgeli).
+
+## Current focus (last updated: 2026-09-05, sürüm hazırlığı turu)
+
+Üretim sürümü HAZIRLANDI, **PUSH/DEPLOY YAPILMADI** (bilinçli — aşağıya bkz.).
+Çalışma ağacındaki tüm iş 8 mantıksal commit'e ayrıldı; kapılar yeşil.
+
+Bu turda YAPILAN KOD DEĞİŞİKLİKLERİ (öncekilerin üstüne):
+
+1. **Ek bölümler artık şablon ETKİNLEŞTİRMEsi beklemiyor.** `resolveAnnexBody`
+   (`contract-annexes.ts`): kurumun aktif `kvkk`/`parent_social_media_consent`
+   şablonu 400 karakterin altındaysa ya da yoksa doğrudan `canonicalTemplateBody`
+   (kurumsal kaynak metni) kullanılır. Şablon kaydı DEĞİŞTİRİLMEZ; yalnız çıktı
+   beslenir. Sözleşme Merkezi'ndeki uyarı artık ENGEL değil BİLGİ kutusu.
+2. **`parentName` koşullu zorunlu.** `accountResponsibility` = SELF_MANAGED ise
+   veli adı OPSİYONEL (öğrencinin kendi adıyla doldurulur), PARENT_MANAGED ise
+   ZORUNLU. Kural istemci (kayıt formu + öğrenci düzenleme ekranı) ve sunucu
+   (`studentSchema.refine`) tarafında AYNI Türkçe metinlerle uygulanır.
+   Telefon kuralları zaten vardı, mesajları alan-odaklı hale getirildi.
+3. **`DIRECT_URL` düzeltildi** (yalnız yerel `.env`/`.env.local`, commit'lenmez):
+   6543 (transaction pooler) → 5432 (session pooler). `prisma migrate status`
+   artık asılı kalmıyor. Gerekçe `.env.example`'a yazıldı.
+
+DOĞRULAMA (hafızaya değil, çalıştırılan şeye dayanır):
+
+- Gerçek Chromium (`localhost:3000`): muhatap PARENT→SELF→PARENT geçişlerinde
+  `required` bayrakları tam beklendiği gibi, 0 konsol hatası.
+- Çalışan dev server'da GERÇEK yeni sözleşme oluşturuldu
+  (`contract_351dge2lgouc`): hem `/sozlesme-yazdir/...` sayfası hem
+  `/api/v1/contracts/:id/html` çıktısında ana sözleşme → KVKK → fotoğraf/video
+  sırası, EK1/EK2 referansları, sayfa sonları ve GERÇEK kurumsal metin doğrulandı
+  — kurumun aktif KVKK/foto şablonları HÂLÂ stub olmasına rağmen.
+- Kapılar: typecheck temiz, lint 0 hata (21 eski uyarı), `prisma validate` temiz,
+  `next build` temiz, `npm test` 2576/2577 (tek hata bilinen/ilgisiz
+  `lesson-series-tools.test.ts`).
+
+## CANLIYA ALIM — BLOKE (2026-09-05, insan kararı bekliyor)
+
+Push/deploy YAPILMADI. Nedenleri KODA/ORTAMA bakılarak doğrulandı:
+
+- `origin/main...HEAD` = **0 / 170** — yerel `main`, origin'in 170 commit
+  ÖNÜNDE. Canlı Vercel production (`notaplan.vercel.app`) hâlâ `4ab2f3d`
+  build'ini çalıştırıyor.
+- GitHub deposu (`hidircan/notaplan`) **PUBLIC** — push etmek aynı zamanda bir
+  ifşa eylemidir, yalnız deploy tetikleyicisi değil.
+- Supabase projesi `uqkafczrplqitzumtrqy` ("Maestron Project", hesaptaki TEK
+  proje, `.env` dosyalarının işaret ettiği) **TAMAMEN BOŞ**: 0 tablo,
+  `_prisma_migrations` yok, 65 migration'ın **0'ı** uygulanmış. Yani
+  `lessonStartDate` migration'ı orada "tek sütun ekleme" değil, şemanın
+  SIFIRDAN kurulmasıdır.
+- `vercel env ls production` → "The specified token is not valid" (CLI login
+  yok). Production ortam değişkenleri (`STORE_MODE`, `DATABASE_URL`,
+  `JWT_SECRET`, SMTP…) OKUNAMADI, dolayısıyla doğrulanamadı.
+
+Operatörden gereken kararlar: (a) 170 commit public repoya push edilsin mi,
+(b) production Supabase şeması sıfırdan kurulsun mu ve yedek/geri dönüş yolu
+ne, (c) Vercel CLI/token ile production env'in doğrulanması.
+
+## Önceki odak (2026-09-05, erken oturum)
+
+Enrollment-form P0 fixes on `/panel/ogrenciler/yeni` (owner-reported, all
+verified in a real Chromium against `localhost:3000`, not just in tests):
+
+1. Enstrüman / Ders süresi / Ödeme-iletişim muhatabı dropdowns could not be
+   changed. Root cause was `<form onInput={recomputePreview}>` reverting every
+   controlled `<select>` in the form before its `change` event landed — see
+   the new entry at the end of `LESSONS_LEARNED.md`; the fix is dropping
+   `onInput` and keeping only `onChange`.
+2. "Sosyal medya paylaşım (fotoğraf/video) izni var" removed from the
+   enrollment form — the same consent is already collected by the contract
+   screen's Fotoğraf/Video Açık Rıza (Madde 19) flow, which is the only
+   writer of `SocialMediaConsent` now. `actionAddStudent` no longer records a
+   default `denied` decision the user never made; historical rows untouched.
+3. `invitePortalEmail` in the Portal erişimi section was flipping between
+   `value` and `defaultValue` when the recipient changed to "Öğrencinin
+   kendisi" → React's "changing an uncontrolled input to be controlled"
+   console error. Now always controlled by one `portalEmail` state.
+
+Known pre-existing failure, NOT caused by the above and untouched:
+`src/lib/__tests__/lesson-series-tools.test.ts > createLessonSeriesTool >
+"skipConflicts=true ile yalnızca çakışmayanlar oluşur"` fails at `8562cf0`
+too, with a freshly seeded store as well (date-dependent seed/conflict
+assumption). 2525/2526 tests otherwise pass.
+
+## Previous focus (last updated: 2026-08-31)
 
 P0 hydration hotfix done: `contract-panel.tsx`'s local `formatDateTr` used
 `toLocaleDateString("tr-TR")` with no explicit options — non-deterministic
