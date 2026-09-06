@@ -1,8 +1,15 @@
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { Pool } from "pg";
+import { resolvePgConnection } from "@/lib/db/connection";
 
 const globalForPrisma = global as unknown as { prisma?: PrismaClient };
+
+/**
+ * Bağlantı kurulamazsa serverless invocation'ı süresiz bekletmemek için üst
+ * sınır. `/api/v1/ready` bunun altında kalıp hatayı sınıflandırabilmeli.
+ */
+const CONNECTION_TIMEOUT_MS = Number(process.env.DATABASE_CONNECT_TIMEOUT_MS ?? 10_000);
 
 export function getPrisma(): PrismaClient {
   if (globalForPrisma.prisma) return globalForPrisma.prisma;
@@ -14,7 +21,10 @@ export function getPrisma(): PrismaClient {
     );
   }
 
-  const pool = new Pool({ connectionString: databaseUrl });
+  const pool = new Pool({
+    ...resolvePgConnection(databaseUrl),
+    connectionTimeoutMillis: CONNECTION_TIMEOUT_MS,
+  });
 
   const client = new PrismaClient({
     adapter: new PrismaPg(pool),

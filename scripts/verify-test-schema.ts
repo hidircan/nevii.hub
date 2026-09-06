@@ -13,6 +13,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { Pool } from "pg";
 import { assertTestDatabaseTarget, classifyDatabaseTarget } from "../src/lib/env/test-target-guard";
+import { resolvePgConnection } from "../src/lib/db/connection";
 
 /** Şemanın "gerçekten kuruldu" sayılması için var olması gereken çekirdek tablolar. */
 const CORE_TABLES = ["Tenant", "User", "Student", "Teacher", "Lesson", "Payment", "MakeupRequest"];
@@ -33,7 +34,7 @@ async function main() {
     return;
   }
 
-  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  const pool = new Pool(resolvePgConnection(process.env.DATABASE_URL!));
   const problems: string[] = [];
   try {
     const tables = await pool.query<{ table_name: string }>(
