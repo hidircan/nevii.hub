@@ -113,7 +113,34 @@ Tam kanıt/detay owner'a verilen "Canlıya Alım Hazırlık Raporu"nda — özet
 - Tam test suite: 2564/2565 geçti — tek hata bilinen/ilgisiz
   `lesson-series-tools.test.ts` kaydı (aşağıda zaten belgeli).
 
-## Current focus (last updated: 2026-09-05, sürüm hazırlığı turu)
+## Current focus (last updated: 2026-09-06, Vercel test ortamı hazırlığı)
+
+Ayrı worktree `~/Projects/neviihub-vercel-test-environment`
+(branch `infra/vercel-test-environment`, taban `12060fa`) üzerinde **test
+ortamı güvenlik altyapısı** hazırlandı. Yalnız LOCAL commit — push/deploy/DNS/
+Supabase yazımı YOK.
+
+**En önemli bulgu:** production Supabase boş çünkü **uygulama hiç veritabanı
+kullanmıyor** — canlı deployment `STORE_MODE=memory` ile çalışıyor
+(`/api/v1/health` kanıtı). Migration atmak tek başına yetmez. Tam kanıt tablosu:
+`docs/PRODUCTION_DATABASE_SOURCE_OF_TRUTH.md`. Ayrıca `neviihub.com` DNS'te hiç
+çözümlenmiyor; canlı adres yalnız `notaplan.vercel.app` ve build hâlâ `4ab2f3d`.
+
+Eklenenler: `src/lib/env/test-target-guard.ts` (fail-closed hedef guard'ı,
+25 test), 5 preflight/verify script'i + npm script'leri, `.env.test.example`,
+`prisma/migrations/migration_lock.toml` (eksikti), 7 demo seed script'inin
+tamamına production bloğu, 4 runbook.
+
+### Open work (insan onayı bekliyor)
+
+1. GitHub `test` branch + push, Vercel test environment + deployment.
+2. Cloudflare'de `test.neviihub.com` DNS + Vercel custom domain binding.
+3. Test Supabase'e `prisma migrate deploy` (session pooler, port 5432).
+4. Test Supabase'e A/B/C/D telafi + Program Vitrini demo seed + idempotency.
+5. Production için AYRI onay: `STORE_MODE`/`DATABASE_URL` doğrulaması,
+   şema kurulumu, 178 commit'in public repoya push'u.
+
+## Önceki odak (2026-09-05, sürüm hazırlığı turu)
 
 Üretim sürümü HAZIRLANDI, **PUSH/DEPLOY YAPILMADI** (bilinçli — aşağıya bkz.).
 Çalışma ağacındaki tüm iş 8 mantıksal commit'e ayrıldı; kapılar yeşil.

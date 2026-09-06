@@ -19,6 +19,7 @@
  * Kullanım: STORE_MODE=db npx tsx scripts/seed-demo-csv-teachers.ts [csvYolu]
  */
 import "dotenv/config";
+import { assertNotProductionRuntime } from "../src/lib/env/test-target-guard";
 import { readFileSync } from "node:fs";
 import { readData } from "../src/lib/store";
 import { runWithTenantAsync } from "../src/lib/tenant-context";
@@ -117,6 +118,8 @@ async function createHistoricalLessonDirect(input: {
 }
 
 async function main() {
+  // Demo/QA seed — production ortamında KOŞULSUZ reddedilir (fail-closed).
+  assertNotProductionRuntime();
   await runWithTenantAsync(DEFAULT_TENANT_ID, async () => {
     const csvTeachers = parseTeacherCsv(CSV_PATH);
     console.log(`CSV'den ${csvTeachers.length} öğretmen okundu.`);

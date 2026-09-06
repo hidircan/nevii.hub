@@ -32,8 +32,9 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
-# ...except the checked-in template — no secrets, documents var names only
+# ...except the checked-in templates — no secrets, they document var NAMES only
 !.env.example
+!.env.test.example
 
 # local demo data store
 /data

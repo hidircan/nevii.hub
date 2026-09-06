@@ -10,11 +10,14 @@
  * Kullanım: npx tsx scripts/seed-ogrenci-demo-json.ts
  */
 import { readFileSync, writeFileSync } from "fs";
+import { assertNotProductionRuntime } from "../src/lib/env/test-target-guard";
 import path from "path";
 
 const FILE = path.join(process.cwd(), "data", "store.json");
 
 function main() {
+  // Demo/QA seed — production ortamında KOŞULSUZ reddedilir (fail-closed).
+  assertNotProductionRuntime();
   const raw = readFileSync(FILE, "utf8");
   const data = JSON.parse(raw);
 

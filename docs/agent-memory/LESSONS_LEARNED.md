@@ -441,3 +441,43 @@ Lesson: before promising a deploy, establish *what production actually is* —
 which commit it runs, whether its database is provisioned, whether its env
 vars are readable — and do it early. A release plan written against the
 assumption that production mirrors the local repo can be wrong by 170 commits.
+
+## 2026-09-06 — production Supabase boş görünüyordu çünkü uygulama hiç veritabanı kullanmıyor (`STORE_MODE=memory`)
+
+Ne bulundu (hepsi oturum içinde doğrulandı, hafızadan değil):
+
+- `GET https://notaplan.vercel.app/api/v1/health` → `{"storeMode":"memory"}`.
+  Canlı production **process belleğinde** çalışıyor: her cold start'ta
+  `createSeedData()` yeniden seed'liyor, hiçbir veri kalıcı değil.
+- `src/lib/config.ts:7` → `(process.env.STORE_MODE ?? "json")`. Değişken set
+  edilmezse kod **sessizce** dosya/bellek moduna düşer; hata vermez, uyarmaz.
+- `STORE_MODE` `db` olmadığı sürece `src/lib/db.ts` hiç import edilmez, yani
+  Prisma Client instantiate bile edilmez ve Supabase'e **tek bir bağlantı**
+  açılmaz.
+- Supabase Management API (salt-okunur): production ref `uqkafczrplqitzumtrqy`
+  → 0 tablo, 0 migration. Test ref `vxzewyiwfshobjizzetw` → 0 tablo.
+- `neviihub.com` **DNS'te hiç çözümlenmiyor** (`dig` boş, `curl` "Could not
+  resolve host"). Canlı adres yalnız `notaplan.vercel.app`.
+- Canlı build'in `<title>`'ı hâlâ "Maestron — Müzik Okulu Yönetimi" ve
+  `/api/v1/ready` **404** — yani canlı build repo'nun çok gerisinde (`4ab2f3d`).
+
+Neden önemli: "Supabase boş, migration atalım" teşhisi **yarım** bir teşhisti.
+Migration tek başına hiçbir şeyi değiştirmez — `STORE_MODE=db` set edilmedikçe
+uygulama Supabase'e bakmayı sürdürmez. İki bağımsız neden var ve ikisi de
+düzeltilmeli: (1) şema hiç kurulmadı, (2) runtime zaten DB moduna geçmedi.
+
+Doğru yaklaşım: bir veritabanının "boş" olduğunu görünce önce **uygulamanın o
+veritabanına gerçekten bağlanıp bağlanmadığını** kanıtla. Bu repoda bunun
+maliyeti sıfır: `/api/v1/health` `storeMode`'u herkese açık döndürüyor, secret
+gerektirmiyor. Aynı endpoint deployment sonrası doğrulamanın da en ucuz yolu.
+
+Ders: bir ortamda "veri yok" gözlemi üç ayrı hipotez üretir — veri silindi,
+şema kurulmadı, ya da uygulama oraya hiç yazmıyor. Üçüncüsü en sık atlanan ve
+bu projede doğru olanıydı. Env varsayılanının sessizce başka bir backend'e
+düşmesi (`?? "json"`) bu hatayı görünmez kılıyor; bu yüzden test ortamı env
+şablonunda `STORE_MODE=db` açıkça zorunlu tutuldu ve
+`assertDbStoreMode()` guard'ı eklendi.
+
+İlgili dosyalar: `docs/PRODUCTION_DATABASE_SOURCE_OF_TRUTH.md`,
+`src/lib/env/test-target-guard.ts`, `src/app/api/v1/health/route.ts`,
+`src/lib/config.ts`.

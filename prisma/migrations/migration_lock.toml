@@ -1,0 +1,4 @@
+# Bu dosya Prisma tarafından üretilir ve commit'lenmelidir.
+# Migration'ların hangi veritabanı sağlayıcısına karşı yazıldığını sabitler;
+# eksik olduğunda `prisma migrate deploy` provider'ı doğrulayamaz.
+provider = "postgresql"

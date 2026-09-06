@@ -14,6 +14,7 @@
  * çalıştırılmamalıdır (bkz. README "Multi-Tenant Demo" bölümü).
  */
 import "dotenv/config";
+import { assertNotProductionRuntime } from "../src/lib/env/test-target-guard";
 import { createSeedData } from "../src/lib/seed";
 import { seedDatabase, readData as readDataDb, listTenants as listTenantsDb } from "../src/lib/store-db";
 import { runWithTenantAsync } from "../src/lib/tenant-context";
@@ -86,6 +87,8 @@ function remapIds(data: AppData, prefix: string): AppData {
 }
 
 async function main() {
+  // Demo/QA seed — production ortamında KOŞULSUZ reddedilir (fail-closed).
+  assertNotProductionRuntime();
   if (process.env.STORE_MODE !== "db") {
     throw new Error("Bu betik yalnızca STORE_MODE=db ile çalışır. Örnek: STORE_MODE=db npx tsx scripts/seed-multi-tenant.ts");
   }

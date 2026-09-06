@@ -29,6 +29,7 @@
  * Kullanım: npm run seed:demo-schedule  (== npx tsx scripts/seed-demo-schedule.ts)
  */
 import "dotenv/config";
+import { assertNotProductionRuntime } from "../src/lib/env/test-target-guard";
 import { addDays, format, getDay } from "date-fns";
 import { readData } from "../src/lib/store";
 import { runWithTenantAsync } from "../src/lib/tenant-context";
@@ -90,6 +91,8 @@ function candidateStartTimes(window: { start: string; end: string }, durationMin
 const today = new Date();
 
 async function main() {
+  // Demo/QA seed — production ortamında KOŞULSUZ reddedilir (fail-closed).
+  assertNotProductionRuntime();
   if (process.env.STORE_MODE === "json") {
     console.warn(
       "[UYARI] STORE_MODE=json — `npm run dev` şu an açık bir process'te " +

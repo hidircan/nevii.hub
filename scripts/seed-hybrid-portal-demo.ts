@@ -16,8 +16,11 @@
 process.env.STORE_MODE = "db";
 
 import "dotenv/config";
+import { assertNotProductionRuntime } from "../src/lib/env/test-target-guard";
 
 async function main() {
+  // Demo/QA seed — production ortamında KOŞULSUZ reddedilir (fail-closed).
+  assertNotProductionRuntime();
   const { DEFAULT_TENANT_ID } = await import("../src/lib/auth/config");
   const { runWithTenantAsync } = await import("../src/lib/tenant-context");
   const { getPrisma } = await import("../src/lib/db");
