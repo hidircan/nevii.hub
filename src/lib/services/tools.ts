@@ -2016,6 +2016,10 @@ export async function createStudentTool(
     // gider ve "Unknown argument `instrument`" hatasıyla TÜM öğrenci
     // oluşturma db-modunda kırılır (json/memory modda sessizce yutulduğu
     // için bu hata testlerde hiç görünmüyordu — STORE_MODE=json'da çalışır).
+    // ponytail: bu bir DENYLIST — `studentSchema`'ya `Student` kolonu olmayan
+    // yeni bir alan eklenip buraya yazılmazsa db-modu YİNE kırılır. Kalıcı
+    // çözüm payload'ı allowlist'ten kurmaktır; kolon listesi ile şema alan
+    // listesini karşılaştıran bir test bu boşluğu erken yakalar.
     const {
       monthlyFeeOverrideAmount: _ignoredOverrideAmount,
       instrument: _ignoredInstrument,
@@ -2023,6 +2027,13 @@ export async function createStudentTool(
       portalAccessType: _ignoredPortalAccessType,
       firstPaymentCollected: _ignoredFirstPaymentCollected,
       firstPaymentExceptionReason: _ignoredFirstPaymentExceptionReason,
+      // `Student` kolonu DEĞİL, yalnız girdi alanları:
+      // - `firstPaymentAdjustmentReason` → resolveFirstPaymentAdjustment (yukarıda)
+      // - `lessonDays` → period-lesson-billing (ilk dönem ders sayısı hesabı)
+      // Süzülmezlerse Prisma'ya bilinmeyen alan olarak gider ve öğrenci
+      // oluşturma db-modunda "Unknown argument" ile kırılır.
+      firstPaymentAdjustmentReason: _ignoredFirstPaymentAdjustmentReason,
+      lessonDays: _ignoredLessonDays,
       ...studentInput
     } = v.data;
     const ids = new Set(before.students.map((s) => s.id));

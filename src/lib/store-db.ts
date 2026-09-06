@@ -2029,6 +2029,27 @@ async function persistLessonOpsResult(
             const les = await tx.lesson.findFirst({ where: { id: lessonId, tenantId: tid } });
             if (!les) throw new Error("Ders bulunamadı");
             await assertStudentMakeupQuotaTx(tx, tid, mk.studentId, les.schoolId, lessonId);
+            // `MakeupRequest.attendanceId` zorunlu bir FK — saf fonksiyon
+            // (lesson-ops.ts) yoklama kaydı yoksa onu da üretir, burada AYNI
+            // transaction içinde yazılmazsa `MakeupRequest_attendanceId_fkey`
+            // ihlal edilir (json/memory modda tüm `data` topluca yazıldığı için
+            // bu adım gerekmiyor — parite yalnız db modunda elle kuruluyor).
+            const att = result.data.attendances.find((a) => a.id === mk.attendanceId);
+            if (att && !(await tx.attendance.findFirst({ where: { id: att.id, tenantId: tid } }))) {
+              await tx.attendance.create({
+                data: {
+                  id: att.id,
+                  tenantId: tid,
+                  lessonId: att.lessonId,
+                  studentId: att.studentId,
+                  schoolId: les.schoolId,
+                  status: att.status,
+                  reason: att.reason,
+                  markedAt: new Date(att.markedAt),
+                  createsMakeupCredit: att.createsMakeupCredit,
+                },
+              });
+            }
             await tx.makeupRequest.create({
               data: {
                 id: mk.id,

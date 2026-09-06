@@ -46,10 +46,14 @@ import {
   cancelLessonTool,
 } from "../src/lib/services/tools";
 import type { ServiceContext } from "../src/lib/services/context";
+import { resolveDayStatus, resolveLessonAcademicPeriod } from "../src/lib/attendance-calendar";
+import { listClosedDays } from "../src/lib/closed-day-overrides";
 
 const DEMO_TAG = "[DEMO-TELAFİ]";
 const DEMO_TEACHER_NAME = `${DEMO_TAG} Telafi Öğretmeni`;
 const DEMO_ROOM_NAME = `${DEMO_TAG} Telafi Odası`;
+/** Seed'in EN SON oluşturduğu öğrenci — "demo tam" işareti olarak kullanılır. */
+const DEMO_SHOWCASE_NAME = `${DEMO_TAG} Program Vitrini`;
 const BRANCH_ID = "erzene";
 const INSTRUMENT = "Piyano";
 
@@ -110,14 +114,38 @@ async function main() {
 
   await runWithTenantAsync(DEFAULT_TENANT_ID, async () => {
     const before = await readData();
-    const alreadySeeded = before.teachers.some((t) => t.name === DEMO_TEACHER_NAME);
-    if (alreadySeeded) {
+
+    /**
+     * İdempotenlik işareti, ÖĞRETMEN değil EN SON oluşturulan öğrencidir.
+     * Öğretmene bakmak, yarıda kalan bir seed'i kalıcı olarak kilitliyordu:
+     * öğretmen ilk adımda yazılıyor, sonraki bir adım patlarsa script bir
+     * daha ASLA devam edemiyor ("zaten seed edilmiş" deyip çıkıyor) ve
+     * öğrenci/ders hiç oluşmuyordu.
+     */
+    const existingShowcase = before.students.find(
+      (student) => student.name === DEMO_SHOWCASE_NAME
+    );
+    const showcaseFutureLessons = existingShowcase
+      ? before.lessons.filter(
+          (lesson) =>
+            lesson.studentId === existingShowcase.id && new Date(lesson.startAt) > new Date()
+        ).length
+      : 0;
+    if (showcaseFutureLessons >= 3) {
       console.log(
-        `Atlandı — demo zaten seed edilmiş (öğretmen "${DEMO_TEACHER_NAME}" mevcut). ` +
-          "Yinelenen kayıt oluşturulmadı."
+        `Atlandı — demo zaten TAM seed edilmiş ("${DEMO_SHOWCASE_NAME}" + ` +
+          `${showcaseFutureLessons} gelecek ders mevcut). Yinelenen kayıt oluşturulmadı.`
       );
       return;
     }
+
+    /**
+     * Buraya düşüyorsak ya hiç seed yok ya da yarım kalmış bir çalıştırma var.
+     * Her adım "zaten var mı" diye bakar (öğretmen/oda/öğrenci ada göre,
+     * öğrencinin ders üretimi ise o öğrencinin HİÇ dersi yoksa) — böylece
+     * yarım kalan seed kaldığı yerden tamamlanır, tamamlananlar yinelenmez.
+     */
+    const studentsWithLessons = new Set(before.lessons.map((lesson) => lesson.studentId));
 
     const wideOpenAvailability = Array.from({ length: 7 }, (_, dayOfWeek) => ({
       dayOfWeek,
@@ -125,29 +153,116 @@ async function main() {
       end: "23:59",
     }));
 
-    const teacherId = await requireOk(
-      "createTeacherTool",
-      createTeacherTool(ctx, {
-        name: DEMO_TEACHER_NAME,
-        email: "",
-        phone: "0500 000 0001",
-        branchId: BRANCH_ID,
-        instrument: INSTRUMENT,
-        availability: wideOpenAvailability,
-      })
-    ).then((d) => d.teacherId);
+    /**
+     * Yoklama/ops araçları (setLessonOpsFlagTool, cancelLessonTool,
+     * createLessonTool) KAPALI günde (Pazartesi, dönem haftalık kuralı, resmî
+     * tatil, manuel istisna) işlem yapmayı reddeder. Sabit gün ofsetleri
+     * (isoDaysAgo(20) gibi) scriptin ÇALIŞTIRILDIĞI güne göre kapalı bir güne
+     * denk gelebiliyordu — seed o zaman patlıyordu, yani takvime bağlı olarak
+     * bazen geçip bazen kalıyordu. Tarihler artık aracın kullandığı AYNI
+     * kaynakla (`resolveDayStatus`) seçiliyor.
+     */
+    const closedDayOverrides = await listClosedDays(ctx.tenantId);
+    const weeklyClosedDays = before.settings.termWeeklyClosedDays;
+    function isOpenDay(iso: string): boolean {
+      return (
+        resolveDayStatus(new Date(iso), "guz", closedDayOverrides, weeklyClosedDays).status !==
+        "closed"
+      );
+    }
 
-    const roomId = await requireOk(
-      "createRoomTool",
-      createRoomTool(ctx, {
-        name: DEMO_ROOM_NAME,
-        branchId: BRANCH_ID,
-        capacity: 1,
-        instruments: [INSTRUMENT],
-      })
-    ).then((d) => d.roomId);
+    /** `startDaysAgo`'dan geriye doğru yürüyerek `count` adet AÇIK gün üretir. */
+    function openPastDates(startDaysAgo: number, count: number, hours: string[]): string[] {
+      const found: string[] = [];
+      for (let offset = startDaysAgo; offset > 0 && found.length < count; offset -= 1) {
+        const iso = isoDaysAgo(offset, hours[found.length % hours.length]);
+        if (isOpenDay(iso)) found.push(iso);
+      }
+      if (found.length < count) {
+        throw new Error(
+          `Program Vitrini için ${count} açık geçmiş gün bulunamadı (${found.length} bulundu) — ` +
+            "kapalı gün kuralları demo için fazla dar."
+        );
+      }
+      return found;
+    }
 
+    /**
+     * Telafi kotası DÖNEM başınadır (`countStudentMakeupsInPeriod`). "N gün
+     * önce" sabit ofsetleri dönem sınırını görmez: dönem başında çalıştırılan
+     * seed, "aktif dönem" senaryolarını (Öğrenci A/B) bir ÖNCEKİ döneme
+     * yazıyordu — B "2/2 kullanıldı" yerine "0/2" görünüyordu. Tarihler artık
+     * uygulamanın kendi dönem çözümleyicisiyle seçiliyor.
+     */
+    const periodKeyOf = (iso: string): string => {
+      const period = resolveLessonAcademicPeriod({ startAt: iso }, "guz");
+      return `${period.academicYearStart}-${period.term}`;
+    };
+    const activePeriodKey = periodKeyOf(new Date().toISOString());
+
+    /** AKTİF dönemde kalan, kapalı olmayan geçmiş günler. */
+    function activePeriodPastDates(count: number, hours: string[]): string[] {
+      const found: string[] = [];
+      for (let offset = 1; offset <= 120 && found.length < count; offset += 1) {
+        const iso = isoDaysAgo(offset, hours[found.length % hours.length]);
+        if (periodKeyOf(iso) !== activePeriodKey) continue;
+        if (isOpenDay(iso)) found.push(iso);
+      }
+      if (found.length < count) {
+        throw new Error(
+          `Aktif dönemde (${activePeriodKey}) ${count} açık geçmiş gün bulunamadı ` +
+            `(${found.length} bulundu). Dönem henüz çok yeni olabilir — telafi ` +
+            "senaryoları aktif dönemde geçmiş ders gerektirir."
+        );
+      }
+      return found;
+    }
+
+    /** Bugünden ileriye yürüyerek `count` adet AÇIK gün üretir. */
+    function openFutureDates(startDaysAhead: number, count: number, hours: string[]): string[] {
+      const found: string[] = [];
+      for (let offset = startDaysAhead; offset < startDaysAhead + 90 && found.length < count; offset += 1) {
+        const iso = isoDaysAhead(offset, hours[found.length % hours.length]);
+        if (isOpenDay(iso)) found.push(iso);
+      }
+      if (found.length < count) {
+        throw new Error(`Program Vitrini için ${count} açık gelecek gün bulunamadı.`);
+      }
+      return found;
+    }
+
+    // Öğretmen/oda yarım kalmış bir çalıştırmadan kalmış olabilir — varsa
+    // yeniden kullanılır, yoksa oluşturulur (yinelenen kayıt üretmez).
+    const teacherId: string =
+      before.teachers.find((teacher) => teacher.name === DEMO_TEACHER_NAME)?.id ??
+      (await requireOk(
+        "createTeacherTool",
+        createTeacherTool(ctx, {
+          name: DEMO_TEACHER_NAME,
+          email: "",
+          phone: "0500 000 0001",
+          branchId: BRANCH_ID,
+          instrument: INSTRUMENT,
+          availability: wideOpenAvailability,
+        })
+      ).then((d) => d.teacherId));
+
+    const roomId: string =
+      before.rooms.find((room) => room.name === DEMO_ROOM_NAME)?.id ??
+      (await requireOk(
+        "createRoomTool",
+        createRoomTool(ctx, {
+          name: DEMO_ROOM_NAME,
+          branchId: BRANCH_ID,
+          capacity: 1,
+          instruments: [INSTRUMENT],
+        })
+      ).then((d) => d.roomId));
+
+    /** Ada göre bulur, yoksa oluşturur — yarım kalan seed yinelenen öğrenci üretmez. */
     async function createDemoStudent(name: string, phoneSuffix: string): Promise<string> {
+      const existing = before.students.find((student) => student.name === name);
+      if (existing) return existing.id;
       return requireOk(
         "createStudentTool",
         createStudentTool(ctx, {
@@ -164,6 +279,12 @@ async function main() {
           monthlyFee: 3000,
           enrollmentStartDate: isoDaysAgo(120).slice(0, 10),
           firstPaymentCollected: { method: "cash", amount: 3000, collectedAt: isoDaysAgo(120).slice(0, 10) },
+          // Kayıt 120 gün geriye tarihli olduğu için motorun ürettiği ilk dönem
+          // tutarı oransal çıkıyor ve sabit 3000 TL'den farklı oluyor; bu fark
+          // `first-payment-adjustment.ts` gereği GEREKÇESİZ geçemez (otomatik ≠
+          // manuel → reddedilir). Demo tutarını sabit tutmak bilinçli bir
+          // override, o yüzden gerekçe açıkça veriliyor — audit izi üretilir.
+          firstPaymentAdjustmentReason: `${DEMO_TAG} demo verisi — sabit gösterim tutarı.`,
         })
       ).then((d) => d.studentId);
     }
@@ -230,68 +351,104 @@ async function main() {
       });
     }
 
+    // A/B/D senaryoları AKTİF dönemde geçmiş ders ister (C bilerek önceki
+    // dönemde kalır). 4 gün: A=1, B=2, D=1.
+    const activePast = activePeriodPastDates(4, ["10:00", "11:00", "14:00", "15:00"]);
+
+    // Bir öğrencinin DERSİ zaten varsa, telafi senaryosu önceki (yarım kalan)
+    // çalıştırmada tamamlanmış demektir — yeniden üretmek kotayı bozar.
+    const needsScenario = (studentId: string) => !studentsWithLessons.has(studentId);
+
     // ---- Öğrenci A: aktif dönemde 1 onaylı telafi ----
     const studentA = await createDemoStudent(`${DEMO_TAG} Öğrenci A`, "2001");
-    const lessonA1 = await createPastLesson(studentA, isoDaysAgo(5));
-    await markConfirmed(await openMakeupRequest(lessonA1));
+    if (needsScenario(studentA)) {
+      const lessonA1 = await createPastLesson(studentA, activePast[0]);
+      await markConfirmed(await openMakeupRequest(lessonA1));
+    }
 
     // ---- Öğrenci B: aktif dönemde 2 onaylı telafi (hak kalmadı) ----
     const studentB = await createDemoStudent(`${DEMO_TAG} Öğrenci B`, "2002");
-    const lessonB1 = await createPastLesson(studentB, isoDaysAgo(6));
-    await markConfirmed(await openMakeupRequest(lessonB1));
-    const lessonB2 = await createPastLesson(studentB, isoDaysAgo(7));
-    await markConfirmed(await openMakeupRequest(lessonB2));
+    if (needsScenario(studentB)) {
+      const lessonB1 = await createPastLesson(studentB, activePast[1]);
+      await markConfirmed(await openMakeupRequest(lessonB1));
+      const lessonB2 = await createPastLesson(studentB, activePast[2]);
+      await markConfirmed(await openMakeupRequest(lessonB2));
+    }
 
     // ---- Öğrenci C: ÖNCEKİ dönemde 2 onaylı telafi, aktif dönemde 0 ----
     const studentC = await createDemoStudent(`${DEMO_TAG} Öğrenci C`, "2003");
-    const lessonC1 = await createPastLesson(studentC, isoPreviousPeriod(10));
-    await markConfirmed(await openMakeupRequest(lessonC1));
-    const lessonC2 = await createPastLesson(studentC, isoPreviousPeriod(12));
-    await markConfirmed(await openMakeupRequest(lessonC2));
+    if (needsScenario(studentC)) {
+      const lessonC1 = await createPastLesson(studentC, isoPreviousPeriod(10));
+      await markConfirmed(await openMakeupRequest(lessonC1));
+      const lessonC2 = await createPastLesson(studentC, isoPreviousPeriod(12));
+      await markConfirmed(await openMakeupRequest(lessonC2));
+    }
 
     // ---- Öğrenci D: iptal edilmiş telafi talebi — kota tüketmez ----
     const studentD = await createDemoStudent(`${DEMO_TAG} Öğrenci D`, "2004");
-    const lessonD1 = await createPastLesson(studentD, isoDaysAgo(4));
-    const requestD1 = await openMakeupRequest(lessonD1);
-    await requireOk(
-      "cancelMakeupLessonTool",
-      cancelMakeupLessonTool(ctx, { requestId: requestD1, decisionNote: `${DEMO_TAG} veli vazgeçti.` })
-    );
+    if (needsScenario(studentD)) {
+      const lessonD1 = await createPastLesson(studentD, activePast[3]);
+      const requestD1 = await openMakeupRequest(lessonD1);
+      await requireOk(
+        "cancelMakeupLessonTool",
+        cancelMakeupLessonTool(ctx, { requestId: requestD1, decisionNote: `${DEMO_TAG} veli vazgeçti.` })
+      );
+    }
 
     // ---- Program Vitrini öğrencisi: geçmiş + gelecek ders programı ----
-    const showcase = await createDemoStudent(`${DEMO_TAG} Program Vitrini`, "2005");
+    const showcase = await createDemoStudent(DEMO_SHOWCASE_NAME, "2005");
+    /**
+     * A–D ile AYNI kural: vitrin öğrencisinin dersleri zaten üretilmişse
+     * yeniden üretilmez. Bu blok eskiden koşulsuzdu — yarıda kalıp tekrar
+     * çalıştırılan her seed, vitrine 8 ders DAHA ekliyordu (aynı öğrenci +
+     * aynı başlangıç saatiyle yinelenen dersler).
+     */
+    if (!needsScenario(showcase)) {
+      console.log(
+        `Program Vitrini dersleri zaten mevcut — yeniden üretilmedi. ` +
+          `(Gelecek ders sayısı ${showcaseFutureLessons} < 3 ise demo yarım kalmıştır; ` +
+          "vitrin öğrencisinin derslerini temizleyip scripti tekrar çalıştırın.)"
+      );
+      console.log("Tamamlandı — mevcut demo verisi korundu.");
+      return;
+    }
 
-    const attended1 = await createPastLesson(showcase, isoDaysAgo(20));
+    // 8 geçmiş + 3 gelecek AÇIK gün — saatler bilinçli olarak farklı, vitrin
+    // farklı gün/saatlere dağılmış bir program göstersin.
+    const past = openPastDates(20, 8, ["10:00", "14:00", "16:00", "11:00", "09:00"]);
+    const upcoming = openFutureDates(2, 3, ["10:00", "15:00", "17:00"]);
+
+    const attended1 = await createPastLesson(showcase, past[0]);
     await requireOk("setLessonOpsFlagTool(attended)", setLessonOpsFlagTool(ctx, { lessonId: attended1, flag: "attended" }));
-    const attended2 = await createPastLesson(showcase, isoDaysAgo(19, "14:00"));
+    const attended2 = await createPastLesson(showcase, past[1]);
     await requireOk("setLessonOpsFlagTool(attended)", setLessonOpsFlagTool(ctx, { lessonId: attended2, flag: "attended" }));
 
-    const processed1 = await createPastLesson(showcase, isoDaysAgo(18));
+    const processed1 = await createPastLesson(showcase, past[2]);
     await requireOk(
       "setLessonOpsFlagTool(processed)",
       setLessonOpsFlagTool(ctx, { lessonId: processed1, flag: "processed", reason: `${DEMO_TAG} işlendi.` })
     );
-    const processed2 = await createPastLesson(showcase, isoDaysAgo(17, "16:00"));
+    const processed2 = await createPastLesson(showcase, past[3]);
     await requireOk(
       "setLessonOpsFlagTool(processed)",
       setLessonOpsFlagTool(ctx, { lessonId: processed2, flag: "processed", reason: `${DEMO_TAG} işlendi.` })
     );
 
-    const makeup1 = await createPastLesson(showcase, isoDaysAgo(16));
+    const makeup1 = await createPastLesson(showcase, past[4]);
     await requireOk(
       "setLessonOpsFlagTool(makeup)",
       setLessonOpsFlagTool(ctx, { lessonId: makeup1, flag: "makeup", reason: `${DEMO_TAG} telafi.` })
     );
-    const makeup2 = await createPastLesson(showcase, isoDaysAgo(15, "11:00"));
+    const makeup2 = await createPastLesson(showcase, past[5]);
     await requireOk(
       "setLessonOpsFlagTool(makeup)",
       setLessonOpsFlagTool(ctx, { lessonId: makeup2, flag: "makeup", reason: `${DEMO_TAG} telafi.` })
     );
 
-    const cancelled1 = await createPastLesson(showcase, isoDaysAgo(14));
+    const cancelled1 = await createPastLesson(showcase, past[6]);
     await requireOk("cancelLessonTool", cancelLessonTool(ctx, { lessonId: cancelled1 }));
 
-    const past8 = await createPastLesson(showcase, isoDaysAgo(13, "09:00"));
+    const past8 = await createPastLesson(showcase, past[7]);
     await requireOk("setLessonOpsFlagTool(attended)", setLessonOpsFlagTool(ctx, { lessonId: past8, flag: "attended" }));
 
     const upcoming1 = await requireOk(
@@ -301,7 +458,7 @@ async function main() {
         teacherId,
         roomId,
         instrument: INSTRUMENT,
-        startAt: isoDaysAhead(2, "10:00"),
+        startAt: upcoming[0],
       })
     ).then((d) => d.lessonId);
     const upcoming2 = await requireOk(
@@ -311,7 +468,7 @@ async function main() {
         teacherId,
         roomId,
         instrument: INSTRUMENT,
-        startAt: isoDaysAhead(9, "15:00"),
+        startAt: upcoming[1],
       })
     ).then((d) => d.lessonId);
     const upcoming3 = await requireOk(
@@ -321,7 +478,7 @@ async function main() {
         teacherId,
         roomId,
         instrument: INSTRUMENT,
-        startAt: isoDaysAhead(16, "17:00"),
+        startAt: upcoming[2],
       })
     ).then((d) => d.lessonId);
 

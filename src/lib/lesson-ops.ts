@@ -207,6 +207,7 @@ export function applyLessonOpsFlag(
   const lessons = data.lessons.map((l) => (l.id === lessonId ? { ...l, ...patch } : l));
 
   let makeupRequests = data.makeupRequests;
+  let attendances = data.attendances;
   const existingMk = makeupRequests.find(
     (m) => m.sourceLessonId === lessonId && m.status !== "cancelled" && m.status !== "expired"
   );
@@ -214,6 +215,28 @@ export function applyLessonOpsFlag(
     const quota = assertCanCreateMakeup(data, lesson.studentId, now, lesson.id);
     if (!quota.ok) return { ok: false, message: quota.message };
     const branch = data.settings.branches.find((b) => b.id === lesson.branchId);
+    /**
+     * `MakeupRequest.attendanceId` GERÇEK bir `Attendance` kaydına işaret
+     * ETMELİDİR (şemada zorunlu FK + @unique). Burada eskiden yoklama kaydı
+     * yoksa `uid("att")` ile HİÇBİR kayda karşılık gelmeyen bir id
+     * uyduruluyordu: json/memory modda referans denetlenmediği için sessizce
+     * "çalışıyor" görünüyor, STORE_MODE=db altında ise
+     * `MakeupRequest_attendanceId_fkey` ihlaliyle "Telafi" işaretleme TAMAMEN
+     * kırılıyordu. Yoklama yoksa artık gerçekten oluşturulur — telafi işareti
+     * zaten "öğrenci gelmedi ve hakkı doğdu" demektir.
+     */
+    let attendance = attendances.find((a) => a.lessonId === lessonId);
+    if (!attendance) {
+      attendance = {
+        id: uid("att"),
+        lessonId,
+        studentId: lesson.studentId,
+        status: "absent",
+        markedAt: nowIso,
+        createsMakeupCredit: true,
+      };
+      attendances = [...attendances, attendance];
+    }
     const req: MakeupRequest = {
       id: uid("mk"),
       studentId: lesson.studentId,
@@ -221,7 +244,7 @@ export function applyLessonOpsFlag(
       branchId: lesson.branchId,
       instrument: lesson.instrument,
       sourceLessonId: lesson.id,
-      attendanceId: data.attendances.find((a) => a.lessonId === lessonId)?.id ?? uid("att"),
+      attendanceId: attendance.id,
       status: "pending",
       reason: reason!.trim(),
       expiresAt: formatISO(addDays(now, data.settings.makeupWindowDays)),
@@ -232,7 +255,7 @@ export function applyLessonOpsFlag(
     makeupRequests = [...makeupRequests, req];
   }
 
-  const next = { ...data, lessons, makeupRequests };
+  const next = { ...data, lessons, makeupRequests, attendances };
   const nextLesson = lessons.find((l) => l.id === lessonId)!;
   // Telafi işareti hiçbir zaman mali sonuç doğurmaz (Package B) — öğrenci
   // aylık paket ücretiyle öder, ders/telafi bazlı otomatik tahsilat yok.

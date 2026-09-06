@@ -234,11 +234,35 @@ describe("seed script'leri artık JSON store'a doğrudan yazmıyor", () => {
     }
   });
 
-  it("idempotency anahtarı (demo öğretmen adı) korunuyor", () => {
+  /**
+   * İdempotency anahtarı ÖĞRETMEN adı DEĞİL, seed'in EN SON ürettiği
+   * artefakttır (vitrin öğrencisi + gelecek dersleri). Öğretmene bakmak,
+   * yarıda kalan bir seed'i kalıcı olarak kilitliyordu: öğretmen ilk adımda
+   * yazılıyor, sonraki adım patlarsa script bir daha asla devam edemiyordu.
+   */
+  it("idempotency anahtarı seed'in SON artefaktı (vitrin öğrencisi + gelecek ders)", () => {
     const src = readScript("seed-makeup-demo.ts");
-    expect(src).toMatch(/alreadySeeded/);
-    expect(src).toMatch(/DEMO_TEACHER_NAME/);
+    expect(src).toMatch(/DEMO_SHOWCASE_NAME/);
+    expect(src).toMatch(/showcaseFutureLessons/);
     expect(src).toMatch(/Atlandı/);
+    // Öğretmen/oda yarım kalan çalıştırmadan kalmış olabilir → find-or-create.
+    expect(src).toMatch(/DEMO_TEACHER_NAME/);
+    expect(src).toMatch(/before\.teachers\.find/);
+  });
+
+  it("her senaryo bloğu yinelenen kayda karşı korumalı (yarım kalan seed)", () => {
+    const src = readScript("seed-makeup-demo.ts");
+    expect(src).toMatch(/needsScenario/);
+    // Vitrin bloğu da koşullu olmalı — koşulsuzken her tekrar çalıştırma
+    // vitrine 8 ders DAHA ekliyordu.
+    expect(src).toMatch(/if \(!needsScenario\(showcase\)\)/);
+  });
+
+  it("tarihler kapalı gün ve dönem sınırına göre seçilir (sabit ofset değil)", () => {
+    const src = readScript("seed-makeup-demo.ts");
+    expect(src).toMatch(/resolveDayStatus/);
+    expect(src).toMatch(/activePeriodPastDates/);
+    expect(src).toMatch(/openPastDates/);
   });
 
   it("production guard'ı korunuyor", () => {
