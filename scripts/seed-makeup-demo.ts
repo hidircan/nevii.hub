@@ -15,11 +15,12 @@
  *
  * Telafi talepleri GERÇEK Tool Layer çağrılarıyla (createMakeupLessonTool /
  * cancelMakeupLessonTool) üretilir — kota kontrolü (assertCanCreateMakeup)
- * dahil tüm iş kuralları GERÇEKTEN çalışır. Yalnız "pending → confirmed"
- * geçişi (gerçek akış öğretmen uygunluk/slot önerisi + onay gerektirir, bu
- * script için gereksiz karmaşıklık) doğrudan store'a yazılır — AYNI, zaten
- * kabul edilmiş desen: seed-attendance-demo.ts geçmiş Lesson kayıtlarını
- * `createLessonTool`'un geçmiş-tarih kısıtı yüzünden doğrudan yazar.
+ * dahil tüm iş kuralları GERÇEKTEN çalışır. Üretim akışlarının BİLEREK
+ * reddettiği iki kayıt — geçmiş tarihli ders (PAST_START) ve önceki dönemde
+ * kalmış bir talebin onaylanması (AFTER_EXPIRY) — store soyutlamasının
+ * demo'ya özel `seedDemoRecords` kapısından yazılır (bkz. src/lib/demo-seed.ts).
+ * Bu kapı AKTİF store'a yazar, yani `STORE_MODE=db` altında kayıtlar JSON
+ * dosyasına DEĞİL PostgreSQL'e gider.
  *
  * İdempotenlik: script kendi DEMO öğretmeninin adından (aşağıdaki DEMO_TAG'i
  * içeren) tanır — ikinci çalıştırmada bu öğretmen zaten varsa TÜM seed adımı
@@ -31,12 +32,9 @@
  * Kullanım: npm run seed:makeup-demo (== npx tsx scripts/seed-makeup-demo.ts)
  */
 import "dotenv/config";
-import { readData } from "../src/lib/store";
-import { readData as readDataJson, writeData as writeDataJson } from "../src/lib/store-json";
+import { readData, seedDemoRecords } from "../src/lib/store";
 import { runWithTenantAsync } from "../src/lib/tenant-context";
 import { DEFAULT_TENANT_ID } from "../src/lib/auth/config";
-import { uid } from "../src/lib/utils";
-import type { Lesson } from "../src/lib/types";
 import {
   createTeacherTool,
   createRoomTool,
@@ -170,27 +168,32 @@ async function main() {
       ).then((d) => d.studentId);
     }
 
-    // Geçmiş bir ders TAM Tool katmanından geçirilemez (createLessonTool
-    // geçmiş startAt'ı reddeder) — seed-attendance-demo.ts ile AYNI,
-    // önceden kabul edilmiş desen: doğrudan store-json'a yazılır.
+    // Geçmiş bir ders TAM Tool katmanından geçirilemez (`createLessonTool`
+    // geçmiş startAt'ı reddeder; `validateLessonSlot` PAST_START). Bu koruma
+    // GERÇEK kullanıcı hatalarını önler ve GEVŞETİLMEZ — bunun yerine kayıt,
+    // store soyutlamasının demo'ya özel kapısından geçer. Kritik fark: bu kapı
+    // AKTİF store'a yazar, yani `STORE_MODE=db` altında ders PostgreSQL'e
+    // gider. (Eskiden doğrudan `store-json` kullanılıyordu; db modunda dersler
+    // JSON dosyasına, telafi talepleri veritabanına yazılıp veri ikiye
+    // bölünüyordu — bkz. src/lib/demo-seed.ts.)
     async function createPastLesson(studentId: string, startAt: string): Promise<string> {
       const endAt = new Date(new Date(startAt).getTime() + 40 * 60_000).toISOString();
-      const lesson: Lesson = {
-        id: uid("les"),
-        studentId,
-        teacherId,
-        roomId,
-        branchId: BRANCH_ID,
-        instrument: INSTRUMENT,
-        startAt,
-        endAt,
-        type: "regular",
-        status: "scheduled",
-      };
-      const data = await readDataJson();
-      data.lessons.push(lesson);
-      await writeDataJson(data);
-      return lesson.id;
+      const { lessonIds } = await seedDemoRecords({
+        lessons: [
+          {
+            studentId,
+            teacherId,
+            roomId,
+            branchId: BRANCH_ID,
+            instrument: INSTRUMENT,
+            startAt,
+            endAt,
+            type: "regular",
+            status: "scheduled",
+          },
+        ],
+      });
+      return lessonIds[0];
     }
 
     /** `createMakeupLessonTool` üzerinden GERÇEK kota kontrolüyle bir "pending" talep açar. */
@@ -208,19 +211,23 @@ async function main() {
 
     /**
      * "pending → confirmed" geçişi gerçek akışta öğretmen uygunluğu/slot
-     * önerisi + onay gerektirir; bu script için gereksiz karmaşıklık —
-     * seed-attendance-demo.ts'in geçmiş Lesson'ları doğrudan yazma
-     * hassasiyle AYNI ilkeyle, yalnız status alanı doğrudan güncellenir.
+     * önerisi + onay gerektirir. Öğrenci C senaryosu ÖNCEKİ dönemde kaldığı
+     * için `confirmMakeupSlot` onu AFTER_EXPIRY ile reddeder — yani gerçek
+     * akışla ÜRETİLEMEZ. Bu yüzden karar, store'un demo kapısından yazılır;
+     * `createPastLesson` ile AYNI kapı, dolayısıyla telafi kararı ve kaynak
+     * ders HER ZAMAN aynı persistence backend'ine gider.
      */
     async function markConfirmed(requestId: string): Promise<void> {
-      const data = await readDataJson();
-      const req = data.makeupRequests.find((m) => m.id === requestId);
-      if (!req) throw new Error(`Makeup request ${requestId} bulunamadı`);
-      req.status = "confirmed";
-      req.decidedBy = ctx.userId;
-      req.decidedAt = new Date().toISOString();
-      req.decisionNote = `${DEMO_TAG} demo onayı`;
-      await writeDataJson(data);
+      await seedDemoRecords({
+        makeupDecisions: [
+          {
+            requestId,
+            status: "confirmed",
+            decidedBy: ctx.userId,
+            decisionNote: `${DEMO_TAG} demo onayı`,
+          },
+        ],
+      });
     }
 
     // ---- Öğrenci A: aktif dönemde 1 onaylı telafi ----

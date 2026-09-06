@@ -1,3 +1,9 @@
+import {
+  applyDemoSeedRecords,
+  assertDemoSeedAllowed,
+  type DemoSeedInput,
+  type DemoSeedResult,
+} from "./demo-seed";
 import { promises as fs } from "fs";
 import path from "path";
 import { resolveDataDir } from "./config";
@@ -1345,4 +1351,16 @@ export async function reassignLessonTeacherOrBranchLive(input: ReassignLessonInp
     return result.ok ? result.data : data;
   });
   return result;
+}
+
+/**
+ * Demo/QA seed kapısı — bkz. `demo-seed.ts`. Üç backend'in json uygulaması.
+ * Production'da fail-closed.
+ */
+export async function seedDemoRecords(input: DemoSeedInput): Promise<DemoSeedResult> {
+  assertDemoSeedAllowed();
+  const data = await readData();
+  const result = applyDemoSeedRecords(data, input);
+  await writeData(result.data);
+  return { lessonIds: result.lessonIds };
 }

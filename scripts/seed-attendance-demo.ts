@@ -38,12 +38,9 @@
  * Kullanım: npm run seed:attendance-demo (== npx tsx scripts/seed-attendance-demo.ts)
  */
 import "dotenv/config";
-import { readData } from "../src/lib/store";
-import { readData as readDataJson, writeData as writeDataJson } from "../src/lib/store-json";
+import { readData, seedDemoRecords } from "../src/lib/store";
 import { runWithTenantAsync } from "../src/lib/tenant-context";
 import { DEFAULT_TENANT_ID } from "../src/lib/auth/config";
-import { uid } from "../src/lib/utils";
-import type { Lesson } from "../src/lib/types";
 import {
   createTeacherTool,
   createRoomTool,
@@ -180,33 +177,32 @@ async function main() {
     // geçmişte olamaz.") — bu, GERÇEK kullanıcı hatalarını (yanlışlıkla
     // geçmişe ders planlamak) önleyen DEĞERLİ bir korumadır ve BURADA
     // GEVŞETİLMEZ/kaldırılmaz. Bu script GEÇMİŞ (zaten olmuş) dersleri
-    // TEMSİL etmek zorunda olduğundan — `seed-ogrenci-demo-json.ts` ile
-    // AYNI, önceden kabul edilmiş desen: yalnız STORE_MODE=json için,
-    // Lesson kaydı `addLesson`'ın ÜRETTİĞİ AYNI şekilde doğrudan
-    // store-json'a yazılır (atomic — bkz. store-json.ts writeData). Ders
-    // OLUŞTUKTAN SONRAKİ durum geçişi (attended/processed/makeup/absent/
-    // excused/cancelled) GERÇEK Tool Layer çağrılarıyla yapılır (aşağıda)
-    // — `setLessonOpsFlagTool`/`cancelLessonTool` var olan bir dersin
-    // durumunu değiştirir, YENİ bir ders PLANLAMAZ, bu yüzden geçmiş
-    // tarih kısıtı hiç ÖNCELİKLE onlara uygulanmaz.
+    // TEMSİL etmek zorunda olduğundan, kayıt store soyutlamasının demo'ya
+    // özel kapısından (`seedDemoRecords`, bkz. src/lib/demo-seed.ts) geçer:
+    // kapı AKTİF store'a yazar, yani `STORE_MODE=db` altında ders JSON
+    // dosyasına DEĞİL veritabanına gider. Ders OLUŞTUKTAN SONRAKİ durum
+    // geçişi (attended/processed/makeup/absent/excused/cancelled) GERÇEK
+    // Tool Layer çağrılarıyla yapılır (aşağıda) — `setLessonOpsFlagTool`/
+    // `cancelLessonTool` var olan bir dersin durumunu değiştirir, YENİ bir
+    // ders PLANLAMAZ, bu yüzden geçmiş tarih kısıtı onlara uygulanmaz.
     async function createDemoLesson(studentId: string, startAt: string): Promise<string> {
       const endAt = new Date(new Date(startAt).getTime() + 40 * 60_000).toISOString();
-      const lesson: Lesson = {
-        id: uid("les"),
-        studentId,
-        teacherId,
-        roomId,
-        branchId: BRANCH_ID,
-        instrument: INSTRUMENT,
-        startAt,
-        endAt,
-        type: "regular",
-        status: "scheduled",
-      };
-      const data = await readDataJson();
-      data.lessons.push(lesson);
-      await writeDataJson(data);
-      return lesson.id;
+      const { lessonIds } = await seedDemoRecords({
+        lessons: [
+          {
+            studentId,
+            teacherId,
+            roomId,
+            branchId: BRANCH_ID,
+            instrument: INSTRUMENT,
+            startAt,
+            endAt,
+            type: "regular",
+            status: "scheduled",
+          },
+        ],
+      });
+      return lessonIds[0];
     }
 
     // 1) GELDİ (yeşil) — 5 Ağustos 2026 10:00.

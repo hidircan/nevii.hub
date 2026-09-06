@@ -1,3 +1,9 @@
+import {
+  assertDemoSeedAllowed,
+  newDemoLessonId,
+  type DemoSeedInput,
+  type DemoSeedResult,
+} from "./demo-seed";
 import { applyLessonOpsFlag, switchLessonOpsFlag, type LessonOpsFlag, type ApplyLessonOpsResult } from "./lesson-ops";
 import { allocateSequenceValueDb, formatDisplayId } from "./entity-sequence";
 import { markTeacherAttendance, type TeacherAttendanceStatus } from "./teacher-attendance";
@@ -2944,4 +2950,54 @@ export async function addRegistrationFirstPayment(input: {
   }
   const data = await readData();
   return { data, paymentId };
+}
+
+/**
+ * Demo/QA seed kapısı — bkz. `demo-seed.ts`. PostgreSQL uygulaması.
+ * Production'da fail-closed; tüm yazımlar aktif tenant'a scope'lanır.
+ */
+export async function seedDemoRecords(input: DemoSeedInput): Promise<DemoSeedResult> {
+  assertDemoSeedAllowed();
+  const tid = requireTenantId();
+  const lessonIds: string[] = [];
+
+  for (const l of input.lessons ?? []) {
+    const branch = await prisma.branch.findFirst({ where: { id: l.branchId, tenantId: tid } });
+    if (!branch) throw new Error("Şube bulunamadı");
+    const id = newDemoLessonId();
+    await prisma.lesson.create({
+      data: {
+        id,
+        tenantId: tid,
+        studentId: l.studentId,
+        teacherId: l.teacherId,
+        roomId: l.roomId,
+        branchId: l.branchId,
+        schoolId: branch.schoolId,
+        instrument: l.instrument,
+        startAt: new Date(l.startAt),
+        endAt: new Date(l.endAt),
+        type: l.type,
+        status: l.status,
+        makeupRequestId: l.makeupRequestId,
+        notes: l.notes,
+      },
+    });
+    lessonIds.push(id);
+  }
+
+  for (const d of input.makeupDecisions ?? []) {
+    const updated = await prisma.makeupRequest.updateMany({
+      where: { id: d.requestId, tenantId: tid },
+      data: {
+        status: d.status,
+        decidedBy: d.decidedBy,
+        decidedAt: new Date(),
+        decisionNote: d.decisionNote,
+      },
+    });
+    if (updated.count === 0) throw new Error(`Telafi talebi bulunamadı: ${d.requestId}`);
+  }
+
+  return { lessonIds };
 }

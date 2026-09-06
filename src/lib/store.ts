@@ -1,3 +1,4 @@
+import type { DemoSeedInput, DemoSeedResult } from "./demo-seed";
 import { STORE_MODE } from "./config";
 import * as jsonStore from "./store-json";
 import type {
@@ -224,6 +225,8 @@ type StoreApi = {
   updateSchoolLogoUrl: (logoUrl: string) => Promise<AppData>;
   getDashboardStats: (data: AppData) => ReturnType<typeof jsonStore.getDashboardStats>;
   listTenants: () => Promise<{ tenantId: string; name: string }[]>;
+  /** Demo/QA seed kapısı — bkz. demo-seed.ts. Uygulama kodundan çağrılmaz. */
+  seedDemoRecords: (input: DemoSeedInput) => Promise<DemoSeedResult>;
 };
 
 function getStore(): StoreApi {
@@ -666,4 +669,13 @@ export async function updateTermWeeklyClosedDays(
 
 export function getDashboardStats(data: AppData) {
   return store.getDashboardStats(data);
+}
+
+/**
+ * Demo/QA seed kapısı — AKTİF store'a yazar (json/memory/db), böylece
+ * `STORE_MODE=db` altında seed verisi JSON dosyasına DEĞİL veritabanına
+ * gider. Yalnız `scripts/seed-*.ts` tarafından çağrılır.
+ */
+export async function seedDemoRecords(input: DemoSeedInput): Promise<DemoSeedResult> {
+  return withTenantScope(() => store.seedDemoRecords(input));
 }

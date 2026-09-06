@@ -1,3 +1,9 @@
+import {
+  applyDemoSeedRecords,
+  assertDemoSeedAllowed,
+  type DemoSeedInput,
+  type DemoSeedResult,
+} from "./demo-seed";
 import { applyLessonOpsFlag, switchLessonOpsFlag, type LessonOpsFlag } from "./lesson-ops";
 import { allocateSequenceValue, formatDisplayId } from "./entity-sequence";
 import { markTeacherAttendance, type TeacherAttendanceStatus } from "./teacher-attendance";
@@ -1183,4 +1189,16 @@ export async function reassignLessonTeacherOrBranchLive(input: ReassignLessonInp
   const result = reassignLessonTeacherOrBranch(data, input);
   if (result.ok) save(result.data);
   return result;
+}
+
+/**
+ * Demo/QA seed kapısı — bkz. `demo-seed.ts`. json uygulamasıyla AYNI saf
+ * mantık, yalnız kalıcılık katmanı farklı. Production'da fail-closed.
+ */
+export async function seedDemoRecords(input: DemoSeedInput): Promise<DemoSeedResult> {
+  assertDemoSeedAllowed();
+  const data = load();
+  const result = applyDemoSeedRecords(data, input);
+  await save(result.data);
+  return { lessonIds: result.lessonIds };
 }
