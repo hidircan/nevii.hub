@@ -636,9 +636,16 @@ Bu yüzden bildirim hatası mutasyonu başarısız yapmaz; ama sessiz de değild
 | Kalem | Değer |
 |---|---|
 | Paralelleştirme commit'i | `1291eac258b09a7978f39b5812996e59d029c269` |
-| Preview deployment | `dpl_HvTvAN5md3KLHTGQVPn9ExsVKaTJ` — **READY** (120 sn'de) |
+| Takip commit'i (dinamik+memoize import) | `9854adfd1fb3962e10361f3dd7a45e5c29fab3dd` |
+| Preview deployment (1291eac) | `dpl_HvTvAN5md3KLHTGQVPn9ExsVKaTJ` — READY, 120 sn |
+| Preview deployment (9854adf, güncel) | `dpl_3wHTiNFkYjs35rUurgcoeGXBbQzM` — **Deployment completed**, 87 sn |
 | Alias | `test.neviihub.com`, `neviihub-git-test-hidircans-projects.vercel.app` |
 | Bölge | `iad1` |
+
+**Deployment Protection hâlâ açık:** `test.neviihub.com/api/v1/ready` ve
+doğrudan deployment URL'si 302 ile Vercel SSO'ya gidiyor, yani dağıtılmış
+build üzerinde doğrulama yine YAPILAMADI. Bypass denenmedi, credential
+istenmedi (bkz. §10, değişmedi).
 
 **Şeffaflık notu (bu turda yapılan bir hata ve düzeltmesi):** dağıtım
 izlenirken Vercel API'sinin `state` alanı ~50 dakika boyunca `BUILDING`
