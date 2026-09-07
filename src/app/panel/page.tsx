@@ -13,8 +13,6 @@ import { Badge, Card, PageHeader, StatCard } from "@/components/ui";
 import { LessonStatusBadge } from "@/components/lesson-status-badge";
 import { getDashboardStats } from "@/lib/store";
 import { resolveLessonFinalStatus } from "@/lib/lesson-live-status";
-import { actionResetDemo } from "@/lib/actions";
-import { SetupResetAction } from "@/components/setup-reset-action";
 import { formatDateTime, formatMoney, formatTime, isOutstandingPaymentStatus } from "@/lib/utils";
 import { buildDemoMessages } from "@/lib/whatsapp-templates";
 import { computeSetupProgress } from "@/lib/setup-progress";
@@ -137,25 +135,13 @@ export default async function DashboardPage() {
     <div>
       <KurumScopeNote scope={kurum.scope} />
       <AssistantPageContext entity={{ kind: "page", label: "Panel özeti" }} />
-      <PageHeader
-        title="Günlük özet"
-        actions={
-          <>
-            <SetupResetAction
-              action={actionResetDemo}
-              triggerLabel="Demo verisini sıfırla"
-              triggerVariant="secondary"
-              title="Demo verisi sıfırlansın mı?"
-              bullets={[
-                "Mevcut tüm öğretmen/öğrenci/ders/ödeme kayıtları silinir.",
-                "Yerine örnek demo verisi (Nilüfer Acar Müzik Akademisi) yüklenir.",
-                "Bu işlem geri alınamaz.",
-              ]}
-              confirmLabel="Demo verisini sıfırla"
-            />
-          </>
-        }
-      />
+      {/* UAT kararı (2026-09-07): "Demo verisini sıfırla" panel özetinden
+          TAMAMEN kaldırıldı. Yıkıcı bir geliştirici aracıydı ve gerçek
+          kullanıcıların günlük ekranında duruyordu; test ortamında
+          basıldığında React #441 ile patlıyordu (kök neden:
+          store-db.seedDatabase'teki FK silme sırası — ayrıca düzeltildi).
+          Kalan yerel-geliştirme girişi yalnız /panel/kurulum'dadır. */}
+      <PageHeader title="Günlük özet" />
 
       {!setupProgress.isReady && (
         <Link

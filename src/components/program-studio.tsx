@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -28,8 +28,13 @@ import { INSTRUMENTS, type Instrument, type Lesson, type Room, type Student, typ
 import { dayName } from "@/lib/utils";
 import { DEFAULT_LESSON_DURATION_MINUTES, LESSON_DURATION_OPTIONS } from "@/lib/lesson-duration";
 import { CALENDAR_START_HOUR, turkeyFixedPublicHolidays, toYmd } from "@/lib/closed-days";
-import { resolveLessonAcademicPeriod, lessonMatchesAcademicPeriod } from "@/lib/attendance-calendar";
-import { resolveLessonFinalStatus } from "@/lib/lesson-live-status";
+import {
+  resolveLessonAcademicPeriod,
+  lessonMatchesAcademicPeriod,
+  lessonCardFillStyle,
+  lessonCardMutedTextColor,
+} from "@/lib/attendance-calendar";
+import { resolveLessonFinalStatus, type LessonFinalStatus } from "@/lib/lesson-live-status";
 
 type ProgramStudioProps = {
   students: Student[];
@@ -214,45 +219,32 @@ export function lessonCardTier(heightPx: number): "min" | "compact" | "full" {
   return "full";
 }
 
-export type LessonCardStatusVisual = "attended" | "processed" | "makeup" | "default";
+export type LessonCardStatusVisual = LessonFinalStatus;
 
 /**
  * P0 (2026-09-05) — kullanıcı raporu: ders kutucuklarında durum yalnızca
  * detay modalındaki küçük bir `Badge`de görünüyordu, program IZGARASINDA
  * (asıl günlük kullanım yeri) hiç görünmüyordu. Tek gerçek kaynak
  * `resolveLessonFinalStatus` (lesson-live-status.ts, zaten test edilmiş) —
- * burada YENİDEN sınıflandırma mantığı YAZILMAZ, yalnız 3 durumu (Geldi/
- * İşlendi/Telafi) görsel bir kategoriye eşler. "planned"/"cancelled" bu
- * turda İSTENMEDİ — mevcut nötr görünümleri KORUNUR.
+ * burada YENİDEN sınıflandırma mantığı YAZILMAZ.
+ *
+ * P0 UAT (2026-09-07) — eskiden "planned"/"cancelled" tek bir "default"
+ * kategorisine katlanıyordu; artık `resolveLessonFinalStatus` çıktısı AYNEN
+ * taşınır, böylece "İptal" kendi (koyu gri) dolgusunu alır ve "Planlandı"
+ * nötr kalır. Renk/metin eşlemesinin TEK kaynağı
+ * `lessonCardFillStyle` (src/lib/attendance-calendar.ts) — burada ikinci bir
+ * Tailwind renk sözlüğü TUTULMAZ (önceden `bg-emerald-700`/`bg-rose-700`/
+ * `bg-amber-400` diye ayrı bir eşleme vardı ve takvimle ayrışmıştı).
  */
 export function lessonCardStatusVisual(lesson: Lesson, now: Date = new Date()): LessonCardStatusVisual {
-  const status = resolveLessonFinalStatus(lesson, now);
-  if (status === "attended") return "attended";
-  if (status === "processed") return "processed";
-  if (status === "makeup") return "makeup";
-  return "default";
+  return resolveLessonFinalStatus(lesson, now);
 }
-
-/** Kart arka planı — tam kutu, yalnız kenarlık/nokta DEĞİL (kullanıcı talebi). */
-const LESSON_CARD_STATUS_BG: Record<LessonCardStatusVisual, string> = {
-  attended: "bg-emerald-700 dark:bg-emerald-800",
-  processed: "bg-rose-700 dark:bg-rose-800",
-  makeup: "bg-amber-400 dark:bg-amber-500",
-  default: "bg-[var(--color-surface)]",
-};
-
-/** Doygun zeminlerde okunabilirlik için kontrastlı metin renkleri (koyu zeminde beyaz, sarıda koyu). */
-const LESSON_CARD_STATUS_TEXT: Record<LessonCardStatusVisual, { primary: string; muted: string }> = {
-  attended: { primary: "text-white", muted: "text-emerald-50" },
-  processed: { primary: "text-white", muted: "text-rose-50" },
-  makeup: { primary: "text-slate-900", muted: "text-slate-800" },
-  default: { primary: "text-[var(--color-text)]", muted: "text-[var(--color-text-muted)]" },
-};
 
 const LESSON_CARD_STATUS_LABEL: Partial<Record<LessonCardStatusVisual, string>> = {
   attended: "Geldi",
   processed: "İşlendi",
   makeup: "Telafi",
+  cancelled: "İptal",
 };
 
 /**
@@ -339,7 +331,7 @@ function LessonCardBody({
   lesson,
   branchName,
   tier,
-  statusVisual = "default",
+  statusVisual = "planned",
 }: {
   student?: Student;
   teacher?: Teacher;
@@ -349,7 +341,10 @@ function LessonCardBody({
   statusVisual?: LessonCardStatusVisual;
 }) {
   const timeRange = `${zonedHm(parseISO(lesson.startAt), DEFAULT_APP_TIMEZONE)}–${zonedHm(parseISO(lesson.endAt), DEFAULT_APP_TIMEZONE)}`;
-  const text = LESSON_CARD_STATUS_TEXT[statusVisual];
+  const text = {
+    primary: lessonCardFillStyle(statusVisual).color,
+    muted: lessonCardMutedTextColor(statusVisual),
+  };
   const statusLabel = LESSON_CARD_STATUS_LABEL[statusVisual];
   return (
     <>
@@ -362,17 +357,15 @@ function LessonCardBody({
         </TriangleAlert>
       ) : null}
       <p
-        className={`truncate font-bold leading-tight ${text.primary} ${
-          tier === "full" ? "text-[13px]" : "text-[11px]"
-        }`}
+        style={{ color: text.primary }}
+        className={`truncate font-bold leading-tight ${tier === "full" ? "text-[13px]" : "text-[11px]"}`}
         title={student?.name}
       >
         {student?.name}
       </p>
       <p
-        className={`truncate font-medium leading-tight ${text.muted} ${
-          tier === "full" ? "text-[11px]" : "text-[10px]"
-        }`}
+        style={{ color: text.muted }}
+        className={`truncate font-medium leading-tight ${tier === "full" ? "text-[11px]" : "text-[10px]"}`}
       >
         {timeRange}
         {/* Renk yalnız görsel — durum burada METİN olarak da görünür (ekran okuyucu + renk körlüğü için). */}
@@ -380,7 +373,8 @@ function LessonCardBody({
       </p>
       {tier !== "min" ? (
         <p
-          className={`truncate text-[10px] leading-tight ${text.muted}`}
+          style={{ color: text.muted }}
+          className="truncate text-[10px] leading-tight"
           title={`${teacher?.name ?? ""}${branchName ? ` · ${branchName}` : ""}`}
         >
           {teacher?.name}
@@ -388,7 +382,7 @@ function LessonCardBody({
         </p>
       ) : null}
       {tier === "full" ? (
-        <p className={`truncate text-[9px] leading-tight ${text.muted}`} title={lesson.instrument}>
+        <p style={{ color: text.muted }} className="truncate text-[9px] leading-tight" title={lesson.instrument}>
           {lesson.instrument}
         </p>
       ) : null}
@@ -567,13 +561,32 @@ export function ProgramStudio({
   // dersler `lessonMatchesAcademicPeriod`'un tarih-tabanlı fallback'i ile HÂLÂ
   // doğru şekilde dahil edilir — hiçbir ders sessizce kaybolmaz. Seçim yoksa
   // (selectedTerm undefined) filtre uygulanmaz — eski davranış aynen korunur.
+  /**
+   * P0 performans (2026-09-07) — İYİMSER (optimistic) taşıma/süre değişimi.
+   * Önceden ders kartı yalnızca sunucu cevabı geldikten SONRA yer
+   * değiştiriyordu; ölçülen bırakma→görünür süre ~8 sn'ydi (server action +
+   * ayrıca `router.refresh()` = İKİ tam RSC render'ı). Artık kart bırakılır
+   * bırakılmaz yeni yerinde çizilir; bu harita yalnızca sunucudan gelen
+   * `weekLessons` aynı değeri getirene kadar yaşar, istek başarısız olursa
+   * (aşağıda) hemen silinir ve kart eski yerine döner.
+   */
+  const [pendingLessonMoves, setPendingLessonMoves] = useState<
+    Record<string, { startAt: string; endAt: string }>
+  >({});
+  const effectiveWeekLessons = useMemo(
+    () =>
+      Object.keys(pendingLessonMoves).length === 0
+        ? weekLessons
+        : weekLessons.map((l) => (pendingLessonMoves[l.id] ? { ...l, ...pendingLessonMoves[l.id] } : l)),
+    [weekLessons, pendingLessonMoves]
+  );
   const scopedWeekLessons =
     selectedTerm && selectedAcademicYearStart
-      ? weekLessons.filter((l) => {
+      ? effectiveWeekLessons.filter((l) => {
           const owner = students.find((s) => s.id === l.studentId);
           return lessonMatchesAcademicPeriod(l, selectedTerm, selectedAcademicYearStart, owner?.termType ?? "guz");
         })
-      : weekLessons;
+      : effectiveWeekLessons;
 
   // ÖNCELİK 4 (devam) — döneme göre kapalı gün seti: Güz'de Pazartesi (eski
   // davranış, dönem seçili değilken de aynen korunur), Yaz'da Cumartesi+Pazar.
@@ -1090,13 +1103,36 @@ export function ProgramStudio({
       return;
     }
     setGridError(null);
+    const lesson = weekLessons.find((l) => l.id === lessonId);
+    if (!lesson) return;
+    // İyimser çizim — sunucu turunu BEKLEMEDEN. Süre korunur; yalnızca başlangıç taşınır.
+    const durationMs = parseISO(lesson.endAt).getTime() - parseISO(lesson.startAt).getTime();
+    setPendingLessonMoves((prev) => ({
+      ...prev,
+      [lessonId]: {
+        startAt: newStartAtIso,
+        endAt: new Date(new Date(newStartAtIso).getTime() + durationMs).toISOString(),
+      },
+    }));
     const result = await actionUpdateLessonSchedule({ lessonId, startAt: newStartAtIso });
+    // İyimser kayıt burada HER DURUMDA düşer: başarıda sunucu gerçeği zaten
+    // action yanıtıyla birlikte geldi (revalidatePath), hatada ise kart eski
+    // yerine döner — güvenli geri alma. Kayıt bırakılırsa ders başka bir
+    // yerden (seri iptali, başka sekme) değişse bile bu harita onu ezerdi.
+    setPendingLessonMoves((prev) => {
+      const next = { ...prev };
+      delete next[lessonId];
+      return next;
+    });
     if (!result.ok) {
       setGridError(`Değişiklik uygulanmadı: ${result.message}`);
       return;
     }
     setActionSuccess("Ders taşındı.");
-    router.refresh();
+    // `router.refresh()` YOK — `actionUpdateLessonSchedule` içindeki
+    // `revalidatePath` zaten bu sayfanın RSC ağacını action yanıtıyla birlikte
+    // tazeliyor (bkz. Next docs: revalidatePath > Server Functions). Ek
+    // `refresh()` İKİNCİ bir tam sayfa render'ıydı — ölçülen maliyeti ~1,5 sn.
   }
 
   function handleDrop(dayIso: string, slotMin: number) {
@@ -1139,16 +1175,30 @@ export function ProgramStudio({
       if (!ref) return;
       if (ref.currentDuration === ref.initialDuration) return;
       setGridError(null);
+      const moved = weekLessons.find((l) => l.id === ref.lessonId);
+      if (moved) {
+        setPendingLessonMoves((prev) => ({
+          ...prev,
+          [ref.lessonId]: {
+            startAt: moved.startAt,
+            endAt: new Date(parseISO(moved.startAt).getTime() + ref.currentDuration * 60_000).toISOString(),
+          },
+        }));
+      }
       const result = await actionUpdateLessonSchedule({
         lessonId: ref.lessonId,
         durationMinutes: ref.currentDuration,
+      });
+      setPendingLessonMoves((prev) => {
+        const next = { ...prev };
+        delete next[ref.lessonId];
+        return next;
       });
       if (!result.ok) {
         setGridError(`Değişiklik uygulanmadı: ${result.message}`);
         return;
       }
       setActionSuccess("Ders süresi güncellendi.");
-      router.refresh();
     }
 
     window.addEventListener("mousemove", onMove);
@@ -1830,15 +1880,18 @@ export function ProgramStudio({
                         }
                       }}
                       aria-label={lessonAccessibleLabel(lesson, student, teacher, room, branchNames[lesson.branchId])}
-                      className={`group absolute z-[1] flex flex-col rounded-md border border-[var(--color-border-strong)] ${LESSON_CARD_STATUS_BG[statusVisual]} p-1.5 text-[10px] shadow-[var(--shadow-sm)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-focus-ring)] hover:z-[20] ${
+                      className={`group absolute z-[1] flex flex-col rounded-md border border-[var(--color-border-strong)] p-1.5 text-[10px] shadow-[var(--shadow-sm)] transition-[filter] hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-focus-ring)] hover:z-[20] ${
                         editable ? "cursor-grab active:cursor-grabbing" : "cursor-pointer opacity-90"
-                      }`}
+                      } ${draggingLessonId === lesson.id ? "opacity-60 ring-2 ring-[var(--color-primary)]" : ""}`}
                       style={{
                         top,
                         height,
                         left: `${lane * widthPct}%`,
                         width: `calc(${widthPct}% - 2px)`,
                         borderLeft: `3px solid ${teacher?.color ?? "#A56A00"}`,
+                        // TAM kart dolgusu — TEK kaynak ATTENDANCE_CALENDAR_COLORS
+                        // (bkz. lessonCardFillStyle). Rozet/metin/aria-label AYNEN korunur.
+                        ...lessonCardFillStyle(statusVisual),
                       }}
                     >
                       {/* `min-h-0` — flex çocukları varsayılan `min-height:auto` içerikten KÜÇÜK
@@ -1924,10 +1977,12 @@ export function ProgramStudio({
                           type="button"
                           onClick={() => openDetail(lesson)}
                           aria-label={lessonAccessibleLabel(lesson, student, teacher, room, branchNames[lesson.branchId])}
-                          className={`block w-full rounded-[var(--radius-md)] border border-[var(--color-border-strong)] ${
-                            statusVisual === "default" ? "bg-[var(--color-surface-muted)]" : LESSON_CARD_STATUS_BG[statusVisual]
-                          } p-2.5 text-left text-xs hover:border-[var(--color-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-focus-ring)]`}
-                          style={{ borderLeft: `3px solid ${teacher?.color ?? "#A56A00"}` }}
+                          className="block w-full rounded-[var(--radius-md)] border border-[var(--color-border-strong)] p-2.5 text-left text-xs transition-[filter] hover:brightness-110 hover:border-[var(--color-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-focus-ring)]"
+                          style={{
+                            borderLeft: `3px solid ${teacher?.color ?? "#A56A00"}`,
+                            // Gün görünümünde de AYNI tam kart dolgusu (haftalık ızgarayla tek kaynak).
+                            ...lessonCardFillStyle(statusVisual),
+                          }}
                         >
                           <LessonCardBody
                             student={student}

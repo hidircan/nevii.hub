@@ -28,7 +28,7 @@
  * `students` prop'u üzerinde filtrelenmeye devam eder.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { X } from "lucide-react";
 import { foldTurkishForSearch } from "@/lib/normalize";
@@ -68,6 +68,16 @@ export function StudentAttendancePicker({
 
   const [query, setQuery] = useState(selectedStudent?.name ?? "");
   const [isOpen, setIsOpen] = useState(false);
+  /**
+   * P0 performans (2026-09-07) — öğrenci seçimi bir SUNUCU gezinmesidir
+   * (`?studentId=` -> server component yeniden render). Ölçümde bu ~1,2 sn
+   * sürüyordu ve o süre boyunca kullanıcıya HİÇBİR geri bildirim yoktu:
+   * eski öğrencinin adı ve takvimi ekranda kalıyordu. `useTransition`, tıklama
+   * anında (aynı kare içinde) bekleme durumunu verir — gerçek süreyi
+   * kısaltmaz, onu Phase 3'teki dönem uç noktası yapar; bu yalnızca
+   * "tıkladım, bir şey oluyor" geri bildirimidir.
+   */
+  const [isPending, startTransition] = useTransition();
   const [activeIndex, setActiveIndex] = useState(0);
   const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -111,9 +121,11 @@ export function StudentAttendancePicker({
   function select(student: AttendanceStudentOption) {
     const params = new URLSearchParams(searchParams.toString());
     params.set("studentId", student.id);
-    router.push(`${pathname}?${params.toString()}`);
     setQuery(student.name);
     setIsOpen(false);
+    startTransition(() => {
+      router.push(`${pathname}?${params.toString()}`);
+    });
   }
 
   function clear() {
@@ -164,6 +176,7 @@ export function StudentAttendancePicker({
           aria-activedescendant={activeOptionId}
           aria-autocomplete="list"
           autoComplete="off"
+          aria-busy={isPending}
           value={query}
           onChange={(e) => {
             setQuery(e.target.value);
@@ -242,7 +255,11 @@ export function StudentAttendancePicker({
       </div>
 
       <p id="attendance-student-search-count" className="text-xs text-[var(--color-text-muted)]" aria-live="polite">
-        {query ? `${filtered.length} öğrenci bulundu` : `${students.length} öğrenci`}
+        {isPending
+          ? "Öğrenci açılıyor…"
+          : query
+            ? `${filtered.length} öğrenci bulundu`
+            : `${students.length} öğrenci`}
       </p>
     </div>
   );

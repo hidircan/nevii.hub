@@ -585,8 +585,15 @@ export async function seedDatabase(seed: AppData) {
     prisma.user.deleteMany({ where: { tenantId: tid } }),
     prisma.teacherPayout.deleteMany({ where: { tenantId: tid } }),
     prisma.teacherFeeRule.deleteMany({ where: { tenantId: tid } }),
-    prisma.attendance.deleteMany({ where: { tenantId: tid } }),
+    // KÖK NEDEN (2026-09-07, "Demo verisini sıfırla" -> React #441): bu iki
+    // satır TERS SIRADAYDI. `MakeupRequest.attendanceId` ZORUNLU bir FK'dir
+    // (`MakeupRequest_attendanceId_fkey`); `$transaction([...])` verilen
+    // sırayla çalıştığı için Attendance önce silinince, hâlâ ona işaret eden
+    // MakeupRequest satırları yüzünden PostgreSQL 23503 atıyordu. Yalnızca
+    // telafi verisi OLAN tenant'larda (yani ilk seed'den sonra her zaman)
+    // patlıyordu — bu yüzden boş bir tenant'ta "çalışıyor" görünüyordu.
     prisma.makeupRequest.deleteMany({ where: { tenantId: tid } }),
+    prisma.attendance.deleteMany({ where: { tenantId: tid } }),
     prisma.payment.deleteMany({ where: { tenantId: tid } }),
     prisma.lesson.deleteMany({ where: { tenantId: tid } }),
     prisma.lessonSeries.deleteMany({ where: { tenantId: tid } }),
@@ -938,35 +945,41 @@ async function readDiscountCampaigns(tid: string): Promise<AppData["discountCamp
   }));
 }
 
+/**
+ * P0 performans (2026-09-07) — üç sorgu (School+ilişkiler, Package,
+ * DiscountCampaign) BİRBİRİNDEN BAĞIMSIZ; eskiden ardışık `await`
+ * ediliyorlardı, yani her `readData()` en az 3 ağ gidiş-dönüşü sürüyordu.
+ * Uzak bir havuz (Supabase pooler) üzerinde ölçülen fark: ~830 ms → ~500 ms.
+ * `readData()` neredeyse her sayfa render'ında ve her tool çağrısında
+ * çalıştığı için bu tasarruf tüm panelde geçerlidir.
+ */
 export async function readData(): Promise<AppData> {
   const tid = tenantId();
-  const school = await prisma.school.findFirst({
-    where: { tenantId: tid },
-    include: schoolInclude,
-  });
+  const [school, packages, discountCampaigns] = await Promise.all([
+    prisma.school.findFirst({ where: { tenantId: tid }, include: schoolInclude }),
+    readPackages(tid),
+    readDiscountCampaigns(tid),
+  ]);
 
   if (!school) {
     logger.info("readData", "no school for tenant, seeding", tid);
     const seed = createSeedData();
     seed.settings.tenantId = tid;
     await seedDatabase(seed);
-    const seededSchool = await prisma.school.findFirst({
-      where: { tenantId: tid },
-      include: schoolInclude,
-    });
+    const [seededSchool, seededPackages, seededCampaigns] = await Promise.all([
+      prisma.school.findFirst({ where: { tenantId: tid }, include: schoolInclude }),
+      readPackages(tid),
+      readDiscountCampaigns(tid),
+    ]);
     if (!seededSchool) throw new Error("Okul verisi bulunamadı");
     return {
       ...mapSchoolToAppData(seededSchool),
-      packages: await readPackages(tid),
-      discountCampaigns: await readDiscountCampaigns(tid),
+      packages: seededPackages,
+      discountCampaigns: seededCampaigns,
     };
   }
 
-  return {
-    ...mapSchoolToAppData(school),
-    packages: await readPackages(tid),
-    discountCampaigns: await readDiscountCampaigns(tid),
-  };
+  return { ...mapSchoolToAppData(school), packages, discountCampaigns };
 }
 
 export async function resetData(): Promise<AppData> {

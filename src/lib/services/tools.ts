@@ -13,6 +13,7 @@ import { computeStudentScore, type StudentScoreReport } from "../student-score";
 import { provisionEntityLogin, getUserIdByTeacherId, getUserById, getUserAccountStatus, getUserAccountStatusForTeacher, setUserActive } from "../auth/users";
 import { isRateLimited, getLatestPasswordResetRequestAt } from "../auth/password-reset";
 import { logger } from "../logger";
+import { isLocalDevTooling } from "../config";
 import {
   addBranch,
   addLesson,
@@ -397,6 +398,7 @@ import {
   type CollectionsSettings,
   type FeeRoundingMode,
   type Homework,
+  type AppData,
   type HomeworkSubmission,
   type Instrument,
   type LessonAssessment,
@@ -4865,12 +4867,23 @@ export async function updateLessonScheduleTool(
 
   const v = parseOrFail(updateLessonScheduleSchema, input);
   if (!v.ok) return v;
+
+  /**
+   * P0 performans (2026-09-07) — bu fonksiyon ders TAŞIMA yolunun tamamıdır ve
+   * eskiden tenant'ın TÜM `AppData`'sını BEŞ kez okuyordu: (1) kapalı gün
+   * kontrolü, (2) "önceki başlangıç" için, (3+4) `updateLessonSchedule`'ın
+   * kendi içinde, (5) sonuç için. db modunda her okuma ~520 ms olduğu için
+   * tek bir sürükle-bırak ~2.6 sn'yi yalnız TEKRARLANAN OKUMAYA harcıyordu
+   * (bkz. docs/performance/ADMIN_WEB_P0_BASELINE.md). Artık tool seviyesinde
+   * TEK okuma yapılır; yazma çağrısı zaten güncel `AppData`'yı DÖNDÜRDÜĞÜ
+   * için sonrasında da yeniden okunmaz.
+   */
+  const before = await readData();
+  const existing = before.lessons.find((l) => l.id === v.data.lessonId);
   if (v.data.startAt) {
     // ÖNCELİK 4 (devam) — taşınan dersin KENDİ dönem etiketi esas alınır
     // (varsa); yoksa legacy (yalnızca Pazartesi) davranış korunur.
-    const rescheduleData = await readData();
-    const existing = rescheduleData.lessons.find((l) => l.id === v.data.lessonId);
-    if (isWeeklyClosedDayForTerm(new Date(v.data.startAt), existing?.term, rescheduleData.settings.termWeeklyClosedDays)) {
+    if (isWeeklyClosedDayForTerm(new Date(v.data.startAt), existing?.term, before.settings.termWeeklyClosedDays)) {
       return fail(
         "VALIDATION_ERROR",
         existing?.term
@@ -4881,11 +4894,8 @@ export async function updateLessonScheduleTool(
   }
 
   try {
-    const before = await readData();
-    const previous = before.lessons.find((l) => l.id === v.data.lessonId);
-    const previousStartAt = previous?.startAt;
-    await updateLessonSchedule(v.data);
-    const data = await readData();
+    const previousStartAt = existing?.startAt;
+    const data = await updateLessonSchedule(v.data);
     const lesson = data.lessons.find((l) => l.id === v.data.lessonId);
     if (!lesson) return fail("NOT_FOUND", "Ders bulunamadı");
     if (previousStartAt && previousStartAt !== lesson.startAt) {
@@ -7632,6 +7642,16 @@ export async function resetDemoTool(
 ): Promise<ServiceResult<{ reset: true }>> {
   const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  // UAT kararı (2026-09-07) — demo sıfırlama yıkıcı bir GELİŞTİRME aracıdır;
+  // hiçbir test/preview/production kullanıcısı (yönetici rolü dahil) bunu
+  // çalıştıramaz. UI'ı gizlemek tek başına bir kontrol DEĞİLDİR — server
+  // action kimliği hâlâ çağrılabilir olduğu için kapı burada, sunucuda.
+  if (!isLocalDevTooling()) {
+    return fail(
+      "FORBIDDEN",
+      "Demo verisi sıfırlama yalnızca yerel geliştirmede kullanılabilir. Test/production ortamında veri reseti bir ops prosedürüdür."
+    );
+  }
   try {
     await resetData();
     // Tahsilat takip vakaları ve bildirimler AppData'nın dışında ayrı
@@ -10122,70 +10142,62 @@ export type AttendanceCalendarLessonOpsInfo = {
   availabilityOverride: boolean;
 };
 
-export async function getAttendanceCalendarMonthTool(
-  ctx: ServiceContext,
-  input: unknown
-): Promise<
-  ServiceResult<{
-    year: number;
-    month: number;
-    term: string;
-    withinTerm: boolean;
-    billing?: {
-      plannedLessonCount: number;
-      /** `Student.derivedPerLessonAmount` (kayıt anındaki snapshot) varsa o, yoksa (eski kayıt) taze türetilir. */
-      legacyUnitFee: number;
-      suggestedAmount: number;
-      usedFallback: boolean;
-    };
-    days: Array<{
-      date: string;
-      status: string;
-      reason: string;
-      label: string;
-      lessonIds: string[];
-      /**
-       * Kutu rengi (bkz. ATTENDANCE_CALENDAR_COLORS / resolveDayFillColor) —
-       * o günün derslerinden effectiveLessonOpsStatus ile türetilen gerçek
-       * Geldi/İşlendi/Telafi statüleri. Önceden bu bilgi takvime hiç
-       * taşınmıyordu (yalnızca lessonIds dönüyordu) — UI kutu rengini
-       * tahmin edemiyordu, sadece "planlı ders var" mavisini gösterebiliyordu.
-       */
-      lessons: AttendanceCalendarLessonOpsInfo[];
-      payments: AttendanceCalendarLessonPaymentInfo[];
-    }>;
-  }>
-> {
-  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "TEACHER", "SUPER_ADMIN", "AI_AGENT", "STUDENT"]);
-  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+/** Takvimin TEK ay yükünün (gün statüleri + ders/ödeme bilgisi + ücretlendirme) ortak şekli. */
+export type AttendanceCalendarMonth = {
+  year: number;
+  month: number;
+  term: string;
+  withinTerm: boolean;
+  billing?: {
+    plannedLessonCount: number;
+    /** `Student.derivedPerLessonAmount` (kayıt anındaki snapshot) varsa o, yoksa (eski kayıt) taze türetilir. */
+    legacyUnitFee: number;
+    suggestedAmount: number;
+    usedFallback: boolean;
+  };
+  days: Array<{
+    date: string;
+    status: string;
+    reason: string;
+    label: string;
+    lessonIds: string[];
+    /**
+     * Kutu rengi (bkz. ATTENDANCE_CALENDAR_COLORS / resolveDayFillSegments) —
+     * o günün derslerinden effectiveLessonOpsStatus ile türetilen gerçek
+     * Geldi/İşlendi/Telafi statüleri. Önceden bu bilgi takvime hiç
+     * taşınmıyordu (yalnızca lessonIds dönüyordu) — UI kutu rengini
+     * tahmin edemiyordu, sadece "planlı ders var" mavisini gösterebiliyordu.
+     */
+    lessons: AttendanceCalendarLessonOpsInfo[];
+    payments: AttendanceCalendarLessonPaymentInfo[];
+  }>;
+};
 
-  const v = parseOrFail(
-    z.object({
-      studentId: z.string().min(1),
-      year: z.number().int(),
-      month: z.number().int().min(1).max(12),
-    }),
-    input
-  );
-  if (!v.ok) return v;
-
-  const data = await readData();
-  const student = data.students.find((s) => s.id === v.data.studentId);
-  const access = await assertStudentAccess(ctx, student, v.data.studentId);
-  if (!access.ok) return fail(access.code, access.message);
-  if (!student) return fail("NOT_FOUND", "Öğrenci bulunamadı");
-
+/**
+ * P0 performans (2026-09-07) — bir ayın takvim yükünü ZATEN OKUNMUŞ
+ * `AppData` + kapalı gün listesinden üretir; kendisi HİÇBİR I/O yapmaz.
+ * Kök neden buydu: `getAttendanceCalendarMonthTool` her çağrıda tenant'ın
+ * TÜM `AppData`'sını (`readData()` — db modunda School + 12 relation) baştan
+ * okuyordu ve istemci bir dönem için bunu 10 KEZ, ÜSTELİK SIRAYLA yapıyordu
+ * (ölçüm: 10 × ~1.0 sn = ~10 sn). Aynı hesap artık dönem tool'unda tek bir
+ * okuma üzerinden 10 kez, I/O'suz çalışır.
+ */
+async function buildAttendanceCalendarMonth(
+  data: AppData,
+  overrides: Awaited<ReturnType<typeof listClosedDays>>,
+  student: Student,
+  year: number,
+  month: number
+): Promise<AttendanceCalendarMonth> {
   const term = student.termType ?? "guz";
-  const overrides = await listClosedDays(ctx.tenantId);
   const { resolveMonthStatuses } = await import("../attendance-calendar");
-  const statuses = resolveMonthStatuses(v.data.year, v.data.month, term, overrides, data.settings.termWeeklyClosedDays);
+  const statuses = resolveMonthStatuses(year, month, term, overrides, data.settings.termWeeklyClosedDays);
   // Ay bazında "dönem içi mi" (mobil "Güz/Yaz dönemi tatili" banner'ı için) —
   // güz: Eylül–Haziran her ay dönem içi; yaz: Temmuz/Ağustos dönem içi,
   // Eylül yalnızca uzatma tanımlıysa. Kök neden düzeltmesi: bu alan daha önce
   // hiç dönmüyordu, istemci `!undefined` -> her zaman true okuyup her ay
   // "dönem tatili" gösteriyordu (gerçek ders olsa bile).
-  const withinTerm =
-    term === "yaz" ? v.data.month === 7 || v.data.month === 8 : v.data.month >= 9 || v.data.month <= 6;
+  const withinTerm = term === "yaz" ? month === 7 || month === 8 : month >= 9 || month <= 6;
 
   const days = statuses.map((s) => {
     const dayLessons = data.lessons.filter((l) => l.studentId === student.id && l.startAt.slice(0, 10) === s.date);
@@ -10247,9 +10259,9 @@ export async function getAttendanceCalendarMonthTool(
   const { countBillableLessonsInRange, resolveExcludedMakeupSourceLessonIds, derivePerLessonAmount } = await import(
     "../period-lesson-billing"
   );
-  const monthPrefix = `${v.data.year}-${String(v.data.month).padStart(2, "0")}`;
+  const monthPrefix = `${year}-${String(month).padStart(2, "0")}`;
   const monthStartDay = `${monthPrefix}-01`;
-  const monthEndDay = `${monthPrefix}-${String(new Date(Date.UTC(v.data.year, v.data.month, 0)).getUTCDate()).padStart(2, "0")}`;
+  const monthEndDay = `${monthPrefix}-${String(new Date(Date.UTC(year, month, 0)).getUTCDate()).padStart(2, "0")}`;
   const excludedSourceLessonIds = resolveExcludedMakeupSourceLessonIds(
     data.makeupRequests.map((m) => ({ sourceLessonId: m.sourceLessonId, status: m.status }))
   );
@@ -10276,7 +10288,75 @@ export async function getAttendanceCalendarMonthTool(
     usedFallback: plannedLessonCount <= 0,
   };
 
-  return ok({ year: v.data.year, month: v.data.month, term, withinTerm, billing, days });
+  return { year, month, term, withinTerm, billing, days };
+}
+
+export async function getAttendanceCalendarMonthTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<AttendanceCalendarMonth>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "TEACHER", "SUPER_ADMIN", "AI_AGENT", "STUDENT"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+
+  const v = parseOrFail(
+    z.object({
+      studentId: z.string().min(1),
+      year: z.number().int(),
+      month: z.number().int().min(1).max(12),
+    }),
+    input
+  );
+  if (!v.ok) return v;
+
+  const data = await readData();
+  const student = data.students.find((s) => s.id === v.data.studentId);
+  const access = await assertStudentAccess(ctx, student, v.data.studentId);
+  if (!access.ok) return fail(access.code, access.message);
+  if (!student) return fail("NOT_FOUND", "Öğrenci bulunamadı");
+
+  const overrides = await listClosedDays(ctx.tenantId);
+  return ok(await buildAttendanceCalendarMonth(data, overrides, student, v.data.year, v.data.month));
+}
+
+/**
+ * P0 performans (2026-09-07) — bir DÖNEMİN tüm aylarını TEK istekte, TEK
+ * `readData()` ile döndürür. İstemci (attendance-calendar-panel.tsx) eskiden
+ * aynı bilgiyi ay ay, `for`+`await` ile SIRAYLA çekiyordu; ölçülen maliyet
+ * güz dönemi için 10 istek × ~1.0 sn ≈ 10 sn'ydi (bkz.
+ * docs/performance/ADMIN_WEB_P0_BASELINE.md). Yetki/kapsam kontrolü tek ay
+ * tool'uyla BİREBİR aynı yoldan (`requireRole` + `assertStudentAccess`)
+ * geçer — toplu uç nokta ayrı/gevşek bir yetki yolu AÇMAZ.
+ */
+export async function getAttendanceCalendarTermTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ term: string; anchorYear: number; months: AttendanceCalendarMonth[] }>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "TEACHER", "SUPER_ADMIN", "AI_AGENT", "STUDENT"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+
+  const v = parseOrFail(
+    z.object({
+      studentId: z.string().min(1),
+      term: z.enum(["guz", "yaz"]),
+      anchorYear: z.number().int().min(1970).max(2999),
+    }),
+    input
+  );
+  if (!v.ok) return v;
+
+  const data = await readData();
+  const student = data.students.find((s) => s.id === v.data.studentId);
+  const access = await assertStudentAccess(ctx, student, v.data.studentId);
+  if (!access.ok) return fail(access.code, access.message);
+  if (!student) return fail("NOT_FOUND", "Öğrenci bulunamadı");
+
+  const overrides = await listClosedDays(ctx.tenantId);
+  const { attendanceCalendarTermMonths } = await import("../attendance-calendar");
+  const months: AttendanceCalendarMonth[] = [];
+  for (const m of attendanceCalendarTermMonths(v.data.term, v.data.anchorYear)) {
+    months.push(await buildAttendanceCalendarMonth(data, overrides, student, m.year, m.month));
+  }
+  return ok({ term: v.data.term, anchorYear: v.data.anchorYear, months });
 }
 
 /** ÖNCELİK 4 — admin özel kapalı/zorla-açık gün istisnası (audit'li). */

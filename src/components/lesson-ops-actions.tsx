@@ -120,7 +120,13 @@ export function LessonOpsActions({
         setPendingSwitch({ from: (json.data.currentStatus as Flag) ?? effective ?? flag, to: flag, reason });
         return;
       }
-      router.refresh();
+      // P0 performans (2026-09-07) — `onSettled` veren çağıran (Yoklama
+      // Takvimi) etkilenen AYı zaten kendisi tazeliyor; ayrıca `router.refresh()`
+      // çağırmak, bu ekranda hiçbir şeyi değiştirmeyen İKİNCİ bir tam RSC
+      // render'ıydı (ölçüm: ~1,2 sn). `onSettled` vermeyen çağıranlar (Ders
+      // Programı detay modalı, öğretmen programı) statüyü sunucu prop'undan
+      // okuduğu için refresh onlarda KORUNUR.
+      if (!onSettled) router.refresh();
     } catch {
       setLocal(previous);
       setError("Bağlantı hatası. Tekrar deneyin.");

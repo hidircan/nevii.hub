@@ -307,34 +307,51 @@ export function AttendanceCalendarPanel({
    */
   const requestIdRef = useRef(0);
 
+  /**
+   * P0 performans (2026-09-07) — dönemin TÜM ayları TEK istekte gelir.
+   * Önceden burada `for (const m of months) await fetch(...)` vardı: güz
+   * için 10 ARDIŞIK istek, her biri sunucuda tenant'ın tüm `AppData`'sını
+   * yeniden okuyordu; ölçülen süre ~10 sn'ydi (bkz.
+   * docs/performance/ADMIN_WEB_P0_BASELINE.md). Tek ay uç noktası
+   * KALDIRILMADI — yoklama/override sonrası tekil ay tazelemesi hâlâ onu
+   * kullanır (aşağıya bkz.).
+   */
   const loadMonths = useCallback(
     async (signal: AbortSignal, requestId: number) => {
       setLoading(true);
       setLoadError(false);
-      const results: Record<string, MonthResponse> = {};
-      let anyFailure = false;
-      for (const m of months) {
-        try {
-          const res = await apiFetch(
-            `/api/v1/attendance-calendar/month?studentId=${studentId}&year=${m.year}&month=${m.month}`,
-            { signal }
-          );
-          const json = (await res.json()) as { ok: boolean; data?: MonthResponse };
-          if (json.ok && json.data) results[`${m.year}-${m.month}`] = json.data;
-          else anyFailure = true;
-        } catch (err) {
-          if ((err as { name?: string })?.name === "AbortError") return;
-          anyFailure = true;
+      // Bayat veri koruması: öğrenci/dönem/yıl değiştiğinde ÖNCEKİ seçimin
+      // takvimi ekranda BIRAKILMAZ. Eskiden `byMonth` temizlenmiyordu ve
+      // iskelet yalnızca harita BOŞKEN gösteriliyordu; sonuç, yeni öğrencinin
+      // adı altında önceki öğrencinin yoklamasının saniyelerce görünmesiydi.
+      setByMonth({});
+      try {
+        const res = await apiFetch(
+          `/api/v1/attendance-calendar/term?studentId=${studentId}&term=${term}&anchorYear=${anchorYear}`,
+          { signal }
+        );
+        const json = (await res.json()) as { ok: boolean; data?: { months: MonthResponse[] } };
+        // Yarışı önleyen asıl koruma: yanıt geldiğinde bu artık en son istek
+        // DEĞİLSE (kullanıcı arada öğrenci/dönem/yıl değiştirdiyse) state'e hiç yazma.
+        if (!shouldApplyMonthsResult(requestIdRef.current, requestId)) return;
+        if (json.ok && json.data) {
+          const results: Record<string, MonthResponse> = {};
+          for (const m of json.data.months) results[`${m.year}-${m.month}`] = m;
+          setByMonth(results);
+          setLoadError(false);
+        } else {
+          setByMonth({});
+          setLoadError(true);
         }
+      } catch (err) {
+        if ((err as { name?: string })?.name === "AbortError") return;
+        if (!shouldApplyMonthsResult(requestIdRef.current, requestId)) return;
+        setByMonth({});
+        setLoadError(true);
       }
-      // Yarışı önleyen asıl koruma: yanıt geldiğinde bu artık en son istek
-      // DEĞİLSE (kullanıcı arada term/yıl değiştirdiyse) state'e hiç yazma.
-      if (!shouldApplyMonthsResult(requestIdRef.current, requestId)) return;
-      setByMonth(results);
-      setLoadError(anyFailure);
       setLoading(false);
     },
-    [studentId, months]
+    [studentId, term, anchorYear]
   );
 
   const runLoadMonths = useCallback(() => {

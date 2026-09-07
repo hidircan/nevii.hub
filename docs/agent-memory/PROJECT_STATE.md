@@ -113,7 +113,44 @@ Tam kanıt/detay owner'a verilen "Canlıya Alım Hazırlık Raporu"nda — özet
 - Tam test suite: 2564/2565 geçti — tek hata bilinen/ilgisiz
   `lesson-series-tools.test.ts` kaydı (aşağıda zaten belgeli).
 
-## Current focus (last updated: 2026-09-06, test ortamı DB + migration + seed)
+## Current focus (last updated: 2026-09-07, P0 UAT: performans + demo reset + renkler)
+
+Worktree `~/Projects/neviihub-vercel-test-environment`, branch
+`infra/vercel-test-environment`. `main`'e DOKUNULMADI. Owner UAT'sindeki üç
+P0 bulgusu ölçümle kök nedene indirildi ve düzeltildi — tam rapor
+`docs/performance/ADMIN_WEB_P0_BASELINE.md`.
+
+1. **Yoklama Takvimi ~11.4 sn → ~1.6 sn.** Kök neden: istemci dönemin 10 ayını
+   ARDIŞIK çekiyor, her istek de tenant'ın TÜM `AppData`'sını okuyordu. Yeni
+   `getAttendanceCalendarTermTool` + `/api/v1/attendance-calendar/term` bir
+   dönemi TEK istekte, TEK `readData()` ile döndürür. Tek ay uç noktası tekil
+   tazeleme için KORUNDU. `readData()` içindeki 3 bağımsız sorgu paralel.
+2. **Öğrenci değişimi**: bayat veri (önceki öğrencinin takvimi) artık
+   gösterilmiyor; `useTransition` ile 100 ms altında görünür geri bildirim.
+   Ölçülen p95 **1 565 ms** — 1.5 sn hedefinin 65 ms üstünde (kalan iş §7.6).
+3. **Ders taşıma iyimser**: kart 80 ms'de yeni yerinde, başarısızlıkta güvenli
+   geri alma. Mutasyon başına İKİ RSC render'ı → BİR (gereksiz
+   `router.refresh()` kaldırıldı; `revalidatePath` zaten tazeliyor).
+   Sunucu action'ı hâlâ ~5.1 sn — P95 < 1 sn hedefi TUTTURULAMADI.
+4. **Demo reset UI'dan kaldırıldı**: panel özetinden tamamen, Kurulum
+   Merkezi'nde yalnız yerel geliştirmede. `resetDemoTool` yerel geliştirme
+   dışında fail-closed (`isLocalDevTooling()`, `src/lib/config.ts`).
+   React #441'in gerçek nedeni bulundu ve düzeltildi: `seedDatabase`'in FK
+   silme sırası (`MakeupRequest` → `Attendance`).
+5. **Renkler TEK kaynaktan, TAM kart dolgusu**: Ders Programı'ndaki ayrı
+   Tailwind renk haritası kaldırıldı; kart + gün kutusu artık
+   `ATTENDANCE_CALENDAR_COLORS`/`lessonCardFillStyle` kullanır. İptal → koyu
+   gri EKLENDİ. Tonlar ölçülen kontrasta göre AA'ya çekildi
+   (green-600→700, red-600→700) ve metin rengi artık HESAPLANIYOR — bu, mevcut
+   üç erişilebilirlik hatasını da düzeltti (planned 1.81:1, open 1.26:1).
+
+Kapılar: typecheck temiz, lint 0 hata (23 eski uyarı), **2685/2685 test**,
+`prisma validate` temiz, `next build` temiz.
+
+Ölçüm harness'ı: `scripts/bench-admin-p0.ts` (salt okunur).
+Test DB'de ölçüm sırasında değişen demo satırları raporun §10'unda listeli.
+
+## Önceki odak (2026-09-06, test ortamı DB + migration + seed)
 
 Worktree `~/Projects/neviihub-vercel-test-environment` (yerel branch
 `infra/vercel-test-environment`, `origin/test` ile aynı). Bu turda test

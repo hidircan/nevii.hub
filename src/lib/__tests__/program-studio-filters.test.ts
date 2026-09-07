@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { ATTENDANCE_CALENDAR_COLORS, lessonCardFillStyle } from "../attendance-calendar";
 import {
   filterLessonsForCalendar,
   activeTeachersForBranch,
@@ -296,12 +297,16 @@ describe("lessonAccessibleLabel — ders kartının erişilebilir açıklaması"
   });
 });
 
-describe("lessonCardStatusVisual — ders programı tam-kutu durum renkleri (2026-09-05)", () => {
+describe("lessonCardStatusVisual — ders programı tam-kutu durum renkleri (2026-09-05/07)", () => {
   const now = new Date("2026-08-03T12:00:00+03:00"); // dersten (10:00-10:45) SONRA
 
-  it("gelecekteki (henüz gerçekleşmemiş) ders 'default' — mevcut nötr görünüm korunur", () => {
+  it("gelecekteki (henüz gerçekleşmemiş) ders 'planned' — kart NÖTR kalır", () => {
+    // UAT (2026-09-07): eskiden "default" adında ayrı bir görsel kategori vardı;
+    // artık `resolveLessonFinalStatus` çıktısı AYNEN taşınır ve nötr görünüm
+    // renk katmanında (lessonCardFillStyle → var(--color-surface)) çözülür.
     const l = lesson({ startAt: "2026-08-04T10:00:00+03:00", endAt: "2026-08-04T10:45:00+03:00" });
-    expect(lessonCardStatusVisual(l, now)).toBe("default");
+    expect(lessonCardStatusVisual(l, now)).toBe("planned");
+    expect(lessonCardFillStyle(lessonCardStatusVisual(l, now)).backgroundColor).toBe("var(--color-surface)");
   });
 
   it("öğrenci geldi (studentAttended) → 'attended'", () => {
@@ -319,8 +324,17 @@ describe("lessonCardStatusVisual — ders programı tam-kutu durum renkleri (202
     expect(lessonCardStatusVisual(lesson({ opsMakeupFlag: true }), now)).toBe("makeup");
   });
 
-  it("iptal edilmiş ders 'default' — bu turda renklendirilmesi İSTENMEDİ", () => {
+  it("iptal edilmiş ders 'cancelled' → KOYU GRİ tam dolgu (UAT 2026-09-07 kararı)", () => {
+    // 2026-09-05'te bilinçli olarak nötr bırakılmıştı; owner UAT'sinde
+    // "İptal → koyu gri" olarak İSTENDİ ve eşleme canonical sözlüğe bağlandı.
     const l = lesson({ status: "cancelled" });
-    expect(lessonCardStatusVisual(l, now)).toBe("default");
+    expect(lessonCardStatusVisual(l, now)).toBe("cancelled");
+    expect(lessonCardFillStyle("cancelled").backgroundColor).toBe(ATTENDANCE_CALENDAR_COLORS.cancelled);
+  });
+
+  it("kart dolgusu Ders Programı ve Yoklama Takvimi'nde AYNI sözlükten gelir", () => {
+    for (const status of ["attended", "processed", "makeup", "cancelled"] as const) {
+      expect(lessonCardFillStyle(status).backgroundColor).toBe(ATTENDANCE_CALENDAR_COLORS[status]);
+    }
   });
 });

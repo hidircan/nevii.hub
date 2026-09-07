@@ -71,6 +71,18 @@ export async function notifyLessonRescheduled(input: {
   const title = "Ders saati değişti";
   const when = `${fmt(input.previousStartAt)} → ${fmt(input.lesson.startAt)}`;
   try {
+    /**
+     * P0 performans (2026-09-07) — bu üç bildirim BİRBİRİNDEN BAĞIMSIZ ve
+     * ardışık `await` edildikleri için ders taşımayı BLOKLAYAN yolda üç ayrı
+     * gidiş-dönüş oluşturuyorlar. `Promise.allSettled` ile paralelleştirmek
+     * DENENDİ ve GERİ ALINDI: `json`/`memory` modunda `createNotification`
+     * kilitsiz bir oku-değiştir-yaz'dır (`loadAll()` → `saveAll([...all, rec])`,
+     * bkz. src/lib/notifications/index.ts) — eşzamanlı iki yazımdan biri
+     * SESSİZCE KAYBOLUYOR. `notification-center-v2.test.ts > "taşıma eski→yeni
+     * saat yazar"` bunu yakaladı. Paralelleştirmenin ön koşulu, o dosyaya
+     * store-json'daki gibi bir yazma kilidi eklemektir (bkz.
+     * docs/performance/ADMIN_WEB_P0_BASELINE.md §7).
+     */
     const teacherUserId = await getUserIdByTeacherId(input.tenantId, input.lesson.teacherId);
     if (teacherUserId) {
       await notifyUserIfEnabled({

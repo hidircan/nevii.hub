@@ -576,3 +576,86 @@ Ders: bir modüle YALNIZCA `require()`/koşullu çağrı üzerinden ulaşılıyo
 bundler onu düşürebilir ve bunu build hatası olarak GÖRMEZSİN — hata ancak o
 mod canlıda çalıştığında ortaya çıkar. Statik import + `satisfies` ile bağla.
 Koruma: `src/lib/__tests__/store-mode-parity.test.ts`.
+
+## 2026-09-07 — "Yavaş" şikâyetinin kök nedeni sorgu planı değil, GİDİŞ-DÖNÜŞ SAYISIydı
+
+Owner UAT'sinde "Yoklama Takvimi ve Ders Programı yavaş" bildirildi. İlk
+refleks (index eksik mi, N+1 sorgu var mı) YANLIŞ olurdu — ölçüm başka bir
+şey gösterdi:
+
+- `/api/v1/attendance-calendar/month` tek çağrıda **1.03 sn** sürüyordu ve
+  istemci bir dönem için bunu **ay ay, `for`+`await` ile SIRAYLA 10 kez**
+  yapıyordu: ölçülen **10.1 sn**. Sorgu planı kusursuzdu; sorun aynı büyük
+  sorgunun 10 kez çalıştırılmasıydı.
+- Her ay çağrısı `readData()` ile tenant'ın **TÜM** `AppData`'sını okuyordu
+  (School + 12 ilişki). Tek öğrencinin tek ayı için tüm okulun verisi.
+- Ders taşıma `updateLessonScheduleTool`'da **5 kez** tam-tenant okuması
+  yapıyordu; üstüne istemci `router.refresh()` çağırarak server action'ın
+  `revalidatePath` ile ZATEN yaptığı RSC render'ını İKİNCİ kez tetikliyordu.
+
+Ders: "yavaş" raporunda önce **kaç kere ağa çıkıldığını** say, sonra her
+çıkışın maliyetine bak. Index/cache/region değişikliğine gitmeden önce
+gidiş-dönüş sayısını ölç — bu turda hiçbir index gerekmedi.
+
+İkinci ders — **ölçüm aracına da güvenme, önce doğrula**: ilk tarayıcı
+ölçümüm öğrenci değişimini "128 ms" olarak raporladı. Gerçekte navigasyon
+hiç tamamlanmamıştı; ekranda ÖNCEKİ öğrencinin takvimi durduğu için "veri
+görünür" kontrolü anında geçiyordu. Yani ölçüm aracı, ölçmeye çalıştığı
+hatanın (bayat veri) kurbanı oldu. Doğru ölçüt "başlık YENİ öğrenciye döndü
+VE takvim hücreleri doldu" olmalıydı; öyle ölçünce **1 565 ms** çıktı.
+
+Detay/tablo: `docs/performance/ADMIN_WEB_P0_BASELINE.md`.
+
+## 2026-09-07 — "Minified React error #441" bir hata DEĞİL, hatayı gizleyen sarmalayıcıdır
+
+"Demo verisini sıfırla" test ortamında `Minified React error #441` veriyordu.
+Bu kodun metni: *"An error occurred in the Server Components render. The
+specific message is omitted in production builds…"* — yani **gerçek istisnayı
+saklayan genel bir kapak**. Kodu aramak ("React 441 nedir") teşhis vermez.
+
+Gerçek istisna, YEREL ve tek kullanımlık bir PostgreSQL veritabanında yeniden
+üretilerek bulundu (test/production DB'ye DOKUNULMADAN — şema
+`prisma migrate diff --from-empty --to-schema | psql` ile kuruldu, `db push`
+DEĞİL; `db push` artık AI ajanları için açık onay istiyor):
+
+```
+Invalid `prisma.attendance.deleteMany()` invocation in store-db.ts:588
+Foreign key constraint violated on: `MakeupRequest_attendanceId_fkey`
+```
+
+`seedDatabase`'in `prisma.$transaction([...])` listesi **verilen sırayla**
+çalışır ve `Attendance`, ona zorunlu FK ile bağlı `MakeupRequest`'ten ÖNCE
+siliniyordu. Boş bir tenant'ta fark edilmiyordu — telafi verisi olan her
+tenant'ta patlıyordu. İkinci kat: `resetDemoTool` düzgün bir `fail(...)`
+dönüyor ama `actionResetDemo` bunu `assertOk` ile **throw**'a çeviriyor;
+server action'da yakalanmayan throw istemciye yalnız digest hatası olarak
+ulaşır.
+
+Dersler:
+1. Minified React hata kodlarının çoğu **sınıf** bildirir, neden değil.
+   Gerçek nedeni sunucu logundan veya yerel bir tekrar üretimden al.
+2. `$transaction([...])` **sıralıdır**; silme sırası FK grafiğini izlemek
+   zorundadır. Koruma elle tutulan bir listeye değil ŞEMAYA bağlanmalı:
+   `src/lib/__tests__/seed-database-delete-order.test.ts` Prisma şemasındaki
+   cascade ETMEYEN her FK için sırayı doğrular, DB bağlantısı gerektirmez.
+3. Bir `ServiceResult` hatasını `assertOk` ile throw'a çevirmek, kullanıcıya
+   anlamsız bir "Runtime Error" göstermenin en kısa yoludur (aynı desen
+   2026-08-29'da `actionAddStudent`'ta da yaşanmıştı — bkz. actions.ts yorumu).
+
+## 2026-09-07 — Paralelleştirme, kilitsiz oku-değiştir-yaz store'da veri kaybettirir
+
+Ders taşımadaki üç bildirimi (`notifyLessonRescheduled`) `Promise.allSettled`
+ile paralelleştirmek server action'ı **5 100 → 4 474 ms**'ye indirdi. Ama
+`notification-center-v2.test.ts` kırıldı: `json`/`memory` modunda
+`createNotification` kilitsiz bir oku-değiştir-yaz'dır
+(`loadAll()` → `saveAll([...all, record])`, `src/lib/notifications/index.ts:104`).
+Eşzamanlı iki yazımdan biri SESSİZCE kayboluyor.
+
+Değişiklik **geri alındı** ve nedeni koda yazıldı. Not: bu, bugün de var olan
+gizli bir hatadır — json modunda aynı anda iki istek bildirim yazarsa biri
+kaybolur; yalnızca bu turda görünür hale geldi.
+
+Ders: bir işi paralelleştirmeden önce, yazdığı deponun eşzamanlılık
+sözleşmesine bak. Prisma'nın güvenli olması, aynı fonksiyonun json/memory
+kolunun da güvenli olduğu anlamına GELMEZ (mode parity yalnız veri şeklinde
+değil, eşzamanlılık davranışında da geçerli).

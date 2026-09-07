@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowRight, BellRing, Building2, CheckCircle2, Circle, DoorOpen, Download, Music, RefreshCcw, Upload } from "lucide-react";
 import { actionResetDemo, actionResetToCleanTemplate } from "@/lib/actions";
+import { isLocalDevTooling } from "@/lib/config";
 import { readData } from "@/lib/store";
 import { Badge, Card, PageHeader } from "@/components/ui";
 import { computeSetupProgress, type SetupStepId } from "@/lib/setup-progress";
@@ -271,11 +272,16 @@ export default async function KurulumPage() {
         initialYaz={data.settings.termWeeklyClosedDays?.yaz ?? SUMMER_WEEKLY_CLOSED_DAYS}
       />
 
+      {/* UAT kararı (2026-09-07) — demo veri sıfırlama YALNIZCA yerel
+          geliştirmede render edilir; test/preview/production kullanıcı
+          arayüzünde HİÇ görünmez. `resetDemoTool` aynı kapıyı sunucu
+          tarafında da uygular (UI gizlemek tek başına yeterli değildir). */}
+      {isLocalDevTooling() ? (
       <Card className="mt-6 border-[var(--color-border)] bg-[var(--color-surface-muted)]">
         <div className="flex items-start gap-3">
           <RefreshCcw className="mt-0.5 h-5 w-5 shrink-0 text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]" />
           <div className="flex-1">
-            <p className="font-semibold text-[var(--color-text)] dark:text-slate-50">Demo ortamı</p>
+            <p className="font-semibold text-[var(--color-text)] dark:text-slate-50">Demo ortamı (yalnız yerel geliştirme)</p>
             <p className="mt-1 text-sm text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
               Demo verisini sıfırlamak mevcut demo öğretmen/öğrenci/ders/ödeme örneklerini geri
               yükler — sunum ve deneme amaçlıdır. Bu işlem yalnızca yönetici yetkisiyle yapılabilir
@@ -298,6 +304,7 @@ export default async function KurulumPage() {
           </div>
         </div>
       </Card>
+      ) : null}
 
       <Card className="mt-6 border-rose-200 bg-rose-50/40">
         <div className="flex items-start gap-3">

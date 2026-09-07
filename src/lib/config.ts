@@ -21,3 +21,18 @@ export function resolveDataDir(defaultDir: string) {
   }
   return defaultDir;
 }
+
+/**
+ * UAT kararı (2026-09-07) — "Demo verisini sıfırla" gibi YIKICI geliştirici
+ * araçları hiçbir test/preview/production kullanıcısına açılmaz; yalnız
+ * yerel geliştirmede vardır. Test verisi reseti artık bir ops prosedürüdür
+ * (bkz. docs/performance/ADMIN_WEB_P0_BASELINE.md → "Demo reset").
+ *
+ * `NODE_ENV !== "production"` TEK BAŞINA YETMEZ: Vercel Preview build'leri de
+ * `NODE_ENV=production` ile çalışır ama asıl ayırt edici, Vercel'in her
+ * dağıtımda tanımladığı `VERCEL` değişkenidir. İkisi birlikte fail-closed
+ * davranır — değişkenler hiç okunamazsa sonuç `false` (araç KAPALI) olur.
+ */
+export function isLocalDevTooling(): boolean {
+  return process.env.NODE_ENV !== "production" && !process.env.VERCEL;
+}
