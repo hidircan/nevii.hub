@@ -3,7 +3,7 @@ import { promises as fs } from "fs";
 import path from "path";
 import { resolveDataDir } from "../config";
 import { updateLessonScheduleTool, cancelLessonTool, createLessonTool } from "../services/tools";
-import { readData } from "../store";
+import { readData, updateLessonSchedule } from "../store";
 import { DEFAULT_TENANT_ID } from "../auth/config";
 import type { ServiceContext } from "../services/context";
 import { isWeeklyClosedDayForTerm } from "../attendance-calendar";
@@ -110,6 +110,40 @@ describe("updateLessonScheduleTool · store entegrasyonu", () => {
     const res = await updateLessonScheduleTool(ctx(), { lessonId, durationMinutes: 20 });
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.error.code).toBe("VALIDATION_ERROR");
+  });
+
+  /**
+   * P0 mutasyon performansı (2026-09-07) — kapalı gün kuralı tool'dan saf
+   * fonksiyona (`applyLessonScheduleUpdate`) taşındı. Kural artık STORE
+   * çağrısından geçen HER yolda uygulanır; tool'u atlayan bir çağıran da
+   * korunur. Eskiden yalnız tool içinde vardı.
+   */
+  it("kapalı güne taşıma, tool'u ATLAYIP doğrudan store çağrıldığında da reddedilir", async () => {
+    const lessonId = await scheduleFutureLesson();
+    const monday = new Date();
+    monday.setDate(monday.getDate() + ((8 - monday.getDay()) % 7 || 7));
+    monday.setHours(14, 0, 0, 0);
+    expect(monday.getDay()).toBe(1);
+
+    const outcome = await updateLessonSchedule({ lessonId, startAt: monday.toISOString() });
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) {
+      expect(outcome.code).toBe("CLOSED_DAY");
+      expect(outcome.message).toContain("kapalıdır");
+    }
+  });
+
+  it("başarılı taşıma, store'dan tam AppData DEĞİL yalnız güncellenmiş dersi döndürür", async () => {
+    const lessonId = await scheduleFutureLesson();
+    const before = await readData();
+    const original = before.lessons.find((l) => l.id === lessonId)!;
+    const target = new Date(new Date(original.startAt).getTime() + 60 * 60 * 1000).toISOString();
+
+    const outcome = await updateLessonSchedule({ lessonId, startAt: target });
+    if (!outcome.ok) return; // hedef saat doluysa bu tur bilgi vermez
+    expect(outcome.lesson.id).toBe(lessonId);
+    expect(outcome.previousStartAt).toBe(original.startAt);
+    expect(outcome).not.toHaveProperty("lessons");
   });
 });
 

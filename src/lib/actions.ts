@@ -194,6 +194,25 @@ function revalidateAll() {
   revalidatePath("/ogrenci");
 }
 
+/**
+ * P0 mutasyon performansı (2026-09-07) — ders takvimi mutasyonları için DAR
+ * revalidation. `revalidateAll()` 17 yolu ve `revalidatePath("/", "layout")`
+ * ile TÜM istemci router cache'ini geçersiz kılıyordu; bir dersin saatinin
+ * değişmesi öğrenci listesini, ödemeleri, kurulum ekranını veya kök layout'u
+ * ETKİLEMEZ. Yalnız dersin göründüğü yüzeyler tazelenir.
+ */
+function revalidateLessonSurfaces() {
+  revalidatePath("/panel");
+  revalidatePath("/panel/program");
+  revalidatePath("/panel/yoklama");
+  revalidatePath("/panel/telafi");
+  revalidatePath("/panel/bildirimler");
+  revalidatePath("/ogretmen");
+  revalidatePath("/ogretmen/program");
+  revalidatePath("/veli");
+  revalidatePath("/ogrenci");
+}
+
 function assertOk<T>(result: { ok: true; data: T } | { ok: false; error: { message: string } }): T {
   if (!result.ok) throw new Error(result.error.message);
   return result.data;
@@ -2677,7 +2696,7 @@ export async function actionUpdateLessonSchedule(input: {
   try {
     const result = await withAuthContext("actionUpdateLessonSchedule", (ctx) => updateLessonScheduleTool(ctx, input));
     if (!result.ok) return { ok: false, message: result.error.message };
-    revalidateAll();
+    revalidateLessonSurfaces();
     return { ok: true, ...result.data };
   } catch (error) {
     logger.error("actionUpdateLessonSchedule failed", error);
@@ -2693,7 +2712,7 @@ export async function actionCancelLesson(input: { lessonId: string }): Promise<C
   try {
     const result = await withAuthContext("actionCancelLesson", (ctx) => cancelLessonTool(ctx, input));
     if (!result.ok) return { ok: false, message: result.error.message };
-    revalidateAll();
+    revalidateLessonSurfaces();
     return { ok: true };
   } catch (error) {
     logger.error("actionCancelLesson failed", error);

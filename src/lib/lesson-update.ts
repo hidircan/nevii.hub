@@ -1,8 +1,13 @@
 import { differenceInMinutes, parseISO } from "date-fns";
 import type { AppData, Lesson } from "./types";
 import { validateLessonSlot, type SlotValidationCode } from "./makeup-engine";
+import { isWeeklyClosedDayForTerm } from "./attendance-calendar";
 
-export type LessonUpdateErrorCode = SlotValidationCode | "LESSON_NOT_FOUND" | "LESSON_NOT_EDITABLE";
+export type LessonUpdateErrorCode =
+  | SlotValidationCode
+  | "LESSON_NOT_FOUND"
+  | "LESSON_NOT_EDITABLE"
+  | "CLOSED_DAY";
 
 export type LessonUpdateResult =
   | { ok: true; data: AppData; lesson: Lesson }
@@ -58,6 +63,24 @@ export function applyLessonScheduleUpdate(
     };
   }
 
+  /**
+   * P0 performans (2026-09-07) — kapalı gün kuralı eskiden YALNIZCA
+   * `updateLessonScheduleTool` içinde, kendi `readData()` çağrısıyla
+   * uygulanıyordu. Kural buraya taşındı: (1) taşıma yolundan bir tam-tenant
+   * okuması eksilir, (2) kural artık store'un HANGİ yolundan gelinirse
+   * gelinsin uygulanır (tool, ajan, gelecekteki manuel form) — daha önce
+   * yalnız tek çağıranı koruyordu. Mesajlar bilinçli olarak DEĞİŞMEDİ.
+   */
+  if (input.startAt && isWeeklyClosedDayForTerm(parseISO(input.startAt), lesson.term, data.settings.termWeeklyClosedDays)) {
+    return {
+      ok: false,
+      code: "CLOSED_DAY",
+      message: lesson.term
+        ? `${lesson.term === "yaz" ? "Cumartesi/Pazar" : "Pazartesi"} bu dönemde okul kapalıdır — ders bu güne taşınamaz.`
+        : "Pazartesi okul kapalıdır — ders bu güne taşınamaz.",
+    };
+  }
+
   const currentDuration = differenceInMinutes(parseISO(lesson.endAt), currentStart);
   const newStartAt = input.startAt ?? lesson.startAt;
   const newDuration = input.durationMinutes ?? currentDuration;
@@ -104,3 +127,14 @@ export function applyLessonCancel(data: AppData, lessonId: string): LessonUpdate
   );
   return { ok: true, data: { ...data, lessons, payments }, lesson: updatedLesson };
 }
+
+/**
+ * P0 performans (2026-09-07) — store katmanının ders taşıma/süre güncelleme
+ * sonucu. Bilinçli olarak tam `AppData` DÖNMEZ: eski sözleşme, yazmadan sonra
+ * tenant'ın tamamını yeniden okumayı ZORUNLU kılıyordu (ölçüm: tek taşımada
+ * 14 gereksiz sorgu). Çağıranın ihtiyacı olan tek şey güncellenmiş ders ve
+ * bildirim için önceki başlangıç saatidir.
+ */
+export type LessonScheduleUpdateOutcome =
+  | { ok: true; lesson: Lesson; previousStartAt: string }
+  | { ok: false; code: LessonUpdateErrorCode; message: string };

@@ -39,6 +39,7 @@ import type {
   UpdateTeacherPayoutPaymentMethodResult,
 } from "./teacher-payout";
 import type { MakeupDecision } from "./makeup-engine";
+import type { LessonScheduleUpdateOutcome } from "./lesson-update";
 import type { LessonTimeCorrection, LessonLiveUpdateResult } from "./lesson-live-status";
 
 type StoreApi = {
@@ -155,11 +156,22 @@ type StoreApi = {
   }) => Promise<{ data: AppData; installments: ContractInstallmentView[] }>;
   /** P0 dedup fix (2026-08-30) — bir öğrencinin kayıt anında tahsil edilen ilk ödeme satırını bulur (bkz. addRegistrationFirstPayment). Sözleşme oluşturmanın bunu YENİDEN yaratması yerine BULUP yeniden kullanması için. */
   getRegistrationFirstPayment: (studentId: string) => Promise<Payment | null>;
+  /**
+   * P0 mutasyon performansı (2026-09-07) — tam `AppData` DEĞİL, yalnız
+   * güncellenmiş ders + önceki başlangıç döner (bkz. lesson-update.ts
+   * `LessonScheduleUpdateOutcome`). Doğrulama hatası artık FIRLATMAZ, sonuç
+   * nesnesinde döner; yalnız eşzamanlılık çakışması hâlâ fırlatır.
+   */
   updateLessonSchedule: (input: {
     lessonId: string;
     startAt?: string;
     durationMinutes?: number;
-  }) => Promise<AppData>;
+  }) => Promise<LessonScheduleUpdateOutcome>;
+  /**
+   * Dar okuma — tek ders mutasyonu için gereken en küçük `AppData` dilimi
+   * (bkz. src/lib/lesson-scope.ts). Tenant'ın tamamını OKUMAZ.
+   */
+  readLessonScope: (lessonId: string, targetStartAt?: string) => Promise<AppData | null>;
   cancelLesson: (lessonId: string) => Promise<AppData>;
   startLessonLive: (lessonId: string) => Promise<LessonLiveUpdateResult>;
   endLessonLive: (lessonId: string) => Promise<LessonLiveUpdateResult>;
@@ -508,8 +520,16 @@ export async function updateLessonSchedule(input: {
   lessonId: string;
   startAt?: string;
   durationMinutes?: number;
-}): Promise<AppData> {
+}): Promise<LessonScheduleUpdateOutcome> {
   return withTenantScope(() => store.updateLessonSchedule(input));
+}
+
+/** Dar okuma — bkz. StoreApi.readLessonScope / src/lib/lesson-scope.ts. */
+export async function readLessonScope(
+  lessonId: string,
+  targetStartAt?: string
+): Promise<AppData | null> {
+  return withTenantScope(() => store.readLessonScope(lessonId, targetStartAt));
 }
 
 export async function cancelLesson(lessonId: string): Promise<AppData> {

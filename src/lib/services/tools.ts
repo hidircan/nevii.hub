@@ -43,6 +43,7 @@ import {
   markTeacherPayoutPaid,
   updateTeacherPayoutPaymentMethod,
   readData,
+  readLessonScope,
   resetData,
   resetToCleanTemplate,
   startLessonLive,
@@ -4869,36 +4870,26 @@ export async function updateLessonScheduleTool(
   if (!v.ok) return v;
 
   /**
-   * P0 performans (2026-09-07) — bu fonksiyon ders TAŞIMA yolunun tamamıdır ve
-   * eskiden tenant'ın TÜM `AppData`'sını BEŞ kez okuyordu: (1) kapalı gün
-   * kontrolü, (2) "önceki başlangıç" için, (3+4) `updateLessonSchedule`'ın
-   * kendi içinde, (5) sonuç için. db modunda her okuma ~520 ms olduğu için
-   * tek bir sürükle-bırak ~2.6 sn'yi yalnız TEKRARLANAN OKUMAYA harcıyordu
-   * (bkz. docs/performance/ADMIN_WEB_P0_BASELINE.md). Artık tool seviyesinde
-   * TEK okuma yapılır; yazma çağrısı zaten güncel `AppData`'yı DÖNDÜRDÜĞÜ
-   * için sonrasında da yeniden okunmaz.
+   * P0 mutasyon performansı (2026-09-07) — bu fonksiyon ders TAŞIMA yolunun
+   * tamamıdır ve eskiden tenant'ın TÜM `AppData`'sını ÜÇ kez okuyordu: (1)
+   * kapalı gün kontrolü + "önceki başlangıç" için burada, (2+3)
+   * `updateLessonSchedule`'ın kendi içinde. ÖLÇÜLDÜ: tek taşıma = 64 DB
+   * gidiş-dönüşü, bunun 42'si bu üç tam-tenant okumasıydı
+   * (bkz. docs/performance/ADMIN_WEB_P0_BASELINE.md).
+   *
+   * Artık tool HİÇ okuma yapmaz: kapalı gün kuralı saf fonksiyona taşındı
+   * (`applyLessonScheduleUpdate`, kod "CLOSED_DAY") ve store yazma çağrısı
+   * güncellenmiş ders + önceki başlangıcı DAR bir dilimden döndürür.
    */
-  const before = await readData();
-  const existing = before.lessons.find((l) => l.id === v.data.lessonId);
-  if (v.data.startAt) {
-    // ÖNCELİK 4 (devam) — taşınan dersin KENDİ dönem etiketi esas alınır
-    // (varsa); yoksa legacy (yalnızca Pazartesi) davranış korunur.
-    if (isWeeklyClosedDayForTerm(new Date(v.data.startAt), existing?.term, before.settings.termWeeklyClosedDays)) {
-      return fail(
-        "VALIDATION_ERROR",
-        existing?.term
-          ? `${existing.term === "yaz" ? "Cumartesi/Pazar" : "Pazartesi"} bu dönemde okul kapalıdır — ders bu güne taşınamaz.`
-          : "Pazartesi okul kapalıdır — ders bu güne taşınamaz."
-      );
-    }
-  }
-
   try {
-    const previousStartAt = existing?.startAt;
-    const data = await updateLessonSchedule(v.data);
-    const lesson = data.lessons.find((l) => l.id === v.data.lessonId);
-    if (!lesson) return fail("NOT_FOUND", "Ders bulunamadı");
-    if (previousStartAt && previousStartAt !== lesson.startAt) {
+    const outcome = await updateLessonSchedule(v.data);
+    if (!outcome.ok) {
+      return outcome.code === "LESSON_NOT_FOUND"
+        ? fail("NOT_FOUND", outcome.message)
+        : fail("VALIDATION_ERROR", outcome.message);
+    }
+    const { lesson, previousStartAt } = outcome;
+    if (previousStartAt !== lesson.startAt) {
       try {
         const { notifyLessonRescheduled } = await import("../lesson-notifications");
         await notifyLessonRescheduled({
@@ -9934,9 +9925,16 @@ export async function setLessonOpsFlagTool(
   );
   if (!v.ok) return v;
 
-  const data = await readData();
-  const lesson = data.lessons.find((l) => l.id === v.data.lessonId);
-  if (!lesson) return fail("NOT_FOUND", "Ders bulunamadı");
+  /**
+   * P0 mutasyon performansı (2026-09-07) — burada eskiden tenant'ın TÜM
+   * `AppData`'sı okunuyordu (ölçüm: statü değişiminin 46 sorgusundan 42'si üç
+   * tam-tenant okumasıydı). Bu ön kontroller yalnız DERSİN kendisini,
+   * ÖĞRENCİSİNİ ve kurum ayarlarını gerektirir — dar dilim yeter
+   * (bkz. src/lib/lesson-scope.ts).
+   */
+  const data = await readLessonScope(v.data.lessonId);
+  const lesson = data?.lessons.find((l) => l.id === v.data.lessonId);
+  if (!data || !lesson) return fail("NOT_FOUND", "Ders bulunamadı");
   if (ctx.role === "TEACHER" && lesson.teacherId !== ctx.teacherId) {
     return fail("FORBIDDEN", "Yalnızca kendi dersinizde işlem yapabilirsiniz.");
   }

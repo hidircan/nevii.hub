@@ -258,3 +258,36 @@ describe("EPIC 1 — listNotificationsTool cursor sayfalama", () => {
     expect(after.data.unreadCount).toBe(0);
   });
 });
+
+/**
+ * P0 (2026-09-07) — json/memory yolundaki bildirim yazımı eskiden KİLİTSİZ bir
+ * oku-değiştir-yaz'dı: eşzamanlı iki yazımdan biri SESSİZCE KAYBOLUYORDU. Bu,
+ * ders taşıma bildirimlerini paralelleştirme denemesinde ölçülerek görülmüş ve
+ * o zaman kök neden düzeltilmeden paralelleştirme geri alınmıştı
+ * (docs/performance/ADMIN_WEB_P0_BASELINE.md §7.9). Kök neden bu turda
+ * kapatıldı — bu test onu kilitler.
+ */
+describe("createNotification · eşzamanlı yazım (json modu)", () => {
+  it("aynı anda yazılan bildirimlerin HİÇBİRİ kaybolmaz", async () => {
+    const total = 12;
+    await Promise.all(
+      Array.from({ length: total }, (_, i) =>
+        createNotification({
+          tenantId: DEFAULT_TENANT_ID,
+          targetUserId: `race_user_${i % 3}`,
+          kind: "test_race",
+          title: `T${i}`,
+          body: `B${i}`,
+        })
+      )
+    );
+
+    const seen = new Set<string>();
+    for (const userId of ["race_user_0", "race_user_1", "race_user_2"]) {
+      for (const n of await listNotificationsForUser({ tenantId: DEFAULT_TENANT_ID, userId })) {
+        if (n.kind === "test_race") seen.add(n.body);
+      }
+    }
+    expect(seen.size).toBe(total);
+  });
+});

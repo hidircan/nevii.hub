@@ -46,7 +46,12 @@ import {
   LessonSlotValidationError,
   type MakeupDecision,
 } from "./makeup-engine";
-import { applyLessonScheduleUpdate, applyLessonCancel } from "./lesson-update";
+import {
+  applyLessonScheduleUpdate,
+  applyLessonCancel,
+  type LessonScheduleUpdateOutcome,
+} from "./lesson-update";
+import { mergeLessonScope, narrowLessonScope } from "./lesson-scope";
 import {
   applyStartLesson,
   applyEndLesson,
@@ -636,16 +641,52 @@ export async function addLesson(input: {
   return next;
 }
 
+/** Dar okuma — bkz. lesson-scope.ts. json modunda dosya zaten tek parça okunur. */
+export async function readLessonScope(
+  lessonId: string,
+  targetStartAt?: string
+): Promise<AppData | null> {
+  return narrowLessonScope(await readData(), lessonId, targetStartAt);
+}
+
+/**
+ * P0 mutasyon performansı (2026-09-07) — tam `AppData` yerine yalnız
+ * güncellenmiş dersi döndürür (db modunda yazma sonrası tam okumayı kaldırmak
+ * için; bkz. lesson-update.ts LessonScheduleUpdateOutcome).
+ *
+ * Ayrıca oku-değiştir-yaz artık TEK dosya kilidi altında: eskiden
+ * `readData()` + `writeData()` kilitsizdi ve eşzamanlı iki taşımadan biri
+ * SESSİZCE kaybolabiliyordu (db modunda iyimser `updateMany` WHERE'i bunu
+ * zaten engelliyordu — parite açığıydı).
+ *
+ * Saf fonksiyon burada TAM veriyle çalışır; db modu aynı kuralları DAR bir
+ * dilimle çalıştırır. Dilim yetersizse (bir kural dilim dışındaki veriyi
+ * okuyorsa) fark testlerde ortaya çıksın diye `narrowLessonScope` uygulanır —
+ * iki mod aynı girdiyi görür (mode parity, bkz. lesson-scope.ts).
+ */
 export async function updateLessonSchedule(input: {
   lessonId: string;
   startAt?: string;
   durationMinutes?: number;
-}): Promise<AppData> {
-  const data = await readData();
-  const result = applyLessonScheduleUpdate(data, input);
-  if (!result.ok) throw new Error(result.message);
-  await writeData(result.data);
-  return result.data;
+}): Promise<LessonScheduleUpdateOutcome> {
+  let outcome: LessonScheduleUpdateOutcome = {
+    ok: false,
+    code: "LESSON_NOT_FOUND",
+    message: "Ders bulunamadı.",
+  };
+  await mutateStoreUnderLock(async (data) => {
+    const scope = narrowLessonScope(data, input.lessonId, input.startAt);
+    if (!scope) return data;
+    const original = scope.lessons.find((l) => l.id === input.lessonId)!;
+    const result = applyLessonScheduleUpdate(scope, input);
+    if (!result.ok) {
+      outcome = result;
+      return data;
+    }
+    outcome = { ok: true, lesson: result.lesson, previousStartAt: original.startAt };
+    return { ...data, lessons: data.lessons.map((l) => (l.id === result.lesson.id ? result.lesson : l)) };
+  });
+  return outcome;
 }
 
 export async function cancelLesson(lessonId: string): Promise<AppData> {
@@ -1301,9 +1342,16 @@ async function persistLessonOpsUnderLock(
     const data = JSON.parse(raw) as AppData;
     if (!data.settings.tenantId) data.settings.tenantId = DEFAULT_TENANT_ID;
     assertTenant(data);
-    const result = apply(data, lessonId, _flag, actorUserId, undefined, reason);
+    /**
+     * Mode parity (2026-09-07) — saf kural, db modundaki DAR dilimin AYNISIYLA
+     * çalıştırılır (bkz. lesson-scope.ts); sonuç bütüne birleştirilir. Böylece
+     * dilim yetersiz kalırsa json modunda koşan testler bunu YAKALAR.
+     */
+    const scope = narrowLessonScope(data, lessonId);
+    if (!scope) return { ok: false, message: "Ders bulunamadı." };
+    const result = apply(scope, lessonId, _flag, actorUserId, undefined, reason);
     if (result.ok && !result.alreadySet) {
-      await writeJsonFileAtomic(DATA_FILE, result.data);
+      await writeJsonFileAtomic(DATA_FILE, mergeLessonScope(data, result.data, lessonId));
     }
     return result;
   });

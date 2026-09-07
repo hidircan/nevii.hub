@@ -63,17 +63,23 @@ describe("applyLessonScheduleUpdate · taşıma (drag)", () => {
     };
     const data = { ...base, lessons: [...base.lessons, movable] };
 
-    let mondayOffset = -1;
+    // 2026-09-07: hedef gün Pazartesi'den PAZAR'a çekildi. t4 Salı–Cumartesi
+    // müsait, yani Pazartesi VE Pazar müsait değil; Pazartesi ayrıca kurumun
+    // haftalık KAPALI günü olduğu için `applyLessonScheduleUpdate` artık daha
+    // önce "CLOSED_DAY" döner (kural bu turda tool'dan saf fonksiyona taşındı)
+    // ve testin asıl konusu olan müsaitlik kuralına hiç sıra gelmezdi. Pazar
+    // kapalı gün DEĞİL — senaryo aynen korunur.
+    let sundayOffset = -1;
     for (let d = 1; d <= 14; d++) {
-      const day = new Date(FIXED_NOW);
-      day.setDate(day.getDate() + d);
-      if (day.getDay() === 1) {
-        mondayOffset = d;
+      const candidate = new Date(FIXED_NOW);
+      candidate.setDate(candidate.getDate() + d);
+      if (candidate.getDay() === 0) {
+        sundayOffset = d;
         break;
       }
     }
     const day = new Date(FIXED_NOW);
-    day.setDate(day.getDate() + mondayOffset);
+    day.setDate(day.getDate() + sundayOffset);
     day.setHours(15, 0, 0, 0);
 
     const result = applyLessonScheduleUpdate(

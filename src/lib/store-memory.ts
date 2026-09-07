@@ -46,7 +46,12 @@ import {
   LessonSlotValidationError,
   type MakeupDecision,
 } from "./makeup-engine";
-import { applyLessonScheduleUpdate, applyLessonCancel } from "./lesson-update";
+import {
+  applyLessonScheduleUpdate,
+  applyLessonCancel,
+  type LessonScheduleUpdateOutcome,
+} from "./lesson-update";
+import { mergeLessonScope, narrowLessonScope } from "./lesson-scope";
 import {
   applyStartLesson,
   applyEndLesson,
@@ -537,15 +542,28 @@ export async function addLesson(input: {
   return save({ ...data, lessons: [...data.lessons, lesson] });
 }
 
+/** Dar okuma — bkz. lesson-scope.ts. */
+export async function readLessonScope(
+  lessonId: string,
+  targetStartAt?: string
+): Promise<AppData | null> {
+  return narrowLessonScope(load(), lessonId, targetStartAt);
+}
+
+/** Bkz. store-json.ts aynı fonksiyon — dar dilim + dar dönüş (mode parity). */
 export async function updateLessonSchedule(input: {
   lessonId: string;
   startAt?: string;
   durationMinutes?: number;
-}): Promise<AppData> {
+}): Promise<LessonScheduleUpdateOutcome> {
   const data = load();
-  const result = applyLessonScheduleUpdate(data, input);
-  if (!result.ok) throw new Error(result.message);
-  return save(result.data);
+  const scope = narrowLessonScope(data, input.lessonId, input.startAt);
+  if (!scope) return { ok: false, code: "LESSON_NOT_FOUND", message: "Ders bulunamadı." };
+  const original = scope.lessons.find((l) => l.id === input.lessonId)!;
+  const result = applyLessonScheduleUpdate(scope, input);
+  if (!result.ok) return result;
+  save({ ...data, lessons: data.lessons.map((l) => (l.id === result.lesson.id ? result.lesson : l)) });
+  return { ok: true, lesson: result.lesson, previousStartAt: original.startAt };
 }
 
 export async function cancelLesson(lessonId: string): Promise<AppData> {
@@ -1143,10 +1161,17 @@ async function persistLessonOpsUnderLock(
   const preLesson = pre.lessons.find((l) => l.id === lessonId);
   const key = `${tenantKey()}:ops:${preLesson?.studentId ?? lessonId}`;
   return withKeyLock(key, async () => {
+    /**
+     * Mode parity (2026-09-07) — saf kural, db modundaki DAR dilimin AYNISIYLA
+     * çalıştırılır (bkz. lesson-scope.ts); sonuç bütüne birleştirilir. Böylece
+     * dilim yetersiz kalırsa json modunda koşan testler bunu YAKALAR.
+     */
     const data = load();
-    const result = apply(data, lessonId, _flag, actorUserId, undefined, reason);
+    const scope = narrowLessonScope(data, lessonId);
+    if (!scope) return { ok: false, message: "Ders bulunamadı." };
+    const result = apply(scope, lessonId, _flag, actorUserId, undefined, reason);
     if (result.ok && !result.alreadySet) {
-      save(result.data);
+      save(mergeLessonScope(data, result.data, lessonId));
     }
     return result;
   });

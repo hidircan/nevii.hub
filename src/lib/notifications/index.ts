@@ -8,6 +8,7 @@
 
 import path from "path";
 import { isDbMode, resolveDataDir } from "../config";
+import { withFileLock, writeJsonFileAtomic } from "../atomic-json-file";
 import { uid } from "../utils";
 import type { Notification as DbNotification } from "@prisma/client";
 import type { Notification } from "../types";
@@ -35,7 +36,28 @@ async function loadAll(): Promise<StoredNotification[]> {
 async function saveAll(rows: StoredNotification[]): Promise<void> {
   const fs = await import("fs/promises");
   await fs.mkdir(path.dirname(FILE), { recursive: true });
-  await fs.writeFile(FILE, JSON.stringify(rows, null, 2));
+  await writeJsonFileAtomic(FILE, rows);
+}
+
+/**
+ * P0 (2026-09-07) — json/memory yolundaki HER oku-değiştir-yaz bu kilidin
+ * altından geçmelidir. Öncesinde `loadAll()` + `saveAll(...)` kilitsizdi:
+ * aynı anda iki yazımdan biri SESSİZCE KAYBOLUYORDU. Bu, ders taşıma
+ * bildirimlerini paralelleştirme denemesinde ölçülerek görülmüş, o zaman
+ * düzeltme yerine paralelleştirme geri alınmıştı
+ * (bkz. docs/performance/ADMIN_WEB_P0_BASELINE.md §7.9) — burada kök neden
+ * kapatılıyor. `store-json.ts` ile AYNI iki katmanlı desen: kilit + atomik
+ * (geçici dosya + rename) yazım.
+ */
+async function mutateAllUnderLock<T>(
+  fn: (rows: StoredNotification[]) => { next: StoredNotification[] | null; result: T }
+): Promise<T> {
+  return withFileLock(FILE, async () => {
+    const all = await loadAll();
+    const { next, result } = fn(all);
+    if (next) await saveAll(next);
+    return result;
+  });
 }
 
 function toIso(date: Date | null): string | undefined {
@@ -103,7 +125,6 @@ async function createNotificationDb(input: CreateNotificationInput): Promise<Not
 
 export async function createNotification(input: CreateNotificationInput): Promise<Notification> {
   if (isDbMode) return createNotificationDb(input);
-  const all = await loadAll();
   const record: StoredNotification = {
     id: uid("notif"),
     tenantId: input.tenantId,
@@ -114,7 +135,7 @@ export async function createNotification(input: CreateNotificationInput): Promis
     body: input.body,
     createdAt: new Date().toISOString(),
   };
-  await saveAll([...all, record]);
+  await mutateAllUnderLock((all) => ({ next: [...all, record], result: undefined }));
   return toPublicNotification(record);
 }
 
@@ -238,20 +259,20 @@ export async function markNotificationRead(
 ): Promise<Notification | null> {
   if (!recipient.userId && !recipient.studentId) return null;
   if (isDbMode) return markNotificationReadDb(recipient, notificationId);
-  const all = await loadAll();
-  const idx = all.findIndex(
-    (n) =>
-      n.id === notificationId &&
-      n.tenantId === recipient.tenantId &&
-      ((recipient.userId && n.targetUserId === recipient.userId) ||
-        (recipient.studentId && n.targetStudentId === recipient.studentId))
-  );
-  if (idx === -1) return null;
-  const updated: StoredNotification = { ...all[idx], readAt: new Date().toISOString() };
-  const next = [...all];
-  next[idx] = updated;
-  await saveAll(next);
-  return toPublicNotification(updated);
+  return mutateAllUnderLock((all) => {
+    const idx = all.findIndex(
+      (n) =>
+        n.id === notificationId &&
+        n.tenantId === recipient.tenantId &&
+        ((recipient.userId && n.targetUserId === recipient.userId) ||
+          (recipient.studentId && n.targetStudentId === recipient.studentId))
+    );
+    if (idx === -1) return { next: null, result: null };
+    const updated: StoredNotification = { ...all[idx], readAt: new Date().toISOString() };
+    const next = [...all];
+    next[idx] = updated;
+    return { next, result: toPublicNotification(updated) };
+  });
 }
 
 async function listAllNotificationsDb(tenantId: string): Promise<Notification[]> {
@@ -281,7 +302,8 @@ async function clearNotificationsDb(tenantId: string): Promise<void> {
 /** Demo reset için — tenant'ın tüm bildirimlerini siler. */
 export async function clearNotifications(tenantId: string): Promise<void> {
   if (isDbMode) return clearNotificationsDb(tenantId);
-  const all = await loadAll();
-  const remaining = all.filter((n) => n.tenantId !== tenantId);
-  if (remaining.length !== all.length) await saveAll(remaining);
+  await mutateAllUnderLock((all) => {
+    const remaining = all.filter((n) => n.tenantId !== tenantId);
+    return { next: remaining.length !== all.length ? remaining : null, result: undefined };
+  });
 }

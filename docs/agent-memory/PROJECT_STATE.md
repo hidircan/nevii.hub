@@ -113,7 +113,48 @@ Tam kanıt/detay owner'a verilen "Canlıya Alım Hazırlık Raporu"nda — özet
 - Tam test suite: 2564/2565 geçti — tek hata bilinen/ilgisiz
   `lesson-series-tools.test.ts` kaydı (aşağıda zaten belgeli).
 
-## Current focus (last updated: 2026-09-07, P0 UAT: performans + demo reset + renkler)
+## Current focus (last updated: 2026-09-07, P0 mutation performansı)
+
+Worktree `~/Projects/neviihub-vercel-test-environment`, branch
+`infra/vercel-test-environment`. `main`'e DOKUNULMADI. **Test Supabase'e bu
+turda HİÇBİR yazma yapılmadı** — mutasyon ölçümleri yerel tek kullanımlık
+`notaplan_bench_p0` DB'sinde yapıldı (ölçüm sonrası silindi). Tam rapor:
+`docs/performance/LESSON_MUTATION_P0_REPORT.md`.
+
+Ders taşıma ve statü değiştirmenin KRİTİK YOLUNDAN tam-tenant `AppData`
+okumaları TAMAMEN kaldırıldı:
+
+- Taşıma **64 → 32** DB gidiş-dönüşü, statü **46 → 25** (3 tam okuma → 0).
+- Yeni TEK kaynak: `src/lib/lesson-scope.ts` (`narrowLessonScope`/
+  `mergeLessonScope`). db modu aynı dilimi filtrelenmiş Prisma
+  `include`'larıyla üretir (`store-db.readLessonScope`); json/memory de AYNI
+  dilimle çalışıp bütüne birleştirir — dilim yetersizse testler yakalar.
+- `updateLessonSchedule` artık `AppData` değil `{lesson, previousStartAt}`
+  döner ve doğrulama hatasını FIRLATMAZ (`LessonScheduleUpdateOutcome`).
+- Kapalı gün kuralı tool'dan saf fonksiyona taşındı (`CLOSED_DAY`) — artık
+  store'a giren her yolda uygulanıyor.
+- **Gerçek veri kaybı hatası düzeltildi**: `notifications/index.ts`
+  json/memory yazımları kilitsizdi; 12 eşzamanlı yazımdan 11'i kayboluyordu
+  (test kilit kaldırılarak KANITLANDI). Artık `withFileLock` +
+  `writeJsonFileAtomic`. Bu, önceki turda bildirim paralelleştirmesinin geri
+  alınma sebebiydi — ön koşul artık kapalı.
+- Ders mutasyonları `revalidateAll()` (17 yol + kök layout) yerine 9 ilgili
+  yolu tazeler.
+
+**Hedef (P95 < 1 sn) TUTMUYOR — dürüst durum:** yapay RTT ile ölçüldüğünde
+her iki mutasyon da **≤ ~30 ms DB gecikmesinde hedefi TUTUYOR**, ama mevcut
+preview'in **163 ms**'sinde (lambda `iad1` ↔ Supabase `ap-south-1`) taşıma
+4.16 sn, statü 1.84 sn. Kalan iki darboğaz: (1) bildirimler taşımanın kalan
+maliyetinin %75'i — paralelleştirme artık GÜVENLİ ama **onay bekliyor**,
+(2) bölge uyuşmazlığı (kod dışı, insan kararı).
+
+Kapılar: typecheck temiz, lint 0 hata (24 eski uyarı), **2699/2699 test**,
+`prisma validate` temiz, `next build` temiz.
+
+Ölçüm harness'ı: `scripts/bench-lesson-mutations.ts` — YAZMA yapar, bu yüzden
+yalnız yerel tek kullanımlık DB'de çalışır (guard'lı).
+
+## Önceki odak (2026-09-07, P0 UAT: performans + demo reset + renkler)
 
 Worktree `~/Projects/neviihub-vercel-test-environment`, branch
 `infra/vercel-test-environment`. `main`'e DOKUNULMADI. Owner UAT'sindeki üç

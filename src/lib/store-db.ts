@@ -47,7 +47,12 @@ import {
   LessonSlotValidationError,
   type MakeupDecision,
 } from "./makeup-engine";
-import { applyLessonScheduleUpdate, applyLessonCancel } from "./lesson-update";
+import {
+  applyLessonScheduleUpdate,
+  applyLessonCancel,
+  type LessonScheduleUpdateOutcome,
+} from "./lesson-update";
+import { lessonScopeDays } from "./lesson-scope";
 import {
   applyStartLesson,
   applyEndLesson,
@@ -95,7 +100,7 @@ import type { TeacherImportRow } from "./import/teachers";
 import type { RoomImportRow } from "./import/rooms";
 import type { StudentImportRow } from "./import/students";
 import type { ImportCommitResult } from "./import/commit-result";
-import { addDays } from "date-fns";
+import { addDays, endOfDay, startOfDay, subDays } from "date-fns";
 import { requireTenantId, tryTenantId } from "./tenant-context";
 import { DEFAULT_TENANT_ID } from "./auth/config";
 import { getBootstrapUsersForSeed } from "./auth/users";
@@ -1894,6 +1899,66 @@ export async function addLesson(input: {
   return readData();
 }
 
+/**
+ * P0 mutasyon performansı (2026-09-07) — DAR OKUMA.
+ *
+ * Dilimin tanımı ve gerekçesi `src/lib/lesson-scope.ts`'te (TEK kaynak);
+ * burada aynı dilim, tenant'ın tamamını çekmek yerine FİLTRELENMİŞ Prisma
+ * `include`'larıyla üretilir. `mapSchoolToAppData` aynen yeniden kullanılır —
+ * mapper tamamen varlık-başına çalışır, çapraz referans içermez.
+ *
+ * Bu yolda HİÇ kullanılmayan koleksiyonlar (`lessonSeries`, `teacherFeeRules`,
+ * `teacherPayouts`, `packages`, `discountCampaigns`) sorgulanmaz; boş dizi
+ * olarak verilir — her biri ayrı bir gidiş-dönüştür.
+ *
+ * Tenant kapsamı: `School` zaten `tenantId` ile bulunur, buna EK OLARAK her
+ * ilişki filtresine de `tenantId` yazılır (savunma derinliği).
+ */
+export async function readLessonScope(
+  lessonId: string,
+  targetStartAt?: string
+): Promise<AppData | null> {
+  const tid = requireTenantId();
+  const lessonRow = await prisma.lesson.findFirst({ where: { id: lessonId, tenantId: tid } });
+  if (!lessonRow) return null;
+
+  const days = lessonScopeDays({ startAt: lessonRow.startAt.toISOString() }, targetStartAt);
+  const windows = days.map((d) => ({
+    startAt: { gte: subDays(startOfDay(d), 1), lte: addDays(endOfDay(d), 1) },
+  }));
+
+  const school = await prisma.school.findFirst({
+    where: { tenantId: tid },
+    include: {
+      branches: true,
+      teachers: { where: { tenantId: tid, id: lessonRow.teacherId } },
+      students: { where: { tenantId: tid, id: lessonRow.studentId } },
+      rooms: { where: { tenantId: tid, id: lessonRow.roomId } },
+      lessons: {
+        where: {
+          tenantId: tid,
+          OR: [
+            { id: lessonRow.id },
+            { studentId: lessonRow.studentId },
+            ...windows.map((w) => ({ teacherId: lessonRow.teacherId, ...w })),
+            ...windows.map((w) => ({ roomId: lessonRow.roomId, ...w })),
+          ],
+        },
+      },
+      attendances: { where: { tenantId: tid, lessonId: lessonRow.id } },
+      makeupRequests: { where: { tenantId: tid, studentId: lessonRow.studentId } },
+      payments: { where: { tenantId: tid, lessonId: lessonRow.id } },
+    },
+  });
+  if (!school) return null;
+
+  return {
+    ...mapSchoolToAppData({ ...school, lessonSeries: [], teacherFeeRules: [], teacherPayouts: [] }),
+    packages: [],
+    discountCampaigns: [],
+  };
+}
+
 const CONCURRENT_UPDATE_MESSAGE =
   "Bu ders bu sırada başka bir işlemle değiştirildi. Lütfen sayfayı yenileyip tekrar deneyin.";
 
@@ -1907,21 +1972,24 @@ export async function updateLessonSchedule(input: {
   lessonId: string;
   startAt?: string;
   durationMinutes?: number;
-}): Promise<AppData> {
+}): Promise<LessonScheduleUpdateOutcome> {
   logger.info("updateLessonSchedule", input.lessonId);
   const tid = requireTenantId();
-  const data = await readData();
+  // Tam tenant okuması yerine DAR dilim (bkz. readLessonScope).
+  const data = await readLessonScope(input.lessonId, input.startAt);
+  if (!data) return { ok: false, code: "LESSON_NOT_FOUND", message: "Ders bulunamadı." };
   const original = data.lessons.find((l) => l.id === input.lessonId);
+  if (!original) return { ok: false, code: "LESSON_NOT_FOUND", message: "Ders bulunamadı." };
   const result = applyLessonScheduleUpdate(data, input);
-  if (!result.ok) throw new Error(result.message);
+  if (!result.ok) return result;
 
   const updateResult = await prisma.lesson.updateMany({
     where: {
       id: input.lessonId,
       tenantId: tid,
-      startAt: new Date(original!.startAt),
-      endAt: new Date(original!.endAt),
-      status: original!.status,
+      startAt: new Date(original.startAt),
+      endAt: new Date(original.endAt),
+      status: original.status,
     },
     data: {
       startAt: new Date(result.lesson.startAt),
@@ -1929,7 +1997,9 @@ export async function updateLessonSchedule(input: {
     },
   });
   if (updateResult.count === 0) throw new Error(CONCURRENT_UPDATE_MESSAGE);
-  return readData();
+  // Yazma sonrası tam `AppData` okuması KALDIRILDI — çağıranın tek ihtiyacı
+  // güncellenmiş ders ve bildirim için önceki başlangıç saati.
+  return { ok: true, lesson: result.lesson, previousStartAt: original.startAt };
 }
 
 export async function cancelLesson(lessonId: string): Promise<AppData> {
@@ -2117,7 +2187,9 @@ async function persistLessonOpsResult(
           reason: att.reason,
           markedAt: new Date(att.markedAt),
           createsMakeupCredit: att.createsMakeupCredit,
-          schoolId: (await prisma.lesson.findFirst({ where: { id: lessonId } }))!.schoolId,
+          // Tenant kapsamı: bu sorgu daha önce tenantId taşımıyordu (bkz. CLAUDE.md
+          // "Multi-tenancy — the security boundary"); eklendi.
+          schoolId: (await prisma.lesson.findFirst({ where: { id: lessonId, tenantId: tid } }))!.schoolId,
         },
       });
     }
@@ -2154,9 +2226,13 @@ async function persistLessonOpsResult(
     }
   }
 
-  const next = await readData();
-  const nextLesson = next.lessons.find((l) => l.id === lessonId)!;
-  return { ok: true, alreadySet: false, data: next, lesson: nextLesson, message: result.message };
+  /**
+   * P0 mutasyon performansı (2026-09-07) — burada eskiden tam `AppData`
+   * yeniden okunuyordu (14 sorgu) yalnızca "güncellenmiş dersi" döndürmek
+   * için. Saf sonuç (`result`) DB'ye az önce yazdığımız değerlerin ta
+   * kendisidir; yeniden okumaya gerek yok.
+   */
+  return { ok: true, alreadySet: false, data: result.data, lesson: result.lesson, message: result.message };
 }
 
 export async function applyLessonOpsFlagLive(
@@ -2166,7 +2242,9 @@ export async function applyLessonOpsFlagLive(
   reason?: string
 ): Promise<ApplyLessonOpsResult> {
   logger.info("applyLessonOpsFlagLive", lessonId, flag);
-  const data = await readData();
+  // Tam tenant okuması yerine DAR dilim (bkz. readLessonScope / lesson-scope.ts).
+  const data = await readLessonScope(lessonId);
+  if (!data) return { ok: false, message: "Ders bulunamadı." };
   const result = applyLessonOpsFlag(data, lessonId, flag, actorUserId, undefined, reason);
   return persistLessonOpsResult(lessonId, flag, result);
 }
@@ -2179,7 +2257,9 @@ export async function switchLessonOpsFlagLive(
   reason?: string
 ): Promise<ApplyLessonOpsResult> {
   logger.info("switchLessonOpsFlagLive", lessonId, flag);
-  const data = await readData();
+  // Tam tenant okuması yerine DAR dilim (bkz. readLessonScope / lesson-scope.ts).
+  const data = await readLessonScope(lessonId);
+  if (!data) return { ok: false, message: "Ders bulunamadı." };
   const result = switchLessonOpsFlag(data, lessonId, flag, actorUserId, undefined, reason);
   return persistLessonOpsResult(lessonId, flag, result);
 }

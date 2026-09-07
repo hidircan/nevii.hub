@@ -659,3 +659,41 @@ Ders: bir işi paralelleştirmeden önce, yazdığı deponun eşzamanlılık
 sözleşmesine bak. Prisma'nın güvenli olması, aynı fonksiyonun json/memory
 kolunun da güvenli olduğu anlamına GELMEZ (mode parity yalnız veri şeklinde
 değil, eşzamanlılık davranışında da geçerli).
+
+## 2026-09-07 — Mutasyon yolunda tam `AppData` okumak: ölçün, tahmin etmeyin
+
+**Ne yanlıştı.** `updateLessonScheduleTool` ve `setLessonOpsFlagTool` bir
+mutasyonda tenant'ın TÜM `AppData`'sını **üçer kez** okuyordu. Sebep kötü kod
+değil, **store sözleşmesiydi**: `StoreApi.updateLessonSchedule` `AppData`
+DÖNDÜRMEK zorundaydı, bu yüzden yazmadan sonra her şeyi yeniden okuyordu.
+Ölçüm: taşıma 64 DB gidiş-dönüşü (42'si bu okumalar), statü 46 (42'si).
+
+**Doğrusu.** Saf iş kurallarını yeniden yazmak yerine onlara **AYNI `AppData`
+sözleşmesini, yalnız ilgili satırlarla doldurulmuş** olarak verin. Dilim TEK
+yerde tanımlanır (`src/lib/lesson-scope.ts`); db onu filtrelenmiş Prisma
+`include`'larıyla üretir ve mevcut mapper'ı (`mapSchoolToAppData`) aynen
+kullanır — mapper varlık-başına çalıştığı için bu bedavaya gelir.
+**json/memory de aynı dilimi uygulamalı** (sonra bütüne birleştirerek);
+yoksa dar dilimin yetersizliği yalnız production'da (db modunda) ortaya çıkar,
+testler json modunda koştuğu için hiçbir şey yakalamaz.
+
+**Ölçüm dersi.** Yerel DB'de RTT ~0.1 ms olduğu için "kaç sorgu" ile "ne kadar
+sürer" arasındaki bağ görünmez. Harness'a **yapay RTT** (`BENCH_RTT_MS`)
+eklemek, gerçek dağıtımın davranışını modelledi ve 163 ms'de önceki turun
+GERÇEK tarayıcı ölçümlerini (5.1 sn taşıma, 2.4 sn statü, 528 ms `readData`)
+±%10 içinde yeniden üretti. Yani ölçüm ortamı yoksa **sorgu SAYISINI** ölçün
+ve gecikmeyi simüle edin; "yerelde hızlı" hiçbir şey kanıtlamaz.
+
+**Bulunan ikinci hata (gerçek veri kaybı).** `src/lib/notifications/index.ts`
+json/memory yolunda `loadAll()` → `saveAll([...all, rec])` yapıyordu, KİLİTSİZ.
+12 eşzamanlı yazımdan **11'i kayboluyordu** (test kilit kaldırılarak
+kanıtlandı). Önceki tur bunu fark etmiş ama kök nedeni düzeltmek yerine
+paralelleştirmeyi geri almıştı. **JSON dosyasına yazan HER modül
+`withFileLock` + `writeJsonFileAtomic` kullanmalıdır** — `store-json.ts`'teki
+desen zorunlu, opsiyonel değil.
+
+**Üçüncü ders: kuralı doğru katmana koyun.** Kapalı gün kontrolü tool'un
+içinde, kendi `readData()`'sıyla duruyordu. Saf fonksiyona
+(`applyLessonScheduleUpdate`) taşınınca hem o okuma tamamen kalktı hem de
+kural store'a giren HER yolda uygulanır oldu. Bir kuralın tek çağıranda
+durması performans borcu OLDUĞU KADAR güvenlik borcudur.

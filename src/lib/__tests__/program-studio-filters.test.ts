@@ -1,4 +1,6 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "fs";
+import { join } from "path";
 import { ATTENDANCE_CALENDAR_COLORS, lessonCardFillStyle } from "../attendance-calendar";
 import {
   filterLessonsForCalendar,
@@ -336,5 +338,43 @@ describe("lessonCardStatusVisual — ders programı tam-kutu durum renkleri (202
     for (const status of ["attended", "processed", "makeup", "cancelled"] as const) {
       expect(lessonCardFillStyle(status).backgroundColor).toBe(ATTENDANCE_CALENDAR_COLORS[status]);
     }
+  });
+});
+
+/**
+ * UAT regresyon kilidi (2026-09-07) — kart dolgusunun TEK kaynağı
+ * `ATTENDANCE_CALENDAR_COLORS`/`lessonCardFillStyle`'dır. Bu depoda DOM
+ * render testi altyapısı yok (vitest `environment: "node"`, jsdom/testing-
+ * library bağımlılığı YOK) — bunun yerine, geçmişte gerçekten yaşanan
+ * regresyon (Ders Programı'nda AYRI bir Tailwind renk haritası tutulması)
+ * kaynak üzerinden kilitlenir. Renk DEĞERLERİ yukarıdaki testlerde
+ * hesaplanarak doğrulanıyor; burada doğrulanan, bileşenin gerçekten o
+ * kaynağı KULLANDIĞI.
+ */
+describe("program-studio.tsx — kart dolgusu tek kaynaktan (kaynak seviyesi regresyon kilidi)", () => {
+  const source = readFileSync(
+    join(process.cwd(), "src/components/program-studio.tsx"),
+    "utf8"
+  );
+
+  it("hem haftalık ızgara hem gün görünümü kartı lessonCardFillStyle uygular", () => {
+    const applications = source.match(/\.\.\.lessonCardFillStyle\(statusVisual\)/g) ?? [];
+    expect(applications.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("ders kartı için AYRI bir Tailwind statü renk haritası TUTMAZ", () => {
+    // Geçmişteki regresyon: bg-emerald-700 / bg-rose-700 / bg-amber-400
+    // eşlemesi burada ikinci bir kaynak olarak yaşıyordu.
+    const statusClassMap = source.match(
+      /(attended|processed|makeup|cancelled)\s*:\s*"[^"]*bg-(emerald|rose|amber|slate)-\d{3}/g
+    );
+    expect(statusClassMap).toBeNull();
+  });
+
+  it("Telafi (makeup) dolgusu SARI ailesidir ve koyu metin alır", () => {
+    const fill = lessonCardFillStyle("makeup");
+    expect(fill.backgroundColor).toBe(ATTENDANCE_CALENDAR_COLORS.makeup);
+    // Sarı üzerinde beyaz metin AA'yı geçmez — hesaplanan renk koyu olmalı.
+    expect(fill.color).not.toBe("#ffffff");
   });
 });
