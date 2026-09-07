@@ -393,3 +393,44 @@ akışlarından geçti:
   "Defne Şahin · Keman" ve "Lara Yıldız · Şan" dersleri ile `l13`.
 
 Bunlar demo/test verisidir, production'a dokunulmamıştır.
+
+---
+
+## 11. Preview dağıtımı ve doğrulanamayanlar
+
+- Commit: `4b99514593b868148ae3710fd3d0b50ab9b85d08` → `origin/test`.
+- Vercel Preview: proje `neviihub` (`prj_hmg2Nu2GtPs0JrfEcllpeUIbWpIG`),
+  deployment `dpl_6mk6zZjawdhwUwRReQRVMJvgeg2R`,
+  alias `neviihub-git-test-hidircans-projects.vercel.app` / `test.neviihub.com`.
+- **Production'a DOKUNULMADI**: production ayrı bir Vercel projesidir
+  (`notaplan`, `target: production`) ve hâlâ `4ab2f3d` build'ini çalıştırıyor.
+  Bu turda `main`'e commit/push yapılmadı.
+
+### Doğrulanamayan: dağıtılmış `/api/v1/ready`
+
+`test.neviihub.com/api/v1/ready` ve doğrudan deployment URL'si **302** ile
+`vercel.com/sso-api`'ye yönleniyor — Vercel Deployment Protection hâlâ açık
+(PROJECT_STATE'teki bilinen açık madde). Bu yüzden **dağıtılmış** build üzerinde
+`ready=true / storeMode=db / database.reachable=true` teyidi YAPILAMADI.
+
+Bu üçlü, AYNI commit'in yerel production build'inde (`npm run build && npm start`,
+`.env.test` ile, gerçek test Supabase'ine karşı) doğrulandı:
+
+```json
+{"ok":true,"data":{"service":"notaplan","ready":true,"storeMode":"db",
+ "database":{"configured":true,"reachable":true},...}}
+```
+
+Dağıtım üzerinde teyit için insan aksiyonu gerekiyor: Deployment Protection'ı
+test projesinde kapatmak **veya** Protection Bypass for Automation token'ı
+üretmek.
+
+### Bölge uyuşmazlığı (yeni bulgu, insan kararı)
+
+Preview lambda bölgesi **`iad1`** (Washington DC), test Supabase pooler'ı ise
+**`ap-south-1`** (Mumbai). Aradaki gidiş-dönüş, yerel ölçüm ortamındaki
+~163 ms'den belirgin biçimde YÜKSEK olacaktır ve bu rapordaki her sunucu
+süresi buna oranla ölçeklenir. Bu turdaki düzeltmeler gidiş-dönüş SAYISINI
+azalttığı için kazanç bölgeden bağımsızdır, ancak mutlak süreler preview'da
+daha kötü olacaktır. Öneri: Vercel bölgesini veritabanına yaklaştırmak
+(veya tersi) — ölçüm gerektirir, bu turda değiştirilmedi.
