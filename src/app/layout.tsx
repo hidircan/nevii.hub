@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
-import localFont from "next/font/local";
-import { Inter, Noto_Sans } from "next/font/google";
+import { Inter, Noto_Sans, Playfair_Display, Roboto_Serif } from "next/font/google";
 import { cookies } from "next/headers";
 import "./globals.css";
 import {
@@ -22,37 +21,28 @@ import { ACCESS_COOKIE } from "@/lib/auth/cookies";
  * istek YOK). Her biri kendi CSS değişkenine yazılır; hangi değişkenin
  * `--font-sans`/`--font-display` olarak KULLANILACAĞI globals.css'teki
  * `[data-font="..."]` bloklarında seçilir — burada yalnız yükleme var.
+ *
+ * P0 UAT (2026-09-07) — Roboto Serif ve Playfair Display eskiden
+ * `next/font/local` ile HAM TTF variable font olarak yükleniyordu. ÖLÇÜLDÜ:
+ * her soğuk sayfa açılışında 7 font dosyası, toplam 4.747 KB iniyordu ve
+ * bunun 4.311 KB'ı yalnız bu iki ailenin TTF'leriydi (RobotoSerif 1.954 KB +
+ * italik 2.357 KB). Karşılaştırma: aynı sayfada JS 179 KB, CSS 21 KB. Yani
+ * TÜM ekranlarda ilk açılışın baskın maliyeti fontlardı — kullanıcının
+ * "her ekran ilk açılışta yavaş" şikâyetinin ortak nedeni.
+ *
+ * `next/font/google` AYNI şekilde build-time self-host eder (çalışma
+ * zamanında Google'a istek YOK — yukarıdaki gerekçe korunur) ama ek olarak
+ * latin alt kümesine indirger ve woff2'ye çevirir. Zaten bu dosyada
+ * Inter/Noto Sans o yoldan geliyor ve 35-84 KB'lar.
  */
-const robotoSerif = localFont({
-  src: [
-    {
-      path: "../../public/fonts/roboto-serif/RobotoSerif-VariableFont_GRAD,opsz,wdth,wght.ttf",
-      style: "normal",
-      weight: "400 900",
-    },
-    {
-      path: "../../public/fonts/roboto-serif/RobotoSerif-Italic-VariableFont_GRAD,opsz,wdth,wght.ttf",
-      style: "italic",
-      weight: "400 900",
-    },
-  ],
+const robotoSerif = Roboto_Serif({
+  subsets: ["latin", "latin-ext"],
   variable: "--font-roboto-serif",
   display: "swap",
 });
 
-const playfairDisplay = localFont({
-  src: [
-    {
-      path: "../../public/fonts/playfair-display/PlayfairDisplay-VariableFont_wght.ttf",
-      style: "normal",
-      weight: "400 900",
-    },
-    {
-      path: "../../public/fonts/playfair-display/PlayfairDisplay-Italic-VariableFont_wght.ttf",
-      style: "italic",
-      weight: "400 900",
-    },
-  ],
+const playfairDisplay = Playfair_Display({
+  subsets: ["latin", "latin-ext"],
   variable: "--font-playfair-display",
   display: "swap",
 });

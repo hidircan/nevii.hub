@@ -32,6 +32,36 @@ export function resolveLessonFinalStatus(
   return "planned";
 }
 
+/**
+ * P0 UAT (2026-09-07) — DERS PROGRAMI KARTI için statü çözümlemesi.
+ *
+ * `resolveLessonFinalStatus` gelecekteki her ders için koşulsuz "planned"
+ * döner ve bu, Yoklama Takvimi gün kutusunun BİLİNÇLİ davranışıdır
+ * (bkz. attendance-calendar-tools.test.ts — dört test bunu kilitler).
+ *
+ * Ders Programı kartında ise owner UAT kararı bunun TERSİDİR: yönetici bir
+ * dersi Geldi/İşlendi/Telafi olarak işaretlediğinde kartın TAM arka planı
+ * hemen o renge dönmelidir — ders gelecekte olsa bile. Hata gerçek tarayıcıda
+ * doğrulandı: işaretli üç dersin kart arka planı da #ffffff kalıyordu.
+ *
+ * Ayrım: bir insanın AÇIKÇA işaretlediği bayraklar ve iptal her zaman
+ * gösterilir; yalnızca ÇIKARIM yoluyla gelen statü (`status === "completed"`)
+ * zamana bağlı kalır — gelecekteki bir ders eski bir "completed" değeri
+ * yüzünden "Geldi" görünmemelidir.
+ */
+export function resolveLessonMarkedStatus(
+  lesson: LessonFinalStatusInput,
+  now: Date = new Date()
+): LessonFinalStatus {
+  if (lesson.status === "cancelled") return "cancelled";
+  if (lesson.type === "makeup" || lesson.opsMakeupFlag) return "makeup";
+  if (lesson.lessonProcessed) return "processed";
+  if (lesson.studentAttended) return "attended";
+  if (new Date(lesson.startAt).getTime() > now.getTime()) return "planned";
+  if (lesson.status === "completed") return "attended";
+  return "planned";
+}
+
 export type LiveDisplayStatus =
   | "scheduled"
   | "delayed"

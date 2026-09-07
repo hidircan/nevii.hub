@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import { requireSessionContext } from "@/lib/auth/session";
 import { getContractHtmlTool } from "@/lib/services";
 import { DocumentPrintActions } from "@/components/document-print-actions";
+import { CONTRACT_PRINT_PALETTE as P } from "@/lib/contract-print-theme";
 
 export const dynamic = "force-dynamic";
 
@@ -69,7 +70,7 @@ export default async function ContractPrintPage({
     : "/ogrenci/sozlesmelerim";
 
   return (
-    <div className="min-h-screen bg-[#f4f2f8] px-4 py-8 print:bg-[var(--color-surface)] print:p-0 sm:px-6">
+    <div className="min-h-screen bg-[#f4f2f8] px-4 py-8 print:bg-white print:p-0 sm:px-6">
       <style>{CONTRACT_PRINT_CSS}</style>
       <div className="mx-auto max-w-2xl">
         <DocumentPrintActions backHref={backHref} />
@@ -77,7 +78,7 @@ export default async function ContractPrintPage({
           Sayfa numarası ve tarih bilgisi için yazdırma penceresinde &quot;Üstbilgiler ve altbilgiler&quot;
           (Headers and footers) seçeneğini açık bırakın — tarayıcı bunu otomatik ekler.
         </p>
-        <div className="contract-print-surface rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-6 shadow-sm print:rounded-none print:border-0 print:p-0 print:shadow-none sm:p-10">
+        <div className="contract-print-surface rounded-lg border border-[var(--color-border)] p-6 shadow-sm print:rounded-none print:border-0 print:p-0 print:shadow-none sm:p-10">
           <div className="contract-body">
             <div dangerouslySetInnerHTML={{ __html: result.data.html }} />
           </div>
@@ -105,6 +106,45 @@ export default async function ContractPrintPage({
  * önerilir.
  */
 const CONTRACT_PRINT_CSS = `
+  /*
+   * P0 UAT (2026-09-07) — "PDF tamamen boş beyaz sayfa" HATASININ KÖK NEDENİ.
+   *
+   * Ölçülen: kullanıcı koyu tema profilindeyken (data-theme-profile="obsidian")
+   * baskı medyasında sözleşme yüzeyinin arka planı rgb(23,23,26), başlıkların
+   * rengi ise rgba(245,241,232,.96) idi. Tarayıcıların yazdırma diyaloğunda
+   * "arka plan grafikleri" VARSAYILAN OLARAK KAPALIDIR: koyu zemin
+   * basılmaz, kağıt beyaz kalır, metin ise beyaz kalır → TAMAMEN BOŞ SAYFA.
+   *
+   * Düzeltme tek yerde ve kök nedende: sözleşme baskı yüzeyi TEMADAN
+   * BAĞIMSIZDIR. Tema değişkenleri bu kapsayıcıda açık palete SABİTLENİR, bu
+   * sayede içeriye gömülen sözleşme HTML'indeki her \`var(--color-*)\`
+   * kullanımı (ve gelecekte eklenecek olanlar) otomatik olarak doğru çözülür.
+   * Şablonun kendi bilinçli gri tonları (#888/#555/#777) KORUNUR.
+   */
+  .contract-print-surface {
+    --color-text: ${P.text};
+    --color-text-muted: ${P.textMuted};
+    --color-surface: ${P.surface};
+    --color-surface-muted: ${P.surfaceMuted};
+    --color-border: ${P.border};
+    --color-primary: ${P.text};
+    background: ${P.surface};
+    color: ${P.text};
+    color-scheme: light;
+  }
+  /*
+   * Başlıklar rengi kapsayıcıdan MİRAS ALMAZ (globals.css'te tema kaynaklı
+   * açık bir h1/h2/h3 kuralı var ve özgüllükte mirası yener) — bu yüzden
+   * açıkça sabitlenir.
+   */
+  .contract-print-surface h1,
+  .contract-print-surface h2,
+  .contract-print-surface h3,
+  .contract-print-surface h4,
+  .contract-print-surface th {
+    color: ${P.text};
+  }
+
   .contract-body {
     font-family: "Times New Roman", Times, "Liberation Serif", serif;
     font-size: 10.5pt;
@@ -157,7 +197,11 @@ const CONTRACT_PRINT_CSS = `
     @page { size: A4; margin: 16mm 14mm; }
     .contract-body .contract-annex { break-before: page; page-break-before: always; border-top: none; }
     .contract-body .contract-annex-ref { font-size: 7pt; }
-    .contract-print-surface { padding: 0; }
+    /*
+     * Arka plan grafikleri AÇIK olsa bile kağıt beyaz, metin koyu kalır —
+     * iki yazdırma ayarında da okunur çıktı.
+     */
+    .contract-print-surface { padding: 0; background: ${P.surface}; color: ${P.text}; }
     .contract-body {
       font-size: 8pt;
       line-height: 1.35;

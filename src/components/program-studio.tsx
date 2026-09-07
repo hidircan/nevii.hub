@@ -34,7 +34,7 @@ import {
   lessonCardFillStyle,
   lessonCardMutedTextColor,
 } from "@/lib/attendance-calendar";
-import { resolveLessonFinalStatus, type LessonFinalStatus } from "@/lib/lesson-live-status";
+import { resolveLessonMarkedStatus, type LessonFinalStatus } from "@/lib/lesson-live-status";
 
 type ProgramStudioProps = {
   students: Student[];
@@ -237,7 +237,9 @@ export type LessonCardStatusVisual = LessonFinalStatus;
  * `bg-amber-400` diye ayrı bir eşleme vardı ve takvimle ayrışmıştı).
  */
 export function lessonCardStatusVisual(lesson: Lesson, now: Date = new Date()): LessonCardStatusVisual {
-  return resolveLessonFinalStatus(lesson, now);
+  // Ders Programı kartı, işaretlenmiş statüyü GELECEKTEKİ derslerde de gösterir
+  // (owner UAT kararı 2026-09-07) — bkz. resolveLessonMarkedStatus.
+  return resolveLessonMarkedStatus(lesson, now);
 }
 
 const LESSON_CARD_STATUS_LABEL: Partial<Record<LessonCardStatusVisual, string>> = {
@@ -270,6 +272,21 @@ export function lessonHoverCardLines(
   return lines;
 }
 
+/**
+ * P0 UAT (2026-09-07) — "hover ile açılan bilgi notu bazen ekranda takılı kalıyor".
+ *
+ * KÖK NEDEN: görünürlük saf CSS ile sürülüyordu ve kurallar arasında
+ * `group-focus-within:opacity-100` vardı. `:focus-within` FARE ile gelen odağı
+ * da kapsar: kullanıcı bir ders kartına TIKLADIĞINDA kart (bir <button>) odakta
+ * kalır, dolayısıyla fare karttan ayrılsa bile tooltip görünür kalıyordu —
+ * "takılı" görüntüsü buydu. Kural kaldırıldı.
+ *
+ * Klavye erişilebilirliği KORUNDU: `group-focus-visible` (yalnız klavye odağı)
+ * duruyor, ayrıca kartta Escape ile odak bırakılır (bkz. onKeyDown).
+ * Kapanma yolları: pointer leave (hover), blur (focus-visible), Escape,
+ * route değişimi (bileşen unmount), başka bir kartın hover'ı (aynı anda tek
+ * kart hover olabilir).
+ */
 function LessonHoverCard({
   lesson,
   student,
@@ -287,7 +304,7 @@ function LessonHoverCard({
   return (
     <div
       role="tooltip"
-      className="pointer-events-none absolute left-1/2 top-full z-50 mt-1.5 w-56 -translate-x-1/2 rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)] p-2.5 text-left text-[11px] leading-snug text-[var(--color-text)] opacity-0 shadow-[var(--shadow-md)] transition-opacity delay-150 duration-100 group-hover:opacity-100 group-focus-visible:opacity-100 group-focus-within:opacity-100"
+      className="pointer-events-none absolute left-1/2 top-full z-50 mt-1.5 w-56 -translate-x-1/2 rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)] p-2.5 text-left text-[11px] leading-snug text-[var(--color-text)] opacity-0 shadow-[var(--shadow-md)] transition-opacity delay-150 duration-100 group-hover:opacity-100 group-focus-visible:opacity-100"
     >
       <p className="font-bold">{name}</p>
       <p className="text-[var(--color-text-muted)]">{dateLabel}</p>
@@ -1878,6 +1895,9 @@ export function ProgramStudio({
                           e.preventDefault();
                           openDetail(lesson);
                         }
+                        // Escape: klavye odağını bırak — açık hover kartı kapanır
+                        // (UAT: "bilgi notu ekranda takılı kalıyor").
+                        if (e.key === "Escape") e.currentTarget.blur();
                       }}
                       aria-label={lessonAccessibleLabel(lesson, student, teacher, room, branchNames[lesson.branchId])}
                       className={`group absolute z-[1] flex flex-col rounded-md border border-[var(--color-border-strong)] p-1.5 text-[10px] shadow-[var(--shadow-sm)] transition-[filter] hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-focus-ring)] hover:z-[20] ${

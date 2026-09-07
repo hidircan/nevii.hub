@@ -92,7 +92,50 @@ export function StudentsTable({
     if (lastUsed) setColumns(lastUsed);
   }, [tenantId, userId]);
 
-  const search = searchParams.get("q") ?? "";
+  /**
+   * P0 UAT (2026-09-07) — "öğrenci adı aratırken ciddi kasılma".
+   *
+   * KÖK NEDEN (ölçüldü): arama terimi YALNIZCA URL'de tutuluyordu
+   * (`searchParams.get("q")`) ve input doğrudan ona bağlıydı. Her tuş
+   * `router.replace` tetikliyor, sayfa `force-dynamic` olduğu için bu bir
+   * SUNUCU RSC turu demek ve o tur `readScopedData()` ile tenant'ın TÜM
+   * verisini yeniden okuyor. Ölçüm: 6 harflik bir aramada 12 adet
+   * `/panel/ogrenciler` isteği. Üstelik input URL'den beslendiği için
+   * yazılan karakter navigasyon tamamlanana kadar EKRANDA GÖRÜNMÜYORDU.
+   *
+   * Düzeltme: (1) input YEREL state ile sürülür → yazma asla bloklanmaz,
+   * (2) filtreleme zaten istemci tarafında (`rows` bellekte) olduğu için
+   * sonuç ANINDA gelir, sunucuya hiç gidilmez, (3) URL yalnızca 250 ms
+   * gecikmeyle senkronlanır — derin bağlantı/geri-ileri davranışı korunur.
+   */
+  const urlSearch = searchParams.get("q") ?? "";
+  const [searchInput, setSearchInput] = useState(urlSearch);
+
+  /**
+   * URL dışarıdan değişirse (geri/ileri, derin bağlantı, "Temizle") input'u
+   * izle. Effect DEĞİL, React'in "prop değişince state'i ayarla" deseni:
+   * effect içinde senkron setState zincirleme render tetikler (eslint kuralı).
+   */
+  const [lastUrlSearch, setLastUrlSearch] = useState(urlSearch);
+  if (urlSearch !== lastUrlSearch) {
+    setLastUrlSearch(urlSearch);
+    setSearchInput(urlSearch);
+  }
+
+  // Yazma bitince URL'i güncelle — tuş başına navigasyon YOK.
+  useEffect(() => {
+    if (searchInput === urlSearch) return;
+    const id = setTimeout(() => {
+      const params = new URLSearchParams(searchParams.toString());
+      if (searchInput) params.set("q", searchInput);
+      else params.delete("q");
+      router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+    }, 250);
+    return () => clearTimeout(id);
+  }, [searchInput, urlSearch, searchParams, router, pathname]);
+
+  /** Filtre ve "aktif filtre var mı" göstergeleri ANINDA yerel değeri kullanır. */
+  const search = searchInput;
   // Pasif öğrenciler varsayılan gizli — yalnız durum filtresiyle görünür.
   const statusFilter = (searchParams.get("status") ?? "active") as StatusFilter;
   const typeFilter = searchParams.getAll("type");
@@ -293,8 +336,8 @@ export function StudentsTable({
         <div className="flex flex-wrap items-center gap-3">
           <input
             type="text"
-            value={search}
-            onChange={(event) => setSingle("q", event.target.value)}
+            value={searchInput}
+            onChange={(event) => setSearchInput(event.target.value)}
             placeholder="Ad soyada göre ara..."
             aria-label="Ad soyada göre ara"
             className="w-full max-w-xs rounded-[var(--radius-md)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text)] outline-none focus:ring-2 focus:ring-[var(--color-focus-ring)]/30 sm:w-auto"

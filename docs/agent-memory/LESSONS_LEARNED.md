@@ -750,3 +750,72 @@ iki bağımsız kanıt arayın (damga + log kuyruğu + alias durumu).
 görünüyorsa, önce ARACIN raporlamasından şüphelenin. Bu turda yerel
 `tsc --noEmit` 3.7 sn, `next build` temizdi — bu, "kod suçlu değil" yönünde
 zaten güçlü bir sinyaldi ve daha erken ciddiye alınmalıydı.
+
+## 2026-09-08 — "Boş PDF" bir render hatası değil, TEMA sızıntısı olabilir
+
+Kullanıcı "indirilen PDF tamamen boş beyaz" dedi; ilk refleks export/selector/
+async render aramaktı. Gerçek neden: **koyu tema profilinde** baskı yüzeyinin
+zemini koyu, metni açık çözülüyordu. Tarayıcılar yazdırırken arka planı
+VARSAYILAN OLARAK basmaz → beyaz kağıt + beyaz metin.
+
+**Ders:** yazdırma/PDF hatalarında önce `emulateMedia({media:'print'})` altında
+**hesaplanmış renkleri** ölçün, sonra "kağıda düşen mürekkep oranını"
+(beyaz olmayan piksel yüzdesi). "Boş sayfa" tam olarak bu metriğin ~0 olmasıdır
+ve ekran görüntüsüyle karıştırılmamalıdır — ekran görüntüsü arka planı BOYAR,
+yazıcı boyamaz. Hata simülasyonunu da buna göre kurun (zemini beyaz bırakıp
+yalnız metin rengini bozun), yoksa yanlış sonuç alırsınız (ilk denemede %63,9
+mürekkep ölçtüm — çünkü koyu zemini de ekran görüntüsüne dahil etmiştim).
+
+**İkinci ders:** yazdırılan yüzeyler TEMADAN BAĞIMSIZ olmalıdır. Tek tek
+elementleri düzeltmek yerine kapsayıcıda `--color-*` değişkenlerini açık
+palete sabitleyin — gömülü/şablon HTML'indeki bugünkü ve gelecekteki tüm
+kullanımlar otomatik doğru çözülür.
+
+## 2026-09-08 — İlk açılış yavaşlığında önce FONT yükünü ölçün
+
+"Her ekran ilk açılışta yavaş" şikâyetinde sunucu/DB aranıyordu. Ölçüm: her
+route **7 font / 4.747 KB** indiriyordu; bunun 4.311 KB'ı `next/font/local`
+ile servis edilen HAM TTF variable font'tu. Aynı sayfada JS 179 KB, CSS 21 KB.
+`next/font/google`'a taşımak (AYNI build-time self-host, ek olarak latin
+subset + woff2) yükü **339 KB**'a indirdi.
+
+**Ders:** `next/font/local` subset ve woff2 dönüşümü YAPMAZ; Google Fonts'ta
+zaten var olan bir aileyi `local` ile yüklemek sessizce megabaytlar ekler.
+Boş cache ile ölçüp `performance.getEntriesByType('resource')` çıktısını
+TÜRE GÖRE ayırın — "tüm route'larda aynı olan" maliyet neredeyse her zaman
+paylaşılan varlıklardadır, sayfa verisinde değil.
+
+## 2026-09-08 — URL'e bağlı arama input'u = tuş başına sunucu turu
+
+Öğrenci aramasında terim yalnız `searchParams`'ta tutuluyor ve input ona
+bağlıydı. Her tuş `router.replace` → `force-dynamic` sayfa → RSC turu →
+tam-tenant okuması; üstelik karakter navigasyon bitene kadar EKRANDA
+GÖRÜNMÜYORDU. 6 harf = 6 gerçek RSC turu.
+
+**Ders:** filtreleme zaten istemcideyse arama kutusunu YEREL state ile sürün,
+URL'i yalnızca paylaşılabilirlik için GECİKMELİ senkronlayın. Ayrıca "URL
+değişince state'i güncelle" işini effect ile YAPMAYIN — eslint
+(`setState in effect`) haklı olarak uyarır; React'in "render sırasında state
+ayarla" desenini kullanın.
+
+## 2026-09-08 — Mevcut testler bir davranışı KİLİTLİYORSA, önce niyeti okuyun
+
+Ders kartı renk hatasını düzeltmek için `resolveLessonFinalStatus`'ün
+"gelecekteki ders her zaman planned" kuralını kaldırdım; 4 test düştü. O
+testler **Yoklama Takvimi**'nin bilinçli davranışını kilitliyordu; owner'ın
+talebi ise **Ders Programı kartı** hakkındaydı.
+
+**Ders:** düşen testi "eskimiş" sayıp güncellemeden önce ne kilitlediğini
+okuyun. Doğru çözüm paylaşılan semantiği değiştirmek değil, talebin geçerli
+olduğu yüzeye özel bir fonksiyon eklemekti (`resolveLessonMarkedStatus`).
+İki yüzey arasındaki kalan tutarsızlık rapora **owner kararı** olarak yazıldı.
+
+## 2026-09-08 — `:focus-within` fare tıklamasını da kapsar
+
+Hover tooltip'i "ekranda takılı kalıyordu": görünürlük CSS ile sürülüyordu ve
+kurallar arasında `group-focus-within:opacity-100` vardı. `:focus-within`
+KLAVYE odağına özel DEĞİLDİR; kullanıcı karta tıkladığında buton odakta kalır
+ve tooltip fare ayrıldıktan sonra da görünür kalır.
+
+**Ders:** hover ipuçlarında klavye erişilebilirliği için `:focus-visible`
+kullanın, `:focus-within` değil.

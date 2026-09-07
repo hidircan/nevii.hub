@@ -113,7 +113,48 @@ Tam kanıt/detay owner'a verilen "Canlıya Alım Hazırlık Raporu"nda — özet
 - Tam test suite: 2564/2565 geçti — tek hata bilinen/ilgisiz
   `lesson-series-tools.test.ts` kaydı (aşağıda zaten belgeli).
 
-## Current focus (last updated: 2026-09-07, P0 bildirim paralelleştirmesi)
+## Current focus (last updated: 2026-09-08, P0 UAT: PDF/soğuk route/arama/UI)
+
+Owner UAT'sindeki 8 bulgunun tamamı ölçümle kök nedene indirildi. Tam rapor:
+`docs/performance/UAT_P0_2026_09_07_REPORT.md`. **Test Supabase'e bu turda
+hiç bağlanılmadı**; ölçümler yerel production build + `STORE_MODE=json` +
+gerçek Chromium ile yapıldı.
+
+1. **PDF boş beyaz sayfa — ÇÖZÜLDÜ.** Kök neden koyu tema: baskı yüzeyi
+   zemini `rgb(23,23,26)`, metin `rgba(245,241,232,.96)`. Yazdırmada arka plan
+   VARSAYILAN OLARAK basılmaz → beyaz kağıda beyaz metin. Mürekkep oranı
+   %0,39 → **%6,12**. Yeni `src/lib/contract-print-theme.ts` yüzeyde tüm
+   `--color-*` değişkenlerini açık palete SABİTLER. Legal metne dokunulmadı.
+2. **Tüm ekranlarda soğuk açılış — ÇÖZÜLDÜ.** Her route 7 font / **4.747 KB**
+   indiriyordu; 4.311 KB'ı `next/font/local` ile servis edilen HAM TTF idi
+   (JS yalnız 179 KB). İki aile `next/font/google`'a taşındı → **339 KB**
+   (−%93), sayfa toplamı −%88. 8,1 MB TTF repodan silindi.
+3. **Öğrenci araması — ÇÖZÜLDÜ.** Terim yalnız URL'deydi; her tuş
+   `router.replace` → `force-dynamic` RSC turu → tam-tenant okuması. 6 harf =
+   **6 gerçek RSC turu → 1**. Input geri bildirimi 34 ms → **max 20 ms**.
+4. **Kart statü rengi — ÇÖZÜLDÜ.** `resolveLessonFinalStatus` gelecekteki her
+   ders için koşulsuz "planned" dönüyordu. Yeni `resolveLessonMarkedStatus`
+   yalnız Ders Programı kartında kullanılır; **Yoklama Takvimi'nin bilinçli
+   davranışı (4 testle kilitli) DEĞİŞMEDİ**. Gerçek tarayıcıda beş statünün
+   TAM dolgusu doğrulandı — **Telafi sarısı ilk kez canlı görüldü**.
+5. **Tooltip — düzeltildi, canlı doğrulanamadı.** `group-focus-within` fare
+   odağını da kapsıyordu; tıklanan kart odakta kalınca tooltip asılı kalıyordu.
+   Kaldırıldı, `group-focus-visible` + Escape korundu. **Takılı durum
+   otomasyonla yeniden üretilemedi — 10 sn insan doğrulaması gerekli.**
+6. **Demo login — KALDIRILDI.** `login-form.tsx` ("use client") içinde 14
+   hesabın açık metin parolası vardı, yani her ziyaretçinin JS paketindeydi.
+   `password:` alanı 16 → 0; derlenmiş `.next/static` temiz.
+   `docs/testing/TEST_ACCOUNT_CATALOG.md` (parolasız) eklendi.
+
+**AÇIK GÜVENLİK MADDESİ (operatör):** `src/lib/auth/users.ts` hâlâ
+`process.env.AUTH_* || "<sabit varsayılan>"` taşıyor; preview/prod'da bu
+değişkenler tanımlı değilse bilinen parolalar geçerli olur. Eski demo
+parolaları git geçmişinde kalmıştır — rotasyon gerekir.
+
+Kapılar: typecheck temiz, lint 0 hata (24 eski uyarı), **2754/2754 test**
+(+43 yeni), `prisma validate` temiz, `next build` temiz.
+
+## Önceki odak (2026-09-07, P0 bildirim paralelleştirmesi)
 
 Operatör onayıyla, §5.1'de "onay bekliyor" bırakılan iş yapıldı. Tam rapor:
 `docs/performance/LESSON_MUTATION_P0_REPORT.md` **EK** bölümü.
