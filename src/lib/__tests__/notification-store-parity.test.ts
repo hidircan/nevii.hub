@@ -39,11 +39,20 @@ describe("mod dallanması — memory, json ile AYNI yolu kullanır", () => {
     expect(idLine).toBeLessThan(branchLine);
   });
 
-  it("json/memory yazımı kilit altındadır, db yazımı çakışmayı atlar", () => {
+  it("json/memory yazımı kilit altındadır, db yazımı çakışmayı `duplicate`'e çevirir", () => {
     expect(NOTIF_CODE).toMatch(/mutateAllUnderLock/);
-    expect(NOTIF_CODE).toMatch(/isUniqueViolation\(error\)/);
+    expect(NOTIF_CODE).toMatch(/isUniqueViolation\(Prisma, error\)/);
     // Kilitsiz oku-değiştir-yaz geri gelmesin.
     expect(NOTIF_CODE).not.toMatch(/await saveAll\(\[\.\.\.all/);
+  });
+
+  it("`../db` DİNAMİK import edilir ve süreç başına bir kez çözümlenir", () => {
+    // `import type` derlemede silinir, modül grafiğine GİRMEZ — serbest.
+    expect(NOTIF_CODE).not.toMatch(/^import (?!type )[^;]*from "\.\.\/db"/m);
+    expect(NOTIF_CODE).not.toMatch(/^import (?!type )[^;]*from "@prisma\/client"/m);
+    expect(NOTIF_CODE).toMatch(/Promise\.all\(\[import\("\.\.\/db"\), import\("@prisma\/client"\)\]\)/);
+    // Memoize: her yazımda yeniden çözümlenmesin.
+    expect(NOTIF_CODE).toMatch(/dbModules \?\?=/);
   });
 });
 
@@ -120,6 +129,17 @@ describe("db modu — createNotification idempotans sözleşmesi", () => {
   it("aynı dedupeKey ile 10 EŞZAMANLI çağrı: tam olarak 1 satır (json ile AYNI sonuç)", async () => {
     const table: Row[] = [];
     const createNotification = await loadDbMode(table);
+    // Modülü önce TEK çağrıyla ısıt: `notifications/index.ts` `../db`'yi dinamik
+    // import ediyor ve eşzamanlı 10 çözümleme vitest'in mock kaydını yarışa
+    // sokuyor. Isınma, ölçülen davranışı (idempotans) değiştirmez.
+    await createNotification({
+      tenantId: "tenant_isinma",
+      targetUserId: "warmup",
+      kind: "warmup",
+      title: "T",
+      body: "B",
+    });
+    table.length = 0;
     const input = {
       tenantId: "tenant_a",
       targetUserId: "u2",

@@ -730,3 +730,23 @@ olduğunu varsaymayın; sorgu sayısını sayın.**
 ama p95 ~%53 DÜŞTÜ — çünkü kazanç ardışık DALGA sayısındaydı. Performans
 raporlarken ikisini ayrı ayrı verin; yalnız birine bakmak yanlış sonuca
 götürür.
+
+## 2026-09-07 — Vercel API'sinin `state` alanı BAYAT olabilir; log'a değil damgaya bakın
+
+`list_deployments`/`get_deployment` bir deployment için ~50 dakika boyunca
+`state: "BUILDING"` döndürdü ve build log'ları da kısmi geliyordu. Buna
+bakılarak "build asıldı, sebebi son commit'teki statik `prisma` import'u"
+sonucuna VARILDI ve kod geri alındı. Oysa aynı deployment'ın `ready`
+damgası, build'in **120 saniyede** bittiğini gösteriyordu — asılma hiç
+yaşanmamıştı.
+
+**Doğrusu:** bir deployment'ın gerçekten bitip bitmediğine `state` alanına
+değil, `ready`/`buildingAt` ZAMAN DAMGALARINA ve build log'unun son
+satırlarına ("Deployment completed") bakarak karar verin. `state` bayat
+olabilir. Bir kod değişikliğini "dağıtımı bozdu" diye geri almadan önce en az
+iki bağımsız kanıt arayın (damga + log kuyruğu + alias durumu).
+
+**İkinci ders:** yerelde `next build` geçiyorsa ve dağıtımda "asılıyor"
+görünüyorsa, önce ARACIN raporlamasından şüphelenin. Bu turda yerel
+`tsc --noEmit` 3.7 sn, `next build` temizdi — bu, "kod suçlu değil" yönünde
+zaten güçlü bir sinyaldi ve daha erken ciddiye alınmalıydı.

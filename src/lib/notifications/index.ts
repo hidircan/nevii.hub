@@ -11,16 +11,33 @@ import { createHash } from "crypto";
 import { isDbMode, resolveDataDir } from "../config";
 import { withFileLock, writeJsonFileAtomic } from "../atomic-json-file";
 /**
- * Statik import — bilinçli. `store.ts` bir zamanlar db modülünü çıplak
- * `require()` ile seçiyordu ve Turbopack (Next 16) onu production bundle'ına
- * HİÇ emit etmiyordu (bkz. commit 25a59c1, store-mode-parity.test.ts):
- * sessiz bir 500 kaynağı. Aynı tuzağa düşmemek için burada da dinamik import
- * kullanılmaz. `prisma` tembel bir Proxy'dir — bu import hiçbir bağlantı
- * AÇMAZ, dolayısıyla json/memory deploy'ları etkilenmez; ayrıca her bildirim
- * yazımından modül çözümlemesi kalkar (mutasyon başına 5 çağrı).
+ * `../db` ve `@prisma/client` DİNAMİK import edilir, ama çözümleme süreç
+ * başına BİR KEZ yapılır (promise memoize edilir).
+ *
+ * Neden statik değil: bu modül `/ogrenci`, `/panel/bildirimler`, export
+ * route'u ve `services/tools.ts` üzerinden neredeyse tüm sayfa grafiğine
+ * giriyor. Statik import, `@prisma/client`'ı json/memory deploy'larında da
+ * her sayfanın modül grafiğine sokar; dinamik + memoize, aynı "yazım başına
+ * modül çözümlemesi yok" kazancını bu bedeli ödemeden verir.
+ *
+ * (Not: statik hâli bir tur denendi ve dağıtımı BOZMADI — o dağıtım 120
+ * saniyede READY oldu. Geri alınmasının sebebi ölçülmüş bir hata değil,
+ * yukarıdaki modül-grafiği gerekçesidir.)
  */
-import { prisma } from "../db";
-import { Prisma } from "@prisma/client";
+type DbModules = {
+  prisma: typeof import("../db").prisma;
+  Prisma: typeof import("@prisma/client").Prisma;
+};
+
+/** Promise MEMOİZE edilir: süreç başına tek çözümleme (eskiden yazım başına bir tane). */
+let dbModules: Promise<DbModules> | null = null;
+
+function db(): Promise<DbModules> {
+  dbModules ??= Promise.all([import("../db"), import("@prisma/client")]).then(
+    ([dbModule, prismaModule]) => ({ prisma: dbModule.prisma, Prisma: prismaModule.Prisma })
+  );
+  return dbModules;
+}
 import { uid } from "../utils";
 import type { Notification as DbNotification } from "@prisma/client";
 import type { Notification } from "../types";
@@ -137,9 +154,15 @@ export type CreateNotificationResult = {
  * Satır kimliği. `dedupeKey` yoksa davranış eskisiyle aynıdır (rastgele id),
  * yani idempotans anahtarı vermeyen çağıranların semantiği DEĞİŞMEZ.
  */
-/** Prisma'nın benzersizlik ihlali kodu — SADECE bu kod `duplicate`'e çevrilir. */
-function isUniqueViolation(error: unknown): boolean {
-  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
+/**
+ * Prisma'nın benzersizlik ihlali kodu — SADECE bu kod `duplicate`'e çevrilir.
+ * `Prisma` namespace'i çağıran tarafından geçirilir (dinamik import, yukarı bkz.).
+ */
+function isUniqueViolation(
+  PrismaNs: typeof import("@prisma/client").Prisma,
+  error: unknown
+): boolean {
+  return error instanceof PrismaNs.PrismaClientKnownRequestError && error.code === "P2002";
 }
 
 function notificationRowId(input: CreateNotificationInput, now: Date): string {
@@ -164,6 +187,7 @@ async function createNotificationDb(
   input: CreateNotificationInput,
   record: StoredNotification
 ): Promise<CreateNotificationResult> {
+  const { prisma, Prisma } = await db();
   /**
    * TEK ifade, TEK gidiş-dönüş: `create`. (`createMany(skipDuplicates)`
    * denendi ve ÖLÇÜMLE geri alındı — Prisma onu `BEGIN/INSERT/COMMIT` olarak
@@ -188,7 +212,7 @@ async function createNotificationDb(
     });
     return { status: "created", notification: toPublicNotification(mapDbNotification(row)) };
   } catch (error) {
-    if (!isUniqueViolation(error)) throw error;
+    if (!isUniqueViolation(Prisma, error)) throw error;
   }
 
   // Yinelenen: dönen nesne UYDURULMAZ, gerçekten saklanan satır okunur.
@@ -231,6 +255,7 @@ export async function createNotification(
 }
 
 async function listNotificationsForUserDb(recipient: NotificationRecipient): Promise<Notification[]> {
+  const { prisma } = await db();
   const rows = await prisma.notification.findMany({
     where: {
       tenantId: recipient.tenantId,
@@ -319,6 +344,7 @@ async function markNotificationReadDb(
   recipient: NotificationRecipient,
   notificationId: string
 ): Promise<Notification | null> {
+  const { prisma } = await db();
   const existing = await prisma.notification.findFirst({
     where: {
       id: notificationId,
@@ -365,6 +391,7 @@ export async function markNotificationRead(
 }
 
 async function listAllNotificationsDb(tenantId: string): Promise<Notification[]> {
+  const { prisma } = await db();
   const rows = await prisma.notification.findMany({
     where: { tenantId },
     orderBy: { createdAt: "desc" },
@@ -383,6 +410,7 @@ export async function listAllNotifications(tenantId: string): Promise<Notificati
 }
 
 async function clearNotificationsDb(tenantId: string): Promise<void> {
+  const { prisma } = await db();
   await prisma.notification.deleteMany({ where: { tenantId } });
 }
 

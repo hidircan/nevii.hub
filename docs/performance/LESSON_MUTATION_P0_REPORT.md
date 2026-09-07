@@ -630,3 +630,27 @@ bildirim **yoktur** — uygulama içi bildirimler bilgilendiricidir ve harici
 mesaj gönderimi zaten ayrı, insan onaylı bir yoldur (`PROJECT.md` §8.3).
 Bu yüzden bildirim hatası mutasyonu başarısız yapmaz; ama sessiz de değildir:
 `lesson.reschedule.notification_failed` denetim kaydı yazılır.
+
+## E8. Dağıtım ve bir düzeltme notu
+
+| Kalem | Değer |
+|---|---|
+| Paralelleştirme commit'i | `1291eac258b09a7978f39b5812996e59d029c269` |
+| Preview deployment | `dpl_HvTvAN5md3KLHTGQVPn9ExsVKaTJ` — **READY** (120 sn'de) |
+| Alias | `test.neviihub.com`, `neviihub-git-test-hidircans-projects.vercel.app` |
+| Bölge | `iad1` |
+
+**Şeffaflık notu (bu turda yapılan bir hata ve düzeltmesi):** dağıtım
+izlenirken Vercel API'sinin `state` alanı ~50 dakika boyunca `BUILDING`
+göstermeye devam etti; build log'ları da kısmi geliyordu. Bu, `1291eac`'teki
+`notifications/index.ts` statik `prisma` import'unun build'i astığı şeklinde
+YORUMLANDI ve import dinamiğe geri alındı. Sonradan aynı deployment'ın
+`ready` damgası okundu: build **120 saniyede** bitmişti; asılma HİÇ
+yaşanmamıştı, API durumu bayattı.
+
+Statik import geri alınmış hâliyle bırakıldı, ama **gerekçesi düzeltildi**:
+sebep ölçülmüş bir dağıtım hatası DEĞİL, `@prisma/client`'ı json/memory
+deploy'larında da her sayfanın modül grafiğine sokmama tercihidir. Dinamik
+import artık süreç başına BİR KEZ çözümlenir (promise memoize), yani statik
+import'tan beklenen "yazım başına modül çözümlemesi yok" kazancı korunur.
+Koddaki ve testteki yanlış gerekçe metni düzeltildi.
