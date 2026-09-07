@@ -7,8 +7,20 @@
  */
 
 import path from "path";
+import { createHash } from "crypto";
 import { isDbMode, resolveDataDir } from "../config";
 import { withFileLock, writeJsonFileAtomic } from "../atomic-json-file";
+/**
+ * Statik import — bilinçli. `store.ts` bir zamanlar db modülünü çıplak
+ * `require()` ile seçiyordu ve Turbopack (Next 16) onu production bundle'ına
+ * HİÇ emit etmiyordu (bkz. commit 25a59c1, store-mode-parity.test.ts):
+ * sessiz bir 500 kaynağı. Aynı tuzağa düşmemek için burada da dinamik import
+ * kullanılmaz. `prisma` tembel bir Proxy'dir — bu import hiçbir bağlantı
+ * AÇMAZ, dolayısıyla json/memory deploy'ları etkilenmez; ayrıca her bildirim
+ * yazımından modül çözümlemesi kalkar (mutasyon başına 5 çağrı).
+ */
+import { prisma } from "../db";
+import { Prisma } from "@prisma/client";
 import { uid } from "../utils";
 import type { Notification as DbNotification } from "@prisma/client";
 import type { Notification } from "../types";
@@ -98,7 +110,48 @@ export type CreateNotificationInput = {
   kind: string;
   title: string;
   body: string;
+  /**
+   * İdempotans anahtarı (opsiyonel). Verilirse satır id'si
+   * (tenant, hedef, kind, anahtar, GÜN) beşlisinden TÜRETİLİR. `Notification.id`
+   * birincil anahtar olduğu için aynı beşliye ikinci bir satır YAZILAMAZ —
+   * şema değişikliği (yeni unique index/migration) GEREKMEDEN yarış koşullarına
+   * dayanıklı tekilleştirme.
+   *
+   * Bu, `notification-dispatch.ts`'teki 24 saatlik pencere kontrolünün YERİNE
+   * GEÇMEZ; onun ALTINA konan sert bir emniyettir. Pencere kontrolü kullanıcıya
+   * görünen kuralı (aynı olay 24 saatte bir kez) korur; buradaki id ise iki
+   * eşzamanlı çağrının o kontrolü aynı anda geçip ÇİFT satır yazmasını
+   * imkânsız kılar. Gün bileşeni sayesinde 24 saatten sonraki meşru bir
+   * tekrar bildirimi engellenmez.
+   */
+  dedupeKey?: string;
 };
+
+export type CreateNotificationResult = {
+  /** `duplicate` → aynı idempotans anahtarıyla satır ZATEN vardı, yeni satır yazılmadı. */
+  status: "created" | "duplicate";
+  notification: Notification;
+};
+
+/**
+ * Satır kimliği. `dedupeKey` yoksa davranış eskisiyle aynıdır (rastgele id),
+ * yani idempotans anahtarı vermeyen çağıranların semantiği DEĞİŞMEZ.
+ */
+/** Prisma'nın benzersizlik ihlali kodu — SADECE bu kod `duplicate`'e çevrilir. */
+function isUniqueViolation(error: unknown): boolean {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
+}
+
+function notificationRowId(input: CreateNotificationInput, now: Date): string {
+  if (!input.dedupeKey) return uid("notif");
+  const target = input.targetUserId ?? input.targetStudentId ?? "";
+  const day = now.toISOString().slice(0, 10);
+  const digest = createHash("sha256")
+    .update([input.tenantId, target, input.kind, input.dedupeKey, day].join("\u0000"))
+    .digest("hex")
+    .slice(0, 32);
+  return `notif_${digest}`;
+}
 
 /** targetUserId'ye VEYA targetStudentId'ye göre — tenant içinde kişiye özel bildirimler. */
 export type NotificationRecipient = {
@@ -107,26 +160,58 @@ export type NotificationRecipient = {
   studentId?: string;
 };
 
-async function createNotificationDb(input: CreateNotificationInput): Promise<Notification> {
-  const { prisma } = await import("../db");
-  const row = await prisma.notification.create({
-    data: {
-      id: uid("notif"),
-      tenantId: input.tenantId,
-      targetUserId: input.targetUserId ?? null,
-      targetStudentId: input.targetStudentId ?? null,
-      kind: input.kind,
-      title: input.title,
-      body: input.body,
-    },
+async function createNotificationDb(
+  input: CreateNotificationInput,
+  record: StoredNotification
+): Promise<CreateNotificationResult> {
+  /**
+   * TEK ifade, TEK gidiş-dönüş: `create`. (`createMany(skipDuplicates)`
+   * denendi ve ÖLÇÜMLE geri alındı — Prisma onu `BEGIN/INSERT/COMMIT` olarak
+   * gönderiyor, yani bildirim başına 1 yerine 3 gidiş-dönüş: taşıma yolunda
+   * +10 sorgu.)
+   *
+   * Birincil anahtar çakışması burada bir HATA değil, tanımlı bir SONUÇTUR:
+   * yalnız `P2002` (unique constraint) yakalanır ve `duplicate`'e çevrilir;
+   * başka her hata olduğu gibi YUKARI FIRLATILIR (sessiz yutma yok).
+   */
+  try {
+    const row = await prisma.notification.create({
+      data: {
+        id: record.id,
+        tenantId: input.tenantId,
+        targetUserId: input.targetUserId ?? null,
+        targetStudentId: input.targetStudentId ?? null,
+        kind: input.kind,
+        title: input.title,
+        body: input.body,
+      },
+    });
+    return { status: "created", notification: toPublicNotification(mapDbNotification(row)) };
+  } catch (error) {
+    if (!isUniqueViolation(error)) throw error;
+  }
+
+  // Yinelenen: dönen nesne UYDURULMAZ, gerçekten saklanan satır okunur.
+  const existing = await prisma.notification.findFirst({
+    where: { id: record.id, tenantId: input.tenantId },
   });
-  return toPublicNotification(mapDbNotification(row));
+  return {
+    status: "duplicate",
+    notification: existing ? toPublicNotification(mapDbNotification(existing)) : toPublicNotification(record),
+  };
 }
 
-export async function createNotification(input: CreateNotificationInput): Promise<Notification> {
-  if (isDbMode) return createNotificationDb(input);
+/**
+ * Üç modda da AYNI sözleşme: `dedupeKey` verilmişse aynı (tenant, hedef, kind,
+ * anahtar, gün) beşlisi için EN FAZLA BİR satır oluşur ve ikinci çağrı
+ * `duplicate` döner. db'de bunu birincil anahtar, json/memory'de aynı id'nin
+ * kilit ALTINDA aranması sağlar — ikisi de yarışa dayanıklıdır.
+ */
+export async function createNotification(
+  input: CreateNotificationInput
+): Promise<CreateNotificationResult> {
   const record: StoredNotification = {
-    id: uid("notif"),
+    id: notificationRowId(input, new Date()),
     tenantId: input.tenantId,
     targetUserId: input.targetUserId,
     targetStudentId: input.targetStudentId,
@@ -135,12 +220,17 @@ export async function createNotification(input: CreateNotificationInput): Promis
     body: input.body,
     createdAt: new Date().toISOString(),
   };
-  await mutateAllUnderLock((all) => ({ next: [...all, record], result: undefined }));
-  return toPublicNotification(record);
+  if (isDbMode) return createNotificationDb(input, record);
+  return mutateAllUnderLock<CreateNotificationResult>((all) => {
+    const existing = all.find((n) => n.id === record.id);
+    if (existing) {
+      return { next: null, result: { status: "duplicate", notification: toPublicNotification(existing) } };
+    }
+    return { next: [...all, record], result: { status: "created", notification: toPublicNotification(record) } };
+  });
 }
 
 async function listNotificationsForUserDb(recipient: NotificationRecipient): Promise<Notification[]> {
-  const { prisma } = await import("../db");
   const rows = await prisma.notification.findMany({
     where: {
       tenantId: recipient.tenantId,
@@ -229,7 +319,6 @@ async function markNotificationReadDb(
   recipient: NotificationRecipient,
   notificationId: string
 ): Promise<Notification | null> {
-  const { prisma } = await import("../db");
   const existing = await prisma.notification.findFirst({
     where: {
       id: notificationId,
@@ -276,7 +365,6 @@ export async function markNotificationRead(
 }
 
 async function listAllNotificationsDb(tenantId: string): Promise<Notification[]> {
-  const { prisma } = await import("../db");
   const rows = await prisma.notification.findMany({
     where: { tenantId },
     orderBy: { createdAt: "desc" },
@@ -295,7 +383,6 @@ export async function listAllNotifications(tenantId: string): Promise<Notificati
 }
 
 async function clearNotificationsDb(tenantId: string): Promise<void> {
-  const { prisma } = await import("../db");
   await prisma.notification.deleteMany({ where: { tenantId } });
 }
 

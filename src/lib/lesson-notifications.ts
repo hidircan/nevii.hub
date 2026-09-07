@@ -4,8 +4,75 @@ import { readData, listTenants } from "./store";
 import { runWithTenantAsync } from "./tenant-context";
 import { getUserIdByTeacherId } from "./auth/users";
 import { notifyAdmins } from "./manager-notifications";
-import { notifyStudentIfEnabled, notifyUserIfEnabled } from "./notification-dispatch";
+import { notifyStudentIfEnabled, notifyUserIfEnabled, type NotifyOutcome } from "./notification-dispatch";
+import { logger } from "./logger";
 import type { Lesson } from "./types";
+
+/**
+ * Bir ders olayının bildirim turunun ÖLÇÜLEBİLİR sonucu. Çağıran (tool)
+ * bunu denetim kaydına yazabilsin diye döner — "best-effort" artık
+ * "görünmez" demek değildir.
+ */
+export type LessonNotificationSummary = {
+  created: number;
+  duplicate: number;
+  skipped: number;
+  failed: number;
+};
+
+function emptySummary(): LessonNotificationSummary {
+  return { created: 0, duplicate: 0, skipped: 0, failed: 0 };
+}
+
+/**
+ * Birbirinden BAĞIMSIZ bildirim görevlerini paralel yürütür ve HER sonucu
+ * açıkça ele alır.
+ *
+ * Neden güvenli: hedefler farklı kullanıcılardır (öğretmen / öğrenci+veli /
+ * yöneticiler), yani ayrı satırlara yazılır. Aynı kaynağa (json dosyası)
+ * yazan kısım `mutateAllUnderLock` ile serileştirilir; aynı (hedef, olay)
+ * çiftine iki satır yazılması ise türetilmiş satır kimliğiyle engellenir.
+ *
+ * `Promise.allSettled` kullanılır ve reddedilen görevler LOGLANIR —
+ * `.catch(() => {})` gibi sessiz bir yutma YOKTUR. Bildirim başarısızlığı
+ * çağıran mutasyonu ASLA başarısız yapmaz (bkz. çağrı yerlerindeki yorum).
+ */
+async function settleNotifications(
+  label: string,
+  context: { tenantId: string; lessonId: string },
+  tasks: Array<Promise<NotifyOutcome | NotifyOutcome[]>>
+): Promise<LessonNotificationSummary> {
+  const settled = await Promise.allSettled(tasks);
+  const summary = emptySummary();
+  for (const entry of settled) {
+    if (entry.status === "rejected") {
+      summary.failed += 1;
+      logger.error(`${label}: bildirim görevi reddedildi`, {
+        ...context,
+        error: entry.reason instanceof Error ? entry.reason.message : String(entry.reason),
+      });
+      continue;
+    }
+    for (const outcome of Array.isArray(entry.value) ? entry.value : [entry.value]) {
+      summary[outcome] += 1;
+    }
+  }
+  if (summary.failed > 0) {
+    logger.warn(`${label}: ${summary.failed} bildirim teslim edilemedi`, { ...context, ...summary });
+  }
+  return summary;
+}
+
+/** Öğretmenin portal kullanıcısı yoksa bu bir hata değil, `skipped`'tır. */
+async function notifyTeacherUser(
+  tenantId: string,
+  teacherId: string,
+  payload: { category: Parameters<typeof notifyUserIfEnabled>[0]["category"]; title: string; body: string; dedupeKey: string }
+): Promise<NotifyOutcome> {
+  const teacherUserId = await getUserIdByTeacherId(tenantId, teacherId);
+  if (!teacherUserId) return "skipped";
+  return notifyUserIfEnabled({ tenantId, userId: teacherUserId, ...payload });
+}
 
 export const UPCOMING_WINDOW_MIN = 15;
 export const UPCOMING_WINDOW_MAX = 90;
@@ -25,40 +92,37 @@ export async function notifyLessonCancelled(input: {
   lesson: Lesson;
   actorUserId?: string;
   reason?: string;
-}): Promise<void> {
+}): Promise<LessonNotificationSummary> {
   const reasonBit = input.reason ? ` ${input.reason.slice(0, 80)}` : "";
   const title = "Ders iptal edildi";
   const bodyAdmin = `"${input.lesson.instrument}" dersi iptal edildi (${fmt(input.lesson.startAt)}).${reasonBit} Detay: ${lessonHref("admin")}`;
   const bodyParty = `"${input.lesson.instrument}" dersiniz iptal edildi (${fmt(input.lesson.startAt)}). Detay: ${lessonHref("student")}`;
-  try {
-    const teacherUserId = await getUserIdByTeacherId(input.tenantId, input.lesson.teacherId);
-    if (teacherUserId) {
-      await notifyUserIfEnabled({
-        tenantId: input.tenantId,
-        userId: teacherUserId,
+  return settleNotifications(
+    "notifyLessonCancelled",
+    { tenantId: input.tenantId, lessonId: input.lesson.id },
+    [
+      notifyTeacherUser(input.tenantId, input.lesson.teacherId, {
         category: "lesson_cancelled",
         title,
         body: `"${input.lesson.instrument}" dersi iptal edildi (${fmt(input.lesson.startAt)}). Detay: ${lessonHref("teacher")}`,
         dedupeKey: input.lesson.id,
-      });
-    }
-    await notifyStudentIfEnabled({
-      tenantId: input.tenantId,
-      studentId: input.lesson.studentId,
-      category: "lesson_cancelled",
-      title,
-      body: bodyParty,
-      dedupeKey: input.lesson.id,
-    });
-    await notifyAdmins(
-      input.tenantId,
-      "lesson_cancelled",
-      { title, body: bodyAdmin },
-      { excludeUserId: input.actorUserId, dedupeKey: input.lesson.id }
-    );
-  } catch {
-    // best-effort
-  }
+      }),
+      notifyStudentIfEnabled({
+        tenantId: input.tenantId,
+        studentId: input.lesson.studentId,
+        category: "lesson_cancelled",
+        title,
+        body: bodyParty,
+        dedupeKey: input.lesson.id,
+      }),
+      notifyAdmins(
+        input.tenantId,
+        "lesson_cancelled",
+        { title, body: bodyAdmin },
+        { excludeUserId: input.actorUserId, dedupeKey: input.lesson.id }
+      ),
+    ]
+  );
 }
 
 export async function notifyLessonRescheduled(input: {
@@ -66,54 +130,53 @@ export async function notifyLessonRescheduled(input: {
   lesson: Lesson;
   previousStartAt: string;
   actorUserId?: string;
-}): Promise<void> {
-  if (input.previousStartAt === input.lesson.startAt) return;
+}): Promise<LessonNotificationSummary> {
+  if (input.previousStartAt === input.lesson.startAt) return emptySummary();
   const title = "Ders saati değişti";
   const when = `${fmt(input.previousStartAt)} → ${fmt(input.lesson.startAt)}`;
-  try {
-    /**
-     * P0 performans (2026-09-07) — bu üç bildirim BİRBİRİNDEN BAĞIMSIZ ve
-     * ardışık `await` edildikleri için ders taşımayı BLOKLAYAN yolda üç ayrı
-     * gidiş-dönüş oluşturuyorlar. `Promise.allSettled` ile paralelleştirmek
-     * DENENDİ ve GERİ ALINDI: `json`/`memory` modunda `createNotification`
-     * kilitsiz bir oku-değiştir-yaz'dır (`loadAll()` → `saveAll([...all, rec])`,
-     * bkz. src/lib/notifications/index.ts) — eşzamanlı iki yazımdan biri
-     * SESSİZCE KAYBOLUYOR. `notification-center-v2.test.ts > "taşıma eski→yeni
-     * saat yazar"` bunu yakaladı. Paralelleştirmenin ön koşulu, o dosyaya
-     * store-json'daki gibi bir yazma kilidi eklemektir (bkz.
-     * docs/performance/ADMIN_WEB_P0_BASELINE.md §7).
-     */
-    const teacherUserId = await getUserIdByTeacherId(input.tenantId, input.lesson.teacherId);
-    if (teacherUserId) {
-      await notifyUserIfEnabled({
-        tenantId: input.tenantId,
-        userId: teacherUserId,
+  const dedupeKey = `${input.lesson.id}:${input.lesson.startAt}`;
+  /**
+   * P0 performans (2026-09-07, onaylı) — bu üç bildirim BİRBİRİNDEN
+   * BAĞIMSIZDIR (öğretmen / öğrenci+veli / yöneticiler = ayrı kullanıcılar,
+   * ayrı satırlar) ve ardışık `await` edildiklerinde ders taşımayı BLOKLAYAN
+   * yolda 19 gidiş-dönüşün 3 ayrı dalgasını oluşturuyordu.
+   *
+   * Paralelleştirme bir kez DENENİP GERİ ALINMIŞTI: `json`/`memory` modunda
+   * `createNotification` kilitsiz bir oku-değiştir-yaz'dı ve eşzamanlı
+   * yazımdan biri sessizce kayboluyordu. O kök neden kapatıldı
+   * (`notifications/index.ts` → `mutateAllUnderLock`, kilit + atomik yazım) ve
+   * üzerine türetilmiş satır kimliğiyle yarışa dayanıklı idempotans eklendi;
+   * ikisi de regresyon testleriyle kilitlendi.
+   */
+  return settleNotifications(
+    "notifyLessonRescheduled",
+    { tenantId: input.tenantId, lessonId: input.lesson.id },
+    [
+      notifyTeacherUser(input.tenantId, input.lesson.teacherId, {
         category: "lesson_rescheduled",
         title,
         body: `"${input.lesson.instrument}" dersi taşındı (${when}). Detay: ${lessonHref("teacher")}`,
-        dedupeKey: `${input.lesson.id}:${input.lesson.startAt}`,
-      });
-    }
-    await notifyStudentIfEnabled({
-      tenantId: input.tenantId,
-      studentId: input.lesson.studentId,
-      category: "lesson_rescheduled",
-      title,
-      body: `"${input.lesson.instrument}" dersi ${when} olarak güncellendi. Detay: ${lessonHref("student")}`,
-      dedupeKey: `${input.lesson.id}:${input.lesson.startAt}`,
-    });
-    await notifyAdmins(
-      input.tenantId,
-      "lesson_rescheduled",
-      {
+        dedupeKey,
+      }),
+      notifyStudentIfEnabled({
+        tenantId: input.tenantId,
+        studentId: input.lesson.studentId,
+        category: "lesson_rescheduled",
         title,
-        body: `"${input.lesson.instrument}" dersi taşındı (${when}). Detay: ${lessonHref("admin")}`,
-      },
-      { excludeUserId: input.actorUserId, dedupeKey: `${input.lesson.id}:${input.lesson.startAt}` }
-    );
-  } catch {
-    // best-effort
-  }
+        body: `"${input.lesson.instrument}" dersi ${when} olarak güncellendi. Detay: ${lessonHref("student")}`,
+        dedupeKey,
+      }),
+      notifyAdmins(
+        input.tenantId,
+        "lesson_rescheduled",
+        {
+          title,
+          body: `"${input.lesson.instrument}" dersi taşındı (${when}). Detay: ${lessonHref("admin")}`,
+        },
+        { excludeUserId: input.actorUserId, dedupeKey }
+      ),
+    ]
+  );
 }
 
 /**

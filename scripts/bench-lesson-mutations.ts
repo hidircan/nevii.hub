@@ -144,23 +144,39 @@ async function main() {
     const lessonId = lesson.id;
     console.log(`ölçüm dersi: ${lessonId} · ${lesson.startAt}`);
 
-    // 1) Ders taşıma — ölçüm iki GEÇERLİ slot arasında gidip gelir. Slotlar
-    //    önce sondalanır (DB durumu önceki koşulardan kaymış olabilir).
+    /**
+     * 1) Ders taşıma.
+     *
+     * Her tur FARKLI bir hedef slota taşınır. Bu bilinçlidir: bildirim
+     * tekilleştirmesi (`dedupeKey = lessonId:startAt`) aynı slota tekrar
+     * taşımada devreye girer ve o turda hiç bildirim YAZILMAZ — iki sürümü
+     * karşılaştırırken elmayla armut ölçmüş olurduk. Farklı slot = her turda
+     * gerçek bildirim yazımı = adil karşılaştırma.
+     */
     const day = startOfHour(new Date(lesson.startAt));
     const slots: string[] = [];
-    for (let h = -12; h <= 12 && slots.length < 2; h++) {
+    for (let h = -12; h <= 36 && slots.length < REPEATS + 1; h++) {
       const candidate = addMinutes(day, h * 60).toISOString();
       const probe = await tools.updateLessonScheduleTool(ctx, { lessonId, startAt: candidate });
       if (probe.ok) slots.push(candidate);
     }
-    if (slots.length < 2) throw new Error("ölçüm için iki geçerli slot bulunamadı");
-    console.log(`ölçüm slotları: ${slots.join(" ↔ ")}`);
+    if (slots.length < REPEATS + 1) {
+      throw new Error(`ölçüm için ${REPEATS + 1} geçerli slot gerekli, ${slots.length} bulundu`);
+    }
+    console.log(`ölçüm slotları (${slots.length}): ${slots[0]} … ${slots[slots.length - 1]}`);
 
     await measure("1. Ders taşıma (updateLessonScheduleTool)", REPEATS, async (i) => {
-      const res = await tools.updateLessonScheduleTool(ctx, {
-        lessonId,
-        startAt: slots[i % 2]!,
-      });
+      const res = await tools.updateLessonScheduleTool(ctx, { lessonId, startAt: slots[i]! });
+      if (!res.ok) throw new Error(`taşıma başarısız: ${res.error.message}`);
+    });
+
+    // 1b) AYNI taşımanın tekrarı (retry) — idempotans yolunun maliyeti.
+    const retrySlot = slots[slots.length - 1]!;
+    await tools.updateLessonScheduleTool(ctx, { lessonId, startAt: slots[0]! });
+    await tools.updateLessonScheduleTool(ctx, { lessonId, startAt: retrySlot });
+    await measure("1b. Ders taşıma — aynı olayın tekrarı (idempotans)", REPEATS, async () => {
+      await tools.updateLessonScheduleTool(ctx, { lessonId, startAt: slots[0]! });
+      const res = await tools.updateLessonScheduleTool(ctx, { lessonId, startAt: retrySlot });
       if (!res.ok) throw new Error(`taşıma başarısız: ${res.error.message}`);
     });
 

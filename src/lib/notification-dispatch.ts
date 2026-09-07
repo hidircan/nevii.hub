@@ -1,8 +1,18 @@
 import type { NotificationCategory } from "./notification-categories";
 import { createNotification, listNotificationsForUser } from "./notifications";
 import { isCategoryEnabledForUser } from "./notification-preferences";
+import { logger } from "./logger";
 
 const DEFAULT_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Bir bildirim denemesinin AÇIK sonucu. Hiçbir dal sessizce yutulmaz:
+ * - `created`   : satır yazıldı
+ * - `duplicate` : aynı olay için zaten bildirim vardı (pencere veya idempotans anahtarı)
+ * - `skipped`   : kullanıcı bu kategoriyi kapatmış (hata değil, kullanıcı tercihi)
+ * - `failed`    : gerçek hata — LOGLANIR ve çağırana bildirilir
+ */
+export type NotifyOutcome = "created" | "skipped" | "duplicate" | "failed";
 
 export async function notifyUserIfEnabled(input: {
   tenantId: string;
@@ -10,52 +20,86 @@ export async function notifyUserIfEnabled(input: {
   category: NotificationCategory;
   title: string;
   body: string;
-  dedupeKey: string;
+  /**
+   * Opsiyonel. Verildiğinde İKİ katmanlı tekilleştirme uygulanır:
+   * (1) son `windowMs` içindeki bildirimlere bakan okuma kontrolü — kullanıcıya
+   *     görünen kural, davranışı değişmedi;
+   * (2) `createNotification`'ın türetilmiş satır kimliği — (1)'i aynı anda
+   *     geçen iki eşzamanlı çağrının çift satır yazmasını İMKÂNSIZ kılar.
+   * Verilmezse ikisi de uygulanmaz (eski `notifyAdmins` davranışıyla aynı).
+   */
+  dedupeKey?: string;
   windowMs?: number;
-}): Promise<"created" | "skipped" | "duplicate"> {
+}): Promise<NotifyOutcome> {
   try {
     const enabled = await isCategoryEnabledForUser(input.tenantId, input.userId, input.category);
     if (!enabled) return "skipped";
-    const since = Date.now() - (input.windowMs ?? DEFAULT_WINDOW_MS);
-    const existing = await listNotificationsForUser({ tenantId: input.tenantId, userId: input.userId });
-    const dup = existing.some(
-      (n) =>
-        n.kind === input.category &&
-        n.body.includes(input.dedupeKey) &&
-        new Date(n.createdAt).getTime() >= since
-    );
-    if (dup) return "duplicate";
-    await createNotification({
+
+    if (input.dedupeKey !== undefined) {
+      const since = Date.now() - (input.windowMs ?? DEFAULT_WINDOW_MS);
+      const existing = await listNotificationsForUser({ tenantId: input.tenantId, userId: input.userId });
+      const dup = existing.some(
+        (n) =>
+          n.kind === input.category &&
+          n.body.includes(input.dedupeKey!) &&
+          new Date(n.createdAt).getTime() >= since
+      );
+      if (dup) return "duplicate";
+    }
+
+    const result = await createNotification({
       tenantId: input.tenantId,
       targetUserId: input.userId,
       kind: input.category,
       title: input.title,
       body: input.body,
+      dedupeKey: input.dedupeKey,
     });
-    return "created";
-  } catch {
-    return "skipped";
+    return result.status;
+  } catch (error) {
+    // Sessiz yutma YOK — hata görünür olur, çağıran `failed`'ı sayıp raporlar.
+    logger.error("notifyUserIfEnabled başarısız", {
+      tenantId: input.tenantId,
+      userId: input.userId,
+      category: input.category,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return "failed";
   }
 }
 
+/**
+ * Öğrencinin KENDİ portal kullanıcısı + velileri. Hedefler birbirinden
+ * BAĞIMSIZ (farklı kullanıcı satırları) olduğu için paralel yürütülür;
+ * `notifyUserIfEnabled` kendi içinde hata yakaladığı için `Promise.all`
+ * burada reddedilmez ve her hedefin sonucu ayrı ayrı döner.
+ */
 export async function notifyStudentIfEnabled(input: {
   tenantId: string;
   studentId: string;
   category: NotificationCategory;
   title: string;
   body: string;
-  dedupeKey: string;
+  dedupeKey?: string;
   windowMs?: number;
-}): Promise<void> {
+}): Promise<NotifyOutcome[]> {
   try {
     const { getUserIdByStudentId, getParentUserIdsByStudentId } = await import("./auth/users");
-    const studentUserId = await getUserIdByStudentId(input.tenantId, input.studentId);
-    const parentIds = await getParentUserIdsByStudentId(input.tenantId, input.studentId);
-    const ids = new Set<string>([...parentIds, ...(studentUserId ? [studentUserId] : [])]);
-    for (const userId of ids) {
-      await notifyUserIfEnabled({ ...input, userId });
-    }
-  } catch {
-    // best-effort
+    // İki arama birbirinden bağımsız salt-okuma — paralel.
+    const [studentUserId, parentIds] = await Promise.all([
+      getUserIdByStudentId(input.tenantId, input.studentId),
+      getParentUserIdsByStudentId(input.tenantId, input.studentId),
+    ]);
+    const ids = [...new Set<string>([...parentIds, ...(studentUserId ? [studentUserId] : [])])];
+    if (ids.length === 0) return [];
+    return await Promise.all(ids.map((userId) => notifyUserIfEnabled({ ...input, userId })));
+  } catch (error) {
+    logger.error("notifyStudentIfEnabled başarısız", {
+      tenantId: input.tenantId,
+      studentId: input.studentId,
+      category: input.category,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return ["failed"];
   }
 }

@@ -454,3 +454,179 @@ simülasyondan gelen en iyi tahmindir — dağıtımdan alınmış ölçüm değ
 | 3 | **Vercel Deployment Protection** dağıtılmış build üzerinde hiçbir otomatik doğrulamaya izin vermiyor (§10). | Altyapı | Operatör |
 | 4 | **Preview `DATABASE_URL`** (PROJECT_STATE "Open work" #1) — bu turda doğrulanamadı, çünkü #3 nedeniyle `/api/v1/ready` okunamıyor. | Altyapı | Operatör |
 | 5 | Migration geçmişi squash kararı (PROJECT_STATE "Open work" #5) — bu turda **hiçbir migration oluşturulmadı/çalıştırılmadı**, durum değişmedi. | Veri | Operatör |
+
+---
+
+# EK — Bildirim Paralelleştirmesi (2026-09-07, operatör onaylı)
+
+§5.1'de "onay bekliyor" olarak bırakılan iş. Onay alındı ve uygulandı.
+Bu ekteki her sayı, yerel tek kullanımlık DB'de gerçekten çalıştırılan bir
+ölçümden gelir; **test Supabase'e yine hiçbir yazma yapılmadı** (§E6).
+
+## E1. Paralelleştirilen bildirim akışları
+
+| Akış | Öncesi | Sonrası |
+|---|---|---|
+| `notifyLessonRescheduled` (ders taşıma) | öğretmen → öğrenci+veli → yöneticiler, **ardışık** | üçü **paralel** (`Promise.allSettled`) |
+| `notifyLessonCancelled` (ders iptali) | aynı şekilde ardışık | üçü **paralel** |
+| `notifyStudentIfEnabled` | kullanıcı aramaları ardışık, veliler `for` döngüsünde ardışık | iki arama paralel, hedefler paralel |
+| `notifyAdmins` | yöneticiler `for` döngüsünde ardışık | yöneticiler **paralel** |
+
+**Neden bağımsız:** her hedef FARKLI bir kullanıcıdır → ayrı `Notification`
+satırı, ayrı `NotificationPreference` satırı. Aynı kaynağa yazan tek nokta
+json/memory'deki tek dosyadır ve o `withFileLock` ile serileştirilir.
+
+**Paralelleştirilmeyenler (bilinçli):** `notifyLessonReassigned` ve
+`notifyMakeupLessonScheduled` bu turun kapsamı (taşıma + statü) dışında
+kaldı; ikisi de hâlâ ardışık ve hâlâ sessiz `catch {}` taşıyor. Ortak
+yardımcılar (`notifyStudentIfEnabled`/`notifyAdmins`) paralelleştiği için
+kısmi kazanç alırlar. Kalan borç olarak §E7'de kayıtlı.
+
+## E2. Kilit ve idempotans modeli
+
+**İki katman, iki farklı işi yapar:**
+
+1. **Yazma kilidi (veri kaybına karşı)** — `notifications/index.ts`'teki her
+   oku-değiştir-yaz `mutateAllUnderLock` (= `withFileLock` + geçici dosyaya
+   yaz + `JSON.parse` doğrula + atomik `rename`) altında. json/memory
+   içindir; db'de gerek yoktur (tek satırlık INSERT).
+2. **Türetilmiş satır kimliği (yinelenmeye karşı)** — `dedupeKey` verildiğinde
+   satır id'si `sha256(tenantId ⊕ hedef ⊕ kind ⊕ dedupeKey ⊕ YYYY-MM-DD)`
+   ile üretilir. `Notification.id` birincil anahtar olduğu için aynı beşliye
+   ikinci satır **yazılamaz** — db'de PostgreSQL'in unique kısıtı, json/memory'de
+   kilit altında aynı id'nin aranması sağlar. **Şema değişikliği / yeni
+   migration GEREKMEDİ.**
+
+Gün bileşeni bilinçlidir: 24 saatten sonraki meşru bir tekrar bildirimi
+engellenmez, ama aynı günkü yarış/retry engellenir.
+
+**db yazımı tek ifadedir.** `createMany(skipDuplicates)` önce denendi ve
+**ölçümle geri alındı**: Prisma onu `BEGIN/INSERT/COMMIT` olarak gönderiyor,
+yani bildirim başına 1 yerine 3 gidiş-dönüş (taşıma yolunda +10 sorgu —
+ölçüldü: 39 vs 29). Yerine `create` + **yalnız `P2002`** (unique violation)
+yakalayıp `duplicate`'e çevirme kullanıldı; başka her hata yukarı fırlatılır.
+
+**Yol boyunca bulunan GERÇEK hata — tekilleştirme ÖLÜ KODDU.**
+`notifyUserIfEnabled`'ın 24 saatlik penceresi `n.body.includes(dedupeKey)`
+ile bakıyordu, ama ders bildirimlerinin gövdesi `dedupeKey`'i
+(`lessonId:startAt`) **hiç içermiyordu** — yani ders akışlarında tekilleştirme
+hiçbir zaman eşleşmiyordu. Aynı taşımanın tekrarı her seferinde YENİ bildirim
+üretiyordu. Pencere kontrolü davranışı değiştirilmeden bırakıldı; yinelenmeyi
+artık türetilmiş satır kimliği kesin olarak engelliyor (§E4 ölçümü).
+
+## E3. Race-condition test sonuçları
+
+Yeni: `src/lib/__tests__/notification-parallel-safety.test.ts` (12 test),
+`src/lib/__tests__/notification-store-parity.test.ts` (7 test).
+
+| Test | Sonuç |
+|---|---|
+| AYNI hedefe 25 eşzamanlı FARKLI bildirim | 25/25 kalır ✅ |
+| FARKLI hedeflere 24 eşzamanlı bildirim | 24/24 kalır ✅ |
+| Aynı `dedupeKey` ile ARDIŞIK 2. çağrı | `duplicate`, satır sayısı 1 ✅ |
+| Aynı `dedupeKey` ile 10 EŞZAMANLI çağrı | 1 `created` + 9 `duplicate`, satır sayısı 1 ✅ |
+| Farklı `dedupeKey` → ayrı satır | ✅ (tekilleştirme fazla geniş değil) |
+| Aynı anahtar farklı kullanıcı → ayrı satır | ✅ |
+| Aynı anahtar farklı tenant → ayrı satır + okuma kapsamlı | ✅ |
+| `dedupeKey` yokken eski davranış (her çağrı yeni satır) | ✅ |
+| Yazım fırlatınca `failed` döner + **loglanır** | ✅ |
+| Bir hedef patlarken diğeri yazılır | ✅ (`failed` + `created` birlikte) |
+| db modu: aynı sözleşme (sahte prisma, gerçek P2002) | 4 test ✅ |
+| `memory` json ile aynı yolu kullanır (kaynak kilidi) | ✅ |
+
+**Testler regresyonu gerçekten yakalıyor mu — kanıtlandı:**
+- Kilit kaldırıldığında: 12 eşzamanlı yazımdan **11'i kayboluyor**
+  (`expected 1 to be 12`).
+- Türetilmiş id kaldırıldığında: 10 eşzamanlı çağrı **10 satır** üretiyor
+  (`expected [...10 created] to have a length of 1`).
+
+## E4. Veri kaybı ve yinelenme — GERÇEK DB kanıtı
+
+Yerel tek kullanımlık PostgreSQL, `Notification` tablosu her koşudan önce
+`TRUNCATE`, **aynı senaryo** (7 taze taşıma + 14 tekrar taşıma):
+
+| Kod | Toplam bildirim | Çift satır grubu | Fazladan (yinelenen) satır |
+|---|---|---|---|
+| ESKİ (`5377533`) | 155 | 40 | **105** |
+| YENİ | 40 | **0** | **0** |
+
+Yani eski kod, aynı olayın tekrarında 105 yinelenen bildirim yazıyordu
+(§E2'deki ölü tekilleştirme); yeni kod sıfır yazıyor ve hiçbir gerçek
+bildirim de kaybolmuyor.
+
+## E5. Süre tablosu — ölçülmüş (tahmin değil)
+
+Harness: `scripts/bench-lesson-mutations.ts` (yerel-DB guard'lı, yapay RTT).
+n=7, değerler **p95 (ms)**. "Eski" = `5377533`, "Yeni" = bu tur.
+
+### Ders taşıma (`updateLessonScheduleTool`)
+
+| RTT | Eski | Yeni | Değişim | Hedef < 1000 ms |
+|---|---|---|---|---|
+| 0 ms (yerel) | 24 | 28 | — | ✅ |
+| 20 ms | 565 | **273** | **−52 %** | ✅ |
+| 30 ms | 821 | **382** | **−53 %** | ✅ |
+| 40 ms | 1 073 | **496** | **−54 %** | ✅ |
+| 80 ms | — | **942** | — | ✅ (sınırda) |
+| 163 ms (mevcut preview) | 4 148 | **1 862** | **−55 %** | ❌ |
+
+### Statü değiştirme (`setLessonOpsFlagTool`)
+
+| RTT | Eski | Yeni | Değişim | Hedef < 1000 ms |
+|---|---|---|---|---|
+| 0 ms | 14 | 17 | — | ✅ |
+| 20 ms | 247 | 248 | — | ✅ |
+| 30 ms | 357 | 364 | — | ✅ |
+| 40 ms | 467 | 470 | — | ✅ |
+| 80 ms | — | 927 | — | ✅ (sınırda) |
+| 163 ms | 1 836 | 1 836 | — | ❌ |
+
+**Statü yolu değişmedi ve değişmesi de beklenmiyordu:** ölçülen bayraklar
+(Geldi/Gelmedi) hiç bildirim üretmez — bildirim yalnız "İşlendi" dalında
+(ödev hatırlatma + devamsızlık riski) vardır. Statünün kalan maliyeti
+§5.3'teki çift dar okumadır, bildirim değil.
+
+### DB gidiş-dönüş sayısı
+
+| Akış | Eski | Yeni |
+|---|---|---|
+| Ders taşıma | 32 | 34–37 |
+| Ders taşıma (tekrar/idempotans) | 64 | 68–70 |
+| Statü değiştirme | 21–26 | 21–26 |
+
+**Sorgu sayısı ~%6 ARTTI, süre ~%53 DÜŞTÜ** — çünkü kazanç sorgu sayısında
+değil, **dalga (wave) sayısındadır**: aynı sorgular artık ardışık değil
+eşzamanlı gidiyor. Artış, yinelenen yolda okunan gerçek satırın
+(`findFirst`) maliyetidir; uydurma nesne dönmemek için bilinçli.
+
+## E6. Test veritabanı teyidi
+
+- Test Supabase'e **hiçbir yazma yapılmadı**; ona hiç bağlanılmadı.
+- Tüm ölçümler `127.0.0.1:5432/notaplan_bench_p0` üzerinde yapıldı; bu DB bu
+  tur için oluşturuldu, **operatör onayıyla** şema kuruldu ve ölçüm bitince
+  silindi.
+- Harness guard'ı yerel olmayan veya adında `bench`/`disposable` geçmeyen bir
+  `DATABASE_URL` ile çalışmayı reddeder.
+- Gerçek admin oturumu / tarayıcı ile test DB'de mutasyon yapılmadı.
+- Yeni migration oluşturulmadı/çalıştırılmadı; seed/demo reset/cleanup
+  çalıştırılmadı; test/demo fixture restore uygulanmadı.
+- Vercel Deployment Protection kapatılmadı, bölge değiştirilmedi, test domain
+  public yapılmadı, production'a hiçbir write/deploy yapılmadı.
+
+## E7. Kalan P0 performans blocker'ları
+
+| # | Blocker | Etki | Sahip |
+|---|---|---|---|
+| 1 | **Bölge uyuşmazlığı** (`iad1` ↔ `ap-south-1`, ~163 ms) | Artık **TEK BAŞINA** kalan blocker: ≤ 80 ms gecikmede iki mutasyon da hedefi tutuyor, 163 ms'de ikisi de tutmuyor. | Operatör |
+| 2 | Statü yolunda dar dilim **iki kez** okunuyor (§5.3) | RTT 163'te ~300 ms | Kod (P1) |
+| 3 | `revalidatePath` sonrası sayfanın RSC render'ı hâlâ tam tenant okur (§5.4) | ~500 ms @163 ms | Kod (ayrı sprint) |
+| 4 | Vercel Deployment Protection — dağıtılmış build üzerinde doğrulama yok (§10) | Ölçüm dağıtımda teyit edilemiyor | Operatör |
+| 5 | `notifyLessonReassigned` / `notifyMakeupLessonScheduled` hâlâ ardışık + sessiz `catch {}` | Bu turun kapsamı dışı | Kod (P2) |
+| 6 | `cancelLessonTool` hâlâ iki tam `readData()` (§5.5) | — | Kod (P2) |
+
+**Zorunlu bildirim istisnası:** ders taşıma/iptal akışlarında domain kuralı
+gereği ZORUNLU (teslim edilmezse mutasyonun geri alınması gereken) bir
+bildirim **yoktur** — uygulama içi bildirimler bilgilendiricidir ve harici
+mesaj gönderimi zaten ayrı, insan onaylı bir yoldur (`PROJECT.md` §8.3).
+Bu yüzden bildirim hatası mutasyonu başarısız yapmaz; ama sessiz de değildir:
+`lesson.reschedule.notification_failed` denetim kaydı yazılır.

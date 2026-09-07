@@ -66,7 +66,7 @@ describe("EPIC 1 — notifications modülü (src/lib/notifications)", () => {
   });
 
   it("markNotificationRead: yalnızca hedeflenen kullanıcı okundu işaretleyebilir, başkası null alır", async () => {
-    const n = await createNotification({
+    const { notification: n } = await createNotification({
       tenantId: DEFAULT_TENANT_ID,
       targetUserId: "user1",
       kind: "info",
@@ -121,7 +121,7 @@ describe("EPIC 1 — listNotificationsTool / markNotificationReadTool (servis ka
   });
 
   it("markNotificationReadTool: başka kullanıcının bildirimini okundu işaretleyemez (NOT_FOUND)", async () => {
-    const n = await createNotification({
+    const { notification: n } = await createNotification({
       tenantId: DEFAULT_TENANT_ID,
       targetStudentId: "s1",
       kind: "payment_overdue",

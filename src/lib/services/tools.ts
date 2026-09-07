@@ -4890,16 +4890,32 @@ export async function updateLessonScheduleTool(
     }
     const { lesson, previousStartAt } = outcome;
     if (previousStartAt !== lesson.startAt) {
+      /**
+       * Bildirim teslimi ders taşımanın BAŞARISINI belirlemez — ders zaten
+       * yazıldı, burada bir hata mutasyonu geri almaz (bu akışta domain
+       * kuralı gereği ZORUNLU bir bildirim yoktur; harici mesaj gönderimi
+       * PROJECT.md §8.3 gereği ayrı, insan onaylı bir yoldur).
+       * Ama sessizce de yutulmaz: teslim edilemeyen bildirim sayısı denetim
+       * kaydına yazılır, beklenmedik bir fırlatma loglanır.
+       */
       try {
         const { notifyLessonRescheduled } = await import("../lesson-notifications");
-        await notifyLessonRescheduled({
+        const summary = await notifyLessonRescheduled({
           tenantId: ctx.tenantId,
           lesson,
           previousStartAt,
           actorUserId: ctx.userId,
         });
-      } catch {
-        // best-effort
+        if (summary.failed > 0) {
+          audit(ctx, "lesson.reschedule.notification_failed", "Lesson", lesson.id, summary);
+        }
+      } catch (notifyError) {
+        logger.error("updateLessonScheduleTool: bildirim katmanı beklenmedik biçimde fırlattı", {
+          tenantId: ctx.tenantId,
+          lessonId: lesson.id,
+          error: notifyError instanceof Error ? notifyError.message : String(notifyError),
+        });
+        audit(ctx, "lesson.reschedule.notification_failed", "Lesson", lesson.id, { created: 0, duplicate: 0, skipped: 0, failed: 1 });
       }
     }
     return ok({ lessonId: lesson.id, startAt: lesson.startAt, endAt: lesson.endAt });

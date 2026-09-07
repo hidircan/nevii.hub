@@ -697,3 +697,36 @@ içinde, kendi `readData()`'sıyla duruyordu. Saf fonksiyona
 (`applyLessonScheduleUpdate`) taşınınca hem o okuma tamamen kalktı hem de
 kural store'a giren HER yolda uygulanır oldu. Bir kuralın tek çağıranda
 durması performans borcu OLDUĞU KADAR güvenlik borcudur.
+
+## 2026-09-07 — Paralelleştirmeden önce idempotans; ölçmeden "optimize" etme
+
+**Ölü tekilleştirme.** `notifyUserIfEnabled` tekilleştirmeyi
+`n.body.includes(dedupeKey)` ile yapıyordu, ama ders bildirimlerinin gövdesi
+`dedupeKey`'i (`lessonId:startAt`) HİÇ içermiyordu — kural hiçbir zaman
+eşleşmedi. Yıllardır "tekilleştirme var" sanılan yerde aslında yoktu; aynı
+taşımanın her tekrarı yeni bildirim yazıyordu (ölçüldü: aynı senaryoda 105
+yinelenen satır). **Ders: bir tekilleştirme/idempotans kuralı gördüğünüzde
+anahtarın gerçekten karşılaştırılan alanda BULUNDUĞUNU doğrulayın** — testler
+"bildirim yazıldı" diye geçiyordu, "ikinci kez yazılmadı" diye değil.
+
+**Idempotans için şema değişikliği şart değil.** Yeni bir unique index /
+migration yerine, satırın BİRİNCİL ANAHTARINI iş anahtarından türetmek
+(`sha256(tenant⊕hedef⊕tür⊕anahtar⊕gün)`) yeterliydi: db'de PostgreSQL'in
+kendi kısıtı, json/memory'de kilit altında id araması. Üç modda AYNI
+sözleşme, sıfır migration.
+
+**Paralelleştirmenin ön koşulu vardır ve sırayla yapılır:** (1) yazma kilidi
+(veri kaybı), (2) idempotans (yinelenme), ancak sonra (3) paralelleştirme.
+Bu sıra atlanırsa paralelleştirme sessizce veri bozar — bu depoda bir kez
+denenip geri alınmıştı.
+
+**`createMany(skipDuplicates)` tek gidiş-dönüş DEĞİLDİR.** Prisma onu
+`BEGIN/INSERT/COMMIT` olarak gönderir; tek satır yazmak için kullanıldığında
+gidiş-dönüşü 1'den 3'e çıkarır (bu yolda +10 sorgu). Ölçümle yakalandı ve
+`create` + `P2002` yakalamaya dönüldü. **Ders: "toplu" API'nin daha ucuz
+olduğunu varsaymayın; sorgu sayısını sayın.**
+
+**Sorgu sayısı ile süre aynı şey değildir.** Bu turda sorgu sayısı ~%6 ARTTI
+ama p95 ~%53 DÜŞTÜ — çünkü kazanç ardışık DALGA sayısındaydı. Performans
+raporlarken ikisini ayrı ayrı verin; yalnız birine bakmak yanlış sonuca
+götürür.

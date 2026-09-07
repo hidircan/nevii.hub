@@ -113,7 +113,41 @@ Tam kanıt/detay owner'a verilen "Canlıya Alım Hazırlık Raporu"nda — özet
 - Tam test suite: 2564/2565 geçti — tek hata bilinen/ilgisiz
   `lesson-series-tools.test.ts` kaydı (aşağıda zaten belgeli).
 
-## Current focus (last updated: 2026-09-07, P0 mutation performansı)
+## Current focus (last updated: 2026-09-07, P0 bildirim paralelleştirmesi)
+
+Operatör onayıyla, §5.1'de "onay bekliyor" bırakılan iş yapıldı. Tam rapor:
+`docs/performance/LESSON_MUTATION_P0_REPORT.md` **EK** bölümü.
+
+- **Ders taşıma p95 ~%53 düştü** (ölçüldü, yapay RTT ile): 20 ms'de 565→273,
+  40 ms'de 1073→496, 163 ms'de 4148→1862. Kazanç sorgu SAYISINDA değil
+  DALGA sayısında — öğretmen/öğrenci+veli/yöneticiler artık paralel.
+- **Statü yolu değişmedi** (beklendiği gibi): Geldi/Gelmedi bayrakları hiç
+  bildirim üretmez; bildirim yalnız "İşlendi" dalındadır.
+- **Yeni: yarışa dayanıklı idempotans, ŞEMA DEĞİŞİKLİĞİ OLMADAN.** `dedupeKey`
+  verildiğinde satır id'si `sha256(tenant⊕hedef⊕kind⊕anahtar⊕gün)`'den türer;
+  `Notification.id` birincil anahtar olduğu için ikinci satır yazılamaz.
+- **Bulunan GERÇEK hata: tekilleştirme ÖLÜ KODDU.** 24 saatlik pencere
+  `body.includes(dedupeKey)` ile bakıyordu ama ders bildirimlerinin gövdesi
+  anahtarı HİÇ içermiyordu. Gerçek DB kanıtı (aynı senaryo, TRUNCATE'li):
+  eski kod **105 yinelenen** bildirim yazıyordu, yeni kod **0**.
+- `createMany(skipDuplicates)` denendi ve ÖLÇÜMLE geri alındı (Prisma onu
+  BEGIN/INSERT/COMMIT gönderiyor → bildirim başına 3 gidiş-dönüş). Yerine
+  `create` + yalnız `P2002` yakalama.
+- `notifications/index.ts` artık `prisma`'yı STATİK import eder (25a59c1'deki
+  Turbopack tuzağı + mutasyon başına 5 modül çözümlemesi).
+- Sessiz `catch {}`'ler kaldırıldı: her bildirim sonucu `created/duplicate/
+  skipped/failed` olarak döner, hatalar loglanır, teslim edilemeyen bildirim
+  `lesson.reschedule.notification_failed` denetim kaydına yazılır. Bildirim
+  hatası ders mutasyonunu ASLA başarısız yapmaz (zorunlu bildirim yok).
+
+**Kalan TEK P0 performans blocker'ı kod dışı:** bölge uyuşmazlığı
+(`iad1` ↔ `ap-south-1`, ~163 ms). **≤ 80 ms gecikmede her iki mutasyon da
+P95 < 1 sn hedefini TUTUYOR**; 163 ms'de ikisi de tutmuyor.
+
+Kapılar: typecheck temiz, lint 0 hata (24 eski uyarı), **2718/2718 test**,
+`prisma validate` temiz, `next build` temiz.
+
+## Önceki odak (2026-09-07, P0 mutation performansı)
 
 Worktree `~/Projects/neviihub-vercel-test-environment`, branch
 `infra/vercel-test-environment`. `main`'e DOKUNULMADI. **Test Supabase'e bu
