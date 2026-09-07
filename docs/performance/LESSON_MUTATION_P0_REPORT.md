@@ -403,3 +403,54 @@ Yeni testler:
 - `notifications.test.ts` — +1 (eşzamanlı yazımda kayıp yok; kilit
   kaldırılarak **düşmesi kanıtlandı**).
 - `program-studio-filters.test.ts` — +3 (renk regresyon kilidi).
+
+---
+
+## 10. Commit / dağıtım
+
+| Kalem | Değer |
+|---|---|
+| Commit | `33e4765fce514d7de8ff72579b266029f0ceefcf` |
+| Branch | `origin/test` (yerel `infra/vercel-test-environment`) |
+| Önceki HEAD | `5688504` |
+| Vercel projesi | `neviihub` (`prj_hmg2Nu2GtPs0JrfEcllpeUIbWpIG`) |
+| Preview deployment | `dpl_9THhWECYSLg3DHofbks2igUytMmf` — **READY** |
+| Alias | `test.neviihub.com`, `neviihub-git-test-hidircans-projects.vercel.app` |
+| Lambda bölgesi | `iad1` (bkz. §5.2) |
+
+### Production'a DOKUNULMADI
+
+Production ayrı bir Vercel projesidir (`notaplan`, `target: production`) ve
+hâlâ `4ab2f3d` build'ini çalıştırıyor (`list_deployments` çıktısıyla
+doğrulandı). Bu turda `main`'e commit/push YAPILMADI; `main` branch'ine hiç
+dokunulmadı.
+
+### Doğrulanamayan: dağıtılmış build üzerinde ölçüm
+
+`test.neviihub.com/api/v1/ready` ve doğrudan deployment URL'si **302** ile
+`vercel.com/sso-api`'ye yönleniyor — Vercel Deployment Protection hâlâ açık
+(PROJECT_STATE'teki bilinen açık madde, önceki turda da aynıydı).
+
+Bu yüzden **dağıtılmış build üzerinde ne `ready`/`storeMode`/`reachable`
+teyidi ne de gerçek tarayıcı mutasyon ölçümü yapılabildi.** Erişim
+bypass edilmeye ÇALIŞILMADI ve credential İSTENMEDİ.
+
+İnsan aksiyonu gerekiyor (biri yeterli):
+- test projesinde Deployment Protection'ı kapatmak, **veya**
+- Protection Bypass for Automation token'ı üretmek, **veya**
+- test branch'ini Production target'ına almak.
+
+Bu çözülmeden §4.2'deki tablo, **kalibre edilmiş** (bkz. §1.1) yerel
+simülasyondan gelen en iyi tahmindir — dağıtımdan alınmış ölçüm değildir.
+
+---
+
+## 11. Production blocker'ları (özet)
+
+| # | Blocker | Tip | Sahip |
+|---|---|---|---|
+| 1 | **Bölge uyuşmazlığı**: lambda `iad1` ↔ Supabase `ap-south-1` (~163 ms). Bu gecikmede P95 < 1 sn hedefi hiçbir mutasyonda tutmuyor; ≤ 30 ms'de her ikisi de tutuyor. | Altyapı | Operatör |
+| 2 | **Bildirimler bloklayan yolda, 19 ardışık gidiş-dönüş** — taşımanın kalan maliyetinin %75'i. Paralelleştirmenin ön koşulu (yazma kilidi) bu turda kapatıldı; uygulama ONAY BEKLİYOR. | Kod | Operatör onayı |
+| 3 | **Vercel Deployment Protection** dağıtılmış build üzerinde hiçbir otomatik doğrulamaya izin vermiyor (§10). | Altyapı | Operatör |
+| 4 | **Preview `DATABASE_URL`** (PROJECT_STATE "Open work" #1) — bu turda doğrulanamadı, çünkü #3 nedeniyle `/api/v1/ready` okunamıyor. | Altyapı | Operatör |
+| 5 | Migration geçmişi squash kararı (PROJECT_STATE "Open work" #5) — bu turda **hiçbir migration oluşturulmadı/çalıştırılmadı**, durum değişmedi. | Veri | Operatör |
