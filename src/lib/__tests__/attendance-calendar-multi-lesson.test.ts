@@ -27,36 +27,46 @@ beforeEach(async () => {
   await fs.rm(DATA_FILE, { force: true });
 });
 
-/** t1 (Turgay Hoşbaş) için o gün hiç ders olmayan bir Salı/Perşembe/vb. iş günü bulur. */
-async function findFreeWeekday(): Promise<string> {
+/**
+ * Aday günü hem ARAMA hem KULLANIM için AYNI (UTC) takvim gününden çözer.
+ *
+ * Düzeltme (2026-09-09): bu iki yardımcı, hafta gününü YEREL saatle
+ * (`d.getDay()`) eliyor ama `dateKey`'i UTC ile (`toISOString()`) üretiyordu.
+ * Europe/Istanbul UTC+3 olduğu için gece 00:00–03:00 arasında ikisi FARKLI
+ * güne düşer: yerel Salı = UTC Pazartesi. Test o saatlerde çalıştığında
+ * Pazartesi (Güz döneminde kurum kapalı) seçiliyor ve `setLessonOpsFlagTool`
+ * haklı olarak "Bu gün kapalı (Pazartesi)" diyerek reddediyordu — ürün
+ * hatası DEĞİL, günün saatine bağlı bir test kusuru. Artık hafta günü,
+ * kullanılacak `dateKey`'in KENDİSİNDEN (UTC) okunur.
+ */
+function weekdayOfDateKey(dateKey: string): number {
+  return new Date(`${dateKey}T00:00:00Z`).getUTCDay();
+}
+
+async function findFreeDay(direction: 1 | -1): Promise<string> {
   const data = await readData();
   const busyDates = new Set(
     data.lessons.filter((l) => l.studentId === "s1" || l.teacherId === "t1").map((l) => l.startAt.slice(0, 10))
   );
   for (let offset = 1; offset <= 20; offset++) {
     const d = new Date();
-    d.setDate(d.getDate() + offset);
-    if (d.getDay() === 0 || d.getDay() === 1) continue; // Pazar kapalı, Pazartesi zaten dolu olabilir
+    d.setUTCDate(d.getUTCDate() + direction * offset);
     const dateKey = d.toISOString().slice(0, 10);
+    const weekday = weekdayOfDateKey(dateKey);
+    if (weekday === 0 || weekday === 1) continue; // Pazar kapalı, Pazartesi Güz döneminde kapalı
     if (!busyDates.has(dateKey)) return dateKey;
   }
-  throw new Error("no free weekday found");
+  throw new Error(`no free ${direction === 1 ? "future" : "past"} weekday found`);
+}
+
+/** t1 (Turgay Hoşbaş) için o gün hiç ders olmayan bir Salı/Perşembe/vb. iş günü bulur. */
+async function findFreeWeekday(): Promise<string> {
+  return findFreeDay(1);
 }
 
 /** `findFreeWeekday` ile AYNI, yalnız GEÇMİŞE doğru arar (ops-flag testleri geçmiş bir ders ister). */
 async function findFreePastWeekday(): Promise<string> {
-  const data = await readData();
-  const busyDates = new Set(
-    data.lessons.filter((l) => l.studentId === "s1" || l.teacherId === "t1").map((l) => l.startAt.slice(0, 10))
-  );
-  for (let offset = 1; offset <= 20; offset++) {
-    const d = new Date();
-    d.setDate(d.getDate() - offset);
-    if (d.getDay() === 0 || d.getDay() === 1) continue;
-    const dateKey = d.toISOString().slice(0, 10);
-    if (!busyDates.has(dateKey)) return dateKey;
-  }
-  throw new Error("no free past weekday found");
+  return findFreeDay(-1);
 }
 
 /**
