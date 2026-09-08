@@ -294,6 +294,13 @@ export function AttendanceCalendarPanel({
   const [dueDates, setDueDates] = useState<Record<string, string>>({});
   /** Ay kutusu — ödeme şekli (nakit/kredi kartı/havale). */
   const [methods, setMethods] = useState<Record<string, string>>({});
+  /**
+   * §C.2 — ay kutusu tahsilat notu (dekont no, kısmi ödeme gerekçesi vb.).
+   * Zorunlu değil; verilirse `Payment.paymentNote`e KALICI yazılır ve
+   * Ödemeler ekranındaki ödeme detayında görünür. Tutar/tarih/yöntem
+   * alanlarıyla aynı ilke: yalnızca yerel giriş arabelleği.
+   */
+  const [collectionNotes, setCollectionNotes] = useState<Record<string, string>>({});
   const [savingMonth, setSavingMonth] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState(false);
@@ -477,6 +484,7 @@ export function AttendanceCalendarPanel({
       const monthStr = `${year}-${String(month).padStart(2, "0")}`;
       const dueDate = dueDates[key];
       const method = methods[key];
+      const note = collectionNotes[key]?.trim();
       const res = await apiFetch("/api/v1/attendance-calendar/monthly-plan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -486,6 +494,7 @@ export function AttendanceCalendarPanel({
           amount,
           ...(dueDate ? { dueDate } : {}),
           ...(method ? { method } : {}),
+          ...(note ? { note } : {}),
         }),
       });
       const json = (await res.json()) as { ok: boolean; error?: { message: string } };
@@ -691,6 +700,15 @@ export function AttendanceCalendarPanel({
                       <option value="transfer">Havale</option>
                       <option value="credit_card">Kredi Kartı</option>
                     </select>
+                    <input
+                      type="text"
+                      maxLength={200}
+                      placeholder="Not (dekont no…)"
+                      value={collectionNotes[key] ?? ""}
+                      onChange={(e) => setCollectionNotes((prev) => ({ ...prev, [key]: e.target.value }))}
+                      className="w-36 rounded-md border border-[var(--color-border)] px-2 py-1 text-xs"
+                      aria-label={`${MONTH_LABELS[m.month - 1]} tahsilat notu`}
+                    />
                     <button
                       type="button"
                       disabled={savingMonth === key}

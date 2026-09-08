@@ -32,6 +32,7 @@ export function AttendanceCalendarCollectPaymentButton({
 }) {
   const selectId = useId();
   const amountId = useId();
+  const noteId = useId();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
@@ -41,6 +42,10 @@ export function AttendanceCalendarCollectPaymentButton({
     : "";
   const [method, setMethod] = useState<StudentPaymentMethod | "">(initialMethod);
   const [amount, setAmount] = useState(String(registeredAmount));
+  /** §C.2 — zorunlu DEĞİL ama kalıcı: `Payment.paymentNote` (dekont no, kısmi
+   * ödeme gerekçesi vb.). Uç nokta bu alanı zaten kabul ediyordu; eksik olan
+   * tek şey onu gönderen bir arayüz adımıydı. */
+  const [note, setNote] = useState("");
   const [confirmOpen, setConfirmOpen] = useState(false);
 
   useEffect(() => {
@@ -75,6 +80,7 @@ export function AttendanceCalendarCollectPaymentButton({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             ...(method ? { method } : {}),
+            ...(note.trim() ? { paymentNote: note.trim() } : {}),
             amount: parsedAmount,
             paidAt: new Date().toISOString(),
           }),
@@ -84,7 +90,9 @@ export function AttendanceCalendarCollectPaymentButton({
           setError(json.error?.message || "Tahsilat alınamadı.");
           return;
         }
-        setSuccessMsg(`${formatMoney(parsedAmount)} tahsil edildi.`);
+        setSuccessMsg(
+          `Ödeme alındı — ${formatMoney(parsedAmount)}${note.trim() ? " (not kaydedildi)" : ""}.`
+        );
         setSuccessFlash(true);
       } catch {
         setError("Bağlantı hatası. Tekrar deneyin.");
@@ -131,6 +139,19 @@ export function AttendanceCalendarCollectPaymentButton({
             </option>
           ))}
         </select>
+        <label htmlFor={noteId} className="text-[11px] text-[var(--color-text-muted)]">
+          Not
+        </label>
+        <input
+          id={noteId}
+          type="text"
+          value={note}
+          maxLength={200}
+          placeholder="Dekont no, açıklama…"
+          disabled={pending || successFlash}
+          onChange={(e) => setNote(e.target.value)}
+          className="w-36 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-1.5 py-1 text-[11px] text-[var(--color-text)] disabled:opacity-50"
+        />
         <button
           type="button"
           disabled={pending || successFlash}
@@ -169,6 +190,9 @@ export function AttendanceCalendarCollectPaymentButton({
               {method ? ` — ${paymentMethodLabelTr(method)}` : ""} tutarında bir tahsilat kaydedilecek ve ödeme
               durumu &quot;Ödendi&quot; olarak işaretlenecek.
             </p>
+            {note.trim() ? (
+              <p className="mt-1 text-sm text-[var(--color-text-muted)]">Not: {note.trim()}</p>
+            ) : null}
             <div className="mt-4 flex justify-end gap-2">
               <button
                 type="button"

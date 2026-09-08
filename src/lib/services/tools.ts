@@ -10471,6 +10471,13 @@ export async function collectAttendanceCalendarPaymentTool(
       dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
       /** Ödeme şekli — zorunlu değil, verilmezse markPaymentPaid'in mevcut varsayılan zinciri (öğrencinin kayıtlı yöntemi) kullanılır. */
       method: z.enum(["cash", "transfer", "credit_card"]).optional(),
+      /**
+       * §C.2 — tahsilat notu (dekont no, kısmi ödeme gerekçesi vb.).
+       * ZORUNLU DEĞİL ama verilirse `Payment.paymentNote`e KALICI yazılır;
+       * "Tahsil Et" düğmesiyle (POST /payments/:id/pay) AYNI alan — ay
+       * kutusundan tahsil edilen bir ödeme not taşıyamıyor olamaz.
+       */
+      note: z.string().trim().max(200).optional(),
     }),
     input
   );
@@ -10498,6 +10505,7 @@ export async function collectAttendanceCalendarPaymentTool(
       amount: v.data.amount,
       method: v.data.method,
       paidAt: v.data.dueDate,
+      ...(v.data.note ? { paymentNote: v.data.note } : {}),
       receivedByUserId: ctx.userId,
       actorUserId: ctx.userId,
       tenantId: ctx.tenantId,
@@ -10508,6 +10516,7 @@ export async function collectAttendanceCalendarPaymentTool(
       amount: v.data.amount,
       method: v.data.method,
       dueDate: v.data.dueDate,
+      hasNote: Boolean(v.data.note),
       receivedByUserId: ctx.userId,
     });
     return ok({

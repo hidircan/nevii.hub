@@ -71,7 +71,14 @@ export default async function StudentPaymentProfilePage({
   const receiverNames = new Map<string, string>();
   for (const userId of receiverIds) {
     const user = await getUserById(userId);
-    if (user?.email) receiverNames.set(userId, user.email);
+    // §C.6 — tahsilatı alan kullanıcı SİLİNMİŞ veya PASİFE alınmışsa
+    // `getUserById` null döner (db modunda sorgu `active: true` filtreler).
+    // Bu durumda alanı boş bırakmak, UI'da "Tahsil eden: Kayıtlı değil"
+    // yazdırıyordu — oysa kimlik `Payment.receivedByUserId`de DURUYOR;
+    // yani "kaydedilmemiş" demek YANLIŞ ve tarihsel audit izini görünmez
+    // kılıyordu. Kayıt korunur, yalnızca kullanıcının artık aktif olmadığı
+    // belirtilir.
+    receiverNames.set(userId, user?.email || "Pasif/silinmiş kullanıcı");
   }
   const historyPayments = filterPaymentHistory(payments).map((p) => ({
     ...p,
