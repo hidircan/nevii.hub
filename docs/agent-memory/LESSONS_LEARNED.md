@@ -819,3 +819,41 @@ ve tooltip fare ayrıldıktan sonra da görünür kalır.
 
 **Ders:** hover ipuçlarında klavye erişilebilirliği için `:focus-visible`
 kullanın, `:focus-within` değil.
+
+## 2026-09-08 — "İyimser bileşen" ≠ iyimser EKRAN
+
+`LessonOpsActions` kendi içinde iyimserdi (`setLocal` anında), ama Ders
+Programı kartının rengi bambaşka bir yerden — sunucu prop'undan — çiziliyordu.
+Bileşen "optimistic" diye ekranın da öyle olduğunu VARSAYMAYIN.
+
+**Ders:** iyimser durumun, o durumu GÖSTEREN her yüzeye ulaştığını doğrulayın.
+Ölçüm hilesi: sunucu yanıtını yapay olarak geciktirin
+(`page.route(...)` + `setTimeout`) ve rengin yanıt gelmeden değişip
+değişmediğine bakın. Yerelde sunucu ~50 ms'de cevap verdiği için "iyimser mi,
+yoksa sadece hızlı mı" AYIRT EDİLEMEZ — gecikme enjekte etmeden ölçüm
+yanıltıcıdır (bu turda ilk ölçüm 89 ms/1 yanıt ile belirsiz kaldı,
+gecikmeyle 84 ms/**0 yanıt** olarak kesinleşti).
+
+## 2026-09-08 — Eksik özelliği aramadan önce backend'i audit edin
+
+"Şifremi unuttum akışı yok" bulgusunda ilk refleks akışı sıfırdan kurmaktı.
+Audit gösterdi ki: token deposu (hash'li, tek kullanımlık, TTL'li), iki API
+ucu, sıfırlama sayfası, e-posta gönderimi ve testleri ZATEN VARDI. Eksik olan
+tek şey `/api/v1/auth/forgot-password` ucunu çağıran bir ARAYÜZ adımıydı —
+uç UI'dan hiç çağrılmıyordu.
+
+**Ders:** "özellik yok" raporu genelde "özellik ERİŞİLEBİLİR değil" demektir.
+Yeni altyapı kurmadan önce `grep` ile ucu/servisi ve onun ÇAĞIRANLARINI
+arayın; çağıran yoksa eksik olan parça arayüzdür.
+
+## 2026-09-08 — Playwright'ta ölçüm engelleri: viewport ve rate limit
+
+Ders kartının detay modalı headless'ta açılmıyordu; sebep kod değil
+**viewport'tu** — 1280px'de AI asistanı popup'ı ızgarayı örtüyordu.
+1920×1200'e çıkınca akış çalıştı. Ayrıca giriş ucu IP+e-posta başına
+5/15dk limitli olduğu için tekrarlı denemeler 429 ile sessizce başarısız
+oluyordu; limitleyici süreç-içi bellekte olduğundan **sunucuyu yeniden
+başlatmak** sayacı sıfırlar.
+
+**Ders:** UI otomasyonu "çalışmıyor" göründüğünde önce viewport/örtüşme ve
+rate limit'i eleyin; koda dokunmadan önce bunlar test edilmeli.

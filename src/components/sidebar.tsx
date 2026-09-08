@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { ChevronsLeft, ChevronsRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { LogoutButton } from "@/components/logout-button";
+import Image from "next/image";
 import { BRAND } from "@/lib/brand";
 import {
   PANEL_MAIN_NAV,
@@ -259,18 +260,44 @@ export function Sidebar({
        * biçimde tekrar edilmiyor.
        */}
       <div className="border-b px-3 py-5" style={{ borderColor: "var(--color-border)" }}>
-        <div className={cn("flex items-center gap-2.5", collapsed && "justify-center")}>
-          {/* ponytail: no approved Nevii Hub logo asset yet — text/monogram fallback (see src/lib/brand.ts). Swap for <Image> once a real mark exists. */}
-          <span
-            aria-hidden
-            className={cn(
-              "flex shrink-0 items-center justify-center rounded-md font-extrabold uppercase text-white",
-              collapsed ? "h-7 w-7 text-xs" : "h-8 w-8 text-sm"
-            )}
-            style={{ background: "var(--color-primary)" }}
-          >
-            NH
-          </span>
+        <div
+          className={cn("flex items-center gap-2.5", collapsed && "justify-center")}
+          {...(collapsed ? { role: "img", "aria-label": BRAND.name } : {})}
+        >
+          {/*
+            P0 UAT (2026-09-08) — "NH" monogramı yerine kurumun GERÇEK ikonu.
+            Kaynak `BRAND.logoMarkPath` (= /brand/logo.png); bu dosya
+            `src/app/icon.png` ile BYTE OLARAK AYNIDIR (sha256 doğrulandı),
+            yani favicon ile aynı görseldir — yeni/rastgele bir logo
+            ÜRETİLMEDİ. Favicon/PWA/login logosu DEĞİŞTİRİLMEDİ.
+
+            `next/image` sabit boyutla kullanılır: retina için srcset'i kendisi
+            üretir ve 1,1 MB'lık kaynağı ikon boyutuna indirir. Görsel tema
+            değişkenlerinden bağımsızdır, bu yüzden açık/koyu temada aynı
+            görünür; `priority` YOK — sidebar LCP adayı değil.
+          */}
+          {BRAND.logoMarkPath ? (
+            <Image
+              src={BRAND.logoMarkPath}
+              alt=""
+              aria-hidden
+              width={collapsed ? 28 : 32}
+              height={collapsed ? 28 : 32}
+              className={cn("shrink-0 rounded-md object-contain", collapsed ? "h-7 w-7" : "h-8 w-8")}
+            />
+          ) : (
+            /* Asset yoksa metin kısaltmasına düşülür — kırık görsel gösterilmez. */
+            <span
+              aria-hidden
+              className={cn(
+                "flex shrink-0 items-center justify-center rounded-md font-extrabold uppercase text-white",
+                collapsed ? "h-7 w-7 text-xs" : "h-8 w-8 text-sm"
+              )}
+              style={{ background: "var(--color-primary)" }}
+            >
+              {BRAND.name.slice(0, 2)}
+            </span>
+          )}
           {!collapsed ? (
             <p
               className="truncate text-[1.7rem] font-extrabold uppercase tracking-tight"

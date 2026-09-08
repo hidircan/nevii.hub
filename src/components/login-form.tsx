@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button, Input, Label } from "@/components/ui";
 
@@ -100,6 +101,20 @@ export function LoginForm({ nextPath }: { nextPath?: string }) {
         <Button type="submit" className="w-full" disabled={loading}>
           {loading ? "Giriş yapılıyor…" : "Giriş yap"}
         </Button>
+        {/*
+          P0 UAT (2026-09-08) — "Şifremi unuttum" akışı giriş ekranından
+          erişilebilir DEĞİLDİ. Backend zaten tamdı ve güvenliydi
+          (nötr anti-enumeration yanıtı, e-posta/IP rate limit, sha256 hash'li
+          tek kullanımlık 30 dk'lık token, audit log — bkz.
+          docs/security/PASSWORD_RESET_DESIGN.md); eksik olan tek şey bu
+          bağlantı ve kodu istemeyi sağlayan adımdı.
+        */}
+        <Link
+          href="/sifre-sifirla"
+          className="block text-center text-sm font-medium text-[var(--color-primary)] hover:underline"
+        >
+          Şifremi unuttum
+        </Link>
       </form>
     </div>
   );

@@ -17,6 +17,21 @@ import {
  */
 export function ResetPasswordForm({ initialToken }: { initialToken: string }) {
   const router = useRouter();
+  /**
+   * P0 UAT (2026-09-08) — "Şifremi unuttum akışı yok".
+   *
+   * AUDIT SONUCU: backend zaten TAMDI ve güvenliydi
+   * (`/api/v1/auth/forgot-password`: nötr anti-enumeration yanıtı, e-posta
+   * başına 5/15dk + IP başına 20/15dk limit, sha256 hash'li tek kullanımlık
+   * 30 dk'lık token, audit log). Eksik olan tek şey KULLANICININ kodu
+   * İSTEYEBİLECEĞİ adımdı: bu uç UI'dan hiç çağrılmıyordu, kod ancak bir
+   * yönetici sıfırlama tetiklerse geliyordu. Bu yüzden burada yalnızca o
+   * adım eklendi — yeni bir token/mail altyapısı KURULMADI.
+   */
+  const [step, setStep] = useState<"request" | "reset">(initialToken ? "reset" : "request");
+  const [requestEmail, setRequestEmail] = useState("");
+  const [requestPending, setRequestPending] = useState(false);
+  const [requestNotice, setRequestNotice] = useState<string | null>(null);
   const [code, setCode] = useState(initialToken);
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -29,6 +44,36 @@ export function ResetPasswordForm({ initialToken }: { initialToken: string }) {
    * "uygulamayı indir" bağlantısı ASLA gösterilmez.
    */
   const [appDownloadUrl, setAppDownloadUrl] = useState<string | null>(null);
+
+  async function onRequestSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setRequestPending(true);
+    try {
+      const res = await fetch("/api/v1/auth/forgot-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: requestEmail.trim() }),
+      });
+      const json = (await res.json()) as { ok: boolean; data?: { message?: string }; error?: { message: string } };
+      /**
+       * Hesap var/yok AYRIMI YAPILMAZ — sunucu bilinçli olarak her durumda
+       * aynı nötr metni döner. UI de bunu aynen gösterir; `devResetToken`
+       * (yalnız production dışında dönebilir) EKRANA BASILMAZ.
+       */
+      setRequestNotice(
+        json.ok
+          ? json.data?.message ??
+              "Bu e-posta adresine kayıtlı bir hesap varsa, şifre sıfırlama talimatları gönderildi."
+          : json.error?.message ?? "İstek gönderilemedi. Lütfen tekrar deneyin."
+      );
+      if (json.ok) setStep("reset");
+    } catch {
+      setError("Bağlantı hatası. Tekrar deneyin.");
+    } finally {
+      setRequestPending(false);
+    }
+  }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -93,8 +138,54 @@ export function ResetPasswordForm({ initialToken }: { initialToken: string }) {
     );
   }
 
+  if (step === "request") {
+    return (
+      <form onSubmit={onRequestSubmit} className="space-y-4">
+        <div>
+          <Label>E-posta adresiniz</Label>
+          <Input
+            type="email"
+            value={requestEmail}
+            onChange={(e) => setRequestEmail(e.target.value)}
+            placeholder="ornek@kurum.com"
+            autoComplete="email"
+            required
+          />
+          <p className="mt-1 text-xs text-[var(--color-text-muted)]">
+            Hesabınız varsa sıfırlama kodunu e-posta ile göndeririz.
+          </p>
+        </div>
+        {requestNotice ? (
+          <p className="rounded-[var(--radius-md)] bg-[var(--color-surface-muted)] px-3 py-2 text-sm text-[var(--color-text)]" role="status">
+            {requestNotice}
+          </p>
+        ) : null}
+        {error ? (
+          <p className="text-sm font-medium text-rose-600" role="alert">
+            {error}
+          </p>
+        ) : null}
+        <Button type="submit" disabled={requestPending} className="w-full">
+          {requestPending ? "Gönderiliyor…" : "Sıfırlama kodu gönder"}
+        </Button>
+        <button
+          type="button"
+          onClick={() => setStep("reset")}
+          className="w-full text-center text-sm font-medium text-[var(--color-primary)] hover:underline"
+        >
+          Kodum var, devam et
+        </button>
+      </form>
+    );
+  }
+
   return (
     <form onSubmit={onSubmit} className="space-y-4">
+      {requestNotice ? (
+        <p className="rounded-[var(--radius-md)] bg-[var(--color-surface-muted)] px-3 py-2 text-sm text-[var(--color-text)]" role="status">
+          {requestNotice}
+        </p>
+      ) : null}
       <div>
         <Label>E-postanızdaki kod</Label>
         <Input

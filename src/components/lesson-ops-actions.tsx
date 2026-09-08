@@ -17,6 +17,7 @@ export function LessonOpsActions({
   compact = false,
   onStatusChange,
   onSettled,
+  onPendingChange,
 }: {
   lessonId: string;
   studentAttended?: boolean;
@@ -35,6 +36,11 @@ export function LessonOpsActions({
   onStatusChange?: (lessonId: string, flag: Flag | null) => void;
   /** İstek tamamlandığında (başarı VEYA hata) çağrılır — çağıran taraf, tutar/ödeme gibi sunucu-gerçeği verileri tazelemek isteyebilir. */
   onSettled?: (lessonId: string) => void;
+  /**
+   * P0 UAT (2026-09-08) — sunucu isteği sürerken çağıranın (ör. Ders Programı
+   * kartı) görünür bir "kaydediliyor" işareti gösterebilmesi için.
+   */
+  onPendingChange?: (lessonId: string, pending: boolean) => void;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState<Flag | null>(null);
@@ -87,6 +93,7 @@ export function LessonOpsActions({
     inFlight.current = true;
     setBusy(flag);
     setError(null);
+    onPendingChange?.(lessonId, true);
 
     // İyimser güncelleme — tek statü, diğerleri anında temizlenir.
     const previous = { ...local };
@@ -133,6 +140,7 @@ export function LessonOpsActions({
     } finally {
       inFlight.current = false;
       setBusy(null);
+      onPendingChange?.(lessonId, false);
       onSettled?.(lessonId);
     }
   }
@@ -212,6 +220,14 @@ export function LessonOpsActions({
             (yalnız UI; flag/veri modeli ve geçmiş kayıtlar korunuyor — bkz.
             LessonOpsBadges'in bu iki statüyü hâlâ salt-okunur göstermesi). */}
       </div>
+      {/*
+        P0 UAT (2026-09-08) — küçük, erişilebilir "kaydediliyor" geri bildirimi.
+        `aria-live="polite"` ekran okuyucuya durumu bildirir; renk değişimi
+        zaten anında olduğu için bu yalnızca sunucu turunun sürdüğünü söyler.
+      */}
+      <p className="mt-1 text-[11px] text-[var(--color-text-muted)]" aria-live="polite">
+        {busy ? `${FLAG_LABEL[busy]} kaydediliyor…` : ""}
+      </p>
       {error ? (
         <p className="mt-1 text-[11px] font-medium text-[#8b3a3a]" role="alert">
           {error}

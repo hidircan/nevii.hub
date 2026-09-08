@@ -113,7 +113,39 @@ Tam kanıt/detay owner'a verilen "Canlıya Alım Hazırlık Raporu"nda — özet
 - Tam test suite: 2564/2565 geçti — tek hata bilinen/ilgisiz
   `lesson-series-tools.test.ts` kaydı (aşağıda zaten belgeli).
 
-## Current focus (last updated: 2026-09-08, P0 UAT: PDF/soğuk route/arama/UI)
+## Current focus (last updated: 2026-09-08, P0: optimistic statü + şifre sıfırlama + marka + tasarımlar)
+
+1. **Statü renginin ~10 sn gecikmesi — ÇÖZÜLDÜ.** Kök neden: kart dolgusu
+   `lessonCardStatusVisual(lesson)` ile SUNUCU prop'undan çiziliyordu;
+   `LessonOpsActions` kendi içinde iyimserdi ama Ders Programı'na geri çağrı
+   vermiyordu, dolayısıyla renk `router.refresh()` (server action +
+   revalidation + tam-tenant okuma) turunu bekliyordu. Yeni
+   `src/lib/lesson-ops-override.ts` (saf) + `onStatusChange`/`onPendingChange`
+   bağlantısı. **Kanıt:** `/ops` yanıtı 3 sn geciktirildiğinde renk **84 ms'de,
+   0 tamamlanmış sunucu yanıtıyla** değişti; `aria-busy` anında true.
+2. **"Şifremi unuttum" — UI eklendi.** AUDIT: backend ZATEN tamdı ve
+   güvenliydi (nötr anti-enumeration, e-posta 5/15dk + IP 20/15dk limit,
+   sha256 hash'li tek kullanımlık 30 dk token, audit log). Eksik olan tek şey
+   kullanıcının kodu isteyebileceği adımdı — `/api/v1/auth/forgot-password`
+   UI'dan HİÇ çağrılmıyordu. Login'e bağlantı + sıfırlama sayfasına talep
+   adımı eklendi. Yeni token/mail altyapısı KURULMADI.
+   Tasarım/audit: `docs/security/PASSWORD_RESET_DESIGN.md`.
+3. **Sidebar markası.** "NH" monogramı kaldırıldı; `BRAND.logoMarkPath`
+   (= `/brand/logo.png`, `src/app/icon.png` ile **byte-identical**, sha256
+   doğrulandı) + "Nevii Hub" metni. Collapsed modda yalnız ikon + aria-label.
+   Favicon/PWA/login logosu DEĞİŞMEDİ.
+4. **Şube dashboard + rol modeli: TASARIM** (kod YOK) —
+   `docs/architecture/BRANCH_DASHBOARD_AND_ROLE_MODEL.md`. Kritik bulgu:
+   `User` modelinde **hiçbir şube alanı yok**, yani bugün bir kullanıcıyı
+   şubeye atamak imkânsız; `SCHOOL_ADMIN` tek kurum rolü. Öneri:
+   `INSTITUTION_OWNER`/`BRANCH_MANAGER` + `UserBranchAccess` tablosu +
+   dashboard'da tam-tenant okuması YASAK (şube/rol kapsamlı aggregate).
+   9 madde **OWNER DECISIONS**'ta karar bekliyor.
+
+Kapılar: typecheck temiz, lint 0 hata (24 eski uyarı), **2791/2791 test**
+(+37 yeni), `prisma validate` temiz, `next build` temiz.
+
+## Önceki odak (2026-09-08, P0 UAT: PDF/soğuk route/arama/UI)
 
 Owner UAT'sindeki 8 bulgunun tamamı ölçümle kök nedene indirildi. Tam rapor:
 `docs/performance/UAT_P0_2026_09_07_REPORT.md`. **Test Supabase'e bu turda

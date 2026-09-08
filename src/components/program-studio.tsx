@@ -35,6 +35,11 @@ import {
   lessonCardMutedTextColor,
 } from "@/lib/attendance-calendar";
 import { resolveLessonMarkedStatus, type LessonFinalStatus } from "@/lib/lesson-live-status";
+import {
+  applyOpsOverride,
+  pruneSettledOverrides,
+  type LessonOpsFlagValue,
+} from "@/lib/lesson-ops-override";
 
 type ProgramStudioProps = {
   students: Student[];
@@ -663,6 +668,23 @@ export function ProgramStudio({
     currentDuration: number;
   } | null>(null);
 
+  /**
+   * P0 UAT (2026-09-08) — statü değişiminde kart renginin ~10 sn gecikmesi.
+   *
+   * KÖK NEDEN: kart dolgusu `lessonCardStatusVisual(lesson)` ile SUNUCU
+   * prop'undan çiziliyordu. `LessonOpsActions` kendi içinde iyimserdi ama bu
+   * bileşene bir geri çağrı vermiyordu, dolayısıyla kart yeni rengi ancak
+   * `router.refresh()` → server action + revalidation + tam-tenant
+   * `readScopedData()` turu bittikten SONRA alıyordu.
+   *
+   * Çözüm: statü, `LessonOpsActions`'ın zaten yaydığı "etkin statü"den ANINDA
+   * yerel bir katmana yazılır ve kart bu katmanla boyanır. `onStatusChange`
+   * iyimser set, hata sonrası geri alma ve onaylı geçişte AYNI kaynaktan
+   * tetiklendiği için rollback bedavaya gelir.
+   */
+  const [opsOverride, setOpsOverride] = useState<Record<string, LessonOpsFlagValue>>({});
+  const [opsPending, setOpsPending] = useState<Record<string, boolean>>({});
+
   const [detailLesson, setDetailLesson] = useState<Lesson | null>(null);
   const [detailMoveOpen, setDetailMoveOpen] = useState(false);
   const [detailMoveStartAt, setDetailMoveStartAt] = useState("");
@@ -1002,6 +1024,32 @@ export function ProgramStudio({
   function cancelAvailabilityOverride() {
     setAvailabilityWarningOpen(false);
     pendingLessonFormData.current = null;
+  }
+
+  /**
+   * Sunucu verisi yakaladığında override DÜŞÜRÜLÜR — aksi hâlde eski bir
+   * iyimser değer sonradan gelen sunucu gerçeğini kalıcı maskelerdi. Sunucu
+   * HENÜZ yakalamadıysa override KORUNUR, yani başarılı yanıt iyimser durumu
+   * eski propla EZMEZ. (Effect değil; React'in "render sırasında state ayarla"
+   * deseni — effect içinde senkron setState zincirleme render tetikler.)
+   */
+  const prunedOverrides = pruneSettledOverrides(opsOverride, weekLessons);
+  if (prunedOverrides !== opsOverride) setOpsOverride(prunedOverrides);
+
+  function onOpsStatusChange(lessonId: string, flag: LessonOpsFlagValue) {
+    setOpsOverride((prev) => ({ ...prev, [lessonId]: flag }));
+  }
+
+  function onOpsPendingChange(lessonId: string, pending: boolean) {
+    setOpsPending((prev) => {
+      if (!pending) {
+        if (!prev[lessonId]) return prev;
+        const next = { ...prev };
+        delete next[lessonId];
+        return next;
+      }
+      return prev[lessonId] ? prev : { ...prev, [lessonId]: true };
+    });
   }
 
   function openDetail(lesson: Lesson) {
@@ -1753,6 +1801,8 @@ export function ProgramStudio({
           submitting={detailSubmitting}
           error={detailError}
           onClose={closeDetail}
+          onOpsStatusChange={onOpsStatusChange}
+          onOpsPendingChange={onOpsPendingChange}
           onOpenMove={openDetailMove}
           onChangeMoveStartAt={setDetailMoveStartAt}
           onSubmitMove={submitDetailMove}
@@ -1876,7 +1926,7 @@ export function ProgramStudio({
 
                   const tier = lessonCardTier(height);
                   const room = rooms.find((r) => r.id === lesson.roomId);
-                  const statusVisual = lessonCardStatusVisual(lesson, now);
+                  const statusVisual = lessonCardStatusVisual(applyOpsOverride(lesson, prunedOverrides[lesson.id]), now);
 
                   return (
                     <div
@@ -1900,7 +1950,10 @@ export function ProgramStudio({
                         if (e.key === "Escape") e.currentTarget.blur();
                       }}
                       aria-label={lessonAccessibleLabel(lesson, student, teacher, room, branchNames[lesson.branchId])}
+                      aria-busy={opsPending[lesson.id] ? true : undefined}
                       className={`group absolute z-[1] flex flex-col rounded-md border border-[var(--color-border-strong)] p-1.5 text-[10px] shadow-[var(--shadow-sm)] transition-[filter] hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-focus-ring)] hover:z-[20] ${
+                        opsPending[lesson.id] ? "animate-pulse ring-2 ring-[var(--color-focus-ring)] ring-offset-1" : ""
+                      } ${
                         editable ? "cursor-grab active:cursor-grabbing" : "cursor-pointer opacity-90"
                       } ${draggingLessonId === lesson.id ? "opacity-60 ring-2 ring-[var(--color-primary)]" : ""}`}
                       style={{
@@ -1990,7 +2043,7 @@ export function ProgramStudio({
                       const student = students.find((s) => s.id === lesson.studentId);
                       const teacher = teachers.find((t) => t.id === lesson.teacherId);
                       const room = rooms.find((r) => r.id === lesson.roomId);
-                      const statusVisual = lessonCardStatusVisual(lesson, now);
+                      const statusVisual = lessonCardStatusVisual(applyOpsOverride(lesson, prunedOverrides[lesson.id]), now);
                       return (
                         <button
                           key={lesson.id}
@@ -2060,6 +2113,8 @@ function DetailPanel({
   allTeachers,
   allRooms,
   branchNames,
+  onOpsStatusChange,
+  onOpsPendingChange,
 }: {
   lesson: Lesson;
   student?: Student;
@@ -2082,6 +2137,9 @@ function DetailPanel({
   allTeachers: Teacher[];
   allRooms: Room[];
   branchNames: Record<string, string>;
+  /** İyimser statü katmanı — kart rengi sunucu turunu beklemez (P0 UAT 2026-09-08). */
+  onOpsStatusChange: (lessonId: string, flag: LessonOpsFlagValue) => void;
+  onOpsPendingChange: (lessonId: string, pending: boolean) => void;
 }) {
   const canMove = canMoveOrResize(lesson, now);
   const canCancelLesson = canCancel(lesson);
@@ -2136,6 +2194,8 @@ function DetailPanel({
           opsMakeupFlag={lesson.opsMakeupFlag}
           studentAbsent={lesson.studentAbsent}
           studentExcused={lesson.studentExcused}
+          onStatusChange={onOpsStatusChange}
+          onPendingChange={onOpsPendingChange}
         />
         <Link
           href={`/panel/is-takip/liste?newTaskLessonId=${lesson.id}${student ? `&newTaskStudentId=${student.id}` : ""}${
