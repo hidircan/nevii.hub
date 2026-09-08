@@ -182,7 +182,8 @@ describe("computePeriodBillingLines — P0-1 senaryoları", () => {
     const lines = computePeriodBillingLines({
       enrollmentStartDay: "2026-09-15",
       enrollmentEndDay: "2026-09-29",
-      perLessonNetFee: 500,
+      monthlyFee: 4000, // ders başı 500 TL × referans 8 ders
+      weeklyLessonCount: 2,
       lessons,
       studentId: "s1",
       makeupRequests,
@@ -202,7 +203,8 @@ describe("computePeriodBillingLines — P0-1 senaryoları", () => {
     const lines = computePeriodBillingLines({
       enrollmentStartDay: "2026-09-15",
       enrollmentEndDay: "2026-09-24",
-      perLessonNetFee: 500,
+      monthlyFee: 4000, // ders başı 500 TL × referans 8 ders
+      weeklyLessonCount: 2,
       lessons,
       studentId: "s1",
       makeupRequests,
@@ -218,7 +220,8 @@ describe("computePeriodBillingLines — P0-1 senaryoları", () => {
     const lines = computePeriodBillingLines({
       enrollmentStartDay: "2026-10-01",
       enrollmentEndDay: "2026-10-31",
-      perLessonNetFee: 500,
+      monthlyFee: 4000, // ders başı 500 TL × referans 8 ders
+      weeklyLessonCount: 2,
       lessons,
       studentId: "s1",
       makeupRequests,
@@ -235,7 +238,8 @@ describe("computePeriodBillingLines — P0-1 senaryoları", () => {
     const lines = computePeriodBillingLines({
       enrollmentStartDay: "2026-11-01",
       enrollmentEndDay: "2026-11-14", // yalnız ilk 4 ders (1,3,8,10) bu aralıkta
-      perLessonNetFee: 500,
+      monthlyFee: 4000, // ders başı 500 TL × referans 8 ders
+      weeklyLessonCount: 2,
       lessons,
       studentId: "s1",
       makeupRequests,
@@ -249,7 +253,8 @@ describe("computePeriodBillingLines — P0-1 senaryoları", () => {
     const lines = computePeriodBillingLines({
       enrollmentStartDay: "2026-09-10",
       enrollmentEndDay: "2026-09-22",
-      perLessonNetFee: 500,
+      monthlyFee: 4000, // ders başı 500 TL × referans 8 ders
+      weeklyLessonCount: 2,
       lessons,
       studentId: "s1",
       makeupRequests,
@@ -270,7 +275,8 @@ describe("computePeriodBillingLines — P0-1 senaryoları", () => {
     const lines = computePeriodBillingLines({
       enrollmentStartDay: "2026-12-15",
       enrollmentEndDay: "2027-01-15",
-      perLessonNetFee: 500,
+      monthlyFee: 4000, // ders başı 500 TL × referans 8 ders
+      weeklyLessonCount: 2,
       lessons,
       studentId: "s1",
       makeupRequests,
@@ -285,7 +291,8 @@ describe("computePeriodBillingLines — P0-1 senaryoları", () => {
     const lines = computePeriodBillingLines({
       enrollmentStartDay: "2026-09-01",
       enrollmentEndDay: "2026-09-30",
-      perLessonNetFee: 750,
+      monthlyFee: 6000, // ders başı 750 TL × referans 8 ders
+      weeklyLessonCount: 2,
       lessons,
       studentId: "s1",
       makeupRequests,
@@ -302,7 +309,8 @@ describe("computePeriodBillingLines — P0-1 senaryoları", () => {
     const lines = computePeriodBillingLines({
       enrollmentStartDay: "2026-09-01",
       enrollmentEndDay: "2026-09-30",
-      perLessonNetFee: 500,
+      monthlyFee: 4000, // ders başı 500 TL × referans 8 ders
+      weeklyLessonCount: 2,
       lessons,
       studentId: "s1",
       makeupRequests,
@@ -321,7 +329,8 @@ describe("computePeriodBillingLines — P0-1 senaryoları", () => {
     const lines = computePeriodBillingLines({
       enrollmentStartDay: "2026-09-01",
       enrollmentEndDay: "2026-09-30",
-      perLessonNetFee: 500,
+      monthlyFee: 4000, // ders başı 500 TL × referans 8 ders
+      weeklyLessonCount: 2,
       lessons,
       studentId: "s1",
       makeupRequests,
@@ -338,7 +347,8 @@ describe("computePeriodBillingLines — P0-1 senaryoları", () => {
     const lines = computePeriodBillingLines({
       enrollmentStartDay: "2026-09-01",
       enrollmentEndDay: "2026-09-30",
-      perLessonNetFee: 500,
+      monthlyFee: 4000, // ders başı 500 TL × referans 8 ders
+      weeklyLessonCount: 2,
       lessons,
       studentId: "s1",
       makeupRequests: [{ sourceLessonId: "l1", status: "confirmed" }],
@@ -351,7 +361,8 @@ describe("computePeriodBillingLines — P0-1 senaryoları", () => {
     const input = {
       enrollmentStartDay: "2026-09-15",
       enrollmentEndDay: "2026-11-20",
-      perLessonNetFee: 500,
+      monthlyFee: 4000, // ders başı 500 TL × referans 8 ders
+      weeklyLessonCount: 2,
       lessons: [lesson("l1", "2026-09-15"), lesson("l2", "2026-10-05")],
       studentId: "s1",
       makeupRequests,
@@ -366,16 +377,18 @@ describe("computePeriodBillingLines — P0-1 senaryoları", () => {
       lessons: [],
       studentId: "s1",
       makeupRequests,
+      weeklyLessonCount: 2,
     };
-    expect(() => computePeriodBillingLines({ ...base, perLessonNetFee: -1 })).toThrow();
-    expect(() => computePeriodBillingLines({ ...base, perLessonNetFee: 500.5 })).toThrow();
+    expect(() => computePeriodBillingLines({ ...base, monthlyFee: -1 })).toThrow();
+    expect(() => computePeriodBillingLines({ ...base, monthlyFee: 4000.5 })).toThrow();
   });
 
   it("computePeriodBillingLines her satırı estimated:false olarak işaretler", () => {
     const lines = computePeriodBillingLines({
       enrollmentStartDay: "2026-09-01",
       enrollmentEndDay: "2026-09-30",
-      perLessonNetFee: 500,
+      monthlyFee: 4000, // ders başı 500 TL × referans 8 ders
+      weeklyLessonCount: 2,
       lessons: [lesson("l1", "2026-09-07")],
       studentId: "s1",
       makeupRequests,
@@ -403,7 +416,7 @@ describe("estimatePeriodBillingLines — kayıt önizlemesi (gerçek ders YOK)",
     const lines = estimatePeriodBillingLines({
       enrollmentStartDay: "2026-09-15",
       enrollmentEndDay: "2026-11-20",
-      perLessonNetFee: 500,
+      monthlyFee: 4000, // ders başı 500 TL × referans 8 ders
       weeklyLessonCount: 2,
     });
     expect(lines).toHaveLength(3);
@@ -419,7 +432,7 @@ describe("estimatePeriodBillingLines — kayıt önizlemesi (gerçek ders YOK)",
       estimatePeriodBillingLines({
         enrollmentStartDay: "2026-09-01",
         enrollmentEndDay: "2026-09-30",
-        perLessonNetFee: -1,
+        monthlyFee: -1,
         weeklyLessonCount: 2,
       })
     ).toThrow();
@@ -430,7 +443,7 @@ describe("computePeriodBillingPreview — TEK giriş noktası (kayıt önizlemes
   const previewBase = {
     enrollmentStartDay: "2026-09-15",
     enrollmentEndDay: "2026-09-29",
-    perLessonNetFee: 500,
+    monthlyFee: 4000, // ders başı 500 TL × referans 8 ders
     studentId: "s1",
     makeupRequests: [] as { sourceLessonId: string; status: string }[],
     weeklyLessonCount: 2,
@@ -483,13 +496,17 @@ describe("derivePerLessonAmount — ACİL DÜZELTME (2026-09-02): yöneticinin g
     const lines = computePeriodBillingLines({
       enrollmentStartDay: "2026-09-01",
       enrollmentEndDay: "2026-09-30",
-      perLessonNetFee: derived,
+      monthlyFee: 4000, // `derived` (500 TL) bunun TÜREVİDİR, tersi değil
+      weeklyLessonCount: 2,
       lessons,
       studentId: "s1",
       makeupRequests: [],
     });
     expect(lines[0].billableLessonCount).toBe(10);
     expect(lines[0].autoCalculatedAmount).toBe(5000);
+    // Ders başı tutar artık yalnız GÖSTERİM alanıdır; motor bunu aylık
+    // ücretten kendisi türetir, çağırandan almaz.
+    expect(lines[0].perLessonNetFee).toBe(derived);
   });
 });
 

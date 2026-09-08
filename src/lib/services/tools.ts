@@ -1927,8 +1927,13 @@ export async function createStudentTool(
     // geçerli, tek yol. Otomatik önerilen ilk dönem tutarı, henüz gerçek
     // ders programı yokken `estimatePeriodBillingLines` PROJEKSİYONUYLA
     // (bkz. o dosyadaki `estimated` bayrağı notu) hesaplanır.
-    const { estimatePeriodBillingLines, derivePerLessonAmount, countExactWeekdayLessons, resolveLessonStartDay } =
-      await import("../period-lesson-billing");
+    const {
+      estimatePeriodBillingLines,
+      derivePerLessonAmount,
+      computePeriodAmount,
+      countExactWeekdayLessons,
+      resolveLessonStartDay,
+    } = await import("../period-lesson-billing");
     const derivedPerLessonAmount = derivePerLessonAmount(pricing.monthlyFee, v.data.weeklyLessonCount);
     // P0 (2026-09-05) — ilk tahsilat KAYIT tarihinden değil, DERS BAŞLANGIÇ
     // tarihinden itibaren sayar (öğrenci bugün kaydolup ileri bir tarihte
@@ -1957,7 +1962,7 @@ export async function createStudentTool(
       : estimatePeriodBillingLines({
           enrollmentStartDay: startDay,
           enrollmentEndDay: firstPeriodEnd,
-          perLessonNetFee: derivedPerLessonAmount,
+          monthlyFee: pricing.monthlyFee,
           weeklyLessonCount: v.data.weeklyLessonCount,
         })[0]!.billableLessonCount;
     // P0 (2026-09-03) — "3 ders eşiği": kayıt ayında kalan GERÇEK ders sayısı
@@ -1966,10 +1971,18 @@ export async function createStudentTool(
     // 3 veya daha fazlaysa yalnız kayıt ayı kalan dersleri önerilir. Bu bir
     // ZORUNLULUK değil (kullanıcı farklı tutar girebilir, bkz. aşağıdaki
     // `resolveFirstPaymentAdjustment`) — yalnız öneri hesabını etkiler.
+    // P0-1 (2026-09-09) — `count * derivedPerLessonAmount` ÇİFT YUVARLAMAYDI:
+    // ders başı tutar zaten yuvarlanmış olduğu için artık ders sayısı kadar
+    // büyüyordu (5.950 TL aylık → tam ayda 5.952 TL). Tutar artık onaylı
+    // AYLIK ÜCRETTEN tek yuvarlamayla oranlanır — istemci önizlemesi
+    // (`new-student-form.tsx`) ve sözleşme planı ile AYNI fonksiyon.
+    const firstPeriodAutoAmount = computePeriodAmount(
+      pricing.monthlyFee,
+      v.data.weeklyLessonCount,
+      firstPeriodBillableCount
+    );
     const autoSuggestedAmount =
-      firstPeriodBillableCount >= 3
-        ? firstPeriodBillableCount * derivedPerLessonAmount
-        : firstPeriodBillableCount * derivedPerLessonAmount + pricing.monthlyFee;
+      firstPeriodBillableCount >= 3 ? firstPeriodAutoAmount : firstPeriodAutoAmount + pricing.monthlyFee;
 
     const { resolveFirstPaymentAdjustment } = await import("../first-payment-adjustment");
     const adjustment = resolveFirstPaymentAdjustment({
@@ -9129,7 +9142,11 @@ export async function previewContractInstallmentPlanTool(
       const billingLines = computePeriodBillingPreview({
         enrollmentStartDay: v.data.enrollmentStartDate,
         enrollmentEndDay: v.data.enrollmentEndDate,
-        perLessonNetFee: student.derivedPerLessonAmount,
+        // P0-1 (2026-09-09) — taban, öğrencinin DONMUŞ ve YUVARLANMIŞ
+        // `derivedPerLessonAmount` alanı DEĞİL, bu sözleşmede ONAYLANAN
+        // aylık ücrettir. Böylece normal aylık taksit her zaman tam
+        // `monthlyAmount`'a eşit çıkar (5.952 regresyonu).
+        monthlyFee: v.data.monthlyAmount,
         weeklyLessonCount: student.weeklyLessonCount,
         studentId: student.id,
         lessons: data.lessons.map((l) => ({
@@ -9438,7 +9455,10 @@ export async function createStudentContractTool(
     perLessonBillingLines = computePeriodBillingPreview({
       enrollmentStartDay: v.data.enrollmentStartDate,
       enrollmentEndDay: v.data.enrollmentEndDate,
-      perLessonNetFee: student.derivedPerLessonAmount,
+      // P0-1 (2026-09-09) — önizleme (previewContractInstallmentPlanTool) ile
+      // BİREBİR aynı taban: onaylanan aylık ücret. İkisi farklı taban
+      // kullanırsa "önizlemede gördüğüm plan kayıtta değişti" hatası doğar.
+      monthlyFee: v.data.monthlyAmount,
       weeklyLessonCount: student.weeklyLessonCount,
       studentId: student.id,
       lessons: data.lessons.map((l) => ({
@@ -10270,9 +10290,12 @@ async function buildAttendanceCalendarMonth(
   // anında yazılan snapshot) VARSA onu kullanır — yoksa (eski/legacy
   // kayıt) `derivePerLessonAmount` ile aynı formülle taze türetir, AYRI
   // bir "legacy tahmin" formülü İCAT EDİLMEZ.
-  const { countBillableLessonsInRange, resolveExcludedMakeupSourceLessonIds, derivePerLessonAmount } = await import(
-    "../period-lesson-billing"
-  );
+  const {
+    countBillableLessonsInRange,
+    resolveExcludedMakeupSourceLessonIds,
+    derivePerLessonAmount,
+    computePeriodAmount,
+  } = await import("../period-lesson-billing");
   const monthPrefix = `${year}-${String(month).padStart(2, "0")}`;
   const monthStartDay = `${monthPrefix}-01`;
   const monthEndDay = `${monthPrefix}-${String(new Date(Date.UTC(year, month, 0)).getUTCDate()).padStart(2, "0")}`;
@@ -10295,10 +10318,16 @@ async function buildAttendanceCalendarMonth(
   );
   const legacyUnitFee =
     student.derivedPerLessonAmount ?? derivePerLessonAmount(student.monthlyFee, student.weeklyLessonCount);
+  // P0-1 (2026-09-09) — `legacyUnitFee * plannedLessonCount` ÇİFT
+  // YUVARLAMAYDI; takvimdeki aylık tutar sözleşme planından 2 TL sapıyordu.
+  // `legacyUnitFee` yalnız GÖSTERİM için kalır (ders başı bilgi satırı).
   const billing = {
     plannedLessonCount,
     legacyUnitFee,
-    suggestedAmount: plannedLessonCount > 0 ? legacyUnitFee * plannedLessonCount : Math.max(0, Math.round(student.monthlyFee)),
+    suggestedAmount:
+      plannedLessonCount > 0
+        ? computePeriodAmount(student.monthlyFee, student.weeklyLessonCount, plannedLessonCount)
+        : Math.max(0, Math.round(student.monthlyFee)),
     usedFallback: plannedLessonCount <= 0,
   };
 
@@ -11979,7 +12008,7 @@ export async function previewPeriodBillingSimulationTool(
   );
   if (!v.ok) return v;
 
-  const { computePeriodBillingPreview, derivePerLessonAmount } = await import("../period-lesson-billing");
+  const { computePeriodBillingPreview } = await import("../period-lesson-billing");
   const data = await readData();
 
   let enrollmentStartDay = v.data.enrollmentStartDate;
@@ -12004,13 +12033,12 @@ export async function previewPeriodBillingSimulationTool(
       "Simülasyon için enrollmentStartDate/enrollmentEndDate/weeklyLessonCount/monthlyFee (veya bir studentId) gerekir."
     );
   }
-  // TEK kaynak — ders başı karşılığı burada, HER ZAMAN sunucuda türetilir.
-  const perLessonNetFee = derivePerLessonAmount(monthlyFee, weeklyLessonCount);
-
   const lines = computePeriodBillingPreview({
     enrollmentStartDay,
     enrollmentEndDay,
-    perLessonNetFee,
+    // TEK kaynak — ders başı karşılık motorun İÇİNDE türetilir (yalnız
+    // gösterim için); tutarlar onaylı aylık ücretten oranlanır.
+    monthlyFee,
     weeklyLessonCount,
     studentId,
     lessons: data.lessons.map((l) => ({

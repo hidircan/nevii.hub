@@ -26,6 +26,7 @@ import { STUDENT_TYPES } from "@/lib/types";
 import {
   estimatePeriodBillingLines,
   derivePerLessonAmount,
+  computePeriodAmount,
   referenceMonthlyLessonCount,
   countExactWeekdayLessons,
   resolveLessonStartDay,
@@ -208,7 +209,7 @@ export function NewStudentForm({
       const lines = estimatePeriodBillingLines({
         enrollmentStartDay: startDay,
         enrollmentEndDay: endDay,
-        perLessonNetFee: derived,
+        monthlyFee,
         weeklyLessonCount,
       });
       // P0-C — TAM OLARAK weeklyLessonCount kadar GERÇEK gün seçildiyse
@@ -224,7 +225,11 @@ export function NewStudentForm({
       // AYNI kural — kayıt ayında kalan gerçek ders sayısı 3'ten azsa
       // sonraki ayın tam ücreti de öneriye eklenir. Tek kaynak sunucudur;
       // burası yalnız İSTEMCİ önizlemesi, resmi hesap değildir.
-      const suggestedAmount = plannedLessons >= 3 ? plannedLessons * derived : plannedLessons * derived + monthlyFee;
+      // P0-1 (2026-09-09) — `plannedLessons * derived` ÇİFT YUVARLAMAYDI
+      // (5.950 → 5.952). Sunucudaki `createStudentTool` ile AYNI
+      // `computePeriodAmount` fonksiyonundan geçer; ayrı formül YOK.
+      const firstPeriodAmount = computePeriodAmount(monthlyFee, weeklyLessonCount, plannedLessons);
+      const suggestedAmount = plannedLessons >= 3 ? firstPeriodAmount : firstPeriodAmount + monthlyFee;
       setPreview({
         monthlyFee,
         weeklyLessonCount,

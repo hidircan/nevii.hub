@@ -3,10 +3,11 @@
  * girdiği/seçtiği bir alan DEĞİLDİR. Yönetici hâlâ yalnız AYLIK ücret +
  * haftalık ders sıklığı girer; sistem `derivePerLessonAmount` ile ders başı
  * karşılığını SESSİZCE türetir (referans ders adedi = haftalık × 4, sabit —
- * gerçek takvime bakmaz). Dönem tahsilatı, bu türetilmiş ders başı tutarı ×
- * O DÖNEMDEKİ GERÇEK/planlı ücretlendirilebilir ders sayısı ile hesaplanır
- * — kısa dönemler orantılı olarak az, yoğun aylar (referanstan fazla ders)
- * orantılı olarak fazla tahsil eder. Bu dosyadaki her fonksiyon SAF'tır:
+ * gerçek takvime bakmaz), ama bu YALNIZ GÖSTERİM içindir. Dönem tahsilatı
+ * (2026-09-09 düzeltmesi, bkz. `computePeriodAmount`) doğrudan AYLIK
+ * ÜCRETTEN, tek yuvarlamayla oranlanır: referans kadar ders içeren TAM ay
+ * HER ZAMAN tam aylık ücrettir; kısa dönemler orantılı olarak az, yoğun
+ * aylar (referanstan fazla ders) orantılı olarak fazla tahsil eder. Bu dosyadaki her fonksiyon SAF'tır:
  * I/O yok, store/DB yazmaz, aynı girişe her zaman aynı çıkışı verir. Kayıt
  * önizlemesi, ödeme simülasyonu, sözleşme ödeme tablosu ve gerçek tahsilat
  * planı — dördü de BU dosyadan `computePeriodBillingLines`'ı çağırmalı
@@ -60,6 +61,38 @@ export function derivePerLessonAmount(monthlyFee: number, weeklyLessonCount: num
   if (!Number.isFinite(monthlyFee) || monthlyFee < 0) return 0;
   const referenceCount = referenceMonthlyLessonCount(weeklyLessonCount);
   return Math.round(monthlyFee / referenceCount);
+}
+
+/**
+ * P0-1 (2026-09-09 KÖK NEDEN DÜZELTMESİ) — bir dönemin tutarı.
+ *
+ * ÖNCEDEN: `billableLessonCount × derivePerLessonAmount(...)`. Bu ÇİFT
+ * YUVARLAMA idi — önce aylık ücret ders başına bölünüp tam sayıya
+ * yuvarlanıyor, sonra o yuvarlanmış değer ders sayısıyla yeniden
+ * çarpılıyordu. Yuvarlama artığı ders sayısı kadar BÜYÜYOR ve TAM aylara
+ * sızıyordu: 5.950 TL / haftada 2 ders → 5.950/8 = 743,75 → 744 → 8×744 =
+ * **5.952 TL**. Aynı sapma haftalık 1/2/3/4 dersin HEPSİNDE +2 TL'dir.
+ *
+ * ARTIK: tutar doğrudan onaylı AYLIK ÜCRETTEN, TEK bir yuvarlama ile
+ * oranlanır. `billableLessonCount === referans` olduğunda sonuç matematiksel
+ * olarak TAM `monthlyFee`'dir — yani "normal aylık taksit her zaman
+ * sözleşmedeki aylık ücrettir" değişmezi aritmetiğin kendisinden gelir, ek
+ * bir düzeltme/telafi adımından DEĞİL. Kısmi dönemler orantılıdır ve tek
+ * yuvarlama içerir (en fazla 0,5 TL, ve o dönemin KENDİ orantısından gelir —
+ * diğer aylara YAYILMAZ).
+ *
+ * `perLessonNetFee` artık yalnız GÖSTERİM değeridir (velinin/personelin
+ * "ders başı ne kadar" sorusunun cevabı); hiçbir toplam ondan türetilmez.
+ */
+export function computePeriodAmount(
+  monthlyFee: number,
+  weeklyLessonCount: number,
+  billableLessonCount: number
+): number {
+  if (!Number.isFinite(monthlyFee) || monthlyFee < 0) return 0;
+  if (billableLessonCount <= 0) return 0;
+  const referenceCount = referenceMonthlyLessonCount(weeklyLessonCount);
+  return Math.round((monthlyFee * billableLessonCount) / referenceCount);
 }
 
 export type BillableLessonType = "regular" | "makeup" | "trial" | "group";
@@ -262,11 +295,29 @@ export interface PeriodBillingLine {
   estimated: boolean;
 }
 
+/** İki motorun (gerçek sayım + projeksiyon) ORTAK girdi doğrulaması — tek yerde. */
+function assertMonthlyFeeBasis(input: { monthlyFee: number; weeklyLessonCount: number }): void {
+  if (!Number.isInteger(input.monthlyFee) || input.monthlyFee < 0) {
+    throw new Error("monthlyFee tam sayı ve negatif olmayan bir TL tutarı olmalı");
+  }
+  if (!Number.isInteger(input.weeklyLessonCount) || input.weeklyLessonCount <= 0) {
+    throw new Error("weeklyLessonCount pozitif tam sayı olmalı");
+  }
+}
+
 export interface ComputePeriodBillingLinesInput {
   enrollmentStartDay: string; // yyyy-MM-dd
   enrollmentEndDay: string; // yyyy-MM-dd
-  /** Tam sayı TL — ders başı net (birincil) ücret. */
-  perLessonNetFee: number;
+  /**
+   * Tam sayı TL — SÖZLEŞMEDE ONAYLANAN aylık ücret. Tüm dönem tutarlarının
+   * TEK doğruluk kaynağıdır (bkz. `computePeriodAmount`). Ders başı tutar
+   * bundan TÜRETİLİR; tersi DEĞİL — çağıranın önceden yuvarlanmış bir ders
+   * başı tutar göndermesi (eski `perLessonNetFee` girdisi) 5.950→5.952
+   * çift-yuvarlama hatasının kaynağıydı, o yüzden artık kabul EDİLMİYOR.
+   */
+  monthlyFee: number;
+  /** Referans ders adedinin (haftalık × 4) tabanı — oranlama bunun üzerinden yapılır. */
+  weeklyLessonCount: number;
   lessons: BillableLessonCandidate[];
   studentId: string;
   makeupRequests: MakeupLinkCandidate[];
@@ -281,9 +332,7 @@ export interface ComputePeriodBillingLinesInput {
 export function computePeriodBillingLines(
   input: ComputePeriodBillingLinesInput
 ): PeriodBillingLine[] {
-  if (!Number.isInteger(input.perLessonNetFee) || input.perLessonNetFee < 0) {
-    throw new Error("perLessonNetFee tam sayı ve negatif olmayan bir TL tutarı olmalı");
-  }
+  assertMonthlyFeeBasis(input);
   const excludedSourceLessonIds = resolveExcludedMakeupSourceLessonIds(input.makeupRequests);
   const frozenRanges = input.frozenRanges ?? [];
   const periods = splitEnrollmentIntoMonthlyPeriods(input.enrollmentStartDay, input.enrollmentEndDay);
@@ -301,8 +350,8 @@ export function computePeriodBillingLines(
       periodEnd: p.periodEnd,
       kind: p.kind,
       billableLessonCount,
-      perLessonNetFee: input.perLessonNetFee,
-      autoCalculatedAmount: billableLessonCount * input.perLessonNetFee,
+      perLessonNetFee: derivePerLessonAmount(input.monthlyFee, input.weeklyLessonCount),
+      autoCalculatedAmount: computePeriodAmount(input.monthlyFee, input.weeklyLessonCount, billableLessonCount),
       estimated: false,
     };
   });
@@ -367,15 +416,14 @@ export function estimateBillableLessonCount(
 export interface EstimatePeriodBillingLinesInput {
   enrollmentStartDay: string;
   enrollmentEndDay: string;
-  perLessonNetFee: number;
+  /** Bkz. `ComputePeriodBillingLinesInput.monthlyFee` — aynı tek doğruluk kaynağı. */
+  monthlyFee: number;
   weeklyLessonCount: number;
 }
 
 /** `computePeriodBillingLines`'ın projeksiyon karşılığı — bkz. `estimateBillableLessonCount`. */
 export function estimatePeriodBillingLines(input: EstimatePeriodBillingLinesInput): PeriodBillingLine[] {
-  if (!Number.isInteger(input.perLessonNetFee) || input.perLessonNetFee < 0) {
-    throw new Error("perLessonNetFee tam sayı ve negatif olmayan bir TL tutarı olmalı");
-  }
+  assertMonthlyFeeBasis(input);
   const periods = splitEnrollmentIntoMonthlyPeriods(input.enrollmentStartDay, input.enrollmentEndDay);
   return periods.map((p) => {
     const billableLessonCount = estimateBillableLessonCount(p.periodStart, p.periodEnd, input.weeklyLessonCount);
@@ -384,16 +432,14 @@ export function estimatePeriodBillingLines(input: EstimatePeriodBillingLinesInpu
       periodEnd: p.periodEnd,
       kind: p.kind,
       billableLessonCount,
-      perLessonNetFee: input.perLessonNetFee,
-      autoCalculatedAmount: billableLessonCount * input.perLessonNetFee,
+      perLessonNetFee: derivePerLessonAmount(input.monthlyFee, input.weeklyLessonCount),
+      autoCalculatedAmount: computePeriodAmount(input.monthlyFee, input.weeklyLessonCount, billableLessonCount),
       estimated: true,
     };
   });
 }
 
-export interface ComputePeriodBillingPreviewInput extends ComputePeriodBillingLinesInput {
-  weeklyLessonCount: number;
-}
+export type ComputePeriodBillingPreviewInput = ComputePeriodBillingLinesInput;
 
 /**
  * Kayıt önizlemesi ve ödeme simülasyonu için TEK giriş noktası: öğrencinin
@@ -411,7 +457,7 @@ export function computePeriodBillingPreview(input: ComputePeriodBillingPreviewIn
   return estimatePeriodBillingLines({
     enrollmentStartDay: input.enrollmentStartDay,
     enrollmentEndDay: input.enrollmentEndDay,
-    perLessonNetFee: input.perLessonNetFee,
+    monthlyFee: input.monthlyFee,
     weeklyLessonCount: input.weeklyLessonCount,
   });
 }

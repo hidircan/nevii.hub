@@ -19,7 +19,8 @@ describe("buildPerLessonInstallmentSchedule", () => {
     const billingLines = computePeriodBillingLines({
       enrollmentStartDay: "2026-09-15",
       enrollmentEndDay: "2026-11-14",
-      perLessonNetFee: 500,
+      monthlyFee: 4000, // ders başı 500 TL × referans 8 ders
+      weeklyLessonCount: 2,
       lessons,
       studentId: "s1",
       makeupRequests: [],
@@ -41,7 +42,8 @@ describe("buildPerLessonInstallmentSchedule", () => {
     const billingLines = computePeriodBillingLines({
       enrollmentStartDay: "2026-09-01",
       enrollmentEndDay: "2026-10-31",
-      perLessonNetFee: 500,
+      monthlyFee: 4000, // ders başı 500 TL × referans 8 ders
+      weeklyLessonCount: 2,
       lessons: [
         lesson("l1", "2026-09-07"),
         lesson("l2", "2026-09-14"),
@@ -70,7 +72,8 @@ describe("buildPerLessonInstallmentSchedule", () => {
     const billingLines = computePeriodBillingLines({
       enrollmentStartDay: "2026-09-15",
       enrollmentEndDay: "2026-11-20",
-      perLessonNetFee: 750,
+      monthlyFee: 6000, // ders başı 750 TL × referans 8 ders
+      weeklyLessonCount: 2,
       lessons: [lesson("l1", "2026-09-20"), lesson("l2", "2026-10-05"), lesson("l3", "2026-11-10")],
       studentId: "s1",
       makeupRequests: [],
@@ -103,7 +106,8 @@ describe("buildPerLessonInstallmentSchedule", () => {
       const billingLines = computePeriodBillingLines({
         enrollmentStartDay: "2026-09-17",
         enrollmentEndDay: "2026-11-30",
-        perLessonNetFee: 1500,
+        monthlyFee: 12000, // ders başı 1500 TL × referans 8 ders
+        weeklyLessonCount: 2,
         lessons,
         studentId: "s1",
         makeupRequests: [],
@@ -137,7 +141,8 @@ describe("buildPerLessonInstallmentSchedule", () => {
       const billingLines = computePeriodBillingLines({
         enrollmentStartDay: "2026-09-17",
         enrollmentEndDay: "2026-10-31",
-        perLessonNetFee: 1000,
+        monthlyFee: 8000, // ders başı 1000 TL × referans 8 ders
+        weeklyLessonCount: 2,
         lessons,
         studentId: "s1",
         makeupRequests: [],
@@ -162,7 +167,8 @@ describe("buildPerLessonInstallmentSchedule", () => {
       const billingLines = computePeriodBillingLines({
         enrollmentStartDay: "2026-09-17",
         enrollmentEndDay: "2026-10-31",
-        perLessonNetFee: 1500,
+        monthlyFee: 12000, // ders başı 1500 TL × referans 8 ders
+        weeklyLessonCount: 2,
         lessons,
         studentId: "s1",
         makeupRequests: [],
@@ -191,7 +197,8 @@ describe("buildPerLessonInstallmentSchedule", () => {
       const billingLines = computePeriodBillingLines({
         enrollmentStartDay: "2026-09-17",
         enrollmentEndDay: "2026-10-31",
-        perLessonNetFee: 1500,
+        monthlyFee: 12000, // ders başı 1500 TL × referans 8 ders
+        weeklyLessonCount: 2,
         lessons,
         studentId: "s1",
         makeupRequests: [],
@@ -217,7 +224,8 @@ describe("buildPerLessonInstallmentSchedule", () => {
       return computePeriodBillingLines({
         enrollmentStartDay: "2026-09-15",
         enrollmentEndDay: "2026-11-14",
-        perLessonNetFee: 500,
+        monthlyFee: 4000, // ders başı 500 TL × referans 8 ders
+        weeklyLessonCount: 2,
         lessons,
         studentId: "s1",
         makeupRequests: [],
@@ -266,7 +274,8 @@ describe("buildPerLessonInstallmentSchedule", () => {
       const billingLines = computePeriodBillingLines({
         enrollmentStartDay: "2026-09-01",
         enrollmentEndDay: "2026-09-30",
-        perLessonNetFee: 500,
+        monthlyFee: 4000, // ders başı 500 TL × referans 8 ders
+        weeklyLessonCount: 2,
         lessons: [lesson("l1", "2026-09-07")],
         studentId: "s1",
         makeupRequests: [],
