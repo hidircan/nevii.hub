@@ -19,37 +19,32 @@ export type LessonFinalStatusInput = Pick<
   | "opsMakeupFlag"
 >;
 
-/** Kullanıcıya gösterilen tek nihai ders statüsü; gelecek dersler her zaman planlıdır. */
-export function resolveLessonFinalStatus(
-  lesson: LessonFinalStatusInput,
-  now: Date = new Date()
-): LessonFinalStatus {
-  if (new Date(lesson.startAt).getTime() > now.getTime()) return "planned";
-  if (lesson.status === "cancelled") return "cancelled";
-  if (lesson.type === "makeup" || lesson.opsMakeupFlag) return "makeup";
-  if (lesson.lessonProcessed) return "processed";
-  if (lesson.studentAttended || lesson.status === "completed") return "attended";
-  return "planned";
-}
-
 /**
- * P0 UAT (2026-09-07) — DERS PROGRAMI KARTI için statü çözümlemesi.
+ * Kullanıcıya gösterilen TEK nihai ders statüsü — Ders Programı kartı,
+ * Yoklama Takvimi gün hücresi, Telafi Merkezi, Yoklama Raporu ve panel/portal
+ * rozetlerinin ORTAK kaynağı. Bir yüzeye özel ikinci bir çözümleyici EKLEME:
+ * ekranlar arası renk/statü tutarsızlığı tam olarak böyle doğar.
  *
- * `resolveLessonFinalStatus` gelecekteki her ders için koşulsuz "planned"
- * döner ve bu, Yoklama Takvimi gün kutusunun BİLİNÇLİ davranışıdır
- * (bkz. attendance-calendar-tools.test.ts — dört test bunu kilitler).
+ * P0-2 (2026-09-09) — bu fonksiyon ÖNCEDEN, hiçbir bayrağa bakmadan ÖNCE,
+ * gelecekteki her ders için koşulsuz "planned" dönüyordu. Sonuç: yönetici
+ * takvimde bir dersi Geldi/İşlendi/Telafi işaretlediğinde renk iyimser olarak
+ * değişiyor, ama sunucudan taze veri gelir gelmez (sayfa yenileme, ay
+ * değişimi, ekrana tekrar giriş) statü "planned"a dönüp renk KAYBOLUYORDU.
+ * Statü aslında kalıcı olarak yazılmıştı — bu fonksiyon onu GİZLİYORDU.
  *
- * Ders Programı kartında ise owner UAT kararı bunun TERSİDİR: yönetici bir
- * dersi Geldi/İşlendi/Telafi olarak işaretlediğinde kartın TAM arka planı
- * hemen o renge dönmelidir — ders gelecekte olsa bile. Hata gerçek tarayıcıda
- * doğrulandı: işaretli üç dersin kart arka planı da #ffffff kalıyordu.
+ * 2026-09-07'de aynı hata Ders Programı kartı için ayrı bir
+ * `resolveLessonMarkedStatus` fonksiyonu eklenerek çözülmüştü; iki
+ * çözümleyicinin varlığı Ders Programı ile Yoklama Takvimi'nin AYNI ders için
+ * FARKLI renk göstermesi demekti. Owner kararı (brief §B.4: "aynı kanonik
+ * statü kaynağı") ile ikisi burada birleştirildi.
  *
- * Ayrım: bir insanın AÇIKÇA işaretlediği bayraklar ve iptal her zaman
- * gösterilir; yalnızca ÇIKARIM yoluyla gelen statü (`status === "completed"`)
- * zamana bağlı kalır — gelecekteki bir ders eski bir "completed" değeri
- * yüzünden "Geldi" görünmemelidir.
+ * Kural: bir insanın AÇIKÇA işaretlediği bayraklar (iptal/telafi/işlendi/
+ * geldi) HER ZAMAN gösterilir — ders gelecekte olsa bile, çünkü onları bir
+ * kullanıcı bilerek girmiştir. Yalnızca ÇIKARIM yoluyla gelen statü
+ * (`status === "completed"`) zamana bağlı kalır: gelecekteki bir ders, eski
+ * bir "completed" değeri yüzünden kendiliğinden "Geldi" görünmemelidir.
  */
-export function resolveLessonMarkedStatus(
+export function resolveLessonFinalStatus(
   lesson: LessonFinalStatusInput,
   now: Date = new Date()
 ): LessonFinalStatus {

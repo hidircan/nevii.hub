@@ -84,7 +84,12 @@ describe("resolveLessonFinalStatus", () => {
     expect(resolveLessonFinalStatus(lesson(overrides), now)).toBe(expected);
   });
 
-  it("future ders legacy alanları dolu olsa da planlı kalır", () => {
+  it("P0-2: GELECEKTEKİ ders de işaretli statüsünü gösterir (aynı öncelik sırası)", () => {
+    // 2026-09-09 owner kararı — bu test ÖNCEDEN "planned" bekliyordu ve
+    // Yoklama Takvimi'nde işaretlenen rengin yenilemeden sonra kaybolmasının
+    // kök nedeni tam olarak buydu: insanın açıkça girdiği bayraklar, ders
+    // gelecekte diye gizleniyordu. Bkz. lesson-live-status.ts fonksiyon
+    // yorumu ve attendance-status-parity.test.ts.
     expect(
       resolveLessonFinalStatus(
         lesson({
@@ -96,6 +101,14 @@ describe("resolveLessonFinalStatus", () => {
         }),
         now
       )
+    ).toBe("cancelled");
+  });
+
+  it("P0-2: işaretlenmemiş gelecek ders HÂLÂ planned kalır (çıkarımla renk atanmaz)", () => {
+    expect(resolveLessonFinalStatus(lesson({ startAt: "2026-09-11T10:00:00+03:00" }), now)).toBe("planned");
+    // `completed` bir ÇIKARIMDIR, insanın işaretlemesi değil — gelecekte gösterilmez.
+    expect(
+      resolveLessonFinalStatus(lesson({ startAt: "2026-09-11T10:00:00+03:00", status: "completed" }), now)
     ).toBe("planned");
   });
 

@@ -34,7 +34,7 @@ import {
   lessonCardFillStyle,
   lessonCardMutedTextColor,
 } from "@/lib/attendance-calendar";
-import { resolveLessonMarkedStatus, type LessonFinalStatus } from "@/lib/lesson-live-status";
+import { resolveLessonFinalStatus, type LessonFinalStatus } from "@/lib/lesson-live-status";
 import {
   applyOpsOverride,
   pruneSettledOverrides,
@@ -243,8 +243,9 @@ export type LessonCardStatusVisual = LessonFinalStatus;
  */
 export function lessonCardStatusVisual(lesson: Lesson, now: Date = new Date()): LessonCardStatusVisual {
   // Ders Programı kartı, işaretlenmiş statüyü GELECEKTEKİ derslerde de gösterir
-  // (owner UAT kararı 2026-09-07) — bkz. resolveLessonMarkedStatus.
-  return resolveLessonMarkedStatus(lesson, now);
+  // (owner UAT kararı 2026-09-07) — 2026-09-09'da Yoklama Takvimi de AYNI
+  // çözümleyiciye bağlandı, iki fonksiyon tek fonksiyonda birleşti (§B.4).
+  return resolveLessonFinalStatus(lesson, now);
 }
 
 const LESSON_CARD_STATUS_LABEL: Partial<Record<LessonCardStatusVisual, string>> = {
