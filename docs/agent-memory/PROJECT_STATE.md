@@ -28,6 +28,50 @@ screens (login/welcome).
 - Full detail + rationale: `docs/contracts/LEGAL_POLICY_TEXT_DISCREPANCY_REPORT.md`,
   `docs/roadmap/NEVIIHUB_ADMIN_CONTRACTS_POLICY_REMAINING_WORK.md`.
 
+## Güncel odak (2026-09-09) — P0-1 / P0-2 + tahsilat audit
+
+Branch: `fix/admin-payment-attendance-sync-p0` (main'e MERGE EDİLMEDİ,
+production'a deploy EDİLMEDİ, hiçbir Supabase'e yazılmadı).
+
+1. **P0-1 — 5.950 → 5.952 ÇİFT YUVARLAMA düzeltildi.** Dönem tutarı artık
+   ders başı (yuvarlanmış) tutardan değil, onaylı AYLIK ÜCRETTEN tek
+   yuvarlamayla oranlanır (`computePeriodAmount`, period-lesson-billing.ts).
+   Aynı formülün BEŞ kopyası tek fonksiyona bağlandı. Motorun girdisi artık
+   `perLessonNetFee` DEĞİL `monthlyFee` + `weeklyLessonCount` — yuvarlanmış
+   snapshot geçirmek tip düzeyinde imkânsız. Yeni `money-invariants.test.ts`
+   (28 test) "tam dönem = onaylı aylık ücret" değişmezini kilitler.
+   Gerçek Chromium: Kasım/Aralık 2026 = **₺5.950** (eskiden ₺5.952).
+2. **P0-2 — işaretlenen yoklama statüsü artık yenilemeden sonra KALIYOR.**
+   Kök neden yazma değil OKUMAydı: `resolveLessonFinalStatus` gelecekteki her
+   ders için, bayraklara bakmadan ÖNCE koşulsuz "planned" dönüyordu.
+   `resolveLessonMarkedStatus` ile birleştirildi (tek kanonik kaynak, §B.4);
+   Ders Programı / Yoklama Takvimi / Telafi / Yoklama Raporu artık ayrışamaz.
+   Gerçek Chromium: 17 Eylül yeşil (Geldi), 24 Eylül sarı (Telafi), 1 Ekim
+   kırmızı (İşlendi) — hard reload sonrası korunuyor; Yoklama Raporu aynı.
+3. **Tahsilat notu + tahsilatı alan (§C).** `paymentNote`/`receivedByUserId`
+   ZATEN vardı (tip + JSON store + Prisma); eksik olan arayüzdü. Takvimin iki
+   tahsilat yoluna da not alanı eklendi; ödeme detayında görünüyor. Kullanıcı
+   pasife alınırsa artık "Kayıtlı değil" değil "Pasif/silinmiş kullanıcı"
+   yazar (audit izi kaybolmuyor). Yeni migration/model EKLENMEDİ.
+4. `docs/operations/TEST_TO_PRODUCTION_DATA_CUTOVER.md` — plan yazıldı,
+   hiçbir adımı uygulanmadı.
+
+Doğrulama: typecheck ✓ · lint 0 hata ✓ · **2833/2833 test** ✓ · prisma
+validate ✓ · production build ✓. (Turun başında kırık olan
+`attendance-calendar-multi-lesson.test.ts` de düzeltildi — kök neden üründe
+değil, testin yerel/UTC hafta günü karışımındaydı.)
+
+### Bu turda KAPSAM DIŞI bırakılanlar (owner kararı bekliyor)
+Kurulum Merkezi dönem (Güz/Yaz) tarih ayarları · veli/öğrenci yazdırılabilir
+döküm · Nilüfer Acar/Ezgi/Nihal RBAC modeli · Kurumsal Altın tema + Gloock
+font · UserBranchAccess/NeviiOS migration · Supabase Auth/social login.
+
+**Not (§E ile çelişki):** demo seed'de `nilufer.acar` rolü `SUPER_ADMIN` ve
+panelde "Tüm kurumlar" seçicisi görünüyor. Brief §E.1/E.2 yalnız Hıdırcan
+Yağız'ın kurumlar arası erişimi olmasını istiyor. Tek kurum olduğu için
+gerçek bir cross-tenant sızıntı gözlenmedi, ama rol ataması brief ile
+çelişiyor — RBAC turunda ele alınmalı.
+
 ## Önceki odak (2026-09-05, geç oturum)
 
 Yedi kalemlik ürün güncellemesi paketi — hepsi `localhost:3000`e karşı

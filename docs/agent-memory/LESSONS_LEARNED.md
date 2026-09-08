@@ -857,3 +857,61 @@ başlatmak** sayacı sıfırlar.
 
 **Ders:** UI otomasyonu "çalışmıyor" göründüğünde önce viewport/örtüşme ve
 rate limit'i eleyin; koda dokunmadan önce bunlar test edilmeli.
+
+## 2026-09-09 — Yuvarlanmış bir ARA DEĞERİ saklayıp geri çarpmayın
+
+"5.950 TL sözleşmede aylık taksit 5.952 görünüyor" hatasının kök nedeni tek
+bir yuvarlama DEĞİL, **çift yuvarlamaydı**: `derivePerLessonAmount` aylık
+ücreti referans ders adedine bölüp TAM SAYIYA yuvarlıyor, dönem tutarı sonra
+bu yuvarlanmış değeri ders sayısıyla YENİDEN çarpıyordu. Yuvarlama artığı
+(≤0,5 TL) ders sayısı kadar büyüyordu: 5.950/8 = 743,75 → 744 → 8×744 = 5.952.
+
+Teşhisi kesinleştiren gözlem: sapma haftalık 1/2/3/4 dersin **hepsinde tam
++2 TL**. Sabit bir sapma "bölme sonucu yuvarlandı ve geri çarpıldı" imzasıdır;
+gerçek bir oranlama hatası olsaydı sıklığa göre DEĞİŞİRDİ.
+
+**Ders:** türetilmiş bir birim fiyat (ders başı, saat başı, adet başı) yalnız
+GÖSTERİM değeridir. Toplamı her zaman ONAYLANAN ana tutardan, TEK yuvarlamayla
+oranlayın: `round(anaTutar × adet / referansAdet)`. Bu, "tam dönem = tam ücret"
+değişmezini ek bir düzeltme adımı olmadan aritmetiğin kendisinden alır.
+Motorun girdisini de birim fiyat DEĞİL ana tutar yapın — böylece çağıranın
+yuvarlanmış bir snapshot geçirmesi tip düzeyinde imkânsız olur.
+
+## 2026-09-09 — "Kaydedilmiyor" şikâyeti genelde "okunurken gizleniyor" demektir
+
+"Yoklama statüsü kaydedilmiyor, yenileyince kayboluyor" bulgusunda ilk şüpheli
+yazma yolu ve iyimser UI'dı. Gerçek: statü kalıcı olarak YAZILIYORDU; okuma
+tarafındaki `resolveLessonFinalStatus`, hiçbir bayrağa bakmadan ÖNCE
+"ders gelecekteyse koşulsuz planned" diyordu. İyimser UI rengi değiştiriyor,
+ilk sunucu yanıtı onu geri alıyordu — bu, kullanıcıya "kaydedilmedi" gibi
+görünür.
+
+**Ders:** kalıcılık şikâyetlerinde önce **store'a bak** (veri gerçekten yazılmış
+mı?), sonra okuma/çözümleme katmanına. Yazma doğruysa hata GÖRÜNTÜLEME
+kuralındadır.
+
+## 2026-09-09 — Aynı davranışın iki fonksiyonu, iki ekranda iki farklı renk demektir
+
+2026-09-07'de Ders Programı kartı için `resolveLessonMarkedStatus` eklenmiş,
+Yoklama Takvimi eski `resolveLessonFinalStatus`te bırakılmıştı. Kalan
+tutarsızlık rapora "owner kararı" olarak yazılmıştı — ama kod tarafında bu,
+AYNI dersin iki ekranda FARKLI renkte görünmesi anlamına geliyordu ve bir
+sonraki P0 bulgusu tam olarak buydu.
+
+**Ders:** bir davranış farkını "owner kararına" bırakırken, o farkın
+kullanıcıya nasıl görüneceğini yazın. Aynı veriyi gösteren iki yüzey için iki
+çözümleyici bırakmak, kararı ertelemek değil YENİ BİR HATA üretmektir. Tek
+fonksiyon + yüzeye özel parametre, iki fonksiyondan her zaman daha güvenlidir.
+
+## 2026-09-09 — Testte hafta gününü, KULLANDIĞINIZ tarih dizesinden okuyun
+
+`attendance-calendar-multi-lesson.test.ts` ana branch'te kırıktı ama yalnız
+gecenin belli saatlerinde: yardımcı fonksiyon hafta gününü YEREL saatle
+(`d.getDay()`) eliyor, kullanacağı `dateKey`'i UTC ile
+(`toISOString().slice(0,10)`) üretiyordu. Europe/Istanbul UTC+3 olduğundan
+00:00–03:00 arasında yerel Salı = UTC Pazartesi; test Pazartesi (kurum kapalı)
+seçip ürünün DOĞRU reddini hata sanıyordu.
+
+**Ders:** bir tarihi hem filtrelemek hem kullanmak için üretiyorsanız, ikisini
+AYNI zaman diliminden okuyun. `getDay()` + `toISOString()` karışımı, günün
+saatine bağlı "bazen kırmızı" testlerin klasik kaynağıdır.
