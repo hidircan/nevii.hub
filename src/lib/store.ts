@@ -29,6 +29,7 @@ import type { TeacherImportRow } from "./import/teachers";
 import type { RoomImportRow } from "./import/rooms";
 import type { StudentImportRow } from "./import/students";
 import type { ImportCommitResult } from "./import/commit-result";
+import type { AcademicTermDates } from "./academic-term-dates";
 import type { CreateSeriesResult, SeriesCancelResult, SeriesParams } from "./lesson-series";
 import type {
   FeeRuleInput,
@@ -235,6 +236,7 @@ type StoreApi = {
   updateMonthlyMakeupAllowance: (monthlyMakeupAllowance: number) => Promise<AppData>;
   updateCollectionsSettings: (collectionsSettings: CollectionsSettings) => Promise<AppData>;
   updateTermWeeklyClosedDays: (termWeeklyClosedDays: { guz: number[]; yaz: number[] }) => Promise<AppData>;
+  updateAcademicTermDates: (academicTermDates: AcademicTermDates) => Promise<AppData>;
   updateConsentSettings: (consentSettings: ConsentSettings) => Promise<AppData>;
   updateSchoolLogoUrl: (logoUrl: string) => Promise<AppData>;
   getDashboardStats: (data: AppData) => ReturnType<typeof jsonStore.getDashboardStats>;
@@ -693,6 +695,10 @@ export async function updateTermWeeklyClosedDays(
   termWeeklyClosedDays: { guz: number[]; yaz: number[] }
 ): Promise<AppData> {
   return withTenantScope(() => store.updateTermWeeklyClosedDays(termWeeklyClosedDays));
+}
+
+export async function updateAcademicTermDates(academicTermDates: AcademicTermDates): Promise<AppData> {
+  return withTenantScope(() => store.updateAcademicTermDates(academicTermDates));
 }
 
 export function getDashboardStats(data: AppData) {

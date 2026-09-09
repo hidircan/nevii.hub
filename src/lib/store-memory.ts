@@ -744,6 +744,13 @@ export async function updateTermWeeklyClosedDays(
   return save({ ...data, settings: { ...data.settings, termWeeklyClosedDays } });
 }
 
+export async function updateAcademicTermDates(
+  academicTermDates: import("./academic-term-dates").AcademicTermDates
+): Promise<AppData> {
+  const data = load();
+  return save({ ...data, settings: { ...data.settings, academicTermDates } });
+}
+
 export async function updateConsentSettings(consentSettings: ConsentSettings): Promise<AppData> {
   const data = load();
   return save({ ...data, settings: { ...data.settings, consentSettings } });

@@ -9,7 +9,9 @@ import { EXPORT_ENTITIES, type ExportEntity } from "@/lib/export/institution-exp
 import { DEFAULT_COLLECTIONS_SETTINGS } from "@/lib/types";
 import { CollectionsSettingsForm } from "@/components/collections-settings-form";
 import { TermWeeklyScheduleEditor } from "@/components/term-weekly-schedule-editor";
-import { FALL_WEEKLY_CLOSED_DAYS, SUMMER_WEEKLY_CLOSED_DAYS } from "@/lib/attendance-calendar";
+import { AcademicTermDatesForm } from "@/components/academic-term-dates-form";
+import { FALL_WEEKLY_CLOSED_DAYS, SUMMER_WEEKLY_CLOSED_DAYS, currentAcademicAnchorYear } from "@/lib/attendance-calendar";
+import { defaultAcademicTermDates } from "@/lib/academic-term-dates";
 import { SetupResetAction } from "@/components/setup-reset-action";
 import { QuickTaskLink } from "@/components/quick-task-link";
 import { SchoolLogoForm } from "@/components/school-logo-form";
@@ -270,6 +272,10 @@ export default async function KurulumPage() {
       <TermWeeklyScheduleEditor
         initialGuz={data.settings.termWeeklyClosedDays?.guz ?? FALL_WEEKLY_CLOSED_DAYS}
         initialYaz={data.settings.termWeeklyClosedDays?.yaz ?? SUMMER_WEEKLY_CLOSED_DAYS}
+      />
+
+      <AcademicTermDatesForm
+        initial={data.settings.academicTermDates ?? defaultAcademicTermDates(currentAcademicAnchorYear("guz"))}
       />
 
       {/* UAT kararı (2026-09-07) — demo veri sıfırlama YALNIZCA yerel

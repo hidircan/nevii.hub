@@ -17,6 +17,11 @@ import {
   formatEducationPeriodLabel,
 } from "./makeup-quota";
 import { logger } from "./logger";
+import {
+  parseTermCalendarJson,
+  mergeTermCalendarJson,
+  type AcademicTermDates,
+} from "./academic-term-dates";
 import { createSeedData, createEmptyTemplateData } from "./seed";
 import type {
   AppData,
@@ -237,8 +242,8 @@ function mapSchoolToAppData(school: PrismaSchoolWithRelations): AppData {
       currency: school.currency,
       feeRoundingMode: school.feeRoundingMode as FeeRoundingMode,
       collectionsSettings: (school.collectionsSettings as CollectionsSettings | null) ?? undefined,
-      termWeeklyClosedDays:
-        (school.termWeeklyClosedDays as { guz: number[]; yaz: number[] } | null) ?? undefined,
+      termWeeklyClosedDays: parseTermCalendarJson(school.termWeeklyClosedDays).weekly,
+      academicTermDates: parseTermCalendarJson(school.termWeeklyClosedDays).academicTermDates,
       consentSettings: (school.consentSettings as ConsentSettings | null) ?? undefined,
       branches: school.branches.map((branch) => ({
         id: branch.id as BranchId,
@@ -2758,9 +2763,28 @@ export async function updateTermWeeklyClosedDays(
   termWeeklyClosedDays: { guz: number[]; yaz: number[] }
 ): Promise<AppData> {
   const tid = requireTenantId();
+  const current = await prisma.school.findUnique({
+    where: { tenantId: tid },
+    select: { termWeeklyClosedDays: true },
+  });
+  const merged = mergeTermCalendarJson(current?.termWeeklyClosedDays, { weekly: termWeeklyClosedDays });
   await prisma.school.update({
     where: { tenantId: tid },
-    data: { termWeeklyClosedDays: termWeeklyClosedDays as unknown as Prisma.InputJsonValue },
+    data: { termWeeklyClosedDays: merged as unknown as Prisma.InputJsonValue },
+  });
+  return readData();
+}
+
+export async function updateAcademicTermDates(academicTermDates: AcademicTermDates): Promise<AppData> {
+  const tid = requireTenantId();
+  const current = await prisma.school.findUnique({
+    where: { tenantId: tid },
+    select: { termWeeklyClosedDays: true },
+  });
+  const merged = mergeTermCalendarJson(current?.termWeeklyClosedDays, { academicTermDates });
+  await prisma.school.update({
+    where: { tenantId: tid },
+    data: { termWeeklyClosedDays: merged as unknown as Prisma.InputJsonValue },
   });
   return readData();
 }

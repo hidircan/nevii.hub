@@ -951,6 +951,17 @@ export interface SchoolSettings {
    * 0=Pazar..6=Cumartesi.
    */
   termWeeklyClosedDays?: { guz: number[]; yaz: number[] };
+  /**
+   * Kurumun Güz/Yaz dönem tarihleri (yyyy-MM-dd). Boşsa attendance-calendar
+   * belgelenmiş varsayılanı kullanılır (Güz 1 Eyl–30 Haz, Yaz 1 Tem–31 Ağu).
+   * Geçersiz değer sessizce varsayılana düşmez — kayıt anında reddedilir.
+   */
+  academicTermDates?: {
+    guzStart: string;
+    guzEnd: string;
+    yazStart: string;
+    yazEnd: string;
+  };
   /** Faz 8 (KVKK) — boşsa DEFAULT_CONSENT_SETTINGS uygulanır (veri minimizasyonu: recordDeviceInfo=false). */
   consentSettings?: ConsentSettings;
 }

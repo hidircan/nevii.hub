@@ -89,6 +89,7 @@ import {
   importSchoolLogoFromCurrentUrlTool,
   updateMonthlyMakeupAllowanceTool,
   updateTermWeeklyClosedDaysTool,
+  updateAcademicTermDatesTool,
   findAvailableSlotsTool,
   markAttendanceTool,
   updateCommunicationPreferenceTool,
@@ -3159,6 +3160,38 @@ export async function actionUpdateTermWeeklyClosedDays(
     if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
     if (error instanceof WriteScopeDeniedError) return { ok: false, message: error.message };
     return { ok: false, message: "Çalışma takvimi güncellenirken beklenmeyen bir hata oluştu." };
+  }
+}
+
+export type UpdateAcademicTermDatesInput = {
+  guzStart: string;
+  guzEnd: string;
+  yazStart: string;
+  yazEnd: string;
+};
+export type UpdateAcademicTermDatesActionResult =
+  | { ok: true }
+  | { ok: false; message: string; fieldErrors?: Record<string, string> };
+
+export async function actionUpdateAcademicTermDates(
+  input: UpdateAcademicTermDatesInput
+): Promise<UpdateAcademicTermDatesActionResult> {
+  try {
+    const result = await withAuthContext("actionUpdateAcademicTermDates", (ctx) =>
+      updateAcademicTermDatesTool(ctx, input)
+    );
+    if (!result.ok) {
+      const details = result.error.details as { fieldErrors?: Record<string, string> } | undefined;
+      return { ok: false, message: result.error.message, fieldErrors: details?.fieldErrors };
+    }
+    revalidatePath("/panel/kurulum");
+    revalidatePath("/panel/yoklama");
+    return { ok: true };
+  } catch (error) {
+    logger.error("actionUpdateAcademicTermDates failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    if (error instanceof WriteScopeDeniedError) return { ok: false, message: error.message };
+    return { ok: false, message: "Dönem tarihleri güncellenirken beklenmeyen bir hata oluştu." };
   }
 }
 
