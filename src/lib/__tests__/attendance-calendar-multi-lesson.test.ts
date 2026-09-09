@@ -43,7 +43,7 @@ function weekdayOfDateKey(dateKey: string): number {
   return new Date(`${dateKey}T00:00:00Z`).getUTCDay();
 }
 
-async function findFreeDay(direction: 1 | -1): Promise<string> {
+async function findFreeDay(direction: 1 | -1, requiredHoursUtc: number[] = []): Promise<string> {
   const data = await readData();
   const busyDates = new Set(
     data.lessons.filter((l) => l.studentId === "s1" || l.teacherId === "t1").map((l) => l.startAt.slice(0, 10))
@@ -54,18 +54,36 @@ async function findFreeDay(direction: 1 | -1): Promise<string> {
     const dateKey = d.toISOString().slice(0, 10);
     const weekday = weekdayOfDateKey(dateKey);
     if (weekday === 0 || weekday === 1) continue; // Pazar kapalı, Pazartesi Güz döneminde kapalı
-    if (!busyDates.has(dateKey)) return dateKey;
+    if (busyDates.has(dateKey)) continue;
+    // Düzeltme (2026-09-09): gün "boş" olması TEK BAŞINA yetmiyordu — çağıran
+    // testler o günde BELİRLİ saatlerde ders oluşturuyor ve slotun geçerli
+    // olmasını bekliyor. Öğretmen müsaitliği hafta gününe göre değiştiği için
+    // (ör. Cumartesi 14:00 t1 için kapalı) helper, saatleri DOĞRULAMADAN gün
+    // döndürdüğünde test günün saatine göre "bazen kırmızı" oluyordu.
+    // Artık gün, KULLANILACAK saatlerle birlikte doğrulanır.
+    const allSlotsValid = requiredHoursUtc.every((hour) => {
+      const startAt = `${dateKey}T${String(hour).padStart(2, "0")}:00:00.000Z`;
+      return validateLessonSlot(
+        data,
+        { instrument: "Piyano", studentId: "s1" },
+        { teacherId: "t1", roomId: "r1", startAt }
+      ).ok;
+    });
+    if (!allSlotsValid) continue;
+    return dateKey;
   }
   throw new Error(`no free ${direction === 1 ? "future" : "past"} weekday found`);
 }
 
 /** t1 (Turgay Hoşbaş) için o gün hiç ders olmayan bir Salı/Perşembe/vb. iş günü bulur. */
 async function findFreeWeekday(): Promise<string> {
-  return findFreeDay(1);
+  return findFreeDay(1, [10, 14]);
 }
 
 /** `findFreeWeekday` ile AYNI, yalnız GEÇMİŞE doğru arar (ops-flag testleri geçmiş bir ders ister). */
 async function findFreePastWeekday(): Promise<string> {
+  // Geçmiş günler `validateLessonSlot`tan geçmez (geçmişe ders oluşturulamaz);
+  // bu testler dersi zaten doğrudan store'a yazıyor, saat doğrulaması İSTENMEZ.
   return findFreeDay(-1);
 }
 

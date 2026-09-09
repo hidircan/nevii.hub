@@ -79,7 +79,6 @@ export default async function YoklamaPage({
             termType={student.termType ?? "guz"}
             canEdit={canEdit}
             studentActive={student.active}
-            defaultMonthlyFee={student.monthlyFee}
           />
         </>
       )}

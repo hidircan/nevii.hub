@@ -154,6 +154,7 @@ import { getActiveAccessType } from "../student-portal-access";
 import { ownStudents, ownPayouts } from "../teacher-portal-scope";
 import { effectiveLessonOpsStatus } from "../lesson-ops";
 import { resolveLessonFinalStatus, type LessonFinalStatus } from "../lesson-live-status";
+import { resolveContractPlanForMonth, type CalendarMonthPlan, type CalendarPlanContract } from "../attendance-calendar-plan";
 import {
   computeTeacherEarningsForPeriod,
   computeTeacherPayoutPaymentMethodInfo,
@@ -10182,13 +10183,19 @@ export type AttendanceCalendarMonth = {
   month: number;
   term: string;
   withinTerm: boolean;
-  billing?: {
-    plannedLessonCount: number;
-    /** `Student.derivedPerLessonAmount` (kayıt anındaki snapshot) varsa o, yoksa (eski kayıt) taze türetilir. */
-    legacyUnitFee: number;
-    suggestedAmount: number;
-    usedFallback: boolean;
-  };
+  /**
+   * P0 (2026-09-09) — bu ayın ödenecek tutarı. ARTIK TAKVİM HESAPLAMAZ:
+   * sözleşmenin dondurulmuş ödeme planından OKUNUR (bkz.
+   * `attendance-calendar-plan.ts`). Eski `billing` alanı (plannedLessonCount ×
+   * legacyUnitFee = suggestedAmount) KALDIRILDI — aynı finansal bilgiyi
+   * üreten ikinci bir kaynaktı ve sözleşmeden ayrışabiliyordu.
+   */
+  plan: CalendarMonthPlan;
+  /**
+   * YALNIZ BİLGİ — "bu ay kaç ücretlendirilebilir ders var". Tutarla İLGİSİ
+   * YOKTUR ve tutar türetmek için KULLANILAMAZ (bkz. `plan`).
+   */
+  billableLessonCount: number;
   days: Array<{
     date: string;
     status: string;
@@ -10216,12 +10223,37 @@ export type AttendanceCalendarMonth = {
  * (ölçüm: 10 × ~1.0 sn = ~10 sn). Aynı hesap artık dönem tool'unda tek bir
  * okuma üzerinden 10 kez, I/O'suz çalışır.
  */
+/**
+ * Takvimin ödeme planı için ihtiyaç duyduğu sözleşme alanları — İSTEK BAŞINA
+ * BİR KEZ okunur (dönem uç noktasında 10 ay için tek okuma). Tenant filtresi
+ * `listContractsForStudent`in içindedir; başka kurumun sözleşmesi buraya
+ * hiçbir koşulda gelmez.
+ */
+async function loadCalendarPlanContracts(tenantId: string, studentId: string): Promise<CalendarPlanContract[]> {
+  const { listContractsForStudent } = await import("../contracts");
+  const rows = await listContractsForStudent(tenantId, studentId);
+  return rows.map((c) => ({
+    id: c.id,
+    contractNumber: c.contractNumber,
+    status: c.status,
+    enrollmentStartDate: c.enrollmentStartDate,
+    enrollmentEndDate: c.enrollmentEndDate,
+  }));
+}
+
 async function buildAttendanceCalendarMonth(
   data: AppData,
   overrides: Awaited<ReturnType<typeof listClosedDays>>,
   student: Student,
   year: number,
-  month: number
+  month: number,
+  /**
+   * Öğrencinin sözleşmeleri — çağıran tarafından İSTEK BAŞINA BİR KEZ okunur
+   * (dönem uç noktası 10 ay için 10 kez OKUMAZ). Taksit satırları ayrıca
+   * okunmaz: `data.payments` zaten elimizde ve `contractId`/
+   * `installmentSequence` taşıyor.
+   */
+  contracts: CalendarPlanContract[]
 ): Promise<AttendanceCalendarMonth> {
   const term = student.termType ?? "guz";
   const { resolveMonthStatuses } = await import("../attendance-calendar");
@@ -10282,20 +10314,18 @@ async function buildAttendanceCalendarMonth(
     return { ...s, lessonIds, lessons, payments };
   });
 
-  // P0-1 düzeltmesi — ücretlendirilebilir ders TANIMI artık TEK kaynaktan
-  // (period-lesson-billing.ts `isBillableLesson`) geliyor: deneme/iptal/
-  // kurum-kapalı/telafi-kaynağı dersler burada da hariç tutulur (eski
-  // `countPlannedLessonsInMonth` yalnız `status!=="cancelled"` bakıyordu).
-  // Ders başı karşılık artık `Student.derivedPerLessonAmount` (kayıt
-  // anında yazılan snapshot) VARSA onu kullanır — yoksa (eski/legacy
-  // kayıt) `derivePerLessonAmount` ile aynı formülle taze türetir, AYRI
-  // bir "legacy tahmin" formülü İCAT EDİLMEZ.
-  const {
-    countBillableLessonsInRange,
-    resolveExcludedMakeupSourceLessonIds,
-    derivePerLessonAmount,
-    computePeriodAmount,
-  } = await import("../period-lesson-billing");
+  // P0-1 düzeltmesi — ücretlendirilebilir ders TANIMI TEK kaynaktan
+  // (period-lesson-billing.ts `isBillableLesson`) gelir: deneme/iptal/
+  // kurum-kapalı/telafi-kaynağı dersler hariç tutulur.
+  //
+  // P0 (2026-09-09) — bu sayı ARTIK YALNIZ BİLGİ AMAÇLIDIR. Ay tutarı bundan
+  // TÜRETİLMEZ; sözleşmenin dondurulmuş plan satırından okunur (aşağıya bkz.).
+  // `derivePerLessonAmount`/`computePeriodAmount` bu fonksiyonda artık
+  // KULLANILMAZ — kullanılırsa takvim yine sözleşmeden ayrışan ikinci bir
+  // finansal kaynak haline gelir.
+  const { countBillableLessonsInRange, resolveExcludedMakeupSourceLessonIds } = await import(
+    "../period-lesson-billing"
+  );
   const monthPrefix = `${year}-${String(month).padStart(2, "0")}`;
   const monthStartDay = `${monthPrefix}-01`;
   const monthEndDay = `${monthPrefix}-${String(new Date(Date.UTC(year, month, 0)).getUTCDate()).padStart(2, "0")}`;
@@ -10316,22 +10346,17 @@ async function buildAttendanceCalendarMonth(
     monthEndDay,
     { excludedSourceLessonIds, frozenRanges: [] }
   );
-  const legacyUnitFee =
-    student.derivedPerLessonAmount ?? derivePerLessonAmount(student.monthlyFee, student.weeklyLessonCount);
-  // P0-1 (2026-09-09) — `legacyUnitFee * plannedLessonCount` ÇİFT
-  // YUVARLAMAYDI; takvimdeki aylık tutar sözleşme planından 2 TL sapıyordu.
-  // `legacyUnitFee` yalnız GÖSTERİM için kalır (ders başı bilgi satırı).
-  const billing = {
-    plannedLessonCount,
-    legacyUnitFee,
-    suggestedAmount:
-      plannedLessonCount > 0
-        ? computePeriodAmount(student.monthlyFee, student.weeklyLessonCount, plannedLessonCount)
-        : Math.max(0, Math.round(student.monthlyFee)),
-    usedFallback: plannedLessonCount <= 0,
-  };
+  // TEK finansal kaynak: sözleşmenin DONDURULMUŞ ödeme planı. `data.payments`
+  // zaten okundu ve taksit satırları `contractId`/`installmentSequence`
+  // taşıyor — plan için EK bir okuma/sorgu yapılmaz.
+  const plan = resolveContractPlanForMonth({
+    contracts,
+    installments: data.payments.filter((p) => p.studentId === student.id),
+    year,
+    month,
+  });
 
-  return { year, month, term, withinTerm, billing, days };
+  return { year, month, term, withinTerm, plan, billableLessonCount: plannedLessonCount, days };
 }
 
 export async function getAttendanceCalendarMonthTool(
@@ -10358,7 +10383,8 @@ export async function getAttendanceCalendarMonthTool(
   if (!student) return fail("NOT_FOUND", "Öğrenci bulunamadı");
 
   const overrides = await listClosedDays(ctx.tenantId);
-  return ok(await buildAttendanceCalendarMonth(data, overrides, student, v.data.year, v.data.month));
+  const contracts = await loadCalendarPlanContracts(ctx.tenantId, student.id);
+  return ok(await buildAttendanceCalendarMonth(data, overrides, student, v.data.year, v.data.month, contracts));
 }
 
 /**
@@ -10394,10 +10420,13 @@ export async function getAttendanceCalendarTermTool(
   if (!student) return fail("NOT_FOUND", "Öğrenci bulunamadı");
 
   const overrides = await listClosedDays(ctx.tenantId);
+  // Sözleşmeler dönem başına TEK KEZ okunur — 10 ay için 10 okuma DEĞİL
+  // (performans kuralı: yeni tam-tenant/AppData turu eklenmez).
+  const contracts = await loadCalendarPlanContracts(ctx.tenantId, student.id);
   const { attendanceCalendarTermMonths } = await import("../attendance-calendar");
   const months: AttendanceCalendarMonth[] = [];
   for (const m of attendanceCalendarTermMonths(v.data.term, v.data.anchorYear)) {
-    months.push(await buildAttendanceCalendarMonth(data, overrides, student, m.year, m.month));
+    months.push(await buildAttendanceCalendarMonth(data, overrides, student, m.year, m.month, contracts));
   }
   return ok({ term: v.data.term, anchorYear: v.data.anchorYear, months });
 }
@@ -10488,18 +10517,50 @@ export async function collectAttendanceCalendarPaymentTool(
   if (!student) return fail("NOT_FOUND", "Öğrenci bulunamadı");
 
   try {
-    // `dueDate`/`method` verilmezse (bu çağrıda değiştirilmek istenmiyorsa)
-    // `upsertMonthlyPlanPayment`'a undefined geçilir — o da mevcut değeri
-    // KORUR (aşağıya bkz. store implementasyonları); yalnızca verilenler
-    // güncellenir. `markPaymentPaid`'in kendi "paidAt verilmezse şimdi"
-    // varsayılanı, tahsilat ANI için ayrıca doğru davranıştır.
-    const { paymentId } = await upsertMonthlyPlanPayment({
-      studentId: v.data.studentId,
-      month: v.data.month,
-      amount: v.data.amount,
-      dueDate: v.data.dueDate,
-      method: v.data.method,
+    // P0 (2026-09-09) — TAHSİLAT, SÖZLEŞMENİN PLAN SATIRINA BAĞLANIR.
+    //
+    // Önceden bu tool her zaman AYRI bir `source:"monthly_plan"` Payment
+    // yaratıyordu; sözleşme taksit satırı (`source:"contract"`) ise ödenmemiş
+    // kalıyordu. Takvim artık tutarı sözleşme planından okuduğu için bu,
+    // "tahsil ettim ama takvim hâlâ borçlu gösteriyor" demek olurdu. Plan
+    // satırı VARSA doğrudan o satır tahsil edilir — ödenen/kalan/durum tek
+    // satır üzerinde tutulur, ikinci bir ödeme kaydı YARATILMAZ.
+    const [y, mo] = v.data.month.split("-").map(Number) as [number, number];
+    const planContracts = await loadCalendarPlanContracts(ctx.tenantId, student.id);
+    const plan = resolveContractPlanForMonth({
+      contracts: planContracts,
+      installments: data.payments.filter((p) => p.studentId === student.id),
+      year: y,
+      month: mo,
     });
+    if (plan.state === "multiple_active_contracts") {
+      return fail("VALIDATION_ERROR", plan.message);
+    }
+    if (plan.state === "ok" && plan.paymentIds.length > 1) {
+      // Sessizce satırlara bölüştürmek yerine AÇIK hata — hangi taksitin
+      // ödendiği finansal olarak belirsiz kalamaz.
+      return fail(
+        "VALIDATION_ERROR",
+        "Bu ayda birden fazla sözleşme taksiti var; tahsilatı Ödemeler ekranından ilgili taksit üzerinde yapın."
+      );
+    }
+
+    let paymentId: string;
+    if (plan.state === "ok") {
+      paymentId = plan.paymentIds[0]!;
+    } else {
+      // Sözleşme planı YOK (ör. sözleşmesiz/legacy öğrenci) — eski davranış
+      // korunur: serbest "aylık plan" ödeme satırı. `dueDate`/`method`
+      // verilmezse mevcut değerler KORUNUR.
+      const upserted = await upsertMonthlyPlanPayment({
+        studentId: v.data.studentId,
+        month: v.data.month,
+        amount: v.data.amount,
+        dueDate: v.data.dueDate,
+        method: v.data.method,
+      });
+      paymentId = upserted.paymentId;
+    }
     const { collectPayment } = await import("../payments/collect");
     const collected = await collectPayment(paymentId, {
       amount: v.data.amount,
@@ -10517,6 +10578,10 @@ export async function collectAttendanceCalendarPaymentTool(
       method: v.data.method,
       dueDate: v.data.dueDate,
       hasNote: Boolean(v.data.note),
+      // Hangi kaynağa yazıldığı audit'te GÖRÜNÜR olmalı — sözleşme taksiti mi,
+      // sözleşmesiz serbest aylık plan satırı mı.
+      planSource: plan.state === "ok" ? "contract_installment" : "monthly_plan_fallback",
+      contractId: plan.state === "ok" ? plan.contractId : undefined,
       receivedByUserId: ctx.userId,
     });
     return ok({

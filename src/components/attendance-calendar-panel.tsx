@@ -21,6 +21,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { cn, formatTime } from "@/lib/utils";
 import { apiFetch } from "@/lib/api/client-fetch";
+import type { CalendarMonthPlan } from "@/lib/attendance-calendar-plan";
 import { TriangleAlert } from "lucide-react";
 import { LessonOpsActions } from "./lesson-ops-actions";
 import { LessonStatusBadge } from "./lesson-status-badge";
@@ -124,13 +125,15 @@ type MonthResponse = {
   year: number;
   month: number;
   term: string;
-  billing?: {
-    plannedLessonCount: number;
-    /** `Student.derivedPerLessonAmount` (kayıt anındaki snapshot) varsa o, yoksa (eski kayıt) taze türetilir. */
-    legacyUnitFee: number;
-    suggestedAmount: number;
-    usedFallback: boolean;
-  };
+  /**
+   * P0 (2026-09-09) — bu ayın ödenecek tutarı SÖZLEŞMENİN dondurulmuş ödeme
+   * planından gelir; istemci de sunucu da tutarı yeniden HESAPLAMAZ. Tip
+   * sunucudaki saf modülden İTHAL EDİLİR (elle yazılmış ikinci bir kopya
+   * tutulmaz — eski `billing` alanı böyle ayrışabiliyordu).
+   */
+  plan: CalendarMonthPlan;
+  /** YALNIZ BİLGİ — bu ayın ücretlendirilebilir ders sayısı; tutarla ilgisi YOKTUR. */
+  billableLessonCount: number;
   days: DayInfo[];
 };
 
@@ -201,14 +204,54 @@ function dayFillStyle(day: DayInfo): { style: CSSProperties; segmentCount: numbe
   };
 }
 
+const PLAN_STATUS_LABEL: Record<string, string> = {
+  pending: "Ödenmedi",
+  overdue: "Gecikmiş",
+  partial: "Kısmi ödendi",
+  paid: "Ödendi",
+  voided: "İptal edildi",
+};
+
+/**
+ * Ay kutusunun finansal özeti — TAMAMEN sözleşmenin dondurulmuş plan
+ * satırından beslenir. Burada hiçbir tutar HESAPLANMAZ; `plan` ne diyorsa o
+ * gösterilir. Plan yoksa tutar UYDURULMAZ, açık durum yazılır.
+ */
+function MonthPlanSummary({ plan }: { plan: CalendarMonthPlan }) {
+  if (plan.state === "ok") {
+    return (
+      <p className="text-[10px] text-[var(--color-text-muted)]">
+        <span className="font-medium text-[var(--color-text)]">{formatMoneyTL(plan.amount)}</span>
+        {" · ödenen "}
+        {formatMoneyTL(plan.paidAmount)}
+        {" · kalan "}
+        <span className={plan.remaining > 0 ? "font-medium text-[var(--color-text)]" : undefined}>
+          {formatMoneyTL(plan.remaining)}
+        </span>
+        {" · "}
+        {PLAN_STATUS_LABEL[plan.status] ?? plan.status}
+        {plan.periodLabel ? ` · ${plan.periodLabel}` : ""}
+        <span className="block opacity-80">Sözleşme planı: {plan.contractNumber}</span>
+      </p>
+    );
+  }
+  if (plan.state === "multiple_active_contracts") {
+    return (
+      <p className="text-[10px] font-medium text-[var(--color-danger)]" role="alert">
+        {plan.message} ({plan.contractNumbers.join(", ")})
+      </p>
+    );
+  }
+  // no_active_contract | no_installment_for_month
+  return <p className="text-[10px] text-[var(--color-text-muted)]">{plan.message}</p>;
+}
+
 export function AttendanceCalendarPanel({
   studentId,
   termType,
   canEdit,
   readOnly = false,
   studentActive = true,
-  defaultMonthlyFee,
-  defaultMonthlyAmount,
   showWeekdayLabels = true,
 }: {
   studentId: string;
@@ -220,16 +263,14 @@ export function AttendanceCalendarPanel({
   readOnly?: boolean;
   /** Pasif/arşiv öğrenci için takvimden tahsilat aksiyonu render edilmez (yeni ders/tahsilat akışıyla tutarlı). */
   studentActive?: boolean;
-  /** Öğrencinin güncel varsayılan aylık ücreti (Student.monthlyFee) — yalnızca bilgi amaçlı gösterilir, ay kutusundaki Tutar alanının değerini belirlemez/değiştirmez. */
-  defaultMonthlyFee?: number;
-  /**
-   * ÖNCELİK 4 (devam) — Ödeme profili entegrasyonu: öğrencinin paket/süre/
-   * indirim/override'dan hesaplanan aylık beklenen tutarı (bkz.
-   * src/lib/student-payment-profile.ts computeStudentMonthlyAmount). Ay
-   * kutusunun varsayılan/placeholder değeri — admin dilediği ayda farklı
-   * bir tutar girip Kaydet edebilir, bu yalnızca bir başlangıç değeridir.
+  /*
+   * P0 (2026-09-09) — `defaultMonthlyFee` ve `defaultMonthlyAmount` prop'ları
+   * KALDIRILDI. İkisi de ay kutusunun tutar alanına "varsayılan" besliyordu;
+   * sözleşmenin plan satırı yokken bu, tahsilat tutarını UYDURMANIN en sessiz
+   * yoluydu (yönetici boş bırakıp Kaydet'e basınca ilgisiz bir tutar
+   * kaydedilebiliyordu). Tutar artık YALNIZ sözleşme planından gelir; plan
+   * yoksa açık durum gösterilir ve tutar elle girilmek zorundadır.
    */
-  defaultMonthlyAmount?: number;
   /**
    * İş 2 — veli portalinde Pzt/Sal/Çar/… başlık satırı mobilde ekranı
    * sıkıştırıyordu. Varsayılan true (panel/admin/öğretmen kullanımları
@@ -469,11 +510,24 @@ export function AttendanceCalendarPanel({
   async function onSaveAmount(key: string) {
     if (!canEdit || readOnly) return;
     const raw = amounts[key];
-    const amount =
-      raw === undefined || raw.trim() === ""
-        ? (byMonth[key]?.billing?.suggestedAmount ?? defaultMonthlyAmount)
-        : Number(raw);
-    if (amount === undefined || !Number.isFinite(amount) || amount < 0) {
+    const plan = byMonth[key]?.plan;
+    // P0 (2026-09-09) — tutar alanı boş bırakıldığında ARTIK "varsayılan aylık
+    // ücret"e düşülmez. Sözleşmenin plan satırı yoksa tahsilat tutarı UYDURULMAZ
+    // (ne sıfır, ne önceki ay, ne yeniden hesap) — açık hata gösterilir.
+    let amount: number;
+    if (raw !== undefined && raw.trim() !== "") {
+      amount = Number(raw);
+    } else if (plan?.state === "ok") {
+      amount = plan.remaining > 0 ? plan.remaining : plan.amount;
+    } else {
+      setError(
+        plan?.state === "multiple_active_contracts"
+          ? plan.message
+          : "Bu ay için aktif ödeme planı bulunmuyor — tahsil edilecek tutarı elle girin."
+      );
+      return;
+    }
+    if (!Number.isFinite(amount) || amount < 0) {
       setError("Geçerli bir tutar girin.");
       return;
     }
@@ -653,15 +707,10 @@ export function AttendanceCalendarPanel({
                   <h3 className="text-sm font-semibold text-[var(--color-text)]">
                     {MONTH_LABELS[m.month - 1]} {m.year}
                   </h3>
-                  {canEdit && !readOnly && data?.billing ? (
+                  {canEdit && !readOnly && data ? <MonthPlanSummary plan={data.plan} /> : null}
+                  {canEdit && !readOnly && data ? (
                     <p className="text-[10px] text-[var(--color-text-muted)]">
-                      {data.billing.plannedLessonCount} planlanan ücretlendirilebilir ders ×{" "}
-                      {formatMoneyTL(data.billing.legacyUnitFee)} = {formatMoneyTL(data.billing.suggestedAmount)}
-                      {data.billing.usedFallback ? " (plan yok, aylık paket)" : ""}
-                    </p>
-                  ) : canEdit && !readOnly && typeof defaultMonthlyFee === "number" ? (
-                    <p className="text-[10px] text-[var(--color-text-muted)]">
-                      Varsayılan aylık ücret: {formatMoneyTL(defaultMonthlyFee)}
+                      {data.billableLessonCount} ücretlendirilebilir ders (bilgi)
                     </p>
                   ) : null}
                 </div>
@@ -670,12 +719,12 @@ export function AttendanceCalendarPanel({
                     <input
                       type="number"
                       min={0}
+                      // Plan yoksa "varsayılan aylık ücret" ÖNERİLMEZ — yanlış
+                      // tutarın sessizce kaydedilmesinin en kolay yolu budur.
                       placeholder={
-                        data?.billing?.suggestedAmount !== undefined
-                          ? String(data.billing.suggestedAmount)
-                          : defaultMonthlyAmount !== undefined
-                            ? String(defaultMonthlyAmount)
-                            : "Tutar"
+                        data?.plan.state === "ok"
+                          ? String(data.plan.remaining > 0 ? data.plan.remaining : data.plan.amount)
+                          : "Tutar"
                       }
                       value={amounts[key] ?? ""}
                       onChange={(e) => setAmounts((prev) => ({ ...prev, [key]: e.target.value }))}
