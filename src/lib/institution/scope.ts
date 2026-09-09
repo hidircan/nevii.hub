@@ -28,9 +28,10 @@ export function pickInstitutionSelection(
   role: AppRole,
   ownTenantId: string,
   available: KurumSummary[],
-  requested: string | undefined
+  requested: string | undefined,
+  options?: { canSeeAllKurumlar?: boolean }
 ): string {
-  const canSeeAll = role === "SUPER_ADMIN";
+  const canSeeAll = options?.canSeeAllKurumlar ?? role === "SUPER_ADMIN";
   const isValid = (id: string) =>
     id === ALL_KURUMLAR ? canSeeAll : available.some((k) => k.tenantId === id);
 

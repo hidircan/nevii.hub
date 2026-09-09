@@ -5,6 +5,7 @@ import { PanelHeader } from "@/components/panel-header";
 import { requireSessionContext } from "@/lib/auth/session";
 import { getUserById } from "@/lib/auth/users";
 import { getInstitutionContext } from "@/lib/institution/context";
+import { canSeeAllKurumlar, canViewFinanceAndStaffSummary } from "@/lib/auth/platform-access";
 import { DENSITY_COOKIE, normalizeDensity } from "@/lib/theme";
 
 export const dynamic = "force-dynamic";
@@ -39,7 +40,8 @@ export default async function PanelLayout({
         role={session.role}
         kurumlar={kurum.available}
         kurumSelection={kurum.selection}
-        canSeeAllKurumlar={session.role === "SUPER_ADMIN"}
+        canSeeAllKurumlar={canSeeAllKurumlar(session)}
+        canViewFinanceAndStaffSummary={canViewFinanceAndStaffSummary(session)}
       />
       <main className="flex-1 overflow-auto">
         <PanelHeader
@@ -48,7 +50,7 @@ export default async function PanelLayout({
           kurumName={currentKurum?.name ?? null}
           kurumAvailable={kurum.available}
           kurumSelection={kurum.selection}
-          canSeeAllKurumlar={session.role === "SUPER_ADMIN"}
+          canSeeAllKurumlar={canSeeAllKurumlar(session)}
           density={density}
         />
         <div className="mx-auto max-w-7xl px-6 py-8 lg:px-10">{children}</div>

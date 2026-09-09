@@ -41,6 +41,8 @@ export default async function FinansOzetiPage() {
     redirect("/login?next=/panel/finans-ozeti");
   }
   if (session.role !== "SCHOOL_ADMIN" && session.role !== "SUPER_ADMIN") redirect("/panel");
+  const { canViewFinanceAndStaffSummary } = await import("@/lib/auth/platform-access");
+  if (!canViewFinanceAndStaffSummary(session)) redirect("/panel");
 
   const kurum = await getInstitutionContext(session);
   const canWrite = kurum.scope.mode === "single";

@@ -13,7 +13,7 @@
  * ETKİLEMEZ.
  */
 export const BRAND = {
-  name: "Nevii Hub",
+  name: "NeviiHub",
   shortName: "NeviiHub",
   tagline: "Everything. Connected.",
   description:

@@ -39,9 +39,9 @@ describe("Font yükü bütçesi — ilk açılış maliyeti", () => {
     expect(LAYOUT_CODE).not.toContain("localFont(");
   });
 
-  it("dört font ailesi de `next/font/google` üzerinden gelir", () => {
+  it("font aileleri `next/font/google` üzerinden gelir (ham TTF yok)", () => {
     expect(LAYOUT_CODE).toMatch(/from "next\/font\/google"/);
-    for (const family of ["Inter", "Noto_Sans", "Playfair_Display", "Roboto_Serif"]) {
+    for (const family of ["Inter", "Noto_Sans", "Playfair_Display", "Roboto_Serif", "Gloock"]) {
       expect(LAYOUT_CODE).toContain(family);
     }
   });

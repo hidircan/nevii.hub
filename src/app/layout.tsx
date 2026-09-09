@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Inter, Noto_Sans, Playfair_Display, Roboto_Serif } from "next/font/google";
+import { Gloock, Inter, Noto_Sans, Playfair_Display, Roboto_Serif } from "next/font/google";
 import { cookies } from "next/headers";
 import "./globals.css";
 import {
@@ -48,6 +48,7 @@ const playfairDisplay = Playfair_Display({
 });
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "swap" });
+const gloock = Gloock({ subsets: ["latin"], weight: "400", variable: "--font-gloock", display: "swap" });
 const notoSans = Noto_Sans({ subsets: ["latin"], variable: "--font-noto-sans", display: "swap" });
 
 export const metadata: Metadata = {
@@ -84,7 +85,7 @@ export default async function RootLayout({
   return (
     <html
       lang="tr"
-      className={`${robotoSerif.variable} ${playfairDisplay.variable} ${inter.variable} ${notoSans.variable} h-full antialiased`}
+      className={`${robotoSerif.variable} ${playfairDisplay.variable} ${inter.variable} ${gloock.variable} ${notoSans.variable} h-full antialiased`}
       data-theme-profile={themeProfile}
       data-font={font}
       data-density={density}

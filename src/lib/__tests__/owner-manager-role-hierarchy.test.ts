@@ -10,14 +10,14 @@ function ctx(overrides?: Partial<ServiceContext>): ServiceContext {
 }
 
 /**
- * İş 4 — rol hiyerarşisi: Nilüfer Acar (kurum sahibi, SUPER_ADMIN) ile
- * Ezgi Güçlü (kurum yöneticisi, SCHOOL_ADMIN, tenant_nilufer_acar).
+ * P0 — rol hiyerarşisi: Nilüfer Acar kurum sahibidir (SCHOOL_ADMIN, SUPER_ADMIN
+ * değil). Ezgi Güçlü kurum müdürüdür (SCHOOL_ADMIN). Platform sahibi ayrıdır.
  */
-describe("Nilüfer Acar (SUPER_ADMIN) ve Ezgi Güçlü (SCHOOL_ADMIN) bootstrap kimlikleri", () => {
-  it("Nilüfer Acar kendi e-posta/şifresiyle SUPER_ADMIN olarak giriş yapar", async () => {
+describe("Nilüfer Acar (kurum sahibi) ve Ezgi Güçlü (kurum müdürü) bootstrap kimlikleri", () => {
+  it("Nilüfer Acar SCHOOL_ADMIN olarak giriş yapar — SUPER_ADMIN değildir", async () => {
     const user = await authenticateUser("nilufer.acar@niluferacar.com.tr", "demo-owner-nilufer");
     expect(user).not.toBeNull();
-    expect(user?.role).toBe("SUPER_ADMIN");
+    expect(user?.role).toBe("SCHOOL_ADMIN");
     expect(user?.tenantId).toBe(DEFAULT_TENANT_ID);
   });
 
@@ -35,12 +35,17 @@ describe("Nilüfer Acar (SUPER_ADMIN) ve Ezgi Güçlü (SCHOOL_ADMIN) bootstrap 
   });
 });
 
-describe("Nilüfer'in cross-tenant kapsamı vs. Ezgi'nin yalnız kendi tenant'ı görmesi", () => {
-  it("SUPER_ADMIN (Nilüfer) rolü listAvailableKurumlar'da TÜM kurumları görür — tenantId filtresi uygulanmaz", async () => {
-    const superCtx = ctx({ role: "SUPER_ADMIN", tenantId: "herhangi-bir-tenant" });
+describe("Nilüfer'in kendi kurumu vs. platform sahibinin tüm kurumları", () => {
+  it("SCHOOL_ADMIN (Nilüfer) listAvailableKurumlar'da YALNIZ kendi tenant'ını görür", async () => {
+    const ownerCtx = ctx({ role: "SCHOOL_ADMIN", userId: "user_owner_nilufer", tenantId: DEFAULT_TENANT_ID });
+    const kurumlar = await listAvailableKurumlar(ownerCtx);
+    expect(kurumlar).toHaveLength(1);
+    expect(kurumlar[0]!.tenantId).toBe(DEFAULT_TENANT_ID);
+  });
+
+  it("SUPER_ADMIN platform rolü listAvailableKurumlar'da tenant filtresi uygulamadan kurum listesini görür", async () => {
+    const superCtx = ctx({ role: "SUPER_ADMIN", userId: "user_super", tenantId: "herhangi-bir-tenant" });
     const kurumlar = await listAvailableKurumlar(superCtx);
-    // json modunda tek kurum vardır (bkz. CLAUDE.md) ama önemli olan: sonuç
-    // ctx.tenantId'ye göre FİLTRELENMEMİŞ — listTenants()'ın TAM sonucu.
     expect(kurumlar.length).toBeGreaterThan(0);
     expect(kurumlar.some((k) => k.tenantId !== superCtx.tenantId)).toBe(true);
   });

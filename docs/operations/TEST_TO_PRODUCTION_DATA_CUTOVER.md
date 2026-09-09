@@ -1,9 +1,36 @@
 # Test → Production Veri Geçişi (Cutover) Planı
 
-**Durum:** PLAN — bu turda **hiçbir adımı uygulanmadı**.
+**Durum:** PLAN — bu turda **hiçbir adımı uygulanmadı**. Kod, import aracı,
+DB yazımı veya veri silme **yoktur**.
 **Tarih:** 2026-09-09 · **Taban:** `fix/admin-payment-attendance-sync-p0`
 **Kapsam:** Test ortamındaki gerçek kurum verisinin production'a **tek yönlü,
 tek seferlik** taşınması.
+
+## Kararlar (kesin)
+
+1. Test ortamındaki veri üçe ayrılır:
+   - **Demo veri** — production'a gitmez.
+   - **Otomasyon/test fixture verisi** — production'a gitmez.
+   - **Onaylı gerçek kurum verisi** — Erzene/Evka-3 öğrencileri, gerçek
+     sözleşmeler, gerçek ders planları, gerçek tahsilatlar. Kontrollü
+     export/import ile production'a gidebilir.
+2. Test Supabase'i doğrudan production'a klonlamak **yasaktır**.
+3. Demo/test verisi isim tahminiyle veya rastgele SQL silerek silinmez.
+   Güvenli tag/source/fixture işareti ile ayrıştırılır.
+4. Production geçişi öncesinde gerçek veri **freeze zamanı** belirlenir.
+5. Freeze sonrasında testte gerçek iş verisi girişi durur; veri girişi yeni
+   production'da devam eder.
+6. Import süreci ileride yalnız onaylı gerçek kurum verisini taşımalıdır:
+   kurum/tenant, şube, öğrenci, veli/iletişim, öğretmen, ders, yoklama,
+   sözleşme, ödeme planı, tahsilat, audit ilişkileri.
+7. Import, foreign key/ID ilişkilerini korumalıdır.
+8. Import sonrası satır sayısı, ödeme toplamları, sözleşme toplamları,
+   taksit toplamları, tahsilat toplamları ve kritik veri ilişkileri
+   doğrulanmalıdır.
+9. Test ve production arasında çift yönlü sürekli senkronizasyon
+   **kurulmayacaktır**.
+10. Production'a geçildikten sonra test ortamı tekrar yalnız test/demo/UAT
+    ortamı olarak kullanılacaktır.
 
 > Bu belge bir **runbook taslağıdır**, çalıştırılabilir bir araç değildir.
 > Brief kararı gereği import aracı bu turda **yazılmadı**. Aşağıdaki adımlar

@@ -459,7 +459,15 @@ export default async function StudentDetailPage({
       </section>
 
       <section id="yoklama-takvimi" className="mb-8 scroll-mt-4">
-        <h2 className="mb-3 text-sm font-semibold text-[var(--color-text)]">Yoklama Takvimi</h2>
+        <h2 className="mb-3 flex items-center justify-between text-sm font-semibold text-[var(--color-text)]">
+          Yoklama Takvimi
+          <Link
+            href={`/ogrenci-dokum/${studentId}`}
+            className="text-xs font-medium text-[var(--color-primary)] hover:text-[var(--color-primary-hover)]"
+          >
+            Yazdır
+          </Link>
+        </h2>
         <AttendanceCalendarPanel
           studentId={studentId}
           termType={student.termType ?? "guz"}

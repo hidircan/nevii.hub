@@ -6,7 +6,7 @@ import { BRAND } from "../brand";
 
 /**
  * P0 UAT (2026-09-08) — sidebar üstünde "NH" monogramı yerine kurumun
- * GERÇEK ikonu + "Nevii Hub" marka metni.
+ * GERÇEK ikonu + "NeviiHub" marka metni.
  *
  * Kullanılan asset `BRAND.logoMarkPath` (= /brand/logo.png) ve bu dosya
  * `src/app/icon.png` ile BYTE OLARAK AYNIDIR — yani favicon ile aynı görsel.
@@ -30,7 +30,7 @@ describe("Sidebar markası", () => {
 
   it("marka metni BRAND.name'dir", () => {
     expect(CODE).toContain("{BRAND.name}");
-    expect(BRAND.name).toBe("Nevii Hub");
+    expect(BRAND.name).toBe("NeviiHub");
   });
 
   it("collapsed modda yalnız ikon kalır ve erişilebilir isim taşır", () => {

@@ -183,11 +183,13 @@ export function Sidebar({
   kurumlar: _kurumlar,
   kurumSelection: _kurumSelection,
   canSeeAllKurumlar: _canSeeAllKurumlar,
+  canViewFinanceAndStaffSummary = true,
 }: {
   role?: SessionRole;
   kurumlar?: unknown;
   kurumSelection?: string;
   canSeeAllKurumlar?: boolean;
+  canViewFinanceAndStaffSummary?: boolean;
 }) {
   void _kurumlar;
   void _kurumSelection;
@@ -312,7 +314,18 @@ export function Sidebar({
       <nav className="flex-1 space-y-5 overflow-y-auto px-3 py-4">
         <NavSection sectionKey="main" items={PANEL_MAIN_NAV} pathname={pathname} role={role} collapsed={collapsed} />
         <NavSection sectionKey="finance" title="Finans" items={PANEL_FINANCE_NAV} pathname={pathname} role={role} collapsed={collapsed} />
-        <NavSection sectionKey="ops" title="Operasyonlar" items={PANEL_OPS_NAV} pathname={pathname} role={role} collapsed={collapsed} />
+        <NavSection
+          sectionKey="ops"
+          title="Operasyonlar"
+          items={
+            canViewFinanceAndStaffSummary
+              ? PANEL_OPS_NAV
+              : PANEL_OPS_NAV.filter((item) => item.href !== "/panel/personel" && item.href !== "/panel/finans-ozeti")
+          }
+          pathname={pathname}
+          role={role}
+          collapsed={collapsed}
+        />
         <NavSection sectionKey="ai" title="Yapay Zeka" items={PANEL_AI_NAV} pathname={pathname} role={role} collapsed={collapsed} />
       </nav>
 

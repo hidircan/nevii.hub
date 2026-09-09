@@ -12,6 +12,7 @@ import {
   type InstitutionScope,
   type KurumSummary,
 } from "./scope";
+import { canSeeAllKurumlar } from "../auth/platform-access";
 
 export {
   ALL_KURUMLAR,
@@ -30,7 +31,7 @@ export {
  */
 export async function listAvailableKurumlar(ctx: ServiceContext): Promise<KurumSummary[]> {
   const all = await runWithTenantAsync(DEFAULT_TENANT_ID, () => listTenants());
-  if (ctx.role === "SUPER_ADMIN") return all;
+  if (canSeeAllKurumlar(ctx)) return all;
   const own = all.find((k) => k.tenantId === ctx.tenantId);
   return own ? [own] : [{ tenantId: ctx.tenantId, name: ctx.tenantId }];
 }
@@ -46,7 +47,9 @@ export async function getInstitutionContext(ctx: ServiceContext): Promise<Instit
   const available = await listAvailableKurumlar(ctx);
   const jar = await cookies();
   const requested = jar.get(KURUM_COOKIE)?.value;
-  const selection = pickInstitutionSelection(ctx.role, ctx.tenantId, available, requested);
+  const selection = pickInstitutionSelection(ctx.role, ctx.tenantId, available, requested, {
+    canSeeAllKurumlar: canSeeAllKurumlar(ctx),
+  });
   const scope = scopeFromSelection(selection, available);
   return { available, selection, scope };
 }

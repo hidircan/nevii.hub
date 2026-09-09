@@ -28,7 +28,39 @@ screens (login/welcome).
 - Full detail + rationale: `docs/contracts/LEGAL_POLICY_TEXT_DISCREPANCY_REPORT.md`,
   `docs/roadmap/NEVIIHUB_ADMIN_CONTRACTS_POLICY_REMAINING_WORK.md`.
 
-## Güncel odak (2026-09-09) — P0-1 / P0-2 + tahsilat audit
+## Güncel odak (2026-09-09, devam) — sözleşme/tahsilat senkronu + dönem + döküm + yetki + tema
+
+Branch: `fix/admin-payment-attendance-sync-p0` (main'e MERGE EDİLMEDİ,
+production'a deploy EDİLMEDİ, hiçbir Supabase'e yazılmadı, migration
+uygulanmadı). Claude'un `9ba8204` commit'i korundu.
+
+1. **Faz 1 (tamamlandı).** Takvim planı sözleşme taksitinden okunuyor
+   (`resolveContractPlanForMonth`). Tahsilat plan satırına yazılır;
+   kısmi + kalan **eklenir** (2000+3950=5950). `monthly_plan` yalnız
+   sözleşmesiz/legacy fallback. Migration yok.
+2. **Faz 2.** Kurulum Merkezi Güz/Yaz tarihleri; çakışma/boş tarih
+   sessiz varsayılana düşmez. Eylül geçişi kurum ayarına bağlı. DB
+   sütunu yok — mevcut `termWeeklyClosedDays` Json'una additive.
+3. **Faz 3.** `/ogrenci-dokum/[studentId]` yönetici dökümü (ödeme planı +
+   yoklama statü metni). Veli portalına ekran açılmadı.
+4. **Faz 4.** Nilüfer Acar `SCHOOL_ADMIN` (SUPER_ADMIN değil). Ezgi
+   finans/personel özeti göremez. Nihal hesabı oluşturulmadı
+   (`docs/operations/SCHOOL_ADMIN_INVITE_ACTIVATION.md`).
+5. **Faz 5.** Marka `NeviiHub`, Gloock başlık + Inter gövde, belirgin
+   kareli doku. Ham TTF yok.
+6. **Faz 6.** Cutover runbook 10 kararla güncellendi; uygulanmadı.
+
+Doğrulama: typecheck ✓ · lint 0 hata ✓ · **2889/2889 test** ✓ · prisma
+validate ✓ · production build ✓. Chromium bu turda koşturulamadı
+(tarayıcı aracı yok).
+
+`.env.example` ve `src/lib/site-content.ts` kirli bırakıldı — bu işe ait değil.
+
+### Hâlâ owner kararı
+UserBranchAccess/NeviiOS migration · Nihal için gerçek e-posta ile davet
+· cutover'ın uygulanması · Chromium UAT.
+
+## Önceki odak (2026-09-09) — P0-1 / P0-2 + tahsilat audit
 
 Branch: `fix/admin-payment-attendance-sync-p0` (main'e MERGE EDİLMEDİ,
 production'a deploy EDİLMEDİ, hiçbir Supabase'e yazılmadı).

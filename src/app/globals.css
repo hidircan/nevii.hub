@@ -297,7 +297,7 @@
 :root,
 :root[data-font="inter"] {
   --font-sans: var(--font-inter), Inter, "Helvetica Neue", Arial, sans-serif;
-  --font-display: var(--font-inter), Inter, "Helvetica Neue", Arial, sans-serif;
+  --font-display: var(--font-gloock), Gloock, Georgia, "Times New Roman", serif;
   --font-mono: "SFMono-Regular", "SF Mono", Consolas, monospace;
 }
 
@@ -348,8 +348,8 @@ body *,
   text-shadow: none !important;
 }
 
-h1, h2, h3 {
-  font-family: var(--font-display);
+h1, h2, h3, .brand-mark {
+  font-family: var(--font-display) !important;
   color: var(--text-primary);
   letter-spacing: -0.02em;
 }
@@ -366,8 +366,8 @@ h3 {
   font-weight: 650;
 }
 
-h1, h2, h3 {
-  font-family: var(--font-display);
+h1, h2, h3, .brand-mark {
+  font-family: var(--font-display) !important;
 }
 
 a,
@@ -402,7 +402,7 @@ summary,
 
 /* NEVII HUB material surface layer — subtle paper grain and disciplined physical depth. */
 :root {
-  --texture-line: rgb(36 28 20 / 0.035);
+  --texture-line: rgb(36 28 20 / 0.08);
   --texture-grain: rgb(80 64 42 / 0.028);
   --surface-highlight: rgb(255 255 255 / 0.82);
   --shadow-material: 0 1px 1px rgb(44 34 22 / 0.025), 0 10px 28px -18px rgb(44 34 22 / 0.18);
@@ -440,8 +440,8 @@ body {
   min-height: 100dvh;
   background-color: var(--color-bg);
   background-image:
-    repeating-linear-gradient(0deg, transparent 0, transparent 47px, var(--texture-line) 48px),
-    repeating-linear-gradient(90deg, transparent 0, transparent 95px, var(--texture-line) 96px),
+    repeating-linear-gradient(0deg, transparent 0, transparent 23px, var(--texture-line) 24px),
+    repeating-linear-gradient(90deg, transparent 0, transparent 23px, var(--texture-line) 24px),
     radial-gradient(circle at 18% 8%, var(--texture-grain) 0 0.7px, transparent 0.9px),
     radial-gradient(circle at 78% 64%, var(--texture-grain) 0 0.65px, transparent 0.85px);
   background-size: auto, auto, 13px 13px, 17px 17px;

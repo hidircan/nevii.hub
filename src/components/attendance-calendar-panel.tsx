@@ -98,6 +98,7 @@ type DayInfo = {
   status: "open" | "closed";
   reason: string;
   label: string;
+  inTerm?: boolean;
   lessonIds: string[];
   lessons: DayLessonOpsInfo[];
   payments: LessonPaymentInfo[];
@@ -327,8 +328,14 @@ export function AttendanceCalendarPanel({
     changeYear(currentAnchorYear(term));
   }
 
-  const months = useMemo(() => termMonthList(term, anchorYear), [term, anchorYear]);
   const [byMonth, setByMonth] = useState<Record<string, MonthResponse>>({});
+  const defaultMonths = useMemo(() => termMonthList(term, anchorYear), [term, anchorYear]);
+  const months = useMemo(() => {
+    const loaded = Object.values(byMonth)
+      .map((m) => ({ year: m.year, month: m.month }))
+      .sort((a, b) => a.year - b.year || a.month - b.month);
+    return loaded.length > 0 ? loaded : defaultMonths;
+  }, [byMonth, defaultMonths]);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [amounts, setAmounts] = useState<Record<string, string>>({});
   /** Ay kutusu — ödeme tarihi (yyyy-MM-dd). Tutar alanıyla AYNI ilkeyle: yalnızca yerel giriş arabelleği, sunucudan önceden doldurulmaz (mevcut Tutar davranışıyla tutarlı). */
@@ -552,7 +559,17 @@ export function AttendanceCalendarPanel({
         }),
       });
       const json = (await res.json()) as { ok: boolean; error?: { message: string } };
-      if (!json.ok) setError(json.error?.message ?? "Tutar kaydedilemedi.");
+      if (!json.ok) {
+        setError(json.error?.message ?? "Tutar kaydedilemedi.");
+        return;
+      }
+      const res2 = await apiFetch(
+        `/api/v1/attendance-calendar/month?studentId=${studentId}&year=${year}&month=${month}`
+      );
+      const json2 = (await res2.json()) as { ok: boolean; data?: MonthResponse };
+      if (json2.ok && json2.data) {
+        setByMonth((prev) => ({ ...prev, [key]: json2.data! }));
+      }
     } catch {
       setError("Bağlantı hatası.");
     } finally {
@@ -622,6 +639,15 @@ export function AttendanceCalendarPanel({
             </button>
           </div>
         )}
+
+        {canEdit && !readOnly ? (
+          <Link
+            href={`/ogrenci-dokum/${studentId}?term=${term}&year=${anchorYear}`}
+            className="rounded-md border border-[var(--color-border)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text)] hover:bg-[var(--color-bg)]"
+          >
+            Yazdır
+          </Link>
+        ) : null}
 
         <div className="ml-auto flex items-center gap-1">
           <button
@@ -814,6 +840,7 @@ export function AttendanceCalendarPanel({
                           "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-primary)]",
                           "hover:brightness-95 active:brightness-90",
                           day.lessonIds.length > 0 && "border-2 border-black",
+                          day.inTerm === false && "opacity-40",
                           selectedDay === day.date && "ring-2 ring-[var(--color-primary)]"
                         )}
                         style={style}

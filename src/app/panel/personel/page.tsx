@@ -26,6 +26,8 @@ export default async function PersonelPage() {
   if (session.role !== "SCHOOL_ADMIN" && session.role !== "SUPER_ADMIN") {
     redirect("/panel");
   }
+  const { canViewFinanceAndStaffSummary } = await import("@/lib/auth/platform-access");
+  if (!canViewFinanceAndStaffSummary(session)) redirect("/panel");
 
   const kurum = await getInstitutionContext(session);
   const data = await readScopedData(kurum.scope);
