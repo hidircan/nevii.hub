@@ -10,16 +10,38 @@ export type CollectPaymentResult = {
   data: AppData;
 };
 
+export type CollectPaymentOpts = MarkPaymentPaidOptions & {
+  voided?: boolean;
+  actorUserId?: string;
+  tenantId?: string;
+  /**
+   * true: bu çağrı YENİ bir tahsilat tutarıdır; mevcut `paidAmount`'a EKLENİR.
+   * Sözleşme taksitine ikinci/kısmi ödeme bu yoldan gider (2000 + 3950 = 5950).
+   * false/undefined: `paidAmount` verilen tutarla DEĞİŞTİRİLİR (düzeltme/edit).
+   */
+  accumulate?: boolean;
+};
+
+function nextPaidAmount(
+  previous: { amount: number; paidAmount: number },
+  opts: { amount?: number; voided?: boolean; accumulate?: boolean }
+): number {
+  if (opts.voided) return 0;
+  const incoming = Math.trunc(opts.amount ?? previous.amount);
+  if (opts.accumulate) return Math.trunc(previous.paidAmount) + incoming;
+  return incoming;
+}
+
 function applyPaymentPatch(
   data: AppData,
   paymentId: string,
-  opts: MarkPaymentPaidOptions & { voided?: boolean }
+  opts: CollectPaymentOpts
 ): { next: AppData; payment: Payment; previous: Payment } {
   const idx = data.payments.findIndex((p) => p.id === paymentId);
   if (idx < 0) throw new Error("Ödeme bulunamadı");
   const previous = data.payments[idx]!;
   const student = data.students.find((s) => s.id === previous.studentId);
-  const paidAmount = opts.voided ? 0 : Math.trunc(opts.amount ?? previous.amount);
+  const paidAmount = nextPaidAmount(previous, opts);
   const status = resolveCollectionStatus({
     amount: previous.amount,
     paidAmount,
@@ -62,7 +84,7 @@ async function syncCasesForPayment(args: {
 async function collectDb(
   tenantId: string,
   paymentId: string,
-  opts: MarkPaymentPaidOptions & { voided?: boolean; actorUserId?: string }
+  opts: CollectPaymentOpts
 ): Promise<CollectPaymentResult> {
   const { prisma } = await import("../db");
   const { Prisma } = await import("@prisma/client");
@@ -73,7 +95,10 @@ async function collectDb(
       const student = payment.studentId
         ? await tx.student.findFirst({ where: { id: payment.studentId, tenantId } })
         : null;
-      const paidAmount = opts.voided ? 0 : Math.trunc(opts.amount ?? payment.amount);
+      const paidAmount = nextPaidAmount(
+        { amount: payment.amount, paidAmount: payment.paidAmount },
+        opts
+      );
       const status = resolveCollectionStatus({
         amount: payment.amount,
         paidAmount,
@@ -122,7 +147,7 @@ async function collectDb(
 async function collectFileBacked(
   tenantId: string,
   paymentId: string,
-  opts: MarkPaymentPaidOptions & { voided?: boolean; actorUserId?: string }
+  opts: CollectPaymentOpts
 ): Promise<CollectPaymentResult> {
   const store = isMemoryMode ? await import("../store-memory") : await import("../store-json");
   const casesMod = await import("../tahsilat/cases");
@@ -166,7 +191,7 @@ async function collectFileBacked(
 
 export async function collectPayment(
   paymentId: string,
-  opts: MarkPaymentPaidOptions & { voided?: boolean; actorUserId?: string; tenantId?: string } = {}
+  opts: CollectPaymentOpts = {}
 ): Promise<CollectPaymentResult> {
   const tenantId = opts.tenantId || requireTenantId();
   if (isDbMode) return collectDb(tenantId, paymentId, opts);

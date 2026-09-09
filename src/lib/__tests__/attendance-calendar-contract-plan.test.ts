@@ -192,6 +192,40 @@ describe("Senaryo 5 — tahsilat AYNI plan satırına yazılır; ödenen/kalan/d
     expect(plan.status).toBe("partial");
   });
 
+  it("aynı plan satırına ikinci 3.950 TL tahsilat tam öder", async () => {
+    const created = await createContractFor(5950);
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+
+    const first = await collectAttendanceCalendarPaymentTool(adminCtx(), {
+      studentId: "s1",
+      month: "2026-10",
+      amount: 2000,
+      note: "Kısmi",
+    });
+    expect(first.ok).toBe(true);
+
+    const second = await collectAttendanceCalendarPaymentTool(adminCtx(), {
+      studentId: "s1",
+      month: "2026-10",
+      amount: 3950,
+      note: "Kalan",
+    });
+    expect(second.ok).toBe(true);
+    if (!second.ok) return;
+    expect(second.data.paymentId).toBe(first.ok ? first.data.paymentId : "");
+
+    const plan = await calendarPlan(2026, 10);
+    if (plan.state !== "ok") throw new Error("ok bekleniyordu");
+    expect(plan.amount).toBe(5950);
+    expect(plan.paidAmount).toBe(5950);
+    expect(plan.remaining).toBe(0);
+    expect(plan.status).toBe("paid");
+
+    const data = await readData();
+    expect(data.payments.filter((p) => p.studentId === "s1" && p.source === "monthly_plan")).toHaveLength(0);
+  });
+
   it("tahsilat AYRI bir monthly_plan satırı YARATMAZ — sözleşme taksiti ödenir", async () => {
     const created = await createContractFor(5950);
     expect(created.ok).toBe(true);

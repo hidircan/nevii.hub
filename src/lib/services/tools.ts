@@ -55,6 +55,7 @@ import {
   updateMonthlyMakeupAllowance,
   updateSchoolLogoUrl,
   updateTermWeeklyClosedDays,
+  updateAcademicTermDates,
   updateLessonSchedule,
   updateMakeupSlaEscalation,
   updateStudentProfile,
@@ -155,6 +156,14 @@ import { ownStudents, ownPayouts } from "../teacher-portal-scope";
 import { effectiveLessonOpsStatus } from "../lesson-ops";
 import { resolveLessonFinalStatus, type LessonFinalStatus } from "../lesson-live-status";
 import { resolveContractPlanForMonth, type CalendarMonthPlan, type CalendarPlanContract } from "../attendance-calendar-plan";
+import {
+  academicTermMonths,
+  isYmdWithinAcademicTerm,
+  monthOverlapsAcademicTerm,
+  resolveAcademicTermDatesForAnchor,
+  validateAcademicTermDates,
+} from "../academic-term-dates";
+import { canViewFinanceAndStaffSummary } from "../auth/platform-access";
 import {
   computeTeacherEarningsForPeriod,
   computeTeacherPayoutPaymentMethodInfo,
@@ -3205,7 +3214,7 @@ export async function listStaffTool(
   ctx: ServiceContext,
   _input: unknown
 ): Promise<ServiceResult<{ staff: import("../types").StaffMember[] }>> {
-  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  const auth = requireStaffSensitiveAccess(ctx);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
   const staff = await listStaff(ctx.tenantId);
   return ok({ staff });
@@ -3221,8 +3230,13 @@ export async function listStaffTool(
  * SCHOOL_ADMIN'lere özel yetkilendirme" için ayrı bir izin/ACL tablosu
  * gerekir, bu turda YOK (final raporda açık risk olarak belirtildi).
  */
-function requireStaffSensitiveAccess(ctx: ServiceContext) {
-  return requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+function requireStaffSensitiveAccess(ctx: ServiceContext): { ok: true } | { ok: false; message: string } {
+  const role = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!role.ok) return role;
+  if (!canViewFinanceAndStaffSummary(ctx)) {
+    return { ok: false, message: "Bu özet yalnız kurum sahibi veya platform sahibi tarafından görülebilir." };
+  }
+  return { ok: true };
 }
 
 function staffFieldsFromInput(v: {
@@ -5682,6 +5696,33 @@ export async function updateTermWeeklyClosedDaysTool(
     return ok(data.settings.termWeeklyClosedDays ?? v.data);
   } catch (e) {
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "updateTermWeeklyClosedDays failed");
+  }
+}
+
+export async function updateAcademicTermDatesTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ dates: import("../academic-term-dates").AcademicTermDates }>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+
+  const raw = (input ?? {}) as {
+    guzStart?: string;
+    guzEnd?: string;
+    yazStart?: string;
+    yazEnd?: string;
+  };
+  const validated = validateAcademicTermDates(raw);
+  if (!validated.ok) {
+    return fail("VALIDATION_ERROR", validated.message, { fieldErrors: validated.fieldErrors });
+  }
+
+  try {
+    await updateAcademicTermDates(validated.dates);
+    audit(ctx, "school.academic_term_dates.update", "School", ctx.tenantId, validated.dates);
+    return ok({ dates: validated.dates });
+  } catch (e) {
+    return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "updateAcademicTermDates failed");
   }
 }
 
@@ -10201,6 +10242,8 @@ export type AttendanceCalendarMonth = {
     status: string;
     reason: string;
     label: string;
+    /** Kurum dönem tarihine göre bu gün seçili dönemin içinde mi. */
+    inTerm: boolean;
     lessonIds: string[];
     /**
      * Kutu rengi (bkz. ATTENDANCE_CALENDAR_COLORS / resolveDayFillSegments) —
@@ -10258,12 +10301,18 @@ async function buildAttendanceCalendarMonth(
   const term = student.termType ?? "guz";
   const { resolveMonthStatuses } = await import("../attendance-calendar");
   const statuses = resolveMonthStatuses(year, month, term, overrides, data.settings.termWeeklyClosedDays);
-  // Ay bazında "dönem içi mi" (mobil "Güz/Yaz dönemi tatili" banner'ı için) —
-  // güz: Eylül–Haziran her ay dönem içi; yaz: Temmuz/Ağustos dönem içi,
-  // Eylül yalnızca uzatma tanımlıysa. Kök neden düzeltmesi: bu alan daha önce
-  // hiç dönmüyordu, istemci `!undefined` -> her zaman true okuyup her ay
-  // "dönem tatili" gösteriyordu (gerçek ders olsa bile).
-  const withinTerm = term === "yaz" ? month === 7 || month === 8 : month >= 9 || month <= 6;
+  const storedDates = data.settings.academicTermDates;
+  const termDates = storedDates
+    ? resolveAcademicTermDatesForAnchor(storedDates, term, term === "yaz" ? year : month >= 9 ? year : year - 1)
+    : null;
+  // Ay bazında "dönem içi mi" — kurum tarihi varsa o aralık; yoksa belgelenmiş
+  // varsayılan (güz: Eylül–Haziran; yaz: Temmuz/Ağustos). Eylül geçişi
+  // hard-coded hafta varsayımı kullanmaz.
+  const withinTerm = termDates
+    ? monthOverlapsAcademicTerm(year, month, term, termDates)
+    : term === "yaz"
+      ? month === 7 || month === 8
+      : month >= 9 || month <= 6;
 
   const days = statuses.map((s) => {
     const dayLessons = data.lessons.filter((l) => l.studentId === student.id && l.startAt.slice(0, 10) === s.date);
@@ -10311,7 +10360,8 @@ async function buildAttendanceCalendarMonth(
         status: p.status,
         source: p.source ?? "manual",
       }));
-    return { ...s, lessonIds, lessons, payments };
+    const inTerm = termDates ? isYmdWithinAcademicTerm(s.date, term, termDates) : true;
+    return { ...s, lessonIds, lessons, payments, inTerm };
   });
 
   // P0-1 düzeltmesi — ücretlendirilebilir ders TANIMI TEK kaynaktan
@@ -10424,8 +10474,11 @@ export async function getAttendanceCalendarTermTool(
   // (performans kuralı: yeni tam-tenant/AppData turu eklenmez).
   const contracts = await loadCalendarPlanContracts(ctx.tenantId, student.id);
   const { attendanceCalendarTermMonths } = await import("../attendance-calendar");
+  const monthList = data.settings.academicTermDates
+    ? academicTermMonths(v.data.term, v.data.anchorYear, data.settings.academicTermDates)
+    : attendanceCalendarTermMonths(v.data.term, v.data.anchorYear);
   const months: AttendanceCalendarMonth[] = [];
-  for (const m of attendanceCalendarTermMonths(v.data.term, v.data.anchorYear)) {
+  for (const m of monthList) {
     months.push(await buildAttendanceCalendarMonth(data, overrides, student, m.year, m.month, contracts));
   }
   return ok({ term: v.data.term, anchorYear: v.data.anchorYear, months });
@@ -10570,6 +10623,9 @@ export async function collectAttendanceCalendarPaymentTool(
       receivedByUserId: ctx.userId,
       actorUserId: ctx.userId,
       tenantId: ctx.tenantId,
+      // Sözleşme taksitine yazılan tahsilat EKLENİR (kısmi + kalan = plan).
+      // monthly_plan fallback eski SET davranışını korur (upsert zaten satır tutarını yazar).
+      accumulate: plan.state === "ok",
     });
     audit(ctx, "PAYMENT_COLLECTED_FROM_ATTENDANCE_CALENDAR", "Payment", paymentId, {
       studentId: v.data.studentId,
@@ -10594,6 +10650,52 @@ export async function collectAttendanceCalendarPaymentTool(
   } catch (e) {
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "collectAttendanceCalendarPayment failed");
   }
+}
+
+export async function getStudentPaymentAttendanceStatementTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<import("../student-statement").StudentPaymentAttendanceStatement>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+
+  const v = parseOrFail(
+    z.object({
+      studentId: z.string().min(1),
+      term: z.enum(["guz", "yaz"]),
+      anchorYear: z.number().int().min(1970).max(2999),
+    }),
+    input
+  );
+  if (!v.ok) return v;
+
+  const data = await readData();
+  const student = data.students.find((s) => s.id === v.data.studentId);
+  const access = await assertStudentAccess(ctx, student, v.data.studentId);
+  if (!access.ok) return fail(access.code, access.message);
+  if (!student) return fail("NOT_FOUND", "Öğrenci bulunamadı");
+
+  const contracts = await loadCalendarPlanContracts(ctx.tenantId, student.id);
+  const collectorIds = [
+    ...new Set(data.payments.filter((p) => p.studentId === student.id && p.receivedByUserId).map((p) => p.receivedByUserId!)),
+  ];
+  const collectorNames = new Map<string, string>();
+  for (const id of collectorIds) {
+    const user = await getUserById(id);
+    collectorNames.set(id, user?.email || "Pasif/silinmiş kullanıcı");
+  }
+
+  const { buildStudentPaymentAttendanceStatement } = await import("../student-statement");
+  const statement = buildStudentPaymentAttendanceStatement({
+    data,
+    studentId: student.id,
+    term: v.data.term,
+    anchorYear: v.data.anchorYear,
+    contracts,
+    collectorNames,
+  });
+  if ("error" in statement) return fail("NOT_FOUND", statement.error);
+  return ok(statement);
 }
 
 // ─── İş Takip (Task) modülü ──────────────────────────────────────────────

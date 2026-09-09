@@ -236,6 +236,8 @@ export {
   setNotificationPreferencesTool,
   resetNotificationPreferencesTool,
   updateMonthlyMakeupAllowanceTool,
+  updateAcademicTermDatesTool,
+  getStudentPaymentAttendanceStatementTool,
   uploadProfilePhotoTool,
   deleteProfilePhotoTool,
   getProfilePhotoTool,
