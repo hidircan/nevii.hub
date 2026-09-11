@@ -56,6 +56,8 @@ export function PaymentMarkPaidModal({
   source,
   lessonId,
   collectorName,
+  suggestedAmount,
+  adjustmentReason,
   onClose,
 }: {
   paymentId: string;
@@ -71,6 +73,10 @@ export function PaymentMarkPaidModal({
   source?: string;
   lessonId?: string;
   collectorName?: string | null;
+  /** P0 revizyonu — motorun önerdiği tutar (kısmi/uyarlanmış tahsilat bağlamı). */
+  suggestedAmount?: number | null;
+  /** P0 revizyonu — kısmi ilk tahsilat gerekçesi (Payment.adjustmentReason). */
+  adjustmentReason?: string | null;
   onClose: () => void;
 }) {
   const router = useRouter();
@@ -184,9 +190,24 @@ export function PaymentMarkPaidModal({
                 </dd>
               </div>
               <div className="flex justify-between gap-3">
-                <dt className="text-[var(--color-text-muted)]">Tutar</dt>
+                <dt className="text-[var(--color-text-muted)]">Tahsil edilen tutar</dt>
                 <dd className="text-right font-medium text-[var(--color-text)]">{formatMoney(defaultAmount)}</dd>
               </div>
+              {suggestedAmount != null && suggestedAmount !== defaultAmount ? (
+                <>
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-[var(--color-text-muted)]">Planlanan / önerilen tutar</dt>
+                    <dd className="text-right text-[var(--color-text)]">{formatMoney(suggestedAmount)}</dd>
+                  </div>
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-[var(--color-text-muted)]">Fark</dt>
+                    <dd className="text-right text-[var(--color-text)]">
+                      {defaultAmount - suggestedAmount > 0 ? "+" : ""}
+                      {formatMoney(defaultAmount - suggestedAmount)}
+                    </dd>
+                  </div>
+                </>
+              ) : null}
               <div className="flex justify-between gap-3">
                 <dt className="text-[var(--color-text-muted)]">Yöntem</dt>
                 <dd className="text-right text-[var(--color-text)]">{methodLabel}</dd>
@@ -195,6 +216,12 @@ export function PaymentMarkPaidModal({
                 <div className="flex justify-between gap-3">
                   <dt className="text-[var(--color-text-muted)]">Referans / not</dt>
                   <dd className="text-right text-[var(--color-text)]">{note.trim()}</dd>
+                </div>
+              ) : null}
+              {adjustmentReason?.trim() ? (
+                <div className="flex justify-between gap-3">
+                  <dt className="text-[var(--color-text-muted)]">Kısmi tahsilat gerekçesi</dt>
+                  <dd className="text-right text-[var(--color-text)]">{adjustmentReason.trim()}</dd>
                 </div>
               ) : null}
               <div className="flex justify-between gap-3">

@@ -2,7 +2,8 @@
 
 /**
  * Personel Modülü yönetim ekranı — aynı desen instrument-catalog-manager.tsx
- * ile: liste + satır içi düzenleme + aktif/pasif toggle + yeni kayıt formu.
+ * ile: liste + satır içi düzenleme + aktif/pasif toggle. Yeni kayıt AKIŞI
+ * ayrı sayfadadır (`/panel/personel/yeni` + `StaffCreateForm`).
  * Öğretmen dışı personeli (idari/muhasebe/resepsiyon) kapsar; Teacher'a
  * dokunmaz. Liste büyüyebileceği için mevcut client-side sayfalama
  * (usePagination/PaginationControls — Öğrenciler/Ödemeler ile aynı, bkz.
@@ -12,8 +13,8 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { actionCreateStaffMember, actionUpdateStaffMember } from "@/lib/actions";
-import { Badge, Button, Card, Input, Label, Select } from "@/components/ui";
+import { actionUpdateStaffMember } from "@/lib/actions";
+import { Badge, Card, Input, Select } from "@/components/ui";
 import { usePagination, PaginationControls } from "@/components/pagination-controls";
 import type { StaffMember } from "@/lib/types";
 
@@ -44,18 +45,6 @@ export function StaffManager({
   function branchLabel(branchId?: string) {
     if (!branchId) return "—";
     return branches.find((b) => b.id === branchId)?.shortName ?? "—";
-  }
-
-  async function onCreate(formData: FormData) {
-    setFormError(null);
-    startTransition(async () => {
-      const result = await actionCreateStaffMember(formData);
-      if (!result.ok) {
-        setFormError(result.message);
-        return;
-      }
-      router.refresh();
-    });
   }
 
   function toggleStatus(member: StaffMember) {
@@ -266,49 +255,6 @@ export function StaffManager({
         )}
       </Card>
 
-      {canWrite ? (
-        <Card>
-          <h2 className="mb-3 font-semibold text-[var(--color-text)]">Yeni personel ekle</h2>
-          <form action={onCreate} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            <div>
-              <Label>Ad Soyad</Label>
-              <Input name="name" required placeholder="Örn. Ayşe Yılmaz" />
-            </div>
-            <div>
-              <Label>Rol / Görev</Label>
-              <Input name="position" required placeholder="Örn. Muhasebe, Resepsiyon" />
-            </div>
-            <div>
-              <Label>Telefon</Label>
-              <Input name="phone" placeholder="0555 000 0000" />
-            </div>
-            <div>
-              <Label>E-posta</Label>
-              <Input name="email" type="email" placeholder="ornek@okul.com" />
-            </div>
-            <div>
-              <Label>Şube</Label>
-              <Select name="branchId" defaultValue="">
-                <option value="">—</option>
-                {branches.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.shortName}
-                  </option>
-                ))}
-              </Select>
-            </div>
-            <div className="sm:col-span-2 lg:col-span-3">
-              <Label>Not</Label>
-              <Input name="notes" placeholder="Opsiyonel" />
-            </div>
-            <div className="sm:col-span-2 lg:col-span-3">
-              <Button type="submit" disabled={pending}>
-                {pending ? "Ekleniyor…" : "Ekle"}
-              </Button>
-            </div>
-          </form>
-        </Card>
-      ) : null}
     </div>
   );
 }

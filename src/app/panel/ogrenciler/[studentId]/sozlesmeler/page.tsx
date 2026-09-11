@@ -69,6 +69,13 @@ export default async function StudentContractsCenterPage({
 
   const contractsResult = await listStudentContractsTool(session, { studentId: student.id });
   const contracts = contractsResult.ok ? contractsResult.data.contracts : [];
+  // P0 revizyonu — kayıtta GERÇEKTEN alınmış ilk tahsilatın kaydı: sözleşme
+  // önizlemesindeki "İlk Tahsilat Tarihi"/"Ödeme Türü" bu kaynaktan beslenir.
+  // Yoksa prefill boş kalır, önizleme "Henüz tahsil edilmedi" gösterir —
+  // ders başlangıç tarihi asla tahsilat tarihi gibi yazılmaz.
+  const registrationFirstPayment = data.payments.find(
+    (p) => p.studentId === student.id && p.source === "registration_first_payment"
+  );
   const canManagePaymentProfile = session.role === "SCHOOL_ADMIN" || session.role === "SUPER_ADMIN";
   const isFormal = isFormalContractDuration(intendedDurationMonths);
   // P0 (2026-09-05) — birleşik çıktının EK bölümlerini besleyen şablonlar
@@ -139,6 +146,11 @@ export default async function StudentContractsCenterPage({
                   // P0 (2026-09-05) — sözleşmenin EĞİTİM dönemi ders başlangıcından
                   // başlar; kayıt tarihi ayrı bir alandır (bkz. resolveLessonStartDay).
                   enrollmentStartDate: student.lessonStartDate ?? student.enrollmentStartDate,
+                  firstCollectionAt: registrationFirstPayment?.paidAt,
+                  firstCollectionMethod: registrationFirstPayment?.method,
+                  firstCollectionAmount: registrationFirstPayment
+                    ? (registrationFirstPayment.paidAmount || registrationFirstPayment.amount)
+                    : undefined,
                   durationMonths: intendedDurationMonths,
                   usePerLessonBilling: student.derivedPerLessonAmount != null,
                   lessonScheduleText: deriveLessonScheduleTextFromLessons(

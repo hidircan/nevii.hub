@@ -232,7 +232,6 @@ function MonthPlanSummary({ plan }: { plan: CalendarMonthPlan }) {
         {" · "}
         {PLAN_STATUS_LABEL[plan.status] ?? plan.status}
         {plan.periodLabel ? ` · ${plan.periodLabel}` : ""}
-        <span className="block opacity-80">Sözleşme planı: {plan.contractNumber}</span>
       </p>
     );
   }
@@ -734,11 +733,6 @@ export function AttendanceCalendarPanel({
                     {MONTH_LABELS[m.month - 1]} {m.year}
                   </h3>
                   {canEdit && !readOnly && data ? <MonthPlanSummary plan={data.plan} /> : null}
-                  {canEdit && !readOnly && data ? (
-                    <p className="text-[10px] text-[var(--color-text-muted)]">
-                      {data.billableLessonCount} ücretlendirilebilir ders (bilgi)
-                    </p>
-                  ) : null}
                 </div>
                 {canEdit && !readOnly ? (
                   <div className="flex flex-wrap items-center gap-1">

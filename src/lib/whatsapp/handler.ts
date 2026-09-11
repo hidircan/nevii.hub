@@ -41,7 +41,7 @@ export async function handleInboundWhatsAppMessage(
     await transport.sendText({
       to: msg.from,
       text:
-        "Nevii Hub: Bu numara bir veli hesabına bağlı değil. " +
+        "NeviiHub: Bu numara bir veli hesabına bağlı değil. " +
         "Lütfen okulla iletişime geçin veya WHATSAPP_PHONE_MAP yapılandırmasını kontrol edin.",
     });
     return { replied: true, error: "unmapped_phone" };
@@ -85,7 +85,7 @@ export async function handleInboundWhatsAppMessage(
     const err = e instanceof Error ? e.message : "handler failed";
     await transport.sendText({
       to: msg.from,
-      text: "Nevii Hub: Mesajınız işlenirken bir hata oluştu. Lütfen tekrar deneyin.",
+      text: "NeviiHub: Mesajınız işlenirken bir hata oluştu. Lütfen tekrar deneyin.",
     });
     return { replied: true, error: err };
   }

@@ -20,7 +20,8 @@ export default async function AcceptInvitationPage({
     <div className="flex min-h-screen items-center justify-center bg-[var(--color-bg)] px-4">
       <div className="w-full max-w-md rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] p-8 shadow-[var(--shadow-md)]">
         <div className="mb-6 text-center">
-          <p className="text-2xl font-extrabold uppercase tracking-wide text-[var(--color-primary)]">{BRAND.name}</p>
+          {/* P1 revizyonu — marka "NeviiHub" aynen görünür (uppercase "NEVİİHUB" üretirdi). */}
+          <p className="text-2xl font-extrabold tracking-wide text-[var(--color-primary)]">{BRAND.name}</p>
           <h1 className="mt-1 text-2xl font-semibold text-[var(--color-text)]">Hesabınızı Aktifleştirin</h1>
           <p className="mt-2 text-sm text-[var(--color-text-muted)]">
             Devam etmek için kendi şifrenizi belirleyin.

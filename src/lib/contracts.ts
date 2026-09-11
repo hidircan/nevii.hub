@@ -23,7 +23,7 @@
 
 import path from "path";
 import { isDbMode, resolveDataDir } from "./config";
-import { uid } from "./utils";
+import { paymentMethodLabelTr, uid } from "./utils";
 import { resolveFirstCollectionMergeThreshold } from "./types";
 import {
   findMissingRequiredContractPlaceholders,
@@ -883,6 +883,14 @@ export async function createContract(input: CreateContractInput): Promise<Create
       // dönem ücretinden AYRI, kendi gerçek etiketiyle gösterir.
       fieldValues[`taksit${i}Aciklama`] =
         row?.kind && row.periodLabel ? `${INSTALLMENT_KIND_LABELS_TR[row.kind]} — ${row.periodLabel}` : "EĞİTİM";
+      // P0 revizyonu — "Ödeme Türü" sütunu: 1. satırda GERÇEK ilk tahsilatın
+      // yöntemi (kayıt anı ödemesi initial'da reuse edilir, renewal'da bu
+      // formda alınır; ikisi de yoksa — amendment — "—"). Sonraki satırların
+      // tahsilatı üretim anında henüz yoktur: uydurma yöntem YAZILMAZ, "—".
+      // Canlı yöntem bilgisi yönetici dökümünde aynı helper ile çözülür
+      // (bkz. contract-payment-plan-view.ts — tek kaynak).
+      fieldValues[`taksit${i}Yontem`] =
+        !row ? "" : i === 1 ? paymentMethodLabelTr(registrationFirstPayment?.method ?? input.firstPaymentCollected?.method) : "—";
     }
 
     doc = await createDocumentInstance({

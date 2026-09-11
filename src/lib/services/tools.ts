@@ -10,7 +10,7 @@ import { prisma } from "../db";
 import { foldTurkishForSearch } from "../normalize";
 import { checkFileMagicBytes } from "../storage/file-guards";
 import { computeStudentScore, type StudentScoreReport } from "../student-score";
-import { provisionEntityLogin, getUserIdByTeacherId, getUserById, getUserAccountStatus, getUserAccountStatusForTeacher, setUserActive } from "../auth/users";
+import { provisionEntityLogin, provisionStaffLogin, getUserIdByTeacherId, getUserById, getUserAccountStatus, getUserAccountStatusForTeacher, setUserActive } from "../auth/users";
 import { isRateLimited, getLatestPasswordResetRequestAt } from "../auth/password-reset";
 import { logger } from "../logger";
 import { isLocalDevTooling } from "../config";
@@ -261,7 +261,7 @@ import {
   findStudentFeedbackThisMonth,
   updateStudentFeedbackStatus,
 } from "../student-feedback";
-import { formatMoney, formatDate, formatTime, uid, computeAge } from "../utils";
+import { formatMoney, formatDate, formatTime, uid, computeAge, paymentMethodLabelTr } from "../utils";
 import type { AppRole } from "../auth/types";
 import { parseCsv, rowsToRecords } from "../import/csv";
 import { validateBranchRows, type BranchImportRow } from "../import/branches";
@@ -364,7 +364,7 @@ import {
   setMessageStatusSchema,
   createInstrumentCatalogSchema,
   updateInstrumentCatalogSchema,
-  createStaffMemberSchema,
+  createStaffMemberWithPortalSchema,
   updateStaffMemberSchema,
   createPayrollRecordSchema,
   updatePayrollStatusSchema,
@@ -2513,7 +2513,7 @@ export async function inviteStudentPortalAccessTool(
       userId,
       email: v.data.email,
       recipientName: v.data.accessType === "SELF" ? student.name : `${student.name} velisi`,
-      institutionName: data.settings.name ?? "Nevii Hub",
+      institutionName: data.settings.name ?? "NeviiHub",
       role: "STUDENT",
       schoolPhone: data.settings.phone || undefined,
       schoolWebsite: data.settings.website || undefined,
@@ -2594,7 +2594,7 @@ export async function inviteTeacherAccountTool(
       userId,
       email: teacher.email,
       recipientName: teacher.name,
-      institutionName: data.settings.name ?? "Nevii Hub",
+      institutionName: data.settings.name ?? "NeviiHub",
       role: "TEACHER",
       schoolPhone: data.settings.phone || undefined,
       schoolWebsite: data.settings.website || undefined,
@@ -2764,7 +2764,7 @@ export async function sendStudentPortalPasswordResetTool(
       userId: v.data.userId,
       email: account.email,
       recipientName: student?.name ?? "",
-      institutionName: data.settings.name ?? "Nevii Hub",
+      institutionName: data.settings.name ?? "NeviiHub",
       logoUrl: data.settings.logoUrl || undefined,
     });
     audit(ctx, "student.portal_password_reset_sent", "Student", v.data.studentId, { userId: v.data.userId, delivered: result.delivered });
@@ -2864,7 +2864,7 @@ export async function sendTeacherPasswordResetTool(
       userId: account.userId,
       email: account.email,
       recipientName: teacher?.name ?? "",
-      institutionName: data.settings.name ?? "Nevii Hub",
+      institutionName: data.settings.name ?? "NeviiHub",
       logoUrl: data.settings.logoUrl || undefined,
     });
     audit(ctx, "teacher.portal_password_reset_sent", "Teacher", v.data.teacherId, { delivered: result.delivered });
@@ -3245,6 +3245,8 @@ function staffFieldsFromInput(v: {
   phone?: string;
   email?: string;
   address?: string;
+  city?: string;
+  district?: string;
   birthDate?: string;
   photoUrl?: string;
   nationalId?: string;
@@ -3265,6 +3267,7 @@ function staffFieldsFromInput(v: {
   defaultAllowances?: number;
   defaultDeductions?: number;
   emergencyContactName?: string;
+  emergencyContactRelationship?: string;
   emergencyContactPhone?: string;
   contractStartDate?: string;
   contractEndDate?: string;
@@ -3278,6 +3281,8 @@ function staffFieldsFromInput(v: {
     phone: v.phone,
     email: v.email || undefined,
     address: v.address,
+    city: v.city,
+    district: v.district,
     birthDate: v.birthDate,
     photoUrl: v.photoUrl,
     nationalId: v.nationalId,
@@ -3298,6 +3303,7 @@ function staffFieldsFromInput(v: {
     defaultAllowances: v.defaultAllowances,
     defaultDeductions: v.defaultDeductions,
     emergencyContactName: v.emergencyContactName,
+    emergencyContactRelationship: v.emergencyContactRelationship,
     emergencyContactPhone: v.emergencyContactPhone,
     contractStartDate: v.contractStartDate,
     contractEndDate: v.contractEndDate,
@@ -3307,14 +3313,109 @@ function staffFieldsFromInput(v: {
   };
 }
 
+/**
+ * P0 personel onboarding revizyonu — personel için portalda GERÇEKTEN
+ * desteklenen roller. `SUPER_ADMIN` (platform sahibi), `TEACHER` (ayrı
+ * Teacher kaydına bağlı), `STUDENT` (veli/öğrenci portalı) ve `AI_AGENT`
+ * bu formdan SEÇİLEMEZ — server-side zorunlu (UI filtresine güvenilmez).
+ */
+export const STAFF_PORTAL_ALLOWED_ROLES = ["SCHOOL_ADMIN"] as const;
+export type StaffPortalAllowedRole = (typeof STAFF_PORTAL_ALLOWED_ROLES)[number];
+
+const STAFF_PORTAL_BLOCKED_MESSAGE =
+  "Bu rol personel portal daveti için desteklenmiyor. Personel yalnız yönetim paneli (SCHOOL_ADMIN) rolüyle davet edilebilir; platform sahibi (SUPER_ADMIN), öğretmen, veli/öğrenci veya AI rolleri bu ekrandan atanamaz.";
+
+export type StaffPortalOutcome =
+  | { status: "created"; userId: string; delivered?: boolean; blocked?: boolean }
+  | { status: "linked"; userId: string; delivered?: boolean; blocked?: boolean }
+  | { status: "duplicate_blocked"; message: string }
+  | { status: "skipped"; message: string };
+
+async function linkStaffToUser(
+  ctx: ServiceContext,
+  staffId: string,
+  userId: string,
+  auditAction: string
+): Promise<void> {
+  await updateStaffMember(ctx.tenantId, staffId, { portalUserId: userId });
+  audit(ctx, auditAction, "StaffMember", staffId, { userId });
+}
+
+/**
+ * E-posta çakışması kuralı (öğretmen akışıyla AYNI ilke): bu e-posta ZATEN
+ * bir kullanıcıya bağlıysa duplicate hesap AÇILMAZ. Güvenli ilişkilendirme
+ * YALNIZCA mevcut hesap aynı tenant'ta, SCHOOL_ADMIN rolünde ve hiçbir
+ * öğretmen/öğrenci/personel kaydına bağlı DEĞİLSE yapılır; aksi halde
+ * kullanıcı dostu bir uyarı döner (personel kaydı KORUNUR — oluşturma
+ * başarılı sayılır, yalnız portal adımı atlanır).
+ */
+async function resolveStaffPortalUser(
+  ctx: ServiceContext,
+  email: string
+): Promise<{ userId: string; linked: boolean } | { blocked: string }> {
+  const { getUserIdByEmail } = await import("../auth/users");
+  const existingUserId = await getUserIdByEmail(ctx.tenantId, email);
+  if (existingUserId) {
+    const existingUser = await getUserById(existingUserId);
+    if (
+      !existingUser ||
+      existingUser.role !== "SCHOOL_ADMIN" ||
+      existingUser.teacherId ||
+      existingUser.studentId
+    ) {
+      return {
+        blocked:
+          "Bu e-posta adresi zaten farklı bir rolde (öğretmen/veli/öğrenci) veya başka bir kayda bağlı bir portal hesabına ait. Hesap eşlemesini bozmamak için yeni portal hesabı açılmadı — lütfen e-postayı kontrol edin.",
+      };
+    }
+    // Aynı tenant'ta başka bir personele bağlı mı?
+    const staffList = await listStaff(ctx.tenantId);
+    if (staffList.some((s) => s.portalUserId === existingUserId)) {
+      return {
+        blocked:
+          "Bu e-posta adresi zaten BAŞKA bir personel kaydının portal hesabına bağlı. Hesap eşlemesini bozmamak için yeni portal hesabı açılmadı — lütfen e-postayı kontrol edin.",
+      };
+    }
+    return { userId: existingUserId, linked: true };
+  }
+  const provisioned = await provisionStaffLogin({ tenantId: ctx.tenantId, email });
+  if (!provisioned) {
+    return { blocked: "Portal hesabı oluşturulamadı — e-posta adresini kontrol edip tekrar deneyin." };
+  }
+  return { userId: provisioned.userId, linked: false };
+}
+
+async function sendStaffInvitation(
+  ctx: ServiceContext,
+  staff: { id: string; name: string; email?: string },
+  userId: string
+): Promise<{ delivered: boolean; blocked?: boolean }> {
+  const data = await readData();
+  const { sendAccountInvitationEmail } = await import("../auth/invitation");
+  const result = await sendAccountInvitationEmail({
+    tenantId: ctx.tenantId,
+    userId,
+    email: staff.email!,
+    recipientName: staff.name,
+    institutionName: data.settings.name ?? "NeviiHub",
+    role: "SCHOOL_ADMIN",
+    schoolPhone: data.settings.phone || undefined,
+    schoolWebsite: data.settings.website || undefined,
+    logoUrl: data.settings.logoUrl || undefined,
+  });
+  await updateStaffMember(ctx.tenantId, staff.id, { portalInvitedAt: new Date().toISOString() });
+  audit(ctx, "staff.portal_invitation_sent", "StaffMember", staff.id, { delivered: result.delivered });
+  return { delivered: result.delivered, blocked: result.delivered ? undefined : result.blocked };
+}
+
 export async function createStaffMemberTool(
   ctx: ServiceContext,
   input: unknown
-): Promise<ServiceResult<{ staffId: string }>> {
+): Promise<ServiceResult<{ staffId: string; portal?: StaffPortalOutcome }>> {
   const auth = requireStaffSensitiveAccess(ctx);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
 
-  const v = parseOrFail(createStaffMemberSchema, input);
+  const v = parseOrFail(createStaffMemberWithPortalSchema, input);
   if (!v.ok) return v;
 
   const result = await createStaffMember({
@@ -3324,7 +3425,47 @@ export async function createStaffMemberTool(
   });
   if (!result.ok) return fail("VALIDATION_ERROR", result.message);
   audit(ctx, "staff.create", "StaffMember", result.entry.id, { name: result.entry.name, position: result.entry.position });
-  return ok({ staffId: result.entry.id });
+
+  // Portal erişimi YALNIZCA yönetici bilinçli olarak işaretlediyse açılır
+  // (öğrenci akışındaki createPortalAccess kuralıyla AYNI — e-posta dolu
+  // olması tek başına hesap AÇMAZ).
+  if (!v.data.createPortalAccess) {
+    return ok({ staffId: result.entry.id, portal: { status: "skipped", message: "Portal erişimi oluşturulmadı." } });
+  }
+  const email = (v.data.email || "").trim();
+  if (!email) {
+    return ok({ staffId: result.entry.id, portal: { status: "skipped", message: "E-posta girilmeden portal erişimi oluşturulamaz." } });
+  }
+  const requestedRole = (v.data.portalRole || "SCHOOL_ADMIN").trim();
+  if (!(STAFF_PORTAL_ALLOWED_ROLES as readonly string[]).includes(requestedRole)) {
+    return ok({ staffId: result.entry.id, portal: { status: "duplicate_blocked", message: STAFF_PORTAL_BLOCKED_MESSAGE } });
+  }
+
+  const resolved = await resolveStaffPortalUser(ctx, email);
+  if ("blocked" in resolved) {
+    return ok({ staffId: result.entry.id, portal: { status: "duplicate_blocked", message: resolved.blocked } });
+  }
+  await linkStaffToUser(ctx, result.entry.id, resolved.userId, resolved.linked ? "staff.portal_linked" : "staff.login_provisioned");
+
+  if (!v.data.sendInvitation) {
+    return ok({ staffId: result.entry.id, portal: { status: resolved.linked ? "linked" : "created", userId: resolved.userId } });
+  }
+  if (isRateLimited(`invite:${ctx.tenantId}:${email.toLowerCase()}`, 5, 60 * 60 * 1000)) {
+    return ok({
+      staffId: result.entry.id,
+      portal: {
+        status: resolved.linked ? "linked" : "created",
+        userId: resolved.userId,
+        delivered: false,
+        blocked: true,
+      },
+    });
+  }
+  const invite = await sendStaffInvitation(ctx, { id: result.entry.id, name: result.entry.name, email }, resolved.userId);
+  return ok({
+    staffId: result.entry.id,
+    portal: { status: resolved.linked ? "linked" : "created", userId: resolved.userId, ...invite },
+  });
 }
 
 export async function updateStaffMemberTool(
@@ -3341,6 +3482,183 @@ export async function updateStaffMemberTool(
   if (!result.ok) return fail("VALIDATION_ERROR", result.message);
   audit(ctx, "staff.update", "StaffMember", v.data.staffId, { status: v.data.status });
   return ok({ staffId: v.data.staffId });
+}
+
+/* ------------------------------------------------------------------ */
+/* P0 personel onboarding revizyonu — personel "Portal erişimi" kartı  */
+/* (öğretmen kartıyla AYNI desen: öğretmen tarafı tek hesap, personel   */
+/* tarafı da tek hesap — StaffMember.portalUserId). Yeni token/şifre    */
+/* mekanizması YOK: davet/sıfırlama mevcut invitation.ts altyapısını    */
+/* kullanır; local'de SMTP yoksa console transport BLOCKED döner (sahte */
+/* başarı YOK).                                                         */
+/* ------------------------------------------------------------------ */
+
+const staffIdOnlySchema = z.object({ staffId: z.string().min(1) });
+
+export type StaffAccountStatusSummary = {
+  exists: boolean;
+  userId: string | null;
+  email: string;
+  role: string | null;
+  active: boolean;
+  lastInvitedAt: string | null;
+  lastPasswordResetRequestedAt: string | null;
+};
+
+type StaffAccountLookup =
+  | { error: string }
+  | { staff: import("../types").StaffMember; account: import("../auth/users").UserAccountStatus | null };
+
+async function getStaffAccount(ctx: ServiceContext, staffId: string): Promise<StaffAccountLookup> {
+  const staff = await getStaffMember(ctx.tenantId, staffId);
+  if (!staff) return { error: "Personel kaydı bulunamadı." };
+  if (!staff.portalUserId) return { staff, account: null };
+  const account = await getUserAccountStatus(staff.portalUserId);
+  return { staff, account };
+}
+
+/** Personel detay ekranındaki "Portal erişimi" kartının okuma tarafı — RBAC: hassas personel erişimi. */
+export async function getStaffAccountStatusTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<StaffAccountStatusSummary>> {
+  const auth = requireStaffSensitiveAccess(ctx);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+
+  const v = parseOrFail(staffIdOnlySchema, input);
+  if (!v.ok) return v;
+
+  const lookup = await getStaffAccount(ctx, v.data.staffId);
+  if ("error" in lookup) return fail("NOT_FOUND", "Personel kaydı bulunamadı.");
+  const { staff, account } = lookup;
+  if (!account) {
+    return ok({ exists: false, userId: null, email: "", role: null, active: false, lastInvitedAt: null, lastPasswordResetRequestedAt: null });
+  }
+  const lastPasswordResetRequestedAt = await getLatestPasswordResetRequestAt(account.userId);
+  return ok({
+    exists: true,
+    userId: account.userId,
+    email: account.email,
+    role: account.role,
+    active: account.active,
+    lastInvitedAt: staff.portalInvitedAt ?? null,
+    lastPasswordResetRequestedAt,
+  });
+}
+
+/**
+ * Personel portal erişimini aç/kapat — `User.active` alanını değiştirir.
+ * Kapatmak girişi engeller (bir sonraki istekten itibaren); hiçbir
+ * personel/özlük verisi SİLİNMEZ. Açmak MEVCUT hesabı geri açar.
+ */
+export async function setStaffAccountActiveTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ staffId: string; active: boolean }>> {
+  const auth = requireStaffSensitiveAccess(ctx);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+
+  const v = parseOrFail(z.object({ staffId: z.string().min(1), active: z.boolean() }), input);
+  if (!v.ok) return v;
+
+  const lookup = await getStaffAccount(ctx, v.data.staffId);
+  if ("error" in lookup) return fail("NOT_FOUND", "Personel kaydı bulunamadı.");
+  const { account } = lookup;
+  if (!account) return fail("NOT_FOUND", "Bu personel için portal hesabı bulunamadı — önce davet gönderin.");
+
+  const updated = await setUserActive(account.userId, v.data.active);
+  if (!updated) return fail("INTERNAL_ERROR", "Hesap durumu güncellenemedi.");
+
+  audit(ctx, v.data.active ? "staff.portal_access_reactivated" : "staff.portal_access_revoked", "StaffMember", v.data.staffId, {
+    userId: account.userId,
+  });
+  return ok({ staffId: v.data.staffId, active: v.data.active });
+}
+
+/**
+ * Personel daveti (ilk + yeniden gönderme — AYNI fonksiyon, idempotent).
+ * Hesap yoksa önce güvenli şekilde oluşturur/bağlar (duplicate kuralı
+ * `resolveStaffPortalUser`), sonra mevcut davet akışıyla e-posta gönderir.
+ * Rol allowlist server-side zorunludur.
+ */
+export async function inviteStaffAccountTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ staffId: string; delivered: boolean; blocked?: boolean }>> {
+  const auth = requireStaffSensitiveAccess(ctx);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+
+  const v = parseOrFail(staffIdOnlySchema, input);
+  if (!v.ok) return v;
+
+  const staff = await getStaffMember(ctx.tenantId, v.data.staffId);
+  if (!staff) return fail("NOT_FOUND", "Personel kaydı bulunamadı.");
+  if (!staff.email) return fail("VALIDATION_ERROR", "Önce geçerli bir e-posta adresi ekleyin.");
+
+  if (isRateLimited(`invite:${ctx.tenantId}:${staff.email.toLowerCase()}`, 5, 60 * 60 * 1000)) {
+    return fail("RATE_LIMITED", "Bu e-posta adresine çok fazla davet gönderildi. Lütfen bir süre sonra tekrar deneyin.");
+  }
+
+  // Mevcut bağlantı hâlâ geçerli mi (hesap silinmiş olabilir)?
+  let userId = staff.portalUserId ?? null;
+  if (userId) {
+    const account = await getUserAccountStatus(userId);
+    if (!account || account.role !== "SCHOOL_ADMIN") userId = null;
+  }
+  if (!userId) {
+    const resolved = await resolveStaffPortalUser(ctx, staff.email);
+    if ("blocked" in resolved) return fail("VALIDATION_ERROR", resolved.blocked);
+    userId = resolved.userId;
+    await linkStaffToUser(ctx, staff.id, userId, resolved.linked ? "staff.portal_linked" : "staff.login_provisioned");
+  }
+
+  const invite = await sendStaffInvitation(ctx, { id: staff.id, name: staff.name, email: staff.email }, userId);
+  return ok({ staffId: staff.id, delivered: invite.delivered, blocked: invite.blocked });
+}
+
+/** Personel portal hesabı için şifre sıfırlama bağlantısı (mevcut reset akışı). */
+export async function sendStaffPasswordResetTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ staffId: string; delivered: boolean; blocked?: boolean }>> {
+  const auth = requireStaffSensitiveAccess(ctx);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+
+  const v = parseOrFail(staffIdOnlySchema, input);
+  if (!v.ok) return v;
+
+  const lookup = await getStaffAccount(ctx, v.data.staffId);
+  if ("error" in lookup) return fail("NOT_FOUND", "Personel kaydı bulunamadı.");
+  const { staff, account } = lookup;
+  if (!account) return fail("NOT_FOUND", "Bu personel için portal hesabı bulunamadı — önce davet gönderin.");
+  if (!account.active) {
+    return fail("VALIDATION_ERROR", "Erişim kapalıyken şifre sıfırlama bağlantısı gönderilemez. Önce erişimi açın.");
+  }
+  if (!account.email) {
+    return fail("VALIDATION_ERROR", "Önce geçerli bir e-posta adresi ekleyin.");
+  }
+
+  if (isRateLimited(`admin-pwreset:${ctx.tenantId}:${account.email.toLowerCase()}`, 5, 60 * 60 * 1000)) {
+    return fail("RATE_LIMITED", "Bu hesaba çok fazla şifre sıfırlama isteği gönderildi. Lütfen bir süre sonra tekrar deneyin.");
+  }
+
+  const data = await readData();
+
+  try {
+    const { sendPasswordResetEmail } = await import("../auth/invitation");
+    const result = await sendPasswordResetEmail({
+      tenantId: ctx.tenantId,
+      userId: account.userId,
+      email: account.email,
+      recipientName: staff.name,
+      institutionName: data.settings.name ?? "NeviiHub",
+      logoUrl: data.settings.logoUrl || undefined,
+    });
+    audit(ctx, "staff.portal_password_reset_sent", "StaffMember", v.data.staffId, { delivered: result.delivered });
+    return ok({ staffId: v.data.staffId, delivered: result.delivered, blocked: result.delivered ? undefined : result.blocked });
+  } catch (e) {
+    return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "sendStaffPasswordReset failed");
+  }
 }
 
 /** İş 3B — Bordro. Yalnızca hassas erişimi olan roller (bkz. requireStaffSensitiveAccess). */
@@ -9352,6 +9670,9 @@ export async function commitHistoricalContractImportTool(
         const inst = installments[i - 1];
         fieldValues[`taksit${i}Tarih`] = inst ? formatDateTr(inst.dueDate) : "";
         fieldValues[`taksit${i}Tutar`] = inst ? new Intl.NumberFormat("tr-TR").format(inst.amount) : "";
+        // P0 revizyonu — "Ödeme Türü" sütunu: içe aktarılan tarihi kayıtta
+        // yöntem bilgisi varsa aynen yazılır, yoksa boş (uydurulmaz).
+        fieldValues[`taksit${i}Yontem`] = inst ? paymentMethodLabelTr(row.paymentMethod) : "";
       }
       if (row.notes) fieldValues.renewalNoticeText = `İçe aktarım notu: ${row.notes}`;
 
@@ -10679,11 +11000,10 @@ export async function getStudentPaymentAttendanceStatementTool(
   const collectorIds = [
     ...new Set(data.payments.filter((p) => p.studentId === student.id && p.receivedByUserId).map((p) => p.receivedByUserId!)),
   ];
-  const collectorNames = new Map<string, string>();
-  for (const id of collectorIds) {
-    const user = await getUserById(id);
-    collectorNames.set(id, user?.email || "Pasif/silinmiş kullanıcı");
-  }
+  // P0 revizyonu: e-posta DEĞİL ad soyad (öğretmen kaydından; yoksa zarif
+  // fallback) — kimlik `receivedByUserId`de aynen korunur (audit bütünlüğü).
+  const { resolveCollectorDisplayNames } = await import("../contract-payment-plan-view");
+  const collectorNames = await resolveCollectorDisplayNames({ userIds: collectorIds, teachers: data.teachers });
 
   const { buildStudentPaymentAttendanceStatement } = await import("../student-statement");
   const statement = buildStudentPaymentAttendanceStatement({

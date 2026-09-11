@@ -347,6 +347,16 @@ model Student {
   /// Paket 7 — TC kimlik alanından hemen sonra istenir; opsiyonel.
   motherName               String?
   fatherName               String?
+  /// P1 revizyonu (2026-09-10) — "Bizi nereden buldunuz?" Öğrenci kaydıyla
+  /// kalıcı saklanır. İkisi de nullable/additive: mevcut satırlar backfill
+  /// GEREKTİRMEZ, NULL okunduğunda uygulama "belirtilmemiş" gösterir.
+  /// `referralSource`: instagram | google | tavsiye | referans |
+  /// afis_etkinlik | diger (bkz. src/lib/types.ts REFERRAL_SOURCES).
+  /// `referralSourceDetail`: diger seçiminde serbest metin açıklama.
+  /// BU MİGRATION HİÇBİR VERİTABANINA UYGULANMADI — yalnızca dosya olarak
+  /// eklendi (bkz. docs/agent-memory/PROJECT_STATE.md).
+  referralSource           String?
+  referralSourceDetail     String?           @db.Text
   branch                   Branch            @relation(fields: [branchId], references: [id])
   branchId                 String
   school                   School            @relation(fields: [schoolId], references: [id], onDelete: Cascade)
@@ -1549,6 +1559,11 @@ model StaffMember {
   phone                    String?
   email                    String?
   address                  String?
+  /// P0 personel onboarding revizyonu (2026-09-11) — il/ilçe, nullable/
+  /// additive: mevcut satırlar backfill GEREKTİRMEZ, NULL "belirtilmemiş"
+  /// okunur. BU MİGRATION HİÇBİR VERİTABANINA UYGULANMADI.
+  city                     String?
+  district                 String?
   birthDate                DateTime?
   photoUrl                 String?
   /// AES-GCM şifreli — bkz. src/lib/pii/tc-identity.ts, Student.nationalIdCipher ile AYNI mekanizma.
@@ -1576,7 +1591,16 @@ model StaffMember {
   defaultDeductions        Int?
   /// Faz 9A — özlük genişletmesi.
   emergencyContactName     String?
+  /// P0 personel onboarding revizyonu (2026-09-11) — yakınlık derecesi,
+  /// nullable/additive. BU MİGRATION HİÇBİR VERİTABANINA UYGULANMADI.
+  emergencyContactRelationship String?
   emergencyContactPhone    String?
+  /// P0 personel onboarding revizyonu (2026-09-11) — portal bağlantısı:
+  /// bağlı SCHOOL_ADMIN User satırı + son davet zamanı, nullable/additive.
+  /// Rol ayrı kolonda DEĞİL — tek gerçek kaynak User.role. BU MİGRATION
+  /// HİÇBİR VERİTABANINA UYGULANMADI.
+  portalUserId             String?
+  portalInvitedAt          DateTime?
   contractStartDate        DateTime?
   contractEndDate          DateTime?
   sgkStatus                String?

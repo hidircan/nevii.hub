@@ -70,6 +70,14 @@ export function StaffDetailForm({
         <Input name="address" defaultValue={staff.address ?? ""} />
       </div>
       <div>
+        <Label>İl</Label>
+        <Input name="city" defaultValue={staff.city ?? ""} />
+      </div>
+      <div>
+        <Label>İlçe</Label>
+        <Input name="district" defaultValue={staff.district ?? ""} />
+      </div>
+      <div>
         <Label>Doğum tarihi</Label>
         <Input name="birthDate" type="date" defaultValue={staff.birthDate ?? ""} />
       </div>
@@ -145,6 +153,10 @@ export function StaffDetailForm({
       <div>
         <Label>Acil durum kişisi</Label>
         <Input name="emergencyContactName" defaultValue={staff.emergencyContactName ?? ""} />
+      </div>
+      <div>
+        <Label>Yakınlık derecesi</Label>
+        <Input name="emergencyContactRelationship" defaultValue={staff.emergencyContactRelationship ?? ""} />
       </div>
       <div>
         <Label>Acil durum telefonu</Label>

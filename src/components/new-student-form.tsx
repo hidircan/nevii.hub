@@ -22,7 +22,7 @@ import { actionAddStudent, type NewStudentFormState } from "@/lib/actions";
 import { Button, Card, Input, Label, Select } from "@/components/ui";
 import { StudentInstrumentTeacherFields, type TeacherOption } from "@/components/student-instrument-teacher-fields";
 import { StudentPackagePricingFields, type PricingPackageOption } from "@/components/student-package-pricing-fields";
-import { STUDENT_TYPES } from "@/lib/types";
+import { STUDENT_TYPES, REFERRAL_SOURCES, REFERRAL_SOURCE_LABELS } from "@/lib/types";
 import {
   estimatePeriodBillingLines,
   derivePerLessonAmount,
@@ -157,6 +157,9 @@ export function NewStudentForm({
   // alanlarının hangisinin zorunlu olduğunu CANLI belirler (bkz. aşağıdaki
   // RequiredMark/required koşulları ve validation.ts studentSchema.refine).
   const [accountResponsibility, setAccountResponsibility] = useState(() => v("accountResponsibility") || "PARENT_MANAGED");
+  // P1 revizyonu — "Bizi nereden buldunuz?" `Diğer` seçilince serbest metin
+  // alanı görünür. Opsiyonel alan; hata sonrası değerler state'te korunur.
+  const [referralSource, setReferralSource] = useState(() => v("referralSource") ?? "");
   const [inviteToPortalChecked, setInviteToPortalChecked] = useState(() => checkedVal("inviteToPortal", "1"));
   // Varsayılan: öğrenci e-postasını OTOMATİK kullan. Yalnız önceki bir
   // gönderimde (hata sonrası) fiilen FARKLI bir davet e-postası girilmişse
@@ -472,6 +475,33 @@ export function NewStudentForm({
             <Label>Ev adresi (opsiyonel)</Label>
             <Input name="address" defaultValue={v("address")} placeholder="Opsiyonel" />
           </div>
+          <div>
+            <Label>Bizi nereden buldunuz? (opsiyonel)</Label>
+            <Select
+              name="referralSource"
+              value={referralSource}
+              onChange={(e) => setReferralSource(e.target.value)}
+              aria-invalid={!!fieldErrors.referralSource}
+            >
+              <option value="">Seçiniz (opsiyonel)</option>
+              {REFERRAL_SOURCES.map((value) => (
+                <option key={value} value={value}>
+                  {REFERRAL_SOURCE_LABELS[value]}
+                </option>
+              ))}
+            </Select>
+            <FieldError message={fieldErrors.referralSource} />
+          </div>
+          {referralSource === "diger" ? (
+            <div>
+              <Label>Kaynak açıklaması (opsiyonel)</Label>
+              <Input
+                name="referralSourceDetail"
+                defaultValue={v("referralSourceDetail")}
+                placeholder="Örn. komşumuz Ayşe Hanım önerdi"
+              />
+            </div>
+          ) : null}
           <div>
             <Label>
               Şube

@@ -75,7 +75,8 @@ export function SiteHeader() {
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-6 py-3">
         <Link href="/" className={`flex items-center gap-2.5 rounded-lg ${FOCUS_RING}`}>
           <SiteLogo size={32} />
-          <span className="text-lg font-extrabold uppercase tracking-wide text-slate-900">{BRAND.shortName}</span>
+          {/* P1 revizyonu — ana sayfa logosu yanında "NeviiHub" aynen görünür (uppercase "NEVİİHUB" üretirdi). */}
+          <span className="text-lg font-extrabold tracking-wide text-slate-900">{BRAND.shortName}</span>
         </Link>
         <nav aria-label="Ana menü" className="hidden items-center gap-1 lg:flex">
           {SITE_NAV.map((item) => (
@@ -120,7 +121,29 @@ export function HeroSection() {
         className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(70%_60%_at_50%_0%,#fef3c7_0%,#ffffff_60%)]"
       />
       <div className="mx-auto max-w-3xl text-center">
-        <SiteLogo size={64} />
+        {/*
+          P0 revizyonu — başlığın hemen üstünde marka satırı: logo + "NeviiHub".
+          Mevcut BRAND kullanımı aynen korunur (yeni storage/mekanizma yok).
+          Şeffaf PNG ile düzgün görünür: beyaz kutu / rounded arka plan YOK,
+          yalın `object-contain` görsel. Metin `normal-case` ile korunur —
+          `uppercase` tr yerelinde "NEVİİHUB" üretirdi. Mobil: taşmadan,
+          başlıktan küçük ve dengeli.
+        */}
+        <p className="flex flex-wrap items-center justify-center gap-2 sm:gap-2.5">
+          {BRAND.logoPath ? (
+            <Image
+              src={BRAND.logoPath}
+              alt=""
+              aria-hidden
+              width={40}
+              height={40}
+              className="h-8 w-8 object-contain sm:h-10 sm:w-10"
+            />
+          ) : null}
+          <span className="text-xl font-extrabold normal-case tracking-tight text-slate-900 sm:text-2xl">
+            {BRAND.shortName}
+          </span>
+        </p>
         <h1 className="mt-6 text-3xl font-semibold tracking-tight text-slate-900 sm:text-5xl">{SITE_HERO.headline}</h1>
         <p className="mx-auto mt-5 max-w-2xl text-base leading-relaxed text-slate-600 sm:text-lg">
           {SITE_HERO.subline}

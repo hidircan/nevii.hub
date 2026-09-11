@@ -287,12 +287,13 @@
 }
 
 /**
- * Yazı tipi — dört seçenek (bkz. src/lib/theme.ts FontChoice), her biri
+ * Yazı tipi — beş seçenek (bkz. src/lib/theme.ts FontChoice), her biri
  * layout.tsx'te next/font ile yüklenen bir CSS değişkenine (--font-roboto-serif
- * / --font-playfair-display / --font-inter / --font-noto-sans) işaret eder.
- * Playfair Display yalnızca başlıklarda (--font-display) kullanılır — yoğun
- * tablo/finansal alanlarda gövde metni her zaman okunaklı bir sans-serif
- * (Inter) kalır; diğer üç seçenek gövde+başlıkta aynı aileyi kullanır.
+ * / --font-playfair-display / --font-inter / --font-noto-sans / --font-gloock)
+ * işaret eder. Playfair Display yalnızca başlıklarda (--font-display)
+ * kullanılır — yoğun tablo/finansal alanlarda gövde metni her zaman okunaklı
+ * bir sans-serif (Inter) kalır; diğer dört seçenek gövde+başlıkta aynı aileyi
+ * kullanır.
  */
 :root,
 :root[data-font="inter"] {
@@ -316,6 +317,16 @@
 :root[data-font="noto_sans"] {
   --font-sans: var(--font-noto-sans), "Helvetica Neue", Arial, sans-serif;
   --font-display: var(--font-noto-sans), "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "SFMono-Regular", "SF Mono", Consolas, monospace;
+}
+
+/* P1 revizyonu — Gloock genel font seçeneği: gövde + başlık aynı aileyi
+ * kullanır (diğer gövde seçenekleriyle aynı desen). layout.tsx'te
+ * `--font-gloock` değişkeni zaten yükleniyor; bu blok eksik olduğu için
+ * seçim sessizce etkisiz kalıyordu. */
+:root[data-font="gloock"] {
+  --font-sans: var(--font-gloock), Gloock, Georgia, "Times New Roman", serif;
+  --font-display: var(--font-gloock), Gloock, Georgia, "Times New Roman", serif;
   --font-mono: "SFMono-Regular", "SF Mono", Consolas, monospace;
 }
 

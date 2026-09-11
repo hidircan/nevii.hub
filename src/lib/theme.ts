@@ -19,7 +19,16 @@ export type ThemeProfile =
   | "lavender"
   | "atolye"
   | "murekkep";
-export type FontChoice = "roboto_serif" | "playfair_display" | "inter" | "noto_sans";
+/**
+ * P1 revizyonu — `gloock` GENEL font seçeneği olarak geri getirildi. Kök
+ * neden: `layout.tsx` Gloock'u `next/font` ile YÜKLÜYORDU (`--font-gloock`
+ * değişkeni her sayfada mevcuttu) ama bu listedeki `FontChoice` + `FONT_VALUES`
+ * + `normalizeFontChoice` zinciri "gloock" değerini TANIMIYORDU — cookie'ye
+ * "gloock" yazılsa bile normalize `inter`'e düşürüyor, görünüm ayarlarında
+ * seçenek olarak hiç görünmüyordu. Yükleme → değişken → normalize → cookie →
+ * CSS eşlemesi zinciri artık tamamdır.
+ */
+export type FontChoice = "roboto_serif" | "playfair_display" | "inter" | "noto_sans" | "gloock";
 
 export const THEME_PROFILE_COOKIE = "notaplan_theme_profile";
 export const FONT_COOKIE = "notaplan_font";
@@ -35,7 +44,7 @@ export const THEME_PROFILE_VALUES: readonly ThemeProfile[] = [
   "atolye",
   "murekkep",
 ];
-export const FONT_VALUES: readonly FontChoice[] = ["roboto_serif", "playfair_display", "inter", "noto_sans"];
+export const FONT_VALUES: readonly FontChoice[] = ["roboto_serif", "playfair_display", "inter", "noto_sans", "gloock"];
 
 export const THEME_PROFILE_LABELS: Record<ThemeProfile, string> = {
   gold: "Kurumsal Altın",
@@ -86,6 +95,7 @@ export const FONT_LABELS: Record<FontChoice, string> = {
   playfair_display: "Playfair Display",
   inter: "Inter",
   noto_sans: "Noto Sans",
+  gloock: "Gloock",
 };
 
 export const DEFAULT_THEME_PROFILE: ThemeProfile = "gold";

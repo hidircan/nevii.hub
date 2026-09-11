@@ -145,7 +145,7 @@ export function createGeminiProvider(cfg: GeminiConfig): LlmProvider {
           parts: [
             {
               text:
-                "You are Nevii Hub school operations assistant. Use function tools when needed. " +
+                "You are NeviiHub school operations assistant. Use function tools when needed. " +
                 "Only use provided functions. Reply in the user's language.",
             },
           ],

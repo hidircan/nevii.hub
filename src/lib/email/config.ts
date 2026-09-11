@@ -22,7 +22,7 @@ export function getEmailConfig() {
     smtpPass: process.env.SMTP_PASS || "",
     smtpSecure: (process.env.SMTP_SECURE || "").toLowerCase() === "true",
     fromAddress: process.env.EMAIL_FROM || "no-reply@example.com",
-    fromName: process.env.EMAIL_FROM_NAME || "Nevii Hub",
+    fromName: process.env.EMAIL_FROM_NAME || "NeviiHub",
   };
 }
 

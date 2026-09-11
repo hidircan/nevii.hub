@@ -1,4 +1,5 @@
 import Image from "next/image";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSessionContext, homePathForRole } from "@/lib/auth/session";
 import { LoginForm } from "@/components/login-form";
@@ -23,8 +24,22 @@ export default async function LoginPage({
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[var(--color-bg)] px-4">
-      <div className="w-full max-w-md rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] p-8 shadow-[var(--shadow-md)]">
+    <div className="flex min-h-screen items-center justify-center bg-[var(--color-bg)] px-4 py-10">
+      <div className="w-full max-w-md">
+        {/*
+          P0 revizyonu — login ekranından ana sayfaya görünür dönüş.
+          Yalnız bu sayfaya özeldir (ortak auth layout yok — şifre sıfırlama/
+          aktivasyon ekranlarına yayılmaz). Formun DIŞINDA bir Link olduğu
+          için submit davranışıyla karışmaz; metin + ikon birlikte görünür
+          (yalnız ikon değil), ghost/ikincil görünümdedir.
+        */}
+        <Link
+          href="/"
+          className="mb-4 inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]"
+        >
+          <span aria-hidden>←</span> Ana sayfaya dön
+        </Link>
+        <div className="rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] p-8 shadow-[var(--shadow-md)]">
         <div className="mb-6 text-center">
           {BRAND.logoPath ? (
             <Image
@@ -35,7 +50,8 @@ export default async function LoginPage({
               className="mx-auto mb-3 rounded-xl"
             />
           ) : null}
-          <p className="text-2xl font-extrabold uppercase tracking-wide text-[var(--color-primary)]">
+          {/* P1 revizyonu — marka "NeviiHub" aynen görünür (uppercase "NEVİİHUB" üretirdi). */}
+          <p className="text-2xl font-extrabold tracking-wide text-[var(--color-primary)]">
             {BRAND.shortName}
           </p>
           <h1 className="mt-1 text-2xl font-semibold text-[var(--color-text)]">Giriş yap</h1>
@@ -53,6 +69,7 @@ export default async function LoginPage({
           </div>
         ) : null}
         <LoginForm nextPath={params.next} />
+        </div>
       </div>
     </div>
   );

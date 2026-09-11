@@ -23,8 +23,16 @@ import {
   actionSetTeacherAccountActive,
   actionSendTeacherPasswordReset,
   actionInviteTeacherAccount,
+  actionGetStaffAccountStatus,
+  actionSetStaffAccountActive,
+  actionSendStaffPasswordReset,
+  actionInviteStaffAccount,
 } from "@/lib/actions";
-import type { StudentPortalAccessSummaryRow, TeacherAccountStatusSummary } from "@/lib/services/tools";
+import type {
+  StudentPortalAccessSummaryRow,
+  TeacherAccountStatusSummary,
+  StaffAccountStatusSummary,
+} from "@/lib/services/tools";
 
 function formatDateTime(iso: string | null): string {
   if (!iso) return "—";
@@ -357,6 +365,131 @@ export function TeacherPortalAccessCard({ teacherId, defaultEmail }: { teacherId
                 Portal erişimini aç
               </Button>
             )}
+            {status.active ? (
+              <Button variant="ghost" disabled={pending} onClick={onSendReset}>
+                Şifre sıfırlama bağlantısı gönder
+              </Button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
+      {message ? <p className={`text-xs font-medium ${message.tone === "ok" ? "text-emerald-700" : "text-rose-600"}`}>{message.text}</p> : null}
+    </Card>
+  );
+}
+
+/* --------------------------- Personel --------------------------- */
+
+/**
+ * P0 personel onboarding revizyonu — personel detay ekranındaki "Portal
+ * erişimi" kartı. Öğretmen kartıyla AYNI desen (tek hesap): erişim durumu,
+ * atanan rol, davet/aktivasyon durumu, son davet tarihi + daveti yeniden
+ * gönderme / aç-kapat / şifre sıfırlama aksiyonları.
+ */
+export function StaffPortalAccessCard({ staffId, defaultEmail }: { staffId: string; defaultEmail?: string }) {
+  const [status, setStatus] = useState<StaffAccountStatusSummary | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+  const [message, setMessage] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
+
+  const load = useCallback(async () => {
+    const result = await actionGetStaffAccountStatus({ staffId });
+    if (!result.ok) {
+      setLoadError(result.message);
+      return;
+    }
+    setLoadError(null);
+    setStatus(result.status);
+  }, [staffId]);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    load();
+  }, [load]);
+
+  async function onToggle(active: boolean) {
+    setPending(true);
+    setMessage(null);
+    const result = await actionSetStaffAccountActive({ staffId, active });
+    setPending(false);
+    setMessage(result.ok ? { tone: "ok", text: active ? "Erişim açıldı." : "Erişim kapatıldı." } : { tone: "error", text: result.message });
+    if (result.ok) await load();
+  }
+
+  async function onInvite() {
+    setPending(true);
+    setMessage(null);
+    const result = await actionInviteStaffAccount({ staffId });
+    setPending(false);
+    if (!result.ok) {
+      setMessage({ tone: "error", text: result.message });
+    } else if (result.delivered) {
+      setMessage({ tone: "ok", text: "Davet e-postası gönderildi." });
+    } else {
+      setMessage({ tone: "error", text: "Davet kaydı oluşturuldu ama e-posta GÖNDERİLEMEDİ — bu ortamda e-posta sağlayıcısı yapılandırılmamış." });
+    }
+    await load();
+  }
+
+  async function onSendReset() {
+    setPending(true);
+    setMessage(null);
+    const result = await actionSendStaffPasswordReset({ staffId });
+    setPending(false);
+    if (!result.ok) {
+      setMessage({ tone: "error", text: result.message });
+    } else if (result.delivered) {
+      setMessage({ tone: "ok", text: "Şifre sıfırlama e-postası gönderildi." });
+    } else {
+      setMessage({ tone: "error", text: "Kayıt oluşturuldu ama e-posta GÖNDERİLEMEDİ — bu ortamda e-posta sağlayıcısı yapılandırılmamış." });
+    }
+    await load();
+  }
+
+  return (
+    <Card>
+      <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-[var(--color-primary)]">Portal erişimi</h2>
+
+      {loadError ? <p className="text-xs font-medium text-rose-600">{loadError}</p> : null}
+      {status === null && !loadError ? <p className="text-sm text-[var(--color-text-muted)]">Yükleniyor…</p> : null}
+
+      {status && !status.exists ? (
+        <div className="space-y-2">
+          <p className="text-sm text-[var(--color-text-muted)]">
+            Bu personel için henüz portal erişimi oluşturulmadı{defaultEmail ? "" : " — önce bir e-posta adresi ekleyin"}.
+          </p>
+          <Button disabled={pending || !defaultEmail} onClick={onInvite}>
+            {pending ? "Gönderiliyor…" : "Davet e-postası gönder"}
+          </Button>
+          {!defaultEmail ? <p className="text-xs font-medium text-rose-600">Önce geçerli bir e-posta adresi ekleyin.</p> : null}
+        </div>
+      ) : null}
+
+      {status && status.exists ? (
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-medium text-[var(--color-text)]">{status.email}</span>
+            <StatusBadge tone={status.active ? "green" : "red"}>{status.active ? "Erişim açık" : "Erişim kapalı"}</StatusBadge>
+            {status.role ? <StatusBadge tone="gray">{status.role === "SCHOOL_ADMIN" ? "Yönetim paneli" : status.role}</StatusBadge> : null}
+          </div>
+          <dl className="grid grid-cols-1 gap-1 text-xs text-[var(--color-text-muted)] sm:grid-cols-2">
+            <div>Son davet gönderimi: {formatDateTime(status.lastInvitedAt)}</div>
+            <div>Şifre sıfırlama son istek: {formatDateTime(status.lastPasswordResetRequestedAt)}</div>
+          </dl>
+          <div className="flex flex-wrap gap-2">
+            {status.active ? (
+              <Button variant="secondary" disabled={pending} onClick={() => onToggle(false)}>
+                Portal erişimini kapat
+              </Button>
+            ) : (
+              <Button variant="secondary" disabled={pending} onClick={() => onToggle(true)}>
+                Portal erişimini aç
+              </Button>
+            )}
+            <Button variant="ghost" disabled={pending} onClick={onInvite}>
+              Daveti yeniden gönder
+            </Button>
             {status.active ? (
               <Button variant="ghost" disabled={pending} onClick={onSendReset}>
                 Şifre sıfırlama bağlantısı gönder

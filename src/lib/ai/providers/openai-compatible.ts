@@ -146,7 +146,7 @@ export function createOpenAiCompatibleProvider(cfg: OpenAiCompatConfig): LlmProv
           {
             role: "system",
             content:
-              "You are Nevii Hub, a music school operations assistant. " +
+              "You are NeviiHub, a music school operations assistant. " +
               "Use tools when the user needs school data or actions. " +
               "Only use provided tools. Prefer tools over guessing. " +
               "If no tool is needed, answer helpfully in the user's language (TR/EN).",

@@ -3,6 +3,7 @@
  * Tutar yeniden hesaplanmaz (billableLessonCount / derivePerLessonAmount yok).
  */
 import { resolveContractPlanForMonth, type CalendarMonthPlan } from "./attendance-calendar-plan";
+import { resolveStatementMonthPaymentMethodLabel } from "./contract-payment-plan-view";
 import { resolveLessonFinalStatus, type LessonFinalStatus } from "./lesson-live-status";
 import { attendanceCalendarTermMonths } from "./attendance-calendar";
 import { academicTermMonths, resolveAcademicTermDatesForAnchor, type AcademicTermDates } from "./academic-term-dates";
@@ -42,6 +43,9 @@ export type StatementMonthRow = {
   collectedAt?: string;
   collectionNote?: string;
   collectorName?: string;
+  /** P0 revizyonu — sözleşmedeki "Ödeme Türü" sütunuyla AYNI helper'dan
+   * (contract-payment-plan-view.ts) çözülen canlı yöntem etiketi. */
+  paymentMethodLabel: string;
   lessons: StatementLessonRow[];
 };
 
@@ -124,6 +128,10 @@ export function buildStudentPaymentAttendanceStatement(input: {
         collectorName = input.collectorNames.get(collectorId) ?? "Pasif/silinmiş kullanıcı";
       }
     }
+    const paymentMethodLabel =
+      plan.state === "ok"
+        ? resolveStatementMonthPaymentMethodLabel({ paymentIds: plan.paymentIds, payments: studentPayments })
+        : "—";
 
     return {
       year: m.year,
@@ -133,6 +141,7 @@ export function buildStudentPaymentAttendanceStatement(input: {
       collectedAt,
       collectionNote,
       collectorName,
+      paymentMethodLabel,
       lessons,
     };
   });

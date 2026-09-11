@@ -7,6 +7,7 @@ import { BackButton } from "@/components/back-button";
 import { listStaffTool, listLeaveTool, listStaffAdvancesTool } from "@/lib/services";
 import { Badge, Card, PageHeader } from "@/components/ui";
 import { StaffDetailForm } from "@/components/staff-detail-form";
+import { StaffPortalAccessCard } from "@/components/portal-access-card";
 import { NationalIdReveal } from "@/components/national-id-reveal";
 import { StaffIbanReveal } from "@/components/staff-iban-reveal";
 import { maskNationalId } from "@/lib/pii/tc-identity";
@@ -117,6 +118,16 @@ export default async function StaffDetailPage({ params }: { params: Promise<{ st
             </div>
           </dl>
         </Card>
+      </section>
+
+      {/*
+        P0 personel onboarding revizyonu — portal erişim durumu kartı:
+        erişim açık mı, atanan rol, davet/aktivasyon durumu, son davet
+        tarihi + yeniden gönderme/aç-kapat/sıfırlama. Öğretmen detayındaki
+        kartla AYNI desen (bkz. portal-access-card.tsx).
+      */}
+      <section className="mb-8">
+        <StaffPortalAccessCard staffId={staff.id} defaultEmail={staff.email} />
       </section>
 
       <section className="mb-8">

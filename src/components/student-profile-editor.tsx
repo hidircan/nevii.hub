@@ -9,8 +9,8 @@ import {
   actionSetNationalId,
   actionUpdateStudentProfile,
 } from "@/lib/actions";
-import { EDUCATION_METHODS, STUDENT_TYPES } from "@/lib/types";
-import type { StudentType } from "@/lib/types";
+import { EDUCATION_METHODS, STUDENT_TYPES, REFERRAL_SOURCES, REFERRAL_SOURCE_LABELS } from "@/lib/types";
+import type { ReferralSource, StudentType } from "@/lib/types";
 
 export type StudentProfileEditorBranch = { id: string; name: string };
 
@@ -121,6 +121,9 @@ export function StudentProfileEditor({
     birthDate?: string;
     birthPlace?: string;
     schoolOrOccupation?: string;
+    /** P1 revizyonu — "Bizi nereden buldunuz?" (opsiyonel; Diğer'de serbest metin). */
+    referralSource?: ReferralSource;
+    referralSourceDetail?: string;
     communicationOptOut?: boolean;
     /** P0 (2026-09-05) — kayıt tarihi ve DERS BAŞLANGIÇ tarihi ayrı iki alan. */
     enrollmentStartDate?: string;
@@ -146,6 +149,8 @@ export function StudentProfileEditor({
   const [parentPhone, setParentPhone] = useState(initial.parentPhone);
   const [motherName, setMotherName] = useState(initial.motherName ?? "");
   const [fatherName, setFatherName] = useState(initial.fatherName ?? "");
+  const [referralSource, setReferralSource] = useState<"" | ReferralSource>(initial.referralSource ?? "");
+  const [referralSourceDetail, setReferralSourceDetail] = useState(initial.referralSourceDetail ?? "");
   const [address, setAddress] = useState(initial.address ?? "");
   const [birthDate, setBirthDate] = useState(initial.birthDate?.slice(0, 10) ?? "");
   const [birthPlace, setBirthPlace] = useState(initial.birthPlace ?? "");
@@ -201,6 +206,8 @@ export function StudentProfileEditor({
         parentPhone,
         motherName: motherName || undefined,
         fatherName: fatherName || undefined,
+        referralSource: referralSource || undefined,
+        referralSourceDetail: referralSourceDetail || undefined,
         address: address || undefined,
         birthDate: birthDate || undefined,
         birthPlace: birthPlace || undefined,
@@ -342,6 +349,31 @@ export function StudentProfileEditor({
           <Input value={fatherName} onChange={(e) => setFatherName(e.target.value)} />
         </div>
       </div>
+
+      <div>
+        <Label>Bizi nereden buldunuz? (opsiyonel)</Label>
+        <Select
+          value={referralSource}
+          onChange={(e) => setReferralSource(e.target.value as "" | ReferralSource)}
+        >
+          <option value="">Seçiniz (opsiyonel)</option>
+          {REFERRAL_SOURCES.map((value) => (
+            <option key={value} value={value}>
+              {REFERRAL_SOURCE_LABELS[value]}
+            </option>
+          ))}
+        </Select>
+      </div>
+      {referralSource === "diger" ? (
+        <div>
+          <Label>Kaynak açıklaması (opsiyonel)</Label>
+          <Input
+            value={referralSourceDetail}
+            onChange={(e) => setReferralSourceDetail(e.target.value)}
+            placeholder="Örn. komşumuz Ayşe Hanım önerdi"
+          />
+        </div>
+      ) : null}
 
       {/*
         P0 (2026-09-05) — KAYIT tarihi ile DERS BAŞLANGIÇ tarihi ayrı iki

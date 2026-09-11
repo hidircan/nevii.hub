@@ -9,6 +9,7 @@ import { parseDateOnlyInput, isValidDateOnlyInput, toIsoDateOrNull, dayOfMonthUt
 import { describePaymentDueRule } from "@/lib/payment-due-rule-client";
 import { findLatestActiveContractForRenewal } from "@/lib/contract-list-helpers";
 import { formatDateTr } from "@/lib/timezone";
+import { paymentMethodLabelTr } from "@/lib/utils";
 
 /** 2026-2027 sözleşme kaynağı — Fotoğraf/Video Açık Rıza Formu'nun 5 kanalı, HER BİRİ ayrı değerlendirilir. */
 const PHOTO_VIDEO_CONSENT_CHANNELS: { value: string; label: string }[] = [
@@ -95,6 +96,13 @@ type ContractPrefill = {
   monthlyAmount?: number;
   paymentMethod?: string;
   enrollmentStartDate?: string;
+  /** P0 revizyonu — kayıtta GERÇEKTEN alınmış ilk tahsilatın kaydı (kayıt
+   * anı ödemesi). Önizlemedeki "İlk Tahsilat Tarihi"/"Ödeme Türü" bu
+   * kaynaktan beslenir — ders başlangıç tarihi asla tahsilat tarihi gibi
+   * gösterilmez. Yoksa (henüz tahsilat yok) "Henüz tahsil edilmedi" yazılır. */
+  firstCollectionAt?: string;
+  firstCollectionMethod?: string;
+  firstCollectionAmount?: number;
   durationMonths?: number;
   /** P0 (2026-09-03) — öğrenci per-lesson fiyatlandırma kullanıyorsa (Student.derivedPerLessonAmount dolu) true. */
   usePerLessonBilling?: boolean;
@@ -111,6 +119,13 @@ function FieldError({ message }: { message?: string }) {
       {message}
     </p>
   );
+}
+
+/** Yerel gün, yyyy-MM-dd (date-only input ile aynı konvansiyon — UTC kayması yok). */
+function todayLocalDateOnly(): string {
+  const d = new Date();
+  const pad = (x: number) => String(x).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
 function ContractForm({
@@ -178,7 +193,14 @@ function ContractForm({
   // olgu: bu, paranın GERÇEKTEN ne zaman/hangi yöntemle/ne kadar tahsil edildiğinin kaydıdır.
   const [firstPaymentMethod, setFirstPaymentMethod] = useState(paymentMethod);
   const [firstPaymentAmount, setFirstPaymentAmount] = useState<number | "">("");
-  const [firstPaymentCollectedAt, setFirstPaymentCollectedAt] = useState(enrollmentStartDate);
+  // P0 revizyonu — yenileme tahsilatı bu formun gönderildiği AN yapılır; bu
+  // yüzden varsayılan tahsilat tarihi DERS BAŞLANGICI (önceki sözleşme bitişi)
+  // DEĞİL, bugündür (yerel gün — date-only input ile aynı konvansiyon).
+  // Ders başlangıç tarihi ile tahsilat tarihi iki bağımsız kavramdır; form
+  // gönderilmeden tarih değiştirilebilir, istisna kuralı aynen korunur.
+  const [firstPaymentCollectedAt, setFirstPaymentCollectedAt] = useState(
+    isRenewal ? todayLocalDateOnly() : enrollmentStartDate
+  );
   const [firstPaymentReference, setFirstPaymentReference] = useState("");
   const [firstPaymentNote, setFirstPaymentNote] = useState("");
   const [firstPaymentDateExceptionReason, setFirstPaymentDateExceptionReason] = useState("");
@@ -856,7 +878,19 @@ function ContractForm({
               </div>
               <div>
                 <dt className="text-[var(--color-text-muted)]">İlk Tahsilat Tarihi</dt>
-                <dd className="font-semibold text-[var(--color-text)]">{formatDateTr(preview.installments[0].dueDate)}</dd>
+                <dd className="font-semibold text-[var(--color-text)]">
+                  {/*
+                    P0 revizyonu — burası plan/vade tarihi DEĞİL, GERÇEK ilk
+                    tahsilatın alındığı tarihtir. Yenilemede formun tahsilat
+                    tarihi girdisi; ilk kayıtta kayıt anı ödemesi (yoksa
+                    "Henüz tahsil edilmedi" — ders başlangıcı asla yazılmaz).
+                  */}
+                  {isRenewal
+                    ? formatDateTr(firstPaymentCollectedAt)
+                    : prefill?.firstCollectionAt
+                      ? formatDateTr(prefill.firstCollectionAt)
+                      : "Henüz tahsil edilmedi"}
+                </dd>
               </div>
               <div>
                 <dt className="text-[var(--color-text-muted)]">Aylık Dönem Ücreti</dt>
@@ -877,6 +911,7 @@ function ContractForm({
                 <th className="pr-2">Tahsilat türü</th>
                 <th className="pr-2">Kapsanan dönem</th>
                 <th className="pr-2">Vade</th>
+                <th className="pr-2">Ödeme Türü</th>
                 <th>Tutar</th>
               </tr>
             </thead>
@@ -909,6 +944,17 @@ function ContractForm({
                     ) : null}
                   </td>
                   <td className="pr-2 py-1">{formatDateTr(row.dueDate)}</td>
+                  {/*
+                    P0 revizyonu — "Ödeme Türü" sütunu: 1. satırda GERÇEK ilk
+                    tahsilatın yöntemi (yenilemede form seçimi, ilk kayıtta
+                    kayıt anı ödemesi), sonraki satırlarda henüz tahsilat
+                    yoktur — "—" (uydurma yöntem yazılmaz).
+                  */}
+                  <td className="pr-2 py-1">
+                    {row.sequence === 1
+                      ? paymentMethodLabelTr(isRenewal ? firstPaymentMethod : prefill?.firstCollectionMethod)
+                      : "—"}
+                  </td>
                   <td className="py-1">{formatTL(row.amount)}</td>
                 </tr>
               ))}

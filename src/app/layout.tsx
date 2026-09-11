@@ -16,7 +16,7 @@ import { GlobalAssistant } from "@/components/ai/global-assistant";
 import { ACCESS_COOKIE } from "@/lib/auth/cookies";
 
 /**
- * Dört font seçeneği (bkz. src/lib/theme.ts FontChoice) — hepsi burada
+ * Beş font seçeneği (bkz. src/lib/theme.ts FontChoice) — hepsi burada
  * `next/font` ile build-time'da self-host edilir (çalışma zamanında Google'a
  * istek YOK). Her biri kendi CSS değişkenine yazılır; hangi değişkenin
  * `--font-sans`/`--font-display` olarak KULLANILACAĞI globals.css'teki

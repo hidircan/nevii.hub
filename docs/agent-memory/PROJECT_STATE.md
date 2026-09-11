@@ -28,7 +28,155 @@ screens (login/welcome).
 - Full detail + rationale: `docs/contracts/LEGAL_POLICY_TEXT_DISCREPANCY_REPORT.md`,
   `docs/roadmap/NEVIIHUB_ADMIN_CONTRACTS_POLICY_REMAINING_WORK.md`.
 
-## Güncel odak (2026-09-09, devam) — sözleşme/tahsilat senkronu + dönem + döküm + yetki + tema
+## Güncel odak (2026-09-11) — P0 login dönüş + hero marka + detaylı personel onboarding
+
+Branch: `fix/admin-payment-attendance-sync-p0` (main'e MERGE EDİLMEDİ,
+production'a deploy EDİLMEDİ, hiçbir Supabase'e yazılmadı, migration
+UYGULANMADI — yalnızca 1 migration DOSYASI eklendi:
+`prisma/migrations/20260911120000_staff_portal_profile/migration.sql`).
+Commit/push YOK. Önceki turun unstaged kirli dosyalarına (öz. `.env.example`,
+`src/lib/site-content.ts`) DOKUNULMADI (diff'leri tur başıyla aynı: 9/9, 1/1).
+
+1. **P0-1 Login → ana sayfa dönüş.** `src/app/login/page.tsx`: formun
+   DIŞINDA ghost `← Ana sayfaya dön` Link (`href="/"`). Yalnız login
+   sayfasında (ortak auth layout yok; şifre sıfırlama/aktivasyona yayılmaz).
+2. **P0-2 Hero marka satırı.** `src/components/site/sections.tsx`
+   `HeroSection`: başlığın üstünde logo (`BRAND.logoPath`) + `BRAND.shortName`
+   (`NeviiHub`), `normal-case`, şeffaf PNG dostu (beyaz kutu/rounded YOK),
+   responsive. `site-content.ts`'e DOKUNULMADI.
+3. **P1 platform logo — OWNER KARARIYLA BU REPODA YAPILMADI.**
+   Global NeviiHub/NeviiOS logo ayarı NeviiOS Control Center projesinde
+   yapılacak. Bu repoda yeni global logo ayarı/storage/migration OLUŞTURULMADI;
+   mevcut `BRAND`/logo kullanımı aynen bırakıldı (ara oluşturulan
+   `src/lib/platform-brand.ts` AYNI TURDA silindi).
+4. **P0-4/8 Personel onboarding.** Yeni nullable/additive alanlar:
+   `city`, `district`, `emergencyContactRelationship`, `portalUserId`,
+   `portalInvitedAt` (`types.ts` + `staff.ts` json/db parite + `validation.ts` +
+   schema + migration dosyası, UYGULANMADI). Ad/Soyad formda ayrı, kanonik
+   `name`'e birleşir (kolon yok). Kayıt formu A–E gruplu (`staff-manager.tsx`);
+   detay/düzenleme yeni alanları korur. Portal rolü TEK seçenek
+   `SCHOOL_ADMIN`; `SUPER_ADMIN`/`TEACHER`/`STUDENT`/`AI_AGENT` server-side
+   reddedilir (kayıt korunur, uyarı döner). Davet mevcut
+   `sendAccountInvitationEmail` altyapısıyla (SCHOOL_ADMIN metni eklendi);
+   local'de SMTP yoksa console transport BLOKE döner (sahte başarı yok).
+   Duplicate e-posta → yeni hesap AÇILMAZ (güvenliyse bağlanır, değilse
+   dostça uyarı). Detayda `StaffPortalAccessCard`: erişim/rol/davet durumu,
+   son davet, yeniden gönderme, aç/kapat, şifre sıfırlama.
+5. **Doğrulama.** typecheck ✓ · lint 0 error (24 pre-existing + 0 yeni
+   warning) · yeni `staff-onboarding.test.ts` 17/17 ✓ · ilgili paket
+   (staff-module, staff-extended, brand-spelling, account-invitation) 64/64 ✓
+   · `prisma validate` ✓ (`generate` yalnız local codegen) · `git diff --check`
+   temiz · `npm run build` ORTAMSAL engelde takıldı (Google Fonts fetch —
+   ağ yok; koddan bağımsız, bkz. "Hâlâ owner kararı"). Tam paket sonucu için
+   bkz. aşağıdaki not.
+
+### Hâlâ owner kararı (2026-09-11 turundan eklenenler)
+- `20260911120000_staff_portal_profile` migration'ının gerçek DB'lere
+  uygulanması (dosya hazır, uygulanmadı; rollback: 5× DROP COLUMN).
+- Tam test paketi (2. koşu): 2952 geçti / 4 kaldı (3 dosya:
+  lesson-move-resize-flow, lesson-series-tools, seed-demo-schedule).
+  Kanıt: lesson ×2 stash'lenmiş BAZDA da aynı şekilde kaldı (pre-existing,
+  bu turun regresyonu DEĞİL); seed ×2 `tsx` IPC pipe `EPERM` (sandbox ağ
+  kısıtı — ortamsal). Personel/marka/davet dosyaları YEŞİL. (1. koşuda
+  14 dosya/18 hata çıkmıştı — koşular arası dalgalanma, paket flake;
+  dokunulan alanlar her koşuda yeşil.)
+- `npm run build` bu ortamda Google Fonts'a erişemiyor (font fetch; önceden
+  de vardı — build UAT'si ağ olan ortamda yapılmalı).
+- Yeni `inviteStaffAccountTool`/`getStaffAccountStatusTool` AI tool registry
+  (`services/index.ts`)'ye exposed EDİLMEDİ (bilinçli — web aksiyonları
+  yeterli; AI'ya açmak ürün kararı ister).
+- (Takip, aynı tur) Personel ekleme ayrı sayfaya taşındı: liste başlığında
+  `+ Yeni personel ekle` butonu → `/panel/personel/yeni` (aynı yetki sınırı;
+  `StaffCreateForm` bileşeni, başarıda detay/liste linkleri). `StaffManager`
+  artık yalnız liste/düzenleme. İlgili paket 87/87 ✓ (6 dosya).
+
+## Önceki odak (2026-09-10) — P0 sözleşme/tahsilat doğruluğu + P1 yoklama/kaynak/font/marka revizyonu
+
+Branch: `fix/admin-payment-attendance-sync-p0` (main'e MERGE EDİLMEDİ,
+production'a deploy EDİLMEDİ, hiçbir Supabase'e yazılmadı, migration
+UYGULANMADI — yalnızca 1 migration DOSYASI eklendi). Commit/push YOK.
+
+1. **P0-1 Ödeme Türü sütunu.** Sözleşme MADDE 4 tablosu + yönetici dökümü
+   ödeme planı tablosunda `Ödeme Türü` sütunu (`taksitNYontem` placeholder'ları
+   şemaya eklendi, hukuki cümleler DEĞİŞMEDİ). 1. satır GERÇEK ilk tahsilatın
+   yöntemi (kayıt anı ödemesi reuse / renewal formu), ödenmemiş satırlar `—`
+   (bekleyen kaydın taşıdığı planlanan yöntem BİLE gösterilmez — uydurma yok).
+   Tek kaynak: yeni `src/lib/contract-payment-plan-view.ts`
+   (durum-kapılı etiket + tahsil eden adı + öğretmen eşleşmesi).
+2. **P0-2 İlk tahsilat tarihi.** Önizlemedeki "İlk Tahsilat Tarihi" artık plan/
+   vade tarihi DEĞİL: ilk kayıtta kayıt anı ödemesinin `paidAt`i (yoksa
+   "Henüz tahsil edilmedi" — ders başlangıcı asla yazılmaz), yenilemede formun
+   tahsilat tarihi girdisi. Yenileme varsayılanı ders başlangıcı → BUGÜN
+   (tahsilat bu formla AN yapılır). Vade (`taksit1Tarih`) ayrı kavram,
+   değişmedi. Tarih formatı `formatDateTr` ile aynı.
+3. **P0-3 Kısmi tahsilat notu.** DENETİM: form alanı `firstPaymentNote` +
+   `firstPaymentAdjustmentReason` → `actionAddStudent` → `createStudentTool`
+   → `Payment.paymentNote` + `paymentNote`/`autoSuggestedAmount`/
+   `adjustmentReason`/`adjustedBy`/`adjustedAt` (3 store + Prisma'da ZATEN
+   vardı). EKSİK OLAN GÖRÜNÜMDÜ: ödeme detayına planlanan/önerilen tutar +
+   fark + kısmi gerekçe eklendi (modal + geçmiş tablosu); "Ref:" etiketi
+   "Not:" oldu + ayrı "Kısmi tahsilat gerekçesi" satırı. Yeni migration YOK.
+4. **P0-4 Tahsil eden adı.** `receivedByUserId` korunur (audit); görüntüleme
+   öğretmen adından çözülür (`teacherId` bağı → e-posta eşleşmesi), yoksa
+   e-posta TAHMİNİ fallback (e-posta aynen yazılmaz), pasifte
+   "Pasif/silinmiş kullanıcı". Kapsam: Ödemeler profili + döküm + takvim
+   özeti (`formatPaymentCollectionSummary` aynı metni kullanır).
+5. **P1-5 Yoklama sadeleştirme.** Ay kutusundan `Sözleşme planı: NP-…` satırı
+   + `(bilgi)` ders sayacı KALDIRILDI (yalnız görsel metin; tutar/ödenen/
+   kalan/durum + tahsilat aksiyonları durur, veri/hesap değişmedi).
+6. **P1-6 "Bizi nereden buldunuz?"** Kayıt formunda opsiyonel seçim + Diğer'de
+   serbest metin; `Student.referralSource/referralSourceDetail` ile kalıcı
+   (tip + validation + create/update tool + 3 store okuma/yazma + detay
+   görünümü + düzenleme ekranı). 6 kanonik değer `REFERRAL_SOURCES`.
+7. **P1-7 Gloock.** Kök neden: `layout.tsx` fontu YÜKLÜYORDU ama `theme.ts`
+   `FontChoice`/`FONT_VALUES`/`normalizeFontChoice` "gloock"u tanımıyordu →
+   cookie düşüyor, seçenek görünmüyordu. `gloock` eklendi (tip+liste+etiket),
+   `globals.css` `[data-font="gloock"]` bloğu + önizleme stili eklendi.
+   Inter/Noto/Playfair/Roboto bozulmadı.
+8. **P1-8 Sözleşme Times.** Kök neden: `globals.css` `body * !important` +
+   `h1,h2,h3 !important` kullanıcı fontunu sözleşmeye dayatıyordu.
+   `CONTRACT_PRINT_CSS`'e `.contract-print-surface .contract-body(*)`
+   `!important` Times sabitlemesi (ekran+baskı; yalnız sözleşme kapsamı).
+9. **P1-9 Marka `NeviiHub`.** Sidebar/login/şifre-sıfırla/hesap-aktivasyon/ana
+   sayfa marka öğelerindeki `uppercase` kaldırıldı (tr'de "NEVİİHUB"
+   üretiyordu). Görünür "Nevii Hub" (boşluklu) yazımları düzeltildi
+   (yardım, asistan `BRAND.assistantName`, e-posta fromName, WhatsApp,
+   kurum fallback'leri, AI sistem promptları). Route slug/cookie/env/teknik
+   adlar DEĞİŞMEDİ. `NEVİİHUB` literali kaynak kodda YOK (test kilitli).
+
+Doğrulama: typecheck ✓ · lint 0 hata (yalnız pre-existing warning'ler) ✓ ·
+**2936/2939 test** ✓ (3 hata tur-öncesi/çevresel: `seed-demo-schedule` x2 —
+sandbox'ta `tsx` IPC pipe EPERM; `lesson-series-tools` x1 — pristine bazda da
+kırık, stash ile doğrulandı) · prisma validate ✓ · `git diff --check` ✓ ·
+production build BAŞLATILDI ama çevresel hata: `next/font/google` Google
+Fonts'a erişemiyor (offline sandbox/proxy — hata tur-öncesi fontlarda da:
+Playfair Display/Roboto Serif; bu turun değişikliğiyle ilgili DEĞİL).
+Chromium/manual local test yapılmadı (tarayıcı aracı yok) — adımlar aşağıda.
+
+`.env.example` ve `src/lib/site-content.ts` kirli bırakıldı — bu işe ait
+değil, dokunulmadı (diff'leri tur öncesiyle aynı).
+
+### Migration durumu (UYGLANMADI)
+- YENİ: `prisma/migrations/20260910120000_student_referral_source/migration.sql`
+  (`Student.referralSource TEXT`, `Student.referralSourceDetail TEXT`,
+  IF NOT EXISTS, additive). Neden: P1-6 kalıcı alan DB kolonları gerektirir.
+  Etki: yalnız yeni kolonlar (nullable); mevcut satırlar/backfill yok.
+  Rollback: iki `DROP COLUMN` (uygulama kolonsuz DB'de undefined okur).
+  Neden uygulanmadı: tura özel yasak (dış işlem/DB yazma yok) + local test
+  json/memory modda koşuyor. `prisma/schema.prisma` güncellendi +
+  `prisma generate` çalıştırıldı (yalnız local codegen) + `prisma validate` ✓.
+- P0-3 için migration GEREKMEDİ: `paymentNote`/`autoSuggestedAmount`/
+  `adjustmentReason` kolonları ZATEN mevcuttu (yalnız görünüm eklendi).
+
+### Hâlâ owner kararı
+UserBranchAccess/NeviiOS migration · Nihal için gerçek e-posta ile davet
+· cutover'ın uygulanması · Chromium UAT · referral migration'ının gerçek
+DB'lere uygulanması · yenilemede tahsilat-tarihi/gerekçe varsayılanı
+(terminden farklı günde yenilemede gerekçe istenir — bilinçli politika,
+bkz. rapor) · ay kutusundaki ders sayacı bilgisinin tamamen kaldırılması
+(sadeleştirme kararı).
+
+## Önceki odak (2026-09-09, devam) — sözleşme/tahsilat senkronu + dönem + döküm + yetki + tema
 
 Branch: `fix/admin-payment-attendance-sync-p0` (main'e MERGE EDİLMEDİ,
 production'a deploy EDİLMEDİ, hiçbir Supabase'e yazılmadı, migration

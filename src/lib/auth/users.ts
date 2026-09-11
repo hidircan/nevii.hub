@@ -701,6 +701,63 @@ export async function provisionEntityLogin(params: {
   return { tempPassword, userId: created.userId };
 }
 
+/**
+ * P0 personel onboarding revizyonu — idari personel portal hesabı
+ * (`SCHOOL_ADMIN`, öğretmen/öğrenci bağlantısız). `provisionEntityLogin`
+ * ile AYNI idempotency garantisi: bu e-posta tenant'ta ZATEN varsa null
+ * döner (çağıran, mevcut kullanıcıyla güvenli ilişkilendirme yapıp
+ * yapamayacağına KENDİ karar verir — bkz. tools.ts staff portalı).
+ * Yeni bir token/şifre mekanizması EKLEMEZ; davet, mevcut
+ * `sendAccountInvitationEmail` akışıyla gönderilir.
+ */
+export async function provisionStaffLogin(params: {
+  tenantId: string;
+  email: string;
+}): Promise<{ tempPassword: string; userId: string } | null> {
+  const email = params.email.trim().toLowerCase();
+  if (!email) return null;
+
+  if (isDbMode) {
+    const { getPrisma } = await import("../db");
+    const prisma = getPrisma();
+
+    const existing = await prisma.user.findFirst({
+      where: { tenantId: params.tenantId, email },
+    });
+    if (existing) return null;
+
+    const tempPassword = Math.random().toString(36).slice(2, 10);
+    const userId = uid("user");
+    await prisma.user.create({
+      data: {
+        id: userId,
+        tenantId: params.tenantId,
+        email,
+        passwordHash: hashPasswordSync(tempPassword),
+        role: "SCHOOL_ADMIN",
+        active: true,
+      },
+    });
+    return { tempPassword, userId };
+  }
+
+  const existingHashed = HASHED.find((u) => u.tenantId === params.tenantId && u.email?.toLowerCase() === email);
+  if (existingHashed) return null;
+
+  const { findDynamicUserByEmail, createDynamicUser } = await import("./dynamic-users");
+  const existingDynamic = await findDynamicUserByEmail(params.tenantId, email);
+  if (existingDynamic) return null;
+
+  const tempPassword = Math.random().toString(36).slice(2, 10);
+  const created = await createDynamicUser({
+    tenantId: params.tenantId,
+    email,
+    passwordHash: hashPasswordSync(tempPassword),
+    role: "SCHOOL_ADMIN",
+  });
+  return { tempPassword, userId: created.userId };
+}
+
 export type ChangeOwnPasswordResult =
   | { ok: true }
   | { ok: false; code: "USER_NOT_FOUND" | "WRONG_PASSWORD" | "WEAK_PASSWORD" };

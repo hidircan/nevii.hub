@@ -29,7 +29,12 @@ function escapeHtml(value: string): string {
     .replace(/'/g, "&#39;");
 }
 
-export type InvitationRole = "TEACHER" | "STUDENT";
+/**
+ * P0 personel onboarding revizyonu — idari personele (`SCHOOL_ADMIN`)
+ * panel daveti de AYNI token altyapısıyla gönderilir (yeni mekanizma yok).
+ * `SUPER_ADMIN`/platform rolleri davet EDİLEMEZ — tools katmanı engeller.
+ */
+export type InvitationRole = "TEACHER" | "STUDENT" | "SCHOOL_ADMIN";
 
 export type SendInvitationInput = {
   tenantId: string;
@@ -70,12 +75,17 @@ export async function sendAccountInvitationEmail(input: SendInvitationInput): Pr
   const name = escapeHtml(input.recipientName);
 
   const isTeacher = input.role === "TEACHER";
+  const isStaff = input.role === "SCHOOL_ADMIN";
   const welcomeLine = isTeacher
     ? `${institution} ekibine hoş geldiniz! Sizi aramızda görmekten çok mutluyuz.`
-    : `${institution} ailesine hoş geldiniz! Sizi aramızda görmekten çok mutluyuz.`;
+    : isStaff
+      ? `${institution} yönetim ekibine hoş geldiniz! Sizi aramızda görmekten çok mutluyuz.`
+      : `${institution} ailesine hoş geldiniz! Sizi aramızda görmekten çok mutluyuz.`;
   const introLine = isTeacher
     ? `Kurumumuzda öğretmen hesabınız oluşturuldu — ders programınızı, öğrencilerinizi ve tüm süreçlerinizi tek yerden yönetebileceksiniz.`
-    : `Öğrenciniz için kurumumuzda bir hesap oluşturuldu — program, yoklama, telafi ve ödeme bilgilerinizi tek yerden takip edebileceksiniz.`;
+    : isStaff
+      ? `Kurumumuzda sizin için bir yönetim paneli hesabı oluşturuldu — öğrenci, program, yoklama ve tahsilat süreçlerini yetkiniz ölçüsünde tek yerden yönetebileceksiniz.`
+      : `Öğrenciniz için kurumumuzda bir hesap oluşturuldu — program, yoklama, telafi ve ödeme bilgilerinizi tek yerden takip edebileceksiniz.`;
 
   const contactLines: string[] = [];
   if (input.schoolPhone) contactLines.push(`Telefon: ${escapeHtml(input.schoolPhone)}`);

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertTriangle, Bot, History, Loader2, Maximize2, Send, Sparkles, Wrench, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { BRAND } from "@/lib/brand";
 import type { QuickAction } from "./assistant-quick-actions";
 
 type UiMessage = {
@@ -276,7 +277,7 @@ export function AssistantChatBody({
           <Sparkles className="h-4 w-4" />
         </div>
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-[var(--color-text)] dark:text-slate-50">Nevii Hub AI</p>
+          <p className="text-sm font-semibold text-[var(--color-text)] dark:text-slate-50">{BRAND.assistantName}</p>
           <p className="truncate text-[11px] text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
             {provider ? `Aktif: ${provider}` : "Operasyon asistanı"}
           </p>
@@ -284,7 +285,7 @@ export function AssistantChatBody({
         {expandHref ? (
           <a
             href={expandHref}
-            aria-label="Nevii Hub AI'yi büyüt"
+            aria-label={`${BRAND.assistantName}'yi büyüt`}
             title="Büyüt"
             className="rounded-lg p-1.5 text-[var(--color-text-muted)] transition hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-text)]"
           >

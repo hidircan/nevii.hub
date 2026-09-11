@@ -300,9 +300,15 @@ export function Sidebar({
               {BRAND.name.slice(0, 2)}
             </span>
           )}
+          {/*
+            P1 revizyonu — marka yazımı her yerde tam olarak "NeviiHub".
+            Buradaki `uppercase` sınıfı, tr yerel ayarında "NEVİİHUB"
+            (noktalı büyük İ) üretiyordu — kaynak metin doğruydu, görsel
+            dönüşüm yanlıştı. Sınıf kaldırıldı; kaynak metin korunur.
+          */}
           {!collapsed ? (
             <p
-              className="truncate text-[1.7rem] font-extrabold uppercase tracking-tight"
+              className="truncate text-[1.7rem] font-extrabold tracking-tight"
               style={{ color: "var(--color-primary)" }}
             >
               {BRAND.name}

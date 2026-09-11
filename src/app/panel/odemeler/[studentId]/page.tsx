@@ -9,7 +9,7 @@ import { computeStudentPaymentSummary, filterPaymentHistory, sortPaymentsForProf
 import { computeStudentMonthlyAmount } from "@/lib/student-payment-profile";
 import { AssistantPageContext } from "@/components/ai/assistant-page-context";
 import { StudentPaymentHistoryTable } from "@/components/student-payment-history-table";
-import { getUserById } from "@/lib/auth/users";
+import { resolveCollectorDisplayNames } from "@/lib/contract-payment-plan-view";
 import { QuickTaskLink } from "@/components/quick-task-link";
 import { requireSessionContext } from "@/lib/auth/session";
 import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
@@ -64,22 +64,13 @@ export default async function StudentPaymentProfilePage({
   // "Tahsilatı alan" görüntü adı — Payment.receivedByUserId'den (kalıcı
   // kimlik) çözülür; yalnızca GÖRÜNTÜLEME içindir, Payment'a yazılmaz.
   // Aynı kullanıcı birden çok kayıtta tekrar edebileceği için tek seferde
-  // (Set ile benzersizleştirip) çözülür.
+  // (Set ile benzersizleştirip) çözülür. P0 revizyonu: e-posta DEĞİL ad
+  // soyad gösterilir (öğretmen kaydından; yoksa zarif fallback) — kimlik
+  // `receivedByUserId`de aynen korunur (audit bütünlüğü).
   const receiverIds = Array.from(
     new Set(payments.map((p) => p.receivedByUserId).filter((id): id is string => Boolean(id)))
   );
-  const receiverNames = new Map<string, string>();
-  for (const userId of receiverIds) {
-    const user = await getUserById(userId);
-    // §C.6 — tahsilatı alan kullanıcı SİLİNMİŞ veya PASİFE alınmışsa
-    // `getUserById` null döner (db modunda sorgu `active: true` filtreler).
-    // Bu durumda alanı boş bırakmak, UI'da "Tahsil eden: Kayıtlı değil"
-    // yazdırıyordu — oysa kimlik `Payment.receivedByUserId`de DURUYOR;
-    // yani "kaydedilmemiş" demek YANLIŞ ve tarihsel audit izini görünmez
-    // kılıyordu. Kayıt korunur, yalnızca kullanıcının artık aktif olmadığı
-    // belirtilir.
-    receiverNames.set(userId, user?.email || "Pasif/silinmiş kullanıcı");
-  }
+  const receiverNames = await resolveCollectorDisplayNames({ userIds: receiverIds, teachers: data.teachers });
   const historyPayments = filterPaymentHistory(payments).map((p) => ({
     ...p,
     receivedByName: p.receivedByUserId ? receiverNames.get(p.receivedByUserId) : undefined,

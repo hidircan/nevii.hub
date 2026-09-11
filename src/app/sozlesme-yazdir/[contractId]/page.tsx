@@ -192,6 +192,24 @@ const CONTRACT_PRINT_CSS = `
     font-weight: 700;
     color: #444;
   }
+  /*
+   * P1 revizyonu — sözleşme metninin TAMAMI (paragraf, başlık, tablo,
+   * dipnot, ek referans satırı dahil) HER ZAMAN Times New Roman; ekran,
+   * baskı ve PDF çıktısında aynı. Kök neden: globals.css'teki
+   * \`body * { font-family: var(--font-sans) !important; }\` ve
+   * \`h1,h2,h3 { font-family: var(--font-display) !important; }\` kuralları,
+   * kullanıcının genel arayüz font seçimini (Inter/Gloock/…) sözleşme
+   * çıktısına da dayatıyordu (buradaki \`!important\`'sız .contract-body
+   * kuralını yeniyordu). Bu sabitleme YALNIZCA sözleşme kapsamındadır
+   * (.contract-print-surface altı) — genel uygulama font tercihini
+   * ETKİLEMEZ. Özgüllük + kaynak sırası bilinçli seçildi: globals.css
+   * kurallarını yener, yukarıdaki ek-referans sans kuralını da bu kapsama
+   * dahil eder.
+   */
+  .contract-print-surface .contract-body,
+  .contract-print-surface .contract-body * {
+    font-family: "Times New Roman", Times, "Liberation Serif", serif !important;
+  }
 
   @media print {
     @page { size: A4; margin: 16mm 14mm; }

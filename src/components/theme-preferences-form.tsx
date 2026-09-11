@@ -37,6 +37,7 @@ const FONT_PREVIEW_STYLE: Record<FontChoice, string> = {
   playfair_display: "var(--font-playfair-display), Georgia, 'Times New Roman', serif",
   inter: "var(--font-inter), Inter, 'Helvetica Neue', Arial, sans-serif",
   noto_sans: "var(--font-noto-sans), 'Helvetica Neue', Arial, sans-serif",
+  gloock: "var(--font-gloock), Gloock, Georgia, 'Times New Roman', serif",
 };
 
 export function ThemePreferencesForm({

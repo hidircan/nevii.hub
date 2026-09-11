@@ -198,6 +198,14 @@ export interface Student {
   /** Paket 7 — TC kimlik alanından hemen sonra istenir; opsiyonel. */
   motherName?: string;
   fatherName?: string;
+  /**
+   * P1 revizyonu — "Bizi nereden buldunuz?" Öğrenci kaydıyla kalıcı
+   * saklanır, detay ekranında görüntülenir. Opsiyonel; `diger` seçilirse
+   * serbest metin `referralSourceDetail` dolar. Kanonik değerler
+   * REFERRAL_SOURCES (aşağıda) — DB'de ham değer saklanır.
+   */
+  referralSource?: ReferralSource;
+  referralSourceDetail?: string;
   branchId: BranchId;
   instruments: Instrument[];
   teacherId: string;
@@ -326,6 +334,22 @@ export type StudentPaymentPauseState = { reason: string; pausedBy: string; pause
 /** ÖNCELİK 4 — Yoklama Takvimi'nin gösterdiği ay aralığını belirler. */
 export type StudentTermType = "guz" | "yaz";
 
+/**
+ * P1 revizyonu — "Bizi nereden buldunuz?" kanonik kaynak listesi.
+ * TEK kaynak: kayıt formu seçenekleri, doğrulama ve detay görünümü
+ * buradan beslenir (etiketler REFERRAL_SOURCE_LABELS).
+ */
+export const REFERRAL_SOURCES = ["instagram", "google", "tavsiye", "referans", "afis_etkinlik", "diger"] as const;
+export type ReferralSource = (typeof REFERRAL_SOURCES)[number];
+export const REFERRAL_SOURCE_LABELS: Record<ReferralSource, string> = {
+  instagram: "Instagram",
+  google: "Google/İnternet araması",
+  tavsiye: "Veli/öğrenci tavsiyesi",
+  referans: "Referans",
+  afis_etkinlik: "Afiş/etkinlik",
+  diger: "Diğer",
+};
+
 export type PackageStatus = "active" | "archived";
 
 /**
@@ -381,6 +405,8 @@ export type StudentProfilePatch = Partial<
     | "parentPhone"
     | "motherName"
     | "fatherName"
+    | "referralSource"
+    | "referralSourceDetail"
     | "birthDate"
     | "address"
     | "educationMethod"
@@ -1479,6 +1505,13 @@ export interface StaffMember {
   phone?: string;
   email?: string;
   address?: string;
+  /**
+   * P0 personel onboarding revizyonu — il/ilçe, açık adresten AYRI
+   * nullable alanlar (eski kayıtlar kırılmaz; `address` serbest metin
+   * olarak korunur). Özel nitelikli veri DEĞİLDİR.
+   */
+  city?: string;
+  district?: string;
   birthDate?: string;
   photoUrl?: string;
   /** AES-GCM şifreli — bkz. src/lib/pii/tc-identity.ts, Student.nationalIdCipher ile AYNI mekanizma. */
@@ -1513,7 +1546,19 @@ export interface StaffMember {
   defaultDeductions?: number;
   /** Faz 9A — özlük genişletmesi. */
   emergencyContactName?: string;
+  /** P0 personel onboarding revizyonu — yakınlık derecesi (örn. "Eşi", "Babası"). Serbest metin, opsiyonel. */
+  emergencyContactRelationship?: string;
   emergencyContactPhone?: string;
+  /**
+   * P0 personel onboarding revizyonu — portal kullanıcı bağlantısı.
+   * `portalUserId`: bu personele bağlı SCHOOL_ADMIN User satırı (yoksa
+   * portal erişimi oluşturulmamış demektir). `portalInvitedAt`: son davet
+   * e-postasının ISO zamanı. İkisi de nullable/additive — eski kayıtlar
+   * "erişim yok" olarak okunur. Rol, User satırından canlı okunur
+   * (ayrı bir `portalRole` kolonu YOK — tek gerçek kaynak User.role).
+   */
+  portalUserId?: string;
+  portalInvitedAt?: string;
   contractStartDate?: string;
   contractEndDate?: string;
   /** SGK/iş ilişkisi — serbest metin, hukuki kesinlik gerektirmeyen bilgi alanı. */

@@ -36,10 +36,11 @@ describe("normalizeFontChoice — varsayılan Inter", () => {
     expect(normalizeFontChoice("comic-sans")).toBe("inter");
   });
 
-  it("geçerli dört font seçeneğini aynen korur", () => {
+  it("geçerli beş font seçeneğini aynen korur (P1 revizyonu: gloock geri getirildi)", () => {
     for (const f of FONT_VALUES) {
       expect(normalizeFontChoice(f)).toBe(f);
     }
+    expect(normalizeFontChoice("gloock")).toBe("gloock");
   });
 });
 
@@ -58,8 +59,8 @@ describe("Sabitler", () => {
     ]);
   });
 
-  it("FONT_VALUES tam olarak dört fontu içerir", () => {
-    expect(FONT_VALUES).toEqual(["roboto_serif", "playfair_display", "inter", "noto_sans"]);
+  it("FONT_VALUES tam olarak beş fontu içerir (P1 revizyonu: gloock genel seçenek)", () => {
+    expect(FONT_VALUES).toEqual(["roboto_serif", "playfair_display", "inter", "noto_sans", "gloock"]);
   });
 
   it("cookie isimleri kurum/oturum cookie'leriyle çakışmaz (teknik identifier — marka geçişinden bağımsız)", () => {
@@ -72,7 +73,7 @@ describe("Sabitler", () => {
     expect(DEFAULT_FONT_CHOICE).toBe("inter");
   });
 
-  it("dört font seçeneğinin hepsi FARKLI değerlerdir (aynı fonta düşmüyor)", () => {
+  it("beş font seçeneğinin hepsi FARKLI değerlerdir (aynı fonta düşmüyor)", () => {
     expect(new Set(FONT_VALUES).size).toBe(FONT_VALUES.length);
   });
 
@@ -98,9 +99,10 @@ describe("Gold + Obsidian — kritik profil sözleşmesi (bu sprint)", () => {
     }
   });
 
-  it("dört fontun tamamı için etiket tanımlıdır ve birbirinden farklıdır", () => {
+  it("beş fontun tamamı için etiket tanımlıdır ve birbirinden farklıdır", () => {
     const labels = FONT_VALUES.map((f) => FONT_LABELS[f]);
     expect(new Set(labels).size).toBe(labels.length);
+    expect(FONT_LABELS.gloock).toBe("Gloock");
   });
 });
 

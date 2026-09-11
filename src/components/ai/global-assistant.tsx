@@ -19,6 +19,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { Bot, GraduationCap, Sparkles, Users, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { BRAND } from "@/lib/brand";
 import type { AppRole } from "@/lib/auth/types";
 import { useAssistant, type AssistantEntity } from "./assistant-context";
 import { AssistantChatBody } from "./assistant-chat-body";
@@ -213,7 +214,7 @@ export function GlobalAssistant() {
       <button
         type="button"
         onClick={toggle}
-        aria-label="Nevii Hub AI'yi aç"
+        aria-label={`${BRAND.assistantName}'yi aç`}
         className={cn(
           "print:hidden fixed bottom-5 right-5 z-40 flex h-13 w-13 items-center justify-center rounded-full",
           "bg-gradient-to-br from-violet-500 to-fuchsia-500 text-white shadow-lg shadow-violet-600/40",
@@ -243,7 +244,7 @@ export function GlobalAssistant() {
             half-faded "bleed-through" frame. */}
         <div
           role="dialog"
-          aria-label="Nevii Hub AI"
+          aria-label={BRAND.assistantName}
           aria-hidden={!isOpen}
           className={cn(
             "flex h-full w-full origin-bottom-right flex-col overflow-hidden rounded-3xl border border-[var(--color-border)] bg-[var(--color-surface)] shadow-2xl shadow-slate-900/10",
@@ -260,7 +261,7 @@ export function GlobalAssistant() {
           >
             {renderEntityIcon(entity)}
             <p className="min-w-0 flex-1 select-none truncate text-xs font-medium opacity-95">
-              {entity ? `Nevii Hub AI · ${entity.label}` : "Nevii Hub AI"}
+              {entity ? `${BRAND.assistantName} · ${entity.label}` : BRAND.assistantName}
             </p>
             <button type="button" onClick={close} aria-label="Kapat" className="rounded-lg p-1 hover:bg-[var(--color-surface)]/15">
               <X className="h-4 w-4" />

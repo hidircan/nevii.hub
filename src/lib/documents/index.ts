@@ -118,20 +118,20 @@ export const STUDENT_ENROLLMENT_CONTRACT_BODY = `
 </ul>
 <p>Bu sözleşmede seçilen ödeme yöntemi için geçerli kural: <strong>{{paymentDueRuleText}}</strong></p>
 <table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:8px;" border="1" cellpadding="4">
-<thead><tr><th>HİZMET BEDELİ</th><th>Taksit</th><th>Tarih</th><th>Tutar</th></tr></thead>
+<thead><tr><th>HİZMET BEDELİ</th><th>Taksit</th><th>Tarih</th><th>Tutar</th><th>Ödeme Türü</th></tr></thead>
 <tbody>
-<tr><td>{{taksit1Aciklama}}</td><td>1</td><td>{{taksit1Tarih}}</td><td>{{taksit1Tutar}} TL</td></tr>
-<tr><td>{{taksit2Aciklama}}</td><td>2</td><td>{{taksit2Tarih}}</td><td>{{taksit2Tutar}} TL</td></tr>
-<tr><td>{{taksit3Aciklama}}</td><td>3</td><td>{{taksit3Tarih}}</td><td>{{taksit3Tutar}} TL</td></tr>
-<tr><td>{{taksit4Aciklama}}</td><td>4</td><td>{{taksit4Tarih}}</td><td>{{taksit4Tutar}} TL</td></tr>
-<tr><td>{{taksit5Aciklama}}</td><td>5</td><td>{{taksit5Tarih}}</td><td>{{taksit5Tutar}} TL</td></tr>
-<tr><td>{{taksit6Aciklama}}</td><td>6</td><td>{{taksit6Tarih}}</td><td>{{taksit6Tutar}} TL</td></tr>
-<tr><td>{{taksit7Aciklama}}</td><td>7</td><td>{{taksit7Tarih}}</td><td>{{taksit7Tutar}} TL</td></tr>
-<tr><td>{{taksit8Aciklama}}</td><td>8</td><td>{{taksit8Tarih}}</td><td>{{taksit8Tutar}} TL</td></tr>
-<tr><td>{{taksit9Aciklama}}</td><td>9</td><td>{{taksit9Tarih}}</td><td>{{taksit9Tutar}} TL</td></tr>
-<tr><td>{{taksit10Aciklama}}</td><td>10</td><td>{{taksit10Tarih}}</td><td>{{taksit10Tutar}} TL</td></tr>
-<tr><td>{{taksit11Aciklama}}</td><td>11</td><td>{{taksit11Tarih}}</td><td>{{taksit11Tutar}} TL</td></tr>
-<tr><td>{{taksit12Aciklama}}</td><td>12</td><td>{{taksit12Tarih}}</td><td>{{taksit12Tutar}} TL</td></tr>
+<tr><td>{{taksit1Aciklama}}</td><td>1</td><td>{{taksit1Tarih}}</td><td>{{taksit1Tutar}} TL</td><td>{{taksit1Yontem}}</td></tr>
+<tr><td>{{taksit2Aciklama}}</td><td>2</td><td>{{taksit2Tarih}}</td><td>{{taksit2Tutar}} TL</td><td>{{taksit2Yontem}}</td></tr>
+<tr><td>{{taksit3Aciklama}}</td><td>3</td><td>{{taksit3Tarih}}</td><td>{{taksit3Tutar}} TL</td><td>{{taksit3Yontem}}</td></tr>
+<tr><td>{{taksit4Aciklama}}</td><td>4</td><td>{{taksit4Tarih}}</td><td>{{taksit4Tutar}} TL</td><td>{{taksit4Yontem}}</td></tr>
+<tr><td>{{taksit5Aciklama}}</td><td>5</td><td>{{taksit5Tarih}}</td><td>{{taksit5Tutar}} TL</td><td>{{taksit5Yontem}}</td></tr>
+<tr><td>{{taksit6Aciklama}}</td><td>6</td><td>{{taksit6Tarih}}</td><td>{{taksit6Tutar}} TL</td><td>{{taksit6Yontem}}</td></tr>
+<tr><td>{{taksit7Aciklama}}</td><td>7</td><td>{{taksit7Tarih}}</td><td>{{taksit7Tutar}} TL</td><td>{{taksit7Yontem}}</td></tr>
+<tr><td>{{taksit8Aciklama}}</td><td>8</td><td>{{taksit8Tarih}}</td><td>{{taksit8Tutar}} TL</td><td>{{taksit8Yontem}}</td></tr>
+<tr><td>{{taksit9Aciklama}}</td><td>9</td><td>{{taksit9Tarih}}</td><td>{{taksit9Tutar}} TL</td><td>{{taksit9Yontem}}</td></tr>
+<tr><td>{{taksit10Aciklama}}</td><td>10</td><td>{{taksit10Tarih}}</td><td>{{taksit10Tutar}} TL</td><td>{{taksit10Yontem}}</td></tr>
+<tr><td>{{taksit11Aciklama}}</td><td>11</td><td>{{taksit11Tarih}}</td><td>{{taksit11Tutar}} TL</td><td>{{taksit11Yontem}}</td></tr>
+<tr><td>{{taksit12Aciklama}}</td><td>12</td><td>{{taksit12Tarih}}</td><td>{{taksit12Tutar}} TL</td><td>{{taksit12Yontem}}</td></tr>
 </tbody>
 </table>
 <p><em>Kaparo/depozito (varsa, yukarıdaki toplama dahildir): {{depositAmountText}} TL</em></p>

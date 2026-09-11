@@ -106,6 +106,7 @@ export default async function StudentStatementPrintPage({
             <th>Ödenen</th>
             <th>Kalan borç</th>
             <th>Durum</th>
+            <th>Ödeme Türü</th>
             <th>Tahsilat tarihi</th>
             <th>Not</th>
             <th>Tahsil eden</th>
@@ -121,6 +122,7 @@ export default async function StudentStatementPrintPage({
                 <td>{row.paid}</td>
                 <td>{row.remaining}</td>
                 <td>{row.status}</td>
+                <td>{m.paymentMethodLabel}</td>
                 <td>{m.collectedAt ? formatDate(m.collectedAt) : "—"}</td>
                 <td>{m.collectionNote || "—"}</td>
                 <td>{m.collectorName || "—"}</td>

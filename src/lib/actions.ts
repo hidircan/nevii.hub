@@ -43,6 +43,10 @@ import {
   getTeacherAccountStatusTool,
   setTeacherAccountActiveTool,
   sendTeacherPasswordResetTool,
+  getStaffAccountStatusTool,
+  setStaffAccountActiveTool,
+  inviteStaffAccountTool,
+  sendStaffPasswordResetTool,
   updateStudentPaymentProfileTool,
   archiveStudentTool,
   listStudentListViewsTool,
@@ -677,6 +681,8 @@ const STUDENT_FORM_VALUE_KEYS = [
   "firstPaymentReference",
   "firstPaymentNote",
   "firstPaymentAdjustmentReason",
+  "referralSource",
+  "referralSourceDetail",
   "termType",
   "enrollmentStartDate",
   "lessonStartDate",
@@ -754,6 +760,12 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
           parentPhone: String(formData.get("parentPhone") || ""),
           motherName: String(formData.get("motherName") || "") || undefined,
           fatherName: String(formData.get("fatherName") || "") || undefined,
+          // P1 revizyonu — "Bizi nereden buldunuz?" (opsiyonel; Diğer'de serbest metin).
+          referralSource: (() => {
+            const raw = String(formData.get("referralSource") || "");
+            return raw ? raw : undefined;
+          })(),
+          referralSourceDetail: String(formData.get("referralSourceDetail") || "") || undefined,
           branchId: String(formData.get("branchId") || ""),
           instrument: String(formData.get("instrument") || "Piyano"),
           teacherId: String(formData.get("teacherId") || ""),
@@ -1027,6 +1039,9 @@ export async function actionUpdateStudentProfile(input: {
   birthDate?: string;
   birthPlace?: string;
   schoolOrOccupation?: string;
+  /** P1 revizyonu — "Bizi nereden buldunuz?" (opsiyonel; Diğer'de serbest metin). */
+  referralSource?: string;
+  referralSourceDetail?: string;
   communicationOptOut?: boolean;
   name?: string;
   email?: string;
@@ -1269,6 +1284,66 @@ export async function actionSendTeacherPasswordReset(input: { teacherId: string 
   }
 }
 
+/* ------------------------------------------------------------------ */
+/* P0 personel onboarding revizyonu — personel "Portal erişimi" kartı   */
+/* (öğretmen kartı aksiyonlarıyla AYNI desen).                          */
+/* ------------------------------------------------------------------ */
+
+export type StaffAccountStatusResult =
+  | { ok: true; status: import("./services/tools").StaffAccountStatusSummary }
+  | { ok: false; message: string };
+
+export async function actionGetStaffAccountStatus(input: { staffId: string }): Promise<StaffAccountStatusResult> {
+  try {
+    const result = await withAuthContext("actionGetStaffAccountStatus", (ctx) => getStaffAccountStatusTool(ctx, input));
+    if (!result.ok) return { ok: false, message: result.error.message };
+    return { ok: true, status: result.data };
+  } catch (error) {
+    logger.error("actionGetStaffAccountStatus failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "Portal erişim durumu okunurken beklenmeyen bir hata oluştu." };
+  }
+}
+
+export async function actionSetStaffAccountActive(input: { staffId: string; active: boolean }): Promise<PortalAccessActionResult> {
+  try {
+    const result = await withAuthContext("actionSetStaffAccountActive", (ctx) => setStaffAccountActiveTool(ctx, input));
+    if (!result.ok) return { ok: false, message: result.error.message };
+    revalidateAll();
+    return { ok: true };
+  } catch (error) {
+    logger.error("actionSetStaffAccountActive failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "Erişim durumu güncellenirken beklenmeyen bir hata oluştu." };
+  }
+}
+
+export async function actionInviteStaffAccount(input: { staffId: string }): Promise<SendInvitationActionResult> {
+  try {
+    const result = await withAuthContext("actionInviteStaffAccount", (ctx) => inviteStaffAccountTool(ctx, input));
+    if (!result.ok) return { ok: false, message: result.error.message };
+    revalidateAll();
+    return { ok: true, delivered: result.data.delivered, blocked: result.data.blocked };
+  } catch (error) {
+    logger.error("actionInviteStaffAccount failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "Davet gönderilirken beklenmeyen bir hata oluştu." };
+  }
+}
+
+export async function actionSendStaffPasswordReset(input: { staffId: string }): Promise<SendInvitationActionResult> {
+  try {
+    const result = await withAuthContext("actionSendStaffPasswordReset", (ctx) => sendStaffPasswordResetTool(ctx, input));
+    if (!result.ok) return { ok: false, message: result.error.message };
+    revalidateAll();
+    return { ok: true, delivered: result.data.delivered, blocked: result.data.blocked };
+  } catch (error) {
+    logger.error("actionSendStaffPasswordReset failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "Şifre sıfırlama bağlantısı gönderilirken beklenmeyen bir hata oluştu." };
+  }
+}
+
 export type UpdateStudentPaymentProfileActionResult =
   | { ok: true; monthlyFee: number }
   | { ok: false; message: string };
@@ -1457,16 +1532,26 @@ export async function actionUpdateInstrument(input: {
   }
 }
 
-export type CreateStaffActionResult = { ok: true } | { ok: false; message: string };
+export type CreateStaffActionResult =
+  | { ok: true; staffId: string; portal?: import("./services/tools").StaffPortalOutcome }
+  | { ok: false; message: string };
 
 function staffFormFields(formData: FormData) {
   const str = (key: string) => String(formData.get(key) || "") || undefined;
+  // P0 personel onboarding revizyonu — yeni kayıt formu Ad/Soyad'ı AYRI
+  // gönderir; kanonik `name` alanına burada birleştirilir (modelde ayrı
+  // kolon YOK — migration gerektirmez). Düzenleme formu `name` gönderir.
+  const firstName = str("firstName");
+  const lastName = str("lastName");
+  const combinedName = firstName || lastName ? `${firstName ?? ""} ${lastName ?? ""}`.trim() : undefined;
   return {
-    name: str("name"),
+    name: str("name") ?? combinedName,
     position: str("position"),
     phone: str("phone"),
     email: str("email"),
     address: str("address"),
+    city: str("city"),
+    district: str("district"),
     birthDate: str("birthDate"),
     nationalId: str("nationalId"),
     employeeNumber: str("employeeNumber"),
@@ -1476,6 +1561,7 @@ function staffFormFields(formData: FormData) {
     reportsToStaffId: str("reportsToStaffId"),
     employmentType: str("employmentType") as "full_time" | "part_time" | "contract" | "intern" | undefined,
     branchId: str("branchId"),
+    status: str("status") as "active" | "on_leave" | "passive" | "terminated" | undefined,
     annualLeaveAllowanceDays: str("annualLeaveAllowanceDays") ? Number(str("annualLeaveAllowanceDays")) : undefined,
     personnelNotes: str("personnelNotes"),
     notes: str("notes"),
@@ -1485,16 +1571,21 @@ function staffFormFields(formData: FormData) {
     defaultAllowances: str("defaultAllowances") ? Number(str("defaultAllowances")) : undefined,
     defaultDeductions: str("defaultDeductions") ? Number(str("defaultDeductions")) : undefined,
     emergencyContactName: str("emergencyContactName"),
+    emergencyContactRelationship: str("emergencyContactRelationship"),
     emergencyContactPhone: str("emergencyContactPhone"),
     contractStartDate: str("contractStartDate"),
     contractEndDate: str("contractEndDate"),
     sgkStatus: str("sgkStatus"),
     iban: str("iban"),
     annualAdvanceLimit: str("annualAdvanceLimit") ? Number(str("annualAdvanceLimit")) : undefined,
+    // P0 personel onboarding revizyonu — portal seçenekleri (checkbox'lar).
+    createPortalAccess: formData.get("createPortalAccess") === "on" || formData.get("createPortalAccess") === "true",
+    portalRole: str("portalRole"),
+    sendInvitation: formData.get("sendInvitation") === "on" || formData.get("sendInvitation") === "true",
   };
 }
 
-/** Personel Modülü — yeni kayıt (tam özlük dosyası + maaş yapısı alanları). */
+/** Personel Modülü — yeni kayıt (tam özlük dosyası + maaş yapısı alanları + portal/davet). */
 export async function actionCreateStaffMember(formData: FormData): Promise<CreateStaffActionResult> {
   try {
     const result = await withAuthContext("actionCreateStaffMember", (ctx) =>
@@ -1502,7 +1593,7 @@ export async function actionCreateStaffMember(formData: FormData): Promise<Creat
     );
     if (!result.ok) return { ok: false, message: result.error.message };
     revalidateAll();
-    return { ok: true };
+    return { ok: true, staffId: result.data.staffId, portal: result.data.portal };
   } catch (error) {
     logger.error("actionCreateStaffMember failed", error);
     if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");

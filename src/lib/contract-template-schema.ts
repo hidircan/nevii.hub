@@ -68,6 +68,10 @@ const INSTALLMENT_PLACEHOLDERS: ContractTemplatePlaceholderDef[] = Array.from({ 
     { key: `taksit${n}Tarih`, label: `${n}. taksit vade tarihi`, required: n === 1 },
     { key: `taksit${n}Tutar`, label: `${n}. taksit tutarı`, required: n === 1 },
     { key: `taksit${n}Aciklama`, label: `${n}. taksit türü (ör. İlk tahsilat / Dönem ücreti)`, required: false },
+    // P0 revizyonu — "Ödeme Türü" sütunu: 1. satırda GERÇEK ilk tahsilatın
+    // yöntemi, tahsil edilmiş sonraki satırlarda ilgili kaydın yöntemi,
+    // ödenmemiş satırlarda "—". Hepsi opsiyonel: eski şablonlar/kayıtlar kırılmaz.
+    { key: `taksit${n}Yontem`, label: `${n}. taksit ödeme türü (gerçek tahsilat yöntemi; ödenmemişse boş)`, required: false },
   ]
 );
 

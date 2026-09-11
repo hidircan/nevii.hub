@@ -36,6 +36,8 @@ export type StaffMemberFields = Partial<
     | "phone"
     | "email"
     | "address"
+    | "city"
+    | "district"
     | "birthDate"
     | "photoUrl"
     | "employeeNumber"
@@ -55,7 +57,10 @@ export type StaffMemberFields = Partial<
     | "defaultAllowances"
     | "defaultDeductions"
     | "emergencyContactName"
+    | "emergencyContactRelationship"
     | "emergencyContactPhone"
+    | "portalUserId"
+    | "portalInvitedAt"
     | "contractStartDate"
     | "contractEndDate"
     | "sgkStatus"
@@ -96,6 +101,8 @@ function dbRowToPublic(r: Record<string, unknown>): StaffMember {
     phone: (r.phone as string) ?? undefined,
     email: (r.email as string) ?? undefined,
     address: (r.address as string) ?? undefined,
+    city: (r.city as string) ?? undefined,
+    district: (r.district as string) ?? undefined,
     birthDate: (r.birthDate as Date | null)?.toISOString().slice(0, 10) ?? undefined,
     photoUrl: (r.photoUrl as string) ?? undefined,
     nationalIdCipher: (r.nationalIdCipher as string) ?? undefined,
@@ -117,7 +124,11 @@ function dbRowToPublic(r: Record<string, unknown>): StaffMember {
     defaultAllowances: (r.defaultAllowances as number) ?? undefined,
     defaultDeductions: (r.defaultDeductions as number) ?? undefined,
     emergencyContactName: (r.emergencyContactName as string) ?? undefined,
+    emergencyContactRelationship: (r.emergencyContactRelationship as string) ?? undefined,
     emergencyContactPhone: (r.emergencyContactPhone as string) ?? undefined,
+    portalUserId: (r.portalUserId as string) ?? undefined,
+    portalInvitedAt:
+      r.portalInvitedAt instanceof Date ? (r.portalInvitedAt as Date).toISOString() : ((r.portalInvitedAt as string) ?? undefined),
     contractStartDate: (r.contractStartDate as Date | null)?.toISOString().slice(0, 10) ?? undefined,
     contractEndDate: (r.contractEndDate as Date | null)?.toISOString().slice(0, 10) ?? undefined,
     sgkStatus: (r.sgkStatus as string) ?? undefined,
@@ -190,6 +201,8 @@ export async function createStaffMember(
     phone: input.phone || undefined,
     email: input.email || undefined,
     address: input.address || undefined,
+    city: input.city || undefined,
+    district: input.district || undefined,
     birthDate: input.birthDate ? new Date(input.birthDate) : undefined,
     photoUrl: input.photoUrl || undefined,
     nationalIdCipher: nationalId?.cipher,
@@ -211,7 +224,10 @@ export async function createStaffMember(
     defaultAllowances: input.defaultAllowances,
     defaultDeductions: input.defaultDeductions,
     emergencyContactName: input.emergencyContactName || undefined,
+    emergencyContactRelationship: input.emergencyContactRelationship || undefined,
     emergencyContactPhone: input.emergencyContactPhone || undefined,
+    portalUserId: input.portalUserId || undefined,
+    portalInvitedAt: input.portalInvitedAt ? new Date(input.portalInvitedAt) : undefined,
     contractStartDate: input.contractStartDate ? new Date(input.contractStartDate) : undefined,
     contractEndDate: input.contractEndDate ? new Date(input.contractEndDate) : undefined,
     sgkStatus: input.sgkStatus || undefined,
@@ -245,6 +261,8 @@ export async function createStaffMember(
       phone: input.phone || undefined,
       email: input.email || undefined,
       address: input.address || undefined,
+      city: input.city || undefined,
+      district: input.district || undefined,
       birthDate: input.birthDate || undefined,
       photoUrl: input.photoUrl || undefined,
       nationalIdCipher: nationalId?.cipher,
@@ -265,7 +283,10 @@ export async function createStaffMember(
       defaultAllowances: input.defaultAllowances,
       defaultDeductions: input.defaultDeductions,
       emergencyContactName: input.emergencyContactName || undefined,
+      emergencyContactRelationship: input.emergencyContactRelationship || undefined,
       emergencyContactPhone: input.emergencyContactPhone || undefined,
+      portalUserId: input.portalUserId || undefined,
+      portalInvitedAt: input.portalInvitedAt || undefined,
       contractStartDate: input.contractStartDate || undefined,
       contractEndDate: input.contractEndDate || undefined,
       sgkStatus: input.sgkStatus || undefined,
@@ -307,6 +328,8 @@ export async function updateStaffMember(
         phone: patch.phone,
         email: patch.email,
         address: patch.address,
+        city: patch.city,
+        district: patch.district,
         birthDate: patch.birthDate ? new Date(patch.birthDate) : undefined,
         photoUrl: patch.photoUrl,
         nationalIdCipher: nationalId?.cipher,
@@ -328,7 +351,10 @@ export async function updateStaffMember(
         defaultAllowances: patch.defaultAllowances,
         defaultDeductions: patch.defaultDeductions,
         emergencyContactName: patch.emergencyContactName,
+        emergencyContactRelationship: patch.emergencyContactRelationship,
         emergencyContactPhone: patch.emergencyContactPhone,
+        portalUserId: patch.portalUserId,
+        portalInvitedAt: patch.portalInvitedAt ? new Date(patch.portalInvitedAt) : undefined,
         contractStartDate: patch.contractStartDate ? new Date(patch.contractStartDate) : undefined,
         contractEndDate: patch.contractEndDate ? new Date(patch.contractEndDate) : undefined,
         sgkStatus: patch.sgkStatus,
@@ -352,6 +378,8 @@ export async function updateStaffMember(
       phone: patch.phone !== undefined ? patch.phone || undefined : current.phone,
       email: patch.email !== undefined ? patch.email || undefined : current.email,
       address: patch.address !== undefined ? patch.address || undefined : current.address,
+      city: patch.city !== undefined ? patch.city || undefined : current.city,
+      district: patch.district !== undefined ? patch.district || undefined : current.district,
       birthDate: patch.birthDate !== undefined ? patch.birthDate || undefined : current.birthDate,
       photoUrl: patch.photoUrl !== undefined ? patch.photoUrl || undefined : current.photoUrl,
       nationalIdCipher: nationalId?.cipher ?? current.nationalIdCipher,
@@ -374,8 +402,14 @@ export async function updateStaffMember(
       defaultDeductions: patch.defaultDeductions ?? current.defaultDeductions,
       emergencyContactName:
         patch.emergencyContactName !== undefined ? patch.emergencyContactName || undefined : current.emergencyContactName,
+      emergencyContactRelationship:
+        patch.emergencyContactRelationship !== undefined
+          ? patch.emergencyContactRelationship || undefined
+          : current.emergencyContactRelationship,
       emergencyContactPhone:
         patch.emergencyContactPhone !== undefined ? patch.emergencyContactPhone || undefined : current.emergencyContactPhone,
+      portalUserId: patch.portalUserId !== undefined ? patch.portalUserId || undefined : current.portalUserId,
+      portalInvitedAt: patch.portalInvitedAt !== undefined ? patch.portalInvitedAt || undefined : current.portalInvitedAt,
       contractStartDate:
         patch.contractStartDate !== undefined ? patch.contractStartDate || undefined : current.contractStartDate,
       contractEndDate: patch.contractEndDate !== undefined ? patch.contractEndDate || undefined : current.contractEndDate,

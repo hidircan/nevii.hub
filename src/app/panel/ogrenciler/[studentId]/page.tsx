@@ -37,6 +37,7 @@ import type {
   StudentFeedback,
   StudentFeedbackCriterionKey,
 } from "@/lib/types";
+import { REFERRAL_SOURCE_LABELS } from "@/lib/types";
 import { computeOverallScore } from "@/lib/assessment/score";
 import { computeStudentPaymentSummary, sortPaymentsForProfile } from "@/lib/payment-profile";
 import { computeStudentMonthlyAmount } from "@/lib/student-payment-profile";
@@ -202,6 +203,8 @@ export default async function StudentDetailPage({
     parentPhone: student.parentPhone,
     motherName: student.motherName,
     fatherName: student.fatherName,
+    referralSource: student.referralSource,
+    referralSourceDetail: student.referralSourceDetail,
     address: student.address,
     birthDate: student.birthDate,
     birthPlace: student.birthPlace,
@@ -360,6 +363,16 @@ export default async function StudentDetailPage({
               <Field label="Ders süresi" value={student.lessonDurationMinutes ? `${student.lessonDurationMinutes} dk` : "Eklenmemiş"} />
               <Field label="Doğum yeri" value={student.birthPlace ?? "Eklenmemiş"} />
               <Field label="Okulu / mesleği" value={student.schoolOrOccupation ?? "Eklenmemiş"} />
+              <Field
+                label="Bizi nereden buldunuz?"
+                value={
+                  student.referralSource
+                    ? student.referralSourceDetail
+                      ? `${REFERRAL_SOURCE_LABELS[student.referralSource]} — ${student.referralSourceDetail}`
+                      : REFERRAL_SOURCE_LABELS[student.referralSource]
+                    : "Belirtilmemiş"
+                }
+              />
             </dl>
           }
           edit={

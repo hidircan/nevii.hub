@@ -40,6 +40,16 @@ export default async function PersonelPage() {
       <PageHeader
         title="Personel"
         description="Öğretmen dışı personel kayıtları — idari, muhasebe, resepsiyon vb."
+        actions={
+          kurum.scope.mode === "single" ? (
+            <Link
+              href="/panel/personel/yeni"
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-[var(--color-primary)] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[var(--color-primary-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)] focus-visible:ring-offset-2"
+            >
+              <span aria-hidden>+</span> Yeni personel ekle
+            </Link>
+          ) : undefined
+        }
       />
       <div className="mb-6 grid gap-3 sm:grid-cols-3">
         <Link href="/panel/personel/bordrolar">

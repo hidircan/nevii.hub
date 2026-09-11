@@ -65,7 +65,12 @@ export function StudentPaymentHistoryTable({
                       {p.description}
                       {p.paymentNote ? (
                         <span className="mt-0.5 block text-xs font-normal text-[var(--color-text-muted)]">
-                          Ref: {p.paymentNote}
+                          Not: {p.paymentNote}
+                        </span>
+                      ) : null}
+                      {p.adjustmentReason ? (
+                        <span className="mt-0.5 block text-xs font-normal text-[var(--color-text-muted)]">
+                          Kısmi tahsilat gerekçesi: {p.adjustmentReason}
                         </span>
                       ) : null}
                     </td>
@@ -87,6 +92,13 @@ export function StudentPaymentHistoryTable({
                       {p.paidAmount > 0 && p.paidAmount < p.amount ? (
                         <span className="block text-xs text-[var(--color-text-muted)]">
                           Toplam: {formatMoney(p.amount)}
+                        </span>
+                      ) : null}
+                      {p.autoSuggestedAmount != null && p.autoSuggestedAmount !== (p.paidAmount || p.amount) ? (
+                        <span className="block text-xs text-[var(--color-text-muted)]">
+                          Önerilen: {formatMoney(p.autoSuggestedAmount)} · Fark:{" "}
+                          {(p.paidAmount || p.amount) - p.autoSuggestedAmount > 0 ? "+" : ""}
+                          {formatMoney((p.paidAmount || p.amount) - p.autoSuggestedAmount)}
                         </span>
                       ) : null}
                     </td>
@@ -163,6 +175,8 @@ export function StudentPaymentHistoryTable({
           source={modalPayment.source}
           lessonId={modalPayment.lessonId}
           collectorName={modalPayment.receivedByName}
+          suggestedAmount={modalPayment.autoSuggestedAmount}
+          adjustmentReason={modalPayment.adjustmentReason}
           onClose={() => setModalPayment(null)}
         />
       ) : null}

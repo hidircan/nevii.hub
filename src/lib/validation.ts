@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { LESSON_DURATION_OPTIONS, TRIAL_LESSON_DURATION_OPTIONS } from "./lesson-duration";
-import { INSTRUMENTS } from "./types";
+import { INSTRUMENTS, REFERRAL_SOURCES } from "./types";
 
 /** Faz 1A — tek bir ödeme günü aralığı (1–31, dahil, start ≤ end). */
 export const paymentDueRangeSchema = z
@@ -116,6 +116,13 @@ export const studentSchema = z.object({
   /** Paket 7 — TC kimlik alanından hemen sonra istenir; opsiyonel (legacy kayıtlar kırılmaz). */
   motherName: optionalTrimmed,
   fatherName: optionalTrimmed,
+  /**
+   * P1 revizyonu — "Bizi nereden buldunuz?" Opsiyonel, zorunlu değil;
+   * `diger` seçilirse serbest metin `referralSourceDetail` dolar (o da
+   * opsiyonel — açıklama dayatılmaz, yalnızca gösterilir).
+   */
+  referralSource: z.enum(REFERRAL_SOURCES).optional(),
+  referralSourceDetail: optionalTrimmed,
   branchId: z.string().min(1),
   /**
    * KÖK NEDEN DÜZELTMESİ (2026-08-29, P0-1 "Invalid input" runtime hatası) —
@@ -289,6 +296,9 @@ export const updateStudentProfileSchema = z
     birthDate: optionalTrimmed,
     birthPlace: optionalTrimmed,
     schoolOrOccupation: optionalTrimmed,
+    /** P1 revizyonu — "Bizi nereden buldunuz?" sonradan düzeltilebilir (detay ekranı). */
+    referralSource: z.enum(REFERRAL_SOURCES).optional(),
+    referralSourceDetail: optionalTrimmed,
     communicationOptOut: z.boolean().optional(),
     /** Karma Öğrenci Portalı — ödeme/iletişim muhatabı kararı (rol değil, iş kararı). */
     accountResponsibility: z.enum(["PARENT_MANAGED", "SELF_MANAGED"]).optional(),
@@ -1223,6 +1233,9 @@ const staffMemberBaseFields = {
   phone: z.string().optional(),
   email: z.string().email().optional().or(z.literal("")),
   address: z.string().optional(),
+  /** P0 personel onboarding revizyonu — il/ilçe (nullable/additive, hepsi opsiyonel). */
+  city: z.string().optional(),
+  district: z.string().optional(),
   birthDate: z.string().optional(),
   photoUrl: z.string().optional(),
   nationalId: z.string().optional(),
@@ -1233,6 +1246,8 @@ const staffMemberBaseFields = {
   reportsToStaffId: z.string().optional(),
   employmentType: z.enum(["full_time", "part_time", "contract", "intern"]).optional(),
   branchId: z.string().optional(),
+  /** P0 personel onboarding revizyonu — yeni kayıtta aktif/pasif durumu (verilmezse "active"). */
+  status: z.enum(["active", "on_leave", "passive", "terminated"]).optional(),
   annualLeaveAllowanceDays: z.coerce.number().int().min(0).optional(),
   personnelNotes: z.string().optional(),
   notes: z.string().optional(),
@@ -1243,6 +1258,8 @@ const staffMemberBaseFields = {
   defaultDeductions: z.coerce.number().int().min(0).optional(),
   /** Faz 9A — özlük genişletmesi. */
   emergencyContactName: z.string().optional(),
+  /** P0 personel onboarding revizyonu — yakınlık derecesi. */
+  emergencyContactRelationship: z.string().optional(),
   emergencyContactPhone: z.string().optional(),
   contractStartDate: z.string().optional(),
   contractEndDate: z.string().optional(),
@@ -1254,6 +1271,25 @@ const staffMemberBaseFields = {
 };
 
 export const createStaffMemberSchema = z.object(staffMemberBaseFields);
+
+/**
+ * P0 personel onboarding revizyonu — yeni kayıtta portal erişimi/davet
+ * seçenekleri. `portalRole` SADECE burada doğrulanır (server-side allowlist
+ * `STAFF_PORTAL_ALLOWED_ROLES`, bkz. tools.ts) — UI'daki select'e
+ * GÜVENİLMEZ. `portalUserId` ham girdiden ASLA alınmaz (araç katmanı yazar).
+ */
+export const staffPortalOptionsSchema = z.object({
+  createPortalAccess: z.boolean().optional(),
+  portalRole: z.string().optional(),
+  sendInvitation: z.boolean().optional(),
+});
+
+export const createStaffMemberWithPortalSchema = z.object({
+  ...staffMemberBaseFields,
+  createPortalAccess: z.boolean().optional(),
+  portalRole: z.string().optional(),
+  sendInvitation: z.boolean().optional(),
+});
 
 export const updateStaffMemberSchema = z
   .object({ staffId: z.string().min(1), status: z.enum(["active", "on_leave", "passive", "terminated"]).optional() })

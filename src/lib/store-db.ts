@@ -311,6 +311,13 @@ function mapSchoolToAppData(school: PrismaSchoolWithRelations): AppData {
           | undefined) ?? "PARENT_MANAGED",
       motherName: (student as { motherName?: string | null }).motherName ?? undefined,
       fatherName: (student as { fatherName?: string | null }).fatherName ?? undefined,
+      // P1 revizyonu — "Bizi nereden buldunuz?" (kolonlar migration ile
+      // gelir; migration uygulanmamış DB'de undefined — davranış değişmez).
+      referralSource: (student as { referralSource?: string | null }).referralSource as
+        | import("./types").ReferralSource
+        | undefined
+        ?? undefined,
+      referralSourceDetail: (student as { referralSourceDetail?: string | null }).referralSourceDetail ?? undefined,
       branchId: student.branchId as BranchId,
       instruments: student.instruments as Instrument[],
       teacherId: student.teacherId,
@@ -1285,6 +1292,10 @@ export async function updateStudentProfile(
       parentPhone: patch.parentPhone,
       motherName: patch.motherName,
       fatherName: patch.fatherName,
+      // P1 revizyonu — "Bizi nereden buldunuz?" (migration dosyası eklendi,
+      // henüz hiçbir DB'ye uygulanmadı — bkz. PROJECT_STATE).
+      referralSource: patch.referralSource,
+      referralSourceDetail: patch.referralSourceDetail,
       address: patch.address,
       birthDate: patch.birthDate ? new Date(patch.birthDate) : undefined,
       // Package C / Paket Yönetimi — ödeme profili + paket fiyatlandırma
