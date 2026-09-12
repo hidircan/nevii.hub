@@ -56,9 +56,12 @@ describe("platform sahibi / kurum sahibi", () => {
     expect(canViewFinanceAndStaffSummary({ userId: PLATFORM_OWNER_USER_ID, role: "SUPER_ADMIN" })).toBe(true);
   });
 
-  it("Nihal Gedikli için gerçek hesap/parola bootstrap'ta yoktur", () => {
+  it("Nihal Gedikli için NeviiHub bootstrap SCHOOL_ADMIN kaydı yoktur (BRANCH_MANAGER merkezi auth'tadır)", async () => {
+    const { authenticateUser } = await import("../auth/users");
     const src = readFileSync(path.join(process.cwd(), "src/lib/auth/users.ts"), "utf8");
-    expect(src).not.toMatch(/nihal\.gedikli/i);
     expect(src).not.toMatch(/user_manager_nihal/);
+    // NeviiHub kimliğiyle giriş yapılamaz — duplicate rol dönüşümü YOK.
+    const auth = await authenticateUser("nihal.gedikli@niluferacar.com.tr", "demo-manager-nihal");
+    expect(auth).toBeNull();
   });
 });

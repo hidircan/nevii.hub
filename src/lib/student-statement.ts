@@ -2,6 +2,7 @@
  * Öğrenci ödeme + yoklama dökümü — finansal veri YALNIZ sözleşme snapshot'ından.
  * Tutar yeniden hesaplanmaz (billableLessonCount / derivePerLessonAmount yok).
  */
+import { resolveAppTimezone, zonedHm } from "./timezone";
 import { resolveContractPlanForMonth, type CalendarMonthPlan } from "./attendance-calendar-plan";
 import { resolveStatementMonthPaymentMethodLabel } from "./contract-payment-plan-view";
 import { resolveLessonFinalStatus, type LessonFinalStatus } from "./lesson-live-status";
@@ -29,6 +30,14 @@ export const PAYMENT_STATUS_TEXT: Record<string, string> = {
 export type StatementLessonRow = {
   date: string;
   startAt: string;
+  /**
+   * P1 revizyonu — yazdırma çıktısında tarih yanına ders saati + şube.
+   * `time`: Europe/Istanbul zonlu HH:mm (bkz. timezone.ts zonedHm —
+   * makine saatine göre kaymaz). `branchName`: dersin branchId'sinden
+   * kısa ad; bulunamazsa undefined → görünüm "—" basar (uydurma YOK).
+   */
+  time: string;
+  branchName?: string;
   status: LessonFinalStatus;
   statusText: string;
   teacherName?: string;
@@ -104,9 +113,12 @@ export function buildStudentPaymentAttendanceStatement(input: {
       .map((l) => {
         const status = resolveLessonFinalStatus(l);
         const teacher = input.data.teachers.find((t) => t.id === l.teacherId);
+        const lessonBranch = input.data.settings.branches.find((b) => b.id === l.branchId);
         return {
           date: l.startAt.slice(0, 10),
           startAt: l.startAt,
+          time: zonedHm(new Date(l.startAt), resolveAppTimezone()),
+          branchName: lessonBranch?.shortName,
           status,
           statusText: LESSON_STATUS_TEXT[status],
           teacherName: teacher?.name,

@@ -88,6 +88,12 @@ export default async function StudentPaymentProfilePage({
         }
         actions={
           <div className="flex flex-wrap items-center gap-2">
+            <Link
+              href={`/ogrenci-odeme-dokum/${student.id}`}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-3.5 py-2 text-sm font-medium text-[var(--color-text)] hover:bg-[var(--color-surface-muted)]"
+            >
+              Yazdır
+            </Link>
             <QuickTaskLink
               relatedEntityType="student"
               relatedEntityId={student.id}

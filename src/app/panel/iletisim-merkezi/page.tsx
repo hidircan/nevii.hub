@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { Card, PageHeader } from "@/components/ui";
+import { Badge, Card, PageHeader } from "@/components/ui";
 import { TEMPLATE_CATALOG } from "@/lib/whatsapp-templates";
 import { MessageCircle } from "lucide-react";
 import { requireSessionContext } from "@/lib/auth/session";
@@ -7,8 +7,13 @@ import { getInstitutionContext } from "@/lib/institution/context";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { listCommunicationMessages } from "@/lib/communications/store";
 import { toPublicCommunicationMessage } from "@/lib/communications/types";
-import { describeCommunicationFit } from "@/lib/communications/service";
+import {
+  describeCommunicationFit,
+  listWhatsAppInboundTool,
+  MAX_WHATSAPP_INBOUND_LIST,
+} from "@/lib/communications/service";
 import { CommunicationQueue } from "@/components/communication-queue";
+import { LessonPlanTemplatePreview } from "@/components/lesson-plan-template-preview";
 
 export const dynamic = "force-dynamic";
 
@@ -33,6 +38,15 @@ export default async function IletisimMerkeziPage() {
 
   const kurum = await getInstitutionContext(session);
   const tenantIds = kurum.scope.mode === "all" ? kurum.scope.tenantIds : [kurum.scope.tenantId];
+  const inboundLists = await Promise.all(
+    tenantIds.map((tid) =>
+      listWhatsAppInboundTool({ role: session.role, userId: session.userId, tenantId: tid, channel: "web" })
+    )
+  );
+  const inbound = inboundLists
+    .flatMap((r) => (r.ok ? r.data.conversations : []))
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+    .slice(0, MAX_WHATSAPP_INBOUND_LIST);
   const communicationMessages = (
     await Promise.all(tenantIds.map((tid) => listCommunicationMessages(tid)))
   )
@@ -77,6 +91,47 @@ export default async function IletisimMerkeziPage() {
         </Card>
       )}
       <CommunicationQueue initialMessages={communicationMessages} canWrite={kurum.scope.mode === "single"} />
+
+      <h2 className="mb-3 text-lg font-semibold text-[var(--color-text)] dark:text-slate-50">
+        Gelen WhatsApp konuşmaları ({inbound.length})
+      </h2>
+      <p className="mb-3 text-sm text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
+        Webhook üzerinden gelen veli mesajlarının salt-okunur özeti — telefon maskeli, yalnızca son gelen mesajdan kısa
+        alıntı. Yanıt buradan verilmez; konuşma yapay zekâ hattında yürütülür.
+      </p>
+      {inbound.length === 0 ? (
+        <Card className="mb-10">
+          <p className="text-sm text-[var(--color-text-muted)]">Gelen WhatsApp konuşması yok.</p>
+        </Card>
+      ) : (
+        <div className="mb-10 space-y-3">
+          {inbound.map((c) => (
+            <Card key={c.id}>
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="font-semibold text-[var(--color-text)]">{c.phoneMasked}</p>
+                <Badge>{c.messageCount} mesaj</Badge>
+                <span className="text-xs text-[var(--color-text-muted)]">
+                  {new Date(c.updatedAt).toLocaleString("tr-TR")}
+                </span>
+              </div>
+              {c.lastInboundExcerpt && (
+                <p className="mt-2 line-clamp-2 text-sm text-[var(--color-text-muted)]">{c.lastInboundExcerpt}</p>
+              )}
+            </Card>
+          ))}
+        </div>
+      )}
+
+      <h2 className="mb-3 text-lg font-semibold text-[var(--color-text)] dark:text-slate-50">
+        Ders planı şablonları — önizleme ve doğrulama
+      </h2>
+      <p className="mb-3 text-sm text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
+        Ders planı oluştuğunda veli ve öğretmene düşen kayıtlar bu şablonlardan üretilir. Yer tutucu hatası
+        gönderim öncesi engellenir; onaylanan metin snapshot olarak donar.
+      </p>
+      <div className="mb-10">
+        <LessonPlanTemplatePreview />
+      </div>
 
       <h2 className="mb-3 text-lg font-semibold text-[var(--color-text)] dark:text-slate-50">Şablon kataloğu</h2>
       <div className="grid gap-4 lg:grid-cols-2">

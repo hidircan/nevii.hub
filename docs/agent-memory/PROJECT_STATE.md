@@ -28,6 +28,92 @@ screens (login/welcome).
 - Full detail + rationale: `docs/contracts/LEGAL_POLICY_TEXT_DISCREPANCY_REPORT.md`,
   `docs/roadmap/NEVIIHUB_ADMIN_CONTRACTS_POLICY_REMAINING_WORK.md`.
 
+## Güncel odak (2026-09-12) — P1 outbox aksiyonları + inbound listesi + Ezgi/Nihal personel bağı
+
+Branch: `fix/admin-payment-attendance-sync-p0` (commit/push/deploy YOK,
+migration UYGULANMADI, gerçek e-posta/SMS/WhatsApp YOK).
+Dokunulmadı: HYPER_ADMIN/rol matrisi, JWT/portal rolleri, `.env.example`,
+`src/lib/site-content.ts` (kullanıcı yasağı).
+
+1. **Nihal revert (üst karar değişikliği).** Önceki turdaki
+   `user_manager_nihal` SCHOOL_ADMIN bootstrap'ı KALDIRILDI
+   (`src/lib/auth/users.ts`, `platform-access.ts` +
+   `INSTITUTION_MANAGER_NIHAL_USER_ID` sabiti silindi). Nihal'in login
+   kimliği merkezi auth'ta BRANCH_MANAGER'dır; NeviiHub'da duplicate
+   kullanıcı/rol dönüşümü YOK. `platform-access` testi yeni karara göre
+   çevrildi (negatif assertion: bootstrap yok + giriş yapılamaz).
+2. **Ezgi/Nihal personel kayıtları.** `ensureManagerStaffProfiles`
+   (`src/lib/staff.ts`): e-posta üzerinden bulur/oluşturur, VARSA portal
+   kullanıcısına bağlar (Ezgi → `user_manager_ezgi`; Nihal → bağlantısız,
+   kullanıcı ASLA oluşturulmaz). İdempotent (2. koşu duplicate üretmez),
+   tenant-scoped. Yeni test `manager-staff-profiles` 5/5 ✓.
+3. **Outbox UI/API.** 5 yeni route (`[id]/enqueue|dispatch|retry|cancel|
+   approve-and-enqueue`, approve deseniyle aynı); kuyruk UI'da duruma göre
+   butonlar (Onayla ve kuyruğa al / Kuyruğa al / Gönderimi dene / Yeniden
+   kuyruğa al / İptal et) + dispatch sonuç şeridi; `queued/sending/
+   cancelled` etiket+sekme; EMAIL kanal desteği. Yeni test
+   `communication-outbox-actions` 8/8 ✓.
+4. **Gelen WhatsApp (daraltılmış).** `listTenantConversations` (admin-only)
+   + `listWhatsAppInboundTool` (tenant-scoped, telefon maskeli, son gelen
+   mesajdan 120 karakter, en yeni 50, salt-okunur) + İletişim Merkezi'nde
+   "Gelen WhatsApp konuşmaları" bölümü. Yanıt/operasyon YOK.
+5. **Testlerin yakaladığı gerçek bug'lar (düzeltildi).** `service.ts`'teki
+   `require("../email/config")` ESM'de patlıyordu → statik import;
+   `e164.value` (olmayan alan) → `e164.e164` (2 yer, dispatch adresi
+   `undefined` dönüyordu); `utils.ts` statusLabel'da çift `cancelled`
+   anahtarı (P1 artığı) → tekilleştirildi.
+6. **Doğrulama.** typecheck ✓ · lint 0 error (25 pre-existing `_input`
+   warning) · `prisma validate` ✓ · `git diff --check` temiz · hedefli
+   250+35+28+49+111 test ✓. Tam süit: 3020 geçti / 4 kaldı — sidebar-
+   branding byte testi (çalışma ağacındaki logo değişikliği, pre-existing),
+   seed-demo-schedule ×2 (sandbox `tsx` EPERM, ortamsal), lesson-series-
+   tools "skipConflicts" ×1 (değişiklikler `git stash` ile kenara alınıp
+   bazda koşuldu, aynı şekilde fails → pre-existing, bu işle ilgisiz).
+   **Build BLOKE (ortamsal):** Turbopack child-IPC port
+   binding sandbox'ta `EPERM`; `--no-turbopack` Next 16'da yok, escalated
+   çalıştırma bu profilde kapalı. Kod derlemesi typecheck ile doğrulandı.
+
+### Hâlâ owner kararı (bu turdan)
+- Nihal personel kaydı `portalUserId`'siz duruyor (merkezi BRANCH_MANAGER
+  kimliği NeviiHub'da bulunamaz) — bilinçli sınır; bağlama istenirse
+  merkezi auth eşleşmesi owner ile netleştirilmeli.
+- Build'in sandbox-dışı bir ortamda (`npm run build`) doğrulanması gerekli.
+
+## Önceki odak (2026-09-11, geç tur) — Nihal Gedikli hesabı + kullanıcı e-posta değiştirme akışı
+
+Branch: `fix/admin-payment-attendance-sync-p0` (commit/push/deploy YOK,
+migration UYGULANMADI — yalnızca 1 migration DOSYASI eklendi:
+`prisma/migrations/20260911140000_email_change_tokens/migration.sql`).
+`.env.example` (9/9) ve `src/lib/site-content.ts` (1/1) diff'lerine
+DOKUNULMADI. Önceki P0/P1 paketinin tam suite sonucu: 2990 geçti / 5 kaldı
+(lesson ×2 + seed ×2 pre-existing/ortamsal + platform-access Nihal testi —
+sonuncusu bu turda YENİ karara göre güncellendi).
+
+1. **Nihal Gedikli hesabı (kullanıcı isteği).** `users.ts` bootstrap:
+   `user_manager_nihal` / `nihal.gedikli@niluferacar.com.tr` / SCHOOL_ADMIN /
+   aynı tenant; şifre `AUTH_NIHAL_PASSWORD` veya `demo-manager-nihal`. Ezgi
+   ile AYNI yetki seti: `isInstitutionManager` Nihal'i de kapsar
+   (`INSTITUTION_MANAGER_NIHAL_USER_ID`) → finans/personel özeti YOK.
+   Eski "Nihal bootstrap'ta yoktur" testi yeni karara göre çevrildi.
+2. **E-posta değiştirme (tüm roller, kendi hesabı).** `auth/email-change.ts`:
+   istekte mevcut şifre + YENİ adrese 24s tek-kullanımlık doğrulama bağlantısı
+   (`/hesap-eposta-dogrula`) + ESKİ adrese güvenlik bildirimi; onayda yarış
+   kontrolü + audit. Token deposu: dosya + `EmailChangeToken` modeli
+   (migration uygulanmadı). `updateUserEmail`: db gerçek yazma; json/dynamic
+   kalıcı; bootstrap `emailOverrides` (süreç-ömürlü).
+3. **UI:** panel `/panel/hesabim` + yeni `/ogretmen/hesabim` +
+   `/ogrenci/hesabim` (aynı `AccountEmailChangeForm`).
+4. **Doğrulama.** typecheck ✓ · lint 0 error · `account-email-change`
+   9/9 + `platform-access` dahil ilgili 64/64 ✓ · `prisma validate` ✓ ·
+   `git diff --check` temiz. Gerçek e-posta/SMS gönderilmedi.
+
+### Hâlâ owner kararı (bu turdan)
+- `AUTH_NIHAL_PASSWORD` prod secret'ı tanımlanmalı (yoksa demo şifre geçerli).
+- E-posta değişikliği öğretmen `Teacher.email`/veli kayıt e-postasına
+  DOKUNMAZ (giriş kimliği ayrıdır — bilinçli sınır).
+- Bootstrap `emailOverrides` süreç-ömürlüdür (json/memory); kalıcı prod
+  davranışı db modundadır.
+
 ## Güncel odak (2026-09-11) — P0 login dönüş + hero marka + detaylı personel onboarding
 
 Branch: `fix/admin-payment-attendance-sync-p0` (main'e MERGE EDİLMEDİ,

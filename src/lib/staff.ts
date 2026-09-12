@@ -445,3 +445,72 @@ export async function backfillStaffDisplayId(tenantId: string, staffId: string, 
     await saveAll(next);
   });
 }
+
+/**
+ * P1 (2026-09-12) — Ezgi Güçlü + Nihal Gedikli personel kayıtları.
+ *
+ * YETKİ SINIRI (kullanıcı kararı, P1 spec §5): NeviiHub JWT/portal rolü
+ * veya NeviiOS role matrix'e DOKUNMAZ — kullanıcı oluşturmaz, rol
+ * değiştirmez, mapping hesaplamaz. YALNIZCA personel kaydını e-posta
+ * üzerinden bulur/oluşturur ve VARSA portal kullanıcısına bağlar:
+ * - Ezgi: NeviiHub bootstrap SCHOOL_ADMIN (`user_manager_ezgi`) bulunur →
+ *   `portalUserId` bağlanır.
+ * - Nihal: login kimliği merkezi auth'ta BRANCH_MANAGER'dır; NeviiHub
+ *   `getUserIdByEmail` onu bulamazsa `portalUserId` BAĞLANMAZ (null
+ *   kalır) — duplicate kullanıcı ASLA oluşturulmaz, rol dönüşümü YOK.
+ *
+ * İdempotent: ikinci çalıştırma e-posta eşleşmesiyle mevcut aktif kaydı
+ * bulur, duplicate üretmez. Tüm aramalar tenant-scoped'tur.
+ */
+const MANAGER_STAFF_PROFILES = [
+  {
+    name: "Ezgi Güçlü",
+    email: "ezgi.guclu@niluferacar.com.tr",
+    position: "Kurum Müdürü",
+    department: "Yönetim",
+  },
+  {
+    name: "Nihal Gedikli",
+    email: "nihal.gedikli@niluferacar.com.tr",
+    position: "Kurum Müdürü",
+    department: "Yönetim",
+  },
+] as const;
+
+export async function ensureManagerStaffProfiles(
+  tenantId: string,
+  createdBy: string
+): Promise<StaffMember[]> {
+  const { getUserIdByEmail } = await import("./auth/users");
+  const out: StaffMember[] = [];
+  for (const m of MANAGER_STAFF_PROFILES) {
+    const emailLower = m.email.toLowerCase();
+    const active = (await listStaff(tenantId)).filter(
+      (s) => s.email?.toLowerCase() === emailLower && s.status === "active"
+    );
+    // Güvenli bulma: tenant-scoped, salt-okunur; bulamazsa null — ASLA oluşturma.
+    const portalUserId = await getUserIdByEmail(tenantId, m.email);
+    if (active.length > 0) {
+      const first = active[0]!;
+      if (!first.portalUserId && portalUserId) {
+        const upd = await updateStaffMember(tenantId, first.id, { portalUserId });
+        out.push(upd.ok ? upd.entry : first);
+      } else {
+        out.push(first);
+      }
+      continue;
+    }
+    const created = await createStaffMember({
+      tenantId,
+      createdBy,
+      name: m.name,
+      email: m.email,
+      position: m.position,
+      department: m.department,
+      status: "active",
+      ...(portalUserId ? { portalUserId } : {}),
+    });
+    if (created.ok) out.push(created.entry);
+  }
+  return out;
+}

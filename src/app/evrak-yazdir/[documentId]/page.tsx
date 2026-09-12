@@ -6,6 +6,7 @@ import { documentKindLabel } from "@/lib/documents";
 import { readData } from "@/lib/store";
 import { formatDate } from "@/lib/utils";
 import { DocumentPrintActions } from "@/components/document-print-actions";
+import { printSurfaceCss } from "@/lib/contract-print-theme";
 
 export const dynamic = "force-dynamic";
 
@@ -69,12 +70,17 @@ export default async function DocumentPrintPage({
   const docs = secondDoc ? [doc, secondDoc] : [doc];
 
   return (
-    <div className="min-h-screen bg-[#f4f2f8] px-4 py-8 print:bg-[var(--color-surface)] print:p-0 sm:px-6">
-      <style>{"@media print { @page { size: A4; margin: 16mm; } }"}</style>
+    <div className="min-h-screen bg-[#f4f2f8] px-4 py-8 print:bg-white print:p-0 sm:px-6">
+      <style>{`@media print { @page { size: A4; margin: 16mm; } }${printSurfaceCss("doc-print-surface")}`}</style>
       <div className="mx-auto max-w-2xl">
         <DocumentPrintActions backHref={`/panel/evraklar/${doc.id}`} />
+        <p className="mb-3 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800 print:hidden">
+          Sayfa numarası ve tarih bilgisi için yazdırma penceresinde &quot;Üstbilgiler ve altbilgiler&quot;
+          seçeneğini açık bırakın — tarayıcı bunu otomatik ekler. PDF için hedef olarak
+          &quot;PDF olarak kaydet&quot;i seçin.
+        </p>
 
-        <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-6 shadow-sm print:rounded-none print:border-0 print:p-0 print:shadow-none sm:p-10">
+        <div className="doc-print-surface rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-6 shadow-sm print:rounded-none print:border-0 print:p-0 print:shadow-none sm:p-10">
           <div className="flex items-start justify-between gap-4 border-b border-[var(--color-border)] pb-6">
             <div>
               <p className="text-lg font-semibold text-[var(--color-text)]">{data.settings.name}</p>

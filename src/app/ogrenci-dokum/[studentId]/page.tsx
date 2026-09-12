@@ -145,8 +145,10 @@ export default async function StudentStatementPrintPage({
               <thead>
                 <tr>
                   <th>Tarih</th>
+                  <th>Saat</th>
                   <th>Ders</th>
                   <th>Öğretmen</th>
+                  <th>Şube</th>
                   <th>Durum</th>
                 </tr>
               </thead>
@@ -154,8 +156,10 @@ export default async function StudentStatementPrintPage({
                 {m.lessons.map((l) => (
                   <tr key={`${l.startAt}-${l.instrument}`}>
                     <td>{formatDate(l.date)}</td>
+                    <td>{l.time}</td>
                     <td>{l.instrument}</td>
                     <td>{l.teacherName || "—"}</td>
+                    <td>{l.branchName || "—"}</td>
                     <td>
                       <span
                         aria-hidden="true"

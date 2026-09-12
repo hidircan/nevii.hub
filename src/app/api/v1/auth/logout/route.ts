@@ -33,6 +33,18 @@ export const POST = withApiHandler(
     });
     const res = NextResponse.json({ ok: true as const, data: { loggedOut: true } });
     clearAuthCookies(res);
+    // P1 (2026-09-11) — çıkışta KULLANICIYA AİT istemci önbelleği temizlenir
+    // (tercih cookie'leri). Server'daki hesap kaydı KORUNUR — kullanıcı
+    // dönünce düzenini geri bulur. Sonraki girişte bootstrap yalnız YENİ
+    // hesabın kaydını yazar (Ezgi/Nihal ayrımı).
+    for (const name of [
+      "notaplan_theme_profile",
+      "notaplan_font",
+      "notaplan_density",
+      "notaplan_sidebar_collapsed",
+    ]) {
+      res.cookies.set(name, "", { path: "/", maxAge: 0, sameSite: "lax" });
+    }
     return res;
   },
   { public: true }

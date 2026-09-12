@@ -1,7 +1,8 @@
 import type { CommunicationStatus } from "./status";
 
 export type CommunicationRecipientType = "PARENT" | "STUDENT" | "TEACHER";
-export type CommunicationChannel = "SMS" | "WHATSAPP";
+/** P1 (2026-09-11): EMAIL eklendi — tek mesajlık e-posta dispatch için. */
+export type CommunicationChannel = "SMS" | "WHATSAPP" | "EMAIL";
 export type CommunicationMessageType =
   | "MAKEUP_LESSON"
   | "LESSON"
@@ -35,6 +36,13 @@ export type CommunicationMessage = {
   status: CommunicationStatus;
   draftBody: string;
   approvedBodySnapshot?: string;
+  /**
+   * P1 (2026-09-11) — WhatsApp onaylı-şablon anahtarı (örn. lesson_plan_parent).
+   * Dispatch'te 24s penceresi kapalıysa şablon zorunluluğu buradan denetlenir.
+   * Opsiyonel: eski kayıtlar şablonsuz da kuyruğa girebilir (yer tutucu
+   * kontrolü yine uygulanır).
+   */
+  templateKey?: string;
   createdBy: string;
   approvedBy?: string;
   approvedAt?: string;

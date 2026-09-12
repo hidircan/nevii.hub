@@ -17,7 +17,7 @@ type Message = {
   recipientType: "PARENT" | "STUDENT" | "TEACHER";
   recipientName: string;
   recipientPhoneMasked: string;
-  channel: "SMS" | "WHATSAPP";
+  channel: "SMS" | "WHATSAPP" | "EMAIL";
   messageType: "MAKEUP_LESSON" | "LESSON" | "COLLECTION" | "ABSENCE" | "ANNOUNCEMENT" | "OTHER";
   resourceType: string;
   resourceId: string;
@@ -43,11 +43,14 @@ const STATUS_LABEL: Record<string, string> = {
   draft: "Taslak",
   pending_approval: "Onay bekliyor",
   approved: "Onaylandı",
+  queued: "Kuyrukta",
+  sending: "Gönderiliyor",
   manual_send_pending: "Manuel gönderim bekliyor",
   provider_accepted: "Sağlayıcıya iletildi",
   delivered: "Teslim edildi",
   failed: "Başarısız",
   blocked: "Gönderilemez",
+  cancelled: "İptal edildi",
 };
 
 const TYPE_LABEL: Record<string, string> = {
@@ -60,6 +63,21 @@ const TYPE_LABEL: Record<string, string> = {
 };
 
 const SELECTABLE = new Set(["draft", "pending_approval"]);
+
+/**
+ * Durum sekmeleri — statusFilter ile AYNI kaynaktan beslenir (çift filtre
+ * YOK): sekme seçimi statusFilter'ı gruplu değere ayarlar.
+ */
+const STATUS_TABS = [
+  { key: "all", label: "Tümü", match: (_s: string) => true },
+  { key: "pending", label: "Bekleyen", match: (s: string) => s === "pending_approval" || s === "approved" || s === "manual_send_pending" || s === "provider_accepted" },
+  { key: "draft", label: "Taslak", match: (s: string) => s === "draft" },
+  { key: "queued", label: "Kuyrukta", match: (s: string) => s === "queued" || s === "sending" },
+  { key: "delivered", label: "Gönderildi", match: (s: string) => s === "delivered" },
+  { key: "failed", label: "Başarısız", match: (s: string) => s === "failed" },
+  { key: "blocked", label: "Engellendi", match: (s: string) => s === "blocked" },
+  { key: "cancelled", label: "İptal edildi", match: (s: string) => s === "cancelled" },
+] as const;
 
 async function postJson(url: string, body: unknown) {
   const res = await fetch(url, {
@@ -80,6 +98,7 @@ export function CommunicationQueue({
   canWrite?: boolean;
 }) {
   const [messages, setMessages] = useState(initialMessages);
+  const [tab, setTab] = useState<string>("all");
   const [channelFilter, setChannelFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [typeFilter, setTypeFilter] = useState<string>("all");
@@ -93,10 +112,12 @@ export function CommunicationQueue({
   const [confirmChecked, setConfirmChecked] = useState(false);
   const [lastBulkResult, setLastBulkResult] = useState<{ approvedCount: number; skippedCount: number; failedCount: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [lastAction, setLastAction] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState<string>("");
 
   const hasActiveFilters =
+    tab !== "all" ||
     channelFilter !== "all" ||
     statusFilter !== "all" ||
     typeFilter !== "all" ||
@@ -106,6 +127,7 @@ export function CommunicationQueue({
     search.trim() !== "";
 
   function clearFilters() {
+    setTab("all");
     setChannelFilter("all");
     setStatusFilter("all");
     setTypeFilter("all");
@@ -115,7 +137,15 @@ export function CommunicationQueue({
     setSearch("");
   }
 
+  const tabMatch = STATUS_TABS.find((t) => t.key === tab)?.match ?? (() => true);
+  const tabCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const t of STATUS_TABS) counts[t.key] = messages.filter((m) => t.match(m.status)).length;
+    return counts;
+  }, [messages]);
+
   const filtered = messages.filter((m) => {
+    if (!tabMatch(m.status)) return false;
     if (channelFilter !== "all" && m.channel !== channelFilter) return false;
     if (statusFilter !== "all" && m.status !== statusFilter) return false;
     if (typeFilter !== "all" && m.messageType !== typeFilter) return false;
@@ -149,6 +179,34 @@ export function CommunicationQueue({
       setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, ...data.message } : m)));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Onay başarısız");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
+   * P1 outbox aksiyonları: approve-and-enqueue / enqueue / dispatch /
+   * retry / cancel. Dispatch sonucu `outcome` ile döner (kuyrukta notu
+   * veya engel nedeni) ve sonuç şeridinde gösterilir.
+   */
+  async function runOutboxAction(id: string, action: string, fallbackError: string) {
+    setBusy(true);
+    setError(null);
+    setLastAction(null);
+    try {
+      const data = await postJson(`/api/v1/iletisim-merkezi/${id}/${action}`, {});
+      if (data.message) {
+        setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, ...data.message } : m)));
+      }
+      if (data.outcome) {
+        setLastAction(
+          data.outcome.ok
+            ? `Gönderim denemesi: kuyrukta — ${data.outcome.note ?? ""}`.trim()
+            : `Gönderim engellendi (${data.outcome.code ?? "bilinmiyor"}): ${data.outcome.message ?? ""}`.trim()
+        );
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : fallbackError);
     } finally {
       setBusy(false);
     }
@@ -222,7 +280,7 @@ export function CommunicationQueue({
   const groupedForReview = useMemo(() => {
     const groups = new Map<string, Message[]>();
     for (const m of selectedMessages) {
-      const key = `${TYPE_LABEL[m.messageType] ?? m.messageType} · ${m.channel === "SMS" ? "SMS" : "WhatsApp"}`;
+      const key = `${TYPE_LABEL[m.messageType] ?? m.messageType} · ${m.channel === "SMS" ? "SMS" : m.channel === "EMAIL" ? "E-posta" : "WhatsApp"}`;
       const list = groups.get(key) ?? [];
       list.push(m);
       groups.set(key, list);
@@ -237,6 +295,11 @@ export function CommunicationQueue({
           <p className="text-sm text-red-700">{error}</p>
         </Card>
       )}
+      {lastAction && (
+        <Card className="mb-3 border-sky-100 bg-sky-50/60">
+          <p className="text-sm text-[var(--color-text)]">{lastAction}</p>
+        </Card>
+      )}
       {lastBulkResult && (
         <Card className="mb-3 border-emerald-100 bg-emerald-50/50">
           <p className="text-sm text-[var(--color-text)]">
@@ -246,11 +309,34 @@ export function CommunicationQueue({
         </Card>
       )}
 
+      <div className="mb-3 flex flex-wrap gap-1.5" role="tablist" aria-label="Gönderim durumu">
+        {STATUS_TABS.map((t) => {
+          const active = tab === t.key;
+          return (
+            <button
+              key={t.key}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              onClick={() => setTab(t.key)}
+              className={`rounded-full border px-3 py-1.5 text-xs font-medium ${
+                active
+                  ? "border-[var(--color-primary)] bg-[var(--color-primary)] text-white"
+                  : "border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)]"
+              }`}
+            >
+              {t.label} ({tabCounts[t.key] ?? 0})
+            </button>
+          );
+        })}
+      </div>
+
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <Select value={channelFilter} onChange={(e) => setChannelFilter(e.target.value)}>
           <option value="all">Tüm kanallar</option>
           <option value="SMS">SMS</option>
           <option value="WHATSAPP">WhatsApp</option>
+          <option value="EMAIL">E-posta</option>
         </Select>
         <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
           <option value="all">Tüm durumlar</option>
@@ -479,7 +565,7 @@ export function CommunicationQueue({
                       )}
                     </div>
                   </div>
-                  <div className="flex shrink-0 gap-2">
+                  <div className="flex shrink-0 flex-wrap justify-end gap-2">
                     <button
                       type="button"
                       onClick={() => toggleExpand(m)}
@@ -487,11 +573,60 @@ export function CommunicationQueue({
                     >
                       {expandedId === m.id ? "Kapat" : "İncele"}
                     </button>
-                    {selectable && (
+                    {canWrite && selectable && (
                       <Button disabled={busy} onClick={() => approveOne(m.id)} className="whitespace-nowrap">
                         Onayla
                       </Button>
                     )}
+                    {canWrite && selectable && (
+                      <Button
+                        disabled={busy}
+                        onClick={() => runOutboxAction(m.id, "approve-and-enqueue", "Onayla ve kuyruğa al başarısız")}
+                        className="whitespace-nowrap"
+                      >
+                        Onayla ve kuyruğa al
+                      </Button>
+                    )}
+                    {canWrite && m.status === "approved" && (
+                      <Button
+                        disabled={busy}
+                        onClick={() => runOutboxAction(m.id, "enqueue", "Kuyruğa al başarısız")}
+                        className="whitespace-nowrap"
+                      >
+                        Kuyruğa al
+                      </Button>
+                    )}
+                    {canWrite && (m.status === "approved" || m.status === "queued" || m.status === "failed") && (
+                      <Button
+                        disabled={busy}
+                        onClick={() => runOutboxAction(m.id, "dispatch", "Gönderim denemesi başarısız")}
+                        className="whitespace-nowrap"
+                      >
+                        Gönderimi dene
+                      </Button>
+                    )}
+                    {canWrite && (m.status === "failed" || m.status === "blocked") && (
+                      <Button
+                        disabled={busy}
+                        onClick={() => runOutboxAction(m.id, "retry", "Yeniden kuyruğa al başarısız")}
+                        className="whitespace-nowrap bg-[var(--color-surface-muted)] text-[var(--color-text)]"
+                      >
+                        Yeniden kuyruğa al
+                      </Button>
+                    )}
+                    {canWrite &&
+                      (m.status === "draft" ||
+                        m.status === "pending_approval" ||
+                        m.status === "approved" ||
+                        m.status === "queued") && (
+                        <Button
+                          disabled={busy}
+                          onClick={() => runOutboxAction(m.id, "cancel", "İptal başarısız")}
+                          className="whitespace-nowrap bg-[var(--color-surface-muted)] text-[var(--color-text)]"
+                        >
+                          İptal et
+                        </Button>
+                      )}
                   </div>
                 </div>
               </Card>

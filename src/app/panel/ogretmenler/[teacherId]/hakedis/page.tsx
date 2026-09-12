@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import Link from "next/link";
 import { startOfMonth, endOfMonth, format } from "date-fns";
 import { requireSessionContext } from "@/lib/auth/session";
 import { actionComputeTeacherPayout } from "@/lib/actions";
@@ -56,7 +57,17 @@ export default async function TeacherPayoutPage({
       <KurumScopeNote scope={kurum.scope} />
       <AssistantPageContext entity={{ kind: "teacher", id: teacher.id, label: teacher.name }} />
       <BackButton fallbackHref={`/panel/ogretmenler/${teacher.id}`} label="Öğretmen detayına dön" className="mb-3" />
-      <PageHeader title={`${teacher.name} — Hakediş`} />
+      <PageHeader
+        title={`${teacher.name} — Hakediş`}
+        actions={
+          <Link
+            href={`/ogretmen-hakedis-yazdir/${teacher.id}?periodStart=${periodStart}&periodEnd=${periodEnd}`}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-2 text-sm font-medium text-[var(--color-text)] hover:bg-[var(--color-surface-muted)]"
+          >
+            Yazdır / PDF
+          </Link>
+        }
+      />
       <TeacherPayoutDashboard
         teacherId={teacherId}
         initialYear={now.getFullYear()}

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { LogOut } from "lucide-react";
+import { clearWorkspaceClientCache } from "@/lib/workspace-client-cache";
 
 export function LogoutButton({ className }: { className?: string }) {
   const router = useRouter();
@@ -26,6 +27,7 @@ export function LogoutButton({ className }: { className?: string }) {
         setLoggingOut(false);
         return;
       }
+      clearWorkspaceClientCache();
       router.replace("/login");
       router.refresh();
     } catch {

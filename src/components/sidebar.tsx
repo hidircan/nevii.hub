@@ -5,6 +5,8 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ChevronsLeft, ChevronsRight } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { mergeNavOrder } from "@/lib/nav/order";
+import { actionSaveNavOrder, actionSaveSidebarCollapsed } from "@/lib/actions";
 import { LogoutButton } from "@/components/logout-button";
 import Image from "next/image";
 import { BRAND } from "@/lib/brand";
@@ -29,26 +31,32 @@ const SIDEBAR_COLLAPSED_KEY = "notaplan_sidebar_collapsed";
  * yapısına dokunmaz (yalnızca hangi href'in hangi SIRADA göründüğünü
  * değiştirir).
  */
-function orderStorageKey(sectionKey: string): string {
-  return `notaplan_sidebar_order_${sectionKey}`;
+/**
+ * P1 (2026-09-11) — sıra anahtarı KULLANICI-ad-alanlıdır: aynı cihazda
+ * başka kullanıcı giriş yaptığında önceki kullanıcının sırası ASLA
+ * okunmaz (Ezgi/Nihal ayrımı). Server kaydı (hesap) gerçek kaynaktır;
+ * localStorage yalnız anlık önbellektir.
+ */
+function orderStorageKey(userKey: string, sectionKey: string): string {
+  return `notaplan_sidebar_order_${userKey}_${sectionKey}`;
 }
 
-function applyStoredOrder(sectionKey: string, items: PanelNavItem[]): PanelNavItem[] {
+function applyOrderList(order: string[] | undefined, items: PanelNavItem[]): PanelNavItem[] {
+  const byHref = new Map(items.map((item) => [item.href, item]));
+  const ordered: PanelNavItem[] = [];
+  for (const href of mergeNavOrder(order, items.map((i) => i.href))) {
+    const item = byHref.get(href);
+    if (item) ordered.push(item);
+  }
+  return ordered;
+}
+
+function applyStoredOrder(userKey: string, sectionKey: string, items: PanelNavItem[]): PanelNavItem[] {
   try {
-    const raw = window.localStorage.getItem(orderStorageKey(sectionKey));
+    const raw = window.localStorage.getItem(orderStorageKey(userKey, sectionKey));
     if (!raw) return items;
     const order = JSON.parse(raw) as string[];
-    const byHref = new Map(items.map((item) => [item.href, item]));
-    const ordered: PanelNavItem[] = [];
-    for (const href of order) {
-      const item = byHref.get(href);
-      if (item) {
-        ordered.push(item);
-        byHref.delete(href);
-      }
-    }
-    // Sırada olmayan (yeni eklenmiş) öğeler sona eklenir — kaybolmazlar.
-    return [...ordered, ...byHref.values()];
+    return applyOrderList(order, items);
   } catch {
     return items;
   }
@@ -70,23 +78,28 @@ function NavSection({
   pathname,
   role,
   collapsed,
+  userKey,
+  serverOrder,
 }: {
-  /** Sürükle-bırak sırasının localStorage'da saklanacağı anahtar (bölüme özgü, benzersiz). */
+  /** Sürükle-bırak sırasının saklanacağı anahtar (bölüme + kullanıcıya özgü). */
   sectionKey: string;
   title?: string;
   items: PanelNavItem[];
   pathname: string;
   role?: SessionRole;
   collapsed: boolean;
+  /** Hesap-ad-alanlı önbellek anahtarı + server sırası (yoksa varsayılan). */
+  userKey: string;
+  serverOrder?: string[];
 }) {
-  const [ordered, setOrdered] = useState(items);
+  const [ordered, setOrdered] = useState(() => applyOrderList(serverOrder, items));
   const [dragHref, setDragHref] = useState<string | null>(null);
 
   useEffect(() => {
-    // SSR ile ilk render her zaman prop sırasını kullanır (hydration uyumu);
-    // kayıtlı özel sıra yalnız mount SONRASI, istemci tarafında uygulanır.
+    // SSR ile ilk render her zaman server/prop sırasını kullanır (hydration
+    // uyumu); anlık localStorage önbelleği yalnız mount SONRASI uygulanır.
     // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage senkron, yalnız mount'ta bir kez
-    setOrdered(applyStoredOrder(sectionKey, items));
+    setOrdered(applyStoredOrder(userKey, sectionKey, applyOrderList(serverOrder, items)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sectionKey]);
 
@@ -95,11 +108,13 @@ function NavSection({
 
   function persistOrder(next: PanelNavItem[]) {
     setOrdered(next);
+    const hrefs = next.map((i) => i.href);
     try {
-      window.localStorage.setItem(orderStorageKey(sectionKey), JSON.stringify(next.map((i) => i.href)));
+      window.localStorage.setItem(orderStorageKey(userKey, sectionKey), JSON.stringify(hrefs));
     } catch {
       // sessizce yoksay — sıra kalıcı olmaz ama uygulama çalışmaya devam eder.
     }
+    void actionSaveNavOrder(sectionKey, hrefs);
   }
 
   function onDrop(targetHref: string) {
@@ -184,12 +199,21 @@ export function Sidebar({
   kurumSelection: _kurumSelection,
   canSeeAllKurumlar: _canSeeAllKurumlar,
   canViewFinanceAndStaffSummary = true,
+  userKey = "anon",
+  initialNavOrder,
+  initialCollapsed = false,
 }: {
   role?: SessionRole;
   kurumlar?: unknown;
   kurumSelection?: string;
   canSeeAllKurumlar?: boolean;
   canViewFinanceAndStaffSummary?: boolean;
+  /** Hesap-ad-alanlı önbellek anahtarı (userId). */
+  userKey?: string;
+  /** Hesap kaydından gelen bölüm sıraları. */
+  initialNavOrder?: Record<string, string[]>;
+  /** Hesap kaydından gelen dar/geniş tercihi. */
+  initialCollapsed?: boolean;
 }) {
   void _kurumlar;
   void _kurumSelection;
@@ -199,27 +223,30 @@ export function Sidebar({
   // Dar/geniş mod tercihi — yalnız görsel, kalıcı (localStorage). Mobilde
   // toggle hiç render edilmez (bkz. aşağıdaki `hidden md:inline-flex`) —
   // mobil deneyim bu değişiklikten etkilenmez.
-  const [collapsed, setCollapsed] = useState(false);
-  useEffect(() => {
-    // SSR ile ilk client render'ı HER ZAMAN "açık" (collapsed=false) üretir —
-    // hydration uyuşmazlığı olmasın diye. Kayıtlı tercih yalnız mount
-    // SONRASI, bilinçli olarak burada okunup uygulanır.
+  // P1 (2026-09-11) — ilk değer: server tercihi + hesap-ad-alanlı anlık
+  // önbellek (lazy initializer: SSR'de server değeri → hydration uyumlu;
+  // istemcide önbellek varsa o). Bileşen kullanıcı başına `key` ile
+  // yeniden kurulur (bkz. panel layout), bu yüzden effect GEREKMEZ.
+  const [collapsed, setCollapsed] = useState(() => {
+    if (typeof window === "undefined") return initialCollapsed;
     try {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage senkron, yalnız mount'ta bir kez
-      setCollapsed(window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "1");
+      const cached = window.localStorage.getItem(`${SIDEBAR_COLLAPSED_KEY}_${userKey}`);
+      return cached !== null ? cached === "1" : initialCollapsed;
     } catch {
-      // localStorage erişilemez (gizli mod vb.) — varsayılan açık modda kal.
+      return initialCollapsed;
     }
-  }, []);
+  });
 
   function toggleCollapsed() {
     setCollapsed((prev) => {
       const next = !prev;
       try {
-        window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, next ? "1" : "0");
+        window.localStorage.setItem(`${SIDEBAR_COLLAPSED_KEY}_${userKey}`, next ? "1" : "0");
+        document.cookie = `${SIDEBAR_COLLAPSED_KEY}=${next ? "1" : "0"}; path=/; max-age=${60 * 60 * 24 * 365}; samesite=lax`;
       } catch {
         // sessizce yoksay — tercih kalıcı olmaz ama uygulama çalışmaya devam eder.
       }
+      void actionSaveSidebarCollapsed(next);
       return next;
     });
   }
@@ -318,8 +345,8 @@ export function Sidebar({
       </div>
 
       <nav className="flex-1 space-y-5 overflow-y-auto px-3 py-4">
-        <NavSection sectionKey="main" items={PANEL_MAIN_NAV} pathname={pathname} role={role} collapsed={collapsed} />
-        <NavSection sectionKey="finance" title="Finans" items={PANEL_FINANCE_NAV} pathname={pathname} role={role} collapsed={collapsed} />
+        <NavSection sectionKey="main" items={PANEL_MAIN_NAV} pathname={pathname} role={role} collapsed={collapsed} userKey={userKey} serverOrder={initialNavOrder?.main} />
+        <NavSection sectionKey="finance" title="Finans" items={PANEL_FINANCE_NAV} pathname={pathname} role={role} collapsed={collapsed} userKey={userKey} serverOrder={initialNavOrder?.finance} />
         <NavSection
           sectionKey="ops"
           title="Operasyonlar"
@@ -331,12 +358,14 @@ export function Sidebar({
           pathname={pathname}
           role={role}
           collapsed={collapsed}
+          userKey={userKey}
+          serverOrder={initialNavOrder?.ops}
         />
-        <NavSection sectionKey="ai" title="Yapay Zeka" items={PANEL_AI_NAV} pathname={pathname} role={role} collapsed={collapsed} />
+        <NavSection sectionKey="ai" title="Yapay Zeka" items={PANEL_AI_NAV} pathname={pathname} role={role} collapsed={collapsed} userKey={userKey} serverOrder={initialNavOrder?.ai} />
       </nav>
 
       <div className="space-y-3 border-t px-3 py-4" style={{ borderColor: "var(--color-border)" }}>
-        <NavSection sectionKey="system" title="Sistem" items={PANEL_SYSTEM_NAV} pathname={pathname} role={role} collapsed={collapsed} />
+        <NavSection sectionKey="system" title="Sistem" items={PANEL_SYSTEM_NAV} pathname={pathname} role={role} collapsed={collapsed} userKey={userKey} serverOrder={initialNavOrder?.system} />
         <div className={cn("pt-1", collapsed ? "px-0 text-center" : "px-3")}>
           <LogoutButton className="!text-xs" />
         </div>

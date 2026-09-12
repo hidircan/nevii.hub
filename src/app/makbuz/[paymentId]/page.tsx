@@ -7,6 +7,7 @@ import { buildReceiptViewModel, canViewReceipt, receiptIneligibleReason } from "
 import { formatDate, formatMoney } from "@/lib/utils";
 import { Badge } from "@/components/ui";
 import { ReceiptActions } from "@/components/receipt-actions";
+import { printSurfaceCss } from "@/lib/contract-print-theme";
 
 export const dynamic = "force-dynamic";
 
@@ -118,12 +119,12 @@ export default async function ReceiptPage({
   const issuedAtIso = new Date().toISOString();
 
   return (
-    <div className="min-h-screen bg-[#f4f2f8] px-4 py-8 print:bg-[var(--color-surface)] print:p-0 sm:px-6">
-      <style>{"@media print { @page { size: A4; margin: 14mm; } }"}</style>
+    <div className="min-h-screen bg-[#f4f2f8] px-4 py-8 print:bg-white print:p-0 sm:px-6">
+      <style>{`@media print { @page { size: A4; margin: 14mm; } }${printSurfaceCss("doc-print-surface")}`}</style>
       <div className="mx-auto max-w-2xl">
         <ReceiptActions backHref={backHref} />
 
-        <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-6 shadow-sm print:rounded-none print:border-0 print:p-0 print:shadow-none sm:p-10">
+        <div className="doc-print-surface rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-6 shadow-sm print:rounded-none print:border-0 print:p-0 print:shadow-none sm:p-10">
           <div className="flex items-start justify-between gap-4 border-b border-[var(--color-border)] pb-6">
             <p className="text-lg font-semibold text-[var(--color-text)]">Ödeme Makbuzu</p>
             <div className="shrink-0 text-right">

@@ -41,7 +41,7 @@ export function LoginForm({ nextPath }: { nextPath?: string }) {
       });
       const json = (await res.json()) as {
         ok: boolean;
-        data?: { user: { role: string } };
+        data?: { user: { role: string }; resumeTo?: string | null };
         error?: { message: string };
       };
       if (!json.ok) {
@@ -51,9 +51,14 @@ export function LoginForm({ nextPath }: { nextPath?: string }) {
       }
 
       const role = json.data?.user.role;
+      // P1 (2026-09-11) — açık `next` YOKSA ve hesapta güvenli son rota
+      // varsa oraya dön (server `isSafeLastRoute` + rol filtresiyle
+      // doğruladı); yoksa rol ana sayfası.
+      const resumeTo = json.data?.resumeTo;
       let dest = nextPath || "/panel";
       if (!nextPath) {
-        if (role === "TEACHER") dest = "/ogretmen";
+        if (resumeTo && resumeTo.startsWith("/")) dest = resumeTo;
+        else if (role === "TEACHER") dest = "/ogretmen";
         else if (role === "STUDENT") dest = "/ogrenci";
         else dest = "/panel";
       }

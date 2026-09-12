@@ -39,6 +39,31 @@ describe("öğrenci ödeme-yoklama dökümü", () => {
     }
   });
 
+  it("yoklama satırında saat (zonlu HH:mm) + şube adı var; yoksa uydurmadan '—'", () => {
+    const data = createSeedData() as AppData;
+    const student = data.students.find((s) => data.lessons.some((l) => l.studentId === s.id));
+    if (!student) throw new Error("dersli seed öğrenci yok");
+    const statement = buildStudentPaymentAttendanceStatement({
+      data,
+      studentId: student.id,
+      term: "guz",
+      anchorYear: 2026,
+      contracts: [],
+      collectorNames: new Map(),
+    });
+    if ("error" in statement) throw new Error(statement.error);
+    const withLessons = statement.months.find((m) => m.lessons.length > 0);
+    if (!withLessons) throw new Error("seed derste yoklama satırı yok");
+    for (const row of withLessons.lessons) {
+      expect(row.time).toMatch(/^\d{2}:\d{2}$/);
+      // Şube: dersten çözülür; seed şube varsa kısa ad, yoksa undefined (görünüm "—").
+      const lesson = data.lessons.find((l) => l.startAt === row.startAt);
+      const expected = data.settings.branches.find((b) => b.id === lesson?.branchId)?.shortName;
+      expect(row.branchName ?? null).toBe(expected ?? null);
+      expect(row.date).toBe(row.startAt.slice(0, 10));
+    }
+  });
+
   it("öğretmen/veli döküm aracına erişemez", async () => {
     const teacher: ServiceContext = {
       role: "TEACHER",

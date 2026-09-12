@@ -59,6 +59,20 @@ export async function listConversations(
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
+/**
+ * P1 (2026-09-12) — tenant'taki TÜM sohbetler (kullanıcı ayrımı yok).
+ * YALNIZCA admin-only çağıranlar içindir (örn. İletişim Merkezi gelen
+ * WhatsApp listesi) — normal kullanıcı yolu her zaman kullanıcı-scoped
+ * `listConversations` kullanır. Ham telefon/mesaj içerir; çağıran
+ * maskelemeden UI'ya döndürmez.
+ */
+export async function listTenantConversations(tenantId: string): Promise<Conversation[]> {
+  const data = await load();
+  return data.conversations
+    .filter((c) => c.tenantId === tenantId)
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
 export async function getConversation(
   tenantId: string,
   userId: string,

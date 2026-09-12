@@ -320,12 +320,12 @@
   --font-mono: "SFMono-Regular", "SF Mono", Consolas, monospace;
 }
 
-/* P1 revizyonu — Gloock genel font seçeneği: gövde + başlık aynı aileyi
- * kullanır (diğer gövde seçenekleriyle aynı desen). layout.tsx'te
- * `--font-gloock` değişkeni zaten yükleniyor; bu blok eksik olduğu için
- * seçim sessizce etkisiz kalıyordu. */
+/* P1 revizyonu (2026-09-11) — Gloock YALNIZ display/headline/brand
+ * kapsamındadır (tasarım kararı): gövde `--font-sans` HER ZAMAN okunaklı
+ * Inter kalır; başlıklar Gloock kullanır. `appearance-policy.ts`
+ * BODY_FONT_ALLOWLIST ile AYNI kural (çift kilit: normalize + CSS). */
 :root[data-font="gloock"] {
-  --font-sans: var(--font-gloock), Gloock, Georgia, "Times New Roman", serif;
+  --font-sans: var(--font-inter), Inter, "Helvetica Neue", Arial, sans-serif;
   --font-display: var(--font-gloock), Gloock, Georgia, "Times New Roman", serif;
   --font-mono: "SFMono-Regular", "SF Mono", Consolas, monospace;
 }

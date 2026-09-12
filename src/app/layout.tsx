@@ -10,6 +10,7 @@ import {
   normalizeFontChoice,
   normalizeDensity,
 } from "@/lib/theme";
+import { clampPreferencesToPolicy } from "@/lib/appearance-policy";
 import { BRAND } from "@/lib/brand";
 import { AssistantProvider } from "@/components/ai/assistant-context";
 import { GlobalAssistant } from "@/components/ai/global-assistant";
@@ -78,9 +79,17 @@ export default async function RootLayout({
   // karar verilir — bu bir YETKİ kontrolü DEĞİL, yalnız render kararıdır;
   // gerçek yetki her istekte sunucuda ayrıca doğrulanır.
   const hasSessionCookie = !!jar.get(ACCESS_COOKIE)?.value;
-  const themeProfile = normalizeThemeProfile(jar.get(THEME_PROFILE_COOKIE)?.value);
-  const font = normalizeFontChoice(jar.get(FONT_COOKIE)?.value);
-  const density = normalizeDensity(jar.get(DENSITY_COOKIE)?.value);
+  // P1 (2026-09-11) — cookie değerleri appearance policy'den geçirilir:
+  // policy'e aykırı (örn. gövdede Gloock) kayıtlı değer güvenli varsayılana
+  // düşer; sözleşme Times kuralı print CSS'te ayrıca kilitlidir.
+  const clamped = clampPreferencesToPolicy({
+    themeProfile: normalizeThemeProfile(jar.get(THEME_PROFILE_COOKIE)?.value),
+    fontChoice: normalizeFontChoice(jar.get(FONT_COOKIE)?.value),
+    density: normalizeDensity(jar.get(DENSITY_COOKIE)?.value),
+  });
+  const themeProfile = clamped.themeProfile;
+  const font = clamped.fontChoice;
+  const density = clamped.density;
 
   return (
     <html

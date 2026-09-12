@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import Link from "next/link";
 import { subDays, format } from "date-fns";
 import { requireSessionContext } from "@/lib/auth/session";
 import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
@@ -64,7 +65,18 @@ export default async function TeacherPerformanceV2Page({
       <KurumScopeNote scope={kurum.scope} />
       <AssistantPageContext entity={{ kind: "teacher", id: teacher.id, label: teacher.name }} />
       <BackButton fallbackHref={`/panel/ogretmenler/${teacher.id}`} label="Öğretmen detayına dön" className="mb-3" />
-      <PageHeader title={`${teacher.name} — Detaylı Performans`} description="Yoklama, geri bildirim, iş takip ve ödev disiplini tek raporda." />
+      <PageHeader
+        title={`${teacher.name} — Detaylı Performans`}
+        description="Yoklama, geri bildirim, iş takip ve ödev disiplini tek raporda."
+        actions={
+          <Link
+            href={`/ogretmen-performans-yazdir/${teacher.id}?periodStart=${periodStart}&periodEnd=${periodEnd}`}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-2 text-sm font-medium text-[var(--color-text)] hover:bg-[var(--color-surface-muted)]"
+          >
+            Yazdır / PDF
+          </Link>
+        }
+      />
       {result.ok ? (
         <TeacherPerformanceV2Dashboard teacherId={teacher.id} periodStart={periodStart} periodEnd={periodEnd} report={result.data} />
       ) : (

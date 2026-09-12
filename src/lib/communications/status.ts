@@ -8,24 +8,31 @@ export const COMMUNICATION_STATUSES = [
   "draft",
   "pending_approval",
   "approved",
+  /** P1 (2026-09-11) — outbox şeridi: onay sonrası kuyruk, gönderim denemesi, iptal. */
+  "queued",
+  "sending",
   "manual_send_pending",
   "provider_accepted",
   "delivered",
   "failed",
   "blocked",
+  "cancelled",
 ] as const;
 
 export type CommunicationStatus = (typeof COMMUNICATION_STATUSES)[number];
 
 const ALLOWED: Record<CommunicationStatus, readonly CommunicationStatus[]> = {
-  draft: ["draft", "pending_approval", "blocked"],
-  pending_approval: ["pending_approval", "draft", "approved", "blocked"],
-  approved: ["approved", "manual_send_pending", "provider_accepted", "failed", "pending_approval"],
+  draft: ["draft", "pending_approval", "blocked", "cancelled"],
+  pending_approval: ["pending_approval", "draft", "approved", "blocked", "cancelled"],
+  approved: ["approved", "queued", "manual_send_pending", "provider_accepted", "failed", "pending_approval", "cancelled"],
+  queued: ["queued", "sending", "cancelled", "pending_approval"],
+  sending: ["sending", "queued", "delivered", "failed", "blocked"],
   manual_send_pending: ["manual_send_pending", "delivered", "failed", "pending_approval"],
   provider_accepted: ["provider_accepted", "delivered", "failed", "pending_approval"],
   delivered: ["delivered"],
-  failed: ["failed", "pending_approval"],
-  blocked: ["blocked", "pending_approval"],
+  failed: ["failed", "queued", "pending_approval"],
+  blocked: ["blocked", "queued", "pending_approval"],
+  cancelled: ["cancelled"],
 };
 
 /** Onaydan sonra yeniden düzenlenebilir/görünür kabul edilen "aktif taslak" durumları. */

@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { Sidebar } from "@/components/sidebar";
+import { LastRouteTracker } from "@/components/last-route-tracker";
 import { PanelHeader } from "@/components/panel-header";
 import { requireSessionContext } from "@/lib/auth/session";
 import { getUserById } from "@/lib/auth/users";
@@ -33,15 +34,32 @@ export default async function PanelLayout({
   ]);
   const currentKurum = kurum.available.find((k) => k.tenantId === session.tenantId);
   const density = normalizeDensity(jar.get(DENSITY_COOKIE)?.value);
+  // P1 (2026-09-11) — hesap workspace'i: sidebar sırası + dar/geniş tercihi
+  // server kaydından gelir (cookie yalnız önbellek). Kayıt yoksa varsayılan.
+  let initialNavOrder: Record<string, string[]> | undefined;
+  let initialCollapsed = jar.get("notaplan_sidebar_collapsed")?.value === "1";
+  try {
+    const { getUserPreferences } = await import("@/lib/user-preferences");
+    const prefs = await getUserPreferences(session.userId, session.tenantId);
+    if (prefs.navOrder) initialNavOrder = prefs.navOrder;
+    if (typeof prefs.sidebarCollapsed === "boolean") initialCollapsed = prefs.sidebarCollapsed;
+  } catch {
+    // best-effort — varsayılan düzenle devam.
+  }
 
   return (
     <div className="flex min-h-screen">
+      <LastRouteTracker />
       <Sidebar
+        key={session.userId}
         role={session.role}
         kurumlar={kurum.available}
         kurumSelection={kurum.selection}
         canSeeAllKurumlar={canSeeAllKurumlar(session)}
         canViewFinanceAndStaffSummary={canViewFinanceAndStaffSummary(session)}
+        userKey={session.userId}
+        initialNavOrder={initialNavOrder}
+        initialCollapsed={initialCollapsed}
       />
       <main className="flex-1 overflow-auto">
         <PanelHeader

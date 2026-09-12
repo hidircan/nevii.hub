@@ -26,6 +26,14 @@ import {
   type CommunicationResourceType,
   type PublicCommunicationMessage,
 } from "./types";
+import {
+  LESSON_PLAN_PARENT_TEMPLATE,
+  LESSON_PLAN_TEACHER_TEMPLATE,
+  renderLessonPlanTemplate,
+  type LessonPlanTemplateVars,
+} from "./lesson-plan-templates";
+import { TEMPLATE_CATALOG } from "../whatsapp-templates";
+import { isEmailProviderConfigured } from "../email/config";
 
 const MAX_BODY_LEN = 600;
 /** UI + server aynı üst sınırı uygular (FAZ5). */
@@ -98,6 +106,8 @@ export type DraftMessageInput = {
   createdBy: string;
   /** Aynı olay tekrar tetiklendiğinde duplicate taslak oluşmasını engelleyen anahtarın domain kısmı — tenant+kanal+tip+kaynak ile server tarafında birleştirilir. */
   idempotencySuffix?: string;
+  /** Veli/öğrenci iletişim izni kapalıysa taslak `blocked` düşer (kayıt yine oluşur, kaybolmaz). */
+  optOut?: boolean;
 };
 
 function deriveIdempotencyKey(input: DraftMessageInput): string {
@@ -114,7 +124,7 @@ export async function createCommunicationDraft(
   input: DraftMessageInput
 ): Promise<{ record: CommunicationMessage; created: boolean }> {
   const body = sanitizeBody(input.body);
-  const blockedCheck = evaluateBlockedState({ channel: input.channel, phone: input.recipientPhone });
+  const blockedCheck = evaluateBlockedState({ channel: input.channel, phone: input.recipientPhone, optOut: input.optOut });
   const status: CommunicationStatus = blockedCheck.blocked ? "blocked" : "pending_approval";
 
   return createCommunicationMessage({
@@ -313,7 +323,331 @@ export function describeCommunicationFit(body: string) {
   return estimateSmsSegments(body);
 }
 
+/* ------------------------------------------------------------------ */
+/* P1 (2026-09-11) — outbox dispatch şeridi: kuyruk → gönderim denemesi */
+/* → sonuç. BU TURDA GERÇEK PROVIDER ÇAĞRISI YAPILMAZ (yasak): hazır    */
+/* olmayan her şey `blocked`, hazır olan `mock_noop` ile kuyruğa döner. */
+/* Asla sahte `delivered` üretilmez.                                    */
+/* ------------------------------------------------------------------ */
+
+export const LESSON_PLAN_WA_TEMPLATE_KEYS = ["lesson_plan_parent", "lesson_plan_teacher"] as const;
+
+/** 24s müşteri-hizmetleri penceresi: inbound deposu YOKTUR (bilinçli boşluk — backlog), bu yüzden pencere her zaman KAPALI sayılır ve dışarıdan başlatılan WhatsApp gönderiminde onaylı şablon ZORUNLUDUR (Meta kuralıyla uyumlu). */
+export function isWhatsAppServiceWindowOpen(): boolean {
+  return false;
+}
+
+function staticCatalogKeys(): string[] {
+  return TEMPLATE_CATALOG.map((t) => t.key);
+}
+
+export function approvedWhatsAppTemplateKeys(): string[] {
+  return [...staticCatalogKeys(), ...LESSON_PLAN_WA_TEMPLATE_KEYS];
+}
+
+/** Render edilmemiş yer tutucu kalmış mı? (`{ad}` türü kalıntı gönderilmez.) */
+const UNRENDERED_PLACEHOLDER = /\{[a-zA-ZçÇğĞıİöÖşŞüÜ_]+\}/;
+
+export type DispatchReadiness =
+  | { ready: true; address?: string }
+  | { ready: false; code: string; message: string };
+
+/**
+ * Kanal-bazlı gönderim önkontrolleri (gerçek gönderime hazır akış).
+ * Sıra bilinçlidir: sağlayıcı → adres → izin → şablon → pencere.
+ */
+export function evaluateDispatchReadiness(input: {
+  channel: CommunicationChannel;
+  phone: string;
+  email?: string;
+  optOut?: boolean;
+  body: string;
+  templateKey?: string;
+}): DispatchReadiness {
+  if (input.channel === "SMS") {
+    if (!isSmsProviderConfigured() && !isSmsTestMode()) {
+      return { ready: false, code: "provider_unconfigured", message: "Engellendi — SMS sağlayıcısı yapılandırılmadı." };
+    }
+    const e164 = normalizeToE164(input.phone || "");
+    if (!e164.ok) return { ready: false, code: "invalid_phone", message: "Engellendi — Alıcı için geçerli telefon numarası yok." };
+    if (input.optOut) return { ready: false, code: "opt_out", message: "Engellendi — Alıcı için iletişim izni yok." };
+    return { ready: true, address: e164.e164 };
+  }
+  if (input.channel === "WHATSAPP") {
+    const transport = getWhatsAppTransport();
+    if (transport.name === "console") {
+      return { ready: false, code: "provider_unconfigured", message: "Engellendi — WhatsApp entegrasyonu yapılandırılmadı." };
+    }
+    const e164 = normalizeToE164(input.phone || "");
+    if (!e164.ok) return { ready: false, code: "invalid_phone", message: "Engellendi — Alıcı için geçerli WhatsApp numarası yok." };
+    if (input.optOut) return { ready: false, code: "opt_out", message: "Engellendi — Alıcı için WhatsApp iletişim izni yok." };
+    if (UNRENDERED_PLACEHOLDER.test(input.body || "")) {
+      return { ready: false, code: "template_fields", message: "Engellendi — WhatsApp şablon alanları eksik veya geçersiz." };
+    }
+    if (!isWhatsAppServiceWindowOpen()) {
+      const approved = approvedWhatsAppTemplateKeys();
+      if (!input.templateKey) {
+        return { ready: false, code: "window_closed", message: "Engellendi — 24 saatlik müşteri hizmetleri penceresi kapalı; uygun şablon gerekir." };
+      }
+      if (!approved.includes(input.templateKey)) {
+        return { ready: false, code: "template_missing", message: "Engellendi — Onaylı WhatsApp şablonu bulunamadı." };
+      }
+    }
+    return { ready: true, address: e164.e164 };
+  }
+  // EMAIL
+  if (!isEmailProviderConfigured()) {
+    return { ready: false, code: "provider_unconfigured", message: "Engellendi — E-posta sağlayıcısı yapılandırılmadı." };
+  }
+  const address = (input.email ?? "").trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(address)) {
+    return { ready: false, code: "invalid_email", message: "Engellendi — Alıcı için geçerli e-posta adresi yok." };
+  }
+  if (input.optOut) return { ready: false, code: "opt_out", message: "Engellendi — Alıcı için iletişim izni yok." };
+  return { ready: true, address };
+}
+
+async function resolveDispatchContact(
+  tenantId: string,
+  message: CommunicationMessage
+): Promise<{ optOut: boolean; email?: string }> {
+  try {
+    const { readData } = await import("../store");
+    const data = await readData();
+    if (message.recipientType === "TEACHER") {
+      const teacher = data.teachers.find((t) => t.id === message.recipientId);
+      // Öğretmen için izin deposu YOKTUR (bilinçli boşluk — backlog): açık
+      // opt-out kaydı yoksa engelleme üretilmez, e-posta öğretmen kaydından.
+      return { optOut: false, email: teacher?.email };
+    }
+    const student = data.students.find((s) => s.id === message.recipientId);
+    if (student) return { optOut: !!student.communicationOptOut, email: student.email };
+  } catch {
+    // best-effort — kayıt okunamazsa engelleme üretilmez.
+  }
+  return { optOut: false };
+}
+
+export type DispatchOutcome =
+  | { ok: true; status: "queued"; note: string }
+  | { ok: false; code: string; message: string };
+
+/**
+ * Tek mesaj dispatch denemesi: `approved`/`queued`/`failed` durumundan
+ * `sending`e geçirir, hazır değilse `blocked`e düşürür, hazırsa BU TURDA
+ * gerçek gönderim YAPMADAN `queued`e döndürür (`mock_noop` — sahte
+ * `delivered` YOK). Her deneme audit'e ve `events`e işlenir.
+ */
+export async function dispatchCommunicationMessageTool(
+  ctx: ServiceContext,
+  input: { id: string }
+): Promise<ServiceResult<{ message: PublicCommunicationMessage; outcome: DispatchOutcome }>> {
+  const auth = assertAdmin(ctx);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+
+  const current = await getCommunicationMessage(ctx.tenantId, input.id);
+  if (!current) return fail("NOT_FOUND", "Mesaj bulunamadı");
+  if (current.status !== "approved" && current.status !== "queued" && current.status !== "failed") {
+    return fail("VALIDATION_ERROR", `Bu durumda gönderim başlatılamaz (${current.status}). Önce onaylayıp kuyruğa alın.`);
+  }
+
+  const attemptCount = current.attemptCount + 1;
+  const sending = await transitionCommunicationMessage({
+    tenantId: ctx.tenantId,
+    id: current.id,
+    to: "sending",
+    actorUserId: ctx.userId,
+    reason: "dispatch_attempt",
+    patch: { attemptCount },
+  });
+  if (!sending) return fail("NOT_FOUND", "Mesaj bulunamadı");
+  audit(ctx, "communication.dispatch_attempt", sending.id, { attempt: attemptCount, channel: sending.channel });
+
+  const contact = await resolveDispatchContact(ctx.tenantId, sending);
+  const readiness = evaluateDispatchReadiness({
+    channel: sending.channel,
+    phone: sending.recipientPhone,
+    email: contact.email,
+    optOut: contact.optOut,
+    body: sending.approvedBodySnapshot ?? sending.draftBody,
+    templateKey: sending.templateKey,
+  });
+
+  if (!readiness.ready) {
+    const blocked = await transitionCommunicationMessage({
+      tenantId: ctx.tenantId,
+      id: sending.id,
+      to: "blocked",
+      actorUserId: ctx.userId,
+      reason: "dispatch_blocked",
+      patch: { blockedReasonCode: readiness.code, blockedReasonMessage: readiness.message, providerResultCode: readiness.code, providerResultSummary: readiness.message },
+    });
+    if (!blocked) return fail("NOT_FOUND", "Mesaj bulunamadı");
+    audit(ctx, "communication.dispatch_blocked", blocked.id, { code: readiness.code });
+    return ok({ message: toPublicCommunicationMessage(blocked), outcome: { ok: false, code: readiness.code, message: readiness.message } });
+  }
+
+  // Hazır ama BU TURDA gerçek provider çağrısı yasak → kuyruğa dönüş.
+  const note = "Kuyrukta — Local/mock ortamda gerçek gönderim yapılmadı.";
+  const back = await transitionCommunicationMessage({
+    tenantId: ctx.tenantId,
+    id: sending.id,
+    to: "queued",
+    actorUserId: ctx.userId,
+    reason: "dispatch_mock_noop",
+    patch: { providerResultCode: "mock_noop", providerResultSummary: note },
+  });
+  if (!back) return fail("NOT_FOUND", "Mesaj bulunamadı");
+  audit(ctx, "communication.dispatch_mock_noop", back.id, { channel: back.channel });
+  return ok({ message: toPublicCommunicationMessage(back), outcome: { ok: true, status: "queued", note } });
+}
+
+/** Onaylı mesajı kuyruğa alır (`approved` → `queued`). */
+export async function enqueueCommunicationMessageTool(
+  ctx: ServiceContext,
+  input: { id: string }
+): Promise<ServiceResult<{ message: PublicCommunicationMessage }>> {
+  const auth = assertAdmin(ctx);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+
+  const current = await getCommunicationMessage(ctx.tenantId, input.id);
+  if (!current) return fail("NOT_FOUND", "Mesaj bulunamadı");
+  if (!canTransitionCommunication(current.status, "queued")) {
+    return fail("VALIDATION_ERROR", `Bu durumda kuyruğa alınamaz (${current.status}).`);
+  }
+  const next = await transitionCommunicationMessage({
+    tenantId: ctx.tenantId,
+    id: current.id,
+    to: "queued",
+    actorUserId: ctx.userId,
+    reason: "enqueue",
+  });
+  if (!next) return fail("NOT_FOUND", "Mesaj bulunamadı");
+  audit(ctx, "communication.enqueue", next.id, { channel: next.channel });
+  return ok({ message: toPublicCommunicationMessage(next) });
+}
+
+/**
+ * "Onayla ve kuyruğa al" — TEK görünür aksiyon: onaylar (snapshot donar) ve
+ * kuyruğa geçirir. Sonuç toast + liste durumu + audit ile görünür.
+ */
+export async function approveAndEnqueueCommunicationMessageTool(
+  ctx: ServiceContext,
+  input: { id: string }
+): Promise<ServiceResult<{ message: PublicCommunicationMessage }>> {
+  const auth = assertAdmin(ctx);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+
+  const approved = await approveOneCommunicationMessage(ctx, input.id);
+  if (!approved.ok) return fail(approved.code === "NOT_FOUND" ? "NOT_FOUND" : "VALIDATION_ERROR", approved.reason);
+  const queued = await transitionCommunicationMessage({
+    tenantId: ctx.tenantId,
+    id: approved.message.id,
+    to: "queued",
+    actorUserId: ctx.userId,
+    reason: "approve_and_enqueue",
+  });
+  if (!queued) return fail("NOT_FOUND", "Mesaj bulunamadı");
+  audit(ctx, "communication.approve_enqueue", queued.id, { channel: queued.channel });
+  return ok({ message: toPublicCommunicationMessage(queued) });
+}
+
+/** Başarısız/engellenmiş mesajı güvenli biçimde yeniden kuyruğa alır. */
+export async function retryCommunicationMessageTool(
+  ctx: ServiceContext,
+  input: { id: string }
+): Promise<ServiceResult<{ message: PublicCommunicationMessage }>> {
+  const auth = assertAdmin(ctx);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+
+  const current = await getCommunicationMessage(ctx.tenantId, input.id);
+  if (!current) return fail("NOT_FOUND", "Mesaj bulunamadı");
+  if (current.status !== "failed" && current.status !== "blocked") {
+    return fail("VALIDATION_ERROR", `Yalnızca başarısız/engellenmiş mesaj yeniden denenebilir (${current.status}).`);
+  }
+  const next = await transitionCommunicationMessage({
+    tenantId: ctx.tenantId,
+    id: current.id,
+    to: "queued",
+    actorUserId: ctx.userId,
+    reason: "retry",
+    patch: { blockedReasonCode: undefined, blockedReasonMessage: undefined },
+  });
+  if (!next) return fail("NOT_FOUND", "Mesaj bulunamadı");
+  audit(ctx, "communication.retry", next.id, { from: current.status });
+  return ok({ message: toPublicCommunicationMessage(next) });
+}
+
+/** Henüz gönderilmemiş mesajı iptal eder — gönderilmiş kayıt ASLA iptal edilmez. */
+export async function cancelCommunicationMessageTool(
+  ctx: ServiceContext,
+  input: { id: string }
+): Promise<ServiceResult<{ message: PublicCommunicationMessage }>> {
+  const auth = assertAdmin(ctx);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+
+  const current = await getCommunicationMessage(ctx.tenantId, input.id);
+  if (!current) return fail("NOT_FOUND", "Mesaj bulunamadı");
+  if (!canTransitionCommunication(current.status, "cancelled")) {
+    return fail("VALIDATION_ERROR", `Bu durumda iptal edilemez (${current.status}). Gönderilmiş kayıtlar iptal edilmiş gibi gösterilmez.`);
+  }
+  const next = await transitionCommunicationMessage({
+    tenantId: ctx.tenantId,
+    id: current.id,
+    to: "cancelled",
+    actorUserId: ctx.userId,
+    reason: "cancel",
+  });
+  if (!next) return fail("NOT_FOUND", "Mesaj bulunamadı");
+  audit(ctx, "communication.cancel", next.id, { from: current.status });
+  return ok({ message: toPublicCommunicationMessage(next) });
+}
+
 export { uid as generateCommunicationId };
+
+/* ------------------------------------------------------------------ */
+/* P1 (2026-09-12) — daraltılmış gelen WhatsApp listesi. Inbound      */
+/* deposu webhook→AI-sohbet hattıdır (`wa:<telefon>` başlıklı        */
+/* Conversation); bu liste admin-only, tenant-scoped, salt-okunur bir */
+/* özettedir: telefon maskeli, yalnızca SON GELEN mesajdan 120        */
+/* karakterlik alıntı, en yeni 50 kayıt. Yanıt/operasyon YOK.         */
+/* ------------------------------------------------------------------ */
+
+export const MAX_WHATSAPP_INBOUND_LIST = 50;
+const INBOUND_EXCERPT_LEN = 120;
+
+export type WhatsAppInboundSummary = {
+  id: string;
+  phoneMasked: string;
+  lastInboundExcerpt: string;
+  messageCount: number;
+  updatedAt: string;
+};
+
+export async function listWhatsAppInboundTool(
+  ctx: ServiceContext
+): Promise<ServiceResult<{ conversations: WhatsAppInboundSummary[] }>> {
+  const auth = assertAdmin(ctx);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+
+  const { listTenantConversations } = await import("../ai/conversations");
+  const { maskPhoneDisplay } = await import("./types");
+  const all = await listTenantConversations(ctx.tenantId);
+  const conversations = all
+    .filter((c) => c.title.startsWith("wa:"))
+    .slice(0, MAX_WHATSAPP_INBOUND_LIST)
+    .map((c) => {
+      const inbound = [...c.messages].reverse().find((m) => m.role === "user");
+      return {
+        id: c.id,
+        phoneMasked: maskPhoneDisplay(c.title.slice("wa:".length)),
+        lastInboundExcerpt: (inbound?.content ?? "").slice(0, INBOUND_EXCERPT_LEN),
+        messageCount: c.messages.length,
+        updatedAt: c.updatedAt,
+      };
+    });
+  return ok({ conversations });
+}
 
 /**
  * Telafi dersi planlandığında veli için SMS + WhatsApp CommunicationMessage
@@ -321,6 +655,79 @@ export { uid as generateCommunicationId };
  * kanal aynıysa ikinci çağrı (retry) yeni kayıt yaratmaz — deriveIdempotencyKey
  * zaten resourceId=lesson.id'yi anahtara dahil eder.
  */
+export type LessonPlanDraftParty = {
+  name: string;
+  phone: string;
+  studentId?: string;
+  teacherId?: string;
+  optOut?: boolean;
+};
+
+/**
+ * P1 (2026-09-11) — ders planı oluşturulduğunda veli + öğretmen iletişim
+ * kayıtları. Veli SMS+WhatsApp, öğretmen WhatsApp alır (öğretmen anlık
+ * bildirimi ayrıca `notifyTeacherLessonPlanned` ile gider — çift kanal
+ * şişkinliği bilinçli olarak YOK). Aynı ders+alıcı+kanal+tip için ikinci
+ * çağrı yeni kayıt YARATMAZ (idempotency anahtarı). Gönderim başarısızsa
+ * kayıt `failed` durumunda KALIR; mesaj gönderilmedi diye ders akışı
+ * ASLA bozulmaz (çağıran best-effort try/catch ile çağırır).
+ */
+export async function createLessonPlanCommunicationDrafts(input: {
+  tenantId: string;
+  lessonId: string;
+  createdBy: string;
+  vars: LessonPlanTemplateVars;
+  parent: LessonPlanDraftParty;
+  teacher: LessonPlanDraftParty;
+}): Promise<{ records: CommunicationMessage[] }> {
+  const parentBody = renderLessonPlanTemplate(LESSON_PLAN_PARENT_TEMPLATE, {
+    ...input.vars,
+    veliAdi: input.parent.name,
+  });
+  const teacherBody = renderLessonPlanTemplate(LESSON_PLAN_TEACHER_TEMPLATE, {
+    ...input.vars,
+    ogretmenAdi: input.teacher.name,
+  });
+  const records: CommunicationMessage[] = [];
+  if (parentBody.ok) {
+    const base = {
+      tenantId: input.tenantId,
+      recipientType: "PARENT" as const,
+      recipientId: input.parent.studentId ?? input.lessonId,
+      recipientName: input.parent.name,
+      recipientPhone: input.parent.phone,
+      messageType: "LESSON" as const,
+      resourceType: "lesson" as const,
+      resourceId: input.lessonId,
+      body: parentBody.body,
+      createdBy: input.createdBy,
+      optOut: input.parent.optOut,
+      idempotencySuffix: "plan",
+    };
+    const sms = await createCommunicationDraft({ ...base, channel: "SMS" });
+    const whatsapp = await createCommunicationDraft({ ...base, channel: "WHATSAPP" });
+    records.push(sms.record, whatsapp.record);
+  }
+  if (teacherBody.ok) {
+    const wa = await createCommunicationDraft({
+      tenantId: input.tenantId,
+      recipientType: "TEACHER",
+      recipientId: input.teacher.teacherId ?? input.lessonId,
+      recipientName: input.teacher.name,
+      recipientPhone: input.teacher.phone,
+      channel: "WHATSAPP",
+      messageType: "LESSON",
+      resourceType: "lesson",
+      resourceId: input.lessonId,
+      body: teacherBody.body,
+      createdBy: input.createdBy,
+      idempotencySuffix: "plan",
+    });
+    records.push(wa.record);
+  }
+  return { records };
+}
+
 export async function createMakeupLessonCommunicationDrafts(input: {
   tenantId: string;
   lessonId: string;

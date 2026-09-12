@@ -144,6 +144,8 @@ export function statusLabel(status: string) {
     overdue: "Gecikmiş",
     partial: "Kısmi",
     voided: "İptal edildi",
+    queued: "Kuyrukta",
+    sending: "Gönderiliyor",
     scheduled: "Planlandı",
     no_show: "Gelmedi",
     regular: "Normal",

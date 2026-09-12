@@ -69,6 +69,7 @@ model Tenant {
   studentListViews            StudentListView[]
   profilePhotos               ProfilePhoto[]
   passwordResetTokens         PasswordResetToken[]
+  emailChangeTokens           EmailChangeToken[]
   createdAt                   DateTime                     @default(now())
   updatedAt                   DateTime                     @updatedAt
 }
@@ -155,6 +156,24 @@ model PasswordResetToken {
   tenantId  String
   tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   userId    String
+  tokenHash String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([tokenHash])
+  @@index([userId])
+}
+
+/// E-posta değiştirme doğrulama token'ları (2026-09-11) — yeni adres
+/// bağlama amacı ayrı olduğu için ayrı tablo (şifre sıfırlama token'larıyla
+/// KARIŞMAZ). BU MİGRATION HİÇBİR VERİTABANINA UYGULANMADI.
+model EmailChangeToken {
+  id        String    @id
+  tenantId  String
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId    String
+  newEmail  String
   tokenHash String
   expiresAt DateTime
   usedAt    DateTime?
@@ -909,6 +928,9 @@ model CommunicationMessage {
   status                String    @default("pending_approval")
   draftBody             String
   approvedBodySnapshot  String?
+  /// P1 (2026-09-11) — WhatsApp onaylı-şablon anahtarı (nullable/additive).
+  /// BU MİGRATION HİÇBİR VERİTABANINA UYGULANMADI.
+  templateKey           String?
   createdBy             String
   approvedBy            String?
   approvedAt            DateTime?
@@ -1274,6 +1296,25 @@ model WorkflowState {
   lastError   String?
   runCount    Int       @default(0)
   updatedAt   DateTime  @updatedAt
+}
+
+/// P1 (2026-09-11) — kullanıcı çalışma alanı tercihleri: hesap bazlı
+/// (`userId` + `tenantId`), tema/font/yoğunluk/sidebar/nav-sırası/son-rota.
+/// Audit/finans/yetki verisinden AYRI tablo. BU MİGRATION HİÇBİR
+/// VERİTABANINA UYGULANMADI — yalnızca dosya olarak eklendi.
+model UserPreference {
+  userId           String
+  tenantId         String
+  themeProfile     String?
+  fontChoice       String?
+  density          String?
+  sidebarCollapsed Boolean?
+  navOrderJson     String?   @db.Text
+  lastRoute        String?
+  updatedAt        DateTime  @updatedAt
+
+  @@id([userId, tenantId])
+  @@index([tenantId])
 }
 
 /// General-purpose critical-action audit trail (EPIC 0). Distinct from

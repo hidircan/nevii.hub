@@ -21,6 +21,7 @@ import {
   normalizeDensity,
   normalizePortalPresentation,
 } from "./theme";
+import { clampPreferencesToPolicy } from "./appearance-policy";
 import { auditLog } from "./auth/audit";
 import { isFormalContractDuration } from "./contracts";
 import { uid } from "./utils";
@@ -307,6 +308,31 @@ export async function actionSetKurum(selection: string): Promise<void> {
  * ekranında da çalışsın diye) ve hiçbir yetki/kurum/veri kararını
  * etkilemez. Yalnızca kullanıcının kişisel görsel cookie'leridir.
  */
+/**
+ * P1 (2026-09-11) — oturum varsa tercihi hesap kaydına da yazar
+ * (write-through: cookie = istemci önbelleği, store = gerçek kaynak).
+ * Oturumsuz çağrıda (login ekranı) yalnız cookie yazılır — kayıp yok,
+ * login sonrası bootstrap yine de hesap kaydını yükler.
+ */
+async function persistWorkspacePatch(patch: {
+  themeProfile?: string;
+  fontChoice?: string;
+  density?: string;
+}): Promise<void> {
+  try {
+    const session = await getSessionContext();
+    if (!session?.userId || !session?.tenantId) return;
+    const { saveUserPreferences } = await import("./user-preferences");
+    const clean: { themeProfile?: "gold" | "obsidian" | "navy" | "forest" | "burgundy" | "ocean" | "lavender" | "atolye" | "murekkep"; fontChoice?: "roboto_serif" | "playfair_display" | "inter" | "noto_sans" | "gloock"; density?: "comfortable" | "compact" } = {};
+    if (patch.themeProfile !== undefined) clean.themeProfile = normalizeThemeProfile(patch.themeProfile);
+    if (patch.fontChoice !== undefined) clean.fontChoice = normalizeFontChoice(patch.fontChoice);
+    if (patch.density !== undefined) clean.density = normalizeDensity(patch.density);
+    await saveUserPreferences(session.userId, session.tenantId, clampPreferencesToPolicy(clean));
+  } catch {
+    // best-effort — cookie zaten yazıldı, tercih kaybolmaz.
+  }
+}
+
 export async function actionSetThemeProfile(profile: string): Promise<void> {
   const normalized = normalizeThemeProfile(profile);
   const jar = await cookies();
@@ -316,6 +342,7 @@ export async function actionSetThemeProfile(profile: string): Promise<void> {
     path: "/",
     maxAge: 60 * 60 * 24 * 365,
   });
+  await persistWorkspacePatch({ themeProfile: normalized });
   revalidatePath("/", "layout");
 }
 
@@ -328,6 +355,7 @@ export async function actionSetFont(font: string): Promise<void> {
     path: "/",
     maxAge: 60 * 60 * 24 * 365,
   });
+  await persistWorkspacePatch({ fontChoice: normalized });
   revalidatePath("/", "layout");
 }
 
@@ -349,7 +377,53 @@ export async function actionSetDensity(density: string): Promise<void> {
     path: "/",
     maxAge: 60 * 60 * 24 * 365,
   });
+  await persistWorkspacePatch({ density: normalized });
   revalidatePath("/", "layout");
+}
+
+/**
+ * P1 (2026-09-11) — son güvenli rota kaydı (LastRouteTracker'dan).
+ * Güvensiz hedefler `isSafeLastRoute` ile sessizce atılır — tercih
+ * kirlenmez, login sonrası yanlış yere yönlendirme olmaz.
+ */
+export async function actionSaveLastRoute(route: string): Promise<void> {
+  try {
+    const session = await getSessionContext();
+    if (!session?.userId || !session?.tenantId) return;
+    const { isSafeLastRoute, saveUserPreferences } = await import("./user-preferences");
+    if (!isSafeLastRoute(route)) return;
+    await saveUserPreferences(session.userId, session.tenantId, { lastRoute: route });
+  } catch {
+    // best-effort.
+  }
+}
+
+/** P1 (2026-09-11) — menü bölüm sırası kaydı (Sidebar yeniden sıralama). */
+export async function actionSaveNavOrder(sectionKey: string, hrefs: string[]): Promise<void> {
+  try {
+    const session = await getSessionContext();
+    if (!session?.userId || !session?.tenantId) return;
+    const { getUserPreferences, saveUserPreferences } = await import("./user-preferences");
+    const prev = await getUserPreferences(session.userId, session.tenantId);
+    const clean = hrefs.filter((h) => typeof h === "string" && h.startsWith("/")).slice(0, 60);
+    await saveUserPreferences(session.userId, session.tenantId, {
+      navOrder: { ...(prev.navOrder ?? {}), [sectionKey]: clean },
+    });
+  } catch {
+    // best-effort.
+  }
+}
+
+/** P1 (2026-09-11) — sidebar açık/kapalı tercihi kaydı. */
+export async function actionSaveSidebarCollapsed(collapsed: boolean): Promise<void> {
+  try {
+    const session = await getSessionContext();
+    if (!session?.userId || !session?.tenantId) return;
+    const { saveUserPreferences } = await import("./user-preferences");
+    await saveUserPreferences(session.userId, session.tenantId, { sidebarCollapsed: collapsed });
+  } catch {
+    // best-effort.
+  }
 }
 
 /**

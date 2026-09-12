@@ -6,6 +6,7 @@ import { roleLabelTr } from "@/lib/auth/role-labels";
 import { isDbMode } from "@/lib/config";
 import { Card, PageHeader } from "@/components/ui";
 import { AccountPasswordForm } from "@/components/account-password-form";
+import { AccountEmailChangeForm } from "@/components/account-email-change-form";
 
 export const dynamic = "force-dynamic";
 
@@ -16,9 +17,10 @@ export const dynamic = "force-dynamic";
  * (SCHOOL_ADMIN/SUPER_ADMIN/TEACHER — panel'e erişebilen roller) render
  * edilir. `User` modelinde ad/telefon/fotoğraf alanı YOK (bkz. şema) —
  * bu tur bunları eklemiyor (PII/şema genişletmesi, migration gerektirir);
- * yalnızca var olan e-posta/rol/kurum bilgisini gösterir ve e-posta
- * BİLİNÇLİ OLARAK salt-okunur (güvenli doğrulama akışı olmadan sessizce
- * değiştirilmez).
+ * yalnızca var olan e-posta/rol/kurum bilgisini gösterir. E-posta
+ * değişikliği güvenli doğrulama akışıyla yapılır (mevcut şifre + yeni adrese
+ * doğrulama bağlantısı + eski adrese güvenlik bildirimi — bkz.
+ * `src/lib/auth/email-change.ts`).
  */
 export default async function HesabimPage() {
   let session;
@@ -54,10 +56,11 @@ export default async function HesabimPage() {
               </div>
             ) : null}
           </dl>
-          <p className="mt-4 text-xs text-[var(--color-text-muted)]">
-            E-posta adresiniz şu an salt okunurdur — değişiklik için güvenli bir doğrulama akışı gerektirir ve bu
-            sürümde henüz sunulmuyor.
-          </p>
+        </Card>
+
+        <Card>
+          <h2 className="mb-4 font-semibold text-[var(--color-text)]">E-posta değiştir</h2>
+          <AccountEmailChangeForm currentEmail={user?.email} />
         </Card>
 
         <Card>

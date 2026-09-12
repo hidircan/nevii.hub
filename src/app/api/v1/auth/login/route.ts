@@ -74,6 +74,36 @@ export const POST = withApiHandler(
       outcome: "success",
     });
 
+    // P1 (2026-09-11) — workspace bootstrap: YALNIZCA giriş yapan hesabın
+    // kaydı istemci önbelleğine yazılır (Ezgi/Nihal ayrımı). Kayıt yoksa
+    // varsayılanlar; policy'e aykırı kayıtlı değer güvenli değere düşer.
+    // `resumeTo`, rolüne hâlâ yetkili olduğu son güvenli rotadır.
+    let resumeTo: string | null = null;
+    let bootstrap:
+      | { theme: string; font: string; density: string; collapsed: boolean | null }
+      | null = null;
+    try {
+      const { getUserPreferences, resolveResumeRoute } = await import("@/lib/user-preferences");
+      const { clampPreferencesToPolicy } = await import("@/lib/appearance-policy");
+      const prefs = await getUserPreferences(user.userId, user.tenantId);
+      const clamped = clampPreferencesToPolicy({
+        themeProfile: prefs.themeProfile,
+        fontChoice: prefs.fontChoice,
+        density: prefs.density,
+      });
+      bootstrap = {
+        theme: clamped.themeProfile,
+        font: clamped.fontChoice,
+        density: clamped.density,
+        collapsed: typeof prefs.sidebarCollapsed === "boolean" ? prefs.sidebarCollapsed : null,
+      };
+      const home = user.role === "TEACHER" ? "/ogretmen" : user.role === "STUDENT" ? "/ogrenci" : "/panel";
+      const resolved = resolveResumeRoute(user.role, prefs.lastRoute, home);
+      resumeTo = resolved === home ? null : resolved;
+    } catch {
+      // best-effort — giriş BAŞARILIDIR, bootstrap sessizce atlanır.
+    }
+
     const res = NextResponse.json({
       ok: true as const,
       data: {
@@ -85,9 +115,23 @@ export const POST = withApiHandler(
           teacherId: user.teacherId,
           studentId: user.studentId,
         },
+        resumeTo,
         ...tokens,
       },
     });
+    if (bootstrap) {
+      const year = 60 * 60 * 24 * 365;
+      res.cookies.set("notaplan_theme_profile", bootstrap.theme, { path: "/", maxAge: year, sameSite: "lax" });
+      res.cookies.set("notaplan_font", bootstrap.font, { path: "/", maxAge: year, sameSite: "lax" });
+      res.cookies.set("notaplan_density", bootstrap.density, { path: "/", maxAge: year, sameSite: "lax" });
+      if (bootstrap.collapsed !== null) {
+        res.cookies.set("notaplan_sidebar_collapsed", bootstrap.collapsed ? "1" : "0", {
+          path: "/",
+          maxAge: year,
+          sameSite: "lax",
+        });
+      }
+    }
     applyAuthCookies(res, tokens);
     return res;
   },

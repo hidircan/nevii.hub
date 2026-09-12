@@ -65,9 +65,11 @@ export function isInstitutionManager(actor: AccessActor): boolean {
 
 /**
  * Kurum geneli finans özeti + personel özeti.
- * Platform sahibi ve kurum sahibi görür. Kurum müdürü (Ezgi Güçlü / Nihal
- * Gedikli yetki seti) göremez. Diğer SCHOOL_ADMIN (günlük operasyon
- * hesabı) mevcut erişimini korur.
+ * Platform sahibi ve kurum sahibi görür. Kurum müdürü (Ezgi Güçlü —
+ * NeviiHub bootstrap SCHOOL_ADMIN) göremez. Diğer SCHOOL_ADMIN (günlük
+ * operasyon hesabı) mevcut erişimini korur. Nihal Gedikli'nin login
+ * kimliği merkezi auth'ta BRANCH_MANAGER'dır; NeviiHub'da duplicate
+ * kayıt tutulmaz.
  */
 export function canViewFinanceAndStaffSummary(actor: AccessActor): boolean {
   if (isPlatformOwner(actor) || isInstitutionOwner(actor)) return true;

@@ -34,3 +34,45 @@ export const CONTRACT_PRINT_PINNED_VARS = [
   "--color-border",
   "--color-primary",
 ] as const;
+
+/**
+ * P0 (2026-09-11) — ORTAK baskı yüzeyi: sözleşme/evrak/makbuz/döküm
+ * sayfalarının TAMAMI aynı tema-bağımsızlık mekanizmasını kullanır.
+ *
+ * KÖK NEDEN (KVKK/evrak + makbuzda TEKRARLANDI): bu sayfalar
+ * `text-[var(--color-text)]` / `bg-[var(--color-surface)]` ile doğrudan
+ * tema değişkenine bağlıydı; koyu tema profilinde zemin koyu + metin açık
+ * çözülüyor, "arka plan grafikleri kapalı" varsayılanıyla kağıt beyaz
+ * kalıp metin görünmez oluyordu → BOŞ BEYAZ SAYFA (sözleşmedeki 2026-09-07
+ * hatasıyla AYNI sınıf). Çözüm: yüzeyde paleti SABİTLE + `color-scheme:
+ * light` + başlık renklerini açıkça kilitle. Sözleşme sayfası kendi
+ * tarihsel satır-içi bloğunu korur (içerik EŞDEĞERDİR — bu helper onun
+ * genelleştirilmiş biçimidir); yeni/düzeltilen yüzeyler bu helper'ı
+ * kullanır — üçüncü/farklı bir print sistemi ÜRETİLMEZ.
+ */
+export function printSurfaceCss(className: string): string {
+  const P = CONTRACT_PRINT_PALETTE;
+  return `
+  .${className} {
+    --color-text: ${P.text};
+    --color-text-muted: ${P.textMuted};
+    --color-surface: ${P.surface};
+    --color-surface-muted: ${P.surfaceMuted};
+    --color-border: ${P.border};
+    --color-primary: ${P.text};
+    background: ${P.surface};
+    color: ${P.text};
+    color-scheme: light;
+  }
+  .${className} h1,
+  .${className} h2,
+  .${className} h3,
+  .${className} h4,
+  .${className} th {
+    color: ${P.text};
+  }
+  @media print {
+    .${className} { padding: 0; background: ${P.surface}; color: ${P.text}; }
+  }
+`;
+}

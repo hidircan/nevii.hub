@@ -141,3 +141,15 @@ export async function setDynamicUserPasswordHash(userId: string, passwordHash: s
   await saveAll(all);
   return true;
 }
+
+/** E-posta değiştirme akışının dynamic-kullanıcı yazma ucu (kalıcı dosya). */
+export async function setDynamicUserEmail(userId: string, email: string): Promise<boolean> {
+  const normalized = email.trim().toLowerCase();
+  if (!normalized) return false;
+  const all = await loadAll();
+  const idx = all.findIndex((u) => u.userId === userId);
+  if (idx === -1) return false;
+  all[idx] = { ...all[idx], email: normalized, updatedAt: new Date().toISOString() };
+  await saveAll(all);
+  return true;
+}

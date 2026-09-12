@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils";
 import type { AppRole } from "@/lib/auth/types";
 import { roleLabelTr, initialsFromEmail } from "@/lib/auth/role-labels";
 import { actionSetThemeProfile, actionResetThemePreferences, actionSetDensity } from "@/lib/actions";
+import { clearWorkspaceClientCache } from "@/lib/workspace-client-cache";
 import { QUICK_THEME_TO_PROFILE, type QuickThemeChoice, type Density } from "@/lib/theme";
 import { notificationSettingsPathForRole } from "@/lib/auth/role-routes";
 
@@ -89,6 +90,7 @@ export function UserMenu({
         return;
       }
       setOpen(false);
+      clearWorkspaceClientCache();
       router.replace("/login");
       router.refresh();
     } catch {

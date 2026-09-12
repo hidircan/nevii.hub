@@ -28,8 +28,11 @@ const BOOTSTRAP: BootstrapUser[] = [
    * İş 4 — rol hiyerarşisi (P0 2026-09-09): Nilüfer Acar kurum sahibidir
    * ama SUPER_ADMIN DEĞİLDİR. Platform sahibi yalnız `user_super`
    * (Hıdırcan Yağız). Ezgi Güçlü kurum müdürüdür (SCHOOL_ADMIN, finans/
-   * personel özeti yok). Nihal Gedikli bu listede YOK — gerçek hesap
-   * e-posta olmadan oluşturulmaz.
+   * personel özeti yok). Nihal Gedikli bu listede YOK — login kimliği
+   * NeviiOS merkezi auth'ta BRANCH_MANAGER olarak yaşar; NeviiHub içinde
+   * duplicate SCHOOL_ADMIN kullanıcı oluşturulmaz (2026-09-12 kullanıcı
+   * kararı). Personel kaydı bağı için bkz. ensureManagerStaffProfiles
+   * (e-posta üzerinden güvenli bulma, rol dönüşümü YOK).
    */
   {
     userId: "user_owner_nilufer",
@@ -45,6 +48,7 @@ const BOOTSTRAP: BootstrapUser[] = [
     role: "SCHOOL_ADMIN",
     tenantId: DEFAULT_TENANT_ID,
   },
+
   /**
    * KÖK NEDEN (öğretmen girişi çalışmıyordu) — `src/lib/seed.ts`'teki t1..t7
    * öğretmenleri (CSV'den içe aktarılan gerçek isimler/e-postalar) yalnızca
@@ -397,7 +401,7 @@ export async function authenticateUser(
     }
   }
 
-  const row = HASHED.find((u) => u.email?.toLowerCase() === email);
+  const row = HASHED.find((u) => effectiveHashedEmail(u)?.toLowerCase() === email);
   if (row) {
     const isActive = activeOverrides.get(row.userId) ?? true;
     if (!isActive) {
@@ -410,7 +414,7 @@ export async function authenticateUser(
       logAuthFailureReason(email, "bad_password", row.tenantId);
       return null;
     }
-    return toAuthUser(row);
+    return toAuthUser({ ...row, email: effectiveHashedEmail(row) });
   }
 
   // Portal Erişim Yönetimi kök neden düzeltmesi (2026-08-31) — HASHED yalnızca
@@ -457,6 +461,20 @@ export async function authenticateUser(
  * dalları bu haritayı `row.passwordHash`in ÖNÜNE kontrol eder.
  */
 const passwordOverrides = new Map<string, string>();
+
+/**
+ * E-posta değiştirme (2026-09-11) — json/memory modunda BOOTSTRAP
+ * kullanıcılarının yeni e-postası. `passwordOverrides` ile AYNI ilke:
+ * derleme-zamanı dizisi değişmez, süreç-ömürlü harita öne geçer; kalıcı
+ * DEĞİLDİR (db modunda gerçek `User.email` sütunu yazılır). `getUserById`/
+ * `getUserIdByEmail`/`authenticateUser` json dalları bu haritayı baz
+ * e-postanın ÖNÜNE kontrol eder — eski adres artık eşleşmez.
+ */
+const emailOverrides = new Map<string, string>();
+
+function effectiveHashedEmail(u: { userId: string; email?: string }): string | undefined {
+  return emailOverrides.get(u.userId) ?? u.email;
+}
 
 /**
  * Öğretmenin (Teacher.id) kendi login `User.id`'sini bulur — ders bildirimi
@@ -546,7 +564,7 @@ export async function getUserIdByEmail(tenantId: string, email: string): Promise
       return null;
     }
   }
-  const row = HASHED.find((u) => u.tenantId === tenantId && u.email?.toLowerCase() === normalized);
+  const row = HASHED.find((u) => u.tenantId === tenantId && effectiveHashedEmail(u)?.toLowerCase() === normalized);
   if (row) return row.userId;
   const { findDynamicUserByEmail } = await import("./dynamic-users");
   const dyn = await findDynamicUserByEmail(tenantId, normalized);
@@ -603,7 +621,7 @@ export async function getUserById(userId: string): Promise<AuthUser | null> {
   }
 
   const row = HASHED.find((u) => u.userId === userId);
-  if (row) return toAuthUser(row);
+  if (row) return toAuthUser({ ...row, email: effectiveHashedEmail(row) });
   const { findDynamicUserById } = await import("./dynamic-users");
   const dyn = await findDynamicUserById(userId);
   if (!dyn || !isAppRole(dyn.role)) return null;
@@ -888,6 +906,55 @@ export async function updatePasswordHash(userId: string, newHash: string): Promi
   }
   const { setDynamicUserPasswordHash } = await import("./dynamic-users");
   return setDynamicUserPasswordHash(userId, newHash);
+}
+
+/**
+ * E-posta değiştirme akışının şifre kontrolü için güncel hash (override
+ * dahil). Kullanıcı yoksa null.
+ */
+export async function getPasswordHashForVerify(userId: string): Promise<string | null> {
+  if (isDbMode) {
+    try {
+      const { getPrisma } = await import("../db");
+      const prisma = getPrisma();
+      const row = await prisma.user.findFirst({ where: { id: userId, active: true } });
+      return row?.passwordHash ?? null;
+    } catch {
+      return null;
+    }
+  }
+  const row = HASHED.find((u) => u.userId === userId);
+  if (row) return passwordOverrides.get(userId) ?? row.passwordHash;
+  const { findDynamicUserById } = await import("./dynamic-users");
+  const dyn = await findDynamicUserById(userId);
+  return dyn?.passwordHash ?? null;
+}
+
+/**
+ * E-posta değiştirme akışının yazma ucu — yalnızca `confirmEmailChange`
+ * çağırır (doğrudan UI/API'den çağrılmaz). `db` modunda gerçek
+ * `User.email` sütunu; json/memory'de dynamic satır ya da bootstrap için
+ * `emailOverrides` (süreç-ömürlü — kalıcı DEĞİL, bkz. yukarı).
+ */
+export async function updateUserEmail(userId: string, newEmail: string): Promise<boolean> {
+  const normalized = newEmail.trim().toLowerCase();
+  if (!normalized) return false;
+  if (isDbMode) {
+    try {
+      const { getPrisma } = await import("../db");
+      const prisma = getPrisma();
+      await prisma.user.update({ where: { id: userId }, data: { email: normalized } });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  if (HASHED.some((u) => u.userId === userId)) {
+    emailOverrides.set(userId, normalized);
+    return true;
+  }
+  const { setDynamicUserEmail } = await import("./dynamic-users");
+  return setDynamicUserEmail(userId, normalized);
 }
 
 /**
