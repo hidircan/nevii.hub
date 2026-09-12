@@ -28,6 +28,22 @@ screens (login/welcome).
 - Full detail + rationale: `docs/contracts/LEGAL_POLICY_TEXT_DISCREPANCY_REPORT.md`,
   `docs/roadmap/NEVIIHUB_ADMIN_CONTRACTS_POLICY_REMAINING_WORK.md`.
 
+## Güncel odak (2026-09-12, Kapı 3) — test DB migration + hesap/rol geçişi TAMAM; push/deploy YOK
+
+Commit'ler (local, push YOK): `cc13cac` (önceki ürün işi), `00aa976` (Control Center + rol + Hakediş).
+Test Supabase `neviihub-test` (`vxzewyiwfshobjizzetw`) — production'a dokunulmadı:
+- Yedek: `pg_dump` 17 ile Git dışı yerel `~/Backups/neviihub-test/2026-09-12T153001Z-before-control-center-migration/`
+  (roles/schema/data + sha256 doğrulandı).
+- `prisma migrate deploy`: 6 additive migration uygulandı (2026-09-12 15:33 UTC); status "up to date".
+  `_prisma_migrations`'daki tek rolled-back satır (`20260802152131_add_ai_audit_log`, 2026-09-06) tarihsel kurulumdan.
+- Canonical servislerle (aktör `ops_kapi3_migration`, audit'li): `super@` → SCHOOL_ADMIN + pasif; `admin@` pasif;
+  ikisinde `sessionsRevokedAt` dolu, açık oturum 0. Nilüfer tek aktif SUPER_ADMIN. Ezgi personel kaydı
+  `user_manager_ezgi`'ye bağlı. Nihal: personel kaydı (bağlantısız) + gönderimsiz BRANCH_MANAGER daveti
+  `inv_2c758lt6qf4w` (token saklanmadı → HYPER_ADMIN `/platform` üzerinden "yeniden gönder" ile bağlantı üretmeli).
+- HYPER_ADMIN bootstrap: Hıdırcan Yağız kendi terminalinde tamamladı; doğrulandı — aktif HYPER_ADMIN = 1
+  (`user_hyper_admin`, `tenant_platform`; kurum tenant'ında HYPER_ADMIN yok).
+- **AÇIK BLOCKER (Kapı 5 öncesi):** Nihal hesabı davet kabulüyle oluşmalı (şu an giriş yapamaz).
+
 ## Güncel odak (2026-09-12, geç) — NeviiOS Control Center bu repoya birleştirildi (Seçenek 1)
 
 Tek kanonik codebase = bu worktree. Commit/push/deploy YOK, migration UYGULANMADI,
