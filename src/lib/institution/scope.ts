@@ -19,9 +19,9 @@ export const ALL_KURUMLAR = "ALL";
 
 /**
  * Bir tercih (cookie'den okunan) geçerli mi ve hangi kurum seçili olmalı —
- * saf karar fonksiyonu. Kurum müdürü (SCHOOL_ADMIN) varsayılan olarak kendi
- * kurumunu görür; kurum sahibi (SUPER_ADMIN, platformun tüm kurumlarından
- * sorumlu) varsayılan olarak "Tüm kurumlar" görür. Geçersiz/erişilemeyen bir
+ * saf karar fonksiyonu. Kurum müdürü (SCHOOL_ADMIN) ve kurum sahibi
+ * (SUPER_ADMIN) varsayılan olarak kendi kurumunu görür. Tenantlar arası
+ * birleşik görünüm yalnız HYPER_ADMIN içindir. Geçersiz/erişilemeyen bir
  * tercih sessizce varsayılana döner.
  */
 export function pickInstitutionSelection(
@@ -31,7 +31,7 @@ export function pickInstitutionSelection(
   requested: string | undefined,
   options?: { canSeeAllKurumlar?: boolean }
 ): string {
-  const canSeeAll = options?.canSeeAllKurumlar ?? role === "SUPER_ADMIN";
+  const canSeeAll = options?.canSeeAllKurumlar ?? role === "HYPER_ADMIN";
   const isValid = (id: string) =>
     id === ALL_KURUMLAR ? canSeeAll : available.some((k) => k.tenantId === id);
 

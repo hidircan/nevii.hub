@@ -44,10 +44,15 @@ export function ThemePreferencesForm({
   initialProfile,
   initialFont,
   initialDensity,
+  allowedProfiles,
+  fontLocked = false,
 }: {
   initialProfile: ThemeProfile;
   initialFont: FontChoice;
   initialDensity: Density;
+  /** NeviiOS görünüm politikası: verilirse yalnız bu profiller seçilebilir (sunucu da reddeder). */
+  allowedProfiles?: readonly ThemeProfile[];
+  fontLocked?: boolean;
 }) {
   const [profile, setProfile] = useState<ThemeProfile>(initialProfile);
   const [font, setFont] = useState<FontChoice>(initialFont);
@@ -96,6 +101,7 @@ export function ThemePreferencesForm({
               key={value}
               type="button"
               aria-pressed={profile === value}
+              disabled={allowedProfiles ? !allowedProfiles.includes(value) : false}
               onClick={() => applyProfile(value)}
               className={`rounded-[var(--radius-lg)] border p-3 text-left transition ${
                 profile === value
@@ -149,6 +155,7 @@ export function ThemePreferencesForm({
               key={value}
               type="button"
               aria-pressed={font === value}
+              disabled={fontLocked}
               onClick={() => applyFont(value)}
               className={`rounded-[var(--radius-lg)] border p-3 text-left transition ${
                 font === value

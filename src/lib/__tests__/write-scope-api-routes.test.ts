@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { promises as fs } from "fs";
 import path from "path";
 import { resolveDataDir } from "../config";
-import { DEFAULT_TENANT_ID } from "../auth/config";
+import { DEFAULT_TENANT_ID, PLATFORM_TENANT_ID } from "../auth/config";
 import type { AuthUser } from "../auth/types";
 
 /**
@@ -63,8 +63,8 @@ beforeEach(async () => {
 });
 
 describe("Yazma kapsamı koruması — Tahsilat API rotası (/api/v1/tahsilat/cases)", () => {
-  it("SUPER_ADMIN 'Tüm kurumlar' modunda (varsayılan) tam Türkçe mesajla reddedilir", async () => {
-    mockUser.value = { userId: "super1", role: "SUPER_ADMIN", tenantId: DEFAULT_TENANT_ID };
+  it("HYPER_ADMIN 'Tüm kurumlar' modunda (varsayılan) tam Türkçe mesajla reddedilir", async () => {
+    mockUser.value = { userId: "hyper1", role: "HYPER_ADMIN", tenantId: PLATFORM_TENANT_ID };
     mockTenants.list = [
       { tenantId: DEFAULT_TENANT_ID, name: "A" },
       { tenantId: "tenant_other", name: "B" },

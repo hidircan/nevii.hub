@@ -11,6 +11,7 @@ import { listAdminUserIdsForTenant } from "./auth/users";
 import { notifyUserIfEnabled, type NotifyOutcome } from "./notification-dispatch";
 import { logger } from "./logger";
 import type { NotificationCategory } from "./notification-categories";
+import type { AppRole } from "./auth/types";
 
 export type NotifyAdminsOptions = {
   /** Olayı tetikleyen yönetici — kendi bildirimi atlanır. */
@@ -20,6 +21,8 @@ export type NotifyAdminsOptions = {
    * Örn. paymentId — tarama her çalıştığında spam engeli.
    */
   dedupeKey?: string;
+  /** Hedef roller (varsayılan SCHOOL_ADMIN + SUPER_ADMIN). Personel bildirimleri yalnız SUPER_ADMIN. */
+  roles?: AppRole[];
 };
 
 /**
@@ -43,7 +46,7 @@ export async function notifyAdmins(
   options?: NotifyAdminsOptions
 ): Promise<NotifyOutcome[]> {
   try {
-    const adminIds = await listAdminUserIdsForTenant(tenantId);
+    const adminIds = await listAdminUserIdsForTenant(tenantId, options?.roles);
     const targets = adminIds.filter((id) => id !== options?.excludeUserId);
     if (targets.length === 0) return [];
 

@@ -9,6 +9,7 @@ export {
   authenticateUser,
   authenticateDemoUser,
   getUserById,
+  tenantAllowsLogin,
   getBootstrapUsersForSeed,
   findUserByEmail,
   updatePasswordHash,

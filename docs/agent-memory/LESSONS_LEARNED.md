@@ -915,3 +915,15 @@ seçip ürünün DOĞRU reddini hata sanıyordu.
 **Ders:** bir tarihi hem filtrelemek hem kullanmak için üretiyorsanız, ikisini
 AYNI zaman diliminden okuyun. `getDay()` + `toISOString()` karışımı, günün
 saatine bağlı "bazen kırmızı" testlerin klasik kaynağıdır.
+
+## 2026-09-12 — Toplu kopyada dışlama listesi eksik kaldı (NeviiOS birleşimi)
+
+- **Hata:** Kaynak worktree'nin untracked dosyaları hedefe kopyalanırken dışlama filtresi yalnız
+  marka dosyalarını ve `sifre-sifirla` sayfasını kapsıyordu; kaynağın 5 migration klasörü
+  (`20260826*`, `20260911120000_neviios_*`, `20260912120000_*`, `20260913120000_*`) de kopyalandı.
+  Rapor ise bunları "alınmadı" diyordu. İçerikleri yeni tek migration'la (`20260913140000_neviios_control_center`)
+  çakışıyor ve sıralama zincirini bozuyordu.
+- **Düzeltme:** Başlangıç untracked listesiyle karşılaştırılıp (kullanıcı dosyası değil) ve kaynakla bayt
+  bayt aynı olduğu doğrulanıp yalnız bu 5 klasör silindi; kaynakta duruyorlar.
+- **Ders:** Toplu kopyadan önce kopya listesini dizin bazında (`src/` dışı: `prisma/`, `scripts/`, `docs/`)
+  gözden geçir; "taşınmadı" iddiasını kopya listesiyle doğrula, hafızaya güvenme.

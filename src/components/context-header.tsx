@@ -59,7 +59,7 @@ function breadcrumbSegments(pathname: string, entity: ReturnType<typeof useAssis
 }
 
 export function ContextHeader({
-  role,
+  role: _role,
   kurumAvailable,
   kurumSelection,
   canSeeAllKurumlar,
@@ -79,7 +79,7 @@ export function ContextHeader({
   const current = segments[segments.length - 1];
   const parents = segments.slice(0, -1);
 
-  const showKurumPill = role === "SUPER_ADMIN" && kurumAvailable.length > 0;
+  const showKurumPill = canSeeAllKurumlar && kurumAvailable.length > 1;
 
   function handleKurumChange(next: string) {
     setValue(next);

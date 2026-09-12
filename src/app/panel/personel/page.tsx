@@ -23,7 +23,8 @@ export default async function PersonelPage() {
   } catch {
     redirect("/login?next=/panel/personel");
   }
-  if (session.role !== "SCHOOL_ADMIN" && session.role !== "SUPER_ADMIN") {
+  // Owner kararı: personel yalnız kurum sahibinde (listStaffTool aynı kuralı sunucuda uygular).
+  if (session.role !== "SUPER_ADMIN") {
     redirect("/panel");
   }
   const { canViewFinanceAndStaffSummary } = await import("@/lib/auth/platform-access");

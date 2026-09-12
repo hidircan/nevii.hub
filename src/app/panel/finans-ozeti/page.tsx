@@ -40,9 +40,8 @@ export default async function FinansOzetiPage() {
   } catch {
     redirect("/login?next=/panel/finans-ozeti");
   }
-  if (session.role !== "SCHOOL_ADMIN" && session.role !== "SUPER_ADMIN") redirect("/panel");
-  const { canViewFinanceAndStaffSummary } = await import("@/lib/auth/platform-access");
-  if (!canViewFinanceAndStaffSummary(session)) redirect("/panel");
+  // 2026-09-12 rol sözleşmesi: yalnız kurum sahibi (bkz. auth/platform-access.ts).
+  if (session.role !== "SUPER_ADMIN") redirect("/panel");
 
   const kurum = await getInstitutionContext(session);
   const canWrite = kurum.scope.mode === "single";

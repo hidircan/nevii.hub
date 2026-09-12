@@ -74,8 +74,8 @@ export const PANEL_FINANCE_NAV: PanelNavItem[] = [
 export const PANEL_OPS_NAV: PanelNavItem[] = [
   /** İnsan-odaklı operasyon görev takibi — /panel/workflows (AI otomasyonu) ile İLGİSİZ, ayrı modül. */
   { href: "/panel/is-takip", label: "İş Takip", icon: ListChecks },
-  { href: "/panel/personel", label: "Personel", icon: UserCog, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
-  { href: "/panel/finans-ozeti", label: "Finans Özeti", icon: CreditCard, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
+  { href: "/panel/personel", label: "Personel", icon: UserCog, roles: ["SUPER_ADMIN"] },
+  { href: "/panel/finans-ozeti", label: "Finans Özeti", icon: CreditCard, roles: ["SUPER_ADMIN"] },
   { href: "/panel/evraklar", label: "Evraklar", icon: FileText },
   { href: "/panel/deneme", label: "Deneme Dersleri", icon: FlaskConical },
   { href: "/panel/ders-duzeltme", label: "Ders düzeltme", icon: Wrench },
@@ -105,6 +105,9 @@ export const PANEL_AI_NAV: PanelNavItem[] = [
 ];
 
 export const PANEL_SYSTEM_NAV: PanelNavItem[] = [
+  { href: "/panel/ayarlar/kurum", label: "Kurum Ayarları", icon: Settings, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
+  { href: "/panel/ayarlar/ozellikler", label: "Kurum Özellikleri", icon: ShieldCheck, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
+  { href: "/panel/ayarlar/entegrasyonlar", label: "Kurum Entegrasyonları", icon: Activity, roles: ["SUPER_ADMIN"] },
   { href: "/panel/kurulum", label: "Kurulum Merkezi", icon: Settings },
   { href: "/panel/veri-aktar", label: "Veri Aktarım Merkezi", icon: Upload },
   /**
@@ -130,8 +133,8 @@ export const PANEL_SYSTEM_NAV: PanelNavItem[] = [
 export const PANEL_SEARCH_ONLY_NAV: PanelNavItem[] = [
   { href: "/panel/subeler", label: "Kurulum Merkezi › Şubeler", icon: Building2Icon },
   { href: "/panel/enstrumanlar", label: "Kurulum Merkezi › Enstrümanlar", icon: MusicIcon, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
-  { href: "/panel/personel/bordrolar", label: "Personel › Bordrolar", icon: Wallet, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
-  { href: "/panel/personel/izinler", label: "Personel › İzinler", icon: CalendarDays, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
+  { href: "/panel/personel/bordrolar", label: "Personel › Bordrolar", icon: Wallet, roles: ["SUPER_ADMIN"] },
+  { href: "/panel/personel/izinler", label: "Personel › İzinler", icon: CalendarDays, roles: ["SUPER_ADMIN"] },
   { href: "/panel/yardim", label: "Yardım Merkezi", icon: CircleHelp },
 ];
 

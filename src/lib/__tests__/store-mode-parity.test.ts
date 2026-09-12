@@ -107,9 +107,9 @@ describe("/panel yükleyicisi — STORE_MODE=db altında listTenants gerçekten 
     ...over,
   });
 
-  it("SUPER_ADMIN tüm aktif kurumları {tenantId,name} biçiminde alır", async () => {
+  it("HYPER_ADMIN (platform sahibi) tüm aktif kurumları {tenantId,name} biçiminde alır", async () => {
     const calls: PrismaCall[] = [];
-    const kurumlar = await loadKurumlar(ctx({ role: "SUPER_ADMIN" }), calls);
+    const kurumlar = await loadKurumlar(ctx({ role: "HYPER_ADMIN" }), calls);
 
     expect(kurumlar).toEqual([
       { tenantId: "tenant_a", name: "A Akademi" },

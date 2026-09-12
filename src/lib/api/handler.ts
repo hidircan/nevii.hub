@@ -25,6 +25,14 @@ export type ApiHandlerOptions = {
   public?: boolean;
   /** Required permission for this route */
   permission?: Permission;
+  /** NeviiHub `/platform` ve platform API'leri — yalnız HYPER_ADMIN */
+  hyperAdminOnly?: boolean;
+  /**
+   * BRANCH_MANAGER varsayılan olarak TÜM API'lerde reddedilir (fail-closed):
+   * kurum geneli route'lar şube filtresi taşımaz. Yalnız şube kapsamını
+   * kendisi uygulayan route'lar bunu açar.
+   */
+  allowBranchManager?: boolean;
 };
 
 /**
@@ -73,6 +81,36 @@ export function withApiHandler(handler: ApiHandler, options: ApiHandlerOptions =
             outcome: "denied",
           });
           return jsonFail("FORBIDDEN", "Cross-origin request rejected");
+        }
+
+        if (auth.user.role === "BRANCH_MANAGER" && !options.allowBranchManager) {
+          auditLog({
+            action: "authz.denied",
+            requestId,
+            userId: auth.user.userId,
+            tenantId: auth.user.tenantId,
+            role: auth.user.role,
+            path: new URL(request.url).pathname,
+            method: request.method,
+            outcome: "denied",
+            meta: { reason: "branch_manager_not_allowed" },
+          });
+          return jsonFail("FORBIDDEN", "Şube müdürü bu kurum geneli işleme erişemez.");
+        }
+
+        if (options.hyperAdminOnly && auth.user.role !== "HYPER_ADMIN") {
+          auditLog({
+            action: "authz.denied",
+            requestId,
+            userId: auth.user.userId,
+            tenantId: auth.user.tenantId,
+            role: auth.user.role,
+            path: new URL(request.url).pathname,
+            method: request.method,
+            outcome: "denied",
+            meta: { reason: "hyper_admin_only" },
+          });
+          return jsonFail("FORBIDDEN", "Bu alan yalnız NeviiHub platform yöneticisine açıktır.");
         }
 
         if (options.permission) {

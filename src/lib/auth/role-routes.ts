@@ -8,6 +8,10 @@ import type { AppRole } from "./types";
 
 export function homePathForRole(role: AppRole): string {
   switch (role) {
+    case "HYPER_ADMIN":
+      return "/platform";
+    case "BRANCH_MANAGER":
+      return "/sube";
     case "TEACHER":
       return "/ogretmen";
     case "STUDENT":
@@ -23,6 +27,10 @@ export function homePathForRole(role: AppRole): string {
 /** Rol-uyumlu "Bildirim ayarları" rotası — notification-bell ve portal linkleri buradan türetir. */
 export function notificationSettingsPathForRole(role: AppRole): string {
   switch (role) {
+    case "HYPER_ADMIN":
+      return "/platform";
+    case "BRANCH_MANAGER":
+      return "/sube";
     case "TEACHER":
       return "/ogretmen/ayarlar/bildirimler";
     case "STUDENT":
@@ -43,6 +51,8 @@ export function notificationSettingsPathForRole(role: AppRole): string {
  */
 export function notificationListPathForRole(role: AppRole): string {
   switch (role) {
+    case "HYPER_ADMIN":
+      return "/platform";
     case "SCHOOL_ADMIN":
     case "SUPER_ADMIN":
     case "AI_AGENT":

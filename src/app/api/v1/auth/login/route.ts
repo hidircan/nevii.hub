@@ -6,6 +6,7 @@ import { authenticateUser, issueTokenPair, auditLog } from "@/lib/auth";
 import { applyAuthCookies } from "@/lib/auth/cookies";
 import { clientIp } from "@/lib/http/client-ip";
 import { consumeRateLimit } from "@/lib/rate-limit";
+import { startUserSession } from "@/lib/auth/session-registry";
 
 export const dynamic = "force-dynamic";
 
@@ -64,7 +65,9 @@ export const POST = withApiHandler(
       return jsonFail("UNAUTHORIZED", "Invalid email or password");
     }
 
-    const tokens = await issueTokenPair(user);
+    // NeviiOS: tekil oturum kaydı (sid) — canlı operasyon ekranından sonlandırılabilir.
+    const sid = await startUserSession(user, request);
+    const tokens = await issueTokenPair({ ...user, sid });
     auditLog({
       action: "auth.login_success",
       requestId: ctx.requestId || "unknown",

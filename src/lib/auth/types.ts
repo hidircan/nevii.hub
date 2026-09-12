@@ -9,8 +9,11 @@
  * src/lib/services/context.ts canAccessStudent).
  */
 export const APP_ROLES = [
+  "HYPER_ADMIN",
   "SUPER_ADMIN",
   "SCHOOL_ADMIN",
+  /** NeviiOS — yalnız UserBranchAccess ile atandığı şube(ler)de; atama yoksa hiçbir veri (fail-closed). */
+  "BRANCH_MANAGER",
   "TEACHER",
   "STUDENT",
   "AI_AGENT",
@@ -30,6 +33,8 @@ export type JwtClaims = {
   teacherId?: string;
   studentId?: string;
   email?: string;
+  /** NeviiOS oturum kimliği (tekil oturum sonlandırma). Eski token'larda yok. */
+  sid?: string;
   /** issued at / exp set by jose */
   iat?: number;
   exp?: number;
@@ -37,11 +42,15 @@ export type JwtClaims = {
 
 export type AuthUser = {
   userId: string;
+  /** Yetki kararında kullanılan (efektif) rol — bkz. platform/manager-preset.ts. */
   role: AppRole;
+  /** Token'daki/kayıttaki giriş rolü; efektif rolden farklıysa dolu. */
+  loginRole?: AppRole;
   tenantId: string;
   email?: string;
   teacherId?: string;
   studentId?: string;
+  sid?: string;
 };
 
 export type AuditEvent = {

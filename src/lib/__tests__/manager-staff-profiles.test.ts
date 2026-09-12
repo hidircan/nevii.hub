@@ -4,7 +4,7 @@
  * YETKİ SINIRI: JWT/portal rolü ve NeviiOS role matrix'e dokunulmaz —
  * kullanıcı oluşturulmaz, rol değiştirilmez. Yalnızca personel kaydı
  * e-posta üzerinden bulunur/oluşturulur ve VARSA portal kullanıcısına
- * bağlanır (Ezgi → user_manager_ezgi; Nihal → bağlantısız, duplicate YOK).
+ * bağlanır (Ezgi → user_manager_ezgi; Nihal → user_manager_nihal/BRANCH_MANAGER, duplicate YOK).
  */
 import { describe, it, expect, beforeEach } from "vitest";
 import { promises as fs } from "fs";
@@ -21,7 +21,7 @@ beforeEach(async () => {
 });
 
 describe("ensureManagerStaffProfiles", () => {
-  it("Ezgi ve Nihal için birer aktif personel kaydı oluşturur; Ezgi bağlı, Nihal bağlantısız", async () => {
+  it("Ezgi ve Nihal için birer aktif personel kaydı oluşturur; ikisi de tek login kimliğine bağlı", async () => {
     const profiles = await ensureManagerStaffProfiles(DEFAULT_TENANT_ID, "user_owner_nilufer");
     expect(profiles).toHaveLength(2);
 
@@ -36,10 +36,12 @@ describe("ensureManagerStaffProfiles", () => {
     expect(ezgi?.portalUserId).toBe("user_manager_ezgi");
     expect(await getUserIdByEmail(DEFAULT_TENANT_ID, EZGI_EMAIL)).toBe("user_manager_ezgi");
 
-    // Nihal: NeviiHub'da portal kullanıcısı YOK → bağlantısız, duplicate YOK.
-    expect(nihal?.portalUserId).toBeUndefined();
-    expect(await getUserIdByEmail(DEFAULT_TENANT_ID, NIHAL_EMAIL)).toBeNull();
-    expect(await authenticateUser(NIHAL_EMAIL, "demo-manager-nihal")).toBeNull();
+    // Nihal: merkezi auth (NeviiOS birleşimi) artık bu kod tabanında — TEK login
+    // kimliği `user_manager_nihal` (BRANCH_MANAGER). Kayıt ona bağlanır; duplicate
+    // kullanıcı oluşturulmaz, rol SCHOOL_ADMIN'e dönüştürülmez.
+    expect(nihal?.portalUserId).toBe("user_manager_nihal");
+    expect(await getUserIdByEmail(DEFAULT_TENANT_ID, NIHAL_EMAIL)).toBe("user_manager_nihal");
+    expect((await authenticateUser(NIHAL_EMAIL, "demo-manager-nihal"))?.role).toBe("BRANCH_MANAGER");
   });
 
   it("ikinci çalıştırma duplicate üretmez (idempotent)", async () => {
@@ -90,7 +92,8 @@ describe("ensureManagerStaffProfiles", () => {
     expect(
       canViewFinanceAndStaffSummary({ userId: "user_manager_ezgi", role: "SCHOOL_ADMIN" })
     ).toBe(false);
-    // NeviiHub'da Nihal kimliği yoktur — kontrol edilecek bir rol de yoktur.
-    expect(await getUserIdByEmail(DEFAULT_TENANT_ID, NIHAL_EMAIL)).toBeNull();
+    // Nihal BRANCH_MANAGER kalır; hassas alan kuralı ona da kapalıdır.
+    expect(canViewFinanceAndStaffSummary({ userId: "user_manager_nihal", role: "BRANCH_MANAGER" })).toBe(false);
+    expect(canViewFinanceAndStaffSummary({ userId: "user_manager_nihal", role: "SCHOOL_ADMIN" })).toBe(false);
   });
 });

@@ -81,9 +81,11 @@ describe("globalSearchTool — rol bazlı kapsam", () => {
     expect(res.ok).toBe(false);
   });
 
-  it("personel sonuçları yalnız SCHOOL_ADMIN/SUPER_ADMIN için döner, TEACHER'a hiç gelmez", async () => {
-    const asAdmin = await globalSearchTool(ctx({ role: "SCHOOL_ADMIN" }), { query: "a" });
+  it("personel sonuçları yalnız SUPER_ADMIN için döner (tur 3 owner kararı); SCHOOL_ADMIN ve TEACHER'a gelmez", async () => {
+    const asAdmin = await globalSearchTool(ctx({ role: "SUPER_ADMIN" }), { query: "a" });
     expect(asAdmin.ok).toBe(true);
+    const asManager = await globalSearchTool(ctx({ role: "SCHOOL_ADMIN" }), { query: "a" });
+    expect(asManager.ok && asManager.data.items.some((i) => i.kind === "staff")).toBe(false);
 
     const asTeacher = await globalSearchTool(ctx({ role: "TEACHER", teacherId: "t2" }), { query: "a" });
     expect(asTeacher.ok).toBe(true);

@@ -39,7 +39,8 @@ import { readFileSync } from "fs";
 const PASSWORD_RESET_FILE = path.join(resolveDataDir(path.join(process.cwd(), "data")), "password-reset-tokens.json");
 
 function adminCtx(overrides?: Partial<ServiceContext>): ServiceContext {
-  return { role: "SCHOOL_ADMIN", userId: "user_owner_nilufer", tenantId: DEFAULT_TENANT_ID, channel: "web", ...overrides };
+  // 2026-09-12 rol sözleşmesi: personel yalnız kurum sahibinde (SUPER_ADMIN — Nilüfer Acar).
+  return { role: "SUPER_ADMIN", userId: "user_owner_nilufer", tenantId: DEFAULT_TENANT_ID, channel: "web", ...overrides };
 }
 function teacherCtx(overrides?: Partial<ServiceContext>): ServiceContext {
   return { role: "TEACHER", userId: "u3", tenantId: DEFAULT_TENANT_ID, teacherId: "t1", channel: "web", ...overrides };

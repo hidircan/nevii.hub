@@ -4,7 +4,7 @@ import { jwtVerify } from "jose";
 import { ACCESS_COOKIE, REFRESH_COOKIE } from "@/lib/auth/cookies";
 import { getJwtSecret } from "@/lib/auth/config";
 
-const PROTECTED = ["/panel", "/veli", "/ogretmen", "/ogrenci"];
+const PROTECTED = ["/panel", "/veli", "/ogretmen", "/ogrenci", "/platform", "/sube"];
 
 async function hasValidAccess(request: NextRequest): Promise<boolean> {
   const token = request.cookies.get(ACCESS_COOKIE)?.value;
@@ -34,13 +34,12 @@ export async function middleware(request: NextRequest) {
   );
   if (!isProtected) return NextResponse.next();
 
-  if (await hasValidAccess(request)) {
-    return NextResponse.next();
-  }
-
-  // Access expired but refresh present → allow through; session layer refreshes
-  if (hasRefresh(request)) {
-    return NextResponse.next();
+  if ((await hasValidAccess(request)) || hasRefresh(request)) {
+    // NeviiOS presence: yalnız yol (sorgu dizesi asla) oturum katmanına iletilir.
+    // Refresh varsa oturum katmanı sessizce yeniler.
+    const headers = new Headers(request.headers);
+    headers.set("x-neviios-path", pathname);
+    return NextResponse.next({ request: { headers } });
   }
 
   const login = new URL("/login", request.url);
@@ -54,9 +53,13 @@ export const config = {
     "/veli/:path*",
     "/ogretmen/:path*",
     "/ogrenci/:path*",
+    "/platform/:path*",
+    "/sube/:path*",
     "/panel",
     "/veli",
     "/ogretmen",
     "/ogrenci",
+    "/platform",
+    "/sube",
   ],
 };

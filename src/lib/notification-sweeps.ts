@@ -58,7 +58,7 @@ export async function sweepLeavePendingApproval(): Promise<number> {
             title: "Bekleyen izin onayı",
             body: `Onay bekleyen izin talebi var. Detay: /panel/personel/izinler`,
           },
-          { dedupeKey: leave.id }
+          { dedupeKey: leave.id, roles: ["SUPER_ADMIN"] }
         );
         created++;
       }

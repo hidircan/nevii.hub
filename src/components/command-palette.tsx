@@ -64,10 +64,10 @@ const QUICK_ACTIONS: QuickAction[] = [
   { href: "/panel/yoklama", label: "Yoklama aç", icon: ClipboardCheck },
   { href: "/panel/program", label: "Ders planla", icon: CalendarPlus },
   { href: "/panel/odemeler", label: "Tahsilat ekle", icon: ReceiptText },
-  { href: "/panel/personel", label: "Personel ekle", icon: UserCog, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
-  { href: "/panel/personel/bordrolar", label: "Bordro oluştur", icon: Wallet, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
-  { href: "/panel/personel/izinler", label: "İzin kaydı oluştur", icon: ScrollText, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
-  { href: "/panel/finans-ozeti", label: "Gider ekle", icon: Wallet, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
+  { href: "/panel/personel", label: "Personel ekle", icon: UserCog, roles: ["SUPER_ADMIN"] },
+  { href: "/panel/personel/bordrolar", label: "Bordro oluştur", icon: Wallet, roles: ["SUPER_ADMIN"] },
+  { href: "/panel/personel/izinler", label: "İzin kaydı oluştur", icon: ScrollText, roles: ["SUPER_ADMIN"] },
+  { href: "/panel/finans-ozeti", label: "Gider ekle", icon: Wallet, roles: ["SUPER_ADMIN"] },
   { href: "/panel/veri-aktar", label: "CSV içe aktar", icon: FileSpreadsheet },
 ];
 

@@ -19,7 +19,8 @@ export const GET = withApiHandler(async ({ ctx }) => {
     ok: true as const,
     data: { cases: cases.map(toPublicCase), roi, dashboard },
   });
-});
+  // Kurum geneli tahsilat kuyruğu — yalnız ödeme yetkili personel.
+}, { permission: "payments:write" });
 
 const patchSchema = z
   .object({

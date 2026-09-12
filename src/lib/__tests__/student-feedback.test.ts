@@ -157,24 +157,24 @@ describe("görünürlük ve yetki", () => {
 describe("yönetici bildirimi (student_feedback_submitted)", () => {
   it("değerlendirme gönderilince yöneticilere bildirim oluşur", async () => {
     await submitStudentFeedbackTool(ctx({ role: "TEACHER", teacherId: "t1" }), VALID_FEEDBACK);
-    const notes = await listNotificationsForUser({ tenantId: DEFAULT_TENANT_ID, userId: "user_admin" });
+    const notes = await listNotificationsForUser({ tenantId: DEFAULT_TENANT_ID, userId: "user_manager_ezgi" });
     expect(notes.some((n) => n.kind === "student_feedback_submitted")).toBe(true);
   });
 
   it("bildirim metni ham yorum içeriğini taşımaz", async () => {
     await submitStudentFeedbackTool(ctx({ role: "TEACHER", teacherId: "t1" }), VALID_FEEDBACK);
-    const notes = await listNotificationsForUser({ tenantId: DEFAULT_TENANT_ID, userId: "user_admin" });
+    const notes = await listNotificationsForUser({ tenantId: DEFAULT_TENANT_ID, userId: "user_manager_ezgi" });
     const note = notes.find((n) => n.kind === "student_feedback_submitted");
     expect(note).toBeDefined();
     expect(note!.body).not.toContain(VALID_FEEDBACK.comment);
   });
 
   it("tercih kapalıyken bildirim oluşmaz", async () => {
-    await setNotificationPreferences(DEFAULT_TENANT_ID, "user_admin", [
+    await setNotificationPreferences(DEFAULT_TENANT_ID, "user_manager_ezgi", [
       { category: "student_feedback_submitted", inAppEnabled: false },
     ]);
     await submitStudentFeedbackTool(ctx({ role: "TEACHER", teacherId: "t1" }), VALID_FEEDBACK);
-    const notes = await listNotificationsForUser({ tenantId: DEFAULT_TENANT_ID, userId: "user_admin" });
+    const notes = await listNotificationsForUser({ tenantId: DEFAULT_TENANT_ID, userId: "user_manager_ezgi" });
     expect(notes.some((n) => n.kind === "student_feedback_submitted")).toBe(false);
   });
 
@@ -184,7 +184,7 @@ describe("yönetici bildirimi (student_feedback_submitted)", () => {
       ...VALID_FEEDBACK,
       comment: "İkinci deneme",
     });
-    const notes = await listNotificationsForUser({ tenantId: DEFAULT_TENANT_ID, userId: "user_admin" });
+    const notes = await listNotificationsForUser({ tenantId: DEFAULT_TENANT_ID, userId: "user_manager_ezgi" });
     expect(notes.filter((n) => n.kind === "student_feedback_submitted")).toHaveLength(1);
   });
 });

@@ -13,8 +13,12 @@ describe("pickInstitutionSelection — kurum varsayılanı", () => {
     expect(pickInstitutionSelection("SCHOOL_ADMIN", "tenant_a", ONE, undefined)).toBe("tenant_a");
   });
 
-  it("kurum sahibi (SUPER_ADMIN) tercih yokken 'Tüm kurumlar' görür", () => {
-    expect(pickInstitutionSelection("SUPER_ADMIN", "tenant_a", TWO, undefined)).toBe(ALL_KURUMLAR);
+  it("kurum sahibi (SUPER_ADMIN) tercih yokken kendi kurumunu görür", () => {
+    expect(pickInstitutionSelection("SUPER_ADMIN", "tenant_a", TWO, undefined)).toBe("tenant_a");
+  });
+
+  it("platform yöneticisi (HYPER_ADMIN) tercih yokken 'Tüm kurumlar' görür", () => {
+    expect(pickInstitutionSelection("HYPER_ADMIN", "tenant_platform", TWO, undefined)).toBe(ALL_KURUMLAR);
   });
 
   it("öğretmen/veli rolleri de varsayılan olarak kendi kurumunu görür", () => {
@@ -24,12 +28,12 @@ describe("pickInstitutionSelection — kurum varsayılanı", () => {
 });
 
 describe("pickInstitutionSelection — kurum değiştirici (kayıtlı tercih)", () => {
-  it("kurum sahibi erişebildiği başka bir kuruma geçebilir", () => {
+  it("kurum sahibi erişebildiği listede başka bir kuruma geçebilir (liste zaten süzülmüştür)", () => {
     expect(pickInstitutionSelection("SUPER_ADMIN", "tenant_a", TWO, "tenant_b")).toBe("tenant_b");
   });
 
-  it("kurum sahibi 'Tüm kurumlar'ı açıkça seçebilir", () => {
-    expect(pickInstitutionSelection("SUPER_ADMIN", "tenant_a", TWO, ALL_KURUMLAR)).toBe(ALL_KURUMLAR);
+  it("kurum sahibi 'Tüm kurumlar'ı seçemez", () => {
+    expect(pickInstitutionSelection("SUPER_ADMIN", "tenant_a", TWO, ALL_KURUMLAR)).toBe("tenant_a");
   });
 
   it("kurum müdürü 'Tüm kurumlar' isteyemez — geçersiz sayılır, varsayılana döner", () => {
@@ -37,7 +41,7 @@ describe("pickInstitutionSelection — kurum değiştirici (kayıtlı tercih)", 
   });
 
   it("erişilemeyen bir kurum id'si istenirse sessizce varsayılana döner", () => {
-    expect(pickInstitutionSelection("SUPER_ADMIN", "tenant_a", ONE, "tenant_z")).toBe(ALL_KURUMLAR);
+    expect(pickInstitutionSelection("SUPER_ADMIN", "tenant_a", ONE, "tenant_z")).toBe("tenant_a");
     expect(pickInstitutionSelection("SCHOOL_ADMIN", "tenant_a", ONE, "tenant_z")).toBe("tenant_a");
   });
 });
@@ -49,10 +53,10 @@ describe("pickInstitutionSelection — filtre tercihinin korunması", () => {
     expect(second).toBe("tenant_b");
   });
 
-  it("'Tüm kurumlar' tercihi tekrar okunduğunda aynen korunur", () => {
+  it("'Tüm kurumlar' tercihi SUPER_ADMIN için yok sayılır, kendi kurumuna düşer", () => {
     const first = pickInstitutionSelection("SUPER_ADMIN", "tenant_a", TWO, ALL_KURUMLAR);
     const second = pickInstitutionSelection("SUPER_ADMIN", "tenant_a", TWO, first);
-    expect(second).toBe(ALL_KURUMLAR);
+    expect(second).toBe("tenant_a");
   });
 });
 

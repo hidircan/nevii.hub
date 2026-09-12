@@ -5,9 +5,10 @@ import { DEFAULT_TENANT_ID } from "../auth/config";
 import type { ServiceContext } from "../services/context";
 import { STAFF_FILE } from "../staff";
 
+// NeviiOS tur 3 owner kararı: personel modülü yalnız kurum sahibinde (SUPER_ADMIN).
 function ctx(overrides?: Partial<ServiceContext>): ServiceContext {
   return {
-    role: "SCHOOL_ADMIN",
+    role: "SUPER_ADMIN",
     userId: "u1",
     tenantId: DEFAULT_TENANT_ID,
     channel: "web",

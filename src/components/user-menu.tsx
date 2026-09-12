@@ -23,11 +23,13 @@ import { notificationSettingsPathForRole } from "@/lib/auth/role-routes";
 export function UserMenu({
   email,
   role,
+  labelRole,
   kurumName,
   initialDensity,
 }: {
   email: string | null;
   role: AppRole;
+  labelRole?: AppRole;
   kurumName: string | null;
   initialDensity: Density;
 }) {
@@ -134,7 +136,7 @@ export function UserMenu({
               {email ?? "Hesap"}
             </p>
             <p className="text-xs" style={{ color: "var(--color-text-muted)" }}>
-              {roleLabelTr(role)}
+              {roleLabelTr(labelRole ?? role)}
               {kurumName ? ` · ${kurumName}` : ""}
             </p>
           </div>

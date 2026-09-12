@@ -1,4 +1,9 @@
-import { DEFAULT_TENANT_ID } from "./config";
+import {
+  DEFAULT_TENANT_ID,
+  PLATFORM_TENANT_ID,
+  DEV_HYPER_ADMIN_EMAIL,
+  DEV_HYPER_ADMIN_PASSWORD,
+} from "./config";
 import type { AppRole, AuthUser } from "./types";
 import { APP_ROLES } from "./types";
 import { hashPasswordSync, verifyPassword } from "./password";
@@ -10,35 +15,41 @@ type BootstrapUser = AuthUser & { password: string };
 
 /** In-memory bootstrap identities (json/memory modes) with bcrypt hashes */
 const BOOTSTRAP: BootstrapUser[] = [
+  /**
+   * Eski demo/bootstrap hesabı (2026-09-12 owner kararı: EMEKLİ). Platform
+   * sahibi değildir (platform sahibi yalnız HYPER_ADMIN — Hıdırcan Yağız,
+   * `hyperAdminBootstrapUsers`), kurum sahibi de değildir (tek kurum sahibi
+   * Nilüfer Acar). Kurum sahibi yetkisi kaldırıldı (SCHOOL_ADMIN) ve giriş
+   * KAPALI (RETIRED_BOOTSTRAP_USER_IDS); kayıt ve geçmiş referansları korunur.
+   */
   {
     userId: "user_super",
     email: "super@notaplan.app",
     password: process.env.AUTH_SUPER_PASSWORD || "demo-super",
-    role: "SUPER_ADMIN",
+    role: "SCHOOL_ADMIN",
     tenantId: DEFAULT_TENANT_ID,
   },
   {
     userId: "user_admin",
     email: "admin@niluferacar.com.tr",
     password: process.env.AUTH_ADMIN_PASSWORD || "demo-admin",
+    // 2026-09-12 (2. karar): ESKİ, duplicate kurum sahibi hesabı. Kurum sahibi
+    // yetkisi kaldırıldı (SCHOOL_ADMIN) ve giriş KAPALI (RETIRED_BOOTSTRAP_USER_IDS).
+    // Geçmiş referansları (tahsilat/ders/sözleşme/audit aktörü) korunur; silinmez.
     role: "SCHOOL_ADMIN",
     tenantId: DEFAULT_TENANT_ID,
   },
   /**
-   * İş 4 — rol hiyerarşisi (P0 2026-09-09): Nilüfer Acar kurum sahibidir
-   * ama SUPER_ADMIN DEĞİLDİR. Platform sahibi yalnız `user_super`
-   * (Hıdırcan Yağız). Ezgi Güçlü kurum müdürüdür (SCHOOL_ADMIN, finans/
-   * personel özeti yok). Nihal Gedikli bu listede YOK — login kimliği
-   * NeviiOS merkezi auth'ta BRANCH_MANAGER olarak yaşar; NeviiHub içinde
-   * duplicate SCHOOL_ADMIN kullanıcı oluşturulmaz (2026-09-12 kullanıcı
-   * kararı). Personel kaydı bağı için bkz. ensureManagerStaffProfiles
-   * (e-posta üzerinden güvenli bulma, rol dönüşümü YOK).
+   * Rol sözleşmesi (2026-09-12, nihai): Nilüfer Acar kurumun GERÇEK sahibidir
+   * (SUPER_ADMIN — yalnız kendi tenant'ı; personel/finans dahil). Ezgi Güçlü
+   * SCHOOL_ADMIN (kurum yöneticisi — personel/finans YOK). Nihal Gedikli'nin
+   * tek login kimliği aşağıdaki BRANCH_MANAGER kaydıdır (duplicate yok).
    */
   {
     userId: "user_owner_nilufer",
     email: "nilufer.acar@niluferacar.com.tr",
     password: process.env.AUTH_OWNER_PASSWORD || "demo-owner-nilufer",
-    role: "SCHOOL_ADMIN",
+    role: "SUPER_ADMIN",
     tenantId: DEFAULT_TENANT_ID,
   },
   {
@@ -49,6 +60,20 @@ const BOOTSTRAP: BootstrapUser[] = [
     tenantId: DEFAULT_TENANT_ID,
   },
 
+  /**
+   * NeviiOS tur 3 — Nihal Gedikli (kurum yöneticisi kapsamı), BRANCH_MANAGER
+   * giriş rolüyle. Owner kararı: Nilüfer Acar kurumunda "unified" yönetici
+   * preset'i → efektif izinleri Ezgi (SCHOOL_ADMIN) ile AYNI; personel ve
+   * finans özeti ikisine de kapalı (bkz. platform/manager-preset.ts).
+   * E-posta aynı `ad.soyad@niluferacar.com.tr` placeholder desenidir.
+   */
+  {
+    userId: "user_manager_nihal",
+    email: "nihal.gedikli@niluferacar.com.tr",
+    password: process.env.AUTH_BRANCH_MANAGER_PASSWORD || "demo-manager-nihal",
+    role: "BRANCH_MANAGER",
+    tenantId: DEFAULT_TENANT_ID,
+  },
   /**
    * KÖK NEDEN (öğretmen girişi çalışmıyordu) — `src/lib/seed.ts`'teki t1..t7
    * öğretmenleri (CSV'den içe aktarılan gerçek isimler/e-postalar) yalnızca
@@ -230,7 +255,43 @@ const BOOTSTRAP: BootstrapUser[] = [
     role: "SCHOOL_ADMIN",
     tenantId: "tenant_test_kampus",
   },
+  ...hyperAdminBootstrapUsers(),
 ];
+
+/**
+ * İlk HYPER_ADMIN yalnız env/bootstrap ile oluşur. Public kayıt ve panelden
+ * rol yükseltme YOKTUR. Production'da AUTH_HYPER_ADMIN_EMAIL + en az 16
+ * karakterlik AUTH_HYPER_ADMIN_PASSWORD şarttır; aksi halde hesap üretilmez.
+ * Geliştirme/testte varsayılan `hyper@nevii-hub.test` / `demo-hyper-admin`
+ * (yalnız non-production). `hyper@localhost` login şemasındaki
+ * `z.string().email()` doğrulamasından geçmez.
+ */
+function hyperAdminBootstrapUsers(): BootstrapUser[] {
+  const email = (process.env.AUTH_HYPER_ADMIN_EMAIL || "").trim().toLowerCase();
+  const password = process.env.AUTH_HYPER_ADMIN_PASSWORD || "";
+  const isProd = process.env.NODE_ENV === "production";
+  if (isProd) {
+    if (!email || password.length < 16) return [];
+    return [
+      {
+        userId: "user_hyper_admin",
+        email,
+        password,
+        role: "HYPER_ADMIN",
+        tenantId: PLATFORM_TENANT_ID,
+      },
+    ];
+  }
+  return [
+    {
+      userId: "user_hyper_admin",
+      email: email || DEV_HYPER_ADMIN_EMAIL,
+      password: password || DEV_HYPER_ADMIN_PASSWORD,
+      role: "HYPER_ADMIN",
+      tenantId: PLATFORM_TENANT_ID,
+    },
+  ];
+}
 
 /**
  * Kök neden düzeltmesi — `passwordHash` eskiden modül yüklenirken TÜM
@@ -295,7 +356,8 @@ function isAppRole(value: string): value is AppRole {
 export function listAdminUsersForTenant(
   tenantId: string
 ): { id: string; email: string; role: AppRole }[] {
-  return HASHED.filter((u) => u.tenantId === tenantId || u.role === "SUPER_ADMIN")
+  // NeviiOS: SUPER_ADMIN artık tek kurumun sahibidir — başka kurumun listesine sızmaz.
+  return HASHED.filter((u) => u.tenantId === tenantId)
     .filter((u) => u.role === "SCHOOL_ADMIN" || u.role === "SUPER_ADMIN")
     .map((u) => ({ id: u.userId, email: u.email!, role: u.role }));
 }
@@ -313,7 +375,7 @@ export function listAdminUsersForTenant(
 export function listBootstrapUsersForTenant(
   tenantId: string
 ): { id: string; email: string; role: AppRole; teacherId?: string; studentId?: string }[] {
-  return HASHED.filter((u) => u.tenantId === tenantId || u.role === "SUPER_ADMIN").map((u) => ({
+  return HASHED.filter((u) => u.tenantId === tenantId).map((u) => ({
     id: u.userId,
     email: u.email!,
     role: u.role,
@@ -324,7 +386,7 @@ export function listBootstrapUsersForTenant(
 
 /** Seed users for Prisma (tenant-scoped) */
 export function getBootstrapUsersForSeed(tenantId: string) {
-  return HASHED.filter((u) => u.tenantId === tenantId || u.role === "SUPER_ADMIN").map(
+  return HASHED.filter((u) => u.tenantId === tenantId).map(
     (u) => ({
       id: u.userId,
       tenantId,
@@ -355,6 +417,30 @@ function logAuthFailureReason(email: string, reason: string, tenantId?: string) 
   });
 }
 
+/**
+ * NeviiOS kurum yaşam döngüsü girişi: kurum kullanıcıları yalnız `active`
+ * kurumda oturum açar (draft/provisioning/suspended/archived → red).
+ * HYPER_ADMIN yalnız sentetik platform tenant'ından giriş yapabilir; platform
+ * tenant'ında HYPER_ADMIN dışında bir rol asla oturum açamaz. Tenant satırı
+ * okunamazsa fail-closed `false`.
+ */
+export async function tenantAllowsLogin(tenantId: string, role: AppRole): Promise<boolean> {
+  if (role === "HYPER_ADMIN") return tenantId === PLATFORM_TENANT_ID;
+  if (tenantId === PLATFORM_TENANT_ID) return false;
+  // json/memory: tek demo kurumu, Tenant satırı yok — yaşam döngüsü yalnız db'de gerçek.
+  if (!isDbMode) return true;
+  try {
+    const { getPrisma } = await import("../db");
+    const tenant = await getPrisma().tenant.findUnique({
+      where: { id: tenantId },
+      select: { active: true, lifecycle: true },
+    });
+    return Boolean(tenant && tenant.active && tenant.lifecycle === "active");
+  } catch {
+    return false;
+  }
+}
+
 export async function authenticateUser(
   emailInput: string,
   password: string
@@ -369,7 +455,7 @@ export async function authenticateUser(
       const { getPrisma } = await import("../db");
       const prisma = getPrisma();
       const row = await prisma.user.findFirst({
-        where: { email },
+        where: { email, deletedAt: null },
       });
       if (!row) {
         logAuthFailureReason(email, "no_such_user");
@@ -388,6 +474,11 @@ export async function authenticateUser(
         logAuthFailureReason(email, "bad_role", row.tenantId);
         return null;
       }
+      if (!(await tenantAllowsLogin(row.tenantId, row.role))) {
+        logAuthFailureReason(email, "tenant_inactive", row.tenantId);
+        return null;
+      }
+      await prisma.user.update({ where: { id: row.id }, data: { lastLoginAt: new Date() } });
       return toAuthUser({
         userId: row.id,
         role: row.role,
@@ -403,7 +494,7 @@ export async function authenticateUser(
 
   const row = HASHED.find((u) => effectiveHashedEmail(u)?.toLowerCase() === email);
   if (row) {
-    const isActive = activeOverrides.get(row.userId) ?? true;
+    const isActive = bootstrapLoginEnabled(row.userId) && (await bootstrapUserActive(row.userId));
     if (!isActive) {
       logAuthFailureReason(email, "inactive", row.tenantId);
       return null;
@@ -579,13 +670,16 @@ export async function getUserIdByEmail(tenantId: string, email: string): Promise
  * her iki admin rolü de zaten bu tenant'ın TÜM şubelerini yönetir
  * (bkz. /panel/subeler, hiçbir admin ekranı şube bazlı kısıtlama yapmaz).
  */
-export async function listAdminUserIdsForTenant(tenantId: string): Promise<string[]> {
+export async function listAdminUserIdsForTenant(
+  tenantId: string,
+  roles: AppRole[] = ["SCHOOL_ADMIN", "SUPER_ADMIN"]
+): Promise<string[]> {
   if (isDbMode) {
     try {
       const { getPrisma } = await import("../db");
       const prisma = getPrisma();
       const rows = await prisma.user.findMany({
-        where: { tenantId, active: true, role: { in: ["SCHOOL_ADMIN", "SUPER_ADMIN"] } },
+        where: { tenantId, active: true, role: { in: roles } },
         select: { id: true },
       });
       return rows.map((r) => r.id);
@@ -593,7 +687,7 @@ export async function listAdminUserIdsForTenant(tenantId: string): Promise<strin
       return [];
     }
   }
-  return HASHED.filter((u) => u.tenantId === tenantId && (u.role === "SCHOOL_ADMIN" || u.role === "SUPER_ADMIN")).map(
+  return HASHED.filter((u) => u.tenantId === tenantId && roles.includes(u.role) && bootstrapLoginEnabled(u.userId)).map(
     (u) => u.userId
   );
 }
@@ -604,7 +698,7 @@ export async function getUserById(userId: string): Promise<AuthUser | null> {
       const { getPrisma } = await import("../db");
       const prisma = getPrisma();
       const row = await prisma.user.findFirst({
-        where: { id: userId, active: true },
+        where: { id: userId, active: true, deletedAt: null },
       });
       if (!row || !isAppRole(row.role)) return null;
       return toAuthUser({
@@ -621,7 +715,10 @@ export async function getUserById(userId: string): Promise<AuthUser | null> {
   }
 
   const row = HASHED.find((u) => u.userId === userId);
-  if (row) return toAuthUser({ ...row, email: effectiveHashedEmail(row) });
+  if (row) {
+    if (!bootstrapLoginEnabled(row.userId) || !(await bootstrapUserActive(row.userId))) return null;
+    return toAuthUser({ ...row, email: effectiveHashedEmail(row) });
+  }
   const { findDynamicUserById } = await import("./dynamic-users");
   const dyn = await findDynamicUserById(userId);
   if (!dyn || !isAppRole(dyn.role)) return null;
@@ -633,6 +730,17 @@ export async function getUserById(userId: string): Promise<AuthUser | null> {
     teacherId: dyn.teacherId ?? undefined,
     studentId: dyn.studentId ?? undefined,
   });
+}
+
+/** json/memory: NeviiOS yaşam döngüsü bindirmesi (pasif/silinmiş demo hesabı giriş yapamaz). */
+async function bootstrapUserActive(userId: string): Promise<boolean> {
+  try {
+    const { getUserLifecycle } = await import("../platform/store-ext");
+    const s = await getUserLifecycle(userId);
+    return !s || s.status === "active";
+  } catch {
+    return false; // durum okunamazsa fail-closed
+  }
 }
 
 /**
@@ -799,6 +907,19 @@ export type ChangeOwnPasswordResult =
  */
 const activeOverrides = new Map<string, boolean>();
 
+/**
+ * Emekliye ayrılmış (duplicate) bootstrap kimlikleri — json/memory'de giriş
+ * KAPALI başlar; token'ları `session-validity` üzerinden geçersizdir. Kayıt
+ * silinmez (geçmiş aktör referansları korunur). db modunda karşılığı
+ * `User.active=false` operasyonudur (bu turda UYGULANMADI).
+ */
+const RETIRED_BOOTSTRAP_USER_IDS = new Set(["user_admin", "user_super"]);
+
+/** json/memory bootstrap hesabının giriş durumu (bootstrap dışı id'ler için true). */
+export function bootstrapLoginEnabled(userId: string): boolean {
+  return activeOverrides.get(userId) ?? !RETIRED_BOOTSTRAP_USER_IDS.has(userId);
+}
+
 export async function setUserActive(userId: string, active: boolean): Promise<boolean> {
   if (isDbMode) {
     try {
@@ -851,7 +972,7 @@ export async function getUserAccountStatus(userId: string): Promise<UserAccountS
       email: row.email ?? "",
       role: row.role,
       tenantId: row.tenantId,
-      active: activeOverrides.get(userId) ?? true,
+      active: bootstrapLoginEnabled(userId),
     };
   }
   const { findDynamicUserById } = await import("./dynamic-users");
@@ -880,7 +1001,7 @@ export async function getUserAccountStatusForTeacher(tenantId: string, teacherId
       email: row.email ?? "",
       role: row.role,
       tenantId: row.tenantId,
-      active: activeOverrides.get(row.userId) ?? true,
+      active: bootstrapLoginEnabled(row.userId),
     };
   }
   const { findDynamicUserByTeacherId } = await import("./dynamic-users");
@@ -983,7 +1104,13 @@ export async function changeOwnPassword(
     const valid = await verifyPassword(currentPassword, row.passwordHash);
     if (!valid) return { ok: false, code: "WRONG_PASSWORD" };
 
-    await updatePasswordHash(userId, hashPasswordSync(newPassword));
+    // Diğer cihazlardaki oturumlar düşer: bu andan önce üretilmiş token'lar geçersiz.
+    await prisma.user.update({
+      where: { id: userId },
+      data: { passwordHash: hashPasswordSync(newPassword), sessionsRevokedAt: new Date() },
+    });
+    const { invalidateSessionValidity } = await import("./session-validity");
+    invalidateSessionValidity(userId);
     auditLog({
       action: "auth.password_changed",
       requestId: uid("req"),

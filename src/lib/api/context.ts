@@ -13,6 +13,8 @@ export function buildServiceContext(
   const channelHeader = request.headers.get("x-channel")?.toLowerCase();
   return {
     role: user.role,
+    loginRole: user.loginRole,
+    sid: user.sid,
     userId: user.userId,
     tenantId: user.tenantId,
     teacherId: user.teacherId,

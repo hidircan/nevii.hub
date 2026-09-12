@@ -24,8 +24,11 @@ export function PanelHeader({
   kurumSelection,
   canSeeAllKurumlar,
   density,
+  loginRole,
 }: {
   role: AppRole;
+  /** Giriş rolü (efektif rolden farklıysa) — yalnız etiket için. */
+  loginRole?: AppRole;
   email: string | null;
   kurumName: string | null;
   kurumAvailable: { tenantId: string; name: string }[];
@@ -47,7 +50,7 @@ export function PanelHeader({
       <div className="flex shrink-0 items-center gap-2">
         <CommandPalette role={role} />
         <NotificationBell role={role} />
-        <UserMenu email={email} role={role} kurumName={kurumName} initialDensity={density} />
+        <UserMenu email={email} role={role} labelRole={loginRole} kurumName={kurumName} initialDensity={density} />
       </div>
     </header>
   );

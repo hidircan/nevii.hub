@@ -2,8 +2,11 @@ import { z } from "zod";
 import { NextResponse } from "next/server";
 import { withApiHandler } from "@/lib/api/handler";
 import { jsonFail } from "@/lib/api/http";
+import { isSessionClaimValid } from "@/lib/auth/session-validity";
+import { extendUserSession } from "@/lib/auth/session-registry";
 import {
   getUserById,
+  tenantAllowsLogin,
   issueTokenPair,
   verifyRefreshToken,
   auditLog,
@@ -53,28 +56,39 @@ export const POST = withApiHandler(
 
     try {
       const claims = await verifyRefreshToken(token);
+      if (!(await isSessionClaimValid(claims, { ignoreRole: true }))) {
+        return jsonFail("UNAUTHORIZED", "User no longer valid");
+      }
       const user = await getUserById(claims.sub);
       if (!user) {
         return jsonFail("UNAUTHORIZED", "User no longer valid");
       }
-      if (user.tenantId !== claims.tenantId && user.role !== "SUPER_ADMIN") {
+      // NeviiOS: tenant ve rol HER refresh'te güncel kullanıcı kaydından gelir —
+      // rol düşürme / kurum askıya alma en geç access TTL sonunda etkili olur.
+      // SUPER_ADMIN artık tek kurumun sahibidir; tenant uyuşmazlığı istisnası yok.
+      if (user.tenantId !== claims.tenantId || !(await tenantAllowsLogin(user.tenantId, user.role))) {
         return jsonFail("UNAUTHORIZED", "Tenant mismatch on refresh");
+      }
+
+      if (claims.sid && !(await extendUserSession(claims.sid))) {
+        return jsonFail("UNAUTHORIZED", "Session revoked");
       }
 
       const tokens = await issueTokenPair({
         ...user,
-        tenantId: claims.tenantId,
-        role: claims.role,
+        tenantId: user.tenantId,
+        role: user.role,
         teacherId: claims.teacherId ?? user.teacherId,
         studentId: claims.studentId ?? user.studentId,
+        sid: claims.sid,
       });
 
       auditLog({
         action: "auth.refresh_success",
         requestId: ctx.requestId || "unknown",
         userId: user.userId,
-        tenantId: claims.tenantId,
-        role: claims.role,
+        tenantId: user.tenantId,
+        role: user.role,
         outcome: "success",
       });
 
@@ -84,8 +98,8 @@ export const POST = withApiHandler(
           user: {
             userId: user.userId,
             email: user.email,
-            role: claims.role,
-            tenantId: claims.tenantId,
+            role: user.role,
+            tenantId: user.tenantId,
             teacherId: claims.teacherId ?? user.teacherId,
             studentId: claims.studentId ?? user.studentId,
           },

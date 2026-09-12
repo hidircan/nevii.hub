@@ -21,7 +21,8 @@ import { isValidIban, maskIban } from "../pii/iban";
 const VALID_TR_IBAN = "TR330006100519786457841326";
 
 function adminCtx(overrides?: Partial<ServiceContext>): ServiceContext {
-  return { role: "SCHOOL_ADMIN", userId: "u1", tenantId: DEFAULT_TENANT_ID, channel: "web", ...overrides };
+  // NeviiOS tur 3 owner kararı: personel/bordro/finans özeti yalnız kurum sahibinde (SUPER_ADMIN).
+  return { role: "SUPER_ADMIN", userId: "u1", tenantId: DEFAULT_TENANT_ID, channel: "web", ...overrides };
 }
 
 beforeEach(async () => {

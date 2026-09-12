@@ -28,7 +28,53 @@ screens (login/welcome).
 - Full detail + rationale: `docs/contracts/LEGAL_POLICY_TEXT_DISCREPANCY_REPORT.md`,
   `docs/roadmap/NEVIIHUB_ADMIN_CONTRACTS_POLICY_REMAINING_WORK.md`.
 
-## Güncel odak (2026-09-12) — P1 outbox aksiyonları + inbound listesi + Ezgi/Nihal personel bağı
+## Güncel odak (2026-09-12, geç) — NeviiOS Control Center bu repoya birleştirildi (Seçenek 1)
+
+Tek kanonik codebase = bu worktree. Commit/push/deploy YOK, migration UYGULANMADI,
+uzak yazım/gerçek gönderim YOK; kaynak `~/Projects/neviios-control` salt-okunur
+kullanıldı (hiçbir dosyası değişmedi/silinmedi). Tam manifest (rol/route tablosu,
+taşınan modüller, legacy silme listesi): `docs/architecture/NEVIIOS_CONTROL_CENTER_MERGE_MANIFEST.md`.
+
+- **Rol sözleşmesi:** HYPER_ADMIN = platform sahibi (`/platform/*`, tek cross-tenant);
+  SUPER_ADMIN = kurum sahibi (personel/finans YALNIZ bu rol); SCHOOL_ADMIN = kurum
+  yöneticisi; BRANCH_MANAGER (`unified` → efektif SCHOOL_ADMIN). Tek kaynak
+  `auth/platform-access.ts` (rol bazlı, userId listesi yok) + `resolveEffectiveRole`.
+- **Fixture (json/memory) — NİHAİ (2. karar):** Nilüfer `user_owner_nilufer` SUPER_ADMIN
+  (kurum sahibi); Ezgi SCHOOL_ADMIN; Nihal `user_manager_nihal` BRANCH_MANAGER (unified →
+  efektif SCHOOL_ADMIN); eski `admin@` EMEKLİ (`RETIRED_BOOTSTRAP_USER_IDS`: giriş kapalı,
+  token/refresh 401, kayıt korunur); tek HYPER_ADMIN `user_hyper_admin` (e-posta yalnız env).
+  `user_super` rolü owner kararı bekliyor. DB rolleri DEĞİŞTİRİLMEDİ — operasyon planı manifest §7.
+- **Taşındı:** 163 CC dosyası (platform lib/ekran/API, session registry/validity,
+  config snapshot, /sube, release/paket/log saklama) + 3-yollu birleşim (auth çekirdeği,
+  middleware, handler, tools/actions, nav, layout; 12 çakışma elle). Route
+  manifesti: 359 URL, duplicate sahip yok.
+- **Migration (dosya, UYGULANMADI):** `20260913140000_neviios_control_center` —
+  idempotent additive; `PasswordResetToken.createdBy` NULLABLE. **db modunda kod
+  migration'dan önce deploy edilmemeli** (User.deletedAt vb. sorgulanıyor).
+- **Doğrulama:** typecheck ✓ · lint 0 hata (27 `_input` uyarısı) · hedefli 15 dosya
+  253/253 ✓ · prisma validate/generate ✓ · `next build` ✓ · `git diff --check` ✓ ·
+  tam süit (4. karar sonrası) 3182/3185 — 1 test (izin bildirimi, tek aktif sahip) sonra düzeltildi ve
+  izole doğrulandı; kalan 2 hata turdan önce de vardı — kalan 2 hata turdan önce de vardı (lesson-series
+  "skipConflicts" tarih bağımlı; sidebar-branding logo byte testi = çalışma
+  ağacındaki logo değişikliği). Rol sözleşmesine göre güncellenen testler:
+  staff-onboarding, notification-preferences, store-mode-parity, platform-access,
+  manager-staff-profiles, academic-term-dates, owner-manager-role-hierarchy, write-scope-actions.
+- **4. karar (user_super emekli):** `user_super`/`super@notaplan.app` EMEKLİ (`RETIRED_BOOTSTRAP_USER_IDS`,
+  rol SCHOOL_ADMIN, giriş kapalı, eski token/refresh 401). Nilüfer Acar tenant'ının TEK aktif SUPER_ADMIN'i
+  Nilüfer. Tek HYPER_ADMIN `user_hyper_admin` (Hıdırcan Yağız; gerçek e-posta yalnız `AUTH_HYPER_ADMIN_EMAIL`).
+  Tarayıcı UAT (yerel, izole `/tmp` store) PASS — ayrıntı manifest §9.
+- **AÇIK TEKNİK BORÇ / ÜRÜN KARARI:** `branch_scoped` BRANCH_MANAGER için Hakediş KAPALI. Açmak için önce
+  sunucu tarafında şube kapsamlı hakediş filtreleme (öğretmen/ders → şube eşleşmesi, `resolveBranchScope`)
+  ve `/sube` altında ayrı yüzey gerekir; bu olmadan başka şube verisi sızar.
+- **Hakediş politikası (3. karar):** `access.teacherEarningsAccess` (sürümlü/audit'li); Nilüfer Acar =
+  SUPER_ADMIN + SCHOOL_ADMIN + BRANCH_MANAGER(unified); diğer kurumlar varsayılan `school_admin`
+  (davranış değişmedi); branch_scoped BM ve HYPER_ADMIN red. Genel finans/personel yalnız SUPER_ADMIN.
+  Ayrıntı: manifest §8. Yanlışlıkla kopyalanan 5 kaynak migration klasörü kaldırıldı.
+- **Sonraki güvenli adım:** owner review → test DB'de rol verisi (HYPER_ADMIN
+  bootstrap, admin@ SUPER_ADMIN) + migration → sonra kod. Kaynak legacy `/panel`
+  temizliği ayrı tur (54 dosya listesi manifestte; 7 kullanıcı-diff'li dosya korunur).
+
+## Önceki odak (2026-09-12) — P1 outbox aksiyonları + inbound listesi + Ezgi/Nihal personel bağı
 
 Branch: `fix/admin-payment-attendance-sync-p0` (commit/push/deploy YOK,
 migration UYGULANMADI, gerçek e-posta/SMS/WhatsApp YOK).

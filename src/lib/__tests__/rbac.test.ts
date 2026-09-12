@@ -3,10 +3,11 @@ import { APP_ROLES } from "../auth/types";
 import { assertPermission, hasPermission } from "../auth/rbac";
 
 describe("RBAC", () => {
-  it("SUPER_ADMIN tüm izinlere sahiptir", () => {
+  it("SUPER_ADMIN kurum izinlerine sahiptir ama tenantlar arası platform yetkisi yoktur", () => {
     expect(hasPermission("SUPER_ADMIN", "payments:write")).toBe(true);
-    expect(hasPermission("SUPER_ADMIN", "tenant:all")).toBe(true);
+    expect(hasPermission("SUPER_ADMIN", "tenant:all")).toBe(false);
     expect(hasPermission("SUPER_ADMIN", "demo:reset")).toBe(true);
+    expect(hasPermission("HYPER_ADMIN", "tenant:all")).toBe(true);
   });
 
   it("STUDENT (Karma Öğrenci Portalı — veli/öğrenci) yazma izinlerine sahip değildir", () => {

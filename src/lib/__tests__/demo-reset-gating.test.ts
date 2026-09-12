@@ -21,7 +21,7 @@ import type { ServiceContext } from "../services/context";
  */
 
 const ADMIN: ServiceContext = { role: "SCHOOL_ADMIN", userId: "user_admin", tenantId: "tenant_nilufer_acar" };
-const SUPER: ServiceContext = { role: "SUPER_ADMIN", userId: "user_super", tenantId: "tenant_nilufer_acar" };
+const SUPER: ServiceContext = { role: "SUPER_ADMIN", userId: "user_owner_nilufer", tenantId: "tenant_nilufer_acar" };
 
 const originalNodeEnv = process.env.NODE_ENV;
 const originalVercel = process.env.VERCEL;

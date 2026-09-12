@@ -51,7 +51,7 @@ export default async function StaffDetailPage({ params }: { params: Promise<{ st
   } catch {
     redirect("/login?next=/panel/personel");
   }
-  if (session.role !== "SCHOOL_ADMIN" && session.role !== "SUPER_ADMIN") redirect("/panel");
+  if (session.role !== "SUPER_ADMIN") redirect("/panel"); // owner kararı: yalnız kurum sahibi
 
   const { staffId } = await params;
   const kurum = await getInstitutionContext(session);

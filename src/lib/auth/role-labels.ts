@@ -2,8 +2,10 @@ import type { AppRole } from "./types";
 
 /** Kullanıcı menüsü/hesap sayfası için Türkçe rol etiketleri — yalnızca görsel, RBAC'ı etkilemez. */
 export const ROLE_LABELS_TR: Record<AppRole, string> = {
+  HYPER_ADMIN: "Platform Yöneticisi",
   SUPER_ADMIN: "Kurum Sahibi",
   SCHOOL_ADMIN: "Kurum Yöneticisi",
+  BRANCH_MANAGER: "Şube Müdürü",
   TEACHER: "Öğretmen",
   STUDENT: "Öğrenci",
   AI_AGENT: "Yapay Zekâ Ajanı",

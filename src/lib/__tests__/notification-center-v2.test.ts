@@ -23,7 +23,7 @@ const DATA_FILE = path.join(resolveDataDir(path.join(process.cwd(), "data")), "s
 function ctx(overrides?: Partial<ServiceContext>): ServiceContext {
   return {
     role: "SCHOOL_ADMIN",
-    userId: "user_admin",
+    userId: "user_owner_nilufer",
     tenantId: DEFAULT_TENANT_ID,
     channel: "web",
     ...overrides,
@@ -112,7 +112,7 @@ describe("lesson_cancelled / rescheduled / tercih", () => {
     await notifyLessonCancelled({ tenantId: DEFAULT_TENANT_ID, lesson, actorUserId: "user_admin" });
     const teacher = await listNotificationsForUser({ tenantId: DEFAULT_TENANT_ID, userId: "user_teacher_t1" });
     expect(teacher.filter((n) => n.kind === "lesson_cancelled")).toHaveLength(0);
-    const admin = await listNotificationsForUser({ tenantId: DEFAULT_TENANT_ID, userId: "user_admin" });
+    const admin = await listNotificationsForUser({ tenantId: DEFAULT_TENANT_ID, userId: "user_manager_ezgi" });
     expect(admin.filter((n) => n.kind === "lesson_cancelled" && n.body.includes(lesson.id)).length).toBeLessThanOrEqual(1);
   });
 
@@ -125,7 +125,7 @@ describe("lesson_cancelled / rescheduled / tercih", () => {
       lesson: { ...lesson, startAt: "2026-09-01T10:00:00.000Z" },
       previousStartAt: "2026-08-01T10:00:00.000Z",
     });
-    const notes = await listNotificationsForUser({ tenantId: DEFAULT_TENANT_ID, userId: "user_admin" });
+    const notes = await listNotificationsForUser({ tenantId: DEFAULT_TENANT_ID, userId: "user_manager_ezgi" });
     const hit = notes.find((n) => n.kind === "lesson_rescheduled");
     expect(hit?.body).toMatch(/→/);
   });
@@ -148,7 +148,7 @@ describe("payment_failed_or_pending", () => {
     await writeJson(seed);
     await sweepPaymentFailedOrPending(new Date());
     await sweepPaymentFailedOrPending(new Date());
-    const admin = await listNotificationsForUser({ tenantId: DEFAULT_TENANT_ID, userId: "user_admin" });
+    const admin = await listNotificationsForUser({ tenantId: DEFAULT_TENANT_ID, userId: "user_manager_ezgi" });
     expect(admin.filter((n) => n.kind === "payment_failed_or_pending" && n.body.includes("pay_pending_old")).length).toBe(
       1
     );

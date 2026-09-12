@@ -24,7 +24,7 @@ vi.mock("../store", async (importOriginal) => {
   };
 });
 
-const { resolveWriteScope, ALL_MODE_WRITE_DENIED_MESSAGE } = await import("../institution/write-scope");
+const { resolveWriteScope } = await import("../institution/write-scope");
 
 function ctx(overrides?: Partial<ServiceContext>): ServiceContext {
   return {
@@ -70,33 +70,32 @@ describe("resolveWriteScope — SCHOOL_ADMIN", () => {
 });
 
 describe("resolveWriteScope — SUPER_ADMIN", () => {
-  it("tercih yokken varsayılan 'Tüm kurumlar' — yazma reddedilir, tam Türkçe mesajla", async () => {
+  it("tercih yokken kendi kurumunda yazar — başka kurumu birleştirmez", async () => {
     const scope = await resolveWriteScope(ctx({ role: "SUPER_ADMIN", tenantId: "tenant_a" }));
-    expect(scope.mode).toBe("all");
-    if (scope.mode === "all") expect(scope.reason).toBe(ALL_MODE_WRITE_DENIED_MESSAGE);
+    expect(scope).toEqual({ mode: "single", tenantId: "tenant_a" });
   });
 
-  it("açıkça 'ALL' seçiliyken yazma reddedilir", async () => {
+  it("açıkça 'ALL' seçiliyken geçersiz sayılır, kendi kurumuna düşer", async () => {
     mockCookieValue.value = "ALL";
     const scope = await resolveWriteScope(ctx({ role: "SUPER_ADMIN", tenantId: "tenant_a" }));
-    expect(scope.mode).toBe("all");
+    expect(scope).toEqual({ mode: "single", tenantId: "tenant_a" });
   });
 
-  it("geçerli tek bir kurum seçiliyken o kurumda yazma izni verir", async () => {
+  it("başka kurum cookie'si SUPER_ADMIN için sızdırmaz — kendi kurumuna düşer", async () => {
     mockCookieValue.value = "tenant_b";
     const scope = await resolveWriteScope(ctx({ role: "SUPER_ADMIN", tenantId: "tenant_a" }));
-    expect(scope).toEqual({ mode: "single", tenantId: "tenant_b" });
+    expect(scope).toEqual({ mode: "single", tenantId: "tenant_a" });
   });
 
-  it("kendi kurumunu seçtiğinde de tek kurum modunda yazma izni verir", async () => {
+  it("kendi kurumunu seçtiğinde tek kurum modunda yazma izni verir", async () => {
     mockCookieValue.value = "tenant_a";
     const scope = await resolveWriteScope(ctx({ role: "SUPER_ADMIN", tenantId: "tenant_a" }));
     expect(scope).toEqual({ mode: "single", tenantId: "tenant_a" });
   });
 
-  it("erişilemeyen bir tenant id'si istenirse 'Tüm kurumlar'a (varsayılana) düşer, sızdırmaz", async () => {
+  it("erişilemeyen bir tenant id'si istenirse kendi kurumuna düşer, sızdırmaz", async () => {
     mockCookieValue.value = "tenant_does_not_exist";
     const scope = await resolveWriteScope(ctx({ role: "SUPER_ADMIN", tenantId: "tenant_a" }));
-    expect(scope.mode).toBe("all");
+    expect(scope).toEqual({ mode: "single", tenantId: "tenant_a" });
   });
 });

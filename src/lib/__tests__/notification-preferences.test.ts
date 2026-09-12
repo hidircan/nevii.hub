@@ -171,11 +171,13 @@ describe("notifyAdmins + olay köprüleri", () => {
   });
 
   it("createLeaveRequestTool diğer adminlere leave_new_request üretir, oluşturanı hariç tutar", async () => {
-    const staff = await createStaffMemberTool(ctx(), { name: "Test Personel", position: "Sekreter" });
+    // Tur 3: personel/izin yalnız kurum sahibinde; bildirim de yalnız kurum sahiplerine gider.
+    const owner = ctx({ role: "SUPER_ADMIN", userId: "user_owner_nilufer" });
+    const staff = await createStaffMemberTool(owner, { name: "Test Personel", position: "Sekreter" });
     expect(staff.ok).toBe(true);
     if (!staff.ok) return;
 
-    const res = await createLeaveRequestTool(ctx({ userId: "user_admin" }), {
+    const res = await createLeaveRequestTool(owner, {
       staffId: staff.data.staffId,
       type: "annual",
       startDate: "2026-09-01",
@@ -186,8 +188,13 @@ describe("notifyAdmins + olay köprüleri", () => {
 
     const all = await listAllNotifications(DEFAULT_TENANT_ID);
     const leaveNotifs = all.filter((n) => n.kind === "leave_new_request");
-    expect(leaveNotifs.length).toBeGreaterThan(0);
-    expect(leaveNotifs.every((n) => n.targetUserId !== "user_admin")).toBe(true);
+    // Nilüfer tenant'ın TEK aktif kurum sahibi (admin@ ve super@ emekli) ve oluşturan hariç tutulur →
+    // bildirilecek başka kurum sahibi yoktur. SCHOOL_ADMIN (Ezgi) personel ekranını göremez → almaz.
+    expect(leaveNotifs.every((n) => n.targetUserId !== "user_owner_nilufer")).toBe(true);
+    expect(
+      leaveNotifs.some((n) => ["user_admin", "user_super", "user_manager_ezgi"].includes(n.targetUserId ?? ""))
+    ).toBe(false);
+    expect(leaveNotifs).toHaveLength(0);
   });
 
   it("görev atama tercihi kapalıysa bildirim üretilmez", async () => {

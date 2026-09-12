@@ -35,7 +35,9 @@ export default async function TeacherPayoutOverviewPage({
   } catch {
     redirect("/login?next=/panel/hakedisler");
   }
-  if (session.role !== "SCHOOL_ADMIN" && session.role !== "SUPER_ADMIN") {
+  // Hakediş erişimi: kurum politikası (SUPER_ADMIN her zaman; SCHOOL_ADMIN / unified BRANCH_MANAGER kuruma göre).
+  const { canAccessTeacherEarnings } = await import("@/lib/platform/teacher-earnings-access");
+  if (!(await canAccessTeacherEarnings(session))) {
     redirect("/panel");
   }
 

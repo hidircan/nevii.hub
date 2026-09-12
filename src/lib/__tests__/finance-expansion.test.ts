@@ -19,7 +19,8 @@ import { BUDGET_FILE } from "../budget";
 import { effectiveExpensePaymentStatus } from "../finance-summary";
 
 function ctx(overrides?: Partial<ServiceContext>): ServiceContext {
-  return { role: "SCHOOL_ADMIN", userId: "u1", tenantId: DEFAULT_TENANT_ID, channel: "web", ...overrides };
+  // NeviiOS tur 3 owner kararı: personel/bordro/finans özeti yalnız kurum sahibinde (SUPER_ADMIN).
+  return { role: "SUPER_ADMIN", userId: "u1", tenantId: DEFAULT_TENANT_ID, channel: "web", ...overrides };
 }
 
 /**

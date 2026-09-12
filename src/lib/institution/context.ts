@@ -2,7 +2,7 @@ import { cookies } from "next/headers";
 import type { ServiceContext } from "../services/context";
 import { readData, listTenants } from "../store";
 import { runWithTenantAsync } from "../tenant-context";
-import { DEFAULT_TENANT_ID } from "../auth/config";
+import { DEFAULT_TENANT_ID, PLATFORM_TENANT_ID } from "../auth/config";
 import type { AppData } from "../types";
 import { mergeAppData } from "./merge";
 import {
@@ -24,15 +24,16 @@ export {
 } from "./scope";
 
 /**
- * Kurum müdürü (SCHOOL_ADMIN) yalnızca kendi kurumunu görür; kurum sahibi
- * (SUPER_ADMIN) platformdaki tüm aktif kurumları görür ve aralarında geçiş
- * yapabilir. json/memory modlarında tek kurum olduğundan bu her zaman
- * tek elemanlı bir listeye indirgenir.
+ * Kurum müdürü (SCHOOL_ADMIN) ve kurum sahibi (SUPER_ADMIN) yalnızca kendi
+ * kurumunu görür. Tenantlar arası liste yalnız HYPER_ADMIN içindir (ve
+ * sentetik platform tenant'ı hariç tutulur). json/memory modlarında tek
+ * kurum olduğundan bu her zaman tek elemanlı bir listeye indirgenir.
  */
 export async function listAvailableKurumlar(ctx: ServiceContext): Promise<KurumSummary[]> {
   const all = await runWithTenantAsync(DEFAULT_TENANT_ID, () => listTenants());
-  if (canSeeAllKurumlar(ctx)) return all;
-  const own = all.find((k) => k.tenantId === ctx.tenantId);
+  const schools = all.filter((k) => k.tenantId !== PLATFORM_TENANT_ID);
+  if (canSeeAllKurumlar(ctx)) return schools;
+  const own = schools.find((k) => k.tenantId === ctx.tenantId);
   return own ? [own] : [{ tenantId: ctx.tenantId, name: ctx.tenantId }];
 }
 

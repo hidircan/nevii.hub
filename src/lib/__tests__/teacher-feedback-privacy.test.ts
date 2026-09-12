@@ -163,7 +163,7 @@ describe("EPIC 6C — gizlilik: yalnızca SCHOOL_ADMIN/SUPER_ADMIN görebilir, �
 describe("yönetici bildirimi (teacher_feedback_submitted)", () => {
   it("değerlendirme gönderilince yöneticilere bildirim oluşur, geri-bildirim ekranına yönlendirir, yorumu taşımaz", async () => {
     await submitTeacherFeedbackTool(ctx({ role: "STUDENT", studentId: "s1" }), VALID_FEEDBACK);
-    const notes = await listNotificationsForUser({ tenantId: DEFAULT_TENANT_ID, userId: "user_admin" });
+    const notes = await listNotificationsForUser({ tenantId: DEFAULT_TENANT_ID, userId: "user_manager_ezgi" });
     const note = notes.find((n) => n.kind === "teacher_feedback_submitted");
     expect(note).toBeDefined();
     expect(note!.title).toBe("Yeni öğretmen değerlendirmesi");
@@ -172,11 +172,11 @@ describe("yönetici bildirimi (teacher_feedback_submitted)", () => {
   });
 
   it("tercih kapalıyken bildirim oluşmaz", async () => {
-    await setNotificationPreferences(DEFAULT_TENANT_ID, "user_admin", [
+    await setNotificationPreferences(DEFAULT_TENANT_ID, "user_manager_ezgi", [
       { category: "teacher_feedback_submitted", inAppEnabled: false },
     ]);
     await submitTeacherFeedbackTool(ctx({ role: "STUDENT", studentId: "s1" }), VALID_FEEDBACK);
-    const notes = await listNotificationsForUser({ tenantId: DEFAULT_TENANT_ID, userId: "user_admin" });
+    const notes = await listNotificationsForUser({ tenantId: DEFAULT_TENANT_ID, userId: "user_manager_ezgi" });
     expect(notes.some((n) => n.kind === "teacher_feedback_submitted")).toBe(false);
   });
 
@@ -186,7 +186,7 @@ describe("yönetici bildirimi (teacher_feedback_submitted)", () => {
       ...VALID_FEEDBACK,
       comment: "İkinci deneme",
     });
-    const notes = await listNotificationsForUser({ tenantId: DEFAULT_TENANT_ID, userId: "user_admin" });
+    const notes = await listNotificationsForUser({ tenantId: DEFAULT_TENANT_ID, userId: "user_manager_ezgi" });
     expect(notes.filter((n) => n.kind === "teacher_feedback_submitted")).toHaveLength(1);
   });
 });

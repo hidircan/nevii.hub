@@ -1,0 +1,68 @@
+import { cookies } from "next/headers";
+import { PlatformMobileNav, PlatformNav } from "@/components/platform/platform-nav";
+import { PlatformForbidden } from "@/components/platform/platform-forbidden";
+import { PlatformCommandPalette } from "@/components/platform/platform-command-palette";
+import { PlatformUserMenu } from "@/components/platform/platform-user-menu";
+import { requirePlatformSession, isPlatformForbidden } from "@/lib/platform/session";
+import { getUserById } from "@/lib/auth/users";
+import { roleLabelTr } from "@/lib/auth/role-labels";
+import { PLATFORM_BRAND } from "@/lib/platform/brand";
+import { resolveGrants } from "@/lib/platform/permissions";
+import { screensFor } from "@/lib/platform/permission-matrix";
+import { getUserLifecycle } from "@/lib/platform/store-ext";
+import { getSessionAppearancePolicy } from "@/lib/platform/access";
+import { FONT_COOKIE, THEME_PROFILE_COOKIE, normalizeFontChoice, normalizeThemeProfile } from "@/lib/theme";
+
+export const dynamic = "force-dynamic";
+
+export default async function PlatformLayout({ children }: { children: React.ReactNode }) {
+  const session = await requirePlatformSession("/platform");
+  if (isPlatformForbidden(session)) {
+    return (
+      <div className="min-h-screen bg-[var(--color-bg)] px-6">
+        <PlatformForbidden role={session.role} />
+      </div>
+    );
+  }
+
+  const [user, lifecycle, grants, policy, jar] = await Promise.all([
+    getUserById(session.userId),
+    getUserLifecycle(session.userId).catch(() => null),
+    resolveGrants(session),
+    getSessionAppearancePolicy(),
+    cookies(),
+  ]);
+  // Menü = ekran registry + aynı resolver (sunucu kontrolüyle tek kaynak).
+  const links = screensFor({ grants }, "platform").map((s) => ({ href: s.path, label: s.label }));
+  return (
+    <div className="flex min-h-screen bg-[var(--color-bg)]">
+      <PlatformNav links={links} />
+      <main className="min-w-0 flex-1 overflow-auto">
+        <header
+          className="sticky top-0 z-30 flex items-center justify-between gap-3 border-b px-6 py-2.5 backdrop-blur lg:px-10"
+          style={{
+            borderColor: "var(--color-border)",
+            background: "color-mix(in srgb, var(--color-surface) 92%, transparent)",
+          }}
+        >
+          <p className="truncate text-sm font-semibold text-[var(--color-text)]">
+            {PLATFORM_BRAND.name} · {PLATFORM_BRAND.productLine}
+          </p>
+          <div className="flex items-center gap-3">
+            <PlatformCommandPalette />
+            <PlatformUserMenu
+              email={user?.email ?? null}
+              displayName={lifecycle?.displayName ?? null}
+              roleLabel={roleLabelTr(session.role)}
+              profile={normalizeThemeProfile(jar.get(THEME_PROFILE_COOKIE)?.value)}
+              font={normalizeFontChoice(jar.get(FONT_COOKIE)?.value)}
+              policy={policy}
+            />
+          </div>
+        </header>
+        <PlatformMobileNav links={links} />
+        <div className="mx-auto max-w-7xl px-6 py-8 lg:px-10">{children}</div>
+      </main>
+    </div>
+  );
+}

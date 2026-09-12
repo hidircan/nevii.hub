@@ -65,8 +65,8 @@ describe("Ezgi Güçlü finans/personel özeti", () => {
     if (!finance.ok) expect(finance.error.code).toBe("FORBIDDEN");
   });
 
-  it("Nilüfer Acar kendi kurumunda görebilir", async () => {
-    const owner = ctx({ userId: INSTITUTION_OWNER_USER_ID, role: "SCHOOL_ADMIN" });
+  it("kurum sahibi (SUPER_ADMIN) kendi kurumunda görebilir", async () => {
+    const owner = ctx({ userId: INSTITUTION_OWNER_USER_ID, role: "SUPER_ADMIN" });
     const finance = await getFinanceSummaryTool(owner, {});
     expect(finance.ok).toBe(true);
   });

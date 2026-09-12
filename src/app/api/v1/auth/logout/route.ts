@@ -4,6 +4,8 @@ import { ACCESS_COOKIE, REFRESH_COOKIE, clearAuthCookies, parseCookieHeader } fr
 import { auditLog } from "@/lib/auth";
 import { jsonFail } from "@/lib/api/http";
 import { isCrossSiteMutation } from "@/lib/api/csrf-guard";
+import { verifyRefreshToken } from "@/lib/auth/jwt";
+import { revokeUserSession } from "@/lib/auth/session-registry";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +25,16 @@ export const POST = withApiHandler(
         outcome: "denied",
       });
       return jsonFail("FORBIDDEN", "Cross-origin request rejected");
+    }
+    // NeviiOS: oturum kaydını kapat (refresh cookie'deki sid). İmza doğrulanmadan sid'e güvenilmez.
+    const refresh = parseCookieHeader(cookieHeader, REFRESH_COOKIE);
+    if (refresh) {
+      try {
+        const claims = await verifyRefreshToken(refresh);
+        if (claims.sid) await revokeUserSession(claims.sid, claims.sub, "logout");
+      } catch {
+        // süresi dolmuş/geçersiz token — kapatılacak açık oturum yok
+      }
     }
     auditLog({
       action: "auth.logout",

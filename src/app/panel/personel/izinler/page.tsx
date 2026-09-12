@@ -25,7 +25,7 @@ export default async function IzinlerPage() {
   } catch {
     redirect("/login?next=/panel/personel/izinler");
   }
-  if (session.role !== "SCHOOL_ADMIN" && session.role !== "SUPER_ADMIN") redirect("/panel");
+  if (session.role !== "SUPER_ADMIN") redirect("/panel"); // owner kararı: yalnız kurum sahibi
 
   const kurum = await getInstitutionContext(session);
   const staffResult = await listStaffTool(session, {});

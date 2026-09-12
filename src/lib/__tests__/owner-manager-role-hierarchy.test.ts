@@ -10,14 +10,14 @@ function ctx(overrides?: Partial<ServiceContext>): ServiceContext {
 }
 
 /**
- * P0 — rol hiyerarşisi: Nilüfer Acar kurum sahibidir (SCHOOL_ADMIN, SUPER_ADMIN
- * değil). Ezgi Güçlü kurum müdürüdür (SCHOOL_ADMIN). Platform sahibi ayrıdır.
+ * Rol hiyerarşisi (2026-09-12 nihai): Nilüfer Acar kurum sahibidir (SUPER_ADMIN).
+ * Ezgi Güçlü kurum yöneticisidir (SCHOOL_ADMIN). Platform sahibi ayrıdır (HYPER_ADMIN).
  */
 describe("Nilüfer Acar (kurum sahibi) ve Ezgi Güçlü (kurum müdürü) bootstrap kimlikleri", () => {
-  it("Nilüfer Acar SCHOOL_ADMIN olarak giriş yapar — SUPER_ADMIN değildir", async () => {
+  it("Nilüfer Acar kurum sahibi olarak SUPER_ADMIN ile giriş yapar (HYPER_ADMIN değildir)", async () => {
     const user = await authenticateUser("nilufer.acar@niluferacar.com.tr", "demo-owner-nilufer");
     expect(user).not.toBeNull();
-    expect(user?.role).toBe("SCHOOL_ADMIN");
+    expect(user?.role).toBe("SUPER_ADMIN");
     expect(user?.tenantId).toBe(DEFAULT_TENANT_ID);
   });
 
@@ -35,19 +35,19 @@ describe("Nilüfer Acar (kurum sahibi) ve Ezgi Güçlü (kurum müdürü) bootst
   });
 });
 
-describe("Nilüfer'in kendi kurumu vs. platform sahibinin tüm kurumları", () => {
-  it("SCHOOL_ADMIN (Nilüfer) listAvailableKurumlar'da YALNIZ kendi tenant'ını görür", async () => {
-    const ownerCtx = ctx({ role: "SCHOOL_ADMIN", userId: "user_owner_nilufer", tenantId: DEFAULT_TENANT_ID });
+describe("Kurum sahibi (SUPER_ADMIN) ve kurum yöneticisi (SCHOOL_ADMIN) yalnız kendi kurumunu görür", () => {
+  it("SUPER_ADMIN (Nilüfer) listAvailableKurumlar'da YALNIZ kendi tenant'ını görür", async () => {
+    const ownerCtx = ctx({ role: "SUPER_ADMIN", userId: "user_owner_nilufer", tenantId: DEFAULT_TENANT_ID });
     const kurumlar = await listAvailableKurumlar(ownerCtx);
     expect(kurumlar).toHaveLength(1);
     expect(kurumlar[0]!.tenantId).toBe(DEFAULT_TENANT_ID);
   });
 
-  it("SUPER_ADMIN platform rolü listAvailableKurumlar'da tenant filtresi uygulamadan kurum listesini görür", async () => {
-    const superCtx = ctx({ role: "SUPER_ADMIN", userId: "user_super", tenantId: "herhangi-bir-tenant" });
+  it("SUPER_ADMIN (kurum sahibi) listAvailableKurumlar'da YALNIZ kendi tenant'ını görür", async () => {
+    const superCtx = ctx({ role: "SUPER_ADMIN", tenantId: "herhangi-bir-tenant" });
     const kurumlar = await listAvailableKurumlar(superCtx);
-    expect(kurumlar.length).toBeGreaterThan(0);
-    expect(kurumlar.some((k) => k.tenantId !== superCtx.tenantId)).toBe(true);
+    expect(kurumlar).toHaveLength(1);
+    expect(kurumlar[0]!.tenantId).toBe("herhangi-bir-tenant");
   });
 
   it("SCHOOL_ADMIN (Ezgi) rolü listAvailableKurumlar'da YALNIZ kendi tenant'ını görür", async () => {
@@ -81,13 +81,14 @@ describe("Öğretmen rolü Personel/Bordro/Finans ekranlarına erişemez", () =>
     if (!finance.ok) expect(finance.error.code).toBe("FORBIDDEN");
   });
 
-  it("hem SUPER_ADMIN hem SCHOOL_ADMIN Personel/Bordro/Finans'a erişebilir", async () => {
-    for (const role of ["SUPER_ADMIN", "SCHOOL_ADMIN"] as const) {
-      const adminCtx = ctx({ role });
-      const staff = await listStaffTool(adminCtx, {});
-      expect(staff.ok, `${role} listStaffTool`).toBe(true);
-      const finance = await getFinanceSummaryTool(adminCtx, {});
-      expect(finance.ok, `${role} getFinanceSummaryTool`).toBe(true);
-    }
+  it("NeviiOS tur 3 owner kararı: Personel/Bordro/Finans özeti YALNIZ SUPER_ADMIN; SCHOOL_ADMIN reddedilir", async () => {
+    const owner = ctx({ role: "SUPER_ADMIN" });
+    expect((await listStaffTool(owner, {})).ok).toBe(true);
+    expect((await getFinanceSummaryTool(owner, {})).ok).toBe(true);
+    const manager = ctx({ role: "SCHOOL_ADMIN" });
+    const staff = await listStaffTool(manager, {});
+    expect(!staff.ok && staff.error.code).toBe("FORBIDDEN");
+    const finance = await getFinanceSummaryTool(manager, {});
+    expect(!finance.ok && finance.error.code).toBe("FORBIDDEN");
   });
 });

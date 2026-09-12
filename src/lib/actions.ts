@@ -162,6 +162,8 @@ import {
   resetNotificationPreferencesTool,
 } from "./services/tools";
 import { runWithTenantAsync } from "./tenant-context";
+import { getSessionAppearancePolicy } from "./platform/access";
+import { isProfileAllowed } from "./platform/policies";
 import { getSessionContext, requireSessionContext } from "./auth/session";
 import { readData } from "./store";
 import { buildLessonCommunicationDraft, type LessonCommunicationDraft } from "./whatsapp-templates";
@@ -254,6 +256,22 @@ async function withAuthContext<T>(
     throw new WriteScopeDeniedError(writeScope.reason);
   }
 
+  // NeviiOS: panel aksiyonları kurum geneli çalışır. Şube müdürü şube filtresi
+  // taşımayan bu yüzeye giremez; platform sahibi kurum adına operasyon yapmaz
+  // (kurum seçici cookie'si ile tek kurum seçse bile) — NeviiOS API'sini kullanır.
+  if (ctx.role === "BRANCH_MANAGER" || ctx.role === "HYPER_ADMIN") {
+    auditLog({
+      action: actionName,
+      requestId,
+      userId: ctx.userId,
+      tenantId: ctx.tenantId,
+      role: ctx.role,
+      outcome: "denied",
+      meta: { reason: "role_not_allowed_in_panel_actions" },
+    });
+    throw new Error("Bu işlem bu rol için kapalıdır.");
+  }
+
   try {
     const result = await runWithTenantAsync(writeScope.tenantId, () => fn(ctx));
     auditLog({
@@ -335,6 +353,9 @@ async function persistWorkspacePatch(patch: {
 
 export async function actionSetThemeProfile(profile: string): Promise<void> {
   const normalized = normalizeThemeProfile(profile);
+  // NeviiOS görünüm politikası: kurumun izin vermediği profil kaydedilmez
+  // (render tarafında da root layout aynı politikayı uygular).
+  if (!isProfileAllowed(await getSessionAppearancePolicy(), normalized)) return;
   const jar = await cookies();
   jar.set(THEME_PROFILE_COOKIE, normalized, {
     httpOnly: false,
@@ -348,6 +369,7 @@ export async function actionSetThemeProfile(profile: string): Promise<void> {
 
 export async function actionSetFont(font: string): Promise<void> {
   const normalized = normalizeFontChoice(font);
+  if ((await getSessionAppearancePolicy()).fontPolicy !== "user_choice") return;
   const jar = await cookies();
   jar.set(FONT_COOKIE, normalized, {
     httpOnly: false,

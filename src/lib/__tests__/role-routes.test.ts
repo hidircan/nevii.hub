@@ -3,12 +3,14 @@ import { homePathForRole, notificationSettingsPathForRole, notificationListPathF
 import { NOTIFICATION_CATEGORIES } from "../notification-categories";
 import type { AppRole } from "../auth/types";
 
-const ALL_ROLES: AppRole[] = ["SUPER_ADMIN", "SCHOOL_ADMIN", "TEACHER", "STUDENT", "AI_AGENT"];
+const ALL_ROLES: AppRole[] = ["HYPER_ADMIN", "SUPER_ADMIN", "SCHOOL_ADMIN", "TEACHER", "STUDENT", "AI_AGENT"];
 
 describe("notificationSettingsPathForRole (bell + portal navigasyonu)", () => {
   it("her rol için doğru, role-özel bir rota üretir", () => {
     expect(notificationSettingsPathForRole("SCHOOL_ADMIN")).toBe("/panel/ayarlar/bildirimler");
     expect(notificationSettingsPathForRole("SUPER_ADMIN")).toBe("/panel/ayarlar/bildirimler");
+    expect(notificationSettingsPathForRole("HYPER_ADMIN")).toBe("/platform");
+    expect(homePathForRole("HYPER_ADMIN")).toBe("/platform");
     expect(notificationSettingsPathForRole("TEACHER")).toBe("/ogretmen/ayarlar/bildirimler");
     expect(notificationSettingsPathForRole("STUDENT")).toBe("/ogrenci/ayarlar/bildirimler");
   });

@@ -25,6 +25,7 @@ export async function signToken(
     teacherId: user.teacherId,
     studentId: user.studentId,
     email: user.email,
+    ...(user.sid ? { sid: user.sid } : {}),
   } satisfies Omit<JwtClaims, "sub" | "iat" | "exp">)
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(user.userId)
@@ -80,6 +81,7 @@ function parseClaims(payload: JWTPayload, expectedTyp: TokenType): JwtClaims {
     teacherId: typeof payload.teacherId === "string" ? payload.teacherId : undefined,
     studentId: typeof payload.studentId === "string" ? payload.studentId : undefined,
     email: typeof payload.email === "string" ? payload.email : undefined,
+    sid: typeof payload.sid === "string" ? payload.sid : undefined,
     iat: payload.iat,
     exp: payload.exp,
   };

@@ -1,12 +1,15 @@
 /**
- * Platform sahibi / kurum sahibi yetki sınırları.
+ * Merkezi erişim sözleşmesi (2026-09-12 owner kararı — NeviiOS birleşimi).
  *
- * Geniş UserBranchAccess / NeviiOS migration'ı YOK. SUPER_ADMIN tek başına
- * "tüm kurumlar" demek değildir — yalnız açık platform sahibi kimliği
- * kurumlar arası geçiş yapabilir.
+ * - HYPER_ADMIN: platform sahibi (`/platform/*`, tenantlar arası görünüm).
+ * - SUPER_ADMIN: kurum sahibi — yalnız kendi tenant'ı; personel/özlük/bordro/
+ *   izin/avans/IBAN/gider/bütçe/finans özeti YALNIZ bu roldedir.
+ * - SCHOOL_ADMIN: kurum yöneticisi — günlük operasyon, hassas alan YOK.
+ * - BRANCH_MANAGER: şube yöneticisi; `unified` preset'te efektif rolü
+ *   SCHOOL_ADMIN olur (bkz. platform/manager-preset.ts) — hassas alan YOK.
  *
- * Kimlikler userId (ve isteğe bağlı env) ile tanımlanır; e-posta/parola
- * rapora veya yeni fixture'a yazılmaz.
+ * Kararlar yalnız ROL ile verilir (userId listesi yok). `role` her zaman
+ * efektif roldür (ServiceContext.role); giriş rolü `loginRole`'dadır.
  */
 
 import type { AppRole } from "./types";
@@ -18,64 +21,23 @@ export type AccessActor = {
   tenantId?: string;
 };
 
-function envList(name: string): string[] {
-  const raw = process.env[name];
-  if (!raw) return [];
-  return raw
-    .split(",")
-    .map((s) => s.trim().toLowerCase())
-    .filter(Boolean);
-}
-
-/** Demo/bootstrap platform sahibi — Hıdırcan Yağız'ın platform kimliği. */
-export const PLATFORM_OWNER_USER_ID = "user_super";
-
-/** Demo/bootstrap kurum sahibi — Nilüfer Acar (SUPER_ADMIN değildir). */
+/** Demo/bootstrap kurum sahibi — Nilüfer Acar (SUPER_ADMIN; erişim yalnız rolden gelir). */
 export const INSTITUTION_OWNER_USER_ID = "user_owner_nilufer";
 
-/** Demo/bootstrap kurum müdürü — Ezgi Güçlü (finans/personel özeti yok). */
+/** Demo/bootstrap kurum yöneticisi — Ezgi Güçlü. */
 export const INSTITUTION_MANAGER_USER_ID = "user_manager_ezgi";
 
 export function isPlatformOwner(actor: AccessActor): boolean {
-  if (actor.role !== "SUPER_ADMIN") return false;
-  const extraIds = envList("PLATFORM_OWNER_USER_IDS");
-  const extraEmails = envList("PLATFORM_OWNER_EMAILS");
-  if (actor.userId === PLATFORM_OWNER_USER_ID) return true;
-  if (extraIds.includes(actor.userId.toLowerCase())) return true;
-  if (actor.email && extraEmails.includes(actor.email.toLowerCase())) return true;
-  // Env ile açık kimlik listesi yoksa SUPER_ADMIN rolü platform erişimidir
-  // (Nilüfer Acar bu rolde DEĞİLDİR — SCHOOL_ADMIN). Test/bootstrap SUPER_ADMIN
-  // kimlikleri (user_super, super1) bu yoldan geçer.
-  if (extraIds.length === 0 && extraEmails.length === 0) return true;
-  return false;
+  return actor.role === "HYPER_ADMIN";
 }
 
 export function isInstitutionOwner(actor: AccessActor): boolean {
-  if (isPlatformOwner(actor)) return true;
-  const extraIds = envList("INSTITUTION_OWNER_USER_IDS");
-  if (actor.userId === INSTITUTION_OWNER_USER_ID) return true;
-  return extraIds.includes(actor.userId.toLowerCase());
+  return actor.role === "SUPER_ADMIN";
 }
 
-export function isInstitutionManager(actor: AccessActor): boolean {
-  const extraIds = envList("INSTITUTION_MANAGER_USER_IDS");
-  if (actor.userId === INSTITUTION_MANAGER_USER_ID) return true;
-  return extraIds.includes(actor.userId.toLowerCase());
-}
-
-/**
- * Kurum geneli finans özeti + personel özeti.
- * Platform sahibi ve kurum sahibi görür. Kurum müdürü (Ezgi Güçlü —
- * NeviiHub bootstrap SCHOOL_ADMIN) göremez. Diğer SCHOOL_ADMIN (günlük
- * operasyon hesabı) mevcut erişimini korur. Nihal Gedikli'nin login
- * kimliği merkezi auth'ta BRANCH_MANAGER'dır; NeviiHub'da duplicate
- * kayıt tutulmaz.
- */
+/** Personel/özlük/bordro/izin/avans/IBAN/gider/bütçe/finans özeti — yalnız kurum sahibi. */
 export function canViewFinanceAndStaffSummary(actor: AccessActor): boolean {
-  if (isPlatformOwner(actor) || isInstitutionOwner(actor)) return true;
-  if (actor.role !== "SCHOOL_ADMIN") return false;
-  if (isInstitutionManager(actor)) return false;
-  return true;
+  return isInstitutionOwner(actor);
 }
 
 /** Kurumlar arası geçiş / "Tüm kurumlar" — yalnız platform sahibi. */

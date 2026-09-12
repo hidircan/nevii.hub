@@ -473,6 +473,25 @@ import {
   type ServiceContext,
 } from "./context";
 import { fail, fromZodError, ok, type ServiceErrorCode, type ServiceResult } from "./result";
+import { assertFeatureEnabled, getStudentFormConfig } from "../platform/access";
+import { assertBranchOperation } from "../platform/permissions";
+import { assertTeacherEarningsAccess } from "../platform/teacher-earnings-access";
+
+/** NeviiOS — şube müdürünün öğrenci kaydında değiştirebileceği temel operasyonel alanlar. */
+const BRANCH_MANAGER_STUDENT_FIELDS = new Set([
+  "phone",
+  "parentName",
+  "parentPhone",
+  "level",
+  "targetExam",
+  "specialNotes",
+  "termType",
+  "communicationOptOut",
+  "enrollmentStartDate",
+  "enrollmentEndDate",
+]);
+import { applyStudentFormConfig } from "../platform/policies";
+import { assertWithinLimit } from "../platform/entitlements";
 import { recordAuditLog } from "../audit/log";
 import {
   createCurriculumTopic,
@@ -634,11 +653,19 @@ export async function markAttendanceTool(
   ctx: ServiceContext,
   input: unknown
 ): Promise<ServiceResult<{ lessonId: string; status: string }>> {
-  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "TEACHER", "AI_AGENT", "SUPER_ADMIN"]);
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "TEACHER", "AI_AGENT", "SUPER_ADMIN", "BRANCH_MANAGER"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
 
   const v = parseOrFail(attendanceSchema, input);
   if (!v.ok) return v;
+
+  // NeviiOS — şube müdürü yalnız atanmış şubesindeki dersin yoklamasını alır.
+  if (ctx.role === "BRANCH_MANAGER") {
+    const lesson = (await readData()).lessons.find((l) => l.id === v.data.lessonId);
+    if (!lesson) return fail("NOT_FOUND", "Ders bulunamadı");
+    const gate = await assertBranchOperation(ctx, "attendance", "update", lesson.branchId);
+    if (!gate.ok) return gate;
+  }
 
   if (ctx.role === "TEACHER") {
     const data = await readData();
@@ -711,7 +738,7 @@ export async function confirmMakeupLessonTool(
     communication?: import("../whatsapp-templates").MakeupLessonCommunicationDraft | null;
   }>
 > {
-  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "AI_AGENT", "SUPER_ADMIN"]);
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "AI_AGENT", "SUPER_ADMIN", "BRANCH_MANAGER"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
 
   const v = parseOrFail(
@@ -723,6 +750,18 @@ export async function confirmMakeupLessonTool(
     input
   );
   if (!v.ok) return v;
+
+  if (ctx.role === "BRANCH_MANAGER") {
+    const req = (await readData()).makeupRequests.find((m) => m.id === v.data.requestId);
+    if (!req) return fail("NOT_FOUND", "Telafi talebi bulunamadı");
+    const gate = await assertBranchOperation(ctx, "makeup", "update", req.branchId);
+    if (!gate.ok) return gate;
+    const slotBranch = (v.data.slot as { branchId?: string }).branchId;
+    if (slotBranch) {
+      const slotGate = await assertBranchOperation(ctx, "makeup", "update", slotBranch);
+      if (!slotGate.ok) return slotGate;
+    }
+  }
 
   try {
     await confirmSlot(v.data.requestId, v.data.slot as MakeupSlot, {
@@ -793,7 +832,7 @@ export async function createMakeupLessonTool(
   input: unknown
 ): Promise<ServiceResult<{ requestId: string }>> {
   /** Creates makeup credit via attendance (absent / school cancel) — reuses store */
-  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "TEACHER", "AI_AGENT", "SUPER_ADMIN"]);
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "TEACHER", "AI_AGENT", "SUPER_ADMIN", "BRANCH_MANAGER"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
 
   const v = parseOrFail(
@@ -803,6 +842,13 @@ export async function createMakeupLessonTool(
     input
   );
   if (!v.ok) return v;
+
+  if (ctx.role === "BRANCH_MANAGER") {
+    const lesson = (await readData()).lessons.find((l) => l.id === v.data.lessonId);
+    if (!lesson) return fail("NOT_FOUND", "Ders bulunamadı");
+    const gate = await assertBranchOperation(ctx, "makeup", "create", lesson.branchId);
+    if (!gate.ok) return gate;
+  }
 
   if (ctx.role === "TEACHER") {
     const data = await readData();
@@ -1388,7 +1434,8 @@ export async function globalSearchTool(
     }));
 
   let staff: GlobalSearchResultItem[] = [];
-  if (ctx.role === "SCHOOL_ADMIN" || ctx.role === "SUPER_ADMIN") {
+  // Personel sonuçları yalnız kurum sahibine (requireStaffSensitiveAccess ile aynı kural).
+  if (requireStaffSensitiveAccess(ctx).ok) {
     const staffList = await listStaff(ctx.tenantId);
     staff = staffList
       .filter(
@@ -1444,6 +1491,8 @@ export async function createPaymentTool(
   /** Marks existing payment as paid — create-new not in store yet */
   const auth = requireRole(ctx, ["SCHOOL_ADMIN", "AI_AGENT", "SUPER_ADMIN"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const moduleGate = await assertFeatureEnabled(ctx.tenantId, "payments");
+  if (!moduleGate.ok) return moduleGate;
 
   const v = parseOrFail(
     z.object({
@@ -1819,11 +1868,28 @@ export async function createStudentTool(
   const auth = requireRole(ctx, ["SCHOOL_ADMIN", "AI_AGENT", "SUPER_ADMIN"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
 
-  const v = parseOrFail(studentSchema, input);
+  // NeviiOS — kurumun Yeni Öğrenci Kaydı konfigürasyonu SUNUCUDA uygulanır
+  // (zorunluluk, gizli alan, rol bazlı düzenleme, varsayılan). Varsayılan
+  // konfigürasyon boştur → davranış değişmez.
+  const shaped = applyStudentFormConfig(
+    await getStudentFormConfig(ctx.tenantId),
+    input && typeof input === "object" ? (input as Record<string, unknown>) : {},
+    ctx.role
+  );
+  if (!shaped.ok) return fail("VALIDATION_ERROR", shaped.message);
+
+  const v = parseOrFail(studentSchema, shaped.value);
   if (!v.ok) return v;
 
   try {
     const before = await readData();
+    // Paket limiti yalnız YENİ kaydı engeller; mevcut öğrenciler etkilenmez.
+    const limit = await assertWithinLimit(
+      ctx.tenantId,
+      "students",
+      before.students.filter((st) => st.active !== false).length
+    );
+    if (!limit.ok) return limit;
     // MT-003 — seçilen öğretmenin AKTİF, AYNI TENANT'ta (`before.teachers`
     // zaten tenant-scoped — cross-tenant bir ID burada asla bulunamaz) ve
     // seçilen enstrümana yetkin olduğu sunucuda doğrulanır; filtre yalnız
@@ -2215,11 +2281,25 @@ export async function updateStudentProfileTool(
   ctx: ServiceContext,
   input: unknown
 ): Promise<ServiceResult<{ studentId: string }>> {
-  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN", "BRANCH_MANAGER"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
 
   const v = parseOrFail(updateStudentProfileSchema, input);
   if (!v.ok) return v;
+
+  // NeviiOS — şube müdürü: yalnız kendi şubesindeki öğrencinin temel
+  // operasyonel alanları; kimlik/ücret/sorumluluk/şube taşıma YOK.
+  if (ctx.role === "BRANCH_MANAGER") {
+    const student = (await readData()).students.find((s) => s.id === v.data.studentId);
+    if (!student) return fail("NOT_FOUND", "Öğrenci bulunamadı");
+    const gate = await assertBranchOperation(ctx, "students", "update", student.branchId);
+    if (!gate.ok) return gate;
+    const provided = Object.keys(input && typeof input === "object" ? (input as object) : {}).filter((k) => k !== "studentId");
+    const blocked = provided.filter((k) => !BRANCH_MANAGER_STUDENT_FIELDS.has(k));
+    if (blocked.length > 0) {
+      return fail("FORBIDDEN", `Şube müdürü bu alanları değiştiremez: ${blocked.join(", ")}`);
+    }
+  }
 
   if (v.data.branchId) {
     const data = await readData();
@@ -3234,7 +3314,7 @@ function requireStaffSensitiveAccess(ctx: ServiceContext): { ok: true } | { ok: 
   const role = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
   if (!role.ok) return role;
   if (!canViewFinanceAndStaffSummary(ctx)) {
-    return { ok: false, message: "Bu özet yalnız kurum sahibi veya platform sahibi tarafından görülebilir." };
+    return { ok: false, message: "Bu alan yalnız kurum sahibi tarafından görülebilir." };
   }
   return { ok: true };
 }
@@ -3707,7 +3787,7 @@ export async function listLeaveTool(
   ctx: ServiceContext,
   input: unknown
 ): Promise<ServiceResult<{ requests: import("../types").LeaveRequest[] }>> {
-  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  const auth = requireStaffSensitiveAccess(ctx);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
   const v = parseOrFail(z.object({ staffId: z.string().optional() }), input);
   if (!v.ok) return v;
@@ -3719,7 +3799,7 @@ export async function createLeaveRequestTool(
   ctx: ServiceContext,
   input: unknown
 ): Promise<ServiceResult<{ leaveId: string }>> {
-  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  const auth = requireStaffSensitiveAccess(ctx);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
   const v = parseOrFail(createLeaveRequestSchema, input);
   if (!v.ok) return v;
@@ -3737,7 +3817,8 @@ export async function createLeaveRequestTool(
         title: "Yeni izin talebi",
         body: `Onay bekleyen izin talebi (${range}, ${result.entry.dayCount} gün). Detay: /panel/personel/izinler`,
       },
-      { excludeUserId: ctx.userId, dedupeKey: result.entry.id }
+      // Owner kararı: personel ekranı yalnız kurum sahibinde → bildirim de yalnız ona.
+      { excludeUserId: ctx.userId, dedupeKey: result.entry.id, roles: ["SUPER_ADMIN"] }
     );
   } catch {
     // best-effort
@@ -3749,7 +3830,7 @@ export async function decideLeaveRequestTool(
   ctx: ServiceContext,
   input: unknown
 ): Promise<ServiceResult<{ leaveId: string }>> {
-  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  const auth = requireStaffSensitiveAccess(ctx);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
   const v = parseOrFail(decideLeaveRequestSchema, input);
   if (!v.ok) return v;
@@ -4661,6 +4742,9 @@ export async function createBranchTool(
 
   try {
     const before = await readData();
+    // NeviiOS paket limiti: yeni şube açılışını durdurur; mevcut şubeler etkilenmez.
+    const branchLimit = await assertWithinLimit(ctx.tenantId, "branches", before.settings.branches.length);
+    if (!branchLimit.ok) return branchLimit;
     const ids = new Set(before.settings.branches.map((b) => b.id));
     await addBranch(v.data);
     const after = await readData();
@@ -5143,11 +5227,23 @@ export async function createLessonTool(
   ctx: ServiceContext,
   input: unknown
 ): Promise<ServiceResult<{ lessonId: string }>> {
-  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "AI_AGENT", "SUPER_ADMIN"]);
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "AI_AGENT", "SUPER_ADMIN", "BRANCH_MANAGER"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
 
   const v = parseOrFail(lessonSchema, input);
   if (!v.ok) return v;
+
+  // NeviiOS — şube müdürü: derslik ve öğrenci atanmış şubede olmalı.
+  if (ctx.role === "BRANCH_MANAGER") {
+    const d = await readData();
+    const room = d.rooms.find((r) => r.id === v.data.roomId);
+    const student = d.students.find((s) => s.id === v.data.studentId);
+    if (!room || !student) return fail("NOT_FOUND", "Derslik veya öğrenci bulunamadı");
+    for (const branchId of [room.branchId, student.branchId]) {
+      const gate = await assertBranchOperation(ctx, "schedule", "create", branchId);
+      if (!gate.ok) return gate;
+    }
+  }
   // ÖNCELİK 4 (devam) — dönem seçiliyse (Program ekranından geliyorsa) o
   // dönemin haftalık kapalı gün kuralı uygulanır (varsayılan Güz: Pazartesi,
   // Yaz: Cts/Paz — okul `termWeeklyClosedDays` ile özelleştirmişse o esas
@@ -5244,11 +5340,18 @@ export async function updateLessonScheduleTool(
   ctx: ServiceContext,
   input: unknown
 ): Promise<ServiceResult<{ lessonId: string; startAt: string; endAt: string }>> {
-  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "AI_AGENT", "SUPER_ADMIN"]);
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "AI_AGENT", "SUPER_ADMIN", "BRANCH_MANAGER"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
 
   const v = parseOrFail(updateLessonScheduleSchema, input);
   if (!v.ok) return v;
+
+  if (ctx.role === "BRANCH_MANAGER") {
+    const lesson = (await readData()).lessons.find((l) => l.id === v.data.lessonId);
+    if (!lesson) return fail("NOT_FOUND", "Ders bulunamadı");
+    const gate = await assertBranchOperation(ctx, "schedule", "update", lesson.branchId);
+    if (!gate.ok) return gate;
+  }
 
   /**
    * P0 mutasyon performansı (2026-09-07) — bu fonksiyon ders TAŞIMA yolunun
@@ -5613,6 +5716,8 @@ export async function createFeeRuleTool(
 ): Promise<ServiceResult<{ rule: TeacherFeeRule }>> {
   const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const earnings = await assertTeacherEarningsAccess(ctx); // kurum hakediş politikası
+  if (!earnings.ok) return earnings;
 
   const v = parseOrFail(createFeeRuleSchema, input);
   if (!v.ok) return v;
@@ -5641,6 +5746,8 @@ export async function updateFeeRuleTool(
 ): Promise<ServiceResult<{ rule: TeacherFeeRule }>> {
   const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const earnings = await assertTeacherEarningsAccess(ctx); // kurum hakediş politikası
+  if (!earnings.ok) return earnings;
 
   const v = parseOrFail(updateFeeRuleSchema, input);
   if (!v.ok) return v;
@@ -5671,6 +5778,11 @@ export async function listTeacherPayoutsTool(
 ): Promise<ServiceResult<{ payouts: TeacherPayout[] }>> {
   const auth = requireRole(ctx, ["SCHOOL_ADMIN", "TEACHER", "SUPER_ADMIN"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  // Hakediş erişimi kurum politikasıyla (access.teacherEarningsAccess); öğretmen yalnız kendi hakedişini görür.
+  if (ctx.role !== "TEACHER") {
+    const earnings = await assertTeacherEarningsAccess(ctx);
+    if (!earnings.ok) return earnings;
+  }
 
   const v = parseOrFail(z.object({ teacherId: z.string().min(1) }), input);
   if (!v.ok) return v;
@@ -5704,6 +5816,8 @@ export async function computeTeacherPayoutTool(
 > {
   const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const earnings = await assertTeacherEarningsAccess(ctx); // kurum hakediş politikası
+  if (!earnings.ok) return earnings;
 
   const v = parseOrFail(computeTeacherPayoutSchema, input);
   if (!v.ok) return v;
@@ -5745,6 +5859,8 @@ export async function createTeacherPayoutTool(
 ): Promise<ServiceResult<{ payout: TeacherPayout }>> {
   const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const earnings = await assertTeacherEarningsAccess(ctx); // kurum hakediş politikası
+  if (!earnings.ok) return earnings;
 
   const v = parseOrFail(createTeacherPayoutSchema, input);
   if (!v.ok) return v;
@@ -5779,6 +5895,8 @@ export async function updateTeacherPayoutPaymentMethodTool(
 ): Promise<ServiceResult<{ payout: TeacherPayout }>> {
   const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const earnings = await assertTeacherEarningsAccess(ctx); // kurum hakediş politikası
+  if (!earnings.ok) return earnings;
 
   const v = parseOrFail(updateTeacherPayoutPaymentMethodSchema, input);
   if (!v.ok) return v;
@@ -5799,6 +5917,8 @@ export async function markTeacherPayoutPaidTool(
 ): Promise<ServiceResult<{ payout: TeacherPayout }>> {
   const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const earnings = await assertTeacherEarningsAccess(ctx); // kurum hakediş politikası
+  if (!earnings.ok) return earnings;
 
   const v = parseOrFail(markTeacherPayoutPaidSchema, input);
   if (!v.ok) return v;
@@ -6380,11 +6500,23 @@ export async function createAnnouncementTool(
   ctx: ServiceContext,
   input: unknown
 ): Promise<ServiceResult<{ announcementId: string }>> {
-  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN", "BRANCH_MANAGER"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const moduleGate = await assertFeatureEnabled(ctx.tenantId, "announcements");
+  if (!moduleGate.ok) return moduleGate;
 
   const v = parseOrFail(createAnnouncementSchema, input);
   if (!v.ok) return v;
+
+  // NeviiOS — şube müdürü yalnız kendi şubesine (tek şube hedefi) duyuru yapar.
+  if (ctx.role === "BRANCH_MANAGER") {
+    const ref = v.data.audienceRef as { branchId?: string } | undefined;
+    if (v.data.audienceType !== "branch" || !ref?.branchId || (v.data.rules?.length ?? 0) > 0) {
+      return fail("FORBIDDEN", "Şube müdürü yalnız atanmış şubesine duyuru gönderebilir.");
+    }
+    const gate = await assertBranchOperation(ctx, "announcements", "create", ref.branchId);
+    if (!gate.ok) return gate;
+  }
 
   const uploadedKeys: string[] = [];
   try {
@@ -7200,6 +7332,8 @@ export async function createHomeworkTool(
 ): Promise<ServiceResult<{ homeworkId: string }>> {
   const auth = requireRole(ctx, ["TEACHER"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const moduleGate = await assertFeatureEnabled(ctx.tenantId, "homework");
+  if (!moduleGate.ok) return moduleGate;
 
   const v = parseOrFail(createHomeworkSchema, input);
   if (!v.ok) return v;
@@ -7352,6 +7486,8 @@ export async function submitHomeworkTool(
 ): Promise<ServiceResult<{ submissionId: string }>> {
   const auth = requireRole(ctx, ["STUDENT"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const moduleGate = await assertFeatureEnabled(ctx.tenantId, "homework");
+  if (!moduleGate.ok) return moduleGate;
   if (!ctx.studentId) return fail("FORBIDDEN", "Öğrenci kimliği bulunamadı.");
 
   const v = parseOrFail(submitHomeworkSchema, input);
@@ -7639,6 +7775,8 @@ export async function submitTeacherFeedbackTool(
 ): Promise<ServiceResult<{ feedbackId: string; updated: boolean }>> {
   const auth = requireRole(ctx, ["STUDENT"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const moduleGate = await assertFeatureEnabled(ctx.tenantId, "teacherFeedback");
+  if (!moduleGate.ok) return moduleGate;
 
   const v = parseOrFail(submitTeacherFeedbackSchema, input);
   if (!v.ok) return v;
@@ -8099,7 +8237,7 @@ export async function resetDemoTool(
  * yorum akışının aynısını kullanır (paralel bir yol değil).
  */
 async function seedDemoTasks(tenantId: string): Promise<void> {
-  const actor = "user_admin";
+  const actor = "user_owner_nilufer";
   const t1 = await createTask({
     tenantId,
     title: "Yeni dönem kayıt formlarını gözden geçir",
@@ -8121,7 +8259,7 @@ async function seedDemoTasks(tenantId: string): Promise<void> {
     description: "Veliyle iletişime geçip ödeme planı teyit edilecek.",
     priority: "URGENT",
     category: "Tahsilat",
-    assigneeId: "user_admin",
+    assigneeId: "user_owner_nilufer",
     createdById: actor,
     dueDate: new Date().toISOString(),
     studentId: "s5",
@@ -8138,7 +8276,7 @@ async function seedDemoTasks(tenantId: string): Promise<void> {
     description: "Erzene şubesi 1 numaralı stüdyoda klima çalışmıyor.",
     priority: "MEDIUM",
     category: "Teknik",
-    assigneeId: "user_admin",
+    assigneeId: "user_owner_nilufer",
     createdById: actor,
     branchId: "erzene",
     tags: ["bakim"],
@@ -8151,7 +8289,7 @@ async function seedDemoTasks(tenantId: string): Promise<void> {
     description: "Öğretmen sözleşmesi ay sonunda bitiyor, yenileme evrakı hazırlanacak.",
     priority: "LOW",
     category: "Öğretmen",
-    assigneeId: "user_admin",
+    assigneeId: "user_owner_nilufer",
     createdById: actor,
     teacherId: "t2",
     dueDate: new Date(Date.now() + 20 * 86400000).toISOString(),
@@ -8686,7 +8824,7 @@ export async function revealStaffIbanTool(
   ctx: ServiceContext,
   input: unknown
 ): Promise<ServiceResult<{ iban: string; masked: string }>> {
-  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  const auth = requireStaffSensitiveAccess(ctx);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
   if (!canViewFullNationalId(ctx.role)) return fail("FORBIDDEN", "Yetkiniz yok");
   const v = parseOrFail(z.object({ staffId: z.string().min(1) }), input);
@@ -11219,6 +11357,8 @@ export async function createTaskTool(
 ): Promise<ServiceResult<{ taskId: string }>> {
   const auth = requireRole(ctx, TASK_CREATE_ROLES);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const moduleGate = await assertFeatureEnabled(ctx.tenantId, "tasks");
+  if (!moduleGate.ok) return moduleGate;
 
   const v = parseOrFail(createTaskSchema, input);
   if (!v.ok) return v;

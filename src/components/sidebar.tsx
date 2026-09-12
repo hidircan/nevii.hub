@@ -199,6 +199,7 @@ export function Sidebar({
   kurumSelection: _kurumSelection,
   canSeeAllKurumlar: _canSeeAllKurumlar,
   canViewFinanceAndStaffSummary = true,
+  canViewTeacherEarnings = true,
   userKey = "anon",
   initialNavOrder,
   initialCollapsed = false,
@@ -208,6 +209,8 @@ export function Sidebar({
   kurumSelection?: string;
   canSeeAllKurumlar?: boolean;
   canViewFinanceAndStaffSummary?: boolean;
+  /** Kurum hakediş politikası (access.teacherEarningsAccess) — sunucuda çözülür. */
+  canViewTeacherEarnings?: boolean;
   /** Hesap-ad-alanlı önbellek anahtarı (userId). */
   userKey?: string;
   /** Hesap kaydından gelen bölüm sıraları. */
@@ -346,7 +349,7 @@ export function Sidebar({
 
       <nav className="flex-1 space-y-5 overflow-y-auto px-3 py-4">
         <NavSection sectionKey="main" items={PANEL_MAIN_NAV} pathname={pathname} role={role} collapsed={collapsed} userKey={userKey} serverOrder={initialNavOrder?.main} />
-        <NavSection sectionKey="finance" title="Finans" items={PANEL_FINANCE_NAV} pathname={pathname} role={role} collapsed={collapsed} userKey={userKey} serverOrder={initialNavOrder?.finance} />
+        <NavSection sectionKey="finance" title="Finans" items={canViewTeacherEarnings ? PANEL_FINANCE_NAV : PANEL_FINANCE_NAV.filter((item) => item.href !== "/panel/hakedisler")} pathname={pathname} role={role} collapsed={collapsed} userKey={userKey} serverOrder={initialNavOrder?.finance} />
         <NavSection
           sectionKey="ops"
           title="Operasyonlar"

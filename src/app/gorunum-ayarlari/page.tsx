@@ -12,7 +12,10 @@ import {
   normalizeFontChoice,
   normalizeDensity,
   normalizePortalPresentation,
+  THEME_PROFILE_VALUES,
 } from "@/lib/theme";
+import { getSessionAppearancePolicy } from "@/lib/platform/access";
+import { applyAppearancePolicy, isProfileAllowed } from "@/lib/platform/policies";
 import { ThemePreferencesForm } from "@/components/theme-preferences-form";
 import { PortalPresentationForm } from "@/components/portal-presentation-form";
 
@@ -33,8 +36,13 @@ export default async function AppearanceSettingsPage() {
   }
 
   const jar = await cookies();
-  const profile = normalizeThemeProfile(jar.get(THEME_PROFILE_COOKIE)?.value);
-  const font = normalizeFontChoice(jar.get(FONT_COOKIE)?.value);
+  // Kurum görünüm politikası: efektif değer + seçilebilir profiller (root layout ve server action ile aynı kural).
+  const policy = await getSessionAppearancePolicy();
+  const { profile, font, fontLocked } = applyAppearancePolicy(policy, {
+    profile: normalizeThemeProfile(jar.get(THEME_PROFILE_COOKIE)?.value),
+    font: normalizeFontChoice(jar.get(FONT_COOKIE)?.value),
+  });
+  const allowedProfiles = THEME_PROFILE_VALUES.filter((p) => isProfileAllowed(policy, p));
   const density = normalizeDensity(jar.get(DENSITY_COOKIE)?.value);
   const portalPresentation = normalizePortalPresentation(jar.get(PORTAL_PRESENTATION_COOKIE)?.value);
   const backHref = homePathForRole(session.role);
@@ -53,7 +61,16 @@ export default async function AppearanceSettingsPage() {
         <p className="text-sm text-[var(--color-text-muted)]">
           Renk teması ve yazı tipini kişisel tercihinize göre seçin — canlı önizleme ile.
         </p>
-        <ThemePreferencesForm initialProfile={profile} initialFont={font} initialDensity={density} />
+        {allowedProfiles.length < THEME_PROFILE_VALUES.length || fontLocked ? (
+          <p className="text-xs text-[var(--color-text-muted)]">Bazı seçenekler kurumunuzun görünüm politikası nedeniyle kapalı.</p>
+        ) : null}
+        <ThemePreferencesForm
+          initialProfile={profile}
+          initialFont={font}
+          initialDensity={density}
+          allowedProfiles={allowedProfiles}
+          fontLocked={fontLocked}
+        />
         <PortalPresentationForm initialPresentation={portalPresentation} />
       </main>
     </div>

@@ -12,6 +12,8 @@ import {
 } from "@/lib/theme";
 import { clampPreferencesToPolicy } from "@/lib/appearance-policy";
 import { BRAND } from "@/lib/brand";
+import { getSessionAppearancePolicy } from "@/lib/platform/access";
+import { applyAppearancePolicy } from "@/lib/platform/policies";
 import { AssistantProvider } from "@/components/ai/assistant-context";
 import { GlobalAssistant } from "@/components/ai/global-assistant";
 import { ACCESS_COOKIE } from "@/lib/auth/cookies";
@@ -87,8 +89,12 @@ export default async function RootLayout({
     fontChoice: normalizeFontChoice(jar.get(FONT_COOKIE)?.value),
     density: normalizeDensity(jar.get(DENSITY_COOKIE)?.value),
   });
-  const themeProfile = clamped.themeProfile;
-  const font = clamped.fontChoice;
+  // NeviiOS kurum görünüm politikası (light_only / dark_only / sabit tema /
+  // font) kişisel cookie tercihinin ÜSTÜNDEDİR. Oturumsuz sayfalar serbest.
+  const { profile: themeProfile, font } = applyAppearancePolicy(await getSessionAppearancePolicy(), {
+    profile: clamped.themeProfile,
+    font: clamped.fontChoice,
+  });
   const density = clamped.density;
 
   return (

@@ -10,7 +10,12 @@ import { hasActiveStudentAccess } from "../student-portal-access";
 export type ActorRole = AppRole;
 
 export type ServiceContext = {
+  /** Efektif (yetki) rolü. BRANCH_MANAGER, kurum preset'i "unified" ise SCHOOL_ADMIN olarak çözülür. */
   role: ActorRole;
+  /** Giriş rolü (JWT) — efektif rolden farklıysa dolu; audit/etiket için. */
+  loginRole?: ActorRole;
+  /** NeviiOS oturum kimliği (varsa). */
+  sid?: string;
   userId: string;
   /** Always from JWT (or trusted web session) — never from client spoof */
   tenantId: string;

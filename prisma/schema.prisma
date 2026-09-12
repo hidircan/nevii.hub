@@ -12,6 +12,23 @@ model Tenant {
   name                        String
   slug                        String                       @unique
   active                      Boolean                      @default(true)
+  /// NeviiOS paket anahtarı: starter | core | pro | scale | enterprise (legacy: standard | professional)
+  planKey                     String                       @default("standard")
+  /// draft | provisioning | active | suspended | archived
+  lifecycle                   String                       @default("active")
+  shortName                   String                       @default("")
+  contactEmail                String                       @default("")
+  phone                       String                       @default("")
+  country                     String                       @default("TR")
+  timezone                    String                       @default("Europe/Istanbul")
+  currency                    String                       @default("TRY")
+  language                    String                       @default("tr")
+  colorPrimary                String                       @default("#6d28d9")
+  logoUrl                     String                       @default("")
+  provisionError              String?
+  idempotencyKey              String?                      @unique
+  /// Wizard taslağı (şube/owner/feature seçimleri) — provision öncesi.
+  draftJson                   Json?
   users                       User[]
   schools                     School[]
   branches                    Branch[]
@@ -88,6 +105,14 @@ model User {
   /// authorization kodu bunu OKUMAZ (bkz. StudentPortalAccess).
   studentId    String?
   active       Boolean  @default(true)
+  /// NeviiOS: görünen ad (davet kabulünde dolar).
+  displayName  String?
+  /// NeviiOS soft delete — kayıt ve ilişkileri korunur, giriş/oturum kesilir.
+  deletedAt    DateTime?
+  /// NeviiOS: son başarılı giriş (güvenilir kaynak: authenticateUser).
+  lastLoginAt  DateTime?
+  /// NeviiOS: bu andan önce üretilmiş tüm token'lar geçersiz (pasifleştirme, şifre değişimi).
+  sessionsRevokedAt DateTime?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -158,6 +183,8 @@ model PasswordResetToken {
   userId    String
   tokenHash String
   expiresAt DateTime
+  /// NeviiOS — yönetici başlatmalı sıfırlamada başlatan kullanıcı; kendi talebinde (şifremi unuttum) null.
+  createdBy String?
   usedAt    DateTime?
   createdAt DateTime  @default(now())
 
@@ -2269,4 +2296,248 @@ model StudentListView {
 
   @@unique([tenantId, name])
   @@index([tenantId])
+}
+
+/// NeviiHub — tipli ayar override (platform / plan / tenant / branch / user).
+/// Tenant FK yok: platform ve plan kapsamları bir kurum satırına bağlı değildir.
+model SettingOverride {
+  id        String   @id
+  scopeType String
+  scopeId   String
+  key       String
+  value     Json
+  updatedBy String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([scopeType, scopeId, key])
+  @@index([scopeType, scopeId])
+  @@index([key])
+}
+
+/// NeviiHub — kurum bazlı özellik bayrağı override.
+model FeatureFlagOverride {
+  id        String   @id
+  tenantId  String
+  flagKey   String
+  enabled   Boolean
+  updatedBy String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, flagKey])
+  @@index([tenantId])
+}
+
+/// NeviiHub platform denetim izi. Tenant silinse bile kalır (FK yok).
+model PlatformAuditEvent {
+  id             String   @id
+  actorUserId    String
+  actorRole      String
+  actorTenantId  String
+  targetTenantId String?
+  action         String
+  entityType     String
+  entityId       String
+  before         Json?
+  after          Json?
+  requestId      String
+  outcome        String
+  createdAt      DateTime @default(now())
+
+  @@index([targetTenantId, createdAt])
+  @@index([actorUserId, createdAt])
+  @@index([action, createdAt])
+}
+
+/// NeviiHub entegrasyon bağlantı durumu. Secret düz metin tutulmaz.
+model IntegrationConnection {
+  id             String    @id
+  scopeType      String
+  scopeId        String
+  provider       String
+  kind           String
+  status         String
+  lastVerifiedAt DateTime?
+  secretLast4    String?
+  secretStored   Boolean   @default(false)
+  config         Json
+  updatedBy      String
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([scopeType, scopeId, provider])
+  @@index([scopeType, scopeId])
+}
+
+/// Kurum sahibi daveti. Ham token saklanmaz — yalnız SHA-256 hash.
+model OwnerInvitation {
+  id        String    @id
+  tenantId  String
+  email     String
+  name      String
+  phone     String?
+  tokenHash String
+  expiresAt DateTime
+  usedAt    DateTime?
+  revokedAt DateTime?
+  createdBy String
+  /// NeviiOS: null → kurum sahibi (SUPER_ADMIN). HYPER_ADMIN asla davet edilemez.
+  role      String?
+  /// NeviiOS: BRANCH_MANAGER daveti için şube id listesi.
+  branchIds Json?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([tenantId, createdAt])
+  @@index([email])
+}
+
+/// Tenant provisioning denemesi (idempotent tekrar deneme için).
+model ProvisioningRun {
+  id          String   @id
+  tenantId    String
+  status      String
+  steps       Json
+  error       String?
+  actorUserId String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([tenantId, createdAt])
+}
+
+/// NeviiOS — kullanıcı ↔ şube erişimi (çoklu şube). Aktif satır yoksa şube
+/// kapsamı BOŞTUR (fail-closed); kurum geneline asla düşülmez.
+model UserBranchAccess {
+  id        String    @id
+  tenantId  String
+  userId    String
+  branchId  String
+  grantedBy String
+  createdAt DateTime  @default(now())
+  revokedAt DateTime?
+
+  @@index([tenantId, userId])
+  @@index([tenantId, branchId])
+}
+
+/// NeviiOS — süreli, gerekçeli, salt-okur platform destek erişimi.
+/// Impersonation değildir; HYPER_ADMIN kimliği korunur, her görüntüleme audit'lenir.
+model SupportAccessSession {
+  id          String    @id
+  tenantId    String
+  actorUserId String
+  reason      String
+  startedAt   DateTime  @default(now())
+  expiresAt   DateTime
+  endedAt     DateTime?
+  endedBy     String?
+
+  @@index([tenantId, startedAt])
+  @@index([actorUserId, startedAt])
+}
+
+/// NeviiOS — kritik politika sürümü (taslak → yayın → geri al). Satırlar
+/// silinmez; geri alma önceki yayınlanmış değeri kopyalayan YENİ sürümdür.
+model PolicyVersion {
+  id                String    @id
+  scopeId           String
+  key               String
+  version           Int
+  status            String
+  value             Json
+  reason            String
+  createdBy         String
+  createdAt         DateTime  @default(now())
+  publishedBy       String?
+  publishedAt       DateTime?
+  rollbackOfVersion Int?
+
+  @@unique([scopeId, key, version])
+  @@index([scopeId, key, status])
+}
+
+/// NeviiOS — kurum özel rolü (yalnız tenant/branch/assigned/own kapsamı).
+model TenantCustomRole {
+  id         String    @id
+  tenantId   String
+  key        String
+  label      String
+  grants     Json
+  createdBy  String
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  archivedAt DateTime?
+
+  @@unique([tenantId, key])
+  @@index([tenantId])
+}
+
+/// NeviiOS — kullanıcıya ek (özel) rol ataması.
+model UserRoleAssignment {
+  id        String    @id
+  tenantId  String
+  userId    String
+  roleId    String
+  createdBy String
+  createdAt DateTime  @default(now())
+  revokedAt DateTime?
+
+  @@index([tenantId, userId])
+  @@index([roleId])
+}
+
+
+/// NeviiOS tur 3 — oturum kaydı (tekil oturum sonlandırma). Presence süreç
+/// içi önbellekte tutulur, en fazla ~5 dk'da bir lastSeenAt'e yazılır.
+model UserSession {
+  id           String    @id
+  userId       String
+  tenantId     String
+  role         String
+  createdAt    DateTime  @default(now())
+  lastSeenAt   DateTime  @default(now())
+  expiresAt    DateTime
+  revokedAt    DateTime?
+  revokedBy    String?
+  revokeReason String?
+  device       String?
+  lastPath     String?
+  lastAction   String?
+
+  @@index([userId, revokedAt])
+  @@index([tenantId, lastSeenAt])
+}
+
+/// NeviiOS tur 3 — release kaydı (ReleaseManifest). Commit ve deployment ayrı kavramdır.
+model PlatformRelease {
+  id          String   @id
+  product     String
+  version     String
+  environment String
+  commitSha   String
+  publishedAt DateTime
+  manifest    Json
+  createdAt   DateTime @default(now())
+
+  @@index([product, environment, publishedAt])
+}
+
+/// NeviiOS tur 3 — deployment kaydı (manuel veya ileride imzalı CI/sağlayıcı olayı).
+model PlatformDeployment {
+  id          String   @id
+  product     String
+  provider    String
+  environment String
+  url         String?
+  commitSha   String
+  branch      String
+  status      String
+  releaseId   String?
+  recordedBy  String
+  source      String
+  createdAt   DateTime @default(now())
+
+  @@index([product, environment, createdAt])
 }

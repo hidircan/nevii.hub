@@ -52,9 +52,34 @@ export type Permission =
   | "tasks:read"
   | "tasks:write"
   | "contracts:read"
-  | "contracts:write";
+  | "contracts:write"
+  | "platform:read"
+  | "platform:write"
+  | "institution:settings"
+  | "institution:features"
+  | "institution:integrations";
 
 const ROLE_PERMISSIONS: Record<AppRole, Permission[]> = {
+  /**
+   * NeviiHub platform sahibi. Kurum operasyon izinleri YOKTUR —
+   * öğretmen/veli/öğrenci gibi davranmaz. Cross-tenant yetki yalnız burada.
+   */
+  HYPER_ADMIN: [
+    "tenant:all",
+    "platform:read",
+    "platform:write",
+    "institution:settings",
+    "institution:features",
+    "institution:integrations",
+    "tools:catalog",
+  ],
+  /**
+   * NeviiOS şube müdürü — BİLİNÇLİ OLARAK boş. Kurum geneli API/tool izni
+   * yoktur; tek yüzeyi `/sube` (UserBranchAccess ile süzülmüş salt-okur
+   * görünüm). Operasyonel şube-kapsamlı yazma izinleri, tool katmanı şube
+   * filtresini taşıdığında tek tek açılır (fail-closed).
+   */
+  BRANCH_MANAGER: [],
   SUPER_ADMIN: [
     "attendance:write",
     "makeup:read",
@@ -68,8 +93,10 @@ const ROLE_PERMISSIONS: Record<AppRole, Permission[]> = {
     "messages:send",
     "tools:catalog",
     "demo:reset",
-    "tenant:all",
     "export:institution",
+    "institution:settings",
+    "institution:features",
+    "institution:integrations",
     "notifications:read",
     "communication:write",
     "announcements:read",
@@ -112,6 +139,8 @@ const ROLE_PERMISSIONS: Record<AppRole, Permission[]> = {
     "tools:catalog",
     "demo:reset",
     "export:institution",
+    "institution:settings",
+    "institution:features",
     "notifications:read",
     "communication:write",
     "announcements:read",
@@ -219,6 +248,11 @@ const ROLE_PERMISSIONS: Record<AppRole, Permission[]> = {
     "curriculum:read",
   ],
 };
+
+/** NeviiOS rol etki önizlemesi için — salt okunur kopya. */
+export function permissionsForRole(role: AppRole): Permission[] {
+  return [...(ROLE_PERMISSIONS[role] ?? [])];
+}
 
 export function hasPermission(role: AppRole, permission: Permission): boolean {
   return ROLE_PERMISSIONS[role]?.includes(permission) ?? false;

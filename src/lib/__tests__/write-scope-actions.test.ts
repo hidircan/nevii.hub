@@ -102,8 +102,8 @@ async function addStudentExpectingRedirect(fd: FormData) {
 }
 
 describe("Yazma kapsamı koruması — Öğrenciler (actionAddStudent)", () => {
-  it("SUPER_ADMIN 'Tüm kurumlar' modunda (varsayılan) tam Türkçe mesajla reddedilir", async () => {
-    mockSession.ctx = { role: "SUPER_ADMIN", userId: "super1", tenantId: DEFAULT_TENANT_ID, channel: "web" };
+  it("HYPER_ADMIN 'Tüm kurumlar' modunda (varsayılan) tam Türkçe mesajla reddedilir", async () => {
+    mockSession.ctx = { role: "HYPER_ADMIN", userId: "super1", tenantId: DEFAULT_TENANT_ID, channel: "web" };
     mockTenants.list = [
       { tenantId: DEFAULT_TENANT_ID, name: "Nilüfer Açar Müzik Akademisi" },
       { tenantId: "tenant_other", name: "Diğer Kurum" },
@@ -447,9 +447,34 @@ describe("actionAddStudent — P0-D: portal daveti (SELF) e-posta boşsa açık 
   });
 });
 
+describe("NeviiOS — panel aksiyonları platform sahibi ve şube müdürüne kapalı", () => {
+  it("HYPER_ADMIN kurum seçici ile tek kurum seçse bile panel aksiyonu yazamaz", async () => {
+    mockSession.ctx = { role: "HYPER_ADMIN", userId: "hyper1", tenantId: "tenant_platform", channel: "web" };
+    mockTenants.list = [
+      { tenantId: DEFAULT_TENANT_ID, name: "A" },
+      { tenantId: "tenant_other", name: "B" },
+    ];
+    mockCookieValue.value = DEFAULT_TENANT_ID;
+    const { runWithTenantAsync } = await import("../tenant-context");
+    const count = async () => (await runWithTenantAsync(DEFAULT_TENANT_ID, () => readData())).students.length;
+    const before = await count();
+    const result = await actions.actionAddStudent(null, studentFormData());
+    expect(result?.ok).toBe(false);
+    expect(await count()).toBe(before);
+  });
+
+  it("BRANCH_MANAGER kurum geneli panel aksiyonunu çağıramaz", async () => {
+    mockSession.ctx = { role: "BRANCH_MANAGER", userId: "bm1", tenantId: DEFAULT_TENANT_ID, channel: "web" };
+    const before = await readData();
+    const result = await actions.actionAddStudent(null, studentFormData());
+    expect(result?.ok).toBe(false);
+    expect((await readData()).students.length).toBe(before.students.length);
+  });
+});
+
 describe("Yazma kapsamı koruması — Yoklama (actionMarkAttendance)", () => {
-  it("SUPER_ADMIN 'Tüm kurumlar' modunda reddedilir, yoklama kaydedilmez", async () => {
-    mockSession.ctx = { role: "SUPER_ADMIN", userId: "super1", tenantId: DEFAULT_TENANT_ID, channel: "web" };
+  it("HYPER_ADMIN 'Tüm kurumlar' modunda reddedilir, yoklama kaydedilmez", async () => {
+    mockSession.ctx = { role: "HYPER_ADMIN", userId: "super1", tenantId: DEFAULT_TENANT_ID, channel: "web" };
     mockTenants.list = [
       { tenantId: DEFAULT_TENANT_ID, name: "A" },
       { tenantId: "tenant_other", name: "B" },
@@ -479,8 +504,8 @@ describe("Yazma kapsamı koruması — Yoklama (actionMarkAttendance)", () => {
 });
 
 describe("Yazma kapsamı koruması — Öğretmenler (actionAddTeacher)", () => {
-  it("SUPER_ADMIN 'Tüm kurumlar' modunda reddedilir", async () => {
-    mockSession.ctx = { role: "SUPER_ADMIN", userId: "super1", tenantId: DEFAULT_TENANT_ID, channel: "web" };
+  it("HYPER_ADMIN 'Tüm kurumlar' modunda reddedilir", async () => {
+    mockSession.ctx = { role: "HYPER_ADMIN", userId: "super1", tenantId: DEFAULT_TENANT_ID, channel: "web" };
     mockTenants.list = [
       { tenantId: DEFAULT_TENANT_ID, name: "A" },
       { tenantId: "tenant_other", name: "B" },
@@ -526,8 +551,8 @@ describe("Yazma kapsamı koruması — Öğretmenler (actionAddTeacher)", () => 
 });
 
 describe("actionAddRoom — P0-2 zarif doğrulama hatası davranışı (throw YOK)", () => {
-  it("SUPER_ADMIN 'Tüm kurumlar' modunda THROW ETMEZ, formError döner", async () => {
-    mockSession.ctx = { role: "SUPER_ADMIN", userId: "super1", tenantId: DEFAULT_TENANT_ID, channel: "web" };
+  it("HYPER_ADMIN 'Tüm kurumlar' modunda THROW ETMEZ, formError döner", async () => {
+    mockSession.ctx = { role: "HYPER_ADMIN", userId: "hyper1", tenantId: DEFAULT_TENANT_ID, channel: "web" };
     mockTenants.list = [
       { tenantId: DEFAULT_TENANT_ID, name: "A" },
       { tenantId: "tenant_other", name: "B" },
@@ -568,8 +593,8 @@ describe("actionAddRoom — P0-2 zarif doğrulama hatası davranışı (throw YO
 });
 
 describe("actionAddBranch / actionUpdateBranch — P0-2 zarif doğrulama hatası davranışı (throw YOK)", () => {
-  it("actionAddBranch: SUPER_ADMIN 'Tüm kurumlar' modunda THROW ETMEZ, formError döner", async () => {
-    mockSession.ctx = { role: "SUPER_ADMIN", userId: "super1", tenantId: DEFAULT_TENANT_ID, channel: "web" };
+  it("actionAddBranch: HYPER_ADMIN 'Tüm kurumlar' modunda THROW ETMEZ, formError döner", async () => {
+    mockSession.ctx = { role: "HYPER_ADMIN", userId: "hyper1", tenantId: DEFAULT_TENANT_ID, channel: "web" };
     mockTenants.list = [
       { tenantId: DEFAULT_TENANT_ID, name: "A" },
       { tenantId: "tenant_other", name: "B" },
@@ -616,8 +641,8 @@ describe("actionAddBranch / actionUpdateBranch — P0-2 zarif doğrulama hatası
 });
 
 describe("actionCreateTaskForm — P0-2 zarif doğrulama hatası davranışı (throw YOK)", () => {
-  it("SUPER_ADMIN 'Tüm kurumlar' modunda THROW ETMEZ, mesaj döner", async () => {
-    mockSession.ctx = { role: "SUPER_ADMIN", userId: "super1", tenantId: DEFAULT_TENANT_ID, channel: "web" };
+  it("HYPER_ADMIN 'Tüm kurumlar' modunda THROW ETMEZ, mesaj döner", async () => {
+    mockSession.ctx = { role: "HYPER_ADMIN", userId: "hyper1", tenantId: DEFAULT_TENANT_ID, channel: "web" };
     mockTenants.list = [
       { tenantId: DEFAULT_TENANT_ID, name: "A" },
       { tenantId: "tenant_other", name: "B" },
@@ -653,8 +678,8 @@ describe("actionCreateTaskForm — P0-2 zarif doğrulama hatası davranışı (t
 });
 
 describe("Yazma kapsamı koruması — Ödemeler (actionAddPayment / actionMarkPaymentPaid)", () => {
-  it("actionAddPayment SUPER_ADMIN 'Tüm kurumlar' modunda reddedilir", async () => {
-    mockSession.ctx = { role: "SUPER_ADMIN", userId: "super1", tenantId: DEFAULT_TENANT_ID, channel: "web" };
+  it("actionAddPayment HYPER_ADMIN 'Tüm kurumlar' modunda reddedilir", async () => {
+    mockSession.ctx = { role: "HYPER_ADMIN", userId: "super1", tenantId: DEFAULT_TENANT_ID, channel: "web" };
     mockTenants.list = [
       { tenantId: DEFAULT_TENANT_ID, name: "A" },
       { tenantId: "tenant_other", name: "B" },
@@ -670,13 +695,13 @@ describe("Yazma kapsamı koruması — Ödemeler (actionAddPayment / actionMarkP
     expect(result?.formError).toBe(ALL_MODE_WRITE_DENIED_MESSAGE);
   });
 
-  it("actionMarkPaymentPaidDetailed SUPER_ADMIN 'Tüm kurumlar' modunda reddedilir, ödeme durumu değişmez", async () => {
+  it("actionMarkPaymentPaidDetailed HYPER_ADMIN 'Tüm kurumlar' modunda reddedilir, ödeme durumu değişmez", async () => {
     // NOT (2026-08-29): eski `actionMarkPaymentPaid` (assertOk/throw deseni,
     // AYNI P0 çökme sınıfı) hiçbir UI'dan ÇAĞRILMIYORDU — tamamen
     // `actionMarkPaymentPaidDetailed`'in (zaten grasyollu) süperseti tarafından
     // örtülüyordu. Ölü kod olarak SİLİNDİ; bu test aynı korumayı gerçek
     // çağıran üzerinden doğrular.
-    mockSession.ctx = { role: "SUPER_ADMIN", userId: "super1", tenantId: DEFAULT_TENANT_ID, channel: "web" };
+    mockSession.ctx = { role: "HYPER_ADMIN", userId: "hyper1", tenantId: DEFAULT_TENANT_ID, channel: "web" };
     mockTenants.list = [
       { tenantId: DEFAULT_TENANT_ID, name: "A" },
       { tenantId: "tenant_other", name: "B" },
@@ -698,8 +723,8 @@ describe("Yazma kapsamı koruması — Ödemeler (actionAddPayment / actionMarkP
 });
 
 describe("Yazma kapsamı koruması — Telafi (actionCancelMakeup / actionGenerateSuggestions / actionConfirmSlot)", () => {
-  it("actionCancelMakeup SUPER_ADMIN 'Tüm kurumlar' modunda reddedilir", async () => {
-    mockSession.ctx = { role: "SUPER_ADMIN", userId: "super1", tenantId: DEFAULT_TENANT_ID, channel: "web" };
+  it("actionCancelMakeup HYPER_ADMIN 'Tüm kurumlar' modunda reddedilir", async () => {
+    mockSession.ctx = { role: "HYPER_ADMIN", userId: "super1", tenantId: DEFAULT_TENANT_ID, channel: "web" };
     mockTenants.list = [
       { tenantId: DEFAULT_TENANT_ID, name: "A" },
       { tenantId: "tenant_other", name: "B" },
@@ -716,8 +741,8 @@ describe("Yazma kapsamı koruması — Telafi (actionCancelMakeup / actionGenera
     expect(after.makeupRequests.find((m) => m.id === req.id)?.status).toBe(req.status);
   });
 
-  it("actionGenerateSuggestions SUPER_ADMIN 'Tüm kurumlar' modunda reddedilir", async () => {
-    mockSession.ctx = { role: "SUPER_ADMIN", userId: "super1", tenantId: DEFAULT_TENANT_ID, channel: "web" };
+  it("actionGenerateSuggestions HYPER_ADMIN 'Tüm kurumlar' modunda reddedilir", async () => {
+    mockSession.ctx = { role: "HYPER_ADMIN", userId: "super1", tenantId: DEFAULT_TENANT_ID, channel: "web" };
     mockTenants.list = [
       { tenantId: DEFAULT_TENANT_ID, name: "A" },
       { tenantId: "tenant_other", name: "B" },
@@ -745,8 +770,8 @@ describe("Yazma kapsamı koruması — Telafi (actionCancelMakeup / actionGenera
 });
 
 describe("Yazma kapsamı koruması — Öğretmenler + Hakediş (fee rule / payout)", () => {
-  it("actionCreateFeeRule SUPER_ADMIN 'Tüm kurumlar' modunda tam mesajla reddedilir (nesne döner, fırlatmaz)", async () => {
-    mockSession.ctx = { role: "SUPER_ADMIN", userId: "super1", tenantId: DEFAULT_TENANT_ID, channel: "web" };
+  it("actionCreateFeeRule HYPER_ADMIN 'Tüm kurumlar' modunda tam mesajla reddedilir (nesne döner, fırlatmaz)", async () => {
+    mockSession.ctx = { role: "HYPER_ADMIN", userId: "super1", tenantId: DEFAULT_TENANT_ID, channel: "web" };
     mockTenants.list = [
       { tenantId: DEFAULT_TENANT_ID, name: "A" },
       { tenantId: "tenant_other", name: "B" },
@@ -760,8 +785,8 @@ describe("Yazma kapsamı koruması — Öğretmenler + Hakediş (fee rule / payo
     if (!result.ok) expect(result.message).toBe(ALL_MODE_WRITE_DENIED_MESSAGE);
   });
 
-  it("actionComputeTeacherPayout SUPER_ADMIN 'Tüm kurumlar' modunda tam mesajla reddedilir", async () => {
-    mockSession.ctx = { role: "SUPER_ADMIN", userId: "super1", tenantId: DEFAULT_TENANT_ID, channel: "web" };
+  it("actionComputeTeacherPayout HYPER_ADMIN 'Tüm kurumlar' modunda tam mesajla reddedilir", async () => {
+    mockSession.ctx = { role: "HYPER_ADMIN", userId: "super1", tenantId: DEFAULT_TENANT_ID, channel: "web" };
     mockTenants.list = [
       { tenantId: DEFAULT_TENANT_ID, name: "A" },
       { tenantId: "tenant_other", name: "B" },
@@ -791,8 +816,8 @@ describe("Yazma kapsamı koruması — Öğretmenler + Hakediş (fee rule / payo
 });
 
 describe("Program (canCreate) referans davranışı değişmedi", () => {
-  it("actionAddLesson SUPER_ADMIN 'Tüm kurumlar' modunda tam mesajla reddedilir (nesne döner)", async () => {
-    mockSession.ctx = { role: "SUPER_ADMIN", userId: "super1", tenantId: DEFAULT_TENANT_ID, channel: "web" };
+  it("actionAddLesson HYPER_ADMIN 'Tüm kurumlar' modunda tam mesajla reddedilir (nesne döner)", async () => {
+    mockSession.ctx = { role: "HYPER_ADMIN", userId: "super1", tenantId: DEFAULT_TENANT_ID, channel: "web" };
     mockTenants.list = [
       { tenantId: DEFAULT_TENANT_ID, name: "A" },
       { tenantId: "tenant_other", name: "B" },
