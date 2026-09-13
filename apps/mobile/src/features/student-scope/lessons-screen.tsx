@@ -1,16 +1,13 @@
 import { useRouter } from "expo-router";
 import { useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { apiDelete, apiPost } from "../../api/client";
 import { useAuth } from "../../auth/auth-context";
-import { AppHeader, Avatar, Button, Card, EmptyState, ErrorState, Icon, LessonCard, LoadingSkeleton, Screen, StatusBadge, TextField } from "../../components/ui";
+import { AppHeader, Avatar, Card, EmptyState, ErrorState, Icon, LessonCard, LoadingSkeleton, Screen, StatusBadge } from "../../components/ui";
 import { useApiGet } from "../../hooks/use-api";
-import { useFocusRefetch } from "../../hooks/use-focus-refetch";
-import { useNow } from "../../hooks/use-now";
 import { addDays, format, isSameDay, shortDayMonth, startOfDay, startOfWeek } from "../../lib/date";
 import { lessonStatusBadge } from "../../lib/lesson-status";
 import { useTheme } from "../../theme/theme-context";
-import type { AbsenceNoticesResponse, AttendanceCalendarMonthResponse, ScheduleResponse, StudentProfile } from "../../types/api";
+import type { AttendanceCalendarMonthResponse, ScheduleResponse, StudentProfile } from "../../types/api";
 
 const DAY_NAMES = ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi", "Pazar"];
 
@@ -189,91 +186,13 @@ const styles = StyleSheet.create({
   emptyDayRow: { borderWidth: StyleSheet.hairlineWidth, borderStyle: "dashed", borderRadius: 10, paddingVertical: 10, paddingHorizontal: 12 },
 });
 
-function AbsenceNoticeSection({ lessonId, studentId }: { lessonId: string; studentId: string }) {
-  const t = useTheme();
-  const res = useApiGet<AbsenceNoticesResponse>(`/api/v1/absence-notices?studentId=${studentId}`);
-  useFocusRefetch(res.refresh);
-  const [composing, setComposing] = useState(false);
-  const [reason, setReason] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  if (res.status !== "success") return null;
-  const activeNotice = res.data.notices.find((n) => n.lessonId === lessonId && (n.status === "pending" || n.status === "approved"));
-
-  async function submit() {
-    setBusy(true);
-    setError(null);
-    const result = await apiPost<{ noticeId: string }>("/api/v1/absence-notices", { lessonId, reason: reason.trim() || undefined });
-    setBusy(false);
-    if (!result.ok) {
-      setError(result.error.message);
-      return;
-    }
-    setComposing(false);
-    setReason("");
-    res.refresh();
-  }
-
-  async function cancel(noticeId: string) {
-    setBusy(true);
-    setError(null);
-    const result = await apiDelete(`/api/v1/absence-notices/${noticeId}`);
-    setBusy(false);
-    if (!result.ok) {
-      setError(result.error.message);
-      return;
-    }
-    res.refresh();
-  }
-
-  if (activeNotice) {
-    return (
-      <Card style={{ marginTop: 12 }}>
-        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-          <Text style={[t.typography.bodyStrong, { color: t.colors.text }]}>Devamsızlık bildirimi</Text>
-          <StatusBadge
-            label={activeNotice.status === "approved" ? "Onaylandı" : "Bekliyor"}
-            tone={activeNotice.status === "approved" ? "success" : "warning"}
-          />
-        </View>
-        {activeNotice.reason ? (
-          <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>Gerekçe: {activeNotice.reason}</Text>
-        ) : null}
-        {activeNotice.status === "pending" ? (
-          <Button label="Bildirimi iptal et" variant="secondary" size="sm" onPress={() => cancel(activeNotice.id)} loading={busy} style={{ marginTop: 10 }} fullWidth={false} />
-        ) : null}
-        {error ? <Text style={{ color: t.colors.danger, marginTop: 8 }}>{error}</Text> : null}
-      </Card>
-    );
-  }
-
-  return (
-    <Card style={{ marginTop: 12 }}>
-      <Text style={[t.typography.bodyStrong, { color: t.colors.text, marginBottom: 4 }]}>Bu derse katılamayacak mısınız?</Text>
-      <Text style={[t.typography.caption, { color: t.colors.textMuted, marginBottom: 10 }]}>
-        En az {res.data.policy.minNoticeDays} gün önceden bildirin. Bu dönem için {res.data.policy.maxNoticesPerPeriod} hakkınız var.
-      </Text>
-      {composing ? (
-        <View style={{ gap: 10 }}>
-          <TextField label="Gerekçe (isteğe bağlı)" value={reason} onChangeText={setReason} placeholder="Ör. Sağlık nedeniyle" />
-          {error ? <Text style={{ color: t.colors.danger }}>{error}</Text> : null}
-          <View style={{ flexDirection: "row", gap: 8 }}>
-            <Button label="Vazgeç" variant="secondary" size="sm" onPress={() => setComposing(false)} style={{ flex: 1 }} />
-            <Button label="Bildir" size="sm" onPress={submit} loading={busy} style={{ flex: 1 }} />
-          </View>
-        </View>
-      ) : (
-        <Button label="Devam edemeyeceğim" variant="secondary" icon="calendar-clear-outline" onPress={() => setComposing(true)} fullWidth={false} />
-      )}
-    </Card>
-  );
-}
+// Devamsızlık bildirimi bölümü kaldırıldı (2026-09-13): backend'de "absence notice"
+// domain'i ve absence-notices API route'u hiç yok — çağrı her zaman 404 alıyordu.
+// Karar: docs/mobile/MOBILE_API_ROUTE_DECISIONS.md.
 
 export function StudentScopeLessonDetailScreen({ lessonId }: { lessonId: string }) {
   const t = useTheme();
   const { user } = useAuth();
-  const now = useNow();
   const res = useApiGet<ScheduleResponse>(user?.studentId ? `/api/v1/students/${user.studentId}/schedule` : "");
 
   if (res.status === "loading") {
@@ -330,10 +249,6 @@ export function StudentScopeLessonDetailScreen({ lessonId }: { lessonId: string 
           {lesson.roomName ? <Text style={[t.typography.body, { color: t.colors.text }]}>Oda: {lesson.roomName}</Text> : null}
         </View>
       </Card>
-
-      {user?.studentId && new Date(lesson.startAt).getTime() > now ? (
-        <AbsenceNoticeSection lessonId={lesson.id} studentId={user.studentId} />
-      ) : null}
     </Screen>
   );
 }

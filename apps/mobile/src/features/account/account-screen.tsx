@@ -53,13 +53,19 @@ async function resizeForUpload(asset: ImagePicker.ImagePickerAsset): Promise<str
 export type AccountQuickLink = { key: string; icon: IconName; label: string; onPress: () => void };
 
 const ROLE_LABEL: Record<AppRole, string> = {
-  SUPER_ADMIN: "Süper Yönetici",
+  HYPER_ADMIN: "Platform Yöneticisi",
+  SUPER_ADMIN: "Kurum Sahibi",
   SCHOOL_ADMIN: "Yönetici",
+  BRANCH_MANAGER: "Şube Müdürü",
   TEACHER: "Öğretmen",
-  PARENT: "Veli",
   STUDENT: "Öğrenci",
   AI_AGENT: "Sistem",
 };
+
+/** Veli de STUDENT rolüyle girer — etiket sunucunun portal erişim türünden gelir. */
+function roleLabel(user: AuthUser): string {
+  return user.portalAccessType === "GUARDIAN" ? "Veli" : ROLE_LABEL[user.loginRole] ?? ROLE_LABEL[user.role];
+}
 
 const THEME_OPTIONS: Array<{ value: ThemePreference; label: string; icon: IconName }> = [
   { value: "system", label: "Sistem", icon: "phone-portrait-outline" },
@@ -83,7 +89,7 @@ export function AccountScreen({ links, ownAccountPhotoOnly }: { links?: AccountQ
   const [photoError, setPhotoError] = useState<string | null>(null);
   const [hasPhoto, setHasPhoto] = useState(false);
 
-  const displayName = user?.email || (user ? ROLE_LABEL[user.role] : "Hesap");
+  const displayName = user?.email || (user ? roleLabel(user) :"Hesap");
   const photoOwner = resolvePhotoOwner(user, { forceUserPhoto: ownAccountPhotoOnly });
   const photoPath = photoOwner ? `/api/v1/${photoOwner.ownerType}s/${photoOwner.ownerId}/photo?v=${photoVersion}` : null;
 
@@ -179,7 +185,7 @@ export function AccountScreen({ links, ownAccountPhotoOnly }: { links?: AccountQ
               {displayName}
             </Text>
             <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>
-              {user ? ROLE_LABEL[user.role] : ""}
+              {user ? roleLabel(user) :""}
             </Text>
           </View>
         </View>

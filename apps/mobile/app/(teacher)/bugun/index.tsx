@@ -15,6 +15,7 @@ import {
 } from "../../../src/components/ui";
 import { useApiGet } from "../../../src/hooks/use-api";
 import { useFocusRefetch } from "../../../src/hooks/use-focus-refetch";
+import { pendingAttendance } from "../../../src/lib/attendance";
 import { addDays, format, isSameDay, shortDayMonth, startOfDay, startOfWeek, weekdayName } from "../../../src/lib/date";
 import { useTheme } from "../../../src/theme/theme-context";
 import type { HomeworkResponse, ScheduleResponse } from "../../../src/types/api";
@@ -66,6 +67,12 @@ export default function TeacherBugun() {
     return [...new Set(completedTodayStudentNames)];
   }, [homework, todayLessons, today]);
 
+  const nowMs = now.getTime();
+  const pendingLessons = useMemo(
+    () => (schedule.status === "success" ? pendingAttendance(schedule.data.lessons, nowMs) : []),
+    [schedule, nowMs]
+  );
+
   if (!user?.teacherId) {
     return (
       <Screen>
@@ -116,6 +123,22 @@ export default function TeacherBugun() {
         </Card>
       ) : null}
 
+      {pendingLessons.length > 0 ? (
+        <>
+          <SectionHeader title={`Yoklama bekleyen dersler (${pendingLessons.length})`} />
+          <View style={{ gap: 10 }}>
+            {pendingLessons.slice(0, 5).map((lesson) => (
+              <LessonCard
+                key={lesson.id}
+                lesson={lesson}
+                personName={lesson.studentName ?? "Öğrenci"}
+                onPress={() => router.push(`/(teacher)/bugun/${lesson.id}`)}
+              />
+            ))}
+          </View>
+        </>
+      ) : null}
+
       <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 8 }}>
         <Pressable
           accessibilityRole="button"
@@ -154,6 +177,16 @@ export default function TeacherBugun() {
       >
         <Icon name="calendar-outline" size={14} color={t.colors.primary} />
         <Text style={[t.typography.caption, { color: t.colors.primary, fontWeight: "600" }]}>Haftalık görünüm</Text>
+      </Pressable>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Telafilerim"
+        hitSlop={8}
+        onPress={() => router.push("/(teacher)/telafi")}
+        style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, marginTop: 8, minHeight: 32 }}
+      >
+        <Icon name="swap-horizontal-outline" size={14} color={t.colors.primary} />
+        <Text style={[t.typography.caption, { color: t.colors.primary, fontWeight: "600" }]}>Telafiler</Text>
       </Pressable>
 
       <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 10, marginBottom: 4 }}>

@@ -1,72 +1,128 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { apiGet, apiPost } from "../api/client";
-import { getAccessToken, setTokens, clearTokens } from "./token-storage";
-import { roleToPersona, type AppRole } from "./role-to-persona";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { apiGet, apiPost, endLocalSession, revokeServerSession, setSessionExpiredHandler } from "../api/client";
+import { getAccessToken, getRefreshToken, setTokens } from "./token-storage";
+import { sessionStatusFor } from "./session-status";
+import {
+  resolveMobilePersona,
+  type AppRole,
+  type MobilePersona,
+  type PersonaResolution,
+  type PortalAccessType,
+} from "./role-to-persona";
 
-export { roleToPersona };
-export type { AppRole };
+export type { AppRole, MobilePersona, PersonaResolution, PortalAccessType };
 
-export type AuthUser = {
+/** GET /api/v1/mobile/session — oturumun tek sunucu kaynağı (bkz. docs/mobile/MOBILE_P0_HANDOFF.md). */
+export type MobileSession = {
   userId: string;
-  email: string;
+  /** Efektif (yetki) rolü — BRANCH_MANAGER "unified" ise SCHOOL_ADMIN. */
   role: AppRole;
+  /** Token'daki giriş rolü. */
+  loginRole: AppRole;
   tenantId: string;
   teacherId?: string;
   studentId?: string;
+  /** Yalnız STUDENT: SELF = öğrencinin kendisi, GUARDIAN = veli; aktif erişim yoksa null. */
+  portalAccessType: PortalAccessType | null;
 };
 
-type LoginResponse = { user: AuthUser; accessToken: string; refreshToken: string };
+export type AuthUser = MobileSession & { email: string; resolution: PersonaResolution };
+
+type LoginResponse = { user: { email?: string }; accessToken: string; refreshToken: string };
+type Outcome = { ok: true } | { ok: false; message: string };
 
 type AuthState = {
-  status: "loading" | "signedOut" | "signedIn";
+  /** "error": token var ama oturum doğrulanamadı (ağ/sunucu) — token'lar KORUNUR, `retry` ile tekrar denenir. */
+  status: "loading" | "signedOut" | "signedIn" | "error";
   user: AuthUser | null;
-  login: (email: string, password: string) => Promise<{ ok: true } | { ok: false; message: string }>;
+  error: string | null;
+  login: (email: string, password: string) => Promise<Outcome>;
   logout: () => Promise<void>;
+  retry: () => void;
 };
 
 const AuthContext = createContext<AuthState | null>(null);
 
+/** Oturumdaki kullanıcının mobil persona'sı; desteklenmeyen hesapta null. */
+export function personaOf(user: AuthUser | null | undefined): MobilePersona | null {
+  return user?.resolution.kind === "persona" ? user.resolution.persona : null;
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<AuthState["status"]>("loading");
   const [user, setUser] = useState<AuthUser | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const signOutLocally = useCallback(() => {
+    setUser(null);
+    setError(null);
+    setStatus("signedOut");
+  }, []);
+
+  /** 401 → güvenli çıkış; diğer hatalar (ağ/5xx) → çıkış YOK, "error" durumu. */
+  const loadSession = useCallback(
+    async (email: string): Promise<Outcome> => {
+      const res = await apiGet<MobileSession>("/api/v1/mobile/session");
+      if (res.ok) {
+        setUser({ ...res.data, email, resolution: resolveMobilePersona(res.data) });
+        setError(null);
+        setStatus("signedIn");
+        return { ok: true };
+      }
+      if (sessionStatusFor(res) === "signedOut") {
+        await endLocalSession();
+        signOutLocally();
+      } else {
+        setError(res.error.message);
+        setStatus("error");
+      }
+      return { ok: false, message: res.error.message };
+    },
+    [signOutLocally]
+  );
+
+  useEffect(() => setSessionExpiredHandler(signOutLocally), [signOutLocally]);
 
   useEffect(() => {
     (async () => {
-      const token = await getAccessToken();
-      if (!token) {
-        setStatus("signedOut");
-        return;
-      }
-      const res = await apiGet<Omit<AuthUser, "email"> & { channel: string; requestId: string }>("/api/v1/auth/me");
-      if (res.ok) {
-        setUser({ ...res.data, email: "" });
-        setStatus("signedIn");
-      } else {
-        await clearTokens();
-        setStatus("signedOut");
-      }
+      if (await getAccessToken()) await loadSession("");
+      else signOutLocally();
     })();
-  }, []);
+  }, [loadSession, signOutLocally]);
 
   const value = useMemo<AuthState>(
     () => ({
       status,
       user,
+      error,
       async login(email, password) {
         const res = await apiPost<LoginResponse>("/api/v1/auth/login", { email, password });
-        if (!res.ok) return { ok: false, message: res.error.message || "Giriş başarısız." };
+        if (!res.ok) {
+          if (res.error.code === "UNAUTHORIZED") return { ok: false, message: "E-posta veya şifre hatalı." };
+          if (res.error.code === "VALIDATION_ERROR") return { ok: false, message: "Geçerli bir e-posta adresi ve şifre girin." };
+          return { ok: false, message: res.error.message };
+        }
         await setTokens(res.data.accessToken, res.data.refreshToken);
-        setUser(res.data.user);
-        setStatus("signedIn");
-        return { ok: true };
+        const session = await loadSession(res.data.user.email ?? email);
+        if (!session.ok) {
+          await endLocalSession();
+          signOutLocally();
+          void revokeServerSession(res.data.refreshToken);
+        }
+        return session;
       },
       async logout() {
-        await clearTokens();
-        setUser(null);
-        setStatus("signedOut");
+        const refreshToken = await getRefreshToken();
+        await endLocalSession();
+        signOutLocally();
+        if (refreshToken) void revokeServerSession(refreshToken);
+      },
+      retry() {
+        setStatus("loading");
+        void loadSession(user?.email ?? "");
       },
     }),
-    [status, user]
+    [status, user, error, loadSession, signOutLocally]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

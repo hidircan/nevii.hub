@@ -46,6 +46,8 @@ export default function TeacherLayout() {
         */}
         <Tabs.Screen name="odevlerim" options={{ href: null }} />
         <Tabs.Screen name="bildirimler" options={{ href: null }} />
+        {/* Telafiler: Bugün ve Hesabım'dan açılır; sekme çubuğu 5 sekmede kalır. */}
+        <Tabs.Screen name="telafi" options={{ href: null }} />
       </Tabs>
     </PersonaGuard>
   );

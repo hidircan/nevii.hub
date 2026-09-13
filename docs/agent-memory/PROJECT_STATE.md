@@ -28,6 +28,23 @@ screens (login/welcome).
 - Full detail + rationale: `docs/contracts/LEGAL_POLICY_TEXT_DISCREPANCY_REPORT.md`,
   `docs/roadmap/NEVIIHUB_ADMIN_CONTRACTS_POLICY_REMAINING_WORK.md`.
 
+## Güncel odak (2026-09-13) — Mobil P0: auth/persona contract + öğretmen portalı (`feature/mobile-p0`, commit YOK)
+
+Worktree `~/Projects/neviihub-feature-mobile-p0`, base `origin/test` @ `4c1b599`. Belgeler: `docs/mobile/MOBILE_P0_RECOVERY_MANIFEST.md`,
+`MOBILE_P0_HANDOFF.md` (Muse öğrenci/veli UI sınırı), `EAS_DEVICE_TEST_READINESS.md`.
+- Mobil persona artık sunucudan: yeni `GET /api/v1/mobile/session` (loginRole + portalAccessType). HYPER_ADMIN,
+  BRANCH_MANAGER (unified dahil), AI_AGENT, aktif erişimsiz STUDENT → fail-closed "desteklenmiyor". Veli = STUDENT+GUARDIAN.
+- Logout route gövdede `refreshToken` kabul eder (mobil sunucu oturumunu kapatabilir). MQF'ten 0 hunk; MPR'a dokunulmadı.
+- **Closeout (aynı gün, tek local commit `feat(mobile): close P0 API contracts and teacher readiness`, push YOK):**
+  yeni salt-okunur `GET /api/v1/makeup` + `GET /api/v1/payments/:id/receipt` (`src/lib/services/mobile-read.ts`),
+  öğretmen `app/(teacher)/telafi.tsx`; absence-notices domain'i yok → mobil stale çağrı kaldırıldı; mobil `PARENT`
+  rolü tamamen kaldırıldı (veli = `personaOf(user) === "parent"`); icon/adaptive/splash kanonik `src/app/icon.png`'den.
+  Kararlar: `docs/mobile/MOBILE_API_ROUTE_DECISIONS.md`.
+- **Açık:** 10 yönetici mobil yolu backend'de yok (post-launch, `KNOWN_MISSING`); devamsızlık bildirimi özelliği domain
+  kararı bekliyor (P1); EAS: `eas init` + test HTTPS URL + Apple/Google kayıtları owner aksiyonu; veli UAT için
+  test ortamında GUARDIAN test hesabı. Paylaşımlı json test store'u erişim kayıtlarını testler arası taşır — testte
+  SELF/GUARDIAN sonucunu sabit varsayma, `getActiveAccessType`'tan oku.
+
 ## Güncel odak (2026-09-12, Kapı 3) — test DB migration + hesap/rol geçişi TAMAM; push/deploy YOK
 
 Commit'ler (local, push YOK): `cc13cac` (önceki ürün işi), `00aa976` (Control Center + rol + Hakediş).

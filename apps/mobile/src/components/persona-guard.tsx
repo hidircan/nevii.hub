@@ -1,17 +1,19 @@
 import { Redirect } from "expo-router";
 import type { ReactNode } from "react";
 import { LoadingState } from "./ui/states";
-import { roleToPersona, useAuth, type AppRole } from "../auth/auth-context";
+import { personaOf, useAuth, type MobilePersona } from "../auth/auth-context";
 
-/** Sekme grubunun (admin/teacher/parent) yalnız kendi rolüyle giriş yapmış kullanıcıya açık olmasını sağlar. */
-export function PersonaGuard({ persona, children }: { persona: ReturnType<typeof roleToPersona>; children: ReactNode }) {
+/**
+ * Sekme grubunun yalnız sunucunun çözdüğü persona ile eşleşen kullanıcıya açık
+ * olmasını sağlar. Eşleşmeyen / desteklenmeyen / doğrulanamayan oturum her
+ * zaman "/"'e döner (orada login, hata veya "desteklenmiyor" ekranı gösterilir).
+ */
+export function PersonaGuard({ persona, children }: { persona: MobilePersona; children: ReactNode }) {
   const { status, user } = useAuth();
 
   if (status === "loading") return <LoadingState />;
-  if (status === "signedOut" || !user) return <Redirect href="/login" />;
-
-  const actual = roleToPersona(user.role as AppRole);
-  if (actual !== persona) return <Redirect href="/" />;
+  if (status === "signedOut") return <Redirect href="/login" />;
+  if (status !== "signedIn" || personaOf(user) !== persona) return <Redirect href="/" />;
 
   return <>{children}</>;
 }

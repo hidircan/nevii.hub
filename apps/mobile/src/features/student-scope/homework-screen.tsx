@@ -2,7 +2,7 @@ import { useRouter } from "expo-router";
 import { useMemo, useState } from "react";
 import { Text, View } from "react-native";
 import { apiPost } from "../../api/client";
-import { useAuth } from "../../auth/auth-context";
+import { personaOf, useAuth } from "../../auth/auth-context";
 import { AppHeader, Button, Card, EmptyState, ErrorState, FilterChip, HomeworkCard, LoadingSkeleton, Screen, SectionHeader, TextField } from "../../components/ui";
 import { useApiGet } from "../../hooks/use-api";
 import { useFocusRefetch } from "../../hooks/use-focus-refetch";
@@ -107,7 +107,9 @@ export function StudentScopeHomeworkDetailScreen({ homeworkId }: { homeworkId: s
     res.refresh();
   }
 
-  const canStudentSubmit = user?.role === "STUDENT" && homework.status !== "REVIEWED";
+  // Teslim YALNIZ öğrencinin kendi hesabından (SELF); veli (GUARDIAN) de STUDENT rolüyle girer.
+  const isGuardian = personaOf(user) === "parent";
+  const canStudentSubmit = personaOf(user) === "student" && homework.status !== "REVIEWED";
 
   return (
     <Screen>
@@ -128,7 +130,7 @@ export function StudentScopeHomeworkDetailScreen({ homeworkId }: { homeworkId: s
       {!canStudentSubmit ? (
         <Card>
           <Text style={[t.typography.body, { color: t.colors.textMuted }]}>
-            {user?.role === "PARENT"
+            {isGuardian
               ? "Teslim işlemi yalnızca öğrencinin kendi hesabından yapılabilir. Bu ekranda yalnızca durum görüntülenir."
               : "Bu ödev için teslim işlemi tamamlandı."}
           </Text>

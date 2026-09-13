@@ -1,18 +1,26 @@
 import { Redirect } from "expo-router";
-import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Linking, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { roleToPersona, useAuth } from "../src/auth/auth-context";
-import { Icon } from "../src/components/ui";
+import { API_BASE_URL } from "../src/api/client";
+import { useAuth } from "../src/auth/auth-context";
+import { UNSUPPORTED_COPY } from "../src/auth/role-to-persona";
+import { Button, Icon, type IconName } from "../src/components/ui";
 import { useTheme } from "../src/theme/theme-context";
 
+const PERSONA_HOME = {
+  admin: "/(admin)/ozet",
+  teacher: "/(teacher)/bugun",
+  student: "/(student)/anasayfa",
+  parent: "/(parent)/anasayfa",
+} as const;
+
 /**
- * Uygulama girişi — hafif bir marka karşılama ekranı, ardından auth
- * durumuna göre login veya role uygun sekmeye yönlendirir. Yalnızca
- * GERÇEK auth kontrolü sürdüğü kadar görünür — yapay bir gecikme/sahte
- * yükleme YOK, `status` "loading" olmaktan çıkar çıkmaz hemen yönlendirir.
+ * Uygulama girişi — auth durumuna göre login'e, persona sekmesine, oturum
+ * doğrulama hatasına (token'lar korunur, tekrar dene) veya fail-closed
+ * "desteklenmeyen hesap" ekranına yönlendirir. Yapay gecikme YOK.
  */
 export default function Index() {
-  const { status, user } = useAuth();
+  const { status, user, error, retry, logout } = useAuth();
   const t = useTheme();
 
   if (status === "loading") {
@@ -32,13 +40,57 @@ export default function Index() {
     );
   }
 
+  if (status === "error") {
+    return (
+      <GateScreen
+        icon="cloud-offline-outline"
+        title="Oturum doğrulanamadı"
+        body={error ?? "Sunucuya bağlanılamadı."}
+        primary={{ label: "Tekrar dene", onPress: retry }}
+        secondary={{ label: "Çıkış yap", onPress: logout }}
+      />
+    );
+  }
+
   if (status === "signedOut" || !user) return <Redirect href="/login" />;
 
-  const persona = roleToPersona(user.role);
-  if (persona === "admin") return <Redirect href="/(admin)/ozet" />;
-  if (persona === "teacher") return <Redirect href="/(teacher)/bugun" />;
-  if (persona === "student") return <Redirect href="/(student)/anasayfa" />;
-  return <Redirect href="/(parent)/anasayfa" />;
+  if (user.resolution.kind === "unsupported") {
+    const copy = UNSUPPORTED_COPY[user.resolution.reason];
+    return (
+      <GateScreen
+        icon="lock-closed-outline"
+        title={copy.title}
+        body={copy.body}
+        primary={{ label: "Web panelini aç", onPress: () => void Linking.openURL(`${API_BASE_URL}${copy.webPath}`) }}
+        secondary={{ label: "Çıkış yap", onPress: logout }}
+      />
+    );
+  }
+
+  return <Redirect href={PERSONA_HOME[user.resolution.persona]} />;
+}
+
+type GateAction = { label: string; onPress: () => void };
+
+function GateScreen({ icon, title, body, primary, secondary }: { icon: IconName; title: string; body: string; primary: GateAction; secondary: GateAction }) {
+  const t = useTheme();
+  return (
+    <SafeAreaView style={[styles.flex, { backgroundColor: t.colors.bg }]}>
+      <View style={[styles.center, { paddingHorizontal: 24 }]}>
+        <View style={[styles.logo, { backgroundColor: t.colors.bgMuted }]}>
+          <Icon name={icon} size={30} color={t.colors.textMuted} />
+        </View>
+        <Text accessibilityRole="header" style={[t.typography.cardTitle, { color: t.colors.text, marginTop: 20, textAlign: "center" }]}>
+          {title}
+        </Text>
+        <Text style={[t.typography.body, { color: t.colors.textMuted, marginTop: 8, textAlign: "center" }]}>{body}</Text>
+        <View style={{ alignSelf: "stretch", gap: 10, marginTop: 28 }}>
+          <Button label={primary.label} onPress={primary.onPress} />
+          <Button label={secondary.label} onPress={secondary.onPress} variant="secondary" />
+        </View>
+      </View>
+    </SafeAreaView>
+  );
 }
 
 const styles = StyleSheet.create({

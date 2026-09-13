@@ -1,9 +1,13 @@
 import { Platform } from "react-native";
-import { getAccessToken, getRefreshToken, setTokens, clearTokens } from "../auth/token-storage";
+import { clearTokens, getAccessToken, getRefreshToken, setTokens } from "../auth/token-storage";
+import { NETWORK_ERROR, toApiResult, type ApiResult } from "./errors";
+
+export type { ApiResult };
 
 /**
  * EXPO_PUBLIC_API_URL — iOS Simulator'da localhost çalışır (aynı Mac).
- * Fiziksel cihaz veya Android Emulator'de Mac'in LAN IP'si gerekir (bkz. README/.env.example).
+ * Fiziksel cihaz veya Android Emulator'de Mac'in LAN IP'si ya da test ortamının
+ * HTTPS adresi gerekir (bkz. docs/mobile/EAS_DEVICE_TEST_READINESS.md).
  * Sonda kalan "/" temizlenir — aksi halde `${base}${path}` çift "//" üretebilir.
  */
 function resolveApiBaseUrl(): string {
@@ -23,10 +27,6 @@ function resolveApiBaseUrl(): string {
 
 const API_BASE_URL = resolveApiBaseUrl();
 
-export type ApiResult<T> =
-  | { ok: true; data: T }
-  | { ok: false; error: { code: string; message: string } };
-
 function hostOf(url: string): string {
   try {
     return new URL(url).host;
@@ -36,54 +36,71 @@ function hostOf(url: string): string {
 }
 
 /**
- * fetch() ATMADI ama yanıt beklenen `{ok,...}` JSON'u değil (ör. bir 404/500 HTML
- * hata sayfası — route hiç yok veya yanlış sunucuya bağlanılmış demektir).
- * Dev modunda status kodu ve hedef URL console'a yazılır (asla token/secret).
- */
-function unexpectedResponseResult(url: string, status: number): { ok: false; error: { code: string; message: string } } {
-  if (__DEV__) {
-    console.warn(`[Nevii Hub API] ${url} → HTTP ${status} ama beklenen JSON gövdesi değil (route yok mu / yanlış sunucu mu?).`);
-    return {
-      ok: false,
-      error: {
-        code: "UNEXPECTED_RESPONSE",
-        message: `Sunucudan beklenmeyen yanıt (HTTP ${status}, ${hostOf(url)}). Bu adreste doğru backend/route çalışıyor mu kontrol edin.`,
-      },
-    };
-  }
-  return { ok: false, error: { code: "UNEXPECTED_RESPONSE", message: "Sunucudan beklenmeyen bir yanıt alındı." } };
-}
-
-/**
  * fetch() bağlantı seviyesinde başarısız oldu (DNS/timeout/connection refused —
- * sunucuya hiç ulaşılamadı). Dev modunda hedef host/port ve gerçek fetch hatası
- * console'a yazılır (asla token/secret); production'da yalnız genel mesaj gösterilir.
+ * sunucuya hiç ulaşılamadı). Dev modunda hedef host ve gerçek fetch hatası
+ * console'a yazılır (asla token/secret); production'da yalnız genel mesaj.
  */
-function networkErrorResult(url: string, err: unknown): { ok: false; error: { code: string; message: string } } {
-  const detail = err instanceof Error ? err.message : String(err);
-
+function networkErrorResult<T>(url: string, err: unknown): ApiResult<T> {
   if (__DEV__) {
-    console.warn(`[Nevii Hub API] ${url} adresine ulaşılamadı: ${detail}`);
+    console.warn(`[Nevii Hub API] ${url} adresine ulaşılamadı: ${err instanceof Error ? err.message : String(err)}`);
     return {
       ok: false,
       error: {
-        code: "NETWORK_ERROR",
+        ...NETWORK_ERROR,
         message: `Sunucuya ulaşılamadı (${hostOf(url)}). Backend çalışıyor mu ve EXPO_PUBLIC_API_URL doğru mu kontrol edin.`,
       },
     };
   }
-
-  return { ok: false, error: { code: "NETWORK_ERROR", message: "Sunucuya ulaşılamadı." } };
+  return { ok: false, error: NETWORK_ERROR };
 }
 
-/** fetch() başarılıysa yanıtı `{ok,...}` JSON olarak çözer; ayrıştırma hatasını bağlantı hatasından ayırır. */
+/** Yanıt gövdesini çözer; JSON değilse (ör. HTML 404 — route yok / yanlış sunucu) durum koduna göre hata üretir. */
 async function parseApiResponse<T>(res: Response, url: string): Promise<ApiResult<T>> {
+  let body: unknown = null;
   try {
-    return (await res.json()) as ApiResult<T>;
+    body = await res.json();
   } catch {
-    return unexpectedResponseResult(url, res.status);
+    if (__DEV__) console.warn(`[Nevii Hub API] ${url} → HTTP ${res.status} ama beklenen JSON gövdesi değil (route yok mu / yanlış sunucu mu?).`);
+  }
+  return toApiResult<T>(res.status, body);
+}
+
+/**
+ * Oturum sınırı: her yerel çıkışta `sessionEpoch` artar. Çıkıştan ÖNCE başlamış
+ * bir refresh isteği sonradan dönse bile token yazmaz — iptal edilen oturum
+ * refresh ile yeniden canlanmaz.
+ */
+let sessionEpoch = 0;
+let onSessionExpired: (() => void) | null = null;
+
+/** Refresh başarısız olduğunda (süresi dolmuş/iptal edilmiş oturum) çağrılır; AuthProvider kaydeder. */
+export function setSessionExpiredHandler(fn: () => void): () => void {
+  onSessionExpired = fn;
+  return () => {
+    if (onSessionExpired === fn) onSessionExpired = null;
+  };
+}
+
+export async function endLocalSession(): Promise<void> {
+  sessionEpoch += 1;
+  await clearTokens();
+}
+
+/** Sunucu oturumunu (sid) kapatır — en iyi çaba; ağ yoksa yerel çıkış yine de tamamdır. */
+export async function revokeServerSession(refreshToken: string): Promise<void> {
+  try {
+    await fetch(`${API_BASE_URL}/api/v1/auth/logout`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refreshToken }),
+    });
+  } catch {
+    // yerel çıkış zaten yapıldı; refresh token'ın süresi dolunca sunucu oturumu da düşer
   }
 }
+
+/** Bu auth uçlarında 401 "oturum bitti" değil, işlemin kendi sonucudur → refresh denenmez. */
+const NO_REFRESH_PATH = /^\/api\/v1\/auth\/(login|refresh|logout|forgot-password|reset-password)\b/;
 
 let refreshInFlight: Promise<boolean> | null = null;
 
@@ -96,16 +113,17 @@ async function authorizedFetch(path: string, init: RequestInit = {}, retry = tru
 
   const res = await fetch(`${API_BASE_URL}${path}`, { ...init, headers });
 
-  if (res.status === 401 && retry) {
-    const refreshed = await refreshAccessToken();
-    if (refreshed) return authorizedFetch(path, init, false);
-    await clearTokens();
+  if (res.status === 401 && retry && !NO_REFRESH_PATH.test(path)) {
+    if (await refreshAccessToken()) return authorizedFetch(path, init, false);
+    await endLocalSession();
+    onSessionExpired?.();
   }
   return res;
 }
 
 async function refreshAccessToken(): Promise<boolean> {
   if (!refreshInFlight) {
+    const epoch = sessionEpoch;
     refreshInFlight = (async () => {
       const refreshToken = await getRefreshToken();
       if (!refreshToken) return false;
@@ -118,10 +136,11 @@ async function refreshAccessToken(): Promise<boolean> {
         if (!res.ok) return false;
         const json = (await res.json()) as { ok: boolean; data?: { accessToken: string; refreshToken: string } };
         if (!json.ok || !json.data) return false;
+        if (epoch !== sessionEpoch) return false;
         await setTokens(json.data.accessToken, json.data.refreshToken);
         return true;
       } catch (err) {
-        if (__DEV__) console.warn(`[Nevii Hub API] refresh isteği ${API_BASE_URL} adresine ulaşamadı:`, err);
+        if (__DEV__) console.warn(`[Nevii Hub API] refresh isteği ${hostOf(API_BASE_URL)} adresine ulaşamadı:`, err instanceof Error ? err.message : err);
         return false;
       }
     })().finally(() => {
@@ -131,44 +150,30 @@ async function refreshAccessToken(): Promise<boolean> {
   return refreshInFlight;
 }
 
-export async function apiGet<T>(path: string): Promise<ApiResult<T>> {
+async function request<T>(path: string, init: RequestInit): Promise<ApiResult<T>> {
   const url = `${API_BASE_URL}${path}`;
   try {
-    const res = await authorizedFetch(path, { method: "GET" });
+    const res = await authorizedFetch(path, init);
     return await parseApiResponse<T>(res, url);
   } catch (err) {
-    return networkErrorResult(url, err);
+    return networkErrorResult<T>(url, err);
   }
 }
 
-export async function apiPost<T>(path: string, body?: unknown): Promise<ApiResult<T>> {
-  const url = `${API_BASE_URL}${path}`;
-  try {
-    const res = await authorizedFetch(path, { method: "POST", body: body ? JSON.stringify(body) : undefined });
-    return await parseApiResponse<T>(res, url);
-  } catch (err) {
-    return networkErrorResult(url, err);
-  }
+export function apiGet<T>(path: string): Promise<ApiResult<T>> {
+  return request<T>(path, { method: "GET" });
 }
 
-export async function apiDelete<T>(path: string): Promise<ApiResult<T>> {
-  const url = `${API_BASE_URL}${path}`;
-  try {
-    const res = await authorizedFetch(path, { method: "DELETE" });
-    return await parseApiResponse<T>(res, url);
-  } catch (err) {
-    return networkErrorResult(url, err);
-  }
+export function apiPost<T>(path: string, body?: unknown): Promise<ApiResult<T>> {
+  return request<T>(path, { method: "POST", body: body ? JSON.stringify(body) : undefined });
 }
 
-export async function apiPatch<T>(path: string, body?: unknown): Promise<ApiResult<T>> {
-  const url = `${API_BASE_URL}${path}`;
-  try {
-    const res = await authorizedFetch(path, { method: "PATCH", body: body ? JSON.stringify(body) : undefined });
-    return await parseApiResponse<T>(res, url);
-  } catch (err) {
-    return networkErrorResult(url, err);
-  }
+export function apiDelete<T>(path: string): Promise<ApiResult<T>> {
+  return request<T>(path, { method: "DELETE" });
+}
+
+export function apiPatch<T>(path: string, body?: unknown): Promise<ApiResult<T>> {
+  return request<T>(path, { method: "PATCH", body: body ? JSON.stringify(body) : undefined });
 }
 
 export { API_BASE_URL };
