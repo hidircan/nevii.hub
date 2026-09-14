@@ -37,6 +37,8 @@ export default function ParentLayout() {
         />
         {/* Sekme çubuğunda gösterilmez (href:null) — "Ana Sayfa"daki ödeme özeti kartından erişilir, günlük birincil eylem değil. */}
         <Tabs.Screen name="odemeler" options={{ href: null }} />
+        {/* Sekme çubuğunda gösterilmez (href:null) — "Çocuğum"daki hızlı erişimden açılır. */}
+        <Tabs.Screen name="telafiler" options={{ href: null }} />
         {/*
           app/(parent)/bildirimler.tsx eski/yedek düz bir route dosyası —
           gerçek bildirimler ekranı paylaşılan kök /notifications (AppHeader

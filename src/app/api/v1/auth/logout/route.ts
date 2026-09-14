@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 
 /** POST /api/v1/auth/logout — clear HttpOnly session cookies */
 export const POST = withApiHandler(
-  async ({ ctx, request }) => {
+  async ({ ctx, request, body }) => {
     const cookieHeader = request.headers.get("cookie");
     const hasSessionCookie =
       Boolean(parseCookieHeader(cookieHeader, ACCESS_COOKIE)) ||
@@ -27,7 +27,10 @@ export const POST = withApiHandler(
       return jsonFail("FORBIDDEN", "Cross-origin request rejected");
     }
     // NeviiOS: oturum kaydını kapat (refresh cookie'deki sid). İmza doğrulanmadan sid'e güvenilmez.
-    const refresh = parseCookieHeader(cookieHeader, REFRESH_COOKIE);
+    // Mobil (çerezsiz) istemci refresh token'ı gövdede gönderir — /auth/refresh ile aynı sözleşme.
+    const bodyRefresh = (body as { refreshToken?: unknown } | null)?.refreshToken;
+    const refresh =
+      (typeof bodyRefresh === "string" && bodyRefresh) || parseCookieHeader(cookieHeader, REFRESH_COOKIE);
     if (refresh) {
       try {
         const claims = await verifyRefreshToken(refresh);

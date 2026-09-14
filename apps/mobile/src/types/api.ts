@@ -285,31 +285,14 @@ export type MakeupRequest = {
   expiresAt: string;
   policyNote?: string;
   confirmedLessonId?: string;
+  /** Sunucu ders kaydından (yoksa alan gelmez). */
+  sourceLessonStartAt?: string;
+  confirmedLessonStartAt?: string;
   createdAt: string;
   suggestedSlots: MakeupSlot[];
 };
+/** GET /api/v1/makeup — kapsam oturumdan (öğretmen: kendi; öğrenci/veli: bağlı öğrenci). */
 export type MakeupResponse = { makeupRequests: MakeupRequest[] };
-
-export type AbsenceNoticeStatus = "pending" | "approved" | "rejected" | "cancelled";
-export type AbsenceNotice = {
-  id: string;
-  studentId: string;
-  teacherId: string;
-  lessonId: string;
-  lessonStartAt: string;
-  reason?: string;
-  status: AbsenceNoticeStatus;
-  submittedAt: string;
-  decisionNote?: string;
-  producesMakeupEntitlement: boolean;
-};
-export type AbsenceNoticePolicy = {
-  minNoticeDays: number;
-  maxNoticesPerPeriod: number;
-  periodMonths: number;
-  requiresApproval: boolean;
-};
-export type AbsenceNoticesResponse = { notices: AbsenceNotice[]; policy: AbsenceNoticePolicy };
 
 export type Payment = {
   id: string;

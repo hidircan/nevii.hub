@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { robotsPolicyForTier } from "./src/lib/env/robots-policy";
 
 // Fonts are self-hosted via next/font (no Google Fonts CDN at runtime); Supabase is
 // only ever called server-side (SUPABASE_SERVICE_ROLE_KEY, no NEXT_PUBLIC_SUPABASE_URL
@@ -58,10 +59,13 @@ const nextConfig: NextConfig = {
     },
   },
   async headers() {
+    // Review/test tier'da tüm yanıtlara (HTML + /api) X-Robots-Tag: noindex, nofollow.
+    // Production'da null → hiçbir header eklenmez, mevcut SEO değişmez.
+    const xRobotsTag = robotsPolicyForTier(process.env.NEVII_DEPLOYMENT_TIER, process.env.VERCEL_ENV).xRobotsTag;
     return [
       {
         source: "/:path*",
-        headers: SECURITY_HEADERS,
+        headers: xRobotsTag ? [...SECURITY_HEADERS, { key: "X-Robots-Tag", value: xRobotsTag }] : SECURITY_HEADERS,
       },
     ];
   },
