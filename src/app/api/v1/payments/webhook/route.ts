@@ -53,7 +53,8 @@ export async function POST(request: Request) {
   const verification = await provider.verifyWebhook({ rawBody, signatureHeader });
   if (!verification.ok) {
     logger.warn("payments.webhook.rejected", verification.error);
-    return Response.json({ ok: false, error: { code: "UNAUTHORIZED", message: verification.error } }, { status: 401 });
+    // Doğrulayıcı metni (sağlayıcı yapılandırılmadı / imza eksik…) yalnız logda; public yanıt tek tip.
+    return Response.json({ ok: false, error: { code: "UNAUTHORIZED", message: "Webhook doğrulanamadı." } }, { status: 401 });
   }
 
   const attempt = await findCheckoutAttemptByProviderReference(verification.providerReference);

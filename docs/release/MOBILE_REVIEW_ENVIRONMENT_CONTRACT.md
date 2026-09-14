@@ -12,7 +12,7 @@
 | Supabase | yok / local Postgres | `neviihub-test` | `neviihub-test` (ayrı proje/şema kararı operatörde; production ASLA) | `NeviiHub` (production) |
 | Branch | worktree | `test` | ayrı review branch (ör. `mobile-review`); **`main` değil** | yalnız `main` |
 | Public erişim | yok | kısıtlı | **public HTTPS** (store reviewer erişmeli) | public |
-| Vercel SSO | — | açık olabilir | **`/api/v1/**` için KAPALI** (native istemci SSO çerezi taşımaz) | kapalı |
+| Vercel SSO | — | **kapalı** (test.neviihub.com public, 2026-09-14) | **`/api/v1/**` için KAPALI** (native istemci SSO çerezi taşımaz) | kapalı |
 | robots/noindex | — | noindex, nofollow | **noindex, nofollow** | mevcut SEO korunur |
 | `EXPO_PUBLIC_API_URL` | Mac LAN IP / localhost | test HTTPS | review HTTPS | production HTTPS |
 | Gerçek cihaz | LAN'da | evet | evet | evet |
@@ -20,7 +20,7 @@
 | EAS preview | hayır | evet | evet | hayır |
 | TestFlight / Internal | hayır | **hayır → review kullan** | **evet** | release build |
 | Müşteri verisi | hayır | hayır | **hayır** — yalnız demo | evet |
-| Ödeme / e-posta / SMS / WhatsApp | console | console / sandbox | **console / sandbox; gerçek gönderim KAPALI** | gerçek |
+| Ödeme / e-posta / SMS / WhatsApp | console | **console** (sandbox/test modu dahil kapalı) | **console; sandbox/test modu dahil KAPALI** | gerçek |
 
 ## 2. Kesin ortam matrisi
 
@@ -43,11 +43,11 @@
 | `NEXT_PUBLIC_SUPABASE_URL` | web | review/test'te production ref → fail; production'da test ref → fail |
 | `APP_BASE_URL` (fallback `NEXT_PUBLIC_APP_BASE_URL`) | web | kanonik public app URL; HTTPS, public host, userinfo/query yok; review/test'te production domain → fail, production'da yalnız production domain |
 | `EXPO_PUBLIC_API_URL` | mobile/store | mobil istemcinin TEK backend değişkeni (`apps/mobile/src/api/client.ts`); aynı URL kuralları |
-| `VERCEL_ENV`, `VERCEL_GIT_COMMIT_REF` | web (Vercel sistem değişkenleri) | review/test'te `production` / `main` → fail; production'da `production` / `main` dışı → fail |
+| `VERCEL_ENV`, `VERCEL_GIT_COMMIT_REF` | web (Vercel sistem değişkenleri) | review/test'te `production` / `main` → fail; production web'de **zorunlu** — eksik veya `production` / `main` dışı → fail |
 | `NEVII_PRODUCTION_HOSTS` | opsiyonel | virgüllü production host listesi; varsayılan `neviihub.com, www.neviihub.com, notaplan.vercel.app` |
 | `PROD_SUPABASE_REF`, `TEST_SUPABASE_REF` | opsiyonel | mevcut guard override'ları (`src/lib/env/test-target-guard.ts`) |
-| `PAYMENT_PROVIDER`, `IYZICO_BASE_URL`, `EMAIL_PROVIDER`, `SMTP_*`, `WHATSAPP_PROVIDER`, `SMS_PROVIDER`, `TWILIO_*`, `SMS_TEST_MODE` | web review/test | gerçek dış aksiyon → fail (seçim kuralları `src/lib/*/config.ts` ile aynı) |
-| `AUTH_DEMO_*`, `SMS_TEST_MODE` | web production | tanımlıysa → fail (demo/test yapılandırması production'a taşınmış) |
+| `PAYMENT_PROVIDER`, `IYZICO_BASE_URL`, `EMAIL_PROVIDER`, `SMTP_*`, `WHATSAPP_PROVIDER`, `SMS_PROVIDER`, `TWILIO_*`, `SMS_TEST_MODE` | web review/test | sağlayıcı açık → fail: `PAYMENT_PROVIDER` console dışı (iyzico sandbox dahil), SMTP, WhatsApp console dışı, Twilio SMS (`SMS_TEST_MODE` olsa da). Seçim kuralları `src/lib/*/config.ts` ile aynı |
+| `AUTH_DEMO_*`, `SMS_TEST_MODE`, iyzico sandbox | web production | tanımlıysa → fail (demo/test yapılandırması production'a taşınmış; `IYZICO_BASE_URL` boşsa kod sandbox'a düşer) |
 
 > Görevde geçen `NEXT_PUBLIC_APP_URL`, `NEXT_PUBLIC_MOBILE_API_URL`, `MOBILE_API_URL` repoda **yok**. Kanonik
 > karşılıkları `APP_BASE_URL` ve `EXPO_PUBLIC_API_URL`; yeni isim icat edilmedi.
@@ -62,7 +62,8 @@
 6. Production domain (`neviihub.com` vb.) review URL'i olamaz.
 7. Arama motoru indekslemesi engellenir (noindex, nofollow — §5).
 8. Gerçek ödeme/e-posta/SMS/WhatsApp kapalı.
-9. Vercel Runtime Logs + `/api/v1/health` / `/api/v1/ready` ile gözlemlenebilir.
+9. Vercel Runtime Logs + `/api/v1/health` / `/api/v1/ready` ile gözlemlenebilir. İkisi de public-safe: yalnız
+   `service: "NeviiHub"`, `healthy`/`ready`, `time` (bkz. `PUBLIC_ENDPOINT_SECURITY_INVENTORY.md`).
 
 ## 5. Noindex / review safety
 

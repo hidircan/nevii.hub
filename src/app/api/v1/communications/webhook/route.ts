@@ -24,7 +24,7 @@ export async function POST(request: Request) {
   const provider = getCommunicationProvider();
   if (!provider.isConfigured()) {
     return Response.json(
-      { ok: false, error: { code: "UNAVAILABLE", message: "İletişim webhook sağlayıcısı yapılandırılmadı." } },
+      { ok: false, error: { code: "UNAVAILABLE", message: "Bu uç şu anda kullanılamıyor." } },
       { status: 503 }
     );
   }
@@ -44,7 +44,7 @@ export async function POST(request: Request) {
       outcome: "denied",
       meta: { reason: "bad_signature" },
     });
-    return Response.json({ ok: false, error: { code: "UNAUTHORIZED", message: verification.error } }, { status: 401 });
+    return Response.json({ ok: false, error: { code: "UNAUTHORIZED", message: "Webhook doğrulanamadı." } }, { status: 401 });
   }
 
   const claim = await claimCommunicationInboundEvent({

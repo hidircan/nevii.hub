@@ -120,9 +120,11 @@ const lower = (v: string | undefined) => (v ?? "").trim().toLowerCase();
  */
 function checkProvidersOff(env: Env): Finding[] {
   const out: Finding[] = [];
+  // Public review/test'te ödeme sağlayıcısı (iyzico sandbox dahil) tamamen kapalı: checkout akışı
+  // store reviewer'a açık bir yüzeydir; yalnız console (fail-closed) kabul edilir.
   const payment = lower(env.PAYMENT_PROVIDER);
-  if (payment === "stripe" || (payment === "iyzico" && !lower(env.IYZICO_BASE_URL).includes("sandbox") && lower(env.IYZICO_BASE_URL) !== "")) {
-    out.push({ level: "error", message: "PAYMENT_PROVIDER gerçek tahsilat modunda — review/test'te boş bırakın (console) veya yalnız iyzico sandbox kullanın." });
+  if (payment && payment !== "console") {
+    out.push({ level: "error", message: "PAYMENT_PROVIDER açık — public review/test'te boş bırakın (console, fail-closed); sandbox dahil." });
   }
   const email = lower(env.EMAIL_PROVIDER);
   if (email === "smtp" || (email !== "console" && env.SMTP_HOST && env.SMTP_USER && env.SMTP_PASS)) {
@@ -134,8 +136,8 @@ function checkProvidersOff(env: Env): Finding[] {
   }
   const sms = lower(env.SMS_PROVIDER);
   const smsLive = sms === "twilio" || (sms !== "console" && env.TWILIO_ACCOUNT_SID && (env.TWILIO_SMS_FROM || env.TWILIO_FROM));
-  if (smsLive && !truthy(env.SMS_TEST_MODE)) {
-    out.push({ level: "error", message: "SMS Twilio ile gerçek gönderimde ve SMS_TEST_MODE kapalı — SMS_PROVIDER=console veya SMS_TEST_MODE=true + allowlist." });
+  if (smsLive) {
+    out.push({ level: "error", message: "SMS Twilio ile açık — public review/test'te SMS_PROVIDER=console yapın ve TWILIO_* değişkenlerini kaldırın (SMS_TEST_MODE yeterli değil)." });
   }
   if (out.length === 0) out.push({ level: "ok", message: "Ödeme/e-posta/WhatsApp/SMS: gerçek dış aksiyon kapalı." });
   return out;
@@ -170,11 +172,12 @@ export function validateMobileReviewEnv(env: Env, target: Target = "web"): Findi
   const vercelEnv = lower(env.VERCEL_ENV);
   const branch = lower(env.VERCEL_GIT_COMMIT_REF);
   if (isProd) {
-    if (vercelEnv && vercelEnv !== "production") {
-      out.push({ level: "error", message: "production tier ama VERCEL_ENV production değil — production değişkenleri Preview'a yazılmış olabilir." });
+    // Web deploy'unda Vercel sistem değişkenleri ZORUNLU: eksikse deploy'un production/main olduğu kanıtlanamaz.
+    if ((vercelEnv || target === "web") && vercelEnv !== "production") {
+      out.push({ level: "error", message: "production tier ama VERCEL_ENV production değil (veya yok) — production değişkenleri Preview'a yazılmış olabilir." });
     }
-    if (branch && branch !== "main") {
-      out.push({ level: "error", message: "production tier ama kaynak branch main değil — review/test branch'i production'a deploy edilemez." });
+    if ((branch || target === "web") && branch !== "main") {
+      out.push({ level: "error", message: "production tier ama kaynak branch main değil (veya yok) — review/test branch'i production'a deploy edilemez." });
     }
   } else {
     if (vercelEnv === "production") {
@@ -212,6 +215,10 @@ export function validateMobileReviewEnv(env: Env, target: Target = "web"): Findi
       }
       if (truthy(env.SMS_TEST_MODE)) {
         out.push({ level: "error", message: "Production'da SMS_TEST_MODE açık — test yapılandırması production'a taşınmış; kapatın." });
+      }
+      // iyzico base URL boşsa kod sandbox'a düşer (src/lib/payment-provider/config.ts).
+      if (lower(env.PAYMENT_PROVIDER) === "iyzico" && (!lower(env.IYZICO_BASE_URL) || lower(env.IYZICO_BASE_URL).includes("sandbox"))) {
+        out.push({ level: "error", message: "Production'da iyzico SANDBOX'a bağlı — test sağlayıcı yapılandırması production'a taşınmış; canlı IYZICO_BASE_URL kullanın." });
       }
     } else {
       out.push(...checkProvidersOff(env));
