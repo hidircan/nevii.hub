@@ -44,7 +44,12 @@
    `npm run validate:mobile-review-env` (web) — exit 0 değilse deploy edilmez.
    Mobil build öncesi: `NEVII_DEPLOYMENT_TIER=review EXPO_PUBLIC_API_URL=… npm run validate:mobile-review-env -- --target=store`.
 10. **Runtime logs/health:** `curl -s https://<review-domain>/api/v1/health` → `storeMode: "db"`;
-    `/api/v1/ready` → `database.reachable: true`; Vercel Runtime Logs açık tutulur.
+    `/api/v1/ready` → `{ "service": "NeviiHub", "ready": true }`; Vercel Runtime Logs açık tutulur.
+    `/api/v1/ready` public-safe'tir: store/DB/storage/SMS/provider alanı DÖNMEZ. DB erişilemezse
+    `ready: false` döner; neden (`errorClass`: AUTHENTICATION/NETWORK/TLS/POOLER/…) yalnız
+    Runtime Logs'ta `[ready] database unreachable` satırındadır.
+    **Internal-only diagnostic (future work):** DB/provider readiness detayı gerekiyorsa, auth/RBAC
+    sözleşmesi belirlendikten sonra yetkili bir endpoint olarak eklenir; public endpoint'e geri konmaz.
 11. **Rollback planı:** §7.
 
 ## 3. Deployment sonrası smoke test
