@@ -164,4 +164,41 @@ test("robots politikası: review/test/eksik → noindex,nofollow; production kor
     assert.deepEqual(robotsPolicyForTier(tier), { index: false, follow: false, xRobotsTag: "noindex, nofollow" });
   }
   assert.deepEqual(robotsPolicyForTier("production"), { index: true, follow: true, xRobotsTag: null });
+  // Açık review/test, VERCEL_ENV=production olsa bile noindex kalır.
+  assert.equal(robotsPolicyForTier("review", "production").xRobotsTag, "noindex, nofollow");
+  assert.equal(robotsPolicyForTier("TEST", "production").xRobotsTag, "noindex, nofollow");
+  // Tier eksik/geçersiz: yalnız Vercel production deployment'ı mevcut SEO'yu korur.
+  assert.equal(robotsPolicyForTier(undefined, "production").xRobotsTag, null);
+  assert.equal(robotsPolicyForTier(undefined, "preview").xRobotsTag, "noindex, nofollow");
+});
+
+test("next.config headers(): tier runtime'a bağlı; production'da X-Robots-Tag yok; değer sızdırmaz", async () => {
+  const { default: nextConfig } = await import("../../next.config");
+  const saved = { tier: process.env.NEVII_DEPLOYMENT_TIER, vercel: process.env.VERCEL_ENV };
+  const headersFor = async (tier: string | undefined, vercelEnv?: string) => {
+    for (const [k, v] of [["NEVII_DEPLOYMENT_TIER", tier], ["VERCEL_ENV", vercelEnv]] as const) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+    const rules = await nextConfig.headers!();
+    return rules.flatMap((r) => r.headers);
+  };
+  try {
+    for (const tier of ["review", "test", undefined, "garbage"]) {
+      const h = await headersFor(tier, "preview");
+      assert.deepEqual(h.filter((x) => x.key === "X-Robots-Tag"), [{ key: "X-Robots-Tag", value: "noindex, nofollow" }], String(tier));
+      assert.ok(h.some((x) => x.key === "Content-Security-Policy"), "security header'lar korunur");
+    }
+    for (const [tier, vercelEnv] of [["production", "production"], [undefined, "production"]] as const) {
+      const h = await headersFor(tier, vercelEnv);
+      assert.ok(!h.some((x) => x.key.toLowerCase() === "x-robots-tag"), `production SEO korunur: ${tier}`);
+    }
+    // Header değeri sabit; URL/secret/env değeri içermez.
+    process.env.APP_BASE_URL = `https://u:${SECRET}@review.neviihub.com`;
+    const text = JSON.stringify(await headersFor("review", "preview"));
+    for (const needle of [SECRET, "review.neviihub.com"]) assert.ok(!text.includes(needle), `sızıntı: ${needle}`);
+  } finally {
+    delete process.env.APP_BASE_URL;
+    await headersFor(saved.tier, saved.vercel);
+  }
 });

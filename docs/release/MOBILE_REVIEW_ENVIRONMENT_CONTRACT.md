@@ -66,13 +66,23 @@
 
 ## 5. Noindex / review safety
 
-- Repoda bugün `robots.ts`/`robots.txt` **yok**, root `metadata`'da `robots` alanı **yok**, `next.config.ts`
-  header'larında `X-Robots-Tag` **yok**. Yani production'daki mevcut davranış: varsayılan (index serbest).
-- Bu görevin yazma alanı `src/app/**` / `next.config.ts`'yi kapsamadığı için runtime kodu **değiştirilmedi**.
-  Bunun yerine test edilmiş, tier'a bağlı saf politika yazıldı: `robotsPolicyForTier(tier)`
-  (`review`/`test`/eksik/bilinmeyen → `noindex, nofollow`; `production` → mevcut davranış).
-- Önerilen minimal bağlama (ayrı onaylı bir görevde):
-  `next.config.ts` `SECURITY_HEADERS`'a `robotsPolicyForTier(process.env.NEVII_DEPLOYMENT_TIER).xRobotsTag`
-  null değilse `{ key: "X-Robots-Tag", value }` eklemek — production'da hiçbir şey eklemez.
-- O zamana kadar: Vercel, production olmayan deployment'lara kendisi `X-Robots-Tag: noindex` ekler; review custom
-  domain'inde bunun gerçekten geldiği runbook §3'teki `curl -sI` ile **doğrulanır**, varsayılmaz.
+- Repoda `robots.ts`/`robots.txt` ve root `metadata.robots` **yok**; production'ın mevcut davranışı varsayılan
+  (index serbest) ve **aynen korunur**.
+- **Runtime bağlaması (2026-09-14, `release/mobile-review`):** `next.config.ts` `headers()` →
+  `robotsPolicyForTier(NEVII_DEPLOYMENT_TIER, VERCEL_ENV)` (`src/lib/env/robots-policy.ts`) null değilse tüm
+  yollara (HTML + `/api/**`) `X-Robots-Tag: noindex, nofollow` ekler. Tek mekanizma; metadata/robots.txt eklenmedi
+  çünkü runbook doğrulaması header'a (`curl -sI`) dayanır ve native API yanıtlarını da kapsamalı.
+- Karar tablosu:
+
+  | `NEVII_DEPLOYMENT_TIER` | `VERCEL_ENV` | Sonuç |
+  |---|---|---|
+  | `review` / `test` | herhangi | `noindex, nofollow` |
+  | `production` | herhangi | header yok (mevcut SEO) |
+  | eksik / geçersiz | `production` | header yok — tier'ı henüz tanımlanmamış production domain'i indeksten düşmesin |
+  | eksik / geçersiz | diğer / yok | `noindex, nofollow` (fail-closed) |
+
+- **Build-time:** Next `headers()` build sırasında `routes-manifest`'e yazılır → `NEVII_DEPLOYMENT_TIER` Vercel'de
+  build'e görünür olmalı (Vercel env değişkenleri build'de de okunur); değer değişirse **redeploy** gerekir.
+- Testler: `npm run test:release` (politika + `next.config` `headers()` çıktısı, production'da header yokluğu,
+  sızıntı yokluğu). Yerel kanıt: tier'sız `next start` → `/` ve `/api/v1/*` yanıtlarında `X-Robots-Tag: noindex, nofollow`.
+- Review custom domain'inde deploy sonrası runbook §2.8 / §3 #18 `curl -sI` ile yine **doğrulanır**, varsayılmaz.

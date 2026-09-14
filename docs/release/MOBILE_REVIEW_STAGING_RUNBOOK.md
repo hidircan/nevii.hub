@@ -23,7 +23,7 @@
 
 ## 2. Vercel review staging ayarları (operatör — insan onayıyla)
 
-1. **Branch:** ayrı review branch (ör. `mobile-review`), `main` değil.
+1. **Branch:** ayrı review branch (`release/mobile-review`), `main` değil.
 2. **Project:** mevcut Vercel projesi; review branch'i **Preview** environment'ına bağlanır. Production
    environment'ına review değeri **yazılmaz**.
 3. **Review domain:** custom domain review branch'ine atanır (DNS Cloudflare'de, ayrı onay).
@@ -37,8 +37,9 @@
    yalnız preview `*.vercel.app` URL'lerinde açık. "Protection Bypass for Automation" secret'ı mobil binary'ye
    **gömülmez**.
 7. **Mobile public API URL:** EAS dashboard → `preview` environment → `EXPO_PUBLIC_API_URL` = review HTTPS.
-8. **noindex kontrolü:** `curl -sI https://<review-domain>/ | grep -i x-robots-tag` → `noindex` görülmeli.
-   Görülmezse deploy **NO-GO**; `robotsPolicyForTier` bağlaması (sözleşme §5) onaylanıp uygulanır.
+8. **noindex kontrolü:** `curl -sI https://<review-domain>/ | grep -i x-robots-tag` → `noindex, nofollow` görülmeli
+   (runtime bağlaması `next.config.ts` `headers()`, sözleşme §5). Görülmezse deploy **NO-GO** — büyük olasılıkla
+   `NEVII_DEPLOYMENT_TIER` build'de görünmüyor; değişkeni düzeltip redeploy edin.
 9. **Guard:** deploy'dan önce CI/Vercel build ortamında:
    `npm run validate:mobile-review-env` (web) — exit 0 değilse deploy edilmez.
    Mobil build öncesi: `NEVII_DEPLOYMENT_TIER=review EXPO_PUBLIC_API_URL=… npm run validate:mobile-review-env -- --target=store`.

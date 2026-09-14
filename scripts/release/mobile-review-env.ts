@@ -241,12 +241,8 @@ export function validateMobileReviewEnv(env: Env, target: Target = "web"): Findi
   return out;
 }
 
-/** Tier'a göre arama motoru politikası. Bilinmeyen/eksik tier fail-closed: noindex. */
-export function robotsPolicyForTier(tier: string | undefined): { index: boolean; follow: boolean; xRobotsTag: string | null } {
-  return lower(tier) === "production"
-    ? { index: true, follow: true, xRobotsTag: null }
-    : { index: false, follow: false, xRobotsTag: "noindex, nofollow" };
-}
+/** Runtime'a (next.config.ts headers) bağlı politika — tek kaynak src/lib/env/robots-policy.ts. */
+export { robotsPolicyForTier } from "../../src/lib/env/robots-policy";
 
 const LABEL: Record<Level, string> = { ok: "OK", error: "HATA", warn: "UYARI", manual: "MANUEL" };
 
