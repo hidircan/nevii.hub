@@ -308,10 +308,10 @@ describe("listTeachingMaterialsForTeacherTool / getTeachingMaterialFileTool", ()
     expect(created.ok).toBe(true);
     if (!created.ok) return;
 
-    const asOwnStudent = await getTeachingMaterialFileTool(
-      ctx({ role: "STUDENT", teacherId: undefined, studentId: "s1" }),
-      { materialId: created.data.materialId }
-    );
+    // Materyal dosyası da JWT studentId'ye değil aktif StudentPortalAccess'e bakar.
+    const ownStudentCtx = ctx({ role: "STUDENT", teacherId: undefined, studentId: "s1" });
+    await grantStudentAccess(ownStudentCtx, "s1", "SELF");
+    const asOwnStudent = await getTeachingMaterialFileTool(ownStudentCtx, { materialId: created.data.materialId });
     expect(asOwnStudent.ok).toBe(true);
 
     const asOtherTeacherStudent = await getTeachingMaterialFileTool(

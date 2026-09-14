@@ -1,6 +1,6 @@
 import { withApiHandler } from "@/lib/api/handler";
 import { ok } from "@/lib/services/result";
-import { getActiveAccessType } from "@/lib/student-portal-access";
+import { resolveActivePortalAccess } from "@/lib/student-portal-access";
 
 export const dynamic = "force-dynamic";
 
@@ -14,18 +14,18 @@ export const dynamic = "force-dynamic";
  */
 export const GET = withApiHandler(
   async ({ ctx }) => {
-    const portalAccessType =
-      ctx.role === "STUDENT" && ctx.studentId
-        ? await getActiveAccessType(ctx.tenantId, ctx.userId, ctx.studentId)
-        : null;
+    // STUDENT: öğrenci/persona YALNIZ aktif StudentPortalAccess'ten çözülür (veli
+    // hesabında JWT studentId boştur); aktif erişim yoksa studentId de verilmez.
+    const access =
+      ctx.role === "STUDENT" ? await resolveActivePortalAccess(ctx.tenantId, ctx.userId, ctx.studentId) : null;
     return ok({
       userId: ctx.userId,
       role: ctx.role,
       loginRole: ctx.loginRole ?? ctx.role,
       tenantId: ctx.tenantId,
       teacherId: ctx.teacherId,
-      studentId: ctx.studentId,
-      portalAccessType,
+      studentId: ctx.role === "STUDENT" ? access?.studentId : ctx.studentId,
+      portalAccessType: access?.accessType ?? null,
     });
   },
   { allowBranchManager: true }

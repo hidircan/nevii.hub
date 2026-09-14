@@ -74,6 +74,9 @@ export function StudentPortalAccessCard({ studentId, defaultEmail }: { studentId
   const [inviteType, setInviteType] = useState<"SELF" | "GUARDIAN">("GUARDIAN");
   const [invitePending, setInvitePending] = useState(false);
   const [inviteMessage, setInviteMessage] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
+  // Yalnız bu admin oturumunun belleğinde tutulur; hiçbir yere loglanmaz/kalıcı yazılmaz.
+  const [inviteLink, setInviteLink] = useState<string | null>(null);
+  const [linkCopied, setLinkCopied] = useState(false);
 
   const load = useCallback(async () => {
     const result = await actionGetStudentPortalAccess({ studentId });
@@ -127,14 +130,17 @@ export function StudentPortalAccessCard({ studentId, defaultEmail }: { studentId
     await load();
   }
 
-  async function onInvite() {
+  // Parametreli: "Daveti yeniden gönder" satırın e-posta/tipini setState beklemeden iletir.
+  async function onInvite(email = inviteEmail, accessType = inviteType) {
     setInviteMessage(null);
-    if (!inviteEmail.trim()) {
+    setInviteLink(null);
+    setLinkCopied(false);
+    if (!email.trim()) {
       setInviteMessage({ tone: "error", text: "Önce geçerli bir e-posta adresi ekleyin." });
       return;
     }
     setInvitePending(true);
-    const result = await actionInviteStudentPortalAccess({ studentId, email: inviteEmail.trim(), accessType: inviteType });
+    const result = await actionInviteStudentPortalAccess({ studentId, email: email.trim(), accessType });
     setInvitePending(false);
     if (!result.ok) {
       setInviteMessage({ tone: "error", text: result.message });
@@ -143,10 +149,26 @@ export function StudentPortalAccessCard({ studentId, defaultEmail }: { studentId
     if (result.delivered) {
       setInviteMessage({ tone: "ok", text: "Davet e-postası gönderildi." });
     } else {
-      setInviteMessage({ tone: "error", text: "Davet kaydı oluşturuldu ama e-posta GÖNDERİLEMEDİ — bu ortamda e-posta sağlayıcısı yapılandırılmamış." });
+      setInviteMessage({
+        tone: "error",
+        text: result.blocked
+          ? "Davet kaydı oluşturuldu ama e-posta GÖNDERİLEMEDİ — bu ortamda e-posta sağlayıcısı yapılandırılmamış. Davet linkini kopyalayıp kişiye güvenli bir kanaldan iletebilirsiniz."
+          : "Davet kaydı oluşturuldu ama e-posta GÖNDERİLEMEDİ — e-posta sağlayıcısı gönderimi reddetti. Davet linkini kopyalayıp kişiye güvenli bir kanaldan iletebilirsiniz.",
+      });
+      setInviteLink(result.activationLink ?? null);
     }
     setInviteOpen(false);
     await load();
+  }
+
+  async function onCopyInviteLink() {
+    if (!inviteLink) return;
+    try {
+      await navigator.clipboard.writeText(inviteLink);
+      setLinkCopied(true);
+    } catch {
+      setInviteMessage({ tone: "error", text: "Link panoya kopyalanamadı — tarayıcı izin vermedi." });
+    }
   }
 
   return (
@@ -205,7 +227,7 @@ export function StudentPortalAccessCard({ studentId, defaultEmail }: { studentId
                       onClick={() => {
                         setInviteEmail(a.email);
                         setInviteType(a.accessType);
-                        onInvite();
+                        onInvite(a.email, a.accessType);
                       }}
                     >
                       Daveti yeniden gönder
@@ -224,6 +246,17 @@ export function StudentPortalAccessCard({ studentId, defaultEmail }: { studentId
             );
           })}
         </ul>
+      ) : null}
+
+      {!inviteOpen && inviteMessage ? (
+        <p className={`mb-2 text-xs font-medium ${inviteMessage.tone === "ok" ? "text-emerald-700" : "text-rose-600"}`}>{inviteMessage.text}</p>
+      ) : null}
+      {!inviteOpen && inviteLink ? (
+        <div className="mb-3">
+          <Button variant="secondary" onClick={onCopyInviteLink}>
+            {linkCopied ? "Davet linki kopyalandı" : "Davet linkini kopyala"}
+          </Button>
+        </div>
       ) : null}
 
       {!inviteOpen ? (
@@ -249,7 +282,7 @@ export function StudentPortalAccessCard({ studentId, defaultEmail }: { studentId
             <p className={`text-xs font-medium ${inviteMessage.tone === "ok" ? "text-emerald-700" : "text-rose-600"}`}>{inviteMessage.text}</p>
           ) : null}
           <div className="flex gap-2">
-            <Button disabled={invitePending} onClick={onInvite}>
+            <Button disabled={invitePending} onClick={() => onInvite()}>
               {invitePending ? "Gönderiliyor…" : "Davet gönder"}
             </Button>
             <Button variant="ghost" disabled={invitePending} onClick={() => setInviteOpen(false)}>

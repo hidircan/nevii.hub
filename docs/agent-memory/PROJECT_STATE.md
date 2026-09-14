@@ -28,6 +28,20 @@ screens (login/welcome).
 - Full detail + rationale: `docs/contracts/LEGAL_POLICY_TEXT_DISCREPANCY_REPORT.md`,
   `docs/roadmap/NEVIIHUB_ADMIN_CONTRACTS_POLICY_REMAINING_WORK.md`.
 
+## Güncel odak (2026-09-14) — Mobil UAT portal erişimi + davet e-postası (`release/mobile-review` → `test`)
+
+- **Kök hata:** `GET /api/v1/mobile/session` persona'yı yalnız JWT `studentId` ile çözüyordu; veli (GUARDIAN)
+  hesabında `User.studentId` bilinçli boş → veli her zaman "aktif erişim yok". Artık `resolveActivePortalAccess`
+  (yalnız `active` kayıt; invited/revoked asla). Materyal dosyası + öğretmen değerlendirmesi de JWT eşleşmesi
+  yerine aktif erişime bakıyor. Testler: `mobile-uat-portal-access.test.ts`.
+- **Davet fallback'i:** gönderim başarısızsa yalnız admin'e "Davet linkini kopyala" (link loglanmaz).
+- **Test fixture'ları:** `scripts/uat-mobile-portal-fixtures.ts` → SQL, Supabase SQL aracıyla YALNIZ
+  `vxzewyiwfshobjizzetw`'e uygulandı. Runbook: `docs/mobile/MOBILE_UAT_ACCESS_RUNBOOK.md`.
+- **DİKKAT:** `~/Projects/nevii-hub/.env*` `DATABASE_URL` = PRODUCTION; test DB connection string yerelde YOK
+  (Vercel Preview'da sensitive, çekilemez).
+- **Açık owner aksiyonu:** `info@neviihub.com`, `nevii.production@gmail.com` Gmail hesabında doğrulanmış
+  "Send mail as" takma adı değil — Gmail From'u hesap adresine çeviriyor.
+
 ## Güncel odak (2026-09-13) — Mobil P0: auth/persona contract + öğretmen portalı (`feature/mobile-p0`, commit YOK)
 
 Worktree `~/Projects/neviihub-feature-mobile-p0`, base `origin/test` @ `4c1b599`. Belgeler: `docs/mobile/MOBILE_P0_RECOVERY_MANIFEST.md`,

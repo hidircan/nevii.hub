@@ -927,3 +927,14 @@ saatine bağlı "bazen kırmızı" testlerin klasik kaynağıdır.
   bayt aynı olduğu doğrulanıp yalnız bu 5 klasör silindi; kaynakta duruyorlar.
 - **Ders:** Toplu kopyadan önce kopya listesini dizin bazında (`src/` dışı: `prisma/`, `scripts/`, `docs/`)
   gözden geçir; "taşınmadı" iddiasını kopya listesiyle doğrula, hafızaya güvenme.
+
+## 2026-09-14 — Persona'yı, o persona'nın hiç taşımadığı alandan çözmek
+
+- **Hata:** `GET /api/v1/mobile/session`, STUDENT persona'sını yalnız JWT `studentId` doluysa
+  `getActiveAccessType` ile çözüyordu. GUARDIAN davetinde `User.studentId` BİLİNÇLİ OLARAK boş
+  bırakılıyor → her veli mobilde "aktif öğrenci erişimi yok" ekranına düşüyordu; test tenant'ında
+  hiç aktif erişim kaydı olmadığı için UAT'ta da görünmüyordu. Aynı "JWT studentId eşleşmesi = yetki"
+  varsayımı materyal dosyası ve öğretmen değerlendirmesi tool'larında da vardı (aktif erişim kontrolü yok).
+- **Düzeltme:** tek çözücü `resolveActivePortalAccess` (yalnız `active`); tool'lar `canAccessStudent`.
+- **Ders:** bir alanın "deprecated / bilinçli boş" olduğu yazıyorsa, o alanı okuyan HER yeri ara
+  (`grep ctx.studentId`). Persona testini yalnız o alanı dolu olan demo kullanıcıyla yazmak hatayı gizler.
