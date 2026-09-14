@@ -37,7 +37,8 @@ export async function POST(request: Request) {
       outcome: "denied",
       meta: { reason: "secret_not_configured" },
     });
-    return jsonFail("FORBIDDEN", "Bildirim tick'i yapılandırılmamış (NOTIFICATION_CRON_SECRET eksik).");
+    // Public yanıt env değişkeni adı taşımaz; neden audit'te (secret_not_configured).
+    return jsonFail("FORBIDDEN", "Geçersiz tick kimliği.");
   }
   const provided = extractBearer(request);
   if (!provided || !timingSafeStringEqual(provided, configured)) {

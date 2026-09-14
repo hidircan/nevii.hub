@@ -1,5 +1,9 @@
 /**
- * `/api/v1/ready` — veritabanı hata sınıfının ortam ayrımı ve sızıntı testleri.
+ * `/api/v1/ready` — veritabanı hata sınıfı sızıntı testleri.
+ *
+ * Sözleşme (2026-09-14, public staging): hata sınıfı HİÇBİR ortamda public
+ * yanıta konmaz (preview dahil) — yalnız sunucu loguna yazılır. Tam public
+ * sözleşme testleri: `ready-route.test.ts`.
  *
  * Gerçek bir veritabanına BAĞLANMAZ; `@/lib/db` mock'lanır. Kullanılan hata
  * metni UYDURMA'dır ve kasten "secret gibi" görünecek şekilde yazılmıştır ki
@@ -31,7 +35,7 @@ vi.mock("@/lib/db", () => ({
 
 async function readyBody(): Promise<{
   ok: boolean;
-  data: { ready: boolean; database: { configured: boolean; reachable: boolean | null; errorClass?: string } };
+  data: { ready: boolean; database?: unknown; errorClass?: unknown };
 }> {
   const { GET } = await import("@/app/api/v1/ready/route");
   const res = await GET(new Request("https://test.example/api/v1/ready", { method: "GET" }));
@@ -46,25 +50,25 @@ describe("/api/v1/ready — database errorClass", () => {
     vi.unstubAllEnvs();
   });
 
-  it("Vercel Preview'de sınıfı döner (VERCEL_ENV=preview, NODE_ENV=production olsa bile)", async () => {
+  it("Vercel Preview'de de sınıf/database alanı public yanıta EKLENMEZ (yalnız ready=false)", async () => {
     vi.stubEnv("VERCEL_ENV", "preview");
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("DATABASE_URL", "postgresql://postgres.abc:redacted@x.pooler.supabase.com:6543/postgres");
 
     const body = await readyBody();
     expect(body.data.ready).toBe(false);
-    expect(body.data.database.reachable).toBe(false);
-    expect(body.data.database.errorClass).toBe("AUTHENTICATION");
+    expect(body.data).not.toHaveProperty("database");
+    expect(body.data).not.toHaveProperty("errorClass");
   });
 
-  it("PRODUCTION'da errorClass alanı HİÇ eklenmez (davranış bugünküyle aynı)", async () => {
+  it("PRODUCTION'da errorClass/database alanı HİÇ eklenmez", async () => {
     vi.stubEnv("VERCEL_ENV", "production");
     vi.stubEnv("NODE_ENV", "production");
 
     const body = await readyBody();
     expect(body.data.ready).toBe(false);
-    expect(body.data.database.reachable).toBe(false);
-    expect(body.data.database).not.toHaveProperty("errorClass");
+    expect(body.data).not.toHaveProperty("database");
+    expect(body.data).not.toHaveProperty("errorClass");
   });
 
   it("VERCEL_ENV tanınmıyorsa fail-closed — alan eklenmez", async () => {
@@ -73,7 +77,8 @@ describe("/api/v1/ready — database errorClass", () => {
     vi.stubEnv("NODE_ENV", "production");
 
     const body = await readyBody();
-    expect(body.data.database).not.toHaveProperty("errorClass");
+    expect(body.data).not.toHaveProperty("database");
+    expect(body.data).not.toHaveProperty("errorClass");
   });
 
   it("hiçbir ortamda ham hata metni / connection string sızmaz", async () => {

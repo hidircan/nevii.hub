@@ -21,7 +21,7 @@ function safeEqual(a: string, b: string): boolean {
 export async function POST(request: Request) {
   const secret = process.env.RETENTION_CRON_SECRET;
   if (!secret) {
-    return NextResponse.json({ ok: false, error: { code: "NOT_CONFIGURED", message: "Retention işi yapılandırılmamış (RETENTION_CRON_SECRET yok)." } }, { status: 503 });
+    return NextResponse.json({ ok: false, error: { code: "UNAVAILABLE", message: "Bu iş şu anda kullanılamıyor." } }, { status: 503 });
   }
   const header = request.headers.get("authorization") ?? "";
   const token = header.toLowerCase().startsWith("bearer ") ? header.slice(7).trim() : "";

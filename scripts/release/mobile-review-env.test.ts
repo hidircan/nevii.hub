@@ -69,11 +69,19 @@ test("review + NODE_ENV=development / STORE_MODE memory → fail", () => {
 test("review + gerçek provider açık → fail", () => {
   assert.ok(errors({ ...reviewWeb, PAYMENT_PROVIDER: "stripe" }).length > 0);
   assert.ok(errors({ ...reviewWeb, PAYMENT_PROVIDER: "iyzico", IYZICO_BASE_URL: "https://api.iyzipay.com" }).length > 0);
-  assert.deepEqual(errors({ ...reviewWeb, PAYMENT_PROVIDER: "iyzico" }), []); // varsayılan sandbox
+  // Public review/test: sandbox ödeme ve test-mode SMS de kapalı olmalı.
+  assert.ok(errors({ ...reviewWeb, PAYMENT_PROVIDER: "iyzico" }).some((m) => m.startsWith("PAYMENT_PROVIDER")));
+  assert.ok(errors({ ...reviewWeb, PAYMENT_PROVIDER: "iyzico", IYZICO_BASE_URL: "https://sandbox-api.iyzipay.com" }).length > 0);
   assert.ok(errors({ ...reviewWeb, EMAIL_PROVIDER: "smtp" }).length > 0);
+  assert.ok(errors({ ...reviewWeb, SMTP_HOST: "h", SMTP_USER: "u", SMTP_PASS: SECRET }).length > 0);
   assert.ok(errors({ ...reviewWeb, WHATSAPP_PROVIDER: "meta" }).length > 0);
   assert.ok(errors({ ...reviewWeb, SMS_PROVIDER: "twilio" }).length > 0);
-  assert.deepEqual(errors({ ...reviewWeb, SMS_PROVIDER: "twilio", SMS_TEST_MODE: "true" }), []);
+  assert.ok(errors({ ...reviewWeb, SMS_PROVIDER: "twilio", SMS_TEST_MODE: "true" }).some((m) => m.startsWith("SMS")));
+  assert.ok(errors({ ...reviewWeb, TWILIO_ACCOUNT_SID: "AC1", TWILIO_FROM: "+1" }).some((m) => m.startsWith("SMS")));
+  // Açıkça console → pass.
+  assert.deepEqual(errors({ ...reviewWeb, PAYMENT_PROVIDER: "console", EMAIL_PROVIDER: "console", WHATSAPP_PROVIDER: "console", SMS_PROVIDER: "console" }), []);
+  // test tier'da da aynı kural.
+  assert.ok(errors({ ...reviewWeb, NEVII_DEPLOYMENT_TIER: "test", PAYMENT_PROVIDER: "stripe" }).length > 0);
 });
 
 test("eksik / geçersiz tier → fail", () => {
@@ -106,6 +114,36 @@ test("production tier: review branch / test DB / demo config / review domain →
   assert.ok(errors({ ...prod, AUTH_DEMO_CSV_TEACHER_1: "x" }).some((m) => m.includes("AUTH_DEMO_CSV_TEACHER_1")));
   assert.ok(errors({ ...prod, SMS_TEST_MODE: "1" }).length > 0);
   assert.ok(errors({ ...prod, APP_BASE_URL: "https://review.neviihub.com" }).length > 0);
+});
+
+test("production web: VERCEL_ENV=production ve main branch ZORUNLU; sandbox ödeme reddedilir", () => {
+  const prod: Env = {
+    NEVII_DEPLOYMENT_TIER: "production",
+    NODE_ENV: "production",
+    STORE_MODE: "db",
+    DATABASE_URL: PROD_DB,
+    APP_BASE_URL: "https://neviihub.com",
+    VERCEL_ENV: "production",
+    VERCEL_GIT_COMMIT_REF: "main",
+  };
+  const { VERCEL_ENV: _v, ...noVercelEnv } = prod;
+  const { VERCEL_GIT_COMMIT_REF: _b, ...noBranch } = prod;
+  void _v;
+  void _b;
+  assert.ok(errors(noVercelEnv).some((m) => m.includes("VERCEL_ENV")));
+  assert.ok(errors(noBranch).some((m) => m.includes("branch")));
+  assert.ok(errors({ ...prod, PAYMENT_PROVIDER: "iyzico" }).some((m) => m.includes("SANDBOX")));
+  assert.ok(errors({ ...prod, PAYMENT_PROVIDER: "iyzico", IYZICO_BASE_URL: "https://sandbox-api.iyzipay.com" }).some((m) => m.includes("SANDBOX")));
+  assert.deepEqual(errors({ ...prod, PAYMENT_PROVIDER: "iyzico", IYZICO_BASE_URL: "https://api.iyzipay.com" }), []);
+  // Mobil production hedefinde Vercel değişkenleri yoktur — zorunlu değil.
+  assert.deepEqual(errors({ NEVII_DEPLOYMENT_TIER: "production", EXPO_PUBLIC_API_URL: "https://neviihub.com" }, "store"), []);
+});
+
+test("provider hataları değer sızdırmaz", () => {
+  const text = formatReport(
+    validateMobileReviewEnv({ ...reviewWeb, PAYMENT_PROVIDER: "iyzico", IYZICO_BASE_URL: `https://u:${SECRET}@sandbox-api.iyzipay.com`, SMTP_HOST: "smtp.secret-host.example", SMTP_USER: "u", SMTP_PASS: SECRET, TWILIO_ACCOUNT_SID: `AC${SECRET}`, TWILIO_FROM: "+15550001111" })
+  ).text;
+  for (const needle of [SECRET, "secret-host", "+15550001111", "sandbox-api.iyzipay.com"]) assert.ok(!text.includes(needle), `sızıntı: ${needle}`);
 });
 
 test("malformed URL ve malformed DB → fail", () => {

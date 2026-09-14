@@ -43,15 +43,22 @@
 9. **Guard:** deploy'dan önce CI/Vercel build ortamında:
    `npm run validate:mobile-review-env` (web) — exit 0 değilse deploy edilmez.
    Mobil build öncesi: `NEVII_DEPLOYMENT_TIER=review EXPO_PUBLIC_API_URL=… npm run validate:mobile-review-env -- --target=store`.
-10. **Runtime logs/health:** `curl -s https://<review-domain>/api/v1/health` → `storeMode: "db"`;
-    `/api/v1/ready` → `database.reachable: true`; Vercel Runtime Logs açık tutulur.
+10. **Runtime logs/health:** `curl -s https://<review-domain>/api/v1/health` → `{ "service": "NeviiHub", "healthy": true }`;
+    `/api/v1/ready` → `{ "service": "NeviiHub", "ready": true }`; Vercel Runtime Logs açık tutulur.
+    `STORE_MODE=db` artık public yanıtta görünmez — deploy öncesi guard (§2.9) doğrular; `ready: true` db modunda
+    gerçek DB ping'idir. Tüm public yüzey: `docs/release/PUBLIC_ENDPOINT_SECURITY_INVENTORY.md`.
+    `/api/v1/ready` public-safe'tir: store/DB/storage/SMS/provider alanı DÖNMEZ. DB erişilemezse
+    `ready: false` döner; neden (`errorClass`: AUTHENTICATION/NETWORK/TLS/POOLER/…) yalnız
+    Runtime Logs'ta `[ready] database unreachable` satırındadır.
+    **Internal-only diagnostic (future work):** DB/provider readiness detayı gerekiyorsa, auth/RBAC
+    sözleşmesi belirlendikten sonra yetkili bir endpoint olarak eklenir; public endpoint'e geri konmaz.
 11. **Rollback planı:** §7.
 
 ## 3. Deployment sonrası smoke test
 
 | # | Kontrol | Beklenen |
 |---|---|---|
-| 1 | `GET /api/v1/health` | 200, `storeMode: "db"` |
+| 1 | `GET /api/v1/health`, `GET /api/v1/ready` | 200; yalnız `service: "NeviiHub"`, `healthy`/`ready: true`, `time` — başka alan yok |
 | 2 | Login (her üç demo rol) | 200, oturum açılır |
 | 3 | Session refresh | yeni access token, tekrar login gerekmez |
 | 4 | Logout | refresh reddedilir, korumalı çağrı 401 |
@@ -125,3 +132,22 @@ Tümü ✅ değilse **NO-GO**.
 - **Production untouched confirmation:** production Vercel env değişmedi, `main` deploy edilmedi, production
   Supabase'e bağlanılmadı — guard çıktısı (`DATABASE_URL: points-to-expected-tier (hedef=test …)`) kanıt olarak saklanır.
 - **Migration:** bu akışta migration uygulanmadıysa migration rollback **gerekmez**.
+
+## 8. Public review staging özeti (test.neviihub.com, 2026-09-14)
+
+1. **test.neviihub.com:** review/test staging · test Supabase (production Supabase **bağlı değil**) · public HTTPS ·
+   Vercel SSO native cihaz testi için **kapalı** · uygulama içi login **zorunlu** (public ≠ kimliksiz) ·
+   `X-Robots-Tag: noindex, nofollow` **zorunlu** · ödeme/e-posta/SMS/WhatsApp sağlayıcıları **kapalı** (console;
+   iyzico sandbox ve SMS test modu dahil guard fail eder) · public health/ready yalnız `service/healthy|ready/time`.
+2. **Expo Go:** `EXPO_PUBLIC_API_URL` bundle aşamasında test HTTPS backend'ine yönelir; localhost/`127.*`/LAN IP/`.local`
+   kullanılamaz (guard `--target=mobile`). Demo **Student SELF**, **Guardian**, **Teacher** hesapları gerekir;
+   Guardian için aktif `StudentPortalAccess` (GUARDIAN) + çocuk ilişkisi kurulmuş olmalı. Parola/token dokümana yazılmaz.
+3. **EAS Preview:** review URL ile build edilir (guard `--target=mobile`/`store` exit 0). Bu build gerçek production
+   yayını için **kullanılmaz**; production URL'li ayrı production build gerekir.
+4. **TestFlight / Google Internal:** public-safe endpoint'ler (§3 #1), Privacy Policy / Support / Terms URL'leri,
+   demo account (store konsolunun giriş alanında), screenshot, test kanıtı, store metadata, EAS account/project
+   (`eas init` owner hesabıyla), Apple/Google kayıtları — §5/§6 tabloları.
+5. **Production:** yalnız `main` · production Supabase · `NEVII_DEPLOYMENT_TIER=production` · `VERCEL_ENV=production`
+   (guard web hedefinde eksikse fail) · `AUTH_DEMO_*`/`SMS_TEST_MODE`/iyzico sandbox yok · production mobil build ayrı alınır.
+6. **Manuel follow-up (dış sistem):** Vercel proje adı hâlâ legacy (`notaplan` — `notaplan.vercel.app` production host
+   listesinde); bu turda değiştirilmedi. Uygulama/public API'de marka `NeviiHub`'dır.

@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic";
 export async function POST(request: Request) {
   const secret = process.env.RELEASE_EVENT_SECRET;
   if (!secret) {
-    return NextResponse.json({ ok: false, error: { code: "NOT_CONFIGURED", message: "Release olay alımı yapılandırılmamış (RELEASE_EVENT_SECRET yok)." } }, { status: 503 });
+    return NextResponse.json({ ok: false, error: { code: "UNAVAILABLE", message: "Bu uç şu anda kullanılamıyor." } }, { status: 503 });
   }
   const raw = await request.text();
   if (raw.length > 100_000) return jsonFail("VALIDATION_ERROR", "Olay çok büyük");

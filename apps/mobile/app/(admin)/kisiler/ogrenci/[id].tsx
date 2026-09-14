@@ -53,13 +53,10 @@ export default function AdminStudentDetail() {
   const consent = useApiGet<SocialMediaConsentResponse>(`/api/v1/students/${id}/social-media-consent`);
 
   const [confirmingPaymentId, setConfirmingPaymentId] = useState<string | null>(null);
-  const [payBusy, setPayBusy] = useState(false);
 
   async function confirmPayment() {
     if (!confirmingPaymentId) return;
-    setPayBusy(true);
     await apiPost(`/api/v1/payments/${confirmingPaymentId}/pay`, {});
-    setPayBusy(false);
     setConfirmingPaymentId(null);
     balance.refresh();
   }

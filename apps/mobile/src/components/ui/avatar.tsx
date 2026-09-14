@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Image, StyleSheet, Text, View } from "react-native";
 import { useTheme } from "../../theme/theme-context";
 import { getAccessToken } from "../../auth/token-storage";
@@ -46,9 +46,18 @@ export function Avatar({ name, size = 40, photoPath, onPhotoLoad, onPhotoError }
   const [failedFor, setFailedFor] = useState<string | null>(null);
   const failed = !!photoPath && failedFor === photoPath;
 
+  // Çağıran taraf onPhotoError'ı çoğu zaman inline verir (her render'da yeni
+  // kimlik). Aşağıdaki effect yalnız photoPath değişince çalışmalı; güncel
+  // callback'e ref üzerinden erişilir. Bu effect ondan ÖNCE tanımlı olduğu
+  // için aynı commit'te ref zaten günceldir.
+  const onPhotoErrorRef = useRef(onPhotoError);
+  useEffect(() => {
+    onPhotoErrorRef.current = onPhotoError;
+  });
+
   useEffect(() => {
     if (!photoPath) {
-      onPhotoError?.();
+      onPhotoErrorRef.current?.();
       return;
     }
     let cancelled = false;
@@ -74,7 +83,9 @@ export function Avatar({ name, size = 40, photoPath, onPhotoLoad, onPhotoError }
           onPhotoError?.();
         }}
         onLoad={onPhotoLoad}
-        accessibilityLabel={name}
+        // Kişinin fotoğrafı kimlik bilgisi taşır (dekoratif değil): ekran okuyucu adı okur.
+        alt={name.trim() || "Profil fotoğrafı"}
+        accessibilityLabel={name.trim() || "Profil fotoğrafı"}
       />
     );
   }
