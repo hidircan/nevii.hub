@@ -27,6 +27,9 @@ Durum: `Geçti` (vitest 18/18 dosya, 126/126 test) / `UAT bekliyor` (cihaz).
 | Guardian | Homework read-only | Oturum | Ödev detayı | Salt-görünüm mesajı; Teslim Et yok; upload yok | homework | guardian-homework-lock | GD-IOS-05 | Geçti |
 | Guardian | Attendance read-only | Oturum | Yoklama özeti | Oran + kartlar; mutation CTA yok | attendance-summary | attendance-view + parent-scope-guard | GD-IOS-06 | Geçti |
 | Guardian | Payment read-only | Oturum | Özet → detay | Salt-görünüm; finans akışı yok | balance, receipt | parent-scope-guard (hedef kilidi) | GD-IOS-07 | Geçti (kilit) + UAT bekliyor |
+| Guardian | Telafiler read-only | Oturum | Telafiler ekranı | Liste + TR tarih; empty "Gösterilecek telafi..."; mutation CTA yok; fake kayıt yok | makeup | makeup-view + parent-scope-guard | GD-IOS-13 | Geçti |
+| Guardian | Receipt read-only | Ödeme detayı | Makbuz bölümü | eligible:false → ineligibleReason; 403/404 nötr; fake PDF yok | receipt | service-contracts | GD-IOS-07 | Geçti (kilit) + UAT bekliyor |
+| Guardian | Absence fallback | — | (çağrı yok) | Kırık absence çağrısı/CTA yok; gerekiyorsa FEATURE_UNAVAILABLE | — | service-contracts | — | Geçti |
 | Guardian | Notifications | Oturum | Liste/okundu/boş/hata | ST ile aynı davranış | notifications | group-by-day unit | GD-IOS-08 | UAT bekliyor |
 | Guardian | Logout | Oturum | Çıkış + onayla | Login; geri dönüş yok | session | yok (UAT) | GD-IOS-09 | UAT bekliyor |
 | Guardian | Network error | Uçak modu | Refresh | Bağlantı metni + retry | — | api-error-message (metin) | FT-01 | Geçti (metin) + UAT bekliyor |

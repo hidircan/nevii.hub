@@ -44,6 +44,10 @@ Worktree `~/Projects/neviihub-feature-mobile-p0`, base `origin/test` @ `4c1b599`
   kararı bekliyor (P1); EAS: `eas init` + test HTTPS URL + Apple/Google kayıtları owner aksiyonu; veli UAT için
   test ortamında GUARDIAN test hesabı. Paylaşımlı json test store'u erişim kayıtlarını testler arası taşır — testte
   SELF/GUARDIAN sonucunu sabit varsayma, `getActiveAccessType`'tan oku.
+- **Muse entegrasyon (aynı gün, `feature/mobile-student-parent-p0` — rebase üstüne `4e0451c`, push YOK):**
+  guardian read-only `app/(parent)/telafiler.tsx` (`useMakeupRequests`, quick-link kilitli), homework canonical
+  contract testleri (`personaOf` SELF/GUARDIAN, legacy PARENT kilidi), absence/receipt contract testleri,
+  FEATURE_UNAVAILABLE helper uyarlaması; mobil vitest 26/26 dosya 204/204 test yeşil.
 
 ## Güncel odak (2026-09-12, Kapı 3) — test DB migration + hesap/rol geçişi TAMAM; push/deploy YOK
 

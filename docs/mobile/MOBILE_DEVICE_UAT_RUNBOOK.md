@@ -187,9 +187,15 @@ davranışı (logout sonrası korumalı ekrana dönüş YOK) her maddede gözlem
 - Aksiyon: yoklama detay kartları + Çocuğum kartı kontrolü.
 - Beklenen sonuç: 3'lü kart satırlarında taşma yok; hedefler ≥44pt.
 
+### GD-IOS-13 Telafiler read-only
+
+- Ön koşul: guardian oturumu açık.
+- Aksiyon: Çocuğum → Telafiler; liste, boş durum, pull-to-refresh.
+- Beklenen sonuç: bağlı öğrencinin telafi kayıtları (öğretmen, branş, tarih, durum rozeti); kayıt yoksa "Gösterilecek telafi dersi bulunmuyor."; oluşturma/onay/iptal/düzenleme butonu YOK; uçak modunda bağlantı hatası + retry.
+
 ## 5. Android Guardian Smoke Test
 
-GD-IOS-01–12'nin Android doğrulaması (`GD-AND-01`…`GD-AND-12`).
+GD-IOS-01–13'nin Android doğrulaması (`GD-AND-01`…`GD-AND-13`).
 Ek: geri tuşu + kill/restart her maddede gözlemlenir.
 
 ## 6. Teacher Smoke Test Referansı

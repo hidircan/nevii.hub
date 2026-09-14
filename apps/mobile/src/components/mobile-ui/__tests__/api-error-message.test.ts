@@ -69,6 +69,15 @@ describe("portalErrorMessage (öğrenci/veli kullanıcı dostu hata dili)", () =
       expect(containsSensitiveText(portalErrorMessage(code))).toBe(false);
     }
   });
+
+  it("FEATURE_UNAVAILABLE canonical güvenli mesajı verir", () => {
+    expect(portalErrorMessage("FEATURE_UNAVAILABLE")).toBe("Bu özellik şu anda mobil uygulamada kullanılamıyor.");
+    expect(isAccessScopeError("FEATURE_UNAVAILABLE")).toBe(false);
+  });
+
+  it("SERVER_ERROR 5xx genel mesajına düşer", () => {
+    expect(portalErrorMessage("SERVER_ERROR")).toBe("Şu anda veriler yüklenemedi. Tekrar deneyin.");
+  });
 });
 
 describe("containsSensitiveText", () => {

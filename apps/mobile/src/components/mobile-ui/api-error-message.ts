@@ -72,8 +72,12 @@ export function portalErrorMessage(code: string, fallbackMessage?: string): stri
     case "RATE_LIMITED":
       return "Çok fazla istek gönderildi. Biraz bekleyip tekrar deneyin.";
     case "INTERNAL_ERROR":
+    case "SERVER_ERROR":
     case "UNEXPECTED_RESPONSE":
       return "Şu anda veriler yüklenemedi. Tekrar deneyin.";
+    case "FEATURE_UNAVAILABLE":
+      // Canonical: src/api/errors.ts FEATURE_UNAVAILABLE ile aynı metin.
+      return "Bu özellik şu anda mobil uygulamada kullanılamıyor.";
     case "VALIDATION_ERROR":
     case "CONFLICT": {
       // Kullanıcı girdisi hataları backend'in eyleme dönük mesajını korur —

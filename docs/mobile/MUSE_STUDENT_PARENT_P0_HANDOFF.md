@@ -139,5 +139,40 @@ Muse yazdı (merge'te korunmalı): `app/(parent)/yoklama.tsx`,
 `src/components/{list-screen,persona-guard,placeholder-screen,
 screen-states}.tsx`, `src/features/{student-scope,account,
 notifications}/**`, `app/(teacher)/**`, `app/(student)/_layout.tsx`,
-`app/(parent)/_layout.tsx`, kök `/notifications.tsx`, config/imza
-dosyaları. Çakışma beklenmiyor (ayrı dosyalar).
+kök `/notifications.tsx`, config/imza dosyaları. 3. turda Muse AYRICA
+`app/(parent)/_layout.tsx`'e yalnız gizli `telafiler` sekmesi ekledi
+(`href:null`, tek satır). Çakışma beklenmiyor (ayrı dosyalar).
+
+## 10. Claude Core Entegrasyonu (2026-09-13, 3. tur)
+
+1. Claude commit SHA: `4e0451cf056e713a6a547286e1364018ba33bc2a`
+   (`feat(mobile): close P0 API contracts and teacher readiness`).
+2. Muse ilk commit SHA (rebase öncesi): `04eff2a0b59e006b4eec1bd9a261972fe619f09e`.
+3. Rebase: `git rebase 4e0451cf056e713a6a547286e1364018ba33bc2a` —
+   CONFLICTSİZ. Sıra: `origin/test` → `4e0451c` (Claude) → Muse guardian
+   commit'i → final integration commit'i. Shared core'da Muse değişikliği
+   yok; Claude sürümleri aynen korundu.
+4. Yeni guardian telafi ekranı: `app/(parent)/telafiler.tsx` (thin route,
+   layout'ta `href:null` gizli sekme) + `src/features/parent/makeup-screen.tsx`
+   (`useMakeupRequests`, `makeupStatusBadge`, TR tarih/saat, a11y, FlatList,
+   empty metni "Gösterilecek telafi dersi bulunmuyor.") + `makeup-view.ts`
+   (sıralama, null-güvenli). `PARENT_QUICK_LINKS`'e "Telafiler" eklendi
+   (route mevcut — kırık navigasyon yok, testle kilitli).
+5. Canonical guardian contract: STUDENT + GUARDIAN →
+   `personaOf(user) === "parent"` / `user.portalAccessType === "GUARDIAN"`;
+   STUDENT + SELF → student. Legacy `user.role === "PARENT"` homework-screen'den
+   Claude tarafından kaldırıldı (Muse doğruladı, dosyaya yazmadı);
+   `guardian-homework-lock.test.ts` canonical'a taşındı.
+6. Absence notices: domain yok, stale çağrı kaldırılmış (lessons-screen'de
+   yalnız açıklayıcı yorum kaldı); UI'da kırık çağrı yok (testle kilitli);
+   gerekiyorsa `FEATURE_UNAVAILABLE` ("Bu özellik şu anda mobil uygulamada
+   kullanılamıyor." — helper'a da eklendi).
+7. Receipt: `GET /api/v1/payments/:id/receipt` read-only; `usePaymentReceipt`
+   + `MOBILE_ENDPOINTS.paymentReceipt` contract testleri eklendi;
+   payments-screen'de eligible dalı + mutasyon yok (source'a yazılmadı);
+   fake PDF/receipt yok.
+8. Gerçek cihaz UAT ön koşulları (detay runbook'ta): test HTTPS backend,
+   STUDENT SELF test hesabı, STUDENT + GUARDIAN test hesabı + aktif
+   `StudentPortalAccess` (canonical yönetim akışıyla, SQL/seed yok),
+   server-side child relationship, teacher test hesabı. Parola/token
+   hiçbir dokümana/Git'e yazılmaz.

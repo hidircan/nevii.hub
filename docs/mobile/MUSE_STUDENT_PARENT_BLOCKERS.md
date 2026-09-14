@@ -59,3 +59,12 @@ için değiştirilmedi; Claude'un `refreshAll` ile genişletmesi önerilir.
 `app/(parent)/bildirimler.tsx` eski yedek dosyadır; layout'ta `href:null`
 ile gizli, gerçek merkez kök `/notifications`'tır. Dokunulmadı.
 Temizlik Claude'la merge sırasında netleştirilmeli (silme YAPILMADI).
+
+## B6 — Entegrasyon sonrası durum (2026-09-13, 3. tur)
+
+- `MOBILE_P0_HANDOFF.md` alındı; rebase `4e0451c` üstüne conflictsiz yapıldı.
+- B1 (çoklu-çocuk endpoint'i) HÂLÂ AÇIK — fake selector yok, P1/P2'de.
+- B2 kapandı (receipt read-only contract geldi; ödeme UI post-P0).
+- B4 (Ana Sayfa `refreshAll`) HÂLÂ AÇIK — student-scope ortak alan, dokunulmadı.
+- Yeni guardian `telafiler` route'u `app/(parent)/_layout.tsx`'te `href:null`
+  gizli sekme olarak kayıtlı; sekmeye çıkarma kararı owner/Claude'da.

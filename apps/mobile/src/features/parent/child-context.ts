@@ -57,4 +57,5 @@ export const PARENT_QUICK_LINKS: ParentQuickLink[] = [
   },
   { key: "gelisim", icon: "trending-up-outline", label: "Gelişim", hint: "Müfredat, notlar ve materyaller", href: "gelisim" },
   { key: "yoklama", icon: "checkmark-circle-outline", label: "Yoklama özeti", hint: "Devam durumu", href: "yoklama" },
+  { key: "telafiler", icon: "swap-horizontal-outline", label: "Telafiler", hint: "Telafi kayıtları (salt görüntüleme)", href: "telafiler" },
 ];
