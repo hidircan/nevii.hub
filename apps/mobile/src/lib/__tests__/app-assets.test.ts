@@ -35,10 +35,17 @@ describe("mobil uygulama ikon ve splash asset'leri", () => {
     expect(expo.android.adaptiveIcon.backgroundColor).toMatch(/^#[0-9A-F]{6}$/i);
   });
 
-  it("splash görseli var ve arka plan rengi tanımlı", () => {
-    png(expo.splash.image);
-    expect(expo.splash.resizeMode).toBe("contain");
-    expect(expo.splash.backgroundColor).toMatch(/^#[0-9A-F]{6}$/i);
+  it("splash görseli var ve arka plan rengi tanımlı (SDK 57: expo-splash-screen plugin'i)", () => {
+    // SDK 57 şeması üst düzey `splash`'i kabul etmez; ayar plugin'e taşındı.
+    expect(expo.splash).toBeUndefined();
+    const entry = (expo.plugins as unknown[]).find((p) => Array.isArray(p) && p[0] === "expo-splash-screen") as
+      | [string, { image: string; resizeMode: string; backgroundColor: string }]
+      | undefined;
+    expect(entry, "expo-splash-screen plugin'i yapılandırılmış olmalı").toBeDefined();
+    const splash = entry![1];
+    png(splash.image);
+    expect(splash.resizeMode).toBe("contain");
+    expect(splash.backgroundColor).toMatch(/^#[0-9A-F]{6}$/i);
   });
 
   it("bundle/package kimlikleri değişmedi", () => {

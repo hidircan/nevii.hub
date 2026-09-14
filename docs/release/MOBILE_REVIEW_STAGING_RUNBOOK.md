@@ -151,3 +151,12 @@ Tümü ✅ değilse **NO-GO**.
    (guard web hedefinde eksikse fail) · `AUTH_DEMO_*`/`SMS_TEST_MODE`/iyzico sandbox yok · production mobil build ayrı alınır.
 6. **Manuel follow-up (dış sistem):** Vercel proje adı hâlâ legacy (`notaplan` — `notaplan.vercel.app` production host
    listesinde); bu turda değiştirilmedi. Uygulama/public API'de marka `NeviiHub`'dır.
+
+## 9. Expo SDK 57 Bundle Gate
+
+- Canonical mobil SDK: **Expo SDK 57** (user-approved upgrade). Tab bar yüksekliği context'i `expo-router/tabs`'tan
+  gelir; ayrı `@react-navigation/*` paketi kurulmaz (gerekçe: `docs/mobile/EAS_DEVICE_TEST_READINESS.md` §8).
+- Expo Go / EAS Preview / TestFlight / Google Internal öncesi repo kökünde: `npm run verify:mobile-bundle`
+  (iOS + Android Metro export, çıktı `/tmp`). Exit 0 değilse test/build **NO-GO**.
+- Expo Go: `cd apps/mobile && EXPO_PUBLIC_API_URL=https://test.neviihub.com npx expo start --clear`.
+- Hata ayıklama sırası ve dependency ekleme kuralı (`npx expo install`): `docs/mobile/MOBILE_DEVICE_UAT_RUNBOOK.md` §0.
