@@ -64,7 +64,10 @@ export type SendInvitationInput = {
  * açıkça bildirir — asla sahte başarı döndürmez). ASLA: düz metin şifre,
  * iç tenant ID, öğrenci/veli kişisel verisi.
  */
-export async function sendAccountInvitationEmail(input: SendInvitationInput): Promise<EmailSendResult> {
+/** `activationLink` ASLA loglanmaz/audit'e yazılmaz — yalnız yetkili admin'e "kopyala" fallback'i için döner. */
+export type InvitationSendResult = EmailSendResult & { activationLink: string };
+
+export async function sendAccountInvitationEmail(input: SendInvitationInput): Promise<InvitationSendResult> {
   const raw = await createPasswordResetToken(input.tenantId, input.userId, INVITATION_TTL_MS);
   const activationLink = `${getAppBaseUrl()}/hesap-aktivasyon?token=${encodeURIComponent(raw)}`;
   const webPortalLink = getAppBaseUrl();
@@ -144,7 +147,7 @@ export async function sendAccountInvitationEmail(input: SendInvitationInput): Pr
 
   const text = `${institution}\n\n${welcomeLine}\n\nMerhaba ${input.recipientName},\n\n${introLine}\n\nGiriş e-postanız: ${input.email}\n\nHesabınızı aktifleştirmek için: ${activationLink}\n(${expiryText} içinde geçerli, tek kullanımlık)\n\nWeb portal: ${webPortalLink}\n${appLinksText}\nBu daveti siz talep etmediyseniz yok sayabilirsiniz.${contactLines.length ? `\n\n${institution} — ${contactLines.join(" · ")}` : ""}`;
 
-  return sendEmail({ to: input.email, subject, html, text });
+  return { ...(await sendEmail({ to: input.email, subject, html, text })), activationLink };
 }
 
 export type SendPasswordResetInput = {

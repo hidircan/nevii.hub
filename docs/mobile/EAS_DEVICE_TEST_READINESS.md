@@ -7,13 +7,13 @@
 
 | Konu | Durum |
 |---|---|
-| Expo SDK | 54 (RN 0.81.5, React 19.1, `newArchEnabled: true`); `expo config --type public` hatasız |
+| Expo SDK | **57** (2026-09-14, user-approved upgrade: RN 0.86.3, React 19.2.3, TypeScript 6; new architecture her zaman açık — `newArchEnabled` alanı SDK 57 şemasında yok); `expo-doctor` 21/21, `expo config --type public` hatasız |
 | Ad / slug / scheme | `Nevii Hub` / `nevii-hub-mobile` / `neviihub` |
 | iOS bundle id / Android package | `com.neviihub.mobile` (app.json'da açık; değiştirilmedi) · `supportsTablet: true` |
 | Sürüm | `0.1.0`; `eas.json` `appVersionSource: "remote"` (build numarasını EAS yönetir) |
 | **App icon** | ✅ `assets/icon.png` — 1024×1024, alfa yok (App Store şartı). Kaynak: repodaki kanonik NeviiHub favicon'u `src/app/icon.png`, byte olarak aynı kopya (test: `app-assets.test.ts`) |
 | **Android adaptive icon** | ✅ `assets/adaptive-icon.png` — aynı kaynaktan, güvenli alan için %62.5 ölçekli (640 px) ve 1024×1024 beyaz tuvale ortalanmış (`sips`); `backgroundColor: #FFFFFF` |
-| **Splash** | ✅ `splash.image = ./assets/icon.png`, `resizeMode: contain`, `backgroundColor: #FFFFFF` (top-level `splash`; `expo-splash-screen` eklenmedi — yeni bağımlılık yok) |
+| **Splash** | ✅ `expo-splash-screen` plugin'i (SDK 57 üst düzey `splash`'i kabul etmez): `image = ./assets/icon.png`, `resizeMode: contain`, `backgroundColor: #FFFFFF` |
 | Kullanılmayan kaynak | `public/brand/logo.png` KULLANILMADI: şeffaflık yerine piksellere gömülü damalı desen var; ayrıca `src/app/icon.png` ile byte olarak farklı (bkz. §5) |
 | `eas.json` | `preview` (internal) + `production` (`autoIncrement`); credential/secret yok |
 | Dev client | `expo-dev-client` yok → development profili yok (Expo Go) |
@@ -71,3 +71,18 @@ Doğrulama: `GET /api/v1/mobile/session` → `portalAccessType: "GUARDIAN"`. Ayr
 | EAS internal (preview) build | **NO-GO → §4 adım 1–2 (owner) sonrası GO** | icon/splash artık hazır; kalan: `eas init` + test URL |
 | TestFlight | **NO-GO** | Apple Team/ASC kaydı, signing, gizlilik beyanı |
 | Android Internal Testing | **NO-GO** | Play Console kaydı, keystore kararı |
+
+Tüm satırlar için ön koşul: §8 bundle gate'i (`npm run verify:mobile-bundle`) exit 0.
+
+## 8. Expo SDK 57 Bundle Gate
+
+- Canonical mobil SDK: **Expo SDK 57** (upgrade user-approved, 2026-09-14).
+- `@react-navigation/*` ayrı paket olarak **kurulmaz**: SDK 57'de expo-router React Navigation'ı kendi içinde taşır
+  (`expo-router/build/react-navigation`) ve SDK 57 `bundledNativeModules.json` bu paketleri listelemez. Ayrı bir
+  `@react-navigation/bottom-tabs` kopyası, `Tabs` layout'unun sağladığından FARKLI bir `BottomTabBarHeightContext`
+  üretir → context hep `undefined`, içerik tab bar'ın altına kayar (sessiz hata). Doğru import: `expo-router/tabs`.
+- expo-router peer'ları doğrudan dependency: `react-native-gesture-handler`, `react-native-reanimated`,
+  `react-native-worklets` (SDK pin'leri `npx expo install` ile). Transit/hoisted paketlere güvenilmez: SDK 54'te
+  `@react-navigation/bottom-tabs` yalnız expo-router 6'nın alt bağımlılığıydı; SDK 57'de kaybolunca Metro kırıldı.
+- Build öncesi: repo kökünde `npm run verify:mobile-bundle` (iOS + Android `expo export`, çıktı `/tmp`) exit 0 olmadan
+  EAS Preview / TestFlight / Google Internal build **alınmaz**. Ayrıntı: `MOBILE_DEVICE_UAT_RUNBOOK.md` §0.

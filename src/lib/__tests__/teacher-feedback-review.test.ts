@@ -13,6 +13,8 @@ import {
 import { TEACHER_FEEDBACK_FILE_PATH, submitTeacherFeedback } from "../teacher-feedback";
 import { DEFAULT_TENANT_ID } from "../auth/config";
 import type { ServiceContext } from "../services/context";
+import { STUDENT_PORTAL_ACCESS_FILE } from "../student-portal-access";
+import { grantStudentAccess } from "./portal-access-test-helper";
 
 const DATA_FILE = path.join(resolveDataDir(path.join(process.cwd(), "data")), "store.json");
 const TENANT_B = "tenant-feedback-review-b";
@@ -33,6 +35,11 @@ const FULL_SCORES = { clarity: 5, communication: 4, effectiveness: 5, motivation
 beforeEach(async () => {
   await fs.rm(DATA_FILE, { force: true });
   await fs.rm(TEACHER_FEEDBACK_FILE_PATH, { force: true });
+  // JWT studentId tek başına yetmez — u1'e her iki tenant'ta s1 için aktif SELF erişimi.
+  await fs.rm(STUDENT_PORTAL_ACCESS_FILE, { force: true });
+  await grantStudentAccess({ tenantId: DEFAULT_TENANT_ID, userId: "u1" }, "s1", "SELF");
+  await grantStudentAccess({ tenantId: DEFAULT_TENANT_ID, userId: "u1" }, "s5", "SELF");
+  await grantStudentAccess({ tenantId: TENANT_B, userId: "u1" }, "s1", "SELF");
 });
 
 async function submit(studentId: string, overrides?: Record<string, unknown>) {

@@ -168,6 +168,37 @@ export async function getActiveAccessType(
   return bootstrapFallbackAccessType(tenantId, userId, studentId);
 }
 
+/**
+ * Oturum/persona çözümü (mobil `GET /api/v1/mobile/session`) — kullanıcının
+ * YALNIZ `active` erişimlerinden birini seçer; `invited`/`revoked` ASLA seçilmez.
+ * Veli (GUARDIAN) hesaplarında `User.studentId` bilinçli olarak boş olduğundan
+ * JWT'deki studentId'ye güvenilemez: önce ona ait aktif satır tercih edilir,
+ * yoksa en eski aktivasyonlu aktif satır (deterministik) seçilir.
+ */
+export async function resolveActivePortalAccess(
+  tenantId: string,
+  userId: string,
+  preferredStudentId?: string
+): Promise<{ studentId: string; accessType: PortalAccessType } | null> {
+  let active: StudentPortalAccessRecord[];
+  try {
+    active = (await listAccessForUser(tenantId, userId)).filter((r) => r.status === "active");
+  } catch {
+    return null;
+  }
+  const pick =
+    active.find((r) => r.studentId === preferredStudentId) ??
+    active.sort(
+      (a, b) =>
+        (a.activatedAt ?? a.createdAt).localeCompare(b.activatedAt ?? b.createdAt) ||
+        a.studentId.localeCompare(b.studentId)
+    )[0];
+  if (pick) return { studentId: pick.studentId, accessType: pick.accessType };
+  if (!preferredStudentId) return null;
+  const fallback = await bootstrapFallbackAccessType(tenantId, userId, preferredStudentId);
+  return fallback ? { studentId: preferredStudentId, accessType: fallback } : null;
+}
+
 export async function listAccessForUser(tenantId: string, userId: string): Promise<StudentPortalAccessRecord[]> {
   if (isDbMode) {
     const { prisma } = await import("./db");

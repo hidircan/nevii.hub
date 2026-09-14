@@ -1237,7 +1237,9 @@ export async function actionProvisionStudentPortalAccess(input: {
   }
 }
 
-export type SendInvitationActionResult = { ok: true; delivered: boolean; blocked?: boolean } | { ok: false; message: string };
+export type SendInvitationActionResult =
+  | { ok: true; delivered: boolean; blocked?: boolean; activationLink?: string }
+  | { ok: false; message: string };
 
 /**
  * Faz 4 — GERÇEK e-posta davet akışı (`actionProvisionStudentPortalAccess`'in
@@ -1255,7 +1257,12 @@ export async function actionInviteStudentPortalAccess(input: {
     );
     if (!result.ok) return { ok: false, message: result.error.message };
     revalidateAll();
-    return { ok: true, delivered: result.data.delivered, blocked: result.data.blocked };
+    return {
+      ok: true,
+      delivered: result.data.delivered,
+      blocked: result.data.blocked,
+      activationLink: result.data.activationLink,
+    };
   } catch (error) {
     logger.error("actionInviteStudentPortalAccess failed", error);
     if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");

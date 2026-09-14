@@ -9,6 +9,8 @@ import { DEFAULT_TENANT_ID } from "../auth/config";
 import type { ServiceContext } from "../services/context";
 import { NOTIFICATIONS_FILE, listNotificationsForUser } from "../notifications";
 import { NOTIFICATION_PREFERENCES_FILE, setNotificationPreferences } from "../notification-preferences";
+import { STUDENT_PORTAL_ACCESS_FILE } from "../student-portal-access";
+import { grantStudentAccess } from "./portal-access-test-helper";
 
 const DATA_FILE = path.join(resolveDataDir(path.join(process.cwd(), "data")), "store.json");
 
@@ -34,6 +36,12 @@ beforeEach(async () => {
   await fs.rm(TEACHER_FEEDBACK_FILE_PATH, { force: true });
   await fs.rm(NOTIFICATIONS_FILE, { force: true });
   await fs.rm(NOTIFICATION_PREFERENCES_FILE, { force: true });
+  // JWT studentId tek başına yetmez — erişim yalnız aktif StudentPortalAccess'ten:
+  // u1 → s1, s2 (çok çocuklu veli); u2 → yalnız s2 (s1'e erişimi YOK).
+  await fs.rm(STUDENT_PORTAL_ACCESS_FILE, { force: true });
+  await grantStudentAccess({ tenantId: DEFAULT_TENANT_ID, userId: "u1" }, "s1", "SELF");
+  await grantStudentAccess({ tenantId: DEFAULT_TENANT_ID, userId: "u1" }, "s2", "SELF");
+  await grantStudentAccess({ tenantId: DEFAULT_TENANT_ID, userId: "u2" }, "s2", "GUARDIAN");
 });
 
 describe("EPIC 6C — submitTeacherFeedbackTool: yalnızca kendi çocuğu/kendisi için", () => {
@@ -48,7 +56,7 @@ describe("EPIC 6C — submitTeacherFeedbackTool: yalnızca kendi çocuğu/kendis
   });
 
   it("PARENT başka bir çocuk için geri bildirim gönderemez (FORBIDDEN)", async () => {
-    const result = await submitTeacherFeedbackTool(ctx({ role: "STUDENT", studentId: "s2" }), VALID_FEEDBACK);
+    const result = await submitTeacherFeedbackTool(ctx({ role: "STUDENT", userId: "u2", studentId: "s2" }), VALID_FEEDBACK);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe("FORBIDDEN");
   });

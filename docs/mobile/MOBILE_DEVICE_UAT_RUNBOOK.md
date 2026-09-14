@@ -21,8 +21,34 @@ Her test maddesi için kayıt şablonu:
 - Kanıt türü: screenshot / video / console-safe log
 - Bug ID / not:
 
+## 0. Expo SDK 57 Bundle Gate (UAT'den ÖNCE zorunlu)
+
+Canonical mobil SDK **Expo SDK 57** (user-approved upgrade, 2026-09-14). Typecheck ve Vitest Metro'nun import
+graph'ını çözmez — `@react-navigation/bottom-tabs` hatası ikisi yeşilken iPhone'da çıktı. Bu yüzden:
+
+1. **Bundle gate** (repo kökünden): `npm run verify:mobile-bundle`
+   - iOS Metro bundle: `expo export --platform ios` → `/tmp/neviihub-mobile-ios-export`
+   - Android Metro bundle: `expo export --platform android` → `/tmp/neviihub-mobile-android-export`
+   - Expo Router `app/` altındaki TÜM route'ları (teacher/student/parent/admin) bundle'a alır; tek bir çözülemeyen
+     import tüm komutu fail eder. Exit 0 olmadan Expo Go / EAS Preview / TestFlight / Google Internal testine geçilmez.
+2. **Dependency audit** (Expo Go öncesi, `apps/mobile`): `npx expo install --check` → "up to date";
+   `npx expo-doctor` → tüm kontroller geçer.
+3. **Expo Go başlatma** (cache temiz):
+   `cd apps/mobile && EXPO_PUBLIC_API_URL=https://test.neviihub.com npx expo start --clear`
+   iPhone'daki Expo Go SDK 57'yi desteklemeli (App Store'daki güncel sürüm); QR ile aç. localhost/LAN IP kullanılmaz.
+4. **Dependency eklerken** `npx expo install <paket>` kullanılır (npm `@latest` değil): Expo, SDK 57 native modül
+   sürümlerine uyumlu pin'i seçer; Expo Go yalnız bu native sürümleri taşır.
+5. **Bundle hatası görülürse** (`Unable to resolve "<paket>"`) sırayla:
+   a. Paket `apps/mobile/package.json`'da doğrudan var mı? Transit/hoisted pakete güvenilmez.
+   b. SDK 57 `expo/bundledNativeModules.json`'da listeleniyor mu? Listeleniyorsa `npx expo install <paket>`.
+   c. Listelenmiyorsa expo-router/Expo paketinin kendi içinde taşıyıp taşımadığına bak (ör. React Navigation →
+      `expo-router/tabs`, `expo-router/react-navigation`); ayrı kopya kurmak context/instance ayrışmasına yol açar.
+   d. Native modül Expo Go'da yoksa fake çözüm yok → development build gerekir; blocker olarak raporla.
+6. `node_modules/`, `.expo/`, `dist/` ve `/tmp` export çıktısı Git'e ALINMAZ (`apps/mobile/.gitignore`).
+
 ## 1. Ön Koşullar
 
+- [ ] §0 bundle gate exit 0 (`npm run verify:mobile-bundle`).
 - [ ] Expo Go kurulu VEYA EAS preview build cihaza yüklü.
 - [ ] Test backend HTTPS URL'si biliniyor (`EXPO_PUBLIC_API_URL` cihazdan erişilebilir).
 - [ ] iPhone cihaz hazır (küçük ekran modeli — örn. SE — layout kontrolü için).

@@ -17,6 +17,7 @@
     "verify:test-schema": "npx tsx scripts/verify-test-schema.ts",
     "validate:mobile-review-env": "npx tsx scripts/release/validate-mobile-review-env.ts",
     "test:release": "npx tsx --test scripts/release/*.test.ts",
+    "verify:mobile-bundle": "npm --prefix apps/mobile run verify:mobile-bundle",
     "seed:demo-schedule": "npx tsx scripts/seed-demo-schedule.ts",
     "seed:attendance-demo": "npx tsx scripts/seed-attendance-demo.ts",
     "seed:makeup-demo": "npx tsx scripts/seed-makeup-demo.ts",

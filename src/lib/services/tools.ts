@@ -2506,7 +2506,9 @@ export async function provisionStudentPortalAccessTool(
 export async function inviteStudentPortalAccessTool(
   ctx: ServiceContext,
   input: unknown
-): Promise<ServiceResult<{ studentId: string; delivered: boolean; blocked?: boolean }>> {
+): Promise<
+  ServiceResult<{ studentId: string; delivered: boolean; blocked?: boolean; activationLink?: string }>
+> {
   const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
 
@@ -2605,10 +2607,13 @@ export async function inviteStudentPortalAccessTool(
       delivered: result.delivered,
     });
 
+    // E-posta teslim edilemediyse yetkili admin'e (bu tool yalnız SCHOOL_ADMIN/SUPER_ADMIN)
+    // "davet linkini kopyala" fallback'i — link loglanmaz/audit'e yazılmaz.
     return ok({
       studentId: v.data.studentId,
       delivered: result.delivered,
       blocked: result.delivered ? undefined : result.blocked,
+      activationLink: result.delivered ? undefined : result.activationLink,
     });
   } catch (e) {
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "inviteStudentPortalAccess failed");
@@ -7742,7 +7747,9 @@ export async function getTeachingMaterialFileTool(
   if (ctx.role === "TEACHER") {
     if (material.teacherId !== ctx.teacherId) return fail("FORBIDDEN", "Bu materyale erişiminiz yok");
   } else if (ctx.role === "STUDENT") {
-    if (!ctx.studentId) return fail("FORBIDDEN", "Bu materyale erişiminiz yok");
+    if (!ctx.studentId || !(await canAccessStudent(ctx, ctx.studentId))) {
+      return fail("FORBIDDEN", "Bu materyale erişiminiz yok");
+    }
     const data = await readData();
     const student = data.students.find((s) => s.id === ctx.studentId);
     if (
@@ -7781,8 +7788,8 @@ export async function submitTeacherFeedbackTool(
   const v = parseOrFail(submitTeacherFeedbackSchema, input);
   if (!v.ok) return v;
 
-  // Fail-closed: ctx.studentId eksikse (beklenmez ama) hiçbir öğrenciye eşleşmez.
-  if (!ctx.studentId || ctx.studentId !== v.data.studentId) {
+  // Fail-closed: yalnız aktif StudentPortalAccess (SELF veya GUARDIAN) — JWT studentId tek başına yetmez.
+  if (!(await canAccessStudent(ctx, v.data.studentId))) {
     return fail("FORBIDDEN", "Yalnızca kendi çocuğunuz/kendiniz için geri bildirim gönderebilirsiniz.");
   }
 
@@ -7849,7 +7856,7 @@ export async function getOwnTeacherFeedbackThisMonthTool(
   const v = parseOrFail(z.object({ studentId: z.string().min(1), teacherId: z.string().min(1) }), input);
   if (!v.ok) return v;
 
-  if (!ctx.studentId || ctx.studentId !== v.data.studentId) {
+  if (!(await canAccessStudent(ctx, v.data.studentId))) {
     return fail("FORBIDDEN", "Yalnızca kendi çocuğunuz/kendiniz için geri bildirim görüntüleyebilirsiniz.");
   }
 

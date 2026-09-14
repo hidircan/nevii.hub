@@ -1,5 +1,6 @@
 import { useContext, type ReactNode } from "react";
-import { BottomTabBarHeightContext } from "@react-navigation/bottom-tabs";
+// SDK 57: expo-router React Navigation'ı kendi içinde taşır; context, Tabs layout'unun sağladığı örnekle aynı olmalı.
+import { BottomTabBarHeightContext } from "expo-router/tabs";
 import { KeyboardAvoidingView, Platform, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 import { SafeAreaView, type Edge } from "react-native-safe-area-context";
 import { useTheme } from "../../theme/theme-context";
