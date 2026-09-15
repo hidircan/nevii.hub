@@ -443,7 +443,7 @@ export interface CollectionsSettings {
   contractVatInclusive?: boolean;
   /**
    * P0 (2026-09-03) — "3 ders eşiği": kayıt ayında kalan GERÇEK planlı ders
-   * sayısı bu değerden AZ veya EŞİTSE, kayıt ayı tutarı sonraki ayın TAM
+   * sayısı bu değerden AZSA (bkz. `shouldMergeFirstCollection`), kayıt ayı tutarı sonraki ayın TAM
    * dönem ücretiyle TEK bir "birleştirilmiş ilk tahsilat" satırında toplanır
    * (bkz. `resolveFirstCollectionMergeThreshold`, `period-lesson-billing.ts`
    * `computeFirstCollectionPlan`). undefined ise varsayılan 3 kullanılır —
@@ -467,6 +467,18 @@ export function resolveFirstCollectionMergeThreshold(settings: {
   const v = settings.firstCollectionMergeThresholdLessons;
   if (typeof v === "number" && Number.isInteger(v) && v >= 0) return v;
   return DEFAULT_FIRST_COLLECTION_MERGE_THRESHOLD_LESSONS;
+}
+
+/**
+ * "3 ders eşiği" TEK kuralı (2026-09-15): kayıt ayında kalan planlı ders sayısı
+ * eşikten AZSA ilk tahsilat = kayıt ayı + sonraki ayın tam ücreti. Kayıt anı
+ * önerisi (createStudentTool, new-student-form) ve sözleşme planı
+ * (buildPerLessonInstallmentSchedule) bunu çağırır — önceden kayıt `< 3`,
+ * sözleşme `<= 3` kullanıyordu: tam 3 derste kayıt yalnız kayıt ayını tahsil
+ * ederken sözleşme sonraki ayı da tahsil edilmiş sayıp faturalamıyordu.
+ */
+export function shouldMergeFirstCollection(firstPeriodLessonCount: number, threshold: number): boolean {
+  return firstPeriodLessonCount < threshold;
 }
 
 /** EPIC 1 — uygulama içi bildirim (veli portalı, admin panel bildirim çanı). */

@@ -22,7 +22,7 @@ import { actionAddStudent, type NewStudentFormState } from "@/lib/actions";
 import { Button, Card, Input, Label, Select } from "@/components/ui";
 import { StudentInstrumentTeacherFields, type TeacherOption } from "@/components/student-instrument-teacher-fields";
 import { StudentPackagePricingFields, type PricingPackageOption } from "@/components/student-package-pricing-fields";
-import { STUDENT_TYPES } from "@/lib/types";
+import { DEFAULT_FIRST_COLLECTION_MERGE_THRESHOLD_LESSONS, STUDENT_TYPES, shouldMergeFirstCollection } from "@/lib/types";
 import {
   estimatePeriodBillingLines,
   derivePerLessonAmount,
@@ -224,7 +224,9 @@ export function NewStudentForm({
       // AYNI kural — kayıt ayında kalan gerçek ders sayısı 3'ten azsa
       // sonraki ayın tam ücreti de öneriye eklenir. Tek kaynak sunucudur;
       // burası yalnız İSTEMCİ önizlemesi, resmi hesap değildir.
-      const suggestedAmount = plannedLessons >= 3 ? plannedLessons * derived : plannedLessons * derived + monthlyFee;
+      const suggestedAmount = shouldMergeFirstCollection(plannedLessons, DEFAULT_FIRST_COLLECTION_MERGE_THRESHOLD_LESSONS)
+        ? plannedLessons * derived + monthlyFee
+        : plannedLessons * derived;
       setPreview({
         monthlyFee,
         weeklyLessonCount,

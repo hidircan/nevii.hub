@@ -892,7 +892,7 @@ function ContractForm({
             <tbody>
               {preview.installments.map((row) => (
                 <tr key={row.sequence} className="align-top">
-                  <td className="pr-2 py-1">{row.sequence}</td>
+                  <td className="pr-2 py-1">{row.kind === "first_collection_combined" ? "1–2" : row.sequence}</td>
                   <td className="pr-2 py-1">
                     {row.kind ? INSTALLMENT_KIND_LABELS[row.kind] ?? row.kind : "—"}
                     {row.computationSource === "manual" ? (

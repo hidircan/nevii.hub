@@ -423,6 +423,7 @@ import {
   type TaskAttachment,
   OPEN_TASK_STATUSES,
   resolveFirstCollectionMergeThreshold,
+  shouldMergeFirstCollection,
 } from "../types";
 import {
   createTask,
@@ -1964,10 +1965,17 @@ export async function createStudentTool(
     // 3 veya daha fazlaysa yalnız kayıt ayı kalan dersleri önerilir. Bu bir
     // ZORUNLULUK değil (kullanıcı farklı tutar girebilir, bkz. aşağıdaki
     // `resolveFirstPaymentAdjustment`) — yalnız öneri hesabını etkiler.
-    const autoSuggestedAmount =
-      firstPeriodBillableCount >= 3
-        ? firstPeriodBillableCount * derivedPerLessonAmount
-        : firstPeriodBillableCount * derivedPerLessonAmount + pricing.monthlyFee;
+    // Sözleşme planıyla (buildPerLessonInstallmentSchedule) AYNI kural ve AYNI
+    // kurum eşiği — kayıtta tahsil edilen ile sözleşmenin "tahsil edildi"
+    // saydığı aylar birbirinden ayrışmaz.
+    const autoSuggestedAmount = shouldMergeFirstCollection(
+      firstPeriodBillableCount,
+      resolveFirstCollectionMergeThreshold({
+        firstCollectionMergeThresholdLessons: before.settings.collectionsSettings?.firstCollectionMergeThresholdLessons,
+      })
+    )
+      ? firstPeriodBillableCount * derivedPerLessonAmount + pricing.monthlyFee
+      : firstPeriodBillableCount * derivedPerLessonAmount;
 
     const { resolveFirstPaymentAdjustment } = await import("../first-payment-adjustment");
     const adjustment = resolveFirstPaymentAdjustment({

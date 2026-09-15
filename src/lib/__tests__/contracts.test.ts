@@ -1314,6 +1314,16 @@ describe("createStudentContractTool — per-lesson öğrenci (usePerLessonBillin
     expect(labels.some((l) => l?.includes("Temmuz"))).toBe(false);
     // Birleştirilen Ekim kalan planda TEKRAR ücretlendirilmez.
     expect(labels.slice(1).some((l) => l?.includes("Ekim"))).toBe(false);
+    // Taksit numarası = sözleşme ayı: birleşik satır 1–2, Kasım 3., Haziran 10.
+    expect(res.data.installments.map((i) => i.sequence)).toEqual([1, 3, 4, 5, 6, 7, 8, 9, 10]);
+    const { readData } = await import("../store-json");
+    const descriptions = (await readData()).payments
+      .filter((p) => p.contractId === res.data.contract.id)
+      .sort((a, b) => (a.installmentSequence ?? 0) - (b.installmentSequence ?? 0))
+      .map((p) => p.description);
+    expect(descriptions[0]).toContain("Sözleşme taksiti 1/10");
+    expect(descriptions[1]).toContain("Sözleşme taksiti 3/10");
+    expect(descriptions.at(-1)).toContain("Sözleşme taksiti 10/10");
   });
 
   it("kayıt ayında 4+ ders varsa birleşme OLMAZ, ilk ay kendi tutarında kalır, sonraki aya kopyalanmaz", async () => {
