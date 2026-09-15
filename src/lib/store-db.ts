@@ -1212,6 +1212,9 @@ export async function addStudent(
       createdAt: new Date(),
       displayId,
       instruments: student.instruments,
+      // HTML date input'u YYYY-MM-DD döndürür. Prisma DateTime alanı ise
+      // tam ISO-8601 tarih-zaman ya da Date nesnesi bekler.
+      birthDate: student.birthDate ? new Date(`${student.birthDate}T00:00:00.000Z`) : undefined,
       enrollmentStartDate: student.enrollmentStartDate ? new Date(student.enrollmentStartDate) : undefined,
       lessonStartDate: student.lessonStartDate ? new Date(student.lessonStartDate) : undefined,
       enrollmentEndDate: student.enrollmentEndDate ? new Date(student.enrollmentEndDate) : undefined,
