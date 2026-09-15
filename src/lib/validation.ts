@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { LESSON_DURATION_OPTIONS, TRIAL_LESSON_DURATION_OPTIONS } from "./lesson-duration";
 import { INSTRUMENTS } from "./types";
+import { isValidDateOnlyInput } from "./date-input";
 
 /** Faz 1A — tek bir ödeme günü aralığı (1–31, dahil, start ≤ end). */
 export const paymentDueRangeSchema = z
@@ -88,6 +89,15 @@ const optionalTrimmed = z
   .optional()
   .transform((v) => (v && v.trim() ? v.trim() : undefined));
 
+/**
+ * Date-only (YYYY-MM-DD) opsiyonel alan — boş → undefined (`optionalTrimmed`
+ * ile AYNI sözleşme); dolu ama biçimsiz/takvimde olmayan değer alan hatası
+ * verir, Prisma'ya asla geçersiz tarih ulaşmaz.
+ */
+const optionalDateOnly = optionalTrimmed.refine((v) => v === undefined || isValidDateOnlyInput(v), {
+  message: "Geçerli bir tarih seçin (YYYY-MM-DD).",
+});
+
 export const studentSchema = z.object({
   name: z.string().min(1),
   email: optionalEmail,
@@ -171,7 +181,7 @@ export const studentSchema = z.object({
   termType: z.enum(["guz", "yaz"]).optional(),
   /** ÖNCELİK 4 (devam) — Paket Yönetimi + ek profil alanları. Hepsi opsiyonel — legacy kayıt akışı kırılmaz. */
   packageId: z.string().optional(),
-  birthDate: optionalTrimmed,
+  birthDate: optionalDateOnly,
   birthPlace: optionalTrimmed,
   schoolOrOccupation: optionalTrimmed,
   address: optionalTrimmed,
@@ -286,7 +296,7 @@ export const updateStudentProfileSchema = z
     motherName: optionalTrimmed,
     fatherName: optionalTrimmed,
     address: optionalTrimmed,
-    birthDate: optionalTrimmed,
+    birthDate: optionalDateOnly,
     birthPlace: optionalTrimmed,
     schoolOrOccupation: optionalTrimmed,
     communicationOptOut: z.boolean().optional(),
