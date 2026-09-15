@@ -34,6 +34,24 @@ export function toIsoDateOrNull(value: string | null | undefined): string | null
   return dt ? dt.toISOString() : null;
 }
 
+/**
+ * Date-only bir alanı (ör. öğrenci doğum tarihi) Prisma `DateTime` kolonuna
+ * yazmak için. "YYYY-MM-DD" → UTC öğlen (`parseDateOnlyInput` ile AYNI kural —
+ * UTC−11..UTC+11 aralığındaki hiçbir saat diliminde önceki/sonraki güne
+ * düşmez). Zaten tam ISO bir değer gelirse (ör. okuma mapping'inin
+ * `toISOString()` çıktısı geri gönderilirse) aynen `Date`'e çevrilir.
+ * Boş/geçersiz → `undefined`: Prisma'ya ASLA `Invalid Date` gitmez.
+ */
+export function toDateOnlyDbValue(value: string | null | undefined): Date | undefined {
+  if (!value) return undefined;
+  const dateOnly = parseDateOnlyInput(value);
+  if (dateOnly) return dateOnly;
+  // Biçim date-only ama takvimde yok (ör. 2026-02-30) — `new Date` bunu sessizce kaydırırdı.
+  if (DATE_ONLY_PATTERN.test(value)) return undefined;
+  const dt = new Date(value);
+  return Number.isNaN(dt.getTime()) ? undefined : dt;
+}
+
 /** Girdi gerçekten geçerli bir "YYYY-MM-DD" tarihi mi (takvimde var mı)? */
 export function isValidDateOnlyInput(value: string | null | undefined): boolean {
   return parseDateOnlyInput(value) !== null;

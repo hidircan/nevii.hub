@@ -22,7 +22,13 @@ import { actionAddStudent, type NewStudentFormState } from "@/lib/actions";
 import { Button, Card, Input, Label, Select } from "@/components/ui";
 import { StudentInstrumentTeacherFields, type TeacherOption } from "@/components/student-instrument-teacher-fields";
 import { StudentPackagePricingFields, type PricingPackageOption } from "@/components/student-package-pricing-fields";
-import { STUDENT_TYPES, REFERRAL_SOURCES, REFERRAL_SOURCE_LABELS } from "@/lib/types";
+import {
+  DEFAULT_FIRST_COLLECTION_MERGE_THRESHOLD_LESSONS,
+  STUDENT_TYPES,
+  REFERRAL_SOURCES,
+  REFERRAL_SOURCE_LABELS,
+  shouldMergeFirstCollection,
+} from "@/lib/types";
 import {
   estimatePeriodBillingLines,
   derivePerLessonAmount,
@@ -232,7 +238,9 @@ export function NewStudentForm({
       // (5.950 → 5.952). Sunucudaki `createStudentTool` ile AYNI
       // `computePeriodAmount` fonksiyonundan geçer; ayrı formül YOK.
       const firstPeriodAmount = computePeriodAmount(monthlyFee, weeklyLessonCount, plannedLessons);
-      const suggestedAmount = plannedLessons >= 3 ? firstPeriodAmount : firstPeriodAmount + monthlyFee;
+      const suggestedAmount = shouldMergeFirstCollection(plannedLessons, DEFAULT_FIRST_COLLECTION_MERGE_THRESHOLD_LESSONS)
+        ? firstPeriodAmount + monthlyFee
+        : firstPeriodAmount;
       setPreview({
         monthlyFee,
         weeklyLessonCount,

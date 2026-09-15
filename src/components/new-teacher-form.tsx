@@ -93,7 +93,7 @@ export function NewTeacherForm({
         </h2>
         <div className="space-y-3">
           <div>
-            <Label>Şube</Label>
+            <Label>Birincil şube</Label>
             <Select name="branchId" defaultValue={branches[0]?.id} aria-invalid={!!fieldErrors.branchId}>
               {branches.map((b) => (
                 <option key={b.id} value={b.id}>
@@ -103,6 +103,20 @@ export function NewTeacherForm({
             </Select>
             <FieldError message={fieldErrors.branchId} />
           </div>
+          {branches.length > 1 ? (
+            <div>
+              <Label>Ek atanmış şubeler (birincil şube her zaman dahildir)</Label>
+              <div className="flex flex-wrap gap-2">
+                {branches.map((b) => (
+                  <label key={b.id} className="flex items-center gap-1.5 text-xs">
+                    <input type="checkbox" name="branchIds" value={b.id} className="h-3.5 w-3.5" />
+                    {b.name}
+                  </label>
+                ))}
+              </div>
+              <FieldError message={fieldErrors.branchIds} />
+            </div>
+          ) : null}
           <div>
             <Label>Ana enstrüman (yalnızca hiç enstrüman eklenmezse kullanılır)</Label>
             <Select name="instrument" defaultValue={instrumentOptions?.[0] ?? "Piyano"} aria-invalid={!!fieldErrors.instrument}>

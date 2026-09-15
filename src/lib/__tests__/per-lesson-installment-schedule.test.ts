@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { buildPerLessonInstallmentSchedule } from "../contracts";
+import { buildPerLessonInstallmentSchedule, computeContractEndDate, resolvePerLessonContractEndDay } from "../contracts";
 import { computePeriodBillingLines, type BillableLessonCandidate } from "../period-lesson-billing";
-import { DEFAULT_FIRST_COLLECTION_MERGE_THRESHOLD_LESSONS } from "../types";
+import { DEFAULT_FIRST_COLLECTION_MERGE_THRESHOLD_LESSONS, shouldMergeFirstCollection } from "../types";
 
 function lesson(id: string, isoDay: string): BillableLessonCandidate {
   return { id, studentId: "s1", startAt: `${isoDay}T08:00:00.000Z`, type: "regular", status: "scheduled" };
@@ -290,5 +290,148 @@ describe("buildPerLessonInstallmentSchedule", () => {
       expect(schedule[0]!.kind).toBe("first_collection");
       expect(schedule[0]!.amount).not.toBe(9999); // tercih göz ardı edilir, ilk dönem tutarı korunur
     });
+  });
+});
+
+describe("resolvePerLessonContractEndDay — birleşik ilk tahsilat sözleşmeyi bir ay uzatmaz (2026-09-15)", () => {
+  const start = "2026-09-17";
+  const linesUntil = (end: string) =>
+    computePeriodBillingLines({
+      enrollmentStartDay: start,
+      enrollmentEndDay: end,
+      monthlyFee: 2000,
+      weeklyLessonCount: 1,
+      lessons: [lesson("a", "2026-09-17"), lesson("b", "2026-10-05"), lesson("c", "2026-10-12")],
+      studentId: "s1",
+      makeupRequests: [],
+    });
+
+  it("10 ay, Eylül başlangıç, Eylül+Ekim birleşik → 30 Haziran; 9 satır, Temmuz yok, Ekim tekrar yok", () => {
+    const naiveEnd = computeContractEndDate(start, 10); // 2027-07-17 — eski (hatalı) kapsam
+    const naiveLines = linesUntil(naiveEnd);
+    expect(naiveLines).toHaveLength(11); // kök neden: ay ortası başlangıçta N+1 takvim dönemi
+
+    const end = resolvePerLessonContractEndDay({
+      enrollmentStartDay: start,
+      enrollmentEndDay: naiveEnd,
+      durationMonths: 10,
+      firstPeriodBillableLessonCount: naiveLines[0]!.billableLessonCount,
+      mergeThresholdLessons: THRESHOLD,
+    });
+    expect(end).toBe("2027-06-30");
+
+    const schedule = buildPerLessonInstallmentSchedule({
+      billingLines: linesUntil(end),
+      mergeThresholdLessons: THRESHOLD,
+      firstDueDate: start,
+    });
+    expect(schedule[0]!.kind).toBe("first_collection_combined");
+    expect(schedule[0]!.periodLabel).toBe("17–30 Eylül 2026 + Ekim 2026");
+    expect(schedule).toHaveLength(9);
+    expect(schedule.at(-1)!.periodLabel).toBe("Haziran 2027");
+    expect(schedule.some((r) => r.periodLabel?.includes("Temmuz"))).toBe(false);
+    expect(schedule.slice(1).some((r) => r.periodLabel?.includes("Ekim"))).toBe(false);
+    // Ekim tutarı yalnız birleşik satırda: 2×500.
+    expect(schedule[0]!.breakdown?.[1]).toEqual({ periodLabel: "Ekim 2026", amount: 1000 });
+  });
+
+  it("birleşme yoksa (kayıt ayında eşik üstü ders) istemcinin bitişi AYNEN korunur", () => {
+    expect(
+      resolvePerLessonContractEndDay({
+        enrollmentStartDay: "2026-09-01",
+        enrollmentEndDay: "2027-07-01",
+        durationMonths: 10,
+        firstPeriodBillableLessonCount: THRESHOLD + 1,
+        mergeThresholdLessons: THRESHOLD,
+      })
+    ).toBe("2027-07-01");
+  });
+
+  it("1 aylık sözleşmede bitiş değişmez (birleşecek ikinci ay sözleşmeye dahil değil)", () => {
+    expect(
+      resolvePerLessonContractEndDay({
+        enrollmentStartDay: start,
+        enrollmentEndDay: "2026-10-17",
+        durationMonths: 1,
+        firstPeriodBillableLessonCount: 1,
+        mergeThresholdLessons: THRESHOLD,
+      })
+    ).toBe("2026-10-17");
+  });
+});
+
+describe("taksit numarası = sözleşme ayı (2026-09-15)", () => {
+  it("10 Eylül kayıt, Eylül+Ekim ilk tahsilatta → Kasım 3., Haziran 10. taksit; 2. numara ayrı satır değil", () => {
+    // 10 Eylül 2026 Perşembe — haftada 1 ders, Eylül'de yalnız 10 ve 17 planlı (2 < 3 → birleşir).
+    const lessons = [lesson("a", "2026-09-10"), lesson("b", "2026-09-17"), lesson("c", "2026-10-01")];
+    const end = resolvePerLessonContractEndDay({
+      enrollmentStartDay: "2026-09-10",
+      enrollmentEndDay: computeContractEndDate("2026-09-10", 10),
+      durationMonths: 10,
+      firstPeriodBillableLessonCount: 2,
+      mergeThresholdLessons: THRESHOLD,
+    });
+    expect(end).toBe("2027-06-30");
+    const schedule = buildPerLessonInstallmentSchedule({
+      billingLines: computePeriodBillingLines({
+        enrollmentStartDay: "2026-09-10",
+        enrollmentEndDay: end,
+        monthlyFee: 2000,
+        weeklyLessonCount: 1,
+        lessons,
+        studentId: "s1",
+        makeupRequests: [],
+      }),
+      mergeThresholdLessons: THRESHOLD,
+      firstDueDate: "2026-09-10",
+    });
+    expect(schedule.map((r) => r.sequence)).toEqual([1, 3, 4, 5, 6, 7, 8, 9, 10]);
+    expect(schedule.find((r) => r.sequence === 3)!.periodLabel).toBe("Kasım 2026");
+    expect(schedule.find((r) => r.sequence === 10)!.periodLabel).toBe("Haziran 2027");
+    expect(schedule.some((r) => r.sequence === 2)).toBe(false);
+  });
+
+  it("birleşme yoksa numaralama değişmez (1, 2, 3 …)", () => {
+    const schedule = buildPerLessonInstallmentSchedule({
+      billingLines: computePeriodBillingLines({
+        enrollmentStartDay: "2026-09-01",
+        enrollmentEndDay: "2026-11-30",
+        monthlyFee: 2000,
+        weeklyLessonCount: 1,
+        lessons: ["2026-09-03", "2026-09-10", "2026-09-17", "2026-09-24"].map((d, i) => lesson(`s${i}`, d)),
+        studentId: "s1",
+        makeupRequests: [],
+      }),
+      mergeThresholdLessons: THRESHOLD,
+      firstDueDate: "2026-09-01",
+    });
+    expect(schedule.map((r) => r.sequence)).toEqual([1, 2, 3]);
+  });
+});
+
+describe("shouldMergeFirstCollection — kayıt ve sözleşme için TEK kural", () => {
+  it("eşikten AZ ders → birleşir; tam eşik (3) → birleşmez (kayıt anında yalnız kayıt ayı tahsil edilir)", () => {
+    expect(shouldMergeFirstCollection(2, THRESHOLD)).toBe(true);
+    expect(shouldMergeFirstCollection(3, THRESHOLD)).toBe(false);
+  });
+
+  it("kayıt ayında tam 3 ders → sözleşme de birleştirmez; Ekim ayrı 2. taksit olarak faturalanır", () => {
+    const schedule = buildPerLessonInstallmentSchedule({
+      billingLines: computePeriodBillingLines({
+        enrollmentStartDay: "2026-09-10",
+        enrollmentEndDay: "2026-10-31",
+        monthlyFee: 2000,
+        weeklyLessonCount: 1,
+        lessons: [lesson("a", "2026-09-10"), lesson("b", "2026-09-17"), lesson("c", "2026-09-24"), lesson("d", "2026-10-01")],
+        studentId: "s1",
+        makeupRequests: [],
+      }),
+      mergeThresholdLessons: THRESHOLD,
+      firstDueDate: "2026-09-10",
+    });
+    expect(schedule.map((r) => [r.sequence, r.kind, r.periodLabel])).toEqual([
+      [1, "first_collection", "10–30 Eylül 2026"],
+      [2, "period_fee", "Ekim 2026"],
+    ]);
   });
 });

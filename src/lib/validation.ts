@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { LESSON_DURATION_OPTIONS, TRIAL_LESSON_DURATION_OPTIONS } from "./lesson-duration";
 import { INSTRUMENTS, REFERRAL_SOURCES } from "./types";
+import { isValidDateOnlyInput } from "./date-input";
 
 /** Faz 1A — tek bir ödeme günü aralığı (1–31, dahil, start ≤ end). */
 export const paymentDueRangeSchema = z
@@ -87,6 +88,15 @@ const optionalTrimmed = z
   .string()
   .optional()
   .transform((v) => (v && v.trim() ? v.trim() : undefined));
+
+/**
+ * Date-only (YYYY-MM-DD) opsiyonel alan — boş → undefined (`optionalTrimmed`
+ * ile AYNI sözleşme); dolu ama biçimsiz/takvimde olmayan değer alan hatası
+ * verir, Prisma'ya asla geçersiz tarih ulaşmaz.
+ */
+const optionalDateOnly = optionalTrimmed.refine((v) => v === undefined || isValidDateOnlyInput(v), {
+  message: "Geçerli bir tarih seçin (YYYY-MM-DD).",
+});
 
 export const studentSchema = z.object({
   name: z.string().min(1),
@@ -178,7 +188,7 @@ export const studentSchema = z.object({
   termType: z.enum(["guz", "yaz"]).optional(),
   /** ÖNCELİK 4 (devam) — Paket Yönetimi + ek profil alanları. Hepsi opsiyonel — legacy kayıt akışı kırılmaz. */
   packageId: z.string().optional(),
-  birthDate: optionalTrimmed,
+  birthDate: optionalDateOnly,
   birthPlace: optionalTrimmed,
   schoolOrOccupation: optionalTrimmed,
   address: optionalTrimmed,
@@ -293,7 +303,7 @@ export const updateStudentProfileSchema = z
     motherName: optionalTrimmed,
     fatherName: optionalTrimmed,
     address: optionalTrimmed,
-    birthDate: optionalTrimmed,
+    birthDate: optionalDateOnly,
     birthPlace: optionalTrimmed,
     schoolOrOccupation: optionalTrimmed,
     /** P1 revizyonu — "Bizi nereden buldunuz?" sonradan düzeltilebilir (detay ekranı). */
@@ -394,6 +404,12 @@ export const teacherSchema = z
     email: optionalEmail,
     phone: z.string().min(1),
     branchId: z.string().min(1),
+    /**
+     * Ek atanmış şubeler (`Teacher.branchIds` — birincil `branchId` HER ZAMAN
+     * dahildir, bkz. teacher-branches.ts). Kayıt anında da seçilebilsin diye
+     * eklendi; verilmezse yalnız birincil şube (eski davranış).
+     */
+    branchIds: z.array(z.string().min(1)).optional(),
     /**
      * P0-1 (2026-08-29) — `instrumentLevels[].instrument` gibi BİLİNÇLİ
      * OLARAK serbest string (yukarıdaki yorum) — bu tekil (legacy) alan da

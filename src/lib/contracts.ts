@@ -24,7 +24,7 @@
 import path from "path";
 import { isDbMode, resolveDataDir } from "./config";
 import { paymentMethodLabelTr, uid } from "./utils";
-import { resolveFirstCollectionMergeThreshold } from "./types";
+import { resolveFirstCollectionMergeThreshold, shouldMergeFirstCollection } from "./types";
 import {
   findMissingRequiredContractPlaceholders,
   selectEligibleActiveTemplateForContract,
@@ -124,6 +124,31 @@ export function computeContractEndDate(
     target.setUTCDate(Math.min(start.getUTCDate(), lastDayOfTargetMonth));
   }
   return target.toISOString().slice(0, 10);
+}
+
+/**
+ * Hata düzeltmesi (2026-09-15) — "3 ders eşiği" birleşmesi sözleşmeyi BİR AY
+ * UZATMAMALI. `computeContractEndDate` başlangıç + N ay verir (17 Eylül + 10 →
+ * 17 Temmuz); ay ortası başlangıçta bu N+1 takvim dönemi demektir (Eylül
+ * kısmi … Temmuz). Kayıt ayı TEK başına bir satırsa sorun yok, ama birleşince
+ * ilk satır Eylül+Ekim'i kapsar ve kalan satırlar yine Temmuz'a kadar
+ * sürer — 10 aylık sözleşme fiilen 11 takvim ayı ücretlendirilir. Birleşme
+ * durumunda kayıt ayı sözleşmenin 1. ayı sayılır: bitiş, (başlangıç ayı +
+ * N−1). ayın takvim sonudur (Eylül + 10 → 30 Haziran). Birleşme yoksa girilen
+ * bitiş AYNEN korunur. Koşul `buildPerLessonInstallmentSchedule`'daki
+ * `shouldMerge` ile AYNIDIR (N≥2 iken ikinci dönem her zaman vardır).
+ */
+export function resolvePerLessonContractEndDay(input: {
+  enrollmentStartDay: string;
+  enrollmentEndDay: string;
+  durationMonths: number;
+  firstPeriodBillableLessonCount: number;
+  mergeThresholdLessons: number;
+}): string {
+  if (input.durationMonths < 2 || !shouldMergeFirstCollection(input.firstPeriodBillableLessonCount, input.mergeThresholdLessons)) {
+    return input.enrollmentEndDay;
+  }
+  return computeContractEndDate(input.enrollmentStartDay.slice(0, 10), input.durationMonths - 1, "month_end");
 }
 
 /** Aynı ay içinde `day`'e (ayın son gününe kenetlenerek) kaydırır — hedef ay `isoDate`'in ayıdır. */
@@ -346,7 +371,7 @@ export function buildPerLessonInstallmentSchedule(input: {
   const rule = resolveContractPaymentDueRule(input.paymentMethod, input.paymentPolicy);
   const [firstLine, secondLine, ...restLines] = input.billingLines;
   const firstMonthAutoAmount = firstLine!.autoCalculatedAmount;
-  const shouldMerge = firstLine!.billableLessonCount <= input.mergeThresholdLessons && !!secondLine;
+  const shouldMerge = shouldMergeFirstCollection(firstLine!.billableLessonCount, input.mergeThresholdLessons) && !!secondLine;
 
   const rows: ContractInstallmentSnapshot[] = [];
   if (shouldMerge) {
@@ -373,7 +398,10 @@ export function buildPerLessonInstallmentSchedule(input: {
       ],
       computationSource: isCombinedManual ? "manual" : "auto",
     });
-    let seq = 2;
+    // Taksit numarası = sözleşme ayı (2026-09-15): birleşik ilk tahsilat 1. VE
+    // 2. ayı kapsar, bu yüzden sonraki satır 3'ten başlar (10 Eylül kayıt,
+    // Eylül+Ekim ilk tahsilatta → Kasım 3. taksit, Haziran 10. taksit).
+    let seq = 3;
     for (const line of restLines) {
       rows.push({
         sequence: seq,
@@ -870,9 +898,13 @@ export async function createContract(input: CreateContractInput): Promise<Create
         : "",
   };
     for (let i = 1; i <= 12; i++) {
-      const row = installments[i - 1];
-      fieldValues[`taksit${i}Tarih`] = row ? formatDateTr(row.dueDate) : "";
-      fieldValues[`taksit${i}Tutar`] = row ? new Intl.NumberFormat("tr-TR").format(row.amount) : "";
+      // Slot = taksit sıra numarası (sözleşme ayı). Birleşik ilk tahsilatta
+      // 2. slot ayrı satır değildir — 1. taksite dahil olduğu açıkça yazılır.
+      const row = installments.find((r) => r.sequence === i);
+      const mergedInto =
+        !row && i === 2 && installments[0]?.kind === "first_collection_combined" ? installments[0] : undefined;
+      fieldValues[`taksit${i}Tarih`] = row ? formatDateTr(row.dueDate) : mergedInto ? formatDateTr(mergedInto.dueDate) : "";
+      fieldValues[`taksit${i}Tutar`] = row ? new Intl.NumberFormat("tr-TR").format(row.amount) : mergedInto ? "—" : "";
       // P0 (2026-09-03, genişletildi 2026-09-05) — her taksitin tür/dönem
       // açıklaması, ör. "İlk tahsilat (birleştirilmiş) — 17–30 Eylül 2026 +
       // Ekim 2026". Per-lesson sözleşmelerde gerçek tür/dönem gösterilir;
@@ -881,8 +913,11 @@ export async function createContract(input: CreateContractInput): Promise<Create
       // BİREBİR aynı "EĞİTİM" değerine düşülür — mevcut sözleşmelerin PDF
       // çıktısı DEĞİŞMEZ, yalnız per-lesson sözleşmeler artık ilk tahsilatı
       // dönem ücretinden AYRI, kendi gerçek etiketiyle gösterir.
-      fieldValues[`taksit${i}Aciklama`] =
-        row?.kind && row.periodLabel ? `${INSTALLMENT_KIND_LABELS_TR[row.kind]} — ${row.periodLabel}` : "EĞİTİM";
+      fieldValues[`taksit${i}Aciklama`] = mergedInto
+        ? `1. taksite dahil — ${mergedInto.breakdown?.[1]?.periodLabel ?? ""}`
+        : row?.kind && row.periodLabel
+          ? `${INSTALLMENT_KIND_LABELS_TR[row.kind]} — ${row.periodLabel}`
+          : "EĞİTİM";
       // P0 revizyonu — "Ödeme Türü" sütunu: 1. satırda GERÇEK ilk tahsilatın
       // yöntemi (kayıt anı ödemesi initial'da reuse edilir, renewal'da bu
       // formda alınır; ikisi de yoksa — amendment — "—"). Sonraki satırların

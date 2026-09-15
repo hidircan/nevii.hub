@@ -6,6 +6,7 @@ import {
 } from "./demo-seed";
 import { applyLessonOpsFlag, switchLessonOpsFlag, type LessonOpsFlag, type ApplyLessonOpsResult } from "./lesson-ops";
 import { allocateSequenceValueDb, formatDisplayId } from "./entity-sequence";
+import { toDateOnlyDbValue } from "./date-input";
 import { markTeacherAttendance, type TeacherAttendanceStatus } from "./teacher-attendance";
 import { reassignLessonTeacherOrBranch, type ReassignLessonInput, type ReassignLessonResult } from "./lesson-reassignment";
 import { prisma } from "./db";
@@ -1248,9 +1249,12 @@ export async function addStudent(
       createdAt: new Date(),
       displayId,
       instruments: student.instruments,
-      // HTML date input'u YYYY-MM-DD döndürür. Prisma DateTime alanı ise
-      // tam ISO-8601 tarih-zaman ya da Date nesnesi bekler.
-      birthDate: student.birthDate ? new Date(`${student.birthDate}T00:00:00.000Z`) : undefined,
+      // Kök neden düzeltmesi: `...student` spread'i birthDate'i ham
+      // "YYYY-MM-DD" olarak geçiriyordu; Prisma DateTime bunu reddettiği için
+      // doğum tarihi girilen HER öğrenci kaydı db modunda başarısız oluyordu.
+      // (369606b'deki `${v}T00:00:00.000Z` kalıbı tam ISO girdide Invalid Date
+      // üretiyordu — geri alındı; burada date-input.ts'in UTC-öğlen kuralı.)
+      birthDate: toDateOnlyDbValue(student.birthDate),
       enrollmentStartDate: student.enrollmentStartDate ? new Date(student.enrollmentStartDate) : undefined,
       lessonStartDate: student.lessonStartDate ? new Date(student.lessonStartDate) : undefined,
       enrollmentEndDate: student.enrollmentEndDate ? new Date(student.enrollmentEndDate) : undefined,
@@ -1300,7 +1304,7 @@ export async function updateStudentProfile(
       referralSource: patch.referralSource,
       referralSourceDetail: patch.referralSourceDetail,
       address: patch.address,
-      birthDate: patch.birthDate ? new Date(patch.birthDate) : undefined,
+      birthDate: toDateOnlyDbValue(patch.birthDate),
       // Package C / Paket Yönetimi — ödeme profili + paket fiyatlandırma
       // alanları. Bu mapping öncesinde lessonDurationMinutes/paymentMethod/
       // paymentAmount/paymentDueDay hiçbir DB-mode yazma yoluna sahip
@@ -1754,7 +1758,7 @@ export async function importStudents(rows: StudentImportRow[]): Promise<ImportCo
             monthlyFee: row.monthlyFee,
             notes: row.notes || existing.notes,
             lessonDurationMinutes: row.lessonDurationMinutes ?? existing.lessonDurationMinutes,
-            birthDate: row.birthDate ? new Date(row.birthDate) : existing.birthDate,
+            birthDate: toDateOnlyDbValue(row.birthDate) ?? existing.birthDate,
             birthPlace: row.birthPlace ?? existing.birthPlace,
             schoolOrOccupation: row.schoolOrOccupation ?? existing.schoolOrOccupation,
             address: row.address ?? existing.address,
@@ -1785,7 +1789,7 @@ export async function importStudents(rows: StudentImportRow[]): Promise<ImportCo
             notes: row.notes,
             createdAt: new Date(),
             lessonDurationMinutes: row.lessonDurationMinutes,
-            birthDate: row.birthDate ? new Date(row.birthDate) : undefined,
+            birthDate: toDateOnlyDbValue(row.birthDate),
             birthPlace: row.birthPlace,
             schoolOrOccupation: row.schoolOrOccupation,
             address: row.address,
@@ -2877,7 +2881,7 @@ export async function addContractInstallments(input: {
         status: isFirstCollected ? "paid" : "pending",
         dueDate: new Date(inst.dueDate),
         paidAt: isFirstCollected ? new Date(fp!.collectedAt) : null,
-        description: `Sözleşme taksiti ${inst.sequence}/${input.installments.length}${isFirstCollected ? ` — Kayıt anında tahsil edildi${noteSuffix}` : ""}`,
+        description: `Sözleşme taksiti ${inst.sequence}/${input.installments.at(-1)?.sequence ?? input.installments.length}${isFirstCollected ? ` — Kayıt anında tahsil edildi${noteSuffix}` : ""}`,
         method: isFirstCollected ? fp!.method : inst.paymentMethod,
         source: "contract",
         contractId: input.contractId,
@@ -2916,7 +2920,7 @@ export async function addContractInstallments(input: {
         amount: firstInst?.amount,
         contractId: input.contractId,
         installmentSequence: 1,
-        description: `Sözleşme taksiti 1/${input.installments.length} — Kayıt anında tahsil edildi (kayıt ödemesi)`,
+        description: `Sözleşme taksiti 1/${input.installments.at(-1)?.sequence ?? input.installments.length} — Kayıt anında tahsil edildi (kayıt ödemesi)`,
         installmentKind: firstInst?.kind,
         installmentPeriodLabel: firstInst?.periodLabel,
         installmentBreakdown: firstInst?.breakdown as unknown as import("@prisma/client").Prisma.InputJsonValue | undefined,

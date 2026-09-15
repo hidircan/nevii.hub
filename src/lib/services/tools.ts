@@ -436,6 +436,7 @@ import {
   type TaskAttachment,
   OPEN_TASK_STATUSES,
   resolveFirstCollectionMergeThreshold,
+  shouldMergeFirstCollection,
 } from "../types";
 import {
   createTask,
@@ -541,6 +542,7 @@ import {
   cancelContract,
   buildInstallmentSchedule,
   buildPerLessonInstallmentSchedule,
+  resolvePerLessonContractEndDay,
   isFormalContractDuration,
   TrialContractHasNoDocumentError,
   ContractTemplateIncompleteError,
@@ -2057,8 +2059,17 @@ export async function createStudentTool(
       v.data.weeklyLessonCount,
       firstPeriodBillableCount
     );
-    const autoSuggestedAmount =
-      firstPeriodBillableCount >= 3 ? firstPeriodAutoAmount : firstPeriodAutoAmount + pricing.monthlyFee;
+    // Sözleşme planıyla (buildPerLessonInstallmentSchedule) AYNI kural ve AYNI
+    // kurum eşiği — kayıtta tahsil edilen ile sözleşmenin "tahsil edildi"
+    // saydığı aylar birbirinden ayrışmaz.
+    const autoSuggestedAmount = shouldMergeFirstCollection(
+      firstPeriodBillableCount,
+      resolveFirstCollectionMergeThreshold({
+        firstCollectionMergeThresholdLessons: before.settings.collectionsSettings?.firstCollectionMergeThresholdLessons,
+      })
+    )
+      ? firstPeriodAutoAmount + pricing.monthlyFee
+      : firstPeriodAutoAmount;
 
     const { resolveFirstPaymentAdjustment } = await import("../first-payment-adjustment");
     const adjustment = resolveFirstPaymentAdjustment({
@@ -3086,6 +3097,17 @@ export async function createTeacherTool(
     }
   }
 
+  // Ek şubeler — updateTeacherProfileTool ile AYNI tenant-scoped kontrol.
+  // Birincil şube `branchIds`'e yazılmaz (her zaman dahildir), tekrarlar atılır.
+  let extraBranchIds: BranchId[] | undefined;
+  if (v.data.branchIds && v.data.branchIds.length > 0) {
+    const branches = (await readData()).settings.branches;
+    const invalid = [v.data.branchId, ...v.data.branchIds].find((bId) => !branches.some((b) => b.id === bId));
+    if (invalid) return fail("VALIDATION_ERROR", `Geçersiz şube: "${invalid}".`);
+    const extras = Array.from(new Set(v.data.branchIds)).filter((bId) => bId !== v.data.branchId) as BranchId[];
+    if (extras.length > 0) extraBranchIds = extras;
+  }
+
   try {
     // ÖNCELİK 4 (devam) — çoklu enstrüman verilmişse `instruments` bundan
     // türetilir (benzersiz enstrüman listesi); yoksa legacy tek-enstrüman
@@ -3102,6 +3124,7 @@ export async function createTeacherTool(
       email: v.data.email ?? "",
       phone: v.data.phone,
       branchId: v.data.branchId as BranchId,
+      branchIds: extraBranchIds,
       instruments,
       instrumentLevels: v.data.instrumentLevels as Teacher["instrumentLevels"],
       // Oluşturma anında müsaitlik belirtilmişse (v.data.availability) onu
@@ -9653,6 +9676,8 @@ export async function previewContractInstallmentPlanTool(
     isFormal: boolean;
     paymentDueRuleText: string;
     firstDueDateInWindow: boolean;
+    /** Sunucunun esas aldığı bitiş — birleşik ilk tahsilatta istemcinin gönderdiğinden farklı olabilir. */
+    enrollmentEndDate?: string;
   }>
 > {
   const auth = requireRole(ctx, CONTRACT_STAFF);
@@ -9670,6 +9695,8 @@ export async function previewContractInstallmentPlanTool(
     const paymentPolicy = data.settings.collectionsSettings;
     let installments: import("../types").ContractInstallmentSnapshot[];
     let totalContractAmount: number;
+    // createStudentContractTool ile AYNI kural — birleşik ilk tahsilatta bitiş BİR AY kaymaz.
+    let enrollmentEndDate = v.data.enrollmentEndDate;
     const student = v.data.studentId ? data.students.find((s) => s.id === v.data.studentId) : undefined;
     if (
       v.data.usePerLessonBilling &&
@@ -9679,15 +9706,17 @@ export async function previewContractInstallmentPlanTool(
       v.data.enrollmentEndDate
     ) {
       const { computePeriodBillingPreview } = await import("../period-lesson-billing");
-      const billingLines = computePeriodBillingPreview({
-        enrollmentStartDay: v.data.enrollmentStartDate,
-        enrollmentEndDay: v.data.enrollmentEndDate,
+      const enrollmentStartDay = v.data.enrollmentStartDate;
+      const weeklyLessonCount = student.weeklyLessonCount;
+      const computeLines = (enrollmentEndDay: string) => computePeriodBillingPreview({
+        enrollmentStartDay,
+        enrollmentEndDay,
         // P0-1 (2026-09-09) — taban, öğrencinin DONMUŞ ve YUVARLANMIŞ
         // `derivedPerLessonAmount` alanı DEĞİL, bu sözleşmede ONAYLANAN
         // aylık ücrettir. Böylece normal aylık taksit her zaman tam
         // `monthlyAmount`'a eşit çıkar (5.952 regresyonu).
         monthlyFee: v.data.monthlyAmount,
-        weeklyLessonCount: student.weeklyLessonCount,
+        weeklyLessonCount,
         studentId: student.id,
         lessons: data.lessons.map((l) => ({
           id: l.id,
@@ -9699,6 +9728,18 @@ export async function previewContractInstallmentPlanTool(
         })),
         makeupRequests: data.makeupRequests.map((m) => ({ sourceLessonId: m.sourceLessonId, status: m.status })),
       });
+      const requestedEndDay = v.data.enrollmentEndDate;
+      const requestedLines = computeLines(requestedEndDay);
+      enrollmentEndDate = resolvePerLessonContractEndDay({
+        enrollmentStartDay,
+        enrollmentEndDay: requestedEndDay,
+        durationMonths: v.data.durationMonths,
+        firstPeriodBillableLessonCount: requestedLines[0]?.billableLessonCount ?? Number.POSITIVE_INFINITY,
+        mergeThresholdLessons: resolveFirstCollectionMergeThreshold({
+          firstCollectionMergeThresholdLessons: paymentPolicy?.firstCollectionMergeThresholdLessons,
+        }),
+      });
+      const billingLines = enrollmentEndDate === requestedEndDay ? requestedLines : computeLines(enrollmentEndDate);
       // Kayıt anında GERÇEKTEN tahsil edilen ilk ödeme — `createContract`'ın
       // (bkz. contracts.ts `firstPaymentActualAmount`/`requiresFirstPaymentAtRegistration`)
       // kullandığı AYNI kaynak ve AYNI koşul (yalnız FORMAL — >=3 ay — süre).
@@ -9739,6 +9780,7 @@ export async function previewContractInstallmentPlanTool(
       isFormal: isFormalContractDuration(v.data.durationMonths),
       paymentDueRuleText: rule.ruleText,
       firstDueDateInWindow,
+      enrollmentEndDate,
     });
   } catch (e) {
     return fail("VALIDATION_ERROR", e instanceof Error ? e.message : "Taksit planı hesaplanamadı.");
@@ -9993,16 +10035,19 @@ export async function createStudentContractTool(
   // dolu) hesaplanır; aksi halde undefined kalır ve createContract eski
   // (fixed, SABİT SAYIDA eşit taksit) davranışını AYNEN sürdürür.
   let perLessonBillingLines: import("../period-lesson-billing").PeriodBillingLine[] | undefined;
+  // Birleşik ilk tahsilatta bitiş BİR AY kaymasın — bkz. `resolvePerLessonContractEndDay`.
+  let enrollmentEndDate = v.data.enrollmentEndDate;
   if (v.data.usePerLessonBilling && student.derivedPerLessonAmount != null && student.weeklyLessonCount) {
     const { computePeriodBillingPreview } = await import("../period-lesson-billing");
-    perLessonBillingLines = computePeriodBillingPreview({
+    const weeklyLessonCount = student.weeklyLessonCount;
+    const computeLines = (enrollmentEndDay: string) => computePeriodBillingPreview({
       enrollmentStartDay: v.data.enrollmentStartDate,
-      enrollmentEndDay: v.data.enrollmentEndDate,
+      enrollmentEndDay,
       // P0-1 (2026-09-09) — önizleme (previewContractInstallmentPlanTool) ile
       // BİREBİR aynı taban: onaylanan aylık ücret. İkisi farklı taban
       // kullanırsa "önizlemede gördüğüm plan kayıtta değişti" hatası doğar.
       monthlyFee: v.data.monthlyAmount,
-      weeklyLessonCount: student.weeklyLessonCount,
+      weeklyLessonCount,
       studentId: student.id,
       lessons: data.lessons.map((l) => ({
         id: l.id,
@@ -10014,6 +10059,17 @@ export async function createStudentContractTool(
       })),
       makeupRequests: data.makeupRequests.map((m) => ({ sourceLessonId: m.sourceLessonId, status: m.status })),
     });
+    const lines = computeLines(v.data.enrollmentEndDate);
+    enrollmentEndDate = resolvePerLessonContractEndDay({
+      enrollmentStartDay: v.data.enrollmentStartDate,
+      enrollmentEndDay: v.data.enrollmentEndDate,
+      durationMonths: v.data.durationMonths,
+      firstPeriodBillableLessonCount: lines[0]?.billableLessonCount ?? Number.POSITIVE_INFINITY,
+      mergeThresholdLessons: resolveFirstCollectionMergeThreshold({
+        firstCollectionMergeThresholdLessons: data.settings.collectionsSettings?.firstCollectionMergeThresholdLessons,
+      }),
+    });
+    perLessonBillingLines = enrollmentEndDate === v.data.enrollmentEndDate ? lines : computeLines(enrollmentEndDate);
   }
 
   try {
@@ -10025,7 +10081,7 @@ export async function createStudentContractTool(
       programmeName: v.data.programmeName,
       lessonScheduleText: v.data.lessonScheduleText,
       enrollmentStartDate: v.data.enrollmentStartDate,
-      enrollmentEndDate: v.data.enrollmentEndDate,
+      enrollmentEndDate,
       durationMonths: v.data.durationMonths,
       monthlyAmount: v.data.monthlyAmount,
       installmentCount: v.data.installmentCount,
