@@ -245,6 +245,7 @@ function ContractForm({
     totalContractAmount: number;
     installments: InstallmentPreviewRow[];
     paymentDueRuleText: string;
+    enrollmentEndDate?: string;
   } | null>(null);
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -270,6 +271,7 @@ function ContractForm({
       isFormal: boolean;
       paymentDueRuleText: string;
       firstDueDateInWindow: boolean;
+      enrollmentEndDate?: string;
     }>("/api/v1/contracts/preview-plan", {
       durationMonths,
       monthlyAmount,
@@ -495,6 +497,13 @@ function ContractForm({
         <div>
           <Label>Sözleşme bitiş tarihi (otomatik)</Label>
           <Input type="date" value={enrollmentEndDate} disabled />
+          {/* Sunucu (createStudentContractTool) birleşik ilk tahsilatta bitişi kayıt ayını 1. ay sayarak kısaltır — önizleme bunu görünür kılar. */}
+          {preview?.enrollmentEndDate && preview.enrollmentEndDate.slice(0, 10) !== enrollmentEndDate ? (
+            <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+              İlk tahsilat kayıt ayı + takip eden ay olarak birleştirildiği için sözleşme{" "}
+              {formatDateTr(preview.enrollmentEndDate)} tarihinde biter.
+            </p>
+          ) : null}
         </div>
         {usePerLessonBilling ? (
           <div className="sm:col-span-2">

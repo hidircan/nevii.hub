@@ -126,6 +126,31 @@ export function computeContractEndDate(
   return target.toISOString().slice(0, 10);
 }
 
+/**
+ * Hata düzeltmesi (2026-09-15) — "3 ders eşiği" birleşmesi sözleşmeyi BİR AY
+ * UZATMAMALI. `computeContractEndDate` başlangıç + N ay verir (17 Eylül + 10 →
+ * 17 Temmuz); ay ortası başlangıçta bu N+1 takvim dönemi demektir (Eylül
+ * kısmi … Temmuz). Kayıt ayı TEK başına bir satırsa sorun yok, ama birleşince
+ * ilk satır Eylül+Ekim'i kapsar ve kalan satırlar yine Temmuz'a kadar
+ * sürer — 10 aylık sözleşme fiilen 11 takvim ayı ücretlendirilir. Birleşme
+ * durumunda kayıt ayı sözleşmenin 1. ayı sayılır: bitiş, (başlangıç ayı +
+ * N−1). ayın takvim sonudur (Eylül + 10 → 30 Haziran). Birleşme yoksa girilen
+ * bitiş AYNEN korunur. Koşul `buildPerLessonInstallmentSchedule`'daki
+ * `shouldMerge` ile AYNIDIR (N≥2 iken ikinci dönem her zaman vardır).
+ */
+export function resolvePerLessonContractEndDay(input: {
+  enrollmentStartDay: string;
+  enrollmentEndDay: string;
+  durationMonths: number;
+  firstPeriodBillableLessonCount: number;
+  mergeThresholdLessons: number;
+}): string {
+  if (input.durationMonths < 2 || input.firstPeriodBillableLessonCount > input.mergeThresholdLessons) {
+    return input.enrollmentEndDay;
+  }
+  return computeContractEndDate(input.enrollmentStartDay.slice(0, 10), input.durationMonths - 1, "month_end");
+}
+
 /** Aynı ay içinde `day`'e (ayın son gününe kenetlenerek) kaydırır — hedef ay `isoDate`'in ayıdır. */
 function setDayOfMonthClamped(isoDate: string, day: number): string {
   const d = new Date(isoDate);

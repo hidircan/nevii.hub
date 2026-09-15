@@ -385,6 +385,12 @@ export const teacherSchema = z
     phone: z.string().min(1),
     branchId: z.string().min(1),
     /**
+     * Ek atanmış şubeler (`Teacher.branchIds` — birincil `branchId` HER ZAMAN
+     * dahildir, bkz. teacher-branches.ts). Kayıt anında da seçilebilsin diye
+     * eklendi; verilmezse yalnız birincil şube (eski davranış).
+     */
+    branchIds: z.array(z.string().min(1)).optional(),
+    /**
      * P0-1 (2026-08-29) — `instrumentLevels[].instrument` gibi BİLİNÇLİ
      * OLARAK serbest string (yukarıdaki yorum) — bu tekil (legacy) alan da
      * AYNI sabit-enum/katalog senkron-dışılığı yaşıyordu (bkz.

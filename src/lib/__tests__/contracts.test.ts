@@ -1276,6 +1276,46 @@ describe("createStudentContractTool — per-lesson öğrenci (usePerLessonBillin
     expect(sum).toBe(res.data.contract.totalContractAmount);
   });
 
+  it("hata düzeltmesi (2026-09-15): 10 ay, 17 Eylül, Eylül+Ekim birleşik → Haziran'da biter, Temmuz'a TAŞMAZ", async () => {
+    const { monthlyFee, derivedPerLessonAmount } = await seedPerLessonStudent();
+    const { addRegistrationFirstPayment } = await import("../store-json");
+    await addRegistrationFirstPayment({
+      studentId: "s_perlesson",
+      method: "cash",
+      amount: 5 * derivedPerLessonAmount,
+      collectedAt: "2026-09-17",
+      receivedByUserId: "u1",
+    });
+
+    const res = await createStudentContractTool(adminCtx(), {
+      studentId: "s_perlesson",
+      contractType: "initial",
+      programmeName: "Piyano",
+      enrollmentStartDate: "2026-09-17",
+      // İstemcinin (contract-panel) gönderdiği ham bitiş: 17 Eylül + 10 ay.
+      enrollmentEndDate: "2027-07-17",
+      durationMonths: 10,
+      monthlyAmount: monthlyFee,
+      installmentCount: 10,
+      firstDueDate: "2026-09-17",
+      signatoryFullName: "Veli Adı",
+      signatoryRelationship: "veli",
+      usePerLessonBilling: true,
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+
+    expect(res.data.contract.enrollmentEndDate.slice(0, 10)).toBe("2027-06-30");
+    const labels = res.data.installments.map((i) => i.periodLabel);
+    // Eylül+Ekim birleşik + Kasım…Haziran (8) = 9 satır = 10 takvim ayı.
+    expect(labels).toHaveLength(9);
+    expect(res.data.installments[0]!.kind).toBe("first_collection_combined");
+    expect(labels.at(-1)).toBe("Haziran 2027");
+    expect(labels.some((l) => l?.includes("Temmuz"))).toBe(false);
+    // Birleştirilen Ekim kalan planda TEKRAR ücretlendirilmez.
+    expect(labels.slice(1).some((l) => l?.includes("Ekim"))).toBe(false);
+  });
+
   it("kayıt ayında 4+ ders varsa birleşme OLMAZ, ilk ay kendi tutarında kalır, sonraki aya kopyalanmaz", async () => {
     const { readData, writeData, addRegistrationFirstPayment } = await import("../store-json");
     const data = await readData();

@@ -1914,6 +1914,7 @@ export async function actionAddTeacher(_prevState: NewTeacherFormState, formData
         email: String(formData.get("email") || ""),
         phone: String(formData.get("phone") || ""),
         branchId: String(formData.get("branchId") || ""),
+        branchIds: formData.getAll("branchIds").map(String).filter(Boolean),
         instrument: String(formData.get("instrument") || "Piyano"),
         instrumentLevels,
         availability,

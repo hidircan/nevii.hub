@@ -163,3 +163,51 @@ describe("öğretmen oluşturma anında müsaitlik", () => {
     expect(check.ok).toBe(true);
   });
 });
+
+describe("öğretmen oluşturma anında çoklu şube", () => {
+  it("branchIds verilirse ek şubeler kaydedilir; birincil şube branchId'de kalır, tekrar/birincil ayıklanır", async () => {
+    const res = await createTeacherTool(ctx(), {
+      name: "Çok Şubeli Öğretmen",
+      email: "coksube@okul.com",
+      phone: "5551110099",
+      branchId: "erzene",
+      branchIds: ["erzene", "evka3", "evka3"],
+      instrument: "Piyano",
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const teacher = (await readData()).teachers.find((t) => t.id === res.data.teacherId);
+    expect(teacher?.branchId).toBe("erzene");
+    expect(teacher?.branchIds).toEqual(["evka3"]);
+  });
+
+  it("branchIds verilmezse yalnız birincil şube (geriye dönük uyumlu)", async () => {
+    const res = await createTeacherTool(ctx(), {
+      name: "Tek Şubeli Öğretmen",
+      email: "teksube@okul.com",
+      phone: "5551110098",
+      branchId: "erzene",
+      instrument: "Piyano",
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const teacher = (await readData()).teachers.find((t) => t.id === res.data.teacherId);
+    expect(teacher?.branchIds).toBeUndefined();
+  });
+
+  it("bilinmeyen şube reddedilir, öğretmen oluşturulmaz", async () => {
+    const before = (await readData()).teachers.length;
+    const res = await createTeacherTool(ctx(), {
+      name: "Geçersiz Şube",
+      email: "gecersiz@okul.com",
+      phone: "5551110097",
+      branchId: "erzene",
+      branchIds: ["yok_boyle_sube"],
+      instrument: "Piyano",
+    });
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.error.code).toBe("VALIDATION_ERROR");
+    expect((await readData()).teachers.length).toBe(before);
+  });
+});
