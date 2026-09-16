@@ -1094,7 +1094,7 @@ describe("Owner policy (2026-08-30, final) — İlk ödeme kayıt anında alın�
     expect(res.ok).toBe(false);
     if (res.ok) return;
     expect(res.error.code).toBe("VALIDATION_ERROR");
-    expect(res.error.message).toContain("eşleşmiyor");
+    expect(res.error.message).toContain("aynı değil");
   });
 
   it("TRIAL (<3 ay) kayıtta kayıt anı ödemesi ZORUNLU DEĞİLDİR — formal olmayan kayıt için politika kapsamı dışı", async () => {
@@ -1153,26 +1153,20 @@ describe("Owner policy (2026-08-30, final) — İlk ödeme kayıt anında alın�
   });
 });
 
-describe("computeContractEndDate — müşterinin sözleşme bitiş tercihi (tarih bazlı / takvim ayı sonu)", () => {
-  it("15 Eylül + 3 ay + tarih bazlı → 15 Aralık", () => {
-    expect(computeContractEndDate("2026-09-15", 3, "date_based")).toBe("2026-12-15");
+describe("computeContractEndDate — başlangıç ayı = 1. ay, bitiş N. ayın sonu", () => {
+  it("15 Eylül + 3 ay → 30 Kasım (Eylül, Ekim, Kasım)", () => {
+    expect(computeContractEndDate("2026-09-15", 3)).toBe("2026-11-30");
   });
 
-  it("15 Eylül + 3 ay + takvim ayı sonu → 31 Aralık", () => {
-    expect(computeContractEndDate("2026-09-15", 3, "month_end")).toBe("2026-12-31");
+  it("10 aylık Eylül sözleşmesi Haziran'da biter — Temmuz'a TAŞMAZ", () => {
+    expect(computeContractEndDate("2026-09-10", 10)).toBe("2027-06-30");
+    expect(computeContractEndDate("2026-09-01", 10)).toBe("2027-06-30");
   });
 
-  it("varsayılan tercih tarih bazlıdır (preference verilmezse)", () => {
-    expect(computeContractEndDate("2026-09-15", 3)).toBe("2026-12-15");
-  });
-
-  it("ay sonu taşması tarih bazlı modda hedef ayın son gününe kenetlenir (31 Ocak + 1 ay → 28/29 Şubat)", () => {
-    expect(computeContractEndDate("2026-01-31", 1, "date_based")).toBe("2026-02-28");
-  });
-
-  it("takvim ayı sonu modunda başlangıç günü sonucu etkilemez", () => {
-    expect(computeContractEndDate("2026-09-01", 3, "month_end")).toBe("2026-12-31");
-    expect(computeContractEndDate("2026-09-30", 3, "month_end")).toBe("2026-12-31");
+  it("ay sonu / Şubat / yıl sınırı", () => {
+    expect(computeContractEndDate("2026-01-31", 2)).toBe("2026-02-28");
+    expect(computeContractEndDate("2026-09-30", 3)).toBe("2026-11-30");
+    expect(computeContractEndDate("2026-11-15", 3)).toBe("2027-01-31");
   });
 });
 
@@ -1383,10 +1377,10 @@ describe("createStudentContractTool — per-lesson öğrenci (usePerLessonBillin
       contractType: "initial",
       programmeName: "Piyano",
       enrollmentStartDate: "2026-09-01",
-      enrollmentEndDate: "2026-10-31",
-      durationMonths: 2,
+      enrollmentEndDate: "2027-07-01", // eski formül (1 Eylül + 10 ay)
+      durationMonths: 10,
       monthlyAmount: monthlyFee,
-      installmentCount: 2,
+      installmentCount: 10,
       firstDueDate: "2026-09-01",
       signatoryFullName: "Veli Adı",
       signatoryRelationship: "veli",
@@ -1399,6 +1393,9 @@ describe("createStudentContractTool — per-lesson öğrenci (usePerLessonBillin
     expect(first!.amount).toBe(septAmount);
     expect(second!.amount).toBe(2 * derivedPerLessonAmount); // Ekim kendi (farklı) tutarı, Eylül'e eşit KOPYALANMADI
     expect(second!.amount).not.toBe(first!.amount);
+    // Yalnız kayıt ayı tahsil edildi (birleşme yok): 10 satır, son Haziran, Temmuz yok.
+    expect(res.data.contract.enrollmentEndDate.slice(0, 10)).toBe("2027-06-30");
+    expect(res.data.installments.map((i) => i.sequence)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
   });
 
   it("önizleme (previewContractInstallmentPlanTool) ile oluşturulan sözleşmenin taksit planı BİREBİR aynıdır — iki ayrı hesaplama yok, tek motor", async () => {

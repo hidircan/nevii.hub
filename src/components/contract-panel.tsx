@@ -6,10 +6,11 @@ import { useRouter } from "next/navigation";
 import { Button, Card, Input, Label, Select } from "@/components/ui";
 import { LessonScheduleSlotsPicker } from "@/components/lesson-schedule-slots-picker";
 import { parseDateOnlyInput, isValidDateOnlyInput, toIsoDateOrNull, dayOfMonthUtc } from "@/lib/date-input";
-import { describePaymentDueRule } from "@/lib/payment-due-rule-client";
+import { describePaymentDueRule, paymentMethodLabel } from "@/lib/payment-due-rule-client";
 import { findLatestActiveContractForRenewal } from "@/lib/contract-list-helpers";
 import { formatDateTr } from "@/lib/timezone";
 import { paymentMethodLabelTr } from "@/lib/utils";
+import { friendlyApiErrorMessage } from "@/lib/api/friendly-error";
 
 /** 2026-2027 sözleşme kaynağı — Fotoğraf/Video Açık Rıza Formu'nun 5 kanalı, HER BİRİ ayrı değerlendirilir. */
 const PHOTO_VIDEO_CONSENT_CHANNELS: { value: string; label: string }[] = [
@@ -77,14 +78,29 @@ function formatTL(n: number) {
 }
 
 async function postJson<T>(url: string, body: unknown): Promise<{ ok: true; data: T } | { ok: false; message: string }> {
+  type Json = { ok: boolean; data?: T; error?: { code?: string; message?: string } };
+  const send = async () =>
+    (await (
+      await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+    ).json()) as Json;
   try {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    const json = (await res.json()) as { ok: boolean; data?: T; error?: { message: string } };
-    if (!json.ok) return { ok: false, message: json.error?.message || "İşlem başarısız." };
+    let json = await send();
+    // Erişim anahtarı 15 dk'da dolar; uzun sözleşme formunda "Invalid or expired
+    // access token" ham metni görünüyordu. Bir kez sessizce yenilenip tekrar denenir.
+    if (json.error?.code === "UNAUTHORIZED") {
+      const refreshed = await fetch("/api/v1/auth/refresh", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+      if (refreshed.ok) json = await send();
+    }
+    if (!json.ok) {
+      const code = json.error?.code;
+      return {
+        ok: false,
+        message:
+          code === "UNAUTHORIZED" || code === "FORBIDDEN"
+            ? friendlyApiErrorMessage(json.error, "İşlem başarısız.")
+            : json.error?.message || "İşlem başarısız.",
+      };
+    }
     return { ok: true, data: json.data as T };
   } catch {
     return { ok: false, message: "Bağlantı hatası. Lütfen tekrar deneyin." };
@@ -110,6 +126,25 @@ type ContractPrefill = {
   lessonScheduleText?: string;
 };
 
+/**
+ * Sözleşmenin öğrenci kaydından aldığı bilgiler (2026-09-15). Kayıt ekranı
+ * bunların TEK kaynağıdır; sözleşme formu bunları salt-okunur özet olarak
+ * gösterir ve formdaki değer kayıttakinden saparsa yanında söyler — kullanıcı
+ * bir çelişkiyi anlamak için ekran değiştirmek zorunda kalmaz.
+ */
+export type RegistrationSummary = {
+  registeredAt?: string;
+  contractStartDay?: string;
+  intendedDurationMonths?: number;
+  monthlyFee: number;
+  paymentMethod?: string;
+  paymentMethodLabel: string;
+  firstPayment?: { amount: number; paidAt: string; methodLabel: string };
+  signatoryName: string;
+  signatoryRelationship: "veli" | "öğrenci";
+  address?: string;
+};
+
 type FieldErrors = Record<string, string>;
 
 function FieldError({ message }: { message?: string }) {
@@ -128,16 +163,118 @@ function todayLocalDateOnly(): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+/** Yenileme önceki bitişin ERTESİ günü başlar — aynı gün başlasa "başlangıç ayı = 1. ay" kuralı bitiş ayını yeniden sayardı. */
+function dayAfter(isoDay: string): string {
+  const d = new Date(`${isoDay.slice(0, 10)}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Kayıttan gelen bilgiler — salt-okunur. Formdaki değer kayıttakinden
+ * saparsa satırın altında iki değer yan yana söylenir; sunucunun "ilk ödeme
+ * 1. taksitle aynı değil" gibi reddetmelerinin nedeni burada önceden görünür.
+ */
+function RegistrationSummaryCard({
+  studentId,
+  registration,
+  current,
+}: {
+  studentId: string;
+  registration: RegistrationSummary;
+  current: { startDay: string; monthlyAmount: number | ""; paymentMethod: string; durationMonths: number };
+}) {
+  const diffs: string[] = [];
+  if (registration.contractStartDay && current.startDay && current.startDay !== registration.contractStartDay) {
+    diffs.push(
+      `Sözleşme başlangıcı (${formatDateTr(current.startDay)}) kayıttaki ders başlangıcından (${formatDateTr(registration.contractStartDay)}) farklı.`
+    );
+  }
+  if (current.monthlyAmount !== "" && current.monthlyAmount !== registration.monthlyFee) {
+    diffs.push(`Aylık ücret (${formatTL(current.monthlyAmount)}) kayıttakinden (${formatTL(registration.monthlyFee)}) farklı.`);
+  }
+  if (registration.paymentMethod && current.paymentMethod !== registration.paymentMethod) {
+    diffs.push(
+      `Ödeme yöntemi (${paymentMethodLabel(current.paymentMethod)}) kayıttakinden (${registration.paymentMethodLabel}) farklı.`
+    );
+  }
+  if (registration.intendedDurationMonths && current.durationMonths !== registration.intendedDurationMonths) {
+    diffs.push(`Süre (${current.durationMonths} ay) kayıtta seçilen süreden (${registration.intendedDurationMonths} ay) farklı.`);
+  }
+  return (
+    <div className="mb-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3 text-xs">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <p className="font-semibold text-[var(--color-text)]">Kayıttan gelen bilgiler</p>
+        <Link
+          href={`/panel/ogrenciler/${studentId}?duzenle=kayit#genel`}
+          className="font-medium text-[var(--color-primary)] hover:underline"
+        >
+          Kayıtta düzenle →
+        </Link>
+      </div>
+      <dl className="grid grid-cols-1 gap-x-4 gap-y-1 sm:grid-cols-2">
+        {registration.registeredAt ? (
+          <div>
+            <dt className="inline text-[var(--color-text-muted)]">Kayıt tarihi: </dt>
+            <dd className="inline">{formatDateTr(registration.registeredAt)}</dd>
+          </div>
+        ) : null}
+        {registration.contractStartDay ? (
+          <div>
+            <dt className="inline text-[var(--color-text-muted)]">Ders başlangıcı: </dt>
+            <dd className="inline">{formatDateTr(registration.contractStartDay)}</dd>
+          </div>
+        ) : null}
+        {registration.intendedDurationMonths ? (
+          <div>
+            <dt className="inline text-[var(--color-text-muted)]">Seçilen süre: </dt>
+            <dd className="inline">{registration.intendedDurationMonths} ay</dd>
+          </div>
+        ) : null}
+        <div>
+          <dt className="inline text-[var(--color-text-muted)]">Aylık ücret: </dt>
+          <dd className="inline">
+            {formatTL(registration.monthlyFee)} · {registration.paymentMethodLabel}
+          </dd>
+        </div>
+        <div>
+          <dt className="inline text-[var(--color-text-muted)]">İlk tahsilat: </dt>
+          <dd className="inline">
+            {registration.firstPayment
+              ? `${formatTL(registration.firstPayment.amount)} · ${formatDateTr(registration.firstPayment.paidAt)} · ${registration.firstPayment.methodLabel}`
+              : "Kayıtta ilk tahsilat bulunamadı — formal sözleşme oluşturulamaz, önce kayıtta ilk ödemeyi girin."}
+          </dd>
+        </div>
+        <div>
+          <dt className="inline text-[var(--color-text-muted)]">Muhatap: </dt>
+          <dd className="inline">
+            {registration.signatoryName} ({registration.signatoryRelationship})
+          </dd>
+        </div>
+      </dl>
+      {diffs.length > 0 ? (
+        <ul className="mt-2 list-disc space-y-0.5 pl-4 font-medium text-amber-800 dark:text-amber-300">
+          {diffs.map((d) => (
+            <li key={d}>{d} Bilinçliyse sorun yok; değilse formu veya kaydı düzeltin.</li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
 function ContractForm({
   studentId,
   previousContract,
   prefill,
+  registration,
   onDone,
   onCancel,
 }: {
   studentId: string;
   previousContract: ContractRow | null;
   prefill?: ContractPrefill;
+  registration?: RegistrationSummary;
   onDone: () => void;
   onCancel: () => void;
 }) {
@@ -151,15 +288,12 @@ function ContractForm({
   const [lessonScheduleText, setLessonScheduleText] = useState(prefill?.lessonScheduleText ?? "");
   const [enrollmentStartDate, setEnrollmentStartDate] = useState(
     isRenewal
-      ? previousContract!.enrollmentEndDate.slice(0, 10)
+      ? dayAfter(previousContract!.enrollmentEndDate)
       : (prefill?.enrollmentStartDate?.slice(0, 10) ?? "")
   );
   const [durationMonths, setDurationMonths] = useState(isRenewal ? 3 : (prefill?.durationMonths ?? 1));
-  // P0 (2026-09-03) — müşteri, kayıt ortasında başlasa bile sözleşmenin nasıl
-  // biteceğini seçebilmeli: "date_based" (başlangıçtan itibaren N ay, aynı
-  // gün-of-month) veya "month_end" (N. ayın takvim sonu). İkisi de aynı
-  // `enrollmentEndDate` alanına yazılır — yeni bir şema/migration YOK.
-  const [endDatePreference, setEndDatePreference] = useState<"date_based" | "month_end">("date_based");
+  // Bitiş tercihi (bkz. contracts.ts computeContractEndDate) — iki seçenekte de son taksit N. aydadır.
+  const [endDatePreference, setEndDatePreference] = useState<"month_end" | "date_based">("month_end");
   // P0 (2026-09-04) — "Sözleşmenin son döneminde eksik kalan dersler nasıl
   // ücretlendirilsin?" — yalnız per-lesson fiyatlandırma (usePerLessonBilling)
   // kullanan öğrenciler için anlamlı; "remaining_lessons" (varsayılan/eski
@@ -175,14 +309,17 @@ function ContractForm({
   const [monthlyAmount, setMonthlyAmount] = useState<number | "">(previousContract?.monthlyAmount ?? prefill?.monthlyAmount ?? "");
   const [installmentCount, setInstallmentCount] = useState(isRenewal ? 3 : (prefill?.durationMonths ?? 1));
   const [firstDueDate, setFirstDueDate] = useState(
-    isRenewal ? previousContract!.enrollmentEndDate.slice(0, 10) : (prefill?.enrollmentStartDate?.slice(0, 10) ?? "")
+    isRenewal ? dayAfter(previousContract!.enrollmentEndDate) : (prefill?.enrollmentStartDate?.slice(0, 10) ?? "")
   );
   const [depositAmount, setDepositAmount] = useState<number | "">("");
   const [paymentMethod, setPaymentMethod] = useState(previousContract?.paymentMethod ?? prefill?.paymentMethod ?? "cash");
-  const [signatoryFullName, setSignatoryFullName] = useState(previousContract?.signatoryFullName ?? "");
+  // İmzalayan, kayıttaki ödeme/iletişim muhatabından (veli ↔ öğrenci) ve adresten ön doldurulur — aynı bilgi iki kez girilmez.
+  const [signatoryFullName, setSignatoryFullName] = useState(previousContract?.signatoryFullName ?? registration?.signatoryName ?? "");
   const [signatoryNationalId, setSignatoryNationalId] = useState("");
-  const [signatoryAddress, setSignatoryAddress] = useState("");
-  const [signatoryRelationship, setSignatoryRelationship] = useState<"veli" | "öğrenci">("veli");
+  const [signatoryAddress, setSignatoryAddress] = useState(registration?.address ?? "");
+  const [signatoryRelationship, setSignatoryRelationship] = useState<"veli" | "öğrenci">(
+    registration?.signatoryRelationship ?? "veli"
+  );
   const [photoConsent, setPhotoConsent] = useState<"granted" | "denied" | "unset">("unset");
   const [photoScopes, setPhotoScopes] = useState<Set<string>>(new Set());
   const [kvkkNoticeDelivered, setKvkkNoticeDelivered] = useState(false);
@@ -217,16 +354,14 @@ function ContractForm({
   const enrollmentEndDate = (() => {
     const start = parseDateOnlyInput(enrollmentStartDate);
     if (!start || !durationMonths) return "";
-    const d = new Date(start);
-    d.setUTCMonth(d.getUTCMonth() + durationMonths);
-    if (endDatePreference === "month_end") {
-      // N. ayın takvim sonu — ör. 15 Eylül + 3 ay → Aralık ayının son günü.
-      return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).toISOString().slice(0, 10);
+    // Başlangıç ayı = 1. ay. Ay sonu: 10 Eylül + 10 → 30 Haziran; tarih bazlı: → 9 Temmuz.
+    const y = start.getUTCFullYear();
+    const m = start.getUTCMonth();
+    if (endDatePreference === "date_based") {
+      const lastDay = new Date(Date.UTC(y, m + durationMonths + 1, 0)).getUTCDate();
+      return new Date(Date.UTC(y, m + durationMonths, Math.min(start.getUTCDate(), lastDay) - 1)).toISOString().slice(0, 10);
     }
-    // Tarih bazlı — ör. 15 Eylül + 3 ay → 15 Aralık (ay sonu taşması ayın son gününe kenetlenir).
-    const lastDayOfTargetMonth = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
-    d.setUTCDate(Math.min(start.getUTCDate(), lastDayOfTargetMonth));
-    return d.toISOString().slice(0, 10);
+    return new Date(Date.UTC(y, m + durationMonths, 0)).toISOString().slice(0, 10);
   })();
 
   const isFormal = durationMonths >= 3;
@@ -302,6 +437,7 @@ function ContractForm({
       depositAmount: depositAmount === "" ? undefined : depositAmount,
       paymentMethod,
       usePerLessonBilling,
+      endDatePreference,
       studentId,
       enrollmentStartDate: toIsoDateOrNull(enrollmentStartDate) ?? undefined,
       enrollmentEndDate: toIsoDateOrNull(enrollmentEndDate) ?? undefined,
@@ -347,7 +483,7 @@ function ContractForm({
         errors.firstPaymentCollectedAt = "İlk ödeme tarihi zorunludur.";
       } else if (firstPaymentDateNeedsException && !firstPaymentDateExceptionReason.trim()) {
         errors.firstPaymentCollectedAt =
-          "İlk ödeme kayıt tarihinden farklı — istisnai/gecikmeli kayıt gerekçesi zorunludur.";
+          "İlk ödeme sözleşme başlangıç tarihinden farklı — istisnai/gecikmeli kayıt gerekçesi zorunludur.";
       }
     }
     if (usePerLessonBilling && lastPeriodPricingMode === "manual" && (!lastPeriodManualAmount || lastPeriodManualAmount <= 0)) {
@@ -388,6 +524,7 @@ function ContractForm({
       monthlyAmount,
       installmentCount,
       usePerLessonBilling,
+      endDatePreference,
       lastPeriodPricingMode: usePerLessonBilling ? lastPeriodPricingMode : undefined,
       lastPeriodManualAmount:
         usePerLessonBilling && lastPeriodPricingMode === "manual" && lastPeriodManualAmount !== ""
@@ -452,6 +589,13 @@ function ContractForm({
           gerekirse değiştirin. Önceki sözleşme değişmeden, ayrı bir sürüm olarak arşivde kalır.
         </p>
       ) : null}
+      {!isRenewal && registration ? (
+        <RegistrationSummaryCard
+          studentId={studentId}
+          registration={registration}
+          current={{ startDay: enrollmentStartDate, monthlyAmount, paymentMethod, durationMonths }}
+        />
+      ) : null}
 
       {hasAnyError ? (
         <div
@@ -484,7 +628,7 @@ function ContractForm({
           <FieldError message={fieldErrors.programmeName} />
         </div>
         <div>
-          <Label>Kayıt başlangıç tarihi</Label>
+          <Label>Sözleşme başlangıç tarihi</Label>
           <Input
             type="date"
             value={enrollmentStartDate}
@@ -509,12 +653,15 @@ function ContractForm({
           <Label>Sözleşme bitiş tercihi</Label>
           <select
             value={endDatePreference}
-            onChange={(e) => setEndDatePreference(e.target.value as "date_based" | "month_end")}
+            onChange={(e) => setEndDatePreference(e.target.value as "month_end" | "date_based")}
             className="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text)]"
           >
-            <option value="date_based">Başlangıç tarihinden itibaren</option>
             <option value="month_end">Takvim ayı sonuna kadar</option>
+            <option value="date_based">Başlangıç tarihinden itibaren</option>
           </select>
+          <p className="mt-1 text-xs text-[var(--color-text-muted)]">
+            İki seçenekte de taksit sayısı süre kadardır; son aydan taşan günler son taksite eklenir.
+          </p>
         </div>
         <div>
           <Label>Sözleşme bitiş tarihi (otomatik)</Label>
@@ -760,7 +907,7 @@ function ContractForm({
             <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs dark:border-amber-900 dark:bg-amber-950/30">
               <Label>İstisnai ilk ödeme tarihi gerekçesi (gecikmeli/geç kayıt)</Label>
               <p className="mb-2 text-[var(--color-text-muted)]">
-                İlk ödeme tarihi kayıt tarihinden farklı — yalnızca yetkili onaylı, gecikmeli/geriye
+                İlk ödeme tarihi sözleşme başlangıç tarihinden farklı — yalnızca yetkili onaylı, gecikmeli/geriye
                 dönük kayıt durumları için doldurun.
               </p>
               <Input
@@ -981,6 +1128,7 @@ export function ContractPanel({
   canManage,
   autoOpenInitial,
   prefill,
+  registration,
 }: {
   studentId: string;
   contracts: ContractRow[];
@@ -988,6 +1136,7 @@ export function ContractPanel({
   /** Faz 4 — yeni öğrenci kaydından hemen sonra "Sözleşmeyi Gözden Geçir ve Oluştur" akışı için formu doğrudan açık başlatır. */
   autoOpenInitial?: boolean;
   prefill?: ContractPrefill;
+  registration?: RegistrationSummary;
 }) {
   const router = useRouter();
   const [formMode, setFormMode] = useState<"none" | "initial" | "renewal">(
@@ -1072,6 +1221,7 @@ export function ContractPanel({
           studentId={studentId}
           previousContract={null}
           prefill={prefill}
+          registration={registration}
           onDone={() => setFormMode("none")}
           onCancel={() => setFormMode("none")}
         />

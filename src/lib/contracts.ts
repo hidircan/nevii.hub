@@ -100,55 +100,60 @@ function addMonthsClamped(isoDate: string, months: number): string {
   return target.toISOString();
 }
 
-export type ContractEndDatePreference = "date_based" | "month_end";
+export type ContractEndDatePreference = "month_end" | "date_based";
 
 /**
- * P0 (2026-09-03) — müşteri, kayıt ortasında başlasa bile sözleşmenin nasıl
- * biteceğini seçebilir: "date_based" (başlangıçtan itibaren N ay, aynı
- * gün-of-month, ay sonu taşması kenetlenir — `addMonthsClamped` ile AYNI
- * kural) veya "month_end" (N. ayın takvim sonu). TEK kaynak — UI önizlemesi
- * (contract-panel.tsx) ve sözleşme oluşturma AYNI fonksiyonu çağırmalı.
- * yyyy-MM-dd (gün-yalnız) girer, yyyy-MM-dd döner — saat dilimi kayması yok.
+ * Sözleşme bitişi (2026-09-15, sahip kararı): başlangıç ayı sözleşmenin 1.
+ * ayıdır ve son taksit N. aydadır (10 aylık Eylül sözleşmesi → son taksit
+ * Haziran). Müşteri bitişi seçer:
+ *  - "month_end" (varsayılan): N. ayın takvim sonu — 10 Eylül + 10 → 30 Haziran.
+ *  - "date_based": başlangıçtan itibaren TAM N ay — 10 Eylül + 10 → 9 Temmuz.
+ *    Taksit sayısı yine N'dir: N. aydan taşan günler son taksite eklenir
+ *    (bkz. `foldBillingLinesIntoContractMonths`), Temmuz'a ayrı taksit açılmaz.
+ * Eski "başlangıç + N ay, aynı gün" (10 Temmuz) hem bir gün fazlaydı hem
+ * fazladan bir Temmuz taksiti üretiyordu. TEK kaynak — contract-panel.tsx
+ * aynısını yansıtır. yyyy-MM-dd girer, yyyy-MM-dd döner — saat dilimi kayması yok.
  */
 export function computeContractEndDate(
   startDay: string,
   durationMonths: number,
-  preference: ContractEndDatePreference = "date_based"
+  preference: ContractEndDatePreference = "month_end"
 ): string {
   const start = new Date(`${startDay}T00:00:00Z`);
-  const target = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + durationMonths, 1));
-  const lastDayOfTargetMonth = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)).getUTCDate();
-  if (preference === "month_end") {
-    target.setUTCDate(lastDayOfTargetMonth);
-  } else {
-    target.setUTCDate(Math.min(start.getUTCDate(), lastDayOfTargetMonth));
+  const y = start.getUTCFullYear();
+  const m = start.getUTCMonth();
+  if (preference === "date_based") {
+    // N ay sonrasının aynı günü (ay sonuna kenetlenir) − 1 gün.
+    const lastDay = new Date(Date.UTC(y, m + durationMonths + 1, 0)).getUTCDate();
+    return new Date(Date.UTC(y, m + durationMonths, Math.min(start.getUTCDate(), lastDay) - 1)).toISOString().slice(0, 10);
   }
-  return target.toISOString().slice(0, 10);
+  return new Date(Date.UTC(y, m + durationMonths, 0)).toISOString().slice(0, 10);
 }
 
 /**
- * Hata düzeltmesi (2026-09-15) — "3 ders eşiği" birleşmesi sözleşmeyi BİR AY
- * UZATMAMALI. `computeContractEndDate` başlangıç + N ay verir (17 Eylül + 10 →
- * 17 Temmuz); ay ortası başlangıçta bu N+1 takvim dönemi demektir (Eylül
- * kısmi … Temmuz). Kayıt ayı TEK başına bir satırsa sorun yok, ama birleşince
- * ilk satır Eylül+Ekim'i kapsar ve kalan satırlar yine Temmuz'a kadar
- * sürer — 10 aylık sözleşme fiilen 11 takvim ayı ücretlendirilir. Birleşme
- * durumunda kayıt ayı sözleşmenin 1. ayı sayılır: bitiş, (başlangıç ayı +
- * N−1). ayın takvim sonudur (Eylül + 10 → 30 Haziran). Birleşme yoksa girilen
- * bitiş AYNEN korunur. Koşul `buildPerLessonInstallmentSchedule`'daki
- * `shouldMerge` ile AYNIDIR (N≥2 iken ikinci dönem her zaman vardır).
+ * "date_based" bitişte sözleşme N. ayı birkaç gün aşar (10 Eylül → 9 Temmuz).
+ * Taksit sayısı N'yi aşmasın diye N. aydan sonraki dönemler N. ayın satırına
+ * eklenir: son satır "1 Haziran 2027 – 9 Temmuz 2027" olur. "month_end"
+ * bitişte hiçbir dönem N. ayı aşmadığından liste aynen döner.
  */
-export function resolvePerLessonContractEndDay(input: {
-  enrollmentStartDay: string;
-  enrollmentEndDay: string;
-  durationMonths: number;
-  firstPeriodBillableLessonCount: number;
-  mergeThresholdLessons: number;
-}): string {
-  if (input.durationMonths < 2 || !shouldMergeFirstCollection(input.firstPeriodBillableLessonCount, input.mergeThresholdLessons)) {
-    return input.enrollmentEndDay;
-  }
-  return computeContractEndDate(input.enrollmentStartDay.slice(0, 10), input.durationMonths - 1, "month_end");
+export function foldBillingLinesIntoContractMonths(
+  lines: import("./period-lesson-billing").PeriodBillingLine[],
+  startDay: string,
+  durationMonths: number
+): import("./period-lesson-billing").PeriodBillingLine[] {
+  const lastMonthEnd = computeContractEndDate(startDay, durationMonths, "month_end");
+  const inside = lines.filter((l) => l.periodStart <= lastMonthEnd);
+  const tail = lines.filter((l) => l.periodStart > lastMonthEnd);
+  if (tail.length === 0 || inside.length === 0) return lines;
+  const last = inside[inside.length - 1]!;
+  inside[inside.length - 1] = {
+    ...last,
+    kind: inside.length === 1 ? "single" : "end",
+    periodEnd: tail[tail.length - 1]!.periodEnd,
+    billableLessonCount: last.billableLessonCount + tail.reduce((s, l) => s + l.billableLessonCount, 0),
+    autoCalculatedAmount: last.autoCalculatedAmount + tail.reduce((s, l) => s + l.autoCalculatedAmount, 0),
+  };
+  return inside;
 }
 
 /** Aynı ay içinde `day`'e (ayın son gününe kenetlenerek) kaydırır — hedef ay `isoDate`'in ayıdır. */
@@ -804,14 +809,14 @@ export async function createContract(input: CreateContractInput): Promise<Create
       const firstInstallmentAmount = installments[0]?.amount ?? 0;
       if (registrationFirstPayment.amount !== firstInstallmentAmount) {
         throw new Error(
-          `Kayıt sırasında tahsil edilen ilk ödeme tutarı (${registrationFirstPayment.amount}) hesaplanan 1. taksit tutarıyla (${firstInstallmentAmount}) eşleşmiyor.`
+          `Kayıtta tahsil edilen ilk ödeme (${new Intl.NumberFormat("tr-TR").format(registrationFirstPayment.amount)} TL) bu sözleşmenin 1. taksitiyle (${new Intl.NumberFormat("tr-TR").format(firstInstallmentAmount)} TL) aynı değil. Sözleşmedeki aylık ücret veya taksit sayısı kayıttakinden farklı olabilir: bu alanları kayıttaki değerlere eşitleyin ya da "Öğrenci Kaydını Düzenle" ile ilk ödemeyi düzeltin.`
         );
       }
     } else if (requiresFirstPaymentAtRegistration && input.firstPaymentCollected) {
       const firstInstallmentAmount = installments[0]?.amount ?? 0;
       if (input.firstPaymentCollected.amount !== firstInstallmentAmount) {
         throw new Error(
-          `Tahsil edilen ilk ödeme tutarı (${input.firstPaymentCollected.amount}) hesaplanan 1. taksit tutarıyla (${firstInstallmentAmount}) eşleşmiyor.`
+          `Girilen ilk ödeme (${new Intl.NumberFormat("tr-TR").format(input.firstPaymentCollected.amount)} TL) bu sözleşmenin 1. taksitiyle (${new Intl.NumberFormat("tr-TR").format(firstInstallmentAmount)} TL) aynı değil. Tahsil edilen tutarı veya aylık ücret/taksit sayısını düzeltin.`
         );
       }
     }

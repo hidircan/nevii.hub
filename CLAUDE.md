@@ -180,6 +180,13 @@ state/runs, conversations, memory) follows the same per-mode parity contract.
 - `ServiceResult<T>` (`src/lib/services/result.ts`, `ok`/`fail`) is the uniform return shape for
   every service/tool function; API routes convert it via `fromServiceResult`
   (`src/lib/api/http.ts`). Don't throw from a tool for an expected failure — return `fail(...)`.
+- **Every error a user can see must be a clear Turkish sentence stating the real cause and how
+  to fix it** (owner rule, 2026-09-15 — one of the product's most important requirements). Never
+  surface raw/technical text ("Invalid or expired access token", stack/Prisma messages) or a
+  vague "İşlem başarısız." when the cause is known; name the conflicting values/field and the
+  screen where it is fixed. Client fetches use `friendlyApiErrorMessage`
+  (`src/lib/api/friendly-error.ts`) for auth codes and must retry once after
+  `/api/v1/auth/refresh` on `UNAUTHORIZED` (access token TTL is 15 min).
 
 <!-- BEGIN:nextjs-agent-rules -->
 

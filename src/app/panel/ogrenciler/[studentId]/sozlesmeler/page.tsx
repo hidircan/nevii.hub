@@ -4,7 +4,8 @@ import { requireSessionContext } from "@/lib/auth/session";
 import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { listStudentContractsTool } from "@/lib/services";
-import { ContractPanel } from "@/components/contract-panel";
+import { ContractPanel, type RegistrationSummary } from "@/components/contract-panel";
+import { paymentMethodLabelTr } from "@/lib/utils";
 import { BackButton } from "@/components/back-button";
 import { Card, EmptyState, PageHeader } from "@/components/ui";
 import { isFormalContractDuration } from "@/lib/contracts";
@@ -76,6 +77,25 @@ export default async function StudentContractsCenterPage({
   const registrationFirstPayment = data.payments.find(
     (p) => p.studentId === student.id && p.source === "registration_first_payment"
   );
+  const selfManaged = student.accountResponsibility === "SELF_MANAGED";
+  const registration: RegistrationSummary = {
+    registeredAt: student.enrollmentStartDate,
+    contractStartDay: (student.lessonStartDate ?? student.enrollmentStartDate)?.slice(0, 10),
+    intendedDurationMonths: isNewStudent ? intendedDurationMonths : undefined,
+    monthlyFee: student.monthlyFee,
+    paymentMethod: student.paymentMethod,
+    paymentMethodLabel: paymentMethodLabelTr(student.paymentMethod),
+    firstPayment: registrationFirstPayment
+      ? {
+          amount: registrationFirstPayment.amount,
+          paidAt: registrationFirstPayment.paidAt ?? registrationFirstPayment.dueDate,
+          methodLabel: paymentMethodLabelTr(registrationFirstPayment.method),
+        }
+      : undefined,
+    signatoryName: selfManaged ? student.name : student.parentName,
+    signatoryRelationship: selfManaged ? "öğrenci" : "veli",
+    address: student.address,
+  };
   const canManagePaymentProfile = session.role === "SCHOOL_ADMIN" || session.role === "SUPER_ADMIN";
   const isFormal = isFormalContractDuration(intendedDurationMonths);
   // P0 (2026-09-05) — birleşik çıktının EK bölümlerini besleyen şablonlar
@@ -137,6 +157,7 @@ export default async function StudentContractsCenterPage({
           contracts={contracts}
           canManage={canManagePaymentProfile}
           autoOpenInitial={isNewStudent && isFormal}
+          registration={registration}
           prefill={
             isNewStudent
               ? {
