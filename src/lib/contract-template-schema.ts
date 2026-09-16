@@ -23,7 +23,7 @@ const CORE_PLACEHOLDERS: ContractTemplatePlaceholderDef[] = [
   { key: "paymentDueRuleText", label: "Ödeme kuralı metni (kredi kartı 1–5 / havale-nakit ≤15)", required: true },
   { key: "totalContractAmountText", label: "Toplam sözleşme bedeli", required: true },
   { key: "signatoryFullName", label: "İmzalayan (veli/öğrenci) ad soyad", required: true },
-  { key: "enrollmentStartDateText", label: "Kayıt başlangıç tarihi", required: true },
+  { key: "enrollmentStartDateText", label: "Sözleşme başlangıç tarihi", required: true },
   { key: "reference", label: "Sözleşme referans numarası", required: false },
   { key: "versionNumber", label: "Sürüm numarası", required: false },
   { key: "contractTypeLabel", label: "Sözleşme türü (İlk Kayıt/Yenileme/Değişiklik)", required: false },
