@@ -27,7 +27,7 @@ describe("buildPerLessonInstallmentSchedule", () => {
     });
     const schedule = buildPerLessonInstallmentSchedule({
       billingLines,
-      mergeThresholdLessons: THRESHOLD,
+      mergeFirstTwoPeriods: false,
       firstDueDate: "2026-09-15",
     });
     expect(schedule.map((s) => s.amount)).toEqual([2000, 4000, 2000]);
@@ -57,7 +57,7 @@ describe("buildPerLessonInstallmentSchedule", () => {
     expect(billingLines[0]!.billableLessonCount).toBeGreaterThan(THRESHOLD);
     const schedule = buildPerLessonInstallmentSchedule({
       billingLines,
-      mergeThresholdLessons: THRESHOLD,
+      mergeFirstTwoPeriods: false,
       firstPeriodManualNetAmount: 300,
       firstDueDate: "2026-09-01",
     });
@@ -80,7 +80,7 @@ describe("buildPerLessonInstallmentSchedule", () => {
     });
     const schedule = buildPerLessonInstallmentSchedule({
       billingLines,
-      mergeThresholdLessons: THRESHOLD,
+      mergeFirstTwoPeriods: false,
       firstDueDate: "2026-09-15",
     });
     const engineTotal = billingLines.reduce((s, l) => s + l.autoCalculatedAmount, 0);
@@ -90,7 +90,7 @@ describe("buildPerLessonInstallmentSchedule", () => {
 
   it("boş dönem listesi boş taksit listesi döner (hata fırlatmaz)", () => {
     expect(
-      buildPerLessonInstallmentSchedule({ billingLines: [], mergeThresholdLessons: THRESHOLD, firstDueDate: "2026-09-01" })
+      buildPerLessonInstallmentSchedule({ billingLines: [], mergeFirstTwoPeriods: false, firstDueDate: "2026-09-01" })
     ).toEqual([]);
   });
 
@@ -115,7 +115,7 @@ describe("buildPerLessonInstallmentSchedule", () => {
       expect(billingLines[0]!.billableLessonCount).toBe(2); // eşik (3) altında
       const schedule = buildPerLessonInstallmentSchedule({
         billingLines,
-        mergeThresholdLessons: THRESHOLD,
+        mergeFirstTwoPeriods: true,
         firstDueDate: "2026-09-17",
       });
       // Eylül (2×1500=3000) + Ekim (4×1500=6000) = 9000, tek satırda.
@@ -150,7 +150,7 @@ describe("buildPerLessonInstallmentSchedule", () => {
       expect(billingLines[0]!.billableLessonCount).toBe(4); // eşik (3) üstünde
       const schedule = buildPerLessonInstallmentSchedule({
         billingLines,
-        mergeThresholdLessons: THRESHOLD,
+        mergeFirstTwoPeriods: false,
         firstDueDate: "2026-09-17",
       });
       expect(schedule[0]!.kind).toBe("first_collection");
@@ -176,7 +176,7 @@ describe("buildPerLessonInstallmentSchedule", () => {
       // Otomatik toplam: Eylül (1×1500) + Ekim (4×1500) = 7500. Veli fiilen 7000 ödedi.
       const schedule = buildPerLessonInstallmentSchedule({
         billingLines,
-        mergeThresholdLessons: THRESHOLD,
+        mergeFirstTwoPeriods: true,
         firstPeriodManualNetAmount: 7000,
         firstDueDate: "2026-09-17",
       });
@@ -205,7 +205,7 @@ describe("buildPerLessonInstallmentSchedule", () => {
       });
       const schedule = buildPerLessonInstallmentSchedule({
         billingLines,
-        mergeThresholdLessons: THRESHOLD,
+        mergeFirstTwoPeriods: true,
         firstPeriodManualNetAmount: 7500, // otomatikle birebir aynı
         firstDueDate: "2026-09-17",
       });
@@ -236,7 +236,7 @@ describe("buildPerLessonInstallmentSchedule", () => {
       const billingLines = threeRowBillingLines();
       const schedule = buildPerLessonInstallmentSchedule({
         billingLines,
-        mergeThresholdLessons: THRESHOLD,
+        mergeFirstTwoPeriods: false,
         firstDueDate: "2026-09-15",
         lastPeriodPricing: { mode: "remaining_lessons" },
       });
@@ -248,7 +248,7 @@ describe("buildPerLessonInstallmentSchedule", () => {
       const billingLines = threeRowBillingLines();
       const schedule = buildPerLessonInstallmentSchedule({
         billingLines,
-        mergeThresholdLessons: THRESHOLD,
+        mergeFirstTwoPeriods: false,
         firstDueDate: "2026-09-15",
         lastPeriodPricing: { mode: "regular_fee", regularFeeAmount: 4000 },
       });
@@ -262,7 +262,7 @@ describe("buildPerLessonInstallmentSchedule", () => {
       const billingLines = threeRowBillingLines();
       const schedule = buildPerLessonInstallmentSchedule({
         billingLines,
-        mergeThresholdLessons: THRESHOLD,
+        mergeFirstTwoPeriods: false,
         firstDueDate: "2026-09-15",
         lastPeriodPricing: { mode: "manual", manualAmount: 1250 },
       });
@@ -282,7 +282,7 @@ describe("buildPerLessonInstallmentSchedule", () => {
       });
       const schedule = buildPerLessonInstallmentSchedule({
         billingLines,
-        mergeThresholdLessons: THRESHOLD,
+        mergeFirstTwoPeriods: false,
         firstDueDate: "2026-09-01",
         lastPeriodPricing: { mode: "regular_fee", regularFeeAmount: 9999 },
       });
@@ -303,7 +303,7 @@ describe("computeContractEndDate + plan — başlangıç ayı = 1. ay (2026-09-1
     const lessons = ["2026-09-10", "2026-09-14", "2026-09-17", "2026-09-21"].map((d, i) => lesson(`s${i}`, d));
     const schedule = buildPerLessonInstallmentSchedule({
       billingLines: linesUntil("2026-09-10", end, lessons),
-      mergeThresholdLessons: THRESHOLD,
+      mergeFirstTwoPeriods: false,
       firstDueDate: "2026-09-10",
     });
     expect(schedule[0]!.kind).toBe("first_collection");
@@ -317,7 +317,7 @@ describe("computeContractEndDate + plan — başlangıç ayı = 1. ay (2026-09-1
     expect(end).toBe("2027-06-30");
     const schedule = buildPerLessonInstallmentSchedule({
       billingLines: linesUntil("2026-09-17", end, [lesson("a", "2026-09-17"), lesson("b", "2026-10-05"), lesson("c", "2026-10-12")]),
-      mergeThresholdLessons: THRESHOLD,
+      mergeFirstTwoPeriods: true,
       firstDueDate: "2026-09-17",
     });
     expect(schedule[0]!.kind).toBe("first_collection_combined");
@@ -343,7 +343,7 @@ describe("taksit numarası = sözleşme ayı (2026-09-15)", () => {
         studentId: "s1",
         makeupRequests: [],
       }),
-      mergeThresholdLessons: THRESHOLD,
+      mergeFirstTwoPeriods: true,
       firstDueDate: "2026-09-10",
     });
     expect(schedule.map((r) => r.sequence)).toEqual([1, 3, 4, 5, 6, 7, 8, 9, 10]);
@@ -363,7 +363,7 @@ describe("taksit numarası = sözleşme ayı (2026-09-15)", () => {
         studentId: "s1",
         makeupRequests: [],
       }),
-      mergeThresholdLessons: THRESHOLD,
+      mergeFirstTwoPeriods: false,
       firstDueDate: "2026-09-01",
     });
     expect(schedule.map((r) => r.sequence)).toEqual([1, 2, 3]);
@@ -387,7 +387,7 @@ describe("shouldMergeFirstCollection — kayıt ve sözleşme için TEK kural", 
         studentId: "s1",
         makeupRequests: [],
       }),
-      mergeThresholdLessons: THRESHOLD,
+      mergeFirstTwoPeriods: false,
       firstDueDate: "2026-09-10",
     });
     expect(schedule.map((r) => [r.sequence, r.kind, r.periodLabel])).toEqual([
@@ -425,7 +425,7 @@ describe("bitiş tercihi — başlangıç tarihinden itibaren (date_based)", () 
       "2026-09-10",
       10
     );
-    const schedule = buildPerLessonInstallmentSchedule({ billingLines: lines, mergeThresholdLessons: THRESHOLD, firstDueDate: "2026-09-10" });
+    const schedule = buildPerLessonInstallmentSchedule({ billingLines: lines, mergeFirstTwoPeriods: false, firstDueDate: "2026-09-10" });
     expect(schedule).toHaveLength(10);
     expect(schedule.at(-1)!.sequence).toBe(10);
     expect(schedule.at(-1)!.periodLabel).toBe("1 Haziran 2027 – 9 Temmuz 2027");

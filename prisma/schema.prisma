@@ -847,6 +847,9 @@ model Payment {
   adjustmentReason    String?
   adjustedBy          String?
   adjustedAt          DateTime?
+  /// Sahip kararı (2026-09-16) — ilk tahsilat takip eden ayın tam ücretini de
+  /// kapsıyor mu (kayıt ekranındaki açık seçim; sözleşme planı bunu okur).
+  firstCollectionIncludesNextMonth Boolean?
   /// P0 (2026-09-03) — taksit satırının GÖRÜNÜR tahsilat türü ("first_collection" |
   /// "first_collection_combined" | "period_fee" | "deposit"). Yalnızca contractId
   /// dolu (taksit) satırlarda anlamlı; tüm mevcut Payment satırlarında NULL kalır,

@@ -185,9 +185,14 @@ export function NewStudentForm({
   // elle yazdığı adres bu state'te KORUNUR ve "farklı e-posta" seçilince geri
   // gelir.
   const [portalEmail, setPortalEmail] = useState(() => v("invitePortalEmail") ?? "");
+  // Sahip kararı (2026-09-16) — ilk tahsilata takip eden ayın ücretini ekleme SEÇENEĞİ.
+  // Kullanıcı dokunmadıysa "3 ders eşiği" varsayılanı uygulanır; dokunduysa seçimi korunur.
+  const [includeNextMonth, setIncludeNextMonth] = useState(false);
+  const includeNextMonthRef = useRef(false);
+  const includeTouchedRef = useRef(false);
   const portalEmailMirrorsStudent = portalAccessType === "SELF" && !useDifferentPortalEmail;
 
-  function recomputePreview() {
+  function recomputePreview(includeOverride?: boolean) {
     const form = formRef.current;
     if (!form) return;
     const fd = new FormData(form);
@@ -238,9 +243,15 @@ export function NewStudentForm({
       // (5.950 → 5.952). Sunucudaki `createStudentTool` ile AYNI
       // `computePeriodAmount` fonksiyonundan geçer; ayrı formül YOK.
       const firstPeriodAmount = computePeriodAmount(monthlyFee, weeklyLessonCount, plannedLessons);
-      const suggestedAmount = shouldMergeFirstCollection(plannedLessons, DEFAULT_FIRST_COLLECTION_MERGE_THRESHOLD_LESSONS)
-        ? firstPeriodAmount + monthlyFee
-        : firstPeriodAmount;
+      // Sahip kararı (2026-09-16) — takip eden ayı eklemek kullanıcının seçimi;
+      // "3 ders eşiği" yalnız kullanıcı dokunmadıysa varsayılanı belirler.
+      const ruleDefault = shouldMergeFirstCollection(plannedLessons, DEFAULT_FIRST_COLLECTION_MERGE_THRESHOLD_LESSONS);
+      const effectiveInclude = includeOverride ?? (includeTouchedRef.current ? includeNextMonthRef.current : ruleDefault);
+      if (!includeTouchedRef.current && effectiveInclude !== includeNextMonthRef.current) {
+        includeNextMonthRef.current = effectiveInclude;
+        setIncludeNextMonth(effectiveInclude);
+      }
+      const suggestedAmount = effectiveInclude ? firstPeriodAmount + monthlyFee : firstPeriodAmount;
       setPreview({
         monthlyFee,
         weeklyLessonCount,
@@ -338,7 +349,7 @@ export function NewStudentForm({
   }, [state]);
 
   return (
-    <form ref={formRef} action={formAction} onChange={recomputePreview} className="space-y-6" noValidate>
+    <form ref={formRef} action={formAction} onChange={() => recomputePreview()} className="space-y-6" noValidate>
       {hasError ? (
         <div
           ref={summaryRef}
@@ -776,6 +787,27 @@ export function NewStudentForm({
               tutar tahsil ettiyseniz onu girin, aşağıya gerekçe yazın.
             </p>
           ) : null}
+          <label className="flex items-start gap-2 rounded-lg border border-[var(--color-border)] px-3 py-2 text-xs">
+            <input
+              type="checkbox"
+              checked={includeNextMonth}
+              onChange={(e) => {
+                includeTouchedRef.current = true;
+                includeNextMonthRef.current = e.target.checked;
+                setIncludeNextMonth(e.target.checked);
+                recomputePreview(e.target.checked);
+              }}
+              className="mt-0.5 h-3.5 w-3.5"
+            />
+            <span>
+              İlk tahsilata takip eden ayın tam ücretini de ekle
+              <span className="block text-[var(--color-text-muted)]">
+                Kayıt ayında 3&apos;ten az ders kalıyorsa varsayılan olarak işaretlenir. İşaretliyse sözleşmenin ilk
+                taksiti kayıt ayı + takip eden ayı kapsar; işaretli değilse takip eden ay ayrı taksit olarak kalır.
+              </span>
+            </span>
+          </label>
+          <input type="hidden" name="firstCollectionIncludesNextMonth" value={includeNextMonth ? "1" : "0"} />
           {/* P0-B (2026-09-02) — fiili tutar sistem önerisinden farklı girildiğinde
               CANLI fark dökümü (Sistem önerisi / Fiili tahsilat / Fark). */}
           {hasFirstPaymentMismatch ? (

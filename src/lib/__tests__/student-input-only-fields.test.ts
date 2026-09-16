@@ -55,6 +55,8 @@ function schemaKeys(schema: unknown): string[] {
  */
 const EXPECTED_INPUT_ONLY = [
   "createPortalAccess",
+  // Payment.firstCollectionIncludesNextMonth olarak saklanır; Student kolonu yok.
+  "firstCollectionIncludesNextMonth",
   "firstPaymentAdjustmentReason",
   "firstPaymentCollected",
   "firstPaymentExceptionReason",

@@ -251,6 +251,8 @@ export const studentSchema = z.object({
    * tutarla karşılaştırıp reddeder/kabul eder, asla sessizce geçmez.
    */
   firstPaymentAdjustmentReason: optionalTrimmed,
+  /** Sahip kararı (2026-09-16) — ilk tahsilata takip eden ayın tam ücreti de eklendi mi (kayıt ekranındaki AÇIK seçim). */
+  firstCollectionIncludesNextMonth: z.boolean().optional(),
 }).refine((v) => v.monthlyFeeOverrideAmount === undefined || !!v.monthlyFeeOverrideReason, {
   message: "Manuel ücret girildiyse gerekçe zorunludur.",
   path: ["monthlyFeeOverrideReason"],

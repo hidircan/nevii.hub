@@ -532,6 +532,7 @@ function mapSchoolToAppData(school: PrismaSchoolWithRelations): AppData {
       paymentNote: payment.paymentNote ?? undefined,
       receivedByUserId: payment.receivedByUserId ?? undefined,
       autoSuggestedAmount: payment.autoSuggestedAmount ?? undefined,
+      firstCollectionIncludesNextMonth: payment.firstCollectionIncludesNextMonth ?? undefined,
       adjustmentReason: payment.adjustmentReason ?? undefined,
       adjustedBy: payment.adjustedBy ?? undefined,
       adjustedAt: payment.adjustedAt?.toISOString() ?? undefined,
@@ -2987,6 +2988,7 @@ export async function getRegistrationFirstPayment(studentId: string): Promise<im
     paymentNote: row.paymentNote ?? undefined,
     receivedByUserId: row.receivedByUserId ?? undefined,
     autoSuggestedAmount: row.autoSuggestedAmount ?? undefined,
+    firstCollectionIncludesNextMonth: row.firstCollectionIncludesNextMonth ?? undefined,
     adjustmentReason: row.adjustmentReason ?? undefined,
     adjustedBy: row.adjustedBy ?? undefined,
     adjustedAt: row.adjustedAt?.toISOString() ?? undefined,
@@ -3066,6 +3068,8 @@ export async function addRegistrationFirstPayment(input: {
   adjustmentReason?: string;
   adjustedBy?: string;
   adjustedAt?: string;
+  /** Bkz. Payment.firstCollectionIncludesNextMonth. */
+  firstCollectionIncludesNextMonth?: boolean;
 }): Promise<{ data: AppData; paymentId: string }> {
   const tid = requireTenantId();
   const student = await prisma.student.findFirst({ where: { id: input.studentId, tenantId: tid } });
@@ -3098,6 +3102,7 @@ export async function addRegistrationFirstPayment(input: {
         receivedByUserId: input.receivedByUserId,
         paymentNote: input.note,
         autoSuggestedAmount: input.autoSuggestedAmount,
+        firstCollectionIncludesNextMonth: input.firstCollectionIncludesNextMonth,
         adjustmentReason: input.adjustmentReason,
         adjustedBy: input.adjustedBy,
         adjustedAt: input.adjustedAt ? new Date(input.adjustedAt) : undefined,

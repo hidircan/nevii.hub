@@ -1088,6 +1088,8 @@ export async function addRegistrationFirstPayment(input: {
   adjustmentReason?: string;
   adjustedBy?: string;
   adjustedAt?: string;
+  /** Bkz. Payment.firstCollectionIncludesNextMonth. */
+  firstCollectionIncludesNextMonth?: boolean;
 }): Promise<{ data: AppData; paymentId: string }> {
   const data = load();
   const existing = data.payments.find(
@@ -1115,6 +1117,7 @@ export async function addRegistrationFirstPayment(input: {
     adjustmentReason: input.adjustmentReason,
     adjustedBy: input.adjustedBy,
     adjustedAt: input.adjustedAt,
+    firstCollectionIncludesNextMonth: input.firstCollectionIncludesNextMonth,
   };
   const next = save({ ...data, payments: [...data.payments, payment] });
   return { data: next, paymentId: payment.id };

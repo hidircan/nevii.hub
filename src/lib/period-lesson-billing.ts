@@ -92,7 +92,9 @@ export function computePeriodAmount(
   if (!Number.isFinite(monthlyFee) || monthlyFee < 0) return 0;
   if (billableLessonCount <= 0) return 0;
   const referenceCount = referenceMonthlyLessonCount(weeklyLessonCount);
-  return Math.round((monthlyFee * billableLessonCount) / referenceCount);
+  // Sahip kararı (2026-09-16): küsurat AŞAĞI yuvarlanır — 4.950 × 3/4 = 3.712,5 → 3.712
+  // (Math.round yukarı yuvarlayıp 3.713 yazıyordu). `-Math.round(-x)` yarımı aşağı alır.
+  return -Math.round(-(monthlyFee * billableLessonCount) / referenceCount);
 }
 
 export type BillableLessonType = "regular" | "makeup" | "trial" | "group";

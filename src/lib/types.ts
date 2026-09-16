@@ -927,6 +927,13 @@ export interface Payment {
   adjustedBy?: string;
   adjustedAt?: string;
   /**
+   * Sahip kararı (2026-09-16) — kayıt anı ilk tahsilatı, takip eden ayın TAM
+   * ücretini de kapsıyor mu? Kullanıcının kayıt ekranındaki AÇIK seçimidir;
+   * sözleşme ekranı bunu ders sayısından YENİDEN TÜRETMEZ, okur. Eski
+   * kayıtlarda undefined — o zaman sözleşme ekranı varsayılanı kapalıdır.
+   */
+  firstCollectionIncludesNextMonth?: boolean;
+  /**
    * P0 (2026-09-03) — bkz. `ContractInstallmentSnapshot`. Yalnız
    * `contractId` dolu (taksit) satırlarda anlamlıdır; eski/legacy Payment
    * kayıtlarında YOK — `undefined` her yerde güvenle ele alınır.

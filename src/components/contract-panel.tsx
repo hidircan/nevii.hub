@@ -77,6 +77,39 @@ function formatTL(n: number) {
   return new Intl.NumberFormat("tr-TR").format(n) + " ₺";
 }
 
+/** PATCH — `postJson` ile AYNI oturum yenileme ve anlaşılır hata davranışı. */
+async function patchJson(url: string, body: unknown): Promise<{ ok: true } | { ok: false; message: string }> {
+  type Json = { ok: boolean; error?: { code?: string; message?: string } };
+  const send = async () =>
+    (await (
+      await fetch(url, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+    ).json()) as Json;
+  try {
+    let json = await send();
+    if (json.error?.code === "UNAUTHORIZED") {
+      const refreshed = await fetch("/api/v1/auth/refresh", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
+      if (refreshed.ok) json = await send();
+    }
+    if (!json.ok) {
+      const code = json.error?.code;
+      return {
+        ok: false,
+        message:
+          code === "UNAUTHORIZED" || code === "FORBIDDEN"
+            ? friendlyApiErrorMessage(json.error, "İşlem başarısız.")
+            : json.error?.message || "İşlem başarısız.",
+      };
+    }
+    return { ok: true };
+  } catch {
+    return { ok: false, message: "Bağlantı hatası. Lütfen tekrar deneyin." };
+  }
+}
+
 async function postJson<T>(url: string, body: unknown): Promise<{ ok: true; data: T } | { ok: false; message: string }> {
   type Json = { ok: boolean; data?: T; error?: { code?: string; message?: string } };
   const send = async () =>
@@ -139,7 +172,9 @@ export type RegistrationSummary = {
   monthlyFee: number;
   paymentMethod?: string;
   paymentMethodLabel: string;
-  firstPayment?: { amount: number; paidAt: string; methodLabel: string };
+  firstPayment?: { paymentId: string; amount: number; paidAt: string; method?: string; methodLabel: string };
+  /** Kayıt anında "takip eden ayı da ekle" seçildi mi (Payment.firstCollectionIncludesNextMonth). */
+  firstCollectionIncludesNextMonth?: boolean;
   signatoryName: string;
   signatoryRelationship: "veli" | "öğrenci";
   address?: string;
@@ -184,6 +219,44 @@ function RegistrationSummaryCard({
   registration: RegistrationSummary;
   current: { startDay: string; monthlyAmount: number | ""; paymentMethod: string; durationMonths: number };
 }) {
+  const router = useRouter();
+  // Sahip kararı (2026-09-16) — kayıt anı ilk tahsilatında hata görülürse kullanıcı
+  // ekran değiştirmeden burada düzeltebilir (PATCH /api/v1/payments/:id).
+  const [editing, setEditing] = useState(false);
+  const [editAmount, setEditAmount] = useState<number | "">(registration.firstPayment?.amount ?? "");
+  const [editDate, setEditDate] = useState(registration.firstPayment?.paidAt?.slice(0, 10) ?? "");
+  const [editMethod, setEditMethod] = useState(registration.firstPayment?.method ?? "cash");
+  const [editBusy, setEditBusy] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+
+  async function saveFirstPayment() {
+    const paymentId = registration.firstPayment?.paymentId;
+    if (!paymentId || editBusy) return;
+    if (editAmount === "" || editAmount <= 0) {
+      setEditError("Tahsil edilen tutar sıfırdan büyük olmalıdır.");
+      return;
+    }
+    if (!isValidDateOnlyInput(editDate)) {
+      setEditError("Tahsilat tarihini takvimden seçin.");
+      return;
+    }
+    setEditBusy(true);
+    setEditError(null);
+    const res = await patchJson(`/api/v1/payments/${paymentId}`, {
+      amount: editAmount,
+      paidAt: editDate,
+      method: editMethod,
+    });
+    setEditBusy(false);
+    if (!res.ok) {
+      setEditError(res.message);
+      return;
+    }
+    setEditing(false);
+    // Sayfa sunucudan TAZE okunur: kart, ön doldurulan alanlar ve plan aynı veriyi görür.
+    router.refresh();
+  }
+
   const diffs: string[] = [];
   if (registration.contractStartDay && current.startDay && current.startDay !== registration.contractStartDay) {
     diffs.push(
@@ -237,13 +310,58 @@ function RegistrationSummaryCard({
             {formatTL(registration.monthlyFee)} · {registration.paymentMethodLabel}
           </dd>
         </div>
-        <div>
+        <div className="sm:col-span-2">
           <dt className="inline text-[var(--color-text-muted)]">İlk tahsilat: </dt>
           <dd className="inline">
             {registration.firstPayment
               ? `${formatTL(registration.firstPayment.amount)} · ${formatDateTr(registration.firstPayment.paidAt)} · ${registration.firstPayment.methodLabel}`
               : "Kayıtta ilk tahsilat bulunamadı — formal sözleşme oluşturulamaz, önce kayıtta ilk ödemeyi girin."}
+            {registration.firstPayment ? (
+              <>
+                {" · "}
+                {registration.firstCollectionIncludesNextMonth
+                  ? "takip eden ay dahil"
+                  : "yalnız kayıt ayı"}
+                <button
+                  type="button"
+                  onClick={() => setEditing((e) => !e)}
+                  className="ml-2 font-medium text-[var(--color-primary)] hover:underline"
+                >
+                  {editing ? "Vazgeç" : "Düzenle"}
+                </button>
+              </>
+            ) : null}
           </dd>
+          {editing && registration.firstPayment ? (
+            <div className="mt-2 flex flex-wrap items-end gap-2 rounded-md border border-[var(--color-border)] p-2">
+              <div>
+                <Label>Tahsil edilen tutar (TL)</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  value={editAmount}
+                  onChange={(e) => setEditAmount(e.target.value === "" ? "" : Number(e.target.value.replace(/[^\d]/g, "")))}
+                  className="w-32"
+                />
+              </div>
+              <div>
+                <Label>Tahsilat tarihi</Label>
+                <Input type="date" value={editDate} onChange={(e) => setEditDate(e.target.value)} className="w-40" />
+              </div>
+              <div>
+                <Label>Ödeme yöntemi</Label>
+                <Select value={editMethod} onChange={(e) => setEditMethod(e.target.value)} className="w-36">
+                  <option value="cash">Nakit</option>
+                  <option value="transfer">Havale/EFT</option>
+                  <option value="credit_card">Kredi kartı</option>
+                </Select>
+              </div>
+              <Button type="button" onClick={saveFirstPayment} disabled={editBusy}>
+                {editBusy ? "Kaydediliyor…" : "Kaydet"}
+              </Button>
+              {editError ? <p className="w-full text-xs font-medium text-rose-600">{editError}</p> : null}
+            </div>
+          ) : null}
         </div>
         <div>
           <dt className="inline text-[var(--color-text-muted)]">Muhatap: </dt>
@@ -294,6 +412,11 @@ function ContractForm({
   const [durationMonths, setDurationMonths] = useState(isRenewal ? 3 : (prefill?.durationMonths ?? 1));
   // Bitiş tercihi (bkz. contracts.ts computeContractEndDate) — iki seçenekte de son taksit N. aydadır.
   const [endDatePreference, setEndDatePreference] = useState<"month_end" | "date_based">("month_end");
+  // Sahip kararı (2026-09-16) — ilk tahsilat takip eden ayı da kapsıyor mu?
+  // Varsayılan, kayıt ekranında verilen ve ödemeye yazılan seçimdir; burada değiştirilebilir.
+  const [mergeFirstCollection, setMergeFirstCollection] = useState(registration?.firstCollectionIncludesNextMonth ?? false);
+  // Önizleme tablosunda elle düzenlenen taksit tutarları (sıra no → tutar).
+  const [amountOverrides, setAmountOverrides] = useState<Record<number, number>>({});
   // P0 (2026-09-04) — "Sözleşmenin son döneminde eksik kalan dersler nasıl
   // ücretlendirilsin?" — yalnız per-lesson fiyatlandırma (usePerLessonBilling)
   // kullanan öğrenciler için anlamlı; "remaining_lessons" (varsayılan/eski
@@ -398,6 +521,10 @@ function ContractForm({
     isValidDateOnlyInput(enrollmentStartDate) &&
     firstPaymentCollectedAt !== enrollmentStartDate;
 
+  const installmentAmountOverrides = Object.entries(amountOverrides).map(([sequence, amount]) => ({
+    sequence: Number(sequence),
+    amount,
+  }));
   const [preview, setPreview] = useState<{
     totalContractAmount: number;
     installments: InstallmentPreviewRow[];
@@ -438,6 +565,8 @@ function ContractForm({
       paymentMethod,
       usePerLessonBilling,
       endDatePreference,
+      mergeFirstCollection,
+      installmentAmountOverrides,
       studentId,
       enrollmentStartDate: toIsoDateOrNull(enrollmentStartDate) ?? undefined,
       enrollmentEndDate: toIsoDateOrNull(enrollmentEndDate) ?? undefined,
@@ -525,6 +654,8 @@ function ContractForm({
       installmentCount,
       usePerLessonBilling,
       endDatePreference,
+      mergeFirstCollection,
+      installmentAmountOverrides,
       lastPeriodPricingMode: usePerLessonBilling ? lastPeriodPricingMode : undefined,
       lastPeriodManualAmount:
         usePerLessonBilling && lastPeriodPricingMode === "manual" && lastPeriodManualAmount !== ""
@@ -572,6 +703,11 @@ function ContractForm({
     onDone();
   }
 
+  // Elle düzenlenen tutarlar uygulanmış satırlar — ekrandaki her toplam bunlardan hesaplanır.
+  const liveRows = preview
+    ? preview.installments.map((r) => ({ ...r, amount: amountOverrides[r.sequence] ?? r.amount }))
+    : [];
+  const liveTotal = liveRows.reduce((s, r) => s + r.amount, 0) + (depositAmount === "" ? 0 : depositAmount);
   const hasAnyError = formError !== null || Object.keys(fieldErrors).length > 0;
 
   return (
@@ -649,6 +785,26 @@ function ContractForm({
           />
           <FieldError message={fieldErrors.durationMonths} />
         </div>
+        {!isRenewal ? (
+          <div className="sm:col-span-2">
+            <label className="flex items-start gap-2 text-sm text-[var(--color-text)]">
+              <input
+                type="checkbox"
+                checked={mergeFirstCollection}
+                onChange={(e) => setMergeFirstCollection(e.target.checked)}
+                className="mt-1 h-3.5 w-3.5"
+              />
+              <span>
+                İlk tahsilat takip eden ayı da kapsıyor
+                <span className="block text-xs text-[var(--color-text-muted)]">
+                  Kayıt ekranındaki seçimden gelir. İşaretliyse 1. taksit kayıt ayı + takip eden ayı kapsar (2 ay
+                  sayılır); işaretli değilse takip eden ay ayrı taksit olarak kalır. Değiştirdikten sonra
+                  &quot;Ödeme Planını Önizle&quot;ye basın.
+                </span>
+              </span>
+            </label>
+          </div>
+        ) : null}
         <div>
           <Label>Sözleşme bitiş tercihi</Label>
           <select
@@ -1015,8 +1171,11 @@ function ContractForm({
 
       {preview ? (
         <div className="mt-4 rounded-lg border border-[var(--color-border)] p-3 text-xs">
+          {/* Elle düzenlenen tutarlar ANINDA yansır: toplam, ilk tahsilat ve kalan borç
+              hep aşağıdaki tablodaki satırlardan hesaplanır (kaydedince sunucu da aynı
+              satırları yazar — ekranda görülenle kaydedilen asla ayrışmaz). */}
           <p className="mb-2 font-semibold text-[var(--color-text)]">
-            Toplam sözleşme tutarı: {formatTL(preview.totalContractAmount)}
+            Toplam sözleşme tutarı: {formatTL(liveTotal)}
           </p>
           {/* Sahibi onaylı NİHAİ karar (2026-08-29) — tüm müşteriye-görünür tutarlar KDV
               dahildir, "+ KDV" hiçbir yerde gösterilmez, oran icat edilmez. */}
@@ -1030,7 +1189,7 @@ function ContractForm({
             <dl className="mb-3 grid grid-cols-2 gap-x-4 gap-y-1.5 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] p-2.5 sm:grid-cols-4">
               <div>
                 <dt className="text-[var(--color-text-muted)]">İlk Tahsilat Tutarı</dt>
-                <dd className="font-semibold text-[var(--color-text)]">{formatTL(preview.installments[0].amount)}</dd>
+                <dd className="font-semibold text-[var(--color-text)]">{formatTL(liveRows[0]?.amount ?? 0)}</dd>
               </div>
               <div>
                 <dt className="text-[var(--color-text-muted)]">İlk Tahsilat Tarihi</dt>
@@ -1055,7 +1214,7 @@ function ContractForm({
               <div>
                 <dt className="text-[var(--color-text-muted)]">Kalan Borç</dt>
                 <dd className="font-semibold text-[var(--color-text)]">
-                  {formatTL(preview.installments.slice(1).reduce((s, r) => s + r.amount, 0))}
+                  {formatTL(liveRows.slice(1).reduce((s, r) => s + r.amount, 0))}
                 </dd>
               </div>
             </dl>
@@ -1111,7 +1270,20 @@ function ContractForm({
                       ? paymentMethodLabelTr(isRenewal ? firstPaymentMethod : prefill?.firstCollectionMethod)
                       : "—"}
                   </td>
-                  <td className="py-1">{formatTL(row.amount)}</td>
+                  <td className="py-1">
+                    <input
+                      type="number"
+                      min={0}
+                      step={1}
+                      value={amountOverrides[row.sequence] ?? row.amount}
+                      onChange={(e) => {
+                        const raw = e.target.value.replace(/[^\d]/g, "");
+                        setAmountOverrides((prev) => ({ ...prev, [row.sequence]: raw === "" ? 0 : Number(raw) }));
+                      }}
+                      className="w-28 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-right text-xs text-[var(--color-text)]"
+                      aria-label={`${row.sequence}. taksit tutarı`}
+                    />
+                  </td>
                 </tr>
               ))}
             </tbody>

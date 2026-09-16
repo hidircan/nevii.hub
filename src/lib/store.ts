@@ -138,6 +138,8 @@ type StoreApi = {
     reference?: string;
     note?: string;
     receivedByUserId: string;
+    /** Bkz. Payment.firstCollectionIncludesNextMonth — kayıt ekranındaki açık seçim. */
+    firstCollectionIncludesNextMonth?: boolean;
   }) => Promise<{ data: AppData; paymentId: string }>;
   /**
    * FEATURE A — bir `StudentContract`'ın SABİT SAYIDA taksitini gerçek
@@ -514,6 +516,8 @@ export async function addRegistrationFirstPayment(input: {
   reference?: string;
   note?: string;
   receivedByUserId: string;
+  /** Bkz. Payment.firstCollectionIncludesNextMonth — kayıt ekranındaki açık seçim. */
+  firstCollectionIncludesNextMonth?: boolean;
 }): Promise<{ data: AppData; paymentId: string }> {
   return withTenantScope(() => store.addRegistrationFirstPayment(input));
 }

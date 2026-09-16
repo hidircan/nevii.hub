@@ -544,6 +544,7 @@ import {
   buildPerLessonInstallmentSchedule,
   computeContractEndDate,
   foldBillingLinesIntoContractMonths,
+  applyInstallmentAmountOverrides,
   isFormalContractDuration,
   TrialContractHasNoDocumentError,
   ContractTemplateIncompleteError,
@@ -2063,14 +2064,20 @@ export async function createStudentTool(
     // Sözleşme planıyla (buildPerLessonInstallmentSchedule) AYNI kural ve AYNI
     // kurum eşiği — kayıtta tahsil edilen ile sözleşmenin "tahsil edildi"
     // saydığı aylar birbirinden ayrışmaz.
-    const autoSuggestedAmount = shouldMergeFirstCollection(
-      firstPeriodBillableCount,
-      resolveFirstCollectionMergeThreshold({
-        firstCollectionMergeThresholdLessons: before.settings.collectionsSettings?.firstCollectionMergeThresholdLessons,
-      })
-    )
-      ? firstPeriodAutoAmount + pricing.monthlyFee
-      : firstPeriodAutoAmount;
+    // Sahip kararı (2026-09-16): takip eden ayın ücretini ilk tahsilata eklemek
+    // artık OTOMATİK DEĞİL, kullanıcının AÇIK seçimi. Seçim gönderilmezse eski
+    // "3 ders eşiği" yalnız VARSAYILAN olarak uygulanır. Seçim ödemeye yazılır
+    // (Payment.firstCollectionIncludesNextMonth); sözleşme planı onu OKUR, ders
+    // sayısından yeniden türetmez — iki ekranın ayı farklı sayması hatasının kökü buydu.
+    const includesNextMonth =
+      v.data.firstCollectionIncludesNextMonth ??
+      shouldMergeFirstCollection(
+        firstPeriodBillableCount,
+        resolveFirstCollectionMergeThreshold({
+          firstCollectionMergeThresholdLessons: before.settings.collectionsSettings?.firstCollectionMergeThresholdLessons,
+        })
+      );
+    const autoSuggestedAmount = includesNextMonth ? firstPeriodAutoAmount + pricing.monthlyFee : firstPeriodAutoAmount;
 
     const { resolveFirstPaymentAdjustment } = await import("../first-payment-adjustment");
     const adjustment = resolveFirstPaymentAdjustment({
@@ -2138,6 +2145,9 @@ export async function createStudentTool(
       // oluşturma db-modunda "Unknown argument" ile kırılır.
       firstPaymentAdjustmentReason: _ignoredFirstPaymentAdjustmentReason,
       lessonDays: _ignoredLessonDays,
+      // Payment'a yazılır (Payment.firstCollectionIncludesNextMonth) — Student KOLONU YOK,
+      // süzülmezse `...studentInput` ile Prisma'ya gidip db modunu kırar.
+      firstCollectionIncludesNextMonth: _ignoredIncludesNextMonth,
       ...studentInput
     } = v.data;
     const ids = new Set(before.students.map((s) => s.id));
@@ -2189,6 +2199,7 @@ export async function createStudentTool(
         reference: firstPaymentCollected.reference,
         note: firstPaymentCollected.note,
         receivedByUserId: ctx.userId,
+        firstCollectionIncludesNextMonth: includesNextMonth,
         // P0-1B — yalnız GERÇEK bir manuel düzeltme varsa dolu; otomatik
         // tutarla birebir eşleşen normal bir ilk ödemede bu dört alan da
         // undefined kalır (bkz. Payment.autoSuggestedAmount yorumu).
@@ -9666,6 +9677,13 @@ const contractInstallmentPlanSchema = z.object({
   lastPeriodManualAmount: z.number().int().positive().optional(),
   /** Sözleşme bitiş tercihi — bkz. contracts.ts `computeContractEndDate`; verilmezse "month_end". */
   endDatePreference: z.enum(["month_end", "date_based"]).optional(),
+  /** Sahip kararı (2026-09-16) — ilk tahsilat takip eden ayı da kapsıyor mu; verilmezse kayıt anındaki seçim okunur. */
+  mergeFirstCollection: z.boolean().optional(),
+  /** Önizleme tablosunda elle düzenlenen taksit tutarları (sıra no → tutar). */
+  installmentAmountOverrides: z
+    .array(z.object({ sequence: z.number().int().min(1).max(24), amount: z.number().int().min(0) }))
+    .max(24)
+    .optional(),
 });
 
 /** Oluşturmadan ÖNCE taksit planı + toplam tutarı önizler — hiçbir kalıcı kayıt yazmaz. */
@@ -9749,9 +9767,7 @@ export async function previewContractInstallmentPlanTool(
       installments = buildPerLessonInstallmentSchedule({
         billingLines,
         firstPeriodManualNetAmount: registrationFirstPayment?.amount,
-        mergeThresholdLessons: resolveFirstCollectionMergeThreshold({
-          firstCollectionMergeThresholdLessons: paymentPolicy?.firstCollectionMergeThresholdLessons,
-        }),
+        mergeFirstTwoPeriods: v.data.mergeFirstCollection ?? registrationFirstPayment?.firstCollectionIncludesNextMonth ?? false,
         firstDueDate: v.data.firstDueDate,
         paymentMethod: v.data.paymentMethod,
         paymentPolicy,
@@ -9768,6 +9784,11 @@ export async function previewContractInstallmentPlanTool(
         paymentMethod: v.data.paymentMethod,
         paymentPolicy,
       });
+    }
+    if (v.data.installmentAmountOverrides?.length) {
+      // Elle düzenlenen tutarlar — önizlemedeki toplam da AYNI satırlardan yeniden hesaplanır.
+      installments = applyInstallmentAmountOverrides(installments, v.data.installmentAmountOverrides);
+      totalContractAmount = installments.reduce((s, r) => s + r.amount, 0) + (v.data.depositAmount ?? 0);
     }
     const rule = resolveContractPaymentDueRule(v.data.paymentMethod, paymentPolicy);
     const firstDueDay = new Date(v.data.firstDueDate).getUTCDate();
@@ -9988,6 +10009,13 @@ const createStudentContractSchema = z.object({
   lastPeriodManualAmount: z.number().int().positive().optional(),
   /** Sözleşme bitiş tercihi — bkz. contracts.ts `computeContractEndDate`; verilmezse "month_end". */
   endDatePreference: z.enum(["month_end", "date_based"]).optional(),
+  /** Sahip kararı (2026-09-16) — ilk tahsilat takip eden ayı da kapsıyor mu; verilmezse kayıt anındaki seçim okunur. */
+  mergeFirstCollection: z.boolean().optional(),
+  /** Önizleme tablosunda elle düzenlenen taksit tutarları (sıra no → tutar). */
+  installmentAmountOverrides: z
+    .array(z.object({ sequence: z.number().int().min(1).max(24), amount: z.number().int().min(0) }))
+    .max(24)
+    .optional(),
 });
 
 /** İlk kayıt / yenileme / değişiklik — hepsi TEK giriş noktası, `contractType` iş akışını belirler. */
@@ -10067,6 +10095,12 @@ export async function createStudentContractTool(
     );
   }
 
+  // Sahip kararı (2026-09-16) — birleştirme kullanıcının AÇIK seçimi: istek söylüyorsa o,
+  // söylemiyorsa kayıt anında verilen ve ödemeye yazılan seçim; ders sayısından TÜRETİLMEZ.
+  const registrationFirstPaymentRow = await getRegistrationFirstPayment(student.id);
+  const mergeFirstCollection =
+    v.data.mergeFirstCollection ?? registrationFirstPaymentRow?.firstCollectionIncludesNextMonth ?? false;
+
   try {
     const { contract, installments } = await createContract({
       tenantId: ctx.tenantId,
@@ -10118,7 +10152,8 @@ export async function createStudentContractTool(
       renewalDebtOverrideReason: v.data.renewalDebtOverrideReason,
       firstPaymentCollected: v.data.firstPaymentCollected,
       perLessonBillingLines,
-      firstCollectionMergeThresholdLessons: data.settings.collectionsSettings?.firstCollectionMergeThresholdLessons,
+      mergeFirstCollectionWithNextMonth: mergeFirstCollection,
+      installmentAmountOverrides: v.data.installmentAmountOverrides,
       lastPeriodPricing: lastPeriodResolved.pricing,
     });
 

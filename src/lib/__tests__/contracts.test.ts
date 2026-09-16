@@ -1247,6 +1247,7 @@ describe("createStudentContractTool — per-lesson öğrenci (usePerLessonBillin
       signatoryFullName: "Veli Adı",
       signatoryRelationship: "veli",
       usePerLessonBilling: true,
+      mergeFirstCollection: true,
       firstPaymentExceptionReason: "Kayıt tarihi (17 Eylül) kurumun 1-15 ödeme penceresi dışında — normal kayıt anı tahsilatı.",
     });
     expect(res.ok).toBe(true);
@@ -1295,6 +1296,7 @@ describe("createStudentContractTool — per-lesson öğrenci (usePerLessonBillin
       signatoryFullName: "Veli Adı",
       signatoryRelationship: "veli",
       usePerLessonBilling: true,
+      mergeFirstCollection: true,
     });
     expect(res.ok).toBe(true);
     if (!res.ok) return;
@@ -1385,6 +1387,7 @@ describe("createStudentContractTool — per-lesson öğrenci (usePerLessonBillin
       signatoryFullName: "Veli Adı",
       signatoryRelationship: "veli",
       usePerLessonBilling: true,
+      mergeFirstCollection: false,
     });
     expect(res.ok).toBe(true);
     if (!res.ok) return;

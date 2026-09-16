@@ -87,11 +87,14 @@ export default async function StudentContractsCenterPage({
     paymentMethodLabel: paymentMethodLabelTr(student.paymentMethod),
     firstPayment: registrationFirstPayment
       ? {
+          paymentId: registrationFirstPayment.id,
           amount: registrationFirstPayment.amount,
           paidAt: registrationFirstPayment.paidAt ?? registrationFirstPayment.dueDate,
+          method: registrationFirstPayment.method,
           methodLabel: paymentMethodLabelTr(registrationFirstPayment.method),
         }
       : undefined,
+    firstCollectionIncludesNextMonth: registrationFirstPayment?.firstCollectionIncludesNextMonth,
     signatoryName: selfManaged ? student.name : student.parentName,
     signatoryRelationship: selfManaged ? "öğrenci" : "veli",
     address: student.address,

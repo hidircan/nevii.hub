@@ -360,12 +360,32 @@ function applyLastPeriodPricing(
   return rows;
 }
 
+/**
+ * Sahip kararı (2026-09-16) — sözleşme önizleme tablosunda elle düzenlenen
+ * taksit tutarlarını plana uygular (sıra no → tutar). Toplam sözleşme tutarı,
+ * PDF ve gerçek Payment satırları HEP bu listeden üretilir; ekranda görülen
+ * tutar ile kaydedilen tutar asla ayrışmaz.
+ */
+export function applyInstallmentAmountOverrides(
+  rows: ContractInstallmentSnapshot[],
+  overrides?: { sequence: number; amount: number }[]
+): ContractInstallmentSnapshot[] {
+  if (!overrides || overrides.length === 0) return rows;
+  const bySequence = new Map(overrides.map((o) => [o.sequence, o.amount]));
+  return rows.map((row) => {
+    const amount = bySequence.get(row.sequence);
+    if (amount === undefined || amount === row.amount) return row;
+    return { ...row, amount, computationSource: "manual" as const };
+  });
+}
+
 export function buildPerLessonInstallmentSchedule(input: {
   billingLines: import("./period-lesson-billing").PeriodBillingLine[];
   /** İlk dönem otomatik tutardan manuel olarak farklı girildiyse. */
   firstPeriodManualNetAmount?: number;
   /** "3 ders eşiği" — bkz. `resolveFirstCollectionMergeThreshold` (types.ts). */
-  mergeThresholdLessons: number;
+  /** Sahip kararı (2026-09-16) — kayıt ekranındaki AÇIK seçim (Payment.firstCollectionIncludesNextMonth); ders sayısından TÜRETİLMEZ. */
+  mergeFirstTwoPeriods: boolean;
   firstDueDate: string;
   paymentMethod?: string;
   paymentPolicy?: Pick<CollectionsSettings, "contractCardWindowEndDay" | "contractBankCashDueDay">;
@@ -376,7 +396,7 @@ export function buildPerLessonInstallmentSchedule(input: {
   const rule = resolveContractPaymentDueRule(input.paymentMethod, input.paymentPolicy);
   const [firstLine, secondLine, ...restLines] = input.billingLines;
   const firstMonthAutoAmount = firstLine!.autoCalculatedAmount;
-  const shouldMerge = shouldMergeFirstCollection(firstLine!.billableLessonCount, input.mergeThresholdLessons) && !!secondLine;
+  const shouldMerge = input.mergeFirstTwoPeriods && !!secondLine;
 
   const rows: ContractInstallmentSnapshot[] = [];
   if (shouldMerge) {
@@ -655,8 +675,10 @@ export type CreateContractInput = {
    * sözleşmeler/testler ETKİLENMEZ).
    */
   perLessonBillingLines?: import("./period-lesson-billing").PeriodBillingLine[];
-  /** Yalnız `perLessonBillingLines` ile birlikte anlamlı — bkz. `resolveFirstCollectionMergeThreshold`. */
-  firstCollectionMergeThresholdLessons?: number;
+  /** Sahip kararı (2026-09-16) — kayıt anındaki "takip eden ayı da ekle" seçimi (Payment.firstCollectionIncludesNextMonth). */
+  mergeFirstCollectionWithNextMonth?: boolean;
+  /** Önizleme tablosunda elle düzenlenen taksit tutarları (sıra no → tutar). */
+  installmentAmountOverrides?: { sequence: number; amount: number }[];
   /** P0 (2026-09-04) — yalnız `perLessonBillingLines` ile birlikte anlamlı; bkz. `LastPeriodPricing`. */
   lastPeriodPricing?: LastPeriodPricing;
 };
@@ -782,13 +804,11 @@ export async function createContract(input: CreateContractInput): Promise<Create
   // eşitlik kontrolü (aşağıdaki `else` dalı) burada GEREKSİZDİR: motor zaten
   // fiili tutarı satıra yazar, "eşleşmiyor" diye reddetmez.
   const firstPaymentActualAmount = registrationFirstPayment?.amount ?? input.firstPaymentCollected?.amount;
-  const installments = input.perLessonBillingLines
+  const builtInstallments = input.perLessonBillingLines
     ? buildPerLessonInstallmentSchedule({
         billingLines: input.perLessonBillingLines,
         firstPeriodManualNetAmount: firstPaymentActualAmount,
-        mergeThresholdLessons: resolveFirstCollectionMergeThreshold({
-          firstCollectionMergeThresholdLessons: input.firstCollectionMergeThresholdLessons,
-        }),
+        mergeFirstTwoPeriods: input.mergeFirstCollectionWithNextMonth ?? false,
         firstDueDate: input.firstDueDate,
         paymentMethod: input.paymentMethod,
         paymentPolicy: input.paymentPolicy,
@@ -802,6 +822,9 @@ export async function createContract(input: CreateContractInput): Promise<Create
         paymentMethod: input.paymentMethod,
         paymentPolicy: input.paymentPolicy,
       });
+  // Sahip kararı (2026-09-16) — önizlemede elle düzenlenen tutarlar burada uygulanır;
+  // toplam, sözleşme PDF'i ve gerçek Payment satırları HEP aynı listeden üretilir.
+  const installments = applyInstallmentAmountOverrides(builtInstallments, input.installmentAmountOverrides);
   const totalContractAmount = installments.reduce((s, r) => s + r.amount, 0) + (input.depositAmount ?? 0);
 
   if (!input.perLessonBillingLines) {

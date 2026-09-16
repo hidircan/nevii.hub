@@ -924,6 +924,7 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
           // Owner policy (2026-08-30) — "İlk Ödeme / Kayıt Anı Tahsilatı": kayıt bu
           // alanlar olmadan TAMAMLANAMAZ (bkz. createStudentTool gate). Tutar alanı
           // metin/inputMode="decimal" ile alınır (native number spinner yok).
+          firstCollectionIncludesNextMonth: formData.get("firstCollectionIncludesNextMonth") === "1",
           firstPaymentCollected: (() => {
             const method = String(formData.get("firstPaymentMethod") || "");
             const amountRaw = String(formData.get("firstPaymentAmount") || "").replace(/[^\d]/g, "");
