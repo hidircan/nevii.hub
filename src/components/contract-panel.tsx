@@ -8,6 +8,7 @@ import { LessonScheduleSlotsPicker } from "@/components/lesson-schedule-slots-pi
 import { parseDateOnlyInput, isValidDateOnlyInput, toIsoDateOrNull, dayOfMonthUtc } from "@/lib/date-input";
 import { describePaymentDueRule, paymentMethodLabel } from "@/lib/payment-due-rule-client";
 import { findLatestActiveContractForRenewal } from "@/lib/contract-list-helpers";
+import { prefillFromContract } from "@/lib/contract-prefill";
 import { formatDateTr } from "@/lib/timezone";
 import { paymentMethodLabelTr } from "@/lib/utils";
 import { friendlyApiErrorMessage } from "@/lib/api/friendly-error";
@@ -543,11 +544,23 @@ function ContractForm({
 
   async function onPreview() {
     setFormError(null);
-    if (!durationMonths || !monthlyAmount || !installmentCount || !isValidDateOnlyInput(firstDueDate)) {
-      setFormError("Süre, aylık ücret, taksit sayısı ve ilk vade tarihi zorunlu.");
+    // Owner kuralı — boş ekran + genel cümle YERİNE hangi alanın eksik olduğu
+    // alan altında da söylenir (iptal sonrası boş form senaryosunun görünürlüğü).
+    const missing: FieldErrors = {};
+    if (!durationMonths || durationMonths < 1 || durationMonths > 12) missing.durationMonths = "Süre 1-12 ay arasında olmalıdır.";
+    if (!monthlyAmount || monthlyAmount <= 0) missing.monthlyAmount = "Aylık ücret zorunludur.";
+    if (!installmentCount || installmentCount < 1 || installmentCount > 12) {
+      missing.installmentCount = "Taksit sayısı 1-12 arasında olmalıdır.";
+    }
+    if (!isValidDateOnlyInput(enrollmentStartDate)) missing.enrollmentStartDate = "Sözleşme başlangıç tarihi zorunludur.";
+    if (!isValidDateOnlyInput(firstDueDate)) missing.firstDueDate = "İlk ödeme tarihi zorunludur.";
+    if (Object.keys(missing).length > 0) {
+      setFieldErrors(missing);
+      setFormError(`Ödeme planı hesaplanamadı — eksik alanlar: ${Object.values(missing).join(" ")}`);
       focusSummarySoon();
       return;
     }
+    setFieldErrors({});
     setBusy(true);
     const res = await postJson<{
       totalContractAmount: number;
@@ -1315,6 +1328,10 @@ export function ContractPanel({
     autoOpenInitial && canManage ? "initial" : "none"
   );
   const [busyId, setBusyId] = useState<string | null>(null);
+  // Geçmiş (iptal/yenilenmiş) bir sözleşmeyi TEMEL ALARAK yeni sözleşme açmak:
+  // kullanıcı aynı değerleri elle yeniden girmesin diye. Fiyatlandırma modeli
+  // yine öğrencinin kaydından gelir (bkz. prefillFromContract).
+  const [basisPrefill, setBasisPrefill] = useState<ContractPrefill | null>(null);
   const [rowError, setRowError] = useState<string | null>(null);
   const [uploadingId, setUploadingId] = useState<string | null>(null);
 
@@ -1382,7 +1399,8 @@ export function ContractPanel({
           {hasOnlyInactiveHistory ? (
             <span className="text-xs text-[var(--color-text-muted)]">
               Bu öğrencinin aktif bir sözleşmesi yok (geçmişte iptal edilmiş/yenilenmiş) — yeni bir İLK KAYIT
-              sözleşmesi oluşturulacak.
+              sözleşmesi oluşturulacak. Form, öğrencinin kayıt bilgilerinden (ücret, ders başlangıcı, ilk tahsilat)
+              otomatik doldurulur; isterseniz aşağıdaki geçmiş sözleşmelerden birini temel alabilirsiniz.
             </span>
           ) : null}
         </div>
@@ -1392,10 +1410,16 @@ export function ContractPanel({
         <ContractForm
           studentId={studentId}
           previousContract={null}
-          prefill={prefill}
+          prefill={basisPrefill ?? prefill}
           registration={registration}
-          onDone={() => setFormMode("none")}
-          onCancel={() => setFormMode("none")}
+          onDone={() => {
+            setBasisPrefill(null);
+            setFormMode("none");
+          }}
+          onCancel={() => {
+            setBasisPrefill(null);
+            setFormMode("none");
+          }}
         />
       ) : null}
       {formMode === "renewal" && latestActive ? (
@@ -1483,6 +1507,18 @@ export function ContractPanel({
                     className="font-medium text-rose-600 hover:underline disabled:opacity-50"
                   >
                     İptal et
+                  </button>
+                ) : null}
+                {canManage && !latestActive && (c.status === "cancelled" || c.status === "superseded") ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBasisPrefill(prefillFromContract(c, prefill ?? {}));
+                      setFormMode("initial");
+                    }}
+                    className="font-medium text-[var(--color-primary)] hover:underline"
+                  >
+                    Bunu temel alarak yeniden oluştur
                   </button>
                 ) : null}
               </div>

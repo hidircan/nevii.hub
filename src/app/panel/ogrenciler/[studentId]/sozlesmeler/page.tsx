@@ -15,6 +15,7 @@ import {
   actionGenerateKvkkAndPhotoVideoConsentDocuments,
 } from "@/lib/actions";
 import { deriveLessonScheduleTextFromLessons } from "@/lib/lesson-schedule-text";
+import { buildContractPrefill } from "@/lib/contract-prefill";
 import { diagnoseContractAnnexTemplates } from "@/lib/contract-annexes";
 import { listTemplates } from "@/lib/documents";
 import { ContractAnnexTemplateNotice } from "@/components/contract-annex-template-notice";
@@ -81,7 +82,7 @@ export default async function StudentContractsCenterPage({
   const registration: RegistrationSummary = {
     registeredAt: student.enrollmentStartDate,
     contractStartDay: (student.lessonStartDate ?? student.enrollmentStartDate)?.slice(0, 10),
-    intendedDurationMonths: isNewStudent ? intendedDurationMonths : undefined,
+    intendedDurationMonths: sure ? intendedDurationMonths : undefined,
     monthlyFee: student.monthlyFee,
     paymentMethod: student.paymentMethod,
     paymentMethodLabel: paymentMethodLabelTr(student.paymentMethod),
@@ -99,6 +100,15 @@ export default async function StudentContractsCenterPage({
     signatoryRelationship: selfManaged ? "öğrenci" : "veli",
     address: student.address,
   };
+  // Ön doldurma sözleşme geçmişine DEĞİL, öğrencinin kayıt verisine dayanır:
+  // iptal edilmiş bir sözleşmeden sonra da form dolu açılır (boş önizleme kök nedeni).
+  const contractPrefill = buildContractPrefill({
+    student,
+    latestContract: contracts[0],
+    registrationFirstPayment,
+    requestedDurationMonths: sure,
+    lessonScheduleText: deriveLessonScheduleTextFromLessons(data.lessons.filter((l) => l.studentId === student.id)),
+  });
   const canManagePaymentProfile = session.role === "SCHOOL_ADMIN" || session.role === "SUPER_ADMIN";
   const isFormal = isFormalContractDuration(intendedDurationMonths);
   // P0 (2026-09-05) — birleşik çıktının EK bölümlerini besleyen şablonlar
@@ -161,28 +171,7 @@ export default async function StudentContractsCenterPage({
           canManage={canManagePaymentProfile}
           autoOpenInitial={isNewStudent && isFormal}
           registration={registration}
-          prefill={
-            isNewStudent
-              ? {
-                  programmeName: student.instruments[0] ?? "",
-                  monthlyAmount: student.monthlyFee,
-                  paymentMethod: student.paymentMethod,
-                  // P0 (2026-09-05) — sözleşmenin EĞİTİM dönemi ders başlangıcından
-                  // başlar; kayıt tarihi ayrı bir alandır (bkz. resolveLessonStartDay).
-                  enrollmentStartDate: student.lessonStartDate ?? student.enrollmentStartDate,
-                  firstCollectionAt: registrationFirstPayment?.paidAt,
-                  firstCollectionMethod: registrationFirstPayment?.method,
-                  firstCollectionAmount: registrationFirstPayment
-                    ? (registrationFirstPayment.paidAmount || registrationFirstPayment.amount)
-                    : undefined,
-                  durationMonths: intendedDurationMonths,
-                  usePerLessonBilling: student.derivedPerLessonAmount != null,
-                  lessonScheduleText: deriveLessonScheduleTextFromLessons(
-                    data.lessons.filter((l) => l.studentId === student.id)
-                  ),
-                }
-              : undefined
-          }
+          prefill={contractPrefill}
         />
       )}
 

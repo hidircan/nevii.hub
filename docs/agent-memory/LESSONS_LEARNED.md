@@ -938,3 +938,21 @@ saatine bağlı "bazen kırmızı" testlerin klasik kaynağıdır.
 - **Düzeltme:** tek çözücü `resolveActivePortalAccess` (yalnız `active`); tool'lar `canAccessStudent`.
 - **Ders:** bir alanın "deprecated / bilinçli boş" olduğu yazıyorsa, o alanı okuyan HER yeri ara
   (`grep ctx.studentId`). Persona testini yalnız o alanı dolu olan demo kullanıcıyla yazmak hatayı gizler.
+
+## 2026-09-16 — Ekranın canonical verisini URL parametresine bağlamak (iptal sonrası boş önizleme)
+
+- **Hata:** `sozlesmeler/page.tsx` sözleşme formunun ön doldurmasını (`prefill`) YALNIZCA
+  `?yeniKayit=1` ile gelindiğinde üretiyordu. Kullanıcı hatalı sözleşmeyi iptal edip öğrenci
+  detayından Sözleşme Merkezi'ne girdiğinde adreste o parametre yok: form bomboş açılıyor,
+  "Ödeme Planını Önizle" eksik-alan guard'ına takılıp **sessizce** geri dönüyordu. Kullanıcı
+  bunu "önizleme bölümü tamamen boş geliyor" diye bildirdi. İkinci ve daha tehlikeli sonuç:
+  `usePerLessonBilling` de aynı `prefill`'den geldiği için `false` kalıyor, alanlar elle
+  doldurulsa bile plan ders-başı motoru yerine SABİT taksit motoruyla hesaplanıyordu.
+- **Düzeltme:** Ön doldurma saf bir modüle alındı (`src/lib/contract-prefill.ts`) ve sayfa onu
+  HER koşulda öğrencinin kayıt verisinden üretiyor; iptal edilmiş sözleşme yalnız "süre ipucu".
+  Önizleme guard'ı alan-bazlı Türkçe hataya çevrildi (boş ekran yok). Geçmiş sözleşme satırına
+  "Bunu temel alarak yeniden oluştur" eklendi.
+- **Ders:** Bir ekranın canonical girdisi URL parametresine bağlanmamalı; parametre yalnız
+  "kısayol/ipucu" olabilir. Ayrıca bir MOTOR SEÇİMİ (ör. `usePerLessonBilling`) opsiyonel bir
+  prefill'den geliyorsa, prefill yokluğunda sistem sessizce YANLIŞ motora düşer — böyle
+  bayrakları her zaman kaydın kendisinden (öğrencinin `derivedPerLessonAmount`'ı) türet.

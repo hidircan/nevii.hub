@@ -28,6 +28,33 @@ screens (login/welcome).
 - Full detail + rationale: `docs/contracts/LEGAL_POLICY_TEXT_DISCREPANCY_REPORT.md`,
   `docs/roadmap/NEVIIHUB_ADMIN_CONTRACTS_POLICY_REMAINING_WORK.md`.
 
+## Güncel odak (2026-09-16) — Sözleşme/ilk tahsilat düzeltmeleri (`test` dalı)
+
+- **İlk tahsilat birleştirmesi artık AÇIK SEÇİM.** Kayıt ekranında onay kutusu ("takip eden ayın
+  tam ücretini de ekle"); seçim `Payment.firstCollectionIncludesNextMonth`'a yazılır, sözleşme
+  planı ders sayısından TÜRETMEZ, onu okur (iki ekranın ayı farklı sayması → bir ay eksik
+  sözleşme tutarı hatasının kökü). Sözleşme ekranında da değiştirilebilir.
+- **Küsurat aşağı yuvarlanır** (`computePeriodAmount`): 4.950 × 3/4 = 3.712 (eskiden 3.713).
+- **Bitiş kuralı:** başlangıç ayı = 1. ay; "ay sonu" ve "başlangıçtan itibaren" tercihleri, ikisinde
+  de taksit sayısı süre kadar (taşan günler son taksite eklenir).
+- **Önizlemede taksit tutarları düzenlenebilir** (`installmentAmountOverrides`); toplam/kalan borç
+  anında aynı satırlardan hesaplanır, kaydedilen ile ekrandaki ayrışmaz.
+- **İlk tahsilat sözleşme ekranından düzenlenebilir:** `PATCH /api/v1/payments/:paymentId`.
+- **İptal sonrası boş önizleme düzeltildi:** ön doldurma artık URL parametresine değil kayda bağlı
+  (`src/lib/contract-prefill.ts`); bkz. LESSONS_LEARNED 2026-09-16.
+- **Migration:** `20260916090000_first_collection_includes_next_month` test DB'ye (`vxzewyiwfshobjizzetw`)
+  Supabase SQL aracıyla uygulandı; `_prisma_migrations`'a doğru checksum'la kaydedildi. Production
+  (`uqkafczrplqitzumtrqy`, INACTIVE) ve boş `nxnjzpmmbdianywfvgaq` projesine DOKUNULMADI.
+
+### Açık iş — sözleşme revizyon sistemi (AYRI İŞ, bu turda yapılmadı)
+
+Bugün kullanıcı hatalı sözleşmeyi "iptal et + baştan oluştur" ile düzeltiyor. Küçük kolaylıklar
+eklendi (kayıt verisinden otomatik ön doldurma + "bunu temel alarak yeniden oluştur"), ama gerçek
+ihtiyaç **iptal etmeden revize**: taslak/revizyon statüsü, sürüm zinciri (`versionNumber`,
+`supersededBy`), taksit Payment satırlarının güvenli yeniden üretimi (tahsil edilmiş satırlar
+korunarak), PDF'in yeniden dondurulması ve audit. Kapsamı büyük olduğu için bilinçli ertelendi;
+yarım bir revizyon akışı para/PDF tutarlılığını bozardı.
+
 ## Güncel odak (2026-09-14) — Mobil UAT portal erişimi + davet e-postası (`release/mobile-review` → `test`)
 
 - **Kök hata:** `GET /api/v1/mobile/session` persona'yı yalnız JWT `studentId` ile çözüyordu; veli (GUARDIAN)
