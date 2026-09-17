@@ -10,18 +10,20 @@ import {
   isWithinInterval,
 } from "date-fns";
 import { tr } from "date-fns/locale";
+import { toWallClockDate } from "./timezone";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+// Görünen tarih/saat HER ZAMAN kurum saat diliminde (sunucu UTC'de de) — bkz. toWallClockDate.
 export function formatDate(iso: string, pattern = "d MMM yyyy") {
-  return format(parseISO(iso), pattern, { locale: tr });
+  return format(toWallClockDate(parseISO(iso)), pattern, { locale: tr });
 }
 
 /** Türkçe okunur tarih+saat — örn. "12 Ağustos 2026, 18:35". */
 export function formatDateTime(iso: string) {
-  return format(parseISO(iso), "d MMMM yyyy, HH:mm", { locale: tr });
+  return format(toWallClockDate(parseISO(iso)), "d MMMM yyyy, HH:mm", { locale: tr });
 }
 
 /** Ödeme kaynağı — kullanıcıya görünen kısa etiket. */
@@ -91,7 +93,7 @@ export function formatPaymentCollectionSummary(input: {
 }
 
 export function formatTime(iso: string) {
-  return format(parseISO(iso), "HH:mm", { locale: tr });
+  return format(toWallClockDate(parseISO(iso)), "HH:mm", { locale: tr });
 }
 
 /** "voided" (ders iptaliyle geri alınmış otomatik tahsilat) asla bekleyen/borç sayılmaz — "paid" da değildir ama açık borç da değildir. */

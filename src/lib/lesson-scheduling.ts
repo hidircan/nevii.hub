@@ -1,5 +1,6 @@
 import { isDateClosed } from "./closed-days";
-import { addDays, addMinutes, getDay, isBefore, setHours, setMinutes, startOfDay } from "date-fns";
+import { addMinutes, isBefore } from "date-fns";
+import { DEFAULT_APP_TIMEZONE, addDaysYmd, toZonedYmd, ymdToUtcNoon, zonedWallTimeToUtc } from "./timezone";
 import type { AppData, Instrument } from "./types";
 import { validateLessonSlot, type ValidatedSlot } from "./makeup-engine";
 
@@ -15,11 +16,6 @@ export type SuggestLessonSlotsParams = {
   daysAhead?: number;
   maxSlots?: number;
 };
-
-function parseHm(hm: string) {
-  const [h, m] = hm.split(":").map(Number);
-  return { h, m };
-}
 
 /**
  * Sıradan ders planlama için "uygun saatleri bul" asistanı. Telafi motorundan
@@ -37,8 +33,6 @@ export function suggestLessonSlots(
   const maxSlots = params.maxSlots ?? 8;
   const duration = data.settings.lessonDurationMinutes;
   const { workingHours, workingDays } = data.settings;
-  const { h: whStartH, m: whStartM } = parseHm(workingHours.start);
-  const { h: whEndH, m: whEndM } = parseHm(workingHours.end);
 
   const student = data.students.find((s) => s.id === params.studentId);
 
@@ -63,13 +57,13 @@ export function suggestLessonSlots(
 
   const suggestions: LessonSlotSuggestion[] = [];
 
+  const todayYmd = toZonedYmd(now, DEFAULT_APP_TIMEZONE);
   for (let d = 1; d <= daysAhead; d++) {
-    const day = addDays(startOfDay(now), d);
-    const dow = getDay(day);
-    if (!workingDays.includes(dow)) continue;
+    const ymd = addDaysYmd(todayYmd, d);
+    if (!workingDays.includes(ymdToUtcNoon(ymd).getUTCDay())) continue;
 
-    const dayStart = setMinutes(setHours(day, whStartH), whStartM);
-    const dayEnd = setMinutes(setHours(day, whEndH), whEndM);
+    const dayStart = zonedWallTimeToUtc(ymd, workingHours.start);
+    const dayEnd = zonedWallTimeToUtc(ymd, workingHours.end);
 
     for (let cursor = new Date(dayStart); cursor < dayEnd; cursor = addMinutes(cursor, 30)) {
       const previewEnd = addMinutes(cursor, duration);

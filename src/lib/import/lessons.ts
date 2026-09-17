@@ -13,6 +13,7 @@
  * edilmemiş olsalar bile) simüle edilerek yakalanır.
  */
 import type { AppData, Instrument } from "../types";
+import { zonedWallTimeToUtc } from "../timezone";
 import { INSTRUMENTS } from "../types";
 import type { CsvRecord } from "./csv";
 import type { ImportPreview, ImportRowError, ImportReadRow } from "./types";
@@ -185,7 +186,7 @@ export function validateLessonRows(data: AppData, records: CsvRecord[]): ImportP
     const canComposeStartAt = DATE_RE.test(dateValue) && TIME_RE.test(timeValue);
     if (!studentId || !teacherId || !roomId || !instrument || !canComposeStartAt) return;
 
-    const startAtIso = new Date(`${dateValue}T${timeValue}:00`).toISOString();
+    const startAtIso = zonedWallTimeToUtc(dateValue, timeValue).toISOString();
 
     if (findExactDuplicate(simulatedLessons, teacherId, roomId, startAtIso)) {
       valid.push({ studentId, teacherId, roomId, instrument, startAt: startAtIso, durationMinutes, duplicate: true });

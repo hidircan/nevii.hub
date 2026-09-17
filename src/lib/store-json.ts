@@ -1,4 +1,12 @@
 import {
+  applyLessonRevision,
+  planLessonDeletion,
+  type LessonDeletionPlan,
+  type LessonEditScope,
+  type LessonRevisionInput,
+  type LessonRevisionResult,
+} from "./lesson-scope-edit";
+import {
   applyDemoSeedRecords,
   assertDemoSeedAllowed,
   type DemoSeedInput,
@@ -755,6 +763,20 @@ export async function cancelLessonSeriesFromLesson(lessonId: string): Promise<Se
 export async function cancelEntireLessonSeries(seriesId: string): Promise<SeriesCancelResult> {
   const data = await readData();
   const result = cancelEntireSeries(data, seriesId);
+  if (result.ok) await writeData(result.data);
+  return result;
+}
+
+export async function deleteLessonsScoped(lessonId: string, scope: LessonEditScope): Promise<LessonDeletionPlan> {
+  const data = await readData();
+  const result = planLessonDeletion(data, lessonId, scope);
+  if (result.ok) await writeData(result.data);
+  return result;
+}
+
+export async function reviseLessonsScoped(input: LessonRevisionInput): Promise<LessonRevisionResult> {
+  const data = await readData();
+  const result = applyLessonRevision(data, input);
   if (result.ok) await writeData(result.data);
   return result;
 }

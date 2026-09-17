@@ -31,6 +31,7 @@ import type { StudentImportRow } from "./import/students";
 import type { ImportCommitResult } from "./import/commit-result";
 import type { AcademicTermDates } from "./academic-term-dates";
 import type { CreateSeriesResult, SeriesCancelResult, SeriesParams } from "./lesson-series";
+import type { LessonDeletionPlan, LessonEditScope, LessonRevisionInput, LessonRevisionResult } from "./lesson-scope-edit";
 import type {
   FeeRuleInput,
   FeeRuleMutationResult,
@@ -217,6 +218,10 @@ type StoreApi = {
   ) => Promise<CreateSeriesResult>;
   cancelLessonSeriesFromLesson: (lessonId: string) => Promise<SeriesCancelResult>;
   cancelEntireLessonSeries: (seriesId: string) => Promise<SeriesCancelResult>;
+  /** 2026-09-17 — hatalı planlanmış dersleri kapsamla SİL (korunan dersler atlanır). */
+  deleteLessonsScoped: (lessonId: string, scope: LessonEditScope) => Promise<LessonDeletionPlan>;
+  /** 2026-09-17 — dersleri kapsamla REVİZE ET (saat/gün/süre). */
+  reviseLessonsScoped: (input: LessonRevisionInput) => Promise<LessonRevisionResult>;
   addTeacherFeeRule: (input: FeeRuleInput) => Promise<FeeRuleMutationResult>;
   updateTeacherFeeRule: (
     ruleId: string,
@@ -631,6 +636,14 @@ export async function cancelLessonSeriesFromLesson(lessonId: string): Promise<Se
 
 export async function cancelEntireLessonSeries(seriesId: string): Promise<SeriesCancelResult> {
   return withTenantScope(() => store.cancelEntireLessonSeries(seriesId));
+}
+
+export async function deleteLessonsScoped(lessonId: string, scope: LessonEditScope): Promise<LessonDeletionPlan> {
+  return withTenantScope(() => store.deleteLessonsScoped(lessonId, scope));
+}
+
+export async function reviseLessonsScoped(input: LessonRevisionInput): Promise<LessonRevisionResult> {
+  return withTenantScope(() => store.reviseLessonsScoped(input));
 }
 
 export async function addTeacherFeeRule(input: FeeRuleInput): Promise<FeeRuleMutationResult> {

@@ -1,16 +1,4 @@
-import {
-  addDays,
-  addMinutes,
-  differenceInCalendarDays,
-  format,
-  getDay,
-  isBefore,
-  isAfter,
-  parseISO,
-  setHours,
-  setMinutes,
-  startOfDay,
-} from "date-fns";
+import { addDays, addMinutes, differenceInCalendarDays, isBefore, isAfter, parseISO } from "date-fns";
 import type {
   AppData,
   BranchId,
@@ -23,11 +11,7 @@ import type {
   Teacher,
 } from "./types";
 import { availabilityForBranch, isTeacherSchedulable, teacherServesBranch } from "./teacher-branches";
-
-function parseHm(hm: string) {
-  const [h, m] = hm.split(":").map(Number);
-  return { h, m };
-}
+import { DEFAULT_APP_TIMEZONE, addDaysYmd, toZonedYmd, ymdToUtcNoon, zonedWallTimeToUtc, zonedWeekday } from "./timezone";
 
 function overlaps(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date) {
   return aStart < bEnd && bStart < aEnd;
@@ -67,23 +51,29 @@ function roomFree(
   });
 }
 
-function teacherAvailableOnDay(teacher: Teacher, day: Date, start: Date, end: Date, branchId: BranchId) {
-  const dow = getDay(day);
+/**
+ * Müsaitlik penceresi ("10:00–18:00") kurum saat dilimindeki duvar saatidir;
+ * gün ve pencere sınırları `zonedWallTimeToUtc` ile çözülür. Önceden
+ * `setHours(startOfDay(day))` sunucu saatini kullanıyordu → UTC sunucuda
+ * pencere 3 saat kayık değerlendiriliyordu.
+ */
+function teacherAvailableOnDay(teacher: Teacher, start: Date, end: Date, branchId: BranchId) {
+  const ymd = toZonedYmd(start, DEFAULT_APP_TIMEZONE);
+  const dow = zonedWeekday(start);
   const windows = availabilityForBranch(teacher.availability, branchId).filter((a) => a.dayOfWeek === dow);
   if (!windows.length) return false;
   return windows.some((w) => {
-    const { h: sh, m: sm } = parseHm(w.start);
-    const { h: eh, m: em } = parseHm(w.end);
-    const winStart = setMinutes(setHours(startOfDay(day), sh), sm);
-    const winEnd = setMinutes(setHours(startOfDay(day), eh), em);
+    const winStart = zonedWallTimeToUtc(ymd, w.start);
+    const winEnd = zonedWallTimeToUtc(ymd, w.end);
     return !isBefore(start, winStart) && !isAfter(end, winEnd);
   });
 }
 
-function dailyLessonCount(teacherId: string, day: Date, lessons: Lesson[]) {
+function dailyLessonCount(teacherId: string, day: Date, lessons: Lesson[], excludeLessonId?: string) {
+  const ymd = toZonedYmd(day, DEFAULT_APP_TIMEZONE);
   return lessons.filter((l) => {
-    if (l.teacherId !== teacherId || l.status === "cancelled") return false;
-    return format(parseISO(l.startAt), "yyyy-MM-dd") === format(day, "yyyy-MM-dd");
+    if (l.teacherId !== teacherId || l.status === "cancelled" || l.id === excludeLessonId) return false;
+    return toZonedYmd(parseISO(l.startAt), DEFAULT_APP_TIMEZONE) === ymd;
   }).length;
 }
 
@@ -219,8 +209,11 @@ export function validateLessonSlot(
     return fail("INVALID_DURATION");
   }
 
+  // 2026-09-17 — geçmişe planlama YALNIZ telafi taleplerinde yasak (telafi
+  // gelecekte yapılır). Sıradan ders planlama/taşıma geçmiş tarihi kabul eder:
+  // sisteme sonradan eklenen öğrencinin geçmiş dersleri girilebilmeli.
   const now = options?.now ?? new Date();
-  if (start < now) return fail("PAST_START");
+  if (context.status !== undefined && start < now) return fail("PAST_START");
 
   const duration = options?.durationMinutes ?? data.settings.lessonDurationMinutes;
   const end = addMinutes(start, duration);
@@ -234,7 +227,6 @@ export function validateLessonSlot(
   // varsa Pazar veya mesai dışı saatlerde de ders planlanabilir. Öğretmenin
   // kendi bildirdiği müsaitlik penceresi (teacherAvailableOnDay) ayrı ve
   // geçerli bir kısıt olarak kalır.
-  const day = startOfDay(start);
 
   const teacher = data.teachers.find((t) => t.id === input.teacherId);
   if (!teacher) return fail("TEACHER_NOT_FOUND");
@@ -252,12 +244,12 @@ export function validateLessonSlot(
   // Package D — öğretmen odanın şubesinde fiilen ders veriyor olmalı
   // (birincil VEYA ek atanmış şube); tek-şube eşitliği yerine.
   if (!teacherServesBranch(teacher, room.branchId)) return fail("ROOM_BRANCH_MISMATCH");
-  const teacherAvailable = teacherAvailableOnDay(teacher, day, start, end, room.branchId);
+  const teacherAvailable = teacherAvailableOnDay(teacher, start, end, room.branchId);
   if (!teacherAvailable && !options?.allowAvailabilityOverride) return fail("TEACHER_UNAVAILABLE");
   if (!teacherFree(teacher.id, start, end, data.lessons, options?.excludeLessonId)) {
     return fail("TEACHER_CONFLICT");
   }
-  if (dailyLessonCount(teacher.id, day, data.lessons) >= teacher.maxDailyLessons) {
+  if (dailyLessonCount(teacher.id, start, data.lessons, options?.excludeLessonId) >= teacher.maxDailyLessons) {
     return fail("TEACHER_DAILY_LIMIT");
   }
 
@@ -300,8 +292,6 @@ export function suggestMakeupSlots(
   const daysAhead = options?.daysAhead ?? data.settings.makeupWindowDays;
   const duration = data.settings.lessonDurationMinutes;
   const { workingHours, workingDays } = data.settings;
-  const { h: whStartH, m: whStartM } = parseHm(workingHours.start);
-  const { h: whEndH, m: whEndM } = parseHm(workingHours.end);
 
   const candidates = data.teachers.filter(
     (t) =>
@@ -332,14 +322,13 @@ export function suggestMakeupSlots(
   const now = new Date();
   const expire = parseISO(request.expiresAt);
 
+  const todayYmd = toZonedYmd(now, DEFAULT_APP_TIMEZONE);
   for (let d = 1; d <= daysAhead; d++) {
-    const day = addDays(startOfDay(now), d);
-    if (isAfter(day, expire)) break;
-    const dow = getDay(day);
-    if (!workingDays.includes(dow)) continue;
-
-    const dayStart = setMinutes(setHours(day, whStartH), whStartM);
-    const dayEnd = setMinutes(setHours(day, whEndH), whEndM);
+    const ymd = addDaysYmd(todayYmd, d);
+    const dayStart = zonedWallTimeToUtc(ymd, workingHours.start);
+    if (isAfter(zonedWallTimeToUtc(ymd, "00:00"), expire)) break;
+    if (!workingDays.includes(ymdToUtcNoon(ymd).getUTCDay())) continue;
+    const dayEnd = zonedWallTimeToUtc(ymd, workingHours.end);
 
     for (let cursor = new Date(dayStart); cursor < dayEnd; cursor = addMinutes(cursor, 30)) {
       const slotEndPreview = addMinutes(cursor, duration);
@@ -385,7 +374,7 @@ export function suggestMakeupSlots(
         score += Math.max(0, 20 - d);
         reasons.push(`${d} gün içinde`);
 
-        const load = dailyLessonCount(teacher.id, day, data.lessons);
+        const load = dailyLessonCount(teacher.id, dayStart, data.lessons);
         if (load <= 2) {
           score += 10;
           reasons.push("Öğretmen programı rahat");

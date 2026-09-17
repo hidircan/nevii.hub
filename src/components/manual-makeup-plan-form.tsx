@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { zonedWallTimeToUtc } from "@/lib/timezone";
 import { useRouter } from "next/navigation";
 import { CalendarPlus } from "lucide-react";
 import { Button } from "@/components/ui";
@@ -77,7 +78,7 @@ export function ManualMakeupPlanForm({
     setError(null);
     setSuccess(false);
     try {
-      const startAt = new Date(`${date}T${time}:00`);
+      const startAt = zonedWallTimeToUtc(date, time);
       if (Number.isNaN(startAt.getTime())) {
         setError("Geçerli bir tarih ve saat seçin.");
         setBusy(false);

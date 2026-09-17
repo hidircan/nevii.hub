@@ -1,4 +1,12 @@
 import {
+  applyLessonRevision,
+  planLessonDeletion,
+  type LessonDeletionPlan,
+  type LessonEditScope,
+  type LessonRevisionInput,
+  type LessonRevisionResult,
+} from "./lesson-scope-edit";
+import {
   assertDemoSeedAllowed,
   newDemoLessonId,
   type DemoSeedInput,
@@ -2504,6 +2512,46 @@ export async function cancelLessonSeriesFromLesson(lessonId: string): Promise<Se
   });
 
   return { ok: true, data: await readData(), cancelledLessonIds: result.cancelledLessonIds };
+}
+
+/** 2026-09-17 — bkz. lesson-scope-edit.ts planLessonDeletion; korunan dersler (yoklama FK dahil) plana hiç girmez. */
+export async function deleteLessonsScoped(lessonId: string, scope: LessonEditScope): Promise<LessonDeletionPlan> {
+  logger.info("deleteLessonsScoped", lessonId, scope);
+  const tid = requireTenantId();
+  const data = await readData();
+  const result = planLessonDeletion(data, lessonId, scope);
+  if (!result.ok) return result;
+  const seriesClosed = result.data.lessonSeries.find((s) => s.id === result.seriesId && s.status === "cancelled");
+  await prisma.$transaction(async (tx) => {
+    await tx.lesson.deleteMany({ where: { id: { in: result.deletedLessonIds }, tenantId: tid } });
+    if (seriesClosed) {
+      await tx.lessonSeries.updateMany({ where: { id: seriesClosed.id, tenantId: tid }, data: { status: "cancelled" } });
+    }
+  });
+  return { ...result, data: await readData() };
+}
+
+/** 2026-09-17 — bkz. lesson-scope-edit.ts applyLessonRevision. */
+export async function reviseLessonsScoped(input: LessonRevisionInput): Promise<LessonRevisionResult> {
+  logger.info("reviseLessonsScoped", input.lessonId, input.scope);
+  const tid = requireTenantId();
+  const data = await readData();
+  const result = applyLessonRevision(data, input);
+  if (!result.ok) return result;
+  await prisma.$transaction(async (tx) => {
+    for (const l of result.updatedLessons) {
+      await tx.lesson.updateMany({
+        where: { id: l.id, tenantId: tid },
+        data: { startAt: new Date(l.startAt), endAt: new Date(l.endAt) },
+      });
+    }
+    if (result.seriesPatch) {
+      const { id, ...patch } = result.seriesPatch;
+      await tx.lessonSeries.updateMany({ where: { id, tenantId: tid }, data: patch });
+    }
+    // ponytail: ders başına tek UPDATE; dönemlik seri (~40 ders) için yeterli, yüzlerce derste toplu SQL'e geçilir.
+  }, { timeout: 30_000 });
+  return { ...result, data: await readData() };
 }
 
 /** "Tüm seri": geçmiş dersler korunur, gelecekteki tüm seri dersleri iptal edilir, seri cancelled olur. */

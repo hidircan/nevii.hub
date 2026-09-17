@@ -24,7 +24,7 @@ import {
 import { clampPreferencesToPolicy } from "./appearance-policy";
 import { auditLog } from "./auth/audit";
 import { isFormalContractDuration } from "./contracts";
-import { uid } from "./utils";
+import { formatDate, formatTime, uid } from "./utils";
 import {
   cancelMakeupLessonTool,
   confirmMakeupLessonTool,
@@ -125,6 +125,8 @@ import {
   updateDiscountCampaignTool,
   archiveTeacherTool,
   archiveTeacherStudentsTool,
+  deleteLessonsTool,
+  reviseLessonsTool,
   updateTeacherAvailabilityTool,
   updateRoomTool,
   createInstrumentCatalogTool,
@@ -2861,8 +2863,8 @@ export type LessonActionResult =
 export async function actionAddLesson(formData: FormData): Promise<LessonActionResult> {
   try {
     const result = await withAuthContext("actionAddLesson", async (ctx) => {
-      const startAtRaw = String(formData.get("startAt") || "");
-      const startAt = startAtRaw ? new Date(startAtRaw).toISOString() : "";
+      // Ham "yyyy-MM-ddTHH:mm" iletilir; kurum saatine çeviri createLessonTool'da (tek kural).
+      const startAt = String(formData.get("startAt") || "");
       const durationRaw = formData.get("durationMinutes");
       const termRaw = formData.get("term");
       const academicYearStartRaw = formData.get("academicYearStart");
@@ -3073,6 +3075,69 @@ export async function actionCancelEntireSeries(input: { seriesId: string }): Pro
     if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
     if (error instanceof WriteScopeDeniedError) return { ok: false, message: error.message };
     return { ok: false, message: "Seri iptal edilirken beklenmeyen bir hata oluştu." };
+  }
+}
+
+export type LessonEditScopeInput = "single" | "fromHereOnward" | "entireSeries";
+
+export type DeleteLessonsActionResult =
+  | { ok: true; deletedCount: number; protectedNotes: string[] }
+  | { ok: false; message: string };
+
+/** 2026-09-17 — ders silme (kapsamlı); korunan dersler tarih + nedenle döner. */
+export async function actionDeleteLessons(input: { lessonId: string; scope: LessonEditScopeInput }): Promise<DeleteLessonsActionResult> {
+  try {
+    const result = await withAuthContext("actionDeleteLessons", (ctx) => deleteLessonsTool(ctx, input));
+    if (!result.ok) return { ok: false, message: toolFailureMessage(result.error, "Silme seçimi geçersiz; tekrar deneyin.") };
+    revalidateAll();
+    return {
+      ok: true,
+      deletedCount: result.data.deletedLessonIds.length,
+      protectedNotes: result.data.protectedLessons.map((p) => `${formatDate(p.startAt)} ${formatTime(p.startAt)} (${p.reason})`),
+    };
+  } catch (error) {
+    if (error instanceof WriteScopeDeniedError) return { ok: false, message: error.message };
+    logger.error("actionDeleteLessons failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "Ders silinirken beklenmeyen bir hata oluştu. Sayfayı yenileyip tekrar deneyin." };
+  }
+}
+
+export type ReviseLessonsActionResult =
+  | { ok: true; updatedCount: number; protectedNotes: string[] }
+  | { ok: false; message: string; overridable?: boolean };
+
+/** 2026-09-17 — ders revize (kapsamlı). Tarih-saat ham "yyyy-MM-ddTHH:mm" iletilir; kurum saatine çeviri çekirdekte. */
+export async function actionReviseLessons(input: {
+  lessonId: string;
+  scope: LessonEditScopeInput;
+  startAt?: string;
+  startTime?: string;
+  weekday?: number;
+  durationMinutes?: number;
+  allowAvailabilityOverride?: boolean;
+}): Promise<ReviseLessonsActionResult> {
+  try {
+    const result = await withAuthContext("actionReviseLessons", (ctx) => reviseLessonsTool(ctx, input));
+    if (!result.ok) {
+      const details = result.error.details as { overridable?: boolean } | undefined;
+      return {
+        ok: false,
+        message: toolFailureMessage(result.error, "Revize bilgilerinde hatalı bir değer var; kontrol edin."),
+        overridable: details?.overridable,
+      };
+    }
+    revalidateAll();
+    return {
+      ok: true,
+      updatedCount: result.data.updatedLessonIds.length,
+      protectedNotes: result.data.protectedLessons.map((p) => `${formatDate(p.startAt)} ${formatTime(p.startAt)} (${p.reason})`),
+    };
+  } catch (error) {
+    if (error instanceof WriteScopeDeniedError) return { ok: false, message: error.message };
+    logger.error("actionReviseLessons failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "Ders güncellenirken beklenmeyen bir hata oluştu. Sayfayı yenileyip tekrar deneyin." };
   }
 }
 

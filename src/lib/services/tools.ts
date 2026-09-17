@@ -26,6 +26,8 @@ import {
   addTeacher,
   addTeacherFeeRule,
   cancelEntireLessonSeries,
+  deleteLessonsScoped,
+  reviseLessonsScoped,
   cancelLesson,
   cancelLessonSeriesFromLesson,
   cancelMakeup,
@@ -303,6 +305,8 @@ import {
   createTeachingMaterialSchema,
   paymentRecordSchema,
   updateTeacherAvailabilitySchema,
+  deleteLessonsSchema,
+  reviseLessonsSchema,
   archiveTeacherStudentsSchema,
   reviewHomeworkSubmissionSchema,
   reviewTeacherAvailabilityRequestSchema,
@@ -463,7 +467,7 @@ import {
   type TaskFilter,
 } from "../tasks";
 import { buildTaskReport, defaultTaskReportRange, type TaskReport, type TaskReportRange } from "../task-report";
-import { resolveAppTimezone, toZonedYmd, formatDateTr } from "../timezone";
+import { resolveAppTimezone, toZonedYmd, formatDateTr, wallDateTimeInputToIso } from "../timezone";
 import { clearTaskReminderLog } from "../task-reminder-log";
 import { getReminderPreference, setReminderPreference, clearReminderPreferences } from "../task-reminder-preferences";
 import {
@@ -5270,8 +5274,13 @@ export async function createLessonTool(
   const auth = requireRole(ctx, ["SCHOOL_ADMIN", "AI_AGENT", "SUPER_ADMIN", "BRANCH_MANAGER"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
 
-  const v = parseOrFail(lessonSchema, input);
-  if (!v.ok) return v;
+  const parsed = parseOrFail(lessonSchema, input);
+  if (!parsed.ok) return parsed;
+  // Saat kayması kök neden düzeltmesi — formdan gelen ofsetsiz "yyyy-MM-ddTHH:mm"
+  // kurum saatidir; sunucu saat dilimine göre YORUMLANMAZ (bkz. wallDateTimeInputToIso).
+  const normalizedStartAt = wallDateTimeInputToIso(parsed.data.startAt);
+  if (!normalizedStartAt) return fail("VALIDATION_ERROR", "Geçerli bir ders tarihi ve saati seçin.");
+  const v = ok({ ...parsed.data, startAt: normalizedStartAt });
 
   // NeviiOS — şube müdürü: derslik ve öğrenci atanmış şubede olmalı.
   if (ctx.role === "BRANCH_MANAGER") {
@@ -5383,8 +5392,11 @@ export async function updateLessonScheduleTool(
   const auth = requireRole(ctx, ["SCHOOL_ADMIN", "AI_AGENT", "SUPER_ADMIN", "BRANCH_MANAGER"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
 
-  const v = parseOrFail(updateLessonScheduleSchema, input);
-  if (!v.ok) return v;
+  const parsed = parseOrFail(updateLessonScheduleSchema, input);
+  if (!parsed.ok) return parsed;
+  const normalizedStartAt = parsed.data.startAt === undefined ? undefined : wallDateTimeInputToIso(parsed.data.startAt);
+  if (normalizedStartAt === null) return fail("VALIDATION_ERROR", "Geçerli bir ders tarihi ve saati seçin.");
+  const v = ok({ ...parsed.data, startAt: normalizedStartAt });
 
   if (ctx.role === "BRANCH_MANAGER") {
     const lesson = (await readData()).lessons.find((l) => l.id === v.data.lessonId);
@@ -5620,6 +5632,70 @@ export async function cancelEntireSeriesTool(
     return ok({ cancelledLessonIds: result.cancelledLessonIds });
   } catch (e) {
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "cancelEntireSeries failed");
+  }
+}
+
+/**
+ * 2026-09-17 — hatalı planlanmış dersi SİL: yalnız bu ders / bu ders ve sonrası /
+ * tüm seri. Yoklama, işlem, tahsilat veya telafi bağı olan dersler korunur ve
+ * sonuçta listelenir (bkz. lesson-scope-edit.ts).
+ */
+export async function deleteLessonsTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ deletedLessonIds: string[]; protectedLessons: { lessonId: string; startAt: string; reason: string }[] }>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const v = parseOrFail(deleteLessonsSchema, input);
+  if (!v.ok) return v;
+  try {
+    const result = await deleteLessonsScoped(v.data.lessonId, v.data.scope);
+    if (!result.ok) return fail("VALIDATION_ERROR", result.message);
+    audit(ctx, "lesson.delete", "Lesson", v.data.lessonId, {
+      scope: v.data.scope,
+      deletedLessonIds: result.deletedLessonIds,
+      protectedCount: result.protectedLessons.length,
+    });
+    return ok({ deletedLessonIds: result.deletedLessonIds, protectedLessons: result.protectedLessons });
+  } catch (e) {
+    return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "deleteLessons failed");
+  }
+}
+
+/** 2026-09-17 — dersi REVİZE ET (tarih/saat/gün/süre) üç kapsamla; çakışmada hiçbir ders değişmez. */
+export async function reviseLessonsTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ updatedLessonIds: string[]; protectedLessons: { lessonId: string; startAt: string; reason: string }[] }>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const v = parseOrFail(reviseLessonsSchema, input);
+  if (!v.ok) return v;
+  if (v.data.scope === "single" && !v.data.startAt && v.data.durationMinutes === undefined) {
+    return fail("VALIDATION_ERROR", "Yeni tarih-saat veya süre girin.");
+  }
+  if (v.data.scope !== "single" && !v.data.startTime && v.data.weekday === undefined && v.data.durationMinutes === undefined) {
+    return fail("VALIDATION_ERROR", "Yeni saat, gün veya süre girin.");
+  }
+  try {
+    const result = await reviseLessonsScoped(v.data);
+    if (!result.ok) {
+      return fail(result.code === "BLOCKED_BY_CONFLICT" ? "CONFLICT" : "VALIDATION_ERROR", result.message, {
+        conflicts: result.conflicts,
+        overridable: result.code === "NEEDS_AVAILABILITY_CONFIRM",
+      });
+    }
+    audit(ctx, "lesson.revise", "Lesson", v.data.lessonId, {
+      scope: v.data.scope,
+      startAt: v.data.startAt,
+      startTime: v.data.startTime,
+      weekday: v.data.weekday,
+      durationMinutes: v.data.durationMinutes,
+      updatedCount: result.updatedLessons.length,
+    });
+    return ok({ updatedLessonIds: result.updatedLessons.map((l) => l.id), protectedLessons: result.protectedLessons });
+  } catch (e) {
+    return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "reviseLessons failed");
   }
 }
 

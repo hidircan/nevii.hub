@@ -13,6 +13,7 @@
 import type { ClosedDay, Lesson, StudentTermType } from "./types";
 import { findOfficialHoliday } from "./turkish-holidays";
 import { toYmd } from "./closed-days";
+import { zonedWeekday } from "./timezone";
 
 export type DayStatus = "closed" | "open";
 
@@ -57,8 +58,8 @@ export function isWeeklyClosedDayForTerm(
   term?: StudentTermType,
   override?: TermWeeklyClosedDaysOverride
 ): boolean {
-  if (!term) return date.getDay() === 1; // legacy: yalnızca Pazartesi
-  return weeklyClosedDaysForTerm(term, override).includes(date.getDay());
+  if (!term) return zonedWeekday(date) === 1; // legacy: yalnızca Pazartesi
+  return weeklyClosedDaysForTerm(term, override).includes(zonedWeekday(date));
 }
 
 /**

@@ -20,7 +20,16 @@ import {
 import type { LessonCommunicationMessage } from "@/lib/whatsapp-templates";
 import type { LessonSlotSuggestion } from "@/lib/lesson-scheduling";
 import type { SeriesOccurrenceCheck } from "@/lib/lesson-series";
-import { DEFAULT_APP_TIMEZONE, zonedHm } from "@/lib/timezone";
+import { LessonScopeEditor } from "@/components/lesson-scope-editor";
+import { emptyProgramNotices, onlyNotice } from "@/lib/program-notices";
+import {
+  DEFAULT_APP_TIMEZONE,
+  isoToWallDateTimeInput,
+  toWallClockDate,
+  wallDateTimeInputToIso,
+  zonedHm,
+  zonedWallTimeToUtc,
+} from "@/lib/timezone";
 import { Badge, Button, Card, Input, Label, Select } from "@/components/ui";
 import { LessonOpsActions, LessonOpsBadges } from "@/components/lesson-ops-actions";
 import { LessonReassignmentModal } from "@/components/lesson-reassignment-modal";
@@ -73,7 +82,7 @@ const SLOT_MINUTES = 30;
 const SLOT_HEIGHT_PX = 28;
 
 function toDatetimeLocalValue(iso: string) {
-  return format(parseISO(iso), "yyyy-MM-dd'T'HH:mm");
+  return isoToWallDateTimeInput(iso);
 }
 
 function parseHm(hm: string) {
@@ -155,7 +164,8 @@ function canCancel(lesson: Lesson) {
 function ineligibilityReason(lesson: Lesson, now: Date): string | null {
   if (lesson.type !== "regular") return "Telafi dersleri bu ekrandan taşınamaz, süresi değiştirilemez veya iptal edilemez.";
   if (lesson.status !== "scheduled") return "Bu ders zaten tamamlanmış veya iptal edilmiş.";
-  if (!(parseISO(lesson.startAt) > now)) return "Geçmiş bir ders taşınamaz veya süresi değiştirilemez, ancak iptal edilebilir.";
+  // Geçmiş ders sürükle-bırakla taşınmaz ama "Dersi düzenle / sil" ile revize edilebilir (yoklamasız ise).
+  if (!(parseISO(lesson.startAt) > now)) return "Geçmiş ders takvimde sürüklenemez; aşağıdaki \"Dersi düzenle / sil\" bölümünü kullanın.";
   return null;
 }
 
@@ -267,7 +277,7 @@ export function lessonHoverCardLines(
   branchName?: string
 ): string[] {
   const timeRange = `${zonedHm(parseISO(lesson.startAt), DEFAULT_APP_TIMEZONE)}–${zonedHm(parseISO(lesson.endAt), DEFAULT_APP_TIMEZONE)}`;
-  const dateLabel = format(parseISO(lesson.startAt), "d MMMM yyyy, EEEE", { locale: tr });
+  const dateLabel = format(toWallClockDate(lesson.startAt), "d MMMM yyyy, EEEE", { locale: tr });
   const lines = [student?.name ?? "Öğrenci bilinmiyor", dateLabel, timeRange];
   if (teacher?.name) lines.push(`Öğretmen: ${teacher.name}`);
   if (lesson.instrument) lines.push(`Enstrüman: ${lesson.instrument}`);
@@ -647,18 +657,17 @@ export function ProgramStudio({
    */
   const [availabilityWarningOpen, setAvailabilityWarningOpen] = useState(false);
   const pendingLessonFormData = useRef<FormData | null>(null);
-  const [lastCreated, setLastCreated] = useState<{
-    parent: LessonCommunicationMessage;
-    teacher: LessonCommunicationMessage;
-  } | null>(null);
+  const [notices, setNotices] = useState(() =>
+    emptyProgramNotices<{ parent: LessonCommunicationMessage; teacher: LessonCommunicationMessage }>()
+  );
+  const { gridError, actionSuccess, lastCreated, seriesSuccess } = notices;
+  const clearNotices = () => setNotices(emptyProgramNotices());
 
   const [suggestLoading, setSuggestLoading] = useState(false);
   const [suggestError, setSuggestError] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<LessonSlotSuggestion[] | null>(null);
   const [suggestLimit, setSuggestLimit] = useState(8);
 
-  const [gridError, setGridError] = useState<string | null>(null);
-  const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const [draggingLessonId, setDraggingLessonId] = useState<string | null>(null);
   const [dragOverKey, setDragOverKey] = useState<string | null>(null);
   const [resizePreview, setResizePreview] = useState<{ lessonId: string; duration: number } | null>(null);
@@ -687,8 +696,6 @@ export function ProgramStudio({
   const [opsPending, setOpsPending] = useState<Record<string, boolean>>({});
 
   const [detailLesson, setDetailLesson] = useState<Lesson | null>(null);
-  const [detailMoveOpen, setDetailMoveOpen] = useState(false);
-  const [detailMoveStartAt, setDetailMoveStartAt] = useState("");
   const [detailError, setDetailError] = useState<string | null>(null);
   const [detailSubmitting, setDetailSubmitting] = useState(false);
 
@@ -751,7 +758,6 @@ export function ProgramStudio({
   const [seriesPreviewLoading, setSeriesPreviewLoading] = useState(false);
   const [seriesError, setSeriesError] = useState<string | null>(null);
   const [seriesSubmitting, setSeriesSubmitting] = useState(false);
-  const [seriesSuccess, setSeriesSuccess] = useState<{ createdCount: number; skippedCount: number } | null>(null);
 
   const seriesSelectedStudent = students.find((s) => s.id === seriesStudentId);
   const seriesSelectedTeacher = teachers.find((t) => t.id === seriesTeacherId);
@@ -770,6 +776,7 @@ export function ProgramStudio({
   );
 
   function resetPanelState() {
+    clearNotices();
     setFormError(null);
     setSuggestions(null);
     setSuggestError(null);
@@ -777,7 +784,7 @@ export function ProgramStudio({
 
   function openPlanner(prefillStartAt?: string) {
     if (!canCreate) {
-      setGridError("Ders eklemek için üstteki kurum seçiciden tek bir kurum seçin.");
+      setNotices(onlyNotice({ gridError: "Ders eklemek için üstteki kurum seçiciden tek bir kurum seçin." }));
       return;
     }
     resetPanelState();
@@ -832,12 +839,12 @@ export function ProgramStudio({
 
   function openSeriesPanel() {
     if (!canCreate) {
-      setGridError("Ders eklemek için üstteki kurum seçiciden tek bir kurum seçin.");
+      setNotices(onlyNotice({ gridError: "Ders eklemek için üstteki kurum seçiciden tek bir kurum seçin." }));
       return;
     }
     setSeriesError(null);
     setSeriesPreview(null);
-    setSeriesSuccess(null);
+    clearNotices();
     setDetailLesson(null);
     setActivePanel("series");
     if (filterBranchId) setSeriesBranchId(filterBranchId);
@@ -877,7 +884,7 @@ export function ProgramStudio({
 
   async function handleSeriesPreview() {
     setSeriesError(null);
-    setSeriesSuccess(null);
+    clearNotices();
     if (!seriesBranchId || !seriesStudentId || !seriesTeacherId || !seriesRoomId || !seriesStartsOn || !seriesEndsOn) {
       setSeriesError("Şube, öğrenci, öğretmen, oda ve tarih aralığı zorunludur.");
       return;
@@ -934,10 +941,11 @@ export function ProgramStudio({
       setSeriesError(result.message);
       return;
     }
-    setSeriesSuccess({
-      createdCount: result.createdLessonIds.length,
-      skippedCount: result.skippedOccurrences.length,
-    });
+    setNotices(
+      onlyNotice({
+        seriesSuccess: { createdCount: result.createdLessonIds.length, skippedCount: result.skippedOccurrences.length },
+      })
+    );
     setSeriesPreview(null);
     setActivePanel("none");
     router.refresh();
@@ -986,7 +994,9 @@ export function ProgramStudio({
       setFormError(result.message);
       return;
     }
-    if (result.communication) setLastCreated(result.communication);
+    setNotices(
+      result.communication ? onlyNotice({ lastCreated: result.communication }) : onlyNotice({ actionSuccess: "Ders planlandı." })
+    );
     setActivePanel("none");
     setSuggestions(null);
     setAvailabilityWarningOpen(false);
@@ -1056,44 +1066,12 @@ export function ProgramStudio({
   function openDetail(lesson: Lesson) {
     setActivePanel("none");
     setDetailLesson(lesson);
-    setDetailMoveOpen(false);
     setDetailError(null);
   }
 
   function closeDetail() {
     setDetailLesson(null);
-    setDetailMoveOpen(false);
     setDetailError(null);
-  }
-
-  function openDetailMove() {
-    if (!detailLesson) return;
-    setDetailMoveStartAt(toDatetimeLocalValue(detailLesson.startAt));
-    setDetailMoveOpen(true);
-    setDetailError(null);
-  }
-
-  async function submitDetailMove(e: FormEvent) {
-    e.preventDefault();
-    if (!detailLesson) return;
-    if (!canCreate) {
-      setDetailError("Ders taşımak için üstteki kurum seçiciden tek bir kurum seçin.");
-      return;
-    }
-    setDetailSubmitting(true);
-    setDetailError(null);
-    const result = await actionUpdateLessonSchedule({
-      lessonId: detailLesson.id,
-      startAt: new Date(detailMoveStartAt).toISOString(),
-    });
-    setDetailSubmitting(false);
-    if (!result.ok) {
-      setDetailError(result.message);
-      return;
-    }
-    closeDetail();
-    setActionSuccess("Ders taşındı.");
-    router.refresh();
   }
 
   async function submitDetailCancel() {
@@ -1112,6 +1090,7 @@ export function ProgramStudio({
       return;
     }
     closeDetail();
+    setNotices(onlyNotice({ actionSuccess: "Ders iptal edildi." }));
     router.refresh();
   }
 
@@ -1136,6 +1115,7 @@ export function ProgramStudio({
       return;
     }
     closeDetail();
+    setNotices(onlyNotice({ actionSuccess: "Bu ders ve sonraki seri dersleri iptal edildi." }));
     router.refresh();
   }
 
@@ -1160,15 +1140,16 @@ export function ProgramStudio({
       return;
     }
     closeDetail();
+    setNotices(onlyNotice({ actionSuccess: "Serinin kalan dersleri iptal edildi." }));
     router.refresh();
   }
 
   async function performMove(lessonId: string, newStartAtIso: string) {
     if (!canCreate) {
-      setGridError("Ders taşımak için üstteki kurum seçiciden tek bir kurum seçin.");
+      setNotices(onlyNotice({ gridError: "Ders taşımak için üstteki kurum seçiciden tek bir kurum seçin." }));
       return;
     }
-    setGridError(null);
+    clearNotices();
     const lesson = weekLessons.find((l) => l.id === lessonId);
     if (!lesson) return;
     // İyimser çizim — sunucu turunu BEKLEMEDEN. Süre korunur; yalnızca başlangıç taşınır.
@@ -1191,10 +1172,10 @@ export function ProgramStudio({
       return next;
     });
     if (!result.ok) {
-      setGridError(`Değişiklik uygulanmadı: ${result.message}`);
+      setNotices(onlyNotice({ gridError: `Değişiklik uygulanmadı: ${result.message}` }));
       return;
     }
-    setActionSuccess("Ders taşındı.");
+    setNotices(onlyNotice({ actionSuccess: "Ders taşındı." }));
     // `router.refresh()` YOK — `actionUpdateLessonSchedule` içindeki
     // `revalidatePath` zaten bu sayfanın RSC ağacını action yanıtıyla birlikte
     // tazeliyor (bkz. Next docs: revalidatePath > Server Functions). Ek
@@ -1206,8 +1187,7 @@ export function ProgramStudio({
     const lessonId = draggingLessonId;
     setDraggingLessonId(null);
     if (!lessonId) return;
-    const day = parseISO(dayIso);
-    const dt = addMinutes(startOfDay(day), slotMin);
+    const dt = zonedWallTimeToUtc(format(parseISO(dayIso), "yyyy-MM-dd"), formatMinutes(slotMin));
     void performMove(lessonId, dt.toISOString());
   }
 
@@ -1215,7 +1195,7 @@ export function ProgramStudio({
     e.preventDefault();
     e.stopPropagation();
     if (!canCreate) {
-      setGridError("Ders süresini değiştirmek için üstteki kurum seçiciden tek bir kurum seçin.");
+      setNotices(onlyNotice({ gridError: "Ders süresini değiştirmek için üstteki kurum seçiciden tek bir kurum seçin." }));
       return;
     }
     const duration = differenceInMinutes(parseISO(lesson.endAt), parseISO(lesson.startAt));
@@ -1240,7 +1220,7 @@ export function ProgramStudio({
       setResizePreview(null);
       if (!ref) return;
       if (ref.currentDuration === ref.initialDuration) return;
-      setGridError(null);
+      clearNotices();
       const moved = weekLessons.find((l) => l.id === ref.lessonId);
       if (moved) {
         setPendingLessonMoves((prev) => ({
@@ -1261,10 +1241,10 @@ export function ProgramStudio({
         return next;
       });
       if (!result.ok) {
-        setGridError(`Değişiklik uygulanmadı: ${result.message}`);
+        setNotices(onlyNotice({ gridError: `Değişiklik uygulanmadı: ${result.message}` }));
         return;
       }
-      setActionSuccess("Ders süresi güncellendi.");
+      setNotices(onlyNotice({ actionSuccess: "Ders süresi güncellendi." }));
     }
 
     window.addEventListener("mousemove", onMove);
@@ -1342,6 +1322,11 @@ export function ProgramStudio({
         <div>
           <Label>Başlangıç tarihi/saati</Label>
           <Input type="datetime-local" value={startAt} onChange={(e) => setStartAt(e.target.value)} required />
+          {startAt && (wallDateTimeInputToIso(startAt) ?? "") < now.toISOString() ? (
+            <p className="mt-1 text-xs font-medium text-amber-700">
+              Geçmiş tarihli ders planlıyorsunuz — ders programa ve yoklama takvimine bu tarihle eklenir.
+            </p>
+          ) : null}
         </div>
         <div className="flex items-end gap-2">
           <Button type="button" variant="secondary" onClick={handleFindSlots} disabled={suggestLoading}>
@@ -1399,8 +1384,8 @@ export function ProgramStudio({
                     onClick={() => applySuggestion(s)}
                     className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-3 text-left text-xs hover:border-amber-300 hover:bg-amber-50"
                   >
-                    <p className="font-semibold text-[var(--color-text)] dark:text-slate-50">{format(parseISO(s.startAt), "d MMM, EEEE", { locale: tr })}</p>
-                    <p className="text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">{format(parseISO(s.startAt), "HH:mm")}</p>
+                    <p className="font-semibold text-[var(--color-text)] dark:text-slate-50">{format(toWallClockDate(s.startAt), "d MMM, EEEE", { locale: tr })}</p>
+                    <p className="text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">{format(toWallClockDate(s.startAt), "HH:mm")}</p>
                     <p className="mt-1 text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
                       {teacher?.name} · {room?.name}
                     </p>
@@ -1590,7 +1575,7 @@ export function ProgramStudio({
                   .filter((c) => !c.ok)
                   .map((c) => (
                     <p key={c.startAt}>
-                      {format(parseISO(c.startAt), "d MMM yyyy, HH:mm", { locale: tr })} — {c.message}
+                      {format(toWallClockDate(c.startAt), "d MMM yyyy, HH:mm", { locale: tr })} — {c.message}
                     </p>
                   ))}
               </div>
@@ -1619,7 +1604,7 @@ export function ProgramStudio({
             <p className="font-semibold text-emerald-900">Ders planlandı. İletişim taslakları hazır.</p>
             <button
               type="button"
-              onClick={() => setLastCreated(null)}
+              onClick={() => clearNotices()}
               className="text-emerald-700 hover:text-emerald-900"
               aria-label="Kapat"
             >
@@ -1645,7 +1630,7 @@ export function ProgramStudio({
             </p>
             <button
               type="button"
-              onClick={() => setSeriesSuccess(null)}
+              onClick={() => clearNotices()}
               className="text-emerald-700 hover:text-emerald-900"
               aria-label="Kapat"
             >
@@ -1658,7 +1643,7 @@ export function ProgramStudio({
       {actionSuccess ? (
         <div className="mb-4 flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800">
           <span>{actionSuccess}</span>
-          <button type="button" onClick={() => setActionSuccess(null)} aria-label="Kapat">
+          <button type="button" onClick={() => clearNotices()} aria-label="Kapat">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -1667,7 +1652,7 @@ export function ProgramStudio({
       {gridError ? (
         <div className="mb-4 flex items-center justify-between rounded-xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-700">
           <span>{gridError}</span>
-          <button type="button" onClick={() => setGridError(null)} aria-label="Kapat">
+          <button type="button" onClick={() => clearNotices()} aria-label="Kapat">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -1797,16 +1782,16 @@ export function ProgramStudio({
           room={rooms.find((r) => r.id === detailLesson.roomId)}
           branchName={branchNames[detailLesson.branchId]}
           now={now}
-          moveOpen={detailMoveOpen}
-          moveStartAt={detailMoveStartAt}
           submitting={detailSubmitting}
           error={detailError}
           onClose={closeDetail}
+          onEditDone={(message) => {
+            closeDetail();
+            setNotices(onlyNotice({ actionSuccess: message }));
+            router.refresh();
+          }}
           onOpsStatusChange={onOpsStatusChange}
           onOpsPendingChange={onOpsPendingChange}
-          onOpenMove={openDetailMove}
-          onChangeMoveStartAt={setDetailMoveStartAt}
-          onSubmitMove={submitDetailMove}
           onCancelLesson={submitDetailCancel}
           onCancelSeriesFromLesson={submitCancelSeriesFromLesson}
           onCancelEntireSeries={submitCancelEntireSeries}
@@ -1913,8 +1898,7 @@ export function ProgramStudio({
                 {dayLessons.map((lesson) => {
                   const student = students.find((s) => s.id === lesson.studentId);
                   const teacher = teachers.find((t) => t.id === lesson.teacherId);
-                  const startMin =
-                    parseISO(lesson.startAt).getHours() * 60 + parseISO(lesson.startAt).getMinutes();
+                  const startMin = minutesOfDay(lesson.startAt);
                   const duration =
                     resizePreview?.lessonId === lesson.id
                       ? resizePreview.duration
@@ -2100,14 +2084,10 @@ function DetailPanel({
   room,
   branchName,
   now,
-  moveOpen,
-  moveStartAt,
   submitting,
   error,
   onClose,
-  onOpenMove,
-  onChangeMoveStartAt,
-  onSubmitMove,
+  onEditDone,
   onCancelLesson,
   onCancelSeriesFromLesson,
   onCancelEntireSeries,
@@ -2123,14 +2103,11 @@ function DetailPanel({
   room?: Room;
   branchName?: string;
   now: Date;
-  moveOpen: boolean;
-  moveStartAt: string;
   submitting: boolean;
   error: string | null;
   onClose: () => void;
-  onOpenMove: () => void;
-  onChangeMoveStartAt: (value: string) => void;
-  onSubmitMove: (e: FormEvent) => void;
+  /** Revize/silme başarılı — panel kapanır, sayfa bildirimi gösterilir. */
+  onEditDone: (message: string) => void;
   onCancelLesson: () => void;
   onCancelSeriesFromLesson: () => void;
   onCancelEntireSeries: () => void;
@@ -2142,7 +2119,6 @@ function DetailPanel({
   onOpsStatusChange: (lessonId: string, flag: LessonOpsFlagValue) => void;
   onOpsPendingChange: (lessonId: string, pending: boolean) => void;
 }) {
-  const canMove = canMoveOrResize(lesson, now);
   const canCancelLesson = canCancel(lesson);
   const reason = ineligibilityReason(lesson, now);
   const isSeriesMember = Boolean(lesson.seriesId);
@@ -2158,7 +2134,7 @@ function DetailPanel({
 
       <div className="mb-3 text-sm text-[var(--color-text-muted)] dark:text-slate-300">
         <p className="font-medium text-[var(--color-text)] dark:text-slate-50">
-          {format(parseISO(lesson.startAt), "d MMMM yyyy · HH:mm", { locale: tr })} — {lesson.instrument}
+          {format(toWallClockDate(lesson.startAt), "d MMMM yyyy · HH:mm", { locale: tr })} — {lesson.instrument}
         </p>
         <p className="mt-1 text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
           {student?.name} · {teacher?.name} · {room?.name}
@@ -2218,18 +2194,13 @@ function DetailPanel({
 
       {isSeriesMember ? (
         <p className="mb-3 text-xs font-medium text-amber-600">
-          Bu ders tekrarlayan bir serinin parçası. Buradaki değişiklik yalnızca bu dersi etkiler.
+          Bu ders tekrarlayan bir serinin parçası. Düzenleme ve silmede kapsamı aşağıdan seçin.
         </p>
       ) : null}
 
       {reason ? <p className="mb-3 text-xs text-amber-600">{reason}</p> : null}
 
       <div className="flex flex-wrap gap-2">
-        {canMove ? (
-          <Button variant="secondary" onClick={onOpenMove} disabled={submitting}>
-            Bu dersi taşı
-          </Button>
-        ) : null}
         {canCancelLesson && !isSeriesMember ? (
           <Button variant="danger" onClick={onCancelLesson} disabled={submitting}>
             Bu dersi iptal et
@@ -2254,23 +2225,7 @@ function DetailPanel({
         <LessonReassignmentModal lesson={lesson} teachers={allTeachers} rooms={allRooms} branchNames={branchNames} />
       </div>
 
-      {moveOpen ? (
-        <form onSubmit={onSubmitMove} className="mt-4 flex flex-wrap items-end gap-2 border-t border-[var(--color-border)] pt-4">
-          <div>
-            <Label>Yeni tarih/saat</Label>
-            <Input
-              type="datetime-local"
-              value={moveStartAt}
-              onChange={(e) => onChangeMoveStartAt(e.target.value)}
-              required
-            />
-          </div>
-          <Button type="submit" disabled={submitting}>
-            {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            Taşı
-          </Button>
-        </form>
-      ) : null}
+      <LessonScopeEditor key={lesson.id} lesson={lesson} onDone={onEditDone} />
 
       {error ? <p className="mt-3 text-sm text-rose-600">{error}</p> : null}
     </Card>

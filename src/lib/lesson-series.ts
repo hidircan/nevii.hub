@@ -1,8 +1,9 @@
-import { addDays, addMinutes, format, getDay, isAfter, parseISO, setHours, setMinutes, startOfDay } from "date-fns";
+import { addDays, addMinutes, format, parseISO, startOfDay } from "date-fns";
 import { tr } from "date-fns/locale";
 import type { AppData, BranchId, Instrument, Lesson, LessonSeries, LessonSeriesStatus, StudentTermType } from "./types";
 import { validateLessonSlot, type SlotValidationCode } from "./makeup-engine";
 import { dayName, uid } from "./utils";
+import { addDaysYmd, ymdToUtcNoon, zonedWallTimeToUtc } from "./timezone";
 
 function parseHm(hm: string) {
   const [h, m] = hm.split(":").map(Number);
@@ -49,23 +50,20 @@ export type SeriesParams = {
 export function computeSeriesOccurrences(
   params: Pick<SeriesParams, "weekday" | "startTime" | "durationMinutes" | "startsOn" | "endsOn">
 ): SeriesOccurrence[] {
-  const { h, m } = parseHm(params.startTime);
-  const rangeStart = startOfDay(parseISO(params.startsOn));
-  const rangeEnd = startOfDay(parseISO(params.endsOn));
+  // Takvim günleri "yyyy-MM-dd" olarak yürünür; saat kurum saat diliminde
+  // duvar saatine çevrilir (bkz. zonedWallTimeToUtc) — sunucu UTC olsa da
+  // 15:50 seçilen ders 15:50 oluşur.
+  const rangeEnd = params.endsOn.slice(0, 10);
+  let cursor = params.startsOn.slice(0, 10);
   const occurrences: SeriesOccurrence[] = [];
-
-  let cursor = rangeStart;
-  let guard = 0;
-  while (getDay(cursor) !== params.weekday && !isAfter(cursor, rangeEnd) && guard < 7) {
-    cursor = addDays(cursor, 1);
-    guard += 1;
+  for (let guard = 0; guard < 7 && ymdToUtcNoon(cursor).getUTCDay() !== params.weekday; guard++) {
+    cursor = addDaysYmd(cursor, 1);
   }
-
-  while (!isAfter(cursor, rangeEnd)) {
-    const start = setMinutes(setHours(cursor, h), m);
+  while (cursor <= rangeEnd) {
+    const start = zonedWallTimeToUtc(cursor, params.startTime);
     const end = addMinutes(start, params.durationMinutes);
     occurrences.push({ startAt: start.toISOString(), endAt: end.toISOString() });
-    cursor = addDays(cursor, 7);
+    cursor = addDaysYmd(cursor, 7);
   }
   return occurrences;
 }
@@ -102,7 +100,7 @@ export type SeriesOccurrenceCheck =
  */
 export function checkSeriesOccurrences(
   data: AppData,
-  params: Pick<SeriesParams, "studentId" | "teacherId" | "roomId" | "instrument">,
+  params: Pick<SeriesParams, "studentId" | "teacherId" | "roomId" | "instrument"> & { durationMinutes?: number },
   occurrences: SeriesOccurrence[],
   now: Date = new Date(),
   /** İş 1 — bkz. makeup-engine.ts allowAvailabilityOverride yorumu; yalnızca TEACHER_UNAVAILABLE'ı atlatır. */
@@ -113,7 +111,8 @@ export function checkSeriesOccurrences(
       data,
       { instrument: params.instrument, studentId: params.studentId },
       { teacherId: params.teacherId, roomId: params.roomId, startAt: occ.startAt },
-      { now, allowAvailabilityOverride }
+      // Seçilen seri süresi esas alınır (önceden okul varsayılanı kullanılıp 40 dk ders 45 dk kaydediliyordu).
+      { now, allowAvailabilityOverride, durationMinutes: params.durationMinutes }
     );
     if (result.ok) {
       return {

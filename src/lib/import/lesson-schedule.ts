@@ -18,6 +18,7 @@
  * OVERRIDABLE_SLOT_CODES).
  */
 import type { AppData, Instrument, StudentTermType } from "../types";
+import { zonedWallTimeToUtc } from "../timezone";
 import { INSTRUMENTS } from "../types";
 import type { CsvRecord } from "./csv";
 import type { ImportRowError, ImportReadRow } from "./types";
@@ -365,7 +366,7 @@ export function validateLessonScheduleRows(
 
     // ── Tekil ders (geriye dönük uyumlu — eski davranış birebir) ──────
     if (repeatTypeValue === "once") {
-      const startAtIso = new Date(`${dateValue}T${timeValue}:00`).toISOString();
+      const startAtIso = zonedWallTimeToUtc(dateValue, timeValue).toISOString();
       if (findExactDuplicateLesson(simulatedLessons, teacherId, roomId, startAtIso)) {
         valid.push({
           kind: "single",

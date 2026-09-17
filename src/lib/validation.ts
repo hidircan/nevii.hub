@@ -618,6 +618,23 @@ export const cancelSeriesFromLessonSchema = z.object({
   lessonId: z.string().min(1),
 });
 
+const lessonEditScopeSchema = z.enum(["single", "fromHereOnward", "entireSeries"]);
+
+export const deleteLessonsSchema = z.object({
+  lessonId: z.string().min(1),
+  scope: lessonEditScopeSchema,
+});
+
+export const reviseLessonsSchema = z.object({
+  lessonId: z.string().min(1),
+  scope: lessonEditScopeSchema,
+  startAt: z.string().min(1).optional(),
+  startTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Saat SS:DD biçiminde olmalı (ör. 15:50).").optional(),
+  weekday: z.coerce.number().int().min(0).max(6).optional(),
+  durationMinutes: z.coerce.number().int().min(30, "Ders süresi en az 30 dakika olmalı.").max(240).optional(),
+  allowAvailabilityOverride: z.boolean().optional(),
+});
+
 export const cancelEntireSeriesSchema = z.object({
   seriesId: z.string().min(1),
 });
