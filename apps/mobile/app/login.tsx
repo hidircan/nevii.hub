@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Redirect, useRouter } from "expo-router";
-import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "../src/auth/auth-context";
 import { BrandMark, Button, Icon, TextField } from "../src/components/ui";
@@ -45,7 +45,11 @@ export default function LoginScreen() {
   return (
     <SafeAreaView style={[styles.flex, { backgroundColor: t.colors.bg }]}>
       <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-        <View style={styles.content}>
+        <ScrollView
+          contentContainerStyle={styles.content}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Karşılama sayfasına dön"
@@ -132,7 +136,7 @@ export default function LoginScreen() {
           <Text style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 24, textAlign: "center" }]}>
             Giriş bilgilerinizi kurumunuzun yöneticisinden alabilirsiniz.
           </Text>
-        </View>
+        </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -140,7 +144,7 @@ export default function LoginScreen() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  content: { flex: 1, justifyContent: "center", paddingHorizontal: 24 },
+  content: { flexGrow: 1, justifyContent: "center", paddingHorizontal: 24, paddingVertical: 24 },
   backRow: { flexDirection: "row", alignItems: "center", gap: 2, alignSelf: "flex-start", paddingVertical: 8, marginBottom: 8 },
   form: { gap: 14, marginTop: 28 },
   eyeButton: { position: "absolute", right: 6, bottom: 2, width: 44, height: 44, alignItems: "center", justifyContent: "center" },

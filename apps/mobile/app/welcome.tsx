@@ -1,5 +1,5 @@
 import { Redirect, useRouter } from "expo-router";
-import { StyleSheet, Text, View } from "react-native";
+import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "../src/auth/auth-context";
 import { BrandMark, Button, ListRow } from "../src/components/ui";
@@ -26,7 +26,7 @@ export default function WelcomeScreen() {
 
   return (
     <SafeAreaView style={[styles.flex, { backgroundColor: t.colors.bg }]}>
-      <View style={styles.content}>
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <BrandMark size="lg" />
         <Text style={[t.typography.body, { color: t.colors.textMuted, marginTop: 12, textAlign: "center" }]}>
           Eğitim Kurumları Merkezi Yönetim Sistemi
@@ -46,14 +46,14 @@ export default function WelcomeScreen() {
             Kurumunuzun verdiği hesap bilgileriyle devam edin.
           </Text>
         </View>
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  content: { flex: 1, justifyContent: "center", paddingHorizontal: 24 },
+  content: { flexGrow: 1, justifyContent: "center", paddingHorizontal: 24, paddingVertical: 24 },
   personaList: { marginTop: 28, borderTopWidth: StyleSheet.hairlineWidth },
   rowBorder: { borderBottomWidth: StyleSheet.hairlineWidth },
   cta: { marginTop: 28 },
