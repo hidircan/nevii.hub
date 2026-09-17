@@ -4,7 +4,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { API_BASE_URL } from "../src/api/client";
 import { useAuth } from "../src/auth/auth-context";
 import { UNSUPPORTED_COPY } from "../src/auth/role-to-persona";
-import { Button, Icon, type IconName } from "../src/components/ui";
+import { BrandMark, Button, Icon, type IconName } from "../src/components/ui";
 import { useTheme } from "../src/theme/theme-context";
 
 const PERSONA_HOME = {
@@ -15,9 +15,10 @@ const PERSONA_HOME = {
 } as const;
 
 /**
- * Uygulama girişi — auth durumuna göre login'e, persona sekmesine, oturum
- * doğrulama hatasına (token'lar korunur, tekrar dene) veya fail-closed
- * "desteklenmeyen hesap" ekranına yönlendirir. Yapay gecikme YOK.
+ * Uygulama girişi — auth durumuna göre karşılamaya (oturumsuz), persona
+ * sekmesine (session restore sonrası doğrudan rol evi), oturum doğrulama
+ * hatasına (token'lar korunur, tekrar dene) veya fail-closed "desteklenmeyen
+ * hesap" ekranına yönlendirir. Yapay gecikme YOK.
  */
 export default function Index() {
   const { status, user, error, retry, logout } = useAuth();
@@ -27,11 +28,8 @@ export default function Index() {
     return (
       <SafeAreaView style={[styles.flex, { backgroundColor: t.colors.bg }]}>
         <View style={styles.center}>
-          <View style={[styles.logo, { backgroundColor: t.colors.primarySoft }]}>
-            <Icon name="musical-notes" size={34} color={t.colors.primary} />
-          </View>
-          <Text style={[t.typography.screenTitle, { color: t.colors.text, marginTop: 20 }]}>Nevii Hub</Text>
-          <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 4 }]}>
+          <BrandMark size="lg" wordmarkSize={34} />
+          <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 10 }]}>
             Eğitim Kurumları Merkezi Yönetim Sistemi
           </Text>
           <ActivityIndicator color={t.colors.primary} style={{ marginTop: 28 }} />
@@ -52,7 +50,8 @@ export default function Index() {
     );
   }
 
-  if (status === "signedOut" || !user) return <Redirect href="/login" />;
+  // Oturumsuz ilk durak karşılama — doğrudan login formuna düşülmez.
+  if (status === "signedOut" || !user) return <Redirect href="/welcome" />;
 
   if (user.resolution.kind === "unsupported") {
     const copy = UNSUPPORTED_COPY[user.resolution.reason];

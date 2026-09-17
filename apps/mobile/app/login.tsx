@@ -3,9 +3,19 @@ import { Redirect, useRouter } from "expo-router";
 import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "../src/auth/auth-context";
-import { Button, Icon, TextField } from "../src/components/ui";
+import { BrandMark, Button, Icon, TextField } from "../src/components/ui";
 import { useTheme } from "../src/theme/theme-context";
 
+function isEmailLike(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+}
+
+/**
+ * Giriş — marka bloğu + form tek düzende; "boş ekrana konmuş form" değil.
+ * Geri dönüş: karşılama sayfasına (replace — geri yığınında döngü yok).
+ * Hata dili sakin ve sızdırmaz: yanlış bilgi / bağlantı sorunu ayrımı
+ * AuthProvider mesajlarından gelir, burada yeniden yorumlanmaz.
+ */
 export default function LoginScreen() {
   const { status, login } = useAuth();
   const t = useTheme();
@@ -14,13 +24,19 @@ export default function LoginScreen() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [touched, setTouched] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   if (status === "signedIn") return <Redirect href="/" />;
 
+  const emailValid = email.trim().length === 0 || isEmailLike(email);
+  const canSubmit = isEmailLike(email) && password.length > 0 && !busy;
+
   async function onSubmit() {
-    setBusy(true);
+    setTouched(true);
     setError(null);
+    if (!isEmailLike(email) || password.length === 0) return;
+    setBusy(true);
     const res = await login(email.trim(), password);
     setBusy(false);
     if (!res.ok) setError(res.message);
@@ -30,11 +46,19 @@ export default function LoginScreen() {
     <SafeAreaView style={[styles.flex, { backgroundColor: t.colors.bg }]}>
       <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <View style={styles.content}>
-          <View style={[styles.logo, { backgroundColor: t.colors.primarySoft }]}>
-            <Icon name="musical-notes" size={30} color={t.colors.primary} />
-          </View>
-          <Text style={[t.typography.screenTitle, { color: t.colors.text, marginTop: 20 }]}>Nevii Hub</Text>
-          <Text style={[t.typography.body, { color: t.colors.textMuted, marginTop: 4, marginBottom: 32 }]}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Karşılama sayfasına dön"
+            onPress={() => router.replace("/welcome")}
+            hitSlop={12}
+            style={styles.backRow}
+          >
+            <Icon name="chevron-back" size={18} color={t.colors.textMuted} />
+            <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>Karşılama</Text>
+          </Pressable>
+
+          <BrandMark size="md" />
+          <Text style={[t.typography.body, { color: t.colors.textMuted, marginTop: 10, textAlign: "center" }]}>
             Kurumunuzun hesabıyla giriş yapın
           </Text>
 
@@ -42,57 +66,67 @@ export default function LoginScreen() {
             <TextField
               label="E-posta"
               value={email}
-              onChangeText={setEmail}
+              onChangeText={(v) => {
+                setEmail(v);
+                if (error) setError(null);
+              }}
               placeholder="ornek@kurum.com"
               autoCapitalize="none"
               autoComplete="email"
               keyboardType="email-address"
+              textContentType="emailAddress"
+              returnKeyType="next"
+              error={touched && !emailValid ? "E-posta adresi eksik görünüyor — kontrol edin." : undefined}
             />
 
             <View>
               <TextField
                 label="Şifre"
                 value={password}
-                onChangeText={setPassword}
+                onChangeText={(v) => {
+                  setPassword(v);
+                  if (error) setError(null);
+                }}
                 placeholder="••••••••"
                 secureTextEntry={!showPassword}
                 autoCapitalize="none"
                 autoComplete="password"
+                textContentType="password"
+                returnKeyType="go"
+                onSubmitEditing={onSubmit}
               />
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel={showPassword ? "Şifreyi gizle" : "Şifreyi göster"}
                 onPress={() => setShowPassword((v) => !v)}
-                hitSlop={8}
+                hitSlop={12}
                 style={styles.eyeButton}
               >
-                <Icon name={showPassword ? "eye-off-outline" : "eye-outline"} size={19} color={t.colors.textMuted} />
+                <Icon name={showPassword ? "eye-off-outline" : "eye-outline"} size={20} color={t.colors.textMuted} />
               </Pressable>
             </View>
 
             <Pressable
               accessibilityRole="button"
+              accessibilityLabel="Şifremi unuttum"
               onPress={() => router.push("/forgot-password")}
               hitSlop={8}
               style={styles.forgotLink}
             >
-              <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>Şifremi unuttum</Text>
+              <Text style={[t.typography.caption, { color: t.colors.primary }]}>Şifremi unuttum</Text>
             </Pressable>
 
             {error ? (
-              <View style={[styles.errorBox, { backgroundColor: t.colors.dangerSoft }]}>
+              <View
+                accessibilityLiveRegion="polite"
+                style={[styles.errorBox, { backgroundColor: t.colors.dangerSoft }]}
+              >
                 <Icon name="alert-circle" size={16} color={t.colors.danger} />
                 <Text style={[t.typography.caption, { color: t.colors.danger, flex: 1 }]}>{error}</Text>
               </View>
             ) : null}
 
-            <Button
-              label="Giriş yap"
-              onPress={onSubmit}
-              disabled={!email || !password}
-              loading={busy}
-              style={{ marginTop: 8 }}
-            />
+            <Button label={busy ? "Giriş yapılıyor…" : "Giriş yap"} onPress={onSubmit} disabled={!canSubmit} loading={busy} />
           </View>
 
           <Text style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 24, textAlign: "center" }]}>
@@ -107,9 +141,9 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   content: { flex: 1, justifyContent: "center", paddingHorizontal: 24 },
-  logo: { width: 64, height: 64, borderRadius: 20, alignItems: "center", justifyContent: "center" },
-  form: { gap: 16, marginTop: 8 },
-  eyeButton: { position: "absolute", right: 14, bottom: 12 },
-  forgotLink: { alignSelf: "flex-end", marginTop: -4 },
+  backRow: { flexDirection: "row", alignItems: "center", gap: 2, alignSelf: "flex-start", paddingVertical: 8, marginBottom: 8 },
+  form: { gap: 14, marginTop: 28 },
+  eyeButton: { position: "absolute", right: 6, bottom: 2, width: 44, height: 44, alignItems: "center", justifyContent: "center" },
+  forgotLink: { alignSelf: "flex-end" },
   errorBox: { flexDirection: "row", alignItems: "flex-start", gap: 8, borderRadius: 10, padding: 12 },
 });
