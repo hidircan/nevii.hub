@@ -124,6 +124,8 @@ import {
   createDiscountCampaignTool,
   updateDiscountCampaignTool,
   archiveTeacherTool,
+  archiveTeacherStudentsTool,
+  updateTeacherAvailabilityTool,
   updateRoomTool,
   createInstrumentCatalogTool,
   updateInstrumentCatalogTool,
@@ -734,6 +736,13 @@ function fieldErrorsFromZodFlatten(details: unknown): Record<string, string> {
     if (messages && messages.length > 0) out[key] = messages[0]!;
   }
   return out;
+}
+
+/** Tool hatasını kullanıcıya gösterilecek Türkçe cümleye çevirir — jenerik zod "Invalid input" yerine ilk alan hatası. */
+function toolFailureMessage(error: { message: string; details?: unknown }, fallback: string): string {
+  if (error.message !== "Invalid input") return error.message;
+  const details = error.details as { formErrors?: string[] } | undefined;
+  return Object.values(fieldErrorsFromZodFlatten(error.details))[0] ?? details?.formErrors?.[0] ?? fallback;
 }
 
 // P0-4 — React 19 form actions RESET uncontrolled fields after every
@@ -1497,6 +1506,7 @@ export async function actionArchiveStudent(input: {
     revalidateAll();
     return { ok: true };
   } catch (error) {
+    if (error instanceof WriteScopeDeniedError) return { ok: false, message: error.message };
     logger.error("actionArchiveStudent failed", error);
     if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
     return { ok: false, message: "Öğrenci durumu güncellenirken beklenmeyen bir hata oluştu." };
@@ -1570,9 +1580,53 @@ export async function actionArchiveTeacher(input: {
     revalidateAll();
     return { ok: true };
   } catch (error) {
+    if (error instanceof WriteScopeDeniedError) return { ok: false, message: error.message };
     logger.error("actionArchiveTeacher failed", error);
     if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
     return { ok: false, message: "Öğretmen durumu güncellenirken beklenmeyen bir hata oluştu." };
+  }
+}
+
+export type ArchiveTeacherStudentsActionResult =
+  | { ok: true; archivedCount: number; failedNames: string[] }
+  | { ok: false; message: string };
+
+/** 2026-09-17 — öğretmen detayı "Öğrencilerini pasife al"; kısmi sonuç failedNames ile döner. */
+export async function actionArchiveTeacherStudents(input: {
+  teacherId: string;
+}): Promise<ArchiveTeacherStudentsActionResult> {
+  try {
+    const result = await withAuthContext("actionArchiveTeacherStudents", (ctx) => archiveTeacherStudentsTool(ctx, input));
+    if (!result.ok) return { ok: false, message: result.error.message };
+    revalidateAll();
+    return { ok: true, archivedCount: result.data.archivedCount, failedNames: result.data.failed.map((f) => f.name) };
+  } catch (error) {
+    if (error instanceof WriteScopeDeniedError) return { ok: false, message: error.message };
+    logger.error("actionArchiveTeacherStudents failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "Öğrenciler pasife alınırken beklenmeyen bir hata oluştu. Sayfayı yenileyip tekrar deneyin." };
+  }
+}
+
+export type UpdateTeacherAvailabilityActionResult = { ok: true } | { ok: false; message: string };
+
+/** 2026-09-17 — müsaitlik yalnız yönetici tarafından doğrudan düzenlenir; RBAC tek kaynağı updateTeacherAvailabilityTool. */
+export async function actionUpdateTeacherAvailability(input: {
+  teacherId: string;
+  availability: { dayOfWeek: number; start: string; end: string; branchId?: string }[];
+}): Promise<UpdateTeacherAvailabilityActionResult> {
+  try {
+    const result = await withAuthContext("actionUpdateTeacherAvailability", (ctx) => updateTeacherAvailabilityTool(ctx, input));
+    if (!result.ok) {
+      return { ok: false, message: toolFailureMessage(result.error, "Müsaitlik saatlerinde hatalı bir değer var; saatleri kontrol edin.") };
+    }
+    revalidateAll();
+    return { ok: true };
+  } catch (error) {
+    if (error instanceof WriteScopeDeniedError) return { ok: false, message: error.message };
+    logger.error("actionUpdateTeacherAvailability failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "Müsaitlik kaydedilirken beklenmeyen bir hata oluştu. Sayfayı yenileyip tekrar deneyin." };
   }
 }
 
@@ -2259,6 +2313,10 @@ export async function actionUpdateTeacherProfile(input: {
   contractEndDate?: string;
   birthDate?: string;
   address?: string;
+  highSchool?: string;
+  university?: string;
+  graduationYear?: number;
+  maxDailyLessons?: number;
   emergencyContactName?: string;
   emergencyContactPhone?: string;
   personnelNotes?: string;
@@ -2267,10 +2325,13 @@ export async function actionUpdateTeacherProfile(input: {
     const result = await withAuthContext("actionUpdateTeacherProfile", (ctx) =>
       updateTeacherProfileTool(ctx, input)
     );
-    if (!result.ok) return { ok: false, message: result.error.message };
+    if (!result.ok) {
+      return { ok: false, message: toolFailureMessage(result.error, "Formda hatalı bir alan var; değerleri kontrol edin.") };
+    }
     revalidateAll();
     return { ok: true };
   } catch (error) {
+    if (error instanceof WriteScopeDeniedError) return { ok: false, message: error.message };
     logger.error("actionUpdateTeacherProfile failed", error);
     if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
     return { ok: false, message: "Öğretmen profili güncellenirken beklenmeyen bir hata oluştu." };

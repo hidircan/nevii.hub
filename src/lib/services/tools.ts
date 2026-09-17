@@ -220,7 +220,6 @@ import {
 } from "../assessment/score";
 import {
   clearAvailabilityRequests,
-  createAvailabilityRequest,
   getAvailabilityRequest,
   listAvailabilityRequestsForTeacher,
   reviewAvailabilityRequest,
@@ -303,7 +302,8 @@ import {
   createHomeworkSchema,
   createTeachingMaterialSchema,
   paymentRecordSchema,
-  proposeTeacherAvailabilitySchema,
+  updateTeacherAvailabilitySchema,
+  archiveTeacherStudentsSchema,
   reviewHomeworkSubmissionSchema,
   reviewTeacherAvailabilityRequestSchema,
   roomSchema,
@@ -7220,59 +7220,19 @@ export async function correctLessonTimesTool(
   }
 }
 
-/**
- * EPIC 9 (IMPLEMENTATION_PLAN.md) — TEACHER kendi müsaitliği için bir öneri
- * oluşturur; `Teacher.availability` bu çağrıyla DEĞİŞMEZ, yalnızca onay
- * bekleyen bir kayıt eklenir (bkz. reviewTeacherAvailabilityRequestTool).
- */
+/** EPIC 9 — eski öğretmen öneri yolu; artık her çağrıda reddeder. */
 export async function proposeTeacherAvailabilityTool(
-  ctx: ServiceContext,
-  input: unknown
+  _ctx: ServiceContext,
+  _input: unknown
 ): Promise<ServiceResult<{ requestId: string }>> {
-  const auth = requireRole(ctx, ["TEACHER"]);
-  if (!auth.ok) return fail("FORBIDDEN", auth.message);
-  if (!ctx.teacherId) return fail("FORBIDDEN", "Öğretmen kimliği bulunamadı.");
-
-  // Arşivlenmiş/pasif öğretmen yeni müsaitlik önerisi gönderemez — mevcut
-  // "arşiv öğretmene yeni atama/değişiklik yapılamaz" kısıtıyla tutarlı
-  // (bkz. TeacherArchiveAction dokümantasyonu).
-  const dataForActiveCheck = await readData();
-  const teacherRecord = dataForActiveCheck.teachers.find((t) => t.id === ctx.teacherId);
-  if (teacherRecord && !teacherRecord.active) {
-    return fail("FORBIDDEN", "Arşivlenmiş öğretmen için müsaitlik önerisi oluşturulamaz.");
-  }
-
-  const v = parseOrFail(proposeTeacherAvailabilitySchema, input);
-  if (!v.ok) return v;
-
-  try {
-    const request = await createAvailabilityRequest({
-      tenantId: ctx.tenantId,
-      teacherId: ctx.teacherId,
-      proposedAvailability: v.data.proposedAvailability,
-      exceptions: v.data.exceptions,
-    });
-    audit(ctx, "teacher.availability_request.create", "TeacherAvailabilityRequest", request.id, {
-      teacherId: ctx.teacherId,
-    });
-    try {
-      const { notifyAdmins } = await import("../manager-notifications");
-      await notifyAdmins(
-        ctx.tenantId,
-        "portal_request",
-        {
-          title: "Portal talebi",
-          body: `Öğretmen müsaitlik önerisi geldi. Detay: /panel/ogretmenler`,
-        },
-        { excludeUserId: ctx.userId, dedupeKey: request.id }
-      );
-    } catch {
-      // best-effort
-    }
-    return ok({ requestId: request.id });
-  } catch (e) {
-    return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "proposeTeacherAvailability failed");
-  }
+  // 2026-09-17 (owner kararı) — öğretmen self-service müsaitlik değişikliği
+  // KAPALI. Web formu kaldırıldı; API/mobil üzerinden elle tetiklenen istek
+  // de burada reddedilir. Yönetici yolu: updateTeacherAvailabilityTool.
+  // Önceden gönderilmiş bekleyen öneriler yönetici ekranında incelenebilir.
+  return fail(
+    "FORBIDDEN",
+    "Müsaitlik günleri yalnız kurum yöneticisi tarafından düzenlenir. Değişiklik için yöneticinizle iletişime geçin."
+  );
 }
 
 /**
@@ -8753,6 +8713,73 @@ export async function archiveTeacherTool(
     return ok({ teacherId: v.data.teacherId, archived: v.data.archived });
   } catch (e) {
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "archiveTeacher failed");
+  }
+}
+
+/**
+ * 2026-09-17 — öğretmen detayındaki "Öğrencilerini pasife al": öğretmene
+ * atanmış AKTİF öğrencileri tek tek `archiveStudentTool` ile aynı yazma
+ * yoluyla (`updateStudentProfile` active=false + archivedAt) pasife alır.
+ * Öğrenci başına hata yakalanır; kısmi sonuç `failed` listesinde döner.
+ */
+export async function archiveTeacherStudentsTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ teacherId: string; archivedCount: number; failed: { studentId: string; name: string }[] }>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const v = parseOrFail(archiveTeacherStudentsSchema, input);
+  if (!v.ok) return v;
+
+  const data = await readData();
+  if (!data.teachers.some((t) => t.id === v.data.teacherId)) return fail("NOT_FOUND", "Öğretmen bulunamadı.");
+  const targets = data.students.filter((s) => s.teacherId === v.data.teacherId && s.active);
+
+  const archivedAt = new Date().toISOString();
+  const failed: { studentId: string; name: string }[] = [];
+  let archivedCount = 0;
+  for (const student of targets) {
+    try {
+      await updateStudentProfile(student.id, { active: false, archivedAt });
+      audit(ctx, "student.archive", "Student", student.id, { via: "teacher.archive_students", teacherId: v.data.teacherId });
+      archivedCount++;
+    } catch {
+      failed.push({ studentId: student.id, name: student.name });
+    }
+  }
+  return ok({ teacherId: v.data.teacherId, archivedCount, failed });
+}
+
+/**
+ * 2026-09-17 (owner kararı) — öğretmen müsaitliği YALNIZ yönetici tarafından
+ * doğrudan düzenlenir. Öğretmenin öneri yolu kapatıldı
+ * (bkz. proposeTeacherAvailabilityTool).
+ */
+export async function updateTeacherAvailabilityTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ teacherId: string }>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", "Müsaitlik günlerini yalnız kurum yöneticisi düzenleyebilir.");
+  const v = parseOrFail(updateTeacherAvailabilitySchema, input);
+  if (!v.ok) return v;
+
+  const data = await readData();
+  if (!data.teachers.some((t) => t.id === v.data.teacherId)) return fail("NOT_FOUND", "Öğretmen bulunamadı.");
+  const invalidBranch = v.data.availability.find(
+    (w) => w.branchId && !data.settings.branches.some((b) => b.id === w.branchId)
+  );
+  if (invalidBranch) {
+    return fail("VALIDATION_ERROR", "Müsaitlikte seçilen şube bulunamadı; şube seçimini güncelleyip tekrar kaydedin.");
+  }
+
+  try {
+    const updated = await updateTeacherAvailability(v.data.teacherId, v.data.availability);
+    if (!updated) return fail("NOT_FOUND", "Öğretmen bulunamadı.");
+    audit(ctx, "teacher.availability_update", "Teacher", v.data.teacherId, { availability: v.data.availability });
+    return ok({ teacherId: v.data.teacherId });
+  } catch (e) {
+    return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "updateTeacherAvailability failed");
   }
 }
 
@@ -10888,6 +10915,7 @@ async function buildAttendanceCalendarMonth(
   const term = student.termType ?? "guz";
   const { resolveMonthStatuses } = await import("../attendance-calendar");
   const statuses = resolveMonthStatuses(year, month, term, overrides, data.settings.termWeeklyClosedDays);
+  const timeZone = resolveAppTimezone();
   const storedDates = data.settings.academicTermDates;
   const termDates = storedDates
     ? resolveAcademicTermDatesForAnchor(storedDates, term, term === "yaz" ? year : month >= 9 ? year : year - 1)
@@ -10902,7 +10930,12 @@ async function buildAttendanceCalendarMonth(
       : month >= 9 || month <= 6;
 
   const days = statuses.map((s) => {
-    const dayLessons = data.lessons.filter((l) => l.studentId === student.id && l.startAt.slice(0, 10) === s.date);
+    // Gün eşleşmesi kurum saat diliminde — Ders Programı günü de böyle
+    // çözer. UTC `startAt.slice(0, 10)` 00:00–02:59 dersleri önceki güne
+    // kaydırıp iki ekranı ayrıştırıyordu.
+    const dayLessons = data.lessons.filter(
+      (l) => l.studentId === student.id && toZonedYmd(new Date(l.startAt), timeZone) === s.date
+    );
     const lessonIds = dayLessons.map((l) => l.id);
     // Gerçek Geldi/İşlendi/Telafi statüsü — TEK kaynak lesson-ops.ts'deki
     // effectiveLessonOpsStatus (aynı öncelik kuralı server tarafındaki

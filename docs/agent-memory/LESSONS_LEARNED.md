@@ -956,3 +956,12 @@ saatine bağlı "bazen kırmızı" testlerin klasik kaynağıdır.
   "kısayol/ipucu" olabilir. Ayrıca bir MOTOR SEÇİMİ (ör. `usePerLessonBilling`) opsiyonel bir
   prefill'den geliyorsa, prefill yokluğunda sistem sessizce YANLIŞ motora düşer — böyle
   bayrakları her zaman kaydın kendisinden (öğrencinin `derivedPerLessonAmount`'ı) türet.
+
+## 2026-09-17 — db-mode store eşlemesi alan atlayınca tool "başarılı" döner ama veri değişmez
+
+`archiveStudentTool` → `updateStudentProfile({active, archivedAt})`. JSON/memory store patch'i
+spread ettiği için testler yeşildi; `store-db.updateStudentProfile` ise alanları tek tek
+eşliyor ve `active`/`archivedAt` listede yoktu → test sisteminde (db modu) "Pasife Al" hiçbir şey
+yapmıyordu. Ders: bir `*Patch` tipine alan eklendiğinde db store'daki elle eşleme listesine de
+eklenmeli; yeni bir db yazma yolu için `vi.mock("../db")` ile payload testi yazın
+(bkz. `admin-archive-teacher-profile-db.test.ts`) — json-mode testleri bunu YAKALAMAZ.

@@ -181,6 +181,8 @@ export {
   assignMessageContactTool,
   setMessageStatusTool,
   archiveTeacherTool,
+  archiveTeacherStudentsTool,
+  updateTeacherAvailabilityTool,
   updateRoomTool,
   listInstrumentCatalogTool,
   createInstrumentCatalogTool,

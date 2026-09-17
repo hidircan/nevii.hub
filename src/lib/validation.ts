@@ -475,7 +475,7 @@ export const updateTeacherProfileSchema = z
     /**
      * Bu sprint — kayıt kimliği alanları eklendi. Enstrüman/müsaitlik/ders
      * ücreti bilinçli olarak burada YOK — kendi özel akışları var
-     * (updateTeacherInstrumentsTool, proposeTeacherAvailabilityTool,
+     * (updateTeacherInstrumentsTool, updateTeacherAvailabilityTool,
      * createFeeRuleTool/updateFeeRuleTool) — tekrarlanmaz.
      */
     name: z.string().min(1).optional(),
@@ -489,6 +489,10 @@ export const updateTeacherProfileSchema = z
     contractEndDate: optionalTrimmed,
     birthDate: optionalTrimmed,
     address: optionalTrimmed,
+    highSchool: optionalTrimmed,
+    university: optionalTrimmed,
+    graduationYear: z.coerce.number().int().min(1950, "Mezuniyet yılı 1950'den önce olamaz.").max(2100, "Mezuniyet yılı geçerli değil.").optional(),
+    maxDailyLessons: z.coerce.number().int().min(1, "Günlük ders limiti en az 1 olmalı.").max(20, "Günlük ders limiti en fazla 20 olabilir.").optional(),
     emergencyContactName: optionalTrimmed,
     emergencyContactPhone: optionalTrimmed,
     personnelNotes: optionalTrimmed,
@@ -907,6 +911,22 @@ export const proposeTeacherAvailabilitySchema = z.object({
   exceptions: z.unknown().optional(),
 });
 
+/** 2026-09-17 — müsaitlik yalnız yönetici tarafından doğrudan düzenlenir (öğretmen öneri gönderemez). */
+export const updateTeacherAvailabilitySchema = z
+  .object({
+    teacherId: z.string().min(1),
+    availability: z.array(availabilityWindowSchema).min(1, "En az bir müsaitlik aralığı girin."),
+  })
+  .refine(
+    (v) =>
+      !v.availability.some((a, i) =>
+        v.availability.some(
+          (b, j) => j > i && a.dayOfWeek === b.dayOfWeek && a.branchId === b.branchId && a.start < b.end && b.start < a.end
+        )
+      ),
+    { message: "Aynı gün ve şubede çakışan müsaitlik aralıkları var; saatleri düzeltin.", path: ["availability"] }
+  );
+
 /** EPIC 9 — yalnızca SCHOOL_ADMIN/SUPER_ADMIN; not opsiyonel. */
 export const reviewTeacherAvailabilityRequestSchema = z.object({
   requestId: z.string().min(1),
@@ -1099,6 +1119,8 @@ export const archiveStudentSchema = z.object({
 });
 
 /** ÖNCELİK 4 (devam) — öğretmen arşivleme (hard delete YOK). */
+export const archiveTeacherStudentsSchema = z.object({ teacherId: z.string().min(1) });
+
 export const archiveTeacherSchema = z.object({
   teacherId: z.string().min(1),
   archived: z.boolean(),

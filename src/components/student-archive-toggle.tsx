@@ -1,11 +1,13 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { actionArchiveStudent } from "@/lib/actions";
 import { Button } from "@/components/ui";
 
 /** Pasife alma/aktifleştirme — kalıcı silme yok, onay adımı zorunlu. */
 export function StudentArchiveToggle({ studentId, active }: { studentId: string; active: boolean }) {
+  const router = useRouter();
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -20,6 +22,7 @@ export function StudentArchiveToggle({ studentId, active }: { studentId: string;
       return;
     }
     setConfirming(false);
+    router.refresh();
   }
 
   if (confirming) {

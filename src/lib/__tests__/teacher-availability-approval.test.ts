@@ -6,10 +6,9 @@ import {
   proposeTeacherAvailabilityTool,
   listTeacherAvailabilityRequestsTool,
   reviewTeacherAvailabilityRequestTool,
-  createTeacherTool,
-  archiveTeacherTool,
+  updateTeacherAvailabilityTool,
 } from "../services/tools";
-import { TEACHER_AVAILABILITY_REQUESTS_FILE } from "../teacher-availability";
+import { TEACHER_AVAILABILITY_REQUESTS_FILE, createAvailabilityRequest } from "../teacher-availability";
 import { readData } from "../store";
 import { DEFAULT_TENANT_ID } from "../auth/config";
 import type { ServiceContext } from "../services/context";
@@ -39,60 +38,84 @@ beforeEach(async () => {
   await fs.rm(TEACHER_AVAILABILITY_REQUESTS_FILE, { force: true });
 });
 
-describe("proposeTeacherAvailabilityTool — TEACHER kendi müsaitliğini DOĞRUDAN değiştiremez", () => {
-  it("TEACHER bir öneri oluşturabilir; Teacher.availability HEMEN değişmez", async () => {
+/** Owner kararı öncesi öğretmenin gönderdiği (hâlâ incelenebilir) eski bir öneri. */
+async function seedPendingRequest(teacherId = "t2", proposedAvailability = VALID_PROPOSAL.proposedAvailability) {
+  const request = await createAvailabilityRequest({ tenantId: DEFAULT_TENANT_ID, teacherId, proposedAvailability });
+  return request.id;
+}
+
+describe("proposeTeacherAvailabilityTool — öğretmen self-service KAPALI (2026-09-17)", () => {
+  it("TEACHER elle istek atsa bile FORBIDDEN + Türkçe neden; ne öneri ne müsaitlik oluşur", async () => {
     const before = await readData();
     const t2Before = before.teachers.find((t) => t.id === "t2")!;
 
     const result = await proposeTeacherAvailabilityTool(ctx(), VALID_PROPOSAL);
-    expect(result.ok).toBe(true);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe("FORBIDDEN");
+      expect(result.error.message).toContain("yalnız kurum yöneticisi");
+    }
 
     const after = await readData();
-    const t2After = after.teachers.find((t) => t.id === "t2")!;
-    expect(t2After.availability).toEqual(t2Before.availability);
+    expect(after.teachers.find((t) => t.id === "t2")!.availability).toEqual(t2Before.availability);
+    const list = await listTeacherAvailabilityRequestsTool(ctx(), { teacherId: "t2" });
+    expect(list.ok && list.data.requests).toHaveLength(0);
+  });
+});
+
+describe("updateTeacherAvailabilityTool — müsaitliği yalnız yönetici düzenler", () => {
+  const SUNDAY_BLOCKS = [
+    { dayOfWeek: 0, start: "09:00", end: "12:00" },
+    { dayOfWeek: 0, start: "15:00", end: "18:00" },
+    { dayOfWeek: 2, start: "10:00", end: "18:00" },
+  ];
+
+  it("SCHOOL_ADMIN doğrudan kaydeder; değer kalıcıdır", async () => {
+    const result = await updateTeacherAvailabilityTool(ctx({ role: "SCHOOL_ADMIN", teacherId: undefined }), {
+      teacherId: "t2",
+      availability: SUNDAY_BLOCKS,
+    });
+    expect(result.ok).toBe(true);
+    const data = await readData();
+    expect(data.teachers.find((t) => t.id === "t2")!.availability).toEqual(SUNDAY_BLOCKS);
   });
 
-  it("SCHOOL_ADMIN öneri oluşturamaz — yalnızca TEACHER kendisi için önerir", async () => {
-    const result = await proposeTeacherAvailabilityTool(
-      ctx({ role: "SCHOOL_ADMIN", teacherId: undefined }),
-      VALID_PROPOSAL
-    );
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error.code).toBe("FORBIDDEN");
-  });
-
-  it("PARENT/STUDENT öneri oluşturamaz", async () => {
-    const asParent = await proposeTeacherAvailabilityTool(
-      ctx({ role: "STUDENT", teacherId: undefined }),
-      VALID_PROPOSAL
-    );
-    expect(asParent.ok).toBe(false);
-
-    const asStudent = await proposeTeacherAvailabilityTool(
-      ctx({ role: "STUDENT", teacherId: undefined }),
-      VALID_PROPOSAL
-    );
-    expect(asStudent.ok).toBe(false);
-  });
-
-  it("boş proposedAvailability (dizi eksik) VALIDATION_ERROR döner", async () => {
-    const result = await proposeTeacherAvailabilityTool(ctx(), {});
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error.code).toBe("VALIDATION_ERROR");
-  });
-
-  it("bitiş saati başlangıçtan önce ise VALIDATION_ERROR döner", async () => {
-    const result = await proposeTeacherAvailabilityTool(ctx(), {
-      proposedAvailability: [{ dayOfWeek: 1, start: "18:00", end: "09:00" }],
+  it("TEACHER kendi müsaitliğini bile yazamaz (backend FORBIDDEN)", async () => {
+    const before = await readData();
+    const result = await updateTeacherAvailabilityTool(ctx({ teacherId: "t2" }), {
+      teacherId: "t2",
+      availability: SUNDAY_BLOCKS,
     });
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error.code).toBe("VALIDATION_ERROR");
+    if (!result.ok) expect(result.error.code).toBe("FORBIDDEN");
+    const after = await readData();
+    expect(after.teachers.find((t) => t.id === "t2")!.availability).toEqual(
+      before.teachers.find((t) => t.id === "t2")!.availability
+    );
+  });
+
+  it("aynı gün/şubede çakışan aralık ve bitiş<başlangıç VALIDATION_ERROR", async () => {
+    const admin = ctx({ role: "SCHOOL_ADMIN", teacherId: undefined });
+    const overlap = await updateTeacherAvailabilityTool(admin, {
+      teacherId: "t2",
+      availability: [
+        { dayOfWeek: 1, start: "09:00", end: "12:00" },
+        { dayOfWeek: 1, start: "11:00", end: "13:00" },
+      ],
+    });
+    expect(overlap.ok).toBe(false);
+    const reversed = await updateTeacherAvailabilityTool(admin, {
+      teacherId: "t2",
+      availability: [{ dayOfWeek: 1, start: "18:00", end: "09:00" }],
+    });
+    expect(reversed.ok).toBe(false);
+    if (!reversed.ok) expect(reversed.error.code).toBe("VALIDATION_ERROR");
   });
 });
 
 describe("listTeacherAvailabilityRequestsTool — erişim kapsaması", () => {
   it("TEACHER yalnızca kendi önerilerini görebilir", async () => {
-    await proposeTeacherAvailabilityTool(ctx({ teacherId: "t2" }), VALID_PROPOSAL);
+    await seedPendingRequest();
 
     const ownList = await listTeacherAvailabilityRequestsTool(ctx({ teacherId: "t2" }), {
       teacherId: "t2",
@@ -108,7 +131,7 @@ describe("listTeacherAvailabilityRequestsTool — erişim kapsaması", () => {
   });
 
   it("SCHOOL_ADMIN herhangi bir öğretmenin önerilerini görebilir", async () => {
-    await proposeTeacherAvailabilityTool(ctx({ teacherId: "t2" }), VALID_PROPOSAL);
+    await seedPendingRequest();
 
     const result = await listTeacherAvailabilityRequestsTool(
       ctx({ role: "SCHOOL_ADMIN", teacherId: undefined }),
@@ -120,11 +143,7 @@ describe("listTeacherAvailabilityRequestsTool — erişim kapsaması", () => {
 });
 
 describe("reviewTeacherAvailabilityRequestTool — yalnızca SCHOOL_ADMIN/SUPER_ADMIN", () => {
-  async function createPendingRequest() {
-    const result = await proposeTeacherAvailabilityTool(ctx({ teacherId: "t2" }), VALID_PROPOSAL);
-    if (!result.ok) throw new Error("setup failed");
-    return result.data.requestId;
-  }
+  const createPendingRequest = () => seedPendingRequest();
 
   it("TEACHER kendi önerisini bile onaylayamaz (FORBIDDEN)", async () => {
     const requestId = await createPendingRequest();
@@ -202,13 +221,11 @@ describe("reviewTeacherAvailabilityRequestTool — yalnızca SCHOOL_ADMIN/SUPER_
         { dayOfWeek: 1, start: "10:00", end: "18:00" },
       ],
     };
-    const proposeRes = await proposeTeacherAvailabilityTool(ctx({ teacherId: "t2" }), proposalWithSunday);
-    expect(proposeRes.ok).toBe(true);
-    if (!proposeRes.ok) return;
+    const requestId = await seedPendingRequest("t2", proposalWithSunday.proposedAvailability);
 
     const result = await reviewTeacherAvailabilityRequestTool(
       ctx({ role: "SCHOOL_ADMIN", userId: "admin1", teacherId: undefined }),
-      { requestId: proposeRes.data.requestId, decision: "approved" }
+      { requestId, decision: "approved" }
     );
     expect(result.ok).toBe(true);
 
@@ -219,40 +236,5 @@ describe("reviewTeacherAvailabilityRequestTool — yalnızca SCHOOL_ADMIN/SUPER_
     // Pazartesi müsaitlik KAYDINI silmez — kayıt olduğu gibi kalır.
     expect(t2.availability.some((w) => w.dayOfWeek === 1)).toBe(true);
     expect(t2.availability.filter((w) => w.dayOfWeek === 0)).toHaveLength(2);
-  });
-
-  it("aynı gün (Pazar) için çakışan iki blok içeren öneri VALIDATION_ERROR ile reddedilmez ama teacher-availability-field.tsx UI'daki overlap koruması bu şekli engeller — burada yalnızca zod şemasının 0-6 aralığını kabul ettiğini doğrula", async () => {
-    // Not: overlap koruması istemci tarafında (TeacherAvailabilityField/
-    // TeacherAvailabilityForm) uygulanır (bkz. component testleri); backend
-    // zod şeması yalnızca dayOfWeek 0-6 + start<end kuralını uygular.
-    const result = await proposeTeacherAvailabilityTool(ctx({ teacherId: "t2" }), {
-      proposedAvailability: [{ dayOfWeek: 0, start: "09:00", end: "12:00" }],
-    });
-    expect(result.ok).toBe(true);
-  });
-
-  it("arşivlenmiş (pasif) bir öğretmen yeni müsaitlik önerisi gönderemez", async () => {
-    const created = await createTeacherTool(ctx({ role: "SCHOOL_ADMIN", teacherId: undefined }), {
-      name: "Arşivlenecek Öğretmen",
-      email: "arsiv@okul.com",
-      phone: "5551119999",
-      branchId: "erzene",
-      instrument: "Piyano",
-    });
-    expect(created.ok).toBe(true);
-    if (!created.ok) return;
-
-    const archiveRes = await archiveTeacherTool(ctx({ role: "SCHOOL_ADMIN", teacherId: undefined }), {
-      teacherId: created.data.teacherId,
-      archived: true,
-    });
-    expect(archiveRes.ok).toBe(true);
-
-    const proposeRes = await proposeTeacherAvailabilityTool(
-      ctx({ teacherId: created.data.teacherId }),
-      VALID_PROPOSAL
-    );
-    expect(proposeRes.ok).toBe(false);
-    if (!proposeRes.ok) expect(proposeRes.error.code).toBe("FORBIDDEN");
   });
 });

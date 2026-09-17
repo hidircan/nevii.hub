@@ -28,6 +28,20 @@ screens (login/welcome).
 - Full detail + rationale: `docs/contracts/LEGAL_POLICY_TEXT_DISCREPANCY_REPORT.md`,
   `docs/roadmap/NEVIIHUB_ADMIN_CONTRACTS_POLICY_REMAINING_WORK.md`.
 
+## Güncel odak (2026-09-17) — Yönetici arşiv/pasif + müsaitlik + öğretmen genel bilgi (`fix/admin-archive-schedule-availability` → `test`)
+
+- **Öğrenci pasife al (db modu)**: `store-db.updateStudentProfile` `active`/`archivedAt`
+  (+ `nationalIdCipher`/`nationalIdLast2`/`firstLessonAt`) yazmıyordu → sessiz no-op. Düzeltildi.
+- **Öğretmen detayı "Öğrencilerini pasife al"**: yeni `archiveTeacherStudentsTool` (daha önce buton yoktu).
+- **Müsaitlik yalnız yönetici** (owner kararı): `proposeTeacherAvailabilityTool` her çağrıda
+  FORBIDDEN; yönetici `updateTeacherAvailabilityTool` ile `/panel/ogretmenler/[id]/musaitlik`
+  üzerinden doğrudan düzenler; öğretmen portalı salt okunur. **Mobil** öğretmen müsaitlik ekranı
+  (`apps/mobile/app/(teacher)/hesabim/musaitlik.tsx`) hâlâ öneri formunu gösteriyor — backend reddeder; mobil UI güncellemesi AÇIK İŞ.
+- **Öğretmen genel bilgiler**: Genel Bilgiler bölümü düzenlenebilir; lise/üniversite/mezuniyet/
+  günlük limit/doğum tarihi `updateTeacherProfileTool`a eklendi. Birincil şube değişimi bilinçli olarak YOK.
+- **Takvim↔Program**: statü zaten tek çözümleyici; takvim gün anahtarı UTC yerine İstanbul günü.
+- Migration YOK. Baseline kırmızı test: `lesson-series-tools` (origin/test'te de kırmızı).
+
 ## Güncel odak (2026-09-16) — Sözleşme/ilk tahsilat düzeltmeleri (`test` dalı)
 
 - **İlk tahsilat birleştirmesi artık AÇIK SEÇİM.** Kayıt ekranında onay kutusu ("takip eden ayın

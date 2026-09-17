@@ -1,8 +1,8 @@
 "use client";
 
 /**
- * Package D — öğretmen özlük/idari alanları + ek şube ataması + T.C. kimlik
- * girişi. Yalnızca SCHOOL_ADMIN/SUPER_ADMIN render edilir (çağıran taraftan);
+ * Package D — öğretmen genel (ad, doğum tarihi, eğitim, günlük limit),
+ * iletişim, özlük/idari alanları + ek şube ataması + T.C. kimlik girişi. Yalnızca SCHOOL_ADMIN/SUPER_ADMIN render edilir (çağıran taraftan);
  * backend'de de yalnız bu roller yazabilir (`updateTeacherProfileTool`/
  * `setNationalIdTool` RBAC'ı) — bu bileşen ikinci bir savunma katmanıdır.
  */
@@ -41,6 +41,11 @@ export function TeacherProfileEditor({
     emergencyContactName?: string;
     emergencyContactPhone?: string;
     personnelNotes?: string;
+    birthDate?: string;
+    highSchool?: string;
+    university?: string;
+    graduationYear?: number;
+    maxDailyLessons?: number;
   };
   hasNationalId: boolean;
 }) {
@@ -58,6 +63,11 @@ export function TeacherProfileEditor({
   const [emergencyContactName, setEmergencyContactName] = useState(initial.emergencyContactName ?? "");
   const [emergencyContactPhone, setEmergencyContactPhone] = useState(initial.emergencyContactPhone ?? "");
   const [personnelNotes, setPersonnelNotes] = useState(initial.personnelNotes ?? "");
+  const [birthDate, setBirthDate] = useState(initial.birthDate ?? "");
+  const [highSchool, setHighSchool] = useState(initial.highSchool ?? "");
+  const [university, setUniversity] = useState(initial.university ?? "");
+  const [graduationYear, setGraduationYear] = useState(initial.graduationYear ? String(initial.graduationYear) : "");
+  const [maxDailyLessons, setMaxDailyLessons] = useState(initial.maxDailyLessons ? String(initial.maxDailyLessons) : "");
   const [nationalId, setNationalId] = useState("");
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -90,6 +100,11 @@ export function TeacherProfileEditor({
         emergencyContactName: emergencyContactName || undefined,
         emergencyContactPhone: emergencyContactPhone || undefined,
         personnelNotes: personnelNotes || undefined,
+        birthDate: birthDate || undefined,
+        highSchool: highSchool || undefined,
+        university: university || undefined,
+        graduationYear: graduationYear ? Number(graduationYear) : undefined,
+        maxDailyLessons: maxDailyLessons ? Number(maxDailyLessons) : undefined,
       });
       if (!result.ok) {
         setError(result.message);
@@ -126,6 +141,30 @@ export function TeacherProfileEditor({
       <div>
         <Label>Telefon</Label>
         <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="05xx xxx xxxx" />
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <Label>Doğum tarihi</Label>
+          <Input type="date" value={birthDate} onChange={(e) => setBirthDate(e.target.value)} />
+        </div>
+        <div>
+          <Label>Günlük ders limiti</Label>
+          <Input type="number" min={1} max={20} value={maxDailyLessons} onChange={(e) => setMaxDailyLessons(e.target.value)} />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <Label>Lise</Label>
+          <Input value={highSchool} onChange={(e) => setHighSchool(e.target.value)} />
+        </div>
+        <div>
+          <Label>Üniversite</Label>
+          <Input value={university} onChange={(e) => setUniversity(e.target.value)} />
+        </div>
+      </div>
+      <div>
+        <Label>Mezuniyet yılı</Label>
+        <Input type="number" min={1950} max={2100} value={graduationYear} onChange={(e) => setGraduationYear(e.target.value)} />
       </div>
       {!hasNationalId ? (
         <div>
@@ -214,7 +253,7 @@ export function TeacherProfileEditor({
       </div>
 
       <Button type="button" variant="secondary" disabled={pending} onClick={onSave}>
-        {pending ? "Kaydediliyor…" : "Özlük bilgilerini kaydet"}
+        {pending ? "Kaydediliyor…" : "Öğretmen bilgilerini kaydet"}
       </Button>
       {error ? <p className="text-xs font-medium text-rose-600">{error}</p> : null}
       {saved ? <p className="text-xs font-medium text-emerald-600">Kaydedildi.</p> : null}

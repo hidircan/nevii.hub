@@ -1323,6 +1323,20 @@ export async function updateStudentProfile(
       monthlyFeeManualOverride: patch.monthlyFeeManualOverride,
       monthlyFeeOverrideReason: patch.monthlyFeeOverrideReason,
       accountResponsibility: patch.accountResponsibility,
+      // 2026-09-17 — archiveStudentTool/setNationalIdTool bu alanları
+      // gönderiyordu ama db modunda hiç yazılmıyordu: "Pasife Al" başarılı
+      // dönüp öğrenci aktif kalıyordu (sessiz no-op). Aktifleştirmede
+      // archivedAt undefined gelir → active verildiyse null'a çekilir.
+      active: patch.active,
+      archivedAt:
+        patch.archivedAt !== undefined
+          ? new Date(patch.archivedAt)
+          : patch.active !== undefined
+            ? null
+            : undefined,
+      firstLessonAt: patch.firstLessonAt ? new Date(patch.firstLessonAt) : undefined,
+      nationalIdCipher: patch.nationalIdCipher,
+      nationalIdLast2: patch.nationalIdLast2,
     },
   });
   if (result.count === 0) throw new Error("Öğrenci bulunamadı");
@@ -1445,8 +1459,12 @@ export async function updateTeacherProfile(
       phone: patch.phone,
       nationalIdCipher: patch.nationalIdCipher,
       nationalIdLast2: patch.nationalIdLast2,
-      birthDate: patch.birthDate ? new Date(patch.birthDate) : undefined,
+      birthDate: toDateOnlyDbValue(patch.birthDate),
       address: patch.address,
+      highSchool: patch.highSchool,
+      university: patch.university,
+      graduationYear: patch.graduationYear,
+      maxDailyLessons: patch.maxDailyLessons,
       branchIds:
         patch.branchIds !== undefined
           ? patch.branchIds === null

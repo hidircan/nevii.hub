@@ -10,7 +10,7 @@ import type { ServiceContext } from "../services/context";
 /**
  * Bu sprint — TeacherProfileEditor'a eklenen kayıt kimliği alanları
  * (name/email/phone) için RBAC + tenant izolasyon testleri. Enstrüman
- * (updateTeacherInstrumentsTool), müsaitlik (proposeTeacherAvailabilityTool)
+ * (updateTeacherInstrumentsTool), müsaitlik (updateTeacherAvailabilityTool)
  * ve ders ücreti (createFeeRuleTool/updateFeeRuleTool) kendi özel
  * araçlarında yönetildiği için bu tool'a eklenmedi — bu dosya yalnız
  * name/email/phone'u kapsar.

@@ -33,6 +33,7 @@ import { TeacherProfileEditor } from "@/components/teacher-profile-editor";
 import { SectionEditCard } from "@/components/section-edit-card";
 import { BackButton } from "@/components/back-button";
 import { TeacherArchiveAction } from "@/components/teacher-archive-action";
+import { TeacherStudentsArchiveAction } from "@/components/teacher-students-archive-action";
 import { QuickTaskLink } from "@/components/quick-task-link";
 import { AssistantPageContext } from "@/components/ai/assistant-page-context";
 import { TeacherPortalAccessCard } from "@/components/portal-access-card";
@@ -181,7 +182,21 @@ export default async function TeacherDetailPage({
     emergencyContactName: teacher.emergencyContactName,
     emergencyContactPhone: teacher.emergencyContactPhone,
     personnelNotes: teacher.personnelNotes,
+    birthDate: teacher.birthDate?.slice(0, 10),
+    highSchool: teacher.highSchool,
+    university: teacher.university,
+    graduationYear: teacher.graduationYear,
+    maxDailyLessons: teacher.maxDailyLessons,
   };
+  const profileEditor = (
+    <TeacherProfileEditor
+      teacherId={teacher.id}
+      primaryBranchId={teacher.branchId}
+      branches={data.settings.branches.map((b) => ({ id: b.id, name: b.name }))}
+      hasNationalId={!!teacher.nationalIdCipher}
+      initial={profileEditorInitial}
+    />
+  );
 
   return (
     <div>
@@ -263,7 +278,10 @@ export default async function TeacherDetailPage({
 
       <section id="genel" className="mb-8 scroll-mt-4">
         <h2 className="mb-3 text-sm font-semibold text-[var(--color-text)]">Genel Bilgiler</h2>
-        <Card>
+        <SectionEditCard
+          canEdit={canEditProfile}
+          edit={profileEditor}
+          readOnly={
           <dl className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
             <Field label="Doğum tarihi" value={teacher.birthDate ? `${formatDate(teacher.birthDate)}${age !== null ? ` (${age} yaş)` : ""}` : "Eklenmemiş"} />
             <Field
@@ -296,7 +314,8 @@ export default async function TeacherDetailPage({
               }
             />
           </dl>
-        </Card>
+          }
+        />
       </section>
 
       <section id="iletisim" className="mb-8 scroll-mt-4">
@@ -312,15 +331,7 @@ export default async function TeacherDetailPage({
               <Field label="Acil durum telefonu" value={teacher.emergencyContactPhone || "Eklenmemiş"} />
             </dl>
           }
-          edit={
-            <TeacherProfileEditor
-              teacherId={teacher.id}
-              primaryBranchId={teacher.branchId}
-              branches={data.settings.branches.map((b) => ({ id: b.id, name: b.name }))}
-              hasNationalId={!!teacher.nationalIdCipher}
-              initial={profileEditorInitial}
-            />
-          }
+          edit={profileEditor}
         />
       </section>
 
@@ -394,15 +405,7 @@ export default async function TeacherDetailPage({
               <Field label="Özlük notu" value={teacher.personnelNotes || "Eklenmemiş"} />
             </dl>
           }
-          edit={
-            <TeacherProfileEditor
-              teacherId={teacher.id}
-              primaryBranchId={teacher.branchId}
-              branches={data.settings.branches.map((b) => ({ id: b.id, name: b.name }))}
-              hasNationalId={!!teacher.nationalIdCipher}
-              initial={profileEditorInitial}
-            />
-          }
+          edit={profileEditor}
         />
       </section>
 
@@ -425,7 +428,7 @@ export default async function TeacherDetailPage({
         <h2 className="mb-3 flex items-center justify-between text-sm font-semibold text-[var(--color-text)]">
           Ders Programı
           <Link href={`/panel/ogretmenler/${teacher.id}/musaitlik`} className="text-xs font-medium text-[var(--color-primary)] hover:text-[var(--color-primary-hover)]">
-            Müsaitlikte Aç →
+            {canEditProfile ? "Müsaitliği düzenle →" : "Müsaitlikte Aç →"}
           </Link>
         </h2>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
@@ -497,6 +500,15 @@ export default async function TeacherDetailPage({
         <h2 className="mb-3 text-sm font-semibold text-[var(--color-text)]">
           Öğrenciler {students.length > 0 ? <span className="text-[var(--color-text-muted)]">({students.length})</span> : null}
         </h2>
+        {canEditProfile ? (
+          <div className="mb-3">
+            <TeacherStudentsArchiveAction
+              teacherId={teacher.id}
+              teacherName={teacher.name}
+              activeStudentCount={students.filter((s) => s.active).length}
+            />
+          </div>
+        ) : null}
         {students.length === 0 ? (
           <EmptyState title="Atanmış öğrenci yok" />
         ) : (

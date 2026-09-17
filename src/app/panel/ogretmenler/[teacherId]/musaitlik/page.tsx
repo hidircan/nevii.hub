@@ -5,7 +5,8 @@ import { listTeacherAvailabilityRequestsTool } from "@/lib/services";
 import { Badge, Card, EmptyState, PageHeader } from "@/components/ui";
 import { BackButton } from "@/components/back-button";
 import { TeacherAvailabilityReview } from "@/components/teacher-availability-review";
-import { dayName, formatDateTime } from "@/lib/utils";
+import { TeacherAvailabilityEditor } from "@/components/teacher-availability-editor";
+import { formatDateTime } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
@@ -16,8 +17,8 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 /**
- * EPIC 9 (IMPLEMENTATION_PLAN.md) — yönetici müsaitlik önerilerini onaylar/
- * reddeder. Onaylanan öneri hemen Teacher.availability'ye uygulanır.
+ * Yönetici öğretmen müsaitliğini doğrudan düzenler (2026-09-17). Öğretmen
+ * öneri yolu kapatıldı; önceden gelmiş bekleyen öneriler hâlâ incelenebilir.
  */
 export default async function TeacherAvailabilityReviewPage({
   params,
@@ -64,38 +65,30 @@ export default async function TeacherAvailabilityReviewPage({
 
       <Card className="mb-4">
         <p className="mb-1 text-xs font-medium uppercase tracking-wide text-amber-600">
-          Şu anki müsaitlik
+          Müsait günler ve saatler
         </p>
-        {teacher.availability.length === 0 ? (
-          <p className="text-sm text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">Kayıtlı müsaitlik yok.</p>
-        ) : (
-          <div className="space-y-1">
-            {teacher.availability
-              .slice()
-              .sort((a, b) => a.dayOfWeek - b.dayOfWeek)
-              .map((w) => (
-                <p key={w.dayOfWeek} className="text-sm text-[var(--color-text-muted)] dark:text-slate-300">
-                  {dayName(w.dayOfWeek)}: {w.start}–{w.end}
-                </p>
-              ))}
-          </div>
-        )}
+        <p className="mb-3 text-xs text-[var(--color-text-muted)]">
+          Müsaitliği yalnız yöneticiler düzenler; öğretmen kendi portalında yalnız görüntüler.
+        </p>
+        <TeacherAvailabilityEditor
+          teacherId={teacher.id}
+          initialRows={teacher.availability}
+          branches={data.settings.branches.map((b) => ({ id: b.id, name: b.name }))}
+        />
       </Card>
 
-      <section className="mb-4">
-        <p className="mb-2 text-sm font-semibold text-[var(--color-text)] dark:text-slate-200">
-          Onay bekleyen öneriler
-        </p>
-        {pending.length === 0 ? (
-          <EmptyState title="Bekleyen öneri yok" />
-        ) : (
+      {pending.length > 0 ? (
+        <section className="mb-4">
+          <p className="mb-2 text-sm font-semibold text-[var(--color-text)] dark:text-slate-200">
+            Onay bekleyen eski öneriler
+          </p>
           <div className="space-y-3">
             {pending.map((r) => (
               <TeacherAvailabilityReview key={r.id} request={r} currentAvailability={teacher.availability} />
             ))}
           </div>
-        )}
-      </section>
+        </section>
+      ) : null}
 
       {reviewed.length > 0 ? (
         <section>

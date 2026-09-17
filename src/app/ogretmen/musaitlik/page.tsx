@@ -5,7 +5,6 @@ import { readData } from "@/lib/store";
 import { requireSessionContext } from "@/lib/auth/session";
 import { listTeacherAvailabilityRequestsTool } from "@/lib/services";
 import { Badge, Card } from "@/components/ui";
-import { TeacherAvailabilityForm } from "@/components/teacher-availability-form";
 import { dayName, formatDateTime } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -17,8 +16,8 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 /**
- * EPIC 9 (IMPLEMENTATION_PLAN.md) — öğretmen kendi müsaitliğini DOĞRUDAN
- * değiştiremez, yalnızca öneri gönderir (bkz. proposeTeacherAvailabilityTool).
+ * Öğretmen müsaitliğini yalnız GÖRÜR — 2026-09-17 owner kararıyla öneri
+ * gönderme de kapatıldı; düzenleme yöneticide (updateTeacherAvailabilityTool).
  */
 export default async function TeacherAvailabilityPage() {
   let session;
@@ -64,15 +63,8 @@ export default async function TeacherAvailabilityPage() {
             </div>
           )}
           <p className="mt-2 text-xs text-[var(--color-text-muted)]">
-            Değişiklik için aşağıdan öneri gönderin — yönetici onayı sonrası uygulanır.
+            Müsaitlik günleriniz kurum yöneticisi tarafından düzenlenir. Değişiklik için yöneticinizle iletişime geçin.
           </p>
-        </Card>
-
-        <Card>
-          <p className="mb-3 text-xs font-medium uppercase tracking-wide text-cyan-600">
-            Yeni müsaitlik önerisi
-          </p>
-          <TeacherAvailabilityForm current={teacher.availability} />
         </Card>
 
         {requests.length > 0 ? (
