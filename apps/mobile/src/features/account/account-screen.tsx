@@ -5,8 +5,11 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { apiDelete, apiPost } from "../../api/client";
 import { useAuth, type AppRole, type AuthUser } from "../../auth/auth-context";
 import { AppHeader, Avatar, BottomSheet, Card, ConfirmDialog, Icon, Screen, SectionHeader, type IconName } from "../../components/ui";
+import { useApiGet } from "../../hooks/use-api";
 import { PHOTO_RESIZE_MAX_DIMENSION, PHOTO_JPEG_COMPRESS_QUALITY, buildPhotoUploadRequestBody } from "../../lib/photo-upload";
 import { useTheme, useThemePreference, type ThemePreference } from "../../theme/theme-context";
+import type { ScheduleResponse } from "../../types/api";
+import { resolveDisplayName } from "./display-name";
 
 type PhotoOwner = { ownerType: "student" | "teacher" | "user"; ownerId: string };
 
@@ -89,7 +92,21 @@ export function AccountScreen({ links, ownAccountPhotoOnly }: { links?: AccountQ
   const [photoError, setPhotoError] = useState<string | null>(null);
   const [hasPhoto, setHasPhoto] = useState(false);
 
-  const displayName = user?.email || (user ? roleLabel(user) :"Hesap");
+  // Personel gerçek adı: öğretmenin KENDİ programındaki `teacherName`
+  // (sunucu teacherId sahipliğini doğrular — başka kaynaktan tahmin yok).
+  // Session/user yanıtında isim alanı YOK; e-posta restore'da korunur
+  // (token-storage). Kimlik çözülene kadar iskelet — rol etiketi ada konmaz.
+  const isTeacher = user?.role === "TEACHER" && !!user?.teacherId;
+  const teacherSchedule = useApiGet<ScheduleResponse>(
+    isTeacher && user?.teacherId ? `/api/v1/teachers/${user.teacherId}/schedule` : ""
+  );
+  const teacherName =
+    teacherSchedule.status === "success"
+      ? (teacherSchedule.data.lessons.find((l) => l.teacherName?.trim())?.teacherName?.trim() ?? null)
+      : null;
+  const resolvedName = user ? resolveDisplayName({ teacherName, email: user.email }) : null;
+  const teacherNamePending = isTeacher && teacherSchedule.status === "loading";
+  const displayName = resolvedName ?? (teacherNamePending ? null : user ? roleLabel(user) : null);
   const photoOwner = resolvePhotoOwner(user, { forceUserPhoto: ownAccountPhotoOnly });
   const photoPath = photoOwner ? `/api/v1/${photoOwner.ownerType}s/${photoOwner.ownerId}/photo?v=${photoVersion}` : null;
 
@@ -168,7 +185,7 @@ export function AccountScreen({ links, ownAccountPhotoOnly }: { links?: AccountQ
             style={{ position: "relative" }}
           >
             <Avatar
-              name={displayName}
+              name={displayName ?? " "}
               size={52}
               photoPath={photoPath}
               onPhotoLoad={() => setHasPhoto(true)}
@@ -181,18 +198,23 @@ export function AccountScreen({ links, ownAccountPhotoOnly }: { links?: AccountQ
             ) : null}
           </Pressable>
           <View style={{ flex: 1 }}>
-            <Text style={[t.typography.cardTitle, { color: t.colors.text }]} numberOfLines={1}>
-              {displayName}
-            </Text>
-            <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>
-              {user ? roleLabel(user) :""}
-            </Text>
+            {displayName ? (
+              <>
+                <Text style={[t.typography.cardTitle, { color: t.colors.text }]} numberOfLines={1}>
+                  {displayName}
+                </Text>
+                <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>
+                  {user ? roleLabel(user) : ""}
+                </Text>
+              </>
+            ) : (
+              // Kimlik çözülürken yanlış metin gösterilmez — iskelet.
+              <View accessibilityLabel="Profil bilgisi yükleniyor">
+                <View style={[styles.nameSkeleton, { backgroundColor: t.colors.bgMuted }]} />
+                <View style={[styles.roleSkeleton, { backgroundColor: t.colors.bgMuted }]} />
+              </View>
+            )}
           </View>
-        </View>
-        <View style={[styles.divider, { backgroundColor: t.colors.divider }]} />
-        <View style={styles.metaRow}>
-          <Icon name="business-outline" size={15} color={t.colors.textMuted} />
-          <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>Kurum: {user?.tenantId ?? "—"}</Text>
         </View>
       </Card>
 
@@ -310,7 +332,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   divider: { height: StyleSheet.hairlineWidth, marginVertical: 12 },
-  metaRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  nameSkeleton: { height: 18, width: "60%", borderRadius: 6 },
+  roleSkeleton: { height: 13, width: "35%", borderRadius: 6, marginTop: 6 },
   optionRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 4 },
   optionLeft: { flexDirection: "row", alignItems: "center", gap: 10 },
   /** 48pt dokunma hedefi — bkz. iPhone SE dahil erişilebilirlik gereksinimi. */

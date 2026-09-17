@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { apiGet, apiPost, endLocalSession, revokeServerSession, setSessionExpiredHandler } from "../api/client";
-import { getAccessToken, getRefreshToken, setTokens } from "./token-storage";
+import { clearStoredEmail, getAccessToken, getRefreshToken, getStoredEmail, setStoredEmail, setTokens } from "./token-storage";
 import { sessionStatusFor } from "./session-status";
 import {
   resolveMobilePersona,
@@ -85,7 +85,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     (async () => {
-      if (await getAccessToken()) await loadSession("");
+      if (await getAccessToken()) await loadSession((await getStoredEmail()) ?? "");
       else signOutLocally();
     })();
   }, [loadSession, signOutLocally]);
@@ -103,7 +103,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return { ok: false, message: res.error.message };
         }
         await setTokens(res.data.accessToken, res.data.refreshToken);
-        const session = await loadSession(res.data.user.email ?? email);
+        const sessionEmail = res.data.user.email ?? email;
+        await setStoredEmail(sessionEmail);
+        const session = await loadSession(sessionEmail);
         if (!session.ok) {
           await endLocalSession();
           signOutLocally();
@@ -114,6 +116,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       async logout() {
         const refreshToken = await getRefreshToken();
         await endLocalSession();
+        await clearStoredEmail();
         signOutLocally();
         if (refreshToken) void revokeServerSession(refreshToken);
       },

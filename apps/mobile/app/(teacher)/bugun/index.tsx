@@ -125,7 +125,7 @@ export default function TeacherBugun() {
 
       {pendingLessons.length > 0 ? (
         <>
-          <SectionHeader title={`Yoklama bekleyen dersler (${pendingLessons.length})`} />
+          <SectionHeader title={`Kapanış bekleyen dersler (${pendingLessons.length})`} />
           <View style={{ gap: 10 }}>
             {pendingLessons.slice(0, 5).map((lesson) => (
               <LessonCard

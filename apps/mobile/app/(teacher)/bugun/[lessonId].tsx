@@ -8,7 +8,6 @@ import {
   Avatar,
   Button,
   Card,
-  ConfirmDialog,
   EmptyState,
   ErrorState,
   HomeworkCard,
@@ -23,7 +22,7 @@ import { useApiGet } from "../../../src/hooks/use-api";
 import { useNow } from "../../../src/hooks/use-now";
 import { useAppForegroundRefetch } from "../../../src/hooks/use-app-foreground-refetch";
 import { useFocusRefetch } from "../../../src/hooks/use-focus-refetch";
-import { classifyOpsResult, createInFlightGuard, OPS_FLAG_LABEL, type OpsFlag } from "../../../src/lib/attendance";
+import { createInFlightGuard } from "../../../src/lib/attendance";
 import { format, isPast } from "../../../src/lib/date";
 import { lessonStatusBadge } from "../../../src/lib/lesson-status";
 import { useTheme } from "../../../src/theme/theme-context";
@@ -39,7 +38,6 @@ export default function LessonDetailScreen() {
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [pendingSwitch, setPendingSwitch] = useState<OpsFlag | null>(null);
 
   // Ders yalnız öğretmenin KENDİ programından bulunur (sunucu teacherId sahipliğini doğrular);
   // listede yoksa "bulunamadı" gösterilir — başka bir kaynaktan tahmin edilmez.
@@ -50,27 +48,8 @@ export default function LessonDetailScreen() {
 
   const homework = useApiGet<HomeworkResponse>(lesson?.studentId ? `/api/v1/students/${lesson.studentId}/homework` : "");
 
-  function runOps(flag: OpsFlag, confirmSwitch = false) {
-    void guard.run(async () => {
-      setBusyAction(flag);
-      setActionError(null);
-      setNotice(null);
-      const res = await apiPost<{ needsConfirmation?: boolean; alreadySet?: boolean }>(
-        `/api/v1/lessons/${lessonId}/ops`,
-        confirmSwitch ? { flag, confirmSwitch: true } : { flag }
-      );
-      setBusyAction(null);
-      const outcome = classifyOpsResult(res);
-      if (outcome.kind === "confirm") {
-        setPendingSwitch(flag);
-        return;
-      }
-      if (outcome.kind === "error") setActionError(outcome.message);
-      else setNotice(outcome.message);
-      schedule.refresh();
-    });
-  }
-
+  // Öğretmen yoklama işareti KOYAMAZ — yoklama mutasyonu yalnız yönetici
+  // akışındadır (admin/islemler/yoklama). Bu ekranda /ops çağrısı YOK.
   function runLifecycle(action: "start" | "end") {
     void guard.run(async () => {
       setBusyAction(action);
@@ -145,13 +124,6 @@ export default function LessonDetailScreen() {
           </Text>
         </Card>
       ) : null}
-
-      <SectionHeader title="Yoklama" />
-      <View style={{ flexDirection: "row", gap: 8 }}>
-        <Button label="Katıldı" size="sm" variant={lesson.studentAttended ? "primary" : "secondary"} loading={busyAction === "attended"} disabled={busy} onPress={() => runOps("attended")} />
-        <Button label="Gelmedi" size="sm" variant={lesson.studentAbsent ? "danger" : "secondary"} loading={busyAction === "absent"} disabled={busy} onPress={() => runOps("absent")} />
-        <Button label="İzinli" size="sm" variant={lesson.studentExcused ? "primary" : "secondary"} loading={busyAction === "excused"} disabled={busy} onPress={() => runOps("excused")} />
-      </View>
 
       {!past ? (
         <>
@@ -229,22 +201,6 @@ export default function LessonDetailScreen() {
         </Text>
       </View>
 
-      <ConfirmDialog
-        visible={pendingSwitch !== null}
-        title="Yoklama değiştirilsin mi?"
-        message={
-          pendingSwitch
-            ? `Bu ders için kayıtlı yoklama "${OPS_FLAG_LABEL[pendingSwitch]}" olarak değiştirilecek.`
-            : ""
-        }
-        confirmLabel="Değiştir"
-        onCancel={() => setPendingSwitch(null)}
-        onConfirm={() => {
-          const flag = pendingSwitch;
-          setPendingSwitch(null);
-          if (flag) runOps(flag, true);
-        }}
-      />
     </Screen>
   );
 }
