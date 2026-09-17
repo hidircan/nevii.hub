@@ -24,7 +24,7 @@ import { FeeRuleManager } from "@/components/fee-rule-manager";
 import { NationalIdReveal } from "@/components/national-id-reveal";
 import { maskNationalId } from "@/lib/pii/tc-identity";
 import { canViewFullNationalId } from "@/lib/pii";
-import { formatDate, formatMoney, formatTime } from "@/lib/utils";
+import { dayName, formatDate, formatMoney, formatTime } from "@/lib/utils";
 import { computeAge } from "@/lib/utils";
 import { computeLessonDurationRow } from "@/lib/lesson-duration-report";
 import { computeTeacherEarningsForPeriod } from "@/lib/teacher-payout";
@@ -33,6 +33,7 @@ import { TeacherProfileEditor } from "@/components/teacher-profile-editor";
 import { SectionEditCard } from "@/components/section-edit-card";
 import { BackButton } from "@/components/back-button";
 import { TeacherArchiveAction } from "@/components/teacher-archive-action";
+import { TeacherAvailabilityEditor } from "@/components/teacher-availability-editor";
 import { TeacherStudentsArchiveAction } from "@/components/teacher-students-archive-action";
 import { QuickTaskLink } from "@/components/quick-task-link";
 import { AssistantPageContext } from "@/components/ai/assistant-page-context";
@@ -45,6 +46,7 @@ const SECTIONS = [
   { href: "#iletisim", icon: Users, label: "İletişim" },
   { href: "#portal-erisimi", icon: KeyRound, label: "Portal Erişimi" },
   { href: "#uzmanlik", icon: GraduationCap, label: "Uzmanlık ve Branşlar" },
+  { href: "#musaitlik", icon: CalendarDays, label: "Müsaitlik" },
   { href: "#ozluk", icon: ScrollText, label: "Özlük / İstihdam" },
   { href: "#sozlesme", icon: ScrollText, label: "Sözleşme" },
   { href: "#program", icon: CalendarDays, label: "Ders Programı" },
@@ -118,25 +120,6 @@ export default async function TeacherDetailPage({
   const now = new Date();
   const upcomingLessons = lessons.filter((l) => new Date(l.startAt) >= now).length;
   const weekLessonCount = lessons.filter((l) => l.status !== "cancelled").length;
-  // Faz 2 — son 30 gündeki, geçmişte kalmış (gelecekte henüz işaretlenemez),
-  // öğretmen yoklaması hâlâ Bekliyor olan dersler — Performans sekmesindeki
-  // hızlı işaretleme listesi için.
-  const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-  const pendingTeacherAttendanceLessons = lessons
-    .filter(
-      (l) =>
-        l.status !== "cancelled" &&
-        !l.teacherAttendanceStatus &&
-        new Date(l.startAt) <= now &&
-        new Date(l.startAt) >= thirtyDaysAgo
-    )
-    .map((l) => ({
-      id: l.id,
-      startAt: l.startAt,
-      endAt: l.endAt,
-      studentName: data.students.find((s) => s.id === l.studentId)?.name ?? "—",
-    }))
-    .sort((a, b) => b.startAt.localeCompare(a.startAt));
   // Yönetici, öğretmenin dersi ne zaman fiilen başlatıp bitirdiğini görebilsin —
   // aynı süre-hesabı /panel/ders-duzeltme ile (computeLessonDurationRow), burada
   // yalnızca bu öğretmenin son kayıtlarına daraltılmış salt-okunur özet.
@@ -147,7 +130,6 @@ export default async function TeacherDetailPage({
       const student = data.students.find((s) => s.id === l.studentId);
       return { ...computeLessonDurationRow(l), studentName: student?.name ?? "—" };
     });
-
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
   const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
   const earnings = computeTeacherEarningsForPeriod(data, teacher.id, monthStart, monthEnd);
@@ -374,6 +356,42 @@ export default async function TeacherDetailPage({
         />
       </section>
 
+      <section id="musaitlik" className="mb-8 scroll-mt-4">
+        <h2 className="mb-3 text-sm font-semibold text-[var(--color-text)]">Müsait Günler ve Saatler</h2>
+        <SectionEditCard
+          canEdit={canEditProfile}
+          readOnly={
+            teacher.availability.length === 0 ? (
+              <EmptyState title="Müsaitlik tanımlanmamış" />
+            ) : (
+              <ul className="grid grid-cols-1 gap-1.5 text-sm sm:grid-cols-2">
+                {[...teacher.availability]
+                  .sort((a, b) => ((a.dayOfWeek + 6) % 7) - ((b.dayOfWeek + 6) % 7) || a.start.localeCompare(b.start))
+                  .map((w, i) => (
+                    <li key={`${w.dayOfWeek}-${w.start}-${i}`} className="text-[var(--color-text)]">
+                      <span className="font-medium">{dayName(w.dayOfWeek)}</span> {w.start}–{w.end}
+                      <span className="text-[var(--color-text-muted)]">
+                        {" · "}
+                        {w.branchId ? data.settings.branches.find((b) => b.id === w.branchId)?.name ?? "Şube" : "Tüm şubeler"}
+                      </span>
+                    </li>
+                  ))}
+              </ul>
+            )
+          }
+          edit={
+            <TeacherAvailabilityEditor
+              teacherId={teacher.id}
+              initialRows={teacher.availability}
+              branches={data.settings.branches.map((b) => ({ id: b.id, name: b.name }))}
+            />
+          }
+        />
+        <p className="mt-2 text-xs text-[var(--color-text-muted)]">
+          Müsaitliği yalnız yöneticiler düzenler; öğretmen kendi portalında yalnız görüntüler.
+        </p>
+      </section>
+
       <section id="ozluk" className="mb-8 scroll-mt-4">
         <h2 className="mb-3 text-sm font-semibold text-[var(--color-text)]">Özlük / İstihdam</h2>
         <SectionEditCard
@@ -489,11 +507,7 @@ export default async function TeacherDetailPage({
             Detaylı performansı görüntüle →
           </Link>
         </h2>
-        <TeacherPerformancePanel
-          teacherId={teacher.id}
-          canMark={canEditProfile}
-          pendingLessons={pendingTeacherAttendanceLessons}
-        />
+        <TeacherPerformancePanel teacherId={teacher.id} />
       </section>
 
       <section id="ogrenciler" className="mb-8 scroll-mt-4">

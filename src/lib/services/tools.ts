@@ -657,11 +657,16 @@ async function notifyAttendanceExceptionBestEffort(
   }
 }
 
+/** 2026-09-17 owner kararı — yoklama (öğrenci geldi/gelmedi/işlendi/telafi) yalnız yöneticide. */
+const TEACHER_ATTENDANCE_FORBIDDEN_MESSAGE =
+  "Yoklama yalnız kurum yöneticileri tarafından alınır. Yoklama düzeltmesi için yöneticinizle iletişime geçin.";
+
 export async function markAttendanceTool(
   ctx: ServiceContext,
   input: unknown
 ): Promise<ServiceResult<{ lessonId: string; status: string }>> {
-  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "TEACHER", "AI_AGENT", "SUPER_ADMIN", "BRANCH_MANAGER"]);
+  if (ctx.role === "TEACHER") return fail("FORBIDDEN", TEACHER_ATTENDANCE_FORBIDDEN_MESSAGE);
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "AI_AGENT", "SUPER_ADMIN", "BRANCH_MANAGER"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
 
   const v = parseOrFail(attendanceSchema, input);
@@ -673,15 +678,6 @@ export async function markAttendanceTool(
     if (!lesson) return fail("NOT_FOUND", "Ders bulunamadı");
     const gate = await assertBranchOperation(ctx, "attendance", "update", lesson.branchId);
     if (!gate.ok) return gate;
-  }
-
-  if (ctx.role === "TEACHER") {
-    const data = await readData();
-    const lesson = data.lessons.find((l) => l.id === v.data.lessonId);
-    if (!lesson) return fail("NOT_FOUND", "Lesson not found");
-    if (!canAccessTeacher(ctx, lesson.teacherId)) {
-      return fail("FORBIDDEN", "Cannot mark attendance for another teacher's lesson");
-    }
   }
 
   try {
@@ -10677,7 +10673,8 @@ export async function setLessonOpsFlagTool(
     currentStatus?: string | null;
   }>
 > {
-  const auth = requireRole(ctx, ["TEACHER", "SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (ctx.role === "TEACHER") return fail("FORBIDDEN", TEACHER_ATTENDANCE_FORBIDDEN_MESSAGE);
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
 
   const v = parseOrFail(
@@ -10703,10 +10700,6 @@ export async function setLessonOpsFlagTool(
   const data = await readLessonScope(v.data.lessonId);
   const lesson = data?.lessons.find((l) => l.id === v.data.lessonId);
   if (!data || !lesson) return fail("NOT_FOUND", "Ders bulunamadı");
-  if (ctx.role === "TEACHER" && lesson.teacherId !== ctx.teacherId) {
-    return fail("FORBIDDEN", "Yalnızca kendi dersinizde işlem yapabilirsiniz.");
-  }
-
   // ÖNCELİK 4 — Yoklama Takvimi: kapalı günde hiçbir yoklama/mali aksiyon
   // yapılamaz (manuel istisna > resmî tatil > dönem haftalık kuralı sırası).
   const student = data.students.find((s) => s.id === lesson.studentId);

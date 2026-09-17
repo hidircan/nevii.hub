@@ -16,8 +16,11 @@ export function TeacherAvailabilityEditor({
   teacherId,
   initialRows,
   branches,
+  onSaved,
 }: {
   teacherId: string;
+  /** SectionEditCard kaydetme sonrası bölümü kapatmak için enjekte eder. */
+  onSaved?: () => void;
   initialRows: AvailabilityWindowRow[];
   branches?: { id: string; name: string }[];
 }) {
@@ -40,6 +43,7 @@ export function TeacherAvailabilityEditor({
       }
       setSaved(true);
       router.refresh();
+      onSaved?.();
     });
   }
 

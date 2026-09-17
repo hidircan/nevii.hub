@@ -19,7 +19,6 @@ import { formatDate, formatTime } from "@/lib/utils";
 import { computeLiveDisplayStatus, resolveLessonFinalStatus } from "@/lib/lesson-live-status";
 import { LessonLiveActions } from "@/components/lesson-live-actions";
 import { LessonCountdown } from "@/components/lesson-countdown";
-import { LessonOpsActions } from "@/components/lesson-ops-actions";
 import { isMonday } from "@/lib/closed-days";
 import { ProgramLiveRefresh } from "@/components/program-live-refresh";
 
@@ -168,15 +167,7 @@ export default async function TeacherOwnProgramPage({
                                 )}
                               />
                             ) : null}
-                            <LessonOpsActions
-                              compact
-                              lessonId={lesson.id}
-                              studentAttended={lesson.studentAttended}
-                              lessonProcessed={lesson.lessonProcessed}
-                              opsMakeupFlag={lesson.opsMakeupFlag}
-                              studentAbsent={lesson.studentAbsent}
-                              studentExcused={lesson.studentExcused}
-                            />
+{/* 2026-09-17 — yoklama/işlendi/telafi işaretleme yalnız yöneticide. */}
                           </>
                         ) : null}
                       </div>

@@ -196,13 +196,14 @@ describe("setLessonOpsFlagTool — RBAC ve sahiplik (API/tool katmanı)", () => 
     expect(res.error.code).toBe("FORBIDDEN");
   });
 
-  it("TEACHER kendi dersinde başarıyla işlem yapabilir", async () => {
+  it("TEACHER kendi dersinde bile yoklama işaretleyemez (2026-09-17 owner kararı: yoklama yalnız yöneticide)", async () => {
     const lessonId = await createTestLesson(); // t1'e ait
     const res = await setLessonOpsFlagTool(ctx({ role: "TEACHER", teacherId: "t1", userId: "teacher1" }), {
       lessonId,
       flag: "attended",
     });
-    expect(res.ok).toBe(true);
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error.code).toBe("FORBIDDEN");
   });
 
   it("SCHOOL_ADMIN/SUPER_ADMIN herhangi bir derste işlem yapabilir", async () => {
