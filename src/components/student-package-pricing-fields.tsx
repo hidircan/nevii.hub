@@ -15,6 +15,7 @@
 import { useMemo, useState } from "react";
 import { Input, Label, Select } from "@/components/ui";
 import { computeMonthlyFee } from "@/lib/packages";
+import { sanitizeAmountInput } from "@/lib/amount-input";
 import { LESSON_DURATION_OPTIONS, DEFAULT_LESSON_DURATION_MINUTES } from "@/lib/lesson-duration";
 
 export type PricingPackageOption = {
@@ -31,7 +32,7 @@ function formatTL(amount: number): string {
 
 export function StudentPackagePricingFields({
   packages,
-  defaultMonthlyFee = 3000,
+  defaultMonthlyFee,
 }: {
   packages: PricingPackageOption[];
   defaultMonthlyFee?: number;
@@ -40,7 +41,8 @@ export function StudentPackagePricingFields({
   const [duration, setDuration] = useState<number>(DEFAULT_LESSON_DURATION_MINUTES);
   const [discountType, setDiscountType] = useState<"" | "percent" | "amount">("");
   const [discountValue, setDiscountValue] = useState("");
-  const [legacyMonthlyFee, setLegacyMonthlyFee] = useState(defaultMonthlyFee);
+  // Metin olarak tutulur — bkz. sanitizeAmountInput (sıfır silinemiyordu).
+  const [legacyMonthlyFee, setLegacyMonthlyFee] = useState(defaultMonthlyFee ? String(defaultMonthlyFee) : "");
 
   const selectedPackage = packages.find((p) => p.id === packageId);
 
@@ -136,11 +138,10 @@ export function StudentPackagePricingFields({
           <Label>Aylık ücret (serbest — paket seçilmediyse)</Label>
           <Input
             name="monthlyFee"
-            type="number"
-            min={0}
-            className="no-spinner"
+            inputMode="numeric"
+            placeholder="Örn. 3000"
             value={legacyMonthlyFee}
-            onChange={(e) => setLegacyMonthlyFee(Number(e.target.value))}
+            onChange={(e) => setLegacyMonthlyFee(sanitizeAmountInput(e.target.value))}
           />
         </div>
       )}

@@ -100,7 +100,9 @@ describe("prefillFromContract — geçmiş sözleşmeyi temel alarak yeniden olu
     expect(next.programmeName).toBe("Keman");
     expect(next.monthlyAmount).toBe(5200);
     expect(next.paymentMethod).toBe("transfer");
-    expect(next.enrollmentStartDate).toBe("2026-10-01");
+    // 2026-09-17 — başlangıç eski sözleşmeden değil kaydın DERS başlangıcından gelir
+    // (eski sözleşmeler kayıt tarihini taşıyabilir); form alanı yine düzenlenebilir.
+    expect(next.enrollmentStartDate).toBe(base.enrollmentStartDate);
     expect(next.durationMonths).toBe(8);
     expect(next.usePerLessonBilling).toBe(true);
     expect(next.firstCollectionAmount).toBe(3712);

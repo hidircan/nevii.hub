@@ -435,7 +435,7 @@ describe("ÖNCELİK 4 (devam) — öğrenci dönemine göre varsayılan takvim",
       weeklyLessonCount: 1,
       monthlyFee: 3000,
       lessonDays: [2],
-      firstPaymentCollected: { method: "cash", amount: 3750, collectedAt: "2026-08-30" },
+      firstPaymentCollected: { method: "cash", amount: 3000, collectedAt: "2026-08-30" }, // 5 Salı → tavan 4 ders = tam aylık (2026-09-17)
       enrollmentStartDate: "2026-09-01",
       notes: "",
       termType: "yaz",
@@ -484,7 +484,7 @@ describe("ÖNCELİK 4 (devam) — öğrenci dönemine göre varsayılan takvim",
       weeklyLessonCount: 1,
       monthlyFee: 3000,
       lessonDays: [2],
-      firstPaymentCollected: { method: "cash", amount: 3750, collectedAt: "2026-08-30" },
+      firstPaymentCollected: { method: "cash", amount: 3000, collectedAt: "2026-08-30" }, // 5 Salı → tavan 4 ders = tam aylık (2026-09-17)
       enrollmentStartDate: "2026-09-01",
       notes: "",
       // termType verilmedi — legacy senaryo

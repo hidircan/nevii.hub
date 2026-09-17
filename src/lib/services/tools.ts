@@ -12881,7 +12881,7 @@ export async function previewPeriodBillingSimulationTool(
   );
   if (!v.ok) return v;
 
-  const { computePeriodBillingPreview } = await import("../period-lesson-billing");
+  const { computePeriodBillingPreview, resolveLessonStartDay } = await import("../period-lesson-billing");
   const data = await readData();
 
   let enrollmentStartDay = v.data.enrollmentStartDate;
@@ -12894,7 +12894,14 @@ export async function previewPeriodBillingSimulationTool(
     const student = data.students.find((s) => s.id === v.data.studentId);
     if (!student) return fail("NOT_FOUND", "Öğrenci bulunamadı");
     studentId = student.id;
-    enrollmentStartDay = enrollmentStartDay || student.enrollmentStartDate || toZonedYmd(new Date(), resolveAppTimezone());
+    // Ücret hesabı DERS başlangıcından (kayıt tarihi yalnız kayıt/denetim bilgisi) — tek kural.
+    enrollmentStartDay =
+      enrollmentStartDay ||
+      resolveLessonStartDay({
+        lessonStartDate: student.lessonStartDate,
+        enrollmentStartDate: student.enrollmentStartDate,
+        fallbackToday: toZonedYmd(new Date(), resolveAppTimezone()),
+      });
     enrollmentEndDay = enrollmentEndDay || student.enrollmentEndDate || enrollmentStartDay;
     weeklyLessonCount = weeklyLessonCount ?? student.weeklyLessonCount;
     monthlyFee = monthlyFee ?? student.monthlyFee;

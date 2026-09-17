@@ -1,5 +1,6 @@
 "use client";
 
+import { parseAmountInput } from "@/lib/amount-input";
 import { useId, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -912,10 +913,7 @@ function ContractForm({
             pattern="[0-9]*"
             placeholder="Örn. 3000"
             value={monthlyAmount === "" ? "" : String(monthlyAmount)}
-            onChange={(e) => {
-              const digits = e.target.value.replace(/[^0-9]/g, "");
-              setMonthlyAmount(digits === "" ? "" : Number(digits));
-            }}
+            onChange={(e) => setMonthlyAmount(parseAmountInput(e.target.value) ?? "")}
             aria-invalid={!!fieldErrors.monthlyAmount}
           />
           <FieldError message={fieldErrors.monthlyAmount} />

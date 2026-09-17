@@ -748,7 +748,14 @@ export function NewStudentForm({
                     <dt className="text-xs text-[var(--color-text-muted)]">
                       Bu ilk dönemde planlanan ders {preview.lessonsAreExact ? "(kesin)" : "(tahmini)"}
                     </dt>
-                    <dd className="font-semibold text-[var(--color-text)]">{preview.firstPeriodPlannedLessons}</dd>
+                    <dd className="font-semibold text-[var(--color-text)]">
+                      {preview.firstPeriodPlannedLessons}
+                      {preview.firstPeriodPlannedLessons > preview.referenceCount ? (
+                        <span className="ml-1 text-xs font-normal text-amber-700">
+                          (ücret en fazla {preview.referenceCount} ders üzerinden)
+                        </span>
+                      ) : null}
+                    </dd>
                   </div>
                   <div>
                     <dt className="text-xs text-[var(--color-text-muted)]">Sistem önerilen ilk tahsilat</dt>

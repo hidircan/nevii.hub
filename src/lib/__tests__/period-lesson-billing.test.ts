@@ -488,7 +488,7 @@ describe("derivePerLessonAmount — ACİL DÜZELTME (2026-09-02): yöneticinin g
     expect(Number.isFinite(derivePerLessonAmount(0, 1))).toBe(true);
   });
 
-  it("4) gerçek takvimde referanstan FAZLA ders varsa dönem tutarı da fazla olur (10 ders × 500 = 5.000)", () => {
+  it("4) gerçek takvimde referanstan FAZLA ders olsa da ücret en fazla referans kadar ders üzerinden (10 ders görünür, 8 ders = 4.000 TL) — sahip kararı 2026-09-17", () => {
     const derived = derivePerLessonAmount(4000, 2);
     const lessons = [1, 3, 5, 8, 10, 15, 17, 20, 24, 27].map((d, i) =>
       lesson(`d${i}`, `2026-09-${String(d).padStart(2, "0")}`)
@@ -503,7 +503,7 @@ describe("derivePerLessonAmount — ACİL DÜZELTME (2026-09-02): yöneticinin g
       makeupRequests: [],
     });
     expect(lines[0].billableLessonCount).toBe(10);
-    expect(lines[0].autoCalculatedAmount).toBe(5000);
+    expect(lines[0].autoCalculatedAmount).toBe(4000);
     // Ders başı tutar artık yalnız GÖSTERİM alanıdır; motor bunu aylık
     // ücretten kendisi türetir, çağırandan almaz.
     expect(lines[0].perLessonNetFee).toBe(derived);

@@ -108,7 +108,9 @@ export function prefillFromContract(contract: ContractLike, base: ContractPrefil
     programmeName: contract.programmeName || base.programmeName,
     monthlyAmount: contract.monthlyAmount ?? base.monthlyAmount,
     paymentMethod: contract.paymentMethod ?? base.paymentMethod,
-    enrollmentStartDate: contract.enrollmentStartDate ?? base.enrollmentStartDate,
+    // Başlangıç her zaman kaydın DERS başlangıcından (base) gelir: eski sözleşmeler
+    // lessonStartDate alanından önce açıldığı için kayıt tarihini taşıyabilir.
+    enrollmentStartDate: base.enrollmentStartDate ?? contract.enrollmentStartDate,
     durationMonths: clampDurationMonths(contract.installmentCount) ?? base.durationMonths,
   };
 }

@@ -6,8 +6,9 @@
  * gerçek takvime bakmaz), ama bu YALNIZ GÖSTERİM içindir. Dönem tahsilatı
  * (2026-09-09 düzeltmesi, bkz. `computePeriodAmount`) doğrudan AYLIK
  * ÜCRETTEN, tek yuvarlamayla oranlanır: referans kadar ders içeren TAM ay
- * HER ZAMAN tam aylık ücrettir; kısa dönemler orantılı olarak az, yoğun
- * aylar (referanstan fazla ders) orantılı olarak fazla tahsil eder. Bu dosyadaki her fonksiyon SAF'tır:
+ * HER ZAMAN tam aylık ücrettir; kısa dönemler orantılı olarak az tahsil eder;
+ * referanstan fazla ders içeren aylar (ör. 5 Salı) yine TAM aylık ücrettir
+ * (2026-09-17 sahip kararı: ücret en fazla haftalık × 4 ders üzerinden). Bu dosyadaki her fonksiyon SAF'tır:
  * I/O yok, store/DB yazmaz, aynı girişe her zaman aynı çıkışı verir. Kayıt
  * önizlemesi, ödeme simülasyonu, sözleşme ödeme tablosu ve gerçek tahsilat
  * planı — dördü de BU dosyadan `computePeriodBillingLines`'ı çağırmalı
@@ -92,9 +93,13 @@ export function computePeriodAmount(
   if (!Number.isFinite(monthlyFee) || monthlyFee < 0) return 0;
   if (billableLessonCount <= 0) return 0;
   const referenceCount = referenceMonthlyLessonCount(weeklyLessonCount);
+  // Sahip kararı (2026-09-17): bir ayda ücretlendirilen ders sayısı EN FAZLA
+  // referanstır (haftada 1 ders → 4). Takvim 5 ders çıkarsa da ücret 4 ders
+  // üzerinden (= tam aylık ücret) hesaplanır; aylık ücret hiç aşılmaz.
+  const chargedLessonCount = Math.min(billableLessonCount, referenceCount);
   // Sahip kararı (2026-09-16): küsurat AŞAĞI yuvarlanır — 4.950 × 3/4 = 3.712,5 → 3.712
   // (Math.round yukarı yuvarlayıp 3.713 yazıyordu). `-Math.round(-x)` yarımı aşağı alır.
-  return -Math.round(-(monthlyFee * billableLessonCount) / referenceCount);
+  return -Math.round(-(monthlyFee * chargedLessonCount) / referenceCount);
 }
 
 export type BillableLessonType = "regular" | "makeup" | "trial" | "group";
