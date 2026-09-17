@@ -22,6 +22,7 @@ export function BrandMark({ size = "md", wordmark = true, wordmarkSize }: Props)
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         source={require("../../../assets/icon.png")}
         style={{ width: logoSize, height: logoSize, borderRadius: logoSize * 0.24 }}
+        alt="NeviiHub logosu"
         accessibilityLabel="NeviiHub logosu"
         resizeMode="contain"
       />

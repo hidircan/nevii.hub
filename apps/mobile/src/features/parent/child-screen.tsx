@@ -8,7 +8,8 @@ import {
   Card,
   EmptyState,
   ErrorState,
-  Icon,
+  ListGroup,
+  ListRow,
   LoadingSkeleton,
   Screen,
   SectionHeader,
@@ -119,20 +120,17 @@ function ChildContextBody({
       </Card>
 
       <SectionHeader title="Hızlı erişim" />
-      <View style={{ gap: 10 }}>
+      <ListGroup>
         {PARENT_QUICK_LINKS.map((link) => (
-          <Card key={link.key} onPress={() => router.push(`${basePath}/${link.href}`)}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-              <Icon name={link.icon} size={20} color={t.colors.primary} />
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={[t.typography.bodyStrong, { color: t.colors.text }]}>{link.label}</Text>
-                <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>{link.hint}</Text>
-              </View>
-              <Icon name="chevron-forward" size={16} color={t.colors.textFaint} />
-            </View>
-          </Card>
+          <ListRow
+            key={link.key}
+            icon={link.icon}
+            title={link.label}
+            subtitle={link.hint}
+            onPress={() => router.push(`${basePath}/${link.href}`)}
+          />
         ))}
-      </View>
+      </ListGroup>
 
       <Pressable
         accessibilityRole="button"

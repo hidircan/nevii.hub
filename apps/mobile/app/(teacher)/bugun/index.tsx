@@ -104,7 +104,7 @@ export default function TeacherBugun() {
 
       <Card style={{ marginBottom: 8 }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-          <Icon name="musical-notes" size={20} color={t.colors.primary} />
+          <Icon name="calendar-outline" size={20} color={t.colors.primary} />
           <Text style={[t.typography.cardTitle, { color: t.colors.text }]}>{todayLessons.length} ders bugün</Text>
         </View>
       </Card>

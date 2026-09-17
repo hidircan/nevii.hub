@@ -9,6 +9,8 @@ import {
   ErrorState,
   Icon,
   LessonCard,
+  ListGroup,
+  ListRow,
   LoadingSkeleton,
   NotificationCard,
   ProgressBar,
@@ -17,7 +19,7 @@ import {
 } from "../../components/ui";
 import { useApiGet } from "../../hooks/use-api";
 import { useNow } from "../../hooks/use-now";
-import { format, formatCurrency, isPast, relativeDayLabel } from "../../lib/date";
+import { format, formatCurrency, isPast, relativeDayLabel, weekdayName } from "../../lib/date";
 import { useTheme } from "../../theme/theme-context";
 import type {
   AssessmentsResponse,
@@ -113,11 +115,21 @@ export function StudentScopeHomeScreen({ basePath }: { basePath: "/(parent)" | "
       {thisWeekLessons.length === 0 ? (
         <EmptyState icon="calendar-outline" title="Bu hafta ders yok" />
       ) : (
-        <View style={{ gap: 10 }}>
-          {thisWeekLessons.slice(0, 3).map((l) => (
-            <LessonCard key={l.id} lesson={l} personName={l.teacherName ?? "Öğretmen"} onPress={() => router.push(`${basePath}/dersler/${l.id}`)} />
-          ))}
-        </View>
+        <ListGroup>
+          {thisWeekLessons.slice(0, 3).map((l) => {
+            const day = weekdayName(new Date(l.startAt));
+            const time = format(new Date(l.startAt), "HH:mm");
+            return (
+              <ListRow
+                key={l.id}
+                icon="calendar-outline"
+                title={l.teacherName ?? "Öğretmen"}
+                subtitle={`${day} ${time}${l.instrument ? ` · ${l.instrument}` : ""}${l.roomName ? ` · ${l.roomName}` : ""}`}
+                onPress={() => router.push(`${basePath}/dersler/${l.id}`)}
+              />
+            );
+          })}
+        </ListGroup>
       )}
 
       <SectionHeader title="Bekleyen ödevler" actionLabel="Tümü" onAction={() => router.push(`${basePath}/odevler`)} />
@@ -126,12 +138,14 @@ export function StudentScopeHomeScreen({ basePath }: { basePath: "/(parent)" | "
       ) : pendingHomework.length === 0 ? (
         <EmptyState icon="checkmark-circle-outline" title="Bekleyen ödev yok" />
       ) : (
-        <Card>
-          <Text style={[t.typography.cardTitle, { color: t.colors.text }]}>{pendingHomework.length} bekleyen ödev</Text>
-          <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 4 }]} numberOfLines={2}>
-            {pendingHomework.map((h) => h.title).join(", ")}
-          </Text>
-        </Card>
+        <ListGroup>
+          <ListRow
+            icon="book-outline"
+            title={`${pendingHomework.length} bekleyen ödev`}
+            subtitle={pendingHomework.map((h) => h.title).join(", ")}
+            onPress={() => router.push(`${basePath}/odevler`)}
+          />
+        </ListGroup>
       )}
 
       <SectionHeader title="Devam durumu" />
@@ -156,16 +170,16 @@ export function StudentScopeHomeScreen({ basePath }: { basePath: "/(parent)" | "
       {openMakeups.length > 0 ? (
         <>
           <SectionHeader title="Telafi hakları" />
-          <View style={{ gap: 8 }}>
+          <ListGroup>
             {openMakeups.slice(0, 3).map((m) => (
-              <Card key={m.id}>
-                <Text style={[t.typography.bodyStrong, { color: t.colors.text }]}>{m.teacherName ?? "Öğretmen"} — {m.instrument}</Text>
-                <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 4 }]}>
-                  {m.status === "confirmed" ? "Telafi dersi planlandı" : "Yönetici tarafından değerlendiriliyor"}
-                </Text>
-              </Card>
+              <ListRow
+                key={m.id}
+                icon="swap-horizontal-outline"
+                title={`${m.teacherName ?? "Öğretmen"}${m.instrument ? ` — ${m.instrument}` : ""}`}
+                subtitle={m.status === "confirmed" ? "Telafi dersi planlandı" : "Yönetici tarafından değerlendiriliyor"}
+              />
             ))}
-          </View>
+          </ListGroup>
         </>
       ) : null}
 

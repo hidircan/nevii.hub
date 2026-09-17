@@ -1,8 +1,6 @@
 import { useRouter } from "expo-router";
-import { Pressable, Text, View } from "react-native";
-import { AppHeader, Card, Icon, Screen, StatusBadge } from "../../../src/components/ui";
+import { AppHeader, ListGroup, ListRow, Screen } from "../../../src/components/ui";
 import { useApiGet } from "../../../src/hooks/use-api";
-import { useTheme } from "../../../src/theme/theme-context";
 import type { AdminDashboardSummary, AnnouncementsResponse, FollowUpCasesResponse, MakeupResponse, TaskKpiSummary } from "../../../src/types/api";
 import type { IconName } from "../../../src/components/ui";
 
@@ -16,7 +14,6 @@ type OpsItem = {
 };
 
 export default function IslemlerIndex() {
-  const t = useTheme();
   const router = useRouter();
   const dashboard = useApiGet<AdminDashboardSummary>("/api/v1/dashboard/summary");
   const taskKpi = useApiGet<TaskKpiSummary>("/api/v1/tasks/kpi");
@@ -112,26 +109,18 @@ export default function IslemlerIndex() {
 
   return (
     <Screen>
-      <AppHeader title="İşlemler" />
-      <View style={{ gap: 10 }}>
+      <AppHeader title="İşlemler" subtitle="Kurum operasyonları" />
+      <ListGroup>
         {items.map((item) => (
-          <Pressable key={item.key} onPress={() => router.push(item.route)}>
-            <Card>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-                <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: t.colors.primarySoft, alignItems: "center", justifyContent: "center" }}>
-                  <Icon name={item.icon} size={19} color={t.colors.primary} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={[t.typography.cardTitle, { color: t.colors.text }]}>{item.label}</Text>
-                  <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>{item.description}</Text>
-                </View>
-                {item.count !== null && item.count !== undefined ? <StatusBadge label={String(item.count)} tone="neutral" /> : null}
-                <Icon name="chevron-forward" size={18} color={t.colors.textFaint} />
-              </View>
-            </Card>
-          </Pressable>
+          <ListRow
+            key={item.key}
+            icon={item.icon}
+            title={item.count != null ? `${item.label} · ${item.count}` : item.label}
+            subtitle={item.description}
+            onPress={() => router.push(item.route)}
+          />
         ))}
-      </View>
+      </ListGroup>
     </Screen>
   );
 }

@@ -1,3 +1,4 @@
+import { Children, Fragment, type ReactNode } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useTheme } from "../../theme/theme-context";
 import { Icon, type IconName } from "./icon";
@@ -52,8 +53,30 @@ export function ListRow({ icon, title, subtitle, meta, onPress }: Props) {
   );
 }
 
+/**
+ * Gruplu liste yüzeyi — art arda kart dizmek yerine tek sakin yüzey +
+ * ince bölücüler. Çocuklar `ListRow` (veya özel satır) olur.
+ */
+export function ListGroup({ children }: { children: ReactNode }) {
+  const t = useTheme();
+  const items = Children.toArray(children).filter(Boolean);
+  return (
+    <View style={[styles.group, { backgroundColor: t.colors.bgRaised, borderColor: t.colors.border }]}>
+      {items.map((child, i) => (
+        <Fragment key={i}>
+          {i > 0 ? <View style={[styles.groupDivider, { backgroundColor: t.colors.divider }]} /> : null}
+          <View style={styles.groupItem}>{child}</View>
+        </Fragment>
+      ))}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   row: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 56, paddingVertical: 10 },
   iconBox: { width: 38, height: 38, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   texts: { flex: 1, minWidth: 0 },
+  group: { borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 14 },
+  groupDivider: { height: StyleSheet.hairlineWidth, marginLeft: 50 },
+  groupItem: { minHeight: 56, justifyContent: "center" },
 });
