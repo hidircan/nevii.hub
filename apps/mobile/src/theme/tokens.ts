@@ -24,6 +24,18 @@ export const radius = {
   pill: 999,
 } as const;
 
+/**
+ * Font ailesi token'ları — tek kaynak. `display` yalnız marka ve anlamlı
+ * ekran başlıklarında (Gloock 400, tek ağırlık); gövde/UI her zaman sistem
+ * sans'ı (iOS'ta San Francisco, Dynamic Type ile ölçeklenir). Gloock
+ * yüklenene kadar sistem serif'e düşer — bloklama yok (bkz. theme/fonts.ts).
+ */
+export const fonts = {
+  display: "Gloock_400Regular",
+  displayFallback: "Georgia",
+  sans: "System",
+} as const;
+
 export type ThemeColors = {
   primary: string;
   primaryStrong: string;
@@ -103,6 +115,8 @@ const darkColors: ThemeColors = {
 };
 
 export const typography = {
+  /** Marka + anlamlı ekran başlıkları — Gloock. Ağırlık YOK (tek 400 kesit); kalınlaştırma yapılmaz. */
+  display: { fontFamily: fonts.display, fontSize: 26, lineHeight: 32, fontWeight: "400" as const },
   screenTitle: { fontSize: 24, lineHeight: 30, fontWeight: "700" as const },
   sectionTitle: { fontSize: 17, lineHeight: 22, fontWeight: "700" as const },
   cardTitle: { fontSize: 15, lineHeight: 20, fontWeight: "600" as const },
@@ -135,8 +149,9 @@ export type Theme = {
   spacing: typeof spacing;
   radius: typeof radius;
   typography: typeof typography;
+  fonts: typeof fonts;
   shadow: typeof shadow;
 };
 
-export const lightTheme: Theme = { mode: "light", colors: lightColors, spacing, radius, typography, shadow };
-export const darkTheme: Theme = { mode: "dark", colors: darkColors, spacing, radius, typography, shadow };
+export const lightTheme: Theme = { mode: "light", colors: lightColors, spacing, radius, typography, fonts, shadow };
+export const darkTheme: Theme = { mode: "dark", colors: darkColors, spacing, radius, typography, fonts, shadow };

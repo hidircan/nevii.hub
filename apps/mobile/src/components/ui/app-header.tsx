@@ -32,8 +32,11 @@ export function AppHeader({ title, subtitle, showBack, showNotifications = true,
             <Icon name="chevron-back" size={20} />
           </Pressable>
         ) : null}
-        <View>
-          <Text style={[t.typography.screenTitle, { color: t.colors.text }]} numberOfLines={1}>
+        <View style={{ flexShrink: 1 }}>
+          <Text
+            numberOfLines={1}
+            style={[t.typography.display, { color: t.colors.text, fontSize: 22, lineHeight: 28 }]}
+          >
             {title}
           </Text>
           {subtitle ? (

@@ -64,4 +64,17 @@ describe("tek tema sözleşmesi — lightTheme/darkTheme", () => {
     expect((mod as Record<string, unknown>).colors).toBeUndefined();
     expect((mod as Record<string, unknown>).colorsDark).toBeUndefined();
   });
+
+  it("font sözleşmesi — display (Gloock) yalnız başlıklarda, gövde sistem sans'ı", async () => {
+    const mod = await import("../tokens");
+    expect(typeof mod.fonts.display).toBe("string");
+    expect(mod.fonts.display.length).toBeGreaterThan(0);
+    expect(mod.lightTheme.typography.display.fontFamily).toBe(mod.fonts.display);
+    expect(mod.darkTheme.typography.display.fontFamily).toBe(mod.fonts.display);
+    // Gloock tek kesit (400) — kalınlaştırma yok.
+    expect(mod.lightTheme.typography.display.fontWeight).toBe("400");
+    // Gövde/card/caption sistem sans'ında kalır — her metin display olmaz.
+    expect((mod.lightTheme.typography.body as { fontFamily?: string }).fontFamily).toBeUndefined();
+    expect((mod.lightTheme.typography.cardTitle as { fontFamily?: string }).fontFamily).toBeUndefined();
+  });
 });
