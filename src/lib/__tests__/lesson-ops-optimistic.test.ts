@@ -143,7 +143,7 @@ describe("LessonOpsActions — pending bildirimi ve geri alma", () => {
   });
 
   it("hata ve bağlantı hatasında önceki statü geri yüklenir", () => {
-    expect((CODE.match(/setLocal\(previous\)/g) ?? []).length).toBeGreaterThanOrEqual(3);
+    expect((CODE.match(/setLocalAndEmit\(previous\)/g) ?? []).length).toBeGreaterThanOrEqual(3);
   });
 
   it("erişilebilir 'kaydediliyor' geri bildirimi var", () => {

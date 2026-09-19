@@ -4,6 +4,7 @@ import type { AppData, BranchId, Instrument, Lesson, LessonSeries, LessonSeriesS
 import { validateLessonSlot, type SlotValidationCode } from "./makeup-engine";
 import { dayName, uid } from "./utils";
 import { addDaysYmd, ymdToUtcNoon, zonedWallTimeToUtc } from "./timezone";
+import { canCancelLesson } from "./lesson-cancel-rules";
 
 function parseHm(hm: string) {
   const [h, m] = hm.split(":").map(Number);
@@ -274,7 +275,8 @@ export function cancelSeriesFromLesson(
   const lessons = data.lessons.map((l) => {
     if (l.seriesId !== series.id) return l;
     if (parseISO(l.startAt) < cutoff) return l;
-    if (l.status !== "scheduled") return l;
+    // Tek iptal kuralı — İşlendi/Telafi işaretli dersler seride de korunur.
+    if (!canCancelLesson(l)) return l;
     cancelledLessonIds.push(l.id);
     return { ...l, status: "cancelled" as const };
   });
@@ -306,7 +308,8 @@ export function cancelEntireSeries(
   const lessons = data.lessons.map((l) => {
     if (l.seriesId !== seriesId) return l;
     if (parseISO(l.startAt) <= now) return l;
-    if (l.status !== "scheduled") return l;
+    // Tek iptal kuralı — İşlendi/Telafi işaretli dersler seride de korunur.
+    if (!canCancelLesson(l)) return l;
     cancelledLessonIds.push(l.id);
     return { ...l, status: "cancelled" as const };
   });

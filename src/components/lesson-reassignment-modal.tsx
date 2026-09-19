@@ -92,13 +92,13 @@ export function LessonReassignmentModal({
   if (!open) {
     return (
       <Button variant="secondary" onClick={() => setOpen(true)}>
-        Öğretmen/Şube değiştir
+        Öğretmen / şube değiştir
       </Button>
     );
   }
 
   return (
-    <div className="mt-2 space-y-2 rounded-lg border border-[var(--color-border)] p-3">
+    <div className="w-full basis-full space-y-2 rounded-lg border border-[var(--color-border)] p-3">
       {isSeriesMember ? (
         <div>
           <Label>Kapsam</Label>

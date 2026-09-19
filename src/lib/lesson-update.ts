@@ -2,6 +2,7 @@ import { differenceInMinutes, parseISO } from "date-fns";
 import type { AppData, Lesson } from "./types";
 import { validateLessonSlot, type SlotValidationCode } from "./makeup-engine";
 import { isWeeklyClosedDayForTerm } from "./attendance-calendar";
+import { lessonCancelBlockReason } from "./lesson-cancel-rules";
 
 export type LessonUpdateErrorCode =
   | SlotValidationCode
@@ -114,9 +115,11 @@ export function applyLessonScheduleUpdate(
  * var — bu yalnızca manuel/yönetici müdahalesiyle ele alınır).
  */
 export function applyLessonCancel(data: AppData, lessonId: string): LessonUpdateResult {
-  const found = findEditableLesson(data, lessonId);
-  if (!found.ok) return found;
-  const { lesson } = found;
+  const lesson = data.lessons.find((l) => l.id === lessonId);
+  if (!lesson) return { ok: false, code: "LESSON_NOT_FOUND", message: "Ders bulunamadı." };
+  // Tek kural — Ders Programı butonu da aynı fonksiyonla gösterilir/gizlenir.
+  const blocked = lessonCancelBlockReason(lesson);
+  if (blocked) return { ok: false, code: "LESSON_NOT_EDITABLE", message: blocked };
 
   const updatedLesson: Lesson = { ...lesson, status: "cancelled" };
   const lessons = data.lessons.map((l) => (l.id === lesson.id ? updatedLesson : l));

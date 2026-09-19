@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { LessonStatusBadge } from "./lesson-status-badge";
@@ -59,22 +59,20 @@ export function LessonOpsActions({
   const [reasonDraft, setReasonDraft] = useState("");
   const inFlight = useRef(false);
 
-  const effective: Flag | null = local.processed
-    ? "processed"
-    : local.attended
-      ? "attended"
-      : local.makeup
-        ? "makeup"
-        : local.absent
-          ? "absent"
-          : local.excused
-            ? "excused"
-            : null;
+  const effective = effectiveOf(local);
 
-  useEffect(() => {
-    onStatusChange?.(lessonId, effective);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [effective, lessonId]);
+  /**
+   * 2026-09-19 KÖK NEDEN (Ders Programı "geçmiş derse tıklayınca yeşile dönüyor"):
+   * statü eskiden bir `useEffect` ile MOUNT'ta ve `lessonId` her değiştiğinde
+   * yayılıyordu. Detay paneli yeniden kullanılınca `local` bir ÖNCEKİ dersten
+   * kalıyor ve o dersin statüsü yeni seçilen dersin kartına "iyimser" olarak
+   * yazılıyordu — yani SEÇİM, statü rengini değiştiriyordu. Artık statü YALNIZ
+   * gerçek bir kullanıcı aksiyonunda (iyimser set / hata sonrası geri alma) yayılır.
+   */
+  function setLocalAndEmit(next: typeof local) {
+    setLocal(next);
+    onStatusChange?.(lessonId, effectiveOf(next));
+  }
 
   /**
    * ÖNCELİK 4 (devam) — Geldi/İşlendi/Telafi TEK, birbirini dışlayan statü.
@@ -97,7 +95,7 @@ export function LessonOpsActions({
 
     // İyimser güncelleme — tek statü, diğerleri anında temizlenir.
     const previous = { ...local };
-    setLocal({
+    setLocalAndEmit({
       attended: flag === "attended",
       processed: flag === "processed",
       makeup: flag === "makeup",
@@ -117,13 +115,13 @@ export function LessonOpsActions({
         error?: { message: string };
       };
       if (!json.ok) {
-        setLocal(previous);
+        setLocalAndEmit(previous);
         setError(json.error?.message || "İşlem başarısız. Tekrar deneyin.");
         return;
       }
       if (json.data?.needsConfirmation) {
         // Yarış durumu — sunucuda arada başka bir statü set edilmiş; tekrar sor.
-        setLocal(previous);
+        setLocalAndEmit(previous);
         setPendingSwitch({ from: (json.data.currentStatus as Flag) ?? effective ?? flag, to: flag, reason });
         return;
       }
@@ -135,7 +133,7 @@ export function LessonOpsActions({
       // okuduğu için refresh onlarda KORUNUR.
       if (!onSettled) router.refresh();
     } catch {
-      setLocal(previous);
+      setLocalAndEmit(previous);
       setError("Bağlantı hatası. Tekrar deneyin.");
     } finally {
       inFlight.current = false;
@@ -299,6 +297,18 @@ export function LessonOpsActions({
       ) : null}
     </div>
   );
+}
+
+type LocalFlags = { attended: boolean; processed: boolean; makeup: boolean; absent: boolean; excused: boolean };
+
+/** Sunucudaki `effectiveLessonOpsStatus` ile AYNI öncelik: Telafi > İşlendi > Geldi > Gelmedi > Mazeretli. */
+function effectiveOf(local: LocalFlags): Flag | null {
+  if (local.makeup) return "makeup";
+  if (local.processed) return "processed";
+  if (local.attended) return "attended";
+  if (local.absent) return "absent";
+  if (local.excused) return "excused";
+  return null;
 }
 
 export function LessonOpsBadges({

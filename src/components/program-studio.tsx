@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { ExternalLink, Loader2, Sparkles, TriangleAlert, X } from "lucide-react";
 import { addMinutes, differenceInMinutes, format, isSameDay, parseISO, startOfDay } from "date-fns";
 import { tr } from "date-fns/locale";
@@ -32,13 +31,14 @@ import {
 } from "@/lib/timezone";
 import { Badge, Button, Card, Input, Label, Select } from "@/components/ui";
 import { LessonOpsActions, LessonOpsBadges } from "@/components/lesson-ops-actions";
+import { LessonStatusBadge } from "@/components/lesson-status-badge";
+import { lessonCancelBlockReason } from "@/lib/lesson-cancel-rules";
 import { LessonReassignmentModal } from "@/components/lesson-reassignment-modal";
 import { INSTRUMENTS, type Instrument, type Lesson, type Room, type Student, type Teacher } from "@/lib/types";
 import { dayName } from "@/lib/utils";
 import { DEFAULT_LESSON_DURATION_MINUTES, LESSON_DURATION_OPTIONS } from "@/lib/lesson-duration";
 import { CALENDAR_START_HOUR, turkeyFixedPublicHolidays, toYmd } from "@/lib/closed-days";
 import {
-  resolveLessonAcademicPeriod,
   lessonMatchesAcademicPeriod,
   lessonCardFillStyle,
   lessonCardMutedTextColor,
@@ -77,6 +77,14 @@ type ProgramStudioProps = {
    */
   catalogInstruments?: string[];
 };
+
+/**
+ * 2026-09-19 — SEÇİM vurgusu, statü dolgusundan (ATTENDANCE_CALENDAR_COLORS) tamamen
+ * ayrı bir kanal: kalın metin-renkli çerçeve + gölge + öne alma. Arka plan rengine
+ * DOKUNMAZ; böylece "seçili" hiçbir zaman "Geldi/İşlendi" gibi okunmaz.
+ */
+export const LESSON_SELECTED_CLASS =
+  "!z-[15] outline outline-[3px] outline-offset-2 outline-[var(--color-text)] shadow-[var(--shadow-lg)]";
 
 const SLOT_MINUTES = 30;
 const SLOT_HEIGHT_PX = 28;
@@ -154,19 +162,6 @@ export function computeGridWindow(
 /** Sadece normal (telafi olmayan), planlanmış ve gelecekteki dersler taşınabilir/resize edilebilir. */
 function canMoveOrResize(lesson: Lesson, now: Date) {
   return lesson.type === "regular" && lesson.status === "scheduled" && parseISO(lesson.startAt) > now;
-}
-
-/** İptal, geçmiş dersler için de mümkündür — yalnızca tür ve durum şartı aranır. */
-function canCancel(lesson: Lesson) {
-  return lesson.type === "regular" && lesson.status === "scheduled";
-}
-
-function ineligibilityReason(lesson: Lesson, now: Date): string | null {
-  if (lesson.type !== "regular") return "Telafi dersleri bu ekrandan taşınamaz, süresi değiştirilemez veya iptal edilemez.";
-  if (lesson.status !== "scheduled") return "Bu ders zaten tamamlanmış veya iptal edilmiş.";
-  // Geçmiş ders sürükle-bırakla taşınmaz ama "Dersi düzenle / sil" ile revize edilebilir (yoklamasız ise).
-  if (!(parseISO(lesson.startAt) > now)) return "Geçmiş ders takvimde sürüklenemez; aşağıdaki \"Dersi düzenle / sil\" bölümünü kullanın.";
-  return null;
 }
 
 /** Öğrenci varsa: mevcut öğretmeni ve aynı şubeyi öne alarak sıralar. */
@@ -695,7 +690,14 @@ export function ProgramStudio({
   const [opsOverride, setOpsOverride] = useState<Record<string, LessonOpsFlagValue>>({});
   const [opsPending, setOpsPending] = useState<Record<string, boolean>>({});
 
-  const [detailLesson, setDetailLesson] = useState<Lesson | null>(null);
+  /**
+   * 2026-09-19 — seçili ders yalnız ID olarak tutulur; ders nesnesi HER render'da
+   * güncel sunucu verisinden (+ iyimser statü katmanından) türetilir. Eskiden
+   * tıklama anındaki kopya saklanıyordu: yenileme sonrası panel bayat veri
+   * gösteriyordu. Seçim, statü RENGİNE hiçbir koşulda dokunmaz (bkz. kart
+   * `selected` vurgusu — dolgudan bağımsız çerçeve).
+   */
+  const [detailLessonId, setDetailLessonId] = useState<string | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [detailSubmitting, setDetailSubmitting] = useState(false);
 
@@ -788,7 +790,7 @@ export function ProgramStudio({
       return;
     }
     resetPanelState();
-    setDetailLesson(null);
+    setDetailLessonId(null);
     setActivePanel("create");
     if (prefillStartAt) setStartAt(prefillStartAt);
     if (filterBranchId) setLessonBranchId(filterBranchId);
@@ -845,7 +847,7 @@ export function ProgramStudio({
     setSeriesError(null);
     setSeriesPreview(null);
     clearNotices();
-    setDetailLesson(null);
+    setDetailLessonId(null);
     setActivePanel("series");
     if (filterBranchId) setSeriesBranchId(filterBranchId);
   }
@@ -1047,6 +1049,9 @@ export function ProgramStudio({
   const prunedOverrides = pruneSettledOverrides(opsOverride, weekLessons);
   if (prunedOverrides !== opsOverride) setOpsOverride(prunedOverrides);
 
+  const detailLessonRaw = detailLessonId ? (effectiveWeekLessons.find((l) => l.id === detailLessonId) ?? null) : null;
+  const detailLesson = detailLessonRaw ? applyOpsOverride(detailLessonRaw, prunedOverrides[detailLessonRaw.id]) : null;
+
   function onOpsStatusChange(lessonId: string, flag: LessonOpsFlagValue) {
     setOpsOverride((prev) => ({ ...prev, [lessonId]: flag }));
   }
@@ -1065,12 +1070,12 @@ export function ProgramStudio({
 
   function openDetail(lesson: Lesson) {
     setActivePanel("none");
-    setDetailLesson(lesson);
+    setDetailLessonId(lesson.id);
     setDetailError(null);
   }
 
   function closeDetail() {
-    setDetailLesson(null);
+    setDetailLessonId(null);
     setDetailError(null);
   }
 
@@ -1774,9 +1779,18 @@ export function ProgramStudio({
         </FormModal>
       ) : null}
 
-      {detailLesson ? (
+
+      {/* Takvim + seçili ders paneli: geniş ekranda yan yana (tıklanan kart görünür kalır). */}
+      <div className="lg:flex lg:items-start lg:gap-4">
+        {detailLesson ? (
+          <aside
+            aria-label="Seçili ders"
+            className="mb-4 lg:order-2 lg:mb-0 lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:w-[400px] lg:shrink-0 lg:overflow-y-auto"
+          >
         <DetailPanel
+          key={detailLesson.id}
           lesson={detailLesson}
+          canCreate={canCreate}
           student={students.find((s) => s.id === detailLesson.studentId)}
           teacher={teachers.find((t) => t.id === detailLesson.teacherId)}
           room={rooms.find((r) => r.id === detailLesson.roomId)}
@@ -1799,8 +1813,9 @@ export function ProgramStudio({
           allRooms={rooms}
           branchNames={branchNames}
         />
-      ) : null}
-
+          </aside>
+        ) : null}
+      <div className="min-w-0 lg:order-1 lg:flex-1">
       {calendarView === "week" ? (
       <div className="overflow-x-auto rounded-[var(--radius-lg)] border border-[var(--color-border-strong)] bg-[var(--color-surface)]">
         <div className="flex sticky top-0 z-10 bg-[var(--color-surface)]">
@@ -1912,10 +1927,13 @@ export function ProgramStudio({
                   const tier = lessonCardTier(height);
                   const room = rooms.find((r) => r.id === lesson.roomId);
                   const statusVisual = lessonCardStatusVisual(applyOpsOverride(lesson, prunedOverrides[lesson.id]), now);
+                  const selected = detailLessonId === lesson.id;
 
                   return (
                     <div
                       key={lesson.id}
+                      aria-current={selected ? "true" : undefined}
+                      data-selected={selected ? "true" : undefined}
                       draggable={editable}
                       onDragStart={() => setDraggingLessonId(lesson.id)}
                       onDragEnd={() => {
@@ -1939,8 +1957,8 @@ export function ProgramStudio({
                       className={`group absolute z-[1] flex flex-col rounded-md border border-[var(--color-border-strong)] p-1.5 text-[10px] shadow-[var(--shadow-sm)] transition-[filter] hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-focus-ring)] hover:z-[20] ${
                         opsPending[lesson.id] ? "animate-pulse ring-2 ring-[var(--color-focus-ring)] ring-offset-1" : ""
                       } ${
-                        editable ? "cursor-grab active:cursor-grabbing" : "cursor-pointer opacity-90"
-                      } ${draggingLessonId === lesson.id ? "opacity-60 ring-2 ring-[var(--color-primary)]" : ""}`}
+                        editable ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"
+                      } ${selected ? LESSON_SELECTED_CLASS : ""} ${draggingLessonId === lesson.id ? "opacity-60 ring-2 ring-[var(--color-primary)]" : ""}`}
                       style={{
                         top,
                         height,
@@ -2029,13 +2047,16 @@ export function ProgramStudio({
                       const teacher = teachers.find((t) => t.id === lesson.teacherId);
                       const room = rooms.find((r) => r.id === lesson.roomId);
                       const statusVisual = lessonCardStatusVisual(applyOpsOverride(lesson, prunedOverrides[lesson.id]), now);
+                      const selected = detailLessonId === lesson.id;
                       return (
                         <button
                           key={lesson.id}
                           type="button"
+                          aria-pressed={selected}
+                          data-selected={selected ? "true" : undefined}
                           onClick={() => openDetail(lesson)}
                           aria-label={lessonAccessibleLabel(lesson, student, teacher, room, branchNames[lesson.branchId])}
-                          className="block w-full rounded-[var(--radius-md)] border border-[var(--color-border-strong)] p-2.5 text-left text-xs transition-[filter] hover:brightness-110 hover:border-[var(--color-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-focus-ring)]"
+                          className={`relative block w-full rounded-[var(--radius-md)] border border-[var(--color-border-strong)] p-2.5 text-left text-xs transition-[filter] hover:brightness-110 hover:border-[var(--color-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-focus-ring)] ${selected ? LESSON_SELECTED_CLASS : ""}`}
                           style={{
                             borderLeft: `3px solid ${teacher?.color ?? "#A56A00"}`,
                             // Gün görünümünde de AYNI tam kart dolgusu (haftalık ızgarayla tek kaynak).
@@ -2050,18 +2071,6 @@ export function ProgramStudio({
                             tier="full"
                             statusVisual={statusVisual}
                           />
-                          <div className="mt-1.5 flex flex-wrap items-center gap-1">
-                            <Badge status={lesson.type === "makeup" ? "makeup" : lesson.status} />
-                          </div>
-                          {lesson.studentAttended || lesson.lessonProcessed || lesson.opsMakeupFlag ? (
-                            <LessonOpsBadges
-                              studentAttended={lesson.studentAttended}
-                              lessonProcessed={lesson.lessonProcessed}
-                              opsMakeupFlag={lesson.opsMakeupFlag}
-                              studentAbsent={lesson.studentAbsent}
-                              studentExcused={lesson.studentExcused}
-                            />
-                          ) : null}
                         </button>
                       );
                     })}
@@ -2073,12 +2082,15 @@ export function ProgramStudio({
         </div>
       </div>
       ) : null}
+      </div>
+      </div>
     </div>
   );
 }
 
 function DetailPanel({
   lesson,
+  canCreate,
   student,
   teacher,
   room,
@@ -2098,6 +2110,8 @@ function DetailPanel({
   onOpsPendingChange,
 }: {
   lesson: Lesson;
+  /** "Tüm kurumlar" görünümünde false — yazma aksiyonları gösterilmez, nedeni yazılır. */
+  canCreate: boolean;
   student?: Student;
   teacher?: Teacher;
   room?: Room;
@@ -2119,115 +2133,111 @@ function DetailPanel({
   onOpsStatusChange: (lessonId: string, flag: LessonOpsFlagValue) => void;
   onOpsPendingChange: (lessonId: string, pending: boolean) => void;
 }) {
-  const canCancelLesson = canCancel(lesson);
-  const reason = ineligibilityReason(lesson, now);
+  // İptal kuralının TEK kaynağı — sunucu (applyLessonCancel) aynı fonksiyonu çağırır.
+  const cancelBlockReason = lessonCancelBlockReason(lesson);
   const isSeriesMember = Boolean(lesson.seriesId);
+  const isPastScheduled = lesson.status === "scheduled" && !(parseISO(lesson.startAt) > now);
+  const timeRange = `${zonedHm(parseISO(lesson.startAt), DEFAULT_APP_TIMEZONE)}–${zonedHm(parseISO(lesson.endAt), DEFAULT_APP_TIMEZONE)}`;
 
   return (
-    <Card className="mb-6 border-slate-300">
-      <div className="mb-3 flex items-center justify-between">
-        <h3 className="font-semibold text-[var(--color-text)] dark:text-slate-50">Ders detayı</h3>
-        <button type="button" onClick={onClose} className="text-[var(--color-text-muted)] hover:text-[var(--color-text-muted)] dark:text-slate-300" aria-label="Kapat">
+    <Card className="border-[var(--color-border-strong)] shadow-[var(--shadow-md)]">
+      <div className="mb-3 flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">Seçili ders</p>
+          <h3 className="truncate text-base font-bold text-[var(--color-text)]" title={student?.name}>
+            {student?.name ?? "Öğrenci bilinmiyor"}
+          </h3>
+          <p className="text-sm font-medium text-[var(--color-text)]">
+            {format(toWallClockDate(lesson.startAt), "d MMMM yyyy, EEEE", { locale: tr })} · {timeRange}
+          </p>
+          <p className="mt-0.5 text-xs text-[var(--color-text-muted)]">
+            {[lesson.instrument, teacher?.name, room?.name, branchName].filter(Boolean).join(" · ")}
+          </p>
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+            <LessonStatusBadge status={resolveLessonFinalStatus(lesson, now)} />
+            {lesson.type === "makeup" ? <Badge status="makeup">Telafi dersi</Badge> : null}
+            {isSeriesMember ? <Badge status="scheduled">Tekrarlayan seri</Badge> : null}
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-md p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-text)]"
+          aria-label="Seçili ders panelini kapat"
+        >
           <X className="h-4 w-4" />
         </button>
       </div>
 
-      <div className="mb-3 text-sm text-[var(--color-text-muted)] dark:text-slate-300">
-        <p className="font-medium text-[var(--color-text)] dark:text-slate-50">
-          {format(toWallClockDate(lesson.startAt), "d MMMM yyyy · HH:mm", { locale: tr })} — {lesson.instrument}
-        </p>
-        <p className="mt-1 text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
-          {student?.name} · {teacher?.name} · {room?.name}
-          {branchName ? ` · ${branchName}` : ""}
-        </p>
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          <Badge status={lesson.type === "makeup" ? "makeup" : lesson.status} />
-          <LessonOpsBadges
+      {/* 2026-09-19 — en sık kullanılan işlem en üstte: "Yoklama durumu". */}
+      <section className="rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-2.5" aria-label="Yoklama durumu">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">Yoklama durumu</p>
+        {canCreate ? (
+          <LessonOpsActions
+            lessonId={lesson.id}
             studentAttended={lesson.studentAttended}
             lessonProcessed={lesson.lessonProcessed}
             opsMakeupFlag={lesson.opsMakeupFlag}
             studentAbsent={lesson.studentAbsent}
             studentExcused={lesson.studentExcused}
+            onStatusChange={onOpsStatusChange}
+            onPendingChange={onOpsPendingChange}
           />
-        </div>
-        <p className="mt-2 text-xs text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
-          {(() => {
-            const period = resolveLessonAcademicPeriod(lesson, student?.termType ?? "guz");
-            const label =
-              period.term === "yaz" ? `${period.academicYearStart} Yaz` : `${period.academicYearStart}–${period.academicYearStart + 1} Güz`;
-            return period.source === "explicit" ? `Akademik dönem: ${label}` : `Akademik dönem (tahmini — legacy kayıt): ${label}`;
-          })()}
-        </p>
-      </div>
+        ) : (
+          <p className="mt-1 text-xs text-[var(--color-text-muted)]">
+            Yoklama girmek için üstteki kurum seçiciden bu dersin kurumunu seçin.
+          </p>
+        )}
+      </section>
 
-      <div className="mb-3 border-t border-[var(--color-border)] pt-3 dark:border-slate-700">
-        <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
-          Hızlı aksiyonlar
-        </p>
-        <LessonOpsActions
-          lessonId={lesson.id}
-          studentAttended={lesson.studentAttended}
-          lessonProcessed={lesson.lessonProcessed}
-          opsMakeupFlag={lesson.opsMakeupFlag}
-          studentAbsent={lesson.studentAbsent}
-          studentExcused={lesson.studentExcused}
-          onStatusChange={onOpsStatusChange}
-          onPendingChange={onOpsPendingChange}
-        />
-        <Link
-          href={`/panel/is-takip/liste?newTaskLessonId=${lesson.id}${student ? `&newTaskStudentId=${student.id}` : ""}${
-            teacher ? `&newTaskTeacherId=${teacher.id}` : ""
-          }&returnTo=${encodeURIComponent("/panel/program")}`}
-          className="mt-2 inline-block text-xs font-medium text-[var(--color-primary)] hover:underline"
-        >
-          Bu ders için görev oluştur →
-        </Link>
-        {student ? (
-          <Link
-            href={`/panel/evraklar?studentId=${student.id}`}
-            className="mt-1 block text-xs font-medium text-[var(--color-primary)] hover:underline"
-          >
-            Bu ders için evrak oluştur →
-          </Link>
-        ) : null}
-      </div>
+      {canCreate ? (
+        <section className="mt-3" aria-label="Ders işlemleri">
+          <div className="flex flex-wrap items-start gap-2">
+            {cancelBlockReason === null ? (
+              <Button variant="danger" onClick={onCancelLesson} disabled={submitting}>
+                {isSeriesMember ? "Sadece bu dersi iptal et" : "Bu dersi iptal et"}
+              </Button>
+            ) : null}
+            <LessonReassignmentModal lesson={lesson} teachers={allTeachers} rooms={allRooms} branchNames={branchNames} />
+          </div>
+          {cancelBlockReason !== null && lesson.status !== "cancelled" ? (
+            <p className="mt-2 rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5 text-xs text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
+              <strong>İptal edilemez:</strong> {cancelBlockReason}
+            </p>
+          ) : null}
+          {isSeriesMember ? (
+            <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-[var(--color-border)] pt-2">
+              <span className="text-xs font-medium text-[var(--color-text-muted)]">Seri:</span>
+              <Button variant="secondary" className="!py-1 text-xs" onClick={onCancelSeriesFromLesson} disabled={submitting}>
+                Bu ders ve sonrasını iptal et
+              </Button>
+              <Button variant="secondary" className="!py-1 text-xs" onClick={onCancelEntireSeries} disabled={submitting}>
+                Tüm seriyi iptal et
+              </Button>
+              <span className="basis-full text-[11px] text-[var(--color-text-muted)]">
+                Seri iptalinde İşlendi/Telafi işaretli ve geçmiş dersler korunur, yalnız planlı dersler iptal olur.
+              </span>
+            </div>
+          ) : null}
+          {isPastScheduled ? (
+            <p className="mt-2 text-[11px] text-[var(--color-text-muted)]">
+              Geçmiş ders takvimde sürüklenemez; tarih/saat için aşağıdaki &quot;Dersi düzenle / sil&quot; bölümünü kullanın.
+            </p>
+          ) : null}
 
-      {isSeriesMember ? (
-        <p className="mb-3 text-xs font-medium text-amber-600">
-          Bu ders tekrarlayan bir serinin parçası. Düzenleme ve silmede kapsamı aşağıdan seçin.
+          <LessonScopeEditor key={lesson.id} lesson={lesson} onDone={onEditDone} />
+        </section>
+      ) : (
+        <p className="mt-3 text-xs text-[var(--color-text-muted)]">
+          İptal, öğretmen/şube değişikliği ve düzenleme için üstteki kurum seçiciden tek bir kurum seçin.
+        </p>
+      )}
+
+      {error ? (
+        <p className="mt-3 text-sm text-rose-600" role="alert">
+          {error}
         </p>
       ) : null}
-
-      {reason ? <p className="mb-3 text-xs text-amber-600">{reason}</p> : null}
-
-      <div className="flex flex-wrap gap-2">
-        {canCancelLesson && !isSeriesMember ? (
-          <Button variant="danger" onClick={onCancelLesson} disabled={submitting}>
-            Bu dersi iptal et
-          </Button>
-        ) : null}
-        {canCancelLesson && isSeriesMember ? (
-          <>
-            <Button variant="danger" onClick={onCancelLesson} disabled={submitting}>
-              Sadece bu dersi iptal et
-            </Button>
-            <Button variant="danger" onClick={onCancelSeriesFromLesson} disabled={submitting}>
-              Bu ders ve sonrasını iptal et
-            </Button>
-            <Button variant="danger" onClick={onCancelEntireSeries} disabled={submitting}>
-              Tüm seriyi iptal et
-            </Button>
-          </>
-        ) : null}
-      </div>
-
-      <div className="mt-2">
-        <LessonReassignmentModal lesson={lesson} teachers={allTeachers} rooms={allRooms} branchNames={branchNames} />
-      </div>
-
-      <LessonScopeEditor key={lesson.id} lesson={lesson} onDone={onEditDone} />
-
-      {error ? <p className="mt-3 text-sm text-rose-600">{error}</p> : null}
     </Card>
   );
 }
