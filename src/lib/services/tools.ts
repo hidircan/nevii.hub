@@ -549,6 +549,7 @@ import {
   computeContractEndDate,
   foldBillingLinesIntoContractMonths,
   applyInstallmentAmountOverrides,
+  applyInstallmentDueDateOverrides,
   isFormalContractDuration,
   TrialContractHasNoDocumentError,
   ContractTemplateIncompleteError,
@@ -5536,7 +5537,8 @@ export async function previewLessonSeriesTool(
   return ok({
     previewText,
     occurrenceCount: occurrences.length,
-    conflictCount: checks.filter((c) => !c.ok).length,
+    // Resmî tatil oluşumları otomatik atlanır; kullanıcının çözmesi gereken çakışma sayılmaz.
+    conflictCount: checks.filter((c) => !c.ok && c.code !== "OFFICIAL_HOLIDAY").length,
     checks,
   });
 }
@@ -9781,6 +9783,16 @@ const contractInstallmentPlanSchema = z.object({
     .array(z.object({ sequence: z.number().int().min(1).max(24), amount: z.number().int().min(0) }))
     .max(24)
     .optional(),
+  /** 2026-09-19 — önizleme tablosunda elle değiştirilen vade tarihleri (sıra no → yyyy-MM-dd). */
+  installmentDueDateOverrides: z
+    .array(
+      z.object({
+        sequence: z.number().int().min(1).max(24),
+        dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Vade tarihini takvimden seçin."),
+      })
+    )
+    .max(24)
+    .optional(),
 });
 
 /** Oluşturmadan ÖNCE taksit planı + toplam tutarı önizler — hiçbir kalıcı kayıt yazmaz. */
@@ -9886,6 +9898,13 @@ export async function previewContractInstallmentPlanTool(
       // Elle düzenlenen tutarlar — önizlemedeki toplam da AYNI satırlardan yeniden hesaplanır.
       installments = applyInstallmentAmountOverrides(installments, v.data.installmentAmountOverrides);
       totalContractAmount = installments.reduce((s, r) => s + r.amount, 0) + (v.data.depositAmount ?? 0);
+    }
+    if (v.data.installmentDueDateOverrides?.length) {
+      try {
+        installments = applyInstallmentDueDateOverrides(installments, v.data.installmentDueDateOverrides);
+      } catch (e) {
+        return fail("VALIDATION_ERROR", e instanceof Error ? e.message : "Vade tarihi geçersiz.");
+      }
     }
     const rule = resolveContractPaymentDueRule(v.data.paymentMethod, paymentPolicy);
     const firstDueDay = new Date(v.data.firstDueDate).getUTCDate();
@@ -10113,6 +10132,16 @@ const createStudentContractSchema = z.object({
     .array(z.object({ sequence: z.number().int().min(1).max(24), amount: z.number().int().min(0) }))
     .max(24)
     .optional(),
+  /** 2026-09-19 — önizleme tablosunda elle değiştirilen vade tarihleri (sıra no → yyyy-MM-dd). */
+  installmentDueDateOverrides: z
+    .array(
+      z.object({
+        sequence: z.number().int().min(1).max(24),
+        dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Vade tarihini takvimden seçin."),
+      })
+    )
+    .max(24)
+    .optional(),
 });
 
 /** İlk kayıt / yenileme / değişiklik — hepsi TEK giriş noktası, `contractType` iş akışını belirler. */
@@ -10251,6 +10280,7 @@ export async function createStudentContractTool(
       perLessonBillingLines,
       mergeFirstCollectionWithNextMonth: mergeFirstCollection,
       installmentAmountOverrides: v.data.installmentAmountOverrides,
+      installmentDueDateOverrides: v.data.installmentDueDateOverrides,
       lastPeriodPricing: lastPeriodResolved.pricing,
     });
 

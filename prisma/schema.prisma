@@ -433,6 +433,9 @@ model Student {
   /// kullanılır (geriye dönük uyum). İlk tahsilat bu tarihten itibaren
   /// gerçekleşen dersleri sayar.
   lessonStartDate          DateTime?
+  /// 2026-09-19 — kayıtta seçilen sözleşme süresi (ay, 1-12). Eskiden yalnız URL
+  /// `?sure=` ile taşınıyordu; parametre düşünce Sözleşme Merkezi 3 aya dönüyordu.
+  intendedDurationMonths   Int?
   enrollmentEndDate        DateTime?
   level                    String?
   targetExam               String?

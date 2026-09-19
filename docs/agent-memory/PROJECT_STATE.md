@@ -476,6 +476,28 @@ Yağız'ın kurumlar arası erişimi olmasını istiyor. Tek kurum olduğu için
 gerçek bir cross-tenant sızıntı gözlenmedi, ama rol ataması brief ile
 çelişiyor — RBAC turunda ele alınmalı.
 
+## Current focus (last updated: 2026-09-19 — Ders Programı + Sözleşme Merkezi UX turu)
+
+Çalışma branch'i `fix/schedule-contract-ux-round` → `origin/test` (test.neviihub.com).
+Bu turda (hepsi test'e alındı):
+
+- Öğretmen dersi başlatamaz/bitiremez (startLessonTool/endLessonTool TEACHER → FORBIDDEN);
+  web + mobil butonlar kalktı. Hakediş `lessonProcessed` (yöneticinin "İşlendi"si) ile yürür.
+- Ders Programı: seçim ≠ statü (kök neden LessonOpsActions'ın mount'ta statü yayması);
+  seçili ders çerçeveyle vurgulanır; detay paneli sağda yapışkan; iptal kuralı tek kaynak
+  `src/lib/lesson-cancel-rules.ts`.
+- Resmî tatil: `turkish-holidays.ts` Diyanet ile doğrulandı — 2027 ve 2028 Ramazan 1 gün
+  geçti (düzeltildi), 2029 eklendi, 28 Ekim arefesi eklendi. `validateLessonSlot` tatile ders
+  planlatmaz; seride tatil oluşumu otomatik atlanır; kayıt önizlemesi tatili saymaz;
+  Ders Programı başlığı aynı kaynağı kullanır. **2030+ için tabloya yıl eklenmeli.**
+- Sözleşme: `Student.intendedDurationMonths` (migration `20260919120000_…`, test DB'ye
+  UYGULANDI; production'a HENÜZ DEĞİL). Kayıt süresi/ders başlangıcı sözleşme ekranında
+  düzenlenir; sözleşmesiz + kayıtta tahsilatı olmayan öğrencide ilk tahsilat formda girilir;
+  önizlemede vade elle düzenlenir (`installmentDueDateOverrides`); tarih çelişkileri
+  `contract-date-guidance.ts` ile uyarı (engel değil).
+
+Bilinen, bu turla ilgisiz: `lesson-series-tools.test.ts > skipConflicts=true…` (baseline'da da).
+
 ## Önceki odak (2026-09-05, geç oturum)
 
 Yedi kalemlik ürün güncellemesi paketi — hepsi `localhost:3000`e karşı
@@ -561,7 +583,7 @@ Tam kanıt/detay owner'a verilen "Canlıya Alım Hazırlık Raporu"nda — özet
 - Tam test suite: 2564/2565 geçti — tek hata bilinen/ilgisiz
   `lesson-series-tools.test.ts` kaydı (aşağıda zaten belgeli).
 
-## Current focus (last updated: 2026-09-08, P0: optimistic statü + şifre sıfırlama + marka + tasarımlar)
+## Önceki odak (2026-09-08, P0: optimistic statü + şifre sıfırlama + marka + tasarımlar)
 
 1. **Statü renginin ~10 sn gecikmesi — ÇÖZÜLDÜ.** Kök neden: kart dolgusu
    `lessonCardStatusVisual(lesson)` ile SUNUCU prop'undan çiziliyordu;

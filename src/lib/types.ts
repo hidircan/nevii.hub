@@ -246,6 +246,8 @@ export interface Student {
    * sayar; bu tarihten ÖNCEKİ günler asla faturalandırılmaz.
    */
   lessonStartDate?: string;
+  /** Kayıtta seçilen sözleşme süresi (ay, 1-12) — Sözleşme Merkezi ön-doldurmasının kalıcı kaynağı. */
+  intendedDurationMonths?: number;
   /** ISO tarih — verilmezse açık uçlu (hâlâ kayıtlı) */
   enrollmentEndDate?: string;
   level?: string;
@@ -399,6 +401,7 @@ export type StudentProfilePatch = Partial<
     | "studentTypes"
     | "enrollmentStartDate"
     | "lessonStartDate"
+    | "intendedDurationMonths"
     | "enrollmentEndDate"
     | "level"
     | "targetExam"
@@ -1959,6 +1962,8 @@ export interface ContractInstallmentSnapshot {
   computationSource?: "auto" | "manual";
   /** `computationSource==="manual"` ise personelin girdiği gerekçe. */
   note?: string;
+  /** 2026-09-19 — vade tarihi önizlemede elle değiştirildiyse "manual"; yoksa otomatik kuraldan gelir. */
+  dueDateSource?: "auto" | "manual";
 }
 
 /** `contractDataSnapshot` JSON alanının şekli — üretim anındaki DEĞİŞMEZ görüntü. */

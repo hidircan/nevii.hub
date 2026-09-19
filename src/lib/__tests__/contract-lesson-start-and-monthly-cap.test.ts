@@ -49,7 +49,12 @@ describe("G — ayda en fazla haftalık×4 ders ücretlendirilir", () => {
 
   it("haftada 2 ders: tavan 8 ders", () => {
     expect(computePeriodAmount(4000, 2, 10)).toBe(4000);
+    expect(computePeriodAmount(4000, 2, 9)).toBe(4000);
     expect(computePeriodAmount(4000, 2, 6)).toBe(3000);
+    // Salı+Perşembe, Eylül 2026: takvim 9 ders (5 Salı + 4 Perşembe) → ücret 8 ders = tam aylık
+    const lessons = countExactWeekdayLessons("2026-09-01", "2026-09-30", [2, 4]);
+    expect(lessons).toBe(9);
+    expect(computePeriodAmount(4000, 2, lessons)).toBe(4000);
   });
 });
 

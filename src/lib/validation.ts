@@ -171,6 +171,7 @@ export const studentSchema = z.object({
    * için davranış aynen korunur). İlk tahsilat bu tarihten itibaren sayar.
    */
   lessonStartDate: optionalTrimmed,
+  intendedDurationMonths: z.coerce.number().int().min(1, "Kayıt süresi 1-12 ay olmalıdır.").max(12, "Kayıt süresi 1-12 ay olmalıdır.").optional(),
   enrollmentEndDate: optionalTrimmed,
   /**
    * P0-C (2026-09-02) — haftalık ders sıklığına karşılık gelen GERÇEK ders
@@ -285,6 +286,7 @@ export const updateStudentProfileSchema = z
     studentTypes: studentTypesSchema,
     enrollmentStartDate: optionalTrimmed,
     lessonStartDate: optionalTrimmed,
+    intendedDurationMonths: z.coerce.number().int().min(1, "Kayıt süresi 1-12 ay olmalıdır.").max(12, "Kayıt süresi 1-12 ay olmalıdır.").optional(),
     enrollmentEndDate: optionalTrimmed,
     level: optionalTrimmed,
     targetExam: optionalTrimmed,

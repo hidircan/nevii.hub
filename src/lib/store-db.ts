@@ -341,6 +341,7 @@ function mapSchoolToAppData(school: PrismaSchoolWithRelations): AppData {
         ((student as { studentTypes?: unknown }).studentTypes as StudentType[] | undefined) ?? undefined,
       enrollmentStartDate: student.enrollmentStartDate?.toISOString() ?? undefined,
       lessonStartDate: student.lessonStartDate?.toISOString() ?? undefined,
+      intendedDurationMonths: student.intendedDurationMonths ?? undefined,
       enrollmentEndDate: student.enrollmentEndDate?.toISOString() ?? undefined,
       level: student.level ?? undefined,
       targetExam: student.targetExam ?? undefined,
@@ -1266,6 +1267,7 @@ export async function addStudent(
       birthDate: toDateOnlyDbValue(student.birthDate),
       enrollmentStartDate: student.enrollmentStartDate ? new Date(student.enrollmentStartDate) : undefined,
       lessonStartDate: student.lessonStartDate ? new Date(student.lessonStartDate) : undefined,
+      intendedDurationMonths: student.intendedDurationMonths,
       enrollmentEndDate: student.enrollmentEndDate ? new Date(student.enrollmentEndDate) : undefined,
     },
   });
@@ -1291,6 +1293,7 @@ export async function updateStudentProfile(
       studentTypes: patch.studentTypes,
       enrollmentStartDate: patch.enrollmentStartDate ? new Date(patch.enrollmentStartDate) : undefined,
       lessonStartDate: patch.lessonStartDate ? new Date(patch.lessonStartDate) : undefined,
+      intendedDurationMonths: patch.intendedDurationMonths,
       enrollmentEndDate: patch.enrollmentEndDate ? new Date(patch.enrollmentEndDate) : undefined,
       level: patch.level,
       targetExam: patch.targetExam,

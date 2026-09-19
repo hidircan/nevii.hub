@@ -40,6 +40,8 @@ export function clampDurationMonths(value: unknown): number | null {
 
 type StudentLike = {
   instruments?: string[];
+  /** 2026-09-19 — kayıtta seçilen süre, öğrenci kaydında KALICI (bkz. schema Student.intendedDurationMonths). */
+  intendedDurationMonths?: number;
   monthlyFee: number;
   paymentMethod?: string;
   enrollmentStartDate?: string;
@@ -57,6 +59,7 @@ type FirstPaymentLike = {
 
 /** Süre için en son kullanıcı niyeti — İPTAL EDİLMİŞ sözleşme de sayılır (geçmiş, engel değil ipucudur). */
 type ContractLike = {
+  durationMonths?: number;
   installmentCount?: number;
   programmeName?: string;
   monthlyAmount?: number;
@@ -74,8 +77,14 @@ export function buildContractPrefill(input: {
   lessonScheduleText?: string;
 }): ContractPrefillData {
   const { student, latestContract, registrationFirstPayment } = input;
+  // 2026-09-19 KÖK NEDEN (10 ay → 3 ay): süre yalnız URL'de taşınıyordu; parametre
+  // düşünce (öğrenci detayından giriş, düzenle-dön turu) 3'e dönüyordu. Öncelik artık
+  // KALICI kayıttadır; URL yalnız eski bağlantılar için yedektir. Taksit sayısı süre
+  // DEĞİLDİR (birleşik ilk tahsilatta 1 eksik olur) — sözleşmenin kendi süresi okunur.
   const durationMonths =
+    clampDurationMonths(student.intendedDurationMonths) ??
     clampDurationMonths(input.requestedDurationMonths) ??
+    clampDurationMonths(latestContract?.durationMonths) ??
     clampDurationMonths(latestContract?.installmentCount) ??
     DEFAULT_CONTRACT_DURATION_MONTHS;
 
@@ -111,6 +120,7 @@ export function prefillFromContract(contract: ContractLike, base: ContractPrefil
     // Başlangıç her zaman kaydın DERS başlangıcından (base) gelir: eski sözleşmeler
     // lessonStartDate alanından önce açıldığı için kayıt tarihini taşıyabilir.
     enrollmentStartDate: base.enrollmentStartDate ?? contract.enrollmentStartDate,
-    durationMonths: clampDurationMonths(contract.installmentCount) ?? base.durationMonths,
+    durationMonths:
+      clampDurationMonths(contract.durationMonths) ?? clampDurationMonths(contract.installmentCount) ?? base.durationMonths,
   };
 }

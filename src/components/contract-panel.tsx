@@ -13,6 +13,8 @@ import { prefillFromContract } from "@/lib/contract-prefill";
 import { formatDateTr } from "@/lib/timezone";
 import { paymentMethodLabelTr } from "@/lib/utils";
 import { friendlyApiErrorMessage } from "@/lib/api/friendly-error";
+import { actionUpdateStudentProfile } from "@/lib/actions";
+import { contractDateGuidance } from "@/lib/contract-date-guidance";
 
 /** 2026-2027 sözleşme kaynağı — Fotoğraf/Video Açık Rıza Formu'nun 5 kanalı, HER BİRİ ayrı değerlendirilir. */
 const PHOTO_VIDEO_CONSENT_CHANNELS: { value: string; label: string }[] = [
@@ -49,6 +51,7 @@ type InstallmentPreviewRow = {
   periodLabel?: string;
   breakdown?: { periodLabel: string; amount: number }[];
   computationSource?: "auto" | "manual";
+  dueDateSource?: "auto" | "manual";
 };
 
 const INSTALLMENT_KIND_LABELS: Record<string, string> = {
@@ -171,6 +174,8 @@ export type RegistrationSummary = {
   registeredAt?: string;
   contractStartDay?: string;
   intendedDurationMonths?: number;
+  /** Haftalık düzenli ders adedi — ücret tavanı (haftalık × 4) buradan gelir. */
+  weeklyLessonCount?: number;
   monthlyFee: number;
   paymentMethod?: string;
   paymentMethodLabel: string;
@@ -216,12 +221,45 @@ function RegistrationSummaryCard({
   studentId,
   registration,
   current,
+  onApplyToForm,
 }: {
   studentId: string;
   registration: RegistrationSummary;
   current: { startDay: string; monthlyAmount: number | ""; paymentMethod: string; durationMonths: number };
+  /** 2026-09-19 — kayıtta düzeltilen süre/ders başlangıcı forma ANINDA yansır; kullanıcı ekrandan çıkmaz. */
+  onApplyToForm: (values: { durationMonths: number; lessonStartDay: string }) => void;
 }) {
   const router = useRouter();
+  // 2026-09-19 — "yukarıdaki bilgileri düzenle" artık bu ekranda: süre ve ders başlangıcı
+  // öğrenci kaydına yazılır (Student.intendedDurationMonths / lessonStartDate), form güncellenir.
+  const [regEditing, setRegEditing] = useState(false);
+  const [regDuration, setRegDuration] = useState(registration.intendedDurationMonths ?? current.durationMonths);
+  const [regLessonStart, setRegLessonStart] = useState(registration.contractStartDay ?? current.startDay);
+  const [regBusy, setRegBusy] = useState(false);
+  const [regError, setRegError] = useState<string | null>(null);
+
+  async function saveRegistration() {
+    if (regBusy) return;
+    if (!isValidDateOnlyInput(regLessonStart)) {
+      setRegError("Ders başlangıç tarihini takvimden seçin.");
+      return;
+    }
+    setRegBusy(true);
+    setRegError(null);
+    const res = await actionUpdateStudentProfile({
+      studentId,
+      intendedDurationMonths: regDuration,
+      lessonStartDate: regLessonStart,
+    });
+    setRegBusy(false);
+    if (!res.ok) {
+      setRegError(res.message);
+      return;
+    }
+    onApplyToForm({ durationMonths: regDuration, lessonStartDay: regLessonStart });
+    setRegEditing(false);
+    router.refresh();
+  }
   // Sahip kararı (2026-09-16) — kayıt anı ilk tahsilatında hata görülürse kullanıcı
   // ekran değiştirmeden burada düzeltebilir (PATCH /api/v1/payments/:id).
   const [editing, setEditing] = useState(false);
@@ -280,13 +318,41 @@ function RegistrationSummaryCard({
     <div className="mb-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3 text-xs">
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <p className="font-semibold text-[var(--color-text)]">Kayıttan gelen bilgiler</p>
-        <Link
-          href={`/panel/ogrenciler/${studentId}?duzenle=kayit#genel`}
+        <button
+          type="button"
+          onClick={() => setRegEditing((e) => !e)}
           className="font-medium text-[var(--color-primary)] hover:underline"
+          aria-expanded={regEditing}
         >
-          Kayıtta düzenle →
-        </Link>
+          {regEditing ? "Vazgeç" : "Süre / ders başlangıcını burada düzenle"}
+        </button>
       </div>
+      {regEditing ? (
+        <div className="mb-2 flex flex-wrap items-end gap-2 rounded-md border border-[var(--color-primary)]/40 bg-[var(--color-surface-muted)] p-2">
+          <div>
+            <Label>Kayıt süresi (ay)</Label>
+            <Select value={regDuration} onChange={(e) => setRegDuration(Number(e.target.value))} className="w-40">
+              {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                <option key={m} value={m}>
+                  {m} ay {m <= 2 ? "(Tanışma)" : ""}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <div>
+            <Label>Ders başlangıcı</Label>
+            <Input type="date" value={regLessonStart} onChange={(e) => setRegLessonStart(e.target.value)} className="w-40" />
+          </div>
+          <Button type="button" onClick={() => void saveRegistration()} disabled={regBusy}>
+            {regBusy ? "Kaydediliyor…" : "Kayda işle ve forma uygula"}
+          </Button>
+          <p className="w-full text-[11px] text-[var(--color-text-muted)]">
+            Öğrenci kaydı güncellenir; aşağıdaki sözleşme formu (süre, sözleşme başlangıcı) aynı anda yenilenir.
+            Ücret, ödeme yöntemi ve haftalık ders düzeni için aşağıdaki form alanlarını kullanın.
+          </p>
+          {regError ? <p className="w-full text-xs font-medium text-rose-600" role="alert">{regError}</p> : null}
+        </div>
+      ) : null}
       <dl className="grid grid-cols-1 gap-x-4 gap-y-1 sm:grid-cols-2">
         {registration.registeredAt ? (
           <div>
@@ -300,10 +366,20 @@ function RegistrationSummaryCard({
             <dd className="inline">{formatDateTr(registration.contractStartDay)}</dd>
           </div>
         ) : null}
-        {registration.intendedDurationMonths ? (
+        <div>
+          <dt className="inline text-[var(--color-text-muted)]">Seçilen süre: </dt>
+          <dd className="inline">
+            {registration.intendedDurationMonths
+              ? `${registration.intendedDurationMonths} ay`
+              : "kayıtta seçilmemiş — formda varsayılan kullanılıyor"}
+          </dd>
+        </div>
+        {registration.weeklyLessonCount ? (
           <div>
-            <dt className="inline text-[var(--color-text-muted)]">Seçilen süre: </dt>
-            <dd className="inline">{registration.intendedDurationMonths} ay</dd>
+            <dt className="inline text-[var(--color-text-muted)]">Haftalık ders: </dt>
+            <dd className="inline">
+              {registration.weeklyLessonCount} · ayda en fazla {registration.weeklyLessonCount * 4} ders ücretlendirilir
+            </dd>
           </div>
         ) : null}
         <div>
@@ -317,7 +393,7 @@ function RegistrationSummaryCard({
           <dd className="inline">
             {registration.firstPayment
               ? `${formatTL(registration.firstPayment.amount)} · ${formatDateTr(registration.firstPayment.paidAt)} · ${registration.firstPayment.methodLabel}`
-              : "Kayıtta ilk tahsilat bulunamadı — formal sözleşme oluşturulamaz, önce kayıtta ilk ödemeyi girin."}
+              : "Kayıtta alınmış ilk tahsilat yok — aşağıdaki \"İlk tahsilat\" bölümüne girin; sözleşme ile birlikte kaydedilir."}
             {registration.firstPayment ? (
               <>
                 {" · "}
@@ -419,6 +495,12 @@ function ContractForm({
   const [mergeFirstCollection, setMergeFirstCollection] = useState(registration?.firstCollectionIncludesNextMonth ?? false);
   // Önizleme tablosunda elle düzenlenen taksit tutarları (sıra no → tutar).
   const [amountOverrides, setAmountOverrides] = useState<Record<number, number>>({});
+  // 2026-09-19 — önizlemede elle değiştirilen vade tarihleri (sıra no → yyyy-MM-dd). Otomatik
+  // hesap yeniden çalışsa da (tekrar önizleme) korunur; "↺" ile otomatiğe dönülür.
+  const [dueDateOverrides, setDueDateOverrides] = useState<Record<number, string>>({});
+  // Formdaki süre değişikliği öğrenci kaydına da yazılır (yeniden açınca/yenileyince aynı kalsın).
+  const [durationSaveNote, setDurationSaveNote] = useState<string | null>(null);
+  const durationSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // P0 (2026-09-04) — "Sözleşmenin son döneminde eksik kalan dersler nasıl
   // ücretlendirilsin?" — yalnız per-lesson fiyatlandırma (usePerLessonBilling)
   // kullanan öğrenciler için anlamlı; "remaining_lessons" (varsayılan/eski
@@ -460,8 +542,11 @@ function ContractForm({
   // DEĞİL, bugündür (yerel gün — date-only input ile aynı konvansiyon).
   // Ders başlangıç tarihi ile tahsilat tarihi iki bağımsız kavramdır; form
   // gönderilmeden tarih değiştirilebilir, istisna kuralı aynen korunur.
+  // 2026-09-19 — ilk sözleşmede kayıtta tahsilat yoksa (sistemde önceden kayıtlı öğrenci)
+  // ilk tahsilat da bu formda girilir; yenilemeyle AYNI alanlar ve AYNI doğrulama.
+  const needsFirstPaymentEntryBase = isRenewal || !registration?.firstPayment;
   const [firstPaymentCollectedAt, setFirstPaymentCollectedAt] = useState(
-    isRenewal ? todayLocalDateOnly() : enrollmentStartDate
+    needsFirstPaymentEntryBase ? todayLocalDateOnly() : enrollmentStartDate
   );
   const [firstPaymentReference, setFirstPaymentReference] = useState("");
   const [firstPaymentNote, setFirstPaymentNote] = useState("");
@@ -490,6 +575,28 @@ function ContractForm({
   })();
 
   const isFormal = durationMonths >= 3;
+  const needsFirstPaymentEntry = isFormal && needsFirstPaymentEntryBase;
+
+  function changeDuration(next: number) {
+    setDurationMonths(next);
+    // Taksit sayısı süreyle eşitse birlikte ilerler (kullanıcı ayrıca değiştirmediyse).
+    if (installmentCount === durationMonths) setInstallmentCount(next);
+    if (isRenewal) return;
+    if (durationSaveTimer.current) clearTimeout(durationSaveTimer.current);
+    durationSaveTimer.current = setTimeout(async () => {
+      const res = await actionUpdateStudentProfile({ studentId, intendedDurationMonths: next });
+      setDurationSaveNote(res.ok ? `Süre (${next} ay) öğrenci kaydına da işlendi.` : `Süre öğrenci kaydına yazılamadı: ${res.message}`);
+    }, 500);
+  }
+
+  function applyRegistrationEdit(values: { durationMonths: number; lessonStartDay: string }) {
+    setDurationMonths(values.durationMonths);
+    setInstallmentCount(values.durationMonths);
+    if (firstDueDate === enrollmentStartDate) setFirstDueDate(values.lessonStartDay);
+    setEnrollmentStartDate(values.lessonStartDay);
+    setPreview(null);
+    setDurationSaveNote(`Kayıt güncellendi: ${values.durationMonths} ay, ders başlangıcı ${formatDateTr(values.lessonStartDay)}. Planı yeniden önizleyin.`);
+  }
 
   // Çakışma her render'da YENİDEN hesaplanan bir TÜRETİLMİŞ değerdir (state
   // DEĞİL) — tarih/süre alanı her değiştiğinde otomatik güncellenir, asla
@@ -527,6 +634,9 @@ function ContractForm({
     sequence: Number(sequence),
     amount,
   }));
+  const installmentDueDateOverrides = Object.entries(dueDateOverrides)
+    .filter(([, dueDate]) => isValidDateOnlyInput(dueDate))
+    .map(([sequence, dueDate]) => ({ sequence: Number(sequence), dueDate }));
   const [preview, setPreview] = useState<{
     totalContractAmount: number;
     installments: InstallmentPreviewRow[];
@@ -581,6 +691,7 @@ function ContractForm({
       endDatePreference,
       mergeFirstCollection,
       installmentAmountOverrides,
+      installmentDueDateOverrides,
       studentId,
       enrollmentStartDate: toIsoDateOrNull(enrollmentStartDate) ?? undefined,
       enrollmentEndDate: toIsoDateOrNull(enrollmentEndDate) ?? undefined,
@@ -615,7 +726,7 @@ function ContractForm({
       errors.firstDueDate = "İlk ödeme tarihi zorunludur.";
     }
     if (!paymentMethod) errors.paymentMethod = "Ödeme yöntemi seçilmelidir.";
-    if (isFormal && isRenewal) {
+    if (needsFirstPaymentEntry) {
       // Owner policy — yenileme imzası anında tahsil edilmeden yenileme tamamlanamaz. İlk
       // (initial) sözleşmede bu ödeme kayıt sırasında zaten alınmıştır (reuseFirstPaymentId).
       if (!firstPaymentMethod) errors.firstPaymentMethod = "İlk ödeme yöntemi seçilmelidir.";
@@ -670,6 +781,7 @@ function ContractForm({
       endDatePreference,
       mergeFirstCollection,
       installmentAmountOverrides,
+      installmentDueDateOverrides,
       lastPeriodPricingMode: usePerLessonBilling ? lastPeriodPricingMode : undefined,
       lastPeriodManualAmount:
         usePerLessonBilling && lastPeriodPricingMode === "manual" && lastPeriodManualAmount !== ""
@@ -686,7 +798,7 @@ function ContractForm({
       overlapReason: overlapReason.trim() || undefined,
       firstPaymentExceptionReason:
         (firstPaymentDateNeedsException ? firstPaymentDateExceptionReason.trim() : "") || undefined,
-      firstPaymentCollected: isFormal && isRenewal
+      firstPaymentCollected: needsFirstPaymentEntry
         ? {
             method: firstPaymentMethod,
             amount: firstPaymentAmount === "" ? 0 : firstPaymentAmount,
@@ -719,8 +831,22 @@ function ContractForm({
 
   // Elle düzenlenen tutarlar uygulanmış satırlar — ekrandaki her toplam bunlardan hesaplanır.
   const liveRows = preview
-    ? preview.installments.map((r) => ({ ...r, amount: amountOverrides[r.sequence] ?? r.amount }))
+    ? preview.installments.map((r) => ({
+        ...r,
+        amount: amountOverrides[r.sequence] ?? r.amount,
+        dueDate: dueDateOverrides[r.sequence] ?? r.dueDate,
+        dueDateManual: dueDateOverrides[r.sequence] !== undefined || r.dueDateSource === "manual",
+      }))
     : [];
+  const dateNotices = contractDateGuidance({
+    registeredAt: registration?.registeredAt,
+    lessonStartDay: registration?.contractStartDay,
+    contractStartDay: enrollmentStartDate,
+    firstPaymentCollectedAt: needsFirstPaymentEntry ? firstPaymentCollectedAt : registration?.firstPayment?.paidAt,
+    firstDueDate,
+    today: todayLocalDateOnly(),
+    installments: liveRows.map((r) => ({ sequence: r.sequence, dueDate: r.dueDate, manual: r.dueDateManual })),
+  });
   const liveTotal = liveRows.reduce((s, r) => s + r.amount, 0) + (depositAmount === "" ? 0 : depositAmount);
   const hasAnyError = formError !== null || Object.keys(fieldErrors).length > 0;
 
@@ -744,6 +870,7 @@ function ContractForm({
           studentId={studentId}
           registration={registration}
           current={{ startDay: enrollmentStartDate, monthlyAmount, paymentMethod, durationMonths }}
+          onApplyToForm={applyRegistrationEdit}
         />
       ) : null}
 
@@ -785,6 +912,9 @@ function ContractForm({
             onChange={(e) => setEnrollmentStartDate(e.target.value)}
             aria-invalid={!!fieldErrors.enrollmentStartDate}
           />
+          <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">
+            Ücret ve taksitlerin hesaplandığı gün (genelde ilk ders). Kayıt tarihinden farklı olabilir; geçmiş bir gün de seçilebilir.
+          </p>
           <FieldError message={fieldErrors.enrollmentStartDate} />
         </div>
         <div>
@@ -794,9 +924,14 @@ function ContractForm({
             min={1}
             max={12}
             value={durationMonths}
-            onChange={(e) => setDurationMonths(Math.min(12, Math.max(1, Number(e.target.value) || 1)))}
+            onChange={(e) => changeDuration(Math.min(12, Math.max(1, Number(e.target.value) || 1)))}
             aria-invalid={!!fieldErrors.durationMonths}
           />
+          {durationSaveNote ? (
+            <p className="mt-1 text-[11px] font-medium text-emerald-700 dark:text-emerald-300" aria-live="polite">
+              {durationSaveNote}
+            </p>
+          ) : null}
           <FieldError message={fieldErrors.durationMonths} />
         </div>
         {!isRenewal ? (
@@ -941,7 +1076,7 @@ function ContractForm({
           <FieldError message={fieldErrors.paymentMethod} />
         </div>
         <div>
-          <Label>İlk ödeme tarihi</Label>
+          <Label>1. taksit vadesi</Label>
           <Input
             type="date"
             value={firstDueDate}
@@ -993,21 +1128,22 @@ function ContractForm({
         </div>
       </div>
 
-      {isFormal && !isRenewal ? (
+      {isFormal && !needsFirstPaymentEntry ? (
         <div className="mt-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3 text-xs text-[var(--color-text-muted)]">
           İlk ödeme, öğrenci kaydı sırasında zaten tahsil edildi — bu sözleşme o ödeme kaydını
           kullanır, yeniden tahsilat girilmez.
         </div>
       ) : null}
 
-      {isFormal && isRenewal ? (
+      {needsFirstPaymentEntry ? (
         <fieldset className="mt-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3">
           <legend className="px-1 text-xs font-semibold text-[var(--color-text)]">
-            İlk Ödeme / Yenileme Anı Tahsilatı
+            {isRenewal ? "İlk Ödeme / Yenileme Anı Tahsilatı" : "İlk tahsilat (ilk sözleşme)"}
           </legend>
           <p className="mb-2 text-[11px] text-[var(--color-text-muted)]">
-            İlk taksit her zaman yenileme imzası anında alınır — yenileme, gerçekten tahsil edilen
-            bir ödeme olmadan tamamlanamaz.
+            {isRenewal
+              ? "İlk taksit her zaman yenileme imzası anında alınır — yenileme, gerçekten tahsil edilen bir ödeme olmadan tamamlanamaz."
+              : "Bu öğrencinin kayıtta alınmış bir ilk tahsilatı yok. Tahsil edilen tutarı ve GERÇEK tahsilat gününü girin; sözleşme ile birlikte ödeme kaydı oluşur ve öğrenci detayı/finans ekranlarında görünür."}
           </p>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
@@ -1160,6 +1296,31 @@ function ContractForm({
         </div>
       ) : null}
 
+      {dateNotices.length > 0 ? (
+        <div className="mt-3 space-y-1 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs dark:border-amber-900 dark:bg-amber-950/30" role="status">
+          <p className="font-semibold text-amber-900 dark:text-amber-200">Tarihleri kontrol edin (engel değil, bilgi):</p>
+          <ul className="list-disc space-y-0.5 pl-4">
+            {dateNotices.map((n) => (
+              <li key={n.text} className={n.level === "warning" ? "font-medium text-amber-900 dark:text-amber-200" : "text-amber-800 dark:text-amber-300"}>
+                {n.text}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      <details className="mt-3 text-[11px] text-[var(--color-text-muted)]">
+        <summary className="cursor-pointer font-medium text-[var(--color-text)]">Tarihler ne anlama geliyor?</summary>
+        <ul className="mt-1 list-disc space-y-0.5 pl-4">
+          <li><strong>Kayıt tarihi:</strong> öğrencinin sisteme kaydedildiği gün (yalnız bilgi).</li>
+          <li><strong>Ders başlangıcı:</strong> ilk dersin günü; kayıttan önce veya sonra olabilir.</li>
+          <li><strong>Sözleşme başlangıcı:</strong> ücret ve taksitlerin hesaplandığı gün (genelde ders başlangıcı).</li>
+          <li><strong>Sözleşme bitişi:</strong> süreden otomatik hesaplanır (başlangıç ayı 1. aydır).</li>
+          <li><strong>İlk tahsilat tarihi:</strong> paranın gerçekten alındığı gün.</li>
+          <li><strong>Taksit vadesi:</strong> ödemenin beklendiği gün; önizleme tablosunda elle değiştirilebilir.</li>
+        </ul>
+      </details>
+
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <Button type="button" onClick={onPreview} disabled={busy} className="!bg-slate-600 hover:!bg-slate-700">
           Ödeme Planını Önizle
@@ -1211,7 +1372,7 @@ function ContractForm({
                     tarihi girdisi; ilk kayıtta kayıt anı ödemesi (yoksa
                     "Henüz tahsil edilmedi" — ders başlangıcı asla yazılmaz).
                   */}
-                  {isRenewal
+                  {needsFirstPaymentEntry
                     ? formatDateTr(firstPaymentCollectedAt)
                     : prefill?.firstCollectionAt
                       ? formatDateTr(prefill.firstCollectionAt)
@@ -1269,7 +1430,46 @@ function ContractForm({
                       </ul>
                     ) : null}
                   </td>
-                  <td className="pr-2 py-1">{formatDateTr(row.dueDate)}</td>
+                  <td className="pr-2 py-1">
+                    {row.sequence === 1 ? (
+                      // 1. satır = gerçekten alınan ilk tahsilat; tarihi tahsilat alanından gelir.
+                      formatDateTr(row.dueDate)
+                    ) : (
+                      <span className="inline-flex items-center gap-1">
+                        <input
+                          type="date"
+                          value={(dueDateOverrides[row.sequence] ?? row.dueDate).slice(0, 10)}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            setDueDateOverrides((prev) => ({ ...prev, [row.sequence]: value }));
+                          }}
+                          className="rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-1.5 py-0.5 text-xs text-[var(--color-text)]"
+                          aria-label={`${row.sequence}. taksit vade tarihi`}
+                        />
+                        {dueDateOverrides[row.sequence] !== undefined ? (
+                          <>
+                            <span className="rounded bg-amber-100 px-1 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-950/50 dark:text-amber-300">
+                              elle
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setDueDateOverrides((prev) => {
+                                  const next = { ...prev };
+                                  delete next[row.sequence];
+                                  return next;
+                                })
+                              }
+                              className="text-[10px] font-medium text-[var(--color-primary)] hover:underline"
+                              aria-label={`${row.sequence}. taksit vadesini otomatiğe döndür`}
+                            >
+                              ↺ otomatik
+                            </button>
+                          </>
+                        ) : null}
+                      </span>
+                    )}
+                  </td>
                   {/*
                     P0 revizyonu — "Ödeme Türü" sütunu: 1. satırda GERÇEK ilk
                     tahsilatın yöntemi (yenilemede form seçimi, ilk kayıtta
@@ -1278,7 +1478,7 @@ function ContractForm({
                   */}
                   <td className="pr-2 py-1">
                     {row.sequence === 1
-                      ? paymentMethodLabelTr(isRenewal ? firstPaymentMethod : prefill?.firstCollectionMethod)
+                      ? paymentMethodLabelTr(needsFirstPaymentEntry ? firstPaymentMethod : prefill?.firstCollectionMethod)
                       : "—"}
                   </td>
                   <td className="py-1">

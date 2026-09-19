@@ -1036,13 +1036,21 @@ describe("2026-2027 sözleşme kaynağı — yeni checkbox/alan placeholder'lar�
 });
 
 describe("Owner policy (2026-08-30, final) — İlk ödeme kayıt anında alınır, normaldir, istisna değildir; initial sözleşme bu ödemeyi YENİDEN KULLANIR", () => {
-  it("FORMAL (>=3 ay) kayıt, öğrencinin kayıt anında tahsil edilmiş ödemesi (registration_first_payment) YOKSA REDDEDİLİR", async () => {
-    const input = buildInitialInput(); // kasıtlı: seedRegistrationFirstPayment ÇAĞRILMADI
+  // 2026-09-19 (owner: "ilk sözleşme" akışı) — kayıtta tahsilat yoksa ilk tahsilat
+  // sözleşme formunda girilir; HİÇBİR tahsilat yoksa hâlâ reddedilir.
+  it("FORMAL (>=3 ay) ilk sözleşme: kayıtta tahsilat YOK ve formda da girilmediyse REDDEDİLİR", async () => {
+    const { firstPaymentCollected: _omit, ...input } = buildInitialInput(); // kasıtlı: seedRegistrationFirstPayment ÇAĞRILMADI
+    void _omit;
     const res = await createStudentContractTool(adminCtx(), input);
     expect(res.ok).toBe(false);
     if (res.ok) return;
-    expect(res.error.code).toBe("VALIDATION_ERROR");
-    expect(res.error.message).toContain("İlk ödeme kayıt sırasında tahsil edilmeden kayıt tamamlanamaz.");
+    expect(res.error.message).toContain("kayıtta alınmış bir ilk tahsilatı yok");
+  });
+
+  it("FORMAL (>=3 ay) ilk sözleşme: kayıtta tahsilat yoksa formda girilen ilk tahsilatla oluşur", async () => {
+    const res = await createStudentContractTool(adminCtx(), buildInitialInput());
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.data.installments[0]!.status).toBe("paid");
   });
 
   it("registration first payment: kayıt anında tahsil edilen ödeme sözleşme oluşturunca YENİDEN KULLANILIR — tek gerçek Payment satırı, ikinci kez oluşmaz/paid yapılmaz/toplama iki kez eklenmez", async () => {

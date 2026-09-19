@@ -379,6 +379,30 @@ export function applyInstallmentAmountOverrides(
   });
 }
 
+/**
+ * 2026-09-19 — önizleme tablosunda elle değiştirilen VADE tarihleri (sıra no → yyyy-MM-dd).
+ * Tutar override'ıyla aynı yol: önizleme, sözleşme snapshot'ı ve gerçek Payment satırları
+ * HEP bu listeden üretilir; öğrenci detayı ve finans ekranları Payment.dueDate'i okur.
+ * Geçersiz tarih sessizce yutulmaz — hata fırlatılır (çağıran Türkçe mesaj gösterir).
+ */
+export function applyInstallmentDueDateOverrides(
+  rows: ContractInstallmentSnapshot[],
+  overrides?: { sequence: number; dueDate: string }[]
+): ContractInstallmentSnapshot[] {
+  if (!overrides || overrides.length === 0) return rows;
+  const bySequence = new Map(overrides.map((o) => [o.sequence, o.dueDate.slice(0, 10)]));
+  return rows.map((row) => {
+    const ymd = bySequence.get(row.sequence);
+    if (!ymd || ymd === row.dueDate.slice(0, 10)) return row;
+    const [y, m, d] = ymd.split("-").map(Number);
+    const date = new Date(Date.UTC(y!, (m ?? 1) - 1, d ?? 1));
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd) || Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== ymd) {
+      throw new Error(`${row.sequence}. taksitin vade tarihi geçersiz (${ymd}). Takvimden geçerli bir gün seçin.`);
+    }
+    return { ...row, dueDate: date.toISOString(), dueDateSource: "manual" as const };
+  });
+}
+
 export function buildPerLessonInstallmentSchedule(input: {
   billingLines: import("./period-lesson-billing").PeriodBillingLine[];
   /** İlk dönem otomatik tutardan manuel olarak farklı girildiyse. */
@@ -679,6 +703,8 @@ export type CreateContractInput = {
   mergeFirstCollectionWithNextMonth?: boolean;
   /** Önizleme tablosunda elle düzenlenen taksit tutarları (sıra no → tutar). */
   installmentAmountOverrides?: { sequence: number; amount: number }[];
+  /** 2026-09-19 — önizlemede elle değiştirilen vade tarihleri (sıra no → yyyy-MM-dd). */
+  installmentDueDateOverrides?: { sequence: number; dueDate: string }[];
   /** P0 (2026-09-04) — yalnız `perLessonBillingLines` ile birlikte anlamlı; bkz. `LastPeriodPricing`. */
   lastPeriodPricing?: LastPeriodPricing;
 };
@@ -783,8 +809,17 @@ export async function createContract(input: CreateContractInput): Promise<Create
     if (input.contractType === "initial") {
       const { getRegistrationFirstPayment } = await import("./store");
       registrationFirstPayment = await getRegistrationFirstPayment(input.studentId);
+      // 2026-09-19 — sistemde önceden kayıtlı, kayıtta ilk tahsilatı alınmamış öğrenci
+      // için İLK sözleşme: ilk tahsilat sözleşme ekranında girilir (yenilemedeki gibi).
       if (!registrationFirstPayment) {
-        throw new Error(FIRST_PAYMENT_REQUIRED_MESSAGE);
+        if (!input.firstPaymentCollected) {
+          throw new Error(
+            "Bu öğrencinin kayıtta alınmış bir ilk tahsilatı yok. Sözleşme formundaki \"İlk tahsilat\" bölümüne tahsil edilen tutarı, tarihi ve yöntemi girin."
+          );
+        }
+        if (input.firstPaymentCollected.amount <= 0) {
+          throw new Error("Tahsil edilen ilk ödeme tutarı sıfırdan büyük olmalıdır.");
+        }
       }
     } else {
       if (!input.firstPaymentCollected) {
@@ -824,7 +859,10 @@ export async function createContract(input: CreateContractInput): Promise<Create
       });
   // Sahip kararı (2026-09-16) — önizlemede elle düzenlenen tutarlar burada uygulanır;
   // toplam, sözleşme PDF'i ve gerçek Payment satırları HEP aynı listeden üretilir.
-  const installments = applyInstallmentAmountOverrides(builtInstallments, input.installmentAmountOverrides);
+  const installments = applyInstallmentDueDateOverrides(
+    applyInstallmentAmountOverrides(builtInstallments, input.installmentAmountOverrides),
+    input.installmentDueDateOverrides
+  );
   const totalContractAmount = installments.reduce((s, r) => s + r.amount, 0) + (input.depositAmount ?? 0);
 
   if (!input.perLessonBillingLines) {

@@ -890,6 +890,8 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
           // P0 (2026-09-05) — ders başlangıcı kayıt tarihinden AYRI; ilk
           // tahsilat bu tarihten itibaren gerçekleşen dersleri sayar.
           lessonStartDate: String(formData.get("lessonStartDate") || "") || undefined,
+          // 2026-09-19 — süre artık öğrenci kaydına YAZILIR (URL tek kaynak değil).
+          intendedDurationMonths: Number(formData.get("intendedDurationMonths") || 0) || undefined,
           level: String(formData.get("level") || "") || undefined,
           targetExam: String(formData.get("targetExam") || "") || undefined,
           termType: (() => {
@@ -1132,6 +1134,8 @@ export async function actionUpdateStudentProfile(input: {
   enrollmentStartDate?: string;
   /** P0 (2026-09-05) — ders başlangıç tarihi; kayıt tarihinden bağımsız düzenlenebilir. */
   lessonStartDate?: string;
+  /** 2026-09-19 — Sözleşme Merkezi'nden inline düzenlenen kayıt süresi (ay). */
+  intendedDurationMonths?: number;
   enrollmentEndDate?: string;
   level?: string;
   targetExam?: string;

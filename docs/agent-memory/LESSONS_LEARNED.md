@@ -965,3 +965,25 @@ eşliyor ve `active`/`archivedAt` listede yoktu → test sisteminde (db modu) "P
 yapmıyordu. Ders: bir `*Patch` tipine alan eklendiğinde db store'daki elle eşleme listesine de
 eklenmeli; yeni bir db yazma yolu için `vi.mock("../db")` ile payload testi yazın
 (bkz. `admin-archive-teacher-profile-db.test.ts`) — json-mode testleri bunu YAKALAMAZ.
+
+## 2026-09-19 — kullanıcı seçimi yalnız URL'de taşınırsa ilk "fallback" onu sessizce ezer
+
+Kayıt süresi (10 ay) Student'a yazılmıyor, yalnız `?sure=` ile taşınıyordu. Sözleşme Merkezi'ne
+parametresiz girişte 3'e düşüyor, "Öğrenci Kaydını Düzenle" linki bu 3'ü `sozlesmeSure=3` olarak
+geri taşıyıp kullanıcının değerini kalıcı olarak eziyordu. Ders: kullanıcının verdiği kritik bir
+karar (süre, tarih, tutar) DB'de saklanmalı; URL yalnız kolaylık/yedek olabilir. Varsayılana
+düşen her `?? 3` gibi satır "bu değer nereden geliyor, kaybolabilir mi?" sorusuyla okunmalı.
+
+## 2026-09-19 — `useEffect` ile "statü yay" + key'siz yeniden kullanılan panel = seçim statüyü boyar
+
+`LessonOpsActions` statüsünü mount'ta ve `lessonId` değişince `useEffect` ile üst bileşene
+yayıyordu; Ders Programı detay paneli key'siz olduğundan önceki dersin yerel statüsü yeni seçilen
+dersin kartına iyimser override olarak yazıldı (geçmiş derse tıklayınca yeşil). Ders: iyimser
+katmana yalnız KULLANICI AKSİYONU yazmalı; ders başına state tutan bileşenleri ders id'siyle key'leyin.
+
+## 2026-09-19 — elle tutulan tatil tablosu resmî kaynakla doğrulanmadan güvenilmez
+
+`turkish-holidays.ts`'de 2027 ve 2028 Ramazan Bayramı birer gün geç girilmişti. Kaynak:
+vakithesaplama.diyanet.gov.tr/dinigunler.php?yil=YYYY. Yeni yıl eklerken tabloyu oradan alın ve
+`official-holidays-single-source.test.ts`'e tarihleri ekleyin. Tatil, planlamada "çakışma" değil
+atlanan gündür — seri oluşturmayı bloklarsa (13 haftalık seed bunu yakaladı) kullanıcı kilitlenir.

@@ -15,7 +15,7 @@ import {
   actionGenerateKvkkAndPhotoVideoConsentDocuments,
 } from "@/lib/actions";
 import { deriveLessonScheduleTextFromLessons } from "@/lib/lesson-schedule-text";
-import { buildContractPrefill } from "@/lib/contract-prefill";
+import { buildContractPrefill, clampDurationMonths, DEFAULT_CONTRACT_DURATION_MONTHS } from "@/lib/contract-prefill";
 import { diagnoseContractAnnexTemplates } from "@/lib/contract-annexes";
 import { listTemplates } from "@/lib/documents";
 import { ContractAnnexTemplateNotice } from "@/components/contract-annex-template-notice";
@@ -39,9 +39,6 @@ export default async function StudentContractsCenterPage({
   const { studentId } = await params;
   const { yeniKayit, sure, davetUyari } = await searchParams;
   const isNewStudent = yeniKayit === "1";
-  const rawIntendedDuration = Number(sure);
-  const intendedDurationMonths =
-    Number.isInteger(rawIntendedDuration) && rawIntendedDuration >= 1 && rawIntendedDuration <= 12 ? rawIntendedDuration : 3;
 
   let session;
   try {
@@ -69,6 +66,10 @@ export default async function StudentContractsCenterPage({
     );
   }
 
+  // 2026-09-19 — süre KALICI kayıttan (Student.intendedDurationMonths); URL `sure` yalnız eski bağlantılar için yedek.
+  const savedDurationMonths = clampDurationMonths(student.intendedDurationMonths) ?? clampDurationMonths(sure);
+  const intendedDurationMonths = savedDurationMonths ?? DEFAULT_CONTRACT_DURATION_MONTHS;
+
   const contractsResult = await listStudentContractsTool(session, { studentId: student.id });
   const contracts = contractsResult.ok ? contractsResult.data.contracts : [];
   // P0 revizyonu — kayıtta GERÇEKTEN alınmış ilk tahsilatın kaydı: sözleşme
@@ -82,7 +83,8 @@ export default async function StudentContractsCenterPage({
   const registration: RegistrationSummary = {
     registeredAt: student.enrollmentStartDate,
     contractStartDay: (student.lessonStartDate ?? student.enrollmentStartDate)?.slice(0, 10),
-    intendedDurationMonths: sure ? intendedDurationMonths : undefined,
+    intendedDurationMonths: savedDurationMonths ?? undefined,
+    weeklyLessonCount: student.weeklyLessonCount,
     monthlyFee: student.monthlyFee,
     paymentMethod: student.paymentMethod,
     paymentMethodLabel: paymentMethodLabelTr(student.paymentMethod),
@@ -135,10 +137,10 @@ export default async function StudentContractsCenterPage({
 
       {canManagePaymentProfile ? (
         <Link
-          href={`/panel/ogrenciler/${student.id}?duzenle=kayit&sozlesmeSure=${intendedDurationMonths}#genel`}
-          className="mb-4 inline-flex w-full items-center justify-center rounded-lg border-2 border-[var(--color-primary)] px-4 py-2.5 text-sm font-semibold text-[var(--color-primary)] hover:bg-[var(--color-primary)] hover:text-white sm:w-auto"
+          href={`/panel/ogrenciler/${student.id}?duzenle=kayit&sozlesmeDon=1#genel`}
+          className="mb-4 inline-flex items-center text-sm font-medium text-[var(--color-primary)] hover:underline"
         >
-          ← Öğrenci Kaydını Düzenle
+          Tüm öğrenci kaydını düzenle (bu ekrandan çıkar) →
         </Link>
       ) : null}
 

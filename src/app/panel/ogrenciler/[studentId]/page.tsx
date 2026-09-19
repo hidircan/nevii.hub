@@ -95,10 +95,12 @@ export default async function StudentDetailPage({
     duzenle?: string;
     /** Sözleşme adımına geri dönüş için taşınan süre (ay) — sözleşme formunun ön-doldurması. */
     sozlesmeSure?: string;
+    /** 2026-09-19 — Sözleşme Merkezi'nden bilinçli tam düzenlemeye gelindi (süre artık kayıtta; URL'de taşınmaz). */
+    sozlesmeDon?: string;
   }>;
 }) {
   const { studentId } = await params;
-  const { yeniKayit, sure, davetUyari, duzenle, sozlesmeSure } = await searchParams;
+  const { yeniKayit, sure, davetUyari, duzenle, sozlesmeSure, sozlesmeDon } = await searchParams;
   const isNewStudent = yeniKayit === "1";
   const rawIntendedDuration = Number(sure);
   const intendedDurationMonths =
@@ -248,7 +250,7 @@ export default async function StudentDetailPage({
           monthlyFee={student.monthlyFee}
           paymentMethod={student.paymentMethod}
           enrollmentStartDate={student.enrollmentStartDate}
-          intendedDurationMonths={intendedDurationMonths}
+          intendedDurationMonths={student.intendedDurationMonths ?? intendedDurationMonths}
           inviteWarning={davetUyari}
         />
       ) : null}
@@ -304,7 +306,7 @@ export default async function StudentDetailPage({
         kaydedildiği için sözleşme sayfası (force-dynamic) dönüşte TAZE veriyle
         yeniden hesaplanır; bayat sözleşme/önizleme durumu kalmaz.
       */}
-      {sozlesmeSure ? (
+      {sozlesmeDon || sozlesmeSure ? (
         <Card className="mb-6 !border-[var(--color-primary)] !p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-[var(--color-text)]">
@@ -312,7 +314,7 @@ export default async function StudentDetailPage({
               sözleşme önizlemesi ve tahsilat hesabı güncel verilerle yeniden oluşturulur.
             </p>
             <Link
-              href={`/panel/ogrenciler/${student.id}/sozlesmeler?yeniKayit=1&sure=${encodeURIComponent(sozlesmeSure)}`}
+              href={`/panel/ogrenciler/${student.id}/sozlesmeler?yeniKayit=1`}
               className="inline-flex shrink-0 items-center rounded-lg bg-[var(--color-primary)] px-4 py-2 text-sm font-semibold text-white hover:bg-[var(--color-primary-hover)]"
             >
               Sözleşme adımına dön →
