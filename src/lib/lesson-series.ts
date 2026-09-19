@@ -173,11 +173,14 @@ export function createLessonSeriesData(
   const checks = checkSeriesOccurrences(data, params, occurrences, now, options.allowAvailabilityOverride);
   const conflicts = checks.filter((c): c is Extract<SeriesOccurrenceCheck, { ok: false }> => !c.ok);
 
-  if (conflicts.length > 0 && !options.skipConflicts) {
+  // 2026-09-19 — resmî tatil çözülmesi gereken bir çakışma DEĞİLDİR: o gün ders olmaz,
+  // oluşum otomatik atlanır ve `skippedOccurrences`te nedeniyle listelenir.
+  const blockingConflicts = conflicts.filter((c) => c.code !== "OFFICIAL_HOLIDAY");
+  if (blockingConflicts.length > 0 && !options.skipConflicts) {
     return {
       ok: false,
       code: "BLOCKED_BY_CONFLICT",
-      message: `${conflicts.length} derste çakışma var; hiçbir kayıt oluşturulmadı.`,
+      message: `${blockingConflicts.length} derste çakışma var; hiçbir kayıt oluşturulmadı.`,
       conflicts: checks,
     };
   }

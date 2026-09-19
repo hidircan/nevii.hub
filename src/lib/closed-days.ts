@@ -49,6 +49,8 @@ export function turkeyFixedPublicHolidays(year: number): Array<{ date: string; n
     { date: `${year}-05-19`, name: "Atatürk’ü Anma, Gençlik ve Spor Bayramı" },
     { date: `${year}-07-15`, name: "Demokrasi ve Millî Birlik Günü" },
     { date: `${year}-08-30`, name: "Zafer Bayramı" },
+    // 2429 s. Kanun — dini bayram arefeleriyle tutarlı: 13.00'ten itibaren yarım gün.
+    { date: `${year}-10-28`, name: "Cumhuriyet Bayramı Arefesi (yarım gün, 13.00'ten itibaren)" },
     { date: `${year}-10-29`, name: "Cumhuriyet Bayramı" },
   ];
 }

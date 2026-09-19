@@ -19,6 +19,7 @@
  */
 
 import { toZonedYmd, DEFAULT_APP_TIMEZONE } from "./timezone";
+import { findOfficialHoliday } from "./turkish-holidays";
 
 /**
  * P0 (2026-09-05) — İLK TAHSİLATIN BAŞLANGIÇ GÜNÜ.
@@ -389,7 +390,9 @@ export function countExactWeekdayLessons(periodStartDay: string, periodEndDay: s
   const cursor = new Date(`${periodStartDay}T00:00:00Z`);
   const end = new Date(`${periodEndDay}T00:00:00Z`);
   while (cursor <= end) {
-    if (set.has(cursor.getUTCDay())) count++;
+    // 2026-09-19 — resmî tatil (Yoklama Takvimi/planlama ile aynı kaynak) ders sayılmaz;
+    // o güne ders planlanamaz, dolayısıyla ücrete de girmez.
+    if (set.has(cursor.getUTCDay()) && !findOfficialHoliday(cursor.toISOString().slice(0, 10))) count++;
     cursor.setUTCDate(cursor.getUTCDate() + 1);
   }
   return count;

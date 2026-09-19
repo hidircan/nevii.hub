@@ -12,6 +12,7 @@ import type {
 } from "./types";
 import { availabilityForBranch, isTeacherSchedulable, teacherServesBranch } from "./teacher-branches";
 import { DEFAULT_APP_TIMEZONE, addDaysYmd, toZonedYmd, ymdToUtcNoon, zonedWallTimeToUtc, zonedWeekday } from "./timezone";
+import { findOfficialHoliday } from "./turkish-holidays";
 
 function overlaps(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date) {
   return aStart < bEnd && bStart < aEnd;
@@ -93,7 +94,8 @@ export type SlotValidationCode =
   | "ROOM_INSTRUMENT_MISMATCH"
   | "ROOM_BRANCH_MISMATCH"
   | "ROOM_CONFLICT"
-  | "STUDENT_CONFLICT";
+  | "STUDENT_CONFLICT"
+  | "OFFICIAL_HOLIDAY";
 
 export const SLOT_ERROR_MESSAGES: Record<SlotValidationCode, string> = {
   REQUEST_NOT_OPEN: "Bu telafi talebi zaten sonuçlandırılmış.",
@@ -112,6 +114,7 @@ export const SLOT_ERROR_MESSAGES: Record<SlotValidationCode, string> = {
   ROOM_BRANCH_MISMATCH: "Oda, öğretmenin şubesiyle uyumsuz.",
   ROOM_CONFLICT: "Odanın bu saatte başka bir dersi var.",
   STUDENT_CONFLICT: "Öğrencinin bu saatte başka bir dersi var.",
+  OFFICIAL_HOLIDAY: "Bu gün resmî tatil; ders planlanamaz. Başka bir gün seçin.",
 };
 
 export type ValidatedSlot = {
@@ -207,6 +210,18 @@ export function validateLessonSlot(
 
   if (options?.durationMinutes !== undefined && options.durationMinutes < 30) {
     return fail("INVALID_DURATION");
+  }
+
+  // 2026-09-19 — resmî tatil (Diyanet doğrulamalı tablo, turkish-holidays.ts) TEK
+  // kaynaktan: Yoklama Takvimi o günü KAPALI gösterir ve yoklamayı reddeder; burada
+  // da planlanamaz (tek ders, seri, taşıma, telafi aynı fonksiyondan geçer).
+  const holiday = findOfficialHoliday(toZonedYmd(start, DEFAULT_APP_TIMEZONE));
+  if (holiday) {
+    return {
+      ok: false,
+      code: "OFFICIAL_HOLIDAY",
+      message: `${holiday.name} resmî tatildir; bu güne ders planlanamaz. Başka bir gün seçin.`,
+    };
   }
 
   // 2026-09-17 — geçmişe planlama YALNIZ telafi taleplerinde yasak (telafi

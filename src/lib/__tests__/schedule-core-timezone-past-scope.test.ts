@@ -1,4 +1,6 @@
 /**
+ * (2026-09-19: fikstür tarihleri 13 hafta ileri alındı — 9 Mart 2027 düzeltilen tabloda
+ * Ramazan Bayramı 1. günüdür ve artık planlanamaz; hafta günleri korunur.)
  * 2026-09-17 — Ders Programı çekirdek regresyonları. Bu dosya BİLİNÇLİ OLARAK
  * sunucu saat dilimini UTC yapar (Vercel ile aynı): kritik "15:50 → 18:50"
  * hatası yalnız UTC sunucuda görünüyordu, geliştirici makinesinde (İstanbul) değil.
@@ -43,8 +45,8 @@ const HIRA_SERIES = {
   weekday: 2,
   startTime: "15:50",
   durationMinutes: 40,
-  startsOn: "2027-03-01",
-  endsOn: "2027-03-28",
+  startsOn: "2027-05-31",
+  endsOn: "2027-06-27",
 };
 
 async function seriesLessons(seriesId: string) {
@@ -53,9 +55,9 @@ async function seriesLessons(seriesId: string) {
 
 describe("D — saat kayması (sunucu UTC)", () => {
   it("wall-time yardımcısı: 15:50 İstanbul = 12:50Z; datetime-local değeri kurum saati sayılır", () => {
-    expect(wallDateTimeInputToIso("2027-03-02T15:50")).toBe("2027-03-02T12:50:00.000Z");
-    expect(wallDateTimeInputToIso("2027-03-02T12:50:00.000Z")).toBe("2027-03-02T12:50:00.000Z");
-    expect(formatTime("2027-03-02T12:50:00.000Z")).toBe("15:50");
+    expect(wallDateTimeInputToIso("2027-06-01T15:50")).toBe("2027-06-01T12:50:00.000Z");
+    expect(wallDateTimeInputToIso("2027-06-01T12:50:00.000Z")).toBe("2027-06-01T12:50:00.000Z");
+    expect(formatTime("2027-06-01T12:50:00.000Z")).toBe("15:50");
   });
 
   it("seri oluşumları 15:50 kalır ve doğru haftanın gününe düşer", () => {
@@ -77,18 +79,18 @@ describe("D — saat kayması (sunucu UTC)", () => {
     expect(lessons.map((l) => hm(l.endAt))).toEqual(["16:30", "16:30", "16:30", "16:30"]);
   });
 
-  it("createLessonTool: formdaki '2027-03-02T15:50' 15:50 olarak kaydedilir", async () => {
-    const res = await createLessonTool(admin, { studentId: "s1", teacherId: "t1", roomId: "r1", instrument: "Piyano", startAt: "2027-03-02T15:50", durationMinutes: 40 });
+  it("createLessonTool: formdaki '2027-06-01T15:50' 15:50 olarak kaydedilir", async () => {
+    const res = await createLessonTool(admin, { studentId: "s1", teacherId: "t1", roomId: "r1", instrument: "Piyano", startAt: "2027-06-01T15:50", durationMinutes: 40 });
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     const lesson = (await readData()).lessons.find((l) => l.id === res.data.lessonId)!;
     expect(hm(lesson.startAt)).toBe("15:50");
-    expect(toZonedYmd(new Date(lesson.startAt), DEFAULT_APP_TIMEZONE)).toBe("2027-03-02");
+    expect(toZonedYmd(new Date(lesson.startAt), DEFAULT_APP_TIMEZONE)).toBe("2027-06-01");
   });
 
   it("müsait olmayan saat: uyarı verir, onaylanınca AYNI saate kaydedilir (başka saate kaydırmaz)", async () => {
     // t1 Cumartesi 10–14 müsait → 15:50 müsaitlik dışı.
-    const input = { studentId: "s1", teacherId: "t1", roomId: "r1", instrument: "Piyano", startAt: "2027-03-06T15:50", durationMinutes: 40 };
+    const input = { studentId: "s1", teacherId: "t1", roomId: "r1", instrument: "Piyano", startAt: "2027-06-05T15:50", durationMinutes: 40 };
     const warned = await createLessonTool(admin, input);
     expect(warned.ok).toBe(false);
     if (!warned.ok) expect((warned.error.details as { overridable?: boolean }).overridable).toBe(true);
@@ -101,7 +103,7 @@ describe("D — saat kayması (sunucu UTC)", () => {
   });
 
   it("müsaitlik penceresi kurum saatine göre: Salı 18:30 (10–19 içinde) müsait sayılır", async () => {
-    const res = await createLessonTool(admin, { studentId: "s1", teacherId: "t1", roomId: "r1", instrument: "Piyano", startAt: "2027-03-09T18:10", durationMinutes: 40 });
+    const res = await createLessonTool(admin, { studentId: "s1", teacherId: "t1", roomId: "r1", instrument: "Piyano", startAt: "2027-06-08T18:10", durationMinutes: 40 });
     expect(res.ok).toBe(true);
   });
 });
@@ -171,7 +173,7 @@ describe("E — ders silme (üç kapsam)", () => {
   });
 
   it("seriye ait olmayan derste seri kapsamı anlaşılır Türkçe hata verir", async () => {
-    const single = await createLessonTool(admin, { studentId: "s1", teacherId: "t1", roomId: "r1", instrument: "Piyano", startAt: "2027-04-06T15:50", durationMinutes: 40 });
+    const single = await createLessonTool(admin, { studentId: "s1", teacherId: "t1", roomId: "r1", instrument: "Piyano", startAt: "2027-07-06T15:50", durationMinutes: 40 });
     if (!single.ok) throw new Error(single.error.message);
     const res = await deleteLessonsTool(admin, { lessonId: single.data.lessonId, scope: "entireSeries" });
     expect(res.ok).toBe(false);
@@ -194,7 +196,7 @@ describe("E — ders revize (üç kapsam)", () => {
 
   it("sadece bu ders: tarih-saat değişir, diğerleri 15:50 kalır", async () => {
     const lessons = await newSeries();
-    const res = await reviseLessonsTool(admin, { lessonId: lessons[1]!.id, scope: "single", startAt: "2027-03-09T17:00" });
+    const res = await reviseLessonsTool(admin, { lessonId: lessons[1]!.id, scope: "single", startAt: "2027-06-08T17:00" });
     expect(res.ok).toBe(true);
     const after = await seriesLessons(lessons[0]!.seriesId!);
     expect(after.map((l) => hm(l.startAt))).toEqual(["15:50", "17:00", "15:50", "15:50"]);
@@ -229,7 +231,7 @@ describe("E — ders revize (üç kapsam)", () => {
 
   it("çakışma varsa hiçbir ders değişmez ve Türkçe neden döner", async () => {
     const lessons = await newSeries();
-    const blocker = await createLessonTool(admin, { studentId: "s1", teacherId: "t1", roomId: "r1", instrument: "Piyano", startAt: "2027-03-16T17:00", durationMinutes: 40 });
+    const blocker = await createLessonTool(admin, { studentId: "s1", teacherId: "t1", roomId: "r1", instrument: "Piyano", startAt: "2027-06-15T17:00", durationMinutes: 40 });
     expect(blocker.ok).toBe(true);
     const res = await reviseLessonsTool(admin, { lessonId: lessons[0]!.id, scope: "entireSeries", startTime: "17:00" });
     expect(res.ok).toBe(false);

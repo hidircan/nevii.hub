@@ -37,7 +37,8 @@ import { LessonReassignmentModal } from "@/components/lesson-reassignment-modal"
 import { INSTRUMENTS, type Instrument, type Lesson, type Room, type Student, type Teacher } from "@/lib/types";
 import { dayName } from "@/lib/utils";
 import { DEFAULT_LESSON_DURATION_MINUTES, LESSON_DURATION_OPTIONS } from "@/lib/lesson-duration";
-import { CALENDAR_START_HOUR, turkeyFixedPublicHolidays, toYmd } from "@/lib/closed-days";
+import { CALENDAR_START_HOUR, toYmd } from "@/lib/closed-days";
+import { findOfficialHoliday } from "@/lib/turkish-holidays";
 import {
   lessonMatchesAcademicPeriod,
   lessonCardFillStyle,
@@ -111,15 +112,12 @@ function slotStarts(startMin: number, endMin: number) {
 }
 
 /**
- * Türkiye'nin sabit tarihli resmî tatilleri — salt görsel bir işaret (kırmızı
- * gün başlığı). Dini tatiller (ay takvimine bağlı) ve yönetici özel kapalı
- * günleri henüz bir veri modeliyle desteklenmiyor (ClosedDay tipi var ama
- * store/tool/UI'ı yok) — bu yüzden yalnızca sabit millî günler işaretlenir.
+ * Resmî tatil başlığı — Yoklama Takvimi ve ders planlama doğrulamasıyla AYNI kaynak
+ * (`findOfficialHoliday`: sabit millî günler + Diyanet doğrulamalı dini bayramlar).
+ * Eskiden yalnız sabit günler işaretleniyordu; bayramlar Ders Programı'nda görünmüyordu.
  */
-function fixedHolidayName(day: Date): string | null {
-  const ymd = toYmd(day);
-  const holiday = turkeyFixedPublicHolidays(day.getFullYear()).find((h) => h.date === ymd);
-  return holiday?.name ?? null;
+function officialHolidayName(day: Date): string | null {
+  return findOfficialHoliday(toYmd(day))?.name ?? null;
 }
 
 function minutesOfDay(iso: string) {
@@ -1572,9 +1570,13 @@ export function ProgramStudio({
       {seriesPreview ? (
         <div className="mt-4 border-t border-[var(--color-border)] pt-4">
           <p className="text-sm font-medium text-[var(--color-text-muted)] dark:text-slate-300">{seriesPreview.previewText}</p>
-          {seriesPreview.conflictCount > 0 ? (
+          {seriesPreview.checks.some((c) => !c.ok) ? (
             <div className="mt-3">
-              <p className="text-sm font-medium text-rose-700">{seriesPreview.conflictCount} tarihte çakışma var:</p>
+              <p className="text-sm font-medium text-rose-700">
+                {seriesPreview.conflictCount > 0
+                  ? `${seriesPreview.conflictCount} tarihte çakışma var:`
+                  : "Resmî tatile denk gelen tarihler (ders oluşturulmayacak):"}
+              </p>
               <div className="mt-2 max-h-40 space-y-1 overflow-y-auto rounded-lg bg-rose-50 p-2 text-xs text-rose-800">
                 {seriesPreview.checks
                   .filter((c) => !c.ok)
@@ -1823,7 +1825,7 @@ export function ProgramStudio({
           {visibleDays.map((dayIso) => {
             const day = parseISO(dayIso);
             const today = isSameDay(day, now);
-            const holidayName = fixedHolidayName(day);
+            const holidayName = officialHolidayName(day);
             return (
               <div
                 key={dayIso}
