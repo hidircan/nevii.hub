@@ -7177,16 +7177,19 @@ export async function listPeriodicAssessmentsForStudentTool(
 }
 
 /**
- * EPIC 8 (IMPLEMENTATION_PLAN.md) — TEACHER yalnızca kendi dersini
- * başlatabilir/bitirebilir. Erken/geç başlatma toleransı bilinçli: planlanan
- * saatten ne kadar sapmış olursa olsun kabul edilir (bkz.
- * lesson-live-status.ts) — yalnızca dersin MEVCUT durumu geçişi engeller.
+ * EPIC 8 — ders başlat/bitir. 2026-09-19 (owner kararı): yönetici merkezli tek
+ * yetki modeli — öğretmen dersi başlatamaz/bitiremez (web, API, mobil aynı
+ * tool'dan geçer). Hakediş `lessonProcessed` ("İşlendi", yöneticide) ile yürür.
  */
+export const TEACHER_LESSON_LIVE_FORBIDDEN_MESSAGE =
+  "Dersi başlatma/bitirme yalnız kurum yöneticisi tarafından yapılır. Ders durumu için yöneticinizle iletişime geçin.";
+
 export async function startLessonTool(
   ctx: ServiceContext,
   input: unknown
 ): Promise<ServiceResult<{ lessonId: string; status: string }>> {
-  const auth = requireRole(ctx, ["TEACHER", "SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (ctx.role === "TEACHER") return fail("FORBIDDEN", TEACHER_LESSON_LIVE_FORBIDDEN_MESSAGE);
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
 
   const v = parseOrFail(startLessonSchema, input);
@@ -7195,9 +7198,6 @@ export async function startLessonTool(
   const data = await readData();
   const lesson = data.lessons.find((l) => l.id === v.data.lessonId);
   if (!lesson) return fail("NOT_FOUND", "Ders bulunamadı");
-  if (ctx.role === "TEACHER" && lesson.teacherId !== ctx.teacherId) {
-    return fail("FORBIDDEN", "Yalnızca kendi dersinizi başlatabilirsiniz.");
-  }
 
   try {
     const result = await startLessonLive(v.data.lessonId);
@@ -7239,7 +7239,8 @@ export async function endLessonTool(
   ctx: ServiceContext,
   input: unknown
 ): Promise<ServiceResult<{ lessonId: string; status: string }>> {
-  const auth = requireRole(ctx, ["TEACHER", "SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (ctx.role === "TEACHER") return fail("FORBIDDEN", TEACHER_LESSON_LIVE_FORBIDDEN_MESSAGE);
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
 
   const v = parseOrFail(endLessonSchema, input);
@@ -7248,9 +7249,6 @@ export async function endLessonTool(
   const data = await readData();
   const lesson = data.lessons.find((l) => l.id === v.data.lessonId);
   if (!lesson) return fail("NOT_FOUND", "Ders bulunamadı");
-  if (ctx.role === "TEACHER" && lesson.teacherId !== ctx.teacherId) {
-    return fail("FORBIDDEN", "Yalnızca kendi dersinizi bitirebilirsiniz.");
-  }
 
   try {
     const result = await endLessonLive(v.data.lessonId);

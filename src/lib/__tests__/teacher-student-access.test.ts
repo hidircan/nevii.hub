@@ -90,7 +90,7 @@ describe("createHomeworkTool — cross-teacher", () => {
   });
 });
 
-describe("startLessonTool — own lesson only", () => {
+describe("startLessonTool — öğretmen hiç başlatamaz", () => {
   it("başka öğretmenin dersini başlatamaz", async () => {
     // l8 is t2/s2 in seed
     const res = await startLessonTool(ctx({ teacherId: "t1" }), { lessonId: "l8" });

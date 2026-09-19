@@ -31,8 +31,7 @@ import { StudentFeedbackForm } from "@/components/student-feedback-form";
 import { getOwnStudentFeedbackThisMonthTool } from "@/lib/services";
 import { ClipboardCheck } from "lucide-react";
 import { formatDate, formatDateTime, formatTime } from "@/lib/utils";
-import { computeLiveDisplayStatus, resolveLessonFinalStatus } from "@/lib/lesson-live-status";
-import { LessonLiveActions } from "@/components/lesson-live-actions";
+import { resolveLessonFinalStatus } from "@/lib/lesson-live-status";
 import type { StudentCurriculumTopic } from "@/lib/types";
 import { effectiveStudentTypes, formatStudentTypes } from "@/lib/student-types";
 
@@ -251,7 +250,6 @@ export default async function TeacherStudentWorkspacePage({
             <div className="mb-3 space-y-2">
               {upcoming.map((lesson) => {
                 const room = data.rooms.find((r) => r.id === lesson.roomId);
-                const liveStatus = computeLiveDisplayStatus(lesson);
                 return (
                   <Card key={lesson.id} className="!p-3">
                     <div className="flex items-start justify-between gap-2">
@@ -266,11 +264,6 @@ export default async function TeacherStudentWorkspacePage({
                       </div>
                       <LessonStatusBadge status={resolveLessonFinalStatus(lesson)} />
                     </div>
-                    {(liveStatus === "scheduled" ||
-                      liveStatus === "delayed" ||
-                      liveStatus === "in_progress") && (
-                      <LessonLiveActions lessonId={lesson.id} displayStatus={liveStatus} />
-                    )}
                   </Card>
                 );
               })}

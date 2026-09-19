@@ -12,7 +12,6 @@ import { CalendarDays, Music2, Users, Wallet } from "lucide-react";
 import { requireSessionContext } from "@/lib/auth/session";
 import { AssistantPageContext } from "@/components/ai/assistant-page-context";
 import { computeLiveDisplayStatus, resolveLessonFinalStatus } from "@/lib/lesson-live-status";
-import { LessonLiveActions } from "@/components/lesson-live-actions";
 import { LessonCountdown } from "@/components/lesson-countdown";
 import { effectiveStudentTypes } from "@/lib/student-types";
 
@@ -113,7 +112,6 @@ export default async function OgretmenPortalPage() {
                       </div>
                       <LessonStatusBadge status={resolveLessonFinalStatus(lesson)} />
                     </div>
-                    <LessonLiveActions lessonId={lesson.id} displayStatus={liveStatus} />
                     {liveStatus === "in_progress" && lesson.actualStartAt ? (
                       <LessonCountdown actualStartAt={lesson.actualStartAt} plannedDurationMinutes={plannedMinutes} />
                     ) : null}

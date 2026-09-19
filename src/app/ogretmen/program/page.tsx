@@ -17,7 +17,6 @@ import { Badge, Card } from "@/components/ui";
 import { LessonStatusBadge } from "@/components/lesson-status-badge";
 import { formatDate, formatTime } from "@/lib/utils";
 import { computeLiveDisplayStatus, resolveLessonFinalStatus } from "@/lib/lesson-live-status";
-import { LessonLiveActions } from "@/components/lesson-live-actions";
 import { LessonCountdown } from "@/components/lesson-countdown";
 import { isMonday } from "@/lib/closed-days";
 import { ProgramLiveRefresh } from "@/components/program-live-refresh";
@@ -158,7 +157,6 @@ export default async function TeacherOwnProgramPage({
                         </div>
                         {today ? (
                           <>
-                            <LessonLiveActions lessonId={lesson.id} displayStatus={liveStatus} />
                             {liveStatus === "in_progress" && lesson.actualStartAt ? (
                               <LessonCountdown
                                 actualStartAt={lesson.actualStartAt}
