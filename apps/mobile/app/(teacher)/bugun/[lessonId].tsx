@@ -1,7 +1,5 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useState } from "react";
 import { Text, View } from "react-native";
-import { apiPost } from "../../../src/api/client";
 import { useAuth } from "../../../src/auth/auth-context";
 import {
   AppHeader,
@@ -12,18 +10,15 @@ import {
   ErrorState,
   HomeworkCard,
   Icon,
-  LiveLessonTimer,
   LoadingSkeleton,
   Screen,
   SectionHeader,
   StatusBadge,
 } from "../../../src/components/ui";
 import { useApiGet } from "../../../src/hooks/use-api";
-import { useNow } from "../../../src/hooks/use-now";
 import { useAppForegroundRefetch } from "../../../src/hooks/use-app-foreground-refetch";
 import { useFocusRefetch } from "../../../src/hooks/use-focus-refetch";
-import { createInFlightGuard } from "../../../src/lib/attendance";
-import { format, isPast } from "../../../src/lib/date";
+import { format } from "../../../src/lib/date";
 import { lessonStatusBadge } from "../../../src/lib/lesson-status";
 import { useTheme } from "../../../src/theme/theme-context";
 import type { HomeworkResponse, ScheduleResponse } from "../../../src/types/api";
@@ -31,14 +26,13 @@ import type { HomeworkResponse, ScheduleResponse } from "../../../src/types/api"
 export default function LessonDetailScreen() {
   const t = useTheme();
   const router = useRouter();
-  const now = useNow();
   const { user } = useAuth();
   const { lessonId } = useLocalSearchParams<{ lessonId: string }>();
-  const [guard] = useState(createInFlightGuard);
-  const [busyAction, setBusyAction] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
 
+  // Salt-okunur ders detayı: öğretmen yalnız kendi programını görüntüler.
+  // Yoklama, ders başlatma/bitirme bu yüzeyde YOK — mutasyonlar yalnız
+  // yönetici akışındadır. Reddedilecek aksiyona götürmek yerine buton
+  // hiç gösterilmez, yerine net bilgi metni konur.
   // Ders yalnız öğretmenin KENDİ programından bulunur (sunucu teacherId sahipliğini doğrular);
   // listede yoksa "bulunamadı" gösterilir — başka bir kaynaktan tahmin edilmez.
   const schedule = useApiGet<ScheduleResponse>(user?.teacherId ? `/api/v1/teachers/${user.teacherId}/schedule` : "");
@@ -47,20 +41,6 @@ export default function LessonDetailScreen() {
   const lesson = schedule.status === "success" ? schedule.data.lessons.find((l) => l.id === lessonId) : undefined;
 
   const homework = useApiGet<HomeworkResponse>(lesson?.studentId ? `/api/v1/students/${lesson.studentId}/homework` : "");
-
-  // Öğretmen yoklama işareti KOYAMAZ — yoklama mutasyonu yalnız yönetici
-  // akışındadır (admin/islemler/yoklama). Bu ekranda /ops çağrısı YOK.
-  function runLifecycle(action: "start" | "end") {
-    void guard.run(async () => {
-      setBusyAction(action);
-      setActionError(null);
-      setNotice(null);
-      const res = await apiPost(`/api/v1/lessons/${lessonId}/${action}`);
-      setBusyAction(null);
-      if (!res.ok) setActionError(res.error.message);
-      schedule.refresh();
-    });
-  }
 
   if (schedule.status === "loading") {
     return (
@@ -88,8 +68,6 @@ export default function LessonDetailScreen() {
   }
 
   const badge = lessonStatusBadge(lesson);
-  const past = isPast(lesson.endAt, now);
-  const busy = busyAction !== null;
 
   return (
     <Screen onRefresh={schedule.refresh} refreshing={false}>
@@ -110,51 +88,12 @@ export default function LessonDetailScreen() {
         </View>
       </Card>
 
-      {actionError ? (
-        <Card style={{ borderColor: t.colors.danger, backgroundColor: t.colors.dangerSoft, marginTop: 12 }}>
-          <Text accessibilityLiveRegion="polite" style={{ color: t.colors.danger }}>
-            {actionError}
-          </Text>
-        </Card>
-      ) : null}
-      {notice ? (
-        <Card style={{ borderColor: t.colors.success, backgroundColor: t.colors.successSoft, marginTop: 12 }}>
-          <Text accessibilityLiveRegion="polite" style={{ color: t.colors.success }}>
-            {notice}
-          </Text>
-        </Card>
-      ) : null}
-
-      {!past ? (
-        <>
-          <SectionHeader title="Ders akışı" />
-          {lesson.status === "in_progress" && lesson.actualStartAt ? (
-            <Card style={{ marginBottom: 10 }}>
-              <LiveLessonTimer actualStartAt={lesson.actualStartAt} scheduledEndAt={lesson.endAt} />
-            </Card>
-          ) : null}
-          <View style={{ flexDirection: "row", gap: 8 }}>
-            <Button
-              label="Dersi başlat"
-              size="sm"
-              variant="secondary"
-              icon="play"
-              loading={busyAction === "start"}
-              disabled={busy || lesson.status !== "scheduled"}
-              onPress={() => runLifecycle("start")}
-            />
-            <Button
-              label="Dersi bitir"
-              size="sm"
-              variant="secondary"
-              icon="stop"
-              loading={busyAction === "end"}
-              disabled={busy || lesson.status !== "in_progress"}
-              onPress={() => runLifecycle("end")}
-            />
-          </View>
-        </>
-      ) : null}
+      <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 8, marginTop: 12 }}>
+        <Icon name="information-circle-outline" size={16} color={t.colors.textMuted} />
+        <Text style={[t.typography.caption, { color: t.colors.textMuted, flex: 1 }]}>
+          Yoklama yalnız kurum yöneticileri tarafından alınır.
+        </Text>
+      </View>
 
       <SectionHeader title="Eylemler" />
       <View style={{ gap: 8 }}>

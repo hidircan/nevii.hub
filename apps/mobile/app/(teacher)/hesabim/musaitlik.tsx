@@ -1,62 +1,24 @@
-import { useEffect, useState } from "react";
-import { Pressable, Text, View } from "react-native";
-import { apiPost } from "../../../src/api/client";
+import { Text, View } from "react-native";
 import { useAuth } from "../../../src/auth/auth-context";
-import { AppHeader, Button, Card, EmptyState, ErrorState, LoadingSkeleton, Screen, SectionHeader, StatusBadge, TextField } from "../../../src/components/ui";
+import { AppHeader, Card, EmptyState, ErrorState, Icon, LoadingSkeleton, Screen, SectionHeader, StatusBadge } from "../../../src/components/ui";
 import { useApiGet } from "../../../src/hooks/use-api";
 import { relativeDayLabel } from "../../../src/lib/date";
-import {
-  AVAILABILITY_DAYS as DAYS,
-  buildProposedAvailability,
-  emptyAvailabilityRows,
-  isAvailabilitySubmittable,
-  type AvailabilityDayRow,
-} from "../../../src/lib/availability-form";
+import { AVAILABILITY_DAYS as DAYS } from "../../../src/lib/availability-form";
 import { useTheme } from "../../../src/theme/theme-context";
 import type { AvailabilityRequestsResponse } from "../../../src/types/api";
 
 const STATUS_LABEL: Record<string, string> = { pending: "İnceleniyor", approved: "Onaylandı", rejected: "Reddedildi" };
 
+/**
+ * Müsaitlik — salt-okunur. Öğretmen yalnız onaylı güncel müsaitliğini ve
+ * geçmiş önerilerin durumunu görüntüler; düzenleme/öneri gönderme bu yüzeyde
+ * YOK (müsaitlik günleri yalnız kurum yöneticileri tarafından düzenlenir).
+ * Reddedilecek aksiyona götürmek yerine form hiç gösterilmez.
+ */
 export default function Musaitlik() {
   const t = useTheme();
   const { user } = useAuth();
   const res = useApiGet<AvailabilityRequestsResponse>(user?.teacherId ? `/api/v1/teachers/${user.teacherId}/availability-requests` : "");
-
-  const [rows, setRows] = useState<AvailabilityDayRow[]>(emptyAvailabilityRows());
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [sentAt, setSentAt] = useState<number | null>(null);
-
-  // Confirmation banner is transient so the teacher can keep adding and
-  // submitting more suggestions in the same session instead of it locking
-  // the form (that was the original bug: leave/re-enter was the only way
-  // to send a second batch).
-  useEffect(() => {
-    if (sentAt === null) return;
-    const timer = setTimeout(() => setSentAt(null), 4000);
-    return () => clearTimeout(timer);
-  }, [sentAt]);
-
-  function updateRow(i: number, patch: Partial<AvailabilityDayRow>) {
-    setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
-  }
-
-  const canSubmit = isAvailabilitySubmittable(rows) && !busy;
-
-  async function onSubmit() {
-    setBusy(true);
-    setError(null);
-    const proposedAvailability = buildProposedAvailability(rows);
-    const submitRes = await apiPost("/api/v1/teachers/availability/propose", { proposedAvailability });
-    setBusy(false);
-    if (!submitRes.ok) {
-      setError(submitRes.error.message || "Müsaitlik önerisi gönderilemedi.");
-      return;
-    }
-    setRows(emptyAvailabilityRows());
-    setSentAt(Date.now());
-    res.refresh();
-  }
 
   return (
     <Screen>
@@ -64,9 +26,6 @@ export default function Musaitlik() {
 
       <SectionHeader title="Şu anki müsaitlik" />
       <Card>
-        <Text style={[t.typography.caption, { color: t.colors.textMuted, marginBottom: 8 }]}>
-          Yönetici tarafından onaylanmış, şu anda geçerli müsaitliğiniz. Bunu değiştirmek için aşağıdan öneri gönderin.
-        </Text>
         {res.status === "loading" ? (
           <LoadingSkeleton rows={2} />
         ) : res.status === "error" ? (
@@ -86,38 +45,13 @@ export default function Musaitlik() {
         )}
       </Card>
 
-      <SectionHeader title="Yeni müsaitlik öner" />
-      <Card>
-        <Text style={[t.typography.caption, { color: t.colors.textMuted, marginBottom: 12 }]}>
-          Uygun olduğunuz günleri işaretleyip saat aralığını girin. Öneriniz yönetici onayına gider.
+      <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 8, marginTop: 12 }}>
+        <Icon name="information-circle-outline" size={16} color={t.colors.textMuted} />
+        <Text style={[t.typography.caption, { color: t.colors.textMuted, flex: 1 }]}>
+          Müsaitlik günleri yalnız kurum yöneticileri tarafından düzenlenir. Değişiklik talebiniz için kurum
+          yöneticinizle iletişime geçin.
         </Text>
-        <View style={{ gap: 14 }}>
-          {DAYS.map((day, i) => (
-            <View key={day}>
-              <Pressable
-                onPress={() => updateRow(i, { enabled: !rows[i]!.enabled })}
-                style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: rows[i]!.enabled ? 8 : 0 }}
-              >
-                <StatusBadge label={day} tone={rows[i]!.enabled ? "primary" : "neutral"} />
-              </Pressable>
-              {rows[i]!.enabled ? (
-                <View style={{ flexDirection: "row", gap: 10 }}>
-                  <View style={{ flex: 1 }}>
-                    <TextField label="Başlangıç" value={rows[i]!.start} onChangeText={(v) => updateRow(i, { start: v })} placeholder="09:00" />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <TextField label="Bitiş" value={rows[i]!.end} onChangeText={(v) => updateRow(i, { end: v })} placeholder="18:00" />
-                  </View>
-                </View>
-              ) : null}
-            </View>
-          ))}
-        </View>
-
-        {error ? <Text style={{ color: t.colors.danger, marginTop: 12 }}>{error}</Text> : null}
-        {sentAt !== null ? <Text style={{ color: t.colors.success, marginTop: 12 }}>Öneriniz gönderildi. Dilerseniz yeni bir öneri daha ekleyip gönderebilirsiniz.</Text> : null}
-        <Button label="Öneriyi gönder" onPress={onSubmit} disabled={!canSubmit} loading={busy} style={{ marginTop: 16 }} />
-      </Card>
+      </View>
 
       <SectionHeader title="Geçmiş öneriler" />
       {res.status === "loading" ? (
@@ -125,7 +59,7 @@ export default function Musaitlik() {
       ) : res.status === "error" ? (
         <ErrorState message={res.message} onRetry={res.refresh} />
       ) : res.data.requests.length === 0 ? (
-        <EmptyState icon="time-outline" title="Henüz öneri göndermediniz" />
+        <EmptyState icon="time-outline" title="Kayıtlı öneri yok" />
       ) : (
         <View style={{ gap: 10 }}>
           {[...res.data.requests].reverse().map((r) => (
