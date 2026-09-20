@@ -81,7 +81,7 @@ export function StudentScopeLessonsScreen({ basePath }: { basePath: "/(parent)" 
 
   return (
     <Screen onRefresh={refreshAll} refreshing={res.status === "loading"}>
-      <AppHeader title="Program" subtitle={studentName ? `${studentName} — haftalık ders programı` : "Haftalık ders programı"} />
+      <AppHeader title="Program" subtitle={studentName ? `${studentName} — haftalık ders programı` : "Haftalık ders programı"} showAccount={`${basePath}/hesabim`} />
 
       <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
         <Pressable accessibilityRole="button" accessibilityLabel="Önceki hafta" hitSlop={8} onPress={() => setWeekStart((d) => addDays(d, -7))} style={{ padding: 6 }}>

@@ -52,7 +52,7 @@ export function StudentScopeGelisimScreen({ basePath }: { basePath: "/(parent)" 
   if (!studentId) {
     return (
       <Screen>
-        <AppHeader title="Gelişim" />
+        <AppHeader title="Gelişim" showAccount={`${basePath}/hesabim`} />
         <EmptyState icon="alert-circle-outline" title="Öğrenci bilgisi bulunamadı" />
       </Screen>
     );
@@ -60,7 +60,7 @@ export function StudentScopeGelisimScreen({ basePath }: { basePath: "/(parent)" 
 
   return (
     <Screen>
-      <AppHeader title="Gelişim" />
+      <AppHeader title="Gelişim" showAccount={`${basePath}/hesabim`} />
 
       <SectionHeader title="Müfredat ilerlemesi" />
       {curriculum.status === "loading" ? (

@@ -119,7 +119,7 @@ export function StudentScopeHomeScreen({ basePath }: { basePath: "/(parent)" | "
 
   return (
     <Screen onRefresh={refreshAll} refreshing={refreshing}>
-      <AppHeader title="Nevii Hub" subtitle={headerContext} />
+      <AppHeader title="Nevii Hub" subtitle={headerContext} showAccount={`${basePath}/hesabim`} />
       <ChildSwitcher childName={profile.status === "success" ? profile.data.name : undefined} />
 
       <SectionHeader title="Sıradaki ders" />

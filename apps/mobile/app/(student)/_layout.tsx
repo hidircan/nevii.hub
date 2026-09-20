@@ -12,31 +12,36 @@ export default function StudentLayout() {
           headerShown: false,
           tabBarActiveTintColor: t.colors.primary,
           tabBarInactiveTintColor: t.colors.textMuted,
-          tabBarStyle: { backgroundColor: t.colors.bg, borderTopColor: t.colors.border },
+          tabBarStyle: { backgroundColor: t.colors.bg, borderTopColor: t.colors.border, minHeight: 64 },
+          tabBarLabelStyle: { fontSize: 13 },
+          tabBarItemStyle: { paddingVertical: 6 },
         }}
       >
         <Tabs.Screen
           name="anasayfa"
-          options={{ title: "Ana Sayfa", tabBarIcon: ({ color, size }) => <Icon name="home-outline" size={size} color={color} /> }}
+          options={{ title: "Ana Sayfa", tabBarIcon: ({ color }) => <Icon name="home-outline" size={26} color={color} /> }}
         />
         <Tabs.Screen
           name="dersler"
-          options={{ title: "Program", tabBarIcon: ({ color, size }) => <Icon name="calendar-outline" size={size} color={color} /> }}
+          options={{ title: "Program", tabBarIcon: ({ color }) => <Icon name="calendar-outline" size={26} color={color} /> }}
         />
         <Tabs.Screen
           name="odevler"
-          options={{ title: "Ödevlerim", tabBarIcon: ({ color, size }) => <Icon name="book-outline" size={size} color={color} /> }}
+          options={{ title: "Ödevlerim", tabBarIcon: ({ color }) => <Icon name="book-outline" size={26} color={color} /> }}
         />
         <Tabs.Screen
           name="gelisim"
-          options={{ title: "Gelişim", tabBarIcon: ({ color, size }) => <Icon name="trending-up-outline" size={size} color={color} /> }}
+          options={{ title: "Gelişim", tabBarIcon: ({ color }) => <Icon name="trending-up-outline" size={26} color={color} /> }}
         />
         <Tabs.Screen
-          name="hesabim"
-          options={{ title: "Hesabım", tabBarIcon: ({ color, size }) => <Icon name="person-circle-outline" size={size} color={color} /> }}
+          name="odemeler"
+          options={{ title: "Ödemeler", tabBarIcon: ({ color }) => <Icon name="card-outline" size={26} color={color} /> }}
         />
-        {/* Sekme çubuğunda gösterilmez (href:null) — "Ana Sayfa"daki ödeme özeti kartından erişilir, günlük birincil eylem değil. */}
-        <Tabs.Screen name="odemeler" options={{ href: null }} />
+        {/*
+          Hesabım sekmesi kaldırıldı — hesap erişimi sekme köklerindeki üst
+          header'da zil ikonunun sağındaki profil ikonundadır. Route korunur.
+        */}
+        <Tabs.Screen name="hesabim" options={{ href: null }} />
       </Tabs>
     </PersonaGuard>
   );

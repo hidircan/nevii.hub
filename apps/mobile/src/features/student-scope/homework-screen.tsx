@@ -36,7 +36,7 @@ export function StudentScopeHomeworkListScreen({ basePath }: { basePath: "/(pare
 
   return (
     <Screen onRefresh={res.refresh} refreshing={res.status === "loading"}>
-      <AppHeader title="Ödevler" />
+      <AppHeader title="Ödevler" showAccount={`${basePath}/hesabim`} />
 
       <View style={{ flexDirection: "row", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
         <FilterChip label="Bekleyen" selected={filter === "pending"} onPress={() => setFilter("pending")} />

@@ -47,7 +47,7 @@ export function StudentScopePaymentsScreen({ basePath }: { basePath: "/(parent)"
 
   return (
     <Screen onRefresh={res.refresh} refreshing={res.status === "loading"}>
-      <AppHeader title="Ödemeler" showBack />
+      <AppHeader title="Ödemeler" showAccount={`${basePath}/hesabim`} />
 
       {res.status === "loading" ? (
         <LoadingSkeleton rows={4} />
