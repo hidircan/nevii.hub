@@ -7266,8 +7266,24 @@ export async function listTeacherAvailabilityRequestsTool(
   }
 
   try {
-    const requests = await listAvailabilityRequestsForTeacher(ctx.tenantId, v.data.teacherId);
-    return ok({ requests });
+    const raw = await listAvailabilityRequestsForTeacher(ctx.tenantId, v.data.teacherId);
+    // Legacy/satır-kayıtlar `proposedAvailability` taşımayabilir — UI'ın
+    // `.map`/`.length` çağrıları çökmemesi için normalize edilir.
+    const requests = raw.map((r) => ({
+      ...r,
+      proposedAvailability: Array.isArray(r.proposedAvailability) ? r.proposedAvailability : [],
+    }));
+    // Öğretmenin güncel (onaylı) müsaitliği — kayıt yoksa [] (mobil UI
+    // `currentAvailability.length` çağırır; undefined dönmek render crash'ti).
+    let currentAvailability: Array<{ dayOfWeek: number; start: string; end: string; branchId?: string }> = [];
+    try {
+      const data = await readData();
+      const teacher = data.teachers.find((t) => t.id === v.data.teacherId);
+      if (Array.isArray(teacher?.availability)) currentAvailability = teacher.availability;
+    } catch {
+      currentAvailability = [];
+    }
+    return ok({ requests, currentAvailability });
   } catch (e) {
     return fail(
       "INTERNAL_ERROR",

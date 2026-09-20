@@ -20,6 +20,11 @@ export default function Musaitlik() {
   const { user } = useAuth();
   const res = useApiGet<AvailabilityRequestsResponse>(user?.teacherId ? `/api/v1/teachers/${user.teacherId}/availability-requests` : "");
 
+  // Savunmacı okuma — backend normalize etse de legacy/eksik alanlı yanıtlar
+  // render crash'e (Cannot read property 'length' of undefined) yol açmamalı.
+  const currentAvailability = res.status === "success" ? (res.data?.currentAvailability ?? []) : [];
+  const requests = res.status === "success" ? (res.data?.requests ?? []) : [];
+
   return (
     <Screen>
       <AppHeader title="Müsaitlik" showBack showNotifications={false} />
@@ -30,15 +35,15 @@ export default function Musaitlik() {
           <LoadingSkeleton rows={2} />
         ) : res.status === "error" ? (
           <ErrorState message={res.message} onRetry={res.refresh} />
-        ) : res.data.currentAvailability.length === 0 ? (
+        ) : currentAvailability.length === 0 ? (
           <Text style={[t.typography.body, { color: t.colors.textMuted }]}>Kayıtlı müsaitlik yok.</Text>
         ) : (
           <View style={{ gap: 4 }}>
-            {[...res.data.currentAvailability]
+            {[...currentAvailability]
               .sort((a, b) => a.dayOfWeek - b.dayOfWeek)
               .map((w, i) => (
                 <Text key={`${w.dayOfWeek}-${i}`} style={[t.typography.body, { color: t.colors.text }]}>
-                  {DAYS[w.dayOfWeek]}: {w.start}–{w.end}
+                  {DAYS[w.dayOfWeek] ?? `Gün ${w.dayOfWeek}`}: {w.start}–{w.end}
                 </Text>
               ))}
           </View>
@@ -58,11 +63,11 @@ export default function Musaitlik() {
         <LoadingSkeleton rows={2} />
       ) : res.status === "error" ? (
         <ErrorState message={res.message} onRetry={res.refresh} />
-      ) : res.data.requests.length === 0 ? (
+      ) : requests.length === 0 ? (
         <EmptyState icon="time-outline" title="Kayıtlı öneri yok" />
       ) : (
         <View style={{ gap: 10 }}>
-          {[...res.data.requests].reverse().map((r) => (
+          {[...requests].reverse().map((r) => (
             <Card key={r.id}>
               <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
                 <Text style={[t.typography.caption, { color: t.colors.textFaint }]}>{relativeDayLabel(new Date(r.createdAt))}</Text>
@@ -72,7 +77,7 @@ export default function Musaitlik() {
                 />
               </View>
               <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 6 }]}>
-                {r.proposedAvailability.map((w) => `${DAYS[w.dayOfWeek]} ${w.start}-${w.end}`).join(", ")}
+                {(r.proposedAvailability ?? []).map((w) => `${DAYS[w.dayOfWeek] ?? `Gün ${w.dayOfWeek}`} ${w.start}-${w.end}`).join(", ")}
               </Text>
               {r.reviewNote ? <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 4 }]}>Not: {r.reviewNote}</Text> : null}
             </Card>
