@@ -22,9 +22,10 @@ const NEXT_LABEL: Record<string, string> = { draft: "Onayla", approved: "Gönder
 export default function Tahsilat() {
   const t = useTheme();
   const res = useApiGet<FollowUpCasesResponse>("/api/v1/tahsilat/cases");
-  const students = useApiGet<AdminStudentsResponse>("/api/v1/students");
+  const students = useApiGet<AdminStudentsResponse>("/api/v1/students?limit=100");
   const [tab, setTab] = useState<"open" | "all">("open");
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const cases = useMemo(() => {
     if (res.status !== "success") return [];
@@ -40,7 +41,8 @@ export default function Tahsilat() {
     const next = NEXT_STATUS[item.status];
     if (!next) return;
     setBusyId(item.id);
-    await apiPost("/api/v1/tahsilat/cases", {
+    setActionError(null);
+    const result = await apiPost("/api/v1/tahsilat/cases", {
       id: item.id,
       paymentId: item.paymentId,
       studentId: item.studentId,
@@ -49,6 +51,10 @@ export default function Tahsilat() {
       attributedAmount: item.attributedAmount,
     });
     setBusyId(null);
+    if (!result.ok) {
+      setActionError(result.error.message || "Durum güncellenemedi.");
+      return;
+    }
     res.refresh();
   }
 
@@ -60,6 +66,12 @@ export default function Tahsilat() {
         <FilterChip label="Açık" selected={tab === "open"} onPress={() => setTab("open")} />
         <FilterChip label="Tümü" selected={tab === "all"} onPress={() => setTab("all")} />
       </View>
+
+      {actionError ? (
+        <Card style={{ marginBottom: 10, borderColor: t.colors.danger }}>
+          <Text style={[t.typography.body, { color: t.colors.danger }]}>{actionError}</Text>
+        </Card>
+      ) : null}
 
       {res.status === "loading" ? (
         <LoadingSkeleton rows={4} />

@@ -14,6 +14,7 @@ export default function IslemlerStack() {
       <Stack.Screen name="yoklama" />
       <Stack.Screen name="telafi" />
       <Stack.Screen name="tahsilat" />
+      <Stack.Screen name="izinler" />
       <Stack.Screen name="workflows" />
       <Stack.Screen name="katalog" />
     </Stack>

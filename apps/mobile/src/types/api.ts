@@ -16,7 +16,7 @@ export type NotificationsResponse = {
   unreadCount?: number;
 };
 
-export type AnnouncementAudienceType = "all" | "branch" | "teachers" | "parents" | "students" | "studentType" | "selected";
+export type AnnouncementAudienceType = "all" | "branch" | "teachers" | "parents" | "students" | "studentType" | "instrument" | "selected";
 export type AnnouncementStatus = "draft" | "published" | "archived";
 
 export type Announcement = {
@@ -175,6 +175,33 @@ export type PortalAccessAccount = {
   lastPasswordResetRequestedAt: string | null;
 };
 export type PortalAccessResponse = { studentId: string; accounts: PortalAccessAccount[] };
+
+/** GET /api/v1/payments/summary — tahsilat özeti (tutarlar sunucu-hesaplı). */
+export type CollectionSummaryResponse = {
+  today: string;
+  todayCollected: number;
+  monthCollected: number;
+  pendingTotal: number;
+  overdueTotal: number;
+  pendingCount: number;
+  overdueCount: number;
+};
+
+/** GET /api/v1/leave — izin talepleri (kurum sahibi kapılı). */
+export type LeaveRequestItem = {
+  id: string;
+  staffId: string;
+  type: "annual" | "sick" | "unpaid" | "other";
+  startDate: string;
+  endDate: string;
+  dayCount: number;
+  description?: string;
+  status: "draft" | "pending_approval" | "approved" | "rejected";
+  approvedBy?: string;
+  approvedAt?: string;
+  createdAt: string;
+};
+export type LeaveResponse = { requests: LeaveRequestItem[] };
 
 export type StudentProfile = {
   id: string;

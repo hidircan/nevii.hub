@@ -13,6 +13,7 @@ const AUDIENCE_LABEL: Record<AnnouncementAudienceType, string> = {
   parents: "Veliler",
   students: "Öğrenciler",
   studentType: "Öğrenci türü",
+  instrument: "Enstrüman",
   selected: "Seçili kişiler",
 };
 

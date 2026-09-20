@@ -256,6 +256,63 @@ export async function listLessonsTool(
   return ok({ lessons });
 }
 
+export type CollectionSummary = {
+  /** yyyy-MM-dd (UTC) — "bugün" tanımı. */
+  today: string;
+  /** Bugün tahsil edilen (paidAt=today, void hariç). */
+  todayCollected: number;
+  /** Bu ay tahsil edilen (paidAt bu ay). */
+  monthCollected: number;
+  /** Bekleyen toplam (amount - paidAmount, paid/void hariç). */
+  pendingTotal: number;
+  /** Gecikmiş toplam (status=overdue veya vadesi geçmiş bekleyen). */
+  overdueTotal: number;
+  pendingCount: number;
+  overdueCount: number;
+};
+
+/**
+ * Tahsilat özeti — admin Finans ekranı (Faz 3). Yalnız öğrenci ödeme
+ * kayıtları (tahsilat vakalarıyla AYNI kaynak); bordro/gider/personel
+ * YOK (onlar `getFinanceSummaryTool`, kurum-sahibi kapılı). Fiyat/hesap
+ * sunucuda; istemci yalnız gösterir.
+ */
+export async function getCollectionSummaryTool(
+  ctx: ServiceContext
+): Promise<ServiceResult<CollectionSummary>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+
+  const data = await readData();
+  const now = new Date();
+  const today = now.toISOString().slice(0, 10);
+  const month = now.toISOString().slice(0, 7);
+
+  let todayCollected = 0;
+  let monthCollected = 0;
+  let pendingTotal = 0;
+  let overdueTotal = 0;
+  let pendingCount = 0;
+  let overdueCount = 0;
+
+  for (const p of data.payments) {
+    if (p.status === "voided") continue;
+    if (p.status === "paid" && p.paidAt) {
+      if (p.paidAt.slice(0, 10) === today) todayCollected += p.paidAmount;
+      if (p.paidAt.slice(0, 7) === month) monthCollected += p.paidAmount;
+      continue;
+    }
+    const rest = Math.max(0, p.amount - p.paidAmount);
+    pendingTotal += rest;
+    pendingCount += 1;
+    if (p.status === "overdue" || p.dueDate.slice(0, 10) < today) {
+      overdueTotal += rest;
+      overdueCount += 1;
+    }
+  }
+  return ok({ today, todayCollected, monthCollected, pendingTotal, overdueTotal, pendingCount, overdueCount });
+}
+
 export type RoomRow = {
   id: string;
   name: string;

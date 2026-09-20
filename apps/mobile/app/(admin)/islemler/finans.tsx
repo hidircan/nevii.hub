@@ -1,38 +1,75 @@
-import { AppHeader, Card, EmptyState, ErrorState, LoadingSkeleton, Screen, SectionHeader } from "../../../src/components/ui";
+import { useRouter } from "expo-router";
+import { Text, View } from "react-native";
+import { AppHeader, Button, Card, EmptyState, ErrorState, LoadingSkeleton, Screen, SectionHeader } from "../../../src/components/ui";
 import { useApiGet } from "../../../src/hooks/use-api";
-import type { AdminDashboardSummary } from "../../../src/types/api";
-import { Text } from "react-native";
+import { useFocusRefetch } from "../../../src/hooks/use-focus-refetch";
+import { formatCurrency } from "../../../src/lib/date";
 import { useTheme } from "../../../src/theme/theme-context";
+import type { CollectionSummaryResponse } from "../../../src/types/api";
 
-/** Finans/hakediş için sade giriş noktası — tam tahsilat/hakediş akışı web panelinde kalır. */
+/**
+ * Finans özeti — tahsilat (bugün/ay/bekleyen/gecikmiş). Tutarlar
+ * sunucu-hesaplıdır (`GET /api/v1/payments/summary`); istemcide fiyat
+ * hesabı YOK. Detay tahsilat takibinde; tahsilat kaydı `pay` uçlarıyla
+ * (idempotent + auditli) yapılır. Bordro/gider web panelindedir.
+ */
 export default function Finans() {
   const t = useTheme();
-  const res = useApiGet<AdminDashboardSummary>("/api/v1/dashboard/summary");
+  const router = useRouter();
+  const res = useApiGet<CollectionSummaryResponse>("/api/v1/payments/summary");
+  useFocusRefetch(res.refresh);
 
   return (
-    <Screen>
+    <Screen onRefresh={res.refresh} refreshing={res.status === "loading"}>
       <AppHeader title="Finans" showBack showNotifications={false} />
 
-      <SectionHeader title="Tahsilat takibi" />
       {res.status === "loading" ? (
-        <LoadingSkeleton rows={1} />
+        <LoadingSkeleton rows={3} />
       ) : res.status === "error" ? (
         <ErrorState message={res.message} onRetry={res.refresh} />
       ) : (
-        <Card>
-          <Text style={[t.typography.cardTitle, { color: t.colors.text }]}>{res.data.followUpNeededCount} takip gerektiren tahsilat</Text>
-          <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 4 }]}>
-            Detaylı tahsilat yönetimi ve mesaj taslakları için web panelini kullanın.
-          </Text>
-        </Card>
-      )}
+        <>
+          <View style={{ flexDirection: "row", gap: 10 }}>
+            <Card style={{ flex: 1 }}>
+              <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>Bugün tahsilat</Text>
+              <Text style={[t.typography.screenTitle, { color: t.colors.success, marginTop: 4 }]} numberOfLines={1}>
+                {formatCurrency(res.data.todayCollected)}
+              </Text>
+            </Card>
+            <Card style={{ flex: 1 }}>
+              <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>Bu ay tahsilat</Text>
+              <Text style={[t.typography.screenTitle, { color: t.colors.text, marginTop: 4 }]} numberOfLines={1}>
+                {formatCurrency(res.data.monthCollected)}
+              </Text>
+            </Card>
+          </View>
+          <View style={{ flexDirection: "row", gap: 10, marginTop: 10 }}>
+            <Card style={{ flex: 1 }}>
+              <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>Bekleyen ({res.data.pendingCount})</Text>
+              <Text style={[t.typography.screenTitle, { color: t.colors.warning, marginTop: 4 }]} numberOfLines={1}>
+                {formatCurrency(res.data.pendingTotal)}
+              </Text>
+            </Card>
+            <Card style={{ flex: 1 }}>
+              <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>Gecikmiş ({res.data.overdueCount})</Text>
+              <Text style={[t.typography.screenTitle, { color: t.colors.danger, marginTop: 4 }]} numberOfLines={1}>
+                {formatCurrency(res.data.overdueTotal)}
+              </Text>
+            </Card>
+          </View>
 
-      <SectionHeader title="Hakediş" />
-      <EmptyState
-        icon="construct-outline"
-        title="Mobilde yakında"
-        description="Öğretmen hakediş hesaplama ve ödeme akışı şimdilik yalnız web panelinde mevcut."
-      />
+          <SectionHeader title="Detay" />
+          <Button label="Tahsilat takibini aç" variant="secondary" onPress={() => router.push("/(admin)/islemler/tahsilat")} />
+
+          <View style={{ marginTop: 16 }}>
+            <EmptyState
+              icon="construct-outline"
+              title="Bordro ve giderler web panelinde"
+              description="Öğretmen hakediş, bordro ve gider yönetimi şimdilik yalnız web panelinde mevcut."
+            />
+          </View>
+        </>
+      )}
     </Screen>
   );
 }

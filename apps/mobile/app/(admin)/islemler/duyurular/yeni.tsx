@@ -27,8 +27,8 @@ export default function YeniDuyuru() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const teacherCount = teachers.status === "success" ? teachers.data.teachers.length : 0;
-  const studentCount = students.status === "success" ? students.data.students.length : 0;
+  const teacherCount = teachers.status === "success" ? (teachers.data.total ?? teachers.data.teachers.length) : 0;
+  const studentCount = students.status === "success" ? (students.data.total ?? students.data.students.length) : 0;
 
   const recipientCount =
     audienceType === "teachers" ? teacherCount : audienceType === "students" || audienceType === "parents" ? studentCount : teacherCount + studentCount;

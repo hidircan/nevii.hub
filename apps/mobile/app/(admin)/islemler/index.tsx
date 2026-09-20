@@ -50,6 +50,14 @@ export default function IslemlerIndex() {
       count: followUp.status === "success" ? followUp.data.cases.filter((c) => !["paid", "lost"].includes(c.status)).length : null,
     },
     {
+      key: "leave",
+      icon: "calendar-outline",
+      label: "İzin onayları",
+      description: "Personel izin taleplerini onayla/reddet",
+      route: "/(admin)/islemler/izinler",
+      count: null,
+    },
+    {
       key: "announcements",
       icon: "megaphone-outline",
       label: "Duyurular",

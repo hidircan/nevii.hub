@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { promises as fs } from "fs";
 import path from "path";
 import { resolveDataDir } from "../config";
-import { listStudentsTool, listTeachersTool, listBranchesTool, listRoomsTool, listLessonsTool } from "../services/admin-lists";
+import { listStudentsTool, listTeachersTool, listBranchesTool, listRoomsTool, listLessonsTool, getCollectionSummaryTool } from "../services/admin-lists";
 import {
   cancelLessonTool,
   createLessonTool,
@@ -149,6 +149,25 @@ describe("listLessonsTool — admin Program gün listesi", () => {
     };
     expect((await listLessonsTool(ctx({ role: "TEACHER", teacherId: "t1", userId: "u_t" }), range)).ok).toBe(false);
     expect((await listLessonsTool(ctx({ role: "STUDENT", userId: "u_s" }), range)).ok).toBe(false);
+  });
+});
+
+describe("getCollectionSummaryTool — tahsilat özeti", () => {
+  it("seed verisiyle bekleyen/gecikmiş matematiği doğrudur", async () => {
+    const res = await getCollectionSummaryTool(ctx());
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    // p3(3400 bekleyen) + p4(1500 kısmi, vade geçmiş) + p5(3600 overdue) + p7(3200) + p8(5800)
+    expect(res.data.pendingCount).toBe(5);
+    expect(res.data.pendingTotal).toBe(17500);
+    expect(res.data.overdueCount).toBe(2);
+    expect(res.data.overdueTotal).toBe(5100);
+    expect(res.data.today).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it("TEACHER/STUDENT fail-closed", async () => {
+    expect((await getCollectionSummaryTool(ctx({ role: "TEACHER", teacherId: "t1", userId: "u_t" }))).ok).toBe(false);
+    expect((await getCollectionSummaryTool(ctx({ role: "STUDENT", userId: "u_s" }))).ok).toBe(false);
   });
 });
 
