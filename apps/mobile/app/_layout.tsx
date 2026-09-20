@@ -6,6 +6,7 @@ import { AuthProvider } from "../src/auth/auth-context";
 import { StudentProvider } from "../src/student/student-context";
 import { ThemeProvider, useTheme } from "../src/theme/theme-context";
 import { useAppFonts } from "../src/theme/fonts";
+import { usePushNotifications } from "../src/push/use-push-notifications";
 
 // Font hazır olana kadar native splash tutulur — arayüz fallback'le de
 // çizilebilir, ama marka başlığı (Gloock) ilk karede doğru görünsün.
@@ -18,6 +19,8 @@ try {
 function RootStack() {
   const t = useTheme();
   const fontsLoaded = useAppFonts();
+  // Oturum açıkken push kaydı + bildirime dokunma → ilgili ekran.
+  usePushNotifications();
 
   useEffect(() => {
     if (!fontsLoaded) return;
@@ -46,6 +49,7 @@ function RootStack() {
         <Stack.Screen name="(parent)" />
         <Stack.Screen name="(student)" />
         <Stack.Screen name="select-child" />
+        <Stack.Screen name="payment-result" />
         <Stack.Screen name="notifications" options={{ presentation: "modal" }} />
         <Stack.Screen name="assessment/[lessonId]" options={{ presentation: "modal" }} />
       </Stack>

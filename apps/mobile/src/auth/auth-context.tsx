@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { apiGet, apiPost, endLocalSession, revokeServerSession, setSessionExpiredHandler } from "../api/client";
+import { unregisterPushTokens } from "../push/push-registration";
 import { clearStoredEmail, getAccessToken, getRefreshToken, getStoredEmail, setStoredEmail, setTokens } from "./token-storage";
 import { sessionStatusFor } from "./session-status";
 import {
@@ -115,6 +116,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       },
       async logout() {
         const refreshToken = await getRefreshToken();
+        // Önce bu cihazın push token'ları (oturum varken) devre dışı bırakılır.
+        await unregisterPushTokens();
         await endLocalSession();
         await clearStoredEmail();
         signOutLocally();
