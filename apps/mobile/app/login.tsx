@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Redirect, useRouter } from "expo-router";
+import { Redirect, useLocalSearchParams, useRouter } from "expo-router";
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "../src/auth/auth-context";
@@ -11,7 +11,8 @@ function isEmailLike(value: string): boolean {
 }
 
 /**
- * Giriş — marka bloğu + form tek düzende; "boş ekrana konmuş form" değil.
+ * Giriş — persona parametresi YALNIZ UX yönlendirmesi/başlık/yardımcı içerik
+ * içindir; backend tek login endpoint'i kullanır (`/api/v1/auth/login`).
  * Geri dönüş: karşılama sayfasına (replace — geri yığınında döngü yok).
  * Hata dili sakin ve sızdırmaz: yanlış bilgi / bağlantı sorunu ayrımı
  * AuthProvider mesajlarından gelir, burada yeniden yorumlanmaz.
@@ -20,6 +21,12 @@ export default function LoginScreen() {
   const { status, login } = useAuth();
   const t = useTheme();
   const router = useRouter();
+  const { persona } = useLocalSearchParams<{ persona?: string }>();
+  const isTeacherFlow = persona === "teacher";
+  const heading = isTeacherFlow ? "Öğretmen girişi" : "Öğrenci / Veli girişi";
+  const subheading = isTeacherFlow
+    ? "Günlük programınız ve sınıflarınız için kurum hesabınızla giriş yapın"
+    : "Dersler, ödevler ve ödemeler için kurum hesabınızla giriş yapın";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -62,8 +69,11 @@ export default function LoginScreen() {
           </Pressable>
 
           <BrandMark size="md" />
-          <Text style={[t.typography.body, { color: t.colors.textMuted, marginTop: 10, textAlign: "center" }]}>
-            Kurumunuzun hesabıyla giriş yapın
+          <Text accessibilityRole="header" style={[t.typography.screenTitle, { color: t.colors.text, marginTop: 14, textAlign: "center" }]}>
+            {heading}
+          </Text>
+          <Text style={[t.typography.body, { color: t.colors.textMuted, marginTop: 6, textAlign: "center" }]}>
+            {subheading}
           </Text>
 
           <View style={styles.form}>
