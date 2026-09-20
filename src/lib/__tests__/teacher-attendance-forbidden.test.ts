@@ -8,10 +8,11 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { promises as fs } from "fs";
 import path from "path";
 import { resolveDataDir } from "../config";
-import { markAttendanceTool, setLessonOpsFlagTool } from "../services/tools";
+import { createLessonTool, markAttendanceTool, setLessonOpsFlagTool } from "../services/tools";
 import { readData } from "../store";
 import { DEFAULT_TENANT_ID } from "../auth/config";
 import type { ServiceContext } from "../services/context";
+import { findOpenLessonSlot } from "./helpers/lesson-slot";
 
 const DATA_FILE = path.join(resolveDataDir(path.join(process.cwd(), "data")), "store.json");
 const admin: ServiceContext = { role: "SCHOOL_ADMIN", userId: "admin1", tenantId: DEFAULT_TENANT_ID, channel: "web" };
@@ -20,10 +21,41 @@ beforeEach(async () => {
   await fs.rm(DATA_FILE, { force: true });
 });
 
+/**
+ * 2026-09-21 — TARİHE BAĞIMLILIK KALDIRILDI.
+ *
+ * Bu yardımcı eskiden demo seed'inde "geçmiş + planlı + normal" bir ders
+ * ARIYORDU. Seed dersleri `new Date()`e göre üretildiği için böyle bir ders
+ * bazı takvim günlerinde hiç oluşmuyordu ve test o gün "seed: geçmiş planlı
+ * ders yok" ile kırılıyordu — koda bağlı olmayan, günün tarihine bağlı bir
+ * kırmızı. Artık dersi ARAMIYORUZ, ürünün KENDİ akışıyla OLUŞTURUYORUZ.
+ *
+ * Gün seçimi de ürünün kendi çalışma günü kuralından geçer
+ * (`findOpenLessonSlot` → `validateLessonSlot` → src/lib/work-days.ts):
+ * referans tarih 30 gün geriye alınır ve oradan ileriye doğru AÇIK ilk slot
+ * bulunur. Böylece üretilen ders her zaman (a) geçmişte, (b) kurumun açık
+ * olduğu bir günde olur — yönetici yoklama adımı (üçüncü test) kapalı gün
+ * guard'ına takılmaz.
+ */
 async function ownPastLesson() {
   const data = await readData();
-  const lesson = data.lessons.find((l) => l.status === "scheduled" && new Date(l.startAt) < new Date() && l.type === "regular");
-  if (!lesson) throw new Error("seed: geçmiş planlı ders yok");
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 86_400_000);
+  const startAt = await findOpenLessonSlot(data, "s1", "t1", "r1", {
+    referenceDate: thirtyDaysAgo,
+    maxOffsetDays: 14, // en geç bugünden 16 gün önce → her zaman geçmişte
+  });
+  expect(new Date(startAt).getTime()).toBeLessThan(Date.now());
+
+  const created = await createLessonTool(admin, {
+    studentId: "s1",
+    teacherId: "t1",
+    roomId: "r1",
+    instrument: "Piyano",
+    startAt,
+  });
+  if (!created.ok) throw new Error(`fixture dersi oluşturulamadı: ${created.error.message}`);
+
+  const lesson = (await readData()).lessons.find((l) => l.id === created.data.lessonId)!;
   const teacher: ServiceContext = { role: "TEACHER", userId: "teach1", tenantId: DEFAULT_TENANT_ID, teacherId: lesson.teacherId, channel: "web" };
   return { lesson, teacher };
 }
