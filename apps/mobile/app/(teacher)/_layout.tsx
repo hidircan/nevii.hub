@@ -10,11 +10,21 @@ export default function TeacherLayout() {
       <Tabs
         screenOptions={{
           headerShown: false,
-          tabBarActiveTintColor: t.colors.primary,
+          tabBarActiveTintColor: "#090906",
           tabBarInactiveTintColor: t.colors.textMuted,
-          tabBarStyle: { backgroundColor: t.colors.bg, borderTopColor: t.colors.border, minHeight: 64 },
+          tabBarStyle: {backgroundColor: t.colors.bg,borderTopColor: t.colors.border,borderTopWidth: 0,minHeight: 56,paddingTop: 0,paddingBottom: 0,shadowColor: "#0F172A",shadowOffset: { width: 0, height: -3 },shadowOpacity: 0.12,shadowRadius: 10,elevation: 12,},
           tabBarLabel: ({ children, color }) => <TabBarLabel color={color}>{children}</TabBarLabel>,
-          tabBarItemStyle: { paddingVertical: 6 },
+          /*tabBarItemStyle: {paddingVertical: 6,marginHorizontal: 3,marginVertical: 4,borderRadius: 800},*/
+          tabBarItemStyle: {
+          paddingTop: 0,
+          paddingBottom: 2,
+          marginHorizontal: 3,
+          marginVertical: 0,
+          borderRadius: 999},
+          tabBarIconStyle: {marginTop: -3},
+
+          tabBarActiveBackgroundColor: "#8787843b",
+          tabBarInactiveBackgroundColor: "transparent"
         }}
       >
         <Tabs.Screen
@@ -23,15 +33,15 @@ export default function TeacherLayout() {
         />
         <Tabs.Screen
           name="ogrencilerim"
-          options={{ title: "Öğrencilerim", tabBarIcon: ({ color }) => <Icon name="people-outline" size={26} color={color} /> }}
+          options={{ title: "Öğrenci", tabBarIcon: ({ color }) => <Icon name="people-outline" size={26} color={color} /> }}
         />
         <Tabs.Screen
           name="odevler"
-          options={{ title: "Ödevler", tabBarIcon: ({ color }) => <Icon name="book-outline" size={26} color={color} /> }}
+          options={{ title: "Ödev", tabBarIcon: ({ color }) => <Icon name="book-outline" size={26} color={color} /> }}
         />
         <Tabs.Screen
           name="hakedis"
-          options={{ title: "Hakedişlerim", tabBarIcon: ({ color }) => <Icon name="cash-outline" size={26} color={color} /> }}
+          options={{ title: "Hakediş", tabBarIcon: ({ color }) => <Icon name="cash-outline" size={26} color={color} /> }}
         />
         {/*
           İş Takip ve Hesabım sekmeleri kaldırıldı — İş Takip Hesabım içinden,

@@ -30,9 +30,9 @@ export function LessonCard({ lesson, personName, onPress, showStatus = true, stu
   return (
     <Card onPress={onPress}>
       <View style={styles.row}>
-        <View style={[styles.timeBlock, { backgroundColor: t.colors.primarySoft }]}>
-          <Text style={[t.typography.cardTitle, { color: t.colors.primaryStrong }]}>{format(start, "HH:mm")}</Text>
-          <Text style={[t.typography.caption, { color: t.colors.primaryStrong }]}>{format(end, "HH:mm")}</Text>
+        <View style={[styles.timeBlock, { backgroundColor: "#8787843b" }]}>
+          <Text style={[t.typography.cardTitle, { color: t.colors.text }]}>{format(start, "HH:mm")}</Text>
+          <Text style={[t.typography.caption, { color: t.colors.text }]}>{format(end, "HH:mm")}</Text>
         </View>
 
         <View style={styles.content}>

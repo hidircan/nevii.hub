@@ -23,7 +23,7 @@ export default function TeacherTelafi() {
 
   return (
     <Screen scroll={false}>
-      <AppHeader title="Telafiler" subtitle="Derslerinize ait telafi kayıtları" showBack showNotifications={false} />
+      <AppHeader title="Telafi" subtitle="Derslerinize ait telafi kayıtları" showBack showNotifications={false} />
       {res.status === "loading" ? (
         <LoadingSkeleton rows={4} />
       ) : res.status === "error" ? (
