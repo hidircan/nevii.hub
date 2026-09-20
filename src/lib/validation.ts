@@ -1644,6 +1644,7 @@ export const setNotificationPreferencesSchema = z.object({
       z.object({
         category: z.string().min(1).max(64),
         inAppEnabled: z.boolean(),
+        pushEnabled: z.boolean().optional(),
       })
     )
     .min(1)

@@ -12386,7 +12386,14 @@ export async function setNotificationPreferencesTool(
       if (def.criticalLocked && !u.inAppEnabled) {
         return fail("VALIDATION_ERROR", `"${def.label}" kapatılamaz.`);
       }
-      updates.push({ category: u.category, inAppEnabled: u.inAppEnabled, pushEnabled: false as const });
+      // pushEnabled yalnız push altyapısı aktifken kabul edilir; aksi halde
+      // önceki fail-closed davranış korunur (her zaman false).
+      const { isPushActive } = await import("../push/config");
+      updates.push({
+        category: u.category,
+        inAppEnabled: u.inAppEnabled,
+        pushEnabled: isPushActive() ? (u.pushEnabled ?? false) : (false as const),
+      });
     }
     await setNotificationPreferences(ctx.tenantId, ctx.userId, updates);
     audit(ctx, "notification.preference.update", "NotificationPreference", ctx.userId, {
