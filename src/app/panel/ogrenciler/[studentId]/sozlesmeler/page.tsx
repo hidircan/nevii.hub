@@ -2,18 +2,11 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requireSessionContext } from "@/lib/auth/session";
 import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
-import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { listStudentContractsTool } from "@/lib/services";
 import { ContractPanel, type RegistrationSummary } from "@/components/contract-panel";
 import { paymentMethodLabelTr } from "@/lib/utils";
-import { BackButton } from "@/components/back-button";
 import { Card, EmptyState, PageHeader } from "@/components/ui";
 import { isFormalContractDuration } from "@/lib/contracts";
-import {
-  actionGenerateKvkkNoticeDocument,
-  actionGeneratePhotoVideoConsentDocument,
-  actionGenerateKvkkAndPhotoVideoConsentDocuments,
-} from "@/lib/actions";
 import { deriveLessonScheduleTextFromLessons } from "@/lib/lesson-schedule-text";
 import { buildContractPrefill, clampDurationMonths, DEFAULT_CONTRACT_DURATION_MONTHS } from "@/lib/contract-prefill";
 import { diagnoseContractAnnexTemplates } from "@/lib/contract-annexes";
@@ -109,7 +102,16 @@ export default async function StudentContractsCenterPage({
     latestContract: contracts[0],
     registrationFirstPayment,
     requestedDurationMonths: sure,
-    lessonScheduleText: deriveLessonScheduleTextFromLessons(data.lessons.filter((l) => l.studentId === student.id)),
+    /**
+     * K (2026-09-20) — ÖNCELİK: kayıtta seçilen gün/saat (kalıcı,
+     * `Student.lessonScheduleText`). Yoksa (bu alan eklenmeden önce
+     * oluşturulmuş kayıtlar) öğrencinin GERÇEK derslerinden türetilir —
+     * hiçbir kayıt boş kalmaz. Eskiden yalnız ikinci yol vardı ve o da
+     * saatleri UTC okuduğu için 3 saat kaymış gösteriyordu.
+     */
+    lessonScheduleText:
+      student.lessonScheduleText ||
+      deriveLessonScheduleTextFromLessons(data.lessons.filter((l) => l.studentId === student.id)),
   });
   const canManagePaymentProfile = session.role === "SCHOOL_ADMIN" || session.role === "SUPER_ADMIN";
   const isFormal = isFormalContractDuration(intendedDurationMonths);
@@ -121,9 +123,9 @@ export default async function StudentContractsCenterPage({
 
   return (
     <div>
-      <KurumScopeNote scope={kurum.scope} />
-      <BackButton fallbackHref={`/panel/ogrenciler/${student.id}`} label="Öğrenci detayına dön" className="mb-3" />
-      <PageHeader title="Sözleşme Merkezi" description={`${student.name} — sözleşmeler ve belgeler`} />
+      {/* Kimlik başlığı, kurum kapsamı notu ve sekme navigasyonu ÜST LAYOUT'tan
+          gelir (bkz. `[studentId]/layout.tsx`) — burada tekrarlanmaz. */}
+      <h2 className="mb-4 text-sm font-semibold text-[var(--color-text)]">Sözleşme Merkezi</h2>
 
       {/*
         P0 (2026-09-05) — sözleşme adımına gelen kullanıcı kayıt bilgilerinde
@@ -137,7 +139,7 @@ export default async function StudentContractsCenterPage({
 
       {canManagePaymentProfile ? (
         <Link
-          href={`/panel/ogrenciler/${student.id}?duzenle=kayit&sozlesmeDon=1#genel`}
+          href={`/panel/ogrenciler/${student.id}/bilgiler?duzenle=kayit&sozlesmeDon=1`}
           className="mb-4 inline-flex items-center text-sm font-medium text-[var(--color-primary)] hover:underline"
         >
           Tüm öğrenci kaydını düzenle (bu ekrandan çıkar) →
@@ -174,72 +176,16 @@ export default async function StudentContractsCenterPage({
           autoOpenInitial={isNewStudent && isFormal}
           registration={registration}
           prefill={contractPrefill}
+          schedulePickers={{
+            teachers: data.teachers
+              .filter((t) => t.active)
+              .map((t) => ({ id: t.id, name: t.name })),
+            rooms: data.rooms.map((r) => ({ id: r.id, name: r.name })),
+            defaultTeacherId: student.teacherId,
+          }}
         />
       )}
 
-      {canManagePaymentProfile ? (
-        <Card className="mt-4 !p-4">
-          <h2 className="mb-1 text-sm font-semibold text-[var(--color-text)]">KVKK ve Fotoğraf/Video Belgeleri — ayrı arşiv nüshası</h2>
-          <p className="mb-3 text-xs text-[var(--color-text-muted)]">
-            <strong>Normal akışta buna gerek yoktur:</strong> sözleşmeyi &quot;Görüntüle / Yazdır&quot; ile açtığınızda
-            KVKK ve Fotoğraf/Video bölümleri sözleşmenin ARDINA, bu sırayla, TEK çıktı olarak zaten eklenir. Bu bölüm
-            yalnızca aynı iki metnin kendi referans numaralı, ayrı arşiv belgesi olarak üretilmesi gerektiğinde
-            kullanılır (kaynağın Madde 19/20 yapısı).
-          </p>
-          <div className="flex flex-wrap gap-2">
-            <form
-              action={async () => {
-                "use server";
-                await actionGenerateKvkkAndPhotoVideoConsentDocuments({ studentId: student.id });
-              }}
-            >
-              <button
-                type="submit"
-                className="rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-sm font-medium text-[var(--color-text)] hover:bg-[var(--color-bg)]"
-              >
-                KVKK ve Fotoğraf/Video Belgesi Oluştur
-              </button>
-            </form>
-          </div>
-          <p className="mt-2 text-xs text-[var(--color-text-muted)]">
-            Fotoğraf/Video bölümü, önceden bu öğrenci için kaydedilmiş bir izin kararı (sözleşme oluşturma ekranı)
-            gerektirir — kaydedilmemişse hiçbir belge oluşturulmaz, önce sözleşme ekranından izni kaydedin.
-          </p>
-          <details className="mt-3 text-xs text-[var(--color-text-muted)]">
-            <summary className="cursor-pointer select-none font-medium">
-              Yalnızca birini yeniden yazdırmam gerekiyor
-            </summary>
-            <div className="mt-2 flex flex-wrap gap-2">
-              <form
-                action={async () => {
-                  "use server";
-                  await actionGenerateKvkkNoticeDocument({ studentId: student.id });
-                }}
-              >
-                <button
-                  type="submit"
-                  className="rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-xs font-medium text-[var(--color-text)] hover:bg-[var(--color-bg)]"
-                >
-                  Yalnız KVKK Aydınlatma Metni
-                </button>
-              </form>
-              <form
-                action={async () => {
-                  "use server";
-                  await actionGeneratePhotoVideoConsentDocument({ studentId: student.id });
-                }}
-              >
-                <button
-                  type="submit"
-                  className="rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-xs font-medium text-[var(--color-text)] hover:bg-[var(--color-bg)]"
-                >
-                  Yalnız Fotoğraf/Video Açık Rıza Formu
-                </button>
-              </form>
-            </div>
-          </details>
-        </Card>
-      ) : null}
     </div>
   );
 }

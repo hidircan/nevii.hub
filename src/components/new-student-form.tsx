@@ -22,6 +22,9 @@ import { actionAddStudent, type NewStudentFormState } from "@/lib/actions";
 import { Button, Card, Input, Label, Select } from "@/components/ui";
 import { StudentInstrumentTeacherFields, type TeacherOption } from "@/components/student-instrument-teacher-fields";
 import { StudentPackagePricingFields, type PricingPackageOption } from "@/components/student-package-pricing-fields";
+import type { DayOverride, TermWeeklyClosedDaysOverride } from "@/lib/work-days";
+import { LessonScheduleSlotsPicker } from "@/components/lesson-schedule-slots-picker";
+import { lessonWeekdaysFromText } from "@/lib/lesson-schedule-text";
 import {
   DEFAULT_FIRST_COLLECTION_MERGE_THRESHOLD_LESSONS,
   STUDENT_TYPES,
@@ -53,17 +56,6 @@ function monthEndDay(startDay: string): string {
 type BranchOption = { id: string; name: string };
 type KvkkTextOption = { version: number; bodyText: string };
 
-/** P0-C — `Date.getUTCDay()` ile aynı 0=Pazar..6=Cumartesi kodlaması (kodda zaten yaygın `dayOfWeek` konvansiyonu). */
-const WEEKDAY_OPTIONS: { value: number; label: string }[] = [
-  { value: 1, label: "Pazartesi" },
-  { value: 2, label: "Salı" },
-  { value: 3, label: "Çarşamba" },
-  { value: 4, label: "Perşembe" },
-  { value: 5, label: "Cuma" },
-  { value: 6, label: "Cumartesi" },
-  { value: 0, label: "Pazar" },
-];
-
 function FieldError({ message }: { message?: string }) {
   if (!message) return null;
   return (
@@ -89,12 +81,21 @@ export function NewStudentForm({
   instrumentOptions,
   packages,
   kvkkText,
+  workDayOverrides,
+  termWeeklyClosedDays,
 }: {
   branches: BranchOption[];
   teachers: TeacherOption[];
   instrumentOptions: string[];
   packages: PricingPackageOption[];
   kvkkText?: KvkkTextOption;
+  /**
+   * ÇALIŞMA GÜNÜ — TEK KAYNAK. İlk dönem ders sayısı önizlemesi kapalı
+   * günleri saymaz; sunucudaki `createStudentTool` ile AYNI listeyi kullanır
+   * ki ekrandaki tutar ile kaydedilen tutar ayrışmasın.
+   */
+  workDayOverrides: DayOverride[];
+  termWeeklyClosedDays?: TermWeeklyClosedDaysOverride;
 }) {
   const [state, formAction, isPending] = useActionState<NewStudentFormState, FormData>(actionAddStudent, null);
   const summaryRef = useRef<HTMLDivElement>(null);
@@ -148,12 +149,14 @@ export function NewStudentForm({
   // P0-C — seçilen ders günlerini CANLI izler (weeklyLessonCount ile
   // TAM/TEKİL eşleşmesini göstermek ve önizlemeyi GERÇEK günlerle
   // yeniden hesaplamak için).
-  const [selectedLessonDays, setSelectedLessonDays] = useState<number[]>(() =>
-    (values.lessonDays ?? "")
-      .split(",")
-      .filter(Boolean)
-      .map(Number)
-  );
+  /**
+   * K (2026-09-20) — TEK GİRİŞ: ders gün/saati artık Sözleşme Merkezi ile
+   * AYNI bileşenden (`LessonScheduleSlotsPicker`) alınır ve `lessonDays`
+   * ondan TÜRETİLİR. Eskiden burada yalnız GÜN (checkbox) soruluyordu, saat
+   * sözleşmede ikinci kez soruluyordu ve ikisi birbirini doğrulamıyordu.
+   */
+  const [lessonScheduleText, setLessonScheduleText] = useState<string>(() => values.lessonScheduleText ?? "");
+  const selectedLessonDays: number[] = lessonWeekdaysFromText(lessonScheduleText);
   // P0-D (2026-09-02) — öğrenci e-postasını ve portal erişim türünü CANLI
   // izler: "Öğrencinin kendisi" seçiliyken davet e-postası alanı öğrenci
   // e-postasıyla SENKRON kalır, kullanıcı aynı e-postayı iki kez yazmaz.
@@ -208,8 +211,7 @@ export function NewStudentForm({
     });
     const firstPaymentRaw = String(fd.get("firstPaymentAmount") || "").replace(/[^\d]/g, "");
     setEnteredFirstPayment(firstPaymentRaw ? Number(firstPaymentRaw) : undefined);
-    const lessonDays = fd.getAll("lessonDays").map(Number);
-    setSelectedLessonDays(lessonDays);
+    const lessonDays = lessonWeekdaysFromText(String(fd.get("lessonScheduleText") ?? ""));
     setStudentEmailLive(String(fd.get("email") || ""));
     setPortalAccessType(String(fd.get("invitePortalAccessType") || "GUARDIAN"));
     setInviteToPortalChecked(fd.get("inviteToPortal") === "1");
@@ -233,7 +235,13 @@ export function NewStudentForm({
       // `autoSuggestedAmount` hesabını DEĞİŞTİRMEZ, yalnız istemci
       // önizlemesini iyileştirir (bkz. period-lesson-billing.ts yorumu).
       const hasExactDays = lessonDays.length === weeklyLessonCount && new Set(lessonDays).size === weeklyLessonCount;
-      const exactCount = hasExactDays ? countExactWeekdayLessons(startDay, lines[0]?.periodEnd ?? endDay, lessonDays) : null;
+      const exactCount = hasExactDays
+        ? countExactWeekdayLessons(startDay, lines[0]?.periodEnd ?? endDay, lessonDays, {
+            term: (fd.get("termType") as string) === "yaz" ? "yaz" : "guz",
+            overrides: workDayOverrides,
+            weeklyClosedDays: termWeeklyClosedDays,
+          })
+        : null;
       const plannedLessons = exactCount ?? lines[0]?.billableLessonCount ?? 0;
       // P0 (2026-09-03) — "3 ders eşiği": sunucudaki (createStudentTool)
       // AYNI kural — kayıt ayında kalan gerçek ders sayısı 3'ten azsa
@@ -649,23 +657,25 @@ export function NewStudentForm({
           </div>
           <div>
             <Label>
-              Ders günleri (haftalık ders sayısı kadar farklı gün seçin)
+              Ders günü ve saati (haftalık ders sayısı kadar farklı gün seçin)
               <RequiredMark />
             </Label>
-            <div className="flex flex-wrap gap-x-4 gap-y-1">
-              {WEEKDAY_OPTIONS.map((d) => (
-                <label key={d.value} className="flex items-center gap-1.5 text-sm text-[var(--color-text)]">
-                  <input
-                    type="checkbox"
-                    name="lessonDays"
-                    value={d.value}
-                    defaultChecked={selectedLessonDays.includes(d.value)}
-                    aria-invalid={!!fieldErrors.lessonDays}
-                  />
-                  {d.label}
-                </label>
-              ))}
-            </div>
+            <LessonScheduleSlotsPicker
+              value={lessonScheduleText}
+              onChange={setLessonScheduleText}
+              name="lessonScheduleText"
+            />
+            {/* `lessonDays` sunucu doğrulaması ve ilk dönem ders sayımı için
+                gerekir; AYRI bir kullanıcı girişi DEĞİL, yukarıdaki seçimden
+                türetilir — iki alan asla birbirinden ayrışamaz. */}
+            {selectedLessonDays.map((d) => (
+              <input key={d} type="hidden" name="lessonDays" value={d} />
+            ))}
+            <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">
+              Buraya girdiğiniz gün/saat kaydedilir: Sözleşme Merkezi&apos;nde ön-dolu gelir ve sözleşme
+              onaylandıktan sonra ders programını tek tıkla buradan üretebilirsiniz. Aynı bilgiyi tekrar
+              girmeniz gerekmez.
+            </p>
             <FieldError message={fieldErrors.lessonDays} />
           </div>
           <div>

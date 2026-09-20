@@ -1025,6 +1025,9 @@ export async function createContract(input: CreateContractInput): Promise<Create
   const snapshot: ContractDataSnapshot = {
     studentName: input.studentName,
     programmeName: input.programmeName,
+    // K — ders gün/saati artık makine-okunur biçimde de dondurulur (ders
+    // programı üretimi bunu okur); metin çıktısı DEĞİŞMEDİ.
+    lessonScheduleText: input.lessonScheduleText,
     enrollmentStartDate: input.enrollmentStartDate,
     enrollmentEndDate: input.enrollmentEndDate,
     durationMonths: input.durationMonths,

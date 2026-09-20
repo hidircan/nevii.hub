@@ -248,6 +248,22 @@ export interface Student {
   lessonStartDate?: string;
   /** Kayıtta seçilen sözleşme süresi (ay, 1-12) — Sözleşme Merkezi ön-doldurmasının kalıcı kaynağı. */
   intendedDurationMonths?: number;
+  /**
+   * K (2026-09-20) — KAYITTA SEÇİLEN DERS GÜN/SAATLERİ, kalıcı.
+   *
+   * KÖK NEDEN: Yeni öğrenci kaydında ders günü (ve artık saati) soruluyordu,
+   * ilk tahsilat tutarı bundan hesaplanıyordu — ama değer HİÇBİR YERE
+   * YAZILMIYORDU (`createStudentTool` içinde `lessonDays: _ignoredLessonDays`
+   * ile bilinçli olarak süzülüyordu). Sonuç: kullanıcı aynı bilgiyi önce
+   * kayıtta, sonra sözleşmede, sonra Ders Programı'nda ÜÇ KEZ giriyordu ve
+   * üçü birbirini doğrulamıyordu.
+   *
+   * Artık tek kaynak burasıdır: Sözleşme Merkezi'nin "Ders günü/saati" alanı
+   * ve sözleşmeden ders programı üretme akışı bunu okur.
+   * Biçim: `"Salı 15:00, Perşembe 16:00"` (bkz. lesson-schedule-text.ts —
+   * `composeLessonScheduleText`; kurum saat dilimindeki DUVAR saatidir).
+   */
+  lessonScheduleText?: string;
   /** ISO tarih — verilmezse açık uçlu (hâlâ kayıtlı) */
   enrollmentEndDate?: string;
   level?: string;
@@ -402,6 +418,7 @@ export type StudentProfilePatch = Partial<
     | "enrollmentStartDate"
     | "lessonStartDate"
     | "intendedDurationMonths"
+    | "lessonScheduleText"
     | "enrollmentEndDate"
     | "level"
     | "targetExam"
@@ -814,6 +831,18 @@ export interface LessonSeries {
   academicYearStart?: number;
   /** Faz 6 — demo/test amaçlı otomatik üretilmiş serileri işaretler. NULL = gerçek seri. */
   demoTag?: string;
+  /**
+   * K (2026-09-20) — bu seri bir SÖZLEŞMEDEN üretildiyse o sözleşmenin
+   * kimliği. Yaşam döngüsü bağlantısıdır:
+   *   - üretildi → seri `contractId` taşır
+   *   - kullanıcı dersleri elle düzenlerse → seri/dersler AYNEN kalır
+   *     (bağlantı bir kilit DEĞİL, izlenebilirliktir)
+   *   - sözleşme iptal edilirse → dersler OTOMATİK SİLİNMEZ; Sözleşme
+   *     Merkezi "bu sözleşmeden üretilmiş N gelecek ders var" uyarısını
+   *     gösterir ve kullanıcı açıkça onaylarsa iptal eder. Sessiz silme
+   *     yapılmaz: yoklama/telafi/ücret kayıtları o derslere bağlı olabilir.
+   */
+  contractId?: string;
 }
 
 /** Madde 8 — kim bildirdi. UI/mantık HENÜZ bağlanmadı (bkz. Attendance alanları altındaki not). */
@@ -2012,6 +2041,15 @@ export interface ContractDataSnapshot {
   signatoryRelationship?: string;
   isMinor: boolean;
   installments: ContractInstallmentSnapshot[];
+  /**
+   * K (2026-09-20) — sözleşme anında dondurulmuş ders gün/saati
+   * ("Salı 15:00, Perşembe 16:00", kurum saat diliminde duvar saati).
+   * Sözleşme metninde ZATEN gösteriliyordu ama yalnız `fieldValues` içinde,
+   * makine tarafından okunamaz biçimde duruyordu; ders programı üretimi bunu
+   * TEK kaynak olarak okur. Eski sözleşmelerde undefined'dır — o durumda
+   * öğrencinin güncel `lessonScheduleText` alanına düşülür.
+   */
+  lessonScheduleText?: string;
   photoVideoConsent?: { granted: boolean; representativeName: string; relationship: string; scopes?: SocialMediaScope[] };
   /**
    * P0-E (2026-09-02) — sözleşme oluşturulduğu ANDA aktif olan kurum logosu

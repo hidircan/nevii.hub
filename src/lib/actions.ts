@@ -440,6 +440,26 @@ export async function actionSaveNavOrder(sectionKey: string, hrefs: string[]): P
   }
 }
 
+/**
+ * C — Günlük Özet varsayılan şubesi (2026-09-20). Yalnız GÖRÜNÜRLÜK
+ * tercihidir; kullanıcının tenant/rol kapsamını DEĞİŞTİRMEZ. "all" =
+ * tüm şubeler.
+ */
+export async function actionSaveDashboardBranch(branchId: string): Promise<void> {
+  try {
+    const session = await getSessionContext();
+    if (!session?.userId || !session?.tenantId) return;
+    const { getUserPreferences, saveUserPreferences } = await import("./user-preferences");
+    const clean = typeof branchId === "string" ? branchId.slice(0, 64) : "all";
+    const prev = await getUserPreferences(session.userId, session.tenantId);
+    await saveUserPreferences(session.userId, session.tenantId, {
+      dashboard: { ...(prev.dashboard ?? {}), defaultBranchId: clean },
+    });
+  } catch {
+    // best-effort — tercih kaydedilemezse panel yine çalışır.
+  }
+}
+
 /** P1 (2026-09-11) — sidebar açık/kapalı tercihi kaydı. */
 export async function actionSaveSidebarCollapsed(collapsed: boolean): Promise<void> {
   try {
@@ -775,6 +795,7 @@ const STUDENT_FORM_VALUE_KEYS = [
   "teacherId",
   "weeklyLessonCount",
   "intendedDurationMonths",
+  "lessonScheduleText",
   "packageName",
   "lessonDurationMinutes",
   "packageId",
@@ -892,6 +913,9 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
           lessonStartDate: String(formData.get("lessonStartDate") || "") || undefined,
           // 2026-09-19 — süre artık öğrenci kaydına YAZILIR (URL tek kaynak değil).
           intendedDurationMonths: Number(formData.get("intendedDurationMonths") || 0) || undefined,
+          // K (2026-09-20) — kayıtta seçilen ders gün/saati artık KALICI;
+          // Sözleşme Merkezi ve ders programı üretimi bunu okur.
+          lessonScheduleText: String(formData.get("lessonScheduleText") || "") || undefined,
           level: String(formData.get("level") || "") || undefined,
           targetExam: String(formData.get("targetExam") || "") || undefined,
           termType: (() => {

@@ -38,6 +38,8 @@ export {
   cancelLessonTool,
   previewLessonSeriesTool,
   createLessonSeriesTool,
+  planContractLessonScheduleTool,
+  countContractLessonsTool,
   cancelSeriesFromLessonTool,
   cancelEntireSeriesTool,
   createPaymentRecordTool,

@@ -1,11 +1,16 @@
 "use client";
 
 import { parseAmountInput } from "@/lib/amount-input";
-import { useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button, Card, Input, Label, Select } from "@/components/ui";
 import { LessonScheduleSlotsPicker } from "@/components/lesson-schedule-slots-picker";
+import {
+  ContractLessonScheduleGenerator,
+  type SchedulePickerOption,
+} from "@/components/contract-lesson-schedule-generator";
+import { ContractCancelDialog } from "@/components/contract-cancel-dialog";
 import { parseDateOnlyInput, isValidDateOnlyInput, toIsoDateOrNull, dayOfMonthUtc } from "@/lib/date-input";
 import { describePaymentDueRule, paymentMethodLabel } from "@/lib/payment-due-rule-client";
 import { findLatestActiveContractForRenewal } from "@/lib/contract-list-helpers";
@@ -459,6 +464,125 @@ function RegistrationSummaryCard({
   );
 }
 
+/**
+ * B — SÖZLEŞME OLUŞTURULDUKTAN SONRAKİ DURUM (2026-09-20).
+ *
+ * Kök sorun: `onCreate` başarıda yalnız `router.refresh()` + formu kapat
+ * yapıyordu; sunucunun döndürdüğü sözleşme KULLANILMIYORDU. Form kapanınca
+ * sayfa kısalıyor, kullanıcı ekranın ortasında kalıyor ve "Sözleşmeyi
+ * görüntüle" bağlantısını geçmiş listesinde aramak zorunda kalıyordu.
+ *
+ * Çözüm: oluşan sözleşme üst bileşene taşınır, formun yerine sabit bir
+ * başarı durumu çizilir, görünüme kaydırılır ve sonraki adımlar tek tıkla
+ * verilir. Mobilde CTA'lar tam genişlikte alt alta dizilir.
+ */
+export type CreatedContractSummary = {
+  id: string;
+  contractNumber: string;
+  versionNumber: number;
+  programmeName: string;
+  enrollmentStartDate: string;
+  enrollmentEndDate: string;
+  monthlyAmount: number;
+  totalContractAmount: number;
+  installmentCount: number;
+  documentInstanceId?: string;
+};
+
+function ContractCreatedPanel({
+  contract,
+  studentId,
+  onDismiss,
+  schedulePickers,
+  scheduleText,
+}: {
+  contract: CreatedContractSummary;
+  studentId: string;
+  onDismiss: () => void;
+  schedulePickers?: { teachers: SchedulePickerOption[]; rooms: SchedulePickerOption[]; defaultTeacherId?: string };
+  scheduleText?: string;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    // Kullanıcıyı elle kaydırmaya zorlamamak için: panel açılır açılmaz görünür olur.
+    ref.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    ref.current?.focus();
+  }, []);
+
+  return (
+    <div
+      ref={ref}
+      tabIndex={-1}
+      role="status"
+      aria-live="polite"
+      className="mb-4 rounded-[var(--radius-lg)] border p-4 outline-none"
+      style={{
+        borderColor: "color-mix(in srgb, var(--color-success) 40%, transparent)",
+        background: "var(--color-success-soft)",
+      }}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold" style={{ color: "var(--color-success)" }}>
+            Sözleşme oluşturuldu — {contract.contractNumber} (v{contract.versionNumber})
+          </p>
+          <p className="mt-1 text-xs text-[var(--color-text-muted)]">
+            {contract.programmeName} · {formatDateTr(contract.enrollmentStartDate)} –{" "}
+            {formatDateTr(contract.enrollmentEndDate)} · Aylık {formatTL(contract.monthlyAmount)} · Toplam{" "}
+            {formatTL(contract.totalContractAmount)} · {contract.installmentCount} taksit
+          </p>
+          <p className="mt-1 text-xs text-[var(--color-text-muted)]">
+            Sözleşme ve taksit planı kaydedildi; arşivde kalıcıdır.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-[var(--color-text-muted)] hover:bg-[var(--color-surface)]"
+        >
+          Kapat
+        </button>
+      </div>
+
+      <div className="mt-3 grid gap-2 sm:flex sm:flex-wrap">
+        <Link
+          href={`/sozlesme-yazdir/${contract.id}`}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-[var(--color-primary)] px-3.5 py-2 text-sm font-semibold text-white hover:bg-[var(--color-primary-hover)]"
+        >
+          Sözleşmeyi Görüntüle / PDF
+        </Link>
+        <Link
+          href={`/panel/odemeler/${studentId}`}
+          className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3.5 py-2 text-sm font-medium text-[var(--color-text)] hover:bg-[var(--color-surface-muted)]"
+        >
+          Ödeme Planını Gör
+        </Link>
+        <Link
+          href={`/panel/ogrenciler/${studentId}`}
+          className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3.5 py-2 text-sm font-medium text-[var(--color-text)] hover:bg-[var(--color-surface-muted)]"
+        >
+          Öğrenciye Dön
+        </Link>
+      </div>
+
+      {/* K — sözleşme onaylandı; ders programı buradan, aynı gün/saatle üretilir. */}
+      {schedulePickers && scheduleText ? (
+        <div className="mt-3">
+          <ContractLessonScheduleGenerator
+            contractId={contract.id}
+            scheduleText={scheduleText}
+            teachers={schedulePickers.teachers}
+            rooms={schedulePickers.rooms}
+            defaultTeacherId={schedulePickers.defaultTeacherId}
+          />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function ContractForm({
   studentId,
   previousContract,
@@ -471,7 +595,8 @@ function ContractForm({
   previousContract: ContractRow | null;
   prefill?: ContractPrefill;
   registration?: RegistrationSummary;
-  onDone: () => void;
+  /** Oluşan sözleşmeyi ÜST bileşene taşır — başarı ekranı CTA'ları bundan üretilir. */
+  onDone: (created: CreatedContractSummary) => void;
   onCancel: () => void;
 }) {
   const router = useRouter();
@@ -766,7 +891,7 @@ function ContractForm({
     setFieldErrors({});
     setFormError(null);
     setBusy(true);
-    const res = await postJson("/api/v1/contracts", {
+    const res = await postJson<{ contract: CreatedContractSummary }>("/api/v1/contracts", {
       studentId,
       contractType: isRenewal ? "renewal" : "initial",
       previousContractId: previousContract?.id,
@@ -826,7 +951,7 @@ function ContractForm({
       return;
     }
     router.refresh();
-    onDone();
+    onDone(res.data.contract);
   }
 
   // Elle düzenlenen tutarlar uygulanmış satırlar — ekrandaki her toplam bunlardan hesaplanır.
@@ -1512,6 +1637,7 @@ export function ContractPanel({
   autoOpenInitial,
   prefill,
   registration,
+  schedulePickers,
 }: {
   studentId: string;
   contracts: ContractRow[];
@@ -1520,6 +1646,12 @@ export function ContractPanel({
   autoOpenInitial?: boolean;
   prefill?: ContractPrefill;
   registration?: RegistrationSummary;
+  /** K — sözleşmeden ders programı üretimi için seçenekler (öğretmen/oda). */
+  schedulePickers?: {
+    teachers: SchedulePickerOption[];
+    rooms: SchedulePickerOption[];
+    defaultTeacherId?: string;
+  };
 }) {
   const router = useRouter();
   const [formMode, setFormMode] = useState<"none" | "initial" | "renewal">(
@@ -1530,7 +1662,11 @@ export function ContractPanel({
   // kullanıcı aynı değerleri elle yeniden girmesin diye. Fiyatlandırma modeli
   // yine öğrencinin kaydından gelir (bkz. prefillFromContract).
   const [basisPrefill, setBasisPrefill] = useState<ContractPrefill | null>(null);
+  /** B — oluşturma sonrası başarı durumu; formun yerine çizilir ve görünüme kaydırılır. */
+  const [createdContract, setCreatedContract] = useState<CreatedContractSummary | null>(null);
   const [rowError, setRowError] = useState<string | null>(null);
+  /** İptal sonucu özeti — kaç ders iptal edildi, kaçı korundu (bkz. ContractCancelDialog). */
+  const [cancelNotice, setCancelNotice] = useState<string | null>(null);
   const [uploadingId, setUploadingId] = useState<string | null>(null);
 
   // Faz 5 (kök neden) — sözleşme YENİLEME için önceki sözleşme YALNIZCA
@@ -1583,6 +1719,16 @@ export function ContractPanel({
 
   return (
     <div>
+      {createdContract ? (
+        <ContractCreatedPanel
+          contract={createdContract}
+          studentId={studentId}
+          onDismiss={() => setCreatedContract(null)}
+          schedulePickers={schedulePickers}
+          scheduleText={prefill?.lessonScheduleText}
+        />
+      ) : null}
+
       {canManage && formMode === "none" ? (
         <div className="mb-3 flex flex-wrap items-center gap-2">
           {!latestActive ? (
@@ -1610,9 +1756,10 @@ export function ContractPanel({
           previousContract={null}
           prefill={basisPrefill ?? prefill}
           registration={registration}
-          onDone={() => {
+          onDone={(created) => {
             setBasisPrefill(null);
             setFormMode("none");
+            setCreatedContract(created);
           }}
           onCancel={() => {
             setBasisPrefill(null);
@@ -1624,12 +1771,24 @@ export function ContractPanel({
         <ContractForm
           studentId={studentId}
           previousContract={latestActive}
-          onDone={() => setFormMode("none")}
+          onDone={(created) => {
+            setFormMode("none");
+            setCreatedContract(created);
+          }}
           onCancel={() => setFormMode("none")}
         />
       ) : null}
 
       {rowError ? <p className="mb-2 text-xs font-medium text-rose-600">{rowError}</p> : null}
+      {cancelNotice ? (
+        <p
+          className="mb-2 rounded-[var(--radius-md)] px-3 py-2 text-xs font-medium"
+          style={{ background: "var(--color-info-soft)", color: "var(--color-info)" }}
+          role="status"
+        >
+          {cancelNotice}
+        </p>
+      ) : null}
 
       {contracts.length === 0 ? (
         <p className="text-sm text-[var(--color-text-muted)]">Bu öğrenci için henüz kayıt sözleşmesi oluşturulmadı.</p>
@@ -1698,14 +1857,15 @@ export function ContractPanel({
                   </label>
                 ) : null}
                 {canManage && (c.status === "generated" || c.status === "recorded") ? (
-                  <button
-                    type="button"
-                    disabled={busyId === c.id}
-                    onClick={() => runAction(c.id, "cancel")}
-                    className="font-medium text-rose-600 hover:underline disabled:opacity-50"
-                  >
-                    İptal et
-                  </button>
+                  <ContractCancelDialog
+                    contractId={c.id}
+                    contractNumber={c.contractNumber}
+                    onCancelled={(summary) => {
+                      setCancelNotice(summary);
+                      setRowError(null);
+                      router.refresh();
+                    }}
+                  />
                 ) : null}
                 {canManage && !latestActive && (c.status === "cancelled" || c.status === "superseded") ? (
                   <button

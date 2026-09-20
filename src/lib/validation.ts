@@ -172,6 +172,8 @@ export const studentSchema = z.object({
    */
   lessonStartDate: optionalTrimmed,
   intendedDurationMonths: z.coerce.number().int().min(1, "Kayıt süresi 1-12 ay olmalıdır.").max(12, "Kayıt süresi 1-12 ay olmalıdır.").optional(),
+  /** K — kayıtta seçilen ders gün/saatleri ("Salı 15:00, Perşembe 16:00"). Kalıcı; sözleşme ve program üretimi bunu okur. */
+  lessonScheduleText: z.string().max(300).optional(),
   enrollmentEndDate: optionalTrimmed,
   /**
    * P0-C (2026-09-02) — haftalık ders sıklığına karşılık gelen GERÇEK ders
@@ -287,6 +289,8 @@ export const updateStudentProfileSchema = z
     enrollmentStartDate: optionalTrimmed,
     lessonStartDate: optionalTrimmed,
     intendedDurationMonths: z.coerce.number().int().min(1, "Kayıt süresi 1-12 ay olmalıdır.").max(12, "Kayıt süresi 1-12 ay olmalıdır.").optional(),
+  /** K — kayıtta seçilen ders gün/saatleri ("Salı 15:00, Perşembe 16:00"). Kalıcı; sözleşme ve program üretimi bunu okur. */
+  lessonScheduleText: z.string().max(300).optional(),
     enrollmentEndDate: optionalTrimmed,
     level: optionalTrimmed,
     targetExam: optionalTrimmed,

@@ -77,6 +77,8 @@ export default async function NewStudentPage() {
               price50Min: p.price50Min,
             }))}
           kvkkText={kvkkText}
+          workDayOverrides={data.closedDayOverrides ?? []}
+          termWeeklyClosedDays={data.settings.termWeeklyClosedDays}
         />
       )}
     </div>

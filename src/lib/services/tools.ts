@@ -5554,8 +5554,8 @@ export async function previewLessonSeriesTool(
   return ok({
     previewText,
     occurrenceCount: occurrences.length,
-    // Resmî tatil oluşumları otomatik atlanır; kullanıcının çözmesi gereken çakışma sayılmaz.
-    conflictCount: checks.filter((c) => !c.ok && c.code !== "OFFICIAL_HOLIDAY").length,
+    // Kapalı gün oluşumları otomatik atlanır; kullanıcının çözmesi gereken çakışma sayılmaz.
+    conflictCount: checks.filter((c) => !c.ok && c.code !== "DAY_CLOSED").length,
     checks,
   });
 }
@@ -5610,6 +5610,223 @@ export async function createLessonSeriesTool(
   } catch (e) {
     return fail("NOT_FOUND", e instanceof Error ? e.message : "createLessonSeries failed");
   }
+}
+
+/**
+ * K — SÖZLEŞMEDEN DERS PROGRAMI ÜRETİMİ (2026-09-20).
+ *
+ * KÖK NEDEN: Ders gün/saati üç yerde soruluyordu (kayıt → sözleşme → Ders
+ * Programı) ve hiçbiri diğerini beslemiyordu. Artık:
+ *   1. Kayıtta girilen gün/saat `Student.lessonScheduleText`'e YAZILIR,
+ *   2. Sözleşme aynı değeri ön-dolu gösterir ve dondurur,
+ *   3. Sözleşme onaylandıktan sonra BU tool, sözleşmenin TARİH ARALIĞI +
+ *      dondurulmuş gün/saat bilgisiyle tekrar eden dersleri üretir.
+ *
+ * Güvenlik/veri bütünlüğü: yeni bir planlama yolu AÇILMAZ — her oluşum
+ * mevcut `addLessonSeries` (→ `validateLessonSlot` → çalışma günü tek
+ * kaynağı) üzerinden geçer. `dryRun` ile hiçbir kayıt yazılmadan tam
+ * önizleme alınır; kullanıcı gün/saatleri gözden geçirmeden ders oluşmaz.
+ *
+ * Yaşam döngüsü: üretilen seriler `contractId` taşır. Sözleşme iptalinde
+ * dersler OTOMATİK SİLİNMEZ (yoklama/telafi/ücret kayıtları bağlı olabilir);
+ * `countContractLessonSeriesTool` ile sayılır ve kullanıcıya sorulur.
+ */
+export async function planContractLessonScheduleTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<
+  ServiceResult<{
+    dryRun: boolean;
+    contractId: string;
+    slots: { weekday: number; time: string; occurrenceCount: number; conflictCount: number; skippedCount: number }[];
+    checks: SeriesOccurrenceCheck[];
+    createdLessonIds: string[];
+    seriesIds: string[];
+    message: string;
+  }>
+> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+
+  const v = parseOrFail(
+    z.object({
+      contractId: z.string().min(1),
+      teacherId: z.string().min(1),
+      roomId: z.string().min(1),
+      durationMinutes: z.number().int().min(30).max(120).optional(),
+      /** true = hiçbir kayıt YAZILMAZ, yalnız önizleme. Varsayılan true (kaza ile ders üretilmesin). */
+      dryRun: z.boolean().default(true),
+      /** Kapalı gün/çakışma olan oluşumları atlayarak kalanları oluştur. */
+      skipConflicts: z.boolean().default(true),
+    }),
+    input
+  );
+  if (!v.ok) return v;
+
+  const { getContract } = await import("../contracts");
+  const contract = await getContract(ctx.tenantId, v.data.contractId);
+  if (!contract) return fail("NOT_FOUND", "Sözleşme bulunamadı.");
+  if (contract.status === "cancelled") {
+    return fail("VALIDATION_ERROR", "İptal edilmiş bir sözleşmeden ders programı üretilemez. Önce yeni bir sözleşme oluşturun.");
+  }
+
+  const data = await readData();
+  const student = data.students.find((s) => s.id === contract.studentId);
+  if (!student) return fail("NOT_FOUND", "Sözleşmenin öğrencisi bulunamadı.");
+  const teacher = data.teachers.find((t) => t.id === v.data.teacherId);
+  if (!teacher) return fail("NOT_FOUND", "Seçilen öğretmen bulunamadı.");
+  const room = data.rooms.find((r) => r.id === v.data.roomId);
+  if (!room) return fail("NOT_FOUND", "Seçilen oda bulunamadı.");
+
+  const { parseLessonScheduleText } = await import("../lesson-schedule-text");
+  const scheduleText = contract.contractDataSnapshot?.lessonScheduleText || student.lessonScheduleText || "";
+  const slots = parseLessonScheduleText(scheduleText);
+  if (slots.length === 0) {
+    return fail(
+      "VALIDATION_ERROR",
+      "Sözleşmede ders günü/saati kayıtlı değil. Sözleşme Merkezi'ndeki “Ders günü/saati” alanını doldurup sözleşmeyi güncelleyin veya öğrenci kaydında gün/saat seçin."
+    );
+  }
+
+  const startsOn = contract.enrollmentStartDate.slice(0, 10);
+  const endsOn = contract.enrollmentEndDate.slice(0, 10);
+  const durationMinutes = v.data.durationMinutes ?? student.lessonDurationMinutes ?? data.settings.lessonDurationMinutes;
+  const instrument = (student.instruments[0] ?? contract.programmeName) as Instrument;
+
+  const allChecks: SeriesOccurrenceCheck[] = [];
+  const slotSummaries: { weekday: number; time: string; occurrenceCount: number; conflictCount: number; skippedCount: number }[] = [];
+  const createdLessonIds: string[] = [];
+  const seriesIds: string[] = [];
+
+  for (const slot of slots) {
+    const params = {
+      studentId: student.id,
+      teacherId: teacher.id,
+      roomId: room.id,
+      branchId: room.branchId,
+      instrument,
+      weekday: slot.weekday,
+      startTime: slot.time,
+      durationMinutes,
+      startsOn,
+      endsOn,
+      term: student.termType ?? ("guz" as const),
+      contractId: contract.id,
+    };
+    const occurrences = computeSeriesOccurrences(params);
+    const checks = checkSeriesOccurrences(data, params, occurrences);
+    allChecks.push(...checks);
+    const conflicts = checks.filter((c) => !c.ok);
+    slotSummaries.push({
+      weekday: slot.weekday,
+      time: slot.time,
+      occurrenceCount: occurrences.length,
+      conflictCount: conflicts.filter((c) => c.code !== "DAY_CLOSED").length,
+      skippedCount: conflicts.filter((c) => c.code === "DAY_CLOSED").length,
+    });
+
+    if (!v.data.dryRun) {
+      const result = await addLessonSeries(params, { skipConflicts: v.data.skipConflicts });
+      if (!result.ok) return fail("CONFLICT", result.message, result.conflicts);
+      createdLessonIds.push(...result.createdLessonIds);
+      seriesIds.push(result.seriesId);
+    }
+  }
+
+  const totalOccurrences = slotSummaries.reduce((n, s2) => n + s2.occurrenceCount, 0);
+  const totalConflicts = slotSummaries.reduce((n, s2) => n + s2.conflictCount, 0);
+  const totalSkipped = slotSummaries.reduce((n, s2) => n + s2.skippedCount, 0);
+
+  const message = v.data.dryRun
+    ? `${scheduleText} · ${startsOn} – ${endsOn} aralığında ${totalOccurrences} ders planlanacak` +
+      (totalSkipped > 0 ? `, ${totalSkipped} tanesi kapalı güne denk geldiği için atlanacak` : "") +
+      (totalConflicts > 0 ? `, ${totalConflicts} tanesinde çakışma var` : "") +
+      "."
+    : `${createdLessonIds.length} ders oluşturuldu` +
+      (totalSkipped > 0 ? `, ${totalSkipped} ders kapalı güne denk geldiği için atlandı` : "") +
+      ".";
+
+  if (!v.data.dryRun) {
+    audit(ctx, "contract.lesson_schedule.generate", "StudentContract", contract.id, {
+      createdLessonCount: createdLessonIds.length,
+      seriesIds,
+      scheduleText,
+    });
+  }
+
+  return ok({
+    dryRun: v.data.dryRun,
+    contractId: contract.id,
+    slots: slotSummaries,
+    checks: allChecks,
+    createdLessonIds,
+    seriesIds,
+    message,
+  });
+}
+
+/**
+ * K — bir sözleşmeden üretilmiş GELECEK ders sayısı. Sözleşme iptal
+ * edilmeden önce kullanıcıya "N gelecek ders var" uyarısını göstermek için;
+ * hiçbir şey silmez.
+ */
+export async function countContractLessonsTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<
+  ServiceResult<{
+    contractId: string;
+    futureLessonCount: number;
+    /** Kuralları gereği iptal EDİLEMEYECEK gelecek ders sayısı (işlendi/telafi işaretli vb.). */
+    lockedLessonCount: number;
+    lockedReasons: string[];
+    seriesIds: string[];
+  }>
+> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const v = parseOrFail(z.object({ contractId: z.string().min(1) }), input);
+  if (!v.ok) return v;
+
+  const data = await readData();
+  const future = collectContractFutureLessons(data, v.data.contractId);
+  const { lessonCancelBlockReason } = await import("../lesson-cancel-rules");
+  const lockedReasons = Array.from(
+    new Set(
+      future.lessons
+        .map((l) => lessonCancelBlockReason(l))
+        .filter((reason): reason is string => reason !== null)
+    )
+  );
+  return ok({
+    contractId: v.data.contractId,
+    futureLessonCount: future.lessons.length,
+    lockedLessonCount: future.lessons.filter((l) => lessonCancelBlockReason(l) !== null).length,
+    lockedReasons,
+    seriesIds: future.seriesIds,
+  });
+}
+
+/**
+ * Bir sözleşmeden türeyen GELECEK dersler — sayma ve iptal akışının TEK
+ * kaynağı (iki yerde iki farklı "gelecek ders" tanımı bırakılmaz).
+ * İptal edilmiş dersler ve geçmiş dersler hariçtir.
+ */
+function collectContractFutureLessons(
+  data: AppData,
+  contractId: string,
+  now: Date = new Date()
+): { seriesIds: string[]; lessons: Lesson[] } {
+  const seriesIds = data.lessonSeries.filter((s) => s.contractId === contractId).map((s) => s.id);
+  if (seriesIds.length === 0) return { seriesIds, lessons: [] };
+  const nowIso = now.toISOString();
+  const seriesSet = new Set(seriesIds);
+  return {
+    seriesIds,
+    lessons: data.lessons.filter(
+      (l) => l.seriesId && seriesSet.has(l.seriesId) && l.startAt > nowIso && l.status !== "cancelled"
+    ),
+  };
 }
 
 export async function cancelSeriesFromLessonTool(
@@ -9007,7 +9224,10 @@ export async function createTrialLessonTool(
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
   const v = parseOrFail(createTrialLessonSchema, input);
   if (!v.ok) return v;
-  const sched = assertSchedulableDate(v.data.startAt, []);
+  // Çalışma günü tek kaynağı — deneme dersi de yöneticinin kapalı/zorla-açık
+  // istisnalarına uyar (eskiden boş liste geçiliyordu, istisnalar hiç okunmuyordu).
+  const trialData = await readData();
+  const sched = assertSchedulableDate(v.data.startAt, trialData);
   if (!sched.ok) return fail("VALIDATION_ERROR", sched.message);
   if (ctx.role === "TEACHER" && v.data.teacherId !== ctx.teacherId) {
     return fail("FORBIDDEN", "Yalnızca kendi deneme dersinizi planlayabilirsiniz.");
@@ -10662,16 +10882,66 @@ export async function uploadStudentContractSignedScanTool(
 export async function cancelStudentContractTool(
   ctx: ServiceContext,
   input: unknown
-): Promise<ServiceResult<{ contract: StudentContract }>> {
+): Promise<
+  ServiceResult<{
+    contract: StudentContract;
+    cancelledLessonIds: string[];
+    keptLessons: { lessonId: string; reason: string }[];
+  }>
+> {
   const auth = requireRole(ctx, CONTRACT_STAFF);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
-  const v = parseOrFail(contractIdSchema, input);
+  const v = parseOrFail(
+    contractIdSchema.extend({
+      /**
+       * K (2026-09-20) — bu sözleşmeden ÜRETİLMİŞ gelecek dersler de iptal
+       * edilsin mi? Varsayılan FALSE: sessiz/otomatik silme YOKTUR. Kullanıcı
+       * Sözleşme Merkezi'ndeki onay ekranında bunu açıkça seçer.
+       */
+      cancelFutureLessons: z.boolean().default(false),
+    }),
+    input
+  );
   if (!v.ok) return v;
   try {
+    /**
+     * Sıra bilinçli: ÖNCE dersler, SONRA sözleşme. Ders iptali kısmen
+     * başarısız olursa sözleşme hâlâ aktiftir ve kullanıcı tekrar
+     * deneyebilir — tersi durumda "iptal edilmiş sözleşmeye bağlı aktif
+     * dersler" gibi tutarsız bir ara durum kalırdı.
+     */
+    const cancelledLessonIds: string[] = [];
+    const keptLessons: { lessonId: string; reason: string }[] = [];
+    if (v.data.cancelFutureLessons) {
+      const before = await readData();
+      const future = collectContractFutureLessons(before, v.data.contractId);
+      const { lessonCancelBlockReason } = await import("../lesson-cancel-rules");
+      for (const lesson of future.lessons) {
+        const blocked = lessonCancelBlockReason(lesson);
+        if (blocked) {
+          keptLessons.push({ lessonId: lesson.id, reason: blocked });
+          continue;
+        }
+        try {
+          await cancelLesson(lesson.id);
+          cancelledLessonIds.push(lesson.id);
+        } catch (err) {
+          keptLessons.push({
+            lessonId: lesson.id,
+            reason: err instanceof Error ? err.message : "Ders iptal edilemedi.",
+          });
+        }
+      }
+    }
+
     const contract = await cancelContract(ctx.tenantId, v.data.contractId);
     if (!contract) return fail("NOT_FOUND", "Sözleşme bulunamadı.");
-    audit(ctx, "contract.cancel", "StudentContract", contract.id, {});
-    return ok({ contract });
+    audit(ctx, "contract.cancel", "StudentContract", contract.id, {
+      cancelFutureLessons: v.data.cancelFutureLessons,
+      cancelledLessonCount: cancelledLessonIds.length,
+      keptLessonCount: keptLessons.length,
+    });
+    return ok({ contract, cancelledLessonIds, keptLessons });
   } catch (e) {
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "cancelStudentContract failed");
   }
