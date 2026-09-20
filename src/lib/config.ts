@@ -16,6 +16,23 @@ export const isMemoryMode = STORE_MODE === "memory";
 
 /** Vercel serverless'da kalıcı disk yok → /tmp veya memory kullan */
 export function resolveDataDir(defaultDir: string) {
+  /**
+   * 2026-09-20 — AÇIK İZOLASYON KAPISI. `json`/`memory` modundaki dosya
+   * deposu tüm süreçler arasında PAYLAŞILIR (`/tmp/notaplan-data`) ve her
+   * test dosyası `beforeEach`'te `store.json`u SİLER. Aynı makinede iki
+   * koşu (ör. iki git worktree'sinde `npm test`) birbirinin verisini
+   * siler; sonuç kodla hiç ilgisi olmayan, her koşuda DEĞİŞEN sahte
+   * hatalardır (bkz. LESSONS_LEARNED 2026-09-20).
+   *
+   * `NOTAPLAN_DATA_DIR` verildiğinde o dizin kullanılır — böylece paralel
+   * koşular birbirini görmeden çalışabilir:
+   *   NOTAPLAN_DATA_DIR=$(mktemp -d) npm test
+   *
+   * Üretim davranışı DEĞİŞMEZ: değişken tanımlı değilse serverless'ta yine
+   * `/tmp/notaplan-data`, yerelde yine `defaultDir` döner.
+   */
+  const explicit = process.env.NOTAPLAN_DATA_DIR?.trim();
+  if (explicit) return explicit;
   if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) {
     return "/tmp/notaplan-data";
   }

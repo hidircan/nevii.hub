@@ -43,9 +43,14 @@ environment.
 `npm run typecheck` → `npm run lint` → `npm test` → `npx prisma validate` → `npm run build`.
 
 **Test gotcha:** `vitest.config.mts` sets `fileParallelism: false` — every test file shares the
-same on-disk `STORE_MODE=json` store (`/tmp/notaplan-data/store.json` in CI, `./data` locally),
-so running files in parallel produces flaky cross-test data corruption. Don't try to work around
-this; it's intentional. Tests always run with `STORE_MODE=json`, `VERCEL=1`.
+same on-disk `STORE_MODE=json` store and deletes it in `beforeEach`, so running files in parallel
+produces flaky cross-test data corruption. Don't try to work around this; it's intentional.
+Tests always run with `STORE_MODE=json`, `VERCEL=1`.
+
+Since 2026-09-20 each run gets its **own** data directory (`NOTAPLAN_DATA_DIR`, derived from the
+repo root in `vitest.config.mts`), so two worktrees can run `npm test` at the same time without
+wiping each other's store. If you still see a failing set that **changes between runs**, that is
+cross-process interference, not a regression — a real regression is deterministic.
 
 **No `.env.example`** exists yet — copy the vars referenced in `src/lib/config.ts`,
 `src/lib/auth/config.ts`, and `src/lib/ai/config.ts` (`STORE_MODE`, `DATABASE_URL`, `JWT_SECRET`,
