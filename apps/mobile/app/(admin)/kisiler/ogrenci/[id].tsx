@@ -1,10 +1,11 @@
 import { useLocalSearchParams } from "expo-router";
 import { useState } from "react";
-import { Text, View } from "react-native";
+import { Linking, Text, View } from "react-native";
 import { apiPost } from "../../../../src/api/client";
 import {
   AppHeader,
   Avatar,
+  Button,
   Card,
   ConfirmDialog,
   EmptyState,
@@ -14,7 +15,9 @@ import {
   Screen,
   ProgressBar,
   SectionHeader,
+  SelectField,
   StatusBadge,
+  TextField,
 } from "../../../../src/components/ui";
 import { useApiGet } from "../../../../src/hooks/use-api";
 import { useNow } from "../../../../src/hooks/use-now";
@@ -25,6 +28,7 @@ import type {
   BalanceResponse,
   CurriculumResponse,
   HomeworkResponse,
+  PortalAccessResponse,
   ScheduleResponse,
   SocialMediaConsentResponse,
   StudentDocumentsResponse,
@@ -37,6 +41,16 @@ const CONSENT_STATUS_LABEL: Record<string, string> = {
   withdrawn: "Onay geri çekildi",
   expired: "Onay süresi doldu",
 };
+
+const ACCESS_STATUS_LABEL: Record<string, string> = {
+  invited: "Davetli",
+  active: "Aktif",
+  revoked: "İptal edilmiş",
+};
+
+function telHref(phone: string): string {
+  return `tel:${phone.replace(/[^+\d]/g, "")}`;
+}
 
 export default function AdminStudentDetail() {
   const t = useTheme();
@@ -51,14 +65,54 @@ export default function AdminStudentDetail() {
   const balance = useApiGet<BalanceResponse>(`/api/v1/students/${id}/balance`);
   const documents = useApiGet<StudentDocumentsResponse>(`/api/v1/students/${id}/documents`);
   const consent = useApiGet<SocialMediaConsentResponse>(`/api/v1/students/${id}/social-media-consent`);
+  const portalAccess = useApiGet<PortalAccessResponse>(`/api/v1/students/${id}/portal-access`);
 
   const [confirmingPaymentId, setConfirmingPaymentId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [accessBusy, setAccessBusy] = useState<string | null>(null);
+  const [confirmRevoke, setConfirmRevoke] = useState<{ userId: string; email: string } | null>(null);
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteType, setInviteType] = useState<string | null>("GUARDIAN");
 
   async function confirmPayment() {
     if (!confirmingPaymentId) return;
-    await apiPost(`/api/v1/payments/${confirmingPaymentId}/pay`, {});
+    setActionError(null);
+    const res = await apiPost(`/api/v1/payments/${confirmingPaymentId}/pay`, {});
     setConfirmingPaymentId(null);
+    if (!res.ok) {
+      setActionError(res.error.message || "Ödeme kaydedilemedi.");
+      return;
+    }
     balance.refresh();
+  }
+
+  async function mutateAccess(action: "revoke" | "reactivate", userId: string) {
+    setAccessBusy(userId);
+    setActionError(null);
+    const res = await apiPost(`/api/v1/students/${id}/portal-access/${action}`, { userId });
+    setAccessBusy(null);
+    if (!res.ok) {
+      setActionError(res.error.message || "Erişim güncellenemedi.");
+      return;
+    }
+    portalAccess.refresh();
+  }
+
+  async function sendInvite() {
+    const email = inviteEmail.trim();
+    if (!email || !inviteType) return;
+    setAccessBusy("invite");
+    setActionError(null);
+    const res = await apiPost(`/api/v1/students/${id}/portal-access/invite`, { email, accessType: inviteType });
+    setAccessBusy(null);
+    if (!res.ok) {
+      setActionError(res.error.message || "Davet gönderilemedi.");
+      return;
+    }
+    setInviteOpen(false);
+    setInviteEmail("");
+    portalAccess.refresh();
   }
 
   if (profile.status === "loading") {
@@ -224,8 +278,89 @@ export default function AdminStudentDetail() {
       <SectionHeader title="Veli iletişim" />
       <Card>
         <Text style={[t.typography.body, { color: t.colors.text }]}>{student.parentName}</Text>
-        <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>{student.parentPhone}</Text>
+        <Text
+          style={[t.typography.body, { color: t.colors.primary, marginTop: 6 }]}
+          onPress={() => void Linking.openURL(telHref(student.parentPhone))}
+          accessibilityRole="link"
+          accessibilityLabel={`${student.parentPhone} numarasını ara`}
+        >
+          {student.parentPhone} →
+        </Text>
       </Card>
+
+      <SectionHeader title="Portal erişimi" actionLabel={inviteOpen ? undefined : "Davet et"} onAction={inviteOpen ? undefined : () => setInviteOpen(true)} />
+      {actionError ? (
+        <Card style={{ marginBottom: 10, borderColor: t.colors.danger }}>
+          <Text style={[t.typography.body, { color: t.colors.danger }]}>{actionError}</Text>
+        </Card>
+      ) : null}
+      {inviteOpen ? (
+        <Card style={{ marginBottom: 10 }}>
+          <TextField label="E-posta" value={inviteEmail} onChangeText={setInviteEmail} placeholder="ornek@e-posta.com" keyboardType="email-address" autoCapitalize="none" />
+          <View style={{ height: 12 }} />
+          <SelectField
+            label="Erişim türü"
+            value={inviteType}
+            placeholder="Seçin"
+            options={[
+              { label: "Veli (çocuk adına salt-görünüm)", value: "GUARDIAN" },
+              { label: "Öğrenci (kendi hesabı)", value: "SELF" },
+            ]}
+            onChange={setInviteType}
+          />
+          <View style={{ flexDirection: "row", gap: 8, marginTop: 12 }}>
+            <Button label="Vazgeç" variant="secondary" style={{ flex: 1 }} onPress={() => setInviteOpen(false)} />
+            <Button label="Davet gönder" style={{ flex: 1 }} loading={accessBusy === "invite"} disabled={!inviteEmail.trim() || !inviteType} onPress={sendInvite} />
+          </View>
+        </Card>
+      ) : null}
+      {portalAccess.status === "loading" ? (
+        <LoadingSkeleton rows={2} />
+      ) : portalAccess.status === "error" ? (
+        <ErrorState message={portalAccess.message} onRetry={portalAccess.refresh} />
+      ) : portalAccess.data.accounts.length === 0 ? (
+        <EmptyState icon="key-outline" title="Portal hesabı yok" />
+      ) : (
+        <View style={{ gap: 8 }}>
+          {portalAccess.data.accounts.map((a) => (
+            <Card key={a.userId}>
+              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={[t.typography.body, { color: t.colors.text }]} numberOfLines={1}>
+                    {a.email || "(e-posta yok)"}
+                  </Text>
+                  <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>
+                    {a.accessType === "GUARDIAN" ? "Veli" : "Öğrenci"}
+                  </Text>
+                </View>
+                <StatusBadge
+                  label={ACCESS_STATUS_LABEL[a.status] ?? a.status}
+                  tone={a.status === "active" ? "success" : a.status === "invited" ? "warning" : "neutral"}
+                />
+              </View>
+              {a.status === "active" ? (
+                <Button
+                  label="Erişimi iptal et"
+                  size="sm"
+                  variant="danger"
+                  loading={accessBusy === a.userId}
+                  style={{ marginTop: 10 }}
+                  onPress={() => setConfirmRevoke({ userId: a.userId, email: a.email })}
+                />
+              ) : a.status === "revoked" ? (
+                <Button
+                  label="Erişimi yeniden aç"
+                  size="sm"
+                  variant="secondary"
+                  loading={accessBusy === a.userId}
+                  style={{ marginTop: 10 }}
+                  onPress={() => void mutateAccess("reactivate", a.userId)}
+                />
+              ) : null}
+            </Card>
+          ))}
+        </View>
+      )}
 
       <ConfirmDialog
         visible={!!confirmingPaymentId}
@@ -234,6 +369,21 @@ export default function AdminStudentDetail() {
         confirmLabel="Ödendi işaretle"
         onConfirm={confirmPayment}
         onCancel={() => setConfirmingPaymentId(null)}
+      />
+
+      <ConfirmDialog
+        visible={!!confirmRevoke}
+        title="Portal erişimi iptal edilsin mi?"
+        message={confirmRevoke ? `${confirmRevoke.email || "Bu hesap"} artık öğrencinin bilgilerini göremez, push bildirimleri durur.` : undefined}
+        confirmLabel="Erişimi iptal et"
+        danger
+        onConfirm={() => {
+          if (!confirmRevoke) return;
+          const { userId } = confirmRevoke;
+          setConfirmRevoke(null);
+          void mutateAccess("revoke", userId);
+        }}
+        onCancel={() => setConfirmRevoke(null)}
       />
     </Screen>
   );

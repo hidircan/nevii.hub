@@ -15,12 +15,21 @@ import {
   SectionHeader,
   SelectField,
   StatusBadge,
+  TextField,
 } from "../../../src/components/ui";
 import { useApiGet } from "../../../src/hooks/use-api";
 import { format } from "../../../src/lib/date";
 import { lessonStatusBadge } from "../../../src/lib/lesson-status";
 import { useTheme } from "../../../src/theme/theme-context";
-import type { BranchesResponse, LessonReassignResponse, LessonsResponse, RoomsResponse, TeachersResponse } from "../../../src/types/api";
+import type { BranchesResponse, LessonOpsResponse, LessonReassignResponse, LessonsResponse, RoomsResponse, TeachersResponse } from "../../../src/types/api";
+
+const OPS_FLAG_LABEL: Record<string, string> = {
+  attended: "Katıldı",
+  absent: "Gelmedi",
+  excused: "İzinli",
+  processed: "İşlendi",
+  makeup: "Telafi",
+};
 
 export default function AdminLessonDetail() {
   const t = useTheme();
@@ -35,6 +44,12 @@ export default function AdminLessonDetail() {
   const [submitting, setSubmitting] = useState(false);
   const [reassignError, setReassignError] = useState<string | null>(null);
   const [reassignedOk, setReassignedOk] = useState(false);
+  const [opsBusy, setOpsBusy] = useState<string | null>(null);
+  const [opsError, setOpsError] = useState<string | null>(null);
+  const [pendingSwitch, setPendingSwitch] = useState<{ flag: string; from: string; reason?: string } | null>(null);
+  const [confirmingCancel, setConfirmingCancel] = useState(false);
+  const [reasonPrompt, setReasonPrompt] = useState<string | null>(null);
+  const [reason, setReason] = useState("");
 
   const teachers = useApiGet<TeachersResponse>(reassignOpen ? "/api/v1/teachers" : "");
   const branches = useApiGet<BranchesResponse>(reassignOpen ? "/api/v1/branches" : "");
@@ -86,6 +101,39 @@ export default function AdminLessonDetail() {
   const selectedTeacherName = eligibleTeachers.find((tc) => tc.id === newTeacherId)?.name;
   const selectedBranchName = branchOptions.find((b) => b.id === newBranchId)?.name;
   const selectedRoomName = roomsInBranch.find((r) => r.id === newRoomId)?.name;
+
+  async function markOps(flag: string, confirmSwitch = false, reasonText?: string) {
+    setOpsBusy(flag);
+    setOpsError(null);
+    const result = await apiPost<LessonOpsResponse>(`/api/v1/lessons/${lessonId}/ops`, {
+      flag,
+      confirmSwitch,
+      ...(reasonText !== undefined ? { reason: reasonText } : {}),
+    });
+    setOpsBusy(null);
+    if (!result.ok) {
+      setOpsError(result.error.message || "Yoklama kaydedilemedi.");
+      return;
+    }
+    if (result.data.needsConfirmation) {
+      setPendingSwitch({ flag, from: result.data.currentStatus ?? "?", reason: reasonText });
+      return;
+    }
+    res.refresh();
+  }
+
+  async function cancelLesson() {
+    setConfirmingCancel(false);
+    setOpsBusy("cancel");
+    setOpsError(null);
+    const result = await apiPost(`/api/v1/lessons/${lessonId}/cancel`, {});
+    setOpsBusy(null);
+    if (!result.ok) {
+      setOpsError(result.error.message || "Ders iptal edilemedi.");
+      return;
+    }
+    res.refresh();
+  }
 
   async function submitReassign() {
     setConfirming(false);
@@ -140,6 +188,53 @@ export default function AdminLessonDetail() {
           {lesson.roomName ? <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>Oda: {lesson.roomName}</Text> : null}
         </View>
       </Card>
+
+      <SectionHeader title="Yoklama" />
+      {opsError ? (
+        <Card style={{ marginBottom: 10, borderColor: t.colors.danger }}>
+          <Text style={[t.typography.body, { color: t.colors.danger }]}>{opsError}</Text>
+        </Card>
+      ) : null}
+      {lesson.status === "cancelled" ? (
+        <EmptyState icon="ban-outline" title="Bu ders iptal edilmiş" />
+      ) : (
+        <View style={{ gap: 8 }}>
+          <View style={{ flexDirection: "row", gap: 8 }}>
+            <Button label="Katıldı" size="sm" loading={opsBusy === "attended"} onPress={() => markOps("attended")} style={{ flex: 1 }} />
+            <Button label="Gelmedi" size="sm" variant="danger" loading={opsBusy === "absent"} onPress={() => markOps("absent")} style={{ flex: 1 }} />
+            <Button label="İzinli" size="sm" variant="secondary" loading={opsBusy === "excused"} onPress={() => markOps("excused")} style={{ flex: 1 }} />
+          </View>
+          <View style={{ flexDirection: "row", gap: 8 }}>
+            <Button label="Telafi" size="sm" variant="secondary" loading={opsBusy === "makeup"} onPress={() => { setReason(""); setReasonPrompt("makeup"); }} style={{ flex: 1 }} />
+            <Button label="İşlendi" size="sm" variant="secondary" loading={opsBusy === "processed"} onPress={() => { setReason(""); setReasonPrompt("processed"); }} style={{ flex: 1 }} />
+            <Button label="İptal et" size="sm" variant="danger" loading={opsBusy === "cancel"} onPress={() => setConfirmingCancel(true)} style={{ flex: 1 }} />
+          </View>
+          {reasonPrompt ? (
+            <Card>
+              <TextField
+                label={`"${OPS_FLAG_LABEL[reasonPrompt] ?? reasonPrompt}" gerekçesi (zorunlu)`}
+                value={reason}
+                onChangeText={setReason}
+                placeholder="Kısa gerekçe yazın"
+              />
+              <View style={{ flexDirection: "row", gap: 8, marginTop: 12 }}>
+                <Button label="Vazgeç" variant="secondary" style={{ flex: 1 }} onPress={() => setReasonPrompt(null)} />
+                <Button
+                  label="Uygula"
+                  style={{ flex: 1 }}
+                  disabled={reason.trim().length === 0}
+                  loading={opsBusy === reasonPrompt}
+                  onPress={() => {
+                    const flag = reasonPrompt;
+                    setReasonPrompt(null);
+                    void markOps(flag, false, reason.trim());
+                  }}
+                />
+              </View>
+            </Card>
+          ) : null}
+        </View>
+      )}
 
       <SectionHeader title="Öğretmen / Şube değiştir" />
       {reassignedOk ? (
@@ -207,6 +302,34 @@ export default function AdminLessonDetail() {
           </View>
         </Card>
       )}
+
+      <ConfirmDialog
+        visible={!!pendingSwitch}
+        title="Statü değiştirilsin mi?"
+        message={
+          pendingSwitch
+            ? `Bu ders şu an "${OPS_FLAG_LABEL[pendingSwitch.from] ?? pendingSwitch.from}" durumunda. "${OPS_FLAG_LABEL[pendingSwitch.flag] ?? pendingSwitch.flag}" olarak değiştirmek istiyor musunuz?`
+            : undefined
+        }
+        confirmLabel="Değiştir"
+        onConfirm={() => {
+          if (!pendingSwitch) return;
+          const { flag, reason: savedReason } = pendingSwitch;
+          setPendingSwitch(null);
+          void markOps(flag, true, savedReason);
+        }}
+        onCancel={() => setPendingSwitch(null)}
+      />
+
+      <ConfirmDialog
+        visible={confirmingCancel}
+        title="Ders iptal edilsin mi?"
+        message="Öğrenci ve öğretmene iptal bildirimi gönderilir. Bu işlem geri alınamaz."
+        confirmLabel="İptal et"
+        danger
+        onConfirm={cancelLesson}
+        onCancel={() => setConfirmingCancel(false)}
+      />
 
       <ConfirmDialog
         visible={confirming}

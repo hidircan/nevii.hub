@@ -126,7 +126,7 @@ export type TeacherSummary = {
   phone: string;
   email: string;
 };
-export type TeachersResponse = { teachers: TeacherSummary[] };
+export type TeachersResponse = { teachers: TeacherSummary[]; total?: number; limit?: number; offset?: number };
 
 export type TeacherStudentSummary = {
   id: string;
@@ -151,7 +151,30 @@ export type AdminStudentSummary = {
   parentName: string;
   parentPhone: string;
 };
-export type AdminStudentsResponse = { students: AdminStudentSummary[] };
+export type AdminStudentsResponse = { students: AdminStudentSummary[]; total?: number; limit?: number; offset?: number };
+
+/** GET /api/v1/lessons/:id/ops yanıtı — statü geçiş onayı dahil. */
+export type LessonOpsResponse = {
+  lessonId: string;
+  flag: string;
+  alreadySet: boolean;
+  message: string;
+  needsConfirmation?: boolean;
+  currentStatus?: string | null;
+};
+
+/** GET /api/v1/students/:id/portal-access — portal hesapları. */
+export type PortalAccessAccount = {
+  userId: string;
+  email: string;
+  accessType: "GUARDIAN" | "SELF";
+  status: "invited" | "active" | "revoked";
+  invitedAt: string;
+  activatedAt: string | null;
+  revokedAt: string | null;
+  lastPasswordResetRequestedAt: string | null;
+};
+export type PortalAccessResponse = { studentId: string; accounts: PortalAccessAccount[] };
 
 export type StudentProfile = {
   id: string;

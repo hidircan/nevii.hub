@@ -18,16 +18,12 @@ const API_ROOT = path.join(MOBILE_ROOT, "../../src/app/api/v1");
  * Hiçbiri öğretmen portalında değil. Yeni eksik eklenmemeli; route gelince buradan silinmeli.
  */
 const KNOWN_MISSING = new Set([
-  // Yönetici mobil — post-launch (öğrenci/veli/öğretmen yollarının TAMAMI backend'de mevcut)
-  "branches",
+  // Yönetici mobil — Faz 3/4'te kapatılacak (Faz 2'de branches/rooms/
+  // lessons/lessons-reassign/documents/social-media-consent eklendi;
+  // öğrenci/veli/öğretmen yollarının TAMAMI backend'de mevcut)
   "dashboard/summary",
   "homework/report",
   "instruments",
-  "lessons",
-  "lessons/:p/reassign",
-  "rooms",
-  "students/:p/documents",
-  "students/:p/social-media-consent",
   "teachers/payouts/:p/mark-paid",
 ]);
 

@@ -1,5 +1,5 @@
 import { useRouter } from "expo-router";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Text, View } from "react-native";
 import { AppHeader, Avatar, Card, EmptyState, ErrorState, FilterChip, LoadingSkeleton, Screen, SearchInput, StatusBadge, StudentCard } from "../../../src/components/ui";
 import { useApiGet } from "../../../src/hooks/use-api";
@@ -14,25 +14,19 @@ export default function KisilerIndex() {
   const [segment, setSegment] = useState<Segment>("students");
   const [query, setQuery] = useState("");
 
-  const students = useApiGet<AdminStudentsResponse>("/api/v1/students");
-  const teachers = useApiGet<TeachersResponse>("/api/v1/teachers");
+  // Arama sunucu tarafında (`q`) — büyük kurumlarda tüm liste çekilmez.
+  const qParam = query.trim() ? `?q=${encodeURIComponent(query.trim())}&limit=50` : "?limit=50";
+  const students = useApiGet<AdminStudentsResponse>(
+    segment === "teachers" ? "" : `/api/v1/students${qParam}`
+  );
+  const teachers = useApiGet<TeachersResponse>(
+    segment === "teachers" ? `/api/v1/teachers${qParam}` : ""
+  );
 
-  const q = query.trim().toLocaleLowerCase("tr-TR");
-
-  const filteredStudents = useMemo(() => {
-    if (students.status !== "success") return [];
-    return students.data.students.filter((s) => !q || s.name.toLocaleLowerCase("tr-TR").includes(q));
-  }, [students, q]);
-
-  const filteredTeachers = useMemo(() => {
-    if (teachers.status !== "success") return [];
-    return teachers.data.teachers.filter((tt) => !q || tt.name.toLocaleLowerCase("tr-TR").includes(q));
-  }, [teachers, q]);
-
-  const filteredParents = useMemo(() => {
-    if (students.status !== "success") return [];
-    return students.data.students.filter((s) => !q || s.parentName.toLocaleLowerCase("tr-TR").includes(q));
-  }, [students, q]);
+  const filteredStudents = students.status === "success" ? students.data.students : [];
+  const filteredTeachers = teachers.status === "success" ? teachers.data.teachers : [];
+  // Veli sekmesi öğrenci kayıtları üzerinden listelenir (veli adı + öğrencisi).
+  const filteredParents = filteredStudents;
 
   return (
     <Screen>

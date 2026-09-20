@@ -6,6 +6,7 @@ import {
   AppHeader,
   Button,
   Card,
+  ConfirmDialog,
   EmptyState,
   ErrorState,
   LessonCard,
@@ -17,7 +18,15 @@ import {
 import { useApiGet } from "../../../src/hooks/use-api";
 import { useNow } from "../../../src/hooks/use-now";
 import { useTheme } from "../../../src/theme/theme-context";
-import type { AdminStudentsResponse, AttendanceSummary, ScheduleResponse } from "../../../src/types/api";
+import type { AdminStudentsResponse, AttendanceSummary, LessonOpsResponse, ScheduleResponse } from "../../../src/types/api";
+
+const FLAG_LABEL: Record<string, string> = {
+  attended: "Katıldı",
+  absent: "Gelmedi",
+  excused: "İzinli",
+  processed: "İşlendi",
+  makeup: "Telafi",
+};
 
 export default function AdminYoklama() {
   const t = useTheme();
@@ -25,27 +34,39 @@ export default function AdminYoklama() {
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [busyLessonId, setBusyLessonId] = useState<string | null>(null);
+  const [opsError, setOpsError] = useState<string | null>(null);
+  const [pendingSwitch, setPendingSwitch] = useState<{ lessonId: string; flag: "attended" | "absent" | "excused"; from: string } | null>(null);
 
-  const students = useApiGet<AdminStudentsResponse>("/api/v1/students");
+  const trimmed = query.trim();
+  const students = useApiGet<AdminStudentsResponse>(
+    trimmed ? `/api/v1/students?q=${encodeURIComponent(trimmed)}&limit=8` : ""
+  );
   const schedule = useApiGet<ScheduleResponse>(selectedId ? `/api/v1/students/${selectedId}/schedule` : "");
   const attendance = useApiGet<AttendanceSummary>(selectedId ? `/api/v1/students/${selectedId}/attendance-summary` : "");
 
-  const filteredStudents = useMemo(() => {
-    if (students.status !== "success") return [];
-    const q = query.trim().toLocaleLowerCase("tr-TR");
-    if (!q) return [];
-    return students.data.students.filter((s) => s.name.toLocaleLowerCase("tr-TR").includes(q)).slice(0, 8);
-  }, [students, query]);
+  // Sunucu `q` ile filtreler — istemci tarafı filtreleme yok.
+  const filteredStudents = students.status === "success" ? students.data.students : [];
 
   const pendingLessons = useMemo(() => {
     if (schedule.status !== "success") return [];
     return schedule.data.lessons.filter((l) => isPast(l.endAt, now) && !l.lessonProcessed && !l.studentAttended && !l.studentAbsent && !l.studentExcused);
   }, [schedule, now]);
 
-  async function markAttendance(lessonId: string, flag: "attended" | "absent" | "excused") {
+  async function markAttendance(lessonId: string, flag: "attended" | "absent" | "excused", confirmSwitch = false) {
     setBusyLessonId(lessonId);
-    await apiPost(`/api/v1/lessons/${lessonId}/ops`, { flag });
+    setOpsError(null);
+    const res = await apiPost<LessonOpsResponse>(`/api/v1/lessons/${lessonId}/ops`, { flag, confirmSwitch });
     setBusyLessonId(null);
+    if (!res.ok) {
+      setOpsError(res.error.message || "Yoklama kaydedilemedi.");
+      return;
+    }
+    // Sunucu farklı statüden geçişte onay ister (web ile aynı akış) —
+    // sessiz üzerine yazma YOK.
+    if (res.data.needsConfirmation) {
+      setPendingSwitch({ lessonId, flag, from: res.data.currentStatus ?? "?" });
+      return;
+    }
     schedule.refresh();
     attendance.refresh();
   }
@@ -60,7 +81,11 @@ export default function AdminYoklama() {
 
       {!selectedId && query.trim() ? (
         <View style={{ gap: 8, marginTop: 12 }}>
-          {filteredStudents.length === 0 ? (
+          {students.status === "loading" ? (
+            <LoadingSkeleton rows={2} />
+          ) : students.status === "error" ? (
+            <ErrorState message={students.message} onRetry={students.refresh} />
+          ) : filteredStudents.length === 0 ? (
             <EmptyState icon="search-outline" title="Öğrenci bulunamadı" />
           ) : (
             filteredStudents.map((s) => (
@@ -99,6 +124,11 @@ export default function AdminYoklama() {
           )}
 
           <SectionHeader title="Yoklama bekleyen dersler" />
+          {opsError ? (
+            <Card style={{ marginBottom: 10, borderColor: t.colors.danger }}>
+              <Text style={[t.typography.body, { color: t.colors.danger }]}>{opsError}</Text>
+            </Card>
+          ) : null}
           {schedule.status === "loading" ? (
             <LoadingSkeleton rows={3} />
           ) : schedule.status === "error" ? (
@@ -123,6 +153,24 @@ export default function AdminYoklama() {
       ) : !query.trim() ? (
         <EmptyState icon="search-outline" title="Yoklama işlemek için öğrenci arayın" />
       ) : null}
+
+      <ConfirmDialog
+        visible={!!pendingSwitch}
+        title="Statü değiştirilsin mi?"
+        message={
+          pendingSwitch
+            ? `Bu ders şu an "${FLAG_LABEL[pendingSwitch.from] ?? pendingSwitch.from}" durumunda. "${FLAG_LABEL[pendingSwitch.flag]}" olarak değiştirmek istiyor musunuz?`
+            : undefined
+        }
+        confirmLabel="Değiştir"
+        onConfirm={() => {
+          if (!pendingSwitch) return;
+          const { lessonId, flag } = pendingSwitch;
+          setPendingSwitch(null);
+          void markAttendance(lessonId, flag, true);
+        }}
+        onCancel={() => setPendingSwitch(null)}
+      />
     </Screen>
   );
 }

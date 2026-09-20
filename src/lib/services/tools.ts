@@ -5432,20 +5432,23 @@ export async function cancelLessonTool(
   try {
     const before = await readData();
     const lesson = before.lessons.find((l) => l.id === v.data.lessonId);
+    if (!lesson) return fail("NOT_FOUND", "Ders bulunamadı");
+    // Idempotent: zaten iptal edilmiş ders tekrar iptal edilmez, bildirim
+    // tekrar gönderilmez — mobil retry/çift-tap güvenli.
+    if (lesson.status === "cancelled") return ok({ lessonId: v.data.lessonId });
     await cancelLesson(v.data.lessonId);
-    if (lesson) {
-      try {
-        const { notifyLessonCancelled } = await import("../lesson-notifications");
-        await notifyLessonCancelled({
-          tenantId: ctx.tenantId,
-          lesson,
-          actorUserId: ctx.userId,
-          reason: typeof (v.data as { reason?: string }).reason === "string" ? (v.data as { reason?: string }).reason : undefined,
-        });
-      } catch {
-        // best-effort
-      }
+    try {
+      const { notifyLessonCancelled } = await import("../lesson-notifications");
+      await notifyLessonCancelled({
+        tenantId: ctx.tenantId,
+        lesson,
+        actorUserId: ctx.userId,
+        reason: typeof (v.data as { reason?: string }).reason === "string" ? (v.data as { reason?: string }).reason : undefined,
+      });
+    } catch {
+      // best-effort
     }
+    audit(ctx, "lesson.cancel", "Lesson", v.data.lessonId, { studentId: lesson.studentId });
     return ok({ lessonId: v.data.lessonId });
   } catch (e) {
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "cancelLesson failed");
