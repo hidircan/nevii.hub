@@ -631,6 +631,20 @@ export function documentKindLabel(kind: DocumentTemplateKind): string {
   return KIND_LABELS[kind] ?? kind;
 }
 
+/**
+ * Evrak statü etiketleri, İSTEMCİ-GÜVENLİ ayrı bir modülde
+ * (`src/lib/document-status.ts`). Bu dosya Prisma/pg'yi içeri aldığı için
+ * `"use client"` bileşenlerinden import EDİLEMEZ; `documents-table.tsx`
+ * statü etiketine ihtiyaç duyduğunda saf modülden okur. Buradaki
+ * re-export yalnız sunucu tarafı çağıranların kolaylığı içindir.
+ */
+export {
+  documentStatusLabel,
+  documentStatusHint,
+  isActiveDocumentStatus,
+} from "../document-status";
+
+
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
@@ -707,7 +721,7 @@ export async function createDocumentInstance(input: {
   createdBy: string;
   /** Yalnızca `student_enrollment_contract` için — bkz. stripUnusedInstallmentRows. */
   installmentCount?: number;
-  /** Varsayılan "draft". Tarihi/arşiv toplu içe aktarım "uploaded" geçer (bkz. historical-contracts.ts). */
+  /** Varsayılan "issued" (üretildi, arşivde kalıcı). Tarihi/arşiv toplu içe aktarım "uploaded" geçer (bkz. historical-contracts.ts). */
   status?: DocumentInstanceStatus;
 }): Promise<DocumentInstance> {
   const tpl = await getTemplate(input.tenantId, input.templateId);
@@ -733,7 +747,7 @@ export async function createDocumentInstance(input: {
       templateId: input.templateId,
       kind: input.kind,
       reference,
-      status: input.status ?? "draft",
+      status: input.status ?? "issued",
       studentId: input.studentId,
       teacherId: input.teacherId,
       trialLessonId: input.trialLessonId,

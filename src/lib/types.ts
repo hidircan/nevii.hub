@@ -1822,7 +1822,16 @@ export const DOCUMENT_TEMPLATE_KINDS: DocumentTemplateKind[] = [
 ];
 
 export type DocumentInstanceStatus =
+  /**
+   * LEGACY (2026-09-20 öncesi kayıtlar). Üretilmiş, referans numarası almış,
+   * arşivde kalıcı bir belge hiçbir zaman gerçek bir "taslak" değildi —
+   * `createDocumentInstance`ın varsayılanı olduğu için öyle görünüyordu ve
+   * kullanıcıda "bu belge sonradan kaybolur mu?" endişesi yaratıyordu.
+   * Artık YAZILMAZ; yerine "issued" kullanılır. Okumada "Düzenlendi" gösterilir.
+   */
   | "draft"
+  /** Belge üretildi, referans numarası verildi, arşivde kalıcı. Varsayılan. */
+  | "issued"
   | "printed"
   | "sent_for_signature"
   | "signed"

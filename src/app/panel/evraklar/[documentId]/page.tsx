@@ -2,7 +2,8 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requireSessionContext } from "@/lib/auth/session";
 import { getDocumentInstanceTool } from "@/lib/services";
-import { documentKindLabel } from "@/lib/documents";
+import { documentKindLabel, documentStatusLabel, documentStatusHint } from "@/lib/documents";
+import { findContractIdByDocumentInstanceId } from "@/lib/contracts";
 import { listAuditLogs } from "@/lib/audit/log";
 import { readData } from "@/lib/store";
 import { Badge, Card, EmptyState, PageHeader } from "@/components/ui";
@@ -49,6 +50,16 @@ export default async function DocumentDetailPage({
 
   const auditEntries = await listAuditLogs(session.tenantId, { entityId: doc.id, entityType: "DocumentInstance", limit: 20 });
 
+  /**
+   * TEK KANONİK SÖZLEŞME GÖRÜNTÜLEYİCİ — belge bir kayıt sözleşmesiyse,
+   * "Yazdırma görünümü" jenerik `/evrak-yazdir` yerine öğrenci ekranıyla
+   * AYNI `/sozlesme-yazdir/[contractId]` ekranını açar. Aşağıdaki "Önizleme"
+   * bloğu, üretim anındaki DONDURULMUŞ nüshadır ve bilinçli olarak korunur
+   * (hukuki arşiv) — ama artık ne olduğu açıkça yazıyor.
+   */
+  const contractId = await findContractIdByDocumentInstanceId(session.tenantId, doc.id);
+  const printHref = contractId ? `/sozlesme-yazdir/${contractId}` : `/evrak-yazdir/${doc.id}`;
+
   // İş Takip Faz 3B-1A — "cancelled"/"expired" evrak, işlevsel karşılığı
   // arşivlenmiş belge sayılır: yeni görev bağlamı için eylem gizlenir.
   const canCreateTask = doc.status !== "cancelled" && doc.status !== "expired";
@@ -62,12 +73,12 @@ export default async function DocumentDetailPage({
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <Link
-              href={`/evrak-yazdir/${doc.id}`}
+              href={printHref}
               target="_blank"
               rel="noreferrer"
               className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-3.5 py-2 text-sm font-medium text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)]"
             >
-              Yazdırma görünümü
+              {contractId ? "Sözleşmeyi görüntüle / yazdır" : "Yazdırma görünümü"}
             </Link>
             {canCreateTask ? (
               <QuickTaskLink
@@ -80,7 +91,9 @@ export default async function DocumentDetailPage({
                 className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-3.5 py-2 text-sm font-medium text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)]"
               />
             ) : null}
-            <Badge status={doc.status}>{doc.status}</Badge>
+            <span title={documentStatusHint(doc.status)}>
+              <Badge status={doc.status}>{documentStatusLabel(doc.status)}</Badge>
+            </span>
           </div>
         }
       />
@@ -88,7 +101,14 @@ export default async function DocumentDetailPage({
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="space-y-6 lg:col-span-2">
           <Card>
-            <p className="mb-3 text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">Önizleme</p>
+            <p className="mb-1 text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
+              Arşiv nüshası (üretildiği andaki hali)
+            </p>
+            <p className="mb-3 text-xs text-[var(--color-text-muted)]">
+              {contractId
+                ? "Bu, sözleşmenin üretildiği anda dondurulmuş nüshasıdır ve değişmez. Güncel görünüm için yukarıdaki “Sözleşmeyi görüntüle / yazdır” bağlantısını kullanın."
+                : "Belgenin üretildiği andaki hali; şablon sonradan güncellense bile bu içerik değişmez."}
+            </p>
             {doc.renderedHtml ? (
               <div className="prose prose-sm max-w-none rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-4">
                 <div dangerouslySetInnerHTML={{ __html: doc.renderedHtml }} />

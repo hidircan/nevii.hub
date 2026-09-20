@@ -1174,6 +1174,53 @@ export async function getContract(tenantId: string, id: string): Promise<Student
   return r ? toPublic(r) : null;
 }
 
+/**
+ * TEK KANONİK SÖZLEŞME GÖRÜNTÜLEYİCİ (2026-09-20).
+ *
+ * Kök sorun: bir sözleşme aynı anda iki kayıt olarak var — `StudentContract`
+ * (canlı veri + güncel render) ve ona bağlı `DocumentInstance` (üretildiği
+ * andaki dondurulmuş `renderedHtml`). Öğrenci ekranı sözleşmeyi
+ * `/sozlesme-yazdir/[contractId]` ile (GÜNCEL görünüm) açıyor, Evraklar
+ * Merkezi ise aynı sözleşmeyi `/evrak-yazdir/[documentId]` ile (ESKİ, jenerik
+ * evrak şablonu) açıyordu — kullanıcı bunu "eski UI geliyor" diye bildirdi.
+ *
+ * Bu eşleme sayesinde Evraklar da kanonik görüntüleyiciye yönlenir; dondurulmuş
+ * snapshot SİLİNMEZ (hukuki arşiv), yalnız varsayılan görüntüleme yolu tekleşir.
+ */
+export async function findContractIdsByDocumentInstanceIds(
+  tenantId: string,
+  documentInstanceIds: string[]
+): Promise<Record<string, string>> {
+  const ids = Array.from(new Set(documentInstanceIds.filter(Boolean)));
+  if (ids.length === 0) return {};
+  if (isDbMode) {
+    const { prisma } = await import("./db");
+    const rows = await prisma.studentContract.findMany({
+      where: { tenantId, documentInstanceId: { in: ids } },
+      select: { id: true, documentInstanceId: true },
+    });
+    return Object.fromEntries(
+      rows.filter((r) => r.documentInstanceId).map((r) => [r.documentInstanceId as string, r.id])
+    );
+  }
+  const all = await loadAll();
+  const wanted = new Set(ids);
+  return Object.fromEntries(
+    all
+      .filter((x) => x.tenantId === tenantId && x.documentInstanceId && wanted.has(x.documentInstanceId))
+      .map((x) => [x.documentInstanceId as string, x.id])
+  );
+}
+
+/** Tek belge için kanonik sözleşme kimliği (yoksa null — belge sözleşme değildir veya legacy kayıttır). */
+export async function findContractIdByDocumentInstanceId(
+  tenantId: string,
+  documentInstanceId: string
+): Promise<string | null> {
+  const map = await findContractIdsByDocumentInstanceIds(tenantId, [documentInstanceId]);
+  return map[documentInstanceId] ?? null;
+}
+
 export async function listContractsForStudent(tenantId: string, studentId: string): Promise<StudentContract[]> {
   if (isDbMode) {
     const { prisma } = await import("./db");

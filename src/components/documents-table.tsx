@@ -3,8 +3,10 @@
 import { useMemo, useState } from "react";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import Link from "next/link";
-import { Badge, Card } from "@/components/ui";
+import { ArrowDown, ArrowUp, ChevronsUpDown, FileText, ShieldCheck } from "lucide-react";
+import { Card } from "@/components/ui";
 import { formatDate } from "@/lib/utils";
+import { documentStatusLabel, documentStatusHint } from "@/lib/document-status";
 
 export type DocumentRow = {
   id: string;
@@ -17,13 +19,42 @@ export type DocumentRow = {
   status: string;
   createdAt: string;
   updatedAt: string;
+  /**
+   * TEK KANONİK SÖZLEŞME GÖRÜNTÜLEYİCİ (2026-09-20). Belge bir öğrenci kayıt
+   * sözleşmesinin dondurulmuş nüshasıysa, bağlı `StudentContract` kimliği.
+   * Dolu olduğunda "Görüntüle", öğrenci ekranıyla AYNI güncel görünümü
+   * (`/sozlesme-yazdir/[contractId]`) açar — Evraklar artık eski/jenerik
+   * evrak şablonunu göstermez.
+   */
+  contractId?: string;
 };
+
+export type DocumentPersonOption = { id: string; name: string };
+
+type SortKey = "reference" | "kindLabel" | "personName" | "status" | "createdAt";
+type SortDir = "asc" | "desc";
 
 function uniqueSorted(values: string[]): string[] {
   return Array.from(new Set(values.filter(Boolean))).sort((a, b) => a.localeCompare(b, "tr"));
 }
 
-export function DocumentsTable({ rows }: { rows: DocumentRow[] }) {
+/** Türkçe sıralama — "İ/ı/ş/ğ" sırası `localeCompare(..., "tr")` ile doğru çalışır. */
+function compareRows(a: DocumentRow, b: DocumentRow, key: SortKey): number {
+  if (key === "createdAt") return a.createdAt.localeCompare(b.createdAt);
+  if (key === "status") return documentStatusLabel(a.status).localeCompare(documentStatusLabel(b.status), "tr");
+  return String(a[key] ?? "").localeCompare(String(b[key] ?? ""), "tr");
+}
+
+export function DocumentsTable({
+  rows,
+  students = [],
+  activeStudentId,
+}: {
+  rows: DocumentRow[];
+  /** Öğrenciye göre filtre — sunucu tarafı `?studentId=` ile daraltır (büyük arşivde tüm satırları çekmeden). */
+  students?: DocumentPersonOption[];
+  activeStudentId?: string;
+}) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -35,18 +66,20 @@ export function DocumentsTable({ rows }: { rows: DocumentRow[] }) {
   const branchFilter = searchParams.getAll("branch");
   const fromDate = searchParams.get("from") ?? "";
   const toDate = searchParams.get("to") ?? "";
+  const sortKey = (searchParams.get("sort") as SortKey | null) ?? "createdAt";
+  const sortDir = (searchParams.get("dir") as SortDir | null) ?? "desc";
+
+  function updateParams(mutate: (params: URLSearchParams) => void) {
+    const params = new URLSearchParams(searchParams.toString());
+    mutate(params);
+    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+  }
 
   function setDateParam(key: "from" | "to", value: string) {
     updateParams((params) => {
       if (value) params.set(key, value);
       else params.delete(key);
     });
-  }
-
-  function updateParams(mutate: (params: URLSearchParams) => void) {
-    const params = new URLSearchParams(searchParams.toString());
-    mutate(params);
-    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
   }
 
   function setSearch(value: string) {
@@ -56,11 +89,26 @@ export function DocumentsTable({ rows }: { rows: DocumentRow[] }) {
     });
   }
 
+  function setStudent(value: string) {
+    updateParams((params) => {
+      if (value) params.set("studentId", value);
+      else params.delete("studentId");
+    });
+  }
+
   function toggleMulti(key: string, value: string, current: string[]) {
     updateParams((params) => {
       const next = current.includes(value) ? current.filter((v) => v !== value) : [...current, value];
       params.delete(key);
       next.forEach((v) => params.append(key, v));
+    });
+  }
+
+  function toggleSort(key: SortKey) {
+    updateParams((params) => {
+      const nextDir: SortDir = sortKey === key && sortDir === "asc" ? "desc" : "asc";
+      params.set("sort", key);
+      params.set("dir", nextDir);
     });
   }
 
@@ -84,7 +132,7 @@ export function DocumentsTable({ rows }: { rows: DocumentRow[] }) {
 
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
-    return rows.filter((r) => {
+    const result = rows.filter((r) => {
       if (
         query &&
         !r.reference.toLowerCase().includes(query) &&
@@ -99,10 +147,18 @@ export function DocumentsTable({ rows }: { rows: DocumentRow[] }) {
       if (toDate && r.createdAt.slice(0, 10) > toDate) return false;
       return true;
     });
-  }, [rows, search, kindFilter, statusFilter, branchFilter, fromDate, toDate]);
+    const sign = sortDir === "asc" ? 1 : -1;
+    return result.sort((a, b) => sign * compareRows(a, b, sortKey));
+  }, [rows, search, kindFilter, statusFilter, branchFilter, fromDate, toDate, sortKey, sortDir]);
 
   const anyFilterActive =
-    Boolean(search) || kindFilter.length > 0 || statusFilter.length > 0 || branchFilter.length > 0 || Boolean(fromDate) || Boolean(toDate);
+    Boolean(search) ||
+    kindFilter.length > 0 ||
+    statusFilter.length > 0 ||
+    branchFilter.length > 0 ||
+    Boolean(fromDate) ||
+    Boolean(toDate) ||
+    Boolean(activeStudentId);
 
   return (
     <>
@@ -112,10 +168,25 @@ export function DocumentsTable({ rows }: { rows: DocumentRow[] }) {
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Referans, başlık, öğrenci veya veli adı ara..."
-            aria-label="Referans, başlık, öğrenci veya veli adı ara"
+            placeholder="Referans, öğrenci veya veli adı ara…"
+            aria-label="Referans, öğrenci veya veli adı ara"
             className="w-full max-w-xs rounded-[var(--radius-md)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text)] outline-none focus:ring-2 focus:ring-[var(--color-focus-ring)]/30 sm:w-auto"
           />
+          {students.length > 0 ? (
+            <select
+              value={activeStudentId ?? ""}
+              onChange={(e) => setStudent(e.target.value)}
+              aria-label="Öğrenciye göre filtrele"
+              className="rounded-[var(--radius-md)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text)]"
+            >
+              <option value="">Tüm öğrenciler</option>
+              {students.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          ) : null}
           {anyFilterActive ? (
             <button
               type="button"
@@ -127,9 +198,25 @@ export function DocumentsTable({ rows }: { rows: DocumentRow[] }) {
           ) : null}
         </div>
         <div className="grid gap-3 sm:grid-cols-3">
-          <FilterChips label="Evrak türü" options={kindOptions} selected={kindFilter} onToggle={(v) => toggleMulti("kind", v, kindFilter)} />
-          <FilterChips label="Durum" options={statusOptions} selected={statusFilter} onToggle={(v) => toggleMulti("status", v, statusFilter)} />
-          <FilterChips label="Şube" options={branchOptions} selected={branchFilter} onToggle={(v) => toggleMulti("branch", v, branchFilter)} />
+          <FilterChips
+            label="Evrak türü"
+            options={kindOptions}
+            selected={kindFilter}
+            onToggle={(v) => toggleMulti("kind", v, kindFilter)}
+          />
+          <FilterChips
+            label="Durum"
+            options={statusOptions}
+            selected={statusFilter}
+            labelOf={documentStatusLabel}
+            onToggle={(v) => toggleMulti("status", v, statusFilter)}
+          />
+          <FilterChips
+            label="Şube"
+            options={branchOptions}
+            selected={branchFilter}
+            onToggle={(v) => toggleMulti("branch", v, branchFilter)}
+          />
         </div>
         <div className="grid max-w-sm grid-cols-2 gap-3">
           <div>
@@ -162,16 +249,16 @@ export function DocumentsTable({ rows }: { rows: DocumentRow[] }) {
         </p>
       </Card>
 
-      <Card className="overflow-hidden p-0">
-        <table className="w-full text-left text-sm">
+      <Card className="overflow-x-auto p-0">
+        <table className="w-full min-w-[720px] text-left text-sm">
           <thead className="border-b border-[var(--color-border)] bg-[var(--color-surface-muted)] text-xs uppercase tracking-wide text-[var(--color-text-muted)]">
             <tr>
-              <th className="px-4 py-3">Referans No</th>
-              <th className="px-4 py-3">Evrak Türü</th>
-              <th className="px-4 py-3">İlgili Kişi</th>
+              <SortHeader label="Referans No" k="reference" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+              <SortHeader label="Evrak Türü" k="kindLabel" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+              <SortHeader label="İlgili Kişi" k="personName" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
               <th className="px-4 py-3">Şube</th>
-              <th className="px-4 py-3">Durum</th>
-              <th className="px-4 py-3">Oluşturulma</th>
+              <SortHeader label="Durum" k="status" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+              <SortHeader label="Oluşturulma" k="createdAt" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
               <th className="px-4 py-3">İşlemler</th>
             </tr>
           </thead>
@@ -179,48 +266,123 @@ export function DocumentsTable({ rows }: { rows: DocumentRow[] }) {
             {filtered.length === 0 ? (
               <tr>
                 <td colSpan={7} className="px-4 py-8 text-center text-sm text-[var(--color-text-muted)]">
-                  Bu filtreye uyan evrak bulunamadı.
+                  Bu filtreye uyan evrak bulunamadı. Filtreleri temizleyip tekrar deneyin.
                 </td>
               </tr>
             ) : (
-              filtered.map((d) => (
-                <tr key={d.id} className="border-b border-[var(--color-border)] last:border-0">
-                  <td className="px-4 py-3">
-                    <Link href={`/panel/evraklar/${d.id}`} className="font-mono text-xs font-medium text-[var(--color-primary)] hover:text-[var(--color-primary-hover)]">
-                      {d.reference}
-                    </Link>
-                  </td>
-                  <td className="px-4 py-3 text-[var(--color-text)]">{d.kindLabel}</td>
-                  <td className="px-4 py-3 text-[var(--color-text-muted)]">{d.personName}</td>
-                  <td className="px-4 py-3 text-[var(--color-text-muted)]">{d.branchName ?? "—"}</td>
-                  <td className="px-4 py-3">
-                    <Badge status={d.status}>{d.status}</Badge>
-                  </td>
-                  <td className="px-4 py-3 text-[var(--color-text-muted)]">{formatDate(d.createdAt)}</td>
-                  <td className="px-4 py-3">
-                    <div className="flex flex-wrap gap-2">
-                      <Link href={`/panel/evraklar/${d.id}`} className="text-xs font-medium text-[var(--color-primary)] hover:text-[var(--color-primary-hover)]">
-                        Görüntüle
+              filtered.map((d) => {
+                // Sözleşmeler kanonik görüntüleyiciye gider; diğer evraklar kendi detayına.
+                const viewHref = d.contractId ? `/sozlesme-yazdir/${d.contractId}` : `/panel/evraklar/${d.id}`;
+                return (
+                  <tr key={d.id} className="border-b border-[var(--color-border)] last:border-0">
+                    <td className="px-4 py-3">
+                      <Link
+                        href={`/panel/evraklar/${d.id}`}
+                        className="font-mono text-xs font-medium text-[var(--color-primary)] hover:text-[var(--color-primary-hover)]"
+                      >
+                        {d.reference}
                       </Link>
-                      {d.status !== "cancelled" ? (
-                        <button
-                          type="button"
-                          disabled={archiving === d.id}
-                          onClick={() => void onArchive(d.id)}
-                          className="text-xs font-medium text-[var(--color-danger)] hover:opacity-80 disabled:opacity-50"
+                    </td>
+                    <td className="px-4 py-3 text-[var(--color-text)]">
+                      <span className="inline-flex items-center gap-1.5">
+                        {d.contractId ? <FileText className="h-3.5 w-3.5 text-[var(--color-primary)]" /> : null}
+                        {d.kindLabel}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-[var(--color-text-muted)]">{d.personName}</td>
+                    <td className="px-4 py-3 text-[var(--color-text-muted)]">{d.branchName ?? "—"}</td>
+                    <td className="px-4 py-3">
+                      <span
+                        title={documentStatusHint(d.status)}
+                        className="inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold"
+                        style={
+                          d.status === "cancelled" || d.status === "expired"
+                            ? { background: "var(--color-surface-muted)", color: "var(--color-text-muted)" }
+                            : d.status === "signed" || d.status === "uploaded"
+                              ? { background: "var(--color-success-soft)", color: "var(--color-success)" }
+                              : { background: "var(--color-info-soft)", color: "var(--color-info)" }
+                        }
+                      >
+                        {documentStatusLabel(d.status)}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-[var(--color-text-muted)]">{formatDate(d.createdAt)}</td>
+                    <td className="px-4 py-3">
+                      <div className="flex flex-wrap gap-2">
+                        <Link
+                          href={viewHref}
+                          className="text-xs font-medium text-[var(--color-primary)] hover:text-[var(--color-primary-hover)]"
                         >
-                          {archiving === d.id ? "…" : "Arşivle"}
-                        </button>
-                      ) : null}
-                    </div>
-                  </td>
-                </tr>
-              ))
+                          {d.contractId ? "Sözleşmeyi görüntüle" : "Görüntüle"}
+                        </Link>
+                        {d.contractId ? (
+                          <Link
+                            href={`/panel/evraklar/${d.id}`}
+                            className="text-xs font-medium text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+                          >
+                            Arşiv nüshası
+                          </Link>
+                        ) : null}
+                        {d.status !== "cancelled" ? (
+                          <button
+                            type="button"
+                            disabled={archiving === d.id}
+                            onClick={() => void onArchive(d.id)}
+                            className="text-xs font-medium text-[var(--color-danger)] hover:opacity-80 disabled:opacity-50"
+                          >
+                            {archiving === d.id ? "…" : "Arşivle"}
+                          </button>
+                        ) : null}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>
       </Card>
+
+      <p className="mt-3 flex items-start gap-2 text-xs text-[var(--color-text-muted)]">
+        <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" style={{ color: "var(--color-success)" }} />
+        <span>
+          Evraklar kalıcıdır. “Arşivle” belgeyi <strong>silmez</strong> — yalnızca <em>İptal edildi</em> olarak
+          işaretler; referans numarası, içerik ve yüklenen imzalı nüshalar saklanmaya devam eder.
+        </span>
+      </p>
     </>
+  );
+}
+
+function SortHeader({
+  label,
+  k,
+  sortKey,
+  sortDir,
+  onSort,
+}: {
+  label: string;
+  k: SortKey;
+  sortKey: SortKey;
+  sortDir: SortDir;
+  onSort: (k: SortKey) => void;
+}) {
+  const active = sortKey === k;
+  const Icon = !active ? ChevronsUpDown : sortDir === "asc" ? ArrowUp : ArrowDown;
+  return (
+    <th className="px-4 py-3">
+      <button
+        type="button"
+        onClick={() => onSort(k)}
+        aria-label={`${label} sütununa göre sırala`}
+        className={`inline-flex items-center gap-1 uppercase tracking-wide transition hover:text-[var(--color-text)] ${
+          active ? "text-[var(--color-text)]" : ""
+        }`}
+      >
+        {label}
+        <Icon className="h-3 w-3" />
+      </button>
+    </th>
   );
 }
 
@@ -229,11 +391,14 @@ function FilterChips({
   options,
   selected,
   onToggle,
+  labelOf,
 }: {
   label: string;
   options: string[];
   selected: string[];
   onToggle: (value: string) => void;
+  /** Ham değeri (ör. statü kodu) ekranda gösterilecek Türkçe karşılığına çevirir. */
+  labelOf?: (value: string) => string;
 }) {
   if (options.length === 0) return null;
   return (
@@ -254,7 +419,7 @@ function FilterChips({
                   : "border-[var(--color-border-strong)] bg-[var(--color-surface)] text-[var(--color-text-muted)] hover:border-[var(--color-primary)]"
               }`}
             >
-              {opt}
+              {labelOf ? labelOf(opt) : opt}
             </button>
           );
         })}
