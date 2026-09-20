@@ -42,7 +42,7 @@ const PERSONA_ENTRIES: PersonaEntry[] = [
 ];
 
 /**
- * Karşılama — oturumsuz ilk durak. Üç persona girişi (öğrenci/veli,
+ * Anasayfa (welcome) — oturumsuz ilk durak. Üç persona girişi (öğrenci/veli,
  * öğretmen, yönetici) UX yönlendirmesi içindir; backend tek login
  * endpoint'i kullanır, yetkiyi sunucu rolü belirler. Yönetici seçeneği
  * kurumsal ve sade tutulur, öğrenci/veli deneyimini gölgelemez.

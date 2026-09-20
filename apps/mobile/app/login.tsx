@@ -62,13 +62,13 @@ export default function LoginScreen() {
         >
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Karşılama sayfasına dön"
+            accessibilityLabel="Anasayfaya dön"
             onPress={() => router.replace("/welcome")}
             hitSlop={12}
             style={styles.backRow}
           >
             <Icon name="chevron-back" size={18} color={t.colors.textMuted} />
-            <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>Karşılama</Text>
+            <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>Anasayfa</Text>
           </Pressable>
 
           <BrandMark size="md" />

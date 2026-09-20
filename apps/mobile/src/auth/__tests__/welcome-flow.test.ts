@@ -1,5 +1,5 @@
 /**
- * Karşılama → giriş → geri dönüş akış sözleşmesi (statik route denetimi).
+ * Anasayfa (welcome) → giriş → geri dönüş akış sözleşmesi (statik route denetimi).
  * Kök neden: ilk açılışta doğrudan login'e düşme + geri dönüşsüzlük.
  * Sözleşme: oturumsuz ilk durak /welcome; login'den replace ile /welcome'a
  * dönüş; giriş sonrası index persona evine gider (signedIn login/welcome
@@ -32,10 +32,17 @@ describe("welcome/login akış sözleşmesi", () => {
     expect(content).toMatch(/href="\/"/);
   });
 
-  it("login: girişsiz karşılamaya dönüş var; girişli kullanıcı login'i görmez", async () => {
+  it("login: girişsiz anasayfaya dönüş var; girişli kullanıcı login'i görmez", async () => {
     const content = await readRoute("login.tsx");
     expect(content).toMatch(/\/welcome/);
     expect(content).toMatch(/href="\/"/);
+  });
+
+  it("login: geri dönüş etiketi 'Anasayfa' (+ erişilebilirlik)", async () => {
+    const content = await readRoute("login.tsx");
+    expect(content).toContain(">Anasayfa</Text>");
+    expect(content).toContain('accessibilityLabel="Anasayfaya dön"');
+    expect(content).not.toContain("Karşılama");
   });
 
   it("kök layout welcome route'unu tanır", async () => {
