@@ -1,9 +1,10 @@
 /**
- * Android: gömülü Tinos (`@expo-google-fonts/tinos`, Apache 2.0) — Times New
- * Roman ile metrik-uyumlu (aynı ilerleme genişlikleri). Android sisteminde
- * gerçek Times New Roman güvenilir olmadığı için sessizce `serif`
- * (Noto Serif) ile değiştirilmedi; dosya Expo Font ile yüklenir (bkz.
- * `theme/fonts.ts`). Kalınlık dosya adıyla seçilir (400/700).
+ * Android gövde serif'i — gömülü Noto Serif (`@expo-google-fonts/noto-serif`,
+ * OFL; iOS ile AYNI aile). Tinos/Times New Roman fallback YOK. Kalınlık
+ * dosya adıyla seçilir (400/500/600/700); italik kesit gömülmedi
+ * (uygulamada italik kullanım yok).
  */
-export const serifFontFamily = "Tinos_400Regular";
-export const serifBoldFontFamily = "Tinos_700Bold";
+export const serifFontFamily = "NotoSerif_400Regular";
+export const serifMediumFontFamily = "NotoSerif_500Medium";
+export const serifSemiboldFontFamily = "NotoSerif_600SemiBold";
+export const serifBoldFontFamily = "NotoSerif_700Bold";

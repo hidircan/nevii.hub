@@ -4,5 +4,7 @@
  * dosyasını seçer; bu dosyada React Native import'u YOK (node testleri
  * `tokens.ts` üzerinden burayı okur, RN çekilemez).
  */
-export const serifFontFamily = "Times New Roman, Times, serif";
-export const serifBoldFontFamily = "Times New Roman, Times, serif";
+export const serifFontFamily = "Noto Serif, Georgia, serif";
+export const serifMediumFontFamily = "Noto Serif, Georgia, serif";
+export const serifSemiboldFontFamily = "Noto Serif, Georgia, serif";
+export const serifBoldFontFamily = "Noto Serif, Georgia, serif";
