@@ -198,13 +198,17 @@ export default function TeacherBugun() {
               key={day.toISOString()}
               accessibilityRole="button"
               accessibilityState={{ selected }}
+              accessibilityLabel={`${weekdayName(day)} ${shortDayMonth(day)}`}
+              accessibilityHint="Bu günün derslerini gösterir"
               onPress={() => setSelectedDate(day)}
               style={{
                 alignItems: "center",
+                justifyContent: "center",
                 paddingVertical: 8,
                 paddingHorizontal: 6,
                 borderRadius: 12,
-                minWidth: 40,
+                minWidth: 44,
+                minHeight: 48,
                 backgroundColor: selected ? t.colors.primary : "transparent",
               }}
             >
