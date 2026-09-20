@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { Text, View } from "react-native";
 import { AppHeader, Button, Card, EmptyState, ErrorState, Icon, LoadingSkeleton, Screen, StatusBadge } from "../../components/ui";
-import { useApiGet } from "../../hooks/use-api";
+import { CacheStatus } from "../../cache/cache-status";
+import { useCachedApiGet } from "../../cache/use-cached-api";
 import { useSelectedStudentId } from "../../student/student-context";
 import { shortDayMonth } from "../../lib/date";
 import { downloadAndOpenFile } from "../../lib/open-file";
@@ -14,7 +15,7 @@ export function StudentScopeMaterialsScreen() {
   const t = useTheme();
   const base = usePersonaBasePath();
   const studentId = useSelectedStudentId();
-  const res = useApiGet<TeachingMaterialsResponse>(studentId ? `/api/v1/students/${studentId}/teaching-materials` : "");
+  const res = useCachedApiGet<TeachingMaterialsResponse>(studentId ? `/api/v1/students/${studentId}/teaching-materials` : "");
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
 
@@ -29,6 +30,7 @@ export function StudentScopeMaterialsScreen() {
   return (
     <Screen onRefresh={res.refresh} refreshing={res.status === "loading"}>
       <AppHeader title="Materyaller" showBack backFallback={listFallback(base, "gelisim")} showNotifications={false} />
+      <CacheStatus cachedAt={res.cachedAt} isStale={res.isStale} />
 
       {res.status === "loading" ? (
         <LoadingSkeleton rows={4} />

@@ -12,7 +12,8 @@ import {
   StatusBadge,
 } from "../../components/ui";
 import { useAppForegroundRefetch } from "../../hooks/use-app-foreground-refetch";
-import { useApiGet } from "../../hooks/use-api";
+import { CacheStatus } from "../../cache/cache-status";
+import { useCachedApiGet } from "../../cache/use-cached-api";
 import { useFocusRefetch } from "../../hooks/use-focus-refetch";
 import { ledgerStatusBadge, LEDGER_STATUS_LABEL } from "../../lib/attendance-display";
 import { format, shortDayMonth } from "../../lib/date";
@@ -65,7 +66,7 @@ export function AttendanceReportScreen({
   const [status, setStatus] = useState<LedgerDisplayKey[] | null>(initialStatus ?? null);
   const [limit, setLimit] = useState(PAGE_STEP);
 
-  const res = useApiGet<AttendanceLedgerResponse>(
+  const res = useCachedApiGet<AttendanceLedgerResponse>(
     studentId ? ledgerUrl(studentId, direction, status, limit) : ""
   );
   useFocusRefetch(res.refresh);
@@ -111,6 +112,7 @@ export function AttendanceReportScreen({
   return (
     <Screen scroll={false}>
       <AppHeader title="Devam raporu" showBack showNotifications={false} />
+      <CacheStatus cachedAt={res.cachedAt} isStale={res.isStale} />
 
       <View style={styles.segment} accessibilityRole="tablist">
         {(["past", "upcoming"] as const).map((d) => {

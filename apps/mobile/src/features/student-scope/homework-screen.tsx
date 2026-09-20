@@ -5,7 +5,8 @@ import { apiPost } from "../../api/client";
 import { personaOf, useAuth } from "../../auth/auth-context";
 import { AppHeader, Button, Card, EmptyState, ErrorState, FilterChip, HomeworkCard, LoadingSkeleton, Screen, SectionHeader, TextField } from "../../components/ui";
 import { useAppForegroundRefetch } from "../../hooks/use-app-foreground-refetch";
-import { useApiGet } from "../../hooks/use-api";
+import { CacheStatus } from "../../cache/cache-status";
+import { useCachedApiGet } from "../../cache/use-cached-api";
 import { useFocusRefetch } from "../../hooks/use-focus-refetch";
 import { useNow } from "../../hooks/use-now";
 import { useSelectedStudentId } from "../../student/student-context";
@@ -21,7 +22,7 @@ export function StudentScopeHomeworkListScreen({ basePath }: { basePath: "/(pare
   const now = useNow();
   const [filter, setFilter] = useState<Filter>("pending");
   const studentId = useSelectedStudentId();
-  const res = useApiGet<HomeworkResponse>(studentId ? `/api/v1/students/${studentId}/homework` : "");
+  const res = useCachedApiGet<HomeworkResponse>(studentId ? `/api/v1/students/${studentId}/homework` : "");
   useFocusRefetch(res.refresh);
   useAppForegroundRefetch(res.refresh);
 
@@ -38,6 +39,7 @@ export function StudentScopeHomeworkListScreen({ basePath }: { basePath: "/(pare
   return (
     <Screen onRefresh={res.refresh} refreshing={res.status === "loading"}>
       <AppHeader title="Ödevler" showAccount={`${basePath}/hesabim`} />
+      <CacheStatus cachedAt={res.cachedAt} isStale={res.isStale} />
 
       <View style={{ flexDirection: "row", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
         <FilterChip label="Bekleyen" selected={filter === "pending"} onPress={() => setFilter("pending")} />
@@ -67,7 +69,7 @@ export function StudentScopeHomeworkDetailScreen({ homeworkId }: { homeworkId: s
   const base = usePersonaBasePath();
   const { user } = useAuth();
   const studentId = useSelectedStudentId();
-  const res = useApiGet<HomeworkResponse>(studentId ? `/api/v1/students/${studentId}/homework` : "");
+  const res = useCachedApiGet<HomeworkResponse>(studentId ? `/api/v1/students/${studentId}/homework` : "");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [submitted, setSubmitted] = useState(false);

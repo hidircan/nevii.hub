@@ -11,7 +11,8 @@ import {
   StatusBadge,
 } from "../../components/ui";
 import { useAppForegroundRefetch } from "../../hooks/use-app-foreground-refetch";
-import { useApiGet } from "../../hooks/use-api";
+import { CacheStatus } from "../../cache/cache-status";
+import { useCachedApiGet } from "../../cache/use-cached-api";
 import { useFocusRefetch } from "../../hooks/use-focus-refetch";
 import { ledgerStatusBadge } from "../../lib/attendance-display";
 import { format, shortDayMonth } from "../../lib/date";
@@ -33,7 +34,7 @@ export function StudentScopeMakeupListScreen({ basePath }: { basePath: "/(parent
   const t = useTheme();
   const router = useRouter();
   const studentId = useSelectedStudentId();
-  const res = useApiGet<MakeupLedgerResponse>(studentId ? `/api/v1/students/${studentId}/makeup-ledger?limit=100` : "");
+  const res = useCachedApiGet<MakeupLedgerResponse>(studentId ? `/api/v1/students/${studentId}/makeup-ledger?limit=100` : "");
   useFocusRefetch(res.refresh);
   useAppForegroundRefetch(res.refresh);
 
@@ -51,6 +52,7 @@ export function StudentScopeMakeupListScreen({ basePath }: { basePath: "/(parent
   return (
     <Screen scroll={false}>
       <AppHeader title="Telafiler" showBack backFallback={`${basePath}/anasayfa`} showNotifications={false} />
+      <CacheStatus cachedAt={res.cachedAt} isStale={res.isStale} />
       {res.status === "loading" ? (
         <LoadingSkeleton rows={4} />
       ) : res.status === "error" ? (
@@ -131,7 +133,7 @@ export function StudentScopeMakeupDetailScreen({
   const t = useTheme();
   const router = useRouter();
   const studentId = useSelectedStudentId();
-  const res = useApiGet<MakeupLedgerResponse>(studentId ? `/api/v1/students/${studentId}/makeup-ledger?limit=200` : "");
+  const res = useCachedApiGet<MakeupLedgerResponse>(studentId ? `/api/v1/students/${studentId}/makeup-ledger?limit=200` : "");
   useFocusRefetch(res.refresh);
   useAppForegroundRefetch(res.refresh);
 

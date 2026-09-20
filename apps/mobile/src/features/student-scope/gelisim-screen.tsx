@@ -3,6 +3,8 @@ import { useMemo } from "react";
 import { Text, View } from "react-native";
 import { AppHeader, Card, EmptyState, ErrorState, Icon, LoadingSkeleton, ProgressBar, Screen, SectionHeader } from "../../components/ui";
 import { useApiGet } from "../../hooks/use-api";
+import { CacheStatus } from "../../cache/cache-status";
+import { useCachedApiGet } from "../../cache/use-cached-api";
 import { useSelectedStudentId } from "../../student/student-context";
 import { useNow } from "../../hooks/use-now";
 import { relativeDayLabel } from "../../lib/date";
@@ -18,14 +20,14 @@ export function StudentScopeGelisimScreen({ basePath }: { basePath: "/(parent)" 
   const now = useNow();
   const studentId = useSelectedStudentId();
 
-  const profile = useApiGet<StudentProfile>(studentId ? `/api/v1/students/${studentId}` : "");
-  const curriculum = useApiGet<CurriculumResponse>(studentId ? `/api/v1/students/${studentId}/curriculum` : "");
+  const profile = useCachedApiGet<StudentProfile>(studentId ? `/api/v1/students/${studentId}` : "");
+  const curriculum = useCachedApiGet<CurriculumResponse>(studentId ? `/api/v1/students/${studentId}/curriculum` : "");
   // Sayaçlar ledger'dan (limit=1 — yalnız counts gerekir); raporla AYNI kaynak, tutarsızlık yok.
-  const attendance = useApiGet<AttendanceLedgerResponse>(
+  const attendance = useCachedApiGet<AttendanceLedgerResponse>(
     studentId ? `/api/v1/students/${studentId}/attendance-ledger?direction=past&limit=1` : ""
   );
   const assessments = useApiGet<AssessmentsResponse>(studentId ? `/api/v1/assessments/${studentId}` : "");
-  const schedule = useApiGet<ScheduleResponse>(studentId ? `/api/v1/students/${studentId}/schedule` : "");
+  const schedule = useCachedApiGet<ScheduleResponse>(studentId ? `/api/v1/students/${studentId}/schedule` : "");
 
   // Web parity (src/app/veli/degerlendirme/page.tsx, src/app/ogrenci/degerlendirme/page.tsx):
   // değerlendirilebilir öğretmenler = mevcut atanmış öğretmen + son 90 gün içinde
@@ -65,6 +67,7 @@ export function StudentScopeGelisimScreen({ basePath }: { basePath: "/(parent)" 
   return (
     <Screen>
       <AppHeader title="Gelişim" showAccount={`${basePath}/hesabim`} />
+      <CacheStatus cachedAt={schedule.cachedAt} isStale={schedule.isStale} />
 
       <SectionHeader title="Müfredat ilerlemesi" />
       {curriculum.status === "loading" ? (

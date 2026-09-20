@@ -5,7 +5,8 @@ import { AppHeader, Button, Card, EmptyState, ErrorState, Icon, LoadingSkeleton,
 import { startOnlineCheckout } from "../../payments/mobile-checkout";
 import type { BadgeTone } from "../../components/ui/status-badge";
 import { useAppForegroundRefetch } from "../../hooks/use-app-foreground-refetch";
-import { useApiGet } from "../../hooks/use-api";
+import { CacheStatus } from "../../cache/cache-status";
+import { useCachedApiGet } from "../../cache/use-cached-api";
 import { useSelectedStudentId } from "../../student/student-context";
 import { useFocusRefetch } from "../../hooks/use-focus-refetch";
 import { ledgerStatusBadge } from "../../lib/attendance-display";
@@ -63,7 +64,7 @@ export function StudentScopePaymentsScreen({ basePath }: { basePath: "/(parent)"
   const router = useRouter();
   const studentId = useSelectedStudentId();
 
-  const res = useApiGet<PaymentLedgerResponse>(studentId ? `/api/v1/students/${studentId}/payment-ledger?limit=200` : "");
+  const res = useCachedApiGet<PaymentLedgerResponse>(studentId ? `/api/v1/students/${studentId}/payment-ledger?limit=200` : "");
   useFocusRefetch(res.refresh);
   useAppForegroundRefetch(res.refresh);
 
@@ -98,6 +99,7 @@ export function StudentScopePaymentsScreen({ basePath }: { basePath: "/(parent)"
   return (
     <Screen onRefresh={res.refresh} refreshing={res.status === "loading"}>
       <AppHeader title="Ödemeler" showAccount={`${basePath}/hesabim`} />
+      <CacheStatus cachedAt={res.cachedAt} isStale={res.isStale} />
 
       {res.status === "loading" ? (
         <LoadingSkeleton rows={4} />
@@ -241,8 +243,8 @@ export function StudentScopePaymentDetailScreen({ paymentId }: { paymentId: stri
   const base = usePersonaBasePath();
   const studentId = useSelectedStudentId();
 
-  const ledger = useApiGet<PaymentLedgerResponse>(studentId ? `/api/v1/students/${studentId}/payment-ledger?limit=200` : "");
-  const receipt = useApiGet<PaymentReceiptResponse>(`/api/v1/payments/${paymentId}/receipt`);
+  const ledger = useCachedApiGet<PaymentLedgerResponse>(studentId ? `/api/v1/students/${studentId}/payment-ledger?limit=200` : "");
+  const receipt = useCachedApiGet<PaymentReceiptResponse>(`/api/v1/payments/${paymentId}/receipt`);
   // Tarayıcıdan dönüşte (deep-link/payment-result) bakiye tazelenir.
   useFocusRefetch(ledger.refresh);
   useAppForegroundRefetch(ledger.refresh);

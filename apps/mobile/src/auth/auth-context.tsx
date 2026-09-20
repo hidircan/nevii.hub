@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { apiGet, apiPost, endLocalSession, revokeServerSession, setSessionExpiredHandler } from "../api/client";
+import { clearUserCache } from "../cache/cache-store";
 import { unregisterPushTokens } from "../push/push-registration";
 import { clearSelectedStudent } from "../student/selected-store";
 import { clearStoredEmail, getAccessToken, getRefreshToken, getStoredEmail, setStoredEmail, setTokens } from "./token-storage";
@@ -124,6 +125,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await clearStoredEmail();
         // Veli çocuk-seçimi persist'i temizlenir (paylaşımlı cihaz hijyeni).
         if (signedOutUserId) await clearSelectedStudent(signedOutUserId);
+        // Offline read-cache temizlenir (tenant+user ad-alanlı).
+        if (user?.tenantId && signedOutUserId) await clearUserCache(user.tenantId, signedOutUserId);
         signOutLocally();
         if (refreshToken) void revokeServerSession(refreshToken);
       },

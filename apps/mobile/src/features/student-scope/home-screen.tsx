@@ -20,6 +20,8 @@ import {
 } from "../../components/ui";
 import { useAppForegroundRefetch } from "../../hooks/use-app-foreground-refetch";
 import { useApiGet } from "../../hooks/use-api";
+import { CacheStatus } from "../../cache/cache-status";
+import { useCachedApiGet } from "../../cache/use-cached-api";
 import { useNow } from "../../hooks/use-now";
 import { format, formatCurrency, isPast, relativeDayLabel, weekdayName } from "../../lib/date";
 import { useTheme } from "../../theme/theme-context";
@@ -49,17 +51,17 @@ export function StudentScopeHomeScreen({ basePath }: { basePath: "/(parent)" | "
   // eski öğrencinin verisi ASLA görünmez (URL'ler seçili ID'den kurulur).
   const studentId = useSelectedStudentId();
 
-  const profile = useApiGet<StudentProfile>(studentId ? `/api/v1/students/${studentId}` : "");
-  const schedule = useApiGet<ScheduleResponse>(studentId ? `/api/v1/students/${studentId}/schedule` : "");
-  const homework = useApiGet<HomeworkResponse>(studentId ? `/api/v1/students/${studentId}/homework` : "");
-  const attendance = useApiGet<AttendanceSummary>(studentId ? `/api/v1/students/${studentId}/attendance-summary` : "");
+  const profile = useCachedApiGet<StudentProfile>(studentId ? `/api/v1/students/${studentId}` : "");
+  const schedule = useCachedApiGet<ScheduleResponse>(studentId ? `/api/v1/students/${studentId}/schedule` : "");
+  const homework = useCachedApiGet<HomeworkResponse>(studentId ? `/api/v1/students/${studentId}/homework` : "");
+  const attendance = useCachedApiGet<AttendanceSummary>(studentId ? `/api/v1/students/${studentId}/attendance-summary` : "");
   const assessments = useApiGet<AssessmentsResponse>(studentId ? `/api/v1/assessments/${studentId}` : "");
-  const notifications = useApiGet<NotificationsResponse>("/api/v1/notifications");
+  const notifications = useCachedApiGet<NotificationsResponse>("/api/v1/notifications");
   // Seçili öğrenci kapsamlı telafi kayıtları — guardian başka çocuğun telafisini görmez.
-  const makeup = useApiGet<MakeupLedgerResponse>(studentId ? `/api/v1/students/${studentId}/makeup-ledger?limit=50` : "");
+  const makeup = useCachedApiGet<MakeupLedgerResponse>(studentId ? `/api/v1/students/${studentId}/makeup-ledger?limit=50` : "");
   // Öğrenci de kendi ödeme geçmişini görebilmeli (Bölüm D) — yalnızca veliye
   // özel değil, bkz. getParentBalanceTool'daki STUDENT genişletmesi.
-  const balance = useApiGet<BalanceResponse>(studentId ? `/api/v1/students/${studentId}/balance` : "");
+  const balance = useCachedApiGet<BalanceResponse>(studentId ? `/api/v1/students/${studentId}/balance` : "");
 
   const nextLesson = useMemo(() => {
     if (schedule.status !== "success") return null;
@@ -122,6 +124,7 @@ export function StudentScopeHomeScreen({ basePath }: { basePath: "/(parent)" | "
   return (
     <Screen onRefresh={refreshAll} refreshing={refreshing}>
       <AppHeader title="Nevii Hub" subtitle={headerContext} showAccount={`${basePath}/hesabim`} />
+      <CacheStatus cachedAt={schedule.cachedAt} isStale={schedule.isStale} />
       <ChildSwitcher childName={profile.status === "success" ? profile.data.name : undefined} />
 
       <SectionHeader title="Sıradaki ders" />

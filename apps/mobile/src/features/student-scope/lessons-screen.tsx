@@ -2,7 +2,8 @@ import { useRouter } from "expo-router";
 import { useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { AppHeader, Avatar, Card, EmptyState, ErrorState, Icon, LessonCard, LoadingSkeleton, Screen, StatusBadge } from "../../components/ui";
-import { useApiGet } from "../../hooks/use-api";
+import { CacheStatus } from "../../cache/cache-status";
+import { useCachedApiGet } from "../../cache/use-cached-api";
 import { useSelectedStudentId } from "../../student/student-context";
 import { addDays, format, isSameDay, shortDayMonth, startOfDay, startOfWeek } from "../../lib/date";
 import { studentFacingLessonStatus } from "../../lib/lesson-status";
@@ -32,13 +33,13 @@ export function StudentScopeLessonsScreen({ basePath }: { basePath: "/(parent)" 
   const weekEndExclusive = useMemo(() => addDays(weekStart, 7), [weekStart]);
   const isCurrentWeek = isSameDay(weekStart, startOfWeek(now));
 
-  const profile = useApiGet<StudentProfile>(studentId ? `/api/v1/students/${studentId}` : "");
-  const res = useApiGet<ScheduleResponse>(
+  const profile = useCachedApiGet<StudentProfile>(studentId ? `/api/v1/students/${studentId}` : "");
+  const res = useCachedApiGet<ScheduleResponse>(
     studentId
       ? `/api/v1/students/${studentId}/schedule?from=${weekStart.toISOString()}&to=${weekEndExclusive.toISOString()}`
       : ""
   );
-  const calendar = useApiGet<AttendanceCalendarMonthResponse>(
+  const calendar = useCachedApiGet<AttendanceCalendarMonthResponse>(
     studentId
       ? `/api/v1/attendance-calendar/month?studentId=${studentId}&year=${weekStart.getFullYear()}&month=${weekStart.getMonth() + 1}`
       : ""
@@ -83,6 +84,7 @@ export function StudentScopeLessonsScreen({ basePath }: { basePath: "/(parent)" 
   return (
     <Screen onRefresh={refreshAll} refreshing={res.status === "loading"}>
       <AppHeader title="Program" subtitle={studentName ? `${studentName} — haftalık ders programı` : "Haftalık ders programı"} showAccount={`${basePath}/hesabim`} />
+      <CacheStatus cachedAt={res.cachedAt} isStale={res.isStale} />
 
       <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
         <Pressable accessibilityRole="button" accessibilityLabel="Önceki hafta" hitSlop={8} onPress={() => setWeekStart((d) => addDays(d, -7))} style={{ padding: 6 }}>
@@ -195,7 +197,7 @@ export function StudentScopeLessonDetailScreen({ lessonId }: { lessonId: string 
   const t = useTheme();
   const base = usePersonaBasePath();
   const studentId = useSelectedStudentId();
-  const res = useApiGet<ScheduleResponse>(studentId ? `/api/v1/students/${studentId}/schedule` : "");
+  const res = useCachedApiGet<ScheduleResponse>(studentId ? `/api/v1/students/${studentId}/schedule` : "");
 
   if (res.status === "loading") {
     return (
