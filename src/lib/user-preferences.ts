@@ -29,7 +29,24 @@ export type UserWorkspacePreferences = {
   navOrder?: Record<string, string[]>;
   /** Son güvenli rota (yalnız allowlist'tekiler yazılır — bkz. isSafeLastRoute). */
   lastRoute?: string;
+  /**
+   * C — Günlük Özet (dashboard) kişisel ayarları (2026-09-20).
+   *
+   * Owner kuralı: "Dashboard hangi kullanıcıysa onu karşılasın; tek tip
+   * dashboard olmasın." Nihal varsayılan Evka 3, Ezgi varsayılan Erzene
+   * görür; ikisi de istediğinde diğer şubeyi seçebilir. Seçim HESABA
+   * yazılır (cihaz/tarayıcı değişince kaybolmaz) — kurum/rol yetkisini
+   * ETKİLEMEZ, yalnız hangi şubenin süzüldüğünü belirler.
+   */
+  dashboard?: DashboardPreferences;
   updatedAt: string;
+};
+
+export type DashboardPreferences = {
+  /** Varsayılan şube kimliği; "all" veya tanımsız = tüm şubeler. */
+  defaultBranchId?: string;
+  /** Gizlenen panel bölümleri (bölüm anahtarları) — kişisel görünürlük tercihi. */
+  hiddenSections?: string[];
 };
 
 type Stored = UserWorkspacePreferences & { userId: string; tenantId: string };
@@ -78,6 +95,9 @@ function dbRowToPublic(r: Record<string, unknown>): UserWorkspacePreferences {
       | Record<string, string[]>
       | undefined,
     lastRoute: (r.lastRoute as string) ?? undefined,
+    dashboard: (r.dashboardJson ? JSON.parse(r.dashboardJson as string) : undefined) as
+      | DashboardPreferences
+      | undefined,
     updatedAt: (r.updatedAt as Date)?.toISOString?.() ?? new Date().toISOString(),
   };
 }
@@ -111,6 +131,7 @@ export async function saveUserPreferences(
     const { getPrisma } = await import("./db");
     const prisma = getPrisma();
     const navOrderJson = patch.navOrder !== undefined ? JSON.stringify(patch.navOrder) : undefined;
+    const dashboardJson = patch.dashboard !== undefined ? JSON.stringify(patch.dashboard) : undefined;
     const row = await prisma.userPreference.upsert({
       where: { userId_tenantId: { userId, tenantId } },
       create: {
@@ -121,6 +142,7 @@ export async function saveUserPreferences(
         density: patch.density,
         sidebarCollapsed: patch.sidebarCollapsed,
         navOrderJson,
+        dashboardJson,
         lastRoute: patch.lastRoute,
       },
       update: {
@@ -129,6 +151,7 @@ export async function saveUserPreferences(
         ...(patch.density !== undefined ? { density: patch.density } : {}),
         ...(patch.sidebarCollapsed !== undefined ? { sidebarCollapsed: patch.sidebarCollapsed } : {}),
         ...(navOrderJson !== undefined ? { navOrderJson } : {}),
+        ...(dashboardJson !== undefined ? { dashboardJson } : {}),
         ...(patch.lastRoute !== undefined ? { lastRoute: patch.lastRoute } : {}),
       },
     });
@@ -146,6 +169,7 @@ export async function saveUserPreferences(
       density: patch.density ?? prev?.density,
       sidebarCollapsed: patch.sidebarCollapsed ?? prev?.sidebarCollapsed,
       navOrder: patch.navOrder ?? prev?.navOrder,
+      dashboard: patch.dashboard ?? prev?.dashboard,
       lastRoute: patch.lastRoute ?? prev?.lastRoute,
       updatedAt: now,
     };
