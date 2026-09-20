@@ -69,8 +69,8 @@ export function ChangePasswordScreen() {
           error={mismatch ? "Şifreler eşleşmiyor" : undefined}
         />
 
-        {error ? <Text style={{ color: t.colors.danger }}>{error}</Text> : null}
-        {done ? <Text style={{ color: t.colors.success }}>Şifreniz güncellendi.</Text> : null}
+        {error ? <Text style={[t.typography.caption, { color: t.colors.danger }]}>{error}</Text> : null}
+        {done ? <Text style={[t.typography.caption, { color: t.colors.success }]}>Şifreniz güncellendi.</Text> : null}
 
         <Button label="Şifreyi güncelle" onPress={onSubmit} disabled={!canSubmit} loading={busy} />
       </View>

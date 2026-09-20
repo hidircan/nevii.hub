@@ -103,7 +103,7 @@ export default function Telafi() {
                 {isActingOnThis ? (
                   <View style={{ marginTop: 12, gap: 10 }}>
                     <TextField label="Karar notu (zorunlu)" value={note} onChangeText={setNote} placeholder="Kısa açıklama" />
-                    {error ? <Text style={{ color: t.colors.danger }}>{error}</Text> : null}
+                    {error ? <Text style={[t.typography.caption, { color: t.colors.danger }]}>{error}</Text> : null}
                     <View style={{ flexDirection: "row", gap: 8 }}>
                       <Button label="Vazgeç" variant="secondary" size="sm" onPress={() => setActing(null)} style={{ flex: 1 }} />
                       <Button

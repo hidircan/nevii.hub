@@ -182,7 +182,7 @@ export default function AdminLessonDetail() {
             </>
           ) : null}
 
-          {reassignError ? <Text style={{ color: t.colors.danger, marginTop: 12 }}>{reassignError}</Text> : null}
+          {reassignError ? <Text style={[t.typography.caption, { color: t.colors.danger, marginTop: 12 }]}>{reassignError}</Text> : null}
 
           <View style={{ flexDirection: "row", gap: 8, marginTop: 16 }}>
             <Button

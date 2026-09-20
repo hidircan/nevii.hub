@@ -153,7 +153,7 @@ export default function AdminTaskDetailScreen() {
         )}
         <View style={{ marginTop: 12, gap: 8 }}>
           <TextField label="Yorum ekle" value={commentBody} onChangeText={setCommentBody} placeholder="Yorumunuzu yazın" multiline numberOfLines={2} />
-          {commentError ? <Text style={{ color: t.colors.danger }}>{commentError}</Text> : null}
+          {commentError ? <Text style={[t.typography.caption, { color: t.colors.danger }]}>{commentError}</Text> : null}
           <Button label="Gönder" size="sm" onPress={onAddComment} disabled={!commentBody.trim()} loading={commentBusy} />
         </View>
       </Card>

@@ -154,10 +154,10 @@ export default function YeniOdev() {
               </Text>
             </Pressable>
           )}
-          {attachError ? <Text style={{ color: t.colors.danger }}>{attachError}</Text> : null}
+          {attachError ? <Text style={[t.typography.caption, { color: t.colors.danger }]}>{attachError}</Text> : null}
         </View>
 
-        {error ? <Text style={{ color: t.colors.danger }}>{error}</Text> : null}
+        {error ? <Text style={[t.typography.caption, { color: t.colors.danger }]}>{error}</Text> : null}
 
         <Button label="Ödevi oluştur" onPress={onSubmit} disabled={!canSubmit} loading={busy} />
       </View>

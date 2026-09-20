@@ -269,7 +269,7 @@ export default function StudentDetailScreen() {
                   keyboardType="number-pad"
                 />
                 <TextField label="Not (isteğe bağlı)" value={topicNotes} onChangeText={setTopicNotes} placeholder="Ör. Metronom 80 bpm'de çalışılıyor" />
-                {topicError ? <Text style={{ color: t.colors.danger }}>{topicError}</Text> : null}
+                {topicError ? <Text style={[t.typography.caption, { color: t.colors.danger }]}>{topicError}</Text> : null}
                 <View style={{ flexDirection: "row", gap: 8 }}>
                   <Button label="Vazgeç" variant="secondary" size="sm" onPress={() => setAddingTopic(false)} style={{ flex: 1 }} />
                   <Button label="Ekle" size="sm" onPress={onAddTopic} disabled={!topicTitle.trim() || topicBusy} loading={topicBusy} style={{ flex: 1 }} />
@@ -310,7 +310,7 @@ export default function StudentDetailScreen() {
                       <SelectField label="Durum" value={editStatus} options={STATUS_OPTIONS} onChange={(v) => setEditStatus(v as CurriculumTopicStatus)} />
                       <TextField label="İlerleme %" value={editProgress} onChangeText={setEditProgress} keyboardType="number-pad" />
                       <TextField label="Değişiklik notu (isteğe bağlı)" value={editChangeNote} onChangeText={setEditChangeNote} placeholder="Ör. Bu hafta tempo arttı" />
-                      {editError ? <Text style={{ color: t.colors.danger }}>{editError}</Text> : null}
+                      {editError ? <Text style={[t.typography.caption, { color: t.colors.danger }]}>{editError}</Text> : null}
                       <View style={{ flexDirection: "row", gap: 8 }}>
                         <Button label="Vazgeç" variant="secondary" size="sm" onPress={() => setEditingTopicId(null)} style={{ flex: 1 }} />
                         <Button label="Kaydet" size="sm" onPress={() => onUpdateTopic(topic.id)} loading={editBusy} style={{ flex: 1 }} />

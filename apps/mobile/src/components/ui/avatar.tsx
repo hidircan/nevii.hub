@@ -3,6 +3,7 @@ import { Image, StyleSheet, Text, View } from "react-native";
 import { useTheme } from "../../theme/theme-context";
 import { getAccessToken } from "../../auth/token-storage";
 import { API_BASE_URL } from "../../api/client";
+import { fonts } from "../../theme/tokens";
 
 const PALETTE_KEYS = ["primary", "success", "warning", "danger", "info"] as const;
 
@@ -92,7 +93,7 @@ export function Avatar({ name, size = 40, photoPath, onPhotoLoad, onPhotoError }
 
   return (
     <View style={[styles.base, { width: size, height: size, borderRadius: size / 2, backgroundColor: bg }]}>
-      <Text style={{ color: fg, fontWeight: "700", fontSize: size * 0.38 }}>{initialsOf(name)}</Text>
+      <Text style={{ color: fg, fontFamily: fonts.serifBold, fontWeight: "700", fontSize: size * 0.38 }}>{initialsOf(name)}</Text>
     </View>
   );
 }

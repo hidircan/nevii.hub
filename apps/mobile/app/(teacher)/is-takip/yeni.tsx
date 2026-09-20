@@ -130,7 +130,7 @@ export default function YeniGorev() {
         <SelectField label="Kategori" value={category} options={CATEGORIES.map((c) => ({ label: c, value: c }))} onChange={setCategory} placeholder="Kategori seçin" />
         <SelectField label="Öncelik" value={priority} options={PRIORITIES} onChange={setPriority} placeholder="Öncelik seçin" />
         <DueDateField label="Son tarih (opsiyonel)" value={dueDate} onChange={setDueDate} minimumDate={new Date()} />
-        {error ? <Text style={{ color: t.colors.danger }}>{error}</Text> : null}
+        {error ? <Text style={[t.typography.caption, { color: t.colors.danger }]}>{error}</Text> : null}
         <Button label="Görevi oluştur" onPress={onSubmit} disabled={!canSubmit} loading={busy} />
       </View>
     </Screen>

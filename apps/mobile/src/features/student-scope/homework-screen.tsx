@@ -148,7 +148,7 @@ export function StudentScopeHomeworkDetailScreen({ homeworkId }: { homeworkId: s
       ) : (
         <View style={{ gap: 12 }}>
           <TextField label="Not (opsiyonel)" value={note} onChangeText={setNote} placeholder="Öğretmene not ekleyin" multiline numberOfLines={3} />
-          {error ? <Text style={{ color: t.colors.danger }}>{error}</Text> : null}
+          {error ? <Text style={[t.typography.caption, { color: t.colors.danger }]}>{error}</Text> : null}
           <Button label="Teslim et" onPress={onSubmit} loading={busy} />
         </View>
       )}

@@ -69,7 +69,7 @@ export default function YeniDuyuru() {
           </View>
         </Card>
 
-        {error ? <Text style={{ color: t.colors.danger }}>{error}</Text> : null}
+        {error ? <Text style={[t.typography.caption, { color: t.colors.danger }]}>{error}</Text> : null}
 
         <Button label="Duyuruyu gönder" onPress={() => setConfirming(true)} disabled={!canSubmit} loading={busy} />
       </View>

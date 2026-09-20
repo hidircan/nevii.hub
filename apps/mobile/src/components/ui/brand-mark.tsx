@@ -29,7 +29,7 @@ export function BrandMark({ size = "md", wordmark = true, wordmarkSize }: Props)
       {wordmark ? (
         <Text
           numberOfLines={1}
-          style={[t.typography.display, { color: t.colors.text, marginTop: 14, fontSize: wordmarkSize ?? (size === "lg" ? 34 : 28) }]}
+          style={[t.typography.display, { color: t.colors.text, marginTop: 14, fontSize: wordmarkSize ?? (size === "lg" ? 36 : 30) }]}
         >
           NeviiHub
         </Text>

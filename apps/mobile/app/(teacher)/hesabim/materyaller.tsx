@@ -39,7 +39,7 @@ export default function TeacherMateryaller() {
         <EmptyState icon="folder-open-outline" title="Henüz materyal paylaşmadınız" actionLabel="Yeni materyal" onAction={() => router.push("/(teacher)/hesabim/materyaller-yeni")} />
       ) : (
         <View style={{ gap: 10 }}>
-          {downloadError ? <Text style={{ color: t.colors.danger }}>{downloadError}</Text> : null}
+          {downloadError ? <Text style={[t.typography.caption, { color: t.colors.danger }]}>{downloadError}</Text> : null}
           {res.data.materials.map((m) => (
             <Card key={m.id}>
               <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}>

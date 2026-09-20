@@ -38,7 +38,7 @@ export function StudentScopeMaterialsScreen() {
         <EmptyState icon="folder-open-outline" title="Henüz materyal paylaşılmadı" />
       ) : (
         <View style={{ gap: 10 }}>
-          {downloadError ? <Text style={{ color: t.colors.danger }}>{downloadError}</Text> : null}
+          {downloadError ? <Text style={[t.typography.caption, { color: t.colors.danger }]}>{downloadError}</Text> : null}
           {res.data.materials.map((m) => (
             <Card key={m.id}>
               <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}>

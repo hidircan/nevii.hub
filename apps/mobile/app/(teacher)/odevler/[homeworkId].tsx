@@ -154,7 +154,7 @@ export default function OdevDetay() {
                 multiline
                 numberOfLines={3}
               />
-              {error ? <Text style={{ color: t.colors.danger, marginTop: 8 }}>{error}</Text> : null}
+              {error ? <Text style={[t.typography.caption, { color: t.colors.danger, marginTop: 8 }]}>{error}</Text> : null}
               <Button
                 label="Geri bildirimi gönder"
                 onPress={onReview}

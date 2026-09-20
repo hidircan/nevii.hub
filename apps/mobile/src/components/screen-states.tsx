@@ -1,5 +1,6 @@
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 import { useTheme } from "../theme/theme-context";
+import { fonts } from "../theme/tokens";
 
 export function LoadingState({ label = "Yükleniyor…" }: { label?: string }) {
   const t = useTheme();
@@ -52,7 +53,7 @@ export function DevUnreachableState({ apiBaseUrl }: { apiBaseUrl: string }) {
 
 const styles = StyleSheet.create({
   center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 8, padding: 16 },
-  title: { fontSize: 16, fontWeight: "600" },
-  muted: { fontSize: 13, marginTop: 4 },
-  retry: { marginTop: 12, fontSize: 14, fontWeight: "600" },
+  title: { fontFamily: fonts.serifBold, fontSize: 18, fontWeight: "600" },
+  muted: { fontFamily: fonts.serif, fontSize: 15, marginTop: 4 },
+  retry: { marginTop: 12, fontFamily: fonts.serifBold, fontSize: 16, fontWeight: "600" },
 });

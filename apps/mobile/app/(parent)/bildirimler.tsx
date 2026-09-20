@@ -1,6 +1,7 @@
 import { Text } from "react-native";
 import { ListScreen } from "../../src/components/list-screen";
 import { useApiGet } from "../../src/hooks/use-api";
+import { fonts } from "../../src/theme/tokens";
 
 type Notification = { id: string; title?: string; category?: string; readAt?: string | null };
 type NotificationsResponse = { notifications: Notification[] };
@@ -17,7 +18,7 @@ export default function ParentBildirimler() {
       emptyLabel="Bildirim yok."
       keyExtractor={(n) => n.id}
       renderItem={(n) => (
-        <Text style={{ fontWeight: n.readAt ? "400" : "700", fontSize: 15 }}>{n.title ?? n.category ?? "Bildirim"}</Text>
+        <Text style={{ fontFamily: fonts.serif, fontWeight: n.readAt ? "400" : "700", fontSize: 17 }}>{n.title ?? n.category ?? "Bildirim"}</Text>
       )}
     />
   );

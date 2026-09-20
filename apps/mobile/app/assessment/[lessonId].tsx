@@ -93,7 +93,7 @@ export default function AssessmentScreen() {
         <TextField label="Geliştirilmesi gerekenler" value={improvementNote} onChangeText={setImprovementNote} multiline numberOfLines={3} />
         <TextField label="Sonraki adımlar" value={nextStepsNote} onChangeText={setNextStepsNote} multiline numberOfLines={3} />
 
-        {error ? <Text style={{ color: t.colors.danger }}>{error}</Text> : null}
+        {error ? <Text style={[t.typography.caption, { color: t.colors.danger }]}>{error}</Text> : null}
 
         <Button label="Değerlendirmeyi kaydet" onPress={onSubmit} disabled={!canSubmit} loading={busy} />
       </View>

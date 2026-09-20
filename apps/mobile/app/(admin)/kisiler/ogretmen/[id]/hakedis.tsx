@@ -48,7 +48,7 @@ export default function TeacherPayouts() {
       <AppHeader title="Hakediş" showBack showNotifications={false} />
 
       <Button label="Bu ayın hakedişini oluştur" onPress={createThisMonth} loading={creating} icon="add-circle-outline" style={{ marginBottom: 16 }} />
-      {error ? <Text style={{ color: t.colors.danger, marginBottom: 12 }}>{error}</Text> : null}
+      {error ? <Text style={[t.typography.caption, { color: t.colors.danger, marginBottom: 12 }]}>{error}</Text> : null}
 
       {res.status === "loading" ? (
         <LoadingSkeleton rows={3} />

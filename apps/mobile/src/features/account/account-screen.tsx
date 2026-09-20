@@ -310,7 +310,7 @@ export function AccountScreen(
       {photoOwner ? (
         <BottomSheet visible={photoSheetOpen} title="Profil fotoğrafı" onClose={() => setPhotoSheetOpen(false)}>
           <View style={{ gap: 10, paddingBottom: 8 }}>
-            {photoError ? <Text style={{ color: t.colors.danger }}>{photoError}</Text> : null}
+            {photoError ? <Text style={[t.typography.caption, { color: t.colors.danger }]}>{photoError}</Text> : null}
             <Pressable onPress={pickAndUploadPhoto} disabled={photoBusy} style={styles.sheetOptionRow}>
               <View style={styles.optionLeft}>
                 <Icon name="image-outline" size={18} color={t.colors.primary} />

@@ -1,5 +1,6 @@
 import { Pressable, StyleSheet, Text } from "react-native";
 import { useTheme } from "../../theme/theme-context";
+import { fonts } from "../../theme/tokens";
 
 type Props = {
   label: string;
@@ -38,5 +39,5 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     borderWidth: StyleSheet.hairlineWidth,
   },
-  label: { fontSize: 13, fontWeight: "600" },
+  label: { fontFamily: fonts.serifBold, fontSize: 15, fontWeight: "600" },
 });

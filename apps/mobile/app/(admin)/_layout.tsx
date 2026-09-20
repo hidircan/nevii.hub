@@ -2,6 +2,7 @@ import { Tabs } from "expo-router";
 import { PersonaGuard } from "../../src/components/persona-guard";
 import { Icon } from "../../src/components/ui";
 import { useTheme } from "../../src/theme/theme-context";
+import { fonts } from "../../src/theme/tokens";
 
 export default function AdminLayout() {
   const t = useTheme();
@@ -13,6 +14,7 @@ export default function AdminLayout() {
           tabBarActiveTintColor: t.colors.primary,
           tabBarInactiveTintColor: t.colors.textMuted,
           tabBarStyle: { backgroundColor: t.colors.bg, borderTopColor: t.colors.border },
+          tabBarLabelStyle: { fontFamily: fonts.serif, fontSize: 15 },
         }}
       >
         <Tabs.Screen

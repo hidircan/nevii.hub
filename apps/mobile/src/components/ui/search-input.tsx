@@ -1,6 +1,7 @@
 import { Pressable, StyleSheet, TextInput, View } from "react-native";
 import { useTheme } from "../../theme/theme-context";
 import { Icon } from "./icon";
+import { fonts } from "../../theme/tokens";
 
 type Props = {
   value: string;
@@ -42,5 +43,5 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     height: 44,
   },
-  input: { flex: 1, fontSize: 15, height: "100%" },
+  input: { flex: 1, fontFamily: fonts.serif, fontSize: 17, height: "100%" },
 });

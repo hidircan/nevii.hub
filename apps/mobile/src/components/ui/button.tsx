@@ -70,7 +70,7 @@ export function Button({
           <Text
             numberOfLines={2}
             ellipsizeMode="tail"
-            style={[styles.label, { color: p.fg, fontSize: size === "sm" ? 13 : 15, textAlign: "center" }]}
+            style={[styles.label, { color: p.fg, fontFamily: t.fonts.serifBold, fontSize: size === "sm" ? 15 : 17, textAlign: "center" }]}
           >
             {label}
           </Text>
@@ -123,6 +123,6 @@ const styles = StyleSheet.create({
   },
   md: { paddingVertical: 12, paddingHorizontal: 18 },
   sm: { paddingVertical: 8, paddingHorizontal: 14, minHeight: 36 },
-  label: { fontWeight: "600", flexShrink: 1 },
+  label: { fontWeight: "600", flexShrink: 1, lineHeight: 22 },
   iconBase: { alignItems: "center", justifyContent: "center" },
 });

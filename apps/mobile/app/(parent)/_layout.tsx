@@ -2,6 +2,7 @@ import { Tabs } from "expo-router";
 import { PersonaGuard } from "../../src/components/persona-guard";
 import { Icon } from "../../src/components/ui";
 import { useTheme } from "../../src/theme/theme-context";
+import { fonts } from "../../src/theme/tokens";
 
 export default function ParentLayout() {
   const t = useTheme();
@@ -13,7 +14,7 @@ export default function ParentLayout() {
           tabBarActiveTintColor: t.colors.primary,
           tabBarInactiveTintColor: t.colors.textMuted,
           tabBarStyle: { backgroundColor: t.colors.bg, borderTopColor: t.colors.border, minHeight: 64 },
-          tabBarLabelStyle: { fontSize: 13 },
+          tabBarLabelStyle: { fontFamily: fonts.serif, fontSize: 15 },
           tabBarItemStyle: { paddingVertical: 6 },
         }}
       >

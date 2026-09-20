@@ -4,6 +4,7 @@ import { useTheme } from "../../theme/theme-context";
 import { goBack } from "../../lib/navigation";
 import { Icon } from "./icon";
 import { useUnreadNotificationCount } from "../../hooks/use-unread-notification-count";
+import { fonts } from "../../theme/tokens";
 
 type Props = {
   title: string;
@@ -65,7 +66,7 @@ export function AppHeader({ title, subtitle, showBack, backFallback, showNotific
         <View style={{ flexShrink: 1 }}>
           <Text
             numberOfLines={1}
-            style={[t.typography.display, { color: t.colors.text, fontSize: 22, lineHeight: 28 }]}
+            style={[t.typography.display, { color: t.colors.text, fontSize: 24, lineHeight: 30 }]}
           >
             {title}
           </Text>
@@ -128,5 +129,5 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderWidth: 2,
   },
-  badgeText: { color: "#fff", fontSize: 10, fontWeight: "700" },
+  badgeText: { color: "#fff", fontFamily: fonts.serifBold, fontSize: 12, fontWeight: "700" },
 });

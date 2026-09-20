@@ -107,7 +107,7 @@ export function DegerlendirmeFormScreen() {
 
         <TextField label="Yorum (opsiyonel)" value={comment} onChangeText={setComment} multiline numberOfLines={3} />
 
-        {error ? <Text style={{ color: t.colors.danger }}>{error}</Text> : null}
+        {error ? <Text style={[t.typography.caption, { color: t.colors.danger }]}>{error}</Text> : null}
         {alreadySubmitted.status === "error" ? <ErrorState message={alreadySubmitted.message} onRetry={alreadySubmitted.refresh} /> : null}
 
         <Button label="Gönder" onPress={onSubmit} disabled={!allScored || busy} loading={busy} />

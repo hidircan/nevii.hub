@@ -121,13 +121,13 @@ export default function YeniMateryal() {
               </Text>
             </Pressable>
           )}
-          {attachError ? <Text style={{ color: t.colors.danger }}>{attachError}</Text> : null}
+          {attachError ? <Text style={[t.typography.caption, { color: t.colors.danger }]}>{attachError}</Text> : null}
         </View>
 
         <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>
           Bu materyal, hedef enstrüman/seviye belirtilmediği için tüm öğrencilerinize görünür olacak.
         </Text>
-        {error ? <Text style={{ color: t.colors.danger }}>{error}</Text> : null}
+        {error ? <Text style={[t.typography.caption, { color: t.colors.danger }]}>{error}</Text> : null}
         <Button label="Paylaş" onPress={onSubmit} disabled={!canSubmit} loading={busy} />
       </View>
     </Screen>
