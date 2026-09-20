@@ -106,7 +106,10 @@ export function AccountScreen({ links, ownAccountPhotoOnly }: { links?: AccountQ
       : null;
   const resolvedName = user ? resolveDisplayName({ teacherName, email: user.email }) : null;
   const teacherNamePending = isTeacher && teacherSchedule.status === "loading";
-  const displayName = resolvedName ?? (teacherNamePending ? null : user ? roleLabel(user) : null);
+  // Ad yerine rol etiketi ("Öğretmen") ASLA konmaz — çözülmediyse iskelet
+  // (pending) ya da nötr fallback; rol zaten alt satırda gösterilir.
+  const displayName = resolvedName;
+  const showSkeleton = !displayName && (!user || teacherNamePending);
   const photoOwner = resolvePhotoOwner(user, { forceUserPhoto: ownAccountPhotoOnly });
   const photoPath = photoOwner ? `/api/v1/${photoOwner.ownerType}s/${photoOwner.ownerId}/photo?v=${photoVersion}` : null;
 
@@ -185,7 +188,7 @@ export function AccountScreen({ links, ownAccountPhotoOnly }: { links?: AccountQ
             style={{ position: "relative" }}
           >
             <Avatar
-              name={displayName ?? " "}
+              name={displayName ?? "Kullanıcı"}
               size={52}
               photoPath={photoPath}
               onPhotoLoad={() => setHasPhoto(true)}
@@ -198,21 +201,25 @@ export function AccountScreen({ links, ownAccountPhotoOnly }: { links?: AccountQ
             ) : null}
           </Pressable>
           <View style={{ flex: 1 }}>
-            {displayName ? (
-              <>
-                <Text style={[t.typography.cardTitle, { color: t.colors.text }]} numberOfLines={1}>
-                  {displayName}
-                </Text>
-                <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>
-                  {user ? roleLabel(user) : ""}
-                </Text>
-              </>
-            ) : (
+            {showSkeleton ? (
               // Kimlik çözülürken yanlış metin gösterilmez — iskelet.
               <View accessibilityLabel="Profil bilgisi yükleniyor">
                 <View style={[styles.nameSkeleton, { backgroundColor: t.colors.bgMuted }]} />
                 <View style={[styles.roleSkeleton, { backgroundColor: t.colors.bgMuted }]} />
               </View>
+            ) : (
+              <>
+                <Text
+                  style={[t.typography.cardTitle, { color: t.colors.text }]}
+                  numberOfLines={1}
+                  accessibilityLabel={displayName ? undefined : "Kullanıcı adı yüklenemedi"}
+                >
+                  {displayName ?? "Kullanıcı"}
+                </Text>
+                <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>
+                  {user ? roleLabel(user) : ""}
+                </Text>
+              </>
             )}
           </View>
         </View>

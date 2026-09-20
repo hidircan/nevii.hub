@@ -28,3 +28,13 @@ describe("resolveDisplayName", () => {
     expect(resolveDisplayName({ email: "" })).not.toBe("Öğretmen");
   });
 });
+
+describe("account-screen ad fallback sözleşmesi", () => {
+  it("ad yerine rol etiketi konmaz (statik denetim)", async () => {
+    const fs = await import("node:fs/promises");
+    const path = await import("node:path");
+    const content = await fs.readFile(path.join(__dirname, "..", "account-screen.tsx"), "utf-8");
+    expect(content).not.toMatch(/\?\?\s*\(?.*roleLabel/);
+    expect(content).toMatch(/showSkeleton/);
+  });
+});
