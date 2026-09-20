@@ -6,7 +6,7 @@ import { BrandMark, Icon, type IconName } from "../src/components/ui";
 import { useTheme } from "../src/theme/theme-context";
 
 type PersonaEntry = {
-  key: "student" | "teacher";
+  key: "student" | "teacher" | "admin";
   icon: IconName;
   title: string;
   description: string;
@@ -31,12 +31,21 @@ const PERSONA_ENTRIES: PersonaEntry[] = [
     cta: "Öğretmen olarak devam et",
     a11y: "Öğretmen girişi",
   },
+  {
+    key: "admin",
+    icon: "briefcase-outline",
+    title: "Yönetici girişi",
+    description: "Kurum programı ve yönetim işlemleri için.",
+    cta: "Yönetici olarak devam et",
+    a11y: "Yönetici girişi",
+  },
 ];
 
 /**
- * Karşılama — oturumsuz ilk durak. İki persona girişi (öğrenci/veli,
- * öğretmen) UX yönlendirmesi içindir; backend tek login endpoint'i kullanır.
- * Yönetici için görünür CTA yok — mevcut kurumsal davranış korunur.
+ * Karşılama — oturumsuz ilk durak. Üç persona girişi (öğrenci/veli,
+ * öğretmen, yönetici) UX yönlendirmesi içindir; backend tek login
+ * endpoint'i kullanır, yetkiyi sunucu rolü belirler. Yönetici seçeneği
+ * kurumsal ve sade tutulur, öğrenci/veli deneyimini gölgelemez.
  * Oturumu olan kullanıcı buraya düşmez (index doğrudan persona evine gider).
  */
 export default function WelcomeScreen() {

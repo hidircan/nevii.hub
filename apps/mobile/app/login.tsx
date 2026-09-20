@@ -22,11 +22,14 @@ export default function LoginScreen() {
   const t = useTheme();
   const router = useRouter();
   const { persona } = useLocalSearchParams<{ persona?: string }>();
-  const isTeacherFlow = persona === "teacher";
-  const heading = isTeacherFlow ? "Öğretmen girişi" : "Öğrenci / Veli girişi";
-  const subheading = isTeacherFlow
-    ? "Günlük programınız ve sınıflarınız için kurum hesabınızla giriş yapın"
-    : "Dersler, ödevler ve ödemeler için kurum hesabınızla giriş yapın";
+  const heading =
+    persona === "teacher" ? "Öğretmen girişi" : persona === "admin" ? "Yönetici girişi" : "Öğrenci / Veli girişi";
+  const subheading =
+    persona === "teacher"
+      ? "Günlük programınız ve sınıflarınız için kurum hesabınızla giriş yapın"
+      : persona === "admin"
+        ? "Kurum yönetim işlemleri için yönetici hesabınızla giriş yapın"
+        : "Dersler, ödevler ve ödemeler için kurum hesabınızla giriş yapın";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);

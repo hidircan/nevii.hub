@@ -22,13 +22,13 @@ describe("welcome/login akış sözleşmesi", () => {
     expect(content).not.toMatch(/href="\/login"/);
   });
 
-  it("welcome: iki persona girişi → persona'lı /login; oturumlu kullanıcı persona evine gider", async () => {
+  it("welcome: üç persona girişi → persona'lı /login; oturumlu kullanıcı persona evine gider", async () => {
     const content = await readRoute("welcome.tsx");
     expect(content).toContain("Öğrenci / Veli girişi");
     expect(content).toContain("Öğretmen girişi");
+    expect(content).toContain("Yönetici girişi");
     expect(content).toMatch(/pathname: "\/login"/);
     expect(content).toMatch(/persona/);
-    expect(content).not.toMatch(/Yönetici.*giriş|Admin.*giriş/i);
     expect(content).toMatch(/href="\/"/);
   });
 
