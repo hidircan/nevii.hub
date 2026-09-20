@@ -14,7 +14,10 @@ export function FilterChip({ label, selected, onPress }: Props) {
     <Pressable
       accessibilityRole="button"
       accessibilityState={{ selected: !!selected }}
+      accessibilityLabel={label}
       onPress={onPress}
+      // Görsel yükseklik korunur; dokunma alanı 44pt kuralına hitSlop ile ulaşır.
+      hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }}
       style={[
         styles.chip,
         {

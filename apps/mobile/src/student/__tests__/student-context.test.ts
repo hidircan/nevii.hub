@@ -119,7 +119,7 @@ describe("çoklu-çocuk route sözleşmesi (statik)", () => {
     const fs = await import("node:fs/promises");
     const path = await import("node:path");
     const ctx = await fs.readFile(path.join(__dirname, "..", "student-context.tsx"), "utf-8");
-    expect(ctx).toMatch(/deleteItemAsync\(selectedKey\(user\.userId\)\)/);
+    expect(ctx).toMatch(/deleteItemAsync\(selectedStudentKey\(user\.userId\)\)/);
     expect(ctx).toMatch(/refresh: \(\) => void/);
     const picker = await fs.readFile(path.join(__dirname, "..", "..", "..", "app", "select-child.tsx"), "utf-8");
     expect(picker).toMatch(/useFocusRefetch\(refresh\)/);

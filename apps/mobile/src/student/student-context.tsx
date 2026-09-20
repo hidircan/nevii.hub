@@ -3,12 +3,9 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { apiGet } from "../api/client";
 import { useAuth } from "../auth/auth-context";
 import { availableChildren, validatePersistedSelection, type ServerChild } from "./selection";
+import { selectedStudentKey } from "./selected-store";
 
 export type { ServerChild } from "./selection";
-
-function selectedKey(userId: string): string {
-  return `neviichub_selected_student:${userId}`;
-}
 
 type MyChildrenResponse = {
   children: Array<{
@@ -110,7 +107,7 @@ export function StudentProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!needsPicker || !user) return undefined;
     let cancelled = false;
-    void SecureStore.getItemAsync(selectedKey(user.userId)).then((value) => {
+    void SecureStore.getItemAsync(selectedStudentKey(user.userId)).then((value) => {
       if (cancelled) return;
       setStored({ fp: `${user.userId}:${user.portalAccessType ?? ""}:${childIds.join(",")}`, value });
     });
@@ -124,7 +121,7 @@ export function StudentProvider({ children }: { children: ReactNode }) {
       if (!user || !childIds.includes(studentId)) return false;
       setOverride({ fp: fingerprint, value: studentId });
       try {
-        await SecureStore.setItemAsync(selectedKey(user.userId), studentId);
+        await SecureStore.setItemAsync(selectedStudentKey(user.userId), studentId);
       } catch {
         // Persist başarısızsa bellek içi seçim korunur; kritik yol etkilenmez.
       }
@@ -140,7 +137,7 @@ export function StudentProvider({ children }: { children: ReactNode }) {
     if (stored?.fp !== fingerprint || !stored.value) return undefined;
     if (childIds.includes(stored.value)) return undefined;
     if (override?.fp === fingerprint) return undefined;
-    void SecureStore.deleteItemAsync(selectedKey(user.userId)).catch(() => undefined);
+    void SecureStore.deleteItemAsync(selectedStudentKey(user.userId)).catch(() => undefined);
     return undefined;
   }, [user, needsPicker, stored, fingerprint, childIds, override]);
 
