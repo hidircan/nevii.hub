@@ -12,29 +12,34 @@ export default function TeacherLayout() {
           headerShown: false,
           tabBarActiveTintColor: t.colors.primary,
           tabBarInactiveTintColor: t.colors.textMuted,
-          tabBarStyle: { backgroundColor: t.colors.bg, borderTopColor: t.colors.border },
+          tabBarStyle: { backgroundColor: t.colors.bg, borderTopColor: t.colors.border, minHeight: 64 },
+          tabBarLabelStyle: { fontSize: 13 },
+          tabBarItemStyle: { paddingVertical: 6 },
         }}
       >
         <Tabs.Screen
           name="bugun"
-          options={{ title: "Bugün", tabBarIcon: ({ color, size }) => <Icon name="today-outline" size={size} color={color} /> }}
+          options={{ title: "Program", tabBarIcon: ({ color }) => <Icon name="today-outline" size={26} color={color} /> }}
         />
         <Tabs.Screen
           name="ogrencilerim"
-          options={{ title: "Öğrencilerim", tabBarIcon: ({ color, size }) => <Icon name="people-outline" size={size} color={color} /> }}
+          options={{ title: "Öğrencilerim", tabBarIcon: ({ color }) => <Icon name="people-outline" size={26} color={color} /> }}
         />
         <Tabs.Screen
           name="odevler"
-          options={{ title: "Ödevler", tabBarIcon: ({ color, size }) => <Icon name="book-outline" size={size} color={color} /> }}
+          options={{ title: "Ödevler", tabBarIcon: ({ color }) => <Icon name="book-outline" size={26} color={color} /> }}
         />
         <Tabs.Screen
-          name="is-takip"
-          options={{ title: "İş Takip", tabBarIcon: ({ color, size }) => <Icon name="checkbox-outline" size={size} color={color} /> }}
+          name="hakedis"
+          options={{ title: "Hakedişlerim", tabBarIcon: ({ color }) => <Icon name="cash-outline" size={26} color={color} /> }}
         />
-        <Tabs.Screen
-          name="hesabim"
-          options={{ title: "Hesabım", tabBarIcon: ({ color, size }) => <Icon name="person-circle-outline" size={size} color={color} /> }}
-        />
+        {/*
+          İş Takip ve Hesabım sekmeleri kaldırıldı — İş Takip Hesabım içinden,
+          Hesabım üst header'daki profil ikonundan açılır (zil ikonunun sağı).
+          Route'lar korunur (deep link + Hesabım kısayolları çalışır).
+        */}
+        <Tabs.Screen name="is-takip" options={{ href: null }} />
+        <Tabs.Screen name="hesabim" options={{ href: null }} />
         {/*
           Bu iki dosya (app/(teacher)/odevlerim.tsx, bildirimler.tsx) eski/yedek
           düz route dosyaları — gerçek ödev sekmesi "odevler" (nested,

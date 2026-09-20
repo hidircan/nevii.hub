@@ -23,7 +23,7 @@ import type { HomeworkResponse, ScheduleResponse } from "../../../src/types/api"
  * Öğretmen ana ekranı — ayrıntılı HAFTALIK DERS PROGRAMI (varsayılan görünüm).
  *
  * Ürün kuralları:
- * - "Kapanış bekleyen dersler" alanı YOK (öğretmen yoklama almaz, ders
+ * - Kapanış-bekleyen alanı YOK (öğretmen yoklama almaz, ders
  *   başlatmaz/bitirmez).
  * - Yoklama durumu ne rozet ne CTA olarak görünmez (`showStatus={false}`);
  *   kartlarda şube adı + oda bilgisi gösterilir.
@@ -101,6 +101,7 @@ export default function TeacherBugun() {
       <AppHeader
         title="Program"
         subtitle={schedule.status === "success" ? `${weekLabel} · ${weekCount} ders` : weekLabel}
+        showAccount="/(teacher)/hesabim"
       />
 
       <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>

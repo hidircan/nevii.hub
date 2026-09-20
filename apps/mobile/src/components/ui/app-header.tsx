@@ -9,14 +9,37 @@ type Props = {
   subtitle?: string;
   showBack?: boolean;
   showNotifications?: boolean;
+  /**
+   * Hesap kısayolu — verildiğinde zil + sağında bağımsız profil ikonu
+   * gösterilir (öğretmen sekme kökleri; Hesabım sekmesi yerine). Değer,
+   * gidilecek hesap route'udur (örn. "/(teacher)/hesabim").
+   */
+  showAccount?: string;
   right?: React.ReactNode;
 };
 
 /** Ortak ekran üstlüğü — geri butonu, başlık/alt başlık ve sağda bildirim zili (rozetli) veya özel aksiyon. */
-export function AppHeader({ title, subtitle, showBack, showNotifications = true, right }: Props) {
+export function AppHeader({ title, subtitle, showBack, showNotifications = true, showAccount, right }: Props) {
   const t = useTheme();
   const router = useRouter();
   const unread = useUnreadNotificationCount(showNotifications);
+
+  const bell = showNotifications ? (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel="Bildirimler"
+      onPress={() => router.push("/notifications")}
+      hitSlop={8}
+      style={[styles.iconButton, { backgroundColor: t.colors.bgMuted }]}
+    >
+      <Icon name="notifications-outline" size={22} />
+      {unread > 0 ? (
+        <View style={[styles.badge, { backgroundColor: t.colors.danger, borderColor: t.colors.bg }]}>
+          <Text style={styles.badgeText}>{unread > 9 ? "9+" : unread}</Text>
+        </View>
+      ) : null}
+    </Pressable>
+  ) : null;
 
   return (
     <View style={styles.row}>
@@ -29,7 +52,7 @@ export function AppHeader({ title, subtitle, showBack, showNotifications = true,
             hitSlop={8}
             style={[styles.iconButton, { backgroundColor: t.colors.bgMuted }]}
           >
-            <Icon name="chevron-back" size={20} />
+            <Icon name="chevron-back" size={22} />
           </Pressable>
         ) : null}
         <View style={{ flexShrink: 1 }}>
@@ -47,22 +70,23 @@ export function AppHeader({ title, subtitle, showBack, showNotifications = true,
         </View>
       </View>
 
-      {right ?? (showNotifications ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Bildirimler"
-          onPress={() => router.push("/notifications")}
-          hitSlop={8}
-          style={[styles.iconButton, { backgroundColor: t.colors.bgMuted }]}
-        >
-          <Icon name="notifications-outline" size={20} />
-          {unread > 0 ? (
-            <View style={[styles.badge, { backgroundColor: t.colors.danger, borderColor: t.colors.bg }]}>
-              <Text style={styles.badgeText}>{unread > 9 ? "9+" : unread}</Text>
-            </View>
-          ) : null}
-        </Pressable>
-      ) : null)}
+      {right ?? (showAccount ? (
+        <View style={styles.rightGroup}>
+          {bell}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Hesabım"
+            accessibilityHint="Profil, ayarlar ve hesap işlemleri"
+            onPress={() => router.push(showAccount as never)}
+            hitSlop={8}
+            style={[styles.iconButton, { backgroundColor: t.colors.bgMuted }]}
+          >
+            <Icon name="person-circle-outline" size={22} />
+          </Pressable>
+        </View>
+      ) : (
+        bell
+      ))}
     </View>
   );
 }
@@ -77,10 +101,11 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   left: { flexDirection: "row", alignItems: "center", gap: 10, flexShrink: 1 },
+  rightGroup: { flexDirection: "row", alignItems: "center", gap: 8 },
   iconButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: "center",
     justifyContent: "center",
   },

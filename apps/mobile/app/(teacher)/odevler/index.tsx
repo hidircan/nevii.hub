@@ -53,7 +53,7 @@ export default function OdevlerIndex() {
       floatingAction={<FloatingActionButton icon="add" accessibilityLabel="Yeni ödev" onPress={() => router.push("/(teacher)/odevler/yeni")} />}
     >
       <View style={{ paddingHorizontal: 16 }}>
-        <AppHeader title="Ödevler" />
+        <AppHeader title="Ödevler" showAccount="/(teacher)/hesabim" />
 
         <View style={{ flexDirection: "row", gap: 8, marginBottom: 10 }}>
           {TABS.map((tb) => (

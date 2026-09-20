@@ -72,4 +72,38 @@ describe("öğretmen salt-okunur yüzey sözleşmesi", () => {
     expect(content).toMatch(/lessons\/.*\/ops/);
     expect(content).toMatch(/label="Katıldı"/);
   });
+
+  it("müsaitlik ekranında yazma çağrısı YOK (tamamen read-only)", async () => {
+    const content = await fs.readFile(path.join(APP_DIR, "(teacher)", "hesabim", "musaitlik.tsx"), "utf-8");
+    expect(content).not.toMatch(/\bapiPost\b|\bapiPatch\b|\bapiDelete\b/);
+  });
+
+  it("öğretmen ana paneli: Program/Öğrencilerim/Ödevler/Hakedişlerim; İş Takip ve Hesabım sekmede YOK", async () => {
+    const layout = await fs.readFile(path.join(APP_DIR, "(teacher)", "_layout.tsx"), "utf-8");
+    expect(layout).toMatch(/name="hakedis"/);
+    expect(layout).toMatch(/<Tabs\.Screen name="is-takip" options=\{\{ href: null \}\} \/>/);
+    expect(layout).toMatch(/<Tabs\.Screen name="hesabim" options=\{\{ href: null \}\} \/>/);
+    expect(layout).not.toMatch(/title: "İş Takip"|title: "Hesabım"/);
+    // İş Takip Hesabım içinden açılır.
+    const hesabim = await fs.readFile(path.join(APP_DIR, "(teacher)", "hesabim", "index.tsx"), "utf-8");
+    expect(hesabim).toMatch(/"\/\(teacher\)\/is-takip"/);
+  });
+
+  it("öğretmen sekme köklerinde hesap ikonu zil sağında (showAccount)", async () => {
+    for (const file of ["bugun/index.tsx", "ogrencilerim/index.tsx", "odevler/index.tsx"]) {
+      const content = await fs.readFile(path.join(APP_DIR, "(teacher)", file), "utf-8");
+      expect(content, file).toMatch(/showAccount="\/\(teacher\)\/hesabim"/);
+    }
+  });
+
+  it("öğretmen kartlarında yoklama rozeti YOK, şube adı VAR", async () => {
+    const index = await fs.readFile(path.join(APP_DIR, "(teacher)", "bugun", "index.tsx"), "utf-8");
+    expect(index).not.toMatch(/Kapanış bekleyen/);
+    expect(index).toMatch(/showStatus=\{false\}/);
+    const card = await fs.readFile(
+      path.join(__dirname, "..", "..", "components", "ui", "lesson-card.tsx"),
+      "utf-8"
+    );
+    expect(card).toMatch(/lesson\.branchName/);
+  });
 });

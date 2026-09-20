@@ -22,7 +22,7 @@ export default function OgrencilerimIndex() {
   return (
     <Screen edges={["top", "left", "right"]}>
       <View>
-        <AppHeader title="Öğrencilerim" />
+        <AppHeader title="Öğrencilerim" showAccount="/(teacher)/hesabim" />
         <View style={{ marginBottom: 12 }}>
           <SearchInput value={query} onChangeText={setQuery} placeholder="Öğrenci ara" />
         </View>
