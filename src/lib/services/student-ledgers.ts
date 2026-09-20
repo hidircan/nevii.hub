@@ -46,11 +46,6 @@ function isMobileExcluded(ctx: ServiceContext): boolean {
   return ctx.loginRole === "BRANCH_MANAGER" || ctx.role === "BRANCH_MANAGER";
 }
 
-const paginationSchema = z.object({
-  limit: z.coerce.number().int().min(1).max(200).optional(),
-  offset: z.coerce.number().int().min(0).max(100000).optional(),
-});
-
 function paginationOf(input: { limit?: number; offset?: number }) {
   return { limit: input.limit ?? 50, offset: input.offset ?? 0 };
 }
