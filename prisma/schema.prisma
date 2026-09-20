@@ -49,6 +49,7 @@ model Tenant {
   notifications               Notification[]
   notificationPreferences     NotificationPreference[]
   devicePushTokens            DevicePushToken[]
+  accountDeletionRequests     AccountDeletionRequest[]
   announcements               Announcement[]
   lessonAssessments           LessonAssessment[]
   periodicAssessments         PeriodicAssessment[]
@@ -148,6 +149,29 @@ model StudentPortalAccess {
   @@unique([tenantId, userId, studentId])
   @@index([tenantId, studentId])
   @@index([tenantId, userId])
+}
+
+/// Hesap silme talebi (Faz 6) — kullanıcı kendi hesabı için TEK açık talep
+/// açabilir; karar admin'dedir. Fiziksel silme bu tabloda YOK — `processed`
+/// sonrası retention politikasına göre yapılır; finansal/audit kayıtları korunur.
+model AccountDeletionRequest {
+  id           String    @id
+  tenantId     String
+  tenant       Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId       String
+  email        String
+  role         String
+  reason       String?
+  /// "pending" | "approved" | "rejected" | "processed" | "cancelled"
+  status       String    @default("pending")
+  decidedBy    String?
+  decisionNote String?
+  decidedAt    DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([tenantId, userId])
+  @@index([tenantId, status])
 }
 
 /// Öğrenci/öğretmen/kullanıcı profil fotoğrafı — DocumentInstance ile AYNI mevcut

@@ -1,25 +1,32 @@
 import { describe, it, expect } from "vitest";
-import { getLegalLinks, missingLegalLinks } from "../legal-links";
+import { getLegalLinks, missingLegalLinks, resolveLegalBaseUrl } from "../legal-links";
 
-describe("legal-links", () => {
-  it("placeholder URL üretmez — yapılandırılmadıysa null döner", () => {
+describe("legal-links (Faz 6 — gerçek URL'ler)", () => {
+  it("üç yasal URL de doludur; placeholder/null YOK", () => {
     const links = getLegalLinks();
+    expect(links.privacyPolicyUrl).toMatch(/\/gizlilik$/);
+    expect(links.termsUrl).toMatch(/\/kullanim-kosullari$/);
+    expect(links.accountDeletionUrl).toMatch(/\/hesap-silme-talebi$/);
     for (const v of Object.values(links)) {
-      expect(v).toBeNull();
+      expect(v).not.toContain("example");
+      expect(v).not.toContain("placeholder");
     }
   });
 
-  it("eksik URL'leri blocker listesi olarak raporlar", () => {
-    expect(missingLegalLinks(getLegalLinks())).toEqual(
-      expect.arrayContaining(["privacyPolicyUrl", "termsUrl", "accountDeletionUrl"])
-    );
+  it("eksik URL raporu boştur (release blocker YOK)", () => {
+    expect(missingLegalLinks(getLegalLinks())).toEqual([]);
   });
 
-  it("sahte hesap-silme API'si çağrılmaz (statik denetim)", async () => {
+  it("taban URL kuralı: sondaki eğik çizgi temizlenir, çift // YOK", () => {
+    expect(resolveLegalBaseUrl("https://panel.ornek.com/")).toBe("https://panel.ornek.com");
+    expect(resolveLegalBaseUrl(undefined)).toBe("http://localhost:3000");
+  });
+
+  it("hesap-silme akışı gerçek ekrana bağlanır (statik denetim)", async () => {
     const fs = await import("node:fs/promises");
     const path = await import("node:path");
     const content = await fs.readFile(path.join(__dirname, "..", "..", "features", "account", "account-screen.tsx"), "utf-8");
-    expect(content).not.toMatch(/account.*delete|delete.*account|anonymiz/i);
     expect(content).toMatch(/Hesabımı silme talebi/);
+    expect(content).toMatch(/\/hesap-silme-talebi/);
   });
 });

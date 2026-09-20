@@ -2,7 +2,7 @@ import * as ImagePicker from "expo-image-picker";
 import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
 import { useRouter } from "expo-router";
 import { useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Linking, Pressable, StyleSheet, Text, View } from "react-native";
 import { apiDelete, apiPost } from "../../api/client";
 import { useAuth, type AppRole, type AuthUser } from "../../auth/auth-context";
 import { useChildSelection } from "../../student/student-context";
@@ -80,71 +80,61 @@ const THEME_OPTIONS: Array<{ value: ThemePreference; label: string; icon: IconNa
 ];
 
 /**
- * Gizlilik/yasal bölüm — URL'ler yapılandırılmadıysa placeholder link
- * verilmez; eksiklik metin olarak gösterilir (release blocker). Hesap silme
- * için sahte "silindi" davranışı YOK: mobil hesap oluşturmayı desteklemez,
- * silme/anonimleştirme endpoint'i backend'de yok; akış kurum yöneticisi
- * üzerinden bilgi ekranıdır.
+ * Gizlilik/yasal bölüm — hukuki sayfalar uygulama dışında açılır
+ * (`legal-links.ts` tek kaynak). Hesap silme: uygulama-içi talep ekranı
+ * (`/hesap-silme-talebi`) + sunucu talebi + durum takibi; sahte "silindi"
+ * davranışı YOK.
  */
 function LegalSection() {
   const t = useTheme();
-  const [deletionInfoOpen, setDeletionInfoOpen] = useState(false);
+  const router = useRouter();
   const links = getLegalLinks();
 
-  const rows: Array<{ icon: IconName; label: string; hint: string; onPress?: () => void }> = [
+  const rows: Array<{ icon: IconName; label: string; hint: string; onPress: () => void }> = [
     {
       icon: "shield-checkmark-outline",
       label: "Gizlilik Politikası",
-      hint: links.privacyPolicyUrl ? "Uygulama dışında açılır" : "Yayınlanınca burada görünecek — kurumunuzdan isteyin",
+      hint: "Uygulama dışında açılır",
+      onPress: () => void Linking.openURL(links.privacyPolicyUrl),
     },
     {
       icon: "document-text-outline",
       label: "Kullanım Koşulları",
-      hint: links.termsUrl ? "Uygulama dışında açılır" : "Yayınlanınca burada görünecek — kurumunuzdan isteyin",
+      hint: "Uygulama dışında açılır",
+      onPress: () => void Linking.openURL(links.termsUrl),
     },
     {
       icon: "trash-outline",
       label: "Hesabımı silme talebi",
-      hint: "Kurum yöneticiniz üzerinden",
-      onPress: () => setDeletionInfoOpen(true),
+      hint: "Talep oluştur ve durumunu takip et",
+      onPress: () => router.push("/hesap-silme-talebi"),
     },
   ];
 
   return (
-    <>
-      <Card>
-        {rows.map((row, i) => (
-          <View key={row.label}>
-            {i > 0 ? <View style={[styles.divider, { backgroundColor: t.colors.divider }]} /> : null}
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={row.label}
-              accessibilityHint={row.hint}
-              onPress={row.onPress}
-              disabled={!row.onPress}
-              style={styles.deletionRow}
-            >
-              <View style={styles.optionLeft}>
-                <Icon name={row.icon} size={18} color={t.colors.textMuted} />
-                <View style={{ flex: 1 }}>
-                  <Text style={[t.typography.body, { color: t.colors.text }]}>{row.label}</Text>
-                  <Text style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 1 }]}>{row.hint}</Text>
-                </View>
+    <Card>
+      {rows.map((row, i) => (
+        <View key={row.label}>
+          {i > 0 ? <View style={[styles.divider, { backgroundColor: t.colors.divider }]} /> : null}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={row.label}
+            accessibilityHint={row.hint}
+            onPress={row.onPress}
+            style={styles.deletionRow}
+          >
+            <View style={styles.optionLeft}>
+              <Icon name={row.icon} size={18} color={t.colors.textMuted} />
+              <View style={{ flex: 1 }}>
+                <Text style={[t.typography.body, { color: t.colors.text }]}>{row.label}</Text>
+                <Text style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 1 }]}>{row.hint}</Text>
               </View>
-              {row.onPress ? <Icon name="chevron-forward" size={16} color={t.colors.textFaint} /> : null}
-            </Pressable>
-          </View>
-        ))}
-      </Card>
-      <ConfirmDialog
-        visible={deletionInfoOpen}
-        title="Hesap silme nasıl işler?"
-        message="Mobil hesaplar kurumunuz tarafından oluşturulur; uygulama içinden tek dokunuşla silme yoktur. Silme talebinizi kurum yöneticinize iletin — talebiniz onay gerektirir, geri alınamaz ve yasal zorunlulukla tutulması gereken sınırlı kayıtlar hariç verileriniz silinir ya da anonimleştirilir."
-        confirmLabel="Anladım"
-        onConfirm={() => setDeletionInfoOpen(false)}
-        onCancel={() => setDeletionInfoOpen(false)}
-      />
-    </>
+            </View>
+            <Icon name="chevron-forward" size={16} color={t.colors.textFaint} />
+          </Pressable>
+        </View>
+      ))}
+    </Card>
   );
 }
 

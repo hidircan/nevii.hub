@@ -203,6 +203,22 @@ export type LeaveRequestItem = {
 };
 export type LeaveResponse = { requests: LeaveRequestItem[] };
 
+/** Hesap silme talebi (Faz 6). */
+export type DeletionRequestStatus = "pending" | "approved" | "rejected" | "processed" | "cancelled";
+export type DeletionRequestItem = {
+  id: string;
+  status: DeletionRequestStatus;
+  reason?: string;
+  decisionNote?: string;
+  decidedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+export type MyDeletionResponse = { open: DeletionRequestItem | null; history: DeletionRequestItem[] };
+export type AdminDeletionResponse = {
+  requests: Array<DeletionRequestItem & { userId: string; email: string; role: string }>;
+};
+
 export type StudentProfile = {
   id: string;
   name: string;

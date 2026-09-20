@@ -58,6 +58,14 @@ export default function IslemlerIndex() {
       count: null,
     },
     {
+      key: "deletion",
+      icon: "trash-outline",
+      label: "Silme talepleri",
+      description: "Hesap silme taleplerini incele ve karara bağla",
+      route: "/(admin)/islemler/silme-talepleri",
+      count: null,
+    },
+    {
       key: "announcements",
       icon: "megaphone-outline",
       label: "Duyurular",

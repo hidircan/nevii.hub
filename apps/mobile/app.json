@@ -23,7 +23,12 @@
     },
     "plugins": [
       "expo-router",
-      "expo-notifications",
+      [
+        "expo-notifications",
+        {
+          "color": "#A56A00"
+        }
+      ],
       "expo-secure-store",
       "expo-asset",
       "@react-native-community/datetimepicker",

@@ -49,6 +49,7 @@ function RootStack() {
         <Stack.Screen name="(parent)" />
         <Stack.Screen name="(student)" />
         <Stack.Screen name="select-child" />
+        <Stack.Screen name="hesap-silme-talebi" />
         <Stack.Screen name="payment-result" />
         <Stack.Screen name="notifications" options={{ presentation: "modal" }} />
         <Stack.Screen name="assessment/[lessonId]" options={{ presentation: "modal" }} />
