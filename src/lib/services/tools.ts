@@ -5943,6 +5943,10 @@ export async function markTeacherPayoutPaidTool(
       const code = result.code === "NOT_FOUND" ? "NOT_FOUND" : "CONFLICT";
       return fail(code, result.message);
     }
+    audit(ctx, "teacher_payout.mark_paid", "TeacherPayout", v.data.payoutId, {
+      teacherId: result.payout.teacherId,
+      method: v.data.method,
+    });
     return ok({ payout: result.payout });
   } catch (e) {
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "markTeacherPayoutPaid failed");

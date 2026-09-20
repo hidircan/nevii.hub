@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { readData } from "../store";
-import { computeTeacherPerformanceScore } from "../insights/teacher-performance";
+import { computeAllTeacherPerformanceScores, computeTeacherPerformanceScore } from "../insights/teacher-performance";
+import { INSTRUMENTS } from "../types";
 import { requireRole, type ServiceContext } from "./context";
 import { fail, fromZodError, ok, type ServiceResult } from "./result";
 
@@ -311,6 +312,185 @@ export async function getCollectionSummaryTool(
     }
   }
   return ok({ today, todayCollected, monthCollected, pendingTotal, overdueTotal, pendingCount, overdueCount });
+}
+
+export type DashboardSummary = {
+  upcomingLessonCount: number;
+  pendingAttendanceCount: number;
+  overdueTaskCount: number;
+  followUpNeededCount: number;
+  attentionItems: Array<{ id: string; kind: string; label: string; detail?: string }>;
+  topTeachers: Array<{ teacherId: string; teacherName: string; score: number | null; insufficientData: boolean }>;
+};
+
+/**
+ * Yönetici gün özeti — Özet sekmesi (Faz 4). Yalnız karar verdiren kısa
+ * sayılar; ağır analitik web'de kalır. Tanımlar mobil/yoklama ekranıyla
+ * AYNI (bekleyen yoklama = süresi geçmiş + ops bayraksız + iptal değil).
+ */
+export async function getDashboardSummaryTool(
+  ctx: ServiceContext
+): Promise<ServiceResult<DashboardSummary>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+
+  const data = await readData();
+  const nowMs = Date.now();
+  const today = new Date(nowMs).toISOString().slice(0, 10);
+
+  const upcomingLessonCount = data.lessons.filter(
+    (l) => l.status !== "cancelled" && Date.parse(l.startAt) >= nowMs && l.startAt.slice(0, 10) === today
+  ).length;
+  const pendingAttendanceCount = data.lessons.filter(
+    (l) =>
+      l.status !== "cancelled" &&
+      Date.parse(l.endAt) < nowMs &&
+      !l.studentAttended &&
+      !l.lessonProcessed &&
+      !l.studentAbsent &&
+      !l.studentExcused &&
+      !l.opsMakeupFlag
+  ).length;
+
+  const { listTasks } = await import("../tasks");
+  const tasks = await listTasks(ctx.tenantId);
+  const overdueTaskCount = tasks.filter(
+    (t) =>
+      !["COMPLETED", "CANCELLED", "ARCHIVED"].includes(t.status) &&
+      !!t.dueDate &&
+      t.dueDate.slice(0, 10) < today
+  ).length;
+
+  const { listFollowUpCases } = await import("../tahsilat/cases");
+  const { isOpenFollowUpStatus } = await import("../tahsilat/status");
+  const openCases = (await listFollowUpCases(ctx.tenantId)).filter((c) => isOpenFollowUpStatus(c.status));
+
+  const pendingPayments = data.payments.filter((p) => p.status !== "paid" && p.status !== "voided");
+  const overduePayments = pendingPayments.filter((p) => p.status === "overdue" || p.dueDate.slice(0, 10) < today);
+  const openMakeup = (data.makeupRequests ?? []).filter((m) =>
+    ["pending", "suggested", "awaiting_info"].includes(m.status)
+  );
+
+  const attentionItems: DashboardSummary["attentionItems"] = [];
+  if (overduePayments.length > 0) {
+    attentionItems.push({
+      id: "overdue-payments",
+      kind: "payments",
+      label: `${overduePayments.length} gecikmiş ödeme`,
+      detail: "Tahsilat takibinden inceleyin",
+    });
+  }
+  if (openMakeup.length > 0) {
+    attentionItems.push({
+      id: "open-makeup",
+      kind: "makeup",
+      label: `${openMakeup.length} bekleyen telafi talebi`,
+      detail: "Telafi merkezinden karara bağlayın",
+    });
+  }
+  if (overdueTaskCount > 0) {
+    attentionItems.push({
+      id: "overdue-tasks",
+      kind: "tasks",
+      label: `${overdueTaskCount} gecikmiş görev`,
+      detail: "İş takipten inceleyin",
+    });
+  }
+
+  const teacherNameById = new Map(data.teachers.map((t) => [t.id, t.name]));
+  const topTeachers = computeAllTeacherPerformanceScores(data)
+    .sort((a, b) => (b.score ?? -1) - (a.score ?? -1))
+    .slice(0, 5)
+    .map((p) => ({
+      teacherId: p.teacherId,
+      teacherName: teacherNameById.get(p.teacherId) ?? "—",
+      score: p.score,
+      insufficientData: p.score === null,
+    }));
+
+  return ok({
+    upcomingLessonCount,
+    pendingAttendanceCount,
+    overdueTaskCount,
+    followUpNeededCount: openCases.length,
+    attentionItems,
+    topTeachers,
+  });
+}
+
+export type HomeworkReport = {
+  totalCount: number;
+  submittedCount: number;
+  pendingCount: number;
+  overdueCount: number;
+  reviewedCount: number;
+  byTeacher: Array<{ teacherId: string; teacherName: string; assignedCount: number; submittedCount: number }>;
+};
+
+/** Ödev raporu — kurum ödev durumu + öğretmen kırılımı (Faz 4, admin). */
+export async function getHomeworkReportTool(
+  ctx: ServiceContext
+): Promise<ServiceResult<HomeworkReport>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+
+  const { listAllHomework, listAllHomeworkSubmissions } = await import("../homework");
+  const [all, subs] = await Promise.all([
+    listAllHomework(ctx.tenantId),
+    listAllHomeworkSubmissions(ctx.tenantId),
+  ]);
+  const data = await readData();
+  const teacherNameById = new Map(data.teachers.map((t) => [t.id, t.name]));
+  const nowMs = Date.now();
+
+  const submittedIds = new Set(subs.map((s) => s.homeworkId));
+  const reviewedCount = subs.filter((s) => !!s.reviewedAt).length;
+  const overdueCount = all.filter((h) => !submittedIds.has(h.id) && Date.parse(h.dueDate) < nowMs).length;
+
+  const byTeacherMap = new Map<string, { assignedCount: number; submittedCount: number }>();
+  for (const h of all) {
+    const row = byTeacherMap.get(h.teacherId) ?? { assignedCount: 0, submittedCount: 0 };
+    row.assignedCount += 1;
+    if (submittedIds.has(h.id)) row.submittedCount += 1;
+    byTeacherMap.set(h.teacherId, row);
+  }
+  const byTeacher = [...byTeacherMap.entries()]
+    .map(([teacherId, row]) => ({
+      teacherId,
+      teacherName: teacherNameById.get(teacherId) ?? "—",
+      assignedCount: row.assignedCount,
+      submittedCount: row.submittedCount,
+    }))
+    .sort((a, b) => a.teacherName.localeCompare(b.teacherName, "tr") || a.teacherId.localeCompare(b.teacherId));
+
+  return ok({
+    totalCount: all.length,
+    submittedCount: submittedIds.size,
+    pendingCount: all.length - submittedIds.size,
+    overdueCount,
+    reviewedCount,
+    byTeacher,
+  });
+}
+
+export type InstrumentsResponse = {
+  entries: Array<{ id: string; name: string; status: "active" | "archived" }>;
+  staticInstruments: string[];
+};
+
+/** Enstrüman kataloğu — katalog ekranı (salt-okunur mobil). */
+export async function listInstrumentsTool(
+  ctx: ServiceContext
+): Promise<ServiceResult<InstrumentsResponse>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN", "TEACHER"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const { listInstrumentCatalog } = await import("../instrument-catalog");
+  const entries = (await listInstrumentCatalog(ctx.tenantId)).map((e) => ({
+    id: e.id,
+    name: e.name,
+    status: e.status,
+  }));
+  return ok({ entries, staticInstruments: [...INSTRUMENTS] });
 }
 
 export type RoomRow = {

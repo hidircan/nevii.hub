@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { promises as fs } from "fs";
 import path from "path";
 import { resolveDataDir } from "../config";
-import { listStudentsTool, listTeachersTool, listBranchesTool, listRoomsTool, listLessonsTool, getCollectionSummaryTool } from "../services/admin-lists";
+import { listStudentsTool, listTeachersTool, listBranchesTool, listRoomsTool, listLessonsTool, getCollectionSummaryTool, getDashboardSummaryTool, getHomeworkReportTool, listInstrumentsTool } from "../services/admin-lists";
 import {
   cancelLessonTool,
   createLessonTool,
@@ -32,6 +32,9 @@ function ctx(overrides?: Partial<ServiceContext>): ServiceContext {
 beforeEach(async () => {
   await fs.rm(DATA_FILE, { force: true });
   await fs.rm(STUDENT_PORTAL_ACCESS_FILE, { force: true });
+  const { HOMEWORK_FILE_PATH, HOMEWORK_SUBMISSIONS_FILE_PATH } = await import("../homework");
+  await fs.rm(HOMEWORK_FILE_PATH, { force: true });
+  await fs.rm(HOMEWORK_SUBMISSIONS_FILE_PATH, { force: true });
 });
 
 describe("listStudentsTool — admin P0 (Kişiler/Yoklama)", () => {
@@ -168,6 +171,48 @@ describe("getCollectionSummaryTool — tahsilat özeti", () => {
   it("TEACHER/STUDENT fail-closed", async () => {
     expect((await getCollectionSummaryTool(ctx({ role: "TEACHER", teacherId: "t1", userId: "u_t" }))).ok).toBe(false);
     expect((await getCollectionSummaryTool(ctx({ role: "STUDENT", userId: "u_s" }))).ok).toBe(false);
+  });
+});
+
+describe("getDashboardSummaryTool — yönetici gün özeti", () => {
+  it("sayılar tutarlıdır (seed: 2 gecikmiş ödeme → attention)", async () => {
+    const res = await getDashboardSummaryTool(ctx());
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.followUpNeededCount).toBeGreaterThanOrEqual(0);
+    expect(res.data.topTeachers.length).toBeGreaterThan(0);
+    expect(res.data.topTeachers.length).toBeLessThanOrEqual(5);
+    const overdue = res.data.attentionItems.find((i) => i.id === "overdue-payments");
+    expect(overdue?.label).toContain("2 gecikmiş ödeme");
+    for (const t of res.data.topTeachers) {
+      expect(t.insufficientData).toBe(t.score === null);
+    }
+  });
+
+  it("TEACHER/STUDENT fail-closed", async () => {
+    expect((await getDashboardSummaryTool(ctx({ role: "TEACHER", teacherId: "t1", userId: "u_t" }))).ok).toBe(false);
+    expect((await getDashboardSummaryTool(ctx({ role: "STUDENT", userId: "u_s" }))).ok).toBe(false);
+  });
+});
+
+describe("getHomeworkReportTool + listInstrumentsTool", () => {
+  it("ödev raporu boş seed'de sıfırlarla döner", async () => {
+    const res = await getHomeworkReportTool(ctx());
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.totalCount).toBeGreaterThanOrEqual(0);
+    expect(res.data.pendingCount).toBe(res.data.totalCount - res.data.submittedCount);
+  });
+
+  it("enstrüman kataloğu + sabit liste döner; STUDENT fail-closed", async () => {
+    const res = await listInstrumentsTool(ctx());
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.staticInstruments).toContain("Piyano");
+    expect(res.data.entries.length).toBeGreaterThan(0);
+    expect((await listInstrumentsTool(ctx({ role: "STUDENT", userId: "u_s" })))).toMatchObject({ ok: false });
+    const teacher = await listInstrumentsTool(ctx({ role: "TEACHER", teacherId: "t1", userId: "u_t" }));
+    expect(teacher.ok).toBe(true);
   });
 });
 

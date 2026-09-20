@@ -38,8 +38,13 @@ export default function TeacherPayouts() {
 
   async function markPaid(payoutId: string) {
     setMarkingId(payoutId);
-    await apiPost(`/api/v1/teachers/payouts/${payoutId}/mark-paid`, {});
+    setError(null);
+    const markRes = await apiPost(`/api/v1/teachers/payouts/${payoutId}/mark-paid`, {});
     setMarkingId(null);
+    if (!markRes.ok) {
+      setError(markRes.error.message || "Hakediş ödenmiş işaretlenemedi.");
+      return;
+    }
     res.refresh();
   }
 
