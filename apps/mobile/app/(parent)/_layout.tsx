@@ -22,8 +22,8 @@ export default function ParentLayout() {
           options={{ title: "Ana Sayfa", tabBarIcon: ({ color }) => <Icon name="home-outline" size={26} color={color} /> }}
         />
         <Tabs.Screen
-          name="dersler"
-          options={{ title: "Dersler", tabBarIcon: ({ color }) => <Icon name="calendar-outline" size={26} color={color} /> }}
+          name="cocugum"
+          options={{ title: "Çocuğum", tabBarIcon: ({ color }) => <Icon name="people-outline" size={26} color={color} /> }}
         />
         <Tabs.Screen
           name="odevler"
@@ -38,12 +38,31 @@ export default function ParentLayout() {
           options={{ title: "Ödemeler", tabBarIcon: ({ color }) => <Icon name="card-outline" size={26} color={color} /> }}
         />
         {/*
+          Program ("dersler") sekmede YOK — ana sayfadaki sıradaki ders /
+          "Bu haftanın dersleri → Tümü"nden ve push deep-link'lerinden açılır.
+          Route korunur (href:null yalnız sekmeyi gizler).
+        */}
+        <Tabs.Screen name="dersler" options={{ href: null }} />
+        {/*
           Hesabım sekmesi kaldırıldı — hesap erişimi sekme köklerindeki üst
           header'da zil ikonunun sağındaki profil ikonundadır. Route korunur.
         */}
         <Tabs.Screen name="hesabim" options={{ href: null }} />
         {/* Sekme çubuğunda gösterilmez (href:null) — "Çocuğum"daki hızlı erişimden açılır. */}
         <Tabs.Screen name="telafiler" options={{ href: null }} />
+        {/* Yoklama özeti "Çocuğum" hızlı erişiminden açılır; sekmede yer almaz. */}
+        <Tabs.Screen name="yoklama" options={{ href: null }} />
+        {/*
+          Sözleşmelerim YALNIZ Hesabım içinden açılır (ana panel/tab/hızlı
+          erişimde kısayol yok). Route korunur.
+        */}
+        <Tabs.Screen name="sozlesmeler" options={{ href: null }} />
+        {/*
+          app/(parent)/degerlendirme.tsx eski/yedek placeholder — gerçek
+          değerlendirme akışı gelisim/degerlendirme altındadır. Sekmede
+          gösterilmez (href:null); dosyaya/domain'e dokunulmadı.
+        */}
+        <Tabs.Screen name="degerlendirme" options={{ href: null }} />
         {/*
           app/(parent)/bildirimler.tsx eski/yedek düz bir route dosyası —
           gerçek bildirimler ekranı paylaşılan kök /notifications (AppHeader

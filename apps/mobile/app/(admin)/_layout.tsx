@@ -35,6 +35,14 @@ export default function AdminLayout() {
           name="hesabim"
           options={{ title: "Hesabım", tabBarIcon: ({ color, size }) => <Icon name="person-circle-outline" size={size} color={color} /> }}
         />
+        {/*
+          Eski/yedek düz route dosyaları (dersler/duyurular/ogretmenler) —
+          gerçek ekranlar program/kisiler/islemler altındadır. Sekme
+          çubuğunda gösterilmez (href:null); dosyalara/domain'e dokunulmadı.
+        */}
+        <Tabs.Screen name="dersler" options={{ href: null }} />
+        <Tabs.Screen name="duyurular" options={{ href: null }} />
+        <Tabs.Screen name="ogretmenler" options={{ href: null }} />
       </Tabs>
     </PersonaGuard>
   );

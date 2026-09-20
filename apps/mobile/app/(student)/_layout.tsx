@@ -22,12 +22,8 @@ export default function StudentLayout() {
           options={{ title: "Ana Sayfa", tabBarIcon: ({ color }) => <Icon name="home-outline" size={26} color={color} /> }}
         />
         <Tabs.Screen
-          name="dersler"
-          options={{ title: "Program", tabBarIcon: ({ color }) => <Icon name="calendar-outline" size={26} color={color} /> }}
-        />
-        <Tabs.Screen
           name="odevler"
-          options={{ title: "Ödevlerim", tabBarIcon: ({ color }) => <Icon name="book-outline" size={26} color={color} /> }}
+          options={{ title: "Ödevler", tabBarIcon: ({ color }) => <Icon name="book-outline" size={26} color={color} /> }}
         />
         <Tabs.Screen
           name="gelisim"
@@ -37,6 +33,17 @@ export default function StudentLayout() {
           name="odemeler"
           options={{ title: "Ödemeler", tabBarIcon: ({ color }) => <Icon name="card-outline" size={26} color={color} /> }}
         />
+        {/*
+          Program ("dersler") sekmede YOK — ana sayfadaki sıradaki ders /
+          "Bu haftanın dersleri → Tümü"nden ve push deep-link'lerinden açılır.
+          Route korunur (href:null yalnız sekmeyi gizler).
+        */}
+        <Tabs.Screen name="dersler" options={{ href: null }} />
+        {/*
+          Sözleşmelerim YALNIZ Hesabım içinden açılır (ana panel/tab/hızlı
+          erişimde kısayol yok). Route korunur.
+        */}
+        <Tabs.Screen name="sozlesmeler" options={{ href: null }} />
         {/*
           Hesabım sekmesi kaldırıldı — hesap erişimi sekme köklerindeki üst
           header'da zil ikonunun sağındaki profil ikonundadır. Route korunur.
