@@ -43,7 +43,13 @@ export function NotificationCard({ notification, onPress }: Props) {
           <Icon name={icon} size={17} color={unread ? t.colors.primary : t.colors.textMuted} />
         </View>
         <View style={styles.content}>
-          <Text style={[t.typography.body, { color: t.colors.text, fontWeight: unread ? "700" : "500" }]} numberOfLines={2}>
+          <Text
+            style={[
+              unread ? t.typography.bodyStrong : t.typography.body,
+              { color: t.colors.text, fontWeight: unread ? "700" : "500" },
+            ]}
+            numberOfLines={2}
+          >
             {notification.title ?? notification.category ?? "Bildirim"}
           </Text>
           {notification.body ? (

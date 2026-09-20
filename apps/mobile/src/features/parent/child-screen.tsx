@@ -141,7 +141,7 @@ function ChildContextBody({
         hitSlop={8}
         style={{ marginTop: 16, alignItems: "center", justifyContent: "center", paddingVertical: 12, minHeight: 48 }}
       >
-        <Text style={[t.typography.caption, { color: t.colors.primary, fontWeight: "700" }]}>Bilgileri yenile</Text>
+        <Text style={[t.typography.caption, { color: t.colors.primary, fontFamily: t.fonts.serifBold, fontWeight: "700" }]}>Bilgileri yenile</Text>
       </Pressable>
     </>
   );

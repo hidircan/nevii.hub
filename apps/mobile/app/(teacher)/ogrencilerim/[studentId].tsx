@@ -295,7 +295,7 @@ export default function StudentDetailScreen() {
                     </View>
                     <View style={{ alignItems: "flex-end", gap: 4 }}>
                       <StatusBadge label={STATUS_LABEL[topic.status]} tone={STATUS_TONE[topic.status]} />
-                      <Text style={[t.typography.caption, { color: t.colors.primary, fontWeight: "700" }]}>%{topic.progressPercent}</Text>
+                      <Text style={[t.typography.caption, { color: t.colors.primary, fontFamily: t.fonts.serifBold, fontWeight: "700" }]}>%{topic.progressPercent}</Text>
                     </View>
                   </View>
                   <View style={{ marginTop: 10 }}>

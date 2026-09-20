@@ -92,7 +92,7 @@ export function StudentScopeLessonsScreen({ basePath }: { basePath: "/(parent)" 
           <Text style={[t.typography.bodyStrong, { color: t.colors.text }]}>{weekLabel}</Text>
           {!isCurrentWeek ? (
             <Pressable accessibilityRole="button" onPress={() => setWeekStart(startOfWeek(now))} hitSlop={6} style={{ marginTop: 4 }}>
-              <Text style={[t.typography.caption, { color: t.colors.primary, fontWeight: "700" }]}>Bu haftaya dön</Text>
+              <Text style={[t.typography.caption, { color: t.colors.primary, fontFamily: t.fonts.serifBold, fontWeight: "700" }]}>Bu haftaya dön</Text>
             </Pressable>
           ) : (
             <Text style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 2 }]}>Bu hafta</Text>

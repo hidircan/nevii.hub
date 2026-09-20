@@ -24,9 +24,9 @@ function ComponentRow({ label, component, detail }: { label: string; component: 
   return (
     <View style={{ marginTop: 14 }}>
       <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-        <Text style={[t.typography.body, { color: t.colors.text, fontWeight: "600" }]}>{label}</Text>
+        <Text style={[t.typography.bodyStrong, { color: t.colors.text }]}>{label}</Text>
         {value ? (
-          <Text style={[t.typography.body, { color: t.colors.text, fontWeight: "700" }]}>{value}</Text>
+          <Text style={[t.typography.bodyStrong, { color: t.colors.text, fontWeight: "700" }]}>{value}</Text>
         ) : (
           <StatusBadge label="Yetersiz veri" tone="neutral" />
         )}

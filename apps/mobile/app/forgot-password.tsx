@@ -56,7 +56,7 @@ export default function ForgotPasswordScreen() {
 
               {sent.devResetToken ? (
                 <View style={[styles.devBox, { backgroundColor: t.colors.warningSoft, borderColor: t.colors.warning }]}>
-                  <Text style={[t.typography.caption, { color: t.colors.warning, fontWeight: "700" }]}>
+                  <Text style={[t.typography.caption, { color: t.colors.warning, fontFamily: t.fonts.serifBold, fontWeight: "700" }]}>
                     Yalnızca geliştirme ortamı
                   </Text>
                   <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 4 }]}>
