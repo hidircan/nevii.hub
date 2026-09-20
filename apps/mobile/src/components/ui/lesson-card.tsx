@@ -1,6 +1,6 @@
 import { StyleSheet, Text, View } from "react-native";
 import { format } from "../../lib/date";
-import { lessonStatusBadge } from "../../lib/lesson-status";
+import { lessonStatusBadge, studentFacingLessonStatus } from "../../lib/lesson-status";
 import { useTheme } from "../../theme/theme-context";
 import { Card } from "./card";
 import { Icon } from "./icon";
@@ -17,11 +17,13 @@ type Props = {
    * görünmez (öğretmen yoklama almaz); yerine şube adı gösterilir.
    */
   showStatus?: boolean;
+  /** Öğrenci/veli yüzeyi — "Yoklama bekliyor" yerine nötr metin. */
+  studentFacing?: boolean;
 };
 
-export function LessonCard({ lesson, personName, onPress, showStatus = true }: Props) {
+export function LessonCard({ lesson, personName, onPress, showStatus = true, studentFacing = false }: Props) {
   const t = useTheme();
-  const badge = lessonStatusBadge(lesson);
+  const badge = studentFacing ? studentFacingLessonStatus(lesson) : lessonStatusBadge(lesson);
   const start = new Date(lesson.startAt);
   const end = new Date(lesson.endAt);
 

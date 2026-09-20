@@ -5,7 +5,7 @@ import { AppHeader, Avatar, Card, EmptyState, ErrorState, Icon, LessonCard, Load
 import { useApiGet } from "../../hooks/use-api";
 import { useSelectedStudentId } from "../../student/student-context";
 import { addDays, format, isSameDay, shortDayMonth, startOfDay, startOfWeek } from "../../lib/date";
-import { lessonStatusBadge } from "../../lib/lesson-status";
+import { studentFacingLessonStatus } from "../../lib/lesson-status";
 import { useTheme } from "../../theme/theme-context";
 import type { AttendanceCalendarMonthResponse, ScheduleResponse, StudentProfile } from "../../types/api";
 
@@ -161,7 +161,7 @@ export function StudentScopeLessonsScreen({ basePath }: { basePath: "/(parent)" 
                 {dayLessons.length > 0 ? (
                   <View style={{ gap: 10 }}>
                     {dayLessons.map((l) => (
-                      <LessonCard key={l.id} lesson={l} personName={l.teacherName ?? "Öğretmen"} onPress={() => router.push(`${basePath}/dersler/${l.id}`)} />
+                      <LessonCard key={l.id} lesson={l} studentFacing personName={l.teacherName ?? "Öğretmen"} onPress={() => router.push(`${basePath}/dersler/${l.id}`)} />
                     ))}
                   </View>
                 ) : (
@@ -222,7 +222,7 @@ export function StudentScopeLessonDetailScreen({ lessonId }: { lessonId: string 
     );
   }
 
-  const badge = lessonStatusBadge(lesson);
+  const badge = studentFacingLessonStatus(lesson);
 
   return (
     <Screen>

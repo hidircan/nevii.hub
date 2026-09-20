@@ -128,7 +128,7 @@ export function StudentScopeHomeScreen({ basePath }: { basePath: "/(parent)" | "
       ) : schedule.status === "error" ? (
         <ErrorState message={schedule.message} onRetry={schedule.refresh} />
       ) : nextLesson ? (
-        <LessonCard lesson={nextLesson} personName={nextLesson.teacherName ?? "Öğretmen"} onPress={() => router.push(`${basePath}/dersler/${nextLesson.id}`)} />
+        <LessonCard lesson={nextLesson} studentFacing personName={nextLesson.teacherName ?? "Öğretmen"} onPress={() => router.push(`${basePath}/dersler/${nextLesson.id}`)} />
       ) : (
         <EmptyState icon="calendar-outline" title="Planlanmış ders yok" />
       )}

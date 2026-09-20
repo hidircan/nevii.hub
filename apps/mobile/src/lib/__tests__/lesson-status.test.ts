@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { lessonStatusBadge } from "../lesson-status";
+import { lessonStatusBadge, studentFacingLessonStatus } from "../lesson-status";
 import type { Lesson } from "../../types/api";
 
 function baseLesson(overrides: Partial<Lesson> = {}): Lesson {
@@ -64,5 +64,29 @@ describe("lessonStatusBadge — öncelik sırası", () => {
   it("in_progress, gelecekteki 'planlandı' varsayılanının önüne geçer", () => {
     const future = baseLesson({ status: "in_progress", startAt: "2099-01-01T09:00:00.000Z", endAt: "2099-01-01T10:00:00.000Z" });
     expect(lessonStatusBadge(future)).toEqual({ label: "Devam ediyor", tone: "info" });
+  });
+});
+
+describe("studentFacingLessonStatus — öğrenci portalında yoklama dili yok", () => {
+  it("'Yoklama bekliyor' nötr 'Henüz sonuçlanmadı' olur", () => {
+    expect(studentFacingLessonStatus(baseLesson())).toEqual({ label: "Henüz sonuçlanmadı", tone: "neutral" });
+  });
+
+  it("diğer tüm statüler aynen geçer", () => {
+    const cases: Array<Partial<Lesson>> = [
+      { status: "cancelled" },
+      { lessonProcessed: true },
+      { studentAttended: true },
+      { opsMakeupFlag: true },
+      { studentExcused: true },
+      { startAt: "2099-01-01T09:00:00.000Z", endAt: "2099-01-01T10:00:00.000Z" },
+    ];
+    for (const c of cases) {
+      expect(studentFacingLessonStatus(baseLesson(c))).toEqual(lessonStatusBadge(baseLesson(c)));
+    }
+  });
+
+  it("öğrenci yüzeyinde 'Yoklama bekliyor' metni üretilmez", () => {
+    expect(studentFacingLessonStatus(baseLesson()).label).not.toMatch(/yoklama/i);
   });
 });

@@ -17,3 +17,14 @@ export function lessonStatusBadge(lesson: Lesson): { label: string; tone: BadgeT
   if (new Date(lesson.endAt).getTime() < Date.now()) return { label: "Yoklama bekliyor", tone: "warning" };
   return { label: "Planlandı", tone: "primary" };
 }
+
+/**
+ * Öğrenci/veli yüzeyi — "Yoklama bekliyor" admin operasyon dilidir, öğrenci
+ * portalında gösterilmez. Gerçek durum aynıdır (yönetici henüz işlemedi):
+ * nötr "Henüz sonuçlanmadı" metni kullanılır. Diğer tüm statüler aynen geçer.
+ */
+export function studentFacingLessonStatus(lesson: Lesson): { label: string; tone: BadgeTone } {
+  const badge = lessonStatusBadge(lesson);
+  if (badge.label === "Yoklama bekliyor") return { label: "Henüz sonuçlanmadı", tone: "neutral" };
+  return badge;
+}
