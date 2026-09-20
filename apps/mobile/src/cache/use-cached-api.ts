@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useRef } from "react";
 import { personaOf, useAuth } from "../auth/auth-context";
 import { useApiGet } from "../hooks/use-api";
 import { useSelectedStudentId } from "../student/student-context";
@@ -8,7 +9,18 @@ import {
   removeCacheEntry,
   writeCacheEntry,
 } from "./cache-store";
-import { cacheClassForPath, type CacheKeyInput } from "./cache-keys";
+import { cacheClassForPath, type CacheClass, type CacheKeyInput } from "./cache-keys";
+import { subscribeToScopes, type RefreshScope } from "./refresh-bus";
+
+const SCOPE_FOR_CLASS: Record<CacheClass, RefreshScope> = {
+  notifications: "notifications",
+  schedule: "schedule",
+  homework: "homework",
+  payments: "payments",
+  makeup: "makeup",
+  attendance: "attendance",
+  reference: "reference",
+};
 
 /**
  * Cache'li GET (Faz 7 — stale-while-revalidate, salt-okunur).
@@ -30,10 +42,12 @@ export function useCachedApiGet<T>(
   const network = useApiGet<T>(path);
 
   const persona = user ? personaOf(user) : null;
+  const cacheClass = cacheClassForPath(path);
   const input: CacheKeyInput | null =
-    user && persona && cacheClassForPath(path)
+    user && persona && cacheClass
       ? { tenantId: user.tenantId, userId: user.userId, persona, studentId, path }
       : null;
+  const scope: RefreshScope | null = cacheClass ? SCOPE_FOR_CLASS[cacheClass] : null;
   const inputKey = input ? `${input.tenantId}::${input.userId}::${input.persona}::${input.studentId ?? "-"}::${input.path}` : "";
 
   const [cached, setCached] = useState<{ data: T; savedAt: string; fresh: boolean } | null>(null);
@@ -65,6 +79,16 @@ export function useCachedApiGet<T>(
     return undefined;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [network, inputKey]);
+
+  // Faz 8: push-tetikli hedefli revalidation. Abonelik effect'te kurulur;
+  // refresh YALNIZ dinleyici geri-çağrısından (olay) çağrılır — effect
+  // gövdesinden senkron setState YOK (react-hooks/set-state-in-effect).
+  const refreshRef = useRef(network.refresh);
+  refreshRef.current = network.refresh;
+  useEffect(() => {
+    if (!scope) return undefined;
+    return subscribeToScopes([scope], () => refreshRef.current());
+  }, [scope]);
 
   // Erişim kaybında stale gösterilmez (kayıt silinir) — memo dışı, render'da türetim.
   const accessLost =

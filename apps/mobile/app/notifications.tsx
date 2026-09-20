@@ -4,6 +4,7 @@ import { apiGet, apiPost } from "../src/api/client";
 import { useAuth, personaOf } from "../src/auth/auth-context";
 import { CacheStatus } from "../src/cache/cache-status";
 import { getProductionBackend, readCacheEntry, writeCacheEntry } from "../src/cache/cache-store";
+import { subscribeToScopes } from "../src/cache/refresh-bus";
 import { AppHeader, EmptyState, ErrorState, LoadingSkeleton, NotificationCard, Screen } from "../src/components/ui";
 import { groupByDay } from "../src/lib/group-by-day";
 import { useTheme } from "../src/theme/theme-context";
@@ -66,6 +67,11 @@ export default function NotificationsScreen() {
   }, [fetchFirstPage]);
 
   useEffect(() => fetchFirstPage(), [fetchFirstPage]);
+
+  // Faz 8: foreground push'ta liste başa tazelenir (sayfalama kaydırdıkça yeniden yüklenir).
+  const fetchRef = useRef(fetchFirstPage);
+  fetchRef.current = fetchFirstPage;
+  useEffect(() => subscribeToScopes(["notifications"], () => fetchRef.current()), []);
 
   async function loadMore() {
     if (state.status !== "success" || !state.nextCursor || fetchingRef.current) return;

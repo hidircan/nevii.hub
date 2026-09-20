@@ -3,6 +3,8 @@ import * as Notifications from "expo-notifications";
 import { useRouter } from "expo-router";
 import { personaOf, useAuth } from "../auth/auth-context";
 import { useChildSelection } from "../student/student-context";
+import { bumpScope } from "../cache/refresh-bus";
+import { scopesForPushKind } from "../cache/invalidate";
 import { registerDeviceForPush } from "./expo-push-deps";
 import { resolvePushDestination, type PushPayload } from "./push-destination";
 
@@ -50,6 +52,17 @@ export function usePushNotifications() {
     });
     return () => sub.remove();
   }, [status, user, router, select]);
+
+  // Faz 8: foreground push → hedefli revalidation (soket YOK; dokunuş
+  // gerekmez — görünür ekranlar ilgili kapsamda tazelenir).
+  useEffect(() => {
+    if (status !== "signedIn" || !user) return;
+    const sub = Notifications.addNotificationReceivedListener((notification) => {
+      const data = (notification.request.content.data ?? {}) as PushPayload;
+      for (const scope of scopesForPushKind(data.kind)) bumpScope(scope);
+    });
+    return () => sub.remove();
+  }, [status, user]);
 
   useEffect(() => {
     if (status !== "signedIn" || !user || !lastResponse) return;

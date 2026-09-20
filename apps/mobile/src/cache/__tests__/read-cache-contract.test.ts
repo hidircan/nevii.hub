@@ -53,9 +53,29 @@ describe("bildirim merkezi ilk-sayfa cache'i", () => {
   });
 });
 
+describe("Faz 8 — push-tetikli revalidation bağlantısı", () => {
+  it("use-cached-api kapsamına abone olur", async () => {
+    const content = await src("cache/use-cached-api.ts");
+    expect(content).toMatch(/subscribeToScopes\(\[scope\]/);
+    expect(content).toMatch(/SCOPE_FOR_CLASS/);
+  });
+
+  it("foreground push kapsamları bump'lar", async () => {
+    const content = await src("push/use-push-notifications.ts");
+    expect(content).toMatch(/addNotificationReceivedListener/);
+    expect(content).toMatch(/scopesForPushKind\(data\.kind\)/);
+    expect(content).toMatch(/bumpScope\(scope\)/);
+  });
+
+  it("bildirim merkezi notifications kapsamına abone olur", async () => {
+    const content = await src("../app/notifications.tsx");
+    expect(content).toMatch(/subscribeToScopes\(\["notifications"\]/);
+  });
+});
+
 describe("yazma kuyruğu yasağı", () => {
   it("cache modülünde apiPost/apiPut/apiPatch/apiDelete geçidi YOK", async () => {
-    for (const f of ["cache/cache-keys.ts", "cache/cache-store.ts", "cache/use-cached-api.ts"]) {
+    for (const f of ["cache/cache-keys.ts", "cache/cache-store.ts", "cache/use-cached-api.ts", "cache/refresh-bus.ts", "cache/invalidate.ts"]) {
       const content = await src(f);
       expect(content, f).not.toMatch(/apiPost|apiPut|apiPatch|apiDelete/);
     }
