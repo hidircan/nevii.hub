@@ -96,6 +96,8 @@ Durum kodları:
 | `veli/degerlendirme/page.tsx` | `(parent)/gelisim/degerlendirme` | ✅ **bu iterasyonda düzeltildi** — paylaşılan `src/features/student-scope/gelisim-screen.tsx` bileşeni artık yalnızca atanmış öğretmeni değil, son 90 günde ders verdiği tüm öğretmenleri (son ders tarihiyle) listeliyor; mevcut `GET /api/v1/students/:id/schedule` (`getStudentScheduleTool`, zaten teacherId/teacherName zenginleştirilmiş dönüyor) üzerinden istemci tarafında türetildi, yeni endpoint gerekmedi. Bileşen `(student)/gelisim/degerlendirme` ile paylaşıldığı için aynı düzeltme öğrenci tarafını da kapsıyor |
 | Telafi hakları görünümü | `(parent)/dersler` içine telafi kartı | 🆕 (liste endpoint'i yoktu, eklendi) |
 | Ödeme özeti/geçmişi | `(parent)/anasayfa` + yeni ekran | 🆕 (`getParentBalanceTool` zaten PARENT'a açıktı, kullanılmıyordu) |
+| Online ödeme (hosted checkout) | `(parent)/odemeler/[paymentId]` + `payment-result` | 🆕 **bu iterasyonda eklendi** — yeni `POST /api/v1/mobile/payments/:paymentId/checkout` (web checkout ile aynı tool/yetki/fail-closed; dönüş URL'leri sunucu-sabit `neviihub://payment-result` deep-link, open-redirect YOK). Kart/CVV uygulamaya girmez (sistem tarayıcısı); sağlayıcı kapalıysa dürüst "henüz aktif değil"; paid yalnız webhook'la |
+| Push bildirimleri (ders hatırlatma 1g/1s/15dk) | Oturum açıkken otomatik kayıt + dokunma → `(parent)/dersler` | 🆕 **bu iterasyonda eklendi** — `expo-notifications`/`expo-device`, Android `lesson-reminders` kanalı, çıkışta token invalidation; veli TÜM aktif çocukları için alır (`sweepLessonReminders` + `lesson-reminder-sweep.test.ts` 6/6) |
 | Çoklu çocuk seçimi | — | ⛔ **veri modelinde yok** — bir veli hesabı JWT'de tek `studentId` taşır, web'de de guardian↔çoklu-öğrenci ilişkisi modellenmemiş; mobil kod zaten tek-id varsayımını genelleştirilebilir tutuyor, ileride model eklenirse ekran değişmeden genişler |
 | İletişim tercihi / KVKK | `(parent)/hesabim/iletisim-tercihi` | ✅ (mevcut `communication-preference` endpoint'i kullanıldı) |
 
@@ -116,6 +118,8 @@ değerlendirebilir, veli edemez).
 | `ogrenci/degerlendirme/page.tsx` | `(student)/gelisim/degerlendirme` | 🆕 |
 | Dönem/tatil-farkında haftalık program mantığı (`resolveDayStatus`, güz/yaz) | `(student)/dersler` + `(parent)/dersler` (paylaşılan `lessons-screen.tsx`) | ✅ **bu iterasyonda tamamlandı** — gün-gün gezinme (önceki/sonraki, "Bugüne dön", 7 günlük şerit, teacher `bugun` ekranıyla aynı `date.ts` yardımcıları) + tam gün durumu: yeni endpoint yazılmadı, zaten var olan `getAttendanceCalendarMonthTool`/`GET /api/v1/attendance-calendar/month` (admin "Yoklama Takvimi" için yazılmış, STUDENT/PARENT için zaten RBAC'lı, `resolveDayStatus`'u manuel istisna>resmî tatil>haftalık kural>açık sırasıyla zaten çalıştırıyordu) yeniden kullanıldı — yalnız bir `withinTerm` alanı eklendi (dönem dışı ay tespiti). Mobil ekran bu ay-bazlı durum uç noktasını, ders içeriği için `getStudentScheduleTool`'la tarihe göre istemci tarafında birleştiriyor (iş mantığı tekrarı yok — sunucu zaten çözümlüyor, istemci yalnızca iki JSON'u tarihle eşliyor). Kapalı gün/resmî tatil/manuel istisna sunucunun `label`'ıyla banner olarak, dönem tatili ay-seviyesinde ayrı bir bilgi çubuğuyla gösteriliyor. RBAC/tenant/JSON-zarf ayrı bir turda doğrulandı (tenant izolasyonu `readData()` ALS üzerinden, sahiplik `assertStudentAccess` her iki tool'da da veri okumadan önce çalışıyor, route girişleri zod ile doğrulanıyor, hatalar hep JSON) — `attendance-calendar-day-status.test.ts`+`attendance-calendar-tools.test.ts`+`attendance-calendar-payment-collection.test.ts` (57/57) |
 | Aktif olmayan öğrenci için güvenli engelli-erişim ekranı | — | ✅ **bu iterasyonda tamamlandı** — paylaşılan `lessons-screen.tsx` (+ilgili detay ekranı) artık FORBIDDEN/NOT_FOUND hata kodunu gerçek backend mesajı yerine düz bir Türkçe mesaja ("hesabınız artık aktif değil, okulunuzla iletişime geçin" tonunda) çeviren `friendlyAccessMessage()` kullanıyor; `useApiGet` artık hata kodunu da (`code`) taşıyor |
+| Online ödeme (hosted checkout) | `(student)/odemeler/[paymentId]` + `payment-result` | 🆕 **bu iterasyonda eklendi** — veli satırındakiyle aynı altyapı; öğrenci SELF erişimiyle kendi ödemesini başlatır |
+| Push bildirimleri (ders hatırlatma) | Oturum açıkken otomatik kayıt + dokunma → `(student)/dersler` | 🆕 **bu iterasyonda eklendi** — veli satırındakiyle aynı altyapı |
 
 ## Bu iterasyonda eklenen endpoint'ler
 
@@ -135,6 +139,11 @@ Yeni eklenenler (bu iterasyonda, mevcut `withApiHandler`/RBAC/tenant/sahiplik de
 `GET /api/v1/rooms`, `GET /api/v1/branches`,
 `GET /api/v1/teachers/:id/payouts`, `POST /api/v1/teachers/:id/payouts`,
 `POST /api/v1/teachers/payouts/:payoutId/mark-paid`.
+
+Push + ödeme turu (bu iterasyon): `POST/DELETE /api/v1/mobile/push-tokens`
+(önceki push turunda), `POST /api/v1/mobile/payments/:paymentId/checkout`
+(web checkout ile aynı tool; dönüş URL'leri sunucu-sabit deep-link).
+RBAC değişikliği YOK (`payments:checkout` STUDENT'ta zaten vardı).
 
 ## Uygulama-geneli düzeltmeler (bu iterasyonda, kullanıcı raporu üzerine)
 
