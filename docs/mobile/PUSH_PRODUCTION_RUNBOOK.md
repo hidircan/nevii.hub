@@ -138,12 +138,25 @@ audit `mobile.push-test` / `notifications.tick`, sunucu logu `push gönderimi �
 
 ## 7. Push UAT (fiziksel cihaz)
 
+Önkoşul: `npm run preflight:push` (preview) / `-- --target=store` hatasız geçmeli.
+
 - [ ] iOS gerçek cihaz: foreground / background / killed → bildirim + dokunma hedefi
 - [ ] Android gerçek cihaz: foreground / background / killed → bildirim + kanal ("Ders hatırlatmaları")
+- [ ] Killed dokunuşu: uygulama kapalıyken bildirime dokun → açılışta doğru hedef (tek işlem, `useLastNotificationResponse`)
 - [ ] SELF öğrenci: 1g / 1s / 15dk tercihleri (açık/kapalı)
 - [ ] Guardian: iki aktif çocuk için ayrı bildirimler
-- [ ] Öğretmen: 1s / 15dk
+- [ ] Guardian çocuk-bağlamı: 2. çocuğun ders bildirimine dokun → o çocuğun programı açılır (yanlış çocuk ASLA)
+- [ ] Öğretmen: 1s / 15dk (1g YOK)
 - [ ] Ders iptali / değişiklik / telafi bildirimi
 - [ ] Guardian erişim iptali sonrası bildirim kesilmesi
 - [ ] Logout → token invalidation (sonrasında bildirim YOK)
 - [ ] Tercih kapalı kategori → gönderim YOK (in-app da yok)
+
+## 8. Triyaj ekleri (Faz 5)
+
+| Belirti | Kontrol |
+|---|---|
+| Killed dokunuşu hedefe gitmiyor | `useLastNotificationResponse` işlendi mi (tek-sefer `handledKilled`); oturum açık mı (signedIn öncesi yoksayılır) |
+| Veli yanlış çocuğun ekranında | Payload `studentId` var mı (sunucu ders hatırlatmalarına ekler); `select()` sunucu listesinde mi (geçersiz ID yoksayılır) |
+| Preflight `app.json projectId` hatası | `extra.eas.projectId` EAS'e bağlı gerçek ID olmalı (`eas init`); Expo Go'da tanımsız olabilir |
+| Preflight `EXPO_PUBLIC_API_URL` uyarısı | Preview build EAS environment'dan alıyorsa normal; store hedefinde public https ZORUNLU |

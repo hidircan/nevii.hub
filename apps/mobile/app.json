@@ -9,7 +9,10 @@
     "icon": "./assets/icon.png",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.neviihub.mobile"
+      "bundleIdentifier": "com.neviihub.mobile",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "com.neviihub.mobile",
@@ -47,7 +50,11 @@
     "extra": {
       "router": {
         "origin": false
+      },
+      "eas": {
+        "projectId": "aa045f7e-3bcb-4d53-ae2e-5210f2a7b835"
       }
-    }
+    },
+    "owner": "nevii-production"
   }
 }
