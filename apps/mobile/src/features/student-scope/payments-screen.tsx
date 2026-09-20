@@ -8,13 +8,15 @@ import { useAppForegroundRefetch } from "../../hooks/use-app-foreground-refetch"
 import { useApiGet } from "../../hooks/use-api";
 import { useSelectedStudentId } from "../../student/student-context";
 import { useFocusRefetch } from "../../hooks/use-focus-refetch";
+import { ledgerStatusBadge } from "../../lib/attendance-display";
 import { formatCurrency, shortDayMonth } from "../../lib/date";
+import { downloadAndOpenFile } from "../../lib/open-file";
 
 function longDate(date: Date): string {
   return `${shortDayMonth(date)} ${date.getFullYear()}`;
 }
 import { useTheme } from "../../theme/theme-context";
-import type { BalanceResponse, Payment, PaymentReceiptResponse } from "../../types/api";
+import type { PaymentLedgerItem, PaymentLedgerMonth, PaymentLedgerResponse, PaymentReceiptResponse } from "../../types/api";
 
 const STATUS_LABEL: Record<string, string> = {
   paid: "Ödendi",
@@ -43,36 +45,54 @@ const MONTHS_TR = [
   "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık",
 ];
 
-function monthKey(dueDate: string): string {
-  return dueDate.slice(0, 7);
-}
-
 function monthTitle(key: string): string {
   const [y, m] = key.split("-");
   const name = MONTHS_TR[(Number(m) - 1) % 12] ?? m;
   return `${name} ${y}`;
 }
 
+/**
+ * Ödemeler — kayıt başından bugüne TÜM aylar (sunucu `months` özetleri +
+ * ders zenginleştirmeli kalemler). Toplamlar İSTEMCİDE HESAPLANMAZ — ay
+ * özetleri ve genel bakiye sunucudan gelir. Ay dökümü CSV olarak
+ * indirilebilir/paylaşılabilir (kimlik doğrulamalı export ucu).
+ */
 export function StudentScopePaymentsScreen({ basePath }: { basePath: "/(parent)" | "/(student)" }) {
   const t = useTheme();
   const router = useRouter();
   const studentId = useSelectedStudentId();
 
-  const res = useApiGet<BalanceResponse>(studentId ? `/api/v1/students/${studentId}/balance` : "");
+  const res = useApiGet<PaymentLedgerResponse>(studentId ? `/api/v1/students/${studentId}/payment-ledger?limit=200` : "");
   useFocusRefetch(res.refresh);
   useAppForegroundRefetch(res.refresh);
 
+  const [exporting, setExporting] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
+
   const groups = useMemo(() => {
     if (res.status !== "success") return [];
-    const map = new Map<string, Payment[]>();
-    for (const p of [...res.data.payments].sort((a, b) => b.dueDate.localeCompare(a.dueDate))) {
-      const key = monthKey(p.dueDate);
-      const list = map.get(key) ?? [];
-      list.push(p);
-      map.set(key, list);
+    const byMonth = new Map<string, PaymentLedgerItem[]>();
+    for (const item of res.data.items) {
+      const key = item.dueDate.slice(0, 7);
+      const list = byMonth.get(key) ?? [];
+      list.push(item);
+      byMonth.set(key, list);
     }
-    return [...map.entries()].sort((a, b) => b[0].localeCompare(a[0]));
+    return res.data.months.map((m) => ({ month: m, items: byMonth.get(m.month) ?? [] }));
   }, [res]);
+
+  async function exportMonth(month: string | null) {
+    if (!studentId || exporting) return;
+    setExporting(month ?? "all");
+    setExportError(null);
+    const query = month ? `?month=${month}` : "";
+    const r = await downloadAndOpenFile(
+      `/api/v1/students/${studentId}/payment-ledger/export${query}`,
+      month ? `odeme-dokumu-${month}.csv` : "odeme-dokumu-tumu.csv"
+    );
+    setExporting(null);
+    if (!r.ok) setExportError(r.message);
+  }
 
   return (
     <Screen onRefresh={res.refresh} refreshing={res.status === "loading"}>
@@ -96,52 +116,36 @@ export function StudentScopePaymentsScreen({ basePath }: { basePath: "/(parent)"
                 {formatCurrency(res.data.outstanding)}
               </Text>
             </View>
+            <Button
+              label={exporting === "all" ? "Hazırlanıyor…" : "Tüm dökümü paylaş"}
+              icon="share-outline"
+              variant="secondary"
+              size="sm"
+              onPress={() => void exportMonth(null)}
+              loading={exporting === "all"}
+              disabled={exporting !== null}
+              style={{ marginTop: 12 }}
+            />
+            {exportError && exporting === null ? (
+              <Text style={[t.typography.caption, { color: t.colors.danger, marginTop: 8 }]}>{exportError}</Text>
+            ) : null}
           </Card>
 
           {groups.length === 0 ? (
             <EmptyState icon="card-outline" title="Henüz ödeme kaydı yok" />
           ) : (
             <View style={{ gap: 16, marginTop: 12 }}>
-              {groups.map(([key, list]) => {
-                // Yalnız backend tutarlarının sunum toplamı — fiyat varsayımı yok.
-                const total = list.reduce((n, p) => n + p.amount, 0);
-                const paid = list.reduce((n, p) => n + p.paidAmount, 0);
-                return (
-                  <View key={key}>
-                    <SectionHeader title={monthTitle(key)} />
-                    <Text style={[t.typography.caption, { color: t.colors.textMuted, marginBottom: 8 }]}>
-                      Tahakkuk: {formatCurrency(total)} · Ödenen: {formatCurrency(paid)}
-                      {total - paid > 0 ? ` · Kalan: ${formatCurrency(total - paid)}` : ""}
-                    </Text>
-                    <View style={{ gap: 10 }}>
-                      {list.map((p) => (
-                        <Card key={p.id} onPress={() => router.push(`${basePath}/odemeler/${p.id}`)}>
-                          <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 8 }}>
-                            <View style={{ flex: 1 }}>
-                              <Text style={[t.typography.bodyStrong, { color: t.colors.text }]} numberOfLines={1}>
-                                {p.description}
-                              </Text>
-                              <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>
-                                {p.status === "partial"
-                                  ? `Ödenen: ${formatCurrency(p.paidAmount)} / ${formatCurrency(p.amount)}`
-                                  : formatCurrency(p.amount)}
-                              </Text>
-                              <Text style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 2 }]}>
-                                {p.status === "paid" ? `Ödeme: ${longDate(new Date(p.paidAt ?? p.dueDate))}` : `Vade: ${longDate(new Date(p.dueDate))}`}
-                                {p.method ? ` · ${p.method}` : ""}
-                              </Text>
-                            </View>
-                            <View style={{ alignItems: "flex-end", gap: 6 }}>
-                              <StatusBadge label={statusLabel(p.status)} tone={statusTone(p.status)} />
-                              {p.receiptAvailable ? <Icon name="receipt-outline" size={16} color={t.colors.textMuted} /> : null}
-                            </View>
-                          </View>
-                        </Card>
-                      ))}
-                    </View>
-                  </View>
-                );
-              })}
+              {groups.map(({ month, items }) => (
+                <MonthGroup
+                  key={month.month}
+                  month={month}
+                  items={items}
+                  exporting={exporting === month.month}
+                  exportDisabled={exporting !== null}
+                  onExport={() => void exportMonth(month.month)}
+                  onOpen={(id) => router.push(`${basePath}/odemeler/${id}`)}
+                />
+              ))}
             </View>
           )}
         </>
@@ -150,26 +154,112 @@ export function StudentScopePaymentsScreen({ basePath }: { basePath: "/(parent)"
   );
 }
 
+function MonthGroup({
+  month,
+  items,
+  exporting,
+  exportDisabled,
+  onExport,
+  onOpen,
+}: {
+  month: PaymentLedgerMonth;
+  items: PaymentLedgerItem[];
+  exporting: boolean;
+  exportDisabled: boolean;
+  onExport: () => void;
+  onOpen: (paymentId: string) => void;
+}) {
+  const t = useTheme();
+  return (
+    <View>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+        <View style={{ flex: 1 }}>
+          <SectionHeader title={monthTitle(month.month)} />
+        </View>
+        <Button
+          label={exporting ? "…" : "Paylaş"}
+          icon="share-outline"
+          variant="secondary"
+          size="sm"
+          fullWidth={false}
+          onPress={onExport}
+          loading={exporting}
+          disabled={exportDisabled}
+        />
+      </View>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 }}>
+        <Text style={[t.typography.caption, { color: t.colors.textMuted, flex: 1 }]} numberOfLines={2}>
+          Tahakkuk: {formatCurrency(month.accrued)} · Ödenen: {formatCurrency(month.paid)}
+          {month.remaining > 0 ? ` · Kalan: ${formatCurrency(month.remaining)}` : ""}
+          {month.earliestUnpaidDueDate ? ` · Vade: ${longDate(new Date(month.earliestUnpaidDueDate))}` : ""}
+        </Text>
+        <StatusBadge label={statusLabel(month.status)} tone={statusTone(month.status)} />
+      </View>
+      <View style={{ gap: 10 }}>
+        {items.map((p) => {
+          const lessonBadge = p.lesson ? ledgerStatusBadge(p.lesson.displayKey) : null;
+          return (
+            <Card key={p.id} onPress={() => onOpen(p.id)}>
+              <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 8 }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={[t.typography.bodyStrong, { color: t.colors.text }]} numberOfLines={1}>
+                    {p.description}
+                  </Text>
+                  <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>
+                    {p.status === "partial"
+                      ? `Ödenen: ${formatCurrency(p.paidAmount)} / ${formatCurrency(p.amount)}`
+                      : formatCurrency(p.amount)}
+                  </Text>
+                  <Text style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 2 }]}>
+                    {p.status === "paid" ? `Ödeme: ${longDate(new Date(p.paidAt ?? p.dueDate))}` : `Vade: ${longDate(new Date(p.dueDate))}`}
+                    {p.method ? ` · ${p.method}` : ""}
+                  </Text>
+                  {p.lesson ? (
+                    <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]} numberOfLines={1}>
+                      {shortDayMonth(new Date(p.lesson.startAt))} · {p.lesson.teacherName ?? "Öğretmen"}
+                      {p.lesson.branchName ? ` · ${p.lesson.branchName}` : ""}
+                      {lessonBadge ? ` · ${lessonBadge.label}` : ""}
+                    </Text>
+                  ) : null}
+                </View>
+                <View style={{ alignItems: "flex-end", gap: 6 }}>
+                  <StatusBadge label={statusLabel(p.status)} tone={statusTone(p.status)} />
+                  {p.receiptAvailable ? <Icon name="receipt-outline" size={16} color={t.colors.textMuted} /> : null}
+                </View>
+              </View>
+            </Card>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
 export function StudentScopePaymentDetailScreen({ paymentId }: { paymentId: string }) {
   const t = useTheme();
   const studentId = useSelectedStudentId();
 
-  const balance = useApiGet<BalanceResponse>(studentId ? `/api/v1/students/${studentId}/balance` : "");
+  const ledger = useApiGet<PaymentLedgerResponse>(studentId ? `/api/v1/students/${studentId}/payment-ledger?limit=200` : "");
   const receipt = useApiGet<PaymentReceiptResponse>(`/api/v1/payments/${paymentId}/receipt`);
   // Tarayıcıdan dönüşte (deep-link/payment-result) bakiye tazelenir.
-  useFocusRefetch(balance.refresh);
-  useAppForegroundRefetch(balance.refresh);
+  useFocusRefetch(ledger.refresh);
+  useAppForegroundRefetch(ledger.refresh);
 
   const [checkout, setCheckout] = useState<{ state: "idle" } | { state: "busy" } | { state: "message"; message: string }>({
     state: "idle",
   });
 
-  const payment: Payment | undefined =
-    balance.status === "success" ? balance.data.payments.find((p) => p.id === paymentId) : undefined;
+  const payment: PaymentLedgerItem | undefined =
+    ledger.status === "success" ? ledger.data.items.find((p) => p.id === paymentId) : undefined;
 
-  const remaining = payment ? payment.amount - payment.paidAmount : 0;
+  const remaining = payment ? payment.remaining : 0;
+  // "Şimdi öde" YALNIZ sağlayıcı gerçekten yapılandırıldıysa (sunucu bayrağı) + tahsil edilebilir durumdaysa.
   const canPayOnline =
-    !!payment && (payment.status === "pending" || payment.status === "partial" || payment.status === "overdue") && remaining > 0;
+    ledger.status === "success" &&
+    ledger.data.onlinePayEnabled &&
+    !!payment &&
+    (payment.status === "pending" || payment.status === "partial" || payment.status === "overdue") &&
+    remaining > 0;
 
   async function onOnlinePay() {
     if (!paymentId || checkout.state === "busy") return;
@@ -182,7 +272,7 @@ export function StudentScopePaymentDetailScreen({ paymentId }: { paymentId: stri
     else setCheckout({ state: "message", message: result.message });
   }
 
-  if (balance.status === "loading") {
+  if (ledger.status === "loading") {
     return (
       <Screen>
         <AppHeader title="Ödeme" showBack showNotifications={false} />
@@ -190,11 +280,11 @@ export function StudentScopePaymentDetailScreen({ paymentId }: { paymentId: stri
       </Screen>
     );
   }
-  if (balance.status === "error") {
+  if (ledger.status === "error") {
     return (
       <Screen>
         <AppHeader title="Ödeme" showBack showNotifications={false} />
-        <ErrorState message={balance.message} onRetry={balance.refresh} />
+        <ErrorState message={ledger.message} onRetry={ledger.refresh} />
       </Screen>
     );
   }
@@ -206,6 +296,8 @@ export function StudentScopePaymentDetailScreen({ paymentId }: { paymentId: stri
       </Screen>
     );
   }
+
+  const lessonBadge = payment.lesson ? ledgerStatusBadge(payment.lesson.displayKey) : null;
 
   return (
     <Screen>
@@ -226,6 +318,12 @@ export function StudentScopePaymentDetailScreen({ paymentId }: { paymentId: stri
             {payment.method ? (
               <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>Yöntem: {payment.method}</Text>
             ) : null}
+            {payment.contract ? (
+              <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]} numberOfLines={2}>
+                {payment.contract.programmeName} · Sözleşme No: {payment.contract.contractNumber}
+                {payment.contract.installmentSequence ? ` · ${payment.contract.installmentSequence}. taksit` : ""}
+              </Text>
+            ) : null}
           </View>
           <StatusBadge label={statusLabel(payment.status)} tone={statusTone(payment.status)} />
         </View>
@@ -234,11 +332,33 @@ export function StudentScopePaymentDetailScreen({ paymentId }: { paymentId: stri
           <Text style={[t.typography.screenTitle, { color: t.colors.text, marginTop: 2 }]}>{formatCurrency(payment.amount)}</Text>
           {payment.status === "partial" ? (
             <Text style={[t.typography.caption, { color: t.colors.warning, marginTop: 4 }]}>
-              Ödenen: {formatCurrency(payment.paidAmount)} · Kalan: {formatCurrency(payment.amount - payment.paidAmount)}
+              Ödenen: {formatCurrency(payment.paidAmount)} · Kalan: {formatCurrency(payment.remaining)}
+            </Text>
+          ) : null}
+          {payment.paymentNote ? (
+            <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 4 }]} numberOfLines={3}>
+              Açıklama: {payment.paymentNote}
             </Text>
           ) : null}
         </View>
       </Card>
+
+      {payment.lesson ? (
+        <Card style={{ marginTop: 12 }}>
+          <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 8, alignItems: "flex-start" }}>
+            <View style={{ flex: 1 }}>
+              <Text style={[t.typography.bodyStrong, { color: t.colors.text }]}>İlgili ders</Text>
+              <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 4 }]} numberOfLines={2}>
+                {shortDayMonth(new Date(payment.lesson.startAt))} · {payment.lesson.teacherName ?? "Öğretmen"}
+                {payment.lesson.branchName ? ` · ${payment.lesson.branchName}` : ""}
+                {payment.lesson.roomName ? ` · ${payment.lesson.roomName}` : ""}
+                {payment.lesson.instrument ? ` · ${payment.lesson.instrument}` : ""}
+              </Text>
+            </View>
+            {lessonBadge ? <StatusBadge label={lessonBadge.label} tone={lessonBadge.tone} /> : null}
+          </View>
+        </Card>
+      ) : null}
 
       {canPayOnline ? (
         <View style={{ marginTop: 12 }}>
