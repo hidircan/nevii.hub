@@ -3,6 +3,7 @@ import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import { AuthProvider } from "../src/auth/auth-context";
+import { StudentProvider } from "../src/student/student-context";
 import { ThemeProvider, useTheme } from "../src/theme/theme-context";
 import { useAppFonts } from "../src/theme/fonts";
 
@@ -44,6 +45,7 @@ function RootStack() {
         <Stack.Screen name="(teacher)" />
         <Stack.Screen name="(parent)" />
         <Stack.Screen name="(student)" />
+        <Stack.Screen name="select-child" />
         <Stack.Screen name="notifications" options={{ presentation: "modal" }} />
         <Stack.Screen name="assessment/[lessonId]" options={{ presentation: "modal" }} />
       </Stack>
@@ -55,7 +57,9 @@ export default function RootLayout() {
   return (
     <ThemeProvider>
       <AuthProvider>
-        <RootStack />
+        <StudentProvider>
+          <RootStack />
+        </StudentProvider>
       </AuthProvider>
     </ThemeProvider>
   );

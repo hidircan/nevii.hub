@@ -22,6 +22,12 @@ export type MobileSession = {
   tenantId: string;
   teacherId?: string;
   studentId?: string;
+  /**
+   * Sunucunun verdiği aktif çocuk listesi (çoklu veli desteği) — bugünkü
+   * backend göndermez (opsiyonel); yoksa tekil `studentId` fallback kullanılır.
+   * Yetki her istekte sunucuda doğrulanır; bu alan yalnız seçim görüntüsü içindir.
+   */
+  children?: Array<{ studentId: string }>;
   /** Yalnız STUDENT: SELF = öğrencinin kendisi, GUARDIAN = veli; aktif erişim yoksa null. */
   portalAccessType: PortalAccessType | null;
 };

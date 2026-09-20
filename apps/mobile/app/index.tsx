@@ -4,6 +4,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { API_BASE_URL } from "../src/api/client";
 import { useAuth } from "../src/auth/auth-context";
 import { UNSUPPORTED_COPY } from "../src/auth/role-to-persona";
+import { useChildSelection } from "../src/student/student-context";
 import { BrandMark, Button, Icon, type IconName } from "../src/components/ui";
 import { useTheme } from "../src/theme/theme-context";
 
@@ -22,9 +23,10 @@ const PERSONA_HOME = {
  */
 export default function Index() {
   const { status, user, error, retry, logout } = useAuth();
+  const selection = useChildSelection();
   const t = useTheme();
 
-  if (status === "loading") {
+  if (status === "loading" || (status === "signedIn" && user && !selection.ready)) {
     return (
       <SafeAreaView style={[styles.flex, { backgroundColor: t.colors.bg }]}>
         <View style={styles.center}>
@@ -64,6 +66,18 @@ export default function Index() {
         secondary={{ label: "Çıkış yap", onPress: logout }}
       />
     );
+  }
+
+  // Guardian çoklu çocuk + seçim yoksa önce picker; SELF ve tek çocuk
+  // doğrudan ana sayfaya gider. Picker listesi yalnız sunucu oturumundan gelir.
+  if (
+    user.resolution.kind === "persona" &&
+    user.resolution.persona === "parent" &&
+    selection.ready &&
+    selection.children.length > 1 &&
+    !selection.selectedId
+  ) {
+    return <Redirect href="/select-child" />;
   }
 
   return <Redirect href={PERSONA_HOME[user.resolution.persona]} />;
