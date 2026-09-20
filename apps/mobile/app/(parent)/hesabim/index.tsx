@@ -19,6 +19,12 @@ export default function ParentHesabim() {
           label: "Bildirim ayarları",
           onPress: () => router.push("/(parent)/hesabim/bildirim-tercihleri"),
         },
+        {
+          key: "e-posta-degistir",
+          icon: "mail-outline",
+          label: "E-posta değiştir",
+          onPress: () => router.push("/(parent)/hesabim/e-posta-degistir"),
+        },
       ]}
     />
   );

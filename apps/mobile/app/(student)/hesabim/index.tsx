@@ -7,6 +7,12 @@ export default function StudentHesabim() {
     <AccountScreen
       links={[
         {
+          key: "e-posta-degistir",
+          icon: "mail-outline",
+          label: "E-posta değiştir",
+          onPress: () => router.push("/(student)/hesabim/e-posta-degistir"),
+        },
+        {
           key: "sifre-degistir",
           icon: "lock-closed-outline",
           label: "Şifre değiştir",

@@ -13,6 +13,7 @@ export default function TeacherHesabim() {
         { key: "hakedis", icon: "cash-outline", label: "Hakedişlerim", onPress: () => router.push("/(teacher)/hesabim/hakedis") },
         { key: "geri-bildirim", icon: "star-outline", label: "Geri bildirim özetim", onPress: () => router.push("/(teacher)/hesabim/geri-bildirim") },
         { key: "bildirim-tercihleri", icon: "notifications-outline", label: "Bildirim ayarları", onPress: () => router.push("/(teacher)/hesabim/bildirim-tercihleri") },
+        { key: "e-posta-degistir", icon: "mail-outline", label: "E-posta değiştir", onPress: () => router.push("/(teacher)/hesabim/e-posta-degistir") },
         { key: "sifre-degistir", icon: "lock-closed-outline", label: "Şifre değiştir", onPress: () => router.push("/(teacher)/hesabim/sifre-degistir") },
       ]}
     />
