@@ -18,6 +18,7 @@ import {
   Screen,
   SectionHeader,
 } from "../../components/ui";
+import { useAppForegroundRefetch } from "../../hooks/use-app-foreground-refetch";
 import { useApiGet } from "../../hooks/use-api";
 import { useNow } from "../../hooks/use-now";
 import { format, formatCurrency, isPast, relativeDayLabel, weekdayName } from "../../lib/date";
@@ -113,6 +114,8 @@ export function StudentScopeHomeScreen({ basePath }: { basePath: "/(parent)" | "
     makeup.refresh();
     balance.refresh();
   }
+  // Web'de admin değişikliği → foreground'a dönüşte yeniden doğrula.
+  useAppForegroundRefetch(refreshAll);
 
   return (
     <Screen onRefresh={refreshAll} refreshing={refreshing}>

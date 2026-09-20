@@ -13,6 +13,7 @@ import {
   Screen,
   SectionHeader,
 } from "../../../src/components/ui";
+import { useAppForegroundRefetch } from "../../../src/hooks/use-app-foreground-refetch";
 import { useApiGet } from "../../../src/hooks/use-api";
 import { useFocusRefetch } from "../../../src/hooks/use-focus-refetch";
 import { addDays, format, isSameDay, shortDayMonth, startOfDay, startOfWeek, weekdayName } from "../../../src/lib/date";
@@ -95,6 +96,7 @@ export default function TeacherBugun() {
     schedule.refresh();
     homework.refresh();
   }
+  useAppForegroundRefetch(refreshAll);
 
   return (
     <Screen onRefresh={refreshAll} refreshing={schedule.status === "loading"}>

@@ -5,6 +5,7 @@ import { useContext, useMemo, useState } from "react";
 import { ScrollView, View } from "react-native";
 import { useAuth } from "../../../src/auth/auth-context";
 import { AppHeader, EmptyState, ErrorState, FilterChip, FloatingActionButton, HomeworkCard, LoadingSkeleton, Screen } from "../../../src/components/ui";
+import { useAppForegroundRefetch } from "../../../src/hooks/use-app-foreground-refetch";
 import { useApiGet } from "../../../src/hooks/use-api";
 import { useFocusRefetch } from "../../../src/hooks/use-focus-refetch";
 import { buildStudentFilterOptions, matchesHomeworkFilter, matchesStudentFilter, type HomeworkFilter } from "../../../src/lib/homework-bucket";
@@ -33,6 +34,7 @@ export default function OdevlerIndex() {
   const res = useApiGet<HomeworkResponse>("/api/v1/homework/mine");
   const studentsRes = useApiGet<TeacherStudentsResponse>(user?.teacherId ? `/api/v1/teachers/${user.teacherId}/students` : "");
   useFocusRefetch(res.refresh);
+  useAppForegroundRefetch(res.refresh);
 
   const students = useMemo(() => {
     if (studentsRes.status !== "success") return [];

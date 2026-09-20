@@ -11,6 +11,7 @@ import {
   Screen,
   SectionHeader,
 } from "../../components/ui";
+import { useAppForegroundRefetch } from "../../hooks/use-app-foreground-refetch";
 import { useApiGet } from "../../hooks/use-api";
 import { useFocusRefetch } from "../../hooks/use-focus-refetch";
 import { useTheme } from "../../theme/theme-context";
@@ -32,6 +33,7 @@ export function ParentAttendanceScreen() {
   const profile = useApiGet<StudentProfile>(studentId ? `/api/v1/students/${studentId}` : "");
   const res = useApiGet<AttendanceSummary>(studentId ? `/api/v1/students/${studentId}/attendance-summary` : "");
   useFocusRefetch(res.refresh);
+  useAppForegroundRefetch(res.refresh);
 
   if (!studentId) {
     return (

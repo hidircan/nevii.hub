@@ -4,6 +4,7 @@ import { Text, View } from "react-native";
 import { apiPost } from "../../api/client";
 import { personaOf, useAuth } from "../../auth/auth-context";
 import { AppHeader, Button, Card, EmptyState, ErrorState, FilterChip, HomeworkCard, LoadingSkeleton, Screen, SectionHeader, TextField } from "../../components/ui";
+import { useAppForegroundRefetch } from "../../hooks/use-app-foreground-refetch";
 import { useApiGet } from "../../hooks/use-api";
 import { useFocusRefetch } from "../../hooks/use-focus-refetch";
 import { useNow } from "../../hooks/use-now";
@@ -21,6 +22,7 @@ export function StudentScopeHomeworkListScreen({ basePath }: { basePath: "/(pare
   const studentId = useSelectedStudentId();
   const res = useApiGet<HomeworkResponse>(studentId ? `/api/v1/students/${studentId}/homework` : "");
   useFocusRefetch(res.refresh);
+  useAppForegroundRefetch(res.refresh);
 
   const filtered = useMemo(() => {
     if (res.status !== "success") return [];

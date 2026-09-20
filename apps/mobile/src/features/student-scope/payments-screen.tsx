@@ -2,6 +2,7 @@ import { useRouter } from "expo-router";
 import { Text, View } from "react-native";
 import { AppHeader, Card, EmptyState, ErrorState, Icon, LoadingSkeleton, Screen, StatusBadge } from "../../components/ui";
 import type { BadgeTone } from "../../components/ui/status-badge";
+import { useAppForegroundRefetch } from "../../hooks/use-app-foreground-refetch";
 import { useApiGet } from "../../hooks/use-api";
 import { useSelectedStudentId } from "../../student/student-context";
 import { useFocusRefetch } from "../../hooks/use-focus-refetch";
@@ -42,6 +43,7 @@ export function StudentScopePaymentsScreen({ basePath }: { basePath: "/(parent)"
 
   const res = useApiGet<BalanceResponse>(studentId ? `/api/v1/students/${studentId}/balance` : "");
   useFocusRefetch(res.refresh);
+  useAppForegroundRefetch(res.refresh);
 
   return (
     <Screen onRefresh={res.refresh} refreshing={res.status === "loading"}>

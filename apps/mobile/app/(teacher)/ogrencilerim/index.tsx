@@ -3,7 +3,9 @@ import { useMemo, useState } from "react";
 import { View } from "react-native";
 import { useAuth } from "../../../src/auth/auth-context";
 import { AppHeader, EmptyState, ErrorState, LoadingSkeleton, Screen, SearchInput, StudentCard } from "../../../src/components/ui";
+import { useAppForegroundRefetch } from "../../../src/hooks/use-app-foreground-refetch";
 import { useApiGet } from "../../../src/hooks/use-api";
+import { useFocusRefetch } from "../../../src/hooks/use-focus-refetch";
 import type { TeacherStudentsResponse } from "../../../src/types/api";
 
 export default function OgrencilerimIndex() {
@@ -12,6 +14,8 @@ export default function OgrencilerimIndex() {
   const [query, setQuery] = useState("");
 
   const res = useApiGet<TeacherStudentsResponse>(user?.teacherId ? `/api/v1/teachers/${user.teacherId}/students` : "");
+  useFocusRefetch(res.refresh);
+  useAppForegroundRefetch(res.refresh);
 
   const filtered = useMemo(() => {
     if (res.status !== "success") return [];
