@@ -7,6 +7,7 @@ import { useAuth, type AppRole, type AuthUser } from "../../auth/auth-context";
 import { AppHeader, Avatar, BottomSheet, Card, ConfirmDialog, Icon, Screen, SectionHeader, type IconName } from "../../components/ui";
 import { useApiGet } from "../../hooks/use-api";
 import { PHOTO_RESIZE_MAX_DIMENSION, PHOTO_JPEG_COMPRESS_QUALITY, buildPhotoUploadRequestBody } from "../../lib/photo-upload";
+import { getLegalLinks } from "../../legal/legal-links";
 import { useTheme, useThemePreference, type ThemePreference } from "../../theme/theme-context";
 import type { ScheduleResponse } from "../../types/api";
 import { resolveDisplayName } from "./display-name";
@@ -75,6 +76,75 @@ const THEME_OPTIONS: Array<{ value: ThemePreference; label: string; icon: IconNa
   { value: "light", label: "Açık", icon: "sunny-outline" },
   { value: "dark", label: "Koyu", icon: "moon-outline" },
 ];
+
+/**
+ * Gizlilik/yasal bölüm — URL'ler yapılandırılmadıysa placeholder link
+ * verilmez; eksiklik metin olarak gösterilir (release blocker). Hesap silme
+ * için sahte "silindi" davranışı YOK: mobil hesap oluşturmayı desteklemez,
+ * silme/anonimleştirme endpoint'i backend'de yok; akış kurum yöneticisi
+ * üzerinden bilgi ekranıdır.
+ */
+function LegalSection() {
+  const t = useTheme();
+  const [deletionInfoOpen, setDeletionInfoOpen] = useState(false);
+  const links = getLegalLinks();
+
+  const rows: Array<{ icon: IconName; label: string; hint: string; onPress?: () => void }> = [
+    {
+      icon: "shield-checkmark-outline",
+      label: "Gizlilik Politikası",
+      hint: links.privacyPolicyUrl ? "Uygulama dışında açılır" : "Yayınlanınca burada görünecek — kurumunuzdan isteyin",
+    },
+    {
+      icon: "document-text-outline",
+      label: "Kullanım Koşulları",
+      hint: links.termsUrl ? "Uygulama dışında açılır" : "Yayınlanınca burada görünecek — kurumunuzdan isteyin",
+    },
+    {
+      icon: "trash-outline",
+      label: "Hesabımı silme talebi",
+      hint: "Kurum yöneticiniz üzerinden",
+      onPress: () => setDeletionInfoOpen(true),
+    },
+  ];
+
+  return (
+    <>
+      <Card>
+        {rows.map((row, i) => (
+          <View key={row.label}>
+            {i > 0 ? <View style={[styles.divider, { backgroundColor: t.colors.divider }]} /> : null}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={row.label}
+              accessibilityHint={row.hint}
+              onPress={row.onPress}
+              disabled={!row.onPress}
+              style={styles.deletionRow}
+            >
+              <View style={styles.optionLeft}>
+                <Icon name={row.icon} size={18} color={t.colors.textMuted} />
+                <View style={{ flex: 1 }}>
+                  <Text style={[t.typography.body, { color: t.colors.text }]}>{row.label}</Text>
+                  <Text style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 1 }]}>{row.hint}</Text>
+                </View>
+              </View>
+              {row.onPress ? <Icon name="chevron-forward" size={16} color={t.colors.textFaint} /> : null}
+            </Pressable>
+          </View>
+        ))}
+      </Card>
+      <ConfirmDialog
+        visible={deletionInfoOpen}
+        title="Hesap silme nasıl işler?"
+        message="Mobil hesaplar kurumunuz tarafından oluşturulur; uygulama içinden tek dokunuşla silme yoktur. Silme talebinizi kurum yöneticinize iletin — talebiniz onay gerektirir, geri alınamaz ve yasal zorunlulukla tutulması gereken sınırlı kayıtlar hariç verileriniz silinir ya da anonimleştirilir."
+        confirmLabel="Anladım"
+        onConfirm={() => setDeletionInfoOpen(false)}
+        onCancel={() => setDeletionInfoOpen(false)}
+      />
+    </>
+  );
+}
 
 /**
  * Yönetici/Öğretmen/Veli/Öğrenci hesabım ekranlarının ortak içeriği. `links`
@@ -299,6 +369,8 @@ export function AccountScreen({ links, ownAccountPhotoOnly }: { links?: AccountQ
         ))}
       </Card>
 
+      <SectionHeader title="Gizlilik ve veri" />
+      <LegalSection />
       <SectionHeader title="Hesap" />
       <Card onPress={() => setConfirmingLogout(true)}>
         <View style={styles.optionRow}>
@@ -345,4 +417,5 @@ const styles = StyleSheet.create({
   optionLeft: { flexDirection: "row", alignItems: "center", gap: 10 },
   /** 48pt dokunma hedefi — bkz. iPhone SE dahil erişilebilirlik gereksinimi. */
   sheetOptionRow: { flexDirection: "row", alignItems: "center", minHeight: 48 },
+  deletionRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", minHeight: 48 },
 });
