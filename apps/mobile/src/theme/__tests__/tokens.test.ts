@@ -65,6 +65,21 @@ describe("tek tema sözleşmesi — lightTheme/darkTheme", () => {
     expect((mod as Record<string, unknown>).colorsDark).toBeUndefined();
   });
 
+  it("tipografi ölçeği — gövde en az 15pt, display en az 30pt (okunabilirlik tabanı)", async () => {
+    const mod = await import("../tokens");
+    expect(mod.lightTheme.typography.body.fontSize).toBeGreaterThanOrEqual(15);
+    expect(mod.lightTheme.typography.display.fontSize).toBeGreaterThanOrEqual(30);
+    expect(mod.darkTheme.typography.body.fontSize).toBeGreaterThanOrEqual(15);
+  });
+
+  it("tema varsayılanı AÇIK — sistem koyu modda bile ilk görünüm light (statik denetim)", async () => {
+    const fs = await import("node:fs/promises");
+    const path = await import("node:path");
+    const content = await fs.readFile(path.join(__dirname, "..", "theme-context.tsx"), "utf-8");
+    expect(content).toMatch(/useState<ThemePreference>\("light"\)/);
+    expect(content).not.toMatch(/useState<ThemePreference>\("system"\)/);
+  });
+
   it("font sözleşmesi — display (Gloock) yalnız başlıklarda, gövde sistem sans'ı", async () => {
     const mod = await import("../tokens");
     expect(typeof mod.fonts.display).toBe("string");
