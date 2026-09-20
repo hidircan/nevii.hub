@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { cookies, headers } from "next/headers";
 import { verifyAccessToken, verifyRefreshToken, issueTokenPair } from "./jwt";
 import { getUserById, tenantAllowsLogin } from "./users";
@@ -116,12 +117,29 @@ export async function getSessionContext(): Promise<ServiceContext | null> {
   }
 }
 
-export async function requireSessionContext(): Promise<ServiceContext> {
+/**
+ * PERFORMANS (2026-09-20) — İSTEK BAŞINA TEK OTURUM ÇÖZÜMLEMESİ.
+ *
+ * Her çağrı JWT doğrulaması + `resolveEffectiveRole` (kurum yönetici preset
+ * okuması) + presence güncellemesi yapıyordu. Bir panel sayfası bunu en az
+ * iki kez çağırıyor (layout + sayfa), yazdırma sayfaları üç kez
+ * (`generateMetadata` + gövde). React 19 `cache()` bunu istek başına TEKE
+ * indirir.
+ *
+ * YAN FAYDA (gerçek bir hata kapanıyor): access token süresi dolmuşsa
+ * `getSessionContext` sessizce refresh edip YENİ token çifti üretiyor. Aynı
+ * istekte iki çağrı = iki `issueTokenPair` + iki cookie yazımı (yarış).
+ * Memoize edilince yenileme istek başına bir kez olur.
+ *
+ * Oturum bir isteğin ORTASINDA değişmez (giriş/çıkış cookie yazıp yönlendirir
+ * → yeni istek), bu yüzden bayat veri riski yoktur.
+ */
+export const requireSessionContext = cache(async function requireSessionContext(): Promise<ServiceContext> {
   const ctx = await getSessionContext();
   if (!ctx) {
     throw new Error("UNAUTHENTICATED");
   }
   return ctx;
-}
+});
 
 export { homePathForRole, notificationSettingsPathForRole, notificationListPathForRole } from "./role-routes";
