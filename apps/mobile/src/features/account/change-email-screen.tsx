@@ -33,7 +33,6 @@ export function ChangeEmailScreen() {
   const [error, setError] = useState<string | null>(null);
   const [sentTo, setSentTo] = useState<string | null>(null);
 
-  const emailValid = newEmail.trim().length === 0 || isEmailLike(newEmail);
   const canSubmit =
     isEmailLike(newEmail) &&
     newEmail.trim().toLowerCase() !== (user?.email ?? "").trim().toLowerCase() &&

@@ -32,56 +32,37 @@ const StudentContext = createContext<StudentContextValue>({
 
 export function StudentProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
-  const [selected, setSelected] = useState<string | null>(null);
-  const [ready, setReady] = useState(false);
-  const [userKey, setUserKey] = useState<string | null>(null);
+  // Persist tercihler oturum parmak izine bağlı tutulur — oturum değişince
+  // (logout/expired-token/revoke) eski parmak izli değerler görmezden gelinir,
+  // eski öğrencinin verisi ASLA görünmez.
+  const [stored, setStored] = useState<{ fp: string; value: string | null } | null>(null);
+  const [override, setOverride] = useState<{ fp: string; value: string } | null>(null);
 
   const childIds = useMemo(() => availableChildIds(user), [user]);
   const fingerprint = useMemo(
     () => (user ? `${user.userId}:${user.portalAccessType ?? ""}:${childIds.join(",")}` : ""),
     [user, childIds]
   );
+  const needsPersist = !!user && user.portalAccessType === "GUARDIAN" && childIds.length > 1;
 
-  // Oturum değişti → state sıfırlanır (logout/expired-token/revoke sonrası
-  // eski öğrencinin verisi ASLA görünmez), persist tercih listeye karşı doğrulanır.
+  // Effect yalnız asenkron persist okuması yapar (abonelik deseni); seçim
+  // render sırasında TÜRETİLİR — effect gövdesinde senkron setState yok.
   useEffect(() => {
+    if (!needsPersist || !user) return undefined;
     let cancelled = false;
-    setReady(false);
-    setSelected(null);
-    setUserKey(user?.userId ?? null);
-    if (!user || childIds.length === 0) {
-      setReady(true);
-      return undefined;
-    }
-    if (user.portalAccessType !== "GUARDIAN") {
-      // SELF öğrenci (+ öğretmen dışı tüm tekil bağlamlar): doğrudan kendi kaydı.
-      if (!cancelled) {
-        setSelected(childIds[0] ?? null);
-        setReady(true);
-      }
-      return undefined;
-    }
-    if (childIds.length === 1) {
-      if (!cancelled) {
-        setSelected(childIds[0] ?? null);
-        setReady(true);
-      }
-      return undefined;
-    }
-    void SecureStore.getItemAsync(selectedKey(user.userId)).then((stored) => {
+    void SecureStore.getItemAsync(selectedKey(user.userId)).then((value) => {
       if (cancelled) return;
-      setSelected(validatePersistedSelection(childIds, stored));
-      setReady(true);
+      setStored({ fp: `${user.userId}:${user.portalAccessType ?? ""}:${childIds.join(",")}`, value });
     });
     return () => {
       cancelled = true;
     };
-  }, [fingerprint]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [needsPersist, user, childIds]);
 
   const select = useCallback(
     async (studentId: string): Promise<boolean> => {
       if (!user || !childIds.includes(studentId)) return false;
-      setSelected(studentId);
+      setOverride({ fp: fingerprint, value: studentId });
       try {
         await SecureStore.setItemAsync(selectedKey(user.userId), studentId);
       } catch {
@@ -89,25 +70,33 @@ export function StudentProvider({ children }: { children: ReactNode }) {
       }
       return true;
     },
-    [user, childIds]
+    [user, childIds, fingerprint]
   );
 
-  const value = useMemo<StudentContextValue>(
-    () => ({
-      children: childIds,
-      selectedId: selected,
-      ready,
-      isMulti: childIds.length > 1,
-      select,
-    }),
-    [childIds, selected, ready, select]
-  );
+  const value = useMemo<StudentContextValue>(() => {
+    if (!user || childIds.length === 0) return { children: childIds, selectedId: null, ready: true, isMulti: false, select };
+    if (!needsPersist) {
+      // SELF öğrenci ve tek çocuklu veli: doğrudan tek kayıt, seçim beklenmez.
+      return { children: childIds, selectedId: childIds[0] ?? null, ready: true, isMulti: false, select };
+    }
+    if (override?.fp === fingerprint) {
+      return { children: childIds, selectedId: override.value, ready: true, isMulti: true, select };
+    }
+    if (stored?.fp === fingerprint) {
+      // Persist tercih listeye karşı doğrulanır — erişimden çıkarılan çocuk
+      // geçersiz sayılır, picker'a dönülür.
+      return {
+        children: childIds,
+        selectedId: validatePersistedSelection(childIds, stored.value),
+        ready: true,
+        isMulti: true,
+        select,
+      };
+    }
+    return { children: childIds, selectedId: null, ready: false, isMulti: true, select };
+  }, [user, childIds, needsPersist, fingerprint, stored, override, select]);
 
-  return (
-    <StudentContext.Provider value={value} key={userKey ?? "signed-out"}>
-      {children}
-    </StudentContext.Provider>
-  );
+  return <StudentContext.Provider value={value}>{children}</StudentContext.Provider>;
 }
 
 function useStudentContext(): StudentContextValue {
