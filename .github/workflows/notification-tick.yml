@@ -1,0 +1,36 @@
+name: notification-tick
+
+# Per-offset ders hatırlatma taraması (1g/1s/15dk) + bekleyen ödeme/izin
+# süpürmeleri. POST /api/v1/notifications/tick — Bearer NOTIFICATION_CRON_SECRET.
+# Gerekli repository secrets: APP_BASE_URL (örn. https://app.neviihub.com),
+# NOTIFICATION_CRON_SECRET (sunucudakiyle AYNI değer).
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Trigger notification sweep
+        env:
+          APP_BASE_URL: ${{ secrets.APP_BASE_URL }}
+          NOTIFICATION_CRON_SECRET: ${{ secrets.NOTIFICATION_CRON_SECRET }}
+        run: |
+          if [ -z "$APP_BASE_URL" ] || [ -z "$NOTIFICATION_CRON_SECRET" ]; then
+            echo "APP_BASE_URL veya NOTIFICATION_CRON_SECRET secret'ı eksik." >&2
+            exit 1
+          fi
+          code=$(curl -sS -o /tmp/tick.json -w "%{http_code}" --max-time 120 \
+            -X POST "$APP_BASE_URL/api/v1/notifications/tick" \
+            -H "Authorization: Bearer $NOTIFICATION_CRON_SECRET" \
+            -H "Content-Type: application/json")
+          cat /tmp/tick.json
+          echo
+          if [ "$code" != "200" ]; then
+            echo "tick başarısız: HTTP $code" >&2
+            exit 1
+          fi

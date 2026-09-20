@@ -1,3 +1,4 @@
+import Constants from "expo-constants";
 import * as Device from "expo-device";
 import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
@@ -27,11 +28,24 @@ function permissionOf(status: Notifications.PermissionStatus): "granted" | "deni
   return "undetermined";
 }
 
+/**
+ * EAS projectId — development/preview/production build'lerde push token için
+ * ZORUNLU (`eas init` yazar, app.json `extra.eas.projectId`). Expo Go'da
+ * tanımsız olabilir (o zaman argümansız çağrı denenir).
+ */
+function easProjectId(): string | undefined {
+  const id = (Constants.expoConfig?.extra as { eas?: { projectId?: string } } | undefined)?.eas?.projectId;
+  return typeof id === "string" && id.length > 0 ? id : undefined;
+}
+
 const realDeps: PushDeps = {
   isDevice: () => Device.isDevice,
   getPermission: async () => permissionOf((await Notifications.getPermissionsAsync()).status),
   requestPermission: async () => permissionOf((await Notifications.requestPermissionsAsync()).status),
-  getExpoPushToken: async () => (await Notifications.getExpoPushTokenAsync()).data,
+  getExpoPushToken: async () => {
+    const projectId = easProjectId();
+    return (await Notifications.getExpoPushTokenAsync(projectId ? { projectId } : undefined)).data;
+  },
   ensureAndroidChannel,
   appVariant: resolveAppVariant,
   deviceId: async () => null,

@@ -78,6 +78,24 @@ async function getAllDb(tenantId: string, userId: string): Promise<StoredPrefere
 }
 
 /** Tek bir kategori için etkili in-app tercihini döner — olay üreticileri (notifyAdmins vb.) bunu kullanır. */
+
+/** Tek bir kategori için etkili push tercihini döner — push gönderici bunu kullanır (kayıt yoksa false). */
+export async function isPushEnabledForUser(
+  tenantId: string,
+  userId: string,
+  category: NotificationCategory
+): Promise<boolean> {
+  if (isDbMode) {
+    const { prisma } = await import("./db");
+    const row = await prisma.notificationPreference.findUnique({
+      where: { tenantId_userId_category: { tenantId, userId, category } },
+    });
+    return row?.pushEnabled ?? false;
+  }
+  const all = await loadAll();
+  const row = all.find((r) => r.tenantId === tenantId && r.userId === userId && r.category === category);
+  return row?.pushEnabled ?? false;
+}
 export async function isCategoryEnabledForUser(
   tenantId: string,
   userId: string,

@@ -19,7 +19,7 @@ export type MobilePolicyDecision = {
   maintenance: { active: boolean; message: string };
   minVersion: { ios: string; android: string };
   updateRequired: boolean;
-  push: { policy: "disabled" | "allowed"; providerConfigured: false; active: false; note: string };
+  push: { policy: "disabled" | "allowed"; providerConfigured: boolean; active: boolean; note: string };
   contractVersion: 1;
   /** Tur 3 (additive): kurum config sürümü — istemci önbelleğini bununla tazeler (bkz. /api/v1/config/snapshot). */
   configVersion: number;
@@ -70,6 +70,10 @@ export async function getMobilePolicy(
     opts?.platform && opts.appVersion && /^\d+\.\d+\.\d+$/.test(opts.appVersion) && compareSemver(opts.appVersion, minVersion[opts.platform]) < 0
   );
   const message = String(v("mobile.maintenanceMessage") ?? "");
+  // Push gerçek durumu — secret değer ASLA yanıta girmez, yalnız boole bayraklar.
+  const { isPushActive } = await import("../push/config");
+  const providerConfigured = !!process.env.EXPO_PUSH_ACCESS_TOKEN;
+  const pushActive = isPushActive();
   return ok({
     allowed: reasons.length === 0,
     reasons,
@@ -79,9 +83,11 @@ export async function getMobilePolicy(
     updateRequired,
     push: {
       policy: v("mobile.pushPolicy") === "allowed" ? "allowed" : "disabled",
-      providerConfigured: false,
-      active: false,
-      note: "Push sağlayıcısı (APNs/FCM) bağlı değil; bildirim gönderilmez.",
+      providerConfigured,
+      active: pushActive,
+      note: pushActive
+        ? "Push gönderimi etkin (Expo Push Service)."
+        : "Push gönderimi kapalı; bildirim gönderilmez (PUSH_ENABLED + EXPO_PUSH_ACCESS_TOKEN gerekli).",
     },
     contractVersion: 1,
     configVersion,

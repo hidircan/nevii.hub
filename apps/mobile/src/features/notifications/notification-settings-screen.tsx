@@ -1,8 +1,8 @@
 import { useMemo, useState } from "react";
 import { Pressable, Text, View } from "react-native";
-import { apiPatch } from "../../api/client";
+import { apiPatch, apiPost } from "../../api/client";
 import { useAuth } from "../../auth/auth-context";
-import { AppHeader, Card, ErrorState, Icon, LoadingSkeleton, Screen } from "../../components/ui";
+import { AppHeader, Button, Card, ErrorState, Icon, LoadingSkeleton, Screen, SectionHeader } from "../../components/ui";
 import { useApiGet } from "../../hooks/use-api";
 import { useTheme } from "../../theme/theme-context";
 
@@ -118,6 +118,57 @@ export function NotificationSettingsScreen() {
           ))}
         </Card>
       )}
+      {__DEV__ ? <DevPushTestSection /> : null}
     </Screen>
+  );
+}
+
+/**
+ * Development-build'e özel test bildirimi — production build'de RENDER
+ * EDİLMEZ (`__DEV__` kapısı). Sunucu da production'da 404 döner (çift kapı).
+ */
+function DevPushTestSection() {
+  const t = useTheme();
+  const [state, setState] = useState<"idle" | "busy" | "sent" | "error">("idle");
+  const [message, setMessage] = useState<string | null>(null);
+
+  async function send() {
+    if (state === "busy") return;
+    setState("busy");
+    setMessage(null);
+    const res = await apiPost<{ sent: number }>("/api/v1/mobile/push-test", {});
+    if (res.ok) {
+      setState("sent");
+      setMessage(`Test bildirimi gönderildi (${res.data.sent} cihaz).`);
+    } else {
+      setState("error");
+      setMessage(res.error.message);
+    }
+  }
+
+  return (
+    <View>
+      <SectionHeader title="Geliştirici" />
+      <Card>
+        <Text style={[t.typography.bodyStrong, { color: t.colors.text }]}>Test bildirimi gönder</Text>
+        <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 4 }]}>
+          Yalnız bu cihaza (kendi oturumuna) tek bildirim gönderir.
+        </Text>
+        <Button
+          label="Gönder"
+          icon="notifications-outline"
+          variant="secondary"
+          onPress={() => void send()}
+          loading={state === "busy"}
+          disabled={state === "busy"}
+          style={{ marginTop: 12 }}
+        />
+        {message ? (
+          <Text style={[t.typography.caption, { color: state === "sent" ? t.colors.success : t.colors.danger, marginTop: 8 }]}>
+            {message}
+          </Text>
+        ) : null}
+      </Card>
+    </View>
   );
 }

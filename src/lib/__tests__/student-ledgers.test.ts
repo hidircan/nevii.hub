@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 
 /**
  * Öğrenci ledger route'ları (attendance/makeup/payment + export) — gerçek
@@ -188,13 +188,12 @@ describe("POST mobile/push-test", () => {
   });
 
   it("production'da rota gizli (404, auth öncesi)", async () => {
-    const prev = process.env.NODE_ENV;
-    process.env.NODE_ENV = "production";
+    vi.stubEnv("NODE_ENV", "production");
     try {
       const res = await pushTestRoute.POST(new Request("http://localhost/x", { method: "POST" }));
       expect(res.status).toBe(404);
     } finally {
-      process.env.NODE_ENV = prev;
+      vi.unstubAllEnvs();
     }
   });
 });
