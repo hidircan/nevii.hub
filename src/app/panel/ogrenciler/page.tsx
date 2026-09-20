@@ -8,6 +8,7 @@ import { getInstitutionContext, readScopedData } from "@/lib/institution/context
 import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { computeAllStudentAttendanceRisks } from "@/lib/insights/attendance-risk";
 import { effectiveStudentTypes } from "@/lib/student-types";
+import { listContractSummariesByStudent, type StudentContractSummary } from "@/lib/contracts";
 import { AiInsightTrigger } from "@/components/ai/ai-insight-trigger";
 import { AssistantPageContext } from "@/components/ai/assistant-page-context";
 
@@ -32,7 +33,20 @@ export default async function OgrencilerPage() {
     .filter((r) => r.student)
     .sort((a, b) => (a.riskLevel === b.riskLevel ? 0 : a.riskLevel === "high" ? -1 : 1));
 
+  /**
+   * D — Sözleşme filtreleri için tenant'ın tüm sözleşme ÖZETLERİ TEK sorguda
+   * (öğrenci başına okuma YOK; 500 öğrencide 500 sorgu olmaz).
+   * Merged "tüm kurumlar" görünümünde sözleşme okuması tek tenant'a bağlı
+   * olduğu için atlanır — filtre orada "sözleşmesi yok" göstermek yerine
+   * hiç çalışmaz (aşağıda boş map).
+   */
+  const contractSummaries =
+    kurum.scope.mode === "single"
+      ? await listContractSummariesByStudent(kurum.scope.tenantId)
+      : new Map<string, StudentContractSummary>();
+
   const rows: StudentRow[] = students.map((s) => {
+    const contract = contractSummaries.get(s.id);
     const studentPayments = data.payments.filter((p) => p.studentId === s.id);
     const paymentStatus: StudentRow["paymentStatus"] =
       studentPayments.length === 0
@@ -60,6 +74,11 @@ export default async function OgrencilerPage() {
       targetExam: s.targetExam,
       educationMethod: s.educationMethod,
       paymentStatus,
+      contractNumber: contract?.contractNumber,
+      contractStartDate: contract?.enrollmentStartDate,
+      contractEndDate: contract?.enrollmentEndDate,
+      contractStatus: contract?.status,
+      createdAt: s.createdAt,
     };
   });
 

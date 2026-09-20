@@ -29,7 +29,9 @@ export type StudentColumnKey =
   | "level"
   | "method"
   | "payment"
-  | "monthlyFee";
+  | "monthlyFee"
+  /** D — güncel sözleşmenin durumu + bitiş tarihi (2026-09-20). */
+  | "contract";
 
 export const STUDENT_COLUMN_LABELS: Record<StudentColumnKey, string> = {
   branch: "Şube",
@@ -41,6 +43,7 @@ export const STUDENT_COLUMN_LABELS: Record<StudentColumnKey, string> = {
   method: "Eğitim metodu",
   payment: "Ödeme durumu",
   monthlyFee: "Aylık ücret",
+  contract: "Sözleşme",
 };
 
 export const DEFAULT_STUDENT_COLUMNS: StudentColumnKey[] = ["branch", "type", "instruments", "teacher", "package"];
@@ -54,6 +57,7 @@ const ALL_STUDENT_COLUMNS: StudentColumnKey[] = [
   "method",
   "payment",
   "monthlyFee",
+  "contract",
 ];
 
 function storageKey(tenantId: string, userId: string) {

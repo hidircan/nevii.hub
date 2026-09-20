@@ -33,7 +33,84 @@ export type StudentRow = {
   educationMethod?: string;
   /** Öğrencinin en güncel/aciliyeti en yüksek ödeme durumu — tek etiket. */
   paymentStatus: "paid" | "overdue" | "partial" | "pending" | "none";
+  /**
+   * D — Sözleşme filtreleri (2026-09-20). Öğrencinin GÜNCEL sözleşmesinin
+   * özeti; `getLatestContractForStudent` ile AYNI "güncel" tanımından gelir
+   * (bkz. listContractSummariesByStudent). Sözleşmesi hiç yoksa hepsi boş.
+   */
+  contractNumber?: string;
+  contractStartDate?: string;
+  contractEndDate?: string;
+  contractStatus?: string;
+  /** Kayıt (öğrencinin sisteme eklendiği) zamanı — "oluşturulma tarihine göre" sıralama için. */
+  createdAt?: string;
 };
+
+/**
+ * Sözleşme durumu — OPERASYONEL kategoriler (ham sözleşme statüsü değil).
+ * Yöneticinin ekranda sorduğu soru "bu öğrencinin sözleşmesi tamam mı,
+ * bitiyor mu, bitti mi?" — bu yüzden filtre bu dile göre kurulur.
+ */
+export type ContractFilterKey = "none" | "active" | "expiring" | "expired" | "cancelled";
+
+export const CONTRACT_FILTER_KEYS: ContractFilterKey[] = ["active", "expiring", "expired", "none", "cancelled"];
+
+export const CONTRACT_FILTER_LABELS: Record<ContractFilterKey, string> = {
+  none: "Sözleşmesi yok",
+  active: "Aktif sözleşmeli",
+  expiring: "Yakında bitecek (30 gün)",
+  expired: "Süresi geçmiş",
+  cancelled: "İptal/yenilenmiş",
+};
+
+/** Bir öğrencinin sözleşme durumunu tek kategoriye indirger. `today` yyyy-MM-dd. */
+export function resolveContractFilterKey(row: StudentRow, today: string): ContractFilterKey {
+  if (!row.contractNumber || !row.contractEndDate) return "none";
+  if (row.contractStatus === "cancelled" || row.contractStatus === "superseded") return "cancelled";
+  if (row.contractEndDate < today) return "expired";
+  // 30 gün içinde bitiyorsa "yakında bitecek" — yenileme aksiyonu gerektirir.
+  const limit = new Date(`${today}T00:00:00Z`);
+  limit.setUTCDate(limit.getUTCDate() + 30);
+  return row.contractEndDate <= limit.toISOString().slice(0, 10) ? "expiring" : "active";
+}
+
+export const SORT_OPTIONS = [
+  { key: "name_asc", label: "İsim (A → Z)" },
+  { key: "name_desc", label: "İsim (Z → A)" },
+  { key: "created_desc", label: "Kayıt tarihi (yeniden eskiye)" },
+  { key: "created_asc", label: "Kayıt tarihi (eskiden yeniye)" },
+  { key: "contract_end_asc", label: "Sözleşme bitişi (en yakın önce)" },
+  { key: "contract_start_desc", label: "Sözleşme başlangıcı (en yeni önce)" },
+  { key: "fee_desc", label: "Aylık ücret (yüksekten düşüğe)" },
+  { key: "fee_asc", label: "Aylık ücret (düşükten yükseğe)" },
+] as const;
+
+export type SortKey = (typeof SORT_OPTIONS)[number]["key"];
+
+/** Türkçe alfabetik sıralama — `localeCompare(..., "tr")` İ/ı/ş/ğ sırasını doğru verir. */
+export function compareStudents(a: StudentRow, b: StudentRow, sort: SortKey): number {
+  switch (sort) {
+    case "name_asc":
+      return a.name.localeCompare(b.name, "tr");
+    case "name_desc":
+      return b.name.localeCompare(a.name, "tr");
+    case "created_desc":
+      return (b.createdAt ?? "").localeCompare(a.createdAt ?? "");
+    case "created_asc":
+      return (a.createdAt ?? "").localeCompare(b.createdAt ?? "");
+    case "contract_end_asc":
+      // Sözleşmesi olmayanlar en sona — "en yakın biten" listesi boşlarla dolmasın.
+      return (a.contractEndDate ?? "9999").localeCompare(b.contractEndDate ?? "9999");
+    case "contract_start_desc":
+      return (b.contractStartDate ?? "").localeCompare(a.contractStartDate ?? "");
+    case "fee_desc":
+      return b.monthlyFee - a.monthlyFee;
+    case "fee_asc":
+      return a.monthlyFee - b.monthlyFee;
+    default:
+      return 0;
+  }
+}
 
 type StatusFilter = "active" | "inactive" | "all";
 
@@ -50,7 +127,7 @@ const PAYMENT_VALUES: StudentRow["paymentStatus"][] = ["paid", "overdue", "parti
 type FilterGroup = {
   key: string;
   label: string;
-  type: "multi" | "status" | "dateRange";
+  type: "multi" | "status" | "dateRange" | "contractStartRange" | "contractEndRange";
   options?: string[];
 };
 
@@ -147,6 +224,16 @@ export function StudentsTable({
   const paymentFilter = searchParams.getAll("payment");
   const enrolledFrom = searchParams.get("from") ?? "";
   const enrolledTo = searchParams.get("to") ?? "";
+  // D — sözleşme filtreleri
+  const contractFilter = searchParams.getAll("contract") as ContractFilterKey[];
+  const contractStartFrom = searchParams.get("csFrom") ?? "";
+  const contractStartTo = searchParams.get("csTo") ?? "";
+  const contractEndFrom = searchParams.get("ceFrom") ?? "";
+  const contractEndTo = searchParams.get("ceTo") ?? "";
+  // I — sıralama
+  const sort = (searchParams.get("sort") as SortKey | null) ?? "name_asc";
+  /** Sözleşme kategorileri "bugüne" göre çözülür; render başına tek kez hesaplanır. */
+  const today = new Date().toISOString().slice(0, 10);
 
   function updateParams(mutate: (params: URLSearchParams) => void) {
     const params = new URLSearchParams(searchParams.toString());
@@ -218,6 +305,9 @@ export function StudentsTable({
     { key: "level", label: "MEB/LCM seviye", type: "multi", options: levelOptions },
     { key: "payment", label: "Ödeme durumu", type: "multi", options: PAYMENT_VALUES.map((v) => PAYMENT_LABELS[v]) },
     { key: "enrollment", label: "Kayıt tarihi", type: "dateRange" },
+    { key: "contract", label: "Sözleşme durumu", type: "multi", options: CONTRACT_FILTER_KEYS.map((k) => CONTRACT_FILTER_LABELS[k]) },
+    { key: "contractStart", label: "Sözleşme başlangıcı", type: "contractStartRange" },
+    { key: "contractEnd", label: "Sözleşme bitişi", type: "contractEndRange" },
   ];
 
   function selectedFor(key: string): string[] {
@@ -228,6 +318,7 @@ export function StudentsTable({
     if (key === "package") return packageFilter;
     if (key === "level") return levelFilter;
     if (key === "payment") return paymentFilter.map((p) => PAYMENT_LABELS[p as StudentRow["paymentStatus"]] ?? p);
+    if (key === "contract") return contractFilter.map((c) => CONTRACT_FILTER_LABELS[c] ?? c);
     return [];
   }
 
@@ -236,6 +327,14 @@ export function StudentsTable({
     if (group.type === "dateRange") {
       if (!enrolledFrom && !enrolledTo) return "Tümü";
       return `${enrolledFrom || "…"} – ${enrolledTo || "…"}`;
+    }
+    if (group.type === "contractStartRange") {
+      if (!contractStartFrom && !contractStartTo) return "Tümü";
+      return `${contractStartFrom || "…"} – ${contractStartTo || "…"}`;
+    }
+    if (group.type === "contractEndRange") {
+      if (!contractEndFrom && !contractEndTo) return "Tümü";
+      return `${contractEndFrom || "…"} – ${contractEndTo || "…"}`;
     }
     const selected = selectedFor(group.key);
     if (selected.length === 0) return "Tümü";
@@ -247,6 +346,11 @@ export function StudentsTable({
     if (group.key === "payment") {
       const paymentValue = PAYMENT_VALUES.find((v) => PAYMENT_LABELS[v] === option) ?? option;
       toggleMulti("payment", paymentValue, paymentFilter);
+      return;
+    }
+    if (group.key === "contract") {
+      const contractValue = CONTRACT_FILTER_KEYS.find((v) => CONTRACT_FILTER_LABELS[v] === option) ?? option;
+      toggleMulti("contract", contractValue, contractFilter);
       return;
     }
     toggleMulti(group.key, option, selectedFor(group.key));
@@ -261,7 +365,10 @@ export function StudentsTable({
     (packageFilter.length ? 1 : 0) +
     (levelFilter.length ? 1 : 0) +
     (paymentFilter.length ? 1 : 0) +
-    (enrolledFrom || enrolledTo ? 1 : 0);
+    (enrolledFrom || enrolledTo ? 1 : 0) +
+    (contractFilter.length ? 1 : 0) +
+    (contractStartFrom || contractStartTo ? 1 : 0) +
+    (contractEndFrom || contractEndTo ? 1 : 0);
 
   const filterQuery = search.trim().toLowerCase();
   const filtered = rows.filter((row) => {
@@ -277,11 +384,22 @@ export function StudentsTable({
     if (paymentFilter.length && !paymentFilter.includes(row.paymentStatus)) return false;
     if (enrolledFrom && (!row.enrollmentStartDate || row.enrollmentStartDate < enrolledFrom)) return false;
     if (enrolledTo && (!row.enrollmentStartDate || row.enrollmentStartDate > enrolledTo)) return false;
+    if (contractFilter.length && !contractFilter.includes(resolveContractFilterKey(row, today))) return false;
+    if (contractStartFrom && (!row.contractStartDate || row.contractStartDate < contractStartFrom)) return false;
+    if (contractStartTo && (!row.contractStartDate || row.contractStartDate > contractStartTo)) return false;
+    if (contractEndFrom && (!row.contractEndDate || row.contractEndDate < contractEndFrom)) return false;
+    if (contractEndTo && (!row.contractEndDate || row.contractEndDate > contractEndTo)) return false;
     return true;
   });
+  // React Compiler zaten memoize ediyor; elle useMemo, `filtered`'ın her
+  // render'da yeniden üretilmesi nedeniyle korunamıyor (lint uyarısı).
+  const sorted = [...filtered].sort((a, b) => compareStudents(a, b, sort));
 
   const anyFilterActive = Boolean(search) || activeGroupCount > 0;
-  const { pageItems, page, setPage, pageSize, setPageSize, totalPages, totalCount } = usePagination(filtered, 10);
+  // H — sayfa başına 10/20/50/100; seçim URL'de saklanır (yenileme/geri-ileri korur).
+  const { pageItems, page, setPage, pageSize, setPageSize, totalPages, totalCount } = usePagination(sorted, 10, {
+    urlParam: "per",
+  });
 
   // Aktif filtreler için kaldırılabilir chip listesi.
   type Chip = { key: string; value: string; label: string; onRemove: () => void };
@@ -305,6 +423,40 @@ export function StudentsTable({
         onRemove: () => removeOne(def.key, value, def.values),
       }))
     ),
+    ...contractFilter.map((value) => ({
+      key: "contract",
+      value,
+      label: `Sözleşme: ${CONTRACT_FILTER_LABELS[value] ?? value}`,
+      onRemove: () => removeOne("contract", value, contractFilter),
+    })),
+    ...(contractStartFrom || contractStartTo
+      ? [
+          {
+            key: "contractStart",
+            value: "range",
+            label: `Sözleşme başlangıcı: ${contractStartFrom || "…"} – ${contractStartTo || "…"}`,
+            onRemove: () =>
+              updateParams((params) => {
+                params.delete("csFrom");
+                params.delete("csTo");
+              }),
+          },
+        ]
+      : []),
+    ...(contractEndFrom || contractEndTo
+      ? [
+          {
+            key: "contractEnd",
+            value: "range",
+            label: `Sözleşme bitişi: ${contractEndFrom || "…"} – ${contractEndTo || "…"}`,
+            onRemove: () =>
+              updateParams((params) => {
+                params.delete("ceFrom");
+                params.delete("ceTo");
+              }),
+          },
+        ]
+      : []),
     ...paymentFilter.map((value) => ({
       key: "payment",
       value,
@@ -403,27 +555,42 @@ export function StudentsTable({
                           </li>
                         ))}
                       </ul>
-                    ) : openGroupDef.type === "dateRange" ? (
-                      <div className="space-y-2 p-3">
-                        <label className="block text-xs text-[var(--color-text-muted)]">
-                          Başlangıç
-                          <input
-                            type="date"
-                            value={enrolledFrom}
-                            onChange={(e) => setSingle("from", e.target.value)}
-                            className="mt-1 w-full rounded-[var(--radius-md)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 py-1.5 text-sm text-[var(--color-text)]"
-                          />
-                        </label>
-                        <label className="block text-xs text-[var(--color-text-muted)]">
-                          Bitiş
-                          <input
-                            type="date"
-                            value={enrolledTo}
-                            onChange={(e) => setSingle("to", e.target.value)}
-                            className="mt-1 w-full rounded-[var(--radius-md)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 py-1.5 text-sm text-[var(--color-text)]"
-                          />
-                        </label>
-                      </div>
+                    ) : openGroupDef.type === "dateRange" ||
+                      openGroupDef.type === "contractStartRange" ||
+                      openGroupDef.type === "contractEndRange" ? (
+                      (() => {
+                        // Üç tarih aralığı aynı UI'ı paylaşır; yalnız hangi
+                        // parametreyi yazdıkları ve Türkçe açıklamaları farklı.
+                        const range =
+                          openGroupDef.type === "dateRange"
+                            ? { fromKey: "from", toKey: "to", from: enrolledFrom, to: enrolledTo, hint: "Öğrencinin kuruma kayıt tarihi." }
+                            : openGroupDef.type === "contractStartRange"
+                              ? { fromKey: "csFrom", toKey: "csTo", from: contractStartFrom, to: contractStartTo, hint: "Güncel sözleşmenin başlangıç tarihi bu aralıkta olan öğrenciler." }
+                              : { fromKey: "ceFrom", toKey: "ceTo", from: contractEndFrom, to: contractEndTo, hint: "Güncel sözleşmenin bitiş tarihi bu aralıkta olan öğrenciler." };
+                        return (
+                          <div className="space-y-2 p-3">
+                            <p className="text-[11px] text-[var(--color-text-muted)]">{range.hint}</p>
+                            <label className="block text-xs text-[var(--color-text-muted)]">
+                              Şu tarihten sonra
+                              <input
+                                type="date"
+                                value={range.from}
+                                onChange={(e) => setSingle(range.fromKey, e.target.value)}
+                                className="mt-1 w-full rounded-[var(--radius-md)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 py-1.5 text-sm text-[var(--color-text)]"
+                              />
+                            </label>
+                            <label className="block text-xs text-[var(--color-text-muted)]">
+                              Şu tarihten önce
+                              <input
+                                type="date"
+                                value={range.to}
+                                onChange={(e) => setSingle(range.toKey, e.target.value)}
+                                className="mt-1 w-full rounded-[var(--radius-md)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 py-1.5 text-sm text-[var(--color-text)]"
+                              />
+                            </label>
+                          </div>
+                        );
+                      })()
                     ) : (
                       <div>
                         {(openGroupDef.options?.length ?? 0) > 6 ? (
@@ -508,6 +675,19 @@ export function StudentsTable({
             ) : null}
           </div>
 
+          <select
+            value={sort}
+            onChange={(e) => setSingle("sort", e.target.value === "name_asc" ? "" : e.target.value)}
+            aria-label="Sıralama"
+            className="rounded-[var(--radius-md)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text)]"
+          >
+            {SORT_OPTIONS.map((opt) => (
+              <option key={opt.key} value={opt.key}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+
           {canManage ? (
             <StudentColumnViewManager
               tenantId={tenantId ?? "default"}
@@ -553,6 +733,33 @@ export function StudentsTable({
               Filtreleri Temizle
             </button>
           ) : null}
+        </div>
+
+        {/* D — operasyonel hızlı filtreler: en sık sorulan dört soru tek tıkla. */}
+        <div className="mt-3 flex flex-wrap items-center gap-1.5">
+          <span className="text-[11px] font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
+            Sözleşme
+          </span>
+          {CONTRACT_FILTER_KEYS.map((key) => {
+            const active = contractFilter.includes(key);
+            const count = rows.filter((r) => resolveContractFilterKey(r, today) === key).length;
+            return (
+              <button
+                key={key}
+                type="button"
+                aria-pressed={active}
+                onClick={() => toggleMulti("contract", key, contractFilter)}
+                className={`rounded-full border px-2.5 py-1 text-xs font-medium transition ${
+                  active
+                    ? "border-[var(--color-primary)] bg-[var(--color-primary-soft)] text-[var(--color-primary-soft-text)]"
+                    : "border-[var(--color-border-strong)] bg-[var(--color-surface)] text-[var(--color-text-muted)] hover:border-[var(--color-primary)]"
+                }`}
+              >
+                {CONTRACT_FILTER_LABELS[key]}
+                <span className="ml-1 opacity-70">{count}</span>
+              </button>
+            );
+          })}
         </div>
 
         <p className="mt-3 text-xs font-medium text-[var(--color-text-muted)]">
@@ -623,6 +830,30 @@ export function StudentsTable({
                         <span className="text-[var(--color-text-muted)]">{PAYMENT_LABELS[s.paymentStatus]}</span>
                       ) : key === "monthlyFee" ? (
                         <span className="text-[var(--color-text-muted)]">{s.monthlyFee.toLocaleString("tr-TR")} ₺</span>
+                      ) : key === "contract" ? (
+                        (() => {
+                          const state = resolveContractFilterKey(s, today);
+                          const tone =
+                            state === "active"
+                              ? { background: "var(--color-success-soft)", color: "var(--color-success)" }
+                              : state === "expiring"
+                                ? { background: "var(--color-warning-soft)", color: "var(--color-warning)" }
+                                : state === "expired" || state === "none"
+                                  ? { background: "var(--color-danger-soft)", color: "var(--color-danger)" }
+                                  : { background: "var(--color-surface-muted)", color: "var(--color-text-muted)" };
+                          return (
+                            <span className="block">
+                              <span className="inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold" style={tone}>
+                                {CONTRACT_FILTER_LABELS[state]}
+                              </span>
+                              {s.contractEndDate ? (
+                                <span className="mt-1 block text-[11px] text-[var(--color-text-muted)]">
+                                  Bitiş: {s.contractEndDate.split("-").reverse().join(".")}
+                                </span>
+                              ) : null}
+                            </span>
+                          );
+                        })()
                       ) : null}
                     </td>
                   ))}

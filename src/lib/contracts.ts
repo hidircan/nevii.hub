@@ -1237,6 +1237,91 @@ export async function listContractsForStudent(tenantId: string, studentId: strin
     .map(toPublic);
 }
 
+/**
+ * D — Öğrenciler ekranı sözleşme filtreleri için, tenant'ın TÜM öğrencilerinin
+ * sözleşme ÖZETİ (tek sorgu; öğrenci başına ayrı okuma YOK).
+ *
+ * Yalnız filtre için gereken en küçük alan kümesi döner — tam
+ * `contractDataSnapshot` (büyük JSON) OKUNMAZ, böylece 500+ öğrencili bir
+ * kurumda liste ekranı ağırlaşmaz.
+ */
+export type StudentContractSummary = {
+  studentId: string;
+  contractId: string;
+  contractNumber: string;
+  status: ContractStatus;
+  enrollmentStartDate: string;
+  enrollmentEndDate: string;
+  versionNumber: number;
+};
+
+export async function listContractSummariesByStudent(
+  tenantId: string
+): Promise<Map<string, StudentContractSummary>> {
+  let rows: StudentContractSummary[];
+  if (isDbMode) {
+    const { prisma } = await import("./db");
+    const found = await prisma.studentContract.findMany({
+      where: { tenantId },
+      select: {
+        id: true,
+        studentId: true,
+        contractNumber: true,
+        status: true,
+        enrollmentStartDate: true,
+        enrollmentEndDate: true,
+        versionNumber: true,
+      },
+      orderBy: { versionNumber: "desc" },
+    });
+    rows = found.map((r) => ({
+      studentId: r.studentId,
+      contractId: r.id,
+      contractNumber: r.contractNumber,
+      status: r.status as ContractStatus,
+      enrollmentStartDate: r.enrollmentStartDate.toISOString().slice(0, 10),
+      enrollmentEndDate: r.enrollmentEndDate.toISOString().slice(0, 10),
+      versionNumber: r.versionNumber,
+    }));
+  } else {
+    const all = await loadAll();
+    rows = all
+      .filter((x) => x.tenantId === tenantId)
+      .sort((a, b) => b.versionNumber - a.versionNumber)
+      .map((x) => ({
+        studentId: x.studentId,
+        contractId: x.id,
+        contractNumber: x.contractNumber,
+        status: x.status,
+        enrollmentStartDate: x.enrollmentStartDate.slice(0, 10),
+        enrollmentEndDate: x.enrollmentEndDate.slice(0, 10),
+        versionNumber: x.versionNumber,
+      }));
+  }
+
+  /**
+   * Öğrenci başına TEK özet: `getLatestContractForStudent` ile AYNI kural —
+   * önce iptal/yenilenmiş olmayanların en yüksek versiyonu, hiç yoksa
+   * en yüksek versiyonlu kayıt. İki farklı "güncel sözleşme" tanımı
+   * bırakmamak için kural burada da birebir tekrarlanır, gevşetilmez.
+   */
+  const byStudent = new Map<string, StudentContractSummary>();
+  for (const row of rows) {
+    const current = byStudent.get(row.studentId);
+    if (!current) {
+      byStudent.set(row.studentId, row);
+      continue;
+    }
+    const rowActive = row.status !== "cancelled" && row.status !== "superseded";
+    const currentActive = current.status !== "cancelled" && current.status !== "superseded";
+    if (rowActive && !currentActive) byStudent.set(row.studentId, row);
+    else if (rowActive === currentActive && row.versionNumber > current.versionNumber) {
+      byStudent.set(row.studentId, row);
+    }
+  }
+  return byStudent;
+}
+
 /** "Güncel/aktif" sözleşme — cancelled/superseded HARİÇ en yüksek versiyon. */
 export async function getLatestContractForStudent(tenantId: string, studentId: string): Promise<StudentContract | null> {
   const all = await listContractsForStudent(tenantId, studentId);
