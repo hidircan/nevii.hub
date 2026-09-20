@@ -66,6 +66,9 @@ export async function POST(request: Request) {
       outcome: "success",
       meta: {
         upcomingCreated: summary.upcoming.created,
+        remindersCreated: summary.reminders.created,
+        remindersDuplicate: summary.reminders.duplicate,
+        remindersPushSent: summary.reminders.pushSent,
         paymentPending: summary.paymentPending,
         leavePending: summary.leavePending,
       },

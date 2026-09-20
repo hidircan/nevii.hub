@@ -3,13 +3,14 @@ import { listTenants, readData } from "./store";
 import { runWithTenantAsync } from "./tenant-context";
 import { notifyAdmins } from "./manager-notifications";
 import { listLeave } from "./leave";
-import { sweepUpcomingLessons } from "./lesson-notifications";
+import { sweepLessonReminders, sweepUpcomingLessons } from "./lesson-notifications";
 import { formatMoney } from "./utils";
 
 const PENDING_DAYS = 7;
 
 export type NotificationSweepSummary = {
   upcoming: Awaited<ReturnType<typeof sweepUpcomingLessons>>;
+  reminders: Awaited<ReturnType<typeof sweepLessonReminders>>;
   paymentPending: number;
   leavePending: number;
 };
@@ -69,7 +70,9 @@ export async function sweepLeavePendingApproval(): Promise<number> {
 
 export async function runNotificationSweeps(now = new Date()): Promise<NotificationSweepSummary> {
   const upcoming = await sweepUpcomingLessons(now);
+  // Per-offset hatırlatmalar (1g/1s/15dk): in-app + push, idempotent.
+  const reminders = await sweepLessonReminders(now);
   const paymentPending = await sweepPaymentFailedOrPending(now);
   const leavePending = await sweepLeavePendingApproval();
-  return { upcoming, paymentPending, leavePending };
+  return { upcoming, reminders, paymentPending, leavePending };
 }
