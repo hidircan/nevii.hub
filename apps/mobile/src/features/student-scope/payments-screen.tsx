@@ -1,7 +1,8 @@
 import { useRouter } from "expo-router";
-import { useMemo } from "react";
-import { Text, View } from "react-native";
-import { AppHeader, Card, EmptyState, ErrorState, Icon, LoadingSkeleton, Screen, SectionHeader, StatusBadge } from "../../components/ui";
+import { useMemo, useState } from "react";
+import { Linking, Text, View } from "react-native";
+import { AppHeader, Button, Card, EmptyState, ErrorState, Icon, LoadingSkeleton, Screen, SectionHeader, StatusBadge } from "../../components/ui";
+import { startOnlineCheckout } from "../../payments/mobile-checkout";
 import type { BadgeTone } from "../../components/ui/status-badge";
 import { useAppForegroundRefetch } from "../../hooks/use-app-foreground-refetch";
 import { useApiGet } from "../../hooks/use-api";
@@ -155,9 +156,31 @@ export function StudentScopePaymentDetailScreen({ paymentId }: { paymentId: stri
 
   const balance = useApiGet<BalanceResponse>(studentId ? `/api/v1/students/${studentId}/balance` : "");
   const receipt = useApiGet<PaymentReceiptResponse>(`/api/v1/payments/${paymentId}/receipt`);
+  // Tarayıcıdan dönüşte (deep-link/payment-result) bakiye tazelenir.
+  useFocusRefetch(balance.refresh);
+  useAppForegroundRefetch(balance.refresh);
+
+  const [checkout, setCheckout] = useState<{ state: "idle" } | { state: "busy" } | { state: "message"; message: string }>({
+    state: "idle",
+  });
 
   const payment: Payment | undefined =
     balance.status === "success" ? balance.data.payments.find((p) => p.id === paymentId) : undefined;
+
+  const remaining = payment ? payment.amount - payment.paidAmount : 0;
+  const canPayOnline =
+    !!payment && (payment.status === "pending" || payment.status === "partial" || payment.status === "overdue") && remaining > 0;
+
+  async function onOnlinePay() {
+    if (!paymentId || checkout.state === "busy") return;
+    setCheckout({ state: "busy" });
+    const result = await startOnlineCheckout(paymentId, {
+      canOpen: (url) => Linking.canOpenURL(url),
+      open: (url) => Linking.openURL(url),
+    });
+    if (result.status === "ready") setCheckout({ state: "idle" });
+    else setCheckout({ state: "message", message: result.message });
+  }
 
   if (balance.status === "loading") {
     return (
@@ -216,6 +239,24 @@ export function StudentScopePaymentDetailScreen({ paymentId }: { paymentId: stri
           ) : null}
         </View>
       </Card>
+
+      {canPayOnline ? (
+        <View style={{ marginTop: 12 }}>
+          <Button
+            label="Online öde"
+            icon="card-outline"
+            onPress={() => void onOnlinePay()}
+            loading={checkout.state === "busy"}
+          />
+          {checkout.state === "message" ? (
+            <Text style={[t.typography.caption, { color: t.colors.warning, marginTop: 8 }]}>{checkout.message}</Text>
+          ) : (
+            <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 8 }]}>
+              Ödeme, sağlayıcının güvenli sayfasında tamamlanır; kart bilginiz uygulamaya girmez.
+            </Text>
+          )}
+        </View>
+      ) : null}
 
       {receipt.status === "success" && receipt.data.eligible && receipt.data.receipt ? (
         <>

@@ -357,7 +357,8 @@ export type PaymentReceipt = {
   method?: string;
 };
 export type PaymentReceiptResponse = { eligible: boolean; ineligibleReason?: string; receipt?: PaymentReceipt };
-export type PaymentCheckoutResponse = { configured: false } | { configured: true; session: unknown };
+/** POST /api/v1/mobile/payments/:id/checkout — başarıda hosted checkout URL'i; sağlayıcı kapalıysa 409 CONFLICT. */
+export type PaymentCheckoutResponse = { checkoutUrl: string };
 
 export type RoomSummary = { id: string; name: string; branchId: string; capacity: number; instruments: string[]; active: boolean };
 export type RoomsResponse = { rooms: RoomSummary[] };
