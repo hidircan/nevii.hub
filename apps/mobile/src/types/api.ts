@@ -309,6 +309,42 @@ export type Payment = {
 };
 export type BalanceResponse = { studentId: string; payments: Payment[]; outstanding: number };
 
+export type StudentContractSummary = {
+  id: string;
+  studentId: string;
+  contractNumber: string;
+  versionNumber: number;
+  contractType: "initial" | "renewal" | "amendment";
+  status: string;
+  programmeName: string;
+  enrollmentStartDate: string;
+  enrollmentEndDate: string;
+  durationMonths: number;
+  monthlyAmount: number;
+  installmentCount: number;
+  totalContractAmount: number;
+  documentInstanceId?: string;
+  signedAt?: string;
+  createdAt: string;
+};
+export type StudentContractsResponse = { studentId: string; contracts: StudentContractSummary[] };
+
+export type ContractInstallment = {
+  paymentId: string;
+  sequence: number;
+  dueDate: string;
+  amount: number;
+  paidAmount: number;
+  status: string;
+  paidAt?: string;
+  paymentMethod?: string;
+  periodLabel?: string;
+};
+export type StudentContractDetailResponse = {
+  contract: StudentContractSummary & { signatoryFullName: string; depositAmount?: number; paymentMethod?: string };
+  installments: ContractInstallment[];
+};
+
 export type PaymentReceipt = {
   reference: string;
   institutionName: string;

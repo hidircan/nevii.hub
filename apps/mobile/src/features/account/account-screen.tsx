@@ -1,15 +1,17 @@
 import * as ImagePicker from "expo-image-picker";
 import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
+import { useRouter } from "expo-router";
 import { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { apiDelete, apiPost } from "../../api/client";
 import { useAuth, type AppRole, type AuthUser } from "../../auth/auth-context";
+import { useChildSelection } from "../../student/student-context";
 import { AppHeader, Avatar, BottomSheet, Card, ConfirmDialog, Icon, Screen, SectionHeader, type IconName } from "../../components/ui";
 import { useApiGet } from "../../hooks/use-api";
 import { PHOTO_RESIZE_MAX_DIMENSION, PHOTO_JPEG_COMPRESS_QUALITY, buildPhotoUploadRequestBody } from "../../lib/photo-upload";
 import { getLegalLinks } from "../../legal/legal-links";
 import { useTheme, useThemePreference, type ThemePreference } from "../../theme/theme-context";
-import type { ScheduleResponse } from "../../types/api";
+import type { ScheduleResponse, StudentProfile } from "../../types/api";
 import { resolveDisplayName } from "./display-name";
 
 type PhotoOwner = { ownerType: "student" | "teacher" | "user"; ownerId: string };
@@ -151,9 +153,19 @@ function LegalSection() {
  * ile role özel kısayollar eklenebilir. `ownAccountPhotoOnly` veli (parent)
  * hesabım ekranından geçilir — bkz. resolvePhotoOwner yorumu.
  */
-export function AccountScreen({ links, ownAccountPhotoOnly }: { links?: AccountQuickLink[]; ownAccountPhotoOnly?: boolean } = {}) {
+export function AccountScreen(
+  { links, ownAccountPhotoOnly, showChildContext }: { links?: AccountQuickLink[]; ownAccountPhotoOnly?: boolean; showChildContext?: boolean } = {}
+) {
   const t = useTheme();
   const { user, logout } = useAuth();
+  const router = useRouter();
+  // Seçili öğrenci bağlam bandı — veli/öğrenci Hesabım hangi çocuğun
+  // müfredat/materyal/sözleşmesine bakıldığını açıkça gösterir. Hook'lar
+  // koşulsuz çağrılır; gösterim `showChildContext` ile sınırlıdır.
+  const selection = useChildSelection();
+  const contextProfile = useApiGet<StudentProfile>(
+    showChildContext && selection.selectedId ? `/api/v1/students/${selection.selectedId}` : ""
+  );
   const { preference, setPreference } = useThemePreference();
   const [confirmingLogout, setConfirmingLogout] = useState(false);
   const [photoVersion, setPhotoVersion] = useState(0);
@@ -322,6 +334,35 @@ export function AccountScreen({ links, ownAccountPhotoOnly }: { links?: AccountQ
             </Pressable>
           </View>
         </BottomSheet>
+      ) : null}
+
+      {showChildContext ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={
+            contextProfile.status === "success"
+              ? `Takip edilen öğrenci: ${contextProfile.data.name}. Değiştirmek için dokunun.`
+              : "Takip edilen öğrenci yükleniyor"
+          }
+          accessibilityHint={selection.isMulti ? "Öğrenci seçme ekranını açar" : undefined}
+          disabled={!selection.isMulti || !selection.ready}
+          onPress={() => router.push("/select-child")}
+          style={({ pressed }) => [
+            styles.deletionRow,
+            { backgroundColor: t.colors.bgRaised, borderColor: t.colors.border, borderWidth: StyleSheet.hairlineWidth, borderRadius: 14, paddingHorizontal: 12, marginBottom: 4, opacity: pressed ? 0.7 : 1 },
+          ]}
+        >
+          <View style={styles.optionLeft}>
+            <Icon name="people-outline" size={18} color={t.colors.primary} />
+            <View style={{ flex: 1 }}>
+              <Text style={[t.typography.label, { color: t.colors.textFaint }]}>TAKİP EDİLEN ÖĞRENCİ</Text>
+              <Text style={[t.typography.bodyStrong, { color: t.colors.text, marginTop: 1 }]} numberOfLines={1}>
+                {contextProfile.status === "success" ? contextProfile.data.name : "Yükleniyor…"}
+              </Text>
+            </View>
+          </View>
+          {selection.isMulti ? <Icon name="swap-horizontal-outline" size={18} color={t.colors.textFaint} /> : null}
+        </Pressable>
       ) : null}
 
       {links && links.length > 0 ? (
