@@ -10,7 +10,7 @@ export default function TeacherLayout() {
       <Tabs
         screenOptions={{
           headerShown: false,
-          tabBarActiveTintColor: "#090906",
+          tabBarActiveTintColor: t.colors.primary,
           tabBarInactiveTintColor: t.colors.textMuted,
           tabBarStyle: {backgroundColor: t.colors.bg,borderTopColor: t.colors.border,borderTopWidth: 0,minHeight: 56,paddingTop: 0,paddingBottom: 0,shadowColor: "#0F172A",shadowOffset: { width: 0, height: -3 },shadowOpacity: 0.12,shadowRadius: 10,elevation: 12,},
           tabBarLabel: ({ children, color }) => <TabBarLabel color={color}>{children}</TabBarLabel>,
@@ -23,7 +23,7 @@ export default function TeacherLayout() {
           borderRadius: 999},
           tabBarIconStyle: {marginTop: -3},
 
-          tabBarActiveBackgroundColor: "#8787843b",
+          tabBarActiveBackgroundColor: t.colors.primarySoft,
           tabBarInactiveBackgroundColor: "transparent"
         }}
       >

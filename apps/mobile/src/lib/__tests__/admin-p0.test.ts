@@ -61,6 +61,13 @@ describe("kişiler sunucu araması", () => {
     expect(content).toMatch(/\/api\/v1\/teachers\$\{qParam\}/);
     expect(content).not.toMatch(/toLocaleLowerCase\("tr-TR"\)\.includes\(/);
   });
+
+  it("kisiler/index: FlatList + sayfalı 'daha fazla' (Faz 9)", async () => {
+    const content = await admin("kisiler/index.tsx");
+    expect(content).toMatch(/<FlatList/);
+    expect(content).toMatch(/Daha fazla göster/);
+    expect(content).toMatch(/limit=\$\{limit\}/);
+  });
 });
 
 describe("öğrenci detay portal erişimi", () => {
