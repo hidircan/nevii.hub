@@ -3,14 +3,23 @@ import path from "path";
 import os from "os";
 
 /**
- * Bu vitest koşusuna ÖZEL, izole veri dizini. Repo kökünden türetilir ki
- * aynı worktree'nin ardışık koşuları aynı dizini kullansın (tek dosya
- * çalıştırmak tam paketten farklı bir yere yazmasın), ama FARKLI
- * worktree'ler birbirine dokunmasın.
+ * Bu vitest KOŞUSUNA özel, izole veri dizini.
+ *
+ * Neden koşu başına (worktree başına değil): her test dosyası zaten
+ * `beforeEach`'te store'u siliyor ve yeniden tohumluyor, yani koşular
+ * arasında paylaşılacak bir durum YOK. Buna karşılık aynı anda çalışan iki
+ * koşu (tam paket + tek dosya, ya da iki terminal) birbirinin store'unu
+ * siliyor ve HER İKİSİ de kodla ilgisi olmayan, koşudan koşuya DEĞİŞEN
+ * hatalar üretiyor. Bu tuzağa bu turda üç kez düşüldü — önce worktree
+ * başına izolasyon denendi, aynı worktree'deki ikinci koşu onu da deldi.
+ *
+ * PID + zaman damgası ile artık iki koşu hiçbir koşulda çakışmaz. Dizinler
+ * işletim sisteminin geçici klasöründe kalır ve normal tmp temizliğiyle
+ * silinir; kalıcı bir durum tutmadıkları için birikmeleri zararsızdır.
  */
 const dataDirForThisRun = path.join(
   os.tmpdir(),
-  `notaplan-test-${Buffer.from(import.meta.dirname).toString("base64url").slice(-16)}`
+  `notaplan-test-${process.pid}-${Date.now().toString(36)}`
 );
 
 export default defineConfig({
