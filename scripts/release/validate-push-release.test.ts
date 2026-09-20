@@ -4,7 +4,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { formatPushReport, validatePushRelease } from "./validate-push-release.ts";
+import { formatPushReport, validatePushRelease } from "./validate-push-release";
 
 const FULL = {
   PUSH_ENABLED: "true",
