@@ -13,7 +13,7 @@ import {
  * (400/500/600/700; iOS ve Android'de AYNI dosyalar). `false` dönerse
  * arayüz fallback'le çizilir; arayüz ASLA fontu bekleyip bloklanmaz.
  * Native splash, font hazır olana kadar (en fazla kısa bir üst sınırla)
- * tutulur — bkz. app/_layout.tsx. Tinos KALDIRILDI.
+ * tutulur — bkz. app/_layout.tsx.
  */
 export function useAppFonts(): boolean {
   const map = useMemo(

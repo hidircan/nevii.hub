@@ -70,7 +70,7 @@ export function Button({
           <Text
             numberOfLines={2}
             ellipsizeMode="tail"
-            style={[styles.label, { color: p.fg, fontFamily: t.fonts.serifBold, fontSize: size === "sm" ? 15 : 17, textAlign: "center" }]}
+            style={[styles.label, { color: p.fg, fontFamily: t.fonts.serifSemibold, fontSize: size === "sm" ? 15 : 17, textAlign: "center" }]}
           >
             {label}
           </Text>

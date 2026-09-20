@@ -39,5 +39,5 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     borderWidth: StyleSheet.hairlineWidth,
   },
-  label: { fontFamily: fonts.serifBold, fontSize: 15, fontWeight: "600" },
+  label: { fontFamily: fonts.serifSemibold, fontSize: 15, fontWeight: "600" },
 });

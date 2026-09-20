@@ -19,7 +19,7 @@ async function src(rel: string): Promise<string> {
 describe("tipografi taşma sözleşmesi", () => {
   it("button: etiket 17/15 serif + 44pt hedef korunur", async () => {
     const content = await src("components/ui/button.tsx");
-    expect(content).toMatch(/fontFamily: t\.fonts\.serifBold/);
+    expect(content).toMatch(/fontFamily: t\.fonts\.serifSemibold/);
     expect(content).toMatch(/fontSize: size === "sm" \? 15 : 17/);
     expect(content).toMatch(/minHeight: 44/);
     expect(content).toMatch(/numberOfLines=\{2\}/);
@@ -36,7 +36,7 @@ describe("tipografi taşma sözleşmesi", () => {
     expect(await src("components/ui/text-field.tsx")).toMatch(/fontFamily: fonts\.serif, fontSize: 17/);
     expect(await src("components/ui/search-input.tsx")).toMatch(/fontFamily: fonts\.serif, fontSize: 17/);
     expect(await src("components/ui/status-badge.tsx")).toMatch(/fontFamily: fonts\.serifBold, fontSize: 14/);
-    expect(await src("components/ui/filter-chip.tsx")).toMatch(/fontFamily: fonts\.serifBold, fontSize: 15/);
+    expect(await src("components/ui/filter-chip.tsx")).toMatch(/fontFamily: fonts\.serifSemibold, fontSize: 15/);
   });
 
   it("bildirim rozet kutusu 12pt metni kapsar", async () => {
@@ -69,7 +69,13 @@ describe("tipografi taşma sözleşmesi", () => {
           const re = /t\.typography\.(body|caption), \{([^}]*)\}/g;
           let m: RegExpExecArray | null;
           while ((m = re.exec(content))) {
-            if (/fontWeight: "(600|700)"/.test(m[2]) && !/fontFamily: t\.fonts\.serifBold/.test(m[2])) {
+            const weight = /fontWeight: "(600|700)"/.exec(m[2])?.[1];
+            const family = /fontFamily: t\.fonts\.(serif\w*)/.exec(m[2])?.[1];
+            // 600 → semibold dosyası, 700 → bold dosyası; eşleşmeyen kesit yasak.
+            if (weight === "600" && family !== "serifSemibold") {
+              offenders.push(`${path.relative(SRC, full)}: ${m[0].slice(0, 80)}`);
+            }
+            if (weight === "700" && family !== "serifBold") {
               offenders.push(`${path.relative(SRC, full)}: ${m[0].slice(0, 80)}`);
             }
           }

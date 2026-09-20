@@ -4,7 +4,7 @@
  * için ayrı, kontrastı test edilmiş bir palet tanımlı (aynı tonların koyulaştırılmış
  * hali değil — koyu zeminde okunabilirlik için ayrıca ayarlandı).
  */
-import { serifBoldFontFamily, serifFontFamily } from "./serif-font";
+import { serifBoldFontFamily, serifFontFamily, serifMediumFontFamily, serifSemiboldFontFamily } from "./serif-font";
 
 export const spacing = {
   xs: 4,
@@ -29,16 +29,19 @@ export const radius = {
  * Font ailesi token'ları — tek kaynak.
  * - `display`: marka ve anlamlı ekran başlıkları (Gloock 400, tek ağırlık).
  * - `sans`: başlık hiyerarşisi (screen/section title) — sistem sans'ı.
- * - `serif`/`serifBold`: başlık DIŞI tüm yazılar (Times New Roman görünümü).
- *   iOS'ta yerleşik Times New Roman, Android'de gömülü metrik-uyumlu Tinos,
- *   web'de CSS yığını (bkz. `theme/serif-font.*`). Inter YOK — aramayla
- *   doğrulanır, yeniden eklenmez.
+ * - `serif`/`serifMedium`/`serifSemibold`/`serifBold`: başlık DIŞI tüm
+ *   yazılar (Noto Serif; iOS ve Android'de AYNI gömülü aile, bkz.
+ *   `theme/serif-font.*`). Kalınlık DOSYA adıyla seçilir — regular dosya
+ *   üzerine 600/700 override YOK. Eski gövde fontları YOK —
+ *   aramayla doğrulanır, yeniden eklenmez.
  */
 export const fonts = {
   display: "Gloock_400Regular",
   displayFallback: "Georgia",
   sans: "System",
   serif: serifFontFamily,
+  serifMedium: serifMediumFontFamily,
+  serifSemibold: serifSemiboldFontFamily,
   serifBold: serifBoldFontFamily,
 } as const;
 
@@ -130,10 +133,10 @@ export const typography = {
    * Kart/liste içerik başlıkları (ad, açıklama, tutar satırları) — gövde
    * serif'i. Gerçek ekran/section hiyerarşisi screenTitle/sectionTitle'dadır.
    */
-  cardTitle: { fontFamily: fonts.serifBold, fontSize: 18, lineHeight: 24, fontWeight: "600" as const },
+  cardTitle: { fontFamily: fonts.serifSemibold, fontSize: 18, lineHeight: 24, fontWeight: "600" as const },
   body: { fontFamily: fonts.serif, fontSize: 17, lineHeight: 24, fontWeight: "400" as const },
-  bodyStrong: { fontFamily: fonts.serifBold, fontSize: 17, lineHeight: 24, fontWeight: "600" as const },
-  caption: { fontFamily: fonts.serif, fontSize: 15, lineHeight: 20, fontWeight: "500" as const },
+  bodyStrong: { fontFamily: fonts.serifSemibold, fontSize: 17, lineHeight: 24, fontWeight: "600" as const },
+  caption: { fontFamily: fonts.serifMedium, fontSize: 15, lineHeight: 20, fontWeight: "500" as const },
   label: { fontFamily: fonts.serifBold, fontSize: 13, lineHeight: 16, fontWeight: "700" as const, textTransform: "uppercase" as const, letterSpacing: 0.4 },
 };
 
