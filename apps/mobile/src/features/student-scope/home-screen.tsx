@@ -182,16 +182,18 @@ export function StudentScopeHomeScreen({ basePath }: { basePath: "/(parent)" | "
       ) : attendance.status === "error" ? (
         <ErrorState message={attendance.message} onRetry={attendance.refresh} />
       ) : (
-        <Card>
-          <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 8 }}>
+        <Card onPress={() => router.push(`${basePath}/devam-raporu`)}>
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
             <Text style={[t.typography.bodyStrong, { color: t.colors.text }]}>
               {attendance.data.attended}/{attendance.data.totalLessons} derse katıldı
             </Text>
+            <Icon name="chevron-forward" size={16} color={t.colors.textFaint} />
           </View>
           <ProgressBar
             progress={attendance.data.totalLessons ? (attendance.data.attended / attendance.data.totalLessons) * 100 : 0}
             tone="success"
           />
+          <Text style={[t.typography.caption, { color: t.colors.primary, marginTop: 8 }]}>Ayrıntılı raporu gör</Text>
         </Card>
       )}
 

@@ -44,6 +44,8 @@ export default function StudentLayout() {
           erişimde kısayol yok). Route korunur.
         */}
         <Tabs.Screen name="sozlesmeler" options={{ href: null }} />
+        {/* Devam raporu sayaç/kart dokunuşlarıyla açılır (push-only); sekmede yer almaz. */}
+        <Tabs.Screen name="devam-raporu" options={{ href: null }} />
         {/*
           Hesabım sekmesi kaldırıldı — hesap erişimi sekme köklerindeki üst
           header'da zil ikonunun sağındaki profil ikonundadır. Route korunur.

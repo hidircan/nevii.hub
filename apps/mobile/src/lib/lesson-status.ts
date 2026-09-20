@@ -3,7 +3,12 @@ import type { BadgeTone } from "../components/ui/status-badge";
 
 /**
  * Web tarafındaki effectiveLessonOpsStatus önceliğiyle aynı sıra: işlendi > katıldı >
- * telafi > gelmedi > izinli > (geçmişse) yoklama bekliyor > planlandı.
+ * telafi > gelmedi > izinli > (geçmişse) sonuçlanmadı > planlandı.
+ *
+ * "Yoklama bekliyor" metni mobilde HİÇBİR yüzeyde üretilmez — yönetici
+ * operasyon jargonudur. Sonuçlanmamış geçmiş ders için nötr
+ * "Henüz sonuçlanmadı" kullanılır (öğrenci/veli/öğretmen/admin mobil
+ * görünümlerinin tamamı salt-okunur özettir; operasyon dili web panelde).
  */
 export function lessonStatusBadge(lesson: Lesson): { label: string; tone: BadgeTone } {
   if (lesson.status === "cancelled") return { label: "İptal edildi", tone: "neutral" };
@@ -14,17 +19,15 @@ export function lessonStatusBadge(lesson: Lesson): { label: string; tone: BadgeT
   if (lesson.studentAbsent) return { label: "Gelmedi", tone: "danger" };
   if (lesson.studentExcused) return { label: "İzinli", tone: "info" };
   if (lesson.status === "in_progress") return { label: "Devam ediyor", tone: "info" };
-  if (new Date(lesson.endAt).getTime() < Date.now()) return { label: "Yoklama bekliyor", tone: "warning" };
+  if (new Date(lesson.endAt).getTime() < Date.now()) return { label: "Henüz sonuçlanmadı", tone: "neutral" };
   return { label: "Planlandı", tone: "primary" };
 }
 
 /**
- * Öğrenci/veli yüzeyi — "Yoklama bekliyor" admin operasyon dilidir, öğrenci
- * portalında gösterilmez. Gerçek durum aynıdır (yönetici henüz işlemedi):
- * nötr "Henüz sonuçlanmadı" metni kullanılır. Diğer tüm statüler aynen geçer.
+ * Öğrenci/veli yüzeyi — `lessonStatusBadge` ile aynıdır ("Yoklama bekliyor"
+ * zaten hiçbir yüzeyde üretilmiyor). İmza, mevcut çağrı noktalarını kırmamak
+ * için korunur.
  */
 export function studentFacingLessonStatus(lesson: Lesson): { label: string; tone: BadgeTone } {
-  const badge = lessonStatusBadge(lesson);
-  if (badge.label === "Yoklama bekliyor") return { label: "Henüz sonuçlanmadı", tone: "neutral" };
-  return badge;
+  return lessonStatusBadge(lesson);
 }

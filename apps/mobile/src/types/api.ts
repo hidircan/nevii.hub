@@ -502,3 +502,118 @@ export type LessonReassignResponse = {
   newBranchId: string;
   newRoomId: string;
 };
+
+/** Sunucu-otriteli ders görüntü statüsü — `GET .../attendance-ledger` sözleşmesi. */
+export type LedgerDisplayKey =
+  | "attended"
+  | "processed"
+  | "makeup"
+  | "absent"
+  | "excused"
+  | "cancelled"
+  | "in_progress"
+  | "pending"
+  | "upcoming";
+
+export type AttendanceLedgerItem = {
+  lessonId: string;
+  startAt: string;
+  endAt: string;
+  durationMinutes: number | null;
+  teacherId: string;
+  teacherName?: string;
+  branchName?: string;
+  roomName?: string;
+  instrument: string;
+  lessonType: string;
+  lessonStatus: LessonStatus;
+  opsStatus: "attended" | "processed" | "makeup" | "absent" | "excused" | null;
+  displayKey: LedgerDisplayKey;
+  statusChangedAt: string | null;
+  statusNote: string | null;
+  attendance: { id: string; status: string; markedAt: string } | null;
+  makeup: { requestId: string; role: "source" | "confirmed"; linkedLessonId: string | null } | null;
+};
+export type AttendanceLedgerResponse = {
+  studentId: string;
+  total: number;
+  limit: number;
+  offset: number;
+  counts: Record<LedgerDisplayKey, number>;
+  items: AttendanceLedgerItem[];
+};
+
+export type MakeupLedgerLessonRef = {
+  id: string;
+  startAt: string;
+  endAt: string;
+  teacherName?: string;
+  branchName?: string;
+  roomName?: string;
+  instrument: string;
+  displayKey: LedgerDisplayKey;
+} | null;
+
+export type MakeupLedgerItem = {
+  id: string;
+  studentId: string;
+  status: string;
+  reason: string;
+  policyNote: string;
+  decisionNote: string | null;
+  decidedAt: string | null;
+  expiresAt: string;
+  createdAt: string;
+  sourceLesson: MakeupLedgerLessonRef;
+  confirmedLesson: MakeupLedgerLessonRef;
+  attendanceId: string;
+  branchName?: string;
+  teacherName?: string;
+  instrument: string;
+};
+export type MakeupLedgerResponse = { studentId: string; total: number; limit: number; offset: number; items: MakeupLedgerItem[] };
+
+export type PaymentLedgerLessonRef = {
+  id: string;
+  startAt: string;
+  endAt: string;
+  teacherName?: string;
+  branchName?: string;
+  roomName?: string;
+  instrument: string;
+  displayKey: LedgerDisplayKey;
+} | null;
+
+export type PaymentLedgerItem = {
+  id: string;
+  description: string;
+  amount: number;
+  paidAmount: number;
+  remaining: number;
+  status: string;
+  source?: string;
+  dueDate: string;
+  paidAt?: string;
+  method?: string;
+  paymentNote?: string;
+  receiptAvailable: boolean;
+  contract: { id: string; contractNumber: string; programmeName: string; installmentSequence?: number } | null;
+  lesson: PaymentLedgerLessonRef;
+};
+export type PaymentLedgerMonth = {
+  month: string;
+  accrued: number;
+  paid: number;
+  remaining: number;
+  status: "paid" | "partial" | "pending" | "overdue" | "voided";
+  earliestUnpaidDueDate: string | null;
+  itemCount: number;
+};
+export type PaymentLedgerResponse = {
+  studentId: string;
+  outstanding: number;
+  onlinePayEnabled: boolean;
+  months: PaymentLedgerMonth[];
+  total: number;
+  items: PaymentLedgerItem[];
+};

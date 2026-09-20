@@ -1,4 +1,4 @@
-import type { AttendanceSummary } from "../../types/api";
+import type { AttendanceLedgerResponse, AttendanceSummary } from "../../types/api";
 
 /**
  * Parent yoklama özeti view-model'i — saf, test edilebilir dönüşüm.
@@ -42,6 +42,27 @@ export function toAttendanceView(summary: AttendanceSummary | null | undefined):
     excused: toSafeCount(summary.excused),
     makeup: toSafeCount(summary.makeup),
     pending: toSafeCount(summary.pending),
+    rate: toAttendanceRate(total, attended),
+    hasRecords: total > 0,
+  };
+}
+
+/**
+ * Ledger counts → aynı görünüm. "Katıldı" Geldi+İşlendi'yi kapsar (özet
+ * endpointiyle AYNI tanım); "Bekleyen" sonuçlanmamış + planlananı kapsar.
+ */
+export function toAttendanceViewFromLedger(ledger: AttendanceLedgerResponse | null | undefined): AttendanceView | null {
+  if (!ledger) return null;
+  const c = ledger.counts;
+  const attended = toSafeCount(c.attended) + toSafeCount(c.processed);
+  const total = toSafeCount(ledger.total);
+  return {
+    total,
+    attended,
+    absent: toSafeCount(c.absent),
+    excused: toSafeCount(c.excused),
+    makeup: toSafeCount(c.makeup),
+    pending: toSafeCount(c.pending) + toSafeCount(c.upcoming),
     rate: toAttendanceRate(total, attended),
     hasRecords: total > 0,
   };

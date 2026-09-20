@@ -52,6 +52,8 @@ export default function ParentLayout() {
         <Tabs.Screen name="telafiler" options={{ href: null }} />
         {/* Yoklama özeti "Çocuğum" hızlı erişiminden açılır; sekmede yer almaz. */}
         <Tabs.Screen name="yoklama" options={{ href: null }} />
+        {/* Devam raporu sayaç/kart dokunuşlarıyla açılır (push-only); sekmede yer almaz. */}
+        <Tabs.Screen name="devam-raporu" options={{ href: null }} />
         {/*
           Sözleşmelerim YALNIZ Hesabım içinden açılır (ana panel/tab/hızlı
           erişimde kısayol yok). Route korunur.

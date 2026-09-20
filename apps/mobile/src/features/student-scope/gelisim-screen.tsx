@@ -7,7 +7,8 @@ import { useSelectedStudentId } from "../../student/student-context";
 import { useNow } from "../../hooks/use-now";
 import { relativeDayLabel } from "../../lib/date";
 import { useTheme } from "../../theme/theme-context";
-import type { AssessmentsResponse, AttendanceSummary, CurriculumResponse, ScheduleResponse, StudentProfile } from "../../types/api";
+import { AttendanceCounters } from "./attendance-counters";
+import type { AssessmentsResponse, AttendanceLedgerResponse, CurriculumResponse, ScheduleResponse, StudentProfile } from "../../types/api";
 
 const RECENT_LESSON_WINDOW_DAYS = 90;
 
@@ -19,7 +20,10 @@ export function StudentScopeGelisimScreen({ basePath }: { basePath: "/(parent)" 
 
   const profile = useApiGet<StudentProfile>(studentId ? `/api/v1/students/${studentId}` : "");
   const curriculum = useApiGet<CurriculumResponse>(studentId ? `/api/v1/students/${studentId}/curriculum` : "");
-  const attendance = useApiGet<AttendanceSummary>(studentId ? `/api/v1/students/${studentId}/attendance-summary` : "");
+  // Sayaçlar ledger'dan (limit=1 — yalnız counts gerekir); raporla AYNI kaynak, tutarsızlık yok.
+  const attendance = useApiGet<AttendanceLedgerResponse>(
+    studentId ? `/api/v1/students/${studentId}/attendance-ledger?direction=past&limit=1` : ""
+  );
   const assessments = useApiGet<AssessmentsResponse>(studentId ? `/api/v1/assessments/${studentId}` : "");
   const schedule = useApiGet<ScheduleResponse>(studentId ? `/api/v1/students/${studentId}/schedule` : "");
 
@@ -93,20 +97,10 @@ export function StudentScopeGelisimScreen({ basePath }: { basePath: "/(parent)" 
       ) : attendance.status === "error" ? (
         <ErrorState message={attendance.message} onRetry={attendance.refresh} code={attendance.code} />
       ) : (
-        <View style={{ flexDirection: "row", gap: 10 }}>
-          <Card style={{ flex: 1 }}>
-            <Text style={[t.typography.screenTitle, { color: t.colors.success }]}>{attendance.data.attended}</Text>
-            <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>Katıldı</Text>
-          </Card>
-          <Card style={{ flex: 1 }}>
-            <Text style={[t.typography.screenTitle, { color: t.colors.danger }]}>{attendance.data.absent}</Text>
-            <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>Gelmedi</Text>
-          </Card>
-          <Card style={{ flex: 1 }}>
-            <Text style={[t.typography.screenTitle, { color: t.colors.info }]}>{attendance.data.excused}</Text>
-            <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>İzinli</Text>
-          </Card>
-        </View>
+        <AttendanceCounters
+          counts={attendance.data.counts}
+          onOpen={(status) => router.push(`${basePath}/devam-raporu?status=${status}`)}
+        />
       )}
 
       <SectionHeader title="Öğretmen notları" />

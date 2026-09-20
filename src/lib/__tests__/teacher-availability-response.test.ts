@@ -16,7 +16,7 @@ function teacherCtx(): ServiceContext {
     userId: "user_teacher_t1",
     tenantId: "tenant_nilufer_acar",
     teacherId: "t1",
-    channel: "test",
+    channel: "mobile",
     requestId: "test-availability-normalize",
   } as ServiceContext;
 }

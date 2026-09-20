@@ -52,8 +52,8 @@ describe("lessonStatusBadge — öncelik sırası", () => {
     expect(lessonStatusBadge(baseLesson({ studentExcused: true }))).toEqual({ label: "İzinli", tone: "info" });
   });
 
-  it("geçmiş ve hiçbir bayrak yoksa yoklama bekliyor", () => {
-    expect(lessonStatusBadge(baseLesson())).toEqual({ label: "Yoklama bekliyor", tone: "warning" });
+  it("geçmiş ve hiçbir bayrak yoksa nötr 'Henüz sonuçlanmadı'", () => {
+    expect(lessonStatusBadge(baseLesson())).toEqual({ label: "Henüz sonuçlanmadı", tone: "neutral" });
   });
 
   it("gelecekteki ders planlandı olarak işaretlenir", () => {
@@ -68,7 +68,7 @@ describe("lessonStatusBadge — öncelik sırası", () => {
 });
 
 describe("studentFacingLessonStatus — öğrenci portalında yoklama dili yok", () => {
-  it("'Yoklama bekliyor' nötr 'Henüz sonuçlanmadı' olur", () => {
+  it("sonuçlanmamış ders nötr 'Henüz sonuçlanmadı' olur", () => {
     expect(studentFacingLessonStatus(baseLesson())).toEqual({ label: "Henüz sonuçlanmadı", tone: "neutral" });
   });
 

@@ -11,7 +11,7 @@ function studentCtx(): ServiceContext {
     role: "STUDENT",
     userId: "user_push_pref_test",
     tenantId: "tenant_nilufer_acar",
-    channel: "test",
+    channel: "mobile",
     requestId: "test-push-pref-gate",
   } as ServiceContext;
 }

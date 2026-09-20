@@ -1,3 +1,4 @@
+import { useRouter } from "expo-router";
 import { Text, View } from "react-native";
 import { portalErrorMessage } from "../../components/mobile-ui/api-error-message";
 import { useSelectedStudentId } from "../../student/student-context";
@@ -15,23 +16,25 @@ import { useAppForegroundRefetch } from "../../hooks/use-app-foreground-refetch"
 import { useApiGet } from "../../hooks/use-api";
 import { useFocusRefetch } from "../../hooks/use-focus-refetch";
 import { useTheme } from "../../theme/theme-context";
-import type { AttendanceSummary, StudentProfile } from "../../types/api";
-import { attendanceA11yLabel, toAttendanceView } from "./attendance-summary";
+import type { AttendanceLedgerResponse, StudentProfile } from "../../types/api";
+import { AttendanceCounters } from "../student-scope/attendance-counters";
+import { attendanceA11yLabel, toAttendanceViewFromLedger } from "./attendance-summary";
 
 /**
  * Veli "Yoklama özeti" ekranı — salt-okunur.
  *
- * Yalnız backend'in döndürdüğü `attendance-summary` sayıları gösterilir;
- * veliye yoklama alma/düzenleme/devamsızlık bildirimi aksiyonu VERİLMEZ
- * (bildirim akışı öğrencinin kendi ekranındadır). Öğrenci bağlamı
- * (`ctx.studentId`) auth'tan gelir, URL'de tahmin edilmez.
+ * Sayılar ledger'dan (limit=1 — yalnız counts gerekir); her sayaç filtreli
+ * devam raporunu açar. Veliye yoklama alma/düzenleme/devamsızlık bildirimi
+ * aksiyonu VERİLMEZ. Öğrenci bağlamı (`ctx.studentId`) auth'tan gelir,
+ * URL'de tahmin edilmez.
  */
 export function ParentAttendanceScreen() {
   const t = useTheme();
+  const router = useRouter();
   const studentId = useSelectedStudentId();
 
   const profile = useApiGet<StudentProfile>(studentId ? `/api/v1/students/${studentId}` : "");
-  const res = useApiGet<AttendanceSummary>(studentId ? `/api/v1/students/${studentId}/attendance-summary` : "");
+  const res = useApiGet<AttendanceLedgerResponse>(studentId ? `/api/v1/students/${studentId}/attendance-ledger?limit=1` : "");
   useFocusRefetch(res.refresh);
   useAppForegroundRefetch(res.refresh);
 
@@ -51,7 +54,7 @@ export function ParentAttendanceScreen() {
   // Profil adı yoksa yanlış isim gösterilmez — bağlam metni yalnız ad
   // gerçekten geldiğinde kurulur.
   const studentName = profile.status === "success" && profile.data.name ? profile.data.name : undefined;
-  const view = res.status === "success" ? toAttendanceView(res.data) : null;
+  const view = res.status === "success" ? toAttendanceViewFromLedger(res.data) : null;
 
   return (
     <Screen onRefresh={res.refresh} refreshing={res.status === "loading"}>
@@ -69,7 +72,7 @@ export function ParentAttendanceScreen() {
         />
       ) : (
         <>
-          <Card>
+          <Card onPress={() => router.push("/(parent)/devam-raporu")}>
             <View
               accessible
               accessibilityRole="text"
@@ -81,46 +84,15 @@ export function ParentAttendanceScreen() {
             </View>
             <ProgressBar progress={view.rate} tone="success" />
             <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 8 }]}>
-              {view.attended}/{view.total} derse katıldı
+              {view.attended}/{view.total} derse katıldı · Ayrıntılı raporu gör
             </Text>
           </Card>
 
           <SectionHeader title="Detay" />
-          <View style={{ flexDirection: "row", gap: 10 }}>
-            <Card style={{ flex: 1, minWidth: 0 }}>
-              <Text style={[t.typography.screenTitle, { color: t.colors.success }]} numberOfLines={1}>
-                {view.attended}
-              </Text>
-              <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>Katıldı</Text>
-            </Card>
-            <Card style={{ flex: 1, minWidth: 0 }}>
-              <Text style={[t.typography.screenTitle, { color: t.colors.danger }]} numberOfLines={1}>
-                {view.absent}
-              </Text>
-              <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>Gelmedi</Text>
-            </Card>
-            <Card style={{ flex: 1, minWidth: 0 }}>
-              <Text style={[t.typography.screenTitle, { color: t.colors.info }]} numberOfLines={1}>
-                {view.excused}
-              </Text>
-              <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>İzinli</Text>
-            </Card>
-          </View>
-          <View style={{ flexDirection: "row", gap: 10, marginTop: 10 }}>
-            <Card style={{ flex: 1, minWidth: 0 }}>
-              <Text style={[t.typography.screenTitle, { color: t.colors.text }]} numberOfLines={1}>
-                {view.makeup}
-              </Text>
-              <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>Telafi</Text>
-            </Card>
-            <Card style={{ flex: 1, minWidth: 0 }}>
-              <Text style={[t.typography.screenTitle, { color: t.colors.text }]} numberOfLines={1}>
-                {view.pending}
-              </Text>
-              <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>Bekleyen</Text>
-            </Card>
-            <View style={{ flex: 1 }} />
-          </View>
+          <AttendanceCounters
+            counts={res.data.counts}
+            onOpen={(status) => router.push(`/(parent)/devam-raporu?status=${status}`)}
+          />
 
           <Card style={{ marginTop: 12 }}>
             <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>
