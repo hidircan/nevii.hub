@@ -39,6 +39,8 @@ export default function StudentLayout() {
           Route korunur (href:null yalnız sekmeyi gizler).
         */}
         <Tabs.Screen name="dersler" options={{ href: null }} />
+        {/* Telafiler ana sayfadaki "Telafi hakları"ndan açılır; sekmede yer almaz. */}
+        <Tabs.Screen name="telafiler" options={{ href: null }} />
         {/*
           Sözleşmelerim YALNIZ Hesabım içinden açılır (ana panel/tab/hızlı
           erişimde kısayol yok). Route korunur.

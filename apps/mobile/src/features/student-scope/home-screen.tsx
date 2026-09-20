@@ -28,11 +28,12 @@ import type {
   AttendanceSummary,
   BalanceResponse,
   HomeworkResponse,
-  MakeupResponse,
+  MakeupLedgerResponse,
   NotificationsResponse,
   ScheduleResponse,
   StudentProfile,
 } from "../../types/api";
+import { isOpenMakeup } from "./makeup-view";
 
 /**
  * Veli ve öğrenci "Ana Sayfa" ekranı — ikisi de aynı öğrenci-scoped veriye
@@ -54,7 +55,8 @@ export function StudentScopeHomeScreen({ basePath }: { basePath: "/(parent)" | "
   const attendance = useApiGet<AttendanceSummary>(studentId ? `/api/v1/students/${studentId}/attendance-summary` : "");
   const assessments = useApiGet<AssessmentsResponse>(studentId ? `/api/v1/assessments/${studentId}` : "");
   const notifications = useApiGet<NotificationsResponse>("/api/v1/notifications");
-  const makeup = useApiGet<MakeupResponse>(studentId ? "/api/v1/makeup" : "");
+  // Seçili öğrenci kapsamlı telafi kayıtları — guardian başka çocuğun telafisini görmez.
+  const makeup = useApiGet<MakeupLedgerResponse>(studentId ? `/api/v1/students/${studentId}/makeup-ledger?limit=50` : "");
   // Öğrenci de kendi ödeme geçmişini görebilmeli (Bölüm D) — yalnızca veliye
   // özel değil, bkz. getParentBalanceTool'daki STUDENT genişletmesi.
   const balance = useApiGet<BalanceResponse>(studentId ? `/api/v1/students/${studentId}/balance` : "");
@@ -76,10 +78,7 @@ export function StudentScopeHomeScreen({ basePath }: { basePath: "/(parent)" | "
   const pendingHomework = homework.status === "success" ? homework.data.homework.filter((h) => h.status !== "REVIEWED") : [];
   const latestAssessment = assessments.status === "success" ? assessments.data.assessments[assessments.data.assessments.length - 1] : null;
   const latestNotifications = notifications.status === "success" ? notifications.data.notifications.slice(0, 3) : [];
-  const openMakeups =
-    makeup.status === "success"
-      ? makeup.data.makeupRequests.filter((m) => !["completed", "expired", "cancelled"].includes(m.status))
-      : [];
+  const openMakeups = makeup.status === "success" ? makeup.data.items.filter((m) => isOpenMakeup(m.status)) : [];
 
   if (!studentId) {
     return (
@@ -197,16 +196,17 @@ export function StudentScopeHomeScreen({ basePath }: { basePath: "/(parent)" | "
         </Card>
       )}
 
-      {openMakeups.length > 0 ? (
+      {makeup.status === "success" && openMakeups.length > 0 ? (
         <>
-          <SectionHeader title="Telafi hakları" />
+          <SectionHeader title="Telafi hakları" actionLabel="Tümü" onAction={() => router.push(`${basePath}/telafiler`)} />
           <ListGroup>
             {openMakeups.slice(0, 3).map((m) => (
               <ListRow
                 key={m.id}
                 icon="swap-horizontal-outline"
                 title={`${m.teacherName ?? "Öğretmen"}${m.instrument ? ` — ${m.instrument}` : ""}`}
-                subtitle={m.status === "confirmed" ? "Telafi dersi planlandı" : "Yönetici tarafından değerlendiriliyor"}
+                subtitle={m.confirmedLesson ? "Telafi dersi planlandı" : "Yönetici tarafından değerlendiriliyor"}
+                onPress={() => router.push(`${basePath}/telafiler/${m.id}`)}
               />
             ))}
           </ListGroup>

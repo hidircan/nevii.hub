@@ -229,9 +229,17 @@ function LedgerRow({ item, basePath }: { item: AttendanceLedgerItem; basePath: "
             </Text>
           ) : null}
           {item.makeup ? (
-            <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]} numberOfLines={1}>
-              {item.makeup.role === "source" ? "Bu dersten telafi kaydı oluştu" : "Telafi dersi"}
-            </Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="İlgili telafi kaydını aç"
+              hitSlop={6}
+              onPress={() => router.push(`${basePath}/telafiler/${item.makeup!.requestId}`)}
+              style={{ marginTop: 2, alignSelf: "flex-start" }}
+            >
+              <Text style={[t.typography.caption, { color: t.colors.primary }]} numberOfLines={1}>
+                {item.makeup.role === "source" ? "Bu dersten telafi kaydı oluştu" : "Telafi dersi"}
+              </Text>
+            </Pressable>
           ) : null}
         </View>
       </View>
