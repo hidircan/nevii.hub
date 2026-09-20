@@ -7,10 +7,15 @@ import { addDays, format } from "date-fns";
 const HEADER =
   "ogrenci,ogretmen,sube,enstruman,oda,baslangic_tarihi,bitis_tarihi,baslangic_saati,ders_suresi_dk,tekrar_tipi,tekrar_gunleri,tekrar_araligi,toplam_tekrar,notlar";
 
-/** Önümüzdeki bir Pazartesi tarihini yyyy-MM-dd olarak döner (t1 Pazartesi 10:00-19:00 müsait). */
+/**
+ * Önümüzdeki bir SALI tarihini yyyy-MM-dd olarak döner.
+ * 2026-09-20: Pazartesi Güz döneminin KAPALI günü olduğu için import da o
+ * güne ders üretemez (çalışma günü tek kaynağı, src/lib/work-days.ts) —
+ * testler içe aktarma mantığını sınadığı için açık bir gün kullanılır.
+ */
 function nextMonday(): string {
   const d = new Date();
-  const diff = ((1 - d.getDay() + 7) % 7) || 7;
+  const diff = ((2 - d.getDay() + 7) % 7) || 7;
   return format(addDays(d, diff), "yyyy-MM-dd");
 }
 
@@ -53,7 +58,7 @@ describe("validateLessonScheduleRows — İş 1 tekrarlayan ders programı impor
     const csv =
       HEADER +
       "\n" +
-      `Zeynep Arslan,Turgay Hoşbaş,Erzene,Piyano,Stüdyo 1 — Piyano,${monday},${endsOn},11:00,40,weekly,Pazartesi,1,,\n`;
+      `Zeynep Arslan,Turgay Hoşbaş,Erzene,Piyano,Stüdyo 1 — Piyano,${monday},${endsOn},11:00,40,weekly,Salı,1,,\n`;
     const result = preview(csv, data);
     expect(result.errorCount).toBe(0);
     expect(result.valid).toHaveLength(1);
@@ -65,21 +70,21 @@ describe("validateLessonScheduleRows — İş 1 tekrarlayan ders programı impor
     expect(result.summary.totalLessonsToCreate).toBe(4);
   });
 
-  it("haftada iki gün tekrar (tekrar_gunleri=Pazartesi|Çarşamba) iki ayrı seri üretir", () => {
+  it("haftada iki gün tekrar (tekrar_gunleri=Salı|Çarşamba) iki ayrı seri üretir", () => {
     const data = createSeedData();
     const monday = nextMonday();
     const endsOn = format(addDays(new Date(monday), 13), "yyyy-MM-dd"); // ~2 hafta
     const csv =
       HEADER +
       "\n" +
-      `Zeynep Arslan,Turgay Hoşbaş,Erzene,Piyano,Stüdyo 1 — Piyano,${monday},${endsOn},11:00,40,weekly,Pazartesi|Çarşamba,1,,\n`;
+      `Zeynep Arslan,Turgay Hoşbaş,Erzene,Piyano,Stüdyo 1 — Piyano,${monday},${endsOn},11:00,40,weekly,Salı|Çarşamba,1,,\n`;
     const result = preview(csv, data);
     expect(result.errorCount).toBe(0);
     const plan = result.valid[0]!;
     expect(plan.kind).toBe("series");
     if (plan.kind !== "series") return;
     expect(plan.seriesParams).toHaveLength(2);
-    expect(plan.seriesParams.map((p) => p.weekday).sort()).toEqual([1, 3]);
+    expect(plan.seriesParams.map((p) => p.weekday).sort()).toEqual([2, 3]);
     // 2 haftalık pencerede her gün için 2 oluşum → toplam 4
     expect(plan.occurrenceCount).toBe(4);
   });
@@ -157,7 +162,7 @@ describe("validateLessonScheduleRows — İş 1 tekrarlayan ders programı impor
     const data = createSeedData();
     const monday = nextMonday();
     const csv =
-      HEADER + "\n" + `Zeynep Arslan,Turgay Hoşbaş,Erzene,Piyano,Stüdyo 1 — Piyano,${monday},,11:00,40,custom,Pazartesi,1,,\n`;
+      HEADER + "\n" + `Zeynep Arslan,Turgay Hoşbaş,Erzene,Piyano,Stüdyo 1 — Piyano,${monday},,11:00,40,custom,Salı,1,,\n`;
     const result = preview(csv, data);
     expect(result.errorCount).toBeGreaterThan(0);
     expect(result.errors.some((e) => e.message.includes("henüz desteklenmiyor"))).toBe(true);

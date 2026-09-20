@@ -7,6 +7,7 @@ import { WeekDatePicker } from "@/components/week-date-picker";
 import { ProgramStudio } from "@/components/program-studio";
 import { ProgramTermYearNav, type ProgramTerm } from "@/components/program-term-year-nav";
 import { currentAcademicAnchorYear } from "@/lib/attendance-calendar";
+import { resolveWorkDay, type WorkDayResolution } from "@/lib/work-days";
 import { addDays, startOfWeek } from "@/lib/utils";
 import { format, isSameDay, parseISO } from "date-fns";
 import { tr } from "date-fns/locale";
@@ -80,6 +81,24 @@ export default async function ProgramPage({
 
   const branchNames = Object.fromEntries(data.settings.branches.map((b) => [b.id, b.shortName]));
 
+  /**
+   * ÇALIŞMA GÜNÜ — TEK KAYNAK (src/lib/work-days.ts). Izgaranın kendi hafta
+   * günü kuralını uydurmasını engeller: resmî tatil, dönemin haftalık kapalı
+   * günü VE yöneticinin "zorla açık"/"zorla kapalı" istisnaları burada, ders
+   * planlama doğrulamasıyla BİREBİR aynı fonksiyondan çözülür.
+   */
+  const dayStatuses: Record<string, WorkDayResolution> = Object.fromEntries(
+    days.map((d) => {
+      const resolved = resolveWorkDay(
+        d,
+        selectedTerm,
+        data.closedDayOverrides ?? [],
+        data.settings.termWeeklyClosedDays
+      );
+      return [resolved.date, resolved];
+    })
+  );
+
   return (
     <div>
       <KurumScopeNote scope={kurum.scope} />
@@ -146,6 +165,7 @@ export default async function ProgramPage({
         selectedTerm={selectedTerm}
         selectedAcademicYearStart={selectedAcademicYearStart}
         catalogInstruments={catalogInstruments}
+        dayStatuses={dayStatuses}
       />
 
       <Card className="mt-6">

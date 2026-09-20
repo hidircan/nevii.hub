@@ -1104,6 +1104,17 @@ export interface AppData {
   discountCampaigns?: DiscountCampaign[];
   /** Faz 12 — insan-okunur numara sayaçları (öğrenci/öğretmen). Opsiyonel, aynı gerekçe (üstteki not). */
   entitySequences?: EntitySequenceRecord[];
+  /**
+   * ÇALIŞMA GÜNÜ İSTİSNALARI (2026-09-20) — yöneticinin "zorla açık" /
+   * "zorla kapalı" işaretlediği günler. `readData()` bunu HER ZAMAN doldurur;
+   * elle kurulan test fixture'ları için opsiyoneldir (yokluğunda istisna yok
+   * sayılır, yani resmî tatil + dönem kuralı geçerli olur).
+   *
+   * Ders planlama doğrulaması (`validateLessonSlot`), Ders Programı ızgarası,
+   * seri planlama, ödeme önizlemesi ve Yoklama Takvimi AYNI listeyi okur —
+   * bkz. src/lib/work-days.ts.
+   */
+  closedDayOverrides?: ClosedDay[];
 }
 
 /** Faz 12 — bkz. src/lib/entity-sequence.ts. */

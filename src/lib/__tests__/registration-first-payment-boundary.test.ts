@@ -270,7 +270,7 @@ describe("createStudentTool — P0-C lessonDays (gönderildiyse) weeklyLessonCou
       baseInput({
         enrollmentStartDate: "2026-09-01",
         weeklyLessonCount: 2,
-        lessonDays: [1, 4],
+        lessonDays: [2, 4],
         firstPaymentCollected: { method: "cash", amount: 3000, collectedAt: "2026-09-01" },
       })
     );
@@ -278,10 +278,12 @@ describe("createStudentTool — P0-C lessonDays (gönderildiyse) weeklyLessonCou
   });
 
   it("aynı tarih aralığı + aynı haftalık sıklık, FARKLI lessonDays → FARKLI autoSuggestedAmount (UI ile aynı KESİN sayım)", async () => {
-    // 15-29 Eylül 2026: Salı/Perşembe (2,4) o dönemde 5 kez, Pazartesi/Çarşamba
-    // (1,3) 4 kez geçer — `countExactWeekdayLessons` ile doğrulanmış gerçek
+    // 15-29 Eylül 2026: Salı/Perşembe (2,4) o dönemde 5 kez, Çarşamba/Cuma
+    // (3,5) 4 kez geçer — `countExactWeekdayLessons` ile doğrulanmış gerçek
     // takvim farkı (gün-oranlı projeksiyon bu farkı YANSITMAZDI, ikisi de
     // aynı gün sayısı/haftalık sıklık için aynı projeksiyonu üretirdi).
+    // 2026-09-20: Pazartesi Güz döneminin kapalı günü olduğu için artık
+    // ücretlendirilmiyor — karşılaştırma iki AÇIK gün çifti üzerinden yapılır.
     const tueThu = await createStudentTool(
       ctx(),
       baseInput({
@@ -298,7 +300,7 @@ describe("createStudentTool — P0-C lessonDays (gönderildiyse) weeklyLessonCou
     expect(tueThu.ok).toBe(true);
     if (!tueThu.ok) return;
 
-    const monWed = await createStudentTool(
+    const wedFri = await createStudentTool(
       ctx(),
       baseInput({
         phone: "5551110002",
@@ -306,13 +308,13 @@ describe("createStudentTool — P0-C lessonDays (gönderildiyse) weeklyLessonCou
         enrollmentEndDate: "2026-09-29",
         weeklyLessonCount: 2,
         monthlyFee: 3000,
-        lessonDays: [1, 3],
+        lessonDays: [3, 5],
         firstPaymentCollected: { method: "cash", amount: 3000, collectedAt: "2026-09-15" },
         firstPaymentAdjustmentReason: "test",
       })
     );
-    expect(monWed.ok).toBe(true);
-    if (!monWed.ok) return;
+    expect(wedFri.ok).toBe(true);
+    if (!wedFri.ok) return;
 
     const data = await readData();
     const paymentFor = (studentId: string) =>
@@ -320,19 +322,21 @@ describe("createStudentTool — P0-C lessonDays (gönderildiyse) weeklyLessonCou
 
     // derivePerLessonAmount(3000, 2) = 3000 / (2*4) = 375/ders
     const tueThuPayment = paymentFor(tueThu.data.studentId);
-    const monWedPayment = paymentFor(monWed.data.studentId);
+    const wedFriPayment = paymentFor(wedFri.data.studentId);
     expect(tueThuPayment?.autoSuggestedAmount).toBe(5 * 375);
-    expect(monWedPayment?.autoSuggestedAmount).toBe(4 * 375);
-    expect(tueThuPayment?.autoSuggestedAmount).not.toBe(monWedPayment?.autoSuggestedAmount);
+    expect(wedFriPayment?.autoSuggestedAmount).toBe(4 * 375);
+    expect(tueThuPayment?.autoSuggestedAmount).not.toBe(wedFriPayment?.autoSuggestedAmount);
   });
 });
 
 // P0 (2026-09-03) — "3 ders eşiği": kayıt ayında kalan gerçek ders sayısı
 // 3'ten azsa önerilen ilk tahsilata sonraki ayın TAM aylık ücreti de eklenir;
 // 3 veya daha fazlaysa yalnız kayıt ayı kalan dersleri önerilir.
-// weeklyLessonCount=1, lessonDays=[1] (Pazartesi), monthlyFee=3000 →
-// derivePerLessonAmount(3000, 1) = 750/ders. Eylül 2026 Pazartesileri:
-// 7, 14, 21, 28.
+// weeklyLessonCount=1, lessonDays=[4] (Perşembe), monthlyFee=3000 →
+// derivePerLessonAmount(3000, 1) = 750/ders. Eylül 2026 Perşembeleri:
+// 3, 10, 17, 24 — Pazartesi ile AYNI adetler (4/3/2/0), ama Pazartesi
+// 2026-09-20'den beri Güz döneminin kapalı günü olduğu için artık
+// ücretlendirilmiyor (bkz. src/lib/work-days.ts).
 describe("createStudentTool — 3 ders eşiği (kayıt ayı kalan ders sayısına göre önerilen ilk tahsilat)", () => {
   it("kayıt ayında 4 (>=3) gerçek ders varsa yalnız kayıt ayı kalan dersleri önerilir", async () => {
     const res = await createStudentTool(
@@ -342,7 +346,7 @@ describe("createStudentTool — 3 ders eşiği (kayıt ayı kalan ders sayısın
         enrollmentStartDate: "2026-09-01",
         weeklyLessonCount: 1,
         monthlyFee: 3000,
-        lessonDays: [1],
+        lessonDays: [4],
         firstPaymentCollected: { method: "cash", amount: 3000, collectedAt: "2026-09-01" },
       })
     );
@@ -364,7 +368,7 @@ describe("createStudentTool — 3 ders eşiği (kayıt ayı kalan ders sayısın
         enrollmentStartDate: "2026-09-08",
         weeklyLessonCount: 1,
         monthlyFee: 3000,
-        lessonDays: [1],
+        lessonDays: [4],
         firstPaymentCollected: { method: "cash", amount: 2250, collectedAt: "2026-09-08" },
       })
     );
@@ -385,7 +389,7 @@ describe("createStudentTool — 3 ders eşiği (kayıt ayı kalan ders sayısın
         enrollmentStartDate: "2026-09-15",
         weeklyLessonCount: 1,
         monthlyFee: 3000,
-        lessonDays: [1],
+        lessonDays: [4],
         firstPaymentCollected: { method: "cash", amount: 2 * 750 + 3000, collectedAt: "2026-09-15" },
       })
     );
@@ -406,7 +410,7 @@ describe("createStudentTool — 3 ders eşiği (kayıt ayı kalan ders sayısın
         enrollmentStartDate: "2026-09-29",
         weeklyLessonCount: 1,
         monthlyFee: 3000,
-        lessonDays: [1],
+        lessonDays: [4],
         firstPaymentCollected: { method: "cash", amount: 3000, collectedAt: "2026-09-29" },
       })
     );

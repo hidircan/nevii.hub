@@ -19,7 +19,8 @@
  */
 
 import { toZonedYmd, DEFAULT_APP_TIMEZONE } from "./timezone";
-import { findOfficialHoliday } from "./turkish-holidays";
+import { resolveWorkDay, type DayOverride, type TermWeeklyClosedDaysOverride } from "./work-days";
+import type { StudentTermType } from "./types";
 
 /**
  * P0 (2026-09-05) — İLK TAHSİLATIN BAŞLANGIÇ GÜNÜ.
@@ -383,16 +384,38 @@ function inclusiveDayCount(startDay: string, endDay: string): number {
  * `estimateBillableLessonCount` formülünü DEĞİŞTİRMEZ/yerine geçmez —
  * o formülün P0-1'de bilinçli olarak sabitlenen davranışı korunur.
  */
-export function countExactWeekdayLessons(periodStartDay: string, periodEndDay: string, weekdays: number[]): number {
+/**
+ * ÇALIŞMA GÜNÜ — TEK KAYNAK (2026-09-20). Kapalı bir güne ders planlanamaz,
+ * dolayısıyla ücrete de girmez. Eskiden burada YALNIZCA resmî tatil
+ * eleniyordu; yöneticinin "zorla kapalı" ettiği bir gün faturalanabilir
+ * sayılıyor, "zorla açtığı" bir tatil ise sayılmıyordu — yani sözleşme
+ * önizlemesi ile gerçekte oluşturulabilen ders programı ayrışıyordu.
+ *
+ * `workDays` ZORUNLUDUR (opsiyonel bırakılsa çağıran sessizce eksik kurala
+ * düşerdi — bkz. LESSONS_LEARNED 2026-09-16 "sessizce yanlış motor").
+ */
+export type WorkDayContext = {
+  term: StudentTermType;
+  overrides: DayOverride[];
+  weeklyClosedDays?: TermWeeklyClosedDaysOverride;
+};
+
+export function countExactWeekdayLessons(
+  periodStartDay: string,
+  periodEndDay: string,
+  weekdays: number[],
+  workDays: WorkDayContext
+): number {
   if (weekdays.length === 0 || periodEndDay < periodStartDay) return 0;
   const set = new Set(weekdays);
   let count = 0;
-  const cursor = new Date(`${periodStartDay}T00:00:00Z`);
-  const end = new Date(`${periodEndDay}T00:00:00Z`);
+  const cursor = new Date(`${periodStartDay}T09:00:00Z`);
+  const end = new Date(`${periodEndDay}T09:00:00Z`);
   while (cursor <= end) {
-    // 2026-09-19 — resmî tatil (Yoklama Takvimi/planlama ile aynı kaynak) ders sayılmaz;
-    // o güne ders planlanamaz, dolayısıyla ücrete de girmez.
-    if (set.has(cursor.getUTCDay()) && !findOfficialHoliday(cursor.toISOString().slice(0, 10))) count++;
+    if (set.has(cursor.getUTCDay())) {
+      const day = resolveWorkDay(cursor, workDays.term, workDays.overrides, workDays.weeklyClosedDays);
+      if (day.schedulable) count++;
+    }
     cursor.setUTCDate(cursor.getUTCDate() + 1);
   }
   return count;

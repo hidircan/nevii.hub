@@ -1,5 +1,6 @@
 import { addDays, addMinutes, differenceInCalendarDays, isBefore, isAfter, parseISO } from "date-fns";
 import type {
+  StudentTermType,
   AppData,
   BranchId,
   Instrument,
@@ -12,7 +13,7 @@ import type {
 } from "./types";
 import { availabilityForBranch, isTeacherSchedulable, teacherServesBranch } from "./teacher-branches";
 import { DEFAULT_APP_TIMEZONE, addDaysYmd, toZonedYmd, ymdToUtcNoon, zonedWallTimeToUtc, zonedWeekday } from "./timezone";
-import { findOfficialHoliday } from "./turkish-holidays";
+import { assertWorkDaySchedulable, type DayStatusReason } from "./work-days";
 
 function overlaps(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date) {
   return aStart < bEnd && bStart < aEnd;
@@ -95,7 +96,8 @@ export type SlotValidationCode =
   | "ROOM_BRANCH_MISMATCH"
   | "ROOM_CONFLICT"
   | "STUDENT_CONFLICT"
-  | "OFFICIAL_HOLIDAY";
+  /** Gün kapalı — resmî tatil, dönemin haftalık kapalı günü VEYA yöneticinin "zorla kapalı" istisnası. */
+  | "DAY_CLOSED";
 
 export const SLOT_ERROR_MESSAGES: Record<SlotValidationCode, string> = {
   REQUEST_NOT_OPEN: "Bu telafi talebi zaten sonuçlandırılmış.",
@@ -114,7 +116,7 @@ export const SLOT_ERROR_MESSAGES: Record<SlotValidationCode, string> = {
   ROOM_BRANCH_MISMATCH: "Oda, öğretmenin şubesiyle uyumsuz.",
   ROOM_CONFLICT: "Odanın bu saatte başka bir dersi var.",
   STUDENT_CONFLICT: "Öğrencinin bu saatte başka bir dersi var.",
-  OFFICIAL_HOLIDAY: "Bu gün resmî tatil; ders planlanamaz. Başka bir gün seçin.",
+  DAY_CLOSED: "Kurum bu gün kapalı; ders planlanamaz. Başka bir gün seçin.",
 };
 
 export type ValidatedSlot = {
@@ -135,7 +137,19 @@ export type ValidatedSlot = {
 
 type SlotValidationResult =
   | { ok: true; slot: ValidatedSlot }
-  | { ok: false; code: SlotValidationCode; message: string };
+  | {
+      ok: false;
+      code: SlotValidationCode;
+      message: string;
+      /**
+       * Yalnız `DAY_CLOSED` için dolu: günün NEDEN kapalı olduğu. Seri
+       * planlama bunu kullanır — tek seferlik bir kapanış (resmî tatil,
+       * yöneticinin o güne özel kapatması) ATLANIR, ama haftanın o gününün
+       * kurumsal kapalı günü olması (`term_weekly_closed`) yapısal bir
+       * hatadır: her oluşum kapalıya düşer, bu yüzden seri baştan reddedilir.
+       */
+      dayReason?: DayStatusReason;
+    };
 
 /**
  * `SlotValidationCode` içinden yalnızca TEACHER_UNAVAILABLE "soft warning" —
@@ -171,6 +185,14 @@ export type SlotValidationContext = {
   studentId: string;
   status?: MakeupStatus;
   expiresAt?: string;
+  /**
+   * 2026-09-20 — dersin AKADEMİK DÖNEMİ. Haftalık kapalı gün kuralı döneme
+   * bağlıdır (Güz: Pazartesi, Yaz: hafta sonu) ve bir dersin dönemi
+   * öğrencinin varsayılan `termType`'ından FARKLI olabilir (ör. güz kayıtlı
+   * bir öğrenciye yaz dersi planlamak). Verilmezse öğrencinin kayıtlı
+   * dönemine, o da yoksa "guz"a düşülür.
+   */
+  term?: StudentTermType;
 };
 
 /**
@@ -212,16 +234,24 @@ export function validateLessonSlot(
     return fail("INVALID_DURATION");
   }
 
-  // 2026-09-19 — resmî tatil (Diyanet doğrulamalı tablo, turkish-holidays.ts) TEK
-  // kaynaktan: Yoklama Takvimi o günü KAPALI gösterir ve yoklamayı reddeder; burada
-  // da planlanamaz (tek ders, seri, taşıma, telafi aynı fonksiyondan geçer).
-  const holiday = findOfficialHoliday(toZonedYmd(start, DEFAULT_APP_TIMEZONE));
-  if (holiday) {
-    return {
-      ok: false,
-      code: "OFFICIAL_HOLIDAY",
-      message: `${holiday.name} resmî tatildir; bu güne ders planlanamaz. Başka bir gün seçin.`,
-    };
+  /**
+   * ÇALIŞMA GÜNÜ — TEK KAYNAK (2026-09-20, src/lib/work-days.ts).
+   * Öncelik: yönetici istisnası > resmî tatil > dönemin haftalık kapalı günü.
+   * Yani "zorla açık" işaretli bir gün resmî tatil olsa bile planlanabilir;
+   * "zorla kapalı" bir gün normalde açık olsa bile planlanamaz. Tek ders,
+   * seri, taşıma ve telafi bu fonksiyondan geçtiği için dört akış da aynı
+   * cevabı verir — daha önce planlama yalnız resmî tatili görüyor, yöneticinin
+   * istisnalarından habersiz kalıyordu.
+   */
+  const studentTerm = context.term ?? data.students?.find((s) => s.id === context.studentId)?.termType ?? "guz";
+  const workDay = assertWorkDaySchedulable(
+    start,
+    studentTerm,
+    data.closedDayOverrides ?? [],
+    data.settings.termWeeklyClosedDays
+  );
+  if (!workDay.ok) {
+    return { ok: false, code: "DAY_CLOSED", message: workDay.message, dayReason: workDay.day.reason };
   }
 
   // 2026-09-17 — geçmişe planlama YALNIZ telafi taleplerinde yasak (telafi

@@ -10,7 +10,14 @@ import type { AppData } from "../types";
 import { validateLessonSlot } from "../makeup-engine";
 
 /** Herhangi bir gelecek Pazartesi'de gerçekten boş bir saat bulur (kapalı-gün kuralını BİLEREK atlamaz — çağıran taraf kararlaştırır). */
-function findOpenMondaySlot(data: AppData, studentId: string, teacherId: string, roomId: string): string {
+function findOpenMondaySlot(
+  data: AppData,
+  studentId: string,
+  teacherId: string,
+  roomId: string,
+  /** 2026-09-20 — haftalık kapalı gün kuralı DERSİN dönemine göre çözülür. */
+  term: "guz" | "yaz" = "yaz"
+): string {
   const now = new Date();
   for (let offset = 1; offset <= 60; offset++) {
     const day = new Date(now);
@@ -20,7 +27,7 @@ function findOpenMondaySlot(data: AppData, studentId: string, teacherId: string,
       const candidate = new Date(day);
       candidate.setHours(hour, 0, 0, 0);
       const iso = candidate.toISOString();
-      const check = validateLessonSlot(data, { instrument: "Piyano", studentId }, { teacherId, roomId, startAt: iso });
+      const check = validateLessonSlot(data, { instrument: "Piyano", studentId, term }, { teacherId, roomId, startAt: iso });
       if (check.ok) return iso;
     }
   }

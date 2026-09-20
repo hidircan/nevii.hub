@@ -3,64 +3,36 @@
  * (statü) çözümleme. Saf fonksiyonlar — I/O yok, store'dan bağımsız test
  * edilebilir (bkz. src/lib/__tests__/attendance-calendar.test.ts).
  *
- * Statü öncelik sırası (KESİN):
- *   1) Manuel admin istisnası (ClosedDay — kapalı VEYA zorla açık)
- *   2) Resmî tatil (turkishOfficialHolidays)
- *   3) Dönemin haftalık kapalı gün kuralı (Güz: Pazartesi; Yaz: Cts/Paz)
- *   4) Açık gün
+ * Statü öncelik sırası artık burada DEĞİL, `src/lib/work-days.ts` içinde
+ * tek kaynak olarak tanımlıdır (yönetici istisnası > resmî tatil > dönem
+ * haftalık kuralı > açık).
  */
 
-import type { ClosedDay, Lesson, StudentTermType } from "./types";
-import { findOfficialHoliday } from "./turkish-holidays";
-import { toYmd } from "./closed-days";
-import { zonedWeekday } from "./timezone";
-
-export type DayStatus = "closed" | "open";
-
-export type DayStatusReason =
-  | "manual_closed"
-  | "manual_open"
-  | "official_holiday"
-  | "term_weekly_closed"
-  | "open";
-
-export type DayStatusResolution = {
-  date: string; // yyyy-MM-dd
-  status: DayStatus;
-  reason: DayStatusReason;
-  label: string;
-};
-
-/** Güz dönemi: haftanın Pazartesi günü (1) varsayılan kapalı. */
-export const FALL_WEEKLY_CLOSED_DAYS: number[] = [1];
-/** Yaz dönemi: Cumartesi(6) + Pazar(0) varsayılan kapalı. */
-export const SUMMER_WEEKLY_CLOSED_DAYS: number[] = [0, 6];
-
-/** Paket 6 — okulun `SchoolSettings.termWeeklyClosedDays` özelleştirmesi; verilmezse sabit varsayılanlar kullanılır. */
-export type TermWeeklyClosedDaysOverride = { guz: number[]; yaz: number[] };
-
-export function weeklyClosedDaysForTerm(
-  term: StudentTermType,
-  override?: TermWeeklyClosedDaysOverride
-): number[] {
-  if (override) return term === "yaz" ? override.yaz : override.guz;
-  return term === "yaz" ? SUMMER_WEEKLY_CLOSED_DAYS : FALL_WEEKLY_CLOSED_DAYS;
-}
+import type { Lesson, StudentTermType } from "./types";
 
 /**
- * ÖNCELİK 4 (devam) — Program ekranı dönem-bazlı gün kapatma. `term`
- * verilmezse LEGACY davranış korunur: yalnızca Pazartesi kapalı (mevcut
- * `SCHOOL_CLOSED_WEEKDAY`/`isMonday` kuralı, dönem kavramı eklenmeden önceki
- * tüm ders oluşturma/taşıma akışlarıyla birebir aynı sonucu üretir).
+ * TEK KAYNAK (2026-09-20): gün açık/kapalı çözümlemesi artık
+ * `src/lib/work-days.ts` içindedir — Ders Programı, seri planlama, ödeme
+ * önizlemesi, yoklama ve ders oluşturma doğrulaması AYNI fonksiyonu kullanır.
+ * Buradaki re-export'lar yalnız geriye dönük uyumluluk içindir; YENİ kod
+ * doğrudan `@/lib/work-days`'ten import etmelidir.
  */
-export function isWeeklyClosedDayForTerm(
-  date: Date,
-  term?: StudentTermType,
-  override?: TermWeeklyClosedDaysOverride
-): boolean {
-  if (!term) return zonedWeekday(date) === 1; // legacy: yalnızca Pazartesi
-  return weeklyClosedDaysForTerm(term, override).includes(zonedWeekday(date));
-}
+export {
+  FALL_WEEKLY_CLOSED_DAYS,
+  SUMMER_WEEKLY_CLOSED_DAYS,
+  weeklyClosedDaysForTerm,
+  isWeeklyClosedDayForTerm,
+  resolveDayStatus,
+  resolveMonthStatuses,
+} from "./work-days";
+export type {
+  DayStatus,
+  DayStatusReason,
+  DayStatusResolution,
+  TermWeeklyClosedDaysOverride,
+} from "./work-days";
+
+import type { DayStatus } from "./work-days";
 
 /**
  * Bir dönemin varsayılan takvim ay aralığı (yıl bağımsız, ay indeksleri
@@ -141,60 +113,6 @@ export function isDateWithinTermCalendar(
   if (month !== 9) return true; // Temmuz/Ağustos her zaman geçerli
   const ext = clampSummerExtensionDay(summerExtensionEndDay);
   return ext > 0 && day <= ext;
-}
-
-/**
- * Bir günün nihai statüsünü — manuel istisna > resmî tatil > dönem haftalık
- * kuralı > açık — sırasıyla çözer.
- */
-export function resolveDayStatus(
-  date: Date,
-  term: StudentTermType,
-  manualOverrides: Pick<ClosedDay, "date" | "isOpen" | "name">[],
-  weeklyClosedDaysOverride?: TermWeeklyClosedDaysOverride
-): DayStatusResolution {
-  const ymd = toYmd(date);
-
-  // 1) Manuel admin istisnası — en yüksek öncelik.
-  const manual = manualOverrides.find((o) => o.date === ymd);
-  if (manual) {
-    return manual.isOpen
-      ? { date: ymd, status: "open", reason: "manual_open", label: manual.name || "Zorla açık" }
-      : { date: ymd, status: "closed", reason: "manual_closed", label: manual.name || "Kapalı (yönetici)" };
-  }
-
-  // 2) Resmî tatil.
-  const holiday = findOfficialHoliday(ymd);
-  if (holiday) {
-    return { date: ymd, status: "closed", reason: "official_holiday", label: holiday.name };
-  }
-
-  // 3) Dönemin haftalık kapalı gün kuralı.
-  const weekday = date.getDay(); // 0=Pazar..6=Cumartesi
-  if (weeklyClosedDaysForTerm(term, weeklyClosedDaysOverride).includes(weekday)) {
-    const label = term === "yaz" ? "Hafta sonu (Yaz dönemi kapalı)" : "Pazartesi (Güz dönemi kapalı)";
-    return { date: ymd, status: "closed", reason: "term_weekly_closed", label };
-  }
-
-  // 4) Açık gün.
-  return { date: ymd, status: "open", reason: "open", label: "Açık" };
-}
-
-/** Tüm ay için gün gün statü listesi üretir (UI ay kutusu render'ı için). */
-export function resolveMonthStatuses(
-  year: number,
-  month: number, // 1-12
-  term: StudentTermType,
-  manualOverrides: Pick<ClosedDay, "date" | "isOpen" | "name">[],
-  weeklyClosedDaysOverride?: TermWeeklyClosedDaysOverride
-): DayStatusResolution[] {
-  const daysInMonth = new Date(year, month, 0).getDate();
-  const results: DayStatusResolution[] = [];
-  for (let d = 1; d <= daysInMonth; d++) {
-    const date = new Date(year, month - 1, d, 12, 0, 0);
-    results.push(resolveDayStatus(date, term, manualOverrides, weeklyClosedDaysOverride));
-  }
-  return results;
 }
 
 export type LessonAcademicPeriod = { term: StudentTermType; academicYearStart: number; source: "explicit" | "legacy_fallback" };

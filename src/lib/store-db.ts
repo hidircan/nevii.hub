@@ -342,6 +342,7 @@ function mapSchoolToAppData(school: PrismaSchoolWithRelations): AppData {
       enrollmentStartDate: student.enrollmentStartDate?.toISOString() ?? undefined,
       lessonStartDate: student.lessonStartDate?.toISOString() ?? undefined,
       intendedDurationMonths: student.intendedDurationMonths ?? undefined,
+      lessonScheduleText: student.lessonScheduleText ?? undefined,
       enrollmentEndDate: student.enrollmentEndDate?.toISOString() ?? undefined,
       level: student.level ?? undefined,
       targetExam: student.targetExam ?? undefined,
@@ -494,6 +495,7 @@ function mapSchoolToAppData(school: PrismaSchoolWithRelations): AppData {
       term: (series as { term?: string | null }).term as import("./types").StudentTermType | undefined ?? undefined,
       academicYearStart: (series as { academicYearStart?: number | null }).academicYearStart ?? undefined,
       demoTag: (series as { demoTag?: string | null }).demoTag ?? undefined,
+      contractId: (series as { contractId?: string | null }).contractId ?? undefined,
     })),
     attendances: school.attendances.map((attendance) => ({
       id: attendance.id,
@@ -1268,6 +1270,7 @@ export async function addStudent(
       enrollmentStartDate: student.enrollmentStartDate ? new Date(student.enrollmentStartDate) : undefined,
       lessonStartDate: student.lessonStartDate ? new Date(student.lessonStartDate) : undefined,
       intendedDurationMonths: student.intendedDurationMonths,
+      lessonScheduleText: student.lessonScheduleText,
       enrollmentEndDate: student.enrollmentEndDate ? new Date(student.enrollmentEndDate) : undefined,
     },
   });
@@ -1294,6 +1297,7 @@ export async function updateStudentProfile(
       enrollmentStartDate: patch.enrollmentStartDate ? new Date(patch.enrollmentStartDate) : undefined,
       lessonStartDate: patch.lessonStartDate ? new Date(patch.lessonStartDate) : undefined,
       intendedDurationMonths: patch.intendedDurationMonths,
+      lessonScheduleText: patch.lessonScheduleText,
       enrollmentEndDate: patch.enrollmentEndDate ? new Date(patch.enrollmentEndDate) : undefined,
       level: patch.level,
       targetExam: patch.targetExam,
@@ -1916,7 +1920,9 @@ export async function addLesson(input: {
   const tid = requireTenantId();
   const validation = validateLessonSlot(
     data,
-    { instrument: input.instrument, studentId: input.studentId },
+    // `term` verilmişse haftalık kapalı gün kuralı DERSİN dönemine göre
+    // çözülür (öğrencinin varsayılan dönemine göre değil) — bkz. work-days.ts.
+    { instrument: input.instrument, studentId: input.studentId, term: input.term },
     { teacherId: input.teacherId, roomId: input.roomId, startAt: input.startAt },
     { durationMinutes: input.durationMinutes, allowAvailabilityOverride: input.allowAvailabilityOverride }
   );
@@ -2452,6 +2458,7 @@ export async function addLessonSeries(
         term: params.term,
         academicYearStart: params.academicYearStart,
         demoTag: params.demoTag,
+        contractId: params.contractId,
       },
     });
     for (const lesson of newLessons) {

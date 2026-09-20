@@ -13,7 +13,7 @@
 import { addMinutes, differenceInMinutes, parseISO } from "date-fns";
 import type { AppData, Lesson, LessonSeriesStatus } from "./types";
 import { validateLessonSlot, type SlotValidationCode } from "./makeup-engine";
-import { isWeeklyClosedDayForTerm } from "./attendance-calendar";
+import { assertWorkDaySchedulable } from "./work-days";
 import {
   DEFAULT_APP_TIMEZONE,
   addDaysYmd,
@@ -169,8 +169,16 @@ export function applyLessonRevision(data: AppData, input: LessonRevisionInput): 
   const updatedLessons: Lesson[] = [];
   for (const p of plans) {
     const startIso = p.start.toISOString();
-    if (isWeeklyClosedDayForTerm(p.start, p.lesson.term, data.settings.termWeeklyClosedDays)) {
-      conflicts.push({ lessonId: p.lesson.id, startAt: startIso, code: "CLOSED_DAY", message: "Okulun kapalı olduğu güne denk geliyor." });
+    // ÇALIŞMA GÜNÜ TEK KAYNAĞI — "zorla açık" günler burada da geçerlidir.
+    const planTerm = p.lesson.term ?? data.students.find((s) => s.id === p.lesson.studentId)?.termType ?? "guz";
+    const planDay = assertWorkDaySchedulable(
+      p.start,
+      planTerm,
+      data.closedDayOverrides ?? [],
+      data.settings.termWeeklyClosedDays
+    );
+    if (!planDay.ok) {
+      conflicts.push({ lessonId: p.lesson.id, startAt: startIso, code: "CLOSED_DAY", message: planDay.day.explanation });
       continue;
     }
     const check = validateLessonSlot(

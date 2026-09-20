@@ -2,6 +2,7 @@ import { addDays, addMinutes, format, parseISO, startOfDay } from "date-fns";
 import { tr } from "date-fns/locale";
 import type { AppData, BranchId, Instrument, Lesson, LessonSeries, LessonSeriesStatus, StudentTermType } from "./types";
 import { validateLessonSlot, type SlotValidationCode } from "./makeup-engine";
+import type { DayStatusReason } from "./work-days";
 import { dayName, uid } from "./utils";
 import { addDaysYmd, ymdToUtcNoon, zonedWallTimeToUtc } from "./timezone";
 import { canCancelLesson } from "./lesson-cancel-rules";
@@ -41,6 +42,8 @@ export type SeriesParams = {
   academicYearStart?: number;
   /** Faz 6 — demo/test amaçlı otomatik üretim etiketi; verilmezse gerçek (undefined) seri. */
   demoTag?: string;
+  /** K — seriyi üreten sözleşme (varsa); bkz. types.ts LessonSeries.contractId. */
+  contractId?: string;
 };
 
 /**
@@ -92,7 +95,15 @@ export function buildSeriesPreviewText(params: {
 
 export type SeriesOccurrenceCheck =
   | { startAt: string; endAt: string; ok: true; availabilityOverridden?: boolean }
-  | { startAt: string; endAt: string; ok: false; code: SlotValidationCode; message: string };
+  | {
+      startAt: string;
+      endAt: string;
+      ok: false;
+      code: SlotValidationCode;
+      message: string;
+      /** `DAY_CLOSED` için günün kapalı olma nedeni — bkz. makeup-engine.ts SlotValidationResult. */
+      dayReason?: DayStatusReason;
+    };
 
 /**
  * Her oluşum için TEK doğrulama kaynağından (`validateLessonSlot`) geçer —
@@ -101,7 +112,11 @@ export type SeriesOccurrenceCheck =
  */
 export function checkSeriesOccurrences(
   data: AppData,
-  params: Pick<SeriesParams, "studentId" | "teacherId" | "roomId" | "instrument"> & { durationMinutes?: number },
+  params: Pick<SeriesParams, "studentId" | "teacherId" | "roomId" | "instrument"> & {
+    durationMinutes?: number;
+    /** Serinin akademik dönemi — haftalık kapalı gün kuralı buna göre çözülür. */
+    term?: StudentTermType;
+  },
   occurrences: SeriesOccurrence[],
   now: Date = new Date(),
   /** İş 1 — bkz. makeup-engine.ts allowAvailabilityOverride yorumu; yalnızca TEACHER_UNAVAILABLE'ı atlatır. */
@@ -110,7 +125,7 @@ export function checkSeriesOccurrences(
   return occurrences.map((occ) => {
     const result = validateLessonSlot(
       data,
-      { instrument: params.instrument, studentId: params.studentId },
+      { instrument: params.instrument, studentId: params.studentId, term: params.term },
       { teacherId: params.teacherId, roomId: params.roomId, startAt: occ.startAt },
       // Seçilen seri süresi esas alınır (önceden okul varsayılanı kullanılıp 40 dk ders 45 dk kaydediliyordu).
       { now, allowAvailabilityOverride, durationMinutes: params.durationMinutes }
@@ -123,7 +138,14 @@ export function checkSeriesOccurrences(
         availabilityOverridden: result.slot.availabilityOverridden,
       };
     }
-    return { startAt: occ.startAt, endAt: occ.endAt, ok: false, code: result.code, message: result.message };
+    return {
+      startAt: occ.startAt,
+      endAt: occ.endAt,
+      ok: false,
+      code: result.code,
+      message: result.message,
+      dayReason: result.dayReason,
+    };
   });
 }
 
@@ -173,9 +195,15 @@ export function createLessonSeriesData(
   const checks = checkSeriesOccurrences(data, params, occurrences, now, options.allowAvailabilityOverride);
   const conflicts = checks.filter((c): c is Extract<SeriesOccurrenceCheck, { ok: false }> => !c.ok);
 
-  // 2026-09-19 — resmî tatil çözülmesi gereken bir çakışma DEĞİLDİR: o gün ders olmaz,
-  // oluşum otomatik atlanır ve `skippedOccurrences`te nedeniyle listelenir.
-  const blockingConflicts = conflicts.filter((c) => c.code !== "OFFICIAL_HOLIDAY");
+  /**
+   * Kapalı gün çözülmesi gereken bir ÇAKIŞMA değildir: o gün ders olmaz,
+   * oluşum otomatik atlanır ve `skippedOccurrences`te nedeniyle listelenir.
+   * TEK İSTİSNA (2026-09-20): `term_weekly_closed` — haftanın seçilen günü
+   * kurumun kapalı günüyse HER oluşum atlanır; bu bir "atlama" değil, seri
+   * gününün yanlış seçilmesidir. Sessizce 0 ders üretmek yerine aşağıdaki
+   * NO_VALID_OCCURRENCES dalı nedeni açıkça söyler.
+   */
+  const blockingConflicts = conflicts.filter((c) => c.code !== "DAY_CLOSED");
   if (blockingConflicts.length > 0 && !options.skipConflicts) {
     return {
       ok: false,
@@ -187,12 +215,15 @@ export function createLessonSeriesData(
 
   const validChecks = checks.filter((c): c is Extract<SeriesOccurrenceCheck, { ok: true }> => c.ok);
   if (validChecks.length === 0) {
-    return {
-      ok: false,
-      code: "NO_VALID_OCCURRENCES",
-      message: "Seçilen dönemde uygun tek bir tarih bile yok.",
-      conflicts: checks,
-    };
+    // Türkçe hata, gerçek nedeni ve düzeltme yolunu söyler (owner kuralı).
+    const weeklyClosed = conflicts.find((c) => c.dayReason === "term_weekly_closed");
+    const allDayClosed = conflicts.length > 0 && conflicts.every((c) => c.code === "DAY_CLOSED");
+    const message = weeklyClosed
+      ? `${weeklyClosed.message} Seri için kurumun açık olduğu bir gün seçin.`
+      : allDayClosed
+        ? `Seçilen aralıktaki tüm tarihler kapalı gün. ${conflicts[0]!.message}`
+        : "Seçilen dönemde uygun tek bir tarih bile yok.";
+    return { ok: false, code: "NO_VALID_OCCURRENCES", message, conflicts: checks };
   }
 
   const seriesId = uid("series");
@@ -215,6 +246,7 @@ export function createLessonSeriesData(
     term: params.term,
     academicYearStart: params.academicYearStart,
     demoTag: params.demoTag,
+    contractId: params.contractId,
   };
 
   const newLessons: Lesson[] = validChecks.map((c) => ({

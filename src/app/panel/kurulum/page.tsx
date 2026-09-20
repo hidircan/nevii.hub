@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, BellRing, Building2, CheckCircle2, Circle, DoorOpen, Download, Music, RefreshCcw, Upload } from "lucide-react";
+import { ArrowRight, BellRing, Building2, CalendarDays, CheckCircle2, Circle, DoorOpen, Download, Music, RefreshCcw, Upload } from "lucide-react";
 import { actionResetDemo, actionResetToCleanTemplate } from "@/lib/actions";
 import { isLocalDevTooling } from "@/lib/config";
 import { readData } from "@/lib/store";
@@ -8,9 +8,8 @@ import { computeSetupProgress, type SetupStepId } from "@/lib/setup-progress";
 import { EXPORT_ENTITIES, type ExportEntity } from "@/lib/export/institution-export";
 import { DEFAULT_COLLECTIONS_SETTINGS } from "@/lib/types";
 import { CollectionsSettingsForm } from "@/components/collections-settings-form";
-import { TermWeeklyScheduleEditor } from "@/components/term-weekly-schedule-editor";
 import { AcademicTermDatesForm } from "@/components/academic-term-dates-form";
-import { FALL_WEEKLY_CLOSED_DAYS, SUMMER_WEEKLY_CLOSED_DAYS, currentAcademicAnchorYear } from "@/lib/attendance-calendar";
+import { currentAcademicAnchorYear } from "@/lib/attendance-calendar";
 import { defaultAcademicTermDates } from "@/lib/academic-term-dates";
 import { SetupResetAction } from "@/components/setup-reset-action";
 import { QuickTaskLink } from "@/components/quick-task-link";
@@ -269,10 +268,28 @@ export default async function KurulumPage() {
         </div>
       </Card>
 
-      <TermWeeklyScheduleEditor
-        initialGuz={data.settings.termWeeklyClosedDays?.guz ?? FALL_WEEKLY_CLOSED_DAYS}
-        initialYaz={data.settings.termWeeklyClosedDays?.yaz ?? SUMMER_WEEKLY_CLOSED_DAYS}
-      />
+      {/* Çalışma günü kuralları TEK ekranda toplandı (2026-09-20): haftalık
+          kural + gün istisnaları (zorla aç/kapat) + birleşik önizleme. Burada
+          ikinci bir düzenleyici tutmak, aynı ayarın iki yerden farklı
+          görünmesine yol açıyordu. */}
+      <Card className="mb-6">
+        <div className="flex items-start gap-3">
+          <CalendarDays className="mt-0.5 h-5 w-5 shrink-0 text-[var(--color-text-muted)]" />
+          <div className="flex-1">
+            <p className="font-semibold text-[var(--color-text)] dark:text-slate-50">Çalışma Günleri</p>
+            <p className="mt-1 text-sm text-[var(--color-text-muted)]">
+              Dönem bazlı haftalık kapalı günler, resmî tatiller ve gün istisnaları (zorla aç / zorla
+              kapat) tek ekranda yönetilir. Ders planlama, yoklama ve ücret önizlemesi aynı kuralı kullanır.
+            </p>
+            <Link
+              href="/panel/ayarlar/calisma-gunleri"
+              className="mt-3 inline-block text-sm font-medium text-[var(--color-primary)] hover:text-[var(--color-primary-hover)]"
+            >
+              Çalışma Günleri ekranını aç →
+            </Link>
+          </div>
+        </div>
+      </Card>
 
       <AcademicTermDatesForm
         initial={data.settings.academicTermDates ?? defaultAcademicTermDates(currentAcademicAnchorYear("guz"))}

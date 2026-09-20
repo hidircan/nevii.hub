@@ -13,11 +13,15 @@ function at(dayOffset: number, hour: number, minute = 0): string {
   return d.toISOString();
 }
 
-/** Fixture'ın çalışma günleri Pazartesi-Cuma; verilen minimum gün farkından itibaren ilk çalışma gününü bulur. */
+/**
+ * Fixture'ın çalışma günleri Salı–Cuma. 2026-09-20: Pazartesi Güz döneminin
+ * KAPALI günü olduğu için artık hiçbir ders (telafi dahil) o güne
+ * planlanamaz — bkz. src/lib/work-days.ts.
+ */
 function nextWorkingDayOffset(minOffset: number): number {
   for (let offset = minOffset; offset <= minOffset + 10; offset++) {
     const dow = new Date(at(offset, 12)).getDay();
-    if (dow >= 1 && dow <= 5) return offset;
+    if (dow >= 2 && dow <= 5) return offset;
   }
   throw new Error("no working day found within range");
 }
@@ -233,10 +237,11 @@ describe("makeup-engine · manuel telafi planlama validasyonu", () => {
 
   it("öğretmen availability dışındaki saat reddedilir", () => {
     const data = buildFixture();
-    data.teachers[0].availability = [{ dayOfWeek: 1, start: "09:00", end: "12:00" }];
+    // Pazartesi (dayOfWeek 1) artık kapalı gün; senaryo öğretmen müsaitliğini sınadığı için Salı kullanılır.
+    data.teachers[0].availability = [{ dayOfWeek: 2, start: "09:00", end: "12:00" }];
     const request = data.makeupRequests[0];
-    const mondayOffset = nextDayOffsetForWeekday(1, 3);
-    const startAt = at(mondayOffset, 16, 0);
+    const workdayOffset = nextDayOffsetForWeekday(2, 3);
+    const startAt = at(workdayOffset, 16, 0);
 
     const result = validateLessonSlot(data, request, { teacherId: "t1", roomId: "r1", startAt });
     expect(result.ok).toBe(false);

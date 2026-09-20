@@ -97,10 +97,13 @@ import {
 } from "../periodic-assessment";
 import { createPeriodicAssessmentSchema } from "../validation";
 import type { PeriodicAssessment } from "../types";
+import type { ClosedDay } from "../types";
+import type { Lesson } from "../types";
 import { checkAndNotifyMissingHomework } from "../homework-lesson-check";
 import { notifyAttendanceRiskIfThresholdCrossed } from "../attendance-risk-check";
 import { setClosedDay, listClosedDays } from "../closed-day-overrides";
-import { resolveDayStatus, isWeeklyClosedDayForTerm } from "../attendance-calendar";
+import { resolveDayStatus } from "../attendance-calendar";
+import { assertWorkDaySchedulable } from "../work-days";
 import {
   setSocialMediaConsent,
   getLatestSocialMediaConsent,
@@ -2039,7 +2042,12 @@ export async function createStudentTool(
     const hasExactLessonDays =
       v.data.lessonDays && v.data.lessonDays.length === v.data.weeklyLessonCount;
     const firstPeriodBillableCount = hasExactLessonDays
-      ? countExactWeekdayLessons(startDay, firstPeriodEnd, v.data.lessonDays!)
+      ? countExactWeekdayLessons(startDay, firstPeriodEnd, v.data.lessonDays!, {
+          // Çalışma günü tek kaynağı — kapalı gün ücretlendirilmez, açılan gün ücretlendirilir.
+          term: v.data.termType ?? "guz",
+          overrides: before.closedDayOverrides ?? [],
+          weeklyClosedDays: before.settings.termWeeklyClosedDays,
+        })
       : estimatePeriodBillingLines({
           enrollmentStartDay: startDay,
           enrollmentEndDay: firstPeriodEnd,
@@ -5290,18 +5298,27 @@ export async function createLessonTool(
       if (!gate.ok) return gate;
     }
   }
-  // ÖNCELİK 4 (devam) — dönem seçiliyse (Program ekranından geliyorsa) o
-  // dönemin haftalık kapalı gün kuralı uygulanır (varsayılan Güz: Pazartesi,
-  // Yaz: Cts/Paz — okul `termWeeklyClosedDays` ile özelleştirmişse o esas
-  // alınır); term verilmemişse LEGACY davranış (yalnızca Pazartesi) korunur.
+  /**
+   * ÇALIŞMA GÜNÜ TEK KAYNAĞI (2026-09-20). Burada eskiden `isWeeklyClosedDayForTerm`
+   * DOĞRUDAN çağrılıyordu; o fonksiyon yöneticinin "zorla açık" istisnasını
+   * görmediği için, açılmış bir Pazartesi'ye ders oluşturma `validateLessonSlot`a
+   * hiç ULAŞMADAN burada reddediliyordu. Artık her iki katman da
+   * `src/lib/work-days.ts`'i kullanır; kural tek yerde tanımlıdır.
+   *
+   * Kontrol burada da KALIR (store'a inmeden önce) çünkü hata mesajı bu
+   * katmanda `VALIDATION_ERROR` olarak, alan bazlı biçimde dönüyor.
+   */
   const settingsForClosedDays = await readData();
-  if (isWeeklyClosedDayForTerm(new Date(v.data.startAt), v.data.term, settingsForClosedDays.settings.termWeeklyClosedDays)) {
-    return fail(
-      "VALIDATION_ERROR",
-      v.data.term
-        ? `${v.data.term === "yaz" ? "Cumartesi/Pazar" : "Pazartesi"} bu dönemde okul kapalıdır — bu gün için ders planlanamaz.`
-        : "Pazartesi okul kapalıdır — bu gün için ders planlanamaz."
-    );
+  const creationTerm =
+    v.data.term ?? settingsForClosedDays.students.find((s) => s.id === v.data.studentId)?.termType ?? "guz";
+  const creationDay = assertWorkDaySchedulable(
+    new Date(v.data.startAt),
+    creationTerm,
+    settingsForClosedDays.closedDayOverrides ?? [],
+    settingsForClosedDays.settings.termWeeklyClosedDays
+  );
+  if (!creationDay.ok) {
+    return fail("VALIDATION_ERROR", creationDay.message);
   }
 
   try {
@@ -10733,12 +10750,11 @@ export async function setLessonOpsFlagTool(
   const student = data.students.find((s) => s.id === lesson.studentId);
   const term = student?.termType ?? "guz";
   const overrides = await listClosedDays(ctx.tenantId);
-  const dayStatus = resolveDayStatus(new Date(lesson.startAt), term, overrides, data.settings.termWeeklyClosedDays);
+  const { resolveWorkDay, FORCE_OPEN_HINT } = await import("../work-days");
+  const dayStatus = resolveWorkDay(new Date(lesson.startAt), term, overrides, data.settings.termWeeklyClosedDays);
   if (dayStatus.status === "closed") {
-    return fail(
-      "VALIDATION_ERROR",
-      `Bu gün kapalı (${dayStatus.label}) — yoklama/tahsilat işlemi yapılamaz.`
-    );
+    // Owner kuralı: gerçek neden + nasıl düzeltilir. "Kapalı gün" tek başına yeterli değil.
+    return fail("VALIDATION_ERROR", `${dayStatus.explanation} Bu güne yoklama/tahsilat işlemi yapılamaz. ${FORCE_OPEN_HINT}`);
   }
 
   const current = effectiveLessonOpsStatus(lesson);
@@ -11237,6 +11253,46 @@ export async function setDayOverrideTool(
   } catch (e) {
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "setDayOverride failed");
   }
+}
+
+/**
+ * Çalışma Günleri ekranı — yöneticinin koyduğu tüm gün istisnalarını listeler.
+ * Salt okunur; `readData()`'in `closedDayOverrides` alanıyla AYNI kaynaktır.
+ */
+export async function listDayOverridesTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ overrides: ClosedDay[] }>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const v = parseOrFail(
+    z.object({
+      from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    }),
+    input ?? {}
+  );
+  if (!v.ok) return v;
+  const range = v.data.from && v.data.to ? { from: v.data.from, to: v.data.to } : undefined;
+  return ok({ overrides: await listClosedDays(ctx.tenantId, range) });
+}
+
+/** İstisnayı kaldırır — gün, altındaki resmî tatil/dönem kuralına geri döner. */
+export async function removeDayOverrideTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ date: string; removed: boolean }>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const v = parseOrFail(z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }), input);
+  if (!v.ok) return v;
+  const { removeClosedDay } = await import("../closed-day-overrides");
+  const removed = await removeClosedDay(ctx.tenantId, v.data.date);
+  if (!removed) {
+    return fail("NOT_FOUND", `${v.data.date} tarihi için bir istisna kaydı bulunamadı; kaldırılacak bir şey yok.`);
+  }
+  audit(ctx, "attendance_calendar.day_override.remove", "ClosedDay", v.data.date, { date: v.data.date });
+  return ok({ date: v.data.date, removed: true });
 }
 
 /**

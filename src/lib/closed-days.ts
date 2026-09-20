@@ -1,32 +1,17 @@
 /**
- * PRODUCT_BACKLOG §4.1–4.2 — Pazartesi kapalı + kapalı günler.
- * Saf yardımcılar; store katmanı ClosedDay listesini okur.
+ * PRODUCT_BACKLOG §4.1–4.2 — takvim sabitleri + Türkiye sabit tarihli tatiller.
+ *
+ * 2026-09-20: "bu gün açık mı?" kuralı BURADAN KALDIRILDI. Tek kaynak
+ * `src/lib/work-days.ts`'tir (yönetici istisnası > resmî tatil > dönemin
+ * haftalık kapalı günü > açık). Burada kalan `isMonday`/`toYmd` yalnız
+ * biçimsel yardımcılardır ve kapalı gün kararı VERMEZ.
  */
-
-import type { ClosedDay } from "./types";
 
 /** Pazartesi = 1 (date-fns / JS: 0=Pazar ... 6=Cumartesi) */
 export const SCHOOL_CLOSED_WEEKDAY = 1; // Monday
 
 export function isMonday(date: Date): boolean {
   return date.getDay() === SCHOOL_CLOSED_WEEKDAY;
-}
-
-export function isDateClosed(
-  isoDateOrDateTime: string,
-  closedDays: Pick<ClosedDay, "date">[],
-  opts?: { allowMonday?: boolean }
-): { closed: boolean; reason?: string } {
-  const d = new Date(isoDateOrDateTime);
-  if (Number.isNaN(d.getTime())) return { closed: true, reason: "Geçersiz tarih" };
-  if (!opts?.allowMonday && isMonday(d)) {
-    return { closed: true, reason: "Pazartesi okul kapalıdır." };
-  }
-  const ymd = toYmd(d);
-  if (closedDays.some((c) => c.date === ymd)) {
-    return { closed: true, reason: "Bu gün kapalı gün / tatil." };
-  }
-  return { closed: false };
 }
 
 export function toYmd(d: Date): string {

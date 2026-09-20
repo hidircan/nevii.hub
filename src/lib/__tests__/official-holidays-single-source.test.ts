@@ -53,18 +53,19 @@ describe("tek kaynak: takvim, planlama, ücret ve Ders Programı", () => {
     const res = validateLessonSlot(data, { instrument: "Piyano", studentId: "s1" }, { teacherId: "t1", roomId: "r1", startAt: "2026-10-29T12:00:00.000Z" });
     expect(res.ok).toBe(false);
     if (!res.ok) {
-      expect(res.code).toBe("OFFICIAL_HOLIDAY");
-      expect(res.message).toMatch(/Cumhuriyet Bayramı resmî tatildir/);
+      expect(res.code).toBe("DAY_CLOSED");
+      expect(res.message).toMatch(/Cumhuriyet Bayramı — resmî tatil/);
     }
   });
 
   it("kayıt önizlemesi kesin ders sayımı tatili saymaz (Ekim 2026 Perşembe: 5 → 4, 29 Ekim)", () => {
-    expect(countExactWeekdayLessons("2026-10-01", "2026-10-31", [4])).toBe(4);
+    expect(countExactWeekdayLessons("2026-10-01", "2026-10-31", [4], { term: "guz", overrides: [] })).toBe(4);
   });
 
-  it("Ders Programı başlığı aynı findOfficialHoliday kaynağını kullanır (yalnız sabit günler değil)", () => {
+  it("Ders Programı kendi hafta günü/tatil kuralını UYDURMAZ — sunucudan gelen tek kaynağı okur", () => {
     const code = readFileSync(path.resolve(import.meta.dirname, "../../components/program-studio.tsx"), "utf-8");
-    expect(code).toMatch(/findOfficialHoliday\(toYmd\(day\)\)/);
+    expect(code).toMatch(/dayStatuses\?\.\[toYmd\(d\)\]/);
+    expect(code).not.toMatch(/findOfficialHoliday/);
     expect(code).not.toMatch(/turkeyFixedPublicHolidays/);
   });
 });

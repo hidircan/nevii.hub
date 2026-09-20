@@ -86,7 +86,11 @@ function studentFormData(): FormData {
   // sayıda gün olmalı — ikisi de actionAddStudent'ın YENİ sunucu-taraflı
   // gate'lerinden geçmek için gerekli.
   fd.set("enrollmentStartDate", "2026-09-01");
-  fd.append("lessonDays", "1");
+  // 2026-09-20: Pazartesi (1) Güz döneminin KAPALI günü olduğu için artık
+  // ücretlendirilmiyor. Perşembe (4) seçildi — Eylül 2026'da ders adetleri
+  // Pazartesi ile birebir aynı (3, 10, 17, 24), bu yüzden tüm tutar
+  // beklentileri DEĞİŞMEDEN geçerli kalır.
+  fd.append("lessonDays", "4");
   return fd;
 }
 
@@ -273,7 +277,7 @@ describe("actionAddStudent — P0-B: ilk ödeme düzeltme gerekçesi", () => {
 
   it("(C) otomatik öneri ≠ fiili tutar, gerekçe HİÇ girilmedi — alan bazlı hata döner (genel 'Invalid input' DEĞİL), form verisi korunur, kayıt OLUŞTURULMAZ", async () => {
     const fd = studentFormData();
-    fd.set("enrollmentStartDate", "2026-09-08"); // tam ay değil, lessonDays=[1] Pazartesi → dönemde 3 Pazartesi (KESİN) → otomatik öneri 2250, 3000'den farklı
+    fd.set("enrollmentStartDate", "2026-09-08"); // tam ay değil, lessonDays=[4] Perşembe → dönemde 3 Perşembe (KESİN) → otomatik öneri 2250, 3000'den farklı
     fd.set("firstPaymentAmount", "3000");
     fd.set("firstPaymentDate", "2026-09-10");
     const before = await readData();
@@ -379,7 +383,7 @@ describe("actionAddStudent — P0-C: ilk ödeme türü ve ders günü zorunlulu�
   it("weeklyLessonCount=2 iken AYNI gün iki kez seçilirse (yinelenen) reddedilir", async () => {
     const fd = studentFormData();
     fd.set("weeklyLessonCount", "2");
-    fd.append("lessonDays", "1"); // zaten var olan "1" ile birlikte [1,1] — yinelenen
+    fd.append("lessonDays", "4"); // zaten var olan "4" ile birlikte [4,4] — yinelenen
     const before = await readData();
     const result = await actions.actionAddStudent(null, fd);
     expect(result?.ok).toBe(false);
@@ -391,7 +395,7 @@ describe("actionAddStudent — P0-C: ilk ödeme türü ve ders günü zorunlulu�
   it("weeklyLessonCount=2 ve 2 FARKLI gün seçilirse kayıt başarılı olur", async () => {
     const fd = studentFormData();
     fd.set("weeklyLessonCount", "2");
-    fd.append("lessonDays", "4"); // [1,4] — 2 farklı gün
+    fd.append("lessonDays", "2"); // [4,2] — 2 farklı gün
     await expect(actions.actionAddStudent(null, fd)).rejects.toThrow("NEXT_REDIRECT");
     const after = await readData();
     expect(after.students.some((s) => s.name === "Test Öğrenci")).toBe(true);

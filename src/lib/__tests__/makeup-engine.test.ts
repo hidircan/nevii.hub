@@ -12,7 +12,13 @@ function at(dayOffset: number, hour: number, minute = 0): string {
   return d.toISOString();
 }
 
-/** Fixture'ın tek çalışma günü Pazartesi (dayOfWeek 1); testler için sıradaki Pazartesi'nin gün farkını bulur. */
+/**
+ * 2026-09-20 — fixture'ın çalışma günü Pazartesi'den SALI'ya (dayOfWeek 2)
+ * alındı: Pazartesi artık Güz döneminin kapalı günü olduğu için hiçbir ders
+ * (telafi dahil) o güne planlanamaz (bkz. src/lib/work-days.ts). Testlerin
+ * amacı telafi öneri/onay mantığı; kapalı gün kuralı ayrı test edilir
+ * (work-days-override.test.ts).
+ */
 function nextDayOffsetForWeekday(targetDow: number): number {
   for (let offset = 1; offset <= 14; offset++) {
     const d = new Date(NOW);
@@ -65,7 +71,8 @@ function buildFixture(overrides?: { extraLesson?: Partial<AppData> }): AppData {
       makeupWindowDays: 14,
       lessonDurationMinutes: 45,
       workingHours: { start: "10:00", end: "14:00" },
-      workingDays: [1],
+      // 2026-09-20 — Salı (2): Pazartesi artık Güz döneminin kapalı günü.
+      workingDays: [2],
       currency: "TRY",
       feeRoundingMode: "exact_minutes",
       branches: [
@@ -87,7 +94,7 @@ function buildFixture(overrides?: { extraLesson?: Partial<AppData> }): AppData {
         phone: "",
         branchId: "erzene",
         instruments: ["Piyano"],
-        availability: [{ dayOfWeek: 1, start: "10:00", end: "14:00" }],
+        availability: [{ dayOfWeek: 2, start: "10:00", end: "14:00" }],
         maxDailyLessons: 8,
         active: true,
         color: "#000",
@@ -190,7 +197,7 @@ describe("makeup-engine · suggestMakeupSlots", () => {
 
   it("öğretmen müsait değilse slot üretmez", () => {
     const data = buildFixture();
-    data.teachers[0].availability = [{ dayOfWeek: 1, start: "08:00", end: "09:00" }];
+    data.teachers[0].availability = [{ dayOfWeek: 2, start: "08:00", end: "09:00" }];
     const slots = suggestMakeupSlots(data, data.makeupRequests[0], {
       maxSlots: 3,
       daysAhead: 14,
@@ -225,10 +232,10 @@ describe("makeup-engine · confirmMakeupSlot", () => {
   it("ders oluşturur ve talebi confirmed yapar (EPIC 10: karar bilgisi + SLA de yazılır)", () => {
     const data = buildFixture();
     const request = data.makeupRequests[0];
-    const mondayOffset = nextDayOffsetForWeekday(1);
+    const workdayOffset = nextDayOffsetForWeekday(2);
     const slot: MakeupSlot = {
-      startAt: at(mondayOffset, 10, 0),
-      endAt: at(mondayOffset, 10, 45),
+      startAt: at(workdayOffset, 10, 0),
+      endAt: at(workdayOffset, 10, 45),
       teacherId: "t1",
       roomId: "r1",
       branchId: "erzene",
@@ -274,10 +281,10 @@ describe("makeup-engine · confirmMakeupSlot", () => {
   it("zaten onaylanmış talebi tekrar onaylatmaz (çift onay koruması)", () => {
     const data = buildFixture();
     const request = data.makeupRequests[0];
-    const mondayOffset = nextDayOffsetForWeekday(1);
+    const workdayOffset = nextDayOffsetForWeekday(2);
     const slot: MakeupSlot = {
-      startAt: at(mondayOffset, 10, 0),
-      endAt: at(mondayOffset, 10, 45),
+      startAt: at(workdayOffset, 10, 0),
+      endAt: at(workdayOffset, 10, 45),
       teacherId: "t1",
       roomId: "r1",
       branchId: "erzene",

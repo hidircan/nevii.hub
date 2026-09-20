@@ -523,7 +523,9 @@ export async function addLesson(input: {
   const data = load();
   const validation = validateLessonSlot(
     data,
-    { instrument: input.instrument, studentId: input.studentId },
+    // `term` verilmişse haftalık kapalı gün kuralı DERSİN dönemine göre
+    // çözülür (öğrencinin varsayılan dönemine göre değil) — bkz. work-days.ts.
+    { instrument: input.instrument, studentId: input.studentId, term: input.term },
     { teacherId: input.teacherId, roomId: input.roomId, startAt: input.startAt },
     { durationMinutes: input.durationMinutes, allowAvailabilityOverride: input.allowAvailabilityOverride }
   );

@@ -1,7 +1,7 @@
 import { differenceInMinutes, parseISO } from "date-fns";
 import type { AppData, Lesson } from "./types";
 import { validateLessonSlot, type SlotValidationCode } from "./makeup-engine";
-import { isWeeklyClosedDayForTerm } from "./attendance-calendar";
+import { assertWorkDaySchedulable, FORCE_OPEN_HINT } from "./work-days";
 import { lessonCancelBlockReason } from "./lesson-cancel-rules";
 
 export type LessonUpdateErrorCode =
@@ -72,14 +72,28 @@ export function applyLessonScheduleUpdate(
    * gelinsin uygulanır (tool, ajan, gelecekteki manuel form) — daha önce
    * yalnız tek çağıranı koruyordu. Mesajlar bilinçli olarak DEĞİŞMEDİ.
    */
-  if (input.startAt && isWeeklyClosedDayForTerm(parseISO(input.startAt), lesson.term, data.settings.termWeeklyClosedDays)) {
-    return {
-      ok: false,
-      code: "CLOSED_DAY",
-      message: lesson.term
-        ? `${lesson.term === "yaz" ? "Cumartesi/Pazar" : "Pazartesi"} bu dönemde okul kapalıdır — ders bu güne taşınamaz.`
-        : "Pazartesi okul kapalıdır — ders bu güne taşınamaz.",
-    };
+  if (input.startAt) {
+    /**
+     * 2026-09-20 — ÇALIŞMA GÜNÜ TEK KAYNAĞI. Buradaki kontrol eskiden
+     * doğrudan `isWeeklyClosedDayForTerm`i çağırıyordu; o fonksiyon
+     * yöneticinin "zorla açık" istisnasını GÖRMEZ, bu yüzden açılmış bir
+     * Pazartesi'ye ders TAŞINAMIYORDU (oluşturulabildiği hâlde). Artık
+     * planlama doğrulamasının kullandığı aynı çözümleyiciden geçer.
+     */
+    const term = lesson.term ?? data.students.find((s) => s.id === lesson.studentId)?.termType ?? "guz";
+    const workDay = assertWorkDaySchedulable(
+      parseISO(input.startAt),
+      term,
+      data.closedDayOverrides ?? [],
+      data.settings.termWeeklyClosedDays
+    );
+    if (!workDay.ok) {
+      return {
+        ok: false,
+        code: "CLOSED_DAY",
+        message: `${workDay.day.explanation} Ders bu güne taşınamaz. ${FORCE_OPEN_HINT}`,
+      };
+    }
   }
 
   const currentDuration = differenceInMinutes(parseISO(lesson.endAt), currentStart);

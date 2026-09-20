@@ -1,7 +1,7 @@
-import { isDateClosed } from "./closed-days";
 import { addMinutes, isBefore } from "date-fns";
 import { DEFAULT_APP_TIMEZONE, addDaysYmd, toZonedYmd, ymdToUtcNoon, zonedWallTimeToUtc } from "./timezone";
-import type { AppData, Instrument } from "./types";
+import type { AppData, Instrument, StudentTermType } from "./types";
+import { assertWorkDaySchedulable } from "./work-days";
 import { validateLessonSlot, type ValidatedSlot } from "./makeup-engine";
 
 export type LessonSlotSuggestion = ValidatedSlot & {
@@ -121,12 +121,29 @@ export function suggestLessonSlots(
 }
 
 
-/** PRODUCT_BACKLOG §4 — planlama kapalı gün/Pazartesi engeli */
+/**
+ * Planlama kapalı gün engeli — ÇALIŞMA GÜNÜ TEK KAYNAĞI (src/lib/work-days.ts).
+ *
+ * 2026-09-20 kök neden: burası `isDateClosed`'u çağırıyordu; o fonksiyon
+ * yalnız "Pazartesi" + verilen tarih listesine bakıyor, `ClosedDay.isOpen`
+ * bayrağını HİÇ okumuyordu — yani yöneticinin "zorla açık" ettiği bir gün
+ * yine reddediliyordu. Üstelik tek çağıranı (`createTrialLessonTool`) listeyi
+ * BOŞ geçiyordu, dolayısıyla istisnalar deneme dersi planlamasına hiç
+ * ulaşmıyordu. Artık ders planlama doğrulamasının (`validateLessonSlot`)
+ * kullandığı aynı çözümleyiciden geçer.
+ */
 export function assertSchedulableDate(
   startAtIso: string,
-  closedDays: { date: string }[] = []
+  data: Pick<AppData, "settings" | "closedDayOverrides">,
+  term: StudentTermType = "guz"
 ): { ok: true } | { ok: false; message: string } {
-  const r = isDateClosed(startAtIso, closedDays);
-  if (r.closed) return { ok: false, message: r.reason || "Bu tarihte planlama yapılamaz." };
-  return { ok: true };
+  const start = new Date(startAtIso);
+  if (Number.isNaN(start.getTime())) return { ok: false, message: "Geçerli bir tarih ve saat seçin." };
+  const result = assertWorkDaySchedulable(
+    start,
+    term,
+    data.closedDayOverrides ?? [],
+    data.settings.termWeeklyClosedDays
+  );
+  return result.ok ? { ok: true } : { ok: false, message: result.message };
 }

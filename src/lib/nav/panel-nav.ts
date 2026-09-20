@@ -109,6 +109,8 @@ export const PANEL_SYSTEM_NAV: PanelNavItem[] = [
   { href: "/panel/ayarlar/ozellikler", label: "Kurum Özellikleri", icon: ShieldCheck, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
   { href: "/panel/ayarlar/entegrasyonlar", label: "Kurum Entegrasyonları", icon: Activity, roles: ["SUPER_ADMIN"] },
   { href: "/panel/kurulum", label: "Kurulum Merkezi", icon: Settings },
+  /** ÇALIŞMA GÜNÜ TEK KAYNAĞI — haftalık kural + resmî tatil + zorla aç/kapat istisnaları. */
+  { href: "/panel/ayarlar/calisma-gunleri", label: "Çalışma Günleri", icon: CalendarDays, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
   { href: "/panel/veri-aktar", label: "Veri Aktarım Merkezi", icon: Upload },
   /**
    * "Görünüm Ayarları" BİLİNÇLİ olarak burada YOK — kişisel bir tercih,

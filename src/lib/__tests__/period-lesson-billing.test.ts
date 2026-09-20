@@ -511,20 +511,44 @@ describe("derivePerLessonAmount — ACİL DÜZELTME (2026-09-02): yöneticinin g
 });
 
 describe("countExactWeekdayLessons — P0-C seçilen ders günlerinin dönem içinde TAM sayısı", () => {
-  it("tek gün (Pazartesi=1), tam Eylül 2026 ayı: 4 Pazartesi", () => {
-    expect(countExactWeekdayLessons("2026-09-01", "2026-09-30", [1])).toBe(4);
+  /**
+   * 2026-09-20 — sayım artık ÇALIŞMA GÜNÜ tek kaynağından geçer: kapalı bir
+   * güne ders planlanamadığı için o gün ücrete de girmez. Bu yüzden
+   * senaryolar Güz döneminde AÇIK olan günlerle (Salı=2, Perşembe=4) kurulur;
+   * Pazartesi (kapalı gün) davranışı ayrıca aşağıda doğrulanır.
+   */
+  const GUZ = { term: "guz" as const, overrides: [] };
+
+  it("tek gün (Salı=2), tam Eylül 2026 ayı: 5 Salı (1, 8, 15, 22, 29)", () => {
+    expect(countExactWeekdayLessons("2026-09-01", "2026-09-30", [2], GUZ)).toBe(5);
   });
 
-  it("iki farklı gün (Pazartesi+Perşembe), tam Eylül 2026 ayı: 4+4=8", () => {
-    expect(countExactWeekdayLessons("2026-09-01", "2026-09-30", [1, 4])).toBe(8);
+  it("iki farklı gün (Salı+Perşembe), tam Eylül 2026 ayı: 5+4=9", () => {
+    expect(countExactWeekdayLessons("2026-09-01", "2026-09-30", [2, 4], GUZ)).toBe(9);
   });
 
-  it("kısa ilk dönem (15 Eylül - 30 Eylül), yalnız Pazartesi: 21 ve 28 → 2", () => {
-    expect(countExactWeekdayLessons("2026-09-15", "2026-09-30", [1])).toBe(2);
+  it("kısa ilk dönem (15 Eylül - 30 Eylül), yalnız Salı: 15, 22, 29 → 3", () => {
+    expect(countExactWeekdayLessons("2026-09-15", "2026-09-30", [2], GUZ)).toBe(3);
+  });
+
+  it("Güz döneminin kapalı günü (Pazartesi) ücretlendirilmez; zorla açılırsa sayılır", () => {
+    expect(countExactWeekdayLessons("2026-09-01", "2026-09-30", [1], GUZ)).toBe(0);
+    expect(
+      countExactWeekdayLessons("2026-09-01", "2026-09-30", [1], {
+        term: "guz",
+        overrides: [
+          {
+            date: "2026-09-07",
+            name: "Telafi günü",
+            isOpen: true,
+          },
+        ],
+      })
+    ).toBe(1);
   });
 
   it("boş gün listesi → 0, aralık ters ise → 0 (negatif/hatalı değer YOK)", () => {
-    expect(countExactWeekdayLessons("2026-09-01", "2026-09-30", [])).toBe(0);
-    expect(countExactWeekdayLessons("2026-09-30", "2026-09-01", [1])).toBe(0);
+    expect(countExactWeekdayLessons("2026-09-01", "2026-09-30", [], GUZ)).toBe(0);
+    expect(countExactWeekdayLessons("2026-09-30", "2026-09-01", [2], GUZ)).toBe(0);
   });
 });

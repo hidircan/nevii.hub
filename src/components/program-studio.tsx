@@ -38,7 +38,7 @@ import { INSTRUMENTS, type Instrument, type Lesson, type Room, type Student, typ
 import { dayName } from "@/lib/utils";
 import { DEFAULT_LESSON_DURATION_MINUTES, LESSON_DURATION_OPTIONS } from "@/lib/lesson-duration";
 import { CALENDAR_START_HOUR, toYmd } from "@/lib/closed-days";
-import { findOfficialHoliday } from "@/lib/turkish-holidays";
+import type { WorkDayResolution } from "@/lib/work-days";
 import {
   lessonMatchesAcademicPeriod,
   lessonCardFillStyle,
@@ -77,6 +77,15 @@ type ProgramStudioProps = {
    * enstrümanlar) — verilmezse `INSTRUMENTS`'a düşer (geriye dönük uyumlu).
    */
   catalogInstruments?: string[];
+  /**
+   * ÇALIŞMA GÜNÜ — TEK KAYNAK (2026-09-20). `days` içindeki her gün için
+   * sunucuda `resolveWorkDay` ile çözülmüş durum (yyyy-MM-dd anahtarlı).
+   * Izgara kendi hafta günü kuralını UYDURMAZ: yöneticinin "zorla açık"
+   * işaretlediği Pazartesi burada sütun olarak GÖRÜNÜR, "zorla kapalı"
+   * işaretlediği Çarşamba GÖRÜNMEZ — Yoklama Takvimi ve ders planlama
+   * doğrulamasıyla birebir aynı cevap.
+   */
+  dayStatuses?: Record<string, WorkDayResolution>;
 };
 
 /**
@@ -109,15 +118,6 @@ function slotStarts(startMin: number, endMin: number) {
   const slots: number[] = [];
   for (let t = startMin; t < endMin; t += SLOT_MINUTES) slots.push(t);
   return slots;
-}
-
-/**
- * Resmî tatil başlığı — Yoklama Takvimi ve ders planlama doğrulamasıyla AYNI kaynak
- * (`findOfficialHoliday`: sabit millî günler + Diyanet doğrulamalı dini bayramlar).
- * Eskiden yalnız sabit günler işaretleniyordu; bayramlar Ders Programı'nda görünmüyordu.
- */
-function officialHolidayName(day: Date): string | null {
-  return findOfficialHoliday(toYmd(day))?.name ?? null;
 }
 
 function minutesOfDay(iso: string) {
@@ -576,6 +576,7 @@ export function ProgramStudio({
   selectedTerm,
   selectedAcademicYearStart,
   catalogInstruments,
+  dayStatuses,
 }: ProgramStudioProps) {
   const router = useRouter();
   const now = parseISO(todayIso);
@@ -614,14 +615,24 @@ export function ProgramStudio({
         })
       : effectiveWeekLessons;
 
-  // ÖNCELİK 4 (devam) — döneme göre kapalı gün seti: Güz'de Pazartesi (eski
-  // davranış, dönem seçili değilken de aynen korunur), Yaz'da Cumartesi+Pazar.
-  // Kapalı günler hiçbir koşulda takvimde gün sütunu olarak görünmez — slot/
-  // ders oluşturma/DnD/öneri o gün için mümkün değildir (sütun yoksa hedef de
-  // yok). Mevcut dersler SİLİNMEZ (weekLessons'ta kalır, veri kaybı yok);
-  // yalnızca haftalık grid'de gösterilmezler — aşağıdaki uyarı bunları listeler.
+  /**
+   * ÇALIŞMA GÜNÜ — TEK KAYNAK. Kapalı günler takvimde gün sütunu olarak
+   * GÖRÜNMEZ (slot/DnD/öneri o gün için mümkün değildir — sütun yoksa hedef
+   * de yok). Mevcut dersler SİLİNMEZ (weekLessons'ta kalır, veri kaybı yok);
+   * yalnızca ızgarada gösterilmezler ve aşağıdaki uyarı bunları listeler.
+   *
+   * 2026-09-20 — hafta günü artık BURADA hesaplanmıyor. Sunucudan gelen
+   * `dayStatuses` yöneticinin "zorla açık"/"zorla kapalı" istisnalarını ve
+   * resmî tatilleri de içerir. `dayStatuses` verilmediyse (eski çağıran)
+   * dönem kuralına düşülür — davranış değişmez.
+   */
   const closedWeekdaysForGrid = selectedTerm === "yaz" ? [0, 6] : [1];
-  const isClosedGridDay = (d: Date) => closedWeekdaysForGrid.includes(d.getDay());
+  const workDayOf = (dayIso: string): WorkDayResolution | undefined => dayStatuses?.[toYmd(parseISO(dayIso))];
+  const isClosedGridDay = (d: Date) => {
+    const resolved = dayStatuses?.[toYmd(d)];
+    if (resolved) return !resolved.schedulable;
+    return closedWeekdaysForGrid.includes(d.getDay());
+  };
   const visibleDays = days.filter((d) => !isClosedGridDay(parseISO(d)));
   const mondayLessons = scopedWeekLessons.filter((l) => isClosedGridDay(parseISO(l.startAt)));
   const gridWindow = computeGridWindow(workingHours, scopedWeekLessons);
@@ -1668,12 +1679,22 @@ export function ProgramStudio({
       {mondayLessons.length > 0 ? (
         <div className="mb-3 rounded-[var(--radius-md)] border border-[var(--color-danger)]/30 bg-[var(--color-danger-soft)] px-3 py-2 text-xs text-[var(--color-danger)]">
           <p className="font-medium">
-            {selectedTerm === "yaz" ? "Okul Yaz döneminde Cumartesi/Pazar kapalı" : "Okul Güz döneminde Pazartesi kapalı"} —
-            bu haftada {mondayLessons.length} ders hâlâ kapalı bir güne planlanmış ve takvimde gösterilmiyor (veri silinmedi).
+            Bu haftada {mondayLessons.length} ders kapalı bir güne planlanmış; takvimde gösterilmiyor (veri silinmedi).
           </p>
+          {/* Her kapalı gün için GERÇEK nedeni yaz — "Pazartesi kapalı" varsayımı değil. */}
+          <ul className="mt-1 space-y-0.5 text-[var(--color-text-muted)]">
+            {Array.from(new Set(mondayLessons.map((l) => toYmd(parseISO(l.startAt)))))
+              .sort()
+              .map((ymd) => (
+                <li key={ymd}>
+                  {format(parseISO(`${ymd}T12:00:00`), "d MMMM EEEE", { locale: tr })} —{" "}
+                  {dayStatuses?.[ymd]?.explanation ?? "Kurumun kapalı günü."}
+                </li>
+              ))}
+          </ul>
           <p className="mt-1 text-[var(--color-text-muted)]">
-            Bu dersleri başka bir güne taşımak için öğrenci/öğretmen üzerinden ders detayını açın; yeni
-            kapalı gün planlaması artık engellenir.
+            Dersleri başka bir güne taşımak için ders detayını açın. Gerçekten o gün ders yapılacaksa
+            Ayarlar → Çalışma Günleri ekranından günü “Zorla açık” yapın; gün takvimde görünür hale gelir.
           </p>
         </div>
       ) : null}
@@ -1825,22 +1846,26 @@ export function ProgramStudio({
           {visibleDays.map((dayIso) => {
             const day = parseISO(dayIso);
             const today = isSameDay(day, now);
-            const holidayName = officialHolidayName(day);
+            // Görünür bir gün her zaman planlanabilirdir; buradaki tek özel
+            // durum "normalde kapalı ama yönetici zorla açtı" — kullanıcı
+            // neden ders planlayabildiğini görmeli.
+            const workDay = workDayOf(dayIso);
+            const forcedOpen = workDay?.reason === "manual_open";
             return (
               <div
                 key={dayIso}
                 className={`flex-1 border-b border-l border-[var(--color-border-strong)] px-2 py-2.5 text-[13px] font-bold ${
-                  holidayName
-                    ? "bg-[var(--color-danger-soft)] text-[var(--color-danger)]"
+                  forcedOpen
+                    ? "bg-[var(--color-warning-soft)] text-[var(--color-warning)]"
                     : today
                       ? "bg-[var(--color-primary-soft)] text-[var(--color-primary-soft-text)]"
                       : "text-[var(--color-text)]"
                 }`}
-                title={holidayName ?? undefined}
+                title={workDay?.explanation}
               >
                 {format(day, "EEEE", { locale: tr })}
                 <span className="ml-1 font-normal text-[var(--color-text-muted)]">{format(day, "d MMM", { locale: tr })}</span>
-                {holidayName ? <span className="ml-1 font-normal">· Resmî tatil</span> : null}
+                {forcedOpen ? <span className="ml-1 font-normal">· Zorla açık</span> : null}
               </div>
             );
           })}

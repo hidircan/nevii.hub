@@ -38,7 +38,7 @@ describe("A — aylık ücret yazımı", () => {
 
 describe("G — ayda en fazla haftalık×4 ders ücretlendirilir", () => {
   it("haftada 1 ders, 5 Salı'lı Eylül 2026: takvim 5 der, ücret 4 ders = tam aylık ücret", () => {
-    const lessons = countExactWeekdayLessons("2026-09-01", "2026-09-30", [2]);
+    const lessons = countExactWeekdayLessons("2026-09-01", "2026-09-30", [2], { term: "guz", overrides: [] });
     expect(lessons).toBe(5);
     expect(computePeriodAmount(MONTHLY, 1, lessons)).toBe(MONTHLY);
   });
@@ -52,7 +52,7 @@ describe("G — ayda en fazla haftalık×4 ders ücretlendirilir", () => {
     expect(computePeriodAmount(4000, 2, 9)).toBe(4000);
     expect(computePeriodAmount(4000, 2, 6)).toBe(3000);
     // Salı+Perşembe, Eylül 2026: takvim 9 ders (5 Salı + 4 Perşembe) → ücret 8 ders = tam aylık
-    const lessons = countExactWeekdayLessons("2026-09-01", "2026-09-30", [2, 4]);
+    const lessons = countExactWeekdayLessons("2026-09-01", "2026-09-30", [2, 4], { term: "guz", overrides: [] });
     expect(lessons).toBe(9);
     expect(computePeriodAmount(4000, 2, lessons)).toBe(4000);
   });
