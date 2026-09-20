@@ -1,9 +1,9 @@
 import { useRouter } from "expo-router";
 import { Text, View } from "react-native";
-import { useAuth } from "../../auth/auth-context";
 import { AppHeader, Card, EmptyState, ErrorState, Icon, LoadingSkeleton, Screen, StatusBadge } from "../../components/ui";
 import type { BadgeTone } from "../../components/ui/status-badge";
 import { useApiGet } from "../../hooks/use-api";
+import { useSelectedStudentId } from "../../student/student-context";
 import { useFocusRefetch } from "../../hooks/use-focus-refetch";
 import { formatCurrency, shortDayMonth } from "../../lib/date";
 
@@ -38,8 +38,7 @@ function statusTone(status: string): BadgeTone {
 export function StudentScopePaymentsScreen({ basePath }: { basePath: "/(parent)" | "/(student)" }) {
   const t = useTheme();
   const router = useRouter();
-  const { user } = useAuth();
-  const studentId = user?.studentId;
+  const studentId = useSelectedStudentId();
 
   const res = useApiGet<BalanceResponse>(studentId ? `/api/v1/students/${studentId}/balance` : "");
   useFocusRefetch(res.refresh);
@@ -103,8 +102,7 @@ export function StudentScopePaymentsScreen({ basePath }: { basePath: "/(parent)"
 
 export function StudentScopePaymentDetailScreen({ paymentId }: { paymentId: string }) {
   const t = useTheme();
-  const { user } = useAuth();
-  const studentId = user?.studentId;
+  const studentId = useSelectedStudentId();
 
   const balance = useApiGet<BalanceResponse>(studentId ? `/api/v1/students/${studentId}/balance` : "");
   const receipt = useApiGet<PaymentReceiptResponse>(`/api/v1/payments/${paymentId}/receipt`);

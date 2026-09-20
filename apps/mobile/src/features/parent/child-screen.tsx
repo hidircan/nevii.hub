@@ -1,7 +1,7 @@
 import { useRouter } from "expo-router";
 import { Pressable, Text, View } from "react-native";
-import { useAuth } from "../../auth/auth-context";
 import { portalErrorMessage } from "../../components/mobile-ui/api-error-message";
+import { useSelectedStudentId } from "../../student/student-context";
 import {
   AppHeader,
   Avatar,
@@ -22,17 +22,15 @@ import { PARENT_QUICK_LINKS, toChildContextView } from "./child-context";
 /**
  * Veli "Çocuğum" ekranı — salt-okunur bağlam + hızlı erişim.
  *
- * Gösterilen öğrenci her zaman backend'in izin verdiği `ctx.studentId`
- * bağlamıdır (auth'tan gelir); istemcide ID tahmin edilmez, URL'de
- * uydurulmaz. Çoklu-çocuk seçici YOK — backend'de ilişkili çocukları
- * listeleyen bir endpoint bulunmuyor (bkz. MUSE_STUDENT_PARENT_BLOCKERS.md);
- * desteklenene kadar sahte selector yapılmaz.
+ * Gösterilen öğrenci her zaman seçili bağlamdır (`useSelectedStudentId` —
+ * sunucu oturumundan türetilir, istemcide ID tahmin edilmez, URL'de
+ * uydurulmaz). Çoklu çocukta seçim `/select-child` üzerinden yapılır;
+ * her profil isteği sunucuda `assertStudentAccess` ile doğrulanır.
  *
  * Gizlilik: telefon numaraları (öğrenci/veli) bu ekranda gösterilmez.
  */
 export function ParentChildScreen({ basePath }: { basePath: "/(parent)" }) {
-  const { user } = useAuth();
-  const studentId = user?.studentId;
+  const studentId = useSelectedStudentId();
 
   const res = useApiGet<StudentProfile>(studentId ? `/api/v1/students/${studentId}` : "");
 

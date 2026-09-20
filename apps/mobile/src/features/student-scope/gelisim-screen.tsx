@@ -1,9 +1,9 @@
 import { useRouter } from "expo-router";
 import { useMemo } from "react";
 import { Text, View } from "react-native";
-import { useAuth } from "../../auth/auth-context";
 import { AppHeader, Card, EmptyState, ErrorState, Icon, LoadingSkeleton, ProgressBar, Screen, SectionHeader } from "../../components/ui";
 import { useApiGet } from "../../hooks/use-api";
+import { useSelectedStudentId } from "../../student/student-context";
 import { useNow } from "../../hooks/use-now";
 import { relativeDayLabel } from "../../lib/date";
 import { useTheme } from "../../theme/theme-context";
@@ -15,8 +15,7 @@ export function StudentScopeGelisimScreen({ basePath }: { basePath: "/(parent)" 
   const t = useTheme();
   const router = useRouter();
   const now = useNow();
-  const { user } = useAuth();
-  const studentId = user?.studentId;
+  const studentId = useSelectedStudentId();
 
   const profile = useApiGet<StudentProfile>(studentId ? `/api/v1/students/${studentId}` : "");
   const curriculum = useApiGet<CurriculumResponse>(studentId ? `/api/v1/students/${studentId}/curriculum` : "");

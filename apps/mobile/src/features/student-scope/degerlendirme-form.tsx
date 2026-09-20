@@ -2,9 +2,9 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useState } from "react";
 import { Text, View } from "react-native";
 import { apiPost } from "../../api/client";
-import { useAuth } from "../../auth/auth-context";
 import { AppHeader, Button, Card, EmptyState, ErrorState, Icon, LoadingSkeleton, Screen, ScoreSelector, TextField } from "../../components/ui";
 import { useApiGet } from "../../hooks/use-api";
+import { useSelectedStudentId } from "../../student/student-context";
 import { useTheme } from "../../theme/theme-context";
 
 const CRITERIA: Array<{ key: string; label: string }> = [
@@ -21,11 +21,11 @@ type ThisMonthResponse = { feedback: { id: string } | null };
 export function DegerlendirmeFormScreen() {
   const t = useTheme();
   const router = useRouter();
-  const { user } = useAuth();
   const params = useLocalSearchParams<{ teacherId: string; teacherName?: string }>();
+  const studentId = useSelectedStudentId();
 
   const alreadySubmitted = useApiGet<ThisMonthResponse>(
-    user?.studentId && params.teacherId ? `/api/v1/teacher-feedback/this-month?studentId=${user.studentId}&teacherId=${params.teacherId}` : ""
+    studentId && params.teacherId ? `/api/v1/teacher-feedback/this-month?studentId=${studentId}&teacherId=${params.teacherId}` : ""
   );
 
   const [scores, setScores] = useState<Record<string, number | null>>(Object.fromEntries(CRITERIA.map((c) => [c.key, null])));
@@ -40,7 +40,7 @@ export function DegerlendirmeFormScreen() {
     setBusy(true);
     setError(null);
     const res = await apiPost("/api/v1/teacher-feedback", {
-      studentId: user?.studentId,
+      studentId,
       scores,
       comment: comment.trim() || undefined,
     });

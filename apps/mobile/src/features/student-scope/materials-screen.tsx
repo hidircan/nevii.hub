@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { Text, View } from "react-native";
-import { useAuth } from "../../auth/auth-context";
 import { AppHeader, Button, Card, EmptyState, ErrorState, Icon, LoadingSkeleton, Screen, StatusBadge } from "../../components/ui";
 import { useApiGet } from "../../hooks/use-api";
+import { useSelectedStudentId } from "../../student/student-context";
 import { shortDayMonth } from "../../lib/date";
 import { downloadAndOpenFile } from "../../lib/open-file";
 import { useTheme } from "../../theme/theme-context";
@@ -11,8 +11,8 @@ import type { TeachingMaterialsResponse } from "../../types/api";
 /** Öğretmenin paylaştığı materyaller — veli ve öğrenci için ortak, salt-okunur liste. */
 export function StudentScopeMaterialsScreen() {
   const t = useTheme();
-  const { user } = useAuth();
-  const res = useApiGet<TeachingMaterialsResponse>(user?.studentId ? `/api/v1/students/${user.studentId}/teaching-materials` : "");
+  const studentId = useSelectedStudentId();
+  const res = useApiGet<TeachingMaterialsResponse>(studentId ? `/api/v1/students/${studentId}/teaching-materials` : "");
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
 

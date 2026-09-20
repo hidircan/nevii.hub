@@ -1,6 +1,6 @@
 import { Text, View } from "react-native";
-import { useAuth } from "../../auth/auth-context";
 import { portalErrorMessage } from "../../components/mobile-ui/api-error-message";
+import { useSelectedStudentId } from "../../student/student-context";
 import {
   AppHeader,
   Card,
@@ -27,8 +27,7 @@ import { attendanceA11yLabel, toAttendanceView } from "./attendance-summary";
  */
 export function ParentAttendanceScreen() {
   const t = useTheme();
-  const { user } = useAuth();
-  const studentId = user?.studentId;
+  const studentId = useSelectedStudentId();
 
   const profile = useApiGet<StudentProfile>(studentId ? `/api/v1/students/${studentId}` : "");
   const res = useApiGet<AttendanceSummary>(studentId ? `/api/v1/students/${studentId}/attendance-summary` : "");

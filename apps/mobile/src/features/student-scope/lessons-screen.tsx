@@ -1,9 +1,9 @@
 import { useRouter } from "expo-router";
 import { useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { useAuth } from "../../auth/auth-context";
 import { AppHeader, Avatar, Card, EmptyState, ErrorState, Icon, LessonCard, LoadingSkeleton, Screen, StatusBadge } from "../../components/ui";
 import { useApiGet } from "../../hooks/use-api";
+import { useSelectedStudentId } from "../../student/student-context";
 import { addDays, format, isSameDay, shortDayMonth, startOfDay, startOfWeek } from "../../lib/date";
 import { lessonStatusBadge } from "../../lib/lesson-status";
 import { useTheme } from "../../theme/theme-context";
@@ -21,7 +21,7 @@ function friendlyAccessMessage(code: string, message: string): string {
 
 export function StudentScopeLessonsScreen({ basePath }: { basePath: "/(parent)" | "/(student)" }) {
   const t = useTheme();
-  const { user } = useAuth();
+  const studentId = useSelectedStudentId();
   const router = useRouter();
   const now = new Date();
   const today = startOfDay(now);
@@ -31,15 +31,15 @@ export function StudentScopeLessonsScreen({ basePath }: { basePath: "/(parent)" 
   const weekEndExclusive = useMemo(() => addDays(weekStart, 7), [weekStart]);
   const isCurrentWeek = isSameDay(weekStart, startOfWeek(now));
 
-  const profile = useApiGet<StudentProfile>(user?.studentId ? `/api/v1/students/${user.studentId}` : "");
+  const profile = useApiGet<StudentProfile>(studentId ? `/api/v1/students/${studentId}` : "");
   const res = useApiGet<ScheduleResponse>(
-    user?.studentId
-      ? `/api/v1/students/${user.studentId}/schedule?from=${weekStart.toISOString()}&to=${weekEndExclusive.toISOString()}`
+    studentId
+      ? `/api/v1/students/${studentId}/schedule?from=${weekStart.toISOString()}&to=${weekEndExclusive.toISOString()}`
       : ""
   );
   const calendar = useApiGet<AttendanceCalendarMonthResponse>(
-    user?.studentId
-      ? `/api/v1/attendance-calendar/month?studentId=${user.studentId}&year=${weekStart.getFullYear()}&month=${weekStart.getMonth() + 1}`
+    studentId
+      ? `/api/v1/attendance-calendar/month?studentId=${studentId}&year=${weekStart.getFullYear()}&month=${weekStart.getMonth() + 1}`
       : ""
   );
 
@@ -192,8 +192,8 @@ const styles = StyleSheet.create({
 
 export function StudentScopeLessonDetailScreen({ lessonId }: { lessonId: string }) {
   const t = useTheme();
-  const { user } = useAuth();
-  const res = useApiGet<ScheduleResponse>(user?.studentId ? `/api/v1/students/${user.studentId}/schedule` : "");
+  const studentId = useSelectedStudentId();
+  const res = useApiGet<ScheduleResponse>(studentId ? `/api/v1/students/${studentId}/schedule` : "");
 
   if (res.status === "loading") {
     return (

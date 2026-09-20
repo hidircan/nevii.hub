@@ -1,17 +1,17 @@
 import { useState } from "react";
 import { Pressable, Text } from "react-native";
 import { apiPatch } from "../../../src/api/client";
-import { useAuth } from "../../../src/auth/auth-context";
 import { AppHeader, Card, ErrorState, Icon, LoadingSkeleton, Screen } from "../../../src/components/ui";
 import { useApiGet } from "../../../src/hooks/use-api";
+import { useSelectedStudentId } from "../../../src/student/student-context";
 import { useTheme } from "../../../src/theme/theme-context";
 import type { StudentProfile } from "../../../src/types/api";
 
 /** KVKK kapsamında — velinin okuldan pazarlama/duyuru amaçlı iletişim alıp almayacağını belirler (öğretmen/ders bildirimleri bundan etkilenmez). */
 export default function IletisimTercihi() {
   const t = useTheme();
-  const { user } = useAuth();
-  const res = useApiGet<StudentProfile>(user?.studentId ? `/api/v1/students/${user.studentId}` : "");
+  const studentId = useSelectedStudentId();
+  const res = useApiGet<StudentProfile>(studentId ? `/api/v1/students/${studentId}` : "");
   const [busy, setBusy] = useState(false);
   const [optOut, setOptOut] = useState<boolean | null>(null);
 
@@ -38,7 +38,7 @@ export default function IletisimTercihi() {
     const next = !current;
     setOptOut(next);
     setBusy(true);
-    const patchRes = await apiPatch(`/api/v1/students/${user?.studentId}/communication-preference`, { communicationOptOut: next });
+    const patchRes = await apiPatch(`/api/v1/students/${studentId}/communication-preference`, { communicationOptOut: next });
     setBusy(false);
     if (!patchRes.ok) setOptOut(current);
   }

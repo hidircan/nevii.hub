@@ -7,6 +7,7 @@ import { AppHeader, Button, Card, EmptyState, ErrorState, FilterChip, HomeworkCa
 import { useApiGet } from "../../hooks/use-api";
 import { useFocusRefetch } from "../../hooks/use-focus-refetch";
 import { useNow } from "../../hooks/use-now";
+import { useSelectedStudentId } from "../../student/student-context";
 import { format, isPast } from "../../lib/date";
 import { useTheme } from "../../theme/theme-context";
 import type { HomeworkResponse } from "../../types/api";
@@ -14,11 +15,11 @@ import type { HomeworkResponse } from "../../types/api";
 type Filter = "pending" | "reviewed" | "past";
 
 export function StudentScopeHomeworkListScreen({ basePath }: { basePath: "/(parent)" | "/(student)" }) {
-  const { user } = useAuth();
   const router = useRouter();
   const now = useNow();
   const [filter, setFilter] = useState<Filter>("pending");
-  const res = useApiGet<HomeworkResponse>(user?.studentId ? `/api/v1/students/${user.studentId}/homework` : "");
+  const studentId = useSelectedStudentId();
+  const res = useApiGet<HomeworkResponse>(studentId ? `/api/v1/students/${studentId}/homework` : "");
   useFocusRefetch(res.refresh);
 
   const filtered = useMemo(() => {
@@ -61,7 +62,8 @@ export function StudentScopeHomeworkListScreen({ basePath }: { basePath: "/(pare
 export function StudentScopeHomeworkDetailScreen({ homeworkId }: { homeworkId: string }) {
   const t = useTheme();
   const { user } = useAuth();
-  const res = useApiGet<HomeworkResponse>(user?.studentId ? `/api/v1/students/${user.studentId}/homework` : "");
+  const studentId = useSelectedStudentId();
+  const res = useApiGet<HomeworkResponse>(studentId ? `/api/v1/students/${studentId}/homework` : "");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [submitted, setSubmitted] = useState(false);

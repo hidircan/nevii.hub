@@ -1,7 +1,8 @@
 import { useRouter } from "expo-router";
 import { useMemo } from "react";
 import { Text, View } from "react-native";
-import { useAuth } from "../../auth/auth-context";
+import { ChildSwitcher } from "../../student/child-switcher";
+import { useSelectedStudentId } from "../../student/student-context";
 import {
   AppHeader,
   Card,
@@ -39,11 +40,12 @@ import type {
  * dosyaları ayrı, ama iş mantığı/bileşen burada paylaşılıyor.
  */
 export function StudentScopeHomeScreen({ basePath }: { basePath: "/(parent)" | "/(student)" }) {
-  const { user } = useAuth();
   const t = useTheme();
   const router = useRouter();
   const now = useNow();
-  const studentId = user?.studentId;
+  // Aktif öğrenci bağlamı — seçim beklenirken null: ekranlar skeleton gösterir,
+  // eski öğrencinin verisi ASLA görünmez (URL'ler seçili ID'den kurulur).
+  const studentId = useSelectedStudentId();
 
   const profile = useApiGet<StudentProfile>(studentId ? `/api/v1/students/${studentId}` : "");
   const schedule = useApiGet<ScheduleResponse>(studentId ? `/api/v1/students/${studentId}/schedule` : "");
@@ -115,6 +117,7 @@ export function StudentScopeHomeScreen({ basePath }: { basePath: "/(parent)" | "
   return (
     <Screen onRefresh={refreshAll} refreshing={refreshing}>
       <AppHeader title="Nevii Hub" subtitle={headerContext} />
+      <ChildSwitcher childName={profile.status === "success" ? profile.data.name : undefined} />
 
       <SectionHeader title="Sıradaki ders" />
       {schedule.status === "loading" ? (
