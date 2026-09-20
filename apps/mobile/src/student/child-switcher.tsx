@@ -52,5 +52,5 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     marginBottom: 12,
   },
-  text: { flex: 1 },
+  text: { flex: 1, minWidth: 0 },
 });

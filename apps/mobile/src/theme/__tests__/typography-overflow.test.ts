@@ -25,10 +25,13 @@ describe("tipografi taşma sözleşmesi", () => {
     expect(content).toMatch(/numberOfLines=\{2\}/);
   });
 
-  it("sekme etiketleri: serif 15pt (4 portal)", async () => {
+  it("sekme etiketleri: ortak TabBarLabel (serif 15pt, 2 satır sarma, 4 portal)", async () => {
+    const label = await src("components/ui/tab-bar-label.tsx");
+    expect(label).toMatch(/fontFamily: fonts\.serif, fontSize: 15/);
+    expect(label).toMatch(/numberOfLines=\{2\}/);
     for (const group of ["(student)", "(parent)", "(teacher)", "(admin)"]) {
       const layout = await fs.readFile(path.join(APP_DIR, group, "_layout.tsx"), "utf-8");
-      expect(layout, group).toMatch(/tabBarLabelStyle: \{ fontFamily: fonts\.serif, fontSize: 15 \}/);
+      expect(layout, group).toContain("<TabBarLabel color={color}>{children}</TabBarLabel>");
     }
   });
 

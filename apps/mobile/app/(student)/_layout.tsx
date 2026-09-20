@@ -1,8 +1,7 @@
 import { Tabs } from "expo-router";
 import { PersonaGuard } from "../../src/components/persona-guard";
-import { Icon } from "../../src/components/ui";
+import { Icon, TabBarLabel } from "../../src/components/ui";
 import { useTheme } from "../../src/theme/theme-context";
-import { fonts } from "../../src/theme/tokens";
 
 export default function StudentLayout() {
   const t = useTheme();
@@ -14,7 +13,7 @@ export default function StudentLayout() {
           tabBarActiveTintColor: t.colors.primary,
           tabBarInactiveTintColor: t.colors.textMuted,
           tabBarStyle: { backgroundColor: t.colors.bg, borderTopColor: t.colors.border, minHeight: 64 },
-          tabBarLabelStyle: { fontFamily: fonts.serif, fontSize: 15 },
+          tabBarLabel: ({ children, color }) => <TabBarLabel color={color}>{children}</TabBarLabel>,
           tabBarItemStyle: { paddingVertical: 6 },
         }}
       >
