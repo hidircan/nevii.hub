@@ -6,6 +6,7 @@ import { portalErrorMessage } from "../src/components/mobile-ui/api-error-messag
 import { AppHeader, Avatar, EmptyState, ErrorState, Icon, LoadingSkeleton } from "../src/components/ui";
 import { toChildContextView } from "../src/features/parent/child-context";
 import { useApiGet } from "../src/hooks/use-api";
+import { useFocusRefetch } from "../src/hooks/use-focus-refetch";
 import { useChildSelection, type ServerChild } from "../src/student/student-context";
 import { useTheme } from "../src/theme/theme-context";
 import type { StudentProfile } from "../src/types/api";
@@ -23,7 +24,9 @@ export default function SelectChildScreen() {
   const { user } = useAuth();
   const t = useTheme();
   const router = useRouter();
-  const { children, selectedId, select, ready } = useChildSelection();
+  const { children, selectedId, select, ready, refresh } = useChildSelection();
+  // Admin erişimi iptal ettiyse picker'a dönüşte liste tazelenir.
+  useFocusRefetch(refresh);
 
   if (!user || user.portalAccessType !== "GUARDIAN") return <Redirect href="/" />;
   if (ready && children.length <= 1) return <Redirect href="/" />;

@@ -5,10 +5,12 @@ import { AppHeader, Card, ErrorState, Icon, LoadingSkeleton, Screen } from "../.
 import { useApiGet } from "../../hooks/use-api";
 import { useSelectedStudentId } from "../../student/student-context";
 import { useTheme } from "../../theme/theme-context";
+import { listFallback, usePersonaBasePath } from "../../lib/navigation";
 import type { StudentProfile } from "../../types/api";
 
 /** KVKK kapsamında — okuldan pazarlama/duyuru amaçlı iletişim alınıp alınmayacağını belirler (öğretmen/ders bildirimleri bundan etkilenmez). */
 export function CommunicationPreferenceScreen() {
+  const base = usePersonaBasePath();
   const t = useTheme();
   const studentId = useSelectedStudentId();
   const res = useApiGet<StudentProfile>(studentId ? `/api/v1/students/${studentId}` : "");
@@ -18,7 +20,7 @@ export function CommunicationPreferenceScreen() {
   if (res.status === "loading") {
     return (
       <Screen>
-        <AppHeader title="İletişim tercihleri" showBack showNotifications={false} />
+        <AppHeader title="İletişim tercihleri" showBack backFallback={listFallback(base, "hesabim")} showNotifications={false} />
         <LoadingSkeleton rows={2} />
       </Screen>
     );
@@ -26,7 +28,7 @@ export function CommunicationPreferenceScreen() {
   if (res.status === "error") {
     return (
       <Screen>
-        <AppHeader title="İletişim tercihleri" showBack showNotifications={false} />
+        <AppHeader title="İletişim tercihleri" showBack backFallback={listFallback(base, "hesabim")} showNotifications={false} />
         <ErrorState message={res.message} onRetry={res.refresh} />
       </Screen>
     );
@@ -45,7 +47,7 @@ export function CommunicationPreferenceScreen() {
 
   return (
     <Screen>
-      <AppHeader title="İletişim tercihleri" showBack showNotifications={false} />
+      <AppHeader title="İletişim tercihleri" showBack backFallback={listFallback(base, "hesabim")} showNotifications={false} />
 
       <Card>
         <Text style={[t.typography.body, { color: t.colors.textMuted, marginBottom: 16 }]}>

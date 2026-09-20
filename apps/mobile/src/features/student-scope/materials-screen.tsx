@@ -6,11 +6,13 @@ import { useSelectedStudentId } from "../../student/student-context";
 import { shortDayMonth } from "../../lib/date";
 import { downloadAndOpenFile } from "../../lib/open-file";
 import { useTheme } from "../../theme/theme-context";
+import { listFallback, usePersonaBasePath } from "../../lib/navigation";
 import type { TeachingMaterialsResponse } from "../../types/api";
 
 /** Öğretmenin paylaştığı materyaller — veli ve öğrenci için ortak, salt-okunur liste. */
 export function StudentScopeMaterialsScreen() {
   const t = useTheme();
+  const base = usePersonaBasePath();
   const studentId = useSelectedStudentId();
   const res = useApiGet<TeachingMaterialsResponse>(studentId ? `/api/v1/students/${studentId}/teaching-materials` : "");
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
@@ -26,7 +28,7 @@ export function StudentScopeMaterialsScreen() {
 
   return (
     <Screen onRefresh={res.refresh} refreshing={res.status === "loading"}>
-      <AppHeader title="Materyaller" showBack showNotifications={false} />
+      <AppHeader title="Materyaller" showBack backFallback={listFallback(base, "gelisim")} showNotifications={false} />
 
       {res.status === "loading" ? (
         <LoadingSkeleton rows={4} />

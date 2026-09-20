@@ -7,6 +7,7 @@ import { useSelectedStudentId } from "../../student/student-context";
 import { addDays, format, isSameDay, shortDayMonth, startOfDay, startOfWeek } from "../../lib/date";
 import { studentFacingLessonStatus } from "../../lib/lesson-status";
 import { useTheme } from "../../theme/theme-context";
+import { listFallback, usePersonaBasePath } from "../../lib/navigation";
 import type { AttendanceCalendarMonthResponse, ScheduleResponse, StudentProfile } from "../../types/api";
 
 const DAY_NAMES = ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi", "Pazar"];
@@ -192,13 +193,14 @@ const styles = StyleSheet.create({
 
 export function StudentScopeLessonDetailScreen({ lessonId }: { lessonId: string }) {
   const t = useTheme();
+  const base = usePersonaBasePath();
   const studentId = useSelectedStudentId();
   const res = useApiGet<ScheduleResponse>(studentId ? `/api/v1/students/${studentId}/schedule` : "");
 
   if (res.status === "loading") {
     return (
       <Screen>
-        <AppHeader title="Ders" showBack showNotifications={false} />
+        <AppHeader title="Ders" showBack backFallback={listFallback(base, "dersler")} showNotifications={false} />
         <LoadingSkeleton rows={3} />
       </Screen>
     );
@@ -206,7 +208,7 @@ export function StudentScopeLessonDetailScreen({ lessonId }: { lessonId: string 
   if (res.status === "error") {
     return (
       <Screen>
-        <AppHeader title="Ders" showBack showNotifications={false} />
+        <AppHeader title="Ders" showBack backFallback={listFallback(base, "dersler")} showNotifications={false} />
         <ErrorState message={friendlyAccessMessage(res.code, res.message)} onRetry={res.refresh} />
       </Screen>
     );
@@ -216,7 +218,7 @@ export function StudentScopeLessonDetailScreen({ lessonId }: { lessonId: string 
   if (!lesson) {
     return (
       <Screen>
-        <AppHeader title="Ders" showBack showNotifications={false} />
+        <AppHeader title="Ders" showBack backFallback={listFallback(base, "dersler")} showNotifications={false} />
         <EmptyState icon="alert-circle-outline" title="Ders bulunamadı" />
       </Screen>
     );
@@ -226,7 +228,7 @@ export function StudentScopeLessonDetailScreen({ lessonId }: { lessonId: string 
 
   return (
     <Screen>
-      <AppHeader title={lesson.teacherName ?? "Öğretmen"} showBack showNotifications={false} />
+      <AppHeader title={lesson.teacherName ?? "Öğretmen"} showBack backFallback={listFallback(base, "dersler")} showNotifications={false} />
 
       <Card>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>

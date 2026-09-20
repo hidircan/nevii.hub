@@ -114,4 +114,14 @@ describe("çoklu-çocuk route sözleşmesi (statik)", () => {
     const content = await fs.readFile(path.join(__dirname, "..", "child-switcher.tsx"), "utf-8");
     expect(content).toMatch(/if \(!ready \|\| !isMulti\) return null/);
   });
+
+  it("bayat persist tercih silinir, liste tazelenebilir (statik)", async () => {
+    const fs = await import("node:fs/promises");
+    const path = await import("node:path");
+    const ctx = await fs.readFile(path.join(__dirname, "..", "student-context.tsx"), "utf-8");
+    expect(ctx).toMatch(/deleteItemAsync\(selectedKey\(user\.userId\)\)/);
+    expect(ctx).toMatch(/refresh: \(\) => void/);
+    const picker = await fs.readFile(path.join(__dirname, "..", "..", "..", "app", "select-child.tsx"), "utf-8");
+    expect(picker).toMatch(/useFocusRefetch\(refresh\)/);
+  });
 });

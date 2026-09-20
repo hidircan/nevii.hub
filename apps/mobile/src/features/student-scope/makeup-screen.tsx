@@ -40,7 +40,7 @@ export function StudentScopeMakeupListScreen({ basePath }: { basePath: "/(parent
   if (!studentId) {
     return (
       <Screen>
-        <AppHeader title="Telafiler" showBack showNotifications={false} />
+        <AppHeader title="Telafiler" showBack backFallback={`${basePath}/anasayfa`} showNotifications={false} />
         <EmptyState icon="alert-circle-outline" title="Öğrenci bilgisi bulunamadı" />
       </Screen>
     );
@@ -50,7 +50,7 @@ export function StudentScopeMakeupListScreen({ basePath }: { basePath: "/(parent
 
   return (
     <Screen scroll={false}>
-      <AppHeader title="Telafiler" showBack showNotifications={false} />
+      <AppHeader title="Telafiler" showBack backFallback={`${basePath}/anasayfa`} showNotifications={false} />
       {res.status === "loading" ? (
         <LoadingSkeleton rows={4} />
       ) : res.status === "error" ? (
@@ -138,7 +138,7 @@ export function StudentScopeMakeupDetailScreen({
   if (res.status === "loading") {
     return (
       <Screen>
-        <AppHeader title="Telafi" showBack showNotifications={false} />
+        <AppHeader title="Telafi" showBack backFallback={`${basePath}/telafiler`} showNotifications={false} />
         <LoadingSkeleton rows={4} />
       </Screen>
     );
@@ -146,7 +146,7 @@ export function StudentScopeMakeupDetailScreen({
   if (res.status === "error") {
     return (
       <Screen>
-        <AppHeader title="Telafi" showBack showNotifications={false} />
+        <AppHeader title="Telafi" showBack backFallback={`${basePath}/telafiler`} showNotifications={false} />
         <ErrorState message={res.message} onRetry={res.refresh} code={res.code} />
       </Screen>
     );
@@ -156,7 +156,7 @@ export function StudentScopeMakeupDetailScreen({
   if (!item) {
     return (
       <Screen>
-        <AppHeader title="Telafi" showBack showNotifications={false} />
+        <AppHeader title="Telafi" showBack backFallback={`${basePath}/telafiler`} showNotifications={false} />
         <EmptyState
           icon="alert-circle-outline"
           title="Telafi kaydı bulunamadı"
@@ -170,7 +170,7 @@ export function StudentScopeMakeupDetailScreen({
 
   return (
     <Screen onRefresh={res.refresh} refreshing={false}>
-      <AppHeader title="Telafi detayı" showBack showNotifications={false} />
+      <AppHeader title="Telafi detayı" showBack backFallback={`${basePath}/telafiler`} showNotifications={false} />
 
       <Card>
         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>

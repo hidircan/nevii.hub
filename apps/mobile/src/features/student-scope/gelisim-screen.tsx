@@ -109,7 +109,7 @@ export function StudentScopeGelisimScreen({ basePath }: { basePath: "/(parent)" 
       ) : assessments.status === "error" ? (
         <ErrorState message={assessments.message} onRetry={assessments.refresh} code={assessments.code} />
       ) : assessments.data.assessments.length === 0 ? (
-        <EmptyState icon="chatbubble-outline" title="Henüz öğretmen notu yok" />
+        <EmptyState icon="chatbubble-outline" title="Henüz öğretmen notu yok"  compact />
       ) : (
         <View style={{ gap: 10 }}>
           {[...assessments.data.assessments].reverse().slice(0, 3).map((a) => (

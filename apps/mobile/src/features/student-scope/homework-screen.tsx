@@ -11,6 +11,7 @@ import { useNow } from "../../hooks/use-now";
 import { useSelectedStudentId } from "../../student/student-context";
 import { format, isPast } from "../../lib/date";
 import { useTheme } from "../../theme/theme-context";
+import { listFallback, usePersonaBasePath } from "../../lib/navigation";
 import type { HomeworkResponse } from "../../types/api";
 
 type Filter = "pending" | "reviewed" | "past";
@@ -63,6 +64,7 @@ export function StudentScopeHomeworkListScreen({ basePath }: { basePath: "/(pare
 
 export function StudentScopeHomeworkDetailScreen({ homeworkId }: { homeworkId: string }) {
   const t = useTheme();
+  const base = usePersonaBasePath();
   const { user } = useAuth();
   const studentId = useSelectedStudentId();
   const res = useApiGet<HomeworkResponse>(studentId ? `/api/v1/students/${studentId}/homework` : "");
@@ -74,7 +76,7 @@ export function StudentScopeHomeworkDetailScreen({ homeworkId }: { homeworkId: s
   if (res.status === "loading") {
     return (
       <Screen>
-        <AppHeader title="Ödev" showBack showNotifications={false} />
+        <AppHeader title="Ödev" showBack backFallback={listFallback(base, "odevler")} showNotifications={false} />
         <LoadingSkeleton rows={3} />
       </Screen>
     );
@@ -82,7 +84,7 @@ export function StudentScopeHomeworkDetailScreen({ homeworkId }: { homeworkId: s
   if (res.status === "error") {
     return (
       <Screen>
-        <AppHeader title="Ödev" showBack showNotifications={false} />
+        <AppHeader title="Ödev" showBack backFallback={listFallback(base, "odevler")} showNotifications={false} />
         <ErrorState message={res.message} onRetry={res.refresh} />
       </Screen>
     );
@@ -92,7 +94,7 @@ export function StudentScopeHomeworkDetailScreen({ homeworkId }: { homeworkId: s
   if (!homework) {
     return (
       <Screen>
-        <AppHeader title="Ödev" showBack showNotifications={false} />
+        <AppHeader title="Ödev" showBack backFallback={listFallback(base, "odevler")} showNotifications={false} />
         <EmptyState icon="alert-circle-outline" title="Ödev bulunamadı" />
       </Screen>
     );
@@ -117,7 +119,7 @@ export function StudentScopeHomeworkDetailScreen({ homeworkId }: { homeworkId: s
 
   return (
     <Screen>
-      <AppHeader title="Ödev" showBack showNotifications={false} />
+      <AppHeader title="Ödev" showBack backFallback={listFallback(base, "odevler")} showNotifications={false} />
       <HomeworkCard homework={homework} showStudentName={false} />
 
       <Card style={{ marginTop: 12 }}>

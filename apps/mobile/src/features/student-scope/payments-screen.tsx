@@ -16,6 +16,7 @@ function longDate(date: Date): string {
   return `${shortDayMonth(date)} ${date.getFullYear()}`;
 }
 import { useTheme } from "../../theme/theme-context";
+import { listFallback, usePersonaBasePath } from "../../lib/navigation";
 import type { PaymentLedgerItem, PaymentLedgerMonth, PaymentLedgerResponse, PaymentReceiptResponse } from "../../types/api";
 
 const STATUS_LABEL: Record<string, string> = {
@@ -237,6 +238,7 @@ function MonthGroup({
 
 export function StudentScopePaymentDetailScreen({ paymentId }: { paymentId: string }) {
   const t = useTheme();
+  const base = usePersonaBasePath();
   const studentId = useSelectedStudentId();
 
   const ledger = useApiGet<PaymentLedgerResponse>(studentId ? `/api/v1/students/${studentId}/payment-ledger?limit=200` : "");
@@ -275,7 +277,7 @@ export function StudentScopePaymentDetailScreen({ paymentId }: { paymentId: stri
   if (ledger.status === "loading") {
     return (
       <Screen>
-        <AppHeader title="Ödeme" showBack showNotifications={false} />
+        <AppHeader title="Ödeme" showBack backFallback={listFallback(base, "odemeler")} showNotifications={false} />
         <LoadingSkeleton rows={3} />
       </Screen>
     );
@@ -283,7 +285,7 @@ export function StudentScopePaymentDetailScreen({ paymentId }: { paymentId: stri
   if (ledger.status === "error") {
     return (
       <Screen>
-        <AppHeader title="Ödeme" showBack showNotifications={false} />
+        <AppHeader title="Ödeme" showBack backFallback={listFallback(base, "odemeler")} showNotifications={false} />
         <ErrorState message={ledger.message} onRetry={ledger.refresh} />
       </Screen>
     );
@@ -291,7 +293,7 @@ export function StudentScopePaymentDetailScreen({ paymentId }: { paymentId: stri
   if (!payment) {
     return (
       <Screen>
-        <AppHeader title="Ödeme" showBack showNotifications={false} />
+        <AppHeader title="Ödeme" showBack backFallback={listFallback(base, "odemeler")} showNotifications={false} />
         <EmptyState icon="alert-circle-outline" title="Ödeme bulunamadı" />
       </Screen>
     );
@@ -301,7 +303,7 @@ export function StudentScopePaymentDetailScreen({ paymentId }: { paymentId: stri
 
   return (
     <Screen>
-      <AppHeader title="Ödeme detayı" showBack showNotifications={false} />
+      <AppHeader title="Ödeme detayı" showBack backFallback={listFallback(base, "odemeler")} showNotifications={false} />
 
       <Card>
         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>

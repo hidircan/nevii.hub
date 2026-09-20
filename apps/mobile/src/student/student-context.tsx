@@ -48,6 +48,8 @@ type StudentContextValue = {
   isMulti: boolean;
   /** Yalnız listedeki ID seçilebilir; dönüt başarıyı bildirir. */
   select: (studentId: string) => Promise<boolean>;
+  /** Sunucu listesini yeniden çeker (erişim iptali focus/refresh'te düşer). */
+  refresh: () => void;
 };
 
 const StudentContext = createContext<StudentContextValue>({
@@ -56,6 +58,7 @@ const StudentContext = createContext<StudentContextValue>({
   ready: false,
   isMulti: false,
   select: async () => false,
+  refresh: () => undefined,
 });
 
 export function StudentProvider({ children }: { children: ReactNode }) {
@@ -66,8 +69,11 @@ export function StudentProvider({ children }: { children: ReactNode }) {
   const [fetched, setFetched] = useState<{ userId: string; items: ServerChild[]; failed: boolean } | null>(null);
   const [stored, setStored] = useState<{ fp: string; value: string | null } | null>(null);
   const [override, setOverride] = useState<{ fp: string; value: string } | null>(null);
+  const [listTick, setListTick] = useState(0);
 
   const isGuardian = !!user && user.portalAccessType === "GUARDIAN";
+
+  const refresh = useCallback(() => setListTick((n) => n + 1), []);
 
   // Effect'ler yalnız asenkron iş yapar (abonelik deseni); seçim render
   // sırasında TÜRETİLİR — effect gövdelerinde senkron setState yok.
@@ -86,7 +92,7 @@ export function StudentProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [isGuardian, user]);
+  }, [isGuardian, user, listTick]);
 
   const items = useMemo(
     () => (fetched && user && fetched.userId === user.userId ? fetched.items : []),
@@ -127,6 +133,17 @@ export function StudentProvider({ children }: { children: ReactNode }) {
     [user, childIds, fingerprint]
   );
 
+  // Erişimden çıkarılan çocuk persist tercihte kaldıysa SecureStore temizlenir
+  // (picker'a dönüş + bayat tercihin yeniden dirilmemesi). Yalnız asenkron iş.
+  useEffect(() => {
+    if (!user || !needsPicker) return undefined;
+    if (stored?.fp !== fingerprint || !stored.value) return undefined;
+    if (childIds.includes(stored.value)) return undefined;
+    if (override?.fp === fingerprint) return undefined;
+    void SecureStore.deleteItemAsync(selectedKey(user.userId)).catch(() => undefined);
+    return undefined;
+  }, [user, needsPicker, stored, fingerprint, childIds, override]);
+
   const value = useMemo<StudentContextValue>(() => {
     if (!user || !listReady) {
       return {
@@ -135,31 +152,33 @@ export function StudentProvider({ children }: { children: ReactNode }) {
         ready: !user,
         isMulti: false,
         select,
+        refresh,
       };
     }
     if (childIds.length === 0) {
-      return { children: [], selectedId: null, ready: true, isMulti: false, select };
+      return { children: [], selectedId: null, ready: true, isMulti: false, select, refresh };
     }
     if (!needsPicker) {
       // SELF öğrenci ve tek çocuklu veli: doğrudan tek kayıt, seçim beklenmez.
-      return { children: childList, selectedId: childIds[0] ?? null, ready: true, isMulti: false, select };
+      return { children: childList, selectedId: childIds[0] ?? null, ready: true, isMulti: false, select, refresh };
     }
     if (override?.fp === fingerprint) {
-      return { children: childList, selectedId: override.value, ready: true, isMulti: true, select };
+      return { children: childList, selectedId: override.value, ready: true, isMulti: true, select, refresh };
     }
     if (stored?.fp === fingerprint) {
       // Persist tercih listeye karşı doğrulanır — erişimden çıkarılan çocuk
-      // geçersiz sayılır, picker'a dönülür.
+      // geçersiz sayılır, picker'a dönülür (bayat tercih ayrıca silinir).
       return {
         children: childList,
         selectedId: validatePersistedSelection(childIds, stored.value),
         ready: true,
         isMulti: true,
         select,
+        refresh,
       };
     }
-    return { children: childList, selectedId: null, ready: false, isMulti: true, select };
-  }, [user, listReady, childList, childIds, needsPicker, fingerprint, stored, override, select]);
+    return { children: childList, selectedId: null, ready: false, isMulti: true, select, refresh };
+  }, [user, listReady, childList, childIds, needsPicker, fingerprint, stored, override, select, refresh]);
 
   return <StudentContext.Provider value={value}>{children}</StudentContext.Provider>;
 }

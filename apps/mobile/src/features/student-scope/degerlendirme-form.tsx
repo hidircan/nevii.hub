@@ -6,6 +6,7 @@ import { AppHeader, Button, Card, EmptyState, ErrorState, Icon, LoadingSkeleton,
 import { useApiGet } from "../../hooks/use-api";
 import { useSelectedStudentId } from "../../student/student-context";
 import { useTheme } from "../../theme/theme-context";
+import { listFallback, usePersonaBasePath } from "../../lib/navigation";
 
 const CRITERIA: Array<{ key: string; label: string }> = [
   { key: "clarity", label: "Açıklık" },
@@ -20,6 +21,7 @@ type ThisMonthResponse = { feedback: { id: string } | null };
 /** Veli/öğrenci → öğretmen değerlendirme formu — anonim, ayda bir kez. Her iki persona da paylaşır. */
 export function DegerlendirmeFormScreen() {
   const t = useTheme();
+  const base = usePersonaBasePath();
   const router = useRouter();
   const params = useLocalSearchParams<{ teacherId: string; teacherName?: string }>();
   const studentId = useSelectedStudentId();
@@ -55,7 +57,7 @@ export function DegerlendirmeFormScreen() {
   if (alreadySubmitted.status === "loading") {
     return (
       <Screen>
-        <AppHeader title="Değerlendirme" showBack showNotifications={false} />
+        <AppHeader title="Değerlendirme" showBack backFallback={listFallback(base, "gelisim")} showNotifications={false} />
         <LoadingSkeleton rows={3} />
       </Screen>
     );
@@ -64,7 +66,7 @@ export function DegerlendirmeFormScreen() {
   if (alreadySubmitted.status === "success" && alreadySubmitted.data.feedback) {
     return (
       <Screen>
-        <AppHeader title="Değerlendirme" showBack showNotifications={false} />
+        <AppHeader title="Değerlendirme" showBack backFallback={listFallback(base, "gelisim")} showNotifications={false} />
         <EmptyState icon="checkmark-circle-outline" title="Bu ay zaten değerlendirdiniz" description="Her öğretmen için ayda bir değerlendirme yapılabilir." />
       </Screen>
     );
@@ -73,7 +75,7 @@ export function DegerlendirmeFormScreen() {
   if (done) {
     return (
       <Screen>
-        <AppHeader title="Değerlendirme" showBack showNotifications={false} />
+        <AppHeader title="Değerlendirme" showBack backFallback={listFallback(base, "gelisim")} showNotifications={false} />
         <View style={{ alignItems: "center", paddingTop: 60 }}>
           <Text style={[t.typography.sectionTitle, { color: t.colors.success }]}>Teşekkürler</Text>
           <Text style={[t.typography.body, { color: t.colors.textMuted, marginTop: 6, textAlign: "center" }]}>
@@ -87,7 +89,7 @@ export function DegerlendirmeFormScreen() {
 
   return (
     <Screen>
-      <AppHeader title="Öğretmen değerlendirmesi" subtitle={params.teacherName} showBack showNotifications={false} />
+      <AppHeader title="Öğretmen değerlendirmesi" subtitle={params.teacherName} showBack backFallback={listFallback(base, "gelisim")} showNotifications={false} />
 
       <Card style={{ marginBottom: 16, backgroundColor: t.colors.infoSoft }}>
         <View style={{ flexDirection: "row", gap: 8 }}>

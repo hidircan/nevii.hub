@@ -1,6 +1,7 @@
 import { useRouter } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useTheme } from "../../theme/theme-context";
+import { goBack } from "../../lib/navigation";
 import { Icon } from "./icon";
 import { useUnreadNotificationCount } from "../../hooks/use-unread-notification-count";
 
@@ -8,6 +9,12 @@ type Props = {
   title: string;
   subtitle?: string;
   showBack?: boolean;
+  /**
+   * Deep-link ile doğrudan açılışta (yığında önceki ekran yoksa) gidilecek
+   * güvenli route. Verilmezse "/" (rol evi). iOS swipe-back / Android sistem
+   * geri ile aynı stack kuralı (`goBack`) kullanılır.
+   */
+  backFallback?: string;
   showNotifications?: boolean;
   /**
    * Hesap kısayolu — verildiğinde zil + sağında bağımsız profil ikonu
@@ -19,7 +26,7 @@ type Props = {
 };
 
 /** Ortak ekran üstlüğü — geri butonu, başlık/alt başlık ve sağda bildirim zili (rozetli) veya özel aksiyon. */
-export function AppHeader({ title, subtitle, showBack, showNotifications = true, showAccount, right }: Props) {
+export function AppHeader({ title, subtitle, showBack, backFallback, showNotifications = true, showAccount, right }: Props) {
   const t = useTheme();
   const router = useRouter();
   const unread = useUnreadNotificationCount(showNotifications);
@@ -48,7 +55,7 @@ export function AppHeader({ title, subtitle, showBack, showNotifications = true,
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Geri"
-            onPress={() => router.back()}
+            onPress={() => goBack(router, backFallback)}
             hitSlop={8}
             style={[styles.iconButton, { backgroundColor: t.colors.bgMuted }]}
           >

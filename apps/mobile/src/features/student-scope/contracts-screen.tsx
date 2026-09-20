@@ -9,6 +9,7 @@ import { useFocusRefetch } from "../../hooks/use-focus-refetch";
 import { downloadAndOpenFile } from "../../lib/open-file";
 import { useSelectedStudentId } from "../../student/student-context";
 import { useTheme } from "../../theme/theme-context";
+import { listFallback, usePersonaBasePath } from "../../lib/navigation";
 import { formatCurrency, shortDayMonth } from "../../lib/date";
 import type { StudentContractDetailResponse, StudentContractsResponse } from "../../types/api";
 
@@ -90,6 +91,7 @@ export function StudentScopeContractsScreen({ basePath }: { basePath: "/(parent)
 
 export function StudentScopeContractDetailScreen({ contractId }: { contractId: string }) {
   const t = useTheme();
+  const base = usePersonaBasePath();
   const studentId = useSelectedStudentId();
   // Liste üzerinden sahiplik ön-kontrolü: seçili öğrenciye ait olmayan ID
   // ile gelindiyse detay isteği sunucuda reddedilir (güvenli hata).
@@ -111,7 +113,7 @@ export function StudentScopeContractDetailScreen({ contractId }: { contractId: s
   if (list.status === "loading" || detail.status === "loading") {
     return (
       <Screen>
-        <AppHeader title="Sözleşme" showBack showNotifications={false} />
+        <AppHeader title="Sözleşme" showBack backFallback={listFallback(base, "sozlesmeler")} showNotifications={false} />
         <LoadingSkeleton rows={4} />
       </Screen>
     );
@@ -119,7 +121,7 @@ export function StudentScopeContractDetailScreen({ contractId }: { contractId: s
   if (list.status === "error") {
     return (
       <Screen>
-        <AppHeader title="Sözleşme" showBack showNotifications={false} />
+        <AppHeader title="Sözleşme" showBack backFallback={listFallback(base, "sozlesmeler")} showNotifications={false} />
         <ErrorState message={list.message} onRetry={list.refresh} code={list.code} />
       </Screen>
     );
@@ -127,7 +129,7 @@ export function StudentScopeContractDetailScreen({ contractId }: { contractId: s
   if (!owned) {
     return (
       <Screen>
-        <AppHeader title="Sözleşme" showBack showNotifications={false} />
+        <AppHeader title="Sözleşme" showBack backFallback={listFallback(base, "sozlesmeler")} showNotifications={false} />
         <EmptyState icon="lock-closed-outline" title="Bu sözleşmeye erişiminiz yok" description="Seçili öğrenci değişmiş olabilir." />
       </Screen>
     );
@@ -135,7 +137,7 @@ export function StudentScopeContractDetailScreen({ contractId }: { contractId: s
   if (detail.status === "error") {
     return (
       <Screen>
-        <AppHeader title="Sözleşme" showBack showNotifications={false} />
+        <AppHeader title="Sözleşme" showBack backFallback={listFallback(base, "sozlesmeler")} showNotifications={false} />
         <ErrorState message={detail.message} onRetry={detail.refresh} code={detail.code} />
       </Screen>
     );
@@ -145,7 +147,7 @@ export function StudentScopeContractDetailScreen({ contractId }: { contractId: s
 
   return (
     <Screen>
-      <AppHeader title="Sözleşme detayı" showBack showNotifications={false} />
+      <AppHeader title="Sözleşme detayı" showBack backFallback={listFallback(base, "sozlesmeler")} showNotifications={false} />
 
       <Card>
         <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 8 }}>

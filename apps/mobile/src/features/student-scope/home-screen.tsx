@@ -2,7 +2,7 @@ import { useRouter } from "expo-router";
 import { useMemo } from "react";
 import { Text, View } from "react-native";
 import { ChildSwitcher } from "../../student/child-switcher";
-import { useSelectedStudentId } from "../../student/student-context";
+import { useChildSelection, useSelectedStudentId } from "../../student/student-context";
 import {
   AppHeader,
   Card,
@@ -103,7 +103,10 @@ export function StudentScopeHomeScreen({ basePath }: { basePath: "/(parent)" | "
     profile.status === "loading" ||
     homework.status === "loading" ||
     notifications.status === "loading";
+  const selection = useChildSelection();
   function refreshAll() {
+    // Çocuk listesi dahil — erişim iptali pull-to-refresh/foreground'da düşer.
+    selection.refresh();
     schedule.refresh();
     profile.refresh();
     homework.refresh();
@@ -129,7 +132,7 @@ export function StudentScopeHomeScreen({ basePath }: { basePath: "/(parent)" | "
       ) : nextLesson ? (
         <LessonCard lesson={nextLesson} studentFacing personName={nextLesson.teacherName ?? "Öğretmen"} onPress={() => router.push(`${basePath}/dersler/${nextLesson.id}`)} />
       ) : (
-        <EmptyState icon="calendar-outline" title="Planlanmış ders yok" />
+        <EmptyState icon="calendar-outline" title="Planlanmış ders yok"  compact />
       )}
 
       <SectionHeader title="Bu haftanın dersleri" actionLabel="Tümü" onAction={() => router.push(`${basePath}/dersler`)} />
@@ -138,7 +141,7 @@ export function StudentScopeHomeScreen({ basePath }: { basePath: "/(parent)" | "
       ) : schedule.status === "error" ? (
         <ErrorState message={schedule.message} onRetry={schedule.refresh} />
       ) : thisWeekLessons.length === 0 ? (
-        <EmptyState icon="calendar-outline" title="Bu hafta ders yok" />
+        <EmptyState icon="calendar-outline" title="Bu hafta ders yok"  compact />
       ) : (
         <ListGroup>
           {thisWeekLessons.slice(0, 3).map((l) => {
@@ -163,7 +166,7 @@ export function StudentScopeHomeScreen({ basePath }: { basePath: "/(parent)" | "
       ) : homework.status === "error" ? (
         <ErrorState message={homework.message} onRetry={homework.refresh} />
       ) : pendingHomework.length === 0 ? (
-        <EmptyState icon="checkmark-circle-outline" title="Bekleyen ödev yok" />
+        <EmptyState icon="checkmark-circle-outline" title="Bekleyen ödev yok"  compact />
       ) : (
         <ListGroup>
           <ListRow
@@ -247,7 +250,7 @@ export function StudentScopeHomeScreen({ basePath }: { basePath: "/(parent)" | "
           <Text style={[t.typography.body, { color: t.colors.text }]}>{latestAssessment.strengthNote}</Text>
         </Card>
       ) : (
-        <EmptyState icon="chatbubble-outline" title="Henüz öğretmen notu yok" />
+        <EmptyState icon="chatbubble-outline" title="Henüz öğretmen notu yok"  compact />
       )}
 
       <SectionHeader title="Bildirimler" actionLabel="Tümü" onAction={() => router.push("/notifications")} />
@@ -256,7 +259,7 @@ export function StudentScopeHomeScreen({ basePath }: { basePath: "/(parent)" | "
       ) : notifications.status === "error" ? (
         <ErrorState message={notifications.message} onRetry={notifications.refresh} />
       ) : latestNotifications.length === 0 ? (
-        <EmptyState icon="notifications-outline" title="Bildirim yok" />
+        <EmptyState icon="notifications-outline" title="Bildirim yok"  compact />
       ) : (
         <View style={{ gap: 8 }}>
           {latestNotifications.map((n) => (
