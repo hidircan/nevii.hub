@@ -96,8 +96,24 @@ export function StudentScopeHomeScreen({ basePath }: { basePath: "/(parent)" | "
         : profile.data.name
       : undefined;
 
+  const refreshing =
+    schedule.status === "loading" ||
+    profile.status === "loading" ||
+    homework.status === "loading" ||
+    notifications.status === "loading";
+  function refreshAll() {
+    schedule.refresh();
+    profile.refresh();
+    homework.refresh();
+    attendance.refresh();
+    assessments.refresh();
+    notifications.refresh();
+    makeup.refresh();
+    balance.refresh();
+  }
+
   return (
-    <Screen onRefresh={schedule.refresh} refreshing={schedule.status === "loading"}>
+    <Screen onRefresh={refreshAll} refreshing={refreshing}>
       <AppHeader title="Nevii Hub" subtitle={headerContext} />
 
       <SectionHeader title="Sıradaki ders" />
@@ -112,7 +128,11 @@ export function StudentScopeHomeScreen({ basePath }: { basePath: "/(parent)" | "
       )}
 
       <SectionHeader title="Bu haftanın dersleri" actionLabel="Tümü" onAction={() => router.push(`${basePath}/dersler`)} />
-      {thisWeekLessons.length === 0 ? (
+      {schedule.status === "loading" ? (
+        <LoadingSkeleton rows={1} />
+      ) : schedule.status === "error" ? (
+        <ErrorState message={schedule.message} onRetry={schedule.refresh} />
+      ) : thisWeekLessons.length === 0 ? (
         <EmptyState icon="calendar-outline" title="Bu hafta ders yok" />
       ) : (
         <ListGroup>
@@ -135,6 +155,8 @@ export function StudentScopeHomeScreen({ basePath }: { basePath: "/(parent)" | "
       <SectionHeader title="Bekleyen ödevler" actionLabel="Tümü" onAction={() => router.push(`${basePath}/odevler`)} />
       {homework.status === "loading" ? (
         <LoadingSkeleton rows={1} />
+      ) : homework.status === "error" ? (
+        <ErrorState message={homework.message} onRetry={homework.refresh} />
       ) : pendingHomework.length === 0 ? (
         <EmptyState icon="checkmark-circle-outline" title="Bekleyen ödev yok" />
       ) : (
@@ -206,6 +228,8 @@ export function StudentScopeHomeScreen({ basePath }: { basePath: "/(parent)" | "
       <SectionHeader title="Öğretmen notu" />
       {assessments.status === "loading" ? (
         <LoadingSkeleton rows={1} />
+      ) : assessments.status === "error" ? (
+        <ErrorState message={assessments.message} onRetry={assessments.refresh} />
       ) : latestAssessment ? (
         <Card>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 }}>
@@ -219,7 +243,11 @@ export function StudentScopeHomeScreen({ basePath }: { basePath: "/(parent)" | "
       )}
 
       <SectionHeader title="Bildirimler" actionLabel="Tümü" onAction={() => router.push("/notifications")} />
-      {latestNotifications.length === 0 ? (
+      {notifications.status === "loading" ? (
+        <LoadingSkeleton rows={1} />
+      ) : notifications.status === "error" ? (
+        <ErrorState message={notifications.message} onRetry={notifications.refresh} />
+      ) : latestNotifications.length === 0 ? (
         <EmptyState icon="notifications-outline" title="Bildirim yok" />
       ) : (
         <View style={{ gap: 8 }}>
