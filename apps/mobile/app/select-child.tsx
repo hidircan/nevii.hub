@@ -6,16 +6,18 @@ import { portalErrorMessage } from "../src/components/mobile-ui/api-error-messag
 import { AppHeader, Avatar, EmptyState, ErrorState, Icon, LoadingSkeleton } from "../src/components/ui";
 import { toChildContextView } from "../src/features/parent/child-context";
 import { useApiGet } from "../src/hooks/use-api";
-import { useChildSelection } from "../src/student/student-context";
+import { useChildSelection, type ServerChild } from "../src/student/student-context";
 import { useTheme } from "../src/theme/theme-context";
 import type { StudentProfile } from "../src/types/api";
 
 /**
  * "Kimi takip etmek istiyorsunuz?" — çoklu çocuk velisi seçim ekranı.
- * Liste YALNIZ sunucu oturumundan gelir (sınırsız sayıda çocuk desteklenir,
- * FlatList ile sanallaştırılır). Her satır kendi profilini sunucudan çeker;
- * sunucunun reddettiği (403/404) satır listelenmez — güvenli hata gösterir.
- * Seçim persist edilir; geçersiz tercih geçersiz sayılır, asla tahmin edilmez.
+ * Liste YALNIZ `GET /api/v1/mobile/my-children` yanıtından gelir (sınırsız
+ * sayıda çocuk desteklenir, FlatList ile sanallaştırılır). Satırlar sunucu
+ * metadatasını (ad, fotoğraf, branş/öğretmen) doğrudan kullanır; adı eksik
+ * satır tekil profili sunucudan çeker, sunucunun reddettiği (403/404) satır
+ * listelenmez — güvenli hata gösterir. Seçim persist edilir; geçersiz tercih
+ * geçersiz sayılır, asla tahmin edilmez.
  */
 export default function SelectChildScreen() {
   const { user } = useAuth();
@@ -44,11 +46,11 @@ export default function SelectChildScreen() {
       ) : (
         <FlatList
           data={children}
-          keyExtractor={(id) => id}
+          keyExtractor={(item) => item.studentId}
           contentContainerStyle={styles.list}
           showsVerticalScrollIndicator={false}
           accessibilityRole="list"
-          renderItem={({ item }) => <ChildRow studentId={item} selected={item === selectedId} onChoose={choose} />}
+          renderItem={({ item }) => <ChildRow child={item} selected={item.studentId === selectedId} onChoose={choose} />}
           ListEmptyComponent={
             <View style={{ paddingHorizontal: 20 }}>
               <EmptyState
@@ -64,38 +66,58 @@ export default function SelectChildScreen() {
   );
 }
 
-function ChildRow({ studentId, selected, onChoose }: { studentId: string; selected: boolean; onChoose: (id: string) => void }) {
+function ChildRow({ child, selected, onChoose }: { child: ServerChild; selected: boolean; onChoose: (id: string) => void }) {
+  // Ad sunucu listesinden gelmiyorsa tekil profil denenir (yine sunucu-otriteli).
+  const needsProfile = !child.displayName;
+  const res = useApiGet<StudentProfile>(needsProfile ? `/api/v1/students/${child.studentId}` : "");
+
+  if (needsProfile) {
+    if (res.status === "loading") {
+      return (
+        <View style={{ paddingHorizontal: 20, marginBottom: 8 }}>
+          <LoadingSkeleton rows={1} />
+        </View>
+      );
+    }
+    if (res.status === "error") {
+      // Sunucu reddetti (yetkisiz/aktif-olmayan erişim): satır gizlenir,
+      // genel liste hatası gibi gösterilmez — veri sızıntısı yok.
+      if (res.code === "FORBIDDEN" || res.code === "NOT_FOUND" || res.code === "UNAUTHORIZED") return null;
+      return (
+        <View style={{ paddingHorizontal: 20, marginBottom: 8 }}>
+          <ErrorState message={portalErrorMessage(res.code, res.message)} onRetry={res.refresh} code={res.code} />
+        </View>
+      );
+    }
+    const view = toChildContextView(res.data);
+    if (!view) return null;
+    return <RowShell child={child} name={view.name} detail={[view.line1, view.line2].filter(Boolean).join(" · ") || null} selected={selected} onChoose={onChoose} />;
+  }
+
+  return <RowShell child={child} name={child.displayName ?? "Öğrenci"} detail={child.detail ?? null} selected={selected} onChoose={onChoose} />;
+}
+
+function RowShell({
+  child,
+  name,
+  detail,
+  selected,
+  onChoose,
+}: {
+  child: ServerChild;
+  name: string;
+  detail: string | null;
+  selected: boolean;
+  onChoose: (id: string) => void;
+}) {
   const t = useTheme();
-  const res = useApiGet<StudentProfile>(`/api/v1/students/${studentId}`);
-
-  if (res.status === "loading") {
-    return (
-      <View style={{ paddingHorizontal: 20, marginBottom: 8 }}>
-        <LoadingSkeleton rows={1} />
-      </View>
-    );
-  }
-  if (res.status === "error") {
-    // Sunucu reddetti (yetkisiz/aktif-olmayan erişim): satır gizlenir,
-    // genel liste hatası gibi gösterilmez — veri sızıntısı yok.
-    if (res.code === "FORBIDDEN" || res.code === "NOT_FOUND" || res.code === "UNAUTHORIZED") return null;
-    return (
-      <View style={{ paddingHorizontal: 20, marginBottom: 8 }}>
-        <ErrorState message={portalErrorMessage(res.code, res.message)} onRetry={res.refresh} code={res.code} />
-      </View>
-    );
-  }
-
-  const view = toChildContextView(res.data);
-  if (!view) return null;
-
   return (
     <View style={{ paddingHorizontal: 20, marginBottom: 8 }}>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`${view.name} adlı öğrenciyi seç`}
+        accessibilityLabel={`${name} adlı öğrenciyi seç`}
         accessibilityState={{ selected }}
-        onPress={() => void onChoose(studentId)}
+        onPress={() => void onChoose(child.studentId)}
         style={({ pressed }) => [
           styles.row,
           {
@@ -105,14 +127,14 @@ function ChildRow({ studentId, selected, onChoose }: { studentId: string; select
           },
         ]}
       >
-        <Avatar name={view.name} size={52} photoPath={`/api/v1/students/${studentId}/photo`} />
+        <Avatar name={name} size={52} photoPath={child.photoPath} />
         <View style={styles.text}>
           <Text style={[t.typography.bodyStrong, { color: t.colors.text }]} numberOfLines={2}>
-            {view.name}
+            {name}
           </Text>
-          {view.line1 ? (
+          {detail ? (
             <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]} numberOfLines={2}>
-              {view.line1}
+              {detail}
             </Text>
           ) : null}
         </View>

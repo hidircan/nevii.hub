@@ -1,26 +1,44 @@
 import type { AuthUser } from "../auth/auth-context";
 
-/** Sunucunun verdiği çocuk kaydı — bugün `MobileSession.children` boştur
- *  (session tek `studentId` döner); backend liste endpoint'i onaylanınca dolar. */
-export type ServerChild = { studentId: string };
+/**
+ * Sunucunun verdiği çocuk kaydı — `GET /api/v1/mobile/my-children`
+ * (PII-minimize: id, displayName, accessType, photoPath, instruments,
+ * teacherName). Liste boş/ulaşılamazsa tekil session `studentId` fallback'tır.
+ */
+export type ServerChild = {
+  studentId: string;
+  displayName?: string | null;
+  photoPath?: string | null;
+  detail?: string | null;
+};
 
 /**
- * Sunucu-otriteli çocuk listesi. TEK kaynak oturumdur: önce
- * `user.children` (çoklu destek), yoksa tekil `user.studentId` fallback.
- * İstemcide ID üretilmez, URL parametresi ASLA otorite değildir.
+ * Sunucu-otriteli çocuk listesi. TEK kaynak sunucudur: `my-children` yanıtı
+ * doluysa o (çoklu destek), boş/ulaşılamazsa tekil session `studentId`
+ * fallback. İstemcide ID üretilmez, URL parametresi ASLA otorite değildir.
  */
-export function availableChildIds(user: AuthUser | null | undefined): string[] {
+export function availableChildren(
+  user: AuthUser | null | undefined,
+  fetched: ServerChild[]
+): ServerChild[] {
+  const clean = fetched.filter(
+    (c): c is ServerChild => !!c && typeof c.studentId === "string" && c.studentId.length > 0
+  );
+  if (clean.length > 0) {
+    const seen = new Set<string>();
+    return clean.filter((c) => (seen.has(c.studentId) ? false : (seen.add(c.studentId), true)));
+  }
   if (!user) return [];
-  const extra = Array.isArray(user.children)
-    ? user.children.map((c) => c?.studentId).filter((id): id is string => typeof id === "string" && id.length > 0)
-    : [];
-  if (extra.length > 0) return [...new Set(extra)];
-  return user.studentId ? [user.studentId] : [];
+  return user.studentId ? [{ studentId: user.studentId }] : [];
+}
+
+export function availableChildIds(user: AuthUser | null | undefined, fetched: ServerChild[] = []): string[] {
+  return availableChildren(user, fetched).map((c) => c.studentId);
 }
 
 /** Veli + birden fazla aktif çocuk — seçim ekranı/switcher yalnız bu durumda görünür. */
-export function needsChildPicker(user: AuthUser | null | undefined): boolean {
-  return user?.portalAccessType === "GUARDIAN" && availableChildIds(user).length > 1;
+export function needsChildPicker(user: AuthUser | null | undefined, fetched: ServerChild[] = []): boolean {
+  return user?.portalAccessType === "GUARDIAN" && availableChildIds(user, fetched).length > 1;
 }
 
 /**

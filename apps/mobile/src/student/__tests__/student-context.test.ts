@@ -3,11 +3,17 @@
  *
  * Kök neden: mobil bugün tek `studentId` varsayar; veliye tanımlı TÜM aktif
  * erişimler desteklenmelidir (UI limiti YOK). Yetki her istekte sunucudadır
- * (`canAccessStudent`/`assertStudentAccess`); istemci ID üretmez, URL
- * parametresini otorite saymaz.
+ * (`canAccessStudent`/`assertStudentAccess` + `GET /api/v1/mobile/my-children`
+ * PII-minimize listesi); istemci ID üretmez, URL parametresini otorite saymaz.
  */
 import { describe, expect, it } from "vitest";
-import { availableChildIds, needsChildPicker, validatePersistedSelection } from "../selection";
+import {
+  availableChildIds,
+  availableChildren,
+  needsChildPicker,
+  validatePersistedSelection,
+  type ServerChild,
+} from "../selection";
 import type { AuthUser } from "../../auth/auth-context";
 
 function guardian(overrides: Partial<AuthUser> = {}): AuthUser {
@@ -24,34 +30,39 @@ function guardian(overrides: Partial<AuthUser> = {}): AuthUser {
   } as AuthUser;
 }
 
-describe("availableChildIds — yalnız sunucu oturumu otoritedir", () => {
+function items(ids: string[]): ServerChild[] {
+  return ids.map((studentId) => ({ studentId, displayName: `Ad ${studentId}` }));
+}
+
+describe("availableChildren — yalnız sunucu listesi otoritedir", () => {
   it("SELF öğrenci doğrudan kendi kaydına gider (switcher/picker yok)", () => {
-    const self = guardian({ portalAccessType: "SELF", studentId: "s9", children: undefined });
-    expect(availableChildIds(self)).toEqual(["s9"]);
-    expect(needsChildPicker(self)).toBe(false);
+    const self = guardian({ portalAccessType: "SELF", studentId: "s9" });
+    expect(availableChildIds(self, [])).toEqual(["s9"]);
+    expect(needsChildPicker(self, [])).toBe(false);
   });
 
-  it("tek çocuklu veli doğrudan gider (liste tekil fallback)", () => {
-    expect(availableChildIds(guardian())).toEqual(["s1"]);
-    expect(needsChildPicker(guardian())).toBe(false);
+  it("tek çocuklu veli doğrudan gider (tekil session fallback)", () => {
+    expect(availableChildIds(guardian(), [])).toEqual(["s1"]);
+    expect(needsChildPicker(guardian(), [])).toBe(false);
   });
 
   it("çok çocuklu veli: sunucu listesi aynen, tekrarsız (limit YOK — 5 çocuk)", () => {
-    const u = guardian({
-      children: [{ studentId: "s1" }, { studentId: "s2" }, { studentId: "s3" }, { studentId: "s4" }, { studentId: "s5" }],
-    });
-    expect(availableChildIds(u)).toEqual(["s1", "s2", "s3", "s4", "s5"]);
-    expect(needsChildPicker(u)).toBe(true);
+    const u = guardian({ studentId: undefined });
+    const list = availableChildren(u, items(["s1", "s2", "s3", "s4", "s5"]));
+    expect(list.map((c) => c.studentId)).toEqual(["s1", "s2", "s3", "s4", "s5"]);
+    expect(list[0]?.displayName).toBe("Ad s1");
+    expect(needsChildPicker(u, items(["s1", "s2"]))).toBe(true);
   });
 
-  it("boş/geçersiz sunucu girdileri elenir, tekil fallback'e düşülmez (liste öncelikli)", () => {
-    const u = guardian({ children: [{ studentId: "" }, { studentId: "s2" }, { studentId: "s2" }] });
-    expect(availableChildIds(u)).toEqual(["s2"]);
+  it("boş/geçersiz sunucu girdileri elenir; tekil fallback'e dönülür", () => {
+    const u = guardian();
+    expect(availableChildIds(u, [{ studentId: "" }, { studentId: "  ".trim() }])).toEqual(["s1"]);
+    expect(availableChildIds(u, [{ studentId: "s2" }, { studentId: "s2" }])).toEqual(["s2"]);
   });
 
-  it("oturumsuz kullanıcıda liste boştur", () => {
-    expect(availableChildIds(null)).toEqual([]);
-    expect(needsChildPicker(null)).toBe(false);
+  it("oturumsuz + liste yoksa boştur", () => {
+    expect(availableChildIds(null, [])).toEqual([]);
+    expect(needsChildPicker(null, [])).toBe(false);
   });
 });
 
@@ -84,13 +95,15 @@ describe("çoklu-çocuk route sözleşmesi (statik)", () => {
     expect(layout).toMatch(/StudentProvider/);
   });
 
-  it("picker'da hardcoded öğrenci ID'si yok; seçim listeye karşı doğrulanır", async () => {
+  it("picker verisi my-children metasından gelir; hardcoded öğrenci ID'si yok", async () => {
     const fs = await import("node:fs/promises");
     const path = await import("node:path");
     const picker = await fs.readFile(path.join(__dirname, "..", "..", "..", "app", "select-child.tsx"), "utf-8");
     expect(picker).not.toMatch(/\/api\/v1\/students\/[a-zA-Z0-9_-]{4,}(?![${/])/);
     expect(picker).toMatch(/FlatList/);
+    expect(picker).not.toMatch(/useLocalSearchParams/);
     const ctx = await fs.readFile(path.join(__dirname, "..", "student-context.tsx"), "utf-8");
+    expect(ctx).toMatch(/\/api\/v1\/mobile\/my-children/);
     expect(ctx).toMatch(/childIds\.includes\(studentId\)/);
     expect(ctx).toMatch(/validatePersistedSelection/);
   });
