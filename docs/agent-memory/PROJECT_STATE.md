@@ -28,6 +28,44 @@ screens (login/welcome).
 - Full detail + rationale: `docs/contracts/LEGAL_POLICY_TEXT_DISCREPANCY_REPORT.md`,
   `docs/roadmap/NEVIIHUB_ADMIN_CONTRACTS_POLICY_REMAINING_WORK.md`.
 
+## Güncel odak (2026-09-20) — Operasyon turu: çalışma günü tek kaynağı, dashboard, öğrenci IA, veri kalıcılığı (`fix/schedule-contract-ux-round`)
+
+Tek turda A–M kapsamı. **Migration uygulanmadı** (dosyalar repo'da, hepsi additive).
+
+- **A · Çalışma günü TEK KAYNAK** — yeni `src/lib/work-days.ts`. "Bu gün açık mı?"
+  beş ayrı yerde ayrı ayrı hesaplanıyordu; `isDateClosed` `ClosedDay.isOpen`'ı hiç
+  okumuyordu ve `assertSchedulableDate` ona `[]` geçiyordu. Artık öncelik:
+  yönetici istisnası > resmî tatil > dönemin haftalık kapalı günü > açık.
+  `schedulable === (status === "open")`, istisnasız. `AppData.closedDayOverrides`
+  eklendi (`readData()` her zaman doldurur) → `validateLessonSlot`, seri planlama,
+  ücret önizlemesi ve Ders Programı ızgarası aynı cevabı verir.
+  Yeni ekran: `/panel/ayarlar/calisma-gunleri` (zorla aç/kapat + birleşik önizleme).
+  **Davranış değişikliği:** haftalık kapalı güne (Güz/Pazartesi) artık ders
+  planlanamaz — çok sayıda test fixture'ı Pazartesi kullandığı için güncellendi.
+- **B** Sözleşme oluşturma sonrası başarı durumu (CTA'lar + görünüme kaydırma).
+- **C** Günlük Özet baştan: `src/lib/dashboard/daily-summary.ts` (saf, testli),
+  rol farkındalığı (hakediş yalnız SUPER_ADMIN), şube seçici + kullanıcı bazlı
+  varsayılan şube (`UserPreference.dashboardJson`).
+- **D/H/I** Öğrenciler: sözleşme filtreleri (yok/aktif/yakında bitecek/geçmiş/iptal),
+  Türkçe sıralama, 10/20/50/100 sayfa boyutu (URL'de kalıcı).
+- **E** Tek kanonik sözleşme görüntüleyici — Evraklar da `/sozlesme-yazdir/[contractId]`.
+- **F** Evrak statüsü: `draft` → `issued` ("Düzenlendi") + belgeye özel etiketler.
+- **G** `npm run verify:durability` + `docs/operations/DATA_DURABILITY_AND_GO_LIVE.md`.
+  **KRİTİK bulgu:** `STORE_MODE=json` + Vercel = `/tmp` = her cold start'ta sıfırlanır.
+- **J** Öğrenci detayı 858 satırlık tek sayfadan 7 gerçek route'a (layout + sekmeler).
+- **K** Ders gün/saati tek kaynak: `Student.lessonScheduleText` kalıcı, sözleşmede
+  dondurulur, sözleşmeden ders programı üretimi (`planContractLessonScheduleTool`,
+  varsayılan `dryRun`). `LessonSeries.contractId` yaşam döngüsü bağlantısı.
+- **L** KVKK/Fotoğraf-Video bloğu Sözleşme Merkezi'nden öğrenci Evraklar sekmesine.
+- **Performans:** `requireSessionContext`, `getInstitutionContext`, `readScopedData`
+  istek başına `cache()` ile tekilleştirildi (yan fayda: eşzamanlı token yenileme yarışı kapandı).
+
+### Açık iş
+- Migration'lar test DB'ye uygulanmadı (owner onayı + `prisma migrate deploy`).
+- Mobil (`apps/mobile`) bu turda hiç ele alınmadı.
+- Sözleşme iptalinde "bu sözleşmeden N ders var" uyarısı için tool hazır
+  (`countContractLessonsTool`) ama iptal UI'ına henüz bağlanmadı.
+
 ## Güncel odak (2026-09-17) — Yönetici arşiv/pasif + müsaitlik + öğretmen genel bilgi (`fix/admin-archive-schedule-availability` → `test`)
 
 - **Öğrenci pasife al (db modu)**: `store-db.updateStudentProfile` `active`/`archivedAt`

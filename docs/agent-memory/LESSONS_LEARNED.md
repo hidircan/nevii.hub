@@ -987,3 +987,72 @@ katmana yalnız KULLANICI AKSİYONU yazmalı; ders başına state tutan bileşen
 vakithesaplama.diyanet.gov.tr/dinigunler.php?yil=YYYY. Yeni yıl eklerken tabloyu oradan alın ve
 `official-holidays-single-source.test.ts`'e tarihleri ekleyin. Tatil, planlamada "çakışma" değil
 atlanan gündür — seri oluşturmayı bloklarsa (13 haftalık seed bunu yakaladı) kullanıcı kilitlenir.
+
+## 2026-09-20 — "bu gün açık mı?" sorusunun BEŞ ayrı cevabı vardı
+
+Kapalı/açık gün kuralı beş yerde ayrı ayrı yazılmıştı ve **hiçbiri aynı
+bilgiyi görmüyordu**:
+
+| Yer | Gördüğü |
+|---|---|
+| `isDateClosed` (closed-days.ts) | yalnız Pazartesi + tarih listesi — `ClosedDay.isOpen` bayrağını HİÇ okumuyordu |
+| `assertSchedulableDate` | yukarıdakini **`closedDays: []`** ile çağırıyordu (istisnalar hiç ulaşmıyordu) |
+| `validateLessonSlot` | yalnız resmî tatil |
+| `program-studio.tsx` | yalnız resmî tatil + **hard-coded** hafta günü (`[1]` / `[0,6]`) |
+| `resolveDayStatus` | TAM kural — ama yalnız Yoklama Takvimi kullanıyordu |
+
+Sonuç: yöneticinin koyduğu "zorla açık" istisnası hiçbir planlama ekranını
+etkilemiyordu; aynı gün Ders Programı'nda planlanabilir, Yoklama Takvimi'nde
+kapalı görünebiliyordu.
+
+**Ders:** bir kural için ikinci bir uygulama yazıldığı anda, birincisi
+"legacy" değil **rakip** olur. Kural tek bir adı olan modülde toplanmalı
+(`src/lib/work-days.ts`) ve diğerleri oradan re-export etmeli. Ayrıca bir
+guard'a sabit boş liste (`[]`) geçen çağrı, guard'ı sessizce devre dışı
+bırakır — `grep` ile böyle çağrıları arayın.
+
+**İkinci ders:** `AppData`'ya `closedDayOverrides` eklemek, "elinde yalnız
+`data` olan" TÜM çağıranların istisnaları görmesini sağladı. Bir kuralın
+girdisi, o kuralı uygulayan fonksiyonun zaten aldığı veri yapısında
+olmalıdır; ayrı bir çağrı gerektiriyorsa er ya da geç unutulur.
+
+## 2026-09-20 — Kayıtta sorulan bilgi hiçbir yere yazılmıyordu
+
+`createStudentTool` ders günlerini (`lessonDays`) ilk tahsilat tutarını
+hesaplamak için kullanıp **bilinçli olarak süzüyordu**
+(`lessonDays: _ignoredLessonDays`). Kullanıcı aynı bilgiyi kayıt →
+sözleşme → Ders Programı akışında ÜÇ kez giriyordu ve üçü birbirini
+doğrulamıyordu. Üstelik sözleşme ön-doldurması gerçek derslerden
+türetilirken `getUTCDay()` + `toISOString()` kullanıyordu: İstanbul'da
+15:00 olan ders sözleşmede **12:00** yazıyordu.
+
+**Ders:** bir formda sorulan her alanın ya kalıcı bir karşılığı olmalı ya da
+hiç sorulmamalı. "Yalnız hesaplama için alıyorum" demek, kullanıcıya aynı
+soruyu ikinci kez sormanın gerekçesi değildir. Kalıcı hale getirmek (tek bir
+nullable kolon) her zaman daha ucuzdur.
+
+## 2026-09-20 — Paylaşılan `/tmp` store'u: paralel test koşuları birbirini siler
+
+Bir regresyonu araştırırken tek tek `npx vitest run <file>` çalıştırırken
+arka planda `npm test` de koşuyordu. İkisi de `/tmp/notaplan-data/store.json`
+kullanıyor ve her test dosyasının `beforeEach`'i bu dosyayı SİLİYOR. Sonuç:
+"az önce oluşturduğum ders kayboldu" (`ensureDataFile` dosyayı yok bulup
+yeniden tohumluyor) gibi, kodla hiç ilgisi olmayan sahte regresyonlar.
+Yaklaşık yarım saat bunun peşinde koşuldu.
+
+Daha kötüsü: sahte hata seti HER KOŞUDA DEĞİŞİYORDU (36 → 23 → 38, farklı
+dosyalar). "Her koşuda farklı test kırılıyor" bir kod regresyonunun değil,
+**paylaşılan duruma dışarıdan müdahale**nin imzasıdır — gerçek bir
+regresyon deterministiktir.
+
+**Düzeltme (kalıcı):** `resolveDataDir` artık `NOTAPLAN_DATA_DIR`
+değişkenini önceliklendiriyor ve `vitest.config.mts` her worktree'ye
+repo kökünden türetilmiş KENDİ geçici dizinini veriyor. Böylece iki
+worktree'de aynı anda `npm test` çalıştırmak artık güvenli.
+
+**Ders:** `fileParallelism: false` yalnız TEK process içindeki dosyaları
+serileştirir, processler arasını DEĞİL. Paylaşılan bir dosya deposuna
+dayanan test paketinde izolasyonu **koşu başına dizin** ile çözün; "aynı
+anda başka test çalıştırmayın" disiplini er ya da geç bozulur. Bir bulguyu
+regresyon ilan etmeden önce (a) tek başına tekrarlanabilir mi, (b) hata
+seti koşular arasında sabit mi — ikisini de kontrol edin.
