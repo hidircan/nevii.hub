@@ -436,6 +436,10 @@ model Student {
   /// 2026-09-19 — kayıtta seçilen sözleşme süresi (ay, 1-12). Eskiden yalnız URL
   /// `?sure=` ile taşınıyordu; parametre düşünce Sözleşme Merkezi 3 aya dönüyordu.
   intendedDurationMonths   Int?
+  /// K (2026-09-20) — kayıtta seçilen ders gün/saatleri ("Salı 15:00, Perşembe 16:00",
+  /// kurum saat diliminde duvar saati). Sözleşme ve ders programı üretimi bunu
+  /// TEK kaynak olarak okur; eskiden değer hiç saklanmıyordu.
+  lessonScheduleText       String?
   enrollmentEndDate        DateTime?
   level                    String?
   targetExam               String?
@@ -657,6 +661,12 @@ model LessonSeries {
   endsOn            DateTime
   status            String
   lessons           Lesson[]
+  /// K (2026-09-20) — seriyi üreten StudentContract kimliği (varsa). Yaşam
+  /// döngüsü bağlantısıdır, KİLİT DEĞİLDİR: sözleşme iptalinde dersler
+  /// otomatik silinmez, kullanıcı onayı istenir (bkz. src/lib/types.ts
+  /// LessonSeries.contractId yorumu). FK tanımlanmadı — sözleşme kaydı
+  /// arşivden kaldırılsa bile ders geçmişi sorgulanabilir kalmalı.
+  contractId        String?
   /// ÖNCELİK 4 (devam) — akademik dönem etiketi ("guz"|"yaz"). NULL = legacy
   /// kayıt (bu alan eklenmeden önce oluşturuldu); okuma tarafı NULL'ı asla
   /// hata saymaz, tarihe göre güvenli fallback uygular (bkz.
@@ -677,6 +687,7 @@ model LessonSeries {
   @@index([tenantId])
   @@index([schoolId])
   @@index([tenantId, term, academicYearStart])
+  @@index([contractId])
 }
 
 /// Öğretmen dakika-başı ücreti. `branchId`/`instrument` null ise o alan
@@ -1343,6 +1354,9 @@ model UserPreference {
   density          String?
   sidebarCollapsed Boolean?
   navOrderJson     String?   @db.Text
+  /// C — Günlük Özet kişisel ayarları (varsayılan şube, gizlenen bölümler).
+  /// JSON string; şema `DashboardPreferences` (src/lib/user-preferences.ts).
+  dashboardJson    String?   @db.Text
   lastRoute        String?
   updatedAt        DateTime  @updatedAt
 
@@ -1972,7 +1986,10 @@ model DocumentInstance {
   templateId       String
   kind             String
   reference        String
-  status           String    @default("draft")
+  /// "issued" (üretildi/arşivde kalıcı) | printed | sent_for_signature | signed |
+  /// uploaded | cancelled | expired. "draft" LEGACY'dir — 20260920120000
+  /// migration'ı mevcut satırları "issued"a taşıdı; yeni kayıtlarda yazılmaz.
+  status           String    @default("issued")
   studentId        String?
   teacherId        String?
   trialLessonId    String?

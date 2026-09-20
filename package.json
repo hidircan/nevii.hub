@@ -23,7 +23,9 @@
     "seed:makeup-demo": "npx tsx scripts/seed-makeup-demo.ts",
     "backfill:display-ids": "npx tsx scripts/backfill-display-ids.ts",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "verify:durability": "npx tsx scripts/verify-data-durability.ts",
+    "ops:dashboard-default-branch": "npx tsx scripts/set-dashboard-default-branch.ts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.9.1",
