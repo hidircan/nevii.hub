@@ -1086,6 +1086,9 @@ export async function getStudentScheduleTool(
   // yalnızca `teacherId` taşır, isim BURADA denormalize edilir (bkz.
   // getTeacherScheduleTool'daki simetrik studentName zenginleştirmesi).
   const teacherNameById = new Map(data.teachers.map((t) => [t.id, t.name]));
+  const branchNameById = new Map(
+    (data.settings.branches ?? []).map((b) => [b.id, b.shortName ?? b.name])
+  );
   const { from, to } = v.data;
   // Kök neden: `from`/`to` ve depodaki `startAt` farklı UTC ofset gösterimleri
   // taşıyabiliyor (mobil istemci her zaman `.toISOString()` ile "Z" gönderirken,
@@ -1102,7 +1105,7 @@ export async function getStudentScheduleTool(
       return (fromTs === undefined || startTs >= fromTs) && (toTs === undefined || startTs <= toTs);
     })
     .sort((a, b) => a.startAt.localeCompare(b.startAt))
-    .map((l) => ({ ...l, teacherName: teacherNameById.get(l.teacherId) }));
+    .map((l) => ({ ...l, teacherName: teacherNameById.get(l.teacherId), branchName: branchNameById.get(l.branchId) }));
 
   return ok({ studentId: v.data.studentId, lessons });
 }
@@ -1225,10 +1228,13 @@ export async function getTeacherScheduleTool(
   // düşüyordu, bkz. getStudentScheduleTool'daki simetrik teacherName
   // zenginleştirmesi).
   const studentNameById = new Map(data.students.map((s) => [s.id, s.name]));
+  const teacherBranchNameById = new Map(
+    (data.settings.branches ?? []).map((b) => [b.id, b.shortName ?? b.name])
+  );
   const lessons = data.lessons
     .filter((l) => l.teacherId === v.data.teacherId)
     .sort((a, b) => a.startAt.localeCompare(b.startAt))
-    .map((l) => ({ ...l, studentName: studentNameById.get(l.studentId) }));
+    .map((l) => ({ ...l, studentName: studentNameById.get(l.studentId), branchName: teacherBranchNameById.get(l.branchId) }));
 
   return ok({ teacherId: v.data.teacherId, lessons });
 }

@@ -15,13 +15,20 @@ import {
 } from "../../../src/components/ui";
 import { useApiGet } from "../../../src/hooks/use-api";
 import { useFocusRefetch } from "../../../src/hooks/use-focus-refetch";
-import { pendingAttendance } from "../../../src/lib/attendance";
 import { addDays, format, isSameDay, shortDayMonth, startOfDay, startOfWeek, weekdayName } from "../../../src/lib/date";
 import { useTheme } from "../../../src/theme/theme-context";
 import type { HomeworkResponse, ScheduleResponse } from "../../../src/types/api";
 
-const DAY_LETTERS = ["Pt", "Sa", "Ça", "Pe", "Cu", "Ct", "Pz"];
-
+/**
+ * Öğretmen ana ekranı — ayrıntılı HAFTALIK DERS PROGRAMI (varsayılan görünüm).
+ *
+ * Ürün kuralları:
+ * - "Kapanış bekleyen dersler" alanı YOK (öğretmen yoklama almaz, ders
+ *   başlatmaz/bitirmez).
+ * - Yoklama durumu ne rozet ne CTA olarak görünmez (`showStatus={false}`);
+ *   kartlarda şube adı + oda bilgisi gösterilir.
+ * - Ders detayı salt-okunur bilgi + izinli ödev/değerlendirme akışlarına gider.
+ */
 export default function TeacherBugun() {
   const { user } = useAuth();
   const t = useTheme();
@@ -29,9 +36,9 @@ export default function TeacherBugun() {
   const now = new Date();
   const today = format(now, "yyyy-MM-dd");
 
-  const [selectedDate, setSelectedDate] = useState(() => startOfDay(now));
-  const weekStart = useMemo(() => startOfWeek(selectedDate), [selectedDate]);
+  const [weekStart, setWeekStart] = useState(() => startOfWeek(now));
   const weekDays = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart]);
+  const isCurrentWeek = isSameDay(weekStart, startOfWeek(now));
 
   const schedule = useApiGet<ScheduleResponse>(user?.teacherId ? `/api/v1/teachers/${user.teacherId}/schedule` : "");
   const homework = useApiGet<HomeworkResponse>("/api/v1/homework/mine");
@@ -40,74 +47,94 @@ export default function TeacherBugun() {
     homework.refresh();
   });
 
-  const todayLessons = useMemo(
-    () => (schedule.status === "success" ? schedule.data.lessons.filter((l) => l.startAt.startsWith(today)) : []),
-    [schedule, today]
+  const weekLessons = useMemo(
+    () => (schedule.status === "success" ? schedule.data.lessons : []),
+    [schedule]
   );
-
-  const selectedDayLessons = useMemo(
+  const lessonsByDay = useMemo(
     () =>
-      schedule.status === "success"
-        ? schedule.data.lessons
-            .filter((l) => isSameDay(new Date(l.startAt), selectedDate))
-            .sort((a, b) => a.startAt.localeCompare(b.startAt))
-        : [],
-    [schedule, selectedDate]
+      weekDays.map((day) =>
+        weekLessons
+          .filter((l) => isSameDay(new Date(l.startAt), day))
+          .sort((a, b) => a.startAt.localeCompare(b.startAt))
+      ),
+    [weekLessons, weekDays]
   );
+  const closedDays = useMemo(
+    () => (schedule.status === "success" ? (schedule.data.weeklyClosedDays ?? []) : []),
+    [schedule]
+  );
+  const weekCount = useMemo(() => lessonsByDay.reduce((n, list) => n + list.length, 0), [lessonsByDay]);
 
   const studentsWithoutTodayHomework = useMemo(() => {
     if (homework.status !== "success") return [];
     const assignedTodayStudentIds = new Set(
       homework.data.homework.filter((h) => h.createdAt?.startsWith(today)).map((h) => h.studentId)
     );
-    const completedTodayStudentNames = todayLessons
+    const names = weekLessons
+      .filter((l) => l.startAt.startsWith(today))
       .filter((l) => l.lessonProcessed || l.studentAttended)
       .filter((l) => l.studentId && !assignedTodayStudentIds.has(l.studentId))
       .map((l) => l.studentName ?? "Öğrenci");
-    return [...new Set(completedTodayStudentNames)];
-  }, [homework, todayLessons, today]);
-
-  const nowMs = now.getTime();
-  const pendingLessons = useMemo(
-    () => (schedule.status === "success" ? pendingAttendance(schedule.data.lessons, nowMs) : []),
-    [schedule, nowMs]
-  );
+    return [...new Set(names)];
+  }, [homework, weekLessons, today]);
 
   if (!user?.teacherId) {
     return (
       <Screen>
-        <AppHeader title="Bugün" />
+        <AppHeader title="Program" />
         <EmptyState icon="alert-circle-outline" title="Öğretmen hesabı bulunamadı" description="Bu hesapta bir öğretmen kimliği yok." />
       </Screen>
     );
   }
 
-  const isSelectedToday = isSameDay(selectedDate, now);
   const weekEnd = weekDays[6]!;
   const weekLabel = `${shortDayMonth(weekStart)} – ${shortDayMonth(weekEnd)}`;
 
-  // Jenerik "Günaydın/İyi günler" selamlaması yerine marka + gerçek bugünkü
-  // ders bağlamı — kök gereksinim: dolgu cümle yok, veri yoksa sade başlık.
-  const nextTodayLesson = todayLessons
-    .filter((l) => new Date(l.startAt).getTime() >= now.getTime())
-    .sort((a, b) => a.startAt.localeCompare(b.startAt))[0];
-  const headerContext =
-    todayLessons.length === 0
-      ? weekdayName(now)
-      : nextTodayLesson
-        ? `${weekdayName(now)} · ${todayLessons.length} ders · sıradaki ${format(new Date(nextTodayLesson.startAt), "HH:mm")}`
-        : `${weekdayName(now)} · ${todayLessons.length} ders bugün`;
+  function refreshAll() {
+    schedule.refresh();
+    homework.refresh();
+  }
 
   return (
-    <Screen onRefresh={schedule.refresh} refreshing={schedule.status === "loading"}>
-      <AppHeader title="Nevii Hub" subtitle={headerContext} />
+    <Screen onRefresh={refreshAll} refreshing={schedule.status === "loading"}>
+      <AppHeader
+        title="Program"
+        subtitle={schedule.status === "success" ? `${weekLabel} · ${weekCount} ders` : weekLabel}
+      />
 
-      <Card style={{ marginBottom: 8 }}>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-          <Icon name="calendar-outline" size={20} color={t.colors.primary} />
-          <Text style={[t.typography.cardTitle, { color: t.colors.text }]}>{todayLessons.length} ders bugün</Text>
-        </View>
-      </Card>
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Önceki hafta"
+          hitSlop={8}
+          onPress={() => setWeekStart((w) => addDays(w, -7))}
+          style={{ minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" }}
+        >
+          <Icon name="chevron-back" size={22} color={t.colors.text} />
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Bu haftaya dön"
+          accessibilityHint={weekLabel}
+          onPress={() => setWeekStart(startOfWeek(now))}
+          style={{ flex: 1, alignItems: "center", minHeight: 44, justifyContent: "center" }}
+        >
+          <Text style={[t.typography.bodyStrong, { color: t.colors.text }]}>{weekLabel}</Text>
+          {!isCurrentWeek ? (
+            <Text style={[t.typography.caption, { color: t.colors.primary, marginTop: 2 }]}>Bu haftaya dön</Text>
+          ) : null}
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Sonraki hafta"
+          hitSlop={8}
+          onPress={() => setWeekStart((w) => addDays(w, 7))}
+          style={{ minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" }}
+        >
+          <Icon name="chevron-forward" size={22} color={t.colors.text} />
+        </Pressable>
+      </View>
 
       {studentsWithoutTodayHomework.length > 0 ? (
         <Card style={{ borderColor: t.colors.warning, backgroundColor: t.colors.warningSoft }}>
@@ -123,142 +150,54 @@ export default function TeacherBugun() {
         </Card>
       ) : null}
 
-      {pendingLessons.length > 0 ? (
-        <>
-          <SectionHeader title={`Kapanış bekleyen dersler (${pendingLessons.length})`} />
-          <View style={{ gap: 10 }}>
-            {pendingLessons.slice(0, 5).map((lesson) => (
-              <LessonCard
-                key={lesson.id}
-                lesson={lesson}
-                personName={lesson.studentName ?? "Öğrenci"}
-                onPress={() => router.push(`/(teacher)/bugun/${lesson.id}`)}
-              />
-            ))}
-          </View>
-        </>
-      ) : null}
+      {schedule.status === "loading" ? (
+        <LoadingSkeleton rows={5} />
+      ) : schedule.status === "error" ? (
+        <ErrorState message={schedule.message} onRetry={refreshAll} />
+      ) : (
+        <View style={{ gap: 16, marginTop: 4 }}>
+          {weekDays.map((day, i) => {
+            const lessons = lessonsByDay[i] ?? [];
+            const isToday = isSameDay(day, startOfDay(now));
+            const closed = closedDays.includes(day.getDay());
+            return (
+              <View key={day.toISOString()}>
+                <SectionHeader
+                  title={`${weekdayName(day)} · ${shortDayMonth(day)}${isToday ? " · Bugün" : ""}`}
+                />
+                {closed ? (
+                  <Text style={[t.typography.caption, { color: t.colors.textFaint }]}>Kapalı gün — planlı ders yok.</Text>
+                ) : lessons.length === 0 ? (
+                  <Text style={[t.typography.caption, { color: t.colors.textFaint }]}>Planlı ders yok.</Text>
+                ) : (
+                  <View style={{ gap: 10 }}>
+                    {lessons.map((lesson) => (
+                      <LessonCard
+                        key={lesson.id}
+                        lesson={lesson}
+                        showStatus={false}
+                        personName={lesson.studentName ?? "Öğrenci"}
+                        onPress={() => router.push(`/(teacher)/bugun/${lesson.id}`)}
+                      />
+                    ))}
+                  </View>
+                )}
+              </View>
+            );
+          })}
+        </View>
+      )}
 
-      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 8 }}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Önceki hafta"
-          hitSlop={8}
-          onPress={() => setSelectedDate((d) => addDays(d, -7))}
-          style={{ padding: 6 }}
-        >
-          <Icon name="chevron-back" size={20} color={t.colors.text} />
-        </Pressable>
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => setSelectedDate(startOfDay(now))}
-          style={{ flex: 1, alignItems: "center" }}
-        >
-          <Text style={[t.typography.bodyStrong, { color: t.colors.text }]}>{weekLabel}</Text>
-          {!isSelectedToday ? (
-            <Text style={[t.typography.caption, { color: t.colors.primary, marginTop: 2 }]}>Bugüne dön</Text>
-          ) : null}
-        </Pressable>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Sonraki hafta"
-          hitSlop={8}
-          onPress={() => setSelectedDate((d) => addDays(d, 7))}
-          style={{ padding: 6 }}
-        >
-          <Icon name="chevron-forward" size={20} color={t.colors.text} />
-        </Pressable>
-      </View>
-
-      <Pressable
-        accessibilityRole="button"
-        onPress={() => router.push("/(teacher)/bugun/hafta")}
-        style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, marginTop: 4 }}
-      >
-        <Icon name="calendar-outline" size={14} color={t.colors.primary} />
-        <Text style={[t.typography.caption, { color: t.colors.primary, fontWeight: "600" }]}>Haftalık görünüm</Text>
-      </Pressable>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Telafilerim"
         hitSlop={8}
         onPress={() => router.push("/(teacher)/telafi")}
-        style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, marginTop: 8, minHeight: 32 }}
+        style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, marginTop: 16, minHeight: 44 }}
       >
-        <Icon name="swap-horizontal-outline" size={14} color={t.colors.primary} />
-        <Text style={[t.typography.caption, { color: t.colors.primary, fontWeight: "600" }]}>Telafiler</Text>
+        <Icon name="swap-horizontal-outline" size={16} color={t.colors.primary} />
+        <Text style={[t.typography.bodyStrong, { color: t.colors.primary }]}>Telafiler</Text>
       </Pressable>
-
-      <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 10, marginBottom: 4 }}>
-        {weekDays.map((day, i) => {
-          const selected = isSameDay(day, selectedDate);
-          const isToday = isSameDay(day, now);
-          return (
-            <Pressable
-              key={day.toISOString()}
-              accessibilityRole="button"
-              accessibilityState={{ selected }}
-              accessibilityLabel={`${weekdayName(day)} ${shortDayMonth(day)}`}
-              accessibilityHint="Bu günün derslerini gösterir"
-              onPress={() => setSelectedDate(day)}
-              style={{
-                alignItems: "center",
-                justifyContent: "center",
-                paddingVertical: 8,
-                paddingHorizontal: 6,
-                borderRadius: 12,
-                minWidth: 44,
-                minHeight: 48,
-                backgroundColor: selected ? t.colors.primary : "transparent",
-              }}
-            >
-              <Text
-                style={[
-                  t.typography.caption,
-                  { color: selected ? t.colors.primaryOn : t.colors.textMuted, fontWeight: "600" },
-                ]}
-              >
-                {DAY_LETTERS[i]}
-              </Text>
-              <Text
-                style={[
-                  t.typography.bodyStrong,
-                  {
-                    color: selected ? t.colors.primaryOn : isToday ? t.colors.primary : t.colors.text,
-                    marginTop: 2,
-                  },
-                ]}
-              >
-                {day.getDate()}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </View>
-
-      {schedule.status === "loading" ? (
-        <LoadingSkeleton rows={3} />
-      ) : schedule.status === "error" ? (
-        <ErrorState message={schedule.message} onRetry={schedule.refresh} />
-      ) : (
-        <>
-          <SectionHeader title={isSelectedToday ? "Bugünkü dersler" : `${weekdayName(selectedDate)} dersleri`} />
-          {selectedDayLessons.length === 0 ? (
-            <EmptyState icon="calendar-outline" title="Bu gün için planlanmış ders yok" />
-          ) : (
-            <View style={{ gap: 10 }}>
-              {selectedDayLessons.map((lesson) => (
-                <LessonCard
-                  key={lesson.id}
-                  lesson={lesson}
-                  personName={lesson.studentName ?? "Öğrenci"}
-                  onPress={() => router.push(`/(teacher)/bugun/${lesson.id}`)}
-                />
-              ))}
-            </View>
-          )}
-        </>
-      )}
     </Screen>
   );
 }
