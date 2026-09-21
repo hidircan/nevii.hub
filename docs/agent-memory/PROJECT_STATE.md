@@ -60,11 +60,29 @@ Tek turda A–M kapsamı. **Migration uygulanmadı** (dosyalar repo'da, hepsi ad
 - **Performans:** `requireSessionContext`, `getInstitutionContext`, `readScopedData`
   istek başına `cache()` ile tekilleştirildi (yan fayda: eşzamanlı token yenileme yarışı kapandı).
 
+### Owner kararlarıyla tamamlandı (2026-09-21) — `test` dalına PUSH EDİLDİ
+
+- **Migration'lar test DB'ye UYGULANDI** (`vxzewyiwfshobjizzetw`, 2026-09-20 14:17).
+  Repo 77 / uygulanan 77 — bekleyen yok. Öncesi/sonrası satır sayıları birebir
+  aynı; 52 evrak `draft` → `issued`. Production (`uqkafczrplqitzumtrqy`,
+  INACTIVE) ve `nxnjzpmmbdianywfvgaq` projesine DOKUNULMADI.
+- **Haftalık kapalı gün KATI**: ders oluşturma, taşıma ve toplu revizyon kendi
+  kurallarını uyguluyordu (zorla-açık istisnasını görmüyorlardı); üçü de tek
+  kaynağa bağlandı. Tek kaçış yolu "zorla açık".
+- **Sözleşme iptali** onay akışına bağlandı (`ContractCancelDialog`):
+  etki gösterilir, varsayılan "dersler kalsın", işlendi/telafi asla silinmez.
+- **Varsayılan şube**: Nihal → `evka3`, Ezgi → `erzene` (test DB'ye yazıldı).
+  Not: Nihal'in gerçek `User.id`'si seed'dekinden FARKLI (`user_sac2rgox9x54`,
+  davetle üretildi) — eşleştirme e-posta ile yapılmalı.
+- **Deploy**: `c2456cf` → `origin/test` → Vercel `dpl_13aLho8GUecgN5RUJ6PGtsVDUzNt`
+  "Deployment completed". `test.neviihub.com` yeni build'i sunuyor (parmak izi
+  doğrulandı). UAT: `docs/testing/UAT_2026_09_20_OPERATIONS_ROUND.md`.
+
 ### Açık iş
-- Migration'lar test DB'ye uygulanmadı (owner onayı + `prisma migrate deploy`).
-- Mobil (`apps/mobile`) bu turda hiç ele alınmadı.
-- Sözleşme iptalinde "bu sözleşmeden N ders var" uyarısı için tool hazır
-  (`countContractLessonsTool`) ama iptal UI'ına henüz bağlanmadı.
+- UAT owner tarafından yapılacak.
+- Mobil (`apps/mobile`) bu turda hiç ele alınmadı — ayrı tur.
+  DİKKAT: `apps/mobile/eas.json` çalışma ağacında dirty ve JSON'da fazladan
+  virgül var (`"simulator": true` sonrası); mobil dalda düzeltilecek.
 
 ## Güncel odak (2026-09-17) — Yönetici arşiv/pasif + müsaitlik + öğretmen genel bilgi (`fix/admin-archive-schedule-availability` → `test`)
 
