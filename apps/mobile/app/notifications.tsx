@@ -70,7 +70,9 @@ export default function NotificationsScreen() {
 
   // Faz 8: foreground push'ta liste başa tazelenir (sayfalama kaydırdıkça yeniden yüklenir).
   const fetchRef = useRef(fetchFirstPage);
-  fetchRef.current = fetchFirstPage;
+  useEffect(() => {
+    fetchRef.current = fetchFirstPage;
+  });
   useEffect(() => subscribeToScopes(["notifications"], () => fetchRef.current()), []);
 
   async function loadMore() {

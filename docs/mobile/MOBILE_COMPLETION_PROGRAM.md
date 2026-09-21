@@ -63,7 +63,23 @@ Tarih: 2026-09-20 · Branch: `release/mobile-review` · HEAD: `6cfe2c4`
   deep-link fallback, Android back / iOS swipe-back, light/dark, screen reader.
 - Detaylı checklist final committe (`docs/mobile/MOBILE_UAT_CHECKLIST.md`).
 
-## 5. Varsayımlar
+## 5. Teslim commit'leri (2026-09-20)
+
+| Faz | SHA | Konu |
+|-----|-----|------|
+| 0 | `49f9acc` | Audit + program planı |
+| 1 | `5fa5466` | Student/parent/teacher hardening |
+| 2 | `aaa763d` | Admin P0 saha operasyon merkezi |
+| 3 | `6cf91d5` | Admin P1 finans/duyuru/onay |
+| 4 | `42df403` | Admin P2 rapor/ayarlar |
+| 5 | `5efa78b` | Push/cron/preflight/runbook (+ app.json EAS) |
+| 6 | `b352a47` | Legal/public pages + deletion workflow (+ `e80202a` fixup) |
+| 7 | `eb42009` | Offline read-cache |
+| 8 | `84f0f6f` | Realtime/freshness (soketsiz revalidation) |
+| 9 | `d5ca9d1` | Kalite/a11y/performans |
+| 10 | (final) | Parite + UAT + release readiness (bu commit) |
+
+## 6. Varsayımlar
 
 - `.env.example`'daki LAN IP kullanıcıya ait yerel geliştirme ayarıdır; korunur.
 - `app.json`'daki EAS projectId/owner gerçektir ve projeye aittir; Faz 5'te commitlenir.

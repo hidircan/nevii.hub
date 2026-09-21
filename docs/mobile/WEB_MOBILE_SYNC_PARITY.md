@@ -1,8 +1,11 @@
-# Web ↔ Mobil senkron ve parite matrisi (öğrenci/veli)
+# Web ↔ Mobil senkron ve parite matrisi (tüm personalar)
 
 - Tarih: 2026-09-20 · Branch: `release/mobile-review`.
-- İlke: yazma web'de (admin/öğretmen), okuma mobilde; mobilde client-only
-  yetkilendirme, sahte veri ve istemci-tarafı finans hesabı YOK.
+- İlke: mobilde client-only yetkilendirme, sahte veri ve istemci-tarafı
+  finans hesabı YOK. Öğrenci/veli/öğretmen mobilde okur; admin mobilde
+  P0/P1 saha operasyonunu yürütür (geri kalan web'de).
+- Mobilin kullandığı TÜM `/api/v1` yollarının backend karşılığı var
+  (KNOWN_MISSING boş — `api-contract.test.ts` kilitli).
 
 ## 1. Senkron noktaları (mobil tazeleme)
 
@@ -43,7 +46,38 @@ birebir eşlenir; bilinmeyen değer olduğu gibi gösterilir.
 - Tutarlar tam sayı TL; ay gruplama `dueDate` (YYYY-MM) üzerinden.
 - Fiyatlandırma/tahsilat kurallarına dokunulmadı.
 
-## 4. Bilinen farklar / açık noktalar
+## 4. Öğretmen paritesi (mobil salt-okunur + dar yazmalar)
+
+| Web (ogretmen/*) | Mobil (teacher) | Not |
+|---|---|---|
+| Program (gün/hafta) | ✅ Bugün/program | Aynı schedule ucu |
+| Yoklama işleme (ops) | ❌ Bilinçli YOK | Mobil öğretmen salt-okunur (`teacher-read-only.test.ts`); web akışı korunur |
+| Ödev oluşturma/detay | ✅ | `homework:write` |
+| Materyal yönetimi | ✅ | `materials:write` |
+| Müsaitlik önerisi | ✅ Salt-görünüm + öneri | Onay admin'de |
+| Performans/hakediş | ✅ Özet | Hesap sunucuda |
+| İş takibi | ✅ | tasks uçları |
+| Bildirim tercihleri | ✅ | Aynı preference ucu |
+| Push | ✅ 1s/15dk (1g YOK) | Sweep test kilitli |
+
+## 5. Admin paritesi (P0/P1/P2 scope)
+
+| Web (panel/*) | Mobil (admin) | Not |
+|---|---|---|
+| Bugün özeti | ✅ Özet sekmesi | `dashboard/summary` |
+| Program + ders detay | ✅ | `lessons?from&to` + reassign |
+| Yoklama işleme | ✅ 5 bayrak + gerekçe + iptal | ops `confirmSwitch` + cancel (idempotent) |
+| Kişiler (öğrenci/personel) | ✅ Arama + sayfalama + detay | Sunucu `q/limit/offset`; tap-to-call |
+| Portal erişimi | ✅ Liste + davet/iptal/yeniden-açma | Auditli, idempotent reactivate |
+| Finans özeti + tahsilat | ✅ Özet + vaka takibi | `payments/summary`; tahsilat `pay` (idempotent) |
+| Duyuru gönderimi | ✅ Hedef + önizleme + yayın | Audience paritesi (8 tip) |
+| Telafi/izin/müsaitlik onayı | ✅ | Not + stale CONFLICT |
+| İş takibi | ✅ Liste + detay + KPI | `tasks/kpi` route'u eklendi |
+| Ödev raporu / öğretmen performansı | ✅ | `homework/report` + performance |
+| Bordro/gider/kurulum ayarları | ❌ Web-only | Mobilde sahte form YOK, yönlendirme notu var |
+| Hakediş ödeme işaretleme | ✅ | `mark-paid` + audit |
+
+## 6. Bilinen farklar / açık noktalar
 
 - "Mazeretli" ayrı filtresi yok (backend state'i yok) — `excused` İzinli altında.
 - Ödeme→ders kırılımı yalnız `lessonId`'li kalemlerde (paket/taksit ödemelerde

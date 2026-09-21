@@ -84,7 +84,9 @@ export function useCachedApiGet<T>(
   // refresh YALNIZ dinleyici geri-çağrısından (olay) çağrılır — effect
   // gövdesinden senkron setState YOK (react-hooks/set-state-in-effect).
   const refreshRef = useRef(network.refresh);
-  refreshRef.current = network.refresh;
+  useEffect(() => {
+    refreshRef.current = network.refresh;
+  });
   useEffect(() => {
     if (!scope) return undefined;
     return subscribeToScopes([scope], () => refreshRef.current());

@@ -62,6 +62,23 @@ export function StudentScopeHomeScreen({ basePath }: { basePath: "/(parent)" | "
   // Öğrenci de kendi ödeme geçmişini görebilmeli (Bölüm D) — yalnızca veliye
   // özel değil, bkz. getParentBalanceTool'daki STUDENT genişletmesi.
   const balance = useCachedApiGet<BalanceResponse>(studentId ? `/api/v1/students/${studentId}/balance` : "");
+  // Hook'lar erken return'ün ÜSTÜNDE (rules-of-hooks) — studentId yokken
+  // refresh'ler no-op URL'lerle zararsızdır.
+  const selection = useChildSelection();
+  function refreshAll() {
+    // Çocuk listesi dahil — erişim iptali pull-to-refresh/foreground'da düşer.
+    selection.refresh();
+    schedule.refresh();
+    profile.refresh();
+    homework.refresh();
+    attendance.refresh();
+    assessments.refresh();
+    notifications.refresh();
+    makeup.refresh();
+    balance.refresh();
+  }
+  // Web'de admin değişikliği → foreground'a dönüşte yeniden doğrula.
+  useAppForegroundRefetch(refreshAll);
 
   const nextLesson = useMemo(() => {
     if (schedule.status !== "success") return null;
@@ -105,21 +122,6 @@ export function StudentScopeHomeScreen({ basePath }: { basePath: "/(parent)" | "
     profile.status === "loading" ||
     homework.status === "loading" ||
     notifications.status === "loading";
-  const selection = useChildSelection();
-  function refreshAll() {
-    // Çocuk listesi dahil — erişim iptali pull-to-refresh/foreground'da düşer.
-    selection.refresh();
-    schedule.refresh();
-    profile.refresh();
-    homework.refresh();
-    attendance.refresh();
-    assessments.refresh();
-    notifications.refresh();
-    makeup.refresh();
-    balance.refresh();
-  }
-  // Web'de admin değişikliği → foreground'a dönüşte yeniden doğrula.
-  useAppForegroundRefetch(refreshAll);
 
   return (
     <Screen onRefresh={refreshAll} refreshing={refreshing}>
