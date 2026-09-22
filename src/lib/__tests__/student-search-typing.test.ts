@@ -56,6 +56,6 @@ describe("Öğrenci araması — yazma asla sunucuyu beklemez", () => {
 
   it("filtreleme yerel değerle yapılır — sonuç için sunucu turu beklenmez", () => {
     expect(CODE).toMatch(/const search = searchInput;/);
-    expect(CODE).toMatch(/const filterQuery = search\.trim\(\)\.toLowerCase\(\)/);
+    expect(CODE).toMatch(/const filterQuery = search\.trim\(\)\.toLocaleLowerCase\("tr"\)/);
   });
 });

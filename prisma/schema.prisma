@@ -430,6 +430,10 @@ model Student {
   createdAt                DateTime          @default(now())
   /// Öğrenci kaydını açan kullanıcı (User.id). Eski kayıtlarda null — audit backfill.
   createdByUserId          String?
+  /// Denemeden dönüştüyse kaynak TrialLesson.id ve dönüşümü onaylayan kullanıcı
+  /// (kaydı açan kullanıcıdan farklı olabilir).
+  convertedFromTrialId     String?
+  convertedByUserId        String?
   /// EPIC 4 (IMPLEMENTATION_PLAN.md) — hepsi opsiyonel: geçmiş öğrenci
   /// kayıtları zorunlu backfill istemeden migration sonrası çalışmaya devam
   /// eder. "Hobi" | "MEB" | "London College of Music Hazırlık" |
@@ -755,6 +759,14 @@ model TeacherPayout {
   paidAt       DateTime?
   method       String?
   generatedAt  DateTime  @default(now())
+  /// Revizyon: ilk revizyonda donan orijinal hesap; satır bazlı elle düzeltmeler (lessonId → {minutes, hourlyRate, amount}).
+  originalTotalMinutes Int?
+  originalTotalAmount  Float?
+  lineOverrides        Json?
+  revisionCount        Int       @default(0)
+  revisedAt            DateTime?
+  revisedByUserId      String?
+  revisionReason       String?
 
   @@unique([teacherId, periodStart, periodEnd])
   @@index([tenantId])
@@ -1406,6 +1418,7 @@ model AuditLog {
 
   @@index([tenantId, action, createdAt])
   @@index([tenantId, entityType, entityId])
+  @@index([createdAt])
 }
 
 /// One execution of an autonomous workflow (history)
@@ -1963,6 +1976,9 @@ model TrialLesson {
   durationMinutes    Int
   status             String   @default("planned")
   convertedStudentId String?
+  /// Deneme → öğrenci dönüşümünü yapan kullanıcı ve anı (dönüşüm raporu/performans).
+  convertedAt        DateTime?
+  convertedByUserId  String?
   notes              String?
   createdBy          String
   createdAt          DateTime @default(now())

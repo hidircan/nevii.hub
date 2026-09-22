@@ -114,6 +114,10 @@ export type AuditLogFilters = {
   action?: string;
   entityType?: string;
   entityId?: string;
+  /** Birden çok kaydın geçmişi tek sorguda (ör. öğrencinin tüm ödemeleri). */
+  entityIds?: string[];
+  /** Gürültü aksiyonlarını dışla (ör. her istekte yazılan auth.success telemetrisi). */
+  excludeActions?: string[];
   actorUserId?: string;
   actorRole?: string;
   outcome?: AuditOutcome;
@@ -131,9 +135,9 @@ export async function listAuditLogs(tenantId: string, opts?: AuditLogFilters): P
     const rows = await prisma.auditLog.findMany({
       where: {
         tenantId,
-        action: opts?.action || undefined,
+        action: opts?.action || (opts?.excludeActions?.length ? { notIn: opts.excludeActions } : undefined),
         entityType: opts?.entityType || undefined,
-        entityId: opts?.entityId || undefined,
+        entityId: opts?.entityIds?.length ? { in: opts.entityIds } : opts?.entityId || undefined,
         actorUserId: opts?.actorUserId || undefined,
         actorRole: opts?.actorRole || undefined,
         outcome: opts?.outcome || undefined,

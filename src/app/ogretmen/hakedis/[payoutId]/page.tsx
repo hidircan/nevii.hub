@@ -4,7 +4,7 @@ import { BackButton } from "@/components/back-button";
 import { readData } from "@/lib/store";
 import { requireSessionContext } from "@/lib/auth/session";
 import { findOwnPayout } from "@/lib/teacher-portal-scope";
-import { computeTeacherEarningsForPeriod } from "@/lib/teacher-payout";
+import { computeTeacherEarningsWithRevisions } from "@/lib/teacher-payout";
 import { Badge, Card, EmptyState } from "@/components/ui";
 import { formatDate, formatMoney } from "@/lib/utils";
 
@@ -55,7 +55,7 @@ export default async function TeacherOwnPayoutDetailPage({
     );
   }
 
-  const earnings = computeTeacherEarningsForPeriod(data, teacher.id, payout.periodStart, payout.periodEnd);
+  const earnings = computeTeacherEarningsWithRevisions(data, teacher.id, payout.periodStart, payout.periodEnd);
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-cyan-50 to-slate-50">

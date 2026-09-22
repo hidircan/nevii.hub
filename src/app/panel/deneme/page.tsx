@@ -2,15 +2,25 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requireSessionContext } from "@/lib/auth/session";
 import { listTrialLessonsTool } from "@/lib/services";
-import { Badge, Card, EmptyState, PageHeader } from "@/components/ui";
+import { Card, PageHeader } from "@/components/ui";
 import { formatDateTime } from "@/lib/utils";
 import { TrialLessonCreateForm } from "@/components/trial-lesson-create-form";
+import { TrialLessonsTable, type TrialRow } from "@/components/trial-lessons-table";
 import { readData } from "@/lib/store";
+import { resolveActorLabels } from "@/lib/contract-payment-plan-view";
 
 export const dynamic = "force-dynamic";
 
-/** PRODUCT_BACKLOG §5 — deneme dersleri operasyon ekranı */
-export default async function TrialLessonsPage() {
+/**
+ * Deneme dersleri — planlama + geçmiş/gelecek tüm kayıtlar. Her satırda
+ * planlayan personel ve (varsa) kayda dönüşüm bilgisi: kim, ne zaman, hangi öğrenci.
+ */
+export default async function TrialLessonsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ planlandi?: string }>;
+}) {
+  const { planlandi } = await searchParams;
   let session;
   try {
     session = await requireSessionContext();
@@ -23,41 +33,57 @@ export default async function TrialLessonsPage() {
   const result = await listTrialLessonsTool(session);
   const trials = result.ok ? result.data.trials : [];
 
+  const names = await resolveActorLabels({
+    tenantId: session.tenantId,
+    userIds: trials.flatMap((t) => [t.createdBy, t.convertedByUserId]),
+    teachers: data.teachers,
+  });
+  const now = new Date().getTime();
+  const rows: TrialRow[] = trials.map((t) => ({
+    id: t.id,
+    name: t.name,
+    phone: t.phone,
+    instrument: t.instrument,
+    teacherName: data.teachers.find((x) => x.id === t.teacherId)?.name ?? "—",
+    branchName: data.settings.branches.find((b) => b.id === t.branchId)?.shortName ?? "—",
+    startAt: t.startAt,
+    startLabel: formatDateTime(t.startAt),
+    durationMinutes: t.durationMinutes,
+    status: t.status,
+    createdByName: names.get(t.createdBy) ?? "Bilinmeyen kullanıcı",
+    convertedStudentId: t.convertedStudentId,
+    convertedStudentName: t.convertedStudentId ? data.students.find((s) => s.id === t.convertedStudentId)?.name : undefined,
+    convertedByName: t.convertedByUserId ? names.get(t.convertedByUserId) : undefined,
+    convertedAtLabel: t.convertedAt ? formatDateTime(t.convertedAt) : undefined,
+    isPast: new Date(t.endAt).getTime() < now,
+  }));
+
   const teachers = data.teachers.filter((t) => t.active).map((t) => ({ id: t.id, name: t.name }));
   const branches = data.settings.branches.map((b) => ({ id: b.id, name: b.shortName }));
+  const converted = rows.filter((r) => r.convertedStudentId).length;
+  const decided = rows.filter((r) => r.isPast && r.status !== "cancelled").length;
 
   return (
-    <div className="space-y-6">
-      <PageHeader title="Deneme dersleri" />
+    <div className="space-y-5">
+      <PageHeader
+        title="Deneme dersleri"
+        description={`${rows.length} deneme · ${converted} kayda dönüştü${decided > 0 ? ` · dönüşüm oranı %${Math.round((converted / decided) * 100)}` : ""}`}
+      />
       <Card>
-        <p className="mb-3 text-xs font-medium uppercase tracking-wide text-amber-600">
+        <p className="mb-3 text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-trial)" }}>
           Deneme dersi planla
         </p>
         <TrialLessonCreateForm teachers={teachers} branches={branches} />
       </Card>
       <section>
-        <h2 className="mb-2 text-sm font-semibold text-[var(--color-text)]">Kayıtlar ({trials.length})</h2>
-        {trials.length === 0 ? (
-          <EmptyState title="Henüz deneme dersi yok" />
-        ) : (
-          <div className="space-y-2">
-            {trials.map((t) => (
-              <Card key={t.id} className="!p-4">
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div>
-                    <p className="font-medium text-[var(--color-text)]">{t.name}</p>
-                    <p className="text-sm text-[var(--color-text-muted)]">
-                      {t.phone} · {t.instrument} · {formatDateTime(t.startAt)} · {t.durationMinutes} dk
-                    </p>
-                  </div>
-                  <Badge status={t.status}>{t.status}</Badge>
-                </div>
-              </Card>
-            ))}
-          </div>
-        )}
+        <TrialLessonsTable
+          key={planlandi ?? "list"}
+          rows={rows}
+          canWrite={session.role === "SUPER_ADMIN" || session.role === "SCHOOL_ADMIN" || session.role === "TEACHER"}
+          initialPromptTrialId={planlandi}
+        />
       </section>
-      <Link href="/panel/program" className="text-sm font-medium text-amber-700">
+      <Link href="/panel/program" className="text-sm font-medium text-[var(--color-primary)]">
         ← Ders programı
       </Link>
     </div>

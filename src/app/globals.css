@@ -62,6 +62,8 @@
   --color-success-soft: #e6f2ec;
   --color-warning: #92620a;
   --color-warning-soft: #fbf0dc;
+  --color-trial: #6d4bc4; /* deneme dersi — mor, statü renklerinden ayrık */
+  --color-trial-soft: #efe9fb;
   --color-danger: #8b3a3a;
   --color-danger-soft: #f8ecec;
   --color-info: #2f5f8a;
@@ -191,6 +193,8 @@
   --color-success-soft: #e4ead9;
   --color-warning: #8a5a12;
   --color-warning-soft: #f0e2c8;
+  --color-trial: #6d4bc4; /* deneme dersi — mor, statü renklerinden ayrık */
+  --color-trial-soft: #efe9fb;
   --color-danger: #8c3226;
   --color-danger-soft: #f0ded9;
   --color-info: #3d5a70;
@@ -229,6 +233,8 @@
   --color-success-soft: #e3ede8;
   --color-warning: #92620a;
   --color-warning-soft: #eee6d8;
+  --color-trial: #6d4bc4; /* deneme dersi — mor, statü renklerinden ayrık */
+  --color-trial-soft: #efe9fb;
   --color-danger: #8b3a3a;
   --color-danger-soft: #ece0e0;
   --color-info: #2f5f8a;
@@ -274,6 +280,8 @@
   --color-success-soft: #113328;
   --color-warning: #fbbf24;
   --color-warning-soft: #3a2e0d;
+  --color-trial: #b69cf5; /* deneme dersi — mor */
+  --color-trial-soft: #2b2140;
   --color-danger: #f87171;
   --color-danger-soft: #3a1414;
   --color-info: #60a5fa;

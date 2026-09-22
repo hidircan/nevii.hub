@@ -6,6 +6,9 @@ import { requireSessionContext } from "@/lib/auth/session";
 import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { listInstrumentCatalogTool, getCurrentConsentTextVersionTool } from "@/lib/services";
+import { getTrialLesson } from "@/lib/trial-lessons";
+import { formatDateTime } from "@/lib/utils";
+import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +20,12 @@ export const dynamic = "force-dynamic";
  * Veri modeli/validation (actionAddStudent, createStudentSchema) DEĞİŞMEDİ
  * — bu sadece formun kendi ekranı ve bölümlenmiş düzeni.
  */
-export default async function NewStudentPage() {
+export default async function NewStudentPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ deneme?: string }>;
+}) {
+  const { deneme } = await searchParams;
   let session;
   try {
     session = await requireSessionContext();
@@ -33,13 +41,39 @@ export default async function NewStudentPage() {
   const kvkkTextResult = await getCurrentConsentTextVersionTool(session, { consentType: "kvkk_general" });
   const kvkkText = kvkkTextResult.ok ? kvkkTextResult.data.version : undefined;
 
+  // H — deneme dersinden dönüşüm: yalnız tek kurum görünümünde ve henüz dönüşmemiş denemeden ön doldurulur.
+  const trial =
+    deneme && kurum.scope.mode === "single" ? await getTrialLesson(kurum.scope.tenantId, deneme) : null;
+  const trialPrefill =
+    trial && !trial.convertedStudentId
+      ? {
+          convertedFromTrialId: trial.id,
+          name: trial.name,
+          parentPhone: trial.phone,
+          instrument: trial.instrument,
+          teacherId: trial.teacherId,
+          branchId: trial.branchId,
+          notes: `Deneme dersi: ${formatDateTime(trial.startAt)}${trial.notes ? ` — ${trial.notes}` : ""}`,
+        }
+      : undefined;
+
   return (
     <div>
       <KurumScopeNote scope={kurum.scope} />
       <div className="mb-4">
         <BackButton fallbackHref="/panel/ogrenciler" label="Öğrencilere dön" />
       </div>
-      <PageHeader title="Yeni Öğrenci Kaydı" />
+      <PageHeader title={trialPrefill ? "Deneme öğrencisini kayda dönüştür" : "Yeni Öğrenci Kaydı"} />
+      {trial?.convertedStudentId ? (
+        <Card className="mb-4">
+          <p className="text-sm text-[var(--color-text)]">
+            {trial.name} deneme kaydı zaten öğrenciye dönüştürülmüş.{" "}
+            <Link href={`/panel/ogrenciler/${trial.convertedStudentId}`} className="font-medium text-[var(--color-primary)] hover:underline">
+              Öğrenci kaydını aç →
+            </Link>
+          </p>
+        </Card>
+      ) : null}
 
       <Card className="mb-4 !border-cyan-200 !bg-cyan-50/70 dark:!border-cyan-900 dark:!bg-cyan-950/30">
         <p className="text-xs font-medium text-cyan-900 dark:text-cyan-200">
@@ -79,6 +113,8 @@ export default async function NewStudentPage() {
           kvkkText={kvkkText}
           workDayOverrides={data.closedDayOverrides ?? []}
           termWeeklyClosedDays={data.settings.termWeeklyClosedDays}
+          prefill={trialPrefill}
+          trialSummary={trial ? `${trial.name} · ${trial.instrument} · ${formatDateTime(trial.startAt)}` : undefined}
         />
       )}
     </div>

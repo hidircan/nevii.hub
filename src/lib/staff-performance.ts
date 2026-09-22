@@ -60,6 +60,10 @@ export type StaffPerformanceMetrics = {
   paymentsCollectedAmount: number;
   /** Bu personelin dönem içinde planladığı ders (Lesson.createdByUserId). */
   lessonsPlanned: number;
+  /** Bu personelin planladığı ve dönem içine düşen deneme dersleri (TrialLesson.createdBy; iptaller hariç). */
+  trialsPlanned: number;
+  /** Bu personelin dönem içinde kayda dönüştürdüğü denemeler (TrialLesson.convertedByUserId + convertedAt). */
+  trialsConverted: number;
   branchBreakdown: StaffPerformanceBranchRow[];
 };
 
@@ -95,6 +99,7 @@ export function computeStaffPerformanceScore(
       normalized: metrics.newStudentRegistrations.attributable ? scaled(metrics.newStudentRegistrations.count, 4) : null,
     },
     { key: "lessonsPlanned", weightPercent: weights.lessonsPlanned ?? 0, normalized: scaled(metrics.lessonsPlanned, 20) },
+    { key: "trialsPlanned", weightPercent: weights.trialsPlanned ?? 0, normalized: scaled(metrics.trialsPlanned, 8) },
   ]).score;
 }
 
@@ -191,6 +196,7 @@ export function computeStaffPerformanceMetrics(input: {
   payments: Payment[];
   students: Student[];
   lessons?: { createdByUserId?: string; startAt: string }[];
+  trials?: { createdBy: string; startAt: string; status: string; convertedByUserId?: string; convertedAt?: string }[];
   /** portalUserId yoksa görev/tahsilat 0; öğrenci kurum geneli bağlam olarak kalır. */
   assigneeIds: Set<string>;
   collectorUserId: string | null;
@@ -263,6 +269,17 @@ export function computeStaffPerformanceMetrics(input: {
   const lessonsPlanned = collectorUserId
     ? lessons.filter((l) => l.createdByUserId === collectorUserId && inYmdRange(ymdOf(l.startAt), period.startYmd, period.endYmd)).length
     : 0;
+  const trials = input.trials ?? [];
+  const trialsPlanned = collectorUserId
+    ? trials.filter(
+        (t) => t.createdBy === collectorUserId && t.status !== "cancelled" && inYmdRange(ymdOf(t.startAt), period.startYmd, period.endYmd)
+      ).length
+    : 0;
+  const trialsConverted = collectorUserId
+    ? trials.filter(
+        (t) => t.convertedByUserId === collectorUserId && t.convertedAt && inYmdRange(ymdOf(t.convertedAt), period.startYmd, period.endYmd)
+      ).length
+    : 0;
 
   return {
     period,
@@ -283,6 +300,8 @@ export function computeStaffPerformanceMetrics(input: {
     paymentsCollectedCount,
     paymentsCollectedAmount,
     lessonsPlanned,
+    trialsPlanned,
+    trialsConverted,
     branchBreakdown: Array.from(branchMap.values()).sort((a, b) => {
       const aKey = a.branchId ?? "";
       const bKey = b.branchId ?? "";
@@ -299,6 +318,8 @@ export function computeStaffPerformanceReport(input: {
   staff: StaffMember;
   tasks: Task[];
   data: Pick<AppData, "payments" | "students"> & { lessons?: AppData["lessons"] };
+  /** Deneme dersleri (ayrı depo) — verilmezse deneme metrikleri 0. */
+  trials?: { createdBy: string; startAt: string; status: string; convertedByUserId?: string; convertedAt?: string }[];
   /** Raporun "şu anki ay"ı — varsayılan çağıranda todayYmd'den üretilir. */
   yearMonth: string;
   /** Kurum ağırlıkları; verilmezse ürün varsayılanı. */
@@ -325,6 +346,7 @@ export function computeStaffPerformanceReport(input: {
     payments: data.payments,
     students: data.students,
     lessons: data.lessons ?? [],
+    trials: input.trials ?? [],
     assigneeIds,
     collectorUserId,
   };

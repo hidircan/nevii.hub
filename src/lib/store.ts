@@ -24,6 +24,7 @@ import type {
   Teacher,
   TeacherFeeRule,
   TeacherProfilePatch,
+  TeacherPayout,
 } from "./types";
 import type { BranchImportRow } from "./import/branches";
 import type { TeacherImportRow } from "./import/teachers";
@@ -221,6 +222,7 @@ type StoreApi = {
   cancelEntireLessonSeries: (seriesId: string) => Promise<SeriesCancelResult>;
   /** 2026-09-17 — hatalı planlanmış dersleri kapsamla SİL (korunan dersler atlanır). */
   deleteLessonsScoped: (lessonId: string, scope: LessonEditScope) => Promise<LessonDeletionPlan>;
+  forceDeleteLesson: (lessonId: string) => Promise<import("./lesson-scope-edit").ForcedLessonDeletionPlan>;
   /** 2026-09-17 — dersleri kapsamla REVİZE ET (saat/gün/süre). */
   reviseLessonsScoped: (input: LessonRevisionInput) => Promise<LessonRevisionResult>;
   addTeacherFeeRule: (input: FeeRuleInput) => Promise<FeeRuleMutationResult>;
@@ -235,6 +237,7 @@ type StoreApi = {
     paymentMethodOverride?: TeacherPayoutPaymentMethod
   ) => Promise<CreateTeacherPayoutResult>;
   markTeacherPayoutPaid: (payoutId: string, method?: string) => Promise<MarkPayoutPaidResult>;
+  replaceTeacherPayout: (payout: TeacherPayout) => Promise<AppData>;
   updateTeacherPayoutPaymentMethod: (
     payoutId: string,
     method: TeacherPayoutPaymentMethod
@@ -671,6 +674,10 @@ export async function cancelEntireLessonSeries(seriesId: string): Promise<Series
   return withTenantScope(() => store.cancelEntireLessonSeries(seriesId));
 }
 
+export async function forceDeleteLesson(lessonId: string): Promise<import("./lesson-scope-edit").ForcedLessonDeletionPlan> {
+  return withTenantScope(() => store.forceDeleteLesson(lessonId));
+}
+
 export async function deleteLessonsScoped(lessonId: string, scope: LessonEditScope): Promise<LessonDeletionPlan> {
   return withTenantScope(() => store.deleteLessonsScoped(lessonId, scope));
 }
@@ -706,6 +713,10 @@ export async function updateTeacherPayoutPaymentMethod(
   method: TeacherPayoutPaymentMethod
 ): Promise<UpdateTeacherPayoutPaymentMethodResult> {
   return withTenantScope(() => store.updateTeacherPayoutPaymentMethod(payoutId, method));
+}
+
+export async function replaceTeacherPayout(payout: TeacherPayout): Promise<AppData> {
+  return withTenantScope(() => store.replaceTeacherPayout(payout));
 }
 
 export async function markTeacherPayoutPaid(

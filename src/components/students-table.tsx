@@ -7,6 +7,7 @@ import { ChevronRight, SlidersHorizontal, X } from "lucide-react";
 import { Badge, Card } from "@/components/ui";
 import { PaginationControls, usePagination } from "@/components/pagination-controls";
 import { StudentArchiveAction } from "@/components/student-archive-action";
+import { StudentsBulkBar, type BulkOptions } from "@/components/students-bulk-bar";
 import {
   DEFAULT_STUDENT_COLUMNS,
   STUDENT_COLUMN_LABELS,
@@ -14,6 +15,9 @@ import {
   loadLastUsedStudentColumns,
   type StudentColumnKey,
 } from "@/components/student-column-view-manager";
+
+/** Oluşturan kullanıcısı kaydedilmemiş eski öğrenciler için ortak etiket (filtre + sütun). */
+export const LEGACY_CREATOR_LABEL = "Bilinmiyor (eski kayıt)";
 
 export type StudentRow = {
   id: string;
@@ -46,6 +50,13 @@ export type StudentRow = {
   intendedDurationMonths?: number;
   /** Kayıt (öğrencinin sisteme eklendiği) zamanı — "oluşturulma tarihine göre" sıralama için. */
   createdAt?: string;
+  /** F — kurum içi öğrenci numarası. */
+  displayId?: string;
+  /** F — kaydı oluşturan kişinin adı; eski kayıtlarda "Bilinmiyor (eski kayıt)". */
+  createdByName?: string;
+  /** Denemeden dönüştüyse dönüşümü yapan kişi (kaydı açandan farklı olabilir). */
+  convertedByName?: string;
+  fromTrial?: boolean;
 };
 
 /**
@@ -155,7 +166,13 @@ export function StudentsTable({
   tenantId,
   userId,
   canManage = false,
+  bulkOptions,
+  deletedView = false,
 }: {
+  /** E — verilirse satır seçimi + toplu işlem çubuğu açılır (kurum sahibi/yöneticisi, tek kurum görünümü). */
+  bulkOptions?: BulkOptions;
+  /** Silinen öğrenciler görünümü — toplu işlem yalnız "Geri al". */
+  deletedView?: boolean;
   rows: StudentRow[];
   /** Kolon görünüm tercihinin (localStorage) anahtarını oluşturmak için — kurum/tenant scope'undan bağımsız, yalnızca localStorage key izolasyonu içindir. */
   tenantId?: string;
@@ -172,6 +189,8 @@ export function StudentsTable({
   const [optionSearch, setOptionSearch] = useState("");
   const menuRef = useRef<HTMLDivElement>(null);
   const [columns, setColumns] = useState<StudentColumnKey[]>(DEFAULT_STUDENT_COLUMNS);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const canBulk = canManage && !!bulkOptions;
 
   useEffect(() => {
     if (!tenantId || !userId) return;
@@ -251,6 +270,7 @@ export function StudentsTable({
   const methodFilter = searchParams.getAll("method");
   const levelFilter = searchParams.getAll("level");
   const paymentFilter = searchParams.getAll("payment");
+  const creatorFilter = searchParams.getAll("creator");
   const enrolledFrom = searchParams.get("from") ?? "";
   const enrolledTo = searchParams.get("to") ?? "";
   // D — sözleşme filtreleri
@@ -327,6 +347,7 @@ export function StudentsTable({
   const teacherOptions = useMemo(() => uniqueSorted(rows.map((r) => r.teacherName)), [rows]);
   const methodOptions = useMemo(() => uniqueSorted(rows.map((r) => r.educationMethod)), [rows]);
   const levelOptions = useMemo(() => uniqueSorted(rows.map((r) => r.level)), [rows]);
+  const creatorOptions = useMemo(() => uniqueSorted(rows.map((r) => r.createdByName ?? LEGACY_CREATOR_LABEL)), [rows]);
 
   const groups: FilterGroup[] = [
     { key: "status", label: "Durum", type: "status" },
@@ -337,6 +358,7 @@ export function StudentsTable({
     { key: "package", label: "Paket", type: "multi", options: packageOptions },
     { key: "level", label: "MEB/LCM seviye", type: "multi", options: levelOptions },
     { key: "payment", label: "Ödeme durumu", type: "multi", options: PAYMENT_VALUES.map((v) => PAYMENT_LABELS[v]) },
+    { key: "creator", label: "Kaydı oluşturan", type: "multi", options: creatorOptions },
     { key: "enrollment", label: "Kayıt tarihi", type: "dateRange" },
     { key: "contract", label: "Sözleşme durumu", type: "multi", options: CONTRACT_FILTER_KEYS.map((k) => CONTRACT_FILTER_LABELS[k]) },
     { key: "contractStart", label: "Sözleşme başlangıcı", type: "contractStartRange" },
@@ -350,6 +372,7 @@ export function StudentsTable({
     if (key === "method") return methodFilter;
     if (key === "package") return packageFilter;
     if (key === "level") return levelFilter;
+    if (key === "creator") return creatorFilter;
     if (key === "payment") return paymentFilter.map((p) => PAYMENT_LABELS[p as StudentRow["paymentStatus"]] ?? p);
     if (key === "contract") return contractFilter.map((c) => CONTRACT_FILTER_LABELS[c] ?? c);
     return [];
@@ -398,14 +421,20 @@ export function StudentsTable({
     (packageFilter.length ? 1 : 0) +
     (levelFilter.length ? 1 : 0) +
     (paymentFilter.length ? 1 : 0) +
+    (creatorFilter.length ? 1 : 0) +
     (enrolledFrom || enrolledTo ? 1 : 0) +
     (contractFilter.length ? 1 : 0) +
     (contractStartFrom || contractStartTo ? 1 : 0) +
     (contractEndFrom || contractEndTo ? 1 : 0);
 
-  const filterQuery = search.trim().toLowerCase();
+  const filterQuery = search.trim().toLocaleLowerCase("tr");
   const filtered = rows.filter((row) => {
-    if (filterQuery && !row.name.toLowerCase().includes(filterQuery)) return false;
+    if (
+      filterQuery &&
+      !row.name.toLocaleLowerCase("tr").includes(filterQuery) &&
+      !(row.displayId ?? "").toLocaleLowerCase("tr").includes(filterQuery)
+    )
+      return false;
     if (statusFilter === "active" && !row.active) return false;
     if (statusFilter === "inactive" && row.active) return false;
     if (typeFilter.length && !row.studentTypes.some((t) => typeFilter.includes(t))) return false;
@@ -415,6 +444,7 @@ export function StudentsTable({
     if (methodFilter.length && !(row.educationMethod && methodFilter.includes(row.educationMethod))) return false;
     if (levelFilter.length && !(row.level && levelFilter.includes(row.level))) return false;
     if (paymentFilter.length && !paymentFilter.includes(row.paymentStatus)) return false;
+    if (creatorFilter.length && !creatorFilter.includes(row.createdByName ?? LEGACY_CREATOR_LABEL)) return false;
     if (enrolledFrom && (!row.enrollmentStartDate || row.enrollmentStartDate < enrolledFrom)) return false;
     if (enrolledTo && (!row.enrollmentStartDate || row.enrollmentStartDate > enrolledTo)) return false;
     if (contractFilter.length && !contractFilter.includes(resolveContractFilterKey(row, today))) return false;
@@ -443,6 +473,7 @@ export function StudentsTable({
     { key: "method", label: "Metod", values: methodFilter },
     { key: "package", label: "Paket", values: packageFilter },
     { key: "level", label: "Seviye", values: levelFilter },
+    { key: "creator", label: "Oluşturan", values: creatorFilter },
   ];
   const chips: Chip[] = [
     ...(statusFilter !== "active"
@@ -523,8 +554,8 @@ export function StudentsTable({
             type="text"
             value={searchInput}
             onChange={(event) => setSearchInput(event.target.value)}
-            placeholder="Ad soyada göre ara..."
-            aria-label="Ad soyada göre ara"
+            placeholder="Ad soyad veya öğrenci no ara..."
+            aria-label="Ad soyad veya öğrenci numarasına göre ara"
             className="w-full max-w-xs rounded-[var(--radius-md)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text)] outline-none focus:ring-2 focus:ring-[var(--color-focus-ring)]/30 sm:w-auto"
           />
 
@@ -795,8 +826,19 @@ export function StudentsTable({
           })}
         </div>
 
-        <p className="mt-3 text-xs font-medium text-[var(--color-text-muted)]">
-          {anyFilterActive ? `${rows.length} öğrenciden ${filtered.length} öğrenci gösteriliyor` : `Toplam ${rows.length} öğrenci`}
+        <p className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-medium text-[var(--color-text-muted)]">
+          <span>
+            {anyFilterActive ? `${rows.length} öğrenciden ${filtered.length} öğrenci gösteriliyor` : `Toplam ${rows.length} öğrenci`}
+          </span>
+          {canBulk && selectedIds.size > 0 && selectedIds.size < sorted.length ? (
+            <button
+              type="button"
+              onClick={() => setSelectedIds(new Set(sorted.map((r) => r.id)))}
+              className="text-[var(--color-primary)] hover:underline"
+            >
+              Listedeki {sorted.length} öğrencinin tümünü seç
+            </button>
+          ) : null}
         </p>
       </Card>
 
@@ -804,6 +846,27 @@ export function StudentsTable({
         <table className="w-full text-left text-sm">
           <thead className="border-b border-[var(--color-border)] bg-[var(--color-surface-muted)] text-xs uppercase tracking-wide text-[var(--color-text-muted)]">
             <tr>
+              {canBulk ? (
+                <th className="w-9 py-3 pl-4 pr-0">
+                  <input
+                    type="checkbox"
+                    aria-label="Bu sayfadaki tüm öğrencileri seç"
+                    checked={pageItems.length > 0 && pageItems.every((r) => selectedIds.has(r.id))}
+                    ref={(el) => {
+                      if (el) el.indeterminate = pageItems.some((r) => selectedIds.has(r.id)) && !pageItems.every((r) => selectedIds.has(r.id));
+                    }}
+                    onChange={(e) => {
+                      const next = new Set(selectedIds);
+                      for (const r of pageItems) {
+                        if (e.target.checked) next.add(r.id);
+                        else next.delete(r.id);
+                      }
+                      setSelectedIds(next);
+                    }}
+                    className="h-4 w-4 accent-[var(--color-primary)]"
+                  />
+                </th>
+              ) : null}
               <th className="px-4 py-3">Öğrenci</th>
               {columns.map((key) => (
                 <th key={key} className="px-4 py-3">
@@ -816,13 +879,35 @@ export function StudentsTable({
           <tbody>
             {pageItems.length === 0 ? (
               <tr>
-                <td colSpan={1 + columns.length + (canManage ? 1 : 0)} className="px-4 py-8 text-center text-sm text-[var(--color-text-muted)]">
+                <td colSpan={1 + columns.length + (canManage ? 1 : 0) + (canBulk ? 1 : 0)} className="px-4 py-8 text-center text-sm text-[var(--color-text-muted)]">
                   Bu filtreye uyan öğrenci bulunamadı.
                 </td>
               </tr>
             ) : (
               pageItems.map((s) => (
-                <tr key={s.id} className="border-b border-[var(--color-border)] align-top last:border-0">
+                <tr
+                  key={s.id}
+                  aria-selected={canBulk ? selectedIds.has(s.id) : undefined}
+                  className={`border-b border-[var(--color-border)] align-top last:border-0 ${
+                    selectedIds.has(s.id) ? "bg-[var(--color-primary-soft)]/40" : ""
+                  }`}
+                >
+                  {canBulk ? (
+                    <td className="w-9 py-3 pl-4 pr-0">
+                      <input
+                        type="checkbox"
+                        aria-label={`${s.name} öğrencisini seç`}
+                        checked={selectedIds.has(s.id)}
+                        onChange={(e) => {
+                          const next = new Set(selectedIds);
+                          if (e.target.checked) next.add(s.id);
+                          else next.delete(s.id);
+                          setSelectedIds(next);
+                        }}
+                        className="h-4 w-4 accent-[var(--color-primary)]"
+                      />
+                    </td>
+                  ) : null}
                   <td className="p-0">
                     <Link
                       href={`/panel/ogrenciler/${s.id}`}
@@ -834,7 +919,21 @@ export function StudentsTable({
                   </td>
                   {columns.map((key) => (
                     <td key={key} className="px-4 py-3">
-                      {key === "branch" ? (
+                      {key === "displayId" ? (
+                        <span className="font-mono text-xs text-[var(--color-text)]">{s.displayId ?? "—"}</span>
+                      ) : key === "createdBy" ? (
+                        <span className="block text-[var(--color-text)]">
+                          {s.createdByName ?? LEGACY_CREATOR_LABEL}
+                          {s.fromTrial ? (
+                            <span
+                              className="mt-0.5 block text-[11px] font-medium"
+                              style={{ color: "var(--color-trial)" }}
+                            >
+                              Denemeden{s.convertedByName ? ` · dönüştüren: ${s.convertedByName}` : ""}
+                            </span>
+                          ) : null}
+                        </span>
+                      ) : key === "branch" ? (
                         <span className="text-[var(--color-text-muted)]">{s.branchName ?? "—"}</span>
                       ) : key === "type" ? (
                         <>
@@ -911,6 +1010,16 @@ export function StudentsTable({
           onPageSizeChange={setPageSize}
         />
       </Card>
+      {canBulk ? (
+        <StudentsBulkBar
+          selected={rows
+            .filter((r) => selectedIds.has(r.id))
+            .map((r) => ({ id: r.id, name: r.name, active: r.active }))}
+          options={bulkOptions!}
+          deletedView={deletedView}
+          onClear={() => setSelectedIds(new Set())}
+        />
+      ) : null}
     </>
   );
 }

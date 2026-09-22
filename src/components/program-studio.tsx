@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { ExternalLink, Loader2, Sparkles, TriangleAlert, X } from "lucide-react";
 import { addMinutes, differenceInMinutes, format, isSameDay, parseISO, startOfDay } from "date-fns";
+import Link from "next/link";
 import { tr } from "date-fns/locale";
 import {
   actionAddLesson,
@@ -86,6 +87,19 @@ type ProgramStudioProps = {
    * doğrulamasıyla birebir aynı cevap.
    */
   dayStatuses?: Record<string, WorkDayResolution>;
+  /** I — haftanın deneme dersleri (ayrı TrialLesson kaydı); mor, kesikli, "DENEME" etiketli. */
+  weekTrials?: ProgramTrial[];
+};
+
+export type ProgramTrial = {
+  id: string;
+  name: string;
+  instrument: string;
+  teacherId: string;
+  branchId: string;
+  startAt: string;
+  endAt: string;
+  converted: boolean;
 };
 
 /**
@@ -577,6 +591,7 @@ export function ProgramStudio({
   selectedAcademicYearStart,
   catalogInstruments,
   dayStatuses,
+  weekTrials = [],
 }: ProgramStudioProps) {
   const router = useRouter();
   const now = parseISO(todayIso);
@@ -715,6 +730,17 @@ export function ProgramStudio({
   const [filterBranchId, setFilterBranchId] = useState("");
   const [filterTeacherId, setFilterTeacherId] = useState("");
   const [filterStudentId, setFilterStudentId] = useState(initialStudentFilter ?? "");
+  /** Denemeler şube/öğretmen filtresine uyar; öğrenci filtresi açıkken gizlenir (denemenin öğrencisi yok). */
+  const trialsForDay = (day: Date) =>
+    weekTrials
+      .filter(
+        (t) =>
+          isSameDay(parseISO(t.startAt), day) &&
+          !filterStudentId &&
+          (!filterBranchId || t.branchId === filterBranchId) &&
+          (!filterTeacherId || t.teacherId === filterTeacherId)
+      )
+      .sort((a, b) => a.startAt.localeCompare(b.startAt));
 
   const branchIds = Object.keys(branchNames).sort((a, b) =>
     (branchNames[a] ?? "").localeCompare(branchNames[b] ?? "", "tr")
@@ -1895,7 +1921,9 @@ export function ProgramStudio({
             const day = parseISO(dayIso);
             const today = isSameDay(day, now);
             const dayLessons = visibleWeekLessons.filter((l) => isSameDay(parseISO(l.startAt), day));
-            const { laneOf, laneCount } = assignLanes(dayLessons);
+            const dayTrials = trialsForDay(day);
+            // Denemeler de aynı şeritlere girer: çakışan normal dersle üst üste binmez.
+            const { laneOf, laneCount } = assignLanes([...dayLessons, ...(dayTrials as unknown as Lesson[])]);
             const totalHeight = slots.length * SLOT_HEIGHT_PX;
 
             return (
@@ -2040,6 +2068,23 @@ export function ProgramStudio({
                     </div>
                   );
                 })}
+
+                {dayTrials.map((trial) => {
+                  const startMin = minutesOfDay(trial.startAt);
+                  const duration = differenceInMinutes(parseISO(trial.endAt), parseISO(trial.startAt));
+                  const top = ((startMin - windowStartMin) / SLOT_MINUTES) * SLOT_HEIGHT_PX;
+                  const height = Math.max((duration / SLOT_MINUTES) * SLOT_HEIGHT_PX - 2, SLOT_HEIGHT_PX - 2);
+                  const lane = laneOf.get(trial.id) ?? 0;
+                  const widthPct = 100 / laneCount;
+                  return (
+                    <TrialCard
+                      key={trial.id}
+                      trial={trial}
+                      teacherName={teachers.find((t) => t.id === trial.teacherId)?.name}
+                      style={{ top, height, left: `${lane * widthPct}%`, width: `calc(${widthPct}% - 2px)` }}
+                    />
+                  );
+                })}
               </div>
             );
           })}
@@ -2056,6 +2101,7 @@ export function ProgramStudio({
             const dayLessons = visibleWeekLessons
               .filter((l) => isSameDay(parseISO(l.startAt), day))
               .sort((a, b) => a.startAt.localeCompare(b.startAt));
+            const dayTrials = trialsForDay(day);
             return (
               <Card
                 key={dayIso}
@@ -2065,6 +2111,18 @@ export function ProgramStudio({
                   <p className="text-[15px] font-bold text-[var(--color-text)]">{format(day, "EEEE d MMM", { locale: tr })}</p>
                   {today ? <Badge status="scheduled">Bugün</Badge> : null}
                 </div>
+                {dayTrials.length > 0 ? (
+                  <div className="mb-2 space-y-1.5">
+                    {dayTrials.map((trial) => (
+                      <TrialCard
+                        key={trial.id}
+                        trial={trial}
+                        teacherName={teachers.find((t) => t.id === trial.teacherId)?.name}
+                        inline
+                      />
+                    ))}
+                  </div>
+                ) : null}
                 {dayLessons.length === 0 ? (
                   <p className="text-sm text-[var(--color-text-muted)]">Bu gün için planlanmış ders yok.</p>
                 ) : (
@@ -2301,5 +2359,54 @@ function CommunicationDraftCard({ label, msg }: { label: string; msg: LessonComm
         </p>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * Deneme dersi kartı — normal ders statü dolgularından (ATTENDANCE_CALENDAR_COLORS)
+ * bilinçli olarak ayrık: mor kesikli çerçeve + "DENEME" etiketi. Tıklayınca
+ * Deneme Dersleri ekranına gider (deneme kaydı Lesson değildir; yoklama/ücret akışına girmez).
+ */
+function TrialCard({
+  trial,
+  teacherName,
+  style,
+  inline = false,
+}: {
+  trial: ProgramTrial;
+  teacherName?: string;
+  style?: React.CSSProperties;
+  inline?: boolean;
+}) {
+  const time = `${format(parseISO(trial.startAt), "HH:mm")}–${format(parseISO(trial.endAt), "HH:mm")}`;
+  return (
+    <Link
+      href="/panel/deneme"
+      aria-label={`Deneme dersi: ${trial.name}, ${trial.instrument}, ${time}${teacherName ? `, ${teacherName}` : ""}${trial.converted ? ", kayda dönüştü" : ""}`}
+      title={`Deneme dersi — ${trial.name} · ${trial.instrument} · ${time}${teacherName ? ` · ${teacherName}` : ""}`}
+      className={`${inline ? "relative block w-full p-2 text-xs" : "absolute z-[2] flex flex-col overflow-hidden p-1 text-[10px]"} rounded-md border border-dashed hover:z-[20] hover:brightness-105 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--color-focus-ring)]`}
+      style={{
+        ...style,
+        borderColor: "var(--color-trial)",
+        borderLeft: "3px solid var(--color-trial)",
+        background: "repeating-linear-gradient(135deg, var(--color-trial-soft) 0 6px, var(--color-surface) 6px 12px)",
+        color: "var(--color-text)",
+      }}
+    >
+      <span className="flex items-center gap-1">
+        <span
+          className="shrink-0 rounded px-1 text-[9px] font-bold uppercase tracking-wide text-white"
+          style={{ background: "var(--color-trial)" }}
+        >
+          Deneme
+        </span>
+        <span className="truncate font-semibold">{trial.name}</span>
+      </span>
+      <span className="truncate opacity-80">
+        {time} · {trial.instrument}
+        {inline && teacherName ? ` · ${teacherName}` : ""}
+        {trial.converted ? " · Kayda dönüştü" : ""}
+      </span>
+    </Link>
   );
 }

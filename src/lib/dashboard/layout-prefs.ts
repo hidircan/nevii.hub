@@ -33,17 +33,16 @@ export const DASHBOARD_SECTION_LABELS: Record<DashboardSectionKey, string> = {
   payout: "Hakediş",
 };
 
-/** Size select labels — allowed xl col spans. */
-export const DASHBOARD_SPAN_OPTIONS: { value: DashboardSectionSpan; label: string }[] = [
-  { value: 4, label: "Dar (4)" },
-  { value: 5, label: "Orta-dar (5)" },
-  { value: 6, label: "Orta (6)" },
-  { value: 7, label: "Orta-geniş (7)" },
-  { value: 8, label: "Geniş (8)" },
-  { value: 12, label: "Tam satır (12)" },
-];
+/** İzinli xl kolon genişlikleri — kenardan boyutlandırma bu aralığa oturtulur. */
+export const DASHBOARD_MIN_SPAN = 4;
+export const DASHBOARD_MAX_SPAN = 12;
+const ALLOWED_SPANS = new Set<number>([4, 5, 6, 7, 8, 9, 10, 11, 12]);
 
-const ALLOWED_SPANS = new Set<number>([4, 5, 6, 7, 8, 12]);
+/** Serbest sayıyı (sürükleme sonucu) izinli genişliğe oturtur. */
+export function clampDashboardSpan(value: number): DashboardSectionSpan {
+  const rounded = Math.round(Number.isFinite(value) ? value : DASHBOARD_MAX_SPAN);
+  return Math.min(DASHBOARD_MAX_SPAN, Math.max(DASHBOARD_MIN_SPAN, rounded)) as DashboardSectionSpan;
+}
 
 const DEFAULT_SPANS: Record<DashboardSectionKey, DashboardSectionSpan> = {
   actions: 12,

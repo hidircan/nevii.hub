@@ -14,7 +14,7 @@ import { useRouter } from "next/navigation";
 import { Bell, Check, CheckCheck } from "lucide-react";
 import { formatDateTime } from "@/lib/utils";
 import { actionMarkNotificationRead } from "@/lib/actions";
-import { resolveNotificationHref } from "@/lib/notification-href";
+import { presentNotificationBody, resolveNotificationHref } from "@/lib/notification-href";
 import { notificationSettingsPathForRole, notificationListPathForRole } from "@/lib/auth/role-routes";
 import type { Notification } from "@/lib/types";
 import type { AppRole } from "@/lib/auth/types";
@@ -181,7 +181,7 @@ export function NotificationBell({ role }: { role: AppRole }) {
                       {n.title}
                     </p>
                     <p className="mt-0.5 line-clamp-2 text-xs" style={{ color: "var(--color-text-muted)" }}>
-                      {n.body}
+                      {presentNotificationBody(n.body)}
                     </p>
                     <p className="mt-1 text-[11px]" style={{ color: "var(--color-text-muted)" }}>
                       {formatDateTime(n.createdAt)}

@@ -132,6 +132,8 @@ function mapDb(r: {
   durationMinutes: number;
   status: string;
   convertedStudentId: string | null;
+  convertedAt: Date | null;
+  convertedByUserId: string | null;
   notes: string | null;
   createdBy: string;
   createdAt: Date;
@@ -149,6 +151,8 @@ function mapDb(r: {
     durationMinutes: r.durationMinutes,
     status: r.status as TrialLessonStatus,
     convertedStudentId: r.convertedStudentId ?? undefined,
+    convertedAt: r.convertedAt?.toISOString() ?? undefined,
+    convertedByUserId: r.convertedByUserId ?? undefined,
     notes: r.notes ?? undefined,
     createdBy: r.createdBy,
     createdAt: r.createdAt.toISOString(),
@@ -187,4 +191,42 @@ export async function getTrialLesson(tenantId: string, id: string): Promise<Tria
   const { tenantId: _t, ...p } = t;
   void _t;
   return p;
+}
+
+/**
+ * Deneme → öğrenci dönüşümünü işaretler. Aynı deneme ikinci kez dönüştürülemez
+ * (ilk dönüşüm korunur, `false` döner) — çift kayıt/yanlış atıf olmaz.
+ */
+export async function markTrialConverted(
+  tenantId: string,
+  id: string,
+  input: { studentId: string; userId: string; at?: string }
+): Promise<boolean> {
+  const at = input.at ?? new Date().toISOString();
+  if (isDbMode) {
+    const { prisma } = await import("./db");
+    const res = await prisma.trialLesson.updateMany({
+      where: { id, tenantId, convertedStudentId: null },
+      data: {
+        convertedStudentId: input.studentId,
+        convertedAt: new Date(at),
+        convertedByUserId: input.userId,
+        status: "will_continue",
+      },
+    });
+    return res.count === 1;
+  }
+  const all = await loadAll();
+  const idx = all.findIndex((t) => t.id === id && t.tenantId === tenantId);
+  if (idx < 0 || all[idx].convertedStudentId) return false;
+  all[idx] = {
+    ...all[idx],
+    convertedStudentId: input.studentId,
+    convertedAt: at,
+    convertedByUserId: input.userId,
+    status: "will_continue",
+    updatedAt: at,
+  };
+  await saveAll(all);
+  return true;
 }

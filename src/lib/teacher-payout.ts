@@ -1,5 +1,5 @@
 import { differenceInCalendarDays, differenceInMinutes, format, parseISO } from "date-fns";
-import type { AppData, BranchId, Instrument, TeacherFeeRule, TeacherPayout } from "./types";
+import type { AppData, BranchId, Instrument, TeacherFeeRule, TeacherPayout, TeacherPayoutLineOverride } from "./types";
 import { uid } from "./utils";
 import { isLessonProcessedForPayout } from "./lesson-ops";
 
@@ -496,4 +496,119 @@ export function markTeacherPayoutPaidData(
   };
   const teacherPayouts = data.teacherPayouts.map((p) => (p.id === payoutId ? updated : p));
   return { ok: true, data: { ...data, teacherPayouts }, payout: updated };
+}
+
+// ─── K · Hakediş revizyonu (2026-09-23) ─────────────────────────────────────
+
+export type RevisedEarningsLine = TeacherEarningsLine & {
+  /** Saatlik ücret (dakika ücreti × 60) — dökümde gösterilen/düzenlenen birim. */
+  hourlyRate?: number;
+  /** Elle düzeltildiyse hesaplanan orijinal değerler. */
+  original?: { durationMinutes: number; hourlyRate?: number; amount: number };
+};
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+/**
+ * Satır düzeltmelerini hesaplanan dökümün üstüne uygular ve toplamları yeniden
+ * hesaplar. Kural: tutar elle girildiyse o geçerlidir; yalnız süre ve/veya
+ * saatlik ücret girildiyse tutar = süre × saatlik ücret / 60; hiçbiri yoksa
+ * hesaplanan satır aynen kalır. Dökümde artık olmayan derse ait düzeltme yok sayılır.
+ */
+export function applyPayoutLineOverrides(
+  result: TeacherEarningsResult,
+  overrides: Record<string, TeacherPayoutLineOverride> | undefined
+): Omit<TeacherEarningsResult, "lines"> & { lines: RevisedEarningsLine[] } {
+  const lines: RevisedEarningsLine[] = result.lines.map((line) => {
+    const hourlyRate = line.perMinuteRate !== undefined ? round2(line.perMinuteRate * 60) : undefined;
+    const o = overrides?.[line.lessonId];
+    if (!o) return { ...line, hourlyRate };
+    const minutes = o.minutes ?? line.durationMinutes;
+    const rate = o.hourlyRate ?? hourlyRate;
+    const amount =
+      o.amount !== undefined
+        ? roundCurrency(o.amount)
+        : o.minutes !== undefined || o.hourlyRate !== undefined
+          ? rate !== undefined
+            ? roundCurrency((minutes * rate) / 60)
+            : line.amount
+          : line.amount;
+    return {
+      ...line,
+      durationMinutes: minutes,
+      hourlyRate: rate,
+      amount,
+      original: { durationMinutes: line.durationMinutes, hourlyRate, amount: line.amount },
+    };
+  });
+  return {
+    ...result,
+    lines,
+    totalMinutes: lines.reduce((s, l) => s + l.durationMinutes, 0),
+    totalAmount: roundCurrency(lines.reduce((s, l) => s + l.amount, 0)),
+  };
+}
+
+/**
+ * İstemciden gelen düzeltmeleri doğrular: yalnız dökümdeki dersler, makul
+ * sınırlar, hesaplanan değerle aynı olan alanlar düşer (boş düzeltme saklanmaz).
+ */
+export function sanitizePayoutLineOverrides(
+  result: TeacherEarningsResult,
+  raw: Record<string, TeacherPayoutLineOverride>
+): { ok: true; overrides: Record<string, TeacherPayoutLineOverride> } | { ok: false; message: string } {
+  const out: Record<string, TeacherPayoutLineOverride> = {};
+  for (const [lessonId, o] of Object.entries(raw)) {
+    const line = result.lines.find((l) => l.lessonId === lessonId);
+    if (!line) continue;
+    const hourly = line.perMinuteRate !== undefined ? round2(line.perMinuteRate * 60) : undefined;
+    const next: TeacherPayoutLineOverride = {};
+    if (o.minutes !== undefined) {
+      if (!Number.isInteger(o.minutes) || o.minutes < 0 || o.minutes > 600) {
+        return { ok: false, message: `${formatLineLabel(line)}: süre 0–600 dakika arasında tam sayı olmalı.` };
+      }
+      if (o.minutes !== line.durationMinutes) next.minutes = o.minutes;
+    }
+    if (o.hourlyRate !== undefined) {
+      if (!Number.isFinite(o.hourlyRate) || o.hourlyRate < 0 || o.hourlyRate > 100_000) {
+        return { ok: false, message: `${formatLineLabel(line)}: saatlik ücret 0 ile 100.000 TL arasında olmalı.` };
+      }
+      if (round2(o.hourlyRate) !== hourly) next.hourlyRate = round2(o.hourlyRate);
+    }
+    if (o.amount !== undefined) {
+      if (!Number.isFinite(o.amount) || o.amount < 0 || o.amount > 1_000_000) {
+        return { ok: false, message: `${formatLineLabel(line)}: tutar 0 ile 1.000.000 TL arasında olmalı.` };
+      }
+      if (roundCurrency(o.amount) !== line.amount) next.amount = roundCurrency(o.amount);
+    }
+    if (Object.keys(next).length > 0) out[lessonId] = next;
+  }
+  return { ok: true, overrides: out };
+}
+
+function formatLineLabel(line: TeacherEarningsLine): string {
+  return `${line.lessonDate.slice(0, 10).split("-").reverse().join(".")} ${line.studentName ?? "ders"}`;
+}
+
+/**
+ * Ekran/baskı için döküm: dönemin hakediş kaydı revize edilmişse satır düzeltmeleri
+ * uygulanır (öğretmen portalı, hakediş özeti ve baskı aynı rakamı gösterir).
+ * Snapshot oluşturma ve revizyonun kendisi ham `computeTeacherEarningsForPeriod` kullanır.
+ */
+export function computeTeacherEarningsWithRevisions(
+  data: AppData,
+  teacherId: string,
+  periodStart: string,
+  periodEnd: string
+): Omit<TeacherEarningsResult, "lines"> & { lines: RevisedEarningsLine[] } {
+  const base = computeTeacherEarningsForPeriod(data, teacherId, periodStart, periodEnd);
+  const payout = data.teacherPayouts.find(
+    (p) =>
+      p.teacherId === teacherId &&
+      payoutPeriodDayKey(p.periodStart) === payoutPeriodDayKey(periodStart) &&
+      payoutPeriodDayKey(p.periodEnd) === payoutPeriodDayKey(periodEnd)
+  );
+  return applyPayoutLineOverrides(base, payout?.lineOverrides);
 }

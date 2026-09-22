@@ -13,6 +13,10 @@ export const dynamic = "force-dynamic";
 const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1),
+  /** N — istemci "başka cihazda aktif" onay diyaloğunu gösterebiliyorsa true. */
+  clientSupportsTakeover: z.boolean().optional(),
+  /** N — kullanıcı onayladı: diğer oturumu kapat ve giriş yap. */
+  takeover: z.boolean().optional(),
 });
 
 const LOGIN_RATE_WINDOW_MS = 15 * 60_000;
@@ -27,7 +31,7 @@ export const POST = withApiHandler(
   async ({ body, ctx, request }) => {
     const parsed = loginSchema.safeParse(body);
     if (!parsed.success) {
-      return jsonFail("VALIDATION_ERROR", "Invalid login payload", parsed.error.flatten());
+      return jsonFail("VALIDATION_ERROR", "Geçerli bir e-posta adresi ve şifre girin.", parsed.error.flatten());
     }
 
     const ip = clientIp(request);
@@ -49,7 +53,7 @@ export const POST = withApiHandler(
         outcome: "denied",
         meta: { email: normalizedEmail },
       });
-      const res = jsonFail("RATE_LIMITED", "Too many login attempts. Please try again later.");
+      const res = jsonFail("RATE_LIMITED", "Çok fazla giriş denemesi yapıldı. Güvenlik için 15 dakika bekleyip tekrar deneyin.");
       res.headers.set("Retry-After", String(Math.ceil(LOGIN_RATE_WINDOW_MS / 1000)));
       return res;
     }
@@ -62,7 +66,47 @@ export const POST = withApiHandler(
         outcome: "denied",
         meta: { email: parsed.data.email },
       });
-      return jsonFail("UNAUTHORIZED", "Invalid email or password");
+      return jsonFail("UNAUTHORIZED", "E-posta veya şifre hatalı. Bilgileri kontrol edin; şifrenizi hatırlamıyorsanız “Şifremi unuttum” bağlantısını kullanın.");
+    }
+
+    // N — tek aktif oturum. Son 30 dk'da görülmüş başka oturum varsa ve istemci onay
+    // diyaloğunu destekliyorsa giriş durur; onaylanırsa (takeover) eski oturum kapatılır.
+    // Diyalog desteklemeyen istemcide (eski mobil sürüm) kural yine uygulanır: eski oturum kapanır.
+    const { listOpenSessions, closeOpenSessions, isRecentlyActive } = await import("@/lib/auth/session-concurrency");
+    let openSessions: Awaited<ReturnType<typeof listOpenSessions>> = [];
+    try {
+      openSessions = await listOpenSessions(user.userId);
+    } catch {
+      openSessions = []; // oturum kaydı okunamazsa giriş engellenmez (sid'siz akışla aynı davranış)
+    }
+    const activeElsewhere = openSessions.filter((row) => isRecentlyActive(row));
+    if (activeElsewhere.length > 0 && parsed.data.clientSupportsTakeover && !parsed.data.takeover) {
+      const latest = activeElsewhere[0]!;
+      return NextResponse.json(
+        {
+          ok: false as const,
+          error: {
+            code: "SESSION_ACTIVE_ELSEWHERE",
+            message: "Bu kullanıcı şu anda başka bir cihazda aktif. Devam ederseniz mevcut oturum kapatılacaktır.",
+            details: { device: latest.device, lastSeenAt: latest.lastSeenAt },
+          },
+        },
+        { status: 409 }
+      );
+    }
+    if (openSessions.length > 0) {
+      const closed = await closeOpenSessions(user.userId, openSessions);
+      if (activeElsewhere.length > 0) {
+        auditLog({
+          action: "auth.session_takeover",
+          requestId: ctx.requestId || "unknown",
+          userId: user.userId,
+          tenantId: user.tenantId,
+          role: user.role,
+          outcome: "success",
+          meta: { closedSessions: closed, previousDevice: activeElsewhere[0]!.device },
+        });
+      }
     }
 
     // NeviiOS: tekil oturum kaydı (sid) — canlı operasyon ekranından sonlandırılabilir.

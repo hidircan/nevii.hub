@@ -93,6 +93,12 @@ import {
   getStudentDeletionImpactTool,
   deleteStudentTool,
   restoreDeletedStudentTool,
+  bulkStudentActionTool,
+  type BulkStudentActionResult,
+  reviseTeacherPayoutTool,
+  resetTeacherPayoutRevisionTool,
+  unmarkTeacherPayoutPaidTool,
+  type ExistingPayoutSummary,
   setCriticalActionPasswordTool,
   type StudentDeletionImpact,
   updateMakeupWindowDaysTool,
@@ -132,6 +138,7 @@ import {
   archiveTeacherTool,
   archiveTeacherStudentsTool,
   deleteLessonsTool,
+  forceDeleteLessonTool,
   reviseLessonsTool,
   updateTeacherAvailabilityTool,
   updateRoomTool,
@@ -179,7 +186,7 @@ import { readData } from "./store";
 import { buildLessonCommunicationDraft, type LessonCommunicationDraft } from "./whatsapp-templates";
 import type { LessonSlotSuggestion } from "./lesson-scheduling";
 import type { SeriesOccurrenceCheck } from "./lesson-series";
-import type { TeacherEarningsResult, TeacherPayoutPaymentMethodInfo } from "./teacher-payout";
+import type { RevisedEarningsLine, TeacherEarningsResult, TeacherPayoutPaymentMethodInfo } from "./teacher-payout";
 import type { FeeRoundingMode, TeacherFeeRule, TeacherPayout, TaskStatus, TaskPriority, TaskCategory, PaymentDueRange, StudentType } from "./types";
 import type { ImportPreview } from "./import/types";
 import type { ImportCommitResult } from "./import/commit-result";
@@ -477,10 +484,12 @@ export async function actionSaveDashboardLayout(patch: {
   savedViews?: import("./user-preferences").DashboardSavedView[];
   activeViewId?: string | null;
   resetToDefault?: boolean;
-}): Promise<void> {
+}): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
     const session = await getSessionContext();
-    if (!session?.userId || !session?.tenantId) return;
+    if (!session?.userId || !session?.tenantId) {
+      return { ok: false, error: "Oturumunuz sona ermiş. Sayfayı yenileyip tekrar giriş yapın, sonra düzeni yeniden kaydedin." };
+    }
     const { getUserPreferences, saveUserPreferences } = await import("./user-preferences");
     const { sanitizeDashboardLayoutPatch, mergeDashboardPreferences } = await import("./dashboard/layout-prefs");
     const prev = await getUserPreferences(session.userId, session.tenantId);
@@ -488,8 +497,9 @@ export async function actionSaveDashboardLayout(patch: {
     const next = mergeDashboardPreferences(prev.dashboard, sanitized);
     await saveUserPreferences(session.userId, session.tenantId, { dashboard: next });
     revalidatePath("/panel");
+    return { ok: true };
   } catch {
-    // best-effort — tercih kaydedilemezse panel yine çalışır.
+    return { ok: false, error: "Düzen kaydedilemedi (bağlantı veya sunucu hatası). Değişiklikleriniz ekranda duruyor; birkaç saniye sonra tekrar Kaydet'e basın." };
   }
 }
 
@@ -935,6 +945,8 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
           lessonDays: lessonDaysRaw,
           monthlyFee: Number(formData.get("monthlyFee") || 3000),
           notes: String(formData.get("notes") || ""),
+          // H — deneme dersinden dönüşümse kaynak deneme (sunucu doğrular).
+          convertedFromTrialId: String(formData.get("convertedFromTrialId") || "") || undefined,
           // Faz 1B — çoklu seçim checkbox grubu; boşsa undefined (eski davranışla aynı).
           studentTypes: (() => {
             const values = formData.getAll("studentTypes").map(String).filter(Boolean);
@@ -3147,13 +3159,21 @@ export type LessonEditScopeInput = "single" | "fromHereOnward" | "entireSeries";
 
 export type DeleteLessonsActionResult =
   | { ok: true; deletedCount: number; protectedNotes: string[] }
-  | { ok: false; message: string };
+  /** forceable: tek ders statülü → kritik şifreyle tamamen silme yolu açılabilir. */
+  | { ok: false; message: string; forceable?: boolean };
 
 /** 2026-09-17 — ders silme (kapsamlı); korunan dersler tarih + nedenle döner. */
-export async function actionDeleteLessons(input: { lessonId: string; scope: LessonEditScopeInput }): Promise<DeleteLessonsActionResult> {
+export async function actionDeleteLessons(input: { lessonId: string; scope: LessonEditScopeInput; reason?: string }): Promise<DeleteLessonsActionResult> {
   try {
     const result = await withAuthContext("actionDeleteLessons", (ctx) => deleteLessonsTool(ctx, input));
-    if (!result.ok) return { ok: false, message: toolFailureMessage(result.error, "Silme seçimi geçersiz; tekrar deneyin.") };
+    if (!result.ok) {
+      const details = result.error.details as { allProtected?: boolean } | undefined;
+      return {
+        ok: false,
+        message: toolFailureMessage(result.error, "Silme seçimi geçersiz; tekrar deneyin."),
+        forceable: input.scope === "single" && details?.allProtected === true,
+      };
+    }
     revalidateAll();
     return {
       ok: true,
@@ -3166,6 +3186,21 @@ export async function actionDeleteLessons(input: { lessonId: string; scope: Less
     if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
     return { ok: false, message: "Ders silinirken beklenmeyen bir hata oluştu. Sayfayı yenileyip tekrar deneyin." };
   }
+}
+
+/** M — statüsü girilmiş tek dersi kritik şifreyle tamamen siler. */
+export async function actionForceDeleteLesson(input: {
+  lessonId: string;
+  criticalPassword: string;
+  reason: string;
+}): Promise<SimpleActionResult<{ lessonId: string }>> {
+  const res = await runSimpleAction(
+    "actionForceDeleteLesson",
+    (ctx) => forceDeleteLessonTool(ctx, input),
+    "Ders silinemedi; hiçbir kayıt değişmedi. Sayfayı yenileyip tekrar deneyin."
+  );
+  if (res.ok) revalidateAll();
+  return res;
 }
 
 export type ReviseLessonsActionResult =
@@ -3341,8 +3376,8 @@ export type ComputeTeacherPayoutActionResult =
   | ({
       ok: true;
       paymentMethodInfo: TeacherPayoutPaymentMethodInfo | null;
-      existingPayout: { id: string; method?: string; status: string } | null;
-    } & TeacherEarningsResult)
+      existingPayout: ExistingPayoutSummary | null;
+    } & Omit<TeacherEarningsResult, "lines"> & { lines: RevisedEarningsLine[] })
   | { ok: false; message: string };
 
 /** Salt-okunur önizleme — hiçbir kayıt yazmaz. */
@@ -3402,6 +3437,50 @@ export async function actionUpdateTeacherPayoutPaymentMethod(input: {
     if (error instanceof WriteScopeDeniedError) return { ok: false, message: error.message };
     return { ok: false, message: "Hakediş ödeme yöntemi güncellenirken beklenmeyen bir hata oluştu." };
   }
+}
+
+/** K — hakediş revizyonu / revizyonu geri alma / ödendi işaretini geri alma. Kurallar tool katmanında. */
+export async function actionReviseTeacherPayout(input: {
+  payoutId: string;
+  lineOverrides: Record<string, { minutes?: number; hourlyRate?: number; amount?: number }>;
+  reason: string;
+  criticalPassword?: string;
+}): Promise<SimpleActionResult<{ payout: TeacherPayout }>> {
+  const res = await runSimpleAction(
+    "actionReviseTeacherPayout",
+    (ctx) => reviseTeacherPayoutTool(ctx, input),
+    "Hakediş revizyonu kaydedilemedi; kayıt değişmedi. Sayfayı yenileyip tekrar deneyin."
+  );
+  if (res.ok) revalidateAll();
+  return res;
+}
+
+export async function actionResetTeacherPayoutRevision(input: {
+  payoutId: string;
+  reason: string;
+  criticalPassword?: string;
+}): Promise<SimpleActionResult<{ payout: TeacherPayout }>> {
+  const res = await runSimpleAction(
+    "actionResetTeacherPayoutRevision",
+    (ctx) => resetTeacherPayoutRevisionTool(ctx, input),
+    "Revizyon geri alınamadı; kayıt değişmedi. Tekrar deneyin."
+  );
+  if (res.ok) revalidateAll();
+  return res;
+}
+
+export async function actionUnmarkTeacherPayoutPaid(input: {
+  payoutId: string;
+  reason: string;
+  criticalPassword: string;
+}): Promise<SimpleActionResult<{ payout: TeacherPayout }>> {
+  const res = await runSimpleAction(
+    "actionUnmarkTeacherPayoutPaid",
+    (ctx) => unmarkTeacherPayoutPaidTool(ctx, input),
+    "Ödendi işareti geri alınamadı; kayıt değişmedi. Tekrar deneyin."
+  );
+  if (res.ok) revalidateAll();
+  return res;
 }
 
 export async function actionMarkTeacherPayoutPaid(input: {
@@ -3500,6 +3579,26 @@ export async function actionDeleteStudent(input: {
     "actionDeleteStudent",
     (ctx) => deleteStudentTool(ctx, input),
     "Öğrenci silinemedi; hiçbir kayıt değişmedi. Tekrar deneyin."
+  );
+  if (res.ok) revalidateAll();
+  return res;
+}
+
+/** E — öğrenciler ekranı toplu işlem; tüm kural/yetki/audit `bulkStudentActionTool`'da. */
+export async function actionBulkStudentAction(input: {
+  action: "branch" | "teacher" | "instrument" | "package" | "deactivate" | "activate" | "soft_delete" | "restore";
+  studentIds: string[];
+  branchId?: string;
+  teacherId?: string;
+  instrument?: string;
+  packageId?: string;
+  criticalPassword?: string;
+  reason?: string;
+}): Promise<SimpleActionResult<BulkStudentActionResult>> {
+  const res = await runSimpleAction(
+    "actionBulkStudentAction",
+    (ctx) => bulkStudentActionTool(ctx, input),
+    "Toplu işlem tamamlanamadı; hiçbir değişiklik onaylanmadı. Sayfayı yenileyip tekrar deneyin."
   );
   if (res.ok) revalidateAll();
   return res;

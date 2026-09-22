@@ -337,7 +337,7 @@ describe("HYPER_ADMIN login (POST /api/v1/auth/login)", () => {
     expect(res.status).toBe(400);
     const json = (await res.json()) as { ok: boolean; error?: { message?: string } };
     expect(json.ok).toBe(false);
-    expect(json.error?.message).toBe("Invalid login payload");
+    expect(json.error?.message).toBe("Geçerli bir e-posta adresi ve şifre girin.");
   });
 });
 

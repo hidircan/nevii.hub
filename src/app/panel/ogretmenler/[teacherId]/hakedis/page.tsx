@@ -5,6 +5,7 @@ import { actionComputeTeacherPayout } from "@/lib/actions";
 import { TeacherPayoutDashboard } from "@/components/teacher-payout-dashboard";
 import { FeeRuleManager } from "@/components/fee-rule-manager";
 import { loadTeacherPageContext } from "../_context";
+import { ChangeHistory } from "@/components/change-history";
 
 export const dynamic = "force-dynamic";
 
@@ -72,6 +73,14 @@ export default async function TeacherPayoutTab({ params }: { params: Promise<{ t
           canWrite={kurum.scope.mode === "single" && canManage}
         />
       </section>
+
+      <ChangeHistory
+        title="Hakediş değişiklik geçmişi"
+        tenantId={session.tenantId}
+        entityType="TeacherPayout"
+        entityIds={data.teacherPayouts.filter((p) => p.teacherId === teacher.id).map((p) => p.id)}
+        teachers={data.teachers}
+      />
     </div>
   );
 }

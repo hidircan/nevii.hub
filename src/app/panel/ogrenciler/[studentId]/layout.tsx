@@ -1,3 +1,4 @@
+import { canRunCriticalActions } from "@/lib/critical-action-password";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Badge, Card, EmptyState, PageHeader } from "@/components/ui";
@@ -56,10 +57,14 @@ export default async function StudentDetailLayout({
 
   const teacher = data.teachers.find((t) => t.id === student.teacherId);
   const branch = data.settings.branches.find((b) => b.id === student.branchId);
+  const convertedBy = student.convertedByUserId
+    ? await resolveActorLabel({ tenantId: session.tenantId, userId: student.convertedByUserId, teachers: data.teachers })
+    : null;
   const createdBy = student.createdByUserId
     ? await resolveActorLabel({ tenantId: session.tenantId, userId: student.createdByUserId, teachers: data.teachers })
     : null;
-  const isOwner = session.role === "SUPER_ADMIN";
+  // Silme/geri alma: kurum sahibi + kurum yöneticileri (onay kritik işlem şifresiyle, sunucuda).
+  const isOwner = canRunCriticalActions(session.role);
   const deletedBy = student.deletedAt
     ? student.deletedByUserId
       ? await resolveActorLabel({ tenantId: session.tenantId, userId: student.deletedByUserId, teachers: data.teachers })
@@ -115,8 +120,17 @@ export default async function StudentDetailLayout({
           <span className="text-[var(--color-text-muted)]">
             Öğretmen: {teacher?.name ?? "—"} · Kayıt:{" "}
             {student.enrollmentStartDate ? formatDate(student.enrollmentStartDate) : formatDate(student.createdAt)}
-            {createdBy ? ` · Kaydı oluşturan: ${createdBy}` : ""}
+            {` · Kaydı oluşturan: ${createdBy ?? "Bilinmiyor (eski kayıt)"}`}
           </span>
+          {student.convertedFromTrialId ? (
+            <span
+              className="rounded-full px-2 py-0.5 text-[11px] font-semibold"
+              style={{ background: "var(--color-trial-soft)", color: "var(--color-trial)" }}
+              title="Bu öğrenci deneme dersinden kayda dönüştürüldü"
+            >
+              Denemeden dönüştü{convertedBy ? ` · ${convertedBy}` : ""}
+            </span>
+          ) : null}
         </div>
         {/*
           MT-003 — bu ekranda öğretmen/enstrüman DEĞİŞTİRİLEMEZ; burada yalnızca

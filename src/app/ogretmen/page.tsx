@@ -7,7 +7,7 @@ import { readData } from "@/lib/store";
 import { Badge, Card } from "@/components/ui";
 import { LessonStatusBadge } from "@/components/lesson-status-badge";
 import { formatDate, formatDateTime, formatMoney, formatTime } from "@/lib/utils";
-import { computeTeacherEarningsForPeriod } from "@/lib/teacher-payout";
+import { computeTeacherEarningsWithRevisions } from "@/lib/teacher-payout";
 import { CalendarDays, Music2, Users, Wallet } from "lucide-react";
 import { requireSessionContext } from "@/lib/auth/session";
 import { AssistantPageContext } from "@/components/ai/assistant-page-context";
@@ -51,7 +51,7 @@ export default async function OgretmenPortalPage() {
   const now = new Date();
   const periodStart = format(startOfMonth(now), "yyyy-MM-dd");
   const periodEnd = format(endOfMonth(now), "yyyy-MM-dd");
-  const currentMonthEarnings = computeTeacherEarningsForPeriod(data, teacher.id, periodStart, periodEnd);
+  const currentMonthEarnings = computeTeacherEarningsWithRevisions(data, teacher.id, periodStart, periodEnd);
   const recentPayouts = data.teacherPayouts
     .filter((p) => p.teacherId === teacher.id)
     .sort((a, b) => b.periodStart.localeCompare(a.periodStart))

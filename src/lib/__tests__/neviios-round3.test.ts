@@ -280,19 +280,40 @@ describe("canlı operasyon — oturum kaydı ve sonlandırma", () => {
 
   it("tüm oturumları kapat: hesap aktif kalır, tüm token'lar düşer, yeni giriş çalışır; kendi oturumları kapatılamaz", async () => {
     const a = await login("nihal.gedikli@niluferacar.com.tr", "demo-manager-nihal");
-    const b = await login("nihal.gedikli@niluferacar.com.tr", "demo-manager-nihal");
     const { GET } = await import("../../app/api/v1/tahsilat/roi/route");
     expect((await GET(req("/api/v1/tahsilat/roi", a.accessToken))).status).toBe(200);
+    // 2026-09-23 tek aktif oturum: ikinci giriş ilk oturumu kapatır (devralma).
+    const b = await login("nihal.gedikli@niluferacar.com.tr", "demo-manager-nihal");
+    expect((await GET(req("/api/v1/tahsilat/roi", a.accessToken))).status).toBe(401);
+    expect((await GET(req("/api/v1/tahsilat/roi", b.accessToken))).status).toBe(200);
     await new Promise((r) => setTimeout(r, 5));
     const res = await liveOps.revokeAllSessions(hyper(), { userId: "user_manager_nihal", reason: "Cihaz kaybı bildirimi", confirm: true });
-    expect(res.ok && res.data.closedSessions).toBe(2);
-    expect((await GET(req("/api/v1/tahsilat/roi", a.accessToken))).status).toBe(401);
+    expect(res.ok && res.data.closedSessions).toBe(1);
     expect((await GET(req("/api/v1/tahsilat/roi", b.accessToken))).status).toBe(401);
     await new Promise((r) => setTimeout(r, 1100));
     const c = await login("nihal.gedikli@niluferacar.com.tr", "demo-manager-nihal");
     expect((await GET(req("/api/v1/tahsilat/roi", c.accessToken))).status).toBe(200);
     const self = await liveOps.revokeAllSessions(hyper(), { userId: "user_hyper_admin", reason: "kendimi kapatma", confirm: true });
     expect(!self.ok && self.error.code).toBe("FORBIDDEN");
+  });
+
+  it("tek aktif oturum: onay destekleyen istemci 409 alır; devralma eski oturumu 'takeover' ile kapatır ve durum uç noktası bunu bildirir", async () => {
+    const a = await login("ezgi.guclu@niluferacar.com.tr", "demo-manager-ezgi");
+    const { POST } = await import("../../app/api/v1/auth/login/route");
+    const creds = { email: "ezgi.guclu@niluferacar.com.tr", password: "demo-manager-ezgi", clientSupportsTakeover: true };
+    const blocked = await POST(req("/api/v1/auth/login", null, "POST", creds));
+    expect(blocked.status).toBe(409);
+    const blockedJson = await blocked.json();
+    expect(blockedJson.error.code).toBe("SESSION_ACTIVE_ELSEWHERE");
+    expect(blockedJson.error.message).toContain("başka bir cihazda aktif");
+    const { GET: ROI } = await import("../../app/api/v1/tahsilat/roi/route");
+    expect((await ROI(req("/api/v1/tahsilat/roi", a.accessToken))).status).toBe(200); // vazgeçilirse A etkilenmez
+    const taken = await POST(req("/api/v1/auth/login", null, "POST", { ...creds, takeover: true }));
+    expect(taken.status).toBe(200);
+    expect((await ROI(req("/api/v1/tahsilat/roi", a.accessToken))).status).toBe(401);
+    const { GET: STATUS } = await import("../../app/api/v1/auth/session-status/route");
+    const st = await STATUS(new Request("http://localhost/api/v1/auth/session-status", { headers: { cookie: `np_refresh=${a.refreshToken}` } }));
+    expect((await st.json()).data.state).toBe("taken_over");
   });
 
   it("pasifleştirme oturum kayıtlarını da kapatır; son aktif HYPER_ADMIN ve son kurum sahibi korunur; API bypass 403", async () => {

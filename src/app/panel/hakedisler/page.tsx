@@ -7,7 +7,7 @@ import { requireSessionContext } from "@/lib/auth/session";
 import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { Badge, Card, EmptyState, PageHeader, StatCard } from "@/components/ui";
-import { computeTeacherEarningsForPeriod } from "@/lib/teacher-payout";
+import { computeTeacherEarningsWithRevisions } from "@/lib/teacher-payout";
 import { formatMoney } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -58,7 +58,7 @@ export default async function TeacherPayoutOverviewPage({
     const existingPayout = data.teacherPayouts.find(
       (p) => p.teacherId === teacher.id && p.periodStart === periodStart && p.periodEnd === periodEnd
     );
-    const earnings = computeTeacherEarningsForPeriod(data, teacher.id, periodStart, periodEnd);
+    const earnings = computeTeacherEarningsWithRevisions(data, teacher.id, periodStart, periodEnd);
     const lessonCount = earnings.totalLessons;
     const totalAmount = existingPayout ? existingPayout.totalAmount : earnings.totalAmount;
     const status = existingPayout ? existingPayout.status : lessonCount > 0 ? "pending" : "no_lessons";

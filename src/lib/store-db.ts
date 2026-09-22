@@ -1,6 +1,8 @@
 import {
   applyLessonRevision,
   planLessonDeletion,
+  planForcedLessonDeletion,
+  type ForcedLessonDeletionPlan,
   type LessonDeletionPlan,
   type LessonEditScope,
   type LessonRevisionInput,
@@ -53,6 +55,7 @@ import type {
   Teacher,
   TeacherFeeRule,
   TeacherProfilePatch,
+  TeacherPayout,
 } from "./types";
 import {
   suggestMakeupSlots,
@@ -343,6 +346,8 @@ function mapSchoolToAppData(school: PrismaSchoolWithRelations): AppData {
       notes: student.notes,
       createdAt: student.createdAt.toISOString(),
       createdByUserId: (student as { createdByUserId?: string | null }).createdByUserId ?? undefined,
+      convertedFromTrialId: student.convertedFromTrialId ?? undefined,
+      convertedByUserId: student.convertedByUserId ?? undefined,
       studentType: (student.studentType as StudentType) ?? undefined,
       studentTypes:
         ((student as { studentTypes?: unknown }).studentTypes as StudentType[] | undefined) ?? undefined,
@@ -586,6 +591,13 @@ function mapSchoolToAppData(school: PrismaSchoolWithRelations): AppData {
       paidAt: payout.paidAt?.toISOString() ?? undefined,
       method: payout.method ?? undefined,
       generatedAt: payout.generatedAt.toISOString(),
+      originalTotalMinutes: payout.originalTotalMinutes ?? undefined,
+      originalTotalAmount: payout.originalTotalAmount ?? undefined,
+      lineOverrides: (payout.lineOverrides as TeacherPayout["lineOverrides"] | null) ?? undefined,
+      revisionCount: payout.revisionCount ?? 0,
+      revisedAt: payout.revisedAt?.toISOString() ?? undefined,
+      revisedByUserId: payout.revisedByUserId ?? undefined,
+      revisionReason: payout.revisionReason ?? undefined,
     })),
   };
 }
@@ -1337,6 +1349,9 @@ export async function updateStudentProfile(
       name: patch.name,
       email: patch.email,
       branchId: patch.branchId,
+      // Toplu işlem (E) — sunucu öğretmen/enstrüman uyumunu doğruladıktan sonra yazar.
+      teacherId: patch.teacherId,
+      instruments: patch.instruments,
       educationMethod: patch.educationMethod,
       studentType: patch.studentType,
       studentTypes: patch.studentTypes,
@@ -2584,6 +2599,23 @@ export async function cancelLessonSeriesFromLesson(lessonId: string): Promise<Se
 }
 
 /** 2026-09-17 — bkz. lesson-scope-edit.ts planLessonDeletion; korunan dersler (yoklama FK dahil) plana hiç girmez. */
+/** M — kritik şifreyle statülü tek ders silme; yoklama satırı aynı transaction'da silinir. */
+export async function forceDeleteLesson(lessonId: string): Promise<ForcedLessonDeletionPlan> {
+  const tid = requireTenantId();
+  const data = await readData();
+  const result = planForcedLessonDeletion(data, lessonId);
+  if (!result.ok) return result;
+  const seriesClosed = result.data.lessonSeries.find((s) => s.id === result.lesson.seriesId && s.status === "cancelled");
+  await prisma.$transaction(async (tx) => {
+    await tx.attendance.deleteMany({ where: { lessonId, tenantId: tid } });
+    await tx.lesson.deleteMany({ where: { id: lessonId, tenantId: tid } });
+    if (seriesClosed) {
+      await tx.lessonSeries.updateMany({ where: { id: seriesClosed.id, tenantId: tid }, data: { status: "cancelled" } });
+    }
+  });
+  return { ...result, data: await readData() };
+}
+
 export async function deleteLessonsScoped(lessonId: string, scope: LessonEditScope): Promise<LessonDeletionPlan> {
   logger.info("deleteLessonsScoped", lessonId, scope);
   const tid = requireTenantId();
@@ -2874,6 +2906,33 @@ export async function updateTeacherPayoutPaymentMethod(
   });
 
   return { ok: true, data: await readData(), payout: result.payout };
+}
+
+/** K — hakediş revizyonu/ödeme geri alma (bkz. store-json.ts aynı adlı fonksiyon). */
+export async function replaceTeacherPayout(payout: TeacherPayout): Promise<AppData> {
+  const tid = requireTenantId();
+  const res = await prisma.teacherPayout.updateMany({
+    where: { id: payout.id, tenantId: tid },
+    data: {
+      status: payout.status,
+      paidAt: payout.paidAt ? new Date(payout.paidAt) : null,
+      method: payout.method ?? null,
+      totalMinutes: payout.totalMinutes,
+      totalAmount: payout.totalAmount,
+      originalTotalMinutes: payout.originalTotalMinutes ?? null,
+      originalTotalAmount: payout.originalTotalAmount ?? null,
+      lineOverrides:
+        payout.lineOverrides && Object.keys(payout.lineOverrides).length > 0
+          ? (payout.lineOverrides as unknown as Prisma.InputJsonValue)
+          : Prisma.DbNull,
+      revisionCount: payout.revisionCount ?? 0,
+      revisedAt: payout.revisedAt ? new Date(payout.revisedAt) : null,
+      revisedByUserId: payout.revisedByUserId ?? null,
+      revisionReason: payout.revisionReason ?? null,
+    },
+  });
+  if (res.count === 0) throw new Error("Hakediş kaydı bulunamadı");
+  return readData();
 }
 
 export async function markTeacherPayoutPaid(

@@ -256,6 +256,8 @@ export const studentSchema = z.object({
   firstPaymentAdjustmentReason: optionalTrimmed,
   /** Sahip kararı (2026-09-16) — ilk tahsilata takip eden ayın tam ücreti de eklendi mi (kayıt ekranındaki AÇIK seçim). */
   firstCollectionIncludesNextMonth: z.boolean().optional(),
+  /** H — deneme dersinden dönüşüm: kaynak TrialLesson.id (sunucu doğrular, dönüşümü yapan = oturum). */
+  convertedFromTrialId: z.string().min(1).max(80).optional(),
 }).refine((v) => v.monthlyFeeOverrideAmount === undefined || !!v.monthlyFeeOverrideReason, {
   message: "Manuel ücret girildiyse gerekçe zorunludur.",
   path: ["monthlyFeeOverrideReason"],
@@ -630,6 +632,8 @@ const lessonEditScopeSchema = z.enum(["single", "fromHereOnward", "entireSeries"
 export const deleteLessonsSchema = z.object({
   lessonId: z.string().min(1),
   scope: lessonEditScopeSchema,
+  /** Opsiyonel silme gerekçesi — denetim kaydına yazılır. */
+  reason: z.string().trim().max(500).optional(),
 });
 
 export const reviseLessonsSchema = z.object({

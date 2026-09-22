@@ -27,6 +27,7 @@ export const STAFF_PERFORMANCE_METRICS: PerformanceMetricDefinition[] = [
   { key: "collections", label: "Tahsilat", audience: "staff" },
   { key: "newStudents", label: "Yeni öğrenci kaydı", audience: "staff" },
   { key: "lessonsPlanned", label: "Planlanan ders", audience: "staff" },
+  { key: "trialsPlanned", label: "Planlanan deneme dersi", audience: "staff" },
 ];
 
 export type PerformanceWeightsConfig = {
@@ -43,11 +44,12 @@ export const DEFAULT_PERFORMANCE_WEIGHTS: PerformanceWeightsConfig = {
     enrollmentFromSchedule: 5,
   },
   staff: {
-    tasks: 35,
+    tasks: 30,
     onTime: 25,
     collections: 25,
     newStudents: 10,
     lessonsPlanned: 5,
+    trialsPlanned: 5,
   },
 };
 

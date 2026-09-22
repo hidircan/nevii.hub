@@ -1,6 +1,8 @@
 import {
   applyLessonRevision,
   planLessonDeletion,
+  planForcedLessonDeletion,
+  type ForcedLessonDeletionPlan,
   type LessonDeletionPlan,
   type LessonEditScope,
   type LessonRevisionInput,
@@ -46,6 +48,7 @@ import type {
   Teacher,
   TeacherFeeRule,
   TeacherProfilePatch,
+  TeacherPayout,
 } from "./types";
 import {
   suggestMakeupSlots,
@@ -675,6 +678,14 @@ export async function cancelEntireLessonSeries(seriesId: string): Promise<Series
   return result;
 }
 
+/** M — kritik şifreyle statülü tek ders silme (bkz. planForcedLessonDeletion). */
+export async function forceDeleteLesson(lessonId: string): Promise<ForcedLessonDeletionPlan> {
+  const data = load();
+  const result = planForcedLessonDeletion(data, lessonId);
+  if (result.ok) save(result.data);
+  return result;
+}
+
 export async function deleteLessonsScoped(lessonId: string, scope: LessonEditScope): Promise<LessonDeletionPlan> {
   const data = load();
   const result = planLessonDeletion(data, lessonId, scope);
@@ -763,6 +774,15 @@ export async function updateTeacherPayoutPaymentMethod(
   const result = updateTeacherPayoutPaymentMethodData(data, payoutId, method);
   if (result.ok) save(result.data);
   return result;
+}
+
+/** K — hakediş revizyonu/ödeme geri alma: kaydı bütün olarak değiştirir (kurallar tool katmanında). */
+export async function replaceTeacherPayout(payout: TeacherPayout): Promise<AppData> {
+  const data = load();
+  if (!data.teacherPayouts.some((p) => p.id === payout.id)) throw new Error("Hakediş kaydı bulunamadı");
+  const next = { ...data, teacherPayouts: data.teacherPayouts.map((p) => (p.id === payout.id ? payout : p)) };
+  save(next);
+  return next;
 }
 
 export async function markTeacherPayoutPaid(

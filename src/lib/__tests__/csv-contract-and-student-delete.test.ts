@@ -259,15 +259,17 @@ describe("C — güvenli öğrenci silme", () => {
     expect(res.ok).toBe(true);
   }
 
-  it("kurum sahibi dışındaki rol silemez ve etki özetini göremez", async () => {
+  it("kurum yöneticisi (Ezgi/Nihal) etki özetini görür; öğretmen silemez ve göremez (2026-09-23 yetki genişletme)", async () => {
     const id = await createNormalStudent();
-    const del = await deleteStudentTool(owner({ role: "SCHOOL_ADMIN" }), {
+    const impact = await getStudentDeletionImpactTool(owner({ role: "SCHOOL_ADMIN" }), { studentId: id });
+    expect(impact.ok).toBe(true);
+    const del = await deleteStudentTool(owner({ role: "TEACHER" }), {
       studentId: id, mode: "soft", confirmationName: "Normal Öğrenci", criticalPassword: PW, reason: "deneme kaydı",
     });
     expect(del.ok).toBe(false);
     if (!del.ok) expect(del.error.code).toBe("FORBIDDEN");
-    const impact = await getStudentDeletionImpactTool(owner({ role: "SCHOOL_ADMIN" }), { studentId: id });
-    expect(impact.ok).toBe(false);
+    const teacherImpact = await getStudentDeletionImpactTool(owner({ role: "TEACHER" }), { studentId: id });
+    expect(teacherImpact.ok).toBe(false);
   });
 
   it("kritik işlem şifresi belirlenmeden silme yapılamaz", async () => {

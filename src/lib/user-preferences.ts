@@ -42,7 +42,8 @@ export type UserWorkspacePreferences = {
   updatedAt: string;
 };
 
-export type DashboardSectionSpan = 4 | 5 | 6 | 7 | 8 | 12;
+/** xl 12 kolon ızgarada genişlik; 4 = en dar (okunabilirlik alt sınırı), 12 = tam satır. */
+export type DashboardSectionSpan = 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12;
 
 /** İsimli Günlük Özet görünümü — aynı dashboardJson içinde, migration yok. */
 export type DashboardSavedView = {

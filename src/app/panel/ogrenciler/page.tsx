@@ -1,3 +1,4 @@
+import { canRunCriticalActions } from "@/lib/critical-action-password";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { UserPlus } from "lucide-react";
@@ -9,6 +10,8 @@ import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { effectiveStudentTypes } from "@/lib/student-types";
 import { listContractSummariesByStudent, type StudentContractSummary } from "@/lib/contracts";
 import { AssistantPageContext } from "@/components/ai/assistant-page-context";
+import { resolveActorLabels } from "@/lib/contract-payment-plan-view";
+import { resolveActiveInstrumentNames } from "@/lib/instrument-catalog";
 
 export const dynamic = "force-dynamic";
 
@@ -26,9 +29,9 @@ export default async function OgrencilerPage({
   }
   const kurum = await getInstitutionContext(session);
   const data = await readScopedData(kurum.scope);
-  // Geri alınabilir silinen öğrenciler varsayılan listede YOKTUR; yalnız kurum sahibi
-  // "Silinenler" görünümünde görür (geri almak için detaya gider).
-  const isOwner = session.role === "SUPER_ADMIN";
+  // Geri alınabilir silinen öğrenciler varsayılan listede YOKTUR; yalnız silme yetkisi olanlar
+  // (kurum sahibi + kurum yöneticileri) "Silinenler" görünümünde görür (geri almak için detaya gider).
+  const isOwner = canRunCriticalActions(session.role);
   const showDeleted = isOwner && silinenler === "1";
   const deletedCount = data.students.filter((s) => s.deletedAt).length;
   const students = data.students
@@ -43,10 +46,20 @@ export default async function OgrencilerPage({
    * olduğu için atlanır — filtre orada "sözleşmesi yok" göstermek yerine
    * hiç çalışmaz (aşağıda boş map).
    */
+  const activeInstruments =
+    kurum.scope.mode === "single" ? await resolveActiveInstrumentNames(kurum.scope.tenantId) : [];
+
   const contractSummaries =
     kurum.scope.mode === "single"
       ? await listContractSummariesByStudent(kurum.scope.tenantId)
       : new Map<string, StudentContractSummary>();
+
+  // F — kaydı oluşturan / denemeden dönüştüren kişi adları TEK sorguda (ham kimlik asla gösterilmez).
+  const actorNames = await resolveActorLabels({
+    tenantId: session.tenantId,
+    userIds: students.flatMap((s) => [s.createdByUserId, s.convertedByUserId]),
+    teachers: data.teachers,
+  });
 
   const rows: StudentRow[] = students.map((s) => {
     const contract = contractSummaries.get(s.id);
@@ -83,6 +96,10 @@ export default async function OgrencilerPage({
       contractStatus: contract?.status,
       intendedDurationMonths: s.intendedDurationMonths,
       createdAt: s.createdAt,
+      displayId: s.displayId,
+      createdByName: s.createdByUserId ? actorNames.get(s.createdByUserId) : undefined,
+      convertedByName: s.convertedByUserId ? actorNames.get(s.convertedByUserId) : undefined,
+      fromTrial: Boolean(s.convertedFromTrialId),
     };
   });
 
@@ -122,6 +139,22 @@ export default async function OgrencilerPage({
       <StudentsTable
         rows={rows}
         canManage={canManage}
+        deletedView={showDeleted}
+        bulkOptions={
+          canManage && canRunCriticalActions(session.role)
+            ? {
+                branches: data.settings.branches.map((b) => ({ id: b.id, name: b.shortName || b.name })),
+                teachers: data.teachers
+                  .filter((t) => t.active)
+                  .map((t) => ({ id: t.id, name: t.name, instruments: t.instruments }))
+                  .sort((a, b) => a.name.localeCompare(b.name, "tr")),
+                instruments: activeInstruments,
+                packages: (data.packages ?? [])
+                  .filter((p) => p.status === "active")
+                  .map((p) => ({ id: p.id, title: p.title })),
+              }
+            : undefined
+        }
         tenantId={kurum.scope.mode === "single" ? kurum.scope.tenantId : undefined}
         userId={session.userId}
       />

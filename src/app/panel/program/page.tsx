@@ -4,7 +4,8 @@ import { ChevronLeft, ChevronRight, ArrowLeft } from "lucide-react";
 import { Card, PageHeader } from "@/components/ui";
 import { resolveSafeReturnTo } from "@/lib/safe-return-to";
 import { WeekDatePicker } from "@/components/week-date-picker";
-import { ProgramStudio } from "@/components/program-studio";
+import { ProgramStudio, type ProgramTrial } from "@/components/program-studio";
+import { listTrialLessons } from "@/lib/trial-lessons";
 import { ProgramTermYearNav, type ProgramTerm } from "@/components/program-term-year-nav";
 import { currentAcademicAnchorYear } from "@/lib/attendance-calendar";
 import { resolveWorkDay, type WorkDayResolution } from "@/lib/work-days";
@@ -80,6 +81,26 @@ export default async function ProgramPage({
   });
 
   const branchNames = Object.fromEntries(data.settings.branches.map((b) => [b.id, b.shortName]));
+
+  // I — deneme dersleri ayrı tabloda (TrialLesson); programda ayrı renk/etiketle görünür.
+  const weekTrials: ProgramTrial[] =
+    kurum.scope.mode === "single"
+      ? (await listTrialLessons(kurum.scope.tenantId))
+          .filter((t) => {
+            const d = parseISO(t.startAt);
+            return t.status !== "cancelled" && d >= days[0] && d <= addDays(days[6], 1);
+          })
+          .map((t) => ({
+            id: t.id,
+            name: t.name,
+            instrument: t.instrument,
+            teacherId: t.teacherId,
+            branchId: t.branchId,
+            startAt: t.startAt,
+            endAt: t.endAt,
+            converted: Boolean(t.convertedStudentId),
+          }))
+      : [];
 
   /**
    * ÇALIŞMA GÜNÜ — TEK KAYNAK (src/lib/work-days.ts). Izgaranın kendi hafta
@@ -166,6 +187,7 @@ export default async function ProgramPage({
         selectedAcademicYearStart={selectedAcademicYearStart}
         catalogInstruments={catalogInstruments}
         dayStatuses={dayStatuses}
+        weekTrials={weekTrials}
       />
 
       <Card className="mt-6">

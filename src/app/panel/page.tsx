@@ -13,7 +13,7 @@ import {
 import { Card, PageHeader } from "@/components/ui";
 import { LessonStatusBadge } from "@/components/lesson-status-badge";
 import { DashboardBranchSwitcher } from "@/components/dashboard-branch-switcher";
-import { DashboardLayoutEditor } from "@/components/dashboard-layout-editor";
+import { DashboardGrid } from "@/components/dashboard-layout-editor";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { AssistantPageContext } from "@/components/ai/assistant-page-context";
 import { requireSessionContext } from "@/lib/auth/session";
@@ -25,7 +25,6 @@ import { buildDashboardSummary, type DashboardAction } from "@/lib/dashboard/dai
 import {
   resolveDashboardLayout,
   type DashboardSectionKey,
-  type DashboardSectionSpan,
 } from "@/lib/dashboard/layout-prefs";
 import { computeSetupProgress } from "@/lib/setup-progress";
 import { computeTeacherPayoutOverview } from "@/lib/teacher-payout-overview";
@@ -67,14 +66,6 @@ const TONE_STYLE: Record<DashboardAction["tone"], { border: string; bg: string; 
   info: { border: "var(--color-info)", bg: "var(--color-info-soft)", text: "var(--color-info)" },
 };
 
-const SPAN_CLASS: Record<DashboardSectionSpan, string> = {
-  4: "xl:col-span-4",
-  5: "xl:col-span-5",
-  6: "xl:col-span-6",
-  7: "xl:col-span-7",
-  8: "xl:col-span-8",
-  12: "xl:col-span-12",
-};
 
 export default async function DashboardPage({
   searchParams,
@@ -460,25 +451,7 @@ export default async function DashboardPage({
       <PageHeader
         title="Günlük özet"
         description={`${formatDateTr(new Date())} · ${branchLabel}`}
-        actions={
-          <DashboardLayoutEditor
-            role={session.role}
-            initialOrder={layout.order}
-            initialHidden={layout.hidden}
-            initialSpans={layout.spans}
-            initialSavedViews={prefs.dashboard?.savedViews ?? []}
-            initialActiveViewId={prefs.dashboard?.activeViewId}
-          />
-        }
       />
-
-      <div className="mb-5">
-        <DashboardBranchSwitcher
-          branches={data.settings.branches.map((b) => ({ id: b.id, name: b.shortName || b.name }))}
-          activeBranchId={activeBranchId}
-          defaultBranchId={defaultBranchId}
-        />
-      </div>
 
       {!setupProgress.isReady ? (
         <Link
@@ -489,18 +462,22 @@ export default async function DashboardPage({
         </Link>
       ) : null}
 
-      {/* grid-flow-dense: dar kutular üst satırda kalan boşluğu doldurur (minimum boşluk). */}
-      <div className="grid items-start gap-2.5 xl:grid-flow-row-dense xl:grid-cols-12">
-        {layout.visible.map(({ key, span }) => {
-          const node = sectionNodes[key];
-          if (!node) return null;
-          return (
-            <div key={key} className={SPAN_CLASS[span]}>
-              {node}
-            </div>
-          );
-        })}
-      </div>
+      <DashboardGrid
+        leading={
+          <DashboardBranchSwitcher
+            branches={data.settings.branches.map((b) => ({ id: b.id, name: b.shortName || b.name }))}
+            activeBranchId={activeBranchId}
+            defaultBranchId={defaultBranchId}
+          />
+        }
+        role={session.role}
+        sections={sectionNodes}
+        initialOrder={layout.order}
+        initialHidden={layout.hidden}
+        initialSpans={layout.spans}
+        initialSavedViews={prefs.dashboard?.savedViews ?? []}
+        initialActiveViewId={prefs.dashboard?.activeViewId}
+      />
     </div>
   );
 }

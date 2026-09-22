@@ -1,3 +1,4 @@
+import { ChangeHistory } from "@/components/change-history";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowRight } from "lucide-react";
@@ -180,6 +181,18 @@ export default async function StudentPaymentProfilePage({
         canWrite={canWrite}
         studentName={student.name}
       />
+
+      {canWrite ? (
+        <div className="mt-6">
+          <ChangeHistory
+            title="Ödeme değişiklik geçmişi"
+            tenantId={session.tenantId}
+            entityType="Payment"
+            entityIds={payments.map((p) => p.id)}
+            teachers={data.teachers}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }

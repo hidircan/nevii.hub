@@ -224,6 +224,9 @@ export interface Student {
   createdAt: string;
   /** Kaydı açan kullanıcı. Eski kayıtlarda yok — audit'ten backfill edilebilir. */
   createdByUserId?: string;
+  /** Denemeden dönüştüyse kaynak TrialLesson.id ve dönüşümü onaylayan kullanıcı. */
+  convertedFromTrialId?: string;
+  convertedByUserId?: string;
   /** EPIC 4 — hepsi opsiyonel; boşsa UI "Belirtilmemiş" gösterir, hata vermez. */
   studentType?: StudentType;
   /**
@@ -422,6 +425,9 @@ export interface Package {
 export type StudentProfilePatch = Partial<
   Pick<
     Student,
+    /** Yalnız toplu işlem (bulkStudentActionTool) yazar — tekil detay ekranı MT-003 gereği değiştirmez. */
+    | "teacherId"
+    | "instruments"
     | "name"
     | "email"
     | "branchId"
@@ -1121,6 +1127,21 @@ export interface TeacherPayout {
   paidAt?: string;
   method?: string;
   generatedAt: string;
+  /** Revizyon (K): ilk revizyonda donan orijinal hesap ve satır düzeltmeleri. */
+  originalTotalMinutes?: number;
+  originalTotalAmount?: number;
+  lineOverrides?: Record<string, TeacherPayoutLineOverride>;
+  revisionCount?: number;
+  revisedAt?: string;
+  revisedByUserId?: string;
+  revisionReason?: string;
+}
+
+/** Hakediş dökümünde tek dersin elle düzeltilmiş değerleri; boş alan = hesaplanan değer. */
+export interface TeacherPayoutLineOverride {
+  minutes?: number;
+  hourlyRate?: number;
+  amount?: number;
 }
 
 export interface AppData {
@@ -1834,6 +1855,9 @@ export interface TrialLesson {
   durationMinutes: number;
   status: TrialLessonStatus;
   convertedStudentId?: string;
+  /** Dönüşüm anı ve dönüşümü yapan kullanıcı (performans/rapor). */
+  convertedAt?: string;
+  convertedByUserId?: string;
   notes?: string;
   createdBy: string;
   createdAt: string;

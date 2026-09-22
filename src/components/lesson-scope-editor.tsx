@@ -7,7 +7,8 @@
  */
 
 import { useState, useTransition } from "react";
-import { actionDeleteLessons, actionReviseLessons, type LessonEditScopeInput } from "@/lib/actions";
+import { actionDeleteLessons, actionForceDeleteLesson, actionReviseLessons, type LessonEditScopeInput } from "@/lib/actions";
+import { ModalShell, modalButton } from "@/components/modal-shell";
 import { Button, Input, Label, Select } from "@/components/ui";
 import { dayName } from "@/lib/utils";
 import { DEFAULT_APP_TIMEZONE, isoToWallDateTimeInput, zonedHm, zonedWeekday } from "@/lib/timezone";
@@ -34,6 +35,11 @@ export function LessonScopeEditor({ lesson, onDone }: { lesson: Lesson; onDone: 
   const [error, setError] = useState<string | null>(null);
   const [confirmAvailability, setConfirmAvailability] = useState(false);
   const [pending, startTransition] = useTransition();
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteReason, setDeleteReason] = useState("");
+  const [forceMode, setForceMode] = useState(false);
+  const [forcePassword, setForcePassword] = useState("");
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const scopeEffect =
     scope === "single"
@@ -67,20 +73,34 @@ export function LessonScopeEditor({ lesson, onDone }: { lesson: Lesson; onDone: 
   }
 
   function onDelete() {
-    const question =
-      scope === "single"
-        ? "Bu ders programdan tamamen silinecek. Emin misiniz?"
-        : scope === "fromHereOnward"
-          ? "Bu ders ve serinin sonraki tüm dersleri programdan silinecek. Emin misiniz?"
-          : "Serinin tüm dersleri programdan silinecek. Emin misiniz?";
-    if (!window.confirm(`${question}\n\nYoklaması veya tahsilatı olan dersler silinmez.`)) return;
-    setError(null);
+    setDeleteOpen(true);
+    setForceMode(false);
+    setForcePassword("");
+    setDeleteReason("");
+    setDeleteError(null);
+  }
+
+  function confirmDelete() {
+    setDeleteError(null);
     startTransition(async () => {
-      const result = await actionDeleteLessons({ lessonId: lesson.id, scope });
-      if (!result.ok) {
-        setError(result.message);
+      if (forceMode) {
+        const res = await actionForceDeleteLesson({ lessonId: lesson.id, criticalPassword: forcePassword, reason: deleteReason });
+        setForcePassword("");
+        if (!res.ok) {
+          setDeleteError(res.message);
+          return;
+        }
+        setDeleteOpen(false);
+        onDone("Statüsü girilmiş ders ve yoklaması tamamen silindi. İşlem denetim kaydına yazıldı.");
         return;
       }
+      const result = await actionDeleteLessons({ lessonId: lesson.id, scope, reason: deleteReason || undefined });
+      if (!result.ok) {
+        setDeleteError(result.message);
+        if (result.forceable) setForceMode(true);
+        return;
+      }
+      setDeleteOpen(false);
       onDone(withProtectedNote(`${result.deletedCount} ders silindi.`, result.protectedNotes));
     });
   }
@@ -149,6 +169,75 @@ export function LessonScopeEditor({ lesson, onDone }: { lesson: Lesson; onDone: 
           Sil
         </Button>
       </div>
+
+      <ModalShell
+        open={deleteOpen}
+        tone="danger"
+        busy={pending}
+        title={forceMode ? "Statüsü girilmiş dersi tamamen sil" : `Dersi programdan sil — ${SCOPE_LABEL[scope]}`}
+        onClose={() => setDeleteOpen(false)}
+        footer={
+          <>
+            <button type="button" className={modalButton.secondary} onClick={() => setDeleteOpen(false)} disabled={pending}>
+              Vazgeç
+            </button>
+            <button
+              type="button"
+              className={modalButton.danger}
+              disabled={pending || (forceMode && (deleteReason.trim().length < 5 || forcePassword.length === 0))}
+              onClick={confirmDelete}
+            >
+              {pending ? "Siliniyor…" : forceMode ? "Tamamen sil" : "Programdan sil"}
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <ul className="space-y-1.5 rounded-md border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-2.5 text-xs">
+            <li>
+              <strong>İptal et</strong> — ders programda &quot;İptal&quot; olarak kalır; telafi ve yoklama kuralları işler. (Ders
+              detayındaki durum aksiyonlarından yapılır; bu pencereyi kapatın.)
+            </li>
+            <li className={forceMode ? "opacity-60" : ""}>
+              <strong>Programdan sil</strong> — yanlış girilmiş, henüz statüsü olmayan ders(ler) kaldırılır.{" "}
+              {scope === "single" ? "Yalnız bu ders." : scope === "fromHereOnward" ? "Bu ders ve serinin sonrakileri." : "Serinin tamamı."}{" "}
+              Yoklaması/tahsilatı olanlar atlanır.
+            </li>
+            <li className={forceMode ? "" : "opacity-60"}>
+              <strong>Tamamen sil (kritik)</strong> — statüsü girilmiş tek ders yoklamasıyla birlikte silinir.{" "}
+              <strong>Geri alınamaz</strong>; kurum sahibinin kritik işlem şifresi gerekir, dersin dökümü denetim kaydında kalır.
+              Tahsilat veya telafi bağlı derste yapılamaz.
+            </li>
+          </ul>
+          <label className="block text-xs font-medium text-[var(--color-text)]">
+            Gerekçe{forceMode ? " (en az 5 karakter)" : " (isteğe bağlı)"}
+            <textarea
+              value={deleteReason}
+              onChange={(e) => setDeleteReason(e.target.value)}
+              rows={2}
+              maxLength={500}
+              className="mt-1 w-full rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 py-1.5 text-sm"
+            />
+          </label>
+          {forceMode ? (
+            <label className="block text-xs font-medium text-[var(--color-text)]">
+              Kritik işlem şifresi
+              <input
+                type="password"
+                autoComplete="off"
+                value={forcePassword}
+                onChange={(e) => setForcePassword(e.target.value)}
+                className="mt-1 w-full rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 py-1.5 text-sm"
+              />
+            </label>
+          ) : null}
+          {deleteError ? (
+            <p role="alert" className="text-xs font-medium" style={{ color: "var(--color-danger)" }}>
+              {deleteError}
+            </p>
+          ) : null}
+        </div>
+      </ModalShell>
 
       {error ? (
         <div className="rounded-md bg-rose-50 px-3 py-2 text-xs font-medium text-rose-800" role="alert">

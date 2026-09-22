@@ -83,7 +83,13 @@ export function NewStudentForm({
   kvkkText,
   workDayOverrides,
   termWeeklyClosedDays,
+  prefill,
+  trialSummary,
 }: {
+  /** H — deneme dersinden dönüşümde formun ön değerleri (kullanıcı hâlâ düzenler). */
+  prefill?: Record<string, string>;
+  /** Ön doldurmanın kaynağı — formun üstünde bilgi bandı. */
+  trialSummary?: string;
   branches: BranchOption[];
   teachers: TeacherOption[];
   instrumentOptions: string[];
@@ -106,7 +112,7 @@ export function NewStudentForm({
   // sessizce boşalır. `v(key)` tüm düz metin/select/tarih alanları için TEK
   // kaynak; checkbox'lar `checkedVal` ile ayrıca ele alınır.
   const values = state && "values" in state ? (state.values ?? {}) : {};
-  const v = (key: string): string | undefined => values[key];
+  const v = (key: string): string | undefined => values[key] ?? prefill?.[key];
   const selectedStudentTypes = new Set((values.studentTypes ?? "").split(",").filter(Boolean));
   const checkedVal = (key: string, expected: string): boolean => v(key) === expected;
 
@@ -358,6 +364,21 @@ export function NewStudentForm({
 
   return (
     <form ref={formRef} action={formAction} onChange={() => recomputePreview()} className="space-y-6" noValidate>
+      {v("convertedFromTrialId") ? (
+        <>
+          <input type="hidden" name="convertedFromTrialId" value={v("convertedFromTrialId")} />
+          <div
+            className="rounded-lg border px-4 py-3 text-sm"
+            style={{ borderColor: "var(--color-trial)", background: "var(--color-trial-soft)", color: "var(--color-text)" }}
+          >
+            <p className="font-semibold">Deneme dersinden kayıt</p>
+            <p className="mt-0.5 text-xs text-[var(--color-text-muted)]">
+              {trialSummary ?? "Bilgiler deneme kaydından dolduruldu."} Kaydı tamamladığınızda deneme &quot;kayda dönüştü&quot;
+              olarak işaretlenir ve dönüşümü yapan kişi olarak siz kaydedilirsiniz.
+            </p>
+          </div>
+        </>
+      ) : null}
       {hasError ? (
         <div
           ref={summaryRef}

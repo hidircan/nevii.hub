@@ -197,7 +197,14 @@ export function StaffManager({
                         </>
                       ) : (
                         <>
-                          <td className="px-4 py-2 font-medium text-[var(--color-text)]">{member.name}</td>
+                          <td className="px-4 py-2 font-medium">
+                            <Link
+                              href={`/panel/personel/${member.id}`}
+                              className="text-[var(--color-text)] hover:text-[var(--color-primary)] hover:underline"
+                            >
+                              {member.name}
+                            </Link>
+                          </td>
                           <td className="px-4 py-2 text-[var(--color-text-muted)]">{member.position}</td>
                           <td className="px-4 py-2 text-[var(--color-text-muted)]">{member.phone || "—"}</td>
                           <td className="px-4 py-2 text-[var(--color-text-muted)]">{member.email || "—"}</td>

@@ -16,6 +16,7 @@ import { getSessionAppearancePolicy } from "@/lib/platform/access";
 import { applyAppearancePolicy } from "@/lib/platform/policies";
 import { AssistantProvider } from "@/components/ai/assistant-context";
 import { GlobalAssistant } from "@/components/ai/global-assistant";
+import { SessionWatcher } from "@/components/session-watcher";
 import { ACCESS_COOKIE } from "@/lib/auth/cookies";
 
 /**
@@ -109,6 +110,7 @@ export default async function RootLayout({
         <AssistantProvider>
           {children}
           {hasSessionCookie ? <GlobalAssistant /> : null}
+          {hasSessionCookie ? <SessionWatcher /> : null}
         </AssistantProvider>
       </body>
     </html>

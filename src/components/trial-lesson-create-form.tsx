@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button, Input, Label, Select } from "@/components/ui";
+import { apiFetchJson } from "@/lib/api/client-fetch";
+import { friendlyApiErrorMessage } from "@/lib/api/friendly-error";
 
 const INSTRUMENTS = ["Piyano", "Yan Flüt", "Gitar", "Bateri", "Keman", "Şan"];
 
@@ -28,34 +30,29 @@ export function TrialLessonCreateForm({
     e.preventDefault();
     setBusy(true);
     setError(null);
-    try {
-      const res = await fetch("/api/v1/trials", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: name.trim(),
-          phone: phone.trim(),
-          instrument,
-          branchId,
-          teacherId,
-          startAt: new Date(startAt).toISOString(),
-          durationMinutes: Number(durationMinutes),
-        }),
-      });
-      const json = (await res.json()) as { ok: boolean; error?: { message: string } };
-      if (!json.ok) {
-        setError(json.error?.message || "Planlanamadı");
-        setBusy(false);
-        return;
-      }
-      setName("");
-      setPhone("");
-      router.refresh();
-    } catch {
-      setError("Bağlantı hatası");
-    } finally {
-      setBusy(false);
+    const res = await apiFetchJson<{ trialId: string }>("/api/v1/trials", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: name.trim(),
+        phone: phone.trim(),
+        instrument,
+        branchId,
+        teacherId,
+        startAt: new Date(startAt).toISOString(),
+        durationMinutes: Number(durationMinutes),
+      }),
+    });
+    setBusy(false);
+    if (!res.ok) {
+      setError(friendlyApiErrorMessage(res.error, "Deneme dersi planlanamadı. Bilgileri kontrol edip tekrar deneyin."));
+      return;
     }
+    setName("");
+    setPhone("");
+    // Planlama sonrası dönüşüm sorusu liste bileşeninde açılır (URL ile — yenilemede tekrar sorulmaz).
+    router.replace(`/panel/deneme?planlandi=${encodeURIComponent(res.data.trialId)}`, { scroll: false });
+    router.refresh();
   }
 
   return (

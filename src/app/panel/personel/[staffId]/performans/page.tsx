@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requireSessionContext } from "@/lib/auth/session";
 import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
@@ -8,6 +7,9 @@ import { BackButton } from "@/components/back-button";
 import { Card, EmptyState, PageHeader } from "@/components/ui";
 import { formatMoney } from "@/lib/utils";
 import type { StaffPerformanceMetrics } from "@/lib/staff-performance";
+import { MonthNavigator } from "@/components/month-navigator";
+import { clampYearMonth } from "@/lib/year-month";
+import { toZonedYmd, DEFAULT_APP_TIMEZONE } from "@/lib/timezone";
 
 export const dynamic = "force-dynamic";
 
@@ -86,11 +88,13 @@ export default async function StaffPerformancePage({
   }
   if (session.role !== "SUPER_ADMIN") redirect("/panel");
 
+  const maxYearMonth = toZonedYmd(new Date(), DEFAULT_APP_TIMEZONE).slice(0, 7);
+  const yearMonth = clampYearMonth(yearMonthParam, maxYearMonth);
   const kurum = await getInstitutionContext(session);
   const [staffResult, data, result] = await Promise.all([
     listStaffTool(session, {}),
     readScopedData(kurum.scope),
-    getStaffPerformanceTool(session, { staffId, yearMonth: yearMonthParam }),
+    getStaffPerformanceTool(session, { staffId, yearMonth }),
   ]);
 
   const staff = staffResult.ok ? staffResult.data.staff.find((s) => s.id === staffId) : undefined;
@@ -117,6 +121,7 @@ export default async function StaffPerformancePage({
           linkageNote={result.data.linkageNote}
           branches={branches}
           staffId={staff.id}
+          maxYearMonth={maxYearMonth}
         />
       )}
     </div>
@@ -130,7 +135,9 @@ function StaffPerformanceBody({
   linkageNote,
   branches,
   staffId,
+  maxYearMonth,
 }: {
+  maxYearMonth: string;
   current: StaffPerformanceMetrics;
   previous: StaffPerformanceMetrics;
   score: { current: number | null; previous: number | null };
@@ -150,14 +157,11 @@ function StaffPerformanceBody({
             Karşılaştırma: {monthTitle(prevYm)} · {current.period.startYmd} — {current.period.endYmd}
           </p>
         </div>
-        <div className="flex gap-2 text-xs">
-          <Link
-            href={`/panel/personel/${staffId}/performans?yearMonth=${prevYm}`}
-            className="rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-[var(--color-text)] hover:bg-[var(--color-surface-muted)]"
-          >
-            ← {monthTitle(prevYm)}
-          </Link>
-        </div>
+        <MonthNavigator
+          basePath={`/panel/personel/${staffId}/performans`}
+          yearMonth={curYm}
+          maxYearMonth={maxYearMonth}
+        />
       </div>
 
       {linkageNote ? (
@@ -168,7 +172,7 @@ function StaffPerformanceBody({
 
       <section>
         <h2 className="mb-3 text-sm font-semibold text-[var(--color-text)]">Performans puanı</h2>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <MetricCard
             label="Bu ay"
             value={score.current === null ? "Veri yok" : `${score.current} / 100`}
@@ -180,6 +184,22 @@ function StaffPerformanceBody({
             value={String(current.lessonsPlanned)}
             compare={delta(current.lessonsPlanned, previous.lessonsPlanned)}
             hint="Bu personelin oluşturduğu ve bu aya düşen dersler"
+          />
+          <MetricCard
+            label="Planladığı deneme dersi"
+            value={String(current.trialsPlanned)}
+            compare={delta(current.trialsPlanned, previous.trialsPlanned)}
+            hint="Bu aya düşen, iptal edilmemiş denemeler (ağırlığı Ayarlar → Performans Ağırlıkları'ndan)"
+          />
+          <MetricCard
+            label="Kayda dönüştürdüğü deneme"
+            value={String(current.trialsConverted)}
+            compare={delta(current.trialsConverted, previous.trialsConverted)}
+            hint={
+              current.trialsPlanned > 0
+                ? `Bu ay dönüşüm: ${current.trialsConverted}/${current.trialsPlanned}`
+                : "Dönüşüm, kaydı onaylayan personele yazılır"
+            }
           />
         </div>
       </section>

@@ -185,6 +185,8 @@ export type RegistrationSummary = {
   registeredAt?: string;
   contractStartDay?: string;
   intendedDurationMonths?: number;
+  /** C — öğrencinin TEK kanonik ders süresi (dk); sözleşme ekranından da girilebilir/değiştirilebilir. */
+  lessonDurationMinutes?: number;
   /** Haftalık düzenli ders adedi — ücret tavanı (haftalık × 4) buradan gelir. */
   weeklyLessonCount?: number;
   monthlyFee: number;
@@ -631,6 +633,11 @@ function ContractForm({
   const [dueDateOverrides, setDueDateOverrides] = useState<Record<number, string>>({});
   // Formdaki süre değişikliği öğrenci kaydına da yazılır (yeniden açınca/yenileyince aynı kalsın).
   const [durationSaveNote, setDurationSaveNote] = useState<string | null>(null);
+  // C — ders süresi: öğrenci kaydındaki tek kanonik alan; burada seçilince anında öğrenciye yazılır.
+  const [lessonMinutes, setLessonMinutes] = useState<string>(
+    registration?.lessonDurationMinutes ? String(registration.lessonDurationMinutes) : ""
+  );
+  const [lessonMinutesNote, setLessonMinutesNote] = useState<{ ok: boolean; text: string } | null>(null);
   const durationSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // P0 (2026-09-04) — "Sözleşmenin son döneminde eksik kalan dersler nasıl
   // ücretlendirilsin?" — yalnız per-lesson fiyatlandırma (usePerLessonBilling)
@@ -718,6 +725,21 @@ function ContractForm({
       const res = await actionUpdateStudentProfile({ studentId, intendedDurationMonths: next });
       setDurationSaveNote(res.ok ? `Süre (${next} ay) öğrenci kaydına da işlendi.` : `Süre öğrenci kaydına yazılamadı: ${res.message}`);
     }, 500);
+  }
+
+  async function changeLessonMinutes(next: string) {
+    setLessonMinutes(next);
+    if (!next) return;
+    const res = await actionUpdateStudentProfile({ studentId, lessonDurationMinutes: Number(next) });
+    setLessonMinutesNote(
+      res.ok
+        ? { ok: true, text: `Ders süresi ${next} dk olarak öğrenci kaydına işlendi; yeni planlanan dersler bu süreyle açılır.` }
+        : { ok: false, text: `Ders süresi kaydedilemedi: ${res.message}` }
+    );
+    if (res.ok) {
+      setPreview(null);
+      router.refresh();
+    }
   }
 
   function applyRegistrationEdit(values: { durationMonths: number; lessonStartDay: string }) {
@@ -1071,6 +1093,37 @@ function ContractForm({
             </p>
           ) : null}
           <FieldError message={fieldErrors.durationMonths} />
+        </div>
+        <div>
+          <Label>Ders süresi (dk)</Label>
+          <Select
+            value={lessonMinutes}
+            onChange={(e) => void changeLessonMinutes(e.target.value)}
+            aria-invalid={!lessonMinutes}
+          >
+            {!lessonMinutes ? <option value="">Seçin…</option> : null}
+            {[30, 40, 50].map((d) => (
+              <option key={d} value={d}>
+                {d} dk
+              </option>
+            ))}
+          </Select>
+          {lessonMinutesNote ? (
+            <p
+              className={`mt-1 text-[11px] font-medium ${lessonMinutesNote.ok ? "text-emerald-700 dark:text-emerald-300" : "text-rose-700"}`}
+              aria-live="polite"
+            >
+              {lessonMinutesNote.text}
+            </p>
+          ) : !lessonMinutes ? (
+            <p className="mt-1 text-[11px] font-medium" style={{ color: "var(--color-warning)" }}>
+              Öğrencinin ders süresi girilmemiş. Buradan seçin; öğrenci kaydına da yazılır.
+            </p>
+          ) : (
+            <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">
+              Öğrenci kaydındaki süre. Değiştirirseniz öğrenci kaydı da güncellenir.
+            </p>
+          )}
         </div>
         {!isRenewal ? (
           <div className="sm:col-span-2">

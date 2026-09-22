@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AlertTriangle, ArrowRight, CalendarDays, CheckCircle2 } from "lucide-react";
 import { Badge, Card } from "@/components/ui";
-import { computeTeacherEarningsForPeriod } from "@/lib/teacher-payout";
+import { computeTeacherEarningsWithRevisions } from "@/lib/teacher-payout";
 import { formatDate, formatMoney, formatTime } from "@/lib/utils";
 import { loadTeacherPageContext } from "./_context";
 import { MiniStat } from "./_components/fields";
@@ -45,7 +45,7 @@ export default async function TeacherOverviewTab({ params }: { params: Promise<{
 
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
   const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
-  const earnings = computeTeacherEarningsForPeriod(data, teacher.id, monthStart, monthEnd);
+  const earnings = computeTeacherEarningsWithRevisions(data, teacher.id, monthStart, monthEnd);
   const teacherFeeRules = data.teacherFeeRules.filter((r) => r.teacherId === teacher.id);
 
   const contractDaysLeft = teacher.contractEndDate

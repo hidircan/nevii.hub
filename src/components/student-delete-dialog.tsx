@@ -13,7 +13,8 @@ function formatTL(n: number) {
 }
 
 /**
- * Öğrenci silme — yalnız kurum sahibi, iki aşamalı (2026-09-22).
+ * Öğrenci silme — kurum sahibi + kurum yöneticileri başlatır; onay her zaman kurum sahibinin
+ * belirlediği kritik işlem şifresiyle, iki aşamalı (2026-09-22, yetki genişletme 2026-09-23).
  *
  * 1. adım: etki özeti (sözleşme, ödeme, ders, evrak, açık borç) + yöntem seçimi.
  *    Varsayılan GERİ ALINABİLİR silmedir; kalıcı silme yalnız hiçbir bağlı kaydı
@@ -146,7 +147,7 @@ export function StudentDeleteDialog({ studentId, studentName }: { studentId: str
                     <input type="radio" name="mode" checked={mode === "soft"} onChange={() => setMode("soft")} />
                     <span>
                       <strong>Geri alınabilir silme (önerilen).</strong> Öğrenci listelerden kaybolur ve pasife alınır.
-                      Sözleşme, ödeme, evrak ve audit kayıtları korunur; kurum sahibi Silinenler&apos;den geri alabilir.
+                      Sözleşme, ödeme, evrak ve audit kayıtları korunur; kurum sahibi veya kurum yöneticisi Silinenler&apos;den geri alabilir.
                     </span>
                   </label>
                   <label className={`flex items-start gap-2 ${impact.hardDeleteEligible ? "" : "opacity-50"}`}>
@@ -249,7 +250,7 @@ export function StudentDeleteDialog({ studentId, studentName }: { studentId: str
   );
 }
 
-/** Silinmiş öğrencinin detayında: açık durum bandı + kurum sahibi için geri alma. */
+/** Silinmiş öğrencinin detayında: açık durum bandı + yetkili için geri alma. */
 export function StudentDeletedBanner({
   studentId,
   deletedAtLabel,

@@ -171,7 +171,7 @@ describe("sanitize + merge persistence", () => {
     expect(sanitized.sectionOrder).not.toContain("payout");
     expect(sanitized.sectionOrder?.[0]).toBe("actions");
     expect(sanitized.hiddenSections).toEqual(["metrics"]);
-    expect(sanitized.sectionSpans).toEqual({ actions: 8 });
+    expect(sanitized.sectionSpans).toEqual({ actions: 8, metrics: 9 }); // 9 artık geçerli (kenardan boyutlandırma 4–12)
   });
 
   it("kısmi yama önceki dashboard alanlarını korur", () => {

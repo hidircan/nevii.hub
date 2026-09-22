@@ -131,6 +131,8 @@ export function StudentProfileEditor({
     accountResponsibility?: "PARENT_MANAGED" | "SELF_MANAGED";
     /** Faz 1B — birden fazla öğrenci türü; boşsa "hiç seçilmemiş" demektir. */
     studentTypes?: StudentType[];
+    /** C — ders süresi TEK kanonik alan; genel bilgilerde görüldüğü yerde düzenlenir. */
+    lessonDurationMinutes?: number;
   };
   hasNationalId?: boolean;
   /** Called after a successful save (e.g. to collapse the section back to read-only). */
@@ -143,6 +145,9 @@ export function StudentProfileEditor({
   const [email, setEmail] = useState(initial.email ?? "");
   const [branchId, setBranchId] = useState(initial.branchId ?? "");
   const [educationMethod, setEducationMethod] = useState(initial.educationMethod ?? "");
+  const [lessonDurationMinutes, setLessonDurationMinutes] = useState<string>(
+    initial.lessonDurationMinutes ? String(initial.lessonDurationMinutes) : ""
+  );
   const [studentTypes, setStudentTypes] = useState<StudentType[]>(initial.studentTypes ?? []);
   const [phone, setPhone] = useState(initial.phone);
   const [parentName, setParentName] = useState(initial.parentName);
@@ -201,6 +206,7 @@ export function StudentProfileEditor({
         email: email || undefined,
         branchId: branchId || undefined,
         educationMethod: educationMethod || undefined,
+        lessonDurationMinutes: lessonDurationMinutes ? Number(lessonDurationMinutes) : undefined,
         phone,
         parentName,
         parentPhone,
@@ -290,6 +296,22 @@ export function StudentProfileEditor({
             ))}
           </Select>
           {fieldErrors.educationMethod ? <p className="mt-1 text-xs text-red-600">{fieldErrors.educationMethod}</p> : null}
+        </div>
+
+        <div>
+          <Label>Ders süresi</Label>
+          <Select value={lessonDurationMinutes} onChange={(e) => setLessonDurationMinutes(e.target.value)}>
+            {!initial.lessonDurationMinutes ? <option value="">Seçilmedi</option> : null}
+            {[30, 40, 50].map((d) => (
+              <option key={d} value={d}>
+                {d} dk
+              </option>
+            ))}
+          </Select>
+          <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">
+            Öğrencinin varsayılan ders süresi. Yeni planlanan dersler bu süreyle açılır; paketli öğrencide aylık ücret
+            süreye göre yeniden hesaplanır. Mevcut planlı dersler değişmez.
+          </p>
         </div>
       </div>
 

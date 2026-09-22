@@ -1123,3 +1123,16 @@ bakmalı (`weeklyLessonCount > 0 && monthlyFee > 0`), yan üründe bir alana de�
 (2) Aynı varlığı üreten her giriş yolu (form, CSV, API) tek "hazırlık" kuralından
 geçmeli (`student-contract-readiness.ts`). (3) Bir kavramın (ilk tahsilat) tek
 kanonik satırı olmalı; ikinci bir kaynakla yazılırsa ona bakan her ekran kör kalır.
+
+## 2026-09-23 — Aynı alanı iki ekran yazıyordu: ödeme profili ders süresini sessizce 30'a çekiyordu
+
+Ders süresi genel bilgilerde salt-okunur gösteriliyor, yalnız ödeme profili editöründe düzenlenebiliyordu;
+editör `initialDurationMinutes ?? 30` ile açıldığı için süresi hiç girilmemiş öğrencide ödeme profilini kaydetmek
+süreyi kimse seçmeden 30 dk yapıyordu. **Ders:** bir alanın tek yazma yeri olmalı; başka ekranda gösterilen kopyası
+salt-okunur olur ve "varsayılan" asla sessizce kalıcı veri olarak yazılmaz.
+
+## 2026-09-23 — Denetim Kaydı her istekte yazılan telemetriyle doluyordu
+
+`auth.success` her kimlik doğrulamalı istekte AuditLog'a yazılıyor; ekran bunları filtrelemediği için iş kayıtları
+kayboluyordu. **Ders:** telemetri ile iş denetimi aynı tabloda tutuluyorsa okuma yüzeyi telemetriyi varsayılan dışlar
+(`excludeActions`), saklama politikası ayrı sınıflandırır.

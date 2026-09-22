@@ -79,3 +79,18 @@ export async function setCriticalActionPassword(tenantId: string, plain: string,
   rows.push({ tenantId, hash, setAt: setAt.toISOString(), setBy: actorUserId });
   await saveAll(rows);
 }
+
+/**
+ * Kritik işlem yetki matrisi (2026-09-23, owner kararı):
+ *  - Görme + başlatma (öğrenci silme/geri alma, statülü ders silme, toplu silme,
+ *    ödenmiş hakediş revizyonu): kurum sahibi (SUPER_ADMIN) ve kurum yöneticisi
+ *    (SCHOOL_ADMIN; "unified" şube müdürü de efektif olarak SCHOOL_ADMIN'dir).
+ *  - Onay: HER durumda kurum sahibinin belirlediği TEK kritik işlem şifresi.
+ *    Kişisel giriş şifresi kabul edilmez; şifre yoksa işlem kapalıdır.
+ *  - Şifreyi belirleme/değiştirme: yalnız kurum sahibi.
+ */
+export const CRITICAL_ACTION_ROLES = ["SUPER_ADMIN", "SCHOOL_ADMIN"] as const;
+
+export function canRunCriticalActions(role: string | null | undefined): boolean {
+  return (CRITICAL_ACTION_ROLES as readonly string[]).includes(role ?? "");
+}

@@ -1,3 +1,4 @@
+import { ChangeHistory } from "@/components/change-history";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Badge, Card, EmptyState } from "@/components/ui";
@@ -16,7 +17,7 @@ export const dynamic = "force-dynamic";
 /** Ödemeler sekmesi — ödeme profili (düzenlenebilir) + tahsilat özeti + geçmiş. */
 export default async function StudentPaymentsTab({ params }: { params: Promise<{ studentId: string }> }) {
   const { studentId } = await params;
-  const { data, student, canManage } = await loadStudentPageContext(studentId);
+  const { session, data, student, canManage } = await loadStudentPageContext(studentId);
   if (!student) notFound();
 
   const payments = sortPaymentsForProfile(data.payments.filter((p) => p.studentId === student.id));
@@ -150,6 +151,16 @@ export default async function StudentPaymentsTab({ params }: { params: Promise<{
           </div>
         )}
       </section>
+
+      {canManage ? (
+        <ChangeHistory
+          title="Ödeme değişiklik geçmişi"
+          tenantId={session.tenantId}
+          entityType="Payment"
+          entityIds={payments.map((p) => p.id)}
+          teachers={data.teachers}
+        />
+      ) : null}
     </div>
   );
 }

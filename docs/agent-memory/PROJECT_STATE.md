@@ -28,6 +28,21 @@ screens (login/welcome).
 - Full detail + rationale: `docs/contracts/LEGAL_POLICY_TEXT_DISCREPANCY_REPORT.md`,
   `docs/roadmap/NEVIIHUB_ADMIN_CONTRACTS_POLICY_REMAINING_WORK.md`.
 
+## Güncel odak (2026-09-23, 4. tur) — A–N: dashboard düzenleme, toplu işlem, deneme dönüşümü, hakediş revizyonu, tek oturum
+
+- **Migration:** `20260923090000_trial_conversion_payout_revision` (additive: TrialLesson.convertedAt/By,
+  Student.convertedFromTrialId/convertedByUserId, TeacherPayout revizyon alanları, AuditLog(createdAt) index).
+- **Kritik işlem kapısı TEK:** `checkCriticalPassword` (tools.ts) + `canRunCriticalActions` (SUPER_ADMIN+SCHOOL_ADMIN).
+  Öğrenci silme/geri alma, toplu silme, statülü ders silme (`forceDeleteLessonTool`), ödenmiş hakediş revizyonu.
+- **Ders süresi tek kaynak:** `Student.lessonDurationMinutes`; genel bilgiler + sözleşme formu yazar, ödeme profili salt-okunur;
+  süre değişince paket ücreti `updateStudentProfileTool` içinde yeniden hesaplanır.
+- **Audit:** `src/lib/audit/humanize.ts` (cümle katalogu + `diffRecordFields`), `<ChangeHistory>`; telemetri Denetim Kaydı'nda gizli.
+  Saklama = mevcut NeviiOS retention (iş kayıtları kalıcı, telemetri 30 g); **production cron kurulmadı** (açık karar).
+- **Tek oturum:** `session-concurrency.ts`, login 409 `SESSION_ACTIVE_ELSEWHERE`, `/api/v1/auth/session-status`, `SessionWatcher`.
+- UAT: `docs/testing/UAT_2026_09_23_OPS_ROUND_4.md`.
+
+---
+
 ## Güncel odak (2026-09-22, 3. tur) — CSV ilk sözleşme, güvenli silme, sözleşmesiz kayıt
 
 - **CSV kök neden:** ders-başı motor kapısı `derivedPerLessonAmount` idi, CSV yazmıyordu → tek kural

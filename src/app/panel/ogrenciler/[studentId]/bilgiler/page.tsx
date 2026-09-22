@@ -1,3 +1,4 @@
+import { ChangeHistory } from "@/components/change-history";
 import { notFound } from "next/navigation";
 import { getSocialMediaConsentTool } from "@/lib/services";
 import { Card } from "@/components/ui";
@@ -61,6 +62,7 @@ export default async function StudentInfoTab({
     lessonStartDate: student.lessonStartDate,
     accountResponsibility: student.accountResponsibility,
     studentTypes: effectiveStudentTypes(student),
+    lessonDurationMinutes: student.lessonDurationMinutes,
   };
 
   const editor = (
@@ -199,6 +201,16 @@ export default async function StudentInfoTab({
           <h2 className="mb-3 text-sm font-semibold text-[var(--color-text)]">Portal Erişimi</h2>
           <StudentPortalAccessCard studentId={student.id} defaultEmail={student.email || undefined} />
         </section>
+      ) : null}
+
+      {canManage ? (
+        <ChangeHistory
+          tenantId={session.tenantId}
+          entityType="Student"
+          entityIds={[student.id]}
+          entityName={student.name}
+          teachers={data.teachers}
+        />
       ) : null}
     </div>
   );

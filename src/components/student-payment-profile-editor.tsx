@@ -27,7 +27,6 @@ function newRangeRow(start = "", end = ""): RangeRow {
   return { key: crypto.randomUUID(), start, end };
 }
 
-const DURATIONS: LessonDurationPreference[] = [30, 40, 50];
 const PAYMENT_METHOD_LABELS: Record<StudentPaymentMethod, string> = {
   credit_card: "Kredi kartı",
   cash: "Nakit",
@@ -65,7 +64,8 @@ export function StudentPaymentProfileEditor({
   const [saved, setSaved] = useState(false);
 
   const [packageId, setPackageId] = useState(initialPackageId ?? "");
-  const [durationMinutes, setDurationMinutes] = useState<LessonDurationPreference>(initialDurationMinutes ?? 30);
+  // Fiyat önizlemesi için süre; yoksa 30 dk varsayımıyla gösterilir (kayıt süreyi değiştirmez).
+  const durationMinutes: LessonDurationPreference = initialDurationMinutes ?? 30;
   const [paymentMethod, setPaymentMethod] = useState<StudentPaymentMethod | "">(initialPaymentMethod ?? "");
   const [dueRanges, setDueRanges] = useState<RangeRow[]>(() =>
     initialPaymentDueRanges && initialPaymentDueRanges.length > 0
@@ -146,7 +146,8 @@ export function StudentPaymentProfileEditor({
       const result = await actionUpdateStudentProfile({
         studentId,
         packageId: packageId || undefined,
-        lessonDurationMinutes: durationMinutes,
+        // Süre burada değiştirilmez; mevcut değer korunur (yoksa sunucu paket fiyatı için süre ister).
+        lessonDurationMinutes: initialDurationMinutes,
         paymentMethod: paymentMethod || undefined,
         paymentDueRanges: parsedRanges,
         discountType: discountType || undefined,
@@ -180,16 +181,21 @@ export function StudentPaymentProfileEditor({
         </div>
         <div>
           <Label>Ders süresi</Label>
-          <Select
-            value={String(durationMinutes)}
-            onChange={(e) => setDurationMinutes(Number(e.target.value) as LessonDurationPreference)}
-          >
-            {DURATIONS.map((d) => (
-              <option key={d} value={d}>
-                {d} dk{selectedPackage ? ` — ${formatMoney(priceForDuration(selectedPackage, d))}` : ""}
-              </option>
-            ))}
-          </Select>
+          {/* C — ders süresi TEK kanonik alan (Student.lessonDurationMinutes); düzenleme yeri Genel bilgiler.
+              Burada yalnız fiyat hesabına girdi olarak gösterilir — ödeme profili kaydı süreyi DEĞİŞTİRMEZ. */}
+          <p className="rounded-md border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-2.5 py-2 text-sm text-[var(--color-text)]">
+            {initialDurationMinutes ? (
+              <>
+                {initialDurationMinutes} dk
+                {selectedPackage ? ` — ${formatMoney(priceForDuration(selectedPackage, initialDurationMinutes))}` : ""}
+              </>
+            ) : (
+              <span style={{ color: "var(--color-warning)" }}>Girilmemiş — paket ücreti hesaplanamaz</span>
+            )}
+          </p>
+          <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">
+            Genel bilgiler → Kayıt bilgileri bölümünden veya sözleşme ekranından değiştirilir.
+          </p>
         </div>
         <div>
           <Label>İndirim türü</Label>

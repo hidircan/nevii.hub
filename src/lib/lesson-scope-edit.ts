@@ -44,6 +44,55 @@ export function lessonProtectionReason(data: AppData, lesson: Lesson): string | 
   return null;
 }
 
+/**
+ * Kritik şifreyle bile silinemeyen bağlar (finans/telafi bütünlüğü). Yoklama/işlem
+ * statüsü bu listede YOK — onlar kritik şifreyle birlikte silinebilir.
+ */
+export function lessonHardBlockReason(data: AppData, lesson: Lesson): string | null {
+  if (data.payments.some((p) => p.lessonId === lesson.id && p.status !== "voided")) {
+    return "Derse bağlı tahsilat var. Önce Ödemeler ekranından tahsilatı iptal edin, sonra dersi silin.";
+  }
+  if (lesson.type === "makeup" || lesson.makeupRequestId) {
+    return "Bu bir telafi dersi. Telafi ekranından telafiyi iptal edin; ders otomatik olarak programdan düşer.";
+  }
+  if (data.makeupRequests.some((m) => m.sourceLessonId === lesson.id || m.confirmedLessonId === lesson.id)) {
+    return "Derse bağlı bir telafi talebi var. Önce Telafi ekranından talebi iptal edin.";
+  }
+  return null;
+}
+
+export type ForcedLessonDeletionPlan =
+  | { ok: true; data: AppData; lesson: Lesson; removedAttendanceIds: string[]; protectionReason: string }
+  | { ok: false; message: string };
+
+/**
+ * M — statüsü girilmiş TEK dersi tamamen siler (yoklama satırı dahil). Yalnız
+ * kritik işlem şifresi doğrulandıktan sonra çağrılır; tahsilat/telafi bağı varsa reddeder.
+ */
+export function planForcedLessonDeletion(data: AppData, lessonId: string, now: Date = new Date()): ForcedLessonDeletionPlan {
+  const lesson = data.lessons.find((l) => l.id === lessonId);
+  if (!lesson) return { ok: false, message: "Ders bulunamadı. Sayfayı yenileyip tekrar deneyin." };
+  const block = lessonHardBlockReason(data, lesson);
+  if (block) return { ok: false, message: block };
+  const protectionReason = lessonProtectionReason(data, lesson) ?? "statü yok";
+  const removedAttendanceIds = data.attendances.filter((a) => a.lessonId === lessonId).map((a) => a.id);
+  const lessons = data.lessons.filter((l) => l.id !== lessonId);
+  const seriesId = lesson.seriesId;
+  const lessonSeries =
+    seriesId && !lessons.some((l) => l.seriesId === seriesId)
+      ? data.lessonSeries.map((s) =>
+          s.id === seriesId ? { ...s, status: "cancelled" as LessonSeriesStatus, updatedAt: now.toISOString() } : s
+        )
+      : data.lessonSeries;
+  return {
+    ok: true,
+    data: { ...data, lessons, lessonSeries, attendances: data.attendances.filter((a) => a.lessonId !== lessonId) },
+    lesson,
+    removedAttendanceIds,
+    protectionReason,
+  };
+}
+
 export type ScopeResolution = { ok: true; anchor: Lesson; targets: Lesson[] } | { ok: false; message: string };
 
 export function resolveScopeLessons(data: AppData, lessonId: string, scope: LessonEditScope): ScopeResolution {
@@ -65,7 +114,7 @@ export type ProtectedLesson = { lessonId: string; startAt: string; reason: strin
 
 export type LessonDeletionPlan =
   | { ok: true; data: AppData; deletedLessonIds: string[]; protectedLessons: ProtectedLesson[]; seriesId?: string }
-  | { ok: false; message: string };
+  | { ok: false; message: string; allProtected?: boolean };
 
 export function planLessonDeletion(data: AppData, lessonId: string, scope: LessonEditScope, now: Date = new Date()): LessonDeletionPlan {
   const resolved = resolveScopeLessons(data, lessonId, scope);
@@ -80,7 +129,8 @@ export function planLessonDeletion(data: AppData, lessonId: string, scope: Lesso
   if (deleteIds.size === 0) {
     return {
       ok: false,
-      message: `Seçilen ders(ler) silinemez: ${protectedLessons[0]?.reason ?? "korunan kayıt"}. Gerekirse dersi iptal edin.`,
+      allProtected: true,
+      message: `Seçilen ders(ler) normal silmeyle silinemez: ${protectedLessons[0]?.reason ?? "korunan kayıt"}. Dersi iptal edebilir ya da (tek ders için) kritik işlem şifresiyle tamamen silebilirsiniz.`,
     };
   }
   const lessons = data.lessons.filter((l) => !deleteIds.has(l.id));

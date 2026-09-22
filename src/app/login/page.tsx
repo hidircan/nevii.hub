@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ next?: string; [PORTAL_RECORD_MISSING_PARAM]?: string }>;
+  searchParams: Promise<{ next?: string; oturum?: string; [PORTAL_RECORD_MISSING_PARAM]?: string }>;
 }) {
   const session = await getSessionContext();
   const params = await searchParams;
@@ -65,6 +65,15 @@ export default async function LoginPage({
             <p className="mt-1 text-xs text-amber-900/80">
               Girişiniz geçerli ancak bu hesaba bağlı öğrenci/öğretmen kaydı kaldırılmış görünüyor. Lütfen
               kurumunuzla iletişime geçin ya da farklı bir hesapla giriş yapın.
+            </p>
+          </div>
+        ) : null}
+        {params.oturum === "devralindi" ? (
+          <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-3" role="status">
+            <p className="text-sm font-semibold text-amber-900">Oturumunuz başka bir cihazda açıldığı için kapatıldı.</p>
+            <p className="mt-1 text-xs text-amber-900/80">
+              Bu hesap aynı anda tek cihazda kullanılabilir. Devam etmek için yeniden giriş yapın; diğer cihazdaki oturum
+              kapatılacaktır.
             </p>
           </div>
         ) : null}

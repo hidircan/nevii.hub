@@ -78,6 +78,7 @@ export default async function StudentContractsCenterPage({
     registeredAt: student.enrollmentStartDate,
     contractStartDay: (student.lessonStartDate ?? student.enrollmentStartDate)?.slice(0, 10),
     intendedDurationMonths: savedDurationMonths ?? undefined,
+    lessonDurationMinutes: student.lessonDurationMinutes,
     weeklyLessonCount: student.weeklyLessonCount,
     monthlyFee: student.monthlyFee,
     paymentMethod: student.paymentMethod,
