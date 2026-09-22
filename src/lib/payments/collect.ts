@@ -20,6 +20,13 @@ export type CollectPaymentOpts = MarkPaymentPaidOptions & {
    * false/undefined: `paidAmount` verilen tutarla DEĞİŞTİRİLİR (düzeltme/edit).
    */
   accumulate?: boolean;
+  /**
+   * true: `opts.amount` yalnız tahsilatı değil fatura tutarını (`Payment.amount`)
+   * da düzeltir. Kayıt anı ilk tahsilatının 1 TL → 7000 TL revizyonu gibi
+   * senaryolarda zorunlu — aksi halde paidAmount güncellenir, amount yapışır kalır
+   * ve sözleşme/önizleme hâlâ eski tutarı okur.
+   */
+  reviseBilledAmount?: boolean;
 };
 
 function nextPaidAmount(
@@ -41,15 +48,23 @@ function applyPaymentPatch(
   if (idx < 0) throw new Error("Ödeme bulunamadı");
   const previous = data.payments[idx]!;
   const student = data.students.find((s) => s.id === previous.studentId);
-  const paidAmount = nextPaidAmount(previous, opts);
+  const billedAmount =
+    opts.reviseBilledAmount && opts.amount !== undefined && !opts.voided
+      ? Math.trunc(opts.amount)
+      : previous.amount;
+  const paidAmount = nextPaidAmount(
+    { amount: billedAmount, paidAmount: previous.paidAmount },
+    opts
+  );
   const status = resolveCollectionStatus({
-    amount: previous.amount,
+    amount: billedAmount,
     paidAmount,
     dueDate: previous.dueDate,
     voided: opts.voided,
   });
   const payment: Payment = {
     ...previous,
+    amount: billedAmount,
     status,
     paidAmount,
     paidAt: opts.voided ? undefined : opts.paidAt ?? new Date().toISOString(),
@@ -95,12 +110,16 @@ async function collectDb(
       const student = payment.studentId
         ? await tx.student.findFirst({ where: { id: payment.studentId, tenantId } })
         : null;
+      const billedAmount =
+        opts.reviseBilledAmount && opts.amount !== undefined && !opts.voided
+          ? Math.trunc(opts.amount)
+          : payment.amount;
       const paidAmount = nextPaidAmount(
-        { amount: payment.amount, paidAmount: payment.paidAmount },
+        { amount: billedAmount, paidAmount: payment.paidAmount },
         opts
       );
       const status = resolveCollectionStatus({
-        amount: payment.amount,
+        amount: billedAmount,
         paidAmount,
         dueDate: payment.dueDate.toISOString(),
         voided: opts.voided,
@@ -109,6 +128,7 @@ async function collectDb(
         where: { id: paymentId, tenantId },
         data: {
           status,
+          amount: billedAmount,
           paidAmount,
           paidAt: opts.voided ? null : opts.paidAt ? new Date(opts.paidAt) : new Date(),
           method: opts.method || payment.method || student?.paymentMethod || undefined,
