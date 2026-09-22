@@ -1062,6 +1062,13 @@ export async function importStudents(rows: StudentImportRow[]): Promise<ImportCo
   const students = [...data.students];
   let created = 0;
   let updated = 0;
+  // Normal kayıtla aynı insan-okunur numara (S00001…) — CSV öğrencisi numarasız kalmaz.
+  let sequences = data.entitySequences ?? [];
+  const nextDisplayId = () => {
+    const { assigned, records } = allocateSequenceValue(sequences, DEFAULT_TENANT_ID, "student");
+    sequences = records;
+    return formatDisplayId("student", assigned);
+  };
   for (const row of rows) {
     const idx = students.findIndex((s) => s.phone.trim() === row.phone.trim());
     if (idx >= 0) {
@@ -1086,6 +1093,9 @@ export async function importStudents(rows: StudentImportRow[]): Promise<ImportCo
         nationalIdCipher: row.nationalIdCipher ?? students[idx].nationalIdCipher,
         nationalIdLast2: row.nationalIdLast2 ?? students[idx].nationalIdLast2,
         enrollmentStartDate: row.enrollmentStartDate ?? students[idx].enrollmentStartDate,
+        derivedPerLessonAmount: row.derivedPerLessonAmount ?? students[idx].derivedPerLessonAmount,
+        accountResponsibility: students[idx].accountResponsibility ?? row.accountResponsibility,
+        displayId: students[idx].displayId ?? nextDisplayId(),
       };
       updated++;
     } else {
@@ -1113,11 +1123,17 @@ export async function importStudents(rows: StudentImportRow[]): Promise<ImportCo
         nationalIdCipher: row.nationalIdCipher,
         nationalIdLast2: row.nationalIdLast2,
         enrollmentStartDate: row.enrollmentStartDate,
+        // Normal kayıtla aynı sözleşmeye hazır alanlar (bkz. withContractReadyFields).
+        derivedPerLessonAmount: row.derivedPerLessonAmount,
+        accountResponsibility: row.accountResponsibility,
+        monthlyFeeManualOverride: false,
+        createdByUserId: row.createdByUserId,
+        displayId: nextDisplayId(),
       });
       created++;
     }
   }
-  const next = { ...data, students };
+  const next = { ...data, students, entitySequences: sequences };
   await writeData(next);
   return { data: next, created, updated };
 }

@@ -1141,13 +1141,38 @@ export async function createContract(input: CreateContractInput): Promise<Create
     await saveAll(finalRows);
   }
 
+  // 2026-09-22 — TEK KANONİK İLK TAHSİLAT: kayıtta ilk tahsilatı alınmamış
+  // öğrencinin (CSV ile gelen, eski kayıt) İLK sözleşmesinde formda girilen
+  // tahsilat, normal kayıttaki gibi `registration_first_payment` olarak yazılır
+  // ve 1. taksite bağlanır. Böylece kayıt özeti, "ilk tahsilatı düzelt"
+  // (1 → 7000), iptal sonrası yeniden oluşturma ve finans ekranları CSV ile
+  // normal öğrenci arasında AYNI satırı okur. Yenilemede (renewal) değişmez.
+  let reuseFirstPaymentId = registrationFirstPayment?.id;
+  let firstPaymentForInstallments = registrationFirstPayment ? undefined : input.firstPaymentCollected;
+  if (input.contractType === "initial" && !registrationFirstPayment && input.firstPaymentCollected && requiresFirstPaymentAtRegistration) {
+    const { addRegistrationFirstPayment } = await import("./store");
+    const fp = input.firstPaymentCollected;
+    const { paymentId } = await addRegistrationFirstPayment({
+      studentId: input.studentId,
+      method: fp.method,
+      amount: fp.amount,
+      collectedAt: fp.collectedAt,
+      reference: fp.reference,
+      note: fp.note,
+      receivedByUserId: input.createdBy,
+      firstCollectionIncludesNextMonth: input.mergeFirstCollectionWithNextMonth,
+    });
+    reuseFirstPaymentId = paymentId;
+    firstPaymentForInstallments = undefined;
+  }
+
   const installmentPayments = await createInstallmentPayments({
     tenantId: input.tenantId,
     studentId: input.studentId,
     contractId: row.id,
     installments,
-    firstPaymentCollected: registrationFirstPayment ? undefined : input.firstPaymentCollected,
-    reuseFirstPaymentId: registrationFirstPayment?.id,
+    firstPaymentCollected: firstPaymentForInstallments,
+    reuseFirstPaymentId,
   });
 
   return { contract: toPublic(row), installments: installmentPayments };

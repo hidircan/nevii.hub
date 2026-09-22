@@ -38,6 +38,27 @@ export function clampDurationMonths(value: unknown): number | null {
   return n;
 }
 
+/**
+ * TEK KURAL (2026-09-22): sözleşme planı hangi motordan geçer? Haftalık ders
+ * adedi ve aylık ücreti olan HER öğrenci ders-başı (dönem) motorunu kullanır —
+ * CSV'den gelmiş, eski ya da yeni fark etmez. Eskiden kapı
+ * `derivedPerLessonAmount` doluluğuydu; CSV importu bu alanı yazmadığı için
+ * CSV öğrencileri sessizce eski sabit-taksit motoruna düşüyor, önizlemede
+ * tür/dönem sütunları boş, sözleşmede "EĞİTİM" yazıyor ve ilk tahsilat
+ * 1. taksite eşit olmak zorunda kalıyordu. Motor o alanı hesapta KULLANMAZ
+ * (taban onaylanan aylık ücrettir), yalnız kapı olarak okunuyordu.
+ */
+export function studentUsesPerLessonBilling(student: {
+  weeklyLessonCount?: number;
+  monthlyFee?: number;
+  derivedPerLessonAmount?: number | null;
+}): boolean {
+  // Eski kural (alan dolu) korunur; genişletme: alanı hiç yazılmamış ama hesap için
+  // gereken veriye sahip öğrenci (CSV/eski kayıt) da aynı motora girer.
+  if (student.derivedPerLessonAmount != null) return true;
+  return (student.weeklyLessonCount ?? 0) > 0 && (student.monthlyFee ?? 0) > 0;
+}
+
 type StudentLike = {
   instruments?: string[];
   /** 2026-09-19 — kayıtta seçilen süre, öğrenci kaydında KALICI (bkz. schema Student.intendedDurationMonths). */
@@ -47,6 +68,7 @@ type StudentLike = {
   enrollmentStartDate?: string;
   lessonStartDate?: string;
   derivedPerLessonAmount?: number | null;
+  weeklyLessonCount?: number;
 };
 
 type FirstPaymentLike = {
@@ -100,7 +122,7 @@ export function buildContractPrefill(input: {
       ? registrationFirstPayment.paidAmount || registrationFirstPayment.amount
       : undefined,
     durationMonths,
-    usePerLessonBilling: student.derivedPerLessonAmount != null,
+    usePerLessonBilling: studentUsesPerLessonBilling(student),
     lessonScheduleText: input.lessonScheduleText,
   };
 }

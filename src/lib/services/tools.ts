@@ -14,6 +14,7 @@ import { provisionEntityLogin, provisionStaffLogin, getUserIdByTeacherId, getUse
 import { isRateLimited, getLatestPasswordResetRequestAt } from "../auth/password-reset";
 import { logger } from "../logger";
 import { isLocalDevTooling } from "../config";
+import { studentUsesPerLessonBilling } from "../contract-prefill";
 import { resolvePerformanceWeights, validateWeightMap, type PerformanceWeightsConfig } from "../performance-weights";
 import {
   addBranch,
@@ -5243,7 +5244,9 @@ export async function commitStudentImportTool(
   }
   if (preview.valid.length === 0) return fail("VALIDATION_ERROR", "İçe aktarılacak geçerli satır yok.");
   try {
-    const result = await importStudents(preview.valid);
+    const { withContractReadyFields } = await import("../import/students");
+    const rows = preview.valid.map((row) => withContractReadyFields(row, { actorUserId: ctx.userId }));
+    const result = await importStudents(rows);
     // ÖNCELİK 4 (devam) — sosyal medya izni Student modelinin dışında,
     // mevcut SocialMediaConsent modeliyle tutulur; import satırında
     // belirtilmişse (Evet/Hayır) commit sonrası, oluşturulan/güncellenen
@@ -5268,7 +5271,8 @@ export async function commitStudentImportTool(
     });
     return ok(result);
   } catch (e) {
-    return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "importStudents failed");
+    logger.error("commitStudentImportTool failed", e);
+    return fail("INTERNAL_ERROR", "Öğrenciler içe aktarılamadı; hiçbir kayıt değişmedi. Dosyayı kontrol edip tekrar deneyin.");
   }
 }
 
@@ -10147,6 +10151,12 @@ const contractInstallmentPlanSchema = z.object({
   endDatePreference: z.enum(["month_end", "date_based"]).optional(),
   /** Sahip kararı (2026-09-16) — ilk tahsilat takip eden ayı da kapsıyor mu; verilmezse kayıt anındaki seçim okunur. */
   mergeFirstCollection: z.boolean().optional(),
+  /**
+   * 2026-09-22 — kayıtta ilk tahsilatı OLMAYAN öğrencinin (ör. CSV) ilk sözleşmesinde
+   * formda girilen tahsilat tutarı. Kayıt anı ödemesi varsa o esas alınır, bu yok sayılır.
+   * createContract'ın `firstPaymentCollected.amount` kullanımıyla AYNI kaynak.
+   */
+  firstPaymentAmount: z.number().int().positive().optional(),
   /** Önizleme tablosunda elle düzenlenen taksit tutarları (sıra no → tutar). */
   installmentAmountOverrides: z
     .array(z.object({ sequence: z.number().int().min(1).max(24), amount: z.number().int().min(0) }))
@@ -10199,8 +10209,9 @@ export async function previewContractInstallmentPlanTool(
     const student = v.data.studentId ? data.students.find((s) => s.id === v.data.studentId) : undefined;
     if (
       v.data.usePerLessonBilling &&
-      student?.derivedPerLessonAmount != null &&
-      student.weeklyLessonCount &&
+      student &&
+      studentUsesPerLessonBilling(student) &&
+      student.weeklyLessonCount > 0 &&
       v.data.enrollmentStartDate &&
       v.data.enrollmentEndDate
     ) {
@@ -10244,7 +10255,9 @@ export async function previewContractInstallmentPlanTool(
         : null;
       installments = buildPerLessonInstallmentSchedule({
         billingLines,
-        firstPeriodManualNetAmount: registrationFirstPayment?.amount,
+        firstPeriodManualNetAmount:
+          registrationFirstPayment?.amount ??
+          (isFormalContractDuration(v.data.durationMonths) ? v.data.firstPaymentAmount : undefined),
         mergeFirstTwoPeriods: v.data.mergeFirstCollection ?? registrationFirstPayment?.firstCollectionIncludesNextMonth ?? false,
         firstDueDate: v.data.firstDueDate,
         paymentMethod: v.data.paymentMethod,
@@ -10560,7 +10573,7 @@ export async function createStudentContractTool(
   let perLessonBillingLines: import("../period-lesson-billing").PeriodBillingLine[] | undefined;
   // Bitiş sunucuda başlangıç + süreden (başlangıç ayı = 1. ay) — bkz. `computeContractEndDate`.
   let enrollmentEndDate = v.data.enrollmentEndDate;
-  if (v.data.usePerLessonBilling && student.derivedPerLessonAmount != null && student.weeklyLessonCount) {
+  if (v.data.usePerLessonBilling && studentUsesPerLessonBilling(student) && student.weeklyLessonCount > 0) {
     const { computePeriodBillingPreview } = await import("../period-lesson-billing");
     const weeklyLessonCount = student.weeklyLessonCount;
     const computeLines = (enrollmentEndDay: string) => computePeriodBillingPreview({

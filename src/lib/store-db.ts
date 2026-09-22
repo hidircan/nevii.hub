@@ -1807,6 +1807,9 @@ export async function importStudents(rows: StudentImportRow[]): Promise<ImportCo
             nationalIdCipher: row.nationalIdCipher ?? existing.nationalIdCipher,
             nationalIdLast2: row.nationalIdLast2 ?? existing.nationalIdLast2,
             enrollmentStartDate: row.enrollmentStartDate ? new Date(row.enrollmentStartDate) : existing.enrollmentStartDate,
+            derivedPerLessonAmount: row.derivedPerLessonAmount ?? existing.derivedPerLessonAmount,
+            accountResponsibility: existing.accountResponsibility ?? row.accountResponsibility,
+            displayId: existing.displayId ?? formatDisplayId("student", await allocateSequenceValueDb(tid, "student")),
           },
         });
         updated++;
@@ -1838,6 +1841,12 @@ export async function importStudents(rows: StudentImportRow[]): Promise<ImportCo
             nationalIdCipher: row.nationalIdCipher,
             nationalIdLast2: row.nationalIdLast2,
             enrollmentStartDate: row.enrollmentStartDate ? new Date(row.enrollmentStartDate) : undefined,
+            // Normal kayıtla aynı sözleşmeye hazır alanlar (bkz. withContractReadyFields).
+            derivedPerLessonAmount: row.derivedPerLessonAmount,
+            accountResponsibility: row.accountResponsibility,
+            monthlyFeeManualOverride: false,
+            createdByUserId: row.createdByUserId,
+            displayId: formatDisplayId("student", await allocateSequenceValueDb(tid, "student")),
           },
         });
         created++;

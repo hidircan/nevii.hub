@@ -761,10 +761,10 @@ function ContractForm({
     isValidDateOnlyInput(enrollmentStartDate) &&
     firstPaymentCollectedAt !== enrollmentStartDate;
 
-  const installmentAmountOverrides = Object.entries(amountOverrides).map(([sequence, amount]) => ({
-    sequence: Number(sequence),
-    amount,
-  }));
+  const installmentAmountOverrides = Object.entries(amountOverrides)
+    .map(([sequence, amount]) => ({ sequence: Number(sequence), amount }))
+    // 1. satır formdaki ilk tahsilattan gelir (kayıt anı tahsilatı yoksa) — ayrıca ezilmez.
+    .filter((o) => !(o.sequence === 1 && needsFirstPaymentEntry && !isRenewal));
   const installmentDueDateOverrides = Object.entries(dueDateOverrides)
     .filter(([, dueDate]) => isValidDateOnlyInput(dueDate))
     .map(([sequence, dueDate]) => ({ sequence: Number(sequence), dueDate }));
@@ -823,6 +823,7 @@ function ContractForm({
       mergeFirstCollection,
       installmentAmountOverrides,
       installmentDueDateOverrides,
+      firstPaymentAmount: needsFirstPaymentEntry && firstPaymentAmount !== "" ? firstPaymentAmount : undefined,
       studentId,
       enrollmentStartDate: toIsoDateOrNull(enrollmentStartDate) ?? undefined,
       enrollmentEndDate: toIsoDateOrNull(enrollmentEndDate) ?? undefined,
@@ -961,10 +962,16 @@ function ContractForm({
   }
 
   // Elle düzenlenen tutarlar uygulanmış satırlar — ekrandaki her toplam bunlardan hesaplanır.
+  // İlk sözleşmede kayıt anı tahsilatı yoksa 1. satır = formda girilen ilk tahsilat (tek kaynak):
+  // tabloda da, "İlk tahsilat" alanında da AYNI state düzenlenir, sunucu da aynı tutarı yazar.
+  const firstRowFollowsEntry = needsFirstPaymentEntry && !isRenewal;
   const liveRows = preview
     ? preview.installments.map((r) => ({
         ...r,
-        amount: amountOverrides[r.sequence] ?? r.amount,
+        amount:
+          r.sequence === 1 && firstRowFollowsEntry && firstPaymentAmount !== ""
+            ? firstPaymentAmount
+            : amountOverrides[r.sequence] ?? r.amount,
         dueDate: dueDateOverrides[r.sequence] ?? r.dueDate,
         dueDateManual: dueDateOverrides[r.sequence] !== undefined || r.dueDateSource === "manual",
       }))
@@ -1617,9 +1624,18 @@ function ContractForm({
                       type="number"
                       min={0}
                       step={1}
-                      value={amountOverrides[row.sequence] ?? row.amount}
+                      value={
+                        row.sequence === 1 && firstRowFollowsEntry && firstPaymentAmount !== ""
+                          ? firstPaymentAmount
+                          : amountOverrides[row.sequence] ?? row.amount
+                      }
                       onChange={(e) => {
                         const raw = e.target.value.replace(/[^\d]/g, "");
+                        if (row.sequence === 1 && firstRowFollowsEntry) {
+                          // 1. satır = gerçekten tahsil edilen ilk ödeme; tek alan düzenlenir.
+                          setFirstPaymentAmount(raw === "" ? "" : Number(raw));
+                          return;
+                        }
                         setAmountOverrides((prev) => ({ ...prev, [row.sequence]: raw === "" ? 0 : Number(raw) }));
                       }}
                       className="w-28 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-right text-xs text-[var(--color-text)]"
