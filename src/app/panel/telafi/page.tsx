@@ -129,27 +129,28 @@ export default async function TelafiPage() {
                       {formatDateTime(req.expiresAt)}
                     </p>
                     <div className="mt-2 flex flex-wrap items-center gap-2">
-                      {req.policyNote?.split("·").map((part, idx) => (
+                      {req.policyNote
+                        ?.split("·")
+                        .map((part) => part.trim())
+                        .filter((part) => {
+                          // Şube adı zaten üst satırda; policyNote içindeki tekrarını gösterme.
+                          const branchName = data.settings.branches.find((b) => b.id === req.branchId)?.shortName?.trim();
+                          if (!part) return false;
+                          if (branchName && part.toLocaleLowerCase("tr") === branchName.toLocaleLowerCase("tr")) return false;
+                          return true;
+                        })
+                        .map((part, idx) => (
                         <span
                           key={idx}
                           className="inline-flex items-center rounded-lg bg-[var(--color-surface-muted)] px-2 py-1 text-xs text-[var(--color-text-muted)]"
                         >
-                          {part.trim()}
+                          {part}
                         </span>
                       ))}
                     </div>
-                    {canWrite ? (
-                      <div className="mt-2">
-                        <QuickTaskLink
-                          context={{ studentId: req.studentId, teacherId: req.teacherId, branchId: req.branchId }}
-                          returnTo="/panel/telafi"
-                          label="Bu talep için görev oluştur"
-                        />
-                      </div>
-                    ) : null}
                   </div>
 
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <GenerateSuggestionsForm requestId={req.id} pendingLabel="Aranıyor..." disabled={!canWrite}>
                       <Sparkles className="h-4 w-4" />
                       {req.suggestedSlots.length ? "Saatleri yenile" : "En uygun saatleri bul"}
@@ -165,14 +166,17 @@ export default async function TelafiPage() {
                       <X className="h-4 w-4" />
                       İptal / reddet
                     </MakeupDecisionForm>
-                    <QuickTaskLink
-                      relatedEntityType="makeup"
-                      relatedEntityId={req.id}
-                      relatedEntityLabel={student?.name ?? req.id}
-                      title={`Telafi planlama — ${student?.name ?? ""}`}
-                      label="Görev oluştur"
-                      returnTo="/panel/telafi"
-                    />
+                    {canWrite ? (
+                      <QuickTaskLink
+                        relatedEntityType="makeup"
+                        relatedEntityId={req.id}
+                        relatedEntityLabel={student?.name ?? req.id}
+                        title={`Telafi planlama — ${student?.name ?? ""}`}
+                        label="Görev oluştur"
+                        returnTo="/panel/telafi"
+                        className="inline-flex items-center gap-1 rounded-md border border-[var(--color-border)] px-2 py-1 text-xs font-medium text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-text)]"
+                      />
+                    ) : null}
                   </div>
                 </div>
 
