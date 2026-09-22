@@ -64,6 +64,8 @@ import {
   updateLessonSchedule,
   updateMakeupSlaEscalation,
   updateStudentProfile,
+  setStudentDeletion,
+  hardDeleteStudent,
   setStudentPaymentPause,
   updateTeacherAvailability,
   updateTeacherInstruments,
@@ -9022,6 +9024,266 @@ export async function archiveStudentTool(
   } catch (e) {
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "archiveStudent failed");
   }
+}
+
+export type StudentDeletionImpact = {
+  studentId: string;
+  name: string;
+  displayId?: string;
+  active: boolean;
+  deletedAt?: string;
+  contractCount: number;
+  hasCurrentContract: boolean;
+  paymentCount: number;
+  outstandingAmount: number;
+  collectedAmount: number;
+  lessonCount: number;
+  upcomingLessonCount: number;
+  documentCount: number;
+  attendanceCount: number;
+  /** Yalnız hiçbir bağlı kaydı yoksa (boş/deneme öğrenci) kalıcı silme mümkündür. */
+  hardDeleteEligible: boolean;
+  criticalPasswordConfigured: boolean;
+};
+
+async function computeStudentDeletionImpact(tenantId: string, studentId: string): Promise<StudentDeletionImpact | null> {
+  const data = await readData();
+  const student = data.students.find((s) => s.id === studentId);
+  if (!student) return null;
+  const { listContractsForStudent } = await import("../contracts");
+  const { listDocumentsForStudent } = await import("../documents");
+  const { getCriticalActionPasswordStatus } = await import("../critical-action-password");
+  const { selectCurrentContract } = await import("../contract-list-helpers");
+  const { isOutstandingPaymentStatus } = await import("../utils");
+  const [contracts, documents, pw] = await Promise.all([
+    listContractsForStudent(tenantId, studentId),
+    listDocumentsForStudent(tenantId, studentId),
+    getCriticalActionPasswordStatus(tenantId),
+  ]);
+  const payments = data.payments.filter((p) => p.studentId === studentId);
+  const lessons = data.lessons.filter((l) => l.studentId === studentId);
+  const nowMs = Date.now();
+  const attendanceCount = data.attendances.filter((a) => a.studentId === studentId).length;
+  const linked =
+    contracts.length +
+    payments.length +
+    lessons.length +
+    documents.length +
+    attendanceCount +
+    data.lessonSeries.filter((l) => l.studentId === studentId).length +
+    data.makeupRequests.filter((m) => m.studentId === studentId).length;
+  return {
+    studentId,
+    name: student.name,
+    displayId: student.displayId,
+    active: student.active,
+    deletedAt: student.deletedAt,
+    contractCount: contracts.length,
+    hasCurrentContract: selectCurrentContract(contracts) !== null,
+    paymentCount: payments.length,
+    outstandingAmount: payments
+      .filter((p) => isOutstandingPaymentStatus(p.status))
+      .reduce((sum, p) => sum + Math.max(0, p.amount - p.paidAmount), 0),
+    collectedAmount: payments.reduce((sum, p) => sum + (p.status === "voided" ? 0 : p.paidAmount), 0),
+    lessonCount: lessons.length,
+    upcomingLessonCount: lessons.filter((l) => l.status === "scheduled" && new Date(l.startAt).getTime() > nowMs).length,
+    documentCount: documents.length,
+    attendanceCount,
+    hardDeleteEligible: linked === 0,
+    criticalPasswordConfigured: pw.configured,
+  };
+}
+
+/** Kurum sahibi — silme öncesi etki özeti (yalnız okuma). */
+export async function getStudentDeletionImpactTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<StudentDeletionImpact>> {
+  const auth = requireRole(ctx, ["SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", "Öğrenci silme yalnız kurum sahibi tarafından yapılabilir.");
+  const v = parseOrFail(z.object({ studentId: z.string().min(1) }), input);
+  if (!v.ok) return v;
+  const impact = await computeStudentDeletionImpact(ctx.tenantId, v.data.studentId);
+  if (!impact) return fail("NOT_FOUND", "Öğrenci bulunamadı.");
+  return ok(impact);
+}
+
+const deleteStudentSchema = z.object({
+  studentId: z.string().min(1),
+  /** "soft" = geri alınabilir silme (varsayılan). "hard" = kalıcı, yalnız bağlı kaydı olmayan öğrenci. */
+  mode: z.enum(["soft", "hard"]),
+  /** Kullanıcı öğrencinin ad soyadını AYNEN yazar — yanlış öğrenciyi silmeye karşı. */
+  confirmationName: z.string().max(200),
+  criticalPassword: z.string().max(200),
+  reason: z.string().trim().min(5, "Silme gerekçesi en az 5 karakter olmalı.").max(500),
+});
+
+function sameName(a: string, b: string): boolean {
+  const norm = (x: string) => x.trim().replace(/\s+/g, " ").toLocaleLowerCase("tr");
+  return norm(a) === norm(b);
+}
+
+/**
+ * Kurum sahibi — öğrenci silme. İki kapı: ad soyad teyidi + kritik işlem şifresi.
+ * "soft": öğrenci pasife alınır ve silindi işaretlenir; sözleşme/ödeme/evrak/audit
+ * korunur, Silinenler'den geri alınabilir. "hard": yalnız hiçbir bağlı kaydı olmayan
+ * öğrenci için; geri alınamaz. Her deneme (başarılı/reddedilen) audit'e yazılır.
+ */
+export async function deleteStudentTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ studentId: string; mode: "soft" | "hard" }>> {
+  const auth = requireRole(ctx, ["SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", "Öğrenci silme yalnız kurum sahibi tarafından yapılabilir.");
+  const v = parseOrFail(deleteStudentSchema, input);
+  if (!v.ok) return v;
+  const impact = await computeStudentDeletionImpact(ctx.tenantId, v.data.studentId);
+  if (!impact) return fail("NOT_FOUND", "Öğrenci bulunamadı.");
+
+  const deny = async (reasonCode: string, message: string) => {
+    await recordAuditLog({
+      tenantId: ctx.tenantId,
+      actorUserId: ctx.userId,
+      actorRole: ctx.role,
+      action: `student.delete_${v.data.mode}`,
+      entityType: "Student",
+      entityId: v.data.studentId,
+      outcome: "denied",
+      meta: { reasonCode },
+    });
+    return fail("FORBIDDEN", message);
+  };
+
+  if (!impact.criticalPasswordConfigured) {
+    return deny(
+      "no_critical_password",
+      "Kritik işlem şifresi belirlenmemiş. Önce Ayarlar → Güvenlik ekranından kritik işlem şifresi belirleyin."
+    );
+  }
+  if (!sameName(v.data.confirmationName, impact.name)) {
+    return deny("confirmation_mismatch", `Onay için öğrencinin adını aynen yazın: "${impact.name}".`);
+  }
+  const { verifyCriticalActionPassword } = await import("../critical-action-password");
+  if (!(await verifyCriticalActionPassword(ctx.tenantId, v.data.criticalPassword))) {
+    return deny("wrong_critical_password", "Kritik işlem şifresi yanlış. Öğrenci silinmedi.");
+  }
+  if (v.data.mode === "hard" && !impact.hardDeleteEligible) {
+    return deny(
+      "hard_delete_blocked",
+      "Bu öğrencinin sözleşme, ödeme, ders, yoklama veya evrak kaydı var; kalıcı silinemez. Geri alınabilir silmeyi kullanın."
+    );
+  }
+
+  const meta = {
+    mode: v.data.mode,
+    displayId: impact.displayId,
+    contractCount: impact.contractCount,
+    hasCurrentContract: impact.hasCurrentContract,
+    paymentCount: impact.paymentCount,
+    outstandingAmount: impact.outstandingAmount,
+    lessonCount: impact.lessonCount,
+    documentCount: impact.documentCount,
+    reason: v.data.reason,
+  };
+  try {
+    if (v.data.mode === "hard") {
+      await hardDeleteStudent(v.data.studentId);
+    } else {
+      await setStudentDeletion(v.data.studentId, {
+        deletedAt: new Date().toISOString(),
+        deletedByUserId: ctx.userId,
+        deletionReason: v.data.reason,
+      });
+    }
+  } catch (e) {
+    if (e instanceof Error && e.message === "STUDENT_HAS_LINKED_RECORDS") {
+      return fail("CONFLICT", "Öğrencinin bağlı kayıtları var; kalıcı silinemez. Geri alınabilir silmeyi kullanın.");
+    }
+    logger.error("deleteStudentTool failed", e);
+    return fail("INTERNAL_ERROR", "Öğrenci silinemedi; hiçbir kayıt değişmedi. Tekrar deneyin.");
+  }
+  // Silme audit'i beklenir — kim/ne zaman/hangi etkiyle kaydı kaybolmaz.
+  await recordAuditLog({
+    tenantId: ctx.tenantId,
+    actorUserId: ctx.userId,
+    actorRole: ctx.role,
+    action: `student.delete_${v.data.mode}`,
+    entityType: "Student",
+    entityId: v.data.studentId,
+    outcome: "success",
+    meta,
+  });
+  return ok({ studentId: v.data.studentId, mode: v.data.mode });
+}
+
+/** Kurum sahibi — geri alınabilir silmeyi geri alır. Öğrenci pasif döner; ayrıca aktifleştirilir. */
+export async function restoreDeletedStudentTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ studentId: string }>> {
+  const auth = requireRole(ctx, ["SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", "Silinen öğrenciyi yalnız kurum sahibi geri alabilir.");
+  const v = parseOrFail(z.object({ studentId: z.string().min(1) }), input);
+  if (!v.ok) return v;
+  const data = await readData();
+  const student = data.students.find((s) => s.id === v.data.studentId);
+  if (!student) return fail("NOT_FOUND", "Öğrenci bulunamadı.");
+  if (!student.deletedAt) return fail("VALIDATION_ERROR", "Bu öğrenci silinmiş değil.");
+  await setStudentDeletion(v.data.studentId, null);
+  await recordAuditLog({
+    tenantId: ctx.tenantId,
+    actorUserId: ctx.userId,
+    actorRole: ctx.role,
+    action: "student.delete_restore",
+    entityType: "Student",
+    entityId: v.data.studentId,
+    outcome: "success",
+    meta: { displayId: student.displayId, deletedAt: student.deletedAt },
+  });
+  return ok({ studentId: v.data.studentId });
+}
+
+/** Kurum sahibi — kritik işlem şifresini belirler/değiştirir. Değiştirmede mevcut şifre zorunlu. */
+export async function setCriticalActionPasswordTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ configured: true }>> {
+  const auth = requireRole(ctx, ["SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", "Kritik işlem şifresini yalnız kurum sahibi belirleyebilir.");
+  const { CRITICAL_PASSWORD_MIN_LENGTH, getCriticalActionPasswordStatus, setCriticalActionPassword, verifyCriticalActionPassword } =
+    await import("../critical-action-password");
+  const v = parseOrFail(
+    z.object({
+      newPassword: z.string().min(CRITICAL_PASSWORD_MIN_LENGTH, `Şifre en az ${CRITICAL_PASSWORD_MIN_LENGTH} karakter olmalı.`).max(200),
+      currentPassword: z.string().max(200).optional(),
+    }),
+    input
+  );
+  if (!v.ok) return v;
+  const status = await getCriticalActionPasswordStatus(ctx.tenantId);
+  if (status.configured && !(await verifyCriticalActionPassword(ctx.tenantId, v.data.currentPassword ?? ""))) {
+    await recordAuditLog({
+      tenantId: ctx.tenantId,
+      actorUserId: ctx.userId,
+      actorRole: ctx.role,
+      action: "security.critical_password_change",
+      entityType: "School",
+      entityId: ctx.tenantId,
+      outcome: "denied",
+    });
+    return fail("FORBIDDEN", "Mevcut kritik işlem şifresi yanlış. Şifre değiştirilmedi.");
+  }
+  await setCriticalActionPassword(ctx.tenantId, v.data.newPassword, ctx.userId);
+  await recordAuditLog({
+    tenantId: ctx.tenantId,
+    actorUserId: ctx.userId,
+    actorRole: ctx.role,
+    action: status.configured ? "security.critical_password_change" : "security.critical_password_set",
+    entityType: "School",
+    entityId: ctx.tenantId,
+    outcome: "success",
+  });
+  return ok({ configured: true });
 }
 
 const saveStudentListViewSchema = z.object({

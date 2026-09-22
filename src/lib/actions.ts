@@ -90,6 +90,11 @@ import {
   updateTeacherPayoutPaymentMethodTool,
   updateFeeRoundingModeTool,
   updatePerformanceWeightsTool,
+  getStudentDeletionImpactTool,
+  deleteStudentTool,
+  restoreDeletedStudentTool,
+  setCriticalActionPasswordTool,
+  type StudentDeletionImpact,
   updateMakeupWindowDaysTool,
   updateSchoolLogoTool,
   importSchoolLogoFromCurrentUrlTool,
@@ -3455,6 +3460,70 @@ export async function actionUpdatePerformanceWeights(input: {
     if (error instanceof WriteScopeDeniedError) return { ok: false, message: error.message };
     return { ok: false, message: "Performans ağırlıkları kaydedilirken beklenmeyen bir hata oluştu. Lütfen tekrar deneyin." };
   }
+}
+
+type SimpleActionResult<T = undefined> = { ok: true; data: T } | { ok: false; message: string };
+
+async function runSimpleAction<T>(
+  name: string,
+  run: (ctx: ServiceContext) => Promise<import("./services").ServiceResult<T>>,
+  failMessage: string
+): Promise<SimpleActionResult<T>> {
+  try {
+    const result = await withAuthContext(name, run);
+    if (!result.ok) return { ok: false, message: result.error.message };
+    return { ok: true, data: result.data };
+  } catch (error) {
+    logger.error(`${name} failed`, error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    if (error instanceof WriteScopeDeniedError) return { ok: false, message: error.message };
+    return { ok: false, message: failMessage };
+  }
+}
+
+export async function actionGetStudentDeletionImpact(studentId: string): Promise<SimpleActionResult<StudentDeletionImpact>> {
+  return runSimpleAction(
+    "actionGetStudentDeletionImpact",
+    (ctx) => getStudentDeletionImpactTool(ctx, { studentId }),
+    "Silme etkisi hesaplanamadı. Sayfayı yenileyip tekrar deneyin."
+  );
+}
+
+export async function actionDeleteStudent(input: {
+  studentId: string;
+  mode: "soft" | "hard";
+  confirmationName: string;
+  criticalPassword: string;
+  reason: string;
+}): Promise<SimpleActionResult<{ studentId: string; mode: "soft" | "hard" }>> {
+  const res = await runSimpleAction(
+    "actionDeleteStudent",
+    (ctx) => deleteStudentTool(ctx, input),
+    "Öğrenci silinemedi; hiçbir kayıt değişmedi. Tekrar deneyin."
+  );
+  if (res.ok) revalidateAll();
+  return res;
+}
+
+export async function actionRestoreDeletedStudent(studentId: string): Promise<SimpleActionResult<{ studentId: string }>> {
+  const res = await runSimpleAction(
+    "actionRestoreDeletedStudent",
+    (ctx) => restoreDeletedStudentTool(ctx, { studentId }),
+    "Öğrenci geri alınamadı. Tekrar deneyin."
+  );
+  if (res.ok) revalidateAll();
+  return res;
+}
+
+export async function actionSetCriticalActionPassword(input: {
+  newPassword: string;
+  currentPassword?: string;
+}): Promise<SimpleActionResult<{ configured: true }>> {
+  return runSimpleAction(
+    "actionSetCriticalActionPassword",
+    (ctx) => setCriticalActionPasswordTool(ctx, input),
+    "Kritik işlem şifresi kaydedilemedi. Tekrar deneyin."
+  );
 }
 
 export type UpdateMakeupWindowDaysActionResult =

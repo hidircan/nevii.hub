@@ -41,6 +41,7 @@ import type {
   Room,
   Student,
   StudentProfilePatch,
+  StudentDeletionState,
   StudentPaymentPauseState,
   Teacher,
   TeacherFeeRule,
@@ -418,6 +419,41 @@ export async function addStudent(
     };
     return { ...data, students: [...data.students, s], entitySequences: records };
   });
+}
+
+/**
+ * Geri alınabilir öğrenci silme (2026-09-22). Silmede öğrenci pasife alınır;
+ * geri almada yalnız silme işareti kalkar (öğrenci pasif kalır, ayrıca aktifleştirilir).
+ */
+export async function setStudentDeletion(studentId: string, state: StudentDeletionState): Promise<AppData> {
+  const data = await readData();
+  if (!data.students.some((s) => s.id === studentId)) throw new Error("Öğrenci bulunamadı");
+  const students = data.students.map((s) => {
+    if (s.id !== studentId) return s;
+    if (state) return { ...s, ...state, active: false, archivedAt: s.archivedAt ?? state.deletedAt };
+    return { ...s, deletedAt: undefined, deletedByUserId: undefined, deletionReason: undefined };
+  });
+  const next = { ...data, students };
+  await writeData(next);
+  return next;
+}
+
+/**
+ * Kalıcı silme — YALNIZ bağlı kaydı olmayan (boş/deneme) öğrenci. Çağıran tool
+ * uygunluğu doğrular; burada da ikinci kez kontrol edilir (savunma derinliği).
+ */
+export async function hardDeleteStudent(studentId: string): Promise<AppData> {
+  const data = await readData();
+  const linked =
+    data.payments.some((p) => p.studentId === studentId) ||
+    data.lessons.some((l) => l.studentId === studentId) ||
+    data.lessonSeries.some((l) => l.studentId === studentId) ||
+    data.attendances.some((a) => a.studentId === studentId) ||
+    data.makeupRequests.some((m) => m.studentId === studentId);
+  if (linked) throw new Error("STUDENT_HAS_LINKED_RECORDS");
+  const next = { ...data, students: data.students.filter((s) => s.id !== studentId) };
+  await writeData(next);
+  return next;
 }
 
 export async function updateStudentProfile(

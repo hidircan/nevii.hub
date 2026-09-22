@@ -334,6 +334,13 @@ export interface Student {
   firstLessonAt?: string;
   /** Soft-archive; hard delete yok */
   archivedAt?: string;
+  /**
+   * Geri alınabilir silme (2026-09-22, yalnız SUPER_ADMIN). Doluysa öğrenci
+   * varsayılan listelerden kaybolur; finansal/hukuki kayıtlar ve audit korunur.
+   */
+  deletedAt?: string;
+  deletedByUserId?: string;
+  deletionReason?: string;
   /** ÖNCELİK 4 — Yoklama Takvimi dönemi. Boşsa "guz" varsayılır. */
   termType?: StudentTermType;
   /**
@@ -2350,3 +2357,6 @@ export interface TaskActivity {
   createdAt: string;
 }
 
+
+/** Öğrenci silme/geri alma — store'ların dar yazma yolu. `null` = geri al. */
+export type StudentDeletionState = { deletedAt: string; deletedByUserId: string; deletionReason: string } | null;

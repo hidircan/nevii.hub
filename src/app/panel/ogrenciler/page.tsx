@@ -12,7 +12,12 @@ import { AssistantPageContext } from "@/components/ai/assistant-page-context";
 
 export const dynamic = "force-dynamic";
 
-export default async function OgrencilerPage() {
+export default async function OgrencilerPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ silinenler?: string }>;
+}) {
+  const { silinenler } = await searchParams;
   let session;
   try {
     session = await requireSessionContext();
@@ -21,7 +26,14 @@ export default async function OgrencilerPage() {
   }
   const kurum = await getInstitutionContext(session);
   const data = await readScopedData(kurum.scope);
-  const students = [...data.students].sort((a, b) => a.name.localeCompare(b.name, "tr"));
+  // Geri alınabilir silinen öğrenciler varsayılan listede YOKTUR; yalnız kurum sahibi
+  // "Silinenler" görünümünde görür (geri almak için detaya gider).
+  const isOwner = session.role === "SUPER_ADMIN";
+  const showDeleted = isOwner && silinenler === "1";
+  const deletedCount = data.students.filter((s) => s.deletedAt).length;
+  const students = data.students
+    .filter((s) => (showDeleted ? Boolean(s.deletedAt) : !s.deletedAt))
+    .sort((a, b) => a.name.localeCompare(b.name, "tr"));
   const canManage = (session.role === "SCHOOL_ADMIN" || session.role === "SUPER_ADMIN") && kurum.scope.mode === "single";
 
   /**
@@ -89,6 +101,23 @@ export default async function OgrencilerPage() {
           </Link>
         }
       />
+
+      {isOwner && (deletedCount > 0 || showDeleted) ? (
+        <p className="mb-3 text-sm">
+          {showDeleted ? (
+            <>
+              <strong>Silinen öğrenciler ({deletedCount})</strong> — geri almak için öğrenciyi açın.{" "}
+              <Link href="/panel/ogrenciler" className="font-medium text-[var(--color-primary)] hover:underline">
+                ← Tüm öğrencilere dön
+              </Link>
+            </>
+          ) : (
+            <Link href="/panel/ogrenciler?silinenler=1&status=all" className="font-medium text-[var(--color-primary)] hover:underline">
+              Silinen öğrenciler ({deletedCount}) →
+            </Link>
+          )}
+        </p>
+      ) : null}
 
       <StudentsTable
         rows={rows}

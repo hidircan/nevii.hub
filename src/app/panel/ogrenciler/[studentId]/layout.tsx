@@ -4,11 +4,12 @@ import { Badge, Card, EmptyState, PageHeader } from "@/components/ui";
 import { BackButton } from "@/components/back-button";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { StudentArchiveToggle } from "@/components/student-archive-toggle";
+import { StudentDeleteDialog, StudentDeletedBanner } from "@/components/student-delete-dialog";
 import { StudentDetailTabs } from "@/components/student-detail-tabs";
 import { QuickTaskLink } from "@/components/quick-task-link";
 import { AssistantPageContext } from "@/components/ai/assistant-page-context";
 import { effectiveStudentTypes } from "@/lib/student-types";
-import { formatDate } from "@/lib/utils";
+import { formatDate, formatDateTime } from "@/lib/utils";
 import { resolveActorLabel } from "@/lib/contract-payment-plan-view";
 import { loadStudentPageContext } from "./_context";
 
@@ -58,6 +59,12 @@ export default async function StudentDetailLayout({
   const createdBy = student.createdByUserId
     ? await resolveActorLabel({ tenantId: session.tenantId, userId: student.createdByUserId, teachers: data.teachers })
     : null;
+  const isOwner = session.role === "SUPER_ADMIN";
+  const deletedBy = student.deletedAt
+    ? student.deletedByUserId
+      ? await resolveActorLabel({ tenantId: session.tenantId, userId: student.deletedByUserId, teachers: data.teachers })
+      : "Bilinmeyen kullanıcı"
+    : null;
 
   return (
     <div>
@@ -80,10 +87,23 @@ export default async function StudentDetailLayout({
               returnTo={`/panel/ogrenciler/${student.id}`}
               className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-sm font-medium text-[var(--color-primary)] hover:bg-[var(--color-bg)]"
             />
-            <StudentArchiveToggle studentId={student.id} active={student.active} />
+            {student.deletedAt ? null : <StudentArchiveToggle studentId={student.id} active={student.active} />}
+            {isOwner && !student.deletedAt && kurum.scope.mode === "single" ? (
+              <StudentDeleteDialog studentId={student.id} studentName={student.name} />
+            ) : null}
           </div>
         }
       />
+
+      {student.deletedAt ? (
+        <StudentDeletedBanner
+          studentId={student.id}
+          deletedAtLabel={formatDateTime(student.deletedAt)}
+          deletedBy={deletedBy ?? "—"}
+          reason={isOwner ? student.deletionReason : undefined}
+          canRestore={isOwner && kurum.scope.mode === "single"}
+        />
+      ) : null}
 
       <Card className="mb-4 !p-3">
         <div className="flex flex-wrap items-center gap-2 text-sm">

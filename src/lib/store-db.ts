@@ -47,6 +47,7 @@ import type {
   Room,
   Student,
   StudentProfilePatch,
+  StudentDeletionState,
   StudentPaymentPauseState,
   StudentType,
   Teacher,
@@ -386,6 +387,9 @@ function mapSchoolToAppData(school: PrismaSchoolWithRelations): AppData {
           | undefined) ?? undefined,
       firstLessonAt: (student as { firstLessonAt?: Date | null }).firstLessonAt?.toISOString() ?? undefined,
       archivedAt: (student as { archivedAt?: Date | null }).archivedAt?.toISOString() ?? undefined,
+      deletedAt: student.deletedAt?.toISOString() ?? undefined,
+      deletedByUserId: student.deletedByUserId ?? undefined,
+      deletionReason: student.deletionReason ?? undefined,
       // Package C — ödeme profili + paket fiyatlandırma. Bu alanlar
       // öncesinde db modunda hiç OKUNMUYORDU (yalnızca updateStudentProfile
       // parametresi olarak kabul ediliyordu, satıra hiç yazılmıyordu/geri
@@ -1281,6 +1285,41 @@ export async function addStudent(
       enrollmentEndDate: student.enrollmentEndDate ? new Date(student.enrollmentEndDate) : undefined,
     },
   });
+  return readData();
+}
+
+/** Geri alınabilir öğrenci silme — bkz. store-json.ts aynı adlı fonksiyon. */
+export async function setStudentDeletion(studentId: string, state: StudentDeletionState): Promise<AppData> {
+  const tid = requireTenantId();
+  const existing = await prisma.student.findFirst({ where: { id: studentId, tenantId: tid }, select: { archivedAt: true } });
+  if (!existing) throw new Error("Öğrenci bulunamadı");
+  await prisma.student.updateMany({
+    where: { id: studentId, tenantId: tid },
+    data: state
+      ? {
+          deletedAt: new Date(state.deletedAt),
+          deletedByUserId: state.deletedByUserId,
+          deletionReason: state.deletionReason,
+          active: false,
+          archivedAt: existing.archivedAt ?? new Date(state.deletedAt),
+        }
+      : { deletedAt: null, deletedByUserId: null, deletionReason: null },
+  });
+  return readData();
+}
+
+/** Kalıcı silme — yalnız bağlı kaydı olmayan öğrenci (FK ilişkileri boş olmalı). */
+export async function hardDeleteStudent(studentId: string): Promise<AppData> {
+  const tid = requireTenantId();
+  const counts = await prisma.student.findFirst({
+    where: { id: studentId, tenantId: tid },
+    select: {
+      _count: { select: { payments: true, lessons: true, lessonSeries: true, attendances: true, makeupRequests: true, contracts: true } },
+    },
+  });
+  if (!counts) throw new Error("Öğrenci bulunamadı");
+  if (Object.values(counts._count).some((n) => n > 0)) throw new Error("STUDENT_HAS_LINKED_RECORDS");
+  await prisma.student.deleteMany({ where: { id: studentId, tenantId: tid } });
   return readData();
 }
 
