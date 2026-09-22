@@ -460,6 +460,31 @@ export async function actionSaveDashboardBranch(branchId: string): Promise<void>
   }
 }
 
+/**
+ * Günlük Özet kişisel düzeni (görünürlük / sıra / genişlik). Hesaba yazılır;
+ * rol kapısı (hakediş = yalnız SUPER_ADMIN) sunucuda yeniden uygulanır.
+ */
+export async function actionSaveDashboardLayout(patch: {
+  hiddenSections?: string[];
+  sectionOrder?: string[];
+  sectionSpans?: Record<string, number>;
+  resetToDefault?: boolean;
+}): Promise<void> {
+  try {
+    const session = await getSessionContext();
+    if (!session?.userId || !session?.tenantId) return;
+    const { getUserPreferences, saveUserPreferences } = await import("./user-preferences");
+    const { sanitizeDashboardLayoutPatch, mergeDashboardPreferences } = await import("./dashboard/layout-prefs");
+    const prev = await getUserPreferences(session.userId, session.tenantId);
+    const sanitized = sanitizeDashboardLayoutPatch(patch ?? {}, session.role);
+    const next = mergeDashboardPreferences(prev.dashboard, sanitized);
+    await saveUserPreferences(session.userId, session.tenantId, { dashboard: next });
+    revalidatePath("/panel");
+  } catch {
+    // best-effort — tercih kaydedilemezse panel yine çalışır.
+  }
+}
+
 /** P1 (2026-09-11) — sidebar açık/kapalı tercihi kaydı. */
 export async function actionSaveSidebarCollapsed(collapsed: boolean): Promise<void> {
   try {

@@ -13,6 +13,7 @@ import {
 import { Card, PageHeader } from "@/components/ui";
 import { LessonStatusBadge } from "@/components/lesson-status-badge";
 import { DashboardBranchSwitcher } from "@/components/dashboard-branch-switcher";
+import { DashboardLayoutEditor } from "@/components/dashboard-layout-editor";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { AssistantPageContext } from "@/components/ai/assistant-page-context";
 import { requireSessionContext } from "@/lib/auth/session";
@@ -21,6 +22,11 @@ import { getUserPreferences } from "@/lib/user-preferences";
 import { listContractSummariesByStudent } from "@/lib/contracts";
 import { listTasks } from "@/lib/tasks";
 import { buildDashboardSummary, type DashboardAction } from "@/lib/dashboard/daily-summary";
+import {
+  resolveDashboardLayout,
+  type DashboardSectionKey,
+  type DashboardSectionSpan,
+} from "@/lib/dashboard/layout-prefs";
 import { computeSetupProgress } from "@/lib/setup-progress";
 import { computeTeacherPayoutOverview } from "@/lib/teacher-payout-overview";
 import { DEFAULT_APP_TIMEZONE, toZonedYmd, formatDateTr } from "@/lib/timezone";
@@ -51,12 +57,23 @@ export const dynamic = "force-dynamic";
  *  4) YOĞUN AMA DÜZENLİ. Tek bir 12 kolonluk ızgara, sabit dikey ritim,
  *     kart içi boşluklar küçük; listeler satır-tabanlı (kart yığını değil)
  *     çünkü operasyon ekranında tarama hızı dekorasyondan önemlidir.
+ *  5) KİŞİSEL DÜZEN. Bölüm görünürlüğü / sırası / genişliği hesaba yazılır
+ *     (`UserPreference.dashboardJson`); rol varsayılanı + kullanıcı override.
  */
 const TONE_STYLE: Record<DashboardAction["tone"], { border: string; bg: string; text: string }> = {
   danger: { border: "var(--color-danger)", bg: "var(--color-danger-soft)", text: "var(--color-danger)" },
   warning: { border: "var(--color-warning)", bg: "var(--color-warning-soft)", text: "var(--color-warning)" },
   primary: { border: "var(--color-primary)", bg: "var(--color-primary-soft)", text: "var(--color-primary-soft-text)" },
   info: { border: "var(--color-info)", bg: "var(--color-info-soft)", text: "var(--color-info)" },
+};
+
+const SPAN_CLASS: Record<DashboardSectionSpan, string> = {
+  4: "xl:col-span-4",
+  5: "xl:col-span-5",
+  6: "xl:col-span-6",
+  7: "xl:col-span-7",
+  8: "xl:col-span-8",
+  12: "xl:col-span-12",
 };
 
 export default async function DashboardPage({
@@ -75,6 +92,7 @@ export default async function DashboardPage({
   const kurum = await getInstitutionContext(session);
   const data = await readScopedData(kurum.scope);
   const prefs = await getUserPreferences(session.userId, session.tenantId);
+  const layout = resolveDashboardLayout(prefs.dashboard, session.role);
 
   const branchIds = new Set(data.settings.branches.map((b) => b.id));
   const savedDefault = prefs.dashboard?.defaultBranchId;
@@ -106,34 +124,9 @@ export default async function DashboardPage({
       ? "Tüm şubeler"
       : (data.settings.branches.find((b) => b.id === activeBranchId)?.shortName ?? activeBranchId);
 
-  return (
-    <div>
-      <KurumScopeNote scope={kurum.scope} />
-      <AssistantPageContext entity={{ kind: "page", label: "Günlük özet" }} />
-      <PageHeader
-        title="Günlük özet"
-        description={`${formatDateTr(new Date())} · ${branchLabel}`}
-      />
-
-      <div className="mb-5">
-        <DashboardBranchSwitcher
-          branches={data.settings.branches.map((b) => ({ id: b.id, name: b.shortName || b.name }))}
-          activeBranchId={activeBranchId}
-          defaultBranchId={defaultBranchId}
-        />
-      </div>
-
-      {!setupProgress.isReady ? (
-        <Link
-          href="/panel/kurulum"
-          className="mb-4 inline-block text-sm font-medium text-[var(--color-primary)] hover:text-[var(--color-primary-hover)]"
-        >
-          Okul kurulumunu tamamla ({setupProgress.completedCount}/{setupProgress.totalCount}) →
-        </Link>
-      ) : null}
-
-      {/* 1 — AKSİYON GEREKLİ */}
-      <section className="mb-5">
+  const sectionNodes: Partial<Record<DashboardSectionKey, React.ReactNode>> = {
+    actions: (
+      <section>
         <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-[var(--color-text)]">
           <AlertTriangle className="h-4 w-4 text-[var(--color-text-muted)]" aria-hidden />
           Aksiyon gerekli
@@ -191,9 +184,9 @@ export default async function DashboardPage({
           </p>
         ) : null}
       </section>
-
-      {/* 2 — RAKAMLAR (tek satır, dekorasyon yok) */}
-      <section className="mb-5 grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
+    ),
+    metrics: (
+      <section className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
         <Metric label="Bugünkü ders" value={String(summary.counts.todayLessons)} />
         <Metric label="Aktif öğrenci" value={String(summary.counts.activeStudents)} />
         <Metric label="Aktif öğretmen" value={String(summary.counts.activeTeachers)} />
@@ -205,260 +198,305 @@ export default async function DashboardPage({
           tone={summary.money.overdueTotal > 0 ? "danger" : undefined}
         />
       </section>
-
-      <div className="grid gap-4 xl:grid-cols-12">
-        {/* 3 — BUGÜNÜN PROGRAMI */}
-        <Card className="xl:col-span-7">
-          <SectionHeader
-            icon={<CalendarClock className="h-4 w-4" />}
-            title="Bugünün programı"
-            href="/panel/program"
-            hrefLabel="Tüm program"
-          />
-          {summary.todayLessons.length === 0 ? (
-            <p className="text-sm text-[var(--color-text-muted)]">
-              {branchLabel} için bugün planlanmış ders yok.
-            </p>
-          ) : (
-            <ul className="divide-y divide-[var(--color-border)]">
-              {summary.todayLessons.map((l) => (
-                <li key={l.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2">
-                  <span
-                    className="h-8 w-1 shrink-0 rounded-full"
-                    style={{ background: l.teacherColor ?? "var(--color-border-strong)" }}
-                    aria-hidden
-                  />
-                  <span className="w-[92px] shrink-0 text-sm font-semibold tabular-nums text-[var(--color-text)]">
-                    {formatTime(l.startAt)}–{formatTime(l.endAt)}
-                  </span>
-                  <span className="min-w-0 flex-1 text-sm">
-                    <span className="font-medium text-[var(--color-text)]">{l.studentName}</span>
-                    <span className="text-[var(--color-text-muted)]">
-                      {" "}
-                      · {l.instrument} · {l.teacherName} · {l.branchShortName} · {l.roomName}
-                    </span>
-                  </span>
-                  {l.awaitingAttendance ? (
-                    <span
-                      className="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold"
-                      style={{ background: "var(--color-warning-soft)", color: "var(--color-warning)" }}
-                    >
-                      Yoklama bekliyor
-                    </span>
-                  ) : (
-                    <LessonStatusBadge status={l.status as Parameters<typeof LessonStatusBadge>[0]["status"]} />
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
-
-        {/* 4 — TAHSİLAT */}
-        <Card className="xl:col-span-5">
-          <SectionHeader
-            icon={<AlertTriangle className="h-4 w-4" />}
-            title="Tahsilat"
-            href="/panel/odemeler"
-            hrefLabel="Ödemeler"
-          />
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-danger)" }}>
-            Gecikmiş ({summary.overdue.length})
+    ),
+    todaySchedule: (
+      <Card>
+        <SectionHeader
+          icon={<CalendarClock className="h-4 w-4" />}
+          title="Bugünün programı"
+          href="/panel/program"
+          hrefLabel="Tüm program"
+        />
+        {summary.todayLessons.length === 0 ? (
+          <p className="text-sm text-[var(--color-text-muted)]">
+            {branchLabel} için bugün planlanmış ders yok.
           </p>
-          {summary.overdue.length === 0 ? (
-            <p className="mb-3 text-sm text-[var(--color-text-muted)]">Gecikmiş tahsilat yok.</p>
-          ) : (
-            <ul className="mb-3 divide-y divide-[var(--color-border)]">
-              {summary.overdue.map((r) => (
-                <li key={r.paymentId} className="flex items-center justify-between gap-2 py-1.5 text-sm">
-                  <Link
-                    href={`/panel/odemeler/${r.studentId}`}
-                    className="min-w-0 truncate font-medium text-[var(--color-text)] hover:text-[var(--color-primary)]"
-                  >
-                    {r.studentName}
-                    {r.branchShortName ? (
-                      <span className="text-xs font-normal text-[var(--color-text-muted)]"> · {r.branchShortName}</span>
-                    ) : null}
-                  </Link>
-                  <span className="shrink-0 text-right">
-                    <span className="block font-semibold tabular-nums" style={{ color: "var(--color-danger)" }}>
-                      {formatMoney(r.remaining)}
-                    </span>
-                    <span className="block text-[11px] text-[var(--color-text-muted)]">
-                      {Math.abs(r.daysUntilDue)} gün gecikti
-                    </span>
+        ) : (
+          <ul className="divide-y divide-[var(--color-border)]">
+            {summary.todayLessons.map((l) => (
+              <li key={l.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2">
+                <span
+                  className="h-8 w-1 shrink-0 rounded-full"
+                  style={{ background: l.teacherColor ?? "var(--color-border-strong)" }}
+                  aria-hidden
+                />
+                <span className="w-[92px] shrink-0 text-sm font-semibold tabular-nums text-[var(--color-text)]">
+                  {formatTime(l.startAt)}–{formatTime(l.endAt)}
+                </span>
+                <span className="min-w-0 flex-1 text-sm">
+                  <span className="font-medium text-[var(--color-text)]">{l.studentName}</span>
+                  <span className="text-[var(--color-text-muted)]">
+                    {" "}
+                    · {l.instrument} · {l.teacherName} · {l.branchShortName} · {l.roomName}
                   </span>
-                </li>
-              ))}
-            </ul>
-          )}
-
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
-            Yaklaşan vade ({summary.upcomingDue.length})
-          </p>
-          {summary.upcomingDue.length === 0 ? (
-            <p className="text-sm text-[var(--color-text-muted)]">Önümüzdeki 14 günde vadesi gelen taksit yok.</p>
-          ) : (
-            <ul className="divide-y divide-[var(--color-border)]">
-              {summary.upcomingDue.map((r) => (
-                <li key={r.paymentId} className="flex items-center justify-between gap-2 py-1.5 text-sm">
-                  <Link
-                    href={`/panel/odemeler/${r.studentId}`}
-                    className="min-w-0 truncate text-[var(--color-text)] hover:text-[var(--color-primary)]"
-                  >
-                    {r.studentName}
-                  </Link>
-                  <span className="shrink-0 text-right">
-                    <span className="block font-medium tabular-nums">{formatMoney(r.remaining)}</span>
-                    <span className="block text-[11px] text-[var(--color-text-muted)]">
-                      {r.daysUntilDue === 0 ? "Bugün" : `${r.daysUntilDue} gün sonra`}
-                    </span>
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
-
-        {/* 5 — SÖZLEŞME İZLEME */}
-        <Card className="xl:col-span-5">
-          <SectionHeader
-            icon={<FileWarning className="h-4 w-4" />}
-            title="Sözleşme durumu"
-            href="/panel/ogrenciler?contract=none&contract=expired&contract=expiring"
-            hrefLabel="Öğrencilerde aç"
-          />
-          {summary.contractWatch.length === 0 ? (
-            <p className="text-sm text-[var(--color-text-muted)]">
-              Sözleşmesi eksik, süresi geçmiş veya yakında bitecek öğrenci yok.
-            </p>
-          ) : (
-            <ul className="divide-y divide-[var(--color-border)]">
-              {summary.contractWatch.map((c) => (
-                <li key={c.studentId} className="flex items-center justify-between gap-2 py-1.5 text-sm">
-                  <Link
-                    href={`/panel/ogrenciler/${c.studentId}/sozlesmeler`}
-                    className="min-w-0 truncate text-[var(--color-text)] hover:text-[var(--color-primary)]"
-                  >
-                    {c.studentName}
-                    {c.branchShortName ? (
-                      <span className="text-xs text-[var(--color-text-muted)]"> · {c.branchShortName}</span>
-                    ) : null}
-                  </Link>
+                </span>
+                {l.awaitingAttendance ? (
                   <span
                     className="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold"
-                    style={
-                      c.state === "expiring"
-                        ? { background: "var(--color-warning-soft)", color: "var(--color-warning)" }
-                        : { background: "var(--color-danger-soft)", color: "var(--color-danger)" }
-                    }
+                    style={{ background: "var(--color-warning-soft)", color: "var(--color-warning)" }}
                   >
-                    {c.state === "missing"
-                      ? "Sözleşme yok"
-                      : c.state === "expired"
-                        ? `Süresi geçti · ${c.endDate}`
-                        : `Bitiyor · ${c.endDate}`}
+                    Yoklama bekliyor
                   </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
-
-        {/* 6 — ŞUBE YOĞUNLUĞU */}
-        <Card className="xl:col-span-4">
-          <SectionHeader icon={<Users className="h-4 w-4" />} title="Şube yoğunluğu" />
-          <ul className="divide-y divide-[var(--color-border)]">
-            {summary.branchLoad.map((b) => (
-              <li key={b.branchId} className="py-2">
-                <div className="flex items-center justify-between gap-2 text-sm">
-                  <span className="font-medium text-[var(--color-text)]">{b.name}</span>
-                  <span className="tabular-nums text-[var(--color-text-muted)]">
-                    {b.todayLessonCount} ders · {b.activeStudentCount} öğrenci
-                  </span>
-                </div>
-                <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-[var(--color-text-muted)]">
-                  <span>Açık bakiye {formatMoney(b.outstandingAmount)}</span>
-                  {b.overdueAmount > 0 ? (
-                    <span style={{ color: "var(--color-danger)" }}>Gecikmiş {formatMoney(b.overdueAmount)}</span>
-                  ) : null}
-                </div>
+                ) : (
+                  <LessonStatusBadge status={l.status as Parameters<typeof LessonStatusBadge>[0]["status"]} />
+                )}
               </li>
             ))}
           </ul>
-        </Card>
+        )}
+      </Card>
+    ),
+    collections: (
+      <Card>
+        <SectionHeader
+          icon={<AlertTriangle className="h-4 w-4" />}
+          title="Tahsilat"
+          href="/panel/odemeler"
+          hrefLabel="Ödemeler"
+        />
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-danger)" }}>
+          Gecikmiş ({summary.overdue.length})
+        </p>
+        {summary.overdue.length === 0 ? (
+          <p className="mb-3 text-sm text-[var(--color-text-muted)]">Gecikmiş tahsilat yok.</p>
+        ) : (
+          <ul className="mb-3 divide-y divide-[var(--color-border)]">
+            {summary.overdue.map((r) => (
+              <li key={r.paymentId} className="flex items-center justify-between gap-2 py-1.5 text-sm">
+                <Link
+                  href={`/panel/odemeler/${r.studentId}`}
+                  className="min-w-0 truncate font-medium text-[var(--color-text)] hover:text-[var(--color-primary)]"
+                >
+                  {r.studentName}
+                  {r.branchShortName ? (
+                    <span className="text-xs font-normal text-[var(--color-text-muted)]"> · {r.branchShortName}</span>
+                  ) : null}
+                </Link>
+                <span className="shrink-0 text-right">
+                  <span className="block font-semibold tabular-nums" style={{ color: "var(--color-danger)" }}>
+                    {formatMoney(r.remaining)}
+                  </span>
+                  <span className="block text-[11px] text-[var(--color-text-muted)]">
+                    {Math.abs(r.daysUntilDue)} gün gecikti
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
 
-        {/* 7 — İŞ TAKİP + ÖĞRETMEN DİKKAT */}
-        <Card className="xl:col-span-3">
-          <SectionHeader
-            icon={<ClipboardList className="h-4 w-4" />}
-            title="İş takip"
-            href="/panel/is-takip/liste"
-            hrefLabel="Listeye git"
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
+          Yaklaşan vade ({summary.upcomingDue.length})
+        </p>
+        {summary.upcomingDue.length === 0 ? (
+          <p className="text-sm text-[var(--color-text-muted)]">Önümüzdeki 14 günde vadesi gelen taksit yok.</p>
+        ) : (
+          <ul className="divide-y divide-[var(--color-border)]">
+            {summary.upcomingDue.map((r) => (
+              <li key={r.paymentId} className="flex items-center justify-between gap-2 py-1.5 text-sm">
+                <Link
+                  href={`/panel/odemeler/${r.studentId}`}
+                  className="min-w-0 truncate text-[var(--color-text)] hover:text-[var(--color-primary)]"
+                >
+                  {r.studentName}
+                </Link>
+                <span className="shrink-0 text-right">
+                  <span className="block font-medium tabular-nums">{formatMoney(r.remaining)}</span>
+                  <span className="block text-[11px] text-[var(--color-text-muted)]">
+                    {r.daysUntilDue === 0 ? "Bugün" : `${r.daysUntilDue} gün sonra`}
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+    ),
+    contracts: (
+      <Card>
+        <SectionHeader
+          icon={<FileWarning className="h-4 w-4" />}
+          title="Sözleşme durumu"
+          href="/panel/ogrenciler?contract=none&contract=expired&contract=expiring"
+          hrefLabel="Öğrencilerde aç"
+        />
+        {summary.contractWatch.length === 0 ? (
+          <p className="text-sm text-[var(--color-text-muted)]">
+            Sözleşmesi eksik, süresi geçmiş veya yakında bitecek öğrenci yok.
+          </p>
+        ) : (
+          <ul className="divide-y divide-[var(--color-border)]">
+            {summary.contractWatch.map((c) => (
+              <li key={c.studentId} className="flex items-center justify-between gap-2 py-1.5 text-sm">
+                <Link
+                  href={`/panel/ogrenciler/${c.studentId}/sozlesmeler`}
+                  className="min-w-0 truncate text-[var(--color-text)] hover:text-[var(--color-primary)]"
+                >
+                  {c.studentName}
+                  {c.branchShortName ? (
+                    <span className="text-xs text-[var(--color-text-muted)]"> · {c.branchShortName}</span>
+                  ) : null}
+                </Link>
+                <span
+                  className="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold"
+                  style={
+                    c.state === "expiring"
+                      ? { background: "var(--color-warning-soft)", color: "var(--color-warning)" }
+                      : { background: "var(--color-danger-soft)", color: "var(--color-danger)" }
+                  }
+                >
+                  {c.state === "missing"
+                    ? "Sözleşme yok"
+                    : c.state === "expired"
+                      ? `Süresi geçti · ${c.endDate}`
+                      : `Bitiyor · ${c.endDate}`}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+    ),
+    branchLoad: (
+      <Card>
+        <SectionHeader icon={<Users className="h-4 w-4" />} title="Şube yoğunluğu" />
+        <ul className="divide-y divide-[var(--color-border)]">
+          {summary.branchLoad.map((b) => (
+            <li key={b.branchId} className="py-2">
+              <div className="flex items-center justify-between gap-2 text-sm">
+                <span className="font-medium text-[var(--color-text)]">{b.name}</span>
+                <span className="tabular-nums text-[var(--color-text-muted)]">
+                  {b.todayLessonCount} ders · {b.activeStudentCount} öğrenci
+                </span>
+              </div>
+              <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-[var(--color-text-muted)]">
+                <span>Açık bakiye {formatMoney(b.outstandingAmount)}</span>
+                {b.overdueAmount > 0 ? (
+                  <span style={{ color: "var(--color-danger)" }}>Gecikmiş {formatMoney(b.overdueAmount)}</span>
+                ) : null}
+              </div>
+            </li>
+          ))}
+        </ul>
+      </Card>
+    ),
+    tasks: (
+      <Card>
+        <SectionHeader
+          icon={<ClipboardList className="h-4 w-4" />}
+          title="İş takip"
+          href="/panel/is-takip/liste"
+          hrefLabel="Listeye git"
+        />
+        <dl className="grid grid-cols-3 gap-2 text-center">
+          <Metric label="Açık" value={String(summary.taskSummary.open)} compact />
+          <Metric
+            label="Gecikmiş"
+            value={String(summary.taskSummary.overdue)}
+            tone={summary.taskSummary.overdue > 0 ? "danger" : undefined}
+            compact
           />
-          <dl className="grid grid-cols-3 gap-2 text-center">
-            <Metric label="Açık" value={String(summary.taskSummary.open)} compact />
-            <Metric
-              label="Gecikmiş"
-              value={String(summary.taskSummary.overdue)}
-              tone={summary.taskSummary.overdue > 0 ? "danger" : undefined}
-              compact
-            />
-            <Metric label="Bugün" value={String(summary.taskSummary.dueToday)} compact />
-          </dl>
+          <Metric label="Bugün" value={String(summary.taskSummary.dueToday)} compact />
+        </dl>
 
-          {summary.teacherAttention.length > 0 ? (
-            <div className="mt-4 border-t border-[var(--color-border)] pt-3">
-              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
-                Öğretmen — dikkat
-              </p>
-              <ul className="space-y-1.5 text-xs">
-                {summary.teacherAttention.map((t) => (
-                  <li key={t.teacherId}>
-                    <Link
-                      href={`/panel/ogretmenler/${t.teacherId}`}
-                      className="font-medium text-[var(--color-text)] hover:text-[var(--color-primary)]"
-                    >
-                      {t.teacherName}
-                    </Link>
-                    <span className="block text-[var(--color-text-muted)]">{t.reason}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
+        {summary.teacherAttention.length > 0 ? (
+          <div className="mt-4 border-t border-[var(--color-border)] pt-3">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
+              Öğretmen — dikkat
+            </p>
+            <ul className="space-y-1.5 text-xs">
+              {summary.teacherAttention.map((t) => (
+                <li key={t.teacherId}>
+                  <Link
+                    href={`/panel/ogretmenler/${t.teacherId}`}
+                    className="font-medium text-[var(--color-text)] hover:text-[var(--color-primary)]"
+                  >
+                    {t.teacherName}
+                  </Link>
+                  <span className="block text-[var(--color-text-muted)]">{t.reason}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+      </Card>
+    ),
+    payout:
+      isOwner && payoutOverview ? (
+        <Card>
+          <SectionHeader
+            icon={<Users className="h-4 w-4" />}
+            title="Bu ay öğretmen hakedişleri (yalnız kurum sahibi)"
+            href="/panel/hakedisler"
+            hrefLabel="Hakedişler"
+          />
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <Metric label="Bu ay bekleyen" value={formatMoney(payoutOverview.pendingTotal)} tone="warning" />
+            <Metric label="Bu ay ödenen" value={formatMoney(payoutOverview.paidTotal)} tone="success" />
+            <Metric label="Aktif öğretmen" value={String(summary.counts.activeTeachers)} />
+            <Metric
+              label="Ücret kuralı eksik ders"
+              value={String(payoutOverview.missingFeeRuleLessonCount)}
+              tone={payoutOverview.missingFeeRuleLessonCount > 0 ? "danger" : undefined}
+            />
+          </div>
+          {payoutOverview.missingFeeRuleLessonCount > 0 ? (
+            <p
+              className="mt-3 rounded-lg px-3 py-2 text-xs"
+              style={{ background: "var(--color-danger-soft)", color: "var(--color-danger)" }}
+            >
+              {payoutOverview.missingFeeRuleLessonCount} tamamlanmış derste ücret kuralı eksik — hakediş eksiksiz
+              hesaplanamıyor. Ücret Kuralları ekranından eksik kuralı tanımlayın.
+            </p>
           ) : null}
         </Card>
+      ) : null,
+  };
 
-        {/* 8 — YALNIZ KURUM SAHİBİ: personel / hakediş */}
-        {isOwner && payoutOverview ? (
-          <Card className="xl:col-span-12">
-            <SectionHeader
-              icon={<Users className="h-4 w-4" />}
-              title="Bu ay öğretmen hakedişleri (yalnız kurum sahibi)"
-              href="/panel/hakedisler"
-              hrefLabel="Hakedişler"
-            />
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              <Metric label="Bu ay bekleyen" value={formatMoney(payoutOverview.pendingTotal)} tone="warning" />
-              <Metric label="Bu ay ödenen" value={formatMoney(payoutOverview.paidTotal)} tone="success" />
-              <Metric label="Aktif öğretmen" value={String(summary.counts.activeTeachers)} />
-              <Metric
-                label="Ücret kuralı eksik ders"
-                value={String(payoutOverview.missingFeeRuleLessonCount)}
-                tone={payoutOverview.missingFeeRuleLessonCount > 0 ? "danger" : undefined}
-              />
+  return (
+    <div>
+      <KurumScopeNote scope={kurum.scope} />
+      <AssistantPageContext entity={{ kind: "page", label: "Günlük özet" }} />
+      <PageHeader
+        title="Günlük özet"
+        description={`${formatDateTr(new Date())} · ${branchLabel}`}
+        actions={
+          <DashboardLayoutEditor
+            role={session.role}
+            initialOrder={layout.order}
+            initialHidden={layout.hidden}
+            initialSpans={layout.spans}
+          />
+        }
+      />
+
+      <div className="mb-5">
+        <DashboardBranchSwitcher
+          branches={data.settings.branches.map((b) => ({ id: b.id, name: b.shortName || b.name }))}
+          activeBranchId={activeBranchId}
+          defaultBranchId={defaultBranchId}
+        />
+      </div>
+
+      {!setupProgress.isReady ? (
+        <Link
+          href="/panel/kurulum"
+          className="mb-4 inline-block text-sm font-medium text-[var(--color-primary)] hover:text-[var(--color-primary-hover)]"
+        >
+          Okul kurulumunu tamamla ({setupProgress.completedCount}/{setupProgress.totalCount}) →
+        </Link>
+      ) : null}
+
+      <div className="grid gap-4 xl:grid-cols-12">
+        {layout.visible.map(({ key, span }) => {
+          const node = sectionNodes[key];
+          if (!node) return null;
+          return (
+            <div key={key} className={SPAN_CLASS[span]}>
+              {node}
             </div>
-            {payoutOverview.missingFeeRuleLessonCount > 0 ? (
-              <p
-                className="mt-3 rounded-lg px-3 py-2 text-xs"
-                style={{ background: "var(--color-danger-soft)", color: "var(--color-danger)" }}
-              >
-                {payoutOverview.missingFeeRuleLessonCount} tamamlanmış derste ücret kuralı eksik — hakediş eksiksiz
-                hesaplanamıyor. Ücret Kuralları ekranından eksik kuralı tanımlayın.
-              </p>
-            ) : null}
-          </Card>
-        ) : null}
+          );
+        })}
       </div>
     </div>
   );

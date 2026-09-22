@@ -42,11 +42,17 @@ export type UserWorkspacePreferences = {
   updatedAt: string;
 };
 
+export type DashboardSectionSpan = 4 | 5 | 6 | 7 | 8 | 12;
+
 export type DashboardPreferences = {
   /** Varsayılan şube kimliği; "all" veya tanımsız = tüm şubeler. */
   defaultBranchId?: string;
   /** Gizlenen panel bölümleri (bölüm anahtarları) — kişisel görünürlük tercihi. */
   hiddenSections?: string[];
+  /** Bölüm sırası (kararlı anahtarlar: actions, metrics, …). */
+  sectionOrder?: string[];
+  /** xl ızgarada kolon genişliği (4|5|6|7|8|12). */
+  sectionSpans?: Record<string, DashboardSectionSpan>;
 };
 
 type Stored = UserWorkspacePreferences & { userId: string; tenantId: string };
