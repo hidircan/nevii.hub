@@ -164,7 +164,7 @@ function AttendanceCard({ c, teacherId }: { c: TeacherPerformanceReportV2["compo
           </div>
         </details>
       )}
-      <a href={`/panel/ogretmenler/${teacherId}#program`} className="mt-3 inline-block text-[11px] text-[var(--color-text-muted)] hover:text-[var(--color-primary)]">
+      <a href={`/panel/ogretmenler/${teacherId}/program`} className="mt-3 inline-block text-[11px] text-[var(--color-text-muted)] hover:text-[var(--color-primary)]">
         Ders programını öğretmen detayında gör →
       </a>
     </Card>

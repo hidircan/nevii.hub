@@ -1,13 +1,11 @@
-import { redirect } from "next/navigation";
-import { requireSessionContext } from "@/lib/auth/session";
-import { readData } from "@/lib/store";
+import { redirect, notFound } from "next/navigation";
 import { listTeacherFeedbackForReviewTool } from "@/lib/services";
-import { Card, EmptyState, PageHeader, StatCard } from "@/components/ui";
-import { BackButton } from "@/components/back-button";
+import { Card, EmptyState, StatCard } from "@/components/ui";
 import { TeacherFeedbackReviewList } from "@/components/teacher-feedback-review-list";
 import { AiFeedbackSummaryButton } from "@/components/ai-feedback-summary-button";
 import { TEACHER_FEEDBACK_CRITERIA } from "@/lib/teacher-feedback";
 import type { TeacherFeedbackCriterionKey } from "@/lib/types";
+import { loadTeacherPageContext } from "../_context";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +13,7 @@ export const dynamic = "force-dynamic";
  * Yönetici inceleme ekranı — ham kimlik VARSAYILAN gizli (maskeli liste),
  * gerekçeli/audit'li reveal aksiyonu her satırda mevcut.
  */
-export default async function TeacherFeedbackReviewPage({
+export default async function TeacherFeedbackReviewTab({
   params,
   searchParams,
 }: {
@@ -25,27 +23,9 @@ export default async function TeacherFeedbackReviewPage({
   const { teacherId } = await params;
   const { status, sourceType } = await searchParams;
 
-  let session;
-  try {
-    session = await requireSessionContext();
-  } catch {
-    redirect(`/login?next=/panel/ogretmenler/${teacherId}/geri-bildirim`);
-  }
-  if (session.role !== "SCHOOL_ADMIN" && session.role !== "SUPER_ADMIN") {
-    redirect("/panel");
-  }
-
-  const data = await readData();
-  const teacher = data.teachers.find((t) => t.id === teacherId);
-  if (!teacher) {
-    return (
-      <div>
-        <BackButton fallbackHref="/panel/ogretmenler" label="Öğretmenlere dön" className="mb-3" />
-        <PageHeader title="Öğretmen bulunamadı" />
-        <EmptyState title="Öğretmen bulunamadı" description="Bu kayıt mevcut kurum kapsamınızda değil." />
-      </div>
-    );
-  }
+  const { session, teacher, canManage } = await loadTeacherPageContext(teacherId);
+  if (!canManage) redirect("/panel");
+  if (!teacher) notFound();
 
   const result = await listTeacherFeedbackForReviewTool(session, { teacherId, status, sourceType });
   const rows = result.ok ? result.data.feedback : [];
@@ -63,14 +43,15 @@ export default async function TeacherFeedbackReviewPage({
   const pendingCount = rows.filter((r) => r.status === "pending").length;
 
   return (
-    <div>
-      <BackButton fallbackHref={`/panel/ogretmenler/${teacher.id}`} label="Öğretmen detayına dön" className="mb-3" />
-      <PageHeader
-        title={`${teacher.name} — Geri Bildirim İncelemesi`}
-        description="Ham öğrenci kimliği varsayılan gizli; her satırdan gerekçeli/audit'li olarak açılabilir."
-      />
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-sm font-semibold text-[var(--color-text)]">Geri Bildirim İncelemesi</h2>
+        <p className="text-xs text-[var(--color-text-muted)]">
+          Ham öğrenci kimliği varsayılan gizli; her satırdan gerekçeli/audit&apos;li olarak açılabilir.
+        </p>
+      </div>
 
-      <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Toplam yanıt" value={rows.length} />
         <StatCard label="Bekleyen" value={pendingCount} accent="warning" />
         <StatCard label="Devam etmek istiyor" value={continueCounts.yes} accent="success" />
@@ -78,7 +59,7 @@ export default async function TeacherFeedbackReviewPage({
       </div>
 
       {rows.length > 0 ? (
-        <Card className="mb-6">
+        <Card>
           <p className="mb-3 text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
             Kriter ortalamaları (1–5)
           </p>
@@ -93,11 +74,13 @@ export default async function TeacherFeedbackReviewPage({
         </Card>
       ) : null}
 
-      <div className="mb-6">
-        <AiFeedbackSummaryButton subject="teacher" subjectId={teacher.id} />
-      </div>
+      <AiFeedbackSummaryButton subject="teacher" subjectId={teacher.id} />
 
-      <TeacherFeedbackReviewList rows={rows} />
+      {rows.length === 0 ? (
+        <EmptyState title="Geri bildirim yok" description="Bu öğretmen için henüz inceleme kaydı bulunmuyor." />
+      ) : (
+        <TeacherFeedbackReviewList rows={rows} />
+      )}
     </div>
   );
 }
