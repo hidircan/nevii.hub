@@ -885,7 +885,15 @@ export async function createContract(input: CreateContractInput): Promise<Create
 
   const isFormal = isFormalContractDuration(input.durationMonths);
   const nowTr = formatDateTr(new Date());
-  const versionNumber = previous ? previous.versionNumber + 1 : 1;
+  /**
+   * Sürüm, sözleşme TÜRÜNDEN bağımsız olarak öğrenci bazında artar.
+   * İptal sonrası yeni bir "initial" eskiden yine versionNumber=1 alıyordu;
+   * liste `versionNumber desc` ile sıralanınca iptal edilmiş kayıtla
+   * berabere kalıyor ve "güncel" rozeti yanlış satıra yapışıyordu.
+   */
+  const existingForStudent = await listContractsForStudent(input.tenantId, input.studentId);
+  const maxVersion = existingForStudent.reduce((max, c) => Math.max(max, c.versionNumber), 0);
+  const versionNumber = Math.max(maxVersion + 1, previous ? previous.versionNumber + 1 : 1);
 
   let doc: { id: string; reference: string } | undefined;
   let templateVersionUsed: number | undefined;
@@ -1229,14 +1237,14 @@ export async function listContractsForStudent(tenantId: string, studentId: strin
     const { prisma } = await import("./db");
     const rows = await prisma.studentContract.findMany({
       where: { tenantId, studentId },
-      orderBy: { versionNumber: "desc" },
+      orderBy: [{ versionNumber: "desc" }, { createdAt: "desc" }],
     });
     return rows.map(mapDb);
   }
   const all = await loadAll();
   return all
     .filter((x) => x.tenantId === tenantId && x.studentId === studentId)
-    .sort((a, b) => b.versionNumber - a.versionNumber)
+    .sort((a, b) => b.versionNumber - a.versionNumber || b.createdAt.localeCompare(a.createdAt))
     .map(toPublic);
 }
 
@@ -1275,7 +1283,7 @@ export async function listContractSummariesByStudent(
         enrollmentEndDate: true,
         versionNumber: true,
       },
-      orderBy: { versionNumber: "desc" },
+      orderBy: [{ versionNumber: "desc" }, { createdAt: "desc" }],
     });
     rows = found.map((r) => ({
       studentId: r.studentId,
@@ -1325,11 +1333,15 @@ export async function listContractSummariesByStudent(
   return byStudent;
 }
 
-/** "Güncel/aktif" sözleşme — cancelled/superseded HARİÇ en yüksek versiyon. */
+/**
+ * Güncel sözleşme — cancelled/superseded HARİÇ en yüksek versiyon
+ * (eşitlikte en yeni createdAt). Hepsi iptal/yenilenmişse null.
+ * `selectCurrentContract` ile aynı kural; iptal edilmiş kayıt asla dönmez.
+ */
 export async function getLatestContractForStudent(tenantId: string, studentId: string): Promise<StudentContract | null> {
+  const { selectCurrentContract } = await import("./contract-list-helpers");
   const all = await listContractsForStudent(tenantId, studentId);
-  const active = all.filter((c) => c.status !== "cancelled" && c.status !== "superseded");
-  return active[0] ?? all[0] ?? null;
+  return selectCurrentContract(all);
 }
 
 export async function listInstallmentsForContract(tenantId: string, contractId: string): Promise<ContractInstallmentView[]> {

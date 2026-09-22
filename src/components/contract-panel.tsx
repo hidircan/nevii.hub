@@ -13,7 +13,12 @@ import {
 import { ContractCancelDialog } from "@/components/contract-cancel-dialog";
 import { parseDateOnlyInput, isValidDateOnlyInput, toIsoDateOrNull, dayOfMonthUtc } from "@/lib/date-input";
 import { describePaymentDueRule, paymentMethodLabel } from "@/lib/payment-due-rule-client";
-import { findLatestActiveContractForRenewal } from "@/lib/contract-list-helpers";
+import {
+  findLatestActiveContractForRenewal,
+  isTerminalContractStatus,
+  selectCurrentContract,
+  sortContractsForDisplay,
+} from "@/lib/contract-list-helpers";
 import { prefillFromContract } from "@/lib/contract-prefill";
 import { formatDateTr } from "@/lib/timezone";
 import { paymentMethodLabelTr } from "@/lib/utils";
@@ -44,6 +49,7 @@ type ContractRow = {
   installmentCount: number;
   paymentMethod?: string;
   signatoryFullName: string;
+  createdAt?: string;
   /** 1-2 aylık tanışma paketi kayıtlarında yok — formal sözleşme belgesi üretilmedi. */
   documentInstanceId?: string;
 };
@@ -1679,9 +1685,10 @@ export function ContractPanel({
   // `firstDueDate` ile açıyordu (çökme kök nedeni). "GÜNCEL" rozeti/geçmiş
   // gösterimi (salt görsel) ile YENİLEME UYGUNLUĞU (aksiyon) artık AYRI
   // değişkenlerdir.
-  const mostRecentForDisplay = contracts[0] ?? null;
+  const currentContract = selectCurrentContract(contracts);
   const latestActive = findLatestActiveContractForRenewal(contracts);
   const hasOnlyInactiveHistory = contracts.length > 0 && !latestActive;
+  const orderedContracts = sortContractsForDisplay(contracts);
 
   async function runAction(id: string, path: string) {
     setBusyId(id);
@@ -1794,13 +1801,31 @@ export function ContractPanel({
         <p className="text-sm text-[var(--color-text-muted)]">Bu öğrenci için henüz kayıt sözleşmesi oluşturulmadı.</p>
       ) : (
         <div className="space-y-2">
-          {contracts.map((c) => (
-            <Card key={c.id} className="!p-3">
+          {orderedContracts.map((c, index) => {
+            const isCurrent = c.id === currentContract?.id;
+            const terminal = isTerminalContractStatus(c.status);
+            const showHistoryHeading = !isCurrent && (index === 0 || orderedContracts[index - 1]?.id === currentContract?.id);
+            return (
+            <div key={c.id}>
+            {showHistoryHeading ? (
+              <p className="mb-1 mt-3 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
+                Geçmiş sözleşmeler
+              </p>
+            ) : null}
+            <Card className={isCurrent ? "!border-[var(--color-primary)] !p-3" : "!p-3 opacity-90"}>
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div>
                   <p className="text-sm font-medium text-[var(--color-text)]">
                     {c.contractNumber} · v{c.versionNumber} · {CONTRACT_TYPE_LABELS[c.contractType]}
-                    {c.id === mostRecentForDisplay?.id ? <span className="ml-2 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">GÜNCEL</span> : null}
+                    {isCurrent ? (
+                      <span className="ml-2 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
+                        Güncel
+                      </span>
+                    ) : terminal ? (
+                      <span className="ml-2 rounded bg-[var(--color-surface-muted)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--color-text-muted)]">
+                        Geçmiş
+                      </span>
+                    ) : null}
                   </p>
                   <p className="text-xs text-[var(--color-text-muted)]">
                     {c.programmeName} · {formatDateTr(c.enrollmentStartDate)} – {formatDateTr(c.enrollmentEndDate)}
@@ -1856,7 +1881,7 @@ export function ContractPanel({
                     />
                   </label>
                 ) : null}
-                {canManage && (c.status === "generated" || c.status === "recorded") ? (
+                {canManage && !terminal ? (
                   <ContractCancelDialog
                     contractId={c.id}
                     contractNumber={c.contractNumber}
@@ -1881,7 +1906,9 @@ export function ContractPanel({
                 ) : null}
               </div>
             </Card>
-          ))}
+            </div>
+            );
+          })}
         </div>
       )}
     </div>

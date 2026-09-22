@@ -5,6 +5,7 @@ import { Badge, Card, EmptyState } from "@/components/ui";
 import { RegistrationSuccessPanel } from "@/components/registration-success-panel";
 import { listStudentContractsTool } from "@/lib/services";
 import { contractStatusLabel } from "@/lib/contracts";
+import { selectCurrentContract } from "@/lib/contract-list-helpers";
 import { computeStudentPaymentSummary, sortPaymentsForProfile } from "@/lib/payment-profile";
 import { resolveLessonFinalStatus } from "@/lib/lesson-live-status";
 import { formatDate, formatDateTime, formatMoney, formatTime } from "@/lib/utils";
@@ -39,7 +40,7 @@ export default async function StudentOverviewTab({
 
   const contractsResult = await listStudentContractsTool(session, { studentId: student.id });
   const contracts = contractsResult.ok ? contractsResult.data.contracts : [];
-  const currentContract = contracts[0];
+  const currentContract = selectCurrentContract(contracts);
 
   const payments = sortPaymentsForProfile(data.payments.filter((p) => p.studentId === student.id));
   const paymentSummary = computeStudentPaymentSummary(payments);
@@ -77,6 +78,13 @@ export default async function StudentOverviewTab({
       label: "Kayıt sözleşmesi oluşturulmamış",
       href: `/panel/ogrenciler/${student.id}/sozlesmeler`,
       tone: "danger",
+    });
+  } else if (!currentContract) {
+    alerts.push({
+      key: "no-active-contract",
+      label: "Aktif sözleşme yok — geçmiş kayıtlar iptal edilmiş veya yenilenmiş",
+      href: `/panel/ogrenciler/${student.id}/sozlesmeler`,
+      tone: "warning",
     });
   } else if (contractEnd !== undefined && contractEnd < todayYmd) {
     alerts.push({
@@ -246,8 +254,12 @@ export default async function StudentOverviewTab({
           </div>
           {!currentContract ? (
             <EmptyState
-              title="Sözleşme yok"
-              description="Bu öğrenci için henüz bir kayıt sözleşmesi oluşturulmamış."
+              title={contracts.length > 0 ? "Aktif sözleşme yok" : "Sözleşme yok"}
+              description={
+                contracts.length > 0
+                  ? "Bu öğrencinin sözleşmeleri iptal edilmiş veya yenilenmiş. Güncel bir kayıt yok; geçmiş Sözleşme Merkezi'nde durur."
+                  : "Bu öğrenci için henüz bir kayıt sözleşmesi oluşturulmamış."
+              }
             />
           ) : (
             <dl className="space-y-2 text-sm">

@@ -7,6 +7,7 @@ import { ContractPanel, type RegistrationSummary } from "@/components/contract-p
 import { paymentMethodLabelTr } from "@/lib/utils";
 import { Card, EmptyState, PageHeader } from "@/components/ui";
 import { isFormalContractDuration } from "@/lib/contracts";
+import { selectCurrentContract } from "@/lib/contract-list-helpers";
 import { deriveLessonScheduleTextFromLessons } from "@/lib/lesson-schedule-text";
 import { buildContractPrefill, clampDurationMonths, DEFAULT_CONTRACT_DURATION_MONTHS } from "@/lib/contract-prefill";
 import { diagnoseContractAnnexTemplates } from "@/lib/contract-annexes";
@@ -99,7 +100,7 @@ export default async function StudentContractsCenterPage({
   // iptal edilmiş bir sözleşmeden sonra da form dolu açılır (boş önizleme kök nedeni).
   const contractPrefill = buildContractPrefill({
     student,
-    latestContract: contracts[0],
+    latestContract: selectCurrentContract(contracts) ?? undefined,
     registrationFirstPayment,
     requestedDurationMonths: sure,
     /**
