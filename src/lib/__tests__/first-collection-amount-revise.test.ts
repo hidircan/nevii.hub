@@ -86,7 +86,7 @@ describe("İlk tahsilat tutarı revizyonu — amount + paidAmount birlikte", () 
       paidAt: new Date().toISOString(),
       method: "cash",
       description: "Taksit",
-      source: "contract_installment",
+      source: "contract",
     };
     await writeData({ ...data, payments: [...data.payments, payment] });
 
