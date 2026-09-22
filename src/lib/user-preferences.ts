@@ -44,6 +44,15 @@ export type UserWorkspacePreferences = {
 
 export type DashboardSectionSpan = 4 | 5 | 6 | 7 | 8 | 12;
 
+/** İsimli Günlük Özet görünümü — aynı dashboardJson içinde, migration yok. */
+export type DashboardSavedView = {
+  id: string;
+  name: string;
+  sectionOrder: string[];
+  hiddenSections: string[];
+  sectionSpans: Record<string, DashboardSectionSpan>;
+};
+
 export type DashboardPreferences = {
   /** Varsayılan şube kimliği; "all" veya tanımsız = tüm şubeler. */
   defaultBranchId?: string;
@@ -53,6 +62,10 @@ export type DashboardPreferences = {
   sectionOrder?: string[];
   /** xl ızgarada kolon genişliği (4|5|6|7|8|12). */
   sectionSpans?: Record<string, DashboardSectionSpan>;
+  /** Kullanıcının adlandırdığı düzenler (en fazla 12). */
+  savedViews?: DashboardSavedView[];
+  /** Seçili kayıtlı görünüm; yoksa canlı düzen rol varsayılanı + override'dır. */
+  activeViewId?: string;
 };
 
 type Stored = UserWorkspacePreferences & { userId: string; tenantId: string };

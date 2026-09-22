@@ -466,6 +466,8 @@ export default async function DashboardPage({
             initialOrder={layout.order}
             initialHidden={layout.hidden}
             initialSpans={layout.spans}
+            initialSavedViews={prefs.dashboard?.savedViews ?? []}
+            initialActiveViewId={prefs.dashboard?.activeViewId}
           />
         }
       />
@@ -487,7 +489,7 @@ export default async function DashboardPage({
         </Link>
       ) : null}
 
-      <div className="grid gap-4 xl:grid-cols-12">
+      <div className="grid gap-2.5 xl:grid-cols-12">
         {layout.visible.map(({ key, span }) => {
           const node = sectionNodes[key];
           if (!node) return null;

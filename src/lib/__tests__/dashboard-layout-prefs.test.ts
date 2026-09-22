@@ -111,6 +111,51 @@ describe("sanitize + merge persistence", () => {
     expect(merged).toEqual({ defaultBranchId: "evka3" });
   });
 
+  it("reset kayıtlı görünümleri silmez", () => {
+    const merged = mergeDashboardPreferences(
+      {
+        defaultBranchId: "evka3",
+        savedViews: [
+          {
+            id: "v_sabah",
+            name: "Sabah",
+            sectionOrder: ["actions"],
+            hiddenSections: [],
+            sectionSpans: { actions: 12 },
+          },
+        ],
+        activeViewId: "v_sabah",
+      },
+      sanitizeDashboardLayoutPatch({ resetToDefault: true }, "SUPER_ADMIN")
+    );
+    expect(merged.savedViews).toHaveLength(1);
+    expect(merged.activeViewId).toBeUndefined();
+    expect(merged.sectionOrder).toBeUndefined();
+  });
+
+  it("kayıtlı görünüm adı ve payout rol kapısı sanitize edilir", () => {
+    const sanitized = sanitizeDashboardLayoutPatch(
+      {
+        savedViews: [
+          {
+            id: "v_ok",
+            name: "  Operasyon  ",
+            sectionOrder: ["payout", "actions"],
+            hiddenSections: ["payout"],
+            sectionSpans: { actions: 6, payout: 12 },
+          },
+        ],
+        activeViewId: "v_ok",
+      },
+      "SCHOOL_ADMIN"
+    );
+    if ("clearLayout" in sanitized) throw new Error("unexpected");
+    expect(sanitized.savedViews?.[0]?.name).toBe("Operasyon");
+    expect(sanitized.savedViews?.[0]?.sectionOrder).not.toContain("payout");
+    expect(sanitized.savedViews?.[0]?.hiddenSections).toEqual([]);
+    expect(sanitized.activeViewId).toBe("v_ok");
+  });
+
   it("sanitize non-owner payout anahtarını düşürür", () => {
     const sanitized = sanitizeDashboardLayoutPatch(
       {

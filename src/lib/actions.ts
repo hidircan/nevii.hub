@@ -468,6 +468,8 @@ export async function actionSaveDashboardLayout(patch: {
   hiddenSections?: string[];
   sectionOrder?: string[];
   sectionSpans?: Record<string, number>;
+  savedViews?: import("./user-preferences").DashboardSavedView[];
+  activeViewId?: string | null;
   resetToDefault?: boolean;
 }): Promise<void> {
   try {

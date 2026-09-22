@@ -5,7 +5,7 @@
  * SUPER_ADMIN'e gösterilir (tercihte olsa bile rol kapısı aşılmaz).
  */
 
-import type { DashboardPreferences, DashboardSectionSpan } from "../user-preferences";
+import type { DashboardPreferences, DashboardSavedView, DashboardSectionSpan } from "../user-preferences";
 
 export type { DashboardSectionSpan };
 
@@ -163,9 +163,43 @@ export type DashboardLayoutPatch = {
   hiddenSections?: string[];
   sectionOrder?: string[];
   sectionSpans?: Record<string, number>;
-  /** true → layout alanlarını sil, defaultBranchId korunur. */
+  savedViews?: DashboardSavedView[];
+  /** null → seçili görünüm kalkar, canlı düzen kalır. */
+  activeViewId?: string | null;
+  /** true → layout alanlarını sil; defaultBranchId ve savedViews korunur. */
   resetToDefault?: boolean;
 };
+
+const VIEW_ID = /^[a-zA-Z0-9_-]{1,40}$/;
+
+function sanitizeSavedViews(
+  views: DashboardSavedView[] | undefined,
+  allowedKeys: Set<DashboardSectionKey>
+): DashboardSavedView[] | undefined {
+  if (!views) return undefined;
+  const out: DashboardSavedView[] = [];
+  const seen = new Set<string>();
+  for (const view of views.slice(0, 12)) {
+    const id = typeof view?.id === "string" ? view.id : "";
+    const name = typeof view?.name === "string" ? view.name.trim().slice(0, 40) : "";
+    if (!VIEW_ID.test(id) || !name || seen.has(id)) continue;
+    seen.add(id);
+    const order = mergeSectionOrder(view.sectionOrder, [...allowedKeys] as DashboardSectionKey[]);
+    const hiddenSeen = new Set<string>();
+    const hidden = (view.hiddenSections ?? []).filter((k) => {
+      if (!isDashboardSectionKey(k) || !allowedKeys.has(k) || hiddenSeen.has(k)) return false;
+      hiddenSeen.add(k);
+      return true;
+    });
+    const spans: Record<string, DashboardSectionSpan> = {};
+    for (const [key, value] of Object.entries(view.sectionSpans ?? {})) {
+      if (!isDashboardSectionKey(key) || !allowedKeys.has(key)) continue;
+      if (ALLOWED_SPANS.has(value)) spans[key] = value;
+    }
+    out.push({ id, name, sectionOrder: order, hiddenSections: hidden, sectionSpans: spans });
+  }
+  return out;
+}
 
 /**
  * Kayda yazılmadan önce sanitize. Non-owner `payout` anahtarını tüm
@@ -202,6 +236,18 @@ export function sanitizeDashboardLayoutPatch(
     out.sectionSpans = spans;
   }
 
+  if (patch.savedViews !== undefined) {
+    out.savedViews = sanitizeSavedViews(patch.savedViews, allowedKeys) ?? [];
+  }
+
+  if (patch.activeViewId !== undefined) {
+    if (patch.activeViewId === null || patch.activeViewId === "") {
+      out.activeViewId = undefined;
+    } else if (VIEW_ID.test(patch.activeViewId)) {
+      out.activeViewId = patch.activeViewId;
+    }
+  }
+
   return out;
 }
 
@@ -213,6 +259,7 @@ export function mergeDashboardPreferences(
   if ("clearLayout" in sanitized) {
     const next: DashboardPreferences = {};
     if (prev?.defaultBranchId !== undefined) next.defaultBranchId = prev.defaultBranchId;
+    if (prev?.savedViews !== undefined) next.savedViews = prev.savedViews;
     return next;
   }
 
