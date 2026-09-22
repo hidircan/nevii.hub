@@ -193,6 +193,7 @@ export {
   updateInstrumentCatalogTool,
   globalSearchTool,
   listStaffTool,
+  getStaffPerformanceTool,
   createStaffMemberTool,
   updateStaffMemberTool,
   listPayrollTool,

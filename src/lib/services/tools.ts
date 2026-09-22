@@ -130,6 +130,11 @@ import {
 } from "../instrument-catalog";
 import { listStaff, createStaffMember, updateStaffMember, getStaffMember } from "../staff";
 import {
+  computeStaffPerformanceReport,
+  currentYearMonth,
+  type StaffPerformanceReport,
+} from "../staff-performance";
+import {
   listStaffAdvances,
   createStaffAdvance,
   decideStaffAdvance,
@@ -3683,6 +3688,49 @@ export async function getStaffAccountStatusTool(
     lastInvitedAt: staff.portalInvitedAt ?? null,
     lastPasswordResetRequestedAt,
   });
+}
+
+/**
+ * Kurum sahibi — personel performans raporu (görev + tahsilat + kurum geneli
+ * yeni kayıt bağlamı). Öğretmen performansından ayrıdır. Yalnız SUPER_ADMIN
+ * (personel ekranı ile aynı sınır; SCHOOL_ADMIN görmez).
+ */
+export async function getStaffPerformanceTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<StaffPerformanceReport>> {
+  const auth = requireRole(ctx, ["SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", "Personel performansı yalnız kurum sahibi tarafından görülebilir.");
+  if (!canViewFinanceAndStaffSummary(ctx)) {
+    return fail("FORBIDDEN", "Personel performansı yalnız kurum sahibi tarafından görülebilir.");
+  }
+
+  const v = parseOrFail(
+    z.object({
+      staffId: z.string().min(1),
+      /** yyyy-MM — verilmezse kurum saat dilimindeki içinde bulunulan ay. */
+      yearMonth: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+      /** Test/deterministik tarih için — yyyy-MM-dd; yearMonth yoksa bundan türetilir. */
+      todayYmd: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    }),
+    input
+  );
+  if (!v.ok) return v;
+
+  const staff = await getStaffMember(ctx.tenantId, v.data.staffId);
+  if (!staff) return fail("NOT_FOUND", "Personel kaydı bulunamadı.");
+
+  const todayYmd = v.data.todayYmd ?? new Date().toISOString().slice(0, 10);
+  const yearMonth = v.data.yearMonth ?? currentYearMonth(todayYmd);
+
+  const [data, tasks] = await Promise.all([readData(), listTasks(ctx.tenantId, {})]);
+  const report = computeStaffPerformanceReport({
+    staff,
+    tasks,
+    data,
+    yearMonth,
+  });
+  return ok(report);
 }
 
 /**

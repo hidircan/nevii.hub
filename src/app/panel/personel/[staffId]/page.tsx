@@ -78,7 +78,35 @@ export default async function StaffDetailPage({ params }: { params: Promise<{ st
     <div>
       <KurumScopeNote scope={kurum.scope} />
       <BackButton fallbackHref="/panel/personel" label="Personele dön" className="mb-3" />
-      <PageHeader title={staff.name} description={staff.position} />
+      <PageHeader
+        title={staff.name}
+        description={staff.position}
+        actions={
+          <Link
+            href={`/panel/personel/${staff.id}/performans`}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-2 text-sm font-medium text-[var(--color-text)] hover:bg-[var(--color-surface-muted)]"
+          >
+            Performans
+          </Link>
+        }
+      />
+
+      <section className="mb-6">
+        <Card className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-medium text-[var(--color-text)]">Performans özeti</p>
+            <p className="mt-0.5 text-xs text-[var(--color-text-muted)]">
+              Görev, tahsilat ve dönem karşılaştırması — zam/prim değerlendirmesi için.
+            </p>
+          </div>
+          <Link
+            href={`/panel/personel/${staff.id}/performans`}
+            className="text-sm font-medium text-[var(--color-primary)] hover:underline"
+          >
+            Performansı görüntüle →
+          </Link>
+        </Card>
+      </section>
 
       <section className="mb-8">
         <h2 className="mb-3 text-sm font-semibold text-[var(--color-text)]">Özlük dosyası</h2>
