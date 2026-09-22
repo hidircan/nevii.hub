@@ -28,7 +28,29 @@ screens (login/welcome).
 - Full detail + rationale: `docs/contracts/LEGAL_POLICY_TEXT_DISCREPANCY_REPORT.md`,
   `docs/roadmap/NEVIIHUB_ADMIN_CONTRACTS_POLICY_REMAINING_WORK.md`.
 
-## Güncel odak (2026-09-20) — Operasyon turu: çalışma günü tek kaynağı, dashboard, öğrenci IA, veri kalıcılığı (`fix/schedule-contract-ux-round`)
+## Güncel odak (2026-09-22) — Ops/UX/güvenlik turu A–J (`fix/schedule-contract-ux-round`)
+
+Tek turda bug fix + UX + IA + güvenlik. **Migration YOK** (dashboard prefs mevcut `dashboardJson` kolonunu kullanır).
+
+- **A** Öğrenciler arama: filtre açıkken debounced URL yankısı local input'u eziyordu → dirty-local koruması.
+- **B** Günlük Özet kişiselleştirme: göster/gizle, sıra, boyut; `UserPreference.dashboardJson`; varsayılana dön.
+- **C** Telafi: duplicate Görev oluştur + şube tekrarı temizlendi.
+- **D** Devamsızlık riski → Yoklama Raporu (öğrenci listesinden kaldırıldı).
+- **E** Öğretmen detay: öğrenci IA gibi layout + 9 gerçek sekme (#anchor kalktı).
+- **F** Tahsilat takibi geri → ödemeler `returnTo` (AI Özet'e düşmez).
+- **G** Global arama: Escape + scrim/boş alan + tetikleyici toggle.
+- **H** Personel performans (SUPER_ADMIN): gerçek görev/tahsilat metrikleri + ay kıyası.
+- **I** Boş şablona sıfırla: production/test UI+server `isLocalDevTooling` fail-closed + `SIFIRLA` phrase.
+- **J** İlk tahsilat 1→7000: `collectPayment.reviseBilledAmount` amount+paidAmount birlikte.
+- UAT: `docs/testing/UAT_2026_09_22_OPS_UX_SECURITY_ROUND.md`.
+
+### Açık ürün kararları
+- Personel yeni öğrenci kaydı kişiye atfedilemiyor (Student.createdBy yok) → kurum geneli bağlam olarak etiketleniyor.
+- Öğretmen Evraklar ayrı sekme değil (özetten `/panel/evraklar?teacherId=`).
+
+---
+
+## Önceki odak (2026-09-20) — Operasyon turu: çalışma günü tek kaynağı, dashboard, öğrenci IA, veri kalıcılığı (`fix/schedule-contract-ux-round`)
 
 Tek turda A–M kapsamı. **Migration uygulanmadı** (dosyalar repo'da, hepsi additive).
 
