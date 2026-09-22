@@ -299,64 +299,80 @@ export default async function KurulumPage() {
           geliştirmede render edilir; test/preview/production kullanıcı
           arayüzünde HİÇ görünmez. `resetDemoTool` aynı kapıyı sunucu
           tarafında da uygular (UI gizlemek tek başına yeterli değildir). */}
+      {/* Güvenlik (2026-09-22): hem demo reset hem boş şablon YIKICI araçlardır.
+          Test/preview/production UI'da HİÇ görünmez; sunucu tool'ları da
+          isLocalDevTooling() ile fail-closed. Canlı/test verisi sıfırlama
+          ops prosedürüdür — panelden yapılamaz. */}
       {isLocalDevTooling() ? (
-      <Card className="mt-6 border-[var(--color-border)] bg-[var(--color-surface-muted)]">
-        <div className="flex items-start gap-3">
-          <RefreshCcw className="mt-0.5 h-5 w-5 shrink-0 text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]" />
-          <div className="flex-1">
-            <p className="font-semibold text-[var(--color-text)] dark:text-slate-50">Demo ortamı (yalnız yerel geliştirme)</p>
-            <p className="mt-1 text-sm text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
-              Demo verisini sıfırlamak mevcut demo öğretmen/öğrenci/ders/ödeme örneklerini geri
-              yükler — sunum ve deneme amaçlıdır. Bu işlem yalnızca yönetici yetkisiyle yapılabilir
-              ve geri alınamaz.
-            </p>
-            <div className="mt-3">
-              <SetupResetAction
-                action={actionResetDemo}
-                triggerLabel="Demo verisini geri yükle"
-                triggerVariant="secondary"
-                title="Demo verisi geri yüklensin mi?"
-                bullets={[
-                  "Mevcut tüm öğretmen/öğrenci/ders/ödeme kayıtları silinir.",
-                  "Yerine örnek demo verisi (Nilüfer Acar Müzik Akademisi) yüklenir.",
-                  "Bu işlem geri alınamaz.",
-                ]}
-                confirmLabel="Demo verisini geri yükle"
-              />
+        <>
+          <Card className="mt-6 border-[var(--color-border)] bg-[var(--color-surface-muted)]">
+            <div className="flex items-start gap-3">
+              <RefreshCcw className="mt-0.5 h-5 w-5 shrink-0 text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]" />
+              <div className="flex-1">
+                <p className="font-semibold text-[var(--color-text)] dark:text-slate-50">Demo ortamı (yalnız yerel geliştirme)</p>
+                <p className="mt-1 text-sm text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
+                  Demo verisini sıfırlamak mevcut demo öğretmen/öğrenci/ders/ödeme örneklerini geri
+                  yükler — sunum ve deneme amaçlıdır. Bu işlem yalnızca yönetici yetkisiyle yapılabilir
+                  ve geri alınamaz.
+                </p>
+                <div className="mt-3">
+                  <SetupResetAction
+                    action={actionResetDemo}
+                    triggerLabel="Demo verisini geri yükle"
+                    triggerVariant="secondary"
+                    title="Demo verisi geri yüklensin mi?"
+                    bullets={[
+                      "Mevcut tüm öğretmen/öğrenci/ders/ödeme kayıtları silinir.",
+                      "Yerine örnek demo verisi (Nilüfer Acar Müzik Akademisi) yüklenir.",
+                      "Bu işlem geri alınamaz.",
+                    ]}
+                    confirmLabel="Demo verisini geri yükle"
+                  />
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
-      </Card>
-      ) : null}
+          </Card>
 
-      <Card className="mt-6 border-rose-200 bg-rose-50/40">
-        <div className="flex items-start gap-3">
-          <RefreshCcw className="mt-0.5 h-5 w-5 shrink-0 text-rose-500" />
-          <div className="flex-1">
-            <p className="font-semibold text-[var(--color-text)] dark:text-slate-50">Boş şablona sıfırla</p>
-            <p className="mt-1 text-sm text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
-              Demo sıfırlamadan FARKLI bir işlem: hiçbir örnek kayıt bırakmaz, yalnızca kurum
-              kimliğinizi (ad, kurulum ayarları) koruyan boş bir kurulum iskeleti bırakır. Gerçek
-              operasyona sıfırdan başlamak için kullanın.
-            </p>
-            <div className="mt-3">
-              <SetupResetAction
-                action={actionResetToCleanTemplate}
-                triggerLabel="Boş şablona sıfırla"
-                triggerVariant="danger"
-                title="Boş şablona sıfırlansın mı?"
-                bullets={[
-                  "TÜM öğretmen/öğrenci/şube/oda/ders/ödeme kayıtları kalıcı olarak silinir.",
-                  "Demo örnek verisi YENİDEN yüklenmez — kurulum sıfırdan başlar.",
-                  "Kurum adı ve genel ayarlar korunur.",
-                  "Bu işlem geri alınamaz.",
-                ]}
-                confirmLabel="Boş şablona sıfırla"
-              />
+          <Card className="mt-6 border-rose-200 bg-rose-50/40">
+            <div className="flex items-start gap-3">
+              <RefreshCcw className="mt-0.5 h-5 w-5 shrink-0 text-rose-500" />
+              <div className="flex-1">
+                <p className="font-semibold text-[var(--color-text)] dark:text-slate-50">Boş şablona sıfırla (yalnız yerel geliştirme)</p>
+                <p className="mt-1 text-sm text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
+                  Demo sıfırlamadan FARKLI ve çok daha yıkıcı: tenant&apos;taki tüm operasyonel
+                  veriyi siler. Test/production&apos;da panelden KAPALIDIR — yanlışlıkla canlı
+                  veya test verisini uçurmamak için.
+                </p>
+                <div className="mt-3">
+                  <SetupResetAction
+                    action={actionResetToCleanTemplate}
+                    triggerLabel="Boş şablona sıfırla"
+                    triggerVariant="danger"
+                    title="Boş şablona sıfırlansın mı?"
+                    bullets={[
+                      "TÜM öğretmen/öğrenci/şube/oda/ders/ödeme kayıtları kalıcı olarak silinir.",
+                      "İş takip görevleri, bildirimler, ödevler ve yan veriler de silinir.",
+                      "Demo örnek verisi YENİDEN yüklenmez — kurulum sıfırdan başlar.",
+                      "Kurum adı korunur; giriş kullanıcıları db modunda silinebilir (kilitleme riski).",
+                      "Bu işlem GERİ ALINAMAZ. Audit kaydı yazılır.",
+                    ]}
+                    confirmPhrase="SIFIRLA"
+                    confirmLabel="Boş şablona sıfırla"
+                  />
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
-      </Card>
+          </Card>
+        </>
+      ) : (
+        <Card className="mt-6 border-[var(--color-border)] bg-[var(--color-surface-muted)]/50">
+          <p className="text-sm text-[var(--color-text-muted)]">
+            Veri sıfırlama araçları (demo geri yükleme / boş şablon) bu ortamda kapalıdır.
+            Test veya canlı veriyi temizlemek için ops prosedürünü kullanın — panelden
+            yıkıcı sıfırlama yapılamaz.
+          </p>
+        </Card>
+      )}
     </div>
   );
 }

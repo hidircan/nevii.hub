@@ -1628,6 +1628,14 @@ export async function updatePaymentTool(
       paidAt = prev.toISOString();
     }
 
+    // Fatura tutarı revizyonu: kayıt anı ilk tahsilatı veya tam ödenmiş
+    // kayıtlarda amount+paidAmount birlikte güncellenir. Kısmi ödemede
+    // (paidAmount < amount) yalnız tahsilat tutarı değişir — taksit anaparası
+    // korunur.
+    const reviseBilledAmount =
+      v.data.amount !== undefined &&
+      (existing.source === "registration_first_payment" || existing.paidAmount === existing.amount);
+
     const { collectPayment } = await import("../payments/collect");
     await collectPayment(v.data.paymentId, {
       method: v.data.method,
@@ -1637,11 +1645,13 @@ export async function updatePaymentTool(
       actorUserId: ctx.userId,
       tenantId: ctx.tenantId,
       voided: v.data.amount === 0,
+      reviseBilledAmount,
     });
     audit(ctx, "payment.update", "Payment", v.data.paymentId, {
       method: v.data.method,
       amount: v.data.amount,
       paidAt,
+      reviseBilledAmount,
     });
     return ok({ paymentId: v.data.paymentId });
   } catch (e) {
@@ -8630,6 +8640,17 @@ export async function resetToCleanTemplateTool(
 ): Promise<ServiceResult<{ reset: true }>> {
   const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  // Güvenlik (2026-09-22): Bu aksiyon tenant'taki TÜM operasyonel veriyi
+  // (öğrenci/öğretmen/şube/ödeme/ders + yan store'lar) siler; db modunda
+  // kullanıcıları da silip kurumu kilitleyebilir. Demo reset ile AYNI kapı —
+  // test/preview/production'da UI'dan ve server action'dan KAPALI; yalnız
+  // yerel geliştirme + bilinçli ops prosedürü.
+  if (!isLocalDevTooling()) {
+    return fail(
+      "FORBIDDEN",
+      "Boş şablona sıfırlama yalnızca yerel geliştirmede kullanılabilir. Test/production ortamında veri sıfırlama bir ops prosedürüdür; panelden yapılamaz."
+    );
+  }
   try {
     await resetToCleanTemplate();
     await clearFollowUpCases(ctx.tenantId);
