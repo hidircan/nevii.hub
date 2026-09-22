@@ -1,3 +1,5 @@
+import { getCategoryDef, isNotificationCategory } from "./notification-categories";
+
 /**
  * Bildirim tıklanınca gidecek güvenli panel rotası.
  * Notification şemasında ayrı href alanı YOK — kind + body içindeki
@@ -65,4 +67,35 @@ export function resolveNotificationHref(kind: string, body?: string): string | n
     default:
       return null;
   }
+}
+
+/** Filtre ve rozetlerde gösterilen Türkçe işlem türü adı (kategori kataloğundan). */
+export function notificationKindLabel(kind: string): string {
+  if (isNotificationCategory(kind)) return getCategoryDef(kind)?.label ?? "Diğer";
+  return "Diğer";
+}
+
+/** Ekranda gösterilen metin. `Detay: /panel/...` teknik yolu kullanıcıya yazılmaz; tıklama hâlâ o yolu kullanır. */
+export function presentNotificationBody(body: string): string {
+  return body.replace(/\s*Detay:\s*\/\S+/g, "").replace(/\s+/g, " ").trim();
+}
+
+export type NotificationFilter = { kindLabel: string; from: string; to: string; query: string };
+
+/** Bildirim merkezi filtresi — tür etiketi, gün aralığı (dahil), metin; en yeni önce. */
+export function filterNotifications<T extends { kind: string; title: string; body: string; createdAt: string }>(
+  list: T[],
+  f: NotificationFilter
+): T[] {
+  const q = f.query.trim().toLocaleLowerCase("tr");
+  return list
+    .filter((n) => {
+      if (f.kindLabel !== "all" && notificationKindLabel(n.kind) !== f.kindLabel) return false;
+      const day = n.createdAt.slice(0, 10);
+      if (f.from && day < f.from) return false;
+      if (f.to && day > f.to) return false;
+      if (q && !`${n.title} ${presentNotificationBody(n.body)}`.toLocaleLowerCase("tr").includes(q)) return false;
+      return true;
+    })
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }

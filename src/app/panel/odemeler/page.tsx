@@ -9,6 +9,7 @@ import { requireSessionContext } from "@/lib/auth/session";
 import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { AssistantPageContext } from "@/components/ai/assistant-page-context";
+import { resolveActorLabels } from "@/lib/contract-payment-plan-view";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +30,12 @@ export default async function OdemelerPage() {
     .reduce((s, p) => s + (p.amount - p.paidAmount), 0);
   const overdue = payments.filter((p) => p.status === "overdue").length;
 
+  const receiverNames = await resolveActorLabels({
+    tenantId: session.tenantId,
+    userIds: payments.map((p) => p.receivedByUserId),
+    teachers: data.teachers,
+  });
+
   const rows: PaymentRow[] = payments.map((p) => ({
     id: p.id,
     studentId: p.studentId,
@@ -45,6 +52,7 @@ export default async function OdemelerPage() {
     paidAt: p.paidAt,
     createdAt: p.createdAt,
     source: p.source,
+    receivedByName: p.receivedByUserId ? receiverNames.get(p.receivedByUserId) : undefined,
   }));
 
   return (

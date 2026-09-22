@@ -15,6 +15,7 @@ import {
 import { PaymentMarkPaidModal } from "@/components/payment-mark-paid-modal";
 import { PaginationControls, usePagination } from "@/components/pagination-controls";
 import type { PaymentStatus } from "@/lib/types";
+import { filterAndSortPayments, type PaymentSortKey } from "@/lib/payment-table-filter";
 
 export type PaymentRow = {
   id: string;
@@ -33,6 +34,7 @@ export type PaymentRow = {
   paidAt?: string;
   createdAt?: string;
   source?: string;
+  receivedByName?: string;
 };
 
 type StatusFilter = "all" | PaymentStatus;
@@ -52,16 +54,32 @@ export function PaymentsTable({ rows, canWrite }: { rows: PaymentRow[]; canWrite
   const [actionOnly, setActionOnly] = useState(false);
   const [modalPayment, setModalPayment] = useState<PaymentRow | null>(null);
   const [modalMode, setModalMode] = useState<"create" | "edit">("create");
+  const [dueFrom, setDueFrom] = useState("");
+  const [dueTo, setDueTo] = useState("");
+  const [paidFrom, setPaidFrom] = useState("");
+  const [paidTo, setPaidTo] = useState("");
+  const [minAmount, setMinAmount] = useState("");
+  const [maxAmount, setMaxAmount] = useState("");
+  const [sortKey, setSortKey] = useState<PaymentSortKey>("dueDate");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
-  const filtered = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    return rows.filter((row) => {
-      if (query && !row.studentName.toLowerCase().includes(query)) return false;
-      if (actionOnly) return row.status === "overdue" || row.status === "partial";
-      if (statusFilter !== "all" && row.status !== statusFilter) return false;
-      return true;
-    });
-  }, [rows, search, statusFilter, actionOnly]);
+  const filtered = useMemo(
+    () =>
+      filterAndSortPayments(rows, {
+        search,
+        status: statusFilter,
+        actionOnly,
+        dueFrom,
+        dueTo,
+        paidFrom,
+        paidTo,
+        minAmount,
+        maxAmount,
+        sortKey,
+        sortDir,
+      }),
+    [rows, search, statusFilter, actionOnly, dueFrom, dueTo, paidFrom, paidTo, minAmount, maxAmount, sortKey, sortDir]
+  );
 
   const { pageItems, page, setPage, pageSize, setPageSize, totalPages, totalCount } = usePagination(filtered, 10);
 
@@ -114,6 +132,25 @@ export function PaymentsTable({ rows, canWrite }: { rows: PaymentRow[]; canWrite
           </button>
         </div>
 
+        <label className="text-xs text-[var(--color-text-muted)]">Vade
+          <span className="mt-1 flex gap-1"><input type="date" value={dueFrom} onChange={(e) => setDueFrom(e.target.value)} className="rounded border border-[var(--color-border)] px-1 py-1" /><input type="date" value={dueTo} onChange={(e) => setDueTo(e.target.value)} className="rounded border border-[var(--color-border)] px-1 py-1" /></span>
+        </label>
+        <label className="text-xs text-[var(--color-text-muted)]">Tahsil tarihi
+          <span className="mt-1 flex gap-1"><input type="date" value={paidFrom} onChange={(e) => setPaidFrom(e.target.value)} className="rounded border border-[var(--color-border)] px-1 py-1" /><input type="date" value={paidTo} onChange={(e) => setPaidTo(e.target.value)} className="rounded border border-[var(--color-border)] px-1 py-1" /></span>
+        </label>
+        <label className="text-xs text-[var(--color-text-muted)]">Tutar
+          <span className="mt-1 flex gap-1"><input inputMode="numeric" placeholder="min" value={minAmount} onChange={(e) => setMinAmount(e.target.value)} className="w-16 rounded border border-[var(--color-border)] px-1 py-1" /><input inputMode="numeric" placeholder="max" value={maxAmount} onChange={(e) => setMaxAmount(e.target.value)} className="w-16 rounded border border-[var(--color-border)] px-1 py-1" /></span>
+        </label>
+        <label className="text-xs text-[var(--color-text-muted)]">Sırala
+          <select value={`${sortKey}:${sortDir}`} onChange={(e) => { const [k, d] = e.target.value.split(":"); setSortKey(k as typeof sortKey); setSortDir(d as typeof sortDir); }} className="mt-1 block rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1">
+            <option value="dueDate:asc">Vade (eski)</option>
+            <option value="dueDate:desc">Vade (yeni)</option>
+            <option value="amount:desc">Tutar (yüksek)</option>
+            <option value="amount:asc">Tutar (düşük)</option>
+            <option value="paidAt:desc">Tahsil (yeni)</option>
+            <option value="studentName:asc">Öğrenci</option>
+          </select>
+        </label>
         <span className="ml-auto text-xs font-medium text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
           {filtered.length} sonuç
         </span>
@@ -128,6 +165,7 @@ export function PaymentsTable({ rows, canWrite }: { rows: PaymentRow[]; canWrite
               <th className="px-4 py-3">Vade</th>
               <th className="px-4 py-3">Tahsil anı</th>
               <th className="px-4 py-3">Tutar</th>
+              <th className="px-4 py-3">Ödemeyi alan</th>
               <th className="px-4 py-3">Durum</th>
               <th className="px-4 py-3">İşlem</th>
             </tr>
@@ -135,7 +173,7 @@ export function PaymentsTable({ rows, canWrite }: { rows: PaymentRow[]; canWrite
           <tbody>
             {pageItems.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-sm text-[var(--color-text-muted)]">
+                <td colSpan={8} className="px-4 py-8 text-center text-sm text-[var(--color-text-muted)]">
                   Bu filtreye uyan ödeme bulunamadı.
                 </td>
               </tr>
@@ -198,6 +236,7 @@ export function PaymentsTable({ rows, canWrite }: { rows: PaymentRow[]; canWrite
                       </span>
                     ) : null}
                   </td>
+                  <td className="px-4 py-3 text-[var(--color-text-muted)]">{p.receivedByName ?? "—"}</td>
                   <td className="px-4 py-3">
                     <Badge status={p.status} />
                   </td>

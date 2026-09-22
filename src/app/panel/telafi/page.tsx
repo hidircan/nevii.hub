@@ -14,6 +14,8 @@ import { AssistantPageContext } from "@/components/ai/assistant-page-context";
 import { QuickTaskLink } from "@/components/quick-task-link";
 import { MakeupWindowDaysEditor } from "@/components/makeup-window-days-editor";
 import { MakeupPolicyDialog } from "@/components/makeup-policy-dialog";
+import { MakeupHistoryTable } from "@/components/makeup-history-table";
+import { resolveActorLabels } from "@/lib/contract-payment-plan-view";
 
 const MORE_SUGGESTIONS_COUNT = 18;
 
@@ -36,6 +38,12 @@ export default async function TelafiPage() {
   const open = requests.filter((r) => OPEN_STATUSES.includes(r.status));
   const done = requests.filter((r) => !OPEN_STATUSES.includes(r.status));
   const canWrite = kurum.scope.mode === "single";
+  const actorNames = await resolveActorLabels({
+    tenantId: session.tenantId,
+    userIds: done.map((r) => r.decidedBy),
+    teachers: data.teachers,
+  });
+  const actorLabel = (userId?: string) => (userId ? actorNames.get(userId) ?? "Kayıtlı kullanıcı" : "Sistem");
   const nowMs = new Date().getTime();
 
   return (
@@ -296,51 +304,25 @@ export default async function TelafiPage() {
         </a>
       </div>
       {done.length > 0 ? (
-          <Card className="overflow-hidden p-0">
-            <table className="w-full text-left text-sm">
-              <thead className="border-b border-[var(--color-border)] bg-[var(--color-surface-muted)] text-xs uppercase tracking-wide text-[var(--color-text-muted)] dark:border-slate-800 dark:bg-slate-900/60 dark:text-[var(--color-text-muted)]">
-                <tr>
-                  <th className="px-4 py-3">Öğrenci</th>
-                  <th className="px-4 py-3">Enstrüman</th>
-                  <th className="px-4 py-3">Durum</th>
-                  <th className="px-4 py-3">Onaylı ders</th>
-                  <th className="px-4 py-3">SLA</th>
-                  <th className="px-4 py-3">Karar notu</th>
-                  <th className="px-4 py-3">Karar tarihi</th>
-                </tr>
-              </thead>
-              <tbody>
-                {done.map((req) => {
-                  const student = data.students.find((s) => s.id === req.studentId);
-                  const lesson = data.lessons.find((l) => l.id === req.confirmedLessonId);
-                  return (
-                    <tr key={req.id} className="border-b border-slate-50 dark:border-slate-800">
-                      <td className="px-4 py-3 font-medium text-[var(--color-text)] dark:text-slate-50">{student?.name}</td>
-                      <td className="px-4 py-3 text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">{req.instrument}</td>
-                      <td className="px-4 py-3">
-                        <Badge status={req.status} />
-                      </td>
-                      <td className="px-4 py-3 text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
-                        {lesson ? formatDateTime(lesson.startAt) : "—"}
-                      </td>
-                      <td className="px-4 py-3 text-xs text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
-                        {req.slaDeadline ? formatDateTime(req.slaDeadline) : "—"}
-                        {(req.slaEscalationLevel ?? 0) >= 5 ? (
-                          <span className="ml-1 font-semibold text-rose-600">Aşıldı</span>
-                        ) : null}
-                      </td>
-                      <td className="px-4 py-3 text-xs text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
-                        {req.decisionNote ?? "—"}
-                      </td>
-                      <td className="px-4 py-3 text-xs text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
-                        {req.decidedAt ? formatDateTime(req.decidedAt) : "—"}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </Card>
+        <MakeupHistoryTable
+          rows={done.map((req) => {
+            const student = data.students.find((s) => s.id === req.studentId);
+            const lesson = data.lessons.find((l) => l.id === req.confirmedLessonId);
+            return {
+              id: req.id,
+              studentName: student?.name ?? "—",
+              instrument: req.instrument,
+              status: req.status,
+              lessonLabel: lesson ? formatDateTime(lesson.startAt) : "—",
+              slaLabel: req.slaDeadline ? formatDateTime(req.slaDeadline) : "—",
+              slaBreached: (req.slaEscalationLevel ?? 0) >= 5,
+              decisionNote: req.decisionNote ?? "—",
+              decidedAt: req.decidedAt ?? "",
+              decidedAtLabel: req.decidedAt ? formatDateTime(req.decidedAt) : "",
+              actorName: actorLabel(req.decidedBy),
+            };
+          })}
+        />
       ) : null}
     </div>
   );
