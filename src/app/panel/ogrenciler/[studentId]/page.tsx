@@ -75,9 +75,10 @@ export default async function StudentOverviewTab({
   if (contracts.length === 0) {
     alerts.push({
       key: "no-contract",
-      label: "Kayıt sözleşmesi oluşturulmamış",
+      // Sözleşme kayıtta zorunlu değil (2026-09-22) — hata değil, bekleyen iş.
+      label: "Sözleşme bekliyor — henüz oluşturulmadı. Hazır olduğunuzda Sözleşme Merkezi'nden oluşturun.",
       href: `/panel/ogrenciler/${student.id}/sozlesmeler`,
-      tone: "danger",
+      tone: "warning",
     });
   } else if (!currentContract) {
     alerts.push({

@@ -1167,7 +1167,10 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
     // Bağımsız Sözleşme Merkezi'ne (bkz. [studentId]/sozlesmeler) yönlendirilir;
     // tanışma paketi (1-2 ay) öğrenci detayında kalır (formal sözleşme
     // üretim CTA'sı GÖSTERİLMEZ — bkz. RegistrationSuccessPanel).
-    const destination = isFormalContractDuration(intendedDurationMonths)
+    // 2026-09-22 — sözleşme opsiyonel: "Sadece öğrenci kaydını oluştur" seçildiyse
+    // Sözleşme Merkezi'ne yönlendirilmez; öğrenci detayında "Sözleşme bekliyor" görünür.
+    const studentOnly = formData.get("afterSave") === "student";
+    const destination = !studentOnly && isFormalContractDuration(intendedDurationMonths)
       ? `/panel/ogrenciler/${newStudentId}/sozlesmeler`
       : `/panel/ogrenciler/${newStudentId}`;
     const inviteWarningQuery = inviteWarning ? `&davetUyari=${encodeURIComponent(inviteWarning)}` : "";

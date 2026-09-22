@@ -34,8 +34,13 @@ function row(over: Partial<StudentRow> = {}): StudentRow {
 }
 
 describe("D — sözleşme durumu kategorileri", () => {
-  it("sözleşmesi hiç olmayan öğrenci 'none'", () => {
-    expect(resolveContractFilterKey(row(), TODAY)).toBe("none");
+  it("sözleşmesi olmayan uzun dönemli / süresi bilinmeyen öğrenci 'pending' (hata değil, bekleyen iş)", () => {
+    expect(resolveContractFilterKey(row(), TODAY)).toBe("pending");
+    expect(resolveContractFilterKey(row({ intendedDurationMonths: 10 }), TODAY)).toBe("pending");
+  });
+
+  it("tanışma paketi (1–2 ay) sözleşmesiz öğrenci 'none'", () => {
+    expect(resolveContractFilterKey(row({ intendedDurationMonths: 2 }), TODAY)).toBe("none");
   });
 
   it("bitiş tarihi geçmiş sözleşme 'expired'", () => {

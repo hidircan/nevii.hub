@@ -1025,9 +1025,23 @@ export function NewStudentForm({
         </div>
       </Card>
 
-      <Button type="submit" className="w-full" disabled={isPending}>
-        {isPending ? "Ekleniyor…" : "Öğrenci ekle"}
-      </Button>
+      {/*
+        2026-09-22 ürün kararı — sözleşme kayıtta ZORUNLU DEĞİL. Öğrenci sözleşmesiz
+        geçerli bir kayıt olarak yaşayabilir; sözleşme daha sonra Sözleşme Merkezi'nden
+        aynı kanonik akışla oluşturulur.
+      */}
+      <div className="grid gap-2 sm:grid-cols-2">
+        <Button type="submit" name="afterSave" value="contract" className="w-full" disabled={isPending}>
+          {isPending ? "Kaydediliyor…" : "Kaydet ve sözleşme oluştur"}
+        </Button>
+        <Button type="submit" name="afterSave" value="student" variant="secondary" className="w-full" disabled={isPending}>
+          {isPending ? "Kaydediliyor…" : "Sadece öğrenci kaydını oluştur"}
+        </Button>
+      </div>
+      <p className="text-center text-xs text-[var(--color-text-muted)]">
+        Sözleşme zorunlu değildir. &quot;Sadece öğrenci kaydını oluştur&quot; seçilirse öğrenci &quot;Sözleşme
+        bekliyor&quot; olarak listelenir; sözleşmeyi daha sonra öğrencinin Sözleşme Merkezi&apos;nden oluşturabilirsiniz.
+      </p>
     </form>
   );
 }

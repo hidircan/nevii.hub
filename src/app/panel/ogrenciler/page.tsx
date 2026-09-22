@@ -69,6 +69,7 @@ export default async function OgrencilerPage() {
       contractStartDate: contract?.enrollmentStartDate,
       contractEndDate: contract?.enrollmentEndDate,
       contractStatus: contract?.status,
+      intendedDurationMonths: s.intendedDurationMonths,
       createdAt: s.createdAt,
     };
   });

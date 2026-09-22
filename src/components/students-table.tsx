@@ -42,6 +42,8 @@ export type StudentRow = {
   contractStartDate?: string;
   contractEndDate?: string;
   contractStatus?: string;
+  /** Kayıtta seçilen süre (ay) — sözleşmesiz öğrencide "bekliyor" / "tanışma" ayrımı. */
+  intendedDurationMonths?: number;
   /** Kayıt (öğrencinin sisteme eklendiği) zamanı — "oluşturulma tarihine göre" sıralama için. */
   createdAt?: string;
 };
@@ -51,12 +53,18 @@ export type StudentRow = {
  * Yöneticinin ekranda sorduğu soru "bu öğrencinin sözleşmesi tamam mı,
  * bitiyor mu, bitti mi?" — bu yüzden filtre bu dile göre kurulur.
  */
-export type ContractFilterKey = "none" | "active" | "expiring" | "expired" | "cancelled";
+export type ContractFilterKey = "none" | "pending" | "active" | "expiring" | "expired" | "cancelled";
 
-export const CONTRACT_FILTER_KEYS: ContractFilterKey[] = ["active", "expiring", "expired", "none", "cancelled"];
+export const CONTRACT_FILTER_KEYS: ContractFilterKey[] = ["active", "expiring", "expired", "pending", "none", "cancelled"];
 
+/**
+ * Sözleşme kayıtta zorunlu değildir (2026-09-22). Sözleşmesiz öğrenci HATA değildir:
+ * - "pending"  → uzun dönemli (3+ ay) ya da süresi bilinmeyen kayıt, sözleşme henüz yapılmadı.
+ * - "none"     → tanışma paketi (1–2 ay); formal sözleşme gerekmiyor.
+ */
 export const CONTRACT_FILTER_LABELS: Record<ContractFilterKey, string> = {
-  none: "Sözleşmesi yok",
+  pending: "Sözleşme bekliyor",
+  none: "Sözleşmesiz (tanışma)",
   active: "Aktif sözleşmeli",
   expiring: "Yakında bitecek (30 gün)",
   expired: "Süresi geçmiş",
@@ -65,7 +73,10 @@ export const CONTRACT_FILTER_LABELS: Record<ContractFilterKey, string> = {
 
 /** Bir öğrencinin sözleşme durumunu tek kategoriye indirger. `today` yyyy-MM-dd. */
 export function resolveContractFilterKey(row: StudentRow, today: string): ContractFilterKey {
-  if (!row.contractNumber || !row.contractEndDate) return "none";
+  if (!row.contractNumber || !row.contractEndDate) {
+    const months = row.intendedDurationMonths;
+    return months !== undefined && months < 3 ? "none" : "pending";
+  }
   if (row.contractStatus === "cancelled" || row.contractStatus === "superseded") return "cancelled";
   if (row.contractEndDate < today) return "expired";
   // 30 gün içinde bitiyorsa "yakında bitecek" — yenileme aksiyonu gerektirir.
@@ -860,8 +871,10 @@ export function StudentsTable({
                               ? { background: "var(--color-success-soft)", color: "var(--color-success)" }
                               : state === "expiring"
                                 ? { background: "var(--color-warning-soft)", color: "var(--color-warning)" }
-                                : state === "expired" || state === "none"
+                                : state === "expired"
                                   ? { background: "var(--color-danger-soft)", color: "var(--color-danger)" }
+                                  : state === "pending"
+                                    ? { background: "var(--color-primary-soft)", color: "var(--color-primary-soft-text)" }
                                   : { background: "var(--color-surface-muted)", color: "var(--color-text-muted)" };
                           return (
                             <span className="block">

@@ -104,6 +104,8 @@ export function Button({
   disabled,
   formAction,
   onClick,
+  name,
+  value,
 }: {
   children: ReactNode;
   variant?: "primary" | "secondary" | "ghost" | "danger" | "success";
@@ -112,6 +114,9 @@ export function Button({
   disabled?: boolean;
   formAction?: (formData: FormData) => void | Promise<void>;
   onClick?: () => void;
+  /** Submit düğmesinin FormData'ya yazdığı alan (birden çok gönder düğmesi olan formlar). */
+  name?: string;
+  value?: string;
 }) {
   const variants = {
     primary: "bg-[var(--color-primary)] text-white hover:bg-[var(--color-primary-hover)]",
@@ -127,6 +132,8 @@ export function Button({
       disabled={disabled}
       formAction={formAction}
       onClick={onClick}
+      name={name}
+      value={value}
       className={cn(
         "inline-flex items-center justify-center gap-2 rounded-[var(--radius-md)] px-3.5 py-2 text-sm font-medium transition disabled:opacity-50",
         "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-focus-ring)]",
