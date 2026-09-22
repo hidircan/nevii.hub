@@ -146,7 +146,7 @@ export default async function StudentPaymentProfilePage({
               iletişim taslağını hazırlayıp onaylayabilirsiniz.
             </p>
             <Link
-              href={`/panel/ai/tahsilat-agent?studentId=${student.id}`}
+              href={`/panel/ai/tahsilat-agent?studentId=${student.id}&returnTo=${encodeURIComponent(`/panel/odemeler/${student.id}`)}`}
               className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-amber-600 px-3 py-2 text-sm font-medium text-white hover:bg-amber-700"
             >
               Tahsilat takibini aç <ArrowRight className="h-4 w-4" />

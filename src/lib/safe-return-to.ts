@@ -20,9 +20,9 @@
  * yönlendirmenin uygulama dışına ÇIKMAMASINI garanti eder.
  */
 const ALLOWED_RETURN_TO_PREFIXES = [
-  "/panel/odemeler/",
-  "/panel/ogrenciler/",
-  "/panel/ogretmenler/",
+  "/panel/odemeler",
+  "/panel/ogrenciler",
+  "/panel/ogretmenler",
   "/panel/program",
   "/panel/is-takip",
   "/panel/telafi",
@@ -33,6 +33,7 @@ const ALLOWED_RETURN_TO_PREFIXES = [
   "/panel/personel",
   "/panel/bildirimler",
   "/panel/iletisim-merkezi",
+  "/panel/ai",
 ] as const;
 
 export function resolveSafeReturnTo(raw: string | undefined | null): string | null {
