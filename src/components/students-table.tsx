@@ -210,8 +210,12 @@ export function StudentsTable({
   // Filtre toggle'ları searchParams kimliğini değiştirir; debounce effect'inin
   // deps'inde tutmak yazma sırasında gereksiz yeniden zamanlama üretir.
   // Güncel params'ı ref'ten oku — q senkronu yalnız searchInput değişince.
+  // Ref render sırasında yazılmaz (React 19 kuralı); effect'ler sırayla çalıştığı
+  // için aşağıdaki debounce effect'i her zaman güncel değeri görür.
   const searchParamsRef = useRef(searchParams);
-  searchParamsRef.current = searchParams;
+  useEffect(() => {
+    searchParamsRef.current = searchParams;
+  }, [searchParams]);
 
   // Yazma bitince URL'i güncelle — tuş başına navigasyon YOK.
   useEffect(() => {

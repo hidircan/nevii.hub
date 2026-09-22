@@ -31,6 +31,8 @@ export type DashboardScope = {
   branchId: BranchFilter;
   /** Kullanıcının bugün gördüğü tarih (kurum saat diliminde, yyyy-MM-dd). */
   today: string;
+  /** "Yoklama bekliyor" için şu an; verilmezse gerçek saat (test deterministikliği için). */
+  now?: Date;
 };
 
 export type ActionTone = "danger" | "warning" | "primary" | "info";
@@ -156,7 +158,7 @@ export function buildDashboardSummary(
   const payments = data.payments.filter(paymentInScope);
 
   // ---- Bugünün dersleri -------------------------------------------------
-  const now = new Date();
+  const now = scope.now ?? new Date();
   const lessonsToday = data.lessons
     .filter((l) => inBranch(l) && toZonedYmd(new Date(l.startAt), DEFAULT_APP_TIMEZONE) === today)
     .sort((a, b) => a.startAt.localeCompare(b.startAt));

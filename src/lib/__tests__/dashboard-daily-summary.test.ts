@@ -124,7 +124,8 @@ describe("aksiyon / bilgi ayrımı", () => {
       ["s1", { studentId: "s1", status: "generated", enrollmentEndDate: "2027-06-30" }],
       ["s2", { studentId: "s2", status: "generated", enrollmentEndDate: "2027-06-30" }],
     ]);
-    const s = buildDashboardSummary(data, { branchId: "all", today: TODAY }, full);
+    // Günün başı: dersler henüz başlamadı → "yoklama bekliyor" aksiyonu üretilmez (duvar saatinden bağımsız).
+    const s = buildDashboardSummary(data, { branchId: "all", today: TODAY, now: new Date(`${TODAY}T00:00:00.000Z`) }, full);
     expect(s.actions).toHaveLength(0);
   });
 });
