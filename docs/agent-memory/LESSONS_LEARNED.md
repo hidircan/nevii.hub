@@ -1056,3 +1056,35 @@ dayanan test paketinde izolasyonu **koşu başına dizin** ile çözün; "aynı
 anda başka test çalıştırmayın" disiplini er ya da geç bozulur. Bir bulguyu
 regresyon ilan etmeden önce (a) tek başına tekrarlanabilir mi, (b) hata
 seti koşular arasında sabit mi — ikisini de kontrol edin.
+
+## 2026-09-22 — Debounced URL search + blind URL→input sync deletes characters
+
+Students table kept search in local state (good) but still did
+`setSearchInput(urlSearch)` whenever URL `q` changed. Own debounced
+`router.replace` echo arriving while the user typed ahead wiped newer
+characters — worse with filters because each `q` write is another soft nav
+on a parameterized `force-dynamic` route.
+
+**Ders:** local+URL debounce is fine only if URL→input adopt is gated:
+apply only when `searchInput === previousUrlSearch` (external change). Never
+blindly mirror your own echo.
+
+## 2026-09-22 — collectPayment updated paidAmount but not amount
+
+Contract/registration UI reads `Payment.amount`. `updatePaymentTool` →
+`collectPayment` only wrote `paidAmount`. Editing first collection 1→7000
+"succeeded" while the card still showed 1 TL.
+
+**Ders:** when a tool claims to edit "amount" of a collected payment,
+define whether that means billed amount, paid amount, or both. For
+`registration_first_payment` / fully-paid corrections, revise both.
+
+## 2026-09-22 — "Boş şablona sıfırla" was production-visible wipe
+
+Unlike demo reset (`isLocalDevTooling`), clean-template reset was always
+rendered on Kurulum and had no server env gate — tenant-scoped full wipe
+including side stores; db mode can delete users.
+
+**Ders:** every destructive setup action needs the same dual gate as demo
+reset (UI + server). Confirmation modal alone is not enough on shared
+test/prod tenants.
