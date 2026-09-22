@@ -1633,14 +1633,15 @@ describe("createStudentContractTool — per-lesson öğrenci (usePerLessonBillin
     expect(htmlRes.data.html).toContain("Dönem ücreti");
   });
 
-  it("legacy (sabit ücret, per-lesson DEĞİL) sözleşmelerin PDF/HTML çıktısı önceki gibi 'EĞİTİM' gösterir — bu değişiklik geriye dönük görünümü BOZMAZ", async () => {
+  it("sabit taksitli (per-lesson DEĞİL) yeni sözleşmede hizmet bedeli hücresi çıplak 'EĞİTİM' değil, taksitin ayını söyler (2026-09-22)", async () => {
     const createRes = await createStudentContractTool(adminCtx(), await initialInput());
     expect(createRes.ok).toBe(true);
     if (!createRes.ok) return;
     const htmlRes = await getContractHtmlTool(adminCtx(), { contractId: createRes.data.contract.id });
     expect(htmlRes.ok).toBe(true);
     if (!htmlRes.ok) return;
-    expect(htmlRes.data.html).toContain("EĞİTİM");
+    expect(htmlRes.data.html).not.toContain("<td>EĞİTİM</td>");
+    expect(htmlRes.data.html).toMatch(/Eğitim ücreti — [A-ZÇĞİÖŞÜ][a-zçğıöşü]+ \d{4}|İlk tahsilat — |Dönem ücreti — /);
   });
 
   describe("son dönem ücretlendirme tercihi (lastPeriodPricingMode)", () => {

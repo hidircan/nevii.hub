@@ -721,6 +721,26 @@ const INSTALLMENT_KIND_LABELS_TR: Record<string, string> = {
   period_fee: "Dönem ücreti",
 };
 
+/**
+ * Sözleşme taksit tablosunun "HİZMET BEDELİ" hücresi — TEK kaynak.
+ * Ders-başı planda gerçek tür/dönem ("İlk tahsilat — 17–30 Eylül 2026").
+ * Tür/dönem bilgisi olmayan (sabit taksitli) satırda eskiden yalnız "EĞİTİM"
+ * basılıyordu; artık taksitin ayı açıkça yazılır ("Eğitim ücreti — Ekim 2026").
+ * Boş satır (taksit yok) boş kalır — sahte içerik üretilmez.
+ */
+export function describeInstallmentForContract(
+  row: Pick<ContractInstallmentSnapshot, "kind" | "periodLabel" | "dueDate"> | undefined,
+  mergedInto?: Pick<ContractInstallmentSnapshot, "breakdown">
+): string {
+  if (mergedInto) return `1. taksite dahil — ${mergedInto.breakdown?.[1]?.periodLabel ?? ""}`.trim();
+  if (!row) return "";
+  if (row.kind && row.periodLabel) return `${INSTALLMENT_KIND_LABELS_TR[row.kind]} — ${row.periodLabel}`;
+  const month = new Intl.DateTimeFormat("tr-TR", { month: "long", year: "numeric", timeZone: "Europe/Istanbul" }).format(
+    new Date(row.dueDate)
+  );
+  return `Eğitim ücreti — ${month.charAt(0).toLocaleUpperCase("tr") + month.slice(1)}`;
+}
+
 const CONTRACT_TYPE_LABELS: Record<ContractType, string> = {
   initial: "İlk Kayıt",
   renewal: "Yenileme",
@@ -987,11 +1007,7 @@ export async function createContract(input: CreateContractInput): Promise<Create
       // BİREBİR aynı "EĞİTİM" değerine düşülür — mevcut sözleşmelerin PDF
       // çıktısı DEĞİŞMEZ, yalnız per-lesson sözleşmeler artık ilk tahsilatı
       // dönem ücretinden AYRI, kendi gerçek etiketiyle gösterir.
-      fieldValues[`taksit${i}Aciklama`] = mergedInto
-        ? `1. taksite dahil — ${mergedInto.breakdown?.[1]?.periodLabel ?? ""}`
-        : row?.kind && row.periodLabel
-          ? `${INSTALLMENT_KIND_LABELS_TR[row.kind]} — ${row.periodLabel}`
-          : "EĞİTİM";
+      fieldValues[`taksit${i}Aciklama`] = describeInstallmentForContract(row, mergedInto);
       // P0 revizyonu — "Ödeme Türü" sütunu: 1. satırda GERÇEK ilk tahsilatın
       // yöntemi (kayıt anı ödemesi initial'da reuse edilir, renewal'da bu
       // formda alınır; ikisi de yoksa — amendment — "—"). Sonraki satırların
