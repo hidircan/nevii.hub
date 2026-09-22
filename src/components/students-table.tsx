@@ -190,26 +190,40 @@ export function StudentsTable({
 
   /**
    * URL dışarıdan değişirse (geri/ileri, derin bağlantı, "Temizle") input'u
-   * izle. Effect DEĞİL, React'in "prop değişince state'i ayarla" deseni:
-   * effect içinde senkron setState zincirleme render tetikler (eslint kuralı).
+   * izle. Effect DEĞİL, React'in "prop değişince state'i ayarla" deseni.
+   *
+   * ÖNEMLİ: kendi debounced `router.replace` yankısını ASLA local input'un
+   * üstüne yazma. Filtre açıkken (`?contract=active`) her `q` yazımı ayrı bir
+   * soft nav olduğu için gecikme artar; kullanıcı `ab` yazmışken `q=a` yankısı
+   * gelirse kör `setSearchInput(urlSearch)` "b"yi siler (imleç zıplaması).
+   * Yalnız local hâlâ önceki URL ile aynıysa (gerçek dış değişiklik) uygula.
    */
   const [lastUrlSearch, setLastUrlSearch] = useState(urlSearch);
   if (urlSearch !== lastUrlSearch) {
+    const previousUrlSearch = lastUrlSearch;
     setLastUrlSearch(urlSearch);
-    setSearchInput(urlSearch);
+    if (searchInput === previousUrlSearch) {
+      setSearchInput(urlSearch);
+    }
   }
+
+  // Filtre toggle'ları searchParams kimliğini değiştirir; debounce effect'inin
+  // deps'inde tutmak yazma sırasında gereksiz yeniden zamanlama üretir.
+  // Güncel params'ı ref'ten oku — q senkronu yalnız searchInput değişince.
+  const searchParamsRef = useRef(searchParams);
+  searchParamsRef.current = searchParams;
 
   // Yazma bitince URL'i güncelle — tuş başına navigasyon YOK.
   useEffect(() => {
     if (searchInput === urlSearch) return;
     const id = setTimeout(() => {
-      const params = new URLSearchParams(searchParams.toString());
+      const params = new URLSearchParams(searchParamsRef.current.toString());
       if (searchInput) params.set("q", searchInput);
       else params.delete("q");
       router.replace(`${pathname}?${params.toString()}`, { scroll: false });
     }, 250);
     return () => clearTimeout(id);
-  }, [searchInput, urlSearch, searchParams, router, pathname]);
+  }, [searchInput, urlSearch, router, pathname]);
 
   /** Filtre ve "aktif filtre var mı" göstergeleri ANINDA yerel değeri kullanır. */
   const search = searchInput;
@@ -264,6 +278,10 @@ export function StudentsTable({
   }
 
   function clearAll() {
+    // Debounce ortasında "Temizle" — local q'yu da sıfırla; aksi halde stale
+    // echo koruması eski metni URL temizlendikten sonra bile tutardı.
+    setSearchInput("");
+    setLastUrlSearch("");
     router.replace(pathname, { scroll: false });
   }
 
