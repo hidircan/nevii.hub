@@ -5,6 +5,8 @@ import { requireSessionContext } from "@/lib/auth/session";
 import { Card, Input, Label, PageHeader, Select, StatCard } from "@/components/ui";
 import { formatDateTime } from "@/lib/utils";
 import { LessonStatusBadge } from "@/components/lesson-status-badge";
+import { computeAllStudentAttendanceRisks } from "@/lib/insights/attendance-risk";
+import { AiInsightTrigger } from "@/components/ai/ai-insight-trigger";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
@@ -111,12 +113,83 @@ export default async function AttendanceReportPage({
   );
   const rooms = [...data.rooms].sort((a, b) => a.name.localeCompare(b.name, "tr"));
 
+  // Bilgi mimarisi (2026-09-22): Devamsızlık riski öğrenciler listesinin tepesinde
+  // yer kaplamamalı — operasyonel yeri Yoklama Raporu. Risk hesaplaması aynı
+  // saf katmanı kullanır (computeAllStudentAttendanceRisks).
+  const risks = computeAllStudentAttendanceRisks(data);
+  const atRisk = risks
+    .filter((r) => r.riskLevel !== "low")
+    .map((r) => ({ ...r, student: data.students.find((s) => s.id === r.studentId) }))
+    .filter((r) => r.student)
+    .sort((a, b) => (a.riskLevel === b.riskLevel ? 0 : a.riskLevel === "high" ? -1 : 1));
+  const highRiskCount = atRisk.filter((r) => r.riskLevel === "high").length;
+
   return (
     <div>
       <PageHeader
         title="Yoklama Raporu"
         description={`${range.from} — ${range.to} arası, tenant kapsamında.`}
       />
+
+      {atRisk.length > 0 ? (
+        <Card className="mb-6 border-amber-200 bg-amber-50/40">
+          <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-[var(--color-text)]">
+                Devamsızlık riski · {atRisk.length} öğrenci
+              </p>
+              <p className="mt-0.5 text-xs text-[var(--color-text-muted)]">
+                {highRiskCount > 0
+                  ? `${highRiskCount} yüksek risk · ${atRisk.length - highRiskCount} orta risk`
+                  : "Tümü orta risk bandında"}
+                {" · "}Öğrenci listesinden taşındı — burası operasyonel takip yeri.
+              </p>
+            </div>
+            <AiInsightTrigger
+              capabilityId="attendanceRiskAssessment"
+              label="AI ile yorumla"
+              payload={{
+                atRiskCount: atRisk.length,
+                highRiskCount,
+                topCases: atRisk.slice(0, 5).map((r) => ({
+                  studentName: r.student?.name,
+                  riskLevel: r.riskLevel,
+                  absentCount: r.absentCount,
+                  consecutiveAbsences: r.consecutiveAbsences,
+                })),
+              }}
+            />
+          </div>
+          <ul className="divide-y divide-amber-100/80 text-sm">
+            {atRisk.slice(0, 12).map((r) => (
+              <li key={r.studentId} className="flex items-center justify-between gap-2 py-2 first:pt-0 last:pb-0">
+                <Link
+                  href={`/panel/ogrenciler/${r.studentId}`}
+                  className="font-medium text-[var(--color-text)] hover:text-[var(--color-primary)]"
+                >
+                  {r.student?.name}
+                </Link>
+                <span
+                  className={
+                    r.riskLevel === "high"
+                      ? "shrink-0 text-xs font-semibold text-rose-700"
+                      : "shrink-0 text-xs font-semibold text-amber-700"
+                  }
+                >
+                  {r.riskLevel === "high" ? "Yüksek" : "Orta"} · {r.absentCount} gelmedi
+                  {r.consecutiveAbsences >= 2 ? ` · ${r.consecutiveAbsences} art arda` : ""}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      ) : (
+        <Card className="mb-6 border-[var(--color-border)] bg-[var(--color-surface-muted)]/40">
+          <p className="text-sm text-[var(--color-text-muted)]">
+            Devamsızlık riski taşıyan öğrenci yok — mevcut yoklama kayıtlarına göre tüm öğrenciler düşük risk bandında.
+          </p>
+        </Card>
+      )}
 
       <Card className="mb-6">
         <form method="get" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
