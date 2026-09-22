@@ -74,5 +74,14 @@ export function printSurfaceCss(className: string): string {
   @media print {
     .${className} { padding: 0; background: ${P.surface}; color: ${P.text}; }
   }
+  .${className} table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+  .${className} th, .${className} td {
+    border: 1px solid ${P.border};
+    padding: 6px 8px;
+    text-align: left;
+    vertical-align: top;
+  }
+  .${className} th { background: ${P.surfaceMuted}; font-size: 11px; letter-spacing: 0.02em; }
+  .${className} td.num, .${className} th.num { text-align: right; font-variant-numeric: tabular-nums; }
 `;
 }

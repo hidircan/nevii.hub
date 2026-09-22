@@ -9,6 +9,8 @@ import { currentAcademicAnchorYear } from "@/lib/attendance-calendar";
 import { formatDate, formatMoney } from "@/lib/utils";
 import { BRAND } from "@/lib/brand";
 import { DocumentPrintActions } from "@/components/document-print-actions";
+import { PrintReportMeta } from "@/components/print-report-meta";
+import { resolvePrintStamp } from "@/lib/contract-payment-plan-view";
 
 export const dynamic = "force-dynamic";
 
@@ -70,6 +72,19 @@ export default async function StudentStatementPrintPage({
   }
 
   const s = result.data;
+  // Yönetici rolleri: ad personel/kullanıcı kaydından çözülür; öğretmen eşleşmesi gerekmez.
+  const { viewer, printedAt } = await resolvePrintStamp({ tenantId: session.tenantId, userId: session.userId, teachers: [] });
+  const planTotals = s.months.reduce(
+    (acc, m) => {
+      if (m.plan.state !== "ok") return acc;
+      return {
+        planned: acc.planned + (m.plan.amount ?? 0),
+        paid: acc.paid + (m.plan.paidAmount ?? 0),
+        remaining: acc.remaining + (m.plan.remaining ?? 0),
+      };
+    },
+    { planned: 0, paid: 0, remaining: 0 }
+  );
 
   return (
     <div
@@ -86,25 +101,32 @@ export default async function StudentStatementPrintPage({
         .statement-print table { width: 100%; border-collapse: collapse; font-size: 12px; }
         .statement-print th, .statement-print td { border: 1px solid ${P.border}; padding: 6px 8px; text-align: left; vertical-align: top; }
         .statement-print th { background: ${P.surfaceMuted}; }
+        .statement-print .num { text-align: right; font-variant-numeric: tabular-nums; }
+        @media print { thead { display: table-header-group; } tr { break-inside: avoid; } @page { size: A4 landscape; margin: 12mm; } }
       `}</style>
       <DocumentPrintActions backHref={`/panel/ogrenciler/${studentId}`} />
 
-      <h1 className="text-2xl font-semibold">{s.studentName} — ödeme ve yoklama dökümü</h1>
-      <p className="mt-2 text-sm" style={{ color: P.textMuted }}>
-        {s.institutionName} · {s.branchName} · {s.termLabel}
-        <br />
-        Dönem: {formatDate(s.termStart)} – {formatDate(s.termEnd)}
-        {s.contractNumber ? ` · Sözleşme ${s.contractNumber}` : ""}
-      </p>
+      <h1 className="text-2xl font-semibold">Ödeme ve Yoklama Dökümü</h1>
+      <PrintReportMeta
+        institution={s.institutionName}
+        rows={[
+          ["Öğrenci", s.studentName],
+          ["Şube", s.branchName],
+          ["Dönem", `${s.termLabel} · ${formatDate(s.termStart)} – ${formatDate(s.termEnd)}`],
+          ...(s.contractNumber ? ([["Sözleşme", s.contractNumber]] as [string, string][]) : []),
+        ]}
+        viewer={viewer}
+        printedAt={printedAt}
+      />
 
       <h2 className="mt-8 text-lg font-semibold">Ödeme planı</h2>
       <table className="mt-3">
         <thead>
           <tr>
             <th>Ay</th>
-            <th>Planlanan</th>
-            <th>Ödenen</th>
-            <th>Kalan borç</th>
+            <th className="num">Planlanan</th>
+            <th className="num">Ödenen</th>
+            <th className="num">Kalan borç</th>
             <th>Durum</th>
             <th>Ödeme Türü</th>
             <th>Tahsilat tarihi</th>
@@ -118,9 +140,9 @@ export default async function StudentStatementPrintPage({
             return (
               <tr key={`${m.year}-${m.month}`}>
                 <td>{m.label}</td>
-                <td>{row.planned}</td>
-                <td>{row.paid}</td>
-                <td>{row.remaining}</td>
+                <td className="num">{row.planned}</td>
+                <td className="num">{row.paid}</td>
+                <td className="num">{row.remaining}</td>
                 <td>{row.status}</td>
                 <td>{m.paymentMethodLabel}</td>
                 <td>{m.collectedAt ? formatDate(m.collectedAt) : "—"}</td>
@@ -130,6 +152,15 @@ export default async function StudentStatementPrintPage({
             );
           })}
         </tbody>
+        <tfoot>
+          <tr>
+            <th>Toplam</th>
+            <th className="num">{formatMoney(planTotals.planned)}</th>
+            <th className="num">{formatMoney(planTotals.paid)}</th>
+            <th className="num">{formatMoney(planTotals.remaining)}</th>
+            <th colSpan={5} />
+          </tr>
+        </tfoot>
       </table>
 
       <h2 className="mt-8 text-lg font-semibold">Gün bazlı yoklama</h2>

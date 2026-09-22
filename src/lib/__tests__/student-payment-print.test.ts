@@ -32,8 +32,8 @@ describe("ödeme dökümü — görünürlük sözleşmesi", () => {
     for (const field of ["paymentNote", "adjustmentReason", "receiverNames", "statusLabel", "createdAt"]) {
       expect(PRINT_SRC).toContain(field);
     }
-    // E-posta basılmaz — ad soyad çözümü kullanılır.
-    expect(PRINT_SRC).toContain("resolveCollectorDisplayNames");
+    // E-posta basılmaz — ad soyad çözümü kullanılır (personel adı → kullanıcı adı → öğretmen).
+    expect(PRINT_SRC).toContain("resolveActorLabels");
     expect(PRINT_SRC).not.toMatch(/receivedByEmail|collectorEmail/);
   });
 

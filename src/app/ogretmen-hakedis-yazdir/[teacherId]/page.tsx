@@ -6,6 +6,8 @@ import { actionComputeTeacherPayout } from "@/lib/actions";
 import { printSurfaceCss } from "@/lib/contract-print-theme";
 import { formatDate, formatMoney } from "@/lib/utils";
 import { DocumentPrintActions } from "@/components/document-print-actions";
+import { resolvePrintStamp } from "@/lib/contract-payment-plan-view";
+import { PrintReportMeta } from "@/components/print-report-meta";
 
 export const dynamic = "force-dynamic";
 
@@ -62,12 +64,36 @@ export default async function OgretmenHakedisYazdirPage({
   const periodEnd = periodEndParam || format(endOfMonth(now), "yyyy-MM-dd");
   const result = await actionComputeTeacherPayout({ teacherId, periodStart, periodEnd });
 
-  const viewer = session.userId;
-  const printedAt = formatDate(now.toISOString().slice(0, 10));
+  const { viewer, printedAt } = await resolvePrintStamp({
+    tenantId: session.tenantId,
+    userId: session.userId,
+    teachers: data.teachers,
+    now,
+  });
+  const isYearly = periodStart.slice(0, 7) !== periodEnd.slice(0, 7);
+  // Yıllık dökümde ay ara toplamları (yyyy-MM → dakika/tutar).
+  const monthly = new Map<string, { lessons: number; minutes: number; amount: number }>();
+  if (result.ok) {
+    for (const l of result.lines) {
+      const key = l.lessonDate.slice(0, 7);
+      const row = monthly.get(key) ?? { lessons: 0, minutes: 0, amount: 0 };
+      row.lessons += 1;
+      row.minutes += l.durationMinutes;
+      row.amount += l.amount;
+      monthly.set(key, row);
+    }
+  }
+  const statusText = !result.ok
+    ? ""
+    : result.existingPayout?.status === "paid"
+      ? "Ödendi"
+      : result.existingPayout
+        ? "Hakediş kaydı oluşturuldu — ödeme bekliyor"
+        : "Dönem hesabı — hakediş kaydı henüz oluşturulmadı";
 
   return (
     <div className="min-h-screen bg-[#f4f2f8] px-4 py-8 print:bg-white print:p-0 sm:px-6">
-      <style>{`@media print { @page { size: A4; margin: 14mm; } }${printSurfaceCss("doc-print-surface")}`}</style>
+      <style>{`@media print { @page { size: A4; margin: 14mm; } thead { display: table-header-group; } tr { break-inside: avoid; } }${printSurfaceCss("doc-print-surface")}`}</style>
       <div className="mx-auto max-w-3xl">
         <DocumentPrintActions backHref={`/panel/ogretmenler/${teacher.id}/hakedis`} />
         {!result.ok ? (
@@ -76,19 +102,55 @@ export default async function OgretmenHakedisYazdirPage({
           </p>
         ) : (
           <div className="doc-print-surface rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-6 shadow-sm print:rounded-none print:border-0 print:p-0 print:shadow-none sm:p-10">
-            <h1>Öğretmen Hakediş Raporu</h1>
-            <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1 text-sm">
-              <div><dt className="inline font-semibold">Öğretmen: </dt><dd className="inline">{teacher.name}</dd></div>
-              <div><dt className="inline font-semibold">Dönem: </dt><dd className="inline">{formatDate(periodStart)} – {formatDate(periodEnd)}</dd></div>
-              <div>
-                <dt className="inline font-semibold">Durum: </dt>
-                <dd className="inline">{result.existingPayout ? `Kayıtlı (${result.existingPayout.status})` : "Hesap taslağı — snapshot oluşturulmadı"}</dd>
-              </div>
-              <div><dt className="inline font-semibold">Raporu alan: </dt><dd className="inline">{viewer}</dd></div>
-              <div><dt className="inline font-semibold">Oluşturulma: </dt><dd className="inline">{printedAt}</dd></div>
-            </dl>
+            <h1>{isYearly ? "Yıllık Hakediş Dökümü" : "Aylık Hakediş Dökümü"}</h1>
+            <PrintReportMeta
+              institution={data.settings.name}
+              rows={[
+                ["Öğretmen", teacher.name],
+                ["Dönem", `${formatDate(periodStart)} – ${formatDate(periodEnd)}`],
+                ["Durum", statusText],
+              ]}
+              viewer={viewer}
+              printedAt={printedAt}
+            />
 
-            <h2>Ders/seans detayları</h2>
+            {isYearly && monthly.size > 0 ? (
+              <>
+                <h2>Aylık özet</h2>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Ay</th>
+                      <th className="num">Ders</th>
+                      <th className="num">Süre (dk)</th>
+                      <th className="num">Tutar</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Array.from(monthly.entries())
+                      .sort(([a], [b]) => a.localeCompare(b))
+                      .map(([ym, row]) => (
+                        <tr key={ym}>
+                          <td>{formatDate(`${ym}-01`, "MMMM yyyy")}</td>
+                          <td className="num">{row.lessons}</td>
+                          <td className="num">{row.minutes}</td>
+                          <td className="num">{formatMoney(row.amount)}</td>
+                        </tr>
+                      ))}
+                  </tbody>
+                  <tfoot>
+                    <tr>
+                      <th>Toplam</th>
+                      <th className="num">{result.totalLessons}</th>
+                      <th className="num">{result.totalMinutes}</th>
+                      <th className="num">{formatMoney(result.totalAmount)}</th>
+                    </tr>
+                  </tfoot>
+                </table>
+              </>
+            ) : null}
+
+            <h2>Ders detayları</h2>
             {result.lines.length === 0 ? (
               <p>Dönemde hakedişe konu ders yok.</p>
             ) : (
@@ -99,32 +161,35 @@ export default async function OgretmenHakedisYazdirPage({
                     <th>Öğrenci</th>
                     <th>Şube</th>
                     <th>Ders</th>
-                    <th>Süre (dk)</th>
-                    <th>Birim ücret</th>
-                    <th>Tutar</th>
+                    <th className="num">Süre (dk)</th>
+                    <th className="num">Dakika ücreti</th>
+                    <th className="num">Tutar</th>
                   </tr>
                 </thead>
                 <tbody>
                   {result.lines.map((l) => (
                     <tr key={l.lessonId}>
                       <td>{formatDate(l.lessonDate.slice(0, 10))}</td>
-                      <td>{l.studentName ?? "—"}{l.issue ? ` (${l.issue})` : ""}</td>
+                      <td>{l.studentName ?? "—"}{l.issue === "missing-fee-rule" ? " (ücret kuralı eksik)" : ""}</td>
                       <td>{l.branchName ?? "—"}</td>
                       <td>{l.instrument}</td>
-                      <td>{l.durationMinutes}</td>
-                      <td>{l.perMinuteRate != null ? formatMoney(l.perMinuteRate) : "kural yok"}</td>
-                      <td>{formatMoney(l.amount)}</td>
+                      <td className="num">{l.durationMinutes}</td>
+                      <td className="num">{l.perMinuteRate != null ? formatMoney(l.perMinuteRate) : "Tanımsız"}</td>
+                      <td className="num">{formatMoney(l.amount)}</td>
                     </tr>
                   ))}
                 </tbody>
+                <tfoot>
+                  <tr>
+                    <th colSpan={4}>Toplam — {result.totalLessons} ders</th>
+                    <th className="num">{result.totalMinutes}</th>
+                    <th />
+                    <th className="num">{formatMoney(result.totalAmount)}</th>
+                  </tr>
+                </tfoot>
               </table>
             )}
 
-            <h2>Toplam</h2>
-            <p>
-              Toplam {result.totalLessons} ders, {result.totalMinutes} dakika —{" "}
-              <strong>toplam hakediş {formatMoney(result.totalAmount)}</strong>.
-            </p>
             {result.missingFeeRuleLessonIds.length > 0 ? (
               <p>
                 Dikkat: {result.missingFeeRuleLessonIds.length} ders için ücret kuralı tanımlı değil — bu satırlar
@@ -132,8 +197,7 @@ export default async function OgretmenHakedisYazdirPage({
               </p>
             ) : null}
             <p className="mt-4 text-xs">
-              Brüt/net/indirim/kesinti ayrımı mevcut veri modelinde yoktur — tek tutar (dakika × kural) basılır.
-              Bu kalemler backend backlog listesindedir. Tahmin veya örnek veri içermez.
+              Tutar, ders süresi (dakika) ile tanımlı dakika ücretinin çarpımıdır. Brüt, net ve kesinti ayrımı bu raporda yoktur.
             </p>
           </div>
         )}
