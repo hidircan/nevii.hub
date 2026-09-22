@@ -8,7 +8,9 @@ import { tr } from "date-fns/locale";
 import {
   actionComputeTeacherPayout,
   actionCreateTeacherPayout,
+  actionMarkTeacherPayoutPaid,
   actionUpdateTeacherPayoutPaymentMethod,
+  actionUpdateTeacherProfile,
   type ComputeTeacherPayoutActionResult,
 } from "@/lib/actions";
 import { Badge, Button, Card, Select } from "@/components/ui";
@@ -34,15 +36,19 @@ function periodFor(year: number, month: number) {
 
 export function TeacherPayoutDashboard({
   teacherId,
+  teacherName,
   initialYear,
   initialMonth,
   initialResult,
+  initialThreshold,
   canWrite,
 }: {
   teacherId: string;
+  teacherName: string;
   initialYear: number;
   initialMonth: number;
   initialResult: ComputeTeacherPayoutActionResult;
+  initialThreshold?: number;
   /** "Tüm kurumlar" görünümünde false — hakediş hesaplanamaz/oluşturulamaz. */
   canWrite: boolean;
 }) {
@@ -61,6 +67,10 @@ export function TeacherPayoutDashboard({
   );
   const [updatingMethod, setUpdatingMethod] = useState(false);
   const [methodMessage, setMethodMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const [threshold, setThreshold] = useState(initialThreshold ? String(initialThreshold) : "");
+  const [savingThreshold, setSavingThreshold] = useState(false);
+  const [paying, setPaying] = useState(false);
+  const [openLessonId, setOpenLessonId] = useState<string | null>(null);
   // Dönem her değiştiğinde seçim, o dönemin varsayılanına sıfırlanır — önceki
   // dönemden kalan bir seçim yanlışlıkla farklı bir döneme taşınmaz. Render
   // sırasında koşullu setState (React'ın önerdiği "adjust state on prop/state
@@ -97,9 +107,9 @@ export function TeacherPayoutDashboard({
     await fetchPeriod(year, month);
   }
 
-  async function fetchPeriod(nextYear: number, nextMonth: number) {
+  async function fetchPeriod(nextYear: number, nextMonth: number, keepMessage = false) {
     setLoading(true);
-    setCreateMessage(null);
+    if (!keepMessage) setCreateMessage(null);
     const { periodStart, periodEnd } = periodFor(nextYear, nextMonth);
     const next = await actionComputeTeacherPayout({ teacherId, periodStart, periodEnd });
     setResult(next);
@@ -124,9 +134,43 @@ export function TeacherPayoutDashboard({
     }
     setCreateMessage({
       ok: true,
-      text: `Hakediş kaydı oluşturuldu: ${formatMoney(created.payout.totalAmount)}. Ödeme geçmişinden görüntüleyebilirsiniz.`,
+      text: `Hakediş kaydı oluşturuldu: ${formatMoney(created.payout.totalAmount)}. Ödemeyi yaptığınızda “Hakedişi öde” ile kaydedin.`,
     });
-    await fetchPeriod(year, month);
+    await fetchPeriod(year, month, true);
+  }
+
+  async function handleSaveThreshold() {
+    const value = Number(threshold);
+    if (!Number.isInteger(value) || value < 1 || value > 80) {
+      setMethodMessage({ ok: false, text: "Eşik 1 ile 80 saat arasında tam sayı olmalı." });
+      return;
+    }
+    setSavingThreshold(true);
+    const saved = await actionUpdateTeacherProfile({ teacherId, weeklyHoursThreshold: value });
+    setSavingThreshold(false);
+    if (!saved.ok) {
+      setMethodMessage({ ok: false, text: saved.message });
+      return;
+    }
+    setMethodMessage({ ok: true, text: "Ödeme yöntemi eşiği kaydedildi." });
+    await fetchPeriod(year, month, true);
+  }
+
+  async function handlePay() {
+    if (!result.ok || !result.existingPayout || result.existingPayout.status === "paid") return;
+    setPaying(true);
+    setCreateMessage(null);
+    const paid = await actionMarkTeacherPayoutPaid({
+      payoutId: result.existingPayout.id,
+      method: selectedMethod || result.existingPayout.method || undefined,
+    });
+    setPaying(false);
+    if (!paid.ok) {
+      setCreateMessage({ ok: false, text: paid.message });
+      return;
+    }
+    setCreateMessage({ ok: true, text: "Hakediş ödendi olarak kaydedildi ve Ödeme Geçmişi’ne işlendi." });
+    await fetchPeriod(year, month, true);
   }
 
   return (
@@ -199,8 +243,29 @@ export function TeacherPayoutDashboard({
 
           <Card className="mb-6">
             <p className="text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
-              Ödeme yöntemi eşiği (PRODUCT_BACKLOG §3.4)
+              Ödeme yöntemi eşiği
             </p>
+            <div className="mt-2 flex flex-wrap items-end gap-2">
+              <label className="text-sm text-[var(--color-text-muted)]">
+                Haftalık saat eşiği
+                <input
+                  type="number"
+                  min={1}
+                  max={80}
+                  value={threshold}
+                  disabled={!canWrite}
+                  onChange={(e) => setThreshold(e.target.value)}
+                  className="mt-1 block w-28 rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-sm text-[var(--color-text)]"
+                />
+              </label>
+              <Button type="button" variant="secondary" onClick={handleSaveThreshold} disabled={!canWrite || savingThreshold}>
+                {savingThreshold ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                Eşiği kaydet
+              </Button>
+              <span className="text-xs text-[var(--color-text-muted)]">
+                Eşik ve üstü nakit, altı havale varsayılanıdır. Kayıt oluştuktan sonra yöntemi ayrıca değiştirebilirsiniz.
+              </span>
+            </div>
             {result.paymentMethodInfo?.threshold === undefined ? (
               <p className="mt-1 text-sm text-[var(--color-text-muted)]">
                 Eşik tanımlı değil — öğretmen profilinden haftalık ders saati eşiği girilmeden varsayılan yöntem
@@ -305,12 +370,18 @@ export function TeacherPayoutDashboard({
                         >
                           {line.studentName ?? "—"}
                         </Link>
-                        <Link
-                          href={`/panel/program?studentId=${line.studentId}`}
+                        <button
+                          type="button"
                           className="block text-[11px] font-normal text-amber-700 hover:underline"
+                          onClick={() => setOpenLessonId(openLessonId === line.lessonId ? null : line.lessonId)}
                         >
-                          Kaynak ders →
-                        </Link>
+                          Kaynak ders
+                        </button>
+                        {openLessonId === line.lessonId ? (
+                          <span className="mt-1 block rounded border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-2 py-1 text-[11px] font-normal text-[var(--color-text-muted)]">
+                            {formatDate(line.lessonDate)} · {teacherName} · {line.branchName ?? "Şube yok"} · {line.durationMinutes} dk
+                          </span>
+                        ) : null}
                       </td>
                       <td className="px-4 py-3 text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">{line.branchName ?? "—"}</td>
                       <td className="px-4 py-3 text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">{line.durationMinutes} dk</td>
@@ -337,14 +408,25 @@ export function TeacherPayoutDashboard({
           </Card>
 
           <div className="mt-6 flex flex-wrap items-center gap-3">
-            <Button
-              type="button"
-              onClick={handleCreatePayout}
-              disabled={!result.canCreatePayout || result.lines.length === 0 || creating || !canWrite}
-            >
-              {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              Hakediş oluştur
-            </Button>
+            {result.existingPayout ? null : (
+              <Button
+                type="button"
+                onClick={handleCreatePayout}
+                disabled={!result.canCreatePayout || result.lines.length === 0 || creating || !canWrite}
+              >
+                {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                Hakediş oluştur
+              </Button>
+            )}
+            {result.existingPayout?.status === "paid" ? (
+              <Badge status="paid">Bu dönemin hakedişi ödendi</Badge>
+            ) : null}
+            {result.existingPayout && result.existingPayout.status !== "paid" ? (
+              <Button type="button" variant="secondary" onClick={handlePay} disabled={paying || !canWrite}>
+                {paying ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                Hakedişi öde
+              </Button>
+            ) : null}
             {createMessage ? (
               <p className={`text-sm ${createMessage.ok ? "text-emerald-600" : "text-rose-600"}`}>
                 {createMessage.text}

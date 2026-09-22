@@ -574,8 +574,8 @@ function mapSchoolToAppData(school: PrismaSchoolWithRelations): AppData {
     teacherPayouts: school.teacherPayouts.map((payout) => ({
       id: payout.id,
       teacherId: payout.teacherId,
-      periodStart: payout.periodStart.toISOString(),
-      periodEnd: payout.periodEnd.toISOString(),
+      periodStart: payout.periodStart.toISOString().slice(0, 10),
+      periodEnd: payout.periodEnd.toISOString().slice(0, 10),
       totalMinutes: payout.totalMinutes,
       totalAmount: payout.totalAmount,
       status: payout.status as "pending" | "paid",
@@ -2778,21 +2778,34 @@ export async function createTeacherPayout(
   if (!result.ok) return result;
 
   const schoolId = await requireTeacherSchoolId(tid, teacherId);
-  await prisma.teacherPayout.create({
-    data: {
-      id: result.payout.id,
-      tenantId: tid,
-      teacherId: result.payout.teacherId,
-      schoolId,
-      periodStart: new Date(result.payout.periodStart),
-      periodEnd: new Date(result.payout.periodEnd),
-      totalMinutes: result.payout.totalMinutes,
-      totalAmount: result.payout.totalAmount,
-      status: result.payout.status,
-      method: result.payout.method,
-      generatedAt: new Date(result.payout.generatedAt),
-    },
-  });
+  try {
+    await prisma.teacherPayout.create({
+      data: {
+        id: result.payout.id,
+        tenantId: tid,
+        teacherId: result.payout.teacherId,
+        schoolId,
+        periodStart: new Date(`${result.payout.periodStart.slice(0, 10)}T00:00:00.000Z`),
+        periodEnd: new Date(`${result.payout.periodEnd.slice(0, 10)}T00:00:00.000Z`),
+        totalMinutes: Math.round(result.payout.totalMinutes),
+        totalAmount: result.payout.totalAmount,
+        status: result.payout.status,
+        method: result.payout.method,
+        generatedAt: new Date(result.payout.generatedAt),
+      },
+    });
+  } catch (error) {
+    const code = (error as { code?: string }).code;
+    if (code === "P2002") {
+      return {
+        ok: false,
+        code: "PAYOUT_ALREADY_EXISTS",
+        message: "Bu öğretmen ve dönem için zaten bir hakediş kaydı var. Sayfayı yenileyip mevcut kaydı ödeyebilirsiniz.",
+        existingPayoutId: result.payout.id,
+      };
+    }
+    throw error;
+  }
 
   return { ok: true, data: await readData(), payout: result.payout };
 }

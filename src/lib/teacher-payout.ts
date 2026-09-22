@@ -319,7 +319,13 @@ export type CreateTeacherPayoutResult =
   | { ok: false; code: "MISSING_FEE_RULE"; message: string; missingFeeRuleLessonIds: string[] }
   | { ok: false; code: "PAYOUT_ALREADY_EXISTS"; message: string; existingPayoutId: string };
 
-/** PRODUCT_BACKLOG §3.4 — hakediş ödeme yöntemi eşiği (nakit/havale). */
+/** Hakediş dönemi kimliği gün bazındadır. DB ISO datetime ile formun yyyy-MM-dd değeri aynı dönemdir. */
+export function payoutPeriodDayKey(value: string): string {
+  const match = /^(\d{4}-\d{2}-\d{2})/.exec(value);
+  return match?.[1] ?? value.slice(0, 10);
+}
+
+/** Hakediş ödeme yöntemi eşiği (nakit/havale). */
 export type TeacherPayoutPaymentMethod = "cash" | "transfer";
 
 export type TeacherPayoutPaymentMethodInfo = {
@@ -392,8 +398,13 @@ export function createTeacherPayoutSnapshot(
   now: Date = new Date(),
   paymentMethodOverride?: TeacherPayoutPaymentMethod
 ): CreateTeacherPayoutResult {
+  const startKey = payoutPeriodDayKey(periodStart);
+  const endKey = payoutPeriodDayKey(periodEnd);
   const existing = data.teacherPayouts.find(
-    (p) => p.teacherId === teacherId && p.periodStart === periodStart && p.periodEnd === periodEnd
+    (p) =>
+      p.teacherId === teacherId &&
+      payoutPeriodDayKey(p.periodStart) === startKey &&
+      payoutPeriodDayKey(p.periodEnd) === endKey
   );
   if (existing) {
     return {

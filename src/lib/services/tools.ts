@@ -6263,9 +6263,12 @@ export async function computeTeacherPayoutTool(
     v.data.periodStart,
     v.data.periodEnd
   );
+  const { payoutPeriodDayKey } = await import("../teacher-payout");
   const existing = data.teacherPayouts.find(
     (p) =>
-      p.teacherId === v.data.teacherId && p.periodStart === v.data.periodStart && p.periodEnd === v.data.periodEnd
+      p.teacherId === v.data.teacherId &&
+      payoutPeriodDayKey(p.periodStart) === payoutPeriodDayKey(v.data.periodStart) &&
+      payoutPeriodDayKey(p.periodEnd) === payoutPeriodDayKey(v.data.periodEnd)
   );
   const existingPayout = existing ? { id: existing.id, method: existing.method, status: existing.status } : null;
 
@@ -6303,7 +6306,8 @@ export async function createTeacherPayoutTool(
     }
     return ok({ payout: result.payout });
   } catch (e) {
-    return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "createTeacherPayout failed");
+    logger.error("createTeacherPayoutTool failed", e);
+    return fail("INTERNAL_ERROR", "Hakediş kaydı oluşturulamadı. Sayfayı yenileyip tekrar deneyin; sorun sürerse dönem ve ücret kurallarını kontrol edin.");
   }
 }
 
@@ -6330,7 +6334,8 @@ export async function updateTeacherPayoutPaymentMethodTool(
     if (!result.ok) return fail("NOT_FOUND", result.message);
     return ok({ payout: result.payout });
   } catch (e) {
-    return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "updateTeacherPayoutPaymentMethod failed");
+    logger.error("updateTeacherPayoutPaymentMethodTool failed", e);
+    return fail("INTERNAL_ERROR", "Hakediş ödeme yöntemi güncellenemedi. Sayfayı yenileyip tekrar deneyin.");
   }
 }
 
@@ -6355,7 +6360,8 @@ export async function markTeacherPayoutPaidTool(
     }
     return ok({ payout: result.payout });
   } catch (e) {
-    return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "markTeacherPayoutPaid failed");
+    logger.error("markTeacherPayoutPaidTool failed", e);
+    return fail("INTERNAL_ERROR", "Hakediş ödendi olarak kaydedilemedi. Sayfayı yenileyip tekrar deneyin.");
   }
 }
 

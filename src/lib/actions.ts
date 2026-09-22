@@ -2374,6 +2374,7 @@ export async function actionUpdateTeacherProfile(input: {
   university?: string;
   graduationYear?: number;
   maxDailyLessons?: number;
+  weeklyHoursThreshold?: number;
   emergencyContactName?: string;
   emergencyContactPhone?: string;
   personnelNotes?: string;

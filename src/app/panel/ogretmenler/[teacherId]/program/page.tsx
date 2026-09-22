@@ -41,10 +41,9 @@ export default async function TeacherProgramTab({ params }: { params: Promise<{ 
             {canManage ? "Müsaitliği düzenle →" : "Müsaitlikte Aç →"}
           </Link>
         </h2>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <div className="grid grid-cols-2 gap-3">
           <MiniStat label="Kayıtlı ders" value={String(registeredCount)} />
           <MiniStat label="Yaklaşan ders" value={String(upcomingLessons)} />
-          <MiniStat label="Günlük limit" value={String(teacher.maxDailyLessons)} />
         </div>
         <Link
           href="/panel/program"

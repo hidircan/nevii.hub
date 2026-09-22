@@ -33,18 +33,28 @@ export default async function TeacherPayoutTab({ params }: { params: Promise<{ t
       <section>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-sm font-semibold text-[var(--color-text)]">Dönem Hakedişi</h2>
-          <Link
-            href={`/ogretmen-hakedis-yazdir/${teacher.id}?periodStart=${periodStart}&periodEnd=${periodEnd}`}
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-2 text-sm font-medium text-[var(--color-text)] hover:bg-[var(--color-surface-muted)]"
-          >
-            Yazdır / PDF
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href={`/ogretmen-hakedis-yazdir/${teacher.id}?periodStart=${periodStart}&periodEnd=${periodEnd}`}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-2 text-sm font-medium text-[var(--color-text)] hover:bg-[var(--color-surface-muted)]"
+            >
+              Aylık döküm
+            </Link>
+            <Link
+              href={`/ogretmen-hakedis-yazdir/${teacher.id}?periodStart=${now.getFullYear()}-01-01&periodEnd=${now.getFullYear()}-12-31`}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-2 text-sm font-medium text-[var(--color-text)] hover:bg-[var(--color-surface-muted)]"
+            >
+              Yıllık döküm
+            </Link>
+          </div>
         </div>
         <TeacherPayoutDashboard
           teacherId={teacherId}
+          teacherName={teacher.name}
           initialYear={now.getFullYear()}
           initialMonth={now.getMonth() + 1}
           initialResult={initialResult}
+          initialThreshold={teacher.weeklyHoursThreshold}
           canWrite={kurum.scope.mode === "single"}
         />
       </section>

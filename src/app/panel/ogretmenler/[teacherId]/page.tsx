@@ -156,7 +156,6 @@ export default async function TeacherOverviewTab({ params }: { params: Promise<{
       <section className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         <MiniStat label="Bu ay bekleyen hakediş" value={formatMoney(earnings.totalAmount)} />
         <MiniStat label="Yaklaşan ders" value={String(upcomingAll.length)} />
-        <MiniStat label="Günlük limit" value={String(teacher.maxDailyLessons)} />
       </section>
 
       <div className="grid gap-4 lg:grid-cols-2">

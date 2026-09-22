@@ -22,12 +22,20 @@ export default async function TeacherPayoutHistoryTab({ params }: { params: Prom
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-sm font-semibold text-[var(--color-text)]">Ödeme Geçmişi</h2>
-        <Link
-          href={`/panel/ogretmenler/${teacherId}/hakedis`}
-          className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-3.5 py-2 text-sm font-medium text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)]"
-        >
-          Hakediş dökümüne dön
-        </Link>
+        <div className="flex flex-wrap gap-2">
+          <Link
+            href={`/ogretmen-odeme-gecmisi-yazdir/${teacherId}`}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-3.5 py-2 text-sm font-medium text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)]"
+          >
+            Geçmişi yazdır
+          </Link>
+          <Link
+            href={`/panel/ogretmenler/${teacherId}/hakedis`}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-3.5 py-2 text-sm font-medium text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)]"
+          >
+            Hakedişe dön
+          </Link>
+        </div>
       </div>
       <TeacherPayoutHistory payouts={payouts} />
     </div>
