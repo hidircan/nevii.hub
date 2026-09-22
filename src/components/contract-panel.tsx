@@ -1812,7 +1812,7 @@ export function ContractPanel({
                 Geçmiş sözleşmeler
               </p>
             ) : null}
-            <Card className={isCurrent ? "!border-[var(--color-primary)] !p-3" : "!p-3 opacity-90"}>
+            <Card className={isCurrent ? "!border-[var(--color-primary)] !p-3" : terminal ? "!p-3 opacity-70" : "!p-3"}>
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div>
                   <p className="text-sm font-medium text-[var(--color-text)]">
