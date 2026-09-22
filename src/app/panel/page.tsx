@@ -489,7 +489,8 @@ export default async function DashboardPage({
         </Link>
       ) : null}
 
-      <div className="grid gap-2.5 xl:grid-cols-12">
+      {/* grid-flow-dense: dar kutular üst satırda kalan boşluğu doldurur (minimum boşluk). */}
+      <div className="grid items-start gap-2.5 xl:grid-flow-row-dense xl:grid-cols-12">
         {layout.visible.map(({ key, span }) => {
           const node = sectionNodes[key];
           if (!node) return null;

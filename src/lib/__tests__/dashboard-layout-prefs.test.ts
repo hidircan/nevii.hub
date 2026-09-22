@@ -7,6 +7,7 @@ import {
   resolveDashboardLayout,
   sanitizeDashboardLayoutPatch,
 } from "../dashboard/layout-prefs";
+import type { DashboardSavedView } from "../user-preferences";
 
 describe("dashboard layout defaults by role", () => {
   it("SUPER_ADMIN varsayılanında payout vardır", () => {
@@ -181,5 +182,49 @@ describe("sanitize + merge persistence", () => {
     expect(merged.defaultBranchId).toBe("erzene");
     expect(merged.sectionOrder).toEqual(["actions"]);
     expect(merged.hiddenSections).toEqual(["tasks"]);
+  });
+});
+
+describe("kayıtlı görünümler arasında geçiş", () => {
+  it("iki görünüm saklanır; birine geçmek canlı düzeni o görünümle değiştirir ve diğerini korur", () => {
+    const views: DashboardSavedView[] = [
+      { id: "v_sabah", name: "Sabah", sectionOrder: ["todaySchedule", "actions"], hiddenSections: ["tasks"], sectionSpans: { todaySchedule: 12 } },
+      { id: "v_finans", name: "Finans", sectionOrder: ["collections", "payout"], hiddenSections: [], sectionSpans: { collections: 6 } },
+    ];
+    let prefs = mergeDashboardPreferences(undefined, sanitizeDashboardLayoutPatch({ savedViews: views }, "SUPER_ADMIN"));
+    expect(prefs.savedViews?.map((v) => v.name)).toEqual(["Sabah", "Finans"]);
+
+    // Editör "Finans"a geçerken görünümün düzenini canlı düzen olarak yazar.
+    const finans = prefs.savedViews![1]!;
+    prefs = mergeDashboardPreferences(
+      prefs,
+      sanitizeDashboardLayoutPatch(
+        {
+          sectionOrder: finans.sectionOrder,
+          hiddenSections: finans.hiddenSections,
+          sectionSpans: finans.sectionSpans,
+          savedViews: prefs.savedViews,
+          activeViewId: "v_finans",
+        },
+        "SUPER_ADMIN"
+      )
+    );
+    const layout = resolveDashboardLayout(prefs, "SUPER_ADMIN");
+    expect(layout.visible[0]?.key).toBe("collections");
+    expect(layout.spans.collections).toBe(6);
+    expect(prefs.activeViewId).toBe("v_finans");
+    expect(prefs.savedViews).toHaveLength(2);
+  });
+
+  it("varsayılana dönmek kayıtlı görünümleri silmez; rol varsayılanı geri gelir", () => {
+    const prefs = mergeDashboardPreferences(
+      { sectionOrder: ["tasks"], savedViews: [{ id: "v1", name: "A", sectionOrder: [], hiddenSections: [], sectionSpans: {} }], activeViewId: "v1" },
+      sanitizeDashboardLayoutPatch({ resetToDefault: true }, "SCHOOL_ADMIN")
+    );
+    expect(prefs.savedViews).toHaveLength(1);
+    expect(prefs.activeViewId).toBeUndefined();
+    const layout = resolveDashboardLayout(prefs, "SCHOOL_ADMIN");
+    expect(layout.order).toEqual(getDefaultDashboardLayout("SCHOOL_ADMIN").order);
+    expect(layout.order).not.toContain("payout");
   });
 });
