@@ -499,6 +499,7 @@ export const updateTeacherProfileSchema = z
     university: optionalTrimmed,
     graduationYear: z.coerce.number().int().min(1950, "Mezuniyet yılı 1950'den önce olamaz.").max(2100, "Mezuniyet yılı geçerli değil.").optional(),
     maxDailyLessons: z.coerce.number().int().min(1, "Günlük ders limiti en az 1 olmalı.").max(20, "Günlük ders limiti en fazla 20 olabilir.").optional(),
+    weeklyHoursThreshold: z.coerce.number().int().min(1, "Eşik en az 1 saat olmalı.").max(80, "Eşik en fazla 80 saat olabilir.").optional(),
     emergencyContactName: optionalTrimmed,
     emergencyContactPhone: optionalTrimmed,
     personnelNotes: optionalTrimmed,

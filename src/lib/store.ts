@@ -239,6 +239,9 @@ type StoreApi = {
     method: TeacherPayoutPaymentMethod
   ) => Promise<UpdateTeacherPayoutPaymentMethodResult>;
   updateFeeRoundingMode: (feeRoundingMode: FeeRoundingMode) => Promise<AppData>;
+  updatePerformanceWeights: (
+    performanceWeights: import("./performance-weights").PerformanceWeightsConfig
+  ) => Promise<AppData>;
   updateMakeupWindowDays: (makeupWindowDays: number) => Promise<AppData>;
   updateMonthlyMakeupAllowance: (monthlyMakeupAllowance: number) => Promise<AppData>;
   updateCollectionsSettings: (collectionsSettings: CollectionsSettings) => Promise<AppData>;
@@ -492,6 +495,7 @@ export async function addLesson(input: {
   academicYearStart?: number;
   allowAvailabilityOverride?: boolean;
   overriddenByUserId?: string;
+  createdByUserId?: string;
 }): Promise<AppData> {
   return withTenantScope(() => store.addLesson(input));
 }
@@ -643,7 +647,7 @@ export async function importStudents(rows: StudentImportRow[]): Promise<ImportCo
 
 export async function addLessonSeries(
   params: SeriesParams,
-  options?: { skipConflicts?: boolean; allowAvailabilityOverride?: boolean; overriddenByUserId?: string }
+  options?: { skipConflicts?: boolean; allowAvailabilityOverride?: boolean; overriddenByUserId?: string; createdByUserId?: string }
 ): Promise<CreateSeriesResult> {
   return withTenantScope(() => store.addLessonSeries(params, options));
 }
@@ -698,6 +702,12 @@ export async function markTeacherPayoutPaid(
   method?: string
 ): Promise<MarkPayoutPaidResult> {
   return withTenantScope(() => store.markTeacherPayoutPaid(payoutId, method));
+}
+
+export async function updatePerformanceWeights(
+  performanceWeights: import("./performance-weights").PerformanceWeightsConfig
+): Promise<AppData> {
+  return withTenantScope(() => store.updatePerformanceWeights(performanceWeights));
 }
 
 export async function updateFeeRoundingMode(feeRoundingMode: FeeRoundingMode): Promise<AppData> {

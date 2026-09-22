@@ -616,6 +616,7 @@ export async function addLesson(input: {
   allowAvailabilityOverride?: boolean;
   /** Override uygulanırsa Lesson.availabilityOverride.by'a yazılan aktör. */
   overriddenByUserId?: string;
+  createdByUserId?: string;
 }): Promise<AppData> {
   const data = await readData();
   const validation = validateLessonSlot(
@@ -639,6 +640,7 @@ export async function addLesson(input: {
     endAt: slot.endAt,
     type: "regular",
     status: "scheduled",
+    createdByUserId: input.createdByUserId,
     term: input.term,
     academicYearStart: input.academicYearStart,
     availabilityOverride:
@@ -746,7 +748,7 @@ function assertLessonSeriesRefsExist(data: AppData, params: SeriesParams) {
  */
 export async function addLessonSeries(
   params: SeriesParams,
-  options?: { skipConflicts?: boolean; allowAvailabilityOverride?: boolean; overriddenByUserId?: string }
+  options?: { skipConflicts?: boolean; allowAvailabilityOverride?: boolean; overriddenByUserId?: string; createdByUserId?: string }
 ): Promise<CreateSeriesResult> {
   const data = await readData();
   assertLessonSeriesRefsExist(data, params);
@@ -867,6 +869,15 @@ export async function markTeacherPayoutPaid(
   const result = markTeacherPayoutPaidData(data, payoutId, method);
   if (result.ok) await writeData(result.data);
   return result;
+}
+
+export async function updatePerformanceWeights(
+  performanceWeights: import("./performance-weights").PerformanceWeightsConfig
+): Promise<AppData> {
+  const data = await readData();
+  const next = { ...data, settings: { ...data.settings, performanceWeights } };
+  await writeData(next);
+  return next;
 }
 
 export async function updateFeeRoundingMode(feeRoundingMode: FeeRoundingMode): Promise<AppData> {

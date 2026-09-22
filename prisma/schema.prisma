@@ -247,6 +247,9 @@ model School {
   /// uygulama katmanı varsayılanları (boş kısıtlı-özellik listesi, recordDeviceInfo: false —
   /// "veri minimizasyonu") uygular.
   consentSettings        Json?
+  /// Kurum sahibi performans ağırlıkları. null = ürün varsayılanı.
+  /// Şema: src/lib/performance-weights.ts
+  performanceWeights     Json?
   branches               Branch[]
   teachers               Teacher[]
   students               Student[]
@@ -342,6 +345,10 @@ model Teacher {
   emergencyContactName  String?
   emergencyContactPhone String?
   personnelNotes        String?          @db.Text
+  /// Haftalık ders saati eşiği — üstü nakit, altı havale varsayılanı.
+  weeklyHoursThreshold  Int?
+  /// Öğretmen kaydını açan kullanıcı (User.id). Eski kayıtlarda null.
+  createdByUserId       String?
   color                 String
   students              Student[]
   lessons               Lesson[]
@@ -416,6 +423,8 @@ model Student {
   active                   Boolean
   notes                    String
   createdAt                DateTime          @default(now())
+  /// Öğrenci kaydını açan kullanıcı (User.id). Eski kayıtlarda null — audit backfill.
+  createdByUserId          String?
   /// EPIC 4 (IMPLEMENTATION_PLAN.md) — hepsi opsiyonel: geçmiş öğrenci
   /// kayıtları zorunlu backfill istemeden migration sonrası çalışmaya devam
   /// eder. "Hobi" | "MEB" | "London College of Music Hazırlık" |
@@ -571,6 +580,8 @@ model Lesson {
   series                  LessonSeries? @relation(fields: [seriesId], references: [id])
   seriesId                String?
   notes                   String?
+  /// Dersi planlayan kullanıcı (User.id). Eski kayıtlarda null.
+  createdByUserId         String?
   /// EPIC 8 — öğretmenin "Dersi başlat"/"Dersi bitir" ile damgaladığı GERÇEK
   /// zaman damgaları (planlanan startAt/endAt'tan bağımsız, nullable —
   /// geçmiş dersler dolu olmayabilir). Düzeltme yalnızca admin tarafından ve

@@ -176,6 +176,7 @@ export function createLessonSeriesData(
     /** İş 1 — CSV toplu içe aktarımda kullanıcı onayı sonrası TEACHER_UNAVAILABLE'ı atlatır. */
     allowAvailabilityOverride?: boolean;
     overriddenByUserId?: string;
+    createdByUserId?: string;
   } = {}
 ): CreateSeriesResult {
   const now = options.now ?? new Date();
@@ -261,6 +262,7 @@ export function createLessonSeriesData(
     type: "regular",
     status: "scheduled",
     seriesId,
+    createdByUserId: options.createdByUserId,
     // Seriden üretilen ders serinin dönem etiketini miras alır.
     term: params.term,
     academicYearStart: params.academicYearStart,

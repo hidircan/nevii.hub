@@ -103,6 +103,8 @@ export interface Teacher {
   instrumentLevels?: TeacherInstrumentSkill[];
   /** Haftalık ders saati eşiği — üstü nakit varsayılan, altı havale */
   weeklyHoursThreshold?: number;
+  /** Kaydı açan kullanıcı. Eski kayıtlarda yok. */
+  createdByUserId?: string;
   /** ÖNCELİK 4 (devam) — arşivleme (hard delete YOK); `active:false` ile birlikte set edilir. */
   archivedAt?: string;
   /** Package D — özlük alanları. Hepsi opsiyonel; legacy kayıtlar kırılmaz. */
@@ -141,6 +143,7 @@ export type TeacherProfilePatch = Partial<
     | "emergencyContactName"
     | "emergencyContactPhone"
     | "personnelNotes"
+    | "weeklyHoursThreshold"
   >
 >;
 
@@ -219,6 +222,8 @@ export interface Student {
   active: boolean;
   notes: string;
   createdAt: string;
+  /** Kaydı açan kullanıcı. Eski kayıtlarda yok — audit'ten backfill edilebilir. */
+  createdByUserId?: string;
   /** EPIC 4 — hepsi opsiyonel; boşsa UI "Belirtilmemiş" gösterir, hata vermez. */
   studentType?: StudentType;
   /**
@@ -724,6 +729,8 @@ export interface Lesson {
   endCorrectedBy?: string;
   endCorrectionNote?: string;
   notes?: string;
+  /** Dersi planlayan kullanıcı. Eski derslerde yok. */
+  createdByUserId?: string;
   /**
    * Operasyonel bayraklar (Geldi / İşlendi / Telafi) — tek enum değil;
    * birlikte işaretlenebilir. Geldi dersi otomatik tamamlamaz.
@@ -1045,6 +1052,8 @@ export interface SchoolSettings {
   };
   /** Faz 8 (KVKK) — boşsa DEFAULT_CONSENT_SETTINGS uygulanır (veri minimizasyonu: recordDeviceInfo=false). */
   consentSettings?: ConsentSettings;
+  /** Kurum sahibi performans ağırlıkları. Boşsa ürün varsayılanı. */
+  performanceWeights?: import("./performance-weights").PerformanceWeightsConfig;
 }
 
 /**

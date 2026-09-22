@@ -254,6 +254,9 @@ function mapSchoolToAppData(school: PrismaSchoolWithRelations): AppData {
       termWeeklyClosedDays: parseTermCalendarJson(school.termWeeklyClosedDays).weekly,
       academicTermDates: parseTermCalendarJson(school.termWeeklyClosedDays).academicTermDates,
       consentSettings: (school.consentSettings as ConsentSettings | null) ?? undefined,
+      performanceWeights:
+        (school as { performanceWeights?: import("./performance-weights").PerformanceWeightsConfig | null })
+          .performanceWeights ?? undefined,
       branches: school.branches.map((branch) => ({
         id: branch.id as BranchId,
         name: branch.name,
@@ -275,6 +278,8 @@ function mapSchoolToAppData(school: PrismaSchoolWithRelations): AppData {
         ((teacher as { instrumentLevels?: unknown }).instrumentLevels as Teacher["instrumentLevels"]) ?? undefined,
       availability: teacher.availability as Teacher["availability"],
       maxDailyLessons: teacher.maxDailyLessons,
+      weeklyHoursThreshold: (teacher as { weeklyHoursThreshold?: number | null }).weeklyHoursThreshold ?? undefined,
+      createdByUserId: (teacher as { createdByUserId?: string | null }).createdByUserId ?? undefined,
       active: teacher.active,
       archivedAt: (teacher as { archivedAt?: Date | null }).archivedAt?.toISOString() ?? undefined,
       color: teacher.color,
@@ -336,6 +341,7 @@ function mapSchoolToAppData(school: PrismaSchoolWithRelations): AppData {
       active: student.active,
       notes: student.notes,
       createdAt: student.createdAt.toISOString(),
+      createdByUserId: (student as { createdByUserId?: string | null }).createdByUserId ?? undefined,
       studentType: (student.studentType as StudentType) ?? undefined,
       studentTypes:
         ((student as { studentTypes?: unknown }).studentTypes as StudentType[] | undefined) ?? undefined,
@@ -433,6 +439,7 @@ function mapSchoolToAppData(school: PrismaSchoolWithRelations): AppData {
       makeupRequestId: lesson.makeupRequestId ?? undefined,
       seriesId: lesson.seriesId ?? undefined,
       notes: lesson.notes ?? undefined,
+      createdByUserId: (lesson as { createdByUserId?: string | null }).createdByUserId ?? undefined,
       studentAttended: (lesson as { studentAttended?: boolean }).studentAttended ?? undefined,
       studentAttendedAt: (lesson as { studentAttendedAt?: Date | null }).studentAttendedAt?.toISOString?.() ?? undefined,
       studentAttendedBy: (lesson as { studentAttendedBy?: string | null }).studentAttendedBy ?? undefined,
@@ -1480,6 +1487,7 @@ export async function updateTeacherProfile(
       university: patch.university,
       graduationYear: patch.graduationYear,
       maxDailyLessons: patch.maxDailyLessons,
+      weeklyHoursThreshold: patch.weeklyHoursThreshold,
       branchIds:
         patch.branchIds !== undefined
           ? patch.branchIds === null
@@ -1915,6 +1923,7 @@ export async function addLesson(input: {
   allowAvailabilityOverride?: boolean;
   /** Override uygulanırsa Lesson.availabilityOverride.by'a yazılan aktör. */
   overriddenByUserId?: string;
+  createdByUserId?: string;
 }): Promise<AppData> {
   const data = await readData();
   const tid = requireTenantId();
@@ -1949,6 +1958,7 @@ export async function addLesson(input: {
       endAt: new Date(slot.endAt),
       type: "regular",
       status: "scheduled",
+      createdByUserId: input.createdByUserId,
       term: input.term,
       academicYearStart: input.academicYearStart,
       availabilityOverrideBy: override ? input.overriddenByUserId : undefined,
@@ -2421,7 +2431,7 @@ export async function correctLessonTimesLive(
  */
 export async function addLessonSeries(
   params: SeriesParams,
-  options?: { skipConflicts?: boolean; allowAvailabilityOverride?: boolean; overriddenByUserId?: string }
+  options?: { skipConflicts?: boolean; allowAvailabilityOverride?: boolean; overriddenByUserId?: string; createdByUserId?: string }
 ): Promise<CreateSeriesResult> {
   logger.info("addLessonSeries", params.studentId, params.teacherId);
   const tid = requireTenantId();
@@ -2477,6 +2487,7 @@ export async function addLessonSeries(
           type: lesson.type,
           status: lesson.status,
           seriesId: result.seriesId,
+          createdByUserId: lesson.createdByUserId,
           term: lesson.term,
           academicYearStart: lesson.academicYearStart,
           availabilityOverrideBy: lesson.availabilityOverride?.by,
@@ -2820,6 +2831,17 @@ export async function markTeacherPayoutPaid(
   });
 
   return { ok: true, data: await readData(), payout: result.payout };
+}
+
+export async function updatePerformanceWeights(
+  performanceWeights: import("./performance-weights").PerformanceWeightsConfig
+): Promise<AppData> {
+  const tid = requireTenantId();
+  await prisma.school.update({
+    where: { tenantId: tid },
+    data: { performanceWeights: performanceWeights as unknown as Prisma.InputJsonValue },
+  });
+  return readData();
 }
 
 export async function updateFeeRoundingMode(feeRoundingMode: FeeRoundingMode): Promise<AppData> {
