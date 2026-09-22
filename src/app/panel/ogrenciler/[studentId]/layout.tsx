@@ -9,6 +9,7 @@ import { QuickTaskLink } from "@/components/quick-task-link";
 import { AssistantPageContext } from "@/components/ai/assistant-page-context";
 import { effectiveStudentTypes } from "@/lib/student-types";
 import { formatDate } from "@/lib/utils";
+import { resolveActorLabel } from "@/lib/contract-payment-plan-view";
 import { loadStudentPageContext } from "./_context";
 
 export const dynamic = "force-dynamic";
@@ -32,7 +33,7 @@ export default async function StudentDetailLayout({
   } catch {
     redirect(`/login?next=/panel/ogrenciler/${studentId}`);
   }
-  const { kurum, data, student } = ctx;
+  const { kurum, data, student, session } = ctx;
 
   if (!student) {
     return (
@@ -54,6 +55,9 @@ export default async function StudentDetailLayout({
 
   const teacher = data.teachers.find((t) => t.id === student.teacherId);
   const branch = data.settings.branches.find((b) => b.id === student.branchId);
+  const createdBy = student.createdByUserId
+    ? await resolveActorLabel({ tenantId: session.tenantId, userId: student.createdByUserId, teachers: data.teachers })
+    : null;
 
   return (
     <div>
@@ -91,6 +95,7 @@ export default async function StudentDetailLayout({
           <span className="text-[var(--color-text-muted)]">
             Öğretmen: {teacher?.name ?? "—"} · Kayıt:{" "}
             {student.enrollmentStartDate ? formatDate(student.enrollmentStartDate) : formatDate(student.createdAt)}
+            {createdBy ? ` · Kaydı oluşturan: ${createdBy}` : ""}
           </span>
         </div>
         {/*

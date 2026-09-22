@@ -8,6 +8,7 @@ import { TeacherDetailTabs } from "@/components/teacher-detail-tabs";
 import { QuickTaskLink } from "@/components/quick-task-link";
 import { AssistantPageContext } from "@/components/ai/assistant-page-context";
 import { formatDate } from "@/lib/utils";
+import { resolveActorLabel } from "@/lib/contract-payment-plan-view";
 import { loadTeacherPageContext } from "./_context";
 
 export const dynamic = "force-dynamic";
@@ -30,7 +31,7 @@ export default async function TeacherDetailLayout({
   } catch {
     redirect(`/login?next=/panel/ogretmenler/${teacherId}`);
   }
-  const { kurum, data, teacher, canManage } = ctx;
+  const { kurum, data, teacher, canManage, session } = ctx;
 
   if (!teacher) {
     return (
@@ -51,6 +52,9 @@ export default async function TeacherDetailLayout({
   }
 
   const branch = data.settings.branches.find((b) => b.id === teacher.branchId);
+  const createdBy = teacher.createdByUserId
+    ? await resolveActorLabel({ tenantId: session.tenantId, userId: teacher.createdByUserId, teachers: data.teachers })
+    : null;
   const now = new Date();
   const contractDaysLeft = teacher.contractEndDate
     ? Math.ceil((new Date(teacher.contractEndDate).getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
@@ -93,6 +97,7 @@ export default async function TeacherDetailLayout({
           <span className="text-[var(--color-text-muted)]">
             {teacher.email || "—"} · {teacher.phone || "—"}
             {teacher.hireDate ? ` · İşe giriş: ${formatDate(teacher.hireDate)}` : ""}
+            {createdBy ? ` · Kaydı oluşturan: ${createdBy}` : ""}
           </span>
           {contractDaysLeft !== null && contractDaysLeft <= 30 && contractDaysLeft >= 0 ? (
             <Badge status="pending">Sözleşme {contractDaysLeft} gün içinde bitiyor</Badge>

@@ -1548,9 +1548,13 @@ export async function createPaymentTool(
     // Notify admins and the student about the payment received.
     try {
       const { notifyAdmins } = await import("../manager-notifications");
+      const { resolveActorLabel } = await import("../contract-payment-plan-view");
+      const actorName = await resolveActorLabel({ tenantId: ctx.tenantId, userId: ctx.userId, teachers: data.teachers });
+      const studentName = data.students.find((s) => s.id === existing.studentId)?.name ?? "Öğrenci";
+      const collectedAmount = v.data.amount ?? existing.amount - (existing.paidAmount ?? 0);
       await notifyAdmins(ctx.tenantId, "payment_received", {
         title: "Ödeme alındı",
-        body: `Ödeme ${v.data.paymentId} tahsil edildi. Detay: /panel/odemeler/${v.data.paymentId}`,
+        body: `${studentName} için ${formatMoney(collectedAmount)} tahsilat ${actorName} tarafından alındı. Detay: /panel/odemeler/${v.data.paymentId}`,
       }, { excludeUserId: ctx.userId, dedupeKey: v.data.paymentId });
     } catch {
       // best-effort
@@ -2206,6 +2210,7 @@ export async function createStudentTool(
       ...pricing,
       // P0-1B — client'tan ASLA gelmez, yalnız sunucunun kendi hesabı.
       derivedPerLessonAmount,
+      createdByUserId: ctx.userId,
     });
     const after = await readData();
     const created = after.students.find((s) => !ids.has(s.id));
@@ -2259,9 +2264,15 @@ export async function createStudentTool(
       // Notify admins about new student registration
       try {
         const { notifyAdmins } = await import("../manager-notifications");
+        const { resolveActorLabel } = await import("../contract-payment-plan-view");
+        const actorName = await resolveActorLabel({
+          tenantId: ctx.tenantId,
+          userId: ctx.userId,
+          teachers: before.teachers,
+        });
         await notifyAdmins(ctx.tenantId, "student_new_registration", {
           title: "Yeni öğrenci kaydı",
-          body: `"${created.name}" öğrencisi kaydedildi. Detay: /panel/ogrenciler/${created.id}`,
+          body: `${created.name} için öğrenci kaydı ${actorName} tarafından oluşturuldu. Detay: /panel/ogrenciler/${created.id}`,
         });
       } catch {
         // best-effort
@@ -3173,6 +3184,7 @@ export async function createTeacherTool(
         { dayOfWeek: 5, start: "10:00", end: "16:00" },
       ],
       maxDailyLessons: 8,
+      createdByUserId: ctx.userId,
       highSchool: v.data.highSchool,
       university: v.data.university,
       graduationYear: v.data.graduationYear,
@@ -5046,6 +5058,7 @@ export async function commitLessonImportTool(
         instrument: row.instrument,
         startAt: row.startAt,
         durationMinutes: row.durationMinutes,
+        createdByUserId: ctx.userId,
       });
       created++;
     }
@@ -5170,6 +5183,7 @@ export async function commitLessonScheduleImportTool(
         const result = await addLessonSeries(params, {
           allowAvailabilityOverride: allowOverride,
           overriddenByUserId: allowOverride ? ctx.userId : undefined,
+          createdByUserId: ctx.userId,
         });
         if (!result.ok) {
           rowMessages.push({ row: plan.row, field: "-", message: result.message });
@@ -5393,6 +5407,7 @@ export async function createLessonTool(
       academicYearStart: v.data.academicYearStart,
       allowAvailabilityOverride: v.data.overrideAvailability,
       overriddenByUserId: v.data.overrideAvailability ? ctx.userId : undefined,
+      createdByUserId: ctx.userId,
     });
     const after = await readData();
     const created = after.lessons.find((l) => !ids.has(l.id));
@@ -5636,7 +5651,10 @@ export async function createLessonSeriesTool(
 
   try {
     const { skipConflicts, ...params } = v.data;
-    const result = await addLessonSeries({ ...params, instrument: params.instrument as Instrument }, { skipConflicts });
+    const result = await addLessonSeries(
+      { ...params, instrument: params.instrument as Instrument },
+      { skipConflicts, createdByUserId: ctx.userId }
+    );
     if (!result.ok) return fail("CONFLICT", result.message, result.conflicts);
 
     // İş 4A — seri için TEK özet bildirim (oluşum başına DEĞİL, spam yok).
@@ -5784,7 +5802,7 @@ export async function planContractLessonScheduleTool(
     });
 
     if (!v.data.dryRun) {
-      const result = await addLessonSeries(params, { skipConflicts: v.data.skipConflicts });
+      const result = await addLessonSeries(params, { skipConflicts: v.data.skipConflicts, createdByUserId: ctx.userId });
       if (!result.ok) return fail("CONFLICT", result.message, result.conflicts);
       createdLessonIds.push(...result.createdLessonIds);
       seriesIds.push(result.seriesId);

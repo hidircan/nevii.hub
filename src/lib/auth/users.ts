@@ -945,6 +945,8 @@ export type UserAccountStatus = {
   role: AppRole;
   tenantId: string;
   active: boolean;
+  /** Kullanıcının kayıtlı adı soyadı (db modu); yoksa undefined. */
+  displayName?: string;
 };
 
 /**
@@ -960,7 +962,14 @@ export async function getUserAccountStatus(userId: string): Promise<UserAccountS
       const prisma = getPrisma();
       const row = await prisma.user.findUnique({ where: { id: userId } });
       if (!row || !isAppRole(row.role)) return null;
-      return { userId: row.id, email: row.email, role: row.role, tenantId: row.tenantId, active: row.active };
+      return {
+        userId: row.id,
+        email: row.email,
+        role: row.role,
+        tenantId: row.tenantId,
+        active: row.active,
+        displayName: row.displayName?.trim() || undefined,
+      };
     } catch {
       return null;
     }
