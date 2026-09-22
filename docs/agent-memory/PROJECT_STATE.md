@@ -28,6 +28,23 @@ screens (login/welcome).
 - Full detail + rationale: `docs/contracts/LEGAL_POLICY_TEXT_DISCREPANCY_REPORT.md`,
   `docs/roadmap/NEVIIHUB_ADMIN_CONTRACTS_POLICY_REMAINING_WORK.md`.
 
+## Güncel odak (2026-09-22, 3. tur) — CSV ilk sözleşme, güvenli silme, sözleşmesiz kayıt
+
+- **CSV kök neden:** ders-başı motor kapısı `derivedPerLessonAmount` idi, CSV yazmıyordu → tek kural
+  `studentUsesPerLessonBilling` + CSV importu `student-contract-readiness.ts` ile normal kayıtla aynı alanlar.
+  İlk sözleşmede girilen ilk tahsilat artık `registration_first_payment` olarak yazılır (tek kanonik satır),
+  önizleme bu tutarı alır. Onarım: `scripts/repair-csv-students-contract-ready.ts` (dry-run varsayılan).
+- **Şablon:** hizmet bedeli hücresi `describeInstallmentForContract` — çıplak "EĞİTİM" yok.
+- **Silme:** yalnız SUPER_ADMIN; geri alınabilir (`Student.deletedAt`) varsayılan, kalıcı yalnız bağlı kaydı
+  olmayan öğrencide; ad teyidi + kritik işlem şifresi (`/panel/ayarlar/guvenlik`, bcrypt, AppData'ya girmez); audit.
+- **Sözleşmesiz kayıt:** formda "Kaydet ve sözleşme oluştur" / "Sadece öğrenci kaydını oluştur";
+  listede "Sözleşme bekliyor". Ders planlama sözleşme istemez (mevcut kural, değişmedi).
+- **Migration:** `20260922180000_student_soft_delete_critical_password` (additive). İki migration yerel DB'de
+  uygulandı; **test DB'ye uygulanmadı** — runbook: `docs/operations/RUNBOOK_2026_09_22_CSV_CONTRACT_DELETE.md`.
+- UAT: `docs/testing/UAT_2026_09_22_CSV_CONTRACT_DELETE_ROUND.md`.
+
+---
+
 ## Güncel odak (2026-09-22, 2. tur) — actor, hakediş, performans ağırlıkları, baskı standardı
 
 Önceki tur (A–J, aşağıda) + yarım kalan çalışma ağacı tamamlandı. **Migration VAR:**

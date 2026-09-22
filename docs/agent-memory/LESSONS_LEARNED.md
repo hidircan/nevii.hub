@@ -1107,3 +1107,19 @@ Hakediş/performans/ödeme dökümleri "Raporu alan" alanına `session.userId`
 basıyordu (`user_sac2rgox9x54`). Ad çözümü tek yerde: `resolveActorLabels`
 (personel adı → `User.displayName` → öğretmen adı → e-posta tahmini).
 Yeni bir yüzey kişi gösterecekse ham id değil bu fonksiyon kullanılır.
+
+## 2026-09-22 — Hesapta kullanılmayan alanı "kapı" olarak okumak: CSV öğrencisi ayrı motora düştü
+
+Sözleşme planı ders-başı motoru `student.derivedPerLessonAmount != null` ile
+açılıyordu; motor bu alanı hesapta HİÇ kullanmıyor (taban aylık ücret). CSV
+importu alanı yazmadığı için CSV öğrencileri sessizce eski sabit-taksit
+motoruna düştü: önizlemede tür/dönem boş, sözleşmede "EĞİTİM", girilen ilk
+tahsilat 1. taksite eşit olmak zorunda. Ayrıca formda girilen ilk tahsilat
+önizleme isteğine hiç gönderilmiyordu ve sözleşmeyle `source: "contract"`
+olarak yazıldığı için "ilk tahsilatı düzelt" akışı onu görmüyordu.
+
+**Ders:** (1) bir akışı açan koşul, akışın gerçekten ihtiyaç duyduğu veriye
+bakmalı (`weeklyLessonCount > 0 && monthlyFee > 0`), yan üründe bir alana değil.
+(2) Aynı varlığı üreten her giriş yolu (form, CSV, API) tek "hazırlık" kuralından
+geçmeli (`student-contract-readiness.ts`). (3) Bir kavramın (ilk tahsilat) tek
+kanonik satırı olmalı; ikinci bir kaynakla yazılırsa ona bakan her ekran kör kalır.
