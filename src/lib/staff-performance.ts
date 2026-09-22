@@ -12,6 +12,7 @@
  */
 
 import type { AppData, BranchId, Payment, StaffMember, Student, Task } from "./types";
+import { defaultWeightsFor, weightedScore } from "./performance-weights";
 
 export type StaffPerformancePeriod = {
   /** yyyy-MM */
@@ -57,6 +58,8 @@ export type StaffPerformanceMetrics = {
   };
   paymentsCollectedCount: number;
   paymentsCollectedAmount: number;
+  /** Bu personelin dönem içinde planladığı ders (Lesson.createdByUserId). */
+  lessonsPlanned: number;
   branchBreakdown: StaffPerformanceBranchRow[];
 };
 
@@ -69,7 +72,31 @@ export type StaffPerformanceReport = {
   linkageNote: string | null;
   current: StaffPerformanceMetrics;
   previous: StaffPerformanceMetrics;
+  /** Kurum sahibinin ağırlıklarıyla 0–100 puan; hiç veri yoksa null. */
+  score: { current: number | null; previous: number | null };
 };
+
+/**
+ * Ağırlıklı personel puanı. Oranlar doğrudan %, sayılar hedefe oranlanır.
+ * ponytail: sabit hedefler (10 tahsilat, 4 kayıt, 20 ders = 100); kurum bazlı hedef gerekirse ayara taşı.
+ */
+export function computeStaffPerformanceScore(
+  metrics: StaffPerformanceMetrics,
+  weights: Record<string, number>
+): number | null {
+  const scaled = (n: number, target: number) => (n > 0 ? Math.min(100, (n / target) * 100) : 0);
+  return weightedScore([
+    { key: "tasks", weightPercent: weights.tasks ?? 0, normalized: metrics.taskCompletionRate === null ? null : metrics.taskCompletionRate * 100 },
+    { key: "onTime", weightPercent: weights.onTime ?? 0, normalized: metrics.onTimeRate === null ? null : metrics.onTimeRate * 100 },
+    { key: "collections", weightPercent: weights.collections ?? 0, normalized: scaled(metrics.paymentsCollectedCount, 10) },
+    {
+      key: "newStudents",
+      weightPercent: weights.newStudents ?? 0,
+      normalized: metrics.newStudentRegistrations.attributable ? scaled(metrics.newStudentRegistrations.count, 4) : null,
+    },
+    { key: "lessonsPlanned", weightPercent: weights.lessonsPlanned ?? 0, normalized: scaled(metrics.lessonsPlanned, 20) },
+  ]).score;
+}
 
 function inYmdRange(ymd: string, startYmd: string, endYmd: string): boolean {
   return ymd >= startYmd && ymd <= endYmd;
@@ -163,11 +190,13 @@ export function computeStaffPerformanceMetrics(input: {
   tasks: Task[];
   payments: Payment[];
   students: Student[];
+  lessons?: { createdByUserId?: string; startAt: string }[];
   /** portalUserId yoksa görev/tahsilat 0; öğrenci kurum geneli bağlam olarak kalır. */
   assigneeIds: Set<string>;
   collectorUserId: string | null;
 }): StaffPerformanceMetrics {
   const { period, tasks, payments, students, assigneeIds, collectorUserId } = input;
+  const lessons = input.lessons ?? [];
 
   const candidates = tasks.filter((t) => isAssignedToStaff(t, assigneeIds) && isTaskCandidateForPeriod(t, period));
   const completed = candidates.filter((t) => t.status === "COMPLETED");
@@ -221,8 +250,19 @@ export function computeStaffPerformanceMetrics(input: {
     }
   }
 
-  // Student.createdBy yok — personele yazılamaz; kurum geneli bağlam gösterilir.
+  // Oluşturan kullanıcı alanı dolu kayıt varsa personele yazılır; eski veride kurum geneli bağlam.
+  const attributable = Boolean(collectorUserId) && students.some((s) => s.createdByUserId);
+  const attributedNew = attributable
+    ? students.filter((s) => {
+        if (s.createdByUserId !== collectorUserId) return false;
+        const enroll = s.enrollmentStartDate ? ymdOf(s.enrollmentStartDate) : ymdOf(s.createdAt);
+        return inYmdRange(enroll, period.startYmd, period.endYmd);
+      }).length
+    : 0;
   const institutionNew = newStudentsInPeriod(students, period);
+  const lessonsPlanned = collectorUserId
+    ? lessons.filter((l) => l.createdByUserId === collectorUserId && inYmdRange(ymdOf(l.startAt), period.startYmd, period.endYmd)).length
+    : 0;
 
   return {
     period,
@@ -234,13 +274,15 @@ export function computeStaffPerformanceMetrics(input: {
     taskCompletionRate: rate(completed.length, candidates.length),
     onTimeRate: rate(tasksOnTime, withDueCompleted),
     newStudentRegistrations: {
-      attributable: false,
-      count: institutionNew,
-      label:
-        "Öğrenci kaydında oluşturan personel alanı yok; bu sayı kurum geneli yeni kayıttır (bu personele yazılmaz).",
+      attributable,
+      count: attributable ? attributedNew : institutionNew,
+      label: attributable
+        ? "Bu personelin açtığı yeni öğrenci kayıtları."
+        : "Kayıtta oluşturan kullanıcı yok; sayı kurum geneli yeni kayıttır (bu personele yazılmaz).",
     },
     paymentsCollectedCount,
     paymentsCollectedAmount,
+    lessonsPlanned,
     branchBreakdown: Array.from(branchMap.values()).sort((a, b) => {
       const aKey = a.branchId ?? "";
       const bKey = b.branchId ?? "";
@@ -256,11 +298,14 @@ export function computeStaffPerformanceMetrics(input: {
 export function computeStaffPerformanceReport(input: {
   staff: StaffMember;
   tasks: Task[];
-  data: Pick<AppData, "payments" | "students">;
+  data: Pick<AppData, "payments" | "students"> & { lessons?: AppData["lessons"] };
   /** Raporun "şu anki ay"ı — varsayılan çağıranda todayYmd'den üretilir. */
   yearMonth: string;
+  /** Kurum ağırlıkları; verilmezse ürün varsayılanı. */
+  weights?: Record<string, number>;
 }): StaffPerformanceReport {
   const { staff, tasks, data, yearMonth } = input;
+  const weights = input.weights ?? defaultWeightsFor("staff");
   const assigneeIds = new Set<string>();
   if (staff.portalUserId) assigneeIds.add(staff.portalUserId);
   // Defensive: nadiren StaffMember.id ile atanmış görev kalırsa kaçmasın.
@@ -279,9 +324,13 @@ export function computeStaffPerformanceReport(input: {
     tasks,
     payments: data.payments,
     students: data.students,
+    lessons: data.lessons ?? [],
     assigneeIds,
     collectorUserId,
   };
+
+  const current = computeStaffPerformanceMetrics({ ...base, period: currentPeriod });
+  const previous = computeStaffPerformanceMetrics({ ...base, period: previousPeriod });
 
   return {
     staffId: staff.id,
@@ -289,7 +338,11 @@ export function computeStaffPerformanceReport(input: {
     position: staff.position,
     portalUserId: staff.portalUserId ?? null,
     linkageNote,
-    current: computeStaffPerformanceMetrics({ ...base, period: currentPeriod }),
-    previous: computeStaffPerformanceMetrics({ ...base, period: previousPeriod }),
+    current,
+    previous,
+    score: {
+      current: computeStaffPerformanceScore(current, weights),
+      previous: computeStaffPerformanceScore(previous, weights),
+    },
   };
 }

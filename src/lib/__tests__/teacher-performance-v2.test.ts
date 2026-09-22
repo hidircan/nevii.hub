@@ -107,11 +107,11 @@ describe("computeTeacherPerformanceReportV2 — veri yokken güvenli davranış"
       PERIOD_START,
       PERIOD_END
     );
-    // Yeniden normalize edilmiş ağırlıkla (0.3/0.55): 100 * (0.3/0.55) ≈ 54.5
-    expect(report.components.attendance.contribution).toBeCloseTo(54.5, 1);
+    // Varsayılan ağırlıklar (performance-weights.ts) yoklama 28, ödev 24 → 100 * 28/52 ≈ 53.8
+    expect(report.components.attendance.contribution).toBeCloseTo(53.8, 1);
     expect(report.components.homework.hasData).toBe(true);
     expect(report.components.homework.contribution).toBe(0);
-    expect(report.score).toBe(55);
+    expect(report.score).toBe(54);
   });
 });
 
@@ -130,7 +130,7 @@ describe("computeTeacherPerformanceReportV2 — iş takip", () => {
     );
     expect(report.components.tasks.hasData).toBe(false);
     // Görev verisi yok → iş takip ağırlığı diğer mevcut bileşenlere (yoklama+ödev) yeniden dağılır.
-    expect(report.score).toBe(55);
+    expect(report.score).toBe(54);
   });
 
   it("son tarihi geçmiş, tamamlanmamış görev gecikmiş sayılır ve zamanında tamamlama oranını düşürür", async () => {

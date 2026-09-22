@@ -74,6 +74,7 @@ export function TeacherPerformanceV2Dashboard({
         <FeedbackCard c={components.feedback} />
         <TasksCard c={components.tasks} />
         <HomeworkCard c={components.homework} />
+        <EnrollmentCard c={components.enrollmentFromSchedule} />
       </div>
     </div>
   );
@@ -112,7 +113,7 @@ function AttendanceCard({ c, teacherId }: { c: TeacherPerformanceReportV2["compo
   const flagged = c.rows.filter((r) => r.status === "gelmedi" || r.status === "mazeretli");
   return (
     <Card id="detay-yoklama">
-      <ComponentHeader title="Öğretmen Yoklaması" weightPercent={30} c={c} anchor="detay-yoklama" />
+      <ComponentHeader title="Öğretmen Yoklaması" weightPercent={Math.round(c.weight * 100)} c={c} anchor="detay-yoklama" />
       <p className="mb-3 text-xs text-[var(--color-text-muted)]">
         Yalnızca öğretmenin kendi ders katılımı sayılır; öğrenci devamsızlığı bu skoru asla etkilemez. İptal edilen dersler hariç tutulur.
       </p>
@@ -174,7 +175,7 @@ function AttendanceCard({ c, teacherId }: { c: TeacherPerformanceReportV2["compo
 function FeedbackCard({ c }: { c: TeacherPerformanceReportV2["components"]["feedback"] }) {
   return (
     <Card id="detay-geri-bildirim">
-      <ComponentHeader title="Öğrenci/Veli Değerlendirmesi" weightPercent={25} c={c} anchor="detay-geri-bildirim" />
+      <ComponentHeader title="Öğrenci/Veli Değerlendirmesi" weightPercent={Math.round(c.weight * 100)} c={c} anchor="detay-geri-bildirim" />
       <p className="mb-3 text-xs text-[var(--color-text-muted)]">
         1–5 ölçekli kriter ortalamaları 0–100&apos;e taşınır. Anonimlik eşiği (en az 3 yanıt) sağlanmadan detay gösterilmez.
       </p>
@@ -231,7 +232,7 @@ function criterionLabel(key: string): string {
 function TasksCard({ c }: { c: TeacherPerformanceReportV2["components"]["tasks"] }) {
   return (
     <Card id="detay-is-takip">
-      <ComponentHeader title="İş Takip Tamamlama" weightPercent={20} c={c} anchor="detay-is-takip" />
+      <ComponentHeader title="İş Takip Tamamlama" weightPercent={Math.round(c.weight * 100)} c={c} anchor="detay-is-takip" />
       <p className="mb-3 text-xs text-[var(--color-text-muted)]">
         Yalnızca bu öğretmene atanmış görevler. Son tarihi varsa zamanında tamamlama önceliklidir; yoksa tamamlanma oranı kullanılır.
       </p>
@@ -286,7 +287,7 @@ function HomeworkCard({ c }: { c: TeacherPerformanceReportV2["components"]["home
   const missing = c.rows.filter((r) => !r.homeworkGiven);
   return (
     <Card id="detay-odev">
-      <ComponentHeader title="Ders Sonrası Ödev Verme" weightPercent={25} c={c} anchor="detay-odev" />
+      <ComponentHeader title="Ders Sonrası Ödev Verme" weightPercent={Math.round(c.weight * 100)} c={c} anchor="detay-odev" />
       <p className="mb-3 text-xs text-[var(--color-text-muted)]">
         Yalnızca iptal edilmemiş, geçmişte kalmış ve geldi/işlendi kabul edilen dersler sayılır. Öğrencinin gelmemesi bu bileşeni etkilemez.
       </p>
@@ -351,5 +352,17 @@ function Stat({ label, value, highlight }: { label: string; value: number | stri
       <p className={`text-sm font-semibold ${highlight ? "text-rose-600" : "text-[var(--color-text)]"}`}>{value}</p>
       <p className="text-[10px] text-[var(--color-text-muted)]">{label}</p>
     </div>
+  );
+}
+
+function EnrollmentCard({ c }: { c: TeacherPerformanceReportV2["components"]["enrollmentFromSchedule"] }) {
+  return (
+    <Card>
+      <ComponentHeader title="Planlanan Dersten Yeni Kayıt" weightPercent={Math.round(c.weight * 100)} c={c} anchor="detay-yeni-kayit" />
+      <p id="detay-yeni-kayit" className="text-xs text-[var(--color-text-muted)]">
+        Dönem içinde bu öğretmene bağlanarak kaydı açılan öğrenci: <strong>{c.registrationCount}</strong>. Her kayıt 25 puan, en
+        fazla 100.
+      </p>
+    </Card>
   );
 }

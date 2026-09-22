@@ -111,6 +111,8 @@ export const PANEL_SYSTEM_NAV: PanelNavItem[] = [
   { href: "/panel/kurulum", label: "Kurulum Merkezi", icon: Settings },
   /** ÇALIŞMA GÜNÜ TEK KAYNAĞI — haftalık kural + resmî tatil + zorla aç/kapat istisnaları. */
   { href: "/panel/ayarlar/calisma-gunleri", label: "Çalışma Günleri", icon: CalendarDays, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
+  /** Kurum sahibi — öğretmen/personel performans puanı ağırlıkları. */
+  { href: "/panel/ayarlar/performans", label: "Performans Ağırlıkları", icon: Activity, roles: ["SUPER_ADMIN"] },
   { href: "/panel/veri-aktar", label: "Veri Aktarım Merkezi", icon: Upload },
   /**
    * "Görünüm Ayarları" BİLİNÇLİ olarak burada YOK — kişisel bir tercih,

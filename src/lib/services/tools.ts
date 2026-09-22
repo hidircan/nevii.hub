@@ -14,6 +14,7 @@ import { provisionEntityLogin, provisionStaffLogin, getUserIdByTeacherId, getUse
 import { isRateLimited, getLatestPasswordResetRequestAt } from "../auth/password-reset";
 import { logger } from "../logger";
 import { isLocalDevTooling } from "../config";
+import { resolvePerformanceWeights, validateWeightMap, type PerformanceWeightsConfig } from "../performance-weights";
 import {
   addBranch,
   addLesson,
@@ -53,6 +54,7 @@ import {
   updateCollectionsSettings,
   updateConsentSettings,
   updateFeeRoundingMode,
+  updatePerformanceWeights,
   updateMakeupWindowDays,
   updateMonthlyMakeupAllowance,
   updateSchoolLogoUrl,
@@ -3741,6 +3743,7 @@ export async function getStaffPerformanceTool(
     tasks,
     data,
     yearMonth,
+    weights: resolvePerformanceWeights(data.settings.performanceWeights).staff,
   });
   return ok(report);
 }
@@ -6388,6 +6391,42 @@ export async function updateFeeRoundingModeTool(
     return ok({ feeRoundingMode: data.settings.feeRoundingMode });
   } catch (e) {
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "updateFeeRoundingMode failed");
+  }
+}
+
+/**
+ * Kurum sahibi — öğretmen/personel performans ağırlıkları. Yalnız SUPER_ADMIN.
+ * Toplam 100 zorunlu; 0 metriği pasife alır.
+ */
+export async function updatePerformanceWeightsTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ performanceWeights: PerformanceWeightsConfig }>> {
+  const auth = requireRole(ctx, ["SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", "Performans ağırlıklarını yalnız kurum sahibi değiştirebilir.");
+
+  const v = parseOrFail(
+    z.object({
+      teacher: z.record(z.string(), z.number()),
+      staff: z.record(z.string(), z.number()),
+    }),
+    input
+  );
+  if (!v.ok) return v;
+
+  const teacher = validateWeightMap("teacher", v.data.teacher);
+  if (!teacher.ok) return fail("VALIDATION_ERROR", `Öğretmen metrikleri: ${teacher.message}`);
+  const staff = validateWeightMap("staff", v.data.staff);
+  if (!staff.ok) return fail("VALIDATION_ERROR", `Personel metrikleri: ${staff.message}`);
+
+  const performanceWeights = { teacher: teacher.weights, staff: staff.weights };
+  try {
+    await updatePerformanceWeights(performanceWeights);
+    audit(ctx, "school.performance_weights.update", "School", ctx.tenantId, performanceWeights);
+    return ok({ performanceWeights });
+  } catch (e) {
+    logger.error("updatePerformanceWeightsTool failed", e);
+    return fail("INTERNAL_ERROR", "Performans ağırlıkları kaydedilemedi. Lütfen tekrar deneyin.");
   }
 }
 

@@ -6,6 +6,8 @@ import { getTeacherPerformanceReportV2Tool } from "@/lib/services";
 import { printSurfaceCss } from "@/lib/contract-print-theme";
 import { formatDate } from "@/lib/utils";
 import { DocumentPrintActions } from "@/components/document-print-actions";
+import { PrintReportMeta } from "@/components/print-report-meta";
+import { resolvePrintStamp } from "@/lib/contract-payment-plan-view";
 
 export const dynamic = "force-dynamic";
 
@@ -59,12 +61,16 @@ export default async function OgretmenPerformansYazdirPage({
 
   const branchName =
     data.settings.branches.find((b) => b.id === teacher.branchId)?.shortName ?? "—";
-  const viewer = session.userId;
-  const printedAt = formatDate(now.toISOString().slice(0, 10));
+  const { viewer, printedAt } = await resolvePrintStamp({
+    tenantId: session.tenantId,
+    userId: session.userId,
+    teachers: data.teachers,
+    now,
+  });
 
   return (
     <div className="min-h-screen bg-[#f4f2f8] px-4 py-8 print:bg-white print:p-0 sm:px-6">
-      <style>{`@media print { @page { size: A4; margin: 14mm; } }${printSurfaceCss("doc-print-surface")}`}</style>
+      <style>{`@media print { @page { size: A4; margin: 14mm; } thead { display: table-header-group; } tr { break-inside: avoid; } }${printSurfaceCss("doc-print-surface")}`}</style>
       <div className="mx-auto max-w-3xl">
         <DocumentPrintActions backHref={`/panel/ogretmenler/${teacher.id}/performans`} />
         {!result.ok ? (
@@ -74,13 +80,16 @@ export default async function OgretmenPerformansYazdirPage({
         ) : (
           <div className="doc-print-surface rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-6 shadow-sm print:rounded-none print:border-0 print:p-0 print:shadow-none sm:p-10">
             <h1>Öğretmen Performans Raporu</h1>
-            <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1 text-sm">
-              <div><dt className="inline font-semibold">Öğretmen: </dt><dd className="inline">{teacher.name}</dd></div>
-              <div><dt className="inline font-semibold">Şube: </dt><dd className="inline">{branchName}</dd></div>
-              <div><dt className="inline font-semibold">Dönem: </dt><dd className="inline">{formatDate(periodStart)} – {formatDate(periodEnd)}</dd></div>
-              <div><dt className="inline font-semibold">Raporu alan: </dt><dd className="inline">{viewer}</dd></div>
-              <div><dt className="inline font-semibold">Oluşturulma: </dt><dd className="inline">{printedAt}</dd></div>
-            </dl>
+            <PrintReportMeta
+              institution={data.settings.name}
+              rows={[
+                ["Öğretmen", teacher.name],
+                ["Şube", branchName],
+                ["Dönem", `${formatDate(periodStart)} – ${formatDate(periodEnd)}`],
+              ]}
+              viewer={viewer}
+              printedAt={printedAt}
+            />
 
             <h2>Genel skor</h2>
             {result.data.score === null ? (
@@ -88,8 +97,7 @@ export default async function OgretmenPerformansYazdirPage({
             ) : (
               <p>
                 Performans skoru: <strong>{Math.round(result.data.score)} / 100</strong>
-                {" "}(yoklama, geri bildirim, iş takip ve ödev disiplini bileşenlerinin ağırlıklı birleşimi —
-                ayrıntı aşağıdadır).
+                {" "}(bileşenlerin kurum ağırlıklarıyla birleşimi — ayrıntı aşağıdadır).
               </p>
             )}
 
@@ -98,16 +106,18 @@ export default async function OgretmenPerformansYazdirPage({
               <thead>
                 <tr>
                   <th>Bileşen</th>
-                  <th>Değer</th>
-                  <th>Katkı</th>
+                  <th className="num">Ağırlık</th>
+                  <th className="num">Değer</th>
+                  <th className="num">Katkı</th>
                   <th>Açıklama</th>
                 </tr>
               </thead>
               <tbody>
                 <tr>
                   <td>Yoklama</td>
-                  <td>{result.data.components.attendance.normalizedValue ?? "—"}</td>
-                  <td>{result.data.components.attendance.contribution ?? "—"}</td>
+                  <td className="num">%{Math.round(result.data.components.attendance.weight * 100)}</td>
+                  <td className="num">{result.data.components.attendance.normalizedValue ?? "—"}</td>
+                  <td className="num">{result.data.components.attendance.contribution ?? "—"}</td>
                   <td>
                     Planlanan {result.data.components.attendance.plannedLessonCount} ders: katıldı{" "}
                     {result.data.components.attendance.attendedCount}, gelmedi{" "}
@@ -118,8 +128,9 @@ export default async function OgretmenPerformansYazdirPage({
                 </tr>
                 <tr>
                   <td>Geri bildirim</td>
-                  <td>{result.data.components.feedback.normalizedValue ?? "—"}</td>
-                  <td>{result.data.components.feedback.contribution ?? "—"}</td>
+                  <td className="num">%{Math.round(result.data.components.feedback.weight * 100)}</td>
+                  <td className="num">{result.data.components.feedback.normalizedValue ?? "—"}</td>
+                  <td className="num">{result.data.components.feedback.contribution ?? "—"}</td>
                   <td>
                     {result.data.components.feedback.eligible
                       ? `${result.data.components.feedback.responseCount} yanıt değerlendirildi.`
@@ -128,8 +139,9 @@ export default async function OgretmenPerformansYazdirPage({
                 </tr>
                 <tr>
                   <td>İş takip</td>
-                  <td>{result.data.components.tasks.normalizedValue ?? "—"}</td>
-                  <td>{result.data.components.tasks.contribution ?? "—"}</td>
+                  <td className="num">%{Math.round(result.data.components.tasks.weight * 100)}</td>
+                  <td className="num">{result.data.components.tasks.normalizedValue ?? "—"}</td>
+                  <td className="num">{result.data.components.tasks.contribution ?? "—"}</td>
                   <td>
                     Atanan {result.data.components.tasks.totalAssigned} iş: tamamlanan{" "}
                     {result.data.components.tasks.completedCount}, açık{" "}
@@ -139,8 +151,9 @@ export default async function OgretmenPerformansYazdirPage({
                 </tr>
                 <tr>
                   <td>Ödev disiplini</td>
-                  <td>{result.data.components.homework.normalizedValue ?? "—"}</td>
-                  <td>{result.data.components.homework.contribution ?? "—"}</td>
+                  <td className="num">%{Math.round(result.data.components.homework.weight * 100)}</td>
+                  <td className="num">{result.data.components.homework.normalizedValue ?? "—"}</td>
+                  <td className="num">{result.data.components.homework.contribution ?? "—"}</td>
                   <td>
                     Uygun {result.data.components.homework.eligibleLessonCount} ders: verilen{" "}
                     {result.data.components.homework.assignedCount}, teslim alınan{" "}
@@ -148,7 +161,21 @@ export default async function OgretmenPerformansYazdirPage({
                     {result.data.components.homework.reviewedCount}.
                   </td>
                 </tr>
+                <tr>
+                  <td>Planlanan dersten yeni kayıt</td>
+                  <td className="num">%{Math.round(result.data.components.enrollmentFromSchedule.weight * 100)}</td>
+                  <td className="num">{result.data.components.enrollmentFromSchedule.normalizedValue ?? "—"}</td>
+                  <td className="num">{result.data.components.enrollmentFromSchedule.contribution ?? "—"}</td>
+                  <td>Dönemde kaydı açılan öğrenci: {result.data.components.enrollmentFromSchedule.registrationCount}.</td>
+                </tr>
               </tbody>
+              <tfoot>
+                <tr>
+                  <th colSpan={3}>Toplam skor</th>
+                  <th className="num">{result.data.score ?? "—"}</th>
+                  <th />
+                </tr>
+              </tfoot>
             </table>
 
             <h2>Yoklama detayları</h2>

@@ -89,6 +89,7 @@ import {
   markTeacherPayoutPaidTool,
   updateTeacherPayoutPaymentMethodTool,
   updateFeeRoundingModeTool,
+  updatePerformanceWeightsTool,
   updateMakeupWindowDaysTool,
   updateSchoolLogoTool,
   importSchoolLogoFromCurrentUrlTool,
@@ -3431,6 +3432,25 @@ export async function actionUpdateFeeRoundingMode(
     if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
     if (error instanceof WriteScopeDeniedError) return { ok: false, message: error.message };
     return { ok: false, message: "Ücret yuvarlama politikası güncellenirken beklenmeyen bir hata oluştu." };
+  }
+}
+
+export async function actionUpdatePerformanceWeights(input: {
+  teacher: Record<string, number>;
+  staff: Record<string, number>;
+}): Promise<{ ok: true } | { ok: false; message: string }> {
+  try {
+    const result = await withAuthContext("actionUpdatePerformanceWeights", (ctx) =>
+      updatePerformanceWeightsTool(ctx, input)
+    );
+    if (!result.ok) return { ok: false, message: result.error.message };
+    revalidateAll();
+    return { ok: true };
+  } catch (error) {
+    logger.error("actionUpdatePerformanceWeights failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    if (error instanceof WriteScopeDeniedError) return { ok: false, message: error.message };
+    return { ok: false, message: "Performans ağırlıkları kaydedilirken beklenmeyen bir hata oluştu. Lütfen tekrar deneyin." };
   }
 }
 

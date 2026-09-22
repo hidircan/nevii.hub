@@ -113,6 +113,7 @@ export default async function StaffPerformancePage({
         <StaffPerformanceBody
           current={result.data.current}
           previous={result.data.previous}
+          score={result.data.score}
           linkageNote={result.data.linkageNote}
           branches={branches}
           staffId={staff.id}
@@ -125,12 +126,14 @@ export default async function StaffPerformancePage({
 function StaffPerformanceBody({
   current,
   previous,
+  score,
   linkageNote,
   branches,
   staffId,
 }: {
   current: StaffPerformanceMetrics;
   previous: StaffPerformanceMetrics;
+  score: { current: number | null; previous: number | null };
   linkageNote: string | null;
   branches: { id: string; shortName: string }[];
   staffId: string;
@@ -162,6 +165,24 @@ function StaffPerformanceBody({
           {linkageNote}
         </p>
       ) : null}
+
+      <section>
+        <h2 className="mb-3 text-sm font-semibold text-[var(--color-text)]">Performans puanı</h2>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <MetricCard
+            label="Bu ay"
+            value={score.current === null ? "Veri yok" : `${score.current} / 100`}
+            compare={score.current !== null && score.previous !== null ? delta(score.current, score.previous) : undefined}
+            hint="Kurum sahibinin belirlediği ağırlıklarla hesaplanır (Ayarlar → Performans Ağırlıkları)."
+          />
+          <MetricCard
+            label="Planladığı ders"
+            value={String(current.lessonsPlanned)}
+            compare={delta(current.lessonsPlanned, previous.lessonsPlanned)}
+            hint="Bu personelin oluşturduğu ve bu aya düşen dersler"
+          />
+        </div>
+      </section>
 
       <section>
         <h2 className="mb-3 text-sm font-semibold text-[var(--color-text)]">Görevler</h2>
