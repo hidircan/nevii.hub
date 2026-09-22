@@ -28,6 +28,33 @@ screens (login/welcome).
 - Full detail + rationale: `docs/contracts/LEGAL_POLICY_TEXT_DISCREPANCY_REPORT.md`,
   `docs/roadmap/NEVIIHUB_ADMIN_CONTRACTS_POLICY_REMAINING_WORK.md`.
 
+## Güncel odak (2026-09-22, 2. tur) — actor, hakediş, performans ağırlıkları, baskı standardı
+
+Önceki tur (A–J, aşağıda) + yarım kalan çalışma ağacı tamamlandı. **Migration VAR:**
+`20260922120000_ops_actor_weights_threshold` (additive: `Student/Teacher/Lesson.createdByUserId`,
+`Teacher.weeklyHoursThreshold`, `School.performanceWeights`). Yerel `notaplan` DB'ye uygulandı;
+**test DB (`vxzewyiwfshobjizzetw`) ve production'a UYGULANMADI** — `.env` production'ı gösteriyor,
+test DB kimlik bilgisi yerelde yok. Owner: test DB URL'si ile `prisma migrate deploy`.
+
+- Sözleşme: terminal kayıt soluk/pasif; güncel tek kural `selectCurrentContract`.
+- Dashboard: isimli görünümler + `grid-flow-dense`.
+- Hakediş: eşik ekranda kaydedilir; "Kaynak ders" satır içi; dönem kimliği gün bazlı
+  (`payoutPeriodDayKey`) → "Hakediş oluştur" P2002 hatası kök nedeni kapandı; "Hakedişi öde"
+  hızlı akışı; Ödeme Geçmişi yalnız ödenmiş; aylık/yıllık + geçmiş baskıları.
+- Performans ağırlıkları: `/panel/ayarlar/performans` (SUPER_ADMIN), toplam 100, 0 = pasif;
+  öğretmen "planlanan dersten yeni kayıt" (%5) + personel puanı.
+- Actor: kaydı açan/planlayan kullanıcı saklanır; detayda "Kaydı oluşturan"; ad çözümü
+  `resolveActorLabels`. Backfill: `scripts/backfill-created-by.ts` (audit'ten, dry-run varsayılan).
+- Bildirimler/Telafi geçmişi/Ödemeler: filtre + sayfalama + actor sütunu; filtreler saf lib'de testli.
+- Baskı standardı: `PrintReportMeta` + `resolvePrintStamp` (raporu alan adı, tarih+saat).
+- UAT: `docs/testing/UAT_2026_09_22_OPS_ACTOR_PRINT_ROUND.md`.
+
+### Açık iş
+- Test DB'ye migration + (isteğe bağlı) backfill — owner onayıyla.
+- Eski derslerde `createdByUserId` yok (ders-başı audit yok); personel "Planladığı ders" yalnız yeni derslerde sayar.
+
+---
+
 ## Güncel odak (2026-09-22) — Ops/UX/güvenlik turu A–J (`fix/schedule-contract-ux-round`)
 
 Tek turda bug fix + UX + IA + güvenlik. **Migration YOK** (dashboard prefs mevcut `dashboardJson` kolonunu kullanır).
@@ -45,7 +72,7 @@ Tek turda bug fix + UX + IA + güvenlik. **Migration YOK** (dashboard prefs mevc
 - UAT: `docs/testing/UAT_2026_09_22_OPS_UX_SECURITY_ROUND.md`.
 
 ### Açık ürün kararları
-- Personel yeni öğrenci kaydı kişiye atfedilemiyor (Student.createdBy yok) → kurum geneli bağlam olarak etiketleniyor.
+- ~~Personel yeni öğrenci kaydı kişiye atfedilemiyor~~ → 2. turda `Student.createdByUserId` eklendi.
 - Öğretmen Evraklar ayrı sekme değil (özetten `/panel/evraklar?teacherId=`).
 
 ---

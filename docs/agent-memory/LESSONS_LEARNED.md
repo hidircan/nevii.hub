@@ -1088,3 +1088,22 @@ including side stores; db mode can delete users.
 **Ders:** every destructive setup action needs the same dual gate as demo
 reset (UI + server). Confirmation modal alone is not enough on shared
 test/prod tenants.
+
+## 2026-09-22 — Hakediş dönemi kimliği: DB ISO datetime ≠ form yyyy-MM-dd
+
+`store-db` hakedişi `periodStart.toISOString()` ("2026-09-01T00:00:00.000Z")
+olarak okuyordu; form ve hesap "2026-09-01" gönderiyordu. `===` karşılaştırması
+mevcut kaydı hiç bulmadı → ekran "Hakediş oluştur"u açık bıraktı → ikinci
+create `@@unique([teacherId, periodStart, periodEnd])`'e çarptı → ham Prisma
+hatası kullanıcıya gitti. json modda görünmez (string aynen saklanır).
+
+**Ders:** tarih-anahtarlı kimlik (dönem, gün) her zaman gün anahtarına
+indirgenmiş karşılaştırılır (`payoutPeriodDayKey`) ve db mapping'i aynı
+biçimi döndürür. Unique ihlali `P2002` her zaman Türkçe `CONFLICT`'e çevrilir.
+
+## 2026-09-22 — Baskı künyesinde ham kullanıcı kimliği
+
+Hakediş/performans/ödeme dökümleri "Raporu alan" alanına `session.userId`
+basıyordu (`user_sac2rgox9x54`). Ad çözümü tek yerde: `resolveActorLabels`
+(personel adı → `User.displayName` → öğretmen adı → e-posta tahmini).
+Yeni bir yüzey kişi gösterecekse ham id değil bu fonksiyon kullanılır.
