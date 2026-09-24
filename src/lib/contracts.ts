@@ -1305,6 +1305,8 @@ export type StudentContractSummary = {
   enrollmentStartDate: string;
   enrollmentEndDate: string;
   versionNumber: number;
+  /** Sözleşmedeki "Aylık ücret" — ders sayısına göre değişen taksitlerden bağımsız birim ücret. */
+  monthlyAmount: number;
 };
 
 export async function listContractSummariesByStudent(
@@ -1323,10 +1325,12 @@ export async function listContractSummariesByStudent(
         enrollmentStartDate: true,
         enrollmentEndDate: true,
         versionNumber: true,
+        monthlyAmount: true,
       },
       orderBy: [{ versionNumber: "desc" }, { createdAt: "desc" }],
     });
     rows = found.map((r) => ({
+      monthlyAmount: r.monthlyAmount,
       studentId: r.studentId,
       contractId: r.id,
       contractNumber: r.contractNumber,
@@ -1341,6 +1345,7 @@ export async function listContractSummariesByStudent(
       .filter((x) => x.tenantId === tenantId)
       .sort((a, b) => b.versionNumber - a.versionNumber)
       .map((x) => ({
+        monthlyAmount: x.monthlyAmount,
         studentId: x.studentId,
         contractId: x.id,
         contractNumber: x.contractNumber,

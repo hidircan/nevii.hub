@@ -5,6 +5,7 @@ import { Badge, Card, EmptyState } from "@/components/ui";
 import { SectionEditCard } from "@/components/section-edit-card";
 import { StudentPaymentProfileEditor } from "@/components/student-payment-profile-editor";
 import { StudentLessonPauseControl } from "@/components/student-lesson-pause-control";
+import { listStudentContractsTool } from "@/lib/services";
 import { computeStudentPaymentSummary, sortPaymentsForProfile } from "@/lib/payment-profile";
 import { computeStudentMonthlyAmount } from "@/lib/student-payment-profile";
 import { effectivePaymentDueRanges, formatPaymentDueRanges } from "@/lib/payment-due-ranges";
@@ -21,7 +22,9 @@ export default async function StudentPaymentsTab({ params }: { params: Promise<{
   if (!student) notFound();
 
   const payments = sortPaymentsForProfile(data.payments.filter((p) => p.studentId === student.id));
-  const paymentSummary = computeStudentPaymentSummary(payments);
+  const contractsResult = await listStudentContractsTool(session, { studentId: student.id });
+  const contracts = contractsResult.ok ? contractsResult.data.contracts : [];
+  const paymentSummary = computeStudentPaymentSummary(payments, contracts);
   const packages = data.packages ?? [];
   const studentPackage = packages.find((p) => p.id === student.packageId);
   const monthlyAmount = computeStudentMonthlyAmount(
@@ -43,8 +46,11 @@ export default async function StudentPaymentsTab({ params }: { params: Promise<{
           </Link>
         </h2>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <MiniStat label="Toplam tahakkuk" value={formatMoney(paymentSummary.totalBilled)} />
-          <MiniStat label="Tahsil edilen" value={formatMoney(paymentSummary.totalCollected)} tone="success" />
+          <MiniStat
+            label={paymentSummary.currentContractNumber ? `Sözleşme tahakkuku · ${paymentSummary.currentContractNumber}` : "Sözleşme tahakkuku — aktif sözleşme yok"}
+            value={paymentSummary.currentContractBilled === null ? "—" : formatMoney(paymentSummary.currentContractBilled)}
+          />
+          <MiniStat label="Tahsil edilen (tüm kayıtlar)" value={formatMoney(paymentSummary.totalCollected)} tone="success" />
           <MiniStat label="Kalan" value={formatMoney(paymentSummary.remaining)} />
           <MiniStat
             label="Gecikmiş kalan"

@@ -6,7 +6,7 @@
  */
 
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
+import { redirect, RedirectType } from "next/navigation";
 import { cookies } from "next/headers";
 import { logger } from "./logger";
 import { KURUM_COOKIE, listAvailableKurumlar, pickInstitutionSelection } from "./institution/context";
@@ -53,6 +53,7 @@ import {
   listStudentListViewsTool,
   saveStudentListViewTool,
   deleteStudentListViewTool,
+  findStudentsByNationalIdTool,
   createTeacherTool,
   createBranchTool,
   updateBranchTool,
@@ -1191,7 +1192,9 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
       ? `/panel/ogrenciler/${newStudentId}/sozlesmeler`
       : `/panel/ogrenciler/${newStudentId}`;
     const inviteWarningQuery = inviteWarning ? `&davetUyari=${encodeURIComponent(inviteWarning)}` : "";
-    redirect(`${destination}?yeniKayit=1&sure=${intendedDurationMonths}${inviteWarningQuery}`);
+    // UAT 2026-09-24 (D) — replace: kaydedilmiş formun geçmiş girdisi silinir; tarayıcı Geri
+    // boş/eski "Yeni öğrenci" formuna dönüp aynı öğrenciyi İKİNCİ kez oluşturamaz.
+    redirect(`${destination}?yeniKayit=1&sure=${intendedDurationMonths}${inviteWarningQuery}`, RedirectType.replace);
   }
   return null;
 }
@@ -1637,6 +1640,23 @@ export async function actionDeleteStudentListView(input: { id: string }): Promis
     logger.error("actionDeleteStudentListView failed", error);
     if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
     return { ok: false, message: "Görünüm silinirken beklenmeyen bir hata oluştu." };
+  }
+}
+
+/** UAT 2026-09-24 (B) — TC POST gövdesiyle gelir; URL'ye/loga yazılmaz. */
+export async function actionFindStudentsByNationalId(
+  nationalId: string
+): Promise<{ ok: true; studentIds: string[] } | { ok: false; message: string }> {
+  try {
+    const result = await withAuthContext("actionFindStudentsByNationalId", (ctx) =>
+      findStudentsByNationalIdTool(ctx, { nationalId })
+    );
+    if (!result.ok) return { ok: false, message: result.error.message };
+    return { ok: true, studentIds: result.data.studentIds };
+  } catch (error) {
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    logger.error("actionFindStudentsByNationalId failed", error instanceof Error ? error.name : "unknown");
+    return { ok: false, message: "TC Kimlik No araması şu an yapılamadı. Sayfayı yenileyip tekrar deneyin." };
   }
 }
 

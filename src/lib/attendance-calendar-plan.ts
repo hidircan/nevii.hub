@@ -63,6 +63,9 @@ export interface CalendarPlanInstallment {
   status: string;
   kind?: ContractInstallmentKind;
   periodLabel?: string;
+  /** `Payment` satırındaki adları — çağıranlar doğrudan `Payment` geçirir. */
+  installmentPeriodLabel?: string;
+  installmentBreakdown?: { periodLabel: string; amount: number }[];
 }
 
 export type CalendarMonthPlan =
@@ -100,6 +103,33 @@ export type CalendarMonthPlan =
 /** "2026-10-01T00:00:00.000Z" → "2026-10" */
 function monthKeyOf(isoDate: string): string {
   return isoDate.slice(0, 7);
+}
+
+const TR_MONTH_NUMBER: Record<string, number> = {
+  Ocak: 1, Şubat: 2, Mart: 3, Nisan: 4, Mayıs: 5, Haziran: 6,
+  Temmuz: 7, Ağustos: 8, Eylül: 9, Ekim: 10, Kasım: 11, Aralık: 12,
+};
+
+/** `formatPeriodLabel` (contracts.ts) çıktısı: "Ekim 2026" / "17–30 Eylül 2026" → "2026-10" / "2026-09". */
+function monthKeyOfPeriodLabel(label: string | undefined): string | undefined {
+  const m = label?.match(/(\p{L}+)\s+(\d{4})\s*$/u);
+  const month = m ? TR_MONTH_NUMBER[m[1]!] : undefined;
+  return month ? `${m![2]}-${String(month).padStart(2, "0")}` : undefined;
+}
+
+/**
+ * UAT 2026-09-24 (F) — taksit satırının KAPSADIĞI ay(lar). Vade ayı dönem ayı
+ * değildir: birleşik ilk tahsilat ("17–30 Eylül 2026 + Ekim 2026") tek satırdır
+ * ve vadesi kayıt günüdür; önizlemede vadesi elle önceki aya alınmış taksit de
+ * kendi dönemine aittir. Önce dönem etiketi/kırılımı, yoksa (legacy) vade ayı.
+ */
+export function installmentMonthKeys(p: CalendarPlanInstallment): string[] {
+  const fromBreakdown = (p.installmentBreakdown ?? [])
+    .map((b) => monthKeyOfPeriodLabel(b.periodLabel))
+    .filter((k): k is string => !!k);
+  if (fromBreakdown.length > 0) return fromBreakdown;
+  const fromLabel = monthKeyOfPeriodLabel(p.installmentPeriodLabel ?? p.periodLabel);
+  return [fromLabel ?? monthKeyOf(p.dueDate)];
 }
 
 /** Sözleşmenin kayıt aralığı verilen takvim ayını kapsıyor mu? */
@@ -150,7 +180,7 @@ export function resolveContractPlanForMonth(input: {
   const contract = covering[0]!;
   const rows = input.installments
     .filter((p) => p.contractId === contract.id && p.installmentSequence != null)
-    .filter((p) => monthKeyOf(p.dueDate) === monthKey)
+    .filter((p) => installmentMonthKeys(p).includes(monthKey))
     .sort((a, b) => (a.installmentSequence ?? 0) - (b.installmentSequence ?? 0));
 
   if (rows.length === 0) {
@@ -177,6 +207,6 @@ export function resolveContractPlanForMonth(input: {
     paidAmount,
     remaining: remainingAmount(amount, paidAmount),
     status: resolveCollectionStatus({ amount, paidAmount, dueDate: earliestDueDate, now: input.now }),
-    periodLabel: rows.length === 1 ? rows[0]!.periodLabel : undefined,
+    periodLabel: rows.length === 1 ? (rows[0]!.installmentPeriodLabel ?? rows[0]!.periodLabel) : undefined,
   };
 }

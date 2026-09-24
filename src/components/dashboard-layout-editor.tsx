@@ -7,7 +7,9 @@ import { actionSaveDashboardLayout } from "@/lib/actions";
 import {
   DASHBOARD_MAX_SPAN,
   DASHBOARD_MIN_SPAN,
+  DASHBOARD_ROW_UNIT_PX,
   DASHBOARD_SECTION_LABELS,
+  dashboardRowSpan,
   clampDashboardSpan,
   getDefaultDashboardLayout,
   mergeSectionOrder,
@@ -20,6 +22,7 @@ type Row = { key: DashboardSectionKey; hidden: boolean; span: DashboardSectionSp
 
 /** Tailwind sınıfları derleme anında görünür olmalı — dinamik string üretilmez. */
 const SPAN_CLASS: Record<DashboardSectionSpan, string> = {
+  3: "xl:col-span-3",
   4: "xl:col-span-4",
   5: "xl:col-span-5",
   6: "xl:col-span-6",
@@ -97,6 +100,33 @@ export function DashboardGrid({
   }, [dirty]);
 
   const visibleRows = rows.filter((r) => !r.hidden && sections[r.key] != null);
+
+  // ---- masonry (yalnız xl): kart yüksekliği ölç → grid-row span ----
+  const [rowSpans, setRowSpans] = useState<Partial<Record<DashboardSectionKey, number>>>({});
+  const visibleKeySig = visibleRows.map((r) => r.key).join(",");
+  useEffect(() => {
+    const grid = gridRef.current;
+    if (!isWide || !grid) return;
+    const ro = new ResizeObserver((entries) => {
+      setRowSpans((prev) => {
+        let next = prev;
+        for (const entry of entries) {
+          const key = (entry.target as HTMLElement).dataset.measureKey as DashboardSectionKey;
+          const span = dashboardRowSpan(entry.target.getBoundingClientRect().height);
+          if (next[key] !== span) {
+            if (next === prev) next = { ...prev };
+            next[key] = span;
+          }
+        }
+        return next;
+      });
+    });
+    grid.querySelectorAll<HTMLElement>("[data-measure-key]").forEach((el) => ro.observe(el));
+    return () => ro.disconnect();
+  }, [isWide, editing, visibleKeySig]);
+  // Tüm kartlar ölçülmeden masonry açılmaz — ölçülmemiş kart 4px'lik ize sığmaz, üst üste binerdi.
+  const masonry = isWide && visibleRows.every((r) => rowSpans[r.key] !== undefined);
+  const rowStyle = (key: DashboardSectionKey) => (masonry ? { gridRowEnd: `span ${rowSpans[key]}` } : undefined);
   const hiddenRows = rows.filter((r) => r.hidden && sections[r.key] != null);
 
   // ---- sürükle-bırak (sıra) ----
@@ -350,17 +380,18 @@ export function DashboardGrid({
         </div>
       ) : null}
 
-      {/* grid-flow-dense: dar kutular üst satırda kalan boşluğu doldurur (minimum boşluk). */}
+      {/* grid-flow-dense + masonry satır izleri: kartlar üstteki boşluğa yerleşir (bkz. dashboardRowSpan). */}
       <div
         ref={gridRef}
+        style={masonry ? { gridAutoRows: `${DASHBOARD_ROW_UNIT_PX}px`, rowGap: 0 } : undefined}
         className={`grid items-start gap-2.5 xl:grid-flow-row-dense xl:grid-cols-12 ${dragKey || resizeKey ? "select-none" : ""}`}
       >
         {visibleRows.map((row, i) => {
           const node = sections[row.key];
           if (!editing) {
             return (
-              <div key={row.key} className={SPAN_CLASS[row.span]}>
-                {node}
+              <div key={row.key} className={SPAN_CLASS[row.span]} style={rowStyle(row.key)}>
+                <div data-measure-key={row.key}>{node}</div>
               </div>
             );
           }
@@ -372,6 +403,7 @@ export function DashboardGrid({
               className={`relative rounded-[var(--radius-md)] outline-dashed outline-1 outline-offset-2 transition-[outline-color,opacity] ${SPAN_CLASS[row.span]} ${
                 active ? "z-10 outline-[var(--color-primary)]" : "outline-[var(--color-border-strong)]"
               } ${dragKey === row.key ? "opacity-70" : ""}`}
+              style={rowStyle(row.key)}
             >
               <div className="absolute inset-x-0 -top-px z-20 flex items-center gap-1 rounded-t-[var(--radius-md)] bg-[var(--color-surface-muted)]/95 px-1.5 py-1 backdrop-blur-sm">
                 <button
@@ -407,7 +439,7 @@ export function DashboardGrid({
                 </IconButton>
               </div>
               {/* İçerik düzenleme sırasında etkileşimsiz: yanlışlıkla link/buton tetiklenmez. */}
-              <div className="pointer-events-none pt-7" aria-hidden>
+              <div data-measure-key={row.key} className="pointer-events-none pt-7" aria-hidden>
                 {node}
               </div>
               {isWide ? (

@@ -8,6 +8,7 @@ import { Badge, Card } from "@/components/ui";
 import { PaginationControls, usePagination } from "@/components/pagination-controls";
 import { StudentArchiveAction } from "@/components/student-archive-action";
 import { StudentsBulkBar, type BulkOptions } from "@/components/students-bulk-bar";
+import { actionFindStudentsByNationalId } from "@/lib/actions";
 import {
   DEFAULT_STUDENT_COLUMNS,
   STUDENT_COLUMN_LABELS,
@@ -312,7 +313,35 @@ export function StudentsTable({
     });
   }
 
+  // UAT 2026-09-24 (B) — TC Kimlik No filtresi: değer yalnız bu bileşenin
+  // state'inde; URL'ye, localStorage'a veya loga yazılmaz. Eşleşme sunucuda
+  // (şifre çözülerek) yapılır, istemciye yalnız öğrenci kimlikleri döner.
+  const [tcInput, setTcInput] = useState("");
+  const [tcMatch, setTcMatch] = useState<{ ids: Set<string>; last2: string } | null>(null);
+  const [tcError, setTcError] = useState<string | null>(null);
+  const [tcPending, setTcPending] = useState(false);
+
+  async function applyTcFilter() {
+    const digits = tcInput.replace(/\D/g, "");
+    if (digits.length !== 11) {
+      setTcError("TC Kimlik No 11 haneli olmalı.");
+      return;
+    }
+    setTcPending(true);
+    setTcError(null);
+    const result = await actionFindStudentsByNationalId(digits);
+    setTcPending(false);
+    if (!result.ok) {
+      setTcError(result.message);
+      return;
+    }
+    setTcMatch({ ids: new Set(result.studentIds), last2: digits.slice(-2) });
+    setTcInput("");
+  }
+
   function clearAll() {
+    setTcMatch(null);
+    setTcError(null);
     // Debounce ortasında "Temizle" — local q'yu da sıfırla; aksi halde stale
     // echo koruması eski metni URL temizlendikten sonra bile tutardı.
     setSearchInput("");
@@ -429,6 +458,7 @@ export function StudentsTable({
 
   const filterQuery = search.trim().toLocaleLowerCase("tr");
   const filtered = rows.filter((row) => {
+    if (tcMatch && !tcMatch.ids.has(row.id)) return false;
     if (
       filterQuery &&
       !row.name.toLocaleLowerCase("tr").includes(filterQuery) &&
@@ -458,7 +488,7 @@ export function StudentsTable({
   // render'da yeniden üretilmesi nedeniyle korunamıyor (lint uyarısı).
   const sorted = [...filtered].sort((a, b) => compareStudents(a, b, sort));
 
-  const anyFilterActive = Boolean(search) || activeGroupCount > 0;
+  const anyFilterActive = Boolean(search) || activeGroupCount > 0 || tcMatch !== null;
   // H — sayfa başına 10/20/50/100; seçim URL'de saklanır (yenileme/geri-ileri korur).
   const { pageItems, page, setPage, pageSize, setPageSize, totalPages, totalCount } = usePagination(sorted, 10, {
     urlParam: "per",
@@ -558,6 +588,52 @@ export function StudentsTable({
             aria-label="Ad soyad veya öğrenci numarasına göre ara"
             className="w-full max-w-xs rounded-[var(--radius-md)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text)] outline-none focus:ring-2 focus:ring-[var(--color-focus-ring)]/30 sm:w-auto"
           />
+
+          {canManage ? (
+            <form
+              className="flex items-center gap-2"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void applyTcFilter();
+              }}
+            >
+              <input
+                type="text"
+                inputMode="numeric"
+                autoComplete="off"
+                maxLength={11}
+                value={tcInput}
+                onChange={(event) => {
+                  setTcInput(event.target.value.replace(/\D/g, ""));
+                  setTcError(null);
+                }}
+                placeholder="TC Kimlik No"
+                aria-label="TC Kimlik No ile filtrele (11 hane, tam eşleşme)"
+                aria-invalid={tcError ? true : undefined}
+                className="w-36 rounded-[var(--radius-md)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text)] outline-none focus:ring-2 focus:ring-[var(--color-focus-ring)]/30"
+              />
+              <button
+                type="submit"
+                disabled={tcPending}
+                className="rounded-[var(--radius-md)] border border-[var(--color-border-strong)] px-3 py-2 text-sm font-medium text-[var(--color-text)] hover:border-[var(--color-primary)] disabled:opacity-60"
+              >
+                {tcPending ? "Aranıyor…" : "TC ile ara"}
+              </button>
+            </form>
+          ) : null}
+          {tcMatch ? (
+            <span className="inline-flex items-center gap-1 rounded-full bg-[var(--color-primary-soft)] px-2.5 py-1 text-xs font-medium text-[var(--color-primary)]">
+              TC: •••••••••{tcMatch.last2} ({tcMatch.ids.size} eşleşme)
+              <button type="button" aria-label="TC Kimlik No filtresini kaldır" onClick={() => setTcMatch(null)}>
+                <X className="h-3 w-3" aria-hidden />
+              </button>
+            </span>
+          ) : null}
+          {tcError ? (
+            <p role="alert" className="w-full text-xs text-[var(--color-danger)]">
+              {tcError}
+            </p>
+          ) : null}
 
           <div className="relative" ref={menuRef}>
             <button

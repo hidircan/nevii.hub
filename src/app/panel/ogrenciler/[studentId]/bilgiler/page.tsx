@@ -14,6 +14,7 @@ import { effectiveStudentTypes } from "@/lib/student-types";
 import { computeAge, formatDate } from "@/lib/utils";
 import { loadStudentPageContext } from "../_context";
 import { Field } from "../_components/fields";
+import { ContractReturnBanner } from "../_components/contract-return-banner";
 
 export const dynamic = "force-dynamic";
 
@@ -28,10 +29,10 @@ export default async function StudentInfoTab({
   searchParams,
 }: {
   params: Promise<{ studentId: string }>;
-  searchParams: Promise<{ duzenle?: string }>;
+  searchParams: Promise<{ duzenle?: string; sozlesmeDon?: string }>;
 }) {
   const { studentId } = await params;
-  const { duzenle } = await searchParams;
+  const { duzenle, sozlesmeDon } = await searchParams;
   const { session, data, student, canManage } = await loadStudentPageContext(studentId);
   if (!student) notFound();
 
@@ -77,6 +78,7 @@ export default async function StudentInfoTab({
 
   return (
     <div className="space-y-6">
+      {sozlesmeDon && canManage ? <ContractReturnBanner studentId={student.id} /> : null}
       <section>
         <h2 className="mb-3 text-sm font-semibold text-[var(--color-text)]">Temel Bilgiler</h2>
         <SectionEditCard

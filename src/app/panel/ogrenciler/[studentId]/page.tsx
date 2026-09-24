@@ -11,6 +11,7 @@ import { resolveLessonFinalStatus } from "@/lib/lesson-live-status";
 import { formatDate, formatDateTime, formatMoney, formatTime } from "@/lib/utils";
 import { loadStudentPageContext } from "./_context";
 import { MiniStat } from "./_components/fields";
+import { ContractReturnBanner } from "./_components/contract-return-banner";
 
 export const dynamic = "force-dynamic";
 
@@ -43,7 +44,7 @@ export default async function StudentOverviewTab({
   const currentContract = selectCurrentContract(contracts);
 
   const payments = sortPaymentsForProfile(data.payments.filter((p) => p.studentId === student.id));
-  const paymentSummary = computeStudentPaymentSummary(payments);
+  const paymentSummary = computeStudentPaymentSummary(payments, contracts);
 
   const now = new Date();
   const lessons = data.lessons.filter((l) => l.studentId === student.id);
@@ -134,22 +135,7 @@ export default async function StudentOverviewTab({
         />
       ) : null}
 
-      {sozlesmeDon || sozlesmeSure ? (
-        <Card className="!border-[var(--color-primary)] !p-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-sm text-[var(--color-text)]">
-              Kayıt bilgilerini düzenliyorsunuz. Değişiklikleri kaydettikten sonra sözleşme adımına dönebilirsiniz —
-              sözleşme önizlemesi ve tahsilat hesabı güncel verilerle yeniden oluşturulur.
-            </p>
-            <Link
-              href={`/panel/ogrenciler/${student.id}/sozlesmeler?yeniKayit=1`}
-              className="inline-flex shrink-0 items-center rounded-lg bg-[var(--color-primary)] px-4 py-2 text-sm font-semibold text-white hover:bg-[var(--color-primary-hover)]"
-            >
-              Sözleşme adımına dön →
-            </Link>
-          </div>
-        </Card>
-      ) : null}
+      {sozlesmeDon || sozlesmeSure ? <ContractReturnBanner studentId={student.id} /> : null}
 
       <section>
         <h2 className="mb-2 text-sm font-semibold text-[var(--color-text)]">Aksiyon gerekli</h2>
@@ -191,8 +177,11 @@ export default async function StudentOverviewTab({
       </section>
 
       <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <MiniStat label="Toplam tahakkuk" value={formatMoney(paymentSummary.totalBilled)} />
-        <MiniStat label="Tahsil edilen" value={formatMoney(paymentSummary.totalCollected)} tone="success" />
+        <MiniStat
+          label={paymentSummary.currentContractNumber ? `Sözleşme tahakkuku · ${paymentSummary.currentContractNumber}` : "Sözleşme tahakkuku — aktif sözleşme yok"}
+          value={paymentSummary.currentContractBilled === null ? "—" : formatMoney(paymentSummary.currentContractBilled)}
+        />
+        <MiniStat label="Tahsil edilen (tüm kayıtlar)" value={formatMoney(paymentSummary.totalCollected)} tone="success" />
         <MiniStat label="Kalan borç" value={formatMoney(paymentSummary.remaining)} />
         <MiniStat
           label="Gecikmiş"

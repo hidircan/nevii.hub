@@ -34,9 +34,9 @@ export const DASHBOARD_SECTION_LABELS: Record<DashboardSectionKey, string> = {
 };
 
 /** İzinli xl kolon genişlikleri — kenardan boyutlandırma bu aralığa oturtulur. */
-export const DASHBOARD_MIN_SPAN = 4;
+export const DASHBOARD_MIN_SPAN = 3;
 export const DASHBOARD_MAX_SPAN = 12;
-const ALLOWED_SPANS = new Set<number>([4, 5, 6, 7, 8, 9, 10, 11, 12]);
+const ALLOWED_SPANS = new Set<number>([3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
 
 /** Serbest sayıyı (sürükleme sonucu) izinli genişliğe oturtur. */
 export function clampDashboardSpan(value: number): DashboardSectionSpan {
@@ -266,4 +266,19 @@ export function mergeDashboardPreferences(
     ...(prev ?? {}),
     ...sanitized,
   };
+}
+
+/**
+ * UAT 2026-09-24 (E) — geniş ekranda "masonry" yerleşim: ızgara satır izi
+ * `DASHBOARD_ROW_UNIT_PX`, her kart ölçülen yüksekliği (+ alt boşluk) kadar iz
+ * kaplar. `grid-flow-dense` böylece kısa kartın altındaki boşluğa sonraki kartı
+ * YUKARIDAN yerleştirir; eskiden satır en uzun kart kadar yüksekti ve sonraki
+ * kart o satırın tamamının altına atılıyordu. Kayıt biçimi (sıra + genişlik)
+ * değişmez — kayıtlı düzenler migration'sız çalışır.
+ */
+export const DASHBOARD_ROW_UNIT_PX = 4;
+export const DASHBOARD_ROW_GAP_PX = 10;
+
+export function dashboardRowSpan(heightPx: number): number {
+  return Math.max(1, Math.ceil((Math.max(0, heightPx) + DASHBOARD_ROW_GAP_PX) / DASHBOARD_ROW_UNIT_PX));
 }

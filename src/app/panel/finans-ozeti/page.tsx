@@ -33,7 +33,8 @@ const FREQUENCY_LABEL: Record<string, string> = { monthly: "Aylık", quarterly: 
  * yaklaşan/geciken giderler, şube bazlı gider zenginleştirmesi, tekrarlayan
  * gider kuralları ve bütçe-gerçekleşen karşılaştırması eklendi.
  */
-export default async function FinansOzetiPage() {
+export default async function FinansOzetiPage({ searchParams }: { searchParams: Promise<{ sube?: string }> }) {
+  const { sube } = await searchParams;
   let session;
   try {
     session = await requireSessionContext();
@@ -46,7 +47,7 @@ export default async function FinansOzetiPage() {
   const kurum = await getInstitutionContext(session);
   const canWrite = kurum.scope.mode === "single";
   const [result, data, rulesResult] = await Promise.all([
-    getFinanceSummaryTool(session, {}),
+    getFinanceSummaryTool(session, sube ? { branchId: sube } : {}),
     readScopedData(kurum.scope),
     listRecurringExpenseRulesTool(session, {}),
   ]);
@@ -98,6 +99,44 @@ export default async function FinansOzetiPage() {
         <StatCard label="Bekleyen bordro" value={formatMoney(s.payrollPendingThisMonth)} accent="warning" />
         <StatCard label="Öğretmen hakedişleri toplamı (bu ay)" value={formatMoney(s.teacherPayoutTotalThisMonth)} />
       </div>
+
+      {(() => {
+        const avg = s.averageMonthlyFee;
+        const branchName = branches.find((b) => b.id === avg.branchId)?.shortName ?? "Tüm şubeler";
+        return (
+          <Card className="mb-6">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="text-sm text-[var(--color-text-muted)]">Öğrenci başına ortalama aylık ücret</p>
+                <p className="mt-1 text-2xl font-semibold text-[var(--color-text)]">
+                  {avg.average === null ? "—" : formatMoney(avg.average)}
+                </p>
+                <p className="mt-1 text-xs text-[var(--color-text-muted)]">
+                  {avg.average === null
+                    ? `${s.month} · ${branchName}: bu ayı kapsayan geçerli sözleşmeli öğrenci yok.`
+                    : `${s.month} · ${branchName} · ${avg.studentCount} sözleşmeli öğrenci, aylık ücret toplamı ${formatMoney(avg.totalMonthly)}. Taslak, iptal ve yenilenmiş sözleşmeler hariç; sözleşmedeki aylık ücret esas alınır.`}
+                </p>
+              </div>
+              <form method="get" className="flex items-end gap-2">
+                <label className="block">
+                  <Label>Şube</Label>
+                  <Select name="sube" defaultValue={avg.branchId ?? ""}>
+                    <option value="">Tüm şubeler</option>
+                    {branches.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.shortName}
+                      </option>
+                    ))}
+                  </Select>
+                </label>
+                <Button type="submit" variant="secondary">
+                  Uygula
+                </Button>
+              </form>
+            </div>
+          </Card>
+        );
+      })()}
 
       {s.expenseByCategory.length > 0 ? (
         <Card className="mb-6">

@@ -9,6 +9,8 @@ describe("computeStudentPaymentSummary", () => {
     const payments = data.payments.filter((p) => p.studentId === "s5");
     const summary = computeStudentPaymentSummary(payments);
     expect(summary).toEqual({
+      currentContractBilled: null,
+      currentContractNumber: null,
       totalBilled: 3600,
       totalCollected: 0,
       remaining: 3600,
@@ -21,6 +23,8 @@ describe("computeStudentPaymentSummary", () => {
     const payments = data.payments.filter((p) => p.studentId === "s4");
     const summary = computeStudentPaymentSummary(payments);
     expect(summary).toEqual({
+      currentContractBilled: null,
+      currentContractNumber: null,
       totalBilled: 3000,
       totalCollected: 1500,
       remaining: 1500,
@@ -33,6 +37,8 @@ describe("computeStudentPaymentSummary", () => {
     const payments = data.payments.filter((p) => p.studentId === "s1");
     const summary = computeStudentPaymentSummary(payments);
     expect(summary).toEqual({
+      currentContractBilled: null,
+      currentContractNumber: null,
       totalBilled: 3200,
       totalCollected: 3200,
       remaining: 0,
@@ -60,6 +66,8 @@ describe("computeStudentPaymentSummary", () => {
     const paymentsForMissing = data.payments.filter((p) => p.studentId === "does-not-exist");
     expect(paymentsForMissing).toEqual([]);
     expect(computeStudentPaymentSummary(paymentsForMissing)).toEqual({
+      currentContractBilled: null,
+      currentContractNumber: null,
       totalBilled: 0,
       totalCollected: 0,
       remaining: 0,

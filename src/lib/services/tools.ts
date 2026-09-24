@@ -579,7 +579,7 @@ import {
   resolveContractPaymentDueRule,
 } from "../contracts";
 import { selectActiveTemplateOfKind, findMissingRequiredContractPlaceholders } from "../contract-template-schema";
-import { encryptNationalId, maskNationalId, canViewFullNationalId } from "../pii";
+import { encryptNationalId, maskNationalId, canViewFullNationalId, normalizeNationalId } from "../pii";
 import { validateUploadedFile } from "../file-upload-validation";
 import { assertSchedulableDate } from "../lesson-scheduling";
 import { resolveCollectionsIban } from "../collections-due";
@@ -4289,17 +4289,34 @@ export async function upsertBudgetTool(
 
 export async function getFinanceSummaryTool(
   ctx: ServiceContext,
-  _input: unknown
-): Promise<ServiceResult<import("../finance-summary").FinanceSummary>> {
+  input: unknown
+): Promise<
+  ServiceResult<
+    import("../finance-summary").FinanceSummary & {
+      averageMonthlyFee: ReturnType<typeof import("../finance-summary").computeAverageMonthlyFeePerStudent> & { branchId?: string };
+    }
+  >
+> {
   const auth = requireStaffSensitiveAccess(ctx);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const v = parseOrFail(z.object({ branchId: z.string().min(1).optional() }), input ?? {});
+  if (!v.ok) return v;
   const data = await readData();
   const staff = await listStaff(ctx.tenantId);
   const payroll = await listPayroll(ctx.tenantId);
   const expenses = await listExpenses(ctx.tenantId);
   const budgets = await listBudgets(ctx.tenantId);
-  const { computeFinanceSummary } = await import("../finance-summary");
-  return ok(computeFinanceSummary(data, staff, payroll, expenses, new Date(), budgets));
+  const { listContractSummariesByStudent } = await import("../contracts");
+  const contractSummaries = await listContractSummariesByStudent(ctx.tenantId);
+  const { computeFinanceSummary, computeAverageMonthlyFeePerStudent } = await import("../finance-summary");
+  const summary = computeFinanceSummary(data, staff, payroll, expenses, new Date(), budgets);
+  const averageMonthlyFee = computeAverageMonthlyFeePerStudent({
+    contracts: contractSummaries.values(),
+    students: data.students,
+    month: summary.month,
+    branchId: v.data.branchId,
+  });
+  return ok({ ...summary, averageMonthlyFee: { ...averageMonthlyFee, branchId: v.data.branchId } });
 }
 
 export async function createPackageTool(
@@ -10267,6 +10284,41 @@ export async function revealNationalIdTool(
   } catch (e) {
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "reveal failed");
   }
+}
+
+/**
+ * UAT 2026-09-24 (B) — Öğrenciler listesi "TC Kimlik No" filtresi. TC şifreli
+ * saklandığı için (rastgele IV) DB'de eşitlik sorgusu yapılamaz: açık son 2
+ * hane ile daraltılır, yalnız o adaylar çözülür, TAM eşleşme aranır. Yanıt yalnız
+ * öğrenci kimlikleri; TC hiçbir yere (yanıt, audit, log) yazılmaz.
+ */
+export async function findStudentsByNationalIdTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ studentIds: string[] }>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  if (!canViewFullNationalId(ctx.role)) return fail("FORBIDDEN", "TC Kimlik No ile arama yetkiniz yok.");
+  const v = parseOrFail(z.object({ nationalId: z.string().max(20) }), input);
+  if (!v.ok) return v;
+  const wanted = normalizeNationalId(v.data.nationalId);
+  if (!/^\d{11}$/.test(wanted)) {
+    return fail("VALIDATION_ERROR", "TC Kimlik No 11 haneli olmalı. Rakamları eksiksiz girip tekrar arayın.");
+  }
+  const { decryptNationalId } = await import("../pii");
+  const data = await readData();
+  const studentIds = data.students
+    .filter((s) => s.nationalIdCipher && s.nationalIdLast2 === wanted.slice(-2))
+    .filter((s) => {
+      try {
+        return decryptNationalId(s.nationalIdCipher!) === wanted;
+      } catch {
+        return false; // bozuk/eski anahtarlı kayıt eşleşme sayılmaz
+      }
+    })
+    .map((s) => s.id);
+  audit(ctx, "pii.national_id.search", "Student", "list", { matchCount: studentIds.length });
+  return ok({ studentIds });
 }
 
 /** Faz 9A — IBAN tam çözümleme (StaffMember) — revealNationalIdTool ile AYNI desen (pii:full + audit). */

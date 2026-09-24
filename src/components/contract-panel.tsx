@@ -25,6 +25,7 @@ import { paymentMethodLabelTr } from "@/lib/utils";
 import { friendlyApiErrorMessage } from "@/lib/api/friendly-error";
 import { actionUpdateStudentProfile } from "@/lib/actions";
 import { contractDateGuidance } from "@/lib/contract-date-guidance";
+import { clearContractDraft, hasContractDraft, useContractDraft } from "@/lib/contract-draft";
 
 /** 2026-2027 sözleşme kaynağı — Fotoğraf/Video Açık Rıza Formu'nun 5 kanalı, HER BİRİ ayrı değerlendirilir. */
 const PHOTO_VIDEO_CONSENT_CHANNELS: { value: string; label: string }[] = [
@@ -609,28 +610,37 @@ function ContractForm({
 }) {
   const router = useRouter();
   const isRenewal = !!previousContract;
-  const [programmeName, setProgrammeName] = useState(previousContract?.programmeName ?? prefill?.programmeName ?? "");
+  const draftKey = `${studentId}:${previousContract?.id ?? "initial"}`;
+  // Taslak yalnız bellekte: yenileme/sekme kapatma onu siler → kaydedilmemiş girdi varken tarayıcı uyarır.
+  useEffect(() => {
+    const warn = (event: BeforeUnloadEvent) => {
+      if (hasContractDraft(draftKey)) event.preventDefault();
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [draftKey]);
+  const [programmeName, setProgrammeName] = useContractDraft(draftKey, "programmeName", previousContract?.programmeName ?? prefill?.programmeName ?? "");
   // P0 (2026-09-03) — yalnız YENİ (initial) kayıt akışından, per-lesson
   // fiyatlandırma kullanan bir öğrenci için gelir; yenilemede prefill zaten
   // undefined olduğundan bu her zaman false kalır — eski davranış korunur.
   const usePerLessonBilling = !isRenewal && (prefill?.usePerLessonBilling ?? false);
-  const [lessonScheduleText, setLessonScheduleText] = useState(prefill?.lessonScheduleText ?? "");
-  const [enrollmentStartDate, setEnrollmentStartDate] = useState(
+  const [lessonScheduleText, setLessonScheduleText] = useContractDraft(draftKey, "lessonScheduleText", prefill?.lessonScheduleText ?? "");
+  const [enrollmentStartDate, setEnrollmentStartDate] = useContractDraft(draftKey, "enrollmentStartDate", 
     isRenewal
       ? dayAfter(previousContract!.enrollmentEndDate)
       : (prefill?.enrollmentStartDate?.slice(0, 10) ?? "")
   );
-  const [durationMonths, setDurationMonths] = useState(isRenewal ? 3 : (prefill?.durationMonths ?? 1));
+  const [durationMonths, setDurationMonths] = useContractDraft(draftKey, "durationMonths", isRenewal ? 3 : (prefill?.durationMonths ?? 1));
   // Bitiş tercihi (bkz. contracts.ts computeContractEndDate) — iki seçenekte de son taksit N. aydadır.
-  const [endDatePreference, setEndDatePreference] = useState<"month_end" | "date_based">("month_end");
+  const [endDatePreference, setEndDatePreference] = useContractDraft<"month_end" | "date_based">(draftKey, "endDatePreference", "month_end");
   // Sahip kararı (2026-09-16) — ilk tahsilat takip eden ayı da kapsıyor mu?
   // Varsayılan, kayıt ekranında verilen ve ödemeye yazılan seçimdir; burada değiştirilebilir.
-  const [mergeFirstCollection, setMergeFirstCollection] = useState(registration?.firstCollectionIncludesNextMonth ?? false);
+  const [mergeFirstCollection, setMergeFirstCollection] = useContractDraft(draftKey, "mergeFirstCollection", registration?.firstCollectionIncludesNextMonth ?? false);
   // Önizleme tablosunda elle düzenlenen taksit tutarları (sıra no → tutar).
-  const [amountOverrides, setAmountOverrides] = useState<Record<number, number>>({});
+  const [amountOverrides, setAmountOverrides] = useContractDraft<Record<number, number>>(draftKey, "amountOverrides", {});
   // 2026-09-19 — önizlemede elle değiştirilen vade tarihleri (sıra no → yyyy-MM-dd). Otomatik
   // hesap yeniden çalışsa da (tekrar önizleme) korunur; "↺" ile otomatiğe dönülür.
-  const [dueDateOverrides, setDueDateOverrides] = useState<Record<number, string>>({});
+  const [dueDateOverrides, setDueDateOverrides] = useContractDraft<Record<number, string>>(draftKey, "dueDateOverrides", {});
   // Formdaki süre değişikliği öğrenci kaydına da yazılır (yeniden açınca/yenileyince aynı kalsın).
   const [durationSaveNote, setDurationSaveNote] = useState<string | null>(null);
   // C — ders süresi: öğrenci kaydındaki tek kanonik alan; burada seçilince anında öğrenciye yazılır.
@@ -643,38 +653,38 @@ function ContractForm({
   // ücretlendirilsin?" — yalnız per-lesson fiyatlandırma (usePerLessonBilling)
   // kullanan öğrenciler için anlamlı; "remaining_lessons" (varsayılan/eski
   // davranış) motorun zaten yaptığı şeydir, DEĞİŞİKLİK YOK.
-  const [lastPeriodPricingMode, setLastPeriodPricingMode] = useState<"remaining_lessons" | "regular_fee" | "manual">(
+  const [lastPeriodPricingMode, setLastPeriodPricingMode] = useContractDraft<"remaining_lessons" | "regular_fee" | "manual">(draftKey, "lastPeriodPricingMode", 
     "remaining_lessons"
   );
-  const [lastPeriodManualAmount, setLastPeriodManualAmount] = useState<number | "">("");
+  const [lastPeriodManualAmount, setLastPeriodManualAmount] = useContractDraft<number | "">(draftKey, "lastPeriodManualAmount", "");
   // P0 (2026-09-03) — `firstPaymentAmount`/`depositAmount` ile AYNI desen
   // (new-student-form.tsx'te de kullanılan proje standardı): başlangıçta
   // BOŞ, "0" görünmez, kullanıcı doğrudan yazar. `!monthlyAmount` guard'ı
   // (validateForm) "" için zaten falsy döner, otomatik 0'a ÇEVİRMEZ.
-  const [monthlyAmount, setMonthlyAmount] = useState<number | "">(previousContract?.monthlyAmount ?? prefill?.monthlyAmount ?? "");
-  const [installmentCount, setInstallmentCount] = useState(isRenewal ? 3 : (prefill?.durationMonths ?? 1));
-  const [firstDueDate, setFirstDueDate] = useState(
+  const [monthlyAmount, setMonthlyAmount] = useContractDraft<number | "">(draftKey, "monthlyAmount", previousContract?.monthlyAmount ?? prefill?.monthlyAmount ?? "");
+  const [installmentCount, setInstallmentCount] = useContractDraft(draftKey, "installmentCount", isRenewal ? 3 : (prefill?.durationMonths ?? 1));
+  const [firstDueDate, setFirstDueDate] = useContractDraft(draftKey, "firstDueDate", 
     isRenewal ? dayAfter(previousContract!.enrollmentEndDate) : (prefill?.enrollmentStartDate?.slice(0, 10) ?? "")
   );
-  const [depositAmount, setDepositAmount] = useState<number | "">("");
-  const [paymentMethod, setPaymentMethod] = useState(previousContract?.paymentMethod ?? prefill?.paymentMethod ?? "cash");
+  const [depositAmount, setDepositAmount] = useContractDraft<number | "">(draftKey, "depositAmount", "");
+  const [paymentMethod, setPaymentMethod] = useContractDraft(draftKey, "paymentMethod", previousContract?.paymentMethod ?? prefill?.paymentMethod ?? "cash");
   // İmzalayan, kayıttaki ödeme/iletişim muhatabından (veli ↔ öğrenci) ve adresten ön doldurulur — aynı bilgi iki kez girilmez.
-  const [signatoryFullName, setSignatoryFullName] = useState(previousContract?.signatoryFullName ?? registration?.signatoryName ?? "");
-  const [signatoryNationalId, setSignatoryNationalId] = useState("");
-  const [signatoryAddress, setSignatoryAddress] = useState(registration?.address ?? "");
-  const [signatoryRelationship, setSignatoryRelationship] = useState<"veli" | "öğrenci">(
+  const [signatoryFullName, setSignatoryFullName] = useContractDraft(draftKey, "signatoryFullName", previousContract?.signatoryFullName ?? registration?.signatoryName ?? "");
+  const [signatoryNationalId, setSignatoryNationalId] = useContractDraft(draftKey, "signatoryNationalId", "");
+  const [signatoryAddress, setSignatoryAddress] = useContractDraft(draftKey, "signatoryAddress", registration?.address ?? "");
+  const [signatoryRelationship, setSignatoryRelationship] = useContractDraft<"veli" | "öğrenci">(draftKey, "signatoryRelationship", 
     registration?.signatoryRelationship ?? "veli"
   );
-  const [photoConsent, setPhotoConsent] = useState<"granted" | "denied" | "unset">("unset");
-  const [photoScopes, setPhotoScopes] = useState<Set<string>>(new Set());
-  const [kvkkNoticeDelivered, setKvkkNoticeDelivered] = useState(false);
-  const [allowOverlap, setAllowOverlap] = useState(false);
-  const [overlapReason, setOverlapReason] = useState("");
+  const [photoConsent, setPhotoConsent] = useContractDraft<"granted" | "denied" | "unset">(draftKey, "photoConsent", "unset");
+  const [photoScopes, setPhotoScopes] = useContractDraft<Set<string>>(draftKey, "photoScopes", new Set());
+  const [kvkkNoticeDelivered, setKvkkNoticeDelivered] = useContractDraft(draftKey, "kvkkNoticeDelivered", false);
+  const [allowOverlap, setAllowOverlap] = useContractDraft(draftKey, "allowOverlap", false);
+  const [overlapReason, setOverlapReason] = useContractDraft(draftKey, "overlapReason", "");
   // Owner policy (2026-08-29) — "İlk ödeme her zaman kayıt esnasında alınacaktır." Kayıt anı
   // tahsilatı, taksit planındaki 1. taksitin (firstDueDate) ödeme PENCERESİ kontrolünden AYRI bir
   // olgu: bu, paranın GERÇEKTEN ne zaman/hangi yöntemle/ne kadar tahsil edildiğinin kaydıdır.
-  const [firstPaymentMethod, setFirstPaymentMethod] = useState(paymentMethod);
-  const [firstPaymentAmount, setFirstPaymentAmount] = useState<number | "">("");
+  const [firstPaymentMethod, setFirstPaymentMethod] = useContractDraft(draftKey, "firstPaymentMethod", paymentMethod);
+  const [firstPaymentAmount, setFirstPaymentAmount] = useContractDraft<number | "">(draftKey, "firstPaymentAmount", "");
   // P0 revizyonu — yenileme tahsilatı bu formun gönderildiği AN yapılır; bu
   // yüzden varsayılan tahsilat tarihi DERS BAŞLANGICI (önceki sözleşme bitişi)
   // DEĞİL, bugündür (yerel gün — date-only input ile aynı konvansiyon).
@@ -683,12 +693,12 @@ function ContractForm({
   // 2026-09-19 — ilk sözleşmede kayıtta tahsilat yoksa (sistemde önceden kayıtlı öğrenci)
   // ilk tahsilat da bu formda girilir; yenilemeyle AYNI alanlar ve AYNI doğrulama.
   const needsFirstPaymentEntryBase = isRenewal || !registration?.firstPayment;
-  const [firstPaymentCollectedAt, setFirstPaymentCollectedAt] = useState(
+  const [firstPaymentCollectedAt, setFirstPaymentCollectedAt] = useContractDraft(draftKey, "firstPaymentCollectedAt", 
     needsFirstPaymentEntryBase ? todayLocalDateOnly() : enrollmentStartDate
   );
-  const [firstPaymentReference, setFirstPaymentReference] = useState("");
-  const [firstPaymentNote, setFirstPaymentNote] = useState("");
-  const [firstPaymentDateExceptionReason, setFirstPaymentDateExceptionReason] = useState("");
+  const [firstPaymentReference, setFirstPaymentReference] = useContractDraft(draftKey, "firstPaymentReference", "");
+  const [firstPaymentNote, setFirstPaymentNote] = useContractDraft(draftKey, "firstPaymentNote", "");
+  const [firstPaymentDateExceptionReason, setFirstPaymentDateExceptionReason] = useContractDraft(draftKey, "firstPaymentDateExceptionReason", "");
 
   // Faz 1B/5B — GÜVENLİ tarih hesabı: `new Date(str).setMonth(...)` gibi UTC
   // ayrıştırma + YEREL saat dilimi mutasyonunu KARIŞTIRAN kalıplar saat
@@ -980,6 +990,7 @@ function ContractForm({
       return;
     }
     router.refresh();
+    clearContractDraft(draftKey);
     onDone(res.data.contract);
   }
 
@@ -1527,7 +1538,7 @@ function ContractForm({
                 ? "Tanışma Uzatmasını Kaydet"
                 : "Tanışma Kaydını Oluştur"}
         </Button>
-        <Button type="button" onClick={onCancel} disabled={busy} className="!bg-transparent !text-[var(--color-text-muted)] hover:!bg-[var(--color-surface-muted)]">
+        <Button type="button" onClick={() => { clearContractDraft(draftKey); onCancel(); }} disabled={busy} className="!bg-transparent !text-[var(--color-text-muted)] hover:!bg-[var(--color-surface-muted)]">
           Vazgeç
         </Button>
       </div>
@@ -1730,7 +1741,7 @@ export function ContractPanel({
 }) {
   const router = useRouter();
   const [formMode, setFormMode] = useState<"none" | "initial" | "renewal">(
-    autoOpenInitial && canManage ? "initial" : "none"
+    (autoOpenInitial || hasContractDraft(`${studentId}:initial`)) && canManage ? "initial" : "none"
   );
   const [busyId, setBusyId] = useState<string | null>(null);
   // Geçmiş (iptal/yenilenmiş) bir sözleşmeyi TEMEL ALARAK yeni sözleşme açmak:

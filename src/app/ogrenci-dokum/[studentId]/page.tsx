@@ -74,9 +74,14 @@ export default async function StudentStatementPrintPage({
   const s = result.data;
   // Yönetici rolleri: ad personel/kullanıcı kaydından çözülür; öğretmen eşleşmesi gerekmez.
   const { viewer, printedAt } = await resolvePrintStamp({ tenantId: session.tenantId, userId: session.userId, teachers: [] });
+  // Birleşik ilk tahsilat satırı iki ayda da görünür — toplamda bir kez sayılır.
+  const countedPlanRows = new Set<string>();
   const planTotals = s.months.reduce(
     (acc, m) => {
       if (m.plan.state !== "ok") return acc;
+      const key = m.plan.paymentIds.join(",");
+      if (countedPlanRows.has(key)) return acc;
+      countedPlanRows.add(key);
       return {
         planned: acc.planned + (m.plan.amount ?? 0),
         paid: acc.paid + (m.plan.paidAmount ?? 0),

@@ -64,7 +64,7 @@ describe("resolveDashboardLayout — kullanıcı override + rol kapısı", () =>
       {
         sectionSpans: {
           todaySchedule: 8,
-          collections: 3 as never,
+          collections: 2 as never,
           fake: 12,
         },
       },

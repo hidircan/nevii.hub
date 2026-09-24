@@ -6,6 +6,7 @@ import { BackButton } from "@/components/back-button";
 import { AddPaymentForm } from "@/components/add-payment-form";
 import { Card, EmptyState, PageHeader, StatCard } from "@/components/ui";
 import { formatMoney } from "@/lib/utils";
+import { listStudentContractsTool } from "@/lib/services";
 import { computeStudentPaymentSummary, filterPaymentHistory, sortPaymentsForProfile } from "@/lib/payment-profile";
 import { computeStudentMonthlyAmount } from "@/lib/student-payment-profile";
 import { AssistantPageContext } from "@/components/ai/assistant-page-context";
@@ -53,7 +54,9 @@ export default async function StudentPaymentProfilePage({
   }
 
   const payments = sortPaymentsForProfile(data.payments.filter((p) => p.studentId === studentId));
-  const summary = computeStudentPaymentSummary(payments);
+  const contractsResult = await listStudentContractsTool(session, { studentId: studentId });
+  const contracts = contractsResult.ok ? contractsResult.data.contracts : [];
+  const summary = computeStudentPaymentSummary(payments, contracts);
   const hasOpenPayment = summary.openCount > 0;
   const studentPackage = (data.packages ?? []).find((p) => p.id === student.packageId);
   const monthlyAmount = computeStudentMonthlyAmount(
@@ -114,7 +117,7 @@ export default async function StudentPaymentProfilePage({
       />
 
       <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-        <StatCard label="Toplam tahakkuk" value={formatMoney(summary.totalBilled)} accent="primary" />
+        <StatCard label="Geçerli tahakkuk" value={formatMoney(summary.totalBilled)} accent="primary" />
         <StatCard label="Toplam tahsil edilen" value={formatMoney(summary.totalCollected)} accent="success" />
         <StatCard label="Kalan borç" value={formatMoney(summary.remaining)} accent="warning" />
         <StatCard label="Gecikmiş kalan" value={formatMoney(summary.overdueRemaining)} accent="danger" />

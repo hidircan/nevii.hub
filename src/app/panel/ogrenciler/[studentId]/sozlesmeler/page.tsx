@@ -142,9 +142,9 @@ export default async function StudentContractsCenterPage({
       {canManagePaymentProfile ? (
         <Link
           href={`/panel/ogrenciler/${student.id}/bilgiler?duzenle=kayit&sozlesmeDon=1`}
-          className="mb-4 inline-flex items-center text-sm font-medium text-[var(--color-primary)] hover:underline"
+          className="mb-4 inline-flex items-center gap-1 rounded-lg border border-[var(--color-border-strong)] px-3 py-2 text-sm font-medium text-[var(--color-text)] hover:border-[var(--color-primary)]"
         >
-          Tüm öğrenci kaydını düzenle (bu ekrandan çıkar) →
+          ← Öğrenci kaydına geri dön
         </Link>
       ) : null}
 

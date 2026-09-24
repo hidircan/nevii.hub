@@ -11,18 +11,19 @@ import { lessonHardBlockReason, planForcedLessonDeletion } from "../lesson-scope
 import type { AppData, Lesson } from "../types";
 
 describe("A · dashboard resize", () => {
-  it("kenardan sürükleme sonucu 4–12 aralığına oturur", () => {
-    expect(clampDashboardSpan(2.4)).toBe(4);
+  it("kenardan sürükleme sonucu 3–12 aralığına oturur (UAT 2026-09-24: min 3)", () => {
+    expect(clampDashboardSpan(2.4)).toBe(3);
+    expect(clampDashboardSpan(1)).toBe(3);
     expect(clampDashboardSpan(9.6)).toBe(10);
     expect(clampDashboardSpan(40)).toBe(12);
     expect(clampDashboardSpan(Number.NaN)).toBe(12);
   });
   it("yeni ara genişlikler (9–11) kaydedilir ve geri okunur", () => {
-    const patch = sanitizeDashboardLayoutPatch({ sectionSpans: { todaySchedule: 9, collections: 3 } }, "SCHOOL_ADMIN");
+    const patch = sanitizeDashboardLayoutPatch({ sectionSpans: { todaySchedule: 9, collections: 2 } }, "SCHOOL_ADMIN");
     expect("clearLayout" in patch).toBe(false);
     const resolved = resolveDashboardLayout(patch as never, "SCHOOL_ADMIN");
     expect(resolved.spans.todaySchedule).toBe(9);
-    expect(resolved.spans.collections).toBe(5); // geçersiz 3 → varsayılan
+    expect(resolved.spans.collections).toBe(5); // geçersiz 2 → varsayılan
   });
 });
 

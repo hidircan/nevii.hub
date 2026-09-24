@@ -14,7 +14,8 @@
  * eder (bkz. FinanceSummary.expenseDataIncomplete).
  */
 
-import type { AppData } from "./types";
+import type { AppData, ContractStatus } from "./types";
+import { isPlanEligibleContractStatus } from "./attendance-calendar-plan";
 import type { PayrollRecord } from "./types";
 import type { ExpenseRecord, ExpenseCategory, Budget } from "./types";
 
@@ -201,5 +202,40 @@ export function computeFinanceSummary(
     expenseByCategory,
     upcomingExpenseWarnings,
     budgetComparison,
+  };
+}
+
+/**
+ * UAT 2026-09-24 (C) — "Öğrenci başına ortalama ücret".
+ * Pay: seçili ayı kapsayan, ödeme kaynağı olabilen (taslak/iptal/yenilenmiş
+ * DEĞİL) GÜNCEL sözleşmelerin aylık ücreti (`monthlyAmount`). Payda: bu
+ * sözleşmelere sahip tekil öğrenci. Sözleşme toplam bedeli, süre, taksit ve
+ * ders sayısına göre değişen ay tutarı bilinçli olarak KULLANILMAZ — farklı
+ * süreli sözleşmeler ancak aylık birim ücretle karşılaştırılabilir. Öğrenci
+ * başına tek güncel sözleşme (`listContractSummariesByStudent` kuralı) olduğu
+ * için yenilenmiş/iptal sözleşme ikinci kez sayılmaz. Payda 0 → `average: null`.
+ */
+export function computeAverageMonthlyFeePerStudent(input: {
+  contracts: Iterable<{ studentId: string; status: string; enrollmentStartDate: string; enrollmentEndDate: string; monthlyAmount: number }>;
+  students: { id: string; branchId: string; deletedAt?: string }[];
+  month: string; // yyyy-MM
+  branchId?: string;
+}): { average: number | null; studentCount: number; totalMonthly: number } {
+  const studentBranch = new Map(input.students.filter((s) => !s.deletedAt).map((s) => [s.id, s.branchId]));
+  const counted = new Set<string>();
+  let totalMonthly = 0;
+  for (const c of input.contracts) {
+    const branch = studentBranch.get(c.studentId);
+    if (branch === undefined || (input.branchId && branch !== input.branchId)) continue;
+    if (!isPlanEligibleContractStatus(c.status as ContractStatus)) continue;
+    if (c.enrollmentStartDate.slice(0, 7) > input.month || c.enrollmentEndDate.slice(0, 7) < input.month) continue;
+    if (counted.has(c.studentId)) continue;
+    counted.add(c.studentId);
+    totalMonthly += c.monthlyAmount;
+  }
+  return {
+    average: counted.size > 0 ? Math.round(totalMonthly / counted.size) : null,
+    studentCount: counted.size,
+    totalMonthly,
   };
 }

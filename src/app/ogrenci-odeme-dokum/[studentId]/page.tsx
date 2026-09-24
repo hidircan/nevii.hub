@@ -58,8 +58,8 @@ export default async function OgrenciOdemeDokumPage({
   }
 
   const payments = sortPaymentsForProfile(data.payments.filter((p) => p.studentId === studentId));
-  const summary = computeStudentPaymentSummary(payments);
   const contracts = await listContractsForStudent(session.tenantId, studentId);
+  const summary = computeStudentPaymentSummary(payments, contracts);
 
   const receiverNames = await resolveActorLabels({
     tenantId: session.tenantId,

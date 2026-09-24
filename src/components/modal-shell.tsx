@@ -1,11 +1,19 @@
 "use client";
 
 import { useEffect, useId, useRef, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 
 /**
  * Kurumsal diyalog kabuğu — öğrenci silme diyaloğuyla aynı görsel dil
  * (mobilde alttan sayfa, masaüstünde ortalı panel). Escape ve boş alana
  * tıklama `busy` değilken kapatır; açılınca odak panele alınır.
+ *
+ * UAT 2026-09-24 (G) — `document.body`'ye portallanır: sticky/overflow bir
+ * ebeveynin (ör. Ders Programı'ndaki "Seçili ders" paneli) stacking context'i
+ * içinde kalıp takvim çizgilerinin ARKASINA düşmez; görünmeyen diyalog yerine
+ * tıklama alttaki takvim hücresine gidip planlama penceresini açıyordu.
+ * Portal olayları React ağacında yine ebeveynlere kabarcıklandığı için kök
+ * katmanda durdurulur. Kapanınca odak diyaloğu açan öğeye döner.
  */
 export function ModalShell({
   open,
@@ -31,22 +39,30 @@ export function ModalShell({
 
   useEffect(() => {
     if (!open) return;
+    const trigger = document.activeElement as HTMLElement | null;
     ref.current?.focus();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape" && !busy) onClose();
     };
     document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      trigger?.focus?.();
+    };
   }, [open, busy, onClose]);
 
-  if (!open) return null;
+  if (!open || typeof document === "undefined") return null;
   const accent = tone === "danger" ? "var(--color-danger)" : tone === "warning" ? "var(--color-warning)" : "var(--color-primary)";
 
-  return (
+  const stop = (e: { stopPropagation: () => void }) => e.stopPropagation();
+  return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4"
+      className="fixed inset-0 z-[100] flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4"
       role="presentation"
+      onPointerDown={stop}
+      onMouseDown={stop}
       onClick={(e) => {
+        e.stopPropagation();
         if (e.target === e.currentTarget && !busy) onClose();
       }}
     >
@@ -73,7 +89,8 @@ export function ModalShell({
           </div>
         ) : null}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
