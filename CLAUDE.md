@@ -16,6 +16,11 @@ low-token "resume from here" snapshot of current focus and open work) **and
 them). Update `PROJECT_STATE.md`'s "Current focus"/"Open work" at the end of a work session, and
 append to `LESSONS_LEARNED.md` when a real mistake is found and fixed.
 
+**Task router:** `.claude/skills/nevii-hub/SKILL.md` — which topic skill/doc to read, where a change
+belongs, local→test→prod limits, finance single-source rule, validation/deploy order, session-end
+updates. Claude Code lists project skills from `.claude/skills/*/SKILL.md` automatically, but picking
+one is a model judgement, not guaranteed — start a session with `/nevii-hub <istek>` to force it.
+
 ## Commands
 
 ```bash

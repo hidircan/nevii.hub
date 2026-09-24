@@ -1,0 +1,58 @@
+---
+name: nevii-hub
+description: NeviiHub'da her görevin başlangıç yönlendiricisi — "şu hatayı düzelt / şunu ekle / teste al" denince önce bunu kullan. Konuya göre hangi skill/dokümanın okunacağını, değişikliğin hangi katmana yapılacağını, local→test→prod sınırını, finans tek-kaynak kuralını ve doğrulama/teslim sırasını kısaca verir.
+---
+
+# NeviiHub yönlendirici (kısa — ansiklopedi değil)
+
+## 1. Başlarken (sırayla, en fazla bu kadar oku)
+1. `git status --short`, `git branch --show-current`, `git log --oneline -3`, `git log origin/test --oneline -1`.
+   Başkasına ait değişiklik varsa DOKUNMA; başka bir Claude oturumu aynı ağaçta çalışıyor olabilir
+   (ListAgents) → kendi işini ayrı worktree'de yap (`git worktree add ../nevii-hub-<iş> origin/test -b <dal>`,
+   `npm ci`, `npx prisma generate`, `.env*` kopyala).
+2. `docs/agent-memory/PROJECT_STATE.md` (kısa snapshot) → konu `LESSONS_LEARNED.md`'de geçiyorsa ilgili madde.
+   `docs/project-brain/CURRENT_STATE.md` 2026-08-31'de donmuş — güncel durum için kullanma.
+3. Aşağıdaki tablodan TEK konu skill'i. Kod aramasını ekrandan başlayıp veri kaynağına doğru daralt.
+
+| İstek konusu | Skill | İlk bakılacak kod |
+|---|---|---|
+| Sözleşme, taksit, tahsilat, tahakkuk, makbuz, finans özeti | `finance-contracts` | `src/lib/contracts.ts`, `payment-profile.ts`, `attendance-calendar-plan.ts` |
+| Ders programı, yoklama, telafi, takvim | `scheduling-attendance-makeup` | `src/components/program-studio.tsx`, `services/tools.ts` |
+| API/route, Prisma, migration, store parity | `api-data-change` | `src/lib/store*.ts`, `prisma/schema.prisma` |
+| Yetki, PII (TC/IBAN), oturum, tenant | `security-rbac-review` | `src/lib/auth/*`, `src/lib/pii/*` |
+| AI/chat/workflow | `ai-system` | `src/lib/ai/*`, `src/lib/agent/*` |
+| E-posta/SMS/bildirim | `communications-email` | `src/lib/email/*` |
+| Hata düzeltme süreci | `bug-fix` + `testing-regression` | — |
+| Yeni özellik süreci | `feature-delivery` | — |
+| Deploy/env/cron/Vercel | `production-readiness` | `vercel.json`, `docs/operations/*` |
+| Oturum sonu | `session-handoff` | — |
+
+## 2. Değişiklik nereye yapılır
+UI (`src/app/panel/*`, `src/components/*`) → server action (`src/lib/actions.ts`) → **tool** (`src/lib/services/tools.ts`, RBAC + `ServiceResult`) → store (`src/lib/store.ts` → json/db/memory) → Prisma.
+- İş kuralı tool'da veya saf `src/lib/*.ts` yardımcıda; sayfada/komponentte hesap kopyalama.
+- Birden çok ekranın okuduğu değeri ortak fonksiyonda düzelt (tüm çağıranları `grep` et), tek ekranı yamalama.
+- Kullanıcıya görünen her hata: nedeni + nasıl düzeltileceğini söyleyen Türkçe cümle.
+
+## 3. Finans/sözleşme tek kaynak
+- Ödenecek tutar = sözleşmenin dondurulmuş taksit `Payment` satırları (`contractId`, `installmentSequence`). Takvim/ekran kendi tutarını türetmez, ayrıca saklamaz.
+- Güncel sözleşme tek kural: `selectCurrentContract` (iptal/`superseded` asla güncel değil).
+- İptal/yenilenmiş sözleşmenin satırları SİLİNMEZ/yeniden yazılmaz; gerçekleşmiş tahsilat her zaman görünür.
+- "Ödenmesi gereken" ile "tahsil edilen" ayrı alan ve ayrı başlık.
+
+## 4. Ortam sınırı
+- local (`STORE_MODE=json` testler) → `test` dalı → Vercel test → `test.neviihub.com` → production (yalnız owner kararıyla).
+- `.env` production'ı gösterebilir: DB komutu çalıştırmadan önce hedefi kanıtla. Migration gerekmiyorsa DB komutu yok.
+  Gerekiyorsa: `prisma validate` → `generate` → `migrate status` → owner'ın açık onayıyla ve test hedefi kanıtlanmışsa `migrate deploy`.
+- Test/prod DB'de gerçek öğrenci/sözleşme/ödeme verisini silme veya yeniden üretme. Sır/DB URL/şifreyi dosyaya yazma.
+
+## 5. Doğrulama ve teslim sırası
+1. Kök nedeni kanıtla (kod yolu + gerekirse yeniden üreten test). Yalnız UI metniyle veri hatası örtme.
+2. Hedef testler (`npx vitest run <dosya>`), sonra kapı: `npm run typecheck` → `npm run lint` → `npm test` (SON değişiklikten sonra) → `npx prisma validate` → `npm run build`.
+   Tam paket kırmızıysa kaç test/neden yaz; "hepsi geçti" deme.
+3. Commit: yalnız kapsamdaki dosyalar; `Co-authored-by` + `Signed-off-by` (git config kullanıcısı). `apps/mobile/*`, `docs/notion-export/*`, `pazarlama/*` gibi ilgisiz dosyaları stage etme.
+4. `origin/test`'e push (önce `git fetch` + güncel test üstüne rebase) → Vercel deployment READY → `test.neviihub.com` yanıt veriyor mu kontrol et.
+   Tarayıcıda giriş yapıp tıklamadıysan "testte hazır" deme; owner'a UAT adımlarını ver.
+
+## 6. Oturum sonu (kısa tut)
+- `PROJECT_STATE.md`: yalnız "Güncel snapshot" bölümünü ÜZERİNE yaz (commit, ortam, açık iş, riskler — ~40 satır). Ayrıntı → `docs/testing/UAT_*.md` / `docs/operations/*`; eski snapshot → `docs/agent-memory/archive/`.
+- `LESSONS_LEARNED.md`: yalnız bu oturumda KANITLANIP düzeltilen yeni hata için 3–5 satır; var olan maddeyi tekrar etme.

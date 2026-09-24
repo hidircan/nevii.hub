@@ -1136,3 +1136,25 @@ salt-okunur olur ve "varsayılan" asla sessizce kalıcı veri olarak yazılmaz.
 `auth.success` her kimlik doğrulamalı istekte AuditLog'a yazılıyor; ekran bunları filtrelemediği için iş kayıtları
 kayboluyordu. **Ders:** telemetri ile iş denetimi aynı tabloda tutuluyorsa okuma yüzeyi telemetriyi varsayılan dışlar
 (`excludeActions`), saklama politikası ayrı sınıflandırır.
+
+## 2026-09-24 — İptal/yenilenmiş sözleşmenin taksitleri özet toplamına girmeye devam ediyordu
+
+Sözleşme iptali/yenilemesi eski taksit `Payment` satırlarını (doğru olarak) silmiyor; ama `computeStudentPaymentSummary`
+sözleşmeye bakmadan hepsini topluyordu → "Toplam tahakkuk" eski + yeni sözleşme. **Ders:** tarihsel satırı koruyan her
+yapıda, okuyan toplam da sözleşme durumunu bilmeli: terminal sözleşmeden yalnız gerçekleşen tahsilat sayılır.
+
+## 2026-09-24 — Taksit ayını vade tarihinden türetmek: birleşik ilk tahsilat ikinci ayda "plan yok"
+
+"Eylül + Ekim" birleşik ilk tahsilat tek satır, vadesi kayıt günü; takvim satırı vade ayına eşlediği için Ekim boş
+görünüyordu. **Ders:** vade (ne zaman ödenir) ≠ dönem (neyin karşılığı). Ay eşlemesi dönem etiketi/kırılımından yapılır.
+
+## 2026-09-24 — Sticky panel içindeki modal takvimin arkasında kaldı, tıklama alttaki hücreye gitti
+
+`position: sticky` stacking context açar; içindeki `fixed z-50` diyalog kardeş katmanların altında boyandı ve "Vazgeç"
+tıklaması görünmeyen takvim hücresine düşüp planlayıcıyı açtı. **Ders:** ortak modal kabuğu her zaman `document.body`'ye
+portallanır ve kök katmanda olay yayılımını durdurur (portal olayları React ağacında ebeveynlere kabarcıklanır).
+
+## 2026-09-24 — `.gitignore` tüm `.claude/`'u dışlıyordu: proje skill'leri worktree'lerde görünmüyordu
+
+Skill'ler yalnız ana checkout'ta vardı; ayrı worktree/başka makine/web oturumu hiçbirini görmüyordu. **Ders:**
+`.claude/skills/` izlenir (`.claude/*` + `!.claude/skills/`), yerel ayar/worktree dizinleri hariç kalır.
