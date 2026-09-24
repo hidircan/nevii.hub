@@ -35,8 +35,9 @@ const IMPACT: Record<BulkAction, { effect: string; undo: string; danger?: boolea
     undo: "Geri alınabilir: aynı işlemle eski şubeyi seçin. Her öğrencinin değişiklik geçmişine yazılır.",
   },
   teacher: {
-    effect: "Öğrenci kartındaki öğretmen değişir. Planlanmış dersler mevcut öğretmende kalır; dersleri Ders Programı'ndan devredin.",
-    undo: "Geri alınabilir. Öğretmeni öğrencinin enstrümanını öğretmiyorsa o öğrenci atlanır.",
+    effect:
+      "Öğrenci kartındaki öğretmen değişir. Aşağıdaki kutucuğu işaretlerseniz gelecekteki planlı dersler de yeni öğretmene devredilir; işaretlemezseniz dersler mevcut öğretmende kalır.",
+    undo: "Geri alınabilir: aynı işlemle eski öğretmeni seçin (dersleri geri devretmek için kutucuğu yine işaretleyin). Yeni öğretmen öğrencinin enstrümanını öğretmiyorsa o öğrenci atlanır.",
   },
   instrument: {
     effect: "Öğrencinin enstrümanı seçilenle değiştirilir. Mevcut öğretmeni bu enstrümanı öğretmiyorsa öğrenci atlanır.",
@@ -81,9 +82,15 @@ export function StudentsBulkBar({
   const [target, setTarget] = useState("");
   const [reason, setReason] = useState("");
   const [password, setPassword] = useState("");
+  const [transferLessons, setTransferLessons] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<{ updated: number; skipped: { name: string; message: string }[] } | null>(null);
+  const [result, setResult] = useState<{
+    updated: number;
+    skipped: { name: string; message: string }[];
+    lessonsTransferred?: number;
+    lessonIssues?: { name: string; message: string }[];
+  } | null>(null);
 
   if (selected.length === 0 && !result) return null;
 
@@ -95,6 +102,7 @@ export function StudentsBulkBar({
     setTarget("");
     setReason("");
     setPassword("");
+    setTransferLessons(false);
     setError(null);
     setResult(null);
   }
@@ -121,6 +129,7 @@ export function StudentsBulkBar({
       studentIds: selected.map((s) => s.id),
       branchId: action === "branch" ? target : undefined,
       teacherId: action === "teacher" ? target : undefined,
+      transferLessons: action === "teacher" ? transferLessons : undefined,
       instrument: action === "instrument" ? target : undefined,
       packageId: action === "package" ? target : undefined,
       criticalPassword: action === "soft_delete" ? password : undefined,
@@ -133,7 +142,12 @@ export function StudentsBulkBar({
       return;
     }
     setAction(null);
-    setResult({ updated: res.data.updated.length, skipped: res.data.skipped.map((x) => ({ name: x.name, message: x.message })) });
+    setResult({
+      updated: res.data.updated.length,
+      skipped: res.data.skipped.map((x) => ({ name: x.name, message: x.message })),
+      lessonsTransferred: res.data.lessonsTransferred,
+      lessonIssues: res.data.lessonIssues?.map((x) => ({ name: x.name, message: x.message })),
+    });
     onClear();
     router.refresh();
   }
@@ -153,6 +167,18 @@ export function StudentsBulkBar({
             <p className="mr-auto text-xs text-[var(--color-text)]">
               <strong>{result.updated}</strong> öğrenci güncellendi
               {result.skipped.length > 0 ? `, ${result.skipped.length} öğrenci atlandı:` : "."}
+              {result.lessonsTransferred !== undefined ? (
+                <span className="mt-1 block text-[var(--color-text)]">
+                  {result.lessonsTransferred} planlı ders yeni öğretmene devredildi
+                  {result.lessonIssues && result.lessonIssues.length > 0 ? "; devredilemeyenler:" : "."}
+                  {result.lessonIssues && result.lessonIssues.length > 0 ? (
+                    <span className="block text-[var(--color-warning)]">
+                      {result.lessonIssues.slice(0, 5).map((x) => `${x.name} — ${x.message}`).join(" · ")}
+                      {result.lessonIssues.length > 5 ? ` · +${result.lessonIssues.length - 5} diğer` : ""}
+                    </span>
+                  ) : null}
+                </span>
+              ) : null}
               {result.skipped.length > 0 ? (
                 <span className="mt-1 block text-[var(--color-text-muted)]">
                   {result.skipped.slice(0, 5).map((x) => `${x.name} — ${x.message}`).join(" · ")}
@@ -245,7 +271,26 @@ export function StudentsBulkBar({
                 onChange={setTarget}
                 options={options.teachers.map((t) => ({ value: t.id, label: `${t.name} (${t.instruments.join(", ")})` }))}
               />
-            ) : action === "instrument" ? (
+            ) : null}
+            {action === "teacher" ? (
+              <label className="flex items-start gap-2 rounded-md border border-[var(--color-border)] p-2.5 text-xs text-[var(--color-text)]">
+                <input
+                  type="checkbox"
+                  checked={transferLessons}
+                  onChange={(e) => setTransferLessons(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 accent-[var(--color-primary)]"
+                />
+                <span>
+                  <span className="font-semibold">Planlı (gelecek) dersleri de yeni öğretmene devret</span>
+                  <span className="mt-0.5 block text-[var(--color-text-muted)]">
+                    Seçilen öğrencilerin eski öğretmendeki gelecek dersleri — seriler dahil — yeni öğretmene taşınır. Yeni
+                    öğretmenin o saatte başka dersi veya müsaitlik sorunu varsa o ders(ler) taşınmaz ve sonuçta nedeniyle
+                    listelenir. Geçmiş, yoklaması girilmiş dersler değişmez. Öğretmen ve öğrenci bilgilendirilir.
+                  </span>
+                </span>
+              </label>
+            ) : null}
+            {action === "instrument" ? (
               <TargetSelect label="Yeni enstrüman" value={target} onChange={setTarget} options={options.instruments.map((i) => ({ value: i, label: i }))} />
             ) : action === "package" ? (
               <TargetSelect label="Yeni paket" value={target} onChange={setTarget} options={options.packages.map((p) => ({ value: p.id, label: p.title }))} />

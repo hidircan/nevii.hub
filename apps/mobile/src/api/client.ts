@@ -71,10 +71,12 @@ async function parseApiResponse<T>(res: Response, url: string): Promise<ApiResul
  * refresh ile yeniden canlanmaz.
  */
 let sessionEpoch = 0;
-let onSessionExpired: (() => void) | null = null;
+/** "taken_over": oturum başka cihazdan devralındı (tek aktif oturum kuralı) — kullanıcıya açıkça söylenir. */
+export type SessionEndReason = "expired" | "taken_over";
+let onSessionExpired: ((reason: SessionEndReason) => void) | null = null;
 
 /** Refresh başarısız olduğunda (süresi dolmuş/iptal edilmiş oturum) çağrılır; AuthProvider kaydeder. */
-export function setSessionExpiredHandler(fn: () => void): () => void {
+export function setSessionExpiredHandler(fn: (reason: SessionEndReason) => void): () => void {
   onSessionExpired = fn;
   return () => {
     if (onSessionExpired === fn) onSessionExpired = null;
@@ -115,10 +117,26 @@ async function authorizedFetch(path: string, init: RequestInit = {}, retry = tru
 
   if (res.status === 401 && retry && !NO_REFRESH_PATH.test(path)) {
     if (await refreshAccessToken()) return authorizedFetch(path, init, false);
+    const reason = await resolveSessionEndReason();
     await endLocalSession();
-    onSessionExpired?.();
+    onSessionExpired?.(reason);
   }
   return res;
+}
+
+/** Refresh reddedildiğinde nedenini sorar (token'lar henüz silinmeden); belirsizse "expired". */
+async function resolveSessionEndReason(): Promise<SessionEndReason> {
+  const refreshToken = await getRefreshToken();
+  if (!refreshToken) return "expired";
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/v1/auth/session-status`, {
+      headers: { Authorization: `Bearer ${refreshToken}` },
+    });
+    const json = (await res.json()) as { data?: { state?: string } };
+    return json.data?.state === "taken_over" ? "taken_over" : "expired";
+  } catch {
+    return "expired";
+  }
 }
 
 async function refreshAccessToken(): Promise<boolean> {

@@ -53,18 +53,35 @@ describe("mobil API istemcisi — oturum ve refresh", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it("refresh başarısız → token'lar silinir, oturum-bitti handler'ı bir kez çağrılır, tekrar istek yok", async () => {
+  it("refresh başarısız → nedeni sorulur, token'lar silinir, oturum-bitti handler'ı bir kez 'expired' ile çağrılır", async () => {
     const expired = vi.fn();
     const off = client.setSessionExpiredHandler(expired);
-    fetchMock.mockResolvedValueOnce(unauthorized()).mockResolvedValueOnce(json(401, { ok: false }));
+    fetchMock
+      .mockResolvedValueOnce(unauthorized())
+      .mockResolvedValueOnce(json(401, { ok: false }))
+      .mockResolvedValueOnce(json(200, { ok: true, data: { state: "ended" } }));
     const res = await client.apiGet("/api/v1/makeup");
     off();
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(String(fetchMock.mock.calls[1]![0])).toContain("/api/v1/auth/refresh");
+    expect(String(fetchMock.mock.calls[2]![0])).toContain("/api/v1/auth/session-status");
     expect(store.access).toBeNull();
     expect(store.refresh).toBeNull();
     expect(expired).toHaveBeenCalledTimes(1);
+    expect(expired).toHaveBeenCalledWith("expired");
     expect(res.ok).toBe(false);
+  });
+
+  it("oturum başka cihazdan devralındıysa handler 'taken_over' ile çağrılır", async () => {
+    const ended = vi.fn();
+    const off = client.setSessionExpiredHandler(ended);
+    fetchMock
+      .mockResolvedValueOnce(unauthorized())
+      .mockResolvedValueOnce(json(401, { ok: false }))
+      .mockResolvedValueOnce(json(200, { ok: true, data: { state: "taken_over", at: "2026-09-24T10:00:00Z" } }));
+    await client.apiGet("/api/v1/makeup");
+    off();
+    expect(ended).toHaveBeenCalledWith("taken_over");
   });
 
   it("refresh başarılı → istek bir kez tekrarlanır", async () => {

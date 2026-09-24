@@ -628,6 +628,27 @@ describe("log retention — kritik audit asla silinmez", () => {
       else process.env.RETENTION_CRON_SECRET = prev;
     }
   });
+
+  it("Vercel Cron: GET + CRON_SECRET kabul edilir, ?apply=1 gerçek temizlik; secret yoksa 503", async () => {
+    const { GET } = await import("../../app/api/v1/platform/jobs/retention/route");
+    const prevR = process.env.RETENTION_CRON_SECRET;
+    const prevC = process.env.CRON_SECRET;
+    delete process.env.RETENTION_CRON_SECRET;
+    delete process.env.CRON_SECRET;
+    expect((await GET(req("/api/v1/platform/jobs/retention?apply=1", "x"))).status).toBe(503);
+    process.env.CRON_SECRET = "vercel-cron-secret-123";
+    try {
+      expect((await GET(req("/api/v1/platform/jobs/retention?apply=1", "yanlis"))).status).toBe(401);
+      const res = await GET(req("/api/v1/platform/jobs/retention?apply=1", "vercel-cron-secret-123"));
+      expect(res.status).toBe(200);
+      expect((await res.json()).data.dryRun).toBe(false);
+    } finally {
+      if (prevR === undefined) delete process.env.RETENTION_CRON_SECRET;
+      else process.env.RETENTION_CRON_SECRET = prevR;
+      if (prevC === undefined) delete process.env.CRON_SECRET;
+      else process.env.CRON_SECRET = prevC;
+    }
+  });
 });
 
 // ───────────────────── Marka / logo + migration ─────────────────────

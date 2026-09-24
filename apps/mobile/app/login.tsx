@@ -1,13 +1,13 @@
 import { useState } from "react";
 import { Redirect, useRouter } from "expo-router";
-import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { Alert, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "../src/auth/auth-context";
 import { Button, Icon, TextField } from "../src/components/ui";
 import { useTheme } from "../src/theme/theme-context";
 
 export default function LoginScreen() {
-  const { status, login } = useAuth();
+  const { status, login, notice } = useAuth();
   const t = useTheme();
   const router = useRouter();
   const [email, setEmail] = useState("");
@@ -18,12 +18,25 @@ export default function LoginScreen() {
 
   if (status === "signedIn") return <Redirect href="/" />;
 
-  async function onSubmit() {
+  async function submit(takeover: boolean) {
     setBusy(true);
     setError(null);
-    const res = await login(email.trim(), password);
+    const res = await login(email.trim(), password, takeover);
     setBusy(false);
-    if (!res.ok) setError(res.message);
+    if (res.ok) return;
+    if (res.takeoverRequired) {
+      // Tek aktif oturum: web ile aynı onay — vazgeçilirse diğer cihaz etkilenmez.
+      Alert.alert("Bu hesap başka bir cihazda açık", res.message, [
+        { text: "Vazgeç", style: "cancel" },
+        { text: "Devam et ve diğer oturumu kapat", style: "destructive", onPress: () => void submit(true) },
+      ]);
+      return;
+    }
+    setError(res.message);
+  }
+
+  function onSubmit() {
+    void submit(false);
   }
 
   return (
@@ -78,6 +91,13 @@ export default function LoginScreen() {
             >
               <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>Şifremi unuttum</Text>
             </Pressable>
+
+            {notice && !error ? (
+              <View style={[styles.errorBox, { backgroundColor: t.colors.primarySoft }]}>
+                <Icon name="information-circle" size={16} color={t.colors.primary} />
+                <Text style={[t.typography.caption, { color: t.colors.text, flex: 1 }]}>{notice}</Text>
+              </View>
+            ) : null}
 
             {error ? (
               <View style={[styles.errorBox, { backgroundColor: t.colors.dangerSoft }]}>

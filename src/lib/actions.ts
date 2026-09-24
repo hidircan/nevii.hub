@@ -3590,6 +3590,7 @@ export async function actionBulkStudentAction(input: {
   studentIds: string[];
   branchId?: string;
   teacherId?: string;
+  transferLessons?: boolean;
   instrument?: string;
   packageId?: string;
   criticalPassword?: string;

@@ -230,3 +230,41 @@ describe("changeLessonTeacherOrBranchTool — RBAC", () => {
     if (!res.ok) expect(res.error.code).toBe("FORBIDDEN");
   });
 });
+
+describe("toplu öğretmen değişikliği — planlı dersleri devret (2026-09-24)", () => {
+  it("kutucuk işaretliyse öğrencinin gelecekteki seri dersleri yeni öğretmene taşınır; işaretsizse dersler yerinde kalır", async () => {
+    const { bulkStudentActionTool } = await import("../services/tools");
+    const series = await createTestSeries();
+    const altTeacherId = await findAlternatePianoTeacher("t1");
+    const before = await readData();
+    expect(before.students.find((s) => s.id === "s1")!.teacherId).toBe("t1");
+
+    // İşaretsiz: öğrenci kartı değişir, dersler t1'de kalır.
+    const noTransfer = await bulkStudentActionTool(ctx(), { action: "teacher", studentIds: ["s1"], teacherId: altTeacherId });
+    expect(noTransfer.ok).toBe(true);
+    let data = await readData();
+    expect(data.students.find((s) => s.id === "s1")!.teacherId).toBe(altTeacherId);
+    expect(data.lessons.filter((l) => l.seriesId === series.seriesId).every((l) => l.teacherId === "t1")).toBe(true);
+
+    // Geri al + bu kez devret: t1'e dönüp tekrar alternatif öğretmene, derslerle birlikte.
+    await bulkStudentActionTool(ctx(), { action: "teacher", studentIds: ["s1"], teacherId: "t1" });
+    const res = await bulkStudentActionTool(ctx(), {
+      action: "teacher",
+      studentIds: ["s1"],
+      teacherId: altTeacherId,
+      transferLessons: true,
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.lessonIssues).toEqual([]);
+    data = await readData();
+    const seriesLessons = data.lessons.filter((l) => l.seriesId === series.seriesId);
+    expect(seriesLessons.every((l) => l.teacherId === altTeacherId)).toBe(true);
+    // Seri dışı gelecek planlı dersler de dahil: öğrencinin eski öğretmende gelecek dersi kalmaz.
+    const futureLeft = data.lessons.filter(
+      (l) => l.studentId === "s1" && l.status === "scheduled" && l.teacherId === "t1" && new Date(l.startAt) > new Date()
+    );
+    expect(futureLeft).toEqual([]);
+    expect(res.data.lessonsTransferred).toBeGreaterThanOrEqual(seriesLessons.length);
+  });
+});

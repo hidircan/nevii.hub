@@ -44,6 +44,11 @@ Her adımda beklenen sonuç ✅ ile yazılıdır.
 1. Öğrenciler listesinde satır kutucuklarıyla 3 öğrenci seçin. ✅ Altta yapışkan çubuk "3 öğrenci seçildi". Başlık kutucuğu sayfadakilerin tümünü seçer; "Listedeki N öğrencinin tümünü seç" bağlantısı filtre sonucunun tamamını seçer.
 2. **Şube** → hedef şube → etki özeti + geri alınabilirlik + etkilenecek isimler → Uygula. ✅ "3 öğrenci güncellendi"; zaten o şubede olanlar gerekçesiyle "atlandı".
 3. **Öğretmen**: enstrümanını öğretmeyen öğretmene atama → ✅ ilgili öğrenci atlanır, sebebi yazılır.
+3a. **Öğretmen** diyaloğunda "Planlı (gelecek) dersleri de yeni öğretmene devret" kutucuğu:
+    - İşaretsiz → ✅ yalnız öğrenci kartı değişir; Ders Programı'nda gelecek dersler eski öğretmende.
+    - İşaretli → ✅ sonuçta "N planlı ders yeni öğretmene devredildi"; Ders Programı'nda gelecek dersler (seriler dahil)
+      yeni öğretmende; geçmiş/yoklamalı dersler değişmez; öğretmenlere bildirim gider.
+    - Yeni öğretmenin o saatte başka dersi varsa → ✅ o ders(ler) taşınmaz, "devredilemeyenler: … tarih … neden" listelenir.
 4. **Enstrüman**, **Paket** (ders süresi olmayan öğrenci atlanır ve sebebi yazılır). ✅
 5. **Pasife al** → Arşiv görünümünden seçip **Aktifleştir**. ✅
 6. **Silinenlere taşı** → gerekçe + kritik şifre zorunlu. ✅ Silinen öğrenciler görünümünde seçip **Geri al**.
@@ -102,3 +107,17 @@ Madde 2.6 ve 8.6. ✅ Kullanıcı dostu cümle, zilde ve Bildirimler ekranında 
 5. Tarayıcı A (en geç ~30 sn içinde veya sekmeye dönüldüğünde): ✅ "Oturumunuz başka bir cihazda açıldı" diyaloğu → **Giriş ekranına git** → login ekranında sarı bilgi bandı.
 6. Denetim Kaydı: ✅ "Ezgi Güçlü, başka cihazdaki oturumunu kapatıp yeni cihazdan giriş yaptı."
 7. A'yı 30 dk'dan uzun süre kapalı bırakıp B'den giriş: ✅ soru sorulmadan girer (eski oturum sessizce kapatılır).
+
+## 15. Mobil — tek oturum (N, 24.09 eki)
+Yeni mobil sürüm (EAS build) gerekir; eski sürümde onay sorulmadan eski oturum kapanır.
+1. Web'de Ezgi ile açık oturum varken mobil uygulamada aynı hesapla giriş. ✅ Yerel uyarı: "Bu hesap başka bir cihazda açık — Bu
+   kullanıcı şu anda başka bir cihazda aktif. Devam ederseniz mevcut oturum kapatılacaktır." **Vazgeç** / **Devam et ve diğer oturumu kapat**.
+2. Devam → ✅ mobil girer; web ~30 sn içinde "Oturumunuz başka bir cihazda açıldı" diyaloğunu gösterir.
+3. Tersini yapın: mobil açıkken web'den devralın. Mobilde bir ekrana dokunun / yenileyin. ✅ Giriş ekranı, üstte bilgi kutusu:
+   "Oturumunuz başka bir cihazda açıldığı için kapatıldı…".
+
+## 16. Log saklama cron'u (L, 24.09 eki)
+Vercel Cron yalnız **production** deployment'ında çalışır (test ortamında tetiklenmez).
+Production'a çıkıldıktan sonra: Vercel → Project → Settings → Cron Jobs'ta `/api/v1/platform/jobs/retention?apply=1` günlük
+00:30 UTC (03:30 TR) görünür. İlk çalışmadan sonra NeviiOS → Log saklama raporunda temizlik kaydı (silinen telemetri sayısı) görünür;
+iş kayıtları (öğrenci/ödeme/hakediş/silme) asla silinmez.

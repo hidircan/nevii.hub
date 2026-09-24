@@ -40,6 +40,9 @@ screens (login/welcome).
   Saklama = mevcut NeviiOS retention (iş kayıtları kalıcı, telemetri 30 g); **production cron kurulmadı** (açık karar).
 - **Tek oturum:** `session-concurrency.ts`, login 409 `SESSION_ACTIVE_ELSEWHERE`, `/api/v1/auth/session-status`, `SessionWatcher`.
 - UAT: `docs/testing/UAT_2026_09_23_OPS_ROUND_4.md`.
+- **24.09 eki:** Vercel Cron (`vercel.json`, günlük 00:30 UTC → retention GET, `CRON_SECRET` production'a eklendi);
+  mobil girişte devralma onayı (`Alert`) + devralınan cihaza bilgi; toplu öğretmen değişikliğinde "planlı dersleri devret"
+  (`transferFutureLessonsToTeacher` → `changeLessonTeacherOrBranchTool`). Mobil için yeni EAS build gerekir.
 
 ---
 

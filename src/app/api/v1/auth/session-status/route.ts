@@ -12,8 +12,11 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(request: Request) {
   const cookieHeader = request.headers.get("cookie");
-  const access = parseCookieHeader(cookieHeader, ACCESS_COOKIE);
-  const refresh = parseCookieHeader(cookieHeader, REFRESH_COOKIE);
+  // Mobil çerez kullanmaz: `Authorization: Bearer <erişim veya yenileme token'ı>` da kabul edilir.
+  const auth = request.headers.get("authorization") ?? "";
+  const bearer = auth.toLowerCase().startsWith("bearer ") ? auth.slice(7).trim() : null;
+  const access = parseCookieHeader(cookieHeader, ACCESS_COOKIE) ?? bearer;
+  const refresh = parseCookieHeader(cookieHeader, REFRESH_COOKIE) ?? bearer;
   let claims: { sub: string; sid?: string } | null = null;
   for (const [token, verify] of [
     [access, verifyAccessToken],

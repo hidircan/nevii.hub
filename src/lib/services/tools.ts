@@ -9656,7 +9656,13 @@ export async function restoreDeletedStudentTool(
 
 const bulkStudentActionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("branch"), studentIds: z.array(z.string().min(1)).min(1).max(500), branchId: z.string().min(1) }),
-  z.object({ action: z.literal("teacher"), studentIds: z.array(z.string().min(1)).min(1).max(500), teacherId: z.string().min(1) }),
+  z.object({
+    action: z.literal("teacher"),
+    studentIds: z.array(z.string().min(1)).min(1).max(500),
+    teacherId: z.string().min(1),
+    /** true: öğrencinin gelecekteki planlı dersleri de yeni öğretmene devredilir (çakışma kontrolüyle). */
+    transferLessons: z.boolean().optional(),
+  }),
   z.object({ action: z.literal("instrument"), studentIds: z.array(z.string().min(1)).min(1).max(500), instrument: z.string().min(1).max(80) }),
   z.object({ action: z.literal("package"), studentIds: z.array(z.string().min(1)).min(1).max(500), packageId: z.string().min(1) }),
   z.object({ action: z.literal("deactivate"), studentIds: z.array(z.string().min(1)).min(1).max(500) }),
@@ -9674,6 +9680,9 @@ export type BulkStudentActionResult = {
   bulkId: string;
   updated: string[];
   skipped: { studentId: string; name: string; message: string }[];
+  /** Öğretmen değişikliğinde "planlı dersleri de devret" seçildiyse. */
+  lessonsTransferred?: number;
+  lessonIssues?: { studentId: string; name: string; message: string }[];
 };
 
 const BULK_ACTION_LABELS: Record<string, string> = {
@@ -9748,6 +9757,8 @@ export async function bulkStudentActionTool(
 
   const updated: string[] = [];
   const skipped: BulkStudentActionResult["skipped"] = [];
+  let lessonsTransferred = 0;
+  const lessonIssues: NonNullable<BulkStudentActionResult["lessonIssues"]> = [];
   const now = new Date().toISOString();
   for (const student of targets as Student[]) {
     const skip = (message: string) => skipped.push({ studentId: student.id, name: student.name, message });
@@ -9807,6 +9818,11 @@ export async function bulkStudentActionTool(
       }
       if (patch) await updateStudentProfile(student.id, patch);
       updated.push(student.id);
+      if (req.action === "teacher" && req.transferLessons) {
+        const moved = await transferFutureLessonsToTeacher(ctx, data, student, req.teacherId);
+        lessonsTransferred += moved.count;
+        for (const message of moved.issues) lessonIssues.push({ studentId: student.id, name: student.name, message });
+      }
       await recordAuditLog({
         tenantId: ctx.tenantId,
         actorUserId: ctx.userId,
@@ -9843,9 +9859,65 @@ export async function bulkStudentActionTool(
       requested: ids.length,
       updated: updated.length,
       skipped: skipped.length,
+      ...(req.action === "teacher" && req.transferLessons ? { lessonsTransferred, lessonIssues: lessonIssues.length } : {}),
     },
   });
-  return ok({ bulkId, updated, skipped });
+  return ok({
+    bulkId,
+    updated,
+    skipped,
+    ...(req.action === "teacher" && req.transferLessons ? { lessonsTransferred, lessonIssues } : {}),
+  });
+}
+
+/**
+ * Toplu öğretmen değişikliğinde öğrencinin GELECEKTEKİ planlı derslerini yeni öğretmene devreder.
+ * Tekil devirle aynı yol (changeLessonTeacherOrBranchTool): çakışma/müsaitlik kontrolü, audit,
+ * ilgili kişilere bildirim. Seri dersler "bu ders ve sonrası" kapsamıyla tek seferde, serisiz
+ * dersler tek tek taşınır. Çakışan grup taşınmaz ve nedeni raporlanır; öğrenci kartı yine değişir.
+ * Yalnız öğrencinin eski öğretmenindeki ve yeni öğretmenin verdiği enstrümandaki dersler taşınır.
+ */
+async function transferFutureLessonsToTeacher(
+  ctx: ServiceContext,
+  data: AppData,
+  student: Student,
+  newTeacherId: string
+): Promise<{ count: number; issues: string[] }> {
+  const newTeacher = data.teachers.find((t) => t.id === newTeacherId);
+  const nowMs = Date.now();
+  const future = data.lessons
+    .filter(
+      (l) =>
+        l.studentId === student.id &&
+        l.status === "scheduled" &&
+        l.teacherId === student.teacherId &&
+        l.teacherId !== newTeacherId &&
+        new Date(l.startAt).getTime() > nowMs &&
+        (!newTeacher || newTeacher.instruments.includes(l.instrument))
+    )
+    .sort((a, b) => a.startAt.localeCompare(b.startAt));
+  const groups: { lessonId: string; scope: "single" | "fromHereOnward"; size: number; startAt: string }[] = [];
+  const seenSeries = new Set<string>();
+  for (const l of future) {
+    if (l.seriesId) {
+      if (seenSeries.has(l.seriesId)) continue;
+      seenSeries.add(l.seriesId);
+      groups.push({ lessonId: l.id, scope: "fromHereOnward", size: future.filter((x) => x.seriesId === l.seriesId).length, startAt: l.startAt });
+    } else {
+      groups.push({ lessonId: l.id, scope: "single", size: 1, startAt: l.startAt });
+    }
+  }
+  let count = 0;
+  const issues: string[] = [];
+  for (const g of groups) {
+    const res = await changeLessonTeacherOrBranchTool(ctx, { lessonId: g.lessonId, scope: g.scope, newTeacherId });
+    if (res.ok) count += res.data.affectedLessonIds.length;
+    else
+      issues.push(
+        `${formatDate(g.startAt)} ${formatTime(g.startAt)}${g.size > 1 ? ` itibarıyla ${g.size} ders` : " dersi"} devredilemedi: ${res.error.message}`
+      );
+  }
+  return { count, issues };
 }
 
 /** Kurum sahibi — kritik işlem şifresini belirler/değiştirir. Değiştirmede mevcut şifre zorunlu. */
