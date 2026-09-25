@@ -6,7 +6,8 @@ import { SectionEditCard } from "@/components/section-edit-card";
 import { StudentPaymentProfileEditor } from "@/components/student-payment-profile-editor";
 import { StudentLessonPauseControl } from "@/components/student-lesson-pause-control";
 import { listStudentContractsTool } from "@/lib/services";
-import { computeStudentPaymentSummary, sortPaymentsForProfile } from "@/lib/payment-profile";
+import { isTerminalContractStatus } from "@/lib/contract-list-helpers";
+import { splitStudentDebt, computeStudentPaymentSummary, sortPaymentsForProfile } from "@/lib/payment-profile";
 import { computeStudentMonthlyAmount } from "@/lib/student-payment-profile";
 import { effectivePaymentDueRanges, formatPaymentDueRanges } from "@/lib/payment-due-ranges";
 import { formatDate, formatMoney } from "@/lib/utils";
@@ -25,6 +26,10 @@ export default async function StudentPaymentsTab({ params }: { params: Promise<{
   const contractsResult = await listStudentContractsTool(session, { studentId: student.id });
   const contracts = contractsResult.ok ? contractsResult.data.contracts : [];
   const paymentSummary = computeStudentPaymentSummary(payments, contracts);
+  const debt = splitStudentDebt(
+    payments,
+    new Set(contracts.filter((c) => isTerminalContractStatus(c.status)).map((c) => c.id))
+  );
   const packages = data.packages ?? [];
   const studentPackage = packages.find((p) => p.id === student.packageId);
   const monthlyAmount = computeStudentMonthlyAmount(
@@ -126,18 +131,34 @@ export default async function StudentPaymentsTab({ params }: { params: Promise<{
         />
       </section>
 
-      <section>
-        <h2 className="mb-3 text-sm font-semibold text-[var(--color-text)]">Ödeme Geçmişi</h2>
-        {payments.length === 0 ? (
-          <EmptyState title="Ödeme kaydı yok" />
+      {/* UAT 2026-09-25 — "Ödeme Geçmişi" aslında kalan tutarları gösteriyordu; artık açık bir Borç görünümü:
+          canlı borç (isLiveObligation) + gerçekleşmiş hareketler + kapanmış sözleşme satırları (silinmez). */}
+      <section aria-labelledby="borc-baslik">
+        <h2 id="borc-baslik" className="mb-3 text-sm font-semibold text-[var(--color-text)]">Borç</h2>
+        <div className="mb-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
+          <MiniStat label="Güncel borç" value={formatMoney(debt.openTotal)} />
+          <MiniStat
+            label="Vadesi geçmiş"
+            value={formatMoney(debt.overdueTotal)}
+            tone={debt.overdueTotal > 0 ? "danger" : undefined}
+          />
+          <MiniStat label="Açık kayıt" value={String(debt.open.length)} />
+        </div>
+
+        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">Açık borçlar</h3>
+        {debt.open.length === 0 ? (
+          <EmptyState title="Açık borç yok" description="Bu öğrencinin ödenmemiş geçerli bir borç kaydı yok." />
         ) : (
           <div className="space-y-2">
-            {payments.map((p) => (
+            {debt.open.map((p) => (
               <Card key={p.id} className="!p-3">
-                <div className="flex items-center justify-between gap-2 text-sm">
+                <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
                   <div>
-                    <p className="font-medium text-[var(--color-text)]">{p.description}</p>
-                    <p className="text-xs text-[var(--color-text-muted)]">Vade: {formatDate(p.dueDate)}</p>
+                    <p className="font-medium text-[var(--color-text)]">{p.installmentPeriodLabel ?? p.description}</p>
+                    <p className="text-xs text-[var(--color-text-muted)]">
+                      Vade: {formatDate(p.dueDate)} · Tutar {formatMoney(p.amount)}
+                      {p.paidAmount > 0 ? ` · Ödenen ${formatMoney(p.paidAmount)}` : ""}
+                    </p>
                     {p.lessonId ? (
                       <Link
                         href={`/panel/ogrenciler/${student.id}/program`}
@@ -148,7 +169,7 @@ export default async function StudentPaymentsTab({ params }: { params: Promise<{
                     ) : null}
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="font-medium">{formatMoney(p.amount - p.paidAmount)}</span>
+                    <span className="font-semibold">Kalan {formatMoney(Math.max(p.amount - p.paidAmount, 0))}</span>
                     <Badge status={p.status} />
                   </div>
                 </div>
@@ -156,6 +177,38 @@ export default async function StudentPaymentsTab({ params }: { params: Promise<{
             ))}
           </div>
         )}
+
+        <h3 className="mb-2 mt-4 text-xs font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">Ödeme hareketleri</h3>
+        {debt.movements.length === 0 ? (
+          <p className="text-xs text-[var(--color-text-muted)]">Henüz tahsilat yapılmamış.</p>
+        ) : (
+          <ul className="divide-y divide-[var(--color-border)] rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] text-sm">
+            {debt.movements.map((p) => (
+              <li key={p.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
+                <span className="text-[var(--color-text)]">{p.installmentPeriodLabel ?? p.description}</span>
+                <span className="text-xs text-[var(--color-text-muted)]">
+                  {p.paidAt ? formatDate(p.paidAt) : "Tarih yok"} ·{" "}
+                  <span className="font-medium text-[var(--color-success)]">{formatMoney(p.paidAmount)}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {debt.closedByContract.length > 0 ? (
+          <details className="mt-4">
+            <summary className="cursor-pointer text-xs font-semibold text-[var(--color-text-muted)]">
+              İptal / yenilenmiş sözleşmenin tahsil edilmemiş taksitleri ({debt.closedByContract.length}) — borç sayılmaz
+            </summary>
+            <ul className="mt-2 space-y-1 text-xs text-[var(--color-text-muted)]">
+              {debt.closedByContract.map((p) => (
+                <li key={p.id}>
+                  {p.installmentPeriodLabel ?? p.description} · vade {formatDate(p.dueDate)} · {formatMoney(p.amount - p.paidAmount)}
+                </li>
+              ))}
+            </ul>
+          </details>
+        ) : null}
       </section>
 
       {canManage ? (

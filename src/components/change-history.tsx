@@ -32,8 +32,14 @@ export async function ChangeHistory({
   const names = await resolveActorLabels({ tenantId, userIds: logs.map((l) => l.actorUserId), teachers });
 
   return (
-    <section aria-label={title}>
-      <h2 className="mb-2 text-sm font-semibold text-[var(--color-text)]">{title}</h2>
+    // UAT 2026-09-25 — varsayılan KAPALI; <details> klavye (Enter/Space) ve dokunmatikte yerel çalışır.
+    <details className="group rounded-[var(--radius-md)]" aria-label={title}>
+      <summary className="flex cursor-pointer list-none items-center gap-2 rounded-[var(--radius-md)] py-1 text-sm font-semibold text-[var(--color-text)] focus-visible:outline-2 focus-visible:outline-[var(--color-primary)] [&::-webkit-details-marker]:hidden">
+        <span aria-hidden className="inline-block transition-transform group-open:rotate-90">▸</span>
+        {title}
+        <span className="text-xs font-normal text-[var(--color-text-muted)]">({logs.length}{logs.length === limit ? "+" : ""} kayıt)</span>
+      </summary>
+      <div className="mt-2">
       {logs.length === 0 ? (
         <p className="rounded-[var(--radius-md)] border border-dashed border-[var(--color-border)] px-3 py-3 text-xs text-[var(--color-text-muted)]">
           Henüz kayıtlı değişiklik yok. Bu özellik açılmadan önceki düzenlemeler burada görünmez.
@@ -78,6 +84,7 @@ export async function ChangeHistory({
           })}
         </ol>
       )}
-    </section>
+      </div>
+    </details>
   );
 }

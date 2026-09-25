@@ -1,3 +1,4 @@
+import { listTerminalContractIdsForScope } from "@/lib/contracts";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { AlertTriangle, ArrowRight, CircleDollarSign, Target, TrendingUp } from "lucide-react";
@@ -48,7 +49,8 @@ export default async function TahsilatAgentPage({
     ? data.students.find((s) => s.id === studentFilter)
     : undefined;
 
-  const rows = buildTahsilatQueue(data, followUpCases, new Date(), studentFilter);
+  const terminalContractIds = await listTerminalContractIdsForScope(kurum.scope);
+  const rows = buildTahsilatQueue(data, followUpCases, new Date(), studentFilter, terminalContractIds);
   const overdueCount = rows.filter((r) => r.paymentStatus === "overdue").length;
   const trackedOutstanding = rows.reduce((sum, r) => sum + r.remaining, 0);
   const successRateLabel = roi.successRate === null ? "—" : `%${Math.round(roi.successRate * 100)}`;

@@ -5,7 +5,7 @@ import { listAllDocumentTemplatesTool, listDocumentInstancesTool } from "@/lib/s
 import { documentKindLabel } from "@/lib/documents";
 import { findContractIdsByDocumentInstanceIds } from "@/lib/contracts";
 import { Card, EmptyState, PageHeader } from "@/components/ui";
-import { DocumentsTable, type DocumentRow } from "@/components/documents-table";
+import { DocumentsTable, type DocumentPersonOption, type DocumentRow } from "@/components/documents-table";
 import { DocumentTemplateManager } from "@/components/document-template-manager";
 import { ContractTemplateDiagnosticsPanel } from "@/components/contract-template-diagnostics";
 import { DocumentDirectUploadForm } from "@/components/document-direct-upload-form";
@@ -47,7 +47,18 @@ export default async function DocumentsCenterPage({
   ]);
   const allTemplates = allTemplatesResult.ok ? allTemplatesResult.data.templates : [];
   const documents = documentsResult.ok ? documentsResult.data.documents : [];
+  // Yükleme formu yalnız aktif öğrenciye yeni evrak ekler; filtre ise aktif + pasif tüm öğrencileri kapsar.
   const students = data.students.filter((s) => s.active).map((s) => ({ id: s.id, name: s.name }));
+  const people: DocumentPersonOption[] = [
+    ...data.students
+      .filter((s) => !s.deletedAt)
+      .sort((a, b) => a.name.localeCompare(b.name, "tr"))
+      .map((s) => ({ id: s.id, name: s.name, kind: "student" as const, inactive: s.active === false })),
+    ...data.teachers
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name, "tr"))
+      .map((t) => ({ id: t.id, name: t.name, kind: "teacher" as const })),
+  ];
   const teachers = data.teachers.filter((t) => t.active).map((t) => ({ id: t.id, name: t.name }));
 
   // Belge → sözleşme eşlemesi TEK sorguyla (satır başına arama YOK).
@@ -71,6 +82,7 @@ export default async function DocumentsCenterPage({
       createdAt: d.createdAt,
       updatedAt: d.updatedAt,
       contractId: contractIdByDocument[d.id],
+      studentActive: relatedStudent ? relatedStudent.active !== false : undefined,
     };
   });
 
@@ -98,13 +110,13 @@ export default async function DocumentsCenterPage({
         </p>
       </div>
 
-      {documents.length === 0 ? (
+      {documents.length === 0 && !studentId && !teacherId ? (
         <EmptyState
           title="Henüz evrak yok"
           description="Aşağıdaki “Dosya Yükle” bölümünden ilk belgenizi ekleyin veya bir öğrenciye sözleşme oluşturun."
         />
       ) : (
-        <DocumentsTable rows={rows} students={students} activeStudentId={studentId} />
+        <DocumentsTable rows={rows} people={people} activeStudentId={studentId} activeTeacherId={teacherId} />
       )}
 
       <Card className="mt-6">

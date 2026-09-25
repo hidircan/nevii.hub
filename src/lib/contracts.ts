@@ -1273,6 +1273,32 @@ export async function findContractIdByDocumentInstanceId(
   return map[documentInstanceId] ?? null;
 }
 
+/**
+ * UAT 2026-09-25 — tenant'ın iptal/yenilenmiş sözleşme kimlikleri (tek sorgu). Borç/gecikme/hatırlatma
+ * hesapları bununla `isLiveObligation` (payment-profile.ts) kuralını uygular.
+ */
+export async function listTerminalContractIds(tenantId: string): Promise<Set<string>> {
+  if (isDbMode) {
+    const { prisma } = await import("./db");
+    const rows = await prisma.studentContract.findMany({
+      where: { tenantId, status: { in: ["cancelled", "superseded"] } },
+      select: { id: true },
+    });
+    return new Set(rows.map((r) => r.id));
+  }
+  const all = await loadAll();
+  return new Set(all.filter((x) => x.tenantId === tenantId && (x.status === "cancelled" || x.status === "superseded")).map((x) => x.id));
+}
+
+/** Kurum kapsamındaki (tek veya birleşik görünüm) tenant'ların terminal sözleşme kimlikleri. */
+export async function listTerminalContractIdsForScope(
+  scope: { mode: "single"; tenantId: string } | { mode: "all"; tenantIds: string[] }
+): Promise<Set<string>> {
+  const ids = scope.mode === "single" ? [scope.tenantId] : scope.tenantIds;
+  const sets = await Promise.all(ids.map((t) => listTerminalContractIds(t)));
+  return new Set(sets.flatMap((s) => [...s]));
+}
+
 export async function listContractsForStudent(tenantId: string, studentId: string): Promise<StudentContract[]> {
   if (isDbMode) {
     const { prisma } = await import("./db");

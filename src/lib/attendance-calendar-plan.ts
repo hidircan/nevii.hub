@@ -188,7 +188,8 @@ export function resolveContractPlanForMonth(input: {
       state: "no_installment_for_month",
       contractId: contract.id,
       contractNumber: contract.contractNumber,
-      message: "Bu ay için aktif ödeme planı bulunmuyor.",
+      // Plan VAR, yalnız bu aya taksit düşmüyor — "plan yok" demek gerçeği gizler.
+      message: `${contract.contractNumber} numaralı sözleşmede bu aya düşen taksit yok. Taksit planını Sözleşme Merkezi'nde kontrol edin.`,
     };
   }
 

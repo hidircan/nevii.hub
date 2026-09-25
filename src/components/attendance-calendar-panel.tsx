@@ -527,7 +527,7 @@ export function AttendanceCalendarPanel({
       amount = plan.remaining > 0 ? plan.remaining : plan.amount;
     } else {
       setError(
-        plan?.state === "multiple_active_contracts"
+        plan?.state === "multiple_active_contracts" || plan?.state === "no_installment_for_month"
           ? plan.message
           : "Bu ay için aktif ödeme planı bulunmuyor — tahsil edilecek tutarı elle girin."
       );

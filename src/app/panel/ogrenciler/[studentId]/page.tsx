@@ -5,8 +5,8 @@ import { Badge, Card, EmptyState } from "@/components/ui";
 import { RegistrationSuccessPanel } from "@/components/registration-success-panel";
 import { listStudentContractsTool } from "@/lib/services";
 import { contractStatusLabel } from "@/lib/contracts";
-import { selectCurrentContract } from "@/lib/contract-list-helpers";
-import { computeStudentPaymentSummary, sortPaymentsForProfile } from "@/lib/payment-profile";
+import { isTerminalContractStatus, selectCurrentContract } from "@/lib/contract-list-helpers";
+import { computeStudentPaymentSummary, sortPaymentsForProfile, splitStudentDebt } from "@/lib/payment-profile";
 import { resolveLessonFinalStatus } from "@/lib/lesson-live-status";
 import { formatDate, formatDateTime, formatMoney, formatTime } from "@/lib/utils";
 import { loadStudentPageContext } from "./_context";
@@ -66,10 +66,17 @@ export default async function StudentOverviewTab({
   /** Aksiyon gerektiren başlıklar — "sadece bilgi" olanlardan AYRI tutulur. */
   const alerts: { key: string; label: string; href: string; tone: "danger" | "warning" }[] = [];
   if (paymentSummary.overdueRemaining > 0) {
+    // Tutar ve dönemler AYNI kanonik kuraldan (isLiveObligation): iptal/yenilenmiş sözleşme taksiti girmez.
+    const overduePeriods = splitStudentDebt(
+      payments,
+      new Set(contracts.filter((c) => isTerminalContractStatus(c.status)).map((c) => c.id))
+    )
+      .open.filter((p) => p.status === "overdue")
+      .map((p) => p.installmentPeriodLabel ?? formatDate(p.dueDate));
     alerts.push({
       key: "overdue",
-      label: `Gecikmiş tahsilat: ${formatMoney(paymentSummary.overdueRemaining)}`,
-      href: `/panel/ogrenciler/${student.id}/odemeler`,
+      label: `Gecikmiş tahsilat: ${formatMoney(paymentSummary.overdueRemaining)} (${overduePeriods.slice(0, 3).join(", ")}${overduePeriods.length > 3 ? ` +${overduePeriods.length - 3}` : ""})`,
+      href: `/panel/ogrenciler/${student.id}/odemeler#borc-baslik`,
       tone: "danger",
     });
   }

@@ -1,3 +1,4 @@
+import { isLiveObligation } from "@/lib/payment-profile";
 import { canRunCriticalActions } from "@/lib/critical-action-password";
 import Link from "next/link";
 import { redirect } from "next/navigation";
@@ -8,7 +9,7 @@ import { requireSessionContext } from "@/lib/auth/session";
 import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { effectiveStudentTypes } from "@/lib/student-types";
-import { listContractSummariesByStudent, type StudentContractSummary } from "@/lib/contracts";
+import { listContractSummariesByStudent, type StudentContractSummary, listTerminalContractIdsForScope } from "@/lib/contracts";
 import { AssistantPageContext } from "@/components/ai/assistant-page-context";
 import { resolveActorLabels } from "@/lib/contract-payment-plan-view";
 import { resolveActiveInstrumentNames } from "@/lib/instrument-catalog";
@@ -49,6 +50,7 @@ export default async function OgrencilerPage({
   const activeInstruments =
     kurum.scope.mode === "single" ? await resolveActiveInstrumentNames(kurum.scope.tenantId) : [];
 
+  const terminalContractIds = await listTerminalContractIdsForScope(kurum.scope);
   const contractSummaries =
     kurum.scope.mode === "single"
       ? await listContractSummariesByStudent(kurum.scope.tenantId)
@@ -63,7 +65,10 @@ export default async function OgrencilerPage({
 
   const rows: StudentRow[] = students.map((s) => {
     const contract = contractSummaries.get(s.id);
-    const studentPayments = data.payments.filter((p) => p.studentId === s.id);
+    // İptal/yenilenmiş sözleşmenin ödenmemiş taksiti öğrenciyi "gecikmiş" göstermez.
+    const studentPayments = data.payments.filter(
+      (p) => p.studentId === s.id && (p.status === "paid" || p.status === "voided" || isLiveObligation(p, terminalContractIds))
+    );
     const paymentStatus: StudentRow["paymentStatus"] =
       studentPayments.length === 0
         ? "none"

@@ -543,33 +543,7 @@ function mapSchoolToAppData(school: PrismaSchoolWithRelations): AppData {
       slaDeadline: request.slaDeadline?.toISOString() ?? undefined,
       slaEscalationLevel: request.slaEscalationLevel,
     })),
-    payments: school.payments.map((payment) => ({
-      id: payment.id,
-      studentId: payment.studentId,
-      amount: payment.amount,
-      paidAmount: payment.paidAmount,
-      status: payment.status as import("./types").PaymentStatus,
-      dueDate: payment.dueDate.toISOString(),
-      paidAt: payment.paidAt?.toISOString() ?? undefined,
-      description: payment.description,
-      method: payment.method ?? undefined,
-      lessonId: payment.lessonId ?? undefined,
-      source: (payment.source as import("./types").PaymentSource | undefined) ?? "manual",
-      createdAt: (payment as { createdAt?: Date }).createdAt?.toISOString() ?? undefined,
-      paymentNote: payment.paymentNote ?? undefined,
-      receivedByUserId: payment.receivedByUserId ?? undefined,
-      autoSuggestedAmount: payment.autoSuggestedAmount ?? undefined,
-      firstCollectionIncludesNextMonth: payment.firstCollectionIncludesNextMonth ?? undefined,
-      adjustmentReason: payment.adjustmentReason ?? undefined,
-      adjustedBy: payment.adjustedBy ?? undefined,
-      adjustedAt: payment.adjustedAt?.toISOString() ?? undefined,
-      installmentKind: (payment.installmentKind as import("./types").ContractInstallmentKind | undefined) ?? undefined,
-      installmentPeriodLabel: payment.installmentPeriodLabel ?? undefined,
-      installmentBreakdown:
-        (payment.installmentBreakdown as { periodLabel: string; amount: number }[] | undefined) ?? undefined,
-      installmentComputationSource: (payment.installmentComputationSource as "auto" | "manual" | undefined) ?? undefined,
-      installmentNote: payment.installmentNote ?? undefined,
-    })),
+    payments: school.payments.map(mapDbPayment),
     teacherFeeRules: school.teacherFeeRules.map((rule) => ({
       id: rule.id,
       teacherId: rule.teacherId,
@@ -1006,6 +980,44 @@ async function readDiscountCampaigns(tid: string): Promise<AppData["discountCamp
  * `readData()` neredeyse her sayfa render'ında ve her tool çağrısında
  * çalıştığı için bu tasarruf tüm panelde geçerlidir.
  */
+/**
+ * Prisma `Payment` satırı → `AppData.payments` öğesi. JSON/memory store'ların taşıdığı TÜM alanlar
+ * burada da olmalı (mode parity) — bkz. `payment-db-mapping.test.ts`.
+ */
+export function mapDbPayment(payment: Prisma.PaymentGetPayload<object>): import("./types").Payment {
+  return {
+    id: payment.id,
+    studentId: payment.studentId,
+    amount: payment.amount,
+    paidAmount: payment.paidAmount,
+    status: payment.status as import("./types").PaymentStatus,
+    dueDate: payment.dueDate.toISOString(),
+    paidAt: payment.paidAt?.toISOString() ?? undefined,
+    description: payment.description,
+    method: payment.method ?? undefined,
+    lessonId: payment.lessonId ?? undefined,
+    source: (payment.source as import("./types").PaymentSource | undefined) ?? "manual",
+    createdAt: (payment as { createdAt?: Date }).createdAt?.toISOString() ?? undefined,
+    paymentNote: payment.paymentNote ?? undefined,
+    receivedByUserId: payment.receivedByUserId ?? undefined,
+    // UAT 2026-09-25 — bu iki alan eksikti: db modunda hiçbir ödeme sözleşmeye bağlı görünmüyor,
+    // yoklama takvimi her ay "aktif ödeme planı yok" diyor, takvim tahsilatı ayrı satır açıyordu.
+    contractId: payment.contractId ?? undefined,
+    installmentSequence: payment.installmentSequence ?? undefined,
+    autoSuggestedAmount: payment.autoSuggestedAmount ?? undefined,
+    firstCollectionIncludesNextMonth: payment.firstCollectionIncludesNextMonth ?? undefined,
+    adjustmentReason: payment.adjustmentReason ?? undefined,
+    adjustedBy: payment.adjustedBy ?? undefined,
+    adjustedAt: payment.adjustedAt?.toISOString() ?? undefined,
+    installmentKind: (payment.installmentKind as import("./types").ContractInstallmentKind | undefined) ?? undefined,
+    installmentPeriodLabel: payment.installmentPeriodLabel ?? undefined,
+    installmentBreakdown:
+      (payment.installmentBreakdown as { periodLabel: string; amount: number }[] | undefined) ?? undefined,
+    installmentComputationSource: (payment.installmentComputationSource as "auto" | "manual" | undefined) ?? undefined,
+    installmentNote: payment.installmentNote ?? undefined,
+  };
+}
+
 export async function readData(): Promise<AppData> {
   const tid = tenantId();
   const [school, packages, discountCampaigns] = await Promise.all([

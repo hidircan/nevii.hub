@@ -7132,6 +7132,9 @@ export async function scanOverduePaymentsTool(
     const settings = data.settings.collectionsSettings ?? DEFAULT_COLLECTIONS_SETTINGS;
     const existingCases = await listFollowUpCases(ctx.tenantId);
     const now = new Date();
+    const { listTerminalContractIds } = await import("../contracts");
+    const { isLiveObligation } = await import("../payment-profile");
+    const terminalContractIds = await listTerminalContractIds(ctx.tenantId);
 
     let scanned = 0;
     let casesUpserted = 0;
@@ -7139,6 +7142,8 @@ export async function scanOverduePaymentsTool(
 
     for (const payment of data.payments) {
       if (payment.status !== "overdue") continue;
+      // UAT 2026-09-25 — iptal/yenilenmiş sözleşmenin tahsil edilmemiş taksiti için hatırlatma üretilmez.
+      if (!isLiveObligation(payment, terminalContractIds)) continue;
       scanned++;
 
       const student = data.students.find((s) => s.id === payment.studentId);
@@ -9489,7 +9494,8 @@ async function computeStudentDeletionImpact(tenantId: string, studentId: string)
   const { listDocumentsForStudent } = await import("../documents");
   const { getCriticalActionPasswordStatus } = await import("../critical-action-password");
   const { selectCurrentContract } = await import("../contract-list-helpers");
-  const { isOutstandingPaymentStatus } = await import("../utils");
+  const { isLiveObligation } = await import("../payment-profile");
+  const { isTerminalContractStatus } = await import("../contract-list-helpers");
   const [contracts, documents, pw] = await Promise.all([
     listContractsForStudent(tenantId, studentId),
     listDocumentsForStudent(tenantId, studentId),
@@ -9517,7 +9523,7 @@ async function computeStudentDeletionImpact(tenantId: string, studentId: string)
     hasCurrentContract: selectCurrentContract(contracts) !== null,
     paymentCount: payments.length,
     outstandingAmount: payments
-      .filter((p) => isOutstandingPaymentStatus(p.status))
+      .filter((p) => isLiveObligation(p, new Set(contracts.filter((c) => isTerminalContractStatus(c.status)).map((c) => c.id))))
       .reduce((sum, p) => sum + Math.max(0, p.amount - p.paidAmount), 0),
     collectedAmount: payments.reduce((sum, p) => sum + (p.status === "voided" ? 0 : p.paidAmount), 0),
     lessonCount: lessons.length,
@@ -12774,6 +12780,15 @@ export async function collectAttendanceCalendarPaymentTool(
       return fail(
         "VALIDATION_ERROR",
         "Bu ayda birden fazla sözleşme taksiti var; tahsilatı Ödemeler ekranından ilgili taksit üzerinde yapın."
+      );
+    }
+
+    if (plan.state === "no_installment_for_month") {
+      // UAT 2026-09-25 — öğrencinin bu ayı kapsayan sözleşmesi var ama bu aya düşen taksiti yok:
+      // serbest "aylık plan" satırı açmak sözleşmenin yanında İKİNCİ bir ödeme planı üretir.
+      return fail(
+        "VALIDATION_ERROR",
+        `${plan.contractNumber} numaralı sözleşmenin bu aya ait taksiti yok. Tahsilatı Ödemeler ekranında sözleşmenin ilgili taksiti üzerinden yapın; taksit planı yanlışsa Sözleşme Merkezi'nden düzeltin.`
       );
     }
 

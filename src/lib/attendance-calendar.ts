@@ -364,3 +364,18 @@ export function attendanceCalendarTermMonths(term: StudentTermType, anchorYear: 
   for (let m = 1; m <= 6; m++) months.push({ year: anchorYear + 1, month: m });
   return months;
 }
+
+/**
+ * UAT 2026-09-25 — Yoklama Takvimi öğrenci seçicisi yalnız AKTİF (silinmemiş) öğrencileri önerir.
+ * Pasif öğrencinin kayıtları silinmez: `?studentId=` ile doğrudan açılırsa takvimi görünür ve
+ * seçicide "(pasif)" etiketiyle tek istisna olarak listelenir (yeni seçim için önerilmez).
+ */
+export function attendancePickerStudents<T extends { id: string; name: string; active?: boolean; deletedAt?: string }>(
+  students: T[],
+  selectedId: string | null
+): { student: T; inactive: boolean }[] {
+  return [...students]
+    .filter((s) => !s.deletedAt && (s.active !== false || s.id === selectedId))
+    .sort((a, b) => a.name.localeCompare(b.name, "tr"))
+    .map((s) => ({ student: s, inactive: s.active === false }));
+}

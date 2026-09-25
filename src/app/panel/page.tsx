@@ -19,7 +19,7 @@ import { AssistantPageContext } from "@/components/ai/assistant-page-context";
 import { requireSessionContext } from "@/lib/auth/session";
 import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
 import { getUserPreferences } from "@/lib/user-preferences";
-import { listContractSummariesByStudent } from "@/lib/contracts";
+import { listContractSummariesByStudent, listTerminalContractIdsForScope } from "@/lib/contracts";
 import { listTasks } from "@/lib/tasks";
 import { buildDashboardSummary, type DashboardAction } from "@/lib/dashboard/daily-summary";
 import {
@@ -94,14 +94,21 @@ export default async function DashboardPage({
 
   // Sözleşme özetleri ve görevler TEK sorguda; merged "tüm kurumlar"
   // görünümünde sözleşme okuması tek tenant'a bağlı olduğu için atlanır.
-  const [contractsByStudent, tasks] = await Promise.all([
+  const [contractsByStudent, tasks, terminalContractIds] = await Promise.all([
     kurum.scope.mode === "single"
       ? listContractSummariesByStudent(kurum.scope.tenantId)
       : Promise.resolve(new Map()),
     kurum.scope.mode === "single" ? listTasks(kurum.scope.tenantId) : Promise.resolve([]),
+    listTerminalContractIdsForScope(kurum.scope),
   ]);
 
-  const summary = buildDashboardSummary(data, { branchId: activeBranchId, today }, contractsByStudent, tasks);
+  const summary = buildDashboardSummary(
+    data,
+    { branchId: activeBranchId, today },
+    contractsByStudent,
+    tasks,
+    terminalContractIds
+  );
   const setupProgress = computeSetupProgress(data);
 
   // Rol sınırı — sidebar'daki "Finans Özeti"/"Personel" ile AYNI: yalnız kurum sahibi.

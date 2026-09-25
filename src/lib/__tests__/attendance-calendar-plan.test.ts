@@ -97,7 +97,8 @@ describe("Senaryo 4 — plan satırı olmayan ay", () => {
     });
     expect(plan.state).toBe("no_installment_for_month");
     if (plan.state !== "no_installment_for_month") return;
-    expect(plan.message).toBe("Bu ay için aktif ödeme planı bulunmuyor.");
+    // UAT 2026-09-25: plan VAR — "aktif plan yok" denmez, sözleşme adı verilir.
+    expect(plan.message).toBe("2026-2027-0001 numaralı sözleşmede bu aya düşen taksit yok. Taksit planını Sözleşme Merkezi'nde kontrol edin.");
   });
 
   it("hiç aktif sözleşme yoksa AÇIK durum döner — uydurma/sıfır tutar YOK", () => {

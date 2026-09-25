@@ -3,7 +3,9 @@ import { redirect } from "next/navigation";
 import { ArrowRight } from "lucide-react";
 import { AddPaymentForm } from "@/components/add-payment-form";
 import { PageHeader, StatCard } from "@/components/ui";
-import { formatMoney, isOutstandingPaymentStatus } from "@/lib/utils";
+import { formatMoney } from "@/lib/utils";
+import { isLiveObligation } from "@/lib/payment-profile";
+import { listTerminalContractIdsForScope } from "@/lib/contracts";
 import { PaymentsTable, type PaymentRow } from "@/components/payments-table";
 import { requireSessionContext } from "@/lib/auth/session";
 import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
@@ -25,10 +27,12 @@ export default async function OdemelerPage() {
   const payments = [...data.payments].sort((a, b) => a.dueDate.localeCompare(b.dueDate));
 
   const collected = payments.filter((p) => p.status === "paid").reduce((s, p) => s + p.paidAmount, 0);
+  // İptal/yenilenmiş sözleşmenin ödenmemiş taksiti listede kalır ama borç/gecikme sayılmaz.
+  const terminalContractIds = await listTerminalContractIdsForScope(kurum.scope);
   const outstanding = payments
-    .filter((p) => isOutstandingPaymentStatus(p.status))
+    .filter((p) => isLiveObligation(p, terminalContractIds))
     .reduce((s, p) => s + (p.amount - p.paidAmount), 0);
-  const overdue = payments.filter((p) => p.status === "overdue").length;
+  const overdue = payments.filter((p) => p.status === "overdue" && isLiveObligation(p, terminalContractIds)).length;
 
   const receiverNames = await resolveActorLabels({
     tenantId: session.tenantId,

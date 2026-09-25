@@ -81,3 +81,44 @@ export function sortPaymentsForProfile(payments: Payment[]): Payment[] {
 export function filterPaymentHistory(payments: Payment[]): Payment[] {
   return payments.filter((p) => p.status !== "pending" && p.status !== "overdue");
 }
+
+/**
+ * UAT 2026-09-25 — TEK "canlı borç" kuralı. İptal edilmiş / yenilemeyle yerini bırakmış sözleşmenin
+ * taksit satırları silinmez (muhasebe geçmişi) ama ödenmemiş kısmı artık kimseye borç değildir:
+ * gecikmiş tutar, Günlük Özet, tahsilat kuyruğu ve otomatik hatırlatma bu satırları saymaz.
+ */
+export function isLiveObligation(
+  p: Pick<Payment, "status" | "contractId">,
+  terminalContractIds: ReadonlySet<string>
+): boolean {
+  if (p.status === "paid" || p.status === "voided") return false;
+  return !(p.contractId && terminalContractIds.has(p.contractId));
+}
+
+export type StudentDebtView = {
+  /** Açık (vadesi gelmemiş veya gecikmiş) canlı borç satırları — en eski vade önce. */
+  open: Payment[];
+  openTotal: number;
+  overdueTotal: number;
+  /** Fiilen tahsil edilmiş hareketler (kısmi dahil; eski sözleşmeninkiler de) — en yeni önce. */
+  movements: Payment[];
+  /** İptal/yenilenmiş sözleşmenin ödenmemiş kalan satırları — gösterilir ama borç sayılmaz. */
+  closedByContract: Payment[];
+};
+
+export function splitStudentDebt(payments: Payment[], terminalContractIds: ReadonlySet<string>): StudentDebtView {
+  const live = payments.filter((p) => isLiveObligation(p, terminalContractIds));
+  const open = [...live].sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+  const due = (p: Payment) => Math.max(p.amount - p.paidAmount, 0);
+  return {
+    open,
+    openTotal: open.reduce((s, p) => s + due(p), 0),
+    overdueTotal: open.filter((p) => p.status === "overdue").reduce((s, p) => s + due(p), 0),
+    movements: payments
+      .filter((p) => p.status !== "voided" && p.paidAmount > 0)
+      .sort((a, b) => (b.paidAt ?? b.dueDate).localeCompare(a.paidAt ?? a.dueDate)),
+    closedByContract: payments.filter(
+      (p) => p.status !== "paid" && p.status !== "voided" && !!p.contractId && terminalContractIds.has(p.contractId)
+    ),
+  };
+}

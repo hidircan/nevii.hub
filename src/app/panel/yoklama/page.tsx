@@ -6,7 +6,7 @@ import { AssistantPageContext } from "@/components/ai/assistant-page-context";
 import { PageHeader, EmptyState } from "@/components/ui";
 import { AttendanceCalendarPanel } from "@/components/attendance-calendar-panel";
 import { StudentAttendancePicker } from "@/components/student-attendance-picker";
-import { resolveAttendanceCalendarStudentId } from "@/lib/attendance-calendar";
+import { attendancePickerStudents, resolveAttendanceCalendarStudentId } from "@/lib/attendance-calendar";
 
 export const dynamic = "force-dynamic";
 
@@ -42,13 +42,11 @@ export default async function YoklamaPage({
   const studentId = resolveAttendanceCalendarStudentId(requestedStudentId, scopedStudentIds);
   const student = studentId ? data.students.find((s) => s.id === studentId) ?? null : null;
 
-  const studentOptions = [...data.students]
-    .sort((a, b) => a.name.localeCompare(b.name, "tr"))
-    .map((s) => ({
-      id: s.id,
-      name: s.name,
-      branchName: data.settings.branches.find((b) => b.id === s.branchId)?.shortName,
-    }));
+  const studentOptions = attendancePickerStudents(data.students, studentId).map(({ student: s, inactive }) => ({
+    id: s.id,
+    name: inactive ? `${s.name} (pasif)` : s.name,
+    branchName: data.settings.branches.find((b) => b.id === s.branchId)?.shortName,
+  }));
 
   // "Tüm kurumlar" birleşik görünümde hiçbir yazma yapılamaz (bkz. CLAUDE.md
   // Multi-tenancy notu) — bu yalnızca UI'daki ikinci savunma, asıl engel

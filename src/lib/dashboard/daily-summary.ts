@@ -20,7 +20,7 @@
  */
 
 import type { AppData, Lesson, Payment, Student, Task } from "../types";
-import { isOutstandingPaymentStatus } from "../utils";
+import { isLiveObligation } from "../payment-profile";
 import { resolveLessonFinalStatus } from "../lesson-live-status";
 import { DEFAULT_APP_TIMEZONE, toZonedYmd } from "../timezone";
 
@@ -140,7 +140,9 @@ export function buildDashboardSummary(
   scope: DashboardScope,
   /** Öğrenci başına GÜNCEL sözleşme özeti (bkz. contracts.ts listContractSummariesByStudent). */
   contractsByStudent: Map<string, ContractSummaryInput>,
-  tasks: Task[] = []
+  tasks: Task[] = [],
+  /** İptal/yenilenmiş sözleşme kimlikleri — ödenmemiş taksitleri borç/gecikme sayılmaz. */
+  terminalContractIds: ReadonlySet<string> = new Set()
 ): DashboardSummary {
   const { branchId, today } = scope;
   const inBranch = <T extends { branchId?: string }>(row: T): boolean =>
@@ -194,17 +196,17 @@ export function buildDashboardSummary(
         todayLessonCount: lessonsToday.filter((l) => l.branchId === b.id).length,
         activeStudentCount: branchStudents.length,
         outstandingAmount: branchPayments
-          .filter((p) => isOutstandingPaymentStatus(p.status))
+          .filter((p) => isLiveObligation(p, terminalContractIds))
           .reduce((sum, p) => sum + remainingOf(p), 0),
         overdueAmount: branchPayments
-          .filter((p) => p.status === "overdue")
+          .filter((p) => p.status === "overdue" && isLiveObligation(p, terminalContractIds))
           .reduce((sum, p) => sum + remainingOf(p), 0),
       };
     })
     .sort((a, b) => b.todayLessonCount - a.todayLessonCount);
 
   // ---- Tahsilat ----------------------------------------------------------
-  const outstanding = payments.filter((p) => isOutstandingPaymentStatus(p.status));
+  const outstanding = payments.filter((p) => isLiveObligation(p, terminalContractIds));
   const toDueRow = (p: Payment): DueRow => ({
     paymentId: p.id,
     studentId: p.studentId,

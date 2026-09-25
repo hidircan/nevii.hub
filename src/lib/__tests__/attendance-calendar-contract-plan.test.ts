@@ -167,6 +167,19 @@ describe("Senaryo 4 — plan satırı olmayan ay", () => {
     // Sözleşme 2026-09-01 → 2026-12-01; taksitler Eylül/Ekim/Kasım.
     const plan = await calendarPlan(2026, 12);
     expect(plan.state).toBe("no_installment_for_month");
+    if (plan.state !== "no_installment_for_month") return;
+    expect(plan.message).toContain("bu aya düşen taksit yok");
+  });
+
+  it("UAT 2026-09-25 — sözleşmeli öğrencide taksitsiz aya takvimden tahsilat İKİNCİ plan satırı açmaz", async () => {
+    const created = await createContractFor(5950);
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    const res = await collectAttendanceCalendarPaymentTool(adminCtx(), { studentId: "s1", month: "2026-12", amount: 5950, method: "cash" });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error.message).toContain(created.data.contract.contractNumber);
+    const data = await readData();
+    expect(data.payments.some((p) => p.studentId === "s1" && p.source === "monthly_plan")).toBe(false);
   });
 });
 

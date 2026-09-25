@@ -1,10 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { cloneElement, useId, useMemo, useState } from "react";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import Link from "next/link";
 import { ArrowDown, ArrowUp, ChevronsUpDown, FileText, ShieldCheck } from "lucide-react";
 import { Card } from "@/components/ui";
+import { PaginationControls, usePagination } from "@/components/pagination-controls";
+import { filterAndSortDocuments, type DocumentSortKey, type StudentStateFilter } from "@/lib/documents-filter";
 import { formatDate } from "@/lib/utils";
 import { documentStatusLabel, documentStatusHint } from "@/lib/document-status";
 
@@ -27,80 +29,99 @@ export type DocumentRow = {
    * evrak şablonunu göstermez.
    */
   contractId?: string;
+  /** Öğrenci evrakıysa öğrencinin aktifliği (pasif öğrenci evrakları da listelenir). */
+  studentActive?: boolean;
 };
 
-export type DocumentPersonOption = { id: string; name: string };
+export type DocumentPersonOption = { id: string; name: string; kind?: "student" | "teacher"; inactive?: boolean };
 
-type SortKey = "reference" | "kindLabel" | "personName" | "status" | "createdAt";
+type SortKey = DocumentSortKey;
 type SortDir = "asc" | "desc";
 
 function uniqueSorted(values: string[]): string[] {
   return Array.from(new Set(values.filter(Boolean))).sort((a, b) => a.localeCompare(b, "tr"));
 }
 
-/** Türkçe sıralama — "İ/ı/ş/ğ" sırası `localeCompare(..., "tr")` ile doğru çalışır. */
-function compareRows(a: DocumentRow, b: DocumentRow, key: SortKey): number {
-  if (key === "createdAt") return a.createdAt.localeCompare(b.createdAt);
-  if (key === "status") return documentStatusLabel(a.status).localeCompare(documentStatusLabel(b.status), "tr");
-  return String(a[key] ?? "").localeCompare(String(b[key] ?? ""), "tr");
-}
+const FIELD =
+  "h-9 w-full rounded-[var(--radius-md)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2.5 text-sm text-[var(--color-text)] outline-none focus:ring-2 focus:ring-[var(--color-focus-ring)]/30";
 
 export function DocumentsTable({
   rows,
-  students = [],
+  people = [],
   activeStudentId,
+  activeTeacherId,
 }: {
   rows: DocumentRow[];
-  /** Öğrenciye göre filtre — sunucu tarafı `?studentId=` ile daraltır (büyük arşivde tüm satırları çekmeden). */
-  students?: DocumentPersonOption[];
+  /** İlgili kişi filtresi — sunucu tarafı `?studentId=` / `?teacherId=` ile daraltır. Aktif + pasif öğrenci ve öğretmen. */
+  people?: DocumentPersonOption[];
   activeStudentId?: string;
+  activeTeacherId?: string;
 }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [archiving, setArchiving] = useState<string | null>(null);
+  // Arama yalnız yerel state: her tuşta URL değişince sunucu tüm evrakları yeniden okuyordu.
+  const [search, setSearchState] = useState("");
 
-  const search = searchParams.get("q") ?? "";
   const kindFilter = searchParams.getAll("kind");
   const statusFilter = searchParams.getAll("status");
   const branchFilter = searchParams.getAll("branch");
   const fromDate = searchParams.get("from") ?? "";
   const toDate = searchParams.get("to") ?? "";
+  const rawState = searchParams.get("ogrenci");
+  const studentState: StudentStateFilter = rawState === "active" || rawState === "inactive" ? rawState : "all";
   const sortKey = (searchParams.get("sort") as SortKey | null) ?? "createdAt";
   const sortDir = (searchParams.get("dir") as SortDir | null) ?? "desc";
+
+  const kindOptions = useMemo(() => uniqueSorted(rows.map((r) => r.kindLabel)), [rows]);
+  const statusOptions = useMemo(() => uniqueSorted(rows.map((r) => r.status)), [rows]);
+  const branchOptions = useMemo(() => uniqueSorted(rows.map((r) => r.branchName ?? "")), [rows]);
+
+  const filtered = filterAndSortDocuments(rows, {
+    query: search,
+    kinds: kindFilter,
+    statuses: statusFilter,
+    branches: branchFilter,
+    from: fromDate,
+    to: toDate,
+    studentState,
+    sortKey,
+    sortDir,
+  });
+  const { pageItems, page, setPage, pageSize, setPageSize, totalPages, totalCount } = usePagination(filtered, 20, {
+    urlParam: "per",
+  });
 
   function updateParams(mutate: (params: URLSearchParams) => void) {
     const params = new URLSearchParams(searchParams.toString());
     mutate(params);
+    setPage(1);
     router.replace(`${pathname}?${params.toString()}`, { scroll: false });
   }
 
-  function setDateParam(key: "from" | "to", value: string) {
+  function setSingle(key: string, value: string) {
     updateParams((params) => {
-      if (value) params.set(key, value);
-      else params.delete(key);
-    });
-  }
-
-  function setSearch(value: string) {
-    updateParams((params) => {
-      if (value) params.set("q", value);
-      else params.delete("q");
-    });
-  }
-
-  function setStudent(value: string) {
-    updateParams((params) => {
-      if (value) params.set("studentId", value);
-      else params.delete("studentId");
-    });
-  }
-
-  function toggleMulti(key: string, value: string, current: string[]) {
-    updateParams((params) => {
-      const next = current.includes(value) ? current.filter((v) => v !== value) : [...current, value];
       params.delete(key);
-      next.forEach((v) => params.append(key, v));
+      if (value) params.set(key, value);
+    });
+  }
+
+  function setPerson(value: string) {
+    updateParams((params) => {
+      params.delete("studentId");
+      params.delete("teacherId");
+      const [kind, id] = value.split(":");
+      if (kind === "s" && id) params.set("studentId", id);
+      if (kind === "t" && id) params.set("teacherId", id);
+    });
+  }
+
+  function setSort(value: string) {
+    const [key, dir] = value.split(":");
+    updateParams((params) => {
+      params.set("sort", key!);
+      params.set("dir", dir!);
     });
   }
 
@@ -113,6 +134,8 @@ export function DocumentsTable({
   }
 
   function clearAll() {
+    setSearchState("");
+    setPage(1);
     router.replace(pathname, { scroll: false });
   }
 
@@ -126,30 +149,10 @@ export function DocumentsTable({
     }
   }
 
-  const kindOptions = useMemo(() => uniqueSorted(rows.map((r) => r.kindLabel)), [rows]);
-  const statusOptions = useMemo(() => uniqueSorted(rows.map((r) => r.status)), [rows]);
-  const branchOptions = useMemo(() => uniqueSorted(rows.map((r) => r.branchName ?? "")), [rows]);
-
-  const filtered = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    const result = rows.filter((r) => {
-      if (
-        query &&
-        !r.reference.toLowerCase().includes(query) &&
-        !r.personName.toLowerCase().includes(query) &&
-        !(r.parentName ?? "").toLowerCase().includes(query)
-      )
-        return false;
-      if (kindFilter.length && !kindFilter.includes(r.kindLabel)) return false;
-      if (statusFilter.length && !statusFilter.includes(r.status)) return false;
-      if (branchFilter.length && !(r.branchName && branchFilter.includes(r.branchName))) return false;
-      if (fromDate && r.createdAt.slice(0, 10) < fromDate) return false;
-      if (toDate && r.createdAt.slice(0, 10) > toDate) return false;
-      return true;
-    });
-    const sign = sortDir === "asc" ? 1 : -1;
-    return result.sort((a, b) => sign * compareRows(a, b, sortKey));
-  }, [rows, search, kindFilter, statusFilter, branchFilter, fromDate, toDate, sortKey, sortDir]);
+  const personValue = activeStudentId ? `s:${activeStudentId}` : activeTeacherId ? `t:${activeTeacherId}` : "";
+  const activeStudents = people.filter((p) => p.kind !== "teacher" && !p.inactive);
+  const inactiveStudents = people.filter((p) => p.kind !== "teacher" && p.inactive);
+  const teachers = people.filter((p) => p.kind === "teacher");
 
   const anyFilterActive =
     Boolean(search) ||
@@ -158,94 +161,113 @@ export function DocumentsTable({
     branchFilter.length > 0 ||
     Boolean(fromDate) ||
     Boolean(toDate) ||
-    Boolean(activeStudentId);
+    studentState !== "all" ||
+    Boolean(personValue);
 
   return (
     <>
-      <Card className="mb-4 space-y-3">
-        <div className="flex flex-wrap items-center gap-3">
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Referans, öğrenci veya veli adı ara…"
-            aria-label="Referans, öğrenci veya veli adı ara"
-            className="w-full max-w-xs rounded-[var(--radius-md)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text)] outline-none focus:ring-2 focus:ring-[var(--color-focus-ring)]/30 sm:w-auto"
-          />
-          {students.length > 0 ? (
-            <select
-              value={activeStudentId ?? ""}
-              onChange={(e) => setStudent(e.target.value)}
-              aria-label="Öğrenciye göre filtrele"
-              className="rounded-[var(--radius-md)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text)]"
-            >
-              <option value="">Tüm öğrenciler</option>
-              {students.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
+      {/* Masaüstü: 6 kolonluk hizalı ızgara (2 satır); sm: 2 kolon; mobil: alt alta. Her alanın etiketi üstte. */}
+      <Card className="mb-4">
+        <div className="grid grid-cols-1 gap-x-3 gap-y-2.5 sm:grid-cols-2 lg:grid-cols-6">
+          <FilterField label="Ara" className="sm:col-span-2">
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => {
+                setSearchState(e.target.value);
+                setPage(1);
+              }}
+              placeholder="Referans, öğrenci veya veli adı…"
+              className={FIELD}
+            />
+          </FilterField>
+          <FilterField label="İlgili kişi" className="sm:col-span-2">
+            <select value={personValue} onChange={(e) => setPerson(e.target.value)} className={FIELD}>
+              <option value="">Tüm kişiler</option>
+              {activeStudents.length ? (
+                <optgroup label="Öğrenciler (aktif)">
+                  {activeStudents.map((p) => (
+                    <option key={p.id} value={`s:${p.id}`}>{p.name}</option>
+                  ))}
+                </optgroup>
+              ) : null}
+              {inactiveStudents.length ? (
+                <optgroup label="Öğrenciler (pasif)">
+                  {inactiveStudents.map((p) => (
+                    <option key={p.id} value={`s:${p.id}`}>{p.name} (pasif)</option>
+                  ))}
+                </optgroup>
+              ) : null}
+              {teachers.length ? (
+                <optgroup label="Öğretmenler">
+                  {teachers.map((p) => (
+                    <option key={p.id} value={`t:${p.id}`}>{p.name}</option>
+                  ))}
+                </optgroup>
+              ) : null}
+            </select>
+          </FilterField>
+          <FilterField label="Öğrenci durumu">
+            <select value={studentState} onChange={(e) => setSingle("ogrenci", e.target.value === "all" ? "" : e.target.value)} className={FIELD}>
+              <option value="all">Tümü</option>
+              <option value="active">Yalnız aktif öğrenci</option>
+              <option value="inactive">Yalnız pasif öğrenci</option>
+            </select>
+          </FilterField>
+          <FilterField label="Evrak türü">
+            <select value={kindFilter[0] ?? ""} onChange={(e) => setSingle("kind", e.target.value)} className={FIELD}>
+              <option value="">Tüm türler</option>
+              {kindOptions.map((k) => (
+                <option key={k} value={k}>{k}</option>
               ))}
             </select>
-          ) : null}
-          {anyFilterActive ? (
+          </FilterField>
+          <FilterField label="Durum">
+            <select value={statusFilter[0] ?? ""} onChange={(e) => setSingle("status", e.target.value)} className={FIELD}>
+              <option value="">Tüm durumlar</option>
+              {statusOptions.map((k) => (
+                <option key={k} value={k}>{documentStatusLabel(k)}</option>
+              ))}
+            </select>
+          </FilterField>
+          <FilterField label="Şube">
+            <select value={branchFilter[0] ?? ""} onChange={(e) => setSingle("branch", e.target.value)} className={FIELD}>
+              <option value="">Tüm şubeler</option>
+              {branchOptions.map((k) => (
+                <option key={k} value={k}>{k}</option>
+              ))}
+            </select>
+          </FilterField>
+          <FilterField label="Başlangıç tarihi">
+            <input type="date" value={fromDate} onChange={(e) => setSingle("from", e.target.value)} className={FIELD} />
+          </FilterField>
+          <FilterField label="Bitiş tarihi">
+            <input type="date" value={toDate} onChange={(e) => setSingle("to", e.target.value)} className={FIELD} />
+          </FilterField>
+          <FilterField label="Sıralama">
+            <select value={`${sortKey}:${sortDir}`} onChange={(e) => setSort(e.target.value)} className={FIELD}>
+              <option value="createdAt:desc">En yeni önce</option>
+              <option value="createdAt:asc">En eski önce</option>
+              <option value="personName:asc">Kişi (A→Z)</option>
+              <option value="kindLabel:asc">Evrak türü (A→Z)</option>
+              <option value="status:asc">Durum (A→Z)</option>
+              <option value="reference:asc">Referans (A→Z)</option>
+            </select>
+          </FilterField>
+          <div className="flex items-end">
             <button
               type="button"
               onClick={clearAll}
-              className="ml-auto rounded-[var(--radius-md)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3 py-1.5 text-xs font-medium text-[var(--color-text-muted)] hover:border-[var(--color-danger)] hover:text-[var(--color-danger)]"
+              disabled={!anyFilterActive}
+              className="h-9 w-full rounded-[var(--radius-md)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3 text-xs font-medium text-[var(--color-text-muted)] hover:border-[var(--color-danger)] hover:text-[var(--color-danger)] disabled:opacity-40"
             >
-              Filtreleri Temizle
+              Filtreleri temizle
             </button>
-          ) : null}
-        </div>
-        <div className="grid gap-3 sm:grid-cols-3">
-          <FilterChips
-            label="Evrak türü"
-            options={kindOptions}
-            selected={kindFilter}
-            onToggle={(v) => toggleMulti("kind", v, kindFilter)}
-          />
-          <FilterChips
-            label="Durum"
-            options={statusOptions}
-            selected={statusFilter}
-            labelOf={documentStatusLabel}
-            onToggle={(v) => toggleMulti("status", v, statusFilter)}
-          />
-          <FilterChips
-            label="Şube"
-            options={branchOptions}
-            selected={branchFilter}
-            onToggle={(v) => toggleMulti("branch", v, branchFilter)}
-          />
-        </div>
-        <div className="grid max-w-sm grid-cols-2 gap-3">
-          <div>
-            <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
-              Başlangıç tarihi
-            </p>
-            <input
-              type="date"
-              value={fromDate}
-              onChange={(e) => setDateParam("from", e.target.value)}
-              aria-label="Başlangıç tarihi"
-              className="w-full rounded-[var(--radius-md)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 py-1.5 text-xs text-[var(--color-text)]"
-            />
-          </div>
-          <div>
-            <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
-              Bitiş tarihi
-            </p>
-            <input
-              type="date"
-              value={toDate}
-              onChange={(e) => setDateParam("to", e.target.value)}
-              aria-label="Bitiş tarihi"
-              className="w-full rounded-[var(--radius-md)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 py-1.5 text-xs text-[var(--color-text)]"
-            />
           </div>
         </div>
-        <p className="text-xs font-medium text-[var(--color-text-muted)]">
-          Toplam {rows.length} evrak{anyFilterActive ? ` · Filtre sonucu ${filtered.length}` : ""}
+        <p className="mt-3 text-xs font-medium text-[var(--color-text-muted)]">
+          Toplam {rows.length} evrak{anyFilterActive ? ` · Filtre sonucu ${filtered.length}` : ""} · Varsayılan kapsam: aktif ve
+          pasif öğrencilerin tüm evrakları
         </p>
       </Card>
 
@@ -270,7 +292,7 @@ export function DocumentsTable({
                 </td>
               </tr>
             ) : (
-              filtered.map((d) => {
+              pageItems.map((d) => {
                 // Sözleşmeler kanonik görüntüleyiciye gider; diğer evraklar kendi detayına.
                 const viewHref = d.contractId ? `/sozlesme-yazdir/${d.contractId}` : `/panel/evraklar/${d.id}`;
                 return (
@@ -341,6 +363,14 @@ export function DocumentsTable({
             )}
           </tbody>
         </table>
+        <PaginationControls
+          page={page}
+          totalPages={totalPages}
+          totalCount={totalCount}
+          pageSize={pageSize}
+          onPageChange={setPage}
+          onPageSizeChange={setPageSize}
+        />
       </Card>
 
       <p className="mt-3 flex items-start gap-2 text-xs text-[var(--color-text-muted)]">
@@ -386,44 +416,15 @@ function SortHeader({
   );
 }
 
-function FilterChips({
-  label,
-  options,
-  selected,
-  onToggle,
-  labelOf,
-}: {
-  label: string;
-  options: string[];
-  selected: string[];
-  onToggle: (value: string) => void;
-  /** Ham değeri (ör. statü kodu) ekranda gösterilecek Türkçe karşılığına çevirir. */
-  labelOf?: (value: string) => string;
-}) {
-  if (options.length === 0) return null;
+/** Etiket + alan; erişilebilir ad yalnız etiket (seçenek metinleri ada karışmaz). */
+function FilterField({ label, className, children }: { label: string; className?: string; children: React.ReactElement<{ "aria-labelledby"?: string }> }) {
+  const id = useId();
   return (
-    <div>
-      <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-[var(--color-text-muted)]">{label}</p>
-      <div className="flex flex-wrap gap-1.5">
-        {options.map((opt) => {
-          const active = selected.includes(opt);
-          return (
-            <button
-              key={opt}
-              type="button"
-              aria-pressed={active}
-              onClick={() => onToggle(opt)}
-              className={`rounded-full border px-2.5 py-1 text-xs font-medium transition ${
-                active
-                  ? "border-[var(--color-primary)] bg-[var(--color-primary-soft)] text-[var(--color-primary-soft-text)]"
-                  : "border-[var(--color-border-strong)] bg-[var(--color-surface)] text-[var(--color-text-muted)] hover:border-[var(--color-primary)]"
-              }`}
-            >
-              {labelOf ? labelOf(opt) : opt}
-            </button>
-          );
-        })}
-      </div>
+    <div className={`min-w-0 ${className ?? ""}`}>
+      <span id={id} className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
+        {label}
+      </span>
+      {cloneElement(children, { "aria-labelledby": id })}
     </div>
   );
 }
