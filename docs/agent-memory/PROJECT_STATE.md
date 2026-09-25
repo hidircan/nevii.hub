@@ -11,13 +11,16 @@ Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_20
 - Kritik işlem kapısı TEK: `checkCriticalPassword` + `canRunCriticalActions` (tools.ts).
 - Rol modeli: tek HYPER_ADMIN platform sahibi; kurum sahibi SUPER_ADMIN.
 
-## Güncel snapshot — 2026-09-24 (5. tur, A–G)
-- **Dal:** `fix/uat-round-5` → `test` (ayrı worktree `../nevii-hub-uat-round5`; ana ağaçta paralel oturum vardı).
-- **Önceki commit (test):** `29b2b8a` (log saklama cron'u, mobil devralma onayı, toplu öğretmen devri).
-- **Bu tur:** tahakkuk sözleşme-farkında, TC filtresi, ortalama aylık ücret, sözleşme↔kayıt geri dönüş,
-  dashboard masonry, takvim taksit→dönem ayı eşlemesi, portallı ModalShell. **Migration yok.**
-  UAT: `docs/testing/UAT_2026_09_24_ROUND_5.md`.
-- **Hafıza düzeni:** `.claude/skills/` artık git'te (önce `.gitignore` dışlıyordu); router skill `nevii-hub`.
+## Güncel snapshot — 2026-09-25 (6. tur)
+- **Dal:** `fix/uat-round-6` (worktree `../nevii-hub-uat-round6`) → `test`. Önceki: `8f85a4b` (5. tur). **Migration yok.**
+- **Kök neden (ödeme/yoklama):** db `readData()` ödeme eşlemesinde `contractId`/`installmentSequence` yoktu → takvim her ay
+  "plan yok", takvim tahsilatı ayrı `monthly_plan` açıyordu. Düzeltildi (`mapDbPayment` + parity testi); sözleşme varken
+  `monthly_plan` yedeği kapalı.
+- **Borç kuralı tek:** `isLiveObligation` (payment-profile.ts) + `listTerminalContractIds` — gecikmiş, Günlük Özet, tahsilat
+  kuyruğu, otomatik hatırlatma, Ödemeler/Öğrenciler listesi, öğrenci "Borç" bölümü aynı kuralı kullanır.
+- Öğrenci Ödemeler sekmesi "Borç" görünümü; Değişiklik geçmişi varsayılan kapalı; Yoklama seçicisi yalnız aktif öğrenci;
+  Evraklar Merkezi sayfalama + aktif/pasif + kişi/tür/durum/şube/tarih/sıralama.
+- UAT: `docs/testing/UAT_2026_09_25_ROUND_6.md`. 5. tur: `docs/testing/UAT_2026_09_24_ROUND_5.md`.
 
 ## Ortamlar
 - Test: `test` dalı → Vercel → `test.neviihub.com`; test DB Supabase `vxzewyiwfshobjizzetw` (repo migration'ları uygulandı,
@@ -28,10 +31,11 @@ Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_20
 ## Açık iş
 - Owner UAT: 5. tur (yukarıdaki belge) + 4. tur `docs/testing/UAT_2026_09_23_OPS_ROUND_4.md`.
 - Mobil: devralma onayı için yeni EAS build (ayrı tur; `apps/mobile/*` bu turda dokunulmadı).
-- Tahsilat hatırlatmaları iptal/yenilenmiş sözleşmenin ödenmemiş taksitlerini hâlâ "gecikmiş" görebilir — özet düzeltildi,
-  hatırlatma/liste akışı ayrı kontrol edilmeli (5. tur kapsamı dışı).
+- Test verisinde, düzeltmeden önce takvimden alınmış tahsilatlar sözleşme taksiti yerine `monthly_plan` satırına yazılmış
+  olabilir (taksit hâlâ ödenmemiş görünür). Otomatik düzeltme YAPILMADI — owner kararıyla salt-okunur tespit + elle eşleme.
+- Test DB'ye salt-okunur erişim bu oturumda izin sistemiyle engellendi; gerçek öğrenci vakası UAT ile doğrulanmalı.
 - Uzun vadeli açıklar (PDF sayfa altbilgisi, toplu tarihsel sözleşme importu, aynı-gün iptal bildirimi): arşivdeki "Open work".
 
 ## Riskler / bilinen durum
-- Tam test paketinde tarihe bağlı bilinen başarısızlıklar olabilir — baseline'ı `origin/test` üzerinde koşup karşılaştır.
+- Tarihe bağlı bilinen başarısızlıklar (2026-09-25, origin/test 8f85a4b): `lesson-series-tools › skipConflicts`, `lesson-move-resize-flow › başarılı taşıma`.
 - `docs/project-brain/CURRENT_STATE.md` 2026-08-31'de donmuş; güncel durum burası.

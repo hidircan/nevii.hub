@@ -1158,3 +1158,13 @@ portallanır ve kök katmanda olay yayılımını durdurur (portal olayları Rea
 
 Skill'ler yalnız ana checkout'ta vardı; ayrı worktree/başka makine/web oturumu hiçbirini görmüyordu. **Ders:**
 `.claude/skills/` izlenir (`.claude/*` + `!.claude/skills/`), yerel ayar/worktree dizinleri hariç kalır.
+
+## 2026-09-25 — db modu `readData()` ödeme eşlemesi `contractId`/`installmentSequence` taşımıyordu
+
+Sözleşme taksitleri 2026-09-03'te eklendi ama `store-db.ts` eşlemesine bu iki alan hiç yazılmadı. JSON testleri
+geçti; test/production (db) ortamında yoklama takvimi her ay "aktif ödeme planı yok" dedi, takvim tahsilatı
+taksit yerine ayrı `monthly_plan` satırı açtı, sözleşme-farkında özetler sessizce etkisiz kaldı. Sözleşme
+Merkezi Prisma'dan doğrudan okuduğu için orada plan görünüyordu → iki ekran birbirini tutmuyordu.
+**Ders:** yeni kolon ekleyen iş db eşlemesini de yazmalı; `payment-db-mapping.test.ts` gibi Prisma kolon listesine
+karşı parity testi, JSON'da geçen testin db'de yanlış olmasını yakalar. Ekranlar arası tutarsızlıkta önce "iki ekran
+aynı veriyi aynı yoldan mı okuyor?" diye bak.
