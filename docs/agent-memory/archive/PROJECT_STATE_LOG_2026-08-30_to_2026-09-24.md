@@ -1239,3 +1239,15 @@ verification (Chrome install needs sudo, unavailable in this environment).
 - `ServiceResult<T>` (`ok`/`fail`) — never throw for expected failures.
 - Tool Layer (`src/lib/services/tools.ts`) is the only DB-touching layer.
 - Draft templates never auto-activate anywhere in the codebase (verified).
+
+
+## Güncel snapshot — 2026-09-25 (6. tur)
+- **Dal:** `fix/uat-round-6` (worktree `../nevii-hub-uat-round6`) → `test`. Önceki: `8f85a4b` (5. tur). **Migration yok.**
+- **Kök neden (ödeme/yoklama):** db `readData()` ödeme eşlemesinde `contractId`/`installmentSequence` yoktu → takvim her ay
+  "plan yok", takvim tahsilatı ayrı `monthly_plan` açıyordu. Düzeltildi (`mapDbPayment` + parity testi); sözleşme varken
+  `monthly_plan` yedeği kapalı.
+- **Borç kuralı tek:** `isLiveObligation` (payment-profile.ts) + `listTerminalContractIds` — gecikmiş, Günlük Özet, tahsilat
+  kuyruğu, otomatik hatırlatma, Ödemeler/Öğrenciler listesi, öğrenci "Borç" bölümü aynı kuralı kullanır.
+- Öğrenci Ödemeler sekmesi "Borç" görünümü; Değişiklik geçmişi varsayılan kapalı; Yoklama seçicisi yalnız aktif öğrenci;
+  Evraklar Merkezi sayfalama + aktif/pasif + kişi/tür/durum/şube/tarih/sıralama.
+- UAT: `docs/testing/UAT_2026_09_25_ROUND_6.md`. 5. tur: `docs/testing/UAT_2026_09_24_ROUND_5.md`.

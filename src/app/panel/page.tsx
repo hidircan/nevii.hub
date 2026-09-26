@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   ClipboardList,
   FileWarning,
+  FlaskConical,
   Info,
   Users,
 } from "lucide-react";
@@ -26,6 +27,16 @@ import {
   resolveDashboardLayout,
   type DashboardSectionKey,
 } from "@/lib/dashboard/layout-prefs";
+import {
+  getScreenWidget,
+  permittedScreenWidgets,
+  screenWidgetMetric,
+  type ScreenWidgetAccess,
+} from "@/lib/dashboard/screen-widgets";
+import { buildTrialDigest, type TrialDigestItem } from "@/lib/dashboard/trial-digest";
+import { listTrialLessonsTool } from "@/lib/services";
+import { canViewFinanceAndStaffSummary } from "@/lib/auth/platform-access";
+import { canAccessTeacherEarnings } from "@/lib/platform/teacher-earnings-access";
 import { computeSetupProgress } from "@/lib/setup-progress";
 import { computeTeacherPayoutOverview } from "@/lib/teacher-payout-overview";
 import { DEFAULT_APP_TIMEZONE, toZonedYmd, formatDateTr } from "@/lib/timezone";
@@ -83,7 +94,14 @@ export default async function DashboardPage({
   const kurum = await getInstitutionContext(session);
   const data = await readScopedData(kurum.scope);
   const prefs = await getUserPreferences(session.userId, session.tenantId);
-  const layout = resolveDashboardLayout(prefs.dashboard, session.role);
+  // Widget yetkisi = sidebar görünürlüğü (panel/layout.tsx ile aynı kapılar).
+  const widgetAccess: ScreenWidgetAccess = {
+    role: session.role,
+    canViewFinanceAndStaffSummary: canViewFinanceAndStaffSummary(session),
+    canViewTeacherEarnings: await canAccessTeacherEarnings(session),
+  };
+  const layout = resolveDashboardLayout(prefs.dashboard, session.role, widgetAccess);
+  const visibleKeys = new Set(layout.visible.map((s) => s.key));
 
   const branchIds = new Set(data.settings.branches.map((b) => b.id));
   const savedDefault = prefs.dashboard?.defaultBranchId;
@@ -94,13 +112,25 @@ export default async function DashboardPage({
 
   // Sözleşme özetleri ve görevler TEK sorguda; merged "tüm kurumlar"
   // görünümünde sözleşme okuması tek tenant'a bağlı olduğu için atlanır.
-  const [contractsByStudent, tasks, terminalContractIds] = await Promise.all([
+  // Deneme listesi yalnız bölüm görünürken çekilir (tek ek sorgu); ekran
+  // widget'ları ek sorgu yapmaz — hepsi aşağıdaki özetten türetilir.
+  const [contractsByStudent, tasks, terminalContractIds, trialsResult] = await Promise.all([
     kurum.scope.mode === "single"
       ? listContractSummariesByStudent(kurum.scope.tenantId)
       : Promise.resolve(new Map()),
     kurum.scope.mode === "single" ? listTasks(kurum.scope.tenantId) : Promise.resolve([]),
     listTerminalContractIdsForScope(kurum.scope),
+    kurum.scope.mode === "single" && visibleKeys.has("trials") ? listTrialLessonsTool(session) : Promise.resolve(null),
   ]);
+  const trialDigest =
+    trialsResult && trialsResult.ok
+      ? buildTrialDigest(trialsResult.data.trials, {
+          branchId: activeBranchId,
+          now: new Date(),
+          teachers: data.teachers,
+          branches: data.settings.branches,
+        })
+      : null;
 
   const summary = buildDashboardSummary(
     data,
@@ -122,7 +152,77 @@ export default async function DashboardPage({
       ? "Tüm şubeler"
       : (data.settings.branches.find((b) => b.id === activeBranchId)?.shortName ?? activeBranchId);
 
+  const widgetSummary = {
+    todayLessons: summary.counts.todayLessons,
+    activeStudents: summary.counts.activeStudents,
+    activeTeachers: summary.counts.activeTeachers,
+    openMakeups: summary.counts.openMakeups,
+    overdueTotal: summary.money.overdueTotal,
+    overdueTotalLabel: formatMoney(summary.money.overdueTotal),
+    openTasks: summary.taskSummary.open,
+  };
+  const widgetNodes: Partial<Record<DashboardSectionKey, React.ReactNode>> = {};
+  for (const key of layout.addedWidgets) {
+    const def = getScreenWidget(key);
+    if (!def) continue;
+    const metric = screenWidgetMetric(def, widgetSummary);
+    widgetNodes[key] = (
+      <Link
+        href={def.href}
+        className="flex h-full items-center justify-between gap-3 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2.5 transition hover:border-[var(--color-primary)]"
+      >
+        <span className="min-w-0">
+          <span className="block text-[11px] font-medium uppercase tracking-wide text-[var(--color-text-muted)]">{def.category}</span>
+          <span className="block truncate text-sm font-semibold text-[var(--color-text)]">{def.label}</span>
+          {metric ? (
+            <span className="mt-0.5 block text-xs text-[var(--color-text-muted)]">
+              <span
+                className="text-base font-semibold tabular-nums"
+                style={{
+                  color:
+                    metric.tone === "danger"
+                      ? "var(--color-danger)"
+                      : metric.tone === "warning"
+                        ? "var(--color-warning)"
+                        : "var(--color-text)",
+                }}
+              >
+                {metric.value}
+              </span>{" "}
+              {metric.caption}
+            </span>
+          ) : (
+            <span className="mt-0.5 block text-xs text-[var(--color-text-muted)]">Ekranı aç</span>
+          )}
+        </span>
+        <ArrowRight className="h-4 w-4 shrink-0 text-[var(--color-text-muted)]" aria-hidden />
+      </Link>
+    );
+  }
+
   const sectionNodes: Partial<Record<DashboardSectionKey, React.ReactNode>> = {
+    ...widgetNodes,
+    trials: trialDigest ? (
+      <Card>
+        <SectionHeader
+          icon={<FlaskConical className="h-4 w-4" />}
+          title="Deneme dersleri"
+          href="/panel/deneme"
+          hrefLabel="Tümü"
+        />
+        {trialDigest.today.length + trialDigest.upcoming.length + trialDigest.needsAction.length === 0 ? (
+          <p className="text-sm text-[var(--color-text-muted)]">
+            {branchLabel} için bugün, önümüzdeki 7 günde veya takip bekleyen deneme dersi yok.
+          </p>
+        ) : (
+          <div className="space-y-3">
+            <TrialGroup title="Bugün" items={trialDigest.today} timeOnly />
+            <TrialGroup title="Önümüzdeki 7 gün" items={trialDigest.upcoming} />
+            <TrialGroup title="Takip bekleyen" items={trialDigest.needsAction} />
+          </div>
+        )}
+      </Card>
+    ) : null,
     actions: (
       <section>
         <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-[var(--color-text)]">
@@ -484,7 +584,54 @@ export default async function DashboardPage({
         initialSpans={layout.spans}
         initialSavedViews={prefs.dashboard?.savedViews ?? []}
         initialActiveViewId={prefs.dashboard?.activeViewId}
+        widgetCatalog={permittedScreenWidgets(widgetAccess).map((w) => ({ key: w.key, label: w.label, category: w.category }))}
       />
+    </div>
+  );
+}
+
+function TrialGroup({ title, items, timeOnly }: { title: string; items: TrialDigestItem[]; timeOnly?: boolean }) {
+  if (items.length === 0) return null;
+  const shown = items.slice(0, 6);
+  return (
+    <div>
+      <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
+        {title} · {items.length}
+      </p>
+      <ul className="divide-y divide-[var(--color-border)]">
+        {shown.map((t) => (
+          <li key={t.id}>
+            <Link href={t.href} className="flex flex-wrap items-start gap-x-3 gap-y-0.5 py-2 hover:opacity-80">
+              <span className="w-[92px] shrink-0 text-sm font-semibold tabular-nums text-[var(--color-text)]">
+                {timeOnly ? formatTime(t.startAt) : `${formatDateTr(t.startAt).slice(0, 5)} ${formatTime(t.startAt)}`}
+              </span>
+              <span className="min-w-0 flex-1 text-sm">
+                <span className="font-medium text-[var(--color-text)]">{t.name}</span>
+                <span className="text-[var(--color-text-muted)]">
+                  {" "}
+                  · {t.instrument} · {t.teacherName} · {t.branchName}
+                </span>
+                {t.prepNote ? <span className="block text-xs text-[var(--color-text-muted)]">Not: {t.prepNote}</span> : null}
+              </span>
+              <span
+                className="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold"
+                style={
+                  t.action
+                    ? { background: "var(--color-warning-soft)", color: "var(--color-warning)" }
+                    : { background: "var(--color-surface-muted)", color: "var(--color-text-muted)" }
+                }
+              >
+                {t.action ?? t.statusLabel}
+              </span>
+            </Link>
+          </li>
+        ))}
+      </ul>
+      {items.length > shown.length ? (
+        <Link href="/panel/deneme" className="text-xs font-medium text-[var(--color-primary)]">
+          +{items.length - shown.length} deneme daha →
+        </Link>
+      ) : null}
     </div>
   );
 }

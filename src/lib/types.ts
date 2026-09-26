@@ -1858,7 +1858,12 @@ export interface TrialLesson {
   /** Dönüşüm anı ve dönüşümü yapan kullanıcı (performans/rapor). */
   convertedAt?: string;
   convertedByUserId?: string;
+  /** Hazırlık notu (ders öncesi). */
   notes?: string;
+  /** Ders sonrası sonuç/görüşme notu — hazırlık notundan ayrı alan. */
+  resultNotes?: string;
+  resultNotesAt?: string;
+  resultNotesByUserId?: string;
   createdBy: string;
   createdAt: string;
   updatedAt: string;

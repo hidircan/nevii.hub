@@ -620,3 +620,79 @@ export function inferMakeupReasonConfidence(
 
   return { confidence: "high", reason };
 }
+
+export type TrialSlotCode =
+  | "INVALID_START"
+  | "DAY_CLOSED"
+  | "TEACHER_NOT_FOUND"
+  | "TEACHER_INACTIVE"
+  | "TEACHER_INSTRUMENT_MISMATCH"
+  | "TEACHER_BRANCH_MISMATCH"
+  | "TEACHER_UNAVAILABLE"
+  | "TEACHER_CONFLICT"
+  | "TEACHER_TRIAL_CONFLICT";
+
+/**
+ * Deneme dersi düzenleme doğrulaması (2026-09-26). Denemede oda ve öğrenci yok,
+ * süre 10–20 dk — `validateLessonSlot`'un oda/30-dk kuralları uygulanamaz; ama
+ * ÖĞRETMEN kuralları normal dersle aynı yardımcılardan geçer: çalışma günü,
+ * aktiflik, enstrüman, şube, müsaitlik penceresi, ders çakışması. Ek olarak
+ * öğretmenin başka bir denemesiyle çakışma.
+ */
+export function validateTrialSlot(
+  data: Pick<AppData, "teachers" | "lessons" | "settings" | "closedDayOverrides">,
+  input: { teacherId: string; branchId: BranchId; instrument: string; startAt: string; durationMinutes: number },
+  otherTrials: Array<{ id: string; teacherId: string; startAt: string; endAt: string; status: string }>,
+  options?: { excludeTrialId?: string; allowAvailabilityOverride?: boolean }
+): { ok: true } | { ok: false; code: TrialSlotCode; message: string } {
+  const start = parseISO(input.startAt);
+  if (Number.isNaN(start.getTime())) return { ok: false, code: "INVALID_START", message: "Geçerli bir tarih ve saat seçin." };
+  const workDay = assertWorkDaySchedulable(
+    start,
+    "guz",
+    data.closedDayOverrides ?? [],
+    data.settings.termWeeklyClosedDays
+  );
+  if (!workDay.ok) return { ok: false, code: "DAY_CLOSED", message: workDay.message };
+  const end = addMinutes(start, input.durationMinutes);
+  const teacher = data.teachers.find((t) => t.id === input.teacherId);
+  if (!teacher) return { ok: false, code: "TEACHER_NOT_FOUND", message: "Seçilen öğretmen bulunamadı. Listeden yeniden seçin." };
+  if (!isTeacherSchedulable(teacher)) {
+    return { ok: false, code: "TEACHER_INACTIVE", message: `${teacher.name} pasif veya işten ayrılmış; başka bir öğretmen seçin.` };
+  }
+  if (!teacher.instruments.includes(input.instrument as Instrument)) {
+    return {
+      ok: false,
+      code: "TEACHER_INSTRUMENT_MISMATCH",
+      message: `${teacher.name} ${input.instrument} dersi vermiyor. Öğretmenin branşını Öğretmenler ekranından kontrol edin veya başka öğretmen seçin.`,
+    };
+  }
+  if (!teacherServesBranch(teacher, input.branchId)) {
+    return {
+      ok: false,
+      code: "TEACHER_BRANCH_MISMATCH",
+      message: `${teacher.name} bu şubede ders vermiyor. Şubeyi değiştirin veya öğretmenin şube atamasını Öğretmenler ekranından güncelleyin.`,
+    };
+  }
+  if (!options?.allowAvailabilityOverride && !teacherAvailableOnDay(teacher, start, end, input.branchId)) {
+    return {
+      ok: false,
+      code: "TEACHER_UNAVAILABLE",
+      message: `${teacher.name} bu saatte müsait değil (öğretmenin müsaitlik penceresi dışında). Başka saat seçin veya müsaitlik dışı planlamayı onaylayın.`,
+    };
+  }
+  if (!teacherFree(teacher.id, start, end, data.lessons)) {
+    return { ok: false, code: "TEACHER_CONFLICT", message: `${teacher.name} bu saatte başka bir derste. Başka saat seçin.` };
+  }
+  const trialClash = otherTrials.some(
+    (t) =>
+      t.id !== options?.excludeTrialId &&
+      t.teacherId === teacher.id &&
+      t.status !== "cancelled" &&
+      overlaps(start, end, parseISO(t.startAt), parseISO(t.endAt))
+  );
+  if (trialClash) {
+    return { ok: false, code: "TEACHER_TRIAL_CONFLICT", message: `${teacher.name} bu saatte başka bir deneme dersinde. Başka saat seçin.` };
+  }
+  return { ok: true };
+}

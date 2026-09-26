@@ -1132,6 +1132,29 @@ export const createTrialLessonSchema = z.object({
   notes: z.string().max(2000).optional(),
 });
 
+/**
+ * Deneme dersi düzenleme (2026-09-26). Tüm alanlar opsiyonel (kısmi). Hazırlık
+ * notu (`notes`) ile ders sonrası not (`resultNotes`) AYRI alanlardır.
+ */
+export const updateTrialLessonSchema = z.object({
+  trialId: z.string().min(1),
+  name: z.string().trim().min(1).max(120).optional(),
+  phone: z.string().trim().min(7).max(30).optional(),
+  instrument: z.string().min(1).optional(),
+  branchId: z.string().min(1).optional(),
+  teacherId: z.string().min(1).optional(),
+  startAt: z.string().min(1).optional(),
+  durationMinutes: z.coerce
+    .number()
+    .refine((v) => (TRIAL_LESSON_DURATION_OPTIONS as readonly number[]).includes(v), {
+      message: "Deneme dersi süresi yalnızca 10, 15 veya 20 dakika olabilir.",
+    })
+    .optional(),
+  notes: z.string().max(2000).optional(),
+  resultNotes: z.string().max(4000).optional(),
+  allowAvailabilityOverride: z.boolean().optional(),
+});
+
 export const updateTrialLessonStatusSchema = z.object({
   trialId: z.string().min(1),
   status: z.enum([

@@ -23,6 +23,7 @@ export function TrialLessonCreateForm({
   const [teacherId, setTeacherId] = useState(teachers[0]?.id ?? "");
   const [startAt, setStartAt] = useState("");
   const [durationMinutes, setDurationMinutes] = useState("15");
+  const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -41,6 +42,7 @@ export function TrialLessonCreateForm({
         teacherId,
         startAt: new Date(startAt).toISOString(),
         durationMinutes: Number(durationMinutes),
+        ...(notes.trim() ? { notes: notes.trim() } : {}),
       }),
     });
     setBusy(false);
@@ -50,6 +52,7 @@ export function TrialLessonCreateForm({
     }
     setName("");
     setPhone("");
+    setNotes("");
     // Planlama sonrası dönüşüm sorusu liste bileşeninde açılır (URL ile — yenilemede tekrar sorulmaz).
     router.replace(`/panel/deneme?planlandi=${encodeURIComponent(res.data.trialId)}`, { scroll: false });
     router.refresh();
@@ -115,6 +118,16 @@ export function TrialLessonCreateForm({
           <option value="15">15 dk</option>
           <option value="20">20 dk</option>
         </Select>
+      </div>
+      <div className="sm:col-span-2">
+        <Label>Hazırlık notu (isteğe bağlı)</Label>
+        <textarea
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          maxLength={2000}
+          placeholder="Ör. adayın seviyesi, velinin beklentisi, hazırlanacak nota. Planlamadan sonra da düzenlenebilir."
+          className="min-h-[64px] w-full rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 py-1.5 text-sm text-[var(--color-text)]"
+        />
       </div>
       {error ? (
         <p className="sm:col-span-2 text-xs font-medium text-rose-600" role="alert">

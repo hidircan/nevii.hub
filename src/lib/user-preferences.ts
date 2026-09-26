@@ -67,6 +67,8 @@ export type DashboardPreferences = {
   savedViews?: DashboardSavedView[];
   /** Seçili kayıtlı görünüm; yoksa canlı düzen rol varsayılanı + override'dır. */
   activeViewId?: string;
+  /** "Widget ekle" ile eklenen menü ekranı widget'ları (`screen:*`), opt-in. */
+  addedWidgets?: string[];
 };
 
 type Stored = UserWorkspacePreferences & { userId: string; tenantId: string };

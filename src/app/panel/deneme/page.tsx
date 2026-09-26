@@ -8,6 +8,7 @@ import { TrialLessonCreateForm } from "@/components/trial-lesson-create-form";
 import { TrialLessonsTable, type TrialRow } from "@/components/trial-lessons-table";
 import { readData } from "@/lib/store";
 import { resolveActorLabels } from "@/lib/contract-payment-plan-view";
+import { DEFAULT_APP_TIMEZONE, isoToWallDateTimeInput, toZonedYmd } from "@/lib/timezone";
 
 export const dynamic = "force-dynamic";
 
@@ -18,9 +19,9 @@ export const dynamic = "force-dynamic";
 export default async function TrialLessonsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ planlandi?: string }>;
+  searchParams: Promise<{ planlandi?: string; deneme?: string }>;
 }) {
-  const { planlandi } = await searchParams;
+  const { planlandi, deneme } = await searchParams;
   let session;
   try {
     session = await requireSessionContext();
@@ -35,7 +36,7 @@ export default async function TrialLessonsPage({
 
   const names = await resolveActorLabels({
     tenantId: session.tenantId,
-    userIds: trials.flatMap((t) => [t.createdBy, t.convertedByUserId]),
+    userIds: trials.flatMap((t) => [t.createdBy, t.convertedByUserId, t.resultNotesByUserId]),
     teachers: data.teachers,
   });
   const now = new Date().getTime();
@@ -44,10 +45,20 @@ export default async function TrialLessonsPage({
     name: t.name,
     phone: t.phone,
     instrument: t.instrument,
+    teacherId: t.teacherId,
     teacherName: data.teachers.find((x) => x.id === t.teacherId)?.name ?? "—",
+    branchId: t.branchId,
     branchName: data.settings.branches.find((b) => b.id === t.branchId)?.shortName ?? "—",
     startAt: t.startAt,
+    dayYmd: toZonedYmd(new Date(t.startAt), DEFAULT_APP_TIMEZONE),
     startLabel: formatDateTime(t.startAt),
+    startLocal: isoToWallDateTimeInput(t.startAt),
+    notes: t.notes,
+    resultNotes: t.resultNotes,
+    resultNotesLabel: t.resultNotesAt
+      ? `Son güncelleme: ${names.get(t.resultNotesByUserId ?? "") ?? "Bilinmeyen kullanıcı"} · ${formatDateTime(t.resultNotesAt)}`
+      : undefined,
+    isStarted: new Date(t.startAt).getTime() <= now,
     durationMinutes: t.durationMinutes,
     status: t.status,
     createdByName: names.get(t.createdBy) ?? "Bilinmeyen kullanıcı",
@@ -77,10 +88,14 @@ export default async function TrialLessonsPage({
       </Card>
       <section>
         <TrialLessonsTable
-          key={planlandi ?? "list"}
+          key={`${planlandi ?? "list"}:${deneme ?? ""}`}
           rows={rows}
           canWrite={session.role === "SUPER_ADMIN" || session.role === "SCHOOL_ADMIN" || session.role === "TEACHER"}
+          isTeacher={session.role === "TEACHER"}
+          teachers={teachers}
+          branches={branches}
           initialPromptTrialId={planlandi}
+          initialOpenTrialId={deneme}
         />
       </section>
       <Link href="/panel/program" className="text-sm font-medium text-[var(--color-primary)]">

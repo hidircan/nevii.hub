@@ -485,6 +485,7 @@ export async function actionSaveDashboardLayout(patch: {
   savedViews?: import("./user-preferences").DashboardSavedView[];
   activeViewId?: string | null;
   resetToDefault?: boolean;
+  addedWidgets?: string[];
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
     const session = await getSessionContext();
@@ -494,7 +495,14 @@ export async function actionSaveDashboardLayout(patch: {
     const { getUserPreferences, saveUserPreferences } = await import("./user-preferences");
     const { sanitizeDashboardLayoutPatch, mergeDashboardPreferences } = await import("./dashboard/layout-prefs");
     const prev = await getUserPreferences(session.userId, session.tenantId);
-    const sanitized = sanitizeDashboardLayoutPatch(patch ?? {}, session.role);
+    // Widget yetkisi = sidebar görünürlüğü (bkz. panel/layout.tsx) — yetkisiz ekran kaydedilmez.
+    const { canViewFinanceAndStaffSummary } = await import("./auth/platform-access");
+    const { canAccessTeacherEarnings } = await import("./platform/teacher-earnings-access");
+    const sanitized = sanitizeDashboardLayoutPatch(patch ?? {}, session.role, {
+      role: session.role,
+      canViewFinanceAndStaffSummary: canViewFinanceAndStaffSummary(session),
+      canViewTeacherEarnings: await canAccessTeacherEarnings(session),
+    });
     const next = mergeDashboardPreferences(prev.dashboard, sanitized);
     await saveUserPreferences(session.userId, session.tenantId, { dashboard: next });
     revalidatePath("/panel");

@@ -2,21 +2,25 @@
 
 import { useCallback, useEffect, useRef, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowDown, ArrowUp, EyeOff, GripVertical, LayoutGrid, Plus, RotateCcw } from "lucide-react";
+import { ArrowDown, ArrowUp, EyeOff, GripVertical, LayoutGrid, Plus, RotateCcw, X } from "lucide-react";
 import { actionSaveDashboardLayout } from "@/lib/actions";
 import {
   DASHBOARD_MAX_SPAN,
   DASHBOARD_MIN_SPAN,
   DASHBOARD_ROW_UNIT_PX,
-  DASHBOARD_SECTION_LABELS,
   dashboardRowSpan,
+  dashboardSectionLabel,
   clampDashboardSpan,
   getDefaultDashboardLayout,
   mergeSectionOrder,
   type DashboardSectionKey,
   type DashboardSectionSpan,
 } from "@/lib/dashboard/layout-prefs";
+import { isScreenWidgetKey, type ScreenWidgetCategory } from "@/lib/dashboard/screen-widgets";
 import type { DashboardSavedView } from "@/lib/user-preferences";
+
+/** "Widget ekle" seçicisindeki yetkili ekran (sunucuda rol/yetkiyle süzülmüş). */
+export type DashboardWidgetOption = { key: DashboardSectionKey; label: string; category: ScreenWidgetCategory };
 
 type Row = { key: DashboardSectionKey; hidden: boolean; span: DashboardSectionSpan };
 
@@ -56,8 +60,11 @@ export function DashboardGrid({
   initialSpans,
   initialSavedViews,
   initialActiveViewId,
+  widgetCatalog = [],
   leading,
 }: {
+  /** Kullanıcının ekleyebileceği menü ekranları; eklenenler satır olarak gelir. */
+  widgetCatalog?: DashboardWidgetOption[];
   /** Aynı satırda solda gösterilecek araç (ör. şube seçici) — dikey boşluk harcanmaz. */
   leading?: ReactNode;
   role: string;
@@ -99,7 +106,21 @@ export function DashboardGrid({
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, [dirty]);
 
-  const visibleRows = rows.filter((r) => !r.hidden && sections[r.key] != null);
+  // Düzenlemede yeni eklenen widget'ın içeriği henüz yok (kayıttan sonra yüklenir) → yer tutucu.
+  const visibleRows = rows.filter((r) => !r.hidden && (sections[r.key] != null || (editing && isScreenWidgetKey(r.key))));
+  const addableWidgets = widgetCatalog.filter((w) => !rows.some((r) => r.key === w.key));
+  const [widgetPick, setWidgetPick] = useState("");
+
+  function addWidget(key: string) {
+    const w = widgetCatalog.find((x) => x.key === key);
+    if (!w || rows.some((r) => r.key === w.key)) return;
+    setRows((prev) => [...prev, { key: w.key, hidden: false, span: 4 }]);
+    setWidgetPick("");
+  }
+
+  function removeWidget(key: DashboardSectionKey) {
+    setRows((prev) => prev.filter((r) => r.key !== key));
+  }
 
   // ---- masonry (yalnız xl): kart yüksekliği ölç → grid-row span ----
   const [rowSpans, setRowSpans] = useState<Partial<Record<DashboardSectionKey, number>>>({});
@@ -245,6 +266,7 @@ export function DashboardGrid({
         sectionOrder: draft.map((r) => r.key),
         hiddenSections: draft.filter((r) => r.hidden).map((r) => r.key),
         sectionSpans: Object.fromEntries(draft.map((r) => [r.key, r.span])),
+        addedWidgets: draft.filter((r) => isScreenWidgetKey(r.key)).map((r) => r.key),
         savedViews: extra?.savedViews ?? views,
         activeViewId: extra && "activeViewId" in extra ? (extra.activeViewId ?? null) : (activeViewId ?? null),
       });
@@ -338,6 +360,25 @@ export function DashboardGrid({
             aria-label="Yeni görünüm adı"
             className="w-32 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-xs text-[var(--color-text)]"
           />
+          {addableWidgets.length > 0 ? (
+            <select
+              aria-label="Widget ekle"
+              value={widgetPick}
+              onChange={(e) => addWidget(e.target.value)}
+              className="rounded-lg border border-[var(--color-primary)] bg-[var(--color-surface)] px-2 py-1.5 text-xs font-medium text-[var(--color-primary)]"
+            >
+              <option value="">+ Widget ekle…</option>
+              {groupByCategory(addableWidgets).map(([category, items]) => (
+                <optgroup key={category} label={category}>
+                  {items.map((w) => (
+                    <option key={w.key} value={w.key}>
+                      {w.label}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+          ) : null}
           <ToolbarButton disabled={pending || !viewName.trim()} onClick={saveAsView}>
             Görünüm olarak kaydet
           </ToolbarButton>
@@ -367,7 +408,7 @@ export function DashboardGrid({
                   className="inline-flex items-center gap-1 rounded-full border border-dashed border-[var(--color-border-strong)] px-2 py-0.5 font-medium text-[var(--color-text)] hover:border-[var(--color-primary)] hover:text-[var(--color-primary)]"
                 >
                   <Plus className="h-3 w-3" aria-hidden />
-                  {DASHBOARD_SECTION_LABELS[r.key]}
+                  {dashboardSectionLabel(r.key)}
                 </button>
               ))}
             </div>
@@ -408,7 +449,7 @@ export function DashboardGrid({
               <div className="absolute inset-x-0 -top-px z-20 flex items-center gap-1 rounded-t-[var(--radius-md)] bg-[var(--color-surface-muted)]/95 px-1.5 py-1 backdrop-blur-sm">
                 <button
                   type="button"
-                  aria-label={`${DASHBOARD_SECTION_LABELS[row.key]} — taşımak için sürükleyin; ok tuşlarıyla sıra ve genişlik`}
+                  aria-label={`${dashboardSectionLabel(row.key)} — taşımak için sürükleyin; ok tuşlarıyla sıra ve genişlik`}
                   aria-roledescription="sürüklenebilir bölüm"
                   onPointerDown={onHandlePointerDown(row.key)}
                   onPointerMove={onHandlePointerMove}
@@ -418,7 +459,7 @@ export function DashboardGrid({
                   className="flex min-w-0 flex-1 cursor-grab touch-none items-center gap-1 rounded px-1 py-0.5 text-left text-xs font-semibold text-[var(--color-text)] focus-visible:outline-2 focus-visible:outline-[var(--color-primary)] active:cursor-grabbing"
                 >
                   <GripVertical className="h-3.5 w-3.5 shrink-0 text-[var(--color-text-muted)]" aria-hidden />
-                  <span className="truncate">{DASHBOARD_SECTION_LABELS[row.key]}</span>
+                  <span className="truncate">{dashboardSectionLabel(row.key)}</span>
                 </button>
                 {isWide ? (
                   <span className="shrink-0 rounded bg-[var(--color-surface)] px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-[var(--color-text-muted)]">
@@ -434,19 +475,29 @@ export function DashboardGrid({
                     </IconButton>
                   </>
                 )}
-                <IconButton label="Bölümü gizle" onClick={() => setHidden(row.key, true)}>
-                  <EyeOff className="h-3.5 w-3.5" aria-hidden />
-                </IconButton>
+                {isScreenWidgetKey(row.key) ? (
+                  <IconButton label="Widget'ı kaldır" onClick={() => removeWidget(row.key)}>
+                    <X className="h-3.5 w-3.5" aria-hidden />
+                  </IconButton>
+                ) : (
+                  <IconButton label="Bölümü gizle" onClick={() => setHidden(row.key, true)}>
+                    <EyeOff className="h-3.5 w-3.5" aria-hidden />
+                  </IconButton>
+                )}
               </div>
               {/* İçerik düzenleme sırasında etkileşimsiz: yanlışlıkla link/buton tetiklenmez. */}
               <div data-measure-key={row.key} className="pointer-events-none pt-7" aria-hidden>
-                {node}
+                {node ?? (
+                  <div className="rounded-[var(--radius-md)] border border-dashed border-[var(--color-border-strong)] px-3 py-4 text-xs text-[var(--color-text-muted)]">
+                    Kaydettikten sonra içerik yüklenir.
+                  </div>
+                )}
               </div>
               {isWide ? (
                 <div
                   role="separator"
                   aria-orientation="vertical"
-                  aria-label={`${DASHBOARD_SECTION_LABELS[row.key]} genişliği`}
+                  aria-label={`${dashboardSectionLabel(row.key)} genişliği`}
                   aria-valuemin={DASHBOARD_MIN_SPAN}
                   aria-valuemax={DASHBOARD_MAX_SPAN}
                   aria-valuenow={row.span}
@@ -501,7 +552,13 @@ function buildRows(
 ): Row[] {
   const hiddenSet = new Set(hidden);
   const defaults = getDefaultDashboardLayout("SUPER_ADMIN").spans;
-  return order.map((key) => ({ key, hidden: hiddenSet.has(key), span: spans[key] ?? defaults[key] }));
+  return order.map((key) => ({ key, hidden: hiddenSet.has(key), span: spans[key] ?? defaults[key] ?? 4 }));
+}
+
+function groupByCategory(items: DashboardWidgetOption[]): Array<[ScreenWidgetCategory, DashboardWidgetOption[]]> {
+  const map = new Map<ScreenWidgetCategory, DashboardWidgetOption[]>();
+  for (const w of items) map.set(w.category, [...(map.get(w.category) ?? []), w]);
+  return [...map.entries()];
 }
 
 function committedSpans(rows: Row[]): Partial<Record<DashboardSectionKey, DashboardSectionSpan>> {

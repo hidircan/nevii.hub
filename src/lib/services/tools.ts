@@ -336,6 +336,7 @@ import {
   bulkAssignCurriculumTopicsSchema,
   createTrialLessonSchema,
   updateTrialLessonStatusSchema,
+  updateTrialLessonSchema,
   archiveStudentSchema,
   archiveTeacherSchema,
   updateRoomSchema,
@@ -534,7 +535,7 @@ import type {
   StudentContract,
   ContractInstallmentView,
 } from "../types";
-import { createTrialLesson, listTrialLessons, updateTrialLessonStatus, getTrialLesson } from "../trial-lessons";
+import { createTrialLesson, listTrialLessons, updateTrialLessonStatus, getTrialLesson, updateTrialLesson, type TrialLessonPatch } from "../trial-lessons";
 import {
   listTemplates,
   listAllTemplates,
@@ -10401,6 +10402,121 @@ export async function listTrialLessonsTool(
     return ok({ trials });
   } catch (e) {
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "listTrial failed");
+  }
+}
+
+/**
+ * Deneme dersi düzenleme (2026-09-26).
+ * - Tarih/saat/süre/şube/öğretmen değişirse öğretmen kuralları (`validateTrialSlot`)
+ *   normal ders programıyla aynı yardımcılardan yeniden uygulanır.
+ * - Gerçekleşmiş (bitmiş), iptal edilmiş veya kayda dönüşmüş denemenin planı ve
+ *   hazırlık notu kilitlidir — geçmiş sessizce değişmez; yalnız sonuç notu yazılır.
+ * - Sonuç notu yalnız ders başladıktan sonra; hazırlık notunun üzerine yazmaz.
+ * - Öğretmen yalnız kendi denemesini düzenler ve başka öğretmene devredemez.
+ * - Her değişiklik alan-düzeyi diff ile denetime yazılır.
+ */
+export async function updateTrialLessonTool(
+  ctx: ServiceContext,
+  input: unknown,
+  now: Date = new Date()
+): Promise<ServiceResult<{ trialId: string }>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN", "TEACHER"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const v = parseOrFail(updateTrialLessonSchema, input);
+  if (!v.ok) return v;
+  const existing = await getTrialLesson(ctx.tenantId, v.data.trialId);
+  if (!existing) return fail("NOT_FOUND", "Deneme dersi bulunamadı. Listeyi yenileyip tekrar deneyin.");
+  if (ctx.role === "TEACHER" && existing.teacherId !== ctx.teacherId) {
+    return fail("FORBIDDEN", "Yalnızca kendi deneme derslerinizi düzenleyebilirsiniz.");
+  }
+  if (ctx.role === "TEACHER" && v.data.teacherId && v.data.teacherId !== ctx.teacherId) {
+    return fail("FORBIDDEN", "Deneme dersini başka bir öğretmene yalnız yönetici devredebilir.");
+  }
+
+  const d = v.data;
+  const scheduleChanged =
+    (d.startAt !== undefined && new Date(d.startAt).getTime() !== new Date(existing.startAt).getTime()) ||
+    (d.durationMinutes !== undefined && d.durationMinutes !== existing.durationMinutes) ||
+    (d.branchId !== undefined && d.branchId !== existing.branchId) ||
+    (d.teacherId !== undefined && d.teacherId !== existing.teacherId) ||
+    (d.instrument !== undefined && d.instrument !== existing.instrument);
+  const identityChanged =
+    (d.name !== undefined && d.name !== existing.name) || (d.phone !== undefined && d.phone !== existing.phone);
+  const prepChanged = d.notes !== undefined && (d.notes.trim() || undefined) !== (existing.notes || undefined);
+  const resultChanged =
+    d.resultNotes !== undefined && (d.resultNotes.trim() || undefined) !== (existing.resultNotes || undefined);
+
+  const started = new Date(existing.startAt).getTime() <= now.getTime();
+  const finished = new Date(existing.endAt).getTime() <= now.getTime();
+  const locked = finished || existing.status === "cancelled" || Boolean(existing.convertedStudentId);
+  const lockReason = existing.convertedStudentId
+    ? "kayda dönüştürülmüş"
+    : existing.status === "cancelled"
+      ? "iptal edilmiş"
+      : "gerçekleşmiş";
+  if (locked && (scheduleChanged || prepChanged || (identityChanged && existing.convertedStudentId))) {
+    return fail(
+      "VALIDATION_ERROR",
+      `Bu deneme dersi ${lockReason}; tarih, öğretmen, şube ve hazırlık notu artık değiştirilemez. Ders sonrası bilgiyi "Sonuç notu" alanına yazın${
+        existing.status === "cancelled" ? " veya yeni bir deneme planlayın" : ""
+      }.`
+    );
+  }
+  if (resultChanged && !started) {
+    return fail(
+      "VALIDATION_ERROR",
+      "Sonuç notu ders başladıktan sonra girilir. Ders öncesi bilgiyi \"Hazırlık notu\" alanına yazın."
+    );
+  }
+
+  const next = {
+    instrument: d.instrument ?? existing.instrument,
+    branchId: d.branchId ?? existing.branchId,
+    teacherId: d.teacherId ?? existing.teacherId,
+    startAt: d.startAt ? new Date(d.startAt).toISOString() : existing.startAt,
+    durationMinutes: d.durationMinutes ?? existing.durationMinutes,
+  };
+  const data = await readData();
+  if (scheduleChanged) {
+    const { validateTrialSlot } = await import("../makeup-engine");
+    const all = await listTrialLessons(ctx.tenantId);
+    const slot = validateTrialSlot(data, next, all, {
+      excludeTrialId: existing.id,
+      allowAvailabilityOverride: d.allowAvailabilityOverride,
+    });
+    if (!slot.ok) return fail(slot.code === "TEACHER_UNAVAILABLE" ? "CONFLICT" : "VALIDATION_ERROR", slot.message);
+  }
+
+  const patch: TrialLessonPatch = {};
+  if (scheduleChanged) {
+    Object.assign(patch, next, {
+      endAt: new Date(new Date(next.startAt).getTime() + next.durationMinutes * 60_000).toISOString(),
+      instrument: next.instrument as Instrument,
+    });
+  }
+  if (identityChanged) Object.assign(patch, { name: d.name ?? existing.name, phone: d.phone ?? existing.phone });
+  if (prepChanged) patch.notes = d.notes!.trim();
+  if (resultChanged) {
+    patch.resultNotes = d.resultNotes!.trim();
+    patch.resultNotesAt = now.toISOString();
+    patch.resultNotesByUserId = ctx.userId;
+  }
+  if (Object.keys(patch).length === 0) return ok({ trialId: existing.id });
+
+  try {
+    const updated = await updateTrialLesson(ctx.tenantId, existing.id, patch);
+    if (!updated) return fail("NOT_FOUND", "Deneme dersi bulunamadı. Listeyi yenileyip tekrar deneyin.");
+    const { resultNotesAt: _a, resultNotesByUserId: _b, ...auditable } = patch;
+    void _a;
+    void _b;
+    audit(ctx, "trial.update", "TrialLesson", existing.id, {
+      entityName: existing.name,
+      changes: diffRecordFields(existing as unknown as Record<string, unknown>, auditable as Record<string, unknown>),
+      ...(d.allowAvailabilityOverride && scheduleChanged ? { availabilityOverride: true } : {}),
+    });
+    return ok({ trialId: existing.id });
+  } catch (e) {
+    return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "updateTrial failed");
   }
 }
 

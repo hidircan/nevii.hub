@@ -119,6 +119,7 @@ export {
   createTrialLessonTool,
   listTrialLessonsTool,
   updateTrialLessonStatusTool,
+  updateTrialLessonTool,
   listDocumentTemplatesTool,
   listAllDocumentTemplatesTool,
   createDocumentTemplateTool,

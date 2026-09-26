@@ -1979,7 +1979,12 @@ model TrialLesson {
   /// Deneme → öğrenci dönüşümünü yapan kullanıcı ve anı (dönüşüm raporu/performans).
   convertedAt        DateTime?
   convertedByUserId  String?
+  /// Hazırlık notu — ders öncesi/planlama sırasında (ders sonrası nottan AYRI).
   notes              String?
+  /// Ders sonrası sonuç/görüşme notu — hazırlık notunun üzerine yazılmaz.
+  resultNotes        String?
+  resultNotesAt      DateTime?
+  resultNotesByUserId String?
   createdBy          String
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt

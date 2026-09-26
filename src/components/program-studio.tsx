@@ -1,5 +1,7 @@
 "use client";
 
+import { defaultLessonTeacherId, lessonTeacherOptions } from "@/lib/lesson-teacher-options";
+import { teacherServesBranch } from "@/lib/teacher-branches";
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
@@ -174,19 +176,6 @@ export function computeGridWindow(
 /** Sadece normal (telafi olmayan), planlanmış ve gelecekteki dersler taşınabilir/resize edilebilir. */
 function canMoveOrResize(lesson: Lesson, now: Date) {
   return lesson.type === "regular" && lesson.status === "scheduled" && parseISO(lesson.startAt) > now;
-}
-
-/** Öğrenci varsa: mevcut öğretmeni ve aynı şubeyi öne alarak sıralar. */
-function teacherOptionsFor(teachers: Teacher[], instrument: Instrument, student?: Student): Teacher[] {
-  return [...teachers.filter((t) => t.active && t.instruments.includes(instrument))].sort((a, b) => {
-    if (student) {
-      if (a.id === student.teacherId && b.id !== student.teacherId) return -1;
-      if (b.id === student.teacherId && a.id !== student.teacherId) return 1;
-      if (a.branchId === student.branchId && b.branchId !== student.branchId) return -1;
-      if (b.branchId === student.branchId && a.branchId !== student.branchId) return 1;
-    }
-    return a.name.localeCompare(b.name, "tr");
-  });
 }
 
 /**
@@ -447,7 +436,7 @@ export function filterLessonsForCalendar(
 
 export function activeTeachersForBranch(teachers: Teacher[], filterBranchId: string): Teacher[] {
   return teachers
-    .filter((t) => t.active && (!filterBranchId || t.branchId === filterBranchId))
+    .filter((t) => t.active && (!filterBranchId || teacherServesBranch(t, filterBranchId)))
     .sort((a, b) => a.name.localeCompare(b.name, "tr"));
 }
 
@@ -459,7 +448,7 @@ export function resolveTeacherFilterForBranch(
 ): string {
   if (!currentTeacherId) return currentTeacherId;
   const teacher = teachers.find((t) => t.id === currentTeacherId);
-  if (!teacher || (nextBranchId && teacher.branchId !== nextBranchId)) return "";
+  if (!teacher || (nextBranchId && !teacherServesBranch(teacher, nextBranchId))) return "";
   return currentTeacherId;
 }
 
@@ -767,9 +756,13 @@ export function ProgramStudio({
     students.filter((s) => s.active),
     lessonBranchId
   );
-  const teacherOptions = teacherOptionsFor(teachers, instrument, selectedStudent).filter(
-    (t) => !lessonBranchId || t.branchId === lessonBranchId
-  );
+  const teacherOptions = lessonTeacherOptions(teachers, {
+    instrument,
+    branchId: lessonBranchId || undefined,
+    branchName: branchNames[lessonBranchId],
+    student: selectedStudent,
+  });
+  const assignedTeacherIssue = teacherOptions.find((t) => t.isAssigned && !t.eligible)?.reason;
   const roomOptions = roomOptionsFor(rooms, instrument, selectedTeacher).filter(
     (r) => !lessonBranchId || r.branchId === lessonBranchId
   );
@@ -805,9 +798,13 @@ export function ProgramStudio({
     students.filter((s) => s.active),
     seriesBranchId
   );
-  const seriesTeacherOptions = teacherOptionsFor(teachers, seriesInstrument, seriesSelectedStudent).filter(
-    (t) => !seriesBranchId || t.branchId === seriesBranchId
-  );
+  const seriesTeacherOptions = lessonTeacherOptions(teachers, {
+    instrument: seriesInstrument,
+    branchId: seriesBranchId || undefined,
+    branchName: branchNames[seriesBranchId],
+    student: seriesSelectedStudent,
+  });
+  const seriesAssignedTeacherIssue = seriesTeacherOptions.find((t) => t.isAssigned && !t.eligible)?.reason;
   const seriesRoomOptions = roomOptionsFor(rooms, seriesInstrument, seriesSelectedTeacher).filter(
     (r) => !seriesBranchId || r.branchId === seriesBranchId
   );
@@ -850,8 +847,14 @@ export function ProgramStudio({
     setStudentId(id);
     const student = students.find((s) => s.id === id);
     if (student) {
-      setInstrument(student.instruments[0] ?? "Piyano");
-      setTeacherId(student.teacherId);
+      const nextInstrument = student.instruments[0] ?? "Piyano";
+      setInstrument(nextInstrument);
+      // Atanmış öğretmen yalnız uygunsa önerilir; değilse boş kalır ve neden gösterilir.
+      setTeacherId(
+        defaultLessonTeacherId(
+          lessonTeacherOptions(teachers, { instrument: nextInstrument, branchId: student.branchId, student })
+        )
+      );
       setLessonBranchId(student.branchId);
     }
   }
@@ -901,8 +904,13 @@ export function ProgramStudio({
     setSeriesPreview(null);
     const student = students.find((s) => s.id === id);
     if (student) {
-      setSeriesInstrument(student.instruments[0] ?? "Piyano");
-      setSeriesTeacherId(student.teacherId);
+      const nextInstrument = student.instruments[0] ?? "Piyano";
+      setSeriesInstrument(nextInstrument);
+      setSeriesTeacherId(
+        defaultLessonTeacherId(
+          lessonTeacherOptions(teachers, { instrument: nextInstrument, branchId: student.branchId, student })
+        )
+      );
       setSeriesBranchId(student.branchId);
     }
   }
@@ -1331,12 +1339,18 @@ export function ProgramStudio({
           <Select value={teacherId} onChange={(e) => selectTeacher(e.target.value)} required>
             <option value="">Seçin…</option>
             {teacherOptions.map((t) => (
-              <option key={t.id} value={t.id}>
+              <option key={t.id} value={t.id} disabled={!t.eligible}>
                 {t.name}
-                {selectedStudent?.teacherId === t.id ? " · mevcut öğretmen" : ""}
+                {t.isAssigned ? " · öğrencinin öğretmeni" : ""}
+                {!t.eligible ? " (uygun değil)" : ""}
               </option>
             ))}
           </Select>
+          {assignedTeacherIssue ? (
+            <p role="alert" className="mt-1 text-xs font-medium" style={{ color: "var(--color-warning)" }}>
+              {assignedTeacherIssue}
+            </p>
+          ) : null}
         </div>
         <div>
           <Label>Oda</Label>
@@ -1490,12 +1504,18 @@ export function ProgramStudio({
           <Select value={seriesTeacherId} onChange={(e) => selectSeriesTeacher(e.target.value)} required>
             <option value="">Seçin…</option>
             {seriesTeacherOptions.map((t) => (
-              <option key={t.id} value={t.id}>
+              <option key={t.id} value={t.id} disabled={!t.eligible}>
                 {t.name}
-                {seriesSelectedStudent?.teacherId === t.id ? " · mevcut öğretmen" : ""}
+                {t.isAssigned ? " · öğrencinin öğretmeni" : ""}
+                {!t.eligible ? " (uygun değil)" : ""}
               </option>
             ))}
           </Select>
+          {seriesAssignedTeacherIssue ? (
+            <p role="alert" className="mt-1 text-xs font-medium" style={{ color: "var(--color-warning)" }}>
+              {seriesAssignedTeacherIssue}
+            </p>
+          ) : null}
         </div>
         <div>
           <Label>Oda</Label>

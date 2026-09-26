@@ -54,6 +54,8 @@ describe("resolveDashboardLayout — kullanıcı override + rol kapısı", () =>
       "collections",
       "contracts",
       "tasks",
+      // 2026-09-26 — yeni "Deneme dersleri" bölümü eski kayıtlı sıranın sonuna eklenir.
+      "trials",
     ]);
     expect(resolved.hidden).toEqual(["metrics", "branchLoad"]);
     expect(resolved.order[0]).toBe("metrics");

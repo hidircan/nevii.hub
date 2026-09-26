@@ -120,6 +120,39 @@ export async function updateTrialLessonStatus(
   return pub;
 }
 
+/** Düzenlenebilir alanlar — `undefined` alan dokunulmaz (kısmi güncelleme). */
+export type TrialLessonPatch = Partial<
+  Pick<TrialLesson, "name" | "phone" | "instrument" | "branchId" | "teacherId" | "startAt" | "endAt" | "durationMinutes" | "notes">
+> & { resultNotes?: string; resultNotesAt?: string; resultNotesByUserId?: string };
+
+/** Kısmi güncelleme; json/db aynı davranış. Dönüşüm/statü alanlarına dokunmaz. */
+export async function updateTrialLesson(tenantId: string, id: string, patch: TrialLessonPatch): Promise<TrialLesson | null> {
+  const defined = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)) as TrialLessonPatch;
+  if (isDbMode) {
+    const { prisma } = await import("./db");
+    const r = await prisma.trialLesson.findFirst({ where: { id, tenantId } });
+    if (!r) return null;
+    const u = await prisma.trialLesson.update({
+      where: { id },
+      data: {
+        ...defined,
+        ...(defined.startAt ? { startAt: new Date(defined.startAt) } : {}),
+        ...(defined.endAt ? { endAt: new Date(defined.endAt) } : {}),
+        ...(defined.resultNotesAt ? { resultNotesAt: new Date(defined.resultNotesAt) } : {}),
+      },
+    });
+    return mapDb(u);
+  }
+  const all = await loadAll();
+  const idx = all.findIndex((t) => t.id === id && t.tenantId === tenantId);
+  if (idx < 0) return null;
+  all[idx] = { ...all[idx], ...defined, updatedAt: new Date().toISOString() };
+  await saveAll(all);
+  const { tenantId: _t, ...pub } = all[idx];
+  void _t;
+  return pub;
+}
+
 function mapDb(r: {
   id: string;
   name: string;
@@ -135,6 +168,9 @@ function mapDb(r: {
   convertedAt: Date | null;
   convertedByUserId: string | null;
   notes: string | null;
+  resultNotes?: string | null;
+  resultNotesAt?: Date | null;
+  resultNotesByUserId?: string | null;
   createdBy: string;
   createdAt: Date;
   updatedAt: Date;
@@ -154,6 +190,9 @@ function mapDb(r: {
     convertedAt: r.convertedAt?.toISOString() ?? undefined,
     convertedByUserId: r.convertedByUserId ?? undefined,
     notes: r.notes ?? undefined,
+    resultNotes: r.resultNotes ?? undefined,
+    resultNotesAt: r.resultNotesAt?.toISOString() ?? undefined,
+    resultNotesByUserId: r.resultNotesByUserId ?? undefined,
     createdBy: r.createdBy,
     createdAt: r.createdAt.toISOString(),
     updatedAt: r.updatedAt.toISOString(),

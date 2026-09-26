@@ -11,16 +11,17 @@ Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_20
 - Kritik işlem kapısı TEK: `checkCriticalPassword` + `canRunCriticalActions` (tools.ts).
 - Rol modeli: tek HYPER_ADMIN platform sahibi; kurum sahibi SUPER_ADMIN.
 
-## Güncel snapshot — 2026-09-25 (6. tur)
-- **Dal:** `fix/uat-round-6` (worktree `../nevii-hub-uat-round6`) → `test`. Önceki: `8f85a4b` (5. tur). **Migration yok.**
-- **Kök neden (ödeme/yoklama):** db `readData()` ödeme eşlemesinde `contractId`/`installmentSequence` yoktu → takvim her ay
-  "plan yok", takvim tahsilatı ayrı `monthly_plan` açıyordu. Düzeltildi (`mapDbPayment` + parity testi); sözleşme varken
-  `monthly_plan` yedeği kapalı.
-- **Borç kuralı tek:** `isLiveObligation` (payment-profile.ts) + `listTerminalContractIds` — gecikmiş, Günlük Özet, tahsilat
-  kuyruğu, otomatik hatırlatma, Ödemeler/Öğrenciler listesi, öğrenci "Borç" bölümü aynı kuralı kullanır.
-- Öğrenci Ödemeler sekmesi "Borç" görünümü; Değişiklik geçmişi varsayılan kapalı; Yoklama seçicisi yalnız aktif öğrenci;
-  Evraklar Merkezi sayfalama + aktif/pasif + kişi/tür/durum/şube/tarih/sıralama.
-- UAT: `docs/testing/UAT_2026_09_25_ROUND_6.md`. 5. tur: `docs/testing/UAT_2026_09_24_ROUND_5.md`.
+## Güncel snapshot — 2026-09-26 (7. tur)
+- **Dal:** `feat/trial-dashboard-widgets` (worktree `../nevii-hub-trial-dashboard`) → `test`. **Migration VAR (additive):**
+  `20260926090000_trial_result_notes` (TrialLesson.resultNotes/At/ByUserId) — test DB'ye owner onayıyla uygulanmalı.
+- Günlük Özet: "Deneme dersleri" bölümü (`dashboard/trial-digest.ts`); "Widget ekle" = menü ekranı widget'ları
+  (`dashboard/screen-widgets.ts`, kaynak `panel-nav.ts`, yetki sidebar ile aynı, `addedWidgets` kullanıcı tercihinde, opt-in).
+- Deneme: hazırlık notu (`notes`) ≠ sonuç notu (`resultNotes`); `updateTrialLessonTool` + `PATCH /api/v1/trials/[id]`;
+  gerçekleşmiş/iptal/dönüşmüş denemede plan+hazırlık kilitli; plan değişince `validateTrialSlot`. Liste: `trial-list-filter.ts`.
+- Öğretmen seçici kök neden: UI yalnız birincil şubeye bakıyordu (sunucu `teacherServesBranch` kullanıyor) → atanmış öğretmen
+  sessizce düşüyordu. Tek kural `lesson-teacher-options.ts`. Test DB: Gülce→Pınar (yalnız Erzene), Mine→**Olcay Özdemir** (yalnız Erzene).
+- Kurum adı test DB'de "Nilüfer Acar Müzik Akademisi" (Tenant+School); kodda sabit değil. Değişiklik owner kararı bekliyor.
+- UAT: `docs/testing/UAT_2026_09_26_TRIAL_DASHBOARD_ROUND_7.md`.
 
 ## Ortamlar
 - Test: `test` dalı → Vercel → `test.neviihub.com`; test DB Supabase `vxzewyiwfshobjizzetw` (repo migration'ları uygulandı,
@@ -37,5 +38,6 @@ Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_20
 - Uzun vadeli açıklar (PDF sayfa altbilgisi, toplu tarihsel sözleşme importu, aynı-gün iptal bildirimi): arşivdeki "Open work".
 
 ## Riskler / bilinen durum
-- Tarihe bağlı bilinen başarısızlıklar (2026-09-25, origin/test 8f85a4b): `lesson-series-tools › skipConflicts`, `lesson-move-resize-flow › başarılı taşıma`.
+- Bilinen başarısızlıklar (2026-09-26, origin/test 71fa5b9'da da var): `lesson-series-tools › skipConflicts`,
+  `lesson-reassignment › kutucuk işaretliyse…`, `change-password-route › yanlış mevcut şifre` (>15 dk asılı kalıyor).
 - `docs/project-brain/CURRENT_STATE.md` 2026-08-31'de donmuş; güncel durum burası.

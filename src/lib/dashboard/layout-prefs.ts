@@ -6,6 +6,13 @@
  */
 
 import type { DashboardPreferences, DashboardSavedView, DashboardSectionSpan } from "../user-preferences";
+import {
+  getScreenWidget,
+  isScreenWidgetKey,
+  permittedScreenWidgets,
+  type ScreenWidgetAccess,
+  type ScreenWidgetKey,
+} from "./screen-widgets";
 
 export type { DashboardSectionSpan };
 
@@ -13,6 +20,7 @@ export const DASHBOARD_SECTION_KEYS = [
   "actions",
   "metrics",
   "todaySchedule",
+  "trials",
   "collections",
   "contracts",
   "branchLoad",
@@ -20,12 +28,15 @@ export const DASHBOARD_SECTION_KEYS = [
   "payout",
 ] as const;
 
-export type DashboardSectionKey = (typeof DASHBOARD_SECTION_KEYS)[number];
+export type BuiltinDashboardSectionKey = (typeof DASHBOARD_SECTION_KEYS)[number];
+/** Yerleşik bölüm veya "Widget ekle" ile eklenen menü ekranı (`screen:*`). */
+export type DashboardSectionKey = BuiltinDashboardSectionKey | ScreenWidgetKey;
 
-export const DASHBOARD_SECTION_LABELS: Record<DashboardSectionKey, string> = {
+export const DASHBOARD_SECTION_LABELS: Record<BuiltinDashboardSectionKey, string> = {
   actions: "Aksiyon gerekli",
   metrics: "Rakamlar şeridi",
   todaySchedule: "Bugünün programı",
+  trials: "Deneme dersleri",
   collections: "Tahsilat",
   contracts: "Sözleşme",
   branchLoad: "Şube yoğunluğu",
@@ -44,10 +55,17 @@ export function clampDashboardSpan(value: number): DashboardSectionSpan {
   return Math.min(DASHBOARD_MAX_SPAN, Math.max(DASHBOARD_MIN_SPAN, rounded)) as DashboardSectionSpan;
 }
 
-const DEFAULT_SPANS: Record<DashboardSectionKey, DashboardSectionSpan> = {
+export function dashboardSectionLabel(key: DashboardSectionKey): string {
+  return (DASHBOARD_SECTION_LABELS as Record<string, string>)[key] ?? getScreenWidget(key)?.label ?? key;
+}
+
+const SCREEN_WIDGET_DEFAULT_SPAN: DashboardSectionSpan = 4;
+
+const DEFAULT_SPANS: Record<BuiltinDashboardSectionKey, DashboardSectionSpan> = {
   actions: 12,
   metrics: 12,
   todaySchedule: 7,
+  trials: 5,
   collections: 5,
   contracts: 5,
   branchLoad: 4,
@@ -56,11 +74,33 @@ const DEFAULT_SPANS: Record<DashboardSectionKey, DashboardSectionSpan> = {
   payout: 12,
 };
 
+function defaultSpan(key: DashboardSectionKey): DashboardSectionSpan {
+  return (DEFAULT_SPANS as Record<string, DashboardSectionSpan>)[key] ?? SCREEN_WIDGET_DEFAULT_SPAN;
+}
+
 const ALL_ORDER: DashboardSectionKey[] = [...DASHBOARD_SECTION_KEYS];
 const NON_OWNER_ORDER: DashboardSectionKey[] = ALL_ORDER.filter((k) => k !== "payout");
 
 export function isDashboardSectionKey(value: string): value is DashboardSectionKey {
-  return (DASHBOARD_SECTION_KEYS as readonly string[]).includes(value);
+  return (DASHBOARD_SECTION_KEYS as readonly string[]).includes(value) || isScreenWidgetKey(value);
+}
+
+/**
+ * Kullanıcının eklediği widget'lardan HÂLÂ yetkili ve katalogda olanlar —
+ * yetkisi düşen veya menüden kalkan ekran sessizce görünmez olur.
+ */
+export function resolveAddedWidgets(
+  stored: string[] | undefined | null,
+  access: ScreenWidgetAccess
+): ScreenWidgetKey[] {
+  const permitted = new Set(permittedScreenWidgets(access).map((w) => w.key));
+  const out: ScreenWidgetKey[] = [];
+  for (const raw of Array.isArray(stored) ? stored : []) {
+    if (typeof raw === "string" && permitted.has(raw as ScreenWidgetKey) && !out.includes(raw as ScreenWidgetKey)) {
+      out.push(raw as ScreenWidgetKey);
+    }
+  }
+  return out;
 }
 
 export function isOwnerRole(role: string | undefined | null): boolean {
@@ -76,7 +116,7 @@ export function getDefaultDashboardLayout(role: string | undefined | null): {
   return {
     order: isOwnerRole(role) ? [...ALL_ORDER] : [...NON_OWNER_ORDER],
     hidden: [],
-    spans: { ...DEFAULT_SPANS },
+    spans: { ...DEFAULT_SPANS } as Record<DashboardSectionKey, DashboardSectionSpan>,
   };
 }
 
@@ -94,6 +134,8 @@ export type ResolvedDashboardLayout = {
   order: DashboardSectionKey[];
   hidden: DashboardSectionKey[];
   spans: Record<DashboardSectionKey, DashboardSectionSpan>;
+  /** Yetkili ve hâlâ katalogda olan eklenmiş ekran widget'ları. */
+  addedWidgets: ScreenWidgetKey[];
 };
 
 /**
@@ -102,12 +144,15 @@ export type ResolvedDashboardLayout = {
  */
 export function resolveDashboardLayout(
   prefs: DashboardPreferences | undefined | null,
-  role: string | undefined | null
+  role: string | undefined | null,
+  access: ScreenWidgetAccess = { role }
 ): ResolvedDashboardLayout {
   const defaults = getDefaultDashboardLayout(role);
-  const allowed = new Set(defaults.order);
+  const addedWidgets = resolveAddedWidgets(prefs?.addedWidgets, access);
+  const baseOrder = [...defaults.order, ...addedWidgets];
+  const allowed = new Set(baseOrder);
 
-  const order = mergeSectionOrder(prefs?.sectionOrder, defaults.order).filter((k) => allowed.has(k));
+  const order = mergeSectionOrder(prefs?.sectionOrder, baseOrder).filter((k) => allowed.has(k));
 
   const hiddenRaw = Array.isArray(prefs?.hiddenSections) ? prefs!.hiddenSections! : [];
   const hidden = hiddenRaw.filter((k): k is DashboardSectionKey => isDashboardSectionKey(k) && allowed.has(k));
@@ -126,8 +171,8 @@ export function resolveDashboardLayout(
 
   const editable = order.map((key) => ({
     key,
-    span: spans[key] ?? DEFAULT_SPANS[key],
-    label: DASHBOARD_SECTION_LABELS[key],
+    span: spans[key] ?? defaultSpan(key),
+    label: dashboardSectionLabel(key),
     hidden: hiddenSet.has(key),
   }));
 
@@ -135,7 +180,7 @@ export function resolveDashboardLayout(
     .filter((s) => !s.hidden)
     .map(({ key, span, label }) => ({ key, span, label }));
 
-  return { visible, editable, order, hidden, spans };
+  return { visible, editable, order, hidden, spans, addedWidgets };
 }
 
 /** Kayıtlı sıra + varsayılanlar: ölü anahtar düşer, eksik sona eklenir. */
@@ -158,6 +203,16 @@ export function mergeSectionOrder(
   return ordered;
 }
 
+/**
+ * Kayda yazılacak sıra: yetkili anahtarlar kendi sırasıyla + eksik YERLEŞİK
+ * bölümler sona. Eklenmemiş ekran widget'ları sıraya kendiliğinden girmez.
+ */
+function mergeStoredOrder(stored: string[] | undefined, allowedKeys: Set<DashboardSectionKey>): DashboardSectionKey[] {
+  const builtins = [...allowedKeys].filter((k) => !isScreenWidgetKey(k));
+  const mentioned = (stored ?? []).filter((k): k is DashboardSectionKey => allowedKeys.has(k as DashboardSectionKey));
+  return mergeSectionOrder(mentioned, [...builtins, ...mentioned.filter(isScreenWidgetKey)]);
+}
+
 export type DashboardLayoutPatch = {
   hiddenSections?: string[];
   sectionOrder?: string[];
@@ -167,6 +222,8 @@ export type DashboardLayoutPatch = {
   activeViewId?: string | null;
   /** true → layout alanlarını sil; defaultBranchId ve savedViews korunur. */
   resetToDefault?: boolean;
+  /** Eklenmiş ekran widget'larının TAM listesi (yetkisizler düşer). */
+  addedWidgets?: string[];
 };
 
 const VIEW_ID = /^[a-zA-Z0-9_-]{1,40}$/;
@@ -183,7 +240,7 @@ function sanitizeSavedViews(
     const name = typeof view?.name === "string" ? view.name.trim().slice(0, 40) : "";
     if (!VIEW_ID.test(id) || !name || seen.has(id)) continue;
     seen.add(id);
-    const order = mergeSectionOrder(view.sectionOrder, [...allowedKeys] as DashboardSectionKey[]);
+    const order = mergeStoredOrder(view.sectionOrder, allowedKeys);
     const hiddenSeen = new Set<string>();
     const hidden = (view.hiddenSections ?? []).filter((k) => {
       if (!isDashboardSectionKey(k) || !allowedKeys.has(k) || hiddenSeen.has(k)) return false;
@@ -206,15 +263,19 @@ function sanitizeSavedViews(
  */
 export function sanitizeDashboardLayoutPatch(
   patch: DashboardLayoutPatch,
-  role: string | undefined | null
+  role: string | undefined | null,
+  access: ScreenWidgetAccess = { role }
 ): Omit<DashboardPreferences, "defaultBranchId"> | { clearLayout: true } {
   if (patch.resetToDefault) return { clearLayout: true };
 
-  const allowedKeys = new Set(getDefaultDashboardLayout(role).order);
+  const allowedKeys = new Set<DashboardSectionKey>([
+    ...getDefaultDashboardLayout(role).order,
+    ...permittedScreenWidgets(access).map((w) => w.key),
+  ]);
   const out: Omit<DashboardPreferences, "defaultBranchId"> = {};
 
   if (patch.sectionOrder !== undefined) {
-    out.sectionOrder = mergeSectionOrder(patch.sectionOrder, [...allowedKeys] as DashboardSectionKey[]);
+    out.sectionOrder = mergeStoredOrder(patch.sectionOrder, allowedKeys);
   }
 
   if (patch.hiddenSections !== undefined) {
@@ -237,6 +298,10 @@ export function sanitizeDashboardLayoutPatch(
 
   if (patch.savedViews !== undefined) {
     out.savedViews = sanitizeSavedViews(patch.savedViews, allowedKeys) ?? [];
+  }
+
+  if (patch.addedWidgets !== undefined) {
+    out.addedWidgets = resolveAddedWidgets(patch.addedWidgets, access);
   }
 
   if (patch.activeViewId !== undefined) {
