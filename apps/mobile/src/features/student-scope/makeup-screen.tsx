@@ -17,6 +17,7 @@ import { useFocusRefetch } from "../../hooks/use-focus-refetch";
 import { ledgerStatusBadge } from "../../lib/attendance-display";
 import { format, shortDayMonth } from "../../lib/date";
 import { makeupStatusBadge } from "../../lib/makeup-view";
+import { useLocale } from "../../i18n/locale-context";
 import { useSelectedStudentId } from "../../student/student-context";
 import { useTheme } from "../../theme/theme-context";
 import type { MakeupLedgerItem, MakeupLedgerResponse, MakeupLedgerLessonRef } from "../../types/api";
@@ -32,6 +33,7 @@ const span = (startIso: string, endIso: string) => `${format(new Date(startIso),
  */
 export function StudentScopeMakeupListScreen({ basePath }: { basePath: "/(parent)" | "/(student)" }) {
   const t = useTheme();
+  const { t: tr } = useLocale();
   const router = useRouter();
   const studentId = useSelectedStudentId();
   const res = useCachedApiGet<MakeupLedgerResponse>(studentId ? `/api/v1/students/${studentId}/makeup-ledger?limit=100` : "");
@@ -41,8 +43,8 @@ export function StudentScopeMakeupListScreen({ basePath }: { basePath: "/(parent
   if (!studentId) {
     return (
       <Screen>
-        <AppHeader title="Telafiler" showBack backFallback={`${basePath}/anasayfa`} showNotifications={false} />
-        <EmptyState icon="alert-circle-outline" title="Öğrenci bilgisi bulunamadı" />
+        <AppHeader title={tr("makeup.listTitle")} showBack backFallback={`${basePath}/anasayfa`} showNotifications={false} />
+        <EmptyState icon="alert-circle-outline" title={tr("home.noStudentTitle")} />
       </Screen>
     );
   }
@@ -51,7 +53,7 @@ export function StudentScopeMakeupListScreen({ basePath }: { basePath: "/(parent
 
   return (
     <Screen scroll={false}>
-      <AppHeader title="Telafiler" showBack backFallback={`${basePath}/anasayfa`} showNotifications={false} />
+      <AppHeader title={tr("makeup.listTitle")} showBack backFallback={`${basePath}/anasayfa`} showNotifications={false} />
       <CacheStatus cachedAt={res.cachedAt} isStale={res.isStale} />
       {res.status === "loading" ? (
         <LoadingSkeleton rows={4} />
@@ -68,8 +70,8 @@ export function StudentScopeMakeupListScreen({ basePath }: { basePath: "/(parent
           ListEmptyComponent={
             <EmptyState
               icon="swap-horizontal-outline"
-              title="Telafi kaydı yok"
-              description="Açık veya geçmiş telafi kaydı olduğunda burada görünecek."
+              title={tr("makeup.emptyTitle")}
+              description={tr("makeup.emptyBody")}
             />
           }
           refreshControl={<RefreshControl refreshing={false} onRefresh={res.refresh} tintColor={t.colors.primary} />}
@@ -87,6 +89,7 @@ function Separator() {
 
 function MakeupRow({ item, onPress }: { item: MakeupLedgerItem; onPress: () => void }) {
   const t = useTheme();
+  const { t: tr } = useLocale();
   const badge = makeupStatusBadge(item.status);
   return (
     <View accessible accessibilityLabel={makeupLedgerA11yLabel(item, badge.label)}>
@@ -94,20 +97,20 @@ function MakeupRow({ item, onPress }: { item: MakeupLedgerItem; onPress: () => v
         <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}>
           <View style={{ flex: 1, minWidth: 0 }}>
             <Text style={[t.typography.bodyStrong, { color: t.colors.text }]} numberOfLines={1}>
-              {[item.teacherName, item.instrument].filter(Boolean).join(" · ") || "Telafi kaydı"}
+              {[item.teacherName, item.instrument].filter(Boolean).join(" · ") || tr("makeup.fallbackRow")}
             </Text>
             {item.sourceLesson ? (
               <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]} numberOfLines={1}>
-                Kaçırılan ders: {when(item.sourceLesson.startAt)}
+                {tr("makeup.missedLesson", { v: when(item.sourceLesson.startAt) })}
               </Text>
             ) : null}
             {item.confirmedLesson ? (
               <Text style={[t.typography.caption, { color: t.colors.text, marginTop: 2 }]} numberOfLines={1}>
-                Telafi dersi: {when(item.confirmedLesson.startAt)}
+                {tr("makeup.confirmedLesson", { v: when(item.confirmedLesson.startAt) })}
               </Text>
             ) : isOpenMakeup(item.status) ? (
               <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>
-                Telafi dersi henüz planlanmadı
+                {tr("makeup.notPlanned")}
               </Text>
             ) : null}
           </View>
@@ -131,6 +134,7 @@ export function StudentScopeMakeupDetailScreen({
   makeupId: string;
 }) {
   const t = useTheme();
+  const { t: tr } = useLocale();
   const router = useRouter();
   const studentId = useSelectedStudentId();
   const res = useCachedApiGet<MakeupLedgerResponse>(studentId ? `/api/v1/students/${studentId}/makeup-ledger?limit=200` : "");
@@ -140,7 +144,7 @@ export function StudentScopeMakeupDetailScreen({
   if (res.status === "loading") {
     return (
       <Screen>
-        <AppHeader title="Telafi" showBack backFallback={`${basePath}/telafiler`} showNotifications={false} />
+        <AppHeader title={tr("makeup.singleTitle")} showBack backFallback={`${basePath}/telafiler`} showNotifications={false} />
         <LoadingSkeleton rows={4} />
       </Screen>
     );
@@ -148,7 +152,7 @@ export function StudentScopeMakeupDetailScreen({
   if (res.status === "error") {
     return (
       <Screen>
-        <AppHeader title="Telafi" showBack backFallback={`${basePath}/telafiler`} showNotifications={false} />
+        <AppHeader title={tr("makeup.singleTitle")} showBack backFallback={`${basePath}/telafiler`} showNotifications={false} />
         <ErrorState message={res.message} onRetry={res.refresh} code={res.code} />
       </Screen>
     );
@@ -158,11 +162,11 @@ export function StudentScopeMakeupDetailScreen({
   if (!item) {
     return (
       <Screen>
-        <AppHeader title="Telafi" showBack backFallback={`${basePath}/telafiler`} showNotifications={false} />
+        <AppHeader title={tr("makeup.singleTitle")} showBack backFallback={`${basePath}/telafiler`} showNotifications={false} />
         <EmptyState
           icon="alert-circle-outline"
-          title="Telafi kaydı bulunamadı"
-          description="Seçili öğrenci değişmiş veya kayıt kaldırılmış olabilir."
+          title={tr("makeup.notFound")}
+          description={tr("makeup.notFoundBody")}
         />
       </Screen>
     );
@@ -172,13 +176,13 @@ export function StudentScopeMakeupDetailScreen({
 
   return (
     <Screen onRefresh={res.refresh} refreshing={false}>
-      <AppHeader title="Telafi detayı" showBack backFallback={`${basePath}/telafiler`} showNotifications={false} />
+      <AppHeader title={tr("makeup.detailTitle")} showBack backFallback={`${basePath}/telafiler`} showNotifications={false} />
 
       <Card>
         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
           <View style={{ flex: 1 }}>
             <Text style={[t.typography.cardTitle, { color: t.colors.text }]} numberOfLines={2}>
-              {[item.teacherName, item.instrument].filter(Boolean).join(" · ") || "Telafi kaydı"}
+              {[item.teacherName, item.instrument].filter(Boolean).join(" · ") || tr("makeup.fallbackRow")}
             </Text>
             {item.branchName ? (
               <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>{item.branchName}</Text>
@@ -188,31 +192,31 @@ export function StudentScopeMakeupDetailScreen({
         </View>
         {item.decidedAt ? (
           <Text style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 8 }]}>
-            Karar: {when(item.decidedAt)}
+            {tr("makeup.decided", { v: when(item.decidedAt) })}
           </Text>
         ) : null}
         <Text style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 2 }]}>
-          Son geçerlilik: {shortDayMonth(new Date(item.expiresAt))}
+          {tr("makeup.validUntil", { v: shortDayMonth(new Date(item.expiresAt)) })}
         </Text>
       </Card>
 
-      <SectionHeader title="Kaçırılan ders" />
+      <SectionHeader title={tr("makeup.missedSection")} />
       <LessonRefCard
         lesson={item.sourceLesson}
-        emptyText="Kaynak ders kaydı bulunamıyor."
+        emptyText={tr("makeup.noSource")}
         onOpen={(id) => router.push(`${basePath}/dersler/${id}`)}
       />
 
       {item.reason.trim() ? (
         <>
-          <SectionHeader title="Gerekçe" />
+          <SectionHeader title={tr("makeup.reasonSection")} />
           <Card>
             <Text style={[t.typography.body, { color: t.colors.text }]}>{item.reason}</Text>
           </Card>
         </>
       ) : null}
 
-      <SectionHeader title="Telafi dersi" />
+      <SectionHeader title={tr("makeup.lessonSection")} />
       {item.confirmedLesson ? (
         <LessonRefCard
           lesson={item.confirmedLesson}
@@ -221,9 +225,7 @@ export function StudentScopeMakeupDetailScreen({
       ) : (
         <Card>
           <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>
-            {isOpenMakeup(item.status)
-              ? "Telafi dersi henüz planlanmadı. Planlandığında burada görünecek."
-              : "Bu kayıt için planlanmış bir telafi dersi yok."}
+            {isOpenMakeup(item.status) ? tr("makeup.willAppear") : tr("makeup.noPlannedLesson")}
           </Text>
         </Card>
       )}
@@ -248,10 +250,11 @@ function LessonRefCard({
   onOpen: (lessonId: string) => void;
 }) {
   const t = useTheme();
+  const { t: tr } = useLocale();
   if (!lesson) {
     return (
       <Card>
-        <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>{emptyText ?? "Ders kaydı yok."}</Text>
+        <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>{emptyText ?? tr("makeup.noLesson")}</Text>
       </Card>
     );
   }

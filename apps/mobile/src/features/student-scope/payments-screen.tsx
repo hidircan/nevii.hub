@@ -10,7 +10,8 @@ import { useCachedApiGet } from "../../cache/use-cached-api";
 import { useSelectedStudentId } from "../../student/student-context";
 import { useFocusRefetch } from "../../hooks/use-focus-refetch";
 import { ledgerStatusBadge } from "../../lib/attendance-display";
-import { formatCurrency, shortDayMonth } from "../../lib/date";
+import { formatCurrency, monthYearTitle, shortDayMonth } from "../../lib/date";
+import { useLocale } from "../../i18n/locale-context";
 import { downloadAndOpenFile } from "../../lib/open-file";
 
 function longDate(date: Date): string {
@@ -20,37 +21,21 @@ import { useTheme } from "../../theme/theme-context";
 import { listFallback, usePersonaBasePath } from "../../lib/navigation";
 import type { PaymentLedgerItem, PaymentLedgerMonth, PaymentLedgerResponse, PaymentReceiptResponse } from "../../types/api";
 
-const STATUS_LABEL: Record<string, string> = {
-  paid: "Ödendi",
-  pending: "Bekliyor",
-  overdue: "Gecikti",
-  partial: "Kısmi ödendi",
-  voided: "İptal edildi",
-};
-const STATUS_TONE: Record<string, BadgeTone> = {
-  paid: "success",
-  pending: "warning",
-  overdue: "danger",
-  partial: "info",
-  voided: "neutral",
+const STATUS_KEY: Record<string, { key: string; tone: BadgeTone }> = {
+  paid: { key: "pay.statusPaid", tone: "success" },
+  pending: { key: "pay.statusPending", tone: "warning" },
+  overdue: { key: "pay.statusOverdue", tone: "danger" },
+  partial: { key: "pay.statusPartial", tone: "info" },
+  voided: { key: "pay.statusVoided", tone: "neutral" },
 };
 
-function statusLabel(status: string): string {
-  return STATUS_LABEL[status] ?? status;
-}
-function statusTone(status: string): BadgeTone {
-  return STATUS_TONE[status] ?? "neutral";
-}
-
-const MONTHS_TR = [
-  "Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran",
-  "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık",
-];
-
-function monthTitle(key: string): string {
-  const [y, m] = key.split("-");
-  const name = MONTHS_TR[(Number(m) - 1) % 12] ?? m;
-  return `${name} ${y}`;
+/** Ödeme statü rozeti — bilinmeyen statü kodu olduğu gibi gösterilir (uydurma yok). */
+function usePaymentStatus() {
+  const { t: tr } = useLocale();
+  return (status: string): { label: string; tone: BadgeTone } => {
+    const entry = STATUS_KEY[status];
+    return entry ? { label: tr(entry.key), tone: entry.tone } : { label: status, tone: "neutral" };
+  };
 }
 
 /**
@@ -61,6 +46,7 @@ function monthTitle(key: string): string {
  */
 export function StudentScopePaymentsScreen({ basePath }: { basePath: "/(parent)" | "/(student)" }) {
   const t = useTheme();
+  const { t: tr } = useLocale();
   const router = useRouter();
   const studentId = useSelectedStudentId();
 
@@ -90,7 +76,7 @@ export function StudentScopePaymentsScreen({ basePath }: { basePath: "/(parent)"
     const query = month ? `?month=${month}` : "";
     const r = await downloadAndOpenFile(
       `/api/v1/students/${studentId}/payment-ledger/export${query}`,
-      month ? `odeme-dokumu-${month}.csv` : "odeme-dokumu-tumu.csv"
+      month ? `${tr("pay.filePrefix")}-${month}.csv` : tr("pay.fileAll")
     );
     setExporting(null);
     if (!r.ok) setExportError(r.message);
@@ -98,7 +84,7 @@ export function StudentScopePaymentsScreen({ basePath }: { basePath: "/(parent)"
 
   return (
     <Screen onRefresh={res.refresh} refreshing={res.status === "loading"}>
-      <AppHeader title="Ödemeler" showAccount={`${basePath}/hesabim`} />
+      <AppHeader title={tr("pay.title")} showAccount={`${basePath}/hesabim`} />
       <CacheStatus cachedAt={res.cachedAt} isStale={res.isStale} />
 
       {res.status === "loading" ? (
@@ -110,9 +96,9 @@ export function StudentScopePaymentsScreen({ basePath }: { basePath: "/(parent)"
           <Card style={{ marginBottom: 4 }}>
             <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
               <View style={{ flex: 1 }}>
-                <Text style={[t.typography.body, { color: t.colors.text }]}>Bekleyen bakiye</Text>
+                <Text style={[t.typography.body, { color: t.colors.text }]}>{tr("pay.outstanding")}</Text>
                 <Text style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 2 }]}>
-                  Kurum kayıtlarına göre güncel tutar
+                  {tr("pay.officialHint")}
                 </Text>
               </View>
               <Text style={[t.typography.cardTitle, { color: res.data.outstanding > 0 ? t.colors.danger : t.colors.success }]}>
@@ -120,7 +106,7 @@ export function StudentScopePaymentsScreen({ basePath }: { basePath: "/(parent)"
               </Text>
             </View>
             <Button
-              label={exporting === "all" ? "Hazırlanıyor…" : "Tüm dökümü paylaş"}
+              label={exporting === "all" ? tr("pay.preparing") : tr("pay.shareAll")}
               icon="share-outline"
               variant="secondary"
               size="sm"
@@ -135,7 +121,7 @@ export function StudentScopePaymentsScreen({ basePath }: { basePath: "/(parent)"
           </Card>
 
           {groups.length === 0 ? (
-            <EmptyState icon="card-outline" title="Henüz ödeme kaydı yok" />
+            <EmptyState icon="card-outline" title={tr("pay.noRecords")} />
           ) : (
             <View style={{ gap: 16, marginTop: 12 }}>
               {groups.map(({ month, items }) => (
@@ -173,14 +159,16 @@ function MonthGroup({
   onOpen: (paymentId: string) => void;
 }) {
   const t = useTheme();
+  const { t: tr } = useLocale();
+  const payStatus = usePaymentStatus();
   return (
     <View>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
         <View style={{ flex: 1 }}>
-          <SectionHeader title={monthTitle(month.month)} />
+          <SectionHeader title={monthYearTitle(month.month)} />
         </View>
         <Button
-          label={exporting ? "…" : "Paylaş"}
+          label={exporting ? "…" : tr("pay.share")}
           icon="share-outline"
           variant="secondary"
           size="sm"
@@ -192,11 +180,11 @@ function MonthGroup({
       </View>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 }}>
         <Text style={[t.typography.caption, { color: t.colors.textMuted, flex: 1 }]} numberOfLines={2}>
-          Tahakkuk: {formatCurrency(month.accrued)} · Ödenen: {formatCurrency(month.paid)}
-          {month.remaining > 0 ? ` · Kalan: ${formatCurrency(month.remaining)}` : ""}
-          {month.earliestUnpaidDueDate ? ` · Vade: ${longDate(new Date(month.earliestUnpaidDueDate))}` : ""}
+          {tr("pay.accrued")}: {formatCurrency(month.accrued)} · {tr("pay.paid")}: {formatCurrency(month.paid)}
+          {month.remaining > 0 ? ` · ${tr("pay.remaining")}: ${formatCurrency(month.remaining)}` : ""}
+          {month.earliestUnpaidDueDate ? ` · ${tr("pay.due")}: ${longDate(new Date(month.earliestUnpaidDueDate))}` : ""}
         </Text>
-        <StatusBadge label={statusLabel(month.status)} tone={statusTone(month.status)} />
+        <StatusBadge label={payStatus(month.status).label} tone={payStatus(month.status).tone} />
       </View>
       <View style={{ gap: 10 }}>
         {items.map((p) => {
@@ -210,23 +198,23 @@ function MonthGroup({
                   </Text>
                   <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>
                     {p.status === "partial"
-                      ? `Ödenen: ${formatCurrency(p.paidAmount)} / ${formatCurrency(p.amount)}`
+                      ? tr("pay.paidLine", { p: formatCurrency(p.paidAmount), a: formatCurrency(p.amount) })
                       : formatCurrency(p.amount)}
                   </Text>
                   <Text style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 2 }]}>
-                    {p.status === "paid" ? `Ödeme: ${longDate(new Date(p.paidAt ?? p.dueDate))}` : `Vade: ${longDate(new Date(p.dueDate))}`}
+                    {p.status === "paid" ? tr("pay.paidOn", { d: longDate(new Date(p.paidAt ?? p.dueDate)) }) : tr("pay.dueOn", { d: longDate(new Date(p.dueDate)) })}
                     {p.method ? ` · ${p.method}` : ""}
                   </Text>
                   {p.lesson ? (
                     <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]} numberOfLines={1}>
-                      {shortDayMonth(new Date(p.lesson.startAt))} · {p.lesson.teacherName ?? "Öğretmen"}
+                      {shortDayMonth(new Date(p.lesson.startAt))} · {p.lesson.teacherName ?? tr("home.teacherFallback")}
                       {p.lesson.branchName ? ` · ${p.lesson.branchName}` : ""}
                       {lessonBadge ? ` · ${lessonBadge.label}` : ""}
                     </Text>
                   ) : null}
                 </View>
                 <View style={{ alignItems: "flex-end", gap: 6 }}>
-                  <StatusBadge label={statusLabel(p.status)} tone={statusTone(p.status)} />
+                  <StatusBadge label={payStatus(p.status).label} tone={payStatus(p.status).tone} />
                   {p.receiptAvailable ? <Icon name="receipt-outline" size={16} color={t.colors.textMuted} /> : null}
                 </View>
               </View>
@@ -240,6 +228,8 @@ function MonthGroup({
 
 export function StudentScopePaymentDetailScreen({ paymentId }: { paymentId: string }) {
   const t = useTheme();
+  const { t: tr } = useLocale();
+  const payStatus = usePaymentStatus();
   const base = usePersonaBasePath();
   const studentId = useSelectedStudentId();
 
@@ -279,7 +269,7 @@ export function StudentScopePaymentDetailScreen({ paymentId }: { paymentId: stri
   if (ledger.status === "loading") {
     return (
       <Screen>
-        <AppHeader title="Ödeme" showBack backFallback={listFallback(base, "odemeler")} showNotifications={false} />
+        <AppHeader title={tr("pay.payment")} showBack backFallback={listFallback(base, "odemeler")} showNotifications={false} />
         <LoadingSkeleton rows={3} />
       </Screen>
     );
@@ -287,7 +277,7 @@ export function StudentScopePaymentDetailScreen({ paymentId }: { paymentId: stri
   if (ledger.status === "error") {
     return (
       <Screen>
-        <AppHeader title="Ödeme" showBack backFallback={listFallback(base, "odemeler")} showNotifications={false} />
+        <AppHeader title={tr("pay.payment")} showBack backFallback={listFallback(base, "odemeler")} showNotifications={false} />
         <ErrorState message={ledger.message} onRetry={ledger.refresh} />
       </Screen>
     );
@@ -295,8 +285,8 @@ export function StudentScopePaymentDetailScreen({ paymentId }: { paymentId: stri
   if (!payment) {
     return (
       <Screen>
-        <AppHeader title="Ödeme" showBack backFallback={listFallback(base, "odemeler")} showNotifications={false} />
-        <EmptyState icon="alert-circle-outline" title="Ödeme bulunamadı" />
+        <AppHeader title={tr("pay.payment")} showBack backFallback={listFallback(base, "odemeler")} showNotifications={false} />
+        <EmptyState icon="alert-circle-outline" title={tr("pay.missing")} />
       </Screen>
     );
   }
@@ -305,43 +295,43 @@ export function StudentScopePaymentDetailScreen({ paymentId }: { paymentId: stri
 
   return (
     <Screen>
-      <AppHeader title="Ödeme detayı" showBack backFallback={listFallback(base, "odemeler")} showNotifications={false} />
+      <AppHeader title={tr("pay.detail")} showBack backFallback={listFallback(base, "odemeler")} showNotifications={false} />
 
       <Card>
         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
           <View style={{ flex: 1 }}>
             <Text style={[t.typography.cardTitle, { color: t.colors.text }]}>{payment.description}</Text>
             <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 4 }]}>
-              Vade: {longDate(new Date(payment.dueDate))}
+              {tr("pay.dueOn", { d: longDate(new Date(payment.dueDate)) })}
             </Text>
             {payment.paidAt ? (
               <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>
-                Ödeme tarihi: {longDate(new Date(payment.paidAt))}
+                {tr("pay.paidDate", { d: longDate(new Date(payment.paidAt)) })}
               </Text>
             ) : null}
             {payment.method ? (
-              <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>Yöntem: {payment.method}</Text>
+              <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>{tr("pay.method", { v: payment.method })}</Text>
             ) : null}
             {payment.contract ? (
               <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]} numberOfLines={2}>
-                {payment.contract.programmeName} · Sözleşme No: {payment.contract.contractNumber}
-                {payment.contract.installmentSequence ? ` · ${payment.contract.installmentSequence}. taksit` : ""}
+                {tr("pay.contractLine", { p: payment.contract.programmeName, n: payment.contract.contractNumber })}
+                {payment.contract.installmentSequence ? ` · ${tr("pay.installment", { n: payment.contract.installmentSequence })}` : ""}
               </Text>
             ) : null}
           </View>
-          <StatusBadge label={statusLabel(payment.status)} tone={statusTone(payment.status)} />
+          <StatusBadge label={payStatus(payment.status).label} tone={payStatus(payment.status).tone} />
         </View>
         <View style={{ marginTop: 14, paddingTop: 14, borderTopWidth: 1, borderTopColor: t.colors.divider }}>
-          <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>Tutar</Text>
+          <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>{tr("pay.amount")}</Text>
           <Text style={[t.typography.screenTitle, { color: t.colors.text, marginTop: 2 }]}>{formatCurrency(payment.amount)}</Text>
           {payment.status === "partial" ? (
             <Text style={[t.typography.caption, { color: t.colors.warning, marginTop: 4 }]}>
-              Ödenen: {formatCurrency(payment.paidAmount)} · Kalan: {formatCurrency(payment.remaining)}
+              {tr("pay.partialLine", { p: formatCurrency(payment.paidAmount), r: formatCurrency(payment.remaining) })}
             </Text>
           ) : null}
           {payment.paymentNote ? (
             <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 4 }]} numberOfLines={3}>
-              Açıklama: {payment.paymentNote}
+              {tr("pay.note", { v: payment.paymentNote })}
             </Text>
           ) : null}
         </View>
@@ -351,9 +341,9 @@ export function StudentScopePaymentDetailScreen({ paymentId }: { paymentId: stri
         <Card style={{ marginTop: 12 }}>
           <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 8, alignItems: "flex-start" }}>
             <View style={{ flex: 1 }}>
-              <Text style={[t.typography.bodyStrong, { color: t.colors.text }]}>İlgili ders</Text>
+              <Text style={[t.typography.bodyStrong, { color: t.colors.text }]}>{tr("pay.relatedLesson")}</Text>
               <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 4 }]} numberOfLines={2}>
-                {shortDayMonth(new Date(payment.lesson.startAt))} · {payment.lesson.teacherName ?? "Öğretmen"}
+                {shortDayMonth(new Date(payment.lesson.startAt))} · {payment.lesson.teacherName ?? tr("home.teacherFallback")}
                 {payment.lesson.branchName ? ` · ${payment.lesson.branchName}` : ""}
                 {payment.lesson.roomName ? ` · ${payment.lesson.roomName}` : ""}
                 {payment.lesson.instrument ? ` · ${payment.lesson.instrument}` : ""}
@@ -367,7 +357,7 @@ export function StudentScopePaymentDetailScreen({ paymentId }: { paymentId: stri
       {canPayOnline ? (
         <View style={{ marginTop: 12 }}>
           <Button
-            label="Online öde"
+            label={tr("pay.payOnline")}
             icon="card-outline"
             onPress={() => void onOnlinePay()}
             loading={checkout.state === "busy"}
@@ -376,7 +366,7 @@ export function StudentScopePaymentDetailScreen({ paymentId }: { paymentId: stri
             <Text style={[t.typography.caption, { color: t.colors.warning, marginTop: 8 }]}>{checkout.message}</Text>
           ) : (
             <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 8 }]}>
-              Ödeme, sağlayıcının güvenli sayfasında tamamlanır; kart bilginiz uygulamaya girmez.
+              {tr("pay.providerNote")}
             </Text>
           )}
         </View>
@@ -387,17 +377,17 @@ export function StudentScopePaymentDetailScreen({ paymentId }: { paymentId: stri
           <Card style={{ marginTop: 12 }}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10 }}>
               <Icon name="receipt-outline" size={18} color={t.colors.primary} />
-              <Text style={[t.typography.bodyStrong, { color: t.colors.text }]}>Makbuz</Text>
+              <Text style={[t.typography.bodyStrong, { color: t.colors.text }]}>{tr("pay.receipt")}</Text>
             </View>
             <View style={{ gap: 6 }}>
-              <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>Referans: {receipt.data.receipt.reference}</Text>
+              <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>{tr("pay.reference", { v: receipt.data.receipt.reference })}</Text>
               <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>{receipt.data.receipt.institutionName}</Text>
               {receipt.data.receipt.branchName ? (
                 <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>{receipt.data.receipt.branchName}</Text>
               ) : null}
-              <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>Öğrenci: {receipt.data.receipt.studentName}</Text>
+              <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>{tr("pay.student", { v: receipt.data.receipt.studentName })}</Text>
               <Text style={[t.typography.body, { color: t.colors.text, marginTop: 4 }]}>
-                Tahsil edilen: {formatCurrency(receipt.data.receipt.amount)}
+                {tr("pay.collected", { v: formatCurrency(receipt.data.receipt.amount) })}
               </Text>
             </View>
           </Card>
@@ -405,7 +395,7 @@ export function StudentScopePaymentDetailScreen({ paymentId }: { paymentId: stri
       ) : receipt.status === "success" && !receipt.data.eligible ? (
         <Card style={{ marginTop: 12 }}>
           <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>
-            {receipt.data.ineligibleReason ?? "Bu ödeme için makbuz henüz oluşturulamıyor."}
+            {receipt.data.ineligibleReason ?? tr("pay.receiptPending")}
           </Text>
         </Card>
       ) : null}

@@ -85,6 +85,18 @@ export function isPast(dateIso: string, nowMs: number): boolean {
   return new Date(dateIso).getTime() < nowMs;
 }
 
+/** Ay adı (0=Ocak/January). */
+export function monthName(monthIndex: number, locale: Locale = getActiveLocale()): string {
+  return MONTHS[locale][((monthIndex % 12) + 12) % 12]!;
+}
+
+/** "Ekim 2026" / "October 2026" — `month.month` ("2026-10") anahtarından. */
+export function monthYearTitle(monthKey: string, locale: Locale = getActiveLocale()): string {
+  const [y, m] = monthKey.split("-");
+  const name = monthName((Number(m) - 1) % 12, locale);
+  return name && y ? `${name} ${y}` : monthKey;
+}
+
 /** Para biçimi — aktif dile göre gruplama (₺/TRY tutarı aynen korunur). */
 export function formatCurrency(amount: number, locale: Locale = getActiveLocale()): string {
   const tag = locale === "en" ? "en-US" : "tr-TR";

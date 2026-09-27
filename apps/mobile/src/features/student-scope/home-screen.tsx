@@ -24,6 +24,7 @@ import { CacheStatus } from "../../cache/cache-status";
 import { useCachedApiGet } from "../../cache/use-cached-api";
 import { useNow } from "../../hooks/use-now";
 import { format, formatCurrency, isPast, relativeDayLabel, weekdayName } from "../../lib/date";
+import { useLocale } from "../../i18n/locale-context";
 import { useTheme } from "../../theme/theme-context";
 import type {
   AssessmentsResponse,
@@ -45,6 +46,7 @@ import { isOpenMakeup } from "./makeup-view";
  */
 export function StudentScopeHomeScreen({ basePath }: { basePath: "/(parent)" | "/(student)" }) {
   const t = useTheme();
+  const { t: tr } = useLocale();
   const router = useRouter();
   const now = useNow();
   // Aktif öğrenci bağlamı — seçim beklenirken null: ekranlar skeleton gösterir,
@@ -102,8 +104,8 @@ export function StudentScopeHomeScreen({ basePath }: { basePath: "/(parent)" | "
   if (!studentId) {
     return (
       <Screen>
-        <AppHeader title="Ana Sayfa" />
-        <EmptyState icon="alert-circle-outline" title="Öğrenci bilgisi bulunamadı" description="Bu hesapta bir öğrenci kaydı bağlı değil." />
+        <AppHeader title={tr("tabs.home")} />
+        <EmptyState icon="alert-circle-outline" title={tr("home.noStudentTitle")} description={tr("home.noStudentBody")} />
       </Screen>
     );
   }
@@ -113,7 +115,7 @@ export function StudentScopeHomeScreen({ basePath }: { basePath: "/(parent)" | "
   const headerContext =
     profile.status === "success"
       ? nextLesson
-        ? `${profile.data.name} · sıradaki ders ${format(new Date(nextLesson.startAt), "HH:mm")}`
+        ? `${profile.data.name} · ${tr("home.nextLessonAt")} ${format(new Date(nextLesson.startAt), "HH:mm")}`
         : profile.data.name
       : undefined;
 
@@ -129,24 +131,24 @@ export function StudentScopeHomeScreen({ basePath }: { basePath: "/(parent)" | "
       <CacheStatus cachedAt={schedule.cachedAt} isStale={schedule.isStale} />
       <ChildSwitcher childName={profile.status === "success" ? profile.data.name : undefined} />
 
-      <SectionHeader title="Sıradaki ders" />
+      <SectionHeader title={tr("home.nextLesson")} />
       {schedule.status === "loading" ? (
         <LoadingSkeleton rows={1} />
       ) : schedule.status === "error" ? (
         <ErrorState message={schedule.message} onRetry={schedule.refresh} />
       ) : nextLesson ? (
-        <LessonCard lesson={nextLesson} studentFacing personName={nextLesson.teacherName ?? "Öğretmen"} onPress={() => router.push(`${basePath}/dersler/${nextLesson.id}`)} />
+        <LessonCard lesson={nextLesson} studentFacing personName={nextLesson.teacherName ?? tr("home.teacherFallback")} onPress={() => router.push(`${basePath}/dersler/${nextLesson.id}`)} />
       ) : (
-        <EmptyState icon="calendar-outline" title="Planlanmış ders yok"  compact />
+        <EmptyState icon="calendar-outline" title={tr("home.noPlanned")}  compact />
       )}
 
-      <SectionHeader title="Bu haftanın dersleri" actionLabel="Tümü" onAction={() => router.push(`${basePath}/dersler`)} />
+      <SectionHeader title={tr("home.thisWeek")} actionLabel={tr("home.all")} onAction={() => router.push(`${basePath}/dersler`)} />
       {schedule.status === "loading" ? (
         <LoadingSkeleton rows={1} />
       ) : schedule.status === "error" ? (
         <ErrorState message={schedule.message} onRetry={schedule.refresh} />
       ) : thisWeekLessons.length === 0 ? (
-        <EmptyState icon="calendar-outline" title="Bu hafta ders yok"  compact />
+        <EmptyState icon="calendar-outline" title={tr("home.noWeekLessons")}  compact />
       ) : (
         <ListGroup>
           {thisWeekLessons.slice(0, 3).map((l) => {
@@ -156,7 +158,7 @@ export function StudentScopeHomeScreen({ basePath }: { basePath: "/(parent)" | "
               <ListRow
                 key={l.id}
                 icon="calendar-outline"
-                title={l.teacherName ?? "Öğretmen"}
+                title={l.teacherName ?? tr("home.teacherFallback")}
                 subtitle={`${day} ${time}${l.instrument ? ` · ${l.instrument}` : ""}${l.roomName ? ` · ${l.roomName}` : ""}`}
                 onPress={() => router.push(`${basePath}/dersler/${l.id}`)}
               />
@@ -165,25 +167,25 @@ export function StudentScopeHomeScreen({ basePath }: { basePath: "/(parent)" | "
         </ListGroup>
       )}
 
-      <SectionHeader title="Bekleyen ödevler" actionLabel="Tümü" onAction={() => router.push(`${basePath}/odevler`)} />
+      <SectionHeader title={tr("home.pendingHomework")} actionLabel={tr("home.all")} onAction={() => router.push(`${basePath}/odevler`)} />
       {homework.status === "loading" ? (
         <LoadingSkeleton rows={1} />
       ) : homework.status === "error" ? (
         <ErrorState message={homework.message} onRetry={homework.refresh} />
       ) : pendingHomework.length === 0 ? (
-        <EmptyState icon="checkmark-circle-outline" title="Bekleyen ödev yok"  compact />
+        <EmptyState icon="checkmark-circle-outline" title={tr("home.noPendingHomework")}  compact />
       ) : (
         <ListGroup>
           <ListRow
             icon="book-outline"
-            title={`${pendingHomework.length} bekleyen ödev`}
+            title={tr("home.pendingCount", { n: pendingHomework.length })}
             subtitle={pendingHomework.map((h) => h.title).join(", ")}
             onPress={() => router.push(`${basePath}/odevler`)}
           />
         </ListGroup>
       )}
 
-      <SectionHeader title="Devam durumu" />
+      <SectionHeader title={tr("home.attendance")} />
       {attendance.status === "loading" ? (
         <LoadingSkeleton rows={1} />
       ) : attendance.status === "error" ? (
@@ -192,7 +194,7 @@ export function StudentScopeHomeScreen({ basePath }: { basePath: "/(parent)" | "
         <Card onPress={() => router.push(`${basePath}/devam-raporu`)}>
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
             <Text style={[t.typography.bodyStrong, { color: t.colors.text }]}>
-              {attendance.data.attended}/{attendance.data.totalLessons} derse katıldı
+              {tr("home.attendedOf", { a: attendance.data.attended, t: attendance.data.totalLessons })}
             </Text>
             <Icon name="chevron-forward" size={16} color={t.colors.textFaint} />
           </View>
@@ -200,20 +202,20 @@ export function StudentScopeHomeScreen({ basePath }: { basePath: "/(parent)" | "
             progress={attendance.data.totalLessons ? (attendance.data.attended / attendance.data.totalLessons) * 100 : 0}
             tone="success"
           />
-          <Text style={[t.typography.caption, { color: t.colors.primary, marginTop: 8 }]}>Ayrıntılı raporu gör</Text>
+          <Text style={[t.typography.caption, { color: t.colors.primary, marginTop: 8 }]}>{tr("home.seeReport")}</Text>
         </Card>
       )}
 
       {makeup.status === "success" && openMakeups.length > 0 ? (
         <>
-          <SectionHeader title="Telafi hakları" actionLabel="Tümü" onAction={() => router.push(`${basePath}/telafiler`)} />
+          <SectionHeader title={tr("home.makeupRights")} actionLabel={tr("home.all")} onAction={() => router.push(`${basePath}/telafiler`)} />
           <ListGroup>
             {openMakeups.slice(0, 3).map((m) => (
               <ListRow
                 key={m.id}
                 icon="swap-horizontal-outline"
-                title={`${m.teacherName ?? "Öğretmen"}${m.instrument ? ` — ${m.instrument}` : ""}`}
-                subtitle={m.confirmedLesson ? "Telafi dersi planlandı" : "Yönetici tarafından değerlendiriliyor"}
+                title={`${m.teacherName ?? tr("home.teacherFallback")}${m.instrument ? ` — ${m.instrument}` : ""}`}
+                subtitle={m.confirmedLesson ? tr("home.makeupScheduled") : tr("home.makeupReview")}
                 onPress={() => router.push(`${basePath}/telafiler/${m.id}`)}
               />
             ))}
@@ -221,7 +223,7 @@ export function StudentScopeHomeScreen({ basePath }: { basePath: "/(parent)" | "
         </>
       ) : null}
 
-      <SectionHeader title="Ödeme özeti" />
+      <SectionHeader title={tr("home.paymentSummary")} />
       {balance.status === "loading" ? (
         <LoadingSkeleton rows={1} />
       ) : balance.status === "error" ? (
@@ -229,19 +231,19 @@ export function StudentScopeHomeScreen({ basePath }: { basePath: "/(parent)" | "
       ) : (
         <Card onPress={() => router.push(`${basePath}/odemeler`)}>
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-            <Text style={[t.typography.body, { color: t.colors.text }]}>Bekleyen bakiye</Text>
+            <Text style={[t.typography.body, { color: t.colors.text }]}>{tr("home.outstanding")}</Text>
             <Text style={[t.typography.cardTitle, { color: balance.data.outstanding > 0 ? t.colors.danger : t.colors.success }]}>
               {formatCurrency(balance.data.outstanding)}
             </Text>
           </View>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 8 }}>
-            <Text style={[t.typography.caption, { color: t.colors.primary }]}>Tüm ödemeleri gör</Text>
+            <Text style={[t.typography.caption, { color: t.colors.primary }]}>{tr("home.seeAllPayments")}</Text>
             <Icon name="chevron-forward" size={13} color={t.colors.primary} />
           </View>
         </Card>
       )}
 
-      <SectionHeader title="Öğretmen notu" />
+      <SectionHeader title={tr("home.teacherNote")} />
       {assessments.status === "loading" ? (
         <LoadingSkeleton rows={1} />
       ) : assessments.status === "error" ? (
@@ -255,16 +257,16 @@ export function StudentScopeHomeScreen({ basePath }: { basePath: "/(parent)" | "
           <Text style={[t.typography.body, { color: t.colors.text }]}>{latestAssessment.strengthNote}</Text>
         </Card>
       ) : (
-        <EmptyState icon="chatbubble-outline" title="Henüz öğretmen notu yok"  compact />
+        <EmptyState icon="chatbubble-outline" title={tr("home.noTeacherNote")}  compact />
       )}
 
-      <SectionHeader title="Bildirimler" actionLabel="Tümü" onAction={() => router.push("/notifications")} />
+      <SectionHeader title={tr("home.notifications")} actionLabel={tr("home.all")} onAction={() => router.push("/notifications")} />
       {notifications.status === "loading" ? (
         <LoadingSkeleton rows={1} />
       ) : notifications.status === "error" ? (
         <ErrorState message={notifications.message} onRetry={notifications.refresh} />
       ) : latestNotifications.length === 0 ? (
-        <EmptyState icon="notifications-outline" title="Bildirim yok"  compact />
+        <EmptyState icon="notifications-outline" title={tr("home.noNotifications")}  compact />
       ) : (
         <View style={{ gap: 8 }}>
           {latestNotifications.map((n) => (

@@ -1,4 +1,6 @@
 import { apiPost, type ApiResult } from "../api/client";
+import { lookup } from "../i18n/locales";
+import { getActiveLocale } from "../i18n/locale-store";
 import type { PaymentCheckoutResponse } from "../types/api";
 
 /**
@@ -35,21 +37,21 @@ export async function startOnlineCheckout(
   if (!res.ok) {
     // Sağlayıcı bağlı değil → dürüst "henüz aktif değil" (sahte başarı YOK).
     if (res.error.code === "CONFLICT") {
-      return { status: "unavailable", message: "Online ödeme henüz aktif değil. Lütfen kurumunuzla iletişime geçin." };
+      return { status: "unavailable", message: lookup(getActiveLocale(), "pay.unavailable") };
     }
     return { status: "error", message: res.error.message };
   }
   const url = res.data.checkoutUrl;
   if (typeof url !== "string" || !/^https:\/\//.test(url)) {
-    return { status: "error", message: "Ödeme sayfası açılamadı. Lütfen tekrar deneyin." };
+    return { status: "error", message: lookup(getActiveLocale(), "pay.pageFailed") };
   }
   try {
     if (!(await browser.canOpen(url))) {
-      return { status: "error", message: "Tarayıcı açılamadı. Lütfen tekrar deneyin." };
+      return { status: "error", message: lookup(getActiveLocale(), "pay.browserFailed") };
     }
     await browser.open(url);
     return { status: "ready", checkoutUrl: url };
   } catch {
-    return { status: "error", message: "Tarayıcı açılamadı. Lütfen tekrar deneyin." };
+    return { status: "error", message: lookup(getActiveLocale(), "pay.browserFailed") };
   }
 }

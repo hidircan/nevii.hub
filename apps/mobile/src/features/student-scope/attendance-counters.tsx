@@ -1,5 +1,6 @@
 import { Text, View } from "react-native";
 import { Card } from "../../components/ui";
+import { useLocale } from "../../i18n/locale-context";
 import { useTheme } from "../../theme/theme-context";
 import type { AttendanceLedgerResponse } from "../../types/api";
 
@@ -12,16 +13,17 @@ type Counts = AttendanceLedgerResponse["counts"];
  */
 export function AttendanceCounters({ counts, onOpen }: { counts: Counts; onOpen: (status: string) => void }) {
   const t = useTheme();
+  const { t: tr } = useLocale();
   const joined = counts.attended + counts.processed;
   const main = [
-    { key: "joined", label: "Katıldı", value: joined, status: "attended,processed", color: t.colors.success },
-    { key: "absent", label: "Gelmedi", value: counts.absent, status: "absent", color: t.colors.danger },
-    { key: "excused", label: "İzinli", value: counts.excused, status: "excused", color: t.colors.info },
+    { key: "joined", label: tr("att.cJoined"), value: joined, status: "attended,processed", color: t.colors.success },
+    { key: "absent", label: tr("att.cAbsent"), value: counts.absent, status: "absent", color: t.colors.danger },
+    { key: "excused", label: tr("att.cExcused"), value: counts.excused, status: "excused", color: t.colors.info },
   ];
   const extra = [
-    { key: "makeup", label: "Telafi", value: counts.makeup, status: "makeup" },
-    { key: "pending", label: "Sonuçlanmadı", value: counts.pending, status: "pending" },
-    { key: "cancelled", label: "İptal", value: counts.cancelled, status: "cancelled" },
+    { key: "makeup", label: tr("att.cMakeup"), value: counts.makeup, status: "makeup" },
+    { key: "pending", label: tr("att.cPending"), value: counts.pending, status: "pending" },
+    { key: "cancelled", label: tr("att.cCancelled"), value: counts.cancelled, status: "cancelled" },
   ].filter((c) => c.value > 0);
 
   return (

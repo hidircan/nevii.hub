@@ -15,8 +15,9 @@ import { useAppForegroundRefetch } from "../../hooks/use-app-foreground-refetch"
 import { CacheStatus } from "../../cache/cache-status";
 import { useCachedApiGet } from "../../cache/use-cached-api";
 import { useFocusRefetch } from "../../hooks/use-focus-refetch";
-import { ledgerStatusBadge, LEDGER_STATUS_LABEL } from "../../lib/attendance-display";
+import { ledgerStatusBadge, ledgerStatusLabel } from "../../lib/attendance-display";
 import { format, shortDayMonth } from "../../lib/date";
+import { useLocale } from "../../i18n/locale-context";
 import { useSelectedStudentId } from "../../student/student-context";
 import { useTheme } from "../../theme/theme-context";
 import type { AttendanceLedgerItem, AttendanceLedgerResponse, LedgerDisplayKey } from "../../types/api";
@@ -61,6 +62,7 @@ export function AttendanceReportScreen({
   initialStatus?: LedgerDisplayKey[] | null;
 }) {
   const t = useTheme();
+  const { t: tr } = useLocale();
   const studentId = useSelectedStudentId();
   const [direction, setDirection] = useState<ReportDirection>("past");
   const [status, setStatus] = useState<LedgerDisplayKey[] | null>(initialStatus ?? null);
@@ -80,7 +82,7 @@ export function AttendanceReportScreen({
   const chips = useMemo(
     () =>
       CHIP_KEYS.filter((k) => (direction === "past" ? k !== "upcoming" : k === "upcoming" || k === "cancelled")).map(
-        (k) => ({ key: k, label: LEDGER_STATUS_LABEL[k], count: counts?.[k] ?? 0 })
+        (k) => ({ key: k, label: ledgerStatusLabel(k), count: counts?.[k] ?? 0 })
       ),
     [direction, counts]
   );
@@ -103,15 +105,15 @@ export function AttendanceReportScreen({
   if (!studentId) {
     return (
       <Screen>
-        <AppHeader title="Devam raporu" showBack showNotifications={false} />
-        <EmptyState icon="alert-circle-outline" title="Öğrenci bilgisi bulunamadı" />
+        <AppHeader title={tr("att.reportTitle")} showBack showNotifications={false} />
+        <EmptyState icon="alert-circle-outline" title={tr("home.noStudentTitle")} />
       </Screen>
     );
   }
 
   return (
     <Screen scroll={false}>
-      <AppHeader title="Devam raporu" showBack showNotifications={false} />
+      <AppHeader title={tr("att.reportTitle")} showBack showNotifications={false} />
       <CacheStatus cachedAt={res.cachedAt} isStale={res.isStale} />
 
       <View style={styles.segment} accessibilityRole="tablist">
@@ -126,7 +128,7 @@ export function AttendanceReportScreen({
               style={[styles.segmentBtn, { backgroundColor: active ? t.colors.primary : "transparent" }]}
             >
               <Text style={[t.typography.bodyStrong, { color: active ? t.colors.primaryOn : t.colors.textMuted }]}>
-                {d === "past" ? "Geçmiş" : "Planlanan"}
+                {d === "past" ? tr("att.past") : tr("att.upcoming")}
               </Text>
             </Pressable>
           );
@@ -161,12 +163,12 @@ export function AttendanceReportScreen({
           ListEmptyComponent={
             <EmptyState
               icon="calendar-outline"
-              title={direction === "past" ? "Kayıtlı ders yok" : "Planlanan ders yok"}
+              title={direction === "past" ? tr("att.noPastTitle") : tr("att.noUpcomingTitle")}
               description={
                 status
-                  ? "Bu filtrede ders bulunmuyor."
+                  ? tr("att.noFilterMatch")
                   : direction === "past"
-                    ? "İşlenen dersler burada listelenecek."
+                    ? tr("att.pastHint")
                     : undefined
               }
             />
@@ -175,12 +177,12 @@ export function AttendanceReportScreen({
             canGrow ? (
               <Card onPress={() => setLimit((n) => n + PAGE_STEP)} style={styles.more}>
                 <Text style={[t.typography.bodyStrong, { color: t.colors.primary, textAlign: "center" }]}>
-                  Daha fazla göster ({items.length}/{total})
+                  {tr("att.showMore", { a: items.length, t: total })}
                 </Text>
               </Card>
             ) : items.length > 0 ? (
               <Text style={[t.typography.caption, { color: t.colors.textFaint, textAlign: "center", marginVertical: 12 }]}>
-                {total} kayıt
+                {tr("att.records", { n: total })}
               </Text>
             ) : null
           }
@@ -199,6 +201,7 @@ function Separator() {
 
 function LedgerRow({ item, basePath }: { item: AttendanceLedgerItem; basePath: "/(parent)" | "/(student)" }) {
   const t = useTheme();
+  const { t: tr } = useLocale();
   const router = useRouter();
   const badge = ledgerStatusBadge(item.displayKey);
   const start = new Date(item.startAt);
@@ -214,32 +217,32 @@ function LedgerRow({ item, basePath }: { item: AttendanceLedgerItem; basePath: "
         <View style={styles.body}>
           <View style={styles.titleRow}>
             <Text style={[t.typography.bodyStrong, { color: t.colors.text, flex: 1 }]} numberOfLines={1}>
-              {item.teacherName ?? "Öğretmen"}
+              {item.teacherName ?? tr("home.teacherFallback")}
               {item.instrument ? ` · ${item.instrument}` : ""}
             </Text>
             <StatusBadge label={badge.label} tone={badge.tone} />
           </View>
           <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]} numberOfLines={1}>
             {format(start, "HH:mm")}–{format(end, "HH:mm")}
-            {item.durationMinutes ? ` · ${item.durationMinutes} dk` : ""}
+            {item.durationMinutes ? ` · ${tr("att.minutesShort", { n: item.durationMinutes })}` : ""}
             {item.branchName ? ` · ${item.branchName}` : ""}
             {item.roomName ? ` · ${item.roomName}` : ""}
           </Text>
           {item.statusChangedAt ? (
             <Text style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 2 }]} numberOfLines={1}>
-              {shortDayMonth(new Date(item.statusChangedAt))} {format(new Date(item.statusChangedAt), "HH:mm")} güncellendi
+              {shortDayMonth(new Date(item.statusChangedAt))} {format(new Date(item.statusChangedAt), "HH:mm")} {tr("att.updatedAt")}
             </Text>
           ) : null}
           {item.makeup ? (
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="İlgili telafi kaydını aç"
+              accessibilityLabel={tr("att.openMakeup")}
               hitSlop={6}
               onPress={() => router.push(`${basePath}/telafiler/${item.makeup!.requestId}`)}
               style={{ marginTop: 2, alignSelf: "flex-start" }}
             >
               <Text style={[t.typography.caption, { color: t.colors.primary }]} numberOfLines={1}>
-                {item.makeup.role === "source" ? "Bu dersten telafi kaydı oluştu" : "Telafi dersi"}
+                {item.makeup.role === "source" ? tr("att.makeupFrom") : tr("att.makeupLesson")}
               </Text>
             </Pressable>
           ) : null}
