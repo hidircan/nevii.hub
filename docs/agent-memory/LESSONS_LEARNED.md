@@ -1212,3 +1212,13 @@ aynı veriyi aynı yoldan mı okuyor?" diye bak.
 - Test yardımcısındaki sabit e-posta etiketi ("Kodunuz:") şablon i18n'e taşınınca 3 admin-şifre-sıfırlama testi
   tabanda kırmızı kaldı (işlevsellik sağlamdı). E-posta gövdesinden kod çıkaran testler etiketi ürünün gerçek i18n
   metninden almalı (`passwordResetMail(...).codeLabel`).
+
+### 2026-09-28 (10. tur iş #2) — e-postaya data-URI logo gömme
+- Kurum logosu uygulamada `data:` URI saklanıyor ve davet/sıfırlama e-postalarına AYNEN gömülüyordu; Gmail/Outlook
+  `data:` URI görselleri engeller → alıcı "yalnız ad veya bozuk görsel" görüyordu. Kural: e-postada logo MIME
+  satır-içi eki (CID) olarak taşınır (`institutionLogoEmailBlock` + `EmailSendInput.attachments`); göreli/geçersiz
+  veri durumunda kırık görsel yerine temiz kurum-adı metni gösterilir. Bu davranışı kilitleyen regresyon testi
+  `account-invitation.test.ts` içindedir (eski "HTML data-URI içerir" beklentisi bilinçli güncellendi).
+- Kurum e-posta şablonları (`EmailTemplate`, additive tablo): içerik alanları düzenlenebilir, logo bloğu + zorunlu
+  sistem alanları (düğme/kod/bağlantı) sabit kabuk + yayımlama doğrulamasıyla korunur. Şablon render edilemezse
+  varsayılana düşülür (e-posta asla yanıtsız kalmaz).

@@ -2865,6 +2865,7 @@ export async function inviteStudentPortalAccessTool(
       recipientName: v.data.accessType === "SELF" ? student.name : `${student.name} velisi`,
       institutionName: data.settings.name ?? "NeviiHub",
       role: "STUDENT",
+      portalAccessType: v.data.accessType,
       schoolPhone: data.settings.phone || undefined,
       schoolWebsite: data.settings.website || undefined,
       logoUrl: data.settings.logoUrl || undefined,

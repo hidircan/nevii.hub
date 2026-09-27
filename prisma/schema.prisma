@@ -41,6 +41,7 @@ model Tenant {
   makeupRequests              MakeupRequest[]
   payments                    Payment[]
   studentPortalAccess         StudentPortalAccess[]
+  emailTemplates              EmailTemplate[]
   paymentCheckoutAttempts     PaymentCheckoutAttempt[]
   followUpCases               PaymentFollowUpCase[]
   communicationMessages       CommunicationMessage[]
@@ -147,6 +148,38 @@ model StudentPortalAccess {
   @@unique([tenantId, userId, studentId])
   @@index([tenantId, studentId])
   @@index([tenantId, userId])
+}
+
+/// 10. tur iş #2 — kurum bazlı işlem-e-postası şablonları (davet + şifre
+/// sıfırlama). Yayınlanmış (published) satır varsayılan kod-içi şablonun
+/// (bkz. src/lib/email-templates/defaults.ts) yerine kullanılır; taslak
+/// (draft) yalnızca önizleme/test-e-postasında görülür; eski sürümler
+/// (archived) geçmiş için saklanır. Varsayılana dönüş = tüm özel satırları
+/// arşivlemek (satır SİLİNMEZ, geçmiş korunur).
+model EmailTemplate {
+  id            String   @id
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// student_invite | parent_invite | teacher_invite | staff_invite | password_reset
+  key           String
+  /// "tr" | "en" (davetler bugün yalnız tr; password_reset tr+en)
+  locale        String   @default("tr")
+  /// draft | published | archived
+  status        String   @default("draft")
+  version       Int      @default(1)
+  subject       String
+  preheader     String   @default("")
+  introHtml     String
+  bodyHtml      String
+  signatureHtml String   @default("")
+  ctaLabel      String   @default("")
+  showLogo      Boolean  @default(true)
+  createdBy     String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([tenantId, key, locale, version])
+  @@index([tenantId, key, locale, status])
 }
 
 /// Öğrenci/öğretmen/kullanıcı profil fotoğrafı — DocumentInstance ile AYNI mevcut

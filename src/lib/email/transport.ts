@@ -46,6 +46,15 @@ function smtpTransport(): EmailTransport {
           subject: input.subject,
           html: input.html,
           text: input.text,
+          // 10. tur iş #2 — satır-içi (CID) ekler: kurum logosu e-postada
+          // GERÇEKTEN görünür (data-URI Gmail/Outlook'ta çalışmaz).
+          attachments: (input.attachments ?? []).map((a) => ({
+            filename: a.filename,
+            content: Buffer.from(a.contentBase64, "base64"),
+            contentType: a.contentType,
+            cid: a.cid,
+            contentDisposition: "inline" as const,
+          })),
         });
         return { delivered: true, messageId: info.messageId };
       } catch (e) {

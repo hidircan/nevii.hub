@@ -32,6 +32,7 @@ import {
   Building2 as Building2Icon,
   Music as MusicIcon,
   CircleHelp,
+  Mail,
 } from "lucide-react";
 
 export type PanelNavItem = {
@@ -106,6 +107,8 @@ export const PANEL_AI_NAV: PanelNavItem[] = [
 
 export const PANEL_SYSTEM_NAV: PanelNavItem[] = [
   { href: "/panel/ayarlar/kurum", label: "Kurum Ayarları", icon: Settings, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
+  /** 10. tur iş #2 — kurum bazlı davet/şifre-sıfırlama e-posta şablonları. */
+  { href: "/panel/e-posta-sablonlari", label: "E-posta Şablonları", icon: Mail, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
   { href: "/panel/ayarlar/ozellikler", label: "Kurum Özellikleri", icon: ShieldCheck, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
   { href: "/panel/ayarlar/entegrasyonlar", label: "Kurum Entegrasyonları", icon: Activity, roles: ["SUPER_ADMIN"] },
   { href: "/panel/kurulum", label: "Kurulum Merkezi", icon: Settings },

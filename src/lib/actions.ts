@@ -1425,6 +1425,108 @@ export async function actionSelectPortalStudent(input: {
   }
 }
 
+/**
+ * 10. tur iş #2 — kurum e-posta şablonları yönetim aksiyonları. İnce
+ * sarmalayıcılar: yetki + doğrulama tool katmanındadır.
+ */
+export async function actionListEmailTemplates(input: { locale?: "tr" | "en" }) {
+  try {
+    const { listEmailTemplatesTool } = await import("./email-templates/tools");
+    const result = await withAuthContext("actionListEmailTemplates", (ctx) => listEmailTemplatesTool(ctx, input));
+    if (!result.ok) return { ok: false as const, message: result.error.message };
+    return { ok: true as const, templates: result.data.templates };
+  } catch (error) {
+    logger.error("actionListEmailTemplates failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false as const, message: "Şablonlar okunurken beklenmeyen bir hata oluştu." };
+  }
+}
+
+export async function actionGetEmailTemplate(input: { key: string; locale?: "tr" | "en" }) {
+  try {
+    const { getEmailTemplateTool } = await import("./email-templates/tools");
+    const result = await withAuthContext("actionGetEmailTemplate", (ctx) => getEmailTemplateTool(ctx, input));
+    if (!result.ok) return { ok: false as const, message: result.error.message };
+    return { ok: true as const, detail: result.data };
+  } catch (error) {
+    logger.error("actionGetEmailTemplate failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false as const, message: "Şablon okunurken beklenmeyen bir hata oluştu." };
+  }
+}
+
+export async function actionSaveEmailTemplateDraft(input: {
+  key: string;
+  locale?: "tr" | "en";
+  fields: { subject: string; preheader: string; introHtml: string; bodyHtml: string; signatureHtml: string; ctaLabel: string; showLogo: boolean };
+}) {
+  try {
+    const { saveEmailTemplateDraftTool } = await import("./email-templates/tools");
+    const result = await withAuthContext("actionSaveEmailTemplateDraft", (ctx) => saveEmailTemplateDraftTool(ctx, input));
+    if (!result.ok) return { ok: false as const, message: result.error.message };
+    revalidatePath("/panel/e-posta-sablonlari");
+    return { ok: true as const, version: result.data.version };
+  } catch (error) {
+    logger.error("actionSaveEmailTemplateDraft failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false as const, message: "Taslak kaydedilirken beklenmeyen bir hata oluştu." };
+  }
+}
+
+export async function actionPublishEmailTemplate(input: { key: string; locale?: "tr" | "en"; version: number }) {
+  try {
+    const { publishEmailTemplateTool } = await import("./email-templates/tools");
+    const result = await withAuthContext("actionPublishEmailTemplate", (ctx) => publishEmailTemplateTool(ctx, input));
+    if (!result.ok) return { ok: false as const, message: result.error.message };
+    revalidatePath("/panel/e-posta-sablonlari");
+    return { ok: true as const, version: result.data.version };
+  } catch (error) {
+    logger.error("actionPublishEmailTemplate failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false as const, message: "Şablon yayımlanırken beklenmeyen bir hata oluştu." };
+  }
+}
+
+export async function actionResetEmailTemplate(input: { key: string; locale?: "tr" | "en" }) {
+  try {
+    const { resetEmailTemplateTool } = await import("./email-templates/tools");
+    const result = await withAuthContext("actionResetEmailTemplate", (ctx) => resetEmailTemplateTool(ctx, input));
+    if (!result.ok) return { ok: false as const, message: result.error.message };
+    revalidatePath("/panel/e-posta-sablonlari");
+    return { ok: true as const, archivedCount: result.data.archivedCount };
+  } catch (error) {
+    logger.error("actionResetEmailTemplate failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false as const, message: "Varsayılana dönülürken beklenmeyen bir hata oluştu." };
+  }
+}
+
+export async function actionPreviewEmailTemplate(input: { key: string; locale?: "tr" | "en"; version?: number }) {
+  try {
+    const { previewEmailTemplateTool } = await import("./email-templates/tools");
+    const result = await withAuthContext("actionPreviewEmailTemplate", (ctx) => previewEmailTemplateTool(ctx, input));
+    if (!result.ok) return { ok: false as const, message: result.error.message };
+    return { ok: true as const, preview: result.data };
+  } catch (error) {
+    logger.error("actionPreviewEmailTemplate failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false as const, message: "Önizleme üretilirken beklenmeyen bir hata oluştu." };
+  }
+}
+
+export async function actionSendEmailTemplateTest(input: { key: string; locale?: "tr" | "en"; version?: number }) {
+  try {
+    const { sendEmailTemplateTestTool } = await import("./email-templates/tools");
+    const result = await withAuthContext("actionSendEmailTemplateTest", (ctx) => sendEmailTemplateTestTool(ctx, input));
+    if (!result.ok) return { ok: false as const, message: result.error.message };
+    return { ok: true as const, delivered: result.data.delivered, to: result.data.to };
+  } catch (error) {
+    logger.error("actionSendEmailTemplateTest failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false as const, message: "Test e-postası gönderilirken beklenmeyen bir hata oluştu." };
+  }
+}
+
 /** Faz 4 — öğretmen için GERÇEK e-posta davet akışı, AYNI desen. */
 export async function actionInviteTeacherAccount(input: { teacherId: string }): Promise<SendInvitationActionResult> {
   try {
