@@ -3,6 +3,7 @@ import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import { AuthProvider } from "../src/auth/auth-context";
+import { LocaleProvider } from "../src/i18n/locale-context";
 import { StudentProvider } from "../src/student/student-context";
 import { ThemeProvider, useTheme } from "../src/theme/theme-context";
 import { useAppFonts } from "../src/theme/fonts";
@@ -61,11 +62,13 @@ function RootStack() {
 export default function RootLayout() {
   return (
     <ThemeProvider>
-      <AuthProvider>
-        <StudentProvider>
-          <RootStack />
-        </StudentProvider>
-      </AuthProvider>
+      <LocaleProvider>
+        <AuthProvider>
+          <StudentProvider>
+            <RootStack />
+          </StudentProvider>
+        </AuthProvider>
+      </LocaleProvider>
     </ThemeProvider>
   );
 }

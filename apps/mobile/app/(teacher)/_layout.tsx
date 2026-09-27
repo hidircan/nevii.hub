@@ -1,10 +1,12 @@
 import { Tabs } from "expo-router";
 import { PersonaGuard } from "../../src/components/persona-guard";
 import { Icon, TabBarLabel } from "../../src/components/ui";
+import { useLocale } from "../../src/i18n/locale-context";
 import { useTheme } from "../../src/theme/theme-context";
 
 export default function TeacherLayout() {
   const t = useTheme();
+  const { t: tr } = useLocale();
   return (
     <PersonaGuard persona="teacher">
       <Tabs
@@ -29,19 +31,19 @@ export default function TeacherLayout() {
       >
         <Tabs.Screen
           name="bugun"
-          options={{ title: "Program", tabBarIcon: ({ color }) => <Icon name="today-outline" size={26} color={color} /> }}
+          options={{ title: tr("tabs.program"), tabBarIcon: ({ color }) => <Icon name="today-outline" size={26} color={color} /> }}
         />
         <Tabs.Screen
           name="ogrencilerim"
-          options={{ title: "Öğrenci", tabBarIcon: ({ color }) => <Icon name="people-outline" size={26} color={color} /> }}
+          options={{ title: tr("tabs.myStudent"), tabBarIcon: ({ color }) => <Icon name="people-outline" size={26} color={color} /> }}
         />
         <Tabs.Screen
           name="odevler"
-          options={{ title: "Ödev", tabBarIcon: ({ color }) => <Icon name="book-outline" size={26} color={color} /> }}
+          options={{ title: tr("tabs.homeworkShort"), tabBarIcon: ({ color }) => <Icon name="book-outline" size={26} color={color} /> }}
         />
         <Tabs.Screen
           name="hakedis"
-          options={{ title: "Hakediş", tabBarIcon: ({ color }) => <Icon name="cash-outline" size={26} color={color} /> }}
+          options={{ title: tr("tabs.compensation"), tabBarIcon: ({ color }) => <Icon name="cash-outline" size={26} color={color} /> }}
         />
         {/*
           İş Takip ve Hesabım sekmeleri kaldırıldı — İş Takip Hesabım içinden,

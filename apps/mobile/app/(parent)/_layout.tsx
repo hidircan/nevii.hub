@@ -1,10 +1,12 @@
 import { Tabs } from "expo-router";
 import { PersonaGuard } from "../../src/components/persona-guard";
 import { Icon, TabBarLabel } from "../../src/components/ui";
+import { useLocale } from "../../src/i18n/locale-context";
 import { useTheme } from "../../src/theme/theme-context";
 
 export default function ParentLayout() {
   const t = useTheme();
+  const { t: tr } = useLocale();
   return (
     <PersonaGuard persona="parent">
       <Tabs
@@ -19,23 +21,23 @@ export default function ParentLayout() {
       >
         <Tabs.Screen
           name="anasayfa"
-          options={{ title: "Ana Sayfa", tabBarIcon: ({ color }) => <Icon name="home-outline" size={26} color={color} /> }}
+          options={{ title: tr("tabs.home"), tabBarIcon: ({ color }) => <Icon name="home-outline" size={26} color={color} /> }}
         />
         <Tabs.Screen
           name="cocugum"
-          options={{ title: "Çocuğum", tabBarIcon: ({ color }) => <Icon name="people-outline" size={26} color={color} /> }}
+          options={{ title: tr("tabs.myChild"), tabBarIcon: ({ color }) => <Icon name="people-outline" size={26} color={color} /> }}
         />
         <Tabs.Screen
           name="odevler"
-          options={{ title: "Ödevler", tabBarIcon: ({ color }) => <Icon name="book-outline" size={26} color={color} /> }}
+          options={{ title: tr("tabs.homework"), tabBarIcon: ({ color }) => <Icon name="book-outline" size={26} color={color} /> }}
         />
         <Tabs.Screen
           name="gelisim"
-          options={{ title: "Gelişim", tabBarIcon: ({ color }) => <Icon name="trending-up-outline" size={26} color={color} /> }}
+          options={{ title: tr("tabs.growth"), tabBarIcon: ({ color }) => <Icon name="trending-up-outline" size={26} color={color} /> }}
         />
         <Tabs.Screen
           name="odemeler"
-          options={{ title: "Ödemeler", tabBarIcon: ({ color }) => <Icon name="card-outline" size={26} color={color} /> }}
+          options={{ title: tr("tabs.payments"), tabBarIcon: ({ color }) => <Icon name="card-outline" size={26} color={color} /> }}
         />
         {/*
           Program ("dersler") sekmede YOK — ana sayfadaki sıradaki ders /

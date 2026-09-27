@@ -4,6 +4,8 @@ import { clearUserCache } from "../cache/cache-store";
 import { unregisterPushTokens } from "../push/push-registration";
 import { clearSelectedStudent } from "../student/selected-store";
 import { clearStoredEmail, getAccessToken, getRefreshToken, getStoredEmail, setStoredEmail, setTokens } from "./token-storage";
+import { lookup } from "../i18n/locales";
+import { getActiveLocale } from "../i18n/locale-store";
 import { sessionStatusFor } from "./session-status";
 import {
   resolveMobilePersona,
@@ -101,8 +103,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       async login(email, password) {
         const res = await apiPost<LoginResponse>("/api/v1/auth/login", { email, password });
         if (!res.ok) {
-          if (res.error.code === "UNAUTHORIZED") return { ok: false, message: "E-posta veya şifre hatalı." };
-          if (res.error.code === "VALIDATION_ERROR") return { ok: false, message: "Geçerli bir e-posta adresi ve şifre girin." };
+          const locale = getActiveLocale();
+          if (res.error.code === "UNAUTHORIZED") return { ok: false, message: lookup(locale, "login.badCredentials") };
+          if (res.error.code === "VALIDATION_ERROR") return { ok: false, message: lookup(locale, "login.badInput") };
           return { ok: false, message: res.error.message };
         }
         await setTokens(res.data.accessToken, res.data.refreshToken);

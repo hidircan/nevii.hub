@@ -8,6 +8,7 @@ import { toChildContextView } from "../src/features/parent/child-context";
 import { useApiGet } from "../src/hooks/use-api";
 import { useFocusRefetch } from "../src/hooks/use-focus-refetch";
 import { useChildSelection, type ServerChild } from "../src/student/student-context";
+import { useLocale } from "../src/i18n/locale-context";
 import { useTheme } from "../src/theme/theme-context";
 import type { StudentProfile } from "../src/types/api";
 
@@ -23,6 +24,7 @@ import type { StudentProfile } from "../src/types/api";
 export default function SelectChildScreen() {
   const { user } = useAuth();
   const t = useTheme();
+  const { t: tr } = useLocale();
   const router = useRouter();
   const { children, selectedId, select, ready, refresh } = useChildSelection();
   // Admin erişimi iptal ettiyse picker'a dönüşte liste tazelenir.
@@ -38,9 +40,9 @@ export default function SelectChildScreen() {
 
   return (
     <SafeAreaView style={[styles.flex, { backgroundColor: t.colors.bg }]}>
-      <AppHeader title="Kimi takip etmek istiyorsunuz?" showBack showNotifications={false} />
+      <AppHeader title={tr("selectChild.heading")} showBack showNotifications={false} />
       <Text style={[t.typography.body, { color: t.colors.textMuted, paddingHorizontal: 20, marginBottom: 12 }]}>
-        Her çocuk için yalnız size tanımlı bilgiler gösterilir.
+        {tr("selectChild.subtitle")}
       </Text>
       {!ready ? (
         <View style={{ paddingHorizontal: 20 }}>
@@ -58,8 +60,8 @@ export default function SelectChildScreen() {
             <View style={{ paddingHorizontal: 20 }}>
               <EmptyState
                 icon="people-outline"
-                title="Takip edilecek öğrenci yok"
-                description="Aktif öğrenci erişiminiz görünmüyor. Kurumunuzla iletişime geçin."
+                title={tr("selectChild.emptyTitle")}
+                description={tr("selectChild.emptyHint")}
               />
             </View>
           }
@@ -97,7 +99,7 @@ function ChildRow({ child, selected, onChoose }: { child: ServerChild; selected:
     return <RowShell child={child} name={view.name} detail={[view.line1, view.line2].filter(Boolean).join(" · ") || null} selected={selected} onChoose={onChoose} />;
   }
 
-  return <RowShell child={child} name={child.displayName ?? "Öğrenci"} detail={child.detail ?? null} selected={selected} onChoose={onChoose} />;
+  return <RowShell child={child} name={child.displayName} detail={child.detail ?? null} selected={selected} onChoose={onChoose} />;
 }
 
 function RowShell({
@@ -108,17 +110,19 @@ function RowShell({
   onChoose,
 }: {
   child: ServerChild;
-  name: string;
+  name: string | null | undefined;
   detail: string | null;
   selected: boolean;
   onChoose: (id: string) => void;
 }) {
   const t = useTheme();
+  const { t: tr } = useLocale();
+  const displayName = name ?? tr("selectChild.fallbackName");
   return (
     <View style={{ paddingHorizontal: 20, marginBottom: 8 }}>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`${name} adlı öğrenciyi seç`}
+        accessibilityLabel={tr("selectChild.selectA11y", { name: displayName })}
         accessibilityState={{ selected }}
         onPress={() => void onChoose(child.studentId)}
         style={({ pressed }) => [
@@ -130,10 +134,10 @@ function RowShell({
           },
         ]}
       >
-        <Avatar name={name} size={52} photoPath={child.photoPath} />
+        <Avatar name={displayName} size={52} photoPath={child.photoPath} />
         <View style={styles.text}>
           <Text style={[t.typography.bodyStrong, { color: t.colors.text }]} numberOfLines={2}>
-            {name}
+            {displayName}
           </Text>
           {detail ? (
             <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]} numberOfLines={2}>

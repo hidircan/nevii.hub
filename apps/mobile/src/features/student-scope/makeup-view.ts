@@ -1,4 +1,5 @@
 import type { MakeupLedgerItem } from "../../types/api";
+import { getActiveLocale } from "../../i18n/locale-store";
 
 const CLOSED = new Set(["completed", "expired", "cancelled"]);
 
@@ -22,6 +23,7 @@ export function isOpenMakeup(status: string): boolean {
 
 /** Ekran okuyucu için tek kayıt özeti (sunucudan gelen alanlarla). */
 export function makeupLedgerA11yLabel(item: MakeupLedgerItem, statusLabel: string): string {
-  const parts = ["Telafi kaydı", item.teacherName ?? "", item.instrument ?? "", statusLabel].filter(Boolean);
+  const record = getActiveLocale() === "en" ? "Makeup record" : "Telafi kaydı";
+  const parts = [record, item.teacherName ?? "", item.instrument ?? "", statusLabel].filter(Boolean);
   return parts.join(", ");
 }

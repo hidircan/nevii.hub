@@ -1,4 +1,7 @@
-/** Küçük, bağımlılıksız tarih biçimlendirici — Türkçe gün/ay adları dahil. */
+import type { Locale } from "../i18n/locales";
+import { getActiveLocale } from "../i18n/locale-store";
+
+/** Küçük, bağımlılıksız tarih biçimlendirici — gün/ay adları aktif dile göre. */
 export function format(date: Date, pattern: "yyyy-MM-dd" | "HH:mm"): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   if (pattern === "yyyy-MM-dd") {
@@ -7,29 +10,43 @@ export function format(date: Date, pattern: "yyyy-MM-dd" | "HH:mm"): string {
   return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-const WEEKDAYS = ["Pazar", "Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi"];
-const MONTHS = [
-  "Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran",
-  "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık",
-];
+const WEEKDAYS: Record<Locale, string[]> = {
+  tr: ["Pazar", "Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi"],
+  en: ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"],
+};
+const MONTHS: Record<Locale, string[]> = {
+  tr: [
+    "Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran",
+    "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık",
+  ],
+  en: [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+  ],
+};
+const RELATIVE_DAY: Record<Locale, [string, string, string]> = {
+  tr: ["Bugün", "Yarın", "Dün"],
+  en: ["Today", "Tomorrow", "Yesterday"],
+};
 
-export function weekdayName(date: Date): string {
-  return WEEKDAYS[date.getDay()]!;
+export function weekdayName(date: Date, locale: Locale = getActiveLocale()): string {
+  return WEEKDAYS[locale][date.getDay()]!;
 }
 
-/** "26 Ağu" gibi kısa gün-ay etiketi. */
-export function shortDayMonth(date: Date): string {
-  return `${date.getDate()} ${MONTHS[date.getMonth()]!.slice(0, 3)}`;
+/** "26 Ağu" / "26 Aug" gibi kısa gün-ay etiketi. */
+export function shortDayMonth(date: Date, locale: Locale = getActiveLocale()): string {
+  return `${date.getDate()} ${MONTHS[locale][date.getMonth()]!.slice(0, 3)}`;
 }
 
 /** Bugün/Yarın/Dün için okunur kısayol, aksi halde "26 Ağu, Çarşamba". */
-export function relativeDayLabel(date: Date, now = new Date()): string {
+export function relativeDayLabel(date: Date, now = new Date(), locale: Locale = getActiveLocale()): string {
   const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
   const diffDays = Math.round((startOfDay(date) - startOfDay(now)) / 86_400_000);
-  if (diffDays === 0) return "Bugün";
-  if (diffDays === 1) return "Yarın";
-  if (diffDays === -1) return "Dün";
-  return `${shortDayMonth(date)}, ${weekdayName(date)}`;
+  const [today, tomorrow, yesterday] = RELATIVE_DAY[locale];
+  if (diffDays === 0) return today;
+  if (diffDays === 1) return tomorrow;
+  if (diffDays === -1) return yesterday;
+  return `${shortDayMonth(date, locale)}, ${weekdayName(date, locale)}`;
 }
 
 /** Günün başlangıcına (saat 00:00) sabitlenmiş yeni bir Date döner. */
@@ -68,7 +85,8 @@ export function isPast(dateIso: string, nowMs: number): boolean {
   return new Date(dateIso).getTime() < nowMs;
 }
 
-/** Para biçimi — Türkçe yerel ayarlarla (₺). */
-export function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY", maximumFractionDigits: 0 }).format(amount);
+/** Para biçimi — aktif dile göre gruplama (₺/TRY tutarı aynen korunur). */
+export function formatCurrency(amount: number, locale: Locale = getActiveLocale()): string {
+  const tag = locale === "en" ? "en-US" : "tr-TR";
+  return new Intl.NumberFormat(tag, { style: "currency", currency: "TRY", maximumFractionDigits: 0 }).format(amount);
 }

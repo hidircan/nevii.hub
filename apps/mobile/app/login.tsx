@@ -4,6 +4,7 @@ import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "../src/auth/auth-context";
 import { BrandMark, Button, Icon, TextField } from "../src/components/ui";
+import { useLocale } from "../src/i18n/locale-context";
 import { useTheme } from "../src/theme/theme-context";
 
 function isEmailLike(value: string): boolean {
@@ -22,14 +23,19 @@ export default function LoginScreen() {
   const t = useTheme();
   const router = useRouter();
   const { persona } = useLocalSearchParams<{ persona?: string }>();
+  const { t: tr } = useLocale();
   const heading =
-    persona === "teacher" ? "Öğretmen girişi" : persona === "admin" ? "Yönetici girişi" : "Öğrenci / Veli girişi";
+    persona === "teacher"
+      ? tr("auth.loginHeadingTeacher")
+      : persona === "admin"
+        ? tr("auth.loginHeadingAdmin")
+        : tr("auth.loginHeadingStudent");
   const subheading =
     persona === "teacher"
-      ? "Günlük programınız ve sınıflarınız için kurum hesabınızla giriş yapın"
+      ? tr("auth.loginSubTeacher")
       : persona === "admin"
-        ? "Kurum yönetim işlemleri için yönetici hesabınızla giriş yapın"
-        : "Dersler, ödevler ve ödemeler için kurum hesabınızla giriş yapın";
+        ? tr("auth.loginSubAdmin")
+        : tr("auth.loginSubStudent");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -62,13 +68,13 @@ export default function LoginScreen() {
         >
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Anasayfaya dön"
+            accessibilityLabel={tr("login.backToHome")}
             onPress={() => router.replace("/welcome")}
             hitSlop={12}
             style={styles.backRow}
           >
             <Icon name="chevron-back" size={18} color={t.colors.textMuted} />
-            <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>Anasayfa</Text>
+            <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>{tr("login.home")}</Text>
           </Pressable>
 
           <BrandMark size="md" />
@@ -81,24 +87,24 @@ export default function LoginScreen() {
 
           <View style={styles.form}>
             <TextField
-              label="E-posta"
+              label={tr("auth.email")}
               value={email}
               onChangeText={(v) => {
                 setEmail(v);
                 if (error) setError(null);
               }}
-              placeholder="ornek@kurum.com"
+              placeholder={tr("auth.emailPlaceholder")}
               autoCapitalize="none"
               autoComplete="email"
               keyboardType="email-address"
               textContentType="emailAddress"
               returnKeyType="next"
-              error={touched && !emailValid ? "E-posta adresi eksik görünüyor — kontrol edin." : undefined}
+              error={touched && !emailValid ? tr("login.emailHint") : undefined}
             />
 
             <View>
               <TextField
-                label="Şifre"
+                label={tr("auth.password")}
                 value={password}
                 onChangeText={(v) => {
                   setPassword(v);
@@ -114,7 +120,7 @@ export default function LoginScreen() {
               />
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel={showPassword ? "Şifreyi gizle" : "Şifreyi göster"}
+                accessibilityLabel={showPassword ? tr("auth.hidePassword") : tr("auth.showPassword")}
                 onPress={() => setShowPassword((v) => !v)}
                 hitSlop={12}
                 style={styles.eyeButton}
@@ -125,12 +131,12 @@ export default function LoginScreen() {
 
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="Şifremi unuttum"
+              accessibilityLabel={tr("auth.forgotPassword")}
               onPress={() => router.push("/forgot-password")}
               hitSlop={8}
               style={styles.forgotLink}
             >
-              <Text style={[t.typography.caption, { color: t.colors.primary }]}>Şifremi unuttum</Text>
+              <Text style={[t.typography.caption, { color: t.colors.primary }]}>{tr("auth.forgotPassword")}</Text>
             </Pressable>
 
             {error ? (
@@ -143,11 +149,11 @@ export default function LoginScreen() {
               </View>
             ) : null}
 
-            <Button label={busy ? "Giriş yapılıyor…" : "Giriş yap"} onPress={onSubmit} disabled={!canSubmit} loading={busy} />
+            <Button label={busy ? tr("auth.loggingIn") : tr("auth.loginButton")} onPress={onSubmit} disabled={!canSubmit} loading={busy} />
           </View>
 
           <Text style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 24, textAlign: "center" }]}>
-            Giriş bilgilerinizi kurumunuzun yöneticisinden alabilirsiniz.
+            {tr("login.footnote")}
           </Text>
         </ScrollView>
       </KeyboardAvoidingView>
