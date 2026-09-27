@@ -3,6 +3,7 @@ import { Text, View } from "react-native";
 import { apiPost } from "../../api/client";
 import { useAuth } from "../../auth/auth-context";
 import { AppHeader, Button, Card, Screen, TextField } from "../../components/ui";
+import { useLocale } from "../../i18n/locale-context";
 import { useTheme } from "../../theme/theme-context";
 
 function isEmailLike(value: string): boolean {
@@ -24,6 +25,7 @@ function isEmailLike(value: string): boolean {
  */
 export function ChangeEmailScreen() {
   const t = useTheme();
+  const { t: tr } = useLocale();
   const { user } = useAuth();
 
   const [newEmail, setNewEmail] = useState("");
@@ -51,7 +53,7 @@ export function ChangeEmailScreen() {
     setBusy(false);
     setCurrentPassword("");
     if (!res.ok) {
-      setError(res.error.message || "E-posta değiştirme isteği oluşturulamadı.");
+      setError(res.error.message || tr("emailChange.failed"));
       return;
     }
     setSentTo(newEmail.trim());
@@ -62,15 +64,14 @@ export function ChangeEmailScreen() {
   if (sentTo) {
     return (
       <Screen>
-        <AppHeader title="E-posta değiştir" showBack showNotifications={false} />
+        <AppHeader title={tr("account.changeEmail")} showBack showNotifications={false} />
         <Card>
-          <Text style={[t.typography.bodyStrong, { color: t.colors.text }]}>Doğrulama bağlantısı gönderildi</Text>
+          <Text style={[t.typography.bodyStrong, { color: t.colors.text }]}>{tr("emailChange.sentTitle")}</Text>
           <Text style={[t.typography.body, { color: t.colors.textMuted, marginTop: 8 }]}>
-            {sentTo} adresine giden bağlantıyı 24 saat içinde onaylayın. Onaylayana kadar mevcut adresiniz geçerlidir;
-            bir sonraki girişinizde yeni adresinizi kullanın.
+            {tr("emailChange.sentBody", { email: sentTo })}
           </Text>
           <View style={{ marginTop: 16 }}>
-            <Button label="Farklı adrese tekrar gönder" variant="secondary" onPress={() => setSentTo(null)} />
+            <Button label={tr("emailChange.resendOther")} variant="secondary" onPress={() => setSentTo(null)} />
           </View>
         </Card>
       </Screen>
@@ -79,10 +80,10 @@ export function ChangeEmailScreen() {
 
   return (
     <Screen>
-      <AppHeader title="E-posta değiştir" showBack showNotifications={false} />
+      <AppHeader title={tr("account.changeEmail")} showBack showNotifications={false} />
 
       <Card>
-        <Text style={[t.typography.caption, { color: t.colors.textFaint }]}>MEVCUT E-POSTA</Text>
+        <Text style={[t.typography.caption, { color: t.colors.textFaint }]}>{tr("emailChange.currentEmail")}</Text>
         <Text style={[t.typography.bodyStrong, { color: t.colors.text, marginTop: 2 }]} numberOfLines={1}>
           {user?.email ?? "—"}
         </Text>
@@ -90,7 +91,7 @@ export function ChangeEmailScreen() {
 
       <View style={{ gap: 14, marginTop: 16 }}>
         <TextField
-          label="Yeni e-posta"
+          label={tr("account.newEmail")}
           value={newEmail}
           onChangeText={(v) => {
             setNewEmail(v);
@@ -104,15 +105,15 @@ export function ChangeEmailScreen() {
           returnKeyType="next"
           error={
             touched && !isEmailLike(newEmail)
-              ? "Geçerli bir e-posta adresi girin."
+              ? tr("emailChange.invalid")
               : touched && newEmail.trim().toLowerCase() === (user?.email ?? "").trim().toLowerCase()
-                ? "Yeni adres mevcut adresinizle aynı."
+                ? tr("emailChange.sameAsCurrent")
                 : undefined
           }
         />
 
         <TextField
-          label="Mevcut şifre"
+          label={tr("account.currentPassword")}
           value={currentPassword}
           onChangeText={(v) => {
             setCurrentPassword(v);
@@ -133,10 +134,10 @@ export function ChangeEmailScreen() {
           </View>
         ) : null}
 
-        <Button label={busy ? "Gönderiliyor…" : "Doğrulama bağlantısı gönder"} onPress={onSubmit} disabled={!canSubmit} loading={busy} />
+        <Button label={busy ? tr("emailChange.sending") : tr("emailChange.sendLink")} onPress={onSubmit} disabled={!canSubmit} loading={busy} />
 
         <Text style={[t.typography.caption, { color: t.colors.textFaint, textAlign: "center" }]}>
-          Güvenliğiniz için mevcut şifreniz istenir. Bağlantı yeni adrese e-postayla gider.
+          {tr("emailChange.footnote")}
         </Text>
       </View>
     </Screen>

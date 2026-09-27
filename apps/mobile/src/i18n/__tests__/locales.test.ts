@@ -78,6 +78,33 @@ describe("locale-store", () => {
   });
 });
 
+describe("portal hata mesajları", () => {
+  it("aktif dile göre üretilir, bilinmeyen kod sızdırmaz", async () => {
+    const mod = await import("../../components/mobile-ui/api-error-message");
+    setActiveLocale("tr");
+    expect(mod.portalErrorMessage("NETWORK_ERROR")).toContain("İnternet");
+    expect(mod.portalErrorMessage("NOPE_X", "stack trace at foo (1:2)")).toBe(
+      "Şu anda veriler yüklenemedi. Tekrar deneyin.",
+    );
+    setActiveLocale("en");
+    expect(mod.portalErrorMessage("NETWORK_ERROR")).toContain("internet");
+    expect(mod.portalErrorMessage("FORBIDDEN")).toContain("not authorized");
+    expect(mod.portalErrorMessage("NOPE_X", "secret key abc")).toBe(
+      "Data could not be loaded right now. Please try again.",
+    );
+    // Backend'in eyleme dönük mesajı korunur.
+    expect(mod.portalErrorMessage("VALIDATION_ERROR", "Enter a date")).toBe("Enter a date");
+    setActiveLocale("tr");
+  });
+
+  it("bildirim kategori etiketleri iki dilde de çözülür", async () => {
+    const mod = await import("../../features/notifications/categories");
+    expect(mod.categoryLabel("lesson_started", "tr")).toBe("Ders başladı");
+    expect(mod.categoryLabel("lesson_started", "en")).toBe("Lesson started");
+    expect(mod.categoryLabel("unknown_future_cat", "en")).toBe("unknown_future_cat");
+  });
+});
+
 describe("yerelleştirilmiş yardımcılar", () => {
   it("tarih adları aktif dile göre üretilir", async () => {
     const date = await import("../../lib/date");

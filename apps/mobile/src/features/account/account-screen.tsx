@@ -10,6 +10,10 @@ import { AppHeader, Avatar, BottomSheet, Card, ConfirmDialog, Icon, Screen, Sect
 import { useApiGet } from "../../hooks/use-api";
 import { PHOTO_RESIZE_MAX_DIMENSION, PHOTO_JPEG_COMPRESS_QUALITY, buildPhotoUploadRequestBody } from "../../lib/photo-upload";
 import { getLegalLinks } from "../../legal/legal-links";
+import { lookup } from "../../i18n/locales";
+import { getActiveLocale } from "../../i18n/locale-store";
+import { useLocale } from "../../i18n/locale-context";
+import { LanguageSelector } from "../../components/language-selector";
 import { useTheme, useThemePreference, type ThemePreference } from "../../theme/theme-context";
 import type { ScheduleResponse, StudentProfile } from "../../types/api";
 import { resolveDisplayName } from "./display-name";
@@ -52,31 +56,32 @@ async function resizeForUpload(asset: ImagePicker.ImagePickerAsset): Promise<str
   }
   const rendered = await context.renderAsync();
   const saved = await rendered.saveAsync({ compress: PHOTO_JPEG_COMPRESS_QUALITY, format: SaveFormat.JPEG, base64: true });
-  if (!saved.base64) throw new Error("Fotoğraf işlenemedi");
+  if (!saved.base64) throw new Error(lookup(getActiveLocale(), "account.photoProcessFail"));
   return saved.base64;
 }
 
 export type AccountQuickLink = { key: string; icon: IconName; label: string; onPress: () => void };
 
-const ROLE_LABEL: Record<AppRole, string> = {
-  HYPER_ADMIN: "Platform Yöneticisi",
-  SUPER_ADMIN: "Kurum Sahibi",
-  SCHOOL_ADMIN: "Yönetici",
-  BRANCH_MANAGER: "Şube Müdürü",
-  TEACHER: "Öğretmen",
-  STUDENT: "Öğrenci",
-  AI_AGENT: "Sistem",
+const ROLE_LABEL_KEY: Record<AppRole, string> = {
+  HYPER_ADMIN: "account.rolePlatformAdmin",
+  SUPER_ADMIN: "account.roleOwner",
+  SCHOOL_ADMIN: "account.roleAdmin",
+  BRANCH_MANAGER: "account.roleBranchManager",
+  TEACHER: "account.roleTeacher",
+  STUDENT: "account.roleStudent",
+  AI_AGENT: "account.roleSystem",
 };
 
 /** Veli de STUDENT rolüyle girer — etiket sunucunun portal erişim türünden gelir. */
-function roleLabel(user: AuthUser): string {
-  return user.portalAccessType === "GUARDIAN" ? "Veli" : ROLE_LABEL[user.loginRole] ?? ROLE_LABEL[user.role];
+function roleLabel(user: AuthUser, tr: (path: string) => string): string {
+  if (user.portalAccessType === "GUARDIAN") return tr("account.roleGuardian");
+  return tr(ROLE_LABEL_KEY[user.loginRole] ?? ROLE_LABEL_KEY[user.role]);
 }
 
-const THEME_OPTIONS: Array<{ value: ThemePreference; label: string; icon: IconName }> = [
-  { value: "system", label: "Sistem", icon: "phone-portrait-outline" },
-  { value: "light", label: "Açık", icon: "sunny-outline" },
-  { value: "dark", label: "Koyu", icon: "moon-outline" },
+const THEME_OPTIONS: Array<{ value: ThemePreference; labelKey: string; icon: IconName }> = [
+  { value: "system", labelKey: "account.themeSystem", icon: "phone-portrait-outline" },
+  { value: "light", labelKey: "account.themeLight", icon: "sunny-outline" },
+  { value: "dark", labelKey: "account.themeDark", icon: "moon-outline" },
 ];
 
 /**
@@ -87,26 +92,27 @@ const THEME_OPTIONS: Array<{ value: ThemePreference; label: string; icon: IconNa
  */
 function LegalSection() {
   const t = useTheme();
+  const { t: tr } = useLocale();
   const router = useRouter();
   const links = getLegalLinks();
 
   const rows: Array<{ icon: IconName; label: string; hint: string; onPress: () => void }> = [
     {
       icon: "shield-checkmark-outline",
-      label: "Gizlilik Politikası",
-      hint: "Uygulama dışında açılır",
+      label: tr("account.privacy"),
+      hint: tr("account.openOutside"),
       onPress: () => void Linking.openURL(links.privacyPolicyUrl),
     },
     {
       icon: "document-text-outline",
-      label: "Kullanım Koşulları",
-      hint: "Uygulama dışında açılır",
+      label: tr("account.terms"),
+      hint: tr("account.openOutside"),
       onPress: () => void Linking.openURL(links.termsUrl),
     },
     {
       icon: "trash-outline",
-      label: "Hesabımı silme talebi",
-      hint: "Talep oluştur ve durumunu takip et",
+      label: tr("account.deleteRow"),
+      hint: tr("account.deleteHint"),
       onPress: () => router.push("/hesap-silme-talebi"),
     },
   ];
@@ -147,6 +153,7 @@ export function AccountScreen(
   { links, ownAccountPhotoOnly, showChildContext }: { links?: AccountQuickLink[]; ownAccountPhotoOnly?: boolean; showChildContext?: boolean } = {}
 ) {
   const t = useTheme();
+  const { t: tr } = useLocale();
   const { user, logout } = useAuth();
   const router = useRouter();
   // Seçili öğrenci bağlam bandı — veli/öğrenci Hesabım hangi çocuğun
@@ -191,11 +198,7 @@ export function AccountScreen(
 
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
-      setPhotoError(
-        permission.canAskAgain
-          ? "Fotoğraf seçmek için galeri erişimine izin verin."
-          : "Fotoğraf seçebilmek için Ayarlar > Nevii Hub > Fotoğraflar bölümünden erişim izni vermelisiniz."
-      );
+      setPhotoError(permission.canAskAgain ? tr("account.galleryAsk") : tr("account.gallerySettings"));
       return;
     }
 
@@ -207,7 +210,7 @@ export function AccountScreen(
     if (result.canceled) return;
     const asset = result.assets[0];
     if (!asset) {
-      setPhotoError("Fotoğraf okunamadı. Lütfen tekrar deneyin.");
+      setPhotoError(tr("account.photoUnreadable"));
       return;
     }
 
@@ -220,14 +223,14 @@ export function AccountScreen(
         buildPhotoUploadRequestBody(base64)
       );
       if (!res.ok) {
-        setPhotoError(res.error.message || "Fotoğraf yüklenemedi. Lütfen tekrar deneyin.");
+        setPhotoError(res.error.message || tr("account.photoUploadFail"));
         return;
       }
       setHasPhoto(true);
       setPhotoVersion((v) => v + 1);
       setPhotoSheetOpen(false);
     } catch {
-      setPhotoError("Fotoğraf yüklenemedi. Lütfen tekrar deneyin.");
+      setPhotoError(tr("account.photoUploadFail"));
     } finally {
       setPhotoBusy(false);
     }
@@ -240,7 +243,7 @@ export function AccountScreen(
     const res = await apiDelete(`/api/v1/${photoOwner.ownerType}s/${photoOwner.ownerId}/photo`);
     setPhotoBusy(false);
     if (!res.ok) {
-      setPhotoError(res.error.message || "Fotoğraf kaldırılamadı. Lütfen tekrar deneyin.");
+      setPhotoError(res.error.message || tr("account.photoRemoveFail"));
       return;
     }
     setHasPhoto(false);
@@ -250,17 +253,17 @@ export function AccountScreen(
 
   return (
     <Screen>
-      <AppHeader title="Hesabım" />
+      <AppHeader title={tr("account.title")} />
 
       <Card>
         <View style={styles.profileRow}>
           <Pressable
             onPress={() => (photoOwner ? setPhotoSheetOpen(true) : undefined)}
-            accessibilityLabel={photoOwner ? "Profil fotoğrafını değiştir" : undefined}
+            accessibilityLabel={photoOwner ? tr("account.photoChange") : undefined}
             style={{ position: "relative" }}
           >
             <Avatar
-              name={displayName ?? "Kullanıcı"}
+              name={displayName ?? tr("account.userFallback")}
               size={52}
               photoPath={photoPath}
               onPhotoLoad={() => setHasPhoto(true)}
@@ -275,7 +278,7 @@ export function AccountScreen(
           <View style={{ flex: 1 }}>
             {showSkeleton ? (
               // Kimlik çözülürken yanlış metin gösterilmez — iskelet.
-              <View accessibilityLabel="Profil bilgisi yükleniyor">
+              <View accessibilityLabel={tr("account.profileLoading")}>
                 <View style={[styles.nameSkeleton, { backgroundColor: t.colors.bgMuted }]} />
                 <View style={[styles.roleSkeleton, { backgroundColor: t.colors.bgMuted }]} />
               </View>
@@ -284,12 +287,12 @@ export function AccountScreen(
                 <Text
                   style={[t.typography.cardTitle, { color: t.colors.text }]}
                   numberOfLines={1}
-                  accessibilityLabel={displayName ? undefined : "Kullanıcı adı yüklenemedi"}
+                  accessibilityLabel={displayName ? undefined : tr("account.nameLoadFail")}
                 >
-                  {displayName ?? "Kullanıcı"}
+                  {displayName ?? tr("account.userFallback")}
                 </Text>
                 <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>
-                  {user ? roleLabel(user) : ""}
+                  {user ? roleLabel(user, tr) : ""}
                 </Text>
               </>
             )}
@@ -298,14 +301,14 @@ export function AccountScreen(
       </Card>
 
       {photoOwner ? (
-        <BottomSheet visible={photoSheetOpen} title="Profil fotoğrafı" onClose={() => setPhotoSheetOpen(false)}>
+        <BottomSheet visible={photoSheetOpen} title={tr("account.photoTitle")} onClose={() => setPhotoSheetOpen(false)}>
           <View style={{ gap: 10, paddingBottom: 8 }}>
             {photoError ? <Text style={[t.typography.caption, { color: t.colors.danger }]}>{photoError}</Text> : null}
             <Pressable onPress={pickAndUploadPhoto} disabled={photoBusy} style={styles.sheetOptionRow}>
               <View style={styles.optionLeft}>
                 <Icon name="image-outline" size={18} color={t.colors.primary} />
                 <Text style={[t.typography.body, { color: t.colors.primary }]}>
-                  {photoBusy ? "İşleniyor..." : hasPhoto ? "Fotoğrafı değiştir" : "Fotoğraf seç"}
+                  {photoBusy ? tr("account.photoProcessing") : hasPhoto ? tr("account.photoReplace") : tr("account.photoPick")}
                 </Text>
               </View>
             </Pressable>
@@ -313,13 +316,13 @@ export function AccountScreen(
               <Pressable onPress={removePhoto} disabled={photoBusy} style={styles.sheetOptionRow}>
                 <View style={styles.optionLeft}>
                   <Icon name="trash-outline" size={18} color={t.colors.danger} />
-                  <Text style={[t.typography.body, { color: t.colors.danger }]}>Fotoğrafı kaldır</Text>
+                  <Text style={[t.typography.body, { color: t.colors.danger }]}>{tr("account.photoRemove")}</Text>
                 </View>
               </Pressable>
             ) : null}
             <Pressable onPress={() => setPhotoSheetOpen(false)} disabled={photoBusy} style={styles.sheetOptionRow}>
               <View style={styles.optionLeft}>
-                <Text style={[t.typography.body, { color: t.colors.textMuted }]}>Vazgeç</Text>
+                <Text style={[t.typography.body, { color: t.colors.textMuted }]}>{tr("common.cancel")}</Text>
               </View>
             </Pressable>
           </View>
@@ -331,10 +334,10 @@ export function AccountScreen(
           accessibilityRole="button"
           accessibilityLabel={
             contextProfile.status === "success"
-              ? `Takip edilen öğrenci: ${contextProfile.data.name}. Değiştirmek için dokunun.`
-              : "Takip edilen öğrenci yükleniyor"
+              ? tr("account.trackedA11y", { name: contextProfile.data.name })
+              : tr("account.trackedA11yLoading")
           }
-          accessibilityHint={selection.isMulti ? "Öğrenci seçme ekranını açar" : undefined}
+          accessibilityHint={selection.isMulti ? tr("account.openStudentPicker") : undefined}
           disabled={!selection.isMulti || !selection.ready}
           onPress={() => router.push("/select-child")}
           style={({ pressed }) => [
@@ -345,9 +348,9 @@ export function AccountScreen(
           <View style={styles.optionLeft}>
             <Icon name="people-outline" size={18} color={t.colors.primary} />
             <View style={{ flex: 1 }}>
-              <Text style={[t.typography.label, { color: t.colors.textFaint }]}>TAKİP EDİLEN ÖĞRENCİ</Text>
+              <Text style={[t.typography.label, { color: t.colors.textFaint }]}>{tr("account.trackedStudent")}</Text>
               <Text style={[t.typography.bodyStrong, { color: t.colors.text, marginTop: 1 }]} numberOfLines={1}>
-                {contextProfile.status === "success" ? contextProfile.data.name : "Yükleniyor…"}
+                {contextProfile.status === "success" ? contextProfile.data.name : tr("account.trackedLoading")}
               </Text>
             </View>
           </View>
@@ -357,7 +360,7 @@ export function AccountScreen(
 
       {links && links.length > 0 ? (
         <>
-          <SectionHeader title="Araçlar" />
+          <SectionHeader title={tr("account.tools")} />
           <Card>
             {links.map((link, i) => (
               <View key={link.key}>
@@ -375,7 +378,7 @@ export function AccountScreen(
         </>
       ) : null}
 
-      <SectionHeader title="Görünüm" />
+      <SectionHeader title={tr("account.appearance")} />
       <Card>
         {THEME_OPTIONS.map((opt, i) => (
           <View key={opt.value}>
@@ -388,7 +391,7 @@ export function AccountScreen(
             >
               <View style={styles.optionLeft}>
                 <Icon name={opt.icon} size={18} color={t.colors.textMuted} />
-                <Text style={[t.typography.body, { color: t.colors.text }]}>{opt.label}</Text>
+                <Text style={[t.typography.body, { color: t.colors.text }]}>{tr(opt.labelKey)}</Text>
               </View>
               <Icon
                 name={preference === opt.value ? "radio-button-on" : "radio-button-off"}
@@ -398,25 +401,33 @@ export function AccountScreen(
             </Pressable>
           </View>
         ))}
+        <View style={[styles.divider, { backgroundColor: t.colors.divider }]} />
+        <View style={styles.optionRow}>
+          <View style={[styles.optionLeft, { flex: 1 }]}>
+            <Icon name="language-outline" size={18} color={t.colors.textMuted} />
+            <Text style={[t.typography.body, { color: t.colors.text }]}>{tr("common.language")}</Text>
+          </View>
+        </View>
+        <LanguageSelector compact />
       </Card>
 
-      <SectionHeader title="Gizlilik ve veri" />
+      <SectionHeader title={tr("account.privacyData")} />
       <LegalSection />
-      <SectionHeader title="Hesap" />
+      <SectionHeader title={tr("account.accountSection")} />
       <Card onPress={() => setConfirmingLogout(true)}>
         <View style={styles.optionRow}>
           <View style={styles.optionLeft}>
             <Icon name="log-out-outline" size={18} color={t.colors.danger} />
-            <Text style={[t.typography.body, { color: t.colors.danger }]}>Çıkış yap</Text>
+            <Text style={[t.typography.body, { color: t.colors.danger }]}>{tr("auth.logout")}</Text>
           </View>
         </View>
       </Card>
 
       <ConfirmDialog
         visible={confirmingLogout}
-        title="Çıkış yapılsın mı?"
-        message="Bu cihazda oturumunuz kapatılacak."
-        confirmLabel="Çıkış yap"
+        title={tr("account.logoutTitle")}
+        message={tr("account.logoutMessage")}
+        confirmLabel={tr("auth.logout")}
         danger
         onConfirm={() => {
           setConfirmingLogout(false);

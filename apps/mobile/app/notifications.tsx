@@ -7,6 +7,7 @@ import { getProductionBackend, readCacheEntry, writeCacheEntry } from "../src/ca
 import { subscribeToScopes } from "../src/cache/refresh-bus";
 import { AppHeader, EmptyState, ErrorState, LoadingSkeleton, NotificationCard, Screen } from "../src/components/ui";
 import { groupByDay } from "../src/lib/group-by-day";
+import { useLocale } from "../src/i18n/locale-context";
 import { useTheme } from "../src/theme/theme-context";
 import type { Notification, NotificationsResponse } from "../src/types/api";
 
@@ -20,6 +21,7 @@ const FIRST_PAGE_PATH = "/api/v1/notifications";
 /** Üç rol için de ortak, kök seviyede modal olarak açılan bildirim merkezi. */
 export default function NotificationsScreen() {
   const t = useTheme();
+  const { t: tr } = useLocale();
   const { user } = useAuth();
   const [state, setState] = useState<State>({ status: "loading" });
   const [loadingMore, setLoadingMore] = useState(false);
@@ -106,7 +108,7 @@ export default function NotificationsScreen() {
   return (
     <Screen scroll={false} padded={false} edges={["top", "bottom", "left", "right"]}>
       <View style={styles.headerPad}>
-        <AppHeader title="Bildirimler" showBack showNotifications={false} />
+        <AppHeader title={tr("notifications.title")} showBack showNotifications={false} />
         {cacheInfo ? <CacheStatus cachedAt={cacheInfo.cachedAt} isStale={cacheInfo.isStale} /> : null}
       </View>
 
@@ -117,7 +119,7 @@ export default function NotificationsScreen() {
       ) : state.status === "error" ? (
         <ErrorState message={state.message} onRetry={loadFirstPage} />
       ) : state.notifications.length === 0 ? (
-        <EmptyState icon="notifications-outline" title="Bildirim yok" description="Yeni bildirimler burada görünecek." />
+        <EmptyState icon="notifications-outline" title={tr("notifications.emptyTitle")} description={tr("notifications.emptyBody")} />
       ) : (
         <SectionList
           contentContainerStyle={styles.padded}
@@ -146,7 +148,7 @@ export default function NotificationsScreen() {
               <ActivityIndicator style={styles.footer} color={t.colors.textMuted} />
             ) : loadMoreError ? (
               <Text style={[t.typography.label, styles.footer, { color: t.colors.danger }]} onPress={loadMore}>
-                Daha fazla yüklenemedi — tekrar dene
+                {tr("notifications.loadMoreFailed")}
               </Text>
             ) : null
           }
