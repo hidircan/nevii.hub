@@ -4,6 +4,7 @@ import { apiPatch } from "../../api/client";
 import { AppHeader, Card, ErrorState, Icon, LoadingSkeleton, Screen } from "../../components/ui";
 import { useApiGet } from "../../hooks/use-api";
 import { useSelectedStudentId } from "../../student/student-context";
+import { useLocale } from "../../i18n/locale-context";
 import { useTheme } from "../../theme/theme-context";
 import { listFallback, usePersonaBasePath } from "../../lib/navigation";
 import type { StudentProfile } from "../../types/api";
@@ -12,6 +13,7 @@ import type { StudentProfile } from "../../types/api";
 export function CommunicationPreferenceScreen() {
   const base = usePersonaBasePath();
   const t = useTheme();
+  const { t: tr } = useLocale();
   const studentId = useSelectedStudentId();
   const res = useApiGet<StudentProfile>(studentId ? `/api/v1/students/${studentId}` : "");
   const [busy, setBusy] = useState(false);
@@ -20,7 +22,7 @@ export function CommunicationPreferenceScreen() {
   if (res.status === "loading") {
     return (
       <Screen>
-        <AppHeader title="İletişim tercihleri" showBack backFallback={listFallback(base, "hesabim")} showNotifications={false} />
+        <AppHeader title={tr("comms.title")} showBack backFallback={listFallback(base, "hesabim")} showNotifications={false} />
         <LoadingSkeleton rows={2} />
       </Screen>
     );
@@ -28,7 +30,7 @@ export function CommunicationPreferenceScreen() {
   if (res.status === "error") {
     return (
       <Screen>
-        <AppHeader title="İletişim tercihleri" showBack backFallback={listFallback(base, "hesabim")} showNotifications={false} />
+        <AppHeader title={tr("comms.title")} showBack backFallback={listFallback(base, "hesabim")} showNotifications={false} />
         <ErrorState message={res.message} onRetry={res.refresh} />
       </Screen>
     );
@@ -47,22 +49,21 @@ export function CommunicationPreferenceScreen() {
 
   return (
     <Screen>
-      <AppHeader title="İletişim tercihleri" showBack backFallback={listFallback(base, "hesabim")} showNotifications={false} />
+      <AppHeader title={tr("comms.title")} showBack backFallback={listFallback(base, "hesabim")} showNotifications={false} />
 
       <Card>
         <Text style={[t.typography.body, { color: t.colors.textMuted, marginBottom: 16 }]}>
-          Bu tercih yalnızca genel duyuru/pazarlama iletişimini kapsar — dersinizle ilgili yoklama, ödev ve öğretmen
-          bildirimleri her zaman gönderilir (KVKK kapsamında zorunlu hizmet iletişimi).
+          {tr("comms.body")}
         </Text>
         <Pressable
           accessibilityRole="switch"
           accessibilityState={{ checked: current }}
-          accessibilityLabel="Genel duyuru iletişimini alma"
+          accessibilityLabel={tr("comms.optOut")}
           onPress={toggle}
           disabled={busy}
           style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", minHeight: 48, opacity: busy ? 0.6 : 1 }}
         >
-          <Text style={[t.typography.bodyStrong, { color: t.colors.text }]}>Genel duyuru iletişimini alma</Text>
+          <Text style={[t.typography.bodyStrong, { color: t.colors.text }]}>{tr("comms.optOut")}</Text>
           <Icon name={current ? "toggle" : "toggle-outline"} size={32} color={current ? t.colors.primary : t.colors.textFaint} />
         </Pressable>
       </Card>

@@ -6,6 +6,7 @@ import { useCachedApiGet } from "../../cache/use-cached-api";
 import { useSelectedStudentId } from "../../student/student-context";
 import { shortDayMonth } from "../../lib/date";
 import { downloadAndOpenFile } from "../../lib/open-file";
+import { useLocale } from "../../i18n/locale-context";
 import { useTheme } from "../../theme/theme-context";
 import { listFallback, usePersonaBasePath } from "../../lib/navigation";
 import type { TeachingMaterialsResponse } from "../../types/api";
@@ -13,6 +14,7 @@ import type { TeachingMaterialsResponse } from "../../types/api";
 /** Öğretmenin paylaştığı materyaller — veli ve öğrenci için ortak, salt-okunur liste. */
 export function StudentScopeMaterialsScreen() {
   const t = useTheme();
+  const { t: tr } = useLocale();
   const base = usePersonaBasePath();
   const studentId = useSelectedStudentId();
   const res = useCachedApiGet<TeachingMaterialsResponse>(studentId ? `/api/v1/students/${studentId}/teaching-materials` : "");
@@ -29,7 +31,7 @@ export function StudentScopeMaterialsScreen() {
 
   return (
     <Screen onRefresh={res.refresh} refreshing={res.status === "loading"}>
-      <AppHeader title="Materyaller" showBack backFallback={listFallback(base, "gelisim")} showNotifications={false} />
+      <AppHeader title={tr("materials.title")} showBack backFallback={listFallback(base, "gelisim")} showNotifications={false} />
       <CacheStatus cachedAt={res.cachedAt} isStale={res.isStale} />
 
       {res.status === "loading" ? (
@@ -37,7 +39,7 @@ export function StudentScopeMaterialsScreen() {
       ) : res.status === "error" ? (
         <ErrorState message={res.message} onRetry={res.refresh} />
       ) : res.data.materials.length === 0 ? (
-        <EmptyState icon="folder-open-outline" title="Henüz materyal paylaşılmadı" />
+        <EmptyState icon="folder-open-outline" title={tr("materials.empty")} />
       ) : (
         <View style={{ gap: 10 }}>
           {downloadError ? <Text style={[t.typography.caption, { color: t.colors.danger }]}>{downloadError}</Text> : null}
@@ -58,7 +60,7 @@ export function StudentScopeMaterialsScreen() {
                   {m.fileName ? (
                     <View style={{ marginTop: 10 }}>
                       <Button
-                        label={downloadingId === m.id ? "İndiriliyor…" : `Dosyayı aç · ${m.fileName}`}
+                        label={downloadingId === m.id ? tr("materials.downloading") : tr("materials.openFile", { v: m.fileName })}
                         icon="download-outline"
                         variant="secondary"
                         size="sm"

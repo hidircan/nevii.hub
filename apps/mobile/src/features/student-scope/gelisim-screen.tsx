@@ -8,6 +8,7 @@ import { useCachedApiGet } from "../../cache/use-cached-api";
 import { useSelectedStudentId } from "../../student/student-context";
 import { useNow } from "../../hooks/use-now";
 import { relativeDayLabel } from "../../lib/date";
+import { useLocale } from "../../i18n/locale-context";
 import { useTheme } from "../../theme/theme-context";
 import { AttendanceCounters } from "./attendance-counters";
 import type { AssessmentsResponse, AttendanceLedgerResponse, CurriculumResponse, ScheduleResponse, StudentProfile } from "../../types/api";
@@ -16,6 +17,7 @@ const RECENT_LESSON_WINDOW_DAYS = 90;
 
 export function StudentScopeGelisimScreen({ basePath }: { basePath: "/(parent)" | "/(student)" }) {
   const t = useTheme();
+  const { t: tr, locale } = useLocale();
   const router = useRouter();
   const now = useNow();
   const studentId = useSelectedStudentId();
@@ -52,24 +54,24 @@ export function StudentScopeGelisimScreen({ basePath }: { basePath: "/(parent)" 
         }
       }
     }
-    return [...byId.values()].sort((a, b) => a.teacherName.localeCompare(b.teacherName, "tr"));
-  }, [profile, schedule, now]);
+    return [...byId.values()].sort((a, b) => a.teacherName.localeCompare(b.teacherName, locale === "en" ? "en" : "tr"));
+  }, [profile, schedule, now, locale]);
 
   if (!studentId) {
     return (
       <Screen>
-        <AppHeader title="Gelişim" showAccount={`${basePath}/hesabim`} />
-        <EmptyState icon="alert-circle-outline" title="Öğrenci bilgisi bulunamadı" />
+        <AppHeader title={tr("tabs.growth")} showAccount={`${basePath}/hesabim`} />
+        <EmptyState icon="alert-circle-outline" title={tr("home.noStudentTitle")} />
       </Screen>
     );
   }
 
   return (
     <Screen>
-      <AppHeader title="Gelişim" showAccount={`${basePath}/hesabim`} />
+      <AppHeader title={tr("tabs.growth")} showAccount={`${basePath}/hesabim`} />
       <CacheStatus cachedAt={schedule.cachedAt} isStale={schedule.isStale} />
 
-      <SectionHeader title="Müfredat ilerlemesi" />
+      <SectionHeader title={tr("growth.curriculum")} />
       {curriculum.status === "loading" ? (
         <LoadingSkeleton rows={2} />
       ) : curriculum.status === "error" ? (
@@ -77,7 +79,7 @@ export function StudentScopeGelisimScreen({ basePath }: { basePath: "/(parent)" 
       ) : (
         <Card>
           <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 8 }}>
-            <Text style={[t.typography.bodyStrong, { color: t.colors.text }]}>Genel ilerleme</Text>
+            <Text style={[t.typography.bodyStrong, { color: t.colors.text }]}>{tr("growth.overall")}</Text>
             <Text style={[t.typography.bodyStrong, { color: t.colors.primary }]}>%{Math.round(curriculum.data.overallPercent)}</Text>
           </View>
           <ProgressBar progress={curriculum.data.overallPercent} />
@@ -94,7 +96,7 @@ export function StudentScopeGelisimScreen({ basePath }: { basePath: "/(parent)" 
         </Card>
       )}
 
-      <SectionHeader title="Ders devam özeti" />
+      <SectionHeader title={tr("growth.attendanceSummary")} />
       {attendance.status === "loading" ? (
         <LoadingSkeleton rows={1} />
       ) : attendance.status === "error" ? (
@@ -106,42 +108,42 @@ export function StudentScopeGelisimScreen({ basePath }: { basePath: "/(parent)" 
         />
       )}
 
-      <SectionHeader title="Öğretmen notları" />
+      <SectionHeader title={tr("growth.teacherNotes")} />
       {assessments.status === "loading" ? (
         <LoadingSkeleton rows={2} />
       ) : assessments.status === "error" ? (
         <ErrorState message={assessments.message} onRetry={assessments.refresh} code={assessments.code} />
       ) : assessments.data.assessments.length === 0 ? (
-        <EmptyState icon="chatbubble-outline" title="Henüz öğretmen notu yok"  compact />
+        <EmptyState icon="chatbubble-outline" title={tr("home.noTeacherNote")}  compact />
       ) : (
         <View style={{ gap: 10 }}>
           {[...assessments.data.assessments].reverse().slice(0, 3).map((a) => (
             <Card key={a.id}>
               <Text style={[t.typography.caption, { color: t.colors.textFaint, marginBottom: 6 }]}>{relativeDayLabel(new Date(a.createdAt))}</Text>
               <Text style={[t.typography.body, { color: t.colors.text }]}>{a.strengthNote}</Text>
-              <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 6 }]}>Sonraki adımlar: {a.nextStepsNote}</Text>
+              <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 6 }]}>{tr("growth.nextSteps", { v: a.nextStepsNote })}</Text>
             </Card>
           ))}
         </View>
       )}
 
-      <SectionHeader title="Ders materyalleri" actionLabel="Tümü" onAction={() => router.push(`${basePath}/gelisim/materyaller`)} />
+      <SectionHeader title={tr("growth.materials")} actionLabel={tr("home.all")} onAction={() => router.push(`${basePath}/gelisim/materyaller`)} />
       <Card onPress={() => router.push(`${basePath}/gelisim/materyaller`)}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
           <Icon name="folder-open-outline" size={18} color={t.colors.primary} />
-          <Text style={[t.typography.body, { color: t.colors.text, flex: 1 }]}>Öğretmenin paylaştığı materyalleri görüntüle</Text>
+          <Text style={[t.typography.body, { color: t.colors.text, flex: 1 }]}>{tr("growth.viewMaterials")}</Text>
           <Icon name="chevron-forward" size={16} color={t.colors.textFaint} />
         </View>
       </Card>
 
-      <SectionHeader title="Öğretmen değerlendirmesi" />
+      <SectionHeader title={tr("growth.evaluation")} />
       <Text style={[t.typography.caption, { color: t.colors.textMuted, marginBottom: 10 }]}>
-        Öğretmeninizi anonim olarak değerlendirin — kimliğiniz öğretmenle paylaşılmaz.
+        {tr("growth.evaluationHint")}
       </Text>
       {profile.status === "loading" || schedule.status === "loading" ? (
         <LoadingSkeleton rows={1} />
       ) : eligibleTeachers.length === 0 ? (
-        <EmptyState icon="star-outline" title="Değerlendirilebilecek öğretmen yok" />
+        <EmptyState icon="star-outline" title={tr("growth.noEligible")} />
       ) : (
         <View style={{ gap: 10 }}>
           {eligibleTeachers.map((teacher) => (
@@ -154,10 +156,10 @@ export function StudentScopeGelisimScreen({ basePath }: { basePath: "/(parent)" 
               <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
                 <Icon name="star-outline" size={18} color={t.colors.primary} />
                 <View style={{ flex: 1 }}>
-                  <Text style={[t.typography.bodyStrong, { color: t.colors.text }]}>{teacher.teacherName || "Öğretmen"}</Text>
+                  <Text style={[t.typography.bodyStrong, { color: t.colors.text }]}>{teacher.teacherName || tr("home.teacherFallback")}</Text>
                   {teacher.lastLessonAt ? (
                     <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>
-                      Son ders: {relativeDayLabel(new Date(teacher.lastLessonAt))}
+                      {tr("growth.lastLesson", { v: relativeDayLabel(new Date(teacher.lastLessonAt)) })}
                     </Text>
                   ) : null}
                 </View>
