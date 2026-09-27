@@ -1019,12 +1019,38 @@ export async function getUserAccountStatusForTeacher(tenantId: string, teacherId
   return { userId: dyn.userId, email: dyn.email, role: dyn.role, tenantId: dyn.tenantId, active: dyn.active };
 }
 
+async function revokeSessionsAfterPasswordChange(userId: string, tenantId: string | null, dbAlreadyStamped: boolean) {
+  if (!dbAlreadyStamped && tenantId) {
+    const { getUserLifecycle, saveUserLifecycle } = await import("../platform/store-ext");
+    const prev = await getUserLifecycle(userId);
+    const status = prev?.status === "deleted" || prev?.status === "deactivated" ? prev.status : "active";
+    await saveUserLifecycle({
+      userId,
+      tenantId,
+      status,
+      sessionsRevokedAt: new Date().toISOString(),
+      displayName: prev?.displayName ?? null,
+      updatedAt: new Date().toISOString(),
+      updatedBy: "password-change",
+    });
+  }
+  const { closeAllUserSessions } = await import("./session-registry");
+  await closeAllUserSessions(userId, userId, "password-changed").catch(() => 0);
+  const { invalidateSessionValidity } = await import("./session-validity");
+  invalidateSessionValidity(userId);
+}
+
 export async function updatePasswordHash(userId: string, newHash: string): Promise<boolean> {
   if (isDbMode) {
     try {
       const { getPrisma } = await import("../db");
       const prisma = getPrisma();
-      await prisma.user.update({ where: { id: userId }, data: { passwordHash: newHash } });
+      // Aynı saniyedeki yeni token geçerli kalır (`iat < revoked`). Daha eski token'lar düşer.
+      await prisma.user.update({
+        where: { id: userId },
+        data: { passwordHash: newHash, sessionsRevokedAt: new Date() },
+      });
+      await revokeSessionsAfterPasswordChange(userId, null, true);
       return true;
     } catch {
       return false;
@@ -1032,10 +1058,16 @@ export async function updatePasswordHash(userId: string, newHash: string): Promi
   }
   if (HASHED.some((u) => u.userId === userId)) {
     passwordOverrides.set(userId, newHash);
+    const tenantId = HASHED.find((u) => u.userId === userId)?.tenantId ?? null;
+    await revokeSessionsAfterPasswordChange(userId, tenantId, false);
     return true;
   }
-  const { setDynamicUserPasswordHash } = await import("./dynamic-users");
-  return setDynamicUserPasswordHash(userId, newHash);
+  const { setDynamicUserPasswordHash, findDynamicUserById } = await import("./dynamic-users");
+  const updated = await setDynamicUserPasswordHash(userId, newHash);
+  if (!updated) return false;
+  const dyn = await findDynamicUserById(userId);
+  await revokeSessionsAfterPasswordChange(userId, dyn?.tenantId ?? null, false);
+  return true;
 }
 
 /**

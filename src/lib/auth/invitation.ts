@@ -162,6 +162,8 @@ export type SendPasswordResetInput = {
    * `createPasswordResetToken` çağırdıysa (ör. dev-mode token'ı yanıta da eklemek
    * için) token'ın İKİ KEZ üretilip birbirini geçersiz kılmasını önler. */
   rawToken?: string;
+  /** Kurumun kayıtlı uygulama dili. Yoksa Türkçe. */
+  locale?: "tr" | "en";
 };
 
 const PASSWORD_RESET_TTL_MS = 30 * 60 * 1000; // password-reset.ts TOKEN_TTL_MS ile AYNI (30 dk).
@@ -181,12 +183,12 @@ const PASSWORD_RESET_TTL_MS = 30 * 60 * 1000; // password-reset.ts TOKEN_TTL_MS 
  */
 export async function sendPasswordResetEmail(input: SendPasswordResetInput): Promise<EmailSendResult> {
   const raw = input.rawToken ?? (await createPasswordResetToken(input.tenantId, input.userId, PASSWORD_RESET_TTL_MS));
-  const resetLink = `${getAppBaseUrl()}/sifre-sifirla?token=${encodeURIComponent(raw)}`;
-  const expiryText = "30 dakika";
-
-  const institution = escapeHtml(input.institutionName);
+  const { getPublicAppBaseUrl } = await import("../email/config");
+  const { passwordResetMail } = await import("../i18n/copy");
+  const resetLink = `${getPublicAppBaseUrl()}/sifre-sifirla?token=${encodeURIComponent(raw)}`;
+  const copy = passwordResetMail(input.locale === "en" ? "en" : "tr", input.institutionName);
   const name = escapeHtml(input.recipientName);
-  const subject = `${institution} — Şifre Sıfırlama Kodunuz`;
+  const greeting = input.locale === "en" ? `Hello ${name},` : `Merhaba ${name},`;
 
   const html = `
   <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;background:#f4f2f8;padding:32px 0;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
@@ -196,24 +198,25 @@ export async function sendPasswordResetEmail(input: SendPasswordResetInput): Pro
           ${institutionLogoHtml(input.logoUrl, input.institutionName)}
         </td></tr>
         <tr><td style="padding:32px 32px 8px;">
-          <h1 style="margin:0 0 12px;font-size:20px;color:#111827;">Şifre sıfırlama isteği</h1>
-          <p style="margin:0 0 4px;font-size:15px;color:#374151;">Merhaba ${name},</p>
-          <p style="margin:0 0 16px;font-size:15px;color:#374151;line-height:1.6;">${institution} hesabınız için bir şifre sıfırlama isteği alındı. Aşağıdaki koda ihtiyacınız olacak:</p>
+          <h1 style="margin:0 0 12px;font-size:20px;color:#111827;">${escapeHtml(copy.heading)}</h1>
+          <p style="margin:0 0 4px;font-size:15px;color:#374151;">${greeting}</p>
+          <p style="margin:0 0 16px;font-size:15px;color:#374151;line-height:1.6;">${escapeHtml(copy.intro)}</p>
+          <p style="margin:0 0 20px;"><a href="${resetLink}" style="display:inline-block;padding:12px 24px;background:#146c3a;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:600;font-size:15px;">${escapeHtml(copy.button)}</a></p>
+          <p style="margin:0 0 8px;font-size:13px;color:#4b5563;">${escapeHtml(copy.codeLabel)}</p>
           <p style="margin:0 0 20px;padding:14px 20px;background:#f3f4f6;border-radius:8px;text-align:center;font-size:22px;font-weight:700;letter-spacing:0.08em;color:#111827;">${escapeHtml(raw)}</p>
-          <p style="margin:0 0 20px;"><a href="${resetLink}" style="display:inline-block;padding:12px 24px;background:#d97706;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:600;font-size:15px;">Şifremi Sıfırla</a></p>
-          <p style="margin:0 0 24px;font-size:12px;color:#9ca3af;word-break:break-all;">Bağlantı çalışmıyorsa: ${resetLink}</p>
+          <p style="margin:0 0 24px;font-size:12px;color:#9ca3af;word-break:break-all;">${resetLink}</p>
         </td></tr>
         <tr><td style="padding:20px 32px;border-top:1px solid #e5e7eb;">
-          <p style="margin:0 0 4px;font-size:12px;color:#9ca3af;">Bu kod ${expiryText} içinde geçerliliğini yitirir ve yalnızca bir kez kullanılabilir.</p>
-          <p style="margin:0;font-size:12px;color:#9ca3af;">Bu isteği siz yapmadıysanız, bu e-postayı yok sayabilirsiniz — hesabınızda hiçbir değişiklik yapılmaz.</p>
+          <p style="margin:0 0 4px;font-size:12px;color:#9ca3af;">${escapeHtml(copy.expiry)}</p>
+          <p style="margin:0;font-size:12px;color:#9ca3af;">${escapeHtml(copy.ignore)}</p>
         </td></tr>
       </table>
     </td></tr>
   </table>`;
 
-  const text = `${institution}\n\nMerhaba ${input.recipientName},\n\nŞifre sıfırlama isteği alındı.\n\nKodunuz: ${raw}\n(${expiryText} içinde geçerli, tek kullanımlık)\n\nSıfırlama sayfası: ${resetLink}\n\nBu isteği siz yapmadıysanız bu e-postayı yok sayabilirsiniz.`;
+  const text = `${input.institutionName}\n\n${input.locale === "en" ? "Hello" : "Merhaba"} ${input.recipientName},\n\n${copy.intro}\n\n${resetLink}\n\n${copy.codeLabel} ${raw}\n\n${copy.ignore}`;
 
-  return sendEmail({ to: input.email, subject, html, text });
+  return sendEmail({ to: input.email, subject: copy.subject, html, text });
 }
 
 /**
