@@ -28,6 +28,8 @@ import { LessonStatusBadge } from "@/components/lesson-status-badge";
 import { AttendanceCalendarPanel } from "@/components/attendance-calendar-panel";
 import { AssistantPageContext } from "@/components/ai/assistant-page-context";
 import { PayNowButton } from "@/components/pay-now-button";
+import { PortalStudentSwitcher } from "@/components/portal-student-switcher";
+import { getPortalStudentContext, type PortalSibling } from "@/lib/portal-context";
 import { formatDateTime, formatDate, formatTime, formatMoney } from "@/lib/utils";
 import { resolveLessonFinalStatus } from "@/lib/lesson-live-status";
 import { ownStudentWeekLessons } from "@/lib/student-portal-scope";
@@ -76,14 +78,18 @@ export default async function OgrenciPortalPage({
   }
 
   const data = await readData();
-  const studentId = session.studentId;
-  if (!studentId) redirect(PORTAL_RECORD_MISSING_REDIRECT);
-  const student = data.students.find((s) => s.id === studentId);
-  if (!student) redirect(PORTAL_RECORD_MISSING_REDIRECT);
-
-  // Pasif/arşivlenmiş öğrenci: portala girebilir ama HİÇBİR ders/ödev/materyal/
-  // rapor verisi görmez — yalnız güvenli, açıklayıcı bir ekran. Veri sızıntısı yok.
-  if (!student.active) {
+  // 10. tur iş #1 — portal bağlamı statik JWT `studentId`'den DEĞİL, aktif
+  // erişim + aktif öğrenci çözümleyiciden gelir. Aynı velinin aktif ve pasif
+  // öğrencileri birlikte varsa varsayılan AKTİF öğrencidir; bayat pasif
+  // tercih sessizce yok sayılır (pasif kilitlenme yok). Admin önizleme
+  // (SCHOOL_ADMIN/SUPER_ADMIN) eski yolu korur.
+  const isAdminPreview = session.role === "SCHOOL_ADMIN" || session.role === "SUPER_ADMIN";
+  let siblings: PortalSibling[] = [];
+  const resolution = isAdminPreview ? null : await getPortalStudentContext(session);
+  if (resolution && resolution.status === "no-access") redirect(PORTAL_RECORD_MISSING_REDIRECT);
+  if (resolution && resolution.status === "passive-only") {
+    // Pasif/arşivlenmiş öğrenci: portala girebilir ama HİÇBİR ders/ödev/materyal/
+    // rapor verisi görmez — yalnız güvenli, açıklayıcı bir ekran. Veri sızıntısı yok.
     return (
       <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-emerald-50 to-slate-50 px-4">
         <Card className="max-w-sm text-center">
@@ -100,15 +106,24 @@ export default async function OgrenciPortalPage({
       </div>
     );
   }
+  if (resolution) siblings = resolution.siblings;
+  const resolvedStudentId = resolution ? resolution.studentId : session.studentId;
+  if (!resolvedStudentId) redirect(PORTAL_RECORD_MISSING_REDIRECT);
+  const student = data.students.find((s) => s.id === resolvedStudentId);
+  // Savunma: çözümleyici aktif öğrenci garanti eder; yarış durumunda pasif
+  // veri ASLA açılmaz.
+  if (!student || (!isAdminPreview && (!student.active || student.deletedAt))) {
+    redirect(PORTAL_RECORD_MISSING_REDIRECT);
+  }
 
   const teacher = data.teachers.find((t) => t.id === student.teacherId);
 
   // ÖNCELİK 4 (devam) — öğrenci portalı haftalık ders programı. Kimlik
-  // KESİN olarak session'dan gelir (`student.id` === `session.studentId`,
-  // yukarıda çözüldü) — client'tan hiçbir studentId kabul edilmez, bu
-  // yüzden URL/API manipülasyonuyla başka bir öğrencinin (veya başka bir
-  // tenant'ın, zaten `readData()` tenant-scoped) programına erişim mümkün
-  // değildir. Dönem-bazlı gün seti mevcut ortak mantıktan (attendance-calendar.ts)
+  // KESİN olarak sunucu tarafında çözülür (aktif erişim + aktif öğrenci,
+  // yukarıda `getPortalStudentContext`) — client'tan hiçbir studentId kabul
+  // edilmez, bu yüzden URL/API manipülasyonuyla başka bir öğrencinin (veya
+  // başka bir tenant'ın, zaten `readData()` tenant-scoped) programına erişim
+  // mümkün değildir. Dönem-bazlı gün seti mevcut ortak mantıktan (attendance-calendar.ts)
   // gelir — tekrar yazılmadı: Güz'de Pazartesi kapalı/hafta sonu açık, Yaz'da
   // tersi. Resmî tatil/özel kapalı gün önceliği de aynı `resolveDayStatus`
   // ile, admin/veli/takvim ekranlarıyla birebir aynı kuraldan okunur.
@@ -186,6 +201,11 @@ export default async function OgrenciPortalPage({
           <p className="mt-1 text-sm text-[var(--hero-text-muted)]">
             {student.instruments.join(", ")} · Öğretmen: {teacher?.name ?? "—"}
           </p>
+          {siblings.length > 1 ? (
+            <div className="mt-3 border-t border-emerald-100 pt-3">
+              <PortalStudentSwitcher siblings={siblings} currentStudentId={student.id} />
+            </div>
+          ) : null}
         </Card>
 
         {/* Ödemelerim — Hero'nun hemen ardından, her zaman görünür (Karma Öğrenci Portalı kritik başarı kriteri). */}

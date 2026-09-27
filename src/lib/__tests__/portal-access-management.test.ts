@@ -35,6 +35,7 @@ import { authenticateUser } from "../auth/users";
 import { setEmailTransportForTests } from "../email";
 import type { EmailSendInput } from "../email/types";
 import { consumePasswordResetToken } from "../auth/password-reset";
+import { passwordResetMail } from "../i18n/copy";
 import { STUDENT_PORTAL_ACCESS_FILE, hasActiveStudentAccess } from "../student-portal-access";
 import { DYNAMIC_USERS_FILE, findDynamicUserByEmail, findDynamicUserByTeacherId, createDynamicUser } from "../auth/dynamic-users";
 import { updateTeacherProfile } from "../store";
@@ -73,9 +74,10 @@ function targetCtx(userId: string, overrides?: Partial<ServiceContext>): Service
   return { role: "STUDENT", userId, tenantId: DEFAULT_TENANT_ID, channel: "web", ...overrides };
 }
 
-/** Admin-tetikli şifre sıfırlama e-postasının gövdesinden 8 haneli kodu çıkarır (testte token yakalamanın tek yolu — hash geri çevrilemez). */
+/** Admin-tetikli şifre sıfırlama e-postasının gövdesinden 8 haneli kodu çıkarır (testte token yakalamanın tek yolu — hash geri çevrilemez). Etiket, ürünün gerçek i18n metninden alınır (10. tur: "Kodunuz:" sabit metni şablon i18n'e taşınınca bayatlamıştı — işlevsellik değil test yardımcısı eskimişti). */
 function extractResetCode(input: EmailSendInput): string {
-  const match = input.text.match(/Kodunuz:\s*([A-Z0-9]{8})/);
+  const label = passwordResetMail("tr", "").codeLabel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = input.text.match(new RegExp(`${label}\\s*([A-Z0-9]{8})`));
   if (!match) throw new Error("test: sıfırlama kodu e-posta gövdesinde bulunamadı");
   return match[1]!;
 }

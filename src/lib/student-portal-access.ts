@@ -242,7 +242,10 @@ export async function listActiveAccessForTenant(tenantId: string): Promise<Stude
  * kullanılacak alt-seviye primitif — bkz. `grantActiveStudentPortalAccess`.
  * Davet oluşturma (status=invited) — hiçbir zaman otomatik `active` yapmaz.
  * Aynı (tenant,user,student) için ikinci kez çağrılırsa mevcut kaydı döner
- * (idempotent) — revoked bir kaydı YENİDEN davet etmez, önce reaktive gerekir.
+ * (idempotent). 10. tur iş #1 düzeltmesi: `revoked` bir kayıt, "daveti
+ * yeniden gönder" ile TEKRAR `invited` olur (yeni davet turu) — eski
+ * davranış (revoked'u aynen döndürüp e-posta göndermek) kabul ekranını
+ * boşa düşürüyordu: kabul akışı yalnızca `invited` satırları aktive eder.
  */
 export async function inviteStudentPortalAccess(input: {
   tenantId: string;
@@ -257,7 +260,14 @@ export async function inviteStudentPortalAccess(input: {
     const existing = await prisma.studentPortalAccess.findUnique({
       where: { tenantId_userId_studentId: { tenantId, userId, studentId } },
     });
-    if (existing) return toRecord(existing);
+    if (existing && existing.status !== "revoked") return toRecord(existing);
+    if (existing) {
+      const reopened = await prisma.studentPortalAccess.update({
+        where: { tenantId_userId_studentId: { tenantId, userId, studentId } },
+        data: { status: "invited", accessType, invitedBy, invitedAt: new Date(), revokedAt: null },
+      });
+      return toRecord(reopened);
+    }
     const created = await prisma.studentPortalAccess.create({
       data: { id: uid("spa"), tenantId, userId, studentId, accessType, status: "invited", invitedBy },
     });
@@ -265,7 +275,19 @@ export async function inviteStudentPortalAccess(input: {
   }
   const all = await loadAll();
   const existing = all.find((r) => r.tenantId === tenantId && r.userId === userId && r.studentId === studentId);
-  if (existing) return existing;
+  if (existing && existing.status !== "revoked") return existing;
+  if (existing) {
+    const now = new Date().toISOString();
+    existing.status = "invited";
+    existing.accessType = accessType;
+    existing.invitedBy = invitedBy;
+    existing.invitedAt = now;
+    existing.activatedAt = null;
+    existing.revokedAt = null;
+    existing.updatedAt = now;
+    await saveAll(all);
+    return existing;
+  }
   const now = new Date().toISOString();
   const record: StudentPortalAccessRecord = {
     id: uid("spa"),

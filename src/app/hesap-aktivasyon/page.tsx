@@ -32,6 +32,19 @@ export default async function AcceptInvitationPage({
         ) : (
           <p className="text-sm font-medium text-rose-600">Geçersiz davet bağlantısı — token eksik.</p>
         )}
+        {/* 10. tur iş #1 — HER ZAMAN gösterilir (hesap varlığına göre
+            koşullanmaz → kullanıcı enumerasyonu yaratmaz). */}
+        <p className="mt-6 text-center text-xs text-[var(--color-text-muted)]">
+          Zaten bir portal hesabınız varsa{" "}
+          <a href="/login" className="font-medium text-[var(--color-primary)] underline">
+            giriş yapın
+          </a>
+          {" "}— şifrenizi hatırlamıyorsanız{" "}
+          <a href="/sifre-sifirla" className="font-medium text-[var(--color-primary)] underline">
+            şifrenizi sıfırlayın
+          </a>
+          .
+        </p>
       </div>
     </div>
   );

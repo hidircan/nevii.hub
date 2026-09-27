@@ -4,6 +4,7 @@ import { PORTAL_RECORD_MISSING_REDIRECT } from "@/lib/auth/portal-record-missing
 import { ArrowLeft } from "lucide-react";
 import { readData } from "@/lib/store";
 import { requireSessionContext } from "@/lib/auth/session";
+import { getPortalPageStudentId } from "@/lib/portal-context";
 import { listHomeworkForStudentTool, listHomeworkSubmissionsTool } from "@/lib/services";
 import { Badge, Card, EmptyState } from "@/components/ui";
 import { HomeworkSubmitForm } from "@/components/homework-submit-form";
@@ -25,10 +26,15 @@ export default async function StudentHomeworkPage() {
   }
   if (session.role === "TEACHER") redirect("/ogretmen");
 
+  // 10. tur iş #1 — çözümlenmiş aktif öğrenci bağlamı (cookie/JWT tercihi
+  // sunucuda doğrulanır); `|| "s1"` yedeği KALDIRILDI (başka öğrencinin verisi asla açılmaz).
+  const studentId = await getPortalPageStudentId(session);
+  if (!studentId) redirect(PORTAL_RECORD_MISSING_REDIRECT);
   const data = await readData();
-  const studentId = session.studentId || "s1";
-  const student = data.students.find((s) => s.id === studentId) ?? data.students[0];
-  if (!student) redirect(PORTAL_RECORD_MISSING_REDIRECT);
+  const student = data.students.find((s) => s.id === studentId);
+  if (!student || (session.role === "STUDENT" && (!student.active || student.deletedAt))) {
+    redirect(PORTAL_RECORD_MISSING_REDIRECT);
+  }
 
   const homeworkResult = await listHomeworkForStudentTool(session, { studentId: student.id });
   const homework = homeworkResult.ok ? homeworkResult.data.homework : [];

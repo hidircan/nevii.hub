@@ -142,6 +142,19 @@ export async function setDynamicUserPasswordHash(userId: string, passwordHash: s
   return true;
 }
 
+/**
+ * 10. tur iş #1 — SELF davet bağlaması / bayat bağ onarımının dosya-tabanlı
+ * yazma ucu. `null` bağlamayı temizler (veli-çoklu-öğrenci onarımı).
+ */
+export async function setDynamicUserStudentId(userId: string, studentId: string | null): Promise<boolean> {
+  const all = await loadAll();
+  const idx = all.findIndex((u) => u.userId === userId);
+  if (idx === -1) return false;
+  all[idx] = { ...all[idx], studentId, updatedAt: new Date().toISOString() };
+  await saveAll(all);
+  return true;
+}
+
 /** E-posta değiştirme akışının dynamic-kullanıcı yazma ucu (kalıcı dosya). */
 export async function setDynamicUserEmail(userId: string, email: string): Promise<boolean> {
   const normalized = email.trim().toLowerCase();

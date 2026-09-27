@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { requireSessionContext } from "@/lib/auth/session";
+import { getPortalPageStudentId } from "@/lib/portal-context";
 import { getActiveAccessType } from "@/lib/student-portal-access";
 import { listKvkkConsentHistoryTool } from "@/lib/services";
 import { Badge, Card, PageHeader } from "@/components/ui";
@@ -17,12 +18,15 @@ export default async function OgrenciKvkkPage() {
   } catch {
     redirect("/login?next=/ogrenci/ayarlar/kvkk");
   }
-  if (session.role !== "STUDENT" || !session.studentId) redirect("/ogrenci");
+  if (session.role !== "STUDENT") redirect("/ogrenci");
+  // 10. tur iş #1 — çözümlenmiş aktif öğrenci bağlamı.
+  const portalStudentId = await getPortalPageStudentId(session);
+  if (!portalStudentId) redirect("/ogrenci");
 
-  const accessType = await getActiveAccessType(session.tenantId, session.userId, session.studentId);
+  const accessType = await getActiveAccessType(session.tenantId, session.userId, portalStudentId);
   const subjectType = accessType === "GUARDIAN" ? "parent" : "student";
 
-  const result = await listKvkkConsentHistoryTool(session, { subjectType, subjectId: session.studentId });
+  const result = await listKvkkConsentHistoryTool(session, { subjectType, subjectId: portalStudentId });
   const history = result.ok ? result.data.history : [];
 
   return (

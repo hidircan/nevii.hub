@@ -1198,3 +1198,17 @@ aynı veriyi aynı yoldan mı okuyor?" diye bak.
 - `button`/`[role=button]`'da 180 ms `background-color` geçişi var; temayı sayfa içinde değiştirip hemen çekilen görüntü
   kartları/düğmeleri açık gri gösterdi. Karar vermeden önce hesaplanmış stili ölç veya geçiş bitince çek.
 
+
+### 2026-09-28 (10. tur iş #1) — portal bağlamını statik JWT alanından çözme
+- Aynı veli e-postası birden fazla öğrenciye (aktif+pasif) bağlanınca JWT `studentId` bayat pasif kayda kilitlendi →
+  veli aktif öğrencisine davet edilip giriş yapsa bile "Hesabınız pasif durumda" gördü. Kural: portal bağlamı her
+  istekte aktif erişim + aktif öğrenci çözümleyiciden (`portal-context.ts`) gelir; tercih (cookie/JWT) yalnızca
+  aktif erişim + aktif öğrenciyse geçerlidir, pasif tercih sessizce yok sayılır.
+- Mevcut kullanılabilir hesaba tekrar davet, şifre sıfırlamayı ZORUNLU tutuyordu (accept-invitation her zaman şifre
+  yazıyordu). Kural: yerleşik hesap (aktif erişimli) varsa erişim doğrudan bağlanır (`linkedExistingAccount`),
+  şifre değişmez; hiç aktive edilmemiş hesaba normal davet akışı çalışır.
+- `inviteStudentPortalAccess` revoked satırı aynen döndürüp e-posta gönderiyordu; kabul yalnızca `invited` satırları
+  aktive ettiği için "daveti yeniden gönder" boşa düşüyordu. Yeniden davet revoked'u tekrar `invited` yapar.
+- Test yardımcısındaki sabit e-posta etiketi ("Kodunuz:") şablon i18n'e taşınınca 3 admin-şifre-sıfırlama testi
+  tabanda kırmızı kaldı (işlevsellik sağlamdı). E-posta gövdesinden kod çıkaran testler etiketi ürünün gerçek i18n
+  metninden almalı (`passwordResetMail(...).codeLabel`).

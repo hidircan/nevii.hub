@@ -663,6 +663,88 @@ export async function getUserIdByEmail(tenantId: string, email: string): Promise
 }
 
 /**
+ * 10. tur iş #1 — `getUserIdByEmail`'den FARKLI olarak `active`
+ * filtrelemez. Davet akışı, kapalı bir hesaba tekrar davet gönderildiğinde
+ * "Kullanıcı hesabı oluşturulamadı/bulunamadı" (provision null + lookup
+ * null) yerine "hesap kapalı, önce erişimi açın" diyebilmek için buna
+ * ihtiyaç duyar. YALNIZCA yetkili admin akışları kullanmalıdır (public
+ * ekranlarda hesap varlığı asla ifşa edilmez).
+ */
+export async function getUserIdByEmailIncludingInactive(tenantId: string, email: string): Promise<string | null> {
+  const normalized = email.trim().toLowerCase();
+  if (!normalized) return null;
+  if (isDbMode) {
+    try {
+      const { getPrisma } = await import("../db");
+      const prisma = getPrisma();
+      const row = await prisma.user.findFirst({ where: { tenantId, email: normalized } });
+      return row?.id ?? null;
+    } catch {
+      return null;
+    }
+  }
+  const row = HASHED.find((u) => u.tenantId === tenantId && effectiveHashedEmail(u)?.toLowerCase() === normalized);
+  if (row) return row.userId;
+  const { findDynamicUserByEmail } = await import("./dynamic-users");
+  const dyn = await findDynamicUserByEmail(tenantId, normalized);
+  return dyn?.userId ?? null;
+}
+
+/**
+ * 10. tur iş #1 — SELF davette mevcut kullanıcının boş `studentId`
+ * bağlamasını doldurur. DOLU bir bağlama ASLA üzerine yazılmaz (aynı
+ * e-posta ikinci bir öğrenciye bağlanıyorsa ilk bağ bozulmamalı — çoklu
+ * öğrenciye erişim `StudentPortalAccess` ile çözülür). Bootstrap
+ * (HASHED) kullanıcıları derleme-zamanı sabittir — değiştirilemez.
+ */
+export async function bindUserStudentIdIfEmpty(
+  userId: string,
+  studentId: string
+): Promise<"set" | "already-set" | "not-found" | "unsupported"> {
+  if (isDbMode) {
+    try {
+      const { getPrisma } = await import("../db");
+      const prisma = getPrisma();
+      const row = await prisma.user.findUnique({ where: { id: userId } });
+      if (!row) return "not-found";
+      if (row.studentId) return "already-set";
+      await prisma.user.update({ where: { id: userId }, data: { studentId } });
+      return "set";
+    } catch {
+      return "not-found";
+    }
+  }
+  if (HASHED.some((u) => u.userId === userId)) return "unsupported";
+  const { findDynamicUserById, setDynamicUserStudentId } = await import("./dynamic-users");
+  const dyn = await findDynamicUserById(userId);
+  if (!dyn) return "not-found";
+  if (dyn.studentId) return "already-set";
+  return (await setDynamicUserStudentId(userId, studentId)) ? "set" : "not-found";
+}
+
+/**
+ * 10. tur iş #1 — bayat `User.studentId` bağlamasını temizler (onarım
+ * aracı). GUARDIAN-çoklu-öğrenci kullanıcılarda bu alan boş olmalıdır;
+ * pasif kayda kilitlenmiş JWT'lerin kaynağıdır. Bootstrap (HASHED)
+ * kullanıcılarında desteklenmez.
+ */
+export async function clearUserStudentBinding(userId: string): Promise<boolean> {
+  if (isDbMode) {
+    try {
+      const { getPrisma } = await import("../db");
+      const prisma = getPrisma();
+      await prisma.user.update({ where: { id: userId }, data: { studentId: null } });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  if (HASHED.some((u) => u.userId === userId)) return false;
+  const { setDynamicUserStudentId } = await import("./dynamic-users");
+  return setDynamicUserStudentId(userId, null);
+}
+
+/**
  * İş 4 — tenant'ın TÜM yönetici (SCHOOL_ADMIN + SUPER_ADMIN) kullanıcı
  * id'leri. Şube-bazlı bir "sorumlu yönetici" ilişkisi bu veri modelinde
  * (User'da branchId yok — bkz. final rapor) mevcut değil; bu yüzden

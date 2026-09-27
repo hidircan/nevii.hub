@@ -1344,7 +1344,7 @@ export async function actionProvisionStudentPortalAccess(input: {
 }
 
 export type SendInvitationActionResult =
-  | { ok: true; delivered: boolean; blocked?: boolean; activationLink?: string }
+  | { ok: true; delivered: boolean; blocked?: boolean; activationLink?: string; linkedExistingAccount?: boolean }
   | { ok: false; message: string };
 
 /**
@@ -1368,11 +1368,60 @@ export async function actionInviteStudentPortalAccess(input: {
       delivered: result.data.delivered,
       blocked: result.data.blocked,
       activationLink: result.data.activationLink,
+      linkedExistingAccount: result.data.linkedExistingAccount,
     };
   } catch (error) {
     logger.error("actionInviteStudentPortalAccess failed", error);
     if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
     return { ok: false, message: "Davet gönderilirken beklenmeyen bir hata oluştu." };
+  }
+}
+
+/**
+ * 10. tur iş #1 — veli portalında kardeşler arası öğrenci seçimi. Seçim
+ * YALNIZCA sunucu tarafında doğrulanır: aktif `StudentPortalAccess` + aktif
+ * (silinmemiş) öğrenci kaydı ŞARTTIR. Pasif/silinmiş/yetkisiz bir id
+ * gönderilirse cookie YAZILMAZ ve hata dönülür — pasif veri asla açılmaz.
+ * Tenant kimliği SADECE oturumdan gelir (istemci girdisinden asla).
+ */
+export async function actionSelectPortalStudent(input: {
+  studentId: string;
+}): Promise<{ ok: true; studentId: string } | { ok: false; message: string }> {
+  try {
+    const target = String(input.studentId || "").trim().slice(0, 128);
+    if (!target) return { ok: false, message: "Öğrenci seçilmedi." };
+    const result = await withAuthContext("actionSelectPortalStudent", async (ctx) => {
+      if (ctx.role !== "STUDENT") return { ok: false as const, message: "Bu işlem yalnızca öğrenci/veli portalında kullanılabilir." };
+      const { hasActiveStudentAccess } = await import("./student-portal-access");
+      if (!(await hasActiveStudentAccess(ctx.tenantId, ctx.userId, target))) {
+        return { ok: false as const, message: "Bu öğrenciye erişim izniniz yok." };
+      }
+      const { readData } = await import("./store");
+      const data = await readData();
+      const student = data.students.find((s) => s.id === target);
+      if (!student || student.deletedAt) return { ok: false as const, message: "Öğrenci kaydı bulunamadı." };
+      if (!student.active) {
+        return { ok: false as const, message: "Bu öğrencinin kaydı pasif durumda — aktif bir öğrenci seçin." };
+      }
+      const { PORTAL_STUDENT_COOKIE } = await import("./portal-context");
+      const jar = await cookies();
+      jar.set(PORTAL_STUDENT_COOKIE, target, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        path: "/",
+        maxAge: 60 * 60 * 24 * 90,
+      });
+      return { ok: true as const, studentId: target };
+    });
+    if (!result.ok) return { ok: false, message: result.message };
+    revalidatePath("/ogrenci");
+    revalidatePath("/veli");
+    return { ok: true, studentId: result.studentId };
+  } catch (error) {
+    logger.error("actionSelectPortalStudent failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "Öğrenci seçilirken beklenmeyen bir hata oluştu." };
   }
 }
 

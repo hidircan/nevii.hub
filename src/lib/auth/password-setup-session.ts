@@ -54,7 +54,19 @@ export async function buildPasswordSetupSessionResponse(input: {
     platform: detectMobilePlatform(userAgent),
   });
 
-  const tokens = await issueTokenPair(user);
+  // 10. tur iş #1 — davet kabulü sonrası JWT bayat pasif kayda kilitlenmesin
+  // (kabul, bekleyen erişimleri aktive ETTİKTEN SONRA çağrılır — bkz. route).
+  let setupStudentId = user.studentId;
+  if (user.role === "STUDENT") {
+    try {
+      const { resolvePortalStudent } = await import("../portal-context");
+      const resolved = await resolvePortalStudent(user.tenantId, user.userId, user.studentId ?? null);
+      if (resolved.status === "ok") setupStudentId = resolved.studentId;
+    } catch {
+      setupStudentId = user.studentId;
+    }
+  }
+  const tokens = await issueTokenPair({ ...user, studentId: setupStudentId });
   const res = NextResponse.json({
     ok: true as const,
     data: { role: user.role, destination },

@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { requireSessionContext } from "@/lib/auth/session";
+import { getPortalPageStudentId } from "@/lib/portal-context";
 import { listSocialMediaConsentHistoryTool } from "@/lib/services";
 import { Badge, Card, PageHeader } from "@/components/ui";
 import { actionWithdrawSocialMediaConsent } from "@/lib/actions";
@@ -46,9 +47,12 @@ export default async function OgrenciFotoVideoConsentPage() {
   } catch {
     redirect("/login?next=/ogrenci/ayarlar/foto-video");
   }
-  if (session.role !== "STUDENT" || !session.studentId) redirect("/ogrenci");
+  if (session.role !== "STUDENT") redirect("/ogrenci");
+  // 10. tur iş #1 — çözümlenmiş aktif öğrenci bağlamı.
+  const portalStudentId = await getPortalPageStudentId(session);
+  if (!portalStudentId) redirect("/ogrenci");
 
-  const result = await listSocialMediaConsentHistoryTool(session, { studentId: session.studentId });
+  const result = await listSocialMediaConsentHistoryTool(session, { studentId: portalStudentId });
   const history = result.ok ? result.data.history : [];
   const latest = history[0];
 
@@ -91,7 +95,7 @@ export default async function OgrenciFotoVideoConsentPage() {
                     <form
                       action={async () => {
                         "use server";
-                        await actionWithdrawSocialMediaConsent({ studentId: session.studentId! });
+                        await actionWithdrawSocialMediaConsent({ studentId: portalStudentId });
                       }}
                       className="mt-2"
                     >

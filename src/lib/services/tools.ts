@@ -2709,12 +2709,30 @@ export async function provisionStudentPortalAccessTool(
  * link tıklanıp kabul edilene kadar `active` OLMAZ (bkz. `inviteStudentPortalAccess`
  * — önceden yalnızca `grantActiveStudentPortalAccess` kullanılıyordu, bu iki
  * primitif tam olarak bunun için `@deprecated` işaretiyle korunmuştu).
+ *
+ * 10. tur iş #1 — MEVCUT HESAP BAĞLAMA: aynı tenant'ta bu e-postaya ait
+ * KULLANILABİLİR (aktif + en az bir aktif portal erişimli) bir STUDENT
+ * hesabı ZATEN varsa, YENİ bir şifre-belirleme daveti gönderilip mevcut
+ * şifrenin sıfırlanması ZORUNLU TUTULMAZ. Bunun yerine erişim bu öğrenciye
+ * DOĞRUDAN bağlanır (`grantActiveStudentPortalAccess`, idempotent) ve
+ * `linkedExistingAccount: true` dönülür — admin'e "Bu e-postaya ait portal
+ * hesabı mevcut; bu öğrenciye erişim bağlandı" mesajı gösterilir. Aynı
+ * e-posta KULLANICISI = aynı kişi olduğundan (e-posta hesabın kimliğidir)
+ * bu bağlama güvenlidir; admin zaten portal erişimi vermeye yetkilidir.
+ * Hesap HENÜZ hiç aktive edilmemişse (aktif erişimi yok) normal davet akışı
+ * çalışır — kullanıcı ilk şifresini linkle belirler.
  */
 export async function inviteStudentPortalAccessTool(
   ctx: ServiceContext,
   input: unknown
 ): Promise<
-  ServiceResult<{ studentId: string; delivered: boolean; blocked?: boolean; activationLink?: string }>
+  ServiceResult<{
+    studentId: string;
+    delivered: boolean;
+    blocked?: boolean;
+    activationLink?: string;
+    linkedExistingAccount: boolean;
+  }>
 > {
   const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
@@ -2750,6 +2768,27 @@ export async function inviteStudentPortalAccessTool(
   }
 
   try {
+    const { getUserIdByEmail, getUserIdByEmailIncludingInactive, getUserAccountStatus, bindUserStudentIdIfEmpty } =
+      await import("../auth/users");
+    const { grantActiveStudentPortalAccess, inviteStudentPortalAccess, listAccessForStudent, listAccessForUser, revokeStudentPortalAccess } =
+      await import("../student-portal-access");
+
+    // Mevcut hesap kontrolü — tenant kapsamlı. Kapalı (inactive) bir hesap
+    // varsa kopya kullanıcı YARATILMAZ, net bir yönlendirme verilir.
+    const preExistingUserId = await getUserIdByEmail(ctx.tenantId, v.data.email);
+    if (!preExistingUserId) {
+      const inactiveUserId = await getUserIdByEmailIncludingInactive(ctx.tenantId, v.data.email);
+      if (inactiveUserId) {
+        const status = await getUserAccountStatus(inactiveUserId);
+        if (status && !status.active) {
+          return fail(
+            "VALIDATION_ERROR",
+            "Bu e-postaya ait portal hesabı kapalı durumda. Önce hesap erişimini açın, sonra daveti tekrar gönderin — kapalı hesaba davet gönderilmedi."
+          );
+        }
+      }
+    }
+
     const provisioned = await provisionEntityLogin({
       tenantId: ctx.tenantId,
       email: v.data.email,
@@ -2758,13 +2797,8 @@ export async function inviteStudentPortalAccessTool(
       // yalnızca StudentPortalAccess ile çözülür (bkz. inviteStudentPortalAccess).
       studentId: v.data.accessType === "SELF" ? v.data.studentId : undefined,
     });
-    const { getUserIdByEmail, getUserAccountStatus } = await import("../auth/users");
     const userId = provisioned?.userId ?? (await getUserIdByEmail(ctx.tenantId, v.data.email));
     if (!userId) return fail("INTERNAL_ERROR", "Kullanıcı hesabı oluşturulamadı/bulunamadı");
-
-    const { inviteStudentPortalAccess, listAccessForStudent, revokeStudentPortalAccess } = await import(
-      "../student-portal-access"
-    );
 
     // Bozuk/eski ilişki onarımı — additive, idempotent (bkz. görev talebi #5).
     // Bu öğrenci için DAHA ÖNCE oluşturulmuş, artık HİÇBİR User'a karşılık
@@ -2786,6 +2820,33 @@ export async function inviteStudentPortalAccessTool(
       }
     } catch {
       // Onarım en iyi çaba (best-effort) — başarısız olsa bile asıl davet akışını durdurmaz.
+    }
+
+    // MEVCUT kullanılabilir hesap → şifre sıfırlatmadan doğrudan bağla.
+    // "Kullanılabilir" = bu davetten ÖNCE de vardı VE en az bir AKTİF portal
+    // erişimi var (şifresini biliyor/kullanıyor demektir). Hiç aktive
+    // edilmemiş hesap (yalnızca `invited` satırlar) bu dala GİRMEZ —
+    // aşağıda normal davet akışı çalışır, ilk şifresini linkle belirler.
+    if (!provisioned && preExistingUserId) {
+      const priorRows = await listAccessForUser(ctx.tenantId, userId);
+      const hasEstablishedAccess = priorRows.some((r) => r.status === "active");
+      if (hasEstablishedAccess) {
+        if (v.data.accessType === "SELF") {
+          // Boşsa doldur, doluysa ASLA üzerine yazma (ilk bağ korunur).
+          await bindUserStudentIdIfEmpty(userId, v.data.studentId);
+        }
+        await grantActiveStudentPortalAccess({
+          tenantId: ctx.tenantId,
+          userId,
+          studentId: v.data.studentId,
+          accessType: v.data.accessType,
+          invitedBy: ctx.userId,
+        });
+        audit(ctx, "student.portal_access_linked_existing", "Student", v.data.studentId, {
+          accessType: v.data.accessType,
+        });
+        return ok({ studentId: v.data.studentId, delivered: false, linkedExistingAccount: true });
+      }
     }
 
     await inviteStudentPortalAccess({
@@ -2821,6 +2882,7 @@ export async function inviteStudentPortalAccessTool(
       delivered: result.delivered,
       blocked: result.delivered ? undefined : result.blocked,
       activationLink: result.delivered ? undefined : result.activationLink,
+      linkedExistingAccount: false,
     });
   } catch (e) {
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "inviteStudentPortalAccess failed");
@@ -3011,6 +3073,215 @@ export async function reactivateStudentPortalAccessTool(
 
   audit(ctx, "student.portal_access_reactivated", "Student", v.data.studentId, { userId: v.data.userId });
   return ok({ studentId: v.data.studentId, userId: v.data.userId });
+}
+
+const inspectPortalAccessSchema = z.object({
+  /** Tek e-posta kapsamı (önerilen) — verilmezse tenant genelinde tarama yapılır (üst sınırlı). */
+  email: z.string().email().optional(),
+  /** Tek öğrenci kapsamı — e-posta ile birlikte de verilebilir. */
+  studentId: z.string().min(1).max(128).optional(),
+});
+
+export type PortalAccessFinding =
+  | { kind: "orphan_access"; userId: string; studentId: string; status: string; detail: string }
+  | { kind: "stale_student_binding"; userId: string; email: string; boundStudentId: string; detail: string }
+  | { kind: "duplicate_email_students"; email: string; studentIds: string[]; detail: string }
+  | { kind: "invited_stale"; userId: string; email: string; studentId: string; invitedAt: string; detail: string };
+
+/**
+ * 10. tur iş #1 — eski hatalı davet/erişim ilişkileri için SALT-OKUNUR
+ * inceleme (dry-run). HİÇBİR şeyi değiştirmez; bulguları onarım için
+ * GEREKLİ açık kimliklerle (userId/studentId) döner. Toplu onarım YOKTUR —
+ * her onarım `repairPortalAccessTool` ile TEK hedefe, admin onayıyla yapılır.
+ */
+export async function inspectPortalAccessTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ findings: PortalAccessFinding[]; scannedAccessRows: number; truncated: boolean }>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const v = parseOrFail(inspectPortalAccessSchema, input);
+  if (!v.ok) return v;
+
+  const { listActiveAccessForTenant, listAccessForStudent, listAccessForUser } =
+    await import("../student-portal-access");
+  const { getUserById, getUserAccountStatus, getUserIdByEmailIncludingInactive } = await import("../auth/users");
+  const data = await readData();
+  const findings: PortalAccessFinding[] = [];
+  const MAX_ROWS = 500;
+  let scanned = 0;
+  let truncated = false;
+
+  const emailFilter = v.data.email?.trim().toLowerCase() ?? null;
+  const studentFilter = v.data.studentId ?? null;
+
+  // Kapsam: öğrenci filtresi varsa o öğrencinin satırları, yoksa tenant'ın aktif satırları.
+  let rows = studentFilter
+    ? await listAccessForStudent(ctx.tenantId, studentFilter)
+    : await listActiveAccessForTenant(ctx.tenantId);
+  if (emailFilter) {
+    const scopedUserId = await getUserIdByEmailIncludingInactive(ctx.tenantId, emailFilter);
+    rows = scopedUserId ? rows.filter((r) => r.userId === scopedUserId) : [];
+  }
+  if (rows.length > MAX_ROWS) {
+    rows = rows.slice(0, MAX_ROWS);
+    truncated = true;
+  }
+  scanned = rows.length;
+  const byStudentId = new Map(data.students.map((s) => [s.id, s]));
+
+  // 1) Yetim erişim satırı: User karşılığı yok (davet akışı bunları
+  // best-effort revoke eder; burada rapor + açık onarım hedefi).
+  for (const row of rows) {
+    if (row.status === "revoked") continue;
+    const account = await getUserAccountStatus(row.userId);
+    if (!account) {
+      findings.push({
+        kind: "orphan_access",
+        userId: row.userId,
+        studentId: row.studentId,
+        status: row.status,
+        detail: `User kaydı bulunamayan ${row.status} erişim satırı (öğrenci: ${byStudentId.get(row.studentId)?.name ?? row.studentId}).`,
+      });
+    }
+  }
+
+  // 2) Bayat User.studentId bağlaması: kayıp/silinmiş/pasif öğrenciye işaret
+  // ediyorsa (kullanıcının BAŞKA aktif erişimleri varken) JWT pasif kilitlenmesinin kaynağıdır.
+  const userIds = [...new Set(rows.map((r) => r.userId))];
+  for (const userId of userIds) {
+    const user = await getUserById(userId);
+    if (!user?.studentId) continue;
+    const bound = byStudentId.get(user.studentId);
+    const boundMissing = !bound || !!bound.deletedAt;
+    const boundPassive = !!bound && !bound.active;
+    if (!boundMissing && !boundPassive) continue;
+    const accessRows = await listAccessForUser(ctx.tenantId, userId);
+    const otherActive = accessRows.filter((r) => r.status === "active" && r.studentId !== user.studentId);
+    if (otherActive.length === 0 && !boundMissing) continue; // tek-pasif: kilitlenme değil, gerçek pasif durumu
+    findings.push({
+      kind: "stale_student_binding",
+      userId,
+      email: user.email ?? "",
+      boundStudentId: user.studentId,
+      detail: boundMissing
+        ? `User.studentId silinmiş/kayıp bir öğrenciye (${user.studentId}) işaret ediyor.`
+        : `User.studentId pasif bir öğrenciye (${bound!.name}) işaret ediyor; kullanıcının ${otherActive.length} başka aktif erişimi var.`,
+    });
+  }
+
+  // 3) Aynı e-posta birden fazla öğrenci kaydında — HATA DEĞİLDİR (ortak
+  // veli desteklenir), yalnızca bilgi amaçlı listelenir.
+  if (emailFilter) {
+    const matches = data.students.filter((s) => s.email.trim().toLowerCase() === emailFilter && !s.deletedAt);
+    if (matches.length > 1) {
+      findings.push({
+        kind: "duplicate_email_students",
+        email: emailFilter,
+        studentIds: matches.map((s) => s.id),
+        detail: `Bu e-posta ${matches.length} öğrenci kaydında yazılı (${matches.map((s) => `${s.name}${s.active ? "" : " (pasif)"}`).join(", ")}). Ortak veli hesabı desteklenir — bu tek başına bir sorun değildir.`,
+      });
+    }
+  }
+
+  // 4) Kabul edilmemiş eski davetler (30 günden eski `invited`) — bilgi amaçlı.
+  if (studentFilter || emailFilter) {
+    const targets = studentFilter ? [studentFilter] : [...new Set(rows.map((r) => r.studentId))];
+    for (const sid of targets.slice(0, 50)) {
+      const srows = await listAccessForStudent(ctx.tenantId, sid);
+      for (const r of srows) {
+        if (r.status !== "invited") continue;
+        const ageMs = Date.now() - new Date(r.invitedAt).getTime();
+        if (Number.isFinite(ageMs) && ageMs > 30 * 24 * 60 * 60 * 1000) {
+          const account = await getUserAccountStatus(r.userId);
+          findings.push({
+            kind: "invited_stale",
+            userId: r.userId,
+            email: account?.email ?? "",
+            studentId: sid,
+            invitedAt: r.invitedAt,
+            detail: "30 günden eski kabul edilmemiş davet — yeniden davet gönderilebilir veya erişim kapatılabilir.",
+          });
+        }
+      }
+    }
+  }
+
+  return ok({ findings, scannedAccessRows: scanned, truncated });
+}
+
+const repairPortalAccessSchema = z.object({
+  action: z.enum(["revoke_orphan_access", "clear_stale_student_binding"]),
+  userId: z.string().min(1).max(128),
+  /** `revoke_orphan_access` için ZORUNLU; bağ temizliğinde yok sayılır. */
+  studentId: z.string().min(1).max(128).optional(),
+});
+
+/**
+ * 10. tur iş #1 — TEK hedefli, idempotent onarım. `inspectPortalAccessTool`
+ * bulgularındaki AÇIK kimliklerle çağrılır; toplu/kör onarım YOKTUR.
+ * Her dal onarım ANINDA koşulu yeniden doğrular (fail-closed): koşul
+ * değişmişse işlem YAPILMAZ, hata dönülür. Tüm onarımlar audit'lenir.
+ */
+export async function repairPortalAccessTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ repaired: boolean; action: string; userId: string; studentId?: string }>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const v = parseOrFail(repairPortalAccessSchema, input);
+  if (!v.ok) return v;
+
+  const { action, userId } = v.data;
+  if (action === "revoke_orphan_access") {
+    const studentId = v.data.studentId;
+    if (!studentId) return fail("VALIDATION_ERROR", "Yetim erişim onarımı için studentId zorunludur.");
+    const { listAccessForStudent, revokeStudentPortalAccess } = await import("../student-portal-access");
+    const { getUserAccountStatus } = await import("../auth/users");
+    const rows = await listAccessForStudent(ctx.tenantId, studentId);
+    const target = rows.find((r) => r.userId === userId);
+    if (!target || target.status === "revoked") return ok({ repaired: false, action, userId, studentId });
+    // Fail-closed: User VARSA bu yetim değildir — dokunma.
+    const account = await getUserAccountStatus(userId);
+    if (account) {
+      return fail("VALIDATION_ERROR", "Bu kullanıcı kaydı mevcut — yetim değil, onarım yapılmadı. Erişimi kapatmak için normal 'Portal erişimini kapat' akışını kullanın.");
+    }
+    await revokeStudentPortalAccess(ctx.tenantId, userId, studentId);
+    audit(ctx, "student.portal_access_orphan_repaired", "Student", studentId, { staleUserId: userId, via: "repair_tool" });
+    return ok({ repaired: true, action, userId, studentId });
+  }
+
+  // clear_stale_student_binding
+  const { getUserById, clearUserStudentBinding } = await import("../auth/users");
+  const { listAccessForUser } = await import("../student-portal-access");
+  const user = await getUserById(userId);
+  if (!user) return fail("NOT_FOUND", "Kullanıcı bulunamadı.");
+  if (!user.studentId) return ok({ repaired: false, action, userId });
+  const data = await readData();
+  const bound = data.students.find((s) => s.id === user.studentId);
+  const boundMissing = !bound || !!bound.deletedAt;
+  const boundPassive = !!bound && !bound.active;
+  if (!boundMissing && !boundPassive) {
+    return fail("VALIDATION_ERROR", "Bağlı öğrenci kaydı aktif — bayat bağ değil, onarım yapılmadı.");
+  }
+  if (!boundMissing) {
+    // Pasif bağ: kullanıcının BAŞKA aktif erişimi yoksa bu gerçek pasif
+    // durumdur — temizlemek "kayıt yok" ekranına düşürür, dokunma.
+    const accessRows = await listAccessForUser(ctx.tenantId, userId);
+    const otherActive = accessRows.filter((r) => r.status === "active" && r.studentId !== user.studentId);
+    if (otherActive.length === 0) {
+      return fail(
+        "VALIDATION_ERROR",
+        "Kullanıcının başka aktif erişimi yok — bu gerçek bir pasif durumdur, bağ temizlenmedi."
+      );
+    }
+  }
+  const cleared = await clearUserStudentBinding(userId);
+  if (!cleared) {
+    return fail("INTERNAL_ERROR", "Bağ temizlenemedi (sistem hesabı olabilir).");
+  }
+  audit(ctx, "student.portal_stale_binding_cleared", "User", userId, { boundStudentId: user.studentId });
+  return ok({ repaired: true, action, userId });
 }
 
 /**
