@@ -150,7 +150,7 @@ export function LessonReassignmentModal({
         </Select>
       </div>
 
-      {error ? <p className="text-xs font-medium text-[#8b3a3a]">{error}</p> : null}
+      {error ? <p className="text-xs font-medium text-[var(--color-danger)]">{error}</p> : null}
 
       <div className="flex gap-2">
         <Button

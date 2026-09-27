@@ -23,30 +23,26 @@ describe("Sidebar markası", () => {
     expect(CODE).not.toMatch(/>\s*NH\s*</);
   });
 
-  it("marka ikonu BRAND.logoMarkPath'ten gelir (uydurma yol yok)", () => {
-    expect(CODE).toMatch(/src=\{BRAND\.logoMarkPath\}/);
-    expect(CODE).toMatch(/from "next\/image"/);
+  /**
+   * 9. tur (2026-09-27, owner) — menüde kutulu/arka planlı logo KALDIRILDI; marka
+   * yalnız tipografi (Gloock). Önerilen şeffaf "icon 2.png" alfa kanalsız olduğu için
+   * kullanılmadı. Favicon/login logosu (aşağıdaki asset testleri) değişmedi.
+   */
+  it("menüde logo görseli yok; marka Gloock (.brand-mark) tipografisi", () => {
+    expect(CODE).not.toMatch(/src=\{BRAND\.logoMarkPath\}/);
+    expect(CODE).not.toMatch(/from "next\/image"/);
+    expect(CODE).toMatch(/className="brand-mark[^"]*"/);
+    const css = readFileSync(path.join(ROOT, "src/app/globals.css"), "utf-8");
+    expect(css).toMatch(/\.brand-mark \{\s*font-family: var\(--font-gloock\), Gloock, Georgia/);
   });
 
-  it("marka metni BRAND.name'dir", () => {
-    expect(CODE).toContain("{BRAND.name}");
-    expect(BRAND.name).toBe("NeviiHub");
+  it("Gloock tek ağırlıklı — sahte kalınlaştırma yok", () => {
+    expect(CODE).not.toMatch(/brand-mark[^"]*font-(extra)?bold/);
   });
 
-  it("collapsed modda yalnız ikon kalır ve erişilebilir isim taşır", () => {
-    // Metin yalnız açık modda render edilir.
-    expect(CODE).toMatch(/\{!collapsed \? \([\s\S]{0,400}\{BRAND\.name\}/);
+  it("collapsed modda kutusuz monogram ve erişilebilir isim", () => {
+    expect(CODE).toMatch(/\{collapsed \? \([\s\S]{0,300}brand-mark[\s\S]{0,200}N\s*<\/span>/);
     expect(CODE).toMatch(/role: "img", "aria-label": BRAND\.name/);
-  });
-
-  it("ikon boyutu collapsed/açık moda göre değişir (retina srcset next/image'den)", () => {
-    expect(CODE).toMatch(/width=\{collapsed \? 28 : 32\}/);
-    expect(CODE).toMatch(/height=\{collapsed \? 28 : 32\}/);
-  });
-
-  it("asset yoksa kırık görsel değil metin kısaltması gösterilir", () => {
-    expect(CODE).toMatch(/BRAND\.logoMarkPath \? \(/);
-    expect(CODE).toMatch(/BRAND\.name\.slice\(0, 2\)/);
   });
 });
 

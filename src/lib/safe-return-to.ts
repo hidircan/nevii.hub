@@ -34,6 +34,7 @@ const ALLOWED_RETURN_TO_PREFIXES = [
   "/panel/bildirimler",
   "/panel/iletisim-merkezi",
   "/panel/ai",
+  "/panel/yoklama",
 ] as const;
 
 export function resolveSafeReturnTo(raw: string | undefined | null): string | null {
@@ -52,4 +53,30 @@ export function resolveSafeReturnTo(raw: string | undefined | null): string | nu
   }
   if (!ALLOWED_RETURN_TO_PREFIXES.some((p) => decoded.startsWith(p))) return null;
   return decoded;
+}
+
+/**
+ * 9. tur — alt ekran linkine kaynak bağlamı ekler (`?returnTo=` / `&returnTo=`).
+ * `returnTo` önce doğrulanır; güvensizse link DEĞİŞMEDEN döner (hedef kendi varsayılanına düşer).
+ */
+export function withReturnTo(href: string, returnTo: string | null | undefined): string {
+  const safe = resolveSafeReturnTo(returnTo ? encodeURIComponent(returnTo) : null);
+  if (!safe) return href;
+  return `${href}${href.includes("?") ? "&" : "?"}returnTo=${encodeURIComponent(safe)}`;
+}
+
+/** Dönüş düğmesinin metni — kullanıcı nereye döneceğini görür. */
+export function returnToLabel(path: string): string {
+  const p = path.split(/[?#]/)[0];
+  if (p === "/panel/evraklar") return "Evraklara dön";
+  if (p.startsWith("/panel/evraklar/")) return "Evrak detayına dön";
+  if (/^\/panel\/ogrenciler\/[^/]+\/evraklar$/.test(p)) return "Öğrencinin evraklarına dön";
+  if (/^\/panel\/ogrenciler\/[^/]+\/sozlesmeler/.test(p)) return "Öğrencinin sözleşmelerine dön";
+  if (p === "/panel/yoklama") return "Yoklama takvimine dön";
+  if (p === "/panel/yoklama-raporu") return "Yoklama raporuna dön";
+  if (/^\/panel\/ogrenciler\/[^/]+\/program/.test(p)) return "Öğrencinin programına dön";
+  if (/^\/panel\/ogrenciler\/[^/]+\/odemeler/.test(p) || /^\/panel\/odemeler\/[^/]+/.test(p)) return "Öğrencinin ödemelerine dön";
+  if (/^\/panel\/ogrenciler\/[^/]+/.test(p)) return "Öğrenci detayına dön";
+  if (p === "/panel/odemeler") return "Ödemelere dön";
+  return "Geri dön";
 }

@@ -92,7 +92,7 @@ export default async function OgretmenHakedisYazdirPage({
         : "Dönem hesabı — hakediş kaydı henüz oluşturulmadı";
 
   return (
-    <div className="min-h-screen bg-[#f4f2f8] px-4 py-8 print:bg-white print:p-0 sm:px-6">
+    <div className="print-light-palette min-h-screen bg-[#f4f2f8] px-4 py-8 print:bg-white print:p-0 sm:px-6">
       <style>{`@media print { @page { size: A4; margin: 14mm; } thead { display: table-header-group; } tr { break-inside: avoid; } }${printSurfaceCss("doc-print-surface")}`}</style>
       <div className="mx-auto max-w-3xl">
         <DocumentPrintActions backHref={`/panel/ogretmenler/${teacher.id}/hakedis`} />

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { withReturnTo } from "@/lib/safe-return-to";
 import { notFound } from "next/navigation";
 import { AlertTriangle, ArrowRight, CalendarDays, CheckCircle2 } from "lucide-react";
 import { Badge, Card, EmptyState } from "@/components/ui";
@@ -275,7 +276,7 @@ export default async function StudentOverviewTab({
               </p>
               {currentContract.documentInstanceId ? (
                 <Link
-                  href={`/sozlesme-yazdir/${currentContract.id}`}
+                  href={withReturnTo(`/sozlesme-yazdir/${currentContract.id}`, `/panel/ogrenciler/${student.id}`)}
                   target="_blank"
                   className="inline-block font-medium text-[var(--color-primary)] hover:underline"
                 >

@@ -653,6 +653,14 @@ model Lesson {
   teacherAttendanceAt     DateTime?
   teacherAttendanceBy     String?
   teacherAttendanceNote   String?       @db.Text
+  /// 9. tur — İptal/Telafi kararının KAYNAĞI, öğretmen katılımından ve ders
+  /// statüsünden AYRI alan: "teacher" | "institution" | "student" | "other".
+  /// NULL = belirtilmemiş (eski kayıtlar sessizce öğretmene/kuruma atanmaz).
+  /// teacher/institution kaynaklı telafi öğrencinin kişisel telafi hakkından düşmez.
+  disruptionSource        String?
+  disruptionNote          String?       @db.Text
+  disruptionAt            DateTime?
+  disruptionBy            String?
   attendances             Attendance[]
 
   @@index([tenantId])
@@ -2166,6 +2174,10 @@ model Task {
   completedAt        DateTime?
   cancelledAt        DateTime?
   archivedAt         DateTime?
+  /// 9. tur — geri alınabilir silme (kritik işlem şifresiyle). Dolu = listelerde/raporlarda yok.
+  deletedAt          DateTime?
+  deletedByUserId    String?
+  deletionReason     String?
   progressPercent    Int       @default(0)
   tags               Json      @default("[]")
   studentId          String?

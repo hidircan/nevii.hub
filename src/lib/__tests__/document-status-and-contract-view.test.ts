@@ -74,7 +74,9 @@ describe("E — tek kanonik sözleşme görüntüleyici", () => {
 
   it("Evrak detayında 'Yazdırma görünümü' sözleşmeler için kanonik yola gider", () => {
     const code = readFileSync(path.join(ROOT, "src/app/panel/evraklar/[documentId]/page.tsx"), "utf-8");
-    expect(code).toContain("const printHref = contractId ? `/sozlesme-yazdir/${contractId}`");
+    // 9. tur: aynı kanonik yol, açıldığı evrak detayına geri dönüş bağlamıyla (returnTo).
+    expect(code).toContain("contractId ? `/sozlesme-yazdir/${contractId}` : `/evrak-yazdir/${doc.id}`");
+    expect(code).toContain("`/panel/evraklar/${doc.id}`");
   });
 
   it("öğrenci Evraklar sekmesi de aynı kanonik yolu kullanır", () => {

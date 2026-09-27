@@ -72,7 +72,7 @@ export function RoomArchiveToggle({ roomId, active }: { roomId: string; active: 
         ) : null}
       </div>
       {error ? (
-        <p className="mt-1 text-[11px] font-medium text-[#8b3a3a]">{error}</p>
+        <p className="mt-1 text-[11px] font-medium text-[var(--color-danger)]">{error}</p>
       ) : null}
     </div>
   );

@@ -94,6 +94,11 @@ import {
   updatePerformanceWeightsTool,
   getStudentDeletionImpactTool,
   deleteStudentTool,
+  getPackageDeletionImpactTool,
+  deletePackageTool,
+  getTaskDeletionImpactTool,
+  deleteTaskTool,
+  restoreDeletedTaskTool,
   restoreDeletedStudentTool,
   bulkStudentActionTool,
   type BulkStudentActionResult,
@@ -1746,6 +1751,7 @@ export async function actionUpdateRoom(input: {
   name?: string;
   capacity?: number;
   branchId?: string;
+  instruments?: string[];
   active?: boolean;
 }): Promise<UpdateRoomActionResult> {
   try {
@@ -3111,7 +3117,13 @@ export async function actionUpdateLessonSchedule(input: {
 
 export type CancelLessonActionResult = { ok: true } | { ok: false; message: string };
 
-export async function actionCancelLesson(input: { lessonId: string }): Promise<CancelLessonActionResult> {
+export async function actionCancelLesson(input: {
+  lessonId: string;
+  /** 9. tur — iptal kaynağı; öğretmen katılımı yalnız öğretmen kaynaklıysa ve açıkça seçildiyse. */
+  disruptionSource?: "teacher" | "institution" | "student" | "other";
+  disruptionNote?: string;
+  teacherAttendance?: "gelmedi" | "mazeretli";
+}): Promise<CancelLessonActionResult> {
   try {
     const result = await withAuthContext("actionCancelLesson", (ctx) => cancelLessonTool(ctx, input));
     if (!result.ok) return { ok: false, message: result.error.message };
@@ -3632,6 +3644,61 @@ export async function actionGetStudentDeletionImpact(studentId: string): Promise
     (ctx) => getStudentDeletionImpactTool(ctx, { studentId }),
     "Silme etkisi hesaplanamadı. Sayfayı yenileyip tekrar deneyin."
   );
+}
+
+/** 9. tur — paket silme ön izlemesi ve kalıcı silme; tüm kural/yetki/audit tool'da. */
+export async function actionGetPackageDeletionImpact(packageId: string) {
+  return runSimpleAction(
+    "actionGetPackageDeletionImpact",
+    (ctx) => getPackageDeletionImpactTool(ctx, { packageId }),
+    "Paketin kullanımı hesaplanamadı; sayfayı yenileyip tekrar deneyin."
+  );
+}
+
+export async function actionDeletePackage(input: {
+  packageId: string;
+  confirmationTitle: string;
+  criticalPassword: string;
+  expectedUpdatedAt: string;
+  reason: string;
+}): Promise<SimpleActionResult<{ packageId: string }>> {
+  const res = await runSimpleAction(
+    "actionDeletePackage",
+    (ctx) => deletePackageTool(ctx, input),
+    "Paket silinemedi; hiçbir kayıt değişmedi. Tekrar deneyin."
+  );
+  if (res.ok) revalidateAll();
+  return res;
+}
+
+/** 9. tur — iş silme (geri alınabilir) ve geri alma; kural/yetki/audit tool'da. */
+export async function actionGetTaskDeletionImpact(taskId: string) {
+  return runSimpleAction(
+    "actionGetTaskDeletionImpact",
+    (ctx) => getTaskDeletionImpactTool(ctx, { taskId }),
+    "İşin bağlı kayıtları denetlenemedi; sayfayı yenileyip tekrar deneyin."
+  );
+}
+
+export async function actionDeleteTask(input: {
+  taskId: string;
+  confirmation: string;
+  criticalPassword: string;
+  reason: string;
+}): Promise<SimpleActionResult<{ taskId: string }>> {
+  const res = await runSimpleAction("actionDeleteTask", (ctx) => deleteTaskTool(ctx, input), "İş silinemedi; hiçbir kayıt değişmedi. Tekrar deneyin.");
+  if (res.ok) revalidateAll();
+  return res;
+}
+
+export async function actionRestoreDeletedTask(taskId: string): Promise<SimpleActionResult<{ taskId: string }>> {
+  const res = await runSimpleAction(
+    "actionRestoreDeletedTask",
+    (ctx) => restoreDeletedTaskTool(ctx, { taskId }),
+    "İş geri alınamadı; tekrar deneyin."
+  );
+  if (res.ok) revalidateAll();
+  return res;
 }
 
 export async function actionDeleteStudent(input: {

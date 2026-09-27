@@ -8,6 +8,7 @@
  * Tüketir/rezerve eder: pending | suggested | awaiting_info | confirmed
  * Tüketmez: cancelled | expired (+ rejected yoksa ignored)
  */
+import { isQuotaExemptSource } from "./lesson-disruption";
 import type { AppData, MakeupRequest, MakeupStatus } from "./types";
 import { resolveLessonAcademicPeriod } from "./attendance-calendar";
 
@@ -62,10 +63,20 @@ export function periodKeyForLesson(data: AppData, lessonId: string): string {
   return `${period.academicYearStart}-${period.term}`;
 }
 
+/**
+ * 9. tur (owner kararı) — kaynağı öğretmen/kurum olan dersin telafisi öğrencinin
+ * kişisel hakkından düşmez. Kaynak dersin `disruptionSource`'undan okunur; kaynağı
+ * belirtilmemiş eski telafiler eskisi gibi sayılır (sessiz yeniden sınıflandırma yok).
+ */
+export function isQuotaExemptMakeup(data: Pick<AppData, "lessons">, sourceLessonId: string): boolean {
+  return isQuotaExemptSource(data.lessons.find((l) => l.id === sourceLessonId)?.disruptionSource);
+}
+
 export function countStudentMakeupsInPeriod(data: AppData, studentId: string, periodKey: string): number {
   return data.makeupRequests.filter((m) => {
     if (m.studentId !== studentId) return false;
     if (!isMakeupStatusCountingTowardQuota(m.status)) return false;
+    if (isQuotaExemptMakeup(data, m.sourceLessonId)) return false;
     return periodKeyForLesson(data, m.sourceLessonId) === periodKey;
   }).length;
 }
@@ -142,7 +153,10 @@ export function getStudentMakeupQuota(
   const activePeriodKey = `${period.academicYearStart}-${period.term}`;
   const periodLabel = formatEducationPeriodLabel(period.term, period.academicYearStart);
   const periodRequests = data.makeupRequests.filter(
-    (m) => m.studentId === studentId && periodKeyForLesson(data, m.sourceLessonId) === activePeriodKey
+    (m) =>
+      m.studentId === studentId &&
+      periodKeyForLesson(data, m.sourceLessonId) === activePeriodKey &&
+      !isQuotaExemptMakeup(data, m.sourceLessonId)
   );
   const confirmedUsed = periodRequests.filter((m) => m.status === "confirmed").length;
   const reservedUsed = periodRequests.filter((m) =>
@@ -177,6 +191,8 @@ export function assertCanCreateMakeup(
       snapshot,
     };
   }
+  // Öğretmen/kurum kaynaklı telafi kişisel hakka tabi değil — kota dolu/kapalı olsa da açılır.
+  if (sourceLessonId && isQuotaExemptMakeup(data, sourceLessonId)) return { ok: true, snapshot };
   if (snapshot.allowance === 0) {
     return {
       ok: false,

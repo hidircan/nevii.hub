@@ -11,26 +11,27 @@ Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_20
 - Kritik işlem kapısı TEK: `checkCriticalPassword` + `canRunCriticalActions` (tools.ts).
 - Rol modeli: tek HYPER_ADMIN platform sahibi; kurum sahibi SUPER_ADMIN.
 
+## Güncel snapshot — 2026-09-28 (9. tur)
+- **Dal:** `feat/uat-round-9` → `test` (NeviiOS `05c172d` üstüne rebase). **Migration (additive):**
+  `20260928090000_lesson_disruption_task_soft_delete` — **test DB'ye uygulandı 2026-09-28** (owner onayı; kayıt sayıları ve
+  Lesson/Task parmak izleri önce/sonra aynı). UAT: `docs/testing/UAT_2026_09_28_ROUND_9.md`.
+- Owner 2026-09-28: "Diğer" kaynaklı telafi öğrenci kotasından düşer; kaynak düzeltilince kota canlı yeniden hesaplanır
+  (sayaç yok); "Diğer" öğretmen devamsızlığı yazmaz.
+- Owner kararları (2026-09-27): paket/iş silme = mevcut kritik işlem şifresi, SUPER_ADMIN+SCHOOL_ADMIN; öğretmen/kurum
+  kaynaklı telafi öğrencinin kişisel hakkından düşmez; öğretmen devamsızlığında otomatik hakediş kesintisi yok;
+  **tahsil edilen = `collectedAmountOf` (kısmi dahil)** — tüm finans ekranları bu tek fonksiyon.
+- Koyu tema token düzeyinde: obsidyende Tailwind palet değişkenleri yeniden eşlenir (globals.css); yazdırma sayfaları
+  `.print-light-palette` ile açık palete sabit. axe (11 sayfa): koyu 35→0, açık 12→10 (kalan 10 eski).
+- Kapsamlar: `payment-scope.ts` (Ödemeler aktif/pasif/tüm), `payout-overview.ts` (Hakediş). Geri dönüş: `withReturnTo`/`returnToLabel`.
+- İptal/Telafi kaynağı: `lesson-disruption.ts` (öğretmen katılımından ayrı); öğretmen raporu `teacher-attendance-report.ts`.
+- Oda düzenleme (owner ek isteği): `room-revision.ts` + `RoomEditDialog`.
+
 ## Güncel snapshot — 2026-09-27 (NeviiOS erişim)
 - **Dal:** `feat/neviios-control-recovery` → `test`. Yeni migration yok. HYPER_ADMIN satırı YAZILMADI: canlı deployment'ın Supabase kimliği Vercel Secret olduğu için doğrulanamadı. Yerel `~/Projects/nevii-hub/.env` production ref'ine gider; ona sorgu/yazım yok.
 - Platform kabuğu, kayıtlı tema yoksa koyu yeşil token kullanır (`neviios-theme.css`). `globals.css`, `ui.tsx`, `sidebar.tsx` bu turda değişmedi.
 - Kurum özeti tenant kimliğiyle okul kaydını yan yana gösterir; ad farkını yazar, düzeltmez. Dil: `locale.language` tenant override + `Tenant.language`. Giriş, sıfırlama sayfası ve sıfırlama e-postası bu dili izler. Panelin geri kalanı Türkçe.
 - Şifre yazımı `sessionsRevokedAt` basar. SMTP canlıda doğrulanamadı; anahtarlar `.env.example` içinde. SPF `include:_spf.mx.cloudflare.net`. DKIM/DMARC bu oturumda doğrulanamadı.
 - Önceki 8. tur notu: `feat/uat-round-8` migration `20260927090000_room_soft_delete` test DB'ye uygulandı (owner). Claude'un 9. tur kirli paneli ayrı worktree'de duruyor.
-
-## Güncel snapshot — 2026-09-27 (8. tur)
-- **Dal:** `feat/uat-round-8` (worktree `../nevii-hub-uat-round8`) → `test`. **Migration VAR (additive):**
-  `20260927090000_room_soft_delete` (Room.deletedAt) — **test DB'ye uygulandı 2026-09-27** (owner onayı; önce uygulanmadan
-  push edildiği için panel P2022 ile çöktü — bkz. LESSONS_LEARNED). `test` build'inde bekleyen migration kapısı var. 7. tur migration'ı
-  (`20260926090000_trial_result_notes`) uygulandı (owner teyidi). Ayrıntı + UAT: `docs/testing/UAT_2026_09_27_ROUND_8.md`.
-- Kurum adı test DB'de **"Nilüfer Acar Müzik Akademi"** (Tenant+School, 2026-09-27 bu oturumda). Kodda sabit ad yok
-  (yalnız demo seed). Geçmiş 105 imzasız sözleşme yeniden üretilmedi — hukuki karar owner'da.
-- Öğretmen şubeleri: birincil `branchId` + ek `branchIds` (JSON); tek kural `teacherServesBranch` — oda seçimi ve
-  "Uygun saatleri bul" da artık buna uyuyor (önceden yalnız birincil şube odaları).
-- Ders pop-up müsaitlik kartı: `teacher-day-availability.ts` + `teacherDayAvailabilityTool` (tarih+şube başına tek istek, istemci önbelleği).
-- Sözleşmesiz öğrencinin takvim planı: `resolveContractPlanForMonth` → `student_plan` (tutar yalnız gerçek satırlardan; uydurma yok).
-- Performans: `validateLessonSlot` ders indeksi + `Intl.DateTimeFormat` önbelleği → telafi önerisi 41 sn → ~150 ms (6000 ders).
-- Denetim kaydı: Türkçe kategori/ekran/özne sunumda eşlenir (şema değişmedi).
 
 ## Ortamlar
 - Test: `test` dalı → Vercel → `test.neviihub.com`; test DB Supabase `vxzewyiwfshobjizzetw` (repo migration'ları uygulandı,
@@ -39,17 +40,13 @@ Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_20
 - Vercel Cron: günlük 00:30 UTC retention (`vercel.json`, `CRON_SECRET`).
 
 ## Açık iş
-- Owner UAT: 8. tur (`UAT_2026_09_27_ROUND_8.md`); önceki turlar 4–7 belgeleri.
-- Owner kararları: Pınar Çelik/Olcay Özdemir'e Evka 3 (yapılmadı, test DB'de yalnız Erzene); ayrı test kurumu; geçmiş sözleşmeler
-  (hukuki); denetim kaydına IP/cihaz yazımı (ayrı tur).
-- `[neviios] platform store` sorgularında `statement timeout` (Vercel log, 2026-09-27) — panel çöküşüyle ilgisiz, incelenmedi.
-- Mobil: devralma onayı için yeni EAS build (ayrı tur; `apps/mobile/*` bu turda dokunulmadı).
-- Test verisinde, düzeltmeden önce takvimden alınmış tahsilatlar sözleşme taksiti yerine `monthly_plan` satırına yazılmış
-  olabilir (taksit hâlâ ödenmemiş görünür). Otomatik düzeltme YAPILMADI — owner kararıyla salt-okunur tespit + elle eşleme.
-- Test DB salt-okunur sorgu 8. turda Supabase MCP ile çalıştı (proje `vxzewyiwfshobjizzetw`); yazma yalnız owner talimatıyla.
-- Uzun vadeli açıklar (PDF sayfa altbilgisi, toplu tarihsel sözleşme importu, aynı-gün iptal bildirimi): arşivdeki "Open work".
+- Owner UAT: 9. tur (`UAT_2026_09_28_ROUND_9.md`).
+- Mobil panel: yan menü 390 px'te de 256 px sabit (çekmece yok) — ayrı tur önerisi.
+- Açık temada 10 eski kontrast ihlali (Evraklar küçük altın link, Öğrenciler soluk sayfalama, Özet gri alt yazı).
+- Önceki turlardan: owner UAT 4–8; Pınar/Olcay Evka 3; geçmiş sözleşmeler (hukuki); `[neviios] platform store` timeout; mobil EAS build.
 
 ## Riskler / bilinen durum
-- Bilinen başarısızlıklar: 8. turda `lesson-reassignment` kök nedeni (tarihe bağlı seed) düzeltildi; `skipConflicts` geçiyor;
-  `change-password-route` geçiyor. Tam paket 2026-09-27: 343 dosya / 3634 test, 0 başarısız.
+- Tam paket 2026-09-28: 345 dosya / 3653 test, 0 başarısız (J2 tarihe bağlı kırmızısı kök nedeniyle düzeltildi).
+- Denetim kaydı json modunda da Prisma'ya yazmaya çalışır; yerel tarayıcı testinde `DATABASE_URL`'i geçersiz adrese
+  yönlendirin (bu turda böyle yapıldı — gerçek DB'ye yazım olmadı).
 - `docs/project-brain/CURRENT_STATE.md` 2026-08-31'de donmuş; güncel durum burası.

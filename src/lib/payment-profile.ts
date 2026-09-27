@@ -95,6 +95,20 @@ export function isLiveObligation(
   return !(p.contractId && terminalContractIds.has(p.contractId));
 }
 
+/**
+ * 9. tur (owner kararı 2026-09-27) — TEK "tahsil edilen" tanımı: satırda FİİLEN
+ * alınmış para. Kısmi ödemenin alınan kısmı dahildir; kalan bakiye
+ * `isLiveObligation` üzerinden açık alacakta ayrıca görünür. İptal edilmiş
+ * (voided) satır 0. Eski "ödendi" satırında paidAmount boş kalmışsa tutarın
+ * tamamı alınmış sayılır (ödeme dökümünün mevcut davranışı). Ödemeler,
+ * Finans Özeti, Günlük Özet, panel istatistikleri ve dökümler bunu kullanır.
+ */
+export function collectedAmountOf(p: Pick<Payment, "status" | "amount" | "paidAmount">): number {
+  if (p.status === "voided") return 0;
+  if (p.status === "paid") return p.paidAmount > 0 ? p.paidAmount : p.amount;
+  return Math.max(0, p.paidAmount ?? 0);
+}
+
 export type StudentDebtView = {
   /** Açık (vadesi gelmemiş veya gecikmiş) canlı borç satırları — en eski vade önce. */
   open: Payment[];

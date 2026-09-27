@@ -7,7 +7,15 @@ import { requireSessionContext } from "@/lib/auth/session";
 import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { Badge, Card, EmptyState, PageHeader, StatCard } from "@/components/ui";
-import { computeTeacherEarningsWithRevisions } from "@/lib/teacher-payout";
+import {
+  PAYOUT_SCOPE_LABEL,
+  buildPayoutOverviewRows,
+  parsePayoutScope,
+  passiveTeacherOpenPayouts,
+  rowsInPayoutScope,
+  sumPayoutRows,
+} from "@/lib/payout-overview";
+import { ScopeTabs } from "@/components/scope-tabs";
 import { formatMoney } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -27,7 +35,7 @@ const PAYOUT_STATUS_LABELS: Record<string, string> = {
 export default async function TeacherPayoutOverviewPage({
   searchParams,
 }: {
-  searchParams: Promise<{ month?: string; teacherId?: string; status?: string }>;
+  searchParams: Promise<{ month?: string; teacherId?: string; status?: string; kapsam?: string }>;
 }) {
   let session;
   try {
@@ -41,7 +49,8 @@ export default async function TeacherPayoutOverviewPage({
     redirect("/panel");
   }
 
-  const { month, teacherId: teacherFilter, status: statusFilter } = await searchParams;
+  const { month, teacherId: teacherFilter, status: statusFilter, kapsam } = await searchParams;
+  const scope = parsePayoutScope(kapsam);
   const kurum = await getInstitutionContext(session);
   const data = await readScopedData(kurum.scope);
 
@@ -52,24 +61,10 @@ export default async function TeacherPayoutOverviewPage({
   const prevMonthParam = format(addMonths(monthAnchor, -1), "yyyy-MM");
   const nextMonthParam = format(addMonths(monthAnchor, 1), "yyyy-MM");
 
-  const activeTeachers = data.teachers.filter((t) => t.active);
-
-  const rows = activeTeachers.map((teacher) => {
-    const existingPayout = data.teacherPayouts.find(
-      (p) => p.teacherId === teacher.id && p.periodStart === periodStart && p.periodEnd === periodEnd
-    );
-    const earnings = computeTeacherEarningsWithRevisions(data, teacher.id, periodStart, periodEnd);
-    const lessonCount = earnings.totalLessons;
-    const totalAmount = existingPayout ? existingPayout.totalAmount : earnings.totalAmount;
-    const status = existingPayout ? existingPayout.status : lessonCount > 0 ? "pending" : "no_lessons";
-    return {
-      teacher,
-      lessonCount,
-      totalAmount,
-      status,
-      missingFeeRule: earnings.missingFeeRuleLessonIds.length,
-    };
-  });
+  // Kapsam tek kaynaktan (payout-overview.ts): pasif öğretmenin hakkı listeden/toplamdan sessizce düşmez.
+  const allRows = buildPayoutOverviewRows(data, periodStart, periodEnd);
+  const rows = rowsInPayoutScope(allRows, scope);
+  const scopeTeachers = rows.map((r) => r.teacher);
 
   const filteredRows = rows.filter((r) => {
     if (teacherFilter && r.teacher.id !== teacherFilter) return false;
@@ -77,9 +72,17 @@ export default async function TeacherPayoutOverviewPage({
     return true;
   });
 
-  const totalPending = rows.filter((r) => r.status === "pending").reduce((s, r) => s + r.totalAmount, 0);
-  const totalPaid = rows.filter((r) => r.status === "paid").reduce((s, r) => s + r.totalAmount, 0);
-  const totalMissingFeeRule = rows.reduce((s, r) => s + r.missingFeeRule, 0);
+  const totals = sumPayoutRows(rows);
+  const activeTotals = sumPayoutRows(rowsInPayoutScope(allRows, "aktif"));
+  const passiveTotals = sumPayoutRows(rowsInPayoutScope(allRows, "pasif"));
+  const passiveOpenAllPeriods = passiveTeacherOpenPayouts(data);
+  const scopeHref = (key: string) => {
+    const params = new URLSearchParams({ month: monthParam });
+    if (key !== "aktif") params.set("kapsam", key);
+    return `/panel/hakedisler?${params.toString()}`;
+  };
+  const withScope = (href: string) => (scope === "aktif" ? href : `${href}&kapsam=${scope}`);
+  const monthLabel = format(monthAnchor, "MMMM yyyy", { locale: tr });
 
   return (
     <div>
@@ -88,39 +91,80 @@ export default async function TeacherPayoutOverviewPage({
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <Link
-          href={`/panel/hakedisler?month=${prevMonthParam}`}
+          href={withScope(`/panel/hakedisler?month=${prevMonthParam}`)}
           className="inline-flex items-center gap-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-sm font-medium text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)]"
         >
           <ChevronLeft className="h-4 w-4" /> Önceki ay
         </Link>
         <span className="rounded-lg bg-[var(--color-surface)] px-3 py-1.5 text-sm font-semibold text-[var(--color-text)] ring-1 ring-slate-200">
-          {format(monthAnchor, "MMMM yyyy", { locale: tr })}
+          {monthLabel}
         </span>
         <Link
-          href={`/panel/hakedisler?month=${nextMonthParam}`}
+          href={withScope(`/panel/hakedisler?month=${nextMonthParam}`)}
           className="inline-flex items-center gap-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-sm font-medium text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)]"
         >
           Sonraki ay <ChevronRight className="h-4 w-4" />
         </Link>
       </div>
 
-      <div className="mb-6 grid gap-4 sm:grid-cols-3">
-        <StatCard label="Bekleyen toplam" value={formatMoney(totalPending)} accent="warning" />
-        <StatCard label="Ödenen toplam" value={formatMoney(totalPaid)} accent="success" />
-        <StatCard label="Ücret kuralı eksik ders" value={totalMissingFeeRule} accent="danger" />
+      <div className="mb-3">
+        <ScopeTabs
+          label="Hakediş kapsamı"
+          active={scope}
+          items={(["aktif", "pasif", "tum"] as const).map((key) => ({
+            key,
+            label: PAYOUT_SCOPE_LABEL[key],
+            count: rowsInPayoutScope(allRows, key).length,
+            href: scopeHref(key),
+          }))}
+        />
       </div>
+      {/* Üç yükümlülük hiçbir zaman tek sayıda karışmaz — hangi görünümde olunursa olunsun ayrı yazılır. */}
+      <dl className="mb-4 grid gap-x-6 gap-y-1 text-xs text-[var(--color-text-muted)] sm:grid-cols-3">
+        <div>
+          <dt className="inline">Aktif öğretmen hakedişi ({monthLabel}): </dt>
+          <dd className="inline font-semibold text-[var(--color-text)]">{formatMoney(activeTotals.pending)} bekliyor</dd>
+        </div>
+        <div>
+          <dt className="inline">Pasif öğretmene kalan ({monthLabel}): </dt>
+          <dd className="inline font-semibold text-[var(--color-text)]">{formatMoney(passiveTotals.pending)}</dd>
+        </div>
+        <div>
+          <dt className="inline">Pasif öğretmen, tüm dönemler (kayıtlı, ödenmemiş): </dt>
+          <dd className="inline font-semibold text-[var(--color-text)]">
+            {formatMoney(passiveOpenAllPeriods.total)} · {passiveOpenAllPeriods.count} kayıt
+          </dd>
+        </div>
+      </dl>
+
+      <div className="mb-6 grid gap-4 sm:grid-cols-3">
+        <StatCard
+          label={scope === "pasif" ? "Pasif öğretmene kalan yükümlülük" : "Bekleyen toplam"}
+          value={formatMoney(totals.pending)}
+          hint={`${PAYOUT_SCOPE_LABEL[scope]} · ${monthLabel}`}
+          accent="warning"
+        />
+        <StatCard label="Ödenen toplam" value={formatMoney(totals.paid)} hint={`${PAYOUT_SCOPE_LABEL[scope]} · ${monthLabel}`} accent="success" />
+        <StatCard label="Ücret kuralı eksik ders" value={totals.missingFeeRule} accent="danger" />
+      </div>
+      <p className="-mt-3 mb-6 text-xs text-[var(--color-text-muted)]">
+        Tutarlar mevcut hakediş kurallarıyla (oran, süre, ders bazlı) hesaplanır; kayıtlı hakediş varsa kayıttaki tutar esas alınır.
+        Pasif öğretmen yalnız bu ayda işlenmiş dersi veya kayıtlı hakedişi varsa listelenir. &quot;Tüm dönemler&quot; yalnız
+        kayda geçmiş hakedişleri toplar; hiç hakediş oluşturulmamış eski aylar hesaplanmaz.
+      </p>
 
       <Card className="mb-4">
         <div className="flex flex-wrap items-center gap-3">
           <form className="flex flex-wrap items-center gap-2">
             <input type="hidden" name="month" value={monthParam} />
+            {scope !== "aktif" ? <input type="hidden" name="kapsam" value={scope} /> : null}
             <select
               name="teacherId"
               defaultValue={teacherFilter ?? ""}
               className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-sm text-[var(--color-text-muted)]"
             >
               <option value="">Tüm öğretmenler</option>
-              {activeTeachers.map((t) => (
+              {scopeTeachers.map((t) => (
                 <option key={t.id} value={t.id}>
                   {t.name}
                 </option>
@@ -144,7 +188,7 @@ export default async function TeacherPayoutOverviewPage({
             </button>
             {teacherFilter || statusFilter ? (
               <Link
-                href={`/panel/hakedisler?month=${monthParam}`}
+                href={scopeHref(scope)}
                 className="text-xs font-medium text-[var(--color-text-muted)] hover:text-rose-600"
               >
                 Filtreleri Temizle
@@ -173,8 +217,15 @@ export default async function TeacherPayoutOverviewPage({
             </thead>
             <tbody>
               {filteredRows.map((r) => (
-                <tr key={r.teacher.id} className="border-b border-slate-50">
-                  <td className="px-4 py-3 font-medium text-[var(--color-text)]">{r.teacher.name}</td>
+                <tr key={r.teacher.id} className="border-b border-[var(--color-border)]">
+                  <td className="px-4 py-3 font-medium text-[var(--color-text)]">
+                    {r.teacher.name}
+                    {!r.active ? (
+                      <span className="ml-2 rounded-full border border-[var(--color-border)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--color-text-muted)]">
+                        Pasif
+                      </span>
+                    ) : null}
+                  </td>
                   <td className="px-4 py-3 text-[var(--color-text-muted)]">{r.lessonCount}</td>
                   <td className="px-4 py-3 font-medium">{formatMoney(r.totalAmount)}</td>
                   <td className="px-4 py-3">

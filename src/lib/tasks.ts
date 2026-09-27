@@ -147,6 +147,9 @@ function mapDbTask(r: {
   completedAt: Date | null;
   cancelledAt: Date | null;
   archivedAt: Date | null;
+  deletedAt?: Date | null;
+  deletedByUserId?: string | null;
+  deletionReason?: string | null;
   progressPercent: number;
   tags: unknown;
   studentId: string | null;
@@ -177,6 +180,9 @@ function mapDbTask(r: {
     completedAt: r.completedAt?.toISOString(),
     cancelledAt: r.cancelledAt?.toISOString(),
     archivedAt: r.archivedAt?.toISOString(),
+    deletedAt: r.deletedAt?.toISOString(),
+    deletedByUserId: r.deletedByUserId ?? undefined,
+    deletionReason: r.deletionReason ?? undefined,
     progressPercent: r.progressPercent,
     tags: (r.tags as string[] | null) ?? [],
     studentId: r.studentId ?? undefined,
@@ -260,15 +266,23 @@ export async function createTask(input: CreateTaskInput): Promise<Task> {
   return toPublicTask(record);
 }
 
-export async function getTask(tenantId: string, id: string): Promise<Task | null> {
+/**
+ * 9. tur — silinmiş (soft delete) görev varsayılan olarak YOK sayılır: detay, yorum,
+ * checklist, ek ve durum değişikliği NOT_FOUND alır. Yalnız geri alma/silinenler listesi
+ * `includeDeleted` ister.
+ */
+export async function getTask(tenantId: string, id: string, opts?: { includeDeleted?: boolean }): Promise<Task | null> {
+  let found: StoredTask | undefined;
   if (isDbMode) {
     const prisma = await dbTask();
     const row = await prisma.task.findFirst({ where: { id, tenantId } });
-    return row ? toPublicTask(mapDbTask(row)) : null;
+    found = row ? mapDbTask(row) : undefined;
+  } else {
+    const all = await loadAll();
+    found = all.tasks.find((t) => t.id === id && t.tenantId === tenantId);
   }
-  const all = await loadAll();
-  const found = all.tasks.find((t) => t.id === id && t.tenantId === tenantId);
-  return found ? toPublicTask(found) : null;
+  if (!found || (found.deletedAt && !opts?.includeDeleted)) return null;
+  return toPublicTask(found);
 }
 
 export type TaskFilter = {
@@ -317,17 +331,56 @@ function matchesFilter(t: StoredTask, filter?: TaskFilter): boolean {
   return true;
 }
 
-export async function listTasks(tenantId: string, filter?: TaskFilter): Promise<Task[]> {
+async function listStoredTasks(tenantId: string): Promise<StoredTask[]> {
   if (isDbMode) {
     const prisma = await dbTask();
     const rows = await prisma.task.findMany({ where: { tenantId }, orderBy: { updatedAt: "desc" } });
-    return rows.map((r) => toPublicTask(mapDbTask(r))).filter((t) => matchesFilter({ ...t, tenantId }, filter));
+    return rows.map(mapDbTask);
   }
   const all = await loadAll();
-  return all.tasks
-    .filter((t) => t.tenantId === tenantId && matchesFilter(t, filter))
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+  return all.tasks.filter((t) => t.tenantId === tenantId).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
+/** Silinmiş görevler HER listede, KPI'da, raporda ve hatırlatmada hariç (tek kapı). */
+export async function listTasks(tenantId: string, filter?: TaskFilter): Promise<Task[]> {
+  return (await listStoredTasks(tenantId)).filter((t) => !t.deletedAt && matchesFilter(t, filter)).map(toPublicTask);
+}
+
+/** 9. tur — "Silinen işler" (geri alma ekranı). */
+export async function listDeletedTasks(tenantId: string): Promise<Task[]> {
+  return (await listStoredTasks(tenantId))
+    .filter((t) => t.deletedAt)
+    .sort((a, b) => (b.deletedAt ?? "").localeCompare(a.deletedAt ?? ""))
     .map(toPublicTask);
+}
+
+/** 9. tur — geri alınabilir silme / geri alma. `state=null` geri alır. Yorum/checklist/ek/aktivite korunur. */
+export async function setTaskDeletion(
+  tenantId: string,
+  id: string,
+  state: { deletedAt: string; deletedByUserId: string; deletionReason: string } | null
+): Promise<Task | null> {
+  if (isDbMode) {
+    const prisma = await dbTask();
+    const res = await prisma.task.updateMany({
+      where: { id, tenantId },
+      data: state
+        ? { deletedAt: new Date(state.deletedAt), deletedByUserId: state.deletedByUserId, deletionReason: state.deletionReason }
+        : { deletedAt: null, deletedByUserId: null, deletionReason: null },
+    });
+    if (res.count === 0) return null;
+    return getTask(tenantId, id, { includeDeleted: true });
+  }
+  const all = await loadAll();
+  const idx = all.tasks.findIndex((t) => t.id === id && t.tenantId === tenantId);
+  if (idx === -1) return null;
+  const updated: StoredTask = state
+    ? { ...all.tasks[idx], ...state }
+    : { ...all.tasks[idx], deletedAt: undefined, deletedByUserId: undefined, deletionReason: undefined };
+  const nextTasks = [...all.tasks];
+  nextTasks[idx] = updated;
+  await saveAll({ ...all, tasks: nextTasks });
+  return toPublicTask(updated);
 }
 
 export type UpdateTaskInput = Partial<
@@ -429,9 +482,9 @@ export async function clearTasks(tenantId: string): Promise<void> {
   });
 }
 
-/** Kurum dışa aktarımı için — tenant'ın tüm görevleri. */
+/** Kurum dışa aktarımı (yedek) için — silinmişler DAHİL tüm görevler (`deletedAt` sütunuyla). */
 export async function listAllTasks(tenantId: string): Promise<Task[]> {
-  return listTasks(tenantId);
+  return (await listStoredTasks(tenantId)).map(toPublicTask);
 }
 
 // ─── Checklist ─────────────────────────────────────────────────────────

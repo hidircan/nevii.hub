@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { withReturnTo } from "@/lib/safe-return-to";
 import { redirect } from "next/navigation";
 import { requireSessionContext } from "@/lib/auth/session";
 import { getDocumentInstanceTool } from "@/lib/services";
@@ -58,7 +59,10 @@ export default async function DocumentDetailPage({
    * (hukuki arşiv) — ama artık ne olduğu açıkça yazıyor.
    */
   const contractId = await findContractIdByDocumentInstanceId(session.tenantId, doc.id);
-  const printHref = contractId ? `/sozlesme-yazdir/${contractId}` : `/evrak-yazdir/${doc.id}`;
+  const printHref = withReturnTo(
+    contractId ? `/sozlesme-yazdir/${contractId}` : `/evrak-yazdir/${doc.id}`,
+    `/panel/evraklar/${doc.id}`
+  );
 
   // İş Takip Faz 3B-1A — "cancelled"/"expired" evrak, işlevsel karşılığı
   // arşivlenmiş belge sayılır: yeni görev bağlamı için eylem gizlenir.

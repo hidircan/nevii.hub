@@ -79,12 +79,13 @@ import {
   getRegistrationFirstPayment,
   addPackage,
   updatePackage,
+  deletePackage,
   addDiscountCampaign,
   updateDiscountCampaign,
 } from "../store";
 import { normalizePaymentDueRanges, effectivePaymentDueRanges, formatPaymentDueRanges } from "../payment-due-ranges";
 import { effectiveStudentTypes } from "../student-types";
-import { markTeacherAttendanceLive } from "../store";
+import { markTeacherAttendanceLive, setLessonDisruptionLive } from "../store";
 import { computeTeacherPerformanceReport, type TeacherPerformanceReport } from "../teacher-performance";
 import { computeTeacherPerformanceReportV2, type TeacherPerformanceReportV2 } from "../teacher-performance-v2";
 import {
@@ -463,6 +464,8 @@ import {
 import {
   createTask,
   getTask,
+  listDeletedTasks,
+  setTaskDeletion,
   listTasks,
   updateTask,
   addChecklistItem,
@@ -4405,6 +4408,102 @@ export async function updatePackageTool(
 }
 
 /**
+ * 9. tur — paket silme ön izlemesi: kullanım (öğrenci bağları) ve kalıcı silinebilirlik.
+ * Onay kutusu bunu gösterir; asıl karar `deletePackageTool` içinde güncel veriden YENİDEN verilir.
+ */
+export async function getPackageDeletionImpactTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<import("../packages").PackageDeletionImpact & { criticalPasswordConfigured: boolean }>> {
+  const auth = requireRole(ctx, CRITICAL_ROLES_FOR_TOOLS);
+  if (!auth.ok) return fail("FORBIDDEN", "Paket silme yalnız kurum sahibi ve kurum yöneticileri tarafından başlatılabilir.");
+  const v = parseOrFail(z.object({ packageId: z.string().min(1) }), input);
+  if (!v.ok) return v;
+  const { computePackageDeletionImpact } = await import("../packages");
+  const impact = computePackageDeletionImpact(await readData(), v.data.packageId);
+  if (!impact) return fail("NOT_FOUND", "Paket bulunamadı; başka biri silmiş olabilir. Listeyi yenileyin.");
+  const { getCriticalActionPasswordStatus } = await import("../critical-action-password");
+  const status = await getCriticalActionPasswordStatus(ctx.tenantId);
+  return ok({ ...impact, criticalPasswordConfigured: status.configured });
+}
+
+/**
+ * 9. tur — yanlışlıkla oluşturulmuş, HİÇ kullanılmamış paketi kalıcı siler. Kapılar:
+ * rol (SUPER_ADMIN/SCHOOL_ADMIN) → paket adı teyidi → kritik işlem şifresi (sunucuda bcrypt,
+ * rate-limit) → güncel veriden kullanım kontrolü + eşzamanlılık (`expectedUpdatedAt`).
+ * Kullanılmış paket silinmez (arşivlenir). Her deneme, reddedilen dahil, denetim kaydına yazılır.
+ */
+export async function deletePackageTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ packageId: string }>> {
+  const auth = requireRole(ctx, CRITICAL_ROLES_FOR_TOOLS);
+  if (!auth.ok) return fail("FORBIDDEN", "Paket silme yalnız kurum sahibi ve kurum yöneticileri tarafından başlatılabilir.");
+  const v = parseOrFail(
+    z.object({
+      packageId: z.string().min(1),
+      confirmationTitle: z.string(),
+      criticalPassword: z.string(),
+      expectedUpdatedAt: z.string().min(1),
+      reason: z.string().trim().min(5, "Silme gerekçesi en az 5 karakter olmalı.").max(500),
+    }),
+    input
+  );
+  if (!v.ok) return v;
+  const data = await readData();
+  const pkg = (data.packages ?? []).find((p) => p.id === v.data.packageId);
+  if (!pkg) return fail("NOT_FOUND", "Paket bulunamadı; başka biri silmiş olabilir. Listeyi yenileyin.");
+
+  const deny = async (reasonCode: string, message: string, code: "FORBIDDEN" | "CONFLICT" = "FORBIDDEN") => {
+    await recordAuditLog({
+      tenantId: ctx.tenantId,
+      actorUserId: ctx.userId,
+      actorRole: ctx.role,
+      action: "package.delete",
+      entityType: "Package",
+      entityId: v.data.packageId,
+      outcome: "denied",
+      meta: { reasonCode, entityName: pkg.title },
+    });
+    return fail(code, message);
+  };
+
+  if (!sameName(v.data.confirmationTitle, pkg.title)) {
+    return deny("confirmation_mismatch", `Onay için paketin adını aynen yazın: "${pkg.title}".`);
+  }
+  const gate = await checkCriticalPassword(ctx, v.data.criticalPassword);
+  if (!gate.ok) return deny(gate.reasonCode, gate.message);
+
+  const result = await deletePackage(v.data.packageId, v.data.expectedUpdatedAt);
+  if (!result.ok) {
+    if (result.code === "NOT_FOUND") return fail("NOT_FOUND", result.message);
+    return deny(result.code === "IN_USE" ? "package_in_use" : "concurrent_change", result.message, "CONFLICT");
+  }
+  await recordAuditLog({
+    tenantId: ctx.tenantId,
+    actorUserId: ctx.userId,
+    actorRole: ctx.role,
+    action: "package.delete",
+    entityType: "Package",
+    entityId: v.data.packageId,
+    outcome: "success",
+    meta: {
+      entityName: pkg.title,
+      reason: v.data.reason,
+      snapshot: {
+        title: pkg.title,
+        status: pkg.status,
+        price30Min: pkg.price30Min,
+        price40Min: pkg.price40Min,
+        price50Min: pkg.price50Min,
+        createdAt: pkg.createdAt,
+      },
+    },
+  });
+  return ok({ packageId: v.data.packageId });
+}
+
+/**
  * Paket 5 — yüzde tabanlı kampanya/indirim kuralı oluşturur (ör. "Kardeş
  * Kampanyası"). Bu kural şu an OTOMATİK olarak monthlyFee/Payment hesaplama
  * hattına bağlanmaz — bkz. src/lib/discount-campaigns.ts dosya başı notu.
@@ -5727,13 +5826,36 @@ export async function cancelLessonTool(
   const auth = requireRole(ctx, ["SCHOOL_ADMIN", "AI_AGENT", "SUPER_ADMIN"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
 
-  const v = parseOrFail(cancelLessonSchema, input);
+  const v = parseOrFail(cancelLessonSchema.extend(disruptionInputShape), input);
   if (!v.ok) return v;
+  const disruptionError = disruptionInputError(v.data);
+  if (disruptionError) return fail("VALIDATION_ERROR", disruptionError);
 
   try {
     const before = await readData();
     const lesson = before.lessons.find((l) => l.id === v.data.lessonId);
     await cancelLesson(v.data.lessonId);
+    // 9. tur — iptal artık denetim kaydında (kim/ne zaman/hangi kaynak); kaynak ayrı alana.
+    audit(ctx, "lesson.cancel", "Lesson", v.data.lessonId, {
+      disruptionSource: v.data.disruptionSource ?? null,
+      note: v.data.disruptionNote,
+      teacherAttendance: v.data.teacherAttendance,
+    });
+    if (v.data.disruptionSource) {
+      const { buildDisruptionPatch } = await import("../lesson-disruption");
+      const saved = await setLessonDisruptionLive(
+        v.data.lessonId,
+        buildDisruptionPatch({ source: v.data.disruptionSource, note: v.data.disruptionNote }, ctx.userId)
+      );
+      if (!saved) {
+        return fail(
+          "INTERNAL_ERROR",
+          "Ders iptal edildi ancak iptal kaynağı kaydedilemedi. Ders detayındaki \"Kaynağı düzenle\" ile tekrar girin."
+        );
+      }
+      const warning = await recordTeacherAttendanceForDisruption(ctx, v.data.lessonId, v.data.teacherAttendance, v.data.disruptionNote);
+      if (warning) return fail("INTERNAL_ERROR", warning);
+    }
     if (lesson) {
       try {
         const { notifyLessonCancelled } = await import("../lesson-notifications");
@@ -5751,6 +5873,49 @@ export async function cancelLessonTool(
   } catch (e) {
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "cancelLesson failed");
   }
+}
+
+/**
+ * 9. tur — iptal/telafi edilmiş dersin KAYNAĞINI sonradan belirler/düzeltir
+ * ("Belirtilmemiş" eski kayıtlar dahil). Ders statüsüne dokunmaz. Kaynak değişince
+ * öğrencinin telafi hakkı sayımı bu kaynaktan okunur (öğretmen/kurum → hak düşmez).
+ */
+export async function setLessonDisruptionTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ lessonId: string; disruptionSource: string }>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", "İptal/telafi kaynağını yalnız kurum yöneticileri girebilir.");
+  const v = parseOrFail(
+    z.object({ lessonId: z.string().min(1), ...disruptionInputShape, disruptionSource: disruptionInputShape.disruptionSource.unwrap() }),
+    input
+  );
+  if (!v.ok) return v;
+  const disruptionError = disruptionInputError(v.data);
+  if (disruptionError) return fail("VALIDATION_ERROR", disruptionError);
+  const scope = await readLessonScope(v.data.lessonId);
+  const lesson = scope?.lessons.find((l) => l.id === v.data.lessonId);
+  if (!lesson) return fail("NOT_FOUND", "Ders bulunamadı.");
+  const { buildDisruptionPatch, isDisruptedLesson } = await import("../lesson-disruption");
+  if (!isDisruptedLesson(lesson)) {
+    return fail("VALIDATION_ERROR", "Bu ders iptal edilmemiş veya telafiye alınmamış; kaynak yalnız iptal/telafi kararı için girilir.");
+  }
+  const saved = await setLessonDisruptionLive(
+    v.data.lessonId,
+    buildDisruptionPatch({ source: v.data.disruptionSource, note: v.data.disruptionNote }, ctx.userId)
+  );
+  if (!saved) return fail("NOT_FOUND", "Ders bulunamadı.");
+  audit(ctx, "lesson.disruption_source", "Lesson", v.data.lessonId, {
+    from: lesson.disruptionSource ?? null,
+    to: v.data.disruptionSource,
+    note: v.data.disruptionNote,
+  });
+  const warning =
+    v.data.disruptionSource === "teacher"
+      ? await recordTeacherAttendanceForDisruption(ctx, v.data.lessonId, v.data.teacherAttendance, v.data.disruptionNote)
+      : null;
+  if (warning) return fail("INTERNAL_ERROR", warning);
+  return ok({ lessonId: v.data.lessonId, disruptionSource: v.data.disruptionSource });
 }
 
 /**
@@ -9533,7 +9698,7 @@ async function computeStudentDeletionImpact(tenantId: string, studentId: string)
   const { listDocumentsForStudent } = await import("../documents");
   const { getCriticalActionPasswordStatus } = await import("../critical-action-password");
   const { selectCurrentContract } = await import("../contract-list-helpers");
-  const { isLiveObligation } = await import("../payment-profile");
+  const { isLiveObligation, collectedAmountOf } = await import("../payment-profile");
   const { isTerminalContractStatus } = await import("../contract-list-helpers");
   const [contracts, documents, pw] = await Promise.all([
     listContractsForStudent(tenantId, studentId),
@@ -9564,7 +9729,7 @@ async function computeStudentDeletionImpact(tenantId: string, studentId: string)
     outstandingAmount: payments
       .filter((p) => isLiveObligation(p, new Set(contracts.filter((c) => isTerminalContractStatus(c.status)).map((c) => c.id))))
       .reduce((sum, p) => sum + Math.max(0, p.amount - p.paidAmount), 0),
-    collectedAmount: payments.reduce((sum, p) => sum + (p.status === "voided" ? 0 : p.paidAmount), 0),
+    collectedAmount: payments.reduce((sum, p) => sum + collectedAmountOf(p), 0),
     lessonCount: lessons.length,
     upcomingLessonCount: lessons.filter((l) => l.status === "scheduled" && new Date(l.startAt).getTime() > nowMs).length,
     documentCount: documents.length,
@@ -10243,9 +10408,25 @@ export async function updateRoomTool(
   if (v.data.branchId && !data.settings.branches.some((b) => b.id === v.data.branchId)) {
     return fail("VALIDATION_ERROR", "Şube bulunamadı");
   }
+  const { validateRoomRevision } = await import("../room-revision");
+  const revisionError = validateRoomRevision(data, v.data.roomId, {
+    name: v.data.name,
+    branchId: v.data.branchId as BranchId | undefined,
+    capacity: v.data.capacity,
+    instruments: v.data.instruments as Instrument[] | undefined,
+  });
+  if (revisionError) return fail("VALIDATION_ERROR", revisionError);
 
   try {
-    const { roomId, active, ...patch } = v.data;
+    const { roomId, active, ...rawPatch } = v.data;
+    // Yalnız GÖNDERİLEN alanlar yamaya girer: `undefined` bir anahtar json/memory
+    // store'da `{...oda, ...yama}` ile mevcut değeri silerdi (ör. yalnız pasife alma adı siliyordu).
+    const patch = {
+      ...rawPatch,
+      ...(rawPatch.name !== undefined ? { name: rawPatch.name.trim() } : {}),
+      ...(rawPatch.branchId !== undefined ? { branchId: rawPatch.branchId as BranchId } : {}),
+      ...(rawPatch.instruments !== undefined ? { instruments: rawPatch.instruments as Instrument[] } : {}),
+    } as Partial<Pick<import("../types").Room, "name" | "capacity" | "branchId" | "instruments">>;
     const updated = await updateRoom(roomId, {
       ...patch,
       ...(active !== undefined
@@ -10253,7 +10434,12 @@ export async function updateRoomTool(
         : {}),
     });
     if (!updated) return fail("NOT_FOUND", "Oda bulunamadı");
-    audit(ctx, active === false ? "room.archive" : active === true ? "room.restore" : "room.update", "Room", roomId, patch);
+    // Denetim kaydında önceki/sonraki değerler — kim neyi değiştirdi izlenebilir.
+    const before = Object.fromEntries(Object.keys(rawPatch).map((k) => [k, room[k as keyof typeof room]]));
+    audit(ctx, active === false ? "room.archive" : active === true ? "room.restore" : "room.update", "Room", roomId, {
+      ...patch,
+      before,
+    });
     return ok({ roomId });
   } catch (e) {
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "updateRoom failed");
@@ -12314,6 +12500,39 @@ export async function resolveCollectionsIbanTool(
  * `confirmSwitch:true` ile tekrar çağırınca gerçek geçiş (`switchLessonOpsFlagLive`)
  * uygulanır. Aynı statüye tekrar tıklama her zaman no-op/idempotent kalır.
  */
+
+/**
+ * 9. tur — İptal/Telafi kaynağı girdisi (Telafi, İptal ve sonradan düzeltme ortak).
+ * `teacherAttendance` yalnız öğretmen kaynaklı kararda ve kullanıcı AÇIKÇA seçtiyse yazılır;
+ * iptal/telafi kendiliğinden "öğretmen gelmedi" anlamına gelmez.
+ */
+const disruptionInputShape = {
+  disruptionSource: z.enum(["teacher", "institution", "student", "other"]).optional(),
+  disruptionNote: z.string().max(500).optional(),
+  teacherAttendance: z.enum(["gelmedi", "mazeretli"]).optional(),
+};
+
+function disruptionInputError(input: { disruptionSource?: string; teacherAttendance?: string }): string | null {
+  if (input.teacherAttendance && input.disruptionSource !== "teacher") {
+    return "Öğretmen katılımı yalnız öğretmen kaynaklı iptal/telafide kaydedilebilir. Kurum veya öğrenci kaynaklı karar öğretmen devamsızlığına yazılmaz.";
+  }
+  return null;
+}
+
+/** Öğretmen kaynaklı kararda kullanıcının seçtiği öğretmen katılımını ayrı alana yazar (audit'li). */
+async function recordTeacherAttendanceForDisruption(
+  ctx: ServiceContext,
+  lessonId: string,
+  status: "gelmedi" | "mazeretli" | undefined,
+  note: string | undefined
+): Promise<string | null> {
+  if (!status) return null;
+  const res = await markTeacherAttendanceLive(lessonId, status, ctx.userId, note);
+  if (!res.ok) return `Ders kaydedildi ancak öğretmen katılımı yazılamadı: ${res.message} Ders detayından tekrar deneyin.`;
+  if (!res.alreadySet) audit(ctx, "lesson.teacher_attendance", "Lesson", lessonId, { status, via: "disruption" });
+  return null;
+}
+
 export async function setLessonOpsFlagTool(
   ctx: ServiceContext,
   input: unknown
@@ -12325,6 +12544,8 @@ export async function setLessonOpsFlagTool(
     message: string;
     needsConfirmation?: boolean;
     currentStatus?: string | null;
+    /** Ana işlem kaydedildi ama yan kayıt (öğretmen katılımı) yazılamadı. */
+    warning?: string;
   }>
 > {
   if (ctx.role === "TEACHER") return fail("FORBIDDEN", TEACHER_ATTENDANCE_FORBIDDEN_MESSAGE);
@@ -12339,10 +12560,18 @@ export async function setLessonOpsFlagTool(
       confirmSwitch: z.boolean().optional(),
       /** P0-2 — "İşlendi"/"Telafi" için zorunlu, gerçek kullanıcı gerekçesi (lesson-ops.ts uygular). */
       reason: z.string().optional(),
+      ...disruptionInputShape,
     }),
     input
   );
   if (!v.ok) return v;
+  const disruptionError = disruptionInputError(v.data);
+  if (disruptionError) return fail("VALIDATION_ERROR", disruptionError);
+  // Kaynak yalnız Telafi için anlamlı (İşlendi/Geldi kaynak sorusu sormaz).
+  const disruption =
+    v.data.flag === "makeup" && v.data.disruptionSource
+      ? { source: v.data.disruptionSource, note: v.data.disruptionNote }
+      : undefined;
 
   /**
    * P0 mutasyon performansı (2026-09-07) — burada eskiden tenant'ın TÜM
@@ -12379,13 +12608,24 @@ export async function setLessonOpsFlagTool(
   }
 
   try {
-    const result = await switchLessonOpsFlagLive(v.data.lessonId, v.data.flag, ctx.userId, v.data.reason);
+    const result = await switchLessonOpsFlagLive(v.data.lessonId, v.data.flag, ctx.userId, v.data.reason, disruption);
     if (!result.ok) return fail("VALIDATION_ERROR", result.message);
+    // Zaten Telafi olan derste kaynak sonradan veriliyorsa yalnız kaynak alanı güncellenir.
+    if (result.alreadySet && disruption && result.lesson.disruptionSource !== disruption.source) {
+      const { buildDisruptionPatch } = await import("../lesson-disruption");
+      await setLessonDisruptionLive(v.data.lessonId, buildDisruptionPatch(disruption, ctx.userId));
+      audit(ctx, "lesson.disruption_source", "Lesson", v.data.lessonId, {
+        from: result.lesson.disruptionSource ?? null,
+        to: disruption.source,
+        note: disruption.note,
+      });
+    }
     if (!result.alreadySet) {
       audit(ctx, `lesson.ops.${v.data.flag}`, "Lesson", v.data.lessonId, {
         flag: v.data.flag,
         switchedFrom: current !== v.data.flag ? current : undefined,
         reason: v.data.reason,
+        disruptionSource: disruption?.source,
       });
       // Faz 3C — ders "İşlendi" olduğunda ödev eksikse tek seferlik hatırlatma.
       if (v.data.flag === "processed") {
@@ -12395,11 +12635,16 @@ export async function setLessonOpsFlagTool(
         await notifyAttendanceRiskIfThresholdCrossed(ctx.tenantId, result.lesson);
       }
     }
+    const attendanceWarning =
+      disruption?.source === "teacher"
+        ? await recordTeacherAttendanceForDisruption(ctx, v.data.lessonId, v.data.teacherAttendance, disruption.note)
+        : null;
     return ok({
       lessonId: v.data.lessonId,
       flag: v.data.flag,
       alreadySet: result.alreadySet,
       message: result.message,
+      warning: attendanceWarning ?? undefined,
     });
   } catch (e) {
     const { isMakeupQuotaExceededError } = await import("../makeup-quota");
@@ -13543,6 +13788,132 @@ export async function getTaskTool(ctx: ServiceContext, input: unknown): Promise<
   return ok({ task: access.data });
 }
 
+/**
+ * 9. tur — iş silme. Silme GERİ ALINABİLİRDİR (soft delete): iş tüm listelerden, KPI'lardan,
+ * raporlardan ve hatırlatmalardan çıkar; yorum/checklist/ek/aktivite ve denetim kaydı korunur,
+ * "Silinen işler"den geri alınır. İşler başka kayıtları DEĞİŞTİRMEZ (öğrenci/ödeme vb. bağlar
+ * yalnız kimlik referansıdır, FK yok) — silme bağlı kayıtlara dokunmaz.
+ * Kapılar: rol (SUPER_ADMIN/SCHOOL_ADMIN) → "SİL" teyidi → kritik işlem şifresi. Her deneme audit'e.
+ */
+export async function getTaskDeletionImpactTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<
+  ServiceResult<{
+    title: string;
+    status: string;
+    checklistCount: number;
+    commentCount: number;
+    attachmentCount: number;
+    relatedLabel?: string;
+    criticalPasswordConfigured: boolean;
+  }>
+> {
+  const auth = requireRole(ctx, CRITICAL_ROLES_FOR_TOOLS);
+  if (!auth.ok) return fail("FORBIDDEN", "İş silme yalnız kurum sahibi ve kurum yöneticileri tarafından başlatılabilir.");
+  const v = parseOrFail(z.object({ taskId: z.string().min(1) }), input);
+  if (!v.ok) return v;
+  const task = await getTask(ctx.tenantId, v.data.taskId);
+  if (!task) return fail("NOT_FOUND", "İş bulunamadı; silinmiş veya başka bir kuruma ait olabilir.");
+  const [checklist, comments, attachments] = await Promise.all([
+    listChecklistItems(ctx.tenantId, task.id),
+    listComments(ctx.tenantId, task.id),
+    listAttachments(ctx.tenantId, task.id),
+  ]);
+  const { getCriticalActionPasswordStatus } = await import("../critical-action-password");
+  const status = await getCriticalActionPasswordStatus(ctx.tenantId);
+  return ok({
+    title: task.title,
+    status: task.status,
+    checklistCount: checklist.length,
+    commentCount: comments.length,
+    attachmentCount: attachments.length,
+    relatedLabel: task.relatedEntityLabel,
+    criticalPasswordConfigured: status.configured,
+  });
+}
+
+export async function deleteTaskTool(ctx: ServiceContext, input: unknown): Promise<ServiceResult<{ taskId: string }>> {
+  const auth = requireRole(ctx, CRITICAL_ROLES_FOR_TOOLS);
+  if (!auth.ok) return fail("FORBIDDEN", "İş silme yalnız kurum sahibi ve kurum yöneticileri tarafından başlatılabilir.");
+  const v = parseOrFail(
+    z.object({
+      taskId: z.string().min(1),
+      confirmation: z.string(),
+      criticalPassword: z.string(),
+      reason: z.string().trim().min(5, "Silme gerekçesi en az 5 karakter olmalı.").max(500),
+    }),
+    input
+  );
+  if (!v.ok) return v;
+  const task = await getTask(ctx.tenantId, v.data.taskId);
+  if (!task) return fail("NOT_FOUND", "İş bulunamadı; başka biri silmiş olabilir. Listeyi yenileyin.");
+  const deny = async (reasonCode: string, message: string) => {
+    await recordAuditLog({
+      tenantId: ctx.tenantId,
+      actorUserId: ctx.userId,
+      actorRole: ctx.role,
+      action: "task.delete",
+      entityType: "Task",
+      entityId: task.id,
+      outcome: "denied",
+      meta: { reasonCode, entityName: task.title },
+    });
+    return fail("FORBIDDEN", message);
+  };
+  // Türkçe olmayan klavyede "SIL" (noktasız I) da kabul edilir.
+  if (!["sil", "sıl"].includes(v.data.confirmation.trim().toLocaleLowerCase("tr"))) {
+    return deny("confirmation_mismatch", 'Onay için kutuya "SİL" yazın.');
+  }
+  const gate = await checkCriticalPassword(ctx, v.data.criticalPassword);
+  if (!gate.ok) return deny(gate.reasonCode, gate.message);
+  const updated = await setTaskDeletion(ctx.tenantId, task.id, {
+    deletedAt: new Date().toISOString(),
+    deletedByUserId: ctx.userId,
+    deletionReason: v.data.reason,
+  });
+  if (!updated) return fail("NOT_FOUND", "İş bulunamadı; başka biri silmiş olabilir. Listeyi yenileyin.");
+  await recordAuditLog({
+    tenantId: ctx.tenantId,
+    actorUserId: ctx.userId,
+    actorRole: ctx.role,
+    action: "task.delete",
+    entityType: "Task",
+    entityId: task.id,
+    outcome: "success",
+    meta: { entityName: task.title, reason: v.data.reason, status: task.status },
+  });
+  return ok({ taskId: task.id });
+}
+
+export async function restoreDeletedTaskTool(ctx: ServiceContext, input: unknown): Promise<ServiceResult<{ taskId: string }>> {
+  const auth = requireRole(ctx, CRITICAL_ROLES_FOR_TOOLS);
+  if (!auth.ok) return fail("FORBIDDEN", "Silinen işi yalnız kurum sahibi ve kurum yöneticileri geri alabilir.");
+  const v = parseOrFail(z.object({ taskId: z.string().min(1) }), input);
+  if (!v.ok) return v;
+  const task = await getTask(ctx.tenantId, v.data.taskId, { includeDeleted: true });
+  if (!task) return fail("NOT_FOUND", "İş bulunamadı.");
+  if (!task.deletedAt) return fail("VALIDATION_ERROR", "Bu iş silinmiş değil.");
+  await setTaskDeletion(ctx.tenantId, task.id, null);
+  await recordAuditLog({
+    tenantId: ctx.tenantId,
+    actorUserId: ctx.userId,
+    actorRole: ctx.role,
+    action: "task.delete_restore",
+    entityType: "Task",
+    entityId: task.id,
+    outcome: "success",
+    meta: { entityName: task.title, deletedAt: task.deletedAt },
+  });
+  return ok({ taskId: task.id });
+}
+
+export async function listDeletedTasksTool(ctx: ServiceContext): Promise<ServiceResult<{ tasks: Task[] }>> {
+  const auth = requireRole(ctx, CRITICAL_ROLES_FOR_TOOLS);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  return ok({ tasks: await listDeletedTasks(ctx.tenantId) });
+}
+
 export async function getTaskDetailTool(
   ctx: ServiceContext,
   input: unknown
@@ -14456,6 +14827,89 @@ export async function listProfilePhotoMetaTool(
  * bu fonksiyon başka hiçbir tenant'ın verisini okumaz. Hesaplama TAMAMEN
  * `attendance-report.ts`'teki saf fonksiyonlara devredilir.
  */
+/**
+ * 9. tur — Öğretmen yoklama raporu (katılım + iptal/telafi kaynağı). Yalnız kurum yöneticileri.
+ * Hesap saf `teacher-attendance-report.ts`'de; özet ve detay aynı sınıflandırıcıdan.
+ */
+export async function getTeacherAttendanceReportTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<
+  ServiceResult<{
+    range: { from: string; to: string };
+    rows: Array<import("../teacher-attendance-report").TeacherAttendanceRow & { teacherName: string; teacherActive: boolean }>;
+    totals: import("../teacher-attendance-report").TeacherAttendanceRow;
+    detail: Array<{
+      lessonId: string;
+      startAt: string;
+      teacherName: string;
+      studentName: string;
+      branchName?: string;
+      categories: import("../teacher-attendance-report").TeacherAttendanceCategory[];
+      disruptionNote?: string;
+      isMakeupLesson: boolean;
+    }>;
+  }>
+> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const v = parseOrFail(
+    z.object({
+      datePreset: z.enum(["today", "this_week", "this_month", "custom"]).default("this_month"),
+      from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      teacherId: z.string().optional(),
+      branchId: z.string().optional(),
+      category: z
+        .enum(["attended", "absent", "excused", "unmarked", "teacher_source", "institution_source", "student_other_source", "unspecified_source"])
+        .optional(),
+    }),
+    input
+  );
+  if (!v.ok) return v;
+  const { resolveReportDateRange } = await import("../attendance-report");
+  let range: { from: string; to: string };
+  try {
+    range = resolveReportDateRange(v.data.datePreset, v.data.from && v.data.to ? { from: v.data.from, to: v.data.to } : undefined);
+  } catch (e) {
+    return fail("VALIDATION_ERROR", e instanceof Error ? e.message : "Tarih aralığı geçersiz.");
+  }
+  const { buildTeacherAttendanceReport, teacherAttendanceDetail, lessonTeacherCategories } = await import(
+    "../teacher-attendance-report"
+  );
+  const data = await readData();
+  const filters = { ...range, branchId: v.data.branchId, teacherId: v.data.teacherId };
+  const now = new Date();
+  const report = buildTeacherAttendanceReport(data.lessons, filters, now);
+  const teacherById = new Map(data.teachers.map((t) => [t.id, t]));
+  const studentById = new Map(data.students.map((s) => [s.id, s]));
+  const branchName = (id: string) => data.settings.branches.find((b) => b.id === id)?.shortName;
+  const detail = v.data.category || v.data.teacherId
+    ? teacherAttendanceDetail(data.lessons, filters, v.data.category, now).map((l) => ({
+        lessonId: l.id,
+        startAt: l.startAt,
+        teacherName: teacherById.get(l.teacherId)?.name ?? "Öğretmen bulunamadı",
+        studentName: studentById.get(l.studentId)?.name ?? "Öğrenci bulunamadı",
+        branchName: branchName(l.branchId),
+        categories: lessonTeacherCategories(l, now),
+        disruptionNote: l.disruptionNote,
+        isMakeupLesson: l.type === "makeup",
+      }))
+    : [];
+  return ok({
+    range,
+    rows: report.rows
+      .map((r) => ({
+        ...r,
+        teacherName: teacherById.get(r.teacherId)?.name ?? "Öğretmen bulunamadı",
+        teacherActive: teacherById.get(r.teacherId)?.active !== false,
+      }))
+      .sort((a, b) => a.teacherName.localeCompare(b.teacherName, "tr")),
+    totals: report.totals,
+    detail,
+  });
+}
+
 export async function getAttendanceReportTool(
   ctx: ServiceContext,
   input: unknown

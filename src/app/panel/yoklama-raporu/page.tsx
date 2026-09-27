@@ -8,6 +8,8 @@ import { LessonStatusBadge } from "@/components/lesson-status-badge";
 import { computeAllStudentAttendanceRisks } from "@/lib/insights/attendance-risk";
 import { AiInsightTrigger } from "@/components/ai/ai-insight-trigger";
 import Link from "next/link";
+import { ScopeTabs } from "@/components/scope-tabs";
+import { TeacherAttendanceView } from "./teacher-view";
 
 export const dynamic = "force-dynamic";
 
@@ -47,6 +49,8 @@ export default async function AttendanceReportPage({
     instrument?: string;
     roomId?: string;
     status?: string;
+    gorunum?: string;
+    kategori?: string;
   }>;
 }) {
   let session;
@@ -60,6 +64,32 @@ export default async function AttendanceReportPage({
   }
 
   const sp = await searchParams;
+  // 9. tur — öğrenci ve öğretmen yoklaması ayrı görünüm; öğrenci raporu aynen korunur.
+  const view = sp.gorunum === "ogretmen" ? "ogretmen" : "ogrenci";
+  const viewTabs = (
+    <div className="mb-4">
+      <ScopeTabs
+        label="Rapor türü"
+        active={view}
+        items={[
+          { key: "ogrenci", label: "Öğrenci yoklaması", href: "/panel/yoklama-raporu" },
+          { key: "ogretmen", label: "Öğretmen yoklaması", href: "/panel/yoklama-raporu?gorunum=ogretmen" },
+        ]}
+      />
+    </div>
+  );
+  if (view === "ogretmen") {
+    return (
+      <div>
+        <PageHeader
+          title="Yoklama Raporu"
+          description="Öğretmen katılımı ve iptal/telafi kaynağı — derse kadar inilebilir."
+        />
+        {viewTabs}
+        <TeacherAttendanceView session={session} data={await readData()} sp={sp} />
+      </div>
+    );
+  }
   const datePreset = (sp.datePreset as "today" | "this_week" | "this_month" | "custom") || "this_month";
 
   const [result, data] = await Promise.all([
@@ -128,8 +158,9 @@ export default async function AttendanceReportPage({
     <div>
       <PageHeader
         title="Yoklama Raporu"
-        description={`${range.from} — ${range.to} arası, tenant kapsamında.`}
+        description={`Öğrenci yoklaması · ${range.from} — ${range.to}`}
       />
+      {viewTabs}
 
       {atRisk.length > 0 ? (
         <Card className="mb-6 border-amber-200 bg-amber-50/40">

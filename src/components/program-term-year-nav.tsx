@@ -11,6 +11,7 @@
  * ders varsayılanını türetir.
  */
 
+import type { ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
 
@@ -25,9 +26,12 @@ function firstWeekStart(term: ProgramTerm, academicYearStart: number): string {
 export function ProgramTermYearNav({
   term,
   academicYearStart,
+  children,
 }: {
   term: ProgramTerm;
   academicYearStart: number;
+  /** 9. tur — hafta gezinmesi aynı çubukta, dönem seçicinin sağında (ayrı satır yok). */
+  children?: ReactNode;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -43,7 +47,7 @@ export function ProgramTermYearNav({
   const label = term === "guz" ? `${academicYearStart}–${academicYearStart + 1} Güz` : `${academicYearStart} Yaz`;
 
   return (
-    <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-2.5 dark:border-slate-700 dark:bg-slate-900">
+    <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-2.5">
       <div className="flex items-center gap-1 rounded-md border border-[var(--color-border)] p-0.5 dark:border-slate-700" role="group" aria-label="Akademik dönem seçimi">
         <button
           type="button"
@@ -51,7 +55,7 @@ export function ProgramTermYearNav({
           onClick={() => navigate("guz", term === "guz" ? academicYearStart : academicYearStart)}
           className={cn(
             "rounded px-3 py-1.5 text-xs font-semibold transition",
-            term === "guz" ? "bg-amber-600 text-white" : "text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)] dark:text-[var(--color-text-muted)] dark:hover:bg-slate-800"
+            term === "guz" ? "bg-[var(--color-primary)] text-[var(--color-text-inverted)]" : "text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)] dark:text-[var(--color-text-muted)] dark:hover:bg-slate-800"
           )}
         >
           Güz
@@ -62,12 +66,14 @@ export function ProgramTermYearNav({
           onClick={() => navigate("yaz", term === "yaz" ? academicYearStart : academicYearStart)}
           className={cn(
             "rounded px-3 py-1.5 text-xs font-semibold transition",
-            term === "yaz" ? "bg-amber-600 text-white" : "text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)] dark:text-[var(--color-text-muted)] dark:hover:bg-slate-800"
+            term === "yaz" ? "bg-[var(--color-primary)] text-[var(--color-text-inverted)]" : "text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)] dark:text-[var(--color-text-muted)] dark:hover:bg-slate-800"
           )}
         >
           Yaz
         </button>
       </div>
+
+      {children}
 
       <div className="ml-auto flex items-center gap-1">
         <button
@@ -78,7 +84,7 @@ export function ProgramTermYearNav({
         >
           ←
         </button>
-        <span className="rounded-md bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-800">{label}</span>
+        <span className="rounded-md bg-[var(--color-primary-soft)] px-3 py-1.5 text-xs font-semibold text-[var(--color-primary-soft-text)]">{label}</span>
         <button
           type="button"
           aria-label="Sonraki akademik yıl"

@@ -820,6 +820,14 @@ export interface Lesson {
   teacherAttendanceAt?: string;
   teacherAttendanceBy?: string;
   teacherAttendanceNote?: string;
+  /**
+   * 9. tur — İptal/Telafi kararının kaynağı (bkz. src/lib/lesson-disruption.ts).
+   * Öğretmen katılımından ve `status`/`opsMakeupFlag`'den AYRI; undefined = belirtilmemiş.
+   */
+  disruptionSource?: import("./lesson-disruption").DisruptionSource;
+  disruptionNote?: string;
+  disruptionAt?: string;
+  disruptionBy?: string;
 }
 
 export type LessonSeriesStatus = "active" | "ended" | "cancelled";
@@ -2282,6 +2290,10 @@ export interface Task {
   completedAt?: string;
   cancelledAt?: string;
   archivedAt?: string;
+  /** 9. tur — geri alınabilir silme. Dolu = hiçbir listede/raporda/hatırlatmada yok; "Silinen işler"den geri alınır. */
+  deletedAt?: string;
+  deletedByUserId?: string;
+  deletionReason?: string;
   progressPercent: number;
   tags: string[];
   studentId?: string;

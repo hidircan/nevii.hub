@@ -1,3 +1,4 @@
+import { canRunCriticalActions } from "@/lib/critical-action-password";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requireSessionContext } from "@/lib/auth/session";
@@ -164,6 +165,11 @@ export default async function IsTakipListePage({
             <Link href="/panel/is-takip/raporlar" className="text-sm font-medium text-[var(--color-primary)] hover:underline">
               Raporlar
             </Link>
+            {canRunCriticalActions(session.role) ? (
+              <Link href="/panel/is-takip/silinenler" className="text-sm font-medium text-[var(--color-text-muted)] hover:underline">
+                Silinen işler
+              </Link>
+            ) : null}
             <TaskReminderPreferencesModal />
           </div>
         }

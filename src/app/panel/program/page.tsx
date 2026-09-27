@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ChevronLeft, ChevronRight, ArrowLeft } from "lucide-react";
 import { Card, PageHeader } from "@/components/ui";
-import { resolveSafeReturnTo } from "@/lib/safe-return-to";
+import { resolveSafeReturnTo, returnToLabel } from "@/lib/safe-return-to";
 import { WeekDatePicker } from "@/components/week-date-picker";
 import { ProgramStudio, type ProgramTrial } from "@/components/program-studio";
 import { listTrialLessons } from "@/lib/trial-lessons";
@@ -21,6 +21,9 @@ import { listInstrumentCatalogTool } from "@/lib/services";
 export const dynamic = "force-dynamic";
 
 const WEEK_PARAM_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+const WEEK_NAV_ICON_CLASS =
+  "inline-flex h-8 w-8 items-center justify-center rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)] hover:bg-[var(--color-surface-muted)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-focus-ring)]";
 
 function resolveWeekStart(weekParam?: string): Date {
   if (weekParam && WEEK_PARAM_PATTERN.test(weekParam)) {
@@ -74,6 +77,14 @@ export default async function ProgramPage({
   const prevWeekParam = format(addDays(weekStart, -7), "yyyy-MM-dd");
   const nextWeekParam = format(addDays(weekStart, 7), "yyyy-MM-dd");
   const todayParam = format(todayWeekStart, "yyyy-MM-dd");
+  // Hafta değişince seçili dönem/yıl (progTerm/progYear) düşmesin — eskiden
+  // "Sonraki hafta" Yaz görünümünü sessizce Güz'e çeviriyordu.
+  const weekHref = (weekParam: string) => {
+    const params = new URLSearchParams({ week: weekParam });
+    if (progTerm) params.set("progTerm", progTerm);
+    if (progYear) params.set("progYear", progYear);
+    return `/panel/program?${params.toString()}`;
+  };
 
   const weekLessons = data.lessons.filter((l) => {
     const d = parseISO(l.startAt);
@@ -129,48 +140,48 @@ export default async function ProgramPage({
           href={safeReturnTo}
           className="mb-3 inline-flex items-center gap-1.5 text-sm font-medium text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
         >
-          <ArrowLeft className="h-4 w-4" /> Ödemelere geri dön
+          <ArrowLeft className="h-4 w-4" /> {returnToLabel(safeReturnTo)}
         </Link>
       ) : null}
       <PageHeader title="Ders programı" />
 
-      <ProgramTermYearNav term={selectedTerm} academicYearStart={selectedAcademicYearStart} />
-
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <Link
-          href={`/panel/program?week=${prevWeekParam}`}
-          className="inline-flex items-center gap-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-sm font-medium text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)]"
-        >
-          <ChevronLeft className="h-4 w-4" /> Önceki hafta
-        </Link>
-
-        <span className="rounded-lg bg-[var(--color-surface)] px-3 py-1.5 text-sm font-semibold text-[var(--color-text)] ring-1 ring-slate-200">
-          {format(weekStart, "d MMM", { locale: tr })} –{" "}
-          {format(addDays(weekStart, 6), "d MMM yyyy", { locale: tr })}
-        </span>
-
-        <Link
-          href={`/panel/program?week=${nextWeekParam}`}
-          className="inline-flex items-center gap-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-sm font-medium text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)]"
-        >
-          Sonraki hafta <ChevronRight className="h-4 w-4" />
-        </Link>
-
-        {isCurrentWeek ? (
-          <span className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-3 py-1.5 text-sm font-medium text-[var(--color-text-muted)]">
-            Bugün
-          </span>
-        ) : (
+      <ProgramTermYearNav term={selectedTerm} academicYearStart={selectedAcademicYearStart}>
+        {/* 9. tur — hafta gezinmesi dönem seçicinin sağındaki boşlukta; ayrı alt satır kaldırıldı. */}
+        <nav aria-label="Hafta gezinmesi" className="flex flex-wrap items-center gap-1.5">
           <Link
-            href={`/panel/program?week=${todayParam}`}
-            className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-700 hover:bg-amber-100"
+            href={weekHref(prevWeekParam)}
+            aria-label="Önceki hafta"
+            title="Önceki hafta"
+            className={WEEK_NAV_ICON_CLASS}
           >
-            Bugün
+            <ChevronLeft className="h-4 w-4" aria-hidden />
           </Link>
-        )}
-
-        <WeekDatePicker value={weekStartParam} />
-      </div>
+          <span className="min-w-[8.5rem] text-center text-sm font-semibold tabular-nums text-[var(--color-text)]" aria-live="polite">
+            {format(weekStart, "d MMM", { locale: tr })} – {format(addDays(weekStart, 6), "d MMM yyyy", { locale: tr })}
+          </span>
+          <Link
+            href={weekHref(nextWeekParam)}
+            aria-label="Sonraki hafta"
+            title="Sonraki hafta"
+            className={WEEK_NAV_ICON_CLASS}
+          >
+            <ChevronRight className="h-4 w-4" aria-hidden />
+          </Link>
+          {isCurrentWeek ? (
+            <span className="rounded-md px-2 py-1 text-xs font-medium text-[var(--color-text-muted)]" aria-current="date">
+              Bu hafta
+            </span>
+          ) : (
+            <Link
+              href={weekHref(todayParam)}
+              className="rounded-md border border-[var(--color-primary)] px-2 py-1 text-xs font-semibold text-[var(--color-primary)] hover:bg-[var(--color-primary-soft)]"
+            >
+              Bugün
+            </Link>
+          )}
+          <WeekDatePicker value={weekStartParam} />
+        </nav>
+      </ProgramTermYearNav>
 
       <ProgramStudio
         students={data.students}

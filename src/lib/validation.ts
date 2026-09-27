@@ -1187,6 +1187,8 @@ export const updateRoomSchema = z.object({
   name: z.string().min(1).optional(),
   capacity: z.coerce.number().int().min(1).optional(),
   branchId: z.string().min(1).optional(),
+  /** 9. tur — oda düzenlemede enstrüman listesi de revize edilebilir (en az bir). */
+  instruments: z.array(z.string().min(1)).min(1, "Odada en az bir enstrüman seçili olmalı.").optional(),
   active: z.boolean().optional(),
 });
 

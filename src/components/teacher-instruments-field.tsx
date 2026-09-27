@@ -101,14 +101,14 @@ export function TeacherInstrumentsField({
         </div>
       ))}
       {duplicateIndexes.size > 0 ? (
-        <p className="text-[11px] font-medium text-[#8b3a3a]" role="alert">
+        <p className="text-[11px] font-medium text-[var(--color-danger)]" role="alert">
           Aynı enstrüman birden fazla kez eklenemez — lütfen yinelenen satırları düzeltin.
         </p>
       ) : null}
       <button
         type="button"
         onClick={addRow}
-        className="inline-flex items-center gap-1 rounded-md border border-dashed border-stone-300 px-2.5 py-1.5 text-xs font-semibold text-stone-700 hover:border-[#A56A00] hover:bg-[#fbf6ee]"
+        className="inline-flex items-center gap-1 rounded-md border border-dashed border-stone-300 px-2.5 py-1.5 text-xs font-semibold text-stone-700 hover:border-[var(--color-primary)] hover:bg-[var(--color-surface-muted)]"
       >
         <Plus className="h-3.5 w-3.5" /> Enstrüman Ekle
       </button>

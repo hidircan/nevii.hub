@@ -91,7 +91,7 @@ export function InstrumentCatalogManager({
                       type="button"
                       disabled={pending}
                       onClick={() => saveRename(entry)}
-                      className="rounded-md border border-stone-300 bg-[var(--color-surface)] px-2.5 py-1 text-xs font-semibold text-stone-800 hover:border-[#A56A00] hover:bg-[#fbf6ee]"
+                      className="rounded-md border border-stone-300 bg-[var(--color-surface)] px-2.5 py-1 text-xs font-semibold text-stone-800 hover:border-[var(--color-primary)] hover:bg-[var(--color-surface-muted)]"
                     >
                       Kaydet
                     </button>
@@ -119,7 +119,7 @@ export function InstrumentCatalogManager({
                         setEditingId(entry.id);
                         setEditName(entry.name);
                       }}
-                      className="rounded-md border border-stone-300 bg-[var(--color-surface)] px-2.5 py-1 text-xs font-semibold text-stone-800 hover:border-[#A56A00] hover:bg-[#fbf6ee]"
+                      className="rounded-md border border-stone-300 bg-[var(--color-surface)] px-2.5 py-1 text-xs font-semibold text-stone-800 hover:border-[var(--color-primary)] hover:bg-[var(--color-surface-muted)]"
                     >
                       Düzenle
                     </button>
@@ -127,7 +127,7 @@ export function InstrumentCatalogManager({
                       type="button"
                       disabled={pending}
                       onClick={() => toggleStatus(entry)}
-                      className="rounded-md border border-stone-300 bg-[var(--color-surface)] px-2.5 py-1 text-xs font-semibold text-stone-800 hover:border-[#A56A00] hover:bg-[#fbf6ee] disabled:opacity-50"
+                      className="rounded-md border border-stone-300 bg-[var(--color-surface)] px-2.5 py-1 text-xs font-semibold text-stone-800 hover:border-[var(--color-primary)] hover:bg-[var(--color-surface-muted)] disabled:opacity-50"
                     >
                       {entry.status === "active" ? "Pasife Al" : "Aktifleştir"}
                     </button>
@@ -147,7 +147,7 @@ export function InstrumentCatalogManager({
               <Label>Enstrüman adı</Label>
               <Input name="name" required placeholder="Örn. Ukulele" />
             </div>
-            {formError ? <p className="w-full text-xs font-medium text-[#8b3a3a]">{formError}</p> : null}
+            {formError ? <p className="w-full text-xs font-medium text-[var(--color-danger)]">{formError}</p> : null}
             <Button type="submit" disabled={pending}>
               {pending ? "Ekleniyor…" : "Ekle"}
             </Button>

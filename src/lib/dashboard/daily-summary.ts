@@ -19,6 +19,7 @@
  * bir süre sonra hiçbir şeyin uyarı olmaması demektir.
  */
 
+import { collectedAmountOf } from "../payment-profile";
 import type { AppData, Lesson, Payment, Student, Task } from "../types";
 import { isLiveObligation } from "../payment-profile";
 import { resolveLessonFinalStatus } from "../lesson-live-status";
@@ -229,9 +230,10 @@ export function buildDashboardSummary(
     .sort((a, b) => a.daysUntilDue - b.daysUntilDue);
 
   const monthPrefix = today.slice(0, 7);
+  // Kısmi tahsilat dahil (collectedAmountOf); ay = tahsil tarihi.
   const collectedThisMonth = payments
-    .filter((p) => p.status === "paid" && (p.paidAt ?? "").slice(0, 7) === monthPrefix)
-    .reduce((sum, p) => sum + p.paidAmount, 0);
+    .filter((p) => (p.paidAt ?? "").slice(0, 7) === monthPrefix)
+    .reduce((sum, p) => sum + collectedAmountOf(p), 0);
   const outstandingTotal = outstanding.reduce((sum, p) => sum + remainingOf(p), 0);
   const overdueTotal = overdue.reduce((sum, r) => sum + r.remaining, 0);
 

@@ -1,3 +1,4 @@
+import { collectedAmountOf } from "@/lib/payment-profile";
 import { redirect } from "next/navigation";
 import { requireSessionContext } from "@/lib/auth/session";
 import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
@@ -74,10 +75,10 @@ export default async function OgrenciOdemeDokumPage({
     teachers: data.teachers,
   });
   const activePayments = payments.filter((p) => p.status !== "voided");
-  const collectedOf = (p: (typeof payments)[number]) => (isCollectedPayment(p) ? p.paidAmount || p.amount : p.paidAmount);
+  const collectedOf = (p: (typeof payments)[number]) => collectedAmountOf(p);
 
   return (
-    <div className="min-h-screen bg-[#f4f2f8] px-4 py-8 print:bg-white print:p-0 sm:px-6">
+    <div className="print-light-palette min-h-screen bg-[#f4f2f8] px-4 py-8 print:bg-white print:p-0 sm:px-6">
       <style>{`@media print {
   @page { size: A4; margin: 14mm; }
   thead { display: table-header-group; }

@@ -98,7 +98,7 @@ export function TeacherPerformancePanel({ teacherId }: { teacherId: string }) {
         </div>
       </div>
 
-      {error ? <p className="text-xs font-medium text-[#8b3a3a]">{error}</p> : null}
+      {error ? <p className="text-xs font-medium text-[var(--color-danger)]">{error}</p> : null}
 
       {loading ? (
         <p className="text-sm text-[var(--color-text-muted)]">Yükleniyor…</p>

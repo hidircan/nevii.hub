@@ -8,7 +8,6 @@ import { cn } from "@/lib/utils";
 import { mergeNavOrder } from "@/lib/nav/order";
 import { actionSaveNavOrder, actionSaveSidebarCollapsed } from "@/lib/actions";
 import { LogoutButton } from "@/components/logout-button";
-import Image from "next/image";
 import { BRAND } from "@/lib/brand";
 import {
   PANEL_MAIN_NAV,
@@ -297,53 +296,27 @@ export function Sidebar({
           {...(collapsed ? { role: "img", "aria-label": BRAND.name } : {})}
         >
           {/*
-            P0 UAT (2026-09-08) — "NH" monogramı yerine kurumun GERÇEK ikonu.
-            Kaynak `BRAND.logoMarkPath` (= /brand/logo.png); bu dosya
-            `src/app/icon.png` ile BYTE OLARAK AYNIDIR (sha256 doğrulandı),
-            yani favicon ile aynı görseldir — yeni/rastgele bir logo
-            ÜRETİLMEDİ. Favicon/PWA/login logosu DEĞİŞTİRİLMEDİ.
-
-            `next/image` sabit boyutla kullanılır: retina için srcset'i kendisi
-            üretir ve 1,1 MB'lık kaynağı ikon boyutuna indirir. Görsel tema
-            değişkenlerinden bağımsızdır, bu yüzden açık/koyu temada aynı
-            görünür; `priority` YOK — sidebar LCP adayı değil.
+            9. tur (2026-09-27, owner) — marka alanı yalnız tipografi: "NeviiHub"
+            Gloock ile (`.brand-mark` → `--font-gloock`, next/font + Georgia
+            fallback). Önceki kutulu/arka planlı `/brand/logo.png` menüden
+            kaldırıldı (favicon/login dokunulmadı). Şeffaf "icon 2.png"
+            önerisi denetlendi: dosya RGB, alfa kanalı YOK (beyaz zemin) —
+            bu yüzden kullanılmadı. Gloock tek ağırlıklıdır (400); `font-bold`
+            sahte kalınlaştırma üreteceği için verilmez. Daraltılmış menüde
+            aynı yazı tipiyle "N" monogramı (kutusuz) gösterilir.
           */}
-          {BRAND.logoMarkPath ? (
-            <Image
-              src={BRAND.logoMarkPath}
-              alt=""
-              aria-hidden
-              width={collapsed ? 28 : 32}
-              height={collapsed ? 28 : 32}
-              className={cn("shrink-0 rounded-md object-contain", collapsed ? "h-7 w-7" : "h-8 w-8")}
-            />
-          ) : (
-            /* Asset yoksa metin kısaltmasına düşülür — kırık görsel gösterilmez. */
-            <span
-              aria-hidden
-              className={cn(
-                "flex shrink-0 items-center justify-center rounded-md font-extrabold uppercase text-white",
-                collapsed ? "h-7 w-7 text-xs" : "h-8 w-8 text-sm"
-              )}
-              style={{ background: "var(--color-primary)" }}
-            >
-              {BRAND.name.slice(0, 2)}
+          {collapsed ? (
+            <span aria-hidden className="brand-mark text-[1.6rem] leading-none" style={{ color: "var(--color-primary)" }}>
+              N
             </span>
-          )}
-          {/*
-            P1 revizyonu — marka yazımı her yerde tam olarak "NeviiHub".
-            Buradaki `uppercase` sınıfı, tr yerel ayarında "NEVİİHUB"
-            (noktalı büyük İ) üretiyordu — kaynak metin doğruydu, görsel
-            dönüşüm yanlıştı. Sınıf kaldırıldı; kaynak metin korunur.
-          */}
-          {!collapsed ? (
+          ) : (
             <p
-              className="truncate text-[1.7rem] font-extrabold tracking-tight"
-              style={{ color: "var(--color-primary)" }}
+              className="brand-mark truncate text-[1.75rem] font-normal leading-none"
+              style={{ color: "var(--color-primary)", letterSpacing: "-0.01em" }}
             >
               {BRAND.name}
             </p>
-          ) : null}
+          )}
         </div>
       </div>
 

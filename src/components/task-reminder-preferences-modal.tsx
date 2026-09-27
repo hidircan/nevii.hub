@@ -145,7 +145,7 @@ export function TaskReminderPreferencesModal({ triggerClassName }: { triggerClas
                 </p>
 
                 {error ? (
-                  <p className="rounded-md bg-[#f8ecec] px-3 py-2 text-xs font-medium text-[#6b2424]" role="alert">
+                  <p className="rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-xs font-medium text-[var(--color-danger)]" role="alert">
                     {error}
                   </p>
                 ) : null}

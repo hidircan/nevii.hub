@@ -1,3 +1,4 @@
+import { canRunCriticalActions } from "@/lib/critical-action-password";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { requireSessionContext } from "@/lib/auth/session";
@@ -45,7 +46,7 @@ export default async function IsTakipKanbanPage() {
           <div className="flex flex-wrap items-center gap-3">
             <Link
               href="/panel/is-takip/liste#yeni-gorev"
-              className="rounded-md bg-[var(--color-primary)] px-3 py-1.5 text-sm font-medium text-[var(--color-primary-contrast,#fff)] hover:opacity-90"
+              className="rounded-md bg-[var(--color-primary)] px-3 py-1.5 text-sm font-medium text-[var(--color-text-inverted)] hover:opacity-90"
             >
               + Yeni Görev
             </Link>
@@ -58,6 +59,11 @@ export default async function IsTakipKanbanPage() {
             <Link href="/panel/is-takip/raporlar" className="text-sm font-medium text-[var(--color-primary)] hover:underline">
               Raporlar
             </Link>
+            {canRunCriticalActions(session.role) ? (
+              <Link href="/panel/is-takip/silinenler" className="text-sm font-medium text-[var(--color-text-muted)] hover:underline">
+                Silinen işler
+              </Link>
+            ) : null}
           </div>
         }
       />

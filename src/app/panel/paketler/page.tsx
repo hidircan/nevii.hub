@@ -7,6 +7,7 @@ import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { AssistantPageContext } from "@/components/ai/assistant-page-context";
 import { PageHeader } from "@/components/ui";
 import { PackageManager } from "@/components/package-manager";
+import { canRunCriticalActions } from "@/lib/critical-action-password";
 import { DiscountCampaignManager } from "@/components/discount-campaign-manager";
 
 export const dynamic = "force-dynamic";
@@ -49,7 +50,12 @@ export default async function PackagesPage() {
           ) : null
         }
       />
-      <PackageManager packages={data.packages ?? []} students={data.students} canWrite={canWrite} />
+      <PackageManager
+        packages={data.packages ?? []}
+        students={data.students}
+        canWrite={canWrite}
+        canDeletePackages={canWrite && canRunCriticalActions(session.role)}
+      />
       <div className="mt-6">
         <DiscountCampaignManager
           campaigns={data.discountCampaigns ?? []}

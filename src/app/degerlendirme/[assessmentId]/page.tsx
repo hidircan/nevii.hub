@@ -54,7 +54,7 @@ export default async function AssessmentPage({
   const overall = computeOverallScore(assessment);
 
   return (
-    <div className="min-h-screen bg-[#f4f2f8] px-4 py-8 print:bg-[var(--color-surface)] print:p-0 sm:px-6">
+    <div className="print-light-palette min-h-screen bg-[#f4f2f8] px-4 py-8 print:bg-[var(--color-surface)] print:p-0 sm:px-6">
       <style>{"@media print { @page { size: A4; margin: 14mm; } }"}</style>
       <div className="mx-auto max-w-2xl">
         <AssessmentActions backHref={backHref} />

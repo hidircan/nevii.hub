@@ -1,4 +1,6 @@
 "use client";
+import { withReturnTo } from "@/lib/safe-return-to";
+import { useCurrentPath } from "@/lib/use-current-path";
 
 import { useState } from "react";
 import Link from "next/link";
@@ -31,6 +33,7 @@ export function StudentPaymentHistoryTable({
   canWrite?: boolean;
   studentName?: string;
 }) {
+  const currentPath = useCurrentPath();
   const { pageItems, page, setPage, pageSize, setPageSize, totalPages, totalCount } = usePagination(payments, 10);
   const [modalPayment, setModalPayment] = useState<PaymentRow | null>(null);
 
@@ -128,7 +131,7 @@ export function StudentPaymentHistoryTable({
                       <div className="flex flex-wrap items-center gap-2">
                         {p.status === "paid" ? (
                           <Link
-                            href={`/makbuz/${p.id}`}
+                            href={withReturnTo(`/makbuz/${p.id}`, currentPath)}
                             className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2.5 py-1.5 text-xs font-medium text-[var(--color-text)] hover:bg-[var(--color-surface-muted)]"
                           >
                             <Receipt className="h-3.5 w-3.5" /> Makbuz

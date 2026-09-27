@@ -298,7 +298,7 @@ export function StudentPaymentProfileEditor({
         </p>
       </div>
 
-      {error ? <p className="text-xs font-medium text-[#8b3a3a]">{error}</p> : null}
+      {error ? <p className="text-xs font-medium text-[var(--color-danger)]">{error}</p> : null}
       {saved && !pending ? <p className="text-xs text-emerald-700">Kaydedildi.</p> : null}
       <Button type="button" disabled={pending} onClick={onSave}>
         {pending ? "Kaydediliyor…" : "Ödeme profilini kaydet"}

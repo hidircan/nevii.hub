@@ -98,7 +98,7 @@ export function DiscountCampaignManager({
                     type="button"
                     disabled={pending}
                     onClick={() => toggleActive(c)}
-                    className="rounded-md border border-stone-300 bg-white px-2.5 py-1 text-xs font-semibold text-stone-800 hover:border-[#A56A00] hover:bg-[#fbf6ee] disabled:opacity-50"
+                    className="rounded-md border border-stone-300 bg-white px-2.5 py-1 text-xs font-semibold text-stone-800 hover:border-[var(--color-primary)] hover:bg-[var(--color-surface-muted)] disabled:opacity-50"
                   >
                     {c.active ? "Pasife al" : "Aktif et"}
                   </button>
@@ -138,7 +138,7 @@ export function DiscountCampaignManager({
               Tür şu an yalnızca &quot;Kardeş kampanyası&quot; — aynı veli telefonuna kayıtlı ikinci ve
               sonraki öğrenciler için geçerli olacak şekilde tasarlanmıştır.
             </p>
-            {formError ? <p className="text-xs font-medium text-[#8b3a3a]">{formError}</p> : null}
+            {formError ? <p className="text-xs font-medium text-[var(--color-danger)]">{formError}</p> : null}
             <Button type="submit" disabled={pending}>
               {pending ? "Kaydediliyor…" : "Kampanya oluştur"}
             </Button>

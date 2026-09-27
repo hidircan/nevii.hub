@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { withReturnTo } from "@/lib/safe-return-to";
 import { notFound } from "next/navigation";
 import { ShieldCheck } from "lucide-react";
 import { Card, EmptyState } from "@/components/ui";
@@ -59,7 +60,10 @@ export default async function StudentDocumentsTab({ params }: { params: Promise<
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="min-w-0">
                     <Link
-                      href={contractId ? `/sozlesme-yazdir/${contractId}` : `/panel/evraklar/${d.id}`}
+                      href={withReturnTo(
+                        contractId ? `/sozlesme-yazdir/${contractId}` : `/panel/evraklar/${d.id}`,
+                        `/panel/ogrenciler/${studentId}/evraklar`
+                      )}
                       className="text-sm font-medium text-[var(--color-primary)] hover:underline"
                     >
                       {d.reference}

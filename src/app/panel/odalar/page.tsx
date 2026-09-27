@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { Badge, Card, PageHeader } from "@/components/ui";
 import { NewRoomForm } from "@/components/new-room-form";
 import { RoomArchiveToggle } from "@/components/room-archive-toggle";
+import { RoomEditDialog } from "@/components/room-edit-dialog";
 import { BackButton } from "@/components/back-button";
 
 export const dynamic = "force-dynamic";
@@ -24,6 +25,7 @@ export default async function OdalarPage() {
   const allRooms = data.rooms.filter((r) => !r.deletedAt).sort((a, b) => a.name.localeCompare(b.name, "tr"));
   const rooms = allRooms.filter((r) => r.active !== false);
   const archivedRooms = allRooms.filter((r) => r.active === false);
+  const branchOptions = data.settings.branches.map((b) => ({ id: b.id, name: b.name }));
 
   return (
     <div>
@@ -39,7 +41,7 @@ export default async function OdalarPage() {
                 <th className="px-4 py-3">Şube</th>
                 <th className="px-4 py-3">Kapasite</th>
                 <th className="px-4 py-3">Enstrümanlar</th>
-                {canManage ? <th className="px-4 py-3">Durum</th> : null}
+                {canManage ? <th className="px-4 py-3">İşlem</th> : null}
               </tr>
             </thead>
             <tbody>
@@ -66,7 +68,10 @@ export default async function OdalarPage() {
                     </td>
                     {canManage ? (
                       <td className="px-4 py-3">
-                        <RoomArchiveToggle roomId={room.id} active={room.active !== false} />
+                        <div className="flex flex-wrap items-start gap-1.5">
+                          <RoomEditDialog room={room} branches={branchOptions} />
+                          <RoomArchiveToggle roomId={room.id} active={room.active !== false} />
+                        </div>
                       </td>
                     ) : null}
                   </tr>
@@ -97,7 +102,10 @@ export default async function OdalarPage() {
                     {data.settings.branches.find((b) => b.id === room.branchId)?.shortName} · Kapasite {room.capacity}
                   </p>
                 </div>
-                <RoomArchiveToggle roomId={room.id} active={false} />
+                <div className="flex flex-wrap items-start gap-1.5">
+                  <RoomEditDialog room={room} branches={branchOptions} />
+                  <RoomArchiveToggle roomId={room.id} active={false} />
+                </div>
               </div>
             ))}
           </div>

@@ -6,6 +6,7 @@ import { documentKindLabel } from "@/lib/documents";
 import { readData } from "@/lib/store";
 import { formatDate } from "@/lib/utils";
 import { DocumentPrintActions } from "@/components/document-print-actions";
+import { resolveSafeReturnTo, returnToLabel } from "@/lib/safe-return-to";
 import { printSurfaceCss } from "@/lib/contract-print-theme";
 
 export const dynamic = "force-dynamic";
@@ -32,10 +33,11 @@ export default async function DocumentPrintPage({
   searchParams,
 }: {
   params: Promise<{ documentId: string }>;
-  searchParams: Promise<{ also?: string }>;
+  searchParams: Promise<{ also?: string; returnTo?: string }>;
 }) {
   const { documentId } = await params;
-  const { also } = await searchParams;
+  const { also, returnTo } = await searchParams;
+  const safeReturnTo = resolveSafeReturnTo(returnTo);
   let session;
   try {
     session = await requireSessionContext();
@@ -70,10 +72,13 @@ export default async function DocumentPrintPage({
   const docs = secondDoc ? [doc, secondDoc] : [doc];
 
   return (
-    <div className="min-h-screen bg-[#f4f2f8] px-4 py-8 print:bg-white print:p-0 sm:px-6">
+    <div className="print-light-palette min-h-screen bg-[#f4f2f8] px-4 py-8 print:bg-white print:p-0 sm:px-6">
       <style>{`@media print { @page { size: A4; margin: 16mm; } }${printSurfaceCss("doc-print-surface")}`}</style>
       <div className="mx-auto max-w-2xl">
-        <DocumentPrintActions backHref={`/panel/evraklar/${doc.id}`} />
+        <DocumentPrintActions
+          backHref={safeReturnTo ?? `/panel/evraklar/${doc.id}`}
+          backLabel={safeReturnTo ? returnToLabel(safeReturnTo) : "Evrak detayına dön"}
+        />
         <p className="mb-3 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800 print:hidden">
           Sayfa numarası ve tarih bilgisi için yazdırma penceresinde &quot;Üstbilgiler ve altbilgiler&quot;
           seçeneğini açık bırakın — tarayıcı bunu otomatik ekler. PDF için hedef olarak

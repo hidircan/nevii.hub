@@ -118,7 +118,7 @@ export function SchoolLogoForm({ currentLogoUrl }: { currentLogoUrl?: string }) 
       {preview && !previewBroken ? (
         // Beyaz güvenli alan — koyu temada koyu bir logo kaybolmaz (sözleşme/
         // e-posta çıktısındaki `institutionLogoHtml` ile AYNI yaklaşım).
-        <span className="inline-block rounded-lg bg-white p-2">
+        <span className="inline-block rounded-lg bg-[#fff] p-2">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={preview}

@@ -1,4 +1,6 @@
 "use client";
+import { withReturnTo } from "@/lib/safe-return-to";
+import { useCurrentPath } from "@/lib/use-current-path";
 
 import { parseAmountInput } from "@/lib/amount-input";
 import { useEffect, useId, useRef, useState } from "react";
@@ -511,6 +513,7 @@ function ContractCreatedPanel({
   schedulePickers?: { teachers: SchedulePickerOption[]; rooms: SchedulePickerOption[]; defaultTeacherId?: string };
   scheduleText?: string;
 }) {
+  const currentPath = useCurrentPath();
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     // Kullanıcıyı elle kaydırmaya zorlamamak için: panel açılır açılmaz görünür olur.
@@ -555,7 +558,7 @@ function ContractCreatedPanel({
 
       <div className="mt-3 grid gap-2 sm:flex sm:flex-wrap">
         <Link
-          href={`/sozlesme-yazdir/${contract.id}`}
+          href={withReturnTo(`/sozlesme-yazdir/${contract.id}`, currentPath)}
           target="_blank"
           rel="noreferrer"
           className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-[var(--color-primary)] px-3.5 py-2 text-sm font-semibold text-white hover:bg-[var(--color-primary-hover)]"
@@ -1739,6 +1742,7 @@ export function ContractPanel({
     defaultTeacherId?: string;
   };
 }) {
+  const currentPath = useCurrentPath();
   const router = useRouter();
   const [formMode, setFormMode] = useState<"none" | "initial" | "renewal">(
     (autoOpenInitial || hasContractDraft(`${studentId}:initial`)) && canManage ? "initial" : "none"
@@ -1920,7 +1924,7 @@ export function ContractPanel({
               </div>
               <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
                 {c.documentInstanceId ? (
-                  <Link href={`/sozlesme-yazdir/${c.id}`} target="_blank" className="font-medium text-[var(--color-primary)] hover:underline">
+                  <Link href={withReturnTo(`/sozlesme-yazdir/${c.id}`, currentPath)} target="_blank" className="font-medium text-[var(--color-primary)] hover:underline">
                     Görüntüle / Yazdır
                   </Link>
                 ) : (

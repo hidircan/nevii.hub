@@ -8,6 +8,7 @@ import { formatDate, formatMoney } from "@/lib/utils";
 import { Badge } from "@/components/ui";
 import { ReceiptActions } from "@/components/receipt-actions";
 import { printSurfaceCss } from "@/lib/contract-print-theme";
+import { resolveSafeReturnTo, returnToLabel } from "@/lib/safe-return-to";
 
 export const dynamic = "force-dynamic";
 
@@ -38,10 +39,15 @@ function NoticeScreen({
 
 export default async function ReceiptPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ paymentId: string }>;
+  searchParams: Promise<{ returnTo?: string }>;
 }) {
   const { paymentId } = await params;
+  // 9. tur — makbuz birden çok ekrandan açılır (Ödemeler, öğrenci ödemeleri, Yoklama Takvimi);
+  // geri dönüş açıldığı ekrana. Yalnız allowlist'teki panel yolları (open redirect yok).
+  const safeReturnTo = resolveSafeReturnTo((await searchParams).returnTo);
 
   let session;
   try {
@@ -90,7 +96,9 @@ export default async function ReceiptPage({
     }
   }
 
-  const backHref = isStaff ? (student ? `/panel/odemeler/${student.id}` : "/panel/odemeler") : "/ogrenci#odemeler";
+  const defaultBack = isStaff ? (student ? `/panel/odemeler/${student.id}` : "/panel/odemeler") : "/ogrenci#odemeler";
+  const backHref = isStaff && safeReturnTo ? safeReturnTo : defaultBack;
+  const backLabel = isStaff ? returnToLabel(backHref) : "Geri dön";
 
   if (!canViewReceipt(payment)) {
     return (
@@ -119,10 +127,10 @@ export default async function ReceiptPage({
   const issuedAtIso = new Date().toISOString();
 
   return (
-    <div className="min-h-screen bg-[#f4f2f8] px-4 py-8 print:bg-white print:p-0 sm:px-6">
+    <div className="print-light-palette min-h-screen bg-[#f4f2f8] px-4 py-8 print:bg-white print:p-0 sm:px-6">
       <style>{`@media print { @page { size: A4; margin: 14mm; } }${printSurfaceCss("doc-print-surface")}`}</style>
       <div className="mx-auto max-w-2xl">
-        <ReceiptActions backHref={backHref} />
+        <ReceiptActions backHref={backHref} backLabel={backLabel} />
 
         <div className="doc-print-surface rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-6 shadow-sm print:rounded-none print:border-0 print:p-0 print:shadow-none sm:p-10">
           <div className="flex items-start justify-between gap-4 border-b border-[var(--color-border)] pb-6">

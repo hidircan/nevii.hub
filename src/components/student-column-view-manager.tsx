@@ -261,7 +261,7 @@ export function StudentColumnViewManager({
                 Kaydet
               </button>
             </div>
-            {error ? <p className="mt-1 text-xs font-medium text-[#8b3a3a]">{error}</p> : null}
+            {error ? <p className="mt-1 text-xs font-medium text-[var(--color-danger)]">{error}</p> : null}
           </div>
 
           {views.length > 0 ? (

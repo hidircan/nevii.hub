@@ -104,7 +104,12 @@ describe("8. tur B — öğretmen müsaitlik kartı", () => {
 describe("8. tur J2 — deneme oluştururken çakışma kontrolü", () => {
   it("öğretmenin dersiyle çakışan deneme reddedilir (onayla bile)", async () => {
     const data = await readData();
-    const lesson = data.lessons.find((l) => l.status !== "cancelled" && new Date(l.startAt) > new Date())!;
+    // 9. tur: tarihe bağlı kırmızı — ilk gelecek ders Güz'ün kapalı günü Pazartesi'ye düşünce
+    // çakışma yerine "kapalı gün" hatası dönüyordu. Açık bir günde ders seçilir (İstanbul günü).
+    const istanbulWeekday = (iso: string) => new Date(new Date(iso).getTime() + 3 * 3600_000).getUTCDay();
+    const lesson = data.lessons.find(
+      (l) => l.status !== "cancelled" && new Date(l.startAt) > new Date() && istanbulWeekday(l.startAt) !== 1
+    )!;
     const teacher = data.teachers.find((t) => t.id === lesson.teacherId)!;
     const res = await createTrialLessonTool(admin, {
       name: "Aday",

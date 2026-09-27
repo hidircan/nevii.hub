@@ -33,7 +33,16 @@ import {
   zonedWallTimeToUtc,
 } from "@/lib/timezone";
 import { Badge, Button, Card, Input, Label, Select } from "@/components/ui";
-import { LessonOpsActions, LessonOpsBadges } from "@/components/lesson-ops-actions";
+import { LessonOpsActions } from "@/components/lesson-ops-actions";
+import {
+  DisruptionSourceFields,
+  disruptionPayload,
+  isDisruptionFormComplete,
+  type DisruptionFormValue,
+} from "@/components/disruption-source-fields";
+import { disruptionSourceLabel, isDisruptedLesson } from "@/lib/lesson-disruption";
+import { friendlyApiErrorMessage } from "@/lib/api/friendly-error";
+import { apiFetchJson } from "@/lib/api/client-fetch";
 import { LessonStatusBadge } from "@/components/lesson-status-badge";
 import { lessonCancelBlockReason } from "@/lib/lesson-cancel-rules";
 import { LessonReassignmentModal } from "@/components/lesson-reassignment-modal";
@@ -194,14 +203,33 @@ function roomOptionsFor(rooms: Room[], instrument: Instrument, teacher?: Teacher
 
 const WEEKDAYS = [0, 1, 2, 3, 4, 5, 6];
 
-/** Aynı gün çakışan (farklı öğretmen/oda) dersler için basit "lane" ataması — greedy interval scheduling. */
-function assignLanes(dayLessons: Lesson[]): { laneOf: Map<string, number>; laneCount: number } {
+/**
+ * Aynı gün çakışan dersler için şerit (lane) ataması — greedy interval
+ * scheduling, ÇAKIŞMA KÜMESİ bazında (9. tur). Eskiden şerit sayısı bütün
+ * gün için tekti: günün herhangi bir saatinde 3 ders çakışınca o günün
+ * çakışmayan dersleri de 1/3 genişliğe düşüyor ve adlar kesiliyordu.
+ * Artık yalnız birbirine (dolaylı da olsa) değen dersler aynı kümededir;
+ * her ders kendi kümesinin şerit sayısı kadar bölünür. Saf — testlerde kullanılır.
+ */
+export function assignLanes(dayLessons: { id: string; startAt: string; endAt: string }[]): {
+  laneOf: Map<string, number>;
+  lanesOf: Map<string, number>;
+} {
   const sorted = [...dayLessons].sort((a, b) => a.startAt.localeCompare(b.startAt));
-  const laneEndTimes: number[] = [];
   const laneOf = new Map<string, number>();
+  const lanesOf = new Map<string, number>();
+  let cluster: string[] = [];
+  let laneEndTimes: number[] = [];
+  let clusterEnd = -Infinity;
+  const closeCluster = () => {
+    for (const id of cluster) lanesOf.set(id, Math.max(laneEndTimes.length, 1));
+    cluster = [];
+    laneEndTimes = [];
+  };
   for (const lesson of sorted) {
     const start = parseISO(lesson.startAt).getTime();
     const end = parseISO(lesson.endAt).getTime();
+    if (start >= clusterEnd) closeCluster();
     let lane = laneEndTimes.findIndex((endTime) => endTime <= start);
     if (lane === -1) {
       lane = laneEndTimes.length;
@@ -210,8 +238,36 @@ function assignLanes(dayLessons: Lesson[]): { laneOf: Map<string, number>; laneC
       laneEndTimes[lane] = end;
     }
     laneOf.set(lesson.id, lane);
+    cluster.push(lesson.id);
+    clusterEnd = Math.max(clusterEnd === -Infinity ? end : clusterEnd, end);
   }
-  return { laneOf, laneCount: Math.max(laneEndTimes.length, 1) };
+  closeCluster();
+  return { laneOf, lanesOf };
+}
+
+/**
+ * Dar şeritte ad soyad sığmazsa "Ayşe Y." biçimi — ad tam, soyad baş harfi.
+ * Tek kelimelik ad olduğu gibi kalır. Tam ad her zaman hover kartında,
+ * `title`'da ve ekran okuyucu etiketinde durur. Saf — testlerde kullanılır.
+ */
+export function compactStudentName(name: string | undefined): string {
+  const parts = (name ?? "").trim().split(/\s+/).filter(Boolean);
+  if (parts.length <= 1) return parts[0] ?? "";
+  return `${parts.slice(0, -1).join(" ")} ${parts[parts.length - 1].charAt(0).toLocaleUpperCase("tr")}.`;
+}
+
+/** En dar şerit için baş harfler ("AY"). */
+export function studentInitials(name: string | undefined): string {
+  const parts = (name ?? "").trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  const first = parts[0].charAt(0);
+  const last = parts.length > 1 ? parts[parts.length - 1].charAt(0) : "";
+  return `${first}${last}`.toLocaleUpperCase("tr");
+}
+
+/** Haftalık kartta ad için ayrılacak satır sayısı; dikey dolgu 8px. Tam ad 16px, dar kademe 14px satır. */
+export function weekCardNameLines(heightPx: number, lineHeightPx = 16): number {
+  return Math.max(1, Math.floor((heightPx - 8) / lineHeightPx));
 }
 
 /**
@@ -272,11 +328,15 @@ export function lessonHoverCardLines(
   student?: Student,
   teacher?: Teacher,
   room?: Room,
-  branchName?: string
+  branchName?: string,
+  statusVisual?: LessonCardStatusVisual
 ): string[] {
   const timeRange = `${zonedHm(parseISO(lesson.startAt), DEFAULT_APP_TIMEZONE)}–${zonedHm(parseISO(lesson.endAt), DEFAULT_APP_TIMEZONE)}`;
   const dateLabel = format(toWallClockDate(lesson.startAt), "d MMMM yyyy, EEEE", { locale: tr });
   const lines = [student?.name ?? "Öğrenci bilinmiyor", dateLabel, timeRange];
+  // 9. tur: haftalık hücre yalnız adı gösterdiği için statü METNİ burada (renk körlüğü için).
+  const statusLabel = statusVisual ? LESSON_CARD_STATUS_LABEL[statusVisual] : undefined;
+  if (statusLabel) lines.push(`Durum: ${statusLabel}`);
   if (teacher?.name) lines.push(`Öğretmen: ${teacher.name}`);
   if (lesson.instrument) lines.push(`Enstrüman: ${lesson.instrument}`);
   if (room?.name) lines.push(`Salon: ${room.name}`);
@@ -307,14 +367,16 @@ function LessonHoverCard({
   teacher,
   room,
   branchName,
+  statusVisual,
 }: {
   lesson: Lesson;
   student?: Student;
   teacher?: Teacher;
   room?: Room;
   branchName?: string;
+  statusVisual?: LessonCardStatusVisual;
 }) {
-  const [name, dateLabel, timeRange, ...rest] = lessonHoverCardLines(lesson, student, teacher, room, branchName);
+  const [name, dateLabel, timeRange, ...rest] = lessonHoverCardLines(lesson, student, teacher, room, branchName, statusVisual);
   return (
     <div
       role="tooltip"
@@ -341,12 +403,14 @@ export function lessonAccessibleLabel(
   student?: Student,
   teacher?: Teacher,
   room?: Room,
-  branchName?: string
+  branchName?: string,
+  statusVisual?: LessonCardStatusVisual
 ): string {
   const timeRange = `${zonedHm(parseISO(lesson.startAt), DEFAULT_APP_TIMEZONE)}–${zonedHm(parseISO(lesson.endAt), DEFAULT_APP_TIMEZONE)}`;
   const parts = [
     student?.name ?? "Öğrenci bilinmiyor",
     timeRange,
+    statusVisual ? LESSON_CARD_STATUS_LABEL[statusVisual] : undefined,
     teacher?.name,
     lesson.instrument,
     room?.name,
@@ -354,6 +418,41 @@ export function lessonAccessibleLabel(
     lesson.type === "makeup" ? "Telafi dersi" : undefined,
   ].filter(Boolean);
   return parts.join(" · ");
+}
+
+/**
+ * 9. tur (owner) — haftalık hücrenin ilk bakışta görünen TEK içeriği öğrenci
+ * adı soyadıdır; öğretmen/saat/oda/statü satırları hover kartına, tıklama
+ * paneline ve ekran okuyucu etiketine taşındı (statü kart dolgusunda da durur).
+ *
+ * Genişliğe göre üç kademe — kapsayıcı sorgusuyla, JS ölçümü yok:
+ *   ≥ 4.5rem: tam ad (14px), yüksekliğe göre 1–N satır (satır sonunda "…")
+ *   ≥ 2rem: "Ayşe Y." (11px, kelime içinden kırılmadan iki satır)
+ *   daha dar: baş harfler "AY" (tam ad hover/dokunma/ekran okuyucuda)
+ */
+function WeekLessonName({ name, color, heightPx }: { name?: string; color: string; heightPx: number }) {
+  const clamp = (lineHeight: number) => ({
+    display: "-webkit-box",
+    WebkitBoxOrient: "vertical" as const,
+    WebkitLineClamp: weekCardNameLines(heightPx, lineHeight),
+    overflow: "hidden",
+  });
+  return (
+    <div className="@container h-full min-w-0" style={{ color }} lang="tr">
+      <div className="hidden @[4.5rem]:block">
+        <p className="text-[14px] font-semibold leading-4 break-words hyphens-auto" style={clamp(16)}>
+          {name}
+        </p>
+      </div>
+      {/* Aynı saatte 2–3 ders: şerit daralır; ad + soyad baş harfi iki satıra kırılabilir. */}
+      <div className="hidden @[2rem]:block @[4.5rem]:hidden">
+        <p className="text-[11px] font-semibold leading-[13px] tracking-tight break-normal" style={clamp(13)}>
+          {compactStudentName(name)}
+        </p>
+      </div>
+      <p className="text-[11px] font-bold leading-[14px] @[2rem]:hidden">{studentInitials(name)}</p>
+    </div>
+  );
 }
 
 function LessonCardBody({
@@ -647,6 +746,7 @@ export function ProgramStudio({
 
   const [activePanel, setActivePanel] = useState<ActivePanel>("none");
   const [calendarView, setCalendarView] = useState<CalendarView>("week");
+  const detailAsideRef = useRef<HTMLElement>(null);
 
   const [studentId, setStudentId] = useState("");
   const [teacherId, setTeacherId] = useState("");
@@ -1125,6 +1225,11 @@ export function ProgramStudio({
     setActivePanel("none");
     setDetailLessonId(lesson.id);
     setDetailError(null);
+    // Dar ekranda panel ızgaranın ÜSTÜNDE render edilir; dokunulan ders aşağıdaysa
+    // panel görünmez kalıyordu. Geniş ekranda panel yan yana ve sticky — kaydırma yok.
+    if (typeof window !== "undefined" && window.matchMedia("(max-width: 1023.98px)").matches) {
+      requestAnimationFrame(() => detailAsideRef.current?.scrollIntoView({ block: "start", behavior: "smooth" }));
+    }
   }
 
   function closeDetail() {
@@ -1132,16 +1237,16 @@ export function ProgramStudio({
     setDetailError(null);
   }
 
-  async function submitDetailCancel() {
+  async function submitDetailCancel(disruption: ReturnType<typeof disruptionPayload>) {
     if (!detailLesson) return;
     if (!canCreate) {
       setDetailError("Ders iptal etmek için üstteki kurum seçiciden tek bir kurum seçin.");
       return;
     }
-    if (!window.confirm("Bu dersi iptal etmek istediğinize emin misiniz?")) return;
+    // Onay artık DetailPanel içindeki kaynak sorusuyla birlikte alınır (window.confirm yok).
     setDetailSubmitting(true);
     setDetailError(null);
-    const result = await actionCancelLesson({ lessonId: detailLesson.id });
+    const result = await actionCancelLesson({ lessonId: detailLesson.id, ...disruption });
     setDetailSubmitting(false);
     if (!result.ok) {
       setDetailError(result.message);
@@ -1899,6 +2004,7 @@ export function ProgramStudio({
       <div className="lg:flex lg:items-start lg:gap-4">
         {detailLesson ? (
           <aside
+            ref={detailAsideRef}
             aria-label="Seçili ders"
             className="mb-4 lg:order-2 lg:mb-0 lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:w-[400px] lg:shrink-0 lg:overflow-y-auto"
           >
@@ -1946,7 +2052,7 @@ export function ProgramStudio({
             return (
               <div
                 key={dayIso}
-                className={`flex-1 border-b border-l border-[var(--color-border-strong)] px-2 py-2.5 text-[13px] font-bold ${
+                className={`min-w-[5.5rem] flex-1 border-b border-l border-[var(--color-border-strong)] px-2 py-2.5 text-[13px] font-bold ${
                   forcedOpen
                     ? "bg-[var(--color-warning-soft)] text-[var(--color-warning)]"
                     : today
@@ -1989,13 +2095,13 @@ export function ProgramStudio({
             const dayLessons = visibleWeekLessons.filter((l) => isSameDay(parseISO(l.startAt), day));
             const dayTrials = trialsForDay(day);
             // Denemeler de aynı şeritlere girer: çakışan normal dersle üst üste binmez.
-            const { laneOf, laneCount } = assignLanes([...dayLessons, ...(dayTrials as unknown as Lesson[])]);
+            const { laneOf, lanesOf } = assignLanes([...dayLessons, ...dayTrials]);
             const totalHeight = slots.length * SLOT_HEIGHT_PX;
 
             return (
               <div
                 key={dayIso}
-                className={`relative flex-1 border-l border-[var(--color-border-strong)] ${today ? "bg-[var(--color-primary-soft)]/30" : ""}`}
+                className={`relative min-w-[5.5rem] flex-1 border-l border-[var(--color-border-strong)] ${today ? "bg-[var(--color-primary-soft)]/30" : ""}`}
                 style={{ height: totalHeight }}
               >
                 {slots.map((min, i) => {
@@ -2042,10 +2148,9 @@ export function ProgramStudio({
                   const top = ((startMin - windowStartMin) / SLOT_MINUTES) * SLOT_HEIGHT_PX;
                   const height = Math.max((duration / SLOT_MINUTES) * SLOT_HEIGHT_PX - 2, SLOT_HEIGHT_PX - 2);
                   const lane = laneOf.get(lesson.id) ?? 0;
-                  const widthPct = 100 / laneCount;
+                  const widthPct = 100 / (lanesOf.get(lesson.id) ?? 1);
                   const editable = canMoveOrResize(lesson, now) && canCreate;
 
-                  const tier = lessonCardTier(height);
                   const room = rooms.find((r) => r.id === lesson.roomId);
                   const statusVisual = lessonCardStatusVisual(applyOpsOverride(lesson, prunedOverrides[lesson.id]), now);
                   const selected = detailLessonId === lesson.id;
@@ -2073,9 +2178,10 @@ export function ProgramStudio({
                         // (UAT: "bilgi notu ekranda takılı kalıyor").
                         if (e.key === "Escape") e.currentTarget.blur();
                       }}
-                      aria-label={lessonAccessibleLabel(lesson, student, teacher, room, branchNames[lesson.branchId])}
+                      aria-label={lessonAccessibleLabel(lesson, student, teacher, room, branchNames[lesson.branchId], statusVisual)}
                       aria-busy={opsPending[lesson.id] ? true : undefined}
-                      className={`group absolute z-[1] flex flex-col rounded-md border border-[var(--color-border-strong)] p-1.5 text-[10px] shadow-[var(--shadow-sm)] transition-[filter] hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-focus-ring)] hover:z-[20] ${
+                      title={student?.name}
+                      className={`group absolute z-[1] flex flex-col rounded-md border border-[var(--color-border-strong)] px-1 py-1 shadow-[var(--shadow-sm)] transition-[filter] hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-focus-ring)] hover:z-[20] ${
                         opsPending[lesson.id] ? "animate-pulse ring-2 ring-[var(--color-focus-ring)] ring-offset-1" : ""
                       } ${
                         editable ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"
@@ -2091,36 +2197,26 @@ export function ProgramStudio({
                         ...lessonCardFillStyle(statusVisual),
                       }}
                     >
-                      {/* `min-h-0` — flex çocukları varsayılan `min-height:auto` içerikten KÜÇÜK
-                          büzülemez; bu, sabit yükseklikli kartta dikey taşmanın gerçek nedeniydi.
-                          `overflow-hidden` son satırı gerekirse keser (metin `title`/hover kartıyla
-                          hâlâ tam erişilebilir), kutu sınırını asla BOZMAZ. */}
+                      {/* `min-h-0` + `overflow-hidden`: sabit yükseklikli kartta içerik kutuyu asla taşırmaz. */}
                       <div className="min-h-0 flex-1 overflow-hidden">
-                        <LessonCardBody
-                          student={student}
-                          teacher={teacher}
-                          lesson={lesson}
-                          branchName={branchNames[lesson.branchId]}
-                          tier={tier}
-                          statusVisual={statusVisual}
+                        <WeekLessonName
+                          name={student?.name}
+                          color={lessonCardFillStyle(statusVisual).color}
+                          heightPx={height}
                         />
-                        {tier === "full" &&
-                        (lesson.studentAttended || lesson.lessonProcessed || lesson.opsMakeupFlag) ? (
-                          <LessonOpsBadges
-                            studentAttended={lesson.studentAttended}
-                            lessonProcessed={lesson.lessonProcessed}
-                            opsMakeupFlag={lesson.opsMakeupFlag}
-                            studentAbsent={lesson.studentAbsent}
-                            studentExcused={lesson.studentExcused}
-                          />
-                        ) : null}
                       </div>
+                      {lesson.availabilityOverride ? (
+                        <TriangleAlert className="absolute right-0.5 top-0.5 h-3 w-3 text-amber-500" aria-hidden>
+                          <title>Öğretmenin müsait olmadığı bir saatte, onayla planlandı</title>
+                        </TriangleAlert>
+                      ) : null}
                       <LessonHoverCard
                         lesson={lesson}
                         student={student}
                         teacher={teacher}
                         room={room}
                         branchName={branchNames[lesson.branchId]}
+                        statusVisual={statusVisual}
                       />
                       {editable ? (
                         <div
@@ -2141,7 +2237,7 @@ export function ProgramStudio({
                   const top = ((startMin - windowStartMin) / SLOT_MINUTES) * SLOT_HEIGHT_PX;
                   const height = Math.max((duration / SLOT_MINUTES) * SLOT_HEIGHT_PX - 2, SLOT_HEIGHT_PX - 2);
                   const lane = laneOf.get(trial.id) ?? 0;
-                  const widthPct = 100 / laneCount;
+                  const widthPct = 100 / (lanesOf.get(trial.id) ?? 1);
                   return (
                     <TrialCard
                       key={trial.id}
@@ -2273,7 +2369,7 @@ function DetailPanel({
   onClose: () => void;
   /** Revize/silme başarılı — panel kapanır, sayfa bildirimi gösterilir. */
   onEditDone: (message: string) => void;
-  onCancelLesson: () => void;
+  onCancelLesson: (disruption: ReturnType<typeof disruptionPayload>) => void;
   onCancelSeriesFromLesson: () => void;
   onCancelEntireSeries: () => void;
   /** Faz 13 — öğretmen/şube değiştirme formunun ihtiyaç duyduğu tam listeler. */
@@ -2289,6 +2385,10 @@ function DetailPanel({
   const isSeriesMember = Boolean(lesson.seriesId);
   const isPastScheduled = lesson.status === "scheduled" && !(parseISO(lesson.startAt) > now);
   const timeRange = `${zonedHm(parseISO(lesson.startAt), DEFAULT_APP_TIMEZONE)}–${zonedHm(parseISO(lesson.endAt), DEFAULT_APP_TIMEZONE)}`;
+  // 9. tur — İptal onayı kaynak sorusuyla birlikte; kaynak sonradan düzeltilebilir.
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [cancelDraft, setCancelDraft] = useState<DisruptionFormValue>({});
+  const [cancelNote, setCancelNote] = useState("");
 
   return (
     <Card className="border-[var(--color-border-strong)] shadow-[var(--shadow-md)]">
@@ -2339,18 +2439,60 @@ function DetailPanel({
             Yoklama girmek için üstteki kurum seçiciden bu dersin kurumunu seçin.
           </p>
         )}
+        {canCreate ? <TeacherAttendanceControl key={lesson.id} lesson={lesson} /> : null}
       </section>
 
       {canCreate ? (
         <section className="mt-3" aria-label="Ders işlemleri">
           <div className="flex flex-wrap items-start gap-2">
-            {cancelBlockReason === null ? (
-              <Button variant="danger" onClick={onCancelLesson} disabled={submitting}>
+            {cancelBlockReason === null && !cancelOpen ? (
+              <Button
+                variant="danger"
+                onClick={() => {
+                  setCancelDraft({});
+                  setCancelNote("");
+                  setCancelOpen(true);
+                }}
+                disabled={submitting}
+              >
                 {isSeriesMember ? "Sadece bu dersi iptal et" : "Bu dersi iptal et"}
               </Button>
             ) : null}
             <LessonReassignmentModal lesson={lesson} teachers={allTeachers} rooms={allRooms} branchNames={branchNames} />
           </div>
+          {cancelOpen && cancelBlockReason === null ? (
+            <div
+              role="group"
+              aria-label="Ders iptali onayı"
+              className="mt-2 space-y-2 rounded-md border border-[var(--color-danger)] bg-[var(--color-surface)] p-2.5 text-xs"
+            >
+              <p className="font-semibold text-[var(--color-text)]">Bu dersi iptal etmek üzeresiniz.</p>
+              <DisruptionSourceFields idPrefix={`cancel-${lesson.id}`} kind="İptal" value={cancelDraft} onChange={setCancelDraft} />
+              <label className="block">
+                <span className="font-medium text-[var(--color-text)]">Açıklama (isteğe bağlı)</span>
+                <textarea
+                  value={cancelNote}
+                  onChange={(e) => setCancelNote(e.target.value.slice(0, 500))}
+                  rows={2}
+                  className="mt-1 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-xs"
+                  placeholder="Örn. Öğretmen hasta, veliye bildirildi"
+                />
+              </label>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="danger"
+                  disabled={submitting || !isDisruptionFormComplete(cancelDraft)}
+                  onClick={() => onCancelLesson(disruptionPayload(cancelDraft, cancelNote))}
+                >
+                  {submitting ? "İptal ediliyor…" : "İptali onayla"}
+                </Button>
+                <Button variant="secondary" disabled={submitting} onClick={() => setCancelOpen(false)}>
+                  Vazgeç
+                </Button>
+              </div>
+            </div>
+          ) : null}
+          {isDisruptedLesson(lesson) ? <DisruptionSourceEditor key={lesson.id} lesson={lesson} onDone={onEditDone} /> : null}
           {cancelBlockReason !== null && lesson.status !== "cancelled" ? (
             <p className="mt-2 rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5 text-xs text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
               <strong>İptal edilemez:</strong> {cancelBlockReason}
@@ -2390,6 +2532,154 @@ function DetailPanel({
         </p>
       ) : null}
     </Card>
+  );
+}
+
+/**
+ * 9. tur — öğretmenin KENDİ katılımı (öğrenci yoklamasından ayrı alan). İsteğe bağlı,
+ * tek tık; günlük yoklama akışını uzatmaz. Kurum kaynaklı iptal buraya otomatik yazılmaz.
+ */
+const TEACHER_ATTENDANCE_OPTIONS = [
+  ["geldi", "Geldi"],
+  ["gelmedi", "Gelmedi"],
+  ["mazeretli", "Mazeretli"],
+] as const;
+
+function TeacherAttendanceControl({ lesson }: { lesson: Lesson }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  async function mark(status: (typeof TEACHER_ATTENDANCE_OPTIONS)[number][0]) {
+    setBusy(status);
+    setError(null);
+    const res = await apiFetchJson(`/api/v1/lessons/${lesson.id}/teacher-attendance`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status }),
+    });
+    setBusy(null);
+    if (!res.ok) {
+      setError(friendlyApiErrorMessage(res.error, "Öğretmen katılımı kaydedilemedi; tekrar deneyin."));
+      return;
+    }
+    // Panel açık kalır; seçim sunucudan tazelenen dersle görünür (audit tool'da).
+    router.refresh();
+  }
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-[var(--color-border)] pt-2 text-xs">
+      <span className="text-[var(--color-text-muted)]">Öğretmen katılımı:</span>
+      <div role="group" aria-label="Öğretmen katılımı" className="inline-flex gap-1">
+        {TEACHER_ATTENDANCE_OPTIONS.map(([value, label]) => {
+          const active = lesson.teacherAttendanceStatus === value;
+          return (
+            <button
+              key={value}
+              type="button"
+              aria-pressed={active}
+              disabled={busy !== null}
+              onClick={() => void mark(value)}
+              className={`rounded-md border px-2 py-1 font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-focus-ring)] disabled:cursor-wait disabled:opacity-60 ${
+                active
+                  ? "border-[var(--color-primary)] bg-[var(--color-primary-soft)] text-[var(--color-primary-soft-text)]"
+                  : "border-[var(--color-border-strong)] bg-[var(--color-surface)] text-[var(--color-text)] hover:bg-[var(--color-surface-muted)]"
+              }`}
+            >
+              {busy === value ? "…" : label}
+            </button>
+          );
+        })}
+      </div>
+      {!lesson.teacherAttendanceStatus ? <span className="text-[var(--color-text-muted)]">(girilmedi)</span> : null}
+      {error ? (
+        <p className="basis-full font-medium text-[var(--color-danger)]" role="alert">
+          {error}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/** 9. tur — iptal/telafi edilmiş dersin kaynağı; "Belirtilmemiş" eski kayıtlar buradan sınıflandırılır. */
+function DisruptionSourceEditor({ lesson, onDone }: { lesson: Lesson; onDone: (message: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState<DisruptionFormValue>({ source: lesson.disruptionSource });
+  const [note, setNote] = useState(lesson.disruptionNote ?? "");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const attendance = lesson.teacherAttendanceStatus
+    ? { geldi: "Geldi", gelmedi: "Gelmedi", mazeretli: "Mazeretli" }[lesson.teacherAttendanceStatus]
+    : "Girilmedi";
+
+  async function save() {
+    setBusy(true);
+    setError(null);
+    const res = await apiFetchJson(`/api/v1/lessons/${lesson.id}/disruption`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(disruptionPayload(draft, note)),
+    });
+    setBusy(false);
+    if (!res.ok) {
+      setError(friendlyApiErrorMessage(res.error, "Kaynak kaydedilemedi; tekrar deneyin."));
+      return;
+    }
+    setOpen(false);
+    onDone("İptal/telafi kaynağı kaydedildi.");
+  }
+
+  return (
+    <div className="mt-2 rounded-md border border-[var(--color-border)] p-2 text-xs">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-[var(--color-text)]">
+          <span className="text-[var(--color-text-muted)]">{lesson.status === "cancelled" ? "İptal" : "Telafi"} kaynağı: </span>
+          <strong className={lesson.disruptionSource ? "" : "text-[var(--color-warning)]"}>
+            {disruptionSourceLabel(lesson.disruptionSource)}
+          </strong>
+          <span className="text-[var(--color-text-muted)]"> · Öğretmen katılımı: {attendance}</span>
+        </p>
+        {!open ? (
+          <button
+            type="button"
+            onClick={() => setOpen(true)}
+            className="font-semibold text-[var(--color-primary)] hover:underline"
+          >
+            Kaynağı {lesson.disruptionSource ? "düzenle" : "belirt"}
+          </button>
+        ) : null}
+      </div>
+      {lesson.disruptionNote && !open ? <p className="mt-1 text-[var(--color-text-muted)]">{lesson.disruptionNote}</p> : null}
+      {open ? (
+        <div className="mt-2 space-y-2">
+          <DisruptionSourceFields
+            idPrefix={`disruption-${lesson.id}`}
+            kind={lesson.status === "cancelled" ? "İptal" : "Telafi"}
+            value={draft}
+            onChange={setDraft}
+          />
+          <textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value.slice(0, 500))}
+            rows={2}
+            aria-label="Kaynak açıklaması"
+            className="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1"
+            placeholder="Açıklama (isteğe bağlı)"
+          />
+          <div className="flex gap-2">
+            <Button disabled={busy || !isDisruptionFormComplete(draft)} onClick={() => void save()}>
+              {busy ? "Kaydediliyor…" : "Kaydet"}
+            </Button>
+            <Button variant="secondary" disabled={busy} onClick={() => setOpen(false)}>
+              Vazgeç
+            </Button>
+          </div>
+        </div>
+      ) : null}
+      {error ? (
+        <p className="mt-1 font-medium text-[var(--color-danger)]" role="alert">
+          {error}
+        </p>
+      ) : null}
+    </div>
   );
 }
 

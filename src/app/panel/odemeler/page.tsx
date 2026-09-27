@@ -4,7 +4,8 @@ import { ArrowRight } from "lucide-react";
 import { AddPaymentForm } from "@/components/add-payment-form";
 import { PageHeader, StatCard } from "@/components/ui";
 import { formatMoney } from "@/lib/utils";
-import { isLiveObligation } from "@/lib/payment-profile";
+import { PAYMENT_SCOPE_LABEL, parsePaymentScope, scopePayments, type PaymentScope } from "@/lib/payment-scope";
+import { ScopeTabs } from "@/components/scope-tabs";
 import { listTerminalContractIdsForScope } from "@/lib/contracts";
 import { PaymentsTable, type PaymentRow } from "@/components/payments-table";
 import { requireSessionContext } from "@/lib/auth/session";
@@ -15,7 +16,7 @@ import { resolveActorLabels } from "@/lib/contract-payment-plan-view";
 
 export const dynamic = "force-dynamic";
 
-export default async function OdemelerPage() {
+export default async function OdemelerPage({ searchParams }: { searchParams: Promise<{ kapsam?: string }> }) {
   let session;
   try {
     session = await requireSessionContext();
@@ -24,15 +25,13 @@ export default async function OdemelerPage() {
   }
   const kurum = await getInstitutionContext(session);
   const data = await readScopedData(kurum.scope);
-  const payments = [...data.payments].sort((a, b) => a.dueDate.localeCompare(b.dueDate));
-
-  const collected = payments.filter((p) => p.status === "paid").reduce((s, p) => s + p.paidAmount, 0);
+  const scope = parsePaymentScope((await searchParams).kapsam);
+  const allPayments = [...data.payments].sort((a, b) => a.dueDate.localeCompare(b.dueDate));
   // İptal/yenilenmiş sözleşmenin ödenmemiş taksiti listede kalır ama borç/gecikme sayılmaz.
   const terminalContractIds = await listTerminalContractIdsForScope(kurum.scope);
-  const outstanding = payments
-    .filter((p) => isLiveObligation(p, terminalContractIds))
-    .reduce((s, p) => s + (p.amount - p.paidAmount), 0);
-  const overdue = payments.filter((p) => p.status === "overdue" && isLiveObligation(p, terminalContractIds)).length;
+  // Kartlar, tablo ve tablo filtreleri AYNI kapsam listesinden beslenir (payment-scope.ts).
+  const { rows: payments, totals, counts } = scopePayments(allPayments, data.students, scope, terminalContractIds);
+  const scopeNoun: Record<PaymentScope, string> = { aktif: "Aktif", pasif: "Pasif veya ayrılmış", tum: "Aktif ve pasif tüm" };
 
   const receiverNames = await resolveActorLabels({
     tenantId: session.tenantId,
@@ -68,17 +67,54 @@ export default async function OdemelerPage() {
         actions={
           <Link
             href={`/panel/ai/tahsilat-agent?returnTo=${encodeURIComponent("/panel/odemeler")}`}
-            className="inline-flex items-center gap-2 rounded-xl bg-amber-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-amber-700"
+            className="inline-flex items-center gap-2 rounded-xl bg-[var(--color-primary)] px-3.5 py-2 text-sm font-medium text-[var(--color-text-inverted)] hover:bg-[var(--color-primary-hover)]"
           >
             Tahsilat takibini aç <ArrowRight className="h-4 w-4" />
           </Link>
         }
       />
 
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <ScopeTabs
+          label="Ödeme kapsamı"
+          active={scope}
+          items={(["aktif", "pasif", "tum"] as const).map((key) => ({
+            key,
+            label: PAYMENT_SCOPE_LABEL[key],
+            count: counts[key],
+            href: key === "aktif" ? "/panel/odemeler" : `/panel/odemeler?kapsam=${key}`,
+          }))}
+        />
+      </div>
+      <p className="mb-4 max-w-3xl text-xs leading-relaxed text-[var(--color-text-muted)]">
+        <strong className="font-semibold text-[var(--color-text)]">Kapsam:</strong> {scopeNoun[scope]} öğrenciler —{" "}
+        {totals.studentCount} öğrenci, {totals.rowCount} ödeme satırı (öğrencinin bugünkü durumuna göre).
+        {scope === "pasif"
+          ? " Pasife alınan öğrencinin kayıtları silinmez; yalnız mevcut, belgelenmiş satırlar gösterilir — yeni borç üretilmez."
+          : ""}{" "}
+        Açık alacak = ödenmemiş kalan tutar; iptal edilen satırlar ve iptal/yenilenmiş sözleşmenin taksitleri hariç.
+        Tahsil edilen = fiilen alınan tutar (kısmi ödemelerin alınan kısmı dahil); kalan bakiye açık alacakta.
+      </p>
+
       <div className="mb-6 grid gap-4 sm:grid-cols-3">
-        <StatCard label="Tahsil edilen" value={formatMoney(collected)} accent="success" />
-        <StatCard label="Bekleyen" value={formatMoney(outstanding)} accent="warning" />
-        <StatCard label="Gecikmiş adet" value={overdue} accent="danger" />
+        <StatCard
+          label={scope === "pasif" ? "Geçmiş tahsilat" : "Tahsil edilen"}
+          value={formatMoney(totals.collected)}
+          hint="Kısmi ödemelerin alınan kısmı dahil, tüm dönemler"
+          accent="success"
+        />
+        <StatCard
+          label={scope === "aktif" ? "Beklenen tahsilat" : "Açık alacak"}
+          value={formatMoney(totals.outstanding)}
+          hint={scope === "pasif" ? "Belgelenmiş, tahsil edilmemiş kalan" : "Vadesi gelmiş ve gelecek, kalan tutar"}
+          accent="warning"
+        />
+        <StatCard
+          label="Geciken"
+          value={formatMoney(totals.overdueAmount)}
+          hint={`${totals.overdueCount} satır vadesi geçmiş`}
+          accent="danger"
+        />
       </div>
 
       {kurum.scope.mode === "single" ? (

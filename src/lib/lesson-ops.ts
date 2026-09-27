@@ -18,6 +18,7 @@
  * artık yeni böyle bir kayıt YARATMAZ.
  */
 
+import { buildDisruptionPatch, type LessonDisruptionInput, type LessonDisruptionPatch } from "./lesson-disruption";
 import type { AppData, Attendance, Lesson, MakeupRequest } from "./types";
 import { uid } from "./utils";
 import { addDays, formatISO } from "date-fns";
@@ -77,7 +78,8 @@ export function applyLessonOpsFlag(
   flag: LessonOpsFlag,
   actorUserId: string,
   now: Date = new Date(),
-  reason?: string
+  reason?: string,
+  disruption?: LessonDisruptionInput
 ): ApplyLessonOpsResult {
   const lesson = data.lessons.find((l) => l.id === lessonId);
   if (!lesson) return { ok: false, message: "Ders bulunamadı." };
@@ -199,10 +201,12 @@ export function applyLessonOpsFlag(
       message: "Telafi zaten işaretli.",
     };
   }
-  const patch: LessonOpsPatch = {
+  const patch: LessonOpsPatch & Partial<LessonDisruptionPatch> = {
     opsMakeupFlag: true,
     opsMakeupFlagAt: nowIso,
     opsMakeupFlagBy: actorUserId,
+    // 9. tur — kaynak aynı yamada: kota kontrolü (öğretmen/kurum kaynaklıysa muaf) bunu görür.
+    ...(disruption ? buildDisruptionPatch(disruption, actorUserId, now) : {}),
   };
   const lessons = data.lessons.map((l) => (l.id === lessonId ? { ...l, ...patch } : l));
 
@@ -212,7 +216,7 @@ export function applyLessonOpsFlag(
     (m) => m.sourceLessonId === lessonId && m.status !== "cancelled" && m.status !== "expired"
   );
   if (!existingMk) {
-    const quota = assertCanCreateMakeup(data, lesson.studentId, now, lesson.id);
+    const quota = assertCanCreateMakeup({ ...data, lessons }, lesson.studentId, now, lesson.id);
     if (!quota.ok) return { ok: false, message: quota.message };
     const branch = data.settings.branches.find((b) => b.id === lesson.branchId);
     /**
@@ -296,7 +300,8 @@ export function switchLessonOpsFlag(
   flag: LessonOpsFlag,
   actorUserId: string,
   now: Date = new Date(),
-  reason?: string
+  reason?: string,
+  disruption?: LessonDisruptionInput
 ): ApplyLessonOpsResult {
   const lesson = data.lessons.find((l) => l.id === lessonId);
   if (!lesson) return { ok: false, message: "Ders bulunamadı." };
@@ -304,11 +309,11 @@ export function switchLessonOpsFlag(
   const current = effectiveLessonOpsStatus(lesson);
   if (current === flag) {
     // Zaten bu statüde — applyLessonOpsFlag kendi "alreadySet" mesajını üretir.
-    return applyLessonOpsFlag(data, lessonId, flag, actorUserId, now, reason);
+    return applyLessonOpsFlag(data, lessonId, flag, actorUserId, now, reason, disruption);
   }
   if (current === null) {
     // Hiçbir statü etkin değil — ilk tıklama, doğrudan set.
-    return applyLessonOpsFlag(data, lessonId, flag, actorUserId, now, reason);
+    return applyLessonOpsFlag(data, lessonId, flag, actorUserId, now, reason, disruption);
   }
 
   // Farklı bir statüden geçiş — önce diğer bayrakları temizle (mali kayıt DOKUNULMAZ).
@@ -335,5 +340,5 @@ export function switchLessonOpsFlag(
     ...data,
     lessons: data.lessons.map((l) => (l.id === lessonId ? cleared : l)),
   };
-  return applyLessonOpsFlag(clearedData, lessonId, flag, actorUserId, now, reason);
+  return applyLessonOpsFlag(clearedData, lessonId, flag, actorUserId, now, reason, disruption);
 }

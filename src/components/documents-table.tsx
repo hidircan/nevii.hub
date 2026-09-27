@@ -2,6 +2,9 @@
 
 import { cloneElement, useId, useMemo, useState } from "react";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
+import { withReturnTo } from "@/lib/safe-return-to";
+import { useCurrentPath } from "@/lib/use-current-path";
+import { useListReturnState } from "@/lib/use-list-return-state";
 import Link from "next/link";
 import { ArrowDown, ArrowUp, ChevronsUpDown, FileText, ShieldCheck } from "lucide-react";
 import { Card } from "@/components/ui";
@@ -91,6 +94,12 @@ export function DocumentsTable({
   });
   const { pageItems, page, setPage, pageSize, setPageSize, totalPages, totalCount } = usePagination(filtered, 20, {
     urlParam: "per",
+  });
+
+  const currentPath = useCurrentPath();
+  const rememberListState = useListReturnState("evraklar", { search, page }, (saved) => {
+    setSearchState(saved.search);
+    setPage(saved.page);
   });
 
   function updateParams(mutate: (params: URLSearchParams) => void) {
@@ -294,7 +303,11 @@ export function DocumentsTable({
             ) : (
               pageItems.map((d) => {
                 // Sözleşmeler kanonik görüntüleyiciye gider; diğer evraklar kendi detayına.
-                const viewHref = d.contractId ? `/sozlesme-yazdir/${d.contractId}` : `/panel/evraklar/${d.id}`;
+                // 9. tur: alt ekran açıldığı Evraklar görünümüne (filtreler URL'de) geri döner.
+                const viewHref = withReturnTo(
+                  d.contractId ? `/sozlesme-yazdir/${d.contractId}` : `/panel/evraklar/${d.id}`,
+                  currentPath
+                );
                 return (
                   <tr key={d.id} className="border-b border-[var(--color-border)] last:border-0">
                     <td className="px-4 py-3">
@@ -333,13 +346,15 @@ export function DocumentsTable({
                       <div className="flex flex-wrap gap-2">
                         <Link
                           href={viewHref}
+                          onClick={rememberListState}
                           className="text-xs font-medium text-[var(--color-primary)] hover:text-[var(--color-primary-hover)]"
                         >
                           {d.contractId ? "Sözleşmeyi görüntüle" : "Görüntüle"}
                         </Link>
                         {d.contractId ? (
                           <Link
-                            href={`/panel/evraklar/${d.id}`}
+                            href={withReturnTo(`/panel/evraklar/${d.id}`, currentPath)}
+                            onClick={rememberListState}
                             className="text-xs font-medium text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
                           >
                             Arşiv nüshası

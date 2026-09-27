@@ -14,6 +14,7 @@
  * eder (bkz. FinanceSummary.expenseDataIncomplete).
  */
 
+import { collectedAmountOf } from "./payment-profile";
 import type { AppData, ContractStatus } from "./types";
 import { isPlanEligibleContractStatus } from "./attendance-calendar-plan";
 import type { PayrollRecord } from "./types";
@@ -94,9 +95,8 @@ export function computeFinanceSummary(
     .reduce((s, p) => s + p.totalAmount, 0);
 
   const paymentsThisMonth = data.payments.filter((p) => monthKey(p.dueDate) === currentMonth);
-  const studentPaymentsCollectedThisMonth = paymentsThisMonth
-    .filter((p) => p.status === "paid")
-    .reduce((s, p) => s + p.paidAmount, 0);
+  // Kısmi ödemenin alınan kısmı dahil — TEK tanım collectedAmountOf (payment-profile.ts).
+  const studentPaymentsCollectedThisMonth = paymentsThisMonth.reduce((s, p) => s + collectedAmountOf(p), 0);
   const studentPaymentsPendingThisMonth = paymentsThisMonth
     .filter((p) => p.status !== "paid" && p.status !== "voided")
     .reduce((s, p) => s + (p.amount - p.paidAmount), 0);

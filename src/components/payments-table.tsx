@@ -1,4 +1,6 @@
 "use client";
+import { withReturnTo } from "@/lib/safe-return-to";
+import { useCurrentPath } from "@/lib/use-current-path";
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
@@ -49,6 +51,7 @@ const STATUS_FILTERS: { value: StatusFilter; label: string }[] = [
 ];
 
 export function PaymentsTable({ rows, canWrite }: { rows: PaymentRow[]; canWrite: boolean }) {
+  const currentPath = useCurrentPath();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [actionOnly, setActionOnly] = useState(false);
@@ -261,7 +264,7 @@ export function PaymentsTable({ rows, canWrite }: { rows: PaymentRow[]; canWrite
                     ) : (
                       <div className="flex flex-wrap items-center gap-2">
                         <Link
-                          href={`/makbuz/${p.id}`}
+                          href={withReturnTo(`/makbuz/${p.id}`, currentPath)}
                           className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-xs font-medium text-[var(--color-text)] hover:bg-[var(--color-surface-muted)]"
                         >
                           <Receipt className="h-3.5 w-3.5" /> Makbuz

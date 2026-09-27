@@ -8,7 +8,8 @@
 import { useState, useTransition, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Archive, RotateCcw } from "lucide-react";
-import { actionCreatePackage, actionUpdatePackage } from "@/lib/actions";
+import { actionCreatePackage, actionDeletePackage, actionGetPackageDeletionImpact, actionUpdatePackage } from "@/lib/actions";
+import { CriticalDeleteDialog } from "@/components/critical-delete-dialog";
 import { Badge, Button, Card, Input, Label, Select } from "@/components/ui";
 import { formatMoney } from "@/lib/utils";
 import { activeStudentCountForPackage, packageStatusLabel } from "@/lib/packages";
@@ -115,10 +116,13 @@ export function PackageManager({
   packages,
   students,
   canWrite,
+  canDeletePackages = false,
 }: {
   packages: Package[];
   students: Student[];
   canWrite: boolean;
+  /** 9. tur — kalıcı silme (kritik işlem şifresi) yalnız SUPER_ADMIN/SCHOOL_ADMIN; sunucu ayrıca uygular. */
+  canDeletePackages?: boolean;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -211,11 +215,11 @@ export function PackageManager({
                       </p>
                     </div>
                     {canWrite ? (
-                      <div className="flex shrink-0 items-center gap-1.5">
+                      <div className="flex shrink-0 flex-wrap items-center gap-1.5">
                         <button
                           type="button"
                           onClick={() => setEditingId(editingId === pkg.id ? null : pkg.id)}
-                          className="rounded-md border border-stone-300 bg-white px-2.5 py-1 text-xs font-semibold text-stone-800 hover:border-[#A56A00] hover:bg-[#fbf6ee]"
+                          className="rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2.5 py-1 text-xs font-semibold text-[var(--color-text)] hover:border-[var(--color-primary)] hover:bg-[var(--color-surface-muted)]"
                         >
                           {editingId === pkg.id ? "Kapat" : "Düzenle"}
                         </button>
@@ -223,7 +227,7 @@ export function PackageManager({
                           type="button"
                           disabled={pending}
                           onClick={() => toggleStatus(pkg)}
-                          className="inline-flex items-center gap-1 rounded-md border border-stone-300 bg-white px-2.5 py-1 text-xs font-semibold text-stone-800 hover:border-[#A56A00] hover:bg-[#fbf6ee] disabled:opacity-50"
+                          className="inline-flex items-center gap-1 rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2.5 py-1 text-xs font-semibold text-[var(--color-text)] hover:border-[var(--color-primary)] hover:bg-[var(--color-surface-muted)] disabled:opacity-50"
                         >
                           {pkg.status === "active" ? (
                             <>
@@ -235,6 +239,44 @@ export function PackageManager({
                             </>
                           )}
                         </button>
+                        {canDeletePackages ? (
+                          <CriticalDeleteDialog
+                            triggerLabel="Sil"
+                            title={`${pkg.title} — paketi sil`}
+                            meaning="Paket KALICI olarak silinir ve geri alınamaz. Hiçbir öğrenci, ödeme veya sözleşme kaydı bu paketi kullanmadığı için geçmiş etkilenmez."
+                            confirmationName={pkg.title}
+                            submitLabel="Paketi kalıcı sil"
+                            loadImpact={async () => {
+                              const res = await actionGetPackageDeletionImpact(pkg.id);
+                              if (!res.ok) return res;
+                              const d = res.data;
+                              return {
+                                ok: true,
+                                data: {
+                                  allowed: d.hardDeleteEligible,
+                                  blockReason: d.blockReason,
+                                  criticalPasswordConfigured: d.criticalPasswordConfigured,
+                                  lines: [
+                                    ["Durum", packageStatusLabel(d.status)],
+                                    ["Bağlı öğrenci", `${d.linkedStudentCount} (${d.linkedActiveStudentCount} aktif)`],
+                                    ["Adla eşleşen eski kayıt", d.nameMatchStudentCount],
+                                  ],
+                                },
+                              };
+                            }}
+                            onSubmit={async ({ criticalPassword, reason, confirmation }) => {
+                              const res = await actionDeletePackage({
+                                packageId: pkg.id,
+                                confirmationTitle: confirmation,
+                                criticalPassword,
+                                reason,
+                                expectedUpdatedAt: pkg.updatedAt,
+                              });
+                              if (res.ok) router.refresh();
+                              return res.ok ? { ok: true } : res;
+                            }}
+                          />
+                        ) : null}
                       </div>
                     ) : null}
                   </div>
@@ -374,7 +416,7 @@ function PackageEditForm({ pkg, onSaved }: { pkg: Package; onSaved: () => void }
         <Label>Kapsam notu</Label>
         <Input value={notes} onChange={(e) => setNotes(e.target.value)} />
       </div>
-      {error ? <p className="text-xs font-medium text-[#8b3a3a]">{error}</p> : null}
+      {error ? <p className="text-xs font-medium text-[var(--color-danger)]">{error}</p> : null}
       <p className="text-[11px] text-[var(--color-text-muted)]">
         Not: fiyat/açıklama değişikliği geçmiş tahsilat kayıtlarını etkilemez — yalnızca bundan sonraki yeni öğrenci kayıtları için geçerlidir.
       </p>

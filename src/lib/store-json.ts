@@ -1,3 +1,4 @@
+import { collectedAmountOf } from "./payment-profile";
 import {
   applyLessonRevision,
   planLessonDeletion,
@@ -1314,9 +1315,7 @@ export function getDashboardStats(data: AppData) {
   ).length;
   const confirmedMakeup = data.makeupRequests.filter((m) => m.status === "confirmed").length;
   const overduePayments = data.payments.filter((p) => p.status === "overdue" || p.status === "partial");
-  const revenuePaid = data.payments
-    .filter((p) => p.status === "paid")
-    .reduce((s, p) => s + p.paidAmount, 0);
+  const revenuePaid = data.payments.reduce((s, p) => s + collectedAmountOf(p), 0);
   const revenueDue = data.payments
     .filter((p) => isOutstandingPaymentStatus(p.status))
     .reduce((s, p) => s + (p.amount - p.paidAmount), 0);
@@ -1453,7 +1452,8 @@ async function persistLessonOpsUnderLock(
   _flag: LessonOpsFlag,
   actorUserId: string,
   apply: typeof applyLessonOpsFlag | typeof switchLessonOpsFlag,
-  reason?: string
+  reason?: string,
+  disruption?: import("./lesson-disruption").LessonDisruptionInput
 ): Promise<ReturnType<typeof applyLessonOpsFlag>> {
   await ensureDataFile();
   return withFileLock(DATA_FILE, async () => {
@@ -1468,7 +1468,7 @@ async function persistLessonOpsUnderLock(
      */
     const scope = narrowLessonScope(data, lessonId);
     if (!scope) return { ok: false, message: "Ders bulunamadı." };
-    const result = apply(scope, lessonId, _flag, actorUserId, undefined, reason);
+    const result = apply(scope, lessonId, _flag, actorUserId, undefined, reason, disruption);
     if (result.ok && !result.alreadySet) {
       await writeJsonFileAtomic(DATA_FILE, mergeLessonScope(data, result.data, lessonId));
     }
@@ -1490,9 +1490,10 @@ export async function switchLessonOpsFlagLive(
   lessonId: string,
   flag: LessonOpsFlag,
   actorUserId: string,
-  reason?: string
+  reason?: string,
+  disruption?: import("./lesson-disruption").LessonDisruptionInput
 ): Promise<ReturnType<typeof switchLessonOpsFlag>> {
-  return persistLessonOpsUnderLock(lessonId, flag, actorUserId, switchLessonOpsFlag, reason);
+  return persistLessonOpsUnderLock(lessonId, flag, actorUserId, switchLessonOpsFlag, reason, disruption);
 }
 
 /** Faz 2 — öğretmen yoklaması, öğrenci ops bayraklarından tamamen ayrı bir yol. */
@@ -1530,4 +1531,28 @@ export async function seedDemoRecords(input: DemoSeedInput): Promise<DemoSeedRes
   const result = applyDemoSeedRecords(data, input);
   await writeData(result.data);
   return { lessonIds: result.lessonIds };
+}
+
+/** 9. tur — İptal/Telafi kaynağını sonradan belirleme/düzeltme (kilit altında). */
+export async function setLessonDisruptionLive(
+  lessonId: string,
+  patch: import("./lesson-disruption").LessonDisruptionPatch
+): Promise<Lesson | null> {
+  let updated: Lesson | null = null;
+  await mutateStoreUnderLock(async (data) => {
+    const lessons = data.lessons.map((l) => (l.id === lessonId ? (updated = { ...l, ...patch }) : l));
+    return updated ? { ...data, lessons } : data;
+  });
+  return updated;
+}
+
+/** 9. tur — kullanılmamış paketi kalıcı siler; karar ve eşzamanlılık kontrolü kilit altında (packages.ts). */
+export async function deletePackage(packageId: string, expectedUpdatedAt: string): Promise<import("./packages").PackageDeleteResult> {
+  const { deletePackageData } = await import("./packages");
+  let result!: import("./packages").PackageDeleteResult;
+  await mutateStoreUnderLock(async (data) => {
+    result = deletePackageData(data, packageId, expectedUpdatedAt);
+    return result.ok ? result.data : data;
+  });
+  return result;
 }

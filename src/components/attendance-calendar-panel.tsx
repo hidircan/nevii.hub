@@ -1,4 +1,6 @@
 "use client";
+import { withReturnTo } from "@/lib/safe-return-to";
+import { useCurrentPath } from "@/lib/use-current-path";
 
 /**
  * ÖNCELİK 4 — Yoklama Takvimi. Öğrenci detayında (admin/öğretmen düzenleyebilir)
@@ -724,7 +726,7 @@ export function AttendanceCalendarPanel({
       </div>
 
       {error ? (
-        <p className="rounded-md bg-[#f8ecec] px-3 py-2 text-xs font-medium text-[#6b2424]" role="alert">
+        <p className="rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-xs font-medium text-[var(--color-danger)]" role="alert">
           {error}
         </p>
       ) : null}
@@ -752,12 +754,12 @@ export function AttendanceCalendarPanel({
       ) : null}
 
       {loadError ? (
-        <div className="flex items-center justify-between gap-3 rounded-md bg-[#f8ecec] px-3 py-2 text-xs font-medium text-[#6b2424]" role="alert">
+        <div className="flex items-center justify-between gap-3 rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-xs font-medium text-[var(--color-danger)]" role="alert">
           <span>Takvim verisi yüklenemedi. Bağlantınızı kontrol edip tekrar deneyin.</span>
           <button
             type="button"
             onClick={() => runLoadMonths()}
-            className="rounded-md border border-[#6b2424] px-2 py-1 text-[11px] font-semibold hover:bg-[#f1dede]"
+            className="rounded-md border border-[var(--color-danger)] px-2 py-1 text-[11px] font-semibold hover:bg-[var(--color-danger-soft)]"
           >
             Tekrar dene
           </button>
@@ -826,11 +828,12 @@ export function AttendanceCalendarPanel({
                     <button
                       type="button"
                       disabled={savingMonth === key}
+                      aria-busy={savingMonth === key || undefined}
                       onClick={() => void onSaveAmount(key)}
                       title="Bu ayın ödemesini girilen tutar/tarih/yöntemle tahsil edilmiş (Ödendi) olarak kaydeder."
-                      className="rounded-md border border-stone-300 bg-[var(--color-surface)] px-2 py-1 text-[11px] font-semibold text-stone-800 hover:border-[#A56A00] hover:bg-[#fbf6ee] disabled:opacity-50"
+                      className="rounded-md border border-[var(--color-primary)] bg-[var(--color-primary-soft)] px-2.5 py-1 text-[11px] font-semibold text-[var(--color-primary-soft-text)] hover:bg-[var(--color-primary)] hover:text-[var(--color-text-inverted)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-focus-ring)] disabled:cursor-wait disabled:opacity-70"
                     >
-                      {savingMonth === key ? "…" : "Kaydet"}
+                      {savingMonth === key ? "Kaydediliyor…" : "Kaydet"}
                     </button>
                   </div>
                 ) : null}
@@ -980,6 +983,7 @@ function DayDetail({
   onLessonStatusChange: (lessonId: string, flag: "attended" | "processed" | "makeup" | "absent" | "excused" | null) => void;
   onLessonOpsSettled: (lessonId: string) => void;
 }) {
+  const currentPath = useCurrentPath();
   // Takvimden tahsilat: yoklama statüsüyle (Geldi/İşlendi/Telafi) ZORLA
   // bağlanmaz — ayrı bir kavramdır. Ancak mevcut iş kuralı gereği tahsilat
   // yalnızca kapalı OLMAYAN bir günde, aktif bir öğrenci için, admin/yönetici
@@ -995,7 +999,7 @@ function DayDetail({
           <button
             type="button"
             onClick={() => void onToggleOverride(day)}
-            className="rounded-md border border-stone-300 bg-[var(--color-surface)] px-2 py-1 text-[11px] font-semibold text-stone-800 hover:border-[#A56A00] hover:bg-[#fbf6ee]"
+            className="rounded-md border border-stone-300 bg-[var(--color-surface)] px-2 py-1 text-[11px] font-semibold text-stone-800 hover:border-[var(--color-primary)] hover:bg-[var(--color-surface-muted)]"
           >
             {day.status === "closed" ? "Zorla Aç" : "Kapat"}
           </button>
@@ -1075,7 +1079,7 @@ function DayDetail({
                         Tahsil edildi — {formatMoneyTL(p.amount)}
                       </span>
                       <Link
-                        href={`/makbuz/${p.paymentId}`}
+                        href={withReturnTo(`/makbuz/${p.paymentId}`, currentPath)}
                         className="font-medium text-[var(--color-primary)] hover:underline"
                       >
                         Makbuz →

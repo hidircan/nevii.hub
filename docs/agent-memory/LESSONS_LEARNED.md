@@ -1183,3 +1183,18 @@ aynı veriyi aynı yoldan mı okuyor?" diye bak.
   her panel isteğinde `prisma.school.findFirst()` P2022 ColumnNotFound, tarayıcıda React #441 / "Panel hatası".
   UAT belgesine "uygulanmalı" yazmak yetmedi. **Kural:** migration'lı değişiklikte sıra = onay → test DB'ye uygula → push.
   Koruma: `test` build'inde `scripts/check-pending-migrations.ts` (salt okunur) bekleyen migration varsa build'i durdurur.
+
+### 2026-09-28 (9. tur) — yamaya `undefined` anahtar koymak json store'da alanı siler
+- Oda düzenlemede `name: rawPatch.name?.trim()` her istekte yamaya girdi; yalnız pasife alma isteği json/memory
+  store'daki `{...oda, ...yama}` ile odanın ADINI sildi (db'de Prisma `undefined`'ı yok saydığı için görünmezdi).
+  Kural: yamaya yalnız gönderilen alanı koy (`...(x !== undefined ? { x } : {})`); regresyonu mevcut 8. tur testi yakaladı.
+
+### 2026-09-28 (9. tur) — tema paletini yeniden eşlemek yazdırma yüzeyine sızar
+- Obsidyende Tailwind palet değişkenleri yeniden eşlenince, `printSurfaceCss` yalnız tema TOKEN'larını sabitlediği için
+  baskı sayfalarındaki `text-slate-*`/rozet/`print:bg-white` açık tona dönerdi (boş PDF sınıfı). Global renk değişikliğinde
+  yazdırma rotalarını ayrıca sabitle (`.print-light-palette`) ve önce/sonra axe ölçümüyle doğrula.
+
+### 2026-09-28 (9. tur) — tema geçişinde çekilen ekran görüntüsü yanlış alarm verir
+- `button`/`[role=button]`'da 180 ms `background-color` geçişi var; temayı sayfa içinde değiştirip hemen çekilen görüntü
+  kartları/düğmeleri açık gri gösterdi. Karar vermeden önce hesaplanmış stili ölç veya geçiş bitince çek.
+

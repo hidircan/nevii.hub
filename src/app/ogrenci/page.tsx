@@ -401,7 +401,7 @@ export default async function OgrenciPortalPage({
                       <p className="text-sm font-semibold text-[var(--color-text)]">{formatDate(day.toISOString(), "EEEE d MMM")}</p>
                       <div className="flex items-center gap-1.5">
                         {dayStatus.status === "closed" ? (
-                          <span className="rounded-full bg-black px-2 py-0.5 text-[10px] font-semibold text-white" title={dayStatus.label}>
+                          <span className="rounded-full bg-black px-2 py-0.5 text-[10px] font-semibold text-[#fff]" title={dayStatus.label}>
                             Kapalı
                           </span>
                         ) : null}

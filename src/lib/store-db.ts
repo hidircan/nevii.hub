@@ -1,3 +1,4 @@
+import { collectedAmountOf } from "./payment-profile";
 import {
   applyLessonRevision,
   planLessonDeletion,
@@ -187,8 +188,15 @@ async function assertStudentMakeupQuotaTx(
   const termFallback = (student?.termType as "guz" | "yaz" | null) ?? "guz";
   const sourceLesson = await tx.lesson.findFirst({
     where: { id: sourceLessonId, tenantId },
-    select: { startAt: true, term: true, academicYearStart: true },
+    select: { startAt: true, term: true, academicYearStart: true, disruptionSource: true },
   });
+  const { isQuotaExemptSource } = await import("./lesson-disruption");
+  // 9. tur — öğretmen/kurum kaynaklı telafi kişisel hakka tabi değil (saf katmanla aynı kural).
+  if (isQuotaExemptSource(sourceLesson?.disruptionSource)) {
+    const school = await tx.school.findFirst({ where: { id: schoolId, tenantId } });
+    if (!school) throw new Error("Kurum bulunamadı");
+    return school;
+  }
   const period = resolveLessonAcademicPeriod(
     {
       startAt: (sourceLesson?.startAt ?? new Date()).toISOString(),
@@ -206,13 +214,13 @@ async function assertStudentMakeupQuotaTx(
   const candidateLessons = candidateLessonIds.length
     ? await tx.lesson.findMany({
         where: { id: { in: candidateLessonIds }, tenantId },
-        select: { id: true, startAt: true, term: true, academicYearStart: true },
+        select: { id: true, startAt: true, term: true, academicYearStart: true, disruptionSource: true },
       })
     : [];
   const lessonById = new Map(candidateLessons.map((l) => [l.id, l]));
   const used = candidates.filter((c) => {
     const l = lessonById.get(c.sourceLessonId);
-    if (!l) return false;
+    if (!l || isQuotaExemptSource(l.disruptionSource)) return false;
     const p = resolveLessonAcademicPeriod(
       { startAt: l.startAt.toISOString(), term: (l.term as "guz" | "yaz" | null) ?? undefined, academicYearStart: l.academicYearStart ?? undefined },
       termFallback
@@ -482,6 +490,13 @@ function mapSchoolToAppData(school: PrismaSchoolWithRelations): AppData {
         (lesson as { teacherAttendanceAt?: Date | null }).teacherAttendanceAt?.toISOString?.() ?? undefined,
       teacherAttendanceBy: (lesson as { teacherAttendanceBy?: string | null }).teacherAttendanceBy ?? undefined,
       teacherAttendanceNote: (lesson as { teacherAttendanceNote?: string | null }).teacherAttendanceNote ?? undefined,
+      disruptionSource: (() => {
+        const v = (lesson as { disruptionSource?: string | null }).disruptionSource;
+        return v === "teacher" || v === "institution" || v === "student" || v === "other" ? v : undefined;
+      })(),
+      disruptionNote: (lesson as { disruptionNote?: string | null }).disruptionNote ?? undefined,
+      disruptionAt: (lesson as { disruptionAt?: Date | null }).disruptionAt?.toISOString?.() ?? undefined,
+      disruptionBy: (lesson as { disruptionBy?: string | null }).disruptionBy ?? undefined,
       availabilityOverride: (() => {
         const by = (lesson as { availabilityOverrideBy?: string | null }).availabilityOverrideBy;
         const at = (lesson as { availabilityOverrideAt?: Date | null }).availabilityOverrideAt;
@@ -583,9 +598,7 @@ export function getDashboardStats(data: AppData) {
   ).length;
   const confirmedMakeup = data.makeupRequests.filter((m) => m.status === "confirmed").length;
   const overduePayments = data.payments.filter((p) => p.status === "overdue" || p.status === "partial");
-  const revenuePaid = data.payments
-    .filter((p) => p.status === "paid")
-    .reduce((s, p) => s + p.paidAmount, 0);
+  const revenuePaid = data.payments.reduce((s, p) => s + collectedAmountOf(p), 0);
   const revenueDue = data.payments
     .filter((p) => isOutstandingPaymentStatus(p.status))
     .reduce((s, p) => s + (p.amount - p.paidAmount), 0);
@@ -2241,6 +2254,16 @@ async function persistLessonOpsResult(
     studentExcusedBy: L.studentExcusedBy ?? null,
     status: L.status,
     actualEndAt: L.actualEndAt ? new Date(L.actualEndAt) : undefined,
+    // 9. tur — Telafi ile birlikte gelen kaynak AYNI transaction'da yazılır; kota
+    // kontrolü (assertStudentMakeupQuotaTx) bu satırdan sonra okur.
+    ...(L.disruptionSource
+      ? {
+          disruptionSource: L.disruptionSource,
+          disruptionNote: L.disruptionNote ?? null,
+          disruptionAt: L.disruptionAt ? new Date(L.disruptionAt) : null,
+          disruptionBy: L.disruptionBy ?? null,
+        }
+      : {}),
   };
 
   if (flag === "makeup") {
@@ -2401,13 +2424,14 @@ export async function switchLessonOpsFlagLive(
   lessonId: string,
   flag: LessonOpsFlag,
   actorUserId: string,
-  reason?: string
+  reason?: string,
+  disruption?: import("./lesson-disruption").LessonDisruptionInput
 ): Promise<ApplyLessonOpsResult> {
   logger.info("switchLessonOpsFlagLive", lessonId, flag);
   // Tam tenant okuması yerine DAR dilim (bkz. readLessonScope / lesson-scope.ts).
   const data = await readLessonScope(lessonId);
   if (!data) return { ok: false, message: "Ders bulunamadı." };
-  const result = switchLessonOpsFlag(data, lessonId, flag, actorUserId, undefined, reason);
+  const result = switchLessonOpsFlag(data, lessonId, flag, actorUserId, undefined, reason, disruption);
   return persistLessonOpsResult(lessonId, flag, result);
 }
 
@@ -3394,4 +3418,73 @@ export async function seedDemoRecords(input: DemoSeedInput): Promise<DemoSeedRes
   }
 
   return { lessonIds };
+}
+
+/** 9. tur — İptal/Telafi kaynağını sonradan belirleme/düzeltme. */
+export async function setLessonDisruptionLive(
+  lessonId: string,
+  patch: import("./lesson-disruption").LessonDisruptionPatch
+): Promise<import("./types").Lesson | null> {
+  const tid = requireTenantId();
+  const res = await prisma.lesson.updateMany({
+    where: { id: lessonId, tenantId: tid },
+    data: {
+      disruptionSource: patch.disruptionSource ?? null,
+      disruptionNote: patch.disruptionNote ?? null,
+      disruptionAt: patch.disruptionAt ? new Date(patch.disruptionAt) : null,
+      disruptionBy: patch.disruptionBy ?? null,
+    },
+  });
+  if (res.count === 0) return null;
+  const data = await readLessonScope(lessonId);
+  return data?.lessons.find((l) => l.id === lessonId) ?? null;
+}
+
+/**
+ * 9. tur — kullanılmamış paketi kalıcı siler. Karar packages.ts'deki saf kuralla, TEK
+ * transaction içinde güncel veriden verilir; `updatedAt` eşleşmesi eşzamanlı düzenlemeyi,
+ * Student.packageId FK'sı ise karar ile silme arasındaki yarışı (P2003) yakalar.
+ */
+export async function deletePackage(packageId: string, expectedUpdatedAt: string): Promise<import("./packages").PackageDeleteResult> {
+  const tid = requireTenantId();
+  const { computePackageDeletionImpact } = await import("./packages");
+  try {
+    const outcome = await prisma.$transaction(async (tx) => {
+      const pkg = await tx.package.findFirst({ where: { id: packageId, tenantId: tid } });
+      if (!pkg) return { ok: false as const, code: "NOT_FOUND" as const, message: "Paket bulunamadı; başka biri silmiş olabilir. Listeyi yenileyin." };
+      if (pkg.updatedAt.toISOString() !== new Date(expectedUpdatedAt).toISOString()) {
+        return {
+          ok: false as const,
+          code: "CHANGED" as const,
+          message: "Paket, siz onaylarken başka biri tarafından değiştirildi. Silinmedi; sayfayı yenileyip yeniden inceleyin.",
+        };
+      }
+      const students = await tx.student.findMany({
+        where: { tenantId: tid, OR: [{ packageId }, { packageId: null }] },
+        select: { id: true, packageId: true, packageName: true, active: true, deletedAt: true },
+      });
+      const impact = computePackageDeletionImpact(
+        {
+          packages: [{ id: pkg.id, title: pkg.title, status: pkg.status, updatedAt: pkg.updatedAt.toISOString() } as never],
+          students: students.map((st) => ({
+            ...st,
+            packageId: st.packageId ?? undefined,
+            deletedAt: st.deletedAt?.toISOString(),
+          })) as never,
+        },
+        packageId
+      );
+      if (!impact?.hardDeleteEligible) {
+        return { ok: false as const, code: "IN_USE" as const, message: impact?.blockReason ?? "Paket kullanımda; silinemez." };
+      }
+      await tx.package.deleteMany({ where: { id: packageId, tenantId: tid } });
+      return { ok: true as const };
+    });
+    return outcome.ok ? { ok: true, data: await readData() } : outcome;
+  } catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2003") {
+      return { ok: false, code: "IN_USE", message: "Paket bu sırada bir öğrenciye atandı; silinmedi. Arşivlemeyi kullanın." };
+    }
+    throw e;
+  }
 }

@@ -80,6 +80,7 @@ type StoreApi = {
     packageId: string,
     patch: import("./packages").PackagePatch
   ) => Promise<import("./packages").PackageMutationResult>;
+  deletePackage: (packageId: string, expectedUpdatedAt: string) => Promise<import("./packages").PackageDeleteResult>;
   addDiscountCampaign: (
     input: import("./discount-campaigns").DiscountCampaignInput
   ) => Promise<import("./discount-campaigns").DiscountCampaignMutationResult>;
@@ -191,8 +192,13 @@ type StoreApi = {
     lessonId: string,
     flag: import("./lesson-ops").LessonOpsFlag,
     actorUserId: string,
-    reason?: string
+    reason?: string,
+    disruption?: import("./lesson-disruption").LessonDisruptionInput
   ) => Promise<import("./lesson-ops").ApplyLessonOpsResult>;
+  setLessonDisruptionLive: (
+    lessonId: string,
+    patch: import("./lesson-disruption").LessonDisruptionPatch
+  ) => Promise<import("./types").Lesson | null>;
   /** Faz 2 — öğretmen yoklaması, öğrenci ops bayraklarından tamamen ayrı bir yol. */
   markTeacherAttendanceLive: (
     lessonId: string,
@@ -456,6 +462,10 @@ export async function updatePackage(
   return withTenantScope(() => store.updatePackage(packageId, patch));
 }
 
+export async function deletePackage(packageId: string, expectedUpdatedAt: string): Promise<import("./packages").PackageDeleteResult> {
+  return withTenantScope(() => store.deletePackage(packageId, expectedUpdatedAt));
+}
+
 export async function addDiscountCampaign(
   input: import("./discount-campaigns").DiscountCampaignInput
 ): Promise<import("./discount-campaigns").DiscountCampaignMutationResult> {
@@ -603,9 +613,18 @@ export async function switchLessonOpsFlagLive(
   lessonId: string,
   flag: import("./lesson-ops").LessonOpsFlag,
   actorUserId: string,
-  reason?: string
+  reason?: string,
+  disruption?: import("./lesson-disruption").LessonDisruptionInput
 ): Promise<import("./lesson-ops").ApplyLessonOpsResult> {
-  return withTenantScope(() => store.switchLessonOpsFlagLive(lessonId, flag, actorUserId, reason));
+  return withTenantScope(() => store.switchLessonOpsFlagLive(lessonId, flag, actorUserId, reason, disruption));
+}
+
+/** 9. tur — İptal/Telafi kaynağı (öğretmen katılımından ve ders statüsünden ayrı alan). */
+export async function setLessonDisruptionLive(
+  lessonId: string,
+  patch: import("./lesson-disruption").LessonDisruptionPatch
+): Promise<import("./types").Lesson | null> {
+  return withTenantScope(() => store.setLessonDisruptionLive(lessonId, patch));
 }
 
 /** Faz 2 — öğretmen yoklaması, öğrenci ops bayraklarından tamamen ayrı bir yol. */
