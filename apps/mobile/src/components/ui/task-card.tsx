@@ -1,4 +1,5 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import { useLocale } from "../../i18n/locale-context";
 import { isPast, relativeDayLabel } from "../../lib/date";
 import { useTheme } from "../../theme/theme-context";
 import { useNow } from "../../hooks/use-now";
@@ -7,11 +8,11 @@ import { Icon } from "./icon";
 import { StatusBadge, type BadgeTone } from "./status-badge";
 import type { TaskItem } from "../../types/api";
 
-const PRIORITY_MAP: Record<string, { label: string; tone: BadgeTone }> = {
-  URGENT: { label: "Acil", tone: "danger" },
-  HIGH: { label: "Yüksek", tone: "warning" },
-  MEDIUM: { label: "Orta", tone: "info" },
-  LOW: { label: "Düşük", tone: "neutral" },
+const PRIORITY_KEY: Record<string, { key: string; tone: BadgeTone }> = {
+  URGENT: { key: "ui.priorityUrgent", tone: "danger" },
+  HIGH: { key: "ui.priorityHigh", tone: "warning" },
+  MEDIUM: { key: "ui.priorityMedium", tone: "info" },
+  LOW: { key: "ui.priorityLow", tone: "neutral" },
 };
 
 type Props = {
@@ -23,7 +24,13 @@ type Props = {
 export function TaskCard({ task, onPress, onComplete }: Props) {
   const t = useTheme();
   const now = useNow();
-  const priority = task.priority ? PRIORITY_MAP[task.priority] ?? { label: task.priority, tone: "neutral" as BadgeTone } : null;
+  const { t: tr } = useLocale();
+  const priorityEntry = task.priority ? PRIORITY_KEY[task.priority] : undefined;
+  const priority = task.priority
+    ? priorityEntry
+      ? { label: tr(priorityEntry.key), tone: priorityEntry.tone }
+      : { label: task.priority, tone: "neutral" as BadgeTone }
+    : null;
   const isDone = task.status === "COMPLETED" || task.status === "ARCHIVED";
   const overdue = !isDone && task.dueDate ? isPast(task.dueDate, now) : false;
 
@@ -33,7 +40,7 @@ export function TaskCard({ task, onPress, onComplete }: Props) {
         {onComplete ? (
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={isDone ? "Tamamlandı" : "Tamamla"}
+            accessibilityLabel={isDone ? tr("ui.done") : tr("ui.markDone")}
             onPress={onComplete}
             hitSlop={8}
             style={[

@@ -1,4 +1,6 @@
 import { StyleSheet, Text, View } from "react-native";
+import { useLocale } from "../i18n/locale-context";
+import { getActiveLocale } from "../i18n/locale-store";
 import { useTheme } from "../theme/theme-context";
 
 /**
@@ -8,17 +10,20 @@ import { useTheme } from "../theme/theme-context";
  */
 export function CacheStatus({ cachedAt, isStale }: { cachedAt: string | null; isStale: boolean }) {
   const t = useTheme();
+  const { t: tr } = useLocale();
   if (!cachedAt) return null;
+  const tag = getActiveLocale() === "en" ? "en-US" : "tr-TR";
   const ms = Date.parse(cachedAt);
   const label = Number.isFinite(ms)
-    ? new Date(ms).toLocaleString("tr-TR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })
+    ? new Date(ms).toLocaleString(tag, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })
     : cachedAt;
+  const staleSuffix = isStale ? `, ${tr("ui.mayBeStale")}` : "";
   return (
-    <View style={styles.row} accessibilityLabel={`Son güncelleme ${label}${isStale ? ", güncel olmayabilir" : ""}`}>
+    <View style={styles.row} accessibilityLabel={`${tr("ui.lastUpdate", { label })}${staleSuffix}`}>
       <View style={[styles.dot, { backgroundColor: isStale ? t.colors.warning : t.colors.success }]} />
       <Text style={[t.typography.caption, { color: t.colors.textFaint }]} numberOfLines={1}>
-        Son güncelleme: {label}
-        {isStale ? " · güncel olmayabilir" : ""}
+        {tr("ui.lastUpdate", { label })}
+        {isStale ? ` · ${tr("ui.mayBeStale")}` : ""}
       </Text>
     </View>
   );

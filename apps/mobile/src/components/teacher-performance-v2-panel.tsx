@@ -1,6 +1,7 @@
 import { Text, View } from "react-native";
 import { Card, ErrorState, LoadingSkeleton, ProgressBar, SectionHeader, StatusBadge } from "./ui";
 import { useApiGet } from "../hooks/use-api";
+import { useLocale } from "../i18n/locale-context";
 import { format } from "../lib/date";
 import { useTheme } from "../theme/theme-context";
 import type { PerformanceComponentV2, TeacherPerformanceV2Response } from "../types/api";
@@ -20,6 +21,7 @@ function pct(component: PerformanceComponentV2): string | null {
 
 function ComponentRow({ label, component, detail }: { label: string; component: PerformanceComponentV2; detail: string }) {
   const t = useTheme();
+  const { t: tr } = useLocale();
   const value = pct(component);
   return (
     <View style={{ marginTop: 14 }}>
@@ -28,7 +30,7 @@ function ComponentRow({ label, component, detail }: { label: string; component: 
         {value ? (
           <Text style={[t.typography.bodyStrong, { color: t.colors.text, fontWeight: "700" }]}>{value}</Text>
         ) : (
-          <StatusBadge label="Yetersiz veri" tone="neutral" />
+          <StatusBadge label={tr("perf.insufficient")} tone="neutral" />
         )}
       </View>
       <View style={{ marginTop: 8 }}>
@@ -42,6 +44,7 @@ function ComponentRow({ label, component, detail }: { label: string; component: 
 /** GET /api/v1/teachers/:teacherId/performance-v2 (son 30 gün) — skor + 4 bileşen. Admin öğretmen detayı ve öğretmenin kendi hesabım ekranı arasında paylaşılır. */
 export function TeacherPerformanceV2Panel({ teacherId }: { teacherId: string }) {
   const t = useTheme();
+  const { t: tr } = useLocale();
   const res = useApiGet<TeacherPerformanceV2Response>(
     `/api/v1/teachers/${teacherId}/performance-v2?periodStart=${periodStart}&periodEnd=${periodEnd}`
   );
@@ -55,11 +58,11 @@ export function TeacherPerformanceV2Panel({ teacherId }: { teacherId: string }) 
   return (
     <>
       <Card>
-        <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>Son 30 gün · {periodStart} — {periodEnd}</Text>
+        <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>{tr("perf.last30Days")} · {periodStart} — {periodEnd}</Text>
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 8 }}>
-          <Text style={[t.typography.cardTitle, { color: t.colors.text }]}>Toplam skor</Text>
+          <Text style={[t.typography.cardTitle, { color: t.colors.text }]}>{tr("perf.totalScore")}</Text>
           {r.score === null ? (
-            <StatusBadge label="Yetersiz veri" tone="neutral" />
+            <StatusBadge label={tr("perf.insufficient")} tone="neutral" />
           ) : (
             <StatusBadge label={`${r.score}/100`} tone={scoreTone(r.score)} />
           )}
@@ -70,54 +73,62 @@ export function TeacherPerformanceV2Panel({ teacherId }: { teacherId: string }) 
           </View>
         ) : (
           <Text style={[t.typography.body, { color: t.colors.textMuted, marginTop: 8 }]}>
-            Bu dönemde hiçbir bileşen için yeterli veri yok.
+            {tr("perf.noComponentData")}
           </Text>
         )}
       </Card>
 
-      <SectionHeader title="Bileşenler" />
+      <SectionHeader title={tr("perf.components")} />
       <Card>
         <ComponentRow
-          label="Öğretmen yoklama oranı"
+          label={tr("perf.attendanceRate")}
           component={attendance}
           detail={
             attendance.hasData
-              ? `${attendance.attendedCount}/${attendance.plannedLessonCount} ders geldi · ${attendance.absentCount} gelmedi · ${attendance.excusedCount} mazeretli`
-              : "Bu dönemde işaretlenmiş öğretmen yoklaması yok."
+              ? tr("perf.attendanceDetail", { a: attendance.attendedCount, p: attendance.plannedLessonCount, b: attendance.absentCount, e: attendance.excusedCount })
+              : tr("perf.noMarkedAttendance")
           }
         />
         <View style={{ height: 1, backgroundColor: t.colors.divider, marginVertical: 4 }} />
         <ComponentRow
-          label="Veli/öğrenci geri bildirim ortalaması"
+          label={tr("perf.feedbackAvg")}
           component={feedback}
           detail={
             feedback.hasData
-              ? `${feedback.responseCount} yanıt · anonimlik eşiği karşılandı`
+              ? tr("perf.feedbackOk", { n: feedback.responseCount })
               : feedback.responseCount > 0
-                ? `${feedback.responseCount} yanıt var, anonimlik eşiği için yetersiz`
-                : "Bu dönemde geri bildirim yok."
+                ? tr("perf.feedbackLow", { n: feedback.responseCount })
+                : tr("perf.noFeedback")
           }
         />
         <View style={{ height: 1, backgroundColor: t.colors.divider, marginVertical: 4 }} />
         <ComponentRow
-          label="Görev tamamlama / zamanında tamamlama"
+          label={tr("perf.taskCompletion")}
           component={tasks}
           detail={
             tasks.hasData
-              ? `${tasks.completedCount}/${tasks.totalAssigned} tamamlandı · ${tasks.overdueCount} gecikmiş · zamanında: ${
-                  tasks.onTimeRate !== null ? `%${Math.round(tasks.onTimeRate * 100)}` : "—"
-                }`
-              : "Bu dönemde atanmış görev yok."
+              ? tr("perf.taskDetail", {
+                  c: tasks.completedCount,
+                  t: tasks.totalAssigned,
+                  o: tasks.overdueCount,
+                  r: tasks.onTimeRate !== null ? `%${Math.round(tasks.onTimeRate * 100)}` : "—",
+                })
+              : tr("perf.noTasks")
           }
         />
         <View style={{ height: 1, backgroundColor: t.colors.divider, marginVertical: 4 }} />
         <ComponentRow
-          label="Ders sonrası ödev verme oranı"
+          label={tr("perf.homeworkRate")}
           component={homework}
           detail={
             homework.hasData
-              ? `${homework.assignedCount}/${homework.eligibleLessonCount} uygun derste ödev verildi · ${homework.submittedCount} teslim edildi · ${homework.reviewedCount} incelendi`
-              : "Bu dönemde ödev verilmeye uygun işlenmiş ders yok."
+              ? tr("perf.homeworkDetail", {
+                  a: homework.assignedCount,
+                  e: homework.eligibleLessonCount,
+                  s: homework.submittedCount,
+                  r: homework.reviewedCount,
+                })
+              : tr("perf.noEligibleLessons")
           }
         />
       </Card>

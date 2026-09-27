@@ -1,6 +1,7 @@
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { useState } from "react";
 import { Platform, Pressable, Text, View } from "react-native";
+import { useLocale } from "../../i18n/locale-context";
 import { useTheme } from "../../theme/theme-context";
 import { shortDayMonth } from "../../lib/date";
 import { Icon } from "./icon";
@@ -14,8 +15,9 @@ type Props = {
 };
 
 /** Ekranlar arası ortak son-tarih seçici — metin girişi yerine native takvim (bkz. odevler/is-takip). */
-export function DueDateField({ label, value, onChange, minimumDate, placeholder = "Tarih seçin" }: Props) {
+export function DueDateField({ label, value, onChange, minimumDate, placeholder }: Props) {
   const t = useTheme();
+  const { t: tr } = useLocale();
   const [open, setOpen] = useState(false);
 
   return (
@@ -37,7 +39,7 @@ export function DueDateField({ label, value, onChange, minimumDate, placeholder 
       >
         <Icon name="calendar-outline" size={18} color={t.colors.textMuted} />
         <Text style={[t.typography.body, { color: value ? t.colors.text : t.colors.textMuted }]}>
-          {value ? `${shortDayMonth(value)} ${value.getFullYear()}` : placeholder}
+          {value ? `${shortDayMonth(value)} ${value.getFullYear()}` : (placeholder ?? tr("ui.pickDate"))}
         </Text>
       </Pressable>
       {open ? (

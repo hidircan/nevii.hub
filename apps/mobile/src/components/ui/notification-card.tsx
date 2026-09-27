@@ -1,4 +1,6 @@
 import { StyleSheet, Text, View } from "react-native";
+import { interpolate, lookup } from "../../i18n/locales";
+import { getActiveLocale } from "../../i18n/locale-store";
 import { useTheme } from "../../theme/theme-context";
 import { Card } from "./card";
 import { Icon, type IconName } from "./icon";
@@ -16,14 +18,15 @@ const CATEGORY_ICON: Record<string, IconName> = {
 
 function timeAgo(iso?: string): string {
   if (!iso) return "";
+  const locale = getActiveLocale();
   const diffMs = Date.now() - new Date(iso).getTime();
   const minutes = Math.floor(diffMs / 60_000);
-  if (minutes < 1) return "Şimdi";
-  if (minutes < 60) return `${minutes} dk önce`;
+  if (minutes < 1) return lookup(locale, "ui.now");
+  if (minutes < 60) return interpolate(lookup(locale, "ui.minutesAgo"), { n: minutes });
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} sa önce`;
+  if (hours < 24) return interpolate(lookup(locale, "ui.hoursAgo"), { n: hours });
   const days = Math.floor(hours / 24);
-  return `${days} gün önce`;
+  return interpolate(lookup(locale, "ui.daysAgo"), { n: days });
 }
 
 type Props = {
@@ -50,7 +53,7 @@ export function NotificationCard({ notification, onPress }: Props) {
             ]}
             numberOfLines={2}
           >
-            {notification.title ?? notification.category ?? "Bildirim"}
+            {notification.title ?? notification.category ?? lookup(getActiveLocale(), "ui.notificationFallback")}
           </Text>
           {notification.body ? (
             <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]} numberOfLines={2}>

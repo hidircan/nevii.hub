@@ -1,4 +1,5 @@
 import { Pressable, StyleSheet, TextInput, View } from "react-native";
+import { useLocale } from "../../i18n/locale-context";
 import { useTheme } from "../../theme/theme-context";
 import { Icon } from "./icon";
 import { fonts } from "../../theme/tokens";
@@ -9,15 +10,16 @@ type Props = {
   placeholder?: string;
 };
 
-export function SearchInput({ value, onChangeText, placeholder = "Ara" }: Props) {
+export function SearchInput({ value, onChangeText, placeholder }: Props) {
   const t = useTheme();
+  const { t: tr } = useLocale();
   return (
     <View style={[styles.container, { backgroundColor: t.colors.bgMuted, borderColor: t.colors.border }]}>
       <Icon name="search" size={18} color={t.colors.textMuted} />
       <TextInput
         value={value}
         onChangeText={onChangeText}
-        placeholder={placeholder}
+        placeholder={placeholder ?? tr("ui.searchPlaceholder")}
         placeholderTextColor={t.colors.textMuted}
         style={[styles.input, { color: t.colors.text }]}
         autoCorrect={false}
@@ -25,7 +27,7 @@ export function SearchInput({ value, onChangeText, placeholder = "Ara" }: Props)
         returnKeyType="search"
       />
       {value.length > 0 ? (
-        <Pressable accessibilityLabel="Aramayı temizle" onPress={() => onChangeText("")} hitSlop={8}>
+        <Pressable accessibilityLabel={tr("ui.clearSearch")} onPress={() => onChangeText("")} hitSlop={8}>
           <Icon name="close-circle" size={18} color={t.colors.textMuted} />
         </Pressable>
       ) : null}

@@ -1,6 +1,7 @@
 import { useRouter } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Avatar, Icon } from "../components/ui";
+import { useLocale } from "../i18n/locale-context";
 import { useTheme } from "../theme/theme-context";
 import { useChildSelection } from "./student-context";
 
@@ -11,6 +12,7 @@ import { useChildSelection } from "./student-context";
  */
 export function ChildSwitcher({ childName }: { childName?: string }) {
   const t = useTheme();
+  const { t: tr } = useLocale();
   const router = useRouter();
   const { isMulti, children, ready } = useChildSelection();
 
@@ -19,19 +21,19 @@ export function ChildSwitcher({ childName }: { childName?: string }) {
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={childName ? `Aktif öğrenci: ${childName}. Değiştirmek için dokunun.` : "Öğrenci değiştir"}
-      accessibilityHint={`${children.length} öğrenciden birini seçin`}
+      accessibilityLabel={childName ? tr("ui.activeStudent", { name: childName }) : tr("ui.switchStudent")}
+      accessibilityHint={tr("ui.pickOneOf", { n: children.length })}
       onPress={() => router.push("/select-child")}
       style={({ pressed }) => [
         styles.row,
         { backgroundColor: t.colors.bgRaised, borderColor: t.colors.border, opacity: pressed ? 0.7 : 1 },
       ]}
     >
-      <Avatar name={childName ?? "Öğrenci"} size={40} />
+      <Avatar name={childName ?? tr("selectChild.fallbackName")} size={40} />
       <View style={styles.text}>
-        <Text style={[t.typography.label, { color: t.colors.textFaint }]}>TAKİP EDİLEN ÖĞRENCİ</Text>
+        <Text style={[t.typography.label, { color: t.colors.textFaint }]}>{tr("ui.followedStudent")}</Text>
         <Text style={[t.typography.bodyStrong, { color: t.colors.text, marginTop: 1 }]} numberOfLines={1}>
-          {childName ?? "Öğrenci seçin"}
+          {childName ?? tr("ui.chooseStudent")}
         </Text>
       </View>
       <Icon name="swap-horizontal-outline" size={20} color={t.colors.primary} />

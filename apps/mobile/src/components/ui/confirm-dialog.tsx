@@ -1,4 +1,5 @@
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useLocale } from "../../i18n/locale-context";
 import { useTheme } from "../../theme/theme-context";
 import { Button } from "./button";
 
@@ -17,13 +18,14 @@ export function ConfirmDialog({
   visible,
   title,
   message,
-  confirmLabel = "Onayla",
-  cancelLabel = "Vazgeç",
+  confirmLabel,
+  cancelLabel,
   danger,
   onConfirm,
   onCancel,
 }: Props) {
   const t = useTheme();
+  const { t: tr } = useLocale();
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
       <Pressable style={[styles.backdrop, { backgroundColor: t.colors.overlay }]} onPress={onCancel}>
@@ -34,8 +36,8 @@ export function ConfirmDialog({
             {message ? <Text style={[t.typography.body, { color: t.colors.textMuted, marginTop: 8 }]}>{message}</Text> : null}
           </ScrollView>
           <View style={styles.actions}>
-            <Button label={cancelLabel} onPress={onCancel} variant="secondary" style={styles.actionButton} />
-            <Button label={confirmLabel} onPress={onConfirm} variant={danger ? "danger" : "primary"} style={styles.actionButton} />
+            <Button label={cancelLabel ?? tr("ui.cancelDefault")} onPress={onCancel} variant="secondary" style={styles.actionButton} />
+            <Button label={confirmLabel ?? tr("ui.confirmDefault")} onPress={onConfirm} variant={danger ? "danger" : "primary"} style={styles.actionButton} />
           </View>
         </Pressable>
       </Pressable>

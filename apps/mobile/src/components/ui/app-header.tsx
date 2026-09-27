@@ -1,5 +1,6 @@
 import { useRouter } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import { useLocale } from "../../i18n/locale-context";
 import { useTheme } from "../../theme/theme-context";
 import { goBack } from "../../lib/navigation";
 import { Icon } from "./icon";
@@ -29,13 +30,14 @@ type Props = {
 /** Ortak ekran üstlüğü — geri butonu, başlık/alt başlık ve sağda bildirim zili (rozetli) veya özel aksiyon. */
 export function AppHeader({ title, subtitle, showBack, backFallback, showNotifications = true, showAccount, right }: Props) {
   const t = useTheme();
+  const { t: tr } = useLocale();
   const router = useRouter();
   const unread = useUnreadNotificationCount(showNotifications);
 
   const bell = showNotifications ? (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel="Bildirimler"
+      accessibilityLabel={tr("notifications.title")}
       onPress={() => router.push("/notifications")}
       hitSlop={8}
       style={[styles.iconButton, { backgroundColor: t.colors.bgMuted }]}
@@ -55,7 +57,7 @@ export function AppHeader({ title, subtitle, showBack, backFallback, showNotific
         {showBack ? (
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Geri"
+            accessibilityLabel={tr("common.back")}
             onPress={() => goBack(router, backFallback)}
             hitSlop={8}
             style={[styles.iconButton, { backgroundColor: t.colors.bgMuted }]}
@@ -83,8 +85,8 @@ export function AppHeader({ title, subtitle, showBack, backFallback, showNotific
           {bell}
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Hesabım"
-            accessibilityHint="Profil, ayarlar ve hesap işlemleri"
+            accessibilityLabel={tr("ui.accountA11y")}
+            accessibilityHint={tr("ui.accountHint")}
             onPress={() => router.push(showAccount as never)}
             hitSlop={8}
             style={[styles.iconButton, { backgroundColor: t.colors.bgMuted }]}

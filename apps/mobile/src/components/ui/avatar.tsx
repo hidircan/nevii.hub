@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Image, StyleSheet, Text, View } from "react-native";
+import { lookup } from "../../i18n/locales";
+import { getActiveLocale } from "../../i18n/locale-store";
 import { useTheme } from "../../theme/theme-context";
 import { getAccessToken } from "../../auth/token-storage";
 import { API_BASE_URL } from "../../api/client";
@@ -85,8 +87,8 @@ export function Avatar({ name, size = 40, photoPath, onPhotoLoad, onPhotoError }
         }}
         onLoad={onPhotoLoad}
         // Kişinin fotoğrafı kimlik bilgisi taşır (dekoratif değil): ekran okuyucu adı okur.
-        alt={name.trim() || "Profil fotoğrafı"}
-        accessibilityLabel={name.trim() || "Profil fotoğrafı"}
+        alt={name.trim() || lookup(getActiveLocale(), "ui.profilePhoto")}
+        accessibilityLabel={name.trim() || lookup(getActiveLocale(), "ui.profilePhoto")}
       />
     );
   }
