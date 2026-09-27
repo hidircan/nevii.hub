@@ -1177,3 +1177,9 @@ aynı veriyi aynı yoldan mı okuyor?" diye bak.
   Şube uygunluğu için `grep "branchId ==="` yap; tek kural `teacherServesBranch`.
 - Öneri döngülerinde O(aday × ders) tarama + her çağrıda `new Intl.DateTimeFormat` → 41 sn. Döngüde çağrılan doğrulayıcıyı
   profil et; indeks/formatter önbelleği yeterli oldu.
+
+### 2026-09-27 (8. tur P0) — şema kodunu migration'dan önce yayına alma
+- `0934e2e` `Room.deletedAt` okuyan Prisma client'ı test'e gönderdi; `20260927090000_room_soft_delete` uygulanmamıştı →
+  her panel isteğinde `prisma.school.findFirst()` P2022 ColumnNotFound, tarayıcıda React #441 / "Panel hatası".
+  UAT belgesine "uygulanmalı" yazmak yetmedi. **Kural:** migration'lı değişiklikte sıra = onay → test DB'ye uygula → push.
+  Koruma: `test` build'inde `scripts/check-pending-migrations.ts` (salt okunur) bekleyen migration varsa build'i durdurur.

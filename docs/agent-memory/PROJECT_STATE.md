@@ -13,7 +13,8 @@ Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_20
 
 ## Güncel snapshot — 2026-09-27 (8. tur)
 - **Dal:** `feat/uat-round-8` (worktree `../nevii-hub-uat-round8`) → `test`. **Migration VAR (additive):**
-  `20260927090000_room_soft_delete` (Room.deletedAt) — test DB'ye owner onayıyla uygulanmalı. 7. tur migration'ı
+  `20260927090000_room_soft_delete` (Room.deletedAt) — **test DB'ye uygulandı 2026-09-27** (owner onayı; önce uygulanmadan
+  push edildiği için panel P2022 ile çöktü — bkz. LESSONS_LEARNED). `test` build'inde bekleyen migration kapısı var. 7. tur migration'ı
   (`20260926090000_trial_result_notes`) uygulandı (owner teyidi). Ayrıntı + UAT: `docs/testing/UAT_2026_09_27_ROUND_8.md`.
 - Kurum adı test DB'de **"Nilüfer Acar Müzik Akademi"** (Tenant+School, 2026-09-27 bu oturumda). Kodda sabit ad yok
   (yalnız demo seed). Geçmiş 105 imzasız sözleşme yeniden üretilmedi — hukuki karar owner'da.
@@ -33,7 +34,8 @@ Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_20
 ## Açık iş
 - Owner UAT: 8. tur (`UAT_2026_09_27_ROUND_8.md`); önceki turlar 4–7 belgeleri.
 - Owner kararları: Pınar Çelik/Olcay Özdemir'e Evka 3 (yapılmadı, test DB'de yalnız Erzene); ayrı test kurumu; geçmiş sözleşmeler
-  (hukuki); `room_soft_delete` migration onayı; denetim kaydına IP/cihaz yazımı (ayrı tur).
+  (hukuki); denetim kaydına IP/cihaz yazımı (ayrı tur).
+- `[neviios] platform store` sorgularında `statement timeout` (Vercel log, 2026-09-27) — panel çöküşüyle ilgisiz, incelenmedi.
 - Mobil: devralma onayı için yeni EAS build (ayrı tur; `apps/mobile/*` bu turda dokunulmadı).
 - Test verisinde, düzeltmeden önce takvimden alınmış tahsilatlar sözleşme taksiti yerine `monthly_plan` satırına yazılmış
   olabilir (taksit hâlâ ödenmemiş görünür). Otomatik düzeltme YAPILMADI — owner kararıyla salt-okunur tespit + elle eşleme.

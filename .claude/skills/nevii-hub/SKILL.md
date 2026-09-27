@@ -50,7 +50,9 @@ UI (`src/app/panel/*`, `src/components/*`) → server action (`src/lib/actions.t
 2. Hedef testler (`npx vitest run <dosya>`), sonra kapı: `npm run typecheck` → `npm run lint` → `npm test` (SON değişiklikten sonra) → `npx prisma validate` → `npm run build`.
    Tam paket kırmızıysa kaç test/neden yaz; "hepsi geçti" deme.
 3. Commit: yalnız kapsamdaki dosyalar; `Co-authored-by` + `Signed-off-by` (git config kullanıcısı). `apps/mobile/*`, `docs/notion-export/*`, `pazarlama/*` gibi ilgisiz dosyaları stage etme.
-4. `origin/test`'e push (önce `git fetch` + güncel test üstüne rebase) → Vercel deployment READY → `test.neviihub.com` yanıt veriyor mu kontrol et.
+4. **Migration içeren değişiklik:** push'tan ÖNCE owner onayıyla test DB'ye uygula (şema kodu migration'sız DB'ye giderse
+   panel P2022 ile çöker — 2026-09-27 P0). `test` build'i uygulanmamış migration varken `scripts/check-pending-migrations.ts`
+   ile durur. Sonra `origin/test`'e push (önce `git fetch` + güncel test üstüne rebase) → Vercel deployment READY → `test.neviihub.com` yanıt veriyor mu kontrol et.
    Tarayıcıda giriş yapıp tıklamadıysan "testte hazır" deme; owner'a UAT adımlarını ver.
 
 ## 6. Oturum sonu (kısa tut)
