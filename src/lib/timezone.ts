@@ -25,8 +25,23 @@ export function resolveAppTimezone(settings?: { timezone?: string } | null): str
  * üretir (elle ms offset hesaplama YOK, bu tür hesaplar DST sınırlarında
  * kolayca 1 saat/1 gün kayar).
  */
+/**
+ * 8. tur (G) — `Intl.DateTimeFormat` oluşturmak pahalıdır (öneri motorlarında
+ * on binlerce çağrı). Biçimlendirici (dil, dilim, seçenek) başına BİR kez kurulur.
+ */
+const formatterCache = new Map<string, Intl.DateTimeFormat>();
+function cachedFormatter(locale: string, options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
+  const key = `${locale}|${JSON.stringify(options)}`;
+  let f = formatterCache.get(key);
+  if (!f) {
+    f = new Intl.DateTimeFormat(locale, options);
+    formatterCache.set(key, f);
+  }
+  return f;
+}
+
 export function toZonedYmd(date: Date, timeZone: string): string {
-  const parts = new Intl.DateTimeFormat("en-CA", {
+  const parts = cachedFormatter("en-CA", {
     timeZone,
     year: "numeric",
     month: "2-digit",
@@ -40,7 +55,7 @@ export function toZonedYmd(date: Date, timeZone: string): string {
 
 /** Verilen saat diliminde 0-23 arası saat — "sabah eşiği" gibi gün-içi kontroller için. */
 export function zonedHour(date: Date, timeZone: string): number {
-  const parts = new Intl.DateTimeFormat("en-US", {
+  const parts = cachedFormatter("en-US", {
     timeZone,
     hour: "numeric",
     hour12: false,
@@ -79,7 +94,7 @@ export function calendarDaysBetween(aYmd: string, bYmd: string): number {
  * çalışsın her zaman doğru saat.
  */
 export function zonedHm(date: Date, timeZone: string): string {
-  const parts = new Intl.DateTimeFormat("en-GB", {
+  const parts = cachedFormatter("en-GB", {
     timeZone,
     hour: "2-digit",
     minute: "2-digit",

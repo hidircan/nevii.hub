@@ -12,8 +12,9 @@ import type {
   Teacher,
 } from "./types";
 import { availabilityForBranch, isTeacherSchedulable, teacherServesBranch } from "./teacher-branches";
-import { DEFAULT_APP_TIMEZONE, addDaysYmd, toZonedYmd, ymdToUtcNoon, zonedWallTimeToUtc, zonedWeekday } from "./timezone";
+import { DEFAULT_APP_TIMEZONE, addDaysYmd, toZonedYmd, ymdToUtcNoon, zonedHm, zonedWallTimeToUtc, zonedWeekday } from "./timezone";
 import { assertWorkDaySchedulable, type DayStatusReason } from "./work-days";
+import { buildTeacherDayAvailability, nearestFreeStart, slotAdvice } from "./teacher-day-availability";
 
 function overlaps(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date) {
   return aStart < bEnd && bStart < aEnd;
@@ -23,34 +24,53 @@ function roomSupports(room: Room, instrument: string) {
   return room.instruments.includes(instrument as Room["instruments"][number]);
 }
 
-function teacherFree(
-  teacherId: string,
-  start: Date,
-  end: Date,
-  lessons: Lesson[],
-  excludeLessonId?: string
-) {
-  return !lessons.some((l) => {
-    if (l.teacherId !== teacherId) return false;
-    if (l.status === "cancelled") return false;
-    if (excludeLessonId && l.id === excludeLessonId) return false;
-    return overlaps(start, end, parseISO(l.startAt), parseISO(l.endAt));
-  });
+/**
+ * 8. tur (G) — PERFORMANS KÖK NEDENİ: öneri motorları (telafi, "Uygun saatleri bul",
+ * seri önizleme, CSV) `validateLessonSlot`'u binlerce kez çağırır; her çağrı TÜM
+ * dersleri 4 kez tarayıp her satırda `parseISO` yapıyordu → O(aday × ders).
+ * Ölçüm (6000 ders, 8 öğretmen, 6 oda): telafi önerisi 41 sn.
+ * Çözüm: ders listesi başına BİR kez kurulan indeks (öğretmen/oda/öğrenci → sayısal
+ * aralıklar, iptaller hariç). Anahtar dizi kimliği + uzunluk: store her yazmada yeni
+ * dizi üretir. ponytail: aynı dizide yerinde eleman değişimi indeksi bayatlatır —
+ * böyle bir çağıran çıkarsa `lessonIndex.delete(lessons)` ile açıkça geçersiz kılın.
+ */
+type LessonSpan = { id: string; start: number; end: number; ymd: string };
+type LessonIndex = { len: number; byTeacher: Map<string, LessonSpan[]>; byRoom: Map<string, LessonSpan[]>; byStudent: Map<string, LessonSpan[]> };
+const lessonIndex = new WeakMap<Lesson[], LessonIndex>();
+
+function indexOf(lessons: Lesson[]): LessonIndex {
+  const hit = lessonIndex.get(lessons);
+  if (hit && hit.len === lessons.length) return hit;
+  const idx: LessonIndex = { len: lessons.length, byTeacher: new Map(), byRoom: new Map(), byStudent: new Map() };
+  const push = (map: Map<string, LessonSpan[]>, key: string, span: LessonSpan) => {
+    const list = map.get(key);
+    if (list) list.push(span);
+    else map.set(key, [span]);
+  };
+  for (const l of lessons) {
+    if (l.status === "cancelled") continue;
+    const start = parseISO(l.startAt);
+    const span = { id: l.id, start: start.getTime(), end: parseISO(l.endAt).getTime(), ymd: toZonedYmd(start, DEFAULT_APP_TIMEZONE) };
+    push(idx.byTeacher, l.teacherId, span);
+    push(idx.byRoom, l.roomId, span);
+    push(idx.byStudent, l.studentId, span);
+  }
+  lessonIndex.set(lessons, idx);
+  return idx;
 }
 
-function roomFree(
-  roomId: string,
-  start: Date,
-  end: Date,
-  lessons: Lesson[],
-  excludeLessonId?: string
-) {
-  return !lessons.some((l) => {
-    if (l.roomId !== roomId) return false;
-    if (l.status === "cancelled") return false;
-    if (excludeLessonId && l.id === excludeLessonId) return false;
-    return overlaps(start, end, parseISO(l.startAt), parseISO(l.endAt));
-  });
+function busy(list: LessonSpan[] | undefined, start: Date, end: Date, excludeLessonId?: string) {
+  const s = start.getTime();
+  const e = end.getTime();
+  return !!list?.some((l) => l.id !== excludeLessonId && s < l.end && l.start < e);
+}
+
+function teacherFree(teacherId: string, start: Date, end: Date, lessons: Lesson[], excludeLessonId?: string) {
+  return !busy(indexOf(lessons).byTeacher.get(teacherId), start, end, excludeLessonId);
+}
+
+function roomFree(roomId: string, start: Date, end: Date, lessons: Lesson[], excludeLessonId?: string) {
+  return !busy(indexOf(lessons).byRoom.get(roomId), start, end, excludeLessonId);
 }
 
 /**
@@ -73,10 +93,7 @@ function teacherAvailableOnDay(teacher: Teacher, start: Date, end: Date, branchI
 
 function dailyLessonCount(teacherId: string, day: Date, lessons: Lesson[], excludeLessonId?: string) {
   const ymd = toZonedYmd(day, DEFAULT_APP_TIMEZONE);
-  return lessons.filter((l) => {
-    if (l.teacherId !== teacherId || l.status === "cancelled" || l.id === excludeLessonId) return false;
-    return toZonedYmd(parseISO(l.startAt), DEFAULT_APP_TIMEZONE) === ymd;
-  }).length;
+  return (indexOf(lessons).byTeacher.get(teacherId) ?? []).filter((l) => l.ymd === ymd && l.id !== excludeLessonId).length;
 }
 
 export type SlotValidationCode =
@@ -201,6 +218,33 @@ export type SlotValidationContext = {
  * her zaman burada, okul ders süresine göre yeniden hesaplanır; çağıranın
  * gönderdiği bitiş saatine güvenilmez.
  */
+function guidedTeacherMessage(
+  code: "TEACHER_UNAVAILABLE" | "TEACHER_CONFLICT",
+  teacher: Teacher,
+  lessons: Lesson[],
+  start: Date,
+  duration: number,
+  branchId: BranchId,
+  excludeLessonId?: string
+): string {
+  const date = toZonedYmd(start, DEFAULT_APP_TIMEZONE);
+  const [day] = buildTeacherDayAvailability(
+    { teachers: [teacher], lessons: excludeLessonId ? lessons.filter((l) => l.id !== excludeLessonId) : lessons },
+    [],
+    { date, branchId }
+  );
+  if (!day) return SLOT_ERROR_MESSAGES[code];
+  const hm = zonedHm(start, DEFAULT_APP_TIMEZONE);
+  if (code === "TEACHER_UNAVAILABLE") return slotAdvice(teacher.name, day, hm, duration).message;
+  const endHm = zonedHm(addMinutes(start, duration), DEFAULT_APP_TIMEZONE);
+  const clash = day.busy.find((b) => b.start < endHm && hm < b.end);
+  const next = nearestFreeStart(day, hm, duration);
+  const tail = next && next !== hm ? ` En yakın boş slot: ${next}.` : "";
+  return clash
+    ? `Öğretmenin (${teacher.name}) ${clash.start}–${clash.end} arası başka bir dersi var.${tail}`
+    : `${SLOT_ERROR_MESSAGES[code]}${tail}`;
+}
+
 export function validateLessonSlot(
   data: AppData,
   context: SlotValidationContext,
@@ -290,9 +334,19 @@ export function validateLessonSlot(
   // (birincil VEYA ek atanmış şube); tek-şube eşitliği yerine.
   if (!teacherServesBranch(teacher, room.branchId)) return fail("ROOM_BRANCH_MISMATCH");
   const teacherAvailable = teacherAvailableOnDay(teacher, start, end, room.branchId);
-  if (!teacherAvailable && !options?.allowAvailabilityOverride) return fail("TEACHER_UNAVAILABLE");
+  // 8. tur — öğretmen uyarıları yol gösterici: günün boş aralıkları + en yakın boş slot.
+  // Mesaj tembel (getter): öneri döngüleri binlerce aday eler ve yalnız `code`a bakar;
+  // metin yalnız kullanıcıya gösterildiğinde (tüm dersleri tarayarak) üretilir.
+  const guided = (code: "TEACHER_UNAVAILABLE" | "TEACHER_CONFLICT"): SlotValidationResult => ({
+    ok: false,
+    code,
+    get message() {
+      return guidedTeacherMessage(code, teacher, data.lessons, start, duration, room.branchId, options?.excludeLessonId);
+    },
+  });
+  if (!teacherAvailable && !options?.allowAvailabilityOverride) return guided("TEACHER_UNAVAILABLE");
   if (!teacherFree(teacher.id, start, end, data.lessons, options?.excludeLessonId)) {
-    return fail("TEACHER_CONFLICT");
+    return guided("TEACHER_CONFLICT");
   }
   if (dailyLessonCount(teacher.id, start, data.lessons, options?.excludeLessonId) >= teacher.maxDailyLessons) {
     return fail("TEACHER_DAILY_LIMIT");
@@ -302,11 +356,7 @@ export function validateLessonSlot(
     return fail("ROOM_CONFLICT");
   }
 
-  const studentBusy = data.lessons.some((l) => {
-    if (options?.excludeLessonId && l.id === options.excludeLessonId) return false;
-    if (l.studentId !== context.studentId || l.status === "cancelled") return false;
-    return overlaps(start, end, parseISO(l.startAt), parseISO(l.endAt));
-  });
+  const studentBusy = busy(indexOf(data.lessons).byStudent.get(context.studentId), start, end, options?.excludeLessonId);
   if (studentBusy) return fail("STUDENT_CONFLICT");
 
   return {

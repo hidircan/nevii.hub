@@ -182,8 +182,14 @@ export function termMonthList(termType: string, anchorYear: number): { year: num
  * çerçeve + ders sayısı rozetiyle de işaretlenir (renk körlüğünde bile
  * ayırt edilebilir ikinci bir sinyal).
  */
-function dayFillStyle(day: DayInfo): { style: CSSProperties; segmentCount: number } {
-  const segments = resolveDayFillSegments(day.status, day.lessons);
+export function dayFillStyle(day: DayInfo): { style: CSSProperties; segmentCount: number } {
+  let segments = resolveDayFillSegments(day.status, day.lessons);
+  // 8. tur (I) — aynı statüdeki birden çok ders tek renge indirgenince dışarıdan TEK kutu
+  // gibi görünüyordu. Kapalı gün hariç her ders kendi şeridini alır; şeritler arasına
+  // (renk ne olursa olsun) 2px siyah ayırıcı çizilir. Arka plan olduğu için hücre genişliği değişmez.
+  if (segments.length === 1 && day.lessons.length > 1 && day.status !== "closed") {
+    segments = day.lessons.map(() => segments[0]!);
+  }
   if (segments.length <= 1) {
     const key: AttendanceCalendarColorKey = segments[0] ?? "open";
     return {
@@ -195,11 +201,19 @@ function dayFillStyle(day: DayInfo): { style: CSSProperties; segmentCount: numbe
   const stops = segments
     .map((key, i) => `${ATTENDANCE_CALENDAR_COLORS[key]} ${(i / n) * 100}% ${((i + 1) / n) * 100}%`)
     .join(", ");
+  const dividers = segments
+    .slice(1)
+    .map((_, i) => {
+      const at = ((i + 1) / n) * 100;
+      return `linear-gradient(90deg, transparent calc(${at}% - 1px), #000 calc(${at}% - 1px), #000 calc(${at}% + 1px), transparent calc(${at}% + 1px))`;
+    });
+  const uniform = new Set(segments).size === 1;
   return {
     style: {
-      backgroundImage: `linear-gradient(90deg, ${stops})`,
-      color: "#ffffff",
-      textShadow: "0 0 2px rgba(0,0,0,0.85), 0 0 3px rgba(0,0,0,0.85)",
+      backgroundImage: [...dividers, `linear-gradient(90deg, ${stops})`].join(", "),
+      ...(uniform
+        ? { color: attendanceCalendarTextColor(segments[0]!) }
+        : { color: "#ffffff", textShadow: "0 0 2px rgba(0,0,0,0.85), 0 0 3px rgba(0,0,0,0.85)" }),
     },
     segmentCount: n,
   };
@@ -239,6 +253,30 @@ function MonthPlanSummary({ plan }: { plan: CalendarMonthPlan }) {
     return (
       <p className="text-[10px] font-medium text-[var(--color-danger)]" role="alert">
         {plan.message} ({plan.contractNumbers.join(", ")})
+      </p>
+    );
+  }
+  if (plan.state === "student_plan") {
+    // 8. tur — sözleşmesiz öğrencinin kendi planı: gerçek satırlar varsa onların toplamı,
+    // yoksa yalnız anlaşılan aylık ücret bilgi olarak (borç gibi gösterilmez).
+    return (
+      <p className="text-[10px] text-[var(--color-text-muted)]">
+        {plan.paymentIds.length > 0 ? (
+          <>
+            <span className="font-medium text-[var(--color-text)]">{formatMoneyTL(plan.amount)}</span>
+            {" · ödenen "}
+            {formatMoneyTL(plan.paidAmount)}
+            {" · kalan "}
+            <span className={plan.remaining > 0 ? "font-medium text-[var(--color-text)]" : undefined}>
+              {formatMoneyTL(plan.remaining)}
+            </span>
+            {plan.status ? ` · ${PLAN_STATUS_LABEL[plan.status] ?? plan.status}` : ""}
+            {" · "}
+          </>
+        ) : null}
+        Sözleşmesiz aylık plan
+        {plan.monthlyFee ? ` (aylık ${formatMoneyTL(plan.monthlyFee)})` : ""}
+        {plan.paymentIds.length === 0 ? " — bu ay henüz ödeme kaydı yok" : ""}
       </p>
     );
   }
@@ -525,6 +563,11 @@ export function AttendanceCalendarPanel({
       amount = Number(raw);
     } else if (plan?.state === "ok") {
       amount = plan.remaining > 0 ? plan.remaining : plan.amount;
+    } else if (plan?.state === "student_plan" && plan.remaining > 0) {
+      amount = plan.remaining;
+    } else if (plan?.state === "student_plan") {
+      setError("Sözleşmesiz aylık planda bu ay için açık borç yok — tahsil edilecek tutarı elle girin.");
+      return;
     } else {
       setError(
         plan?.state === "multiple_active_contracts" || plan?.state === "no_installment_for_month"
@@ -744,7 +787,9 @@ export function AttendanceCalendarPanel({
                       placeholder={
                         data?.plan.state === "ok"
                           ? String(data.plan.remaining > 0 ? data.plan.remaining : data.plan.amount)
-                          : "Tutar"
+                          : data?.plan.state === "student_plan" && data.plan.remaining > 0
+                            ? String(data.plan.remaining)
+                            : "Tutar"
                       }
                       value={amounts[key] ?? ""}
                       onChange={(e) => setAmounts((prev) => ({ ...prev, [key]: e.target.value }))}

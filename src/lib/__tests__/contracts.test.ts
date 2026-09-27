@@ -999,7 +999,7 @@ describe("2026-2027 sözleşme kaynağı — yeni checkbox/alan placeholder'lar�
       signatoryFullName: "Selin Arslan",
       isMinor: false,
       studentName: "Zeynep Arslan",
-      institutionName: "Nilüfer Acar Müzik Akademisi",
+      institutionName: "Nilüfer Acar Müzik Akademi",
       institutionAddress: "Erzene Mah.",
       createdBy: "u1",
       branchOptionsText: "☑ Merkez Şube: Erzene Mah.    ☐ Evka-3 Şube: 119/5 Sk.",

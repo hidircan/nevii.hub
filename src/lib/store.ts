@@ -96,7 +96,7 @@ type StoreApi = {
   /** ÖNCELİK 4 (devam) — oda düzenleme. */
   updateRoom: (
     roomId: string,
-    patch: Partial<Pick<Room, "name" | "capacity" | "branchId" | "instruments" | "active" | "archivedAt">>
+    patch: Partial<Pick<Room, "name" | "capacity" | "branchId" | "instruments" | "active" | "archivedAt" | "deletedAt">>
   ) => Promise<Room | null>;
   /** ÖNCELİK 4 (devam) — öğretmen arşivleme/geri alma (hard delete YOK). */
   archiveTeacher: (teacherId: string, archived: boolean) => Promise<Teacher | null>;
@@ -489,7 +489,7 @@ export async function addRoom(room: Omit<Room, "id">): Promise<AppData> {
 
 export async function updateRoom(
   roomId: string,
-  patch: Partial<Pick<Room, "name" | "capacity" | "branchId" | "instruments" | "active" | "archivedAt">>
+  patch: Partial<Pick<Room, "name" | "capacity" | "branchId" | "instruments" | "active" | "archivedAt" | "deletedAt">>
 ): Promise<Room | null> {
   return withTenantScope(() => store.updateRoom(roomId, patch));
 }

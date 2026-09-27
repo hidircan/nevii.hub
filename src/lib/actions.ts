@@ -75,6 +75,7 @@ import {
   createRoomTool,
   createLessonTool,
   suggestLessonSlotsTool,
+  teacherDayAvailabilityTool,
   updateLessonScheduleTool,
   cancelLessonTool,
   previewLessonSeriesTool,
@@ -143,6 +144,7 @@ import {
   reviseLessonsTool,
   updateTeacherAvailabilityTool,
   updateRoomTool,
+  deleteRoomTool,
   createInstrumentCatalogTool,
   updateInstrumentCatalogTool,
   createStaffMemberTool,
@@ -1758,6 +1760,20 @@ export async function actionUpdateRoom(input: {
   }
 }
 
+/** 8. tur (E) — pasif oda silme (soft delete, geçmiş dersler korunur). */
+export async function actionDeleteRoom(roomId: string): Promise<UpdateRoomActionResult> {
+  try {
+    const result = await withAuthContext("actionDeleteRoom", (ctx) => deleteRoomTool(ctx, { roomId }));
+    if (!result.ok) return { ok: false, message: result.error.message };
+    revalidateAll();
+    return { ok: true };
+  } catch (error) {
+    logger.error("actionDeleteRoom failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "Oda silinirken beklenmeyen bir hata oluştu; sayfayı yenileyip tekrar deneyin." };
+  }
+}
+
 export type CreateInstrumentActionResult = { ok: true } | { ok: false; message: string };
 
 /** ÖNCELİK 4 (devam) — Yönetilebilir Enstrüman Kataloğu: yeni ekleme. */
@@ -2411,6 +2427,7 @@ export async function actionUpdateTeacherProfile(input: {
   name?: string;
   email?: string;
   phone?: string;
+  branchId?: string;
   branchIds?: string[];
   employmentType?: "tam_zamanli" | "yari_zamanli" | "serbest";
   hireDate?: string;
@@ -3039,6 +3056,27 @@ export async function actionSuggestLessonSlots(input: {
     if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
     if (error instanceof WriteScopeDeniedError) return { ok: false, message: error.message };
     return { ok: false, message: "Uygun saatler aranırken beklenmeyen bir hata oluştu." };
+  }
+}
+
+/** 8. tur (B) — ders pop-up'ı müsaitlik kartı; istemci (tarih, şube) başına önbelleğe alır. */
+export async function actionTeacherDayAvailability(input: {
+  date: string;
+  branchId: string;
+}): Promise<
+  | { ok: true; teachers: import("./teacher-day-availability").TeacherDayAvailability[] }
+  | { ok: false; message: string }
+> {
+  try {
+    return await withAuthContext("actionTeacherDayAvailability", async (ctx) => {
+      const result = await teacherDayAvailabilityTool(ctx, input);
+      if (!result.ok) return { ok: false as const, message: result.error.message };
+      return { ok: true as const, teachers: result.data.teachers };
+    });
+  } catch (error) {
+    logger.error("actionTeacherDayAvailability failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "Öğretmen müsaitliği yüklenemedi. Sayfayı yenileyip tekrar deneyin." };
   }
 }
 

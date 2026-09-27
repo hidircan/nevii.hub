@@ -271,7 +271,7 @@ export default async function TelafiPage() {
                     .filter((t) => t.active && t.instruments.includes(req.instrument))
                     .map((t) => ({ id: t.id, name: t.name, branchId: t.branchId }));
                   const rooms = data.rooms
-                    .filter((r) => r.instruments.includes(req.instrument))
+                    .filter((r) => r.active !== false && r.instruments.includes(req.instrument))
                     .map((r) => ({ id: r.id, name: r.name, branchId: r.branchId }));
                   if (!student || teachers.length === 0 || rooms.length === 0) return null;
                   return (

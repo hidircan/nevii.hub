@@ -193,7 +193,7 @@ export default async function ProgramPage({
       <Card className="mt-6">
         <h2 className="mb-3 font-semibold text-[var(--color-text)] dark:text-slate-50">Stüdyolar</h2>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-          {data.rooms.map((room) => (
+          {data.rooms.filter((room) => room.active !== false).map((room) => (
             <div key={room.id} className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3">
               <p className="text-sm font-medium text-[var(--color-text)] dark:text-slate-50">{room.name}</p>
               <p className="mt-1 text-xs text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">

@@ -11,6 +11,7 @@ import { BRAND } from "@/lib/brand";
 import { DocumentPrintActions } from "@/components/document-print-actions";
 import { PrintReportMeta } from "@/components/print-report-meta";
 import { resolvePrintStamp } from "@/lib/contract-payment-plan-view";
+import { planHasRows, type CalendarMonthPlan } from "@/lib/attendance-calendar-plan";
 
 export const dynamic = "force-dynamic";
 
@@ -18,8 +19,8 @@ export async function generateMetadata(): Promise<Metadata> {
   return { title: `Ödeme ve yoklama dökümü — ${BRAND.name}` };
 }
 
-function planAmount(plan: { state: string; amount?: number; paidAmount?: number; remaining?: number; status?: string; message?: string }) {
-  if (plan.state !== "ok") {
+function planAmount(plan: CalendarMonthPlan) {
+  if (!planHasRows(plan)) {
     return { planned: "—", paid: "—", remaining: "—", status: plan.message ?? "Bu ay için aktif ödeme planı bulunmuyor." };
   }
   return {
@@ -78,7 +79,7 @@ export default async function StudentStatementPrintPage({
   const countedPlanRows = new Set<string>();
   const planTotals = s.months.reduce(
     (acc, m) => {
-      if (m.plan.state !== "ok") return acc;
+      if (!planHasRows(m.plan)) return acc;
       const key = m.plan.paymentIds.join(",");
       if (countedPlanRows.has(key)) return acc;
       countedPlanRows.add(key);

@@ -614,7 +614,7 @@ export async function addRoom(room: Omit<Room, "id">): Promise<AppData> {
 /** ÖNCELİK 4 (devam) — oda düzenleme (ad/kapasite/şube/enstrüman/aktiflik). */
 export async function updateRoom(
   roomId: string,
-  patch: Partial<Pick<Room, "name" | "capacity" | "branchId" | "instruments" | "active" | "archivedAt">>
+  patch: Partial<Pick<Room, "name" | "capacity" | "branchId" | "instruments" | "active" | "archivedAt" | "deletedAt">>
 ): Promise<Room | null> {
   const data = await readData();
   const idx = data.rooms.findIndex((r) => r.id === roomId);

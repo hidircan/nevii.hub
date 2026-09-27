@@ -113,6 +113,10 @@ export type AuditLogFilters = {
   limit?: number;
   action?: string;
   entityType?: string;
+  /** 8. tur — Türkçe işlem kategorisi filtresi (varlık türü kümesi). */
+  entityTypes?: string[];
+  /** "Sistem işlemleri" = diğer kategorilerin dışında kalanlar. */
+  excludeEntityTypes?: string[];
   entityId?: string;
   /** Birden çok kaydın geçmişi tek sorguda (ör. öğrencinin tüm ödemeleri). */
   entityIds?: string[];
@@ -136,7 +140,13 @@ export async function listAuditLogs(tenantId: string, opts?: AuditLogFilters): P
       where: {
         tenantId,
         action: opts?.action || (opts?.excludeActions?.length ? { notIn: opts.excludeActions } : undefined),
-        entityType: opts?.entityType || undefined,
+        entityType:
+          opts?.entityType ||
+          (opts?.entityTypes?.length
+            ? { in: opts.entityTypes }
+            : opts?.excludeEntityTypes?.length
+              ? { notIn: opts.excludeEntityTypes }
+              : undefined),
         entityId: opts?.entityIds?.length ? { in: opts.entityIds } : opts?.entityId || undefined,
         actorUserId: opts?.actorUserId || undefined,
         actorRole: opts?.actorRole || undefined,

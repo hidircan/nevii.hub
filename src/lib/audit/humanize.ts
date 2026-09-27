@@ -252,3 +252,93 @@ export const ROLE_LABELS_TR: Record<string, string> = {
   AI_AGENT: "Yapay zekâ asistanı",
   HYPER_ADMIN: "Platform yöneticisi",
 };
+
+/**
+ * 8. tur (F) — Türkçe işlem kategorileri. Eski kayıtlar bozulmaz: kategori
+ * saklanmaz, `entityType` (ve oturum için `action` öneki) üzerinden SUNUMDA
+ * eşlenir. "Sistem işlemleri" = diğer kategorilere girmeyen her şey.
+ */
+export type AuditCategory = "student" | "contract" | "payment" | "lesson" | "user" | "system";
+
+export const AUDIT_CATEGORY_LABELS: Record<AuditCategory, string> = {
+  student: "Öğrenci işlemleri",
+  contract: "Sözleşme işlemleri",
+  payment: "Ödeme işlemleri",
+  lesson: "Ders işlemleri",
+  user: "Kullanıcı işlemleri",
+  system: "Sistem işlemleri",
+};
+
+export const AUDIT_CATEGORY_ENTITY_TYPES: Record<Exclude<AuditCategory, "system">, string[]> = {
+  student: ["Student", "StudentListView", "StudentFeedback", "StudentCurriculumTopic", "KvkkConsent", "Homework", "HomeworkSubmission"],
+  contract: ["StudentContract", "DocumentInstance", "DocumentTemplate"],
+  payment: ["Payment", "PaymentFollowUpCase", "TeacherPayout", "TeacherFeeRule", "PayrollRecord", "ExpenseRecord", "StaffAdvance", "DiscountCampaign", "Package"],
+  lesson: ["Lesson", "LessonSeries", "TrialLesson", "MakeupRequest", "ClosedDay", "Room", "LessonAssessment", "PeriodicAssessment"],
+  user: ["User", "UserSession", "Auth", "Teacher", "StaffMember", "LeaveRequest"],
+};
+
+export function auditCategoryOf(entityType: string): AuditCategory {
+  for (const [cat, types] of Object.entries(AUDIT_CATEGORY_ENTITY_TYPES)) {
+    if (types.includes(entityType)) return cat as AuditCategory;
+  }
+  return "system";
+}
+
+/** Varlık türü → kaydın yapıldığı ekran/bölüm. */
+export const AUDIT_SCREEN_LABELS: Record<string, string> = {
+  Student: "Öğrenciler",
+  StudentListView: "Öğrenciler",
+  StudentFeedback: "Öğrenciler",
+  StudentCurriculumTopic: "Öğrenciler",
+  KvkkConsent: "Öğrenciler",
+  StudentContract: "Sözleşme Merkezi",
+  DocumentInstance: "Evraklar",
+  DocumentTemplate: "Evrak Şablonları",
+  Payment: "Ödemeler",
+  PaymentFollowUpCase: "Tahsilat Takibi",
+  TeacherPayout: "Hakediş",
+  TeacherFeeRule: "Öğretmen Ücretleri",
+  PayrollRecord: "Bordro",
+  ExpenseRecord: "Giderler",
+  Lesson: "Ders Programı",
+  TrialLesson: "Deneme Dersleri",
+  MakeupRequest: "Telafi Merkezi",
+  ClosedDay: "Yoklama Takvimi",
+  Room: "Odalar",
+  Teacher: "Öğretmenler",
+  StaffMember: "Personel",
+  User: "Kullanıcılar",
+  UserSession: "Oturum",
+  Auth: "Oturum",
+  School: "Kurum Ayarları",
+  Tenant: "Kurum Ayarları",
+  Task: "Görevler",
+  Announcement: "Duyurular",
+  Package: "Paketler",
+};
+
+/** Önceki → sonraki değer özetini kompakt tek satır yapar (en çok `max` alan). */
+export function compactAuditDiff(changes: AuditFieldChange[], max = 3): string {
+  if (changes.length === 0) return "";
+  const head = changes
+    .slice(0, max)
+    .map((c) => `${fieldLabel(c.field)}: ${formatAuditValue(c.from)} → ${formatAuditValue(c.to)}`)
+    .join(" · ");
+  return changes.length > max ? `${head} · +${changes.length - max} alan` : head;
+}
+
+/**
+ * Tam bağlam satırı: "Öğrenciler → Gülce Özalp → Sözleşme #C-2024-041 → <cümle>".
+ * Parçalar bilinmiyorsa atlanır (uydurulmaz).
+ */
+export function auditBreadcrumb(parts: Array<string | undefined | null>): string {
+  return parts.filter((p): p is string => !!p && p.trim() !== "").join(" → ");
+}
+
+/** meta'dan istemci IP/cihaz bilgisi (varsa). */
+export function auditClientInfo(meta: Record<string, unknown> | null | undefined): string | undefined {
+  const ip = typeof meta?.ip === "string" ? meta.ip : undefined;
+  const ua = typeof meta?.userAgent === "string" ? meta.userAgent : typeof meta?.device === "string" ? meta.device : undefined;
+  const device = ua ? (/(iphone|android|mobile)/i.test(ua) ? "Mobil" : /expo|okhttp/i.test(ua) ? "Mobil uygulama" : "Tarayıcı") : undefined;
+  return [ip, device].filter(Boolean).join(" · ") || undefined;
+}

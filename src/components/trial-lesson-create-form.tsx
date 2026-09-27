@@ -26,6 +26,8 @@ export function TrialLessonCreateForm({
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [override, setOverride] = useState(false);
+  const [needsOverride, setNeedsOverride] = useState(false);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -43,13 +45,17 @@ export function TrialLessonCreateForm({
         startAt: new Date(startAt).toISOString(),
         durationMinutes: Number(durationMinutes),
         ...(notes.trim() ? { notes: notes.trim() } : {}),
+        ...(override ? { allowAvailabilityOverride: true } : {}),
       }),
     });
     setBusy(false);
     if (!res.ok) {
+      if (res.error?.code === "CONFLICT") setNeedsOverride(true);
       setError(friendlyApiErrorMessage(res.error, "Deneme dersi planlanamadı. Bilgileri kontrol edip tekrar deneyin."));
       return;
     }
+    setNeedsOverride(false);
+    setOverride(false);
     setName("");
     setPhone("");
     setNotes("");
@@ -129,6 +135,12 @@ export function TrialLessonCreateForm({
           className="min-h-[64px] w-full rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 py-1.5 text-sm text-[var(--color-text)]"
         />
       </div>
+      {needsOverride ? (
+        <label className="sm:col-span-2 flex items-start gap-2 text-xs text-[var(--color-text)]">
+          <input type="checkbox" checked={override} onChange={(e) => setOverride(e.target.checked)} className="mt-0.5" />
+          Öğretmenin müsaitlik penceresi dışında olduğunu biliyorum; yine de bu saate planla (denetim kaydına yazılır).
+        </label>
+      ) : null}
       {error ? (
         <p className="sm:col-span-2 text-xs font-medium text-rose-600" role="alert">
           {error}

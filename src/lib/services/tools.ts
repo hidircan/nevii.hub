@@ -190,7 +190,6 @@ import {
   type TeacherPayoutPaymentMethodInfo,
 } from "../teacher-payout";
 import {
-  suggestMakeupSlots,
   resolveSlaEscalationLevel,
   LessonSlotValidationError,
   isOverridableSlotCode,
@@ -772,14 +771,23 @@ export async function findAvailableSlotsTool(
   if (!v.ok) return v;
 
   try {
-    const data = await readData();
-    const request = data.makeupRequests.find((m) => m.id === v.data.requestId);
-    if (!request) return fail("NOT_FOUND", "Makeup request not found");
-
+    // 8. tur (G) — öneriler eskiden İKİ kez hesaplanıyordu (burada + generateSuggestions
+    // içinde) ve veri üç kez okunuyordu. Artık tek hesap: store kaydeder, sonuç ondan okunur.
+    // Ölçüm (6000 ders, 8 öğretmen, 6 oda): 41 sn → ~150 ms (bkz. makeup-engine indeksi).
+    const t0 = performance.now();
     const options = v.data.maxSlots ? { maxSlots: v.data.maxSlots } : undefined;
-    const slots = suggestMakeupSlots(data, request, options);
-    // Persist suggestions via existing store path
-    await generateSuggestions(v.data.requestId, options);
+    let after: AppData;
+    try {
+      after = await generateSuggestions(v.data.requestId, options);
+    } catch {
+      return fail("NOT_FOUND", "Telafi talebi bulunamadı; sayfayı yenileyip tekrar deneyin.");
+    }
+    const slots = after.makeupRequests.find((m) => m.id === v.data.requestId)?.suggestedSlots ?? [];
+    logger.info("findAvailableSlotsTool", {
+      requestId: v.data.requestId,
+      slotCount: slots.length,
+      durationMs: Math.round(performance.now() - t0),
+    });
     return ok({ requestId: v.data.requestId, slots });
   } catch (e) {
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "findAvailableSlots failed");
@@ -1015,6 +1023,31 @@ export async function checkMakeupSlaTool(
   }
 
   return ok({ checked: data.makeupRequests.length, escalated });
+}
+
+/**
+ * 8. tur (B) — ders ekleme/seri pop-up'ının müsaitlik kartı. TEK okuma
+ * (readData + denemeler paralel) ile şubedeki tüm uygun öğretmenlerin o
+ * günkü pencere/meşgul aralıklarını döner; istemci (tarih, şube) başına
+ * önbelleğe alır. Kural `validateLessonSlot` ile aynı yardımcılardan gelir.
+ */
+export async function teacherDayAvailabilityTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ date: string; branchId: string; teachers: import("../teacher-day-availability").TeacherDayAvailability[] }>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "AI_AGENT", "SUPER_ADMIN", "BRANCH_MANAGER"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const v = parseOrFail(
+    z.object({
+      date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Tarih yyyy-aa-gg biçiminde olmalı."),
+      branchId: z.string().min(1, "Önce şube seçin."),
+    }),
+    input
+  );
+  if (!v.ok) return v;
+  const [data, trials] = await Promise.all([readData(), listTrialLessons(ctx.tenantId)]);
+  const { buildTeacherDayAvailability } = await import("../teacher-day-availability");
+  return ok({ ...v.data, teachers: buildTeacherDayAvailability(data, trials, v.data) });
 }
 
 export async function findAvailableTeachersTool(
@@ -3397,15 +3430,20 @@ export async function updateTeacherProfileTool(
   const teacher = data.teachers.find((t) => t.id === v.data.teacherId);
   if (!teacher) return fail("NOT_FOUND", "Öğretmen bulunamadı");
 
-  if (v.data.branchIds) {
-    const invalid = v.data.branchIds.find(
-      (bId) => !data.settings.branches.some((b) => b.id === bId)
-    );
-    if (invalid) return fail("VALIDATION_ERROR", `Geçersiz şube: "${invalid}".`);
+  const requested = [...(v.data.branchId ? [v.data.branchId] : []), ...(v.data.branchIds ?? [])];
+  const invalid = requested.find((bId) => !data.settings.branches.some((b) => b.id === bId));
+  if (invalid) {
+    return fail("VALIDATION_ERROR", `Seçilen şube ("${invalid}") bu kurumda bulunamadı. Sayfayı yenileyip şubeyi listeden yeniden seçin.`);
   }
 
   try {
     const { teacherId, ...patch } = v.data;
+    // 8. tur — birincil şube değişebilir; ek şubeler listesi birincili asla
+    // tekrar içermez (teacherServesBranch birincili zaten dahil sayar).
+    if (patch.branchId !== undefined || patch.branchIds !== undefined) {
+      const primary = patch.branchId ?? teacher.branchId;
+      patch.branchIds = Array.from(new Set(patch.branchIds ?? teacher.branchIds ?? [])).filter((b) => b !== primary);
+    }
     const updated = await updateTeacherProfile(teacherId, patch);
     if (!updated) return fail("NOT_FOUND", "Öğretmen bulunamadı");
     audit(ctx, "teacher.profile_update", "Teacher", teacherId, patch);
@@ -10222,6 +10260,40 @@ export async function updateRoomTool(
   }
 }
 
+/**
+ * 8. tur (E) — pasif oda silme. Soft delete (`deletedAt`): satır kalır ki geçmiş
+ * ders/yoklama kayıtları oda adını göstermeye devam etsin. Aktif oda ve ileri
+ * tarihli planlı dersi olan oda silinemez.
+ */
+export async function deleteRoomTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ roomId: string }>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const v = parseOrFail(z.object({ roomId: z.string().min(1) }), input);
+  if (!v.ok) return v;
+
+  const data = await readData();
+  const room = data.rooms.find((r) => r.id === v.data.roomId && !r.deletedAt);
+  if (!room) return fail("NOT_FOUND", "Oda bulunamadı; sayfayı yenileyin.");
+  if (room.active !== false) {
+    return fail("VALIDATION_ERROR", `"${room.name}" aktif; yalnız pasif odalar silinebilir. Önce Odalar ekranında "Pasife Al" deyin.`);
+  }
+  const nowIso = new Date().toISOString();
+  const upcoming = data.lessons.filter((l) => l.roomId === room.id && l.status !== "cancelled" && l.startAt > nowIso).length;
+  if (upcoming > 0) {
+    return fail(
+      "VALIDATION_ERROR",
+      `"${room.name}" odasında ileri tarihli ${upcoming} planlı ders var. Önce bu dersleri Ders Programı'ndan başka bir odaya taşıyın veya iptal edin.`
+    );
+  }
+  const updated = await updateRoom(room.id, { deletedAt: nowIso });
+  if (!updated) return fail("NOT_FOUND", "Oda bulunamadı; sayfayı yenileyin.");
+  audit(ctx, "room.delete", "Room", room.id, { name: room.name });
+  return ok({ roomId: room.id });
+}
+
 /** T.C. kimlik yazma — şifreli saklama */
 export async function setNationalIdTool(
   ctx: ServiceContext,
@@ -10368,6 +10440,15 @@ export async function createTrialLessonTool(
   }
   const start = new Date(v.data.startAt);
   const end = new Date(start.getTime() + v.data.durationMinutes * 60_000);
+  // 8. tur — oluşturma da düzenlemeyle aynı çakışma/müsaitlik kuralından geçer.
+  const { validateTrialSlot } = await import("../makeup-engine");
+  const slot = validateTrialSlot(
+    trialData,
+    { ...v.data, startAt: start.toISOString() },
+    await listTrialLessons(ctx.tenantId),
+    { allowAvailabilityOverride: v.data.allowAvailabilityOverride }
+  );
+  if (!slot.ok) return fail(slot.code === "TEACHER_UNAVAILABLE" ? "CONFLICT" : "VALIDATION_ERROR", slot.message);
   try {
     const trial = await createTrialLesson({
       tenantId: ctx.tenantId,
@@ -12665,6 +12746,7 @@ async function buildAttendanceCalendarMonth(
     installments: data.payments.filter((p) => p.studentId === student.id),
     year,
     month,
+    studentMonthlyFee: student.monthlyFee,
   });
 
   return { year, month, term, withinTerm, plan, billableLessonCount: plannedLessonCount, days };
@@ -12886,6 +12968,7 @@ export async function collectAttendanceCalendarPaymentTool(
       installments: data.payments.filter((p) => p.studentId === student.id),
       year: y,
       month: mo,
+      studentMonthlyFee: student.monthlyFee,
     });
     if (plan.state === "multiple_active_contracts") {
       return fail("VALIDATION_ERROR", plan.message);
@@ -12909,8 +12992,14 @@ export async function collectAttendanceCalendarPaymentTool(
     }
 
     let paymentId: string;
+    // 8. tur — sözleşmesiz planda o ayın TEK açık satırı varsa (ör. ödenmemiş kayıt ilk
+    // tahsilatı) ona yazılır; yanına ikinci bir "aylık plan" satırı açılmaz.
+    const openStudentRow =
+      plan.state === "student_plan" && plan.paymentIds.length === 1 && plan.remaining > 0 ? plan.paymentIds[0] : undefined;
     if (plan.state === "ok") {
       paymentId = plan.paymentIds[0]!;
+    } else if (openStudentRow) {
+      paymentId = openStudentRow;
     } else {
       // Sözleşme planı YOK (ör. sözleşmesiz/legacy öğrenci) — eski davranış
       // korunur: serbest "aylık plan" ödeme satırı. `dueDate`/`method`
@@ -12935,7 +13024,7 @@ export async function collectAttendanceCalendarPaymentTool(
       tenantId: ctx.tenantId,
       // Sözleşme taksitine yazılan tahsilat EKLENİR (kısmi + kalan = plan).
       // monthly_plan fallback eski SET davranışını korur (upsert zaten satır tutarını yazar).
-      accumulate: plan.state === "ok",
+      accumulate: plan.state === "ok" || Boolean(openStudentRow),
     });
     audit(ctx, "PAYMENT_COLLECTED_FROM_ATTENDANCE_CALENDAR", "Payment", paymentId, {
       studentId: v.data.studentId,

@@ -3,7 +3,7 @@
  * Tutar yeniden hesaplanmaz (billableLessonCount / derivePerLessonAmount yok).
  */
 import { resolveAppTimezone, zonedHm } from "./timezone";
-import { resolveContractPlanForMonth, type CalendarMonthPlan } from "./attendance-calendar-plan";
+import { planHasRows, resolveContractPlanForMonth, type CalendarMonthPlan } from "./attendance-calendar-plan";
 import { resolveStatementMonthPaymentMethodLabel } from "./contract-payment-plan-view";
 import { resolveLessonFinalStatus, type LessonFinalStatus } from "./lesson-live-status";
 import { attendanceCalendarTermMonths } from "./attendance-calendar";
@@ -105,6 +105,7 @@ export function buildStudentPaymentAttendanceStatement(input: {
       installments: studentPayments,
       year: m.year,
       month: m.month,
+      studentMonthlyFee: student.monthlyFee,
     });
     const monthPrefix = `${m.year}-${String(m.month).padStart(2, "0")}`;
     const lessons: StatementLessonRow[] = input.data.lessons
@@ -129,7 +130,7 @@ export function buildStudentPaymentAttendanceStatement(input: {
     let collectedAt: string | undefined;
     let collectionNote: string | undefined;
     let collectorName: string | undefined;
-    if (plan.state === "ok") {
+    if (planHasRows(plan)) {
       const rows = studentPayments.filter((p) => plan.paymentIds.includes(p.id));
       const withPaid = rows.filter((p) => p.paidAt).sort((a, b) => (a.paidAt ?? "").localeCompare(b.paidAt ?? ""));
       const last = withPaid[withPaid.length - 1];
@@ -141,7 +142,7 @@ export function buildStudentPaymentAttendanceStatement(input: {
       }
     }
     const paymentMethodLabel =
-      plan.state === "ok"
+      planHasRows(plan)
         ? resolveStatementMonthPaymentMethodLabel({ paymentIds: plan.paymentIds, payments: studentPayments })
         : "—";
 

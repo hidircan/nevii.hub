@@ -489,6 +489,8 @@ export const updateTeacherProfileSchema = z
     name: z.string().min(1).optional(),
     email: optionalEmail,
     phone: optionalTrimmed,
+    /** 8. tur — birincil şube de düzenlenebilir (ek şubeler `branchIds`). */
+    branchId: z.string().min(1).optional(),
     branchIds: z.array(z.string().min(1)).optional(),
     employmentType: z.enum(TEACHER_EMPLOYMENT_TYPE_ENUM).optional(),
     hireDate: optionalTrimmed,
@@ -1130,6 +1132,8 @@ export const createTrialLessonSchema = z.object({
       message: "Deneme dersi süresi yalnızca 10, 15 veya 20 dakika olabilir.",
     }),
   notes: z.string().max(2000).optional(),
+  /** 8. tur — düzenlemedeki gibi: müsaitlik dışı planlama yalnız açık onayla. */
+  allowAvailabilityOverride: z.boolean().optional(),
 });
 
 /**

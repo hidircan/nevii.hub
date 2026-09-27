@@ -12,7 +12,7 @@ function end(startIso: string, minutes = 45) {
   return formatISO(new Date(new Date(startIso).getTime() + minutes * 60 * 1000));
 }
 
-/** Demo: Nilüfer Acar Müzik Akademisi — Erzene + Evka 3 */
+/** Demo: Nilüfer Acar Müzik Akademi — Erzene + Evka 3 */
 export function createSeedData(): AppData {
   const branches = [
     {
@@ -2119,7 +2119,7 @@ export function createSeedData(): AppData {
   return {
     settings: {
       tenantId: DEFAULT_TENANT_ID,
-      name: "Nilüfer Acar Müzik Akademisi",
+      name: "Nilüfer Acar Müzik Akademi",
       shortName: "Nilüfer Acar",
       city: "İzmir",
       website: "https://www.niluferacar.com.tr",

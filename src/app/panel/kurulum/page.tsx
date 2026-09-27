@@ -323,7 +323,7 @@ export default async function KurulumPage() {
                     title="Demo verisi geri yüklensin mi?"
                     bullets={[
                       "Mevcut tüm öğretmen/öğrenci/ders/ödeme kayıtları silinir.",
-                      "Yerine örnek demo verisi (Nilüfer Acar Müzik Akademisi) yüklenir.",
+                      "Yerine örnek demo verisi (Nilüfer Acar Müzik Akademi) yüklenir.",
                       "Bu işlem geri alınamaz.",
                     ]}
                     confirmLabel="Demo verisini geri yükle"

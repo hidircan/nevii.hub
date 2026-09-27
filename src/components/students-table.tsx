@@ -457,7 +457,9 @@ export function StudentsTable({
     (contractEndFrom || contractEndTo ? 1 : 0);
 
   const filterQuery = search.trim().toLocaleLowerCase("tr");
-  const filtered = rows.filter((row) => {
+  // 8. tur (C) — sözleşme dışındaki tüm filtreler; chip sayıları bu kümeden
+  // sayılır ki "Aktif sözleşmeli (23)" seçilince listede gerçekten 23 satır olsun.
+  const matchesExceptContract = (row: StudentRow) => {
     if (tcMatch && !tcMatch.ids.has(row.id)) return false;
     if (
       filterQuery &&
@@ -477,13 +479,16 @@ export function StudentsTable({
     if (creatorFilter.length && !creatorFilter.includes(row.createdByName ?? LEGACY_CREATOR_LABEL)) return false;
     if (enrolledFrom && (!row.enrollmentStartDate || row.enrollmentStartDate < enrolledFrom)) return false;
     if (enrolledTo && (!row.enrollmentStartDate || row.enrollmentStartDate > enrolledTo)) return false;
-    if (contractFilter.length && !contractFilter.includes(resolveContractFilterKey(row, today))) return false;
     if (contractStartFrom && (!row.contractStartDate || row.contractStartDate < contractStartFrom)) return false;
     if (contractStartTo && (!row.contractStartDate || row.contractStartDate > contractStartTo)) return false;
     if (contractEndFrom && (!row.contractEndDate || row.contractEndDate < contractEndFrom)) return false;
     if (contractEndTo && (!row.contractEndDate || row.contractEndDate > contractEndTo)) return false;
     return true;
-  });
+  };
+  const baseRows = rows.filter(matchesExceptContract);
+  const filtered = contractFilter.length
+    ? baseRows.filter((row) => contractFilter.includes(resolveContractFilterKey(row, today)))
+    : baseRows;
   // React Compiler zaten memoize ediyor; elle useMemo, `filtered`'ın her
   // render'da yeniden üretilmesi nedeniyle korunamıyor (lint uyarısı).
   const sorted = [...filtered].sort((a, b) => compareStudents(a, b, sort));
@@ -882,7 +887,7 @@ export function StudentsTable({
           </span>
           {CONTRACT_FILTER_KEYS.map((key) => {
             const active = contractFilter.includes(key);
-            const count = rows.filter((r) => resolveContractFilterKey(r, today) === key).length;
+            const count = baseRows.filter((r) => resolveContractFilterKey(r, today) === key).length;
             return (
               <button
                 key={key}
@@ -896,7 +901,7 @@ export function StudentsTable({
                 }`}
               >
                 {CONTRACT_FILTER_LABELS[key]}
-                <span className="ml-1 opacity-70">{count}</span>
+                <span className="ml-1 tabular-nums opacity-70">({count})</span>
               </button>
             );
           })}

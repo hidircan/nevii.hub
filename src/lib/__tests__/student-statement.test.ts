@@ -33,9 +33,8 @@ describe("öğrenci ödeme-yoklama dökümü", () => {
     const october = statement.months.find((m) => m.month === 10 && m.year === 2026);
     if (october) {
       expect(october.plan.state).not.toBe("ok");
-      if (october.plan.state !== "ok") {
-        expect(october.plan.message).toBe("Bu ay için aktif ödeme planı bulunmuyor.");
-      }
+      // 8. tur — sözleşmesiz öğrencide aylık plan bilgisi var ama satır yoksa tutar uydurulmaz.
+      if (october.plan.state === "student_plan") expect(october.plan.paymentIds).toEqual([]);
     }
   });
 

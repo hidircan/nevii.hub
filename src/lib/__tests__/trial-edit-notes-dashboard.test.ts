@@ -51,6 +51,7 @@ async function plan(notes = "Seviye: başlangıç") {
     startAt: openDay(3),
     durationMinutes: 15,
     notes,
+    allowAvailabilityOverride: true,
   });
   if (!res.ok) throw new Error(res.error.message);
   return res.data.trialId;
@@ -115,6 +116,7 @@ describe("deneme dersi notları — hazırlık ve sonuç ayrı", () => {
       teacherId: "t1",
       startAt: openDay(4),
       durationMinutes: 15,
+      allowAvailabilityOverride: true,
     });
     if (!b.ok) throw new Error(b.error.message);
     const aRow = (await getTrialLesson(DEFAULT_TENANT_ID, a))!;

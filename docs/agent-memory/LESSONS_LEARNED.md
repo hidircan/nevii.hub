@@ -1168,3 +1168,12 @@ Merkezi Prisma'dan doğrudan okuduğu için orada plan görünüyordu → iki ek
 **Ders:** yeni kolon ekleyen iş db eşlemesini de yazmalı; `payment-db-mapping.test.ts` gibi Prisma kolon listesine
 karşı parity testi, JSON'da geçen testin db'de yanlış olmasını yakalar. Ekranlar arası tutarsızlıkta önce "iki ekran
 aynı veriyi aynı yoldan mı okuyor?" diye bak.
+
+### 2026-09-27 (8. tur) — kural değişince tüm okuyucuları tara
+- Sözleşme kayıtta opsiyonel yapıldı (09-22) ama yoklama takvimi planı YALNIZ sözleşmeden okumaya devam etti → 13 aktif
+  sözleşmesiz öğrenci "plan yok" gördü. Bir kavram opsiyonel olunca, onu zorunlu varsayan ortak çözümleyiciyi (burada
+  `resolveContractPlanForMonth`) aynı turda güncelle; tutar yine yalnız gerçek satırlardan.
+- Ek şube (`branchIds`) eklendikten sonra oda seçimi/öneri motoru hâlâ `teacher.branchId === room.branchId` kullanıyordu.
+  Şube uygunluğu için `grep "branchId ==="` yap; tek kural `teacherServesBranch`.
+- Öneri döngülerinde O(aday × ders) tarama + her çağrıda `new Intl.DateTimeFormat` → 41 sn. Döngüde çağrılan doğrulayıcıyı
+  profil et; indeks/formatter önbelleği yeterli oldu.

@@ -236,6 +236,26 @@ describe("toplu öğretmen değişikliği — planlı dersleri devret (2026-09-2
     const { bulkStudentActionTool } = await import("../services/tools");
     const series = await createTestSeries();
     const altTeacherId = await findAlternatePianoTeacher("t1");
+    // 8. tur (J3) — seed dersleri "bugüne göre" dağıtılır; bazı günlerde s1'in seri DIŞI bir seed
+    // dersi yeni öğretmenin müsait olmadığı/dolu olduğu saate düşüp devri (doğru şekilde, hepsi-ya-da-
+    // hiçbiri) engelliyordu → tarihe bağlı kırmızı test. Test devri ölçer: s1'in seri dışı ve yeni
+    // öğretmenin gelecek seed dersleri iptal edilir; yalnız testin kendi serisi kalır.
+    {
+      const seeded = await readData();
+      const nowIso = new Date().toISOString();
+      // Testler STORE_MODE=json ile çalışır: veri dosyası doğrudan güncellenir.
+      await fs.writeFile(
+        DATA_FILE,
+        JSON.stringify({
+          ...seeded,
+          lessons: seeded.lessons.map((l) =>
+            (l.teacherId === altTeacherId || l.studentId === "s1") && l.startAt > nowIso && l.seriesId !== series.seriesId
+              ? { ...l, status: "cancelled" }
+              : l
+          ),
+        })
+      );
+    }
     const before = await readData();
     expect(before.students.find((s) => s.id === "s1")!.teacherId).toBe("t1");
 

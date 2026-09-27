@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } 
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { ExternalLink, Loader2, Sparkles, TriangleAlert, X } from "lucide-react";
-import { addMinutes, differenceInMinutes, format, isSameDay, parseISO, startOfDay } from "date-fns";
+import { addDays as addDaysDate, addMinutes, differenceInMinutes, format, isSameDay, parseISO, startOfDay } from "date-fns";
 import Link from "next/link";
 import { tr } from "date-fns/locale";
 import {
@@ -37,6 +37,7 @@ import { LessonOpsActions, LessonOpsBadges } from "@/components/lesson-ops-actio
 import { LessonStatusBadge } from "@/components/lesson-status-badge";
 import { lessonCancelBlockReason } from "@/lib/lesson-cancel-rules";
 import { LessonReassignmentModal } from "@/components/lesson-reassignment-modal";
+import { TeacherAvailabilityCard } from "@/components/teacher-availability-card";
 import { INSTRUMENTS, type Instrument, type Lesson, type Room, type Student, type Teacher } from "@/lib/types";
 import { dayName } from "@/lib/utils";
 import { DEFAULT_LESSON_DURATION_MINUTES, LESSON_DURATION_OPTIONS } from "@/lib/lesson-duration";
@@ -186,7 +187,8 @@ function canMoveOrResize(lesson: Lesson, now: Date) {
  */
 function roomOptionsFor(rooms: Room[], instrument: Instrument, teacher?: Teacher): Room[] {
   return rooms.filter(
-    (r) => r.active !== false && r.instruments.includes(instrument) && (!teacher || r.branchId === teacher.branchId)
+    // 8. tur — ek şubeler dahil (teacherServesBranch); eskiden yalnız birincil şubenin odaları geliyordu.
+    (r) => r.active !== false && r.instruments.includes(instrument) && (!teacher || teacherServesBranch(teacher, r.branchId))
   );
 }
 
@@ -664,6 +666,7 @@ export function ProgramStudio({
    * atlanmaz (bkz. actionAddLesson/createLessonTool).
    */
   const [availabilityWarningOpen, setAvailabilityWarningOpen] = useState(false);
+  const [availabilityWarningText, setAvailabilityWarningText] = useState("");
   const pendingLessonFormData = useRef<FormData | null>(null);
   const [notices, setNotices] = useState(() =>
     emptyProgramNotices<{ parent: LessonCommunicationMessage; teacher: LessonCommunicationMessage }>()
@@ -798,6 +801,12 @@ export function ProgramStudio({
     students.filter((s) => s.active),
     seriesBranchId
   );
+  /** Serinin ilk ders tarihi (başlangıç tarihinden itibaren seçilen haftanın günü). */
+  const seriesFirstDate = (() => {
+    if (!seriesStartsOn) return "";
+    const d = parseISO(`${seriesStartsOn}T12:00`);
+    return toYmd(addDaysDate(d, (seriesWeekday - d.getDay() + 7) % 7));
+  })();
   const seriesTeacherOptions = lessonTeacherOptions(teachers, {
     instrument: seriesInstrument,
     branchId: seriesBranchId || undefined,
@@ -1033,6 +1042,7 @@ export function ProgramStudio({
       if (result.overridable) {
         // Hard error göstermek yerine onay modalı aç — kullanıcı karar versin.
         pendingLessonFormData.current = fd;
+        setAvailabilityWarningText(result.message);
         setAvailabilityWarningOpen(true);
         return;
       }
@@ -1382,6 +1392,22 @@ export function ProgramStudio({
             </p>
           ) : null}
         </div>
+        {lessonBranchId && studentId && startAt.length >= 10 ? (
+          <div className="sm:col-span-2 lg:col-span-3">
+            <TeacherAvailabilityCard
+              date={startAt.slice(0, 10)}
+              branchId={lessonBranchId}
+              dateLabel={format(parseISO(`${startAt.slice(0, 10)}T12:00`), "d MMMM EEEE", { locale: tr })}
+              teachers={teacherOptions}
+              selectedTeacherId={teacherId}
+              startHm={startAt.slice(11, 16)}
+              durationMinutes={durationMinutes}
+              dataVersion={weekLessons}
+              onPickTeacher={selectTeacher}
+              onPickTime={(hm) => setStartAt(`${startAt.slice(0, 10)}T${hm}`)}
+            />
+          </div>
+        ) : null}
         <div className="flex items-end gap-2">
           <Button type="button" variant="secondary" onClick={handleFindSlots} disabled={suggestLoading}>
             {suggestLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
@@ -1399,7 +1425,7 @@ export function ProgramStudio({
       {availabilityWarningOpen ? (
         <FormModal title="Öğretmen müsait görünmüyor" onClose={cancelAvailabilityOverride}>
           <p className="text-sm text-[var(--color-text)] dark:text-slate-200">
-            Öğretmen bu saatte müsait görünmüyor. Yine de planlamak istiyor musunuz?
+            {availabilityWarningText || "Öğretmen bu saatte müsait görünmüyor."} Yine de planlamak istiyor musunuz?
           </p>
           <p className="mt-1 text-xs text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
             Seçilen saat, öğretmenin bildirdiği çalışma saatlerinin dışında. Bu ders yine de
@@ -1605,6 +1631,26 @@ export function ProgramStudio({
         </div>
       </div>
 
+      {seriesBranchId && seriesStudentId && seriesFirstDate ? (
+        <div className="mt-3">
+          <TeacherAvailabilityCard
+            date={seriesFirstDate}
+            branchId={seriesBranchId}
+            dateLabel={`${format(parseISO(`${seriesFirstDate}T12:00`), "d MMMM EEEE", { locale: tr })} (ilk ders; seri her hafta aynı saatte)`}
+            teachers={seriesTeacherOptions}
+            selectedTeacherId={seriesTeacherId}
+            startHm={seriesStartTime}
+            durationMinutes={seriesDuration}
+            dataVersion={weekLessons}
+            onPickTeacher={selectSeriesTeacher}
+            onPickTime={(hm) => {
+              setSeriesStartTime(hm);
+              setSeriesPreview(null);
+            }}
+          />
+        </div>
+      ) : null}
+
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <Button type="button" variant="secondary" onClick={handleSeriesPreview} disabled={seriesPreviewLoading}>
           {seriesPreviewLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
@@ -1629,12 +1675,12 @@ export function ProgramStudio({
           <p className="text-sm font-medium text-[var(--color-text-muted)] dark:text-slate-300">{seriesPreview.previewText}</p>
           {seriesPreview.checks.some((c) => !c.ok) ? (
             <div className="mt-3">
-              <p className="text-sm font-medium text-rose-700">
+              <p className="text-sm font-medium" style={{ color: "var(--color-warning)" }}>
                 {seriesPreview.conflictCount > 0
                   ? `${seriesPreview.conflictCount} tarihte çakışma var:`
                   : "Resmî tatile denk gelen tarihler (ders oluşturulmayacak):"}
               </p>
-              <div className="mt-2 max-h-40 space-y-1 overflow-y-auto rounded-lg bg-rose-50 p-2 text-xs text-rose-800">
+              <div className="mt-2 max-h-40 space-y-1 overflow-y-auto rounded-lg bg-[var(--color-warning-soft)] p-2 text-xs text-[var(--color-text)]">
                 {seriesPreview.checks
                   .filter((c) => !c.ok)
                   .map((c) => (

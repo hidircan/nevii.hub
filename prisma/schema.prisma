@@ -562,6 +562,8 @@ model Room {
   /// mevcut odalar migration sonrası hiçbir davranış değişikliği görmez.
   active       Boolean        @default(true)
   archivedAt   DateTime?
+  /// 8. tur — pasif oda silme = soft delete; geçmiş dersler oda adını korur.
+  deletedAt    DateTime?
   lessons      Lesson[]
   lessonSeries LessonSeries[]
 

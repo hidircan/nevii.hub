@@ -433,6 +433,7 @@ function mapSchoolToAppData(school: PrismaSchoolWithRelations): AppData {
       instruments: room.instruments as Instrument[],
       active: (room as { active?: boolean }).active ?? true,
       archivedAt: (room as { archivedAt?: Date | null }).archivedAt?.toISOString() ?? undefined,
+      deletedAt: (room as { deletedAt?: Date | null }).deletedAt?.toISOString() ?? undefined,
     })),
     lessons: school.lessons.map((lesson) => ({
       id: lesson.id,
@@ -1545,6 +1546,7 @@ export async function updateTeacherProfile(
       name: patch.name,
       email: patch.email,
       phone: patch.phone,
+      branchId: patch.branchId,
       nationalIdCipher: patch.nationalIdCipher,
       nationalIdLast2: patch.nationalIdLast2,
       birthDate: toDateOnlyDbValue(patch.birthDate),
@@ -1947,7 +1949,7 @@ export async function addRoom(room: Omit<Room, "id">): Promise<AppData> {
 /** ÖNCELİK 4 (devam) — oda düzenleme (ad/kapasite/şube/enstrüman/aktiflik). */
 export async function updateRoom(
   roomId: string,
-  patch: Partial<Pick<Room, "name" | "capacity" | "branchId" | "instruments" | "active" | "archivedAt">>
+  patch: Partial<Pick<Room, "name" | "capacity" | "branchId" | "instruments" | "active" | "archivedAt" | "deletedAt">>
 ): Promise<Room | null> {
   logger.info("updateRoom", roomId);
   const tid = requireTenantId();
@@ -1965,6 +1967,7 @@ export async function updateRoom(
           : (patch.instruments as unknown as Prisma.InputJsonValue),
       active: patch.active,
       archivedAt: patch.archivedAt ? new Date(patch.archivedAt) : patch.archivedAt === undefined ? undefined : null,
+      deletedAt: patch.deletedAt ? new Date(patch.deletedAt) : undefined,
     },
   });
   if (result.count === 0) return null;

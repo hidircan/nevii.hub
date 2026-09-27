@@ -12,14 +12,11 @@ import { computeTeacherPerformanceReportV2 } from "@/lib/teacher-performance-v2"
 import { AiInsightTrigger } from "@/components/ai/ai-insight-trigger";
 import { TeacherArchiveAction } from "@/components/teacher-archive-action";
 import { TeacherPerformanceInfo } from "@/components/teacher-performance-info";
+import { TeacherListView } from "@/components/teacher-list-view";
 
 export const dynamic = "force-dynamic";
 
-export default async function OgretmenlerPage({
-  searchParams,
-}: {
-  searchParams?: Promise<{ durum?: string }>;
-} = {}) {
+export default async function OgretmenlerPage() {
   let session;
   try {
     session = await requireSessionContext();
@@ -50,13 +47,25 @@ export default async function OgretmenlerPage({
     : [];
   const performanceById = new Map(performanceEntries);
 
-  // ÖNCELİK 4 (devam) — varsayılan yalnız Aktif Öğretmenler; "Arşivlenmiş
-  // Öğretmenler" ayrı bir sekme/filtre. Arşiv öğretmenler burada dahi (CSV
-  // eşleştirme, yeni ders/öğrenci öğretmen seçicisi vb.) hiç seçilebilir
-  // olarak sunulmaz — yalnız görüntüleme + "Yeniden Aktifleştir" amaçlıdır.
-  const { durum } = (await searchParams) ?? {};
-  const showArchived = durum === "arsiv";
-  const visibleTeachers = data.teachers.filter((t) => (showArchived ? !t.active : t.active));
+  // 8. tur (D) — arama/şube/enstrüman/durum/sıralama/sayfalama istemcide
+  // (`TeacherListView`, URL parametreleri). Varsayılan hâlâ yalnız aktifler;
+  // eski `?durum=arsiv` bağlantısı "Pasif" filtresine karşılık gelir.
+  const branchName = (id: string) => data.settings.branches.find((b) => b.id === id)?.shortName ?? id;
+  const activeStudentCount = new Map<string, number>();
+  for (const s of data.students) if (s.active && s.teacherId) activeStudentCount.set(s.teacherId, (activeStudentCount.get(s.teacherId) ?? 0) + 1);
+  const listRows = data.teachers.map((t) => ({
+    id: t.id,
+    displayId: t.displayId,
+    name: t.name,
+    email: t.email,
+    phone: t.phone,
+    branchId: t.branchId,
+    branchIds: t.branchIds,
+    instruments: t.instruments,
+    active: t.active,
+    studentCount: activeStudentCount.get(t.id) ?? 0,
+  }));
+  const instrumentOptions = Array.from(new Set(data.teachers.flatMap((t) => t.instruments))).sort((a, b) => a.localeCompare(b, "tr"));
 
   return (
     <div>
@@ -74,41 +83,16 @@ export default async function OgretmenlerPage({
         }
       />
 
-      <div className="mb-4 flex items-center gap-1 rounded-md border border-[var(--color-border)] p-0.5 dark:border-slate-700" role="tablist" aria-label="Öğretmen durumu">
-        <Link
-          href="/panel/ogretmenler"
-          role="tab"
-          aria-selected={!showArchived}
-          className={`rounded px-3 py-1.5 text-xs font-semibold transition ${
-            !showArchived ? "bg-amber-600 text-white" : "text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)] dark:text-[var(--color-text-muted)]"
-          }`}
-        >
-          Aktif Öğretmenler
-        </Link>
-        <Link
-          href="/panel/ogretmenler?durum=arsiv"
-          role="tab"
-          aria-selected={showArchived}
-          className={`rounded px-3 py-1.5 text-xs font-semibold transition ${
-            showArchived ? "bg-amber-600 text-white" : "text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)] dark:text-[var(--color-text-muted)]"
-          }`}
-        >
-          Arşivlenmiş Öğretmenler
-        </Link>
-      </div>
-
-      <div className="space-y-4">
-          {visibleTeachers.length === 0 ? (
-            <Card>
-              <p className="text-sm text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
-                {showArchived ? "Arşivlenmiş öğretmen yok." : "Aktif öğretmen yok."}
-              </p>
-            </Card>
-          ) : null}
-          {visibleTeachers.map((t) => {
-            const studentCount = data.students.filter((s) => s.teacherId === t.id && s.active).length;
+      <TeacherListView
+        rows={listRows}
+        branches={data.settings.branches.map((b) => ({ id: b.id, name: b.shortName || b.name }))}
+        instruments={instrumentOptions}
+        cards={Object.fromEntries(
+          data.teachers.map((t) => {
+            const studentCount = activeStudentCount.get(t.id) ?? 0;
             const weekLessons = data.lessons.filter((l) => l.teacherId === t.id && l.status !== "cancelled").length;
-            return (
+            return [
+              t.id,
               <Card key={t.id}>
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
@@ -119,7 +103,7 @@ export default async function OgretmenlerPage({
                       {t.name}
                     </Link>
                     <p className="text-sm text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
-                      {data.settings.branches.find((b) => b.id === t.branchId)?.shortName} ·{" "}
+                      {[t.branchId, ...(t.branchIds ?? []).filter((b) => b !== t.branchId)].map(branchName).join(", ")} ·{" "}
                       {t.email} · {t.phone}
                     </p>
                   </div>
@@ -216,10 +200,11 @@ export default async function OgretmenlerPage({
                     <CreditCard className="h-3.5 w-3.5" /> Ödeme geçmişi
                   </Link>
                 </div>
-              </Card>
-            );
-          })}
-      </div>
+              </Card>,
+            ];
+          })
+        )}
+      />
     </div>
   );
 }

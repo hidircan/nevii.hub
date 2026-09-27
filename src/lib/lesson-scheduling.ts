@@ -3,6 +3,7 @@ import { DEFAULT_APP_TIMEZONE, addDaysYmd, toZonedYmd, ymdToUtcNoon, zonedWallTi
 import type { AppData, Instrument, StudentTermType } from "./types";
 import { assertWorkDaySchedulable } from "./work-days";
 import { validateLessonSlot, type ValidatedSlot } from "./makeup-engine";
+import { teacherServesBranch } from "./teacher-branches";
 
 export type LessonSlotSuggestion = ValidatedSlot & {
   score: number;
@@ -53,7 +54,7 @@ export function suggestLessonSlots(
     return 0;
   });
 
-  const roomsForInstrument = data.rooms.filter((r) => r.instruments.includes(params.instrument));
+  const roomsForInstrument = data.rooms.filter((r) => r.active !== false && r.instruments.includes(params.instrument));
 
   const suggestions: LessonSlotSuggestion[] = [];
 
@@ -71,7 +72,7 @@ export function suggestLessonSlots(
       if (isBefore(cursor, now)) continue;
 
       for (const teacher of candidates) {
-        const teacherRooms = roomsForInstrument.filter((r) => r.branchId === teacher.branchId);
+        const teacherRooms = roomsForInstrument.filter((r) => teacherServesBranch(teacher, r.branchId));
         let matched: ValidatedSlot | null = null;
         for (const room of teacherRooms) {
           const result = validateLessonSlot(
@@ -94,7 +95,7 @@ export function suggestLessonSlots(
           score += 30;
           reasons.push("Öğrencinin mevcut öğretmeni");
         }
-        if (student && teacher.branchId === student.branchId) {
+        if (student && teacherServesBranch(teacher, student.branchId)) {
           score += 15;
           reasons.push("Aynı şube");
         }

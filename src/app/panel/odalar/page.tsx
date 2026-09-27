@@ -20,7 +20,8 @@ export default async function OdalarPage() {
   // ÖNCELİK 4 (devam) — varsayılan yalnız aktif odalar; pasif odalar ayrı
   // listelenir. Pasif odalar yeni ders planlamasında seçilemez (bkz.
   // program-studio.tsx roomOptionsFor — active!==false filtresi).
-  const allRooms = [...data.rooms].sort((a, b) => a.name.localeCompare(b.name, "tr"));
+  // 8. tur — silinmiş (soft delete) odalar hiçbir listede görünmez; geçmiş dersler adı korur.
+  const allRooms = data.rooms.filter((r) => !r.deletedAt).sort((a, b) => a.name.localeCompare(b.name, "tr"));
   const rooms = allRooms.filter((r) => r.active !== false);
   const archivedRooms = allRooms.filter((r) => r.active === false);
 

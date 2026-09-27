@@ -53,6 +53,7 @@ export function TeacherProfileEditor({
   const [name, setName] = useState(initial.name);
   const [email, setEmail] = useState(initial.email ?? "");
   const [phone, setPhone] = useState(initial.phone ?? "");
+  const [primaryId, setPrimaryId] = useState(primaryBranchId);
   const [branchIds, setBranchIds] = useState<string[]>(initial.branchIds ?? []);
   const [employmentType, setEmploymentType] = useState(initial.employmentType ?? "");
   const [hireDate, setHireDate] = useState(initial.hireDate ?? "");
@@ -86,7 +87,8 @@ export function TeacherProfileEditor({
         name,
         email: email || undefined,
         phone: phone || undefined,
-        branchIds,
+        branchId: primaryId,
+        branchIds: branchIds.filter((b) => b !== primaryId),
         employmentType: (employmentType || undefined) as
           | "tam_zamanli"
           | "yari_zamanli"
@@ -124,7 +126,6 @@ export function TeacherProfileEditor({
     });
   }
 
-  const otherBranches = branches.filter((b) => b.id !== primaryBranchId);
 
   return (
     <div className="space-y-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
@@ -179,22 +180,51 @@ export function TeacherProfileEditor({
         </div>
       ) : null}
 
-      {otherBranches.length > 0 ? (
+      <div>
+        <Label>Birincil şube</Label>
+        <Select
+          value={primaryId}
+          onChange={(e) => {
+            // Eski birincil şube ek şube olarak kalır — mevcut dersleri sahipsiz kalmasın.
+            const prev = primaryId;
+            setBranchIds((ids) => (ids.includes(prev) ? ids : [...ids, prev]));
+            setPrimaryId(e.target.value);
+          }}
+        >
+          {branches.map((b) => (
+            <option key={b.id} value={b.id}>
+              {b.name}
+            </option>
+          ))}
+        </Select>
+      </div>
+      {branches.length > 1 ? (
         <div>
-          <Label>Ek atanmış şubeler (birincil şube her zaman dahildir)</Label>
+          <Label>Ders verdiği şubeler (birden fazla seçilebilir)</Label>
           <div className="flex flex-wrap gap-2">
-            {otherBranches.map((b) => (
-              <label key={b.id} className="flex items-center gap-1.5 text-xs">
-                <input
-                  type="checkbox"
-                  checked={branchIds.includes(b.id)}
-                  onChange={() => toggleBranch(b.id)}
-                  className="h-3.5 w-3.5"
-                />
-                {b.name}
-              </label>
-            ))}
+            {branches.map((b) => {
+              const isPrimary = b.id === primaryId;
+              return (
+                <label key={b.id} className="flex items-center gap-1.5 text-xs">
+                  <input
+                    type="checkbox"
+                    checked={isPrimary || branchIds.includes(b.id)}
+                    disabled={isPrimary}
+                    onChange={() => toggleBranch(b.id)}
+                    className="h-3.5 w-3.5"
+                  />
+                  {b.name}
+                  {isPrimary ? <span className="text-[var(--color-text-muted)]">(birincil)</span> : null}
+                </label>
+              );
+            })}
           </div>
+          {primaryId !== primaryBranchId ? (
+            <p className="mt-1 text-xs text-[var(--color-text-muted)]">
+              Birincil şube değişiyor. Eski şube ek şube olarak işaretli bırakıldı; öğretmen artık orada ders vermeyecekse
+              işaretini kaldırın (o şubedeki mevcut dersler silinmez).
+            </p>
+          ) : null}
         </div>
       ) : null}
 

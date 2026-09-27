@@ -155,10 +155,13 @@ describe("Senaryo 3 — sözleşmeden SONRA ders sayısı değişse de takvim sn
 
 describe("Senaryo 4 — plan satırı olmayan ay", () => {
   it("sözleşme yokken AÇIK durum döner, tutar uydurulmaz", async () => {
+    // 8. tur — sözleşmesiz öğrencinin kendi aylık planı gösterilir ama satır yoksa tutar UYDURULMAZ.
     const plan = await calendarPlan(2026, 10);
-    expect(plan.state).toBe("no_active_contract");
-    if (plan.state !== "no_active_contract") return;
-    expect(plan.message).toBe("Bu ay için aktif ödeme planı bulunmuyor.");
+    expect(plan.state).toBe("student_plan");
+    if (plan.state !== "student_plan") return;
+    expect(plan.paymentIds).toEqual([]);
+    expect(plan.amount).toBe(0);
+    expect(plan.message).toContain("henüz ödeme kaydı yok");
   });
 
   it("sözleşme var ama o ay kapsam dışıysa (Aralık) tutar üretilmez", async () => {
@@ -292,8 +295,10 @@ describe("Senaryo 6 — iptal edilmiş sözleşme ödeme kaynağı OLAMAZ", () =
     });
     expect(cancelled.ok).toBe(true);
 
+    // İptal edilen sözleşmenin satırları ödeme kaynağı olamaz (8. tur: sözleşmesiz plana da karışmaz).
     const plan = await calendarPlan(2026, 10);
-    expect(plan.state).toBe("no_active_contract");
+    expect(plan.state).not.toBe("ok");
+    if (plan.state === "student_plan") expect(plan.paymentIds).toEqual([]);
   });
 });
 

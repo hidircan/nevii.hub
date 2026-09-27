@@ -27,7 +27,7 @@ export default async function SubelerPage() {
             branches.map((b) => {
               const teacherCount = data.teachers.filter((t) => t.branchId === b.id && t.active).length;
               const studentCount = data.students.filter((s) => s.branchId === b.id && s.active).length;
-              const roomCount = data.rooms.filter((r) => r.branchId === b.id).length;
+              const roomCount = data.rooms.filter((r) => r.branchId === b.id && !r.deletedAt).length;
               return (
                 <Card key={b.id}>
                   <div className="flex flex-wrap items-start justify-between gap-3">

@@ -66,7 +66,15 @@ export interface CalendarPlanInstallment {
   /** `Payment` satırındaki adları — çağıranlar doğrudan `Payment` geçirir. */
   installmentPeriodLabel?: string;
   installmentBreakdown?: { periodLabel: string; amount: number }[];
+  /** Sözleşmesiz plan satırlarını ayırt etmek için (`Payment.source`). */
+  source?: string;
 }
+
+/**
+ * 8. tur — sözleşmesiz öğrencinin KENDİ planına sayılan satırlar: kayıttaki ilk
+ * tahsilat + takvimden/ödemelerden açılan aylık plan satırları (sözleşmeye bağlı değil).
+ */
+const STUDENT_PLAN_SOURCES = new Set(["registration_first_payment", "monthly_plan"]);
 
 export type CalendarMonthPlan =
   | {
@@ -83,6 +91,22 @@ export type CalendarMonthPlan =
       status: PaymentStatus;
       /** "Ekim 2026" gibi — sözleşme satırından gelir, burada üretilmez. */
       periodLabel?: string;
+    }
+  | {
+      /**
+       * 8. tur — sözleşme YOK ama öğrencinin kendi ödeme planı var (sözleşme 2026-09-22'den
+       * beri kayıtta opsiyonel; tanışma paketi / sözleşme bekleyen öğrenci). Tutarlar yalnız
+       * o aya ait gerçek Payment satırlarından toplanır; satır yoksa borç UYDURULMAZ
+       * (`paymentIds` boş, `amount` 0) — yalnız anlaşılan aylık ücret bilgi olarak taşınır.
+       */
+      state: "student_plan";
+      paymentIds: string[];
+      amount: number;
+      paidAmount: number;
+      remaining: number;
+      status?: PaymentStatus;
+      monthlyFee?: number;
+      message: string;
     }
   | {
       state: "no_active_contract";
@@ -152,6 +176,8 @@ export function resolveContractPlanForMonth(input: {
   year: number;
   month: number;
   now?: Date;
+  /** Öğrencinin anlaşılan aylık ücreti — sözleşmesiz plan bilgisi için (tutar türetmez). */
+  studentMonthlyFee?: number;
 }): CalendarMonthPlan {
   const monthKey = `${input.year}-${String(input.month).padStart(2, "0")}`;
 
@@ -160,9 +186,31 @@ export function resolveContractPlanForMonth(input: {
     .filter((c) => contractCoversMonth(c, monthKey));
 
   if (covering.length === 0) {
+    const own = input.installments.filter(
+      (p) => !p.contractId && STUDENT_PLAN_SOURCES.has(p.source ?? "") && p.status !== "voided" && installmentMonthKeys(p).includes(monthKey)
+    );
+    const fee = input.studentMonthlyFee && input.studentMonthlyFee > 0 ? input.studentMonthlyFee : undefined;
+    if (own.length === 0 && !fee) {
+      return {
+        state: "no_active_contract",
+        message: "Bu ay için aktif ödeme planı bulunmuyor.",
+      };
+    }
+    const amount = own.reduce((sum, r) => sum + Math.trunc(r.amount), 0);
+    const paidAmount = own.reduce((sum, r) => sum + Math.trunc(r.paidAmount), 0);
+    const earliestDue = own.reduce<string | undefined>((min, r) => (!min || r.dueDate < min ? r.dueDate : min), undefined);
     return {
-      state: "no_active_contract",
-      message: "Bu ay için aktif ödeme planı bulunmuyor.",
+      state: "student_plan",
+      paymentIds: own.map((r) => r.id),
+      amount,
+      paidAmount,
+      remaining: remainingAmount(amount, paidAmount),
+      status: earliestDue ? resolveCollectionStatus({ amount, paidAmount, dueDate: earliestDue, now: input.now }) : undefined,
+      monthlyFee: fee,
+      message:
+        own.length > 0
+          ? "Sözleşmesiz aylık plan (öğrenci kartındaki ödeme bilgisi)."
+          : "Sözleşmesiz aylık plan — bu ay için henüz ödeme kaydı yok.",
     };
   }
   if (covering.length > 1) {
@@ -210,4 +258,11 @@ export function resolveContractPlanForMonth(input: {
     status: resolveCollectionStatus({ amount, paidAmount, dueDate: earliestDueDate, now: input.now }),
     periodLabel: rows.length === 1 ? (rows[0]!.installmentPeriodLabel ?? rows[0]!.periodLabel) : undefined,
   };
+}
+
+/** Ayın gerçek plan satırı var mı (sözleşme taksiti VEYA sözleşmesiz planın ödeme satırı)? */
+export function planHasRows(
+  plan: CalendarMonthPlan
+): plan is Extract<CalendarMonthPlan, { state: "ok" }> | Extract<CalendarMonthPlan, { state: "student_plan" }> {
+  return plan.state === "ok" || (plan.state === "student_plan" && plan.paymentIds.length > 0);
 }

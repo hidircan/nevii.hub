@@ -126,6 +126,7 @@ export type TeacherProfilePatch = Partial<
     | "name"
     | "email"
     | "phone"
+    | "branchId"
     | "branchIds"
     | "birthDate"
     | "nationalIdCipher"
@@ -714,6 +715,8 @@ export interface Room {
   /** ÖNCELİK 4 (devam) — pasife alma (hard delete YOK). Verilmezse (legacy) true varsayılır. */
   active?: boolean;
   archivedAt?: string;
+  /** 8. tur — silinmiş (yalnız pasif oda silinebilir). Satır kalır: geçmiş dersler oda adını gösterir. */
+  deletedAt?: string;
 }
 
 export interface Lesson {
