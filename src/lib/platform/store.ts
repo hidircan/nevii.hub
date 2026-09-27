@@ -304,6 +304,25 @@ export type UpsertTenantInput = {
   draft?: TenantDraftPayload | null;
 };
 
+/** Yalnız `Tenant.language`. Başka kurum alanını yazmaz. Kayıt yoksa no-op. */
+export async function setTenantLanguage(tenantId: string, language: "tr" | "en"): Promise<void> {
+  if (isDbMode) {
+    try {
+      const { getPrisma } = await import("../db");
+      await getPrisma().tenant.update({ where: { id: tenantId }, data: { language } });
+      return;
+    } catch (e) {
+      dbFailClosed(e);
+    }
+  }
+  await mutate((state) => {
+    const existing = state.tenants.find((t) => t.tenantId === tenantId);
+    if (!existing) return;
+    existing.language = language;
+    existing.updatedAt = new Date().toISOString();
+  });
+}
+
 export async function upsertPlatformTenant(
   input: UpsertTenantInput,
   actorUserId: string

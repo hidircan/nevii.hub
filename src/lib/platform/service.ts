@@ -159,16 +159,56 @@ export async function getInstitutionOverview(ctx: ServiceContext, tenantId: stri
     listTenantUsersInternal(tenantId),
   ]);
 
-  let branches: { id: string; name: string }[] = [];
+  let branches: { id: string; name: string; city: string; address: string; phone: string }[] = [];
+  let school: {
+    name: string;
+    shortName: string;
+    city: string;
+    email: string;
+    phone: string;
+    website: string;
+    currency: string;
+    logoUrl: string;
+  } | null = null;
   try {
     const data = await runWithTenantAsync(tenantId, () => readData());
-    branches = data.settings.branches.map((b) => ({ id: b.id, name: b.name }));
+    const { withLogoVersion } = await import("../institution-logo");
+    let version = "";
+    if (isDbMode) {
+      try {
+        const { getPrisma } = await import("../db");
+        const row = await getPrisma().school.findFirst({ where: { tenantId }, select: { updatedAt: true } });
+        version = row ? String(row.updatedAt.getTime()) : "";
+      } catch {
+        version = "";
+      }
+    }
+    branches = data.settings.branches.map((b) => ({
+      id: b.id,
+      name: b.name,
+      city: b.city,
+      address: b.address,
+      phone: b.phone,
+    }));
+    const logo = data.settings.logoUrl?.trim() ?? "";
+    school = {
+      name: data.settings.name ?? "",
+      shortName: data.settings.shortName ?? "",
+      city: data.settings.city ?? "",
+      email: data.settings.email ?? "",
+      phone: data.settings.phone ?? "",
+      website: data.settings.website ?? "",
+      currency: data.settings.currency ?? "",
+      logoUrl: withLogoVersion(logo, version || logo) ?? "",
+    };
   } catch {
     branches = [];
+    school = null;
   }
 
   return ok({
     tenant,
+    school,
     settingsPreview: settings.slice(0, 8),
     features,
     integrations,
@@ -328,6 +368,10 @@ export async function applySettingWrite(opts: {
   if (opts.key === "access.teacherEarningsAccess") {
     const { invalidateTeacherEarningsAccess } = await import("./teacher-earnings-access");
     invalidateTeacherEarningsAccess();
+  }
+  if (opts.key === "locale.language" && opts.scopeType === "tenant" && (parsed.value === "tr" || parsed.value === "en")) {
+    const { setTenantLanguage } = await import("./store");
+    await setTenantLanguage(opts.scopeId, parsed.value);
   }
   const after =
     opts.targetTenantId != null

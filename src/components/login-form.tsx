@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button, Input, Label } from "@/components/ui";
 import { ModalShell, modalButton } from "@/components/modal-shell";
+import { authCopy, formatInLocale, loginErrorText, type AppLocale } from "@/lib/i18n/copy";
 
 /**
  * P0 UAT (2026-09-07) — GİRİŞ EKRANINDA DEMO KİMLİK BİLGİSİ YOK.
@@ -23,7 +24,8 @@ import { ModalShell, modalButton } from "@/components/modal-shell";
  * NOT (operatör aksiyonu): bu parolalar git geçmişinde kalmıştır; ekrandan
  * kaldırılmaları rotasyon YERİNE GEÇMEZ.
  */
-export function LoginForm({ nextPath }: { nextPath?: string }) {
+export function LoginForm({ nextPath, lang = "tr" }: { nextPath?: string; lang?: AppLocale }) {
+  const copy = authCopy(lang);
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -54,7 +56,7 @@ export function LoginForm({ nextPath }: { nextPath?: string }) {
       }
       setTakeoverInfo(null);
       if (!json.ok) {
-        setError(json.error?.message || "Giriş yapılamadı. Bilgilerinizi kontrol edip tekrar deneyin.");
+        setError(loginErrorText(lang, json.error?.code, json.error?.message || (lang === "en" ? "Sign-in failed. Check your details and try again." : "Giriş yapılamadı. Bilgilerinizi kontrol edip tekrar deneyin.")));
         setLoading(false);
         return;
       }
@@ -103,17 +105,17 @@ export function LoginForm({ nextPath }: { nextPath?: string }) {
               disabled={loading}
               onClick={() => void performLogin(email, password, true)}
             >
-              {loading ? "Giriş yapılıyor…" : "Devam et ve diğer oturumu kapat"}
+              {loading ? copy.signingIn : copy.takeoverAction}
             </button>
           </>
         }
       >
-        <p>Bu kullanıcı şu anda başka bir cihazda aktif. Devam ederseniz mevcut oturum kapatılacaktır.</p>
+        <p>{copy.takeover}</p>
         {takeoverInfo?.device || takeoverInfo?.lastSeenAt ? (
           <p className="mt-2 text-xs text-[var(--color-text-muted)]">
             Açık oturum: {takeoverInfo.device ?? "Bilinmeyen cihaz"}
             {takeoverInfo.lastSeenAt
-              ? ` · son etkinlik ${new Date(takeoverInfo.lastSeenAt).toLocaleString("tr-TR", { dateStyle: "short", timeStyle: "short" })}`
+              ? ` · ${formatInLocale(takeoverInfo.lastSeenAt, lang)}`
               : ""}
           </p>
         ) : null}
@@ -123,7 +125,7 @@ export function LoginForm({ nextPath }: { nextPath?: string }) {
       </ModalShell>
       <form onSubmit={onSubmit} className="space-y-4">
         <div>
-          <Label>E-posta</Label>
+          <Label>{copy.email}</Label>
           <Input
             type="email"
             autoComplete="username"
@@ -133,7 +135,7 @@ export function LoginForm({ nextPath }: { nextPath?: string }) {
           />
         </div>
         <div>
-          <Label>Şifre</Label>
+          <Label>{copy.password}</Label>
           <Input
             type="password"
             autoComplete="current-password"
@@ -148,7 +150,7 @@ export function LoginForm({ nextPath }: { nextPath?: string }) {
           </p>
         ) : null}
         <Button type="submit" className="w-full" disabled={loading}>
-          {loading ? "Giriş yapılıyor…" : "Giriş yap"}
+          {loading ? copy.signingIn : copy.signIn}
         </Button>
         {/*
           P0 UAT (2026-09-08) — "Şifremi unuttum" akışı giriş ekranından
@@ -162,7 +164,7 @@ export function LoginForm({ nextPath }: { nextPath?: string }) {
           href="/sifre-sifirla"
           className="block text-center text-sm font-medium text-[var(--color-primary)] hover:underline"
         >
-          Şifremi unuttum
+          {copy.forgot}
         </Link>
       </form>
     </div>

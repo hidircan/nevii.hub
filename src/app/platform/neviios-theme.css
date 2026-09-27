@@ -1,0 +1,54 @@
+/**
+ * NeviiOS kabuğu. Yalnız `.neviios-console` altında token üretir.
+ * Kurum paneli ve ortak globals.css bu dosyadan etkilenmez.
+ * Kayıtlı tema tercihi varken kabuk bu sınıfı taşımaz.
+ */
+.neviios-console {
+  color-scheme: dark;
+  --color-bg: #07140d;
+  --color-surface: #102117;
+  --color-surface-muted: #173024;
+  --color-border: #2a4a38;
+  --color-border-strong: #3d6b52;
+  --color-text: #e7f6ec;
+  --color-text-muted: #c5e0d0;
+  --color-text-inverted: #07140d;
+  --text-primary: rgba(231, 246, 236, 0.96);
+  --text-secondary: rgba(231, 246, 236, 0.82);
+  --text-tertiary: rgba(231, 246, 236, 0.68);
+  --color-primary: #b6f3c8;
+  --color-primary-hover: #d4ffe3;
+  --color-primary-soft: #143524;
+  --color-primary-soft-text: #d4ffe3;
+  --color-success: #6ee7b7;
+  --color-success-soft: #123528;
+  --color-warning: #f6d48a;
+  --color-warning-soft: #3a3014;
+  --color-trial: #c4b5fd;
+  --color-trial-soft: #2a2144;
+  --color-danger: #fca5a5;
+  --color-danger-soft: #3f1d1d;
+  --color-info: #93c5fd;
+  --color-info-soft: #15283a;
+  --color-focus-ring: #b6f3c8;
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.35);
+  --shadow-md: 0 8px 24px -12px rgb(0 0 0 / 0.55);
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+.neviios-console :focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
+
+/* Düğme zemini koyu yeşil kalır; bağlantı metni açık yeşil tokende durur. */
+.neviios-console :is(a, button)[class*="bg-[var(--color-primary)]"] {
+  background: #146c3a;
+  color: #f4fff8;
+}
+
+.neviios-console :is(a, button)[class*="bg-[var(--color-primary)]"]:hover {
+  background: #0f5a30;
+  color: #f4fff8;
+}

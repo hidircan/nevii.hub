@@ -166,8 +166,18 @@ export const POST = withApiHandler(
         ...tokens,
       },
     });
+    const year = 60 * 60 * 24 * 365;
+    let lang: "tr" | "en" = "tr";
+    if (user.role !== "HYPER_ADMIN") {
+      try {
+        const { resolveTenantLanguage } = await import("@/lib/i18n/locale");
+        lang = await resolveTenantLanguage(user.tenantId);
+      } catch {
+        lang = "tr";
+      }
+    }
+    res.cookies.set("nevii_lang", lang, { path: "/", maxAge: year, sameSite: "lax" });
     if (bootstrap) {
-      const year = 60 * 60 * 24 * 365;
       res.cookies.set("notaplan_theme_profile", bootstrap.theme, { path: "/", maxAge: year, sameSite: "lax" });
       res.cookies.set("notaplan_font", bootstrap.font, { path: "/", maxAge: year, sameSite: "lax" });
       res.cookies.set("notaplan_density", bootstrap.density, { path: "/", maxAge: year, sameSite: "lax" });

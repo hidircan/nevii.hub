@@ -5,6 +5,8 @@ import { getSessionContext, homePathForRole } from "@/lib/auth/session";
 import { LoginForm } from "@/components/login-form";
 import { BRAND } from "@/lib/brand";
 import { PORTAL_RECORD_MISSING_PARAM } from "@/lib/auth/portal-record-missing";
+import { cookies } from "next/headers";
+import { LOCALE_COOKIE, authCopy, readLocaleCookie } from "@/lib/i18n/copy";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +17,8 @@ export default async function LoginPage({
 }) {
   const session = await getSessionContext();
   const params = await searchParams;
+  const lang = readLocaleCookie((await cookies()).get(LOCALE_COOKIE)?.value);
+  const copy = authCopy(lang);
   // P0 (2026-09-05) — YÖNLENDİRME DÖNGÜSÜ KIRICI: bir portal sayfası
   // "oturum geçerli ama kuruma ait kaydı yok" diyerek buraya gönderdiyse,
   // kullanıcıyı AYNI portala geri YOLLAMAYIZ (bkz. portal-record-missing.ts).
@@ -37,7 +41,7 @@ export default async function LoginPage({
           href="/"
           className="mb-4 inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]"
         >
-          <span aria-hidden>←</span> Ana sayfaya dön
+          <span aria-hidden>←</span> {copy.backHome}
         </Link>
         <div className="rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] p-8 shadow-[var(--shadow-md)]">
         <div className="mb-6 text-center">
@@ -54,9 +58,9 @@ export default async function LoginPage({
           <p className="text-2xl font-extrabold tracking-wide text-[var(--color-primary)]">
             {BRAND.shortName}
           </p>
-          <h1 className="mt-1 text-2xl font-semibold text-[var(--color-text)]">Giriş yap</h1>
+          <h1 className="mt-1 text-2xl font-semibold text-[var(--color-text)]">{copy.signIn}</h1>
           <p className="mt-2 text-sm text-[var(--color-text-muted)]">
-            Okul yönetimi, öğretmen ve öğrenci portalları için oturum açın.
+            {copy.signInHelp}
           </p>
         </div>
         {portalRecordMissing ? (
@@ -77,7 +81,7 @@ export default async function LoginPage({
             </p>
           </div>
         ) : null}
-        <LoginForm nextPath={params.next} />
+        <LoginForm nextPath={params.next} lang={lang} />
         </div>
       </div>
     </div>

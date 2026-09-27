@@ -12,6 +12,9 @@ import { screensFor } from "@/lib/platform/permission-matrix";
 import { getUserLifecycle } from "@/lib/platform/store-ext";
 import { getSessionAppearancePolicy } from "@/lib/platform/access";
 import { FONT_COOKIE, THEME_PROFILE_COOKIE, normalizeFontChoice, normalizeThemeProfile } from "@/lib/theme";
+import { getUserPreferences } from "@/lib/user-preferences";
+import { terminalShellByDefault } from "@/lib/i18n/copy";
+import "./neviios-theme.css";
 
 export const dynamic = "force-dynamic";
 
@@ -25,17 +28,19 @@ export default async function PlatformLayout({ children }: { children: React.Rea
     );
   }
 
-  const [user, lifecycle, grants, policy, jar] = await Promise.all([
+  const [user, lifecycle, grants, policy, jar, prefs] = await Promise.all([
     getUserById(session.userId),
     getUserLifecycle(session.userId).catch(() => null),
     resolveGrants(session),
     getSessionAppearancePolicy(),
     cookies(),
+    getUserPreferences(session.userId, session.tenantId).catch(() => null),
   ]);
+  const terminalDefault = terminalShellByDefault(prefs?.themeProfile);
   // Menü = ekran registry + aynı resolver (sunucu kontrolüyle tek kaynak).
   const links = screensFor({ grants }, "platform").map((s) => ({ href: s.path, label: s.label }));
   return (
-    <div className="flex min-h-screen bg-[var(--color-bg)]">
+    <div className={terminalDefault ? "neviios-console flex min-h-screen" : "flex min-h-screen bg-[var(--color-bg)]"}>
       <PlatformNav links={links} />
       <main className="min-w-0 flex-1 overflow-auto">
         <header

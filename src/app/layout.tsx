@@ -18,6 +18,9 @@ import { AssistantProvider } from "@/components/ai/assistant-context";
 import { GlobalAssistant } from "@/components/ai/global-assistant";
 import { SessionWatcher } from "@/components/session-watcher";
 import { ACCESS_COOKIE } from "@/lib/auth/cookies";
+import { LOCALE_COOKIE, readLocaleCookie } from "@/lib/i18n/copy";
+import { resolveTenantLanguage } from "@/lib/i18n/locale";
+import { getSessionContext } from "@/lib/auth/session";
 
 /**
  * Beş font seçeneği (bkz. src/lib/theme.ts FontChoice) — hepsi burada
@@ -97,10 +100,19 @@ export default async function RootLayout({
     font: clamped.fontChoice,
   });
   const density = clamped.density;
+  let lang = readLocaleCookie(jar.get(LOCALE_COOKIE)?.value);
+  try {
+    const session = await getSessionContext();
+    if (session && session.role !== "HYPER_ADMIN") {
+      lang = await resolveTenantLanguage(session.tenantId);
+    }
+  } catch {
+    // Oturum okunamazsa çerezdeki dil kalır.
+  }
 
   return (
     <html
-      lang="tr"
+      lang={lang}
       className={`${robotoSerif.variable} ${playfairDisplay.variable} ${inter.variable} ${gloock.variable} ${notoSans.variable} h-full antialiased`}
       data-theme-profile={themeProfile}
       data-font={font}

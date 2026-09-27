@@ -4,6 +4,25 @@
  * anında öneklenir.
  */
 
+/**
+ * Aynı URL üzerine yazılan logonun tarayıcı önbelleğinde kalmaması için
+ * sürüm ekler. data-URI zaten içeriğin kendisidir; ona sorgu eklenmez.
+ */
+export function logoUrlStamp(logoUrl: string): string {
+  let hash = 0;
+  for (let i = 0; i < logoUrl.length; i++) hash = (hash * 33 + logoUrl.charCodeAt(i)) >>> 0;
+  return hash.toString(36);
+}
+
+export function withLogoVersion(logoUrl: string | undefined | null, version: string): string | null {
+  const safe = sanitizeLogoUrl(logoUrl);
+  if (!safe || safe.startsWith("data:")) return safe;
+  const stamp = version.trim();
+  if (!stamp) return safe;
+  const join = safe.includes("?") ? "&" : "?";
+  return `${safe}${join}v=${encodeURIComponent(stamp)}`;
+}
+
 export function sanitizeLogoUrl(logoUrl: string | undefined | null): string | null {
   if (!logoUrl) return null;
   const trimmed = logoUrl.trim();
