@@ -8,6 +8,7 @@ import {
   type SessionEndReason,
 } from "../api/client";
 import { getAccessToken, getRefreshToken, setTokens } from "./token-storage";
+import { clearCachedPolicy } from "../api/policy";
 import { sessionStatusFor } from "./session-status";
 import {
   resolveMobilePersona,
@@ -138,6 +139,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       },
       async logout() {
         const refreshToken = await getRefreshToken();
+        // Tenant-anahtarlı policy/marka önbelleği çıkışta silinir — sonraki
+        // kullanıcı (başka kurum dahil) önceki kararı/markayı göremez.
+        if (user) await clearCachedPolicy(user.tenantId, user.userId);
         await endLocalSession();
         signOutLocally();
         if (refreshToken) void revokeServerSession(refreshToken);

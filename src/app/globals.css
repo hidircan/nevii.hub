@@ -295,6 +295,78 @@
 }
 
 /**
+ * Control Center (2026-09-28) — "Homebrew Hacker" profili: rafine terminal
+ * yeşili vurgulu koyu zemin. Kişisel bir tercihtir (kurum varsayılanı
+ * değişmez); NeviiOS'ta kayıtlı tercihi olmayan HYPER_ADMIN için varsayılan
+ * seçilidir (bkz. src/app/platform/layout.tsx). Koyu profil olduğu için
+ * `light_only` kurum politikasında engellenir (DARK_THEME_PROFILES).
+ *
+ * Kapsam: `:root[data-theme-profile="homebrew"]` (tercih olarak seçen
+ * herkes) + `.theme-homebrew` (platform kabuğunun varsayılan sarmalayıcısı).
+ * Sabit Tailwind palet eşlemesi obsidyen bloğuyla paylaşılır (aşağıdaki
+ * seçiciler) — koyu zeminde okunurluk aynı mekanizmayla korunur.
+ * Erişilebilirlik: metin/zemin oranları ≥ 4.5 (birincil metin ~13:1,
+ * ikincil ~7:1); focus halkası her zaman görünür; disabled opaklığı global.
+ */
+:root[data-theme-profile="homebrew"],
+.theme-homebrew {
+  color-scheme: dark;
+  --color-bg: #060f0b;
+  --color-surface: #0c1d14;
+  --color-surface-muted: #122a1d;
+  --color-border: #1e4030;
+  --color-border-strong: #2f5c44;
+
+  --color-text: #e8f5ec;
+  --color-text-muted: #a9cbb6;
+  --color-text-inverted: #060f0b;
+  --text-primary: rgba(232, 245, 236, 0.96);
+  --text-secondary: rgba(232, 245, 236, 0.8);
+  --text-tertiary: rgba(232, 245, 236, 0.64);
+
+  /* Rafine terminal yeşili — koyu zeminde yüksek kontrastlı vurgu. */
+  --color-primary: #8df0ae;
+  --color-primary-hover: #b4ffcd;
+  --color-primary-soft: #0f2c1c;
+  --color-primary-soft-text: #c9ffdc;
+
+  --color-success: #6ee7b7;
+  --color-success-soft: #0e2f24;
+  --color-warning: #f6d48a;
+  --color-warning-soft: #38300f;
+  --color-trial: #c4b5fd;
+  --color-trial-soft: #282040;
+  --color-danger: #fca5a5;
+  --color-danger-soft: #3c1b1b;
+  --color-info: #93c5fd;
+  --color-info-soft: #12283c;
+
+  --color-focus-ring: #8df0ae;
+
+  --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.55);
+  --shadow-md: 0 4px 16px -4px rgb(0 0 0 / 0.7);
+}
+
+:root[data-theme-profile="homebrew"] :focus-visible,
+.theme-homebrew :focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
+
+/* Düğme zemini koyu yeşil kalır; metin açık tonda durur (erişilebilir kontrast). */
+:root[data-theme-profile="homebrew"] :is(a, button)[class*="bg-[var(--color-primary)]"],
+.theme-homebrew :is(a, button)[class*="bg-[var(--color-primary)]"] {
+  background: #146c3a;
+  color: #f4fff8;
+}
+
+:root[data-theme-profile="homebrew"] :is(a, button)[class*="bg-[var(--color-primary)]"]:hover,
+.theme-homebrew :is(a, button)[class*="bg-[var(--color-primary)]"]:hover {
+  background: #0f5a30;
+  color: #f4fff8;
+}
+
+/**
  * 9. tur (2026-09-27) — koyu tema okunurluğu, TOKEN düzeyinde.
  *
  * Kök neden: ~1.700 yerde sabit Tailwind paleti (`text-stone-800`,
@@ -314,7 +386,9 @@
  *    üstünde koyu metin; `bg-white` kart yüzeyi olur.
  * Açık temalar ve yazdırma sayfaları (tema profili uygulanmaz) etkilenmez.
  */
-:root[data-theme-profile="obsidian"] {
+:root[data-theme-profile="obsidian"],
+:root[data-theme-profile="homebrew"],
+.theme-homebrew {
   color-scheme: dark;
   --color-white: #17171a;
   --color-amber-50: color-mix(in oklab, oklch(76.9% 0.188 70.08) 14%, #17171a);
@@ -958,7 +1032,9 @@ summary,
   --shadow-material-hover: 0 1px 1px rgb(44 34 22 / 0.035), 0 16px 34px -18px rgb(44 34 22 / 0.24);
 }
 
-:root[data-theme-profile="obsidian"] {
+:root[data-theme-profile="obsidian"],
+:root[data-theme-profile="homebrew"],
+.theme-homebrew {
   --texture-line: rgb(245 241 232 / 0.045);
   --texture-grain: rgb(245 241 232 / 0.02);
   --surface-highlight: rgb(255 255 255 / 0.035);

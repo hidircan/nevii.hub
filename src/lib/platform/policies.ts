@@ -19,8 +19,8 @@ import {
 export const APPEARANCE_MODES = ["light_and_dark", "light_only", "dark_only"] as const;
 export type AppearanceMode = (typeof APPEARANCE_MODES)[number];
 
-/** Sistemdeki tek gerçek koyu profil (bkz. src/lib/theme.ts). */
-export const DARK_THEME_PROFILES: readonly ThemeProfile[] = ["obsidian"];
+/** Koyu profiller — `light_only` kurum politikasında engellenir (bkz. src/lib/theme.ts). */
+export const DARK_THEME_PROFILES: readonly ThemeProfile[] = ["obsidian", "homebrew"];
 
 export type AppearancePolicy = {
   mode: AppearanceMode;

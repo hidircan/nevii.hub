@@ -31,7 +31,7 @@ export type AppearancePolicy = {
   allowedBodyFonts: readonly FontChoice[];
 };
 
-export const DARK_THEME_PROFILES: readonly ThemeProfile[] = ["obsidian"];
+export const DARK_THEME_PROFILES: readonly ThemeProfile[] = ["obsidian", "homebrew"];
 
 export const BODY_FONT_ALLOWLIST: readonly FontChoice[] = [
   "inter",

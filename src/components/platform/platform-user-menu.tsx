@@ -35,9 +35,9 @@ export function PlatformUserMenu({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const effective = applyAppearancePolicy(policy, { profile, font });
-  const isDark = effective.profile === "obsidian";
   const canLight = isProfileAllowed(policy, "gold");
   const canDark = isProfileAllowed(policy, "obsidian");
+  const canHomebrew = isProfileAllowed(policy, "homebrew");
 
   useEffect(() => {
     if (!open) return;
@@ -114,11 +114,14 @@ export function PlatformUserMenu({
           <Link role="menuitem" href="/gorunum-ayarlari" className={itemCls} onClick={() => setOpen(false)}>Görünüm tercihlerim</Link>
           <div className="border-t px-3 py-2" style={{ borderColor: "var(--color-border)" }}>
             <p className="text-[11px] font-semibold text-[var(--color-text-muted)]">Tema modu</p>
-            <div className="mt-1 flex gap-1">
-              <button role="menuitemradio" type="button" className={`${itemCls} ${!isDark ? "bg-[var(--color-surface-muted)] font-semibold" : ""}`} disabled={!canLight || effective.profileLocked} aria-checked={!isDark} onClick={() => setTheme("gold")}>
+            <div className="mt-1 flex flex-wrap gap-1">
+              <button role="menuitemradio" type="button" className={`${itemCls} ${effective.profile === "gold" ? "bg-[var(--color-surface-muted)] font-semibold" : ""}`} disabled={!canLight || effective.profileLocked} aria-checked={effective.profile === "gold"} onClick={() => setTheme("gold")}>
                 Açık
               </button>
-              <button role="menuitemradio" type="button" className={`${itemCls} ${isDark ? "bg-[var(--color-surface-muted)] font-semibold" : ""}`} disabled={!canDark || effective.profileLocked} aria-checked={isDark} onClick={() => setTheme("obsidian")}>
+              <button role="menuitemradio" type="button" className={`${itemCls} ${effective.profile === "homebrew" ? "bg-[var(--color-surface-muted)] font-semibold" : ""}`} disabled={!canHomebrew || effective.profileLocked} aria-checked={effective.profile === "homebrew"} onClick={() => setTheme("homebrew")}>
+                Hacker
+              </button>
+              <button role="menuitemradio" type="button" className={`${itemCls} ${effective.profile === "obsidian" ? "bg-[var(--color-surface-muted)] font-semibold" : ""}`} disabled={!canDark || effective.profileLocked} aria-checked={effective.profile === "obsidian"} onClick={() => setTheme("obsidian")}>
                 Koyu
               </button>
             </div>

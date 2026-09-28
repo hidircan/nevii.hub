@@ -29,6 +29,7 @@ const PROFILE_SWATCH: Record<ThemeProfile, { accent: string; bg?: string }> = {
   lavender: { accent: "#5b4b8a" },
   atolye: { accent: "#93441c", bg: "#f1ece1" },
   murekkep: { accent: "#14213d", bg: "#eef0f2" },
+  homebrew: { accent: "#8df0ae", bg: "#060f0b" },
 };
 
 /** Önizleme, globals.css'teki gerçek `[data-font]` eşlemesiyle BİREBİR aynı font ailesini kullanır. */

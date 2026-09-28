@@ -1,5 +1,6 @@
 import { Card } from "@/components/ui";
 import { requireHyperAdminPage } from "@/lib/platform/session";
+import { BrandPreview } from "@/components/platform/brand-preview";
 import { TenantSettingsSection } from "../settings-section";
 
 export const dynamic = "force-dynamic";
@@ -9,6 +10,7 @@ export default async function TenantAppearancePage({ params }: { params: Promise
   const { tenantId } = await params;
   return (
     <div className="space-y-4">
+      <BrandPreview tenantId={tenantId} />
       <Card>
         <h2 className="text-sm font-semibold">Görünüm politikası nasıl uygulanır?</h2>
         <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-[var(--color-text-muted)]">

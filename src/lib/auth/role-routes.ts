@@ -6,6 +6,40 @@
  */
 import type { AppRole } from "./types";
 
+/**
+ * Control Center (2026-09-28) — giriş sonrası `next` doğrulayıcı (open
+ * redirect kapalı): yalnız uygulama-içi göreli yollar. Mutlak URL,
+ * protokol-göreli (`//`), şema (`:`), ters bölü ve satır-sonu içeren
+ * değerler reddedilir → fallback. Çift kodlanmış (`%2F%2F`) saldırılar
+ * için bir kez decode edilir, çözüleni doğrulanır.
+ */
+export function resolveSafeLoginNext(raw: string | null | undefined, fallback: string): string {
+  if (!raw) return fallback;
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(raw);
+  } catch {
+    return fallback;
+  }
+  if (decoded.length > 500) return fallback;
+  if (!decoded.startsWith("/") || decoded.startsWith("//")) return fallback;
+  if (decoded.includes(":") || decoded.includes("\\") || /[\r\n\t]/.test(decoded)) return fallback;
+  return decoded;
+}
+
+/**
+ * Platform kapısı (`/platform/giris`) giriş-sonrası hedef: HYPER_ADMIN
+ * yalnız `/platform` altına gider (güvensiz/geçersiz next → `/platform`);
+ * kurum rolleri kendi ana sayfasına gider (platforma ASLA).
+ */
+export function resolvePlatformLoginDest(role: AppRole, nextPath: string | null | undefined): string {
+  if (role === "HYPER_ADMIN") {
+    const safe = resolveSafeLoginNext(nextPath, "/platform");
+    return safe === "/platform" || safe.startsWith("/platform/") ? safe : "/platform";
+  }
+  return homePathForRole(role);
+}
+
 export function homePathForRole(role: AppRole): string {
   switch (role) {
     case "HYPER_ADMIN":
