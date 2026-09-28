@@ -17,9 +17,17 @@ export const LESSON_PLAN_TEMPLATE_PLACEHOLDERS = [
   "saat",
   "sube",
   "kurum",
+  // 11. tur iş #2 — yalnız güncelleme şablonlarında kullanılır (eski→yeni özeti).
+  "degisiklik",
 ] as const;
 
-export type LessonPlanTemplateVars = Record<(typeof LESSON_PLAN_TEMPLATE_PLACEHOLDERS)[number], string>;
+export type LessonPlanTemplateVars = Record<
+  Exclude<(typeof LESSON_PLAN_TEMPLATE_PLACEHOLDERS)[number], "degisiklik">,
+  string
+> & {
+  /** Yalnız güncelleme şablonlarında kullanılır (eski→yeni özeti). */
+  degisiklik?: string;
+};
 
 export function renderLessonPlanTemplate(
   template: string,
@@ -53,6 +61,19 @@ export const LESSON_PLAN_TEACHER_TEMPLATE =
 /** Editör etiketi için tek satırlık yer tutucu listesi. */
 export const LESSON_PLAN_PLACEHOLDER_DOC = "{veliAdi}, {ogrenciAdi}, {ogretmenAdi}, {dersAdi}, {tarih}, {saat}, {sube}, {kurum}";
 
+/**
+ * 11. tur iş #2 — ders GÜNCELLEME bildirimi (eski→yeni). `{degisiklik}`
+ * yalnız gerçekten değişen parçaları içerir ("saat 14:00 → 15:30" gibi);
+ * değişmeyen alanlar YENİ değeriyle yazılır.
+ */
+export const LESSON_UPDATE_PARENT_TEMPLATE =
+  "Merhaba {veliAdi}, {kurum} — {ogrenciAdi} dersinde değişiklik: {degisiklik}. Güncel bilgi: {dersAdi}, {tarih} {saat}, {sube} şubesi, öğretmen {ogretmenAdi}.";
+
+export const LESSON_UPDATE_TEACHER_TEMPLATE =
+  "Merhaba {ogretmenAdi}, {kurum} — {ogrenciAdi} ({veliAdi}) dersinde değişiklik: {degisiklik}. Güncel bilgi: {dersAdi}, {tarih} {saat}, {sube} şubesi.";
+
+export const LESSON_UPDATE_WA_TEMPLATE_KEYS = ["lesson_update_parent_wa", "lesson_update_teacher_wa"] as const;
+
 /** Önizleme için örnek değerler (gerçek veri DEĞİL — yalnızca şablon görüntüsü). */
 export const LESSON_PLAN_PREVIEW_VARS: LessonPlanTemplateVars = {
   veliAdi: "Örnek Veli",
@@ -63,4 +84,5 @@ export const LESSON_PLAN_PREVIEW_VARS: LessonPlanTemplateVars = {
   saat: "15:00",
   sube: "Merkez",
   kurum: "Örnek Kurum",
+  degisiklik: "saat 14:00 → 15:30",
 };

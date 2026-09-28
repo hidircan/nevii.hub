@@ -6117,6 +6117,25 @@ export async function updateLessonScheduleTool(
         });
         audit(ctx, "lesson.reschedule.notification_failed", "Lesson", lesson.id, { created: 0, duplicate: 0, skipped: 0, failed: 1 });
       }
+      // 11. tur iş #2 — taşıma sonrası WhatsApp taslakları (veli SMS+WA, öğretmen WA).
+      // Best-effort: taslak oluşmasa bile taşıma başarılıdır; aynı değerler
+      // tekrarlanırsa idempotency ile taslak çoğalmaz.
+      const { queueLessonUpdateDraftsBestEffort } = await import("../communications/service");
+      await queueLessonUpdateDraftsBestEffort({
+        tenantId: ctx.tenantId,
+        actorUserId: ctx.userId,
+        lessonId: lesson.id,
+        previous: {
+          startAt: previousStartAt,
+          teacherId: lesson.teacherId,
+          roomId: lesson.roomId,
+          branchId: lesson.branchId,
+          // Taşıma süreyi değiştirmez — eski süre = güncel başlangıç/bitişten türetilen.
+          durationMinutes: Math.round(
+            (new Date(lesson.endAt).getTime() - new Date(lesson.startAt).getTime()) / 60000
+          ),
+        },
+      });
     }
     return ok({ lessonId: lesson.id, startAt: lesson.startAt, endAt: lesson.endAt });
   } catch (e) {
@@ -6812,6 +6831,25 @@ export async function changeLessonTeacherOrBranchTool(
           previousTeacherId: result.preview.previousTeacherId,
           previousBranchId: result.preview.previousBranchId,
           actorUserId: ctx.userId,
+        });
+        // 11. tur iş #2 — atama sonrası WhatsApp taslakları. YALNIZ çapa ders
+        // için (seri üyelerine tek tek WA taslağı spam olur; uygulama-içi
+        // bildirimleri zaten gider). Best-effort: atama başarılıdır.
+        const { queueLessonUpdateDraftsBestEffort } = await import("../communications/service");
+        await queueLessonUpdateDraftsBestEffort({
+          tenantId: ctx.tenantId,
+          actorUserId: ctx.userId,
+          lessonId: updatedLesson.id,
+          previous: {
+            startAt: updatedLesson.startAt,
+            teacherId: result.preview.previousTeacherId,
+            roomId: lesson.roomId,
+            branchId: result.preview.previousBranchId,
+            // Öğretmen/şube değişimi süreyi değiştirmez — güncel aralıktan türetilir.
+            durationMinutes: Math.round(
+              (new Date(updatedLesson.endAt).getTime() - new Date(updatedLesson.startAt).getTime()) / 60000
+            ),
+          },
         });
       }
     } catch {

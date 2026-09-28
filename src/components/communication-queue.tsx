@@ -115,6 +115,8 @@ export function CommunicationQueue({
   const [lastAction, setLastAction] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState<string>("");
+  /** 11. tur iş #2/#6 — "Gönderdim olarak işaretle" iki aşamalıdır (yanlış işaret engeli). */
+  const [confirmDeliverId, setConfirmDeliverId] = useState<string | null>(null);
 
   const hasActiveFilters =
     tab !== "all" ||
@@ -208,6 +210,53 @@ export function CommunicationQueue({
     } catch (e) {
       setError(e instanceof Error ? e.message : fallbackError);
     } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
+   * 11. tur iş #2/#6 — wa.me manuel akışı, istemci tarafı.
+   * "WhatsApp'ta aç": sunucu derin bağlantıyı üretir + mesajı
+   * `manual_send_pending` alır, sekme YENİ sekmede açılır. "Gönderdim"
+   * iki tıklamalıdır; ikinci tıklama `{ confirm: true }` gönderir.
+   */
+  async function openWhatsApp(id: string) {
+    setBusy(true);
+    setError(null);
+    setLastAction(null);
+    try {
+      const data = await postJson(`/api/v1/iletisim-merkezi/${id}/manual-send`, {});
+      if (data.message) {
+        setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, ...data.message } : m)));
+      }
+      if (data.waUrl) {
+        window.open(data.waUrl, "_blank", "noopener,noreferrer");
+        setLastAction("WhatsApp'ta açıldı — gönderdikten sonra “Gönderdim olarak işaretle”yi kullanın.");
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "WhatsApp açılamadı");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirmDelivered(id: string) {
+    if (confirmDeliverId !== id) {
+      setConfirmDeliverId(id);
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const data = await postJson(`/api/v1/iletisim-merkezi/${id}/mark-delivered`, { confirm: true });
+      if (data.message) {
+        setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, ...data.message } : m)));
+      }
+      setLastAction("Kullanıcı onaylı gönderim olarak işaretlendi (teknik teslim doğrulaması değil).");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "İşaretleme başarısız");
+    } finally {
+      setConfirmDeliverId(null);
       setBusy(false);
     }
   }
@@ -499,6 +548,12 @@ export function CommunicationQueue({
                       {m.blockedReasonMessage && (
                         <p className="mt-2 text-xs text-red-600">Gönderilemez: {m.blockedReasonMessage}</p>
                       )}
+                      {m.status === "manual_send_pending" && (
+                        <p className="mt-2 text-xs text-amber-700">
+                          WhatsApp&apos;ta açıldı — gönderdikten sonra “Gönderdim olarak işaretle”yi kullanın.
+                          Bu kayıt teknik teslim doğrulaması değildir.
+                        </p>
+                      )}
 
                       {expandedId === m.id && (
                         <div className="mt-3 space-y-3 rounded-xl border border-[var(--color-border)] p-3">
@@ -603,6 +658,24 @@ export function CommunicationQueue({
                         className="whitespace-nowrap"
                       >
                         Gönderimi dene
+                      </Button>
+                    )}
+                    {canWrite && m.channel === "WHATSAPP" && (m.status === "approved" || m.status === "queued" || m.status === "manual_send_pending") && (
+                      <Button
+                        disabled={busy}
+                        onClick={() => void openWhatsApp(m.id)}
+                        className="whitespace-nowrap"
+                      >
+                        WhatsApp&apos;ta aç
+                      </Button>
+                    )}
+                    {canWrite && m.status === "manual_send_pending" && (
+                      <Button
+                        disabled={busy}
+                        onClick={() => void confirmDelivered(m.id)}
+                        className="whitespace-nowrap"
+                      >
+                        {confirmDeliverId === m.id ? "Gönderdiğimi onayla" : "Gönderdim olarak işaretle"}
                       </Button>
                     )}
                     {canWrite && (m.status === "failed" || m.status === "blocked") && (

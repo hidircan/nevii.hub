@@ -2684,7 +2684,6 @@ function DisruptionSourceEditor({ lesson, onDone }: { lesson: Lesson; onDone: (m
 }
 
 function CommunicationDraftCard({ label, msg }: { label: string; msg: LessonCommunicationMessage }) {
-  const [markedSent, setMarkedSent] = useState(false);
   return (
     <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-3 dark:border-slate-700 dark:bg-slate-900">
       <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">{label}</p>
@@ -2705,15 +2704,16 @@ function CommunicationDraftCard({ label, msg }: { label: string; msg: LessonComm
       ) : (
         <p className="mt-2 text-xs text-rose-600">{msg.missingPhoneReason ?? "Telefon numarası eksik."}</p>
       )}
-      <label className="mt-2 flex items-center gap-2 text-[11px] text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
-        <input type="checkbox" checked={markedSent} onChange={(e) => setMarkedSent(e.target.checked)} />
-        Sistemde gönderildi olarak işaretle
-      </label>
-      {markedSent ? (
-        <p className="mt-1 text-[10px] text-amber-600">
-          Bu yalnızca bilgi amaçlıdır — WhatsApp üzerinden gerçekten gönderildiğinin kanıtı değildir.
-        </p>
-      ) : null}
+      <p className="mt-2 text-[11px] leading-relaxed text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
+        Gönderim ve “gönderdim” işareti İletişim Merkezi&apos;nden yapılır — kim/ne zaman bilgisi orada
+        kalıcı kaydedilir.
+      </p>
+      <Link
+        href="/panel/iletisim-merkezi"
+        className="mt-1.5 inline-block text-[11px] font-semibold text-[var(--color-primary)] underline"
+      >
+        İletişim Merkezi&apos;nde aç
+      </Link>
     </div>
   );
 }
