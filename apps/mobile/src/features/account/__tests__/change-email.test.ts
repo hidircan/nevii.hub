@@ -19,9 +19,9 @@ describe("e-posta değiştirme sözleşmesi", () => {
 
   it("mevcut adresi gösterir, aynı-adres gönderimi engeller, bekleyen durum ekranı vardır", async () => {
     const content = await fs.readFile(SCREEN, "utf-8");
-    expect(content).toMatch(/MEVCUT E-POSTA/);
-    expect(content).toMatch(/mevcut adresinizle aynı/);
-    expect(content).toMatch(/24 saat/);
+    expect(content).toMatch(/emailChange\.currentEmail/);
+    expect(content).toMatch(/emailChange\.sameAsCurrent/);
+    expect(content).toMatch(/emailChange\.footnote/);
   });
 
   it("üç persona da (öğrenci/veli/öğretmen) ekrana bağlanır; admin kapsam dışı", async () => {

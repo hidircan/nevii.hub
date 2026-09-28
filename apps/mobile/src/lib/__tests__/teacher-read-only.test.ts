@@ -62,15 +62,15 @@ describe("öğretmen salt-okunur yüzey sözleşmesi", () => {
 
   it("salt-okunur bilgi metinleri yerinde", async () => {
     const detail = await fs.readFile(path.join(APP_DIR, "(teacher)", "bugun", "[lessonId].tsx"), "utf-8");
-    expect(detail).toContain("Yoklama yalnız kurum yöneticileri tarafından alınır.");
+    expect(detail).toContain("teach.attendanceAdminOnly");
     const availability = await fs.readFile(path.join(APP_DIR, "(teacher)", "hesabim", "musaitlik.tsx"), "utf-8");
-    expect(availability).toContain("Müsaitlik günleri yalnız kurum yöneticileri tarafından düzenlenir.");
+    expect(availability).toContain("avail.note");
   });
 
   it("admin yoklama akışı korunur (mutasyon + CTA'lar durur)", async () => {
     const content = await fs.readFile(path.join(APP_DIR, "(admin)", "islemler", "yoklama.tsx"), "utf-8");
     expect(content).toMatch(/lessons\/.*\/ops/);
-    expect(content).toMatch(/label="Katıldı"/);
+    expect(content).toMatch(/attFlag\.flagAttended/);
   });
 
   it("müsaitlik ekranında yazma çağrısı YOK (tamamen read-only)", async () => {

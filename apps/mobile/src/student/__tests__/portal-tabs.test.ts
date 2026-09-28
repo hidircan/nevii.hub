@@ -9,6 +9,7 @@
 import { describe, expect, it } from "vitest";
 import { promises as fs } from "fs";
 import path from "path";
+import { lookup } from "../../i18n/locales";
 
 const APP_DIR = path.join(__dirname, "..", "..", "..", "app");
 
@@ -33,14 +34,17 @@ describe("öğrenci/veli panel sözleşmesi", () => {
     const layout = await fs.readFile(path.join(APP_DIR, group, "_layout.tsx"), "utf-8");
     expect(layout).toMatch(/<Tabs\.Screen name="sozlesmeler" options=\{\{ href: null \}\} \/>/);
     const account = await fs.readFile(path.join(APP_DIR, group, "hesabim", "index.tsx"), "utf-8");
-    expect(account).toMatch(/Sözleşmelerim/);
+    expect(account).toMatch(/key: "sozlesmeler"/);
+    expect(account).toMatch(/links\.myContracts/);
+    expect(lookup("tr", "links.myContracts")).toMatch(/Sözleşme/);
   });
 
   it("(parent): Çocuğum sekmede görünür bağlam merkezidir", async () => {
     const layout = await fs.readFile(path.join(APP_DIR, "(parent)", "_layout.tsx"), "utf-8");
     expect(layout).toMatch(/name="cocugum"/);
     expect(layout).not.toMatch(/name="cocugum" options=\{\{ href: null \}\}/);
-    expect(layout).toMatch(/title: "Çocuğum"/);
+    expect(layout).toMatch(/tabs\.myChild/);
+    expect(lookup("tr", "tabs.myChild")).toBe("Çocuğum");
   });
 
   it("(parent): yoklama/degerlendirme push-only (sekmede yok)", async () => {
@@ -52,9 +56,10 @@ describe("öğrenci/veli panel sözleşmesi", () => {
   it("veli/öğrenci sekme dili tutarlı (Ödevler)", async () => {
     for (const group of ["(parent)", "(student)"]) {
       const layout = await fs.readFile(path.join(APP_DIR, group, "_layout.tsx"), "utf-8");
-      expect(layout).toMatch(/title: "Ödevler"/);
-      expect(layout).not.toMatch(/title: "Ödevlerim"/);
+      expect(layout).toMatch(/tabs\.homework/);
+      expect(layout).not.toMatch(/lists\.myHwTitle/);
     }
+    expect(lookup("tr", "tabs.homework")).toBe("Ödevler");
   });
 
   it("(admin): eski düz route'lar sekmede yok", async () => {

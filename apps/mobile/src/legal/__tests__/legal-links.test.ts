@@ -26,7 +26,7 @@ describe("legal-links (Faz 6 — gerçek URL'ler)", () => {
     const fs = await import("node:fs/promises");
     const path = await import("node:path");
     const content = await fs.readFile(path.join(__dirname, "..", "..", "features", "account", "account-screen.tsx"), "utf-8");
-    expect(content).toMatch(/Hesabımı silme talebi/);
+    expect(content).toMatch(/account\.deleteRow/);
     expect(content).toMatch(/\/hesap-silme-talebi/);
   });
 });

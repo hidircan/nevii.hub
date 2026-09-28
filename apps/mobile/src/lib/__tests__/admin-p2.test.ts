@@ -27,7 +27,7 @@ describe("kritik raporlar gerçek uçtadır", () => {
   it("katalog instruments kullanır + web-only notu vardır", async () => {
     const content = await admin("islemler/katalog.tsx");
     expect(content).toContain('"/api/v1/instruments"');
-    expect(content).toMatch(/web panelini kullanın/);
+    expect(content).toMatch(/catFootnote/);
   });
 
   it("hakedis mark-paid ucu kullanılır", async () => {

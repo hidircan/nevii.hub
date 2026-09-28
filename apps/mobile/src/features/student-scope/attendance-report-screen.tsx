@@ -147,7 +147,7 @@ export function AttendanceReportScreen({
           ItemSeparatorComponent={Separator}
           ListHeaderComponent={
             <View style={styles.chips}>
-              <FilterChip label="Tümü" selected={status === null} onPress={() => { setStatus(null); setLimit(PAGE_STEP); }} />
+              <FilterChip label={tr("att.all")} selected={status === null} onPress={() => { setStatus(null); setLimit(PAGE_STEP); }} />
               {chips.map((c) =>
                 c.count > 0 || status?.includes(c.key) ? (
                   <FilterChip

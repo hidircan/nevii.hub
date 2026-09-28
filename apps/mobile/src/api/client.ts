@@ -1,6 +1,7 @@
 import { Platform } from "react-native";
 import { clearTokens, getAccessToken, getRefreshToken, setTokens } from "../auth/token-storage";
-import { NETWORK_ERROR, toApiResult, type ApiResult } from "./errors";
+import { networkError, toApiResult, type ApiResult } from "./errors";
+import { getActiveLocale } from "../i18n/locale-store";
 
 export type { ApiResult };
 
@@ -41,17 +42,21 @@ function hostOf(url: string): string {
  * console'a yazılır (asla token/secret); production'da yalnız genel mesaj.
  */
 function networkErrorResult<T>(url: string, err: unknown): ApiResult<T> {
+  const locale = getActiveLocale();
   if (__DEV__) {
     console.warn(`[Nevii Hub API] ${url} adresine ulaşılamadı: ${err instanceof Error ? err.message : String(err)}`);
     return {
       ok: false,
       error: {
-        ...NETWORK_ERROR,
-        message: `Sunucuya ulaşılamadı (${hostOf(url)}). Backend çalışıyor mu ve EXPO_PUBLIC_API_URL doğru mu kontrol edin.`,
+        ...networkError(locale),
+        message:
+          locale === "en"
+            ? `Could not reach server (${hostOf(url)}). Check that the backend is running and EXPO_PUBLIC_API_URL is correct.`
+            : `Sunucuya ulaşılamadı (${hostOf(url)}). Backend çalışıyor mu ve EXPO_PUBLIC_API_URL doğru mu kontrol edin.`,
       },
     };
   }
-  return { ok: false, error: NETWORK_ERROR };
+  return { ok: false, error: networkError(locale) };
 }
 
 /** Yanıt gövdesini çözer; JSON değilse (ör. HTML 404 — route yok / yanlış sunucu) durum koduna göre hata üretir. */

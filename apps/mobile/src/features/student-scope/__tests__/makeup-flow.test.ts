@@ -24,7 +24,7 @@ describe("telafi akışı sözleşmesi", () => {
     expect(content).toMatch(/useSelectedStudentId/);
     expect(content).toMatch(/makeup-ledger/);
     expect(content).toMatch(/telafiler\/\$\{item\.id\}/);
-    expect(content).toMatch(/Telafi kaydı bulunamadı/);
+    expect(content).toMatch(/makeup\.notFound/);
   });
 
   it("ana sayfa Telafi hakları detaya bağlanır", async () => {

@@ -22,7 +22,7 @@ describe("sözleşmelerim sözleşmesi", () => {
   it("detay sahiplik ön-kontrolü yapar; yetkisizde güvenli hata", async () => {
     const content = await fs.readFile(path.join(SRC, "features", "student-scope", "contracts-screen.tsx"), "utf-8");
     expect(content).toMatch(/!owned/);
-    expect(content).toMatch(/Bu sözleşmeye erişiminiz yok/);
+    expect(content).toMatch(/contracts\.noAccess/);
     expect(content).toMatch(/\/api\/v1\/contracts\/\$\{contractId\}/);
   });
 
@@ -41,6 +41,7 @@ describe("sözleşmelerim sözleşmesi", () => {
 
   it.each(["(parent)", "(student)"])("%s: Hesabım'da Sözleşmelerim kısayolu", async (group) => {
     const content = await fs.readFile(path.join(APP_DIR, group, "hesabim", "index.tsx"), "utf-8");
-    expect(content).toMatch(/Sözleşmelerim/);
+    expect(content).toMatch(/key: "sozlesmeler"/);
+    expect(content).toMatch(/links\.myContracts/);
   });
 });

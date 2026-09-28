@@ -32,7 +32,7 @@ describe("silme talep ekranı", () => {
     expect(content).toContain("/api/v1/account/deletion-request/cancel");
     expect(content).toMatch(/accessibilityRole="checkbox"/);
     expect(content).toMatch(/confirm: true/);
-    expect(content).toMatch(/Talebi geri çek/);
+    expect(content).toMatch(/deletion\.withdraw/);
   });
 
   it("kök stack'e kayıtlıdır", async () => {
@@ -45,7 +45,7 @@ describe("admin silme talepleri", () => {
     const content = await mobile("app/(admin)/islemler/silme-talepleri.tsx");
     expect(content).toContain("/api/v1/account/deletion-requests");
     expect(content).toContain("/api/v1/account/deletion-requests/decide");
-    expect(content).toMatch(/İşlendi işaretle/);
+    expect(content).toMatch(/adm\.delMarkDoneShort/);
   });
 
   it("menü satırı + stack kaydı", async () => {

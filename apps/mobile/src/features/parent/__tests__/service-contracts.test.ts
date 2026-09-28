@@ -4,7 +4,7 @@ import path from "path";
 // NOTE: `api/hooks` RN zinciri çeker (client → react-native Platform),
 // node test env'inde import EDİLMEZ — hook sözleşmesi kaynak taramayla
 // doğrulanır. `api/errors` saf modüldür, import edilebilir.
-import { FEATURE_UNAVAILABLE, NETWORK_ERROR } from "../../../api/errors";
+import { featureUnavailable, networkError } from "../../../api/errors";
 
 /**
  * Absence-notices + receipt UI contract testleri (canonical).
@@ -35,8 +35,8 @@ function stripComments(src: string): string {
 
 describe("absence notices contract", () => {
   it("FEATURE_UNAVAILABLE canonical güvenli mesajı taşır", () => {
-    expect(FEATURE_UNAVAILABLE.code).toBe("FEATURE_UNAVAILABLE");
-    expect(FEATURE_UNAVAILABLE.message).toBe("Bu özellik şu anda mobil uygulamada kullanılamıyor.");
+    expect(featureUnavailable("tr").code).toBe("FEATURE_UNAVAILABLE");
+    expect(featureUnavailable("tr").message).toBe("Bu özellik şu anda mobil uygulamada kullanılamıyor.");
   });
 
   it("lessons-screen'de stale absence-notices çağrısı yoktur", async () => {
@@ -91,8 +91,8 @@ describe("receipt contract", () => {
   });
 
   it("NETWORK_ERROR canonical mesajı Türkçe ve sızıntısızdır", () => {
-    expect(NETWORK_ERROR.code).toBe("NETWORK_ERROR");
-    expect(NETWORK_ERROR.message.length).toBeGreaterThan(0);
-    expect(NETWORK_ERROR.message).not.toMatch(/token|password|DATABASE_URL|stack/i);
+    expect(networkError("tr").code).toBe("NETWORK_ERROR");
+    expect(networkError("tr").message.length).toBeGreaterThan(0);
+    expect(networkError("tr").message).not.toMatch(/token|password|DATABASE_URL|stack/i);
   });
 });

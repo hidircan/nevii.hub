@@ -24,7 +24,7 @@ describe("yoklama hata + onay akışı", () => {
     expect(content).toMatch(/setOpsError\(res\.error\.message/);
     expect(content).toMatch(/needsConfirmation/);
     expect(content).toMatch(/confirmSwitch/);
-    expect(content).toMatch(/Statü değiştirilsin mi\?/);
+    expect(content).toMatch(/lesSwitchTitle/);
     expect(content).not.toMatch(/await apiPost\(`\/api\/v1\/lessons\/\$\{lessonId\}\/ops`, \{ flag \}\);\n    setBusyLessonId\(null\);\n    schedule\.refresh/);
   });
 
@@ -43,14 +43,14 @@ describe("ders detayı yoklama + iptal", () => {
     }
     expect(content).toContain("/api/v1/lessons/${lessonId}/cancel");
     expect(content).toMatch(/reasonPrompt/);
-    expect(content).toMatch(/gerekçesi \(zorunlu\)/);
-    expect(content).toMatch(/Ders iptal edilsin mi\?/);
+    expect(content).toMatch(/lesReasonTitle/);
+    expect(content).toMatch(/lesCancelTitle/);
   });
 
   it("iptal edilmiş derste yoklama butonu YOK", async () => {
     const content = await admin("program/[lessonId].tsx");
     expect(content).toMatch(/lesson\.status === "cancelled"/);
-    expect(content).toMatch(/Bu ders iptal edilmiş/);
+    expect(content).toMatch(/lesCancelled/);
   });
 });
 
@@ -65,7 +65,7 @@ describe("kişiler sunucu araması", () => {
   it("kisiler/index: FlatList + sayfalı 'daha fazla' (Faz 9)", async () => {
     const content = await admin("kisiler/index.tsx");
     expect(content).toMatch(/<FlatList/);
-    expect(content).toMatch(/Daha fazla göster/);
+    expect(content).toMatch(/peopleMore/);
     expect(content).toMatch(/limit=\$\{limit\}/);
   });
 });
@@ -77,18 +77,18 @@ describe("öğrenci detay portal erişimi", () => {
     expect(content).toMatch(/portal-access\/\$\{action\}/);
     expect(content).toMatch(/action: "revoke" \| "reactivate"/);
     expect(content).toContain("/portal-access/invite");
-    expect(content).toMatch(/Portal erişimi iptal edilsin mi\?/);
-    expect(content).toMatch(/Davet gönder/);
+    expect(content).toMatch(/stuRevokeTitle/);
+    expect(content).toMatch(/stuSendInvite/);
   });
 
   it("veli telefonu tap-to-call'dir", async () => {
     const content = await admin("kisiler/ogrenci/[id].tsx");
     expect(content).toMatch(/Linking\.openURL\(telHref\(/);
-    expect(content).toMatch(/numarasını ara/);
+    expect(content).toMatch(/stuCallA11y/);
   });
 
   it("ödeme onayı hata gösterir", async () => {
     const content = await admin("kisiler/ogrenci/[id].tsx");
-    expect(content).toMatch(/Ödeme kaydedilemedi/);
+    expect(content).toMatch(/stuPayFail/);
   });
 });

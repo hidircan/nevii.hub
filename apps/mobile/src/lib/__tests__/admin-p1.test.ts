@@ -22,8 +22,8 @@ describe("finans özeti", () => {
     expect(content).toContain("/api/v1/payments/summary");
     expect(content).not.toContain("/api/v1/dashboard/summary");
     expect(content).not.toMatch(/\.reduce\(\(s, p\)/);
-    expect(content).toMatch(/Bugün tahsilat/);
-    expect(content).toMatch(/Gecikmiş/);
+    expect(content).toMatch(/finToday/);
+    expect(content).toMatch(/finOverdue/);
   });
 
   it("tahsilat detayına drill-down vardır", async () => {
@@ -35,7 +35,7 @@ describe("finans özeti", () => {
 describe("tahsilat hata görünürlüğü", () => {
   it("vaka ilerletme hatası karta yazılır", async () => {
     const content = await ops("tahsilat.tsx");
-    expect(content).toMatch(/Durum güncellenemedi/);
+    expect(content).toMatch(/collUpdateFail/);
     expect(content).toMatch(/if \(!result\.ok\)/);
   });
 });
@@ -53,8 +53,8 @@ describe("izin onayları", () => {
     const content = await ops("izinler.tsx");
     expect(content).toContain('"/api/v1/leave"');
     expect(content).toMatch(/\/api\/v1\/leave\/\$\{item\.id\}\/decide/);
-    expect(content).toMatch(/İzin onaylansın mı\?/);
-    expect(content).toMatch(/Karar kaydedilemedi/);
+    expect(content).toMatch(/leaveConfirmApprove/);
+    expect(content).toMatch(/leaveDecideFail/);
   });
 
   it("işlemler menüsünde izin satırı + stack kaydı vardır", async () => {
