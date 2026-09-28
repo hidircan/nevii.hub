@@ -11,6 +11,21 @@ Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_20
 - Kritik işlem kapısı TEK: `checkCriticalPassword` + `canRunCriticalActions` (tools.ts).
 - Rol modeli: tek HYPER_ADMIN platform sahibi; kurum sahibi SUPER_ADMIN.
 
+## Güncel snapshot — 2026-09-28 (NeviiOS Control Center)
+- **Dal:** `feat/neviios-control-recovery` → `test` (`e73aee9`). **Migration yok.**
+  6 commit: mobil kontrol matrisi + marka doğrulama; Expo policy kapısı;
+  kurum karşılama/logo-sanitize/önizleme; Homebrew Hacker + Gloock + control room;
+  ayrı `/platform/giris` kapısı; kapı döngü düzeltmesi.
+- Test deployment: Vercel Preview Ready, `test.neviihub.com` `e73aee9` sunuyor
+  (`/platform/giris` 200 + kapı görünümü, `/platform` → kapıya, `/login` 200 aynen).
+- Web: typecheck/lint temiz, hedefli 267 test + mobil 215 test geçti; tam suitte
+  7 test 4 dosyada başarısız — temiz HEAD'de de kırık (önceden var): password-reset-ui,
+  staff-onboarding, portal-access-management (6-8), seed-demo-schedule.
+- Mobil: `apps/mobile` typecheck temiz (dep'ler kuruldu), cihaz/mağaza/EAS/push YOK.
+- UAT: `docs/testing/UAT_2026_09_28_NEVIIOS_CONTROL_CENTER.md` (12 adım).
+- Bulgu: route group üst layout'u devre dışı bırakmaz — kapı döngüsü yol başlığı
+  (`x-neviios-path`) + kabuk muafiyetiyle çözüldü; Preview'da canlı doğrulandı.
+
 ## Güncel snapshot — 2026-09-28 (9. tur)
 - **Dal:** `feat/uat-round-9` → `test` (NeviiOS `05c172d` üstüne rebase). **Migration (additive):**
   `20260928090000_lesson_disruption_task_soft_delete` — **test DB'ye uygulandı 2026-09-28** (owner onayı; kayıt sayıları ve
