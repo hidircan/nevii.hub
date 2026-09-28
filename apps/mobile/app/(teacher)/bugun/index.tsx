@@ -45,10 +45,12 @@ export default function TeacherBugun() {
 
   const schedule = useApiGet<ScheduleResponse>(user?.teacherId ? `/api/v1/teachers/${user.teacherId}/schedule` : "");
   const homework = useApiGet<HomeworkResponse>("/api/v1/homework/mine");
-  useFocusRefetch(() => {
+  function refreshAll() {
     schedule.refresh();
     homework.refresh();
-  });
+  }
+  useFocusRefetch(refreshAll);
+  useAppForegroundRefetch(refreshAll);
 
   const weekLessons = useMemo(
     () => (schedule.status === "success" ? schedule.data.lessons : []),
@@ -94,12 +96,6 @@ export default function TeacherBugun() {
 
   const weekEnd = weekDays[6]!;
   const weekLabel = `${shortDayMonth(weekStart)} – ${shortDayMonth(weekEnd)}`;
-
-  function refreshAll() {
-    schedule.refresh();
-    homework.refresh();
-  }
-  useAppForegroundRefetch(refreshAll);
 
   return (
     <Screen onRefresh={refreshAll} refreshing={schedule.status === "loading"}>
