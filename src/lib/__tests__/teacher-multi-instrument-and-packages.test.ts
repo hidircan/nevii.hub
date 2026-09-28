@@ -152,7 +152,7 @@ describe("ÖNCELİK 4 (devam) — öğretmen çoklu enstrüman + seviye", () => 
 
 describe("ÖNCELİK 4 (devam) — Paket Yönetimi", () => {
   it("admin paket oluşturur, düzenler ve pasife alır", async () => {
-    const created = await createPackageTool(ctx(), {
+    const created = await createPackageTool(ctx({ role: "SUPER_ADMIN" }), {
       title: "Test Paketi",
       description: "Açıklama",
       price30Min: 1000,
@@ -162,10 +162,10 @@ describe("ÖNCELİK 4 (devam) — Paket Yönetimi", () => {
     expect(created.ok).toBe(true);
     if (!created.ok) return;
 
-    const updated = await updatePackageTool(ctx(), { packageId: created.data.packageId, price40Min: 1300 });
+    const updated = await updatePackageTool(ctx({ role: "SUPER_ADMIN" }), { packageId: created.data.packageId, price40Min: 1300 });
     expect(updated.ok).toBe(true);
 
-    const archived = await updatePackageTool(ctx(), { packageId: created.data.packageId, status: "archived" });
+    const archived = await updatePackageTool(ctx({ role: "SUPER_ADMIN" }), { packageId: created.data.packageId, status: "archived" });
     expect(archived.ok).toBe(true);
 
     const data = await readData();
@@ -210,7 +210,7 @@ describe("ÖNCELİK 4 (devam) — Paket Yönetimi", () => {
   });
 
   it("float/kuruş kabul etmez — fiyat tam sayı olmalı", async () => {
-    const res = await createPackageTool(ctx(), {
+    const res = await createPackageTool(ctx({ role: "SUPER_ADMIN" }), {
       title: "Ondalıklı",
       price30Min: 100.5,
       price40Min: 120,
@@ -220,7 +220,7 @@ describe("ÖNCELİK 4 (devam) — Paket Yönetimi", () => {
   });
 
   it("pasif paket, öğrenci kaydında (create form akışı) yeni referans için kullanılabilir olarak listelenmemeli — burada yalnızca durum kontrolü", async () => {
-    const created = await createPackageTool(ctx(), {
+    const created = await createPackageTool(ctx({ role: "SUPER_ADMIN" }), {
       title: "Pasif Aday",
       price30Min: 500,
       price40Min: 600,
@@ -228,7 +228,7 @@ describe("ÖNCELİK 4 (devam) — Paket Yönetimi", () => {
     });
     expect(created.ok).toBe(true);
     if (!created.ok) return;
-    await updatePackageTool(ctx(), { packageId: created.data.packageId, status: "archived" });
+    await updatePackageTool(ctx({ role: "SUPER_ADMIN" }), { packageId: created.data.packageId, status: "archived" });
 
     const data = await readData();
     const activeOnly = (data.packages ?? []).filter((p) => p.status === "active");
@@ -236,7 +236,7 @@ describe("ÖNCELİK 4 (devam) — Paket Yönetimi", () => {
   });
 
   it("paket fiyat revizyonu, o paketi seçmiş bir öğrencinin mevcut aylık ücretini (monthlyFee) GERİYE DÖNÜK değiştirmez", async () => {
-    const pkgRes = await createPackageTool(ctx(), {
+    const pkgRes = await createPackageTool(ctx({ role: "SUPER_ADMIN" }), {
       title: "Revizyon Testi",
       price30Min: 1000,
       price40Min: 1000,
@@ -266,7 +266,7 @@ describe("ÖNCELİK 4 (devam) — Paket Yönetimi", () => {
     expect(studentRes.ok).toBe(true);
     if (!studentRes.ok) return;
 
-    await updatePackageTool(ctx(), { packageId: pkgRes.data.packageId, price30Min: 9999 });
+    await updatePackageTool(ctx({ role: "SUPER_ADMIN" }), { packageId: pkgRes.data.packageId, price30Min: 9999 });
 
     const data = await readData();
     const student = data.students.find((s) => s.id === studentRes.data.studentId)!;

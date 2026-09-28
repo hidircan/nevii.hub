@@ -343,6 +343,12 @@ export interface Student {
   /** Override yapıldıysa zorunlu gerekçe metni — audit'te de ayrıca saklanır. */
   monthlyFeeOverrideReason?: string;
   /**
+   * Paket & Kampanya Motoru — kayıtta uygulanan kampanyaların id'leri
+   * (`resolveCampaignStack` çıktısı). Kampanya raporu ve kullanım sayacı bu
+   * alandan beslenir. Eski kayıtlarda undefined — rapor "kampanyasız" gösterir.
+   */
+  appliedCampaignIds?: string[];
+  /**
    * P0-1 (2026-09-02 düzeltme) — yöneticinin girmediği, SİSTEMİN
    * `derivePerLessonAmount(monthlyFee, weeklyLessonCount)` ile ürettiği
    * hesaplama snapshot'ı (tam sayı TL). Yoksa (undefined) bu öğrenci
@@ -416,8 +422,12 @@ export type PackageStatus = "active" | "archived";
  */
 export interface Package {
   id: string;
+  /** Paket & Kampanya Motoru — kurum bazında okunabilir numara (ör. "PKT-001"). NULL = motor öncesi eski kayıt. */
+  displayId?: string;
   title: string;
   description?: string;
+  /** Boş/undefined = tüm şubelerde geçerli. */
+  applicableBranchIds?: BranchId[];
   status: PackageStatus;
   price30Min: number;
   price40Min: number;
@@ -435,6 +445,8 @@ export interface Package {
   /** Paket kapsamını açıklayan serbest metin not. */
   notes?: string;
   createdBy: string;
+  /** Paket & Kampanya Motoru — oluşturan kullanıcı (User.id). Eski kayıtlarda undefined. */
+  createdByUserId?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -1216,7 +1228,7 @@ export interface AppData {
 }
 
 /** Faz 12 — bkz. src/lib/entity-sequence.ts. */
-export type EntityTypeForSequence = "student" | "teacher" | "staff";
+export type EntityTypeForSequence = "student" | "teacher" | "staff" | "package" | "campaign";
 export type EntitySequenceRecord = { tenantId: string; entityType: EntityTypeForSequence; nextValue: number };
 
 export type DiscountCampaignKind = "sibling";
@@ -1235,9 +1247,23 @@ export type DiscountCampaignKind = "sibling";
  * motorunu (computeMonthlyFee, ödeme oluşturma) etkileyecek daha büyük ve
  * ayrı bir karar/iş kalemidir.
  */
+/**
+ * Paket & Kampanya Motoru — bir öğrenciye birden fazla kampanya uygulanmak
+ * istendiğinde çakışma kuralı (bkz. `resolveCampaignStack`, discount-campaigns.ts):
+ * - "none": başka hiçbir kampanyayla birleşemez; birden fazla "none" varsa en yüksek öncelikli kazanır.
+ * - "additive": diğer additive kampanyalarla toplanır (toplam %100'ü geçemez).
+ * - "override": en yüksek öncelikli override kampanyası diğerlerini ezer.
+ * - "yield": başka herhangi bir aktif kampanya varsa devreye girmez.
+ */
+export type CampaignStackingRule = "none" | "additive" | "override" | "yield";
+
 export interface DiscountCampaign {
   id: string;
+  /** Paket & Kampanya Motoru — kurum bazında okunabilir numara (ör. "KMP-001"). NULL = motor öncesi eski kayıt. */
+  displayId?: string;
   name: string;
+  /** Uzun açıklama (opsiyonel). */
+  description?: string;
   kind: DiscountCampaignKind;
   /** 0-100 arası yüzde. */
   discountPercent: number;
@@ -1248,7 +1274,20 @@ export interface DiscountCampaign {
   validTo?: string;
   /** Kurum/şube kapsamı — verilmezse tüm şubelerde geçerli. */
   branchId?: BranchId;
+  /** Çoklu şube kapsamı — boş/undefined = tüm şubeler (branchId tekil kapsamla birlikte değerlendirilir). */
+  applicableBranchIds?: BranchId[];
+  stackingRule: CampaignStackingRule;
+  /** Aynı anda birden fazla kampanya aktifse yüksek öncelikli önce uygulanır. */
+  priority: number;
+  /** NULL = sınırsız; dolunca kampanya kapanmaz, yalnız uyarı üretilir (soft). */
+  maxUsageCount?: number;
+  /** Her uygulamada artırılır. */
+  usageCount: number;
+  /** İleride genişletilebilir kural alanı (şimdilik serbest JSON). */
+  conditions?: Record<string, unknown>;
   createdBy: string;
+  /** Oluşturan kullanıcı (User.id). Eski kayıtlarda undefined. */
+  createdByUserId?: string;
   createdAt: string;
   updatedAt: string;
 }

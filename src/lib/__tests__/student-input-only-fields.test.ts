@@ -54,6 +54,8 @@ function schemaKeys(schema: unknown): string[] {
  * güncelleyin — aksi halde db-modu kırılır.
  */
 const EXPECTED_INPUT_ONLY = [
+  // Paket & Kampanya Motoru — ham seçim süzülür, çözümü `appliedCampaignIds` (kolon) yazılır.
+  "campaignIds",
   "createPortalAccess",
   // Payment.firstCollectionIncludesNextMonth olarak saklanır; Student kolonu yok.
   "firstCollectionIncludesNextMonth",

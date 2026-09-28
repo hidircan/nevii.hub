@@ -21,7 +21,13 @@ import { useActionState, useEffect, useRef, useState } from "react";
 import { actionAddStudent, type NewStudentFormState } from "@/lib/actions";
 import { Button, Card, Input, Label, Select } from "@/components/ui";
 import { StudentInstrumentTeacherFields, type TeacherOption } from "@/components/student-instrument-teacher-fields";
-import { StudentPackagePricingFields, type PricingPackageOption } from "@/components/student-package-pricing-fields";
+import {
+  StudentPackagePricingFields,
+  type PackageAutofill,
+  type PricingCampaignOption,
+  type PricingChange,
+  type PricingPackageOption,
+} from "@/components/student-package-pricing-fields";
 import type { DayOverride, TermWeeklyClosedDaysOverride } from "@/lib/work-days";
 import { LessonScheduleSlotsPicker } from "@/components/lesson-schedule-slots-picker";
 import { lessonWeekdaysFromText } from "@/lib/lesson-schedule-text";
@@ -81,6 +87,7 @@ export function NewStudentForm({
   teachers,
   instrumentOptions,
   packages,
+  campaigns = [],
   kvkkText,
   workDayOverrides,
   termWeeklyClosedDays,
@@ -95,6 +102,7 @@ export function NewStudentForm({
   teachers: TeacherOption[];
   instrumentOptions: string[];
   packages: PricingPackageOption[];
+  campaigns?: PricingCampaignOption[];
   kvkkText?: KvkkTextOption;
   /**
    * ÇALIŞMA GÜNÜ — TEK KAYNAK. İlk dönem ders sayısı önizlemesi kapalı
@@ -206,11 +214,40 @@ export function NewStudentForm({
   const includeTouchedRef = useRef(false);
   const portalEmailMirrorsStudent = portalAccessType === "SELF" && !useDifferentPortalEmail;
 
+  // Paket & Kampanya Motoru — fiyat bileşeninden gelen CANLI durum (Bug #1:
+  // paketli akışta FormData'daki gizli `monthlyFee` bir render GERİDEN gelir,
+  // önizleme bu bildirimi okur). `pricingRef` effect-dışı okuma içindir.
+  const [pricing, setPricing] = useState<PricingChange>({
+    packageId: "",
+    packageTitle: "",
+    finalMonthlyFee: null,
+    campaignIds: [],
+  });
+  const pricingRef = useRef(pricing);
+  function handlePricingChange(p: PricingChange) {
+    pricingRef.current = p;
+    setPricing(p);
+  }
+  // Paket seçiminde önerilen haftalık ders — `key` yalnız paket değişiminde
+  // artar, kullanıcının sonradan değiştirdiği değer korunur (override).
+  const [packageAutofill, setPackageAutofill] = useState<{ weekly?: string; nonce: number }>({
+    weekly: undefined,
+    nonce: 0,
+  });
+  function handlePackageAutofill(a: PackageAutofill) {
+    if (a.weeklyLessonCount === undefined) return;
+    setPackageAutofill((p) => ({ weekly: String(a.weeklyLessonCount), nonce: p.nonce + 1 }));
+  }
+
   function recomputePreview(includeOverride?: boolean) {
     const form = formRef.current;
     if (!form) return;
     const fd = new FormData(form);
-    const monthlyFee = Number(fd.get("monthlyFee") || 0);
+    // Bug #1 — paket seçiliyse nihai ücret BİLDİRİMDEN okunur (FormData'daki
+    // gizli input, indirimi değiştiren olay anında henüz ESKİ değeri taşır).
+    const live = pricingRef.current;
+    const monthlyFee =
+      live.packageId && live.finalMonthlyFee !== null ? live.finalMonthlyFee : Number(fd.get("monthlyFee") || 0);
     const weeklyLessonCount = Number(fd.get("weeklyLessonCount") || 0);
     // P0 (2026-09-05) — önizleme de sunucuyla AYNI kaynaktan (resolveLessonStartDay)
     // ders başlangıç gününü çözer: ilk tahsilat kayıt tarihinden değil, ders
@@ -226,7 +263,9 @@ export function NewStudentForm({
     setStudentEmailLive(String(fd.get("email") || ""));
     setPortalAccessType(String(fd.get("invitePortalAccessType") || "GUARDIAN"));
     setInviteToPortalChecked(fd.get("inviteToPortal") === "1");
-    if (!Number.isInteger(monthlyFee) || monthlyFee <= 0 || weeklyLessonCount <= 0) {
+    // Bug #1 — 0 ücret GEÇERLİ bir önizlemedir (%100 indirim → ders başı 0);
+    // yalnız geçersiz/negatif değerler ile seçilmemiş sıklık kartı gizler.
+    if (!Number.isInteger(monthlyFee) || monthlyFee < 0 || weeklyLessonCount <= 0) {
       setPreview(null);
       return;
     }
@@ -289,6 +328,16 @@ export function NewStudentForm({
   useEffect(() => {
     recomputePreview();
   }, []);
+
+  // Bug #1 — fiyat bileşeni her bildirimde önizlemeyi YENİDEN hesapla: form
+  // seviyesindeki `onChange`, indirimi değiştiren olay anında henüz ESKİ
+  // bildirimi görür; bu effect state commit'inden SONRA doğru değerle çalışır.
+  // `recomputePreview` bilerek deps dışı: form DOM'unu okur, her render'da
+  // yeniden oluşan bir fonksiyon kimliğine bağlanmak effect'i her tuşta tetikler.
+  useEffect(() => {
+    recomputePreview();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pricing]);
 
   const firstPeriodAutoAmount = preview?.firstPeriodSuggestedAmount;
   // P0-B — yalnız İKİSİ de bilinip GERÇEKTEN farklıysa "düzeltme" durumu.
@@ -762,10 +811,16 @@ export function NewStudentForm({
               <RequiredMark />
             </Label>
             <Select
+              key={`weekly-${packageAutofill.nonce}`}
               name="weeklyLessonCount"
               required
               aria-required
-              defaultValue={state && "values" in state && state.values?.weeklyLessonCount ? state.values.weeklyLessonCount : "1"}
+              defaultValue={
+                packageAutofill.weekly ??
+                (state && "values" in state && state.values?.weeklyLessonCount
+                  ? state.values.weeklyLessonCount
+                  : "1")
+              }
               aria-invalid={!!fieldErrors.weeklyLessonCount}
             >
               <option value="1">Haftada 1 ders</option>
@@ -811,21 +866,32 @@ export function NewStudentForm({
               onaylanır.
             </p>
           </div>
-          <div>
-            <Label>Paket (serbest metin — geçmişle uyum için)</Label>
-            <Input
-              name="packageName"
-              defaultValue={v("packageName") || "Bireysel Aylık — 4 ders"}
-              aria-invalid={!!fieldErrors.packageName}
-            />
-            <FieldError message={fieldErrors.packageName} />
-          </div>
-          {/* P0-A deseniyle AYNI: gönderim sonrası (başarı/hata fark etmeksizin) DOM
-              değerlerini geri yazan genel `useEffect` (yukarıda, [state] deps) zaten
-              packageId/discountType/discountValue/monthlyFee alanlarını KAPSAR (isim
-              eşleşmesiyle çalışır) — burada AYRI bir initial-value prop mekanizması
-              kurmak AYNI düzeltmeyi iki kez uygulamak olurdu, tek kaynak korunur. */}
-          <StudentPackagePricingFields packages={packages} />
+          {/* Paket & Kampanya Motoru — serbest metin paket alanı KALDIRILDI;
+              packageName seçili paketin başlığından otomatik gelir (sunucu da
+              ayrıca türetir). Eski kayıtların packageName değeri aynen korunur. */}
+          <input
+            type="hidden"
+            name="packageName"
+            value={pricing.packageTitle || v("packageName") || "Bireysel Aylık — 4 ders"}
+          />
+          <StudentPackagePricingFields
+            key={JSON.stringify({
+              p: v("packageId"),
+              d: v("discountType"),
+              dv: v("discountValue"),
+              c: values.campaignIds,
+              m: v("monthlyFee"),
+            })}
+            packages={packages}
+            campaigns={campaigns}
+            initialPackageId={v("packageId") ?? ""}
+            initialDiscountType={v("discountType") ?? ""}
+            initialDiscountValue={v("discountValue") ?? ""}
+            initialCampaignIds={(values.campaignIds ?? "").split(",").filter(Boolean)}
+            initialPaymentDueDay={v("paymentDueDay") ?? ""}
+            onPricingChange={handlePricingChange}
+            onPackageAutofill={handlePackageAutofill}
+          />
           <div className="grid grid-cols-2 gap-2">
             <div>
               <Label>Ödeme türü (opsiyonel)</Label>

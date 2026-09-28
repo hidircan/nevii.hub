@@ -109,6 +109,27 @@ export default async function NewStudentPage({
               price30Min: p.price30Min,
               price40Min: p.price40Min,
               price50Min: p.price50Min,
+              defaultDurationMinutes: p.defaultDurationMinutes,
+              defaultPaymentDueDay: p.defaultPaymentDueDay,
+              monthlyLessonCount: p.monthlyLessonCount,
+            }))}
+          campaigns={(data.discountCampaigns ?? [])
+            .filter((c) => c.active)
+            .map((c) => ({
+              id: c.id,
+              name: c.name,
+              displayId: c.displayId,
+              discountPercent: c.discountPercent,
+              stackingRule: c.stackingRule ?? "none",
+              priority: c.priority ?? 0,
+              branchId: c.branchId,
+              applicableBranchIds: c.applicableBranchIds,
+              validFrom: c.validFrom,
+              validTo: c.validTo,
+              active: c.active,
+              maxUsageCount: c.maxUsageCount,
+              usageCount: c.usageCount ?? 0,
+              createdAt: c.createdAt,
             }))}
           kvkkText={kvkkText}
           workDayOverrides={data.closedDayOverrides ?? []}

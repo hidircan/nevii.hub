@@ -4,7 +4,7 @@
  * yok, yalnızca AppData -> AppData dönüşümü + doğrulama.
  */
 
-import type { AppData, DiscountType, LessonDurationPreference, Package, PackageStatus, StudentTermType } from "./types";
+import type { AppData, BranchId, DiscountType, LessonDurationPreference, Package, PackageStatus, StudentTermType } from "./types";
 import type { LessonDurationMinutes } from "./lesson-duration";
 import { uid } from "./utils";
 
@@ -19,8 +19,10 @@ export type PackageInput = {
   groupLessonCount?: number;
   defaultDurationMinutes?: LessonDurationPreference;
   defaultPaymentDueDay?: number;
+  applicableBranchIds?: BranchId[];
   notes?: string;
   createdBy: string;
+  createdByUserId?: string;
 };
 
 export type PackageMutationResult =
@@ -68,10 +70,14 @@ export function createPackageData(data: AppData, input: PackageInput, now: Date 
   if (countError) return { ok: false, message: countError };
 
   const nowIso = now.toISOString();
+  // displayId burada atanmaz — store katmanı atar (öğrenci deseniyle aynı:
+  // json/memory sayaçtan, db atomik sayaçtan). Bu dosya istemci paketine de
+  // girer (`computeMonthlyFee`), sunucu-only `entity-sequence` import YASAK.
   const pkg: Package = {
     id: uid("pkg"),
     title: input.title.trim(),
     description: input.description?.trim() || undefined,
+    applicableBranchIds: input.applicableBranchIds?.length ? [...input.applicableBranchIds] : undefined,
     status: "active",
     price30Min: input.price30Min,
     price40Min: input.price40Min,
@@ -83,6 +89,7 @@ export function createPackageData(data: AppData, input: PackageInput, now: Date 
     defaultPaymentDueDay: input.defaultPaymentDueDay,
     notes: input.notes?.trim() || undefined,
     createdBy: input.createdBy,
+    createdByUserId: input.createdByUserId,
     createdAt: nowIso,
     updatedAt: nowIso,
   };
@@ -103,6 +110,7 @@ export type PackagePatch = Partial<
     | "groupLessonCount"
     | "defaultDurationMinutes"
     | "defaultPaymentDueDay"
+    | "applicableBranchIds"
     | "notes"
   >
 >;

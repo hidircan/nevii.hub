@@ -892,7 +892,7 @@ const STUDENT_FORM_VALUE_KEYS = [
 ] as const;
 
 /** Aynı `name`'i birden çok checkbox paylaşan tek alan — virgülle birleştirilip taşınır (değerlerde virgül YOK, sabit STUDENT_TYPES enum'undan gelir). */
-const STUDENT_FORM_MULTI_VALUE_KEYS = ["studentTypes", "lessonDays"] as const;
+const STUDENT_FORM_MULTI_VALUE_KEYS = ["studentTypes", "lessonDays", "campaignIds"] as const;
 
 function captureStudentFormValues(formData: FormData): Record<string, string> {
   const out: Record<string, string> = {};
@@ -986,7 +986,18 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
           branchId: String(formData.get("branchId") || ""),
           instrument: String(formData.get("instrument") || "Piyano"),
           teacherId: String(formData.get("teacherId") || ""),
-          packageName: String(formData.get("packageName") || "Bireysel Aylık — 4 ders"),
+          // Paket & Kampanya Motoru — serbest metin paket alanı formdan KALDIRILDI;
+          // packageName sunucuda paket başlığından türetilir (paketsiz legacy akışta
+          // gizli varsayılan korunur). Eski kayıtların packageName değeri aynen durur.
+          packageName: await (async () => {
+            const pkgId = String(formData.get("packageId") || "");
+            if (pkgId) {
+              const data = await readData();
+              const title = (data.packages ?? []).find((p) => p.id === pkgId)?.title?.trim();
+              if (title) return title;
+            }
+            return String(formData.get("packageName") || "Bireysel Aylık — 4 ders");
+          })(),
           weeklyLessonCount: Number(formData.get("weeklyLessonCount") || 1),
           lessonDays: lessonDaysRaw,
           monthlyFee: Number(formData.get("monthlyFee") || 3000),
@@ -1041,6 +1052,11 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
           discountValue: (() => {
             const raw = String(formData.get("discountValue") || "");
             return raw ? Number(raw) : undefined;
+          })(),
+          // Paket & Kampanya Motoru — çoklu kampanya seçimi (tek indirim kaynağı kuralı sunucuda).
+          campaignIds: (() => {
+            const values = formData.getAll("campaignIds").map(String).filter(Boolean);
+            return values.length > 0 ? values : undefined;
           })(),
           paymentMethod: (() => {
             const raw = String(formData.get("paymentMethod") || "");
@@ -2806,6 +2822,10 @@ export async function actionCreatePackage(formData: FormData): Promise<CreatePac
         defaultPaymentDueDay: formData.get("defaultPaymentDueDay")
           ? Number(formData.get("defaultPaymentDueDay"))
           : undefined,
+        applicableBranchIds: (() => {
+          const values = formData.getAll("applicableBranchIds").map(String).filter(Boolean);
+          return values.length > 0 ? values : undefined;
+        })(),
         notes: String(formData.get("notes") || "") || undefined,
       });
       if (!result.ok) return { ok: false as const, message: result.error.message };
@@ -2834,6 +2854,7 @@ export async function actionUpdatePackage(input: {
   groupLessonCount?: number;
   defaultDurationMinutes?: number;
   defaultPaymentDueDay?: number;
+  applicableBranchIds?: string[];
   notes?: string;
 }): Promise<UpdatePackageActionResult> {
   try {
@@ -2850,11 +2871,16 @@ export async function actionUpdatePackage(input: {
 
 export type CreateDiscountCampaignInput = {
   name: string;
+  description?: string;
   kind: "sibling";
   discountPercent: number;
   validFrom?: string;
   validTo?: string;
   branchId?: string;
+  applicableBranchIds?: string[];
+  stackingRule?: "none" | "additive" | "override" | "yield";
+  priority?: number;
+  maxUsageCount?: number;
 };
 
 export type CreateDiscountCampaignActionResult = { ok: true; campaignId: string } | { ok: false; message: string };
@@ -2879,10 +2905,16 @@ export async function actionCreateDiscountCampaign(
 export type UpdateDiscountCampaignInput = {
   campaignId: string;
   name?: string;
+  description?: string;
   discountPercent?: number;
   active?: boolean;
   validFrom?: string;
   validTo?: string;
+  branchId?: string | null;
+  applicableBranchIds?: string[];
+  stackingRule?: "none" | "additive" | "override" | "yield";
+  priority?: number;
+  maxUsageCount?: number | null;
 };
 
 export type UpdateDiscountCampaignActionResult = { ok: true } | { ok: false; message: string };

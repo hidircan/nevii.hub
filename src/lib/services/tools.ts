@@ -2001,7 +2001,7 @@ export async function sendTeacherMessageTool(
 export async function createStudentTool(
   ctx: ServiceContext,
   input: unknown
-): Promise<ServiceResult<{ studentId: string; tempLoginPassword?: string }>> {
+): Promise<ServiceResult<{ studentId: string; tempLoginPassword?: string; warnings?: string[] }>> {
   const auth = requireRole(ctx, ["SCHOOL_ADMIN", "AI_AGENT", "SUPER_ADMIN"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
 
@@ -2107,10 +2107,59 @@ export async function createStudentTool(
       discountValue?: number;
       monthlyFeeManualOverride: boolean;
       monthlyFeeOverrideReason?: string;
+      appliedCampaignIds?: string[];
     } = { monthlyFee: v.data.monthlyFee, monthlyFeeManualOverride: false };
+    // Paket & Kampanya Motoru — soft uyarılar (limit dolumu vb., hard engel DEĞİL).
+    const registrationWarnings: string[] = [];
 
-    if (!v.data.packageId && (v.data.discountType || v.data.discountValue !== undefined || v.data.monthlyFeeOverrideAmount !== undefined)) {
-      return fail("VALIDATION_ERROR", "İndirim/manuel ücret yalnızca bir paket seçildiğinde uygulanabilir.");
+    if (!v.data.packageId && (v.data.discountType || v.data.discountValue !== undefined || v.data.monthlyFeeOverrideAmount !== undefined || (v.data.campaignIds?.length ?? 0) > 0)) {
+      return fail("VALIDATION_ERROR", "İndirim/kampanya/manuel ücret yalnızca bir paket seçildiğinde uygulanabilir.");
+    }
+
+    // Paket & Kampanya Motoru — kampanya indirimi TEK indirim kaynağı kuralı:
+    // campaignIds + manuel discountType/discountValue BİRLİKTE gönderilemez.
+    // Sunucu her kampanyayı (aktif + tarih + şube) yeniden doğrular, çakışmayı
+    // `resolveCampaignStack` ile çözer; istemcinin gönderdiği yüzdeye GÜVENİLMEZ.
+    let appliedCampaignIds: string[] | undefined;
+    let campaignDiscountPercent: number | undefined;
+    if ((v.data.campaignIds?.length ?? 0) > 0) {
+      if (!v.data.packageId) {
+        return fail("VALIDATION_ERROR", "Kampanya indirimi yalnızca bir paket seçildiğinde uygulanabilir.");
+      }
+      if (v.data.discountType || v.data.discountValue !== undefined) {
+        return fail(
+          "VALIDATION_ERROR",
+          "Kampanya seçildiğinde manuel indirim girilemez — indirimi kampanya belirler, ya kampanyayı kaldırın ya manuel indirimi silin."
+        );
+      }
+      const { applicableCampaigns, resolveCampaignStack, campaignLimitWarning } = await import(
+        "../discount-campaigns"
+      );
+      const selected = (v.data.campaignIds ?? [])
+        .map((id) => (before.discountCampaigns ?? []).find((c) => c.id === id))
+        .filter((c): c is NonNullable<typeof c> => !!c);
+      if (selected.length !== (v.data.campaignIds ?? []).length) {
+        return fail("VALIDATION_ERROR", "Seçilen kampanyalardan biri bulunamadı veya bu kuruma ait değil.");
+      }
+      const now = new Date();
+      const applicable = applicableCampaigns(selected, v.data.branchId, now);
+      if (applicable.length !== selected.length) {
+        const bad = selected.find((c) => !applicable.some((a) => a.id === c.id));
+        return fail(
+          "VALIDATION_ERROR",
+          `"${bad?.name ?? "Seçilen kampanya"}" şu an bu öğrenci için geçerli değil (pasif, süresi dışında veya şube kapsamı dışında).`
+        );
+      }
+      const resolution = resolveCampaignStack(applicable);
+      appliedCampaignIds = resolution.applied.map((c) => c.id);
+      campaignDiscountPercent = resolution.effectivePercent;
+      for (const c of resolution.applied) {
+        const warning = campaignLimitWarning(c);
+        if (warning) registrationWarnings.push(warning);
+      }
+      for (const e of resolution.excluded) {
+        registrationWarnings.push(`"${e.campaign.name}" uygulanmadı: ${e.reason}`);
+      }
     }
 
     if (v.data.packageId) {
@@ -2122,20 +2171,23 @@ export async function createStudentTool(
       if (v.data.monthlyFeeOverrideAmount !== undefined && ctx.role !== "SCHOOL_ADMIN" && ctx.role !== "SUPER_ADMIN") {
         return fail("FORBIDDEN", "Aylık ücreti yalnızca yetkili yönetici elle değiştirebilir.");
       }
+      const effectiveDiscountType = campaignDiscountPercent !== undefined ? "percent" : v.data.discountType;
+      const effectiveDiscountValue = campaignDiscountPercent ?? v.data.discountValue;
       const computation = computeMonthlyFee({
         pkg,
         durationMinutes: v.data.lessonDurationMinutes as LessonDurationMinutes,
-        discountType: v.data.discountType,
-        discountValue: v.data.discountValue,
+        discountType: effectiveDiscountType,
+        discountValue: effectiveDiscountValue,
         overrideAmount: v.data.monthlyFeeOverrideAmount,
       });
       pricing = {
         monthlyFee: computation.finalMonthlyFee,
         packageBaseMonthlyFee: computation.baseMonthlyFee,
-        discountType: v.data.discountType,
-        discountValue: v.data.discountValue,
+        discountType: effectiveDiscountType,
+        discountValue: effectiveDiscountValue,
         monthlyFeeManualOverride: computation.source === "override",
         monthlyFeeOverrideReason: computation.source === "override" ? v.data.monthlyFeeOverrideReason : undefined,
+        appliedCampaignIds,
       };
     }
 
@@ -2313,6 +2365,9 @@ export async function createStudentTool(
       portalAccessType: _ignoredPortalAccessType,
       firstPaymentCollected: _ignoredFirstPaymentCollected,
       firstPaymentExceptionReason: _ignoredFirstPaymentExceptionReason,
+      // Paket & Kampanya Motoru — girdi-only alan: çözümü `appliedCampaignIds`
+      // (pricing üzerinden) yazılır, ham seçim Prisma'ya gitmez.
+      campaignIds: _ignoredCampaignIds,
       // `Student` kolonu DEĞİL, yalnız girdi alanları:
       // - `firstPaymentAdjustmentReason` → resolveFirstPaymentAdjustment (yukarıda)
       // - `lessonDays` → period-lesson-billing (ilk dönem ders sayısı hesabı)
@@ -2379,6 +2434,31 @@ export async function createStudentTool(
         entityName: created.name,
         ...(sourceTrial ? { convertedFromTrialId: sourceTrial.id } : {}),
       });
+      // Paket & Kampanya Motoru — uygulanan kampanyaların kullanım sayacı HER
+      // uygulamada artırılır (store katmanından doğrudan — bu, kampanya YÖNETİM
+      // yetkisi değil kayıt akışının parçasıdır, SUPER_ADMIN kapısından geçmez).
+      // Sayaç artışı kaydı ASLA engellemez; hata olursa audit'e düşer, kayıt korunur.
+      if (appliedCampaignIds?.length) {
+        for (const cid of appliedCampaignIds) {
+          try {
+            const latest = (await readData()).discountCampaigns?.find((c) => c.id === cid);
+            if (!latest) continue;
+            const next = (latest.usageCount ?? 0) + 1;
+            await updateDiscountCampaign(cid, { usageCount: next });
+            audit(ctx, "discount_campaign.applied", "DiscountCampaign", cid, {
+              studentId: created.id,
+              entityName: latest.name,
+              usageCount: next,
+              maxUsageCount: latest.maxUsageCount ?? null,
+            });
+          } catch (e) {
+            logger.warn("createStudentTool — kampanya sayacı artırılamadı (kayıt korundu)", {
+              campaignId: cid,
+              error: e instanceof Error ? e.message : String(e),
+            });
+          }
+        }
+      }
       if (sourceTrial) {
         const { markTrialConverted } = await import("../trial-lessons");
         await markTrialConverted(ctx.tenantId, sourceTrial.id, { studentId: created.id, userId: ctx.userId });
@@ -2494,7 +2574,11 @@ export async function createStudentTool(
       }
     }
 
-    return ok({ studentId: created?.id ?? "unknown", tempLoginPassword });
+    return ok({
+      studentId: created?.id ?? "unknown",
+      tempLoginPassword,
+      ...(registrationWarnings.length > 0 ? { warnings: registrationWarnings } : {}),
+    });
   } catch (e) {
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "createStudent failed");
   }
@@ -4934,7 +5018,8 @@ export async function createPackageTool(
   ctx: ServiceContext,
   input: unknown
 ): Promise<ServiceResult<{ packageId: string }>> {
-  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  // Paket & Kampanya Motoru — yazma işlemleri yalnız SUPER_ADMIN (okuma aynen).
+  const auth = requireRole(ctx, ["SUPER_ADMIN"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
 
   const v = parseOrFail(createPackageSchema, input);
@@ -4943,7 +5028,9 @@ export async function createPackageTool(
   const result = await addPackage({
     ...v.data,
     defaultDurationMinutes: v.data.defaultDurationMinutes as LessonDurationPreference | undefined,
+    applicableBranchIds: v.data.applicableBranchIds as import("../types").BranchId[] | undefined,
     createdBy: ctx.userId,
+    createdByUserId: ctx.userId,
   });
   if (!result.ok) return fail("VALIDATION_ERROR", result.message);
   audit(ctx, "package.create", "Package", result.pkg.id, { title: result.pkg.title });
@@ -4960,7 +5047,8 @@ export async function updatePackageTool(
   ctx: ServiceContext,
   input: unknown
 ): Promise<ServiceResult<{ packageId: string }>> {
-  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  // Paket & Kampanya Motoru — yazma işlemleri yalnız SUPER_ADMIN (okuma aynen).
+  const auth = requireRole(ctx, ["SUPER_ADMIN"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
 
   const v = parseOrFail(updatePackageSchema, input);
@@ -4970,6 +5058,7 @@ export async function updatePackageTool(
   const result = await updatePackage(packageId, {
     ...patch,
     defaultDurationMinutes: patch.defaultDurationMinutes as LessonDurationPreference | undefined,
+    applicableBranchIds: patch.applicableBranchIds as import("../types").BranchId[] | undefined,
   });
   if (!result.ok) return fail("VALIDATION_ERROR", result.message);
   audit(ctx, "package.update", "Package", packageId, patch);
@@ -4984,7 +5073,8 @@ export async function getPackageDeletionImpactTool(
   ctx: ServiceContext,
   input: unknown
 ): Promise<ServiceResult<import("../packages").PackageDeletionImpact & { criticalPasswordConfigured: boolean }>> {
-  const auth = requireRole(ctx, CRITICAL_ROLES_FOR_TOOLS);
+  // Paket & Kampanya Motoru — paket CRUD yalnız SUPER_ADMIN.
+  const auth = requireRole(ctx, ["SUPER_ADMIN"]);
   if (!auth.ok) return fail("FORBIDDEN", "Paket silme yalnız kurum sahibi ve kurum yöneticileri tarafından başlatılabilir.");
   const v = parseOrFail(z.object({ packageId: z.string().min(1) }), input);
   if (!v.ok) return v;
@@ -5006,7 +5096,8 @@ export async function deletePackageTool(
   ctx: ServiceContext,
   input: unknown
 ): Promise<ServiceResult<{ packageId: string }>> {
-  const auth = requireRole(ctx, CRITICAL_ROLES_FOR_TOOLS);
+  // Paket & Kampanya Motoru — paket CRUD yalnız SUPER_ADMIN.
+  const auth = requireRole(ctx, ["SUPER_ADMIN"]);
   if (!auth.ok) return fail("FORBIDDEN", "Paket silme yalnız kurum sahibi ve kurum yöneticileri tarafından başlatılabilir.");
   const v = parseOrFail(
     z.object({
@@ -5081,13 +5172,19 @@ export async function createDiscountCampaignTool(
   ctx: ServiceContext,
   input: unknown
 ): Promise<ServiceResult<{ campaignId: string }>> {
-  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  // Paket & Kampanya Motoru — yazma işlemleri yalnız SUPER_ADMIN (okuma aynen).
+  const auth = requireRole(ctx, ["SUPER_ADMIN"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
 
   const v = parseOrFail(createDiscountCampaignSchema, input);
   if (!v.ok) return v;
 
-  const result = await addDiscountCampaign({ ...v.data, createdBy: ctx.userId });
+  const result = await addDiscountCampaign({
+    ...v.data,
+    applicableBranchIds: v.data.applicableBranchIds as import("../types").BranchId[] | undefined,
+    createdBy: ctx.userId,
+    createdByUserId: ctx.userId,
+  });
   if (!result.ok) return fail("VALIDATION_ERROR", result.message);
   audit(ctx, "discount_campaign.create", "DiscountCampaign", result.campaign.id, {
     name: result.campaign.name,
@@ -5100,14 +5197,21 @@ export async function updateDiscountCampaignTool(
   ctx: ServiceContext,
   input: unknown
 ): Promise<ServiceResult<{ campaignId: string }>> {
-  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  // Paket & Kampanya Motoru — yazma işlemleri yalnız SUPER_ADMIN (okuma aynen).
+  // İSTİSNA: kayıt akışındaki otomatik kullanım sayacı artışı bu kapıdan GEÇMEZ —
+  // createStudentTool sayacı store katmanından doğrudan artırır (kayıt yetkisiyle).
+  const auth = requireRole(ctx, ["SUPER_ADMIN"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
 
   const v = parseOrFail(updateDiscountCampaignSchema, input);
   if (!v.ok) return v;
 
   const { campaignId, ...patch } = v.data;
-  const result = await updateDiscountCampaign(campaignId, patch);
+  const result = await updateDiscountCampaign(campaignId, {
+    ...patch,
+    branchId: patch.branchId as import("../types").BranchId | null | undefined,
+    applicableBranchIds: patch.applicableBranchIds as import("../types").BranchId[] | undefined,
+  });
   if (!result.ok) return fail("VALIDATION_ERROR", result.message);
   audit(ctx, "discount_campaign.update", "DiscountCampaign", campaignId, patch);
   return ok({ campaignId });

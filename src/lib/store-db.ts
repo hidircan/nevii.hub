@@ -438,6 +438,8 @@ function mapSchoolToAppData(school: PrismaSchoolWithRelations): AppData {
         (student as { monthlyFeeManualOverride?: boolean | null }).monthlyFeeManualOverride ?? undefined,
       monthlyFeeOverrideReason:
         (student as { monthlyFeeOverrideReason?: string | null }).monthlyFeeOverrideReason ?? undefined,
+      appliedCampaignIds:
+        ((student as { appliedCampaignIds?: unknown }).appliedCampaignIds as string[] | undefined) ?? undefined,
       derivedPerLessonAmount:
         (student as { derivedPerLessonAmount?: number | null }).derivedPerLessonAmount ?? undefined,
     })),
@@ -958,8 +960,10 @@ async function readPackages(tid: string): Promise<AppData["packages"]> {
   const rows = await prisma.package.findMany({ where: { tenantId: tid }, orderBy: { createdAt: "asc" } });
   return rows.map((p) => ({
     id: p.id,
+    displayId: p.displayId ?? undefined,
     title: p.title,
     description: p.description ?? undefined,
+    applicableBranchIds: (p.applicableBranchIds as import("./types").BranchId[] | null) ?? undefined,
     status: p.status as import("./types").PackageStatus,
     price30Min: p.price30Min,
     price40Min: p.price40Min,
@@ -971,6 +975,7 @@ async function readPackages(tid: string): Promise<AppData["packages"]> {
     defaultPaymentDueDay: p.defaultPaymentDueDay ?? undefined,
     notes: p.notes ?? undefined,
     createdBy: p.createdBy,
+    createdByUserId: p.createdByUserId ?? undefined,
     createdAt: p.createdAt.toISOString(),
     updatedAt: p.updatedAt.toISOString(),
   }));
@@ -981,14 +986,23 @@ async function readDiscountCampaigns(tid: string): Promise<AppData["discountCamp
   const rows = await prisma.discountCampaign.findMany({ where: { tenantId: tid }, orderBy: { createdAt: "asc" } });
   return rows.map((c) => ({
     id: c.id,
+    displayId: c.displayId ?? undefined,
     name: c.name,
+    description: c.description ?? undefined,
     kind: c.kind as import("./types").DiscountCampaignKind,
     discountPercent: c.discountPercent,
     active: c.active,
     validFrom: c.validFrom?.toISOString() ?? undefined,
     validTo: c.validTo?.toISOString() ?? undefined,
     branchId: (c.branchId as import("./types").BranchId | null) ?? undefined,
+    applicableBranchIds: (c.applicableBranchIds as import("./types").BranchId[] | null) ?? undefined,
+    stackingRule: (c.stackingRule as import("./types").CampaignStackingRule | null) ?? "none",
+    priority: c.priority ?? 0,
+    maxUsageCount: c.maxUsageCount ?? undefined,
+    usageCount: c.usageCount ?? 0,
+    conditions: (c.conditions as Record<string, unknown> | null) ?? undefined,
     createdBy: c.createdBy,
+    createdByUserId: c.createdByUserId ?? undefined,
     createdAt: c.createdAt.toISOString(),
     updatedAt: c.updatedAt.toISOString(),
   }));
@@ -2855,12 +2869,16 @@ export async function addPackage(input: PackageInput): Promise<PackageMutationRe
   const result = createPackageData(data, input);
   if (!result.ok) return result;
 
+  // displayId db yolunda atomik sayaçtan gelir (tenant-kapsamlı, çakışmasız).
+  const displayId = formatDisplayId("package", await allocateSequenceValueDb(tid, "package"));
   await prisma.package.create({
     data: {
       id: result.pkg.id,
       tenantId: tid,
+      displayId,
       title: result.pkg.title,
       description: result.pkg.description,
+      applicableBranchIds: result.pkg.applicableBranchIds ?? undefined,
       status: result.pkg.status,
       price30Min: result.pkg.price30Min,
       price40Min: result.pkg.price40Min,
@@ -2872,11 +2890,12 @@ export async function addPackage(input: PackageInput): Promise<PackageMutationRe
       defaultPaymentDueDay: result.pkg.defaultPaymentDueDay,
       notes: result.pkg.notes,
       createdBy: result.pkg.createdBy,
+      createdByUserId: result.pkg.createdByUserId,
       createdAt: new Date(result.pkg.createdAt),
       updatedAt: new Date(result.pkg.updatedAt),
     },
   });
-  return { ok: true, data: await readData(), pkg: result.pkg };
+  return { ok: true, data: await readData(), pkg: { ...result.pkg, displayId } };
 }
 
 export async function updatePackage(packageId: string, patch: PackagePatch): Promise<PackageMutationResult> {
@@ -2900,6 +2919,7 @@ export async function updatePackage(packageId: string, patch: PackagePatch): Pro
       groupLessonCount: patch.groupLessonCount,
       defaultDurationMinutes: patch.defaultDurationMinutes,
       defaultPaymentDueDay: patch.defaultPaymentDueDay,
+      applicableBranchIds: patch.applicableBranchIds,
       notes: patch.notes,
     },
   });
@@ -2914,23 +2934,34 @@ export async function addDiscountCampaign(input: DiscountCampaignInput): Promise
   const result = createDiscountCampaignData(data, input);
   if (!result.ok) return result;
 
+  // displayId db yolunda atomik sayaçtan gelir (tenant-kapsamlı, çakışmasız).
+  const displayId = formatDisplayId("campaign", await allocateSequenceValueDb(tid, "campaign"));
   await prisma.discountCampaign.create({
     data: {
       id: result.campaign.id,
       tenantId: tid,
+      displayId,
       name: result.campaign.name,
+      description: result.campaign.description,
       kind: result.campaign.kind,
       discountPercent: result.campaign.discountPercent,
       active: result.campaign.active,
       validFrom: result.campaign.validFrom ? new Date(result.campaign.validFrom) : null,
       validTo: result.campaign.validTo ? new Date(result.campaign.validTo) : null,
       branchId: result.campaign.branchId ?? null,
+      applicableBranchIds: result.campaign.applicableBranchIds ?? undefined,
+      stackingRule: result.campaign.stackingRule,
+      priority: result.campaign.priority,
+      maxUsageCount: result.campaign.maxUsageCount,
+      usageCount: result.campaign.usageCount,
+      conditions: (result.campaign.conditions as import("@prisma/client").Prisma.InputJsonValue | undefined) ?? undefined,
       createdBy: result.campaign.createdBy,
+      createdByUserId: result.campaign.createdByUserId,
       createdAt: new Date(result.campaign.createdAt),
       updatedAt: new Date(result.campaign.updatedAt),
     },
   });
-  return { ok: true, data: await readData(), campaign: result.campaign };
+  return { ok: true, data: await readData(), campaign: { ...result.campaign, displayId } };
 }
 
 export async function updateDiscountCampaign(
@@ -2947,10 +2978,18 @@ export async function updateDiscountCampaign(
     where: { id: campaignId, tenantId: tid },
     data: {
       name: patch.name,
+      description: patch.description,
       discountPercent: patch.discountPercent,
       active: patch.active,
       validFrom: patch.validFrom !== undefined ? (patch.validFrom ? new Date(patch.validFrom) : null) : undefined,
       validTo: patch.validTo !== undefined ? (patch.validTo ? new Date(patch.validTo) : null) : undefined,
+      branchId: patch.branchId === null ? null : patch.branchId,
+      applicableBranchIds: patch.applicableBranchIds,
+      stackingRule: patch.stackingRule,
+      priority: patch.priority,
+      maxUsageCount: patch.maxUsageCount === null ? null : patch.maxUsageCount,
+      usageCount: patch.usageCount,
+      conditions: (patch.conditions as import("@prisma/client").Prisma.InputJsonValue | undefined) ?? undefined,
     },
   });
   if (updateResult.count === 0) return { ok: false, message: "Kampanya bulunamadı." };

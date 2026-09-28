@@ -28,7 +28,7 @@ beforeEach(async () => {
 });
 
 async function createTestPackage(): Promise<string> {
-  const res = await createPackageTool(ctx(), {
+  const res = await createPackageTool(ctx({ role: "SUPER_ADMIN" }), {
     title: "Bireysel Piyano",
     price30Min: 2000,
     price40Min: 2500,

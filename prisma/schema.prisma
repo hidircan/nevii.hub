@@ -741,6 +741,9 @@ model Student {
   /// true ise monthlyFee hesaplanan değerden farklı, admin tarafından elle girilmiştir.
   monthlyFeeManualOverride Boolean           @default(false)
   monthlyFeeOverrideReason String?           @db.Text
+  /// Paket & Kampanya Motoru — kayıtta uygulanan kampanya id'leri (string[] JSON).
+  /// NULL = kampanyasız/eski kayıt. Kampanya raporu bu alandan beslenir.
+  appliedCampaignIds     Json?
   /// P0-1 (2026-09-02 düzeltme) — yönetici girmez; `derivePerLessonAmount`
   /// (monthlyFee ÷ (weeklyLessonCount×4)) ile sistemin ürettiği hesaplama
   /// snapshot'ı. NULL = LEGACY kayıt (mevcut tüm kayıtlar, düz monthlyFee),
@@ -2163,8 +2166,13 @@ model Package {
   id                     String    @id
   tenantId               String
   tenant                 Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// Paket & Kampanya Motoru — kurum bazında okunabilir numara (ör. "PKT-001").
+  /// NULL = motor öncesi eski kayıt (backfill YOK, onaysız dokunulmaz).
+  displayId              String?
   title                  String
   description            String?
+  /// Çoklu şube kapsamı (string[] JSON) — boş/NULL = tüm şubeler.
+  applicableBranchIds    Json?
   /// "active" | "archived" — pasif/arşivlenmiş paket yeni öğrenci kaydında seçilemez.
   status                 String    @default("active")
   /// TL, tam sayı (kuruş hassasiyeti gerekmiyor — mevcut Payment.amount ile aynı kural).
@@ -2184,10 +2192,14 @@ model Package {
   /// Paket kapsamını açıklayan serbest metin not.
   notes                  String?   @db.Text
   createdBy              String
+  /// Oluşturan kullanıcı (User.id). Eski kayıtlarda NULL.
+  createdByUserId        String?
   createdAt              DateTime  @default(now())
   updatedAt              DateTime  @updatedAt
   students               Student[]
 
+  /// displayId tenant-kapsamlı benzersizdir (farklı kurumlar aynı numarayı kullanabilir).
+  @@unique([tenantId, displayId])
   @@index([tenantId])
   @@index([tenantId, status])
 }
@@ -2198,7 +2210,11 @@ model DiscountCampaign {
   id              String    @id
   tenantId        String
   tenant          Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// Paket & Kampanya Motoru — kurum bazında okunabilir numara (ör. "KMP-001").
+  /// NULL = motor öncesi eski kayıt (backfill YOK, onaysız dokunulmaz).
+  displayId       String?
   name            String
+  description     String?   @db.Text
   /// "sibling" — ilk ve tek tanımlı tür; ileride yeni türlere genişleyebilir.
   kind            String
   discountPercent Int
@@ -2207,10 +2223,24 @@ model DiscountCampaign {
   validTo         DateTime?
   /// Verilmezse tüm şubelerde geçerli.
   branchId        String?
+  /// Çoklu şube kapsamı (string[] JSON) — boş/NULL = tüm şubeler.
+  applicableBranchIds Json?
+  /// "none" | "additive" | "override" | "yield" (bkz. CampaignStackingRule).
+  stackingRule    String    @default("none")
+  priority        Int       @default(0)
+  /// NULL = sınırsız; dolunca kapanmaz, yalnız uyarı üretilir (soft).
+  maxUsageCount   Int?
+  usageCount      Int       @default(0)
+  /// İleride genişletilebilir kural alanı.
+  conditions      Json?
   createdBy       String
+  /// Oluşturan kullanıcı (User.id). Eski kayıtlarda NULL.
+  createdByUserId String?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
+  /// displayId tenant-kapsamlı benzersizdir (farklı kurumlar aynı numarayı kullanabilir).
+  @@unique([tenantId, displayId])
   @@index([tenantId])
   @@index([tenantId, active])
 }

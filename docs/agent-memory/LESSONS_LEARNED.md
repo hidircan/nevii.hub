@@ -1319,3 +1319,15 @@ aynı veriyi aynı yoldan mı okuyor?" diye bak.
   `--tree` CI) + `scripts/git-hooks/pre-commit` (`npm run hooks:install`) + CI adımı; `scripts/
   check-cache-headers.mjs` dosya sunan GET rotalarında açık `Cache-Control` ZORUNLU kılar (3 gedik kapatıldı:
   `export`, `contracts/[id]/html`, `payments/[id]/receipt` — hepsi `private, max-age=0, no-store`, davranış aynı).
+
+## 2026-09-28 (paket-kampanya) — %100 indirimde "ders başı" sıfırlanmıyordu
+- Belirti: nihai aylık ücret 0'a düşerken "ders başı hesap karşılığı" eski (sıfır-dışı) değeri
+  göstermeye devam ediyordu. Sunucu DOĞRUYDU (`createStudentTool` NET ücretten türetir, 0 yazar) —
+  hata YALNIZ istemci önizlemesindeydi, iki katmanlı: (1) form-seviyesi `onChange` → `recomputePreview`
+  `monthlyFee`'yi FormData'daki GİZLİ input'tan okuyordu; o input'un değeri alt bileşenin React
+  state'inden gelir ve olay anında henüz ESKİ değeri taşır (bir render geriden); (2) `monthlyFee <= 0`
+  önizlemeyi `null` yapıp kartı gizliyordu — 0 hiç gösterilmiyordu.
+- Düzeltme: fiyat bileşeni nihai ücreti `onPricingChange` ile üst forma bildirir; önizleme bildirimi
+  okur + bildirim değişiminde yeniden hesaplar; 0 geçerli önizlemedir (kart sıfırları gösterir).
+  Kural: "gizli input + FormData okuma" ile React state'ini köprülemek yasaktır — durum üste taşınır
+  (lift state up), FormData yalnız submit anında okunur.

@@ -223,6 +223,8 @@ describe("paket güvenli silme", () => {
     const base = { packageId, confirmationTitle: "Yanlış Paket", criticalPassword: PASSWORD, expectedUpdatedAt: updatedAt, reason: "Yanlışlıkla oluşturuldu" };
 
     expect((await deletePackageTool(owner({ role: "TEACHER" }), base)).ok).toBe(false);
+    // Paket & Kampanya Motoru — paket CRUD yalnız SUPER_ADMIN (SCHOOL_ADMIN dahil diğer roller red).
+    expect((await deletePackageTool(owner({ role: "SCHOOL_ADMIN" }), base)).ok).toBe(false);
     const wrongPw = await deletePackageTool(owner(), { ...base, criticalPassword: "yanlis-sifre" });
     expect(wrongPw.ok).toBe(false);
     const wrongName = await deletePackageTool(owner(), { ...base, confirmationTitle: "Başka" });
@@ -230,7 +232,7 @@ describe("paket güvenli silme", () => {
     expect(auditCalls.filter((a) => a.action === "package.delete" && a.outcome === "denied").length).toBe(2);
     expect((await readData()).packages?.some((p) => p.id === packageId)).toBe(true);
 
-    const done = await deletePackageTool(owner({ role: "SCHOOL_ADMIN" }), base);
+    const done = await deletePackageTool(owner(), base);
     expect(done.ok).toBe(true);
     expect((await readData()).packages?.some((p) => p.id === packageId)).toBe(false);
     expect(auditCalls.some((a) => a.action === "package.delete" && a.outcome === "success")).toBe(true);

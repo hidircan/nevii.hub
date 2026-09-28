@@ -860,8 +860,21 @@ export async function addTeacherFeeRule(input: FeeRuleInput): Promise<FeeRuleMut
 export async function addPackage(input: PackageInput): Promise<PackageMutationResult> {
   const data = await readData();
   const result = createPackageData(data, input);
-  if (result.ok) await writeData(result.data);
-  return result;
+  if (!result.ok) return result;
+  // Paket & Kampanya Motoru — displayId tenant sayaçtan (öğrenci deseniyle aynı).
+  const { assigned, records } = allocateSequenceValue(
+    result.data.entitySequences ?? [],
+    DEFAULT_TENANT_ID,
+    "package"
+  );
+  const pkg = { ...result.pkg, displayId: formatDisplayId("package", assigned) };
+  const next = {
+    ...result.data,
+    packages: (result.data.packages ?? []).map((p) => (p.id === pkg.id ? pkg : p)),
+    entitySequences: records,
+  };
+  await writeData(next);
+  return { ok: true, data: next, pkg };
 }
 
 export async function updatePackage(packageId: string, patch: PackagePatch): Promise<PackageMutationResult> {
@@ -874,8 +887,21 @@ export async function updatePackage(packageId: string, patch: PackagePatch): Pro
 export async function addDiscountCampaign(input: DiscountCampaignInput): Promise<DiscountCampaignMutationResult> {
   const data = await readData();
   const result = createDiscountCampaignData(data, input);
-  if (result.ok) await writeData(result.data);
-  return result;
+  if (!result.ok) return result;
+  // Paket & Kampanya Motoru — displayId tenant sayaçtan (öğrenci deseniyle aynı).
+  const { assigned, records } = allocateSequenceValue(
+    result.data.entitySequences ?? [],
+    DEFAULT_TENANT_ID,
+    "campaign"
+  );
+  const campaign = { ...result.campaign, displayId: formatDisplayId("campaign", assigned) };
+  const next = {
+    ...result.data,
+    discountCampaigns: (result.data.discountCampaigns ?? []).map((c) => (c.id === campaign.id ? campaign : c)),
+    entitySequences: records,
+  };
+  await writeData(next);
+  return { ok: true, data: next, campaign };
 }
 
 export async function updateDiscountCampaign(

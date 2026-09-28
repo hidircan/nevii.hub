@@ -211,6 +211,13 @@ export const studentSchema = z.object({
   /** Package C — paket seçildiğinde uygulanacak indirim + ödeme profili. Hepsi opsiyonel — legacy akış kırılmaz. */
   discountType: z.enum(["percent", "amount"]).optional(),
   discountValue: z.coerce.number().min(0).optional(),
+  /**
+   * Paket & Kampanya Motoru — kayıtta uygulanacak kampanya id'leri (çoklu seçim).
+   * Sunucu her birini (aktif + tarih + şube) doğrular, `resolveCampaignStack`
+   * ile nihai yüzdeyi türetir. Manuel indirim (discountType/discountValue) ile
+   * BİRLİKTE gönderilemez — tek indirim kaynağı kuralı (createStudentTool kapısı).
+   */
+  campaignIds: z.array(z.string().min(1)).max(10).optional(),
   paymentMethod: z.enum(["credit_card", "cash", "transfer"]).optional(),
   paymentDueDay: z.coerce.number().int().min(1).max(31).optional(),
   /** Verilirse tekil `paymentDueDay`'in YERİNE birincil kaynak olur (bkz. actionUpdateStudentProfile). */
@@ -1535,6 +1542,7 @@ export const createPackageSchema = z.object({
   groupLessonCount: packageLessonCountSchema.optional(),
   defaultDurationMinutes: packageDurationSchema.optional(),
   defaultPaymentDueDay: packageDueDaySchema.optional(),
+  applicableBranchIds: z.array(z.string().min(1)).optional(),
   notes: z.string().optional(),
 });
 
@@ -1551,26 +1559,41 @@ export const updatePackageSchema = z.object({
   groupLessonCount: packageLessonCountSchema.optional(),
   defaultDurationMinutes: packageDurationSchema.optional(),
   defaultPaymentDueDay: packageDueDaySchema.optional(),
+  applicableBranchIds: z.array(z.string().min(1)).optional(),
   notes: z.string().optional(),
 });
 
-/** Paket 5 — yüzde tabanlı kampanya/indirim (ör. "Kardeş Kampanyası"). */
+/** Paket 5 — yüzde tabanlı kampanya/indirim (ör. "Kardeş Kampanyası"). Paket & Kampanya Motoru ile genişletildi. */
 export const createDiscountCampaignSchema = z.object({
   name: z.string().min(1),
+  description: z.string().optional(),
   kind: z.enum(["sibling"]),
   discountPercent: z.coerce.number().int().min(1).max(100),
   validFrom: z.string().optional(),
   validTo: z.string().optional(),
   branchId: z.string().optional(),
+  applicableBranchIds: z.array(z.string().min(1)).optional(),
+  stackingRule: z.enum(["none", "additive", "override", "yield"]).optional(),
+  priority: z.coerce.number().int().min(0).optional(),
+  maxUsageCount: z.coerce.number().int().min(1).optional(),
+  conditions: z.record(z.string(), z.unknown()).optional(),
 });
 
 export const updateDiscountCampaignSchema = z.object({
   campaignId: z.string().min(1),
   name: z.string().min(1).optional(),
+  description: z.string().optional(),
   discountPercent: z.coerce.number().int().min(1).max(100).optional(),
   active: z.boolean().optional(),
   validFrom: z.string().optional(),
   validTo: z.string().optional(),
+  branchId: z.string().optional().nullable(),
+  applicableBranchIds: z.array(z.string().min(1)).optional(),
+  stackingRule: z.enum(["none", "additive", "override", "yield"]).optional(),
+  priority: z.coerce.number().int().min(0).optional(),
+  maxUsageCount: z.coerce.number().int().min(1).optional().nullable(),
+  usageCount: z.coerce.number().int().min(0).optional(),
+  conditions: z.record(z.string(), z.unknown()).optional(),
 });
 
 /** ÖNCELİK 4 (devam) — öğretmen çoklu enstrüman+seviye düzenleme (öğretmen detayı). */
