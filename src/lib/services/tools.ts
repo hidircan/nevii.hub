@@ -15420,6 +15420,9 @@ export async function getAttendanceReportTool(
         roomName?: string;
       }
     >;
+    total: number;
+    page: number;
+    pageSize: number;
   }>
 > {
   const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
@@ -15436,6 +15439,10 @@ export async function getAttendanceReportTool(
       instrument: z.string().optional(),
       roomId: z.string().optional(),
       status: z.enum(["attended", "processed", "makeup", "cancelled", "planned"]).optional(),
+      // 11. tur iş #4 — sunucu taraflı sayfalama. Özet (summary) TÜM
+      // filtrelenmiş satırlar üzerinden hesaplanır; yalnız `rows` dilimlenir.
+      page: z.coerce.number().int().min(1).default(1),
+      pageSize: z.coerce.number().int().min(1).max(200).default(50),
     }),
     input
   );
@@ -15478,7 +15485,19 @@ export async function getAttendanceReportTool(
     roomName: roomById.get(r.roomId)?.name,
   }));
 
-  return ok({ range, summary, rows: enrichedRows });
+  // 11. tur iş #4 — sayfa aralığa kırpılır; özet dilimden ETKİLENMEZ.
+  const total = enrichedRows.length;
+  const totalPages = Math.max(1, Math.ceil(total / v.data.pageSize));
+  const page = Math.min(v.data.page, totalPages);
+  const start = (page - 1) * v.data.pageSize;
+  return ok({
+    range,
+    summary,
+    rows: enrichedRows.slice(start, start + v.data.pageSize),
+    total,
+    page,
+    pageSize: v.data.pageSize,
+  });
 }
 
 /**
