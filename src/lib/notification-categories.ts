@@ -29,6 +29,8 @@ export type NotificationCategory =
   // Personel ve izin
   | "leave_new_request"
   | "leave_pending_approval"
+  // İK / işe alım
+  | "recruitment_new_application"
   // Öğrenci operasyonları
   | "student_new_registration"
   | "attendance_exception"
@@ -224,6 +226,15 @@ export const NOTIFICATION_CATEGORIES: NotificationCategoryDef[] = [
     group: "staff",
     label: "Yeni izin talebi",
     description: "Bir personel izin talebi oluşturduğunda (onay bekliyor).",
+    implemented: true,
+    roles: ["SCHOOL_ADMIN", "SUPER_ADMIN"],
+    defaultInAppEnabled: true,
+  },
+  {
+    category: "recruitment_new_application",
+    group: "staff",
+    label: "Yeni iş başvurusu",
+    description: "Kariyer sayfasından yeni bir aday başvurusu geldiğinde (İK ayarlarından da kapatılabilir).",
     implemented: true,
     roles: ["SCHOOL_ADMIN", "SUPER_ADMIN"],
     defaultInAppEnabled: true,

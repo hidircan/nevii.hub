@@ -42,6 +42,10 @@ model Tenant {
   payments                    Payment[]
   studentPortalAccess         StudentPortalAccess[]
   emailTemplates              EmailTemplate[]
+  recruitmentJobs             RecruitmentJob[]
+  recruitmentApplications     RecruitmentApplication[]
+  recruitmentEmailTemplates   RecruitmentEmailTemplate[]
+  recruitmentSettings         RecruitmentSettings?
   paymentCheckoutAttempts     PaymentCheckoutAttempt[]
   followUpCases               PaymentFollowUpCase[]
   communicationMessages       CommunicationMessage[]
@@ -180,6 +184,202 @@ model EmailTemplate {
 
   @@unique([tenantId, key, locale, version])
   @@index([tenantId, key, locale, status])
+}
+
+/// İK / işe alım — iş ilanı. Herkese açık kariyer sayfasında yalnız `published` görünür.
+model RecruitmentJob {
+  id             String                   @id
+  tenantId       String
+  tenant         Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// Kurum içinde tekil URL parçası (örn. "piyano-ogretmeni")
+  slug           String
+  title          String
+  /// teacher | staff
+  category       String                   @default("teacher")
+  instruments    String[]                 @default([])
+  branchId       String?
+  /// full_time | part_time | freelance | intern
+  employmentType String                   @default("part_time")
+  location       String                   @default("")
+  summary        String                   @default("")
+  description    String                   @default("")
+  requirements   String                   @default("")
+  benefits       String                   @default("")
+  /// draft | published | closed | archived
+  status         String                   @default("draft")
+  publishedAt    DateTime?
+  closesAt       DateTime?
+  createdBy      String?
+  createdAt      DateTime                 @default(now())
+  updatedAt      DateTime                 @updatedAt
+  applications   RecruitmentApplication[]
+
+  @@unique([tenantId, slug])
+  @@index([tenantId, status])
+}
+
+/// İK — aday başvurusu (aday + başvuru tek satır). Filtrelenen alanlar kolon; geri kalanı `profile` JSON.
+model RecruitmentApplication {
+  id                      String                   @id
+  tenantId                String
+  tenant                  Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// Kurum içi sıra no (IK-000001)
+  seq                     Int
+  jobId                   String?
+  job                     RecruitmentJob?          @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  /// teacher | staff
+  category                String                   @default("teacher")
+  /// new | screening | interview | demo_lesson | offer | hired | rejected | withdrawn | talent_pool
+  stage                   String                   @default("new")
+  firstName               String
+  lastName                String
+  email                   String
+  phone                   String                   @default("")
+  city                    String                   @default("")
+  instruments             String[]                 @default([])
+  experienceYears         Int?
+  teachingYears           Int?
+  /// none | high_school | associate | bachelor | master | doctorate | conservatory
+  educationLevel          String                   @default("")
+  /// linkedin | kariyer_net | website | referral | instagram | other
+  source                  String                   @default("website")
+  tags                    String[]                 @default([])
+  ratingAvg               Float?
+  /// Geniş profil: okul, bölüm, beceriler, diller, müsaitlik, bağlantılar, ön yazı, UTM, CV ayrıştırma özeti…
+  profile                 Json?
+  cvFileId                String?
+  kvkkConsentAt           DateTime?
+  kvkkTextVersion         String                   @default("")
+  retentionUntil          DateTime?
+  anonymizedAt            DateTime?
+  hiredTeacherId          String?
+  hiredStaffId            String?
+  lastStageChangeAt       DateTime                 @default(now())
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
+  files                   RecruitmentFile[]
+  activities              RecruitmentActivity[]
+  interviews              RecruitmentInterview[]
+  evaluations             RecruitmentEvaluation[]
+
+  @@unique([tenantId, seq])
+  @@index([tenantId, stage])
+  @@index([tenantId, jobId])
+  @@index([tenantId, email])
+}
+
+/// İK — CV dosyası (baytlar DB'de; ek bucket gerektirmez). Anonimleştirmede silinir.
+model RecruitmentFile {
+  id            String                 @id
+  tenantId      String
+  applicationId String?
+  application   RecruitmentApplication? @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  fileName      String
+  mimeType      String
+  sizeBytes     Int
+  data          Bytes
+  createdAt     DateTime               @default(now())
+
+  @@index([tenantId, applicationId])
+}
+
+/// İK — aday zaman çizelgesi (not, aşama, e-posta, görüşme, değerlendirme, sistem).
+model RecruitmentActivity {
+  id            String                 @id
+  tenantId      String
+  applicationId String
+  application   RecruitmentApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  /// note | stage_change | email | interview | evaluation | system
+  type          String
+  body          String                 @default("")
+  meta          Json?
+  actorUserId   String?
+  actorName     String                 @default("")
+  createdAt     DateTime               @default(now())
+
+  @@index([tenantId, applicationId, createdAt])
+}
+
+/// İK — görüşme / deneme dersi planı.
+model RecruitmentInterview {
+  id                String                 @id
+  tenantId          String
+  applicationId     String
+  application       RecruitmentApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  /// interview | demo_lesson | phone | online
+  kind              String                 @default("interview")
+  scheduledAt       DateTime
+  durationMinutes   Int                    @default(30)
+  location          String                 @default("")
+  interviewers      String                 @default("")
+  /// planned | completed | cancelled | no_show
+  status            String                 @default("planned")
+  notes             String                 @default("")
+  invitationSentAt  DateTime?
+  createdBy         String?
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+
+  @@index([tenantId, scheduledAt])
+  @@index([tenantId, applicationId])
+}
+
+/// İK — değerlendirme puan kartı.
+model RecruitmentEvaluation {
+  id             String                 @id
+  tenantId       String
+  applicationId  String
+  application    RecruitmentApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  interviewId    String?
+  evaluatorId    String?
+  evaluatorName  String                 @default("")
+  /// { kriterAnahtari: 1..5 }
+  scores         Json
+  overall        Float
+  /// strong_yes | yes | neutral | no | strong_no
+  recommendation String                 @default("neutral")
+  comment        String                 @default("")
+  createdAt      DateTime               @default(now())
+
+  @@index([tenantId, applicationId])
+}
+
+/// İK — kurum e-posta şablonları (alındı / olumlu / olumsuz / görüşme daveti / özel).
+model RecruitmentEmailTemplate {
+  id        String   @id
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// received | positive | negative | interview_invite | offer | custom
+  kind      String   @default("custom")
+  name      String
+  subject   String
+  body      String
+  active    Boolean  @default(true)
+  /// Sistem varsayılanından türetildiyse anahtar (örn. "received")
+  systemKey String?
+  createdBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId, kind])
+}
+
+/// İK — kurum ayarları (tek satır / kurum).
+model RecruitmentSettings {
+  tenantId              String   @id
+  tenant                Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  careerPageEnabled     Boolean  @default(false)
+  careerPageIntro       String   @default("")
+  kvkkText              String   @default("")
+  kvkkTextVersion       String   @default("v1")
+  notifyInApp           Boolean  @default(true)
+  notifyEmails          String[] @default([])
+  autoAcknowledge       Boolean  @default(true)
+  retentionMonths       Int      @default(12)
+  /// [{ key, label }]
+  scorecardCriteria     Json?
+  updatedBy             String?
+  updatedAt             DateTime @updatedAt
 }
 
 /// Öğrenci/öğretmen/kullanıcı profil fotoğrafı — DocumentInstance ile AYNI mevcut

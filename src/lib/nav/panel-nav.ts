@@ -33,6 +33,7 @@ import {
   Music as MusicIcon,
   CircleHelp,
   Mail,
+  Briefcase,
 } from "lucide-react";
 
 export type PanelNavItem = {
@@ -76,6 +77,8 @@ export const PANEL_OPS_NAV: PanelNavItem[] = [
   /** İnsan-odaklı operasyon görev takibi — /panel/workflows (AI otomasyonu) ile İLGİSİZ, ayrı modül. */
   { href: "/panel/is-takip", label: "İş Takip", icon: ListChecks },
   { href: "/panel/personel", label: "Personel", icon: UserCog, roles: ["SUPER_ADMIN"] },
+  /** İK / işe alım — ilanlar, aday havuzu, görüşme, e-posta (feat/ik-recruitment). */
+  { href: "/panel/ik", label: "İnsan Kaynakları", icon: Briefcase, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
   { href: "/panel/finans-ozeti", label: "Finans Özeti", icon: CreditCard, roles: ["SUPER_ADMIN"] },
   { href: "/panel/evraklar", label: "Evraklar", icon: FileText },
   { href: "/panel/deneme", label: "Deneme Dersleri", icon: FlaskConical },

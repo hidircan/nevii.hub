@@ -31,6 +31,8 @@ export function resolveNotificationHref(kind: string, body?: string): string | n
     case "leave_new_request":
     case "leave_pending_approval":
       return "/panel/personel/izinler";
+    case "recruitment_new_application":
+      return "/panel/ik/adaylar";
     case "task_assigned":
     case "task_new_assignment":
     case "task_due_soon":
