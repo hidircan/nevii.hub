@@ -26,19 +26,18 @@ Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_20
 - Bulgu: route group üst layout'u devre dışı bırakmaz — kapı döngüsü yol başlığı
   (`x-neviios-path`) + kabuk muafiyetiyle çözüldü; Preview'da canlı doğrulandı.
 
-## Güncel snapshot — 2026-09-28 (10. tur, DEVAM EDİYOR — migration engeli)
-- **Dal:** `feat/uat-round-10` 12 commit + `origin/test` 8 peer commit merge edildi → **`test` dalına push
-  edildi (`7d731d3`)**. UAT doc `0ce0248` yerelde commitli, migration sonrası redeploy tetikleyici olarak
-  push'lanacak. 11/11 iş kod+test olarak bitti (1 portal pasif uyarısı, 2 CID logo+şablon, 3 anasayfa,
-  4 revize, 5 modal odak, 6 finans ortalama+grafik, 7 yoklama kartı, 8 aktif odalar, 9 güvenli iptal,
-  10 ödeme-planı dönüş, 11 hakediş hiyerarşisi).
-- **ENGEL:** `20260928120000_email_templates` (additive, yeni boş tablo) test DB'ye UYGULANAMADI — yerelde
-  test DB kimlik bilgisi yok (`.env`/`.env.local` production'ı gösteriyor), Vercel CLI yok. Vercel
-  migration-gate derlemeyi durdurur; `test.neviihub.com` eski sürümü sunmaya devam ediyor (doğrulandı:
-  eski başlık). Sahip/peer migration'ı uygulayınca: redeploy → doğrulama → UAT promptu.
+## Güncel snapshot — 2026-09-28 (10. tur, DEPLOY EDİLDİ — site UAT sahibi bekliyor)
+- **Dal:** `test` = `af25728` (10. tur 12 commit + 8 peer commit + 2 doc), `origin/test`'e push edildi.
+  `20260928120000_email_templates` sahip tarafından test DB'ye uygulandı (`Database schema is up to date!`).
+- **Deploy doğrulandı (public):** `test.neviihub.com` yeni sürümü sunuyor — yeni başlık + "Ders kaçmaz"
+  işareti; `/login` 200; `/api/v1/health` 200 `healthy:true`; `/robots.txt`, `/sitemap.xml`,
+  `/opengraph-image` (1200×630 PNG) 200. Kesin Vercel deployment SHA'sı dashboard'dan görülür; sunulan
+  kod `af25728` ağacıyla eşleşiyor (son 2 commit yalnız doc).
+- **Site UAT yapılamadı:** test hesabım yok — giriş gerektiren 4 akış (Demo A davet/çoklu seçim, gerçek
+  davet e-postası logo+kod, sözleşme geri dönüşü, şablon yönetimi) denenemedi; tek parça UAT talimatı
+  tur kapanış mesajında.
 - Kalite: typecheck temiz, lint 0 hata, prisma validate geçerli; tam paket 3778 geçti, kalan 3 kırmızı
-  tur-dışı (1 login-link tabanda kırık, 2 seed-demo sandbox `tsx EPERM`). Kalite kapısında 3 gerçek
-  düzeltme: portal bootstrap yedeği, kilitli satır, i18n parola testi (bkz. LESSONS_LEARNED).
+  tur-dışı (1 login-link tabanda kırık, 2 seed-demo sandbox `tsx EPERM`).
 - UAT: `docs/testing/UAT_2026_09_28_ROUND_10.md`.
 
 ## Güncel snapshot — 2026-09-28 (9. tur)
