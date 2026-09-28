@@ -694,6 +694,17 @@ model Student {
   enrollmentEndDate        DateTime?
   level                    String?
   targetExam               String?
+  /// MEB Paneli (2026-09-28) — MEB seviye dönemi başlangıç/bitiş. Genel
+  /// `enrollmentStartDate`/`lessonStartDate`/`enrollmentEndDate` alanlarından
+  /// AYRI iş bilgisidir, oraya ASLA yazılmaz. Hepsi nullable/additive:
+  /// mevcut satırlar backfill GEREKTİRMEZ, NULL okunduğunda uygulama
+  /// "belirtilmemiş" gösterir; tür kaldırılınca SİLİNMEZ.
+  mebLevelStartDate        DateTime?
+  mebLevelEndDate          DateTime?
+  /// MEB sınav tarihi (opsiyonel) + tri-state katılım (NULL = Bilinmiyor).
+  /// Geçmiş kayıtlara "Girdi" varsayımı YOK.
+  mebExamDate              DateTime?
+  mebExamAttended          Boolean?
   specialNotes             String?
   /// EPIC 1 (IMPLEMENTATION_PLAN.md) — true ise veli otomatik tahsilat
   /// hatırlatma mesajlarından çıkmıştır; payment_reminders workflow'u ve

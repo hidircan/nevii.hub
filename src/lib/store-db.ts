@@ -22,6 +22,7 @@ import { markTeacherAttendance, type TeacherAttendanceStatus } from "./teacher-a
 import { reassignLessonTeacherOrBranch, type ReassignLessonInput, type ReassignLessonResult } from "./lesson-reassignment";
 import { prisma } from "./db";
 import { Prisma } from "@prisma/client";
+import type { MebStudentListResult, MebStudentQuery } from "./meb-list";
 import {
   MAKEUP_QUOTA_COUNTING_STATUSES,
   MakeupQuotaExceededError,
@@ -366,6 +367,13 @@ function mapSchoolToAppData(school: PrismaSchoolWithRelations): AppData {
       enrollmentEndDate: student.enrollmentEndDate?.toISOString() ?? undefined,
       level: student.level ?? undefined,
       targetExam: student.targetExam ?? undefined,
+      // MEB Paneli — okunmazsa detay/panel "Eklenmemiş" yerine BOŞ dönerdi
+      // (önceki termType parity açığıyla AYNI sınıf). Tarihler ISO (UTC gün).
+      mebLevelStartDate:
+        (student as { mebLevelStartDate?: Date | null }).mebLevelStartDate?.toISOString() ?? undefined,
+      mebLevelEndDate: (student as { mebLevelEndDate?: Date | null }).mebLevelEndDate?.toISOString() ?? undefined,
+      mebExamDate: (student as { mebExamDate?: Date | null }).mebExamDate?.toISOString() ?? undefined,
+      mebExamAttended: (student as { mebExamAttended?: boolean | null }).mebExamAttended ?? undefined,
       specialNotes: student.specialNotes ?? undefined,
       communicationOptOut: student.communicationOptOut,
       // ÖNCELİK 4 (devam) — bu satır eksikti: db modunda termType hiç
@@ -1318,6 +1326,12 @@ export async function addStudent(
       birthDate: toDateOnlyDbValue(student.birthDate),
       enrollmentStartDate: student.enrollmentStartDate ? new Date(student.enrollmentStartDate) : undefined,
       lessonStartDate: student.lessonStartDate ? new Date(student.lessonStartDate) : undefined,
+      // MEB Paneli — date-only UTC-öğlen kuralı (birthDate ile AYNI desen;
+      // ham "YYYY-MM-DD" Prisma DateTime'ı kırardı). Genel kayıt/ders
+      // tarihlerine DOKUNULMAZ.
+      mebLevelStartDate: toDateOnlyDbValue(student.mebLevelStartDate),
+      mebLevelEndDate: toDateOnlyDbValue(student.mebLevelEndDate),
+      mebExamDate: toDateOnlyDbValue(student.mebExamDate),
       intendedDurationMonths: student.intendedDurationMonths,
       lessonScheduleText: student.lessonScheduleText,
       enrollmentEndDate: student.enrollmentEndDate ? new Date(student.enrollmentEndDate) : undefined,
@@ -1388,6 +1402,12 @@ export async function updateStudentProfile(
       enrollmentEndDate: patch.enrollmentEndDate ? new Date(patch.enrollmentEndDate) : undefined,
       level: patch.level,
       targetExam: patch.targetExam,
+      // MEB Paneli — allowlist'e eklenmezse bu alanlar db modunda sessizce
+      // kaybolurdu (önceki parity açıklarıyla AYNI sınıf). Tarihler UTC-öğlen.
+      mebLevelStartDate: toDateOnlyDbValue(patch.mebLevelStartDate),
+      mebLevelEndDate: toDateOnlyDbValue(patch.mebLevelEndDate),
+      mebExamDate: toDateOnlyDbValue(patch.mebExamDate),
+      mebExamAttended: patch.mebExamAttended,
       specialNotes: patch.specialNotes,
       communicationOptOut: patch.communicationOptOut,
       termType: patch.termType,
@@ -1443,6 +1463,106 @@ export async function updateStudentProfile(
   });
   if (result.count === 0) throw new Error("Öğrenci bulunamadı");
   return readData();
+}
+
+/**
+ * MEB Paneli listesi (db yolu) — GERÇEK sunucu-taraflı sayfalama
+ * (`where` + `count` + `skip/take`; istemciye yalnız sayfa gider).
+ * MEB'lik `effectiveStudentTypes` ile BİREBİR aynı semantik: tür LİSTESİ
+ * doluysa liste, boş/null ise legacy tekil alan (bkz. student-types.ts).
+ * Silinmiş kayıtlar dışlanır; bilinmeyen tarihler HER YÖNDE sona atılır
+ * (`nulls: "last"` — memory yoluyla AYNI kural).
+ */
+export async function listMebStudents(query: MebStudentQuery): Promise<MebStudentListResult> {
+  const { normalizeMebQuery } = await import("./meb-list");
+  const { effectiveStudentTypes } = await import("./student-types");
+  const tid = requireTenantId();
+  const q = normalizeMebQuery(query);
+
+  const where: Prisma.StudentWhereInput = {
+    tenantId: tid,
+    deletedAt: null,
+    OR: [
+      { studentTypes: { array_contains: "MEB" } },
+      { studentType: "MEB", studentTypes: { equals: Prisma.DbNull } },
+      { studentType: "MEB", studentTypes: { equals: [] as unknown as Prisma.InputJsonValue } },
+    ],
+  };
+  if (q.active !== undefined) where.active = q.active;
+  if (q.branchId) where.branchId = q.branchId;
+  if (q.teacherId) where.teacherId = q.teacherId;
+  if (q.instrument) where.instruments = { array_contains: q.instrument };
+  if (q.examStatus === "attended") where.mebExamAttended = true;
+  else if (q.examStatus === "not_attended") where.mebExamAttended = false;
+  else if (q.examStatus === "unknown") where.mebExamAttended = null;
+  if (q.search) {
+    const term = q.search;
+    where.AND = [
+      {
+        OR: [
+          { name: { contains: term, mode: "insensitive" } },
+          { displayId: { contains: term, mode: "insensitive" } },
+        ],
+      },
+    ];
+  }
+
+  const nulls: Prisma.NullsOrder = "last";
+  const orderBy: Prisma.StudentOrderByWithRelationInput[] = [];
+  switch (q.sort) {
+    case "level":
+      orderBy.push({ level: { sort: q.sortDir, nulls } });
+      break;
+    case "mebLevelStartDate":
+      orderBy.push({ mebLevelStartDate: { sort: q.sortDir, nulls } });
+      break;
+    case "mebLevelEndDate":
+      orderBy.push({ mebLevelEndDate: { sort: q.sortDir, nulls } });
+      break;
+    case "mebExamDate":
+      orderBy.push({ mebExamDate: { sort: q.sortDir, nulls } });
+      break;
+    case "name":
+    default:
+      orderBy.push({ name: q.sortDir });
+      break;
+  }
+  // Kararlı sıralama: eşitlikte id tiebreak (sayfalar arası kayma yok).
+  orderBy.push({ id: "asc" });
+
+  const [total, found] = await Promise.all([
+    prisma.student.count({ where }),
+    prisma.student.findMany({
+      where,
+      orderBy,
+      skip: (q.page - 1) * q.pageSize,
+      take: q.pageSize,
+    }),
+  ]);
+
+  return {
+    rows: found.map((s) => ({
+      id: s.id,
+      displayId: s.displayId ?? undefined,
+      name: s.name,
+      branchId: s.branchId,
+      instruments: s.instruments as Student["instruments"],
+      teacherId: s.teacherId,
+      active: s.active,
+      studentTypes: effectiveStudentTypes({
+        studentTypes: (s.studentTypes as unknown as Student["studentTypes"]) ?? undefined,
+        studentType: (s.studentType as Student["studentType"]) ?? undefined,
+      }),
+      level: s.level ?? undefined,
+      mebLevelStartDate: s.mebLevelStartDate?.toISOString() ?? undefined,
+      mebLevelEndDate: s.mebLevelEndDate?.toISOString() ?? undefined,
+      mebExamDate: s.mebExamDate?.toISOString() ?? undefined,
+      mebExamAttended: s.mebExamAttended ?? undefined,
+    })),
+    total,
+    page: q.page,
+    pageSize: q.pageSize,
+  };
 }
 
 /** Nilüfer Acar politikası §1E — bkz. store-json.ts aynı adlı fonksiyon; `state=null` reaktivasyonda alanları null'lar. */

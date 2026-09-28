@@ -278,6 +278,23 @@ export interface Student {
   level?: string;
   /** Hedef sınav / performans dönemi — serbest metin */
   targetExam?: string;
+  /**
+   * MEB Paneli — MEB seviye dönemi başlangıç/bitiş (ISO date-only
+   * "YYYY-MM-DD"). Genel `enrollmentStartDate`/`lessonStartDate`/
+   * `enrollmentEndDate` alanlarından AYRI iş bilgisidir; oraya ASLA
+   * yazılmaz. MEB seçili değilse yazılmaz; tür kaldırılınca SİLİNMEZ
+   * (kolon korunur, UI gizler — tekrar seçilince geri gelir).
+   */
+  mebLevelStartDate?: string;
+  mebLevelEndDate?: string;
+  /**
+   * MEB sınav tarihi (opsiyonel) + tri-state katılım: undefined =
+   * "Bilinmiyor", false = "Girmedi", true = "Girdi". Geçmiş kayıtlara
+   * "Girdi" varsayımı YOK; "Girdi" tarih ister, gelecek tarihi reddeder
+   * (bkz. src/lib/meb.ts).
+   */
+  mebExamDate?: string;
+  mebExamAttended?: boolean;
   specialNotes?: string;
   /** EPIC 1 — true ise veli otomatik tahsilat hatırlatmalarından çıkmıştır. */
   communicationOptOut?: boolean;
@@ -441,6 +458,10 @@ export type StudentProfilePatch = Partial<
     | "enrollmentEndDate"
     | "level"
     | "targetExam"
+    | "mebLevelStartDate"
+    | "mebLevelEndDate"
+    | "mebExamDate"
+    | "mebExamAttended"
     | "specialNotes"
     | "communicationOptOut"
     | "phone"

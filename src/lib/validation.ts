@@ -186,6 +186,16 @@ export const studentSchema = z.object({
   lessonDays: z.array(z.coerce.number().int().min(0).max(6)).optional(),
   level: optionalTrimmed,
   targetExam: optionalTrimmed,
+  /**
+   * MEB Paneli — MEB seviye dönemi + sınav. Biçim kontrolü burada
+   * (date-only); MEB-ise-zorunlu + tutarlılık `createStudentTool`'daki
+   * `validateMebFields` kapısında (birleştirilmiş görünüm gerekir).
+   * MEB seçili değilse tool katmanı bu değerleri STRIP eder (yazılmaz).
+   */
+  mebLevelStartDate: optionalDateOnly,
+  mebLevelEndDate: optionalDateOnly,
+  mebExamDate: optionalDateOnly,
+  mebExamAttended: z.boolean().optional(),
   specialNotes: optionalTrimmed,
   /** ÖNCELİK 4 (devam) — öğrencinin Yoklama Takvimi dönemi (Güz/Yaz). Verilmezse legacy (undefined) — kayıt akışı kırılmaz. */
   termType: z.enum(["guz", "yaz"]).optional(),
@@ -296,6 +306,16 @@ export const updateStudentProfileSchema = z
     enrollmentEndDate: optionalTrimmed,
     level: optionalTrimmed,
     targetExam: optionalTrimmed,
+    /**
+     * MEB Paneli — MEB seviye dönemi + sınav (biçim: date-only). MEB-ise-
+     * zorunlu + tutarlılık `updateStudentProfileTool`'daki `validateMebFields`
+     * kapısında (mevcut kayıtla birleştirilmiş görünüm gerekir). Tür
+     * kaldırılınca kayıtlı değerler SİLİNMEZ (kolonlar korunur).
+     */
+    mebLevelStartDate: optionalDateOnly,
+    mebLevelEndDate: optionalDateOnly,
+    mebExamDate: optionalDateOnly,
+    mebExamAttended: z.boolean().optional(),
     specialNotes: optionalTrimmed,
     /** ÖNCELİK 4 (devam) — öğrencinin Yoklama Takvimi dönemi (Güz/Yaz varsayılanı). */
     termType: z.enum(["guz", "yaz"]).optional(),

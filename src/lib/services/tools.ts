@@ -66,6 +66,7 @@ import {
   updateLessonSchedule,
   updateMakeupSlaEscalation,
   updateStudentProfile,
+  listMebStudents,
   setStudentDeletion,
   hardDeleteStudent,
   setStudentPaymentPause,
@@ -85,6 +86,7 @@ import {
 } from "../store";
 import { normalizePaymentDueRanges, effectivePaymentDueRanges, formatPaymentDueRanges } from "../payment-due-ranges";
 import { effectiveStudentTypes } from "../student-types";
+import { isMebStudent, mergeMebForUpdate, validateMebFields } from "../meb";
 import { markTeacherAttendanceLive, setLessonDisruptionLive } from "../store";
 import { computeTeacherPerformanceReport, type TeacherPerformanceReport } from "../teacher-performance";
 import { computeTeacherPerformanceReportV2, type TeacherPerformanceReportV2 } from "../teacher-performance-v2";
@@ -512,6 +514,13 @@ const BRANCH_MANAGER_STUDENT_FIELDS = new Set([
   "parentPhone",
   "level",
   "targetExam",
+  // MEB Paneli — `level`/`targetExam`/kayıt tarihleriyle AYNI sınıf
+  // operasyonel alanlar; şube kapsamı + rol kapısı aynen korunur (yeni
+  // rol/izin YOK, panelin kendisi yalnız SCHOOL_ADMIN/SUPER_ADMIN).
+  "mebLevelStartDate",
+  "mebLevelEndDate",
+  "mebExamDate",
+  "mebExamAttended",
   "specialNotes",
   "termType",
   "communicationOptOut",
@@ -2065,6 +2074,27 @@ export async function createStudentTool(
       }
     }
 
+    // MEB Paneli (2026-09-28) — "MEB ise zorunlu" TEK sunucu kapısı (bkz.
+    // src/lib/meb.ts). Tür LİSTESİNE bakılır (legacy tekil `studentType`
+    // yalnız fallback). Deneme-dönüşüm/içe aktarma/AI-agent dahil TÜM
+    // kayıt yolları buradan geçer — istemcinin `required` işaretine
+    // GÜVENİLMEZ. MEB dönemi genel kayıt/ders tarihlerine ASLA yazılmaz.
+    const mebTypes = effectiveStudentTypes({ studentTypes: v.data.studentTypes, studentType: v.data.studentType });
+    const mebIsMeb = isMebStudent({ studentTypes: v.data.studentTypes, studentType: v.data.studentType });
+    const mebCheck = validateMebFields({
+      studentTypes: mebTypes,
+      level: v.data.level,
+      mebLevelStartDate: v.data.mebLevelStartDate,
+      mebLevelEndDate: v.data.mebLevelEndDate,
+      mebExamDate: v.data.mebExamDate,
+      mebExamAttended: v.data.mebExamAttended,
+    });
+    if (!mebCheck.ok) {
+      return fail("VALIDATION_ERROR", "MEB alanlarını kontrol edin — işaretli alanlarda eksik veya hatalı bilgi var.", {
+        fieldErrors: mebCheck.fieldErrors,
+      });
+    }
+
     // Package C — paket seçildiyse aylık ücret HER ZAMAN sunucuda, tek
     // merkez helper (computeMonthlyFee) ile hesaplanır; istemciden gelen
     // `monthlyFee` paket akışında YOK SAYILIR (iki çelişkili fiyat kaynağı
@@ -2324,6 +2354,17 @@ export async function createStudentTool(
           : undefined,
       // Faz 1B — explicit studentTypes yoksa legacy tekil studentType'tan türetilir.
       studentTypes: v.data.studentTypes?.length ? v.data.studentTypes : v.data.studentType ? [v.data.studentType] : undefined,
+      // MEB Paneli — MEB seçili DEĞİLSE gelen MEB değerleri STRIP edilir:
+      // gizli/kurcalanmış alan yanlışlıkla MEB-dışı kayda yazılmaz (`level`
+      // mevcut davranışıyla aynen korunur — sessiz kayıp yok).
+      ...(mebIsMeb
+        ? {}
+        : {
+            mebLevelStartDate: undefined,
+            mebLevelEndDate: undefined,
+            mebExamDate: undefined,
+            mebExamAttended: undefined,
+          }),
       ...pricing,
       // P0-1B — client'tan ASLA gelmez, yalnız sunucunun kendi hesabı.
       derivedPerLessonAmount,
@@ -2495,6 +2536,30 @@ export async function updateStudentProfileTool(
     }
   }
 
+  // MEB Paneli (2026-09-28) — "MEB ise zorunlu" güncelleme kapısı. Mevcut
+  // kayıtla BİRLEŞTİRİLMİŞ görünüm doğrulanır (bkz. src/lib/meb.ts
+  // `mergeMebForUpdate`): sonuç MEB + MEB yüzeyine dokunan ilk ilgili
+  // düzenleme tamamlamayı zorunlu kılar; alakasız düzenlemeler (telefon
+  // vb.) eski eksik kayıtları KIRMAZ. Sonuç MEB-değilse gelen MEB
+  // değerleri STRIP edilir — gizli alan yazılmaz, kayıtlı eski MEB verisi
+  // SİLİNMEZ (tür tekrar seçilince geri gelir).
+  const mebCurrent = (await readData()).students.find((s) => s.id === v.data.studentId);
+  if (!mebCurrent) return fail("NOT_FOUND", "Öğrenci bulunamadı");
+  const mebMerged = mergeMebForUpdate(mebCurrent, v.data);
+  let mebStrip = false;
+  if (mebMerged.resultingIsMeb) {
+    if (mebMerged.touchesMebSurface) {
+      const mebUpdateCheck = validateMebFields(mebMerged.merged);
+      if (!mebUpdateCheck.ok) {
+        return fail("VALIDATION_ERROR", "MEB alanlarını kontrol edin — işaretli alanlarda eksik veya hatalı bilgi var.", {
+          fieldErrors: mebUpdateCheck.fieldErrors,
+        });
+      }
+    }
+  } else {
+    mebStrip = true;
+  }
+
   try {
     const { studentId, ...patch } = v.data;
     // Faz 1A — aralıklar verildiyse (boş dizi dahil, "tümünü temizle" anlamına
@@ -2515,6 +2580,17 @@ export async function updateStudentProfileTool(
         ? { studentTypes: patch.studentTypes, studentType: patch.studentTypes[0] ?? patch.studentType }
         : {}),
     };
+    // MEB Paneli — sonuç MEB-değilse STRIP (yukarıdaki kapı): MEB anahtarları
+    // patch'ten SİLİNİR (anahtar `undefined` ile bırakılmaz — json/memory
+    // spread'i `undefined` değeri saklı verinin ÜSTÜNE yazar ve sessizce
+    // SİLERDİ; Prisma atlardı — iki mod ayrışırdı). Silinen anahtar hiçbir
+    // moda yazılmaz, kayıtlı eski MEB verisi korunur.
+    if (mebStrip) {
+      delete profilePatch.mebLevelStartDate;
+      delete profilePatch.mebLevelEndDate;
+      delete profilePatch.mebExamDate;
+      delete profilePatch.mebExamAttended;
+    }
     const before = (await readData()).students.find((s) => s.id === studentId);
     await updateStudentProfile(studentId, profilePatch);
     // Ders süresi TEK kanonik alandır (Student.lessonDurationMinutes). Paketli öğrencide
@@ -2542,6 +2618,193 @@ export async function updateStudentProfileTool(
   } catch (e) {
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "updateStudentProfile failed");
   }
+}
+
+// ---------------------------------------------------------------------------
+// MEB Paneli (2026-09-28) — yalnız MEB öğrencilerinin tablosu + revizyonu.
+// Liste GERÇEK sunucu-taraflı sayfalamalıdır (istemciye yalnız sayfa gider).
+// Yazma TEK kapı `updateStudentProfileTool`'a delege eder (MEB kapısı, audit,
+// ders-süresi repricing aynen çalışır); şube değişiminde öğretmen-şube uyumu
+// + gelecek planlı ders etkisi sunucuda zorunlu kontrol edilir, riskli toplu
+// değişiklik OTOMATİK yapılmaz. Öğretmen/enstrüman değişimi bu panelde YOK
+// (MT-003) — güvenli akış `bulkStudentActionTool`'dur (Öğrenciler › toplu
+// işlem; gelecek derslerin devri açık onay ister).
+// ---------------------------------------------------------------------------
+
+const mebStudentQuerySchema = z.object({
+  search: z.string().max(120).optional(),
+  branchId: z.string().min(1).max(80).optional(),
+  teacherId: z.string().min(1).max(80).optional(),
+  instrument: z.string().min(1).max(80).optional(),
+  active: z.enum(["active", "passive", "all"]).optional(),
+  examStatus: z.enum(["unknown", "not_attended", "attended"]).optional(),
+  sort: z.enum(["name", "level", "mebLevelStartDate", "mebLevelEndDate", "mebExamDate"]).optional(),
+  sortDir: z.enum(["asc", "desc"]).optional(),
+  page: z.coerce.number().int().min(1).max(100000).optional(),
+  pageSize: z.coerce.number().int().min(1).max(100).optional(),
+});
+
+export interface MebPanelRow {
+  id: string;
+  displayId?: string;
+  name: string;
+  branchId: string;
+  branchName?: string;
+  instruments: Student["instruments"];
+  teacherId: string;
+  teacherName?: string;
+  active: boolean;
+  studentTypes: import("../types").StudentType[];
+  level?: string;
+  mebLevelStartDate?: string;
+  mebLevelEndDate?: string;
+  mebExamDate?: string;
+  mebExamAttended?: boolean;
+  examStatus: import("../meb").MebExamStatus;
+  examStatusLabel: string;
+}
+
+export async function listMebStudentsTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ rows: MebPanelRow[]; total: number; page: number; pageSize: number }>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const v = parseOrFail(mebStudentQuerySchema, input);
+  if (!v.ok) return v;
+
+  try {
+    const result = await listMebStudents({
+      search: v.data.search,
+      branchId: v.data.branchId,
+      teacherId: v.data.teacherId,
+      instrument: v.data.instrument,
+      active: v.data.active === undefined || v.data.active === "all" ? undefined : v.data.active === "active",
+      examStatus: v.data.examStatus,
+      sort: v.data.sort,
+      sortDir: v.data.sortDir,
+      page: v.data.page,
+      pageSize: v.data.pageSize,
+    });
+    // Şube/öğretmen ADLARI salt-görüntü zenginleştirmesidir (tenant-kapsamlı
+    // readData'dan; istemciye ham kimlik DEĞİL ad gider).
+    const data = await readData();
+    const { resolveMebExamStatus, MEB_EXAM_STATUS_LABELS } = await import("../meb");
+    const rows: MebPanelRow[] = result.rows.map((r) => {
+      const examStatus = resolveMebExamStatus(r);
+      return {
+        ...r,
+        branchName: data.settings.branches.find((b) => b.id === r.branchId)?.name,
+        teacherName: data.teachers.find((t) => t.id === r.teacherId)?.name,
+        examStatus,
+        examStatusLabel: MEB_EXAM_STATUS_LABELS[examStatus],
+      };
+    });
+    return ok({ rows, total: result.total, page: result.page, pageSize: result.pageSize });
+  } catch (e) {
+    return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "listMebStudents failed");
+  }
+}
+
+const mebEditImpactSchema = z.object({
+  studentId: z.string().min(1),
+  /** Değiştirilmek istenen şube (yoksa mevcut) — etki ÖNİZLEMESİ içindir, yazmaz. */
+  branchId: z.string().min(1).max(80).optional(),
+});
+
+export interface MebEditImpact {
+  studentId: string;
+  studentName: string;
+  currentBranchId: string;
+  targetBranchId: string;
+  teacherName?: string;
+  /** Şube değişiminde mevcut öğretmenin hedef şubede görevli olup olmadığı (değişim yoksa null). */
+  teacherServesTargetBranch: boolean | null;
+  /** İptal edilmemiş, başlangıcı gelecekte olan planlı ders sayısı (şube değişimi bunları OTOMATİK taşımaz). */
+  futureLessonCount: number;
+}
+
+export async function getMebStudentEditImpactTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<MebEditImpact>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const v = parseOrFail(mebEditImpactSchema, input);
+  if (!v.ok) return v;
+
+  const data = await readData();
+  const student = data.students.find((s) => s.id === v.data.studentId);
+  if (!student) return fail("NOT_FOUND", "Öğrenci bulunamadı.");
+  const teacher = data.teachers.find((t) => t.id === student.teacherId);
+  const targetBranchId = v.data.branchId ?? student.branchId;
+  const now = Date.now();
+  const futureLessonCount = data.lessons.filter(
+    (l) => l.studentId === student.id && l.status !== "cancelled" && new Date(l.startAt).getTime() > now
+  ).length;
+  return ok({
+    studentId: student.id,
+    studentName: student.name,
+    currentBranchId: student.branchId,
+    targetBranchId,
+    teacherName: teacher?.name,
+    teacherServesTargetBranch: targetBranchId === student.branchId ? null : teacher ? teacherServesBranch(teacher, targetBranchId as BranchId) : false,
+    futureLessonCount,
+  });
+}
+
+const updateMebStudentSchema = updateStudentProfileSchema.extend({
+  /** Şube değişiminde etki özetini gördüğünü açık onaylar (istemci zorunlu kılar, sunucu doğrular). */
+  branchChangeConfirmed: z.boolean().optional(),
+});
+
+export async function updateMebStudentTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ studentId: string }>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  // MT-003 — öğretmen/enstrüman değişimi bu panelde YOK: zod sessizce
+  // atardı; burada AÇIKÇA reddedilir + güvenli akışa yönlendirilir.
+  const raw = input as Record<string, unknown> | null;
+  if (raw && (raw.teacherId !== undefined || raw.instruments !== undefined)) {
+    return fail(
+      "VALIDATION_ERROR",
+      "Öğretmen/enstrüman değişimi MEB Panelinden yapılamaz — ders ve hakediş etkisi nedeniyle Öğrenciler › toplu işlem akışını kullanın."
+    );
+  }
+  const v = parseOrFail(updateMebStudentSchema, input);
+  if (!v.ok) return v;
+
+  const data = await readData();
+  const student = data.students.find((s) => s.id === v.data.studentId);
+  if (!student) return fail("NOT_FOUND", "Öğrenci bulunamadı.");
+
+  // Şube değişiminde: mevcut öğretmenin hedef şubede görevli OLMAMASI hard
+  // block'tur (ilişkisel tutarlılık — sessiz öğretmen değişimi ASLA
+  // yapılmaz); etki özeti onayı olmadan yazılmaz. Mevcut planlı dersler
+  // OTOMATİK taşınmaz — onay metni bunu açıkça söyler.
+  if (v.data.branchId && v.data.branchId !== student.branchId) {
+    const teacher = data.teachers.find((t) => t.id === student.teacherId);
+    if (teacher && !teacherServesBranch(teacher, v.data.branchId as BranchId)) {
+      const branchName = data.settings.branches.find((b) => b.id === v.data.branchId)?.name ?? v.data.branchId;
+      return fail(
+        "VALIDATION_ERROR",
+        `"${teacher.name}" ${branchName} şubesinde ders vermiyor. Şube değişimi yapılmadı — önce öğretmeni bu şubede görevli bir öğretmenle değiştirin (Öğrenciler › toplu işlem) veya şube değişiminden vazgeçin.`
+      );
+    }
+    if (!v.data.branchChangeConfirmed) {
+      return fail(
+        "VALIDATION_ERROR",
+        "Şube değişiminin etki özetini (öğretmen uyumu + planlı dersler) onaylamadan kaydedilemez."
+      );
+    }
+  }
+
+  const { branchChangeConfirmed: _confirmed, ...profileInput } = v.data;
+  // Asıl yazı + MEB kapısı + audit + ders-süresi repricing TEK kapıdan
+  // (`updateStudentProfileTool`) — çift yazma yolu YOK.
+  return updateStudentProfileTool(ctx, profileInput);
 }
 
 // ---------------------------------------------------------------------------

@@ -11,6 +11,7 @@ import { maskNationalId } from "@/lib/pii/tc-identity";
 import { canViewFullNationalId } from "@/lib/pii";
 import { REFERRAL_SOURCE_LABELS } from "@/lib/types";
 import { effectiveStudentTypes } from "@/lib/student-types";
+import { isMebStudent, resolveMebExamStatus, MEB_EXAM_STATUS_LABELS } from "@/lib/meb";
 import { computeAge, formatDate } from "@/lib/utils";
 import { loadStudentPageContext } from "../_context";
 import { Field } from "../_components/fields";
@@ -64,7 +65,17 @@ export default async function StudentInfoTab({
     accountResponsibility: student.accountResponsibility,
     studentTypes: effectiveStudentTypes(student),
     lessonDurationMinutes: student.lessonDurationMinutes,
+    level: student.level,
+    mebLevelStartDate: student.mebLevelStartDate,
+    mebLevelEndDate: student.mebLevelEndDate,
+    mebExamDate: student.mebExamDate,
+    mebExamAttended: student.mebExamAttended,
   };
+
+  const mebStudent = isMebStudent(student);
+  const mebExamStatus = resolveMebExamStatus(student);
+  const mebIncomplete =
+    mebStudent && (!student.level || !student.mebLevelStartDate || !student.mebLevelEndDate);
 
   const editor = (
     <StudentProfileEditor
@@ -143,6 +154,36 @@ export default async function StudentInfoTab({
           defaultEditing={duzenle === "kayit"}
         />
       </section>
+
+      {mebStudent ? (
+        <section>
+          <h2 className="mb-3 text-sm font-semibold text-[var(--color-text)]">MEB Bilgileri</h2>
+          <Card>
+            <dl className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2 lg:grid-cols-3">
+              <Field label="MEB seviyesi" value={student.level ? `${student.level}. Seviye` : "Eklenmemiş"} />
+              <Field
+                label="MEB seviye başlangıç tarihi"
+                value={student.mebLevelStartDate ? formatDate(student.mebLevelStartDate) : "Eklenmemiş"}
+              />
+              <Field
+                label="MEB seviye bitiş tarihi"
+                value={student.mebLevelEndDate ? formatDate(student.mebLevelEndDate) : "Eklenmemiş"}
+              />
+              <Field
+                label="MEB sınav tarihi"
+                value={student.mebExamDate ? formatDate(student.mebExamDate) : "Eklenmemiş"}
+              />
+              <Field label="Sınava girdi mi?" value={MEB_EXAM_STATUS_LABELS[mebExamStatus]} />
+            </dl>
+            {mebIncomplete ? (
+              <p className="mt-3 text-xs text-amber-700 dark:text-amber-300">
+                Bu MEB kaydının seviye/dönem bilgileri eksik — MEB Panelinden tamamlayın. Kayıt okunmaya ve diğer
+                alanları düzenlenmeye devam eder.
+              </p>
+            ) : null}
+          </Card>
+        </section>
+      ) : null}
 
       <section>
         <h2 className="mb-3 text-sm font-semibold text-[var(--color-text)]">İletişim</h2>

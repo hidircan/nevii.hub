@@ -32,6 +32,7 @@ import {
   REFERRAL_SOURCE_LABELS,
   shouldMergeFirstCollection,
 } from "@/lib/types";
+import { MEB_LEVEL_OPTIONS } from "@/lib/student-level-rules";
 import {
   estimatePeriodBillingLines,
   derivePerLessonAmount,
@@ -175,6 +176,10 @@ export function NewStudentForm({
   // P1 revizyonu — "Bizi nereden buldunuz?" `Diğer` seçilince serbest metin
   // alanı görünür. Opsiyonel alan; hata sonrası değerler state'te korunur.
   const [referralSource, setReferralSource] = useState(() => v("referralSource") ?? "");
+  // MEB Paneli — MEB türü checkbox'ı CANLI izlenir: seçiliyken seviye +
+  // dönem tarihleri zorunlu bölüm görünür; işaret kaldırılınca gizlenir
+  // (gizli değerler kayda YAZILMAZ — sunucu strip eder, bkz. createStudentTool).
+  const [mebSelected, setMebSelected] = useState(() => selectedStudentTypes.has("MEB"));
   const [inviteToPortalChecked, setInviteToPortalChecked] = useState(() => checkedVal("inviteToPortal", "1"));
   // Varsayılan: öğrenci e-postasını OTOMATİK kullan. Yalnız önceki bir
   // gönderimde (hata sonrası) fiilen FARKLI bir davet e-postası girilmişse
@@ -401,7 +406,13 @@ export function NewStudentForm({
             <div className="flex flex-wrap gap-x-4 gap-y-1">
               {STUDENT_TYPES.map((t) => (
                 <label key={t} className="flex items-center gap-1.5 text-sm text-[var(--color-text)]">
-                  <input type="checkbox" name="studentTypes" value={t} defaultChecked={selectedStudentTypes.has(t)} />
+                  <input
+                    type="checkbox"
+                    name="studentTypes"
+                    value={t}
+                    defaultChecked={selectedStudentTypes.has(t)}
+                    onChange={t === "MEB" ? (e) => setMebSelected(e.target.checked) : undefined}
+                  />
                   {t}
                 </label>
               ))}
@@ -640,10 +651,94 @@ export function NewStudentForm({
               </p>
             </div>
           </div>
-          <div>
-            <Label>Seviye (opsiyonel)</Label>
-            <Input name="level" defaultValue={v("level")} placeholder="Örn. Başlangıç, Orta, İleri" />
-          </div>
+          {/*
+            MEB Paneli — MEB seçiliyken seviye (1–8) + dönem tarihleri ZORUNLU
+            bölüm görünür; seçim kaldırılınca gizlenir ve değerleri kayda
+            yazılmaz. Sınav tarihi opsiyoneldir; "Girdi" tarih ister.
+          */}
+          {mebSelected ? (
+            <div
+              className="space-y-3 rounded-lg border px-3 py-3"
+              style={{ borderColor: "var(--color-primary)", background: "var(--color-surface-muted)" }}
+            >
+              <p className="text-sm font-semibold text-[var(--color-text)]">MEB bilgileri</p>
+              <div>
+                <Label>
+                  MEB seviyesi
+                  <RequiredMark />
+                </Label>
+                <Select name="level" required aria-required defaultValue={v("level") ?? ""} aria-invalid={!!fieldErrors.level}>
+                  <option value="">Seviye seçin</option>
+                  {MEB_LEVEL_OPTIONS.map((l) => (
+                    <option key={l} value={l}>
+                      {l}. Seviye
+                    </option>
+                  ))}
+                </Select>
+                <FieldError message={fieldErrors.level} />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <Label>
+                    MEB seviye başlangıç tarihi
+                    <RequiredMark />
+                  </Label>
+                  <Input
+                    name="mebLevelStartDate"
+                    type="date"
+                    required
+                    aria-required
+                    defaultValue={v("mebLevelStartDate")}
+                    aria-invalid={!!fieldErrors.mebLevelStartDate}
+                  />
+                  <FieldError message={fieldErrors.mebLevelStartDate} />
+                </div>
+                <div>
+                  <Label>
+                    MEB seviye bitiş tarihi
+                    <RequiredMark />
+                  </Label>
+                  <Input
+                    name="mebLevelEndDate"
+                    type="date"
+                    required
+                    aria-required
+                    defaultValue={v("mebLevelEndDate")}
+                    aria-invalid={!!fieldErrors.mebLevelEndDate}
+                  />
+                  <FieldError message={fieldErrors.mebLevelEndDate} />
+                </div>
+              </div>
+              <p className="text-[11px] text-[var(--color-text-muted)]">
+                Dönem tarihleri kayıt/ders tarihlerinden bağımsızdır; bitiş başlangıçtan önce olamaz.
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <Label>MEB sınav tarihi (opsiyonel)</Label>
+                  <Input name="mebExamDate" type="date" defaultValue={v("mebExamDate")} aria-invalid={!!fieldErrors.mebExamDate} />
+                  <FieldError message={fieldErrors.mebExamDate} />
+                </div>
+                <div>
+                  <Label>Sınava girdi mi?</Label>
+                  <Select name="mebExamStatus" defaultValue={v("mebExamStatus") ?? ""} aria-invalid={!!fieldErrors.mebExamAttended}>
+                    <option value="">Bilinmiyor</option>
+                    <option value="not_attended">Girmedi</option>
+                    <option value="attended">Girdi</option>
+                  </Select>
+                  <FieldError message={fieldErrors.mebExamAttended} />
+                </div>
+              </div>
+              <p className="text-[11px] text-[var(--color-text-muted)]">
+                “Girdi” için sınav tarihi zorunludur ve gelecekte olamaz. MEB işaretini kaldırırsanız bu alanlar
+                kayda yazılmaz.
+              </p>
+            </div>
+          ) : (
+            <div>
+              <Label>Seviye (opsiyonel)</Label>
+              <Input name="level" defaultValue={v("level")} placeholder="Örn. Başlangıç, Orta, İleri" />
+            </div>
+          )}
           <div>
             <Label>Hedef sınav / performans dönemi (opsiyonel)</Label>
             <Input name="targetExam" defaultValue={v("targetExam")} placeholder="Örn. 2027 Konservatuvar giriş sınavı" />

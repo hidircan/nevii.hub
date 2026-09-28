@@ -51,6 +51,7 @@ import type {
   TeacherProfilePatch,
   TeacherPayout,
 } from "./types";
+import type { MebStudentListResult, MebStudentQuery } from "./meb-list";
 import {
   suggestMakeupSlots,
   confirmMakeupSlot,
@@ -470,6 +471,17 @@ export async function updateStudentProfile(
   const next = { ...data, students };
   await writeData(next);
   return next;
+}
+
+/**
+ * MEB Paneli listesi (json yolu) — tenant kapsamı `readData()`'dan gelir;
+ * filtre/sıralama/sayfalama `meb-list.ts` saf fonksiyonuyla (db yoluyla AYNI
+ * semantik). Yeni MEB kolonları generic spread ile zaten kalıcıdır.
+ */
+export async function listMebStudents(query: MebStudentQuery): Promise<MebStudentListResult> {
+  const { applyMebStudentQuery } = await import("./meb-list");
+  const data = await readData();
+  return applyMebStudentQuery(data.students, query);
 }
 
 /** Nilüfer Acar politikası §1E — pause/reactivate TEK yol; `state=null` reaktivasyon (alanları temizler). */

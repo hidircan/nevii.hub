@@ -51,6 +51,7 @@ import type {
   TeacherProfilePatch,
   TeacherPayout,
 } from "./types";
+import type { MebStudentListResult, MebStudentQuery } from "./meb-list";
 import {
   suggestMakeupSlots,
   confirmMakeupSlot,
@@ -390,6 +391,13 @@ export async function updateStudentProfile(
   if (!data.students.some((s) => s.id === studentId)) throw new Error("Öğrenci bulunamadı");
   const students = data.students.map((s) => (s.id === studentId ? { ...s, ...patch } : s));
   return save({ ...data, students });
+}
+
+/** MEB Paneli listesi (memory yolu) — bkz. store-json.ts aynı adlı fonksiyon. */
+export async function listMebStudents(query: MebStudentQuery): Promise<MebStudentListResult> {
+  const { applyMebStudentQuery } = await import("./meb-list");
+  const data = load();
+  return applyMebStudentQuery(data.students, query);
 }
 
 /** Nilüfer Acar politikası §1E — bkz. store-json.ts aynı adlı fonksiyon (aynı davranış, in-memory). */

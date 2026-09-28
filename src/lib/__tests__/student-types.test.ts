@@ -34,9 +34,14 @@ describe("effectiveStudentTypes / formatStudentTypes", () => {
 
 describe("updateStudentProfileTool · Faz 1B entegrasyonu", () => {
   it("studentTypes verilince legacy studentType ilk türle senkron olur", async () => {
+    // MEB Paneli — MEB'e geçiş MEB kapısından geçer: seviye + dönem tam
+    // verilir (davranışın kendisi meb-student-tools.test.ts'te pinli).
     const res = await updateStudentProfileTool(ctx(), {
       studentId: "s1",
       studentTypes: ["MEB", "London College of Music Hazırlık"],
+      level: "2",
+      mebLevelStartDate: "2026-09-01",
+      mebLevelEndDate: "2027-06-30",
     });
     expect(res.ok).toBe(true);
 
@@ -58,7 +63,16 @@ describe("updateStudentProfileTool · Faz 1B entegrasyonu", () => {
   });
 
   it("studentTypes verilmeyen bir güncellemede mevcut türler dokunulmadan kalır", async () => {
-    await updateStudentProfileTool(ctx(), { studentId: "s1", studentTypes: ["MEB"] });
+    // MEB Paneli — MEB'e geçiş eksiksiz yapılır (kapı gereği), ardından
+    // alakasız güncelleme türlere dokunmaz.
+    const setup = await updateStudentProfileTool(ctx(), {
+      studentId: "s1",
+      studentTypes: ["MEB"],
+      level: "1",
+      mebLevelStartDate: "2026-09-01",
+      mebLevelEndDate: "2027-06-30",
+    });
+    expect(setup.ok).toBe(true);
     const res = await updateStudentProfileTool(ctx(), { studentId: "s1", phone: "0 555 000 00 00" });
     expect(res.ok).toBe(true);
 
@@ -91,6 +105,10 @@ describe("createStudentTool · Faz 1B — tekil studentType tek-elemanlı diziye
       enrollmentStartDate: "2026-09-01",
       notes: "",
       studentType: "MEB",
+      // MEB Paneli — MEB kaydı seviye + dönem ister (kapı gereği).
+      level: "4",
+      mebLevelStartDate: "2026-09-01",
+      mebLevelEndDate: "2027-06-30",
     });
     expect(res.ok).toBe(true);
     if (!res.ok) return;
@@ -98,5 +116,6 @@ describe("createStudentTool · Faz 1B — tekil studentType tek-elemanlı diziye
     const data = await readData();
     const created = data.students.find((s) => s.id === res.data.studentId);
     expect(created?.studentTypes).toEqual(["MEB"]);
+    expect(created?.studentType).toBe("MEB");
   });
 });

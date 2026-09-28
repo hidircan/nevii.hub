@@ -11,6 +11,7 @@ import {
   Wallet,
   RefreshCcw,
   GraduationCap,
+  Award,
   Users,
   MessageCircle,
   ClipboardCheck,
@@ -56,6 +57,8 @@ export const PANEL_MAIN_NAV: PanelNavItem[] = [
   { href: "/panel/yoklama", label: "Yoklama", icon: ClipboardCheck },
   { href: "/panel/telafi", label: "Telafi Merkezi", icon: RefreshCcw },
   { href: "/panel/ogrenciler", label: "Öğrenciler", icon: GraduationCap },
+  /** MEB Paneli — yalnız MEB öğrencileri; genişletilebilir yapı, bugün yalnız tablo + revizyon. */
+  { href: "/panel/meb", label: "MEB Paneli", icon: Award, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
   { href: "/panel/ogretmenler", label: "Öğretmenler", icon: Users },
   { href: "/panel/mufredat", label: "Müfredat", icon: MusicIcon },
 ];

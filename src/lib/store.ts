@@ -61,6 +61,8 @@ type StoreApi = {
   updateMakeupSlaEscalation: (requestId: string, level: number) => Promise<AppData>;
   addStudent: (student: Omit<Student, "id" | "createdAt" | "active">) => Promise<AppData>;
   updateStudentProfile: (studentId: string, patch: StudentProfilePatch) => Promise<AppData>;
+  /** MEB Paneli — sunucu-taraflı filtre/sıralama/sayfalama (üç modda AYNI semantik). */
+  listMebStudents: (query: import("./meb-list").MebStudentQuery) => Promise<import("./meb-list").MebStudentListResult>;
   setStudentPaymentPause: (studentId: string, state: StudentPaymentPauseState) => Promise<AppData>;
   addTeacher: (teacher: Omit<Teacher, "id" | "active" | "color">) => Promise<AppData>;
   updateTeacherAvailability: (
@@ -415,6 +417,12 @@ export async function updateStudentProfile(
   patch: StudentProfilePatch
 ): Promise<AppData> {
   return withTenantScope(() => store.updateStudentProfile(studentId, patch));
+}
+
+export async function listMebStudents(
+  query: import("./meb-list").MebStudentQuery
+): Promise<import("./meb-list").MebStudentListResult> {
+  return withTenantScope(() => store.listMebStudents(query));
 }
 
 export async function setStudentPaymentPause(studentId: string, state: StudentPaymentPauseState): Promise<AppData> {

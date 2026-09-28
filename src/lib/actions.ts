@@ -188,6 +188,11 @@ import {
   getNotificationPreferencesTool,
   setNotificationPreferencesTool,
   resetNotificationPreferencesTool,
+  listMebStudentsTool,
+  getMebStudentEditImpactTool,
+  updateMebStudentTool,
+  type MebEditImpact,
+  type MebPanelRow,
 } from "./services/tools";
 import { runWithTenantAsync } from "./tenant-context";
 import { getSessionAppearancePolicy } from "./platform/access";
@@ -878,6 +883,10 @@ const STUDENT_FORM_VALUE_KEYS = [
   "lessonStartDate",
   "level",
   "targetExam",
+  "mebLevelStartDate",
+  "mebLevelEndDate",
+  "mebExamDate",
+  "mebExamStatus",
   "notes",
   "kvkkConsent",
 ] as const;
@@ -1000,6 +1009,16 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
           lessonScheduleText: String(formData.get("lessonScheduleText") || "") || undefined,
           level: String(formData.get("level") || "") || undefined,
           targetExam: String(formData.get("targetExam") || "") || undefined,
+          // MEB Paneli — MEB seçiliyse zorunlu üçlü + opsiyonel sınav.
+          // Biçim + zorunluluk sunucu kapısında (`createStudentTool` →
+          // `validateMebFields`); MEB-dışı kayda bu değerler YAZILMAZ (strip).
+          mebLevelStartDate: String(formData.get("mebLevelStartDate") || "") || undefined,
+          mebLevelEndDate: String(formData.get("mebLevelEndDate") || "") || undefined,
+          mebExamDate: String(formData.get("mebExamDate") || "") || undefined,
+          mebExamAttended: (() => {
+            const raw = String(formData.get("mebExamStatus") || "");
+            return raw === "attended" ? true : raw === "not_attended" ? false : undefined;
+          })(),
           termType: (() => {
             const raw = String(formData.get("termType") || "");
             return raw === "guz" || raw === "yaz" ? raw : undefined;
@@ -1235,7 +1254,83 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
   return null;
 }
 
-export type UpdateStudentProfileActionResult = { ok: true } | { ok: false; message: string };
+export type UpdateStudentProfileActionResult =
+  | { ok: true }
+  | { ok: false; message: string; fieldErrors?: Record<string, string> };
+
+export async function actionUpdateMebStudent(input: {
+  studentId: string;
+  level?: string;
+  mebLevelStartDate?: string;
+  mebLevelEndDate?: string;
+  mebExamDate?: string;
+  mebExamAttended?: boolean;
+  branchId?: string;
+  branchChangeConfirmed?: boolean;
+}): Promise<{ ok: true } | { ok: false; message: string; fieldErrors?: Record<string, string> }> {
+  try {
+    const result = await withAuthContext("actionUpdateMebStudent", (ctx) => updateMebStudentTool(ctx, input));
+    if (!result.ok) {
+      return {
+        ok: false,
+        message:
+          result.error.message === "Invalid input"
+            ? "Kaydetme başarısız oldu. Lütfen işaretli alanları kontrol edin."
+            : result.error.message,
+        fieldErrors: fieldErrorsFromZodFlatten(result.error.details),
+      };
+    }
+    revalidateAll();
+    return { ok: true };
+  } catch (error) {
+    logger.error("actionUpdateMebStudent failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "MEB bilgileri güncellenirken beklenmeyen bir hata oluştu." };
+  }
+}
+
+export async function actionGetMebStudentEditImpact(input: {
+  studentId: string;
+  branchId?: string;
+}): Promise<{ ok: true; impact: MebEditImpact } | { ok: false; message: string }> {
+  try {
+    const result = await withAuthContext("actionGetMebStudentEditImpact", (ctx) =>
+      getMebStudentEditImpactTool(ctx, input)
+    );
+    if (!result.ok) return { ok: false, message: result.error.message };
+    return { ok: true, impact: result.data };
+  } catch (error) {
+    logger.error("actionGetMebStudentEditImpact failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "Etki özeti alınırken beklenmeyen bir hata oluştu." };
+  }
+}
+
+export async function actionListMebStudents(input: {
+  search?: string;
+  branchId?: string;
+  teacherId?: string;
+  instrument?: string;
+  active?: "active" | "passive" | "all";
+  examStatus?: "unknown" | "not_attended" | "attended";
+  sort?: "name" | "level" | "mebLevelStartDate" | "mebLevelEndDate" | "mebExamDate";
+  sortDir?: "asc" | "desc";
+  page?: number;
+  pageSize?: number;
+}): Promise<
+  | { ok: true; rows: MebPanelRow[]; total: number; page: number; pageSize: number }
+  | { ok: false; message: string }
+> {
+  try {
+    const result = await withAuthContext("actionListMebStudents", (ctx) => listMebStudentsTool(ctx, input));
+    if (!result.ok) return { ok: false, message: result.error.message };
+    return { ok: true, ...result.data };
+  } catch (error) {
+    logger.error("actionListMebStudents failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "MEB listesi alınırken beklenmeyen bir hata oluştu." };
+  }
+}
 
 export async function actionUpdateStudentProfile(input: {
   studentId: string;
@@ -1250,6 +1345,11 @@ export async function actionUpdateStudentProfile(input: {
   enrollmentEndDate?: string;
   level?: string;
   targetExam?: string;
+  /** MEB Paneli — MEB seviye dönemi + sınav (MEB kapısı `updateStudentProfileTool`'da). */
+  mebLevelStartDate?: string;
+  mebLevelEndDate?: string;
+  mebExamDate?: string;
+  mebExamAttended?: boolean;
   specialNotes?: string;
   /** ÖNCELİK 4 (devam) — yalnız SCHOOL_ADMIN/SUPER_ADMIN (updateStudentProfileTool RBAC'ı) set edebilir. */
   termType?: "guz" | "yaz";
@@ -1286,7 +1386,12 @@ export async function actionUpdateStudentProfile(input: {
     const result = await withAuthContext("actionUpdateStudentProfile", (ctx) =>
       updateStudentProfileTool(ctx, input)
     );
-    if (!result.ok) return { ok: false, message: result.error.message };
+    if (!result.ok)
+      return {
+        ok: false,
+        message: result.error.message,
+        fieldErrors: fieldErrorsFromZodFlatten(result.error.details),
+      };
     revalidateAll();
     return { ok: true };
   } catch (error) {
