@@ -1283,3 +1283,21 @@ aynı veriyi aynı yoldan mı okuyor?" diye bak.
   (kayıt oluşmaz + alan hatası + geçerli T.C.'de şifreli saklama, düz metin yok).
 - Güvenlik taraması notu (security-rbac-review): reveal/search/set T.C. yolları örnek durumda (pii:full +
   audit, yanıtta/auditte/logda düz metin YOK); kiracı yalnız session'dan; bu turda rol genişletme yapılmadı.
+
+## 2026-09-28 (MEB Paneli) — strip `undefined` bırakma, anahtarı SİL
+- `updateStudentProfileTool`'da "sonuç MEB-değilse MEB değerlerini yazma" kuralı önce `{...patch, mebX: undefined}`
+  spread'iyle yapıldı: Prisma `undefined`'ı atlar ama json/memory spread'i anahtarı `undefined` değerle saklı verinin
+  ÜSTÜNE yazar → `JSON.stringify` anahtarı düşürür → tür kaldırınca kayıtlı MEB verisi sessizce SİLİNİYORDU
+  (test yakaladı). Kural: çok-modlu store'da "yazma" yasağı `undefined` atayarak değil `delete patch.anahtar` ile
+  uygulanır (yazılmayan anahtar hiçbir moda değmez). Kilit: `meb-student-tools.test.ts` (kalıcılık + korunum).
+- Sözleşme değişimi notu: "MEB ise zorunlu" kapısı `student-types.test.ts`'teki 3 eski testi kırdı (MEB kaydı
+  seviye/dönemsiz açılıyordu). Kullanıcı-onaylı sözleşme değişimidir: testler MEB alanlarıyla güncellendi,
+  pinledikleri davranış (senkron/türetme/korunum) korundu. Kural: kapı değişiminde testin AMACINI koruyarak
+  uyarla, davranışı değil.
+
+## 2026-09-28 (triyaj) — attendance-calendar-tools sıra-bağımlı flake
+- `collectAttendanceCalendarPaymentTool` idempotency/paid-amount testleri (6) yalnız tam-süitte kırılıyor; izolede
+  35/35 + 4 alt-kümede yeşil; erken sırada (2-3.) geçen dosya geç sırada (~35.) kırılıyor. Denenen ikili/blok
+  tekrarları kirleteni bulamadı. MEB diff'i dışlandı (MEB dosyaları sonra koşar, kapı yalnız yeni MEB anahtarlarına
+  bakar, eski testlerden hiçbiri kapıya takılmaz). Kural: tam-süit kırmızısında önce SIRA konumu + izole/alt-küme +
+  baz karşılaştırması yapılır; ilgisiz flake'e sezgisel "düzeltme" YOK (kök neden bulunmadan ellemek yasak).
