@@ -1,4 +1,4 @@
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { PlatformMobileNav, PlatformNav } from "@/components/platform/platform-nav";
 import { PlatformForbidden } from "@/components/platform/platform-forbidden";
 import { PlatformCommandPalette } from "@/components/platform/platform-command-palette";
@@ -19,6 +19,15 @@ import "./neviios-theme.css";
 export const dynamic = "force-dynamic";
 
 export default async function PlatformLayout({ children }: { children: React.ReactNode }) {
+  // Control Center (2026-09-28) — oturumsuz platform kapısı (`/platform/giris`)
+  // bu kabuğun oturum duvarına takılmaz: yolu middleware'in ilettiği başlıktan
+  // okur, kapıysa çocukları çıplak render eder (kabuğun geri kalanı çalışmaz).
+  // Başlık middleware tarafından GERÇEK yolla ezilir; en kötü olasılık herkese
+  // açık giriş formunun kabuksuz görünmesidir.
+  const gatePath = (await headers()).get("x-neviios-path");
+  if (gatePath === "/platform/giris") {
+    return <div className="min-h-screen">{children}</div>;
+  }
   const session = await requirePlatformSession("/platform");
   if (isPlatformForbidden(session)) {
     return (

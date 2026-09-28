@@ -35,8 +35,13 @@ export async function middleware(request: NextRequest) {
   if (!isProtected) return NextResponse.next();
 
   // Control Center (2026-09-28) — platform kapısı herkese açıktır (oturumsuz
-  // giriş sayfası); döngüye girmemesi için korumalı yönden MUAF tutulur.
-  if (pathname === "/platform/giris") return NextResponse.next();
+  // giriş sayfası); korumalı yönden MUAF tutulur. Yol başlığı yine de
+  // iletilir ki platform kabuğu bu yolu oturumsuz render edebilsin.
+  if (pathname === "/platform/giris") {
+    const openHeaders = new Headers(request.headers);
+    openHeaders.set("x-neviios-path", pathname);
+    return NextResponse.next({ request: { headers: openHeaders } });
+  }
 
   if ((await hasValidAccess(request)) || hasRefresh(request)) {
     // NeviiOS presence: yalnız yol (sorgu dizesi asla) oturum katmanına iletilir.

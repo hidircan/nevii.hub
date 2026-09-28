@@ -66,10 +66,15 @@ describe("resolvePlatformLoginDest — rol sınırları", () => {
 });
 
 describe("kapı yönlendirmesi — kaynakta doğrulanır", () => {
-  it("middleware: platform → /platform/giris, kurum → /login, kapı muaf", () => {
+  it("middleware: platform → /platform/giris, kurum → /login, kapı muaf + yol başlıklı", () => {
     const mw = readFileSync(path.join(ROOT, "src/middleware.ts"), "utf8");
-    expect(mw).toMatch(/pathname === "\/platform\/giris"\) return NextResponse\.next\(\)/);
+    expect(mw).toMatch(/if \(pathname === "\/platform\/giris"\) \{/);
+    expect(mw).toContain('openHeaders.set("x-neviios-path", pathname)');
     expect(mw).toMatch(/isPlatform \? "\/platform\/giris" : "\/login"/);
+  });
+  it("platform kabuğu kapı yolunu oturumsuz render eder (yönlendirme döngüsü yok)", () => {
+    const layout = readFileSync(path.join(ROOT, "src/app/platform/layout.tsx"), "utf8");
+    expect(layout.indexOf('gatePath === "/platform/giris"')).toBeLessThan(layout.indexOf("await requirePlatformSession"));
   });
   it("requirePlatformSession oturumsuzu ayrı kapıya yollar", () => {
     const session = readFileSync(path.join(ROOT, "src/lib/platform/session.ts"), "utf8");
