@@ -182,7 +182,10 @@ export default async function StudentContractsCenterPage({
             teachers: data.teachers
               .filter((t) => t.active)
               .map((t) => ({ id: t.id, name: t.name })),
-            rooms: data.rooms.map((r) => ({ id: r.id, name: r.name })),
+            // 10. tur iş #8 — yalnız aktif odalar (pasif/silinmiş gizlenir; sunucu da doğrular).
+            rooms: data.rooms
+              .filter((r) => r.active !== false && !r.deletedAt)
+              .map((r) => ({ id: r.id, name: r.name })),
             defaultTeacherId: student.teacherId,
           }}
         />

@@ -6363,6 +6363,16 @@ export async function planContractLessonScheduleTool(
   if (!teacher) return fail("NOT_FOUND", "Seçilen öğretmen bulunamadı.");
   const room = data.rooms.find((r) => r.id === v.data.roomId);
   if (!room) return fail("NOT_FOUND", "Seçilen oda bulunamadı.");
+  // 10. tur iş #8 — pasif/silinmiş odaya YENİ ders oluşturulamaz. Bu kontrol
+  // ÖNİZLEME (dryRun) VE GERÇEK oluşturma için her çağrıda yeniden çalışır:
+  // oda önizlemeden sonra pasife alınmışsa oluşturma engellenir. Geçmiş
+  // derslerin pasif oda referanslarına dokunulmaz (görünürlük korunur).
+  if (room.deletedAt || room.active === false) {
+    return fail(
+      "VALIDATION_ERROR",
+      `"${room.name}" pasif durumda; pasif odaya yeni ders oluşturulamaz. Aktif bir oda seçin veya odayı Odalar ekranından aktifleştirin.`
+    );
+  }
 
   const { parseLessonScheduleText } = await import("../lesson-schedule-text");
   const scheduleText = contract.contractDataSnapshot?.lessonScheduleText || student.lessonScheduleText || "";

@@ -121,13 +121,19 @@ export function ContractLessonScheduleGenerator({
         </div>
         <div>
           <Label>Oda</Label>
-          <Select value={roomId} onChange={(e) => setRoomId(e.target.value)}>
-            {rooms.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.name}
-              </option>
-            ))}
-          </Select>
+          {rooms.length > 0 ? (
+            <Select value={roomId} onChange={(e) => setRoomId(e.target.value)}>
+              {rooms.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name}
+                </option>
+              ))}
+            </Select>
+          ) : (
+            <p className="mt-1 rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
+              Aktif oda yok. Pasif odalara ders oluşturulamaz — önce Odalar ekranından bir odayı aktifleştirin.
+            </p>
+          )}
         </div>
       </div>
 
