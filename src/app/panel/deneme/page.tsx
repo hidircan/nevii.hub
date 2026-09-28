@@ -33,6 +33,9 @@ export default async function TrialLessonsPage({
   const data = await readData();
   const result = await listTrialLessonsTool(session);
   const trials = result.ok ? result.data.trials : [];
+  // Kapsam hatası (ör. atanmış şubesi olmayan şube müdürü) sessizce boş
+  // listeye gömülmüyor — kullanıcı NEDEN buton göremediğini anlar.
+  const listError = result.ok ? null : result.error.message;
 
   const names = await resolveActorLabels({
     tenantId: session.tenantId,
@@ -99,6 +102,13 @@ export default async function TrialLessonsPage({
             Deneme dersi planla
           </p>
           <TrialLessonCreateForm teachers={teachers} branches={branches} />
+        </Card>
+      ) : null}
+      {listError ? (
+        <Card>
+          <p role="alert" className="text-sm font-medium" style={{ color: "var(--color-danger)" }}>
+            {listError}
+          </p>
         </Card>
       ) : null}
       <section>

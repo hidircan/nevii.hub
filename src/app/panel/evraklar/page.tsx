@@ -36,9 +36,12 @@ export default async function DocumentsCenterPage({
   } catch {
     redirect("/login?next=/panel/evraklar");
   }
-  if (session.role !== "SCHOOL_ADMIN" && session.role !== "SUPER_ADMIN") {
+  if (session.role !== "SCHOOL_ADMIN" && session.role !== "SUPER_ADMIN" && session.role !== "BRANCH_MANAGER") {
     redirect("/panel");
   }
+  // Şube müdürü: liste + detay + arşivleme (kendi şubeleri, tool katmanında
+  // kapsamlanır). Şablon yönetimi ve dosya yükleme adminlerde kalır.
+  const isBranchManager = session.role === "BRANCH_MANAGER";
 
   const [allTemplatesResult, documentsResult, data] = await Promise.all([
     listAllDocumentTemplatesTool(session),
@@ -47,19 +50,30 @@ export default async function DocumentsCenterPage({
   ]);
   const allTemplates = allTemplatesResult.ok ? allTemplatesResult.data.templates : [];
   const documents = documentsResult.ok ? documentsResult.data.documents : [];
+  const listError = documentsResult.ok ? null : documentsResult.error.message;
+  // Şube müdüründe kişi filtresi de kapsamlanır (çapraz şube isim sızıntısı yok).
+  let scopeBranchIds: string[] | null = null;
+  if (isBranchManager) {
+    const { resolveBranchScope } = await import("@/lib/platform/branch-scope");
+    const scope = await resolveBranchScope(session);
+    if (scope.ok && scope.data.mode !== "tenant") scopeBranchIds = scope.data.branchIds;
+  }
+  const inScope = (branchId?: string): boolean =>
+    scopeBranchIds === null ? true : branchId !== undefined && scopeBranchIds.includes(branchId);
   // Yükleme formu yalnız aktif öğrenciye yeni evrak ekler; filtre ise aktif + pasif tüm öğrencileri kapsar.
-  const students = data.students.filter((s) => s.active).map((s) => ({ id: s.id, name: s.name }));
+  // Şube müdüründe her iki liste de kapsamlanır.
+  const students = data.students.filter((s) => s.active && inScope(s.branchId)).map((s) => ({ id: s.id, name: s.name }));
   const people: DocumentPersonOption[] = [
     ...data.students
-      .filter((s) => !s.deletedAt)
+      .filter((s) => !s.deletedAt && inScope(s.branchId))
       .sort((a, b) => a.name.localeCompare(b.name, "tr"))
       .map((s) => ({ id: s.id, name: s.name, kind: "student" as const, inactive: s.active === false })),
     ...data.teachers
-      .slice()
+      .filter((t) => inScope(t.branchId))
       .sort((a, b) => a.name.localeCompare(b.name, "tr"))
       .map((t) => ({ id: t.id, name: t.name, kind: "teacher" as const })),
   ];
-  const teachers = data.teachers.filter((t) => t.active).map((t) => ({ id: t.id, name: t.name }));
+  const teachers = data.teachers.filter((t) => t.active && inScope(t.branchId)).map((t) => ({ id: t.id, name: t.name }));
 
   // Belge → sözleşme eşlemesi TEK sorguyla (satır başına arama YOK).
   const contractIdByDocument = await findContractIdsByDocumentInstanceIds(
@@ -110,20 +124,34 @@ export default async function DocumentsCenterPage({
         </p>
       </div>
 
+      {listError ? (
+        <Card className="mb-4">
+          <p role="alert" className="text-sm font-medium" style={{ color: "var(--color-danger)" }}>
+            {listError}
+          </p>
+        </Card>
+      ) : null}
       {documents.length === 0 && !studentId && !teacherId ? (
         <EmptyState
           title="Henüz evrak yok"
-          description="Aşağıdaki “Dosya Yükle” bölümünden ilk belgenizi ekleyin veya bir öğrenciye sözleşme oluşturun."
+          description={
+            isBranchManager
+              ? "Size atanmış şubelerde henüz evrak yok."
+              : "Aşağıdaki “Dosya Yükle” bölümünden ilk belgenizi ekleyin veya bir öğrenciye sözleşme oluşturun."
+          }
         />
       ) : (
         <DocumentsTable rows={rows} people={people} activeStudentId={studentId} activeTeacherId={teacherId} />
       )}
 
-      <Card className="mt-6">
-        <p className="mb-3 text-xs font-medium uppercase tracking-wide text-[var(--color-primary)]">Dosya Yükle</p>
-        <DocumentDirectUploadForm students={students} teachers={teachers} />
-      </Card>
+      {!isBranchManager ? (
+        <Card className="mt-6">
+          <p className="mb-3 text-xs font-medium uppercase tracking-wide text-[var(--color-primary)]">Dosya Yükle</p>
+          <DocumentDirectUploadForm students={students} teachers={teachers} />
+        </Card>
+      ) : null}
 
+      {!isBranchManager ? (
       <Card className="mt-6">
         <p className="mb-3 text-xs font-medium uppercase tracking-wide text-[var(--color-primary)]">
           Sözleşme Şablonları
@@ -150,6 +178,7 @@ export default async function DocumentsCenterPage({
             }))}
         />
       </Card>
+      ) : null}
     </div>
   );
 }

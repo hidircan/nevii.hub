@@ -11602,12 +11602,16 @@ export async function createDocumentInstanceTool(
   }
 }
 
-/** Evrak detay ekranı + imzalı dosya servis rotası — SCHOOL_ADMIN/SUPER_ADMIN. */
+/**
+ * Evrak detay ekranı + imzalı dosya servis rotası — SCHOOL_ADMIN/SUPER_ADMIN
+ * tam kapsam; BRANCH_MANAGER yalnız atanmış şubelerinin evraklarını görür
+ * (fail-closed: şubesiz evrak BM'ye inmez).
+ */
 export async function getDocumentInstanceTool(
   ctx: ServiceContext,
   input: unknown
 ): Promise<ServiceResult<{ document: DocumentInstance }>> {
-  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN", "BRANCH_MANAGER"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
   const v = parseOrFail(z.object({ documentId: z.string().min(1) }), input);
   if (!v.ok) return v;
@@ -11615,10 +11619,29 @@ export async function getDocumentInstanceTool(
     const { getDocumentInstance } = await import("../documents");
     const document = await getDocumentInstance(ctx.tenantId, v.data.documentId);
     if (!document) return fail("NOT_FOUND", "Belge bulunamadı");
+    const gate = await assertDocumentBranchScope(ctx, document.branchId);
+    if (gate) return gate;
     return ok({ document });
   } catch (e) {
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "getDocument failed");
   }
+}
+/**
+ * Şube müdürü yalnız atanmış şubelerindeki evrakları görür/arşivler
+ * (fail-closed: atama yoksa FORBIDDEN, şubesiz evrak kapsam dışı).
+ * `null` = serbest (admin yolu değişmez).
+ */
+async function assertDocumentBranchScope(
+  ctx: ServiceContext,
+  branchId: string | undefined | null
+): Promise<ServiceFailure | null> {
+  if (ctx.role !== "BRANCH_MANAGER") return null;
+  const scope = await resolveBranchScope(ctx);
+  if (!scope.ok) return fail("FORBIDDEN", scope.error.message);
+  if (!inBranchScope(scope.data, branchId)) {
+    return fail("FORBIDDEN", "Bu evrak size atanmış şubelerin dışında.");
+  }
+  return null;
 }
 
 export async function printDocumentInstanceTool(
@@ -11674,33 +11697,54 @@ const documentInstanceFiltersSchema = z.object({
   reference: z.string().optional(),
 });
 
-/** Evraklar Merkezi ana tablosu — kurumun tüm evrakları, isteğe bağlı filtrelerle. */
+/**
+ * Evraklar Merkezi ana tablosu — adminler kurumun tüm evraklarını,
+ * BRANCH_MANAGER yalnız atanmış şubelerin evraklarını görür (fail-closed:
+ * şubesiz evrak listeye inmez).
+ */
 export async function listDocumentInstancesTool(
   ctx: ServiceContext,
   input: unknown
 ): Promise<ServiceResult<{ documents: Awaited<ReturnType<typeof listDocumentInstances>> }>> {
-  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN", "BRANCH_MANAGER"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
   const v = parseOrFail(documentInstanceFiltersSchema, input);
   if (!v.ok) return v;
   try {
-    const documents = await listDocumentInstances(ctx.tenantId, v.data as DocumentInstanceFilters);
+    let documents = await listDocumentInstances(ctx.tenantId, v.data as DocumentInstanceFilters);
+    if (ctx.role === "BRANCH_MANAGER") {
+      const scope = await resolveBranchScope(ctx);
+      if (!scope.ok) return fail("FORBIDDEN", scope.error.message);
+      if (scope.data.mode !== "tenant") {
+        const ids = scope.data.branchIds;
+        documents = documents.filter((d) => d.branchId !== undefined && ids.includes(d.branchId));
+      }
+    }
     return ok({ documents });
   } catch (e) {
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "listDocumentInstances failed");
   }
 }
-
-/** Silme yok — arşivleme durumu "İptal Edildi"ye geçirir. */
+/**
+ * Silme yok — arşivleme durumu "İptal Edildi"ye geçirir.
+ * BRANCH_MANAGER yalnız kendi şubesinin evrağını arşivler (kaynak kapısı).
+ */
 export async function archiveDocumentInstanceTool(
   ctx: ServiceContext,
   input: unknown
 ): Promise<ServiceResult<{ documentId: string; status: string }>> {
-  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN", "BRANCH_MANAGER"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
   const v = parseOrFail(z.object({ documentId: z.string().min(1) }), input);
   if (!v.ok) return v;
   try {
+    if (ctx.role === "BRANCH_MANAGER") {
+      const { getDocumentInstance } = await import("../documents");
+      const existing = await getDocumentInstance(ctx.tenantId, v.data.documentId);
+      if (!existing) return fail("NOT_FOUND", "Belge bulunamadı");
+      const gate = await assertDocumentBranchScope(ctx, existing.branchId);
+      if (gate) return gate;
+    }
     const doc = await archiveDocumentInstance(ctx.tenantId, v.data.documentId);
     if (!doc) return fail("NOT_FOUND", "Belge bulunamadı");
     audit(ctx, "document.archive", "DocumentInstance", doc.id, {});

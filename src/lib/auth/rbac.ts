@@ -79,7 +79,14 @@ const ROLE_PERMISSIONS: Record<AppRole, Permission[]> = {
    * + updateTrialLessonStatusTool kaynak+hedef şubeyi UserBranchAccess
    * kapsamına karşı denetler (kapsam dışı = FORBIDDEN).
    */
-  BRANCH_MANAGER: ["trials:write"],
+  /**
+   * Şube müdürü — dar kapsamlı operasyonel yazma: deneme revizyonu
+   * (trials:write) + kendi şubelerinin evraklarını görüntüleme/arşivleme
+   * (documents:* — tool katmanında şube kapsamına zorlanır, fail-closed).
+   * Şablon yönetimi, evrak üretimi/yükleme ve silme (sürüm silme dahil)
+   * tool katmanında SCHOOL_ADMIN/SUPER_ADMIN'e kilitli kalır.
+   */
+  BRANCH_MANAGER: ["trials:write", "documents:read", "documents:write"],
   SUPER_ADMIN: [
     "attendance:write",
     "makeup:read",

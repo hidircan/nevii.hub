@@ -29,9 +29,12 @@ export default async function DocumentDetailPage({
   } catch {
     redirect(`/login?next=/panel/evraklar/${documentId}`);
   }
-  if (session.role !== "SCHOOL_ADMIN" && session.role !== "SUPER_ADMIN") {
+  if (session.role !== "SCHOOL_ADMIN" && session.role !== "SUPER_ADMIN" && session.role !== "BRANCH_MANAGER") {
     redirect("/panel");
   }
+  // Şube müdürü: görüntüleme + arşivleme (kapsam tool katmanında).
+  // Görev oluşturma ve imzalı sürüm yükleme adminlerde kalır.
+  const isBranchManager = session.role === "BRANCH_MANAGER";
 
   const result = await getDocumentInstanceTool(session, { documentId });
   if (!result.ok) {
@@ -85,7 +88,7 @@ export default async function DocumentDetailPage({
             >
               {contractId ? "Sözleşmeyi görüntüle / yazdır" : "Yazdırma görünümü"}
             </Link>
-            {canCreateTask ? (
+            {canCreateTask && !isBranchManager ? (
               <QuickTaskLink
                 relatedEntityType="document"
                 relatedEntityId={doc.id}
@@ -144,13 +147,13 @@ export default async function DocumentDetailPage({
                   >
                     Görüntüle / indir
                   </a>
-                  <DocumentSignedUpload documentId={doc.id} hasExisting />
+                  {!isBranchManager ? <DocumentSignedUpload documentId={doc.id} hasExisting /> : null}
                 </div>
               </div>
             ) : (
               <div className="flex items-center justify-between gap-2">
                 <p className="text-sm text-[var(--color-text-muted)]">Henüz imzalı sürüm yüklenmedi.</p>
-                <DocumentSignedUpload documentId={doc.id} />
+                {!isBranchManager ? <DocumentSignedUpload documentId={doc.id} /> : null}
               </div>
             )}
             {(doc.signedVersions ?? []).length > 0 ? (
