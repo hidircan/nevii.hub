@@ -16,7 +16,13 @@ export function PlatformNav({ links }: { links: { href: string; label: string }[
       <div className="border-b px-4 py-4" style={{ borderColor: "var(--color-border)" }}>
         {/* eslint-disable-next-line @next/next/no-img-element -- runtime platform logosu (fallback: build-time) */}
         <img src="/api/v1/branding/platform-logo" alt="" className="mb-2 h-8 w-auto" />
-        <p className="text-xs font-semibold tracking-wide text-[var(--color-text-muted)]">
+        {/*
+          Control Center (2026-09-28) — "NeviiHub" kelime markası Gloock ile
+          (`.brand-mark` → `--font-gloock`, next/font build-time self-host +
+          Georgia/Times serif fallback). Yalnız bu menü markası — tüm
+          uygulamaya yayılmaz.
+        */}
+        <p className="brand-mark text-lg font-normal leading-none" style={{ color: "var(--color-primary)" }}>
           {PLATFORM_BRAND.name}
         </p>
         <p className="mt-0.5 text-sm font-semibold text-[var(--color-text)]">{PLATFORM_BRAND.productLine}</p>

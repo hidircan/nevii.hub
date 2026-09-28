@@ -20,6 +20,9 @@ import {
   normalizeFontChoice,
   normalizeDensity,
   normalizePortalPresentation,
+  type Density,
+  type FontChoice,
+  type ThemeProfile,
 } from "./theme";
 import { clampPreferencesToPolicy } from "./appearance-policy";
 import { auditLog } from "./auth/audit";
@@ -366,7 +369,7 @@ async function persistWorkspacePatch(patch: {
     const session = await getSessionContext();
     if (!session?.userId || !session?.tenantId) return;
     const { saveUserPreferences } = await import("./user-preferences");
-    const clean: { themeProfile?: "gold" | "obsidian" | "navy" | "forest" | "burgundy" | "ocean" | "lavender" | "atolye" | "murekkep"; fontChoice?: "roboto_serif" | "playfair_display" | "inter" | "noto_sans" | "gloock"; density?: "comfortable" | "compact" } = {};
+    const clean: { themeProfile?: ThemeProfile; fontChoice?: FontChoice; density?: Density } = {};
     if (patch.themeProfile !== undefined) clean.themeProfile = normalizeThemeProfile(patch.themeProfile);
     if (patch.fontChoice !== undefined) clean.fontChoice = normalizeFontChoice(patch.fontChoice);
     if (patch.density !== undefined) clean.density = normalizeDensity(patch.density);
