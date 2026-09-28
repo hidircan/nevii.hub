@@ -2458,7 +2458,11 @@ export async function markTeacherAttendanceLive(
     },
   });
   if (updateResult.count === 0) return { ok: false, message: "Ders bulunamadı." };
-  return { ...result, data: await readData() };
+  // 11. tur iş #3 — sondaki `data: await readData()` TAM veri setini yeniden
+  // okuyordu; iki çağrıcı da (markTeacherAttendanceTool,
+  // recordTeacherAttendanceForDisruption) `.data` kullanmıyor (yalnız
+  // ok/alreadySet/message). Her yoklama tıklamasında bir tam okuma silindi.
+  return result;
 }
 
 /**

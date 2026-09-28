@@ -2546,31 +2546,34 @@ const TEACHER_ATTENDANCE_OPTIONS = [
 ] as const;
 
 function TeacherAttendanceControl({ lesson }: { lesson: Lesson }) {
-  const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  async function mark(status: (typeof TEACHER_ATTENDANCE_OPTIONS)[number][0]) {
-    setBusy(status);
+  // 11. tur iş #3 — iyimser yerel durum: kayıt sonrası router.refresh() ile
+  // tüm program sayfası yeniden ÇEKİLMEZ (her tıklamada ağır liste yenileme
+  // + odak kayboluyordu). Seçim anında görünür; ders değişince bileşen
+  // key={lesson.id} ile yeniden kurulduğundan prop senkronu yeterlidir.
+  const [status, setStatus] = useState(lesson.teacherAttendanceStatus ?? null);
+  async function mark(next: (typeof TEACHER_ATTENDANCE_OPTIONS)[number][0]) {
+    setBusy(next);
     setError(null);
     const res = await apiFetchJson(`/api/v1/lessons/${lesson.id}/teacher-attendance`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status }),
+      body: JSON.stringify({ status: next }),
     });
     setBusy(null);
     if (!res.ok) {
       setError(friendlyApiErrorMessage(res.error, "Öğretmen katılımı kaydedilemedi; tekrar deneyin."));
       return;
     }
-    // Panel açık kalır; seçim sunucudan tazelenen dersle görünür (audit tool'da).
-    router.refresh();
+    setStatus(next);
   }
   return (
     <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-[var(--color-border)] pt-2 text-xs">
       <span className="text-[var(--color-text-muted)]">Öğretmen katılımı:</span>
       <div role="group" aria-label="Öğretmen katılımı" className="inline-flex gap-1">
         {TEACHER_ATTENDANCE_OPTIONS.map(([value, label]) => {
-          const active = lesson.teacherAttendanceStatus === value;
+          const active = status === value;
           return (
             <button
               key={value}
@@ -2589,7 +2592,7 @@ function TeacherAttendanceControl({ lesson }: { lesson: Lesson }) {
           );
         })}
       </div>
-      {!lesson.teacherAttendanceStatus ? <span className="text-[var(--color-text-muted)]">(girilmedi)</span> : null}
+      {!status ? <span className="text-[var(--color-text-muted)]">(girilmedi)</span> : null}
       {error ? (
         <p className="basis-full font-medium text-[var(--color-danger)]" role="alert">
           {error}
