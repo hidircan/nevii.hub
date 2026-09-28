@@ -78,6 +78,19 @@ before designing a fix in an area listed below.
     revert a parallel session's work; apply your own changes additively on
     top of it.
 
+12. **Every server-emitted `fieldErrors.<key>` needs a render slot in the
+    form (`<FieldError>` + `aria-invalid`); post-create PII writes need a
+    pre-create pure gate or a checked result.** `actionAddStudent` produced
+    `fieldErrors.birthDate` that no JSX ever read (user saw "marked below"
+    with nothing marked), and an invalid T.C. checksum fell through the
+    unchecked post-create `setNationalIdTool` call (record created, identity
+    silently lost). Fix: checksum gate BEFORE create (same
+    `ToolValidationFailure` pattern as the other pre-checks in the action)
+    + slots in both registration forms. Locks:
+    `registration-identity-field-errors.test.ts` (behavior) +
+    `registration-field-error-parity.test.ts` (count-based slot tripwire —
+    exact-JSX locking avoided per the 2026-09-28 static-test lesson).
+
 ## How to add an entry
 
 ```
@@ -1254,3 +1267,19 @@ aynı veriyi aynı yoldan mı okuyor?" diye bak.
   şemaya değil, mevcut kaydı gören ARAÇ katmanına yazılır — aynen-koruma serbest, gerçek değişiklik
   kurallı (dede kuralı). UI'da mevcut değer "(mevcut kayıt)" seçeneğiyle korunur.
 - Regresyon kilidi: `trial-lesson-legacy-duration.test.ts`.
+
+---
+
+## 2026-09-28 (11. tur iş #11) — sunucu alan-hatası anahtarı formsuz, T.C. kapısı kayıttan sonra
+- `actionAddStudent` geçersiz doğum tarihinde `fieldErrors.birthDate` üretiyordu ama `new-student-form.tsx`
+  bu anahtarı HİÇ okumuyordu (`<FieldError>` + `aria-invalid` yoktu) — kullanıcı "aşağıda işaretlendi" görüyor,
+  işaretli alan bulamıyordu. Kural: sunucunun üretebildiği HER `fieldErrors.<anahtar>` için formda render slotu
+  ZORUNLU (kardeş alanlarla aynı desen); kilit `registration-field-error-parity.test.ts` (sayım tabanlı —
+  birebir JSX kilidi 10. tur dersiyle yasak).
+- Geçersiz T.C. (checksum tutmayan) post-create `await setNationalIdTool(...)` sonucuna bakılmadan düşüyordu:
+  öğrenci oluşmuş, kimlik kaybolmuş, kullanıcı kaydedildi sanıyordu. Kural: PII yan-etkisi ya kayıt ÖNCESİ saf
+  kapıdan geçer (`isValidTurkishNationalId` + mevcut `ToolValidationFailure` deseni — öğrenci/öğretmen
+  action'larının ikisinde de) ya da sonucu kontrol edilir. Kilit: `registration-identity-field-errors.test.ts`
+  (kayıt oluşmaz + alan hatası + geçerli T.C.'de şifreli saklama, düz metin yok).
+- Güvenlik taraması notu (security-rbac-review): reveal/search/set T.C. yolları örnek durumda (pii:full +
+  audit, yanıtta/auditte/logda düz metin YOK); kiracı yalnız session'dan; bu turda rol genişletme yapılmadı.
