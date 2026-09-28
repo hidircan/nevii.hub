@@ -79,9 +79,17 @@ export function computeFinanceSummary(
   payroll: PayrollRecord[],
   expenses: ExpenseRecord[],
   now: Date = new Date(),
-  budgets: Budget[] = []
+  budgets: Budget[] = [],
+  /**
+   * 10. tur iş #6 — ay seçimi. Geçerli `yyyy-MM` ise özet o aya göre
+   * üretilir (trend: seçili ayda BİTEN son 6 ay); geçersizse bugünün ayı.
+   * Gecikme türetimi (`upcomingExpenseWarnings`) her zaman OKUMA anına
+   * (`now`) göredir — geçmiş ay seçimi gecikmeyi yeniden yazmaz.
+   */
+  monthOverride?: string
 ): FinanceSummary {
-  const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const nowMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const currentMonth = /^\d{4}-(0[1-9]|1[0-2])$/.test(monthOverride ?? "") ? monthOverride! : nowMonth;
 
   const payrollThisMonth = payroll.filter((p) => p.month === currentMonth && p.status !== "cancelled");
   const payrollPaidThisMonth = payrollThisMonth.filter((p) => p.status === "paid").reduce((s, p) => s + p.netAmount, 0);
@@ -161,8 +169,9 @@ export function computeFinanceSummary(
     });
 
   const trend: { month: string; income: number; expense: number }[] = [];
+  const [baseYear, baseMonth] = currentMonth.split("-").map(Number);
   for (let i = 5; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const d = new Date(baseYear!, baseMonth! - 1 - i, 1);
     const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
     const income = data.payments
       .filter((p) => monthKey(p.dueDate) === key && p.status === "paid")
@@ -220,7 +229,7 @@ export function computeAverageMonthlyFeePerStudent(input: {
   students: { id: string; branchId: string; deletedAt?: string }[];
   month: string; // yyyy-MM
   branchId?: string;
-}): { average: number | null; studentCount: number; totalMonthly: number } {
+}): { average: number | null; studentCount: number; totalMonthly: number; studentIds: string[] } {
   const studentBranch = new Map(input.students.filter((s) => !s.deletedAt).map((s) => [s.id, s.branchId]));
   const counted = new Set<string>();
   let totalMonthly = 0;
@@ -237,5 +246,79 @@ export function computeAverageMonthlyFeePerStudent(input: {
     average: counted.size > 0 ? Math.round(totalMonthly / counted.size) : null,
     studentCount: counted.size,
     totalMonthly,
+    // 10. tur iş #6 — aynı payda, tahsilat ortalamasında yeniden kullanılır.
+    studentIds: [...counted].sort(),
   };
+}
+
+export type AverageFeeContractLike = {
+  studentId: string;
+  status: string;
+  enrollmentStartDate: string;
+  enrollmentEndDate: string;
+  monthlyAmount: number;
+};
+
+/**
+ * 10. tur iş #6 — "öğrenci başına ortalama TAHSİLAT" (ücret ortalamasından
+ * FARKLI etikettir). Pay: paydadaki öğrencilerin o ay vadesi gelen
+ * ödemelerinden FİİLEN tahsil edilen (`collectedAmountOf`: kısmi dahil,
+ * voided hariç). Payda: ücret ortalamasıyla AYNI sözleşmeli-öğrenci kümesi
+ * (tutarlı karşılaştırma; borcunu başka ay ödeyenler/paydasız tahsilatlar
+ * bu metriğe girmez — aylık tahsilat oranı grafiği o resmi verir).
+ * İade kaydı modeli YOKTUR (sınırlama: iade, ödemenin voided/paidAmount
+ * düzeltmesiyle izlenir).
+ */
+export function computeAverageCollectedPerStudent(input: {
+  payments: { studentId: string; dueDate: string; status: string; amount: number; paidAmount: number }[];
+  studentIds: readonly string[];
+  month: string; // yyyy-MM
+}): { average: number | null; collectedTotal: number; studentCount: number } {
+  const inScope = new Set(input.studentIds);
+  let collectedTotal = 0;
+  for (const p of input.payments) {
+    if (!inScope.has(p.studentId)) continue;
+    if (p.dueDate.slice(0, 7) !== input.month) continue;
+    collectedTotal += collectedAmountOf(p as Parameters<typeof collectedAmountOf>[0]);
+  }
+  return {
+    average: inScope.size > 0 ? Math.round(collectedTotal / inScope.size) : null,
+    collectedTotal,
+    studentCount: inScope.size,
+  };
+}
+
+export type AverageFeeTrendPoint = {
+  month: string;
+  average: number | null;
+  collectedAverage: number | null;
+  studentCount: number;
+};
+
+/**
+ * 10. tur iş #6 — verilen aylar için ücret + tahsilat ortalaması trendi.
+ * Her ay BAĞIMSIZ hesaplanır (o ayı kapsayan sözleşmeler) — geçmiş aylar
+ * bugünkü aktif/pasif durumdan ETKİLENMEZ (sözleşme tarih aralığı esastır).
+ */
+export function computeAverageFeeTrend(input: {
+  contracts: AverageFeeContractLike[];
+  students: { id: string; branchId: string; deletedAt?: string }[];
+  payments: { studentId: string; dueDate: string; status: string; amount: number; paidAmount: number }[];
+  months: string[];
+  branchId?: string;
+}): AverageFeeTrendPoint[] {
+  return input.months.map((month) => {
+    const fee = computeAverageMonthlyFeePerStudent({
+      contracts: input.contracts,
+      students: input.students,
+      month,
+      branchId: input.branchId,
+    });
+    const collected = computeAverageCollectedPerStudent({
+      payments: input.payments,
+      studentIds: fee.studentIds,
+      month,
+    });
+    return { month, average: fee.average, collectedAverage: collected.average, studentCount: fee.studentCount };
+  });
 }

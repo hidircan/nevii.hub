@@ -4608,12 +4608,26 @@ export async function getFinanceSummaryTool(
   ServiceResult<
     import("../finance-summary").FinanceSummary & {
       averageMonthlyFee: ReturnType<typeof import("../finance-summary").computeAverageMonthlyFeePerStudent> & { branchId?: string };
+      /** 10. tur iş #6 — ücret ortalamasıyla AYNI paydanın tahsilat ortalaması. */
+      averageCollected: ReturnType<typeof import("../finance-summary").computeAverageCollectedPerStudent>;
+      /** 10. tur iş #6 — trend ayları için ücret + tahsilat ortalaması. */
+      averageFeeTrend: ReturnType<typeof import("../finance-summary").computeAverageFeeTrend>;
     }
   >
 > {
   const auth = requireStaffSensitiveAccess(ctx);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
-  const v = parseOrFail(z.object({ branchId: z.string().min(1).optional() }), input ?? {});
+  const v = parseOrFail(
+    z.object({
+      branchId: z.string().min(1).optional(),
+      // 10. tur iş #6 — ay seçimi (boş/geçersizse bugünün ayı).
+      month: z
+        .string()
+        .regex(/^\d{4}-(0[1-9]|1[0-2])$/)
+        .optional(),
+    }),
+    input ?? {}
+  );
   if (!v.ok) return v;
   const data = await readData();
   const staff = await listStaff(ctx.tenantId);
@@ -4622,15 +4636,34 @@ export async function getFinanceSummaryTool(
   const budgets = await listBudgets(ctx.tenantId);
   const { listContractSummariesByStudent } = await import("../contracts");
   const contractSummaries = await listContractSummariesByStudent(ctx.tenantId);
-  const { computeFinanceSummary, computeAverageMonthlyFeePerStudent } = await import("../finance-summary");
-  const summary = computeFinanceSummary(data, staff, payroll, expenses, new Date(), budgets);
+  const { computeFinanceSummary, computeAverageMonthlyFeePerStudent, computeAverageCollectedPerStudent, computeAverageFeeTrend } =
+    await import("../finance-summary");
+  const summary = computeFinanceSummary(data, staff, payroll, expenses, new Date(), budgets, v.data.month);
+  const contracts = [...contractSummaries.values()];
   const averageMonthlyFee = computeAverageMonthlyFeePerStudent({
-    contracts: contractSummaries.values(),
+    contracts,
     students: data.students,
     month: summary.month,
     branchId: v.data.branchId,
   });
-  return ok({ ...summary, averageMonthlyFee: { ...averageMonthlyFee, branchId: v.data.branchId } });
+  const averageCollected = computeAverageCollectedPerStudent({
+    payments: data.payments,
+    studentIds: averageMonthlyFee.studentIds,
+    month: summary.month,
+  });
+  const averageFeeTrend = computeAverageFeeTrend({
+    contracts,
+    students: data.students,
+    payments: data.payments,
+    months: summary.trend.map((t) => t.month),
+    branchId: v.data.branchId,
+  });
+  return ok({
+    ...summary,
+    averageMonthlyFee: { ...averageMonthlyFee, branchId: v.data.branchId },
+    averageCollected,
+    averageFeeTrend,
+  });
 }
 
 export async function createPackageTool(

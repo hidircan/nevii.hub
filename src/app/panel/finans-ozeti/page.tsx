@@ -14,6 +14,7 @@ import {
   actionUpsertBudget,
 } from "@/lib/actions";
 import { formatMoney, formatDate } from "@/lib/utils";
+import { IncomeExpenseChart, AverageFeeChart } from "@/components/finance-trend-charts";
 
 export const dynamic = "force-dynamic";
 
@@ -33,8 +34,8 @@ const FREQUENCY_LABEL: Record<string, string> = { monthly: "Aylık", quarterly: 
  * yaklaşan/geciken giderler, şube bazlı gider zenginleştirmesi, tekrarlayan
  * gider kuralları ve bütçe-gerçekleşen karşılaştırması eklendi.
  */
-export default async function FinansOzetiPage({ searchParams }: { searchParams: Promise<{ sube?: string }> }) {
-  const { sube } = await searchParams;
+export default async function FinansOzetiPage({ searchParams }: { searchParams: Promise<{ sube?: string; ay?: string }> }) {
+  const { sube, ay } = await searchParams;
   let session;
   try {
     session = await requireSessionContext();
@@ -46,8 +47,10 @@ export default async function FinansOzetiPage({ searchParams }: { searchParams: 
 
   const kurum = await getInstitutionContext(session);
   const canWrite = kurum.scope.mode === "single";
+  // Geçersiz `ay` sessizce bugüne düşer (sayfa hata ekranına düşmez).
+  const monthParam = ay && /^\d{4}-(0[1-9]|1[0-2])$/.test(ay) ? ay : undefined;
   const [result, data, rulesResult] = await Promise.all([
-    getFinanceSummaryTool(session, sube ? { branchId: sube } : {}),
+    getFinanceSummaryTool(session, { ...(sube ? { branchId: sube } : {}), ...(monthParam ? { month: monthParam } : {}) }),
     readScopedData(kurum.scope),
     listRecurringExpenseRulesTool(session, {}),
   ]);
@@ -77,6 +80,33 @@ export default async function FinansOzetiPage({ searchParams }: { searchParams: 
         description={`${s.month} — kurum sahibi mali görünümü. Gelir = tahsil edilmiş öğrenci ödemeleri. Gider = ödenmiş bordro + ödenmiş öğretmen hakedişi + girilen diğer giderler.`}
       />
 
+      {/* 10. tur iş #6 — ay + şube seçimi (GET; seçimler birbirini korur). */}
+      <Card className="mb-6 !py-3">
+        <form method="get" className="flex flex-wrap items-end gap-3">
+          <label className="block">
+            <Label>Ay</Label>
+            <Input type="month" name="ay" defaultValue={s.month} max="2100-12" />
+          </label>
+          <label className="block">
+            <Label>Şube</Label>
+            <Select name="sube" defaultValue={s.averageMonthlyFee.branchId ?? ""}>
+              <option value="">Tüm şubeler</option>
+              {branches.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.shortName}
+                </option>
+              ))}
+            </Select>
+          </label>
+          <Button type="submit" variant="secondary">
+            Uygula
+          </Button>
+          <p className="w-full text-xs text-[var(--color-text-muted)]">
+            Geçmiş aylar sözleşme tarih aralıklarıyla hesaplanır — bugünkü aktif/pasif durum geçmişi yeniden yorumlamaz.
+          </p>
+        </form>
+      </Card>
+
       {s.expenseDataIncomplete ? (
         <div className="mb-4 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
           Henüz kira/fatura/sarf malzemesi gibi giderler girilmemiş — aşağıdaki &quot;toplam gider&quot; ve
@@ -85,27 +115,28 @@ export default async function FinansOzetiPage({ searchParams }: { searchParams: 
       ) : null}
 
       <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Tahsil edilen gelir (bu ay)" value={formatMoney(s.studentPaymentsCollectedThisMonth)} accent="success" />
-        <StatCard label="Bekleyen alacak (bu ay)" value={formatMoney(s.studentPaymentsPendingThisMonth)} accent="warning" />
-        <StatCard label="Toplam gider (bu ay)" value={formatMoney(s.totalExpenseThisMonth)} accent="danger" />
+        <StatCard label={`Tahsil edilen gelir (${s.month})`} value={formatMoney(s.studentPaymentsCollectedThisMonth)} accent="success" />
+        <StatCard label={`Bekleyen alacak (${s.month})`} value={formatMoney(s.studentPaymentsPendingThisMonth)} accent="warning" />
+        <StatCard label={`Toplam gider (${s.month})`} value={formatMoney(s.totalExpenseThisMonth)} accent="danger" />
         <StatCard
-          label="Net nakit (bu ay)"
+          label={`Net nakit (${s.month})`}
           value={formatMoney(s.netCashThisMonth)}
           accent={s.netCashThisMonth >= 0 ? "success" : "danger"}
           hint="Gelir − Gider"
         />
-        <StatCard label="Personel maliyeti (bu ay, bordro)" value={formatMoney(s.payrollCostThisMonth)} />
+        <StatCard label={`Personel maliyeti (${s.month}, bordro)`} value={formatMoney(s.payrollCostThisMonth)} />
         <StatCard label="Ödenen bordro" value={formatMoney(s.payrollPaidThisMonth)} accent="success" />
         <StatCard label="Bekleyen bordro" value={formatMoney(s.payrollPendingThisMonth)} accent="warning" />
-        <StatCard label="Öğretmen hakedişleri toplamı (bu ay)" value={formatMoney(s.teacherPayoutTotalThisMonth)} />
+        <StatCard label={`Öğretmen hakedişleri toplamı (${s.month})`} value={formatMoney(s.teacherPayoutTotalThisMonth)} />
       </div>
 
       {(() => {
         const avg = s.averageMonthlyFee;
+        const collected = s.averageCollected;
         const branchName = branches.find((b) => b.id === avg.branchId)?.shortName ?? "Tüm şubeler";
         return (
           <Card className="mb-6">
-            <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="grid gap-6 sm:grid-cols-2">
               <div>
                 <p className="text-sm text-[var(--color-text-muted)]">Öğrenci başına ortalama aylık ücret</p>
                 <p className="mt-1 text-2xl font-semibold text-[var(--color-text)]">
@@ -114,33 +145,54 @@ export default async function FinansOzetiPage({ searchParams }: { searchParams: 
                 <p className="mt-1 text-xs text-[var(--color-text-muted)]">
                   {avg.average === null
                     ? `${s.month} · ${branchName}: bu ayı kapsayan geçerli sözleşmeli öğrenci yok.`
-                    : `${s.month} · ${branchName} · ${avg.studentCount} sözleşmeli öğrenci, aylık ücret toplamı ${formatMoney(avg.totalMonthly)}. Taslak, iptal ve yenilenmiş sözleşmeler hariç; sözleşmedeki aylık ücret esas alınır.`}
+                    : `${s.month} · ${branchName} · ${avg.studentCount} sözleşmeli öğrenci, aylık ücret toplamı ${formatMoney(avg.totalMonthly)}.`}
                 </p>
               </div>
-              <form method="get" className="flex items-end gap-2">
-                <label className="block">
-                  <Label>Şube</Label>
-                  <Select name="sube" defaultValue={avg.branchId ?? ""}>
-                    <option value="">Tüm şubeler</option>
-                    {branches.map((b) => (
-                      <option key={b.id} value={b.id}>
-                        {b.shortName}
-                      </option>
-                    ))}
-                  </Select>
-                </label>
-                <Button type="submit" variant="secondary">
-                  Uygula
-                </Button>
-              </form>
+              <div>
+                <p className="text-sm text-[var(--color-text-muted)]">Öğrenci başına ortalama tahsilat (aynı öğrenciler)</p>
+                <p className="mt-1 text-2xl font-semibold text-emerald-700">
+                  {collected.average === null ? "—" : formatMoney(collected.average)}
+                </p>
+                <p className="mt-1 text-xs text-[var(--color-text-muted)]">
+                  {collected.average === null
+                    ? "Tahsilat yok."
+                    : `Fiilen tahsil edilen toplam ${formatMoney(collected.collectedTotal)} / ${collected.studentCount} öğrenci. Kısmi ödemeler dahil, iptal (voided) hariç.`}
+                </p>
+              </div>
             </div>
+            {/* 10. tur iş #6 — pay/payda tanımı ekranda (kapalı başlar). */}
+            <details className="mt-3 rounded-lg bg-[var(--color-surface-muted)] px-3 py-2 text-xs text-[var(--color-text-muted)]">
+              <summary className="cursor-pointer font-medium text-[var(--color-text)]">
+                Bu iki ortalama nasıl hesaplanır?
+              </summary>
+              <ul className="mt-2 list-disc space-y-1 pl-5">
+                <li>
+                  <strong>Ortalama ücret (tahakkuk):</strong> pay = seçili ayı kapsayan geçerli sözleşmelerin{" "}
+                  <em>aylık ücreti</em> toplamı (indirimli sözleşme tutarı; toplam bedel/taksit değil); payda = bu
+                  sözleşmelere sahip tekil öğrenci sayısı. Taslak, iptal ve yenilenmiş sözleşmeler hariç; silinmiş
+                  öğrenci kayıtları hariç.
+                </li>
+                <li>
+                  <strong>Ortalama tahsilat (nakit):</strong> pay = AYNI öğrencilerin o ay vadesi gelen ödemelerinden
+                  fiilen tahsil edilen tutar; payda aynı öğrenci sayısı. Ücret − tahsilat farkı, o ayın tahsilat
+                  performansını gösterir.
+                </li>
+                <li>
+                  <strong>Aktif/pasif kapsamı:</strong> sözleşmesi geçerli ve ayı kapsayan pasif öğrenciler DAHİL —
+                  geçmiş aylar bugünkü aktiflik durumuyla yeniden yorumlanmaz (sözleşme tarih aralığı esastır).
+                </li>
+                <li>
+                  <strong>Sınırlama:</strong> iade kaydı modeli yoktur — iade, ödemenin iptal/düzeltmesiyle izlenir.
+                </li>
+              </ul>
+            </details>
           </Card>
         );
       })()}
 
       {s.expenseByCategory.length > 0 ? (
         <Card className="mb-6">
-          <h2 className="mb-3 font-semibold text-[var(--color-text)]">Kategori bazlı gider (bu ay)</h2>
+          <h2 className="mb-3 font-semibold text-[var(--color-text)]">Kategori bazlı gider ({s.month})</h2>
           <div className="space-y-1.5 text-sm">
             {s.expenseByCategory.map((c) => (
               <div key={c.category} className="flex items-center justify-between">
@@ -154,7 +206,7 @@ export default async function FinansOzetiPage({ searchParams }: { searchParams: 
 
       {s.costByBranch.length > 0 ? (
         <Card className="mb-6">
-          <h2 className="mb-3 font-semibold text-[var(--color-text)]">Şube bazlı maliyet (bordro + gider, bu ay)</h2>
+          <h2 className="mb-3 font-semibold text-[var(--color-text)]">Şube bazlı maliyet (bordro + gider, {s.month})</h2>
           <div className="space-y-1.5 text-sm">
             {s.costByBranch.map((b) => (
               <div key={b.branchId} className="flex items-center justify-between">
@@ -168,7 +220,7 @@ export default async function FinansOzetiPage({ searchParams }: { searchParams: 
 
       {s.budgetComparison.length > 0 ? (
         <Card className="mb-6">
-          <h2 className="mb-3 font-semibold text-[var(--color-text)]">Bütçe vs gerçekleşen (bu ay)</h2>
+          <h2 className="mb-3 font-semibold text-[var(--color-text)]">Bütçe vs gerçekleşen ({s.month})</h2>
           <div className="space-y-2 text-sm">
             {s.budgetComparison.map((b, i) => {
               const over = b.actualAmount > b.targetAmount;
@@ -190,7 +242,8 @@ export default async function FinansOzetiPage({ searchParams }: { searchParams: 
 
       <Card className="mb-6">
         <h2 className="mb-3 font-semibold text-[var(--color-text)]">Son 6 ay gelir/gider trendi</h2>
-        <table className="w-full text-left text-sm">
+        <IncomeExpenseChart trend={s.trend} />
+        <table className="mt-3 w-full text-left text-sm">
           <thead className="text-xs uppercase tracking-wide text-[var(--color-text-muted)]">
             <tr>
               <th className="py-1.5">Ay</th>
@@ -208,6 +261,32 @@ export default async function FinansOzetiPage({ searchParams }: { searchParams: 
                 <td className={`py-1.5 font-medium ${t.income - t.expense >= 0 ? "text-emerald-700" : "text-rose-700"}`}>
                   {formatMoney(t.income - t.expense)}
                 </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Card>
+
+      {/* 10. tur iş #6 — öğrenci başına ortalama trendi (ücret + tahsilat). */}
+      <Card className="mb-6">
+        <h2 className="mb-3 font-semibold text-[var(--color-text)]">Öğrenci başına ortalama — 6 aylık eğilim</h2>
+        <AverageFeeChart points={s.averageFeeTrend} />
+        <table className="mt-3 w-full text-left text-sm">
+          <thead className="text-xs uppercase tracking-wide text-[var(--color-text-muted)]">
+            <tr>
+              <th className="py-1.5">Ay</th>
+              <th className="py-1.5">Ortalama ücret</th>
+              <th className="py-1.5">Ortalama tahsilat</th>
+              <th className="py-1.5">Öğrenci</th>
+            </tr>
+          </thead>
+          <tbody>
+            {s.averageFeeTrend.map((p) => (
+              <tr key={p.month} className="border-t border-[var(--color-border)]">
+                <td className="py-1.5 text-[var(--color-text-muted)]">{p.month}</td>
+                <td className="py-1.5">{p.average === null ? "—" : formatMoney(p.average)}</td>
+                <td className="py-1.5 text-emerald-700">{p.collectedAverage === null ? "—" : formatMoney(p.collectedAverage)}</td>
+                <td className="py-1.5 text-[var(--color-text-muted)]">{p.studentCount}</td>
               </tr>
             ))}
           </tbody>

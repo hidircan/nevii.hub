@@ -118,7 +118,8 @@ describe("ödeme güvenliği (davranış)", () => {
     const second = await markTeacherPayoutPaidTool(admin, { payoutId: created.data.payout.id });
     expect(second.ok).toBe(false);
     if (second.ok) return;
-    expect(second.data === undefined).toBe(true);
+    expect(second.error.code).toBe("CONFLICT");
+    expect(second.error.message).toMatch(/zaten ödendi/);
     // Tutar ilk ödemedekiyle aynı kalır.
     const preview = await computeTeacherPayoutTool(admin, {
       teacherId: "t1",

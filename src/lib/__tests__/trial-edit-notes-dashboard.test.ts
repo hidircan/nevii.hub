@@ -326,10 +326,13 @@ describe("Günlük Özet — menü ekranı widget'ları", () => {
   });
 
   it("anlamlı özeti olan ekran sayı verir, olmayan kısayoldur", () => {
-    const s = { todayLessons: 4, activeStudents: 10, activeTeachers: 3, openMakeups: 2, overdueTotal: 0, overdueTotalLabel: "0 ₺", openTasks: 1 };
+    const s = { todayLessons: 4, activeStudents: 10, activeTeachers: 3, openMakeups: 2, overdueTotal: 0, overdueTotalLabel: "0 ₺", openTasks: 1, collectedThisMonth: 5000, collectedThisMonthLabel: "5.000 ₺" };
     const telafi = SCREEN_WIDGETS.find((w) => w.href === "/panel/telafi")!;
     expect(screenWidgetMetric(telafi, s)).toMatchObject({ value: "2", tone: "warning" });
     const kvkk = SCREEN_WIDGETS.find((w) => w.href === "/panel/ayarlar/kvkk")!;
     expect(screenWidgetMetric(kvkk, s)).toBeNull();
+    // 10. tur iş #6 — finans widget'ı tek sayı: bu ay tahsilat.
+    const finans = SCREEN_WIDGETS.find((w) => w.href === "/panel/finans-ozeti")!;
+    expect(screenWidgetMetric(finans, s)).toMatchObject({ value: "5.000 ₺", caption: "bu ay tahsilat" });
   });
 });

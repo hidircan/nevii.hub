@@ -160,6 +160,9 @@ export default async function DashboardPage({
     overdueTotal: summary.money.overdueTotal,
     overdueTotalLabel: formatMoney(summary.money.overdueTotal),
     openTasks: summary.taskSummary.open,
+    // 10. tur iş #6 — Günlük Özet'e YALNIZCA bu kompakt finans göstergesi eklenir.
+    collectedThisMonth: summary.money.collectedThisMonth,
+    collectedThisMonthLabel: formatMoney(summary.money.collectedThisMonth),
   };
   const widgetNodes: Partial<Record<DashboardSectionKey, React.ReactNode>> = {};
   for (const key of layout.addedWidgets) {
