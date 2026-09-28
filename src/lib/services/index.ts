@@ -158,6 +158,7 @@ export {
   markStudentContractWetSignaturePendingTool,
   uploadStudentContractSignedScanTool,
   cancelStudentContractTool,
+  getContractCancellationImpactTool,
   resolveCollectionsIbanTool,
   updateTeacherInstrumentsTool,
   createPackageTool,

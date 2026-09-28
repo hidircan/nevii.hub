@@ -12719,6 +12719,97 @@ export async function uploadStudentContractSignedScanTool(
 }
 
 /** Yanlışlıkla oluşturulmuş bir sözleşmeyi iptal eder — hard delete YOK, tarihçede "cancelled" olarak kalır. */
+/**
+ * 10. tur iş #9 — sözleşme iptali ÖNCESİ etki özeti (yalnız okuma).
+ * İptal bir SİLME değildir (kayıt arşivde kalır) ama geri alınamaz bir durum
+ * değişikliğidir: bu yüzden finansal etki (taksit/tahsilat/borç) + ders etkisi
+ * + kritik-şifre durumu iptalden ÖNCE gösterilir.
+ */
+export type ContractCancellationImpact = {
+  contractId: string;
+  contractNumber: string;
+  versionNumber: number;
+  status: string;
+  studentId: string;
+  studentName: string;
+  /** Terminal (cancelled/superseded) sözleşme tekrar iptal edilemez. */
+  cancellable: boolean;
+  cancellableBlockReason?: string;
+  isCurrent: boolean;
+  installmentCount: number;
+  collectedAmount: number;
+  outstandingAmount: number;
+  unpaidInstallmentCount: number;
+  futureLessonCount: number;
+  lockedLessonCount: number;
+  lockedReasons: string[];
+  criticalPasswordConfigured: boolean;
+};
+
+export async function getContractCancellationImpactTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<ContractCancellationImpact>> {
+  const auth = requireRole(ctx, CONTRACT_STAFF);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const v = parseOrFail(contractIdSchema, input);
+  if (!v.ok) return v;
+  const { listContractsForStudent, listInstallmentsForContract } = await import("../contracts");
+  const contract = await getContract(ctx.tenantId, v.data.contractId);
+  if (!contract) return fail("NOT_FOUND", "Sözleşme bulunamadı.");
+  const allowed = await canAccessStudent(ctx, contract.studentId);
+  if (!allowed) return fail("FORBIDDEN", "Bu sözleşmeye erişim yetkiniz yok.");
+  const { collectedAmountOf } = await import("../payment-profile");
+  const { getCriticalActionPasswordStatus } = await import("../critical-action-password");
+  const { selectCurrentContract } = await import("../contract-list-helpers");
+  const { lessonCancelBlockReason } = await import("../lesson-cancel-rules");
+  const data = await readData();
+  const [contracts, installments, pw, debt] = await Promise.all([
+    listContractsForStudent(ctx.tenantId, contract.studentId),
+    listInstallmentsForContract(ctx.tenantId, contract.id),
+    getCriticalActionPasswordStatus(ctx.tenantId),
+    computeOutstandingContractBalance(ctx.tenantId, contract.id),
+  ]);
+  const future = collectContractFutureLessons(data, contract.id);
+  const lockedReasons = Array.from(
+    new Set(future.lessons.map((l) => lessonCancelBlockReason(l)).filter((r): r is string => r !== null))
+  );
+  const terminal = contract.status === "cancelled" || contract.status === "superseded";
+  return ok({
+    contractId: contract.id,
+    contractNumber: contract.contractNumber,
+    versionNumber: contract.versionNumber,
+    status: contract.status,
+    studentId: contract.studentId,
+    studentName: data.students.find((s) => s.id === contract.studentId)?.name ?? "—",
+    cancellable: !terminal,
+    cancellableBlockReason: terminal
+      ? contract.status === "cancelled"
+        ? "Bu sözleşme zaten iptal edilmiş."
+        : "Bu sözleşme yenilenmiş/revize edilmiş eski bir sürümdür; iptal edilemez."
+      : undefined,
+    isCurrent: selectCurrentContract(contracts)?.id === contract.id,
+    installmentCount: installments.length,
+    collectedAmount: installments.reduce(
+      (s, r) =>
+        s +
+        collectedAmountOf({
+          // Tek kanonik tahsilat formülü; görünümdeki string statü çalışma anında gerçektir.
+          status: r.status as Parameters<typeof collectedAmountOf>[0]["status"],
+          amount: r.amount,
+          paidAmount: r.paidAmount,
+        }),
+      0
+    ),
+    outstandingAmount: debt.outstandingAmount,
+    unpaidInstallmentCount: debt.unpaidInstallmentCount,
+    futureLessonCount: future.lessons.length,
+    lockedLessonCount: future.lessons.filter((l) => lessonCancelBlockReason(l) !== null).length,
+    lockedReasons,
+    criticalPasswordConfigured: pw.configured,
+  });
+}
+
 export async function cancelStudentContractTool(
   ctx: ServiceContext,
   input: unknown
@@ -12739,11 +12830,46 @@ export async function cancelStudentContractTool(
        * Sözleşme Merkezi'ndeki onay ekranında bunu açıkça seçer.
        */
       cancelFutureLessons: z.boolean().default(false),
+      /** 10. tur iş #9 — iptal gerekçesi zorunlu (denetim izi, 5-500 karakter). */
+      reason: z.string().trim().min(5, "İptal gerekçesi en az 5 karakter olmalıdır.").max(500),
+      /** Onay için sözleşme numarasının aynen yazılması (yanlış satır koruması). */
+      confirmationNumber: z.string().trim().min(1, "Onay için sözleşme numarasını aynen yazın."),
+      /** Tek kritik işlem kapısı (bkz. checkCriticalPassword). */
+      criticalPassword: z.string().min(1, "Kritik işlem şifresi zorunludur."),
     }),
     input
   );
   if (!v.ok) return v;
+  // Reddedilen HER deneme audit'e 'denied' yazılır (öğrenci/paket silmeyle AYNI desen).
+  const deny = async (reasonCode: string, message: string) => {
+    await recordAuditLog({
+      tenantId: ctx.tenantId,
+      actorUserId: ctx.userId,
+      actorRole: ctx.role,
+      action: "contract.cancel",
+      entityType: "StudentContract",
+      entityId: v.data.contractId,
+      outcome: "denied",
+      meta: { reasonCode },
+    });
+    return fail("FORBIDDEN", message);
+  };
   try {
+    const contract = await getContract(ctx.tenantId, v.data.contractId);
+    if (!contract) return fail("NOT_FOUND", "Sözleşme bulunamadı.");
+    const allowed = await canAccessStudent(ctx, contract.studentId);
+    if (!allowed) return fail("FORBIDDEN", "Bu sözleşmeye erişim yetkiniz yok.");
+    if (contract.status === "cancelled" || contract.status === "superseded") {
+      return deny(
+        "already_terminal",
+        contract.status === "cancelled" ? "Bu sözleşme zaten iptal edilmiş." : "Yenilenmiş/revize edilmiş eski bir sürüm iptal edilemez."
+      );
+    }
+    const gate = await checkCriticalPassword(ctx, v.data.criticalPassword);
+    if (!gate.ok) return deny(gate.reasonCode, gate.message);
+    if (v.data.confirmationNumber !== contract.contractNumber) {
+      return deny("confirmation_mismatch", "Sözleşme numarası eşleşmedi. İptal edilecek sözleşmenin numarasını aynen yazın.");
+    }
     /**
      * Sıra bilinçli: ÖNCE dersler, SONRA sözleşme. Ders iptali kısmen
      * başarısız olursa sözleşme hâlâ aktiftir ve kullanıcı tekrar
@@ -12774,14 +12900,15 @@ export async function cancelStudentContractTool(
       }
     }
 
-    const contract = await cancelContract(ctx.tenantId, v.data.contractId);
-    if (!contract) return fail("NOT_FOUND", "Sözleşme bulunamadı.");
-    audit(ctx, "contract.cancel", "StudentContract", contract.id, {
+    const cancelled = await cancelContract(ctx.tenantId, v.data.contractId);
+    if (!cancelled) return fail("NOT_FOUND", "Sözleşme bulunamadı.");
+    audit(ctx, "contract.cancel", "StudentContract", cancelled.id, {
+      reason: v.data.reason,
       cancelFutureLessons: v.data.cancelFutureLessons,
       cancelledLessonCount: cancelledLessonIds.length,
       keptLessonCount: keptLessons.length,
     });
-    return ok({ contract, cancelledLessonIds, keptLessons });
+    return ok({ contract: cancelled, cancelledLessonIds, keptLessons });
   } catch (e) {
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "cancelStudentContract failed");
   }

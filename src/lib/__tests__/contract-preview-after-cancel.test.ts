@@ -9,6 +9,8 @@ import {
 } from "../services/tools";
 import { DEFAULT_TENANT_ID } from "../auth/config";
 import type { ServiceContext } from "../services/context";
+import { CRITICAL_ACTION_PASSWORD_FILE } from "../critical-action-password";
+import { setupCriticalPassword, secureCancelInput } from "./contract-cancel-test-helper";
 
 /**
  * Regresyon (2026-09-16) — "sözleşmeyi iptal ettim, yeniden oluştururken ödeme
@@ -109,6 +111,7 @@ function previewInput() {
 
 beforeEach(async () => {
   await fs.rm(DATA_FILE, { force: true });
+  await fs.rm(CRITICAL_ACTION_PASSWORD_FILE, { force: true });
   vi.clearAllMocks();
 });
 
@@ -135,7 +138,8 @@ describe("iptal edilen sözleşmeden sonra ödeme önizlemesi", () => {
     );
     expect(installmentPaymentsBefore.length).toBeGreaterThan(0);
 
-    const cancelled = await cancelStudentContractTool(adminCtx(), { contractId: created.data.contract.id });
+    await setupCriticalPassword();
+    const cancelled = await cancelStudentContractTool(adminCtx(), secureCancelInput(created.data.contract));
     expect(cancelled.ok).toBe(true);
     if (!cancelled.ok) return;
     expect(cancelled.data.contract.status).toBe("cancelled");
@@ -154,7 +158,8 @@ describe("iptal edilen sözleşmeden sonra ödeme önizlemesi", () => {
     const first = await createStudentContractTool(adminCtx(), contractInput());
     expect(first.ok).toBe(true);
     if (!first.ok) return;
-    await cancelStudentContractTool(adminCtx(), { contractId: first.data.contract.id });
+    await setupCriticalPassword();
+    await cancelStudentContractTool(adminCtx(), secureCancelInput(first.data.contract));
 
     const second = await createStudentContractTool(adminCtx(), contractInput());
     expect(second.ok).toBe(true);

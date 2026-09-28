@@ -21,6 +21,8 @@ import { DOCUMENT_TEMPLATES_FILE, DOCUMENT_INSTANCES_FILE } from "../documents";
 import { readData } from "../store";
 import { DEFAULT_TENANT_ID } from "../auth/config";
 import type { ServiceContext } from "../services/context";
+import { CRITICAL_ACTION_PASSWORD_FILE } from "../critical-action-password";
+import { setupCriticalPassword, secureCancelInput } from "./contract-cancel-test-helper";
 
 const DATA_FILE = path.join(resolveDataDir(path.join(process.cwd(), "data")), "store.json");
 
@@ -33,6 +35,7 @@ beforeEach(async () => {
   await fs.rm(STUDENT_CONTRACTS_FILE, { force: true });
   await fs.rm(DOCUMENT_TEMPLATES_FILE, { force: true });
   await fs.rm(DOCUMENT_INSTANCES_FILE, { force: true });
+  await fs.rm(CRITICAL_ACTION_PASSWORD_FILE, { force: true });
 });
 
 async function seedRegistrationFirstPayment(studentId: string, amount: number, collectedAt: string) {
@@ -289,10 +292,11 @@ describe("Senaryo 6 — iptal edilmiş sözleşme ödeme kaynağı OLAMAZ", () =
     if (!created.ok) return;
     expect((await calendarPlan(2026, 10)).state).toBe("ok");
 
-    const cancelled = await cancelStudentContractTool(adminCtx(), {
-      contractId: created.data.contract.id,
-      reason: "P0 testi — iptal senaryosu",
-    });
+    await setupCriticalPassword();
+    const cancelled = await cancelStudentContractTool(
+      adminCtx(),
+      secureCancelInput(created.data.contract, { reason: "P0 testi — iptal senaryosu" })
+    );
     expect(cancelled.ok).toBe(true);
 
     // İptal edilen sözleşmenin satırları ödeme kaynağı olamaz (8. tur: sözleşmesiz plana da karışmaz).

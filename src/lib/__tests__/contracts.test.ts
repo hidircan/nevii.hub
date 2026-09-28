@@ -35,6 +35,8 @@ import { DEFAULT_TENANT_ID } from "../auth/config";
 import type { ServiceContext } from "../services/context";
 import { STUDENT_PORTAL_ACCESS_FILE } from "../student-portal-access";
 import { grantStudentAccess } from "./portal-access-test-helper";
+import { CRITICAL_ACTION_PASSWORD_FILE } from "../critical-action-password";
+import { setupCriticalPassword, secureCancelInput } from "./contract-cancel-test-helper";
 
 const DATA_FILE = path.join(resolveDataDir(path.join(process.cwd(), "data")), "store.json");
 
@@ -54,6 +56,7 @@ beforeEach(async () => {
   await fs.rm(DOCUMENT_TEMPLATES_FILE, { force: true });
   await fs.rm(DOCUMENT_INSTANCES_FILE, { force: true });
   await fs.rm(STUDENT_PORTAL_ACCESS_FILE, { force: true });
+  await fs.rm(CRITICAL_ACTION_PASSWORD_FILE, { force: true });
 });
 
 /**
@@ -790,7 +793,8 @@ describe("Faz 5 (ENROLLMENT_PAYMENT_RENEWAL_VALIDATION_FIX) — iptal edilmiş s
     expect(created.ok).toBe(true);
     if (!created.ok) return;
 
-    const cancelled = await cancelStudentContractTool(adminCtx(), { contractId: created.data.contract.id });
+    await setupCriticalPassword();
+    const cancelled = await cancelStudentContractTool(adminCtx(), secureCancelInput(created.data.contract));
     expect(cancelled.ok).toBe(true);
     if (!cancelled.ok) return;
     expect(cancelled.data.contract.status).toBe("cancelled");

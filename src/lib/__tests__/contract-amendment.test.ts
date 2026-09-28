@@ -13,6 +13,8 @@ import { DOCUMENT_TEMPLATES_FILE, DOCUMENT_INSTANCES_FILE } from "../documents";
 import { DEFAULT_TENANT_ID } from "../auth/config";
 import type { ServiceContext } from "../services/context";
 import { STUDENT_PORTAL_ACCESS_FILE } from "../student-portal-access";
+import { CRITICAL_ACTION_PASSWORD_FILE } from "../critical-action-password";
+import { setupCriticalPassword, secureCancelInput } from "./contract-cancel-test-helper";
 
 const DATA_FILE = path.join(resolveDataDir(path.join(process.cwd(), "data")), "store.json");
 
@@ -26,6 +28,7 @@ beforeEach(async () => {
   await fs.rm(DOCUMENT_TEMPLATES_FILE, { force: true });
   await fs.rm(DOCUMENT_INSTANCES_FILE, { force: true });
   await fs.rm(STUDENT_PORTAL_ACCESS_FILE, { force: true });
+  await fs.rm(CRITICAL_ACTION_PASSWORD_FILE, { force: true });
 });
 
 async function seedRegistrationFirstPayment(studentId: string, amount: number, collectedAt: string) {
@@ -155,7 +158,8 @@ describe("createStudentContractTool — revizyon (amendment)", () => {
 
   it("iptal edilmiş sözleşme revize edilemez", async () => {
     const initial = await createInitial();
-    const cancelled = await cancelStudentContractTool(adminCtx(), { contractId: initial.contract.id });
+    await setupCriticalPassword();
+    const cancelled = await cancelStudentContractTool(adminCtx(), secureCancelInput(initial.contract));
     expect(cancelled.ok).toBe(true);
     const res = await createStudentContractTool(adminCtx(), amendInput(initial.contract.id));
     expect(res.ok).toBe(false);
