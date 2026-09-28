@@ -942,6 +942,24 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
         });
       }
 
+      // 11. tur iş #11 — T.C. checksum kapısı KAYITTAN ÖNCE: geçersiz numara
+      // aşağıdaki post-create `setNationalIdTool` yolunda sessizce düşüyordu
+      // (öğrenci oluşmuş, kimlik kaybolmuş, kullanıcı kaydedildi sanıyordu —
+      // PII bütünlük kaybı). Burada reddedilince kayıt HİÇ oluşmaz, form
+      // değerler korunarak açık kalır ve alan işaretlenir.
+      const nationalIdRaw = String(formData.get("nationalId") || "").trim();
+      if (nationalIdRaw) {
+        const { isValidTurkishNationalId } = await import("./pii");
+        if (!isValidTurkishNationalId(nationalIdRaw)) {
+          const msg = "T.C. kimlik no geçersiz — 11 haneli, doğru bir numara girin veya boş bırakın.";
+          throw new ToolValidationFailure({
+            code: "VALIDATION_ERROR",
+            message: msg,
+            details: { fieldErrors: { nationalId: [msg] } },
+          });
+        }
+      }
+
       const createdResult = await createStudentTool(ctx, {
           name: String(formData.get("name") || ""),
           email: String(formData.get("email") || ""),
@@ -1066,9 +1084,9 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
 
       // T.C. kimlik — şifreli saklama, mevcut setNationalIdTool üzerinden
       // (asla düz metin Student.nationalIdCipher dışında bir yere yazılmaz).
-      const nationalId = String(formData.get("nationalId") || "").trim();
-      if (nationalId) {
-        await setNationalIdTool(ctx, { entity: "student", entityId: created.studentId, nationalId });
+      // Checksum yukarıda kayıt ÖNCESİ doğrulandı; burası yalnızca yazar.
+      if (nationalIdRaw) {
+        await setNationalIdTool(ctx, { entity: "student", entityId: created.studentId, nationalId: nationalIdRaw });
       }
 
       // P0 (2026-09-05) — sosyal medya (fotoğraf/video) izni ARTIK kayıt
@@ -2460,6 +2478,21 @@ export async function actionAddTeacher(_prevState: NewTeacherFormState, formData
           // geçersiz JSON — varsayılan müsaitliğe düş
         }
       }
+      // 11. tur iş #11 — T.C. checksum kapısı KAYITTAN ÖNCE (öğrenci
+      // action'ındaki AYNI desen): geçersiz numara post-create yolunda
+      // sessizce düşüyordu.
+      const teacherNationalIdRaw = String(formData.get("nationalId") || "").trim();
+      if (teacherNationalIdRaw) {
+        const { isValidTurkishNationalId } = await import("./pii");
+        if (!isValidTurkishNationalId(teacherNationalIdRaw)) {
+          const msg = "T.C. kimlik no geçersiz — 11 haneli, doğru bir numara girin veya boş bırakın.";
+          throw new ToolValidationFailure({
+            code: "VALIDATION_ERROR",
+            message: msg,
+            details: { fieldErrors: { nationalId: [msg] } },
+          });
+        }
+      }
       const createdResult = await createTeacherTool(ctx, {
         name: String(formData.get("name") || ""),
         email: String(formData.get("email") || ""),
@@ -2499,9 +2532,9 @@ export async function actionAddTeacher(_prevState: NewTeacherFormState, formData
 
       // T.C. kimlik — şifreli saklama, mevcut setNationalIdTool üzerinden
       // (öğrenci create formuyla aynı desen — asla düz metin bir yere yazılmaz).
-      const nationalId = String(formData.get("nationalId") || "").trim();
-      if (nationalId) {
-        await setNationalIdTool(ctx, { entity: "teacher", entityId: created.teacherId, nationalId });
+      // Checksum yukarıda kayıt ÖNCESİ doğrulandı; burası yalnızca yazar.
+      if (teacherNationalIdRaw) {
+        await setNationalIdTool(ctx, { entity: "teacher", entityId: created.teacherId, nationalId: teacherNationalIdRaw });
       }
 
       // Portal erişim yönetimi görevi — `actionAddStudent`'taki AYNI desen:

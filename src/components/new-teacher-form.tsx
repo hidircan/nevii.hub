@@ -82,7 +82,8 @@ export function NewTeacherForm({
           </div>
           <div>
             <Label>T.C. kimlik no (opsiyonel — şifreli saklanır)</Label>
-            <Input name="nationalId" inputMode="numeric" maxLength={11} placeholder="11 haneli" />
+            <Input name="nationalId" inputMode="numeric" maxLength={11} placeholder="11 haneli" aria-invalid={!!fieldErrors.nationalId} />
+            <FieldError message={fieldErrors.nationalId} />
           </div>
         </div>
       </Card>

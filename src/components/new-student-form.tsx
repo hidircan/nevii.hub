@@ -439,7 +439,8 @@ export function NewStudentForm({
           </div>
           <div>
             <Label>T.C. kimlik no (opsiyonel — şifreli saklanır)</Label>
-            <Input name="nationalId" defaultValue={v("nationalId")} inputMode="numeric" maxLength={11} placeholder="11 haneli" />
+            <Input name="nationalId" defaultValue={v("nationalId")} inputMode="numeric" maxLength={11} placeholder="11 haneli" aria-invalid={!!fieldErrors.nationalId} />
+            <FieldError message={fieldErrors.nationalId} />
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div>
@@ -508,7 +509,8 @@ export function NewStudentForm({
           <div className="grid grid-cols-2 gap-2">
             <div>
               <Label>Doğum tarihi (opsiyonel)</Label>
-              <Input name="birthDate" type="date" defaultValue={v("birthDate")} />
+              <Input name="birthDate" type="date" defaultValue={v("birthDate")} aria-invalid={!!fieldErrors.birthDate} />
+              <FieldError message={fieldErrors.birthDate} />
             </div>
             <div>
               <Label>Doğum yeri (opsiyonel)</Label>
