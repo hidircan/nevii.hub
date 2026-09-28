@@ -1230,3 +1230,19 @@ aynı veriyi aynı yoldan mı okuyor?" diye bak.
   güncelliği ref aynasıyla korunur. El-yapımı diyaloglar (öğrenci tekli/kritik) aynı deseni kullanır.
 - Gerekçe `onChange` içindeki `.slice(0,500)` IME birleşimini bozma riski taşıyordu; sınır `maxLength` özniteliğine
   taşındı (sunucu `z.string().max(500)` değişmedi — gerçek koruma sunucuda).
+
+### 2026-09-28 (10. tur kalite kapısı) — erişim çözümleyiciyi yenilerken bootstrap yedeğini düşürme
+- `portal-context.ts` (`resolvePortalStudent`) erişim satırı bulamayınca doğrudan `no-access` dönüyordu; oysa
+  `getActiveAccessType`/`hasActiveStudentAccess` DB-dışı modlarda kaydı olmayan demo (HASHED) kullanıcı için
+  `User.studentId` eşleşmesine dayanan bir bootstrap yedeği içerir. Sonuç: demo öğrenci girişi mobil
+  `/api/v1/mobile/session`'da `portalAccessType: null` + `studentId` yok döndü (web portal da aynı yoldan
+  etkilenirdi). Kural: erişim çözümleyen HER yeni yol, yedeği de uygulamalıdır — burada `getActiveAccessType`
+  ile doğrulanıp sentetik SELF satırı normal akışa sokulur (aktiflik/silinmişlik kuralları demo kullanıcıya da
+  uygulanır). Regresyon kilidi: `mobile-session-route.test.ts` STUDENT senaryosu.
+- Statik kaynak-kilitli testler (`toMatch(/const .../)`) davranışı değil METNİ kilitler: revizyon kipi
+  `needsFirstPaymentEntryBase` satırını genişletince `contract-duration-first-contract-due-date` testi kırıldı
+  (davranış initial/renewal için aynıydı). Kural: kilitli satıra dokunma, istisnayı TÜRETİLMİŞ satıra
+  (`needsFirstPaymentEntry`) taşı.
+- Neviios kurum-dili i18n'i giriş formundaki "Şifremi unuttum" sabit metnini `copy.forgot` anahtarına taşıyınca
+  `password-reset-ui` testi tabanda kırmızı kaldı (bağlantı çalışıyordu). Kural: etiketi sözlükten okuyan
+  bileşenlerde test de sözlüğü doğrular (`authCopy("tr").forgot`), bileşen kaynağında sabit metin aranmaz.

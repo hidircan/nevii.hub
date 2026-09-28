@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "fs";
 import path from "path";
+import { authCopy } from "../i18n/copy";
 
 /**
  * P0 UAT (2026-09-08) — "Login ekranında Şifremi unuttum akışı yok".
@@ -21,7 +22,13 @@ const ROUTE = readFileSync(path.join(ROOT, "src/app/api/v1/auth/forgot-password/
 describe("Giriş ekranı — şifremi unuttum erişilebilir", () => {
   it("`/sifre-sifirla` bağlantısı vardır", () => {
     expect(LOGIN).toMatch(/href="\/sifre-sifirla"/);
-    expect(LOGIN).toContain("Şifremi unuttum");
+    // Kök neden (neviios kurum dili): etiket bileşende sabit metin DEĞİL,
+    // i18n anahtarıdır (`copy.forgot`). Niyet aynı kalır — TR karşılığı
+    // "Şifremi unuttum" olmalıdır — ama doğruluk kaynağı bileşenin
+    // kullandığı SÖZLÜKTÜR (3 admin sıfırlama testindeki codeLabel
+    // deseniyle aynı).
+    expect(LOGIN).toContain("copy.forgot");
+    expect(authCopy("tr").forgot).toBe("Şifremi unuttum");
   });
 });
 

@@ -791,8 +791,7 @@ function ContractForm({
   // gönderilmeden tarih değiştirilebilir, istisna kuralı aynen korunur.
   // 2026-09-19 — ilk sözleşmede kayıtta tahsilat yoksa (sistemde önceden kayıtlı öğrenci)
   // ilk tahsilat da bu formda girilir; yenilemeyle AYNI alanlar ve AYNI doğrulama.
-  // Revizyon YENİ bir tahsilat anı yaratmaz (sunucu da istemez) — ilk tahsilat bölümü kapalıdır.
-  const needsFirstPaymentEntryBase = isRenewal || (!isAmendment && !registration?.firstPayment);
+  const needsFirstPaymentEntryBase = isRenewal || !registration?.firstPayment;
   const [firstPaymentCollectedAt, setFirstPaymentCollectedAt] = useContractDraft(draftKey, "firstPaymentCollectedAt", 
     needsFirstPaymentEntryBase ? todayLocalDateOnly() : enrollmentStartDate
   );
@@ -823,7 +822,8 @@ function ContractForm({
   })();
 
   const isFormal = durationMonths >= 3;
-  const needsFirstPaymentEntry = isFormal && needsFirstPaymentEntryBase;
+  // Revizyon YENİ bir tahsilat anı yaratmaz (sunucu da istemez) — ilk tahsilat bölümü kapalıdır.
+  const needsFirstPaymentEntry = isFormal && needsFirstPaymentEntryBase && !isAmendment;
 
   function changeDuration(next: number) {
     setDurationMonths(next);

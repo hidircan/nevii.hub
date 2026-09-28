@@ -120,7 +120,35 @@ export async function resolvePortalStudent(
 ): Promise<PortalResolution> {
   const { listAccessForUser } = await import("./student-portal-access");
   const rows = await listAccessForUser(tenantId, userId);
-  const active = rows.filter((r) => r.status === "active");
+  let active = rows.filter((r) => r.status === "active");
+  if (active.length === 0 && preferredStudentId) {
+    // Bootstrap sözleşmesi (student-portal-access.ts'teki fallback ile AYNI):
+    // DB-dışı modlarda kaydı olmayan demo (HASHED) kullanıcı, User.studentId
+    // eşleşirse SELF sayılır. `getActiveAccessType` bu yedeği İÇERİR (DB
+    // modunda asla); sentetik satır normal yoldan akar — öğrenci aktifliği
+    // /silinmişlik kuralları demo kullanıcılara da uygulanır.
+    const { getActiveAccessType } = await import("./student-portal-access");
+    const fallbackType = await getActiveAccessType(tenantId, userId, preferredStudentId);
+    if (fallbackType) {
+      const now = new Date().toISOString();
+      active = [
+        {
+          id: `bootstrap:${userId}:${preferredStudentId}`,
+          tenantId,
+          userId,
+          studentId: preferredStudentId,
+          accessType: fallbackType,
+          status: "active",
+          invitedBy: null,
+          invitedAt: now,
+          activatedAt: now,
+          revokedAt: null,
+          createdAt: now,
+          updatedAt: now,
+        },
+      ];
+    }
+  }
   if (active.length === 0) return { status: "no-access", siblings: [] };
   const { runWithTenantAsync } = await import("./tenant-context");
   const { readData } = await import("./store");
