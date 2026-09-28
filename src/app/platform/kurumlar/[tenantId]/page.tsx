@@ -8,6 +8,7 @@ import { roleLabelTr } from "@/lib/auth/role-labels";
 import type { AppRole } from "@/lib/auth/types";
 import { LifecycleControl, ProvisionPanel } from "@/components/platform/tenant-admin-controls";
 import { formatInLocale, institutionNameMismatch } from "@/lib/i18n/copy";
+import { sanitizeLogoUrl, withLogoVersion, logoUrlStamp } from "@/lib/institution-logo";
 
 export const dynamic = "force-dynamic";
 
@@ -51,12 +52,16 @@ export default async function TenantOverviewPage({ params }: { params: Promise<{
           </p>
         ) : null}
         <div className="mt-3 flex flex-wrap gap-4">
-          {school?.logoUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={school.logoUrl} alt="" className="h-16 w-auto max-w-[200px] rounded bg-white object-contain p-1" />
-          ) : (
-            <p className="text-sm text-[var(--color-text-muted)]">Logo {blank}</p>
-          )}
+          {(() => {
+            const safe = sanitizeLogoUrl(school?.logoUrl);
+            const versioned = safe ? (withLogoVersion(safe, logoUrlStamp(safe)) ?? safe) : null;
+            return versioned ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={versioned} alt="" className="h-16 w-auto max-w-[200px] rounded bg-white object-contain p-1" />
+            ) : (
+              <p className="text-sm text-[var(--color-text-muted)]">Logo {blank}</p>
+            );
+          })()}
           <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
             <dt className="text-[var(--color-text-muted)]">Tenant adı</dt>
             <dd>{tenant.name || blank}</dd>

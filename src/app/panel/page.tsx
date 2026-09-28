@@ -16,6 +16,7 @@ import { LessonStatusBadge } from "@/components/lesson-status-badge";
 import { DashboardBranchSwitcher } from "@/components/dashboard-branch-switcher";
 import { DashboardGrid } from "@/components/dashboard-layout-editor";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
+import { InstitutionWelcome } from "@/components/institution-welcome";
 import { AssistantPageContext } from "@/components/ai/assistant-page-context";
 import { requireSessionContext } from "@/lib/auth/session";
 import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
@@ -554,6 +555,7 @@ export default async function DashboardPage({
   return (
     <div>
       <KurumScopeNote scope={kurum.scope} />
+      <InstitutionWelcome session={session} />
       <AssistantPageContext entity={{ kind: "page", label: "Günlük özet" }} />
       <PageHeader
         title="Günlük özet"
