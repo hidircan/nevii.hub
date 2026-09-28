@@ -22,6 +22,11 @@ import {
   sortContractsForDisplay,
 } from "@/lib/contract-list-helpers";
 import { prefillFromContract } from "@/lib/contract-prefill";
+import {
+  diffContractRevision,
+  previousContractUsesPerLessonBilling,
+  type RevisionComparable,
+} from "@/lib/contract-revision";
 import { formatDateTr } from "@/lib/timezone";
 import { paymentMethodLabelTr } from "@/lib/utils";
 import { friendlyApiErrorMessage } from "@/lib/api/friendly-error";
@@ -55,6 +60,25 @@ type ContractRow = {
   createdAt?: string;
   /** 1-2 aylık tanışma paketi kayıtlarında yok — formal sözleşme belgesi üretilmedi. */
   documentInstanceId?: string;
+  /** 10. tur iş #4 (revizyon ön-doldurma) — sayfa tam sözleşme satırını geçiyor, bu alanlar opsiyonel okunur. */
+  durationMonths?: number;
+  depositAmount?: number;
+  signatoryNationalId?: string;
+  signatoryAddress?: string;
+  signatoryRelationship?: string;
+  /** Revizyon ön-doldurma + motor tespiti için donmuş snapshot (sayfa zaten tam satırı geçiyor). */
+  contractDataSnapshot?: {
+    lessonScheduleText?: string;
+    photoVideoConsent?: { granted: boolean; scopes?: string[] };
+    kvkkNoticeDelivered?: boolean;
+    installments?: Array<{
+      sequence?: number;
+      kind?: string;
+      dueDate?: string;
+      amount?: number;
+      computationSource?: string;
+    }>;
+  };
 };
 
 type InstallmentPreviewRow = {
@@ -604,6 +628,7 @@ function ContractCreatedPanel({
 function ContractForm({
   studentId,
   previousContract,
+  reviseMode,
   prefill,
   registration,
   onDone,
@@ -611,6 +636,9 @@ function ContractForm({
 }: {
   studentId: string;
   previousContract: ContractRow | null;
+  /** 10. tur iş #4 — true ise form REVİZYON kipindedir: önceki sözleşmenin tüm
+   * değerleriyle ön-doldurulur, gönderimde `amendment` sürümü üretilir. */
+  reviseMode?: boolean;
   prefill?: ContractPrefill;
   registration?: RegistrationSummary;
   /** Oluşan sözleşmeyi ÜST bileşene taşır — başarı ekranı CTA'ları bundan üretilir. */
@@ -618,8 +646,10 @@ function ContractForm({
   onCancel: () => void;
 }) {
   const router = useRouter();
-  const isRenewal = !!previousContract;
-  const draftKey = `${studentId}:${previousContract?.id ?? "initial"}`;
+  const isAmendment = reviseMode === true && !!previousContract;
+  const isRenewal = !!previousContract && !isAmendment;
+  // Revizyon taslağı, AYNI sözleşmenin yenileme taslağıyla çakışmasın diye ayrı anahtar kullanır.
+  const draftKey = `${studentId}:${previousContract?.id ?? "initial"}${isAmendment ? ":revize" : ""}`;
   // Taslak yalnız bellekte: yenileme/sekme kapatma onu siler → kaydedilmemiş girdi varken tarayıcı uyarır.
   useEffect(() => {
     const warn = (event: BeforeUnloadEvent) => {
@@ -632,19 +662,38 @@ function ContractForm({
   // P0 (2026-09-03) — yalnız YENİ (initial) kayıt akışından, per-lesson
   // fiyatlandırma kullanan bir öğrenci için gelir; yenilemede prefill zaten
   // undefined olduğundan bu her zaman false kalır — eski davranış korunur.
-  const usePerLessonBilling = !isRenewal && (prefill?.usePerLessonBilling ?? false);
-  const [lessonScheduleText, setLessonScheduleText] = useContractDraft(draftKey, "lessonScheduleText", prefill?.lessonScheduleText ?? "");
-  const [enrollmentStartDate, setEnrollmentStartDate] = useContractDraft(draftKey, "enrollmentStartDate", 
+  // Revizyonda ise kural FARKLIDIR: önizleme/üretim, revize edilen sözleşmeyle
+  // AYNI motordan geçmelidir (sessiz motor değişimi YOK).
+  const usePerLessonBilling = isAmendment
+    ? previousContractUsesPerLessonBilling(previousContract?.contractDataSnapshot)
+    : !isRenewal && (prefill?.usePerLessonBilling ?? false);
+  // Revizyonda ders programı ÖNCEKİ sözleşmenin donmuş metninden gelir (öğrenci
+  // kaydındaki güncel değerden DEĞİL — sessiz değişiklik olmasın diye).
+  const [lessonScheduleText, setLessonScheduleText] = useContractDraft(draftKey, "lessonScheduleText",
+    isAmendment
+      ? (previousContract!.contractDataSnapshot?.lessonScheduleText ?? prefill?.lessonScheduleText ?? "")
+      : (prefill?.lessonScheduleText ?? "")
+  );
+  const [enrollmentStartDate, setEnrollmentStartDate] = useContractDraft(draftKey, "enrollmentStartDate",
     isRenewal
       ? dayAfter(previousContract!.enrollmentEndDate)
-      : (prefill?.enrollmentStartDate?.slice(0, 10) ?? "")
+      : isAmendment
+        ? (previousContract!.enrollmentStartDate.slice(0, 10))
+        : (prefill?.enrollmentStartDate?.slice(0, 10) ?? "")
   );
-  const [durationMonths, setDurationMonths] = useContractDraft(draftKey, "durationMonths", isRenewal ? 3 : (prefill?.durationMonths ?? 1));
+  const [durationMonths, setDurationMonths] = useContractDraft(draftKey, "durationMonths",
+    isRenewal ? 3 : isAmendment ? (previousContract!.durationMonths ?? prefill?.durationMonths ?? 3) : (prefill?.durationMonths ?? 1)
+  );
   // Bitiş tercihi (bkz. contracts.ts computeContractEndDate) — iki seçenekte de son taksit N. aydadır.
   const [endDatePreference, setEndDatePreference] = useContractDraft<"month_end" | "date_based">(draftKey, "endDatePreference", "month_end");
   // Sahip kararı (2026-09-16) — ilk tahsilat takip eden ayı da kapsıyor mu?
   // Varsayılan, kayıt ekranında verilen ve ödemeye yazılan seçimdir; burada değiştirilebilir.
-  const [mergeFirstCollection, setMergeFirstCollection] = useContractDraft(draftKey, "mergeFirstCollection", registration?.firstCollectionIncludesNextMonth ?? false);
+  // Revizyonda varsayılan ÖNCEKİ sözleşmenin donmuş ilk satırından okunur (birleştirilmiş miydi?).
+  const [mergeFirstCollection, setMergeFirstCollection] = useContractDraft(draftKey, "mergeFirstCollection",
+    isAmendment
+      ? (previousContract!.contractDataSnapshot?.installments ?? []).some((r) => r.kind === "first_collection_combined")
+      : (registration?.firstCollectionIncludesNextMonth ?? false)
+  );
   // Önizleme tablosunda elle düzenlenen taksit tutarları (sıra no → tutar).
   const [amountOverrides, setAmountOverrides] = useContractDraft<Record<number, number>>(draftKey, "amountOverrides", {});
   // 2026-09-19 — önizlemede elle değiştirilen vade tarihleri (sıra no → yyyy-MM-dd). Otomatik
@@ -662,33 +711,74 @@ function ContractForm({
   // ücretlendirilsin?" — yalnız per-lesson fiyatlandırma (usePerLessonBilling)
   // kullanan öğrenciler için anlamlı; "remaining_lessons" (varsayılan/eski
   // davranış) motorun zaten yaptığı şeydir, DEĞİŞİKLİK YOK.
-  const [lastPeriodPricingMode, setLastPeriodPricingMode] = useContractDraft<"remaining_lessons" | "regular_fee" | "manual">(draftKey, "lastPeriodPricingMode", 
-    "remaining_lessons"
+  // Revizyonda önceki sözleşmenin son satırı manuel ise seçim + tutar taşınır.
+  const prevLastInstallment = isAmendment
+    ? [...(previousContract!.contractDataSnapshot?.installments ?? [])].sort(
+        (a, b) => (a.sequence ?? 0) - (b.sequence ?? 0)
+      ).at(-1)
+    : undefined;
+  const [lastPeriodPricingMode, setLastPeriodPricingMode] = useContractDraft<"remaining_lessons" | "regular_fee" | "manual">(draftKey, "lastPeriodPricingMode",
+    prevLastInstallment?.computationSource === "manual" ? "manual" : "remaining_lessons"
   );
-  const [lastPeriodManualAmount, setLastPeriodManualAmount] = useContractDraft<number | "">(draftKey, "lastPeriodManualAmount", "");
+  const [lastPeriodManualAmount, setLastPeriodManualAmount] = useContractDraft<number | "">(draftKey, "lastPeriodManualAmount",
+    prevLastInstallment?.computationSource === "manual" ? (prevLastInstallment.amount ?? "") : ""
+  );
   // P0 (2026-09-03) — `firstPaymentAmount`/`depositAmount` ile AYNI desen
   // (new-student-form.tsx'te de kullanılan proje standardı): başlangıçta
   // BOŞ, "0" görünmez, kullanıcı doğrudan yazar. `!monthlyAmount` guard'ı
   // (validateForm) "" için zaten falsy döner, otomatik 0'a ÇEVİRMEZ.
   const [monthlyAmount, setMonthlyAmount] = useContractDraft<number | "">(draftKey, "monthlyAmount", previousContract?.monthlyAmount ?? prefill?.monthlyAmount ?? "");
-  const [installmentCount, setInstallmentCount] = useContractDraft(draftKey, "installmentCount", isRenewal ? 3 : (prefill?.durationMonths ?? 1));
-  const [firstDueDate, setFirstDueDate] = useContractDraft(draftKey, "firstDueDate", 
-    isRenewal ? dayAfter(previousContract!.enrollmentEndDate) : (prefill?.enrollmentStartDate?.slice(0, 10) ?? "")
+  const [installmentCount, setInstallmentCount] = useContractDraft(draftKey, "installmentCount",
+    isRenewal ? 3 : isAmendment ? previousContract!.installmentCount : (prefill?.durationMonths ?? 1)
   );
-  const [depositAmount, setDepositAmount] = useContractDraft<number | "">(draftKey, "depositAmount", "");
+  const [firstDueDate, setFirstDueDate] = useContractDraft(draftKey, "firstDueDate",
+    isRenewal
+      ? dayAfter(previousContract!.enrollmentEndDate)
+      : isAmendment
+        ? previousContract!.enrollmentStartDate.slice(0, 10)
+        : (prefill?.enrollmentStartDate?.slice(0, 10) ?? "")
+  );
+  const [depositAmount, setDepositAmount] = useContractDraft<number | "">(draftKey, "depositAmount",
+    isAmendment ? (previousContract!.depositAmount ?? "") : ""
+  );
   const [paymentMethod, setPaymentMethod] = useContractDraft(draftKey, "paymentMethod", previousContract?.paymentMethod ?? prefill?.paymentMethod ?? "cash");
   // İmzalayan, kayıttaki ödeme/iletişim muhatabından (veli ↔ öğrenci) ve adresten ön doldurulur — aynı bilgi iki kez girilmez.
+  // Revizyonda ise ÖNCEKİ sözleşmenin imzacı/iletişim/izin değerleri taşınır:
+  // kullanıcı değiştirmezse yeni sürümde SESSİZCE kaybolmazlar.
   const [signatoryFullName, setSignatoryFullName] = useContractDraft(draftKey, "signatoryFullName", previousContract?.signatoryFullName ?? registration?.signatoryName ?? "");
-  const [signatoryNationalId, setSignatoryNationalId] = useContractDraft(draftKey, "signatoryNationalId", "");
-  const [signatoryAddress, setSignatoryAddress] = useContractDraft(draftKey, "signatoryAddress", registration?.address ?? "");
-  const [signatoryRelationship, setSignatoryRelationship] = useContractDraft<"veli" | "öğrenci">(draftKey, "signatoryRelationship", 
-    registration?.signatoryRelationship ?? "veli"
+  const [signatoryNationalId, setSignatoryNationalId] = useContractDraft(draftKey, "signatoryNationalId",
+    isAmendment ? (previousContract!.signatoryNationalId ?? "") : ""
   );
-  const [photoConsent, setPhotoConsent] = useContractDraft<"granted" | "denied" | "unset">(draftKey, "photoConsent", "unset");
-  const [photoScopes, setPhotoScopes] = useContractDraft<Set<string>>(draftKey, "photoScopes", new Set());
-  const [kvkkNoticeDelivered, setKvkkNoticeDelivered] = useContractDraft(draftKey, "kvkkNoticeDelivered", false);
+  const [signatoryAddress, setSignatoryAddress] = useContractDraft(draftKey, "signatoryAddress",
+    isAmendment ? (previousContract!.signatoryAddress ?? registration?.address ?? "") : (registration?.address ?? "")
+  );
+  const [signatoryRelationship, setSignatoryRelationship] = useContractDraft<"veli" | "öğrenci">(draftKey, "signatoryRelationship",
+    isAmendment && previousContract!.signatoryRelationship === "öğrenci"
+      ? "öğrenci"
+      : isAmendment && previousContract!.signatoryRelationship === "veli"
+        ? "veli"
+        : (registration?.signatoryRelationship ?? "veli")
+  );
+  const [photoConsent, setPhotoConsent] = useContractDraft<"granted" | "denied" | "unset">(draftKey, "photoConsent",
+    isAmendment
+      ? previousContract!.contractDataSnapshot?.photoVideoConsent == null
+        ? "unset"
+        : previousContract!.contractDataSnapshot.photoVideoConsent.granted
+          ? "granted"
+          : "denied"
+      : "unset"
+  );
+  const [photoScopes, setPhotoScopes] = useContractDraft<Set<string>>(draftKey, "photoScopes",
+    new Set(isAmendment ? (previousContract!.contractDataSnapshot?.photoVideoConsent?.scopes ?? []) : [])
+  );
+  const [kvkkNoticeDelivered, setKvkkNoticeDelivered] = useContractDraft(draftKey, "kvkkNoticeDelivered",
+    isAmendment ? (previousContract!.contractDataSnapshot?.kvkkNoticeDelivered ?? false) : false
+  );
   const [allowOverlap, setAllowOverlap] = useContractDraft(draftKey, "allowOverlap", false);
   const [overlapReason, setOverlapReason] = useContractDraft(draftKey, "overlapReason", "");
+  // 10. tur iş #4 — revizyon gerekçesi (zorunlu): denetim izidir ve sunucudaki
+  // örtüşme gerekçesine eşlenir — revizyon aynı dönemi kapsar, örtüşme beklenen durumdur.
+  const [revisionReason, setRevisionReason] = useContractDraft(draftKey, "revisionReason", "");
   // Owner policy (2026-08-29) — "İlk ödeme her zaman kayıt esnasında alınacaktır." Kayıt anı
   // tahsilatı, taksit planındaki 1. taksitin (firstDueDate) ödeme PENCERESİ kontrolünden AYRI bir
   // olgu: bu, paranın GERÇEKTEN ne zaman/hangi yöntemle/ne kadar tahsil edildiğinin kaydıdır.
@@ -701,7 +791,8 @@ function ContractForm({
   // gönderilmeden tarih değiştirilebilir, istisna kuralı aynen korunur.
   // 2026-09-19 — ilk sözleşmede kayıtta tahsilat yoksa (sistemde önceden kayıtlı öğrenci)
   // ilk tahsilat da bu formda girilir; yenilemeyle AYNI alanlar ve AYNI doğrulama.
-  const needsFirstPaymentEntryBase = isRenewal || !registration?.firstPayment;
+  // Revizyon YENİ bir tahsilat anı yaratmaz (sunucu da istemez) — ilk tahsilat bölümü kapalıdır.
+  const needsFirstPaymentEntryBase = isRenewal || (!isAmendment && !registration?.firstPayment);
   const [firstPaymentCollectedAt, setFirstPaymentCollectedAt] = useContractDraft(draftKey, "firstPaymentCollectedAt", 
     needsFirstPaymentEntryBase ? todayLocalDateOnly() : enrollmentStartDate
   );
@@ -738,6 +829,8 @@ function ContractForm({
     setDurationMonths(next);
     // Taksit sayısı süreyle eşitse birlikte ilerler (kullanıcı ayrıca değiştirmediyse).
     if (installmentCount === durationMonths) setInstallmentCount(next);
+    // Yenileme YENİ bir dönemdir (kayda yazılmaz); revizyon MEVCUT dönemi
+    // düzeltir — ilk kayıttaki gibi kalıcı niyet olarak kayda da yazılır.
     if (isRenewal) return;
     if (durationSaveTimer.current) clearTimeout(durationSaveTimer.current);
     durationSaveTimer.current = setTimeout(async () => {
@@ -777,6 +870,50 @@ function ContractForm({
     isRenewal && isValidDateOnlyInput(enrollmentStartDate)
       ? new Date(enrollmentStartDate).getTime() < new Date(previousContract!.enrollmentEndDate).getTime()
       : false;
+
+  // 10. tur iş #4 — CANLI değişiklik özeti: her render'da güncel form
+  // girdilerinden YENİDEN hesaplanan TÜRETİLMİŞ değerdir (state DEĞİL).
+  // Önceki 1. taksit vadesi satırda taşınmadığı için donmuş snapshot'ın
+  // ilk taksit satırından okunur; snapshot'sız eski kayıtlarda bu alan
+  // karşılaştırmaya girmez (hayalet fark YOK).
+  const revisionDiff = (() => {
+    if (!isAmendment || !previousContract) return [];
+    const prevFirstDue = [...(previousContract.contractDataSnapshot?.installments ?? [])].sort(
+      (a, b) => (a.sequence ?? 0) - (b.sequence ?? 0)
+    )[0]?.dueDate;
+    const prevConsent = previousContract.contractDataSnapshot?.photoVideoConsent;
+    const prev: RevisionComparable = {
+      programmeName: previousContract.programmeName,
+      monthlyAmount: previousContract.monthlyAmount,
+      durationMonths: previousContract.durationMonths,
+      installmentCount: previousContract.installmentCount,
+      enrollmentStartDate: previousContract.enrollmentStartDate,
+      enrollmentEndDate: previousContract.enrollmentEndDate,
+      firstDueDate: prevFirstDue,
+      paymentMethod: previousContract.paymentMethod,
+      depositAmount: previousContract.depositAmount,
+      lessonScheduleText: previousContract.contractDataSnapshot?.lessonScheduleText,
+      signatoryFullName: previousContract.signatoryFullName,
+      photoVideoConsent: prevConsent == null ? "unset" : prevConsent.granted ? "granted" : "denied",
+      kvkkNoticeDelivered: previousContract.contractDataSnapshot?.kvkkNoticeDelivered,
+    };
+    const next: RevisionComparable = {
+      programmeName,
+      monthlyAmount,
+      durationMonths,
+      installmentCount,
+      enrollmentStartDate,
+      enrollmentEndDate,
+      firstDueDate: prevFirstDue === undefined ? undefined : firstDueDate,
+      paymentMethod,
+      depositAmount,
+      lessonScheduleText,
+      signatoryFullName,
+      photoVideoConsent: photoConsent,
+      kvkkNoticeDelivered,
+    };
+    return diffContractRevision(prev, next);
+  })();
 
   // Faz 2C — istisna alanının GÖRÜNÜRLÜĞÜ, en son önizlemenin (`preview`)
   // ÖNBELLEĞİNDEN DEĞİL, GÜNCEL form girdilerinden (ödeme yöntemi + ilk
@@ -924,6 +1061,17 @@ function ContractForm({
         errors.overlapReason = "Örtüşme gerekçesi zorunludur.";
       }
     }
+    if (isAmendment) {
+      if (!revisionReason.trim()) {
+        errors.revisionReason = "Revizyon gerekçesi zorunludur — değişikliğin neden yapıldığını kısaca yazın.";
+      } else if (revisionReason.trim().length > 500) {
+        errors.revisionReason = "Revizyon gerekçesi en fazla 500 karakter olabilir.";
+      }
+      // Boş revizyon anlamsızdır: değişiklik yoksa yeni sürüm üretilmez.
+      if (revisionDiff.length === 0) {
+        errors.revisionDiff = "Hiçbir değişiklik yapılmadı — revize edilecek alanı değiştirin veya vazgeçin.";
+      }
+    }
     return errors;
   }
 
@@ -932,7 +1080,13 @@ function ContractForm({
     const errors = validateForm();
     if (Object.keys(errors).length > 0) {
       setFieldErrors(errors);
-      setFormError(isRenewal ? "Sözleşme yenileme bilgilerini tamamlayın." : "Sözleşme bilgilerini tamamlayın.");
+      setFormError(
+        isAmendment
+          ? "Revizyon bilgilerini tamamlayın."
+          : isRenewal
+            ? "Sözleşme yenileme bilgilerini tamamlayın."
+            : "Sözleşme bilgilerini tamamlayın."
+      );
       focusSummarySoon();
       return; // Faz 5B — DOĞRULAMA BAŞARISIZ OLDUĞUNDA hiçbir istek/serileştirme YAPILMAZ — girdi asla silinmez.
     }
@@ -941,7 +1095,7 @@ function ContractForm({
     setBusy(true);
     const res = await postJson<{ contract: CreatedContractSummary }>("/api/v1/contracts", {
       studentId,
-      contractType: isRenewal ? "renewal" : "initial",
+      contractType: isAmendment ? "amendment" : isRenewal ? "renewal" : "initial",
       previousContractId: previousContract?.id,
       programmeName: programmeName.trim(),
       lessonScheduleText: lessonScheduleText.trim() || undefined,
@@ -967,8 +1121,9 @@ function ContractForm({
       signatoryNationalId: signatoryNationalId.trim() || undefined,
       signatoryAddress: signatoryAddress.trim() || undefined,
       signatoryRelationship,
-      allowOverlap,
-      overlapReason: overlapReason.trim() || undefined,
+      // Revizyon aynı dönemi kapsar: örtüşme her zaman kasıtlıdır, gerekçesi revizyon gerekçesidir.
+      allowOverlap: isAmendment ? true : allowOverlap,
+      overlapReason: isAmendment ? revisionReason.trim() : overlapReason.trim() || undefined,
       firstPaymentExceptionReason:
         (firstPaymentDateNeedsException ? firstPaymentDateExceptionReason.trim() : "") || undefined,
       firstPaymentCollected: needsFirstPaymentEntry
@@ -1033,9 +1188,11 @@ function ContractForm({
   return (
     <Card className="mb-4 !p-4">
       <p className="mb-1 text-sm font-semibold text-[var(--color-text)]" id={formTitleId}>
-        {isRenewal
-          ? `Sözleşme Yenile / Süre Uzat — Gözden Geçir (önceki: ${previousContract!.contractNumber})`
-          : "Yeni Kayıt Sözleşmesi — Gözden Geçir ve Oluştur"}
+        {isAmendment
+          ? `Sözleşme Revize Et — Gözden Geçir (revize edilen: ${previousContract!.contractNumber} · v${previousContract!.versionNumber})`
+          : isRenewal
+            ? `Sözleşme Yenile / Süre Uzat — Gözden Geçir (önceki: ${previousContract!.contractNumber})`
+            : "Yeni Kayıt Sözleşmesi — Gözden Geçir ve Oluştur"}
       </p>
       {isRenewal ? (
         <p className="mb-3 text-xs text-[var(--color-text-muted)]">
@@ -1045,7 +1202,49 @@ function ContractForm({
           gerekirse değiştirin. Önceki sözleşme değişmeden, ayrı bir sürüm olarak arşivde kalır.
         </p>
       ) : null}
-      {!isRenewal && registration ? (
+      {isAmendment ? (
+        <p className="mb-3 text-xs text-[var(--color-text-muted)]">
+          {previousContract!.contractNumber} · v{previousContract!.versionNumber} ·{" "}
+          {formatDateTr(previousContract!.enrollmentStartDate)} – {formatDateTr(previousContract!.enrollmentEndDate)} ·{" "}
+          {formatTL(previousContract!.monthlyAmount)}/ay — tüm değerler aşağıya ÖN DOLDURULDU, değiştirmek
+          istediğiniz alanı düzenleyin. Kaydedince YENİ bir sürüm (v{previousContract!.versionNumber + 1})
+          üretilir; bu sürüm değişmeden arşivde kalır. Revizyon yeni bir tahsilat anı yaratmaz.
+        </p>
+      ) : null}
+      {isAmendment ? (
+        <div className="mb-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3 text-xs">
+          <p className="font-semibold text-[var(--color-text)]">Değişiklik özeti</p>
+          {revisionDiff.length === 0 ? (
+            <p className="mt-1 text-[var(--color-text-muted)]">
+              Henüz değişiklik yok — revize edilecek alanı değiştirin. Değişiklik yapmadan kaydedemezsiniz.
+            </p>
+          ) : (
+            <dl className="mt-1 space-y-1">
+              {revisionDiff.map((d) => (
+                <div key={d.key} className="flex flex-wrap items-baseline gap-x-2">
+                  <dt className="font-medium text-[var(--color-text)]">{d.label}:</dt>
+                  <dd className="text-[var(--color-text-muted)]">
+                    <s>{d.before}</s> <span aria-hidden="true">→</span> <strong className="font-semibold text-[var(--color-text)]">{d.after}</strong>
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          )}
+          <FieldError message={fieldErrors.revisionDiff} />
+          <div className="mt-2">
+            <Label>Revizyon gerekçesi (zorunlu)</Label>
+            <Input
+              placeholder="Örn. Ekim ayı ücret artışı veli ile mutabık kalınarak işlendi."
+              value={revisionReason}
+              onChange={(e) => setRevisionReason(e.target.value.slice(0, 500))}
+              maxLength={500}
+              aria-invalid={!!fieldErrors.revisionReason}
+            />
+            <FieldError message={fieldErrors.revisionReason} />
+          </div>
+        </div>
+      ) : null}
+      {!isRenewal && !isAmendment && registration ? (
         <RegistrationSummaryCard
           studentId={studentId}
           registration={registration}
@@ -1341,8 +1540,9 @@ function ContractForm({
 
       {isFormal && !needsFirstPaymentEntry ? (
         <div className="mt-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3 text-xs text-[var(--color-text-muted)]">
-          İlk ödeme, öğrenci kaydı sırasında zaten tahsil edildi — bu sözleşme o ödeme kaydını
-          kullanır, yeniden tahsilat girilmez.
+          {isAmendment
+            ? "Revizyon yeni bir tahsilat anı yaratmaz — önceki sürümdeki tahsilatlar aynen korunur; yeni sürümün taksit planı ödenmemiş olarak üretilir, tahsilatlar Ödemeler ekranından işlenir."
+            : "İlk ödeme, öğrenci kaydı sırasında zaten tahsil edildi — bu sözleşme o ödeme kaydını kullanır, yeniden tahsilat girilmez."}
         </div>
       ) : null}
 
@@ -1539,13 +1739,17 @@ function ContractForm({
         <Button type="button" onClick={() => void onCreate()} disabled={busy}>
           {busy
             ? "İşleniyor…"
-            : isFormal
-              ? isRenewal
-                ? "Sözleşmeyi Onayla ve Yenile"
-                : "Sözleşmeyi Onayla ve Oluştur"
-              : isRenewal
-                ? "Tanışma Uzatmasını Kaydet"
-                : "Tanışma Kaydını Oluştur"}
+            : isAmendment
+              ? isFormal
+                ? "Revizyonu Onayla ve Kaydet"
+                : "Tanışma Revizyonunu Kaydet"
+              : isFormal
+                ? isRenewal
+                  ? "Sözleşmeyi Onayla ve Yenile"
+                  : "Sözleşmeyi Onayla ve Oluştur"
+                : isRenewal
+                  ? "Tanışma Uzatmasını Kaydet"
+                  : "Tanışma Kaydını Oluştur"}
         </Button>
         <Button type="button" onClick={() => { clearContractDraft(draftKey); onCancel(); }} disabled={busy} className="!bg-transparent !text-[var(--color-text-muted)] hover:!bg-[var(--color-surface-muted)]">
           Vazgeç
@@ -1750,9 +1954,11 @@ export function ContractPanel({
 }) {
   const currentPath = useCurrentPath();
   const router = useRouter();
-  const [formMode, setFormMode] = useState<"none" | "initial" | "renewal">(
+  const [formMode, setFormMode] = useState<"none" | "initial" | "renewal" | "amendment">(
     (autoOpenInitial || hasContractDraft(`${studentId}:initial`)) && canManage ? "initial" : "none"
   );
+  /** 10. tur iş #4 — revize edilen güncel sözleşme (formMode === "amendment" iken dolu). */
+  const [amendTarget, setAmendTarget] = useState<ContractRow | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   // Geçmiş (iptal/yenilenmiş) bir sözleşmeyi TEMEL ALARAK yeni sözleşme açmak:
   // kullanıcı aynı değerleri elle yeniden girmesin diye. Fiyatlandırma modeli
@@ -1912,6 +2118,24 @@ export function ContractPanel({
           onCancel={() => setFormMode("none")}
         />
       ) : null}
+      {formMode === "amendment" && amendTarget ? (
+        <ContractForm
+          studentId={studentId}
+          previousContract={amendTarget}
+          reviseMode
+          prefill={prefill}
+          registration={registration}
+          onDone={(created) => {
+            setAmendTarget(null);
+            setFormMode("none");
+            showCreated(created);
+          }}
+          onCancel={() => {
+            setAmendTarget(null);
+            setFormMode("none");
+          }}
+        />
+      ) : null}
 
       {rowError ? <p className="mb-2 text-xs font-medium text-rose-600">{rowError}</p> : null}
       {cancelNotice ? (
@@ -2007,6 +2231,18 @@ export function ContractPanel({
                       }}
                     />
                   </label>
+                ) : null}
+                {canManage && isCurrent && !terminal ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAmendTarget(c);
+                      setFormMode("amendment");
+                    }}
+                    className="font-medium text-[var(--color-primary)] hover:underline"
+                  >
+                    Revize et
+                  </button>
                 ) : null}
                 {canManage && !terminal ? (
                   <ContractCancelDialog
