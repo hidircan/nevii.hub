@@ -115,29 +115,37 @@ export default async function OgrencilerPage({
       <PageHeader
         title="Öğrenciler"
         actions={
-          <Link
-            href="/panel/ogrenciler/yeni"
-            className="inline-flex items-center gap-2 rounded-xl bg-[var(--color-primary)] px-3.5 py-2 text-sm font-medium text-white hover:bg-[var(--color-primary-hover)]"
-          >
-            <UserPlus className="h-4 w-4" /> Yeni Öğrenci
-          </Link>
+          <div className="flex flex-wrap items-center gap-2">
+            {isOwner && (deletedCount > 0 || showDeleted) ? (
+              showDeleted ? (
+                <Link
+                  href="/panel/ogrenciler"
+                  className="inline-flex items-center gap-2 rounded-xl border border-[var(--color-border)] px-3.5 py-2 text-sm font-medium text-[var(--color-text)] hover:bg-[var(--color-surface-muted)]"
+                >
+                  ← Tüm öğrenciler
+                </Link>
+              ) : (
+                <Link
+                  href="/panel/ogrenciler?silinenler=1&status=all"
+                  className="inline-flex items-center gap-2 rounded-xl border border-[var(--color-border)] px-3.5 py-2 text-sm font-medium text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)]"
+                >
+                  Silinen öğrenciler ({deletedCount})
+                </Link>
+              )
+            ) : null}
+            <Link
+              href="/panel/ogrenciler/yeni"
+              className="inline-flex items-center gap-2 rounded-xl bg-[var(--color-primary)] px-3.5 py-2 text-sm font-medium text-white hover:bg-[var(--color-primary-hover)]"
+            >
+              <UserPlus className="h-4 w-4" /> Yeni Öğrenci
+            </Link>
+          </div>
         }
       />
 
-      {isOwner && (deletedCount > 0 || showDeleted) ? (
-        <p className="mb-3 text-sm">
-          {showDeleted ? (
-            <>
-              <strong>Silinen öğrenciler ({deletedCount})</strong> — geri almak için öğrenciyi açın.{" "}
-              <Link href="/panel/ogrenciler" className="font-medium text-[var(--color-primary)] hover:underline">
-                ← Tüm öğrencilere dön
-              </Link>
-            </>
-          ) : (
-            <Link href="/panel/ogrenciler?silinenler=1&status=all" className="font-medium text-[var(--color-primary)] hover:underline">
-              Silinen öğrenciler ({deletedCount}) →
-            </Link>
-          )}
+      {showDeleted ? (
+        <p className="mb-3 text-sm text-[var(--color-text-muted)]">
+          <strong>Silinen öğrenciler ({deletedCount})</strong> — geri almak için öğrenciyi açın.
         </p>
       ) : null}
 
