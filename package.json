@@ -24,6 +24,9 @@
     "backfill:display-ids": "npx tsx scripts/backfill-display-ids.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
+    "check:hygiene": "bash scripts/check-repo-hygiene.sh --tree",
+    "check:cache-headers": "node scripts/check-cache-headers.mjs",
+    "hooks:install": "git config core.hooksPath scripts/git-hooks && echo hooks: scripts/git-hooks",
     "verify:durability": "npx tsx scripts/verify-data-durability.ts",
     "ops:dashboard-default-branch": "npx tsx scripts/set-dashboard-default-branch.ts"
   },

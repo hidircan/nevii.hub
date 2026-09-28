@@ -1301,3 +1301,21 @@ aynı veriyi aynı yoldan mı okuyor?" diye bak.
   tekrarları kirleteni bulamadı. MEB diff'i dışlandı (MEB dosyaları sonra koşar, kapı yalnız yeni MEB anahtarlarına
   bakar, eski testlerden hiçbiri kapıya takılmaz). Kural: tam-süit kırmızısında önce SIRA konumu + izole/alt-küme +
   baz karşılaştırması yapılır; ilgisiz flake'e sezgisel "düzeltme" YOK (kök neden bulunmadan ellemek yasak).
+
+## 2026-09-28 (egress/guardrails) — uygulama dışı içerik repo'ya girdi, Supabase kotası aşıldı
+- Muse'un ürettiği `reklam-paketi/` (9.3 MB: 2× .mp4 + PNG/SVG/HTML) ve `pazarlama/` (yalnız md) repo kökünde
+  duruyordu — Neyse ki İZLENMİYORDU (`git status` `??`, `git log --all -- reklam-paketi/` boş): `~/Desktop/
+  nevii-reklam-paketi/` altına birebir kopyalanıp (`diff -r` doğrulandı) repo'dan silindi, `.gitignore`'a eklendi.
+  Geçmiş temizliği GEREKMEDİ (BFG/filter-repo yok, force-push yok). Aynı dönemde Supabase Free 5 GB egress
+  5.48 GB'a taştı (26 Eyl ~1.3 GB/gün). Kod taraması: Auth/Realtime/Edge/PostgREST kullanımı YOK (egress ancak
+  Database-pooler veya Storage olabilir); Storage'a giden TEK yol `announcement-attachments` (private, 2 MB
+  kapak, video allowlist DIŞI — .mp4 oraya kodla YÜKLENEMEZ); tüm dosya rotaları DB'den base64 okur + `no-store`;
+  test Supabase erişimi bu makinede YOK (yerel env production'ı gösterir, service-role anahtarı yok) — bucket
+  listesi ve per-servis kırılım owner'a kaldı. Kurallar:
+  - "Uygulama kodu dışı içerik (görseller, videolar, pazarlama materyalleri, storyboard'lar, ekran görüntüleri) repo'ya eklenmez. Muse bu tür dosyalar üretirse repo kökünde değil `~/Desktop/` veya kullanıcının göstereceği repo-dışı dizine yazar."
+  - "Supabase Storage'a dosya yüklemeden önce bucket tipi (public/private), dosya boyutu ve egress etkisi değerlendirilir. Büyük medya yüklemeleri kullanıcı onayı olmadan yapılmaz."
+  - "Her turda `reklam-paketi/`, `pazarlama/`, `marketing/`, `ads/`, `assets-temp/` gibi uygulama dışı dizinlerin repo'da izlenip izlenmediği kontrol edilir."
+- Kilit: `scripts/check-repo-hygiene.sh` (yasak dizin + 1 MB üstü = HATA, medya = UYARI; `--staged` pre-commit,
+  `--tree` CI) + `scripts/git-hooks/pre-commit` (`npm run hooks:install`) + CI adımı; `scripts/
+  check-cache-headers.mjs` dosya sunan GET rotalarında açık `Cache-Control` ZORUNLU kılar (3 gedik kapatıldı:
+  `export`, `contracts/[id]/html`, `payments/[id]/receipt` — hepsi `private, max-age=0, no-store`, davranış aynı).
