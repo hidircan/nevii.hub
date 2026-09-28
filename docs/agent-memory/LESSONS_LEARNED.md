@@ -1222,3 +1222,11 @@ aynı veriyi aynı yoldan mı okuyor?" diye bak.
 - Kurum e-posta şablonları (`EmailTemplate`, additive tablo): içerik alanları düzenlenebilir, logo bloğu + zorunlu
   sistem alanları (düğme/kod/bağlantı) sabit kabuk + yayımlama doğrulamasıyla korunur. Şablon render edilemezse
   varsayılana düşülür (e-posta asla yanıtsız kalmaz).
+
+### 2026-09-28 (10. tur iş #5) — modal odak efektine kararsız bağımlılık koyma
+- `ModalShell` odak efekti `[open, busy, onClose]` bağımlıydı; tüm kullanıcılar satır-içi `onClose` verdiği için
+  metin alanına yazılan HER karakterde efekt yeniden koşup odağı çalıyordu (temizlikteki `trigger?.focus?.()` ile
+  tetikleyiciye sıçrama dahil). Kural: modal odak efekti YALNIZCA `[open]` geçişine bağlı olur; `busy`/`onClose`
+  güncelliği ref aynasıyla korunur. El-yapımı diyaloglar (öğrenci tekli/kritik) aynı deseni kullanır.
+- Gerekçe `onChange` içindeki `.slice(0,500)` IME birleşimini bozma riski taşıyordu; sınır `maxLength` özniteliğine
+  taşındı (sunucu `z.string().max(500)` değişmedi — gerçek koruma sunucuda).
