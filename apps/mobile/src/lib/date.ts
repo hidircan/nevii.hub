@@ -28,9 +28,21 @@ const RELATIVE_DAY: Record<Locale, [string, string, string]> = {
   tr: ["Bugün", "Yarın", "Dün"],
   en: ["Today", "Tomorrow", "Yesterday"],
 };
+const DAY_FALLBACK: Record<Locale, string> = { tr: "Gün {n}", en: "Day {n}" };
+
+function interpolate(template: string, params: Record<string, string | number>): string {
+  return template.replace(/\{(\w+)\}/g, (_, k: string) => String(params[k] ?? `{${k}}`));
+}
 
 export function weekdayName(date: Date, locale: Locale = getActiveLocale()): string {
   return WEEKDAYS[locale][date.getDay()]!;
+}
+
+/** Hafta günü indeksi (0=Pazar) için yerelleştirilmiş ad; geçersizde "Gün {n}" yedeği. */
+export function weekdayNameByIndex(dayOfWeek: number, locale: Locale = getActiveLocale()): string {
+  const name = WEEKDAYS[locale][dayOfWeek];
+  if (name) return name;
+  return interpolate(DAY_FALLBACK[locale], { n: dayOfWeek });
 }
 
 /** "26 Ağu" / "26 Aug" gibi kısa gün-ay etiketi. */

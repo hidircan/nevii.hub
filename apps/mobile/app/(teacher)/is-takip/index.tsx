@@ -6,6 +6,7 @@ import { AppHeader, EmptyState, ErrorState, FilterChip, FloatingActionButton, Lo
 import { useApiGet } from "../../../src/hooks/use-api";
 import { useFocusRefetch } from "../../../src/hooks/use-focus-refetch";
 import { TASK_SEGMENTS, taskSegmentQuery, type TaskSegment } from "../../../src/lib/task-segments";
+import { useLocale } from "../../../src/i18n/locale-context";
 import type { TasksResponse } from "../../../src/types/api";
 
 function buildTasksPath(segment: TaskSegment): string {
@@ -19,6 +20,7 @@ function buildTasksPath(segment: TaskSegment): string {
 
 export default function IsTakipIndex() {
   const router = useRouter();
+  const { t: tr } = useLocale();
   const [segment, setSegment] = useState<TaskSegment>("open");
   const res = useApiGet<TasksResponse>(buildTasksPath(segment));
   const [completingId, setCompletingId] = useState<string | null>(null);
@@ -36,14 +38,14 @@ export default function IsTakipIndex() {
 
   return (
     <Screen
-      floatingAction={<FloatingActionButton icon="add" accessibilityLabel="Yeni görev" onPress={() => router.push("/(teacher)/is-takip/yeni")} />}
+      floatingAction={<FloatingActionButton icon="add" accessibilityLabel={tr("tasks.newTask")} onPress={() => router.push("/(teacher)/is-takip/yeni")} />}
     >
-      <AppHeader title="İş Takip" />
+      <AppHeader title={tr("tasks.title")} />
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
         <View style={{ flexDirection: "row", gap: 8 }}>
           {TASK_SEGMENTS.map((s) => (
-            <FilterChip key={s.key} label={s.label} selected={segment === s.key} onPress={() => setSegment(s.key)} />
+            <FilterChip key={s.key} label={tr(s.labelKey)} selected={segment === s.key} onPress={() => setSegment(s.key)} />
           ))}
         </View>
       </ScrollView>
@@ -53,7 +55,7 @@ export default function IsTakipIndex() {
       ) : res.status === "error" ? (
         <ErrorState message={res.message} onRetry={res.refresh} />
       ) : tasks.length === 0 ? (
-        <EmptyState icon="checkbox-outline" title="Bu segmentte görev yok" />
+        <EmptyState icon="checkbox-outline" title={tr("tasks.emptySegment")} />
       ) : (
         <View style={{ gap: 10 }}>
           {tasks.map((task) => {

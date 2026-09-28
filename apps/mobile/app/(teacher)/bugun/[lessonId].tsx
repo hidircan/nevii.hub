@@ -20,11 +20,13 @@ import { useAppForegroundRefetch } from "../../../src/hooks/use-app-foreground-r
 import { useFocusRefetch } from "../../../src/hooks/use-focus-refetch";
 import { format } from "../../../src/lib/date";
 import { lessonStatusBadge } from "../../../src/lib/lesson-status";
+import { useLocale } from "../../../src/i18n/locale-context";
 import { useTheme } from "../../../src/theme/theme-context";
 import type { HomeworkResponse, ScheduleResponse } from "../../../src/types/api";
 
 export default function LessonDetailScreen() {
   const t = useTheme();
+  const { t: tr } = useLocale();
   const router = useRouter();
   const { user } = useAuth();
   const { lessonId } = useLocalSearchParams<{ lessonId: string }>();
@@ -45,7 +47,7 @@ export default function LessonDetailScreen() {
   if (schedule.status === "loading") {
     return (
       <Screen>
-        <AppHeader title="Ders" showBack showNotifications={false} />
+        <AppHeader title={tr("lessons.lessonTitle")} showBack showNotifications={false} />
         <LoadingSkeleton rows={3} />
       </Screen>
     );
@@ -53,7 +55,7 @@ export default function LessonDetailScreen() {
   if (schedule.status === "error") {
     return (
       <Screen>
-        <AppHeader title="Ders" showBack showNotifications={false} />
+        <AppHeader title={tr("lessons.lessonTitle")} showBack showNotifications={false} />
         <ErrorState message={schedule.message} onRetry={schedule.refresh} code={schedule.code} />
       </Screen>
     );
@@ -61,8 +63,8 @@ export default function LessonDetailScreen() {
   if (!lesson) {
     return (
       <Screen>
-        <AppHeader title="Ders" showBack showNotifications={false} />
-        <EmptyState icon="alert-circle-outline" title="Ders bulunamadı" description="Bu ders programınızda yok veya erişim kapsamınız dışında." />
+        <AppHeader title={tr("lessons.lessonTitle")} showBack showNotifications={false} />
+        <EmptyState icon="alert-circle-outline" title={tr("teach.lessonMissing")} description={tr("teach.lessonMissingBody")} />
       </Screen>
     );
   }
@@ -71,13 +73,13 @@ export default function LessonDetailScreen() {
 
   return (
     <Screen onRefresh={schedule.refresh} refreshing={false}>
-      <AppHeader title={lesson.studentName ?? "Öğrenci"} showBack showNotifications={false} />
+      <AppHeader title={lesson.studentName ?? tr("teach.studentFallback")} showBack showNotifications={false} />
 
       <Card>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
           <Avatar name={lesson.studentName ?? "?"} size={48} />
           <View style={{ flex: 1 }}>
-            <Text style={[t.typography.cardTitle, { color: t.colors.text }]}>{lesson.studentName ?? "Öğrenci"}</Text>
+            <Text style={[t.typography.cardTitle, { color: t.colors.text }]}>{lesson.studentName ?? tr("teach.studentFallback")}</Text>
             <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>
               {format(new Date(lesson.startAt), "HH:mm")}–{format(new Date(lesson.endAt), "HH:mm")}
               {lesson.instrument ? ` · ${lesson.instrument}` : ""}
@@ -91,14 +93,14 @@ export default function LessonDetailScreen() {
       <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 8, marginTop: 12 }}>
         <Icon name="information-circle-outline" size={16} color={t.colors.textMuted} />
         <Text style={[t.typography.caption, { color: t.colors.textMuted, flex: 1 }]}>
-          Yoklama yalnız kurum yöneticileri tarafından alınır.
+          {tr("teach.attendanceAdminOnly")}
         </Text>
       </View>
 
-      <SectionHeader title="Eylemler" />
+      <SectionHeader title={tr("teach.actions")} />
       <View style={{ gap: 8 }}>
         <Button
-          label="Ödev ver"
+          label={tr("teach.giveHomework")}
           icon="add-circle-outline"
           onPress={() =>
             router.push(
@@ -107,7 +109,7 @@ export default function LessonDetailScreen() {
           }
         />
         <Button
-          label="Gelişim değerlendirmesi ekle"
+          label={tr("teach.addAssessment")}
           variant="secondary"
           icon="school-outline"
           onPress={() =>
@@ -118,13 +120,13 @@ export default function LessonDetailScreen() {
         />
       </View>
 
-      <SectionHeader title="Geçmiş ödevler" />
+      <SectionHeader title={tr("teach.pastHomework")} />
       {homework.status === "loading" ? (
         <LoadingSkeleton rows={2} />
       ) : homework.status === "error" ? (
         <ErrorState message={homework.message} onRetry={homework.refresh} code={homework.code} />
       ) : homework.data.homework.length === 0 ? (
-        <EmptyState icon="book-outline" title="Henüz ödev verilmemiş" />
+        <EmptyState icon="book-outline" title={tr("teach.noHomeworkYet")} />
       ) : (
         <View style={{ gap: 10 }}>
           {homework.data.homework.slice(0, 5).map((h) => (
@@ -136,7 +138,7 @@ export default function LessonDetailScreen() {
       <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 8 }}>
         <Icon name="information-circle-outline" size={14} color={t.colors.textFaint} />
         <Text style={[t.typography.caption, { color: t.colors.textFaint }]}>
-          İletişim ve gelişim notları için &quot;Gelişim değerlendirmesi ekle&quot; kullanılır.
+          {tr("teach.contactNote")}
         </Text>
       </View>
 

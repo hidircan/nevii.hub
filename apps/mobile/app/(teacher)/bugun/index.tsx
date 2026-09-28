@@ -17,6 +17,7 @@ import { useAppForegroundRefetch } from "../../../src/hooks/use-app-foreground-r
 import { useApiGet } from "../../../src/hooks/use-api";
 import { useFocusRefetch } from "../../../src/hooks/use-focus-refetch";
 import { addDays, format, isSameDay, shortDayMonth, startOfDay, startOfWeek, weekdayName } from "../../../src/lib/date";
+import { useLocale } from "../../../src/i18n/locale-context";
 import { useTheme } from "../../../src/theme/theme-context";
 import type { HomeworkResponse, ScheduleResponse } from "../../../src/types/api";
 
@@ -33,6 +34,7 @@ import type { HomeworkResponse, ScheduleResponse } from "../../../src/types/api"
 export default function TeacherBugun() {
   const { user } = useAuth();
   const t = useTheme();
+  const { t: tr } = useLocale();
   const router = useRouter();
   const now = new Date();
   const today = format(now, "yyyy-MM-dd");
@@ -76,15 +78,16 @@ export default function TeacherBugun() {
       .filter((l) => l.startAt.startsWith(today))
       .filter((l) => l.lessonProcessed || l.studentAttended)
       .filter((l) => l.studentId && !assignedTodayStudentIds.has(l.studentId))
-      .map((l) => l.studentName ?? "Öğrenci");
+      // Ham ad — dil değişiminde yeniden çözülmesi için geri plan metni render'da kurulur.
+      .map((l) => l.studentName ?? null);
     return [...new Set(names)];
   }, [homework, weekLessons, today]);
 
   if (!user?.teacherId) {
     return (
       <Screen>
-        <AppHeader title="Program" />
-        <EmptyState icon="alert-circle-outline" title="Öğretmen hesabı bulunamadı" description="Bu hesapta bir öğretmen kimliği yok." />
+        <AppHeader title={tr("tabs.program")} />
+        <EmptyState icon="alert-circle-outline" title={tr("teach.noAccount")} description={tr("teach.noAccountBody")} />
       </Screen>
     );
   }
@@ -101,15 +104,15 @@ export default function TeacherBugun() {
   return (
     <Screen onRefresh={refreshAll} refreshing={schedule.status === "loading"}>
       <AppHeader
-        title="Program"
-        subtitle={schedule.status === "success" ? `${weekLabel} · ${weekCount} ders` : weekLabel}
+        title={tr("tabs.program")}
+        subtitle={schedule.status === "success" ? `${weekLabel} · ${tr("teach.weekLessons", { n: weekCount })}` : weekLabel}
         showAccount="/(teacher)/hesabim"
       />
 
       <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Önceki hafta"
+          accessibilityLabel={tr("lessons.prevWeek")}
           hitSlop={8}
           onPress={() => setWeekStart((w) => addDays(w, -7))}
           style={{ minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" }}
@@ -118,19 +121,19 @@ export default function TeacherBugun() {
         </Pressable>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Bu haftaya dön"
+          accessibilityLabel={tr("lessons.backToWeek")}
           accessibilityHint={weekLabel}
           onPress={() => setWeekStart(startOfWeek(now))}
           style={{ flex: 1, alignItems: "center", minHeight: 44, justifyContent: "center" }}
         >
           <Text style={[t.typography.bodyStrong, { color: t.colors.text }]}>{weekLabel}</Text>
           {!isCurrentWeek ? (
-            <Text style={[t.typography.caption, { color: t.colors.primary, marginTop: 2 }]}>Bu haftaya dön</Text>
+            <Text style={[t.typography.caption, { color: t.colors.primary, marginTop: 2 }]}>{tr("lessons.backToWeek")}</Text>
           ) : null}
         </Pressable>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Sonraki hafta"
+          accessibilityLabel={tr("lessons.nextWeek")}
           hitSlop={8}
           onPress={() => setWeekStart((w) => addDays(w, 7))}
           style={{ minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" }}
@@ -144,9 +147,9 @@ export default function TeacherBugun() {
           <View style={{ flexDirection: "row", gap: 10, alignItems: "flex-start" }}>
             <Icon name="alert-circle" size={18} color={t.colors.warning} />
             <View style={{ flex: 1 }}>
-              <Text style={[t.typography.bodyStrong, { color: t.colors.text }]}>Ödev verilmemiş öğrenciler</Text>
+              <Text style={[t.typography.bodyStrong, { color: t.colors.text }]}>{tr("teach.noHomeworkTitle")}</Text>
               <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>
-                {studentsWithoutTodayHomework.join(", ")} — bugünkü dersten sonra henüz ödev verilmedi.
+                {tr("teach.noHomeworkBody", { names: studentsWithoutTodayHomework.map((n) => n ?? tr("teach.studentFallback")).join(", ") })}
               </Text>
             </View>
           </View>
@@ -166,12 +169,12 @@ export default function TeacherBugun() {
             return (
               <View key={day.toISOString()}>
                 <SectionHeader
-                  title={`${weekdayName(day)} · ${shortDayMonth(day)}${isToday ? " · Bugün" : ""}`}
+                  title={`${weekdayName(day)} · ${shortDayMonth(day)}${isToday ? tr("teach.todaySuffix") : ""}`}
                 />
                 {closed ? (
-                  <Text style={[t.typography.caption, { color: t.colors.textFaint }]}>Kapalı gün — planlı ders yok.</Text>
+                  <Text style={[t.typography.caption, { color: t.colors.textFaint }]}>{tr("teach.closedDay")}</Text>
                 ) : lessons.length === 0 ? (
-                  <Text style={[t.typography.caption, { color: t.colors.textFaint }]}>Planlı ders yok.</Text>
+                  <Text style={[t.typography.caption, { color: t.colors.textFaint }]}>{tr("teach.noPlannedDay")}</Text>
                 ) : (
                   <View style={{ gap: 10 }}>
                     {lessons.map((lesson) => (
@@ -179,7 +182,7 @@ export default function TeacherBugun() {
                         key={lesson.id}
                         lesson={lesson}
                         showStatus={false}
-                        personName={lesson.studentName ?? "Öğrenci"}
+                        personName={lesson.studentName ?? tr("teach.studentFallback")}
                         onPress={() => router.push(`/(teacher)/bugun/${lesson.id}`)}
                       />
                     ))}
@@ -193,13 +196,13 @@ export default function TeacherBugun() {
 
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel="Telafilerim"
+        accessibilityLabel={tr("teach.myMakeups")}
         hitSlop={8}
         onPress={() => router.push("/(teacher)/telafi")}
         style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, marginTop: 16, minHeight: 44 }}
       >
         <Icon name="swap-horizontal-outline" size={16} color={t.colors.primary} />
-        <Text style={[t.typography.bodyStrong, { color: t.colors.primary }]}>Telafiler</Text>
+        <Text style={[t.typography.bodyStrong, { color: t.colors.primary }]}>{tr("teach.makeups")}</Text>
       </Pressable>
     </Screen>
   );

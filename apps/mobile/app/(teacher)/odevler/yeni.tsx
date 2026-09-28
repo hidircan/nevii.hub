@@ -8,6 +8,7 @@ import { useAuth } from "../../../src/auth/auth-context";
 import { AppHeader, Button, Card, DueDateField, Icon, Screen, SelectField, TextField } from "../../../src/components/ui";
 import { useApiGet } from "../../../src/hooks/use-api";
 import { ALLOWED_ATTACHMENT_MIME_TYPES, validateAttachment } from "../../../src/lib/attachment-validation";
+import { useLocale } from "../../../src/i18n/locale-context";
 import { useTheme } from "../../../src/theme/theme-context";
 import type { TeacherStudentsResponse } from "../../../src/types/api";
 
@@ -15,6 +16,7 @@ type Attachment = { fileName: string; fileMimeType: string; fileData: string; si
 
 export default function YeniOdev() {
   const t = useTheme();
+  const { t: tr } = useLocale();
   const router = useRouter();
   const { user } = useAuth();
   const params = useLocalSearchParams<{ studentId?: string }>();
@@ -61,7 +63,7 @@ export default function YeniOdev() {
         sizeBytes: asset.size ?? Math.floor((base64.length * 3) / 4),
       });
     } catch {
-      setAttachError("Dosya okunamadı. Lütfen tekrar deneyin.");
+      setAttachError(tr("teachHw.attachUnreadable"));
     } finally {
       setAttaching(false);
     }
@@ -81,7 +83,7 @@ export default function YeniOdev() {
     });
     setBusy(false);
     if (!res.ok) {
-      setError(res.error.message || "Ödev oluşturulamadı.");
+      setError(res.error.message || tr("teachHw.createFailed"));
       return;
     }
     router.back();
@@ -89,32 +91,32 @@ export default function YeniOdev() {
 
   return (
     <Screen>
-      <AppHeader title="Yeni ödev" showBack showNotifications={false} />
+      <AppHeader title={tr("teachHw.createTitle")} showBack showNotifications={false} />
 
       <View style={{ gap: 16 }}>
         <SelectField
-          label="Öğrenci"
+          label={tr("teachHw.studentLabel")}
           value={studentId}
           options={options}
           onChange={setStudentId}
-          placeholder="Öğrenci seçin"
+          placeholder={tr("teachHw.pickStudent")}
           searchable
-          searchPlaceholder="Öğrenci ara"
+          searchPlaceholder={tr("teachHw.searchStudent")}
         />
-        <TextField label="Başlık" value={title} onChangeText={setTitle} placeholder="Ör. Gam çalışması" />
+        <TextField label={tr("teachHw.titleLabel")} value={title} onChangeText={setTitle} placeholder={tr("teachHw.titleExample")} />
         <TextField
-          label="Açıklama"
+          label={tr("teachHw.descLabel")}
           value={description}
           onChangeText={setDescription}
-          placeholder="Ödev detayları"
+          placeholder={tr("teachHw.descPlaceholder")}
           multiline
           numberOfLines={4}
         />
 
-        <DueDateField label="Son tarih" value={dueDate} onChange={setDueDate} minimumDate={new Date()} />
+        <DueDateField label={tr("attach.dueDate")} value={dueDate} onChange={setDueDate} minimumDate={new Date()} />
 
         <View style={{ gap: 6 }}>
-          <Text style={[t.typography.label, { color: t.colors.textMuted }]}>Dosya eki (opsiyonel)</Text>
+          <Text style={[t.typography.label, { color: t.colors.textMuted }]}>{tr("attach.fileOptional")}</Text>
           {attachment ? (
             <Card>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
@@ -127,7 +129,7 @@ export default function YeniOdev() {
                     {Math.max(1, Math.round(attachment.sizeBytes / 1024))} KB
                   </Text>
                 </View>
-                <Pressable onPress={() => setAttachment(null)} hitSlop={8} accessibilityLabel="Dosyayı kaldır">
+                <Pressable onPress={() => setAttachment(null)} hitSlop={8} accessibilityLabel={tr("teachHw.removeFile")}>
                   <Icon name="close-circle" size={20} color={t.colors.textMuted} />
                 </Pressable>
               </View>
@@ -150,7 +152,7 @@ export default function YeniOdev() {
             >
               <Icon name="attach-outline" size={18} color={t.colors.primary} />
               <Text style={[t.typography.body, { color: t.colors.primary }]}>
-                {attaching ? "Yükleniyor…" : "Dosya, fotoğraf veya video ekle"}
+                {attaching ? tr("teachHw.uploading") : tr("teachHw.attachButton")}
               </Text>
             </Pressable>
           )}
@@ -159,7 +161,7 @@ export default function YeniOdev() {
 
         {error ? <Text style={[t.typography.caption, { color: t.colors.danger }]}>{error}</Text> : null}
 
-        <Button label="Ödevi oluştur" onPress={onSubmit} disabled={!canSubmit} loading={busy} />
+        <Button label={tr("teachHw.createButton")} onPress={onSubmit} disabled={!canSubmit} loading={busy} />
       </View>
     </Screen>
   );

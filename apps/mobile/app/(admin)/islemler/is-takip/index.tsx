@@ -5,6 +5,7 @@ import { apiPost } from "../../../../src/api/client";
 import { AppHeader, EmptyState, ErrorState, FilterChip, LoadingSkeleton, Screen, StatCard, TaskCard } from "../../../../src/components/ui";
 import { useApiGet } from "../../../../src/hooks/use-api";
 import { TASK_SEGMENTS, taskSegmentQuery, type TaskSegment } from "../../../../src/lib/task-segments";
+import { useLocale } from "../../../../src/i18n/locale-context";
 import type { TaskKpiSummary, TasksResponse } from "../../../../src/types/api";
 
 function buildTasksPath(segment: TaskSegment): string {
@@ -18,6 +19,7 @@ function buildTasksPath(segment: TaskSegment): string {
 
 export default function AdminIsTakip() {
   const router = useRouter();
+  const { t: tr } = useLocale();
   const [segment, setSegment] = useState<TaskSegment>("open");
   const res = useApiGet<TasksResponse>(buildTasksPath(segment));
   const kpi = useApiGet<TaskKpiSummary>("/api/v1/tasks/kpi");
@@ -34,15 +36,15 @@ export default function AdminIsTakip() {
 
   return (
     <Screen>
-      <AppHeader title="İş Takip" showBack showNotifications={false} />
+      <AppHeader title={tr("tasks.title")} showBack showNotifications={false} />
 
       {kpi.status === "success" ? (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
           <View style={{ flexDirection: "row", gap: 8 }}>
-            <StatCard icon="albums-outline" label="Açık görev" value={kpi.data.openCount} />
-            <StatCard icon="today-outline" label="Bugün son tarih" value={kpi.data.dueTodayCount} tone="warning" />
-            <StatCard icon="alert-circle-outline" label="Gecikmiş" value={kpi.data.overdueCount} tone="danger" />
-            <StatCard icon="checkmark-circle-outline" label="Bu hafta tamamlanan" value={kpi.data.completedThisWeekCount} tone="success" />
+            <StatCard icon="albums-outline" label={tr("tasks.kpiOpen")} value={kpi.data.openCount} />
+            <StatCard icon="today-outline" label={tr("tasks.kpiDueToday")} value={kpi.data.dueTodayCount} tone="warning" />
+            <StatCard icon="alert-circle-outline" label={tr("tasks.kpiOverdue")} value={kpi.data.overdueCount} tone="danger" />
+            <StatCard icon="checkmark-circle-outline" label={tr("tasks.kpiDoneWeek")} value={kpi.data.completedThisWeekCount} tone="success" />
           </View>
         </ScrollView>
       ) : null}
@@ -50,7 +52,7 @@ export default function AdminIsTakip() {
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
         <View style={{ flexDirection: "row", gap: 8 }}>
           {TASK_SEGMENTS.map((s) => (
-            <FilterChip key={s.key} label={s.label} selected={segment === s.key} onPress={() => setSegment(s.key)} />
+            <FilterChip key={s.key} label={tr(s.labelKey)} selected={segment === s.key} onPress={() => setSegment(s.key)} />
           ))}
         </View>
       </ScrollView>
@@ -60,7 +62,7 @@ export default function AdminIsTakip() {
       ) : res.status === "error" ? (
         <ErrorState message={res.message} onRetry={res.refresh} />
       ) : tasks.length === 0 ? (
-        <EmptyState icon="checkbox-outline" title="Bu segmentte görev yok" />
+        <EmptyState icon="checkbox-outline" title={tr("tasks.emptySegment")} />
       ) : (
         <View style={{ gap: 10 }}>
           {tasks.map((task) => {

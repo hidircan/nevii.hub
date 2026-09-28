@@ -5,15 +5,23 @@ import { apiPost } from "../../../src/api/client";
 import { useAuth } from "../../../src/auth/auth-context";
 import { AppHeader, Button, DueDateField, Icon, Screen, SelectField, TextField } from "../../../src/components/ui";
 import { useApiGet } from "../../../src/hooks/use-api";
+import { useLocale } from "../../../src/i18n/locale-context";
 import { useTheme } from "../../../src/theme/theme-context";
 import type { TeacherStudentsResponse } from "../../../src/types/api";
 
-const CATEGORIES = ["Eğitim", "Veli İletişimi", "Program", "Evrak", "Teknik"];
-const PRIORITIES = [
-  { label: "Düşük", value: "LOW" },
-  { label: "Orta", value: "MEDIUM" },
-  { label: "Yüksek", value: "HIGH" },
-  { label: "Acil", value: "URGENT" },
+/** Kategori DEĞERLERİ sunucu sözleşmesidir (değişmez); etiketler sözlükten gelir. */
+const CATEGORIES: Array<{ value: string; labelKey: string }> = [
+  { value: "Eğitim", labelKey: "tasks.catEducation" },
+  { value: "Veli İletişimi", labelKey: "tasks.catParentComm" },
+  { value: "Program", labelKey: "tasks.catProgram" },
+  { value: "Evrak", labelKey: "tasks.catDocs" },
+  { value: "Teknik", labelKey: "tasks.catTech" },
+];
+const PRIORITIES: Array<{ value: string; labelKey: string }> = [
+  { value: "LOW", labelKey: "ui.priorityLow" },
+  { value: "MEDIUM", labelKey: "ui.priorityMedium" },
+  { value: "HIGH", labelKey: "ui.priorityHigh" },
+  { value: "URGENT", labelKey: "ui.priorityUrgent" },
 ];
 
 function toDateOnly(d: Date): string {
@@ -22,6 +30,7 @@ function toDateOnly(d: Date): string {
 
 export default function YeniGorev() {
   const t = useTheme();
+  const { t: tr } = useLocale();
   const router = useRouter();
   const { user } = useAuth();
   const studentsRes = useApiGet<TeacherStudentsResponse>(user?.teacherId ? `/api/v1/teachers/${user.teacherId}/students` : "");
@@ -58,7 +67,7 @@ export default function YeniGorev() {
     });
     setBusy(false);
     if (!res.ok) {
-      setError(res.error.message || "Görev oluşturulamadı.");
+      setError(res.error.message || tr("tasks.createFailed"));
       return;
     }
     router.back();
@@ -66,10 +75,10 @@ export default function YeniGorev() {
 
   return (
     <Screen>
-      <AppHeader title="Yeni görev" showBack showNotifications={false} />
+      <AppHeader title={tr("tasks.createTitle")} showBack showNotifications={false} />
       <View style={{ gap: 16 }}>
         <View style={{ gap: 6 }}>
-          <Text style={[t.typography.label, { color: t.colors.textMuted }]}>Görev türü</Text>
+          <Text style={[t.typography.label, { color: t.colors.textMuted }]}>{tr("tasks.typeLabel")}</Text>
           <View style={{ flexDirection: "row", gap: 8 }}>
             <Pressable
               onPress={() => setIsPersonal(false)}
@@ -87,7 +96,7 @@ export default function YeniGorev() {
               }}
             >
               <Icon name="person-outline" size={16} color={!isPersonal ? t.colors.primaryOn : t.colors.text} />
-              <Text style={[t.typography.bodyStrong, { color: !isPersonal ? t.colors.primaryOn : t.colors.text }]}>Öğrenciyle ilgili</Text>
+              <Text style={[t.typography.bodyStrong, { color: !isPersonal ? t.colors.primaryOn : t.colors.text }]}>{tr("tasks.withStudent")}</Text>
             </Pressable>
             <Pressable
               onPress={() => {
@@ -108,30 +117,30 @@ export default function YeniGorev() {
               }}
             >
               <Icon name="checkbox-outline" size={16} color={isPersonal ? t.colors.primaryOn : t.colors.text} />
-              <Text style={[t.typography.bodyStrong, { color: isPersonal ? t.colors.primaryOn : t.colors.text }]}>Kişisel görev</Text>
+              <Text style={[t.typography.bodyStrong, { color: isPersonal ? t.colors.primaryOn : t.colors.text }]}>{tr("tasks.personal")}</Text>
             </Pressable>
           </View>
         </View>
 
         {!isPersonal ? (
           <SelectField
-            label="Öğrenci"
+            label={tr("tasks.studentLabel")}
             value={studentId}
             options={studentOptions}
             onChange={setStudentId}
-            placeholder="İlişkili öğrenci seçin"
+            placeholder={tr("tasks.pickStudent")}
             searchable
-            searchPlaceholder="Öğrenci ara"
+            searchPlaceholder={tr("tasks.searchStudent")}
           />
         ) : null}
 
-        <TextField label="Başlık" value={title} onChangeText={setTitle} placeholder="Ör. Veliyi devamsızlık için ara" />
-        <TextField label="Açıklama" value={description} onChangeText={setDescription} placeholder="Görev detayları (opsiyonel)" multiline numberOfLines={3} />
-        <SelectField label="Kategori" value={category} options={CATEGORIES.map((c) => ({ label: c, value: c }))} onChange={setCategory} placeholder="Kategori seçin" />
-        <SelectField label="Öncelik" value={priority} options={PRIORITIES} onChange={setPriority} placeholder="Öncelik seçin" />
-        <DueDateField label="Son tarih (opsiyonel)" value={dueDate} onChange={setDueDate} minimumDate={new Date()} />
+        <TextField label={tr("tasks.titleLabel")} value={title} onChangeText={setTitle} placeholder={tr("tasks.titleExample")} />
+        <TextField label={tr("tasks.descLabel")} value={description} onChangeText={setDescription} placeholder={tr("tasks.descPlaceholder")} multiline numberOfLines={3} />
+        <SelectField label={tr("tasks.category")} value={category} options={CATEGORIES.map((c) => ({ label: tr(c.labelKey), value: c.value }))} onChange={setCategory} placeholder={tr("tasks.pickCategory")} />
+        <SelectField label={tr("tasks.priority")} value={priority} options={PRIORITIES.map((p) => ({ label: tr(p.labelKey), value: p.value }))} onChange={setPriority} placeholder={tr("tasks.pickPriority")} />
+        <DueDateField label={tr("tasks.dueOptional")} value={dueDate} onChange={setDueDate} minimumDate={new Date()} />
         {error ? <Text style={[t.typography.caption, { color: t.colors.danger }]}>{error}</Text> : null}
-        <Button label="Görevi oluştur" onPress={onSubmit} disabled={!canSubmit} loading={busy} />
+        <Button label={tr("tasks.createButton")} onPress={onSubmit} disabled={!canSubmit} loading={busy} />
       </View>
     </Screen>
   );

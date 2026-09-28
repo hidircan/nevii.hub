@@ -22,6 +22,7 @@ import { useApiGet } from "../../../src/hooks/use-api";
 import { useNow } from "../../../src/hooks/use-now";
 import { useFocusRefetch } from "../../../src/hooks/use-focus-refetch";
 import { isPast, relativeDayLabel } from "../../../src/lib/date";
+import { useLocale } from "../../../src/i18n/locale-context";
 import { useTheme } from "../../../src/theme/theme-context";
 import type {
   AssessmentsResponse,
@@ -40,18 +41,18 @@ function scoreTone(score: number): "success" | "info" | "warning" {
   return "warning";
 }
 
-const SCORE_COMPONENT_LABELS = {
-  attendance: "Devam durumu",
-  homework: "Ödev tamamlama",
-  curriculum: "Müfredat ilerlemesi",
-  teacherAssessment: "Öğretmen değerlendirmesi",
+const SCORE_COMPONENT_KEYS = {
+  attendance: "tStudent.compAttendance",
+  homework: "tStudent.compHomework",
+  curriculum: "tStudent.compCurriculum",
+  teacherAssessment: "tStudent.compAssessment",
 } as const;
 
-const STATUS_LABEL: Record<CurriculumTopicStatus, string> = {
-  planned: "Planlandı",
-  in_progress: "Çalışılıyor",
-  mastered: "Pekişti",
-  deferred: "Ertelendi",
+const STATUS_KEY: Record<CurriculumTopicStatus, string> = {
+  planned: "tStudent.stPlanned",
+  in_progress: "tStudent.stInProgress",
+  mastered: "tStudent.stMastered",
+  deferred: "tStudent.stDeferred",
 };
 const STATUS_TONE: Record<CurriculumTopicStatus, "neutral" | "info" | "success" | "warning"> = {
   planned: "neutral",
@@ -59,13 +60,12 @@ const STATUS_TONE: Record<CurriculumTopicStatus, "neutral" | "info" | "success" 
   mastered: "success",
   deferred: "warning",
 };
-const STATUS_OPTIONS = (Object.keys(STATUS_LABEL) as CurriculumTopicStatus[]).map((v) => ({
-  label: STATUS_LABEL[v],
-  value: v,
-}));
+const STATUS_VALUES = Object.keys(STATUS_KEY) as CurriculumTopicStatus[];
 
 export default function StudentDetailScreen() {
   const t = useTheme();
+  const { t: tr } = useLocale();
+  const STATUS_OPTIONS = STATUS_VALUES.map((v) => ({ label: tr(STATUS_KEY[v]), value: v }));
   const router = useRouter();
   const now = useNow();
   const { studentId } = useLocalSearchParams<{ studentId: string }>();
@@ -115,7 +115,7 @@ export default function StudentDetailScreen() {
     const res = await apiPost("/api/v1/curriculum", body);
     setTopicBusy(false);
     if (!res.ok) {
-      setTopicError(res.error.message || "Konu eklenemedi.");
+      setTopicError(res.error.message || tr("tStudent.topicFailed"));
       return;
     }
     setTopicTitle("");
@@ -145,7 +145,7 @@ export default function StudentDetailScreen() {
     });
     setEditBusy(false);
     if (!res.ok) {
-      setEditError(res.error.message || "Güncellenemedi.");
+      setEditError(res.error.message || tr("tStudent.updateFailed"));
       return;
     }
     setEditingTopicId(null);
@@ -161,7 +161,7 @@ export default function StudentDetailScreen() {
   if (profile.status === "loading") {
     return (
       <Screen>
-        <AppHeader title="Öğrenci" showBack showNotifications={false} />
+        <AppHeader title={tr("tabs.myStudent")} showBack showNotifications={false} />
         <LoadingSkeleton rows={4} />
       </Screen>
     );
@@ -169,7 +169,7 @@ export default function StudentDetailScreen() {
   if (profile.status === "error") {
     return (
       <Screen>
-        <AppHeader title="Öğrenci" showBack showNotifications={false} />
+        <AppHeader title={tr("tabs.myStudent")} showBack showNotifications={false} />
         <ErrorState message={profile.message} onRetry={profile.refresh} />
       </Screen>
     );
@@ -187,14 +187,13 @@ export default function StudentDetailScreen() {
           <View style={{ flex: 1 }}>
             <Text style={[t.typography.cardTitle, { color: t.colors.text }]}>{student.name}</Text>
             <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>
-              {[student.studentType, student.instruments.join(", ")].filter(Boolean).join(" · ")} · Haftada{" "}
-              {student.weeklyLessonCount} ders
+              {[student.studentType, student.instruments.join(", ")].filter(Boolean).join(" · ")} · {tr("tStudent.weeklyLine", { n: student.weeklyLessonCount })}
             </Text>
           </View>
         </View>
       </Card>
 
-      <SectionHeader title="Genel gelişim skoru" />
+      <SectionHeader title={tr("tStudent.scoreTitle")} />
       {score.status === "loading" ? (
         <LoadingSkeleton rows={2} />
       ) : score.status === "error" ? (
@@ -203,23 +202,23 @@ export default function StudentDetailScreen() {
         <Card>
           {score.data.score === null ? (
             <Text style={[t.typography.body, { color: t.colors.textMuted }]}>
-              Henüz yeterli veri yok — yoklama, ödev, müfredat veya değerlendirme kaydı arttıkça hesaplanacak.
+              {tr("tStudent.scoreEmpty")}
             </Text>
           ) : (
             <>
               <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-                <Text style={[t.typography.bodyStrong, { color: t.colors.text }]}>Genel skor</Text>
+                <Text style={[t.typography.bodyStrong, { color: t.colors.text }]}>{tr("tStudent.scoreOverall")}</Text>
                 <StatusBadge label={String(score.data.score)} tone={scoreTone(score.data.score)} />
               </View>
               <View style={{ gap: 10 }}>
-                {(Object.keys(SCORE_COMPONENT_LABELS) as (keyof typeof SCORE_COMPONENT_LABELS)[]).map((key) => {
+                {(Object.keys(SCORE_COMPONENT_KEYS) as (keyof typeof SCORE_COMPONENT_KEYS)[]).map((key) => {
                   const c = score.data.components[key];
                   return (
                     <View key={key}>
                       <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 4 }}>
-                        <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>{SCORE_COMPONENT_LABELS[key]}</Text>
+                        <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>{tr(SCORE_COMPONENT_KEYS[key])}</Text>
                         <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>
-                          {c.hasData ? `%${Math.round(c.normalizedValue ?? 0)}` : "Veri yok"}
+                          {c.hasData ? `%${Math.round(c.normalizedValue ?? 0)}` : tr("tStudent.noData")}
                         </Text>
                       </View>
                       <ProgressBar progress={c.hasData ? (c.normalizedValue ?? 0) : 0} height={6} tone={c.hasData ? "info" : "warning"} />
@@ -232,7 +231,7 @@ export default function StudentDetailScreen() {
         </Card>
       )}
 
-      <SectionHeader title="Müfredat ilerlemesi" />
+      <SectionHeader title={tr("tStudent.curriculumTitle")} />
       {curriculum.status === "loading" ? (
         <LoadingSkeleton rows={2} />
       ) : curriculum.status === "error" ? (
@@ -241,47 +240,47 @@ export default function StudentDetailScreen() {
         <>
           <Card>
             <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 8 }}>
-              <Text style={[t.typography.bodyStrong, { color: t.colors.text }]}>Genel ilerleme</Text>
+              <Text style={[t.typography.bodyStrong, { color: t.colors.text }]}>{tr("tStudent.overallProgress")}</Text>
               <Text style={[t.typography.bodyStrong, { color: t.colors.primary }]}>%{Math.round(curriculum.data.overallPercent)}</Text>
             </View>
             <ProgressBar progress={curriculum.data.overallPercent} />
             <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 8 }]}>
-              {curriculum.data.topics.filter((tp) => tp.status === "mastered").length} / {curriculum.data.topics.length} konu pekişti
+              {tr("tStudent.topicsMastered", { a: curriculum.data.topics.filter((tp) => tp.status === "mastered").length, t: curriculum.data.topics.length })}
             </Text>
 
             {addingTopic ? (
               <View style={{ marginTop: 14, gap: 10 }}>
-                <TextField label="Konu başlığı" value={topicTitle} onChangeText={setTopicTitle} placeholder="Ör. Do majör gam" />
+                <TextField label={tr("tStudent.topicTitle")} value={topicTitle} onChangeText={setTopicTitle} placeholder={tr("tStudent.topicExample")} />
                 <TextField
-                  label="Açıklama (isteğe bağlı)"
+                  label={tr("tStudent.descOptional")}
                   value={topicDescription}
                   onChangeText={setTopicDescription}
-                  placeholder="Konu hakkında kısa açıklama"
+                  placeholder={tr("tStudent.descPlaceholder")}
                   multiline
                   numberOfLines={2}
                 />
-                <SelectField label="Durum" value={topicStatus} options={STATUS_OPTIONS} onChange={(v) => setTopicStatus(v as CurriculumTopicStatus)} />
+                <SelectField label={tr("tStudent.status")} value={topicStatus} options={STATUS_OPTIONS} onChange={(v) => setTopicStatus(v as CurriculumTopicStatus)} />
                 <TextField
-                  label="İlerleme % (isteğe bağlı)"
+                  label={tr("tStudent.progressOptional")}
                   value={topicProgress}
                   onChangeText={setTopicProgress}
-                  placeholder="Duruma göre"
+                  placeholder={tr("tStudent.progressPlaceholder")}
                   keyboardType="number-pad"
                 />
-                <TextField label="Not (isteğe bağlı)" value={topicNotes} onChangeText={setTopicNotes} placeholder="Ör. Metronom 80 bpm'de çalışılıyor" />
+                <TextField label={tr("tStudent.noteOptional")} value={topicNotes} onChangeText={setTopicNotes} placeholder={tr("tStudent.noteExample")} />
                 {topicError ? <Text style={[t.typography.caption, { color: t.colors.danger }]}>{topicError}</Text> : null}
                 <View style={{ flexDirection: "row", gap: 8 }}>
-                  <Button label="Vazgeç" variant="secondary" size="sm" onPress={() => setAddingTopic(false)} style={{ flex: 1 }} />
-                  <Button label="Ekle" size="sm" onPress={onAddTopic} disabled={!topicTitle.trim() || topicBusy} loading={topicBusy} style={{ flex: 1 }} />
+                  <Button label={tr("ui.cancelDefault")} variant="secondary" size="sm" onPress={() => setAddingTopic(false)} style={{ flex: 1 }} />
+                  <Button label={tr("tStudent.add")} size="sm" onPress={onAddTopic} disabled={!topicTitle.trim() || topicBusy} loading={topicBusy} style={{ flex: 1 }} />
                 </View>
               </View>
             ) : (
-              <Button label="Konu ekle" variant="secondary" size="sm" icon="add" onPress={() => setAddingTopic(true)} style={{ marginTop: 14 }} fullWidth={false} />
+              <Button label={tr("tStudent.addTopic")} variant="secondary" size="sm" icon="add" onPress={() => setAddingTopic(true)} style={{ marginTop: 14 }} fullWidth={false} />
             )}
           </Card>
 
           {curriculum.data.topics.length === 0 ? (
-            <EmptyState icon="list-outline" title="Henüz konu tanımlanmadı" description="Yukarıdan bu öğrenci için müfredat konusu ekleyebilirsiniz." />
+            <EmptyState icon="list-outline" title={tr("tStudent.noTopics")} description={tr("tStudent.noTopicsHint")} />
           ) : (
             <View style={{ gap: 8, marginTop: 8 }}>
               {curriculum.data.topics.map((topic) => (
@@ -294,7 +293,7 @@ export default function StudentDetailScreen() {
                       ) : null}
                     </View>
                     <View style={{ alignItems: "flex-end", gap: 4 }}>
-                      <StatusBadge label={STATUS_LABEL[topic.status]} tone={STATUS_TONE[topic.status]} />
+                      <StatusBadge label={tr(STATUS_KEY[topic.status])} tone={STATUS_TONE[topic.status]} />
                       <Text style={[t.typography.caption, { color: t.colors.primary, fontFamily: t.fonts.serifBold, fontWeight: "700" }]}>%{topic.progressPercent}</Text>
                     </View>
                   </View>
@@ -302,23 +301,23 @@ export default function StudentDetailScreen() {
                     <ProgressBar progress={topic.progressPercent} height={6} tone="info" />
                   </View>
                   {topic.notes ? (
-                    <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 8 }]}>Not: {topic.notes}</Text>
+                    <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 8 }]}>{tr("tStudent.notePrefix", { v: topic.notes })}</Text>
                   ) : null}
 
                   {editingTopicId === topic.id ? (
                     <View style={{ marginTop: 12, gap: 10, borderTopWidth: 1, borderTopColor: t.colors.divider, paddingTop: 12 }}>
-                      <SelectField label="Durum" value={editStatus} options={STATUS_OPTIONS} onChange={(v) => setEditStatus(v as CurriculumTopicStatus)} />
-                      <TextField label="İlerleme %" value={editProgress} onChangeText={setEditProgress} keyboardType="number-pad" />
-                      <TextField label="Değişiklik notu (isteğe bağlı)" value={editChangeNote} onChangeText={setEditChangeNote} placeholder="Ör. Bu hafta tempo arttı" />
+                      <SelectField label={tr("tStudent.status")} value={editStatus} options={STATUS_OPTIONS} onChange={(v) => setEditStatus(v as CurriculumTopicStatus)} />
+                      <TextField label={tr("tStudent.progress")} value={editProgress} onChangeText={setEditProgress} keyboardType="number-pad" />
+                      <TextField label={tr("tStudent.changeNote")} value={editChangeNote} onChangeText={setEditChangeNote} placeholder={tr("tStudent.changeExample")} />
                       {editError ? <Text style={[t.typography.caption, { color: t.colors.danger }]}>{editError}</Text> : null}
                       <View style={{ flexDirection: "row", gap: 8 }}>
-                        <Button label="Vazgeç" variant="secondary" size="sm" onPress={() => setEditingTopicId(null)} style={{ flex: 1 }} />
-                        <Button label="Kaydet" size="sm" onPress={() => onUpdateTopic(topic.id)} loading={editBusy} style={{ flex: 1 }} />
+                        <Button label={tr("ui.cancelDefault")} variant="secondary" size="sm" onPress={() => setEditingTopicId(null)} style={{ flex: 1 }} />
+                        <Button label={tr("tStudent.save")} size="sm" onPress={() => onUpdateTopic(topic.id)} loading={editBusy} style={{ flex: 1 }} />
                       </View>
                     </View>
                   ) : (
                     <Button
-                      label="Durumu güncelle"
+                      label={tr("tStudent.updateStatus")}
                       variant="secondary"
                       size="sm"
                       icon="create-outline"
@@ -334,11 +333,11 @@ export default function StudentDetailScreen() {
         </>
       )}
 
-      <SectionHeader title="Önceki ders notları" />
+      <SectionHeader title={tr("tStudent.pastNotes")} />
       {schedule.status === "loading" ? (
         <LoadingSkeleton rows={2} />
       ) : pastLessons.length === 0 ? (
-        <EmptyState icon="time-outline" title="Henüz geçmiş ders yok" />
+        <EmptyState icon="time-outline" title={tr("tStudent.noPastLessons")} />
       ) : (
         <View style={{ gap: 8 }}>
           {pastLessons.map((l) => (
@@ -350,13 +349,13 @@ export default function StudentDetailScreen() {
         </View>
       )}
 
-      <SectionHeader title="Ödev geçmişi" />
+      <SectionHeader title={tr("tStudent.homeworkHistory")} />
       {homework.status === "loading" ? (
         <LoadingSkeleton rows={2} />
       ) : homework.status === "error" ? (
         <ErrorState message={homework.message} onRetry={homework.refresh} />
       ) : homework.data.homework.length === 0 ? (
-        <EmptyState icon="book-outline" title="Henüz ödev yok" />
+        <EmptyState icon="book-outline" title={tr("tStudent.noHomework")} />
       ) : (
         <View style={{ gap: 10 }}>
           {homework.data.homework.slice(0, 5).map((h) => (
@@ -365,13 +364,13 @@ export default function StudentDetailScreen() {
         </View>
       )}
 
-      <SectionHeader title="Değerlendirme geçmişi" />
+      <SectionHeader title={tr("tStudent.assessHistory")} />
       {assessments.status === "loading" ? (
         <LoadingSkeleton rows={2} />
       ) : assessments.status === "error" ? (
         <ErrorState message={assessments.message} onRetry={assessments.refresh} />
       ) : assessments.data.assessments.length === 0 ? (
-        <EmptyState icon="school-outline" title="Henüz değerlendirme yapılmadı" />
+        <EmptyState icon="school-outline" title={tr("tStudent.noAssess")} />
       ) : (
         <View style={{ gap: 10 }}>
           {[...assessments.data.assessments].reverse().slice(0, 5).map((a) => (
@@ -382,11 +381,11 @@ export default function StudentDetailScreen() {
               <Text style={[t.typography.body, { color: t.colors.text }]}>{a.strengthNote}</Text>
               {a.improvementNote ? (
                 <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 6 }]}>
-                  Gelişim alanı: {a.improvementNote}
+                  {tr("tStudent.improveArea", { v: a.improvementNote })}
                 </Text>
               ) : null}
               <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 4 }]}>
-                Sonraki adımlar: {a.nextStepsNote}
+                {tr("tStudent.nextSteps", { v: a.nextStepsNote })}
               </Text>
             </Card>
           ))}
@@ -394,7 +393,7 @@ export default function StudentDetailScreen() {
       )}
 
       <Button
-        label={mostRecentLesson ? "Son dersi değerlendir" : "Değerlendirme için önce ders gerekli"}
+        label={mostRecentLesson ? tr("tStudent.assessLast") : tr("tStudent.assessNeedLesson")}
         icon="school-outline"
         disabled={!mostRecentLesson}
         onPress={() =>

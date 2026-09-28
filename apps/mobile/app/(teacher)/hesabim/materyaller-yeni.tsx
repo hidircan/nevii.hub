@@ -6,12 +6,14 @@ import { Pressable, Text, View } from "react-native";
 import { apiPost } from "../../../src/api/client";
 import { AppHeader, Button, Card, Icon, Screen, TextField } from "../../../src/components/ui";
 import { ALLOWED_ATTACHMENT_MIME_TYPES, validateAttachment } from "../../../src/lib/attachment-validation";
+import { useLocale } from "../../../src/i18n/locale-context";
 import { useTheme } from "../../../src/theme/theme-context";
 
 type Attachment = { fileName: string; fileMimeType: string; fileData: string; sizeBytes: number };
 
 export default function YeniMateryal() {
   const t = useTheme();
+  const { t: tr } = useLocale();
   const router = useRouter();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -49,7 +51,7 @@ export default function YeniMateryal() {
         sizeBytes: asset.size ?? Math.floor((base64.length * 3) / 4),
       });
     } catch {
-      setAttachError("Dosya okunamadı. Lütfen tekrar deneyin.");
+      setAttachError(tr("teachMat.readFail"));
     } finally {
       setAttaching(false);
     }
@@ -67,7 +69,7 @@ export default function YeniMateryal() {
     });
     setBusy(false);
     if (!res.ok) {
-      setError(res.error.message || "Materyal paylaşılamadı.");
+      setError(res.error.message || tr("teachMat.shareFail"));
       return;
     }
     router.back();
@@ -75,13 +77,13 @@ export default function YeniMateryal() {
 
   return (
     <Screen>
-      <AppHeader title="Yeni materyal" showBack showNotifications={false} />
+      <AppHeader title={tr("teachMat.newTitle")} showBack showNotifications={false} />
       <View style={{ gap: 16 }}>
-        <TextField label="Başlık" value={title} onChangeText={setTitle} placeholder="Ör. Gam alıştırmaları PDF'i" />
-        <TextField label="Açıklama" value={description} onChangeText={setDescription} placeholder="Materyal hakkında kısa açıklama" multiline numberOfLines={4} />
+        <TextField label={tr("teachMat.titleField")} value={title} onChangeText={setTitle} placeholder={tr("teachMat.titleEx")} />
+        <TextField label={tr("teachMat.descField")} value={description} onChangeText={setDescription} placeholder={tr("teachMat.descEx")} multiline numberOfLines={4} />
 
         <View style={{ gap: 6 }}>
-          <Text style={[t.typography.label, { color: t.colors.textMuted }]}>Dosya eki (opsiyonel)</Text>
+          <Text style={[t.typography.label, { color: t.colors.textMuted }]}>{tr("teachMat.attachLabel")}</Text>
           {attachment ? (
             <Card>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
@@ -94,7 +96,7 @@ export default function YeniMateryal() {
                     {Math.max(1, Math.round(attachment.sizeBytes / 1024))} KB
                   </Text>
                 </View>
-                <Pressable onPress={() => setAttachment(null)} hitSlop={8} accessibilityLabel="Dosyayı kaldır">
+                <Pressable onPress={() => setAttachment(null)} hitSlop={8} accessibilityLabel={tr("teachMat.removeFile")}>
                   <Icon name="close-circle" size={20} color={t.colors.textMuted} />
                 </Pressable>
               </View>
@@ -117,7 +119,7 @@ export default function YeniMateryal() {
             >
               <Icon name="attach-outline" size={18} color={t.colors.primary} />
               <Text style={[t.typography.body, { color: t.colors.primary }]}>
-                {attaching ? "Yükleniyor…" : "Dosya, fotoğraf veya video ekle"}
+                {attaching ? tr("teachMat.uploading") : tr("teachMat.attachCta")}
               </Text>
             </Pressable>
           )}
@@ -125,10 +127,10 @@ export default function YeniMateryal() {
         </View>
 
         <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>
-          Bu materyal, hedef enstrüman/seviye belirtilmediği için tüm öğrencilerinize görünür olacak.
+          {tr("teachMat.visibleNote")}
         </Text>
         {error ? <Text style={[t.typography.caption, { color: t.colors.danger }]}>{error}</Text> : null}
-        <Button label="Paylaş" onPress={onSubmit} disabled={!canSubmit} loading={busy} />
+        <Button label={tr("teachMat.share")} onPress={onSubmit} disabled={!canSubmit} loading={busy} />
       </View>
     </Screen>
   );
