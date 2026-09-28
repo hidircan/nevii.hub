@@ -499,9 +499,10 @@ import {
   type ServiceContext,
   type ActorRole,
 } from "./context";
-import { fail, fromZodError, ok, type ServiceErrorCode, type ServiceResult } from "./result";
+import { fail, fromZodError, ok, type ServiceErrorCode, type ServiceFailure, type ServiceResult } from "./result";
 import { assertFeatureEnabled, getStudentFormConfig } from "../platform/access";
 import { assertBranchOperation } from "../platform/permissions";
+import { inBranchScope, resolveBranchScope } from "../platform/branch-scope";
 import { assertTeacherEarningsAccess } from "../platform/teacher-earnings-access";
 
 /** NeviiOS — şube müdürünün öğrenci kaydında değiştirebileceği temel operasyonel alanlar. */
@@ -11012,12 +11013,22 @@ export async function createTrialLessonTool(
 export async function listTrialLessonsTool(
   ctx: ServiceContext
 ): Promise<ServiceResult<{ trials: Awaited<ReturnType<typeof listTrialLessons>> }>> {
-  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN", "TEACHER"]);
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN", "TEACHER", "BRANCH_MANAGER"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
   try {
     let trials = await listTrialLessons(ctx.tenantId);
     if (ctx.role === "TEACHER" && ctx.teacherId) {
       trials = trials.filter((t) => t.teacherId === ctx.teacherId);
+    }
+    // Şube müdürü yalnız atanmış şubelerinin denemelerini görür (aday
+    // telefonları PII — kapsam dışı satır listeye inmez).
+    if (ctx.role === "BRANCH_MANAGER") {
+      const scope = await resolveBranchScope(ctx);
+      if (!scope.ok) return fail("FORBIDDEN", scope.error.message);
+      if (scope.data.mode !== "tenant") {
+        const ids = scope.data.branchIds;
+        trials = trials.filter((t) => ids.includes(t.branchId));
+      }
     }
     return ok({ trials });
   } catch (e) {
@@ -11040,7 +11051,7 @@ export async function updateTrialLessonTool(
   input: unknown,
   now: Date = new Date()
 ): Promise<ServiceResult<{ trialId: string }>> {
-  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN", "TEACHER"]);
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN", "TEACHER", "BRANCH_MANAGER"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
   const v = parseOrFail(updateTrialLessonSchema, input);
   if (!v.ok) return v;
@@ -11052,6 +11063,9 @@ export async function updateTrialLessonTool(
   if (ctx.role === "TEACHER" && v.data.teacherId && v.data.teacherId !== ctx.teacherId) {
     return fail("FORBIDDEN", "Deneme dersini başka bir öğretmene yalnız yönetici devredebilir.");
   }
+  // Şube müdürü: kaynak şube kapsamda olmalı (hedef şube update öncesi denetlenir).
+  const trialSourceGate = await assertTrialBranchScope(ctx, existing.branchId);
+  if (trialSourceGate) return trialSourceGate;
 
   const d = v.data;
   // 11. tur iş #1 — dede kuralı: mevcut süre aynen geri gönderilirse (düzenleme
@@ -11138,6 +11152,12 @@ export async function updateTrialLessonTool(
   }
   if (Object.keys(patch).length === 0) return ok({ trialId: existing.id });
 
+  // Şube müdürü kaydı kapsam dışına taşıyamaz — hedef şube kapısı.
+  if (d.branchId !== undefined && d.branchId !== existing.branchId) {
+    const trialTargetGate = await assertTrialBranchScope(ctx, d.branchId);
+    if (trialTargetGate) return trialTargetGate;
+  }
+
   try {
     const updated = await updateTrialLesson(ctx.tenantId, existing.id, patch);
     if (!updated) return fail("NOT_FOUND", "Deneme dersi bulunamadı. Listeyi yenileyip tekrar deneyin.");
@@ -11155,11 +11175,29 @@ export async function updateTrialLessonTool(
   }
 }
 
+/**
+ * Şube müdürü yalnız atanmış şubelerindeki denemeleri revize eder (fail-closed).
+ * `null` = serbest (admin/öğretmen yolu değişmez); döndürülen değer varsa
+ * çağrıcı onu aynen döner. Kaynak + hedef şube İKİSİ de denetlenir.
+ */
+async function assertTrialBranchScope(
+  ctx: ServiceContext,
+  branchId: string | undefined | null
+): Promise<ServiceFailure | null> {
+  if (ctx.role !== "BRANCH_MANAGER") return null;
+  const scope = await resolveBranchScope(ctx);
+  if (!scope.ok) return fail("FORBIDDEN", scope.error.message);
+  if (!inBranchScope(scope.data, branchId)) {
+    return fail("FORBIDDEN", "Bu kayıt size atanmış şubelerin dışında.");
+  }
+  return null;
+}
+
 export async function updateTrialLessonStatusTool(
   ctx: ServiceContext,
   input: unknown
 ): Promise<ServiceResult<{ trialId: string; status: string }>> {
-  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN", "TEACHER"]);
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN", "TEACHER", "BRANCH_MANAGER"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
   const v = parseOrFail(updateTrialLessonStatusSchema, input);
   if (!v.ok) return v;
@@ -11168,6 +11206,8 @@ export async function updateTrialLessonStatusTool(
   if (ctx.role === "TEACHER" && existing.teacherId !== ctx.teacherId) {
     return fail("FORBIDDEN", "Yetkiniz yok");
   }
+  const branchGate = await assertTrialBranchScope(ctx, existing.branchId);
+  if (branchGate) return branchGate;
   try {
     const updated = await updateTrialLessonStatus(ctx.tenantId, v.data.trialId, v.data.status);
     if (!updated) return fail("NOT_FOUND", "Deneme bulunamadı");

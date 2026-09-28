@@ -78,6 +78,14 @@ export default async function TrialLessonsPage({
   const branches = data.settings.branches.map((b) => ({ id: b.id, name: b.shortName }));
   const converted = rows.filter((r) => r.convertedStudentId).length;
   const decided = rows.filter((r) => r.isPast && r.status !== "cancelled").length;
+  // Şube müdürü revize eder + statü değiştirir; YENİ deneme planlamaz ve
+  // kayda dönüştürmez (öğrenci kaydı ayrı yetki — fail-closed).
+  const isBranchManager = session.role === "BRANCH_MANAGER";
+  const canWriteTrial =
+    session.role === "SUPER_ADMIN" ||
+    session.role === "SCHOOL_ADMIN" ||
+    session.role === "TEACHER" ||
+    isBranchManager;
 
   return (
     <div className="space-y-5">
@@ -85,17 +93,20 @@ export default async function TrialLessonsPage({
         title="Deneme dersleri"
         description={`${rows.length} deneme · ${converted} kayda dönüştü${decided > 0 ? ` · dönüşüm oranı %${Math.round((converted / decided) * 100)}` : ""}`}
       />
-      <Card>
-        <p className="mb-3 text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-trial)" }}>
-          Deneme dersi planla
-        </p>
-        <TrialLessonCreateForm teachers={teachers} branches={branches} />
-      </Card>
+      {!isBranchManager ? (
+        <Card>
+          <p className="mb-3 text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-trial)" }}>
+            Deneme dersi planla
+          </p>
+          <TrialLessonCreateForm teachers={teachers} branches={branches} />
+        </Card>
+      ) : null}
       <section>
         <TrialLessonsTable
           key={`${planlandi ?? "list"}:${deneme ?? ""}`}
           rows={rows}
-          canWrite={session.role === "SUPER_ADMIN" || session.role === "SCHOOL_ADMIN" || session.role === "TEACHER"}
+          canWrite={canWriteTrial}
+          canConvertTrial={!isBranchManager}
           isTeacher={session.role === "TEACHER"}
           teachers={teachers}
           branches={branches}

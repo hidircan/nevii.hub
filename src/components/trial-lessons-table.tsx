@@ -59,6 +59,7 @@ const control =
 export function TrialLessonsTable({
   rows,
   canWrite,
+  canConvertTrial = true,
   isTeacher,
   teachers,
   branches,
@@ -67,6 +68,8 @@ export function TrialLessonsTable({
 }: {
   rows: TrialRow[];
   canWrite: boolean;
+  /** Şube müdürü revize eder ama kayda dönüştürmez (öğrenci kaydı ayrı yetki). */
+  canConvertTrial?: boolean;
   /** Öğretmen başka öğretmene devredemez — öğretmen seçici kilitli. */
   isTeacher: boolean;
   teachers: { id: string; name: string }[];
@@ -152,7 +155,8 @@ export function TrialLessonsTable({
         </div>
       );
     }
-    if (canWrite && isOpenTrial(r)) {
+    // Şube müdürü revize eder ama KAYDA DÖNÜŞTÜRMEZ (öğrenci kaydı ayrı yetki).
+    if (canWrite && canConvertTrial && isOpenTrial(r)) {
       return (
         <Link
           href={trialConversionHref(r.id)}
