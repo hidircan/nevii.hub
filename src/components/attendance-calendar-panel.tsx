@@ -772,77 +772,79 @@ export function AttendanceCalendarPanel({
           const data = byMonth[key];
           return (
             <div key={key} className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
-              <div className="mb-2 flex items-center justify-between gap-2">
-                <div>
-                  <h3 className="text-sm font-semibold text-[var(--color-text)]">
-                    {MONTH_LABELS[m.month - 1]} {m.year}
-                  </h3>
-                  {canEdit && !readOnly && data ? <MonthPlanSummary plan={data.plan} /> : null}
-                </div>
+              {/* 10. tur iş #7 — kompakt ay başlığı: tutar+tarih BİR satırda,
+                  şekil+not+kaydet BİR satırda; eskiden 4 satıra taşan sarma
+                  düzeni 2 sabit satıra indi. Tüm alanlar/işlevler korunur;
+                  açıklama metni Kaydet düğmesinin başlık/ipucuna taşındı. */}
+              <div className="mb-2">
+                <h3 className="text-sm font-semibold text-[var(--color-text)]">
+                  {MONTH_LABELS[m.month - 1]} {m.year}
+                </h3>
+                {canEdit && !readOnly && data ? <MonthPlanSummary plan={data.plan} /> : null}
                 {canEdit && !readOnly ? (
-                  <div className="flex flex-wrap items-center gap-1">
-                    <input
-                      type="number"
-                      min={0}
-                      // Plan yoksa "varsayılan aylık ücret" ÖNERİLMEZ — yanlış
-                      // tutarın sessizce kaydedilmesinin en kolay yolu budur.
-                      placeholder={
-                        data?.plan.state === "ok"
-                          ? String(data.plan.remaining > 0 ? data.plan.remaining : data.plan.amount)
-                          : data?.plan.state === "student_plan" && data.plan.remaining > 0
-                            ? String(data.plan.remaining)
-                            : "Tutar"
-                      }
-                      value={amounts[key] ?? ""}
-                      onChange={(e) => setAmounts((prev) => ({ ...prev, [key]: e.target.value }))}
-                      className="w-20 rounded-md border border-[var(--color-border)] px-2 py-1 text-xs"
-                      aria-label={`${MONTH_LABELS[m.month - 1]} tutarı`}
-                    />
-                    <input
-                      type="date"
-                      value={dueDates[key] ?? ""}
-                      onChange={(e) => setDueDates((prev) => ({ ...prev, [key]: e.target.value }))}
-                      className="w-[8.5rem] rounded-md border border-[var(--color-border)] px-2 py-1 text-xs"
-                      aria-label={`${MONTH_LABELS[m.month - 1]} ödeme tarihi`}
-                    />
-                    <select
-                      value={methods[key] ?? ""}
-                      onChange={(e) => setMethods((prev) => ({ ...prev, [key]: e.target.value }))}
-                      className="rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-1.5 py-1 text-xs"
-                      aria-label={`${MONTH_LABELS[m.month - 1]} ödeme şekli`}
-                    >
-                      <option value="">Ödeme şekli</option>
-                      <option value="cash">Nakit</option>
-                      <option value="transfer">Havale</option>
-                      <option value="credit_card">Kredi Kartı</option>
-                    </select>
-                    <input
-                      type="text"
-                      maxLength={200}
-                      placeholder="Not (dekont no…)"
-                      value={collectionNotes[key] ?? ""}
-                      onChange={(e) => setCollectionNotes((prev) => ({ ...prev, [key]: e.target.value }))}
-                      className="w-36 rounded-md border border-[var(--color-border)] px-2 py-1 text-xs"
-                      aria-label={`${MONTH_LABELS[m.month - 1]} tahsilat notu`}
-                    />
-                    <button
-                      type="button"
-                      disabled={savingMonth === key}
-                      aria-busy={savingMonth === key || undefined}
-                      onClick={() => void onSaveAmount(key)}
-                      title="Bu ayın ödemesini girilen tutar/tarih/yöntemle tahsil edilmiş (Ödendi) olarak kaydeder."
-                      className="rounded-md border border-[var(--color-primary)] bg-[var(--color-primary-soft)] px-2.5 py-1 text-[11px] font-semibold text-[var(--color-primary-soft-text)] hover:bg-[var(--color-primary)] hover:text-[var(--color-text-inverted)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-focus-ring)] disabled:cursor-wait disabled:opacity-70"
-                    >
-                      {savingMonth === key ? "Kaydediliyor…" : "Kaydet"}
-                    </button>
+                  <div className="mt-1.5 space-y-1.5">
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <input
+                        type="number"
+                        min={0}
+                        // Plan yoksa "varsayılan aylık ücret" ÖNERİLMEZ — yanlış
+                        // tutarın sessizce kaydedilmesinin en kolay yolu budur.
+                        placeholder={
+                          data?.plan.state === "ok"
+                            ? String(data.plan.remaining > 0 ? data.plan.remaining : data.plan.amount)
+                            : data?.plan.state === "student_plan" && data.plan.remaining > 0
+                              ? String(data.plan.remaining)
+                              : "Tutar"
+                        }
+                        value={amounts[key] ?? ""}
+                        onChange={(e) => setAmounts((prev) => ({ ...prev, [key]: e.target.value }))}
+                        className="w-full min-w-0 rounded-md border border-[var(--color-border)] px-2 py-1 text-xs"
+                        aria-label={`${MONTH_LABELS[m.month - 1]} tutarı`}
+                      />
+                      <input
+                        type="date"
+                        value={dueDates[key] ?? ""}
+                        onChange={(e) => setDueDates((prev) => ({ ...prev, [key]: e.target.value }))}
+                        className="w-full min-w-0 rounded-md border border-[var(--color-border)] px-2 py-1 text-xs"
+                        aria-label={`${MONTH_LABELS[m.month - 1]} ödeme tarihi`}
+                      />
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <select
+                        value={methods[key] ?? ""}
+                        onChange={(e) => setMethods((prev) => ({ ...prev, [key]: e.target.value }))}
+                        className="w-24 shrink-0 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-1.5 py-1 text-xs"
+                        aria-label={`${MONTH_LABELS[m.month - 1]} ödeme şekli`}
+                      >
+                        <option value="">Ödeme şekli</option>
+                        <option value="cash">Nakit</option>
+                        <option value="transfer">Havale</option>
+                        <option value="credit_card">Kredi Kartı</option>
+                      </select>
+                      <input
+                        type="text"
+                        maxLength={200}
+                        placeholder="Not (dekont no…)"
+                        value={collectionNotes[key] ?? ""}
+                        onChange={(e) => setCollectionNotes((prev) => ({ ...prev, [key]: e.target.value }))}
+                        className="min-w-0 flex-1 rounded-md border border-[var(--color-border)] px-2 py-1 text-xs"
+                        aria-label={`${MONTH_LABELS[m.month - 1]} tahsilat notu`}
+                      />
+                      <button
+                        type="button"
+                        disabled={savingMonth === key}
+                        aria-busy={savingMonth === key || undefined}
+                        onClick={() => void onSaveAmount(key)}
+                        title="Bu ayın ödemesini girilen tutar/tarih/yöntemle tahsil edilmiş (Ödendi) olarak kaydeder."
+                        aria-label={`${MONTH_LABELS[m.month - 1]} ödemesini Ödendi olarak kaydet`}
+                        className="shrink-0 rounded-md border border-[var(--color-primary)] bg-[var(--color-primary-soft)] px-2.5 py-1 text-[11px] font-semibold text-[var(--color-primary-soft-text)] hover:bg-[var(--color-primary)] hover:text-[var(--color-text-inverted)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-focus-ring)] disabled:cursor-wait disabled:opacity-70"
+                      >
+                        {savingMonth === key ? "Kaydediliyor…" : "Kaydet"}
+                      </button>
+                    </div>
                   </div>
                 ) : null}
               </div>
-              {canEdit && !readOnly ? (
-                <p className="mb-1 text-[10px] text-[var(--color-text-muted)]">
-                  Kaydet, bu ayın ödemesini girilen tutar/tarih/yöntemle Ödendi olarak tahsil eder.
-                </p>
-              ) : null}
 
               {!data ? (
                 <p className="text-xs text-[var(--color-text-muted)]">
