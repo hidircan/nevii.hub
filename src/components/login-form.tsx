@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import { Button, Input, Label } from "@/components/ui";
 import { ModalShell, modalButton } from "@/components/modal-shell";
 import { authCopy, formatInLocale, loginErrorText, type AppLocale } from "@/lib/i18n/copy";
+import { resolvePlatformLoginDest, resolveSafeLoginNext } from "@/lib/auth/role-routes";
+import type { AppRole } from "@/lib/auth/types";
 
 /**
  * P0 UAT (2026-09-07) — GİRİŞ EKRANINDA DEMO KİMLİK BİLGİSİ YOK.
@@ -24,7 +26,16 @@ import { authCopy, formatInLocale, loginErrorText, type AppLocale } from "@/lib/
  * NOT (operatör aksiyonu): bu parolalar git geçmişinde kalmıştır; ekrandan
  * kaldırılmaları rotasyon YERİNE GEÇMEZ.
  */
-export function LoginForm({ nextPath, lang = "tr" }: { nextPath?: string; lang?: AppLocale }) {
+export function LoginForm({
+  nextPath,
+  lang = "tr",
+  platformGate = false,
+}: {
+  nextPath?: string;
+  lang?: AppLocale;
+  /** NeviiOS platform kapısı: HYPER_ADMIN yalnız /platform altına, kurum rolleri kendi evine gider. */
+  platformGate?: boolean;
+}) {
   const copy = authCopy(lang);
   const router = useRouter();
   const [email, setEmail] = useState("");
@@ -62,16 +73,24 @@ export function LoginForm({ nextPath, lang = "tr" }: { nextPath?: string; lang?:
       }
 
       const role = json.data?.user.role;
-      // P1 (2026-09-11) — açık `next` YOKSA ve hesapta güvenli son rota
-      // varsa oraya dön (server `isSafeLastRoute` + rol filtresiyle
-      // doğruladı); yoksa rol ana sayfası.
-      const resumeTo = json.data?.resumeTo;
-      let dest = nextPath || "/panel";
-      if (!nextPath) {
-        if (resumeTo && resumeTo.startsWith("/")) dest = resumeTo;
-        else if (role === "TEACHER") dest = "/ogretmen";
-        else if (role === "STUDENT") dest = "/ogrenci";
-        else dest = "/panel";
+      // Control Center (2026-09-28) — `next` HER İKİ kapıda da doğrulanır
+      // (open redirect kapalı); doğrulanamazsa fallback'e düşülür.
+      const safeNext = resolveSafeLoginNext(nextPath, "");
+      let dest: string;
+      if (platformGate) {
+        dest = resolvePlatformLoginDest(role as AppRole, safeNext || null);
+      } else {
+        // P1 (2026-09-11) — açık `next` YOKSA ve hesapta güvenli son rota
+        // varsa oraya dön (server `isSafeLastRoute` + rol filtresiyle
+        // doğruladı); yoksa rol ana sayfası.
+        const resumeTo = json.data?.resumeTo;
+        dest = safeNext || "/panel";
+        if (!safeNext) {
+          if (resumeTo && resumeTo.startsWith("/")) dest = resumeTo;
+          else if (role === "TEACHER") dest = "/ogretmen";
+          else if (role === "STUDENT") dest = "/ogrenci";
+          else dest = "/panel";
+        }
       }
       router.replace(dest);
       router.refresh();

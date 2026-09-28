@@ -34,6 +34,10 @@ export async function middleware(request: NextRequest) {
   );
   if (!isProtected) return NextResponse.next();
 
+  // Control Center (2026-09-28) — platform kapısı herkese açıktır (oturumsuz
+  // giriş sayfası); döngüye girmemesi için korumalı yönden MUAF tutulur.
+  if (pathname === "/platform/giris") return NextResponse.next();
+
   if ((await hasValidAccess(request)) || hasRefresh(request)) {
     // NeviiOS presence: yalnız yol (sorgu dizesi asla) oturum katmanına iletilir.
     // Refresh varsa oturum katmanı sessizce yeniler.
@@ -42,7 +46,9 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next({ request: { headers } });
   }
 
-  const login = new URL("/login", request.url);
+  // Platform rotası ayrı kapıya, kurum rotaları normal girişe yönlenir.
+  const isPlatform = pathname === "/platform" || pathname.startsWith("/platform/");
+  const login = new URL(isPlatform ? "/platform/giris" : "/login", request.url);
   login.searchParams.set("next", pathname);
   return NextResponse.redirect(login);
 }

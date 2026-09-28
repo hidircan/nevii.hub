@@ -7,6 +7,7 @@ import { BRAND } from "@/lib/brand";
 import { PORTAL_RECORD_MISSING_PARAM } from "@/lib/auth/portal-record-missing";
 import { cookies } from "next/headers";
 import { LOCALE_COOKIE, authCopy, readLocaleCookie } from "@/lib/i18n/copy";
+import { resolveSafeLoginNext } from "@/lib/auth/role-routes";
 
 export const dynamic = "force-dynamic";
 
@@ -23,8 +24,10 @@ export default async function LoginPage({
   // "oturum geçerli ama kuruma ait kaydı yok" diyerek buraya gönderdiyse,
   // kullanıcıyı AYNI portala geri YOLLAMAYIZ (bkz. portal-record-missing.ts).
   const portalRecordMissing = params[PORTAL_RECORD_MISSING_PARAM] === "1";
+  // Control Center (2026-09-28) — `next` sunucuda da doğrulanır (open redirect kapalı).
+  const safeNext = resolveSafeLoginNext(params.next, "");
   if (session && !portalRecordMissing) {
-    redirect(params.next || homePathForRole(session.role));
+    redirect(safeNext || homePathForRole(session.role));
   }
 
   return (
@@ -81,7 +84,7 @@ export default async function LoginPage({
             </p>
           </div>
         ) : null}
-        <LoginForm nextPath={params.next} lang={lang} />
+        <LoginForm nextPath={safeNext || undefined} lang={lang} />
         </div>
       </div>
     </div>
