@@ -200,7 +200,7 @@ import {
 } from "../makeup-engine";
 import { suggestLessonSlots, type LessonSlotSuggestion } from "../lesson-scheduling";
 import { DEFAULT_LESSON_DURATION_MINUTES, TRIAL_LESSON_DURATION_OPTIONS } from "../lesson-duration";
-import { computeMonthlyFee } from "../packages";
+import { computeDiscountAmount, computeMonthlyFee } from "../packages";
 import type { LessonDurationMinutes } from "../lesson-duration";
 import { isTeacherSchedulable, teacherServesBranch } from "../teacher-branches";
 import {
@@ -2112,20 +2112,19 @@ export async function createStudentTool(
     // Paket & Kampanya Motoru — soft uyarılar (limit dolumu vb., hard engel DEĞİL).
     const registrationWarnings: string[] = [];
 
-    if (!v.data.packageId && (v.data.discountType || v.data.discountValue !== undefined || v.data.monthlyFeeOverrideAmount !== undefined || (v.data.campaignIds?.length ?? 0) > 0)) {
-      return fail("VALIDATION_ERROR", "İndirim/kampanya/manuel ücret yalnızca bir paket seçildiğinde uygulanabilir.");
+    if (!v.data.packageId && (v.data.discountType || v.data.discountValue !== undefined || v.data.monthlyFeeOverrideAmount !== undefined)) {
+      return fail("VALIDATION_ERROR", "İndirim/manuel ücret yalnızca bir paket seçildiğinde uygulanabilir.");
     }
 
     // Paket & Kampanya Motoru — kampanya indirimi TEK indirim kaynağı kuralı:
     // campaignIds + manuel discountType/discountValue BİRLİKTE gönderilemez.
     // Sunucu her kampanyayı (aktif + tarih + şube) yeniden doğrular, çakışmayı
     // `resolveCampaignStack` ile çözer; istemcinin gönderdiği yüzdeye GÜVENİLMEZ.
+    // Kampanya PAKETTEN BAĞIMSIZ seçilebilir: paketliyse paket tabanına,
+    // paketsiz (legacy) ise serbest aylık ücrete uygulanır.
     let appliedCampaignIds: string[] | undefined;
     let campaignDiscountPercent: number | undefined;
     if ((v.data.campaignIds?.length ?? 0) > 0) {
-      if (!v.data.packageId) {
-        return fail("VALIDATION_ERROR", "Kampanya indirimi yalnızca bir paket seçildiğinde uygulanabilir.");
-      }
       if (v.data.discountType || v.data.discountValue !== undefined) {
         return fail(
           "VALIDATION_ERROR",
@@ -2187,6 +2186,20 @@ export async function createStudentTool(
         discountValue: effectiveDiscountValue,
         monthlyFeeManualOverride: computation.source === "override",
         monthlyFeeOverrideReason: computation.source === "override" ? v.data.monthlyFeeOverrideReason : undefined,
+        appliedCampaignIds,
+      };
+    } else if (campaignDiscountPercent !== undefined) {
+      // Paketsiz (legacy) + kampanya: indirim serbest aylık ücrete uygulanır.
+      // Formül paket yoluyla AYNI tek kaynaktır (`computeDiscountAmount`):
+      // nihai = taban − yuvarlanmış indirim, asla negatif değil.
+      const base = v.data.monthlyFee;
+      const discountAmount = computeDiscountAmount(base, "percent", campaignDiscountPercent);
+      pricing = {
+        monthlyFee: Math.max(base - discountAmount, 0),
+        packageBaseMonthlyFee: base,
+        discountType: "percent",
+        discountValue: campaignDiscountPercent,
+        monthlyFeeManualOverride: false,
         appliedCampaignIds,
       };
     }

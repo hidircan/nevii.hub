@@ -18,7 +18,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Input, Label, Select } from "@/components/ui";
-import { computeMonthlyFee } from "@/lib/packages";
+import { computeDiscountAmount, computeMonthlyFee } from "@/lib/packages";
 import { resolveCampaignStack, STACKING_RULE_LABELS } from "@/lib/discount-campaigns";
 import type { CampaignStackingRule } from "@/lib/types";
 import { sanitizeAmountInput } from "@/lib/amount-input";
@@ -76,6 +76,116 @@ function campaignScopeLabel(c: PricingCampaignOption): string {
   if (!c.branchId && multi.length === 0) return "Tüm şubeler";
   if (multi.length > 0) return `${multi.length} şube`;
   return "Tek şube";
+}
+
+/** Paket bağımsız kampanya seçim bölümü — paketli ve paketsiz akışta AYNI bileşen. */
+function CampaignSection({
+  activeCampaigns,
+  selectedCampaignIds,
+  onToggle,
+  hasPackage,
+  excludedNote,
+}: {
+  activeCampaigns: PricingCampaignOption[];
+  selectedCampaignIds: string[];
+  onToggle: (id: string) => void;
+  hasPackage: boolean;
+  excludedNote: string | null;
+}) {
+  return (
+    <div>
+      <Label>Kampanyalar (opsiyonel — çoklu seçilebilir)</Label>
+      {activeCampaigns.length === 0 ? (
+        <p className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-xs text-[var(--color-text-muted)]">
+          Aktif kampanya yok — önce{" "}
+          <a href="/panel/paketler?tab=kampanyalar" className="font-medium text-[var(--color-primary)] underline">
+            Kampanyalar ekranından
+          </a>{" "}
+          bir kampanya oluşturun.
+        </p>
+      ) : (
+        <>
+          <div className="space-y-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] p-2.5">
+            {activeCampaigns.map((c) => (
+              <label key={c.id} className="flex cursor-pointer items-start gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  name="campaignIds"
+                  value={c.id}
+                  checked={selectedCampaignIds.includes(c.id)}
+                  onChange={() => onToggle(c.id)}
+                  className="mt-0.5"
+                />
+                <span className="flex-1">
+                  <span className="font-medium text-[var(--color-text)]">
+                    {c.displayId ? `${c.displayId} · ` : ""}
+                    {c.name}
+                  </span>{" "}
+                  <span className="text-[var(--color-text-muted)]">
+                    · %{c.discountPercent} · {STACKING_RULE_LABELS[c.stackingRule]} · {campaignScopeLabel(c)}
+                    {c.maxUsageCount != null ? ` · ${c.usageCount}/${c.maxUsageCount} kullanım` : ""}
+                  </span>
+                </span>
+              </label>
+            ))}
+          </div>
+          <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">
+            {hasPackage
+              ? "Kampanya seçiliyken manuel indirim kapatılır — indirimi kampanya motoru belirler. "
+              : "Paket seçilmediyse kampanya aşağıdaki serbest ücrete uygulanır. "}
+            Şube ve tarih uygunluğu kayıtta sunucuda yeniden doğrulanır.
+          </p>
+          {excludedNote ? (
+            <p className="mt-1 text-[11px] text-amber-700 dark:text-amber-400">{excludedNote}</p>
+          ) : null}
+        </>
+      )}
+    </div>
+  );
+}
+
+/** Serbest ücret girişi + (kampanyalıysa) nihai ücret önizlemesi. Gönderilen değer TABAN kalır. */
+function LegacyFeeField({
+  value,
+  onChange,
+  preview,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  preview: { baseMonthlyFee: number; discountAmount: number; finalMonthlyFee: number } | null;
+}) {
+  return (
+    <div className="space-y-2">
+      <div>
+        <Label>Aylık ücret (serbest — paket seçilmediyse)</Label>
+        <Input
+          name="monthlyFee"
+          inputMode="numeric"
+          placeholder="Örn. 3000"
+          value={value}
+          onChange={(e) => onChange(sanitizeAmountInput(e.target.value))}
+        />
+      </div>
+      {preview ? (
+        <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] p-3 text-sm">
+          <div className="flex items-center justify-between">
+            <span className="text-[var(--color-text-muted)]">Serbest ücret</span>
+            <span className="font-medium">{formatTL(preview.baseMonthlyFee)}</span>
+          </div>
+          {preview.discountAmount > 0 ? (
+            <div className="flex items-center justify-between text-emerald-700 dark:text-emerald-400">
+              <span>İndirim (kampanya)</span>
+              <span className="font-medium">−{formatTL(preview.discountAmount)}</span>
+            </div>
+          ) : null}
+          <div className="mt-1 flex items-center justify-between border-t border-[var(--color-border)] pt-1 text-base">
+            <span className="font-semibold text-[var(--color-text)]">Nihai aylık ücret</span>
+            <span className="font-bold text-[var(--color-text)]">{formatTL(preview.finalMonthlyFee)}</span>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 export function StudentPackagePricingFields({
@@ -154,8 +264,21 @@ export function StudentPackagePricingFields({
     });
   }, [selectedPackage, duration, discountType, discountValue, campaignMode, stackResolution.effectivePercent]);
 
+  // Paketsiz (legacy) + kampanya önizlemesi — sunucuyla AYNI tek formül
+  // (`computeDiscountAmount`). Gönderilen `monthlyFee` TABAN kalır, nihai
+  // ücreti sunucu hesaplar; burası yalnız önizleme + üst form bildirimidir.
+  const legacyCampaignComputation = useMemo(() => {
+    if (selectedPackage || !campaignMode) return null;
+    const base = Number(legacyMonthlyFee);
+    if (!Number.isInteger(base) || base < 0) return null;
+    const discountAmount = computeDiscountAmount(base, "percent", stackResolution.effectivePercent);
+    return { baseMonthlyFee: base, discountAmount, finalMonthlyFee: Math.max(base - discountAmount, 0) };
+  }, [selectedPackage, campaignMode, legacyMonthlyFee, stackResolution.effectivePercent]);
+
   function selectPackage(id: string) {
     setPackageId(id);
+    // Kampanya paket bağımsızdır — paket kaldırılınca seçim KORUNUR,
+    // indirim serbest ücrete uygulanır.
     const pkg = packages.find((p) => p.id === id);
     if (!pkg) return;
     if (pkg.defaultDurationMinutes === 30 || pkg.defaultDurationMinutes === 40 || pkg.defaultDurationMinutes === 50) {
@@ -175,34 +298,46 @@ export function StudentPackagePricingFields({
   }
 
   // Üst forma bildirim — önizleme bayat FormData'yı değil bunu okur (Bug #1).
+  const notifiedFinal = selectedPackage
+    ? (computation?.finalMonthlyFee ?? 0)
+    : (legacyCampaignComputation?.finalMonthlyFee ?? null);
   useEffect(() => {
     onPricingChange?.({
       packageId,
       packageTitle: selectedPackage?.title ?? "",
-      finalMonthlyFee: selectedPackage ? (computation?.finalMonthlyFee ?? 0) : null,
+      finalMonthlyFee: notifiedFinal,
       campaignIds: selectedCampaignIds,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [packageId, computation?.finalMonthlyFee, selectedCampaignIds.join(",")]);
+  }, [packageId, notifiedFinal, selectedCampaignIds.join(",")]);
+
+  const excludedNote =
+    stackResolution.excluded.length > 0
+      ? stackResolution.excluded.map((e) => `"${e.campaign.name}" uygulanmadı: ${e.reason}`).join(" ")
+      : null;
 
   if (packages.length === 0) {
     return (
-      <div className="rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs font-medium text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
-        Henüz aktif paket tanımlanmamış — paketli kayıt için önce{" "}
-        <a href="/panel/paketler" className="underline">
-          Paketler ekranından
-        </a>{" "}
-        bir paket oluşturun. Dilerseniz aşağıdaki serbest aylık ücretle paketsiz kayıt açabilirsiniz.
-        <div className="mt-2">
-          <Label>Aylık ücret (serbest — paket seçilmediyse)</Label>
-          <Input
-            name="monthlyFee"
-            inputMode="numeric"
-            placeholder="Örn. 3000"
-            value={legacyMonthlyFee}
-            onChange={(e) => setLegacyMonthlyFee(sanitizeAmountInput(e.target.value))}
-          />
+      <div className="space-y-3">
+        <div className="rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs font-medium text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+          Henüz aktif paket tanımlanmamış — paketli kayıt için önce{" "}
+          <a href="/panel/paketler" className="underline">
+            Paketler ekranından
+          </a>{" "}
+          bir paket oluşturun. Dilerseniz aşağıdaki serbest aylık ücretle paketsiz kayıt açabilirsiniz.
         </div>
+        <CampaignSection
+          activeCampaigns={activeCampaigns}
+          selectedCampaignIds={selectedCampaignIds}
+          onToggle={toggleCampaign}
+          hasPackage={false}
+          excludedNote={excludedNote}
+        />
+        <LegacyFeeField
+          value={legacyMonthlyFee}
+          onChange={setLegacyMonthlyFee}
+          preview={legacyCampaignComputation}
+        />
       </div>
     );
   }
@@ -233,41 +368,18 @@ export function StudentPackagePricingFields({
         </Select>
       </div>
 
+      {/* Kampanyalar HER ZAMAN paket seçiminin altında, ayrı seçilebilir bölüm;
+          paket bağımsızdır — paketsizken serbest ücrete uygulanır. */}
+      <CampaignSection
+        activeCampaigns={activeCampaigns}
+        selectedCampaignIds={selectedCampaignIds}
+        onToggle={toggleCampaign}
+        hasPackage={!!selectedPackage}
+        excludedNote={selectedPackage ? null : excludedNote}
+      />
+
       {selectedPackage ? (
         <>
-          {activeCampaigns.length > 0 ? (
-            <div>
-              <Label>Kampanyalar (opsiyonel — çoklu seçilebilir)</Label>
-              <div className="space-y-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] p-2.5">
-                {activeCampaigns.map((c) => (
-                  <label key={c.id} className="flex cursor-pointer items-start gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      name="campaignIds"
-                      value={c.id}
-                      checked={selectedCampaignIds.includes(c.id)}
-                      onChange={() => toggleCampaign(c.id)}
-                      className="mt-0.5"
-                    />
-                    <span className="flex-1">
-                      <span className="font-medium text-[var(--color-text)]">
-                        {c.displayId ? `${c.displayId} · ` : ""}
-                        {c.name}
-                      </span>{" "}
-                      <span className="text-[var(--color-text-muted)]">
-                        · %{c.discountPercent} · {STACKING_RULE_LABELS[c.stackingRule]} · {campaignScopeLabel(c)}
-                        {c.maxUsageCount != null ? ` · ${c.usageCount}/${c.maxUsageCount} kullanım` : ""}
-                      </span>
-                    </span>
-                  </label>
-                ))}
-              </div>
-              <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">
-                Kampanya seçiliyken manuel indirim kapatılır — indirimi kampanya motoru belirler. Şube ve tarih
-                uygunluğu kayıtta sunucuda yeniden doğrulanır.
-              </p>
-            </div>
-          ) : null}
 
           <div className="grid grid-cols-2 gap-2">
             <div>
@@ -340,16 +452,11 @@ export function StudentPackagePricingFields({
           <input type="hidden" name="monthlyFee" value={computation?.finalMonthlyFee ?? 0} />
         </>
       ) : (
-        <div>
-          <Label>Aylık ücret (serbest — paket seçilmediyse)</Label>
-          <Input
-            name="monthlyFee"
-            inputMode="numeric"
-            placeholder="Örn. 3000"
-            value={legacyMonthlyFee}
-            onChange={(e) => setLegacyMonthlyFee(sanitizeAmountInput(e.target.value))}
-          />
-        </div>
+        <LegacyFeeField
+          value={legacyMonthlyFee}
+          onChange={setLegacyMonthlyFee}
+          preview={legacyCampaignComputation}
+        />
       )}
     </div>
   );

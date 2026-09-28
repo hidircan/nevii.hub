@@ -243,11 +243,12 @@ export function NewStudentForm({
     const form = formRef.current;
     if (!form) return;
     const fd = new FormData(form);
-    // Bug #1 — paket seçiliyse nihai ücret BİLDİRİMDEN okunur (FormData'daki
-    // gizli input, indirimi değiştiren olay anında henüz ESKİ değeri taşır).
+    // Bug #1 — nihai ücret BİLDİRİMDEN okunur (FormData'daki gizli input,
+    // indirimi değiştiren olay anında henüz ESKİ değeri taşır). Bildirim
+    // null ise (paketsiz + kampanyasız legacy) FormData'daki serbest ücrete düşülür.
     const live = pricingRef.current;
     const monthlyFee =
-      live.packageId && live.finalMonthlyFee !== null ? live.finalMonthlyFee : Number(fd.get("monthlyFee") || 0);
+      live.finalMonthlyFee !== null ? live.finalMonthlyFee : Number(fd.get("monthlyFee") || 0);
     const weeklyLessonCount = Number(fd.get("weeklyLessonCount") || 0);
     // P0 (2026-09-05) — önizleme de sunucuyla AYNI kaynaktan (resolveLessonStartDay)
     // ders başlangıç gününü çözer: ilk tahsilat kayıt tarihinden değil, ders

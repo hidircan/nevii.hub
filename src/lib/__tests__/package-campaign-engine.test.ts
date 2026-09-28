@@ -299,6 +299,70 @@ describe("Paket & Kampanya Motoru — createStudentTool kampanya uygulaması", (
     expect(second.data.warnings?.join(" ")).toContain("uygulanmadı");
   });
 
+  it("paketsiz (legacy) + kampanya: indirim serbest ücrete uygulanır, sayaç artar", async () => {
+    const { id: campaignId } = await createTestCampaign({ name: "Legacy Kampanya", discountPercent: 25 });
+    const res = await createStudentTool(ctx(), {
+      ...baseStudentInput,
+      monthlyFee: 4000,
+      campaignIds: [campaignId],
+      firstPaymentCollected: { method: "cash", amount: 3000, collectedAt: "2026-09-01" },
+      firstPaymentAdjustmentReason: "Test — öneri/tahsilat farkı bu testin konusu değil",
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const data = await readData();
+    const student = data.students.find((s) => s.id === res.data.studentId)!;
+    expect(student.packageId).toBeUndefined();
+    expect(student.packageBaseMonthlyFee).toBe(4000);
+    expect(student.monthlyFee).toBe(3000);
+    expect(student.discountType).toBe("percent");
+    expect(student.discountValue).toBe(25);
+    expect(student.appliedCampaignIds).toEqual([campaignId]);
+    expect(student.derivedPerLessonAmount).toBe(derivePerLessonAmount(3000, 2));
+    expect(data.discountCampaigns?.find((c) => c.id === campaignId)?.usageCount).toBe(1);
+  });
+
+  it("paketsiz + iki additive kampanya toplanır; %100 tavan aşılmaz", async () => {
+    const mk = async (name: string, discountPercent: number) => {
+      const r = await createDiscountCampaignTool(superCtx(), {
+        name,
+        kind: "sibling",
+        discountPercent,
+        stackingRule: "additive",
+      });
+      if (!r.ok) throw new Error(r.error.message);
+      return r.data.campaignId;
+    };
+    const a = await mk("LA", 60);
+    const b = await mk("LB", 60);
+    const res = await createStudentTool(ctx(), {
+      ...baseStudentInput,
+      monthlyFee: 4000,
+      campaignIds: [a, b],
+      firstPaymentCollected: { method: "cash", amount: 1, collectedAt: "2026-09-01" },
+      firstPaymentAdjustmentReason: "Test",
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const student = (await readData()).students.find((s) => s.id === res.data.studentId)!;
+    expect(student.monthlyFee).toBe(0);
+    expect(student.discountValue).toBe(100);
+    expect(student.derivedPerLessonAmount).toBe(0);
+  });
+
+  it("paketsiz + kampanya + manuel indirim birlikte reddedilir", async () => {
+    const { id: campaignId } = await createTestCampaign();
+    const res = await createStudentTool(ctx(), {
+      ...baseStudentInput,
+      monthlyFee: 4000,
+      campaignIds: [campaignId],
+      discountType: "percent",
+      discountValue: 5,
+      firstPaymentCollected: { method: "cash", amount: 3000, collectedAt: "2026-09-01" },
+    });
+    expect(res.ok).toBe(false);
+  });
+
   it("kampanya + manuel indirim birlikte reddedilir (tek indirim kaynağı)", async () => {
     const packageId = await createTestPackage();
     const { id: campaignId } = await createTestCampaign();
