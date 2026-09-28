@@ -4,6 +4,7 @@ import { AppHeader, Avatar, Card, ErrorState, Icon, LoadingSkeleton, Screen, Sec
 import { useApiGet } from "../../../../../src/hooks/use-api";
 import { useNow } from "../../../../../src/hooks/use-now";
 import { format, isPast } from "../../../../../src/lib/date";
+import { useLocale } from "../../../../../src/i18n/locale-context";
 import { useTheme } from "../../../../../src/theme/theme-context";
 import type { ScheduleResponse, TasksResponse, TeacherPerformanceV2Response, TeachersResponse } from "../../../../../src/types/api";
 
@@ -13,6 +14,7 @@ const perfPeriodEnd = format(now, "yyyy-MM-dd");
 
 export default function TeacherDetailScreen() {
   const t = useTheme();
+  const { t: tr } = useLocale();
   const router = useRouter();
   const now = useNow();
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -29,7 +31,7 @@ export default function TeacherDetailScreen() {
   if (teachers.status === "loading") {
     return (
       <Screen>
-        <AppHeader title="Öğretmen" showBack showNotifications={false} />
+        <AppHeader title={tr("adm.tchTitle")} showBack showNotifications={false} />
         <LoadingSkeleton rows={4} />
       </Screen>
     );
@@ -37,7 +39,7 @@ export default function TeacherDetailScreen() {
   if (teachers.status === "error") {
     return (
       <Screen>
-        <AppHeader title="Öğretmen" showBack showNotifications={false} />
+        <AppHeader title={tr("adm.tchTitle")} showBack showNotifications={false} />
         <ErrorState message={teachers.message} onRetry={teachers.refresh} />
       </Screen>
     );
@@ -48,7 +50,7 @@ export default function TeacherDetailScreen() {
 
   return (
     <Screen>
-      <AppHeader title={teacher?.name ?? "Öğretmen"} showBack showNotifications={false} />
+      <AppHeader title={teacher?.name ?? tr("adm.tchTitle")} showBack showNotifications={false} />
 
       <Card>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
@@ -64,12 +66,12 @@ export default function TeacherDetailScreen() {
         </View>
       </Card>
 
-      <SectionHeader title="Performans" />
+      <SectionHeader title={tr("adm.tchPerf")} />
       <Card>
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-          <Text style={[t.typography.body, { color: t.colors.text }]}>Yoklama bazlı performans skoru</Text>
+          <Text style={[t.typography.body, { color: t.colors.text }]}>{tr("adm.tchPerfDesc")}</Text>
           {teacher?.performanceLabel === "insufficient_data" ? (
-            <StatusBadge label="Yetersiz veri" tone="neutral" />
+            <StatusBadge label={tr("adm.dashInsufficient")} tone="neutral" />
           ) : (
             <StatusBadge
               label={`${teacher?.performanceScore}/100`}
@@ -79,14 +81,14 @@ export default function TeacherDetailScreen() {
         </View>
       </Card>
 
-      <SectionHeader title="Detaylı performans (v2)" />
+      <SectionHeader title={tr("adm.tchV2")} />
       <Pressable onPress={() => router.push(`/(admin)/kisiler/ogretmen/${id}/performans` as never)}>
         <Card>
           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-            <Text style={[t.typography.body, { color: t.colors.text }]}>4 bileşenli genişletilmiş skor</Text>
+            <Text style={[t.typography.body, { color: t.colors.text }]}>{tr("adm.tchV2Desc")}</Text>
             {perfV2.status === "success" ? (
               perfV2.data.score === null ? (
-                <StatusBadge label="Yetersiz veri" tone="neutral" />
+                <StatusBadge label={tr("adm.dashInsufficient")} tone="neutral" />
               ) : (
                 <StatusBadge
                   label={`${perfV2.data.score}/100`}
@@ -94,44 +96,44 @@ export default function TeacherDetailScreen() {
                 />
               )
             ) : perfV2.status === "error" ? (
-              <StatusBadge label="Yüklenemedi" tone="danger" />
+              <StatusBadge label={tr("adm.tchLoadFail")} tone="danger" />
             ) : (
-              <StatusBadge label="Yükleniyor…" tone="neutral" />
+              <StatusBadge label={tr("adm.stuLoading")} tone="neutral" />
             )}
           </View>
           <Text style={[t.typography.caption, { color: t.colors.primary, marginTop: 10 }]}>
-            Yoklama, geri bildirim, iş takip, ödev detayları →
+            {tr("adm.tchDetailsLink")}
           </Text>
         </Card>
       </Pressable>
 
-      <SectionHeader title="Program özeti" />
+      <SectionHeader title={tr("adm.tchSched")} />
       <Card>
         <Text style={[t.typography.body, { color: t.colors.text }]}>
-          {upcomingCount === null ? "Yükleniyor…" : `${upcomingCount} yaklaşan ders`}
+          {upcomingCount === null ? tr("adm.stuLoading") : tr("adm.stuUpcoming", { n: upcomingCount })}
         </Text>
-        <Text style={[t.typography.body, { color: t.colors.text, marginTop: 6 }]}>{teacher?.activeStudentCount} aktif öğrenci</Text>
+        <Text style={[t.typography.body, { color: t.colors.text, marginTop: 6 }]}>{tr("adm.tPerfActive", { n: teacher?.activeStudentCount ?? 0 })}</Text>
         <Text
           style={[t.typography.caption, { color: t.colors.primary, marginTop: 10 }]}
           onPress={() => router.push("/(admin)/program")}
         >
-          Programı görüntüle →
+          {tr("adm.tchViewSched")}
         </Text>
       </Card>
 
-      <SectionHeader title="Görev metrikleri" />
+      <SectionHeader title={tr("adm.tchTasks")} />
       <Card>
         <Text style={[t.typography.body, { color: t.colors.text }]}>
-          {openTaskCount === null ? "Yükleniyor…" : `${openTaskCount} açık görev`}
+          {openTaskCount === null ? tr("adm.stuLoading") : tr("adm.tchOpenTasks", { n: openTaskCount })}
         </Text>
       </Card>
 
-      <SectionHeader title="Diğer" />
+      <SectionHeader title={tr("adm.tchOther")} />
       <Card>
         {[
-          { key: "musaitlik", label: "Müsaitlik önerileri", icon: "time-outline" as const },
-          { key: "geri-bildirim", label: "Veli/öğrenci geri bildirimleri", icon: "star-outline" as const },
-          { key: "hakedis", label: "Hakediş", icon: "cash-outline" as const },
+          { key: "musaitlik", label: tr("adm.tchLinkAvail"), icon: "time-outline" as const },
+          { key: "geri-bildirim", label: tr("adm.tchLinkFb"), icon: "star-outline" as const },
+          { key: "hakedis", label: tr("adm.tchLinkPay"), icon: "cash-outline" as const },
         ].map((link, i) => (
           <View key={link.key}>
             {i > 0 ? <View style={{ height: 1, backgroundColor: t.colors.divider, marginVertical: 4 }} /> : null}

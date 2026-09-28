@@ -3,6 +3,7 @@ import { useState } from "react";
 import { FlatList, Text, View } from "react-native";
 import { AppHeader, Avatar, Button, Card, EmptyState, ErrorState, FilterChip, LoadingSkeleton, Screen, SearchInput, StatusBadge, StudentCard } from "../../../src/components/ui";
 import { useApiGet } from "../../../src/hooks/use-api";
+import { useLocale } from "../../../src/i18n/locale-context";
 import { useTheme } from "../../../src/theme/theme-context";
 import type { AdminStudentSummary, AdminStudentsResponse, TeacherSummary, TeachersResponse } from "../../../src/types/api";
 
@@ -17,6 +18,7 @@ const PAGE_SIZE = 50;
  */
 export default function KisilerIndex() {
   const t = useTheme();
+  const { t: tr } = useLocale();
   const router = useRouter();
   const [segment, setSegment] = useState<Segment>("students");
   const [query, setQuery] = useState("");
@@ -52,12 +54,12 @@ export default function KisilerIndex() {
 
   const active = segment === "teachers" ? teachers : students;
   const total = segment === "teachers" ? teacherTotal : studentTotal;
-  const emptyTitle = segment === "teachers" ? "Öğretmen bulunamadı" : segment === "parents" ? "Veli bulunamadı" : "Öğrenci bulunamadı";
+  const emptyTitle = segment === "teachers" ? tr("adm.peopleEmptyT") : segment === "parents" ? tr("adm.peopleEmptyP") : tr("adm.peopleEmptyS");
   const emptyIcon = segment === "teachers" ? "school-outline" as const : "people-outline" as const;
 
   return (
     <Screen scroll={false}>
-      <AppHeader title="Kişiler" />
+      <AppHeader title={tr("adm.peopleTitle")} />
       <FlatList
         data={rows}
         keyExtractor={(item) => `${item.kind}:${item.id}`}
@@ -67,12 +69,12 @@ export default function KisilerIndex() {
         ListHeaderComponent={
           <View>
             <View style={{ flexDirection: "row", gap: 8, marginBottom: 12 }}>
-              <FilterChip label="Öğrenciler" selected={segment === "students"} onPress={() => changeSegment("students")} />
-              <FilterChip label="Öğretmenler" selected={segment === "teachers"} onPress={() => changeSegment("teachers")} />
-              <FilterChip label="Veliler" selected={segment === "parents"} onPress={() => changeSegment("parents")} />
+              <FilterChip label={tr("adm.peopleStudents")} selected={segment === "students"} onPress={() => changeSegment("students")} />
+              <FilterChip label={tr("adm.peopleTeachers")} selected={segment === "teachers"} onPress={() => changeSegment("teachers")} />
+              <FilterChip label={tr("adm.peopleParents")} selected={segment === "parents"} onPress={() => changeSegment("parents")} />
             </View>
             <View style={{ marginBottom: 12 }}>
-              <SearchInput value={query} onChangeText={changeQuery} placeholder={segment === "teachers" ? "Öğretmen ara" : segment === "parents" ? "Veli ara" : "Öğrenci ara"} />
+              <SearchInput value={query} onChangeText={changeQuery} placeholder={segment === "teachers" ? tr("adm.peopleSearchT") : segment === "parents" ? tr("adm.peopleSearchP") : tr("adm.peopleSearchS")} />
             </View>
             {active.status === "loading" ? <LoadingSkeleton rows={5} /> : null}
             {active.status === "error" ? <ErrorState message={active.message} onRetry={active.refresh} /> : null}
@@ -89,11 +91,11 @@ export default function KisilerIndex() {
                   <View style={{ flex: 1 }}>
                     <Text style={[t.typography.cardTitle, { color: t.colors.text }]} numberOfLines={1}>{tt.name}</Text>
                     <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]} numberOfLines={1}>
-                      {tt.instruments.join(", ")} · {tt.activeStudentCount} öğrenci
+                      {tt.instruments.join(", ")} · {tr("adm.peopleStudentsCount", { n: tt.activeStudentCount })}
                     </Text>
                   </View>
                   {tt.performanceLabel === "insufficient_data" ? (
-                    <StatusBadge label="Yetersiz veri" tone="neutral" />
+                    <StatusBadge label={tr("adm.dashInsufficient")} tone="neutral" />
                   ) : (
                     <StatusBadge label={`${tt.performanceScore}/100`} tone={(tt.performanceScore ?? 0) >= 80 ? "success" : (tt.performanceScore ?? 0) >= 60 ? "warning" : "danger"} />
                   )}
@@ -110,7 +112,7 @@ export default function KisilerIndex() {
                   <View style={{ flex: 1 }}>
                     <Text style={[t.typography.cardTitle, { color: t.colors.text }]} numberOfLines={1}>{s.parentName}</Text>
                     <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]} numberOfLines={1}>
-                      {s.name} velisi · {s.parentPhone}
+                      {tr("adm.peopleParentOf", { name: s.name })} · {s.parentPhone}
                     </Text>
                   </View>
                 </View>
@@ -121,7 +123,7 @@ export default function KisilerIndex() {
             const s = item.student;
             return (
               <StudentCard
-                student={{ id: s.id, name: s.name, instrument: s.instruments.join(", "), level: s.teacherName ? `Öğretmen: ${s.teacherName}` : undefined }}
+                student={{ id: s.id, name: s.name, instrument: s.instruments.join(", "), level: s.teacherName ? tr("adm.peopleTeacherIs", { name: s.teacherName }) : undefined }}
                 onPress={() => router.push(`/(admin)/kisiler/ogrenci/${s.id}`)}
               />
             );
@@ -132,7 +134,7 @@ export default function KisilerIndex() {
           active.status === "success" && total > rows.length ? (
             <View style={{ marginTop: 12 }}>
               <Button
-                label={`Daha fazla göster (${rows.length}/${total})`}
+                label={tr("adm.peopleMore", { a: rows.length, t: total })}
                 variant="secondary"
                 onPress={() => setLimit((n) => n + PAGE_SIZE)}
               />

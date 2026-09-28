@@ -4,21 +4,22 @@ import { apiPost } from "../../../src/api/client";
 import { AppHeader, Button, Card, ConfirmDialog, EmptyState, ErrorState, FilterChip, LoadingSkeleton, Screen, StatusBadge } from "../../../src/components/ui";
 import { useApiGet } from "../../../src/hooks/use-api";
 import { shortDayMonth } from "../../../src/lib/date";
+import { useLocale } from "../../../src/i18n/locale-context";
 import { useTheme } from "../../../src/theme/theme-context";
 import type { LeaveRequestItem, LeaveResponse } from "../../../src/types/api";
 
-const TYPE_LABEL: Record<string, string> = {
-  annual: "Yıllık izin",
-  sick: "Hastalık izni",
-  unpaid: "Ücretsiz izin",
-  other: "Diğer",
+const TYPE_KEY: Record<string, string> = {
+  annual: "adm.leaveTypeAnnual",
+  sick: "adm.leaveTypeSick",
+  unpaid: "adm.leaveTypeUnpaid",
+  other: "adm.leaveTypeOther",
 };
 
-const STATUS_LABEL: Record<string, string> = {
-  draft: "Taslak",
-  pending_approval: "Onay bekliyor",
-  approved: "Onaylandı",
-  rejected: "Reddedildi",
+const STATUS_KEY: Record<string, string> = {
+  draft: "adm.leaveStDraft",
+  pending_approval: "adm.leaveStPending",
+  approved: "adm.leaveStApproved",
+  rejected: "adm.leaveStRejected",
 };
 
 /**
@@ -28,6 +29,7 @@ const STATUS_LABEL: Record<string, string> = {
  */
 export default function IzinOnaylari() {
   const t = useTheme();
+  const { t: tr } = useLocale();
   const res = useApiGet<LeaveResponse>("/api/v1/leave");
   const [tab, setTab] = useState<"open" | "all">("open");
   const [confirming, setConfirming] = useState<{ item: LeaveRequestItem; decision: "approved" | "rejected" } | null>(null);
@@ -49,18 +51,18 @@ export default function IzinOnaylari() {
     const result = await apiPost(`/api/v1/leave/${item.id}/decide`, { status: decision });
     setBusy(false);
     if (!result.ok) {
-      setError(result.error.message || "Karar kaydedilemedi.");
+      setError(result.error.message || tr("adm.leaveDecideFail"));
     }
     res.refresh();
   }
 
   return (
     <Screen>
-      <AppHeader title="İzin onayları" showBack showNotifications={false} />
+      <AppHeader title={tr("adm.leaveTitle")} showBack showNotifications={false} />
 
       <View style={{ flexDirection: "row", gap: 8, marginBottom: 12 }}>
-        <FilterChip label="Bekleyen" selected={tab === "open"} onPress={() => setTab("open")} />
-        <FilterChip label="Tümü" selected={tab === "all"} onPress={() => setTab("all")} />
+        <FilterChip label={tr("adm.leaveOpen")} selected={tab === "open"} onPress={() => setTab("open")} />
+        <FilterChip label={tr("adm.mkAll")} selected={tab === "all"} onPress={() => setTab("all")} />
       </View>
 
       {error ? (
@@ -74,17 +76,17 @@ export default function IzinOnaylari() {
       ) : res.status === "error" ? (
         <ErrorState message={res.message} onRetry={res.refresh} />
       ) : requests.length === 0 ? (
-        <EmptyState icon="calendar-outline" title={tab === "open" ? "Bekleyen izin talebi yok" : "İzin talebi yok"} />
+        <EmptyState icon="calendar-outline" title={tab === "open" ? tr("adm.leaveEmptyOpen") : tr("adm.leaveEmptyAll")} />
       ) : (
         <View style={{ gap: 10 }}>
           {requests.map((r) => (
             <Card key={r.id}>
               <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
                 <Text style={[t.typography.cardTitle, { color: t.colors.text, flex: 1 }]} numberOfLines={1}>
-                  {TYPE_LABEL[r.type] ?? r.type} · {r.dayCount} gün
+                  {TYPE_KEY[r.type] ? tr(TYPE_KEY[r.type]) : r.type} · {tr("adm.leaveDays", { n: r.dayCount })}
                 </Text>
                 <StatusBadge
-                  label={STATUS_LABEL[r.status] ?? r.status}
+                  label={STATUS_KEY[r.status] ? tr(STATUS_KEY[r.status]) : r.status}
                   tone={r.status === "approved" ? "success" : r.status === "rejected" ? "danger" : "warning"}
                 />
               </View>
@@ -98,8 +100,8 @@ export default function IzinOnaylari() {
               ) : null}
               {r.status === "pending_approval" ? (
                 <View style={{ flexDirection: "row", gap: 8, marginTop: 10 }}>
-                  <Button label="Onayla" size="sm" style={{ flex: 1 }} onPress={() => setConfirming({ item: r, decision: "approved" })} />
-                  <Button label="Reddet" size="sm" variant="danger" style={{ flex: 1 }} onPress={() => setConfirming({ item: r, decision: "rejected" })} />
+                  <Button label={tr("adm.leaveApprove")} size="sm" style={{ flex: 1 }} onPress={() => setConfirming({ item: r, decision: "approved" })} />
+                  <Button label={tr("adm.leaveReject")} size="sm" variant="danger" style={{ flex: 1 }} onPress={() => setConfirming({ item: r, decision: "rejected" })} />
                 </View>
               ) : null}
             </Card>
@@ -109,13 +111,13 @@ export default function IzinOnaylari() {
 
       <ConfirmDialog
         visible={!!confirming}
-        title={confirming?.decision === "approved" ? "İzin onaylansın mı?" : "İzin reddedilsin mi?"}
+        title={confirming?.decision === "approved" ? tr("adm.leaveConfirmApprove") : tr("adm.leaveConfirmReject")}
         message={
           confirming
-            ? `${TYPE_LABEL[confirming.item.type] ?? confirming.item.type} · ${confirming.item.dayCount} gün · ${shortDayMonth(new Date(confirming.item.startDate))} – ${shortDayMonth(new Date(confirming.item.endDate))}`
+            ? tr("adm.leaveSummary", { type: TYPE_KEY[confirming.item.type] ? tr(TYPE_KEY[confirming.item.type]) : confirming.item.type, n: confirming.item.dayCount, range: `${shortDayMonth(new Date(confirming.item.startDate))} – ${shortDayMonth(new Date(confirming.item.endDate))}` })
             : undefined
         }
-        confirmLabel={confirming?.decision === "approved" ? "Onayla" : "Reddet"}
+        confirmLabel={confirming?.decision === "approved" ? tr("adm.leaveApprove") : tr("adm.leaveReject")}
         danger={confirming?.decision === "rejected"}
         onConfirm={submitDecision}
         onCancel={() => setConfirming(null)}

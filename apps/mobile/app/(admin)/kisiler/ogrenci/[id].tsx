@@ -22,6 +22,7 @@ import {
 import { useApiGet } from "../../../../src/hooks/use-api";
 import { useNow } from "../../../../src/hooks/use-now";
 import { formatCurrency, isPast, shortDayMonth } from "../../../../src/lib/date";
+import { useLocale } from "../../../../src/i18n/locale-context";
 import { useTheme } from "../../../../src/theme/theme-context";
 import type {
   AttendanceSummary,
@@ -35,17 +36,17 @@ import type {
   StudentProfile,
 } from "../../../../src/types/api";
 
-const CONSENT_STATUS_LABEL: Record<string, string> = {
-  granted: "Onay verildi",
-  denied: "Onay verilmedi",
-  withdrawn: "Onay geri çekildi",
-  expired: "Onay süresi doldu",
+const CONSENT_STATUS_KEY: Record<string, string> = {
+  granted: "adm.stuConsentGranted",
+  denied: "adm.stuConsentDenied",
+  withdrawn: "adm.stuConsentWithdrawn",
+  expired: "adm.stuConsentExpired",
 };
 
-const ACCESS_STATUS_LABEL: Record<string, string> = {
-  invited: "Davetli",
-  active: "Aktif",
-  revoked: "İptal edilmiş",
+const ACCESS_STATUS_KEY: Record<string, string> = {
+  invited: "adm.stuAccInvited",
+  active: "adm.stuAccActive",
+  revoked: "adm.stuAccRevoked",
 };
 
 function telHref(phone: string): string {
@@ -54,6 +55,7 @@ function telHref(phone: string): string {
 
 export default function AdminStudentDetail() {
   const t = useTheme();
+  const { t: tr } = useLocale();
   const now = useNow();
   const { id } = useLocalSearchParams<{ id: string }>();
 
@@ -81,7 +83,7 @@ export default function AdminStudentDetail() {
     const res = await apiPost(`/api/v1/payments/${confirmingPaymentId}/pay`, {});
     setConfirmingPaymentId(null);
     if (!res.ok) {
-      setActionError(res.error.message || "Ödeme kaydedilemedi.");
+      setActionError(res.error.message || tr("adm.stuPayFail"));
       return;
     }
     balance.refresh();
@@ -93,7 +95,7 @@ export default function AdminStudentDetail() {
     const res = await apiPost(`/api/v1/students/${id}/portal-access/${action}`, { userId });
     setAccessBusy(null);
     if (!res.ok) {
-      setActionError(res.error.message || "Erişim güncellenemedi.");
+      setActionError(res.error.message || tr("adm.stuAccessFail"));
       return;
     }
     portalAccess.refresh();
@@ -107,7 +109,7 @@ export default function AdminStudentDetail() {
     const res = await apiPost(`/api/v1/students/${id}/portal-access/invite`, { email, accessType: inviteType });
     setAccessBusy(null);
     if (!res.ok) {
-      setActionError(res.error.message || "Davet gönderilemedi.");
+      setActionError(res.error.message || tr("adm.stuInviteFail"));
       return;
     }
     setInviteOpen(false);
@@ -118,7 +120,7 @@ export default function AdminStudentDetail() {
   if (profile.status === "loading") {
     return (
       <Screen>
-        <AppHeader title="Öğrenci" showBack showNotifications={false} />
+        <AppHeader title={tr("adm.stuTitle")} showBack showNotifications={false} />
         <LoadingSkeleton rows={4} />
       </Screen>
     );
@@ -126,7 +128,7 @@ export default function AdminStudentDetail() {
   if (profile.status === "error") {
     return (
       <Screen>
-        <AppHeader title="Öğrenci" showBack showNotifications={false} />
+        <AppHeader title={tr("adm.stuTitle")} showBack showNotifications={false} />
         <ErrorState message={profile.message} onRetry={profile.refresh} />
       </Screen>
     );
@@ -145,18 +147,18 @@ export default function AdminStudentDetail() {
           <View style={{ flex: 1 }}>
             <Text style={[t.typography.cardTitle, { color: t.colors.text }]}>{student.name}</Text>
             <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>
-              {student.instruments.join(", ")} · Öğretmen: {student.teacherName ?? "—"}
+              {student.instruments.join(", ")} · {tr("adm.stuTeacherLine", { name: student.teacherName ?? "—" })}
             </Text>
           </View>
         </View>
       </Card>
 
-      <SectionHeader title="Program" />
+      <SectionHeader title={tr("adm.stuProgram")} />
       <Card>
-        <Text style={[t.typography.body, { color: t.colors.text }]}>{upcoming === null ? "Yükleniyor…" : `${upcoming} yaklaşan ders`}</Text>
+        <Text style={[t.typography.body, { color: t.colors.text }]}>{upcoming === null ? tr("adm.stuLoading") : tr("adm.stuUpcoming", { n: upcoming })}</Text>
       </Card>
 
-      <SectionHeader title="Devam durumu" />
+      <SectionHeader title={tr("adm.stuAttendance")} />
       {attendance.status === "loading" ? (
         <LoadingSkeleton rows={1} />
       ) : attendance.status === "error" ? (
@@ -164,12 +166,12 @@ export default function AdminStudentDetail() {
       ) : (
         <Card>
           <Text style={[t.typography.body, { color: t.colors.text }]}>
-            {attendance.data.attended}/{attendance.data.totalLessons} derse katıldı · {attendance.data.absent} devamsızlık
+            {tr("adm.stuAttended", { a: attendance.data.attended, t: attendance.data.totalLessons, b: attendance.data.absent })}
           </Text>
         </Card>
       )}
 
-      <SectionHeader title="Gelişim / müfredat" />
+      <SectionHeader title={tr("adm.stuGrowth")} />
       {curriculum.status === "loading" ? (
         <LoadingSkeleton rows={1} />
       ) : curriculum.status === "error" ? (
@@ -177,20 +179,20 @@ export default function AdminStudentDetail() {
       ) : (
         <Card>
           <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 8 }}>
-            <Text style={[t.typography.bodyStrong, { color: t.colors.text }]}>Genel ilerleme</Text>
+            <Text style={[t.typography.bodyStrong, { color: t.colors.text }]}>{tr("adm.stuOverall")}</Text>
             <Text style={[t.typography.bodyStrong, { color: t.colors.primary }]}>%{Math.round(curriculum.data.overallPercent)}</Text>
           </View>
           <ProgressBar progress={curriculum.data.overallPercent} />
         </Card>
       )}
 
-      <SectionHeader title="Ödevler" />
+      <SectionHeader title={tr("adm.stuHw")} />
       {homework.status === "loading" ? (
         <LoadingSkeleton rows={2} />
       ) : homework.status === "error" ? (
         <ErrorState message={homework.message} onRetry={homework.refresh} />
       ) : homework.data.homework.length === 0 ? (
-        <EmptyState icon="book-outline" title="Henüz ödev yok" />
+        <EmptyState icon="book-outline" title={tr("adm.stuNoHw")} />
       ) : (
         <View style={{ gap: 10 }}>
           {homework.data.homework.slice(0, 5).map((h) => (
@@ -199,7 +201,7 @@ export default function AdminStudentDetail() {
         </View>
       )}
 
-      <SectionHeader title="Ödeme özeti" />
+      <SectionHeader title={tr("adm.stuPay")} />
       {balance.status === "loading" ? (
         <LoadingSkeleton rows={2} />
       ) : balance.status === "error" ? (
@@ -208,7 +210,7 @@ export default function AdminStudentDetail() {
         <View style={{ gap: 10 }}>
           <Card>
             <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-              <Text style={[t.typography.body, { color: t.colors.text }]}>Bekleyen bakiye</Text>
+              <Text style={[t.typography.body, { color: t.colors.text }]}>{tr("adm.stuOutstanding")}</Text>
               <Text style={[t.typography.cardTitle, { color: balance.data.outstanding > 0 ? t.colors.danger : t.colors.success }]}>
                 {formatCurrency(balance.data.outstanding)}
               </Text>
@@ -227,20 +229,20 @@ export default function AdminStudentDetail() {
                   style={[t.typography.caption, { color: t.colors.primary, marginTop: 8 }]}
                   onPress={() => setConfirmingPaymentId(p.id)}
                 >
-                  Ödendi olarak işaretle →
+                  {tr("adm.stuMarkPaid")}
                 </Text>
               </Card>
             ))}
         </View>
       )}
 
-      <SectionHeader title="Evraklar" />
+      <SectionHeader title={tr("adm.stuDocs")} />
       {documents.status === "loading" ? (
         <LoadingSkeleton rows={1} />
       ) : documents.status === "error" ? (
         <ErrorState message={documents.message} onRetry={documents.refresh} />
       ) : documents.data.documents.length === 0 ? (
-        <EmptyState icon="document-text-outline" title="Evrak yok" />
+        <EmptyState icon="document-text-outline" title={tr("adm.stuNoDocs")} />
       ) : (
         <View style={{ gap: 8 }}>
           {documents.data.documents.slice(0, 5).map((d) => (
@@ -252,43 +254,43 @@ export default function AdminStudentDetail() {
         </View>
       )}
 
-      <SectionHeader title="KVKK / sosyal medya onamı" />
+      <SectionHeader title={tr("adm.stuConsent")} />
       {consent.status === "loading" ? (
         <LoadingSkeleton rows={1} />
       ) : consent.status === "error" ? (
         <ErrorState message={consent.message} onRetry={consent.refresh} />
       ) : !consent.data.consent ? (
-        <EmptyState icon="shield-outline" title="Kayıtlı onam yok" />
+        <EmptyState icon="shield-outline" title={tr("adm.stuNoConsent")} />
       ) : (
         <Card>
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
             <Text style={[t.typography.body, { color: t.colors.text }]}>{consent.data.consent.representativeName}</Text>
             <StatusBadge
-              label={CONSENT_STATUS_LABEL[consent.data.consent.status] ?? consent.data.consent.status}
+              label={CONSENT_STATUS_KEY[consent.data.consent.status] ? tr(CONSENT_STATUS_KEY[consent.data.consent.status]) : consent.data.consent.status}
               tone={consent.data.consent.status === "granted" ? "success" : "neutral"}
             />
           </View>
           {consent.data.consent.scopes.length > 0 ? (
-            <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 6 }]}>Kapsam: {consent.data.consent.scopes.join(", ")}</Text>
+            <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 6 }]}>{tr("adm.stuScope", { v: consent.data.consent.scopes.join(", ") })}</Text>
           ) : null}
           <Text style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 4 }]}>{shortDayMonth(new Date(consent.data.consent.grantedAt))}</Text>
         </Card>
       )}
 
-      <SectionHeader title="Veli iletişim" />
+      <SectionHeader title={tr("adm.stuParent")} />
       <Card>
         <Text style={[t.typography.body, { color: t.colors.text }]}>{student.parentName}</Text>
         <Text
           style={[t.typography.body, { color: t.colors.primary, marginTop: 6 }]}
           onPress={() => void Linking.openURL(telHref(student.parentPhone))}
           accessibilityRole="link"
-          accessibilityLabel={`${student.parentPhone} numarasını ara`}
+          accessibilityLabel={tr("adm.stuCallA11y", { phone: student.parentPhone })}
         >
           {student.parentPhone} →
         </Text>
       </Card>
 
-      <SectionHeader title="Portal erişimi" actionLabel={inviteOpen ? undefined : "Davet et"} onAction={inviteOpen ? undefined : () => setInviteOpen(true)} />
+      <SectionHeader title={tr("adm.stuAccess")} actionLabel={inviteOpen ? undefined : tr("adm.stuInvite")} onAction={inviteOpen ? undefined : () => setInviteOpen(true)} />
       {actionError ? (
         <Card style={{ marginBottom: 10, borderColor: t.colors.danger }}>
           <Text style={[t.typography.body, { color: t.colors.danger }]}>{actionError}</Text>
@@ -296,21 +298,21 @@ export default function AdminStudentDetail() {
       ) : null}
       {inviteOpen ? (
         <Card style={{ marginBottom: 10 }}>
-          <TextField label="E-posta" value={inviteEmail} onChangeText={setInviteEmail} placeholder="ornek@e-posta.com" keyboardType="email-address" autoCapitalize="none" />
+          <TextField label={tr("adm.stuEmail")} value={inviteEmail} onChangeText={setInviteEmail} placeholder={tr("adm.stuEmailPh")} keyboardType="email-address" autoCapitalize="none" />
           <View style={{ height: 12 }} />
           <SelectField
-            label="Erişim türü"
+            label={tr("adm.stuAccessType")}
             value={inviteType}
-            placeholder="Seçin"
+            placeholder={tr("adm.lesPickPh")}
             options={[
-              { label: "Veli (çocuk adına salt-görünüm)", value: "GUARDIAN" },
-              { label: "Öğrenci (kendi hesabı)", value: "SELF" },
+              { label: tr("adm.stuGuardianOpt"), value: "GUARDIAN" },
+              { label: tr("adm.stuSelfOpt"), value: "SELF" },
             ]}
             onChange={setInviteType}
           />
           <View style={{ flexDirection: "row", gap: 8, marginTop: 12 }}>
-            <Button label="Vazgeç" variant="secondary" style={{ flex: 1 }} onPress={() => setInviteOpen(false)} />
-            <Button label="Davet gönder" style={{ flex: 1 }} loading={accessBusy === "invite"} disabled={!inviteEmail.trim() || !inviteType} onPress={sendInvite} />
+            <Button label={tr("ui.cancelDefault")} variant="secondary" style={{ flex: 1 }} onPress={() => setInviteOpen(false)} />
+            <Button label={tr("adm.stuSendInvite")} style={{ flex: 1 }} loading={accessBusy === "invite"} disabled={!inviteEmail.trim() || !inviteType} onPress={sendInvite} />
           </View>
         </Card>
       ) : null}
@@ -319,7 +321,7 @@ export default function AdminStudentDetail() {
       ) : portalAccess.status === "error" ? (
         <ErrorState message={portalAccess.message} onRetry={portalAccess.refresh} />
       ) : portalAccess.data.accounts.length === 0 ? (
-        <EmptyState icon="key-outline" title="Portal hesabı yok" />
+        <EmptyState icon="key-outline" title={tr("adm.stuNoAccount")} />
       ) : (
         <View style={{ gap: 8 }}>
           {portalAccess.data.accounts.map((a) => (
@@ -327,20 +329,20 @@ export default function AdminStudentDetail() {
               <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
                 <View style={{ flex: 1 }}>
                   <Text style={[t.typography.body, { color: t.colors.text }]} numberOfLines={1}>
-                    {a.email || "(e-posta yok)"}
+                    {a.email || tr("adm.stuNoEmail")}
                   </Text>
                   <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>
-                    {a.accessType === "GUARDIAN" ? "Veli" : "Öğrenci"}
+                    {a.accessType === "GUARDIAN" ? tr("adm.stuRoleGuardian") : tr("adm.stuRoleStudent")}
                   </Text>
                 </View>
                 <StatusBadge
-                  label={ACCESS_STATUS_LABEL[a.status] ?? a.status}
+                  label={ACCESS_STATUS_KEY[a.status] ? tr(ACCESS_STATUS_KEY[a.status]) : a.status}
                   tone={a.status === "active" ? "success" : a.status === "invited" ? "warning" : "neutral"}
                 />
               </View>
               {a.status === "active" ? (
                 <Button
-                  label="Erişimi iptal et"
+                  label={tr("adm.stuRevoke")}
                   size="sm"
                   variant="danger"
                   loading={accessBusy === a.userId}
@@ -349,7 +351,7 @@ export default function AdminStudentDetail() {
                 />
               ) : a.status === "revoked" ? (
                 <Button
-                  label="Erişimi yeniden aç"
+                  label={tr("adm.stuReactivate")}
                   size="sm"
                   variant="secondary"
                   loading={accessBusy === a.userId}
@@ -364,18 +366,18 @@ export default function AdminStudentDetail() {
 
       <ConfirmDialog
         visible={!!confirmingPaymentId}
-        title="Ödeme kaydedilsin mi?"
-        message="Bu tutar tamamı tahsil edilmiş olarak işaretlenecek."
-        confirmLabel="Ödendi işaretle"
+        title={tr("adm.stuPayTitle")}
+        message={tr("adm.stuPayMsg")}
+        confirmLabel={tr("adm.stuPayConfirm")}
         onConfirm={confirmPayment}
         onCancel={() => setConfirmingPaymentId(null)}
       />
 
       <ConfirmDialog
         visible={!!confirmRevoke}
-        title="Portal erişimi iptal edilsin mi?"
-        message={confirmRevoke ? `${confirmRevoke.email || "Bu hesap"} artık öğrencinin bilgilerini göremez, push bildirimleri durur.` : undefined}
-        confirmLabel="Erişimi iptal et"
+        title={tr("adm.stuRevokeTitle")}
+        message={confirmRevoke ? tr("adm.stuRevokeMsg", { email: confirmRevoke.email || tr("adm.stuRevokeEmailFb") }) : undefined}
+        confirmLabel={tr("adm.stuRevokeConfirm")}
         danger
         onConfirm={() => {
           if (!confirmRevoke) return;

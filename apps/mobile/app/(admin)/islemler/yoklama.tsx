@@ -16,20 +16,22 @@ import {
   SectionHeader,
 } from "../../../src/components/ui";
 import { useApiGet } from "../../../src/hooks/use-api";
+import { useLocale } from "../../../src/i18n/locale-context";
 import { useNow } from "../../../src/hooks/use-now";
 import { useTheme } from "../../../src/theme/theme-context";
 import type { AdminStudentsResponse, AttendanceSummary, LessonOpsResponse, ScheduleResponse } from "../../../src/types/api";
 
-const FLAG_LABEL: Record<string, string> = {
-  attended: "Katıldı",
-  absent: "Gelmedi",
-  excused: "İzinli",
-  processed: "İşlendi",
-  makeup: "Telafi",
+const FLAG_KEY: Record<string, string> = {
+  attended: "attFlag.flagAttended",
+  absent: "attFlag.flagAbsent",
+  excused: "attFlag.flagExcused",
+  processed: "attFlag.flagProcessed",
+  makeup: "attFlag.flagMakeup",
 };
 
 export default function AdminYoklama() {
   const t = useTheme();
+  const { t: tr } = useLocale();
   const now = useNow();
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -58,7 +60,7 @@ export default function AdminYoklama() {
     const res = await apiPost<LessonOpsResponse>(`/api/v1/lessons/${lessonId}/ops`, { flag, confirmSwitch });
     setBusyLessonId(null);
     if (!res.ok) {
-      setOpsError(res.error.message || "Yoklama kaydedilemedi.");
+      setOpsError(res.error.message || tr("adm.yokSaveFail"));
       return;
     }
     // Sunucu farklı statüden geçişte onay ister (web ile aynı akış) —
@@ -75,9 +77,9 @@ export default function AdminYoklama() {
 
   return (
     <Screen>
-      <AppHeader title="Yoklama" showBack showNotifications={false} />
+      <AppHeader title={tr("adm.yokTitle")} showBack showNotifications={false} />
 
-      <SearchInput value={query} onChangeText={(v) => { setQuery(v); setSelectedId(null); }} placeholder="Öğrenci ara" />
+      <SearchInput value={query} onChangeText={(v) => { setQuery(v); setSelectedId(null); }} placeholder={tr("adm.yokSearch")} />
 
       {!selectedId && query.trim() ? (
         <View style={{ gap: 8, marginTop: 12 }}>
@@ -86,7 +88,7 @@ export default function AdminYoklama() {
           ) : students.status === "error" ? (
             <ErrorState message={students.message} onRetry={students.refresh} />
           ) : filteredStudents.length === 0 ? (
-            <EmptyState icon="search-outline" title="Öğrenci bulunamadı" />
+            <EmptyState icon="search-outline" title={tr("adm.yokEmpty")} />
           ) : (
             filteredStudents.map((s) => (
               <Card key={s.id} onPress={() => setSelectedId(s.id)}>
@@ -100,7 +102,7 @@ export default function AdminYoklama() {
 
       {selectedId ? (
         <>
-          <SectionHeader title={selectedStudent?.name ?? "Öğrenci"} actionLabel="Değiştir" onAction={() => { setSelectedId(null); setQuery(""); }} />
+          <SectionHeader title={selectedStudent?.name ?? tr("adm.yokFallback")} actionLabel={tr("adm.yokChange")} onAction={() => { setSelectedId(null); setQuery(""); }} />
 
           {attendance.status === "loading" ? (
             <LoadingSkeleton rows={1} />
@@ -110,20 +112,20 @@ export default function AdminYoklama() {
             <View style={{ flexDirection: "row", gap: 10, marginBottom: 16 }}>
               <Card style={{ flex: 1 }}>
                 <Text style={[t.typography.screenTitle, { color: t.colors.success }]}>{attendance.data.attended}</Text>
-                <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>Katıldı</Text>
+                <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>{tr("attFlag.flagAttended")}</Text>
               </Card>
               <Card style={{ flex: 1 }}>
                 <Text style={[t.typography.screenTitle, { color: t.colors.danger }]}>{attendance.data.absent}</Text>
-                <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>Gelmedi</Text>
+                <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>{tr("attFlag.flagAbsent")}</Text>
               </Card>
               <Card style={{ flex: 1 }}>
                 <Text style={[t.typography.screenTitle, { color: t.colors.warning }]}>{attendance.data.pending}</Text>
-                <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>Bekliyor</Text>
+                <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>{tr("adm.yokWaiting")}</Text>
               </Card>
             </View>
           )}
 
-          <SectionHeader title="Yoklama bekleyen dersler" />
+          <SectionHeader title={tr("adm.yokPendingTitle")} />
           {opsError ? (
             <Card style={{ marginBottom: 10, borderColor: t.colors.danger }}>
               <Text style={[t.typography.body, { color: t.colors.danger }]}>{opsError}</Text>
@@ -134,16 +136,16 @@ export default function AdminYoklama() {
           ) : schedule.status === "error" ? (
             <ErrorState message={schedule.message} onRetry={schedule.refresh} />
           ) : pendingLessons.length === 0 ? (
-            <EmptyState icon="checkmark-circle-outline" title="Bekleyen yoklama yok" />
+            <EmptyState icon="checkmark-circle-outline" title={tr("adm.yokNoPending")} />
           ) : (
             <View style={{ gap: 10 }}>
               {pendingLessons.map((l) => (
                 <View key={l.id}>
-                  <LessonCard lesson={l} personName={l.teacherName ?? "Öğretmen"} />
+                  <LessonCard lesson={l} personName={l.teacherName ?? tr("adm.progTeacherFb")} />
                   <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
-                    <Button label="Katıldı" size="sm" loading={busyLessonId === l.id} onPress={() => markAttendance(l.id, "attended")} style={{ flex: 1 }} />
-                    <Button label="Gelmedi" size="sm" variant="danger" loading={busyLessonId === l.id} onPress={() => markAttendance(l.id, "absent")} style={{ flex: 1 }} />
-                    <Button label="İzinli" size="sm" variant="secondary" loading={busyLessonId === l.id} onPress={() => markAttendance(l.id, "excused")} style={{ flex: 1 }} />
+                    <Button label={tr("attFlag.flagAttended")} size="sm" loading={busyLessonId === l.id} onPress={() => markAttendance(l.id, "attended")} style={{ flex: 1 }} />
+                    <Button label={tr("attFlag.flagAbsent")} size="sm" variant="danger" loading={busyLessonId === l.id} onPress={() => markAttendance(l.id, "absent")} style={{ flex: 1 }} />
+                    <Button label={tr("attFlag.flagExcused")} size="sm" variant="secondary" loading={busyLessonId === l.id} onPress={() => markAttendance(l.id, "excused")} style={{ flex: 1 }} />
                   </View>
                 </View>
               ))}
@@ -151,18 +153,18 @@ export default function AdminYoklama() {
           )}
         </>
       ) : !query.trim() ? (
-        <EmptyState icon="search-outline" title="Yoklama işlemek için öğrenci arayın" />
+        <EmptyState icon="search-outline" title={tr("adm.yokSearchPrompt")} />
       ) : null}
 
       <ConfirmDialog
         visible={!!pendingSwitch}
-        title="Statü değiştirilsin mi?"
+        title={tr("adm.lesSwitchTitle")}
         message={
           pendingSwitch
-            ? `Bu ders şu an "${FLAG_LABEL[pendingSwitch.from] ?? pendingSwitch.from}" durumunda. "${FLAG_LABEL[pendingSwitch.flag]}" olarak değiştirmek istiyor musunuz?`
+            ? tr("adm.lesSwitchMsg", { from: FLAG_KEY[pendingSwitch.from] ? tr(FLAG_KEY[pendingSwitch.from]) : pendingSwitch.from, to: tr(FLAG_KEY[pendingSwitch.flag]) })
             : undefined
         }
-        confirmLabel="Değiştir"
+        confirmLabel={tr("adm.lesSwitchConfirm")}
         onConfirm={() => {
           if (!pendingSwitch) return;
           const { lessonId, flag } = pendingSwitch;
