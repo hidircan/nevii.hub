@@ -11095,29 +11095,9 @@ export async function updateTrialLessonTool(
   const resultChanged =
     d.resultNotes !== undefined && (d.resultNotes.trim() || undefined) !== (existing.resultNotes || undefined);
 
-  const started = new Date(existing.startAt).getTime() <= now.getTime();
-  const finished = new Date(existing.endAt).getTime() <= now.getTime();
-  const locked = finished || existing.status === "cancelled" || Boolean(existing.convertedStudentId);
-  const lockReason = existing.convertedStudentId
-    ? "kayda dönüştürülmüş"
-    : existing.status === "cancelled"
-      ? "iptal edilmiş"
-      : "gerçekleşmiş";
-  if (locked && (scheduleChanged || prepChanged || (identityChanged && existing.convertedStudentId))) {
-    return fail(
-      "VALIDATION_ERROR",
-      `Bu deneme dersi ${lockReason}; tarih, öğretmen, şube ve hazırlık notu artık değiştirilemez. Ders sonrası bilgiyi "Sonuç notu" alanına yazın${
-        existing.status === "cancelled" ? " veya yeni bir deneme planlayın" : ""
-      }.`
-    );
-  }
-  if (resultChanged && !started) {
-    return fail(
-      "VALIDATION_ERROR",
-      "Sonuç notu ders başladıktan sonra girilir. Ders öncesi bilgiyi \"Hazırlık notu\" alanına yazın."
-    );
-  }
-
+  // Sahip emri (2026-09-28): kilit YOK — geçmiş/kayıtlı/iptal denemede
+  // plan, kimlik ve notların TAMAMI her zaman düzenlenebilir (ad düzeltmesi
+  // dahil). Çakışma denetimi, şube kapsamı ve denetim izi aynen korunur.
   const next = {
     instrument: d.instrument ?? existing.instrument,
     branchId: d.branchId ?? existing.branchId,
@@ -11172,6 +11152,43 @@ export async function updateTrialLessonTool(
     return ok({ trialId: existing.id });
   } catch (e) {
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "updateTrial failed");
+  }
+}
+
+/**
+ * Deneme dersi silme (sahip emri 2026-09-28: satır her zaman silinebilir).
+ * Kalıcı silme + denetim izi. Bağlı ÖĞRENCİ kaydına dokunulmaz (dönüşmüş
+ * denemede öğrenci yaşar; `convertedFromTrialId` iz olarak kalır).
+ * - Öğretmen yalnız KENDİ denemesini siler.
+ * - Şube müdürü yalnız atanmış şubesinde siler (kaynak kapısı, fail-closed).
+ */
+export async function deleteTrialLessonTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ trialId: string }>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN", "TEACHER", "BRANCH_MANAGER"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const v = parseOrFail(z.object({ trialId: z.string().min(1) }), input);
+  if (!v.ok) return v;
+  const existing = await getTrialLesson(ctx.tenantId, v.data.trialId);
+  if (!existing) return fail("NOT_FOUND", "Deneme dersi bulunamadı. Listeyi yenileyip tekrar deneyin.");
+  if (ctx.role === "TEACHER" && existing.teacherId !== ctx.teacherId) {
+    return fail("FORBIDDEN", "Yalnızca kendi deneme derslerinizi silebilirsiniz.");
+  }
+  const branchGate = await assertTrialBranchScope(ctx, existing.branchId);
+  if (branchGate) return branchGate;
+  try {
+    const { deleteTrialLesson } = await import("../trial-lessons");
+    const removed = await deleteTrialLesson(ctx.tenantId, existing.id);
+    if (!removed) return fail("NOT_FOUND", "Deneme dersi bulunamadı. Listeyi yenileyip tekrar deneyin.");
+    audit(ctx, "trial.delete", "TrialLesson", existing.id, {
+      entityName: existing.name,
+      status: existing.status,
+      ...(existing.convertedStudentId ? { convertedStudentId: existing.convertedStudentId } : {}),
+    });
+    return ok({ trialId: existing.id });
+  } catch (e) {
+    return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "deleteTrial failed");
   }
 }
 

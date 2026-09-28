@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Pencil, Search } from "lucide-react";
+import { Archive, Pencil, RotateCcw, Search, Trash2 } from "lucide-react";
 import { ModalShell, modalButton } from "@/components/modal-shell";
 import { PaginationControls, usePagination } from "@/components/pagination-controls";
 import { friendlyApiErrorMessage } from "@/lib/api/friendly-error";
@@ -193,19 +193,35 @@ export function TrialLessonsTable({
     );
   }
 
-  function editButton(r: TrialRow) {
+  /**
+   * Sahip emri (2026-09-28): satır HER ZAMAN düzenlenebilir (geçmiş/kayıtlı/
+   * iptal ayrımı yok — ad düzeltmesi dahil tüm sütunlar), arşivlenebilir
+   * (statü: iptal) ve silinebilir (kalıcı, denetim izli). Arşiv/silme iki
+   * tıkla onaylanır; sessiz tek-tık işlem yok.
+   */
+  function rowActions(r: TrialRow) {
     if (!canWrite) return null;
     return (
-      <button
-        type="button"
-        onClick={() => setEditId(r.id)}
-        aria-label={`${r.name} deneme dersini düzenle`}
-        className="inline-flex shrink-0 items-center gap-1 rounded-md border border-[var(--color-border-strong)] px-2 py-1 text-xs font-medium text-[var(--color-text)] hover:border-[var(--color-primary)]"
-      >
-        <Pencil className="h-3 w-3" aria-hidden />
-        {r.isPast || r.convertedStudentId || r.status === "cancelled" ? "Sonuç notu" : "Düzenle"}
-      </button>
+      <RowActions
+        row={r}
+        busy={busyId === r.id}
+        onEdit={() => setEditId(r.id)}
+        onArchive={() => void changeStatus(r, r.status === "cancelled" ? "planned" : "cancelled")}
+        onDelete={() => void deleteTrial(r)}
+      />
     );
+  }
+
+  async function deleteTrial(row: TrialRow) {
+    setBusyId(row.id);
+    setError(null);
+    const res = await apiFetchJson(`/api/v1/trials/${row.id}`, { method: "DELETE" });
+    setBusyId(null);
+    if (!res.ok) {
+      setError(friendlyApiErrorMessage(res.error, "Deneme dersi silinemedi. Sayfayı yenileyip tekrar deneyin."));
+      return;
+    }
+    router.refresh();
   }
 
   return (
@@ -326,7 +342,7 @@ export function TrialLessonsTable({
                         {r.startLabel} · {r.durationMinutes} dk · {r.instrument} · {r.teacherName} · {r.branchName}
                       </p>
                     </div>
-                    {editButton(r)}
+                    {rowActions(r)}
                   </div>
                   {notesCell(r)}
                   <div className="flex flex-wrap items-center gap-2">
@@ -373,7 +389,7 @@ export function TrialLessonsTable({
                       <td className="px-3 py-2">{notesCell(r)}</td>
                       <td className="px-3 py-2">{statusCell(r)}</td>
                       <td className="px-3 py-2">{conversionCell(r)}</td>
-                      <td className="px-3 py-2">{editButton(r)}</td>
+                      <td className="px-3 py-2">{rowActions(r)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -442,9 +458,87 @@ export function TrialLessonsTable({
 }
 
 /**
- * Düzenleme penceresi. Gerçekleşmiş/iptal/dönüşmüş denemede plan ve hazırlık notu
- * salt-okunur (sunucu da aynı kuralı uygular); sonuç notu ayrı alandır.
+ * Satır eylemleri: Düzenle (her zaman) + Arşivle/Geri aç (iki tık onay) +
+ * Sil (iki tık onay, kalıcı). Kurşun geçirmez kural: sessiz tek-tıkla
+ * arşiv/silme yok.
  */
+function RowActions({
+  row,
+  busy,
+  onEdit,
+  onArchive,
+  onDelete,
+}: {
+  row: TrialRow;
+  busy: boolean;
+  onEdit: () => void;
+  onArchive: () => void;
+  onDelete: () => void;
+}) {
+  const [arm, setArm] = useState<"archive" | "delete" | null>(null);
+  const archived = row.status === "cancelled";
+  if (arm) {
+    const isDelete = arm === "delete";
+    return (
+      <span className="inline-flex shrink-0 flex-wrap items-center gap-1.5 text-xs">
+        <span className="text-[var(--color-text-muted)]">{isDelete ? "Silinsin mi?" : archived ? "Geri açılsın mı?" : "Arşivlensin mi?"}</span>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => {
+            setArm(null);
+            (isDelete ? onDelete : onArchive)();
+          }}
+          className="font-semibold text-[var(--color-danger)] hover:underline disabled:opacity-50"
+        >
+          {busy ? "…" : "Evet"}
+        </button>
+        <button
+          type="button"
+          onClick={() => setArm(null)}
+          className="font-medium text-[var(--color-text-muted)] hover:underline"
+        >
+          Vazgeç
+        </button>
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex shrink-0 flex-wrap items-center gap-1">
+      <button
+        type="button"
+        onClick={onEdit}
+        aria-label={`${row.name} deneme dersini düzenle`}
+        className="inline-flex items-center gap-1 rounded-md border border-[var(--color-border-strong)] px-2 py-1 text-xs font-medium text-[var(--color-text)] hover:border-[var(--color-primary)]"
+      >
+        <Pencil className="h-3 w-3" aria-hidden />
+        Düzenle
+      </button>
+      <button
+        type="button"
+        onClick={() => setArm("archive")}
+        aria-label={`${row.name} deneme dersini ${archived ? "geri aç" : "arşivle"}`}
+        title={archived ? "İptal durumunu geri al (planlandı)" : "Arşivle (iptal olarak işaretle, silinmez)"}
+        className="inline-flex items-center gap-1 rounded-md border border-[var(--color-border-strong)] px-2 py-1 text-xs font-medium text-[var(--color-text-muted)] hover:border-[var(--color-primary)]"
+      >
+        {archived ? <RotateCcw className="h-3 w-3" aria-hidden /> : <Archive className="h-3 w-3" aria-hidden />}
+        {archived ? "Geri aç" : "Arşivle"}
+      </button>
+      <button
+        type="button"
+        onClick={() => setArm("delete")}
+        aria-label={`${row.name} deneme dersini sil`}
+        title="Kalıcı sil (denetim izi bırakır)"
+        className="inline-flex items-center gap-1 rounded-md border border-[var(--color-border-strong)] px-2 py-1 text-xs font-medium text-[var(--color-danger)] hover:border-[var(--color-danger)]"
+      >
+        <Trash2 className="h-3 w-3" aria-hidden />
+        Sil
+      </button>
+    </span>
+  );
+}
+
+/** Düzenleme penceresi — tüm alanlar her zaman düzenlenebilir (sahip emri 2026-09-28). */
 function TrialEditModal({
   row,
   isTeacher,
@@ -460,7 +554,6 @@ function TrialEditModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const locked = row.isPast || Boolean(row.convertedStudentId) || row.status === "cancelled";
   const [name, setName] = useState(row.name);
   const [phone, setPhone] = useState(row.phone);
   const [instrument, setInstrument] = useState(row.instrument);
@@ -485,28 +578,28 @@ function TrialEditModal({
     : [row.durationMinutes, 10, 15, 20];
 
   async function save() {
-    const startIso = locked ? null : wallDateTimeInputToIso(startLocal);
-    if (!locked && !startIso) {
+    // Sahip emri (2026-09-28): tüm sütunlar HER ZAMAN düzenlenebilir —
+    // geçmiş/kayıtlı/iptal ayrımı yok (sunucu da kilidi kaldırdı, her
+    // değişiklik alan-düzeyi diff ile denetime yazılır).
+    const startIso = wallDateTimeInputToIso(startLocal);
+    if (!startIso) {
       setError("Geçerli bir tarih ve saat seçin.");
       return;
     }
     setBusy(true);
     setError(null);
-    const body: Record<string, unknown> = {};
-    if (!locked) {
-      Object.assign(body, {
-        name: name.trim(),
-        phone: phone.trim(),
-        instrument,
-        branchId,
-        teacherId,
-        startAt: startIso,
-        durationMinutes: Number(duration),
-        notes,
-        allowAvailabilityOverride: override || undefined,
-      });
-    }
-    if (row.isStarted) body.resultNotes = resultNotes;
+    const body: Record<string, unknown> = {
+      name: name.trim(),
+      phone: phone.trim(),
+      instrument,
+      branchId,
+      teacherId,
+      startAt: startIso,
+      durationMinutes: Number(duration),
+      notes,
+      resultNotes,
+      allowAvailabilityOverride: override || undefined,
+    };
     const res = await apiFetchJson(`/api/v1/trials/${row.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -547,24 +640,24 @@ function TrialEditModal({
       }
     >
       <div className="space-y-3 text-sm">
-        {locked ? (
+        {row.convertedStudentId ? (
           <p className="rounded-md bg-[var(--color-surface-muted)] px-3 py-2 text-xs text-[var(--color-text-muted)]">
-            Bu deneme {row.convertedStudentId ? "kayda dönüştürülmüş" : row.status === "cancelled" ? "iptal edilmiş" : "gerçekleşmiş"}; plan
-            ve hazırlık notu geçmiş kayıt olarak korunur. Ders sonrası bilgiyi aşağıdaki sonuç notuna yazın.
+            Bu deneme kayda dönüştürülmüş — kimlik/plan düzeltmesi öğrencinin mevcut kaydını değiştirmez, yalnız bu
+            deneme satırını günceller.
           </p>
         ) : null}
         <div className="grid gap-2 sm:grid-cols-2">
           <label className="space-y-1">
             <span className={label}>Ad</span>
-            <input className={field} value={name} onChange={(e) => setName(e.target.value)} disabled={locked} />
+            <input className={field} value={name} onChange={(e) => setName(e.target.value)} />
           </label>
           <label className="space-y-1">
             <span className={label}>Telefon</span>
-            <input className={field} value={phone} onChange={(e) => setPhone(e.target.value)} disabled={locked} />
+            <input className={field} value={phone} onChange={(e) => setPhone(e.target.value)} />
           </label>
           <label className="space-y-1">
             <span className={label}>Branş</span>
-            <select className={field} value={instrument} onChange={(e) => setInstrument(e.target.value)} disabled={locked}>
+            <select className={field} value={instrument} onChange={(e) => setInstrument(e.target.value)}>
               {(INSTRUMENTS.includes(row.instrument) ? INSTRUMENTS : [row.instrument, ...INSTRUMENTS]).map((i) => (
                 <option key={i} value={i}>
                   {i}
@@ -574,7 +667,7 @@ function TrialEditModal({
           </label>
           <label className="space-y-1">
             <span className={label}>Şube</span>
-            <select className={field} value={branchId} onChange={(e) => setBranchId(e.target.value)} disabled={locked}>
+            <select className={field} value={branchId} onChange={(e) => setBranchId(e.target.value)}>
               {branches.map((b) => (
                 <option key={b.id} value={b.id}>
                   {b.name}
@@ -584,7 +677,7 @@ function TrialEditModal({
           </label>
           <label className="space-y-1">
             <span className={label}>Öğretmen</span>
-            <select className={field} value={teacherId} onChange={(e) => setTeacherId(e.target.value)} disabled={locked || isTeacher}>
+            <select className={field} value={teacherId} onChange={(e) => setTeacherId(e.target.value)} disabled={isTeacher}>
               {teacherOptions.map((t) => (
                 <option key={t.id} value={t.id}>
                   {t.name}
@@ -599,12 +692,11 @@ function TrialEditModal({
               className={field}
               value={startLocal}
               onChange={(e) => setStartLocal(e.target.value)}
-              disabled={locked}
             />
           </label>
           <label className="space-y-1">
             <span className={label}>Süre</span>
-            <select className={field} value={duration} onChange={(e) => setDuration(e.target.value)} disabled={locked}>
+            <select className={field} value={duration} onChange={(e) => setDuration(e.target.value)}>
               {durationOptions.map((d) => (
                 <option key={d} value={d}>
                   {d} dk{d === row.durationMinutes && ![10, 15, 20].includes(d) ? " (mevcut kayıt)" : ""}
@@ -620,7 +712,6 @@ function TrialEditModal({
             value={notes}
             maxLength={2000}
             onChange={(e) => setNotes(e.target.value)}
-            disabled={locked}
             placeholder="Ör. adayın seviyesi, velinin beklentisi, hazırlanacak nota"
           />
         </label>
@@ -631,8 +722,7 @@ function TrialEditModal({
             value={resultNotes}
             maxLength={4000}
             onChange={(e) => setResultNotes(e.target.value)}
-            disabled={!row.isStarted}
-            placeholder={row.isStarted ? "Ör. dersin nasıl geçtiği, veliyle görüşme, kayıt kararı" : "Ders başladıktan sonra girilebilir."}
+            placeholder="Ör. dersin nasıl geçtiği, veliyle görüşme, kayıt kararı"
           />
           {row.resultNotesLabel ? <span className="text-[11px] text-[var(--color-text-muted)]">{row.resultNotesLabel}</span> : null}
         </label>

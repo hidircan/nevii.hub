@@ -153,6 +153,28 @@ export async function updateTrialLesson(tenantId: string, id: string, patch: Tri
   return pub;
 }
 
+/**
+ * Deneme dersini kalıcı siler (sahip emri 2026-09-28: satır her zaman
+ * silinebilir). json/db aynı davranış. Bağlı ÖĞRENCİ kaydına dokunmaz —
+ * yalnız deneme satırı gider; öğrencideki `convertedFromTrialId` iz olarak
+ * kalır. İmza nüshası olan evraklar (varsa) arşiv niteliğiyle korunur.
+ */
+export async function deleteTrialLesson(tenantId: string, id: string): Promise<boolean> {
+  if (isDbMode) {
+    const { prisma } = await import("./db");
+    const r = await prisma.trialLesson.findFirst({ where: { id, tenantId } });
+    if (!r) return false;
+    await prisma.trialLesson.delete({ where: { id } });
+    return true;
+  }
+  const all = await loadAll();
+  const idx = all.findIndex((t) => t.id === id && t.tenantId === tenantId);
+  if (idx < 0) return false;
+  all.splice(idx, 1);
+  await saveAll(all);
+  return true;
+}
+
 function mapDb(r: {
   id: string;
   name: string;
