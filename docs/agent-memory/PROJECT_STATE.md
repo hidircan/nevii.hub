@@ -26,6 +26,21 @@ Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_20
 - Bulgu: route group üst layout'u devre dışı bırakmaz — kapı döngüsü yol başlığı
   (`x-neviios-path`) + kabuk muafiyetiyle çözüldü; Preview'da canlı doğrulandı.
 
+## Güncel snapshot — 2026-09-28 (10. tur, DEVAM EDİYOR — migration engeli)
+- **Dal:** `feat/uat-round-10` 12 commit + `origin/test` 8 peer commit merge edildi → **`test` dalına push
+  edildi (`7d731d3`)**. UAT doc `0ce0248` yerelde commitli, migration sonrası redeploy tetikleyici olarak
+  push'lanacak. 11/11 iş kod+test olarak bitti (1 portal pasif uyarısı, 2 CID logo+şablon, 3 anasayfa,
+  4 revize, 5 modal odak, 6 finans ortalama+grafik, 7 yoklama kartı, 8 aktif odalar, 9 güvenli iptal,
+  10 ödeme-planı dönüş, 11 hakediş hiyerarşisi).
+- **ENGEL:** `20260928120000_email_templates` (additive, yeni boş tablo) test DB'ye UYGULANAMADI — yerelde
+  test DB kimlik bilgisi yok (`.env`/`.env.local` production'ı gösteriyor), Vercel CLI yok. Vercel
+  migration-gate derlemeyi durdurur; `test.neviihub.com` eski sürümü sunmaya devam ediyor (doğrulandı:
+  eski başlık). Sahip/peer migration'ı uygulayınca: redeploy → doğrulama → UAT promptu.
+- Kalite: typecheck temiz, lint 0 hata, prisma validate geçerli; tam paket 3778 geçti, kalan 3 kırmızı
+  tur-dışı (1 login-link tabanda kırık, 2 seed-demo sandbox `tsx EPERM`). Kalite kapısında 3 gerçek
+  düzeltme: portal bootstrap yedeği, kilitli satır, i18n parola testi (bkz. LESSONS_LEARNED).
+- UAT: `docs/testing/UAT_2026_09_28_ROUND_10.md`.
+
 ## Güncel snapshot — 2026-09-28 (9. tur)
 - **Dal:** `feat/uat-round-9` → `test` (NeviiOS `05c172d` üstüne rebase). **Migration (additive):**
   `20260928090000_lesson_disruption_task_soft_delete` — **test DB'ye uygulandı 2026-09-28** (owner onayı; kayıt sayıları ve
