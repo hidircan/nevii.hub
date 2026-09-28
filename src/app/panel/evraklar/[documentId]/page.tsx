@@ -12,6 +12,7 @@ import { BackButton } from "@/components/back-button";
 import { DocumentSignedUpload } from "@/components/document-signed-upload";
 import { QuickTaskLink } from "@/components/quick-task-link";
 import { DocumentSignedVersions, type SignedVersionRow } from "@/components/document-signed-versions";
+import { DocumentArchiveButton } from "@/components/document-archive-button";
 import { formatDateTime } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -95,6 +96,7 @@ export default async function DocumentDetailPage({
                 className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-3.5 py-2 text-sm font-medium text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)]"
               />
             ) : null}
+            {doc.status !== "cancelled" ? <DocumentArchiveButton documentId={doc.id} variant="button" /> : null}
             <span title={documentStatusHint(doc.status)}>
               <Badge status={doc.status}>{documentStatusLabel(doc.status)}</Badge>
             </span>

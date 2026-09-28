@@ -8,6 +8,7 @@ import { useListReturnState } from "@/lib/use-list-return-state";
 import Link from "next/link";
 import { ArrowDown, ArrowUp, ChevronsUpDown, FileText, ShieldCheck } from "lucide-react";
 import { Card } from "@/components/ui";
+import { DocumentArchiveButton } from "@/components/document-archive-button";
 import { PaginationControls, usePagination } from "@/components/pagination-controls";
 import { filterAndSortDocuments, type DocumentSortKey, type StudentStateFilter } from "@/lib/documents-filter";
 import { formatDate } from "@/lib/utils";
@@ -63,7 +64,6 @@ export function DocumentsTable({
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const [archiving, setArchiving] = useState<string | null>(null);
   // Arama yalnız yerel state: her tuşta URL değişince sunucu tüm evrakları yeniden okuyordu.
   const [search, setSearchState] = useState("");
 
@@ -148,15 +148,8 @@ export function DocumentsTable({
     router.replace(pathname, { scroll: false });
   }
 
-  async function onArchive(id: string) {
-    setArchiving(id);
-    try {
-      await fetch(`/api/v1/documents/${id}/archive`, { method: "POST" });
-      router.refresh();
-    } finally {
-      setArchiving(null);
-    }
-  }
+  // 11. tur iş #10 — arşivleme DocumentArchiveButton içindedir (onay + hata
+  // yüzeyi); burada ham fetch kalmadı.
 
   const personValue = activeStudentId ? `s:${activeStudentId}` : activeTeacherId ? `t:${activeTeacherId}` : "";
   const activeStudents = people.filter((p) => p.kind !== "teacher" && !p.inactive);
@@ -361,14 +354,7 @@ export function DocumentsTable({
                           </Link>
                         ) : null}
                         {d.status !== "cancelled" ? (
-                          <button
-                            type="button"
-                            disabled={archiving === d.id}
-                            onClick={() => void onArchive(d.id)}
-                            className="text-xs font-medium text-[var(--color-danger)] hover:opacity-80 disabled:opacity-50"
-                          >
-                            {archiving === d.id ? "…" : "Arşivle"}
-                          </button>
+                          <DocumentArchiveButton documentId={d.id} variant="link" />
                         ) : null}
                       </div>
                     </td>
