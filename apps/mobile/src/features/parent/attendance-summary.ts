@@ -1,3 +1,5 @@
+import type { Locale } from "../../i18n/locales";
+import { getActiveLocale } from "../../i18n/locale-store";
 import type { AttendanceLedgerResponse, AttendanceSummary } from "../../types/api";
 
 /**
@@ -68,7 +70,10 @@ export function toAttendanceViewFromLedger(ledger: AttendanceLedgerResponse | nu
   };
 }
 
-/** Ekran okuyucu için oran + durum özeti (tek cümle, Türkçe). */
-export function attendanceA11yLabel(view: AttendanceView): string {
+/** Ekran okuyucu için oran + durum özeti (tek cümle, aktif dilde). */
+export function attendanceA11yLabel(view: AttendanceView, locale: Locale = getActiveLocale()): string {
+  if (locale === "en") {
+    return `Attendance rate ${Math.round(view.rate)} percent. ${view.attended} of ${view.total} lessons attended, ${view.absent} absent, ${view.excused} excused.`;
+  }
   return `Katılım oranı yüzde ${Math.round(view.rate)}. ${view.total} dersten ${view.attended} katılım, ${view.absent} devamsızlık, ${view.excused} izinli.`;
 }

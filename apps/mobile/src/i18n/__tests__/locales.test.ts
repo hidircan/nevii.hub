@@ -59,6 +59,36 @@ describe("locale kalıcılığı", () => {
   });
 });
 
+describe("sözlük anahtar kapsamı", () => {
+  it("kaynakta geçen her sabit tr(\"...\") anahtarı iki dilde de çözülür", async () => {
+    const fs = await import("node:fs/promises");
+    const path = await import("node:path");
+    const root = path.join(__dirname, "..", "..", "..");
+    const keys = new Set<string>();
+    async function walk(dir: string) {
+      for (const e of await fs.readdir(dir, { withFileTypes: true })) {
+        const full = path.join(dir, e.name);
+        if (e.isDirectory()) {
+          if (e.name !== "node_modules" && e.name !== "__tests__") await walk(full);
+        } else if (/\.tsx?$/.test(e.name)) {
+          const src = await fs.readFile(full, "utf8");
+          for (const m of src.matchAll(/(?:\btr|lookup)\(\s*(?:getActiveLocale\(\),?\s*)?["'`]([a-z][\w.]+)["'`]/g)) {
+            keys.add(m[1]!);
+          }
+        }
+      }
+    }
+    await walk(path.join(root, "app"));
+    await walk(path.join(root, "src"));
+    expect(keys.size).toBeGreaterThan(0);
+    const missing: string[] = [];
+    for (const key of keys) {
+      if (lookup("tr", key) === key || lookup("en", key) === key) missing.push(key);
+    }
+    expect(missing).toEqual([]);
+  });
+});
+
 describe("locale-store", () => {
   it("varsayılan dil Türkçe'dir ve yalnız tr/en kabul edilir", () => {
     setActiveLocale("tr");

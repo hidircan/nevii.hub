@@ -24,9 +24,11 @@ describe("welcome/login akış sözleşmesi", () => {
 
   it("welcome: üç persona girişi → persona'lı /login; oturumlu kullanıcı persona evine gider", async () => {
     const content = await readRoute("welcome.tsx");
-    expect(content).toContain("Öğrenci / Veli girişi");
-    expect(content).toContain("Öğretmen girişi");
-    expect(content).toContain("Yönetici girişi");
+    // Metinler sözlükten gelir (TR/EN) — kaynakta anahtar + useLocale kullanımı aranır.
+    expect(content).toContain("welcome.studentTitle");
+    expect(content).toContain("welcome.teacherTitle");
+    expect(content).toContain("welcome.adminTitle");
+    expect(content).toContain("useLocale");
     expect(content).toMatch(/pathname: "\/login"/);
     expect(content).toMatch(/persona/);
     expect(content).toMatch(/href="\/"/);
@@ -38,10 +40,10 @@ describe("welcome/login akış sözleşmesi", () => {
     expect(content).toMatch(/href="\/"/);
   });
 
-  it("login: geri dönüş etiketi 'Anasayfa' (+ erişilebilirlik)", async () => {
+  it("login: geri dönüş etiketi sözlükten (+ erişilebilirlik)", async () => {
     const content = await readRoute("login.tsx");
-    expect(content).toContain(">Anasayfa</Text>");
-    expect(content).toContain('accessibilityLabel="Anasayfaya dön"');
+    expect(content).toContain('tr("login.home")');
+    expect(content).toContain('tr("login.backToHome")');
     expect(content).not.toContain("Karşılama");
   });
 

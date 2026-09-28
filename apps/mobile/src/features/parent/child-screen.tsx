@@ -17,6 +17,7 @@ import {
 import { useAppForegroundRefetch } from "../../hooks/use-app-foreground-refetch";
 import { useApiGet } from "../../hooks/use-api";
 import { useFocusRefetch } from "../../hooks/use-focus-refetch";
+import { useLocale } from "../../i18n/locale-context";
 import { useTheme } from "../../theme/theme-context";
 import type { StudentProfile } from "../../types/api";
 import { PARENT_QUICK_LINKS, toChildContextView } from "./child-context";
@@ -32,6 +33,7 @@ import { PARENT_QUICK_LINKS, toChildContextView } from "./child-context";
  * Gizlilik: telefon numaraları (öğrenci/veli) bu ekranda gösterilmez.
  */
 export function ParentChildScreen({ basePath }: { basePath: "/(parent)" }) {
+  const { t: tr } = useLocale();
   const studentId = useSelectedStudentId();
 
   const res = useApiGet<StudentProfile>(studentId ? `/api/v1/students/${studentId}` : "");
@@ -41,11 +43,11 @@ export function ParentChildScreen({ basePath }: { basePath: "/(parent)" }) {
   if (!studentId) {
     return (
       <Screen>
-        <AppHeader title="Çocuğum" />
+        <AppHeader title={tr("parent.myChild")} />
         <EmptyState
           icon="alert-circle-outline"
-          title="Öğrenci bilgisi bulunamadı"
-          description="Bu hesapta görüntülenebilir bir öğrenci kaydı bağlı değil."
+          title={tr("home.noStudentTitle")}
+          description={tr("parent.noViewableChild")}
         />
       </Screen>
     );
@@ -53,7 +55,7 @@ export function ParentChildScreen({ basePath }: { basePath: "/(parent)" }) {
 
   return (
     <Screen onRefresh={res.refresh} refreshing={res.status === "loading"}>
-      <AppHeader title="Çocuğum" subtitle="Aktif öğrenci bağlamı" />
+      <AppHeader title={tr("parent.myChild")} subtitle={tr("parent.activeContext")} />
 
       {res.status === "loading" ? (
         <LoadingSkeleton rows={3} />
@@ -80,6 +82,7 @@ function ChildContextBody({
   onRefresh: () => void;
 }) {
   const t = useTheme();
+  const { t: tr } = useLocale();
   const router = useRouter();
   const view = toChildContextView(profile);
 
@@ -87,8 +90,8 @@ function ChildContextBody({
     return (
       <EmptyState
         icon="alert-circle-outline"
-        title="Öğrenci bilgisi yüklenemedi"
-        description="Öğrenci kaydı eksik görünüyor. Lütfen kurumunuzla iletişime geçin."
+        title={tr("parent.loadFailed")}
+        description={tr("parent.loadFailedBody")}
       />
     );
   }
@@ -99,7 +102,7 @@ function ChildContextBody({
         <View
           accessible
           accessibilityRole="text"
-          accessibilityLabel={`Aktif öğrenci: ${view.name}${view.line1 ? `. ${view.line1}` : ""}`}
+          accessibilityLabel={tr("parent.activeStudentA11y", { name: view.name, line: view.line1 ? `. ${view.line1}` : "" })}
           style={{ flexDirection: "row", alignItems: "center", gap: 12 }}
         >
           <Avatar name={view.name} size={52} />
@@ -121,14 +124,14 @@ function ChildContextBody({
         </View>
       </Card>
 
-      <SectionHeader title="Hızlı erişim" />
+      <SectionHeader title={tr("parent.quickAccess")} />
       <ListGroup>
         {PARENT_QUICK_LINKS.map((link) => (
           <ListRow
             key={link.key}
             icon={link.icon}
-            title={link.label}
-            subtitle={link.hint}
+            title={tr(link.labelKey)}
+            subtitle={tr(link.hintKey)}
             onPress={() => router.push(`${basePath}/${link.href}`)}
           />
         ))}
@@ -136,12 +139,12 @@ function ChildContextBody({
 
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel="Bilgileri yenile"
+        accessibilityLabel={tr("parent.refreshInfo")}
         onPress={onRefresh}
         hitSlop={8}
         style={{ marginTop: 16, alignItems: "center", justifyContent: "center", paddingVertical: 12, minHeight: 48 }}
       >
-        <Text style={[t.typography.caption, { color: t.colors.primary, fontFamily: t.fonts.serifBold, fontWeight: "700" }]}>Bilgileri yenile</Text>
+        <Text style={[t.typography.caption, { color: t.colors.primary, fontFamily: t.fonts.serifBold, fontWeight: "700" }]}>{tr("parent.refreshInfo")}</Text>
       </Pressable>
     </>
   );

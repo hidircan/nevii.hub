@@ -15,6 +15,7 @@ import {
 import { useAppForegroundRefetch } from "../../hooks/use-app-foreground-refetch";
 import { useApiGet } from "../../hooks/use-api";
 import { useFocusRefetch } from "../../hooks/use-focus-refetch";
+import { useLocale } from "../../i18n/locale-context";
 import { useTheme } from "../../theme/theme-context";
 import type { AttendanceLedgerResponse, StudentProfile } from "../../types/api";
 import { AttendanceCounters } from "../student-scope/attendance-counters";
@@ -30,6 +31,7 @@ import { attendanceA11yLabel, toAttendanceViewFromLedger } from "./attendance-su
  */
 export function ParentAttendanceScreen() {
   const t = useTheme();
+  const { t: tr } = useLocale();
   const router = useRouter();
   const studentId = useSelectedStudentId();
 
@@ -41,11 +43,11 @@ export function ParentAttendanceScreen() {
   if (!studentId) {
     return (
       <Screen>
-        <AppHeader title="Yoklama özeti" />
+        <AppHeader title={tr("parent.qlAttendance")} />
         <EmptyState
           icon="alert-circle-outline"
-          title="Öğrenci bilgisi bulunamadı"
-          description="Bu hesapta görüntülenebilir bir öğrenci kaydı bağlı değil."
+          title={tr("home.noStudentTitle")}
+          description={tr("parent.noViewableChild")}
         />
       </Screen>
     );
@@ -58,7 +60,7 @@ export function ParentAttendanceScreen() {
 
   return (
     <Screen onRefresh={res.refresh} refreshing={res.status === "loading"}>
-      <AppHeader title="Yoklama özeti" subtitle={studentName ? `${studentName} — devam durumu` : "Devam durumu"} />
+      <AppHeader title={tr("parent.qlAttendance")} subtitle={studentName ? `${studentName} — ${tr("home.attendance")}` : tr("home.attendance")} />
 
       {res.status === "loading" ? (
         <LoadingSkeleton rows={4} />
@@ -67,8 +69,8 @@ export function ParentAttendanceScreen() {
       ) : !view || !view.hasRecords ? (
         <EmptyState
           icon="calendar-outline"
-          title="Henüz işlenmiş ders yok"
-          description="Dersler işlendikçe devam durumu burada görünecek."
+          title={tr("att.noPastTitle")}
+          description={tr("att.pastHint")}
         />
       ) : (
         <>
@@ -79,16 +81,16 @@ export function ParentAttendanceScreen() {
               accessibilityLabel={attendanceA11yLabel(view)}
               style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 8 }}
             >
-              <Text style={[t.typography.bodyStrong, { color: t.colors.text }]}>Katılım oranı</Text>
+              <Text style={[t.typography.bodyStrong, { color: t.colors.text }]}>{tr("parent.attRateLabel")}</Text>
               <Text style={[t.typography.bodyStrong, { color: t.colors.primary }]}>%{Math.round(view.rate)}</Text>
             </View>
             <ProgressBar progress={view.rate} tone="success" />
             <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 8 }]}>
-              {view.attended}/{view.total} derse katıldı · Ayrıntılı raporu gör
+              {tr("parent.attDetail", { a: view.attended, t: view.total })} · {tr("home.seeReport")}
             </Text>
           </Card>
 
-          <SectionHeader title="Detay" />
+          <SectionHeader title={tr("common.details")} />
           <AttendanceCounters
             counts={res.data.counts}
             onOpen={(status) => router.push(`/(parent)/devam-raporu?status=${status}`)}
@@ -96,8 +98,7 @@ export function ParentAttendanceScreen() {
 
           <Card style={{ marginTop: 12 }}>
             <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>
-              Devam kayıtları kurum tarafından işlenir. Bir derste değişiklik gerektiğini düşünüyorsanız lütfen
-              kurumunuzla iletişime geçin.
+              {tr("parent.attendanceNote")}
             </Text>
           </Card>
         </>

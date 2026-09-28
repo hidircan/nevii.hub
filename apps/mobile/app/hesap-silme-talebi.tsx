@@ -17,15 +17,16 @@ import {
 } from "../src/components/ui";
 import { useApiGet } from "../src/hooks/use-api";
 import { getLegalLinks } from "../src/legal/legal-links";
+import { useLocale } from "../src/i18n/locale-context";
 import { useTheme } from "../src/theme/theme-context";
 import type { MyDeletionResponse } from "../src/types/api";
 
-const STATUS_LABEL: Record<string, string> = {
-  pending: "İnceleniyor",
-  approved: "Onaylandı",
-  rejected: "Reddedildi",
-  processed: "İşlendi",
-  cancelled: "Geri çekildi",
+const STATUS_KEY: Record<string, string> = {
+  pending: "deletion.stPending",
+  approved: "deletion.stApproved",
+  rejected: "deletion.stRejected",
+  processed: "deletion.stProcessed",
+  cancelled: "deletion.stCancelled",
 };
 
 /**
@@ -35,6 +36,7 @@ const STATUS_LABEL: Record<string, string> = {
  */
 export default function HesapSilmeTalebi() {
   const t = useTheme();
+  const { t: tr } = useLocale();
   const links = getLegalLinks();
   const res = useApiGet<MyDeletionResponse>("/api/v1/account/deletion-request");
   const [reason, setReason] = useState("");
@@ -53,7 +55,7 @@ export default function HesapSilmeTalebi() {
     });
     setBusy(false);
     if (!result.ok) {
-      setError(result.error.message || "Talep gönderilemedi.");
+      setError(result.error.message || tr("deletion.submitFailed"));
       return;
     }
     setReason("");
@@ -67,7 +69,7 @@ export default function HesapSilmeTalebi() {
     const result = await apiPost("/api/v1/account/deletion-request/cancel", {});
     setBusy(false);
     if (!result.ok) {
-      setError(result.error.message || "Talep geri çekilemedi.");
+      setError(result.error.message || tr("deletion.withdrawFailed"));
       return;
     }
     res.refresh();
@@ -75,7 +77,7 @@ export default function HesapSilmeTalebi() {
 
   return (
     <Screen>
-      <AppHeader title="Hesap silme talebi" showBack showNotifications={false} />
+      <AppHeader title={tr("deletion.title")} showBack showNotifications={false} />
 
       {error ? (
         <Card style={{ marginBottom: 10, borderColor: t.colors.danger }}>
@@ -89,46 +91,44 @@ export default function HesapSilmeTalebi() {
         <ErrorState message={res.message} onRetry={res.refresh} />
       ) : res.data.open ? (
         <>
-          <SectionHeader title="Aktif talebiniz" />
+          <SectionHeader title={tr("deletion.activeRequest")} />
           <Card>
             <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
               <Text style={[t.typography.body, { color: t.colors.text, flex: 1 }]} numberOfLines={2}>
-                {res.data.open.reason || "Silme talebi"}
+                {res.data.open.reason || tr("deletion.defaultReason")}
               </Text>
               <StatusBadge
-                label={STATUS_LABEL[res.data.open.status] ?? res.data.open.status}
+                label={STATUS_KEY[res.data.open.status] ? tr(STATUS_KEY[res.data.open.status]!) : res.data.open.status}
                 tone={res.data.open.status === "approved" ? "success" : "warning"}
               />
             </View>
             <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 6 }]}>
-              Talebiniz kurum yöneticiniz tarafından inceleniyor. Sonuçlandığında bu ekrandan görebilirsiniz.
+              {tr("deletion.underReview")}
             </Text>
             {res.data.open.status === "pending" ? (
-              <Button label="Talebi geri çek" variant="secondary" style={{ marginTop: 12 }} loading={busy} onPress={withdraw} />
+              <Button label={tr("deletion.withdraw")} variant="secondary" style={{ marginTop: 12 }} loading={busy} onPress={withdraw} />
             ) : null}
           </Card>
         </>
       ) : (
         <>
-          <SectionHeader title="Talebiniz ne anlama gelir?" />
+          <SectionHeader title={tr("deletion.meaning")} />
           <Card>
             <Text style={[t.typography.body, { color: t.colors.text }]}>
-              Talebiniz kurum yöneticinize iletilir. Onaylanırsa profil, iletişim ve eğitim içerik verileriniz silinir
-              veya anonimleştirilir. Yasal saklama zorunluluğu olan sınırlı kayıtlar (mali belgeler, güvenlik denetim
-              izleri) mevzuatın gerektirdiği süre boyunca korunur.
+              {tr("deletion.meaningBody")}
             </Text>
             <Text
               style={[t.typography.body, { color: t.colors.primary, marginTop: 10 }]}
               onPress={() => void Linking.openURL(links.accountDeletionUrl)}
               accessibilityRole="link"
             >
-              Detaylı bilgi (uygulama dışında açılır) →
+              {tr("deletion.moreInfo")}
             </Text>
           </Card>
 
-          <SectionHeader title="Yeni talep" />
+          <SectionHeader title={tr("deletion.newRequest")} />
           <Card>
-            <TextField label="Gerekçe (isteğe bağlı)" value={reason} onChangeText={setReason} placeholder="Kısaca nedeninizi yazabilirsiniz" multiline numberOfLines={3} />
+            <TextField label={tr("deletion.reasonLabel")} value={reason} onChangeText={setReason} placeholder={tr("deletion.reasonPlaceholder")} multiline numberOfLines={3} />
             <Pressable
               accessibilityRole="checkbox"
               accessibilityState={{ checked: confirmed }}
@@ -138,11 +138,11 @@ export default function HesapSilmeTalebi() {
             >
               <Icon name={confirmed ? "checkbox" : "square-outline"} size={22} color={confirmed ? t.colors.primary : t.colors.textMuted} />
               <Text style={[t.typography.body, { color: t.colors.text, flex: 1 }]}>
-                Hesabımın silinmesini istediğimi onaylıyorum. Bu işlemin geri alınamayacağını biliyorum.
+                {tr("deletion.confirmText")}
               </Text>
             </Pressable>
             <Button
-              label="Silme talebi gönder"
+              label={tr("deletion.submit")}
               variant="danger"
               style={{ marginTop: 14 }}
               disabled={!confirmed}
@@ -153,31 +153,31 @@ export default function HesapSilmeTalebi() {
 
           {res.data.history.length > 0 ? (
             <>
-              <SectionHeader title="Geçmiş talepler" />
+              <SectionHeader title={tr("deletion.history")} />
               <View style={{ gap: 8 }}>
                 {res.data.history.map((h) => (
                   <Card key={h.id}>
                     <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
                       <Text style={[t.typography.caption, { color: t.colors.textMuted, flex: 1 }]} numberOfLines={1}>
-                        {h.reason || "Silme talebi"}
+                        {h.reason || tr("deletion.defaultReason")}
                       </Text>
-                      <StatusBadge label={STATUS_LABEL[h.status] ?? h.status} tone="neutral" />
+                      <StatusBadge label={STATUS_KEY[h.status] ? tr(STATUS_KEY[h.status]!) : h.status} tone="neutral" />
                     </View>
                   </Card>
                 ))}
               </View>
             </>
           ) : (
-            <EmptyState icon="shield-checkmark-outline" title="Önceki talebiniz yok" />
+            <EmptyState icon="shield-checkmark-outline" title={tr("deletion.noHistory")} />
           )}
         </>
       )}
 
       <ConfirmDialog
         visible={confirming}
-        title="Silme talebi gönderilsin mi?"
-        message="Talebiniz kurum yöneticinize iletilecek. Onaylanırsa hesabınız silinir ve bu işlem geri alınamaz."
-        confirmLabel="Talebi gönder"
+        title={tr("deletion.dialogTitle")}
+        message={tr("deletion.dialogBody")}
+        confirmLabel={tr("deletion.dialogConfirm")}
         danger
         onConfirm={submit}
         onCancel={() => setConfirming(false)}

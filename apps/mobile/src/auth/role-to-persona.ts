@@ -55,26 +55,23 @@ export function resolveMobilePersona(s: SessionFacts): PersonaResolution {
   }
 }
 
-/** Desteklenmeyen hesap ekranının metni ve web'de açılacak yol (API_BASE_URL ile aynı sunucu). */
-export const UNSUPPORTED_COPY: Record<UnsupportedReason, { title: string; body: string; webPath: string }> = {
-  platform_web: {
-    title: "Platform hesabı mobil uygulamada kullanılmaz",
-    body: "NeviiHub platform yönetimi yalnız web'deki platform konsolundan yapılır. Lütfen bilgisayarınızdan giriş yapın.",
-    webPath: "/platform",
-  },
-  manager_web: {
-    title: "Şube müdürü mobil portalı henüz hazır değil",
-    body: "Şube işlemlerinizi web panelinden yapabilirsiniz.",
-    webPath: "/panel",
-  },
-  no_portal_access: {
-    title: "Hesabınıza bağlı aktif öğrenci erişimi yok",
-    body: "Öğrenci veya veli erişiminizin etkinleştirilmesi için kurumunuzla iletişime geçin.",
-    webPath: "/login",
-  },
-  no_mobile_persona: {
-    title: "Bu hesap türü mobil uygulamayı desteklemiyor",
-    body: "Lütfen web panelini kullanın veya kurumunuzla iletişime geçin.",
-    webPath: "/login",
-  },
+/**
+ * Desteklenmeyen hesap ekranının metni ve web'de açılacak yol (API_BASE_URL
+ * ile aynı sunucu). Metinler `gate.*` sözlüğündedir; bu tablo yalnız
+ * anahtar + web yolu taşır.
+ */
+export const UNSUPPORTED_COPY: Record<UnsupportedReason, { titleKey: string; bodyKey: string; webPath: string }> = {
+  platform_web: { titleKey: "gate.platformTitle", bodyKey: "gate.platformBody", webPath: "/platform" },
+  manager_web: { titleKey: "gate.managerTitle", bodyKey: "gate.managerBody", webPath: "/panel" },
+  no_portal_access: { titleKey: "gate.noAccessTitle", bodyKey: "gate.noAccessBody", webPath: "/login" },
+  no_mobile_persona: { titleKey: "gate.unknownTitle", bodyKey: "gate.unknownBody", webPath: "/login" },
 };
+
+/** Aktif dile göre çözülmüş desteklenmeyen-hesap metni. */
+export function unsupportedCopy(
+  reason: UnsupportedReason,
+  tr: (path: string) => string,
+): { title: string; body: string; webPath: string } {
+  const entry = UNSUPPORTED_COPY[reason];
+  return { title: tr(entry.titleKey), body: tr(entry.bodyKey), webPath: entry.webPath };
+}

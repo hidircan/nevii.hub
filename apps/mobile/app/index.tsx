@@ -3,9 +3,10 @@ import { ActivityIndicator, Linking, StyleSheet, Text, View } from "react-native
 import { SafeAreaView } from "react-native-safe-area-context";
 import { API_BASE_URL } from "../src/api/client";
 import { useAuth } from "../src/auth/auth-context";
-import { UNSUPPORTED_COPY } from "../src/auth/role-to-persona";
+import { unsupportedCopy } from "../src/auth/role-to-persona";
 import { useChildSelection } from "../src/student/student-context";
 import { BrandMark, Button, Icon, type IconName } from "../src/components/ui";
+import { useLocale } from "../src/i18n/locale-context";
 import { useTheme } from "../src/theme/theme-context";
 
 const PERSONA_HOME = {
@@ -25,6 +26,7 @@ export default function Index() {
   const { status, user, error, retry, logout } = useAuth();
   const selection = useChildSelection();
   const t = useTheme();
+  const { t: tr } = useLocale();
 
   if (status === "loading" || (status === "signedIn" && user && !selection.ready)) {
     return (
@@ -32,7 +34,7 @@ export default function Index() {
         <View style={styles.center}>
           <BrandMark size="lg" wordmarkSize={34} />
           <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 10 }]}>
-            Eğitim Kurumları Merkezi Yönetim Sistemi
+            {tr("gate.brandLine")}
           </Text>
           <ActivityIndicator color={t.colors.primary} style={{ marginTop: 28 }} />
         </View>
@@ -44,10 +46,10 @@ export default function Index() {
     return (
       <GateScreen
         icon="cloud-offline-outline"
-        title="Oturum doğrulanamadı"
-        body={error ?? "Sunucuya bağlanılamadı."}
-        primary={{ label: "Tekrar dene", onPress: retry }}
-        secondary={{ label: "Çıkış yap", onPress: logout }}
+        title={tr("gate.sessionFailed")}
+        body={error ?? tr("gate.offline")}
+        primary={{ label: tr("gate.retry"), onPress: retry }}
+        secondary={{ label: tr("auth.logout"), onPress: logout }}
       />
     );
   }
@@ -56,14 +58,14 @@ export default function Index() {
   if (status === "signedOut" || !user) return <Redirect href="/welcome" />;
 
   if (user.resolution.kind === "unsupported") {
-    const copy = UNSUPPORTED_COPY[user.resolution.reason];
+    const copy = unsupportedCopy(user.resolution.reason, tr);
     return (
       <GateScreen
         icon="lock-closed-outline"
         title={copy.title}
         body={copy.body}
-        primary={{ label: "Web panelini aç", onPress: () => void Linking.openURL(`${API_BASE_URL}${copy.webPath}`) }}
-        secondary={{ label: "Çıkış yap", onPress: logout }}
+        primary={{ label: tr("gate.openWeb"), onPress: () => void Linking.openURL(`${API_BASE_URL}${copy.webPath}`) }}
+        secondary={{ label: tr("auth.logout"), onPress: logout }}
       />
     );
   }

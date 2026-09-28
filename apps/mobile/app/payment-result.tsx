@@ -2,6 +2,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { Text, View } from "react-native";
 import { personaOf, useAuth } from "../src/auth/auth-context";
 import { Button, EmptyState, Screen } from "../src/components/ui";
+import { useLocale } from "../src/i18n/locale-context";
 import { useTheme } from "../src/theme/theme-context";
 
 /**
@@ -14,6 +15,7 @@ import { useTheme } from "../src/theme/theme-context";
  */
 export default function PaymentResultScreen() {
   const t = useTheme();
+  const { t: tr } = useLocale();
   const router = useRouter();
   const { user } = useAuth();
   const { status } = useLocalSearchParams<{ status?: string; paymentId?: string }>();
@@ -27,18 +29,14 @@ export default function PaymentResultScreen() {
       <View style={{ flex: 1, justifyContent: "center" }}>
         <EmptyState
           icon={success ? "checkmark-circle-outline" : "close-circle-outline"}
-          title={success ? "Ödeme tamamlandı" : "Ödeme tamamlanmadı"}
-          description={
-            success
-              ? "Ödemeniz alınıyor — bakiyeniz kısa süre içinde güncellenir. Güncellenmediyse listeyi yenileyin."
-              : "Ödeme sağlayıcı sayfasında tamamlanmadı. Dilerseniz ödemeler listesinden tekrar deneyebilirsiniz."
-          }
+          title={success ? tr("payResult.done") : tr("payResult.notDone")}
+          description={success ? tr("payResult.pendingBody") : tr("payResult.failBody")}
         />
         <Text style={[t.typography.caption, { color: t.colors.textMuted, textAlign: "center", marginTop: 4 }]}>
-          Sonuç bilgilendirme amaçlıdır; kesin durum ödemeler listesinde görünür.
+          {tr("payResult.note")}
         </Text>
         <View style={{ marginTop: 16 }}>
-          <Button label="Ödemeler listesine dön" onPress={() => router.replace(listRoute as never)} />
+          <Button label={tr("payResult.backToList")} onPress={() => router.replace(listRoute as never)} />
         </View>
       </View>
     </Screen>
