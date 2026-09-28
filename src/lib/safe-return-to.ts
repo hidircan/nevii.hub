@@ -65,6 +65,32 @@ export function withReturnTo(href: string, returnTo: string | null | undefined):
   return `${href}${href.includes("?") ? "&" : "?"}returnTo=${encodeURIComponent(safe)}`;
 }
 
+/**
+ * 10. tur iş #10 — uygulama-içi yola sorgu parametresi ekler/değiştirir
+ * (mevcut parametreler korunur). Yalnızca `resolveSafeReturnTo`'dan geçen
+ * yollarda kullanılmalıdır; mutlak URL verilirse aynen geri döner
+ * (güvenlik: yeni bir yönlendirme yüzeyi açılmaz).
+ */
+export function withQueryParam(path: string, key: string, value: string): string {
+  if (!path.startsWith("/") || path.startsWith("//") || path.includes(":")) return path;
+  const [base, query] = path.split("?");
+  const params = new URLSearchParams(query ?? "");
+  params.set(key, value);
+  const next = params.toString();
+  return next ? `${base}?${next}` : (base ?? path);
+}
+
+/** `withQueryParam`'ın tersi — parametreyi kaldırır, diğerlerini korur. */
+export function withoutQueryParam(path: string, key: string): string {
+  if (!path.startsWith("/") || path.startsWith("//") || path.includes(":")) return path;
+  const [base, query] = path.split("?");
+  if (!query) return path;
+  const params = new URLSearchParams(query);
+  params.delete(key);
+  const next = params.toString();
+  return next ? `${base}?${next}` : (base ?? path);
+}
+
 /** Dönüş düğmesinin metni — kullanıcı nereye döneceğini görür. */
 export function returnToLabel(path: string): string {
   const p = path.split(/[?#]/)[0];

@@ -1,11 +1,11 @@
 "use client";
-import { withReturnTo } from "@/lib/safe-return-to";
+import { withReturnTo, withQueryParam, withoutQueryParam } from "@/lib/safe-return-to";
 import { useCurrentPath } from "@/lib/use-current-path";
 
 import { parseAmountInput } from "@/lib/amount-input";
 import { useEffect, useId, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Button, Card, Input, Label, Select } from "@/components/ui";
 import { LessonScheduleSlotsPicker } from "@/components/lesson-schedule-slots-picker";
 import {
@@ -566,7 +566,13 @@ function ContractCreatedPanel({
           Sözleşmeyi Görüntüle / PDF
         </Link>
         <Link
-          href={`/panel/odemeler/${studentId}`}
+          href={withReturnTo(
+            `/panel/odemeler/${studentId}`,
+            // 10. tur iş #10 — ödemelerden "Sözleşmeye dön" bu sözleşmenin
+            // başarı adımına getirir (yalnız sözleşme kimliği taşınır;
+            // hassas/kaydedilmemiş veri URL'ye konmaz).
+            withQueryParam(currentPath, "olusturuldu", contract.id)
+          )}
           className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3.5 py-2 text-sm font-medium text-[var(--color-text)] hover:bg-[var(--color-surface-muted)]"
         >
           Ödeme Planını Gör
@@ -1754,6 +1760,43 @@ export function ContractPanel({
   const [basisPrefill, setBasisPrefill] = useState<ContractPrefill | null>(null);
   /** B — oluşturma sonrası başarı durumu; formun yerine çizilir ve görünüme kaydırılır. */
   const [createdContract, setCreatedContract] = useState<CreatedContractSummary | null>(null);
+  const searchParams = useSearchParams();
+  const restoredContractId = searchParams.get("olusturuldu");
+
+  // 10. tur iş #10 — ödemelerden "Sözleşmeye dön" / sayfa yenileme / doğrudan
+  // bağlantı: `?olusturuldu=<id>` varsa başarı adımı sunucudan gelen güncel
+  // sözleşme listesinden YENİDEN kurulur (aynı öğrenci + sözleşme, "Ders
+  // planı oluştur" dahil). URL'de yalnız kimlik taşınır — tutar/tarih gibi
+  // veriler listeden okunur, hassas bilgi URL'ye konmaz.
+  useEffect(() => {
+    if (createdContract || !restoredContractId) return;
+    const row = contracts.find((c) => c.id === restoredContractId);
+    if (!row) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setCreatedContract({
+      id: row.id,
+      contractNumber: row.contractNumber,
+      versionNumber: row.versionNumber,
+      programmeName: row.programmeName,
+      enrollmentStartDate: row.enrollmentStartDate,
+      enrollmentEndDate: row.enrollmentEndDate,
+      monthlyAmount: row.monthlyAmount,
+      totalContractAmount: row.totalContractAmount,
+      installmentCount: row.installmentCount,
+      documentInstanceId: row.documentInstanceId,
+    });
+  }, [createdContract, restoredContractId, contracts]);
+
+  function showCreated(created: CreatedContractSummary) {
+    setCreatedContract(created);
+    // Yenilemede de korunması için kimlik URL'ye yazılır (kaydırma korunur).
+    router.replace(withQueryParam(currentPath, "olusturuldu", created.id), { scroll: false });
+  }
+
+  function dismissCreated() {
+    setCreatedContract(null);
+    router.replace(withoutQueryParam(currentPath, "olusturuldu"), { scroll: false });
+  }
   const [rowError, setRowError] = useState<string | null>(null);
   /** İptal sonucu özeti — kaç ders iptal edildi, kaçı korundu (bkz. ContractCancelDialog). */
   const [cancelNotice, setCancelNotice] = useState<string | null>(null);
@@ -1814,7 +1857,7 @@ export function ContractPanel({
         <ContractCreatedPanel
           contract={createdContract}
           studentId={studentId}
-          onDismiss={() => setCreatedContract(null)}
+          onDismiss={dismissCreated}
           schedulePickers={schedulePickers}
           scheduleText={prefill?.lessonScheduleText}
         />
@@ -1850,7 +1893,7 @@ export function ContractPanel({
           onDone={(created) => {
             setBasisPrefill(null);
             setFormMode("none");
-            setCreatedContract(created);
+            showCreated(created);
           }}
           onCancel={() => {
             setBasisPrefill(null);
@@ -1864,7 +1907,7 @@ export function ContractPanel({
           previousContract={latestActive}
           onDone={(created) => {
             setFormMode("none");
-            setCreatedContract(created);
+            showCreated(created);
           }}
           onCancel={() => setFormMode("none")}
         />

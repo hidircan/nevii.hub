@@ -26,7 +26,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { resolveSafeReturnTo } from "@/lib/safe-return-to";
+import { resolveSafeReturnTo, returnToLabel } from "@/lib/safe-return-to";
 
 /** SSR'da her zaman false (document/window yok); istemcide ilk render'da lazy initializer ile bir kez hesaplanır — effect/setState döngüsü yok. */
 function computeCanGoBack(): boolean {
@@ -44,11 +44,17 @@ export function BackButton({
   label = "Geri",
   /** Formda kaydedilmemiş değişiklik varsa true geçirin — ayrılmadan önce onay ister. */
   hasUnsavedChanges,
+  /**
+   * 10. tur iş #10 — true ise ve `?returnTo=` varsa etiket hedefe göre
+   * dinamikleşir (`returnToLabel`). Opt-in: mevcut 25+ kullanım etkilenmez.
+   */
+  dynamicLabel,
   className,
 }: {
   fallbackHref: string;
   label?: string;
   hasUnsavedChanges?: boolean;
+  dynamicLabel?: boolean;
   className?: string;
 }) {
   const router = useRouter();
@@ -57,6 +63,7 @@ export function BackButton({
 
   const safeReturnTo = resolveSafeReturnTo(searchParams.get("returnTo"));
   const target = safeReturnTo ?? fallbackHref;
+  const effectiveLabel = dynamicLabel && safeReturnTo ? returnToLabel(safeReturnTo) : label;
 
   const confirmLeaveIfDirty = useCallback((): boolean => {
     if (!hasUnsavedChanges) return true;
@@ -86,7 +93,7 @@ export function BackButton({
         className
       )}
     >
-      <ArrowLeft className="h-4 w-4" /> {label}
+      <ArrowLeft className="h-4 w-4" /> {effectiveLabel}
     </Link>
   );
 }
