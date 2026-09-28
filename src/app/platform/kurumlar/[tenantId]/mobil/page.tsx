@@ -1,6 +1,7 @@
 import { Card } from "@/components/ui";
 import { requireHyperAdminPage } from "@/lib/platform/session";
-import { getMobilePolicy } from "@/lib/platform/mobile-policy";
+import { getMobileControlMatrix, getMobilePolicy } from "@/lib/platform/mobile-policy";
+import { MobileControlMatrix } from "@/components/platform/mobile-control-matrix";
 import { TenantSettingsSection } from "../settings-section";
 import { buildConfigSnapshot } from "@/lib/platform/config-snapshot";
 import { listPolicyVersions } from "@/lib/platform/store-ext";
@@ -17,9 +18,10 @@ const ROLES = [
 export default async function TenantMobilePage({ params }: { params: Promise<{ tenantId: string }> }) {
   await requireHyperAdminPage("/platform/kurumlar");
   const { tenantId } = await params;
-  const [snapshot, mobileVersions] = await Promise.all([
+  const [snapshot, mobileVersions, matrix] = await Promise.all([
     buildConfigSnapshot(tenantId, null),
     listPolicyVersions(tenantId).then((vs) => vs.filter((x) => x.key.startsWith("mobile.") && x.status !== "draft").slice(0, 8)),
+    getMobileControlMatrix(tenantId),
   ]);
   const previews = await Promise.all(
     ROLES.map(async ([role, label]) => {
@@ -29,6 +31,7 @@ export default async function TenantMobilePage({ params }: { params: Promise<{ t
   );
   return (
     <div className="space-y-4">
+      {matrix.ok ? <MobileControlMatrix rows={matrix.data.rows} /> : null}
       <Card>
         <h2 className="text-sm font-semibold">Efektif mobil erişim (iOS önizleme)</h2>
         <p className="mt-1 text-xs text-[var(--color-text-muted)]">
