@@ -1246,3 +1246,11 @@ aynı veriyi aynı yoldan mı okuyor?" diye bak.
 - Neviios kurum-dili i18n'i giriş formundaki "Şifremi unuttum" sabit metnini `copy.forgot` anahtarına taşıyınca
   `password-reset-ui` testi tabanda kırmızı kaldı (bağlantı çalışıyordu). Kural: etiketi sözlükten okuyan
   bileşenlerde test de sözlüğü doğrular (`authCopy("tr").forgot`), bileşen kaynağında sabit metin aranmaz.
+
+### 2026-09-28 (11. tur iş #1) — kısıt kuralı tarihsel satırların düzenlemesini kilitlemesin
+- Deneme revizyonu "kaybolmadı", `9070140` (oluşturmayı 10/15/20 ile sınırladı) + `6e27662` (form her
+  kayıtta mevcut süreyi aynen geri gönderir) bileşimiyle 30/45/60 dk'lık TÜM eski denemeler için fiilen
+  ÖLDÜ: güncelleme şeması mevcut değeri bilmeden reddediyordu. Kural: değişmezlik (immutability) kuralı
+  şemaya değil, mevcut kaydı gören ARAÇ katmanına yazılır — aynen-koruma serbest, gerçek değişiklik
+  kurallı (dede kuralı). UI'da mevcut değer "(mevcut kayıt)" seçeneğiyle korunur.
+- Regresyon kilidi: `trial-lesson-legacy-duration.test.ts`.

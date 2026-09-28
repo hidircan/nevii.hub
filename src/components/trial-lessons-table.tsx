@@ -473,6 +473,12 @@ function TrialEditModal({
   const teacherOptions = teachers.some((t) => t.id === row.teacherId)
     ? teachers
     : [{ id: row.teacherId, name: `${row.teacherName} (pasif)` }, ...teachers];
+  // 11. tur iş #1 — 2026-09-01 öncesi 30/45/60 dk denemeler tarihsel kayıttır:
+  // mevcut süre seçeneklerde YOKSA select boş kalır ve her kayıt reddedilirdi.
+  // Mevcut değer "(mevcut kayıt)" olarak korunur; YENİ seçim yalnız 10/15/20 olabilir.
+  const durationOptions = [10, 15, 20].includes(row.durationMinutes)
+    ? [10, 15, 20]
+    : [row.durationMinutes, 10, 15, 20];
 
   async function save() {
     const startIso = locked ? null : wallDateTimeInputToIso(startLocal);
@@ -595,9 +601,11 @@ function TrialEditModal({
           <label className="space-y-1">
             <span className={label}>Süre</span>
             <select className={field} value={duration} onChange={(e) => setDuration(e.target.value)} disabled={locked}>
-              <option value="10">10 dk</option>
-              <option value="15">15 dk</option>
-              <option value="20">20 dk</option>
+              {durationOptions.map((d) => (
+                <option key={d} value={d}>
+                  {d} dk{d === row.durationMinutes && ![10, 15, 20].includes(d) ? " (mevcut kayıt)" : ""}
+                </option>
+              ))}
             </select>
           </label>
         </div>

@@ -59,7 +59,12 @@ export default async function TrialLessonsPage({
       ? `Son güncelleme: ${names.get(t.resultNotesByUserId ?? "") ?? "Bilinmeyen kullanıcı"} · ${formatDateTime(t.resultNotesAt)}`
       : undefined,
     isStarted: new Date(t.startAt).getTime() <= now,
-    durationMinutes: t.durationMinutes,
+    // 11. tur iş #1 — süresi kayıtlarda olmayan çok eski denemelerde gerçek
+    // uzunluk başlangıç-bitiş farkından türetilir; düzenleme formu mevcut
+    // değeri "(mevcut kayıt)" olarak korur, sessiz süre değişimi olmaz.
+    durationMinutes:
+      t.durationMinutes ??
+      Math.max(1, Math.round((new Date(t.endAt).getTime() - new Date(t.startAt).getTime()) / 60000)),
     status: t.status,
     createdByName: names.get(t.createdBy) ?? "Bilinmeyen kullanıcı",
     convertedStudentId: t.convertedStudentId,

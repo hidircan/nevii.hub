@@ -197,7 +197,7 @@ import {
   type MakeupSlaEscalation,
 } from "../makeup-engine";
 import { suggestLessonSlots, type LessonSlotSuggestion } from "../lesson-scheduling";
-import { DEFAULT_LESSON_DURATION_MINUTES } from "../lesson-duration";
+import { DEFAULT_LESSON_DURATION_MINUTES, TRIAL_LESSON_DURATION_OPTIONS } from "../lesson-duration";
 import { computeMonthlyFee } from "../packages";
 import type { LessonDurationMinutes } from "../lesson-duration";
 import { isTeacherSchedulable, teacherServesBranch } from "../teacher-branches";
@@ -11016,6 +11016,21 @@ export async function updateTrialLessonTool(
   }
 
   const d = v.data;
+  // 11. tur iş #1 — dede kuralı: mevcut süre aynen geri gönderilirse (düzenleme
+  // formu her kayıtta yapar) tarihsel değer korunur; süre GERÇEKTEN değişiyorsa
+  // 10/15/20 kuralı uygulanır. Kural şemada değil burada: şema mevcut değeri bilmez.
+  // Süresi kayıtlarda olmayan çok eski satırlarda mevcut değer başlangıç-bitiş
+  // farkıdır (deneme sayfası aynı türetimi yapar — ikisi ayrışamaz).
+  const existingDuration =
+    existing.durationMinutes ??
+    Math.max(1, Math.round((new Date(existing.endAt).getTime() - new Date(existing.startAt).getTime()) / 60000));
+  if (
+    d.durationMinutes !== undefined &&
+    d.durationMinutes !== existingDuration &&
+    !(TRIAL_LESSON_DURATION_OPTIONS as readonly number[]).includes(d.durationMinutes)
+  ) {
+    return fail("VALIDATION_ERROR", "Deneme dersi süresi yalnızca 10, 15 veya 20 dakika olabilir.");
+  }
   const scheduleChanged =
     (d.startAt !== undefined && new Date(d.startAt).getTime() !== new Date(existing.startAt).getTime()) ||
     (d.durationMinutes !== undefined && d.durationMinutes !== existing.durationMinutes) ||

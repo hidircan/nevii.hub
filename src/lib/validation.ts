@@ -1148,12 +1148,12 @@ export const updateTrialLessonSchema = z.object({
   branchId: z.string().min(1).optional(),
   teacherId: z.string().min(1).optional(),
   startAt: z.string().min(1).optional(),
-  durationMinutes: z.coerce
-    .number()
-    .refine((v) => (TRIAL_LESSON_DURATION_OPTIONS as readonly number[]).includes(v), {
-      message: "Deneme dersi süresi yalnızca 10, 15 veya 20 dakika olabilir.",
-    })
-    .optional(),
+  // 11. tur iş #1 (kayıp revize kök nedeni): 2026-09-01 öncesi 30/45/60 dk
+  // denemeler tarihsel kayıttır; düzenleme formu mevcut süreyi aynen geri
+  // gönderir. Burada refine YOK — 10/15/20 kuralı YALNIZCA süre gerçekten
+  // DEĞİŞTİRİLİRKEN `updateTrialLessonTool` içinde uygulanır (dede kuralı);
+  // aksi halde eski süreli hiçbir deneme kaydedilemezdi.
+  durationMinutes: z.coerce.number().int().min(1).max(240).optional(),
   notes: z.string().max(2000).optional(),
   resultNotes: z.string().max(4000).optional(),
   allowAvailabilityOverride: z.boolean().optional(),
