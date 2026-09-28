@@ -55,7 +55,6 @@ export default async function TeacherPayoutTab({ params }: { params: Promise<{ t
           initialYear={now.getFullYear()}
           initialMonth={now.getMonth() + 1}
           initialResult={initialResult}
-          initialThreshold={teacher.weeklyHoursThreshold}
           canWrite={kurum.scope.mode === "single"}
         />
       </section>

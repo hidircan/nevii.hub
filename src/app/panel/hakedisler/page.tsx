@@ -16,6 +16,7 @@ import {
   sumPayoutRows,
 } from "@/lib/payout-overview";
 import { ScopeTabs } from "@/components/scope-tabs";
+import { PayoutThresholdCell } from "@/components/payout-threshold-cell";
 import { formatMoney } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -212,6 +213,8 @@ export default async function TeacherPayoutOverviewPage({
                 <th className="px-4 py-3">Ders sayısı</th>
                 <th className="px-4 py-3">Tutar</th>
                 <th className="px-4 py-3">Durum</th>
+                {/* 10. tur iş #11 — eşik yönetimi bu ekranda (öğretmen başına, satır-içi). */}
+                <th className="px-4 py-3">Eşik (sa/hafta)</th>
                 <th className="px-4 py-3">İşlem</th>
               </tr>
             </thead>
@@ -235,6 +238,14 @@ export default async function TeacherPayoutOverviewPage({
                     {r.missingFeeRule > 0 ? (
                       <span className="ml-2 text-xs text-rose-600">{r.missingFeeRule} ders için ücret kuralı eksik</span>
                     ) : null}
+                  </td>
+                  <td className="px-4 py-3 text-[var(--color-text-muted)]">
+                    <PayoutThresholdCell
+                      teacherId={r.teacher.id}
+                      teacherName={r.teacher.name}
+                      threshold={r.teacher.weeklyHoursThreshold}
+                      canEdit={session.role === "SCHOOL_ADMIN" || session.role === "SUPER_ADMIN"}
+                    />
                   </td>
                   <td className="px-4 py-3">
                     <Link

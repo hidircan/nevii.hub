@@ -58,6 +58,7 @@ export default async function TeacherInfoTab({ params }: { params: Promise<{ tea
     university: teacher.university,
     graduationYear: teacher.graduationYear,
     maxDailyLessons: teacher.maxDailyLessons,
+    weeklyHoursThreshold: teacher.weeklyHoursThreshold,
   };
   const profileEditor = (
     <TeacherProfileEditor
@@ -106,6 +107,10 @@ export default async function TeacherInfoTab({ params }: { params: Promise<{ tea
               <Field label="Mezuniyet yılı" value={teacher.graduationYear ? String(teacher.graduationYear) : "Eklenmemiş"} />
               <Field label="Şube" value={branch?.name ?? "Eklenmemiş"} />
               <Field label="Günlük ders limiti" value={String(teacher.maxDailyLessons)} />
+              <Field
+                label="Hakediş ödeme eşiği (haftalık saat)"
+                value={teacher.weeklyHoursThreshold !== undefined ? `${teacher.weeklyHoursThreshold} sa` : "Tanımlı değil"}
+              />
               <Field
                 label="Ek atanmış şubeler"
                 value={

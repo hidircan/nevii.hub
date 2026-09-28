@@ -46,6 +46,8 @@ export function TeacherProfileEditor({
     university?: string;
     graduationYear?: number;
     maxDailyLessons?: number;
+    /** 10. tur iş #11 — öğretmene özel hakediş ödeme-yöntemi eşiği (haftalık saat). */
+    weeklyHoursThreshold?: number;
   };
   hasNationalId: boolean;
 }) {
@@ -69,6 +71,9 @@ export function TeacherProfileEditor({
   const [university, setUniversity] = useState(initial.university ?? "");
   const [graduationYear, setGraduationYear] = useState(initial.graduationYear ? String(initial.graduationYear) : "");
   const [maxDailyLessons, setMaxDailyLessons] = useState(initial.maxDailyLessons ? String(initial.maxDailyLessons) : "");
+  const [weeklyHoursThreshold, setWeeklyHoursThreshold] = useState(
+    initial.weeklyHoursThreshold ? String(initial.weeklyHoursThreshold) : ""
+  );
   const [nationalId, setNationalId] = useState("");
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -107,6 +112,7 @@ export function TeacherProfileEditor({
         university: university || undefined,
         graduationYear: graduationYear ? Number(graduationYear) : undefined,
         maxDailyLessons: maxDailyLessons ? Number(maxDailyLessons) : undefined,
+        weeklyHoursThreshold: weeklyHoursThreshold ? Number(weeklyHoursThreshold) : undefined,
       });
       if (!result.ok) {
         setError(result.message);
@@ -166,6 +172,21 @@ export function TeacherProfileEditor({
       <div>
         <Label>Mezuniyet yılı</Label>
         <Input type="number" min={1950} max={2100} value={graduationYear} onChange={(e) => setGraduationYear(e.target.value)} />
+      </div>
+      <div>
+        <Label>Hakediş ödeme eşiği — haftalık saat (1–80, boş bırakılabilir)</Label>
+        <Input
+          type="number"
+          min={1}
+          max={80}
+          value={weeklyHoursThreshold}
+          onChange={(e) => setWeeklyHoursThreshold(e.target.value)}
+          placeholder="Örn. 20"
+        />
+        <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">
+          Haftalık ortalamanın üstü nakit, altı havale varsayılır. Boşsa varsayılan yöntem üretilmez; kayıt anında elle
+          seçilir. Kayıtlı hakedişlerin yöntemini değiştirmez.
+        </p>
       </div>
       {!hasNationalId ? (
         <div>

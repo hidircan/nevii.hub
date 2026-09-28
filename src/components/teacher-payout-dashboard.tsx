@@ -14,7 +14,6 @@ import {
   actionResetTeacherPayoutRevision,
   actionUnmarkTeacherPayoutPaid,
   actionUpdateTeacherPayoutPaymentMethod,
-  actionUpdateTeacherProfile,
   type ComputeTeacherPayoutActionResult,
 } from "@/lib/actions";
 import { Badge, Button, Card, Select } from "@/components/ui";
@@ -44,7 +43,6 @@ export function TeacherPayoutDashboard({
   initialYear,
   initialMonth,
   initialResult,
-  initialThreshold,
   canWrite,
 }: {
   teacherId: string;
@@ -52,7 +50,6 @@ export function TeacherPayoutDashboard({
   initialYear: number;
   initialMonth: number;
   initialResult: ComputeTeacherPayoutActionResult;
-  initialThreshold?: number;
   /** "Tüm kurumlar" görünümünde false — hakediş hesaplanamaz/oluşturulamaz. */
   canWrite: boolean;
 }) {
@@ -71,8 +68,6 @@ export function TeacherPayoutDashboard({
   );
   const [updatingMethod, setUpdatingMethod] = useState(false);
   const [methodMessage, setMethodMessage] = useState<{ ok: boolean; text: string } | null>(null);
-  const [threshold, setThreshold] = useState(initialThreshold ? String(initialThreshold) : "");
-  const [savingThreshold, setSavingThreshold] = useState(false);
   const [paying, setPaying] = useState(false);
   const [openLessonId, setOpenLessonId] = useState<string | null>(null);
   // K — revizyon düzenleme taslağı: yalnız kullanıcının dokunduğu alanlar (lessonId → alan → metin).
@@ -148,23 +143,6 @@ export function TeacherPayoutDashboard({
       ok: true,
       text: `Hakediş kaydı oluşturuldu: ${formatMoney(created.payout.totalAmount)}. Ödemeyi yaptığınızda “Hakedişi öde” ile kaydedin.`,
     });
-    await fetchPeriod(year, month, true);
-  }
-
-  async function handleSaveThreshold() {
-    const value = Number(threshold);
-    if (!Number.isInteger(value) || value < 1 || value > 80) {
-      setMethodMessage({ ok: false, text: "Eşik 1 ile 80 saat arasında tam sayı olmalı." });
-      return;
-    }
-    setSavingThreshold(true);
-    const saved = await actionUpdateTeacherProfile({ teacherId, weeklyHoursThreshold: value });
-    setSavingThreshold(false);
-    if (!saved.ok) {
-      setMethodMessage({ ok: false, text: saved.message });
-      return;
-    }
-    setMethodMessage({ ok: true, text: "Ödeme yöntemi eşiği kaydedildi." });
     await fetchPeriod(year, month, true);
   }
 
@@ -315,22 +293,115 @@ export function TeacherPayoutDashboard({
         </Card>
       ) : (
         <>
-          <div className="mb-6 grid gap-4 sm:grid-cols-3">
-            <Card>
-              <p className="text-xs text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">Toplam ders</p>
-              <p className="mt-1 text-2xl font-semibold text-[var(--color-text)] dark:text-slate-50">{result.totalLessons}</p>
-            </Card>
-            <Card>
-              <p className="text-xs text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">Toplam dakika</p>
-              <p className="mt-1 text-2xl font-semibold text-[var(--color-text)] dark:text-slate-50">{result.totalMinutes}</p>
-            </Card>
+          {/* 10. tur iş #11 — ilk bakış: dönem hakedişi + ödenen + kalan + durum.
+              Ödeme yöntemi/eşik formu buradan KALDIRILDI (eşik: Hakedişler ana
+              ekranı + öğretmen profili; yöntem: aşağıdaki işlem satırında). */}
+          <div className="mb-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <Card className="border-emerald-200 bg-emerald-50/40">
               <p className="text-xs text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
-                Toplam hakediş{existing && existing.revisionCount > 0 ? " (revize)" : ""}
+                Dönem hakedişi{existing && existing.revisionCount > 0 ? " (revize)" : ""}
               </p>
-              <p className="mt-1 text-2xl font-semibold text-emerald-700">{formatMoney(result.totalAmount)}</p>
+              <p className="mt-1 text-2xl font-semibold text-emerald-700">
+                {formatMoney(existing?.totalAmount ?? result.totalAmount)}
+              </p>
+              <p className="mt-1 text-xs text-[var(--color-text-muted)]">
+                {result.totalLessons} ders · {result.totalMinutes} dk
+              </p>
+            </Card>
+            <Card>
+              <p className="text-xs text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">Ödenen</p>
+              <p className="mt-1 text-2xl font-semibold text-[var(--color-text)] dark:text-slate-50">
+                {formatMoney(isPaid ? (existing?.totalAmount ?? 0) : 0)}
+              </p>
+              <p className="mt-1 text-xs text-[var(--color-text-muted)]">
+                {isPaid && existing?.paidAt ? formatDate(existing.paidAt) : "—"}
+              </p>
+            </Card>
+            <Card>
+              <p className="text-xs text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">Kalan</p>
+              <p className="mt-1 text-2xl font-semibold text-amber-700">
+                {formatMoney(isPaid ? 0 : (existing?.totalAmount ?? result.totalAmount))}
+              </p>
+              <p className="mt-1 text-xs text-[var(--color-text-muted)]">
+                {existing ? (isPaid ? "Ödendi" : "Bekliyor") : "Kayıt yok"}
+              </p>
+            </Card>
+            <Card>
+              <p className="text-xs text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">Durum</p>
+              <p className="mt-2">
+                {isPaid ? (
+                  <Badge status="paid">Ödendi</Badge>
+                ) : existing ? (
+                  <Badge status="pending">Kayıtlı · bekliyor</Badge>
+                ) : (
+                  <Badge status="pending">Hesaplandı · kayıt yok</Badge>
+                )}
+              </p>
+              <p className="mt-2 text-xs">
+                <Link
+                  href={`/panel/ogretmenler/${teacherId}/odemeler`}
+                  className="font-medium text-amber-700 hover:underline"
+                >
+                  Ödeme geçmişini gör →
+                </Link>
+              </p>
             </Card>
           </div>
+
+          {/* Birincil işlemler — özetin hemen altında (kaydırma yok). */}
+          <Card className="mb-6 !py-3">
+            <div className="flex flex-wrap items-center gap-2">
+              {!existing ? (
+                <Button
+                  type="button"
+                  onClick={handleCreatePayout}
+                  disabled={!result.canCreatePayout || result.lines.length === 0 || creating || !canWrite}
+                >
+                  {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                  Hakediş oluştur
+                </Button>
+              ) : null}
+              {isPaid ? <Badge status="paid">Bu dönemin hakedişi ödendi</Badge> : null}
+              {existing && !isPaid ? (
+                <Button type="button" onClick={handlePay} disabled={paying || !canWrite}>
+                  {paying ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                  Hakedişi öde
+                </Button>
+              ) : null}
+              <span className="inline-flex flex-wrap items-center gap-2 border-l border-[var(--color-border)] pl-2">
+                <label className="text-xs text-[var(--color-text-muted)]">
+                  Yöntem:
+                  <Select
+                    value={selectedMethod}
+                    onChange={(e) => setSelectedMethod(e.target.value as "" | "cash" | "transfer")}
+                    className="ml-1 w-auto !py-1 text-xs"
+                    disabled={!canWrite}
+                    aria-label="Ödeme yöntemi"
+                  >
+                    {!existing ? <option value="">Varsayılanı kullan</option> : null}
+                    <option value="cash">Nakit</option>
+                    <option value="transfer">Havale</option>
+                  </Select>
+                </label>
+                {existing ? (
+                  <Button type="button" variant="secondary" onClick={handleUpdateMethod} disabled={updatingMethod || !canWrite}>
+                    {updatingMethod ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                    Yöntemi güncelle
+                  </Button>
+                ) : null}
+              </span>
+              {createMessage ? (
+                <p className={`w-full text-sm ${createMessage.ok ? "text-emerald-600" : "text-rose-600"}`}>
+                  {createMessage.text}
+                </p>
+              ) : null}
+              {methodMessage ? (
+                <p className={`w-full text-sm ${methodMessage.ok ? "text-emerald-600" : "text-rose-600"}`}>
+                  {methodMessage.text}
+                </p>
+              ) : null}
+            </div>
+          </Card>
 
           {existing && existing.originalTotalAmount !== undefined ? (
             <Card className="mb-6 !py-3">
@@ -359,92 +430,38 @@ export function TeacherPayoutDashboard({
             </Card>
           ) : null}
 
-          <Card className="mb-6">
-            <p className="text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
-              Ödeme yöntemi eşiği
+          {/* 10. tur iş #11 — eşik BAĞLAMI (salt bilgi): düzenleme Hakedişler
+              ana ekranı + öğretmen profilindedir. Kapalı başlar, akışı engellemez. */}
+          <details className="mb-6 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-2.5">
+            <summary className="cursor-pointer text-xs font-medium text-[var(--color-text-muted)]">
+              Ödeme yöntemi ayarları:{" "}
+              {result.paymentMethodInfo?.threshold === undefined ? (
+                <>eşik tanımsız (varsayılan yöntem üretilmez)</>
+              ) : (
+                <>
+                  eşik {result.paymentMethodInfo.threshold} sa · bu dönem ort.{" "}
+                  {result.paymentMethodInfo.weeklyHours.toFixed(1)} sa · varsayılan{" "}
+                  {result.paymentMethodInfo.defaultMethod
+                    ? PAYMENT_METHOD_LABEL[result.paymentMethodInfo.defaultMethod]
+                    : "—"}
+                </>
+              )}
+            </summary>
+            <p className="mt-1 text-xs text-[var(--color-text-muted)]">
+              Eşik ve üstü haftalık ortalamada nakit, altında havale varsayılır. Eşik öğretmene özeldir —{" "}
+              <Link href="/panel/hakedisler" className="font-medium text-amber-700 hover:underline">
+                Hakedişler
+              </Link>{" "}
+              ekranından veya{" "}
+              <Link
+                href={`/panel/ogretmenler/${teacherId}/bilgiler`}
+                className="font-medium text-amber-700 hover:underline"
+              >
+                öğretmen profilinden
+              </Link>{" "}
+              düzenlenir. Kayıt oluştuktan sonra yöntem yukarıdaki işlem satırından ayrıca değiştirilebilir.
             </p>
-            <div className="mt-2 flex flex-wrap items-end gap-2">
-              <label className="text-sm text-[var(--color-text-muted)]">
-                Haftalık saat eşiği
-                <input
-                  type="number"
-                  min={1}
-                  max={80}
-                  value={threshold}
-                  disabled={!canWrite}
-                  onChange={(e) => setThreshold(e.target.value)}
-                  className="mt-1 block w-28 rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-sm text-[var(--color-text)]"
-                />
-              </label>
-              <Button type="button" variant="secondary" onClick={handleSaveThreshold} disabled={!canWrite || savingThreshold}>
-                {savingThreshold ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                Eşiği kaydet
-              </Button>
-              <span className="text-xs text-[var(--color-text-muted)]">
-                Eşik ve üstü nakit, altı havale varsayılanıdır. Kayıt oluştuktan sonra yöntemi ayrıca değiştirebilirsiniz.
-              </span>
-            </div>
-            {result.paymentMethodInfo?.threshold === undefined ? (
-              <p className="mt-1 text-sm text-[var(--color-text-muted)]">
-                Eşik tanımlı değil — öğretmen profilinden haftalık ders saati eşiği girilmeden varsayılan yöntem
-                üretilmez.
-              </p>
-            ) : (
-              <p className="mt-1 text-sm text-[var(--color-text-muted)]">
-                Bu dönemdeki haftalık ortalama <strong>{result.paymentMethodInfo.weeklyHours.toFixed(1)} sa</strong>{" "}
-                — eşik <strong>{result.paymentMethodInfo.threshold} sa</strong>. Varsayılan yöntem:{" "}
-                <strong>
-                  {result.paymentMethodInfo.defaultMethod ? PAYMENT_METHOD_LABEL[result.paymentMethodInfo.defaultMethod] : "—"}
-                </strong>
-                .
-              </p>
-            )}
-
-            {result.existingPayout ? (
-              <div className="mt-3 flex flex-wrap items-center gap-2">
-                <span className="text-sm text-[var(--color-text-muted)]">
-                  Bu dönem için kayıt zaten oluşturulmuş — mevcut yöntem:{" "}
-                  <strong>
-                    {result.existingPayout.method
-                      ? PAYMENT_METHOD_LABEL[result.existingPayout.method as "cash" | "transfer"]
-                      : "—"}
-                  </strong>
-                </span>
-                <Select
-                  value={selectedMethod}
-                  onChange={(e) => setSelectedMethod(e.target.value as "cash" | "transfer")}
-                  className="w-auto"
-                  disabled={!canWrite}
-                >
-                  <option value="cash">Nakit</option>
-                  <option value="transfer">Havale</option>
-                </Select>
-                <Button type="button" variant="secondary" onClick={handleUpdateMethod} disabled={updatingMethod || !canWrite}>
-                  {updatingMethod ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                  Yöntemi güncelle
-                </Button>
-              </div>
-            ) : (
-              <div className="mt-3 flex flex-wrap items-center gap-2">
-                <label className="text-sm text-[var(--color-text-muted)]">Oluştururken kullanılacak yöntem:</label>
-                <Select
-                  value={selectedMethod}
-                  onChange={(e) => setSelectedMethod(e.target.value as "" | "cash" | "transfer")}
-                  className="w-auto"
-                  disabled={!canWrite}
-                >
-                  <option value="">Varsayılanı kullan</option>
-                  <option value="cash">Nakit</option>
-                  <option value="transfer">Havale</option>
-                </Select>
-              </div>
-            )}
-            {methodMessage ? (
-              <p className={`mt-2 text-sm ${methodMessage.ok ? "text-emerald-600" : "text-rose-600"}`}>
-                {methodMessage.text}
-              </p>
-            ) : null}
-          </Card>
+          </details>
 
           {result.missingFeeRuleLessonIds.length > 0 ? (
             <Card className="mb-6 border-amber-200 bg-amber-50/60">
@@ -615,32 +632,6 @@ export function TeacherPayoutDashboard({
             )}
           </Card>
 
-          <div className="mt-6 flex flex-wrap items-center gap-3">
-            {result.existingPayout ? null : (
-              <Button
-                type="button"
-                onClick={handleCreatePayout}
-                disabled={!result.canCreatePayout || result.lines.length === 0 || creating || !canWrite}
-              >
-                {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                Hakediş oluştur
-              </Button>
-            )}
-            {result.existingPayout?.status === "paid" ? (
-              <Badge status="paid">Bu dönemin hakedişi ödendi</Badge>
-            ) : null}
-            {result.existingPayout && result.existingPayout.status !== "paid" ? (
-              <Button type="button" variant="secondary" onClick={handlePay} disabled={paying || !canWrite}>
-                {paying ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                Hakedişi öde
-              </Button>
-            ) : null}
-            {createMessage ? (
-              <p className={`text-sm ${createMessage.ok ? "text-emerald-600" : "text-rose-600"}`}>
-                {createMessage.text}
-              </p>
-            ) : null}
-          </div>
         </>
       )}
 
