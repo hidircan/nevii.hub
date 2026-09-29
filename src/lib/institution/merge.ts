@@ -30,5 +30,9 @@ export function mergeAppData(datasets: AppData[]): AppData {
     payments: datasets.flatMap((d) => d.payments),
     teacherFeeRules: datasets.flatMap((d) => d.teacherFeeRules),
     teacherPayouts: datasets.flatMap((d) => d.teacherPayouts),
+    // Politika kurum bazlıdır — birleşik görünümde her kayıt kendi kurumunun öğretmenleriyle sınırlanır.
+    teacherPayoutPolicies: datasets.flatMap((d) =>
+      (d.teacherPayoutPolicies ?? []).map((p) => ({ ...p, teacherIds: d.teachers.map((t) => t.id) }))
+    ),
   };
 }

@@ -67,6 +67,9 @@ export function LessonOpsActions({
   const [reasonDraft, setReasonDraft] = useState("");
   /** 9. tur — Telafi'de kaynak sorusu (öğretmen/kurum/öğrenci/diğer). */
   const [disruptionDraft, setDisruptionDraft] = useState<DisruptionFormValue>({});
+  /** 2026-09-29 — işaretli statüye tekrar basınca açılan "geri al" onayı. */
+  const [pendingUndo, setPendingUndo] = useState<Flag | null>(null);
+  const [undoing, setUndoing] = useState(false);
   const inFlight = useRef(false);
 
   const effective = effectiveOf(local);
@@ -160,6 +163,13 @@ export function LessonOpsActions({
    * Gelmedi/Mazeretli) değişmeden anında `onFlag` çağırır.
    */
   function handleButtonClick(flag: Flag) {
+    // İşaretli statüye tekrar basış = geri alma isteği; önce onay (yanlış tıklama veri değiştirmez).
+    if (effective === flag) {
+      setPendingSwitch(null);
+      setReasonPrompt(null);
+      setPendingUndo(flag);
+      return;
+    }
     if (flag === "processed" || flag === "makeup") {
       setReasonDraft("");
       setDisruptionDraft({});
@@ -167,6 +177,45 @@ export function LessonOpsActions({
       return;
     }
     void onFlag(flag);
+  }
+
+  /**
+   * Onaylanan geri alma: iyimser temizle, sunucuya `expected` ile gönder (sunucu statü değişmişse
+   * reddeder; zaten boşsa no-op). Hata olursa önceki statü geri yüklenir. `inFlight` çift tıklamayı keser.
+   */
+  async function onClear(expected: Flag) {
+    if (inFlight.current) return;
+    setPendingUndo(null);
+    inFlight.current = true;
+    setUndoing(true);
+    setBusy(expected);
+    setError(null);
+    onPendingChange?.(lessonId, true);
+    const previous = { ...local };
+    setLocalAndEmit({ attended: false, processed: false, makeup: false, absent: false, excused: false });
+    try {
+      const res = await fetch(`/api/v1/lessons/${lessonId}/ops`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "clear", expected }),
+      });
+      const json = (await res.json()) as { ok: boolean; error?: { message: string } };
+      if (!json.ok) {
+        setLocalAndEmit(previous);
+        setError(json.error?.message || "Statü geri alınamadı. Sayfayı yenileyip tekrar deneyin.");
+        return;
+      }
+      if (!onSettled) router.refresh();
+    } catch {
+      setLocalAndEmit(previous);
+      setError("Bağlantı hatası — statü geri alınmadı. Tekrar deneyin.");
+    } finally {
+      inFlight.current = false;
+      setUndoing(false);
+      setBusy(null);
+      onPendingChange?.(lessonId, false);
+      onSettled?.(lessonId);
+    }
   }
 
   function submitReasonPrompt() {
@@ -237,12 +286,46 @@ export function LessonOpsActions({
         zaten anında olduğu için bu yalnızca sunucu turunun sürdüğünü söyler.
       */}
       <p className="mt-1 text-[11px] text-[var(--color-text-muted)]" aria-live="polite">
-        {busy ? `${FLAG_LABEL[busy]} kaydediliyor…` : ""}
+        {busy ? `${FLAG_LABEL[busy]} ${undoing ? "geri alınıyor" : "kaydediliyor"}…` : ""}
       </p>
       {error ? (
         <p className="mt-1 text-[11px] font-medium text-[var(--color-danger)]" role="alert">
           {error}
         </p>
+      ) : null}
+      {pendingUndo ? (
+        <div
+          role="alertdialog"
+          aria-label="Statüyü geri almayı onayla"
+          className="mt-2 rounded-md border border-amber-300 bg-amber-50 p-2 text-[11px] text-amber-900"
+        >
+          <p className="font-medium">
+            &quot;{FLAG_LABEL[pendingUndo]}&quot; işaretini geri almak istiyor musunuz? Ders statüsüz (planlandı) duruma döner.
+          </p>
+          <p className="mt-1">
+            {pendingUndo === "processed"
+              ? "Ders hakediş hesabından çıkar. Öğretmenin bu dönem için hakediş kaydı varsa geri alma reddedilir."
+              : pendingUndo === "makeup"
+                ? "Bekleyen telafi talebi iptal edilir ve telafi hakkı iade olur. Telafi dersi planlandıysa önce onu iptal etmeniz gerekir."
+                : "Yoklama kaydı silinir. Ödeme kayıtları etkilenmez."}
+          </p>
+          <div className="mt-1.5 flex gap-1.5">
+            <button
+              type="button"
+              onClick={() => void onClear(pendingUndo)}
+              className="rounded-md border border-amber-400 bg-amber-100 px-2 py-1 text-[11px] font-semibold text-amber-900 hover:bg-amber-200"
+            >
+              Evet, geri al
+            </button>
+            <button
+              type="button"
+              onClick={() => setPendingUndo(null)}
+              className="rounded-md border border-stone-300 bg-[var(--color-surface)] px-2 py-1 text-[11px] font-semibold text-stone-700 hover:bg-stone-50"
+            >
+              Vazgeç
+            </button>
+          </div>
+        </div>
       ) : null}
       {pendingSwitch ? (
         <div

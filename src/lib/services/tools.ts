@@ -37,6 +37,8 @@ import {
   correctLessonTimesLive,
   createTeacherPayout,
   replaceTeacherPayout,
+  clearLessonOpsFlagLive,
+  setTeacherPayoutPolicy,
   forceDeleteLesson,
   endLessonLive,
   generateSuggestions,
@@ -7486,6 +7488,47 @@ export async function updateFeeRuleTool(
 }
 
 /**
+ * 2026-09-29 — ayın hakediş politikası (mevcut / süreye göre sabit ücret). Ücret kuralı yönetimiyle
+ * AYNI yetki: SCHOOL_ADMIN/SUPER_ADMIN + kurum hakediş erişim politikası. Değişiklik audit'e önce/sonra
+ * ile yazılır; o ayda hakediş kaydı varsa store katmanı reddeder (bkz. setPayoutPolicyForMonthData).
+ */
+export async function setTeacherPayoutPolicyTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ month: string; policy: string; changed: boolean }>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", "Hakediş politikasını yalnız kurum yöneticisi veya kurum sahibi değiştirebilir.");
+  const earnings = await assertTeacherEarningsAccess(ctx);
+  if (!earnings.ok) return earnings;
+  const v = parseOrFail(
+    z.object({
+      month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "Dönem ayı geçersiz."),
+      policy: z.enum(["per_teacher_rule", "fixed_duration"]),
+      rate30: z.number().optional(),
+      rate40: z.number().optional(),
+      rate50: z.number().optional(),
+    }),
+    input
+  );
+  if (!v.ok) return v;
+  try {
+    const result = await setTeacherPayoutPolicy(v.data, ctx.userId);
+    if (!result.ok) return fail(result.code === "PERIOD_LOCKED" ? "CONFLICT" : "VALIDATION_ERROR", result.message);
+    if (result.changed) {
+      audit(ctx, "teacher_payout.policy", "TeacherPayoutPolicyPeriod", result.record.id, {
+        month: v.data.month,
+        before: result.previous,
+        after: { policy: result.record.policy, rate30: result.record.rate30, rate40: result.record.rate40, rate50: result.record.rate50 },
+      });
+    }
+    return ok({ month: v.data.month, policy: result.record.policy, changed: result.changed });
+  } catch (e) {
+    logger.error("setTeacherPayoutPolicyTool failed", e);
+    return fail("INTERNAL_ERROR", "Hakediş politikası kaydedilemedi; mevcut politika değişmedi. Sayfayı yenileyip tekrar deneyin.");
+  }
+}
+
+/**
  * Öğretmenin kendi geçmiş hakediş kayıtları — mobil `(teacher)/hesabim/hakedis`
  * ekranı. `ownPayouts` web öğretmen portalıyla (src/app/ogretmen/hakedis/page.tsx)
  * AYNI sahiplik yardımcısı — yeni bir sıralama/filtre kuralı İCAT EDİLMEDİ,
@@ -7827,8 +7870,13 @@ export async function createTeacherPayoutTool(
       v.data.paymentMethod
     );
     if (!result.ok) {
-      const code = result.code === "MISSING_FEE_RULE" ? "VALIDATION_ERROR" : "CONFLICT";
-      const details = result.code === "MISSING_FEE_RULE" ? result.missingFeeRuleLessonIds : undefined;
+      const code = result.code === "PAYOUT_ALREADY_EXISTS" ? "CONFLICT" : "VALIDATION_ERROR";
+      const details =
+        result.code === "MISSING_FEE_RULE"
+          ? result.missingFeeRuleLessonIds
+          : result.code === "UNSUPPORTED_DURATION"
+            ? result.unsupportedDurationLessonIds
+            : undefined;
       return fail(code, result.message, details);
     }
     return ok({ payout: result.payout });
@@ -13884,6 +13932,65 @@ export async function setLessonOpsFlagTool(
       return fail("VALIDATION_ERROR", e instanceof Error ? e.message : "Telafi kotası aşıldı");
     }
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "setLessonOpsFlag failed");
+  }
+}
+
+/**
+ * 2026-09-29 — Yoklama Takvimi: işaretli statüye tekrar basılıp onaylanınca statü geri alınır.
+ * Yetki `setLessonOpsFlagTool` ile aynı (öğretmen değil; SCHOOL_ADMIN/SUPER_ADMIN). İşlendi geri
+ * alınırken dersin günü, o öğretmenin kayıtlı (bekleyen/ödenmiş) bir hakedişine düşüyorsa reddedilir —
+ * donmuş hakediş ile ders gerçeği sessizce ayrışmasın.
+ */
+export async function clearLessonOpsFlagTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ lessonId: string; cleared: string | null; alreadyClear: boolean; message: string }>> {
+  if (ctx.role === "TEACHER") return fail("FORBIDDEN", TEACHER_ATTENDANCE_FORBIDDEN_MESSAGE);
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const v = parseOrFail(
+    z.object({
+      lessonId: z.string().min(1),
+      expected: z.enum(["attended", "processed", "makeup", "absent", "excused"]),
+    }),
+    input
+  );
+  if (!v.ok) return v;
+
+  if (v.data.expected === "processed") {
+    const data = await readData();
+    const lesson = data.lessons.find((l) => l.id === v.data.lessonId);
+    if (!lesson) return fail("NOT_FOUND", "Ders bulunamadı. Sayfayı yenileyip tekrar deneyin.");
+    const { payoutPeriodDayKey } = await import("../teacher-payout");
+    const day = lesson.startAt.slice(0, 10);
+    const payout = data.teacherPayouts.find(
+      (p) => p.teacherId === lesson.teacherId && payoutPeriodDayKey(p.periodStart) <= day && payoutPeriodDayKey(p.periodEnd) >= day
+    );
+    if (payout) {
+      return fail(
+        "CONFLICT",
+        `Bu ders, öğretmenin ${payoutPeriodDayKey(payout.periodStart)} – ${payoutPeriodDayKey(payout.periodEnd)} dönemi için oluşturulmuş ` +
+          `${payout.status === "paid" ? "ÖDENMİŞ" : "kayıtlı"} hakedişine dahil; "İşlendi" geri alınamaz. ` +
+          "Tutarı düzeltmek için öğretmenin hakediş detayındaki revizyonu kullanın."
+      );
+    }
+  }
+
+  try {
+    const result = await clearLessonOpsFlagLive(v.data.lessonId, v.data.expected, ctx.userId);
+    if (!result.ok) {
+      return fail(result.code === "NOT_FOUND" ? "NOT_FOUND" : result.code === "STALE" ? "CONFLICT" : "VALIDATION_ERROR", result.message);
+    }
+    if (!result.alreadyClear) {
+      audit(ctx, "lesson.ops.clear", "Lesson", v.data.lessonId, {
+        cleared: result.cleared,
+        cancelledMakeupIds: result.cancelledMakeupIds.length ? result.cancelledMakeupIds : undefined,
+      });
+    }
+    return ok({ lessonId: v.data.lessonId, cleared: result.cleared, alreadyClear: result.alreadyClear, message: result.message });
+  } catch (e) {
+    logger.error("clearLessonOpsFlagTool failed", e);
+    return fail("INTERNAL_ERROR", "Yoklama statüsü geri alınamadı; statü değişmedi. Sayfayı yenileyip tekrar deneyin.");
   }
 }
 

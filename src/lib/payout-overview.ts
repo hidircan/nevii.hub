@@ -63,7 +63,8 @@ export function buildPayoutOverviewRows(data: AppData, periodStart: string, peri
       lessonCount: earnings.totalLessons,
       totalAmount: existingPayout ? existingPayout.totalAmount : earnings.totalAmount,
       status: existingPayout ? existingPayout.status : earnings.totalLessons > 0 ? "pending" : "no_lessons",
-      missingFeeRule: earnings.missingFeeRuleLessonIds.length,
+      // Tutarı hesaplanamayan ders: ücret kuralı eksik (mevcut politika) veya süre 30/40/50 değil (sabit ücret).
+      missingFeeRule: earnings.missingFeeRuleLessonIds.length + earnings.unsupportedDurationLessonIds.length,
     });
   }
   return rows;

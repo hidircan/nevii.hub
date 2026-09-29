@@ -1179,6 +1179,38 @@ export interface TeacherPayout {
   revisedAt?: string;
   revisedByUserId?: string;
   revisionReason?: string;
+  /**
+   * 2026-09-29 — kayıt ANINDA kullanılan hakediş politikası. `undefined` = eski kayıt (öğretmen bazlı
+   * dakika ücreti). "mixed" = dönem birden çok ayı ve farklı politikaları kapsıyor.
+   */
+  pricingPolicy?: TeacherPayoutPricingPolicy | "mixed";
+  /** Kayıt anındaki ay → politika + sabit tutarlar (izlenebilirlik; sonradan değişmez). */
+  pricingSnapshot?: Record<string, TeacherPayoutPolicyTerms>;
+}
+
+/** Öğretmen hakediş politikası: mevcut (öğretmen bazlı dakika ücreti) veya süreye göre ortak sabit ücret. */
+export type TeacherPayoutPricingPolicy = "per_teacher_rule" | "fixed_duration";
+
+export interface TeacherPayoutPolicyTerms {
+  policy: TeacherPayoutPricingPolicy;
+  /** Yalnız `fixed_duration`: tüm öğretmenler için ders başı TL (30/40/50 dk). */
+  rate30?: number;
+  rate40?: number;
+  rate50?: number;
+}
+
+/**
+ * 2026-09-29 — bir takvim ayı için seçilen hakediş politikası (kurum geneli, öğretmen bazlı DEĞİL).
+ * Kayıt yoksa o ay mevcut politika geçerlidir. O ayla kesişen bir hakediş kaydı oluşunca kilitlenir.
+ */
+export interface TeacherPayoutPolicyPeriod extends TeacherPayoutPolicyTerms {
+  id: string;
+  /** "yyyy-MM" */
+  month: string;
+  setByUserId: string;
+  setAt: string;
+  /** Yalnız "Tüm kurumlar" birleşik görünümünde: kaydın ait olduğu kurumun öğretmenleri. */
+  teacherIds?: string[];
 }
 
 /** Hakediş dökümünde tek dersin elle düzeltilmiş değerleri; boş alan = hesaplanan değer. */
@@ -1200,6 +1232,8 @@ export interface AppData {
   payments: Payment[];
   teacherFeeRules: TeacherFeeRule[];
   teacherPayouts: TeacherPayout[];
+  /** 2026-09-29 — ay bazlı hakediş politikası (opsiyonel: yoksa her ay mevcut politika). */
+  teacherPayoutPolicies?: TeacherPayoutPolicyPeriod[];
   /**
    * ÖNCELİK 4 (devam) — Paket Yönetimi. Opsiyonel (required değil) —
    * mevcut birçok test fixture'ı elle AppData nesnesi kurar ve bu alanı

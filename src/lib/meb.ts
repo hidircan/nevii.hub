@@ -85,9 +85,9 @@ function err(errors: MebFieldErrors, field: keyof MebFieldErrors, message: strin
 }
 
 /**
- * MEB-ise-zorunlu kapısı. MEB değilse `{ ok: true }` döner (çağıran MEB
- * değerlerini STRIP eder). MEB ise seviye + dönem tarihlerini ve sınav
- * tutarlılığını doğrular; mesajlar Türkçe, alan-bazlıdır (ham Prisma hatası
+ * MEB alan kapısı. MEB değilse `{ ok: true }` döner (çağıran MEB
+ * değerlerini STRIP eder). MEB ise alanlar OPSİYONELDİR (2026-09-29); girilen
+ * seviye/dönem tarihlerinin biçimini ve sınav tutarlılığını doğrular; mesajlar Türkçe, alan-bazlıdır (ham Prisma hatası
  * ve kişisel veri İÇERMEZ).
  */
 export function validateMebFields(input: MebInput): MebValidationResult {
@@ -95,19 +95,17 @@ export function validateMebFields(input: MebInput): MebValidationResult {
 
   const errors: MebFieldErrors = {};
 
-  const levelError = validateStudentLevel(input.studentTypes, input.level ?? undefined);
-  if (levelError) err(errors, "level", levelError);
+  // 2026-09-29 (owner): MEB bilgileri ZORUNLU DEĞİL — boş bırakılabilir; girilmişse biçim/tutarlılık korunur.
+  const levelRaw = input.level?.trim() || undefined;
+  const levelError = levelRaw ? validateStudentLevel(input.studentTypes, levelRaw) : null;
+  if (levelError) err(errors, "level", "MEB seviyesi 1–8 arasında olmalı (boş bırakılabilir).");
 
   const startRaw = input.mebLevelStartDate?.trim() || undefined;
   const endRaw = input.mebLevelEndDate?.trim() || undefined;
-  if (!startRaw) {
-    err(errors, "mebLevelStartDate", "MEB seviye başlangıç tarihi zorunludur.");
-  } else if (parseDateOnlyInput(startRaw) === null) {
+  if (startRaw && parseDateOnlyInput(startRaw) === null) {
     err(errors, "mebLevelStartDate", "MEB seviye başlangıç tarihi için takvimden geçerli bir gün seçin.");
   }
-  if (!endRaw) {
-    err(errors, "mebLevelEndDate", "MEB seviye bitiş tarihi zorunludur.");
-  } else if (parseDateOnlyInput(endRaw) === null) {
+  if (endRaw && parseDateOnlyInput(endRaw) === null) {
     err(errors, "mebLevelEndDate", "MEB seviye bitiş tarihi için takvimden geçerli bir gün seçin.");
   }
   const startMs = startRaw ? dateOnlyMillis(startRaw) : null;

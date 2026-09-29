@@ -197,6 +197,11 @@ type StoreApi = {
     reason?: string,
     disruption?: import("./lesson-disruption").LessonDisruptionInput
   ) => Promise<import("./lesson-ops").ApplyLessonOpsResult>;
+  clearLessonOpsFlagLive: (
+    lessonId: string,
+    expected: import("./lesson-ops").LessonOpsFlag,
+    actorUserId: string
+  ) => Promise<import("./lesson-ops").ClearLessonOpsResult>;
   setLessonDisruptionLive: (
     lessonId: string,
     patch: import("./lesson-disruption").LessonDisruptionPatch
@@ -246,6 +251,10 @@ type StoreApi = {
   ) => Promise<CreateTeacherPayoutResult>;
   markTeacherPayoutPaid: (payoutId: string, method?: string) => Promise<MarkPayoutPaidResult>;
   replaceTeacherPayout: (payout: TeacherPayout) => Promise<AppData>;
+  setTeacherPayoutPolicy: (
+    input: import("./teacher-payout").SetPayoutPolicyInput,
+    actorUserId: string
+  ) => Promise<import("./teacher-payout").SetPayoutPolicyResult>;
   updateTeacherPayoutPaymentMethod: (
     payoutId: string,
     method: TeacherPayoutPaymentMethod
@@ -627,6 +636,15 @@ export async function switchLessonOpsFlagLive(
   return withTenantScope(() => store.switchLessonOpsFlagLive(lessonId, flag, actorUserId, reason, disruption));
 }
 
+/** 2026-09-29 — yoklama statüsünü geri alma (bkz. lesson-ops.ts clearLessonOpsFlag). */
+export async function clearLessonOpsFlagLive(
+  lessonId: string,
+  expected: import("./lesson-ops").LessonOpsFlag,
+  actorUserId: string
+): Promise<import("./lesson-ops").ClearLessonOpsResult> {
+  return withTenantScope(() => store.clearLessonOpsFlagLive(lessonId, expected, actorUserId));
+}
+
 /** 9. tur — İptal/Telafi kaynağı (öğretmen katılımından ve ders statüsünden ayrı alan). */
 export async function setLessonDisruptionLive(
   lessonId: string,
@@ -740,6 +758,13 @@ export async function updateTeacherPayoutPaymentMethod(
   method: TeacherPayoutPaymentMethod
 ): Promise<UpdateTeacherPayoutPaymentMethodResult> {
   return withTenantScope(() => store.updateTeacherPayoutPaymentMethod(payoutId, method));
+}
+
+export async function setTeacherPayoutPolicy(
+  input: import("./teacher-payout").SetPayoutPolicyInput,
+  actorUserId: string
+): Promise<import("./teacher-payout").SetPayoutPolicyResult> {
+  return withTenantScope(() => store.setTeacherPayoutPolicy(input, actorUserId));
 }
 
 export async function replaceTeacherPayout(payout: TeacherPayout): Promise<AppData> {

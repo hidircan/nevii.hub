@@ -463,6 +463,47 @@ export function TeacherPayoutDashboard({
             </p>
           </details>
 
+          {(() => {
+            // 2026-09-29 — dönemde uygulanan hakediş politikası (ay bazlı; kayıtlıysa kayıttaki iz).
+            const byMonth = Object.entries(result.pricingByMonth ?? {});
+            if (byMonth.length === 0) return null;
+            return (
+              <p className="mb-3 text-xs text-[var(--color-text-muted)]">
+                Hakediş politikası:{" "}
+                {byMonth.map(([m, t], i) => (
+                  <span key={m}>
+                    {i > 0 ? " · " : ""}
+                    {byMonth.length > 1 ? `${m}: ` : ""}
+                    <strong className="text-[var(--color-text)]">
+                      {t.policy === "fixed_duration"
+                        ? `Süreye göre sabit ücret (30 dk ${formatMoney(t.rate30 ?? 0)}, 40 dk ${formatMoney(t.rate40 ?? 0)}, 50 dk ${formatMoney(t.rate50 ?? 0)})`
+                        : "Mevcut politika (öğretmen bazlı dakika ücreti)"}
+                    </strong>
+                  </span>
+                ))}
+                . Değiştirmek için{" "}
+                <Link href="/panel/hakedisler" className="font-medium underline">
+                  Hakedişler
+                </Link>{" "}
+                ekranı (hakediş kaydı oluşmamış aylarda).
+              </p>
+            );
+          })()}
+
+          {(result.unsupportedDurationLessonIds ?? []).length > 0 ? (
+            <Card className="mb-6 border-amber-200 bg-amber-50/60">
+              <p className="text-sm text-amber-900">
+                <strong>{result.unsupportedDurationLessonIds.length}</strong> dersin süresi 30/40/50 dakika değil; süreye göre
+                sabit ücret politikası bu dersleri ücretlendiremez. Bu dönem için hakediş oluşturulamaz — ders süresini Ders
+                Programı&apos;ndan düzeltin veya{" "}
+                <Link href="/panel/hakedisler" className="font-medium underline">
+                  Hakedişler
+                </Link>{" "}
+                ekranından bu ay için mevcut politikayı seçin.
+              </p>
+            </Card>
+          ) : null}
+
           {result.missingFeeRuleLessonIds.length > 0 ? (
             <Card className="mb-6 border-amber-200 bg-amber-50/60">
               <p className="text-sm text-amber-900">
@@ -611,9 +652,9 @@ export function TeacherPayoutDashboard({
                             Revize
                           </span>
                         ) : null}
-                        {line.issue === "missing-fee-rule" ? (
+                        {line.issue === "missing-fee-rule" || line.issue === "unsupported-duration" ? (
                           <span className="inline-flex items-center gap-1.5">
-                            <Badge status="pending">Ücret kuralı eksik</Badge>
+                            <Badge status="pending">{line.issue === "missing-fee-rule" ? "Ücret kuralı eksik" : "Süre 30/40/50 dk değil"}</Badge>
                             <span className="text-[var(--color-text-muted)]">—</span>
                           </span>
                         ) : (

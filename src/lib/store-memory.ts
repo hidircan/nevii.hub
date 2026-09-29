@@ -811,6 +811,17 @@ export async function updateTeacherPayoutPaymentMethod(
   return result;
 }
 
+/** 2026-09-29 — ay bazlı hakediş politikası (memory modu senkron; kilit gerekmez). */
+export async function setTeacherPayoutPolicy(
+  input: import("./teacher-payout").SetPayoutPolicyInput,
+  actorUserId: string
+): Promise<import("./teacher-payout").SetPayoutPolicyResult> {
+  const { setPayoutPolicyForMonthData } = await import("./teacher-payout");
+  const result = setPayoutPolicyForMonthData(load(), input, actorUserId);
+  if (result.ok && result.changed) save(result.data);
+  return result;
+}
+
 /** K — hakediş revizyonu/ödeme geri alma: kaydı bütün olarak değiştirir (kurallar tool katmanında). */
 export async function replaceTeacherPayout(payout: TeacherPayout): Promise<AppData> {
   const data = load();
@@ -1341,6 +1352,24 @@ export async function switchLessonOpsFlagLive(
   disruption?: import("./lesson-disruption").LessonDisruptionInput
 ): Promise<ReturnType<typeof switchLessonOpsFlag>> {
   return persistLessonOpsUnderLock(lessonId, flag, actorUserId, switchLessonOpsFlag, reason, disruption);
+}
+
+/** 2026-09-29 — yoklama statüsünü geri alma (bkz. lesson-ops.ts clearLessonOpsFlag). */
+export async function clearLessonOpsFlagLive(
+  lessonId: string,
+  expected: LessonOpsFlag,
+  actorUserId: string
+): Promise<import("./lesson-ops").ClearLessonOpsResult> {
+  const { clearLessonOpsFlag } = await import("./lesson-ops");
+  const pre = load().lessons.find((l) => l.id === lessonId);
+  return withKeyLock(`${tenantKey()}:ops:${pre?.studentId ?? lessonId}`, async () => {
+    const data = load();
+    const scope = narrowLessonScope(data, lessonId);
+    if (!scope) return { ok: false, code: "NOT_FOUND", message: "Ders bulunamadı. Sayfayı yenileyip tekrar deneyin." };
+    const result = clearLessonOpsFlag(scope, lessonId, expected, actorUserId);
+    if (result.ok && !result.alreadyClear) save(mergeLessonScope(data, result.data, lessonId));
+    return result;
+  });
 }
 
 /** Faz 2 — memory modu tamamen senkron; ekstra kilit gerekmez. */

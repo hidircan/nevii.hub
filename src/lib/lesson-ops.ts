@@ -342,3 +342,136 @@ export function switchLessonOpsFlag(
   };
   return applyLessonOpsFlag(clearedData, lessonId, flag, actorUserId, now, reason, disruption);
 }
+
+export type ClearLessonOpsResult =
+  | {
+      ok: true;
+      /** Ders zaten statüsüzdü (ör. çift tıklamanın ikinci isteği) — hiçbir şey yazılmadı. */
+      alreadyClear: boolean;
+      data: AppData;
+      lesson: Lesson;
+      cleared: LessonOpsFlag | null;
+      cancelledMakeupIds: string[];
+      removedAttendanceIds: string[];
+      message: string;
+    }
+  | { ok: false; code: "NOT_FOUND" | "STALE" | "MAKEUP_IN_USE"; message: string };
+
+const OPS_LABEL: Record<LessonOpsFlag, string> = {
+  attended: "Geldi",
+  processed: "İşlendi",
+  makeup: "Telafi",
+  absent: "Gelmedi",
+  excused: "Mazeretli",
+};
+
+/**
+ * 2026-09-29 — işaretli yoklama statüsünü GERİ ALIR (ders statüsüz/planlı haline döner).
+ * - `expected`: kullanıcının ekranda gördüğü statü. Sunucudaki statü farklıysa (başka biri değiştirdi)
+ *   hiçbir şey yazılmaz → STALE. Statü zaten yoksa idempotent no-op (çift tıklama güvenli).
+ * - İşlendi: `completed` → `scheduled`; hakediş dışına çıkar (hakediş kaydı kilidi tool katmanında).
+ * - Telafi: bekleyen telafi talebi iptal edilir (kota iade olur). Telafi dersi planlanmış/yapılmışsa
+ *   geri alma reddedilir — önce Telafi ekranından o ders iptal edilmeli.
+ * - Geldi: bu işaretin ürettiği "present" yoklama satırı silinir (bir telafi talebi ona bağlı değilse).
+ * Hiçbir dal Payment oluşturmaz/değiştirmez (Package B).
+ */
+export function clearLessonOpsFlag(
+  data: AppData,
+  lessonId: string,
+  expected: LessonOpsFlag,
+  actorUserId: string,
+  now: Date = new Date()
+): ClearLessonOpsResult {
+  const lesson = data.lessons.find((l) => l.id === lessonId);
+  if (!lesson) return { ok: false, code: "NOT_FOUND", message: "Ders bulunamadı. Sayfayı yenileyip tekrar deneyin." };
+  const current = effectiveLessonOpsStatus(lesson);
+  if (current === null) {
+    return {
+      ok: true,
+      alreadyClear: true,
+      data,
+      lesson,
+      cleared: null,
+      cancelledMakeupIds: [],
+      removedAttendanceIds: [],
+      message: "Bu dersin yoklama statüsü zaten boş.",
+    };
+  }
+  if (current !== expected) {
+    return {
+      ok: false,
+      code: "STALE",
+      message: `Bu ders artık "${OPS_LABEL[current]}" olarak işaretli (ekranınızda "${OPS_LABEL[expected]}" görünüyordu). Sayfayı yenileyip güncel statüyü kontrol edin.`,
+    };
+  }
+
+  const nowIso = now.toISOString();
+  let makeupRequests = data.makeupRequests;
+  const cancelledMakeupIds: string[] = [];
+  if (current === "makeup") {
+    const active = makeupRequests.filter(
+      (m) => m.sourceLessonId === lessonId && m.status !== "cancelled" && m.status !== "expired"
+    );
+    const inUse = active.find((m) => m.status === "confirmed" || m.status === "completed" || m.confirmedLessonId);
+    if (inUse) {
+      return {
+        ok: false,
+        code: "MAKEUP_IN_USE",
+        message:
+          "Bu telafi için telafi dersi planlanmış veya yapılmış; Telafi statüsü doğrudan geri alınamaz. Önce Telafi ekranından planlanan telafi dersini iptal edin, sonra tekrar deneyin.",
+      };
+    }
+    const ids = new Set(active.map((m) => m.id));
+    cancelledMakeupIds.push(...ids);
+    makeupRequests = makeupRequests.map((m) =>
+      ids.has(m.id)
+        ? { ...m, status: "cancelled", decisionNote: "Yoklama statüsü geri alındı", decidedBy: actorUserId, decidedAt: nowIso }
+        : m
+    );
+  }
+
+  let attendances = data.attendances;
+  const removedAttendanceIds: string[] = [];
+  if (current === "attended") {
+    const referenced = new Set(makeupRequests.map((m) => m.attendanceId));
+    for (const a of attendances) {
+      if (a.lessonId === lessonId && a.status === "present" && !referenced.has(a.id)) removedAttendanceIds.push(a.id);
+    }
+    attendances = attendances.filter((a) => !removedAttendanceIds.includes(a.id));
+  }
+
+  const wasProcessed = current === "processed";
+  const cleared: Lesson = {
+    ...lesson,
+    studentAttended: false,
+    studentAttendedAt: undefined,
+    studentAttendedBy: undefined,
+    lessonProcessed: false,
+    lessonProcessedAt: undefined,
+    lessonProcessedBy: undefined,
+    lessonProcessedReason: undefined,
+    opsMakeupFlag: false,
+    opsMakeupFlagAt: undefined,
+    opsMakeupFlagBy: undefined,
+    studentAbsent: false,
+    studentAbsentAt: undefined,
+    studentAbsentBy: undefined,
+    studentExcused: false,
+    studentExcusedAt: undefined,
+    studentExcusedBy: undefined,
+    ...(wasProcessed && lesson.status === "completed" ? { status: "scheduled" as const } : {}),
+    // İşlendi'nin kendisinin yazdığı bitiş zamanı geri alınır; önceden girilmiş gerçek bitiş korunur.
+    ...(wasProcessed && lesson.actualEndAt && lesson.actualEndAt === lesson.lessonProcessedAt ? { actualEndAt: undefined } : {}),
+  };
+  const lessons = data.lessons.map((l) => (l.id === lessonId ? cleared : l));
+  return {
+    ok: true,
+    alreadyClear: false,
+    data: { ...data, lessons, makeupRequests, attendances },
+    lesson: cleared,
+    cleared: current,
+    cancelledMakeupIds,
+    removedAttendanceIds,
+    message: `"${OPS_LABEL[current]}" statüsü geri alındı.`,
+  };
+}

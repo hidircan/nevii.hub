@@ -77,16 +77,20 @@ const COMPLETE_MEB = {
   mebLevelEndDate: "2027-06-30",
 };
 
-describe("createStudentTool — MEB-ise-zorunlu", () => {
-  it("MEB + eksik alanlar reddedilir, kayıt OLUŞMAZ (alan hataları Türkçe)", async () => {
+describe("createStudentTool — MEB alanları", () => {
+  it("MEB + boş MEB alanlarıyla kayıt OLUŞUR (2026-09-29: alanlar opsiyonel)", async () => {
+    const { teacherId, instrument } = await seedTeacherId();
+    const res = await createStudentTool(ctx(), createInput({ teacherId, instrument, studentTypes: [MEB] }));
+    expect(res.ok).toBe(true);
+  });
+
+  it("MEB + geçersiz seviye yine reddedilir, kayıt OLUŞMAZ", async () => {
     const { teacherId, instrument } = await seedTeacherId();
     const before = (await readData()).students.length;
-    const res = await createStudentTool(ctx(), createInput({ teacherId, instrument, studentTypes: [MEB] }));
+    const res = await createStudentTool(ctx(), createInput({ teacherId, instrument, studentTypes: [MEB], level: "Orta" }));
     expect(res.ok).toBe(false);
     if (res.ok) return;
     expect(res.error.code).toBe("VALIDATION_ERROR");
-    const fields = (res.error.details as { fieldErrors: Record<string, string[]> }).fieldErrors;
-    expect(Object.keys(fields).sort()).toEqual(["level", "mebLevelEndDate", "mebLevelStartDate"]);
     expect((await readData()).students.length).toBe(before);
   });
 
@@ -200,21 +204,11 @@ describe("updateStudentProfileTool — MEB birleştirme + korunum", () => {
     expect((await readData()).students.find((s) => s.id === id)?.phone).toBe("5550001111");
   });
 
-  it("eski eksik MEB kaydında MEB yüzeyine dokunan ilk düzenleme tamamlatır", async () => {
+  it("eski eksik MEB kaydında yalnız seviye güncellenebilir (tarihler opsiyonel)", async () => {
     const id = await makeCompleteMebStudent();
     await writeLegacyIncompleteMeb(id);
     const res = await updateStudentProfileTool(ctx(), { studentId: id, level: "4" });
-    expect(res.ok).toBe(false);
-    if (res.ok) return;
-    expect(res.error.code).toBe("VALIDATION_ERROR");
-
-    const completed = await updateStudentProfileTool(ctx(), {
-      studentId: id,
-      level: "4",
-      mebLevelStartDate: "2026-09-01",
-      mebLevelEndDate: "2027-06-30",
-    });
-    expect(completed.ok).toBe(true);
+    expect(res.ok).toBe(true);
   });
 
   it("sayfa yenileme sonrası kalıcılık: yazılan değerler taze okumada aynıdır", async () => {

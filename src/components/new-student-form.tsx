@@ -702,9 +702,9 @@ export function NewStudentForm({
             </div>
           </div>
           {/*
-            MEB Paneli — MEB seçiliyken seviye (1–8) + dönem tarihleri ZORUNLU
-            bölüm görünür; seçim kaldırılınca gizlenir ve değerleri kayda
-            yazılmaz. Sınav tarihi opsiyoneldir; "Girdi" tarih ister.
+            MEB Paneli — MEB seçiliyken seviye (1–8) + dönem tarihleri bölümü
+            görünür; tüm alanlar OPSİYONEL (2026-09-29), girilen değerin biçimi
+            sunucuda doğrulanır. Seçim kaldırılınca değerler kayda yazılmaz.
           */}
           {mebSelected ? (
             <div
@@ -713,11 +713,8 @@ export function NewStudentForm({
             >
               <p className="text-sm font-semibold text-[var(--color-text)]">MEB bilgileri</p>
               <div>
-                <Label>
-                  MEB seviyesi
-                  <RequiredMark />
-                </Label>
-                <Select name="level" required aria-required defaultValue={v("level") ?? ""} aria-invalid={!!fieldErrors.level}>
+                <Label>MEB seviyesi (opsiyonel)</Label>
+                <Select name="level" defaultValue={v("level") ?? ""} aria-invalid={!!fieldErrors.level}>
                   <option value="">Seviye seçin</option>
                   {MEB_LEVEL_OPTIONS.map((l) => (
                     <option key={l} value={l}>
@@ -729,30 +726,20 @@ export function NewStudentForm({
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <Label>
-                    MEB seviye başlangıç tarihi
-                    <RequiredMark />
-                  </Label>
+                  <Label>MEB seviye başlangıç tarihi (opsiyonel)</Label>
                   <Input
                     name="mebLevelStartDate"
                     type="date"
-                    required
-                    aria-required
                     defaultValue={v("mebLevelStartDate")}
                     aria-invalid={!!fieldErrors.mebLevelStartDate}
                   />
                   <FieldError message={fieldErrors.mebLevelStartDate} />
                 </div>
                 <div>
-                  <Label>
-                    MEB seviye bitiş tarihi
-                    <RequiredMark />
-                  </Label>
+                  <Label>MEB seviye bitiş tarihi (opsiyonel)</Label>
                   <Input
                     name="mebLevelEndDate"
                     type="date"
-                    required
-                    aria-required
                     defaultValue={v("mebLevelEndDate")}
                     aria-invalid={!!fieldErrors.mebLevelEndDate}
                   />
@@ -760,7 +747,8 @@ export function NewStudentForm({
                 </div>
               </div>
               <p className="text-[11px] text-[var(--color-text-muted)]">
-                Dönem tarihleri kayıt/ders tarihlerinden bağımsızdır; bitiş başlangıçtan önce olamaz.
+                MEB bilgileri zorunlu değildir, sonra MEB Paneli&apos;nden tamamlanabilir. Dönem tarihleri kayıt/ders
+                tarihlerinden bağımsızdır; ikisi de girilirse bitiş başlangıçtan önce olamaz.
               </p>
               <div className="grid grid-cols-2 gap-2">
                 <div>

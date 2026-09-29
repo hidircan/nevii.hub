@@ -4,6 +4,15 @@ Kısa tutulur (~50 satır): oturum sonunda yalnız "Güncel snapshot" bölümün
 `archive/`'e taşınır. Ayrıntı → ilgili `docs/testing/UAT_*.md`, `docs/operations/*`. Yönlendirici: `nevii-hub` skill.
 Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_2026-09-24.md`.
 
+## Güncel snapshot — 2026-09-29 (hakediş politikası + yoklama geri alma + MEB opsiyonel + deneme etiketleri)
+- Hakediş: ay bazlı `TeacherPayoutPolicyPeriod` (mevcut / süreye göre sabit 30-40-50 TL). Kayıt yoksa mevcut politika;
+  ayla kesişen hakediş kaydı varsa değişiklik kilitli. `TeacherPayout.pricingPolicy/pricingSnapshot` iz.
+  Motor: `teacher-payout.ts` (`resolvePayoutPolicy`, `setPayoutPolicyForMonthData`); UI `/panel/hakedisler` kartı.
+- Yoklama geri alma: `clearLessonOpsFlag` (lesson-ops.ts) + `clearLessonOpsFlagTool`, route `{action:"clear"}`.
+- MEB alanları opsiyonel (`validateMebFields` yalnız biçim). Deneme etiketleri: Tekrar planlanacak / Kayıt olmayacak.
+- Migration (additive): `20260929180000_teacher_payout_policy` — test DB'ye uygulandı. UAT:
+  `docs/testing/UAT_2026_09_29_PAYOUT_POLICY_ATTENDANCE_UNDO.md`.
+
 ## Güncel snapshot — 2026-09-29 (güvenli silme standardı + ders planlama tarih çökmesi)
 - **Kural (owner):** kullanıcıya "Sil" olarak sunulan her eylem sunucuda `guardCriticalDelete` (tools.ts) —
   SUPER_ADMIN/SCHOOL_ADMIN + kritik şifre + ≥5 karakter gerekçe; reddedilen deneme audit'e `denied`.

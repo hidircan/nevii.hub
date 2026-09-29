@@ -1,5 +1,15 @@
 import { differenceInCalendarDays, differenceInMinutes, format, parseISO } from "date-fns";
-import type { AppData, BranchId, Instrument, TeacherFeeRule, TeacherPayout, TeacherPayoutLineOverride } from "./types";
+import type {
+  AppData,
+  BranchId,
+  Instrument,
+  TeacherFeeRule,
+  TeacherPayout,
+  TeacherPayoutLineOverride,
+  TeacherPayoutPolicyPeriod,
+  TeacherPayoutPolicyTerms,
+  TeacherPayoutPricingPolicy,
+} from "./types";
 import { uid } from "./utils";
 import { isLessonProcessedForPayout } from "./lesson-ops";
 
@@ -175,7 +185,135 @@ export function updateTeacherFeeRuleData(
   return { ok: true, data: { ...data, teacherFeeRules }, rule: candidate };
 }
 
-export type TeacherEarningsLineIssue = "missing-fee-rule" | "missing-student" | "missing-branch";
+// ─── Hakediş politikası (2026-09-29) ─────────────────────────────────────────
+
+export const PAYOUT_POLICY_LABELS: Record<TeacherPayoutPricingPolicy, string> = {
+  per_teacher_rule: "Mevcut politika (öğretmen bazlı dakika ücreti)",
+  fixed_duration: "Süreye göre sabit ücret (30/40/50 dk, tüm öğretmenler)",
+};
+
+/** Sabit ücret politikasının tanıdığı ders süreleri — başka süre bu politikada ücretlendirilmez. */
+export const FIXED_DURATION_MINUTES = [30, 40, 50] as const;
+const MAX_FIXED_RATE = 100_000;
+
+const DEFAULT_TERMS: TeacherPayoutPolicyTerms = { policy: "per_teacher_rule" };
+
+/** "yyyy-MM" — dersin/dönemin hangi ay politikasına tabi olduğu (gün anahtarından, saat dilimi güvenli). */
+export function payoutMonthKey(iso: string): string {
+  return toDayKey(iso).slice(0, 7);
+}
+
+/**
+ * Bir öğretmenin bir aydaki politikası. Kayıt yoksa mevcut politika (geçmiş aylar kendiliğinden değişmez).
+ * `teacherIds` yalnız birleşik ("Tüm kurumlar") görünümde doludur — başka kurumun kaydı uygulanmaz.
+ */
+export function resolvePayoutPolicy(data: Pick<AppData, "teacherPayoutPolicies">, teacherId: string, month: string): TeacherPayoutPolicyTerms {
+  const rec = (data.teacherPayoutPolicies ?? []).find(
+    (p) => p.month === month && (!p.teacherIds || p.teacherIds.includes(teacherId))
+  );
+  return rec ? termsOf(rec) : DEFAULT_TERMS;
+}
+
+function termsOf(p: TeacherPayoutPolicyTerms): TeacherPayoutPolicyTerms {
+  return p.policy === "fixed_duration"
+    ? { policy: p.policy, rate30: p.rate30, rate40: p.rate40, rate50: p.rate50 }
+    : { policy: "per_teacher_rule" };
+}
+
+function fixedRateFor(terms: TeacherPayoutPolicyTerms, minutes: number): number | undefined {
+  if (minutes === 30) return terms.rate30;
+  if (minutes === 40) return terms.rate40;
+  if (minutes === 50) return terms.rate50;
+  return undefined;
+}
+
+/** Ayla (gün bazında) kesişen hakediş kayıtları — varsa o ayın politikası/tutarları kilitlidir. */
+export function payoutsOverlappingMonth(payouts: TeacherPayout[], month: string): TeacherPayout[] {
+  const first = `${month}-01`;
+  const last = `${month}-31`; // gün anahtarı karşılaştırması: ayın son günü ≤ "-31"
+  return payouts.filter((p) => payoutPeriodDayKey(p.periodStart) <= last && payoutPeriodDayKey(p.periodEnd) >= first);
+}
+
+export type SetPayoutPolicyInput = {
+  month: string;
+  policy: TeacherPayoutPricingPolicy;
+  rate30?: number;
+  rate40?: number;
+  rate50?: number;
+};
+
+export type SetPayoutPolicyResult =
+  | { ok: true; data: AppData; record: TeacherPayoutPolicyPeriod; previous: TeacherPayoutPolicyTerms; changed: boolean }
+  | { ok: false; code: "VALIDATION_ERROR" | "PERIOD_LOCKED"; message: string };
+
+/**
+ * Bir ayın politikasını seçer/günceller (saf). Kurallar:
+ * - Sabit ücret politikasında üç tutar da zorunlu, 0'dan büyük, en fazla 100.000 TL (kuruş hassasiyeti).
+ * - O ayla kesişen HERHANGİ bir hakediş kaydı (bekleyen veya ödenmiş) varsa değişiklik reddedilir:
+ *   kayıtlar donmuş snapshot'tır, aynı ayda iki politika karışmaz ve ödenmiş tutar sessizce değişmez.
+ * - Kayıt yokken seçim tüm ayın (tüm öğretmenler, ayın tüm dersleri) canlı hesabına uygulanır.
+ */
+export function setPayoutPolicyForMonthData(
+  data: AppData,
+  input: SetPayoutPolicyInput,
+  actorUserId: string,
+  now: Date = new Date()
+): SetPayoutPolicyResult {
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(input.month)) {
+    return { ok: false, code: "VALIDATION_ERROR", message: "Dönem ayı geçersiz. Hakedişler ekranında ayı seçip tekrar deneyin." };
+  }
+  let terms: TeacherPayoutPolicyTerms = { policy: "per_teacher_rule" };
+  if (input.policy === "fixed_duration") {
+    const rates = { rate30: input.rate30, rate40: input.rate40, rate50: input.rate50 };
+    for (const minutes of FIXED_DURATION_MINUTES) {
+      const v = rates[`rate${minutes}` as keyof typeof rates];
+      if (v === undefined || !Number.isFinite(v) || v <= 0 || v > MAX_FIXED_RATE) {
+        return {
+          ok: false,
+          code: "VALIDATION_ERROR",
+          message: `${minutes} dakikalık ders ücreti eksik veya geçersiz. 0'dan büyük ve en fazla 100.000 TL bir tutar girin.`,
+        };
+      }
+    }
+    terms = {
+      policy: "fixed_duration",
+      rate30: roundCurrency(rates.rate30!),
+      rate40: roundCurrency(rates.rate40!),
+      rate50: roundCurrency(rates.rate50!),
+    };
+  }
+
+  const policies = data.teacherPayoutPolicies ?? [];
+  const existing = policies.find((p) => p.month === input.month);
+  const previous = existing ? termsOf(existing) : DEFAULT_TERMS;
+  const changed = JSON.stringify(previous) !== JSON.stringify(terms);
+
+  const locked = payoutsOverlappingMonth(data.teacherPayouts, input.month);
+  if (changed && locked.length > 0) {
+    const paid = locked.filter((p) => p.status === "paid").length;
+    return {
+      ok: false,
+      code: "PERIOD_LOCKED",
+      message:
+        `${input.month} ayı için ${locked.length} hakediş kaydı oluşturulmuş (${paid} ödendi). Kayıtlı hakedişler donmuş olduğundan ` +
+        "bu ayın politikası ve tutarları değiştirilemez. Yeni politika, henüz hakediş kaydı oluşturulmamış bir aya uygulanabilir; " +
+        "tek bir dersi düzeltmek için öğretmenin hakediş detayındaki revizyonu kullanın.",
+    };
+  }
+
+  const record: TeacherPayoutPolicyPeriod = {
+    id: existing?.id ?? uid("ppol"),
+    month: input.month,
+    ...terms,
+    setByUserId: actorUserId,
+    setAt: now.toISOString(),
+  };
+  if (!changed && existing) return { ok: true, data, record: existing, previous, changed: false };
+  const teacherPayoutPolicies = existing ? policies.map((p) => (p.id === existing.id ? record : p)) : [...policies, record];
+  return { ok: true, data: { ...data, teacherPayoutPolicies }, record, previous, changed };
+}
+
+export type TeacherEarningsLineIssue = "missing-fee-rule" | "missing-student" | "missing-branch" | "unsupported-duration";
 
 export type TeacherEarningsLine = {
   lessonId: string;
@@ -189,6 +327,8 @@ export type TeacherEarningsLine = {
   amount: number;
   feeRuleId?: string;
   issue?: TeacherEarningsLineIssue;
+  /** Bu satıra uygulanan politika (ay bazlı). */
+  pricingPolicy?: TeacherPayoutPricingPolicy;
 };
 
 export type TeacherEarningsResult = {
@@ -197,6 +337,10 @@ export type TeacherEarningsResult = {
   totalMinutes: number;
   totalAmount: number;
   missingFeeRuleLessonIds: string[];
+  /** Sabit ücret politikasında 30/40/50 dışı süreli dersler — tutar hesaplanmaz, kayıt oluşturulamaz. */
+  unsupportedDurationLessonIds: string[];
+  /** Dönemin kapsadığı her ay için uygulanan politika + tutarlar. */
+  pricingByMonth: Record<string, TeacherPayoutPolicyTerms>;
   canCreatePayout: boolean;
 };
 
@@ -254,6 +398,11 @@ export function computeTeacherEarningsForPeriod(
   const seen = new Set<string>();
   const lines: TeacherEarningsLine[] = [];
   const missingFeeRuleLessonIds: string[] = [];
+  const unsupportedDurationLessonIds: string[] = [];
+  const pricingByMonth: Record<string, TeacherPayoutPolicyTerms> = {};
+  for (let m = startKey.slice(0, 7); m <= endKey.slice(0, 7); m = nextMonthKey(m)) {
+    pricingByMonth[m] = resolvePayoutPolicy(data, teacherId, m);
+  }
 
   for (const lesson of data.lessons) {
     if (lesson.teacherId !== teacherId) continue;
@@ -266,25 +415,40 @@ export function computeTeacherEarningsForPeriod(
     const student = data.students.find((s) => s.id === lesson.studentId);
     const branch = data.settings.branches.find((b) => b.id === lesson.branchId);
     const durationMinutes = differenceInMinutes(parseISO(lesson.endAt), parseISO(lesson.startAt));
-    const payableMinutes = payableMinutesFor(data, durationMinutes);
-    const rule = resolveFeeRule(data.teacherFeeRules, {
-      teacherId,
-      branchId: lesson.branchId,
-      instrument: lesson.instrument,
-      lessonDateIso: lesson.startAt,
-    });
+    const terms = pricingByMonth[dayKey.slice(0, 7)] ?? DEFAULT_TERMS;
 
     let issue: TeacherEarningsLineIssue | undefined;
-    if (!rule) {
-      issue = "missing-fee-rule";
-      missingFeeRuleLessonIds.push(lesson.id);
-    } else if (!student) {
-      issue = "missing-student";
-    } else if (!branch) {
-      issue = "missing-branch";
+    let amount = 0;
+    let perMinuteRate: number | undefined;
+    let feeRuleId: string | undefined;
+    if (terms.policy === "fixed_duration") {
+      // Sabit ücret: ders başı tutar; yuvarlama modu ve öğretmen kuralı KULLANILMAZ.
+      const fixed = fixedRateFor(terms, durationMinutes);
+      if (fixed === undefined) {
+        issue = "unsupported-duration";
+        unsupportedDurationLessonIds.push(lesson.id);
+      } else {
+        amount = fixed;
+        perMinuteRate = fixed / durationMinutes; // dökümdeki saatlik birim gösterimi için
+      }
+    } else {
+      const rule = resolveFeeRule(data.teacherFeeRules, {
+        teacherId,
+        branchId: lesson.branchId,
+        instrument: lesson.instrument,
+        lessonDateIso: lesson.startAt,
+      });
+      if (!rule) {
+        issue = "missing-fee-rule";
+        missingFeeRuleLessonIds.push(lesson.id);
+      } else {
+        amount = roundCurrency(payableMinutesFor(data, durationMinutes) * rule.perMinuteRate);
+        perMinuteRate = rule.perMinuteRate;
+        feeRuleId = rule.id;
+      }
     }
-
-    const amount = rule ? roundCurrency(payableMinutes * rule.perMinuteRate) : 0;
+    if (!issue && !student) issue = "missing-student";
+    else if (!issue && !branch) issue = "missing-branch";
 
     lines.push({
       lessonId: lesson.id,
@@ -294,10 +458,11 @@ export function computeTeacherEarningsForPeriod(
       branchName: branch?.name,
       instrument: lesson.instrument,
       durationMinutes,
-      perMinuteRate: rule?.perMinuteRate,
+      perMinuteRate,
       amount,
-      feeRuleId: rule?.id,
+      feeRuleId,
       issue,
+      pricingPolicy: terms.policy,
     });
   }
 
@@ -310,13 +475,21 @@ export function computeTeacherEarningsForPeriod(
     totalMinutes,
     totalAmount,
     missingFeeRuleLessonIds,
-    canCreatePayout: missingFeeRuleLessonIds.length === 0,
+    unsupportedDurationLessonIds,
+    pricingByMonth,
+    canCreatePayout: missingFeeRuleLessonIds.length === 0 && unsupportedDurationLessonIds.length === 0,
   };
+}
+
+function nextMonthKey(month: string): string {
+  const [y, m] = month.split("-").map(Number);
+  return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, "0")}`;
 }
 
 export type CreateTeacherPayoutResult =
   | { ok: true; data: AppData; payout: TeacherPayout }
   | { ok: false; code: "MISSING_FEE_RULE"; message: string; missingFeeRuleLessonIds: string[] }
+  | { ok: false; code: "UNSUPPORTED_DURATION"; message: string; unsupportedDurationLessonIds: string[] }
   | { ok: false; code: "PAYOUT_ALREADY_EXISTS"; message: string; existingPayoutId: string };
 
 /** Hakediş dönemi kimliği gün bazındadır. DB ISO datetime ile formun yyyy-MM-dd değeri aynı dönemdir. */
@@ -416,6 +589,16 @@ export function createTeacherPayoutSnapshot(
   }
 
   const earnings = computeTeacherEarningsForPeriod(data, teacherId, periodStart, periodEnd);
+  if (earnings.unsupportedDurationLessonIds.length > 0) {
+    return {
+      ok: false,
+      code: "UNSUPPORTED_DURATION",
+      message:
+        `${earnings.unsupportedDurationLessonIds.length} dersin süresi 30/40/50 dakika değil; süreye göre sabit ücret politikası bu dersleri ücretlendiremez. ` +
+        "Ders süresini Ders Programı'ndan düzeltin ya da bu ay için mevcut politikayı seçin.",
+      unsupportedDurationLessonIds: earnings.unsupportedDurationLessonIds,
+    };
+  }
   if (!earnings.canCreatePayout) {
     return {
       ok: false,
@@ -438,9 +621,17 @@ export function createTeacherPayoutSnapshot(
     status: "pending",
     generatedAt: now.toISOString(),
     method,
+    ...pricingFields(earnings.pricingByMonth),
   };
 
   return { ok: true, data: { ...data, teacherPayouts: [...data.teacherPayouts, payout] }, payout };
+}
+
+/** Kayıt anındaki politika izi: tek politika ise o, aylar farklıysa "mixed" + ay bazlı döküm. */
+function pricingFields(byMonth: Record<string, TeacherPayoutPolicyTerms>): Pick<TeacherPayout, "pricingPolicy" | "pricingSnapshot"> {
+  const policies = new Set(Object.values(byMonth).map((t) => t.policy));
+  const pricingPolicy = policies.size === 1 ? [...policies][0] : "mixed";
+  return { pricingPolicy, pricingSnapshot: byMonth };
 }
 
 export type UpdateTeacherPayoutPaymentMethodResult =

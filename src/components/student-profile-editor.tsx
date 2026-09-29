@@ -388,7 +388,7 @@ export function StudentProfileEditor({
       </div>
 
       {/*
-        MEB Paneli — MEB seçiliyken seviye (1–8) + dönem tarihleri zorunlu
+        MEB Paneli — MEB seçiliyken seviye (1–8) + dönem tarihleri (opsiyonel)
         bölüm görünür. Tür kaldırılınca gizlenir; kayıtlı MEB verisi
         SİLİNMEZ. Sınav tarihi opsiyoneldir; "Girdi" tarih ister.
       */}

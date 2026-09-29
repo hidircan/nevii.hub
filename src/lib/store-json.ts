@@ -947,6 +947,20 @@ export async function updateTeacherPayoutPaymentMethod(
   return result;
 }
 
+/** 2026-09-29 — ay bazlı hakediş politikası; kilit kontrolü + yazma tek dosya kilidi altında. */
+export async function setTeacherPayoutPolicy(
+  input: import("./teacher-payout").SetPayoutPolicyInput,
+  actorUserId: string
+): Promise<import("./teacher-payout").SetPayoutPolicyResult> {
+  const { setPayoutPolicyForMonthData } = await import("./teacher-payout");
+  let result!: import("./teacher-payout").SetPayoutPolicyResult;
+  await mutateStoreUnderLock(async (data) => {
+    result = setPayoutPolicyForMonthData(data, input, actorUserId);
+    return result.ok ? result.data : data;
+  });
+  return result;
+}
+
 /** K — hakediş revizyonu/ödeme geri alma: kaydı bütün olarak değiştirir (kurallar tool katmanında). */
 export async function replaceTeacherPayout(payout: TeacherPayout): Promise<AppData> {
   const data = await readData();
@@ -1532,6 +1546,28 @@ export async function switchLessonOpsFlagLive(
   disruption?: import("./lesson-disruption").LessonDisruptionInput
 ): Promise<ReturnType<typeof switchLessonOpsFlag>> {
   return persistLessonOpsUnderLock(lessonId, flag, actorUserId, switchLessonOpsFlag, reason, disruption);
+}
+
+/** 2026-09-29 — yoklama statüsünü geri alma (bkz. lesson-ops.ts clearLessonOpsFlag); dar dilim + dosya kilidi. */
+export async function clearLessonOpsFlagLive(
+  lessonId: string,
+  expected: LessonOpsFlag,
+  actorUserId: string
+): Promise<import("./lesson-ops").ClearLessonOpsResult> {
+  const { clearLessonOpsFlag } = await import("./lesson-ops");
+  await ensureDataFile();
+  return withFileLock(DATA_FILE, async () => {
+    const data = JSON.parse(await fs.readFile(DATA_FILE, "utf-8")) as AppData;
+    if (!data.settings.tenantId) data.settings.tenantId = DEFAULT_TENANT_ID;
+    assertTenant(data);
+    const scope = narrowLessonScope(data, lessonId);
+    if (!scope) return { ok: false, code: "NOT_FOUND", message: "Ders bulunamadı. Sayfayı yenileyip tekrar deneyin." };
+    const result = clearLessonOpsFlag(scope, lessonId, expected, actorUserId);
+    if (result.ok && !result.alreadyClear) {
+      await writeJsonFileAtomic(DATA_FILE, mergeLessonScope(data, result.data, lessonId));
+    }
+    return result;
+  });
 }
 
 /** Faz 2 — öğretmen yoklaması, öğrenci ops bayraklarından tamamen ayrı bir yol. */

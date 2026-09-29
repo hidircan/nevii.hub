@@ -89,6 +89,7 @@ import {
   createPaymentRecordTool,
   createFeeRuleTool,
   updateFeeRuleTool,
+  setTeacherPayoutPolicyTool,
   computeTeacherPayoutTool,
   createTeacherPayoutTool,
   markTeacherPayoutPaidTool,
@@ -1024,8 +1025,8 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
           lessonScheduleText: String(formData.get("lessonScheduleText") || "") || undefined,
           level: String(formData.get("level") || "") || undefined,
           targetExam: String(formData.get("targetExam") || "") || undefined,
-          // MEB Paneli — MEB seçiliyse zorunlu üçlü + opsiyonel sınav.
-          // Biçim + zorunluluk sunucu kapısında (`createStudentTool` →
+          // MEB Paneli — MEB alanları opsiyonel (2026-09-29).
+          // Biçim/tutarlılık sunucu kapısında (`createStudentTool` →
           // `validateMebFields`); MEB-dışı kayda bu değerler YAZILMAZ (strip).
           mebLevelStartDate: String(formData.get("mebLevelStartDate") || "") || undefined,
           mebLevelEndDate: String(formData.get("mebLevelEndDate") || "") || undefined,
@@ -3784,6 +3785,27 @@ export async function actionUpdateFeeRule(input: UpdateFeeRuleActionInput): Prom
     if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
     if (error instanceof WriteScopeDeniedError) return { ok: false, message: error.message };
     return { ok: false, message: "Ücret kuralı güncellenirken beklenmeyen bir hata oluştu." };
+  }
+}
+
+/** 2026-09-29 — Hakedişler ekranı: ayın hakediş politikası (mevcut / süreye göre sabit ücret). */
+export async function actionSetTeacherPayoutPolicy(input: {
+  month: string;
+  policy: "per_teacher_rule" | "fixed_duration";
+  rate30?: number;
+  rate40?: number;
+  rate50?: number;
+}): Promise<{ ok: true; changed: boolean } | { ok: false; message: string }> {
+  try {
+    const result = await withAuthContext("actionSetTeacherPayoutPolicy", (ctx) => setTeacherPayoutPolicyTool(ctx, input));
+    if (!result.ok) return { ok: false, message: toolFailureMessage(result.error, "Politika seçimini ve tutarları kontrol edin.") };
+    revalidateAll();
+    return { ok: true, changed: result.data.changed };
+  } catch (error) {
+    logger.error("actionSetTeacherPayoutPolicy failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    if (error instanceof WriteScopeDeniedError) return { ok: false, message: error.message };
+    return { ok: false, message: "Hakediş politikası kaydedilirken beklenmeyen bir hata oluştu; politika değişmedi." };
   }
 }
 

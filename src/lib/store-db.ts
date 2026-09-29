@@ -598,6 +598,8 @@ function mapSchoolToAppData(school: PrismaSchoolWithRelations): AppData {
       revisedAt: payout.revisedAt?.toISOString() ?? undefined,
       revisedByUserId: payout.revisedByUserId ?? undefined,
       revisionReason: payout.revisionReason ?? undefined,
+      pricingPolicy: (payout.pricingPolicy as TeacherPayout["pricingPolicy"] | null) ?? undefined,
+      pricingSnapshot: (payout.pricingSnapshot as TeacherPayout["pricingSnapshot"] | null) ?? undefined,
     })),
   };
 }
@@ -635,6 +637,7 @@ export async function seedDatabase(seed: AppData) {
   await prisma.$transaction([
     prisma.user.deleteMany({ where: { tenantId: tid } }),
     prisma.teacherPayout.deleteMany({ where: { tenantId: tid } }),
+    prisma.teacherPayoutPolicyPeriod.deleteMany({ where: { tenantId: tid } }),
     prisma.teacherFeeRule.deleteMany({ where: { tenantId: tid } }),
     // KÖK NEDEN (2026-09-07, "Demo verisini sıfırla" -> React #441): bu iki
     // satır TERS SIRADAYDI. `MakeupRequest.attendanceId` ZORUNLU bir FK'dir
@@ -956,6 +959,21 @@ const schoolInclude = {
  * bağlı, `ClosedDay`/`SocialMediaConsent` ile aynı desen), bu yüzden
  * `schoolInclude`'a değil ayrı bir sorguya girer.
  */
+/** 2026-09-29 — ay bazlı hakediş politikası (tenant geneli, Package ile aynı desen). */
+async function readTeacherPayoutPolicies(tid: string): Promise<NonNullable<AppData["teacherPayoutPolicies"]>> {
+  const rows = await prisma.teacherPayoutPolicyPeriod.findMany({ where: { tenantId: tid }, orderBy: { month: "asc" } });
+  return rows.map((r) => ({
+    id: r.id,
+    month: r.month,
+    policy: r.policy as import("./types").TeacherPayoutPricingPolicy,
+    rate30: r.rate30 ?? undefined,
+    rate40: r.rate40 ?? undefined,
+    rate50: r.rate50 ?? undefined,
+    setByUserId: r.setByUserId,
+    setAt: r.setAt.toISOString(),
+  }));
+}
+
 async function readPackages(tid: string): Promise<AppData["packages"]> {
   const rows = await prisma.package.findMany({ where: { tenantId: tid }, orderBy: { createdAt: "asc" } });
   return rows.map((p) => ({
@@ -1059,10 +1077,11 @@ export function mapDbPayment(payment: Prisma.PaymentGetPayload<object>): import(
 
 export async function readData(): Promise<AppData> {
   const tid = tenantId();
-  const [school, packages, discountCampaigns] = await Promise.all([
+  const [school, packages, discountCampaigns, teacherPayoutPolicies] = await Promise.all([
     prisma.school.findFirst({ where: { tenantId: tid }, include: schoolInclude }),
     readPackages(tid),
     readDiscountCampaigns(tid),
+    readTeacherPayoutPolicies(tid),
   ]);
 
   if (!school) {
@@ -1083,7 +1102,7 @@ export async function readData(): Promise<AppData> {
     };
   }
 
-  return { ...mapSchoolToAppData(school), packages, discountCampaigns };
+  return { ...mapSchoolToAppData(school), packages, discountCampaigns, teacherPayoutPolicies };
 }
 
 export async function resetData(): Promise<AppData> {
@@ -2572,6 +2591,79 @@ export async function switchLessonOpsFlagLive(
   return persistLessonOpsResult(lessonId, flag, result);
 }
 
+/**
+ * 2026-09-29 — yoklama statüsünü geri alma. Saf kural dar dilimde çalışır; yazma TEK transaction'da ve
+ * ders satırı "beklenen statü hâlâ bu mu" koşuluyla güncellenir (eşzamanlı ikinci istek/başka kullanıcı
+ * arada değiştirdiyse 0 satır → STALE, telafi/yoklama yazımı da geri alınır).
+ */
+export async function clearLessonOpsFlagLive(
+  lessonId: string,
+  expected: LessonOpsFlag,
+  actorUserId: string
+): Promise<import("./lesson-ops").ClearLessonOpsResult> {
+  const { clearLessonOpsFlag } = await import("./lesson-ops");
+  const tid = requireTenantId();
+  const data = await readLessonScope(lessonId);
+  if (!data) return { ok: false, code: "NOT_FOUND", message: "Ders bulunamadı. Sayfayı yenileyip tekrar deneyin." };
+  const result = clearLessonOpsFlag(data, lessonId, expected, actorUserId);
+  if (!result.ok || result.alreadyClear) return result;
+  const L = result.lesson;
+  const expectedWhere: Prisma.LessonWhereInput =
+    expected === "makeup"
+      ? { opsMakeupFlag: true }
+      : expected === "processed"
+        ? { opsMakeupFlag: false, lessonProcessed: true }
+        : expected === "attended"
+          ? { opsMakeupFlag: false, lessonProcessed: false, studentAttended: true }
+          : expected === "absent"
+            ? { opsMakeupFlag: false, lessonProcessed: false, studentAttended: false, studentAbsent: true }
+            : { opsMakeupFlag: false, lessonProcessed: false, studentAttended: false, studentAbsent: false, studentExcused: true };
+  const stale = await prisma.$transaction(async (tx) => {
+    const res = await tx.lesson.updateMany({
+      where: { id: lessonId, tenantId: tid, ...expectedWhere },
+      data: {
+        studentAttended: false,
+        studentAttendedAt: null,
+        studentAttendedBy: null,
+        lessonProcessed: false,
+        lessonProcessedAt: null,
+        lessonProcessedBy: null,
+        lessonProcessedReason: null,
+        opsMakeupFlag: false,
+        opsMakeupFlagAt: null,
+        opsMakeupFlagBy: null,
+        studentAbsent: false,
+        studentAbsentAt: null,
+        studentAbsentBy: null,
+        studentExcused: false,
+        studentExcusedAt: null,
+        studentExcusedBy: null,
+        status: L.status,
+        actualEndAt: L.actualEndAt ? new Date(L.actualEndAt) : null,
+      },
+    });
+    if (res.count === 0) return true;
+    if (result.cancelledMakeupIds.length > 0) {
+      await tx.makeupRequest.updateMany({
+        where: { id: { in: result.cancelledMakeupIds }, tenantId: tid, status: { in: ["pending", "suggested", "awaiting_info"] } },
+        data: { status: "cancelled", decisionNote: "Yoklama statüsü geri alındı", decidedBy: actorUserId, decidedAt: new Date() },
+      });
+    }
+    if (result.removedAttendanceIds.length > 0) {
+      await tx.attendance.deleteMany({ where: { id: { in: result.removedAttendanceIds }, tenantId: tid, makeupRequest: null } });
+    }
+    return false;
+  });
+  if (stale) {
+    return {
+      ok: false,
+      code: "STALE",
+      message: "Bu dersin yoklama statüsü az önce değişti. Sayfayı yenileyip güncel statüyü kontrol edin.",
+    };
+  }
+  return result;
+}
+
 /** Faz 2 — öğretmen yoklaması, öğrenci ops bayraklarından tamamen ayrı bir yol/tablo alanı. */
 export async function markTeacherAttendanceLive(
   lessonId: string,
@@ -3081,6 +3173,10 @@ export async function createTeacherPayout(
         status: result.payout.status,
         method: result.payout.method,
         generatedAt: new Date(result.payout.generatedAt),
+        pricingPolicy: result.payout.pricingPolicy ?? null,
+        pricingSnapshot: result.payout.pricingSnapshot
+          ? (result.payout.pricingSnapshot as unknown as Prisma.InputJsonValue)
+          : Prisma.DbNull,
       },
     });
   } catch (error) {
@@ -3115,6 +3211,63 @@ export async function updateTeacherPayoutPaymentMethod(
   });
 
   return { ok: true, data: await readData(), payout: result.payout };
+}
+
+/**
+ * 2026-09-29 — ay bazlı hakediş politikası. Kilit kontrolü (o ayla kesişen hakediş kaydı var mı)
+ * yazma ile AYNI Serializable transaction'da tekrar yapılır: eşzamanlı hakediş oluşturma ile yarışta
+ * politika, kaydı oluşmuş bir ayda sessizce değişmez.
+ */
+export async function setTeacherPayoutPolicy(
+  input: import("./teacher-payout").SetPayoutPolicyInput,
+  actorUserId: string
+): Promise<import("./teacher-payout").SetPayoutPolicyResult> {
+  const tid = requireTenantId();
+  const { setPayoutPolicyForMonthData, payoutsOverlappingMonth } = await import("./teacher-payout");
+  const data = await readData();
+  const result = setPayoutPolicyForMonthData(data, input, actorUserId);
+  if (!result.ok || !result.changed) return result;
+  const r = result.record;
+  const fields = {
+    policy: r.policy,
+    rate30: r.rate30 ?? null,
+    rate40: r.rate40 ?? null,
+    rate50: r.rate50 ?? null,
+    setByUserId: r.setByUserId,
+    setAt: new Date(r.setAt),
+  };
+  const locked = await prisma.$transaction(
+    async (tx) => {
+      const payouts = await tx.teacherPayout.findMany({
+        where: { tenantId: tid },
+        select: { periodStart: true, periodEnd: true, status: true },
+      });
+      const overlapping = payoutsOverlappingMonth(
+        payouts.map((p) => ({
+          periodStart: p.periodStart.toISOString(),
+          periodEnd: p.periodEnd.toISOString(),
+          status: p.status,
+        })) as TeacherPayout[],
+        r.month
+      );
+      if (overlapping.length > 0) return true;
+      await tx.teacherPayoutPolicyPeriod.upsert({
+        where: { tenantId_month: { tenantId: tid, month: r.month } },
+        create: { id: r.id, tenantId: tid, month: r.month, ...fields },
+        update: fields,
+      });
+      return false;
+    },
+    { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+  );
+  if (locked) {
+    return {
+      ok: false,
+      code: "PERIOD_LOCKED",
+      message: `${r.month} ayı için az önce hakediş kaydı oluşturuldu; politika değiştirilemez. Sayfayı yenileyip durumu kontrol edin.`,
+    };
+  }
+  return result;
 }
 
 /** K — hakediş revizyonu/ödeme geri alma (bkz. store-json.ts aynı adlı fonksiyon). */

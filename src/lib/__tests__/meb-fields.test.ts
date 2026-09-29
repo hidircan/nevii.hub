@@ -22,26 +22,22 @@ function utcTodayPlus(days: number): string {
   return dt.toISOString().slice(0, 10);
 }
 
-describe("validateMebFields — MEB-ise-zorunlu kapısı", () => {
+describe("validateMebFields — MEB alan kapısı (opsiyonel, biçim korunur)", () => {
   it("MEB seçili değilse her zaman geçer (strip kararı çağırana aittir)", () => {
     expect(validateMebFields({ studentTypes: ["Hobi"] })).toEqual({ ok: true });
     expect(validateMebFields({ studentTypes: [] })).toEqual({ ok: true });
   });
 
-  it("MEB + eksik üç alanın üçü de alan hatası üretir (Türkçe, ham Prisma hatası yok)", () => {
-    const res = validateMebFields({ studentTypes: ["MEB"] });
-    expect(res.ok).toBe(false);
-    if (res.ok) return;
-    expect(Object.keys(res.fieldErrors).sort()).toEqual(["level", "mebLevelEndDate", "mebLevelStartDate"]);
-    for (const messages of Object.values(res.fieldErrors)) {
-      expect(messages!.length).toBeGreaterThan(0);
-      expect(messages![0]).not.toMatch(/prisma|invalid input/i);
-    }
+  it("MEB bilgileri opsiyonel (2026-09-29): boş MEB kaydı geçer, çoklu türde de", () => {
+    expect(validateMebFields({ studentTypes: ["MEB"] })).toEqual({ ok: true });
+    expect(validateMebFields({ studentTypes: ["Hobi", "MEB"] as StudentType[], level: "", mebLevelStartDate: " " })).toEqual({ ok: true });
   });
 
-  it("çoklu türde MEB varsa (ör. Hobi + MEB) kural uygulanır — tekil alana bakılmaz", () => {
-    const res = validateMebFields({ studentTypes: ["Hobi", "MEB"] as StudentType[] });
-    expect(res.ok).toBe(false);
+  it("yalnız bir dönem tarihi girilebilir; girilen biçim yine doğrulanır", () => {
+    expect(validateMebFields({ studentTypes: ["MEB"], mebLevelStartDate: "2026-09-01" }).ok).toBe(true);
+    const bad = validateMebFields({ studentTypes: ["MEB"], mebLevelEndDate: "2026-02-30" });
+    expect(bad.ok).toBe(false);
+    if (!bad.ok) expect(Object.keys(bad.fieldErrors)).toEqual(["mebLevelEndDate"]);
   });
 
   it("MEB seviyesi 1–8 aralığında olmalı; serbest metin reddedilir", () => {

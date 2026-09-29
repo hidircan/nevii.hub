@@ -17,6 +17,8 @@ import {
 } from "@/lib/payout-overview";
 import { ScopeTabs } from "@/components/scope-tabs";
 import { PayoutThresholdCell } from "@/components/payout-threshold-cell";
+import { PayoutPolicyPanel } from "@/components/payout-policy-panel";
+import { payoutsOverlappingMonth, resolvePayoutPolicy } from "@/lib/teacher-payout";
 import { formatMoney } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -85,6 +87,18 @@ export default async function TeacherPayoutOverviewPage({
   const withScope = (href: string) => (scope === "aktif" ? href : `${href}&kapsam=${scope}`);
   const monthLabel = format(monthAnchor, "MMMM yyyy", { locale: tr });
 
+  // 2026-09-29 — ayın hakediş politikası (kurum geneli). Birleşik görünümde yazma yok.
+  const policies = data.teacherPayoutPolicies ?? [];
+  const policyRecord = kurum.scope.mode === "all" ? undefined : policies.find((p) => p.month === monthParam);
+  const currentPolicy = policyRecord ? resolvePayoutPolicy(data, "", monthParam) : { policy: "per_teacher_rule" as const };
+  const lastFixed = [...policies].filter((p) => p.policy === "fixed_duration").sort((a, b) => b.month.localeCompare(a.month))[0];
+  const ratePrefill = currentPolicy.policy === "fixed_duration" ? currentPolicy : (lastFixed ?? {});
+  const lockedPayouts = payoutsOverlappingMonth(data.teacherPayouts, monthParam);
+  const unsupportedCount =
+    currentPolicy.policy === "fixed_duration"
+      ? allRows.reduce((sum, r) => sum + r.missingFeeRule, 0)
+      : 0;
+
   return (
     <div>
       <KurumScopeNote scope={kurum.scope} />
@@ -107,6 +121,23 @@ export default async function TeacherPayoutOverviewPage({
           Sonraki ay <ChevronRight className="h-4 w-4" />
         </Link>
       </div>
+
+      <PayoutPolicyPanel
+        key={`${monthParam}-${policyRecord?.setAt ?? "none"}`}
+        month={monthParam}
+        monthLabel={monthLabel}
+        current={currentPolicy}
+        explicit={Boolean(policyRecord)}
+        setAtLabel={policyRecord ? format(parseISO(policyRecord.setAt), "d MMM yyyy HH:mm", { locale: tr }) : undefined}
+        prefill={{ rate30: ratePrefill.rate30, rate40: ratePrefill.rate40, rate50: ratePrefill.rate50 }}
+        lockedCount={lockedPayouts.length}
+        lockedPaidCount={lockedPayouts.filter((p) => p.status === "paid").length}
+        unsupportedCount={unsupportedCount}
+        canEdit={session.role === "SCHOOL_ADMIN" || session.role === "SUPER_ADMIN"}
+        readOnlyReason={
+          kurum.scope.mode === "all" ? "“Tüm kurumlar” görünümünde politika değiştirilemez; üstten tek bir kurum seçin." : undefined
+        }
+      />
 
       <div className="mb-3">
         <ScopeTabs
@@ -146,10 +177,10 @@ export default async function TeacherPayoutOverviewPage({
           accent="warning"
         />
         <StatCard label="Ödenen toplam" value={formatMoney(totals.paid)} hint={`${PAYOUT_SCOPE_LABEL[scope]} · ${monthLabel}`} accent="success" />
-        <StatCard label="Ücret kuralı eksik ders" value={totals.missingFeeRule} accent="danger" />
+        <StatCard label="Tutarı hesaplanamayan ders" value={totals.missingFeeRule} accent="danger" />
       </div>
       <p className="-mt-3 mb-6 text-xs text-[var(--color-text-muted)]">
-        Tutarlar mevcut hakediş kurallarıyla (oran, süre, ders bazlı) hesaplanır; kayıtlı hakediş varsa kayıttaki tutar esas alınır.
+        Tutarlar bu ay için seçili hakediş politikasıyla hesaplanır; kayıtlı hakediş varsa kayıttaki (donmuş) tutar esas alınır.
         Pasif öğretmen yalnız bu ayda işlenmiş dersi veya kayıtlı hakedişi varsa listelenir. &quot;Tüm dönemler&quot; yalnız
         kayda geçmiş hakedişleri toplar; hiç hakediş oluşturulmamış eski aylar hesaplanmaz.
       </p>
@@ -236,7 +267,10 @@ export default async function TeacherPayoutOverviewPage({
                       {PAYOUT_STATUS_LABELS[r.status] ?? r.status}
                     </Badge>
                     {r.missingFeeRule > 0 ? (
-                      <span className="ml-2 text-xs text-rose-600">{r.missingFeeRule} ders için ücret kuralı eksik</span>
+                      <span className="ml-2 text-xs text-rose-600">
+                        {r.missingFeeRule} ders için tutar hesaplanamadı (
+                        {currentPolicy.policy === "fixed_duration" ? "süre 30/40/50 dk değil" : "ücret kuralı eksik"})
+                      </span>
                     ) : null}
                   </td>
                   <td className="px-4 py-3 text-[var(--color-text-muted)]">

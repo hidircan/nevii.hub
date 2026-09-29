@@ -12,6 +12,7 @@ import { apiFetchJson } from "@/lib/api/client-fetch";
 import {
   TRIAL_CONVERSION_PROMPT_STATUSES,
   TRIAL_STATUS_LABELS,
+  trialStatusLabel,
   trialConversionHref,
 } from "@/lib/trial-lesson-labels";
 import {
@@ -55,7 +56,7 @@ const control =
 /**
  * Deneme dersleri listesi — arama, görünüm/durum/şube/öğretmen/tarih filtreleri,
  * sıralama ve sayfalama. Satırdan düzenleme (plan, hazırlık notu, sonuç notu).
- * Statü "Katıldı / Kayıt bekleniyor / Devam edecek"e geçince dönüşüm sorulur.
+ * Statü "Katıldı / Kayıt bekleniyor"a geçince dönüşüm sorulur.
  */
 export function TrialLessonsTable({
   rows,
@@ -141,7 +142,7 @@ export function TrialLessonsTable({
         ))}
       </select>
     ) : (
-      <span className="text-xs font-medium text-[var(--color-text)]">{TRIAL_STATUS_LABELS[r.status] ?? r.status}</span>
+      <span className="text-xs font-medium text-[var(--color-text)]">{trialStatusLabel(r)}</span>
     );
   }
 
@@ -546,7 +547,7 @@ function RowActions({
             data: {
               lines: [
                 ["Deneme", row.name],
-                ["Durum", TRIAL_STATUS_LABELS[row.status] ?? row.status],
+                ["Durum", trialStatusLabel(row)],
                 ["Geri alma", "Yok — arşivleme geri alınabilir"],
               ],
               allowed: true,

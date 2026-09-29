@@ -69,6 +69,7 @@ model Tenant {
   callLogs                    CallLog[]
   messageLogs                 MessageLog[]
   packages                    Package[]
+  teacherPayoutPolicies       TeacherPayoutPolicyPeriod[]
   discountCampaigns           DiscountCampaign[]
   instrumentCatalogEntries    InstrumentCatalogEntry[]
   staffMembers                StaffMember[]
@@ -1024,10 +1025,36 @@ model TeacherPayout {
   revisedAt            DateTime?
   revisedByUserId      String?
   revisionReason       String?
+  /// 2026-09-29 — kayıt anındaki hakediş politikası ("per_teacher_rule" | "fixed_duration" | "mixed");
+  /// NULL = eski kayıt (öğretmen bazlı dakika ücreti). pricingSnapshot: ay → politika + sabit tutarlar.
+  pricingPolicy        String?
+  pricingSnapshot      Json?
 
   @@unique([teacherId, periodStart, periodEnd])
   @@index([tenantId])
   @@index([teacherId])
+}
+
+/// 2026-09-29 — ay bazlı öğretmen hakediş politikası (kurum geneli). Satır yoksa o ay mevcut politika
+/// (öğretmen bazlı TeacherFeeRule) geçerlidir. O ayla kesişen TeacherPayout varsa uygulama katmanı
+/// değişikliği reddeder (bkz. src/lib/teacher-payout.ts setPayoutPolicyForMonthData).
+model TeacherPayoutPolicyPeriod {
+  id          String   @id
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// "yyyy-MM"
+  month       String
+  /// "per_teacher_rule" | "fixed_duration"
+  policy      String
+  /// Yalnız fixed_duration: ders başı TL (30/40/50 dk).
+  rate30      Float?
+  rate40      Float?
+  rate50      Float?
+  setByUserId String
+  setAt       DateTime
+  createdAt   DateTime @default(now())
+
+  @@unique([tenantId, month])
 }
 
 model Attendance {
