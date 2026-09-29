@@ -113,7 +113,7 @@ export function slotAdvice(
   const e = s + durationMinutes;
   const endHm = minToHm(e);
   const suggestion = nearestFreeStart(day, startHm, durationMinutes);
-  const tail = suggestion && suggestion !== startHm ? ` En yakın boş slot: ${suggestion}.` : "";
+  const tail = suggestion && suggestion !== startHm ? ` En yakın boş saat: ${suggestion}.` : "";
   if (day.windows.length === 0) {
     return {
       tone: "warn",
@@ -125,7 +125,7 @@ export function slotAdvice(
   if (clash) {
     return {
       tone: "warn",
-      message: `${teacherName} ${clash.start}–${clash.end} arası başka bir derste.${tail || " Bu gün başka boş slot kalmadı; başka bir gün deneyin."}`,
+      message: `${teacherName} ${clash.start}–${clash.end} arası başka bir derste.${tail || " Bu gün başka boş saat kalmadı; başka bir gün deneyin."}`,
       suggestion,
     };
   }

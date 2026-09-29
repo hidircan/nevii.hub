@@ -8991,6 +8991,11 @@ export async function listNotificationsTool(
   if (!v.ok) return v;
 
   try {
+    // Günlük sözleşme bitiş kontrolü — zamanlayıcı olmayan ortamlarda (test) da çalışır; günde bir kez.
+    if (ctx.role === "SCHOOL_ADMIN" || ctx.role === "SUPER_ADMIN") {
+      const { ensureStudentContractExpiryCheckedToday } = await import("../student-contract-expiry");
+      await ensureStudentContractExpiryCheckedToday(ctx.tenantId);
+    }
     const page = await listNotificationsPageForUser(
       { tenantId: ctx.tenantId, userId: ctx.userId, studentId: ctx.studentId },
       { cursor: v.data.cursor, limit: v.data.limit }
@@ -16875,7 +16880,7 @@ export async function getAttendanceReportTool(
       branchId: z.string().optional(),
       instrument: z.string().optional(),
       roomId: z.string().optional(),
-      status: z.enum(["attended", "processed", "makeup", "cancelled", "planned"]).optional(),
+      status: z.enum(["attended", "processed", "makeup", "makeup_planned", "cancelled", "planned"]).optional(),
       // 11. tur iş #4 — sunucu taraflı sayfalama. Özet (summary) TÜM
       // filtrelenmiş satırlar üzerinden hesaplanır; yalnız `rows` dilimlenir.
       page: z.coerce.number().int().min(1).default(1),

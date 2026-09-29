@@ -192,7 +192,8 @@ export function lessonMatchesAcademicPeriod(
 export const ATTENDANCE_CALENDAR_COLORS = {
   attended: "#15803d", // green-700 — Geldi/tamamlandı
   processed: "#b91c1c", // red-700 — İşlendi
-  makeup: "#ca8a04", // yellow-600 — Telafi
+  makeup: "#ca8a04", // yellow-600 — Telafi (kaçırılan, telafiye alınan ders)
+  makeup_planned: "#ea580c", // orange-600 — Planlanan telafi (Telafi Merkezi'nden planlanan ders)
   cancelled: "#475569", // slate-600 — İptal
   absent: "#57534e", // stone-600 — Gelmedi (mazeretsiz)
   excused: "#7c3aed", // violet-600 — Mazeretli
@@ -293,6 +294,7 @@ const LESSON_CARD_FILL_KEYS = {
   attended: "attended",
   processed: "processed",
   makeup: "makeup",
+  makeup_planned: "makeup_planned",
   cancelled: "cancelled",
   absent: "absent",
   excused: "excused",
@@ -330,12 +332,16 @@ export function lessonCardMutedTextColor(status: string): string {
  */
 export function resolveDayFillSegments(
   dayStatus: DayStatus,
-  lessons: Array<{ lessonId: string; opsStatus: "attended" | "processed" | "makeup" | "cancelled" | "planned" | "absent" | "excused" | null }>
+  lessons: Array<{ lessonId: string; opsStatus: "attended" | "processed" | "makeup" | "makeup_planned" | "cancelled" | "planned" | "absent" | "excused" | null }>
 ): AttendanceCalendarColorKey[] {
   if (dayStatus === "closed") return ["closed"];
   if (lessons.length === 0) return ["open"];
   const perLesson = lessons.map((l): AttendanceCalendarColorKey =>
-    l.opsStatus === "attended" || l.opsStatus === "processed" || l.opsStatus === "makeup" || l.opsStatus === "cancelled"
+    l.opsStatus === "attended" ||
+    l.opsStatus === "processed" ||
+    l.opsStatus === "makeup" ||
+    l.opsStatus === "makeup_planned" ||
+    l.opsStatus === "cancelled"
       ? l.opsStatus
       : "planned"
   );

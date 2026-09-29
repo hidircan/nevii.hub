@@ -1,7 +1,7 @@
 import { addMinutes, isBefore } from "date-fns";
-import { DEFAULT_APP_TIMEZONE, addDaysYmd, toZonedYmd, ymdToUtcNoon, zonedWallTimeToUtc } from "./timezone";
+import { DEFAULT_APP_TIMEZONE, addDaysYmd, toZonedYmd, zonedWallTimeToUtc } from "./timezone";
 import type { AppData, Instrument, StudentTermType } from "./types";
-import { assertWorkDaySchedulable } from "./work-days";
+import { assertWorkDaySchedulable, isSuggestableWorkDay } from "./work-days";
 import { validateLessonSlot, type ValidatedSlot } from "./makeup-engine";
 import { teacherServesBranch } from "./teacher-branches";
 
@@ -61,7 +61,7 @@ export function suggestLessonSlots(
   const todayYmd = toZonedYmd(now, DEFAULT_APP_TIMEZONE);
   for (let d = 1; d <= daysAhead; d++) {
     const ymd = addDaysYmd(todayYmd, d);
-    if (!workingDays.includes(ymdToUtcNoon(ymd).getUTCDay())) continue;
+    if (!isSuggestableWorkDay(ymd, student?.termType ?? "guz", data.closedDayOverrides ?? [], data.settings.termWeeklyClosedDays, workingDays)) continue;
 
     const dayStart = zonedWallTimeToUtc(ymd, workingHours.start);
     const dayEnd = zonedWallTimeToUtc(ymd, workingHours.end);

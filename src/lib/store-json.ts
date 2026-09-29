@@ -21,6 +21,7 @@ import { resolveDataDir } from "./config";
 import { withFileLock, writeJsonFileAtomic } from "./atomic-json-file";
 import { createSeedData, createEmptyTemplateData } from "./seed";
 import { tryTenantId } from "./tenant-context";
+import { withClosedDayOverrides, withoutClosedDayOverrides } from "./closed-day-overrides";
 import { DEFAULT_TENANT_ID } from "./auth/config";
 import { applyLessonOpsFlag, switchLessonOpsFlag, type LessonOpsFlag } from "./lesson-ops";
 import { allocateSequenceValue, formatDisplayId } from "./entity-sequence";
@@ -160,7 +161,7 @@ export async function readData(): Promise<AppData> {
   if (!data.packages) data.packages = [];
   if (!data.discountCampaigns) data.discountCampaigns = [];
   assertTenant(data);
-  return data;
+  return withClosedDayOverrides(data, data.settings.tenantId);
 }
 
 /**
@@ -188,7 +189,7 @@ export async function readData(): Promise<AppData> {
  */
 export async function writeData(data: AppData): Promise<void> {
   assertTenant(data);
-  await withFileLock(DATA_FILE, () => writeJsonFileAtomic(DATA_FILE, data));
+  await withFileLock(DATA_FILE, () => writeJsonFileAtomic(DATA_FILE, withoutClosedDayOverrides(data)));
 }
 
 /** Tek kilit altında oku-değiştir-yaz. `fn` fırlatırsa dosya yazılmaz. */
@@ -202,10 +203,10 @@ export async function mutateStoreUnderLock(
     const data = JSON.parse(raw) as AppData;
     if (!data.settings.tenantId) data.settings.tenantId = DEFAULT_TENANT_ID;
     assertTenant(data);
-    const next = await fn(data);
+    const next = await fn(await withClosedDayOverrides(data, data.settings.tenantId));
     assertTenant(next);
     try {
-      await writeJsonFileAtomic(DATA_FILE, next);
+      await writeJsonFileAtomic(DATA_FILE, withoutClosedDayOverrides(next));
     } catch (err) {
       if (onWriteFail) await onWriteFail();
       throw err;

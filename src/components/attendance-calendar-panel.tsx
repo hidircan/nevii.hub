@@ -86,7 +86,7 @@ type LessonPaymentInfo = {
 
 type DayLessonOpsInfo = {
   lessonId: string;
-  opsStatus: "attended" | "processed" | "makeup" | "cancelled" | "planned" | "absent" | "excused" | null;
+  opsStatus: "attended" | "processed" | "makeup" | "makeup_planned" | "cancelled" | "planned" | "absent" | "excused" | null;
   startAt: string;
   durationMinutes: number;
   teacherName?: string;
@@ -637,7 +637,8 @@ export function AttendanceCalendarPanel({
       <div className="flex flex-wrap items-center gap-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3 text-xs">
         <LegendDot color={ATTENDANCE_CALENDAR_COLORS.attended} label="Geldi" />
         <LegendDot color={ATTENDANCE_CALENDAR_COLORS.processed} label="İşlendi" />
-        <LegendDot color={ATTENDANCE_CALENDAR_COLORS.makeup} label="Telafi" />
+        <LegendDot color={ATTENDANCE_CALENDAR_COLORS.makeup} label="Telafi (kaçırılan ders)" />
+        <LegendDot color={ATTENDANCE_CALENDAR_COLORS.makeup_planned} label="Planlanan telafi" />
         <LegendDot color={ATTENDANCE_CALENDAR_COLORS.closed} label="Kapalı" />
         <LegendDot color={ATTENDANCE_CALENDAR_COLORS.open} label="Açık / işaretsiz" />
         <span className="flex items-center gap-1.5">
@@ -942,6 +943,7 @@ function LessonSummaryLine({ lesson }: { lesson: DayLessonOpsInfo }) {
           lesson.opsStatus === "attended" ||
           lesson.opsStatus === "processed" ||
           lesson.opsStatus === "makeup" ||
+          lesson.opsStatus === "makeup_planned" ||
           lesson.opsStatus === "cancelled"
             ? lesson.opsStatus
             : "planned"

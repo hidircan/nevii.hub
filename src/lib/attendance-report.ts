@@ -9,7 +9,7 @@ import { resolveLessonFinalStatus } from "./lesson-live-status";
 import { evaluateAttendanceRisk } from "./attendance-risk";
 
 export type AttendanceReportDatePreset = "today" | "this_week" | "this_month" | "custom";
-export type AttendanceReportRowStatus = "attended" | "processed" | "makeup" | "cancelled" | "planned";
+export type AttendanceReportRowStatus = "attended" | "processed" | "makeup" | "makeup_planned" | "cancelled" | "planned";
 
 function todayYmd(now: Date): string {
   return toZonedYmd(now, DEFAULT_APP_TIMEZONE);
@@ -106,6 +106,7 @@ export interface AttendanceReportSummary {
   excused: number;
   processed: number;
   makeup: number;
+  makeupPlanned: number;
   cancelled: number;
   riskyStudentCount: number;
 }
@@ -190,6 +191,7 @@ export function buildAttendanceReport(
     excused: 0,
     processed: rows.filter((r) => r.status === "processed").length,
     makeup: rows.filter((r) => r.status === "makeup").length,
+    makeupPlanned: rows.filter((r) => r.status === "makeup_planned").length,
     cancelled: rows.filter((r) => r.status === "cancelled").length,
     riskyStudentCount: new Set(rows.filter((r) => r.studentAtRisk).map((r) => r.studentId)).size,
   };

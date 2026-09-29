@@ -11,7 +11,7 @@
 import path from "path";
 import { isDbMode, resolveDataDir } from "./config";
 import { uid } from "./utils";
-import type { ClosedDay, ClosedDayKind } from "./types";
+import type { AppData, ClosedDay, ClosedDayKind } from "./types";
 
 const FILE = path.join(resolveDataDir(path.join(process.cwd(), "data")), "closed-days.json");
 export const CLOSED_DAYS_FILE = FILE;
@@ -181,4 +181,22 @@ export async function clearClosedDays(tenantId: string): Promise<void> {
   const all = await loadAll();
   const remaining = all.filter((r) => r.tenantId !== tenantId);
   if (remaining.length !== all.length) await saveAll(remaining);
+}
+
+/**
+ * 2026-09-30 KÖK NEDEN — store içi doğrulama (addLesson, seri, taşıma, telafi onayı) store'un KENDİ
+ * `readData`'sını kullanır; istisnalar yalnız `store.ts` sarmalayıcısında eklendiği için "zorla açık"
+ * gün kayıt anında yine kapalı sayılıyordu. Her store modu okumada bunu çağırır; yazarken ayıklanır.
+ */
+export async function withClosedDayOverrides(data: AppData, tenantId: string): Promise<AppData> {
+  const closedDayOverrides = await listClosedDays(tenantId).catch(() => []);
+  return { ...data, closedDayOverrides };
+}
+
+/** İstisnalar ayrı tabloda/dosyada tutulur — store'a kopyası yazılmaz. */
+export function withoutClosedDayOverrides(data: AppData): AppData {
+  if (!("closedDayOverrides" in data)) return data;
+  const { closedDayOverrides: _omit, ...rest } = data;
+  void _omit;
+  return rest;
 }

@@ -403,7 +403,7 @@ Teşekkürler.`,
   {
     key: "makeup_confirmed",
     title: "Telafi onaylandı",
-    when: "Slot onaylandığında veliye",
+    when: "Telafi saati onaylandığında veliye",
     sample: `Merhaba {veli_adı},
 
 {okul}
@@ -419,7 +419,7 @@ Katılamayacaksanız lütfen 24 saat önce bildiriniz.`,
   {
     key: "teacher_assigned",
     title: "Öğretmene telafi ataması",
-    when: "Slot onaylandığında öğretmene",
+    when: "Telafi saati onaylandığında öğretmene",
     sample: `Merhaba {öğretmen},
 
 {okul} — yeni telafi dersi atandı.

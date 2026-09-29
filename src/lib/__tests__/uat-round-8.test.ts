@@ -67,16 +67,16 @@ describe("8. tur B — öğretmen müsaitlik kartı", () => {
     expect(freeRanges(day)).toEqual([{ start: "15:30", end: "18:00" }]);
   });
 
-  it("çakışan saatte yol gösterici Türkçe uyarı + en yakın boş slot", () => {
+  it("çakışan saatte yol gösterici Türkçe uyarı + en yakın boş saat", () => {
     const a = slotAdvice("Pınar Çelik", day, "14:30", 40);
     expect(a.tone).toBe("warn");
-    expect(a.message).toBe("Pınar Çelik 14:00–15:30 arası başka bir derste. En yakın boş slot: 15:30.");
+    expect(a.message).toBe("Pınar Çelik 14:00–15:30 arası başka bir derste. En yakın boş saat: 15:30.");
     expect(a.suggestion).toBe("15:30");
   });
 
   it("pencere dışında: günün müsait aralığı söylenir", () => {
     const a = slotAdvice("Pınar Çelik", { windows: [{ start: "14:00", end: "15:30" }], busy: [] }, "10:00", 40);
-    expect(a.message).toBe("Pınar Çelik bu günde 14:00–15:30 arası müsait. En yakın boş slot: 14:00.");
+    expect(a.message).toBe("Pınar Çelik bu günde 14:00–15:30 arası müsait. En yakın boş saat: 14:00.");
   });
 
   it("uygun saatte olumlu mesaj, süreyi sığdırmayan aralık önerilmez", () => {

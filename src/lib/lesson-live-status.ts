@@ -7,7 +7,12 @@
 
 import type { AppData, Lesson } from "./types";
 
-export type LessonFinalStatus = "planned" | "attended" | "processed" | "makeup" | "cancelled";
+/**
+ * `makeup` = kaçırılıp telafiye alınan ders (kaynak ders, sarı).
+ * `makeup_planned` = Telafi Merkezi'nden planlanan telafi dersi, henüz yoklaması girilmemiş (turuncu).
+ * Telafi dersi işlendiğinde/geldiğinde yoklama statüsünü (İşlendi/Geldi) gösterir.
+ */
+export type LessonFinalStatus = "planned" | "attended" | "processed" | "makeup" | "makeup_planned" | "cancelled";
 
 export type LessonFinalStatusInput = Pick<
   Lesson,
@@ -49,9 +54,12 @@ export function resolveLessonFinalStatus(
   now: Date = new Date()
 ): LessonFinalStatus {
   if (lesson.status === "cancelled") return "cancelled";
-  if (lesson.type === "makeup" || lesson.opsMakeupFlag) return "makeup";
+  if (lesson.opsMakeupFlag) return "makeup";
   if (lesson.lessonProcessed) return "processed";
   if (lesson.studentAttended) return "attended";
+  // 2026-09-30 — planlanan telafi dersi eskiden "makeup"a katlanıyordu: kaçırılan dersle aynı renk/ad,
+  // Yoklama Takvimi'nde de "Telafi" düğmesi etkin görünüyordu (dersi Geldi/İşlendi yapmak geçişe zorluyordu).
+  if (lesson.type === "makeup") return "makeup_planned";
   if (new Date(lesson.startAt).getTime() > now.getTime()) return "planned";
   if (lesson.status === "completed") return "attended";
   return "planned";

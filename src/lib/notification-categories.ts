@@ -35,6 +35,7 @@ export type NotificationCategory =
   | "student_new_registration"
   | "attendance_exception"
   | "student_attendance_risk"
+  | "student_contract_expiring"
   | "portal_request"
   | "teacher_feedback_submitted"
   | "student_feedback_submitted"
@@ -273,6 +274,16 @@ export const NOTIFICATION_CATEGORIES: NotificationCategoryDef[] = [
     group: "students",
     label: "Öğrenci devam riski",
     description: "Aynı öğrenci, aynı ay içinde 2'den fazla 'İşlendi' ders aldığında.",
+    implemented: true,
+    roles: ["SCHOOL_ADMIN", "SUPER_ADMIN"],
+    defaultInAppEnabled: true,
+  },
+  {
+    // 2026-09-30 — yalnız uygulama içi, yalnız bu kurumun yöneticileri; öğrenciye/veliye SMS/e-posta YOK.
+    category: "student_contract_expiring",
+    group: "students",
+    label: "Öğrenci sözleşmesi bitiyor",
+    description: "Öğrencinin güncel sözleşmesinin bitişine, aşağıda seçilen gün sayısı kadar süre kaldığında (öğrenci başına bir kez).",
     implemented: true,
     roles: ["SCHOOL_ADMIN", "SUPER_ADMIN"],
     defaultInAppEnabled: true,

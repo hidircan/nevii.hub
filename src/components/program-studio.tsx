@@ -52,7 +52,13 @@ import { dayName } from "@/lib/utils";
 import { DEFAULT_LESSON_DURATION_MINUTES, LESSON_DURATION_OPTIONS } from "@/lib/lesson-duration";
 import { CALENDAR_START_HOUR, toYmd } from "@/lib/closed-days";
 import { incompleteDateHint, isCompleteDateOnlyInput } from "@/lib/date-input";
-import type { WorkDayResolution } from "@/lib/work-days";
+import {
+  FORCE_OPEN_HINT,
+  resolveWorkDay,
+  type DayOverride,
+  type TermWeeklyClosedDaysOverride,
+  type WorkDayResolution,
+} from "@/lib/work-days";
 import {
   lessonMatchesAcademicPeriod,
   lessonCardFillStyle,
@@ -100,6 +106,9 @@ type ProgramStudioProps = {
    * doğrulamasıyla birebir aynı cevap.
    */
   dayStatuses?: Record<string, WorkDayResolution>;
+  /** Formda seçilen gün (görünen haftanın dışında da olabilir) için aynı çözümleyiciye verilen istisnalar. */
+  workDayOverrides?: DayOverride[];
+  termWeeklyClosedDays?: TermWeeklyClosedDaysOverride;
   /** I — haftanın deneme dersleri (ayrı TrialLesson kaydı); mor, kesikli, "DENEME" etiketli. */
   weekTrials?: ProgramTrial[];
 };
@@ -317,6 +326,7 @@ const LESSON_CARD_STATUS_LABEL: Partial<Record<LessonCardStatusVisual, string>> 
   attended: "Geldi",
   processed: "İşlendi",
   makeup: "Telafi",
+  makeup_planned: "Planlanan telafi",
   cancelled: "İptal",
 };
 
@@ -682,6 +692,8 @@ export function ProgramStudio({
   selectedAcademicYearStart,
   catalogInstruments,
   dayStatuses,
+  workDayOverrides,
+  termWeeklyClosedDays,
   weekTrials = [],
 }: ProgramStudioProps) {
   const router = useRouter();
@@ -758,6 +770,15 @@ export function ProgramStudio({
   // gün bazlı hesap ve müsaitlik isteği yalnız tamamlanmış tarihte çalışır.
   const startAtDay = /^\d{4}-\d{2}-\d{2}T/.test(startAt) && isCompleteDateOnlyInput(startAt.slice(0, 10)) ? startAt.slice(0, 10) : "";
   const startAtComplete = startAtDay !== "" && /T\d{2}:\d{2}/.test(startAt);
+  // Sunucu (createLessonTool) ile AYNI çözümleyici ve dönem: seçili dönem > öğrencinin dönemi > Güz.
+  const formWorkDay = startAtDay
+    ? resolveWorkDay(
+        new Date(`${startAtDay}T09:00:00Z`),
+        selectedTerm ?? students.find((s) => s.id === studentId)?.termType ?? "guz",
+        workDayOverrides ?? [],
+        termWeeklyClosedDays
+      )
+    : null;
   const [lessonBranchId, setLessonBranchId] = useState("");
   const [durationMinutes, setDurationMinutes] = useState<number>(DEFAULT_LESSON_DURATION_MINUTES);
   const [submitting, setSubmitting] = useState(false);
@@ -1083,7 +1104,7 @@ export function ProgramStudio({
     if (!seriesPreview) return;
     if (seriesPreview.conflictCount > 0 && !seriesSkipConflicts) {
       setSeriesError(
-        "Çakışma var — devam etmek için \"yalnızca çakışmayan tarihleri oluştur\" seçeneğini işaretleyin."
+        "Bazı tarihler çakışıyor. Çakışmayı giderin (öğretmen, oda veya saat değiştirin) ya da \"Çakışan tarihleri atla\" seçeneğini işaretleyip kalan tarihleri oluşturun."
       );
       return;
     }
@@ -1511,6 +1532,7 @@ export function ProgramStudio({
           <Label>Başlangıç tarihi/saati</Label>
           <Input type="datetime-local" value={startAt} onChange={(e) => setStartAt(e.target.value)} required />
           <DateHint value={startAt.slice(0, 10)} />
+          <WorkDayNotice day={formWorkDay} />
           {startAtComplete && (wallDateTimeInputToIso(startAt) ?? "") < now.toISOString() ? (
             <p className="mt-1 text-xs font-medium text-amber-700">
               Geçmiş tarihli ders planlıyorsunuz — ders programa ve yoklama takvimine bu tarihle eklenir.
@@ -1548,13 +1570,14 @@ export function ProgramStudio({
       </form>
 
       {availabilityWarningOpen ? (
-        <FormModal title="Öğretmen müsait görünmüyor" onClose={cancelAvailabilityOverride}>
+        <FormModal title="Öğretmenin çalışma saati dışında" onClose={cancelAvailabilityOverride}>
           <p className="text-sm text-[var(--color-text)] dark:text-slate-200">
-            {availabilityWarningText || "Öğretmen bu saatte müsait görünmüyor."} Yine de planlamak istiyor musunuz?
+            {availabilityWarningText || "Öğretmen bu saatte müsait görünmüyor."}
           </p>
-          <p className="mt-1 text-xs text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
-            Seçilen saat, öğretmenin bildirdiği çalışma saatlerinin dışında. Bu ders yine de
-            oluşturulursa &quot;müsaitlik dışı&quot; olarak işaretlenir ve raporlarda görünür.
+          <p className="mt-2 text-xs text-[var(--color-text-muted)]">
+            Bu onay YALNIZ öğretmenin bildirdiği çalışma saatlerini aşar; ders &quot;müsaitlik dışı&quot; olarak işaretlenir ve
+            raporlarda görünür. Öğretmenin, odanın veya öğrencinin aynı saatteki başka dersi, kapalı gün, pasif oda ya da
+            öğretmen gibi gerçek çakışmalar bu onayla aşılamaz — onlar kayıtta yine reddedilir.
           </p>
           <div className="mt-4 flex justify-end gap-2">
             <Button type="button" variant="secondary" onClick={cancelAvailabilityOverride} disabled={submitting}>
@@ -1562,7 +1585,7 @@ export function ProgramStudio({
             </Button>
             <Button type="button" variant="danger" onClick={() => void confirmAvailabilityOverride()} disabled={submitting}>
               {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              Yine de planla
+              Çalışma saati dışında planla
             </Button>
           </div>
         </FormModal>
@@ -1784,7 +1807,7 @@ export function ProgramStudio({
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <Button type="button" variant="secondary" onClick={handleSeriesPreview} disabled={seriesPreviewLoading}>
           {seriesPreviewLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-          Önizle
+          Tarihleri ve çakışmaları kontrol et
         </Button>
         {seriesPreview ? (
           <Button
@@ -1825,11 +1848,16 @@ export function ProgramStudio({
                   checked={seriesSkipConflicts}
                   onChange={(e) => setSeriesSkipConflicts(e.target.checked)}
                 />
-                Yalnızca çakışmayan tarihleri oluştur, çakışanları atla
+                Çakışan tarihleri atla, kalan tarihlere dersi oluştur
               </label>
+              <p className="mt-1 text-xs text-[var(--color-text-muted)]">
+                Çakışan veya kapalı güne denk gelen tarihe ders yazılmaz; bu seçenek çakışmayı aşmaz, yalnız o tarihleri atlar.
+              </p>
             </div>
           ) : (
-            <p className="mt-2 text-xs text-emerald-600">Çakışma yok — oluşturmaya hazır.</p>
+            <p className="mt-2 text-xs text-emerald-600">
+              Tüm tarihler uygun: öğretmen, oda ve öğrenci o saatlerde boş; gün kapalı değil. Oluşturmaya hazır.
+            </p>
           )}
         </div>
       ) : null}
@@ -2084,11 +2112,13 @@ export function ProgramStudio({
                       ? "bg-[var(--color-primary-soft)] text-[var(--color-primary-soft-text)]"
                       : "text-[var(--color-text)]"
                 }`}
-                title={workDay?.explanation}
+                title={[workDay?.explanation, workDay?.normallyClosedExplanation && `Normalde: ${workDay.normallyClosedExplanation}`].filter(Boolean).join(" ")}
               >
                 {format(day, "EEEE", { locale: tr })}
                 <span className="ml-1 font-normal text-[var(--color-text-muted)]">{format(day, "d MMM", { locale: tr })}</span>
-                {forcedOpen ? <span className="ml-1 font-normal">· Zorla açık</span> : null}
+                {forcedOpen ? (
+                  <span className="ml-1 font-normal">{workDay?.normallyClosedExplanation ? "· Normalde kapalı, zorla açık" : "· Zorla açık"}</span>
+                ) : null}
               </div>
             );
           })}
@@ -2802,4 +2832,23 @@ function DateHint({ value }: { value: string }) {
       {hint}
     </p>
   ) : null;
+}
+
+/** Formda seçilen günün durumu — kayıtta sunucunun uygulayacağı kuralın aynısı, önceden görünür. */
+function WorkDayNotice({ day }: { day: WorkDayResolution | null }) {
+  if (!day) return null;
+  if (!day.schedulable) {
+    return (
+      <p className="mt-1 text-xs font-medium text-rose-600">
+        {day.explanation} {FORCE_OPEN_HINT}
+      </p>
+    );
+  }
+  if (day.reason !== "manual_open" || !day.normallyClosedExplanation) return null;
+  return (
+    <p className="mt-1 rounded-md bg-[var(--color-warning-soft)] px-2 py-1 text-xs text-[var(--color-warning)]">
+      Bu gün normalde kapalı ({day.normallyClosedExplanation.replace(/\.$/, "")}); yönetici kararıyla ders planlamaya
+      açıldı. Öğretmen, oda ve öğrenci çakışmaları yine kontrol edilir.
+    </p>
+  );
 }

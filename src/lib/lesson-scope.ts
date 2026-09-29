@@ -78,6 +78,7 @@ export function narrowLessonScope(
   const days = lessonScopeDays(lesson, targetStartAt);
   return {
     settings: data.settings,
+    closedDayOverrides: data.closedDayOverrides,
     teachers: data.teachers.filter((t) => t.id === lesson.teacherId),
     students: data.students.filter((s) => s.id === lesson.studentId),
     rooms: data.rooms.filter((r) => r.id === lesson.roomId),

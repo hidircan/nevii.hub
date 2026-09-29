@@ -198,6 +198,8 @@ export default async function ProgramPage({
         selectedAcademicYearStart={selectedAcademicYearStart}
         catalogInstruments={catalogInstruments}
         dayStatuses={dayStatuses}
+        workDayOverrides={data.closedDayOverrides ?? []}
+        termWeeklyClosedDays={data.settings.termWeeklyClosedDays}
         weekTrials={weekTrials}
       />
 

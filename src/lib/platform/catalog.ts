@@ -148,6 +148,10 @@ export const SETTING_CATALOG: SettingDefinition[] = [
   s("notifications.inAppEnabled", "notifications", "boolean", true, "Uygulama içi bildirimler", {
     userPreference: true,
   }),
+  s("notifications.studentContractExpiryDays", "notifications", "number", 15, "Öğrenci sözleşmesi bitiş uyarısı (bitişten kaç gün önce)", {
+    min: 1,
+    max: 90,
+  }),
   s("messaging.announcementsEnabled", "messaging", "boolean", true, "Duyuru modülü"),
   s("messaging.smsEnabled", "messaging", "boolean", false, "SMS modülü", { critical: true }),
   s("messaging.whatsappEnabled", "messaging", "boolean", false, "WhatsApp modülü", { critical: true }),

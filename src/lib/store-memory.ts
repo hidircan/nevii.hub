@@ -25,6 +25,7 @@ import { reassignLessonTeacherOrBranch, type ReassignLessonInput, type ReassignL
  */
 import { createSeedData, createEmptyTemplateData } from "./seed";
 import { tryTenantId } from "./tenant-context";
+import { withClosedDayOverrides, withoutClosedDayOverrides } from "./closed-day-overrides";
 import { DEFAULT_TENANT_ID } from "./auth/config";
 import type {
   AppData,
@@ -139,7 +140,8 @@ function load(): AppData {
   return data;
 }
 
-function save(data: AppData): AppData {
+function save(input: AppData): AppData {
+  const data = withoutClosedDayOverrides(input);
   const tid = tenantKey();
   if ((data.settings.tenantId || tid) !== tid) {
     throw new Error("Cross-tenant access denied");
@@ -151,7 +153,8 @@ function save(data: AppData): AppData {
 }
 
 export async function readData(): Promise<AppData> {
-  return load();
+  const data = load();
+  return withClosedDayOverrides(data, data.settings.tenantId);
 }
 
 export async function writeData(data: AppData): Promise<void> {
@@ -163,7 +166,8 @@ export async function mutateStoreUnderLock(
   onWriteFail?: () => Promise<void>
 ): Promise<AppData> {
   return withKeyLock(`memory-store:${tenantKey()}`, async () => {
-    const next = await fn(load());
+    const current = load();
+    const next = await fn(await withClosedDayOverrides(current, current.settings.tenantId));
     try {
       return save(next);
     } catch (err) {

@@ -323,25 +323,9 @@ async function withTenantScope<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 export async function readData(): Promise<AppData> {
-  const data = await withTenantScope(async () => {
-    const base = await store.readData();
-    /**
-     * ÇALIŞMA GÜNÜ TEK KAYNAĞI (2026-09-20) — kapalı/zorla-açık gün
-     * istisnaları store moduna göre AYRI tutulur (`closed-day-overrides.ts`),
-     * ama `AppData`'nın parçası olarak okunur. Böylece `validateLessonSlot`,
-     * Ders Programı ızgarası ve ödeme önizlemesi gibi "elinde yalnız `data`
-     * olan" tüm çağıranlar istisnaları GÖRÜR — daha önce bu bilgi yalnızca
-     * Yoklama Takvimi'ne özel, ayrı bir çağrıyla ulaşıyordu ve planlama
-     * tarafı yöneticinin istisnalarından habersizdi.
-     *
-     * Maliyet: istek başına tek, küçük, tarih-indeksli okuma. Üç mod için de
-     * tek yerde yapılır (her store kendi kopyasını eklemez).
-     */
-    const { requireTenantId } = await import("./tenant-context");
-    const { listClosedDays } = await import("./closed-day-overrides");
-    const closedDayOverrides = await listClosedDays(requireTenantId()).catch(() => []);
-    return { ...base, closedDayOverrides };
-  });
+  // Çalışma günü istisnaları (closedDayOverrides) her store modunun kendi readData'sında eklenir
+  // (bkz. withClosedDayOverrides) — store içi doğrulama da aynı veriyi görsün diye.
+  const data = await withTenantScope(() => store.readData());
   return applyMakeupExpiry(data);
 }
 

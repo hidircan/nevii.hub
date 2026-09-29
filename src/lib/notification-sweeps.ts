@@ -12,7 +12,21 @@ export type NotificationSweepSummary = {
   upcoming: Awaited<ReturnType<typeof sweepUpcomingLessons>>;
   paymentPending: number;
   leavePending: number;
+  contractExpiring: number;
 };
+
+/** Öğrenci sözleşmesi bitiş uyarısı — tüm kurumlar (bkz. student-contract-expiry.ts). */
+export async function sweepStudentContractExpiry(now = new Date()): Promise<number> {
+  const { runStudentContractExpiryCheck } = await import("./student-contract-expiry");
+  let created = 0;
+  const tenants = await listTenants();
+  for (const t of tenants.slice(0, 200)) {
+    await runWithTenantAsync(t.tenantId, async () => {
+      created += (await runStudentContractExpiryCheck(t.tenantId, now)).created;
+    });
+  }
+  return created;
+}
 
 export async function sweepPaymentFailedOrPending(now = new Date()): Promise<number> {
   let created = 0;
@@ -71,5 +85,6 @@ export async function runNotificationSweeps(now = new Date()): Promise<Notificat
   const upcoming = await sweepUpcomingLessons(now);
   const paymentPending = await sweepPaymentFailedOrPending(now);
   const leavePending = await sweepLeavePendingApproval();
-  return { upcoming, paymentPending, leavePending };
+  const contractExpiring = await sweepStudentContractExpiry(now);
+  return { upcoming, paymentPending, leavePending, contractExpiring };
 }

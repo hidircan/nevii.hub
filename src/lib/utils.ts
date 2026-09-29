@@ -136,7 +136,7 @@ export function statusLabel(status: string) {
     late: "Geç kaldı",
     cancelled_by_school: "Okul iptal",
     pending: "Bekliyor",
-    suggested: "Slot önerildi",
+    suggested: "Saat önerildi",
     awaiting_info: "Bilgi bekleniyor",
     confirmed: "Onaylandı",
     completed: "Tamamlandı",
@@ -152,6 +152,7 @@ export function statusLabel(status: string) {
     no_show: "Gelmedi",
     regular: "Normal",
     makeup: "Telafi",
+    makeup_planned: "Planlanan telafi",
     trial: "Deneme",
     group: "Grup",
     draft: "Taslak",
@@ -194,6 +195,7 @@ export function statusColor(status: string) {
     /* P0 (2026-09-05) — Telafi her yerde SARI, İşlendi KIRMIZI (owner talimatı;
        tek kaynak ATTENDANCE_CALENDAR_COLORS ile aynı anlam/renk dili). */
     makeup: "bg-amber-100 text-amber-900",
+    makeup_planned: "bg-orange-100 text-orange-900",
     processed: "bg-rose-100 text-rose-900",
     /**
      * P0-F (2026-09-02) — Yoklama Raporu'nda Gelmedi/Mazeretli, paylaşılan

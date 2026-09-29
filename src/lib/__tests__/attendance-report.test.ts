@@ -97,6 +97,7 @@ describe("buildAttendanceReport", () => {
       excused: 0,
       processed: 1,
       makeup: 1,
+      makeupPlanned: 0,
       cancelled: 1,
       riskyStudentCount: 0,
     });

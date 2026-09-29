@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { CalendarPlus } from "lucide-react";
 import { Button } from "@/components/ui";
 
-type TeacherOption = { id: string; name: string; branchId: string };
+type TeacherOption = { id: string; name: string; branchId: string; branchIds?: string[] };
 type RoomOption = { id: string; name: string; branchId: string };
 
 export function ManualMakeupPlanForm({
@@ -40,7 +40,8 @@ export function ManualMakeupPlanForm({
   const [teacherId, setTeacherId] = useState(initialTeacherId);
   const selectedTeacher = teachers.find((t) => t.id === teacherId);
   const availableRooms = useMemo(
-    () => rooms.filter((r) => r.branchId === selectedTeacher?.branchId),
+    // Öğretmenin ders verdiği TÜM şubeler (birincil + ek) — sunucu kuralı teacherServesBranch ile aynı.
+    () => rooms.filter((r) => r.branchId === selectedTeacher?.branchId || (selectedTeacher?.branchIds ?? []).includes(r.branchId)),
     [rooms, selectedTeacher]
   );
   const [roomId, setRoomId] = useState(availableRooms[0]?.id ?? "");
@@ -58,7 +59,7 @@ export function ManualMakeupPlanForm({
   function onTeacherChange(nextTeacherId: string) {
     setTeacherId(nextTeacherId);
     const nextTeacher = teachers.find((t) => t.id === nextTeacherId);
-    const nextRooms = rooms.filter((r) => r.branchId === nextTeacher?.branchId);
+    const nextRooms = rooms.filter((r) => r.branchId === nextTeacher?.branchId || (nextTeacher?.branchIds ?? []).includes(r.branchId));
     if (!nextRooms.some((r) => r.id === roomId)) {
       setRoomId(nextRooms[0]?.id ?? "");
     }
@@ -156,7 +157,11 @@ export function ManualMakeupPlanForm({
       onSubmit={(event) => void onSubmit(event)}
       className="mt-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-muted)]/70 p-4"
     >
-      <p className="mb-3 text-sm font-medium text-[var(--color-text)] dark:text-slate-200">Başka bir saat planla</p>
+      <p className="text-sm font-medium text-[var(--color-text)] dark:text-slate-200">Başka bir saat planla</p>
+      <p className="mb-3 mt-0.5 text-xs text-[var(--color-text-muted)]">
+        Listede yalnız aktif odalar var. Kaydederken öğretmen, oda ve öğrenci çakışması, kapalı gün ve son kullanım tarihi
+        kontrol edilir; uygun değilse ders yazılmaz ve nedeni gösterilir.
+      </p>
       <div className="grid gap-3 sm:grid-cols-2">
         <div>
           <label className="mb-1 block text-xs font-medium text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">Tarih</label>
@@ -200,7 +205,7 @@ export function ManualMakeupPlanForm({
             className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-muted)] outline-none ring-amber-200 focus:ring-2"
           >
             {availableRooms.length === 0 ? (
-              <option value="">Bu öğretmenin şubesinde uygun oda yok</option>
+              <option value="">Bu öğretmenin şubelerinde bu enstrümana uygun aktif oda yok</option>
             ) : (
               availableRooms.map((r) => (
                 <option key={r.id} value={r.id}>
@@ -239,7 +244,7 @@ export function ManualMakeupPlanForm({
       {error ? <p className="mt-2 text-xs font-medium text-rose-600">{error}</p> : null}
       {success ? (
         <div className="mt-2 space-y-2 text-xs text-emerald-800">
-          <p className="font-medium">Telafi dersi programa eklendi. Program görünümleri otomatik yenilenir.</p>
+          <p className="font-medium">Telafi dersi planlandı: programda ve yoklama takviminde turuncu “Planlanan telafi” olarak görünür.</p>
           {draft ? (
             <div className="rounded-lg border border-emerald-100 bg-[var(--color-surface)] p-2 text-[var(--color-text-muted)]">
               <p className="font-medium text-[var(--color-text)]">Veli iletişim taslağı (otomatik gönderilmez)</p>

@@ -15,6 +15,7 @@ export const LESSON_STATUS_TEXT: Record<LessonFinalStatus, string> = {
   attended: "Geldi",
   processed: "İşlendi",
   makeup: "Telafi",
+  makeup_planned: "Planlanan telafi",
   cancelled: "İptal",
   planned: "Planlı",
 };

@@ -12,12 +12,17 @@ import type {
   Teacher,
 } from "./types";
 import { availabilityForBranch, isTeacherSchedulable, teacherServesBranch } from "./teacher-branches";
-import { DEFAULT_APP_TIMEZONE, addDaysYmd, toZonedYmd, ymdToUtcNoon, zonedHm, zonedWallTimeToUtc, zonedWeekday } from "./timezone";
-import { assertWorkDaySchedulable, type DayStatusReason } from "./work-days";
+import { DEFAULT_APP_TIMEZONE, addDaysYmd, toZonedYmd, zonedHm, zonedWallTimeToUtc, zonedWeekday } from "./timezone";
+import { assertWorkDaySchedulable, isSuggestableWorkDay, type DayStatusReason } from "./work-days";
 import { buildTeacherDayAvailability, nearestFreeStart, slotAdvice } from "./teacher-day-availability";
 
 function overlaps(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date) {
   return aStart < bEnd && bStart < aEnd;
+}
+
+/** Ders yazılabilir oda: aktif ve silinmemiş (legacy `active` yoksa aktif). */
+export function isRoomSchedulable(room: Pick<Room, "active" | "deletedAt">): boolean {
+  return room.active !== false && !room.deletedAt;
 }
 
 function roomSupports(room: Room, instrument: string) {
@@ -109,6 +114,8 @@ export type SlotValidationCode =
   | "TEACHER_CONFLICT"
   | "TEACHER_DAILY_LIMIT"
   | "ROOM_NOT_FOUND"
+  /** Oda pasif/silinmiş — öneri de kayıt da reddeder (2026-09-30 kök neden: telafi pasif odaya yazılıyordu). */
+  | "ROOM_INACTIVE"
   | "ROOM_INSTRUMENT_MISMATCH"
   | "ROOM_BRANCH_MISMATCH"
   | "ROOM_CONFLICT"
@@ -129,6 +136,7 @@ export const SLOT_ERROR_MESSAGES: Record<SlotValidationCode, string> = {
   TEACHER_CONFLICT: "Öğretmenin bu saatte başka bir dersi var.",
   TEACHER_DAILY_LIMIT: "Öğretmenin günlük ders limiti doldu.",
   ROOM_NOT_FOUND: "Seçilen oda bulunamadı.",
+  ROOM_INACTIVE: "Seçilen oda pasif; bu odaya ders planlanamaz. Başka bir oda seçin veya Odalar ekranından odayı yeniden aktif edin.",
   ROOM_INSTRUMENT_MISMATCH: "Seçilen oda bu enstrümana uygun değil.",
   ROOM_BRANCH_MISMATCH: "Oda, öğretmenin şubesiyle uyumsuz.",
   ROOM_CONFLICT: "Odanın bu saatte başka bir dersi var.",
@@ -239,7 +247,7 @@ function guidedTeacherMessage(
   const endHm = zonedHm(addMinutes(start, duration), DEFAULT_APP_TIMEZONE);
   const clash = day.busy.find((b) => b.start < endHm && hm < b.end);
   const next = nearestFreeStart(day, hm, duration);
-  const tail = next && next !== hm ? ` En yakın boş slot: ${next}.` : "";
+  const tail = next && next !== hm ? ` En yakın boş saat: ${next}.` : "";
   return clash
     ? `Öğretmenin (${teacher.name}) ${clash.start}–${clash.end} arası başka bir dersi var.${tail}`
     : `${SLOT_ERROR_MESSAGES[code]}${tail}`;
@@ -329,6 +337,7 @@ export function validateLessonSlot(
 
   const room = data.rooms.find((r) => r.id === input.roomId);
   if (!room) return fail("ROOM_NOT_FOUND");
+  if (!isRoomSchedulable(room)) return fail("ROOM_INACTIVE");
   if (!roomSupports(room, context.instrument)) return fail("ROOM_INSTRUMENT_MISMATCH");
   // Package D — öğretmen odanın şubesinde fiilen ders veriyor olmalı
   // (birincil VEYA ek atanmış şube); tek-şube eşitliği yerine.
@@ -405,14 +414,13 @@ export function suggestMakeupSlots(
     return 0;
   });
 
-  const rooms = data.rooms.filter(
-    (r) => roomSupports(r, request.instrument) && r.branchId === request.branchId
-  );
-  // Aynı şubede oda yoksa diğer şubeye düş
-  const roomsFallback =
-    rooms.length > 0
-      ? rooms
-      : data.rooms.filter((r) => roomSupports(r, request.instrument));
+  // 2026-09-30 KÖK NEDEN: pasif oda filtrelenmiyordu (ör. pasif "Stüdyo 1 — Piyano" ilk sırada olduğu için
+  // öneriye ve kayda giriyordu). Aday oda = aktif + enstrümana uygun + talebin şubesi; şubede hiç yoksa
+  // diğer şubelerin aktif odaları, gerekçesi açıkça yazılarak. Son söz yine validateLessonSlot'ta.
+  const usable = data.rooms.filter((r) => isRoomSchedulable(r) && roomSupports(r, request.instrument));
+  const branchRooms = usable.filter((r) => r.branchId === request.branchId);
+  const roomsFallback = branchRooms.length > 0 ? branchRooms : usable;
+  const studentTerm = data.students?.find((s) => s.id === request.studentId)?.termType ?? "guz";
   const slots: MakeupSlot[] = [];
   const now = new Date();
   const expire = parseISO(request.expiresAt);
@@ -422,7 +430,7 @@ export function suggestMakeupSlots(
     const ymd = addDaysYmd(todayYmd, d);
     const dayStart = zonedWallTimeToUtc(ymd, workingHours.start);
     if (isAfter(zonedWallTimeToUtc(ymd, "00:00"), expire)) break;
-    if (!workingDays.includes(ymdToUtcNoon(ymd).getUTCDay())) continue;
+    if (!isSuggestableWorkDay(ymd, studentTerm, data.closedDayOverrides ?? [], data.settings.termWeeklyClosedDays, workingDays)) continue;
     const dayEnd = zonedWallTimeToUtc(ymd, workingHours.end);
 
     for (let cursor = new Date(dayStart); cursor < dayEnd; cursor = addMinutes(cursor, 30)) {
@@ -446,42 +454,44 @@ export function suggestMakeupSlots(
         }
         if (!matched) continue;
 
-        const reasons: string[] = [];
+        // Gerekçeler yöneticiye gösterilir — doğal Türkçe, teknik terim yok.
+        const reasons: string[] = ["Öğretmen, oda ve öğrenci bu saatte boş"];
         let score = 50;
 
         if (teacher.id === request.teacherId) {
           score += 30;
-          reasons.push("Aynı öğretmen");
+          reasons.push("Öğrencinin kendi öğretmeni");
         } else {
           score += 5;
-          reasons.push("Alternatif öğretmen (aynı enstrüman)");
+          reasons.push("Aynı enstrümanı veren başka öğretmen");
         }
 
-        if (teacherServesBranch(teacher, request.branchId)) {
+        const matchedRoom = data.rooms.find((r) => r.id === matched!.roomId);
+        if (matchedRoom?.branchId === request.branchId) {
           score += 15;
-          reasons.push("Aynı şube");
+          reasons.push("Öğrencinin kendi şubesinde");
         } else {
           score -= 10;
-          reasons.push("Diğer şube");
+          reasons.push("Başka şubede — öğrencinin şubesinde bu enstrümana uygun aktif oda yok");
         }
 
-        // Yakınlık: daha erken slot biraz daha yüksek skor
+        // Yakınlık: daha erken saat biraz daha yüksek puan
         score += Math.max(0, 20 - d);
-        reasons.push(`${d} gün içinde`);
+        reasons.push(d === 1 ? "Yarın" : `${d} gün sonra`);
 
         const load = dailyLessonCount(teacher.id, dayStart, data.lessons);
         if (load <= 2) {
           score += 10;
-          reasons.push("Öğretmen programı rahat");
+          reasons.push("Öğretmenin o günkü programı sakin");
         } else if (load >= 5) {
           score -= 8;
-          reasons.push("Yoğun gün");
+          reasons.push("Öğretmenin o günü yoğun");
         }
 
         // Okul kaynaklı iptaller öncelikli
         if (request.reason.toLowerCase().includes("öğretmen") || request.reason.toLowerCase().includes("okul")) {
           score += 8;
-          reasons.push("Okul kaynaklı — öncelikli");
+          reasons.push("Ders okul/öğretmen kaynaklı kaçtı — öncelikli");
         }
 
         slots.push({ ...matched, score, reasons });

@@ -149,6 +149,8 @@ export type WorkDayResolution = DayStatusResolution & {
   explanation: string;
   /** Statü bir yönetici istisnasından mı geliyor (rozet/uyarı göstermek için)? */
   overridden: boolean;
+  /** Zorla açık gün normalde kapalıysa neden kapalı olduğu (ör. "Pazartesi (Güz dönemi kapalı) — …"). */
+  normallyClosedExplanation?: string;
 };
 
 const REASON_TEXT: Record<DayStatusReason, (label: string) => string> = {
@@ -172,11 +174,14 @@ export function resolveWorkDay(
   weeklyClosedDaysOverride?: TermWeeklyClosedDaysOverride
 ): WorkDayResolution {
   const base = resolveDayStatus(date, term, manualOverrides, weeklyClosedDaysOverride);
+  const underlying = base.reason === "manual_open" ? resolveDayStatus(date, term, [], weeklyClosedDaysOverride) : undefined;
   return {
     ...base,
     schedulable: base.status === "open",
     explanation: REASON_TEXT[base.reason](base.label),
     overridden: base.reason === "manual_open" || base.reason === "manual_closed",
+    normallyClosedExplanation:
+      underlying?.status === "closed" ? REASON_TEXT[underlying.reason](underlying.label) : undefined,
   };
 }
 
@@ -193,4 +198,22 @@ export function assertWorkDaySchedulable(
   const day = resolveWorkDay(date, term, manualOverrides, weeklyClosedDaysOverride);
   if (day.schedulable) return { ok: true, day };
   return { ok: false, message: `${day.explanation} ${FORCE_OPEN_HINT}`, day };
+}
+
+/**
+ * Öneri motorları (telafi + "Uygun saatleri bul") için aday gün. Kayıt kuralı `resolveWorkDay`'dir; öneri
+ * bunun üstüne kurumun çalışma günü tercihini (`settings.workingDays`) uygular. Yönetici bir günü ZORLA
+ * açtıysa o gün tercihten bağımsız her zaman aday olur (2026-09-30: zorla açık gün hiç önerilmiyordu).
+ */
+export function isSuggestableWorkDay(
+  ymd: string,
+  term: StudentTermType,
+  manualOverrides: DayOverride[],
+  weeklyClosedDaysOverride: TermWeeklyClosedDaysOverride | undefined,
+  workingDays: number[]
+): boolean {
+  const date = new Date(`${ymd}T09:00:00Z`);
+  const day = resolveWorkDay(date, term, manualOverrides, weeklyClosedDaysOverride);
+  if (!day.schedulable) return false;
+  return day.reason === "manual_open" || workingDays.includes(zonedWeekday(date));
 }

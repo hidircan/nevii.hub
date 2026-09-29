@@ -4,6 +4,18 @@ Kısa tutulur (~50 satır): oturum sonunda yalnız "Güncel snapshot" bölümün
 `archive/`'e taşınır. Ayrıntı → ilgili `docs/testing/UAT_*.md`, `docs/operations/*`. Yönlendirici: `nevii-hub` skill.
 Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_2026-09-24.md`.
 
+## Güncel snapshot — 2026-09-30 (zorla açık gün, Telafi Merkezi, planlanan telafi, sözleşme bitiş bildirimi)
+- Zorla açık gün: istisnalar artık her store modunun readData'sında + dar dilimde (`withClosedDayOverrides`);
+  öneri motorları `isSuggestableWorkDay` (çalışma günü tercihi + zorla açık gün her zaman aday).
+- Oda: `validateLessonSlot` → `ROOM_INACTIVE`; telafi önerisi yalnız aktif oda, şubede yoksa gerekçeli diğer şube.
+- Statü: `makeup_planned` (turuncu #ea580c) = Telafi Merkezi'nden planlanan ders; kaçan ders `makeup` (sarı);
+  işlenen telafi dersi yoklama statüsünü gösterir. Hakediş/yoklama verisi değişmedi.
+- Telafi Merkezi yeniden tasarım: aciliyet sıralı, filtre şeridi, öneri ekranda yeniden doğrulanır, "slot" yok.
+- Sözleşme bitiş: kategori `student_contract_expiring`, süre `notifications.studentContractExpiryDays` (SettingOverride,
+  varsayılan 15, migration YOK). Tetik: `notifications/tick` + yönetici bildirim listesini açınca günde bir kez.
+- Açık: `attendance-calendar-tools` tahsilat testleri sıra-bağımlı kararsız (temel sürümde de kırılıyor);
+  `trial-edit-notes-dashboard` 2 test temel sürümde de kırmızı.
+
 ## Güncel snapshot — 2026-09-30 (KRİTİK: Geldi/tamamlanmış dersler hakedişe girmiyordu)
 - Kök neden: tek statü modelinde "Geldi" seçilen ders İşlendi olamıyor, hakediş yalnız İşlendi sayıyordu; DB'de
   `lessonProcessed=false` varsayılanı "Dersi bitir" (completed) dersleri de düşürüyordu (json/db parity).

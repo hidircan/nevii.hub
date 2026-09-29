@@ -18,6 +18,7 @@ const STATUS_LABEL: Record<string, string> = {
   attended: "Geldi",
   processed: "İşlendi",
   makeup: "Telafi",
+  makeup_planned: "Planlanan telafi",
   cancelled: "İptal",
   planned: "Planlandı",
 };
@@ -357,6 +358,7 @@ export default async function AttendanceReportPage({
         <StatCard label="Geldi" value={summary.attended} />
         <StatCard label="İşlendi" value={summary.processed} />
         <StatCard label="Telafi" value={summary.makeup} />
+        <StatCard label="Planlanan telafi" value={summary.makeupPlanned} />
         <StatCard label="İptal" value={summary.cancelled} />
         <StatCard label="Riskli öğrenci" value={summary.riskyStudentCount} accent="warning" />
       </div>

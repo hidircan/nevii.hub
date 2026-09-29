@@ -122,6 +122,7 @@ import type { StudentImportRow } from "./import/students";
 import type { ImportCommitResult } from "./import/commit-result";
 import { addDays, endOfDay, startOfDay, subDays } from "date-fns";
 import { requireTenantId, tryTenantId } from "./tenant-context";
+import { listClosedDays } from "./closed-day-overrides";
 import { DEFAULT_TENANT_ID } from "./auth/config";
 import { getBootstrapUsersForSeed } from "./auth/users";
 import { uid, isOutstandingPaymentStatus } from "./utils";
@@ -1088,7 +1089,7 @@ export function mapDbPayment(payment: Prisma.PaymentGetPayload<object>): import(
 
 export async function readData(): Promise<AppData> {
   const tid = tenantId();
-  const [school, packages, discountCampaigns, teacherPayoutPolicies, teacherPayoutExclusions] = await Promise.all([
+  const [school, packages, discountCampaigns, teacherPayoutPolicies, teacherPayoutExclusions, closedDayOverrides] = await Promise.all([
     prisma.school.findFirst({ where: { tenantId: tid }, include: schoolInclude }),
     readPackages(tid),
     readDiscountCampaigns(tid),
@@ -1096,6 +1097,8 @@ export async function readData(): Promise<AppData> {
     prisma.teacherPayoutExclusion
       .findMany({ where: { tenantId: tid } })
       .then((rows) => rows.map((r) => ({ ...r, createdAt: r.createdAt.toISOString(), tenantId: undefined }))),
+    // Store içi doğrulama da zorla açık/kapalı günleri görsün (bkz. withClosedDayOverrides).
+    listClosedDays(tid).catch(() => []),
   ]);
 
   if (!school) {
@@ -1113,10 +1116,11 @@ export async function readData(): Promise<AppData> {
       ...mapSchoolToAppData(seededSchool),
       packages: seededPackages,
       discountCampaigns: seededCampaigns,
+      closedDayOverrides,
     };
   }
 
-  return { ...mapSchoolToAppData(school), packages, discountCampaigns, teacherPayoutPolicies, teacherPayoutExclusions };
+  return { ...mapSchoolToAppData(school), packages, discountCampaigns, teacherPayoutPolicies, teacherPayoutExclusions, closedDayOverrides };
 }
 
 export async function resetData(): Promise<AppData> {
@@ -2286,6 +2290,8 @@ export async function readLessonScope(
     ...mapSchoolToAppData({ ...school, lessonSeries: [], teacherFeeRules: [], teacherPayouts: [] }),
     packages: [],
     discountCampaigns: [],
+    // Taşıma doğrulaması da zorla açık/kapalı günleri görsün.
+    closedDayOverrides: await listClosedDays(tid).catch(() => []),
   };
 }
 

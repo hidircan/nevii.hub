@@ -1349,3 +1349,12 @@ Eylül'de 8 öğretmen, 61 ders) hakedişe hiç girmedi, ekran "Ders yok / 0 TL"
 `lessonProcessed @default(false)` olduğundan "legacy completed" dalı db modda ölüydü (json'da çalışıyordu).
 **Ders:** bir statü modelini değiştirirken o statüyü okuyan finans kuralını (`isLessonProcessedForPayout`)
 aynı değişiklikte güncelle; json'daki `undefined` ile DB'deki `false` varsayılanını aynı saymayan kural parity kırar.
+
+## 2026-09-30 — "Tek kaynak" kural, store içi doğrulamaya ulaşmıyordu (zorla açık gün)
+
+`resolveWorkDay` tek kaynaktı ve tool katmanı `readData()` ile istisnaları görüyordu; ama `addLesson`/taşıma/
+seri/telafi onayı store'un KENDİ `readData`'sıyla doğruluyordu ve istisnalar yalnız `store.ts` sarmalayıcısında
+ekleniyordu → zorla açık Pazartesi tool'u geçip store'da "günü Zorla açık işaretleyin" hatasıyla düşüyordu.
+**Ders:** doğrulamanın okuduğu veriyi, doğrulamanın ÇALIŞTIĞI katmanda üret (her store modunun readData'sı +
+dar dilim `narrowLessonScope`/`readLessonScope`); tool'dan store'a kadar giden bir entegrasyon testi yaz.
+Aynı turda: `validateLessonSlot` oda `active`'ini hiç okumuyordu → telafi pasif odaya yazılıyordu.

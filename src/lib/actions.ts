@@ -5067,3 +5067,30 @@ export async function actionDeleteDocument(input: {
   if (res.ok) revalidateAll();
   return res;
 }
+
+/** 2026-09-30 — Bildirim Ayarları: öğrenci sözleşmesi bitiş uyarısının kaç gün önce geleceği (kurum ayarı). */
+export async function actionSetStudentContractExpiryDays(
+  days: number
+): Promise<{ ok: true; days: number } | { ok: false; message: string }> {
+  try {
+    return await withAuthContext("actionSetStudentContractExpiryDays", async (ctx) => {
+      if (!Number.isInteger(days) || days < 1 || days > 90) {
+        return { ok: false as const, message: "Uyarı süresi 1 ile 90 gün arasında tam sayı olmalı." };
+      }
+      const { updateTenantSetting } = await import("./platform/service");
+      const { STUDENT_CONTRACT_EXPIRY_SETTING_KEY } = await import("./student-contract-expiry");
+      const res = await updateTenantSetting(ctx, ctx.tenantId, { key: STUDENT_CONTRACT_EXPIRY_SETTING_KEY, value: days });
+      if (!res.ok) return { ok: false as const, message: res.error.message };
+      // Yeni süre bugün hemen değerlendirilsin (tekilleştirme mükerrer bildirimi engeller).
+      const { runStudentContractExpiryCheck } = await import("./student-contract-expiry");
+      await runStudentContractExpiryCheck(ctx.tenantId).catch(() => undefined);
+      revalidatePath("/panel/ayarlar/bildirimler");
+      return { ok: true as const, days };
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    if (error instanceof WriteScopeDeniedError) return { ok: false, message: error.message };
+    logger.error("actionSetStudentContractExpiryDays failed", error);
+    return { ok: false, message: "Uyarı süresi kaydedilemedi. Sayfayı yenileyip tekrar deneyin." };
+  }
+}

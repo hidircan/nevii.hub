@@ -68,6 +68,7 @@ export async function POST(request: Request) {
         upcomingCreated: summary.upcoming.created,
         paymentPending: summary.paymentPending,
         leavePending: summary.leavePending,
+        contractExpiring: summary.contractExpiring,
       },
     });
     return Response.json({ ok: true, data: summary });
