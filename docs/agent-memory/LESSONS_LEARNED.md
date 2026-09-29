@@ -1340,3 +1340,12 @@ aynı veriyi aynı yoldan mı okuyor?" diye bak.
   4 haneye doldurmadığı için `"2-10-17"` döndü → render'da `format(parseISO(...))` RangeError.
 - Kural: form durumundaki tarih yalnız `isCompleteDateOnlyInput` (date-input.ts) `true` iken hesaplanır/
   formatlanır/sunucuya gider; ara değer normal düzenleme durumudur, alan altında Türkçe uyarı gösterilir.
+
+## 2026-09-30 — Tek statüye geçiş hakediş kaynağını sessizce kesti (Tuçe Avşar Eylül)
+
+Geldi/İşlendi bağımsız bayraklarken yoklama "Geldi + İşlendi" olabiliyordu; `c21e72b` bunları birbirini
+dışlayan tek statü yaptı ama hakediş yalnız İşlendi'yi saymaya devam etti → "Geldi" seçilen ders (testte
+Eylül'de 8 öğretmen, 61 ders) hakedişe hiç girmedi, ekran "Ders yok / 0 TL". Ek olarak DB'de
+`lessonProcessed @default(false)` olduğundan "legacy completed" dalı db modda ölüydü (json'da çalışıyordu).
+**Ders:** bir statü modelini değiştirirken o statüyü okuyan finans kuralını (`isLessonProcessedForPayout`)
+aynı değişiklikte güncelle; json'daki `undefined` ile DB'deki `false` varsayılanını aynı saymayan kural parity kırar.

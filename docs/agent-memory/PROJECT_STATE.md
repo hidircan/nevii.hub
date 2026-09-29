@@ -4,6 +4,15 @@ Kısa tutulur (~50 satır): oturum sonunda yalnız "Güncel snapshot" bölümün
 `archive/`'e taşınır. Ayrıntı → ilgili `docs/testing/UAT_*.md`, `docs/operations/*`. Yönlendirici: `nevii-hub` skill.
 Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_2026-09-24.md`.
 
+## Güncel snapshot — 2026-09-30 (KRİTİK: Geldi/tamamlanmış dersler hakedişe girmiyordu)
+- Kök neden: tek statü modelinde "Geldi" seçilen ders İşlendi olamıyor, hakediş yalnız İşlendi sayıyordu; DB'de
+  `lessonProcessed=false` varsayılanı "Dersi bitir" (completed) dersleri de düşürüyordu (json/db parity).
+- Owner kararı: hakediş = İşlendi ∪ Geldi ∪ completed; Telafi/Gelmedi/Mazeretli/iptal hariç. Tek nokta
+  `isLessonProcessedForPayout` (lesson-ops.ts). Kayıtlı hakedişteki dersin Geldi'si de geri alınamaz (tools.ts).
+- Veri değişikliği YOK, migration YOK. Testte mevcut 3 ödemesiz Eylül kaydı (Turgay/Olcay/DEMO) "güncel hesapla
+  fark" gösterir — sessizce yeniden yazılmaz. Test: `payout-attended-lessons.test.ts`.
+- Açık: İşlendi/Geldi → Telafi geçişi kayıtlı hakediş döneminde engellenmiyor (donmuş kayıt değişmez, fark uyarısı çıkar).
+
 ## Güncel snapshot — 2026-09-30 (hakediş DEFTERİ yeniden tasarım + deneme enstrüman/veli adı)
 - Model: `payout-ledger.ts` (saf) — net = döküm + düzeltmeler; kalan = net − ödemeler; durum türetilir
   (pending/partial/paid/cancelled). Ödeme/düzeltme silinmez → ters kayıt. `replaceTeacherPayout` sürüm kontrollü

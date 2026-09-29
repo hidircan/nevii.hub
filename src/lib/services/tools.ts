@@ -14545,20 +14545,25 @@ export async function clearLessonOpsFlagTool(
   );
   if (!v.ok) return v;
 
-  if (v.data.expected === "processed") {
+  // Geldi de hakediş kaynağı (2026-09-30) — kayıtlı hakedişteki dersin statüsü sessizce geri alınmaz.
+  if (v.data.expected === "processed" || v.data.expected === "attended") {
     const data = await readData();
     const lesson = data.lessons.find((l) => l.id === v.data.lessonId);
     if (!lesson) return fail("NOT_FOUND", "Ders bulunamadı. Sayfayı yenileyip tekrar deneyin.");
     const { payoutPeriodDayKey } = await import("../teacher-payout");
     const day = lesson.startAt.slice(0, 10);
     const payout = data.teacherPayouts.find(
-      (p) => p.teacherId === lesson.teacherId && payoutPeriodDayKey(p.periodStart) <= day && payoutPeriodDayKey(p.periodEnd) >= day
+      (p) =>
+        p.teacherId === lesson.teacherId &&
+        p.status !== "cancelled" &&
+        payoutPeriodDayKey(p.periodStart) <= day &&
+        payoutPeriodDayKey(p.periodEnd) >= day
     );
     if (payout) {
       return fail(
         "CONFLICT",
         `Bu ders, öğretmenin ${payoutPeriodDayKey(payout.periodStart)} – ${payoutPeriodDayKey(payout.periodEnd)} dönemi için oluşturulmuş ` +
-          `${payout.status === "paid" ? "ÖDENMİŞ" : "kayıtlı"} hakedişine dahil; "İşlendi" geri alınamaz. ` +
+          `${payout.status === "paid" ? "ÖDENMİŞ" : "kayıtlı"} hakedişine dahil; "${v.data.expected === "processed" ? "İşlendi" : "Geldi"}" geri alınamaz. ` +
           "Tutarı düzeltmek için öğretmenin hakediş detayındaki revizyonu kullanın."
       );
     }

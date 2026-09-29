@@ -370,8 +370,9 @@ function payableMinutesFor(data: AppData, actualMinutes: number): number {
  * Bir öğretmenin verilen dönem için hakediş dökümünü hesaplar. Yalnızca
  * `lesson.teacherId === teacherId` ile filtreler — `Teacher.branchId` ile
  * İKİNCİ bir filtre UYGULANMAZ (çok şubeli öğretmen dersleri sessizce
- * düşmesin diye kasıtlı tasarım kararı). Yalnızca `status === "completed"`
- * dersler sayılır; `cancelled`/`no_show` hariç tutulur. Aynı `lesson.id`
+ * düşmesin diye kasıtlı tasarım kararı). Yalnızca fiilen verilmiş dersler
+ * (İşlendi / Geldi / tamamlandı — `isLessonProcessedForPayout`) sayılır;
+ * Telafi/Gelmedi/Mazeretli ve `cancelled`/`no_show` hariç tutulur. Aynı `lesson.id`
  * ikinci kez gelirse yalnızca ilk geçerli kayıt hesaplanır.
  *
  * Ders tipine göre AÇIK politika (EPIC 3):
@@ -382,11 +383,10 @@ function payableMinutesFor(data: AppData, actualMinutes: number): number {
  *   Bu bilinçli bir varsayılan, testle kilitlenmiştir.
  * - `status: "cancelled" | "no_show"`: hakedişe hiç girmez (yalnızca
  *   `"completed"` sayılır) — öğretmenin dersi FİİLEN vermediği tek durum bu.
- * - Devamsızlık (`Attendance.status: "absent"`): `Lesson.status` yine de
- *   `"completed"` olabilir (öğretmen dersi bekledi/verdi, öğrenci gelmedi)
- *   — bu durumda hakediş ETKİLENMEZ; öğretmen zamanını ayırdığı için
- *   ödenir. Devamsızlığın sonucu (telafi hakkı) öğrenci tarafında oluşur,
- *   öğretmen hakedişini düşürmez.
+ * - Yoklamada "Gelmedi"/"Mazeretli"/"Telafi" işaretli ders hakedişe girmez
+ *   (tek statü; owner kararı 2026-09-30 bu davranışı korudu). Yalnız
+ *   `Attendance` satırı "absent" olup ders "Dersi bitir" ile tamamlandıysa
+ *   ve bu bayraklar yoksa ders sayılır.
  */
 export function computeTeacherEarningsForPeriod(
   data: AppData,

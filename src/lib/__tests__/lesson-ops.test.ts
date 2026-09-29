@@ -152,8 +152,17 @@ describe("isLessonProcessedForPayout — hakediş/rapor kaynağı", () => {
     expect(isLessonProcessedForPayout({ status: "cancelled", lessonProcessed: true })).toBe(true);
   });
 
-  it("lessonProcessed=false iken status'tan bağımsız false döner (legacy completed'a düşmez)", () => {
-    expect(isLessonProcessedForPayout({ status: "completed", lessonProcessed: false })).toBe(false);
+  it("DB varsayılanı lessonProcessed=false iken 'Dersi bitir' ile tamamlanmış ders sayılır (json/db parity)", () => {
+    expect(isLessonProcessedForPayout({ status: "completed", lessonProcessed: false })).toBe(true);
+  });
+
+  it("Geldi (öğrenci katıldı) İşlendi olmadan da hakedişe girer; Telafi/Gelmedi/Mazeretli/iptal girmez", () => {
+    expect(isLessonProcessedForPayout({ status: "scheduled", lessonProcessed: false, studentAttended: true })).toBe(true);
+    expect(isLessonProcessedForPayout({ status: "completed", lessonProcessed: false, opsMakeupFlag: true })).toBe(false);
+    expect(isLessonProcessedForPayout({ status: "completed", lessonProcessed: false, studentAbsent: true })).toBe(false);
+    expect(isLessonProcessedForPayout({ status: "scheduled", lessonProcessed: false, studentExcused: true })).toBe(false);
+    expect(isLessonProcessedForPayout({ status: "cancelled", lessonProcessed: false, studentAttended: true })).toBe(false);
+    expect(isLessonProcessedForPayout({ status: "scheduled", lessonProcessed: false })).toBe(false);
   });
 
   it("lessonProcessed hiç set edilmemişse (undefined) legacy status='completed' esas alınır", () => {

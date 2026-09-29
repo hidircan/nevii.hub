@@ -2,7 +2,7 @@
  * Geldi / İşlendi / Telafi / Gelmedi / Mazeretli — ayrı, kalıcı operasyonel
  * bayraklar (tek enum değil), TEK, birbirini dışlayan statü olarak davranır
  * (bkz. switchLessonOpsFlag).
- * - Geldi: öğrenci katıldı; dersi otomatik tamamlamaz
+ * - Geldi: öğrenci katıldı; dersi otomatik tamamlamaz ama hakedişe girer (bkz. isLessonProcessedForPayout)
  * - İşlendi: ders fiilen işlendi → hakediş kaynağı (status completed)
  * - Telafi: telafi akışına alındı (kırmızı)
  * - Gelmedi: öğrenci mazeretsiz katılmadı
@@ -60,11 +60,21 @@ export type ApplyLessonOpsResult =
     }
   | { ok: false; message: string };
 
-export function isLessonProcessedForPayout(lesson: Pick<Lesson, "status" | "lessonProcessed">): boolean {
-  // İşlendi bayrağı birincil; yoksa legacy completed
+/**
+ * Hakediş kaynağı — ders fiilen verildi mi? (owner kararı 2026-09-30)
+ * İşlendi, Geldi veya tamamlanmış ("Dersi bitir") ders sayılır; Telafi/Gelmedi/Mazeretli ve iptal sayılmaz.
+ *
+ * KÖK NEDEN: statüler birbirini dışlayınca (c21e72b) "Geldi" seçilen ders hiç İşlendi olamıyordu ve
+ * hakedişten sessizce düşüyordu; ayrıca DB'de `lessonProcessed` varsayılanı `false` olduğundan
+ * `completed` dersler json modda sayılıp db modda sayılmıyordu (mode parity ihlali).
+ */
+export function isLessonProcessedForPayout(
+  lesson: Pick<Lesson, "status" | "lessonProcessed" | "studentAttended" | "opsMakeupFlag" | "studentAbsent" | "studentExcused">
+): boolean {
   if (lesson.lessonProcessed === true) return true;
-  if (lesson.lessonProcessed === false) return false;
-  return lesson.status === "completed";
+  if (lesson.opsMakeupFlag || lesson.studentAbsent || lesson.studentExcused) return false;
+  if (lesson.status === "cancelled" || lesson.status === "no_show") return false;
+  return lesson.studentAttended === true || lesson.status === "completed";
 }
 
 /** Boş/yalnızca-boşluk gerekçeyi de reddeder — "gerekçesiz" ile aynı muamele. */
