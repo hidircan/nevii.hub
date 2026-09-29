@@ -131,6 +131,7 @@ export function PackageCampaignTabs({
                 <option value="all">Tümü</option>
                 <option value="active">Aktif</option>
                 <option value="archived">{tab === "paketler" ? "Arşivli" : "Pasif"}</option>
+                {tab === "kampanyalar" ? <option value="deleted">Silinmiş</option> : null}
               </Select>
             </div>
             {showTermFilter ? (

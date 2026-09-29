@@ -8,6 +8,7 @@
 process.env.TZ = "UTC";
 
 import { describe, it, expect, beforeEach } from "vitest";
+import { CRIT, withTestCriticalPassword } from "./helpers/critical-delete";
 import { promises as fs } from "fs";
 import path from "path";
 import { resolveDataDir } from "../config";
@@ -138,6 +139,8 @@ describe("C — sayfa bildirimleri tek ve güncel", () => {
 });
 
 describe("E — ders silme (üç kapsam)", () => {
+  beforeEach(() => withTestCriticalPassword());
+
   async function newSeries() {
     const res = await createLessonSeriesTool(admin, HIRA_SERIES);
     if (!res.ok) throw new Error(res.error.message);
@@ -146,7 +149,7 @@ describe("E — ders silme (üç kapsam)", () => {
 
   it("sadece bu ders: yalnız o ders silinir", async () => {
     const [, second] = await newSeries();
-    const res = await deleteLessonsTool(admin, { lessonId: second!.id, scope: "single" });
+    const res = await deleteLessonsTool(admin, { lessonId: second!.id, scope: "single", ...CRIT });
     expect(res.ok).toBe(true);
     const left = await seriesLessons(second!.seriesId!);
     expect(left.map((l) => l.id)).not.toContain(second!.id);
@@ -155,7 +158,7 @@ describe("E — ders silme (üç kapsam)", () => {
 
   it("bu ders ve sonrası: önceki ders kalır", async () => {
     const [first, second] = await newSeries();
-    const res = await deleteLessonsTool(admin, { lessonId: second!.id, scope: "fromHereOnward" });
+    const res = await deleteLessonsTool(admin, { lessonId: second!.id, scope: "fromHereOnward", ...CRIT });
     expect(res.ok && res.data.deletedLessonIds).toHaveLength(3);
     expect((await seriesLessons(first!.seriesId!)).map((l) => l.id)).toEqual([first!.id]);
   });
@@ -164,7 +167,7 @@ describe("E — ders silme (üç kapsam)", () => {
     const lessons = await newSeries();
     const marked = await setLessonOpsFlagTool(admin, { lessonId: lessons[0]!.id, flag: "attended" });
     expect(marked.ok).toBe(true);
-    const res = await deleteLessonsTool(admin, { lessonId: lessons[2]!.id, scope: "entireSeries" });
+    const res = await deleteLessonsTool(admin, { lessonId: lessons[2]!.id, scope: "entireSeries", ...CRIT });
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     expect(res.data.deletedLessonIds).toHaveLength(3);
@@ -175,14 +178,23 @@ describe("E — ders silme (üç kapsam)", () => {
   it("seriye ait olmayan derste seri kapsamı anlaşılır Türkçe hata verir", async () => {
     const single = await createLessonTool(admin, { studentId: "s1", teacherId: "t1", roomId: "r1", instrument: "Piyano", startAt: "2027-07-06T15:50", durationMinutes: 40 });
     if (!single.ok) throw new Error(single.error.message);
-    const res = await deleteLessonsTool(admin, { lessonId: single.data.lessonId, scope: "entireSeries" });
+    const res = await deleteLessonsTool(admin, { lessonId: single.data.lessonId, scope: "entireSeries", ...CRIT });
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.error.message).toContain("seriye ait değil");
   });
 
+  it("yanlış kritik şifre veya boş gerekçe hiçbir dersi silmez", async () => {
+    const [first] = await newSeries();
+    const wrong = await deleteLessonsTool(admin, { lessonId: first!.id, scope: "entireSeries", criticalPassword: "yanlis", reason: "Yanlış giriş" });
+    expect(wrong.ok).toBe(false);
+    const empty = await deleteLessonsTool(admin, { lessonId: first!.id, scope: "entireSeries", ...CRIT, reason: "" });
+    expect(empty.ok).toBe(false);
+    expect(await seriesLessons(first!.seriesId!)).toHaveLength(4);
+  });
+
   it("öğretmen ders silemez", async () => {
     const [first] = await newSeries();
-    const res = await deleteLessonsTool({ ...admin, role: "TEACHER", teacherId: "t1" }, { lessonId: first!.id, scope: "single" });
+    const res = await deleteLessonsTool({ ...admin, role: "TEACHER", teacherId: "t1" }, { lessonId: first!.id, scope: "single", ...CRIT });
     expect(res.ok).toBe(false);
   });
 });

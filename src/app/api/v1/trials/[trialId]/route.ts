@@ -13,8 +13,12 @@ export const PATCH = withApiHandler(
   { permission: "trials:write" }
 );
 
-/** Deneme dersi silme — kalıcı, denetim izli (bkz. deleteTrialLessonTool). */
+/** Deneme dersi silme — kalıcı, denetim izli; gövde: { criticalPassword, reason } (bkz. deleteTrialLessonTool). */
 export const DELETE = withApiHandler(
-  async ({ ctx, params }) => deleteTrialLessonTool(ctx, { trialId: params.trialId }),
+  async ({ ctx, body, params }) =>
+    deleteTrialLessonTool(ctx, {
+      ...(typeof body === "object" && body !== null ? (body as object) : {}),
+      trialId: params.trialId,
+    }),
   { permission: "trials:write" }
 );

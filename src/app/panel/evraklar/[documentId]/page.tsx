@@ -12,6 +12,8 @@ import { BackButton } from "@/components/back-button";
 import { DocumentSignedUpload } from "@/components/document-signed-upload";
 import { QuickTaskLink } from "@/components/quick-task-link";
 import { DocumentSignedVersions, type SignedVersionRow } from "@/components/document-signed-versions";
+import { DocumentDeleteButton } from "@/components/document-delete-button";
+import { canRunCriticalActions } from "@/lib/critical-action-password";
 import { DocumentArchiveButton } from "@/components/document-archive-button";
 import { formatDateTime } from "@/lib/utils";
 
@@ -35,6 +37,7 @@ export default async function DocumentDetailPage({
   // Şube müdürü: görüntüleme + arşivleme (kapsam tool katmanında).
   // Görev oluşturma ve imzalı sürüm yükleme adminlerde kalır.
   const isBranchManager = session.role === "BRANCH_MANAGER";
+  const canDelete = canRunCriticalActions(session.role);
 
   const result = await getDocumentInstanceTool(session, { documentId });
   if (!result.ok) {
@@ -100,6 +103,9 @@ export default async function DocumentDetailPage({
               />
             ) : null}
             {doc.status !== "cancelled" ? <DocumentArchiveButton documentId={doc.id} variant="button" /> : null}
+            {canDelete ? (
+              <DocumentDeleteButton documentId={doc.id} reference={doc.reference} afterDeleteHref="/panel/evraklar" />
+            ) : null}
             <span title={documentStatusHint(doc.status)}>
               <Badge status={doc.status}>{documentStatusLabel(doc.status)}</Badge>
             </span>
@@ -163,6 +169,7 @@ export default async function DocumentDetailPage({
                 </p>
                 <DocumentSignedVersions
                   documentId={doc.id}
+                  canDelete={canDelete}
                   versions={(doc.signedVersions ?? []).map(
                     (v): SignedVersionRow => ({
                       id: v.id,

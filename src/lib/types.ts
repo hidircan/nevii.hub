@@ -1290,6 +1290,10 @@ export interface DiscountCampaign {
   createdByUserId?: string;
   createdAt: string;
   updatedAt: string;
+  /** 2026-09-29 — soft delete: dolu = silinmiş (yeni kayıtta seçilemez, düzenlenemez; geçmiş korunur). */
+  deletedAt?: string;
+  deletedByUserId?: string;
+  deletionReason?: string;
 }
 
 /**
@@ -1982,7 +1986,9 @@ export type DocumentInstanceStatus =
   | "signed"
   | "uploaded"
   | "cancelled"
-  | "expired";
+  | "expired"
+  /** 2026-09-29 — arşivlenmiş evrak kritik şifre + gerekçeyle silindi (soft delete; satır/dosya DB'de kalır). */
+  | "deleted";
 
 export interface DocumentTemplate {
   id: string;

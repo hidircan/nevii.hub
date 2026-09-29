@@ -562,6 +562,7 @@ import {
   archiveDocumentInstance,
   uploadSignedDocumentFile,
   softDeleteSignedVersion,
+  softDeleteArchivedDocumentInstance,
   createContractTemplateDraftFromCanonicalSource,
   activateTemplateExclusive,
   getContractTemplateDiagnostics,
@@ -655,6 +656,45 @@ async function checkCriticalPassword(
 }
 
 const CRITICAL_ROLES_FOR_TOOLS: ActorRole[] = ["SUPER_ADMIN", "SCHOOL_ADMIN"];
+
+/**
+ * 2026-09-29 owner kuralı — kullanıcıya "Sil" olarak sunulan HER eylem (soft delete dahil)
+ * sunucuda: yetkili rol + kurum kritik işlem şifresi + boş olmayan gerekçe ister.
+ * Şema alanları her silme tool'unun girdisine eklenir; şifre asla loglanmaz/audit'e yazılmaz.
+ */
+export const criticalDeleteFields = {
+  criticalPassword: z.string(),
+  reason: z.string().trim().min(5, "Silme gerekçesi en az 5 karakter olmalı.").max(500),
+};
+
+/**
+ * Ortak silme kapısı: rol → kritik şifre. Reddedilen her deneme denetim kaydına
+ * (`outcome: "denied"`, yalnız reasonCode) yazılır. `null` = devam edilebilir.
+ */
+export async function guardCriticalDelete(
+  ctx: ServiceContext,
+  target: { action: string; entityType: string; entityId: string; entityName?: string },
+  criticalPassword: string
+): Promise<ServiceFailure | null> {
+  const deny = async (reasonCode: string, message: string) => {
+    await recordAuditLog({
+      tenantId: ctx.tenantId,
+      actorUserId: ctx.userId,
+      actorRole: ctx.role,
+      action: target.action,
+      entityType: target.entityType,
+      entityId: target.entityId,
+      outcome: "denied",
+      meta: { reasonCode, ...(target.entityName ? { entityName: target.entityName } : {}) },
+    });
+    return fail("FORBIDDEN", message);
+  };
+  if (!requireRole(ctx, CRITICAL_ROLES_FOR_TOOLS).ok) {
+    return deny("role_forbidden", "Silme yalnız kurum sahibi ve kurum yöneticileri tarafından, kritik işlem şifresiyle yapılabilir.");
+  }
+  const gate = await checkCriticalPassword(ctx, criticalPassword);
+  return gate.ok ? null : deny(gate.reasonCode, gate.message);
+}
 
 /**
  * Karma Öğrenci Portalı — çağıranın BU öğrenciye erişim türü (GUARDIAN/SELF).
@@ -5206,6 +5246,107 @@ export async function createDiscountCampaignTool(
   return ok({ campaignId: result.campaign.id });
 }
 
+/**
+ * 2026-09-29 — kampanya silme etki özeti (salt okuma): bu kampanyayla kaydolmuş öğrenciler,
+ * kullanım sayacı. Silme geçmiş ücretleri DEĞİŞTİRMEZ; yalnız yeni kayıtta seçimi kaldırır.
+ */
+export async function getDiscountCampaignDeletionImpactTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<
+  ServiceResult<{
+    name: string;
+    active: boolean;
+    usageCount: number;
+    studentCount: number;
+    activeStudentCount: number;
+    updatedAt: string;
+    criticalPasswordConfigured: boolean;
+  }>
+> {
+  const auth = requireRole(ctx, ["SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", "Kampanya silme yalnız kurum sahibi tarafından başlatılabilir.");
+  const v = parseOrFail(z.object({ campaignId: z.string().min(1) }), input);
+  if (!v.ok) return v;
+  const data = await readData();
+  const campaign = (data.discountCampaigns ?? []).find((c) => c.id === v.data.campaignId && !c.deletedAt);
+  if (!campaign) return fail("NOT_FOUND", "Kampanya bulunamadı veya zaten silinmiş. Listeyi yenileyin.");
+  const beneficiaries = data.students.filter((s) => (s.appliedCampaignIds ?? []).includes(campaign.id));
+  const { getCriticalActionPasswordStatus } = await import("../critical-action-password");
+  const status = await getCriticalActionPasswordStatus(ctx.tenantId);
+  return ok({
+    name: campaign.name,
+    active: campaign.active,
+    usageCount: campaign.usageCount ?? 0,
+    studentCount: beneficiaries.length,
+    activeStudentCount: beneficiaries.filter((s) => s.active).length,
+    updatedAt: campaign.updatedAt,
+    criticalPasswordConfigured: status.configured,
+  });
+}
+
+/**
+ * 2026-09-29 — kampanya "Sil" = SOFT DELETE: `deletedAt` + pasif. Satır, kullanım sayacı ve
+ * öğrencilerdeki `appliedCampaignIds` korunur (geçmiş fiyat/rapor izi). Kapılar: SUPER_ADMIN →
+ * ad teyidi → kritik şifre + gerekçe → eşzamanlılık (`expectedUpdatedAt`).
+ */
+export async function deleteDiscountCampaignTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ campaignId: string }>> {
+  const auth = requireRole(ctx, ["SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", "Kampanya silme yalnız kurum sahibi tarafından yapılabilir.");
+  const v = parseOrFail(
+    z.object({
+      campaignId: z.string().min(1),
+      confirmation: z.string(),
+      expectedUpdatedAt: z.string().min(1),
+      ...criticalDeleteFields,
+    }),
+    input
+  );
+  if (!v.ok) return v;
+  const campaign = ((await readData()).discountCampaigns ?? []).find((c) => c.id === v.data.campaignId);
+  if (!campaign || campaign.deletedAt) {
+    return fail("NOT_FOUND", "Kampanya bulunamadı veya zaten silinmiş. Listeyi yenileyin.");
+  }
+  if (!sameName(v.data.confirmation, campaign.name)) {
+    return fail("VALIDATION_ERROR", `Onay için kampanyanın adını aynen yazın: "${campaign.name}".`);
+  }
+  const denied = await guardCriticalDelete(
+    ctx,
+    { action: "discount_campaign.delete", entityType: "DiscountCampaign", entityId: campaign.id, entityName: campaign.name },
+    v.data.criticalPassword
+  );
+  if (denied) return denied;
+  if (campaign.updatedAt !== v.data.expectedUpdatedAt) {
+    return fail("CONFLICT", "Kampanya siz bakarken başka biri tarafından değiştirildi. Sayfayı yenileyip etki özetini tekrar kontrol edin.");
+  }
+  const result = await updateDiscountCampaign(campaign.id, {
+    active: false,
+    deletedAt: new Date().toISOString(),
+    deletedByUserId: ctx.userId,
+    deletionReason: v.data.reason,
+  });
+  if (!result.ok) return fail("CONFLICT", result.message);
+  await recordAuditLog({
+    tenantId: ctx.tenantId,
+    actorUserId: ctx.userId,
+    actorRole: ctx.role,
+    action: "discount_campaign.delete",
+    entityType: "DiscountCampaign",
+    entityId: campaign.id,
+    outcome: "success",
+    meta: {
+      entityName: campaign.name,
+      reason: v.data.reason,
+      mode: "soft",
+      snapshot: { discountPercent: campaign.discountPercent, active: campaign.active, usageCount: campaign.usageCount ?? 0 },
+    },
+  });
+  return ok({ campaignId: campaign.id });
+}
+
 export async function updateDiscountCampaignTool(
   ctx: ServiceContext,
   input: unknown
@@ -7005,10 +7146,14 @@ export async function deleteLessonsTool(
   ctx: ServiceContext,
   input: unknown
 ): Promise<ServiceResult<{ deletedLessonIds: string[]; protectedLessons: { lessonId: string; startAt: string; reason: string }[] }>> {
-  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
-  if (!auth.ok) return fail("FORBIDDEN", auth.message);
-  const v = parseOrFail(deleteLessonsSchema, input);
+  const v = parseOrFail(deleteLessonsSchema.extend(criticalDeleteFields), input);
   if (!v.ok) return v;
+  const denied = await guardCriticalDelete(
+    ctx,
+    { action: "lesson.delete", entityType: "Lesson", entityId: v.data.lessonId },
+    v.data.criticalPassword
+  );
+  if (denied) return denied;
   try {
     const result = await deleteLessonsScoped(v.data.lessonId, v.data.scope);
     if (!result.ok) return fail("VALIDATION_ERROR", result.message, result.allProtected ? { allProtected: true } : undefined);
@@ -11189,14 +11334,18 @@ export async function deleteRoomTool(
   ctx: ServiceContext,
   input: unknown
 ): Promise<ServiceResult<{ roomId: string }>> {
-  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
-  if (!auth.ok) return fail("FORBIDDEN", auth.message);
-  const v = parseOrFail(z.object({ roomId: z.string().min(1) }), input);
+  const v = parseOrFail(z.object({ roomId: z.string().min(1), ...criticalDeleteFields }), input);
   if (!v.ok) return v;
 
   const data = await readData();
   const room = data.rooms.find((r) => r.id === v.data.roomId && !r.deletedAt);
   if (!room) return fail("NOT_FOUND", "Oda bulunamadı; sayfayı yenileyin.");
+  const denied = await guardCriticalDelete(
+    ctx,
+    { action: "room.delete", entityType: "Room", entityId: room.id, entityName: room.name },
+    v.data.criticalPassword
+  );
+  if (denied) return denied;
   if (room.active !== false) {
     return fail("VALIDATION_ERROR", `"${room.name}" aktif; yalnız pasif odalar silinebilir. Önce Odalar ekranında "Pasife Al" deyin.`);
   }
@@ -11210,7 +11359,7 @@ export async function deleteRoomTool(
   }
   const updated = await updateRoom(room.id, { deletedAt: nowIso });
   if (!updated) return fail("NOT_FOUND", "Oda bulunamadı; sayfayı yenileyin.");
-  audit(ctx, "room.delete", "Room", room.id, { name: room.name });
+  audit(ctx, "room.delete", "Room", room.id, { name: room.name, reason: v.data.reason });
   return ok({ roomId: room.id });
 }
 
@@ -11546,23 +11695,25 @@ export async function deleteTrialLessonTool(
   ctx: ServiceContext,
   input: unknown
 ): Promise<ServiceResult<{ trialId: string }>> {
-  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN", "TEACHER", "BRANCH_MANAGER"]);
-  if (!auth.ok) return fail("FORBIDDEN", auth.message);
-  const v = parseOrFail(z.object({ trialId: z.string().min(1) }), input);
+  // 2026-09-29 — kalıcı silme: yalnız kurum sahibi/yöneticisi + kritik şifre + gerekçe
+  // (öğretmen/şube müdürü artık silemez; arşivleme yolları aynen kalır).
+  const v = parseOrFail(z.object({ trialId: z.string().min(1), ...criticalDeleteFields }), input);
   if (!v.ok) return v;
   const existing = await getTrialLesson(ctx.tenantId, v.data.trialId);
   if (!existing) return fail("NOT_FOUND", "Deneme dersi bulunamadı. Listeyi yenileyip tekrar deneyin.");
-  if (ctx.role === "TEACHER" && existing.teacherId !== ctx.teacherId) {
-    return fail("FORBIDDEN", "Yalnızca kendi deneme derslerinizi silebilirsiniz.");
-  }
-  const branchGate = await assertTrialBranchScope(ctx, existing.branchId);
-  if (branchGate) return branchGate;
+  const denied = await guardCriticalDelete(
+    ctx,
+    { action: "trial.delete", entityType: "TrialLesson", entityId: existing.id, entityName: existing.name },
+    v.data.criticalPassword
+  );
+  if (denied) return denied;
   try {
     const { deleteTrialLesson } = await import("../trial-lessons");
     const removed = await deleteTrialLesson(ctx.tenantId, existing.id);
     if (!removed) return fail("NOT_FOUND", "Deneme dersi bulunamadı. Listeyi yenileyip tekrar deneyin.");
     audit(ctx, "trial.delete", "TrialLesson", existing.id, {
       entityName: existing.name,
+      reason: v.data.reason,
       status: existing.status,
       ...(existing.convertedStudentId ? { convertedStudentId: existing.convertedStudentId } : {}),
     });
@@ -12151,6 +12302,104 @@ export async function archiveDocumentInstanceTool(
   }
 }
 
+/**
+ * 2026-09-29 — evrak silme öncesi etki özeti (salt okuma). Silme yalnız ARŞİVLENMİŞ ve
+ * sözleşmeye bağlı OLMAYAN evrakta yapılabilir; aksi durum `allowed:false` + nedenle döner.
+ */
+async function documentDeletionBlockReason(
+  tenantId: string,
+  doc: DocumentInstance
+): Promise<string | null> {
+  if (doc.status !== "cancelled") {
+    return 'Yalnız arşivlenmiş evrak silinebilir. Önce evrakı "Arşivle" ile arşivleyin; ardından Arşivlenen Evraklar listesinden silebilirsiniz.';
+  }
+  const { findContractIdByDocumentInstanceId } = await import("../contracts");
+  if (await findContractIdByDocumentInstanceId(tenantId, doc.id)) {
+    return "Bu evrak bir öğrenci sözleşmesinin yasal nüshası; silinemez. Sözleşmeyi öğrencinin Sözleşmeler sekmesinden iptal edin — nüsha arşivde kalır.";
+  }
+  return null;
+}
+
+export async function getDocumentDeletionImpactTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<
+  ServiceResult<{
+    reference: string;
+    status: string;
+    hasSignedFile: boolean;
+    signedVersionCount: number;
+    openTaskCount: number;
+    allowed: boolean;
+    blockReason?: string;
+    criticalPasswordConfigured: boolean;
+  }>
+> {
+  const auth = requireRole(ctx, CRITICAL_ROLES_FOR_TOOLS);
+  if (!auth.ok) return fail("FORBIDDEN", "Evrak silme yalnız kurum sahibi ve kurum yöneticileri tarafından başlatılabilir.");
+  const v = parseOrFail(z.object({ documentId: z.string().min(1) }), input);
+  if (!v.ok) return v;
+  const { getDocumentInstance } = await import("../documents");
+  const doc = await getDocumentInstance(ctx.tenantId, v.data.documentId);
+  if (!doc) return fail("NOT_FOUND", "Evrak bulunamadı; başka biri silmiş olabilir. Listeyi yenileyin.");
+  const blockReason = await documentDeletionBlockReason(ctx.tenantId, doc);
+  const openTaskCount = (await listTasks(ctx.tenantId)).filter(
+    (t) => t.documentId === doc.id && !["COMPLETED", "CANCELLED", "ARCHIVED"].includes(t.status)
+  ).length;
+  const { getCriticalActionPasswordStatus } = await import("../critical-action-password");
+  const status = await getCriticalActionPasswordStatus(ctx.tenantId);
+  return ok({
+    reference: doc.reference,
+    status: doc.status,
+    hasSignedFile: Boolean(doc.fileName),
+    signedVersionCount: (doc.signedVersions ?? []).filter((x) => !x.deletedAt).length,
+    openTaskCount,
+    allowed: blockReason === null,
+    ...(blockReason ? { blockReason } : {}),
+    criticalPasswordConfigured: status.configured,
+  });
+}
+
+/**
+ * 2026-09-29 — arşivlenmiş evrakı SOFT DELETE eder (bkz. softDeleteArchivedDocumentInstance):
+ * rol + evrak referans teyidi + kritik şifre + gerekçe. Hard delete / dosya silme YOK.
+ */
+export async function deleteDocumentInstanceTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ documentId: string }>> {
+  const v = parseOrFail(
+    z.object({ documentId: z.string().min(1), confirmation: z.string(), ...criticalDeleteFields }),
+    input
+  );
+  if (!v.ok) return v;
+  const { getDocumentInstance } = await import("../documents");
+  const doc = await getDocumentInstance(ctx.tenantId, v.data.documentId);
+  if (!doc) return fail("NOT_FOUND", "Evrak bulunamadı; başka biri silmiş olabilir. Listeyi yenileyin.");
+  const target = { action: "document.delete", entityType: "DocumentInstance", entityId: doc.id, entityName: doc.reference };
+  if (!sameName(v.data.confirmation, doc.reference)) {
+    return fail("VALIDATION_ERROR", `Onay için evrak numarasını aynen yazın: "${doc.reference}".`);
+  }
+  const denied = await guardCriticalDelete(ctx, target, v.data.criticalPassword);
+  if (denied) return denied;
+  const blockReason = await documentDeletionBlockReason(ctx.tenantId, doc);
+  if (blockReason) return fail("CONFLICT", blockReason);
+  if (!(await softDeleteArchivedDocumentInstance(ctx.tenantId, doc.id))) {
+    return fail("CONFLICT", "Evrak bu sırada değişti veya zaten silindi. Listeyi yenileyip tekrar kontrol edin.");
+  }
+  await recordAuditLog({
+    tenantId: ctx.tenantId,
+    actorUserId: ctx.userId,
+    actorRole: ctx.role,
+    action: "document.delete",
+    entityType: "DocumentInstance",
+    entityId: doc.id,
+    outcome: "success",
+    meta: { entityName: doc.reference, reason: v.data.reason, kind: doc.kind, previousStatus: doc.status, mode: "soft" },
+  });
+  return ok({ documentId: doc.id });
+}
+
 const uploadSignedDocumentSchema = z.object({
   documentId: z.string().min(1),
   fileName: z
@@ -12313,15 +12562,22 @@ export async function deleteSignedDocumentVersionTool(
   ctx: ServiceContext,
   input: unknown
 ): Promise<ServiceResult<{ documentId: string; status: string }>> {
-  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
-  if (!auth.ok) return fail("FORBIDDEN", auth.message);
-  const v = parseOrFail(deleteSignedDocumentVersionSchema, input);
+  const v = parseOrFail(deleteSignedDocumentVersionSchema.extend(criticalDeleteFields), input);
   if (!v.ok) return v;
+  const denied = await guardCriticalDelete(
+    ctx,
+    { action: "document.signed_version_delete", entityType: "DocumentInstance", entityId: v.data.documentId },
+    v.data.criticalPassword
+  );
+  if (denied) return denied;
 
   try {
     const doc = await softDeleteSignedVersion(ctx.tenantId, v.data.documentId, v.data.versionId);
     if (!doc) return fail("NOT_FOUND", "Belge veya sürüm kaydı bulunamadı.");
-    audit(ctx, "document.signed_version_delete", "DocumentInstance", doc.id, { versionId: v.data.versionId });
+    audit(ctx, "document.signed_version_delete", "DocumentInstance", doc.id, {
+      versionId: v.data.versionId,
+      reason: v.data.reason,
+    });
     return ok({ documentId: doc.id, status: doc.status });
   } catch (e) {
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "deleteSignedDocumentVersion failed");

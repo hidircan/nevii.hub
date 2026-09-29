@@ -1005,6 +1005,9 @@ async function readDiscountCampaigns(tid: string): Promise<AppData["discountCamp
     createdByUserId: c.createdByUserId ?? undefined,
     createdAt: c.createdAt.toISOString(),
     updatedAt: c.updatedAt.toISOString(),
+    deletedAt: c.deletedAt?.toISOString() ?? undefined,
+    deletedByUserId: c.deletedByUserId ?? undefined,
+    deletionReason: c.deletionReason ?? undefined,
   }));
 }
 
@@ -2975,8 +2978,12 @@ export async function updateDiscountCampaign(
   if (!result.ok) return result;
 
   const updateResult = await prisma.discountCampaign.updateMany({
-    where: { id: campaignId, tenantId: tid },
+    // Silinmiş satır hiçbir yamayla değişmez; eşzamanlı ikinci silme 0 satır günceller.
+    where: { id: campaignId, tenantId: tid, deletedAt: null },
     data: {
+      deletedAt: patch.deletedAt ? new Date(patch.deletedAt) : undefined,
+      deletedByUserId: patch.deletedByUserId,
+      deletionReason: patch.deletionReason,
       name: patch.name,
       description: patch.description,
       discountPercent: patch.discountPercent,

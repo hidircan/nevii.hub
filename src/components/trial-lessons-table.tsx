@@ -3,8 +3,9 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Archive, Pencil, RotateCcw, Search, Trash2 } from "lucide-react";
+import { Archive, Pencil, RotateCcw, Search } from "lucide-react";
 import { ModalShell, modalButton } from "@/components/modal-shell";
+import { CriticalDeleteDialog } from "@/components/critical-delete-dialog";
 import { PaginationControls, usePagination } from "@/components/pagination-controls";
 import { friendlyApiErrorMessage } from "@/lib/api/friendly-error";
 import { apiFetchJson } from "@/lib/api/client-fetch";
@@ -60,6 +61,7 @@ export function TrialLessonsTable({
   rows,
   canWrite,
   canConvertTrial = true,
+  canDelete = false,
   isTeacher,
   teachers,
   branches,
@@ -70,6 +72,8 @@ export function TrialLessonsTable({
   canWrite: boolean;
   /** Şube müdürü revize eder ama kayda dönüştürmez (öğrenci kaydı ayrı yetki). */
   canConvertTrial?: boolean;
+  /** Kalıcı silme yalnız kurum sahibi/yöneticisi + kritik şifre (2026-09-29 owner kuralı). */
+  canDelete?: boolean;
   /** Öğretmen başka öğretmene devredemez — öğretmen seçici kilitli. */
   isTeacher: boolean;
   teachers: { id: string; name: string }[];
@@ -207,21 +211,26 @@ export function TrialLessonsTable({
         busy={busyId === r.id}
         onEdit={() => setEditId(r.id)}
         onArchive={() => void changeStatus(r, r.status === "cancelled" ? "planned" : "cancelled")}
-        onDelete={() => void deleteTrial(r)}
+        onDelete={canDelete ? (input) => deleteTrial(r, input) : undefined}
       />
     );
   }
 
-  async function deleteTrial(row: TrialRow) {
-    setBusyId(row.id);
+  async function deleteTrial(
+    row: TrialRow,
+    input: { criticalPassword: string; reason: string }
+  ): Promise<{ ok: true } | { ok: false; message: string }> {
     setError(null);
-    const res = await apiFetchJson(`/api/v1/trials/${row.id}`, { method: "DELETE" });
-    setBusyId(null);
+    const res = await apiFetchJson(`/api/v1/trials/${row.id}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
     if (!res.ok) {
-      setError(friendlyApiErrorMessage(res.error, "Deneme dersi silinemedi. Sayfayı yenileyip tekrar deneyin."));
-      return;
+      return { ok: false, message: friendlyApiErrorMessage(res.error, "Deneme dersi silinemedi. Sayfayı yenileyip tekrar deneyin.") };
     }
     router.refresh();
+    return { ok: true };
   }
 
   return (
@@ -473,21 +482,21 @@ function RowActions({
   busy: boolean;
   onEdit: () => void;
   onArchive: () => void;
-  onDelete: () => void;
+  /** Yoksa Sil gösterilmez (yetkisiz rol). */
+  onDelete?: (input: { criticalPassword: string; reason: string }) => Promise<{ ok: true } | { ok: false; message: string }>;
 }) {
-  const [arm, setArm] = useState<"archive" | "delete" | null>(null);
+  const [arm, setArm] = useState<"archive" | null>(null);
   const archived = row.status === "cancelled";
   if (arm) {
-    const isDelete = arm === "delete";
     return (
       <span className="inline-flex shrink-0 flex-wrap items-center gap-1.5 text-xs">
-        <span className="text-[var(--color-text-muted)]">{isDelete ? "Silinsin mi?" : archived ? "Geri açılsın mı?" : "Arşivlensin mi?"}</span>
+        <span className="text-[var(--color-text-muted)]">{archived ? "Geri açılsın mı?" : "Arşivlensin mi?"}</span>
         <button
           type="button"
           disabled={busy}
           onClick={() => {
             setArm(null);
-            (isDelete ? onDelete : onArchive)();
+            onArchive();
           }}
           className="font-semibold text-[var(--color-danger)] hover:underline disabled:opacity-50"
         >
@@ -524,16 +533,34 @@ function RowActions({
         {archived ? <RotateCcw className="h-3 w-3" aria-hidden /> : <Archive className="h-3 w-3" aria-hidden />}
         {archived ? "Geri aç" : "Arşivle"}
       </button>
-      <button
-        type="button"
-        onClick={() => setArm("delete")}
-        aria-label={`${row.name} deneme dersini sil`}
-        title="Kalıcı sil (denetim izi bırakır)"
-        className="inline-flex items-center gap-1 rounded-md border border-[var(--color-border-strong)] px-2 py-1 text-xs font-medium text-[var(--color-danger)] hover:border-[var(--color-danger)]"
-      >
-        <Trash2 className="h-3 w-3" aria-hidden />
-        Sil
-      </button>
+      {onDelete ? (
+        <CriticalDeleteDialog
+          triggerLabel="Sil"
+          title={`${row.name} deneme dersini sil`}
+          meaning="Deneme kaydı kalıcı olarak silinir (geri alınamaz). Dökümü, silen kişi ve gerekçe denetim kaydında kalır. Yalnız gizlemek istiyorsanız Arşivle'yi kullanın."
+          confirmationName={row.name}
+          confirmationLabel="Onay için adı aynen yazın"
+          submitLabel="Kalıcı sil"
+          loadImpact={async () => ({
+            ok: true,
+            data: {
+              lines: [
+                ["Deneme", row.name],
+                ["Durum", TRIAL_STATUS_LABELS[row.status] ?? row.status],
+                ["Geri alma", "Yok — arşivleme geri alınabilir"],
+              ],
+              allowed: true,
+              criticalPasswordConfigured: true,
+            },
+          })}
+          onSubmit={async ({ criticalPassword, reason, confirmation }) => {
+            if (confirmation.trim().toLocaleLowerCase("tr") !== row.name.trim().toLocaleLowerCase("tr")) {
+              return { ok: false, message: `Onay için adı aynen yazın: "${row.name}".` };
+            }
+            return onDelete({ criticalPassword, reason });
+          }}
+        />
+      ) : null}
     </span>
   );
 }

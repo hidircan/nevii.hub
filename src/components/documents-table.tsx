@@ -9,6 +9,7 @@ import Link from "next/link";
 import { ArrowDown, ArrowUp, ChevronsUpDown, FileText, ShieldCheck } from "lucide-react";
 import { Card } from "@/components/ui";
 import { DocumentArchiveButton } from "@/components/document-archive-button";
+import { DocumentDeleteButton } from "@/components/document-delete-button";
 import { PaginationControls, usePagination } from "@/components/pagination-controls";
 import { filterAndSortDocuments, type DocumentSortKey, type StudentStateFilter } from "@/lib/documents-filter";
 import { formatDate } from "@/lib/utils";
@@ -54,8 +55,11 @@ export function DocumentsTable({
   people = [],
   activeStudentId,
   activeTeacherId,
+  canDelete = false,
 }: {
   rows: DocumentRow[];
+  /** Arşivlenmiş (sözleşmeye bağlı olmayan) satırda "Sil" — yalnız kurum sahibi/yöneticisi. */
+  canDelete?: boolean;
   /** İlgili kişi filtresi — sunucu tarafı `?studentId=` / `?teacherId=` ile daraltır. Aktif + pasif öğrenci ve öğretmen. */
   people?: DocumentPersonOption[];
   activeStudentId?: string;
@@ -355,6 +359,8 @@ export function DocumentsTable({
                         ) : null}
                         {d.status !== "cancelled" ? (
                           <DocumentArchiveButton documentId={d.id} variant="link" />
+                        ) : canDelete && !d.contractId ? (
+                          <DocumentDeleteButton documentId={d.id} reference={d.reference} />
                         ) : null}
                       </div>
                     </td>
@@ -378,7 +384,9 @@ export function DocumentsTable({
         <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" style={{ color: "var(--color-success)" }} />
         <span>
           Evraklar kalıcıdır. “Arşivle” belgeyi <strong>silmez</strong> — yalnızca <em>İptal edildi</em> olarak
-          işaretler; referans numarası, içerik ve yüklenen imzalı nüshalar saklanmaya devam eder.
+          işaretler; referans numarası, içerik ve yüklenen imzalı nüshalar saklanmaya devam eder. Arşivlenmiş evrak
+          kurum sahibi/yöneticisi tarafından kritik işlem şifresi ve gerekçeyle <strong>Sil</strong>inebilir: listelerden
+          ve erişimden kalkar, kayıt ve dosya yasal saklama için veritabanında tutulur. Sözleşme nüshaları silinemez.
         </span>
       </p>
     </>

@@ -73,6 +73,9 @@ export default async function PackagesPage({
       const scoped = c.branchId || multi.length > 0;
       if (scoped && c.branchId !== sube && !multi.includes(sube)) return false;
     }
+    // Silinmiş kampanya yalnız "Silinmiş" filtresinde listelenir (rapor/geçmiş aynen okunur).
+    if (durum === "deleted") return Boolean(c.deletedAt);
+    if (c.deletedAt) return false;
     if (durum === "active" && !c.active) return false;
     if (durum === "archived" && c.active) return false;
     return true;
@@ -143,7 +146,11 @@ export default async function PackagesPage({
         ) : (
           <CampaignReportView
             entries={report}
-            campaigns={(data.discountCampaigns ?? []).map((c) => ({ id: c.id, name: c.name, displayId: c.displayId }))}
+            campaigns={(data.discountCampaigns ?? []).map((c) => ({
+              id: c.id,
+              name: c.deletedAt ? `${c.name} (silindi)` : c.name,
+              displayId: c.displayId,
+            }))}
             branches={branches}
           />
         )}

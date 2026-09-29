@@ -70,7 +70,7 @@ export default async function OdalarPage() {
                       <td className="px-4 py-3">
                         <div className="flex flex-wrap items-start gap-1.5">
                           <RoomEditDialog room={room} branches={branchOptions} />
-                          <RoomArchiveToggle roomId={room.id} active={room.active !== false} />
+                          <RoomArchiveToggle roomId={room.id} roomName={room.name} active={room.active !== false} />
                         </div>
                       </td>
                     ) : null}
@@ -104,7 +104,7 @@ export default async function OdalarPage() {
                 </div>
                 <div className="flex flex-wrap items-start gap-1.5">
                   <RoomEditDialog room={room} branches={branchOptions} />
-                  <RoomArchiveToggle roomId={room.id} active={false} />
+                  <RoomArchiveToggle roomId={room.id} roomName={room.name} active={false} />
                 </div>
               </div>
             ))}

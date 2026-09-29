@@ -99,6 +99,10 @@ import {
   deleteStudentTool,
   getPackageDeletionImpactTool,
   deletePackageTool,
+  getDocumentDeletionImpactTool,
+  deleteDocumentInstanceTool,
+  getDiscountCampaignDeletionImpactTool,
+  deleteDiscountCampaignTool,
   getTaskDeletionImpactTool,
   deleteTaskTool,
   restoreDeletedTaskTool,
@@ -2060,9 +2064,13 @@ export async function actionUpdateRoom(input: {
 }
 
 /** 8. tur (E) — pasif oda silme (soft delete, geçmiş dersler korunur). */
-export async function actionDeleteRoom(roomId: string): Promise<UpdateRoomActionResult> {
+export async function actionDeleteRoom(input: {
+  roomId: string;
+  criticalPassword: string;
+  reason: string;
+}): Promise<UpdateRoomActionResult> {
   try {
-    const result = await withAuthContext("actionDeleteRoom", (ctx) => deleteRoomTool(ctx, { roomId }));
+    const result = await withAuthContext("actionDeleteRoom", (ctx) => deleteRoomTool(ctx, input));
     if (!result.ok) return { ok: false, message: result.error.message };
     revalidateAll();
     return { ok: true };
@@ -3565,7 +3573,12 @@ export type DeleteLessonsActionResult =
   | { ok: false; message: string; forceable?: boolean };
 
 /** 2026-09-17 — ders silme (kapsamlı); korunan dersler tarih + nedenle döner. */
-export async function actionDeleteLessons(input: { lessonId: string; scope: LessonEditScopeInput; reason?: string }): Promise<DeleteLessonsActionResult> {
+export async function actionDeleteLessons(input: {
+  lessonId: string;
+  scope: LessonEditScopeInput;
+  reason: string;
+  criticalPassword: string;
+}): Promise<DeleteLessonsActionResult> {
   try {
     const result = await withAuthContext("actionDeleteLessons", (ctx) => deleteLessonsTool(ctx, input));
     if (!result.ok) {
@@ -4908,4 +4921,52 @@ export async function actionSetMessageStatus(input: {
     if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
     return { ok: false, message: "Mesaj durumu güncellenirken beklenmeyen bir hata oluştu." };
   }
+}
+
+// 2026-09-29 — kampanya ve evrak silme (kritik şifre + gerekçe; soft delete, bkz. tools.ts).
+export async function actionGetDiscountCampaignDeletionImpact(campaignId: string) {
+  return runSimpleAction(
+    "actionGetDiscountCampaignDeletionImpact",
+    (ctx) => getDiscountCampaignDeletionImpactTool(ctx, { campaignId }),
+    "Kampanyanın bağlı kayıtları okunamadı; sayfayı yenileyip tekrar deneyin."
+  );
+}
+
+export async function actionDeleteDiscountCampaign(input: {
+  campaignId: string;
+  confirmation: string;
+  expectedUpdatedAt: string;
+  criticalPassword: string;
+  reason: string;
+}): Promise<SimpleActionResult<{ campaignId: string }>> {
+  const res = await runSimpleAction(
+    "actionDeleteDiscountCampaign",
+    (ctx) => deleteDiscountCampaignTool(ctx, input),
+    "Kampanya silinemedi; hiçbir kayıt değişmedi. Tekrar deneyin."
+  );
+  if (res.ok) revalidateAll();
+  return res;
+}
+
+export async function actionGetDocumentDeletionImpact(documentId: string) {
+  return runSimpleAction(
+    "actionGetDocumentDeletionImpact",
+    (ctx) => getDocumentDeletionImpactTool(ctx, { documentId }),
+    "Evrakın bağlı kayıtları okunamadı; sayfayı yenileyip tekrar deneyin."
+  );
+}
+
+export async function actionDeleteDocument(input: {
+  documentId: string;
+  confirmation: string;
+  criticalPassword: string;
+  reason: string;
+}): Promise<SimpleActionResult<{ documentId: string }>> {
+  const res = await runSimpleAction(
+    "actionDeleteDocument",
+    (ctx) => deleteDocumentInstanceTool(ctx, input),
+    "Evrak silinemedi; hiçbir kayıt değişmedi. Tekrar deneyin."
+  );
+  if (res.ok) revalidateAll();
+  return res;
 }

@@ -94,7 +94,8 @@ export function LessonScopeEditor({ lesson, onDone }: { lesson: Lesson; onDone: 
         onDone("Statüsü girilmiş ders ve yoklaması tamamen silindi. İşlem denetim kaydına yazıldı.");
         return;
       }
-      const result = await actionDeleteLessons({ lessonId: lesson.id, scope, reason: deleteReason || undefined });
+      const result = await actionDeleteLessons({ lessonId: lesson.id, scope, reason: deleteReason, criticalPassword: forcePassword });
+      setForcePassword("");
       if (!result.ok) {
         setDeleteError(result.message);
         if (result.forceable) setForceMode(true);
@@ -184,7 +185,7 @@ export function LessonScopeEditor({ lesson, onDone }: { lesson: Lesson; onDone: 
             <button
               type="button"
               className={modalButton.danger}
-              disabled={pending || (forceMode && (deleteReason.trim().length < 5 || forcePassword.length === 0))}
+              disabled={pending || deleteReason.trim().length < 5 || forcePassword.length === 0}
               onClick={confirmDelete}
             >
               {pending ? "Siliniyor…" : forceMode ? "Tamamen sil" : "Programdan sil"}
@@ -201,7 +202,7 @@ export function LessonScopeEditor({ lesson, onDone }: { lesson: Lesson; onDone: 
             <li className={forceMode ? "opacity-60" : ""}>
               <strong>Programdan sil</strong> — yanlış girilmiş, henüz statüsü olmayan ders(ler) kaldırılır.{" "}
               {scope === "single" ? "Yalnız bu ders." : scope === "fromHereOnward" ? "Bu ders ve serinin sonrakileri." : "Serinin tamamı."}{" "}
-              Yoklaması/tahsilatı olanlar atlanır.
+              Yoklaması/tahsilatı olanlar atlanır. Kurum sahibinin kritik işlem şifresi ve gerekçe gerekir.
             </li>
             <li className={forceMode ? "" : "opacity-60"}>
               <strong>Tamamen sil (kritik)</strong> — statüsü girilmiş tek ders yoklamasıyla birlikte silinir.{" "}
@@ -210,7 +211,7 @@ export function LessonScopeEditor({ lesson, onDone }: { lesson: Lesson; onDone: 
             </li>
           </ul>
           <label className="block text-xs font-medium text-[var(--color-text)]">
-            Gerekçe{forceMode ? " (en az 5 karakter)" : " (isteğe bağlı)"}
+            Gerekçe (en az 5 karakter)
             <textarea
               value={deleteReason}
               onChange={(e) => setDeleteReason(e.target.value)}
@@ -219,18 +220,16 @@ export function LessonScopeEditor({ lesson, onDone }: { lesson: Lesson; onDone: 
               className="mt-1 w-full rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 py-1.5 text-sm"
             />
           </label>
-          {forceMode ? (
-            <label className="block text-xs font-medium text-[var(--color-text)]">
-              Kritik işlem şifresi
-              <input
-                type="password"
-                autoComplete="off"
-                value={forcePassword}
-                onChange={(e) => setForcePassword(e.target.value)}
-                className="mt-1 w-full rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 py-1.5 text-sm"
-              />
-            </label>
-          ) : null}
+          <label className="block text-xs font-medium text-[var(--color-text)]">
+            Kritik işlem şifresi
+            <input
+              type="password"
+              autoComplete="off"
+              value={forcePassword}
+              onChange={(e) => setForcePassword(e.target.value)}
+              className="mt-1 w-full rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 py-1.5 text-sm"
+            />
+          </label>
           {deleteError ? (
             <p role="alert" className="text-xs font-medium" style={{ color: "var(--color-danger)" }}>
               {deleteError}

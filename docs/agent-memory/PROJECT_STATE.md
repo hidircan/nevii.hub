@@ -4,6 +4,18 @@ Kısa tutulur (~50 satır): oturum sonunda yalnız "Güncel snapshot" bölümün
 `archive/`'e taşınır. Ayrıntı → ilgili `docs/testing/UAT_*.md`, `docs/operations/*`. Yönlendirici: `nevii-hub` skill.
 Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_2026-09-24.md`.
 
+## Güncel snapshot — 2026-09-29 (güvenli silme standardı + ders planlama tarih çökmesi)
+- **Kural (owner):** kullanıcıya "Sil" olarak sunulan her eylem sunucuda `guardCriticalDelete` (tools.ts) —
+  SUPER_ADMIN/SCHOOL_ADMIN + kritik şifre + ≥5 karakter gerekçe; reddedilen deneme audit'e `denied`.
+- Yeni: kampanya Sil (soft, `DiscountCampaign.deletedAt/deletedByUserId/deletionReason`), evrak Sil (yalnız
+  arşivli + sözleşmesiz, `status=deleted`, dosya DB'de kalır). Gate eklenen: ders programdan sil, oda, deneme
+  (öğretmen/şube müdürü artık silemez), imzalı sürüm kaldır, AI hafıza, İK KVKK anonimleştir.
+- Migration (additive): `20260929100000_discount_campaign_soft_delete` — test DB'ye uygulanması push'tan önce.
+- Tarih çökmesi: Ders Programı planlayıcısı, `toYmd` yıl dolgusu + `isCompleteDateOnlyInput`. Envanter/UAT:
+  `docs/testing/UAT_2026_09_29_CRITICAL_DELETE.md`.
+- Açık: imzalı sürüm "Kaldır" güncel dosya baytını siler (mevcut tasarım, yalnız güncel bayt saklanır) —
+  yasal saklama için bayt-koruyan sürüm modeli ayrı karar. Platform (HYPER_ADMIN) silmeleri kurum şifresi dışı.
+
 ## Güncel snapshot — 2026-09-28 (MEB hub rework, TESTE YOLLANDI)
 - **Dal:** `test` = `10026e5`, `origin/test`'e push edildi (fast-forward ace776d→10026e5).
   İçinde: MEB hub rework (4 dosya) + `c3d8e05` guardrails (owner'ın, 9 dosya no-store).

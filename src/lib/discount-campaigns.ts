@@ -151,6 +151,9 @@ export type DiscountCampaignPatch = Partial<
     | "priority"
     | "usageCount"
     | "conditions"
+    | "deletedAt"
+    | "deletedByUserId"
+    | "deletionReason"
   >
 > & {
   /** null = tekil şube kapsamını temizle (tüm şubeler). */
@@ -167,6 +170,9 @@ export function updateDiscountCampaignData(
 ): DiscountCampaignMutationResult {
   const existing = (data.discountCampaigns ?? []).find((c) => c.id === campaignId);
   if (!existing) return { ok: false, message: "Kampanya bulunamadı." };
+  if (existing.deletedAt) {
+    return { ok: false, message: "Bu kampanya silinmiş; düzenlenemez veya yeniden etkinleştirilemez. Gerekirse yeni kampanya oluşturun." };
+  }
   if (
     patch.discountPercent !== undefined &&
     (!Number.isInteger(patch.discountPercent) || patch.discountPercent < 1 || patch.discountPercent > 100)
@@ -236,7 +242,7 @@ export function isCampaignApplicable(
   branchId: string | undefined,
   now: Date = new Date()
 ): boolean {
-  if (!campaign.active) return false;
+  if (!campaign.active || campaign.deletedAt) return false;
   if (!isWithinWindow(campaign, now)) return false;
   return isCampaignInBranchScope(campaign, branchId);
 }

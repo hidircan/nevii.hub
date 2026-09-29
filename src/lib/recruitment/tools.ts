@@ -785,13 +785,21 @@ async function anonymize(tenantId: string, app: RecruitmentApplication): Promise
 export async function anonymizeApplicationTool(ctx: ServiceContext, input: unknown): Promise<ServiceResult<{ id: string }>> {
   const g = guard(ctx);
   if (g) return g;
-  const v = parseOrFail(z.object({ id: idSchema }), input);
+  // 2026-09-29 — "Kişisel veriyi sil" geri alınamaz: kurum sahibi/yöneticisi + kritik şifre + gerekçe.
+  const { criticalDeleteFields, guardCriticalDelete } = await import("../services/tools");
+  const v = parseOrFail(z.object({ id: idSchema, ...criticalDeleteFields }), input);
   if (!v.ok) return v;
   const app = await getApplication(ctx.tenantId, v.data.id);
   if (!app) return fail("NOT_FOUND", "Aday bulunamadı.");
   if (app.anonymizedAt) return ok({ id: app.id });
+  const denied = await guardCriticalDelete(
+    ctx,
+    { action: "recruitment.anonymize", entityType: "RecruitmentApplication", entityId: app.id },
+    v.data.criticalPassword
+  );
+  if (denied) return denied;
   await anonymize(ctx.tenantId, app);
-  audit(ctx, "recruitment.anonymize", "RecruitmentApplication", app.id, { reason: "manual" });
+  audit(ctx, "recruitment.anonymize", "RecruitmentApplication", app.id, { reason: "manual", note: v.data.reason });
   return ok({ id: app.id });
 }
 

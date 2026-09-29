@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
+import { CRIT, withTestCriticalPassword } from "./helpers/critical-delete";
 import { promises as fs } from "fs";
 import path from "path";
 import { resolveDataDir } from "../config";
@@ -154,21 +155,23 @@ describe("8. tur D — öğretmen listesi filtreleri", () => {
 });
 
 describe("8. tur E — pasif oda silme (soft delete)", () => {
+  beforeEach(() => withTestCriticalPassword());
+
   it("aktif oda silinemez; pasif oda silinir, satır kalır (geçmiş ders oda adını korur)", async () => {
     const created = await createRoomTool(admin, { name: "Silinecek Oda", branchId: "erzene", capacity: 1, instruments: ["Piyano"] });
     expect(created.ok).toBe(true);
     if (!created.ok) return;
     const roomId = created.data.roomId;
-    const active = await deleteRoomTool(admin, { roomId });
+    const active = await deleteRoomTool(admin, { roomId, ...CRIT });
     expect(active.ok).toBe(false);
     if (!active.ok) expect(active.error.message).toContain("yalnız pasif odalar silinebilir");
 
     expect((await updateRoomTool(admin, { roomId, active: false })).ok).toBe(true);
-    expect((await deleteRoomTool(admin, { roomId })).ok).toBe(true);
+    expect((await deleteRoomTool(admin, { roomId, ...CRIT })).ok).toBe(true);
     const after = (await readData()).rooms.find((r) => r.id === roomId);
     expect(after?.deletedAt).toBeTruthy();
     expect(after?.name).toBe("Silinecek Oda");
-    expect((await deleteRoomTool(admin, { roomId })).ok).toBe(false);
+    expect((await deleteRoomTool(admin, { roomId, ...CRIT })).ok).toBe(false);
   });
 
   it("ileri tarihli planlı dersi olan pasif oda silinemez", async () => {
@@ -177,7 +180,7 @@ describe("8. tur E — pasif oda silme (soft delete)", () => {
     const lesson = data.lessons.find((l) => l.status !== "cancelled" && l.startAt > now);
     if (!lesson) return;
     await updateRoomTool(admin, { roomId: lesson.roomId, active: false });
-    const res = await deleteRoomTool(admin, { roomId: lesson.roomId });
+    const res = await deleteRoomTool(admin, { roomId: lesson.roomId, ...CRIT });
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.error.message).toContain("ileri tarihli");
   });

@@ -9,7 +9,13 @@
 
 import { useState, useTransition, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { actionCreateDiscountCampaign, actionUpdateDiscountCampaign } from "@/lib/actions";
+import {
+  actionCreateDiscountCampaign,
+  actionDeleteDiscountCampaign,
+  actionGetDiscountCampaignDeletionImpact,
+  actionUpdateDiscountCampaign,
+} from "@/lib/actions";
+import { CriticalDeleteDialog } from "@/components/critical-delete-dialog";
 import { Badge, Button, Card, Input, Label, Select } from "@/components/ui";
 import { STACKING_RULE_LABELS, applyPercentDiscount } from "@/lib/discount-campaigns";
 import type { CampaignStackingRule, DiscountCampaign } from "@/lib/types";
@@ -88,8 +94,9 @@ export function DiscountCampaignManager({
       <Card>
         <h2 className="mb-1 font-semibold text-[var(--color-text)]">Kampanya listesi</h2>
         <p className="mb-3 text-xs text-[var(--color-text-muted)]">
-          Kampanyalar öğrenci kaydında seçilir; indirimi çakışma motoru belirler. Arşivlenen (pasif) kampanya yeni
-          kayıtta seçilemez, mevcut öğrenciler etkilenmez.
+          Kampanyalar öğrenci kaydında seçilir; indirimi çakışma motoru belirler. Pasif kampanya yeni kayıtta seçilemez
+          ama yeniden aktif edilebilir; <strong>silinen</strong> kampanya geri açılamaz ve yalnız &quot;Silinmiş&quot;
+          filtresinde görünür. İkisinde de mevcut öğrencilerin ücreti değişmez.
         </p>
         {!canWrite ? (
           <p className="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
@@ -118,7 +125,13 @@ export function DiscountCampaignManager({
                           </span>
                         ) : null}
                         <p className="font-medium text-[var(--color-text)]">{c.name}</p>
-                        <Badge status={c.active ? "confirmed" : "archived"}>{c.active ? "Aktif" : "Pasif"}</Badge>
+                        {c.deletedAt ? (
+                          <span className="inline-flex items-center rounded-full bg-rose-100 px-2.5 py-0.5 text-xs font-semibold text-rose-800">
+                            Silindi
+                          </span>
+                        ) : (
+                          <Badge status={c.active ? "confirmed" : "archived"}>{c.active ? "Aktif" : "Pasif"}</Badge>
+                        )}
                         <Badge status="scheduled">%{c.discountPercent}</Badge>
                         <span
                           className="inline-flex items-center rounded-full bg-indigo-100 px-2.5 py-0.5 text-xs font-medium text-indigo-800"
@@ -157,8 +170,14 @@ export function DiscountCampaignManager({
                         Oluşturan: {c.createdByUserId ?? c.createdBy} ·{" "}
                         {new Date(c.createdAt).toLocaleDateString("tr-TR")}
                       </p>
+                      {c.deletedAt ? (
+                        <p className="mt-0.5 text-[11px] text-rose-700">
+                          Silindi: {new Date(c.deletedAt).toLocaleDateString("tr-TR")} · Gerekçe: {c.deletionReason ?? "—"} · Yeni
+                          kayıtta seçilemez; bu kampanyayla kaydolmuş öğrencilerin ücreti değişmedi.
+                        </p>
+                      ) : null}
                     </div>
-                    {canManage ? (
+                    {canManage && !c.deletedAt ? (
                       <div className="flex shrink-0 flex-wrap items-center gap-1.5">
                         <button
                           type="button"
@@ -175,6 +194,45 @@ export function DiscountCampaignManager({
                         >
                           {c.active ? "Pasife al" : "Aktif et"}
                         </button>
+                        <CriticalDeleteDialog
+                          triggerLabel="Sil"
+                          title={`"${c.name}" kampanyasını sil`}
+                          meaning="Kampanya silinir: yeni kayıtta seçilemez, düzenlenemez ve yeniden etkinleştirilemez. Bu kampanyayla kaydolmuş öğrencilerin ücreti, sözleşmeleri ve tahsilatları DEĞİŞMEZ; kampanya raporunda geçmiş kayıtlar görünmeye devam eder. Yalnız geçici olarak kapatmak istiyorsanız 'Pasife al'ı kullanın."
+                          confirmationName={c.name}
+                          confirmationLabel="Onay için kampanya adını aynen yazın"
+                          submitLabel="Kampanyayı sil"
+                          loadImpact={async () => {
+                            const res = await actionGetDiscountCampaignDeletionImpact(c.id);
+                            if (!res.ok) return res;
+                            const d = res.data;
+                            return {
+                              ok: true,
+                              data: {
+                                lines: [
+                                  ["Kampanya", d.name],
+                                  ["Durum", d.active ? "Aktif" : "Pasif"],
+                                  ["Bu kampanyayla kayıtlı öğrenci", `${d.studentCount} (aktif ${d.activeStudentCount})`],
+                                  ["Kullanım sayacı", String(d.usageCount)],
+                                  ["Geçmiş ücret/sözleşme", "Değişmez"],
+                                  ["Yeni kayıtta", "Seçilemez"],
+                                ],
+                                allowed: true,
+                                criticalPasswordConfigured: d.criticalPasswordConfigured,
+                              },
+                            };
+                          }}
+                          onSubmit={async (input) => {
+                            const res = await actionDeleteDiscountCampaign({
+                              campaignId: c.id,
+                              expectedUpdatedAt: c.updatedAt,
+                              ...input,
+                            });
+                            if (!res.ok) return res;
+                            if (editingId === c.id) setEditingId(null);
+                            router.refresh();
+                            return { ok: true };
+                          }}
+                        />
                       </div>
                     ) : null}
                   </div>

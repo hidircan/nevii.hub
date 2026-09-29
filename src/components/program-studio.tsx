@@ -51,6 +51,7 @@ import { INSTRUMENTS, type Instrument, type Lesson, type Room, type Student, typ
 import { dayName } from "@/lib/utils";
 import { DEFAULT_LESSON_DURATION_MINUTES, LESSON_DURATION_OPTIONS } from "@/lib/lesson-duration";
 import { CALENDAR_START_HOUR, toYmd } from "@/lib/closed-days";
+import { incompleteDateHint, isCompleteDateOnlyInput } from "@/lib/date-input";
 import type { WorkDayResolution } from "@/lib/work-days";
 import {
   lessonMatchesAcademicPeriod,
@@ -753,6 +754,10 @@ export function ProgramStudio({
   const [roomId, setRoomId] = useState("");
   const [instrument, setInstrument] = useState<Instrument>("Piyano");
   const [startAt, setStartAt] = useState("");
+  // `datetime-local` yıl yazılırken "0002-10-15T10:00" / "15092-…" gibi ara değerler üretir;
+  // gün bazlı hesap ve müsaitlik isteği yalnız tamamlanmış tarihte çalışır.
+  const startAtDay = /^\d{4}-\d{2}-\d{2}T/.test(startAt) && isCompleteDateOnlyInput(startAt.slice(0, 10)) ? startAt.slice(0, 10) : "";
+  const startAtComplete = startAtDay !== "" && /T\d{2}:\d{2}/.test(startAt);
   const [lessonBranchId, setLessonBranchId] = useState("");
   const [durationMinutes, setDurationMinutes] = useState<number>(DEFAULT_LESSON_DURATION_MINUTES);
   const [submitting, setSubmitting] = useState(false);
@@ -903,7 +908,9 @@ export function ProgramStudio({
   );
   /** Serinin ilk ders tarihi (başlangıç tarihinden itibaren seçilen haftanın günü). */
   const seriesFirstDate = (() => {
-    if (!seriesStartsOn) return "";
+    // Yıl yazılırken değer "0002-10-15" gibi ara adımlardan geçer — yalnız tamamlanmış
+    // tarih hesaplanır (2026-09-29: yarım yıl `format` RangeError ile paneli düşürüyordu).
+    if (!isCompleteDateOnlyInput(seriesStartsOn)) return "";
     const d = parseISO(`${seriesStartsOn}T12:00`);
     return toYmd(addDaysDate(d, (seriesWeekday - d.getDay() + 7) % 7));
   })();
@@ -1043,6 +1050,14 @@ export function ProgramStudio({
       setSeriesError("Şube, öğrenci, öğretmen, oda ve tarih aralığı zorunludur.");
       return;
     }
+    if (!isCompleteDateOnlyInput(seriesStartsOn) || !isCompleteDateOnlyInput(seriesEndsOn)) {
+      setSeriesError("Başlangıç ve bitiş tarihini gün, ay ve 4 haneli yıl olarak tamamlayın.");
+      return;
+    }
+    if (seriesEndsOn < seriesStartsOn) {
+      setSeriesError("Bitiş tarihi başlangıç tarihinden önce olamaz; tarih aralığını düzeltin.");
+      return;
+    }
     setSeriesPreviewLoading(true);
     const result = await actionPreviewLessonSeries({
       studentId: seriesStudentId,
@@ -1164,6 +1179,10 @@ export function ProgramStudio({
     setFormError(null);
     if (!lessonBranchId || !studentId || !teacherId || !roomId || !startAt) {
       setFormError("Şube, öğrenci, öğretmen, oda ve tarih/saat seçimi zorunludur.");
+      return;
+    }
+    if (!startAtComplete) {
+      setFormError("Başlangıç tarihi/saatini gün, ay, 4 haneli yıl ve saat olarak tamamlayın.");
       return;
     }
     const fd = new FormData();
@@ -1491,25 +1510,26 @@ export function ProgramStudio({
         <div>
           <Label>Başlangıç tarihi/saati</Label>
           <Input type="datetime-local" value={startAt} onChange={(e) => setStartAt(e.target.value)} required />
-          {startAt && (wallDateTimeInputToIso(startAt) ?? "") < now.toISOString() ? (
+          <DateHint value={startAt.slice(0, 10)} />
+          {startAtComplete && (wallDateTimeInputToIso(startAt) ?? "") < now.toISOString() ? (
             <p className="mt-1 text-xs font-medium text-amber-700">
               Geçmiş tarihli ders planlıyorsunuz — ders programa ve yoklama takvimine bu tarihle eklenir.
             </p>
           ) : null}
         </div>
-        {lessonBranchId && studentId && startAt.length >= 10 ? (
+        {lessonBranchId && studentId && startAtDay ? (
           <div className="sm:col-span-2 lg:col-span-3">
             <TeacherAvailabilityCard
-              date={startAt.slice(0, 10)}
+              date={startAtDay}
               branchId={lessonBranchId}
-              dateLabel={format(parseISO(`${startAt.slice(0, 10)}T12:00`), "d MMMM EEEE", { locale: tr })}
+              dateLabel={format(parseISO(`${startAtDay}T12:00`), "d MMMM EEEE", { locale: tr })}
               teachers={teacherOptions}
               selectedTeacherId={teacherId}
               startHm={startAt.slice(11, 16)}
               durationMinutes={durationMinutes}
               dataVersion={weekLessons}
               onPickTeacher={selectTeacher}
-              onPickTime={(hm) => setStartAt(`${startAt.slice(0, 10)}T${hm}`)}
+              onPickTime={(hm) => setStartAt(`${startAtDay}T${hm}`)}
             />
           </div>
         ) : null}
@@ -1721,6 +1741,7 @@ export function ProgramStudio({
             }}
             required
           />
+          <DateHint value={seriesStartsOn} />
         </div>
         <div>
           <Label>Bitiş tarihi</Label>
@@ -1733,6 +1754,10 @@ export function ProgramStudio({
             }}
             required
           />
+          <DateHint value={seriesEndsOn} />
+          {isCompleteDateOnlyInput(seriesStartsOn) && isCompleteDateOnlyInput(seriesEndsOn) && seriesEndsOn < seriesStartsOn ? (
+            <p className="mt-1 text-xs font-medium text-amber-700">Bitiş tarihi başlangıç tarihinden önce olamaz.</p>
+          ) : null}
         </div>
       </div>
 
@@ -2768,4 +2793,13 @@ function TrialCard({
       </span>
     </Link>
   );
+}
+
+function DateHint({ value }: { value: string }) {
+  const hint = incompleteDateHint(value);
+  return hint ? (
+    <p className="mt-1 text-xs font-medium text-amber-700" role="status">
+      {hint}
+    </p>
+  ) : null;
 }

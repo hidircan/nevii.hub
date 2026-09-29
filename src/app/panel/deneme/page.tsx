@@ -6,6 +6,7 @@ import { Card, PageHeader } from "@/components/ui";
 import { formatDateTime } from "@/lib/utils";
 import { TrialLessonCreateForm } from "@/components/trial-lesson-create-form";
 import { TrialLessonsTable, type TrialRow } from "@/components/trial-lessons-table";
+import { canRunCriticalActions } from "@/lib/critical-action-password";
 import { readData } from "@/lib/store";
 import { resolveActorLabels } from "@/lib/contract-payment-plan-view";
 import { DEFAULT_APP_TIMEZONE, isoToWallDateTimeInput, toZonedYmd } from "@/lib/timezone";
@@ -117,6 +118,7 @@ export default async function TrialLessonsPage({
           rows={rows}
           canWrite={canWriteTrial}
           canConvertTrial={!isBranchManager}
+          canDelete={canWriteTrial && canRunCriticalActions(session.role)}
           isTeacher={session.role === "TEACHER"}
           teachers={teachers}
           branches={branches}

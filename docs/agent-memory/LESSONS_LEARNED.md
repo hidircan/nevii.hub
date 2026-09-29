@@ -1331,3 +1331,12 @@ aynı veriyi aynı yoldan mı okuyor?" diye bak.
   okur + bildirim değişiminde yeniden hesaplar; 0 geçerli önizlemedir (kart sıfırları gösterir).
   Kural: "gizli input + FormData okuma" ile React state'ini köprülemek yasaktır — durum üste taşınır
   (lift state up), FormData yalnız submit anında okunur.
+
+## 2026-09-29 (tarih girişi) — yıl yazılırken panel çöküyordu; kullanıcı ekranı yanlış tahmin edildi
+- Belirti "tarih yazarken 'Bu sayfa yüklenirken bir sorun oluştu'". İlk varsayım (kampanya formu) 27 ekranda
+  yeniden ÜRETİLEMEDİ; owner'a sorulunca gerçek ekran Ders Programı planlayıcısı çıktı. Ders: yeniden
+  üretemiyorsan tahminle düzeltme — ekranı sor, sonra stack trace al (prod build + `pageerror`).
+- Kök neden: `<input type=date>` yıl yazılırken `0002-10-15` üretir; `toYmd` (closed-days.ts) `getFullYear()`'ı
+  4 haneye doldurmadığı için `"2-10-17"` döndü → render'da `format(parseISO(...))` RangeError.
+- Kural: form durumundaki tarih yalnız `isCompleteDateOnlyInput` (date-input.ts) `true` iken hesaplanır/
+  formatlanır/sunucuya gider; ara değer normal düzenleme durumudur, alan altında Türkçe uyarı gösterilir.

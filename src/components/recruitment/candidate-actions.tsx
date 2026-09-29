@@ -73,9 +73,12 @@ export function CandidateToolbar({
   // Aktarma formu
   const [cv, setCv] = useState({ target: app.category as "teacher" | "staff", branchId: branches[0]?.id ?? "", instrument: app.instruments[0] ?? instruments[0] ?? "", position: "" });
 
+  const [anonReason, setAnonReason] = useState("");
+  const [anonPassword, setAnonPassword] = useState("");
   const close = () => {
     setDialog(null);
     setErr(null);
+    setAnonPassword("");
   };
 
   return (
@@ -334,10 +337,11 @@ export function CandidateToolbar({
         footer={
           <button
             type="button"
-            disabled={pending}
+            disabled={pending || anonReason.trim().length < 5 || anonPassword.length === 0}
             onClick={() =>
               start(async () => {
-                const r = await actionAnonymizeApplication({ id: app.id });
+                const r = await actionAnonymizeApplication({ id: app.id, reason: anonReason, criticalPassword: anonPassword });
+                setAnonPassword("");
                 if (!r.ok) return setErr(r.message);
                 close();
                 router.push("/panel/ik/adaylar");
@@ -352,6 +356,14 @@ export function CandidateToolbar({
         <p className="text-sm">
           Adayın adı, iletişim bilgileri, CV dosyası, notları ve profil ayrıntıları <strong>kalıcı olarak</strong> silinir; yalnız istatistik (aşama, kaynak, tarih) kalır. KVKK kapsamında aday talep ettiğinde veya saklama süresi dolduğunda kullanın. Bu işlem geri alınamaz.
         </p>
+        <label className="mt-3 block text-sm">
+          <span className="mb-1 block font-medium">Gerekçe (en az 5 karakter; adayın kişisel verisini yazmayın)</span>
+          <textarea className={inputCls} rows={2} maxLength={500} value={anonReason} onChange={(e) => setAnonReason(e.target.value)} placeholder="Örn. KVKK silme talebi, dilekçe no 12" />
+        </label>
+        <label className="mt-2 block text-sm">
+          <span className="mb-1 block font-medium">Kritik işlem şifresi</span>
+          <input type="password" autoComplete="off" className={inputCls} value={anonPassword} onChange={(e) => setAnonPassword(e.target.value)} />
+        </label>
         <div className="mt-3"><ErrorLine msg={err} /></div>
       </ModalShell>
     </>

@@ -28,6 +28,26 @@ export function parseDateOnlyInput(value: string | null | undefined): Date | nul
   return dt;
 }
 
+/**
+ * 2026-09-29 — kullanıcı `<input type="date">`'e yılı yazarken değer ara
+ * adımlarda "0002-10-15", "0020-10-15", "0202-10-15" olur. Bunlar biçimce
+ * geçerli ama TAMAMLANMAMIŞ girişlerdir: önizleme/müsaitlik hesabı, sunucu
+ * isteği veya tarih formatlama yalnız bu fonksiyon `true` dönünce yapılır.
+ * Takvimde gerçek gün + makul yıl aralığı (1900–2100).
+ */
+export function isCompleteDateOnlyInput(value: string | null | undefined): boolean {
+  const dt = parseDateOnlyInput(value);
+  if (!dt) return false;
+  const year = dt.getUTCFullYear();
+  return year >= 1900 && year <= 2100;
+}
+
+/** Alan yanında gösterilecek uyarı: boşsa `null`, yazılıyor/eksikse Türkçe açıklama. */
+export function incompleteDateHint(value: string | null | undefined): string | null {
+  if (!value || isCompleteDateOnlyInput(value)) return null;
+  return "Tarih henüz tamamlanmadı veya geçersiz — gün, ay ve 4 haneli yılı (ör. 15.10.2026) girin.";
+}
+
 /** "YYYY-MM-DD" → ISO string veya `null` — ASLA fırlatmaz, `.toISOString()` çağrısını güvenli hale getirir. */
 export function toIsoDateOrNull(value: string | null | undefined): string | null {
   const dt = parseDateOnlyInput(value);

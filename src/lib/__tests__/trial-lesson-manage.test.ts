@@ -9,7 +9,10 @@ import {
   updateTrialLessonStatusTool,
   deleteTrialLessonTool,
   listTrialLessonsTool,
+  setCriticalActionPasswordTool,
 } from "../services/tools";
+import { CRITICAL_ACTION_PASSWORD_FILE } from "../critical-action-password";
+import { __resetRateLimitForTests } from "../rate-limit";
 import { TRIAL_LESSONS_FILE, getTrialLesson, markTrialConverted } from "../trial-lessons";
 import { PLATFORM_STORE_FILE, grantBranchAccess } from "../platform/store";
 import { DEFAULT_TENANT_ID } from "../auth/config";
@@ -23,9 +26,11 @@ import type { ServiceContext } from "../services/context";
  * 2. Kayda dönüşmüş denemenin adı düzeltilir; dönüşüm bağı bozulmaz.
  * 3. Silme satırı kaldırır (öğrenci/evrak arşivine dokunmaz), denetim izli.
  * 4. Arşivleme = statü cancelled (geri açılabilir).
- * 5. Şube müdürü kapsamı silmede de geçerli (içi OK, dışı FORBIDDEN).
- * 6. Öğretmen yalnız kendi denemesini siler.
+ * 5-6. 2026-09-29 owner kuralı: kalıcı silme yalnız kurum sahibi/yöneticisi + kritik
+ *      şifre + gerekçe. Şube müdürü ve öğretmen (kendi denemesi dahil) silemez.
  */
+const PW = "Kritik-Deneme-1";
+const CRIT = { criticalPassword: PW, reason: "Yanlış girilmiş deneme" };
 const DATA_FILE = path.join(resolveDataDir(path.join(process.cwd(), "data")), "store.json");
 
 vi.mock("../audit/log", () => ({ recordAuditLog: vi.fn().mockResolvedValue(undefined) }));
@@ -99,8 +104,12 @@ beforeEach(async () => {
   await fs.rm(DATA_FILE, { force: true });
   await fs.rm(TRIAL_LESSONS_FILE, { force: true });
   await fs.rm(PLATFORM_STORE_FILE, { force: true });
+  await fs.rm(CRITICAL_ACTION_PASSWORD_FILE, { force: true });
+  __resetRateLimitForTests();
   teacherByBranch = { erzene: "t1" };
   vi.clearAllMocks();
+  const pw = await setCriticalActionPasswordTool({ ...adminCtx(), role: "SUPER_ADMIN" }, { newPassword: PW });
+  expect(pw.ok).toBe(true);
 });
 
 describe("deneme satırı her zaman yönetilebilir", () => {
@@ -142,7 +151,7 @@ describe("deneme satırı her zaman yönetilebilir", () => {
   it("silme satırı kaldırır, arşivleme cancelled işaretler", async () => {
     const delId = await seedTrial("erzene", "Silinecek", FUTURE);
     const archId = await seedTrial("erzene", "Arşivlenecek", FUTURE_2);
-    const del = await deleteTrialLessonTool(adminCtx(), { trialId: delId });
+    const del = await deleteTrialLessonTool(adminCtx(), { trialId: delId, ...CRIT });
     expect(del.ok).toBe(true);
     expect(await getTrialLesson(DEFAULT_TENANT_ID, delId)).toBeNull();
     const listed = await listTrialLessonsTool(adminCtx());
@@ -157,38 +166,38 @@ describe("deneme satırı her zaman yönetilebilir", () => {
   });
 
   it("olmayan satırı silme NOT_FOUND döner", async () => {
-    const res = await deleteTrialLessonTool(adminCtx(), { trialId: "trial_yok" });
+    const res = await deleteTrialLessonTool(adminCtx(), { trialId: "trial_yok", ...CRIT });
     expect(res.ok).toBe(false);
     if (res.ok) return;
     expect(res.error.code).toBe("NOT_FOUND");
   });
 
-  it("şube müdürü kapsamı silmede de geçerli", async () => {
+  it("şube müdürü kendi şubesindeki denemeyi de şifreyle bile silemez (yalnız sahip/yönetici)", async () => {
     const ownId = await seedTrial("erzene", "Kendi", FUTURE);
-    const otherId = await seedTrial("evka3", "Başka", FUTURE);
     await grantBranchAccess({ tenantId: DEFAULT_TENANT_ID, userId: "user_bm_1", branchId: "erzene", grantedBy: "u1" });
-    const bm = bmCtx("user_bm_1");
-    const bad = await deleteTrialLessonTool(bm, { trialId: otherId });
-    expect(bad.ok).toBe(false);
-    if (bad.ok) return;
-    expect(bad.error.code).toBe("FORBIDDEN");
-    expect(await getTrialLesson(DEFAULT_TENANT_ID, otherId)).not.toBeNull();
-    const good = await deleteTrialLessonTool(bm, { trialId: ownId });
-    expect(good.ok).toBe(true);
-    expect(await getTrialLesson(DEFAULT_TENANT_ID, ownId)).toBeNull();
+    const res = await deleteTrialLessonTool(bmCtx("user_bm_1"), { trialId: ownId, ...CRIT });
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.error.code).toBe("FORBIDDEN");
+    expect(await getTrialLesson(DEFAULT_TENANT_ID, ownId)).not.toBeNull();
   });
 
-  it("öğretmen yalnız kendi denemesini siler, öğrenci silemez", async () => {
-    const ownId = await seedTrial("erzene", "Kendi", FUTURE);
+  it("öğretmen (kendi denemesi dahil) ve öğrenci silemez", async () => {
     const otherTeacher = await teacherFor("evka3");
     const otherId = await seedTrial("evka3", "Başka", FUTURE);
-    const forbidden = await deleteTrialLessonTool(teacherCtx(otherTeacher), { trialId: ownId });
-    expect(forbidden.ok).toBe(false);
-    if (forbidden.ok) return;
-    expect(forbidden.error.code).toBe("FORBIDDEN");
-    const allowed = await deleteTrialLessonTool(teacherCtx(otherTeacher), { trialId: otherId });
-    expect(allowed.ok).toBe(true);
-    const student = await deleteTrialLessonTool(studentCtx(), { trialId: ownId });
+    const teacher = await deleteTrialLessonTool(teacherCtx(otherTeacher), { trialId: otherId, ...CRIT });
+    expect(teacher.ok).toBe(false);
+    const student = await deleteTrialLessonTool(studentCtx(), { trialId: otherId, ...CRIT });
     expect(student.ok).toBe(false);
+    expect(await getTrialLesson(DEFAULT_TENANT_ID, otherId)).not.toBeNull();
+  });
+
+  it("yanlış şifre veya boş gerekçe hiçbir satırı silmez", async () => {
+    const id = await seedTrial("erzene", "Korunan", FUTURE);
+    const wrong = await deleteTrialLessonTool(adminCtx(), { trialId: id, criticalPassword: "yanlis", reason: "Yanlış girildi" });
+    expect(wrong.ok).toBe(false);
+    const noReason = await deleteTrialLessonTool(adminCtx(), { trialId: id, criticalPassword: PW, reason: "  " });
+    expect(noReason.ok).toBe(false);
+    expect(await getTrialLesson(DEFAULT_TENANT_ID, id)).not.toBeNull();
   });
 });

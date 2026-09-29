@@ -2238,6 +2238,11 @@ model DiscountCampaign {
   createdByUserId String?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
+  /// 2026-09-29 — "Sil" = soft delete (kritik şifre + gerekçe). Dolu = yeni kayıtta seçilemez,
+  /// düzenlenemez; geçmiş öğrenci fiyatı/rapor aynen kalır. NULL = silinmemiş.
+  deletedAt       DateTime?
+  deletedByUserId String?
+  deletionReason  String?
 
   /// displayId tenant-kapsamlı benzersizdir (farklı kurumlar aynı numarayı kullanabilir).
   @@unique([tenantId, displayId])

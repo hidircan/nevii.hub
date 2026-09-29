@@ -8,8 +8,9 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { actionDeleteRoom, actionUpdateRoom } from "@/lib/actions";
+import { CriticalDeleteDialog } from "@/components/critical-delete-dialog";
 
-export function RoomArchiveToggle({ roomId, active }: { roomId: string; active: boolean }) {
+export function RoomArchiveToggle({ roomId, roomName, active }: { roomId: string; roomName: string; active: boolean }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -26,24 +27,6 @@ export function RoomArchiveToggle({ roomId, active }: { roomId: string; active: 
     });
   }
 
-  function onDelete() {
-    if (
-      !window.confirm(
-        "Bu oda kalıcı olarak silinecek. Geçmiş ders kayıtları etkilenmez. Devam etmek istiyor musunuz?"
-      )
-    ) {
-      return;
-    }
-    setError(null);
-    startTransition(async () => {
-      const result = await actionDeleteRoom(roomId);
-      if (!result.ok) {
-        setError(result.message);
-        return;
-      }
-      router.refresh();
-    });
-  }
 
   return (
     <div>
@@ -61,14 +44,35 @@ export function RoomArchiveToggle({ roomId, active }: { roomId: string; active: 
           {pending ? "…" : active ? "Pasife Al" : "Aktifleştir"}
         </button>
         {!active ? (
-          <button
-            type="button"
-            disabled={pending}
-            onClick={onDelete}
-            className="rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 py-1 text-xs font-semibold text-[var(--color-danger)] hover:bg-[var(--color-danger-soft)] disabled:opacity-50"
-          >
-            Sil
-          </button>
+          <CriticalDeleteDialog
+            triggerLabel="Sil"
+            title={`"${roomName}" odasını sil`}
+            meaning="Oda listelerden kaldırılır (geri alınabilir silme). Geçmiş ders kayıtları oda adını korur; ileri tarihli planlı ders varsa silme yapılmaz."
+            confirmationName={roomName}
+            confirmationLabel="Onay için oda adını aynen yazın"
+            submitLabel="Odayı sil"
+            loadImpact={async () => ({
+              ok: true,
+              data: {
+                lines: [
+                  ["Oda", roomName],
+                  ["Durum", "Pasif"],
+                  ["Geçmiş dersler", "Değişmez"],
+                ],
+                allowed: true,
+                // Şifre durumu sunucuda doğrulanır; belirlenmemişse sunucu nedenini söyler.
+                criticalPasswordConfigured: true,
+              },
+            })}
+            onSubmit={async ({ criticalPassword, reason, confirmation }) => {
+              if (confirmation.trim().toLocaleLowerCase("tr") !== roomName.trim().toLocaleLowerCase("tr")) {
+                return { ok: false, message: `Onay için oda adını aynen yazın: "${roomName}".` };
+              }
+              const result = await actionDeleteRoom({ roomId, criticalPassword, reason });
+              if (result.ok) router.refresh();
+              return result.ok ? { ok: true } : { ok: false, message: result.message };
+            }}
+          />
         ) : null}
       </div>
       {error ? (

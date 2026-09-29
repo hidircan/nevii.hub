@@ -2,6 +2,7 @@
  * İK / işe alım modülü — CV okuma, herkese açık başvuru, filtre, aşama, e-posta, puan kartı, KVKK, aktarma.
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { CRIT, withTestCriticalPassword } from "./helpers/critical-delete";
 import { promises as fs } from "fs";
 import { DEFAULT_TENANT_ID } from "../auth/config";
 import type { ServiceContext } from "../services/context";
@@ -310,7 +311,11 @@ describe("Yönetici işlemleri", () => {
     const list = await listApplicationsTool(admin, { sort: "name" });
     const [eski, elif] = list.ok ? list.data.applications : [];
     await addEvaluationTool(admin, { applicationId: elif!.id, scores: { a: 4 }, recommendation: "yes", comment: "Elif çok iyi çaldı" });
-    const r = await anonymizeApplicationTool(admin, { id: elif!.id });
+    const denied = await anonymizeApplicationTool(admin, { id: elif!.id, criticalPassword: "yanlis", reason: "KVKK talebi" });
+    expect(denied.ok).toBe(false);
+    expect((await getApplication(T, elif!.id))?.firstName).not.toBe("Anonim");
+    await withTestCriticalPassword(T);
+    const r = await anonymizeApplicationTool(admin, { id: elif!.id, ...CRIT });
     expect(r.ok).toBe(true);
     const det = await getApplicationDetailTool(admin, { id: elif!.id });
     expect(det.ok && det.data.evaluations[0]!.comment).toBe("");

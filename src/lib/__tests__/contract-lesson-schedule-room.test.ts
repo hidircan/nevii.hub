@@ -6,6 +6,7 @@
  * referansları korunur (bu test hiçbir geçmiş dersi değiştirmez).
  */
 import { describe, it, expect, beforeEach } from "vitest";
+import { CRIT, withTestCriticalPassword } from "./helpers/critical-delete";
 import { promises as fs, readFileSync } from "fs";
 import path from "path";
 import { resolveDataDir } from "../config";
@@ -123,7 +124,8 @@ describe("sunucu: pasif odaya ders oluşturulamaz", () => {
     const contractId = await makeContract();
     // r3'te ders yok → silinebilir (pasife al + sil).
     expect((await updateRoomTool(admin, { roomId: "r3", active: false })).ok).toBe(true);
-    const deleted = await deleteRoomTool(admin, { roomId: "r3" });
+    await withTestCriticalPassword();
+    const deleted = await deleteRoomTool(admin, { roomId: "r3", ...CRIT });
     expect(deleted.ok).toBe(true);
     const preview = await planContractLessonScheduleTool(admin, {
       contractId,

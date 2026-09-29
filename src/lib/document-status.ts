@@ -19,6 +19,7 @@ const DOCUMENT_STATUS_LABELS: Record<DocumentInstanceStatus, string> = {
   uploaded: "İmzalı nüsha yüklendi",
   cancelled: "İptal edildi",
   expired: "Süresi doldu",
+  deleted: "Silindi",
 };
 
 /** Statünün ne anlama geldiğini bir cümleyle anlatır — tooltip/altyazı için. */
@@ -31,6 +32,7 @@ const DOCUMENT_STATUS_HINTS: Record<DocumentInstanceStatus, string> = {
   uploaded: "İmzalı/taranmış nüsha sisteme yüklendi.",
   cancelled: "Belge iptal edildi; kayıt arşivde saklanır, silinmez.",
   expired: "Belgenin geçerlilik süresi doldu; kayıt arşivde saklanır, silinmez.",
+  deleted: "Evrak silindi: listelerden ve erişimden kaldırıldı; kayıt ve dosya yasal saklama için veritabanında tutulur.",
 };
 
 export function documentStatusLabel(status: string): string {
@@ -43,5 +45,5 @@ export function documentStatusHint(status: string): string {
 
 /** İptal/süresi dolmuş dışındaki her evrak "yürürlükte" sayılır. */
 export function isActiveDocumentStatus(status: string): boolean {
-  return status !== "cancelled" && status !== "expired";
+  return status !== "cancelled" && status !== "expired" && status !== "deleted";
 }

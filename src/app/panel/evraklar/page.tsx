@@ -6,6 +6,7 @@ import { documentKindLabel } from "@/lib/documents";
 import { findContractIdsByDocumentInstanceIds } from "@/lib/contracts";
 import { Card, EmptyState, PageHeader } from "@/components/ui";
 import { DocumentsTable, type DocumentPersonOption, type DocumentRow } from "@/components/documents-table";
+import { canRunCriticalActions } from "@/lib/critical-action-password";
 import { DocumentTemplateManager } from "@/components/document-template-manager";
 import { ContractTemplateDiagnosticsPanel } from "@/components/contract-template-diagnostics";
 import { DocumentDirectUploadForm } from "@/components/document-direct-upload-form";
@@ -141,7 +142,13 @@ export default async function DocumentsCenterPage({
           }
         />
       ) : (
-        <DocumentsTable rows={rows} people={people} activeStudentId={studentId} activeTeacherId={teacherId} />
+        <DocumentsTable
+          rows={rows}
+          people={people}
+          activeStudentId={studentId}
+          activeTeacherId={teacherId}
+          canDelete={canRunCriticalActions(session.role)}
+        />
       )}
 
       {!isBranchManager ? (
