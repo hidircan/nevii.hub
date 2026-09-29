@@ -37,6 +37,10 @@ import {
   correctLessonTimesLive,
   createTeacherPayout,
   replaceTeacherPayout,
+  removeTeacherPayoutExclusion,
+  addTeacherPayoutExclusion,
+  deleteTeacherFeeRule,
+  deleteTeacherPayout,
   clearLessonOpsFlagLive,
   setTeacherPayoutPolicy,
   forceDeleteLesson,
@@ -175,7 +179,7 @@ import { validateProfilePhoto } from "../profile-photo-validation";
 import { uploadProfilePhotoSchema, deleteProfilePhotoSchema } from "../validation";
 import { getActiveAccessType } from "../student-portal-access";
 import { ownStudents, ownPayouts } from "../teacher-portal-scope";
-import { effectiveLessonOpsStatus } from "../lesson-ops";
+import { effectiveLessonOpsStatus, isLessonProcessedForPayout } from "../lesson-ops";
 import { resolveLessonFinalStatus, type LessonFinalStatus } from "../lesson-live-status";
 import { resolveContractPlanForMonth, type CalendarMonthPlan, type CalendarPlanContract } from "../attendance-calendar-plan";
 import {
@@ -191,9 +195,28 @@ import {
   applyPayoutLineOverrides,
   sanitizePayoutLineOverrides,
   computeTeacherPayoutPaymentMethodInfo,
+  payoutBaseEarnings,
+  payoutDrift,
+  recomputePayoutData,
+  resolveFeeRule,
+  setPayoutPolicyForMonthData,
+  payoutPeriodDayKey,
+  payoutsOverlappingMonth,
   type TeacherEarningsResult,
   type TeacherPayoutPaymentMethodInfo,
 } from "../teacher-payout";
+import {
+  activeAdjustments,
+  addAdjustmentData,
+  addPaymentData,
+  cancelPayoutData,
+  payoutBalance,
+  payoutNetAmount,
+  payoutPaidAmount,
+  reverseAdjustmentData,
+  reversePaymentData,
+  PAYOUT_STATUS_LABEL,
+} from "../payout-ledger";
 import {
   resolveSlaEscalationLevel,
   LessonSlotValidationError,
@@ -7488,47 +7511,6 @@ export async function updateFeeRuleTool(
 }
 
 /**
- * 2026-09-29 — ayın hakediş politikası (mevcut / süreye göre sabit ücret). Ücret kuralı yönetimiyle
- * AYNI yetki: SCHOOL_ADMIN/SUPER_ADMIN + kurum hakediş erişim politikası. Değişiklik audit'e önce/sonra
- * ile yazılır; o ayda hakediş kaydı varsa store katmanı reddeder (bkz. setPayoutPolicyForMonthData).
- */
-export async function setTeacherPayoutPolicyTool(
-  ctx: ServiceContext,
-  input: unknown
-): Promise<ServiceResult<{ month: string; policy: string; changed: boolean }>> {
-  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
-  if (!auth.ok) return fail("FORBIDDEN", "Hakediş politikasını yalnız kurum yöneticisi veya kurum sahibi değiştirebilir.");
-  const earnings = await assertTeacherEarningsAccess(ctx);
-  if (!earnings.ok) return earnings;
-  const v = parseOrFail(
-    z.object({
-      month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "Dönem ayı geçersiz."),
-      policy: z.enum(["per_teacher_rule", "fixed_duration"]),
-      rate30: z.number().optional(),
-      rate40: z.number().optional(),
-      rate50: z.number().optional(),
-    }),
-    input
-  );
-  if (!v.ok) return v;
-  try {
-    const result = await setTeacherPayoutPolicy(v.data, ctx.userId);
-    if (!result.ok) return fail(result.code === "PERIOD_LOCKED" ? "CONFLICT" : "VALIDATION_ERROR", result.message);
-    if (result.changed) {
-      audit(ctx, "teacher_payout.policy", "TeacherPayoutPolicyPeriod", result.record.id, {
-        month: v.data.month,
-        before: result.previous,
-        after: { policy: result.record.policy, rate30: result.record.rate30, rate40: result.record.rate40, rate50: result.record.rate50 },
-      });
-    }
-    return ok({ month: v.data.month, policy: result.record.policy, changed: result.changed });
-  } catch (e) {
-    logger.error("setTeacherPayoutPolicyTool failed", e);
-    return fail("INTERNAL_ERROR", "Hakediş politikası kaydedilemedi; mevcut politika değişmedi. Sayfayı yenileyip tekrar deneyin.");
-  }
-}
-
-/**
  * Öğretmenin kendi geçmiş hakediş kayıtları — mobil `(teacher)/hesabim/hakedis`
  * ekranı. `ownPayouts` web öğretmen portalıyla (src/app/ogretmen/hakedis/page.tsx)
  * AYNI sahiplik yardımcısı — yeni bir sıralama/filtre kuralı İCAT EDİLMEDİ,
@@ -7573,6 +7555,10 @@ export async function computeTeacherPayoutTool(
       paymentMethodInfo: TeacherPayoutPaymentMethodInfo | null;
       /** Bu dönem için zaten oluşturulmuş bir kayıt varsa — o kaydın ödeme yöntemi (varsayılan veya override) ASLA burada yeniden hesaplanmaz. */
       existingPayout: ExistingPayoutSummary | null;
+      /** Aynı dönemin iptal edilmiş kaydı (yeniden oluşturulunca aynı kayıt kullanılır; kalıcı silinebilir). */
+      cancelledPayout: { id: string; cancelledAt?: string; cancelReason?: string; hadPayments: boolean } | null;
+      /** Kalemin kaynağı: gerçek program dersi mi, silinmiş/işlenmemiş/demo mu. */
+      lineSources: Record<string, PayoutLineSource>;
     }
   >
 > {
@@ -7601,20 +7587,31 @@ export async function computeTeacherPayoutTool(
     v.data.periodStart,
     v.data.periodEnd
   );
-  const { payoutPeriodDayKey } = await import("../teacher-payout");
-  const existing = data.teacherPayouts.find(
+  const samePeriod = data.teacherPayouts.filter(
     (p) =>
       p.teacherId === v.data.teacherId &&
       payoutPeriodDayKey(p.periodStart) === payoutPeriodDayKey(v.data.periodStart) &&
       payoutPeriodDayKey(p.periodEnd) === payoutPeriodDayKey(v.data.periodEnd)
   );
-  // K — revize edilmiş kayıtta döküm, kayıtlı satır düzeltmeleriyle gösterilir (ekran = kayıt).
-  const shown = existing?.lineOverrides ? applyPayoutLineOverrides(result, existing.lineOverrides) : applyPayoutLineOverrides(result, undefined);
-  let revisedByName: string | undefined;
-  if (existing?.revisedByUserId) {
-    const { resolveActorLabel } = await import("../contract-payment-plan-view");
-    revisedByName = await resolveActorLabel({ tenantId: ctx.tenantId, userId: existing.revisedByUserId, teachers: data.teachers });
-  }
+  const existing = samePeriod.find((p) => p.status !== "cancelled");
+  const cancelled = samePeriod.find((p) => p.status === "cancelled");
+  // Ekran = kayıt: kayıt varsa donmuş kalemler + satır düzeltmeleri; yoksa canlı hesap.
+  const shown = applyPayoutLineOverrides(existing ? payoutBaseEarnings(data, existing) : result, existing?.lineOverrides);
+  const lineSources = describeLineSources(data, shown.lines.map((l) => l.lessonId));
+  const { resolveActorLabels } = await import("../contract-payment-plan-view");
+  const actorLabels = existing
+    ? await resolveActorLabels({
+        tenantId: ctx.tenantId,
+        userIds: [
+          existing.revisedByUserId,
+          ...(existing.payments ?? []).flatMap((x) => [x.createdByUserId, x.reversedByUserId]),
+          ...(existing.adjustments ?? []).flatMap((a) => [a.createdByUserId, a.reversedByUserId]),
+        ],
+        teachers: data.teachers,
+      })
+    : new Map<string, string>();
+  const nameOf = (id?: string) => (id ? actorLabels.get(id) : undefined);
+  const revisedByName = nameOf(existing?.revisedByUserId);
   const existingPayout: ExistingPayoutSummary | null = existing
     ? {
         id: existing.id,
@@ -7630,10 +7627,23 @@ export async function computeTeacherPayoutTool(
         revisedByName,
         revisionReason: existing.revisionReason,
         lineOverrides: existing.lineOverrides ?? {},
+        netAmount: payoutNetAmount(existing),
+        paidAmount: payoutPaidAmount(existing),
+        balance: payoutBalance(existing),
+        drift: payoutDrift(data, existing),
+        payments: (existing.payments ?? (existing.status === "paid" ? undefined : [])) === undefined
+          ? [{ id: `legacy-${existing.id}`, amount: existing.totalAmount, paidAt: existing.paidAt ?? existing.generatedAt, method: existing.method, note: "Eski kayıt (tek ödeme)", legacy: true }]
+          : (existing.payments ?? []).map((x) => ({ ...x, byName: nameOf(x.createdByUserId), reversedByName: x.reversedByUserId ? nameOf(x.reversedByUserId) : undefined })),
+        adjustments: (existing.adjustments ?? []).map((a) => ({ ...a, byName: nameOf(a.createdByUserId), reversedByName: a.reversedByUserId ? nameOf(a.reversedByUserId) : undefined })),
+        pricingPolicy: existing.pricingPolicy,
+        hasSnapshot: Boolean(existing.lineSnapshot),
       }
     : null;
+  const cancelledPayout = cancelled
+    ? { id: cancelled.id, cancelledAt: cancelled.cancelledAt, cancelReason: cancelled.cancelReason, hadPayments: (cancelled.payments ?? []).length > 0 }
+    : null;
 
-  return ok({ ...shown, paymentMethodInfo, existingPayout });
+  return ok({ ...shown, paymentMethodInfo, existingPayout, cancelledPayout, lineSources });
 }
 
 export type ExistingPayoutSummary = {
@@ -7650,7 +7660,64 @@ export type ExistingPayoutSummary = {
   revisedByName?: string;
   revisionReason?: string;
   lineOverrides: Record<string, TeacherPayoutLineOverride>;
+  netAmount: number;
+  paidAmount: number;
+  balance: number;
+  /** Kayıt ile güncel hesap farkı (politika/kural/hariç tutma sonrası). */
+  drift: number;
+  payments: {
+    id: string;
+    amount: number;
+    paidAt: string;
+    method?: string;
+    note?: string;
+    legacy?: boolean;
+    byName?: string;
+    reversedAt?: string;
+    reversedByName?: string;
+    reverseReason?: string;
+  }[];
+  adjustments: {
+    id: string;
+    amount: number;
+    reason: string;
+    kind: "manual" | "recalc";
+    createdAt: string;
+    byName?: string;
+    reversedAt?: string;
+    reversedByName?: string;
+    reverseReason?: string;
+  }[];
+  pricingPolicy?: string;
+  hasSnapshot: boolean;
 };
+
+/** Kalem kaynağı — "gerçek program dersi" ile "yalnız hakediş kalemi"ni ayırt eder. */
+export type PayoutLineSource = {
+  /** ok: program dersi, işlendi · missing: ders programda yok (silinmiş) · not_processed: ders artık işlendi değil */
+  state: "ok" | "missing" | "not_processed";
+  /** Demo/test tohum serisinden gelen ders. */
+  demo: boolean;
+  /** Ders Programı'nda o haftaya giden bağlantı. */
+  programHref?: string;
+  excluded: boolean;
+};
+
+function describeLineSources(data: AppData, lessonIds: string[]): Record<string, PayoutLineSource> {
+  const excluded = new Set((data.teacherPayoutExclusions ?? []).map((x) => x.lessonId));
+  const out: Record<string, PayoutLineSource> = {};
+  for (const id of lessonIds) {
+    const lesson = data.lessons.find((l) => l.id === id);
+    const series = lesson?.seriesId ? data.lessonSeries.find((s) => s.id === lesson.seriesId) : undefined;
+    out[id] = {
+      state: !lesson ? "missing" : isLessonProcessedForPayout(lesson) ? "ok" : "not_processed",
+      demo: Boolean(series?.demoTag),
+      programHref: lesson ? `/panel/program?studentId=${lesson.studentId}&week=${lesson.startAt.slice(0, 10)}` : undefined,
+      excluded: excluded.has(id),
+    };
+  }
+  return out;
+}
 
 const payoutRevisionSchema = z.object({
   payoutId: z.string().min(1),
@@ -7679,7 +7746,15 @@ async function loadPayoutForRevision(
   const payout = data.teacherPayouts.find((p) => p.id === payoutId);
   if (!payout) return fail("NOT_FOUND", "Hakediş kaydı bulunamadı. Sayfayı yenileyip dönemi tekrar getirin.");
   const teacherName = data.teachers.find((t) => t.id === payout.teacherId)?.name ?? "Öğretmen";
-  if (payout.status === "paid") {
+  if (payout.status === "cancelled") return fail("VALIDATION_ERROR", "İptal edilmiş hakediş değiştirilemez; dönemi yeniden oluşturun.");
+  // 2026-09-30 owner kararı: ödemesi olan kayıt yeniden yazılmaz — fark düzeltme kaydıyla yönetilir.
+  if (action !== "teacher_payout.unpay" && payoutPaidAmount(payout) > 0.005) {
+    return fail(
+      "VALIDATION_ERROR",
+      "Bu hakedişe ödeme yapılmış; döküm yeniden yazılamaz. Farkı “Düzeltme ekle” ile gerekçeli +/− kayıt olarak girin. Ödeme gerçekte yapılmadıysa önce ödemeyi ters kayıtla geri alın."
+    );
+  }
+  if (payoutPaidAmount(payout) > 0.005) {
     const gate = await checkCriticalPassword(ctx, criticalPassword ?? "");
     if (!gate.ok) {
       await recordAuditLog({
@@ -7722,7 +7797,7 @@ export async function reviseTeacherPayoutTool(
   const loaded = await loadPayoutForRevision(ctx, v.data.payoutId, v.data.criticalPassword, "teacher_payout.revise");
   if (!loaded.ok) return loaded;
   const { payout, data, teacherName } = loaded.data;
-  const base = computeTeacherEarningsForPeriod(data, payout.teacherId, payout.periodStart, payout.periodEnd);
+  const base = payoutBaseEarnings(data, payout);
   const clean = sanitizePayoutLineOverrides(base, v.data.lineOverrides);
   if (!clean.ok) return fail("VALIDATION_ERROR", clean.message);
   const revised = applyPayoutLineOverrides(base, clean.overrides);
@@ -7823,9 +7898,12 @@ export async function unmarkTeacherPayoutPaidTool(
   const loaded = await loadPayoutForRevision(ctx, v.data.payoutId, v.data.criticalPassword, "teacher_payout.unpay");
   if (!loaded.ok) return loaded;
   const { payout, teacherName } = loaded.data;
-  if (payout.status !== "paid") return fail("VALIDATION_ERROR", "Bu hakediş zaten ödenmemiş (bekliyor) durumda.");
-  const next: TeacherPayout = { ...payout, status: "pending", paidAt: undefined };
-  await replaceTeacherPayout(next);
+  if (payoutPaidAmount(payout) <= 0.005) return fail("VALIDATION_ERROR", "Bu hakedişte geri alınacak ödeme yok (bekliyor durumda).");
+  const reversed = reversePaymentData(payout, "all", v.data.reason, ctx.userId);
+  if (!reversed.ok) return fail("VALIDATION_ERROR", reversed.message);
+  const next = reversed.payout;
+  const saveErr = await savePayout(next);
+  if (saveErr) return saveErr;
   await recordAuditLog({
     tenantId: ctx.tenantId,
     actorUserId: ctx.userId,
@@ -7870,15 +7948,15 @@ export async function createTeacherPayoutTool(
       v.data.paymentMethod
     );
     if (!result.ok) {
-      const code = result.code === "PAYOUT_ALREADY_EXISTS" ? "CONFLICT" : "VALIDATION_ERROR";
-      const details =
-        result.code === "MISSING_FEE_RULE"
-          ? result.missingFeeRuleLessonIds
-          : result.code === "UNSUPPORTED_DURATION"
-            ? result.unsupportedDurationLessonIds
-            : undefined;
+      const code = result.code === "MISSING_FEE_RULE" ? "VALIDATION_ERROR" : "CONFLICT";
+      const details = result.code === "MISSING_FEE_RULE" ? result.missingFeeRuleLessonIds : undefined;
       return fail(code, result.message, details);
     }
+    audit(ctx, result.reusedCancelledId ? "teacher_payout.recreate" : "teacher_payout.create", "TeacherPayout", result.payout.id, {
+      teacherId: result.payout.teacherId,
+      totalAmount: result.payout.totalAmount,
+      pricingPolicy: result.payout.pricingPolicy,
+    });
     return ok({ payout: result.payout });
   } catch (e) {
     logger.error("createTeacherPayoutTool failed", e);
@@ -7928,16 +8006,516 @@ export async function markTeacherPayoutPaidTool(
   if (!v.ok) return v;
 
   try {
-    const result = await markTeacherPayoutPaid(v.data.payoutId, v.data.method);
-    if (!result.ok) {
-      const code = result.code === "NOT_FOUND" ? "NOT_FOUND" : "CONFLICT";
-      return fail(code, result.message);
-    }
-    return ok({ payout: result.payout });
+    // 2026-09-30 — "Hakedişi öde" = kalan bakiye kadar ödeme satırı (defter). Kısmi ödeme: addTeacherPayoutPaymentTool.
+    const data = await readData();
+    const payout = data.teacherPayouts.find((p) => p.id === v.data.payoutId);
+    if (!payout) return fail("NOT_FOUND", "Hakediş kaydı bulunamadı. Sayfayı yenileyip tekrar deneyin.");
+    const res = addPaymentData(payout, { method: v.data.method ?? payout.method }, ctx.userId);
+    if (!res.ok) return fail("CONFLICT", res.message);
+    const saveErr = await savePayout(res.payout);
+    if (saveErr) return saveErr;
+    audit(ctx, "teacher_payout.payment", "TeacherPayout", payout.id, { amount: payoutPaidAmount(res.payout) - payoutPaidAmount(payout), full: true });
+    return ok({ payout: res.payout });
   } catch (e) {
     logger.error("markTeacherPayoutPaidTool failed", e);
     return fail("INTERNAL_ERROR", "Hakediş ödendi olarak kaydedilemedi. Sayfayı yenileyip tekrar deneyin.");
   }
+}
+
+// ─── 2026-09-30 · Hakediş defteri (ödeme/düzeltme/iptal/silme/hariç tutma/eşitleme) ──────────────
+
+const STALE_PAYOUT_MESSAGE =
+  "Bu hakediş kaydı siz işlem yaparken değişti (başka bir kullanıcı veya ikinci tıklama). İşlem uygulanmadı; sayfayı yenileyip güncel tutarları kontrol edin.";
+
+/** Sürüm kontrollü yazma — eşzamanlı ikinci ödeme/düzeltme çift kayıt üretmez. */
+async function savePayout(next: TeacherPayout): Promise<ServiceFailure | null> {
+  try {
+    await replaceTeacherPayout(next);
+    return null;
+  } catch (e) {
+    if (e instanceof Error && e.message === "STALE_PAYOUT") return fail("CONFLICT", STALE_PAYOUT_MESSAGE);
+    logger.error("savePayout failed", e);
+    return fail("INTERNAL_ERROR", "Hakediş kaydı güncellenemedi; kayıt değişmedi. Sayfayı yenileyip tekrar deneyin.");
+  }
+}
+
+/** Defter işlemleri için ortak yükleme: yetki (kurum yöneticisi/sahibi + kurum hakediş politikası). */
+async function loadPayoutForLedger(
+  ctx: ServiceContext,
+  payoutId: string
+): Promise<ServiceResult<{ payout: TeacherPayout; data: AppData; teacherName: string }>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", "Hakediş işlemlerini yalnız kurum yöneticisi veya kurum sahibi yapabilir.");
+  const earnings = await assertTeacherEarningsAccess(ctx);
+  if (!earnings.ok) return earnings;
+  const data = await readData();
+  const payout = data.teacherPayouts.find((p) => p.id === payoutId);
+  if (!payout) return fail("NOT_FOUND", "Hakediş kaydı bulunamadı. Sayfayı yenileyip dönemi tekrar getirin.");
+  const teacherName = data.teachers.find((t) => t.id === payout.teacherId)?.name ?? "Öğretmen";
+  return ok({ payout, data, teacherName });
+}
+
+async function payoutAudit(ctx: ServiceContext, action: string, payout: TeacherPayout, teacherName: string, meta: Record<string, unknown>) {
+  await recordAuditLog({
+    tenantId: ctx.tenantId,
+    actorUserId: ctx.userId,
+    actorRole: ctx.role,
+    action,
+    entityType: "TeacherPayout",
+    entityId: payout.id,
+    outcome: "success",
+    meta: { entityName: `${teacherName} ${payoutPeriodLabel(payout)} hakedişi`, teacherId: payout.teacherId, ...meta },
+  });
+}
+
+async function passwordGate(ctx: ServiceContext, action: string, payout: TeacherPayout, teacherName: string, password?: string): Promise<ServiceFailure | null> {
+  const gate = await checkCriticalPassword(ctx, password ?? "");
+  if (gate.ok) return null;
+  await recordAuditLog({
+    tenantId: ctx.tenantId,
+    actorUserId: ctx.userId,
+    actorRole: ctx.role,
+    action,
+    entityType: "TeacherPayout",
+    entityId: payout.id,
+    outcome: "denied",
+    meta: { reasonCode: gate.reasonCode, entityName: `${teacherName} hakedişi` },
+  });
+  return fail("FORBIDDEN", gate.message);
+}
+
+const reasonField = z.string().trim().min(5, "Gerekçe en az 5 karakter olmalı.").max(500);
+
+/** Kısmi veya tam ödeme satırı. Tutar verilmezse kalan bakiye; bakiyeyi aşan ödeme reddedilir. */
+export async function addTeacherPayoutPaymentTool(ctx: ServiceContext, input: unknown): Promise<ServiceResult<{ payout: TeacherPayout }>> {
+  const v = parseOrFail(
+    z.object({
+      payoutId: z.string().min(1),
+      amount: z.number().positive("Ödeme tutarı 0'dan büyük olmalı.").optional(),
+      paidAt: z.string().regex(/^\d{4}-\d{2}-\d{2}/, "Ödeme tarihi geçersiz.").optional(),
+      method: z.enum(["cash", "transfer"]).optional(),
+      note: z.string().max(300).optional(),
+    }),
+    input
+  );
+  if (!v.ok) return v;
+  const loaded = await loadPayoutForLedger(ctx, v.data.payoutId);
+  if (!loaded.ok) return loaded;
+  const { payout, teacherName } = loaded.data;
+  const paidAt = v.data.paidAt ? new Date(`${v.data.paidAt.slice(0, 10)}T12:00:00.000Z`).toISOString() : undefined;
+  const res = addPaymentData(payout, { amount: v.data.amount, paidAt, method: v.data.method, note: v.data.note }, ctx.userId);
+  if (!res.ok) return fail("VALIDATION_ERROR", res.message);
+  const err = await savePayout(res.payout);
+  if (err) return err;
+  await payoutAudit(ctx, "teacher_payout.payment", payout, teacherName, {
+    amount: round2Money(payoutPaidAmount(res.payout) - payoutPaidAmount(payout)),
+    balanceAfter: payoutBalance(res.payout),
+  });
+  return ok({ payout: res.payout });
+}
+
+/** Hatalı ödeme satırı SİLİNMEZ: ters kayıt (kritik şifre + gerekçe). */
+export async function reverseTeacherPayoutPaymentTool(ctx: ServiceContext, input: unknown): Promise<ServiceResult<{ payout: TeacherPayout }>> {
+  const v = parseOrFail(
+    z.object({ payoutId: z.string().min(1), paymentId: z.string().min(1), reason: reasonField, criticalPassword: z.string().max(200) }),
+    input
+  );
+  if (!v.ok) return v;
+  const loaded = await loadPayoutForLedger(ctx, v.data.payoutId);
+  if (!loaded.ok) return loaded;
+  const { payout, teacherName } = loaded.data;
+  const gate = await passwordGate(ctx, "teacher_payout.payment_reverse", payout, teacherName, v.data.criticalPassword);
+  if (gate) return gate;
+  // Eski tek-bayraklı kayıtta sentetik ödeme id'si "legacy-…" → tüm ödeme ters kaydı.
+  const res = reversePaymentData(payout, v.data.paymentId.startsWith("legacy-") ? "all" : v.data.paymentId, v.data.reason, ctx.userId);
+  if (!res.ok) return fail("VALIDATION_ERROR", res.message);
+  const err = await savePayout(res.payout);
+  if (err) return err;
+  await payoutAudit(ctx, "teacher_payout.payment_reverse", payout, teacherName, {
+    reason: v.data.reason,
+    amount: round2Money(payoutPaidAmount(payout) - payoutPaidAmount(res.payout)),
+  });
+  return ok({ payout: res.payout });
+}
+
+/** +/− düzeltme kaydı (ödenmiş kayıtta revizyon yerine). Ödemesi olan kayıtta kritik şifre ister. */
+export async function addTeacherPayoutAdjustmentTool(ctx: ServiceContext, input: unknown): Promise<ServiceResult<{ payout: TeacherPayout }>> {
+  const v = parseOrFail(
+    z.object({ payoutId: z.string().min(1), amount: z.number(), reason: reasonField, criticalPassword: z.string().max(200).optional() }),
+    input
+  );
+  if (!v.ok) return v;
+  const loaded = await loadPayoutForLedger(ctx, v.data.payoutId);
+  if (!loaded.ok) return loaded;
+  const { payout, teacherName } = loaded.data;
+  if (payoutPaidAmount(payout) > 0.005) {
+    const gate = await passwordGate(ctx, "teacher_payout.adjust", payout, teacherName, v.data.criticalPassword);
+    if (gate) return gate;
+  }
+  const res = addAdjustmentData(payout, { amount: v.data.amount, reason: v.data.reason, kind: "manual" }, ctx.userId);
+  if (!res.ok) return fail("VALIDATION_ERROR", res.message);
+  const err = await savePayout(res.payout);
+  if (err) return err;
+  await payoutAudit(ctx, "teacher_payout.adjust", payout, teacherName, { amount: v.data.amount, reason: v.data.reason, netAfter: payoutNetAmount(res.payout) });
+  return ok({ payout: res.payout });
+}
+
+export async function reverseTeacherPayoutAdjustmentTool(ctx: ServiceContext, input: unknown): Promise<ServiceResult<{ payout: TeacherPayout }>> {
+  const v = parseOrFail(
+    z.object({ payoutId: z.string().min(1), adjustmentId: z.string().min(1), reason: reasonField, criticalPassword: z.string().max(200).optional() }),
+    input
+  );
+  if (!v.ok) return v;
+  const loaded = await loadPayoutForLedger(ctx, v.data.payoutId);
+  if (!loaded.ok) return loaded;
+  const { payout, teacherName } = loaded.data;
+  if (payoutPaidAmount(payout) > 0.005) {
+    const gate = await passwordGate(ctx, "teacher_payout.adjust_reverse", payout, teacherName, v.data.criticalPassword);
+    if (gate) return gate;
+  }
+  const res = reverseAdjustmentData(payout, v.data.adjustmentId, v.data.reason, ctx.userId);
+  if (!res.ok) return fail("VALIDATION_ERROR", res.message);
+  const err = await savePayout(res.payout);
+  if (err) return err;
+  await payoutAudit(ctx, "teacher_payout.adjust_reverse", payout, teacherName, { adjustmentId: v.data.adjustmentId, reason: v.data.reason });
+  return ok({ payout: res.payout });
+}
+
+/** Ödemesiz kaydı iptal eder (kayıt + iz kalır; toplam ve kilit dışı; dönem yeniden oluşturulabilir). */
+export async function cancelTeacherPayoutTool(ctx: ServiceContext, input: unknown): Promise<ServiceResult<{ payout: TeacherPayout }>> {
+  const v = parseOrFail(z.object({ payoutId: z.string().min(1), reason: reasonField }), input);
+  if (!v.ok) return v;
+  const loaded = await loadPayoutForLedger(ctx, v.data.payoutId);
+  if (!loaded.ok) return loaded;
+  const { payout, teacherName } = loaded.data;
+  const res = cancelPayoutData(payout, v.data.reason, ctx.userId);
+  if (!res.ok) return fail("VALIDATION_ERROR", res.message);
+  const err = await savePayout(res.payout);
+  if (err) return err;
+  await payoutAudit(ctx, "teacher_payout.cancel", payout, teacherName, { reason: v.data.reason, totalAmount: payout.totalAmount });
+  return ok({ payout: res.payout });
+}
+
+/** İptal edilmiş + hiç ödeme almamış kaydı kalıcı siler (güvenli silme kapısı). */
+export async function deleteTeacherPayoutTool(ctx: ServiceContext, input: unknown): Promise<ServiceResult<{ deleted: true }>> {
+  const v = parseOrFail(z.object({ payoutId: z.string().min(1), reason: reasonField, criticalPassword: z.string().max(200) }), input);
+  if (!v.ok) return v;
+  const loaded = await loadPayoutForLedger(ctx, v.data.payoutId);
+  if (!loaded.ok) return loaded;
+  const { payout, teacherName } = loaded.data;
+  if (payout.status !== "cancelled") return fail("VALIDATION_ERROR", "Yalnız iptal edilmiş hakediş kalıcı silinebilir. Önce kaydı iptal edin.");
+  if ((payout.payments ?? []).length > 0) {
+    return fail("VALIDATION_ERROR", "Bu kayıtta (ters kaydı yapılmış olsa da) ödeme geçmişi var; muhasebe izi için silinemez, iptal olarak kalır.");
+  }
+  const denied = await guardCriticalDelete(
+    ctx,
+    { action: "teacher_payout.delete", entityType: "TeacherPayout", entityId: payout.id, entityName: `${teacherName} ${payoutPeriodLabel(payout)} hakedişi` },
+    v.data.criticalPassword
+  );
+  if (denied) return denied;
+  const done = await deleteTeacherPayout(payout.id);
+  if (!done) return fail("CONFLICT", "Kayıt silinemedi (durumu değişmiş olabilir). Sayfayı yenileyip tekrar deneyin.");
+  await payoutAudit(ctx, "teacher_payout.delete", payout, teacherName, { reason: v.data.reason, totalAmount: payout.totalAmount, cancelReason: payout.cancelReason });
+  return ok({ deleted: true });
+}
+
+/**
+ * Kayıt ile güncel hesap farkını kapatır: ödemesiz kayıt yeniden hesaplanır (kalemler yeniden donar);
+ * ödemesi olan kayıtta fark "recalc" düzeltme kaydı olarak eklenir (ödenen tutar yeniden yazılmaz).
+ */
+export async function settleTeacherPayoutDriftTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ payout: TeacherPayout; mode: "recalculated" | "adjusted" | "none" }>> {
+  const v = parseOrFail(z.object({ payoutId: z.string().min(1), reason: reasonField, criticalPassword: z.string().max(200).optional() }), input);
+  if (!v.ok) return v;
+  const loaded = await loadPayoutForLedger(ctx, v.data.payoutId);
+  if (!loaded.ok) return loaded;
+  const { payout, data, teacherName } = loaded.data;
+  if (payout.status === "cancelled") return fail("VALIDATION_ERROR", "İptal edilmiş hakediş yeniden hesaplanmaz; dönemi yeniden oluşturun.");
+  if (payout.status === "pending") {
+    const next = recomputePayoutData(data, payout);
+    if ("error" in next) return fail("VALIDATION_ERROR", next.error);
+    const err = await savePayout(next);
+    if (err) return err;
+    await payoutAudit(ctx, "teacher_payout.recalculate", payout, teacherName, {
+      reason: v.data.reason,
+      changes: diffRecordFields({ totalAmount: payout.totalAmount }, { totalAmount: next.totalAmount }),
+    });
+    return ok({ payout: next, mode: "recalculated" });
+  }
+  const drift = payoutDrift(data, payout);
+  if (Math.abs(drift) < 0.01) return ok({ payout, mode: "none" });
+  const gate = await passwordGate(ctx, "teacher_payout.adjust", payout, teacherName, v.data.criticalPassword);
+  if (gate) return gate;
+  const res = addAdjustmentData(payout, { amount: drift, reason: v.data.reason, kind: "recalc" }, ctx.userId);
+  if (!res.ok) return fail("VALIDATION_ERROR", res.message);
+  const err = await savePayout(res.payout);
+  if (err) return err;
+  await payoutAudit(ctx, "teacher_payout.adjust", payout, teacherName, { amount: drift, kind: "recalc", reason: v.data.reason });
+  return ok({ payout: res.payout, mode: "adjusted" });
+}
+
+/** Ödemesiz kayıtları güncel hesapla yeniler; ödemeli kayıtlarda farkı raporlar. */
+async function refreshPendingPayouts(
+  ctx: ServiceContext,
+  data: AppData,
+  payouts: TeacherPayout[],
+  reason: string
+): Promise<{ recalculated: number; needsAdjustment: { teacherName: string; drift: number }[]; failed: string[] }> {
+  const out = { recalculated: 0, needsAdjustment: [] as { teacherName: string; drift: number }[], failed: [] as string[] };
+  for (const p of payouts) {
+    const teacherName = data.teachers.find((t) => t.id === p.teacherId)?.name ?? "Öğretmen";
+    if (p.status === "pending") {
+      const next = recomputePayoutData(data, p);
+      if ("error" in next || (await savePayout(next))) {
+        out.failed.push(teacherName);
+        continue;
+      }
+      out.recalculated += 1;
+      await payoutAudit(ctx, "teacher_payout.recalculate", p, teacherName, {
+        reason,
+        changes: diffRecordFields({ totalAmount: p.totalAmount }, { totalAmount: next.totalAmount }),
+      });
+    } else if (p.status !== "cancelled") {
+      const drift = payoutDrift(data, p);
+      if (Math.abs(drift) >= 0.01) out.needsAdjustment.push({ teacherName, drift });
+    }
+  }
+  return out;
+}
+
+/** Dersi hakedişten hariç tutar/geri alır; ders, takvim, yoklama ve ödeme kayıtları DEĞİŞMEZ. */
+export async function setLessonPayoutExclusionTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ excluded: boolean; recalculated: number; needsAdjustment: { teacherName: string; drift: number }[] }>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", "Hakediş kalemlerini yalnız kurum yöneticisi veya kurum sahibi düzenleyebilir.");
+  const earnings = await assertTeacherEarningsAccess(ctx);
+  if (!earnings.ok) return earnings;
+  const v = parseOrFail(z.object({ lessonId: z.string().min(1), exclude: z.boolean(), reason: reasonField }), input);
+  if (!v.ok) return v;
+  const before = await readData();
+  const lesson = before.lessons.find((l) => l.id === v.data.lessonId);
+  const snapLine = before.teacherPayouts.flatMap((p) => (p.lineSnapshot ?? []).map((l) => ({ ...l, teacherId: p.teacherId }))).find((l) => l.lessonId === v.data.lessonId);
+  const teacherId = lesson?.teacherId ?? snapLine?.teacherId;
+  if (!teacherId) return fail("NOT_FOUND", "Ders bulunamadı. Sayfayı yenileyip tekrar deneyin.");
+  if (v.data.exclude) {
+    await addTeacherPayoutExclusion({
+      id: `tpx_${v.data.lessonId}`,
+      lessonId: v.data.lessonId,
+      teacherId,
+      reason: v.data.reason,
+      createdByUserId: ctx.userId,
+      createdAt: new Date().toISOString(),
+    });
+  } else if (!(await removeTeacherPayoutExclusion(v.data.lessonId))) {
+    return fail("VALIDATION_ERROR", "Bu ders zaten hakedişe dahil.");
+  }
+  audit(ctx, v.data.exclude ? "teacher_payout.lesson_exclude" : "teacher_payout.lesson_include", "Lesson", v.data.lessonId, {
+    teacherId,
+    reason: v.data.reason,
+  });
+  const data = await readData();
+  const day = (lesson?.startAt ?? snapLine?.lessonDate ?? "").slice(0, 10);
+  const affected = data.teacherPayouts.filter(
+    (p) => p.teacherId === teacherId && payoutPeriodDayKey(p.periodStart) <= day && payoutPeriodDayKey(p.periodEnd) >= day
+  );
+  const r = await refreshPendingPayouts(ctx, data, affected, `Ders ${v.data.exclude ? "hariç tutuldu" : "tekrar dahil edildi"}: ${v.data.reason}`);
+  return ok({ excluded: v.data.exclude, recalculated: r.recalculated, needsAdjustment: r.needsAdjustment });
+}
+
+function round2Money(n: number): number {
+  return Math.round((n + Number.EPSILON) * 100) / 100;
+}
+
+export type PayoutPolicyImpactRow = {
+  teacherId: string;
+  teacherName: string;
+  /** no_record: canlı hesap · recalc: ödemesiz kayıt yeniden hesaplanır · adjust: ödemeli kayıt değişmez, fark düzeltme önerisi */
+  state: "no_record" | "recalc" | "adjust";
+  before: number;
+  after: number;
+  diff: number;
+  statusLabel: string;
+};
+
+function policyImpact(before: AppData, after: AppData, month: string): PayoutPolicyImpactRow[] {
+  const first = `${month}-01`;
+  const lastDay = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).getUTCDate();
+  const last = `${month}-${String(lastDay).padStart(2, "0")}`;
+  const rows: PayoutPolicyImpactRow[] = [];
+  const active = payoutsOverlappingMonth(before.teacherPayouts, month);
+  for (const t of before.teachers) {
+    const recs = active.filter((p) => p.teacherId === t.id);
+    if (recs.length === 0) {
+      const b = computeTeacherEarningsForPeriod(before, t.id, first, last);
+      if (b.totalLessons === 0) continue;
+      const a = computeTeacherEarningsForPeriod(after, t.id, first, last);
+      rows.push({ teacherId: t.id, teacherName: t.name, state: "no_record", before: b.totalAmount, after: a.totalAmount, diff: round2Money(a.totalAmount - b.totalAmount), statusLabel: PAYOUT_STATUS_LABEL.not_created });
+      continue;
+    }
+    for (const p of recs) {
+      const net = payoutNetAmount(p);
+      if (p.status === "pending") {
+        const next = recomputePayoutData(after, p);
+        const afterNet = "error" in next ? net : payoutNetAmount(next);
+        rows.push({ teacherId: t.id, teacherName: t.name, state: "recalc", before: net, after: afterNet, diff: round2Money(afterNet - net), statusLabel: PAYOUT_STATUS_LABEL.pending });
+      } else {
+        const drift = payoutDrift(after, p);
+        rows.push({ teacherId: t.id, teacherName: t.name, state: "adjust", before: net, after: round2Money(net + drift), diff: drift, statusLabel: PAYOUT_STATUS_LABEL[p.status] });
+      }
+    }
+  }
+  return rows;
+}
+
+/**
+ * 2026-09-30 — ayın politikası: önce `preview:true` ile etki tablosu, sonra uygula.
+ * Kilit yok: ödemesiz kayıtlar yeniden hesaplanır; ödemeli kayıtlar değişmez (fark önerisi).
+ */
+export async function setTeacherPayoutPolicyTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<
+  ServiceResult<{
+    month: string;
+    policy: string;
+    changed: boolean;
+    preview: boolean;
+    impact: PayoutPolicyImpactRow[];
+    recalculated?: number;
+    needsAdjustment?: { teacherName: string; drift: number }[];
+    failed?: string[];
+  }>
+> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", "Hakediş politikasını yalnız kurum yöneticisi veya kurum sahibi değiştirebilir.");
+  const earnings = await assertTeacherEarningsAccess(ctx);
+  if (!earnings.ok) return earnings;
+  const v = parseOrFail(
+    z.object({
+      month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "Dönem ayı geçersiz."),
+      policy: z.enum(["per_teacher_rule", "fixed_duration"]),
+      rate30: z.number().optional(),
+      rate40: z.number().optional(),
+      rate50: z.number().optional(),
+      preview: z.boolean().optional(),
+    }),
+    input
+  );
+  if (!v.ok) return v;
+  const { preview, ...policyInput } = v.data;
+  const before = await readData();
+  const simulated = setPayoutPolicyForMonthData(before, policyInput, ctx.userId);
+  if (!simulated.ok) return fail("VALIDATION_ERROR", simulated.message);
+  const impact = policyImpact(before, simulated.data, v.data.month);
+  if (preview) return ok({ month: v.data.month, policy: v.data.policy, changed: simulated.changed, preview: true, impact });
+  try {
+    const result = await setTeacherPayoutPolicy(policyInput, ctx.userId);
+    if (!result.ok) return fail("VALIDATION_ERROR", result.message);
+    if (result.changed) {
+      audit(ctx, "teacher_payout.policy", "TeacherPayoutPolicyPeriod", result.record.id, {
+        month: v.data.month,
+        before: result.previous,
+        after: { policy: result.record.policy, rate30: result.record.rate30, rate40: result.record.rate40, rate50: result.record.rate50 },
+      });
+    }
+    const data = await readData();
+    const r = await refreshPendingPayouts(ctx, data, payoutsOverlappingMonth(data.teacherPayouts, v.data.month), `${v.data.month} hakediş politikası değişti`);
+    return ok({ month: v.data.month, policy: result.record.policy, changed: result.changed, preview: false, impact, ...r });
+  } catch (e) {
+    logger.error("setTeacherPayoutPolicyTool failed", e);
+    return fail("INTERNAL_ERROR", "Hakediş politikası kaydedilemedi; mevcut politika değişmedi. Sayfayı yenileyip tekrar deneyin.");
+  }
+}
+
+/** Ücret kuralının kullanımı: kayıtlı hakedişler (donmuş kalem) + kayda geçmemiş işlenmiş dersler. */
+function feeRuleUsage(data: AppData, rule: TeacherFeeRule): { recordedPayouts: number; openLessons: number } {
+  const active = data.teacherPayouts.filter((p) => p.status !== "cancelled" && p.teacherId === rule.teacherId);
+  const recordedPayouts = active.filter((p) => payoutBaseEarnings(data, p).lines.some((l) => l.feeRuleId === rule.id)).length;
+  const inRecord = (day: string) => active.some((p) => payoutPeriodDayKey(p.periodStart) <= day && payoutPeriodDayKey(p.periodEnd) >= day);
+  const openLessons = data.lessons.filter(
+    (l) =>
+      l.teacherId === rule.teacherId &&
+      isLessonProcessedForPayout(l) &&
+      !inRecord(l.startAt.slice(0, 10)) &&
+      resolveFeeRule(data.teacherFeeRules, { teacherId: l.teacherId, branchId: l.branchId, instrument: l.instrument, lessonDateIso: l.startAt })?.id === rule.id
+  ).length;
+  return { recordedPayouts, openLessons };
+}
+
+/**
+ * Ücret kuralını kaldırma: hiç kullanılmadıysa kalıcı silinir (kritik şifre); kullanıldıysa
+ * `fromDate`'ten itibaren devre dışı kalır (öncesi ve kayıtlı hakedişler aynen). Kayıtlı hakediş,
+ * kalemlerinde hangi kuralla hesaplandığını saklar.
+ */
+export async function removeFeeRuleTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ mode: "deleted" | "deactivated"; effectiveTo?: string; affectedOpenLessons: number }>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const earnings = await assertTeacherEarningsAccess(ctx);
+  if (!earnings.ok) return earnings;
+  const v = parseOrFail(
+    z.object({
+      ruleId: z.string().min(1),
+      mode: z.enum(["delete", "deactivate"]),
+      fromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Devre dışı tarihi geçersiz.").optional(),
+      reason: reasonField,
+      criticalPassword: z.string().max(200).optional(),
+    }),
+    input
+  );
+  if (!v.ok) return v;
+  const data = await readData();
+  const rule = data.teacherFeeRules.find((r) => r.id === v.data.ruleId);
+  if (!rule) return fail("NOT_FOUND", "Ücret kuralı bulunamadı. Sayfayı yenileyip tekrar deneyin.");
+  const usage = feeRuleUsage(data, rule);
+  const teacherName = data.teachers.find((t) => t.id === rule.teacherId)?.name ?? "Öğretmen";
+  if (v.data.mode === "delete") {
+    if (usage.recordedPayouts > 0 || usage.openLessons > 0) {
+      return fail(
+        "VALIDATION_ERROR",
+        `Bu kural kullanılıyor (${usage.recordedPayouts} kayıtlı hakediş, ${usage.openLessons} kayda geçmemiş ders); geçmiş hesabın izi kaybolmasın diye silinemez. Bunun yerine bir tarihten itibaren devre dışı bırakın.`
+      );
+    }
+    const denied = await guardCriticalDelete(
+      ctx,
+      { action: "teacher_fee.delete", entityType: "TeacherFeeRule", entityId: rule.id, entityName: `${teacherName} ücret kuralı` },
+      v.data.criticalPassword ?? ""
+    );
+    if (denied) return denied;
+    if (!(await deleteTeacherFeeRule(rule.id))) return fail("CONFLICT", "Kural silinemedi; sayfayı yenileyip tekrar deneyin.");
+    audit(ctx, "teacher_fee.delete", "TeacherFeeRule", rule.id, { teacherId: rule.teacherId, perMinuteRate: rule.perMinuteRate, reason: v.data.reason });
+    return ok({ mode: "deleted", affectedOpenLessons: 0 });
+  }
+  const from = v.data.fromDate ?? new Date().toISOString().slice(0, 10);
+  const effectiveTo = new Date(Date.parse(`${from}T12:00:00.000Z`) - 86_400_000).toISOString().slice(0, 10);
+  if (effectiveTo < rule.effectiveFrom.slice(0, 10)) {
+    return fail(
+      "VALIDATION_ERROR",
+      `Devre dışı tarihi, kuralın başlangıcından (${rule.effectiveFrom.slice(0, 10)}) sonra olmalı. Kural hiç kullanılmadıysa “Sil” seçeneğini kullanın.`
+    );
+  }
+  const affectedOpenLessons = data.lessons.filter(
+    (l) =>
+      l.teacherId === rule.teacherId &&
+      isLessonProcessedForPayout(l) &&
+      l.startAt.slice(0, 10) >= from &&
+      resolveFeeRule(data.teacherFeeRules, { teacherId: l.teacherId, branchId: l.branchId, instrument: l.instrument, lessonDateIso: l.startAt })?.id === rule.id
+  ).length;
+  const res = await updateTeacherFeeRule(rule.id, {
+    effectiveTo,
+    deactivatedAt: new Date().toISOString(),
+    deactivatedByUserId: ctx.userId,
+    deactivationReason: v.data.reason,
+  });
+  if (!res.ok) return fail(mapFeeRuleErrorCode(res.code), res.message);
+  audit(ctx, "teacher_fee.deactivate", "TeacherFeeRule", rule.id, { teacherId: rule.teacherId, from, reason: v.data.reason, affectedOpenLessons });
+  return ok({ mode: "deactivated", effectiveTo, affectedOpenLessons });
 }
 
 /**
@@ -11571,6 +12149,7 @@ export async function createTrialLessonTool(
       tenantId: ctx.tenantId,
       name: v.data.name,
       phone: v.data.phone,
+      parentName: v.data.parentName,
       instrument: v.data.instrument as Instrument,
       branchId: v.data.branchId,
       teacherId: v.data.teacherId,
@@ -11667,7 +12246,9 @@ export async function updateTrialLessonTool(
     (d.teacherId !== undefined && d.teacherId !== existing.teacherId) ||
     (d.instrument !== undefined && d.instrument !== existing.instrument);
   const identityChanged =
-    (d.name !== undefined && d.name !== existing.name) || (d.phone !== undefined && d.phone !== existing.phone);
+    (d.name !== undefined && d.name !== existing.name) ||
+    (d.phone !== undefined && d.phone !== existing.phone) ||
+    (d.parentName !== undefined && (d.parentName || undefined) !== (existing.parentName || undefined));
   const prepChanged = d.notes !== undefined && (d.notes.trim() || undefined) !== (existing.notes || undefined);
   const resultChanged =
     d.resultNotes !== undefined && (d.resultNotes.trim() || undefined) !== (existing.resultNotes || undefined);
@@ -11700,7 +12281,14 @@ export async function updateTrialLessonTool(
       instrument: next.instrument as Instrument,
     });
   }
-  if (identityChanged) Object.assign(patch, { name: d.name ?? existing.name, phone: d.phone ?? existing.phone });
+  if (identityChanged) {
+    Object.assign(patch, {
+      name: d.name ?? existing.name,
+      phone: d.phone ?? existing.phone,
+      // Boş gönderim veli adını temizler ("" → db'de NULL karşılığı boş metin yerine "").
+      ...(d.parentName !== undefined ? { parentName: d.parentName } : {}),
+    });
+  }
   if (prepChanged) patch.notes = d.notes!.trim();
   if (resultChanged) {
     patch.resultNotes = d.resultNotes!.trim();

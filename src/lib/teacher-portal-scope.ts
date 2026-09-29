@@ -10,7 +10,8 @@ import type { Lesson, Student, TeacherPayout } from "./types";
  */
 
 export function ownPayouts(payouts: TeacherPayout[], teacherId: string): TeacherPayout[] {
-  return payouts.filter((p) => p.teacherId === teacherId);
+  // İptal edilmiş hakediş öğretmene gösterilmez (toplam/liste dışı).
+  return payouts.filter((p) => p.teacherId === teacherId && p.status !== "cancelled");
 }
 
 export function findOwnPayout(
@@ -19,7 +20,7 @@ export function findOwnPayout(
   teacherId: string
 ): TeacherPayout | undefined {
   const payout = payouts.find((p) => p.id === payoutId);
-  if (!payout || payout.teacherId !== teacherId) return undefined;
+  if (!payout || payout.teacherId !== teacherId || payout.status === "cancelled") return undefined;
   return payout;
 }
 

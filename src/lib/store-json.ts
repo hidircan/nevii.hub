@@ -930,10 +930,13 @@ export async function createTeacherPayout(
   periodEnd: string,
   paymentMethodOverride?: TeacherPayoutPaymentMethod
 ): Promise<CreateTeacherPayoutResult> {
-  const data = await readData();
-  assertTeacherExists(data, teacherId);
-  const result = createTeacherPayoutSnapshot(data, teacherId, periodStart, periodEnd, new Date(), paymentMethodOverride);
-  if (result.ok) await writeData(result.data);
+  // Kilit altında: eşzamanlı iki "Hakediş oluştur" çift kayıt üretmez.
+  let result!: CreateTeacherPayoutResult;
+  await mutateStoreUnderLock(async (data) => {
+    assertTeacherExists(data, teacherId);
+    result = createTeacherPayoutSnapshot(data, teacherId, periodStart, periodEnd, new Date(), paymentMethodOverride);
+    return result.ok ? result.data : data;
+  });
   return result;
 }
 
@@ -961,13 +964,52 @@ export async function setTeacherPayoutPolicy(
   return result;
 }
 
-/** K — hakediş revizyonu/ödeme geri alma: kaydı bütün olarak değiştirir (kurallar tool katmanında). */
+/** K — kaydı bütün olarak değiştirir (kurallar tool katmanında). İyimser kilit: okunan sürüm değilse STALE_PAYOUT. */
 export async function replaceTeacherPayout(payout: TeacherPayout): Promise<AppData> {
-  const data = await readData();
-  if (!data.teacherPayouts.some((p) => p.id === payout.id)) throw new Error("Hakediş kaydı bulunamadı");
-  const next = { ...data, teacherPayouts: data.teacherPayouts.map((p) => (p.id === payout.id ? payout : p)) };
-  await writeData(next);
+  let next!: AppData;
+  await mutateStoreUnderLock(async (data) => {
+    const cur = data.teacherPayouts.find((p) => p.id === payout.id);
+    if (!cur) throw new Error("Hakediş kaydı bulunamadı");
+    if ((cur.version ?? 0) !== (payout.version ?? 0)) throw new Error("STALE_PAYOUT");
+    const written = { ...payout, version: (payout.version ?? 0) + 1 };
+    next = { ...data, teacherPayouts: data.teacherPayouts.map((p) => (p.id === payout.id ? written : p)) };
+    return next;
+  });
   return next;
+}
+
+export async function deleteTeacherPayout(payoutId: string): Promise<boolean> {
+  let ok = false;
+  await mutateStoreUnderLock(async (data) => {
+    ok = data.teacherPayouts.some((p) => p.id === payoutId && p.status === "cancelled");
+    return ok ? { ...data, teacherPayouts: data.teacherPayouts.filter((p) => p.id !== payoutId) } : data;
+  });
+  return ok;
+}
+
+export async function deleteTeacherFeeRule(ruleId: string): Promise<boolean> {
+  let ok = false;
+  await mutateStoreUnderLock(async (data) => {
+    ok = data.teacherFeeRules.some((r) => r.id === ruleId);
+    return ok ? { ...data, teacherFeeRules: data.teacherFeeRules.filter((r) => r.id !== ruleId) } : data;
+  });
+  return ok;
+}
+
+export async function addTeacherPayoutExclusion(x: import("./types").TeacherPayoutExclusion): Promise<void> {
+  await mutateStoreUnderLock(async (data) => ({
+    ...data,
+    teacherPayoutExclusions: [...(data.teacherPayoutExclusions ?? []).filter((e) => e.lessonId !== x.lessonId), x],
+  }));
+}
+
+export async function removeTeacherPayoutExclusion(lessonId: string): Promise<boolean> {
+  let ok = false;
+  await mutateStoreUnderLock(async (data) => {
+    ok = (data.teacherPayoutExclusions ?? []).some((e) => e.lessonId === lessonId);
+    return ok ? { ...data, teacherPayoutExclusions: data.teacherPayoutExclusions!.filter((e) => e.lessonId !== lessonId) } : data;
+  });
+  return ok;
 }
 
 export async function markTeacherPayoutPaid(

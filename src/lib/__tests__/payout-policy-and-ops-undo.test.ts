@@ -141,7 +141,7 @@ describe("hakediş politikası — süreye göre sabit ücret", () => {
     } as Lesson;
   }
 
-  it("seçim yoksa mevcut politika aynen; sabit ücret seçilince ders başı tutar, 30/40/50 dışı süre engeller", async () => {
+  it("seçim yoksa mevcut politika aynen; sabit ücrette ders başı tutar; 30/40/50 dışı süre orantılı ve BLOKLAMAZ", async () => {
     const base = await readData();
     const data = {
       ...base,
@@ -155,13 +155,12 @@ describe("hakediş politikası — süreye göre sabit ücret", () => {
     if (!set.ok) return;
     const after = computeTeacherEarningsForPeriod(set.data, "t1", "2026-11-01", "2026-11-30");
     expect(after.totalAmount).toBe(800);
-    expect(after.canCreatePayout).toBe(true);
-    // Diğer ay etkilenmez.
     expect(computeTeacherEarningsForPeriod(set.data, "t1", "2026-10-01", "2026-10-31").pricingByMonth["2026-10"].policy).toBe("per_teacher_rule");
 
     const odd = computeTeacherEarningsForPeriod({ ...set.data, lessons: [lesson("x3", "2026-11-05T10:00:00Z", 45)] }, "t1", "2026-11-01", "2026-11-30");
     expect(odd.unsupportedDurationLessonIds).toEqual(["x3"]);
-    expect(odd.canCreatePayout).toBe(false);
+    expect(odd.lines[0].amount).toBe(450); // 50 dk tarifesi × 45/50
+    expect(odd.canCreatePayout).toBe(true);
   });
 
   it("eksik/geçersiz tutar reddedilir", async () => {
@@ -170,7 +169,7 @@ describe("hakediş politikası — süreye göre sabit ücret", () => {
     expect(res.ok).toBe(false);
   });
 
-  it("tool: kayıt politikayı/tutarları donmuş saklar; kayıt oluşunca ayın politikası kilitlenir", async () => {
+  it("tool: kayıt politikayı donmuş saklar; kilit YOK — ödemesiz kayıt yeni politikayla yeniden hesaplanır", async () => {
     const data = await readData();
     await writeData({ ...data, lessons: [...data.lessons, lesson("y1", "2026-11-03T10:00:00Z", 40)] });
     const set = await setTeacherPayoutPolicyTool(ctx(), { month: "2026-11", policy: "fixed_duration", rate30: 300, rate40: 400, rate50: 500 });
@@ -182,12 +181,13 @@ describe("hakediş politikası — süreye göre sabit ücret", () => {
     expect(payout.pricingPolicy).toBe("fixed_duration");
     expect(payout.pricingSnapshot?.["2026-11"]?.rate40).toBe(400);
 
-    const locked = await setTeacherPayoutPolicyTool(ctx(), { month: "2026-11", policy: "per_teacher_rule" });
-    expect(locked.ok).toBe(false);
-    if (!locked.ok) expect(locked.error.code).toBe("CONFLICT");
-    // Aynı değerleri tekrar kaydetmek (değişiklik yok) reddedilmez.
-    const same = await setTeacherPayoutPolicyTool(ctx(), { month: "2026-11", policy: "fixed_duration", rate30: 300, rate40: 400, rate50: 500 });
-    expect(same.ok && same.data.changed).toBe(false);
+    const preview = await setTeacherPayoutPolicyTool(ctx(), { month: "2026-11", policy: "fixed_duration", rate30: 300, rate40: 450, rate50: 500, preview: true });
+    expect(preview.ok && preview.data.impact.find((r) => r.teacherId === "t1")?.state).toBe("recalc");
+    expect((await readData()).teacherPayouts.find((p) => p.id === payout.id)!.totalAmount).toBe(400); // önizleme yazmaz
+
+    const applied = await setTeacherPayoutPolicyTool(ctx(), { month: "2026-11", policy: "fixed_duration", rate30: 300, rate40: 450, rate50: 500 });
+    expect(applied.ok && applied.data.recalculated).toBe(1);
+    expect((await readData()).teacherPayouts.find((p) => p.id === payout.id)!.totalAmount).toBe(450);
   });
 
   it("öğretmen politika değiştiremez", async () => {

@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { PAYOUT_STATUS_LABEL, activePayments, payoutAdjustmentTotal, payoutBalance, payoutNetAmount, payoutPaidAmount } from "@/lib/payout-ledger";
 import { PORTAL_RECORD_MISSING_REDIRECT } from "@/lib/auth/portal-record-missing";
 import { BackButton } from "@/components/back-button";
 import { readData } from "@/lib/store";
@@ -62,7 +63,7 @@ export default async function TeacherOwnPayoutDetailPage({
       <header className="border-b border-cyan-100 bg-[var(--color-surface)]/90 backdrop-blur">
         <div className="mx-auto flex max-w-lg items-center justify-between px-4 py-4">
           <BackButton fallbackHref="/ogretmen/hakedis" />
-          <Badge status={payout.status} />
+          <Badge status={payout.status}>{PAYOUT_STATUS_LABEL[payout.status]}</Badge>
         </div>
       </header>
 
@@ -73,26 +74,29 @@ export default async function TeacherOwnPayoutDetailPage({
           </p>
           <div className="mt-3 grid grid-cols-3 gap-2 text-center">
             <div>
-              <p className="text-lg font-semibold text-[var(--color-text)] dark:text-slate-50">{payout.totalMinutes}</p>
-              <p className="text-[11px] text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">Dakika</p>
+              <p className="text-lg font-semibold text-emerald-700">{formatMoney(payoutNetAmount(payout))}</p>
+              <p className="text-[11px] text-[var(--color-text-muted)]">Net hakediş</p>
             </div>
             <div>
-              <p className="text-lg font-semibold text-emerald-700">{formatMoney(payout.totalAmount)}</p>
-              <p className="text-[11px] text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">Tutar</p>
+              <p className="text-lg font-semibold text-[var(--color-text)]">{formatMoney(payoutPaidAmount(payout))}</p>
+              <p className="text-[11px] text-[var(--color-text-muted)]">Ödenen</p>
             </div>
             <div>
-              <p className="text-lg font-semibold text-[var(--color-text)] dark:text-slate-50">
-                {payout.status === "paid" ? "Ödendi" : "Bekliyor"}
-              </p>
-              <p className="text-[11px] text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">Durum</p>
+              <p className="text-lg font-semibold text-[var(--color-text)]">{formatMoney(payoutBalance(payout))}</p>
+              <p className="text-[11px] text-[var(--color-text-muted)]">Kalan · {PAYOUT_STATUS_LABEL[payout.status]}</p>
             </div>
           </div>
-          {payout.status === "paid" && payout.paidAt ? (
-            <p className="mt-3 text-xs text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
-              Ödeme tarihi: {formatDate(payout.paidAt)}
-              {payout.method ? ` · Yöntem: ${payout.method}` : ""}
+          {payoutAdjustmentTotal(payout) !== 0 ? (
+            <p className="mt-3 text-xs text-[var(--color-text-muted)]">
+              Ders dökümü {formatMoney(payout.totalAmount)} + düzeltmeler {formatMoney(payoutAdjustmentTotal(payout))}
             </p>
           ) : null}
+          {activePayments(payout).map((x) => (
+            <p key={x.id} className="mt-1 text-xs text-[var(--color-text-muted)]">
+              Ödeme: {formatDate(x.paidAt)} · {formatMoney(x.amount)}
+              {x.method ? ` · ${x.method === "cash" ? "Nakit" : x.method === "transfer" ? "Havale" : x.method}` : ""}
+            </p>
+          ))}
         </Card>
 
         <div>

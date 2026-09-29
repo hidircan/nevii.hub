@@ -25,6 +25,7 @@ export const dynamic = "force-dynamic";
 
 const PAYOUT_STATUS_LABELS: Record<string, string> = {
   pending: "Bekliyor",
+  partial: "Kısmi ödendi",
   paid: "Ödendi",
   no_lessons: "Ders yok",
 };
@@ -93,11 +94,8 @@ export default async function TeacherPayoutOverviewPage({
   const currentPolicy = policyRecord ? resolvePayoutPolicy(data, "", monthParam) : { policy: "per_teacher_rule" as const };
   const lastFixed = [...policies].filter((p) => p.policy === "fixed_duration").sort((a, b) => b.month.localeCompare(a.month))[0];
   const ratePrefill = currentPolicy.policy === "fixed_duration" ? currentPolicy : (lastFixed ?? {});
-  const lockedPayouts = payoutsOverlappingMonth(data.teacherPayouts, monthParam);
-  const unsupportedCount =
-    currentPolicy.policy === "fixed_duration"
-      ? allRows.reduce((sum, r) => sum + r.missingFeeRule, 0)
-      : 0;
+  const monthPayouts = payoutsOverlappingMonth(data.teacherPayouts, monthParam);
+  const durationExceptionCount = allRows.reduce((sum, r) => sum + r.durationExceptions, 0);
 
   return (
     <div>
@@ -130,9 +128,9 @@ export default async function TeacherPayoutOverviewPage({
         explicit={Boolean(policyRecord)}
         setAtLabel={policyRecord ? format(parseISO(policyRecord.setAt), "d MMM yyyy HH:mm", { locale: tr }) : undefined}
         prefill={{ rate30: ratePrefill.rate30, rate40: ratePrefill.rate40, rate50: ratePrefill.rate50 }}
-        lockedCount={lockedPayouts.length}
-        lockedPaidCount={lockedPayouts.filter((p) => p.status === "paid").length}
-        unsupportedCount={unsupportedCount}
+        recordCount={monthPayouts.length}
+        paidRecordCount={monthPayouts.filter((p) => p.status === "paid" || p.status === "partial").length}
+        durationExceptionCount={durationExceptionCount}
         canEdit={session.role === "SCHOOL_ADMIN" || session.role === "SUPER_ADMIN"}
         readOnlyReason={
           kurum.scope.mode === "all" ? "“Tüm kurumlar” görünümünde politika değiştirilemez; üstten tek bir kurum seçin." : undefined
@@ -170,14 +168,14 @@ export default async function TeacherPayoutOverviewPage({
       </dl>
 
       <div className="mb-6 grid gap-4 sm:grid-cols-3">
+        <StatCard label="Net hakediş" value={formatMoney(totals.net)} hint={`${PAYOUT_SCOPE_LABEL[scope]} · ${monthLabel}`} />
+        <StatCard label="Ödenen" value={formatMoney(totals.paid)} hint={`${PAYOUT_SCOPE_LABEL[scope]} · ${monthLabel}`} accent="success" />
         <StatCard
-          label={scope === "pasif" ? "Pasif öğretmene kalan yükümlülük" : "Bekleyen toplam"}
+          label={scope === "pasif" ? "Pasif öğretmene kalan yükümlülük" : "Kalan (ödenecek)"}
           value={formatMoney(totals.pending)}
-          hint={`${PAYOUT_SCOPE_LABEL[scope]} · ${monthLabel}`}
+          hint={totals.missingFeeRule > 0 ? `${totals.missingFeeRule} derste ücret kuralı eksik` : `${PAYOUT_SCOPE_LABEL[scope]} · ${monthLabel}`}
           accent="warning"
         />
-        <StatCard label="Ödenen toplam" value={formatMoney(totals.paid)} hint={`${PAYOUT_SCOPE_LABEL[scope]} · ${monthLabel}`} accent="success" />
-        <StatCard label="Tutarı hesaplanamayan ders" value={totals.missingFeeRule} accent="danger" />
       </div>
       <p className="-mt-3 mb-6 text-xs text-[var(--color-text-muted)]">
         Tutarlar bu ay için seçili hakediş politikasıyla hesaplanır; kayıtlı hakediş varsa kayıttaki (donmuş) tutar esas alınır.
@@ -209,6 +207,7 @@ export default async function TeacherPayoutOverviewPage({
             >
               <option value="">Tüm durumlar</option>
               <option value="pending">Bekliyor</option>
+              <option value="partial">Kısmi ödendi</option>
               <option value="paid">Ödendi</option>
               <option value="no_lessons">Ders yok</option>
             </select>
@@ -236,13 +235,15 @@ export default async function TeacherPayoutOverviewPage({
       {filteredRows.length === 0 ? (
         <EmptyState title="Sonuç yok" description="Bu filtrelerle eşleşen öğretmen bulunamadı." />
       ) : (
-        <Card className="overflow-hidden p-0">
-          <table className="w-full text-left text-sm">
+        <Card className="overflow-x-auto p-0">
+          <table className="w-full min-w-[860px] text-left text-sm">
             <thead className="border-b border-[var(--color-border)] bg-[var(--color-surface-muted)] text-xs uppercase tracking-wide text-[var(--color-text-muted)]">
               <tr>
                 <th className="px-4 py-3">Öğretmen</th>
-                <th className="px-4 py-3">Ders sayısı</th>
-                <th className="px-4 py-3">Tutar</th>
+                <th className="px-4 py-3">Ders</th>
+                <th className="px-4 py-3">Net hakediş</th>
+                <th className="px-4 py-3">Ödenen</th>
+                <th className="px-4 py-3">Kalan</th>
                 <th className="px-4 py-3">Durum</th>
                 {/* 10. tur iş #11 — eşik yönetimi bu ekranda (öğretmen başına, satır-içi). */}
                 <th className="px-4 py-3">Eşik (sa/hafta)</th>
@@ -261,16 +262,30 @@ export default async function TeacherPayoutOverviewPage({
                     ) : null}
                   </td>
                   <td className="px-4 py-3 text-[var(--color-text-muted)]">{r.lessonCount}</td>
-                  <td className="px-4 py-3 font-medium">{formatMoney(r.totalAmount)}</td>
+                  <td className="px-4 py-3 font-medium tabular-nums">
+                    {formatMoney(r.totalAmount)}
+                    {r.adjustments !== 0 ? (
+                      <span className="block text-[11px] font-normal text-[var(--color-text-muted)]">
+                        döküm {formatMoney(r.calculated)} {r.adjustments > 0 ? "+" : "−"} {formatMoney(Math.abs(r.adjustments))}
+                      </span>
+                    ) : null}
+                  </td>
+                  <td className="px-4 py-3 tabular-nums text-[var(--color-text-muted)]">{formatMoney(r.paid)}</td>
+                  <td className="px-4 py-3 tabular-nums">
+                    {r.balance < 0 ? <span className="text-rose-600">Fazla ödeme {formatMoney(-r.balance)}</span> : formatMoney(r.balance)}
+                  </td>
                   <td className="px-4 py-3">
                     <Badge status={r.status === "no_lessons" ? undefined : r.status}>
-                      {PAYOUT_STATUS_LABELS[r.status] ?? r.status}
+                      {r.hasRecord ? PAYOUT_STATUS_LABELS[r.status] ?? r.status : r.status === "no_lessons" ? "Ders yok" : "Kayıt yok"}
                     </Badge>
+                    {Math.abs(r.drift) >= 0.01 ? (
+                      <span className="mt-1 block text-[11px] text-amber-700">Güncel hesapla fark {r.drift > 0 ? "+" : "−"}{formatMoney(Math.abs(r.drift))}</span>
+                    ) : null}
                     {r.missingFeeRule > 0 ? (
-                      <span className="ml-2 text-xs text-rose-600">
-                        {r.missingFeeRule} ders için tutar hesaplanamadı (
-                        {currentPolicy.policy === "fixed_duration" ? "süre 30/40/50 dk değil" : "ücret kuralı eksik"})
-                      </span>
+                      <span className="mt-1 block text-[11px] text-rose-600">{r.missingFeeRule} derste ücret kuralı eksik</span>
+                    ) : null}
+                    {r.durationExceptions > 0 ? (
+                      <span className="mt-1 block text-[11px] text-[var(--color-text-muted)]">{r.durationExceptions} süre istisnası</span>
                     ) : null}
                   </td>
                   <td className="px-4 py-3 text-[var(--color-text-muted)]">

@@ -83,13 +83,12 @@ export default async function OgretmenHakedisYazdirPage({
       monthly.set(key, row);
     }
   }
+  const ex = result.ok ? result.existingPayout : null;
   const statusText = !result.ok
     ? ""
-    : result.existingPayout?.status === "paid"
-      ? "Ödendi"
-      : result.existingPayout
-        ? "Hakediş kaydı oluşturuldu — ödeme bekliyor"
-        : "Dönem hesabı — hakediş kaydı henüz oluşturulmadı";
+    : ex
+      ? `${ex.status === "paid" ? "Ödendi" : ex.status === "partial" ? "Kısmi ödendi" : "Kayıtlı — ödeme bekliyor"} · Net ${formatMoney(ex.netAmount)} · Ödenen ${formatMoney(ex.paidAmount)} · Kalan ${formatMoney(ex.balance)}`
+      : "Dönem hesabı — hakediş kaydı henüz oluşturulmadı";
 
   return (
     <div className="print-light-palette min-h-screen bg-[#f4f2f8] px-4 py-8 print:bg-white print:p-0 sm:px-6">
@@ -170,7 +169,7 @@ export default async function OgretmenHakedisYazdirPage({
                   {result.lines.map((l) => (
                     <tr key={l.lessonId}>
                       <td>{formatDate(l.lessonDate.slice(0, 10))}</td>
-                      <td>{l.studentName ?? "—"}{l.issue === "missing-fee-rule" ? " (ücret kuralı eksik)" : ""}</td>
+                      <td>{l.studentName ?? "—"}{l.issue === "missing-fee-rule" ? " (ücret kuralı eksik)" : l.issue === "duration-exception" ? " (süre istisnası — orantılı)" : ""}</td>
                       <td>{l.branchName ?? "—"}</td>
                       <td>{l.instrument}</td>
                       <td className="num">{l.durationMinutes}</td>

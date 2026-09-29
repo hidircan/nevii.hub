@@ -579,6 +579,9 @@ function mapSchoolToAppData(school: PrismaSchoolWithRelations): AppData {
       effectiveFrom: rule.effectiveFrom.toISOString(),
       effectiveTo: rule.effectiveTo?.toISOString() ?? undefined,
       createdAt: rule.createdAt.toISOString(),
+      deactivatedAt: rule.deactivatedAt?.toISOString() ?? undefined,
+      deactivatedByUserId: rule.deactivatedByUserId ?? undefined,
+      deactivationReason: rule.deactivationReason ?? undefined,
     })),
     teacherPayouts: school.teacherPayouts.map((payout) => ({
       id: payout.id,
@@ -587,7 +590,7 @@ function mapSchoolToAppData(school: PrismaSchoolWithRelations): AppData {
       periodEnd: payout.periodEnd.toISOString().slice(0, 10),
       totalMinutes: payout.totalMinutes,
       totalAmount: payout.totalAmount,
-      status: payout.status as "pending" | "paid",
+      status: payout.status as TeacherPayout["status"],
       paidAt: payout.paidAt?.toISOString() ?? undefined,
       method: payout.method ?? undefined,
       generatedAt: payout.generatedAt.toISOString(),
@@ -600,6 +603,13 @@ function mapSchoolToAppData(school: PrismaSchoolWithRelations): AppData {
       revisionReason: payout.revisionReason ?? undefined,
       pricingPolicy: (payout.pricingPolicy as TeacherPayout["pricingPolicy"] | null) ?? undefined,
       pricingSnapshot: (payout.pricingSnapshot as TeacherPayout["pricingSnapshot"] | null) ?? undefined,
+      cancelledAt: payout.cancelledAt?.toISOString() ?? undefined,
+      cancelledByUserId: payout.cancelledByUserId ?? undefined,
+      cancelReason: payout.cancelReason ?? undefined,
+      lineSnapshot: (payout.lineSnapshot as TeacherPayout["lineSnapshot"] | null) ?? undefined,
+      payments: (payout.payments as TeacherPayout["payments"] | null) ?? undefined,
+      adjustments: (payout.adjustments as TeacherPayout["adjustments"] | null) ?? undefined,
+      version: payout.version,
     })),
   };
 }
@@ -638,6 +648,7 @@ export async function seedDatabase(seed: AppData) {
     prisma.user.deleteMany({ where: { tenantId: tid } }),
     prisma.teacherPayout.deleteMany({ where: { tenantId: tid } }),
     prisma.teacherPayoutPolicyPeriod.deleteMany({ where: { tenantId: tid } }),
+    prisma.teacherPayoutExclusion.deleteMany({ where: { tenantId: tid } }),
     prisma.teacherFeeRule.deleteMany({ where: { tenantId: tid } }),
     // KÖK NEDEN (2026-09-07, "Demo verisini sıfırla" -> React #441): bu iki
     // satır TERS SIRADAYDI. `MakeupRequest.attendanceId` ZORUNLU bir FK'dir
@@ -1077,11 +1088,14 @@ export function mapDbPayment(payment: Prisma.PaymentGetPayload<object>): import(
 
 export async function readData(): Promise<AppData> {
   const tid = tenantId();
-  const [school, packages, discountCampaigns, teacherPayoutPolicies] = await Promise.all([
+  const [school, packages, discountCampaigns, teacherPayoutPolicies, teacherPayoutExclusions] = await Promise.all([
     prisma.school.findFirst({ where: { tenantId: tid }, include: schoolInclude }),
     readPackages(tid),
     readDiscountCampaigns(tid),
     readTeacherPayoutPolicies(tid),
+    prisma.teacherPayoutExclusion
+      .findMany({ where: { tenantId: tid } })
+      .then((rows) => rows.map((r) => ({ ...r, createdAt: r.createdAt.toISOString(), tenantId: undefined }))),
   ]);
 
   if (!school) {
@@ -1102,7 +1116,7 @@ export async function readData(): Promise<AppData> {
     };
   }
 
-  return { ...mapSchoolToAppData(school), packages, discountCampaigns, teacherPayoutPolicies };
+  return { ...mapSchoolToAppData(school), packages, discountCampaigns, teacherPayoutPolicies, teacherPayoutExclusions };
 }
 
 export async function resetData(): Promise<AppData> {
@@ -3140,10 +3154,68 @@ export async function updateTeacherFeeRule(
       perMinuteRate: result.rule.perMinuteRate,
       effectiveFrom: new Date(result.rule.effectiveFrom),
       effectiveTo: result.rule.effectiveTo ? new Date(result.rule.effectiveTo) : null,
+      deactivatedAt: result.rule.deactivatedAt ? new Date(result.rule.deactivatedAt) : null,
+      deactivatedByUserId: result.rule.deactivatedByUserId ?? null,
+      deactivationReason: result.rule.deactivationReason ?? null,
     },
   });
 
   return { ok: true, data: await readData(), rule: result.rule };
+}
+
+export const STALE_PAYOUT_ERROR = "STALE_PAYOUT";
+
+/** 2026-09-30 — kullanılmamış ücret kuralının kalıcı silinmesi (kullanım kontrolü tool katmanında). */
+export async function deleteTeacherFeeRule(ruleId: string): Promise<boolean> {
+  const res = await prisma.teacherFeeRule.deleteMany({ where: { id: ruleId, tenantId: requireTenantId() } });
+  return res.count === 1;
+}
+
+/** 2026-09-30 — iptal edilmiş + hiç ödemesi olmamış kaydın kalıcı silinmesi (kural tool katmanında). */
+export async function deleteTeacherPayout(payoutId: string): Promise<boolean> {
+  const res = await prisma.teacherPayout.deleteMany({ where: { id: payoutId, tenantId: requireTenantId(), status: "cancelled" } });
+  return res.count === 1;
+}
+
+export async function addTeacherPayoutExclusion(x: import("./types").TeacherPayoutExclusion): Promise<void> {
+  const tid = requireTenantId();
+  await prisma.teacherPayoutExclusion.upsert({
+    where: { tenantId_lessonId: { tenantId: tid, lessonId: x.lessonId } },
+    create: { ...x, tenantId: tid, createdAt: new Date(x.createdAt) },
+    update: { reason: x.reason, createdByUserId: x.createdByUserId, createdAt: new Date(x.createdAt) },
+  });
+}
+
+export async function removeTeacherPayoutExclusion(lessonId: string): Promise<boolean> {
+  const res = await prisma.teacherPayoutExclusion.deleteMany({ where: { lessonId, tenantId: requireTenantId() } });
+  return res.count === 1;
+}
+
+/** TeacherPayout → Prisma alanları (create/update ortak; tenant/teacher/school hariç). */
+function payoutWriteFields(p: TeacherPayout) {
+  const json = (v: unknown) => (v === undefined ? Prisma.DbNull : (v as Prisma.InputJsonValue));
+  return {
+    status: p.status,
+    paidAt: p.paidAt ? new Date(p.paidAt) : null,
+    method: p.method ?? null,
+    totalMinutes: Math.round(p.totalMinutes),
+    totalAmount: p.totalAmount,
+    originalTotalMinutes: p.originalTotalMinutes ?? null,
+    originalTotalAmount: p.originalTotalAmount ?? null,
+    lineOverrides: p.lineOverrides && Object.keys(p.lineOverrides).length > 0 ? json(p.lineOverrides) : Prisma.DbNull,
+    revisionCount: p.revisionCount ?? 0,
+    revisedAt: p.revisedAt ? new Date(p.revisedAt) : null,
+    revisedByUserId: p.revisedByUserId ?? null,
+    revisionReason: p.revisionReason ?? null,
+    pricingPolicy: p.pricingPolicy ?? null,
+    pricingSnapshot: json(p.pricingSnapshot),
+    cancelledAt: p.cancelledAt ? new Date(p.cancelledAt) : null,
+    cancelledByUserId: p.cancelledByUserId ?? null,
+    cancelReason: p.cancelReason ?? null,
+    lineSnapshot: json(p.lineSnapshot),
+    payments: json(p.payments),
+    adjustments: json(p.adjustments),
+  };
 }
 
 export async function createTeacherPayout(
@@ -3158,6 +3230,17 @@ export async function createTeacherPayout(
   const result = createTeacherPayoutSnapshot(data, teacherId, periodStart, periodEnd, new Date(), paymentMethodOverride);
   if (!result.ok) return result;
 
+  if (result.reusedCancelledId) {
+    // İptal edilmiş aynı dönem kaydı yerinde yeniden oluşturulur (sürüm kontrollü).
+    const res = await prisma.teacherPayout.updateMany({
+      where: { id: result.reusedCancelledId, tenantId: tid, status: "cancelled", version: result.payout.version ?? 0 },
+      data: { ...payoutWriteFields(result.payout), generatedAt: new Date(result.payout.generatedAt), version: { increment: 1 } },
+    });
+    if (res.count === 0) {
+      return { ok: false, code: "PAYOUT_ALREADY_EXISTS", message: "Bu dönemin kaydı az önce değişti; sayfayı yenileyip tekrar deneyin.", existingPayoutId: result.reusedCancelledId };
+    }
+    return { ok: true, data: await readData(), payout: { ...result.payout, version: (result.payout.version ?? 0) + 1 } };
+  }
   const schoolId = await requireTeacherSchoolId(tid, teacherId);
   try {
     await prisma.teacherPayout.create({
@@ -3177,6 +3260,9 @@ export async function createTeacherPayout(
         pricingSnapshot: result.payout.pricingSnapshot
           ? (result.payout.pricingSnapshot as unknown as Prisma.InputJsonValue)
           : Prisma.DbNull,
+        lineSnapshot: result.payout.lineSnapshot as unknown as Prisma.InputJsonValue,
+        payments: [],
+        adjustments: [],
       },
     });
   } catch (error) {
@@ -3213,19 +3299,14 @@ export async function updateTeacherPayoutPaymentMethod(
   return { ok: true, data: await readData(), payout: result.payout };
 }
 
-/**
- * 2026-09-29 — ay bazlı hakediş politikası. Kilit kontrolü (o ayla kesişen hakediş kaydı var mı)
- * yazma ile AYNI Serializable transaction'da tekrar yapılır: eşzamanlı hakediş oluşturma ile yarışta
- * politika, kaydı oluşmuş bir ayda sessizce değişmez.
- */
+/** 2026-09-29/30 — ay bazlı hakediş politikası (kilit yok; kayıtların yeniden hesabı tool katmanında). */
 export async function setTeacherPayoutPolicy(
   input: import("./teacher-payout").SetPayoutPolicyInput,
   actorUserId: string
 ): Promise<import("./teacher-payout").SetPayoutPolicyResult> {
   const tid = requireTenantId();
-  const { setPayoutPolicyForMonthData, payoutsOverlappingMonth } = await import("./teacher-payout");
-  const data = await readData();
-  const result = setPayoutPolicyForMonthData(data, input, actorUserId);
+  const { setPayoutPolicyForMonthData } = await import("./teacher-payout");
+  const result = setPayoutPolicyForMonthData(await readData(), input, actorUserId);
   if (!result.ok || !result.changed) return result;
   const r = result.record;
   const fields = {
@@ -3236,64 +3317,23 @@ export async function setTeacherPayoutPolicy(
     setByUserId: r.setByUserId,
     setAt: new Date(r.setAt),
   };
-  const locked = await prisma.$transaction(
-    async (tx) => {
-      const payouts = await tx.teacherPayout.findMany({
-        where: { tenantId: tid },
-        select: { periodStart: true, periodEnd: true, status: true },
-      });
-      const overlapping = payoutsOverlappingMonth(
-        payouts.map((p) => ({
-          periodStart: p.periodStart.toISOString(),
-          periodEnd: p.periodEnd.toISOString(),
-          status: p.status,
-        })) as TeacherPayout[],
-        r.month
-      );
-      if (overlapping.length > 0) return true;
-      await tx.teacherPayoutPolicyPeriod.upsert({
-        where: { tenantId_month: { tenantId: tid, month: r.month } },
-        create: { id: r.id, tenantId: tid, month: r.month, ...fields },
-        update: fields,
-      });
-      return false;
-    },
-    { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
-  );
-  if (locked) {
-    return {
-      ok: false,
-      code: "PERIOD_LOCKED",
-      message: `${r.month} ayı için az önce hakediş kaydı oluşturuldu; politika değiştirilemez. Sayfayı yenileyip durumu kontrol edin.`,
-    };
-  }
+  await prisma.teacherPayoutPolicyPeriod.upsert({
+    where: { tenantId_month: { tenantId: tid, month: r.month } },
+    create: { id: r.id, tenantId: tid, month: r.month, ...fields },
+    update: fields,
+  });
   return result;
 }
 
 /** K — hakediş revizyonu/ödeme geri alma (bkz. store-json.ts aynı adlı fonksiyon). */
 export async function replaceTeacherPayout(payout: TeacherPayout): Promise<AppData> {
   const tid = requireTenantId();
+  // İyimser kilit: yalnız okunduğu sürümdeyse yazılır (eşzamanlı ikinci ödeme/düzeltme çift kayıt üretmez).
   const res = await prisma.teacherPayout.updateMany({
-    where: { id: payout.id, tenantId: tid },
-    data: {
-      status: payout.status,
-      paidAt: payout.paidAt ? new Date(payout.paidAt) : null,
-      method: payout.method ?? null,
-      totalMinutes: payout.totalMinutes,
-      totalAmount: payout.totalAmount,
-      originalTotalMinutes: payout.originalTotalMinutes ?? null,
-      originalTotalAmount: payout.originalTotalAmount ?? null,
-      lineOverrides:
-        payout.lineOverrides && Object.keys(payout.lineOverrides).length > 0
-          ? (payout.lineOverrides as unknown as Prisma.InputJsonValue)
-          : Prisma.DbNull,
-      revisionCount: payout.revisionCount ?? 0,
-      revisedAt: payout.revisedAt ? new Date(payout.revisedAt) : null,
-      revisedByUserId: payout.revisedByUserId ?? null,
-      revisionReason: payout.revisionReason ?? null,
-    },
+    where: { id: payout.id, tenantId: tid, version: payout.version ?? 0 },
+    data: { ...payoutWriteFields(payout), version: { increment: 1 } },
   });
-  if (res.count === 0) throw new Error("Hakediş kaydı bulunamadı");
+  if (res.count === 0) throw new Error(STALE_PAYOUT_ERROR);
   return readData();
 }
 

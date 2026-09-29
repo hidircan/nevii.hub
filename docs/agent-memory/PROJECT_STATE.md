@@ -4,6 +4,15 @@ Kısa tutulur (~50 satır): oturum sonunda yalnız "Güncel snapshot" bölümün
 `archive/`'e taşınır. Ayrıntı → ilgili `docs/testing/UAT_*.md`, `docs/operations/*`. Yönlendirici: `nevii-hub` skill.
 Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_2026-09-24.md`.
 
+## Güncel snapshot — 2026-09-30 (hakediş DEFTERİ yeniden tasarım + deneme enstrüman/veli adı)
+- Model: `payout-ledger.ts` (saf) — net = döküm + düzeltmeler; kalan = net − ödemeler; durum türetilir
+  (pending/partial/paid/cancelled). Ödeme/düzeltme silinmez → ters kayıt. `replaceTeacherPayout` sürüm kontrollü
+  (`STALE_PAYOUT`). Kayıt `lineSnapshot` ile donar; `payoutDrift` = güncel hesap − kayıt.
+- Politika kilidi KALDIRILDI: ödemesiz kayıt yeniden hesaplanır, ödemeli kayıt değişmez (fark → "recalc" düzeltme).
+- Hariç tutma: `TeacherPayoutExclusion` (ders verisine dokunmaz). Ücret kuralı: kullanılmadıysa sil, yoksa devre dışı.
+- 30/40/50 dışı süre bloklamaz (orantılı + "süre istisnası"). Deneme: enstrüman = katalog, `TrialLesson.parentName`.
+- Migration (additive): `20260930090000_teacher_payout_ledger`. UAT: `docs/testing/UAT_2026_09_30_PAYOUT_LEDGER.md`.
+
 ## Güncel snapshot — 2026-09-29 (hakediş politikası + yoklama geri alma + MEB opsiyonel + deneme etiketleri)
 - Hakediş: ay bazlı `TeacherPayoutPolicyPeriod` (mevcut / süreye göre sabit 30-40-50 TL). Kayıt yoksa mevcut politika;
   ayla kesişen hakediş kaydı varsa değişiklik kilitli. `TeacherPayout.pricingPolicy/pricingSnapshot` iz.

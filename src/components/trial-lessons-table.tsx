@@ -48,7 +48,6 @@ const VIEW_LABELS: Record<TrialListView, string> = {
   open: "Dönüşmeyen",
 };
 
-const INSTRUMENTS = ["Piyano", "Yan Flüt", "Gitar", "Bateri", "Keman", "Şan"];
 
 const control =
   "rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 py-1.5 text-sm text-[var(--color-text)]";
@@ -66,6 +65,7 @@ export function TrialLessonsTable({
   isTeacher,
   teachers,
   branches,
+  instrumentOptions,
   initialPromptTrialId,
   initialOpenTrialId,
 }: {
@@ -79,6 +79,8 @@ export function TrialLessonsTable({
   isTeacher: boolean;
   teachers: { id: string; name: string }[];
   branches: { id: string; name: string }[];
+  /** Kurum enstrüman kataloğu (aktif) — yeni öğrenci formuyla aynı kaynak. */
+  instrumentOptions: string[];
   /** Az önce planlanan deneme — sayfa açılışında dönüşüm sorusu sorulur. */
   initialPromptTrialId?: string;
   /** Günlük Özet'ten gelen `?deneme=` — o deneme doğrudan açılır. */
@@ -384,7 +386,10 @@ export function TrialLessonsTable({
                     <tr key={r.id} className="border-b border-[var(--color-border)] align-top last:border-0">
                       <td className="px-3 py-2">
                         <p className="font-medium text-[var(--color-text)]">{r.name}</p>
-                        <p className="text-xs text-[var(--color-text-muted)]">{r.phone}</p>
+                        <p className="text-xs text-[var(--color-text-muted)]">
+                          {r.phone}
+                          {r.parentName ? ` · Veli: ${r.parentName}` : ""}
+                        </p>
                         <p className="text-[11px] text-[var(--color-text-muted)]">Planlayan: {r.createdByName}</p>
                       </td>
                       <td className="whitespace-nowrap px-3 py-2">
@@ -424,6 +429,7 @@ export function TrialLessonsTable({
           isTeacher={isTeacher}
           teachers={teachers}
           branches={branches}
+          instrumentOptions={instrumentOptions}
           onClose={() => setEditId(null)}
           onSaved={() => {
             setEditId(null);
@@ -572,6 +578,7 @@ function TrialEditModal({
   isTeacher,
   teachers,
   branches,
+  instrumentOptions,
   onClose,
   onSaved,
 }: {
@@ -579,11 +586,13 @@ function TrialEditModal({
   isTeacher: boolean;
   teachers: { id: string; name: string }[];
   branches: { id: string; name: string }[];
+  instrumentOptions: string[];
   onClose: () => void;
   onSaved: () => void;
 }) {
   const [name, setName] = useState(row.name);
   const [phone, setPhone] = useState(row.phone);
+  const [parentName, setParentName] = useState(row.parentName ?? "");
   const [instrument, setInstrument] = useState(row.instrument);
   const [branchId, setBranchId] = useState(row.branchId);
   const [teacherId, setTeacherId] = useState(row.teacherId);
@@ -619,6 +628,7 @@ function TrialEditModal({
     const body: Record<string, unknown> = {
       name: name.trim(),
       phone: phone.trim(),
+      parentName: parentName.trim(),
       instrument,
       branchId,
       teacherId,
@@ -684,9 +694,13 @@ function TrialEditModal({
             <input className={field} value={phone} onChange={(e) => setPhone(e.target.value)} />
           </label>
           <label className="space-y-1">
+            <span className={label}>Veli adı (opsiyonel)</span>
+            <input className={field} value={parentName} onChange={(e) => setParentName(e.target.value)} maxLength={120} />
+          </label>
+          <label className="space-y-1">
             <span className={label}>Branş</span>
             <select className={field} value={instrument} onChange={(e) => setInstrument(e.target.value)}>
-              {(INSTRUMENTS.includes(row.instrument) ? INSTRUMENTS : [row.instrument, ...INSTRUMENTS]).map((i) => (
+              {(instrumentOptions.includes(row.instrument) ? instrumentOptions : [row.instrument, ...instrumentOptions]).map((i) => (
                 <option key={i} value={i}>
                   {i}
                 </option>

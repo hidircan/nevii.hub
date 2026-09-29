@@ -251,6 +251,10 @@ type StoreApi = {
   ) => Promise<CreateTeacherPayoutResult>;
   markTeacherPayoutPaid: (payoutId: string, method?: string) => Promise<MarkPayoutPaidResult>;
   replaceTeacherPayout: (payout: TeacherPayout) => Promise<AppData>;
+  deleteTeacherPayout: (payoutId: string) => Promise<boolean>;
+  deleteTeacherFeeRule: (ruleId: string) => Promise<boolean>;
+  addTeacherPayoutExclusion: (x: import("./types").TeacherPayoutExclusion) => Promise<void>;
+  removeTeacherPayoutExclusion: (lessonId: string) => Promise<boolean>;
   setTeacherPayoutPolicy: (
     input: import("./teacher-payout").SetPayoutPolicyInput,
     actorUserId: string
@@ -765,6 +769,22 @@ export async function setTeacherPayoutPolicy(
   actorUserId: string
 ): Promise<import("./teacher-payout").SetPayoutPolicyResult> {
   return withTenantScope(() => store.setTeacherPayoutPolicy(input, actorUserId));
+}
+
+export async function deleteTeacherPayout(payoutId: string): Promise<boolean> {
+  return withTenantScope(() => store.deleteTeacherPayout(payoutId));
+}
+
+export async function deleteTeacherFeeRule(ruleId: string): Promise<boolean> {
+  return withTenantScope(() => store.deleteTeacherFeeRule(ruleId));
+}
+
+export async function addTeacherPayoutExclusion(x: import("./types").TeacherPayoutExclusion): Promise<void> {
+  return withTenantScope(() => store.addTeacherPayoutExclusion(x));
+}
+
+export async function removeTeacherPayoutExclusion(lessonId: string): Promise<boolean> {
+  return withTenantScope(() => store.removeTeacherPayoutExclusion(lessonId));
 }
 
 export async function replaceTeacherPayout(payout: TeacherPayout): Promise<AppData> {

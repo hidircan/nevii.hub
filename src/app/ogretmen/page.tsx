@@ -8,6 +8,7 @@ import { Badge, Card } from "@/components/ui";
 import { LessonStatusBadge } from "@/components/lesson-status-badge";
 import { formatDate, formatDateTime, formatMoney, formatTime } from "@/lib/utils";
 import { computeTeacherEarningsWithRevisions } from "@/lib/teacher-payout";
+import { payoutNetAmount } from "@/lib/payout-ledger";
 import { CalendarDays, Music2, Users, Wallet } from "lucide-react";
 import { requireSessionContext } from "@/lib/auth/session";
 import { AssistantPageContext } from "@/components/ai/assistant-page-context";
@@ -53,7 +54,7 @@ export default async function OgretmenPortalPage() {
   const periodEnd = format(endOfMonth(now), "yyyy-MM-dd");
   const currentMonthEarnings = computeTeacherEarningsWithRevisions(data, teacher.id, periodStart, periodEnd);
   const recentPayouts = data.teacherPayouts
-    .filter((p) => p.teacherId === teacher.id)
+    .filter((p) => p.teacherId === teacher.id && p.status !== "cancelled")
     .sort((a, b) => b.periodStart.localeCompare(a.periodStart))
     .slice(0, 3);
 
@@ -211,7 +212,7 @@ export default async function OgretmenPortalPage() {
                         <p className="font-medium text-[var(--color-text)] dark:text-slate-200">
                           {formatDate(p.periodStart)} – {formatDate(p.periodEnd)}
                         </p>
-                        <p className="text-xs text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">{formatMoney(p.totalAmount)}</p>
+                        <p className="text-xs text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">{formatMoney(payoutNetAmount(p))}</p>
                       </div>
                       <Badge status={p.status} />
                     </div>

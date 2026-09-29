@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { payoutNetAmount } from "@/lib/payout-ledger";
 import { redirect } from "next/navigation";
 import { PORTAL_RECORD_MISSING_REDIRECT } from "@/lib/auth/portal-record-missing";
 import { BackButton } from "@/components/back-button";
@@ -53,7 +54,7 @@ export default async function TeacherOwnPayoutsPage() {
                       {formatDate(p.periodStart)} – {formatDate(p.periodEnd)}
                     </p>
                     <p className="mt-1 text-xs text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
-                      {p.totalMinutes} dk · {formatMoney(p.totalAmount)}
+                      {p.totalMinutes} dk · {formatMoney(payoutNetAmount(p))}
                     </p>
                     {p.status === "paid" && p.paidAt ? (
                       <p className="mt-0.5 text-[11px] text-[var(--color-text-muted)]">

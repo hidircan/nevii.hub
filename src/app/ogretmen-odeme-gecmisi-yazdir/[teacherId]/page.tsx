@@ -1,4 +1,5 @@
 import { redirect, notFound } from "next/navigation";
+import { payoutPaymentRows } from "@/lib/payout-ledger";
 import { requireSessionContext } from "@/lib/auth/session";
 import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
 import { printSurfaceCss } from "@/lib/contract-print-theme";
@@ -32,10 +33,9 @@ export default async function TeacherPayoutHistoryPrintPage({
   const teacher = data.teachers.find((t) => t.id === teacherId);
   if (!teacher) notFound();
 
-  const paid = data.teacherPayouts
-    .filter((p) => p.teacherId === teacherId && p.status === "paid")
-    .sort((a, b) => b.periodStart.localeCompare(a.periodStart));
-  const total = paid.reduce((s, p) => s + p.totalAmount, 0);
+  // Gerçekleşen ödeme satırları (kısmi ödemeler ayrı; ters kaydı yapılanlar hariç).
+  const paid = payoutPaymentRows(data.teacherPayouts.filter((p) => p.teacherId === teacherId));
+  const total = paid.reduce((s, p) => s + p.amount, 0);
   const { viewer, printedAt } = await resolvePrintStamp({
     tenantId: session.tenantId,
     userId: session.userId,
@@ -53,7 +53,7 @@ export default async function TeacherPayoutHistoryPrintPage({
             institution={data.settings.name}
             rows={[
               ["Öğretmen", teacher.name],
-              ["Kapsam", "Ödenmiş hakedişler"],
+              ["Kapsam", "Gerçekleşen hakediş ödemeleri"],
             ]}
             viewer={viewer}
             printedAt={printedAt}
@@ -61,24 +61,24 @@ export default async function TeacherPayoutHistoryPrintPage({
           <table>
             <thead>
               <tr>
-                <th>Dönem</th>
-                <th className="num">Süre (dk)</th>
-                <th className="num">Tutar</th>
                 <th>Ödeme tarihi</th>
+                <th>Hakediş dönemi</th>
+                <th className="num">Tutar</th>
                 <th>Yöntem</th>
+                <th>Not</th>
               </tr>
             </thead>
             <tbody>
               {paid.length === 0 ? (
-                <tr><td colSpan={5}>Ödenmiş hakediş kaydı yok.</td></tr>
+                <tr><td colSpan={5}>Yapılmış hakediş ödemesi yok.</td></tr>
               ) : (
                 paid.map((p) => (
-                  <tr key={p.id}>
+                  <tr key={p.key}>
+                    <td>{formatDate(p.paidAt)}</td>
                     <td>{formatDate(p.periodStart)} – {formatDate(p.periodEnd)}</td>
-                    <td className="num">{p.totalMinutes}</td>
-                    <td className="num">{formatMoney(p.totalAmount)}</td>
-                    <td>{p.paidAt ? formatDate(p.paidAt) : "—"}</td>
+                    <td className="num">{formatMoney(p.amount)}</td>
                     <td>{p.method ? METHOD_LABEL[p.method] ?? p.method : "—"}</td>
+                    <td>{p.note ?? "—"}</td>
                   </tr>
                 ))
               )}
@@ -86,7 +86,7 @@ export default async function TeacherPayoutHistoryPrintPage({
             <tfoot>
               <tr>
                 <th>Toplam — {paid.length} ödeme</th>
-                <th className="num">{paid.reduce((s, p) => s + p.totalMinutes, 0)}</th>
+                <th />
                 <th className="num">{formatMoney(total)}</th>
                 <th colSpan={2} />
               </tr>

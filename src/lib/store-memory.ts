@@ -822,13 +822,42 @@ export async function setTeacherPayoutPolicy(
   return result;
 }
 
-/** K — hakediş revizyonu/ödeme geri alma: kaydı bütün olarak değiştirir (kurallar tool katmanında). */
+/** K — kaydı bütün olarak değiştirir (kurallar tool katmanında). İyimser kilit: okunan sürüm değilse STALE_PAYOUT. */
 export async function replaceTeacherPayout(payout: TeacherPayout): Promise<AppData> {
   const data = load();
-  if (!data.teacherPayouts.some((p) => p.id === payout.id)) throw new Error("Hakediş kaydı bulunamadı");
-  const next = { ...data, teacherPayouts: data.teacherPayouts.map((p) => (p.id === payout.id ? payout : p)) };
+  const cur = data.teacherPayouts.find((p) => p.id === payout.id);
+  if (!cur) throw new Error("Hakediş kaydı bulunamadı");
+  if ((cur.version ?? 0) !== (payout.version ?? 0)) throw new Error("STALE_PAYOUT");
+  const written = { ...payout, version: (payout.version ?? 0) + 1 };
+  const next = { ...data, teacherPayouts: data.teacherPayouts.map((p) => (p.id === payout.id ? written : p)) };
   save(next);
   return next;
+}
+
+export async function deleteTeacherPayout(payoutId: string): Promise<boolean> {
+  const data = load();
+  if (!data.teacherPayouts.some((p) => p.id === payoutId && p.status === "cancelled")) return false;
+  save({ ...data, teacherPayouts: data.teacherPayouts.filter((p) => p.id !== payoutId) });
+  return true;
+}
+
+export async function deleteTeacherFeeRule(ruleId: string): Promise<boolean> {
+  const data = load();
+  if (!data.teacherFeeRules.some((r) => r.id === ruleId)) return false;
+  save({ ...data, teacherFeeRules: data.teacherFeeRules.filter((r) => r.id !== ruleId) });
+  return true;
+}
+
+export async function addTeacherPayoutExclusion(x: import("./types").TeacherPayoutExclusion): Promise<void> {
+  const data = load();
+  save({ ...data, teacherPayoutExclusions: [...(data.teacherPayoutExclusions ?? []).filter((e) => e.lessonId !== x.lessonId), x] });
+}
+
+export async function removeTeacherPayoutExclusion(lessonId: string): Promise<boolean> {
+  const data = load();
+  if (!(data.teacherPayoutExclusions ?? []).some((e) => e.lessonId === lessonId)) return false;
+  save({ ...data, teacherPayoutExclusions: data.teacherPayoutExclusions!.filter((e) => e.lessonId !== lessonId) });
+  return true;
 }
 
 export async function markTeacherPayoutPaid(

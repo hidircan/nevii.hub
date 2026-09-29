@@ -2,10 +2,11 @@ import { redirect } from "next/navigation";
 import { BackButton } from "@/components/back-button";
 import { Card, PageHeader } from "@/components/ui";
 import { NewStudentForm } from "@/components/new-student-form";
+import { activeInstrumentOptions } from "@/lib/instrument-options";
 import { requireSessionContext } from "@/lib/auth/session";
 import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
-import { listInstrumentCatalogTool, getCurrentConsentTextVersionTool } from "@/lib/services";
+import { getCurrentConsentTextVersionTool } from "@/lib/services";
 import { getTrialLesson } from "@/lib/trial-lessons";
 import { formatDateTime } from "@/lib/utils";
 import Link from "next/link";
@@ -34,10 +35,7 @@ export default async function NewStudentPage({
   }
   const kurum = await getInstitutionContext(session);
   const data = await readScopedData(kurum.scope);
-  const catalogResult = await listInstrumentCatalogTool(session, {});
-  const instrumentOptions = catalogResult.ok
-    ? catalogResult.data.entries.filter((e) => e.status === "active").map((e) => e.name)
-    : ["Piyano", "Yan Flüt", "Gitar", "Bateri", "Keman", "Şan", "Elektro Gitar", "Bağlama"];
+  const instrumentOptions = await activeInstrumentOptions(session);
   const kvkkTextResult = await getCurrentConsentTextVersionTool(session, { consentType: "kvkk_general" });
   const kvkkText = kvkkTextResult.ok ? kvkkTextResult.data.version : undefined;
 
@@ -50,6 +48,7 @@ export default async function NewStudentPage({
           convertedFromTrialId: trial.id,
           name: trial.name,
           parentPhone: trial.phone,
+          ...(trial.parentName ? { parentName: trial.parentName } : {}),
           instrument: trial.instrument,
           teacherId: trial.teacherId,
           branchId: trial.branchId,

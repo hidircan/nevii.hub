@@ -14,6 +14,7 @@
  * eder (bkz. FinanceSummary.expenseDataIncomplete).
  */
 
+import { payoutNetAmount, payoutPaidAmount } from "./payout-ledger";
 import { collectedAmountOf } from "./payment-profile";
 import type { AppData, ContractStatus } from "./types";
 import { isPlanEligibleContractStatus } from "./attendance-calendar-plan";
@@ -99,8 +100,8 @@ export function computeFinanceSummary(
   const payrollCostThisMonth = payrollPaidThisMonth + payrollPendingThisMonth;
 
   const teacherPayoutTotalThisMonth = (data.teacherPayouts ?? [])
-    .filter((p) => monthKey(p.periodStart) === currentMonth)
-    .reduce((s, p) => s + p.totalAmount, 0);
+    .filter((p) => monthKey(p.periodStart) === currentMonth && p.status !== "cancelled")
+    .reduce((s, p) => s + payoutNetAmount(p), 0);
 
   const paymentsThisMonth = data.payments.filter((p) => monthKey(p.dueDate) === currentMonth);
   // Kısmi ödemenin alınan kısmı dahil — TEK tanım collectedAmountOf (payment-profile.ts).
@@ -113,8 +114,8 @@ export function computeFinanceSummary(
   const expenseTotalThisMonth = expensesThisMonth.reduce((s, e) => s + e.amount, 0);
 
   const teacherPayoutPaidThisMonth = (data.teacherPayouts ?? [])
-    .filter((p) => monthKey(p.periodStart) === currentMonth && p.status === "paid")
-    .reduce((s, p) => s + p.totalAmount, 0);
+    .filter((p) => monthKey(p.periodStart) === currentMonth)
+    .reduce((s, p) => s + payoutPaidAmount(p), 0);
 
   const totalExpenseThisMonth = payrollPaidThisMonth + teacherPayoutPaidThisMonth + expenseTotalThisMonth;
   const netCashThisMonth = studentPaymentsCollectedThisMonth - totalExpenseThisMonth;
@@ -179,8 +180,8 @@ export function computeFinanceSummary(
     const expense =
       payroll.filter((p) => p.month === key && p.status === "paid").reduce((s, p) => s + p.netAmount, 0) +
       (data.teacherPayouts ?? [])
-        .filter((p) => monthKey(p.periodStart) === key && p.status === "paid")
-        .reduce((s, p) => s + p.totalAmount, 0) +
+        .filter((p) => monthKey(p.periodStart) === key)
+        .reduce((s, p) => s + payoutPaidAmount(p), 0) +
       expenses.filter((e) => monthKey(e.date) === key).reduce((s, e) => s + e.amount, 0);
     trend.push({ month: key, income, expense });
   }

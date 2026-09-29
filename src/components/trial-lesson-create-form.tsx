@@ -6,19 +6,21 @@ import { Button, Input, Label, Select } from "@/components/ui";
 import { apiFetchJson } from "@/lib/api/client-fetch";
 import { friendlyApiErrorMessage } from "@/lib/api/friendly-error";
 
-const INSTRUMENTS = ["Piyano", "Yan Flüt", "Gitar", "Bateri", "Keman", "Şan"];
-
 export function TrialLessonCreateForm({
   teachers,
   branches,
+  instrumentOptions,
 }: {
   teachers: { id: string; name: string }[];
   branches: { id: string; name: string }[];
+  /** Kurum enstrüman kataloğu (aktif) — yeni öğrenci formuyla aynı kaynak. */
+  instrumentOptions: string[];
 }) {
   const router = useRouter();
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
-  const [instrument, setInstrument] = useState(INSTRUMENTS[0]);
+  const [parentName, setParentName] = useState("");
+  const [instrument, setInstrument] = useState(instrumentOptions[0] ?? "");
   const [branchId, setBranchId] = useState(branches[0]?.id ?? "");
   const [teacherId, setTeacherId] = useState(teachers[0]?.id ?? "");
   const [startAt, setStartAt] = useState("");
@@ -39,6 +41,7 @@ export function TrialLessonCreateForm({
       body: JSON.stringify({
         name: name.trim(),
         phone: phone.trim(),
+        parentName: parentName.trim() || undefined,
         instrument,
         branchId,
         teacherId,
@@ -75,9 +78,13 @@ export function TrialLessonCreateForm({
         <Input value={phone} onChange={(e) => setPhone(e.target.value)} required />
       </div>
       <div>
+        <Label>Veli adı (opsiyonel)</Label>
+        <Input value={parentName} onChange={(e) => setParentName(e.target.value)} maxLength={120} placeholder="Örn. Ayşe Yılmaz" />
+      </div>
+      <div>
         <Label>Branş</Label>
         <Select value={instrument} onChange={(e) => setInstrument(e.target.value)}>
-          {INSTRUMENTS.map((i) => (
+          {instrumentOptions.map((i) => (
             <option key={i} value={i}>
               {i}
             </option>

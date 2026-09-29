@@ -36,41 +36,31 @@ describe("detay hiyerarşisi (statik)", () => {
     expect(dash()).not.toContain("handleSaveThreshold");
   });
 
-  it("ilk bakış: dönem hakedişi + ödenen + kalan + durum + geçmiş", () => {
+  // 2026-09-30 — ekran yeniden tasarlandı (defter): özet + işlemler + kalemler + ödeme/düzeltme defteri.
+  it("ilk bakış: döküm + düzeltme + net + ödenen + kalan + durum + geçmiş", () => {
     const src = dash();
-    for (const label of ["Dönem hakedişi", "Ödenen", "Kalan", "Durum", "Ödeme geçmişini gör"]) {
+    for (const label of ["Ders dökümü", "Düzeltmeler", "Net hakediş", "Ödenen", "Kalan", "Ödeme geçmişi"]) {
       expect(src).toContain(label);
     }
   });
 
   it("birincil işlemler ders tablosunun ÖNÜNDE (kaydırma yok)", () => {
     const src = dash();
-    const createIdx = src.indexOf("Hakediş oluştur");
-    const payIdx = src.indexOf("Hakedişi öde");
     const tableIdx = src.indexOf("<table");
-    expect(createIdx).toBeGreaterThan(-1);
-    expect(payIdx).toBeGreaterThan(-1);
-    expect(tableIdx).toBeGreaterThan(-1);
-    expect(createIdx).toBeLessThan(tableIdx);
-    expect(payIdx).toBeLessThan(tableIdx);
-    // İşlem satırında kompakt yöntem seçimi korunur.
-    expect(src).toContain("Yöntemi güncelle");
-    expect(src).toContain("Varsayılanı kullan");
+    for (const label of ["Hakediş kaydı oluştur", "Ödeme ekle", "Düzeltme ekle"]) {
+      const idx = src.indexOf(label);
+      expect(idx).toBeGreaterThan(-1);
+      expect(idx).toBeLessThan(tableIdx);
+    }
+    expect(src).toContain("Varsayılan yöntem");
   });
 
-  it("eşik bağlamı kapalı bilgi satırında + düzenleme evlerine bağlantı", () => {
+  it("kritik işlevler korunur: revizyon, ücret-kuralı uyarısı, ters kayıt, hariç tutma", () => {
     const src = dash();
-    expect(src).toContain("Ödeme yöntemi ayarları");
-    expect(src).toContain("/panel/hakedisler");
-    expect(src).toContain("/bilgiler");
-  });
-
-  it("kritik işlevler korunur: revizyon, ücret-kuralı uyarısı, çift-ödeme kilidi", () => {
-    const src = dash();
-    expect(src).toContain("Revizyon");
+    expect(src).toContain("Dökümü revize et");
     expect(src).toContain("missingFeeRuleLessonIds");
-    expect(src).toContain("disabled={paying");
-    expect(src).toContain("handleUpdateMethod");
+    expect(src).toContain("Ters kayıt");
+    expect(src).toContain("Hariç tut");
   });
 });
 
@@ -103,14 +93,26 @@ describe("ödeme güvenliği (davranış)", () => {
     await fs.rm(DATA_FILE, { force: true });
   });
 
-  it("çift ödeme engellenir: ikinci işaretleme ALREADY_PAID, tutar değişmez", async () => {
-    const created = await createTeacherPayoutTool(admin, {
-      teacherId: "t1",
-      periodStart: "2026-08-01",
-      periodEnd: "2026-08-14",
+  it("çift ödeme engellenir: bakiye kapandıktan sonra ikinci ödeme reddedilir, tutar değişmez", async () => {
+    const { readData } = await import("../store");
+    const { writeData } = await import("../store-json");
+    const data = await readData();
+    await writeData({
+      ...data,
+      lessons: [
+        ...data.lessons,
+        {
+          id: "lx1", studentId: "s1", teacherId: "t1", roomId: "r1", branchId: data.lessons[0]?.branchId ?? "erzene",
+          instrument: "Piyano", startAt: "2026-08-05T10:00:00.000Z", endAt: "2026-08-05T10:40:00.000Z",
+          type: "regular", status: "completed", lessonProcessed: true,
+        } as never,
+      ],
+      teacherFeeRules: [...data.teacherFeeRules, { id: "fx1", teacherId: "t1", perMinuteRate: 10, effectiveFrom: "2020-01-01", createdAt: "2020-01-01" }],
     });
+    const created = await createTeacherPayoutTool(admin, { teacherId: "t1", periodStart: "2026-08-01", periodEnd: "2026-08-14" });
     expect(created.ok).toBe(true);
     if (!created.ok) return;
+    expect(created.data.payout.totalAmount).toBeGreaterThan(0);
     const first = await markTeacherPayoutPaidTool(admin, { payoutId: created.data.payout.id });
     expect(first.ok).toBe(true);
     if (!first.ok) return;
@@ -119,16 +121,12 @@ describe("ödeme güvenliği (davranış)", () => {
     expect(second.ok).toBe(false);
     if (second.ok) return;
     expect(second.error.code).toBe("CONFLICT");
-    expect(second.error.message).toMatch(/zaten ödendi/);
-    // Tutar ilk ödemedekiyle aynı kalır.
-    const preview = await computeTeacherPayoutTool(admin, {
-      teacherId: "t1",
-      periodStart: "2026-08-01",
-      periodEnd: "2026-08-14",
-    });
+    expect(second.error.message).toMatch(/bakiyesi yok/);
+    const preview = await computeTeacherPayoutTool(admin, { teacherId: "t1", periodStart: "2026-08-01", periodEnd: "2026-08-14" });
     expect(preview.ok).toBe(true);
     if (!preview.ok) return;
     expect(preview.data.existingPayout?.totalAmount).toBe(created.data.payout.totalAmount);
+    expect(preview.data.existingPayout?.paidAmount).toBe(created.data.payout.totalAmount);
     expect(preview.data.existingPayout?.status).toBe("paid");
   });
 

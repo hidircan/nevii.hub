@@ -30,6 +30,7 @@ export async function createTrialLesson(input: {
   tenantId: string;
   name: string;
   phone: string;
+  parentName?: string;
   instrument: Instrument;
   branchId: BranchId;
   teacherId: string;
@@ -45,6 +46,7 @@ export async function createTrialLesson(input: {
     tenantId: input.tenantId,
     name: input.name,
     phone: input.phone,
+    parentName: input.parentName?.trim() || undefined,
     instrument: input.instrument,
     branchId: input.branchId,
     teacherId: input.teacherId,
@@ -65,6 +67,7 @@ export async function createTrialLesson(input: {
         tenantId: input.tenantId,
         name: row.name,
         phone: row.phone,
+        parentName: row.parentName ?? null,
         instrument: row.instrument,
         branchId: row.branchId,
         teacherId: row.teacherId,
@@ -122,7 +125,7 @@ export async function updateTrialLessonStatus(
 
 /** Düzenlenebilir alanlar — `undefined` alan dokunulmaz (kısmi güncelleme). */
 export type TrialLessonPatch = Partial<
-  Pick<TrialLesson, "name" | "phone" | "instrument" | "branchId" | "teacherId" | "startAt" | "endAt" | "durationMinutes" | "notes">
+  Pick<TrialLesson, "name" | "phone" | "parentName" | "instrument" | "branchId" | "teacherId" | "startAt" | "endAt" | "durationMinutes" | "notes">
 > & { resultNotes?: string; resultNotesAt?: string; resultNotesByUserId?: string };
 
 /** Kısmi güncelleme; json/db aynı davranış. Dönüşüm/statü alanlarına dokunmaz. */
@@ -179,6 +182,7 @@ function mapDb(r: {
   id: string;
   name: string;
   phone: string;
+  parentName?: string | null;
   instrument: string;
   branchId: string;
   teacherId: string;
@@ -201,6 +205,7 @@ function mapDb(r: {
     id: r.id,
     name: r.name,
     phone: r.phone,
+    parentName: r.parentName ?? undefined,
     instrument: r.instrument as Instrument,
     branchId: r.branchId,
     teacherId: r.teacherId,

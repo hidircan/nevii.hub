@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requireSessionContext } from "@/lib/auth/session";
+import { activeInstrumentOptions } from "@/lib/instrument-options";
 import { listTrialLessonsTool } from "@/lib/services";
 import { Card, PageHeader } from "@/components/ui";
 import { formatDateTime } from "@/lib/utils";
@@ -48,6 +49,7 @@ export default async function TrialLessonsPage({
     id: t.id,
     name: t.name,
     phone: t.phone,
+    parentName: t.parentName,
     instrument: t.instrument,
     teacherId: t.teacherId,
     teacherName: data.teachers.find((x) => x.id === t.teacherId)?.name ?? "—",
@@ -79,6 +81,7 @@ export default async function TrialLessonsPage({
   }));
 
   const teachers = data.teachers.filter((t) => t.active).map((t) => ({ id: t.id, name: t.name }));
+  const instrumentOptions = await activeInstrumentOptions(session);
   const branches = data.settings.branches.map((b) => ({ id: b.id, name: b.shortName }));
   const converted = rows.filter((r) => r.convertedStudentId).length;
   const decided = rows.filter((r) => r.isPast && r.status !== "cancelled").length;
@@ -102,7 +105,7 @@ export default async function TrialLessonsPage({
           <p className="mb-3 text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-trial)" }}>
             Deneme dersi planla
           </p>
-          <TrialLessonCreateForm teachers={teachers} branches={branches} />
+          <TrialLessonCreateForm teachers={teachers} branches={branches} instrumentOptions={instrumentOptions} />
         </Card>
       ) : null}
       {listError ? (
@@ -122,6 +125,7 @@ export default async function TrialLessonsPage({
           isTeacher={session.role === "TEACHER"}
           teachers={teachers}
           branches={branches}
+          instrumentOptions={instrumentOptions}
           initialPromptTrialId={planlandi}
           initialOpenTrialId={deneme}
         />

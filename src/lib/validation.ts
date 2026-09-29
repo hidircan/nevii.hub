@@ -1140,6 +1140,8 @@ export const LESSON_DURATION_PREF_ENUM = [30, 40, 50] as const;
 export const createTrialLessonSchema = z.object({
   name: z.string().min(1).max(120),
   phone: z.string().min(7).max(30),
+  /** Veli adı — opsiyonel (2026-09-30). */
+  parentName: z.string().trim().max(120).optional(),
   instrument: z.string().min(1),
   branchId: z.string().min(1),
   teacherId: z.string().min(1),
@@ -1171,6 +1173,8 @@ export const updateTrialLessonSchema = z.object({
   trialId: z.string().min(1),
   name: z.string().trim().min(1).max(120).optional(),
   phone: z.string().trim().min(7).max(30).optional(),
+  /** Boş metin = veli adını temizle. */
+  parentName: z.string().trim().max(120).optional(),
   instrument: z.string().min(1).optional(),
   branchId: z.string().min(1).optional(),
   teacherId: z.string().min(1).optional(),

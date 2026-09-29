@@ -113,6 +113,17 @@ import {
   reviseTeacherPayoutTool,
   resetTeacherPayoutRevisionTool,
   unmarkTeacherPayoutPaidTool,
+  addTeacherPayoutPaymentTool,
+  reverseTeacherPayoutPaymentTool,
+  addTeacherPayoutAdjustmentTool,
+  reverseTeacherPayoutAdjustmentTool,
+  cancelTeacherPayoutTool,
+  deleteTeacherPayoutTool,
+  settleTeacherPayoutDriftTool,
+  setLessonPayoutExclusionTool,
+  removeFeeRuleTool,
+  type PayoutPolicyImpactRow,
+  type PayoutLineSource,
   type ExistingPayoutSummary,
   setCriticalActionPasswordTool,
   type StudentDeletionImpact,
@@ -219,6 +230,7 @@ import type { HistoricalContractImportRow } from "./import/historical-contracts"
 import type { LessonImportRow } from "./import/lessons";
 import type { LessonScheduleImportPreview } from "./import/lesson-schedule";
 import type { ServiceContext } from "./services/context";
+import type { ServiceResult } from "./services/result";
 
 function revalidateAll() {
   revalidatePath("/", "layout");
@@ -3788,19 +3800,32 @@ export async function actionUpdateFeeRule(input: UpdateFeeRuleActionInput): Prom
   }
 }
 
-/** 2026-09-29 — Hakedişler ekranı: ayın hakediş politikası (mevcut / süreye göre sabit ücret). */
+export type SetPayoutPolicyActionResult =
+  | {
+      ok: true;
+      changed: boolean;
+      preview: boolean;
+      impact: PayoutPolicyImpactRow[];
+      recalculated?: number;
+      needsAdjustment?: { teacherName: string; drift: number }[];
+      failed?: string[];
+    }
+  | { ok: false; message: string };
+
+/** Hakedişler ekranı: ayın politikası — `preview:true` etki tablosu döner, yazmaz. */
 export async function actionSetTeacherPayoutPolicy(input: {
   month: string;
   policy: "per_teacher_rule" | "fixed_duration";
   rate30?: number;
   rate40?: number;
   rate50?: number;
-}): Promise<{ ok: true; changed: boolean } | { ok: false; message: string }> {
+  preview?: boolean;
+}): Promise<SetPayoutPolicyActionResult> {
   try {
     const result = await withAuthContext("actionSetTeacherPayoutPolicy", (ctx) => setTeacherPayoutPolicyTool(ctx, input));
     if (!result.ok) return { ok: false, message: toolFailureMessage(result.error, "Politika seçimini ve tutarları kontrol edin.") };
-    revalidateAll();
-    return { ok: true, changed: result.data.changed };
+    if (!input.preview) revalidateAll();
+    return { ok: true, ...result.data };
   } catch (error) {
     logger.error("actionSetTeacherPayoutPolicy failed", error);
     if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
@@ -3809,11 +3834,61 @@ export async function actionSetTeacherPayoutPolicy(input: {
   }
 }
 
+type LedgerActionResult<T> = { ok: true; data: T } | { ok: false; message: string };
+
+/** 2026-09-30 — hakediş defteri işlemleri için ortak sarmalayıcı (Türkçe hata, revalidate). */
+async function runPayoutLedgerAction<T>(
+  name: string,
+  run: (ctx: ServiceContext) => Promise<ServiceResult<T>>
+): Promise<LedgerActionResult<T>> {
+  try {
+    const result = await withAuthContext(name, run);
+    if (!result.ok) return { ok: false, message: toolFailureMessage(result.error, "İşlem uygulanamadı; alanları kontrol edin.") };
+    revalidateAll();
+    return { ok: true, data: result.data };
+  } catch (error) {
+    logger.error(`${name} failed`, error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    if (error instanceof WriteScopeDeniedError) return { ok: false, message: error.message };
+    return { ok: false, message: "Hakediş işlemi sırasında beklenmeyen bir hata oluştu; kayıt değişmedi. Sayfayı yenileyip tekrar deneyin." };
+  }
+}
+
+export async function actionAddTeacherPayoutPayment(input: { payoutId: string; amount?: number; paidAt?: string; method?: "cash" | "transfer"; note?: string }) {
+  return runPayoutLedgerAction("actionAddTeacherPayoutPayment", (ctx) => addTeacherPayoutPaymentTool(ctx, input));
+}
+export async function actionReverseTeacherPayoutPayment(input: { payoutId: string; paymentId: string; reason: string; criticalPassword: string }) {
+  return runPayoutLedgerAction("actionReverseTeacherPayoutPayment", (ctx) => reverseTeacherPayoutPaymentTool(ctx, input));
+}
+export async function actionAddTeacherPayoutAdjustment(input: { payoutId: string; amount: number; reason: string; criticalPassword?: string }) {
+  return runPayoutLedgerAction("actionAddTeacherPayoutAdjustment", (ctx) => addTeacherPayoutAdjustmentTool(ctx, input));
+}
+export async function actionReverseTeacherPayoutAdjustment(input: { payoutId: string; adjustmentId: string; reason: string; criticalPassword?: string }) {
+  return runPayoutLedgerAction("actionReverseTeacherPayoutAdjustment", (ctx) => reverseTeacherPayoutAdjustmentTool(ctx, input));
+}
+export async function actionCancelTeacherPayout(input: { payoutId: string; reason: string }) {
+  return runPayoutLedgerAction("actionCancelTeacherPayout", (ctx) => cancelTeacherPayoutTool(ctx, input));
+}
+export async function actionDeleteTeacherPayout(input: { payoutId: string; reason: string; criticalPassword: string }) {
+  return runPayoutLedgerAction("actionDeleteTeacherPayout", (ctx) => deleteTeacherPayoutTool(ctx, input));
+}
+export async function actionSettleTeacherPayoutDrift(input: { payoutId: string; reason: string; criticalPassword?: string }) {
+  return runPayoutLedgerAction("actionSettleTeacherPayoutDrift", (ctx) => settleTeacherPayoutDriftTool(ctx, input));
+}
+export async function actionSetLessonPayoutExclusion(input: { lessonId: string; exclude: boolean; reason: string }) {
+  return runPayoutLedgerAction("actionSetLessonPayoutExclusion", (ctx) => setLessonPayoutExclusionTool(ctx, input));
+}
+export async function actionRemoveFeeRule(input: { ruleId: string; mode: "delete" | "deactivate"; fromDate?: string; reason: string; criticalPassword?: string }) {
+  return runPayoutLedgerAction("actionRemoveFeeRule", (ctx) => removeFeeRuleTool(ctx, input));
+}
+
 export type ComputeTeacherPayoutActionResult =
   | ({
       ok: true;
       paymentMethodInfo: TeacherPayoutPaymentMethodInfo | null;
       existingPayout: ExistingPayoutSummary | null;
+      cancelledPayout: { id: string; cancelledAt?: string; cancelReason?: string; hadPayments: boolean } | null;
+      lineSources: Record<string, PayoutLineSource>;
     } & Omit<TeacherEarningsResult, "lines"> & { lines: RevisedEarningsLine[] })
   | { ok: false; message: string };
 

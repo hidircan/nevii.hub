@@ -1149,6 +1149,10 @@ export interface TeacherFeeRule {
   /** ISO tarih — verilmezse açık uçlu; verilirse bu tarih dahil geçerli */
   effectiveTo?: string;
   createdAt: string;
+  /** 2026-09-30 — devre dışı bırakma izi (effectiveTo bu işlemle kısaltılır). */
+  deactivatedAt?: string;
+  deactivatedByUserId?: string;
+  deactivationReason?: string;
 }
 
 /**
@@ -1167,10 +1171,26 @@ export interface TeacherPayout {
   periodEnd: string;
   totalMinutes: number;
   totalAmount: number;
-  status: "pending" | "paid";
+  /**
+   * 2026-09-30 — ödeme defterinden TÜRETİLİR (bkz. payout-ledger.ts `derivePayoutStatus`):
+   * pending (ödeme yok) · partial (kısmi) · paid (bakiye ≤ 0) · cancelled (iptal; toplam/kilit dışı).
+   */
+  status: TeacherPayoutStatus;
+  /** Son (ters kaydı olmayan) ödemenin tarihi. */
   paidAt?: string;
   method?: string;
   generatedAt: string;
+  cancelledAt?: string;
+  cancelledByUserId?: string;
+  cancelReason?: string;
+  /** Kayıt anındaki ders kalemleri (hangi kural/politika, hangi tutar) — sonradan kural silinse de okunur. */
+  lineSnapshot?: TeacherPayoutSnapshotLine[];
+  /** Ödeme defteri. `undefined` = eski kayıt: status "paid" ise tüm tutar tek ödemede ödenmiş sayılır. */
+  payments?: TeacherPayoutPaymentEntry[];
+  /** Düzeltme (fark) kayıtları: +/− tutar, gerekçe; silinmez, ters kayıtla geri alınır. */
+  adjustments?: TeacherPayoutAdjustmentEntry[];
+  /** İyimser eşzamanlılık sayacı — her yazmada +1; eski sürümle yazma reddedilir. */
+  version?: number;
   /** Revizyon (K): ilk revizyonda donan orijinal hesap ve satır düzeltmeleri. */
   originalTotalMinutes?: number;
   originalTotalAmount?: number;
@@ -1186,6 +1206,61 @@ export interface TeacherPayout {
   pricingPolicy?: TeacherPayoutPricingPolicy | "mixed";
   /** Kayıt anındaki ay → politika + sabit tutarlar (izlenebilirlik; sonradan değişmez). */
   pricingSnapshot?: Record<string, TeacherPayoutPolicyTerms>;
+}
+
+export type TeacherPayoutStatus = "pending" | "partial" | "paid" | "cancelled";
+
+export interface TeacherPayoutSnapshotLine {
+  lessonId: string;
+  lessonDate: string;
+  studentId: string;
+  studentName?: string;
+  branchName?: string;
+  instrument: Instrument;
+  durationMinutes: number;
+  perMinuteRate?: number;
+  amount: number;
+  feeRuleId?: string;
+  pricingPolicy?: TeacherPayoutPricingPolicy;
+  issue?: string;
+}
+
+/** Ters kaydı olan satır toplamlara girmez ama silinmez (muhasebe izi). */
+export interface TeacherPayoutPaymentEntry {
+  id: string;
+  amount: number;
+  paidAt: string;
+  method?: string;
+  note?: string;
+  createdByUserId: string;
+  createdAt: string;
+  reversedAt?: string;
+  reversedByUserId?: string;
+  reverseReason?: string;
+}
+
+export interface TeacherPayoutAdjustmentEntry {
+  id: string;
+  /** + öğretmene ek ödeme, − öğretmenden düşülecek. */
+  amount: number;
+  reason: string;
+  /** manual: elle · recalc: kayıt sonrası değişen hesap farkı (politika/kural/hariç tutma). */
+  kind: "manual" | "recalc";
+  createdByUserId: string;
+  createdAt: string;
+  reversedAt?: string;
+  reversedByUserId?: string;
+  reverseReason?: string;
+}
+
+/** 2026-09-30 — kaynak dersi silmeden hakedişten hariç tutma (gerekçeli, geri alınabilir). */
+export interface TeacherPayoutExclusion {
+  id: string;
+  lessonId: string;
+  teacherId: string;
+  reason: string;
+  createdByUserId: string;
+  createdAt: string;
 }
 
 /** Öğretmen hakediş politikası: mevcut (öğretmen bazlı dakika ücreti) veya süreye göre ortak sabit ücret. */
@@ -1234,6 +1309,8 @@ export interface AppData {
   teacherPayouts: TeacherPayout[];
   /** 2026-09-29 — ay bazlı hakediş politikası (opsiyonel: yoksa her ay mevcut politika). */
   teacherPayoutPolicies?: TeacherPayoutPolicyPeriod[];
+  /** 2026-09-30 — hakedişten hariç tutulan dersler (ders/takvim/yoklama kaydı değişmez). */
+  teacherPayoutExclusions?: TeacherPayoutExclusion[];
   /**
    * ÖNCELİK 4 (devam) — Paket Yönetimi. Opsiyonel (required değil) —
    * mevcut birçok test fixture'ı elle AppData nesnesi kurar ve bu alanı
@@ -1956,6 +2033,8 @@ export interface TrialLesson {
   id: string;
   name: string;
   phone: string;
+  /** Veli adı (opsiyonel). */
+  parentName?: string;
   instrument: Instrument;
   branchId: BranchId;
   teacherId: string;

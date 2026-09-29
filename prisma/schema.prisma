@@ -70,6 +70,7 @@ model Tenant {
   messageLogs                 MessageLog[]
   packages                    Package[]
   teacherPayoutPolicies       TeacherPayoutPolicyPeriod[]
+  teacherPayoutExclusions     TeacherPayoutExclusion[]
   discountCampaigns           DiscountCampaign[]
   instrumentCatalogEntries    InstrumentCatalogEntry[]
   staffMembers                StaffMember[]
@@ -992,6 +993,9 @@ model TeacherFeeRule {
   effectiveFrom DateTime
   effectiveTo   DateTime?
   createdAt     DateTime  @default(now())
+  deactivatedAt       DateTime?
+  deactivatedByUserId String?
+  deactivationReason  String?
 
   @@index([tenantId])
   @@index([teacherId])
@@ -1029,6 +1033,14 @@ model TeacherPayout {
   /// NULL = eski kayıt (öğretmen bazlı dakika ücreti). pricingSnapshot: ay → politika + sabit tutarlar.
   pricingPolicy        String?
   pricingSnapshot      Json?
+  /// 2026-09-30 — iptal (status "cancelled"), donmuş ders kalemleri, ödeme ve düzeltme defteri, eşzamanlılık.
+  cancelledAt          DateTime?
+  cancelledByUserId    String?
+  cancelReason         String?
+  lineSnapshot         Json?
+  payments             Json?
+  adjustments          Json?
+  version              Int       @default(0)
 
   @@unique([teacherId, periodStart, periodEnd])
   @@index([tenantId])
@@ -1055,6 +1067,20 @@ model TeacherPayoutPolicyPeriod {
   createdAt   DateTime @default(now())
 
   @@unique([tenantId, month])
+}
+
+/// 2026-09-30 — dersi hakedişten hariç tutma (Lesson/yoklama/ödeme DEĞİŞMEZ). Satır silinince ders tekrar sayılır.
+model TeacherPayoutExclusion {
+  id              String   @id
+  tenantId        String
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  lessonId        String
+  teacherId       String
+  reason          String
+  createdByUserId String
+  createdAt       DateTime @default(now())
+
+  @@unique([tenantId, lessonId])
 }
 
 model Attendance {
@@ -2284,6 +2310,8 @@ model TrialLesson {
   tenant             Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   name               String
   phone              String
+  /// 2026-09-30 — veli adı (opsiyonel; öğrenciye dönüşümde ön doldurulur).
+  parentName         String?
   instrument         String
   branchId           String
   teacherId          String
