@@ -174,10 +174,10 @@ export default async function TelafiPage({ searchParams }: { searchParams: Promi
             const sourceLesson = data.lessons.find((l) => l.id === req.sourceLessonId);
             const left = daysLeft(req);
             const usableRooms = data.rooms.filter((r) => isRoomSchedulable(r) && r.instruments.includes(req.instrument as Instrument));
-            const noRoomReason =
-              usableRooms.length === 0
-                ? `${req.instrument} dersine uygun aktif oda yok. Odalar ekranından bir odaya bu enstrümanı ekleyin veya pasif odayı yeniden aktif edin.`
-                : null;
+            // Öneriler yalnız talebin şubesindeki aktif odalardan gelir (başka şubeye düşülmez).
+            const noRoomReason = !usableRooms.some((r) => r.branchId === req.branchId)
+              ? `${branchName(req.branchId)} şubesinde ${req.instrument} dersine uygun aktif oda yok; otomatik öneri yapılamaz. Odalar ekranından bu şubedeki bir odaya enstrümanı ekleyin veya pasif odayı yeniden aktif edin${usableRooms.length > 0 ? "; ya da aşağıdan öğretmenin başka şubesindeki aktif bir odayı elle seçin" : ""}.`
+              : null;
             // Öneri kaydedildiği andan sonra uygunluk değişmiş olabilir — aynı kuralla yeniden doğrula.
             const checked = req.suggestedSlots.map((slot) => ({
               slot,
@@ -223,8 +223,9 @@ export default async function TelafiPage({ searchParams }: { searchParams: Promi
 
                   {checked.length === 0 ? (
                     <p className="text-sm text-[var(--color-text-muted)]">
-                      Henüz öneri yok. “Uygun saatleri bul” öğretmenin çalışma saatlerini, aktif odaları, açık günleri
-                      ve öğretmen/oda/öğrenci çakışmalarını tarar; yalnız hepsine uyan saatleri önerir.
+                      Henüz öneri yok. “Uygun saatleri bul” bugünden sonraki saatlerde öğretmenin çalışma saatlerini, bu
+                      şubenin aktif odalarını, açık günleri ve öğretmen/oda/öğrenci çakışmalarını tarar. Geçmiş bir tarihe
+                      planlamak için aşağıdaki “Başka bir saat planla” formunu kullanın.
                     </p>
                   ) : (
                     <ol className="divide-y divide-[var(--color-border)] rounded-[var(--radius-md)] border border-[var(--color-border)]">
@@ -273,7 +274,8 @@ export default async function TelafiPage({ searchParams }: { searchParams: Promi
                                   pendingLabel="Planlanıyor..."
                                   variant="success"
                                   disabled={!canWrite}
-                                  placeholder="Karar notu (zorunlu), ör. veliyle görüşüldü"
+                                  placeholder="Planlama gerekçesi (isteğe bağlı)"
+                                  noteRequired={false}
                                 >
                                   <CheckCircle2 className="h-4 w-4" />
                                   Bu saate planla
@@ -306,6 +308,7 @@ export default async function TelafiPage({ searchParams }: { searchParams: Promi
                     const teachers = data.teachers
                       .filter((t) => isTeacherSchedulable(t) && t.instruments.includes(req.instrument as Instrument))
                       .map((t) => ({ id: t.id, name: t.name, branchId: t.branchId, branchIds: t.branchIds ?? [] }));
+                    // Yalnız aktif odalar; öğretmenin şubelerine göre formda daraltılır (sunucu kuralıyla aynı).
                     const rooms = usableRooms.map((r) => ({ id: r.id, name: r.name, branchId: r.branchId }));
                     if (!student || teachers.length === 0 || rooms.length === 0) return null;
                     return (
@@ -318,6 +321,7 @@ export default async function TelafiPage({ searchParams }: { searchParams: Promi
                           teachers={teachers}
                           rooms={rooms}
                           canWrite={canWrite}
+                          expiresAt={req.expiresAt}
                         />
                       </div>
                     );

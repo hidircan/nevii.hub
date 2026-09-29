@@ -103,6 +103,8 @@ function dailyLessonCount(teacherId: string, day: Date, lessons: Lesson[], exclu
 
 export type SlotValidationCode =
   | "REQUEST_NOT_OPEN"
+  /** Talebin son kullanım anı geçti — geçmiş tarihe planlama da yapılamaz (owner kararı 2026-09-30). */
+  | "REQUEST_EXPIRED"
   | "INVALID_START"
   | "INVALID_DURATION"
   | "PAST_START"
@@ -125,6 +127,8 @@ export type SlotValidationCode =
 
 export const SLOT_ERROR_MESSAGES: Record<SlotValidationCode, string> = {
   REQUEST_NOT_OPEN: "Bu telafi talebi zaten sonuçlandırılmış.",
+  REQUEST_EXPIRED:
+    "Bu telafi talebinin son kullanım tarihi geçmiş; süresi dolmuş talep planlanamaz. Gerekirse talebi iptal edip yeni telafi hakkı açın.",
   INVALID_START: "Geçerli bir tarih ve saat seçin.",
   INVALID_DURATION: "Ders süresi en az 30 dakika olmalı.",
   PAST_START: "Başlangıç saati geçmişte olamaz.",
@@ -306,11 +310,16 @@ export function validateLessonSlot(
     return { ok: false, code: "DAY_CLOSED", message: workDay.message, dayReason: workDay.day.reason };
   }
 
-  // 2026-09-17 — geçmişe planlama YALNIZ telafi taleplerinde yasak (telafi
-  // gelecekte yapılır). Sıradan ders planlama/taşıma geçmiş tarihi kabul eder:
-  // sisteme sonradan eklenen öğrencinin geçmiş dersleri girilebilmeli.
+  // 2026-09-30 (owner kararı) — telafi de geçmiş tarihe planlanabilir; alt sınır YOK (kaçan dersten önce de
+  // olabilir). Üst sınır talebin son kullanım günü (AFTER_EXPIRY); süresi dolmuş talep planlanamaz
+  // (REQUEST_NOT_OPEN). Çakışma, aktif oda, kapalı gün kuralları geçmiş tarihte de AYNEN uygulanır.
+  // Öneri motoru yalnız gelecekteki saatleri önerir (bkz. suggestMakeupSlots).
+  // Süre dolumu burada da kontrol edilir: `applyMakeupExpiry` yalnız store.ts okumasında çalışır, store içi
+  // kayıt (confirmSlot) ham statüyü görür. Eskiden "geçmiş saat yasak" kuralı bunu dolaylı kapatıyordu.
   const now = options?.now ?? new Date();
-  if (context.status !== undefined && start < now) return fail("PAST_START");
+  if (context.expiresAt !== undefined && context.status !== undefined && parseISO(context.expiresAt) < now) {
+    return fail("REQUEST_EXPIRED");
+  }
 
   const duration = options?.durationMinutes ?? data.settings.lessonDurationMinutes;
   const end = addMinutes(start, duration);
@@ -416,10 +425,11 @@ export function suggestMakeupSlots(
 
   // 2026-09-30 KÖK NEDEN: pasif oda filtrelenmiyordu (ör. pasif "Stüdyo 1 — Piyano" ilk sırada olduğu için
   // öneriye ve kayda giriyordu). Aday oda = aktif + enstrümana uygun + talebin şubesi; şubede hiç yoksa
-  // diğer şubelerin aktif odaları, gerekçesi açıkça yazılarak. Son söz yine validateLessonSlot'ta.
-  const usable = data.rooms.filter((r) => isRoomSchedulable(r) && roomSupports(r, request.instrument));
-  const branchRooms = usable.filter((r) => r.branchId === request.branchId);
-  const roomsFallback = branchRooms.length > 0 ? branchRooms : usable;
+  // (2026-09-30) başka şubeye düşülmez: şubede uygun aktif oda yoksa öneri yok, ekran nedenini söyler.
+  // Son söz yine validateLessonSlot'ta.
+  const roomsFallback = data.rooms.filter(
+    (r) => isRoomSchedulable(r) && roomSupports(r, request.instrument) && r.branchId === request.branchId
+  );
   const studentTerm = data.students?.find((s) => s.id === request.studentId)?.termType ?? "guz";
   const slots: MakeupSlot[] = [];
   const now = new Date();
@@ -466,14 +476,8 @@ export function suggestMakeupSlots(
           reasons.push("Aynı enstrümanı veren başka öğretmen");
         }
 
-        const matchedRoom = data.rooms.find((r) => r.id === matched!.roomId);
-        if (matchedRoom?.branchId === request.branchId) {
-          score += 15;
-          reasons.push("Öğrencinin kendi şubesinde");
-        } else {
-          score -= 10;
-          reasons.push("Başka şubede — öğrencinin şubesinde bu enstrümana uygun aktif oda yok");
-        }
+        score += 15;
+        reasons.push("Öğrencinin kendi şubesinde, aktif oda");
 
         // Yakınlık: daha erken saat biraz daha yüksek puan
         score += Math.max(0, 20 - d);
@@ -540,7 +544,8 @@ export function resolveSlaEscalationLevel(deadlineIso: string, nowIso: string): 
 }
 
 /** EPIC 10 — onay/iptal/ret kararında zorunlu tutulan (uygulama katmanında) alanlar. */
-export type MakeupDecision = { decisionNote: string; decidedBy: string };
+/** decisionNote: onayda isteğe bağlı (2026-09-30), iptal/retde tool katmanında zorunlu. Boş not saklanmaz. */
+export type MakeupDecision = { decisionNote?: string; decidedBy: string };
 
 /** EPIC 10 — bir talebin SLA eskalasyon seviyesinin yükseldiği tek olay. */
 export type MakeupSlaEscalation = {

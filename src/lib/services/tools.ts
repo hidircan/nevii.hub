@@ -873,10 +873,9 @@ export async function findAvailableSlotsTool(
 }
 
 /**
- * EPIC 10 — `decisionNote` ZORUNLU (kasıtlı, dokümante edilmiş sözleşme
- * kırılması): "onay/iptal/ret işlemlerinde karar notu zorunlu olmalı" ürün
- * kararı geriye dönük uyumluluktan önceliklidir. Onay, 30 günlük SLA
- * sayacını başlatır (bkz. `confirmMakeupSlot`/`computeSlaDeadline`).
+ * EPIC 10 — onay 30 günlük SLA sayacını başlatır (bkz. `confirmMakeupSlot`/`computeSlaDeadline`).
+ * 2026-09-30 (owner) — ONAYDA planlama gerekçesi (`decisionNote`) isteğe bağlı; iptal/ret notu zorunlu kalır.
+ * Geçmiş tarih kabul edilir (üst sınır talebin son kullanım günü; kural validateLessonSlot'ta).
  */
 export async function confirmMakeupLessonTool(
   ctx: ServiceContext,
@@ -895,7 +894,12 @@ export async function confirmMakeupLessonTool(
     z.object({
       requestId: z.string().min(1),
       slot: makeupSlotSchema,
-      decisionNote: z.string().min(1, "Karar notu zorunludur"),
+      // 2026-09-30 — planlama gerekçesi isteğe bağlı; boş/yalnız boşluk → kaydedilmez (sahte metin yok).
+      decisionNote: z
+        .string()
+        .max(1000, "Planlama gerekçesi en fazla 1000 karakter olabilir.")
+        .optional()
+        .transform((s) => (s?.trim() ? s.trim() : undefined)),
     }),
     input
   );

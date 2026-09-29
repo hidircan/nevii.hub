@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { zonedWallTimeToUtc } from "@/lib/timezone";
+import { DEFAULT_APP_TIMEZONE, toZonedYmd, zonedWallTimeToUtc } from "@/lib/timezone";
 import { useRouter } from "next/navigation";
 import { CalendarPlus } from "lucide-react";
 import { Button } from "@/components/ui";
@@ -17,6 +17,7 @@ export function ManualMakeupPlanForm({
   teachers,
   rooms,
   canWrite,
+  expiresAt,
 }: {
   requestId: string;
   preferredTeacherId: string;
@@ -26,6 +27,8 @@ export function ManualMakeupPlanForm({
   rooms: RoomOption[];
   /** "Tüm kurumlar" görünümünde false — manuel telafi planlanamaz. */
   canWrite: boolean;
+  /** Talebin son kullanım anı — üst sınır (sunucu AFTER_EXPIRY ile aynı). Alt sınır yok: geçmiş tarih serbest. */
+  expiresAt?: string;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -46,6 +49,12 @@ export function ManualMakeupPlanForm({
   );
   const [roomId, setRoomId] = useState(availableRooms[0]?.id ?? "");
   const [busy, setBusy] = useState(false);
+  // Sayfa açılış anı — render içinde Date.now() çağrılmaz (saf render).
+  const [nowMs] = useState(() => Date.now());
+  const expiryDay = expiresAt ? toZonedYmd(new Date(expiresAt), DEFAULT_APP_TIMEZONE) : undefined;
+  const pickedStart = date && time ? zonedWallTimeToUtc(date, time) : null;
+  const isPast = Boolean(pickedStart && !Number.isNaN(pickedStart.getTime()) && pickedStart.getTime() < nowMs);
+  const afterExpiry = Boolean(expiryDay && date && date > expiryDay);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [draft, setDraft] = useState<{
@@ -69,10 +78,6 @@ export function ManualMakeupPlanForm({
     event.preventDefault();
     if (!date || !time || !teacherId || !roomId) {
       setError("Tarih, saat, öğretmen ve oda seçimi zorunlu.");
-      return;
-    }
-    if (!decisionNote.trim()) {
-      setError("Karar notu zorunludur.");
       return;
     }
     setBusy(true);
@@ -101,7 +106,8 @@ export function ManualMakeupPlanForm({
             score: 0,
             reasons: ["Manuel planlama"],
           },
-          decisionNote,
+          // Boş gerekçe gönderilmez — sunucu da boşu saklamaz.
+          decisionNote: decisionNote.trim() || undefined,
         }),
       });
       const json = (await res.json()) as {
@@ -169,6 +175,7 @@ export function ManualMakeupPlanForm({
             type="date"
             value={date}
             onChange={(event) => setDate(event.target.value)}
+            max={expiryDay}
             required
             className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-muted)] outline-none ring-amber-200 focus:ring-2"
           />
@@ -216,21 +223,33 @@ export function ManualMakeupPlanForm({
           </select>
         </div>
       </div>
+      {isPast ? (
+        <p role="status" className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900">
+          Geçmiş bir tarih seçtiniz. Telafi dersi bu tarihle programa ve yoklama takvimine “Planlanan telafi” olarak
+          eklenir; yapılmış/işlenmiş sayılmaz ve yoklamada “Geldi” ya da “İşlendi” girilene kadar hakedişe girmez.
+          Öğretmen, oda ve öğrenci çakışmaları yine kontrol edilir.
+        </p>
+      ) : null}
+      {afterExpiry ? (
+        <p className="mt-3 text-xs font-medium text-rose-600">
+          Seçilen tarih talebin son kullanım gününden ({expiryDay}) sonra; bu talep için planlanamaz.
+        </p>
+      ) : null}
       <div className="mt-3">
         <label className="mb-1 block text-xs font-medium text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
-          Karar notu (zorunlu)
+          Planlama gerekçesi (isteğe bağlı)
         </label>
         <textarea
           value={decisionNote}
           onChange={(event) => setDecisionNote(event.target.value)}
-          required
           rows={2}
-          placeholder="Bu saat neden seçildi?"
+          maxLength={1000}
+          placeholder="Bu tarihe neden planlamak istiyorsunuz?"
           className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-muted)] outline-none ring-amber-200 focus:ring-2"
         />
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        <Button type="submit" variant="success" disabled={busy || availableRooms.length === 0}>
+        <Button type="submit" variant="success" disabled={busy || availableRooms.length === 0 || afterExpiry}>
           {busy ? "Planlanıyor..." : "Telafi dersini planla"}
         </Button>
         <button
