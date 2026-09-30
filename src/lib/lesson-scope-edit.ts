@@ -11,7 +11,8 @@
  * Saatler kurum saat diliminde duvar saatidir (bkz. zonedWallTimeToUtc).
  */
 import { addMinutes, differenceInMinutes, parseISO } from "date-fns";
-import type { AppData, Lesson, LessonSeriesStatus } from "./types";
+import type { AppData, AttendanceStatus, Lesson, LessonSeriesStatus, MakeupRequest } from "./types";
+import { OPS_LABEL, effectiveLessonOpsStatus } from "./lesson-ops";
 import { validateLessonSlot, type SlotValidationCode } from "./makeup-engine";
 import { assertWorkDaySchedulable } from "./work-days";
 import {
@@ -26,20 +27,53 @@ import {
 
 export type LessonEditScope = "single" | "fromHereOnward" | "entireSeries";
 
-/** Yoklama/işlem/tahsilat/telafi bağı olan ders — silinmez, revize edilmez. Neden Türkçe döner. */
-export function lessonProtectionReason(data: AppData, lesson: Lesson): string | null {
-  if (lesson.studentAttended || lesson.lessonProcessed || lesson.opsMakeupFlag || lesson.studentAbsent || lesson.studentExcused) {
-    return "yoklama/işlem kaydı var";
+const ATTENDANCE_LABEL: Record<AttendanceStatus, string> = {
+  present: "Geldi",
+  absent: "Gelmedi",
+  late: "Geç kaldı",
+  cancelled_by_school: "Okul iptali",
+};
+const LESSON_DONE_LABEL: Partial<Record<Lesson["status"], string>> = {
+  completed: "Tamamlandı",
+  in_progress: "Devam ediyor",
+  no_show: "Gelmedi",
+};
+const isOpenMakeup = (m: MakeupRequest) => m.status !== "cancelled" && m.status !== "expired";
+
+/**
+ * Yoklama/işlem/tahsilat/telafi bağı olan ders — silinmez, revize edilmez. Neden, bağı ve
+ * nasıl çözüleceğini söyleyen Türkçe cümle olarak döner.
+ *
+ * `forRevision`: iptal/süresi dolmuş telafi talebi ve onun FK çapası olan yoklama satırı
+ * (Telafi → Geri al'ın bıraktığı geçmiş kaydı) revizyonu ENGELLEMEZ — ders yalnız saat
+ * değiştirir, kayıtlar olduğu gibi kalır. Silmede bu satırlar FK yüzünden hâlâ korunur.
+ */
+export function lessonProtectionReason(
+  data: AppData,
+  lesson: Lesson,
+  opts: { forRevision?: boolean } = {}
+): string | null {
+  const ops = effectiveLessonOpsStatus(lesson);
+  if (ops) return `ders "${OPS_LABEL[ops]}" olarak işaretli. Önce dersin yoklama menüsünden "Geri al" ile statüyü kaldırın`;
+  const done = LESSON_DONE_LABEL[lesson.status];
+  if (done) return `ders gerçekleşmiş olarak işaretli (durum: ${done})`;
+  if (lesson.teacherAttendanceStatus) return "öğretmen yoklaması girilmiş. Önce öğretmen yoklamasını kaldırın";
+  if (data.payments.some((p) => p.lessonId === lesson.id && p.status !== "voided")) {
+    return "derse bağlı tahsilat var. Önce Ödemeler ekranından tahsilatı iptal edin";
   }
-  if (lesson.status === "completed" || lesson.status === "in_progress" || lesson.status === "no_show") {
-    return "ders gerçekleşmiş olarak işaretli";
-  }
-  if (lesson.teacherAttendanceStatus) return "öğretmen yoklaması girilmiş";
-  if (data.attendances.some((a) => a.lessonId === lesson.id)) return "yoklama kaydı var";
-  if (data.payments.some((p) => p.lessonId === lesson.id && p.status !== "voided")) return "derse bağlı tahsilat var";
-  if (lesson.type === "makeup" || lesson.makeupRequestId) return "telafi dersi";
-  if (data.makeupRequests.some((m) => m.sourceLessonId === lesson.id || m.confirmedLessonId === lesson.id)) {
-    return "telafi talebine bağlı";
+  if (lesson.type === "makeup" || lesson.makeupRequestId) return "bu bir telafi dersi. Telafi ekranından yönetin";
+  const linkedMakeup = data.makeupRequests.find(
+    (m) => (m.sourceLessonId === lesson.id || m.confirmedLessonId === lesson.id) && (!opts.forRevision || isOpenMakeup(m))
+  );
+  if (linkedMakeup) return "derse bağlı bir telafi talebi var. Önce Telafi ekranından talebi iptal edin";
+  const attendance = data.attendances.find((a) => {
+    if (a.lessonId !== lesson.id) return false;
+    if (!opts.forRevision) return true;
+    const anchors = data.makeupRequests.filter((m) => m.attendanceId === a.id);
+    return anchors.length === 0 || anchors.some(isOpenMakeup);
+  });
+  if (attendance) {
+    return `derste "${ATTENDANCE_LABEL[attendance.status] ?? attendance.status}" yoklama kaydı var. Yoklama menüsünden "Geldi" işaretleyip hemen "Geri al" derseniz kayıt kaldırılır`;
   }
   return null;
 }
@@ -178,7 +212,7 @@ export function applyLessonRevision(data: AppData, input: LessonRevisionInput): 
   const protectedLessons: ProtectedLesson[] = [];
   const editable = resolved.targets.filter((l) => {
     if (l.status === "cancelled") return false;
-    const reason = lessonProtectionReason(data, l);
+    const reason = lessonProtectionReason(data, l, { forRevision: true });
     if (reason) protectedLessons.push({ lessonId: l.id, startAt: l.startAt, reason });
     return !reason;
   });

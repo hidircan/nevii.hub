@@ -367,7 +367,7 @@ export type ClearLessonOpsResult =
     }
   | { ok: false; code: "NOT_FOUND" | "STALE" | "MAKEUP_IN_USE"; message: string };
 
-const OPS_LABEL: Record<LessonOpsFlag, string> = {
+export const OPS_LABEL: Record<LessonOpsFlag, string> = {
   attended: "Geldi",
   processed: "İşlendi",
   makeup: "Telafi",
@@ -382,7 +382,9 @@ const OPS_LABEL: Record<LessonOpsFlag, string> = {
  * - İşlendi: `completed` → `scheduled`; hakediş dışına çıkar (hakediş kaydı kilidi tool katmanında).
  * - Telafi: bekleyen telafi talebi iptal edilir (kota iade olur). Telafi dersi planlanmış/yapılmışsa
  *   geri alma reddedilir — önce Telafi ekranından o ders iptal edilmeli.
- * - Geldi: bu işaretin ürettiği "present" yoklama satırı silinir (bir telafi talebi ona bağlı değilse).
+ * - Dersin yoklama satırları silinir (bir telafi talebi ona bağlı değilse — iptal edilen talebin
+ *   FK çapası geçmiş kaydı olarak kalır). Yalnız "Geldi"nin satırını silmek yetmiyordu: Geldi → Gelmedi
+ *   geçişinde "present" satırı kalıyor, geri almadan sonra ders "yoklama kaydı var" diye kilitleniyordu.
  * Hiçbir dal Payment oluşturmaz/değiştirmez (Package B).
  */
 export function clearLessonOpsFlag(
@@ -442,13 +444,11 @@ export function clearLessonOpsFlag(
 
   let attendances = data.attendances;
   const removedAttendanceIds: string[] = [];
-  if (current === "attended") {
-    const referenced = new Set(makeupRequests.map((m) => m.attendanceId));
-    for (const a of attendances) {
-      if (a.lessonId === lessonId && a.status === "present" && !referenced.has(a.id)) removedAttendanceIds.push(a.id);
-    }
-    attendances = attendances.filter((a) => !removedAttendanceIds.includes(a.id));
+  const referenced = new Set(makeupRequests.map((m) => m.attendanceId));
+  for (const a of attendances) {
+    if (a.lessonId === lessonId && !referenced.has(a.id)) removedAttendanceIds.push(a.id);
   }
+  attendances = attendances.filter((a) => !removedAttendanceIds.includes(a.id));
 
   const wasProcessed = current === "processed";
   const cleared: Lesson = {
