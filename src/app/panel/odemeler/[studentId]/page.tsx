@@ -8,7 +8,7 @@ import { Card, EmptyState, PageHeader, StatCard } from "@/components/ui";
 import { formatMoney } from "@/lib/utils";
 import { listStudentContractsTool } from "@/lib/services";
 import { computeStudentPaymentSummary, filterPaymentHistory, sortPaymentsForProfile } from "@/lib/payment-profile";
-import { computeStudentMonthlyAmount } from "@/lib/student-payment-profile";
+import { computeStudentMonthlyAmount, isPercentDiscount } from "@/lib/student-payment-profile";
 import { AssistantPageContext } from "@/components/ai/assistant-page-context";
 import { StudentPaymentHistoryTable } from "@/components/student-payment-history-table";
 import { resolveCollectorDisplayNames } from "@/lib/contract-payment-plan-view";
@@ -135,7 +135,7 @@ export default async function StudentPaymentProfilePage({
             {monthlyAmount.listPrice !== null ? ` · Liste fiyatı: ${formatMoney(monthlyAmount.listPrice)}` : ""}
             {monthlyAmount.discountAmount > 0
               ? ` · İndirim: -${formatMoney(monthlyAmount.discountAmount)}${
-                  monthlyAmount.discountType === "percentage" ? ` (%${monthlyAmount.discountValue})` : ""
+                  isPercentDiscount(monthlyAmount.discountType) ? ` (%${monthlyAmount.discountValue})` : ""
                 }`
               : ""}
             {monthlyAmount.overrideAmount !== null ? " · Yönetici override'ı uygulanıyor" : ""}

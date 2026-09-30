@@ -1358,3 +1358,11 @@ ekleniyordu → zorla açık Pazartesi tool'u geçip store'da "günü Zorla aç�
 **Ders:** doğrulamanın okuduğu veriyi, doğrulamanın ÇALIŞTIĞI katmanda üret (her store modunun readData'sı +
 dar dilim `narrowLessonScope`/`readLessonScope`); tool'dan store'a kadar giden bir entegrasyon testi yaz.
 Aynı turda: `validateLessonSlot` oda `active`'ini hiç okumuyordu → telafi pasif odaya yazılıyordu.
+
+## 2026-09-30 — %100 burslu kayıt: 0 TL "pozitif olmalı" şemasında sessizce takıldı
+- Belirti: %100 kampanyalı yeni kayıt genel "Formda düzeltilmesi gereken alanlar var" ile kalıyordu, hiçbir alan açıklaması yok.
+  Kök neden zod `amount.positive()`; hata iç içe nesnenin üst anahtarına (`firstPaymentCollected`) düşüyor ve formda o anahtar
+  için `FieldError` yok. Mevcut test bile "sembolik 1 TL + gerekçe" ile hatayı geçiştirmişti — iş kuralı testte yamalanmıştı.
+- Ayrıca iki indirim sözlüğü ("percent"/"amount" ↔ "percentage"/"fixed") aynı kolonda; biri diğerini TL saydı.
+- Kural: boş ile 0 ayrı ayrıştırılır; iç içe şema hatası formda gösterilen alan adına eşlenmeli. Aynı kolona iki sözlük
+  yazılıyorsa okuyan her yer ortak bir yardımcıdan (`isPercentDiscount`) geçer.

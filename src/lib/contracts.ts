@@ -754,8 +754,9 @@ export async function createContract(input: CreateContractInput): Promise<Create
   if (input.installmentCount < 1 || input.installmentCount > 12) {
     throw new Error("Taksit sayısı 1-12 arasında olmalıdır.");
   }
-  if (input.monthlyAmount <= 0) {
-    throw new Error("Aylık ücret sıfırdan büyük olmalıdır.");
+  // 2026-09-30 — 0 geçerli: %100 indirimli/burslu öğrencinin sözleşmesi (tahsil edilecek taksit yok).
+  if (input.monthlyAmount < 0) {
+    throw new Error("Aylık ücret negatif olamaz.");
   }
   if (input.depositAmount !== undefined && input.depositAmount < 0) {
     throw new Error("Kaparo/depozito negatif olamaz.");
@@ -825,30 +826,9 @@ export async function createContract(input: CreateContractInput): Promise<Create
   // ödemeden BAĞIMSIZ, gerçekten yeni bir Payment satırı yaratılır (eski davranış korunur).
   const requiresFirstPaymentAtRegistration = input.contractType !== "amendment" && isFormalContractDuration(input.durationMonths);
   let registrationFirstPayment: Payment | null = null;
-  if (requiresFirstPaymentAtRegistration) {
-    if (input.contractType === "initial") {
-      const { getRegistrationFirstPayment } = await import("./store");
-      registrationFirstPayment = await getRegistrationFirstPayment(input.studentId);
-      // 2026-09-19 — sistemde önceden kayıtlı, kayıtta ilk tahsilatı alınmamış öğrenci
-      // için İLK sözleşme: ilk tahsilat sözleşme ekranında girilir (yenilemedeki gibi).
-      if (!registrationFirstPayment) {
-        if (!input.firstPaymentCollected) {
-          throw new Error(
-            "Bu öğrencinin kayıtta alınmış bir ilk tahsilatı yok. Sözleşme formundaki \"İlk tahsilat\" bölümüne tahsil edilen tutarı, tarihi ve yöntemi girin."
-          );
-        }
-        if (input.firstPaymentCollected.amount <= 0) {
-          throw new Error("Tahsil edilen ilk ödeme tutarı sıfırdan büyük olmalıdır.");
-        }
-      }
-    } else {
-      if (!input.firstPaymentCollected) {
-        throw new Error(FIRST_PAYMENT_REQUIRED_MESSAGE);
-      }
-      if (input.firstPaymentCollected.amount <= 0) {
-        throw new Error("Tahsil edilen ilk ödeme tutarı sıfırdan büyük olmalıdır.");
-      }
-    }
+  if (requiresFirstPaymentAtRegistration && input.contractType === "initial") {
+    const { getRegistrationFirstPayment } = await import("./store");
+    registrationFirstPayment = await getRegistrationFirstPayment(input.studentId);
   }
 
   // P0 (2026-09-03) — `perLessonBillingLines` verilmişse (öğrenci per-lesson
@@ -884,6 +864,33 @@ export async function createContract(input: CreateContractInput): Promise<Create
     input.installmentDueDateOverrides
   );
   const totalContractAmount = installments.reduce((s, r) => s + r.amount, 0) + (input.depositAmount ?? 0);
+  // 2026-09-30 — %100 burslu (toplam 0 TL) sözleşmede tahsilat anı yoktur: ilk tahsilat
+  // istenmez, 0 TL'lik "ödendi"/"bekliyor" Payment satırı YAZILMAZ (sahte ödeme/borç yok).
+  // Kayıtta alınmış gerçek bir ilk tahsilat varsa eski davranış (1. taksite bağlanır) korunur.
+  const fullyWaived = totalContractAmount === 0 && !registrationFirstPayment;
+  if (requiresFirstPaymentAtRegistration && !fullyWaived) {
+    if (input.contractType === "initial") {
+      // 2026-09-19 — sistemde önceden kayıtlı, kayıtta ilk tahsilatı alınmamış öğrenci
+      // için İLK sözleşme: ilk tahsilat sözleşme ekranında girilir (yenilemedeki gibi).
+      if (!registrationFirstPayment) {
+        if (!input.firstPaymentCollected) {
+          throw new Error(
+            "Bu öğrencinin kayıtta alınmış bir ilk tahsilatı yok. Sözleşme formundaki \"İlk tahsilat\" bölümüne tahsil edilen tutarı, tarihi ve yöntemi girin."
+          );
+        }
+        if (input.firstPaymentCollected.amount <= 0) {
+          throw new Error("Tahsil edilen ilk ödeme tutarı sıfırdan büyük olmalıdır.");
+        }
+      }
+    } else {
+      if (!input.firstPaymentCollected) {
+        throw new Error(FIRST_PAYMENT_REQUIRED_MESSAGE);
+      }
+      if (input.firstPaymentCollected.amount <= 0) {
+        throw new Error("Tahsil edilen ilk ödeme tutarı sıfırdan büyük olmalıdır.");
+      }
+    }
+  }
 
   if (!input.perLessonBillingLines) {
     if (registrationFirstPayment) {
@@ -893,7 +900,7 @@ export async function createContract(input: CreateContractInput): Promise<Create
           `Kayıtta tahsil edilen ilk ödeme (${new Intl.NumberFormat("tr-TR").format(registrationFirstPayment.amount)} TL) bu sözleşmenin 1. taksitiyle (${new Intl.NumberFormat("tr-TR").format(firstInstallmentAmount)} TL) aynı değil. Sözleşmedeki aylık ücret veya taksit sayısı kayıttakinden farklı olabilir: bu alanları kayıttaki değerlere eşitleyin ya da "Öğrenci Kaydını Düzenle" ile ilk ödemeyi düzeltin.`
         );
       }
-    } else if (requiresFirstPaymentAtRegistration && input.firstPaymentCollected) {
+    } else if (requiresFirstPaymentAtRegistration && input.firstPaymentCollected && !fullyWaived) {
       const firstInstallmentAmount = installments[0]?.amount ?? 0;
       if (input.firstPaymentCollected.amount !== firstInstallmentAmount) {
         throw new Error(
@@ -1164,8 +1171,8 @@ export async function createContract(input: CreateContractInput): Promise<Create
   // (1 → 7000), iptal sonrası yeniden oluşturma ve finans ekranları CSV ile
   // normal öğrenci arasında AYNI satırı okur. Yenilemede (renewal) değişmez.
   let reuseFirstPaymentId = registrationFirstPayment?.id;
-  let firstPaymentForInstallments = registrationFirstPayment ? undefined : input.firstPaymentCollected;
-  if (input.contractType === "initial" && !registrationFirstPayment && input.firstPaymentCollected && requiresFirstPaymentAtRegistration) {
+  let firstPaymentForInstallments = registrationFirstPayment || fullyWaived ? undefined : input.firstPaymentCollected;
+  if (input.contractType === "initial" && !registrationFirstPayment && !fullyWaived && input.firstPaymentCollected && requiresFirstPaymentAtRegistration) {
     const { addRegistrationFirstPayment } = await import("./store");
     const fp = input.firstPaymentCollected;
     const { paymentId } = await addRegistrationFirstPayment({
@@ -1186,7 +1193,8 @@ export async function createContract(input: CreateContractInput): Promise<Create
     tenantId: input.tenantId,
     studentId: input.studentId,
     contractId: row.id,
-    installments,
+    // Burslu sözleşme: plan PDF/snapshot'ta 0 TL olarak görünür, ama Payment satırı üretilmez.
+    installments: fullyWaived ? [] : installments,
     firstPaymentCollected: firstPaymentForInstallments,
     reuseFirstPaymentId,
   });

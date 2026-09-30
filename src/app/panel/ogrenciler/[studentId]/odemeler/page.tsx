@@ -8,7 +8,7 @@ import { StudentLessonPauseControl } from "@/components/student-lesson-pause-con
 import { listStudentContractsTool } from "@/lib/services";
 import { isTerminalContractStatus } from "@/lib/contract-list-helpers";
 import { splitStudentDebt, computeStudentPaymentSummary, sortPaymentsForProfile } from "@/lib/payment-profile";
-import { computeStudentMonthlyAmount } from "@/lib/student-payment-profile";
+import { computeStudentMonthlyAmount, isPercentDiscount } from "@/lib/student-payment-profile";
 import { effectivePaymentDueRanges, formatPaymentDueRanges } from "@/lib/payment-due-ranges";
 import { formatDate, formatMoney } from "@/lib/utils";
 import { loadStudentPageContext } from "../_context";
@@ -98,7 +98,7 @@ export default async function StudentPaymentsTab({ params }: { params: Promise<{
                 label="İndirim"
                 value={
                   student.discountType && student.discountValue
-                    ? `${student.discountType === "percentage" ? `%${student.discountValue}` : formatMoney(student.discountValue)}`
+                    ? `${isPercentDiscount(student.discountType) ? `%${student.discountValue}` : formatMoney(student.discountValue)}`
                     : "Yok"
                 }
               />
@@ -122,7 +122,7 @@ export default async function StudentPaymentsTab({ params }: { params: Promise<{
               initialPaymentMethod={student.paymentMethod}
               initialPaymentDueRanges={effectivePaymentDueRanges(student)}
               initialDiscountType={
-                student.discountType === "percentage" || student.discountType === "fixed" ? student.discountType : undefined
+                student.discountType ? (isPercentDiscount(student.discountType) ? "percentage" : "fixed") : undefined
               }
               initialDiscountValue={student.discountValue}
               initialOverrideAmount={student.paymentAmount}

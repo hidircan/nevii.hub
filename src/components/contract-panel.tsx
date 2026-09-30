@@ -433,7 +433,9 @@ function RegistrationSummaryCard({
           <dd className="inline">
             {registration.firstPayment
               ? `${formatTL(registration.firstPayment.amount)} · ${formatDateTr(registration.firstPayment.paidAt)} · ${registration.firstPayment.methodLabel}`
-              : "Kayıtta alınmış ilk tahsilat yok — aşağıdaki \"İlk tahsilat\" bölümüne girin; sözleşme ile birlikte kaydedilir."}
+              : registration.monthlyFee === 0
+                ? "Yok — burslu (%100 indirimli) kayıt, tahsilat alınmadı; ödenecek tutar 0 TL."
+                : "Kayıtta alınmış ilk tahsilat yok — aşağıdaki \"İlk tahsilat\" bölümüne girin; sözleşme ile birlikte kaydedilir."}
             {registration.firstPayment ? (
               <>
                 {" · "}
@@ -823,7 +825,10 @@ function ContractForm({
 
   const isFormal = durationMonths >= 3;
   // Revizyon YENİ bir tahsilat anı yaratmaz (sunucu da istemez) — ilk tahsilat bölümü kapalıdır.
-  const needsFirstPaymentEntry = isFormal && needsFirstPaymentEntryBase && !isAmendment;
+  // 2026-09-30 — burslu (aylık 0 TL) sözleşmede tahsilat anı yok: ilk tahsilat bölümü kapalı,
+  // sunucu da 0 TL'lik ödeme/taksit satırı yazmaz (contracts.ts `fullyWaived`).
+  const isScholarship = monthlyAmount === 0;
+  const needsFirstPaymentEntry = isFormal && needsFirstPaymentEntryBase && !isAmendment && !isScholarship;
 
   function changeDuration(next: number) {
     setDurationMonths(next);
@@ -968,7 +973,7 @@ function ContractForm({
     // alan altında da söylenir (iptal sonrası boş form senaryosunun görünürlüğü).
     const missing: FieldErrors = {};
     if (!durationMonths || durationMonths < 1 || durationMonths > 12) missing.durationMonths = "Süre 1-12 ay arasında olmalıdır.";
-    if (!monthlyAmount || monthlyAmount <= 0) missing.monthlyAmount = "Aylık ücret zorunludur.";
+    if (monthlyAmount === "" || monthlyAmount < 0) missing.monthlyAmount = "Aylık ücret zorunludur — %100 indirimli/burslu öğrenci için 0 yazın.";
     if (!installmentCount || installmentCount < 1 || installmentCount > 12) {
       missing.installmentCount = "Taksit sayısı 1-12 arasında olmalıdır.";
     }
@@ -1028,7 +1033,7 @@ function ContractForm({
     if (!durationMonths || durationMonths < 1 || durationMonths > 12) {
       errors.durationMonths = "Süre 1-12 ay arasında olmalıdır.";
     }
-    if (!monthlyAmount || monthlyAmount <= 0) errors.monthlyAmount = "Aylık ücret zorunludur.";
+    if (monthlyAmount === "" || monthlyAmount < 0) errors.monthlyAmount = "Aylık ücret zorunludur — %100 indirimli/burslu öğrenci için 0 yazın.";
     if (!installmentCount || installmentCount < 1 || installmentCount > 12) {
       errors.installmentCount = "Taksit sayısı 1-12 arasında olmalıdır.";
     }
@@ -1462,6 +1467,11 @@ function ContractForm({
             aria-invalid={!!fieldErrors.monthlyAmount}
           />
           <FieldError message={fieldErrors.monthlyAmount} />
+          {isScholarship ? (
+            <p className="mt-1 text-xs text-[var(--color-text-muted)]">
+              Burslu (%100 indirimli) sözleşme: tahsil edilecek taksit ve ödeme kaydı oluşmaz, bakiye 0 TL kalır.
+            </p>
+          ) : null}
         </div>
         <div>
           <Label>Taksit sayısı (1-12)</Label>

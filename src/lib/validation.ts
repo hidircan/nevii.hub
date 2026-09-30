@@ -247,11 +247,22 @@ export const studentSchema = z.object({
    */
   firstPaymentCollected: z
     .object({
-      method: z.enum(["credit_card", "cash", "transfer"]),
-      amount: z.coerce.number().int().positive(),
-      collectedAt: z.string().min(1),
+      // 2026-09-30 — 0 geçerli: %100 indirimli/burslu kayıtta tahsilat yoktur (Payment
+      // satırı yazılmaz). 0 yalnız önerilen tutar da 0 iken kabul edilir (createStudentTool);
+      // tutar > 0 ise yöntem + tarih zorunlu (aşağıdaki refine).
+      method: z.enum(["credit_card", "cash", "transfer"]).optional(),
+      amount: z.coerce.number().int().min(0),
+      collectedAt: optionalTrimmed,
       reference: optionalTrimmed,
       note: optionalTrimmed,
+    })
+    .refine((fp) => fp.amount === 0 || !!fp.method, {
+      message: "İlk ödeme türü seçilmelidir — tahsil edilen tutar 0'dan büyük.",
+      path: ["method"],
+    })
+    .refine((fp) => fp.amount === 0 || !!fp.collectedAt, {
+      message: "Tahsilat tarihi zorunludur — tahsil edilen tutar 0'dan büyük.",
+      path: ["collectedAt"],
     })
     .optional(),
   /** Yalnızca gerçekten istisnai/gecikmeli ilk tahsilat için — yetkili personel gerekçesi zorunlu, gün-of-ay tetiklemez (bkz. createStudentTool). */

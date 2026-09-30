@@ -4,6 +4,17 @@ Kısa tutulur (~50 satır): oturum sonunda yalnız "Güncel snapshot" bölümün
 `archive/`'e taşınır. Ayrıntı → ilgili `docs/testing/UAT_*.md`, `docs/operations/*`. Yönlendirici: `nevii-hub` skill.
 Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_2026-09-24.md`.
 
+## Güncel snapshot — 2026-09-30 (%100 burslu kayıt + 0 TL ilk tahsilat, Odalar filtreleri)
+- Kök neden: `studentSchema.firstPaymentCollected.amount` `positive()` → 0 reddediliyor, hata `firstPaymentCollected`
+  anahtarına düşüp formda alan mesajı olmadan genel "Formda düzeltilmesi gereken alanlar var" çıkıyordu. Sözleşmede de
+  `monthlyAmount <= 0` + "ilk tahsilat > 0" engeli vardı.
+- Kural: boş tutar ≠ 0 (`parseRegistrationFirstPaymentForm`). 0 yalnız önerilen ilk tahsilat 0 iken geçerli; Payment
+  satırı YAZILMAZ (audit `student.first_payment_waived`), yöntem/tarih istenmez. Tutar > 0 → yöntem+tarih zorunlu (alan bazlı).
+- Sözleşme: aylık 0 kabul; toplam 0 ve kayıt ödemesi yoksa (`fullyWaived`) ilk tahsilat istenmez, taksit Payment satırı yok.
+- Ödeme Profili: `isPercentDiscount` — kayıt motorunun "percent" indirimi TL sanılıyordu (%100 → "₺100, net 6.900").
+- Odalar: GET filtreleri (ad, şube, durum aktif/pasif/tümü, enstrüman), boş durum + temizle; ayrı "Pasif Odalar" kartı kaldırıldı.
+- Migration YOK. Test: `scholarship-zero-first-payment.test.ts`, `room-filters.test.ts`.
+
 ## Güncel snapshot — 2026-09-30 (geçmiş tarihe telafi, gerekçe opsiyonel)
 - Owner kararı: telafi geçmiş tarihe planlanabilir, ALT SINIR YOK (kaçan dersten önce de); üst sınır talebin son
   kullanım günü; süresi dolmuş talep planlanamaz (`REQUEST_EXPIRED`, validateLessonSlot — eskiden PAST_START dolaylı kapatıyordu).

@@ -341,6 +341,8 @@ export function NewStudentForm({
   }, [pricing]);
 
   const firstPeriodAutoAmount = preview?.firstPeriodSuggestedAmount;
+  // 2026-09-30 — geçerli "0" (burslu, tahsilat yok) boş alandan ayrıdır: yöntem/tarih istenmez.
+  const noFirstCollection = enteredFirstPayment === 0;
   // P0-B — yalnız İKİSİ de bilinip GERÇEKTEN farklıysa "düzeltme" durumu.
   const hasFirstPaymentMismatch =
     firstPeriodAutoAmount !== undefined &&
@@ -968,7 +970,8 @@ export function NewStudentForm({
         <p className="mb-3 text-xs text-[var(--color-text-muted)]">
           Owner politikası: ilk ödeme kayıt sırasında (ay içindeki günden bağımsız) tahsil edilmeden kayıt
           tamamlanamaz. Tutar otomatik önerilenle aynıysa gerekçe istenmez; farklı bir net tutar girerseniz
-          gerekçe zorunludur ve fark audit kaydına yazılır.
+          gerekçe zorunludur ve fark audit kaydına yazılır. Ücret %100 indirimli/burslu ise tahsil edilen
+          tutara 0 yazın: ödeme kaydı oluşmaz, yöntem ve tarih istenmez.
         </p>
         <div className="space-y-3">
           {firstPeriodAutoAmount !== undefined ? (
@@ -1027,13 +1030,13 @@ export function NewStudentForm({
             <div>
               <Label>
                 Ödeme yöntemi
-                <RequiredMark />
+                {noFirstCollection ? null : <RequiredMark />}
               </Label>
               <Select
                 name="firstPaymentMethod"
                 defaultValue={v("firstPaymentMethod") || ""}
-                required
-                aria-required
+                required={!noFirstCollection}
+                aria-required={!noFirstCollection}
                 aria-invalid={!!fieldErrors.firstPaymentMethod || !!fieldErrors.firstPaymentCollected}
               >
                 <option value="">Seçiniz</option>
@@ -1056,17 +1059,31 @@ export function NewStudentForm({
                 placeholder={firstPeriodAutoAmount !== undefined ? String(firstPeriodAutoAmount) : "Örn. 3000"}
                 required
                 aria-required
-                aria-invalid={!!fieldErrors.firstPaymentCollected}
+                aria-invalid={!!fieldErrors.firstPaymentAmount || !!fieldErrors.firstPaymentCollected}
               />
+              <FieldError message={fieldErrors.firstPaymentAmount} />
+              {noFirstCollection ? (
+                <p className="mt-1 text-xs text-[var(--color-text-muted)]">
+                  0 TL: gerçek tahsilat yok — ödeme kaydı oluşturulmaz (yalnız %100 indirimli/burslu kayıtta geçerli).
+                </p>
+              ) : null}
             </div>
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div>
               <Label>
                 Tahsilat tarihi
-                <RequiredMark />
+                {noFirstCollection ? null : <RequiredMark />}
               </Label>
-              <Input name="firstPaymentDate" type="date" defaultValue={v("firstPaymentDate")} required aria-required />
+              <Input
+                name="firstPaymentDate"
+                type="date"
+                defaultValue={v("firstPaymentDate")}
+                required={!noFirstCollection}
+                aria-required={!noFirstCollection}
+                aria-invalid={!!fieldErrors.firstPaymentDate}
+              />
+              <FieldError message={fieldErrors.firstPaymentDate} />
             </div>
             <div>
               <Label>Dekont / referans no (varsa)</Label>

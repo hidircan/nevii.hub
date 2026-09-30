@@ -934,20 +934,23 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
   let inviteWarning: string | undefined;
   try {
     await withAuthContext("actionAddStudent", async (ctx) => {
-      // P0-C (2026-09-02) — "İlk ödeme türü seçilmelidir" alan-bazlı hata:
-      // yöntem seçilmezse aşağıdaki `firstPaymentCollected` builder'ı TÜM
-      // alt-alanları (yöntem/tutar/tarih) TEK bir `undefined`'a çöker,
-      // `createStudentTool` yalnız JENERİK "tahsil edilmeden kayıt
-      // tamamlanamaz" mesajı görür — HANGİ alanın eksik olduğunu bilemez.
-      // Burada, istemcinin `required` attribute'una GÜVENMEDEN, yöntem
-      // özel olarak ayrıca kontrol edilir ve gerçek bir öğrenci OLUŞMADAN
-      // (createStudentTool'a hiç ulaşmadan) reddedilir.
-      const firstPaymentMethodRaw = String(formData.get("firstPaymentMethod") || "");
-      if (!firstPaymentMethodRaw) {
+      // P0-C (2026-09-02) — ilk ödeme alanları istemcinin `required`'ına GÜVENMEDEN,
+      // öğrenci OLUŞMADAN burada alan-bazlı doğrulanır (hangi alanın eksik olduğu söylenir).
+      // 2026-09-30 — %100 burslu kayıt: boş tutar ile geçerli "0" ayrı ele alınır;
+      // 0 TL'de yöntem/tarih istenmez (tahsilat yok), > 0'da ikisi de zorunlu.
+      const { parseRegistrationFirstPaymentForm } = await import("./first-payment-adjustment");
+      const firstPaymentParsed = parseRegistrationFirstPaymentForm({
+        method: String(formData.get("firstPaymentMethod") || ""),
+        amount: String(formData.get("firstPaymentAmount") ?? ""),
+        collectedAt: String(formData.get("firstPaymentDate") || ""),
+        reference: String(formData.get("firstPaymentReference") || ""),
+        note: String(formData.get("firstPaymentNote") || ""),
+      });
+      if (!firstPaymentParsed.ok) {
         throw new ToolValidationFailure({
           code: "VALIDATION_ERROR",
-          message: "İlk ödeme türü seçilmelidir.",
-          details: { fieldErrors: { firstPaymentMethod: ["İlk ödeme türü seçilmelidir."] } },
+          message: firstPaymentParsed.message,
+          details: { fieldErrors: firstPaymentParsed.fieldErrors },
         });
       }
 
@@ -1096,19 +1099,7 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
           // alanlar olmadan TAMAMLANAMAZ (bkz. createStudentTool gate). Tutar alanı
           // metin/inputMode="decimal" ile alınır (native number spinner yok).
           firstCollectionIncludesNextMonth: formData.get("firstCollectionIncludesNextMonth") === "1",
-          firstPaymentCollected: (() => {
-            const method = String(formData.get("firstPaymentMethod") || "");
-            const amountRaw = String(formData.get("firstPaymentAmount") || "").replace(/[^\d]/g, "");
-            const collectedAt = String(formData.get("firstPaymentDate") || "");
-            if (!method || !amountRaw || !collectedAt) return undefined;
-            return {
-              method: method as "credit_card" | "cash" | "transfer",
-              amount: Number(amountRaw),
-              collectedAt,
-              reference: String(formData.get("firstPaymentReference") || "") || undefined,
-              note: String(formData.get("firstPaymentNote") || "") || undefined,
-            };
-          })(),
+          firstPaymentCollected: firstPaymentParsed.value,
           firstPaymentExceptionReason: String(formData.get("firstPaymentExceptionReason") || "") || undefined,
           // P0-B (2026-09-02) — kök neden: bu alan formda toplanıyor
           // (`new-student-form.tsx` `name="firstPaymentAdjustmentReason"`) ve

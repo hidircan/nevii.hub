@@ -2285,7 +2285,8 @@ export async function createStudentTool(
     // reuseFirstPaymentId).
     const firstPaymentCollected = v.data.firstPaymentCollected;
     if (!firstPaymentCollected) {
-      return fail("VALIDATION_ERROR", "İlk ödeme kayıt sırasında tahsil edilmeden kayıt tamamlanamaz.");
+      const msg = "İlk ödeme kayıt sırasında tahsil edilmeden kayıt tamamlanamaz.";
+      return fail("VALIDATION_ERROR", msg, { fieldErrors: { firstPaymentAmount: [msg] } });
     }
 
     // P0-1B (2026-09-02 düzeltme) — ders başı ücret yöneticinin girdiği bir
@@ -2372,6 +2373,14 @@ export async function createStudentTool(
       );
     const autoSuggestedAmount = includesNextMonth ? firstPeriodAutoAmount + pricing.monthlyFee : firstPeriodAutoAmount;
 
+    // 2026-09-30 — %100 indirimli/burslu kayıt: önerilen ilk tahsilat 0 ise 0 TL geçerlidir ve
+    // GERÇEK para alınmadığı için Payment satırı YAZILMAZ (sahte "ödendi" kaydı yok). Ücret
+    // borcu olan kayıtta 0 TL "tahsilat alınmadı" demektir — owner politikası gereği reddedilir.
+    const noFirstCollection = firstPaymentCollected.amount === 0;
+    if (noFirstCollection && autoSuggestedAmount > 0) {
+      const msg = `Tahsil edilen tutar 0 TL olamaz: bu kayıt için önerilen ilk tahsilat ${new Intl.NumberFormat("tr-TR").format(autoSuggestedAmount)} TL. 0 TL yalnız ücret %100 indirimli/burslu olduğunda girilebilir — fiilen tahsil edilen tutarı yazın.`;
+      return fail("VALIDATION_ERROR", msg, { fieldErrors: { firstPaymentAmount: [msg] } });
+    }
     const { resolveFirstPaymentAdjustment } = await import("../first-payment-adjustment");
     const adjustment = resolveFirstPaymentAdjustment({
       autoSuggestedAmount,
@@ -2546,50 +2555,59 @@ export async function createStudentTool(
         await markTrialConverted(ctx.tenantId, sourceTrial.id, { studentId: created.id, userId: ctx.userId });
         audit(ctx, "trial.converted", "TrialLesson", sourceTrial.id, { studentId: created.id, entityName: sourceTrial.name });
       }
-      // Owner policy (2026-08-30) — kayıt tamamlanma anında tahsil edilen ilk
-      // ödeme, öğrenci oluşturulur oluşturulmaz `paid` bir Payment satırı olarak
-      // yazılır (`addRegistrationFirstPayment` idempotent — çift gönderim/retry
-      // ikinci bir satır YARATMAZ, mevcut olan döner). Actor/audit ile bağlanır.
-      const fp = await addRegistrationFirstPayment({
-        studentId: created.id,
-        method: firstPaymentCollected.method,
-        amount: firstPaymentCollected.amount,
-        collectedAt: firstPaymentCollected.collectedAt,
-        reference: firstPaymentCollected.reference,
-        note: firstPaymentCollected.note,
-        receivedByUserId: ctx.userId,
-        firstCollectionIncludesNextMonth: includesNextMonth,
-        // P0-1B — yalnız GERÇEK bir manuel düzeltme varsa dolu; otomatik
-        // tutarla birebir eşleşen normal bir ilk ödemede bu dört alan da
-        // undefined kalır (bkz. Payment.autoSuggestedAmount yorumu).
-        ...(adjustment.result.isManualOverride
-          ? {
-              autoSuggestedAmount: adjustment.result.autoSuggestedAmount,
-              adjustmentReason: adjustment.result.reason,
-              adjustedBy: ctx.userId,
-              adjustedAt: new Date().toISOString(),
-            }
-          : {}),
-      });
-      audit(ctx, "student.first_payment_collected", "Payment", fp.paymentId, {
-        studentId: created.id,
-        method: firstPaymentCollected.method,
-        amount: firstPaymentCollected.amount,
-      });
-      if (adjustment.result.isManualOverride) {
-        const { buildFirstPaymentAdjustmentAuditEntry } = await import("../first-payment-adjustment");
-        audit(
-          ctx,
-          "student.first_payment_adjusted",
-          "Payment",
-          fp.paymentId,
-          { ...buildFirstPaymentAdjustmentAuditEntry(adjustment.result, {
-              tenantId: ctx.tenantId,
-              studentId: created.id,
-              paymentId: fp.paymentId,
-              adjustedBy: ctx.userId,
-            }) }
-        );
+      if (noFirstCollection) {
+        // Burslu kayıt — tahsilat yok, ödeme satırı yok; iz yalnız audit'te.
+        audit(ctx, "student.first_payment_waived", "Student", created.id, {
+          studentId: created.id,
+          autoSuggestedAmount,
+          monthlyFee: pricing.monthlyFee,
+        });
+      } else {
+        // Owner policy (2026-08-30) — kayıt tamamlanma anında tahsil edilen ilk
+        // ödeme, öğrenci oluşturulur oluşturulmaz `paid` bir Payment satırı olarak
+        // yazılır (`addRegistrationFirstPayment` idempotent — çift gönderim/retry
+        // ikinci bir satır YARATMAZ, mevcut olan döner). Actor/audit ile bağlanır.
+        const fp = await addRegistrationFirstPayment({
+          studentId: created.id,
+          method: firstPaymentCollected.method!,
+          amount: firstPaymentCollected.amount,
+          collectedAt: firstPaymentCollected.collectedAt!,
+          reference: firstPaymentCollected.reference,
+          note: firstPaymentCollected.note,
+          receivedByUserId: ctx.userId,
+          firstCollectionIncludesNextMonth: includesNextMonth,
+          // P0-1B — yalnız GERÇEK bir manuel düzeltme varsa dolu; otomatik
+          // tutarla birebir eşleşen normal bir ilk ödemede bu dört alan da
+          // undefined kalır (bkz. Payment.autoSuggestedAmount yorumu).
+          ...(adjustment.result.isManualOverride
+            ? {
+                autoSuggestedAmount: adjustment.result.autoSuggestedAmount,
+                adjustmentReason: adjustment.result.reason,
+                adjustedBy: ctx.userId,
+                adjustedAt: new Date().toISOString(),
+              }
+            : {}),
+        });
+        audit(ctx, "student.first_payment_collected", "Payment", fp.paymentId, {
+          studentId: created.id,
+          method: firstPaymentCollected.method!,
+          amount: firstPaymentCollected.amount,
+        });
+        if (adjustment.result.isManualOverride) {
+          const { buildFirstPaymentAdjustmentAuditEntry } = await import("../first-payment-adjustment");
+          audit(
+            ctx,
+            "student.first_payment_adjusted",
+            "Payment",
+            fp.paymentId,
+            { ...buildFirstPaymentAdjustmentAuditEntry(adjustment.result, {
+                tenantId: ctx.tenantId,
+                studentId: created.id,
+                paymentId: fp.paymentId,
+                adjustedBy: ctx.userId,
+              }) }
+          );
+        }
       }
       // Notify admins about new student registration
       try {
@@ -13264,7 +13282,7 @@ function resolveLastPeriodPricing(input: {
 
 const contractInstallmentPlanSchema = z.object({
   durationMonths: z.number().int().min(1).max(12),
-  monthlyAmount: z.number().int().positive(),
+  monthlyAmount: z.number().int().min(0, "Aylık ücret negatif olamaz."),
   installmentCount: z.number().int().min(1).max(12),
   firstDueDate: z.string().min(1),
   depositAmount: z.number().int().min(0).optional(),
@@ -13577,7 +13595,7 @@ const createStudentContractSchema = z.object({
   enrollmentStartDate: z.string().min(1),
   enrollmentEndDate: z.string().min(1),
   durationMonths: z.number().int().min(1).max(12),
-  monthlyAmount: z.number().int().positive(),
+  monthlyAmount: z.number().int().min(0, "Aylık ücret negatif olamaz."),
   installmentCount: z.number().int().min(1).max(12),
   firstDueDate: z.string().min(1),
   depositAmount: z.number().int().min(0).optional(),
