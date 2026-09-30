@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowLeft, Music } from "lucide-react";
-import { readData } from "@/lib/store";
+import { readReferenceData } from "@/lib/store";
 import { requireSessionContext } from "@/lib/auth/session";
 import { ownStudents } from "@/lib/teacher-portal-scope";
 import { listCurriculumForStudentTool } from "@/lib/services";
@@ -32,7 +32,7 @@ export default async function OgretmenMufredatPage({
   }
   if (session.role !== "TEACHER") redirect("/ogretmen");
 
-  const data = await readData();
+  const data = await readReferenceData();
   const teacherId = session.teacherId || "t2";
   const myStudents = ownStudents(data.students, teacherId).filter((s) => s.active);
 

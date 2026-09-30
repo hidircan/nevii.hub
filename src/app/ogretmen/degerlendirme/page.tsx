@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowRight } from "lucide-react";
 import { BackButton } from "@/components/back-button";
-import { readData } from "@/lib/store";
+import { readReferenceData } from "@/lib/store";
 import { requireSessionContext } from "@/lib/auth/session";
 import { Card, EmptyState, Badge } from "@/components/ui";
 import { listPendingPeriodicAssessmentsTool } from "@/lib/services";
@@ -18,7 +18,7 @@ export default async function TeacherAssessmentStudentsPage() {
     redirect("/login?next=/ogretmen/degerlendirme");
   }
 
-  const data = await readData();
+  const data = await readReferenceData();
   const teacherId = session.teacherId || "t1";
   const students = data.students.filter((s) => s.active && s.teacherId === teacherId);
   const pendingResult = await listPendingPeriodicAssessmentsTool(

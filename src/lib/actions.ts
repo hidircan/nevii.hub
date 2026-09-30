@@ -214,7 +214,7 @@ import { runWithTenantAsync } from "./tenant-context";
 import { getSessionAppearancePolicy } from "./platform/access";
 import { isProfileAllowed } from "./platform/policies";
 import { getSessionContext, requireSessionContext } from "./auth/session";
-import { readData } from "./store";
+import { readData, readReferenceData } from "./store";
 import { buildLessonCommunicationDraft, type LessonCommunicationDraft } from "./whatsapp-templates";
 import type { LessonSlotSuggestion } from "./lesson-scheduling";
 import type { SeriesOccurrenceCheck } from "./lesson-series";
@@ -1012,8 +1012,8 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
           packageName: await (async () => {
             const pkgId = String(formData.get("packageId") || "");
             if (pkgId) {
-              const data = await readData();
-              const title = (data.packages ?? []).find((p) => p.id === pkgId)?.title?.trim();
+              const data = await readReferenceData();
+              const title = data.packages.find((p) => p.id === pkgId)?.title?.trim();
               if (title) return title;
             }
             return String(formData.get("packageName") || "Bireysel Aylık — 4 ders");
@@ -1546,9 +1546,8 @@ export async function actionSelectPortalStudent(input: {
       if (!(await hasActiveStudentAccess(ctx.tenantId, ctx.userId, target))) {
         return { ok: false as const, message: "Bu öğrenciye erişim izniniz yok." };
       }
-      const { readData } = await import("./store");
-      const data = await readData();
-      const student = data.students.find((s) => s.id === target);
+      const { readStudentById } = await import("./store");
+      const student = await readStudentById(target);
       if (!student || student.deletedAt) return { ok: false as const, message: "Öğrenci kaydı bulunamadı." };
       if (!student.active) {
         return { ok: false as const, message: "Bu öğrencinin kaydı pasif durumda — aktif bir öğrenci seçin." };

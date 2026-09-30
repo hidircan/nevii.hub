@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { fail, ok } from "../services/result";
 import type { ServiceContext } from "../services/context";
-import { readData } from "../store";
+import { readReferenceData } from "../store";
 import { runWithTenantAsync } from "../tenant-context";
 import { invalidateSessionValidity } from "../auth/session-validity";
 import { closeAllUserSessions, getSessionPresence, revokeUserSession } from "../auth/session-registry";
@@ -60,7 +60,7 @@ async function branchNames(tenantIds: string[]): Promise<Map<string, string>> {
   const out = new Map<string, string>();
   for (const t of tenantIds) {
     try {
-      const data = await runWithTenantAsync(t, () => readData());
+      const data = await runWithTenantAsync(t, () => readReferenceData());
       for (const b of data.settings.branches) out.set(b.id, b.name);
     } catch {
       // bu depoda operasyon verisi olmayan kurum

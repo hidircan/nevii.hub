@@ -4,7 +4,7 @@ import { PORTAL_RECORD_MISSING_REDIRECT } from "@/lib/auth/portal-record-missing
 import { ArrowLeft } from "lucide-react";
 import { requireSessionContext } from "@/lib/auth/session";
 import { getPortalPageStudentId } from "@/lib/portal-context";
-import { readData } from "@/lib/store";
+import { readReferenceData } from "@/lib/store";
 import { listStudentContractsTool, getStudentContractTool } from "@/lib/services";
 import { Badge, Card, EmptyState } from "@/components/ui";
 import { formatMoney, formatDate } from "@/lib/utils";
@@ -47,7 +47,7 @@ export default async function StudentContractsPage() {
   // sunucuda doğrulanır); `|| "s1"` yedeği KALDIRILDI (başka öğrencinin verisi asla açılmaz).
   const studentId = await getPortalPageStudentId(session);
   if (!studentId) redirect(PORTAL_RECORD_MISSING_REDIRECT);
-  const data = await readData();
+  const data = await readReferenceData();
   const student = data.students.find((s) => s.id === studentId);
   if (!student || (session.role === "STUDENT" && (!student.active || student.deletedAt))) {
     redirect(PORTAL_RECORD_MISSING_REDIRECT);

@@ -56,6 +56,9 @@ import {
   updateTeacherPayoutPaymentMethod,
   readData,
   readLessonScope,
+  readStudentById,
+  readReferenceData,
+  readStudentScope,
   resetData,
   resetToCleanTemplate,
   startLessonLive,
@@ -1208,7 +1211,7 @@ export async function getStudentProfileTool(
   const v = parseOrFail(z.object({ studentId: z.string().min(1) }), input);
   if (!v.ok) return v;
 
-  const data = await readData();
+  const data = await readReferenceData();
   const student = data.students.find((s) => s.id === v.data.studentId);
   const access = await assertStudentAccess(ctx, student, v.data.studentId);
   if (!access.ok) return fail(access.code, access.message);
@@ -1447,7 +1450,7 @@ export async function listTeacherStudentsTool(
     return fail("FORBIDDEN", "Bu öğretmenin öğrenci listesine erişiminiz yok.");
   }
 
-  const data = await readData();
+  const data = await readReferenceData();
   const students = ownStudents(data.students, v.data.teacherId).filter((s) => s.active);
   const photoMeta = await listProfilePhotoMeta(
     ctx.tenantId,
@@ -1577,7 +1580,7 @@ export async function globalSearchTool(
   const displayIdNeedle = v.data.query.trim().toUpperCase();
   const matchesDisplayId = (displayId?: string) => !!displayId && displayId.toUpperCase().includes(displayIdNeedle);
 
-  const data = await readData();
+  const data = await readReferenceData();
   const branchShortName = (branchId?: string) =>
     branchId ? data.settings.branches.find((b) => b.id === branchId)?.shortName : undefined;
 
@@ -2872,7 +2875,7 @@ export async function listMebStudentsTool(
     });
     // Şube/öğretmen ADLARI salt-görüntü zenginleştirmesidir (tenant-kapsamlı
     // readData'dan; istemciye ham kimlik DEĞİL ad gider).
-    const data = await readData();
+    const data = await readReferenceData();
     const { resolveMebExamStatus, MEB_EXAM_STATUS_LABELS } = await import("../meb");
     const rows: MebPanelRow[] = result.rows.map((r) => {
       const examStatus = resolveMebExamStatus(r);
@@ -2960,7 +2963,7 @@ export async function updateMebStudentTool(
   const v = parseOrFail(updateMebStudentSchema, input);
   if (!v.ok) return v;
 
-  const data = await readData();
+  const data = await readReferenceData();
   const student = data.students.find((s) => s.id === v.data.studentId);
   if (!student) return fail("NOT_FOUND", "Öğrenci bulunamadı.");
 
@@ -3015,8 +3018,7 @@ export async function pauseStudentLessonScheduleTool(
   const v = parseOrFail(pauseStudentPaymentScheduleSchema, input);
   if (!v.ok) return v;
 
-  const data = await readData();
-  const student = data.students.find((s) => s.id === v.data.studentId);
+  const student = await readStudentById(v.data.studentId);
   if (!student) return fail("NOT_FOUND", "Öğrenci bulunamadı.");
   // Yinelenen/çift tık aksiyonu sessizce engellenir — mevcut duraklatma korunur, yeni bir yan etki yaratılmaz.
   if (student.paymentPauseStatus === "paused") {
@@ -3049,8 +3051,7 @@ export async function reactivateStudentLessonScheduleTool(
   const v = parseOrFail(z.object({ studentId: z.string().min(1) }), input);
   if (!v.ok) return v;
 
-  const data = await readData();
-  const student = data.students.find((s) => s.id === v.data.studentId);
+  const student = await readStudentById(v.data.studentId);
   if (!student) return fail("NOT_FOUND", "Öğrenci bulunamadı.");
   if (student.paymentPauseStatus !== "paused") {
     return fail("CONFLICT", "Bu öğrencinin ders programı zaten aktif — duraklatılmış değil.");
@@ -3088,8 +3089,7 @@ export async function provisionStudentPortalAccessTool(
   const v = parseOrFail(provisionStudentPortalAccessSchema, input);
   if (!v.ok) return v;
 
-  const data = await readData();
-  const student = data.students.find((s) => s.id === v.data.studentId);
+  const student = await readStudentById(v.data.studentId);
   if (!student) return fail("NOT_FOUND", "Öğrenci bulunamadı");
 
   // Portal erişim yönetimi görevi — `inviteStudentPortalAccessTool` ile AYNI çakışma
@@ -3555,7 +3555,7 @@ export async function inspectPortalAccessTool(
   const { listActiveAccessForTenant, listAccessForStudent, listAccessForUser } =
     await import("../student-portal-access");
   const { getUserById, getUserAccountStatus, getUserIdByEmailIncludingInactive } = await import("../auth/users");
-  const data = await readData();
+  const data = await readReferenceData();
   const findings: PortalAccessFinding[] = [];
   const MAX_ROWS = 500;
   let scanned = 0;
@@ -3706,8 +3706,7 @@ export async function repairPortalAccessTool(
   const user = await getUserById(userId);
   if (!user) return fail("NOT_FOUND", "Kullanıcı bulunamadı.");
   if (!user.studentId) return ok({ repaired: false, action, userId });
-  const data = await readData();
-  const bound = data.students.find((s) => s.id === user.studentId);
+  const bound = await readStudentById(user.studentId);
   const boundMissing = !bound || !!bound.deletedAt;
   const boundPassive = !!bound && !bound.active;
   if (!boundMissing && !boundPassive) {
@@ -3904,7 +3903,7 @@ export async function updateStudentPaymentProfileTool(
   if (!v.ok) return v;
 
   try {
-    const data = await readData();
+    const data = await readReferenceData();
     const student = data.students.find((s) => s.id === v.data.studentId);
     if (!student) return fail("NOT_FOUND", "Öğrenci bulunamadı.");
 
@@ -4107,7 +4106,7 @@ export async function updateTeacherInstrumentsTool(
   const v = parseOrFail(updateTeacherInstrumentsSchema, input);
   if (!v.ok) return v;
 
-  const data = await readData();
+  const data = await readReferenceData();
   if (!data.teachers.some((t) => t.id === v.data.teacherId)) return fail("NOT_FOUND", "Öğretmen bulunamadı");
 
   const active = await resolveActiveInstrumentNames(ctx.tenantId);
@@ -4149,7 +4148,7 @@ export async function updateTeacherProfileTool(
   const v = parseOrFail(updateTeacherProfileSchema, input);
   if (!v.ok) return v;
 
-  const data = await readData();
+  const data = await readReferenceData();
   const teacher = data.teachers.find((t) => t.id === v.data.teacherId);
   if (!teacher) return fail("NOT_FOUND", "Öğretmen bulunamadı");
 
@@ -5210,7 +5209,7 @@ export async function deletePackageTool(
     input
   );
   if (!v.ok) return v;
-  const data = await readData();
+  const data = await readReferenceData();
   const pkg = (data.packages ?? []).find((p) => p.id === v.data.packageId);
   if (!pkg) return fail("NOT_FOUND", "Paket bulunamadı; başka biri silmiş olabilir. Listeyi yenileyin.");
 
@@ -5315,7 +5314,7 @@ export async function getDiscountCampaignDeletionImpactTool(
   if (!auth.ok) return fail("FORBIDDEN", "Kampanya silme yalnız kurum sahibi tarafından başlatılabilir.");
   const v = parseOrFail(z.object({ campaignId: z.string().min(1) }), input);
   if (!v.ok) return v;
-  const data = await readData();
+  const data = await readReferenceData();
   const campaign = (data.discountCampaigns ?? []).find((c) => c.id === v.data.campaignId && !c.deletedAt);
   if (!campaign) return fail("NOT_FOUND", "Kampanya bulunamadı veya zaten silinmiş. Listeyi yenileyin.");
   const beneficiaries = data.students.filter((s) => (s.appliedCampaignIds ?? []).includes(campaign.id));
@@ -5434,8 +5433,7 @@ export async function setSocialMediaConsentTool(
   const v = parseOrFail(socialMediaConsentSchema, input);
   if (!v.ok) return v;
 
-  const data = await readData();
-  if (!data.students.some((s) => s.id === v.data.studentId)) return fail("NOT_FOUND", "Öğrenci bulunamadı");
+  if (!(await readStudentById(v.data.studentId))) return fail("NOT_FOUND", "Öğrenci bulunamadı");
 
   const record = await setSocialMediaConsent({ ...v.data, tenantId: ctx.tenantId, actorUserId: ctx.userId });
   audit(ctx, "student.social_media_consent", "Student", v.data.studentId, { status: record.status });
@@ -5459,8 +5457,7 @@ export async function getSocialMediaConsentTool(
   const v = parseOrFail(z.object({ studentId: z.string().min(1) }), input);
   if (!v.ok) return v;
 
-  const data = await readData();
-  const student = data.students.find((s) => s.id === v.data.studentId);
+  const student = await readStudentById(v.data.studentId);
   const access = await assertStudentAccess(ctx, student, v.data.studentId);
   if (!access.ok) return fail(access.code, access.message);
 
@@ -5484,8 +5481,7 @@ export async function listSocialMediaConsentHistoryTool(
   const v = parseOrFail(z.object({ studentId: z.string().min(1) }), input);
   if (!v.ok) return v;
 
-  const data = await readData();
-  const student = data.students.find((s) => s.id === v.data.studentId);
+  const student = await readStudentById(v.data.studentId);
   const access = await assertStudentAccess(ctx, student, v.data.studentId);
   if (!access.ok) return fail(access.code, access.message);
 
@@ -5514,8 +5510,7 @@ export async function withdrawSocialMediaConsentTool(
   const v = parseOrFail(withdrawSocialMediaConsentSchema, input);
   if (!v.ok) return v;
 
-  const data = await readData();
-  const student = data.students.find((s) => s.id === v.data.studentId);
+  const student = await readStudentById(v.data.studentId);
   const access = await assertStudentAccess(ctx, student, v.data.studentId);
   if (!access.ok) return fail(access.code, access.message);
 
@@ -5568,7 +5563,7 @@ export async function generateKvkkNoticeDocumentTool(
   const v = parseOrFail(generateStudentDocumentSchema, input);
   if (!v.ok) return v;
 
-  const data = await readData();
+  const data = await readReferenceData();
   const student = data.students.find((s) => s.id === v.data.studentId);
   if (!student) return fail("VALIDATION_ERROR", "Seçilen öğrenci bulunamadı veya bu kuruma ait değil.");
 
@@ -5610,7 +5605,7 @@ export async function generatePhotoVideoConsentDocumentTool(
   const v = parseOrFail(generateStudentDocumentSchema, input);
   if (!v.ok) return v;
 
-  const data = await readData();
+  const data = await readReferenceData();
   const student = data.students.find((s) => s.id === v.data.studentId);
   if (!student) return fail("VALIDATION_ERROR", "Seçilen öğrenci bulunamadı veya bu kuruma ait değil.");
 
@@ -5734,7 +5729,7 @@ export async function grantKvkkConsentTool(
   const currentVersion = await getCurrentConsentTextVersion(ctx.tenantId, v.data.consentType);
   if (!currentVersion) return fail("NOT_FOUND", "Bu rıza türü için yürürlükte bir hukuki metin tanımlı değil.");
 
-  const data = await readData();
+  const data = await readReferenceData();
   const settings = data.settings.consentSettings ?? DEFAULT_CONSENT_SETTINGS;
   const record = await grantKvkkConsent({
     tenantId: ctx.tenantId,
@@ -5851,7 +5846,7 @@ export async function createCallLogTool(
   const v = parseOrFail(createCallLogSchema, input);
   if (!v.ok) return v;
 
-  const data = await readData();
+  const data = await readReferenceData();
   const matchResult = matchContactByPhone(v.data.callerNumber, data.students, data.teachers);
   const result = await createCallLog({
     tenantId: ctx.tenantId,
@@ -5938,7 +5933,7 @@ export async function createMessageLogTool(
   const v = parseOrFail(createMessageLogSchema, input);
   if (!v.ok) return v;
 
-  const data = await readData();
+  const data = await readReferenceData();
   const matchResult = matchContactByPhone(v.data.senderIdentifier, data.students, data.teachers);
   const result = await createMessageLog({
     tenantId: ctx.tenantId,
@@ -6892,8 +6887,7 @@ export async function createLessonSeriesTool(
     // Aynı Türkçe cümle üretimi `previewLessonSeriesTool` ile PAYLAŞILIR
     // (buildSeriesPreviewText) — ikinci bir metin şablonu icat edilmedi.
     if (result.createdLessonIds.length > 0) {
-      const data = await readData();
-      const student = data.students.find((s) => s.id === v.data.studentId);
+      const student = await readStudentById(v.data.studentId);
       const summary = buildSeriesPreviewText({
         studentName: student?.name ?? "Öğrenci",
         weekday: v.data.weekday,
@@ -9069,7 +9063,7 @@ export async function listAnnouncementRecipientsTool(
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
 
   try {
-    const data = await readData();
+    const data = await readReferenceData();
 
     const teacherEntries = await Promise.all(
       data.teachers
@@ -9120,7 +9114,7 @@ export async function listAnnouncementRecipientsTool(
 async function publishAnnouncementToRecipients(tenantId: string, announcement: Announcement): Promise<void> {
   if (!isVisibleNow(announcement)) return;
   try {
-    const data = await readData();
+    const data = await readReferenceData();
     const candidates = await buildAnnouncementRecipientCandidates(tenantId, data.teachers, data.students);
     const recipients = resolveAudienceRecipients(announcement, candidates, {
       students: data.students,
@@ -9292,7 +9286,7 @@ export async function getAnnouncementAttachmentFileTool(
 
     const isAdmin = ctx.role === "SCHOOL_ADMIN" || ctx.role === "SUPER_ADMIN";
     if (!isAdmin) {
-      const data = await readData();
+      const data = await readReferenceData();
       const recipient = {
         role: ctx.role,
         userId: ctx.userId,
@@ -9365,7 +9359,7 @@ export async function listAnnouncementsForUserTool(
   ctx: ServiceContext
 ): Promise<ServiceResult<{ announcements: Announcement[] }>> {
   try {
-    const [data, all] = await Promise.all([readData(), listAnnouncements(ctx.tenantId)]);
+    const [data, all] = await Promise.all([readReferenceData(), listAnnouncements(ctx.tenantId)]);
     const accessType = ctx.studentId ? await resolveCallerAccessType(ctx, ctx.studentId) : undefined;
     const recipient = {
       role: ctx.role,
@@ -9495,8 +9489,7 @@ export async function listAssessmentsForStudentTool(
   if (!v.ok) return v;
 
   try {
-    const data = await readData();
-    const student = data.students.find((s) => s.id === v.data.studentId);
+    const student = await readStudentById(v.data.studentId);
     const access = await assertStudentAccess(ctx, student, v.data.studentId);
     if (!access.ok) return fail(access.code, access.message);
 
@@ -9518,8 +9511,7 @@ export async function getAssessmentTool(
   try {
     const assessment = await getAssessment(ctx.tenantId, v.data.assessmentId);
     if (!assessment) return fail("NOT_FOUND", "Değerlendirme bulunamadı");
-    const data = await readData();
-    const student = data.students.find((s) => s.id === assessment.studentId);
+    const student = await readStudentById(assessment.studentId);
     const access = await assertStudentAccess(ctx, student, assessment.studentId);
     if (!access.ok) return fail(access.code, access.message);
     if (ctx.role === "TEACHER" && assessment.teacherId !== ctx.teacherId) {
@@ -9541,8 +9533,7 @@ export async function getAssessmentReportTool(
   if (!v.ok) return v;
 
   try {
-    const data = await readData();
-    const student = data.students.find((s) => s.id === v.data.studentId);
+    const student = await readStudentById(v.data.studentId);
     const access = await assertStudentAccess(ctx, student, v.data.studentId);
     if (!access.ok) return fail(access.code, access.message);
 
@@ -9583,7 +9574,7 @@ export async function listPendingPeriodicAssessmentsTool(
   }
 
   try {
-    const data = await readData();
+    const data = await readReferenceData();
     const targetTeacherIds =
       ctx.role === "TEACHER"
         ? [ctx.teacherId!]
@@ -9703,8 +9694,7 @@ export async function listPeriodicAssessmentsForStudentTool(
   if (!v.ok) return v;
 
   try {
-    const data = await readData();
-    const student = data.students.find((s) => s.id === v.data.studentId);
+    const student = await readStudentById(v.data.studentId);
     const access = await assertStudentAccess(ctx, student, v.data.studentId);
     if (!access.ok) return fail(access.code, access.message);
 
@@ -9896,7 +9886,7 @@ export async function reviewTeacherAvailabilityRequestTool(
     if (!existing) return fail("NOT_FOUND", "Müsaitlik önerisi bulunamadı.");
 
     if (v.data.decision === "approved") {
-      const data = await readData();
+      const data = await readReferenceData();
       const invalidBranch = existing.proposedAvailability.find(
         (w) => w.branchId && !data.settings.branches.some((b) => b.id === w.branchId)
       );
@@ -10057,8 +10047,7 @@ export async function listHomeworkForStudentTool(
   if (!v.ok) return v;
 
   try {
-    const data = await readData();
-    const student = data.students.find((s) => s.id === v.data.studentId);
+    const student = await readStudentById(v.data.studentId);
     const access = await assertStudentAccess(ctx, student, v.data.studentId);
     if (!access.ok) return fail(access.code, access.message);
 
@@ -10150,8 +10139,7 @@ export async function listHomeworkSubmissionsTool(
   if (!homework) return fail("NOT_FOUND", "Ödev bulunamadı");
 
   try {
-    const data = await readData();
-    const student = data.students.find((s) => s.id === homework.studentId);
+    const student = await readStudentById(homework.studentId);
     const access = await assertStudentAccess(ctx, student, homework.studentId);
     if (!access.ok) return fail(access.code, access.message);
 
@@ -10205,8 +10193,7 @@ export async function getHomeworkSubmissionFileTool(
   if (!submission) return fail("NOT_FOUND", "Teslim bulunamadı");
 
   try {
-    const data = await readData();
-    const student = data.students.find((s) => s.id === submission.studentId);
+    const student = await readStudentById(submission.studentId);
     const access = await assertStudentAccess(ctx, student, submission.studentId);
     if (!access.ok) return fail(access.code, access.message);
     if (!submission.fileData) return fail("NOT_FOUND", "Bu teslimde dosya yok");
@@ -10236,8 +10223,7 @@ export async function getHomeworkFileTool(
   if (!homework) return fail("NOT_FOUND", "Ödev bulunamadı");
 
   try {
-    const data = await readData();
-    const student = data.students.find((s) => s.id === homework.studentId);
+    const student = await readStudentById(homework.studentId);
     const access = await assertStudentAccess(ctx, student, homework.studentId);
     if (!access.ok) return fail(access.code, access.message);
     if (!homework.fileData) return fail("NOT_FOUND", "Bu ödevde dosya yok");
@@ -10301,8 +10287,7 @@ export async function listTeachingMaterialsForStudentTool(
   if (!v.ok) return v;
 
   try {
-    const data = await readData();
-    const student = data.students.find((s) => s.id === v.data.studentId);
+    const student = await readStudentById(v.data.studentId);
     const access = await assertStudentAccess(ctx, student, v.data.studentId);
     if (!access.ok) return fail(access.code, access.message);
     if (!student) return fail("NOT_FOUND", "Öğrenci bulunamadı");
@@ -10354,8 +10339,7 @@ export async function getTeachingMaterialFileTool(
     if (!ctx.studentId || !(await canAccessStudent(ctx, ctx.studentId))) {
       return fail("FORBIDDEN", "Bu materyale erişiminiz yok");
     }
-    const data = await readData();
-    const student = data.students.find((s) => s.id === ctx.studentId);
+    const student = await readStudentById(ctx.studentId);
     if (
       !student ||
       student.teacherId !== material.teacherId ||
@@ -10397,7 +10381,7 @@ export async function submitTeacherFeedbackTool(
     return fail("FORBIDDEN", "Yalnızca kendi çocuğunuz/kendiniz için geri bildirim gönderebilirsiniz.");
   }
 
-  const data = await readData();
+  const data = await readReferenceData();
   const student = data.students.find((s) => s.id === v.data.studentId);
   if (!student) return fail("NOT_FOUND", "Öğrenci bulunamadı");
 
@@ -10564,8 +10548,7 @@ export async function revealTeacherFeedbackIdentityTool(
     const feedback = await getTeacherFeedbackById(ctx.tenantId, v.data.feedbackId);
     if (!feedback) return fail("NOT_FOUND", "Geri bildirim bulunamadı");
 
-    const data = await readData();
-    const student = data.students.find((s) => s.id === feedback.studentId);
+    const student = await readStudentById(feedback.studentId);
 
     audit(ctx, "teacher_feedback.reveal_identity", "TeacherFeedback", feedback.id, {
       reason: v.data.reason,
@@ -10681,8 +10664,7 @@ export async function submitStudentFeedbackTool(
   const v = parseOrFail(submitStudentFeedbackSchema, input);
   if (!v.ok) return v;
 
-  const data = await readData();
-  const student = data.students.find((s) => s.id === v.data.studentId);
+  const student = await readStudentById(v.data.studentId);
   const access = await assertStudentAccess(ctx, student, v.data.studentId);
   if (!access.ok) return fail(access.code, access.message);
 
@@ -10730,8 +10712,7 @@ export async function getOwnStudentFeedbackThisMonthTool(
   const v = parseOrFail(z.object({ studentId: z.string().min(1) }), input);
   if (!v.ok) return v;
 
-  const data = await readData();
-  const student = data.students.find((s) => s.id === v.data.studentId);
+  const student = await readStudentById(v.data.studentId);
   const access = await assertStudentAccess(ctx, student, v.data.studentId);
   if (!access.ok) return fail(access.code, access.message);
 
@@ -10982,8 +10963,7 @@ export async function createCurriculumTopicTool(
   const v = parseOrFail(createCurriculumTopicSchema, input);
   if (!v.ok) return v;
 
-  const data = await readData();
-  const student = data.students.find((s) => s.id === v.data.studentId);
+  const student = await readStudentById(v.data.studentId);
   const access = await assertStudentAccess(ctx, student, v.data.studentId);
   if (!access.ok) return fail(access.code, access.message);
 
@@ -11029,8 +11009,7 @@ export async function updateCurriculumTopicTool(
     return fail("FORBIDDEN", "Yalnızca kendi oluşturduğunuz konuları güncelleyebilirsiniz.");
   }
 
-  const data = await readData();
-  const student = data.students.find((s) => s.id === existing.studentId);
+  const student = await readStudentById(existing.studentId);
   const access = await assertStudentAccess(ctx, student, existing.studentId);
   if (!access.ok) return fail(access.code, access.message);
 
@@ -11090,7 +11069,7 @@ export async function bulkAssignCurriculumTopicsTool(
     );
   }
 
-  const data = await readData();
+  const data = await readReferenceData();
   const assignments: { studentId: string; teacherId: string }[] = [];
   let skippedInaccessible = 0;
   for (const studentId of uniqueStudentIds) {
@@ -11152,8 +11131,7 @@ export async function listCurriculumForStudentTool(
   if (!v.ok) return v;
 
   try {
-    const data = await readData();
-    const student = data.students.find((s) => s.id === v.data.studentId);
+    const student = await readStudentById(v.data.studentId);
     const access = await assertStudentAccess(ctx, student, v.data.studentId);
     if (!access.ok) return fail(access.code, access.message);
 
@@ -11188,8 +11166,7 @@ export async function archiveStudentTool(
   const v = parseOrFail(archiveStudentSchema, input);
   if (!v.ok) return v;
   try {
-    const data = await readData();
-    const student = data.students.find((s) => s.id === v.data.studentId);
+    const student = await readStudentById(v.data.studentId);
     if (!student) return fail("NOT_FOUND", "Öğrenci bulunamadı");
     await updateStudentProfile(v.data.studentId, {
       active: !v.data.archived,
@@ -11395,8 +11372,7 @@ export async function restoreDeletedStudentTool(
   if (!auth.ok) return fail("FORBIDDEN", "Silinen öğrenciyi yalnız kurum sahibi ve kurum yöneticileri geri alabilir.");
   const v = parseOrFail(z.object({ studentId: z.string().min(1) }), input);
   if (!v.ok) return v;
-  const data = await readData();
-  const student = data.students.find((s) => s.id === v.data.studentId);
+  const student = await readStudentById(v.data.studentId);
   if (!student) return fail("NOT_FOUND", "Öğrenci bulunamadı.");
   if (!student.deletedAt) return fail("VALIDATION_ERROR", "Bu öğrenci silinmiş değil.");
   await setStudentDeletion(v.data.studentId, null);
@@ -11871,7 +11847,7 @@ export async function archiveTeacherStudentsTool(
   const v = parseOrFail(archiveTeacherStudentsSchema, input);
   if (!v.ok) return v;
 
-  const data = await readData();
+  const data = await readReferenceData();
   if (!data.teachers.some((t) => t.id === v.data.teacherId)) return fail("NOT_FOUND", "Öğretmen bulunamadı.");
   const targets = data.students.filter((s) => s.teacherId === v.data.teacherId && s.active);
 
@@ -11904,7 +11880,7 @@ export async function updateTeacherAvailabilityTool(
   const v = parseOrFail(updateTeacherAvailabilitySchema, input);
   if (!v.ok) return v;
 
-  const data = await readData();
+  const data = await readReferenceData();
   if (!data.teachers.some((t) => t.id === v.data.teacherId)) return fail("NOT_FOUND", "Öğretmen bulunamadı.");
   const invalidBranch = v.data.availability.find(
     (w) => w.branchId && !data.settings.branches.some((b) => b.id === w.branchId)
@@ -12065,7 +12041,7 @@ export async function revealNationalIdTool(
     v.data.entity === "staff"
       ? await getStaffMember(ctx.tenantId, v.data.entityId)
       : await (async () => {
-          const data = await readData();
+          const data = await readReferenceData();
           return v.data.entity === "student"
             ? data.students.find((s) => s.id === v.data.entityId)
             : data.teachers.find((t) => t.id === v.data.entityId);
@@ -12107,7 +12083,7 @@ export async function findStudentsByNationalIdTool(
     return fail("VALIDATION_ERROR", "TC Kimlik No 11 haneli olmalı. Rakamları eksiksiz girip tekrar arayın.");
   }
   const { decryptNationalId } = await import("../pii");
-  const data = await readData();
+  const data = await readReferenceData();
   const studentIds = data.students
     .filter((s) => s.nationalIdCipher && s.nationalIdLast2 === wanted.slice(-2))
     .filter((s) => {
@@ -12718,7 +12694,7 @@ export async function createDocumentInstanceTool(
   const tpl = await getTemplate(ctx.tenantId, v.data.templateId);
   if (!tpl) return fail("NOT_FOUND", "Şablon bulunamadı veya bu kuruma ait değil.");
 
-  const data = await readData();
+  const data = await readReferenceData();
 
   // MT-güvenlik — sahte/başka-tenant öğrenci veya öğretmen ID'si sessizce
   // yok sayılmaz, açıkça reddedilir (`data.students`/`data.teachers` zaten
@@ -12887,8 +12863,7 @@ export async function listStudentDocumentsTool(
 ): Promise<ServiceResult<{ documents: Awaited<ReturnType<typeof listDocumentsForStudent>> }>> {
   const v = parseOrFail(z.object({ studentId: z.string().min(1) }), input);
   if (!v.ok) return v;
-  const data = await readData();
-  const student = data.students.find((s) => s.id === v.data.studentId);
+  const student = await readStudentById(v.data.studentId);
   const access = await assertStudentAccess(ctx, student, v.data.studentId);
   if (!access.ok) return fail(access.code, access.message);
   try {
@@ -13175,7 +13150,7 @@ export async function uploadDocumentDirectTool(
   const fileCheck = validateSignedDocumentFilePayload(v.data);
   if (!fileCheck.ok) return fail("VALIDATION_ERROR", fileCheck.message);
 
-  const data = await readData();
+  const data = await readReferenceData();
   const student = v.data.studentId ? data.students.find((s) => s.id === v.data.studentId) : undefined;
   if (v.data.studentId && !student) {
     return fail("VALIDATION_ERROR", "Seçilen öğrenci bulunamadı veya bu kuruma ait değil.");
@@ -14375,7 +14350,7 @@ export async function resolveCollectionsIbanTool(
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
   const v = parseOrFail(z.object({ studentId: z.string().min(1) }), input);
   if (!v.ok) return v;
-  const data = await readData();
+  const data = await readReferenceData();
   const student = data.students.find((s) => s.id === v.data.studentId);
   if (!student) return fail("NOT_FOUND", "Öğrenci yok");
   const settings = data.settings.collectionsSettings ?? { frequencyLimitDays: 3, autoSendEnabled: false };
@@ -14825,7 +14800,8 @@ async function loadCalendarPlanContracts(tenantId: string, studentId: string): P
 }
 
 async function buildAttendanceCalendarMonth(
-  data: AppData,
+  // Yalnız okunan alanlar: tek öğrenci dilimi (`readStudentScope`) de tam `AppData` de verilebilir.
+  data: Pick<AppData, "settings" | "lessons" | "teachers" | "rooms" | "payments" | "makeupRequests">,
   overrides: Awaited<ReturnType<typeof listClosedDays>>,
   student: Student,
   year: number,
@@ -14973,7 +14949,8 @@ export async function getAttendanceCalendarMonthTool(
   );
   if (!v.ok) return v;
 
-  const data = await readData();
+  // DB egress: yalnız bu öğrencinin dilimi — takvim hesabı zaten yalnız onun satırlarını okur.
+  const data = await readStudentScope(v.data.studentId);
   const student = data.students.find((s) => s.id === v.data.studentId);
   const access = await assertStudentAccess(ctx, student, v.data.studentId);
   if (!access.ok) return fail(access.code, access.message);
@@ -15010,7 +14987,8 @@ export async function getAttendanceCalendarTermTool(
   );
   if (!v.ok) return v;
 
-  const data = await readData();
+  // DB egress: yalnız bu öğrencinin dilimi (bkz. getAttendanceCalendarMonthTool).
+  const data = await readStudentScope(v.data.studentId);
   const student = data.students.find((s) => s.id === v.data.studentId);
   const access = await assertStudentAccess(ctx, student, v.data.studentId);
   if (!access.ok) return fail(access.code, access.message);
@@ -16658,7 +16636,7 @@ async function resolvePhotoOwnerRecord(
     }
     return { ok: false, code: "FORBIDDEN", message: "Bu kullanıcıya erişiminiz yok" };
   }
-  const data = await readData();
+  const data = await readReferenceData();
   if (ownerType === "student") {
     const student = data.students.find((s) => s.id === ownerId);
     const access = await assertStudentAccess(ctx, student, ownerId);

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { readData } from "@/lib/store";
+import { readReferenceData } from "@/lib/store";
 import { requireSessionContext } from "@/lib/auth/session";
 import { redirect } from "next/navigation";
 import { Badge, Button, Card, EmptyState, FilterBar, Input, Label, PageHeader, Select } from "@/components/ui";
@@ -23,7 +23,7 @@ export default async function OdalarPage({
     redirect("/login?next=/panel/odalar");
   }
   const canManage = session.role === "SCHOOL_ADMIN" || session.role === "SUPER_ADMIN";
-  const data = await readData();
+  const data = await readReferenceData();
   // Filtreler yalnız görünümü daraltır (GET parametresi) — oda/ders kaydı değişmez.
   // Varsayılan yalnız aktif odalar; pasif odalar yeni ders planlamasında seçilemez
   // (bkz. program-studio.tsx roomOptionsFor). Pasif/Tümü yalnız yöneticiye açık.

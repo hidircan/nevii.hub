@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Plus } from "lucide-react";
 import { requireSessionContext } from "@/lib/auth/session";
-import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
+import { getInstitutionContext, readScopedReferenceData } from "@/lib/institution/context";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { AssistantPageContext } from "@/components/ai/assistant-page-context";
 import { PageHeader } from "@/components/ui";
@@ -49,7 +49,7 @@ export default async function PackagesPage({
   const page = Math.max(1, Number(one(params.sayfa)) || 1);
 
   const kurum = await getInstitutionContext(session);
-  const data = await readScopedData(kurum.scope);
+  const data = await readScopedReferenceData(kurum.scope);
   const branches = data.settings.branches.map((b) => ({ id: b.id, name: b.name }));
   const branchName = (id: string) => branches.find((b) => b.id === id)?.name ?? id;
   const activePackages = (data.packages ?? []).filter((p) => p.status === "active");

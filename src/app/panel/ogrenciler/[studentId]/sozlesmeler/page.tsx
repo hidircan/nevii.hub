@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requireSessionContext } from "@/lib/auth/session";
-import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
+import { getInstitutionContext, readScopedStudentData } from "@/lib/institution/context";
 import { listStudentContractsTool } from "@/lib/services";
 import { ContractPanel, type RegistrationSummary } from "@/components/contract-panel";
 import { paymentMethodLabelTr } from "@/lib/utils";
@@ -42,7 +42,8 @@ export default async function StudentContractsCenterPage({
   }
 
   const kurum = await getInstitutionContext(session);
-  const data = await readScopedData(kurum.scope);
+  // DB egress: yalnız bu öğrencinin dilimi — aşağıdaki her ağır erişim `studentId` ile süzülü.
+  const data = await readScopedStudentData(kurum.scope, studentId);
   const student = data.students.find((s) => s.id === studentId);
 
   if (!student) {

@@ -6,7 +6,7 @@ import { getDocumentInstanceTool } from "@/lib/services";
 import { documentKindLabel, documentStatusLabel, documentStatusHint } from "@/lib/documents";
 import { findContractIdByDocumentInstanceId } from "@/lib/contracts";
 import { listAuditLogs } from "@/lib/audit/log";
-import { readData } from "@/lib/store";
+import { readReferenceData } from "@/lib/store";
 import { Badge, Card, EmptyState, PageHeader } from "@/components/ui";
 import { BackButton } from "@/components/back-button";
 import { DocumentSignedUpload } from "@/components/document-signed-upload";
@@ -51,7 +51,7 @@ export default async function DocumentDetailPage({
   }
 
   const doc = result.data.document;
-  const data = await readData();
+  const data = await readReferenceData();
   const student = doc.studentId ? data.students.find((s) => s.id === doc.studentId) : undefined;
   const teacher = doc.teacherId ? data.teachers.find((t) => t.id === doc.teacherId) : undefined;
   const branch = doc.branchId ? data.settings.branches.find((b) => b.id === doc.branchId) : undefined;

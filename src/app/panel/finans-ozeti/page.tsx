@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { requireSessionContext } from "@/lib/auth/session";
-import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
+import { getInstitutionContext, readScopedReferenceData } from "@/lib/institution/context";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { BackButton } from "@/components/back-button";
 import { getFinanceSummaryTool, listRecurringExpenseRulesTool } from "@/lib/services";
@@ -51,7 +51,7 @@ export default async function FinansOzetiPage({ searchParams }: { searchParams: 
   const monthParam = ay && /^\d{4}-(0[1-9]|1[0-2])$/.test(ay) ? ay : undefined;
   const [result, data, rulesResult] = await Promise.all([
     getFinanceSummaryTool(session, { ...(sube ? { branchId: sube } : {}), ...(monthParam ? { month: monthParam } : {}) }),
-    readScopedData(kurum.scope),
+    readScopedReferenceData(kurum.scope),
     listRecurringExpenseRulesTool(session, {}),
   ]);
 

@@ -420,8 +420,8 @@ async function resolveDispatchContact(
   message: CommunicationMessage
 ): Promise<{ optOut: boolean; email?: string }> {
   try {
-    const { readData } = await import("../store");
-    const data = await readData();
+    const { readReferenceData } = await import("../store");
+    const data = await readReferenceData();
     if (message.recipientType === "TEACHER") {
       const teacher = data.teachers.find((t) => t.id === message.recipientId);
       // Öğretmen için izin deposu YOKTUR (bilinçli boşluk — backlog): açık

@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { PORTAL_RECORD_MISSING_REDIRECT } from "@/lib/auth/portal-record-missing";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { addDays, isSameDay, parseISO } from "date-fns";
-import { readData } from "@/lib/store";
+import { readLessonWindow } from "@/lib/store";
 import { requireSessionContext } from "@/lib/auth/session";
 import { ownWeekLessons } from "@/lib/teacher-portal-scope";
 import {
@@ -41,11 +41,8 @@ export default async function TeacherOwnProgramPage({
     redirect("/login?next=/ogretmen/program");
   }
 
-  const data = await readData();
   const teacherId = session.teacherId;
   if (!teacherId) redirect(PORTAL_RECORD_MISSING_REDIRECT);
-  const teacher = data.teachers.find((t) => t.id === teacherId);
-  if (!teacher) redirect(PORTAL_RECORD_MISSING_REDIRECT);
 
   const { week } = await searchParams;
   const now = new Date();
@@ -53,6 +50,12 @@ export default async function TeacherOwnProgramPage({
   // Pazartesi okul kapalı — öğretmenin kendi haftalık görünümünde de hiç gösterilmez.
   const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)).filter((d) => !isMonday(d));
   const weekEndExclusive = addDays(weekStart, 7);
+  // DB egress: yalnız haftanın ders penceresi + referans veri (aşağıdaki `ownWeekLessons` kesin
+  // filtresinden 1 gün GENİŞ). Sayfa sekme açıkken 45 sn'de bir yenilenir (ProgramLiveRefresh) —
+  // eskiden her yenileme kurumun TÜM ders/ödeme verisini okuyordu.
+  const data = await readLessonWindow(addDays(weekStart, -1).toISOString(), addDays(weekEndExclusive, 1).toISOString());
+  const teacher = data.teachers.find((t) => t.id === teacherId);
+  if (!teacher) redirect(PORTAL_RECORD_MISSING_REDIRECT);
   const showingCurrentWeek = isCurrentWeek(weekStart, now);
 
   const prevHref = `/ogretmen/program?week=${previousWeekParam(weekStart)}`;

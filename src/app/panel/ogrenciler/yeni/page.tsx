@@ -4,7 +4,7 @@ import { Card, PageHeader } from "@/components/ui";
 import { NewStudentForm } from "@/components/new-student-form";
 import { activeInstrumentOptions } from "@/lib/instrument-options";
 import { requireSessionContext } from "@/lib/auth/session";
-import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
+import { getInstitutionContext, readScopedReferenceData } from "@/lib/institution/context";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { getCurrentConsentTextVersionTool } from "@/lib/services";
 import { getTrialLesson } from "@/lib/trial-lessons";
@@ -34,7 +34,7 @@ export default async function NewStudentPage({
     redirect("/login?next=/panel/ogrenciler/yeni");
   }
   const kurum = await getInstitutionContext(session);
-  const data = await readScopedData(kurum.scope);
+  const data = await readScopedReferenceData(kurum.scope);
   const instrumentOptions = await activeInstrumentOptions(session);
   const kvkkTextResult = await getCurrentConsentTextVersionTool(session, { consentType: "kvkk_general" });
   const kvkkText = kvkkTextResult.ok ? kvkkTextResult.data.version : undefined;

@@ -11,7 +11,8 @@
  * SÖZLEŞMESİNİ, ama yalnız ilgili satırlarla doldurulmuş olarak vermektir.
  * Bu dosya o dilimin TEK tanımıdır:
  *
- * - `settings`            : tam (şubeler dahil — telafi/politika metinleri için)
+ * - `settings`            : tam (şubeler dahil — telafi/politika metinleri için); YALNIZ
+ *                           `logoUrl` boş (~79 KB data-URI; bu yollarda okunmuyor — db egress)
  * - `teachers`            : yalnız dersin öğretmeni      (validateLessonSlot)
  * - `rooms`               : yalnız dersin odası           (validateLessonSlot)
  * - `students`            : yalnız dersin öğrencisi       (termType, kota)
@@ -77,7 +78,7 @@ export function narrowLessonScope(
   if (!lesson) return null;
   const days = lessonScopeDays(lesson, targetStartAt);
   return {
-    settings: data.settings,
+    settings: { ...data.settings, logoUrl: "" },
     closedDayOverrides: data.closedDayOverrides,
     teachers: data.teachers.filter((t) => t.id === lesson.teacherId),
     students: data.students.filter((s) => s.id === lesson.studentId),

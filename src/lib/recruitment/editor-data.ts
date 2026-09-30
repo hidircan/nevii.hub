@@ -2,8 +2,8 @@ import { runWithTenantAsync } from "../tenant-context";
 
 /** İlan editörü için şube + etkin enstrüman listesi. */
 export async function loadEditorLookups(tenantId: string): Promise<{ branches: { id: string; name: string }[]; instruments: string[] }> {
-  const { readData } = await import("../store");
-  const data = await runWithTenantAsync(tenantId, () => readData());
+  const { readReferenceData } = await import("../store");
+  const data = await runWithTenantAsync(tenantId, () => readReferenceData());
   let instruments: string[] = [];
   try {
     const { resolveActiveInstrumentNames } = await import("../instrument-catalog");

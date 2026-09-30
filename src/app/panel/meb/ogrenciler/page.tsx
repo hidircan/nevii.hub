@@ -8,7 +8,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requireSessionContext } from "@/lib/auth/session";
-import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
+import { getInstitutionContext, readScopedReferenceData } from "@/lib/institution/context";
 import { listMebStudentsTool } from "@/lib/services/tools";
 import { resolveActiveInstrumentNames } from "@/lib/instrument-catalog";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
@@ -89,7 +89,7 @@ export default async function MebOgrencilerPage({
       page: query.page,
       pageSize: query.pageSize,
     }),
-    readScopedData(kurum.scope),
+    readScopedReferenceData(kurum.scope),
     resolveActiveInstrumentNames(kurum.scope.tenantId),
   ]);
 

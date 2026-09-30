@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { requireSessionContext } from "@/lib/auth/session";
-import { readData } from "@/lib/store";
+import { readReferenceData } from "@/lib/store";
 import { listConsentTextVersionsTool } from "@/lib/services";
 import { PageHeader, Card, Input, Label, Button } from "@/components/ui";
 import { actionCreateConsentTextVersion, actionUpdateConsentSettings } from "@/lib/actions";
@@ -34,7 +34,7 @@ export default async function KvkkAyarlariPage({
   const { type } = await searchParams;
   const consentType = type?.trim() || DEFAULT_CONSENT_TYPE;
 
-  const [data, versionsResult] = await Promise.all([readData(), listConsentTextVersionsTool(session, { consentType })]);
+  const [data, versionsResult] = await Promise.all([readReferenceData(), listConsentTextVersionsTool(session, { consentType })]);
   const versions = versionsResult.ok ? versionsResult.data.versions : [];
   const settings = data.settings.consentSettings ?? DEFAULT_CONSENT_SETTINGS;
 

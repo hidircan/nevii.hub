@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requireSessionContext, homePathForRole } from "@/lib/auth/session";
-import { readData } from "@/lib/store";
+import { readReferenceData } from "@/lib/store";
 import { getAssessmentTool } from "@/lib/services";
 import { ASSESSMENT_SECTIONS, ASSESSMENT_ITEM_LABELS, computeOverallScore } from "@/lib/assessment/score";
 import { formatDate } from "@/lib/utils";
@@ -48,7 +48,7 @@ export default async function AssessmentPage({
   }
   const assessment = result.data.assessment;
 
-  const data = await readData();
+  const data = await readReferenceData();
   const student = data.students.find((s) => s.id === assessment.studentId);
   const teacher = data.teachers.find((t) => t.id === assessment.teacherId);
   const overall = computeOverallScore(assessment);

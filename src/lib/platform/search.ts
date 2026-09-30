@@ -1,7 +1,7 @@
 import { fail, ok } from "../services/result";
 import type { ServiceContext } from "../services/context";
 import { runWithTenantAsync } from "../tenant-context";
-import { readData } from "../store";
+import { readReferenceData } from "../store";
 import { requireHyperAdmin } from "./access";
 import { listPlatformTenants } from "./store";
 import { resolveGrants } from "./permissions";
@@ -54,7 +54,7 @@ export async function platformSearch(ctx: ServiceContext, rawQuery: string) {
   const branchHits: SearchResult[] = [];
   for (const t of tenants) {
     try {
-      const data = await runWithTenantAsync(t.tenantId, () => readData());
+      const data = await runWithTenantAsync(t.tenantId, () => readReferenceData());
       for (const b of data.settings.branches) {
         if (hit(b.name, b.shortName)) branchHits.push({ group: "", label: b.name, detail: t.name, href: `/platform/kurumlar/${t.tenantId}` });
       }

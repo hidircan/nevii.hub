@@ -5,7 +5,7 @@ import { Card, EmptyState } from "@/components/ui";
 import { requireRecruitmentPage } from "@/lib/recruitment/page-context";
 import { getApplicationDetailTool } from "@/lib/recruitment/tools";
 import { runWithTenantAsync } from "@/lib/tenant-context";
-import { readData } from "@/lib/store";
+import { readReferenceData } from "@/lib/store";
 import { HIRE_PENDING } from "@/lib/recruitment/store";
 import {
   applicationNumber,
@@ -54,7 +54,7 @@ export default async function CandidateDetailPage({ params }: { params: Promise<
     return <EmptyState title="Aday yüklenemedi" description={res.error.message} />;
   }
   const { application: a, job, activities, interviews, evaluations, cv, templates, settings } = res.data;
-  const data = await runWithTenantAsync(ctx.tenantId, () => readData());
+  const data = await runWithTenantAsync(ctx.tenantId, () => readReferenceData());
   const branches = data.settings.branches.map((b) => ({ id: b.id, name: b.name }));
   let instruments: string[] = [];
   try {

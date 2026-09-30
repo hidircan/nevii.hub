@@ -74,6 +74,18 @@ import {
 } from "./lesson-update";
 import { lessonScopeDays } from "./lesson-scope";
 import {
+  narrowToLessonWindow,
+  narrowToPaymentsPage,
+  narrowToStudentScope,
+  toPaymentStatusRow,
+  toReferenceData,
+  type LessonWindowData,
+  type PaymentsPageData,
+  type ReferenceData,
+  type StudentListData,
+  type StudentScopeData,
+} from "./reference-data";
+import {
   applyStartLesson,
   applyEndLesson,
   applyCorrectLessonTimes,
@@ -167,6 +179,9 @@ function isRetryablePrismaError(err: unknown): boolean {
   );
 }
 
+/** Telafi kotası/politika notu için gereken School alanları — satırın geri kalanı (ör. ~79 KB logo) okunmaz. */
+const MAKEUP_POLICY_SCHOOL_FIELDS = { monthlyMakeupAllowance: true, makeupWindowDays: true } as const;
+
 /** Serialize per tenant+student, then count counting-status makeups in the current education term. */
 /**
  * P0 ürün kararı — hak TAKVİM AYI değil, aktif eğitim dönemi (`term` +
@@ -195,7 +210,7 @@ async function assertStudentMakeupQuotaTx(
   const { isQuotaExemptSource } = await import("./lesson-disruption");
   // 9. tur — öğretmen/kurum kaynaklı telafi kişisel hakka tabi değil (saf katmanla aynı kural).
   if (isQuotaExemptSource(sourceLesson?.disruptionSource)) {
-    const school = await tx.school.findFirst({ where: { id: schoolId, tenantId } });
+    const school = await tx.school.findFirst({ where: { id: schoolId, tenantId }, select: MAKEUP_POLICY_SCHOOL_FIELDS });
     if (!school) throw new Error("Kurum bulunamadı");
     return school;
   }
@@ -230,7 +245,7 @@ async function assertStudentMakeupQuotaTx(
     return p.academicYearStart === period.academicYearStart && p.term === period.term;
   }).length;
 
-  const school = await tx.school.findFirst({ where: { id: schoolId, tenantId } });
+  const school = await tx.school.findFirst({ where: { id: schoolId, tenantId }, select: MAKEUP_POLICY_SCHOOL_FIELDS });
   if (!school) throw new Error("Kurum bulunamadı");
   const allowance = resolveMonthlyMakeupAllowance(school);
   const periodLabel = formatEducationPeriodLabel(period.term, period.academicYearStart);
@@ -241,6 +256,133 @@ async function assertStudentMakeupQuotaTx(
     throw new MakeupQuotaExceededError(`Bu öğrenci ${periodLabel} içinde ${allowance} telafi hakkını kullanmıştır.`);
   }
   return school;
+}
+
+/**
+ * Prisma `Student` satırı → `AppData.students` öğesi. `readData()` ile dar okumalar
+ * (ör. `readStudentById`) AYNI eşlemeyi kullanır — alan kaybı/parity farkı olmasın.
+ */
+function mapDbStudent(student: Prisma.StudentGetPayload<object>): Student {
+  return {
+    id: student.id,
+    displayId: (student as { displayId?: string | null }).displayId ?? undefined,
+    name: student.name,
+    email: student.email,
+    phone: student.phone,
+    parentName: student.parentName ?? "",
+    parentPhone: student.parentPhone ?? "",
+    accountResponsibility:
+      ((student as { accountResponsibility?: string | null }).accountResponsibility as
+        | "PARENT_MANAGED"
+        | "SELF_MANAGED"
+        | undefined) ?? "PARENT_MANAGED",
+    motherName: (student as { motherName?: string | null }).motherName ?? undefined,
+    fatherName: (student as { fatherName?: string | null }).fatherName ?? undefined,
+    // P1 revizyonu — "Bizi nereden buldunuz?" (kolonlar migration ile
+    // gelir; migration uygulanmamış DB'de undefined — davranış değişmez).
+    referralSource: (student as { referralSource?: string | null }).referralSource as
+      | import("./types").ReferralSource
+      | undefined
+      ?? undefined,
+    referralSourceDetail: (student as { referralSourceDetail?: string | null }).referralSourceDetail ?? undefined,
+    branchId: student.branchId as BranchId,
+    instruments: student.instruments as Instrument[],
+    teacherId: student.teacherId,
+    packageName: student.packageName,
+    weeklyLessonCount: student.weeklyLessonCount,
+    monthlyFee: student.monthlyFee,
+    active: student.active,
+    notes: student.notes,
+    createdAt: student.createdAt.toISOString(),
+    createdByUserId: (student as { createdByUserId?: string | null }).createdByUserId ?? undefined,
+    convertedFromTrialId: student.convertedFromTrialId ?? undefined,
+    convertedByUserId: student.convertedByUserId ?? undefined,
+    studentType: (student.studentType as StudentType) ?? undefined,
+    studentTypes:
+      ((student as { studentTypes?: unknown }).studentTypes as StudentType[] | undefined) ?? undefined,
+    enrollmentStartDate: student.enrollmentStartDate?.toISOString() ?? undefined,
+    lessonStartDate: student.lessonStartDate?.toISOString() ?? undefined,
+    intendedDurationMonths: student.intendedDurationMonths ?? undefined,
+    lessonScheduleText: student.lessonScheduleText ?? undefined,
+    enrollmentEndDate: student.enrollmentEndDate?.toISOString() ?? undefined,
+    level: student.level ?? undefined,
+    targetExam: student.targetExam ?? undefined,
+    // MEB Paneli — okunmazsa detay/panel "Eklenmemiş" yerine BOŞ dönerdi
+    // (önceki termType parity açığıyla AYNI sınıf). Tarihler ISO (UTC gün).
+    mebLevelStartDate:
+      (student as { mebLevelStartDate?: Date | null }).mebLevelStartDate?.toISOString() ?? undefined,
+    mebLevelEndDate: (student as { mebLevelEndDate?: Date | null }).mebLevelEndDate?.toISOString() ?? undefined,
+    mebExamDate: (student as { mebExamDate?: Date | null }).mebExamDate?.toISOString() ?? undefined,
+    mebExamAttended: (student as { mebExamAttended?: boolean | null }).mebExamAttended ?? undefined,
+    specialNotes: student.specialNotes ?? undefined,
+    communicationOptOut: student.communicationOptOut,
+    // ÖNCELİK 4 (devam) — bu satır eksikti: db modunda termType hiç
+    // okunmuyordu (yalnızca yazılıyordu), bu yüzden dönem seçici her zaman
+    // "guz" fallback'ine düşerdi. Bu turda fark edilip düzeltildi.
+    termType: (student as { termType?: string | null }).termType as
+      | import("./types").StudentTermType
+      | undefined
+      ?? undefined,
+    // ÖNCELİK 4 (devam) — Paket Yönetimi + ek profil alanları.
+    packageId: (student as { packageId?: string | null }).packageId ?? undefined,
+    birthPlace: (student as { birthPlace?: string | null }).birthPlace ?? undefined,
+    schoolOrOccupation: (student as { schoolOrOccupation?: string | null }).schoolOrOccupation ?? undefined,
+    // Nilüfer Acar politikası §1E — pause durumu (bkz. setStudentPaymentPause).
+    paymentPauseStatus:
+      ((student as { paymentPauseStatus?: string | null }).paymentPauseStatus ?? undefined) as "paused" | undefined,
+    paymentPausedAt: (student as { paymentPausedAt?: Date | null }).paymentPausedAt?.toISOString() ?? undefined,
+    paymentPauseReason: (student as { paymentPauseReason?: string | null }).paymentPauseReason ?? undefined,
+    paymentPausedBy: (student as { paymentPausedBy?: string | null }).paymentPausedBy ?? undefined,
+    // Bu turda fark edildi: nationalIdCipher/nationalIdLast2/birthDate/
+    // address/educationMethod/firstLessonAt/archivedAt Prisma şemasında
+    // ZATEN vardı ama db-mode SELECT mapping'inde hiç okunmuyordu —
+    // Student.monthlyFee gibi başka alanlar için daha önce düzeltilen
+    // aynı sınıf parity açığı, burada da kapatıldı.
+    nationalIdCipher: (student as { nationalIdCipher?: string | null }).nationalIdCipher ?? undefined,
+    nationalIdLast2: (student as { nationalIdLast2?: string | null }).nationalIdLast2 ?? undefined,
+    birthDate: (student as { birthDate?: Date | null }).birthDate?.toISOString() ?? undefined,
+    address: (student as { address?: string | null }).address ?? undefined,
+    educationMethod:
+      ((student as { educationMethod?: string | null }).educationMethod as
+        | import("./types").EducationMethod
+        | undefined) ?? undefined,
+    firstLessonAt: (student as { firstLessonAt?: Date | null }).firstLessonAt?.toISOString() ?? undefined,
+    archivedAt: (student as { archivedAt?: Date | null }).archivedAt?.toISOString() ?? undefined,
+    deletedAt: student.deletedAt?.toISOString() ?? undefined,
+    deletedByUserId: student.deletedByUserId ?? undefined,
+    deletionReason: student.deletionReason ?? undefined,
+    // Package C — ödeme profili + paket fiyatlandırma. Bu alanlar
+    // öncesinde db modunda hiç OKUNMUYORDU (yalnızca updateStudentProfile
+    // parametresi olarak kabul ediliyordu, satıra hiç yazılmıyordu/geri
+    // dönmüyordu) — parity için burada eklendi.
+    lessonDurationMinutes:
+      (student as { lessonDurationMinutes?: number | null }).lessonDurationMinutes as
+        | import("./types").LessonDurationPreference
+        | undefined ?? undefined,
+    paymentMethod: (student as { paymentMethod?: string | null }).paymentMethod as
+      | import("./types").StudentPaymentMethod
+      | undefined ?? undefined,
+    paymentAmount: (student as { paymentAmount?: number | null }).paymentAmount ?? undefined,
+    paymentDueDay: (student as { paymentDueDay?: number | null }).paymentDueDay ?? undefined,
+    paymentDueRanges:
+      ((student as { paymentDueRanges?: unknown }).paymentDueRanges as
+        | import("./types").PaymentDueRange[]
+        | undefined) ?? undefined,
+    packageBaseMonthlyFee:
+      (student as { packageBaseMonthlyFee?: number | null }).packageBaseMonthlyFee ?? undefined,
+    discountType: (student as { discountType?: string | null }).discountType as
+      | import("./types").DiscountType
+      | undefined ?? undefined,
+    discountValue: (student as { discountValue?: number | null }).discountValue ?? undefined,
+    monthlyFeeManualOverride:
+      (student as { monthlyFeeManualOverride?: boolean | null }).monthlyFeeManualOverride ?? undefined,
+    monthlyFeeOverrideReason:
+      (student as { monthlyFeeOverrideReason?: string | null }).monthlyFeeOverrideReason ?? undefined,
+    appliedCampaignIds:
+      ((student as { appliedCampaignIds?: unknown }).appliedCampaignIds as string[] | undefined) ?? undefined,
+    derivedPerLessonAmount:
+      (student as { derivedPerLessonAmount?: number | null }).derivedPerLessonAmount ?? undefined,
+  };
 }
 
 function mapSchoolToAppData(school: PrismaSchoolWithRelations): AppData {
@@ -324,126 +466,7 @@ function mapSchoolToAppData(school: PrismaSchoolWithRelations): AppData {
         (teacher as { emergencyContactPhone?: string | null }).emergencyContactPhone ?? undefined,
       personnelNotes: (teacher as { personnelNotes?: string | null }).personnelNotes ?? undefined,
     })),
-    students: school.students.map((student) => ({
-      id: student.id,
-      displayId: (student as { displayId?: string | null }).displayId ?? undefined,
-      name: student.name,
-      email: student.email,
-      phone: student.phone,
-      parentName: student.parentName ?? "",
-      parentPhone: student.parentPhone ?? "",
-      accountResponsibility:
-        ((student as { accountResponsibility?: string | null }).accountResponsibility as
-          | "PARENT_MANAGED"
-          | "SELF_MANAGED"
-          | undefined) ?? "PARENT_MANAGED",
-      motherName: (student as { motherName?: string | null }).motherName ?? undefined,
-      fatherName: (student as { fatherName?: string | null }).fatherName ?? undefined,
-      // P1 revizyonu — "Bizi nereden buldunuz?" (kolonlar migration ile
-      // gelir; migration uygulanmamış DB'de undefined — davranış değişmez).
-      referralSource: (student as { referralSource?: string | null }).referralSource as
-        | import("./types").ReferralSource
-        | undefined
-        ?? undefined,
-      referralSourceDetail: (student as { referralSourceDetail?: string | null }).referralSourceDetail ?? undefined,
-      branchId: student.branchId as BranchId,
-      instruments: student.instruments as Instrument[],
-      teacherId: student.teacherId,
-      packageName: student.packageName,
-      weeklyLessonCount: student.weeklyLessonCount,
-      monthlyFee: student.monthlyFee,
-      active: student.active,
-      notes: student.notes,
-      createdAt: student.createdAt.toISOString(),
-      createdByUserId: (student as { createdByUserId?: string | null }).createdByUserId ?? undefined,
-      convertedFromTrialId: student.convertedFromTrialId ?? undefined,
-      convertedByUserId: student.convertedByUserId ?? undefined,
-      studentType: (student.studentType as StudentType) ?? undefined,
-      studentTypes:
-        ((student as { studentTypes?: unknown }).studentTypes as StudentType[] | undefined) ?? undefined,
-      enrollmentStartDate: student.enrollmentStartDate?.toISOString() ?? undefined,
-      lessonStartDate: student.lessonStartDate?.toISOString() ?? undefined,
-      intendedDurationMonths: student.intendedDurationMonths ?? undefined,
-      lessonScheduleText: student.lessonScheduleText ?? undefined,
-      enrollmentEndDate: student.enrollmentEndDate?.toISOString() ?? undefined,
-      level: student.level ?? undefined,
-      targetExam: student.targetExam ?? undefined,
-      // MEB Paneli — okunmazsa detay/panel "Eklenmemiş" yerine BOŞ dönerdi
-      // (önceki termType parity açığıyla AYNI sınıf). Tarihler ISO (UTC gün).
-      mebLevelStartDate:
-        (student as { mebLevelStartDate?: Date | null }).mebLevelStartDate?.toISOString() ?? undefined,
-      mebLevelEndDate: (student as { mebLevelEndDate?: Date | null }).mebLevelEndDate?.toISOString() ?? undefined,
-      mebExamDate: (student as { mebExamDate?: Date | null }).mebExamDate?.toISOString() ?? undefined,
-      mebExamAttended: (student as { mebExamAttended?: boolean | null }).mebExamAttended ?? undefined,
-      specialNotes: student.specialNotes ?? undefined,
-      communicationOptOut: student.communicationOptOut,
-      // ÖNCELİK 4 (devam) — bu satır eksikti: db modunda termType hiç
-      // okunmuyordu (yalnızca yazılıyordu), bu yüzden dönem seçici her zaman
-      // "guz" fallback'ine düşerdi. Bu turda fark edilip düzeltildi.
-      termType: (student as { termType?: string | null }).termType as
-        | import("./types").StudentTermType
-        | undefined
-        ?? undefined,
-      // ÖNCELİK 4 (devam) — Paket Yönetimi + ek profil alanları.
-      packageId: (student as { packageId?: string | null }).packageId ?? undefined,
-      birthPlace: (student as { birthPlace?: string | null }).birthPlace ?? undefined,
-      schoolOrOccupation: (student as { schoolOrOccupation?: string | null }).schoolOrOccupation ?? undefined,
-      // Nilüfer Acar politikası §1E — pause durumu (bkz. setStudentPaymentPause).
-      paymentPauseStatus:
-        ((student as { paymentPauseStatus?: string | null }).paymentPauseStatus ?? undefined) as "paused" | undefined,
-      paymentPausedAt: (student as { paymentPausedAt?: Date | null }).paymentPausedAt?.toISOString() ?? undefined,
-      paymentPauseReason: (student as { paymentPauseReason?: string | null }).paymentPauseReason ?? undefined,
-      paymentPausedBy: (student as { paymentPausedBy?: string | null }).paymentPausedBy ?? undefined,
-      // Bu turda fark edildi: nationalIdCipher/nationalIdLast2/birthDate/
-      // address/educationMethod/firstLessonAt/archivedAt Prisma şemasında
-      // ZATEN vardı ama db-mode SELECT mapping'inde hiç okunmuyordu —
-      // Student.monthlyFee gibi başka alanlar için daha önce düzeltilen
-      // aynı sınıf parity açığı, burada da kapatıldı.
-      nationalIdCipher: (student as { nationalIdCipher?: string | null }).nationalIdCipher ?? undefined,
-      nationalIdLast2: (student as { nationalIdLast2?: string | null }).nationalIdLast2 ?? undefined,
-      birthDate: (student as { birthDate?: Date | null }).birthDate?.toISOString() ?? undefined,
-      address: (student as { address?: string | null }).address ?? undefined,
-      educationMethod:
-        ((student as { educationMethod?: string | null }).educationMethod as
-          | import("./types").EducationMethod
-          | undefined) ?? undefined,
-      firstLessonAt: (student as { firstLessonAt?: Date | null }).firstLessonAt?.toISOString() ?? undefined,
-      archivedAt: (student as { archivedAt?: Date | null }).archivedAt?.toISOString() ?? undefined,
-      deletedAt: student.deletedAt?.toISOString() ?? undefined,
-      deletedByUserId: student.deletedByUserId ?? undefined,
-      deletionReason: student.deletionReason ?? undefined,
-      // Package C — ödeme profili + paket fiyatlandırma. Bu alanlar
-      // öncesinde db modunda hiç OKUNMUYORDU (yalnızca updateStudentProfile
-      // parametresi olarak kabul ediliyordu, satıra hiç yazılmıyordu/geri
-      // dönmüyordu) — parity için burada eklendi.
-      lessonDurationMinutes:
-        (student as { lessonDurationMinutes?: number | null }).lessonDurationMinutes as
-          | import("./types").LessonDurationPreference
-          | undefined ?? undefined,
-      paymentMethod: (student as { paymentMethod?: string | null }).paymentMethod as
-        | import("./types").StudentPaymentMethod
-        | undefined ?? undefined,
-      paymentAmount: (student as { paymentAmount?: number | null }).paymentAmount ?? undefined,
-      paymentDueDay: (student as { paymentDueDay?: number | null }).paymentDueDay ?? undefined,
-      paymentDueRanges:
-        ((student as { paymentDueRanges?: unknown }).paymentDueRanges as
-          | import("./types").PaymentDueRange[]
-          | undefined) ?? undefined,
-      packageBaseMonthlyFee:
-        (student as { packageBaseMonthlyFee?: number | null }).packageBaseMonthlyFee ?? undefined,
-      discountType: (student as { discountType?: string | null }).discountType as
-        | import("./types").DiscountType
-        | undefined ?? undefined,
-      discountValue: (student as { discountValue?: number | null }).discountValue ?? undefined,
-      monthlyFeeManualOverride:
-        (student as { monthlyFeeManualOverride?: boolean | null }).monthlyFeeManualOverride ?? undefined,
-      monthlyFeeOverrideReason:
-        (student as { monthlyFeeOverrideReason?: string | null }).monthlyFeeOverrideReason ?? undefined,
-      appliedCampaignIds:
-        ((student as { appliedCampaignIds?: unknown }).appliedCampaignIds as string[] | undefined) ?? undefined,
-      derivedPerLessonAmount:
-        (student as { derivedPerLessonAmount?: number | null }).derivedPerLessonAmount ?? undefined,
-    })),
+    students: school.students.map(mapDbStudent),
     rooms: school.rooms.map((room) => ({
       id: room.id,
       name: room.name,
@@ -1123,6 +1146,192 @@ export async function readData(): Promise<AppData> {
   return { ...mapSchoolToAppData(school), packages, discountCampaigns, teacherPayoutPolicies, teacherPayoutExclusions, closedDayOverrides };
 }
 
+/**
+ * DB egress (2026-09-30) — tek öğrenci satırı. `readData().students.find(id)` ile AYNI sonuç
+ * (okulun öğrencisi; arşivli/silinmiş dahil, aynı eşleme) ama tenant'ın tüm verisini okumaz.
+ * Yalnız erişim kontrolü (`assertStudentAccess`) için tam okuma yapan tool'lar içindir.
+ */
+export async function readStudentById(studentId: string): Promise<Student | undefined> {
+  // Boş id Prisma'da "filtre yok" demektir (ilk öğrenciyi döndürürdü) — `find` gibi undefined dön.
+  if (!studentId) return undefined;
+  const tid = tenantId();
+  const row = await prisma.student.findFirst({ where: { id: studentId, tenantId: tid, school: { tenantId: tid } } });
+  return row ? mapDbStudent(row) : undefined;
+}
+
+/** Referans dilimi için School ilişkileri — ders/seri/yoklama/telafi/ödeme/hakediş satırları YOK. */
+const referenceSchoolInclude = {
+  branches: true,
+  teachers: true,
+  students: true,
+  rooms: true,
+  teacherFeeRules: true,
+} as const;
+
+/**
+ * DB egress (2026-09-30) — bkz. src/lib/reference-data.ts. `readData()` ile aynı eşleme, ama
+ * ağır koleksiyonlar ve ~79 KB logo okunmaz. Okul yoksa `readData()`'nın seed davranışı korunur.
+ */
+export async function readReferenceData(): Promise<ReferenceData> {
+  const tid = tenantId();
+  const [school, packages, discountCampaigns, teacherPayoutPolicies, closedDayOverrides] = await Promise.all([
+    prisma.school.findFirst({ where: { tenantId: tid }, omit: { logoUrl: true }, include: referenceSchoolInclude }),
+    readPackages(tid),
+    readDiscountCampaigns(tid),
+    readTeacherPayoutPolicies(tid),
+    listClosedDays(tid).catch(() => []),
+  ]);
+  if (!school) return toReferenceData(await readData());
+  const mapped = mapSchoolToAppData({
+    ...school,
+    logoUrl: "",
+    lessons: [],
+    lessonSeries: [],
+    attendances: [],
+    makeupRequests: [],
+    payments: [],
+    teacherPayouts: [],
+  });
+  return toReferenceData({ ...mapped, packages, discountCampaigns, teacherPayoutPolicies, closedDayOverrides });
+}
+
+/**
+ * DB egress (2026-09-30) — tek öğrenci dilimi (bkz. src/lib/reference-data.ts
+ * `narrowToStudentScope`): referans veri + yalnız bu öğrencinin ders/seri/yoklama/telafi/ödeme
+ * satırları. Her ilişki filtresine `tenantId` de yazılır (savunma derinliği, readLessonScope gibi).
+ */
+export async function readStudentScope(studentId: string): Promise<StudentScopeData> {
+  const tid = tenantId();
+  const own = { tenantId: tid, studentId };
+  const [school, packages, discountCampaigns, teacherPayoutPolicies, closedDayOverrides] = await Promise.all([
+    prisma.school.findFirst({
+      where: { tenantId: tid },
+      omit: { logoUrl: true },
+      include: {
+        ...referenceSchoolInclude,
+        students: { where: { tenantId: tid, id: studentId } },
+        lessons: { where: own },
+        lessonSeries: { where: own },
+        attendances: { where: own },
+        makeupRequests: { where: own },
+        payments: { where: own },
+      },
+    }),
+    readPackages(tid),
+    readDiscountCampaigns(tid),
+    readTeacherPayoutPolicies(tid),
+    listClosedDays(tid).catch(() => []),
+  ]);
+  if (!school) return narrowToStudentScope(await readData(), studentId);
+  const mapped = mapSchoolToAppData({ ...school, logoUrl: "", teacherPayouts: [] });
+  return narrowToStudentScope({ ...mapped, packages, discountCampaigns, teacherPayoutPolicies, closedDayOverrides }, studentId);
+}
+
+/** DB egress (2026-09-30) — Ders Programı haftası: referans veri + penceredeki dersler (bkz. reference-data.ts). */
+export async function readLessonWindow(fromIso: string, toIso: string): Promise<LessonWindowData> {
+  const tid = tenantId();
+  const from = new Date(fromIso);
+  const to = new Date(toIso);
+  const [school, packages, discountCampaigns, teacherPayoutPolicies, closedDayOverrides] = await Promise.all([
+    prisma.school.findFirst({
+      where: { tenantId: tid },
+      omit: { logoUrl: true },
+      include: { ...referenceSchoolInclude, lessons: { where: { tenantId: tid, startAt: { gte: from, lte: to } } } },
+    }),
+    readPackages(tid),
+    readDiscountCampaigns(tid),
+    readTeacherPayoutPolicies(tid),
+    listClosedDays(tid).catch(() => []),
+  ]);
+  if (!school) return narrowToLessonWindow(await readData(), from, to);
+  const mapped = mapSchoolToAppData({
+    ...school,
+    logoUrl: "",
+    lessonSeries: [],
+    attendances: [],
+    makeupRequests: [],
+    payments: [],
+    teacherPayouts: [],
+  });
+  return narrowToLessonWindow({ ...mapped, packages, discountCampaigns, teacherPayoutPolicies, closedDayOverrides }, from, to);
+}
+
+/** DB egress (2026-09-30) — Ödemeler: referans veri + tüm ödemeler + yalnız ödemelere bağlı dersler. */
+export async function readPaymentsPageData(): Promise<PaymentsPageData> {
+  const tid = tenantId();
+  const [school, packages, discountCampaigns, teacherPayoutPolicies, closedDayOverrides] = await Promise.all([
+    prisma.school.findFirst({
+      where: { tenantId: tid },
+      omit: { logoUrl: true },
+      include: { ...referenceSchoolInclude, payments: true },
+    }),
+    readPackages(tid),
+    readDiscountCampaigns(tid),
+    readTeacherPayoutPolicies(tid),
+    listClosedDays(tid).catch(() => []),
+  ]);
+  if (!school) return narrowToPaymentsPage(await readData());
+  const lessonIds = [...new Set(school.payments.map((p) => p.lessonId).filter((id): id is string => Boolean(id)))];
+  const lessons = lessonIds.length
+    ? await prisma.lesson.findMany({ where: { tenantId: tid, schoolId: school.id, id: { in: lessonIds } } })
+    : [];
+  const mapped = mapSchoolToAppData({
+    ...school,
+    logoUrl: "",
+    lessons,
+    lessonSeries: [],
+    attendances: [],
+    makeupRequests: [],
+    teacherPayouts: [],
+  });
+  return narrowToPaymentsPage({ ...mapped, packages, discountCampaigns, teacherPayoutPolicies, closedDayOverrides });
+}
+
+/** DB egress (2026-09-30) — Öğrenciler listesi: referans veri + tüm ödemelerin yalnız durum alanları. */
+export async function readStudentListData(): Promise<StudentListData> {
+  const tid = tenantId();
+  const [school, packages, discountCampaigns, teacherPayoutPolicies, closedDayOverrides] = await Promise.all([
+    prisma.school.findFirst({
+      where: { tenantId: tid },
+      omit: { logoUrl: true },
+      include: {
+        ...referenceSchoolInclude,
+        payments: { select: { studentId: true, status: true, contractId: true } },
+      },
+    }),
+    readPackages(tid),
+    readDiscountCampaigns(tid),
+    readTeacherPayoutPolicies(tid),
+    listClosedDays(tid).catch(() => []),
+  ]);
+  if (!school) {
+    const full = await readData();
+    return { ...toReferenceData(full), payments: full.payments.map(toPaymentStatusRow) };
+  }
+  const { payments, ...rest } = school;
+  const mapped = mapSchoolToAppData({
+    ...rest,
+    logoUrl: "",
+    lessons: [],
+    lessonSeries: [],
+    attendances: [],
+    makeupRequests: [],
+    payments: [],
+    teacherPayouts: [],
+  });
+  return {
+    ...toReferenceData({ ...mapped, packages, discountCampaigns, teacherPayoutPolicies, closedDayOverrides }),
+    // mapDbPayment ile aynı dönüşüm (status tipi, contractId null → undefined).
+    payments: payments.map((p) =>
+      toPaymentStatusRow({
+        studentId: p.studentId,
+        status: p.status as import("./types").PaymentStatus,
+        contractId: p.contractId ?? undefined,
+      })
+    ),
+  };
+}
+
 export async function resetData(): Promise<AppData> {
   logger.info("resetData", "resetting tenant demo data");
   const seed = createSeedData();
@@ -1146,9 +1355,10 @@ export async function resetToCleanTemplate(): Promise<AppData> {
 
 /** Platform genelindeki tüm aktif kurumları (tenant) listeler — yalnız db modunda gerçek çokluluk vardır. */
 export async function listTenants(): Promise<{ tenantId: string; name: string }[]> {
+  // Yalnız ad: `include: { schools: true }` her panel isteğinde (kurum seçici) ~79 KB logo taşıyordu.
   const tenants = await prisma.tenant.findMany({
     where: { active: true },
-    include: { schools: true },
+    select: { id: true, name: true, schools: { select: { name: true } } },
     orderBy: { name: "asc" },
   });
   return tenants.map((t) => ({ tenantId: t.id, name: t.schools[0]?.name ?? t.name }));
@@ -1818,7 +2028,7 @@ export async function addBranch(branch: {
 }): Promise<AppData> {
   logger.info("addBranch", branch.name);
   const tid = requireTenantId();
-  const school = await prisma.school.findFirst({ where: { tenantId: tid } });
+  const school = await prisma.school.findFirst({ where: { tenantId: tid }, select: { id: true } });
   if (!school) throw new Error("Okul bulunamadı");
   await prisma.branch.create({
     data: {
@@ -1861,7 +2071,7 @@ export async function updateBranch(
 export async function importBranches(rows: BranchImportRow[]): Promise<ImportCommitResult> {
   logger.info("importBranches", rows.length);
   const tid = requireTenantId();
-  const school = await prisma.school.findFirst({ where: { tenantId: tid } });
+  const school = await prisma.school.findFirst({ where: { tenantId: tid }, select: { id: true } });
   if (!school) throw new Error("Okul bulunamadı");
 
   let created = 0;
@@ -2263,6 +2473,9 @@ export async function readLessonScope(
 
   const school = await prisma.school.findFirst({
     where: { tenantId: tid },
+    // Dilim tüketicileri (ders doğrulama/statü kuralları) logoyu okumaz — ~79 KB data-URI her
+    // yoklama/taşıma işleminde taşınmasın (json/memory de `narrowLessonScope`'ta boşaltır).
+    omit: { logoUrl: true },
     include: {
       branches: true,
       teachers: { where: { tenantId: tid, id: lessonRow.teacherId } },
@@ -2287,7 +2500,7 @@ export async function readLessonScope(
   if (!school) return null;
 
   return {
-    ...mapSchoolToAppData({ ...school, lessonSeries: [], teacherFeeRules: [], teacherPayouts: [] }),
+    ...mapSchoolToAppData({ ...school, logoUrl: "", lessonSeries: [], teacherFeeRules: [], teacherPayouts: [] }),
     packages: [],
     discountCampaigns: [],
     // Taşıma doğrulaması da zorla açık/kapalı günleri görsün.

@@ -1,7 +1,27 @@
 import { cache } from "react";
 import { cookies } from "next/headers";
 import type { ServiceContext } from "../services/context";
-import { readData, listTenants } from "../store";
+import {
+  readData,
+  readLessonWindow,
+  readPaymentsPageData,
+  readReferenceData,
+  readStudentListData,
+  readStudentScope,
+  listTenants,
+} from "../store";
+import {
+  narrowToLessonWindow,
+  narrowToPaymentsPage,
+  narrowToStudentScope,
+  toPaymentStatusRow,
+  toReferenceData,
+  type LessonWindowData,
+  type PaymentsPageData,
+  type ReferenceData,
+  type StudentListData,
+  type StudentScopeData,
+} from "../reference-data";
 import { runWithTenantAsync } from "../tenant-context";
 import { DEFAULT_TENANT_ID, PLATFORM_TENANT_ID } from "../auth/config";
 import type { AppData } from "../types";
@@ -100,4 +120,72 @@ const readScopedDataByKey = cache(async (key: string): Promise<AppData> => {
 /** Seçili kapsama göre veriyi okur — "Tüm kurumlar" ise kurumların birleşimini döner. */
 export async function readScopedData(scope: InstitutionScope): Promise<AppData> {
   return readScopedDataByKey(scopeCacheKey(scope));
+}
+
+const readScopedReferenceDataByKey = cache(async (key: string): Promise<ReferenceData> => {
+  if (key.startsWith("single:")) {
+    return runWithTenantAsync(key.slice("single:".length), () => readReferenceData());
+  }
+  // "Tüm kurumlar" (yalnız platform sahibi) — birleştirme kuralı tek yerde kalsın diye tam okumadan türetilir.
+  return toReferenceData(await readScopedDataByKey(key));
+});
+
+/**
+ * DB egress (2026-09-30) — ders/ödeme/yoklama/telafi satırlarını göstermeyen panel sayfaları
+ * için `readScopedData`'nın dar karşılığı (bkz. src/lib/reference-data.ts). İstek başına memoize.
+ */
+export async function readScopedReferenceData(scope: InstitutionScope): Promise<ReferenceData> {
+  return readScopedReferenceDataByKey(scopeCacheKey(scope));
+}
+
+const readScopedStudentDataByKey = cache(async (key: string, studentId: string): Promise<StudentScopeData> => {
+  if (key.startsWith("single:")) {
+    return runWithTenantAsync(key.slice("single:".length), () => readStudentScope(studentId));
+  }
+  return narrowToStudentScope(await readScopedDataByKey(key), studentId);
+});
+
+/**
+ * DB egress (2026-09-30) — tek öğrencinin ekranları için `readScopedData`'nın dar karşılığı
+ * (bkz. src/lib/reference-data.ts `StudentScopeData`). İstek başına memoize (layout + sekme).
+ */
+export async function readScopedStudentData(scope: InstitutionScope, studentId: string): Promise<StudentScopeData> {
+  return readScopedStudentDataByKey(scopeCacheKey(scope), studentId);
+}
+
+const readScopedLessonWindowByKey = cache(async (key: string, fromIso: string, toIso: string): Promise<LessonWindowData> => {
+  if (key.startsWith("single:")) {
+    return runWithTenantAsync(key.slice("single:".length), () => readLessonWindow(fromIso, toIso));
+  }
+  return narrowToLessonWindow(await readScopedDataByKey(key), new Date(fromIso), new Date(toIso));
+});
+
+/** DB egress (2026-09-30) — Ders Programı haftası (bkz. reference-data.ts `LessonWindowData`). */
+export async function readScopedLessonWindow(scope: InstitutionScope, from: Date, to: Date): Promise<LessonWindowData> {
+  return readScopedLessonWindowByKey(scopeCacheKey(scope), from.toISOString(), to.toISOString());
+}
+
+const readScopedStudentListDataByKey = cache(async (key: string): Promise<StudentListData> => {
+  if (key.startsWith("single:")) {
+    return runWithTenantAsync(key.slice("single:".length), () => readStudentListData());
+  }
+  const full = await readScopedDataByKey(key);
+  return { ...toReferenceData(full), payments: full.payments.map(toPaymentStatusRow) };
+});
+
+/** DB egress (2026-09-30) — Öğrenciler listesi (bkz. reference-data.ts `StudentListData`). */
+export async function readScopedStudentListData(scope: InstitutionScope): Promise<StudentListData> {
+  return readScopedStudentListDataByKey(scopeCacheKey(scope));
+}
+
+const readScopedPaymentsPageDataByKey = cache(async (key: string): Promise<PaymentsPageData> => {
+  if (key.startsWith("single:")) {
+    return runWithTenantAsync(key.slice("single:".length), () => readPaymentsPageData());
+  }
+  return narrowToPaymentsPage(await readScopedDataByKey(key));
+});
+
+/** DB egress (2026-09-30) — Ödemeler (bkz. reference-data.ts `PaymentsPageData`). */
+export async function readScopedPaymentsPageData(scope: InstitutionScope): Promise<PaymentsPageData> {
+  return readScopedPaymentsPageDataByKey(scopeCacheKey(scope));
 }

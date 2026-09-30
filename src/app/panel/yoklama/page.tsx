@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { requireSessionContext } from "@/lib/auth/session";
-import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
+import { getInstitutionContext, readScopedReferenceData } from "@/lib/institution/context";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { AssistantPageContext } from "@/components/ai/assistant-page-context";
 import { PageHeader, EmptyState } from "@/components/ui";
@@ -34,7 +34,7 @@ export default async function YoklamaPage({
   if (session.role === "STUDENT") redirect("/ogrenci");
 
   const kurum = await getInstitutionContext(session);
-  const data = await readScopedData(kurum.scope);
+  const data = await readScopedReferenceData(kurum.scope);
   const sp = await searchParams;
   const requestedStudentId = typeof sp.studentId === "string" ? sp.studentId : null;
 

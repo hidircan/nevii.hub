@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requireSessionContext, homePathForRole } from "@/lib/auth/session";
-import { readData } from "@/lib/store";
+import { readReferenceData } from "@/lib/store";
 import { getAssessmentReportTool, listPeriodicAssessmentsForStudentTool } from "@/lib/services";
 import { computeOverallScore } from "@/lib/assessment/score";
 import { formatDate } from "@/lib/utils";
@@ -37,7 +37,7 @@ export default async function AssessmentReportPage({
     );
   }
 
-  const data = await readData();
+  const data = await readReferenceData();
   const student = data.students.find((s) => s.id === studentId);
   const { assessments, trend } = result.data;
   const periodicResult = await listPeriodicAssessmentsForStudentTool(session, { studentId });

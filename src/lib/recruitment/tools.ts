@@ -189,9 +189,9 @@ export async function saveJobTool(ctx: ServiceContext, input: unknown): Promise<
   if (!v.ok) return v;
   const d = v.data;
   if (d.branchId) {
-    const { readData } = await import("../store");
+    const { readReferenceData } = await import("../store");
     const { runWithTenantAsync } = await import("../tenant-context");
-    const data = await runWithTenantAsync(ctx.tenantId, () => readData());
+    const data = await runWithTenantAsync(ctx.tenantId, () => readReferenceData());
     if (!data.settings.branches.some((b) => b.id === d.branchId)) return fail("VALIDATION_ERROR", "Seçilen şube bu kurumda bulunamadı.");
   }
   const existing = d.id ? await getJob(ctx.tenantId, d.id) : null;

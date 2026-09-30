@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requireSessionContext } from "@/lib/auth/session";
-import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
+import { getInstitutionContext, readScopedReferenceData } from "@/lib/institution/context";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { PageHeader, Card } from "@/components/ui";
 import { BackButton } from "@/components/back-button";
@@ -38,7 +38,7 @@ export default async function YeniPaketPage() {
     redirect("/panel/paketler");
   }
 
-  const data = await readScopedData(kurum.scope);
+  const data = await readScopedReferenceData(kurum.scope);
 
   return (
     <div className="mx-auto max-w-xl">

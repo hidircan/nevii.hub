@@ -8,7 +8,7 @@ import { formatDateTime } from "@/lib/utils";
 import { TrialLessonCreateForm } from "@/components/trial-lesson-create-form";
 import { TrialLessonsTable, type TrialRow } from "@/components/trial-lessons-table";
 import { canRunCriticalActions } from "@/lib/critical-action-password";
-import { readData } from "@/lib/store";
+import { readReferenceData } from "@/lib/store";
 import { resolveActorLabels } from "@/lib/contract-payment-plan-view";
 import { DEFAULT_APP_TIMEZONE, isoToWallDateTimeInput, toZonedYmd } from "@/lib/timezone";
 
@@ -32,7 +32,7 @@ export default async function TrialLessonsPage({
   }
   if (session.role === "STUDENT") redirect("/login");
 
-  const data = await readData();
+  const data = await readReferenceData();
   const result = await listTrialLessonsTool(session);
   const trials = result.ok ? result.data.trials : [];
   // Kapsam hatası (ör. atanmış şubesi olmayan şube müdürü) sessizce boş

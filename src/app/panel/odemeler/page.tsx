@@ -9,7 +9,7 @@ import { ScopeTabs } from "@/components/scope-tabs";
 import { listTerminalContractIdsForScope } from "@/lib/contracts";
 import { PaymentsTable, type PaymentRow } from "@/components/payments-table";
 import { requireSessionContext } from "@/lib/auth/session";
-import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
+import { getInstitutionContext, readScopedPaymentsPageData } from "@/lib/institution/context";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { AssistantPageContext } from "@/components/ai/assistant-page-context";
 import { resolveActorLabels } from "@/lib/contract-payment-plan-view";
@@ -24,7 +24,8 @@ export default async function OdemelerPage({ searchParams }: { searchParams: Pro
     redirect("/login?next=/panel/odemeler");
   }
   const kurum = await getInstitutionContext(session);
-  const data = await readScopedData(kurum.scope);
+  // DB egress: tüm ödemeler (tutar/toplamlar aynen) + yalnız ödemelere bağlı dersler (ders tarihi etiketi).
+  const data = await readScopedPaymentsPageData(kurum.scope);
   const scope = parsePaymentScope((await searchParams).kapsam);
   const allPayments = [...data.payments].sort((a, b) => a.dueDate.localeCompare(b.dueDate));
   // İptal/yenilenmiş sözleşmenin ödenmemiş taksiti listede kalır ama borç/gecikme sayılmaz.

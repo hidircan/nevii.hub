@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Music } from "lucide-react";
 import { requireSessionContext } from "@/lib/auth/session";
-import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
+import { getInstitutionContext, readScopedReferenceData } from "@/lib/institution/context";
 import { resolveActiveInstrumentNames } from "@/lib/instrument-catalog";
 import { listCurriculumForStudentTool } from "@/lib/services";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
@@ -35,7 +35,7 @@ export default async function PanelMufredatPage({
   }
 
   const kurum = await getInstitutionContext(session);
-  const data = await readScopedData(kurum.scope);
+  const data = await readScopedReferenceData(kurum.scope);
   const canWrite = kurum.scope.mode === "single";
 
   const instruments =

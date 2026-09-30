@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { addDays, isSameDay, parseISO } from "date-fns";
 import { requireSessionContext } from "@/lib/auth/session";
-import { readData } from "@/lib/store";
+import { readStudentScope } from "@/lib/store";
 import { listAnnouncementsForUserTool, listCurriculumForStudentTool } from "@/lib/services";
 import { listNotificationsForUser } from "@/lib/notifications";
 import { listClosedDays } from "@/lib/closed-day-overrides";
@@ -77,7 +77,6 @@ export default async function OgrenciPortalPage({
     redirect("/login?next=/ogrenci");
   }
 
-  const data = await readData();
   // 10. tur iş #1 — portal bağlamı statik JWT `studentId`'den DEĞİL, aktif
   // erişim + aktif öğrenci çözümleyiciden gelir. Aynı velinin aktif ve pasif
   // öğrencileri birlikte varsa varsayılan AKTİF öğrencidir; bayat pasif
@@ -109,6 +108,10 @@ export default async function OgrenciPortalPage({
   if (resolution) siblings = resolution.siblings;
   const resolvedStudentId = resolution ? resolution.studentId : session.studentId;
   if (!resolvedStudentId) redirect(PORTAL_RECORD_MISSING_REDIRECT);
+  // DB egress: yalnız bu öğrencinin dilimi (ders/ödeme/telafi satırları + referans veri). Aşağıdaki
+  // her ağır erişim zaten `student.id` ile süzülü; sayfa sekme açıkken 45 sn'de bir yenilenir
+  // (ProgramLiveRefresh) — eskiden her yenileme kurumun TÜM verisini okuyordu.
+  const data = await readStudentScope(resolvedStudentId);
   const student = data.students.find((s) => s.id === resolvedStudentId);
   // Savunma: çözümleyici aktif öğrenci garanti eder; yarış durumunda pasif
   // veri ASLA açılmaz.

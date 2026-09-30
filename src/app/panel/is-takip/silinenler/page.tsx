@@ -7,7 +7,7 @@ import { BackButton } from "@/components/back-button";
 import { TaskRestoreButton } from "@/components/task-restore-button";
 import { formatDateTime } from "@/lib/utils";
 import { resolveActorLabels } from "@/lib/contract-payment-plan-view";
-import { readData } from "@/lib/store";
+import { readReferenceData } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +22,7 @@ export default async function DeletedTasksPage() {
   if (!canRunCriticalActions(session.role)) redirect("/panel/is-takip/kanban");
   const result = await listDeletedTasksTool(session);
   const tasks = result.ok ? result.data.tasks : [];
-  const data = await readData();
+  const data = await readReferenceData();
   const actorNames = await resolveActorLabels({
     tenantId: session.tenantId,
     userIds: tasks.map((t) => t.deletedByUserId),

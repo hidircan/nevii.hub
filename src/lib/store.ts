@@ -1,4 +1,5 @@
 import type { DemoSeedInput, DemoSeedResult } from "./demo-seed";
+import type { LessonWindowData, PaymentsPageData, ReferenceData, StudentListData, StudentScopeData } from "./reference-data";
 import { STORE_MODE } from "./config";
 import * as jsonStore from "./store-json";
 import * as dbStore from "./store-db";
@@ -181,6 +182,18 @@ type StoreApi = {
    * (bkz. src/lib/lesson-scope.ts). Tenant'ın tamamını OKUMAZ.
    */
   readLessonScope: (lessonId: string, targetStartAt?: string) => Promise<AppData | null>;
+  /** Dar okuma — tek öğrenci satırı; `readData().students.find(id)` ile aynı sonuç. */
+  readStudentById: (studentId: string) => Promise<Student | undefined>;
+  /** Dar okuma — referans dilimi (bkz. src/lib/reference-data.ts); ders/ödeme/yoklama/telafi yok. */
+  readReferenceData: () => Promise<ReferenceData>;
+  /** Dar okuma — tek öğrenci dilimi (bkz. src/lib/reference-data.ts `narrowToStudentScope`). */
+  readStudentScope: (studentId: string) => Promise<StudentScopeData>;
+  /** Dar okuma — referans veri + [from, to] penceresindeki dersler (Ders Programı). */
+  readLessonWindow: (fromIso: string, toIso: string) => Promise<LessonWindowData>;
+  /** Dar okuma — referans veri + ödeme durum alanları (Öğrenciler listesi). */
+  readStudentListData: () => Promise<StudentListData>;
+  /** Dar okuma — referans veri + tüm ödemeler + yalnız ödemelere bağlı dersler (Ödemeler). */
+  readPaymentsPageData: () => Promise<PaymentsPageData>;
   cancelLesson: (lessonId: string) => Promise<AppData>;
   startLessonLive: (lessonId: string) => Promise<LessonLiveUpdateResult>;
   endLessonLive: (lessonId: string) => Promise<LessonLiveUpdateResult>;
@@ -335,12 +348,54 @@ export async function listTenants(): Promise<{ tenantId: string; name: string }[
 }
 
 /**
+ * DB egress (2026-09-30) — yalnız tek öğrencinin kaydı (erişim kontrolü için). Sonuç
+ * `(await readData()).students.find((s) => s.id === studentId)` ile aynıdır; db modunda
+ * tenant'ın tüm ders/ödeme/öğrenci verisi OKUNMAZ.
+ */
+export async function readStudentById(studentId: string): Promise<Student | undefined> {
+  if (!studentId) return undefined;
+  return withTenantScope(() => store.readStudentById(studentId));
+}
+
+/**
+ * DB egress (2026-09-30) — ders/ödeme/yoklama/telafi satırlarını GÖSTERMEYEN ekranlar ve
+ * yalnız öğrenci/öğretmen listesine bakan işler için (bkz. src/lib/reference-data.ts).
+ */
+export async function readReferenceData(): Promise<ReferenceData> {
+  return withTenantScope(() => store.readReferenceData());
+}
+
+/**
+ * DB egress (2026-09-30) — tek öğrencinin ekranları (öğrenci detayı, Yoklama Takvimi) için;
+ * `readData()` ile aynı telafi süre-dolumu türetmesi uygulanır.
+ */
+export async function readStudentScope(studentId: string): Promise<StudentScopeData> {
+  if (!studentId) throw new Error("readStudentScope: studentId gerekli");
+  return applyMakeupExpiry(await withTenantScope(() => store.readStudentScope(studentId)));
+}
+
+/** DB egress (2026-09-30) — Ders Programı: referans veri + penceredeki dersler (bkz. reference-data.ts). */
+export async function readLessonWindow(fromIso: string, toIso: string): Promise<LessonWindowData> {
+  return withTenantScope(() => store.readLessonWindow(fromIso, toIso));
+}
+
+/** DB egress (2026-09-30) — Öğrenciler listesi: referans veri + ödeme durum alanları. */
+export async function readStudentListData(): Promise<StudentListData> {
+  return withTenantScope(() => store.readStudentListData());
+}
+
+/** DB egress (2026-09-30) — Ödemeler: referans veri + tüm ödemeler + yalnız ödemelere bağlı dersler. */
+export async function readPaymentsPageData(): Promise<PaymentsPageData> {
+  return withTenantScope(() => store.readPaymentsPageData());
+}
+
+/**
  * Süresi geçmiş (expiresAt < şimdi) ama hâlâ pending/suggested olan telafi
  * taleplerini "expired" olarak gösterir. Salt okunur türetme — kalıcı kaydı
  * değiştirmez, dashboard ve Telafi Merkezi'nin süresi dolmuş talepleri açık
  * talep gibi saymasını engeller.
  */
-function applyMakeupExpiry(data: AppData): AppData {
+function applyMakeupExpiry<T extends Pick<AppData, "makeupRequests">>(data: T): T {
   const now = Date.now();
   const makeupRequests = data.makeupRequests.map((m) =>
     (m.status === "pending" || m.status === "suggested" || m.status === "awaiting_info") &&

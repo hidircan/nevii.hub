@@ -46,7 +46,7 @@ import {
 import { listBootstrapUsersForTenant } from "../auth/users";
 import { isDbMode } from "../config";
 import { runWithTenantAsync } from "../tenant-context";
-import { readData } from "../store";
+import { readData, readReferenceData } from "../store";
 
 /** Değerin gerçek doğrulaması `parseSettingValue` (katalog şeması) ile yapılır. */
 const settingValueSchema = z.unknown().refine((v) => v !== undefined, "Değer gerekli");
@@ -830,7 +830,7 @@ export async function getTenantSubscription(ctx: ServiceContext, tenantId: strin
   let students: number | null = null;
   let branches: number | null = null;
   try {
-    const data = await runWithTenantAsync(tenantId, () => readData());
+    const data = await runWithTenantAsync(tenantId, () => readReferenceData());
     students = data.students.filter((s) => s.active !== false).length;
     branches = data.settings.branches.length;
   } catch {

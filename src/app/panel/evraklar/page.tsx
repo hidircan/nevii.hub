@@ -10,7 +10,7 @@ import { canRunCriticalActions } from "@/lib/critical-action-password";
 import { DocumentTemplateManager } from "@/components/document-template-manager";
 import { ContractTemplateDiagnosticsPanel } from "@/components/contract-template-diagnostics";
 import { DocumentDirectUploadForm } from "@/components/document-direct-upload-form";
-import { readData } from "@/lib/store";
+import { readReferenceData } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
 
@@ -47,7 +47,7 @@ export default async function DocumentsCenterPage({
   const [allTemplatesResult, documentsResult, data] = await Promise.all([
     listAllDocumentTemplatesTool(session),
     listDocumentInstancesTool(session, studentId ? { studentId } : teacherId ? { teacherId } : {}),
-    readData(),
+    readReferenceData(),
   ]);
   const allTemplates = allTemplatesResult.ok ? allTemplatesResult.data.templates : [];
   const documents = documentsResult.ok ? documentsResult.data.documents : [];

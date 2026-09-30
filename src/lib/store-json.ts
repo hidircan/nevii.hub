@@ -23,6 +23,18 @@ import { createSeedData, createEmptyTemplateData } from "./seed";
 import { tryTenantId } from "./tenant-context";
 import { withClosedDayOverrides, withoutClosedDayOverrides } from "./closed-day-overrides";
 import { DEFAULT_TENANT_ID } from "./auth/config";
+import {
+  narrowToLessonWindow,
+  narrowToPaymentsPage,
+  narrowToStudentScope,
+  toPaymentStatusRow,
+  toReferenceData,
+  type LessonWindowData,
+  type PaymentsPageData,
+  type ReferenceData,
+  type StudentListData,
+  type StudentScopeData,
+} from "./reference-data";
 import { applyLessonOpsFlag, switchLessonOpsFlag, type LessonOpsFlag } from "./lesson-ops";
 import { allocateSequenceValue, formatDisplayId } from "./entity-sequence";
 import { markTeacherAttendance, type TeacherAttendanceStatus } from "./teacher-attendance";
@@ -241,6 +253,37 @@ export async function resetToCleanTemplate(): Promise<AppData> {
 export async function listTenants(): Promise<{ tenantId: string; name: string }[]> {
   const data = await readData();
   return [{ tenantId: data.settings.tenantId, name: data.settings.name }];
+}
+
+/** Bkz. src/lib/reference-data.ts — json/memory tam veriden türetir (db ile aynı şekil). */
+export async function readReferenceData(): Promise<ReferenceData> {
+  return toReferenceData(await readData());
+}
+
+/** Bkz. src/lib/reference-data.ts `narrowToStudentScope` — db ile aynı dilim. */
+export async function readStudentScope(studentId: string): Promise<StudentScopeData> {
+  return narrowToStudentScope(await readData(), studentId);
+}
+
+/** Bkz. src/lib/reference-data.ts `narrowToLessonWindow`. */
+export async function readLessonWindow(fromIso: string, toIso: string): Promise<LessonWindowData> {
+  return narrowToLessonWindow(await readData(), new Date(fromIso), new Date(toIso));
+}
+
+/** Bkz. src/lib/reference-data.ts `narrowToPaymentsPage`. */
+export async function readPaymentsPageData(): Promise<PaymentsPageData> {
+  return narrowToPaymentsPage(await readData());
+}
+
+/** Bkz. src/lib/reference-data.ts `StudentListData`. */
+export async function readStudentListData(): Promise<StudentListData> {
+  const data = await readData();
+  return { ...toReferenceData(data), payments: data.payments.map(toPaymentStatusRow) };
+}
+
+/** Bkz. store-db.readStudentById — tek dosya/süreç verisi zaten okunur; sonuç `readData()` ile aynı. */
+export async function readStudentById(studentId: string): Promise<Student | undefined> {
+  return (await readData()).students.find((s) => s.id === studentId);
 }
 
 export async function markAttendance(input: {

@@ -6,7 +6,7 @@ import { UserPlus } from "lucide-react";
 import { PageHeader } from "@/components/ui";
 import { StudentsTable, type StudentRow } from "@/components/students-table";
 import { requireSessionContext } from "@/lib/auth/session";
-import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
+import { getInstitutionContext, readScopedStudentListData } from "@/lib/institution/context";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { effectiveStudentTypes } from "@/lib/student-types";
 import { listContractSummariesByStudent, type StudentContractSummary, listTerminalContractIdsForScope } from "@/lib/contracts";
@@ -29,7 +29,8 @@ export default async function OgrencilerPage({
     redirect("/login?next=/panel/ogrenciler");
   }
   const kurum = await getInstitutionContext(session);
-  const data = await readScopedData(kurum.scope);
+  // DB egress: ders/yoklama satırları yok; ödemelerden yalnız durum rozeti alanları (tüm satırlar).
+  const data = await readScopedStudentListData(kurum.scope);
   // Geri alınabilir silinen öğrenciler varsayılan listede YOKTUR; yalnız silme yetkisi olanlar
   // (kurum sahibi + kurum yöneticileri) "Silinenler" görünümünde görür (geri almak için detaya gider).
   const isOwner = canRunCriticalActions(session.role);

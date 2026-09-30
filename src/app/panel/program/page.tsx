@@ -13,7 +13,7 @@ import { addDays, startOfWeek } from "@/lib/utils";
 import { format, isSameDay, parseISO } from "date-fns";
 import { tr } from "date-fns/locale";
 import { requireSessionContext } from "@/lib/auth/session";
-import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
+import { getInstitutionContext, readScopedLessonWindow } from "@/lib/institution/context";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { AssistantPageContext } from "@/components/ai/assistant-page-context";
 import { listInstrumentCatalogTool } from "@/lib/services";
@@ -61,17 +61,19 @@ export default async function ProgramPage({
     redirect("/login?next=/panel/program");
   }
   const kurum = await getInstitutionContext(session);
-  const data = await readScopedData(kurum.scope);
+  const weekStart = resolveWeekStart(week);
+  const todayWeekStart = startOfWeek(new Date(), { weekStartsOn: 1 });
+  const isCurrentWeek = isSameDay(weekStart, todayWeekStart);
+  const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+  // DB egress: yıl boyu tüm dersler yerine yalnız görünen haftanın penceresi (aşağıdaki kesin
+  // `weekLessons` filtresinden 1–2 gün GENİŞ); ödeme/yoklama satırı okunmaz — sayfa kullanmıyor.
+  const data = await readScopedLessonWindow(kurum.scope, addDays(days[0], -1), addDays(days[6], 2));
   // ÖNCELİK 4 (devam) — Yönetilebilir Enstrüman Kataloğu: statik küme +
   // tenant'ın aktif ek enstrümanları, ders planlama seçicilerine akar.
   const catalogResult = await listInstrumentCatalogTool(session, {});
   const catalogInstruments = catalogResult.ok
     ? catalogResult.data.entries.filter((e) => e.status === "active").map((e) => e.name)
     : undefined;
-  const weekStart = resolveWeekStart(week);
-  const todayWeekStart = startOfWeek(new Date(), { weekStartsOn: 1 });
-  const isCurrentWeek = isSameDay(weekStart, todayWeekStart);
-  const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
 
   const weekStartParam = format(weekStart, "yyyy-MM-dd");
   const prevWeekParam = format(addDays(weekStart, -7), "yyyy-MM-dd");

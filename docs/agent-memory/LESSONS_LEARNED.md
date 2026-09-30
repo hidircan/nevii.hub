@@ -1366,3 +1366,14 @@ Aynı turda: `validateLessonSlot` oda `active`'ini hiç okumuyordu → telafi pa
 - Ayrıca iki indirim sözlüğü ("percent"/"amount" ↔ "percentage"/"fixed") aynı kolonda; biri diğerini TL saydı.
 - Kural: boş ile 0 ayrı ayrıştırılır; iç içe şema hatası formda gösterilen alan adına eşlenmeli. Aynı kolona iki sözlük
   yazılıyorsa okuyan her yer ortak bir yardımcıdan (`isPercentDiscount`) geçer.
+
+## 2026-09-30 — Egress'in kaynağı "büyük sorgu" değil, her yere yayılmış TAM hidrasyon + tek bir 79 KB sütun
+- Supabase egress kotası aşıldı; `pg_stat_statements` (salt okunur) gösterdi: baytların çoğu `readData()`'nın
+  `School` + tüm ilişkiler okuması (istek başına ~1.8 MB) ve `School.logoUrl` data-URI'si. Logo, yalnız ad gereken
+  `include: { schools: true }` (kurum seçici, `getPlatformTenant` → her panel isteğinde birkaç kez) üzerinden sayfa
+  başına ~5 kez taşınıyordu. `select`siz `findFirst`/`include: true` satırın HER sütununu getirir.
+- Kural: sayfa/tool ihtiyacı kadar oku — `src/lib/reference-data.ts` dilimleri; dilim tipi ağır koleksiyonu içermez ki
+  yanlış kullanım DERLENMESİN. Satır süzen dilimde (öğrenci/pencere) tip koruyamaz: her erişimi satır satır denetle.
+  Öğretmenler kartı "tüm zamanların ders sayısı"nı gösteriyordu — pencereye çevirmek sayıyı sessizce değiştirirdi.
+- Ölçüm: gerçek sayfaları yerel `next start` + pg soket bayt sayacıyla ölç, görünen metni önce/sonra karşılaştır
+  (`scripts/bench/`); Suspense akışlı sayfada metin sırası değişebilir → sıradan bağımsız özet kullan.

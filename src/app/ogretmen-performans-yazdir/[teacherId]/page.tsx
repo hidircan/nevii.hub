@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { subDays, format } from "date-fns";
 import { requireSessionContext } from "@/lib/auth/session";
-import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
+import { getInstitutionContext, readScopedReferenceData } from "@/lib/institution/context";
 import { getTeacherPerformanceReportV2Tool } from "@/lib/services";
 import { printSurfaceCss } from "@/lib/contract-print-theme";
 import { formatDate } from "@/lib/utils";
@@ -44,7 +44,7 @@ export default async function OgretmenPerformansYazdirPage({
   }
 
   const kurum = await getInstitutionContext(session);
-  const data = await readScopedData(kurum.scope);
+  const data = await readScopedReferenceData(kurum.scope);
   const teacher = data.teachers.find((t) => t.id === teacherId);
   if (!teacher) {
     return (

@@ -69,14 +69,14 @@ export async function runStudentContractExpiryCheck(
   tenantId: string,
   now: Date = new Date()
 ): Promise<{ candidates: number; created: number; duplicates: number; skipped: number; failed: number }> {
-  const [{ readData }, { listContractSummariesByStudent }, { resolveSetting }, { notifyAdmins }] = await Promise.all([
+  const [{ readReferenceData }, { listContractSummariesByStudent }, { resolveSetting }, { notifyAdmins }] = await Promise.all([
     import("./store"),
     import("./contracts"),
     import("./platform/resolve"),
     import("./manager-notifications"),
   ]);
   const days = parseExpiryDays((await resolveSetting({ tenantId }, STUDENT_CONTRACT_EXPIRY_SETTING_KEY))?.effectiveValue);
-  const data = await readData();
+  const data = await readReferenceData();
   const summaries = await listContractSummariesByStudent(tenantId);
   const candidates = findExpiringStudentContracts(data.students, summaries, toZonedYmd(now, DEFAULT_APP_TIMEZONE), days);
   const result = { candidates: candidates.length, created: 0, duplicates: 0, skipped: 0, failed: 0 };

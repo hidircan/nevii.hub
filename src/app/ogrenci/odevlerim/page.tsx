@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { PORTAL_RECORD_MISSING_REDIRECT } from "@/lib/auth/portal-record-missing";
 import { ArrowLeft } from "lucide-react";
-import { readData } from "@/lib/store";
+import { readReferenceData } from "@/lib/store";
 import { requireSessionContext } from "@/lib/auth/session";
 import { getPortalPageStudentId } from "@/lib/portal-context";
 import { listHomeworkForStudentTool, listHomeworkSubmissionsTool } from "@/lib/services";
@@ -30,7 +30,7 @@ export default async function StudentHomeworkPage() {
   // sunucuda doğrulanır); `|| "s1"` yedeği KALDIRILDI (başka öğrencinin verisi asla açılmaz).
   const studentId = await getPortalPageStudentId(session);
   if (!studentId) redirect(PORTAL_RECORD_MISSING_REDIRECT);
-  const data = await readData();
+  const data = await readReferenceData();
   const student = data.students.find((s) => s.id === studentId);
   if (!student || (session.role === "STUDENT" && (!student.active || student.deletedAt))) {
     redirect(PORTAL_RECORD_MISSING_REDIRECT);

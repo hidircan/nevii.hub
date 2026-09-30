@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { requireSessionContext, homePathForRole } from "@/lib/auth/session";
 import { getDocumentInstanceTool } from "@/lib/services";
 import { documentKindLabel } from "@/lib/documents";
-import { readData } from "@/lib/store";
+import { readReferenceData } from "@/lib/store";
 import { formatDate } from "@/lib/utils";
 import { DocumentPrintActions } from "@/components/document-print-actions";
 import { resolveSafeReturnTo, returnToLabel } from "@/lib/safe-return-to";
@@ -62,7 +62,7 @@ export default async function DocumentPrintPage({
   }
 
   const doc = result.data.document;
-  const data = await readData();
+  const data = await readReferenceData();
   const branch = doc.branchId ? data.settings.branches.find((b) => b.id === doc.branchId) : undefined;
 
   // İkinci belge (varsa) — geçersiz/erişilemez `also` sessizce YOK SAYILIR,

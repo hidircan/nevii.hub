@@ -4,6 +4,18 @@ Kısa tutulur (~50 satır): oturum sonunda yalnız "Güncel snapshot" bölümün
 `archive/`'e taşınır. Ayrıntı → ilgili `docs/testing/UAT_*.md`, `docs/operations/*`. Yönlendirici: `nevii-hub` skill.
 Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_2026-09-24.md`.
 
+## Güncel snapshot — 2026-09-30 (Supabase Database egress: hedefli okumalar)
+- Kanıt (test DB `pg_stat_statements`, 09-05→09-30): egress'in çoğu `readData()` tam hidrasyonu (Payment/Lesson/Student)
+  + `School.logoUrl` ~79 KB data-URI'nin panel isteği başına ~5 kez okunması (`listTenants`, `getPlatformTenant`, `readData`).
+- Dilimler tek yerde: `src/lib/reference-data.ts` (Reference / StudentScope / LessonWindow / StudentList / PaymentsPage);
+  store-db Prisma ile ÜRETİR, json/memory tam veriden TÜRETİR. Ağır koleksiyonu olmayan tip → yanlış kullanım DERLENMEZ.
+- Yeni okuma API'leri: `readStudentById`, `readReferenceData`, `readStudentScope`, `readLessonWindow`,
+  `readStudentListData`, `readPaymentsPageData` (+ `institution/context` `readScoped*` karşılıkları). Bildirim zili db'de SQL sayfalı.
+- Bench (yerel, test hacmi, 21 akış): 43.6 MB → 7.3 MB (−%83), görünen içerik aynı. Rapor: `docs/performance/DB_EGRESS_2026_09_30.md`.
+- Doğrulama: `scripts/bench/verify-db-slices.ts` (2 081 kontrol, 0 hata), `db-egress-slices.test.ts`. Migration YOK.
+- Açık (öncelik): Panel özeti, Hakedişler, Telafi, Öğretmenler (kart TÜM ZAMAN ders sayısı gösterir — pencere yasak),
+  öğretmen detay sekmeleri, portal duyuru aracı. Kural: yeni ekran `readData()` yerine uygun dilimi kullanır.
+
 ## Güncel snapshot — 2026-09-30 (%100 burslu kayıt + 0 TL ilk tahsilat, Odalar filtreleri)
 - Kök neden: `studentSchema.firstPaymentCollected.amount` `positive()` → 0 reddediliyor, hata `firstPaymentCollected`
   anahtarına düşüp formda alan mesajı olmadan genel "Formda düzeltilmesi gereken alanlar var" çıkıyordu. Sözleşmede de

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requireSessionContext } from "@/lib/auth/session";
-import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
+import { getInstitutionContext, readScopedReferenceData } from "@/lib/institution/context";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { BackButton } from "@/components/back-button";
 import { listStaffTool, listLeaveTool, listStaffAdvancesTool } from "@/lib/services";
@@ -59,7 +59,7 @@ export default async function StaffDetailPage({ params }: { params: Promise<{ st
 
   const [staffResult, data, leaveResult, advancesResult] = await Promise.all([
     listStaffTool(session, {}),
-    readScopedData(kurum.scope),
+    readScopedReferenceData(kurum.scope),
     listLeaveTool(session, { staffId }),
     listStaffAdvancesTool(session, { staffId }),
   ]);

@@ -178,6 +178,14 @@ cold start, serverless demo without disk). On Vercel/Lambda, `json` mode writes 
 the repo (`resolveDataDir`). The AI platform's own persistence (follow-up cases, workflow
 state/runs, conversations, memory) follows the same per-mode parity contract.
 
+**Read only what the screen needs (DB egress, 2026-09-30).** `readData()`/`readScopedData()` hydrate
+the tenant's ENTIRE `School` + relations (~1.8 MB per call on test data) and were the dominant Supabase
+egress. Prefer the typed slices in `src/lib/reference-data.ts` (`readReferenceData`, `readStudentScope`,
+`readLessonWindow`, `readStudentListData`, `readPaymentsPageData`, `readStudentById`; `readScoped*` in
+`institution/context.ts`) — slice types omit heavy collections so misuse fails to compile. Row-filtered
+slices (student/window) need a line-by-line audit of every access; never read `School.logoUrl` (~79 KB
+data-URI) where only the name is needed. Measure with `scripts/bench/` (docs/performance/DB_EGRESS_2026_09_30.md).
+
 ### Notable conventions
 
 - Turkish is the primary UI/UX language and much of the in-code commentary (variable/domain

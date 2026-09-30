@@ -151,9 +151,12 @@ export async function resolvePortalStudent(
   }
   if (active.length === 0) return { status: "no-access", siblings: [] };
   const { runWithTenantAsync } = await import("./tenant-context");
-  const { readData } = await import("./store");
-  const data = await runWithTenantAsync(tenantId, () => readData());
-  return pickPortalStudent(active, data.students, preferredStudentId ?? null);
+  const { readStudentById } = await import("./store");
+  // DB egress: `pickPortalStudent` yalnız erişim satırlarındaki öğrencilere bakar — tüm öğrenci
+  // listesi yerine yalnız onlar (genelde 1–3 tek satır). Portal layout + sayfa her istekte çözer.
+  const ids = [...new Set(active.map((r) => r.studentId))];
+  const students = await runWithTenantAsync(tenantId, () => Promise.all(ids.map((id) => readStudentById(id))));
+  return pickPortalStudent(active, students.filter((s): s is NonNullable<typeof s> => Boolean(s)), preferredStudentId ?? null);
 }
 
 /**
