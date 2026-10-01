@@ -1,5 +1,9 @@
 # Vercel Test Environment Runbook — `test.neviihub.com`
 
+> ⚠️ **2026-10-01'den beri güncel değil:** canlı DB `wsbucznpujcfzhitzrbl`; `vxzewyiwfshobjizzetw` gerçek veri
+> taşıyan salt-okunur geri dönüş kaynağıdır (test hedefi DEĞİL); `uqkafczrplqitzumtrqy` artık erişilebilir değil.
+> Güncel model ve ortam haritası: `docs/operations/LOCAL_FIRST_DEPLOYMENT.md`.
+
 Ana runtime **Vercel**'dir. Cloudflare yalnız DNS/SSL/CDN/WAF katmanında kalır;
 Cloudflare Workers ana application runtime olarak **kullanılmayacaktır** —
 request başına 10 ms CPU sınırı bcrypt, SSR, Prisma/PostgreSQL ve AI tool

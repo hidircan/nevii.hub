@@ -4,6 +4,20 @@ Kısa tutulur (~50 satır): oturum sonunda yalnız "Güncel snapshot" bölümün
 `archive/`'e taşınır. Ayrıntı → ilgili `docs/testing/UAT_*.md`, `docs/operations/*`. Yönlendirici: `nevii-hub` skill.
 Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_2026-09-24.md`.
 
+## Güncel snapshot — 2026-10-01 (canlı geçiş, Vercel Active CPU, local-first)
+- Canlı geçiş tamam (10:50Z): `neviihub.com` = `main`, Vercel `fra1`, DB Supabase `wsbucznpujcfzhitzrbl`. Eski test DB
+  `vxzewyiwfshobjizzetw` gerçek veri taşıyan salt-okunur geri dönüş kaynağı (≥2026-10-31). `test.neviihub.com` → 307.
+- Next.js 16.3.8 güvenlik yaması canlıda (`a7bbb7c`). AI_AGENT hesabı kilitlendi (rastgele şifre, oturumlar iptal).
+- Vercel Hobby "Fluid Active CPU %75" (son 30 gün): kök neden Link önyüklemesi (sayfa başına ~50 sunucu isteği), 30 sn
+  oturum yoklaması, production'da 45 sn canlı yenileme ve asistan çağrıları. Düzeltme: `@/components/link` (ESLint
+  zorunlu), yoklama/yenileme 5 dk, sekmeye dönüş ≥60 sn, asistan `/chat` yalnız açılınca. Ölçüm: sayfa 55 → 5 istek.
+- Korumalar: `test-target-guard` geçiş sonrası kimlikler; `assertSeedTarget` (6 seed betiği); migration kapısı artık
+  `main` build'inde de (canlıda 90/90 migration uygulanmış).
+- Yeni çalışma modeli: `docs/operations/LOCAL_FIRST_DEPLOYMENT.md` (sürekli test ortamı yok; risk sınıfına göre yol).
+- Açık: AI asistan ücretsiz sağlayıcı zinciri (dal `feat/ai-free-provider-chain`, worktree `../nevii-hub-ai`);
+  owner kararları (Vercel Pro/ticari kullanım, preview koruması, eski Supabase–Vercel entegrasyonu, eski projeler,
+  yerel gerçek veri kopyaları, 20 hesapta varsayılan şifre).
+
 ## Güncel snapshot — 2026-09-30 (Supabase Database egress: hedefli okumalar)
 - Kanıt (test DB `pg_stat_statements`, 09-05→09-30): egress'in çoğu `readData()` tam hidrasyonu (Payment/Lesson/Student)
   + `School.logoUrl` ~79 KB data-URI'nin panel isteği başına ~5 kez okunması (`listTenants`, `getPlatformTenant`, `readData`).
@@ -157,9 +171,10 @@ Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_20
 - Önceki 8. tur notu: `feat/uat-round-8` migration `20260927090000_room_soft_delete` test DB'ye uygulandı (owner). Claude'un 9. tur kirli paneli ayrı worktree'de duruyor.
 
 ## Ortamlar
-- Test: `test` dalı → Vercel → `test.neviihub.com`; test DB Supabase `vxzewyiwfshobjizzetw` (repo migration'ları uygulandı,
-  son kontrol 2026-09-21; 22–23.09 additive migration'ları için `docs/operations/RUNBOOK_2026_09_22_CSV_CONTRACT_DELETE.md`).
-- Production: dokunulmaz (owner kararı). Yerel `.env` production'ı gösterebilir — DB komutundan önce hedefi kanıtla.
+- Canlı: `main` → Vercel `neviihub` (Hobby, `fra1`) → `neviihub.com`; DB Supabase `wsbucznpujcfzhitzrbl` (eu-central-1).
+- Test: sürekli test ortamı YOK (local-first). `test.neviihub.com` geçici olarak canlıya yönlenir; `test` dalı
+  preview'ları hâlâ eski test DB'sini (salt-okunur) kullanır. Geçici test ortamı ihtiyaç olunca açılır.
+- Yerel `.env` artık olmayan bir projeyi veya canlıyı gösterebilir — DB komutundan önce hedefi kanıtla.
 - Vercel Cron: günlük 00:30 UTC retention (`vercel.json`, `CRON_SECRET`).
 
 ## Açık iş
@@ -169,7 +184,7 @@ Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_20
 - Önceki turlardan: owner UAT 4–8; Pınar/Olcay Evka 3; geçmiş sözleşmeler (hukuki); `[neviios] platform store` timeout; mobil EAS build.
 
 ## Riskler / bilinen durum
-- Tam paket 2026-09-28: 345 dosya / 3653 test, 0 başarısız (J2 tarihe bağlı kırmızısı kök nedeniyle düzeltildi).
+- Tam paket 2026-10-01 (`390978b`): 386 dosya / 4053 test, 7 başarısız = bilinen taban (13'lük kümenin alt kümesi).
 - Denetim kaydı json modunda da Prisma'ya yazmaya çalışır; yerel tarayıcı testinde `DATABASE_URL`'i geçersiz adrese
   yönlendirin (bu turda böyle yapıldı — gerçek DB'ye yazım olmadı).
 - `docs/project-brain/CURRENT_STATE.md` 2026-08-31'de donmuş; güncel durum burası.

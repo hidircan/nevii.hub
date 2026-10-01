@@ -39,21 +39,26 @@ UI (`src/app/panel/*`, `src/components/*`) → server action (`src/lib/actions.t
 - İptal/yenilenmiş sözleşmenin satırları SİLİNMEZ/yeniden yazılmaz; gerçekleşmiş tahsilat her zaman görünür.
 - "Ödenmesi gereken" ile "tahsil edilen" ayrı alan ve ayrı başlık.
 
-## 4. Ortam sınırı
-- local (`STORE_MODE=json` testler) → `test` dalı → Vercel test → `test.neviihub.com` → production (yalnız owner kararıyla).
-- `.env` production'ı gösterebilir: DB komutu çalıştırmadan önce hedefi kanıtla. Migration gerekmiyorsa DB komutu yok.
-  Gerekiyorsa: `prisma validate` → `generate` → `migrate status` → owner'ın açık onayıyla ve test hedefi kanıtlanmışsa `migrate deploy`.
-- Test/prod DB'de gerçek öğrenci/sözleşme/ödeme verisini silme veya yeniden üretme. Sır/DB URL/şifreyi dosyaya yazma.
+## 4. Ortam sınırı (2026-10-01'den beri local-first — `docs/operations/LOCAL_FIRST_DEPLOYMENT.md`)
+- Canlı: `main` → Vercel → `neviihub.com`, DB Supabase `wsbucznpujcfzhitzrbl`. Sürekli açık test ortamı YOK:
+  `test.neviihub.com` geçici olarak canlıya yönlenir; eski test DB'si (`vxzewyiwfshobjizzetw`) gerçek veri taşıyan
+  salt-okunur geri dönüş kaynağıdır, test hedefi DEĞİL.
+- Düşük riskli, migration'sız iş: yerel doğrulama → `main`. Migration/finans/silme/auth/tenant/toplu veri/dış mesaj:
+  yerel → geçici test ortamı (sentetik veri) → owner UAT → planlı yayın.
+- `.env` production'ı veya artık olmayan bir projeyi gösterebilir: DB komutundan önce hedefi kanıtla, `DATABASE_URL`'i
+  açıkça ver. Seed yalnız yerel/test DB'ye (`assertSeedTarget`). Migration gerekmiyorsa DB komutu yok.
+- Canlı DB'de gerçek öğrenci/sözleşme/ödeme verisini silme veya yeniden üretme. Sır/DB URL/şifreyi dosyaya yazma.
 
 ## 5. Doğrulama ve teslim sırası
 1. Kök nedeni kanıtla (kod yolu + gerekirse yeniden üreten test). Yalnız UI metniyle veri hatası örtme.
 2. Hedef testler (`npx vitest run <dosya>`), sonra kapı: `npm run typecheck` → `npm run lint` → `npm test` (SON değişiklikten sonra) → `npx prisma validate` → `npm run build`.
    Tam paket kırmızıysa kaç test/neden yaz; "hepsi geçti" deme.
 3. Commit: yalnız kapsamdaki dosyalar; `Co-authored-by` + `Signed-off-by` (git config kullanıcısı). `apps/mobile/*`, `docs/notion-export/*`, `pazarlama/*` gibi ilgisiz dosyaları stage etme.
-4. **Migration içeren değişiklik:** push'tan ÖNCE owner onayıyla test DB'ye uygula (şema kodu migration'sız DB'ye giderse
-   panel P2022 ile çöker — 2026-09-27 P0). `test` build'i uygulanmamış migration varken `scripts/check-pending-migrations.ts`
-   ile durur. Sonra `origin/test`'e push (önce `git fetch` + güncel test üstüne rebase) → Vercel deployment READY → `test.neviihub.com` yanıt veriyor mu kontrol et.
-   Tarayıcıda giriş yapıp tıklamadıysan "testte hazır" deme; owner'a UAT adımlarını ver.
+4. **Migration içeren değişiklik:** önce owner onayı + canlı yedeği, migration canlıya session pooler (5432) ile, KODDAN
+   ÖNCE uygulanır (şema kodu migration'sız DB'ye giderse panel P2022 ile çöker — 2026-09-27 P0). `main` ve `test`
+   build'leri uygulanmamış migration varken `scripts/check-pending-migrations.ts` ile durur.
+   Canlıya çıkış: `git fetch` → hızlı ileri `main` push → deployment READY (fra1) → health/ready + giriş + ana sayfalar.
+   Tarayıcıda giriş yapıp tıklamadıysan "hazır" deme; yüksek riskli işte owner'a UAT adımlarını ver.
 
 ## 6. Oturum sonu (kısa tut)
 - `PROJECT_STATE.md`: yalnız "Güncel snapshot" bölümünü ÜZERİNE yaz (commit, ortam, açık iş, riskler — ~40 satır). Ayrıntı → `docs/testing/UAT_*.md` / `docs/operations/*`; eski snapshot → `docs/agent-memory/archive/`.

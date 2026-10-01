@@ -1384,3 +1384,32 @@ Aynı turda: `validateLessonSlot` oda `active`'ini hiç okumuyordu → telafi pa
   (sonuçta `pid === process.pid` kontrolü). Sıfır ölçüm = önce ölçerin doğru süreçte olduğunu kanıtla.
 - Dönem penceresi yalnız TARİHE göre süzen hesaba yeter; kayıttaki satırı KİMLİKLE arayan kod (`describeLineSources`:
   sonradan taşınmış ders, seri demo etiketi) pencereyle sessizce "eksik" der → böyle yollar dilime çevrilmez.
+
+## 2026-10-01 — Vercel "Active CPU %75": Link önyüklemesi ve yoklamalar her sayfayı 10 kat çoğaltıyordu
+- Kök layout çerez okuduğu için tüm rotalar dinamik; `/panel`, `/ogretmen`, `/ogrenci` altında `loading.tsx` var.
+  Next.js bu durumda görünen HER `<Link>` için sunucuda layout render'ı yapan önyükleme isteği atar. Gerçek tarayıcı
+  ölçümü: tek `/panel/ogrenciler` açılışı 55 istek (49 önyükleme). Ayrıca oturum yoklaması 30 sn, canlı program
+  yenilemesi production'da 45 sn (her biri tam sayfa render'ı). Asistan da her menü geçişinde `/auth/me` ve her açılışta
+  `/chat` çağırıyordu. Sonuç: aynı sayfa 5 istek; CPU yerelde %26–63 düştü.
+- Kural: `next/link` yerine `@/components/link` (önyükleme kapalı, ESLint zorunlu kılar). Yoklama ≥5 dk, sekmeye
+  dönüşte ≥60 sn aralık. Yeni bir periyodik/yükleme anı isteği eklemeden önce çağrı sayısını tarayıcıyla say.
+- Ölçüm: yerel `next start` + yerel DB + Playwright; sunucu süreç ağacının `ps` CPU süresi; eski/yeni build aynı
+  düzenekle, 1 ısınma + 5 tur medyanı. Vercel Hobby'de rota bazında Active CPU API'den alınamıyor; çağrı sayısı
+  `get_runtime_logs` gruplamasıyla görülebiliyor. Ölçümden önce portun boş olduğunu kanıtla: eski bir `next-server`
+  açık kalmıştı ve ilk ölçüm ona gitti.
+
+## 2026-10-01 — Yazma dondurma: `ALTER DATABASE ... read_only` tek başına açık oturumları ve havuzu durdurmaz
+- Canlı geçiş provasında `default_transaction_read_only=on` sonrası açık oturumlar ve Supavisor havuzları (5432 ve
+  6543) yazmaya devam etti. Bir havuzdan bağlantı kapatmak o havuzun kendi bağlantısını sağ bırakıyor ve yeniden
+  kullanılıyordu. Çözüm: iki havuzdan çapraz kapatma + 12 yeni oturumda `pg_settings.source = database` kanıtı; son
+  yedekte tüm tablolara EXCLUSIVE kilit (zorlanan `BEGIN READ WRITE` bile duruyor).
+- Kural: "dondurdum" demeden önce yeni oturumlarda yazmanın reddedildiğini ve yazma sayaçlarının sabit kaldığını göster.
+
+## 2026-10-01 — Ortam kimlikleri değişti, korumalar eski kaldı
+- Geçişten sonra `test-target-guard.ts` canlıyı tanımıyordu ("unknown"); gerçek veriyi taşıyan eski test DB'sini ise
+  hâlâ "test" sayıp test betiklerine açıyordu. `seed-multi-tenant.ts` yalnız `NODE_ENV` kontrol ediyordu. Varsayılan
+  tenant canlıdaki gerçek kurum olduğu için `.env`'deki bir production URL'iyle o kurumun verisini silip demo veri
+  yazabilirdi. README boş DB için `prisma migrate deploy` diyordu; bu, MySQL sözdizimli 12 migration yüzünden çalışmaz.
+- Kural: proje/DB kimliği değişince `grep -rn "<eski-ref>"` ile src, scripts ve docs taranır; korumalar, seed
+  betikleri (`assertSeedTarget`) ve migration kapısı aynı commit'te güncellenir. Model:
+  `docs/operations/LOCAL_FIRST_DEPLOYMENT.md`.
