@@ -202,7 +202,7 @@ export function validateMobileReviewEnv(env: Env, target: Target = "web"): Findi
     if (!isProd && supabaseUrl.includes(PRODUCTION_SUPABASE_REF)) {
       out.push({ level: "error", message: "NEXT_PUBLIC_SUPABASE_URL PRODUCTION Supabase projesini gösteriyor — test projesinin URL'ini kullanın." });
     }
-    if (isProd && supabaseUrl.includes(TEST_SUPABASE_REF)) {
+    if (isProd && TEST_SUPABASE_REF && supabaseUrl.includes(TEST_SUPABASE_REF)) {
       out.push({ level: "error", message: "NEXT_PUBLIC_SUPABASE_URL TEST Supabase projesini gösteriyor — production deployment test storage'a bağlanamaz." });
     }
 
