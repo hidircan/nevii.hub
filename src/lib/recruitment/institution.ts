@@ -21,9 +21,16 @@ export function slugify(input: string): string {
 
 export async function getInstitutionInfo(tenantId: string): Promise<InstitutionInfo> {
   try {
+    // db: yalnız bu 5 alan (DB egress — tam readData ~1.8 MB idi; School.tenantId tekil). Okul satırı
+    // yoksa readData'nın tohumlama davranışı aynen korunur.
+    const school = isDbMode
+      ? await (await import("../db")).prisma.school.findUnique({
+          where: { tenantId },
+          select: { name: true, logoUrl: true, phone: true, email: true, website: true },
+        })
+      : null;
     const { readData } = await import("../store");
-    const data = await runWithTenantAsync(tenantId, () => readData());
-    const s = data.settings;
+    const s = school ?? (await runWithTenantAsync(tenantId, () => readData())).settings;
     return { name: s.name || "Kurum", logoUrl: s.logoUrl || undefined, phone: s.phone || undefined, email: s.email || undefined, website: s.website || undefined };
   } catch {
     return { name: "Kurum" };

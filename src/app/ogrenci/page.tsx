@@ -36,6 +36,7 @@ import { ownStudentWeekLessons } from "@/lib/student-portal-scope";
 import { normalizeWeekStart, previousWeekParam, nextWeekParam, todayWeekParam, isCurrentWeek } from "@/lib/program-week";
 import { weeklyClosedDaysForTerm, resolveDayStatus } from "@/lib/attendance-calendar";
 import { ProgramLiveRefresh } from "@/components/program-live-refresh";
+import { liveRefreshIntervalMs } from "@/lib/env/live-refresh";
 
 export const dynamic = "force-dynamic";
 
@@ -196,7 +197,7 @@ export default async function OgrenciPortalPage({
   return (
     <div>
       <AssistantPageContext entity={{ kind: "student", id: student.id, label: student.name }} />
-      <ProgramLiveRefresh />
+      <ProgramLiveRefresh intervalMs={liveRefreshIntervalMs()} />
       <main className="mx-auto max-w-lg space-y-4 px-4 py-6">
         <Card className="glass-hero border-emerald-100 bg-[var(--hero-bg)]">
           <p className="text-xs font-medium uppercase tracking-wide text-emerald-600">Merhaba</p>

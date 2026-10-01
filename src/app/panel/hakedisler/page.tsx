@@ -4,7 +4,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { format, startOfMonth, endOfMonth, addMonths, parseISO } from "date-fns";
 import { tr } from "date-fns/locale";
 import { requireSessionContext } from "@/lib/auth/session";
-import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
+import { getInstitutionContext, readScopedPayoutWindow } from "@/lib/institution/context";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { Badge, Card, EmptyState, PageHeader, StatCard } from "@/components/ui";
 import {
@@ -56,11 +56,18 @@ export default async function TeacherPayoutOverviewPage({
   const { month, teacherId: teacherFilter, status: statusFilter, kapsam } = await searchParams;
   const scope = parsePayoutScope(kapsam);
   const kurum = await getInstitutionContext(session);
-  const data = await readScopedData(kurum.scope);
 
   const monthAnchor = month && /^\d{4}-\d{2}$/.test(month) ? parseISO(`${month}-01`) : new Date();
   const periodStart = format(startOfMonth(monthAnchor), "yyyy-MM-dd");
   const periodEnd = format(endOfMonth(monthAnchor), "yyyy-MM-dd");
+  // DB egress: kurumun tüm dersleri yerine seçili ayın ders penceresi (hesabın kendi gün süzgecinden
+  // ±2–3 gün geniş) + tüm kayıtlı hakedişler + hariç tutmalar (bkz. reference-data.ts `PayoutWindowData`).
+  // Kayıtlı hakediş donmuş satırlardan, canlı hesap ve fark aynı dönemin derslerinden — ayrım aynen korunur.
+  const data = await readScopedPayoutWindow(
+    kurum.scope,
+    new Date(Date.parse(`${periodStart}T00:00:00Z`) - 2 * 86_400_000),
+    new Date(Date.parse(`${periodEnd}T00:00:00Z`) + 3 * 86_400_000)
+  );
   const monthParam = format(monthAnchor, "yyyy-MM");
   const prevMonthParam = format(addMonths(monthAnchor, -1), "yyyy-MM");
   const nextMonthParam = format(addMonths(monthAnchor, 1), "yyyy-MM");

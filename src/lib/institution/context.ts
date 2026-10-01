@@ -3,21 +3,27 @@ import { cookies } from "next/headers";
 import type { ServiceContext } from "../services/context";
 import {
   readData,
+  readDashboardData,
   readLessonWindow,
   readPaymentsPageData,
+  readPayoutWindow,
   readReferenceData,
   readStudentListData,
   readStudentScope,
   listTenants,
 } from "../store";
 import {
+  narrowToDashboard,
   narrowToLessonWindow,
   narrowToPaymentsPage,
+  narrowToPayoutWindow,
   narrowToStudentScope,
   toPaymentStatusRow,
   toReferenceData,
+  type DashboardData,
   type LessonWindowData,
   type PaymentsPageData,
+  type PayoutWindowData,
   type ReferenceData,
   type StudentListData,
   type StudentScopeData,
@@ -188,4 +194,30 @@ const readScopedPaymentsPageDataByKey = cache(async (key: string): Promise<Payme
 /** DB egress (2026-09-30) — Ödemeler (bkz. reference-data.ts `PaymentsPageData`). */
 export async function readScopedPaymentsPageData(scope: InstitutionScope): Promise<PaymentsPageData> {
   return readScopedPaymentsPageDataByKey(scopeCacheKey(scope));
+}
+
+const readScopedPayoutWindowByKey = cache(async (key: string, fromIso: string, toIso: string): Promise<PayoutWindowData> => {
+  if (key.startsWith("single:")) {
+    return runWithTenantAsync(key.slice("single:".length), () => readPayoutWindow(fromIso, toIso));
+  }
+  return narrowToPayoutWindow(await readScopedDataByKey(key), new Date(fromIso), new Date(toIso));
+});
+
+/** DB egress (2026-09-30) — Hakedişler (bkz. reference-data.ts `PayoutWindowData`). */
+export async function readScopedPayoutWindow(scope: InstitutionScope, from: Date, to: Date): Promise<PayoutWindowData> {
+  return readScopedPayoutWindowByKey(scopeCacheKey(scope), from.toISOString(), to.toISOString());
+}
+
+const readScopedDashboardDataByKey = cache(
+  async (key: string, fromIso: string, toIso: string, nowIso: string): Promise<DashboardData> => {
+    if (key.startsWith("single:")) {
+      return runWithTenantAsync(key.slice("single:".length), () => readDashboardData(fromIso, toIso, nowIso));
+    }
+    return narrowToDashboard(await readScopedDataByKey(key), new Date(fromIso), new Date(toIso), new Date(nowIso));
+  }
+);
+
+/** DB egress (2026-09-30) — Panel özeti (bkz. reference-data.ts `DashboardData`). */
+export async function readScopedDashboardData(scope: InstitutionScope, from: Date, to: Date, now: Date): Promise<DashboardData> {
+  return readScopedDashboardDataByKey(scopeCacheKey(scope), from.toISOString(), to.toISOString(), now.toISOString());
 }

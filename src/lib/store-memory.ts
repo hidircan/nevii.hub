@@ -28,13 +28,17 @@ import { tryTenantId } from "./tenant-context";
 import { withClosedDayOverrides, withoutClosedDayOverrides } from "./closed-day-overrides";
 import { DEFAULT_TENANT_ID } from "./auth/config";
 import {
+  narrowToDashboard,
   narrowToLessonWindow,
   narrowToPaymentsPage,
+  narrowToPayoutWindow,
   narrowToStudentScope,
   toPaymentStatusRow,
   toReferenceData,
+  type DashboardData,
   type LessonWindowData,
   type PaymentsPageData,
+  type PayoutWindowData,
   type ReferenceData,
   type StudentListData,
   type StudentScopeData,
@@ -222,6 +226,16 @@ export async function readStudentScope(studentId: string): Promise<StudentScopeD
 /** Bkz. src/lib/reference-data.ts `narrowToLessonWindow`. */
 export async function readLessonWindow(fromIso: string, toIso: string): Promise<LessonWindowData> {
   return narrowToLessonWindow(await readData(), new Date(fromIso), new Date(toIso));
+}
+
+/** Bkz. src/lib/reference-data.ts `narrowToPayoutWindow`. */
+export async function readPayoutWindow(fromIso: string, toIso: string): Promise<PayoutWindowData> {
+  return narrowToPayoutWindow(await readData(), new Date(fromIso), new Date(toIso));
+}
+
+/** Bkz. src/lib/reference-data.ts `narrowToDashboard`. */
+export async function readDashboardData(fromIso: string, toIso: string, nowIso: string): Promise<DashboardData> {
+  return narrowToDashboard(await readData(), new Date(fromIso), new Date(toIso), new Date(nowIso));
 }
 
 /** Bkz. src/lib/reference-data.ts `narrowToPaymentsPage`. */

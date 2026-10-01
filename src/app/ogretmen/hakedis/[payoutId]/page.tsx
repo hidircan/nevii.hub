@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { PAYOUT_STATUS_LABEL, activePayments, payoutAdjustmentTotal, payoutBalance, payoutNetAmount, payoutPaidAmount } from "@/lib/payout-ledger";
 import { PORTAL_RECORD_MISSING_REDIRECT } from "@/lib/auth/portal-record-missing";
 import { BackButton } from "@/components/back-button";
-import { readData } from "@/lib/store";
+import { readPayoutWindow } from "@/lib/store";
 import { requireSessionContext } from "@/lib/auth/session";
 import { findOwnPayout } from "@/lib/teacher-portal-scope";
 import { computeTeacherEarningsWithRevisions } from "@/lib/teacher-payout";
@@ -31,11 +31,21 @@ export default async function TeacherOwnPayoutDetailPage({
     redirect(`/login?next=/ogretmen/hakedis/${payoutId}`);
   }
 
-  const data = await readData();
+  // DB egress: önce kayıtlar (boş ders penceresi), sonra yalnız bu hakediş döneminin dersleri — pencere
+  // hesabın gün süzgecinden ±2–3 gün geniş (bkz. /panel/hakedisler). Ekran tümüyle ikinci okumadan çizilir.
+  const now = new Date().toISOString();
+  const head = await readPayoutWindow(now, now);
   const teacherId = session.teacherId || "t2";
-  const teacher = data.teachers.find((t) => t.id === teacherId) ?? data.teachers[0];
+  const teacher = head.teachers.find((t) => t.id === teacherId) ?? head.teachers[0];
   if (!teacher) redirect(PORTAL_RECORD_MISSING_REDIRECT);
 
+  const own = findOwnPayout(head.teacherPayouts, payoutId, teacher.id);
+  const data = own
+    ? await readPayoutWindow(
+        new Date(Date.parse(own.periodStart) - 2 * 86_400_000).toISOString(),
+        new Date(Date.parse(own.periodEnd) + 3 * 86_400_000).toISOString()
+      )
+    : head;
   const payout = findOwnPayout(data.teacherPayouts, payoutId, teacher.id);
 
   if (!payout) {

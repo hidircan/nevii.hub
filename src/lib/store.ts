@@ -1,5 +1,13 @@
 import type { DemoSeedInput, DemoSeedResult } from "./demo-seed";
-import type { LessonWindowData, PaymentsPageData, ReferenceData, StudentListData, StudentScopeData } from "./reference-data";
+import type {
+  DashboardData,
+  LessonWindowData,
+  PaymentsPageData,
+  PayoutWindowData,
+  ReferenceData,
+  StudentListData,
+  StudentScopeData,
+} from "./reference-data";
 import { STORE_MODE } from "./config";
 import * as jsonStore from "./store-json";
 import * as dbStore from "./store-db";
@@ -48,24 +56,27 @@ import type { LessonScheduleUpdateOutcome } from "./lesson-update";
 import type { LessonTimeCorrection, LessonLiveUpdateResult } from "./lesson-live-status";
 
 type StoreApi = {
+  // DB egress (2026-09-30): yazma sonucunu hiçbir çağıranın kullanmadığı mutasyonlar `AppData | void`
+  // döner — json/memory veriyi zaten elinde tuttuğu için döndürebilir, db yazmadan sonra kurumun
+  // tamamını YENİDEN OKUMAZ. Genel sarmalayıcılar (aşağıda) `void` döner; sonuca ihtiyaç varsa okuyun.
   readData: () => Promise<AppData>;
-  resetData: () => Promise<AppData>;
-  resetToCleanTemplate: () => Promise<AppData>;
+  resetData: () => Promise<AppData | void>;
+  resetToCleanTemplate: () => Promise<AppData | void>;
   markAttendance: (input: {
     lessonId: string;
     status: AttendanceStatus;
     reason?: string;
-  }) => Promise<AppData>;
+  }) => Promise<AppData | void>;
   generateSuggestions: (requestId: string, options?: { maxSlots?: number }) => Promise<AppData>;
-  confirmSlot: (requestId: string, slot: MakeupSlot, decision: MakeupDecision) => Promise<AppData>;
-  cancelMakeup: (requestId: string, decision: MakeupDecision) => Promise<AppData>;
-  updateMakeupSlaEscalation: (requestId: string, level: number) => Promise<AppData>;
-  addStudent: (student: Omit<Student, "id" | "createdAt" | "active">) => Promise<AppData>;
-  updateStudentProfile: (studentId: string, patch: StudentProfilePatch) => Promise<AppData>;
+  confirmSlot: (requestId: string, slot: MakeupSlot, decision: MakeupDecision) => Promise<AppData | void>;
+  cancelMakeup: (requestId: string, decision: MakeupDecision) => Promise<AppData | void>;
+  updateMakeupSlaEscalation: (requestId: string, level: number) => Promise<AppData | void>;
+  addStudent: (student: Omit<Student, "id" | "createdAt" | "active">) => Promise<AppData | void>;
+  updateStudentProfile: (studentId: string, patch: StudentProfilePatch) => Promise<AppData | void>;
   /** MEB Paneli — sunucu-taraflı filtre/sıralama/sayfalama (üç modda AYNI semantik). */
   listMebStudents: (query: import("./meb-list").MebStudentQuery) => Promise<import("./meb-list").MebStudentListResult>;
-  setStudentPaymentPause: (studentId: string, state: StudentPaymentPauseState) => Promise<AppData>;
-  addTeacher: (teacher: Omit<Teacher, "id" | "active" | "color">) => Promise<AppData>;
+  setStudentPaymentPause: (studentId: string, state: StudentPaymentPauseState) => Promise<AppData | void>;
+  addTeacher: (teacher: Omit<Teacher, "id" | "active" | "color">) => Promise<AppData | void>;
   updateTeacherAvailability: (
     teacherId: string,
     availability: Teacher["availability"]
@@ -96,7 +107,7 @@ type StoreApi = {
     opts?: string | import("./store-json").MarkPaymentPaidOptions
   ) => Promise<AppData>;
   updatePayment: (paymentId: string, patch: import("./store-json").UpdatePaymentPatch) => Promise<AppData>;
-  addRoom: (room: Omit<Room, "id">) => Promise<AppData>;
+  addRoom: (room: Omit<Room, "id">) => Promise<AppData | void>;
   /** ÖNCELİK 4 (devam) — oda düzenleme. */
   updateRoom: (
     roomId: string,
@@ -121,7 +132,7 @@ type StoreApi = {
     description: string;
     amount: number;
     dueDate: string;
-  }) => Promise<AppData>;
+  }) => Promise<AppData | void>;
   /**
    * ÖNCELİK 4 — Yoklama Takvimi aylık planlanan tutar. studentId+month
    * (yyyy-MM) başına TEK kayıt — idempotent upsert, asla "paid" yapmaz,
@@ -194,7 +205,11 @@ type StoreApi = {
   readStudentListData: () => Promise<StudentListData>;
   /** Dar okuma — referans veri + tüm ödemeler + yalnız ödemelere bağlı dersler (Ödemeler). */
   readPaymentsPageData: () => Promise<PaymentsPageData>;
-  cancelLesson: (lessonId: string) => Promise<AppData>;
+  /** Dar okuma — hakediş penceresi: [from, to] dersleri + kayıtlı hakedişler + hariç tutmalar. */
+  readPayoutWindow: (fromIso: string, toIso: string) => Promise<PayoutWindowData>;
+  /** Dar okuma — Panel özeti (bkz. reference-data.ts `DashboardData`). */
+  readDashboardData: (fromIso: string, toIso: string, nowIso: string) => Promise<DashboardData>;
+  cancelLesson: (lessonId: string) => Promise<AppData | void>;
   startLessonLive: (lessonId: string) => Promise<LessonLiveUpdateResult>;
   endLessonLive: (lessonId: string) => Promise<LessonLiveUpdateResult>;
   applyLessonOpsFlagLive: (
@@ -234,8 +249,8 @@ type StoreApi = {
     lessonId: string,
     correction: LessonTimeCorrection
   ) => Promise<LessonLiveUpdateResult>;
-  addBranch: (branch: Omit<Branch, "id">) => Promise<AppData>;
-  updateBranch: (branchId: string, patch: Partial<Omit<Branch, "id">>) => Promise<AppData>;
+  addBranch: (branch: Omit<Branch, "id">) => Promise<AppData | void>;
+  updateBranch: (branchId: string, patch: Partial<Omit<Branch, "id">>) => Promise<AppData | void>;
   importBranches: (rows: BranchImportRow[]) => Promise<ImportCommitResult>;
   importTeachers: (rows: TeacherImportRow[]) => Promise<ImportCommitResult>;
   importRooms: (rows: RoomImportRow[]) => Promise<ImportCommitResult>;
@@ -263,7 +278,7 @@ type StoreApi = {
     paymentMethodOverride?: TeacherPayoutPaymentMethod
   ) => Promise<CreateTeacherPayoutResult>;
   markTeacherPayoutPaid: (payoutId: string, method?: string) => Promise<MarkPayoutPaidResult>;
-  replaceTeacherPayout: (payout: TeacherPayout) => Promise<AppData>;
+  replaceTeacherPayout: (payout: TeacherPayout) => Promise<AppData | void>;
   deleteTeacherPayout: (payoutId: string) => Promise<boolean>;
   deleteTeacherFeeRule: (ruleId: string) => Promise<boolean>;
   addTeacherPayoutExclusion: (x: import("./types").TeacherPayoutExclusion) => Promise<void>;
@@ -277,17 +292,17 @@ type StoreApi = {
     method: TeacherPayoutPaymentMethod
   ) => Promise<UpdateTeacherPayoutPaymentMethodResult>;
   updateFeeRoundingMode: (feeRoundingMode: FeeRoundingMode) => Promise<AppData>;
-  setStudentDeletion: (studentId: string, state: StudentDeletionState) => Promise<AppData>;
-  hardDeleteStudent: (studentId: string) => Promise<AppData>;
+  setStudentDeletion: (studentId: string, state: StudentDeletionState) => Promise<AppData | void>;
+  hardDeleteStudent: (studentId: string) => Promise<AppData | void>;
   updatePerformanceWeights: (
     performanceWeights: import("./performance-weights").PerformanceWeightsConfig
   ) => Promise<AppData>;
   updateMakeupWindowDays: (makeupWindowDays: number) => Promise<AppData>;
   updateMonthlyMakeupAllowance: (monthlyMakeupAllowance: number) => Promise<AppData>;
-  updateCollectionsSettings: (collectionsSettings: CollectionsSettings) => Promise<AppData>;
+  updateCollectionsSettings: (collectionsSettings: CollectionsSettings) => Promise<AppData | void>;
   updateTermWeeklyClosedDays: (termWeeklyClosedDays: { guz: number[]; yaz: number[] }) => Promise<AppData>;
-  updateAcademicTermDates: (academicTermDates: AcademicTermDates) => Promise<AppData>;
-  updateConsentSettings: (consentSettings: ConsentSettings) => Promise<AppData>;
+  updateAcademicTermDates: (academicTermDates: AcademicTermDates) => Promise<AppData | void>;
+  updateConsentSettings: (consentSettings: ConsentSettings) => Promise<AppData | void>;
   updateSchoolLogoUrl: (logoUrl: string) => Promise<AppData>;
   getDashboardStats: (data: AppData) => ReturnType<typeof jsonStore.getDashboardStats>;
   listTenants: () => Promise<{ tenantId: string; name: string }[]>;
@@ -389,6 +404,16 @@ export async function readPaymentsPageData(): Promise<PaymentsPageData> {
   return withTenantScope(() => store.readPaymentsPageData());
 }
 
+/** DB egress (2026-09-30) — Hakedişler / ay hakediş özeti (bkz. reference-data.ts `PayoutWindowData`). */
+export async function readPayoutWindow(fromIso: string, toIso: string): Promise<PayoutWindowData> {
+  return withTenantScope(() => store.readPayoutWindow(fromIso, toIso));
+}
+
+/** DB egress (2026-09-30) — Panel özeti; `readData()` ile aynı telafi süre-dolumu türetmesi uygulanır. */
+export async function readDashboardData(fromIso: string, toIso: string, nowIso: string): Promise<DashboardData> {
+  return applyMakeupExpiry(await withTenantScope(() => store.readDashboardData(fromIso, toIso, nowIso)));
+}
+
 /**
  * Süresi geçmiş (expiresAt < şimdi) ama hâlâ pending/suggested olan telafi
  * taleplerini "expired" olarak gösterir. Salt okunur türetme — kalıcı kaydı
@@ -406,8 +431,8 @@ function applyMakeupExpiry<T extends Pick<AppData, "makeupRequests">>(data: T): 
   return { ...data, makeupRequests };
 }
 
-export async function resetData(): Promise<AppData> {
-  return withTenantScope(() => store.resetData());
+export async function resetData(): Promise<void> {
+  await withTenantScope(() => store.resetData());
 }
 
 /**
@@ -415,16 +440,16 @@ export async function resetData(): Promise<AppData> {
  * eylem: mevcut kurum kimliğini (tenantId/ad) korur ama tüm demo
  * öğretmen/öğrenci/ders/ödeme kayıtlarını temizler.
  */
-export async function resetToCleanTemplate(): Promise<AppData> {
-  return withTenantScope(() => store.resetToCleanTemplate());
+export async function resetToCleanTemplate(): Promise<void> {
+  await withTenantScope(() => store.resetToCleanTemplate());
 }
 
 export async function markAttendance(input: {
   lessonId: string;
   status: AttendanceStatus;
   reason?: string;
-}): Promise<AppData> {
-  return withTenantScope(() => store.markAttendance(input));
+}): Promise<void> {
+  await withTenantScope(() => store.markAttendance(input));
 }
 
 export async function generateSuggestions(
@@ -438,37 +463,37 @@ export async function confirmSlot(
   requestId: string,
   slot: MakeupSlot,
   decision: MakeupDecision
-): Promise<AppData> {
-  return withTenantScope(() => store.confirmSlot(requestId, slot, decision));
+): Promise<void> {
+  await withTenantScope(() => store.confirmSlot(requestId, slot, decision));
 }
 
-export async function cancelMakeup(requestId: string, decision: MakeupDecision): Promise<AppData> {
-  return withTenantScope(() => store.cancelMakeup(requestId, decision));
+export async function cancelMakeup(requestId: string, decision: MakeupDecision): Promise<void> {
+  await withTenantScope(() => store.cancelMakeup(requestId, decision));
 }
 
-export async function updateMakeupSlaEscalation(requestId: string, level: number): Promise<AppData> {
-  return withTenantScope(() => store.updateMakeupSlaEscalation(requestId, level));
+export async function updateMakeupSlaEscalation(requestId: string, level: number): Promise<void> {
+  await withTenantScope(() => store.updateMakeupSlaEscalation(requestId, level));
 }
 
 export async function addStudent(
   student: Omit<Student, "id" | "createdAt" | "active">
-): Promise<AppData> {
-  return withTenantScope(() => store.addStudent(student));
+): Promise<void> {
+  await withTenantScope(() => store.addStudent(student));
 }
 
-export async function setStudentDeletion(studentId: string, state: StudentDeletionState): Promise<AppData> {
-  return withTenantScope(() => store.setStudentDeletion(studentId, state));
+export async function setStudentDeletion(studentId: string, state: StudentDeletionState): Promise<void> {
+  await withTenantScope(() => store.setStudentDeletion(studentId, state));
 }
 
-export async function hardDeleteStudent(studentId: string): Promise<AppData> {
-  return withTenantScope(() => store.hardDeleteStudent(studentId));
+export async function hardDeleteStudent(studentId: string): Promise<void> {
+  await withTenantScope(() => store.hardDeleteStudent(studentId));
 }
 
 export async function updateStudentProfile(
   studentId: string,
   patch: StudentProfilePatch
-): Promise<AppData> {
-  return withTenantScope(() => store.updateStudentProfile(studentId, patch));
+): Promise<void> {
+  await withTenantScope(() => store.updateStudentProfile(studentId, patch));
 }
 
 export async function listMebStudents(
@@ -477,14 +502,14 @@ export async function listMebStudents(
   return withTenantScope(() => store.listMebStudents(query));
 }
 
-export async function setStudentPaymentPause(studentId: string, state: StudentPaymentPauseState): Promise<AppData> {
-  return withTenantScope(() => store.setStudentPaymentPause(studentId, state));
+export async function setStudentPaymentPause(studentId: string, state: StudentPaymentPauseState): Promise<void> {
+  await withTenantScope(() => store.setStudentPaymentPause(studentId, state));
 }
 
 export async function addTeacher(
   teacher: Omit<Teacher, "id" | "active" | "color">
-): Promise<AppData> {
-  return withTenantScope(() => store.addTeacher(teacher));
+): Promise<void> {
+  await withTenantScope(() => store.addTeacher(teacher));
 }
 
 export async function updateTeacherAvailability(
@@ -553,8 +578,8 @@ export async function updatePayment(
   return withTenantScope(() => store.updatePayment(paymentId, patch));
 }
 
-export async function addRoom(room: Omit<Room, "id">): Promise<AppData> {
-  return withTenantScope(() => store.addRoom(room));
+export async function addRoom(room: Omit<Room, "id">): Promise<void> {
+  await withTenantScope(() => store.addRoom(room));
 }
 
 export async function updateRoom(
@@ -589,8 +614,8 @@ export async function addPayment(input: {
   description: string;
   amount: number;
   dueDate: string;
-}): Promise<AppData> {
-  return withTenantScope(() => store.addPayment(input));
+}): Promise<void> {
+  await withTenantScope(() => store.addPayment(input));
 }
 
 export async function addContractInstallments(input: {
@@ -649,8 +674,8 @@ export async function readLessonScope(
   return withTenantScope(() => store.readLessonScope(lessonId, targetStartAt));
 }
 
-export async function cancelLesson(lessonId: string): Promise<AppData> {
-  return withTenantScope(() => store.cancelLesson(lessonId));
+export async function cancelLesson(lessonId: string): Promise<void> {
+  await withTenantScope(() => store.cancelLesson(lessonId));
 }
 
 export async function startLessonLive(lessonId: string): Promise<LessonLiveUpdateResult> {
@@ -720,15 +745,15 @@ export async function correctLessonTimesLive(
   return withTenantScope(() => store.correctLessonTimesLive(lessonId, correction));
 }
 
-export async function addBranch(branch: Omit<Branch, "id">): Promise<AppData> {
-  return withTenantScope(() => store.addBranch(branch));
+export async function addBranch(branch: Omit<Branch, "id">): Promise<void> {
+  await withTenantScope(() => store.addBranch(branch));
 }
 
 export async function updateBranch(
   branchId: string,
   patch: Partial<Omit<Branch, "id">>
-): Promise<AppData> {
-  return withTenantScope(() => store.updateBranch(branchId, patch));
+): Promise<void> {
+  await withTenantScope(() => store.updateBranch(branchId, patch));
 }
 
 export async function importBranches(rows: BranchImportRow[]): Promise<ImportCommitResult> {
@@ -826,8 +851,8 @@ export async function removeTeacherPayoutExclusion(lessonId: string): Promise<bo
   return withTenantScope(() => store.removeTeacherPayoutExclusion(lessonId));
 }
 
-export async function replaceTeacherPayout(payout: TeacherPayout): Promise<AppData> {
-  return withTenantScope(() => store.replaceTeacherPayout(payout));
+export async function replaceTeacherPayout(payout: TeacherPayout): Promise<void> {
+  await withTenantScope(() => store.replaceTeacherPayout(payout));
 }
 
 export async function markTeacherPayoutPaid(
@@ -857,12 +882,12 @@ export async function updateMonthlyMakeupAllowance(monthlyMakeupAllowance: numbe
 
 export async function updateCollectionsSettings(
   collectionsSettings: CollectionsSettings
-): Promise<AppData> {
-  return withTenantScope(() => store.updateCollectionsSettings(collectionsSettings));
+): Promise<void> {
+  await withTenantScope(() => store.updateCollectionsSettings(collectionsSettings));
 }
 
-export async function updateConsentSettings(consentSettings: ConsentSettings): Promise<AppData> {
-  return withTenantScope(() => store.updateConsentSettings(consentSettings));
+export async function updateConsentSettings(consentSettings: ConsentSettings): Promise<void> {
+  await withTenantScope(() => store.updateConsentSettings(consentSettings));
 }
 
 export async function updateSchoolLogoUrl(logoUrl: string): Promise<AppData> {
@@ -875,8 +900,8 @@ export async function updateTermWeeklyClosedDays(
   return withTenantScope(() => store.updateTermWeeklyClosedDays(termWeeklyClosedDays));
 }
 
-export async function updateAcademicTermDates(academicTermDates: AcademicTermDates): Promise<AppData> {
-  return withTenantScope(() => store.updateAcademicTermDates(academicTermDates));
+export async function updateAcademicTermDates(academicTermDates: AcademicTermDates): Promise<void> {
+  await withTenantScope(() => store.updateAcademicTermDates(academicTermDates));
 }
 
 export function getDashboardStats(data: AppData) {

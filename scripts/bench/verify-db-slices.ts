@@ -42,6 +42,7 @@ async function main() {
   const slices = await import("../../src/lib/reference-data");
   const notifications = await import("../../src/lib/notifications");
   const platform = await import("../../src/lib/platform/store");
+  const institution = await import("../../src/lib/recruitment/institution");
   const { prisma } = await import("../../src/lib/db");
 
   const idsByTenant = new Map<string, Set<string>>();
@@ -53,6 +54,14 @@ async function main() {
       // Referans dilimi
       expectEqual(`${tid} readReferenceData`, norm(await db.readReferenceData()), norm(slices.toReferenceData(full)));
 
+      // Kariyer/İK kurum bilgisi: tek okul sorgusu ≡ eski `readData().settings` türetimi (logo dahil).
+      const s = full.settings;
+      expectEqual(
+        `${tid} getInstitutionInfo`,
+        norm(await institution.getInstitutionInfo(tid)),
+        norm({ name: s.name || "Kurum", logoUrl: s.logoUrl || undefined, phone: s.phone || undefined, email: s.email || undefined, website: s.website || undefined })
+      );
+
       // Öğrenci listesi dilimi
       expectEqual(
         `${tid} readStudentListData`,
@@ -62,6 +71,67 @@ async function main() {
 
       // Ödemeler dilimi (tüm ödemeler + yalnız bağlı dersler)
       expectEqual(`${tid} readPaymentsPageData`, norm(await db.readPaymentsPageData()), norm(slices.narrowToPaymentsPage(full)));
+
+      // Hakediş penceresi + Panel özeti: dilim eşitliği VE finans hesabı sonuç eşitliği (tam veri ↔ dilim), her ay.
+      const { buildPayoutOverviewRows } = await import("../../src/lib/payout-overview");
+      const { computeTeacherPayoutOverview } = await import("../../src/lib/teacher-payout-overview");
+      const { buildDashboardSummary } = await import("../../src/lib/dashboard/daily-summary");
+      const { computeSetupProgress } = await import("../../src/lib/setup-progress");
+      const day = (ymd: string, deltaDays: number) => new Date(Date.parse(`${ymd}T00:00:00Z`) + deltaDays * 86_400_000);
+      for (const month of ["2026-07", "2026-08", "2026-09", "2026-10", "2027-01", "2027-06"]) {
+        const [y, m] = month.split("-").map(Number) as [number, number];
+        const periodStart = `${month}-01`;
+        const periodEnd = `${month}-${String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, "0")}`;
+        const from = day(periodStart, -2);
+        const to = day(periodEnd, 3);
+        const win = await db.readPayoutWindow(from.toISOString(), to.toISOString());
+        expectEqual(`${tid} readPayoutWindow(${month})`, norm(win), norm(slices.narrowToPayoutWindow(full, from, to)));
+        expectEqual(
+          `${tid} hakediş satırları ${month} (tam ↔ dilim)`,
+          norm(buildPayoutOverviewRows(win, periodStart, periodEnd)),
+          norm(buildPayoutOverviewRows(full, periodStart, periodEnd))
+        );
+        // Panel özeti: "bugün" ayın 17'si varsayımıyla (bugünün dersleri + ay hakediş özeti aynı pencerede).
+        const today = `${month}-17`;
+        const now = new Date(`${today}T09:30:00Z`);
+        const dash = await db.readDashboardData(day(periodStart, -2).toISOString(), day(today, 3).toISOString(), now.toISOString());
+        expectEqual(
+          `${tid} readDashboardData(${month})`,
+          norm(dash),
+          norm(slices.narrowToDashboard(full, day(periodStart, -2), day(today, 3), now))
+        );
+        expectEqual(
+          `${tid} ay hakediş özeti ${month} (tam ↔ dilim)`,
+          computeTeacherPayoutOverview(dash, periodStart, today),
+          computeTeacherPayoutOverview(full, periodStart, today)
+        );
+        for (const branchId of ["all", ...full.settings.branches.map((b) => b.id)]) {
+          expectEqual(
+            `${tid} panel özeti ${month} şube=${branchId} (tam ↔ dilim)`,
+            norm(buildDashboardSummary(dash, { branchId, today, now }, new Map(), [], new Set())),
+            norm(buildDashboardSummary(full, { branchId, today, now }, new Map(), [], new Set()))
+          );
+        }
+        expectEqual(`${tid} kurulum ilerlemesi ${month}`, computeSetupProgress(dash, now), computeSetupProgress(full, now));
+      }
+
+      // Öğretmen portalı hakediş detayı: sayfanın kullandığı pencere (kayıt dönemi −2/+3 gün) ile ders dökümü ≡ tam veri.
+      const { computeTeacherEarningsWithRevisions } = await import("../../src/lib/teacher-payout");
+      const nowIso = new Date().toISOString();
+      expectEqual(`${tid} hakediş listesi (boş pencere)`, norm((await db.readPayoutWindow(nowIso, nowIso)).teacherPayouts), norm(full.teacherPayouts));
+      for (const p of full.teacherPayouts) {
+        const win = await db.readPayoutWindow(
+          new Date(Date.parse(p.periodStart) - 2 * 86_400_000).toISOString(),
+          new Date(Date.parse(p.periodEnd) + 3 * 86_400_000).toISOString()
+        );
+        const detail = computeTeacherEarningsWithRevisions(win, p.teacherId, p.periodStart, p.periodEnd);
+        expectEqual(
+          `${tid} öğretmen hakediş detayı ${p.id} (tam ↔ dilim)`,
+          norm(detail),
+          norm(computeTeacherEarningsWithRevisions(full, p.teacherId, p.periodStart, p.periodEnd))
+        );
+        expectTrue(`${tid} ${p.id} döküm boş değil`, detail.lines.length > 0);
+      }
 
       // Her öğrenci için öğrenci dilimi + tek satır okuma
       for (const s of full.students) {

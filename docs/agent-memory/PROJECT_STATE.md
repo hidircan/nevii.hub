@@ -10,11 +10,17 @@ Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_20
 - Dilimler tek yerde: `src/lib/reference-data.ts` (Reference / StudentScope / LessonWindow / StudentList / PaymentsPage);
   store-db Prisma ile ÜRETİR, json/memory tam veriden TÜRETİR. Ağır koleksiyonu olmayan tip → yanlış kullanım DERLENMEZ.
 - Yeni okuma API'leri: `readStudentById`, `readReferenceData`, `readStudentScope`, `readLessonWindow`,
-  `readStudentListData`, `readPaymentsPageData` (+ `institution/context` `readScoped*` karşılıkları). Bildirim zili db'de SQL sayfalı.
-- Bench (yerel, test hacmi, 21 akış): 43.6 MB → 7.3 MB (−%83), görünen içerik aynı. Rapor: `docs/performance/DB_EGRESS_2026_09_30.md`.
-- Doğrulama: `scripts/bench/verify-db-slices.ts` (2 081 kontrol, 0 hata), `db-egress-slices.test.ts`. Migration YOK.
-- Açık (öncelik): Panel özeti, Hakedişler, Telafi, Öğretmenler (kart TÜM ZAMAN ders sayısı gösterir — pencere yasak),
-  öğretmen detay sekmeleri, portal duyuru aracı. Kural: yeni ekran `readData()` yerine uygun dilimi kullanır.
+  `readStudentListData`, `readPaymentsPageData`, tur 2: `readPayoutWindow` (Hakedişler, öğretmen portalı hakediş
+  liste/detay), `readDashboardData` (Panel özeti) (+ `institution/context` `readScoped*`). Bildirim zili db'de SQL sayfalı.
+- Tur 2: 21 store mutasyonu artık `return readData()` yapmaz (public sarmalayıcı `Promise<void>`); kariyer/İK kurum
+  bilgisi tek okul satırı; portal canlı yenileme test/önizlemede 5 dk (production 45 sn aynen, `live-refresh.ts`).
+- Bench: tur 1 21 akış 43.6 → 7.3 MB (−%83); tur 2 25 akış 12.5 → 5.9 MB (−%53), mutasyon 1.3 MB → 0.1 KB; görünen
+  içerik aynı. Rapor: `docs/performance/DB_EGRESS_2026_09_30.md` (§4b tur 2, §5 kalan yollar).
+- Doğrulama: `scripts/bench/verify-db-slices.ts` (2 185 kontrol, 0 hata), `db-egress-slices.test.ts`. Migration YOK.
+- Supabase: Free plan 5 GB; 08 Eyl–08 Eki döngüsü 11.32 GB. Kısıtlama 30 Eki 2026'dan itibaren (kota aşımı sürerse).
+- Açık (öncelik): Telafi, Öğretmenler (kart TÜM ZAMAN ders sayısı — pencere yasak), panel öğretmen detayı +
+  `computeTeacherPayoutTool` (`describeLineSources` dönem dışı ders + seri ister), `/panel/odemeler/[id]`, makbuz,
+  dönüşü kullanılan 9 mutasyon. Kural: yeni ekran `readData()` yerine uygun dilimi kullanır.
 
 ## Güncel snapshot — 2026-09-30 (%100 burslu kayıt + 0 TL ilk tahsilat, Odalar filtreleri)
 - Kök neden: `studentSchema.firstPaymentCollected.amount` `positive()` → 0 reddediliyor, hata `firstPaymentCollected`

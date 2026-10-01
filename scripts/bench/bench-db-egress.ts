@@ -51,6 +51,10 @@ export const FLOWS: { name: string; path: string; as?: "teacher" | "student" }[]
   { name: "Oturum durumu API (30 sn polling)", path: "/api/v1/auth/session-status" },
   { name: "Öğretmen portalı — program (45 sn yenileme)", path: "/ogretmen/program", as: "teacher" },
   { name: "Öğrenci/veli portalı (45 sn yenileme)", path: "/ogrenci", as: "student" },
+  { name: "Öğretmen portalı — hakedişlerim", path: "/ogretmen/hakedis", as: "teacher" },
+  { name: "Öğretmen portalı — hakediş detayı", path: "/ogretmen/hakedis/tpb_1", as: "teacher" },
+  { name: "Kariyer sayfası (herkese açık)", path: "/kariyer/tenant_nilufer_acar" },
+  { name: "İK ayarları", path: "/panel/ik/ayarlar" },
 ];
 
 async function sleep(ms: number) {

@@ -1,4 +1,4 @@
-import type { AppData } from "./types";
+import type { AppData, Lesson } from "./types";
 
 export type SetupStepId = "school" | "teachers" | "rooms" | "students" | "firstLesson";
 
@@ -23,12 +23,23 @@ export type SetupProgress = {
  * planlı ders. Ödeme kaydı isteğe bağlıdır — `hasPayment` ayrı takip edilir,
  * `completedCount`/`isReady` hesabına katılmaz.
  */
-export function computeSetupProgress(data: AppData, now: Date = new Date()): SetupProgress {
+/**
+ * Okunan alanlar. `hasFutureScheduledLesson` dar okumalarda (Panel özeti yalnız bu ayın derslerini
+ * okur) DB'nin kesin cevabıdır — aynı kural: `status === "scheduled"` ve `startAt > now`. Verilmezse
+ * (tam `AppData`) `lessons` taranır; davranış aynıdır.
+ */
+export type SetupProgressInput = Pick<AppData, "settings" | "teachers" | "rooms" | "students"> & {
+  lessons: ReadonlyArray<Pick<Lesson, "status" | "startAt">>;
+  payments: ReadonlyArray<unknown>;
+  hasFutureScheduledLesson?: boolean;
+};
+
+export function computeSetupProgress(data: SetupProgressInput, now: Date = new Date()): SetupProgress {
   const hasBranch = data.settings.branches.length > 0;
   const hasActiveTeacher = data.teachers.some((t) => t.active);
   const hasRoom = data.rooms.length > 0;
   const hasActiveStudent = data.students.some((s) => s.active);
-  const hasFutureLesson = data.lessons.some(
+  const hasFutureLesson = data.hasFutureScheduledLesson ?? data.lessons.some(
     (l) => l.status === "scheduled" && new Date(l.startAt).getTime() > now.getTime()
   );
   const hasPayment = data.payments.length > 0;

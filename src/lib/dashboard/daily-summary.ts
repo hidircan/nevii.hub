@@ -25,6 +25,19 @@ import { isLiveObligation } from "../payment-profile";
 import { resolveLessonFinalStatus } from "../lesson-live-status";
 import { DEFAULT_APP_TIMEZONE, toZonedYmd } from "../timezone";
 
+/**
+ * DB egress (2026-09-30) — özetin OKUDUĞU alanlar. Ödemelerden yalnız toplam/vade/tahsilat için gereken
+ * sekiz alan (tüm satırlar), derslerden yalnız bugünün dersleri kullanılır; bu yüzden Panel özeti tam
+ * `AppData` yerine `DashboardData` dilimi verebilir (bkz. reference-data.ts). Tip, fazlasını derletmez.
+ */
+export type DashboardPaymentRow = Pick<
+  Payment,
+  "id" | "studentId" | "amount" | "paidAmount" | "status" | "dueDate" | "paidAt" | "contractId"
+>;
+export type DashboardSummaryInput = Pick<AppData, "settings" | "students" | "teachers" | "rooms" | "lessons" | "makeupRequests"> & {
+  payments: DashboardPaymentRow[];
+};
+
 /** "all" = şube süzgeci yok. */
 export type BranchFilter = string | "all";
 
@@ -121,7 +134,7 @@ function dayDiff(fromYmd: string, toYmd: string): number {
   return Math.round((b - a) / 86_400_000);
 }
 
-function remainingOf(p: Payment): number {
+function remainingOf(p: Pick<Payment, "amount" | "paidAmount">): number {
   return Math.max(p.amount - p.paidAmount, 0);
 }
 
@@ -137,7 +150,7 @@ export type ContractSummaryInput = {
 };
 
 export function buildDashboardSummary(
-  data: AppData,
+  data: DashboardSummaryInput,
   scope: DashboardScope,
   /** Öğrenci başına GÜNCEL sözleşme özeti (bkz. contracts.ts listContractSummariesByStudent). */
   contractsByStudent: Map<string, ContractSummaryInput>,
@@ -156,7 +169,7 @@ export function buildDashboardSummary(
   const studentById = new Map<string, Student>(data.students.map((s) => [s.id, s]));
 
   /** Ödeme satırının şubesi ÖĞRENCİDEN gelir — Payment'ta branchId yok. */
-  const paymentInScope = (p: Payment) =>
+  const paymentInScope = (p: DashboardPaymentRow) =>
     branchId === "all" || studentById.get(p.studentId)?.branchId === branchId;
   const payments = data.payments.filter(paymentInScope);
 
@@ -208,7 +221,7 @@ export function buildDashboardSummary(
 
   // ---- Tahsilat ----------------------------------------------------------
   const outstanding = payments.filter((p) => isLiveObligation(p, terminalContractIds));
-  const toDueRow = (p: Payment): DueRow => ({
+  const toDueRow = (p: DashboardPaymentRow): DueRow => ({
     paymentId: p.id,
     studentId: p.studentId,
     studentName: studentById.get(p.studentId)?.name ?? "—",

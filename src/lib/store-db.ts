@@ -74,13 +74,17 @@ import {
 } from "./lesson-update";
 import { lessonScopeDays } from "./lesson-scope";
 import {
+  narrowToDashboard,
   narrowToLessonWindow,
   narrowToPaymentsPage,
+  narrowToPayoutWindow,
   narrowToStudentScope,
   toPaymentStatusRow,
   toReferenceData,
+  type DashboardData,
   type LessonWindowData,
   type PaymentsPageData,
+  type PayoutWindowData,
   type ReferenceData,
   type StudentListData,
   type StudentScopeData,
@@ -1256,6 +1260,112 @@ export async function readLessonWindow(fromIso: string, toIso: string): Promise<
   return narrowToLessonWindow({ ...mapped, packages, discountCampaigns, teacherPayoutPolicies, closedDayOverrides }, from, to);
 }
 
+/** readData ile aynı hariç tutma eşlemesi (hakediş penceresi / panel özeti dilimleri). */
+async function readPayoutExclusions(tid: string): Promise<NonNullable<AppData["teacherPayoutExclusions"]>> {
+  const rows = await prisma.teacherPayoutExclusion.findMany({ where: { tenantId: tid } });
+  return rows.map((r) => ({ ...r, createdAt: r.createdAt.toISOString(), tenantId: undefined }));
+}
+
+/**
+ * DB egress (2026-09-30) — Hakedişler / ay hakediş özeti: referans veri + [from, to] penceresindeki
+ * TÜM dersler + TÜM kayıtlı hakedişler + hariç tutmalar (bkz. reference-data.ts `PayoutWindowData`).
+ */
+export async function readPayoutWindow(fromIso: string, toIso: string): Promise<PayoutWindowData> {
+  const tid = tenantId();
+  const from = new Date(fromIso);
+  const to = new Date(toIso);
+  const [school, packages, discountCampaigns, teacherPayoutPolicies, teacherPayoutExclusions, closedDayOverrides] =
+    await Promise.all([
+      prisma.school.findFirst({
+        where: { tenantId: tid },
+        omit: { logoUrl: true },
+        include: {
+          ...referenceSchoolInclude,
+          lessons: { where: { tenantId: tid, startAt: { gte: from, lte: to } } },
+          teacherPayouts: true,
+        },
+      }),
+      readPackages(tid),
+      readDiscountCampaigns(tid),
+      readTeacherPayoutPolicies(tid),
+      readPayoutExclusions(tid),
+      listClosedDays(tid).catch(() => []),
+    ]);
+  if (!school) return narrowToPayoutWindow(await readData(), from, to);
+  const mapped = mapSchoolToAppData({
+    ...school,
+    logoUrl: "",
+    lessonSeries: [],
+    attendances: [],
+    makeupRequests: [],
+    payments: [],
+  });
+  return narrowToPayoutWindow(
+    { ...mapped, packages, discountCampaigns, teacherPayoutPolicies, teacherPayoutExclusions, closedDayOverrides },
+    from,
+    to
+  );
+}
+
+/**
+ * DB egress (2026-09-30) — Panel özeti: hakediş penceresi + tüm ödemelerin özet alanları + telafi
+ * talepleri + gelecekte planlı ders var mı (bkz. reference-data.ts `DashboardData`).
+ */
+export async function readDashboardData(fromIso: string, toIso: string, nowIso: string): Promise<DashboardData> {
+  const tid = tenantId();
+  const from = new Date(fromIso);
+  const to = new Date(toIso);
+  const now = new Date(nowIso);
+  const [school, packages, discountCampaigns, teacherPayoutPolicies, teacherPayoutExclusions, closedDayOverrides, futureLesson] =
+    await Promise.all([
+      prisma.school.findFirst({
+        where: { tenantId: tid },
+        omit: { logoUrl: true },
+        include: {
+          ...referenceSchoolInclude,
+          lessons: { where: { tenantId: tid, startAt: { gte: from, lte: to } } },
+          teacherPayouts: true,
+          makeupRequests: true,
+          payments: {
+            select: { id: true, studentId: true, amount: true, paidAmount: true, status: true, dueDate: true, paidAt: true, contractId: true },
+          },
+        },
+      }),
+      readPackages(tid),
+      readDiscountCampaigns(tid),
+      readTeacherPayoutPolicies(tid),
+      readPayoutExclusions(tid),
+      listClosedDays(tid).catch(() => []),
+      prisma.lesson.findFirst({
+        where: { tenantId: tid, school: { tenantId: tid }, status: "scheduled", startAt: { gt: now } },
+        select: { id: true },
+      }),
+    ]);
+  if (!school) return narrowToDashboard(await readData(), from, to, now);
+  const { payments, ...rest } = school;
+  const mapped = mapSchoolToAppData({ ...rest, logoUrl: "", lessonSeries: [], attendances: [], payments: [] });
+  return {
+    ...narrowToPayoutWindow(
+      { ...mapped, packages, discountCampaigns, teacherPayoutPolicies, teacherPayoutExclusions, closedDayOverrides },
+      from,
+      to
+    ),
+    makeupRequests: mapped.makeupRequests,
+    // mapDbPayment ile aynı dönüşümler (ISO tarih, null → undefined).
+    payments: payments.map((p) => ({
+      id: p.id,
+      studentId: p.studentId,
+      amount: p.amount,
+      paidAmount: p.paidAmount,
+      status: p.status as import("./types").PaymentStatus,
+      dueDate: p.dueDate.toISOString(),
+      paidAt: p.paidAt?.toISOString() ?? undefined,
+      contractId: p.contractId ?? undefined,
+    })),
+    hasFutureScheduledLesson: Boolean(futureLesson),
+  };
+}
+
 /** DB egress (2026-09-30) — Ödemeler: referans veri + tüm ödemeler + yalnız ödemelere bağlı dersler. */
 export async function readPaymentsPageData(): Promise<PaymentsPageData> {
   const tid = tenantId();
@@ -1332,16 +1442,16 @@ export async function readStudentListData(): Promise<StudentListData> {
   };
 }
 
-export async function resetData(): Promise<AppData> {
+export async function resetData(): Promise<void> {
   logger.info("resetData", "resetting tenant demo data");
   const seed = createSeedData();
   seed.settings.tenantId = tenantId();
   await seedDatabase(seed);
-  return readData();
+  return;
 }
 
 /** Kurulum Merkezi — boş şablona sıfırla (bkz. store.ts resetToCleanTemplate). */
-export async function resetToCleanTemplate(): Promise<AppData> {
+export async function resetToCleanTemplate(): Promise<void> {
   logger.info("resetToCleanTemplate", "resetting tenant to clean template");
   const tid = tenantId();
   const current = await readData();
@@ -1350,7 +1460,7 @@ export async function resetToCleanTemplate(): Promise<AppData> {
   template.settings.name = current.settings.name;
   template.settings.shortName = current.settings.shortName;
   await seedDatabase(template);
-  return readData();
+  return;
 }
 
 /** Platform genelindeki tüm aktif kurumları (tenant) listeler — yalnız db modunda gerçek çokluluk vardır. */
@@ -1368,7 +1478,7 @@ export async function markAttendance(input: {
   lessonId: string;
   status: AttendanceStatus;
   reason?: string;
-}): Promise<AppData> {
+}): Promise<void> {
   logger.info("markAttendance", input.lessonId, input.status);
 
   const tid = requireTenantId();
@@ -1438,7 +1548,7 @@ export async function markAttendance(input: {
         },
         { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
       );
-      return await readData();
+      return;
     } catch (err: unknown) {
       if (isRetryablePrismaError(err) && attempt < maxRetries) {
         logger.warn("markAttendance: transient DB error, retrying", attempt, (err as Error).message);
@@ -1478,7 +1588,7 @@ export async function confirmSlot(
   requestId: string,
   slot: MakeupSlot,
   decision: MakeupDecision
-): Promise<AppData> {
+): Promise<void> {
   logger.info("confirmSlot", requestId, slot.startAt, slot.teacherId, slot.roomId);
   const tid = requireTenantId();
   const data = await readData();
@@ -1527,10 +1637,10 @@ export async function confirmSlot(
     },
   });
 
-  return readData();
+  return;
 }
 
-export async function cancelMakeup(requestId: string, decision: MakeupDecision): Promise<AppData> {
+export async function cancelMakeup(requestId: string, decision: MakeupDecision): Promise<void> {
   logger.info("cancelMakeup", requestId);
   const tid = requireTenantId();
   const updated = await prisma.makeupRequest.updateMany({
@@ -1543,22 +1653,22 @@ export async function cancelMakeup(requestId: string, decision: MakeupDecision):
     },
   });
   if (updated.count === 0) throw new Error("Telafi talebi bulunamadı");
-  return readData();
+  return;
 }
 
-export async function updateMakeupSlaEscalation(requestId: string, level: number): Promise<AppData> {
+export async function updateMakeupSlaEscalation(requestId: string, level: number): Promise<void> {
   const tid = requireTenantId();
   const updated = await prisma.makeupRequest.updateMany({
     where: { id: requestId, tenantId: tid },
     data: { slaEscalationLevel: level },
   });
   if (updated.count === 0) throw new Error("Telafi talebi bulunamadı");
-  return readData();
+  return;
 }
 
 export async function addStudent(
   student: Omit<Student, "id" | "createdAt" | "active">
-): Promise<AppData> {
+): Promise<void> {
   logger.info("addStudent", student.name);
   const tid = requireTenantId();
   const branch = await prisma.branch.findFirst({
@@ -1601,11 +1711,11 @@ export async function addStudent(
       enrollmentEndDate: student.enrollmentEndDate ? new Date(student.enrollmentEndDate) : undefined,
     },
   });
-  return readData();
+  return;
 }
 
 /** Geri alınabilir öğrenci silme — bkz. store-json.ts aynı adlı fonksiyon. */
-export async function setStudentDeletion(studentId: string, state: StudentDeletionState): Promise<AppData> {
+export async function setStudentDeletion(studentId: string, state: StudentDeletionState): Promise<void> {
   const tid = requireTenantId();
   const existing = await prisma.student.findFirst({ where: { id: studentId, tenantId: tid }, select: { archivedAt: true } });
   if (!existing) throw new Error("Öğrenci bulunamadı");
@@ -1621,11 +1731,11 @@ export async function setStudentDeletion(studentId: string, state: StudentDeleti
         }
       : { deletedAt: null, deletedByUserId: null, deletionReason: null },
   });
-  return readData();
+  return;
 }
 
 /** Kalıcı silme — yalnız bağlı kaydı olmayan öğrenci (FK ilişkileri boş olmalı). */
-export async function hardDeleteStudent(studentId: string): Promise<AppData> {
+export async function hardDeleteStudent(studentId: string): Promise<void> {
   const tid = requireTenantId();
   const counts = await prisma.student.findFirst({
     where: { id: studentId, tenantId: tid },
@@ -1636,13 +1746,13 @@ export async function hardDeleteStudent(studentId: string): Promise<AppData> {
   if (!counts) throw new Error("Öğrenci bulunamadı");
   if (Object.values(counts._count).some((n) => n > 0)) throw new Error("STUDENT_HAS_LINKED_RECORDS");
   await prisma.student.deleteMany({ where: { id: studentId, tenantId: tid } });
-  return readData();
+  return;
 }
 
 export async function updateStudentProfile(
   studentId: string,
   patch: StudentProfilePatch
-): Promise<AppData> {
+): Promise<void> {
   logger.info("updateStudentProfile", studentId);
   const tid = requireTenantId();
   const result = await prisma.student.updateMany({
@@ -1726,7 +1836,7 @@ export async function updateStudentProfile(
     },
   });
   if (result.count === 0) throw new Error("Öğrenci bulunamadı");
-  return readData();
+  return;
 }
 
 /**
@@ -1830,7 +1940,7 @@ export async function listMebStudents(query: MebStudentQuery): Promise<MebStuden
 }
 
 /** Nilüfer Acar politikası §1E — bkz. store-json.ts aynı adlı fonksiyon; `state=null` reaktivasyonda alanları null'lar. */
-export async function setStudentPaymentPause(studentId: string, state: StudentPaymentPauseState): Promise<AppData> {
+export async function setStudentPaymentPause(studentId: string, state: StudentPaymentPauseState): Promise<void> {
   logger.info("setStudentPaymentPause", studentId);
   const tid = requireTenantId();
   const result = await prisma.student.updateMany({
@@ -1843,12 +1953,12 @@ export async function setStudentPaymentPause(studentId: string, state: StudentPa
     },
   });
   if (result.count === 0) throw new Error("Öğrenci bulunamadı");
-  return readData();
+  return;
 }
 
 export async function addTeacher(
   teacher: Omit<Teacher, "id" | "active" | "color">
-): Promise<AppData> {
+): Promise<void> {
   logger.info("addTeacher", teacher.name);
   const tid = requireTenantId();
   const branch = await prisma.branch.findFirst({
@@ -1880,7 +1990,7 @@ export async function addTeacher(
       hireDate: teacher.hireDate ? new Date(teacher.hireDate) : undefined,
     },
   });
-  return readData();
+  return;
 }
 
 /**
@@ -2025,7 +2135,7 @@ export async function addBranch(branch: {
   address: string;
   phone: string;
   city: string;
-}): Promise<AppData> {
+}): Promise<void> {
   logger.info("addBranch", branch.name);
   const tid = requireTenantId();
   const school = await prisma.school.findFirst({ where: { tenantId: tid }, select: { id: true } });
@@ -2042,13 +2152,13 @@ export async function addBranch(branch: {
       city: branch.city,
     },
   });
-  return readData();
+  return;
 }
 
 export async function updateBranch(
   branchId: string,
   patch: Partial<{ name: string; shortName: string; address: string; phone: string; city: string }>
-): Promise<AppData> {
+): Promise<void> {
   logger.info("updateBranch", branchId);
   const tid = requireTenantId();
   const result = await prisma.branch.updateMany({
@@ -2056,7 +2166,7 @@ export async function updateBranch(
     data: patch,
   });
   if (result.count === 0) throw new Error("Şube bulunamadı");
-  return readData();
+  return;
 }
 
 /**
@@ -2322,7 +2432,7 @@ export async function importStudents(rows: StudentImportRow[]): Promise<ImportCo
   return { data: await readData(), created, updated };
 }
 
-export async function addRoom(room: Omit<Room, "id">): Promise<AppData> {
+export async function addRoom(room: Omit<Room, "id">): Promise<void> {
   logger.info("addRoom", room.name);
   const tid = requireTenantId();
   const branch = await prisma.branch.findFirst({
@@ -2340,7 +2450,7 @@ export async function addRoom(room: Omit<Room, "id">): Promise<AppData> {
       instruments: room.instruments,
     },
   });
-  return readData();
+  return;
 }
 
 /** ÖNCELİK 4 (devam) — oda düzenleme (ad/kapasite/şube/enstrüman/aktiflik). */
@@ -2551,7 +2661,7 @@ export async function updateLessonSchedule(input: {
   return { ok: true, lesson: result.lesson, previousStartAt: original.startAt };
 }
 
-export async function cancelLesson(lessonId: string): Promise<AppData> {
+export async function cancelLesson(lessonId: string): Promise<void> {
   logger.info("cancelLesson", lessonId);
   const tid = requireTenantId();
   const data = await readData();
@@ -2571,7 +2681,7 @@ export async function cancelLesson(lessonId: string): Promise<AppData> {
     data: { status: "voided" },
   });
 
-  return readData();
+  return;
 }
 
 async function reloadLessonLiveResult(lessonId: string): Promise<LessonLiveUpdateResult> {
@@ -3545,7 +3655,7 @@ export async function setTeacherPayoutPolicy(
 }
 
 /** K — hakediş revizyonu/ödeme geri alma (bkz. store-json.ts aynı adlı fonksiyon). */
-export async function replaceTeacherPayout(payout: TeacherPayout): Promise<AppData> {
+export async function replaceTeacherPayout(payout: TeacherPayout): Promise<void> {
   const tid = requireTenantId();
   // İyimser kilit: yalnız okunduğu sürümdeyse yazılır (eşzamanlı ikinci ödeme/düzeltme çift kayıt üretmez).
   const res = await prisma.teacherPayout.updateMany({
@@ -3553,7 +3663,7 @@ export async function replaceTeacherPayout(payout: TeacherPayout): Promise<AppDa
     data: { ...payoutWriteFields(payout), version: { increment: 1 } },
   });
   if (res.count === 0) throw new Error(STALE_PAYOUT_ERROR);
-  return readData();
+  return;
 }
 
 export async function markTeacherPayoutPaid(
@@ -3608,13 +3718,13 @@ export async function updateMakeupWindowDays(makeupWindowDays: number): Promise<
 
 export async function updateCollectionsSettings(
   collectionsSettings: CollectionsSettings
-): Promise<AppData> {
+): Promise<void> {
   const tid = requireTenantId();
   await prisma.school.update({
     where: { tenantId: tid },
     data: { collectionsSettings: collectionsSettings as unknown as Prisma.InputJsonValue },
   });
-  return readData();
+  return;
 }
 
 export async function updateTermWeeklyClosedDays(
@@ -3633,7 +3743,7 @@ export async function updateTermWeeklyClosedDays(
   return readData();
 }
 
-export async function updateAcademicTermDates(academicTermDates: AcademicTermDates): Promise<AppData> {
+export async function updateAcademicTermDates(academicTermDates: AcademicTermDates): Promise<void> {
   const tid = requireTenantId();
   const current = await prisma.school.findUnique({
     where: { tenantId: tid },
@@ -3644,16 +3754,16 @@ export async function updateAcademicTermDates(academicTermDates: AcademicTermDat
     where: { tenantId: tid },
     data: { termWeeklyClosedDays: merged as unknown as Prisma.InputJsonValue },
   });
-  return readData();
+  return;
 }
 
-export async function updateConsentSettings(consentSettings: ConsentSettings): Promise<AppData> {
+export async function updateConsentSettings(consentSettings: ConsentSettings): Promise<void> {
   const tid = requireTenantId();
   await prisma.school.update({
     where: { tenantId: tid },
     data: { consentSettings: consentSettings as unknown as Prisma.InputJsonValue },
   });
-  return readData();
+  return;
 }
 
 export async function updateSchoolLogoUrl(logoUrl: string): Promise<AppData> {
@@ -3667,7 +3777,7 @@ export async function addPayment(input: {
   description: string;
   amount: number;
   dueDate: string;
-}): Promise<AppData> {
+}): Promise<void> {
   logger.info("addPayment", input.studentId, input.amount);
   const tid = requireTenantId();
   const student = await prisma.student.findFirst({
@@ -3688,7 +3798,7 @@ export async function addPayment(input: {
       description: input.description,
     },
   });
-  return readData();
+  return;
 }
 
 /** FEATURE A — bkz. store.ts yorumu. `createMany` — tek toplu yazma, id çakışma riski yok (uid() rastgele). */

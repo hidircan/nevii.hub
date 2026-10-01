@@ -19,7 +19,7 @@ import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { InstitutionWelcome } from "@/components/institution-welcome";
 import { AssistantPageContext } from "@/components/ai/assistant-page-context";
 import { requireSessionContext } from "@/lib/auth/session";
-import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
+import { getInstitutionContext, readScopedDashboardData } from "@/lib/institution/context";
 import { getUserPreferences } from "@/lib/user-preferences";
 import { listContractSummariesByStudent, listTerminalContractIdsForScope } from "@/lib/contracts";
 import { listTasks } from "@/lib/tasks";
@@ -93,7 +93,18 @@ export default async function DashboardPage({
   }
 
   const kurum = await getInstitutionContext(session);
-  const data = await readScopedData(kurum.scope);
+  const now = new Date();
+  const today = toZonedYmd(now, DEFAULT_APP_TIMEZONE);
+  // DB egress: kurumun tüm dersleri yerine bu ayın (bugün dahil) ders penceresi, ödemelerin yalnız özet
+  // alanları, telafiler ve kayıtlı hakedişler (bkz. reference-data.ts `DashboardData`). Pencere, özet ve
+  // ay hakediş hesabının kendi gün süzgecinden ±2–3 gün geniş; "gelecekte planlı ders" DB'den.
+  const monthStartDay = `${today.slice(0, 7)}-01`;
+  const data = await readScopedDashboardData(
+    kurum.scope,
+    new Date(Date.parse(`${monthStartDay}T00:00:00Z`) - 2 * 86_400_000),
+    new Date(Date.parse(`${today}T00:00:00Z`) + 3 * 86_400_000),
+    now
+  );
   const prefs = await getUserPreferences(session.userId, session.tenantId);
   // Widget yetkisi = sidebar görünürlüğü (panel/layout.tsx ile aynı kapılar).
   const widgetAccess: ScreenWidgetAccess = {
@@ -108,8 +119,6 @@ export default async function DashboardPage({
   const savedDefault = prefs.dashboard?.defaultBranchId;
   const defaultBranchId = savedDefault && (savedDefault === "all" || branchIds.has(savedDefault)) ? savedDefault : "all";
   const activeBranchId = sube && (sube === "all" || branchIds.has(sube)) ? sube : defaultBranchId;
-
-  const today = toZonedYmd(new Date(), DEFAULT_APP_TIMEZONE);
 
   // Sözleşme özetleri ve görevler TEK sorguda; merged "tüm kurumlar"
   // görünümünde sözleşme okuması tek tenant'a bağlı olduğu için atlanır.
@@ -145,7 +154,7 @@ export default async function DashboardPage({
   // Rol sınırı — sidebar'daki "Finans Özeti"/"Personel" ile AYNI: yalnız kurum sahibi.
   const isOwner = session.role === "SUPER_ADMIN";
   const payoutOverview = isOwner
-    ? computeTeacherPayoutOverview(data, `${today.slice(0, 7)}-01`, today)
+    ? computeTeacherPayoutOverview(data, monthStartDay, today)
     : null;
 
   const branchLabel =

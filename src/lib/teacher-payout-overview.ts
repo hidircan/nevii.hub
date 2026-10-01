@@ -1,6 +1,6 @@
 import { format, parseISO } from "date-fns";
 import type { AppData } from "./types";
-import { computeTeacherEarningsForPeriod } from "./teacher-payout";
+import { computeTeacherEarningsForPeriod, type PayoutLedgerData } from "./teacher-payout";
 import { activePayments, payoutBalance } from "./payout-ledger";
 
 function dayKey(iso: string): string {
@@ -28,7 +28,7 @@ export type TeacherPayoutOverview = {
  *   bu dönemdeki eksik-ücret-kurallı tamamlanmış ders sayısı toplamı.
  */
 export function computeTeacherPayoutOverview(
-  data: AppData,
+  data: PayoutLedgerData & Pick<AppData, "teachers">,
   periodStart: string,
   periodEnd: string
 ): TeacherPayoutOverview {

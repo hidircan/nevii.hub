@@ -124,7 +124,7 @@ describe("Faz 12 — createStudentTool displayId tahsisi (json modu)", () => {
     // plan dokümanı "Bilinen, kapsam dışı" bölümü). Sıra numarası tahsisinin
     // KENDİSİ (asıl bu testin doğrulaması gereken şey) `addStudent`
     // (store-json.ts, `mutateStoreUnderLock`) seviyesinde zaten doğru.
-    const results = await Promise.all(
+    await Promise.all(
       Array.from({ length: 8 }, (_, i) =>
         addStudent({
           ...base,
@@ -133,7 +133,8 @@ describe("Faz 12 — createStudentTool displayId tahsisi (json modu)", () => {
         })
       )
     );
-    const last = results[results.length - 1]!;
+    // Store yazmaları sonuç döndürmez (db egress) — son durumu okuyarak doğrula.
+    const last = await readData();
     const displayIds = last.students
       .filter((s) => s.name.startsWith("Eşzamanlı "))
       .map((s) => s.displayId);
@@ -149,7 +150,7 @@ describe("Faz 12 — addTeacher displayId tahsisi", () => {
     const branch = before.settings.branches[0];
     expect(branch).toBeDefined();
 
-    const next = await addTeacher({
+    await addTeacher({
       name: "Faz 12 Test Öğretmeni",
       email: "",
       phone: "05551112233",
@@ -158,6 +159,7 @@ describe("Faz 12 — addTeacher displayId tahsisi", () => {
       availability: [],
       maxDailyLessons: 6,
     });
+    const next = await readData();
     const created = next.teachers[next.teachers.length - 1];
     expect(created?.displayId).toMatch(/^T\d{5}$/);
   });

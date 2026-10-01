@@ -2705,7 +2705,7 @@ export async function updateStudentProfileTool(
   // NeviiOS — şube müdürü: yalnız kendi şubesindeki öğrencinin temel
   // operasyonel alanları; kimlik/ücret/sorumluluk/şube taşıma YOK.
   if (ctx.role === "BRANCH_MANAGER") {
-    const student = (await readData()).students.find((s) => s.id === v.data.studentId);
+    const student = await readStudentById(v.data.studentId);
     if (!student) return fail("NOT_FOUND", "Öğrenci bulunamadı");
     const gate = await assertBranchOperation(ctx, "students", "update", student.branchId);
     if (!gate.ok) return gate;
@@ -2717,7 +2717,7 @@ export async function updateStudentProfileTool(
   }
 
   if (v.data.branchId) {
-    const data = await readData();
+    const data = await readReferenceData();
     if (!data.settings.branches.some((b) => b.id === v.data.branchId)) {
       return fail("VALIDATION_ERROR", `Geçersiz şube: "${v.data.branchId}".`);
     }
@@ -2730,7 +2730,8 @@ export async function updateStudentProfileTool(
   // vb.) eski eksik kayıtları KIRMAZ. Sonuç MEB-değilse gelen MEB
   // değerleri STRIP edilir — gizli alan yazılmaz, kayıtlı eski MEB verisi
   // SİLİNMEZ (tür tekrar seçilince geri gelir).
-  const mebCurrent = (await readData()).students.find((s) => s.id === v.data.studentId);
+  // DB egress: öğrenci kaydetme başına 4 tam okuma yapılıyordu — hepsi tek öğrenci/şube listesi içindi.
+  const mebCurrent = await readStudentById(v.data.studentId);
   if (!mebCurrent) return fail("NOT_FOUND", "Öğrenci bulunamadı");
   const mebMerged = mergeMebForUpdate(mebCurrent, v.data);
   let mebStrip = false;
@@ -2778,7 +2779,7 @@ export async function updateStudentProfileTool(
       delete profilePatch.mebExamDate;
       delete profilePatch.mebExamAttended;
     }
-    const before = (await readData()).students.find((s) => s.id === studentId);
+    const before = await readStudentById(studentId);
     await updateStudentProfile(studentId, profilePatch);
     // Ders süresi TEK kanonik alandır (Student.lessonDurationMinutes). Paketli öğrencide
     // aylık ücret süreye bağlı olduğu için süre hangi ekrandan değişirse değişsin ücret

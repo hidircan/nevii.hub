@@ -1377,3 +1377,10 @@ Aynı turda: `validateLessonSlot` oda `active`'ini hiç okumuyordu → telafi pa
   Öğretmenler kartı "tüm zamanların ders sayısı"nı gösteriyordu — pencereye çevirmek sayıyı sessizce değiştirirdi.
 - Ölçüm: gerçek sayfaları yerel `next start` + pg soket bayt sayacıyla ölç, görünen metni önce/sonra karşılaştır
   (`scripts/bench/`); Suspense akışlı sayfada metin sırası değişebilir → sıradan bağımsız özet kullan.
+
+## 2026-09-30 — Ölçer `npx` sürecini ölçtü (0 sorgu); pencere dilimi kimlikle aranan satırı kaçırır
+- `NODE_OPTIONS=--import pg-meter.mjs npx tsx …`: seçenek `npx`'in kendi node sürecine de geçer, ölçer portunu o
+  kapar → mutasyon ölçümü "0 sorgu / 0 KB" döndü. Tek süreç: `node --import pg-meter.mjs --import tsx script.ts`
+  (sonuçta `pid === process.pid` kontrolü). Sıfır ölçüm = önce ölçerin doğru süreçte olduğunu kanıtla.
+- Dönem penceresi yalnız TARİHE göre süzen hesaba yeter; kayıttaki satırı KİMLİKLE arayan kod (`describeLineSources`:
+  sonradan taşınmış ders, seri demo etiketi) pencereyle sessizce "eksik" der → böyle yollar dilime çevrilmez.

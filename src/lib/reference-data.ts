@@ -16,6 +16,7 @@
  * fonksiyonla TÜRETİR — üç mod aynı şekli görür.
  */
 import type { AppData, Payment } from "./types";
+import type { DashboardPaymentRow } from "./dashboard/daily-summary";
 
 export type ReferenceData = Pick<AppData, "settings" | "teachers" | "students" | "rooms" | "teacherFeeRules"> & {
   packages: NonNullable<AppData["packages"]>;
@@ -90,6 +91,54 @@ export type PaymentsPageData = ReferenceData & Pick<AppData, "payments" | "lesso
 export function narrowToPaymentsPage(data: AppData): PaymentsPageData {
   const lessonIds = new Set(data.payments.map((p) => p.lessonId).filter((id): id is string => Boolean(id)));
   return { ...toReferenceData(data), payments: data.payments, lessons: data.lessons.filter((l) => lessonIds.has(l.id)) };
+}
+
+/**
+ * HAKEDİŞ PENCERESİ dilimi: ders penceresi (TÜM öğretmenlerin dersleri) + TÜM kayıtlı hakedişler +
+ * hariç tutmalar. Hakediş hesabı (`computeTeacherEarningsForPeriod`, kayıtlı/canlı fark) dersleri
+ * dönemin gün anahtarlarıyla kendisi süzer; çağıran pencereyi dönemden ±2 gün GENİŞ verir.
+ */
+export type PayoutWindowData = LessonWindowData &
+  Pick<AppData, "teacherPayouts"> & { teacherPayoutExclusions: NonNullable<AppData["teacherPayoutExclusions"]> };
+
+export function narrowToPayoutWindow(data: AppData, from: Date, to: Date): PayoutWindowData {
+  return {
+    ...narrowToLessonWindow(data, from, to),
+    teacherPayouts: data.teacherPayouts,
+    teacherPayoutExclusions: data.teacherPayoutExclusions ?? [],
+  };
+}
+
+/**
+ * PANEL ÖZETİ dilimi: hakediş penceresi (bu ay; bugünün dersleri de içinde) + TÜM ödemelerin
+ * özetin okuduğu sekiz alanı + TÜM telafi talepleri + "gelecekte planlı ders var mı" (kurulum
+ * ilerlemesi pencere dışına bakar — DB'nin kesin cevabı, aynı kural).
+ */
+export type DashboardData = PayoutWindowData &
+  Pick<AppData, "makeupRequests"> & { payments: DashboardPaymentRow[]; hasFutureScheduledLesson: boolean };
+
+export function toDashboardPaymentRow(p: DashboardPaymentRow): DashboardPaymentRow {
+  return {
+    id: p.id,
+    studentId: p.studentId,
+    amount: p.amount,
+    paidAmount: p.paidAmount,
+    status: p.status,
+    dueDate: p.dueDate,
+    paidAt: p.paidAt,
+    contractId: p.contractId,
+  };
+}
+
+export function narrowToDashboard(data: AppData, from: Date, to: Date, now: Date): DashboardData {
+  return {
+    ...narrowToPayoutWindow(data, from, to),
+    makeupRequests: data.makeupRequests,
+    payments: data.payments.map(toDashboardPaymentRow),
+    hasFutureScheduledLesson: data.lessons.some(
+      (l) => l.status === "scheduled" && new Date(l.startAt).getTime() > now.getTime()
+    ),
+  };
 }
 
 export function toReferenceData(data: AppData): ReferenceData {

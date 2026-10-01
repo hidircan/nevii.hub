@@ -15,6 +15,18 @@ import { addPaymentData } from "./payout-ledger";
 import { uid } from "./utils";
 import { isLessonProcessedForPayout } from "./lesson-ops";
 
+/**
+ * DB egress (2026-09-30) — hakediş hesabının OKUDUĞU alanlar. Dönem hesabı yalnız bu koleksiyonlara
+ * bakar ve dersleri dönemin gün anahtarlarıyla süzer; bu yüzden tam `AppData` yerine dönem penceresi
+ * dilimi (bkz. reference-data.ts `PayoutWindowData`) verilebilir — tip, fazlasını okumayı derletmez.
+ */
+export type PayoutComputationData = Pick<
+  AppData,
+  "students" | "settings" | "lessons" | "teacherFeeRules" | "teacherPayoutPolicies" | "teacherPayoutExclusions"
+>;
+/** Kayıtlı hakedişlerle (donmuş satırlar / fark) birlikte hesap. */
+export type PayoutLedgerData = PayoutComputationData & Pick<AppData, "teacherPayouts">;
+
 /** ISO tarih/saat girdisinden gün-hassasiyetli, yerel takvim anahtarı üretir — saat dilimi kaymasına karşı güvenli. */
 function toDayKey(iso: string): string {
   return format(parseISO(iso), "yyyy-MM-dd");
@@ -352,7 +364,7 @@ export type TeacherEarningsResult = {
  * `TeacherFeeRule.perMinuteRate`'i değiştirmez, yalnızca hangi dakika
  * sayısının bu oranla çarpılacağını belirler.
  */
-function payableMinutesFor(data: AppData, actualMinutes: number): number {
+function payableMinutesFor(data: Pick<AppData, "settings">, actualMinutes: number): number {
   switch (data.settings.feeRoundingMode) {
     case "round_30":
       // Öğretmen lehine: dilimin herhangi bir kısmı tam dilim sayılır.
@@ -389,7 +401,7 @@ function payableMinutesFor(data: AppData, actualMinutes: number): number {
  *   ve bu bayraklar yoksa ders sayılır.
  */
 export function computeTeacherEarningsForPeriod(
-  data: AppData,
+  data: PayoutComputationData,
   teacherId: string,
   periodStart: string,
   periodEnd: string
@@ -678,7 +690,7 @@ function toSnapshotLines(lines: TeacherEarningsLine[]): TeacherPayoutSnapshotLin
 }
 
 /** Kayıtlı hakedişin donmuş dökümü (kalemler kayıttan); eski kayıtta canlı hesap. */
-export function payoutBaseEarnings(data: AppData, payout: TeacherPayout): TeacherEarningsResult {
+export function payoutBaseEarnings(data: PayoutComputationData, payout: TeacherPayout): TeacherEarningsResult {
   if (!payout.lineSnapshot) return computeTeacherEarningsForPeriod(data, payout.teacherId, payout.periodStart, payout.periodEnd);
   const lines: TeacherEarningsLine[] = payout.lineSnapshot.map((l) => ({
     ...l,
@@ -702,7 +714,7 @@ export function payoutBaseEarnings(data: AppData, payout: TeacherPayout): Teache
  * = güncel hesap (satır düzeltmeleri uygulanmış) − (kayıttaki hesap + "recalc" düzeltmeleri).
  * Ödemesiz kayıtta `recomputePayoutData` ile sıfırlanır; ödemeli kayıtta düzeltme kaydıyla kapatılır.
  */
-export function payoutDrift(data: AppData, payout: TeacherPayout): number {
+export function payoutDrift(data: PayoutComputationData, payout: TeacherPayout): number {
   if (payout.status === "cancelled" || !payout.lineSnapshot) return 0;
   const live = applyPayoutLineOverrides(
     computeTeacherEarningsForPeriod(data, payout.teacherId, payout.periodStart, payout.periodEnd),
@@ -898,7 +910,7 @@ function formatLineLabel(line: TeacherEarningsLine): string {
  * Snapshot oluşturma ve revizyonun kendisi ham `computeTeacherEarningsForPeriod` kullanır.
  */
 export function computeTeacherEarningsWithRevisions(
-  data: AppData,
+  data: PayoutLedgerData,
   teacherId: string,
   periodStart: string,
   periodEnd: string

@@ -16,10 +16,12 @@ import {
   setLessonOpsFlagTool,
 } from "../services/tools";
 import {
+  readDashboardData,
   readData,
   readLessonScope,
   readLessonWindow,
   readPaymentsPageData,
+  readPayoutWindow,
   readReferenceData,
   readStudentById,
   readStudentListData,
@@ -30,14 +32,19 @@ import { runWithTenantAsync } from "../tenant-context";
 import { DEFAULT_TENANT_ID } from "../auth/config";
 import type { ServiceContext } from "../services/context";
 import {
+  narrowToDashboard,
   narrowToLessonWindow,
   narrowToPaymentsPage,
+  narrowToPayoutWindow,
   narrowToStudentScope,
   toPaymentStatusRow,
   toReferenceData,
 } from "../reference-data";
-import { computeTeacherEarningsForPeriod } from "../teacher-payout";
-import { buildPayoutOverviewRows } from "../payout-overview";
+import { computeTeacherEarningsForPeriod, computeTeacherEarningsWithRevisions, payoutDrift } from "../teacher-payout";
+import { buildPayoutOverviewRows, passiveTeacherOpenPayouts } from "../payout-overview";
+import { computeTeacherPayoutOverview } from "../teacher-payout-overview";
+import { buildDashboardSummary } from "../dashboard/daily-summary";
+import { computeSetupProgress } from "../setup-progress";
 import { computeStudentPaymentSummary, sortPaymentsForProfile } from "../payment-profile";
 import { resolveLessonFinalStatus } from "../lesson-live-status";
 import { createNotification, listNotificationsPageForUser, markNotificationRead, NOTIFICATIONS_FILE } from "../notifications";
@@ -272,6 +279,75 @@ describe("finans semantiği dilimlerle değişmez", () => {
       full.payments.filter((p) => p.studentId === "s1").map(toPaymentStatusRow)
     );
     expect(list.payments.length).toBe(full.payments.length);
+  });
+});
+
+describe("hakediş penceresi ve Panel özeti dilimleri — finans sonucu tam veriyle aynı", () => {
+  const day = (ymd: string, delta: number) => new Date(Date.parse(`${ymd}T00:00:00Z`) + delta * 86_400_000);
+  const SEP = { start: "2026-09-01", end: "2026-09-30" };
+  const sepWindow = () => readPayoutWindow(day(SEP.start, -2).toISOString(), day(SEP.end, 3).toISOString());
+
+  it("Eylül'de Geldi dersleri pencereli hakediş hesabına girer; satırlar/toplamlar tam veriyle birebir aynı", async () => {
+    await seedTwoStudents();
+    for (const lessonId of ["x1", "x2"]) {
+      expect((await setLessonOpsFlagTool(ctx(), { lessonId, flag: "attended", confirmSwitch: true })).ok).toBe(true);
+    }
+    const full = await readData();
+    const win = await sepWindow();
+    expect(win).toEqual(narrowToPayoutWindow(full, day(SEP.start, -2), day(SEP.end, 3)));
+    expect(buildPayoutOverviewRows(win, SEP.start, SEP.end)).toEqual(buildPayoutOverviewRows(full, SEP.start, SEP.end));
+    const lines = computeTeacherEarningsWithRevisions(win, "t1", SEP.start, SEP.end).lines.map((l) => l.lessonId);
+    expect(lines).toEqual(expect.arrayContaining(["x1", "x2"]));
+    // Pencere dışındaki ay dersleri hesaba sızmaz, pencere içindekiler eksilmez.
+    expect(computeTeacherEarningsForPeriod(win, "t1", SEP.start, SEP.end)).toEqual(
+      computeTeacherEarningsForPeriod(full, "t1", SEP.start, SEP.end)
+    );
+  });
+
+  it("kayıtlı hakediş donmuş satırla, iptal edilen kayıt canlı hesapla gösterilir; fark (drift) dilimde de aynı", async () => {
+    await seedTwoStudents();
+    await setLessonOpsFlagTool(ctx(), { lessonId: "x1", flag: "attended", confirmSwitch: true });
+    const created = await createTeacherPayoutTool(ctx(), { teacherId: "t1", periodStart: SEP.start, periodEnd: SEP.end });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    // Kayıttan SONRA ikinci ders de Geldi → canlı hesap kayıttan farklılaşır (sessizce yeniden yazılmaz).
+    await setLessonOpsFlagTool(ctx(), { lessonId: "x2", flag: "attended", confirmSwitch: true });
+    let full = await readData();
+    let win = await sepWindow();
+    const payout = full.teacherPayouts.find((p) => p.id === created.data.payout.id)!;
+    expect(payoutDrift(win, payout)).toBe(payoutDrift(full, payout));
+    expect(payoutDrift(win, payout)).toBeGreaterThan(0);
+    expect(buildPayoutOverviewRows(win, SEP.start, SEP.end)).toEqual(buildPayoutOverviewRows(full, SEP.start, SEP.end));
+    expect(passiveTeacherOpenPayouts(win)).toEqual(passiveTeacherOpenPayouts(full));
+
+    expect((await cancelTeacherPayoutTool(ctx(), { payoutId: payout.id, reason: "Test iptali — yeniden hesap" })).ok).toBe(true);
+    full = await readData();
+    win = await sepWindow();
+    const row = buildPayoutOverviewRows(win, SEP.start, SEP.end).find((r) => r.teacher.id === "t1")!;
+    expect(row.hasRecord).toBe(false);
+    expect(buildPayoutOverviewRows(win, SEP.start, SEP.end)).toEqual(buildPayoutOverviewRows(full, SEP.start, SEP.end));
+  });
+
+  it("Panel özeti: tahsilat/açık/gecikmiş toplamları, bugünün dersleri, ay hakediş özeti ve kurulum ilerlemesi tam veriyle aynı", async () => {
+    await seedTwoStudents();
+    await setLessonOpsFlagTool(ctx(), { lessonId: "x1", flag: "attended", confirmSwitch: true });
+    const today = "2026-09-15";
+    const now = new Date("2026-09-15T08:00:00Z");
+    const full = await readData();
+    const dash = await readDashboardData(day("2026-09-01", -2).toISOString(), day(today, 3).toISOString(), now.toISOString());
+    expect(dash).toEqual(narrowToDashboard(full, day("2026-09-01", -2), day(today, 3), now));
+    for (const branchId of ["all", ...full.settings.branches.map((b) => b.id)]) {
+      const scope = { branchId, today, now };
+      expect(buildDashboardSummary(dash, scope, new Map(), [], new Set())).toEqual(
+        buildDashboardSummary(full, scope, new Map(), [], new Set())
+      );
+    }
+    const summary = buildDashboardSummary(dash, { branchId: "all", today, now }, new Map(), [], new Set());
+    expect(summary.money.overdueTotal).toBeGreaterThanOrEqual(3200);
+    expect(summary.todayLessons.map((l) => l.id)).toContain("x2");
+    expect(computeTeacherPayoutOverview(dash, "2026-09-01", today)).toEqual(computeTeacherPayoutOverview(full, "2026-09-01", today));
+    expect(computeSetupProgress(dash, now)).toEqual(computeSetupProgress(full, now));
+    expect(dash.payments).toHaveLength(full.payments.length);
   });
 });
 

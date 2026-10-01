@@ -19,7 +19,7 @@
  *  - Toplamlar yalnız listelenen satırlardan hesaplanır → rapor = detay.
  *  - Devamsızlık/iptal hakedişten OTOMATİK kesinti üretmez (owner onayı olmadan yeni finans kuralı yok).
  */
-import { computeTeacherEarningsWithRevisions, payoutDrift, payoutPeriodDayKey } from "./teacher-payout";
+import { computeTeacherEarningsWithRevisions, payoutDrift, payoutPeriodDayKey, type PayoutLedgerData } from "./teacher-payout";
 import { payoutAdjustmentTotal, payoutBalance, payoutNetAmount, payoutPaidAmount } from "./payout-ledger";
 import type { AppData, Teacher, TeacherPayoutStatus } from "./types";
 
@@ -56,7 +56,11 @@ export type PayoutOverviewRow = {
   durationExceptions: number;
 };
 
-export function buildPayoutOverviewRows(data: AppData, periodStart: string, periodEnd: string): PayoutOverviewRow[] {
+export function buildPayoutOverviewRows(
+  data: PayoutLedgerData & Pick<AppData, "teachers">,
+  periodStart: string,
+  periodEnd: string
+): PayoutOverviewRow[] {
   const startKey = payoutPeriodDayKey(periodStart);
   const endKey = payoutPeriodDayKey(periodEnd);
   const rows: PayoutOverviewRow[] = [];

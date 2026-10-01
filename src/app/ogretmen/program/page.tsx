@@ -20,6 +20,7 @@ import { computeLiveDisplayStatus, resolveLessonFinalStatus } from "@/lib/lesson
 import { LessonCountdown } from "@/components/lesson-countdown";
 import { isMonday } from "@/lib/closed-days";
 import { ProgramLiveRefresh } from "@/components/program-live-refresh";
+import { liveRefreshIntervalMs } from "@/lib/env/live-refresh";
 
 export const dynamic = "force-dynamic";
 
@@ -73,7 +74,7 @@ export default async function TeacherOwnProgramPage({
 
   return (
     <div>
-      <ProgramLiveRefresh />
+      <ProgramLiveRefresh intervalMs={liveRefreshIntervalMs()} />
 
       <main className="mx-auto max-w-lg space-y-3 px-4 py-6">
         <div className="flex flex-wrap items-center justify-between gap-2 px-1">
