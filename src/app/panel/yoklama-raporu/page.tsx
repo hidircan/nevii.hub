@@ -8,7 +8,7 @@ import { formatDateTime } from "@/lib/utils";
 import { LessonStatusBadge } from "@/components/lesson-status-badge";
 import { computeAllStudentAttendanceRisks } from "@/lib/insights/attendance-risk";
 import { AiInsightTrigger } from "@/components/ai/ai-insight-trigger";
-import Link from "next/link";
+import Link from "@/components/link";
 import { ScopeTabs } from "@/components/scope-tabs";
 import { TeacherAttendanceView } from "./teacher-view";
 

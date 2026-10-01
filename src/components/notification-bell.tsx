@@ -9,7 +9,7 @@
  * Tıklanınca okundu + güvenli dahili rotaya gider (notification-href).
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/link";
 import { useRouter } from "next/navigation";
 import { Bell, Check, CheckCheck } from "lucide-react";
 import { formatDateTime } from "@/lib/utils";
@@ -47,9 +47,13 @@ export function NotificationBell({ role }: { role: AppRole }) {
   }, []);
 
   useEffect(() => {
+    let last = Date.now();
     const timer = setTimeout(() => void refresh(), 0);
     function onFocus() {
-      if (document.visibilityState === "visible") void refresh();
+      // Sekmeye dönüşte visibilitychange + focus birlikte gelir; 60 sn içinde yeniden sorulmaz (Vercel Active CPU).
+      if (document.visibilityState !== "visible" || Date.now() - last < 60_000) return;
+      last = Date.now();
+      void refresh();
     }
     document.addEventListener("visibilitychange", onFocus);
     window.addEventListener("focus", onFocus);

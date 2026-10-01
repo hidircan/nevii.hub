@@ -10,7 +10,7 @@
  */
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/link";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Badge, Card, Input, Label, Select } from "@/components/ui";
 import { MebRowEditor, type MebEditorBranch } from "@/components/meb-row-editor";

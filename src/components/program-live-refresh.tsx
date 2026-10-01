@@ -9,12 +9,13 @@
  * sayfaya eklenip mount edilir.
  *
  * Aralık sunucudan gelir (`liveRefreshIntervalMs`, src/lib/env/live-refresh.ts):
- * production 45 sn; test/önizleme 5 dk (DB egress). 0 → yalnız sekmeye dönünce.
+ * her ortamda 5 dk (Vercel Active CPU + DB egress). 0 → yalnız sekmeye dönünce.
  */
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { LIVE_REFRESH_MS } from "@/lib/env/live-refresh";
 
-export function ProgramLiveRefresh({ intervalMs = 45_000 }: { intervalMs?: number }) {
+export function ProgramLiveRefresh({ intervalMs = LIVE_REFRESH_MS }: { intervalMs?: number }) {
   const router = useRouter();
 
   useEffect(() => {

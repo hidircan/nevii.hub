@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { PLATFORM_BRAND } from "@/lib/platform/brand";
 import { homePathForRole } from "@/lib/auth/role-routes";
 import type { AppRole } from "@/lib/auth/types";

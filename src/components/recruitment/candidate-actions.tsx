@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/link";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { CalendarPlus, Download, Mail, Printer, ShieldOff, Star, ThumbsDown, ThumbsUp, UserPlus, X } from "lucide-react";

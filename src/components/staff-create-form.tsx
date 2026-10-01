@@ -9,7 +9,7 @@
  */
 
 import { useState, useTransition } from "react";
-import Link from "next/link";
+import Link from "@/components/link";
 import { actionCreateStaffMember } from "@/lib/actions";
 import { Button, Card, Input, Label, Select } from "@/components/ui";
 

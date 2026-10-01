@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { redirect } from "next/navigation";
 import { Music } from "lucide-react";
 import { requireSessionContext } from "@/lib/auth/session";

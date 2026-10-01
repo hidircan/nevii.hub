@@ -1,5 +1,5 @@
 import { ChangeHistory } from "@/components/change-history";
-import Link from "next/link";
+import Link from "@/components/link";
 import { redirect } from "next/navigation";
 import { ArrowRight } from "lucide-react";
 import { BackButton } from "@/components/back-button";

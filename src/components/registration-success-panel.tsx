@@ -16,7 +16,7 @@
  */
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/link";
 import { Card } from "@/components/ui";
 import { describePaymentDueRule, paymentMethodLabel } from "@/lib/payment-due-rule-client";
 import { formatDateTr } from "@/lib/timezone";

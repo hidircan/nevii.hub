@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import Link from "next/link";
+import Link from "@/components/link";
 import { requireSessionContext } from "@/lib/auth/session";
 import { getPortalPageStudentId } from "@/lib/portal-context";
 import { listSocialMediaConsentHistoryTool } from "@/lib/services";

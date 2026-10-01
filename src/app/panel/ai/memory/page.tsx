@@ -2,7 +2,7 @@ import { PageHeader, Card, Badge } from "@/components/ui";
 import { listMemoriesForAdmin } from "@/lib/ai/memory";
 import { requireSessionContext } from "@/lib/auth/session";
 import { redirect } from "next/navigation";
-import Link from "next/link";
+import Link from "@/components/link";
 import { formatDateTime } from "@/lib/utils";
 import { MemoryDeleteButton } from "@/components/memory-delete-button";
 import { canRunCriticalActions } from "@/lib/critical-action-password";

@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { Pencil, Users, ExternalLink } from "lucide-react";
 import { PageHeader, EmptyState } from "@/components/ui";
 import { requireRecruitmentPage } from "@/lib/recruitment/page-context";

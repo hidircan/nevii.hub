@@ -4,7 +4,7 @@ import { listApplicationsTool } from "@/lib/recruitment/tools";
 import { parseApplicationFilter } from "@/lib/recruitment/filters";
 import { runWithTenantAsync } from "@/lib/tenant-context";
 import { KanbanBoard } from "@/components/recruitment/kanban-board";
-import Link from "next/link";
+import Link from "@/components/link";
 
 export const dynamic = "force-dynamic";
 

@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { redirect } from "next/navigation";
 import { ChevronLeft, ChevronRight, ArrowLeft } from "lucide-react";
 import { Card, PageHeader } from "@/components/ui";

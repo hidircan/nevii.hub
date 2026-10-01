@@ -1,6 +1,6 @@
 import { canRunCriticalActions } from "@/lib/critical-action-password";
 import { redirect } from "next/navigation";
-import Link from "next/link";
+import Link from "@/components/link";
 import { requireSessionContext } from "@/lib/auth/session";
 import { getInstitutionContext, readScopedReferenceData } from "@/lib/institution/context";
 import { KurumScopeNote } from "@/components/kurum-scope-note";

@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { redirect } from "next/navigation";
 import { Badge, Card, EmptyState, PageHeader } from "@/components/ui";
 import { BackButton } from "@/components/back-button";

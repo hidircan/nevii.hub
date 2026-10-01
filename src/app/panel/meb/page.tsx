@@ -4,7 +4,7 @@
  * SCHOOL_ADMIN/SUPER_ADMIN görebilir (tool katmanında da kontrol edilir).
  */
 
-import Link from "next/link";
+import Link from "@/components/link";
 import { redirect } from "next/navigation";
 import { Award, CalendarDays, ClipboardList, Users } from "lucide-react";
 import { requireSessionContext } from "@/lib/auth/session";

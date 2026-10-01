@@ -7,7 +7,7 @@ import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { ExternalLink, Loader2, Sparkles, TriangleAlert, X } from "lucide-react";
 import { addDays as addDaysDate, addMinutes, differenceInMinutes, format, isSameDay, parseISO, startOfDay } from "date-fns";
-import Link from "next/link";
+import Link from "@/components/link";
 import { tr } from "date-fns/locale";
 import {
   actionAddLesson,

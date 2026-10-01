@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { redirect, notFound } from "next/navigation";
 import { startOfMonth, endOfMonth, format } from "date-fns";
 import { actionComputeTeacherPayout } from "@/lib/actions";

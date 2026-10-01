@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/link";
 import { useEffect, useRef, useState } from "react";
 import { AlertTriangle, CalendarX, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui";

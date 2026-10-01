@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { getTeacherAttendanceReportTool } from "@/lib/services";
 import type { ServiceContext } from "@/lib/services/context";
 import { Card, Input, Label, Select } from "@/components/ui";

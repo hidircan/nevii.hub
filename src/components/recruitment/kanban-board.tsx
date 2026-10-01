@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/link";
 import { useOptimistic, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { GripVertical } from "lucide-react";

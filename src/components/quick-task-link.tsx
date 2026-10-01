@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { ListChecks } from "lucide-react";
 import type { RelatedEntityType } from "@/lib/types";
 

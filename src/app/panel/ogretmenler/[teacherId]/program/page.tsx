@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { notFound } from "next/navigation";
 import { Card } from "@/components/ui";
 import { computeLessonDurationRow } from "@/lib/lesson-duration-report";

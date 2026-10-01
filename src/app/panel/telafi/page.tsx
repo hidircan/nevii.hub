@@ -4,7 +4,7 @@ import { Badge, Card, EmptyState, PageHeader } from "@/components/ui";
 import { MakeupDecisionForm } from "@/components/makeup-decision-form";
 import { GenerateSuggestionsForm } from "@/components/generate-suggestions-form";
 import { ManualMakeupPlanForm } from "@/components/manual-makeup-plan-form";
-import Link from "next/link";
+import Link from "@/components/link";
 import { differenceInCalendarDays, parseISO } from "date-fns";
 import { formatDateTime, formatTime } from "@/lib/utils";
 import { isRoomSchedulable, validateLessonSlot } from "@/lib/makeup-engine";

@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/link";
 import { usePathname } from "next/navigation";
 import { BarChart3, Briefcase, Columns3, Mail, Settings, Users } from "lucide-react";
 

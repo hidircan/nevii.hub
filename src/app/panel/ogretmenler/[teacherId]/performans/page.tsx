@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { redirect, notFound } from "next/navigation";
 import { subDays, format } from "date-fns";
 import { getTeacherPerformanceReportV2Tool } from "@/lib/services";

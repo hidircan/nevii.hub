@@ -78,8 +78,16 @@ export function GlobalAssistant() {
   // client-side navigations (that's what lets the chat survive a page
   // change) — including navigating from /login to /panel right after
   // signing in. A mount-only effect would only ever see the pre-login,
-  // signed-out state, so re-check whenever the route changes instead.
+  // signed-out state, so re-check whenever the portal (first path segment)
+  // changes — /login → /panel, /panel → /ogretmen, logout. Not on every
+  // in-portal navigation: that was one extra function call per click
+  // (Vercel Active CPU, 2026-10-01).
   const pathname = usePathname();
+  const portal = pathname?.split("/")[1] ?? "";
+  // Sohbet gövdesi (konuşma listesi isteği) ilk açılışta mount edilir, sonra açık kalır;
+  // asistanı hiç açmayan kullanıcı için her sayfa açılışında /api/v1/chat çağrılmaz.
+  const [chatMounted, setChatMounted] = useState(isOpen);
+  if (isOpen && !chatMounted) setChatMounted(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -116,7 +124,7 @@ export function GlobalAssistant() {
     return () => {
       cancelled = true;
     };
-  }, [pathname]);
+  }, [portal]);
 
   // Pick up any prefill queued via useAssistant().open({ prefill }) once open.
   // `takePrefill()` mutates a ref (one-shot consume) — a genuine external-system
@@ -269,14 +277,16 @@ export function GlobalAssistant() {
           </div>
 
           <div className="min-h-0 flex-1">
-            <AssistantChatBody
-              quickActions={quickActions}
-              prefillText={prefill}
-              onPrefillConsumed={() => setPrefill(null)}
-              initialConversationId={activeConversationId}
-              onConversationIdChange={setActiveConversationId}
-              expandHref="/panel/maestron-ai"
-            />
+            {chatMounted ? (
+              <AssistantChatBody
+                quickActions={quickActions}
+                prefillText={prefill}
+                onPrefillConsumed={() => setPrefill(null)}
+                initialConversationId={activeConversationId}
+                onConversationIdChange={setActiveConversationId}
+                expandHref="/panel/maestron-ai"
+              />
+            ) : null}
           </div>
         </div>
       </div>

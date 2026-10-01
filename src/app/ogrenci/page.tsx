@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { redirect } from "next/navigation";
 import { PORTAL_RECORD_MISSING_REDIRECT } from "@/lib/auth/portal-record-missing";
 import {
@@ -110,7 +110,7 @@ export default async function OgrenciPortalPage({
   const resolvedStudentId = resolution ? resolution.studentId : session.studentId;
   if (!resolvedStudentId) redirect(PORTAL_RECORD_MISSING_REDIRECT);
   // DB egress: yalnız bu öğrencinin dilimi (ders/ödeme/telafi satırları + referans veri). Aşağıdaki
-  // her ağır erişim zaten `student.id` ile süzülü; sayfa sekme açıkken 45 sn'de bir yenilenir
+  // her ağır erişim zaten `student.id` ile süzülü; sayfa sekme açıkken 5 dk'da bir yenilenir
   // (ProgramLiveRefresh) — eskiden her yenileme kurumun TÜM verisini okuyordu.
   const data = await readStudentScope(resolvedStudentId);
   const student = data.students.find((s) => s.id === resolvedStudentId);

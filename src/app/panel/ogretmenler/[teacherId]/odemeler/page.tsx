@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { redirect, notFound } from "next/navigation";
 import { TeacherPayoutHistory } from "@/components/teacher-payout-history";
 import { loadTeacherPageContext } from "../_context";

@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/link";
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Download, FileText, Mail, Printer, ThumbsDown, ThumbsUp } from "lucide-react";

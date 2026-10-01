@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, Mail, Phone, MapPin, Link2, FileText, Clock, MessageSquare, CalendarClock, Star, Send, Info } from "lucide-react";
 import { Card, EmptyState } from "@/components/ui";

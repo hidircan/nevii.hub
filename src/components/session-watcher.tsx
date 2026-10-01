@@ -5,12 +5,13 @@ import { usePathname } from "next/navigation";
 import { ModalShell, modalButton } from "@/components/modal-shell";
 
 const PROTECTED_PREFIXES = ["/panel", "/ogretmen", "/veli", "/ogrenci", "/sube", "/platform"];
-const POLL_MS = 30_000;
+// Vercel Active CPU (2026-10-01): 30 sn, açık her sekme için günde ~2.900 fonksiyon çağrısıydı.
+const POLL_MS = 5 * 60_000;
 
 /**
  * N — tek aktif oturum: bu cihazın oturumu başka cihazdan devralınırsa kullanıcıyı
  * net bir diyalogla bilgilendirir ve giriş ekranına yönlendirir. Yalnız korumalı
- * ekranlarda, sekme görünürken 30 sn'de bir ve sekmeye dönüldüğünde yoklar.
+ * ekranlarda, sekme görünürken 5 dk'da bir ve sekmeye dönüldüğünde yoklar.
  */
 export function SessionWatcher() {
   const pathname = usePathname() ?? "";
@@ -20,8 +21,10 @@ export function SessionWatcher() {
   useEffect(() => {
     if (!active || takenOverAt !== undefined) return;
     let stopped = false;
+    let last = 0;
     async function check() {
       if (document.visibilityState !== "visible") return;
+      last = Date.now();
       try {
         const res = await fetch("/api/v1/auth/session-status", { credentials: "include", cache: "no-store" });
         const json = (await res.json()) as { ok: boolean; data?: { state: string; at?: string | null } };
@@ -32,7 +35,10 @@ export function SessionWatcher() {
     }
     void check();
     const id = window.setInterval(check, POLL_MS);
-    const onVisible = () => void check();
+    // Sekmeye dönüşte visibilitychange + focus birlikte gelir; 60 sn içinde yeniden sorulmaz (Vercel Active CPU).
+    const onVisible = () => {
+      if (Date.now() - last >= 60_000) void check();
+    };
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("focus", onVisible);
     return () => {

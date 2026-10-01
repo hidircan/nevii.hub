@@ -5,7 +5,7 @@ import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { withReturnTo } from "@/lib/safe-return-to";
 import { useCurrentPath } from "@/lib/use-current-path";
 import { useListReturnState } from "@/lib/use-list-return-state";
-import Link from "next/link";
+import Link from "@/components/link";
 import { ArrowDown, ArrowUp, ChevronsUpDown, FileText, ShieldCheck } from "lucide-react";
 import { Card } from "@/components/ui";
 import { DocumentArchiveButton } from "@/components/document-archive-button";

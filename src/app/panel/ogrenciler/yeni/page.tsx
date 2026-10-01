@@ -9,7 +9,7 @@ import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { getCurrentConsentTextVersionTool } from "@/lib/services";
 import { getTrialLesson } from "@/lib/trial-lessons";
 import { formatDateTime } from "@/lib/utils";
-import Link from "next/link";
+import Link from "@/components/link";
 
 export const dynamic = "force-dynamic";
 

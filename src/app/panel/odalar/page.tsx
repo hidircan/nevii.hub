@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { readReferenceData } from "@/lib/store";
 import { requireSessionContext } from "@/lib/auth/session";
 import { redirect } from "next/navigation";

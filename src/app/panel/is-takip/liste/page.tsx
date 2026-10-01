@@ -1,5 +1,5 @@
 import { canRunCriticalActions } from "@/lib/critical-action-password";
-import Link from "next/link";
+import Link from "@/components/link";
 import { redirect } from "next/navigation";
 import { requireSessionContext } from "@/lib/auth/session";
 import { getInstitutionContext, readScopedReferenceData } from "@/lib/institution/context";

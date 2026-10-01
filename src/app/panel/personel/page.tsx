@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import Link from "next/link";
+import Link from "@/components/link";
 import { Wallet, CalendarDays, CreditCard } from "lucide-react";
 import { requireSessionContext } from "@/lib/auth/session";
 import { getInstitutionContext, readScopedReferenceData } from "@/lib/institution/context";

@@ -8,7 +8,7 @@
  * ödeme/düzeltme ters kayıtla geri alınır, iptal yalnız ödemesiz kayıtta.
  */
 import { useState } from "react";
-import Link from "next/link";
+import Link from "@/components/link";
 import { Loader2 } from "lucide-react";
 import { startOfMonth, endOfMonth, format } from "date-fns";
 import { tr } from "date-fns/locale";

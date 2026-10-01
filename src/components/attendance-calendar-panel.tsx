@@ -20,7 +20,7 @@ import { useCurrentPath } from "@/lib/use-current-path";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import Link from "next/link";
+import Link from "@/components/link";
 import { cn, formatTime } from "@/lib/utils";
 import { apiFetch } from "@/lib/api/client-fetch";
 import type { CalendarMonthPlan } from "@/lib/attendance-calendar-plan";

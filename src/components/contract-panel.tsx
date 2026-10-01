@@ -4,7 +4,7 @@ import { useCurrentPath } from "@/lib/use-current-path";
 
 import { parseAmountInput } from "@/lib/amount-input";
 import { useEffect, useId, useRef, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button, Card, Input, Label, Select } from "@/components/ui";
 import { LessonScheduleSlotsPicker } from "@/components/lesson-schedule-slots-picker";

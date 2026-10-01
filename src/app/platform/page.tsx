@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { PageHeader, StatCard, Card, EmptyState } from "@/components/ui";
 import { StatusBadge, toneForHealthStatus } from "@/components/platform/status-badge";
 import { requireHyperAdminPage } from "@/lib/platform/session";

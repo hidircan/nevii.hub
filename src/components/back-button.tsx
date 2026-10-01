@@ -23,7 +23,7 @@
 
 import { useCallback, useState, type MouseEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import Link from "next/link";
+import Link from "@/components/link";
 import { ArrowLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { resolveSafeReturnTo, returnToLabel } from "@/lib/safe-return-to";

@@ -12,7 +12,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
+import Link from "@/components/link";
 import { actionUpdateStaffMember } from "@/lib/actions";
 import { Badge, Card, Input, Select } from "@/components/ui";
 import { usePagination, PaginationControls } from "@/components/pagination-controls";

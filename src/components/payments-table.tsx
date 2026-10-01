@@ -2,7 +2,7 @@
 import { withReturnTo } from "@/lib/safe-return-to";
 import { useCurrentPath } from "@/lib/use-current-path";
 
-import Link from "next/link";
+import Link from "@/components/link";
 import { useMemo, useState } from "react";
 import { Receipt } from "lucide-react";
 import { Badge, Button, Card } from "@/components/ui";

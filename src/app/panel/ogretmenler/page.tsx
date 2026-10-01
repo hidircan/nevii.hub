@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { redirect } from "next/navigation";
 import { subDays, format } from "date-fns";
 import { CreditCard, UserPlus, Wallet } from "lucide-react";

@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { redirect } from "next/navigation";
 import { PORTAL_RECORD_MISSING_REDIRECT } from "@/lib/auth/portal-record-missing";
 import { ChevronLeft, ChevronRight } from "lucide-react";
@@ -52,7 +52,7 @@ export default async function TeacherOwnProgramPage({
   const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)).filter((d) => !isMonday(d));
   const weekEndExclusive = addDays(weekStart, 7);
   // DB egress: yalnız haftanın ders penceresi + referans veri (aşağıdaki `ownWeekLessons` kesin
-  // filtresinden 1 gün GENİŞ). Sayfa sekme açıkken 45 sn'de bir yenilenir (ProgramLiveRefresh) —
+  // filtresinden 1 gün GENİŞ). Sayfa sekme açıkken 5 dk'da bir yenilenir (ProgramLiveRefresh) —
   // eskiden her yenileme kurumun TÜM ders/ödeme verisini okuyordu.
   const data = await readLessonWindow(addDays(weekStart, -1).toISOString(), addDays(weekEndExclusive, 1).toISOString());
   const teacher = data.teachers.find((t) => t.id === teacherId);

@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { CalendarClock, Inbox, Megaphone, UserCheck, Users, ShieldAlert, ArrowRight } from "lucide-react";
 import { PageHeader, Card, StatCard, EmptyState } from "@/components/ui";
 import { requireRecruitmentPage } from "@/lib/recruitment/page-context";

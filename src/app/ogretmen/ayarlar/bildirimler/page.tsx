@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import Link from "next/link";
+import Link from "@/components/link";
 import { requireSessionContext, notificationSettingsPathForRole } from "@/lib/auth/session";
 import { getNotificationPreferences } from "@/lib/notification-preferences";
 import { PageHeader } from "@/components/ui";

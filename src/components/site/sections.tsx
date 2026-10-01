@@ -17,7 +17,7 @@
  * GERÇEK ürün + sentetik/demo veri ile eklenir — doğrulanmamış görsel
  * kullanılmaz.
  */
-import Link from "next/link";
+import Link from "@/components/link";
 import Image from "next/image";
 import {
   ArrowRight,

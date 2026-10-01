@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { Card } from "@/components/ui";
 
 /** Kayıt düzenlenirken sözleşme adımına dönüş (genel bakış + Bilgiler sekmesi aynı bant). */

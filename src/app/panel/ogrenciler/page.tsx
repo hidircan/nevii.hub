@@ -1,6 +1,6 @@
 import { isLiveObligation } from "@/lib/payment-profile";
 import { canRunCriticalActions } from "@/lib/critical-action-password";
-import Link from "next/link";
+import Link from "@/components/link";
 import { redirect } from "next/navigation";
 import { UserPlus } from "lucide-react";
 import { PageHeader } from "@/components/ui";

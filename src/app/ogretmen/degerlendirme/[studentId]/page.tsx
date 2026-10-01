@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { redirect } from "next/navigation";
 import { FileText } from "lucide-react";
 import { BackButton } from "@/components/back-button";

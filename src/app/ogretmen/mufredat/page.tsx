@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { redirect } from "next/navigation";
 import { ArrowLeft, Music } from "lucide-react";
 import { readReferenceData } from "@/lib/store";

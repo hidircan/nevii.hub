@@ -1,6 +1,6 @@
 import { cn, statusColor, statusLabel } from "@/lib/utils";
 import { Loader2, ChevronLeft, ChevronRight } from "lucide-react";
-import Link from "next/link";
+import Link from "@/components/link";
 import type { ReactNode } from "react";
 
 export function Badge({ status, children }: { status?: string; children?: ReactNode }) {

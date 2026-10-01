@@ -3,7 +3,7 @@ import { getAiDashboard, checkProviderHealth, getProviderHealthMap } from "@/lib
 import { requireSessionContext } from "@/lib/auth/session";
 import { describeActiveProvider } from "@/lib/ai/provider-factory";
 import { redirect } from "next/navigation";
-import Link from "next/link";
+import Link from "@/components/link";
 import { Activity, Cpu, Gauge, CheckCircle2 } from "lucide-react";
 
 export const dynamic = "force-dynamic";

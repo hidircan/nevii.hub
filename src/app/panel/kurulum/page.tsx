@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { ArrowRight, BellRing, Building2, CalendarDays, CheckCircle2, Circle, DoorOpen, Download, Music, RefreshCcw, Upload } from "lucide-react";
 import { actionResetDemo, actionResetToCleanTemplate } from "@/lib/actions";
 import { isLocalDevTooling } from "@/lib/config";

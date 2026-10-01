@@ -7,7 +7,7 @@
  * yalnız sayfa gider.
  */
 
-import Link from "next/link";
+import Link from "@/components/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { Card, Input, Label, Select } from "@/components/ui";

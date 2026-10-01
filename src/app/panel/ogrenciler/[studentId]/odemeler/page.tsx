@@ -1,5 +1,5 @@
 import { ChangeHistory } from "@/components/change-history";
-import Link from "next/link";
+import Link from "@/components/link";
 import { notFound } from "next/navigation";
 import { Badge, Card, EmptyState } from "@/components/ui";
 import { SectionEditCard } from "@/components/section-edit-card";

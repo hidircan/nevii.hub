@@ -1,5 +1,5 @@
 import { listTerminalContractIdsForScope } from "@/lib/contracts";
-import Link from "next/link";
+import Link from "@/components/link";
 import { redirect } from "next/navigation";
 import { AlertTriangle, ArrowRight, CircleDollarSign, Target, TrendingUp } from "lucide-react";
 import { Card, PageHeader, StatCard } from "@/components/ui";

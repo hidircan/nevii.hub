@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
-import Link from "next/link";
+import Link from "@/components/link";
 import { ChevronRight, SlidersHorizontal, X } from "lucide-react";
 import { Badge, Card } from "@/components/ui";
 import { PaginationControls, usePagination } from "@/components/pagination-controls";

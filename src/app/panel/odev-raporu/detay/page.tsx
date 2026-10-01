@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import Link from "next/link";
+import Link from "@/components/link";
 import { requireSessionContext } from "@/lib/auth/session";
 import { readData } from "@/lib/store";
 import { withReturnTo } from "@/lib/safe-return-to";
