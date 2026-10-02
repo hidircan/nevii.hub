@@ -1413,3 +1413,18 @@ Aynı turda: `validateLessonSlot` oda `active`'ini hiç okumuyordu → telafi pa
 - Kural: proje/DB kimliği değişince `grep -rn "<eski-ref>"` ile src, scripts ve docs taranır; korumalar, seed
   betikleri (`assertSeedTarget`) ve migration kapısı aynı commit'te güncellenir. Model:
   `docs/operations/LOCAL_FIRST_DEPLOYMENT.md`.
+
+## 2026-10-02 — DB hatasında kaynak koddaki demo şifrelere geri düşülüyordu; demo hesaplar dış e-posta alanlarında
+- `authenticateUser`/`findUserByEmail` db modunda sorgu hata verince bootstrap listesine düşüyordu. Test kanıtladı:
+  geçici DB hatasında AI_AGENT ve kurum sahibi koddaki demo şifreyle girebiliyordu (DB'deki şifre değişmiş olsa bile).
+  Düzeltme: db modunda fail-closed. Ayrıca "şifremi unuttum" AI_AGENT'a sıfırlama başlatıyordu; hesabın alanı
+  (`notaplan.app`) DNS'te kayıtsız → alan adını alan şifre belirleyebilirdi. Production'da 9 demo öğrenci hesabı
+  herkese açık `email.com` adresleriyle ve varsayılan şifreyle aktif (demo kayıtlara bağlı).
+- Kural: kilitlenen/servis hesabını tüm yollarla doğrula (giriş, mevcut/yenileme token'ı, sıfırlama, davet, mobil,
+  DB hatası geri düşüşü). Demo/servis hesaplarının e-posta alanı kontrol edilen bir alan olmalı ya da hesap pasif olmalı.
+
+## 2026-10-02 — Yerel Postgres saat dilimi ≠ canlı: ham SQL `now()` yerelde 3 saat ileri tarih yazdı
+- `timestamp without time zone` sütunlara (Prisma DateTime) ham SQL `now()` yerel sunucu saatini (İstanbul) yazar;
+  Prisma bunu UTC okur → yerelde `sessionsRevokedAt` 3 saat ileride göründü, provada yeni oturumlar da "iptal" sayıldı.
+  Canlı (Supabase) UTC olduğu için canlıdaki değer doğruydu (`gecmiste_mi=t` ile kanıtlandı).
+- Kural: ham SQL ile zaman yazarken `now() at time zone 'UTC'`; prova adımı başarısızsa önce ortam farkını ele.

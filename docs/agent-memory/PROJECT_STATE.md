@@ -4,6 +4,20 @@ Kısa tutulur (~50 satır): oturum sonunda yalnız "Güncel snapshot" bölümün
 `archive/`'e taşınır. Ayrıntı → ilgili `docs/testing/UAT_*.md`, `docs/operations/*`. Yönlendirici: `nevii-hub` skill.
 Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_2026-09-24.md`.
 
+## Güncel snapshot — 2026-10-02 (güvenlik + local-first hazırlık; CANLIYA ÇIKMADI, sürüm onayı bekliyor)
+- Canlı hâlâ `c3476a0`. Dal `perf/vercel-active-cpu` (push edilmedi): `93675ec` auth fail-closed + AI_AGENT sıfırlama
+  engeli, `81f8664` seed ikinci kurum düzeltmesi, `f8452e4` başlangıç şifresiyle girişte zorunlu şifre yenileme
+  (`/sifre-yenile`, token `pwc`, API 403, migration YOK). Yerel izole DB provaları: AI_AGENT 9/9, zorunlu yenileme 14/14.
+- Altyapı (uygulandı): preview'lar Vercel Authentication ile korunuyor; kullanılmayan "Test Hook" kaldırıldı.
+  Yerel `.env`/`.env.local` DB hedefleri `neviihub_dev`'e çevrildi (yedek `~/NeviiHub-Secrets/env-backup-2026-10-02`);
+  eski test DB adresi `~/NeviiHub-Secrets/old-test-db-session-url` (geri dönüş betikleri buradan okur).
+- Canlı hesap denetimi: 25 aktif hesaptan 19'u kaynak koddaki başlangıç şifresinde (3 yönetici, 7 öğretmen, 9 demo
+  öğrenci `email.com`). AI_AGENT alanı `notaplan.app` DNS'te kayıtsız. Owner kararı: demo hesaplar + AI_AGENT pasife.
+- Entegrasyon: Supabase Marketplace entegrasyonunun 13 production değişkeni kodda/build'de/bağımlılıkta kullanılmıyor;
+  kaldırma ayrı onay. CI `main`'de lint'te kırmızı (mobil), testler CI'da çalışmıyor.
+- Vercel Hobby resmî belgeye göre yalnız ticari olmayan kullanım içindir; NeviiHub ticari kullanım → Pro owner kararı.
+- AI asistan: ayrı dal `feat/ai-free-provider-chain` (`../nevii-hub-ai`, 4 commit), inceleme + anahtar + KVKK kararı bekliyor.
+
 ## Güncel snapshot — 2026-10-01 (canlı geçiş, Vercel Active CPU, local-first)
 - Canlı geçiş tamam (10:50Z): `neviihub.com` = `main`, Vercel `fra1`, DB Supabase `wsbucznpujcfzhitzrbl`. Eski test DB
   `vxzewyiwfshobjizzetw` gerçek veri taşıyan salt-okunur geri dönüş kaynağı (≥2026-10-31). `test.neviihub.com` → 307.
@@ -173,7 +187,7 @@ Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_20
 ## Ortamlar
 - Canlı: `main` → Vercel `neviihub` (Hobby, `fra1`) → `neviihub.com`; DB Supabase `wsbucznpujcfzhitzrbl` (eu-central-1).
 - Test: sürekli test ortamı YOK (local-first). `test.neviihub.com` geçici olarak canlıya yönlenir; `test` dalı
-  preview'ları hâlâ eski test DB'sini (salt-okunur) kullanır. Geçici test ortamı ihtiyaç olunca açılır.
+  preview'ları eski test DB'sini (salt-okunur) kullanır ve Vercel Authentication ile korunur. Yerel DB `neviihub_dev`.
 - Yerel `.env` artık olmayan bir projeyi veya canlıyı gösterebilir — DB komutundan önce hedefi kanıtla.
 - Vercel Cron: günlük 00:30 UTC retention (`vercel.json`, `CRON_SECRET`).
 

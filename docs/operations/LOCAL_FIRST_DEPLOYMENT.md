@@ -7,9 +7,11 @@ tanımlar. Altyapı kimlikleri değişirse önce bu belge ve `src/lib/env/test-t
 ## İlkeler
 
 1. Sürekli açık bir online test ortamı zorunlu değildir. Günlük iş yerelde yapılır ve doğrulanır.
-2. Doğrudan canlıya çıkış yalnız düşük riskli, migration içermeyen ve yerelde net doğrulanmış işlerde yapılır.
+2. Doğrudan canlıya çıkış yalnız düşük riskli, migration içermeyen ve yerelde net doğrulanmış işlerde, owner'ın
+   sürüm onayıyla yapılır. Hiçbir değişiklik onaysız canlıya alınmaz.
 3. Migration, fiyatlandırma/finans hesabı, silme/arşiv, auth/RBAC, tenant izolasyonu, toplu veri düzeltme ve dışarıya
-   mesaj gönderen işler ayrı doğrulama ister: geçici test ortamı + owner UAT + planlı yayın.
+   mesaj gönderen işler ayrı doğrulama ister: izole DB'de kapsamlı prova (yerel veya geçici test ortamı) + owner
+   UAT + planlı yayın. Canlıda deneme hesabı açılmaz, veri silinmez.
 4. Hiçbir proje, veritabanı, yedek veya veri owner'ın açık onayı olmadan silinmez. Plan değişikliği ve faturalandırma
    owner kararıdır.
 5. Test ortamına gerçek kişisel veri konmaz. (Eylül 2026'da `test.neviihub.com` fiilen canlı olarak gerçek veriyle
@@ -21,11 +23,11 @@ tanımlar. Altyapı kimlikleri değişirse önce bu belge ve `src/lib/env/test-t
 |---|---|---|---|
 | Canlı site | `neviihub.com` | KORU | Vercel projesi `neviihub` (Hobby, Fluid, fonksiyon bölgesi `fra1`), dal `main` |
 | Canlı DB | Supabase `wsbucznpujcfzhitzrbl` (eu-central-1, org `neviihub-prod-org`, Free) | KORU | Uygulama transaction pooler 6543; dump/migration session pooler 5432 |
-| Eski test DB | Supabase `vxzewyiwfshobjizzetw` (ap-south-1, org `neviihub-test-org`, Free) | PASİF TUT | Geçiş anındaki GERÇEK veri; DB düzeyinde salt-okunur, Data API erişimi kapalı. En az 2026-10-31'e kadar geri dönüş kaynağı. Test hedefi DEĞİL; korumalar production gibi davranır |
+| Eski test DB | Supabase `vxzewyiwfshobjizzetw` (ap-south-1, org `neviihub-test-org`, Free) | PASİF TUT | Geçiş anındaki GERÇEK veri; DB düzeyinde salt-okunur, Data API erişimi kapalı. Geri dönüş kaynağı. 2026-10-31 yalnız YENİDEN DEĞERLENDİRME tarihidir, silme tarihi değildir; geri yükleme doğrulanmadan ve owner onayı olmadan kaldırılmaz. Test hedefi DEĞİL; korumalar production gibi davranır |
 | `test.neviihub.com` | Vercel alan adı | PASİF TUT | Geçici olarak 307 ile `neviihub.com`'a yönlenir |
-| `test` dalı preview'ları | Vercel preview | DİKKAT | Dal bazlı preview değişkenleri hâlâ eski test DB'sini (salt-okunur) gösterir; preview URL'leri herkese açık |
-| Yerel geliştirme DB'si | `127.0.0.1` Postgres, örn. `neviihub_dev_local` | Günlük iş | Sentetik demo verisi |
-| Yerel doğrulama kopyaları | `neviihub_verify_*`, `neviihub_restore_verify` | Geçici | GERÇEK veri kopyaları (kişisel veri). Günlük işte kullanılmaz; geri dönüş penceresi bitince owner onayıyla silinir |
+| `test` dalı preview'ları | Vercel preview | PASİF TUT | Dal bazlı preview değişkenleri hâlâ eski test DB'sini (salt-okunur) gösterir. 2026-10-02'den beri tüm preview'lar Vercel Authentication ile korunur (yalnız ekip üyeleri); bu, uygulamanın kendi yetkilendirmesinin yerine geçmez |
+| Yerel geliştirme DB'si | `127.0.0.1` Postgres `neviihub_dev` | Günlük iş | Canlı şemasının verisiz kopyası + migration geçmişi + sentetik iki kurum. Ana çalışma ağacındaki `.env`/`.env.local` bunu gösterir (2026-10-02) |
+| Yerel doğrulama kopyaları | `neviihub_verify_*`, `neviihub_restore_verify` | Geçici | GERÇEK veri kopyaları (kişisel veri). Günlük işte kullanılmaz; yeniden değerlendirme tarihinde owner kararıyla silinir |
 
 Supabase Free projeleri bir hafta düşük etkinlikte otomatik duraklatılır (veri korunur, 90 gün içinde panelden
 "Resume project" ile açılır). Eski test DB'si trafik almadığı için duraklatılacaktır; bu beklenen bir durumdur. Canlı
@@ -40,8 +42,21 @@ npm run dev                      # STORE_MODE=json (varsayılan), http://localho
 npx vitest run <dosya>           # hedef testler
 ```
 
-DB moduna özgü iş (sorgu, dilim, Prisma davranışı) yerel PostgreSQL'de, sentetik veriyle yapılır. 2026-10-01'de
-boş bir yerel DB ile doğrulandı:
+DB moduna özgü iş (sorgu, dilim, Prisma davranışı) yerel PostgreSQL'de, sentetik veriyle yapılır. Önerilen kurulum
+(2026-10-02'de `neviihub_dev` ile doğrulandı: migration durumu temiz, iki kurum tohumlandı, kritik akış 19/19):
+
+```bash
+# canlı şemasının VERİSİZ kopyası + migration geçmişi (yerel gerçek-veri kopyasından yalnız şema alınır)
+pg_dump -h 127.0.0.1 -d neviihub_verify_prodbase --schema-only --no-owner --no-privileges --schema=public -f schema.sql
+pg_dump -h 127.0.0.1 -d neviihub_verify_prodbase --data-only --table='public."_prisma_migrations"' -f migrations.sql
+createdb -h 127.0.0.1 -T template0 neviihub_dev
+psql -h 127.0.0.1 -d neviihub_dev -c 'DROP SCHEMA public CASCADE' -f schema.sql && psql -h 127.0.0.1 -d neviihub_dev -f migrations.sql
+export DATABASE_URL="postgresql://$USER@127.0.0.1:5432/neviihub_dev"
+npx prisma migrate status                              # "Database schema is up to date!"
+STORE_MODE=db npx tsx scripts/seed-multi-tenant.ts     # iki sentetik kurum
+```
+
+Hızlı alternatif (migration geçmişi gerekmiyorsa), 2026-10-01'de doğrulandı:
 
 ```bash
 createdb -h 127.0.0.1 -T template0 neviihub_dev_local
@@ -56,17 +71,20 @@ STORE_MODE=db npm run dev
   tanımlanmış test DB'sine yazar. Varsayılan tenant (`tenant_nilufer_acar`) canlıdaki gerçek kurumdur.
 - Boş DB'de `prisma migrate deploy` ÇALIŞMAZ: 90 migration'ın 12'si eski MySQL sözdizimindedir. Boş yerel DB için
   `db push`; migration denemesi için aşağıdaki migration akışı kullanılır.
-- Bilinen sorun: `seed-multi-tenant.ts` ikinci demo kurumda (`tenant_test_kampus`) `UniqueConstraintViolation` ile
-  duruyor. Birinci kurum tohumlanıyor (78 öğrenci, 22 kullanıcı). Tek kurumlu yerel iş için yeterli; düzeltmesi backlog.
+- `seed-multi-tenant.ts` iki kurumu da tohumlar (ikinci kurumdaki paket kimliği çakışması 2026-10-02'de düzeltildi).
+- Yerelde gerçek SMTP bilgisi varsa (`.env.local`) ve `EMAIL_PROVIDER` tanımsızsa uygulama GERÇEK e-posta gönderir; demo
+  verisinde kurumun gerçek alan adındaki adresler var. Yerelde `EMAIL_PROVIDER=console` önerilir.
+- Yerel Postgres saat dilimi İstanbul, canlı DB UTC. `timestamp without time zone` sütunlara ham SQL ile `now()`
+  yazmak yerelde 3 saat ileri bir değer üretir; `now() at time zone 'UTC'` kullanın.
 - Demo kullanıcıları ve şifreleri `src/lib/auth/users.ts` içindedir ve yalnız yerel/demo içindir.
 
 ## Risk sınıfları: hangi iş nereden geçer
 
 | Değişiklik | Yol | Gerekli doğrulama |
 |---|---|---|
-| Metin, stil, küçük hata düzeltmesi; migration/auth/finans/silme yok | yerel → canlı | Doğrulama kapısı + yerel tarayıcı kontrolü + yayın sonrası duman testi |
-| Okuma yolu/performans değişikliği, yeni ekran | yerel (DB modunda) → canlı | + yerel production build'de ilgili sayfalar, gerekirse ölçüm (`docs/performance/*`) |
-| Migration, finans hesabı, silme/arşiv, auth/RBAC/tenant, toplu veri düzeltme, e-posta/SMS/WhatsApp gönderimi | yerel → geçici test ortamı → owner UAT → planlı canlı yayın | + canlı yedeği, owner onayı, yazılı geri dönüş planı |
+| Metin, stil, küçük hata düzeltmesi; migration/auth/finans/silme yok | yerel → owner sürüm onayı → canlı | Doğrulama kapısı + yerel tarayıcı kontrolü + yayın sonrası duman testi |
+| Okuma yolu/performans değişikliği, yeni ekran | yerel (DB modunda) → owner sürüm onayı → canlı | + yerel production build'de ilgili sayfalar, gerekirse ölçüm (`docs/performance/*`) |
+| Migration, finans hesabı, silme/arşiv, auth/RBAC/tenant, toplu veri düzeltme, e-posta/SMS/WhatsApp gönderimi | yerel → izole DB'de kapsamlı prova → owner UAT → owner sürüm onayı → planlı canlı yayın | + canlı yedeği, yazılı geri dönüş planı |
 | Vercel/Supabase/DNS ayarı, env değeri, plan/faturalandırma | owner kararı | — |
 
 ## Geçici test ortamı (gerektiğinde açılır)
@@ -106,6 +124,18 @@ Yüksek riskli işler için açılır, iş bitince kapatılır. Gerçek kişisel
 6. İzleme: deployment READY, bölge `fra1`, `neviihub.com` yeni deployment'a atandı; `/api/v1/health` 200,
    `/api/v1/ready` → ready; giriş + 2–3 ana sayfa; 15 dakika boyunca Vercel → Logs (level error).
 7. `docs/agent-memory/PROJECT_STATE.md` snapshot'ına bir satır.
+
+## Otomatik derleme ve deploy yolları (envanter 2026-10-02)
+
+- **Vercel Git entegrasyonu** (`hidircan/nevii.hub`): `main` push → production; diğer her dal → preview (Git kaynaklı,
+  deploy hook'tan bağımsız). Preview'lar Vercel Authentication ile korunur.
+- **Deploy hook:** yok. Tek "Test Hook" (dal `test`) 2026-09-06'da bir kez kullanılmıştı; 2026-10-02'de kaldırıldı.
+- **GitHub Actions `ci.yml`** (`main` push + PR): lint adımında `apps/mobile/app/index.tsx` hatasıyla kırmızı; bu yüzden
+  CI'da typecheck/test/build HİÇ çalışmıyor. Yerel kapı tek güvence; CI'ın yeşile dönmesi ayrı iş.
+- **GitHub Actions `production-migration.yml`** (`main`'e migration push'u veya elle): eski migration'lardaki onaysız
+  `DROP` yüzünden güvenlik adımında duruyor, production'a hiç uygulamadı. Hedeflediği gizli `DATABASE_URL` değeri
+  GitHub'da; doğrulanmadı. Migration'lar bu modelde elle, yedekten sonra uygulanır.
+- **Vercel cron:** yalnız production, günlük 00:30 UTC retention.
 
 ## Geri dönüş
 
