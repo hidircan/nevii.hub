@@ -63,6 +63,8 @@ function remapIds(data: AppData, prefix: string): AppData {
     confirmedLessonId: m.confirmedLessonId ? p(m.confirmedLessonId) : undefined,
   }));
   const payments = data.payments.map((pay) => ({ ...pay, id: p(pay.id), studentId: p(pay.studentId) }));
+  // Paket kimlikleri de global benzersiz; öğrenciler pakete adla (packageName) bağlı.
+  const packages = (data.packages ?? []).map((pkg) => ({ ...pkg, id: p(pkg.id) }));
   const teacherFeeRules = data.teacherFeeRules.map((r) => ({
     ...r,
     id: p(r.id),
@@ -80,6 +82,7 @@ function remapIds(data: AppData, prefix: string): AppData {
     attendances,
     makeupRequests,
     payments,
+    packages,
     teacherFeeRules,
     lessonSeries: [],
     teacherPayouts: [],
