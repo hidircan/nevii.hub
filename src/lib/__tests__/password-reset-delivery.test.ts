@@ -60,6 +60,21 @@ describe("forgot-password teslim arıza modları", () => {
     expect(sentTo).toEqual(["ada.yilmaz.demo@email.com"]);
   });
 
+  it("AI_AGENT servis hesabı → nötr 200 VE sıfırlama e-postası denenmez (girişi kapalı hesap)", async () => {
+    setEmailTransportForTests({
+      name: "mock",
+      send: async (input: EmailSendInput) => {
+        sentTo.push(input.to);
+        return { delivered: true, messageId: "m2" };
+      },
+    });
+    const res = await forgotPassword(req("agent@notaplan.app"));
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.data.message).toContain("kayıtlı bir hesap varsa");
+    expect(sentTo).toEqual([]);
+  });
+
   it("rate limit aşımında bile nötr 200 (limit sızdırılmaz)", async () => {
     const email = "rate-notr-test-28@example.test";
     for (let i = 0; i < 7; i++) {

@@ -488,7 +488,11 @@ export async function authenticateUser(
         studentId: row.studentId,
       });
     } catch {
-      // fall through to bootstrap if DB unavailable
+      // Güvenlik (2026-10-02): DB okunamazsa kaynak koddaki bootstrap şifrelerine GERİ DÜŞÜLMEZ.
+      // Eskiden geçici bir DB hatasında, DB'de şifresi değiştirilmiş/kilitlenmiş hesaplara (AI_AGENT,
+      // kurum sahibi…) koddaki demo şifreyle girilebiliyordu. db modunda tek kaynak DB'dir.
+      logAuthFailureReason(email, "db_unavailable");
+      return null;
     }
   }
 
@@ -1305,7 +1309,9 @@ export async function findUserByEmail(emailInput: string): Promise<AuthUser | nu
         studentId: row.studentId,
       });
     } catch {
-      // fall through to bootstrap if DB unavailable
+      // Güvenlik (2026-10-02): db modunda DB okunamazsa bootstrap listesine düşülmez — aksi halde
+      // "şifremi unuttum" DB'de pasif bir hesap (ör. AI_AGENT) için de sıfırlama başlatabilirdi.
+      return null;
     }
   }
 

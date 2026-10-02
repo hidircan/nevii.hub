@@ -36,7 +36,9 @@ export const POST = withApiHandler(
 
     const user = await findUserByEmail(email);
     let devResetToken: string | undefined;
-    if (user) {
+    // AI_AGENT bir servis hesabıdır, insan girişi yoktur: sıfırlama başlatılmaz (yanıt yine nötr).
+    // Aksi halde e-posta alan adını ele geçiren biri hesabın şifresini belirleyebilirdi (2026-10-02).
+    if (user && user.role !== "AI_AGENT") {
       // Düzeltme (portal erişim yönetimi görevi) — bu uç ÖNCEDEN yalnızca
       // token üretiyordu, HİÇBİR e-posta göndermiyordu (`devResetToken`
       // yalnızca geliştirme ortamında yanıt gövdesine ekleniyordu).
