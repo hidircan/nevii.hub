@@ -55,6 +55,7 @@ import {
   markTeacherPayoutPaid,
   updateTeacherPayoutPaymentMethod,
   readData,
+  deletePaymentRow,
   readLessonScope,
   readStudentById,
   readReferenceData,
@@ -1852,6 +1853,167 @@ export async function updatePaymentTool(
   } catch (e) {
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "updatePayment failed");
   }
+}
+
+/**
+ * 2026-10-03 (owner) — yanlışlıkla oluşturulmuş ödemeyi silme / yanlış girilen tahsilatı geri alma.
+ * Finans tek kaynak kuralı: sözleşme taksidi (contractId) ASLA silinmez — yalnız tahsilatı geri alınır.
+ * Bağımsız satır "kaldır" ile kalıcı silinir; tahsilat takip kaydı veya online ödeme denemesi varsa iz
+ * kaybolmasın diye silinmez, İPTAL edilir (hiçbir borç/tahsilat toplamında sayılmaz, listede görünür).
+ */
+export type PaymentDeletionAction = "reverse_collection" | "remove";
+export type PaymentDeletionPlan = {
+  paymentId: string;
+  studentName: string;
+  description: string;
+  amount: number;
+  paidAmount: number;
+  status: import("../types").PaymentStatus;
+  contractInstallment: boolean;
+  followUpCaseCount: number;
+  checkoutAttemptCount: number;
+  /** İzin verilen işlemler; boşsa neden `blockedReason`'da. */
+  actions: PaymentDeletionAction[];
+  /** "remove" seçilirse sonuç: kalıcı silme mi, iptal mi. */
+  removeMode: "delete" | "void" | null;
+  blockedReason?: string;
+  criticalPasswordConfigured: boolean;
+};
+
+async function computePaymentDeletionPlan(tenantId: string, paymentId: string): Promise<PaymentDeletionPlan | null> {
+  const data = await readData();
+  const payment = data.payments.find((p) => p.id === paymentId);
+  if (!payment) return null;
+  const { listFollowUpCases } = await import("../tahsilat/cases");
+  const { countCheckoutAttemptsForPayment } = await import("../payment-checkout");
+  const { getCriticalActionPasswordStatus } = await import("../critical-action-password");
+  const [cases, checkoutAttemptCount, pw] = await Promise.all([
+    listFollowUpCases(tenantId),
+    countCheckoutAttemptsForPayment(tenantId, paymentId),
+    getCriticalActionPasswordStatus(tenantId),
+  ]);
+  const followUpCaseCount = cases.filter((c) => c.paymentId === paymentId).length;
+  const contractInstallment = !!payment.contractId;
+  const collected = payment.paidAmount > 0;
+  let actions: PaymentDeletionAction[] = [];
+  let blockedReason: string | undefined;
+  if (payment.status === "voided") {
+    blockedReason = "Bu ödeme zaten iptal edilmiş; hiçbir borç veya tahsilat toplamında sayılmıyor.";
+  } else if (contractInstallment) {
+    if (collected) actions = ["reverse_collection"];
+    else blockedReason = "Sözleşme taksidi silinemez; taksit tutarı veya planı öğrencinin Sözleşme ekranından değiştirilir.";
+  } else {
+    actions = collected ? ["reverse_collection", "remove"] : ["remove"];
+  }
+  return {
+    paymentId,
+    studentName: data.students.find((st) => st.id === payment.studentId)?.name ?? "—",
+    description: payment.description,
+    amount: payment.amount,
+    paidAmount: payment.paidAmount,
+    status: payment.status,
+    contractInstallment,
+    followUpCaseCount,
+    checkoutAttemptCount,
+    actions,
+    removeMode: actions.includes("remove") ? (followUpCaseCount > 0 || checkoutAttemptCount > 0 ? "void" : "delete") : null,
+    blockedReason,
+    criticalPasswordConfigured: pw.configured,
+  };
+}
+
+/** Silme/geri alma öncesi plan (yalnız okuma) — arayüz neyin olacağını buradan gösterir. */
+export async function getPaymentDeletionPlanTool(ctx: ServiceContext, input: unknown): Promise<ServiceResult<PaymentDeletionPlan>> {
+  const auth = requireRole(ctx, CRITICAL_ROLES_FOR_TOOLS);
+  if (!auth.ok) return fail("FORBIDDEN", "Ödeme silme yalnız kurum sahibi ve kurum yöneticileri tarafından yapılabilir.");
+  const v = parseOrFail(z.object({ paymentId: z.string().min(1) }), input);
+  if (!v.ok) return v;
+  const plan = await computePaymentDeletionPlan(ctx.tenantId, v.data.paymentId);
+  return plan ? ok(plan) : fail("NOT_FOUND", "Ödeme bulunamadı; sayfayı yenileyin.");
+}
+
+export async function deletePaymentTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ paymentId: string; result: "reversed" | "deleted" | "voided" }>> {
+  const v = parseOrFail(
+    z.object({ paymentId: z.string().min(1), action: z.enum(["reverse_collection", "remove"]), ...criticalDeleteFields }),
+    input
+  );
+  if (!v.ok) return v;
+  const plan = await computePaymentDeletionPlan(ctx.tenantId, v.data.paymentId);
+  if (!plan) return fail("NOT_FOUND", "Ödeme bulunamadı; sayfayı yenileyin.");
+  const entityName = `${plan.studentName} — ${plan.description}`;
+  const auditAction = v.data.action === "reverse_collection" ? "payment.collection_reverse" : plan.removeMode === "void" ? "payment.void" : "payment.delete";
+  const denied = await guardCriticalDelete(ctx, { action: auditAction, entityType: "Payment", entityId: plan.paymentId, entityName }, v.data.criticalPassword);
+  if (denied) return denied;
+  if (!plan.actions.includes(v.data.action)) {
+    return fail(
+      "VALIDATION_ERROR",
+      plan.blockedReason ??
+        (v.data.action === "reverse_collection"
+          ? "Bu ödemede geri alınacak tahsilat yok."
+          : "Sözleşme taksidi silinemez; yanlış girilen tahsilat için \"Tahsilatı geri al\" kullanın.")
+    );
+  }
+  const before = (await readData()).payments.find((p) => p.id === plan.paymentId);
+  const { collectPayment } = await import("../payments/collect");
+  let result: "reversed" | "deleted" | "voided";
+  try {
+    if (v.data.action === "reverse_collection") {
+      await collectPayment(plan.paymentId, { reverseCollection: true, actorUserId: ctx.userId, tenantId: ctx.tenantId });
+      result = "reversed";
+    } else if (plan.removeMode === "delete") {
+      try {
+        await deletePaymentRow(plan.paymentId);
+        result = "deleted";
+      } catch (e) {
+        // Arada takip kaydı/online deneme oluştuysa (yarış) iz kaybolmasın: iptal et.
+        if (!(e instanceof Error && e.message === "PAYMENT_HAS_HISTORY")) throw e;
+        await collectPayment(plan.paymentId, { voided: true, actorUserId: ctx.userId, tenantId: ctx.tenantId });
+        result = "voided";
+      }
+    } else {
+      await collectPayment(plan.paymentId, { voided: true, actorUserId: ctx.userId, tenantId: ctx.tenantId });
+      result = "voided";
+    }
+  } catch (e) {
+    logger.error("deletePaymentTool failed", e);
+    return fail("INTERNAL_ERROR", "Ödeme silinemedi; hiçbir kayıt değişmedi. Sayfayı yenileyip tekrar deneyin.");
+  }
+  // Silinen satırın tam görüntüsü denetim kaydında kalır (kim, ne zaman, neden, ne).
+  await recordAuditLog({
+    tenantId: ctx.tenantId,
+    actorUserId: ctx.userId,
+    actorRole: ctx.role,
+    action: result === "reversed" ? "payment.collection_reverse" : result === "voided" ? "payment.void" : "payment.delete",
+    entityType: "Payment",
+    entityId: plan.paymentId,
+    outcome: "success",
+    meta: {
+      entityName,
+      reason: v.data.reason,
+      studentId: before?.studentId,
+      before: before
+        ? {
+            amount: before.amount,
+            paidAmount: before.paidAmount,
+            status: before.status,
+            dueDate: before.dueDate,
+            paidAt: before.paidAt,
+            method: before.method,
+            description: before.description,
+            source: before.source,
+            contractId: before.contractId,
+            installmentSequence: before.installmentSequence,
+            receivedByUserId: before.receivedByUserId,
+          }
+        : null,
+      followUpCaseCount: plan.followUpCaseCount,
+      checkoutAttemptCount: plan.checkoutAttemptCount,
+    },
+  });
+  return ok({ paymentId: plan.paymentId, result });
 }
 
 /**

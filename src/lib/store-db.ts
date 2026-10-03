@@ -2110,6 +2110,26 @@ export async function markPaymentPaid(paymentId: string, opts?: string | MarkPay
   return data;
 }
 
+/**
+ * 2026-10-03 — yanlışlıkla oluşturulmuş BAĞIMSIZ ödeme satırını kaldırır (sözleşme taksidi asla). Tahsilat takip
+ * kaydı veya online ödeme denemesi olan satır silinmez (iptal edilir) — FK cascade ile takip geçmişi gitmesin.
+ */
+export async function deletePaymentRow(paymentId: string): Promise<AppData> {
+  const tid = requireTenantId();
+  await prisma.$transaction(async (tx) => {
+    const row = await tx.payment.findFirst({
+      where: { id: paymentId, tenantId: tid },
+      select: { contractId: true, _count: { select: { followUps: true } } },
+    });
+    if (!row) throw new Error("Ödeme bulunamadı");
+    if (row.contractId) throw new Error("PAYMENT_IS_CONTRACT_INSTALLMENT");
+    const attempts = await tx.paymentCheckoutAttempt.count({ where: { tenantId: tid, paymentId } });
+    if (row._count.followUps > 0 || attempts > 0) throw new Error("PAYMENT_HAS_HISTORY");
+    await tx.payment.deleteMany({ where: { id: paymentId, tenantId: tid } });
+  });
+  return readData();
+}
+
 export type UpdatePaymentPatch = {
   method?: string;
   paidAmount?: number;

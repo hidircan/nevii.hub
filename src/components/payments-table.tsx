@@ -15,6 +15,7 @@ import {
   paymentSourceLabel,
 } from "@/lib/utils";
 import { PaymentMarkPaidModal } from "@/components/payment-mark-paid-modal";
+import { PaymentDeleteDialog } from "@/components/payment-delete-dialog";
 import { PaginationControls, usePagination } from "@/components/pagination-controls";
 import type { PaymentStatus } from "@/lib/types";
 import { filterAndSortPayments, type PaymentSortKey } from "@/lib/payment-table-filter";
@@ -50,7 +51,8 @@ const STATUS_FILTERS: { value: StatusFilter; label: string }[] = [
   { value: "voided", label: "İptal edildi" },
 ];
 
-export function PaymentsTable({ rows, canWrite }: { rows: PaymentRow[]; canWrite: boolean }) {
+/** `canDelete`: kurum sahibi/yöneticisi + tek kurum görünümü — sunucu (deletePaymentTool) ayrıca kritik şifre ister. */
+export function PaymentsTable({ rows, canWrite, canDelete = false }: { rows: PaymentRow[]; canWrite: boolean; canDelete?: boolean }) {
   const currentPath = useCurrentPath();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
@@ -246,21 +248,26 @@ export function PaymentsTable({ rows, canWrite }: { rows: PaymentRow[]; canWrite
                   <td className="px-4 py-3">
                     {p.status === "voided" ? (
                       <span className="text-xs text-[var(--color-text-muted)]">
-                        Ders iptal edildiği için tahsilat iptal edildi.
+                        {p.source === "lesson_ops"
+                          ? "Ders iptal edildiği için tahsilat iptal edildi."
+                          : "İptal edildi (silindi); hiçbir borç ve tahsilat toplamında sayılmaz."}
                       </span>
                     ) : p.status !== "paid" ? (
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        className="!py-1.5 text-xs"
-                        disabled={!canWrite}
-                        onClick={() => {
-                          setModalMode("create");
-                          setModalPayment(p);
-                        }}
-                      >
-                        Ödendi işaretle
-                      </Button>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          className="!py-1.5 text-xs"
+                          disabled={!canWrite}
+                          onClick={() => {
+                            setModalMode("create");
+                            setModalPayment(p);
+                          }}
+                        >
+                          Ödendi işaretle
+                        </Button>
+                        {canDelete ? <PaymentDeleteDialog paymentId={p.id} /> : null}
+                      </div>
                     ) : (
                       <div className="flex flex-wrap items-center gap-2">
                         <Link
@@ -281,6 +288,7 @@ export function PaymentsTable({ rows, canWrite }: { rows: PaymentRow[]; canWrite
                             Detayı gör / düzenle
                           </button>
                         ) : null}
+                        {canDelete ? <PaymentDeleteDialog paymentId={p.id} /> : null}
                       </div>
                     )}
                   </td>

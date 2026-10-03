@@ -679,6 +679,17 @@ export async function markPaymentPaid(paymentId: string, opts?: string | MarkPay
   return data;
 }
 
+/** 2026-10-03 — yanlışlıkla oluşturulmuş BAĞIMSIZ ödeme satırını kaldırır (sözleşme taksidi asla). Kural/yetki tool'da. */
+export async function deletePaymentRow(paymentId: string): Promise<AppData> {
+  const data = await readData();
+  const payment = data.payments.find((p) => p.id === paymentId);
+  if (!payment) throw new Error("Ödeme bulunamadı");
+  if (payment.contractId) throw new Error("PAYMENT_IS_CONTRACT_INSTALLMENT");
+  const next = { ...data, payments: data.payments.filter((p) => p.id !== paymentId) };
+  await writeData(next);
+  return next;
+}
+
 export type UpdatePaymentPatch = {
   method?: string;
   paidAmount?: number;

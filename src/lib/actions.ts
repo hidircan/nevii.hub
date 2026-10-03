@@ -100,6 +100,8 @@ import {
   getTeacherDeletionImpactTool,
   deleteTeacherTool,
   restoreDeletedTeacherTool,
+  getPaymentDeletionPlanTool,
+  deletePaymentTool,
   deleteStudentTool,
   getPackageDeletionImpactTool,
   deletePackageTool,
@@ -131,6 +133,7 @@ import {
   setCriticalActionPasswordTool,
   type StudentDeletionImpact,
   type TeacherDeletionImpact,
+  type PaymentDeletionPlan,
   updateMakeupWindowDaysTool,
   updateSchoolLogoTool,
   importSchoolLogoFromCurrentUrlTool,
@@ -4206,6 +4209,30 @@ export async function actionRestoreDeletedTeacher(teacherId: string): Promise<Si
     "actionRestoreDeletedTeacher",
     (ctx) => restoreDeletedTeacherTool(ctx, { teacherId }),
     "Öğretmen geri alınamadı. Tekrar deneyin."
+  );
+  if (res.ok) revalidateAll();
+  return res;
+}
+
+/** 2026-10-03 — yanlış ödemeyi silme / tahsilatı geri alma; tüm kural/yetki/audit `deletePaymentTool`'da. */
+export async function actionGetPaymentDeletionPlan(paymentId: string): Promise<SimpleActionResult<PaymentDeletionPlan>> {
+  return runSimpleAction(
+    "actionGetPaymentDeletionPlan",
+    (ctx) => getPaymentDeletionPlanTool(ctx, { paymentId }),
+    "Ödeme bilgisi okunamadı. Sayfayı yenileyip tekrar deneyin."
+  );
+}
+
+export async function actionDeletePayment(input: {
+  paymentId: string;
+  action: "reverse_collection" | "remove";
+  criticalPassword: string;
+  reason: string;
+}): Promise<SimpleActionResult<{ paymentId: string; result: "reversed" | "deleted" | "voided" }>> {
+  const res = await runSimpleAction(
+    "actionDeletePayment",
+    (ctx) => deletePaymentTool(ctx, input),
+    "Ödeme silinemedi; hiçbir kayıt değişmedi. Tekrar deneyin."
   );
   if (res.ok) revalidateAll();
   return res;

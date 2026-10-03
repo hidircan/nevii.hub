@@ -84,6 +84,15 @@ function toRecord(r: {
   };
 }
 
+/** Ödemeye bağlı online ödeme denemesi sayısı (her durumda) — silme kararında iz korunur. */
+export async function countCheckoutAttemptsForPayment(tenantId: string, paymentId: string): Promise<number> {
+  if (isDbMode) {
+    const { prisma } = await import("./db");
+    return prisma.paymentCheckoutAttempt.count({ where: { tenantId, paymentId } });
+  }
+  return (await loadAll()).filter((r) => r.tenantId === tenantId && r.paymentId === paymentId).length;
+}
+
 /** Aynı ödeme için hâlâ geçerli (pending, süresi geçmemiş) bir deneme varsa onu döner — yeni bir sağlayıcı işlemi başlatmadan önce yeniden kullanmak için. */
 export async function findPendingCheckoutAttempt(
   tenantId: string,

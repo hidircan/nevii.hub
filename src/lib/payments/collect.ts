@@ -27,13 +27,18 @@ export type CollectPaymentOpts = MarkPaymentPaidOptions & {
    * ve sözleşme/önizleme hâlâ eski tutarı okur.
    */
   reviseBilledAmount?: boolean;
+  /**
+   * 2026-10-03 — yanlış girilen tahsilatı geri alma: ödenen 0'a döner, tahsilat anı/alan kişi/not
+   * temizlenir; satır (borç/taksit) kalır, statü vadeye göre bekliyor/gecikmiş olur.
+   */
+  reverseCollection?: boolean;
 };
 
 function nextPaidAmount(
   previous: { amount: number; paidAmount: number },
-  opts: { amount?: number; voided?: boolean; accumulate?: boolean }
+  opts: { amount?: number; voided?: boolean; accumulate?: boolean; reverseCollection?: boolean }
 ): number {
-  if (opts.voided) return 0;
+  if (opts.voided || opts.reverseCollection) return 0;
   const incoming = Math.trunc(opts.amount ?? previous.amount);
   if (opts.accumulate) return Math.trunc(previous.paidAmount) + incoming;
   return incoming;
@@ -67,10 +72,11 @@ function applyPaymentPatch(
     amount: billedAmount,
     status,
     paidAmount,
-    paidAt: opts.voided ? undefined : opts.paidAt ?? new Date().toISOString(),
+    paidAt: opts.voided || opts.reverseCollection ? undefined : opts.paidAt ?? new Date().toISOString(),
     method: opts.method || previous.method || student?.paymentMethod || "transfer",
     ...(opts.paymentNote !== undefined ? { paymentNote: opts.paymentNote } : {}),
     ...(opts.receivedByUserId !== undefined ? { receivedByUserId: opts.receivedByUserId } : {}),
+    ...(opts.reverseCollection ? { paymentNote: undefined, receivedByUserId: undefined } : {}),
   };
   const payments = [...data.payments];
   payments[idx] = payment;
@@ -130,10 +136,11 @@ async function collectDb(
           status,
           amount: billedAmount,
           paidAmount,
-          paidAt: opts.voided ? null : opts.paidAt ? new Date(opts.paidAt) : new Date(),
+          paidAt: opts.voided || opts.reverseCollection ? null : opts.paidAt ? new Date(opts.paidAt) : new Date(),
           method: opts.method || payment.method || student?.paymentMethod || undefined,
           ...(opts.paymentNote !== undefined ? { paymentNote: opts.paymentNote } : {}),
           ...(opts.receivedByUserId !== undefined ? { receivedByUserId: opts.receivedByUserId } : {}),
+          ...(opts.reverseCollection ? { paymentNote: null, receivedByUserId: null } : {}),
         },
       });
       const updated = await tx.payment.findFirst({ where: { id: paymentId, tenantId } });

@@ -103,6 +103,7 @@ type StoreApi = {
     campaignId: string,
     patch: import("./discount-campaigns").DiscountCampaignPatch
   ) => Promise<import("./discount-campaigns").DiscountCampaignMutationResult>;
+  deletePaymentRow: (paymentId: string) => Promise<AppData>;
   markPaymentPaid: (
     paymentId: string,
     opts?: string | import("./store-json").MarkPaymentPaidOptions
@@ -580,6 +581,10 @@ export async function markPaymentPaid(
   opts?: string | import("./store-json").MarkPaymentPaidOptions
 ): Promise<AppData> {
   return withTenantScope(() => store.markPaymentPaid(paymentId, opts));
+}
+
+export async function deletePaymentRow(paymentId: string): Promise<AppData> {
+  return withTenantScope(() => store.deletePaymentRow(paymentId));
 }
 
 export async function updatePayment(

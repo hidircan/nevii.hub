@@ -135,7 +135,11 @@ export default async function OdemelerPage({ searchParams }: { searchParams: Pro
         </p>
       )}
 
-      <PaymentsTable rows={rows} canWrite={kurum.scope.mode === "single"} />
+      <PaymentsTable
+        rows={rows}
+        canWrite={kurum.scope.mode === "single"}
+        canDelete={kurum.scope.mode === "single" && (session.role === "SCHOOL_ADMIN" || session.role === "SUPER_ADMIN")}
+      />
     </div>
   );
 }
