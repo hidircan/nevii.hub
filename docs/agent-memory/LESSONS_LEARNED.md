@@ -1445,3 +1445,11 @@ Aynı turda: `validateLessonSlot` oda `active`'ini hiç okumuyordu → telafi pa
   bilinen sayılarla (19 hesap) karşılaştırınca yakalandı.
 - `tsc | head && git add && git commit` zinciri tsc hatasını yuttu (boru çıkış kodu `head`'in) → bozuk commit; ayrı
   adımda `echo exit=$?`/`pipestatus` ile kontrol et. Eski (biçimlenmemiş) dosyaya prettier çalıştırma: 2 400 satır fark.
+
+
+## 2026-10-03 — Supabase transaction pooler'da oturum düzeyinde SET prod'u bozdu
+- Salt-okunur denetim betikleri `:6543` (Supavisor transaction modu) üzerinden `SET default_transaction_read_only = on`
+  çalıştırdı; uygulama aynı havuzu (tek backend) paylaştığı için ayar kaldı ve prod'da "cannot execute UPDATE in a
+  read-only transaction" (3 olay) oluştu. Aynı backend'de `SET ... = off` ile geri alındı.
+- Ders: ops/denetim bağlantısı 5432 (oturum modu) ya da `BEGIN TRANSACTION READ ONLY` / `SET LOCAL`; prod betiğinden sonra
+  Vercel runtime hatalarına bak.

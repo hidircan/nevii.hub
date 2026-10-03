@@ -4,25 +4,20 @@ Kısa tutulur (~50 satır): oturum sonunda yalnız "Güncel snapshot" bölümün
 `archive/`'e taşınır. Ayrıntı → ilgili `docs/testing/UAT_*.md`, `docs/operations/*`. Yönlendirici: `nevii-hub` skill.
 Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_2026-09-24.md`.
 
-## Güncel snapshot — 2026-10-03 (güvenlik sürümü CANLIDA; ürün sürüm adayı hazır, sürüm onayı + prod migration bekliyor)
-- Canlı: `3fece63` (`dpl_J4aHGtSMJ33bsoEB2nmQgX5993hY`, fra1, 06:37Z): DB hatasında demo şifreye geri düşme kapalı
-  (fail-closed), AI_AGENT için şifre sıfırlama yok, seed paket id düzeltmesi, mobil lint (CI artık lint'te kırılmıyor).
-  Smoke: health/ready 200, kimliksiz API 401, AI_AGENT varsayılan şifre 401, şifremi-unuttum nötr + token oluşmadı.
-  Geri dönüş: commit revert/ileri düzeltme — `c3476a0`'a anlık rollback fallback açığını geri açar.
-- Ürün sürüm adayı `release/product-2026-10-03` (`../nevii-hub-teacher-removal`, push edilmedi, son kapı 59342f5: test 4 kalan = taban, build OK): 24ffd1e pasif öğretmen
-  kaldırma (listeden kaldırma/kalıcı silme, MIGRATION `20261003120000_teacher_soft_delete` — additive, 3 nullable kolon),
-  4ef374d telafi saati boşaltır + eşzamanlı ders yazımında çift rezervasyon kapandı (advisory kilit), 9029108/793a86a
-  enstrüman tek kaynak (Bas Gitar), fdc68b5 öğrenci seçilince ders süresi, dbef8d0 ödeme silme/tahsilat geri alma
-  (kritik şifreli). Ayrı dal `fix/log-privacy` (dafe87d): loglarda e-posta maskesi, öğrenci/öğretmen adı yok.
-- Yerel izole DB provaları: token iptali 10/10, eşzamanlı ders (eski kod 3/3 çift kayıt → yeni 3/3 tek), silme akışları
-  DB modunda 9/9 (takip kaydı olan ödeme silinmez → iptal; cascade yok). Yerel `neviihub_dev`'e teacher migration uygulandı.
-- KRİTİK açık (owner kararı verildi, uygulanmadı): canlıda 7 öğretmen (t1–t7, şifreleri 31 Tem–8 Eyl herkese açık
-  login paketindeydi), 9 demo öğrenci, Nilüfer ve Ezgi hesapları koddaki varsayılan şifreyi kabul ediyor. Öğretmen
-  şifrelerini döndürme + demoları kapatma betiği Claude Code otomatik izin denetleyicisince engellendi; yedek hazır:
-  `~/NeviiHub-Backups/2026-10-03-demo-cleanup/target.dump` (sha256 18c3d13a…). Owner'ın çalıştırması/izin vermesi bekleniyor.
-- Seed'deki 65 öğrenci GERÇEK okul verisi (ogrenciler3.csv; şifreli T.C. dahil) — "demo" değildir, silinmez.
-- Açık kararlar: ürün sürüm onayı + prod migration, varsayılan şifreler, Nilüfer/Ezgi geçiş planı, Hobby ticari kullanım,
-  Supabase–Vercel entegrasyonu (uqkaf…, kullanılmıyor), AI dalı + KVKK.
+## Güncel snapshot — 2026-10-03 akşam (ürün sürümü CANLIDA; açık kapandı; demo verisi kaldırıldı)
+- Canlı: `a35be2e` (`dpl_97iJbe28U2s7j214DD1wnXosHzHM`, fra1, 16:07Z): pasif öğretmen kaldırma, telafi saati boşaltır +
+  eşzamanlı ders yazımında çift rezervasyon kapandı, enstrüman tek kaynak (Bas Gitar), öğrenci seçilince ders süresi,
+  ödeme silme/tahsilat geri alma (kritik şifreli), loglarda gizlilik. Prod migration `20261003120000_teacher_soft_delete`
+  uygulandı (91/91). Önceki güvenlik sürümü `3fece63` (fail-closed auth, AI_AGENT sıfırlama yok) de canlıda.
+- Hesaplar (owner onayı): 7 öğretmenin herkese açık olmuş varsayılan şifresi döndürüldü (hesaplar aktif; giriş için HYPER_ADMIN
+  /platform/kullanicilar → 60 dk sıfırlama bağlantısı). Demo hesaplar + AI_AGENT kapalı (satırlar silindi işaretli kalır —
+  seedDatabase eksik bootstrap kullanıcıyı varsayılan şifreyle yeniden yaratır). 13 demo öğrenci + bağlı ders/yoklama/telafi/
+  ödeme/bildirim silindi; yalnız demo dersinden oluşan 2 hakediş (t1, t2) iptal. Gerçek veri yedeğe göre TAM doğrulandı.
+- Açık: Nilüfer + Ezgi e-posta ve şifrelerini **2026-10-10**'a kadar kendileri değiştirir (sonra kontrol + döndürme).
+  Seed'deki 65 öğrenci GERÇEK okul verisi (ogrenciler3.csv) — demo değildir. Hobby ticari kullanım, Supabase–Vercel
+  entegrasyonu (uqkaf…), AI dalı + KVKK, seed'den gerçek veriyi çıkarma: owner kararı.
+- Olay 16:05–16:14Z: salt-okunur betik pooler'da (6543) oturum düzeyinde `default_transaction_read_only` açtı → prod'da 3 yazma
+  hatası (2 kullanıcı). Geri alındı. Kural: ops betikleri 5432 veya transaction kapsamlı ayar (LESSONS_LEARNED).
 
 ## Güncel snapshot — 2026-10-02 (güvenlik + local-first hazırlık; CANLIYA ÇIKMADI, sürüm onayı bekliyor)
 - Canlı hâlâ `c3476a0`. Dal `perf/vercel-active-cpu` (push edilmedi): `93675ec` auth fail-closed + AI_AGENT sıfırlama
