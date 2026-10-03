@@ -992,6 +992,8 @@ export function ProgramStudio({
         )
       );
       setLessonBranchId(student.branchId);
+      // Öğrencinin kayıtlı ders süresi (30/40/50 dk) varsayılan gelir; tanımlı değilse genel varsayılan.
+      setDurationMinutes(student.lessonDurationMinutes ?? DEFAULT_LESSON_DURATION_MINUTES);
     }
   }
 
@@ -1042,6 +1044,7 @@ export function ProgramStudio({
     if (student) {
       const nextInstrument = student.instruments[0] ?? "Piyano";
       setSeriesInstrument(nextInstrument);
+      setSeriesDuration(student.lessonDurationMinutes ?? DEFAULT_LESSON_DURATION_MINUTES);
       setSeriesTeacherId(
         defaultLessonTeacherId(
           lessonTeacherOptions(teachers, { instrument: nextInstrument, branchId: student.branchId, student })
