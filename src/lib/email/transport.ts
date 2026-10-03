@@ -15,13 +15,18 @@ export function setEmailTransportForTests(t: EmailTransport | null) {
   override = t;
 }
 
+/** Log için alıcıyı maskeler: kişisel veri (e-posta yerel kısmı) loga yazılmaz (2026-10-03). */
+export function maskEmailForLog(address: string): string {
+  const at = address.lastIndexOf("@");
+  return at > 0 ? `***@${address.slice(at + 1)}` : "***";
+}
+
 function consoleTransport(): EmailTransport {
   return {
     name: "console",
     async send(input: EmailSendInput): Promise<EmailSendResult> {
-      logger.warn(
-        `[email:BLOCKED] SMTP yapılandırılmamış — teslim edilmedi. to=${input.to} subject="${input.subject}"`
-      );
+      // Konu ve gövde loglanmaz (bağlantı/jeton içerebilir); alıcı maskelenir.
+      logger.warn(`[email:console] Teslim edilmedi (SMTP yok ya da EMAIL_PROVIDER=console). to=${maskEmailForLog(input.to)}`);
       return { delivered: false, blocked: true, reason: "EMAIL_PROVIDER_NOT_CONFIGURED" };
     },
   };
@@ -58,7 +63,9 @@ function smtpTransport(): EmailTransport {
         });
         return { delivered: true, messageId: info.messageId };
       } catch (e) {
-        logger.error("SMTP gönderimi başarısız", e);
+        // Ham hata nesnesi alıcı adreslerini içerebilir: yalnız kod/durum loglanır.
+        const err = e as { code?: string; responseCode?: number; command?: string };
+        logger.error("SMTP gönderimi başarısız", { code: err?.code, responseCode: err?.responseCode, command: err?.command });
         return { delivered: false, blocked: false, reason: "SMTP_SEND_FAILED" };
       }
     },

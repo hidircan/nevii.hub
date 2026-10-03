@@ -1676,7 +1676,8 @@ export async function updateMakeupSlaEscalation(requestId: string, level: number
 export async function addStudent(
   student: Omit<Student, "id" | "createdAt" | "active">
 ): Promise<void> {
-  logger.info("addStudent", student.name);
+  // Kişisel veri (ad) Vercel loglarına yazılmaz — yalnız şube bağlamı.
+  logger.info("addStudent", student.branchId);
   const tid = requireTenantId();
   const branch = await prisma.branch.findFirst({
     where: { id: student.branchId, tenantId: tid },
@@ -1966,7 +1967,7 @@ export async function setStudentPaymentPause(studentId: string, state: StudentPa
 export async function addTeacher(
   teacher: Omit<Teacher, "id" | "active" | "color">
 ): Promise<void> {
-  logger.info("addTeacher", teacher.name);
+  logger.info("addTeacher", teacher.branchId);
   const tid = requireTenantId();
   const branch = await prisma.branch.findFirst({
     where: { id: teacher.branchId, tenantId: tid },
