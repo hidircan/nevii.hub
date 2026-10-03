@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { promises as fs } from "fs";
 import path from "path";
 import { resolveDataDir } from "../config";
+import { STUDENT_CONTRACTS_FILE } from "../contracts";
 import {
   createLessonTool,
   createStudentTool,
@@ -35,6 +36,9 @@ beforeEach(async () => {
   await fs.rm(DATA_FILE, { force: true });
   await fs.rm(CLOSED_DAYS_FILE, { force: true });
   await fs.rm(STUDENT_PORTAL_ACCESS_FILE, { force: true });
+  // Önceki test dosyalarının bıraktığı sözleşmeler (ör. s1 Eylül 2026) ay kutusu tahsilatını reddettiriyordu —
+  // paket sırasına bağlı dalgalanma (bkz. agent hafızası neviihub-test-baseline). Bu dosya sözleşmesiz öğrenci varsayar.
+  await fs.rm(STUDENT_CONTRACTS_FILE, { force: true });
 });
 
 async function findOpenSlot(): Promise<string> {
