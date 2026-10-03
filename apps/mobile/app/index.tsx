@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Redirect } from "expo-router";
 import { ActivityIndicator, Linking, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -97,8 +97,8 @@ function PolicyGate({ user, logout }: { user: AuthUser; logout: () => void }) {
     | { status: "error"; message: string }
   >({ status: "loading" });
 
-  const load = () => {
-    setState({ status: "loading" });
+  // Durum yalnız yanıt gelince güncellenir; başlangıç durumu zaten "loading".
+  const fetchPolicy = useCallback(() => {
     void refreshMobilePolicy(user.tenantId, user.userId).then((res: PolicyRefresh | null) => {
       if (!res) {
         setState({ status: "error", message: "Mobil erişim kararı alınamadı. İnternet bağlantınızı kontrol edip tekrar deneyin." });
@@ -108,9 +108,15 @@ function PolicyGate({ user, logout }: { user: AuthUser; logout: () => void }) {
       if (gate === "ok") setState({ status: "ready", gate });
       else setState({ status: "ready", gate, policy: res.policy, brand: res.brand, fromCache: res.fromCache });
     });
-  };
+  }, [user.tenantId, user.userId]);
 
-  useEffect(load, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(fetchPolicy, [fetchPolicy]);
+
+  /** "Tekrar dene": olay işleyicisinde yükleniyor durumuna dönülüp yeniden istenir. */
+  const load = () => {
+    setState({ status: "loading" });
+    fetchPolicy();
+  };
 
   if (state.status === "loading") {
     return (
