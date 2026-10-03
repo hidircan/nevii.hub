@@ -78,6 +78,8 @@ import {
   listMebStudents,
   setStudentDeletion,
   hardDeleteStudent,
+  setTeacherDeletion,
+  hardDeleteTeacher,
   setStudentPaymentPause,
   updateTeacherAvailability,
   updateTeacherInstruments,
@@ -11388,6 +11390,228 @@ export async function restoreDeletedStudentTool(
     meta: { displayId: student.displayId, deletedAt: student.deletedAt, entityName: student.name },
   });
   return ok({ studentId: v.data.studentId });
+}
+
+/**
+ * 2026-10-03 (owner) — pasif öğretmeni sistemden kaldırma. Üç işlem AYRIDIR:
+ * - "Listeden kaldırma" (soft, varsayılan): öğretmen tüm listelerden ve yeni seçimlerden çıkar, giriş hesabı
+ *   kapanır; satır kalır → geçmiş ders/yoklama/hakediş ve raporlar adı göstermeye devam eder; geri alınabilir.
+ * - "Kalıcı silme" (hard): yalnız hiçbir bağlı kaydı (ders, seri, telafi, öğrenci, ücret kuralı, hakediş,
+ *   deneme dersi) olmayan öğretmen; geri alınamaz.
+ * - "Kişisel veri silme" (KVKK — iletişim/kimlik alanlarının silinmesi/anonimleştirilmesi) BU İŞLEM DEĞİLDİR;
+ *   yasal saklama yükümlülükleri (hakediş/ödeme kayıtları) değerlendirilerek ayrı talep ve onayla yapılır.
+ */
+export type TeacherDeletionImpact = {
+  teacherId: string;
+  name: string;
+  displayId?: string;
+  active: boolean;
+  deletedAt?: string;
+  lessonCount: number;
+  /** İleri tarihli planlı/başlamış ders — varsa silinemez (önce taşı/iptal et). */
+  upcomingLessonCount: number;
+  activeSeriesCount: number;
+  /** Bu öğretmene atanmış aktif öğrenci — varsa silinemez (önce başka öğretmene ata). */
+  activeStudentCount: number;
+  studentCount: number;
+  payoutCount: number;
+  /** Ödenmemiş (bekleyen/kısmi) hakediş — varsa silinemez (önce öde veya iptal et). */
+  openPayoutCount: number;
+  feeRuleCount: number;
+  makeupRequestCount: number;
+  trialLessonCount: number;
+  hasLoginAccount: boolean;
+  /** Listeden kaldırmayı engelleyen nedenler (boşsa kaldırılabilir). */
+  blockers: string[];
+  hardDeleteEligible: boolean;
+  criticalPasswordConfigured: boolean;
+};
+
+async function computeTeacherDeletionImpact(tenantId: string, teacherId: string): Promise<TeacherDeletionImpact | null> {
+  const data = await readData();
+  const teacher = data.teachers.find((t) => t.id === teacherId);
+  if (!teacher) return null;
+  const { getCriticalActionPasswordStatus } = await import("../critical-action-password");
+  const { listTrialLessons } = await import("../trial-lessons");
+  const { getUserIdByTeacherId } = await import("../auth/users");
+  const [pw, trials, userId] = await Promise.all([
+    getCriticalActionPasswordStatus(tenantId),
+    listTrialLessons(tenantId),
+    getUserIdByTeacherId(tenantId, teacherId),
+  ]);
+  const nowIso = new Date().toISOString();
+  const lessons = data.lessons.filter((l) => l.teacherId === teacherId);
+  const upcomingLessonCount = lessons.filter((l) => (l.status === "scheduled" || l.status === "in_progress") && l.startAt > nowIso).length;
+  const activeSeriesCount = data.lessonSeries.filter((s) => s.teacherId === teacherId && s.status === "active").length;
+  const students = data.students.filter((s) => s.teacherId === teacherId);
+  const activeStudentCount = students.filter((s) => s.active && !s.deletedAt).length;
+  const payouts = data.teacherPayouts.filter((p) => p.teacherId === teacherId);
+  const openPayoutCount = payouts.filter((p) => p.status === "pending" || p.status === "partial").length;
+  const feeRuleCount = data.teacherFeeRules.filter((r) => r.teacherId === teacherId).length;
+  const makeupRequestCount = data.makeupRequests.filter((m) => m.teacherId === teacherId).length;
+  const trialLessonCount = trials.filter((t) => t.teacherId === teacherId).length;
+  const blockers: string[] = [];
+  if (teacher.active !== false) blockers.push('Öğretmen aktif. Önce öğretmen sayfasında "Pasife al" deyin.');
+  if (upcomingLessonCount > 0) blockers.push(`İleri tarihli ${upcomingLessonCount} planlı dersi var. Önce Ders Programı'nda başka öğretmene taşıyın veya iptal edin.`);
+  if (activeSeriesCount > 0) blockers.push(`${activeSeriesCount} aktif ders serisi var. Önce Ders Programı'nda seriyi sonlandırın veya başka öğretmene devredin.`);
+  if (activeStudentCount > 0) blockers.push(`${activeStudentCount} aktif öğrencinin öğretmeni. Önce Öğrenciler ekranında bu öğrencileri başka öğretmene atayın.`);
+  if (openPayoutCount > 0) blockers.push(`Ödenmemiş ${openPayoutCount} hakedişi var. Önce Hakedişler ekranında ödeyin veya iptal edin.`);
+  return {
+    teacherId,
+    name: teacher.name,
+    displayId: teacher.displayId,
+    active: teacher.active !== false,
+    deletedAt: teacher.deletedAt,
+    lessonCount: lessons.length,
+    upcomingLessonCount,
+    activeSeriesCount,
+    activeStudentCount,
+    studentCount: students.length,
+    payoutCount: payouts.length,
+    openPayoutCount,
+    feeRuleCount,
+    makeupRequestCount,
+    trialLessonCount,
+    hasLoginAccount: userId !== null,
+    blockers,
+    hardDeleteEligible:
+      blockers.length === 0 &&
+      lessons.length + data.lessonSeries.filter((s) => s.teacherId === teacherId).length + students.length + payouts.length + feeRuleCount + makeupRequestCount + trialLessonCount === 0,
+    criticalPasswordConfigured: pw.configured,
+  };
+}
+
+/** Öğretmen silme öncesi etki özeti (yalnız okuma). */
+export async function getTeacherDeletionImpactTool(ctx: ServiceContext, input: unknown): Promise<ServiceResult<TeacherDeletionImpact>> {
+  const auth = requireRole(ctx, CRITICAL_ROLES_FOR_TOOLS);
+  if (!auth.ok) return fail("FORBIDDEN", "Öğretmen silme yalnız kurum sahibi ve kurum yöneticileri tarafından başlatılabilir.");
+  const v = parseOrFail(z.object({ teacherId: z.string().min(1) }), input);
+  if (!v.ok) return v;
+  const impact = await computeTeacherDeletionImpact(ctx.tenantId, v.data.teacherId);
+  if (!impact) return fail("NOT_FOUND", "Öğretmen bulunamadı.");
+  return ok(impact);
+}
+
+const deleteTeacherSchema = z.object({
+  teacherId: z.string().min(1),
+  mode: z.enum(["soft", "hard"]),
+  confirmationName: z.string().max(200),
+  criticalPassword: z.string().max(200),
+  reason: z.string().trim().min(5, "Silme gerekçesi en az 5 karakter olmalı.").max(500),
+});
+
+/**
+ * Pasif öğretmeni kaldırır (bkz. TeacherDeletionImpact yorumu). İki kapı: ad soyad teyidi + kritik işlem
+ * şifresi; engelleyen bağımlılık varsa (aktif, ileri tarihli ders, aktif seri/öğrenci, ödenmemiş hakediş)
+ * hiçbir şey yazılmaz ve neden gösterilir. Giriş hesabı kapatılır. Her deneme audit'e yazılır.
+ */
+export async function deleteTeacherTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ teacherId: string; mode: "soft" | "hard" }>> {
+  const auth = requireRole(ctx, CRITICAL_ROLES_FOR_TOOLS);
+  if (!auth.ok) return fail("FORBIDDEN", "Öğretmen silme yalnız kurum sahibi ve kurum yöneticileri tarafından başlatılabilir.");
+  const v = parseOrFail(deleteTeacherSchema, input);
+  if (!v.ok) return v;
+  const impact = await computeTeacherDeletionImpact(ctx.tenantId, v.data.teacherId);
+  if (!impact || impact.deletedAt) return fail("NOT_FOUND", "Öğretmen bulunamadı veya zaten listeden kaldırılmış; sayfayı yenileyin.");
+
+  const deny = async (reasonCode: string, message: string) => {
+    await recordAuditLog({
+      tenantId: ctx.tenantId,
+      actorUserId: ctx.userId,
+      actorRole: ctx.role,
+      action: `teacher.delete_${v.data.mode}`,
+      entityType: "Teacher",
+      entityId: v.data.teacherId,
+      outcome: "denied",
+      meta: { reasonCode },
+    });
+    return fail("FORBIDDEN", message);
+  };
+
+  if (!sameName(v.data.confirmationName, impact.name)) {
+    return deny("confirmation_mismatch", `Onay için öğretmenin adını aynen yazın: "${impact.name}".`);
+  }
+  const gate = await checkCriticalPassword(ctx, v.data.criticalPassword);
+  if (!gate.ok) return deny(gate.reasonCode, gate.message);
+  if (impact.blockers.length > 0) return deny("blocked_by_dependencies", impact.blockers.join(" "));
+  if (v.data.mode === "hard" && !impact.hardDeleteEligible) {
+    return deny(
+      "hard_delete_blocked",
+      "Bu öğretmenin geçmiş ders, öğrenci, hakediş, ücret kuralı, telafi veya deneme dersi kaydı var; kalıcı silinemez. Listeden kaldırmayı kullanın — kayıtlar ve raporlardaki adı korunur."
+    );
+  }
+
+  try {
+    if (v.data.mode === "hard") {
+      await hardDeleteTeacher(v.data.teacherId);
+    } else {
+      await setTeacherDeletion(v.data.teacherId, { deletedAt: new Date().toISOString(), deletedByUserId: ctx.userId, deletionReason: v.data.reason });
+    }
+  } catch (e) {
+    if (e instanceof Error && e.message === "TEACHER_HAS_LINKED_RECORDS") {
+      return fail("CONFLICT", "Öğretmenin bağlı kayıtları var; kalıcı silinemez. Listeden kaldırmayı kullanın.");
+    }
+    logger.error("deleteTeacherTool failed", e);
+    return fail("INTERNAL_ERROR", "Öğretmen kaldırılamadı; hiçbir kayıt değişmedi. Tekrar deneyin.");
+  }
+  // Kaldırılan öğretmen artık giriş yapamaz (açık oturumları da düşer — oturum geçerlilik kontrolü `active`).
+  let loginClosed = false;
+  try {
+    const { getUserIdByTeacherId, setUserActive } = await import("../auth/users");
+    const userId = await getUserIdByTeacherId(ctx.tenantId, v.data.teacherId);
+    if (userId) {
+      loginClosed = await setUserActive(userId, false);
+      const { invalidateSessionValidity } = await import("../auth/session-validity");
+      invalidateSessionValidity(userId);
+    }
+  } catch (e) {
+    logger.error("deleteTeacherTool: giriş hesabı kapatılamadı", e);
+  }
+  await recordAuditLog({
+    tenantId: ctx.tenantId,
+    actorUserId: ctx.userId,
+    actorRole: ctx.role,
+    action: `teacher.delete_${v.data.mode}`,
+    entityType: "Teacher",
+    entityId: v.data.teacherId,
+    outcome: "success",
+    meta: {
+      mode: v.data.mode,
+      entityName: impact.name,
+      displayId: impact.displayId,
+      lessonCount: impact.lessonCount,
+      payoutCount: impact.payoutCount,
+      studentCount: impact.studentCount,
+      loginClosed,
+      reason: v.data.reason,
+    },
+  });
+  return ok({ teacherId: v.data.teacherId, mode: v.data.mode });
+}
+
+/** Listeden kaldırmayı geri alır; öğretmen PASİF döner (ayrıca aktifleştirilir), giriş hesabı kapalı kalır. */
+export async function restoreDeletedTeacherTool(ctx: ServiceContext, input: unknown): Promise<ServiceResult<{ teacherId: string }>> {
+  const auth = requireRole(ctx, CRITICAL_ROLES_FOR_TOOLS);
+  if (!auth.ok) return fail("FORBIDDEN", "Kaldırılan öğretmeni yalnız kurum sahibi ve kurum yöneticileri geri alabilir.");
+  const v = parseOrFail(z.object({ teacherId: z.string().min(1) }), input);
+  if (!v.ok) return v;
+  const teacher = (await readData()).teachers.find((t) => t.id === v.data.teacherId);
+  if (!teacher) return fail("NOT_FOUND", "Öğretmen bulunamadı.");
+  if (!teacher.deletedAt) return fail("VALIDATION_ERROR", "Bu öğretmen listeden kaldırılmış değil.");
+  await setTeacherDeletion(v.data.teacherId, null);
+  await recordAuditLog({
+    tenantId: ctx.tenantId,
+    actorUserId: ctx.userId,
+    actorRole: ctx.role,
+    action: "teacher.restore_deleted",
+    entityType: "Teacher",
+    entityId: v.data.teacherId,
+    outcome: "success",
+    meta: { displayId: teacher.displayId, deletedAt: teacher.deletedAt, entityName: teacher.name },
+  });
+  return ok({ teacherId: v.data.teacherId });
 }
 
 const bulkStudentActionSchema = z.discriminatedUnion("action", [

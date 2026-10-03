@@ -97,6 +97,9 @@ import {
   updateFeeRoundingModeTool,
   updatePerformanceWeightsTool,
   getStudentDeletionImpactTool,
+  getTeacherDeletionImpactTool,
+  deleteTeacherTool,
+  restoreDeletedTeacherTool,
   deleteStudentTool,
   getPackageDeletionImpactTool,
   deletePackageTool,
@@ -127,6 +130,7 @@ import {
   type ExistingPayoutSummary,
   setCriticalActionPasswordTool,
   type StudentDeletionImpact,
+  type TeacherDeletionImpact,
   updateMakeupWindowDaysTool,
   updateSchoolLogoTool,
   importSchoolLogoFromCurrentUrlTool,
@@ -4167,6 +4171,41 @@ export async function actionRestoreDeletedStudent(studentId: string): Promise<Si
     "actionRestoreDeletedStudent",
     (ctx) => restoreDeletedStudentTool(ctx, { studentId }),
     "Öğrenci geri alınamadı. Tekrar deneyin."
+  );
+  if (res.ok) revalidateAll();
+  return res;
+}
+
+/** 2026-10-03 — pasif öğretmeni kaldırma; tüm kural/yetki/audit `deleteTeacherTool`'da. */
+export async function actionGetTeacherDeletionImpact(teacherId: string): Promise<SimpleActionResult<TeacherDeletionImpact>> {
+  return runSimpleAction(
+    "actionGetTeacherDeletionImpact",
+    (ctx) => getTeacherDeletionImpactTool(ctx, { teacherId }),
+    "Silme etkisi hesaplanamadı. Sayfayı yenileyip tekrar deneyin."
+  );
+}
+
+export async function actionDeleteTeacher(input: {
+  teacherId: string;
+  mode: "soft" | "hard";
+  confirmationName: string;
+  criticalPassword: string;
+  reason: string;
+}): Promise<SimpleActionResult<{ teacherId: string; mode: "soft" | "hard" }>> {
+  const res = await runSimpleAction(
+    "actionDeleteTeacher",
+    (ctx) => deleteTeacherTool(ctx, input),
+    "Öğretmen kaldırılamadı; hiçbir kayıt değişmedi. Tekrar deneyin."
+  );
+  if (res.ok) revalidateAll();
+  return res;
+}
+
+export async function actionRestoreDeletedTeacher(teacherId: string): Promise<SimpleActionResult<{ teacherId: string }>> {
+  const res = await runSimpleAction(
+    "actionRestoreDeletedTeacher",
+    (ctx) => restoreDeletedTeacherTool(ctx, { teacherId }),
+    "Öğretmen geri alınamadı. Tekrar deneyin."
   );
   if (res.ok) revalidateAll();
   return res;

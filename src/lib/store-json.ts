@@ -62,6 +62,7 @@ import type {
   Student,
   StudentProfilePatch,
   StudentDeletionState,
+  TeacherDeletionState,
   StudentPaymentPauseState,
   Teacher,
   TeacherFeeRule,
@@ -515,6 +516,36 @@ export async function hardDeleteStudent(studentId: string): Promise<AppData> {
     data.makeupRequests.some((m) => m.studentId === studentId);
   if (linked) throw new Error("STUDENT_HAS_LINKED_RECORDS");
   const next = { ...data, students: data.students.filter((s) => s.id !== studentId) };
+  await writeData(next);
+  return next;
+}
+
+/** 2026-10-03 — öğretmeni listeden kaldırma (geri alınabilir); kaldırmada pasife alınır. `null` = geri al. */
+export async function setTeacherDeletion(teacherId: string, state: TeacherDeletionState): Promise<AppData> {
+  const data = await readData();
+  if (!data.teachers.some((t) => t.id === teacherId)) throw new Error("Öğretmen bulunamadı");
+  const teachers = data.teachers.map((t) => {
+    if (t.id !== teacherId) return t;
+    if (state) return { ...t, ...state, active: false, archivedAt: t.archivedAt ?? state.deletedAt };
+    return { ...t, deletedAt: undefined, deletedByUserId: undefined, deletionReason: undefined };
+  });
+  const next = { ...data, teachers };
+  await writeData(next);
+  return next;
+}
+
+/** Kalıcı silme — YALNIZ bağlı kaydı olmayan öğretmen; tool uygunluğu doğrular, burada ikinci kez kontrol edilir. */
+export async function hardDeleteTeacher(teacherId: string): Promise<AppData> {
+  const data = await readData();
+  const linked =
+    data.students.some((s) => s.teacherId === teacherId) ||
+    data.lessons.some((l) => l.teacherId === teacherId) ||
+    data.lessonSeries.some((l) => l.teacherId === teacherId) ||
+    data.makeupRequests.some((m) => m.teacherId === teacherId) ||
+    data.teacherFeeRules.some((r) => r.teacherId === teacherId) ||
+    data.teacherPayouts.some((p) => p.teacherId === teacherId);
+  if (linked) throw new Error("TEACHER_HAS_LINKED_RECORDS");
+  const next = { ...data, teachers: data.teachers.filter((t) => t.id !== teacherId) };
   await writeData(next);
   return next;
 }

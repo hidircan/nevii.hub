@@ -107,6 +107,10 @@ export interface Teacher {
   createdByUserId?: string;
   /** ÖNCELİK 4 (devam) — arşivleme (hard delete YOK); `active:false` ile birlikte set edilir. */
   archivedAt?: string;
+  /** 2026-10-03 — listeden kaldırıldı (geri alınabilir silme). Satır geçmiş kayıtlar için kalır; bkz. deleteTeacherTool. */
+  deletedAt?: string;
+  deletedByUserId?: string;
+  deletionReason?: string;
   /** Package D — özlük alanları. Hepsi opsiyonel; legacy kayıtlar kırılmaz. */
   employmentType?: TeacherEmploymentType;
   /** ISO tarih — işe giriş. */
@@ -2583,3 +2587,4 @@ export interface TaskActivity {
 
 /** Öğrenci silme/geri alma — store'ların dar yazma yolu. `null` = geri al. */
 export type StudentDeletionState = { deletedAt: string; deletedByUserId: string; deletionReason: string } | null;
+export type TeacherDeletionState = StudentDeletionState;

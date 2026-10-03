@@ -4,6 +4,7 @@ import { Badge, Card, EmptyState, PageHeader } from "@/components/ui";
 import { BackButton } from "@/components/back-button";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { TeacherArchiveAction } from "@/components/teacher-archive-action";
+import { TeacherDeleteDialog, TeacherDeletedBanner } from "@/components/teacher-delete-dialog";
 import { TeacherDetailTabs } from "@/components/teacher-detail-tabs";
 import { QuickTaskLink } from "@/components/quick-task-link";
 import { AssistantPageContext } from "@/components/ai/assistant-page-context";
@@ -82,11 +83,23 @@ export default async function TeacherDetailLayout({
                 returnTo={`/panel/ogretmenler/${teacher.id}`}
                 className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-sm font-medium text-[var(--color-primary)] hover:bg-[var(--color-bg)]"
               />
-              <TeacherArchiveAction teacherId={teacher.id} teacherName={teacher.name} archived={!teacher.active} />
+              {teacher.deletedAt ? null : (
+                <TeacherArchiveAction teacherId={teacher.id} teacherName={teacher.name} archived={!teacher.active} />
+              )}
+              {!teacher.active && !teacher.deletedAt ? <TeacherDeleteDialog teacherId={teacher.id} teacherName={teacher.name} /> : null}
             </div>
           ) : undefined
         }
       />
+
+      {teacher.deletedAt ? (
+        <TeacherDeletedBanner
+          teacherId={teacher.id}
+          deletedAtLabel={formatDate(teacher.deletedAt)}
+          reason={teacher.deletionReason}
+          canRestore={canManage}
+        />
+      ) : null}
 
       <Card className="mb-4 !p-3">
         <div className="flex flex-wrap items-center gap-2 text-sm">

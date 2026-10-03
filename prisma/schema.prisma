@@ -556,6 +556,11 @@ model Teacher {
   /// veya legacy kayıt; set edilmişse arşivlenme anı. `active=false` ile
   /// birlikte kullanılır — bkz. src/lib/services/tools.ts archiveTeacherTool.
   archivedAt            DateTime?
+  /// 2026-10-03 — "listeden kaldırma" (geri alınabilir silme): satır kalır ki geçmiş ders/yoklama/
+  /// hakediş ve raporlar öğretmen adını göstermeye devam etsin. Yalnız pasif öğretmende set edilir.
+  deletedAt             DateTime?
+  deletedByUserId       String?
+  deletionReason        String?
   /// ÖNCELİK 4 (devam) — öğretmen CSV çoklu enstrüman revizyonu: bu 5 alan
   /// TS tipinde (Teacher) zaten vardı ama hiçbir zaman DB'de karşılığı yoktu
   /// (db modunda hep sessizce kayboluyordu) — CSV'nin `lise/universite/

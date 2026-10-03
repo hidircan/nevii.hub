@@ -29,6 +29,7 @@ import type {
   StudentPaymentPauseState,
   StudentProfilePatch,
   StudentDeletionState,
+  TeacherDeletionState,
   StudentTermType,
   Teacher,
   TeacherFeeRule,
@@ -294,6 +295,8 @@ type StoreApi = {
   updateFeeRoundingMode: (feeRoundingMode: FeeRoundingMode) => Promise<AppData>;
   setStudentDeletion: (studentId: string, state: StudentDeletionState) => Promise<AppData | void>;
   hardDeleteStudent: (studentId: string) => Promise<AppData | void>;
+  setTeacherDeletion: (teacherId: string, state: TeacherDeletionState) => Promise<AppData | void>;
+  hardDeleteTeacher: (teacherId: string) => Promise<AppData | void>;
   updatePerformanceWeights: (
     performanceWeights: import("./performance-weights").PerformanceWeightsConfig
   ) => Promise<AppData>;
@@ -487,6 +490,14 @@ export async function setStudentDeletion(studentId: string, state: StudentDeleti
 
 export async function hardDeleteStudent(studentId: string): Promise<void> {
   await withTenantScope(() => store.hardDeleteStudent(studentId));
+}
+
+export async function setTeacherDeletion(teacherId: string, state: TeacherDeletionState): Promise<void> {
+  await withTenantScope(() => store.setTeacherDeletion(teacherId, state));
+}
+
+export async function hardDeleteTeacher(teacherId: string): Promise<void> {
+  await withTenantScope(() => store.hardDeleteTeacher(teacherId));
 }
 
 export async function updateStudentProfile(

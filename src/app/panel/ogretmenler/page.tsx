@@ -27,6 +27,9 @@ export default async function OgretmenlerPage() {
   const data = await readScopedData(kurum.scope);
   const canSeePerformance = session.role === "SUPER_ADMIN" || session.role === "SCHOOL_ADMIN";
   const canManage = session.role === "SCHOOL_ADMIN" || session.role === "SUPER_ADMIN";
+  // 2026-10-03 — listeden kaldırılan öğretmenler hiçbir listede görünmez; geçmiş kayıtlar ve raporlar adı korur.
+  const teachers = data.teachers.filter((t) => !t.deletedAt);
+  const removedTeachers = canManage ? data.teachers.filter((t) => t.deletedAt) : [];
 
   // Liste görünümü artık eski (all-time) computeTeacherPerformanceScore yerine
   // teacher-performance-v2 kullanır — aynı skor modeli/ağırlıklandırma detay
@@ -40,7 +43,7 @@ export default async function OgretmenlerPage() {
   const periodEnd = format(now, "yyyy-MM-dd");
   const performanceEntries = canSeePerformance
     ? await Promise.all(
-        data.teachers
+        teachers
           .filter((t) => t.active)
           .map(async (t) => [t.id, await computeTeacherPerformanceReportV2(data, session.tenantId, t.id, periodStart, periodEnd)] as const)
       )
@@ -53,7 +56,7 @@ export default async function OgretmenlerPage() {
   const branchName = (id: string) => data.settings.branches.find((b) => b.id === id)?.shortName ?? id;
   const activeStudentCount = new Map<string, number>();
   for (const s of data.students) if (s.active && s.teacherId) activeStudentCount.set(s.teacherId, (activeStudentCount.get(s.teacherId) ?? 0) + 1);
-  const listRows = data.teachers.map((t) => ({
+  const listRows = teachers.map((t) => ({
     id: t.id,
     displayId: t.displayId,
     name: t.name,
@@ -65,7 +68,7 @@ export default async function OgretmenlerPage() {
     active: t.active,
     studentCount: activeStudentCount.get(t.id) ?? 0,
   }));
-  const instrumentOptions = Array.from(new Set(data.teachers.flatMap((t) => t.instruments))).sort((a, b) => a.localeCompare(b, "tr"));
+  const instrumentOptions = Array.from(new Set(teachers.flatMap((t) => t.instruments))).sort((a, b) => a.localeCompare(b, "tr"));
 
   return (
     <div>
@@ -88,7 +91,7 @@ export default async function OgretmenlerPage() {
         branches={data.settings.branches.map((b) => ({ id: b.id, name: b.shortName || b.name }))}
         instruments={instrumentOptions}
         cards={Object.fromEntries(
-          data.teachers.map((t) => {
+          teachers.map((t) => {
             const studentCount = activeStudentCount.get(t.id) ?? 0;
             const weekLessons = data.lessons.filter((l) => l.teacherId === t.id && l.status !== "cancelled").length;
             return [
@@ -205,6 +208,26 @@ export default async function OgretmenlerPage() {
           })
         )}
       />
+
+      {removedTeachers.length > 0 ? (
+        <details className="mt-6 rounded-[var(--radius-md)] border border-[var(--color-border)] px-3 py-2 text-sm">
+          <summary className="cursor-pointer font-medium text-[var(--color-text-muted)]">
+            Listeden kaldırılan öğretmenler ({removedTeachers.length})
+          </summary>
+          <p className="mt-1 text-xs text-[var(--color-text-muted)]">
+            Geçmiş ders, yoklama ve hakediş kayıtları korunur. Geri almak için öğretmenin sayfasını açın.
+          </p>
+          <ul className="mt-2 space-y-1">
+            {removedTeachers.map((t) => (
+              <li key={t.id}>
+                <Link href={`/panel/ogretmenler/${t.id}`} className="hover:text-[var(--color-primary)]">
+                  {t.name}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
     </div>
   );
 }

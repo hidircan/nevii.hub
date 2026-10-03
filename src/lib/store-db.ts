@@ -52,6 +52,7 @@ import type {
   Student,
   StudentProfilePatch,
   StudentDeletionState,
+  TeacherDeletionState,
   StudentPaymentPauseState,
   StudentType,
   Teacher,
@@ -442,6 +443,9 @@ function mapSchoolToAppData(school: PrismaSchoolWithRelations): AppData {
       createdByUserId: (teacher as { createdByUserId?: string | null }).createdByUserId ?? undefined,
       active: teacher.active,
       archivedAt: (teacher as { archivedAt?: Date | null }).archivedAt?.toISOString() ?? undefined,
+      deletedAt: (teacher as { deletedAt?: Date | null }).deletedAt?.toISOString() ?? undefined,
+      deletedByUserId: (teacher as { deletedByUserId?: string | null }).deletedByUserId ?? undefined,
+      deletionReason: (teacher as { deletionReason?: string | null }).deletionReason ?? undefined,
       color: teacher.color,
       // ÖNCELİK 4 (devam) — öğretmen CSV çoklu enstrüman revizyonu: bu 5 alan
       // db modunda daha önce hiç okunmuyordu (Prisma şemasında yoktu).
@@ -2493,6 +2497,39 @@ export async function archiveTeacher(teacherId: string, archived: boolean): Prom
   if (result.count === 0) return null;
   const data = await readData();
   return data.teachers.find((t) => t.id === teacherId) ?? null;
+}
+
+/** 2026-10-03 — öğretmeni listeden kaldırma (geri alınabilir); kaldırmada pasife alınır. `null` = geri al. */
+export async function setTeacherDeletion(teacherId: string, state: TeacherDeletionState): Promise<void> {
+  const tid = requireTenantId();
+  const existing = await prisma.teacher.findFirst({ where: { id: teacherId, tenantId: tid }, select: { archivedAt: true } });
+  if (!existing) throw new Error("Öğretmen bulunamadı");
+  await prisma.teacher.updateMany({
+    where: { id: teacherId, tenantId: tid },
+    data: state
+      ? {
+          deletedAt: new Date(state.deletedAt),
+          deletedByUserId: state.deletedByUserId,
+          deletionReason: state.deletionReason,
+          active: false,
+          archivedAt: existing.archivedAt ?? new Date(state.deletedAt),
+        }
+      : { deletedAt: null, deletedByUserId: null, deletionReason: null },
+  });
+}
+
+/** Kalıcı silme — yalnız hiçbir bağlı kaydı olmayan öğretmen (FK ilişkileri boş olmalı). */
+export async function hardDeleteTeacher(teacherId: string): Promise<void> {
+  const tid = requireTenantId();
+  const row = await prisma.teacher.findFirst({
+    where: { id: teacherId, tenantId: tid },
+    select: {
+      _count: { select: { students: true, lessons: true, lessonSeries: true, makeupRequests: true, teacherFeeRules: true, teacherPayouts: true } },
+    },
+  });
+  if (!row) throw new Error("Öğretmen bulunamadı");
+  if (Object.values(row._count).some((n) => n > 0)) throw new Error("TEACHER_HAS_LINKED_RECORDS");
+  await prisma.teacher.deleteMany({ where: { id: teacherId, tenantId: tid } });
 }
 
 export async function addLesson(input: {
