@@ -21,6 +21,7 @@
 import { buildDisruptionPatch, type LessonDisruptionInput, type LessonDisruptionPatch } from "./lesson-disruption";
 import type { AppData, Attendance, Lesson, MakeupRequest } from "./types";
 import { uid } from "./utils";
+import { reoccupyBlockMessage } from "./lesson-occupancy";
 import { addDays, formatISO } from "date-fns";
 import { assertCanCreateMakeup } from "./makeup-quota";
 
@@ -82,7 +83,7 @@ function isBlankReason(reason?: string): boolean {
   return !reason || reason.trim().length === 0;
 }
 
-export function applyLessonOpsFlag(
+function applyLessonOpsFlagUnguarded(
   data: AppData,
   lessonId: string,
   flag: LessonOpsFlag,
@@ -304,7 +305,7 @@ export function effectiveLessonOpsStatus(
  * kayıtlar burada asla dokunulmaz — yalnızca ders iptali
  * (`applyLessonCancel`) hâlâ ödenmemiş geçmiş bir kaydı void'e çevirebilir.
  */
-export function switchLessonOpsFlag(
+function switchLessonOpsFlagUnguarded(
   data: AppData,
   lessonId: string,
   flag: LessonOpsFlag,
@@ -365,7 +366,7 @@ export type ClearLessonOpsResult =
       removedAttendanceIds: string[];
       message: string;
     }
-  | { ok: false; code: "NOT_FOUND" | "STALE" | "MAKEUP_IN_USE"; message: string };
+  | { ok: false; code: "NOT_FOUND" | "STALE" | "MAKEUP_IN_USE" | "SLOT_TAKEN"; message: string };
 
 export const OPS_LABEL: Record<LessonOpsFlag, string> = {
   attended: "Geldi",
@@ -387,7 +388,7 @@ export const OPS_LABEL: Record<LessonOpsFlag, string> = {
  *   geçişinde "present" satırı kalıyor, geri almadan sonra ders "yoklama kaydı var" diye kilitleniyordu.
  * Hiçbir dal Payment oluşturmaz/değiştirmez (Package B).
  */
-export function clearLessonOpsFlag(
+function clearLessonOpsFlagUnguarded(
   data: AppData,
   lessonId: string,
   expected: LessonOpsFlag,
@@ -484,4 +485,32 @@ export function clearLessonOpsFlag(
     removedAttendanceIds,
     message: `"${OPS_LABEL[current]}" statüsü geri alındı.`,
   };
+}
+
+/**
+ * 2026-10-03 (owner) — Telafi'ye alınan dersin saati başka derse verilebilir (bkz. lesson-occupancy.ts).
+ * Statü değişimi/geri alma dersi saatine yeniden "oturtuyorsa" ve saat bu arada dolduysa işlem engellenir;
+ * üç store da bu saf fonksiyonları kullandığı için kural her modda aynı.
+ */
+function slotTakenMessageFor(data: AppData, lessonId: string, after: Lesson, action: string): string | null {
+  const before = data.lessons.find((l) => l.id === lessonId);
+  return before ? reoccupyBlockMessage(data, before, after, action) : null;
+}
+
+export function applyLessonOpsFlag(...args: Parameters<typeof applyLessonOpsFlagUnguarded>): ApplyLessonOpsResult {
+  const result = applyLessonOpsFlagUnguarded(...args);
+  const blocked = result.ok && !result.alreadySet ? slotTakenMessageFor(args[0], args[1], result.lesson, "Statü değiştirilemedi") : null;
+  return blocked ? { ok: false, message: blocked } : result;
+}
+
+export function switchLessonOpsFlag(...args: Parameters<typeof switchLessonOpsFlagUnguarded>): ApplyLessonOpsResult {
+  const result = switchLessonOpsFlagUnguarded(...args);
+  const blocked = result.ok && !result.alreadySet ? slotTakenMessageFor(args[0], args[1], result.lesson, "Statü değiştirilemedi") : null;
+  return blocked ? { ok: false, message: blocked } : result;
+}
+
+export function clearLessonOpsFlag(...args: Parameters<typeof clearLessonOpsFlagUnguarded>): ClearLessonOpsResult {
+  const result = clearLessonOpsFlagUnguarded(...args);
+  const blocked = result.ok && !result.alreadyClear ? slotTakenMessageFor(args[0], args[1], result.lesson, "Statü geri alınamadı") : null;
+  return blocked ? { ok: false, code: "SLOT_TAKEN", message: blocked } : result;
 }

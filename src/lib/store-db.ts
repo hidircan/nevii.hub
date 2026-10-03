@@ -46,6 +46,7 @@ import type {
   ContractInstallmentView,
   FeeRoundingMode,
   Instrument,
+  Lesson,
   LessonSeriesStatus,
   MakeupSlot,
   Room,
@@ -68,6 +69,7 @@ import {
   LessonSlotValidationError,
   type MakeupDecision,
 } from "./makeup-engine";
+import { findSlotConflict, type SlotResource } from "./lesson-occupancy";
 import {
   applyLessonScheduleUpdate,
   applyLessonCancel,
@@ -1606,39 +1608,40 @@ export async function confirmSlot(
   });
   if (!branch) throw new Error("Şube bulunamadı");
 
-  await prisma.lesson.create({
-    data: {
-      id: lessonId,
-      tenantId: tid,
-      studentId: request.studentId,
-      teacherId: validatedSlot.teacherId,
-      roomId: validatedSlot.roomId,
-      branchId: validatedSlot.branchId,
-      schoolId: branch.schoolId,
-      instrument: request.instrument,
-      startAt: new Date(validatedSlot.startAt),
-      endAt: new Date(validatedSlot.endAt),
-      type: "makeup",
-      status: "scheduled",
-      makeupRequestId: requestId,
-      notes: `Telafi · kaynak ders ${request.sourceLessonId}`,
-    },
-  });
-
   const decidedAt = new Date();
   const slaDeadline = computeSlaDeadline(decidedAt.toISOString());
-
-  await prisma.makeupRequest.updateMany({
-    where: { id: requestId, tenantId: tid },
-    data: {
-      status: "confirmed",
-      confirmedLessonId: lessonId,
-      decisionNote: decision.decisionNote,
-      decidedBy: decision.decidedBy,
-      decidedAt,
-      slaDeadline: new Date(slaDeadline),
-      slaEscalationLevel: 0,
-    },
+  await prisma.$transaction(async (tx) => {
+    await assertSlotFreeLockedTx(tx, tid, { teacherId: validatedSlot.teacherId, roomId: validatedSlot.roomId, studentId: request.studentId, startAt: validatedSlot.startAt, endAt: validatedSlot.endAt });
+    await tx.lesson.create({
+      data: {
+        id: lessonId,
+        tenantId: tid,
+        studentId: request.studentId,
+        teacherId: validatedSlot.teacherId,
+        roomId: validatedSlot.roomId,
+        branchId: validatedSlot.branchId,
+        schoolId: branch.schoolId,
+        instrument: request.instrument,
+        startAt: new Date(validatedSlot.startAt),
+        endAt: new Date(validatedSlot.endAt),
+        type: "makeup",
+        status: "scheduled",
+        makeupRequestId: requestId,
+        notes: `Telafi · kaynak ders ${request.sourceLessonId}`,
+      },
+    });
+    await tx.makeupRequest.updateMany({
+      where: { id: requestId, tenantId: tid },
+      data: {
+        status: "confirmed",
+        confirmedLessonId: lessonId,
+        decisionNote: decision.decisionNote,
+        decidedBy: decision.decidedBy,
+        decidedAt,
+        slaDeadline: new Date(slaDeadline),
+        slaEscalationLevel: 0,
+      },
+    });
   });
 
   return;
@@ -2532,6 +2535,46 @@ export async function hardDeleteTeacher(teacherId: string): Promise<void> {
   await prisma.teacher.deleteMany({ where: { id: teacherId, tenantId: tid } });
 }
 
+const SLOT_CONFLICT_CODE: Record<SlotResource, "TEACHER_CONFLICT" | "ROOM_CONFLICT" | "STUDENT_CONFLICT"> = {
+  teacher: "TEACHER_CONFLICT",
+  room: "ROOM_CONFLICT",
+  student: "STUDENT_CONFLICT",
+};
+
+/**
+ * 2026-10-03 — eşzamanlı iki yazım (iki sekme/iki yönetici) aynı boş saati anlık görüntüde "boş" görüp
+ * ikisi de ders yazabiliyordu (çift rezervasyon). Kurum içi ders-saati yazımları advisory kilitle
+ * sıralanır; kilit altında DB'deki güncel derslerle merkezi kural (`findSlotConflict`) yeniden uygulanır.
+ * ponytail: kurum geneli tek kilit — yoğunluk artarsa öğretmen/oda anahtarlı kilide geçin.
+ */
+async function assertSlotFreeLockedTx(
+  tx: Prisma.TransactionClient,
+  tenantId: string,
+  candidate: { teacherId: string; roomId: string; studentId: string; startAt: string; endAt: string }
+) {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${tenantId}), hashtext('lesson-slot'))`;
+  const rows = await tx.lesson.findMany({
+    where: {
+      tenantId,
+      status: { not: "cancelled" },
+      startAt: { lt: new Date(candidate.endAt) },
+      endAt: { gt: new Date(candidate.startAt) },
+      OR: [{ teacherId: candidate.teacherId }, { roomId: candidate.roomId }, { studentId: candidate.studentId }],
+    },
+    select: { id: true, teacherId: true, roomId: true, studentId: true, startAt: true, endAt: true, status: true, opsMakeupFlag: true, lessonProcessed: true, studentAttended: true },
+  });
+  const conflict = findSlotConflict(
+    rows.map((r) => ({ ...r, startAt: r.startAt.toISOString(), endAt: r.endAt.toISOString(), status: r.status as Lesson["status"] })),
+    candidate
+  );
+  if (conflict) {
+    throw new LessonSlotValidationError(
+      SLOT_CONFLICT_CODE[conflict.resource],
+      "Bu saat az önce başka bir derse verildi (aynı anda iki kayıt yapıldı). Ders oluşturulmadı; sayfayı yenileyip başka bir saat seçin."
+    );
+  }
+}
+
 export async function addLesson(input: {
   studentId: string;
   teacherId: string;
@@ -2566,26 +2609,29 @@ export async function addLesson(input: {
   if (!branch) throw new Error("Şube bulunamadı");
 
   const override = slot.availabilityOverridden && input.overriddenByUserId;
-  await prisma.lesson.create({
-    data: {
-      id: `les_${Date.now().toString(36)}`,
-      tenantId: tid,
-      studentId: input.studentId,
-      teacherId: slot.teacherId,
-      roomId: slot.roomId,
-      branchId: slot.branchId,
-      schoolId: branch.schoolId,
-      instrument: input.instrument,
-      startAt: new Date(slot.startAt),
-      endAt: new Date(slot.endAt),
-      type: "regular",
-      status: "scheduled",
-      createdByUserId: input.createdByUserId,
-      term: input.term,
-      academicYearStart: input.academicYearStart,
-      availabilityOverrideBy: override ? input.overriddenByUserId : undefined,
-      availabilityOverrideAt: override ? new Date() : undefined,
-    },
+  await prisma.$transaction(async (tx) => {
+    await assertSlotFreeLockedTx(tx, tid, { teacherId: slot.teacherId, roomId: slot.roomId, studentId: input.studentId, startAt: slot.startAt, endAt: slot.endAt });
+    await tx.lesson.create({
+      data: {
+        id: `les_${Date.now().toString(36)}`,
+        tenantId: tid,
+        studentId: input.studentId,
+        teacherId: slot.teacherId,
+        roomId: slot.roomId,
+        branchId: slot.branchId,
+        schoolId: branch.schoolId,
+        instrument: input.instrument,
+        startAt: new Date(slot.startAt),
+        endAt: new Date(slot.endAt),
+        type: "regular",
+        status: "scheduled",
+        createdByUserId: input.createdByUserId,
+        term: input.term,
+        academicYearStart: input.academicYearStart,
+        availabilityOverrideBy: override ? input.overriddenByUserId : undefined,
+        availabilityOverrideAt: override ? new Date() : undefined,
+      },
+    });
   });
   return readData();
 }
@@ -3187,6 +3233,7 @@ export async function addLessonSeries(
       },
     });
     for (const lesson of newLessons) {
+      await assertSlotFreeLockedTx(tx, tid, lesson);
       await tx.lesson.create({
         data: {
           id: lesson.id,

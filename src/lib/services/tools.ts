@@ -982,6 +982,8 @@ export async function confirmMakeupLessonTool(
       communication,
     });
   } catch (e) {
+    // Kilit altındaki yeniden kontrol: saat az önce başka derse verildi (bkz. store-db assertSlotFreeLockedTx).
+    if (e instanceof LessonSlotValidationError) return fail("CONFLICT", e.message);
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "confirmMakeupLesson failed");
   }
 }
@@ -6912,6 +6914,8 @@ export async function createLessonSeriesTool(
       skippedOccurrences: result.skippedOccurrences,
     });
   } catch (e) {
+    // Kilit altındaki yeniden kontrol: saat az önce başka derse verildi (bkz. store-db assertSlotFreeLockedTx).
+    if (e instanceof LessonSlotValidationError) return fail("CONFLICT", e.message);
     return fail("NOT_FOUND", e instanceof Error ? e.message : "createLessonSeries failed");
   }
 }
@@ -14799,7 +14803,7 @@ export async function clearLessonOpsFlagTool(
   try {
     const result = await clearLessonOpsFlagLive(v.data.lessonId, v.data.expected, ctx.userId);
     if (!result.ok) {
-      return fail(result.code === "NOT_FOUND" ? "NOT_FOUND" : result.code === "STALE" ? "CONFLICT" : "VALIDATION_ERROR", result.message);
+      return fail(result.code === "NOT_FOUND" ? "NOT_FOUND" : result.code === "STALE" || result.code === "SLOT_TAKEN" ? "CONFLICT" : "VALIDATION_ERROR", result.message);
     }
     if (!result.alreadyClear) {
       audit(ctx, "lesson.ops.clear", "Lesson", v.data.lessonId, {

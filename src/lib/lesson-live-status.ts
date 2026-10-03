@@ -6,6 +6,7 @@
  */
 
 import type { AppData, Lesson } from "./types";
+import { reoccupyBlockMessage } from "./lesson-occupancy";
 
 /**
  * `makeup` = kaçırılıp telafiye alınan ders (kaynak ders, sarı).
@@ -195,6 +196,9 @@ export function applyStartLesson(
   if (!result.ok) return result;
   const nextData = applyLessonPatch(data, lessonId, result.patch);
   const nextLesson = findLesson(nextData, lessonId)!;
+  // Telafi'ye alınıp saati başka derse verilmiş ders başlatılırsa saat yeniden dolar (bkz. lesson-occupancy).
+  const blocked = reoccupyBlockMessage(data, lesson, nextLesson, "Ders başlatılamadı");
+  if (blocked) return { ok: false, message: blocked };
   return { ok: true, data: nextData, lesson: nextLesson };
 }
 

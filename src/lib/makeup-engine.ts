@@ -15,6 +15,7 @@ import { availabilityForBranch, isTeacherSchedulable, teacherServesBranch } from
 import { DEFAULT_APP_TIMEZONE, addDaysYmd, toZonedYmd, zonedHm, zonedWallTimeToUtc, zonedWeekday } from "./timezone";
 import { assertWorkDaySchedulable, isSuggestableWorkDay, type DayStatusReason } from "./work-days";
 import { buildTeacherDayAvailability, nearestFreeStart, slotAdvice } from "./teacher-day-availability";
+import { lessonOccupiesSlot } from "./lesson-occupancy";
 
 function overlaps(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date) {
   return aStart < bEnd && bStart < aEnd;
@@ -35,7 +36,8 @@ function roomSupports(room: Room, instrument: string) {
  * dersleri 4 kez tarayıp her satırda `parseISO` yapıyordu → O(aday × ders).
  * Ölçüm (6000 ders, 8 öğretmen, 6 oda): telafi önerisi 41 sn.
  * Çözüm: ders listesi başına BİR kez kurulan indeks (öğretmen/oda/öğrenci → sayısal
- * aralıklar, iptaller hariç). Anahtar dizi kimliği + uzunluk: store her yazmada yeni
+ * aralıklar; yalnız saati GERÇEKTEN dolduran dersler — tek kural `lessonOccupiesSlot`: iptal ve
+ * Telafi'ye alınmış, yapılmamış ders girmez). Anahtar dizi kimliği + uzunluk: store her yazmada yeni
  * dizi üretir. ponytail: aynı dizide yerinde eleman değişimi indeksi bayatlatır —
  * böyle bir çağıran çıkarsa `lessonIndex.delete(lessons)` ile açıkça geçersiz kılın.
  */
@@ -53,7 +55,7 @@ function indexOf(lessons: Lesson[]): LessonIndex {
     else map.set(key, [span]);
   };
   for (const l of lessons) {
-    if (l.status === "cancelled") continue;
+    if (!lessonOccupiesSlot(l)) continue;
     const start = parseISO(l.startAt);
     const span = { id: l.id, start: start.getTime(), end: parseISO(l.endAt).getTime(), ymd: toZonedYmd(start, DEFAULT_APP_TIMEZONE) };
     push(idx.byTeacher, l.teacherId, span);

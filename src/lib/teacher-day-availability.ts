@@ -10,6 +10,7 @@ import { parseISO } from "date-fns";
 import { availabilityForBranch, isTeacherSchedulable, teacherServesBranch } from "./teacher-branches";
 import { DEFAULT_APP_TIMEZONE, toZonedYmd, zonedHm, zonedWallTimeToUtc, zonedWeekday } from "./timezone";
 import type { BranchId, Lesson, Teacher } from "./types";
+import { lessonOccupiesSlot } from "./lesson-occupancy";
 
 export type HmRange = { start: string; end: string };
 export type TeacherDayAvailability = { teacherId: string; windows: HmRange[]; busy: HmRange[] };
@@ -52,7 +53,7 @@ export function buildTeacherDayAvailability(
     list.push({ start: zonedHm(s, DEFAULT_APP_TIMEZONE), end: zonedHm(parseISO(endAt), DEFAULT_APP_TIMEZONE) });
     busyByTeacher.set(teacherId, list);
   };
-  for (const l of data.lessons) if (l.status !== "cancelled") push(l.teacherId, l.startAt, l.endAt);
+  for (const l of data.lessons) if (lessonOccupiesSlot(l)) push(l.teacherId, l.startAt, l.endAt);
   for (const t of trials) if (t.status !== "cancelled") push(t.teacherId, t.startAt, t.endAt);
 
   return data.teachers
