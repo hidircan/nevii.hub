@@ -34,7 +34,8 @@ describe("enstrüman seçenekleri — tek kaynak: kurumun aktif kataloğu", () =
   it("Bas Gitar oda formu seçeneklerinde var; şube müdürü de aynı listeyi görür (sabit yedek yok)", async () => {
     const asAdmin = await activeInstrumentOptions(admin);
     expect(asAdmin).toContain("Bas Gitar");
-    const asBranchManager = await activeInstrumentOptions({ ...admin, role: "BRANCH_MANAGER" });
+    const branchManager: ServiceContext = { ...admin, role: "BRANCH_MANAGER" };
+    const asBranchManager = await activeInstrumentOptions(branchManager);
     expect(asBranchManager).toEqual(asAdmin);
   });
 
