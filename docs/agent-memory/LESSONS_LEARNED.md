@@ -1428,3 +1428,20 @@ Aynı turda: `validateLessonSlot` oda `active`'ini hiç okumuyordu → telafi pa
   Prisma bunu UTC okur → yerelde `sessionsRevokedAt` 3 saat ileride göründü, provada yeni oturumlar da "iptal" sayıldı.
   Canlı (Supabase) UTC olduğu için canlıdaki değer doğruydu (`gecmiste_mi=t` ile kanıtlandı).
 - Kural: ham SQL ile zaman yazarken `now() at time zone 'UTC'`; prova adımı başarısızsa önce ortam farkını ele.
+
+## 2026-10-03 — Eşzamanlı ders yazımı çift rezervasyon yapıyordu (anlık görüntü doğrulaması yetmez)
+- DB modunda `addLesson`/seri/telafi onayı `readData()` görüntüsünde `validateLessonSlot` çalıştırıp sonra yazıyordu;
+  aynı saate aynı anda iki istek ikisi de "boş" gördü (yerel provada 3/3 çift kayıt). Düzeltme: kurum içi advisory kilit
+  altında DB'den güncel çakışan dersleri okuyup merkezi kuralla (`findSlotConflict`) yeniden kontrol.
+- Ders: kapasite/çakışma gibi "tek olmalı" kuralları yazım anında kilit/kısıt altında yeniden doğrula.
+
+## 2026-10-03 — Prova düzeneği "sahte geçti" üretti (tek oturum kuralı)
+- Token iptal provasında ikinci giriş birinci oturumu kapattığı için sonraki "401 beklenir" adımları boş/yanlış token
+  ile kendiliğinden geçti. Düzeltme: her adım gerçek HTTP kodlarını yazar; senaryolar oturum kurallarına göre sıralanır.
+- Ders: negatif (reddedilmeli) adımlardan önce aynı kimlikle pozitif adımın gerçekten 200 verdiğini doğrula.
+
+## 2026-10-03 — Araç çıktısına körü körüne güvenme: regex ve komut zinciri
+- Varsayılan şifre envanterinde `process\.env\.[A-Z_]+` rakamlı değişken adlarını kaçırdı → hesaplar yanlış eşleşti;
+  bilinen sayılarla (19 hesap) karşılaştırınca yakalandı.
+- `tsc | head && git add && git commit` zinciri tsc hatasını yuttu (boru çıkış kodu `head`'in) → bozuk commit; ayrı
+  adımda `echo exit=$?`/`pipestatus` ile kontrol et. Eski (biçimlenmemiş) dosyaya prettier çalıştırma: 2 400 satır fark.

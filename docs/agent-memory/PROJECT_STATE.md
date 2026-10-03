@@ -4,6 +4,26 @@ Kısa tutulur (~50 satır): oturum sonunda yalnız "Güncel snapshot" bölümün
 `archive/`'e taşınır. Ayrıntı → ilgili `docs/testing/UAT_*.md`, `docs/operations/*`. Yönlendirici: `nevii-hub` skill.
 Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_2026-09-24.md`.
 
+## Güncel snapshot — 2026-10-03 (güvenlik sürümü CANLIDA; ürün sürüm adayı hazır, sürüm onayı + prod migration bekliyor)
+- Canlı: `3fece63` (`dpl_J4aHGtSMJ33bsoEB2nmQgX5993hY`, fra1, 06:37Z): DB hatasında demo şifreye geri düşme kapalı
+  (fail-closed), AI_AGENT için şifre sıfırlama yok, seed paket id düzeltmesi, mobil lint (CI artık lint'te kırılmıyor).
+  Smoke: health/ready 200, kimliksiz API 401, AI_AGENT varsayılan şifre 401, şifremi-unuttum nötr + token oluşmadı.
+  Geri dönüş: commit revert/ileri düzeltme — `c3476a0`'a anlık rollback fallback açığını geri açar.
+- Ürün sürüm adayı `release/product-2026-10-03` (`../nevii-hub-teacher-removal`, push edilmedi, son kapı 59342f5: test 4 kalan = taban, build OK): 24ffd1e pasif öğretmen
+  kaldırma (listeden kaldırma/kalıcı silme, MIGRATION `20261003120000_teacher_soft_delete` — additive, 3 nullable kolon),
+  4ef374d telafi saati boşaltır + eşzamanlı ders yazımında çift rezervasyon kapandı (advisory kilit), 9029108/793a86a
+  enstrüman tek kaynak (Bas Gitar), fdc68b5 öğrenci seçilince ders süresi, dbef8d0 ödeme silme/tahsilat geri alma
+  (kritik şifreli). Ayrı dal `fix/log-privacy` (dafe87d): loglarda e-posta maskesi, öğrenci/öğretmen adı yok.
+- Yerel izole DB provaları: token iptali 10/10, eşzamanlı ders (eski kod 3/3 çift kayıt → yeni 3/3 tek), silme akışları
+  DB modunda 9/9 (takip kaydı olan ödeme silinmez → iptal; cascade yok). Yerel `neviihub_dev`'e teacher migration uygulandı.
+- KRİTİK açık (owner kararı verildi, uygulanmadı): canlıda 7 öğretmen (t1–t7, şifreleri 31 Tem–8 Eyl herkese açık
+  login paketindeydi), 9 demo öğrenci, Nilüfer ve Ezgi hesapları koddaki varsayılan şifreyi kabul ediyor. Öğretmen
+  şifrelerini döndürme + demoları kapatma betiği Claude Code otomatik izin denetleyicisince engellendi; yedek hazır:
+  `~/NeviiHub-Backups/2026-10-03-demo-cleanup/target.dump` (sha256 18c3d13a…). Owner'ın çalıştırması/izin vermesi bekleniyor.
+- Seed'deki 65 öğrenci GERÇEK okul verisi (ogrenciler3.csv; şifreli T.C. dahil) — "demo" değildir, silinmez.
+- Açık kararlar: ürün sürüm onayı + prod migration, varsayılan şifreler, Nilüfer/Ezgi geçiş planı, Hobby ticari kullanım,
+  Supabase–Vercel entegrasyonu (uqkaf…, kullanılmıyor), AI dalı + KVKK.
+
 ## Güncel snapshot — 2026-10-02 (güvenlik + local-first hazırlık; CANLIYA ÇIKMADI, sürüm onayı bekliyor)
 - Canlı hâlâ `c3476a0`. Dal `perf/vercel-active-cpu` (push edilmedi): `93675ec` auth fail-closed + AI_AGENT sıfırlama
   engeli, `81f8664` seed ikinci kurum düzeltmesi, `f8452e4` başlangıç şifresiyle girişte zorunlu şifre yenileme
