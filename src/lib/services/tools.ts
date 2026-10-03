@@ -6128,7 +6128,7 @@ export async function previewRoomImportTool(
   const v = parseOrFail(csvInputSchema, input);
   if (!v.ok) return v;
   const data = await readData();
-  return ok(validateRoomRows(data, csvRecords(v.data.csvText)));
+  return ok(validateRoomRows(data, csvRecords(v.data.csvText), await resolveActiveInstrumentNames(ctx.tenantId)));
 }
 
 export async function commitRoomImportTool(
@@ -6140,7 +6140,7 @@ export async function commitRoomImportTool(
   const v = parseOrFail(csvInputSchema, input);
   if (!v.ok) return v;
   const data = await readData();
-  const preview = validateRoomRows(data, csvRecords(v.data.csvText));
+  const preview = validateRoomRows(data, csvRecords(v.data.csvText), await resolveActiveInstrumentNames(ctx.tenantId));
   if (preview.errorCount > 0) {
     return fail("VALIDATION_ERROR", "CSV içinde hatalı satır var; hiçbir kayıt eklenmedi.", preview.errors);
   }
@@ -6161,7 +6161,7 @@ export async function previewLessonImportTool(
   const v = parseOrFail(csvInputSchema, input);
   if (!v.ok) return v;
   const data = await readData();
-  return ok(validateLessonRows(data, csvRecords(v.data.csvText)));
+  return ok(validateLessonRows(data, csvRecords(v.data.csvText), await resolveActiveInstrumentNames(ctx.tenantId)));
 }
 
 /**
@@ -6180,7 +6180,7 @@ export async function commitLessonImportTool(
   const v = parseOrFail(csvInputSchema, input);
   if (!v.ok) return v;
   const data = await readData();
-  const preview = validateLessonRows(data, csvRecords(v.data.csvText));
+  const preview = validateLessonRows(data, csvRecords(v.data.csvText), await resolveActiveInstrumentNames(ctx.tenantId));
   if (preview.errorCount > 0) {
     return fail("VALIDATION_ERROR", "CSV içinde hatalı satır var; hiçbir kayıt eklenmedi.", preview.errors);
   }
@@ -6415,6 +6415,31 @@ export async function commitStudentImportTool(
   }
 }
 
+/**
+ * Oda enstrümanları kurumun AKTİF kataloğundan seçilir (sabit liste değil); düzenlemede odada zaten
+ * olan (sonradan pasife alınmış) enstrüman korunabilir. Yazım katalogdaki kanonik ada çevrilir.
+ */
+async function canonicalRoomInstruments(
+  tenantId: string,
+  names: readonly string[],
+  keep: readonly string[] = []
+): Promise<ServiceResult<Instrument[]>> {
+  const { resolveCanonicalValue } = await import("../normalize");
+  const allowed = Array.from(new Set([...(await resolveActiveInstrumentNames(tenantId)), ...keep]));
+  const out: Instrument[] = [];
+  for (const name of names) {
+    const canonical = resolveCanonicalValue(name, allowed);
+    if (!canonical) {
+      return fail(
+        "VALIDATION_ERROR",
+        `"${name}" kurumun aktif enstrüman listesinde yok. Kurulum Merkezi › Enstrümanlar ekranından ekleyin veya aktifleştirin, sonra tekrar deneyin.`
+      );
+    }
+    out.push(canonical as Instrument);
+  }
+  return ok(Array.from(new Set(out)));
+}
+
 export async function createRoomTool(
   ctx: ServiceContext,
   input: unknown
@@ -6424,6 +6449,8 @@ export async function createRoomTool(
 
   const v = parseOrFail(roomSchema, input);
   if (!v.ok) return v;
+  const instruments = await canonicalRoomInstruments(ctx.tenantId, v.data.instruments);
+  if (!instruments.ok) return instruments;
 
   try {
     const before = await readData();
@@ -6432,7 +6459,7 @@ export async function createRoomTool(
       name: v.data.name,
       branchId: v.data.branchId as BranchId,
       capacity: v.data.capacity,
-      instruments: v.data.instruments as Instrument[],
+      instruments: instruments.data,
     });
     const after = await readData();
     const created = after.rooms.find((r) => !ids.has(r.id));
@@ -12142,6 +12169,12 @@ export async function updateRoomTool(
   const data = await readData();
   const room = data.rooms.find((r) => r.id === v.data.roomId);
   if (!room) return fail("NOT_FOUND", "Oda bulunamadı");
+  let instruments: Instrument[] | undefined;
+  if (v.data.instruments !== undefined) {
+    const checked = await canonicalRoomInstruments(ctx.tenantId, v.data.instruments, room.instruments);
+    if (!checked.ok) return checked;
+    instruments = checked.data;
+  }
   if (v.data.branchId && !data.settings.branches.some((b) => b.id === v.data.branchId)) {
     return fail("VALIDATION_ERROR", "Şube bulunamadı");
   }
@@ -12150,7 +12183,7 @@ export async function updateRoomTool(
     name: v.data.name,
     branchId: v.data.branchId as BranchId | undefined,
     capacity: v.data.capacity,
-    instruments: v.data.instruments as Instrument[] | undefined,
+    instruments,
   });
   if (revisionError) return fail("VALIDATION_ERROR", revisionError);
 
@@ -12162,7 +12195,7 @@ export async function updateRoomTool(
       ...rawPatch,
       ...(rawPatch.name !== undefined ? { name: rawPatch.name.trim() } : {}),
       ...(rawPatch.branchId !== undefined ? { branchId: rawPatch.branchId as BranchId } : {}),
-      ...(rawPatch.instruments !== undefined ? { instruments: rawPatch.instruments as Instrument[] } : {}),
+      ...(instruments !== undefined ? { instruments } : {}),
     } as Partial<Pick<import("../types").Room, "name" | "capacity" | "branchId" | "instruments">>;
     const updated = await updateRoom(roomId, {
       ...patch,

@@ -22,7 +22,7 @@ export function TeacherInstrumentsEditor({
 }: {
   teacherId: string;
   initialRows: InstrumentSkillRow[];
-  instrumentOptions?: Instrument[];
+  instrumentOptions: Instrument[];
   /** Called after a successful save (e.g. to collapse the section back to read-only). */
   onSaved?: () => void;
 }) {

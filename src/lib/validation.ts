@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { LESSON_DURATION_OPTIONS, TRIAL_LESSON_DURATION_OPTIONS } from "./lesson-duration";
-import { INSTRUMENTS, REFERRAL_SOURCES } from "./types";
+import { REFERRAL_SOURCES } from "./types";
 import { isValidDateOnlyInput } from "./date-input";
 
 /** Faz 1A — tek bir ödeme günü aralığı (1–31, dahil, start ≤ end). */
@@ -854,7 +854,8 @@ const ANNOUNCEMENT_AUDIENCE_TYPES = [
 const announcementAudienceRefSchema = z.union([
   z.object({ branchId: z.string().min(1) }),
   z.object({ studentType: z.enum(STUDENT_TYPE_FOR_AUDIENCE) }),
-  z.object({ instrument: z.array(z.enum(INSTRUMENTS as [string, ...string[]])).min(1) }),
+  // Kurumun katalog adları (Bas Gitar vb.) — sabit `INSTRUMENTS` enum'u katalog dışı adları reddediyordu (2026-10-03).
+  z.object({ instrument: z.array(z.string().trim().min(1)).min(1) }),
   z.object({ userIds: z.array(z.string().min(1)).min(1) }),
 ]);
 

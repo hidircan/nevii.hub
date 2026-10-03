@@ -33,7 +33,7 @@ export function NewTeacherForm({
   instrumentOptions,
 }: {
   branches: BranchOption[];
-  instrumentOptions: Instrument[] | undefined;
+  instrumentOptions: Instrument[];
 }) {
   const [state, formAction, isPending] = useActionState<NewTeacherFormState, FormData>(actionAddTeacher, null);
   const summaryRef = useRef<HTMLDivElement>(null);
@@ -120,8 +120,8 @@ export function NewTeacherForm({
           ) : null}
           <div>
             <Label>Ana enstrüman (yalnızca hiç enstrüman eklenmezse kullanılır)</Label>
-            <Select name="instrument" defaultValue={instrumentOptions?.[0] ?? "Piyano"} aria-invalid={!!fieldErrors.instrument}>
-              {(instrumentOptions ?? ["Piyano", "Yan Flüt", "Gitar", "Bateri", "Keman", "Şan"]).map((i) => (
+            <Select name="instrument" defaultValue={instrumentOptions[0]} aria-invalid={!!fieldErrors.instrument}>
+              {instrumentOptions.map((i) => (
                 <option key={i} value={i}>
                   {i}
                 </option>

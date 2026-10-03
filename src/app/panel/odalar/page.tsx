@@ -1,6 +1,7 @@
 import Link from "@/components/link";
 import { readReferenceData } from "@/lib/store";
 import { requireSessionContext } from "@/lib/auth/session";
+import { activeInstrumentOptions } from "@/lib/instrument-options";
 import { redirect } from "next/navigation";
 import { Badge, Button, Card, EmptyState, FilterBar, Input, Label, PageHeader, Select } from "@/components/ui";
 import { NewRoomForm } from "@/components/new-room-form";
@@ -23,7 +24,7 @@ export default async function OdalarPage({
     redirect("/login?next=/panel/odalar");
   }
   const canManage = session.role === "SCHOOL_ADMIN" || session.role === "SUPER_ADMIN";
-  const data = await readReferenceData();
+  const [data, catalogInstruments] = await Promise.all([readReferenceData(), canManage ? activeInstrumentOptions(session) : Promise.resolve([])]);
   // Filtreler yalnız görünümü daraltır (GET parametresi) — oda/ders kaydı değişmez.
   // Varsayılan yalnız aktif odalar; pasif odalar yeni ders planlamasında seçilemez
   // (bkz. program-studio.tsx roomOptionsFor). Pasif/Tümü yalnız yöneticiye açık.
@@ -160,7 +161,7 @@ export default async function OdalarPage({
                         {canManage ? (
                           <td className="px-4 py-3">
                             <div className="flex flex-wrap items-start gap-1.5">
-                              <RoomEditDialog room={room} branches={branchOptions} />
+                              <RoomEditDialog room={room} branches={branchOptions} instrumentOptions={catalogInstruments} />
                               <RoomArchiveToggle roomId={room.id} roomName={room.name} active={active} />
                             </div>
                           </td>
@@ -176,7 +177,7 @@ export default async function OdalarPage({
 
         <Card>
           <h2 className="mb-4 font-semibold text-[var(--color-text)] dark:text-slate-50">Yeni oda</h2>
-          <NewRoomForm branches={branchOptions} />
+          <NewRoomForm branches={branchOptions} instrumentOptions={catalogInstruments} />
         </Card>
       </div>
     </div>

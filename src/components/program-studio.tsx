@@ -47,7 +47,7 @@ import { LessonStatusBadge } from "@/components/lesson-status-badge";
 import { lessonCancelBlockReason } from "@/lib/lesson-cancel-rules";
 import { LessonReassignmentModal } from "@/components/lesson-reassignment-modal";
 import { TeacherAvailabilityCard } from "@/components/teacher-availability-card";
-import { INSTRUMENTS, type Instrument, type Lesson, type Room, type Student, type Teacher } from "@/lib/types";
+import type { Instrument, Lesson, Room, Student, Teacher } from "@/lib/types";
 import { dayName } from "@/lib/utils";
 import { DEFAULT_LESSON_DURATION_MINUTES, LESSON_DURATION_OPTIONS } from "@/lib/lesson-duration";
 import { CALENDAR_START_HOUR, toYmd } from "@/lib/closed-days";
@@ -92,11 +92,10 @@ type ProgramStudioProps = {
   selectedTerm?: "guz" | "yaz";
   selectedAcademicYearStart?: number;
   /**
-   * ÖNCELİK 4 (devam) — Yönetilebilir Enstrüman Kataloğu. Sabit `INSTRUMENTS`
-   * yerine tenant'ın aktif katalog listesi (statik küme + kurumun eklediği
-   * enstrümanlar) — verilmezse `INSTRUMENTS`'a düşer (geriye dönük uyumlu).
+   * Kurumun AKTİF enstrüman kataloğu (activeInstrumentOptions) — ders/seri seçicilerinin TEK kaynağı.
+   * 2026-10-03: sabit `INSTRUMENTS` yedeği kaldırıldı (katalogdaki Bas Gitar vb. görünmüyordu).
    */
-  catalogInstruments?: string[];
+  catalogInstruments: string[];
   /**
    * ÇALIŞMA GÜNÜ — TEK KAYNAK (2026-09-20). `days` içindeki her gün için
    * sunucuda `resolveWorkDay` ile çözülmüş durum (yyyy-MM-dd anahtarlı).
@@ -879,7 +878,7 @@ export function ProgramStudio({
 
   const instrumentOptions = selectedStudent?.instruments.length
     ? selectedStudent.instruments
-    : (catalogInstruments?.length ? catalogInstruments : INSTRUMENTS) as Instrument[];
+    : (catalogInstruments as Instrument[]);
 
   const lessonStudentOptions = studentsForBranch(
     students.filter((s) => s.active),
@@ -922,7 +921,7 @@ export function ProgramStudio({
   const seriesSelectedTeacher = teachers.find((t) => t.id === seriesTeacherId);
   const seriesInstrumentOptions = seriesSelectedStudent?.instruments.length
     ? seriesSelectedStudent.instruments
-    : (catalogInstruments?.length ? catalogInstruments : INSTRUMENTS) as Instrument[];
+    : (catalogInstruments as Instrument[]);
   const seriesStudentOptions = studentsForBranch(
     students.filter((s) => s.active),
     seriesBranchId

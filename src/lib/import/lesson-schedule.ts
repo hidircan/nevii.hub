@@ -19,7 +19,6 @@
  */
 import type { AppData, Instrument, StudentTermType } from "../types";
 import { zonedWallTimeToUtc } from "../timezone";
-import { INSTRUMENTS } from "../types";
 import type { CsvRecord } from "./csv";
 import type { ImportRowError, ImportReadRow } from "./types";
 import { IMPORT_READ_ROWS_PREVIEW_LIMIT } from "./types";
@@ -87,10 +86,6 @@ function parseWeekday(token: string): number | null {
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
-
-function isInstrument(value: string): value is Instrument {
-  return (INSTRUMENTS as string[]).includes(value);
-}
 
 function resolveRoomId(
   data: AppData,
@@ -199,7 +194,8 @@ export type LessonScheduleImportPreview = {
 export function validateLessonScheduleRows(
   data: AppData,
   records: CsvRecord[],
-  activeInstrumentNames: string[] = [...INSTRUMENTS],
+  /** Kurumun aktif enstrüman kataloğu (resolveActiveInstrumentNames) — sabit liste DEĞİL. */
+  activeInstrumentNames: readonly string[],
   options?: { term?: StudentTermType; academicYearStart?: number }
 ): LessonScheduleImportPreview {
   const errors: ImportRowError[] = [];
@@ -312,14 +308,14 @@ export function validateLessonScheduleRows(
       errors.push({ row, field: "enstruman", message: "Enstrüman boş olamaz." });
     } else {
       const canonical = resolveCanonicalValue(instrumentValue, activeInstrumentNames);
-      if (!canonical || !isInstrument(canonical)) {
+      if (!canonical) {
         errors.push({
           row,
           field: "enstruman",
-          message: `Geçersiz enstrüman: "${instrumentValue}". Geçerli değerler: ${activeInstrumentNames.join(", ")}.`,
+          message: `Kurumun aktif enstrüman listesinde yok: "${instrumentValue}". Geçerli değerler: ${activeInstrumentNames.join(", ")}. Eksikse Kurulum Merkezi › Enstrümanlar ekranından ekleyin veya aktifleştirin.`,
         });
       } else {
-        instrument = canonical;
+        instrument = canonical as Instrument;
       }
     }
 

@@ -4,6 +4,7 @@ import { startOfMonth, endOfMonth, format } from "date-fns";
 import { actionComputeTeacherPayout } from "@/lib/actions";
 import { TeacherPayoutDashboard } from "@/components/teacher-payout-dashboard";
 import { FeeRuleManager } from "@/components/fee-rule-manager";
+import { activeInstrumentOptions } from "@/lib/instrument-options";
 import { loadTeacherPageContext } from "../_context";
 import { ChangeHistory } from "@/components/change-history";
 
@@ -70,6 +71,7 @@ export default async function TeacherPayoutTab({ params }: { params: Promise<{ t
           branches={data.settings.branches.map((b) => ({ id: b.id, shortName: b.shortName }))}
           rules={teacherFeeRules}
           canWrite={kurum.scope.mode === "single" && canManage}
+          instrumentOptions={await activeInstrumentOptions(session)}
         />
       </section>
 

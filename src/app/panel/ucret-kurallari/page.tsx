@@ -5,6 +5,7 @@ import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { PageHeader } from "@/components/ui";
 import { BackButton } from "@/components/back-button";
 import { FeeRuleManager } from "@/components/fee-rule-manager";
+import { activeInstrumentOptions } from "@/lib/instrument-options";
 import { FeeRoundingModeSelector } from "@/components/fee-rounding-mode-selector";
 
 export const dynamic = "force-dynamic";
@@ -41,6 +42,7 @@ export default async function FeeRulesPage() {
         branches={data.settings.branches.map((b) => ({ id: b.id, shortName: b.shortName }))}
         rules={data.teacherFeeRules}
         canWrite={kurum.scope.mode === "single"}
+        instrumentOptions={await activeInstrumentOptions(session)}
       />
     </div>
   );

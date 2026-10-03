@@ -10,7 +10,7 @@
 
 import { useEffect, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
-import { INSTRUMENTS, type Instrument } from "@/lib/types";
+import type { Instrument } from "@/lib/types";
 import { Select } from "@/components/ui";
 
 export type InstrumentLevel = "Başlangıç" | "Orta" | "İleri";
@@ -28,10 +28,11 @@ export function TeacherInstrumentsField({
   name: string;
   initialRows?: InstrumentSkillRow[];
   onChange?: (rows: InstrumentSkillRow[]) => void;
-  /** ÖNCELİK 4 (devam) — Enstrüman Kataloğu; verilmezse sabit `INSTRUMENTS`. */
-  instrumentOptions?: Instrument[];
+  /** Kurumun AKTİF enstrüman kataloğu (activeInstrumentOptions) — sabit liste değil. */
+  instrumentOptions: Instrument[];
 }) {
-  const options = instrumentOptions?.length ? instrumentOptions : INSTRUMENTS;
+  // Yeni seçim aktif katalogdan; öğretmende zaten olan (sonradan pasife alınmış) enstrüman listede kalır.
+  const options = Array.from(new Set([...instrumentOptions, ...(initialRows ?? []).map((r) => r.instrument)]));
   const [rows, setRows] = useState<InstrumentSkillRow[]>(
     initialRows && initialRows.length > 0 ? initialRows : [{ instrument: options[0]!, level: "Başlangıç" }]
   );

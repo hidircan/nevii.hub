@@ -7,7 +7,7 @@ import { actionCreateFeeRule, actionRemoveFeeRule, actionUpdateFeeRule } from "@
 import { ModalShell, modalButton } from "@/components/modal-shell";
 import { Badge, Button, Card, Input, Label, Select } from "@/components/ui";
 import { formatDate, formatMoney } from "@/lib/utils";
-import { INSTRUMENTS, type Instrument } from "@/lib/types";
+import type { Instrument } from "@/lib/types";
 import type { TeacherFeeRule } from "@/lib/types";
 
 type TeacherOption = { id: string; name: string };
@@ -37,10 +37,13 @@ export function FeeRuleManager({
   branches,
   rules,
   canWrite,
+  instrumentOptions,
 }: {
   teachers: TeacherOption[];
   branches: BranchOption[];
   rules: TeacherFeeRule[];
+  /** Kurumun AKTİF enstrüman kataloğu (activeInstrumentOptions); mevcut kurallardaki (pasif olabilir) adlar da listede kalır. */
+  instrumentOptions: string[];
   /** "Tüm kurumlar" görünümünde false — ücret kuralı eklenemez/güncellenemez. */
   canWrite: boolean;
 }) {
@@ -282,7 +285,7 @@ export function FeeRuleManager({
               onChange={(e) => setForm((f) => ({ ...f, instrument: e.target.value as Instrument | "" }))}
             >
               <option value={ALL_INSTRUMENTS}>Tüm enstrümanlar</option>
-              {INSTRUMENTS.map((i) => (
+              {Array.from(new Set([...instrumentOptions, ...rules.flatMap((r) => (r.instrument ? [r.instrument] : []))])).map((i) => (
                 <option key={i} value={i}>
                   {i}
                 </option>

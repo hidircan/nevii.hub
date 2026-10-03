@@ -5,7 +5,7 @@ import { NewTeacherForm } from "@/components/new-teacher-form";
 import { requireSessionContext } from "@/lib/auth/session";
 import { getInstitutionContext, readScopedReferenceData } from "@/lib/institution/context";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
-import { listInstrumentCatalogTool } from "@/lib/services";
+import { activeInstrumentOptions } from "@/lib/instrument-options";
 import type { Instrument } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -24,12 +24,7 @@ export default async function NewTeacherPage() {
   const kurum = await getInstitutionContext(session);
   const data = await readScopedReferenceData(kurum.scope);
 
-  const catalogResult = await listInstrumentCatalogTool(session, {});
-  const instrumentOptions = (
-    catalogResult.ok
-      ? catalogResult.data.entries.filter((e) => e.status === "active").map((e) => e.name)
-      : undefined
-  ) as Instrument[] | undefined;
+  const instrumentOptions = (await activeInstrumentOptions(session)) as Instrument[];
 
   return (
     <div>

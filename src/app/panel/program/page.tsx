@@ -16,7 +16,7 @@ import { requireSessionContext } from "@/lib/auth/session";
 import { getInstitutionContext, readScopedLessonWindow } from "@/lib/institution/context";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { AssistantPageContext } from "@/components/ai/assistant-page-context";
-import { listInstrumentCatalogTool } from "@/lib/services";
+import { activeInstrumentOptions } from "@/lib/instrument-options";
 
 export const dynamic = "force-dynamic";
 
@@ -68,12 +68,8 @@ export default async function ProgramPage({
   // DB egress: yıl boyu tüm dersler yerine yalnız görünen haftanın penceresi (aşağıdaki kesin
   // `weekLessons` filtresinden 1–2 gün GENİŞ); ödeme/yoklama satırı okunmaz — sayfa kullanmıyor.
   const data = await readScopedLessonWindow(kurum.scope, addDays(days[0], -1), addDays(days[6], 2));
-  // ÖNCELİK 4 (devam) — Yönetilebilir Enstrüman Kataloğu: statik küme +
-  // tenant'ın aktif ek enstrümanları, ders planlama seçicilerine akar.
-  const catalogResult = await listInstrumentCatalogTool(session, {});
-  const catalogInstruments = catalogResult.ok
-    ? catalogResult.data.entries.filter((e) => e.status === "active").map((e) => e.name)
-    : undefined;
+  // Kurumun AKTİF enstrüman kataloğu — ders planlama seçicilerinin TEK kaynağı (rol fark etmez).
+  const catalogInstruments = await activeInstrumentOptions(session);
 
   const weekStartParam = format(weekStart, "yyyy-MM-dd");
   const prevWeekParam = format(addDays(weekStart, -7), "yyyy-MM-dd");

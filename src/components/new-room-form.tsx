@@ -5,7 +5,6 @@
 import { useActionState, useEffect, useRef } from "react";
 import { actionAddRoom, type AddRoomFormState } from "@/lib/actions";
 import { Button, Input, Label, Select } from "@/components/ui";
-import { INSTRUMENTS } from "@/lib/types";
 
 function FieldError({ message }: { message?: string }) {
   if (!message) return null;
@@ -16,7 +15,8 @@ function FieldError({ message }: { message?: string }) {
   );
 }
 
-export function NewRoomForm({ branches }: { branches: { id: string; name: string }[] }) {
+/** `instrumentOptions`: kurumun AKTİF enstrüman kataloğu (activeInstrumentOptions) — sabit liste değil. */
+export function NewRoomForm({ branches, instrumentOptions }: { branches: { id: string; name: string }[]; instrumentOptions: string[] }) {
   const [state, formAction, isPending] = useActionState<AddRoomFormState, FormData>(actionAddRoom, null);
   const summaryRef = useRef<HTMLParagraphElement>(null);
   const fieldErrors = state?.fieldErrors ?? {};
@@ -62,7 +62,12 @@ export function NewRoomForm({ branches }: { branches: { id: string; name: string
       <div>
         <Label>Desteklenen enstrümanlar</Label>
         <div className="grid grid-cols-2 gap-2 rounded-xl border border-[var(--color-border)] p-3">
-          {INSTRUMENTS.map((instrument) => (
+          {instrumentOptions.length === 0 ? (
+            <p className="col-span-2 text-sm text-[var(--color-text-muted)]">
+              Kurumda aktif enstrüman yok. Kurulum Merkezi › Enstrümanlar ekranından ekleyin.
+            </p>
+          ) : null}
+          {instrumentOptions.map((instrument) => (
             <label key={instrument} className="flex items-center gap-2 text-sm text-[var(--color-text-muted)] dark:text-slate-300">
               <input type="checkbox" name="instruments" value={instrument} />
               {instrument}

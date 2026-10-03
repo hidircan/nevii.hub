@@ -273,10 +273,12 @@ describe("validateTeacherRows", () => {
 
 describe("validateRoomRows", () => {
   const data = createSeedData();
+  /** Varsayılan kurum kataloğu (ensureDefaultCatalogSeeded ile aynı): sabit liste + Bas Gitar + Ukulele. */
+  const catalog = [...INSTRUMENTS, "Bas Gitar", "Ukulele"];
 
   it("geçerli örnek CSV doğru sayıları verir ve çoklu enstrümanı ayrıştırır", () => {
     const { records } = rowsToRecords(parseCsv(ROOM_CSV_SAMPLE));
-    const result = validateRoomRows(data, records);
+    const result = validateRoomRows(data, records, catalog);
     expect(result.validCount).toBe(1);
     expect(result.errorCount).toBe(0);
     expect(result.valid[0].instruments).toEqual(["Keman", "Yan Flüt"]);
@@ -285,9 +287,23 @@ describe("validateRoomRows", () => {
   it("geçersiz kapasiteyi satır numarasıyla reddeder", () => {
     const csv = "ad,sube,kapasite,enstrumanlar\nOda,Erzene,abc,Piyano\n";
     const { records } = rowsToRecords(parseCsv(csv));
-    const result = validateRoomRows(data, records);
+    const result = validateRoomRows(data, records, catalog);
     expect(result.errorCount).toBe(1);
     expect(result.errors[0]).toMatchObject({ row: 2, field: "kapasite" });
+  });
+
+  it("katalogdaki Bas Gitar kabul edilir (küçük harfle yazılsa da kanonik ada çevrilir)", () => {
+    const { records } = rowsToRecords(parseCsv("ad,sube,kapasite,enstrumanlar\nStüdyo B,Erzene,2,bas gitar;Gitar\n"));
+    const result = validateRoomRows(data, records, catalog);
+    expect(result.errorCount).toBe(0);
+    expect(result.valid[0].instruments).toEqual(["Bas Gitar", "Gitar"]);
+  });
+
+  it("katalogda olmayan / pasif enstrüman reddedilir ve çözüm ekranı söylenir", () => {
+    const { records } = rowsToRecords(parseCsv("ad,sube,kapasite,enstrumanlar\nStüdyo C,Erzene,2,Bas Gitar\n"));
+    const result = validateRoomRows(data, records, catalog.filter((n) => n !== "Bas Gitar"));
+    expect(result.errorCount).toBe(1);
+    expect(result.errors[0].message).toContain("Kurulum Merkezi › Enstrümanlar");
   });
 });
 

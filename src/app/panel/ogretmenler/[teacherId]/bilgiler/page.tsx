@@ -7,7 +7,7 @@ import { TeacherPortalAccessCard } from "@/components/portal-access-card";
 import { NationalIdReveal } from "@/components/national-id-reveal";
 import { maskNationalId } from "@/lib/pii/tc-identity";
 import { canViewFullNationalId } from "@/lib/pii";
-import { listInstrumentCatalogTool } from "@/lib/services";
+import { activeInstrumentOptions } from "@/lib/instrument-options";
 import type { Instrument } from "@/lib/types";
 import { computeAge, formatDate } from "@/lib/utils";
 import { loadTeacherPageContext } from "../_context";
@@ -24,12 +24,7 @@ export default async function TeacherInfoTab({ params }: { params: Promise<{ tea
   const { session, data, teacher, canManage } = await loadTeacherPageContext(teacherId);
   if (!teacher) notFound();
 
-  const catalogResult = await listInstrumentCatalogTool(session, {});
-  const instrumentOptions = (
-    catalogResult.ok
-      ? catalogResult.data.entries.filter((e) => e.status === "active").map((e) => e.name)
-      : undefined
-  ) as Instrument[] | undefined;
+  const instrumentOptions = (await activeInstrumentOptions(session)) as Instrument[];
 
   const branch = data.settings.branches.find((b) => b.id === teacher.branchId);
   const canViewSensitive = canManage;

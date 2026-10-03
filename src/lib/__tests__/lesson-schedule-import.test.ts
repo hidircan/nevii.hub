@@ -2,6 +2,9 @@ import { describe, it, expect } from "vitest";
 import { parseCsv, rowsToRecords } from "../import/csv";
 import { validateLessonScheduleRows } from "../import/lesson-schedule";
 import { createSeedData } from "../seed";
+import { INSTRUMENTS } from "../types";
+
+const CATALOG = [...INSTRUMENTS, "Bas Gitar", "Ukulele"];
 import { addDays, format } from "date-fns";
 
 const HEADER =
@@ -21,7 +24,7 @@ function nextMonday(): string {
 
 function preview(csv: string, data = createSeedData()) {
   const { records } = rowsToRecords(parseCsv(csv));
-  return validateLessonScheduleRows(data, records);
+  return validateLessonScheduleRows(data, records, CATALOG);
 }
 
 describe("validateLessonScheduleRows — İş 1 tekrarlayan ders programı importu", () => {
@@ -46,7 +49,7 @@ describe("validateLessonScheduleRows — İş 1 tekrarlayan ders programı impor
     const { records } = rowsToRecords(
       parseCsv(`ogrenci,ogretmen,sube,enstruman,oda,tarih,saat,sure_dk\nZeynep Arslan,Turgay Hoşbaş,Erzene,Piyano,Stüdyo 1 — Piyano,${monday},11:00,40\n`)
     );
-    const result = validateLessonScheduleRows(data, records);
+    const result = validateLessonScheduleRows(data, records, CATALOG);
     expect(result.errorCount).toBe(0);
     expect(result.valid).toHaveLength(1);
   });
