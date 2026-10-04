@@ -1635,8 +1635,10 @@ export async function confirmSlot(
         availabilityOverrideAt: validatedSlot.availabilityOverridden ? decidedAt : undefined,
       },
     });
-    await tx.makeupRequest.updateMany({
-      where: { id: requestId, tenantId: tid },
+    // 2026-10-04 — koşullu: talep hâlâ açıksa onaylanır. Aynı talep iki kez (çift tıklama / iki sekme, farklı
+    // saatlerle) gönderilirse ikincisi burada durur ve işlem (yazılan ders dahil) geri alınır — mükerrer ders olmaz.
+    const claimed = await tx.makeupRequest.updateMany({
+      where: { id: requestId, tenantId: tid, status: { in: ["pending", "suggested"] } },
       data: {
         status: "confirmed",
         confirmedLessonId: lessonId,
@@ -1647,6 +1649,12 @@ export async function confirmSlot(
         slaEscalationLevel: 0,
       },
     });
+    if (claimed.count === 0) {
+      throw new LessonSlotValidationError(
+        "REQUEST_NOT_OPEN",
+        "Bu telafi talebi az önce başka bir işlemle planlandı veya kapatıldı; ikinci ders yazılmadı. Sayfayı yenileyin."
+      );
+    }
   });
 
   return;

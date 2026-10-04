@@ -1,6 +1,8 @@
 import { redirect } from "next/navigation";
 import { actionCancelMakeup, actionConfirmSlot } from "@/lib/actions";
-import { Badge, Card, EmptyState, PageHeader } from "@/components/ui";
+import { Badge, Card, EmptyState, PageHeader, Pagination } from "@/components/ui";
+import { foldTurkishForSearch } from "@/lib/normalize";
+import { buildStudentMakeupSummary, MAKEUP_STAGE_LABEL } from "@/lib/makeup-student-summary";
 import { MakeupDecisionForm } from "@/components/makeup-decision-form";
 import { GenerateSuggestionsForm } from "@/components/generate-suggestions-form";
 import { ManualMakeupPlanForm } from "@/components/manual-makeup-plan-form";
@@ -47,20 +49,34 @@ function daysLeftLabel(days: number): string {
  * saat geçti…) — artık uygun olmayan öneri gerekçesiyle kilitlenir. Kayıt anında sunucu aynı
  * `validateLessonSlot` kuralını bir kez daha uygular.
  */
-export default async function TelafiPage({ searchParams }: { searchParams: Promise<{ durum?: string }> }) {
+const HISTORY_PAGE_SIZE = 25;
+const MAX_SUMMARY_STUDENTS = 10;
+
+export default async function TelafiPage({ searchParams }: { searchParams: Promise<{ durum?: string; q?: string; sayfa?: string }> }) {
   let session;
   try {
     session = await requireSessionContext();
   } catch {
     redirect("/login?next=/panel/telafi");
   }
-  const { durum: durumParam } = await searchParams;
+  const { durum: durumParam, q: qParam, sayfa } = await searchParams;
+  // 2026-10-04 — isme göre arama: Türkçe harf katlamalı ("şule" = "Şule" = "sule"); sunucuda süzülür,
+  // istemciye yalnız eşleşen satırlar gider. Geçmiş liste sayfalıdır.
+  const q = (qParam ?? "").trim().slice(0, 80);
+  const qFold = q ? foldTurkishForSearch(q) : "";
   const durum: Durum = durumParam && durumParam in DURUM_LABEL ? (durumParam as Durum) : "tumu";
   const kurum = await getInstitutionContext(session);
   const data = await readScopedData(kurum.scope);
-  const requests = [...data.makeupRequests].sort((a, b) =>
-    b.createdAt.localeCompare(a.createdAt)
-  );
+  const matchingStudentIds = qFold
+    ? new Set(
+        data.students
+          .filter((s) => foldTurkishForSearch(s.name).includes(qFold) || foldTurkishForSearch(s.parentName ?? "").includes(qFold))
+          .map((s) => s.id)
+      )
+    : null;
+  const requests = [...data.makeupRequests]
+    .filter((r) => !matchingStudentIds || matchingStudentIds.has(r.studentId))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
   const OPEN_STATUSES = ["pending", "suggested", "awaiting_info"];
   const now = new Date();
@@ -78,7 +94,24 @@ export default async function TelafiPage({ searchParams }: { searchParams: Promi
   const visible = open.filter((r) =>
     durum === "acil" ? daysLeft(r) <= URGENT_DAYS : durum === "oneri-var" ? r.suggestedSlots.length > 0 : durum === "oneri-yok" ? r.suggestedSlots.length === 0 : true
   );
-  const done = requests.filter((r) => !OPEN_STATUSES.includes(r.status));
+  const doneAll = requests.filter((r) => !OPEN_STATUSES.includes(r.status));
+  const historyPages = Math.max(1, Math.ceil(doneAll.length / HISTORY_PAGE_SIZE));
+  const historyPage = Math.min(historyPages, Math.max(1, Number.parseInt(sayfa ?? "1", 10) || 1));
+  const done = doneAll.slice((historyPage - 1) * HISTORY_PAGE_SIZE, historyPage * HISTORY_PAGE_SIZE);
+  const hrefWith = (params: { durum?: string; q?: string; sayfa?: number }) => {
+    const sp = new URLSearchParams();
+    if (params.durum && params.durum !== "tumu") sp.set("durum", params.durum);
+    if (params.q) sp.set("q", params.q);
+    if (params.sayfa && params.sayfa > 1) sp.set("sayfa", String(params.sayfa));
+    const qs = sp.toString();
+    return qs ? `/panel/telafi?${qs}` : "/panel/telafi";
+  };
+  const summaryStudents = matchingStudentIds
+    ? data.students
+        .filter((s) => matchingStudentIds.has(s.id))
+        .sort((a, b) => a.name.localeCompare(b.name, "tr"))
+        .slice(0, MAX_SUMMARY_STUDENTS)
+    : [];
   const canWrite = kurum.scope.mode === "single";
   const actorNames = await resolveActorLabels({
     tenantId: session.tenantId,
@@ -106,7 +139,7 @@ export default async function TelafiPage({ searchParams }: { searchParams: Promi
           return (
             <Link
               key={key}
-              href={key === "tumu" ? "/panel/telafi" : `/panel/telafi?durum=${key}`}
+              href={hrefWith({ durum: key, q })}
               aria-current={active ? "page" : undefined}
               className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-medium transition-colors ${
                 active
@@ -122,6 +155,75 @@ export default async function TelafiPage({ searchParams }: { searchParams: Promi
           );
         })}
       </nav>
+
+      <form method="get" action="/panel/telafi" role="search" className="mb-3 flex flex-wrap items-center gap-2">
+        {durum !== "tumu" ? <input type="hidden" name="durum" value={durum} /> : null}
+        <label htmlFor="telafi-ara" className="sr-only">Öğrenci veya veli adına göre ara</label>
+        <input
+          id="telafi-ara"
+          name="q"
+          defaultValue={q}
+          placeholder="Öğrenci veya veli adı ara…"
+          className="min-w-[14rem] flex-1 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text)]"
+        />
+        <button type="submit" className="rounded-[var(--radius-md)] bg-[var(--color-primary)] px-3 py-2 text-sm font-medium text-white">
+          Ara
+        </button>
+        {q ? (
+          <Link href={hrefWith({ durum })} className="text-sm font-medium text-[var(--color-text-muted)] hover:underline">
+            Aramayı temizle
+          </Link>
+        ) : null}
+      </form>
+
+      {q ? (
+        <section aria-label="Öğrenci bazında telafi özeti" className="mb-5">
+          {summaryStudents.length === 0 ? (
+            <p className="text-sm text-[var(--color-text-muted)]">&quot;{q}&quot; ile eşleşen öğrenci yok.</p>
+          ) : (
+            <div className="overflow-x-auto rounded-[var(--radius-md)] border border-[var(--color-border)]">
+              <table className="w-full min-w-[560px] text-left text-xs">
+                <thead className="bg-[var(--color-surface-muted)] text-[var(--color-text-muted)]">
+                  <tr>
+                    <th className="px-3 py-2 font-medium">Öğrenci</th>
+                    <th className="px-3 py-2 font-medium">Dönem hakkı (kalan / toplam)</th>
+                    <th className="px-3 py-2 font-medium">{MAKEUP_STAGE_LABEL.pending}</th>
+                    <th className="px-3 py-2 font-medium">{MAKEUP_STAGE_LABEL.planned}</th>
+                    <th className="px-3 py-2 font-medium">{MAKEUP_STAGE_LABEL.completed}</th>
+                    <th className="px-3 py-2 font-medium">İptal / süresi dolan</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[var(--color-border)]">
+                  {summaryStudents.map((st) => {
+                    const sum = buildStudentMakeupSummary(data, st.id, now);
+                    return (
+                      <tr key={st.id}>
+                        <td className="px-3 py-2">
+                          <Link href={`/panel/ogrenciler/${st.id}/program#telafiler`} className="font-medium text-[var(--color-primary)] hover:underline">
+                            {st.name}
+                          </Link>
+                        </td>
+                        <td className="px-3 py-2">
+                          {sum.quota.remaining} / {sum.quota.allowance}
+                        </td>
+                        <td className="px-3 py-2">{sum.counts.pending}</td>
+                        <td className="px-3 py-2">{sum.counts.planned}</td>
+                        <td className="px-3 py-2">{sum.counts.completed}</td>
+                        <td className="px-3 py-2">{sum.counts.cancelled + sum.counts.expired}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {matchingStudentIds && matchingStudentIds.size > MAX_SUMMARY_STUDENTS ? (
+            <p className="mt-1 text-xs text-[var(--color-text-muted)]">
+              {matchingStudentIds.size} öğrenci eşleşti; ilk {MAX_SUMMARY_STUDENTS} gösteriliyor — aramayı daraltın.
+            </p>
+          ) : null}
+        </section>
+      ) : null}
 
       <div className="mb-5 flex flex-wrap items-center gap-3">
         <div className="min-w-[14rem] flex-1 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-3 py-2">
@@ -195,7 +297,15 @@ export default async function TelafiPage({ searchParams }: { searchParams: Promi
                 <div className="flex flex-col gap-3 border-b border-[var(--color-border)] p-4 sm:flex-row sm:items-start sm:justify-between sm:p-5">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="text-lg font-semibold text-[var(--color-text)]">{student?.name ?? "Öğrenci bulunamadı"}</h3>
+                      <h3 className="text-lg font-semibold text-[var(--color-text)]">
+                        {student ? (
+                          <Link href={`/panel/ogrenciler/${student.id}/program#telafiler`} className="hover:underline">
+                            {student.name}
+                          </Link>
+                        ) : (
+                          "Öğrenci bulunamadı"
+                        )}
+                      </h3>
                       <Badge status="makeup">{req.instrument}</Badge>
                       <Badge status={req.status} />
                     </div>
@@ -376,7 +486,8 @@ export default async function TelafiPage({ searchParams }: { searchParams: Promi
           <Download className="h-3.5 w-3.5" /> Tüm talepleri CSV indir
         </a>
       </div>
-      {done.length > 0 ? (
+      {doneAll.length > 0 ? (
+        <>
         <MakeupHistoryTable
           rows={done.map((req) => {
             const student = data.students.find((s) => s.id === req.studentId);
@@ -396,6 +507,8 @@ export default async function TelafiPage({ searchParams }: { searchParams: Promi
             };
           })}
         />
+        <Pagination page={historyPage} totalPages={historyPages} hrefForPage={(p) => hrefWith({ durum, q, sayfa: p })} />
+        </>
       ) : null}
     </div>
   );

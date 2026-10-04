@@ -929,13 +929,18 @@ export async function confirmMakeupLessonTool(
   }
 
   if (ctx.role === "BRANCH_MANAGER") {
-    const req = (await readData()).makeupRequests.find((m) => m.id === v.data.requestId);
+    const gateData = await readData();
+    const req = gateData.makeupRequests.find((m) => m.id === v.data.requestId);
     if (!req) return fail("NOT_FOUND", "Telafi talebi bulunamadı");
     const gate = await assertBranchOperation(ctx, "makeup", "update", req.branchId);
     if (!gate.ok) return gate;
-    const slotBranch = (v.data.slot as { branchId?: string }).branchId;
-    if (slotBranch) {
-      const slotGate = await assertBranchOperation(ctx, "makeup", "update", slotBranch);
+    // 2026-10-04 (güvenlik) — ders, ODANIN şubesine yazılır (validateLessonSlot → room.branchId); istemcinin
+    // gönderdiği slot.branchId'ye güvenilmez. Kapı gerçek oda şubesi (ve gönderildiyse slot.branchId) üzerinden.
+    const room = gateData.rooms.find((r) => r.id === (v.data.slot as { roomId: string }).roomId);
+    if (!room) return fail("NOT_FOUND", "Seçilen oda bulunamadı. Sayfayı yenileyip tekrar deneyin.");
+    const branches = new Set([room.branchId, (v.data.slot as { branchId?: string }).branchId].filter((b): b is string => Boolean(b)));
+    for (const branchId of branches) {
+      const slotGate = await assertBranchOperation(ctx, "makeup", "update", branchId);
       if (!slotGate.ok) return slotGate;
     }
   }
@@ -12686,6 +12691,9 @@ export async function updateTrialLessonTool(
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
   const v = parseOrFail(updateTrialLessonSchema, input);
   if (!v.ok) return v;
+  if (v.data.allowAvailabilityOverride && !canOverrideTeacherAvailability(ctx)) {
+    return fail("FORBIDDEN", AVAILABILITY_OVERRIDE_FORBIDDEN);
+  }
   const existing = await getTrialLesson(ctx.tenantId, v.data.trialId);
   if (!existing) return fail("NOT_FOUND", "Deneme dersi bulunamadı. Listeyi yenileyip tekrar deneyin.");
   if (ctx.role === "TEACHER" && existing.teacherId !== ctx.teacherId) {
@@ -12742,9 +12750,6 @@ export async function updateTrialLessonTool(
   if (scheduleChanged) {
     const { validateTrialSlot } = await import("../makeup-engine");
     const all = await listTrialLessons(ctx.tenantId);
-    if (d.allowAvailabilityOverride && !canOverrideTeacherAvailability(ctx)) {
-      return fail("FORBIDDEN", AVAILABILITY_OVERRIDE_FORBIDDEN);
-    }
     const slot = validateTrialSlot(data, next, all, {
       excludeTrialId: existing.id,
       allowAvailabilityOverride: d.allowAvailabilityOverride,
