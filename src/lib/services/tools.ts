@@ -14114,6 +14114,8 @@ export async function createStudentContractTool(
     installments: ContractInstallmentView[];
     amendmentCredit?: { collected: number; applied: number; leftover: number };
     carriedOverPaymentIds?: string[];
+    /** Doğrulamadan sonra tahsilat gördüğü için taşınmayan borçların açıklaması (ayrı borç olarak kaldı). */
+    carryOverSkipped?: string[];
   }>
 > {
   const auth = requireRole(ctx, CONTRACT_STAFF);
@@ -14271,6 +14273,7 @@ export async function createStudentContractTool(
     });
 
     const carriedOverPaymentIds: string[] = [];
+    const carryOverSkipped: string[] = [];
     if (carryOver.length > 0) {
       const { collectPayment } = await import("../payments/collect");
       for (const p of carryOver) {
@@ -14281,6 +14284,8 @@ export async function createStudentContractTool(
             paymentNote: `Sözleşme ${contract.contractNumber} planına taşındı (yeniden borçlandırılmadı).`,
             actorUserId: ctx.userId,
             tenantId: ctx.tenantId,
+            // Doğrulamadan sonra tahsilat girildiyse satır iptal EDİLMEZ (tahsilat sıfırlanmaz).
+            onlyIfUntouchedOpenDebt: true,
           });
           carriedOverPaymentIds.push(p.id);
           audit(ctx, "payment.moved_to_contract", "Payment", p.id, {
@@ -14289,7 +14294,9 @@ export async function createStudentContractTool(
             before: { amount: p.amount, status: p.status, dueDate: p.dueDate, source: p.source, description: p.description },
           });
         } catch (e) {
-          logger.error("carry-over void failed", e);
+          // Satır arada tahsilat gördüyse dokunulmaz; sözleşme zaten yazıldı — kalan ayrı borç olarak görünür.
+          if (!(e instanceof Error && e.message === "PAYMENT_CHANGED")) logger.error("carry-over void failed", e);
+          carryOverSkipped.push(p.description);
         }
       }
     }
@@ -14355,6 +14362,7 @@ export async function createStudentContractTool(
       installments,
       amendmentCredit,
       carriedOverPaymentIds: carriedOverPaymentIds.length ? carriedOverPaymentIds : undefined,
+      carryOverSkipped: carryOverSkipped.length ? carryOverSkipped : undefined,
     });
   } catch (e) {
     if (e instanceof ContractTemplateIncompleteError) {

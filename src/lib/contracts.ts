@@ -1281,16 +1281,14 @@ export async function createContract(input: CreateContractInput): Promise<Create
     await saveAll(finalRows);
   }
   const rollbackContractRow = async (createdPaymentIds: string[]) => {
-    const store = await import("./store");
-    const current = await store.readData();
-    // Bu işlemde yazılan satırlar (taksitler + bu çağrıda alınan ilk tahsilat) silinir; önceden var olan
-    // kayıt anı tahsilatı yalnız sözleşmeden ayrılır (db) — gerçek tahsilat kaybolmaz.
-    for (const p of current.payments) {
-      const ownRow = p.contractId === row.id && p.paidAmount === 0;
-      if (ownRow || createdPaymentIds.includes(p.id)) await store.deletePaymentRow(p.id).catch(() => undefined);
-    }
+    // Bu işlemde yazılan satırlar (taksitler + bu çağrıda alınan ilk tahsilat) kaldırılır; önceden var olan
+    // kayıt anı tahsilatı yalnız sözleşmeden ayrılır — gerçek tahsilat kaybolmaz. Önceki sürüm eski durumuna döner.
+    const created = new Set(createdPaymentIds);
     if (isDbMode) {
       const { prisma } = await import("./db");
+      await prisma.payment.deleteMany({
+        where: { tenantId: input.tenantId, OR: [{ contractId: row.id, paidAmount: 0 }, { id: { in: createdPaymentIds } }] },
+      });
       await prisma.payment.updateMany({
         where: { tenantId: input.tenantId, contractId: row.id },
         data: { contractId: null, installmentSequence: null },
@@ -1299,15 +1297,24 @@ export async function createContract(input: CreateContractInput): Promise<Create
       if (previous) {
         await prisma.studentContract.updateMany({ where: { id: previous.id, tenantId: input.tenantId }, data: { status: previous.status } });
       }
-    } else {
-      const all = await loadAll();
-      await saveAll(
-        all
-          .filter((c) => c.id !== row.id)
-          .map((c) => (previous && c.id === previous.id ? { ...c, status: previous.status, updatedAt: now } : c))
-      );
+      return;
     }
+    const { isMemoryMode } = await import("./config");
+    const fileStore = isMemoryMode ? await import("./store-memory") : await import("./store-json");
+    await fileStore.mutateStoreUnderLock(async (current) => ({
+      ...current,
+      payments: current.payments
+        .filter((p) => !((p.contractId === row.id && p.paidAmount === 0) || created.has(p.id)))
+        .map((p) => (p.contractId === row.id ? { ...p, contractId: undefined, installmentSequence: undefined } : p)),
+    }));
+    const all = await loadAll();
+    await saveAll(
+      all
+        .filter((c) => c.id !== row.id)
+        .map((c) => (previous && c.id === previous.id ? { ...c, status: previous.status, updatedAt: now } : c))
+    );
   };
+
 
 
   // 2026-09-22 — TEK KANONİK İLK TAHSİLAT: kayıtta ilk tahsilatı alınmamış

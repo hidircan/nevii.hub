@@ -32,7 +32,20 @@ export type CollectPaymentOpts = MarkPaymentPaidOptions & {
    * temizlenir; satır (borç/taksit) kalır, statü vadeye göre bekliyor/gecikmiş olur.
    */
   reverseCollection?: boolean;
+  /**
+   * 2026-10-04 — yalnız HÂLÂ tahsilat görmemiş, sözleşmeye bağlı olmayan açık satır değiştirilir. Doğrulama ile
+   * yazma arasında satıra tahsilat girildiyse (TOCTOU) işlem `PAYMENT_CHANGED` ile durur; gerçek tahsilat sıfırlanmaz.
+   * Kontrol, yazmayla AYNI kilit/serializable işlem içinde yapılır.
+   */
+  onlyIfUntouchedOpenDebt?: boolean;
 };
+
+function assertUntouchedOpenDebt(p: { paidAmount: number; status: string; contractId?: string | null }, opts: CollectPaymentOpts) {
+  if (!opts.onlyIfUntouchedOpenDebt) return;
+  if (p.paidAmount > 0 || p.contractId || (p.status !== "pending" && p.status !== "overdue")) {
+    throw new Error("PAYMENT_CHANGED");
+  }
+}
 
 function nextPaidAmount(
   previous: { amount: number; paidAmount: number },
@@ -52,6 +65,7 @@ function applyPaymentPatch(
   const idx = data.payments.findIndex((p) => p.id === paymentId);
   if (idx < 0) throw new Error("Ödeme bulunamadı");
   const previous = data.payments[idx]!;
+  assertUntouchedOpenDebt(previous, opts);
   const student = data.students.find((s) => s.id === previous.studentId);
   const billedAmount =
     opts.reviseBilledAmount && opts.amount !== undefined && !opts.voided
@@ -113,6 +127,7 @@ async function collectDb(
     async (tx) => {
       const payment = await tx.payment.findFirst({ where: { id: paymentId, tenantId } });
       if (!payment) throw new Error("Ödeme bulunamadı");
+      assertUntouchedOpenDebt(payment, opts);
       const student = payment.studentId
         ? await tx.student.findFirst({ where: { id: payment.studentId, tenantId } })
         : null;
