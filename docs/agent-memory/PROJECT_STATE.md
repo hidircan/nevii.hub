@@ -4,6 +4,20 @@ Kısa tutulur (~50 satır): oturum sonunda yalnız "Güncel snapshot" bölümün
 `archive/`'e taşınır. Ayrıntı → ilgili `docs/testing/UAT_*.md`, `docs/operations/*`. Yönlendirici: `nevii-hub` skill.
 Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_2026-09-24.md`.
 
+## Güncel snapshot — 2026-10-04 (ürün sürümü CANLIDA: borç, müsaitlik istisnası, telafi, sözleşme, hakediş, çoklu eğitim)
+- Canlı: `8e7f5b4` (`dpl_Fw5AVjBJKTM14fhQhFiuHxvRERmC`); önce `36d90e0` (`dpl_FxNzczEijDPghH1uniNNnm8NXaNv`). Yedekler:
+  `~/NeviiHub-Backups/2026-10-04-release` (522c86c6) ve `2026-10-04-enrollments` (bbc85e60). Prod migration
+  `20261004120000_student_enrollments` (yalnız nullable kolon) uygulandı.
+- Kurallar: tek borç `summarizeStudentDebt` (sözleşmesiz dahil); ders-başı plan programı bitmiş ayları projekte eder;
+  aktif ilk sözleşmesi olan öğrenciye ikinci ilk sözleşme yok (eğitim başına); revizyon tahsilatı mahsup eder;
+  müsaitlik istisnası yalnız TEACHER_UNAVAILABLE, yalnız admin/sahip/şube müdürü; telafi kaynak ders süresiyle;
+  yoklama↔hakediş: ödenmemiş otomatik yeniden hesap, ödenmiş kritik şifre + "recalc" düzeltme; 30/40/50 yürürlük tarihli.
+- Çoklu eğitim: `Student.enrollments` JSON + `enrollmentId` (Lesson/LessonSeries/StudentContract); `student-enrollments.ts`.
+- Açık (owner kararı): Ela Özdoğan — bir kayıtta iki aktif ilk sözleşme (çift borç) düzeltme önizlemesi onay bekliyor;
+  aynı adlı iki öğrenci kaydı (birleştirme yok); bayram/tatil aylarının orantılı ücreti (Mayıs 2027) kural sorusu;
+  kuruşlu tutar (şema Int TL); Vercel Active CPU / Supabase egress dashboard'dan okunmalı.
+- Testler: tam paket 17 kırmızı = taban (trial-* tarih bağımlı + staff-onboarding). Owner: ekstra test turu yok, UAT owner'da.
+
 ## Güncel snapshot — 2026-10-03 akşam (ürün sürümü CANLIDA; açık kapandı; demo verisi kaldırıldı)
 - Canlı: `a35be2e` (`dpl_97iJbe28U2s7j214DD1wnXosHzHM`, fra1, 16:07Z): pasif öğretmen kaldırma, telafi saati boşaltır +
   eşzamanlı ders yazımında çift rezervasyon kapandı, enstrüman tek kaynak (Bas Gitar), öğrenci seçilince ders süresi,
