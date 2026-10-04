@@ -57,6 +57,9 @@ export function ManualMakeupPlanForm({
   const afterExpiry = Boolean(expiryDay && date && date > expiryDay);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  // 2026-10-04 — öğretmen müsaitlik dışı: yetkili kullanıcıya açık onay (normal ders planlamasıyla aynı kural).
+  const [overridePrompt, setOverridePrompt] = useState<string | null>(null);
+  const [overrideReason, setOverrideReason] = useState("");
   const [draft, setDraft] = useState<{
     smsSendable: boolean;
     smsBlockReason?: string;
@@ -76,6 +79,10 @@ export function ManualMakeupPlanForm({
 
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault();
+    await submit(false);
+  }
+
+  async function submit(overrideAvailability: boolean) {
     if (!date || !time || !teacherId || !roomId) {
       setError("Tarih, saat, öğretmen ve oda seçimi zorunlu.");
       return;
@@ -108,11 +115,12 @@ export function ManualMakeupPlanForm({
           },
           // Boş gerekçe gönderilmez — sunucu da boşu saklamaz.
           decisionNote: decisionNote.trim() || undefined,
+          ...(overrideAvailability ? { overrideAvailability: true, overrideReason: overrideReason.trim() || undefined } : {}),
         }),
       });
       const json = (await res.json()) as {
         ok: boolean;
-        error?: { message: string };
+        error?: { message: string; details?: { overridable?: boolean } };
         data?: {
           communication?: {
             smsSendable: boolean;
@@ -124,10 +132,17 @@ export function ManualMakeupPlanForm({
         };
       };
       if (!json.ok) {
+        if (!overrideAvailability && json.error?.details?.overridable) {
+          setOverridePrompt(json.error.message);
+          setBusy(false);
+          return;
+        }
         setError(json.error?.message || "Telafi dersi planlanamadı.");
         setBusy(false);
         return;
       }
+      setOverridePrompt(null);
+      setOverrideReason("");
       setSuccess(true);
       setDraft(json.data?.communication ?? null);
       router.refresh();
@@ -260,6 +275,45 @@ export function ManualMakeupPlanForm({
           Vazgeç
         </button>
       </div>
+      {overridePrompt ? (
+        <div role="alertdialog" aria-label="Öğretmen müsaitlik dışı" className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950">
+          <p className="text-sm font-semibold">Öğretmenin müsaitlik saati dışında</p>
+          <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5">
+            <dt>Öğretmen</dt>
+            <dd className="font-medium">{selectedTeacher?.name ?? "—"}</dd>
+            <dt>Tarih</dt>
+            <dd className="font-medium">{date ? new Date(`${date}T12:00:00`).toLocaleDateString("tr-TR", { day: "numeric", month: "long", year: "numeric", weekday: "long" }) : "—"}</dd>
+            <dt>Saat</dt>
+            <dd className="font-medium">
+              {time}
+              {pickedStart ? `–${new Date(pickedStart.getTime() + lessonDurationMinutes * 60000).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Istanbul" })}` : ""} ({lessonDurationMinutes} dk)
+            </dd>
+          </dl>
+          <p className="mt-2"><strong>Neden:</strong> {overridePrompt}</p>
+          <p className="mt-1">
+            Onay YALNIZ öğretmenin bildirdiği müsaitliği aşar. Öğretmenin, odanın veya öğrencinin aynı saatteki başka dersi,
+            kapalı gün ve son kullanım tarihi yine kontrol edilir; bunlar aşılamaz.
+          </p>
+          <label className="mt-2 block font-medium">
+            Kısa gerekçe (önerilir — denetim kaydına yazılır)
+            <textarea
+              value={overrideReason}
+              onChange={(event) => setOverrideReason(event.target.value.slice(0, 500))}
+              rows={2}
+              maxLength={500}
+              className="mt-1 w-full rounded-lg border border-amber-300 bg-white px-2 py-1 text-xs text-[var(--color-text)]"
+            />
+          </label>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Button type="button" variant="danger" disabled={busy} onClick={() => void submit(true)}>
+              {busy ? "Planlanıyor..." : "Müsaitlik dışında planla"}
+            </Button>
+            <button type="button" className="text-xs font-medium underline" onClick={() => setOverridePrompt(null)}>
+              Vazgeç
+            </button>
+          </div>
+        </div>
+      ) : null}
       {error ? <p className="mt-2 text-xs font-medium text-rose-600">{error}</p> : null}
       {success ? (
         <div className="mt-2 space-y-2 text-xs text-emerald-800">

@@ -195,6 +195,27 @@ export function isOverridableSlotCode(code: SlotValidationCode): boolean {
   return (OVERRIDABLE_SLOT_CODES as readonly string[]).includes(code);
 }
 
+/**
+ * 2026-10-04 KÖK NEDEN ("telafide öğretmen müsaitliği yanlış okunuyor"): telafi doğrulaması ve önerisi
+ * dersin GERÇEK süresi yerine kurumun varsayılan ders süresini (`settings.lessonDurationMinutes`)
+ * kullanıyordu — 30 dk'lık bir dersin telafisi 50 dk gibi denetlenip pencereden taşıyor ("müsait değil"),
+ * ya da tersi kısa sayılıp gerçek çakışma kaçıyordu. Telafi dersi, kaynak (kaçan) dersin süresindedir;
+ * kaynak ders bulunamazsa öğrencinin kayıtlı ders süresi, o da yoksa kurum varsayılanı.
+ */
+export function makeupDurationMinutes(
+  data: Pick<AppData, "lessons" | "settings"> & { students?: AppData["students"] },
+  request: Pick<MakeupRequest, "sourceLessonId" | "studentId">
+): number {
+  const source = data.lessons.find((l) => l.id === request.sourceLessonId);
+  if (source) {
+    const minutes = Math.round((parseISO(source.endAt).getTime() - parseISO(source.startAt).getTime()) / 60_000);
+    if (Number.isFinite(minutes) && minutes >= 30) return minutes;
+  }
+  const studentMinutes = data.students?.find((s) => s.id === request.studentId)?.lessonDurationMinutes;
+  if (studentMinutes && studentMinutes >= 30) return studentMinutes;
+  return data.settings.lessonDurationMinutes;
+}
+
 /** `addLesson`/`createLessonTool` zincirinde yapılandırılmış hata — hangi kuralın hangi kod ile ihlal edildiğini korur (mesaj string'ini ayrıştırmaya gerek kalmaz). */
 export class LessonSlotValidationError extends Error {
   code: SlotValidationCode;
@@ -405,7 +426,7 @@ export function suggestMakeupSlots(
 ): MakeupSlot[] {
   const maxSlots = options?.maxSlots ?? 6;
   const daysAhead = options?.daysAhead ?? data.settings.makeupWindowDays;
-  const duration = data.settings.lessonDurationMinutes;
+  const duration = makeupDurationMinutes(data, request);
   const { workingHours, workingDays } = data.settings;
 
   const candidates = data.teachers.filter(
@@ -454,11 +475,12 @@ export function suggestMakeupSlots(
         const teacherRooms = roomsFallback.filter((r) => teacherServesBranch(teacher, r.branchId));
         let matched: ValidatedSlot | null = null;
         for (const room of teacherRooms) {
-          const result = validateLessonSlot(data, request, {
-            teacherId: teacher.id,
-            roomId: room.id,
-            startAt: cursor.toISOString(),
-          });
+          const result = validateLessonSlot(
+            data,
+            request,
+            { teacherId: teacher.id, roomId: room.id, startAt: cursor.toISOString() },
+            { durationMinutes: duration }
+          );
           if (result.ok) {
             matched = result.slot;
             break;
@@ -547,7 +569,15 @@ export function resolveSlaEscalationLevel(deadlineIso: string, nowIso: string): 
 
 /** EPIC 10 — onay/iptal/ret kararında zorunlu tutulan (uygulama katmanında) alanlar. */
 /** decisionNote: onayda isteğe bağlı (2026-09-30), iptal/retde tool katmanında zorunlu. Boş not saklanmaz. */
-export type MakeupDecision = { decisionNote?: string; decidedBy: string };
+export type MakeupDecision = {
+  decisionNote?: string;
+  decidedBy: string;
+  /**
+   * 2026-10-04 — yalnız öğretmen müsaitliği (TEACHER_UNAVAILABLE) aşılır; yetkiyi araç katmanı denetler
+   * (kurum yöneticisi/şube müdürü). Çakışma, oda, kapalı gün, son kullanım ASLA aşılmaz.
+   */
+  allowAvailabilityOverride?: boolean;
+};
 
 /** EPIC 10 — bir talebin SLA eskalasyon seviyesinin yükseldiği tek olay. */
 export type MakeupSlaEscalation = {
@@ -568,8 +598,13 @@ export function confirmMakeupSlot(
   const request = data.makeupRequests.find((m) => m.id === requestId);
   if (!request) throw new Error("Telafi talebi bulunamadı");
 
-  const validation = validateLessonSlot(data, request, input);
-  if (!validation.ok) throw new Error(validation.message);
+  const validation = validateLessonSlot(data, request, input, {
+    now,
+    durationMinutes: makeupDurationMinutes(data, request),
+    allowAvailabilityOverride: decision.allowAvailabilityOverride,
+  });
+  // Yapılandırılmış hata: araç katmanı TEACHER_UNAVAILABLE'ı (istisna onayı istenebilir) diğerlerinden ayırır.
+  if (!validation.ok) throw new LessonSlotValidationError(validation.code, validation.message);
   const slot = validation.slot;
 
   const lessonId = `l_mk_${Date.now().toString(36)}`;
@@ -586,6 +621,7 @@ export function confirmMakeupSlot(
     status: "scheduled",
     makeupRequestId: requestId,
     notes: `Telafi · kaynak ders ${request.sourceLessonId}`,
+    ...(slot.availabilityOverridden ? { availabilityOverride: { by: decision.decidedBy, at: now.toISOString() } } : {}),
   };
 
   const decidedAt = now.toISOString();

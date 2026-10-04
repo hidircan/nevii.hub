@@ -3348,6 +3348,7 @@ export async function actionAddLesson(formData: FormData): Promise<LessonActionR
         term: termRaw === "guz" || termRaw === "yaz" ? termRaw : undefined,
         academicYearStart: academicYearStartRaw ? Number(academicYearStartRaw) : undefined,
         overrideAvailability: formData.get("overrideAvailability") === "true",
+        overrideReason: (formData.get("overrideReason") as string | null) ?? undefined,
       });
       if (!created.ok) {
         const details = created.error.details as { overridable?: boolean } | undefined;

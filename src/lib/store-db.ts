@@ -1630,6 +1630,9 @@ export async function confirmSlot(
         status: "scheduled",
         makeupRequestId: requestId,
         notes: `Telafi · kaynak ders ${request.sourceLessonId}`,
+        // 2026-10-04 — müsaitlik dışı onaylı telafi: normal dersle aynı iz (kim, ne zaman).
+        availabilityOverrideBy: validatedSlot.availabilityOverridden ? decision.decidedBy : undefined,
+        availabilityOverrideAt: validatedSlot.availabilityOverridden ? decidedAt : undefined,
       },
     });
     await tx.makeupRequest.updateMany({

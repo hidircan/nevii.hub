@@ -583,6 +583,8 @@ export const lessonSchema = z.object({
    * olmadan hiçbir uyarı otomatik bypass edilmez.
    */
   overrideAvailability: z.coerce.boolean().optional(),
+  /** 2026-10-04 — müsaitlik istisnasının kısa gerekçesi (denetim kaydına yazılır). */
+  overrideReason: z.string().max(500).optional(),
 });
 
 export const paymentRecordSchema = z.object({

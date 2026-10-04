@@ -883,6 +883,17 @@ export async function findAvailableSlotsTool(
  * 2026-09-30 (owner) — ONAYDA planlama gerekçesi (`decisionNote`) isteğe bağlı; iptal/ret notu zorunlu kalır.
  * Geçmiş tarih kabul edilir (üst sınır talebin son kullanım günü; kural validateLessonSlot'ta).
  */
+/**
+ * 2026-10-04 — öğretmen müsaitliği istisnası (yalnız TEACHER_UNAVAILABLE) yalnız kurum yöneticisi, kurum sahibi
+ * ve şube müdürü tarafından onaylanabilir. Frontend bayrağı tek başına yetmez: AI ajanı, öğretmen ve
+ * öğrenci/veli portalı bu bayrağı gönderse de reddedilir.
+ */
+function canOverrideTeacherAvailability(ctx: ServiceContext): boolean {
+  return ctx.role === "SCHOOL_ADMIN" || ctx.role === "SUPER_ADMIN" || ctx.role === "BRANCH_MANAGER";
+}
+const AVAILABILITY_OVERRIDE_FORBIDDEN =
+  "Öğretmenin müsaitlik dışı saatine planlama istisnasını yalnız kurum yöneticisi, kurum sahibi veya şube müdürü onaylayabilir.";
+
 export async function confirmMakeupLessonTool(
   ctx: ServiceContext,
   input: unknown
@@ -906,10 +917,16 @@ export async function confirmMakeupLessonTool(
         .max(1000, "Planlama gerekçesi en fazla 1000 karakter olabilir.")
         .optional()
         .transform((s) => (s?.trim() ? s.trim() : undefined)),
+      /** 2026-10-04 — kullanıcı müsaitlik uyarısını AÇIKÇA onayladı (yalnız TEACHER_UNAVAILABLE aşılır). */
+      overrideAvailability: z.boolean().optional(),
+      overrideReason: z.string().max(500).optional().transform((s) => (s?.trim() ? s.trim() : undefined)),
     }),
     input
   );
   if (!v.ok) return v;
+  if (v.data.overrideAvailability && !canOverrideTeacherAvailability(ctx)) {
+    return fail("FORBIDDEN", AVAILABILITY_OVERRIDE_FORBIDDEN);
+  }
 
   if (ctx.role === "BRANCH_MANAGER") {
     const req = (await readData()).makeupRequests.find((m) => m.id === v.data.requestId);
@@ -927,6 +944,7 @@ export async function confirmMakeupLessonTool(
     await confirmSlot(v.data.requestId, v.data.slot as MakeupSlot, {
       decisionNote: v.data.decisionNote,
       decidedBy: ctx.userId,
+      allowAvailabilityOverride: Boolean(v.data.overrideAvailability),
     });
     const data = await readData();
     const req = data.makeupRequests.find((m) => m.id === v.data.requestId);
@@ -937,6 +955,15 @@ export async function confirmMakeupLessonTool(
       lessonId: req?.confirmedLessonId,
       decisionNote: v.data.decisionNote,
     });
+    if (lesson?.availabilityOverride) {
+      audit(ctx, "makeup.availability_override", "Lesson", lesson.id, {
+        makeupRequestId: v.data.requestId,
+        teacherId: lesson.teacherId,
+        startAt: lesson.startAt,
+        endAt: lesson.endAt,
+        reason: v.data.overrideReason,
+      });
+    }
     let communication: import("../whatsapp-templates").MakeupLessonCommunicationDraft | null = null;
     try {
       if (lesson) {
@@ -984,7 +1011,13 @@ export async function confirmMakeupLessonTool(
     });
   } catch (e) {
     // Kilit altındaki yeniden kontrol: saat az önce başka derse verildi (bkz. store-db assertSlotFreeLockedTx).
-    if (e instanceof LessonSlotValidationError) return fail("CONFLICT", e.message);
+    // TEACHER_UNAVAILABLE: yetkili kullanıcıya istisna onayı sorulabilir (details.overridable); diğer kodlar aşılamaz.
+    if (e instanceof LessonSlotValidationError) {
+      return fail("CONFLICT", e.message, {
+        slotValidationCode: e.code,
+        overridable: isOverridableSlotCode(e.code) && canOverrideTeacherAvailability(ctx),
+      });
+    }
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "confirmMakeupLesson failed");
   }
 }
@@ -6689,6 +6722,9 @@ export async function createLessonTool(
 
   const parsed = parseOrFail(lessonSchema, input);
   if (!parsed.ok) return parsed;
+  if (parsed.data.overrideAvailability && !canOverrideTeacherAvailability(ctx)) {
+    return fail("FORBIDDEN", AVAILABILITY_OVERRIDE_FORBIDDEN);
+  }
   // Saat kayması kök neden düzeltmesi — formdan gelen ofsetsiz "yyyy-MM-ddTHH:mm"
   // kurum saatidir; sunucu saat dilimine göre YORUMLANMAZ (bkz. wallDateTimeInputToIso).
   const normalizedStartAt = wallDateTimeInputToIso(parsed.data.startAt);
@@ -6747,6 +6783,14 @@ export async function createLessonTool(
     });
     const after = await readData();
     const created = after.lessons.find((l) => !ids.has(l.id));
+    if (created?.availabilityOverride) {
+      audit(ctx, "lesson.availability_override", "Lesson", created.id, {
+        teacherId: created.teacherId,
+        startAt: created.startAt,
+        endAt: created.endAt,
+        reason: v.data.overrideReason?.trim() || undefined,
+      });
+    }
     if (created) {
       const student = after.students.find((s) => s.id === created.studentId);
       const room = after.rooms.find((r) => r.id === created.roomId);
@@ -6801,7 +6845,7 @@ export async function createLessonTool(
     if (e instanceof LessonSlotValidationError) {
       return fail("VALIDATION_ERROR", e.message, {
         slotValidationCode: e.code,
-        overridable: isOverridableSlotCode(e.code),
+        overridable: isOverridableSlotCode(e.code) && canOverrideTeacherAvailability(ctx),
       });
     }
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "createLesson failed");
@@ -12553,6 +12597,9 @@ export async function createTrialLessonTool(
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
   const v = parseOrFail(createTrialLessonSchema, input);
   if (!v.ok) return v;
+  if (v.data.allowAvailabilityOverride && !canOverrideTeacherAvailability(ctx)) {
+    return fail("FORBIDDEN", AVAILABILITY_OVERRIDE_FORBIDDEN);
+  }
   // Çalışma günü tek kaynağı — deneme dersi de yöneticinin kapalı/zorla-açık
   // istisnalarına uyar (eskiden boş liste geçiliyordu, istisnalar hiç okunmuyordu).
   const trialData = await readData();
@@ -12695,6 +12742,9 @@ export async function updateTrialLessonTool(
   if (scheduleChanged) {
     const { validateTrialSlot } = await import("../makeup-engine");
     const all = await listTrialLessons(ctx.tenantId);
+    if (d.allowAvailabilityOverride && !canOverrideTeacherAvailability(ctx)) {
+      return fail("FORBIDDEN", AVAILABILITY_OVERRIDE_FORBIDDEN);
+    }
     const slot = validateTrialSlot(data, next, all, {
       excludeTrialId: existing.id,
       allowAvailabilityOverride: d.allowAvailabilityOverride,

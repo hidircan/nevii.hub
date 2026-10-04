@@ -7,7 +7,7 @@ import { ManualMakeupPlanForm } from "@/components/manual-makeup-plan-form";
 import Link from "@/components/link";
 import { differenceInCalendarDays, parseISO } from "date-fns";
 import { formatDateTime, formatTime } from "@/lib/utils";
-import { isRoomSchedulable, validateLessonSlot } from "@/lib/makeup-engine";
+import { isRoomSchedulable, makeupDurationMinutes, validateLessonSlot } from "@/lib/makeup-engine";
 import { isTeacherSchedulable } from "@/lib/teacher-branches";
 import type { Instrument } from "@/lib/types";
 import { CheckCircle2, Download, Sparkles, X } from "lucide-react";
@@ -179,9 +179,16 @@ export default async function TelafiPage({ searchParams }: { searchParams: Promi
               ? `${branchName(req.branchId)} şubesinde ${req.instrument} dersine uygun aktif oda yok; otomatik öneri yapılamaz. Odalar ekranından bu şubedeki bir odaya enstrümanı ekleyin veya pasif odayı yeniden aktif edin${usableRooms.length > 0 ? "; ya da aşağıdan öğretmenin başka şubesindeki aktif bir odayı elle seçin" : ""}.`
               : null;
             // Öneri kaydedildiği andan sonra uygunluk değişmiş olabilir — aynı kuralla yeniden doğrula.
+            // Telafi dersi kaynak dersin süresindedir (kurum varsayılanı DEĞİL) — kayıtla aynı kural.
+            const durationMinutes = makeupDurationMinutes(data, req);
             const checked = req.suggestedSlots.map((slot) => ({
               slot,
-              check: validateLessonSlot(data, req, { teacherId: slot.teacherId, roomId: slot.roomId, startAt: slot.startAt }),
+              check: validateLessonSlot(
+                data,
+                req,
+                { teacherId: slot.teacherId, roomId: slot.roomId, startAt: slot.startAt },
+                { durationMinutes }
+              ),
             }));
             return (
               <Card key={req.id} className="p-0">
@@ -317,7 +324,7 @@ export default async function TelafiPage({ searchParams }: { searchParams: Promi
                           requestId={req.id}
                           preferredTeacherId={req.teacherId}
                           sourceBranchId={req.branchId}
-                          lessonDurationMinutes={data.settings.lessonDurationMinutes}
+                          lessonDurationMinutes={durationMinutes}
                           teachers={teachers}
                           rooms={rooms}
                           canWrite={canWrite}

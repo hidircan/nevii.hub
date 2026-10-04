@@ -792,6 +792,9 @@ export function ProgramStudio({
    */
   const [availabilityWarningOpen, setAvailabilityWarningOpen] = useState(false);
   const [availabilityWarningText, setAvailabilityWarningText] = useState("");
+  // 2026-10-04 — istisna gerekçesi (opsiyonel, denetim kaydına yazılır).
+  const [availabilityOverrideReason, setAvailabilityOverrideReason] = useState("");
+  const [availabilityWarningSlot, setAvailabilityWarningSlot] = useState<{ teacherId: string; startAt: string; durationMinutes: number } | null>(null);
   const pendingLessonFormData = useRef<FormData | null>(null);
   const [notices, setNotices] = useState(() =>
     emptyProgramNotices<{ parent: LessonCommunicationMessage; teacher: LessonCommunicationMessage }>()
@@ -1180,6 +1183,11 @@ export function ProgramStudio({
       if (result.overridable) {
         // Hard error göstermek yerine onay modalı aç — kullanıcı karar versin.
         pendingLessonFormData.current = fd;
+        setAvailabilityWarningSlot({
+          teacherId: String(fd.get("teacherId") ?? ""),
+          startAt: String(fd.get("startAt") ?? ""),
+          durationMinutes: Number(fd.get("durationMinutes") ?? 0),
+        });
         setAvailabilityWarningText(result.message);
         setAvailabilityWarningOpen(true);
         return;
@@ -1225,7 +1233,9 @@ export function ProgramStudio({
     const fd = pendingLessonFormData.current;
     if (!fd) return;
     fd.set("overrideAvailability", "true");
+    if (availabilityOverrideReason.trim()) fd.set("overrideReason", availabilityOverrideReason.trim());
     setAvailabilityWarningOpen(false);
+    setAvailabilityOverrideReason("");
     await submitLessonForm(fd);
   }
 
@@ -1573,14 +1583,43 @@ export function ProgramStudio({
 
       {availabilityWarningOpen ? (
         <FormModal title="Öğretmenin çalışma saati dışında" onClose={cancelAvailabilityOverride}>
+          {(() => {
+            const t = teachers.find((x) => x.id === availabilityWarningSlot?.teacherId);
+            const wall = availabilityWarningSlot?.startAt ?? "";
+            const minutes = availabilityWarningSlot?.durationMinutes ?? 0;
+            const date = /^\d{4}-\d{2}-\d{2}/.test(wall) ? format(new Date(`${wall.slice(0, 10)}T12:00:00`), "d MMMM yyyy, EEEE", { locale: tr }) : "—";
+            const hm = wall.slice(11, 16);
+            const end = hm && minutes ? format(addMinutes(new Date(`2000-01-01T${hm}:00`), minutes), "HH:mm") : "";
+            return (
+              <dl className="mb-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3 text-sm">
+                <dt className="text-[var(--color-text-muted)]">Öğretmen</dt>
+                <dd className="font-medium text-[var(--color-text)]">{t?.name ?? "—"}</dd>
+                <dt className="text-[var(--color-text-muted)]">Tarih</dt>
+                <dd className="font-medium text-[var(--color-text)]">{date}</dd>
+                <dt className="text-[var(--color-text-muted)]">Saat</dt>
+                <dd className="font-medium text-[var(--color-text)]">{hm ? `${hm}${end ? `–${end}` : ""}` : "—"}</dd>
+              </dl>
+            );
+          })()}
           <p className="text-sm text-[var(--color-text)] dark:text-slate-200">
-            {availabilityWarningText || "Öğretmen bu saatte müsait görünmüyor."}
+            <strong>Neden:</strong> {availabilityWarningText || "Öğretmen bu saatte müsait görünmüyor."}
           </p>
           <p className="mt-2 text-xs text-[var(--color-text-muted)]">
             Bu onay YALNIZ öğretmenin bildirdiği çalışma saatlerini aşar; ders &quot;müsaitlik dışı&quot; olarak işaretlenir ve
             raporlarda görünür. Öğretmenin, odanın veya öğrencinin aynı saatteki başka dersi, kapalı gün, pasif oda ya da
             öğretmen gibi gerçek çakışmalar bu onayla aşılamaz — onlar kayıtta yine reddedilir.
           </p>
+          <label className="mt-3 block text-xs font-medium text-[var(--color-text-muted)]">
+            Kısa gerekçe (önerilir — denetim kaydına yazılır)
+            <textarea
+              value={availabilityOverrideReason}
+              onChange={(e) => setAvailabilityOverrideReason(e.target.value.slice(0, 500))}
+              rows={2}
+              maxLength={500}
+              placeholder="Örn. Öğretmen bu hafta için ek saat verdi."
+              className="mt-1 w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text)]"
+            />
+          </label>
           <div className="mt-4 flex justify-end gap-2">
             <Button type="button" variant="secondary" onClick={cancelAvailabilityOverride} disabled={submitting}>
               Vazgeç
