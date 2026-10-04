@@ -108,7 +108,11 @@ describe("createStudentContractTool — revizyon (amendment)", () => {
     expect(res.data.contract.status).toBe("generated");
     expect(res.data.contract.documentInstanceId).toBeTruthy();
     expect(res.data.contract.documentInstanceId).not.toBe(initial.contract.documentInstanceId);
-    expect(res.data.installments).toHaveLength(3);
+    // 2026-10-04 — mahsup: önceki sürümde tahsil edilen 9.000 TL yeni planın ilk taksitlerine düşülür;
+    // ödenmiş aylar yeniden borç yazılmaz, yalnız kalan 1.500 TL borç satırı oluşur.
+    expect(res.data.amendmentCredit).toEqual({ collected: 9000, applied: 9000, leftover: 0 });
+    expect(res.data.installments).toHaveLength(1);
+    expect(res.data.installments[0]!.amount).toBe(1500);
 
     // Önceki sürüm: durumu dışında HİÇBİR alanı değişmedi.
     const after = await getStudentContractTool(adminCtx(), { contractId: initial.contract.id });
@@ -179,21 +183,43 @@ describe("createStudentContractTool — revizyon (amendment)", () => {
     expect(second.ok).toBe(false);
   });
 
-  it("borç varken revizyon engellenir (CONFLICT); gerekçeli override ile geçer", async () => {
+  it("2026-10-04: açık borç varken revizyon ENGELLENMEZ — eski açık taksitler yeni planla yer değiştirir, tahsilat mahsup edilir, çift borç olmaz", async () => {
     const initial = await createInitial();
-    // 2. ve 3. taksit ödenmedi → borç var.
-    const blocked = await createStudentContractTool(adminCtx(), amendInput(initial.contract.id));
-    expect(blocked.ok).toBe(false);
-    if (blocked.ok) return;
-    expect(blocked.error.code).toBe("CONFLICT");
+    // 1. taksit kayıtta ödendi (3.000), 2. ve 3. açık (6.000).
+    const res = await createStudentContractTool(adminCtx(), amendInput(initial.contract.id));
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.amendmentCredit).toEqual({ collected: 3000, applied: 3000, leftover: 0 });
+    expect(res.data.installments.map((r) => r.amount)).toEqual([500, 3500, 3500]);
 
-    const allowed = await createStudentContractTool(
+    const { readData } = await import("../store-json");
+    const { listTerminalContractIds } = await import("../contracts");
+    const { summarizeStudentDebt, collectedAmountOf } = await import("../payment-profile");
+    const payments = (await readData()).payments.filter((p) => p.studentId === "s1");
+    const debt = summarizeStudentDebt(payments, await listTerminalContractIds(DEFAULT_TENANT_ID));
+    // Yeni sözleşme 10.500 − tahsil edilen 3.000 = 7.500; eski açık 6.000 artık borç DEĞİL.
+    expect(debt.openTotal).toBe(7500);
+    const contractIds = new Set([initial.contract.id, res.data.contract.id]);
+    expect(payments.filter((p) => p.contractId && contractIds.has(p.contractId)).reduce((s, p) => s + collectedAmountOf(p), 0)).toBe(3000);
+  });
+
+  it("2026-10-04: hiçbir alanı/planı değişmeyen revizyon sunucuda reddedilir (mükerrer sürüm yok)", async () => {
+    const initial = await createInitial();
+    const res = await createStudentContractTool(adminCtx(), amendInput(initial.contract.id, { monthlyAmount: 3000 }));
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.error.message).toContain("birebir aynı");
+    const again = await getStudentContractTool(adminCtx(), { contractId: initial.contract.id });
+    expect(again.ok && again.data.contract.status).not.toBe("superseded");
+  });
+
+  it("2026-10-04: yalnız ödeme planında (taksit tutarı) değişiklik de geçerli revizyondur", async () => {
+    const initial = await createInitial();
+    const res = await createStudentContractTool(
       adminCtx(),
-      amendInput(initial.contract.id, {
-        renewalDebtOverrideReason: "Kalan taksitler yeni planda yeniden vadelendirildi — finans onayı",
-      })
+      amendInput(initial.contract.id, { monthlyAmount: 3000, installmentAmountOverrides: [{ sequence: 3, amount: 2500 }] })
     );
-    expect(allowed.ok).toBe(true);
+    expect(res.ok).toBe(true);
   });
 
   it("yalnızca sözleşme personeli revize edebilir — öğretmen REDDEDİLİR", async () => {

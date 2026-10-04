@@ -1412,7 +1412,7 @@ export async function readStudentListData(): Promise<StudentListData> {
       omit: { logoUrl: true },
       include: {
         ...referenceSchoolInclude,
-        payments: { select: { studentId: true, status: true, contractId: true } },
+        payments: { select: { studentId: true, status: true, contractId: true, amount: true, paidAmount: true } },
       },
     }),
     readPackages(tid),
@@ -1443,6 +1443,8 @@ export async function readStudentListData(): Promise<StudentListData> {
         studentId: p.studentId,
         status: p.status as import("./types").PaymentStatus,
         contractId: p.contractId ?? undefined,
+        amount: p.amount,
+        paidAmount: p.paidAmount,
       })
     ),
   };

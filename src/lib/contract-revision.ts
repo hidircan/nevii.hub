@@ -32,7 +32,13 @@ export type RevisionComparable = {
   depositAmount?: number | "";
   lessonScheduleText?: string;
   signatoryFullName?: string;
+  /** 2026-10-04 — imzacı kimliği/adresi/yakınlığı da revizyon konusudur (eskiden karşılaştırılmıyordu). */
+  signatoryNationalId?: string;
+  signatoryAddress?: string;
+  signatoryRelationship?: string;
   photoVideoConsent?: "granted" | "denied" | "unset";
+  /** Rıza kapsamı (kanal listesi) — sıra önemsiz. */
+  photoScopes?: string[];
   kvkkNoticeDelivered?: boolean;
 };
 
@@ -112,6 +118,17 @@ export function diffContractRevision(prev: RevisionComparable, next: RevisionCom
     formatText(prev.signatoryFullName),
     formatText(next.signatoryFullName)
   );
+  // T.C. ekranda maskeli gösterilir; karşılaştırma tam değer üzerinden yapılır.
+  if ((prev.signatoryNationalId ?? "").trim() !== (next.signatoryNationalId ?? "").trim()) {
+    out.push({
+      key: "signatoryNationalId",
+      label: "İmzalayan T.C. kimlik no",
+      before: maskId(prev.signatoryNationalId),
+      after: maskId(next.signatoryNationalId),
+    });
+  }
+  push("signatoryAddress", "İmzalayan adresi", formatText(prev.signatoryAddress), formatText(next.signatoryAddress));
+  push("signatoryRelationship", "İmzalayan yakınlığı", formatText(prev.signatoryRelationship), formatText(next.signatoryRelationship));
   const consentLabel = (v: "granted" | "denied" | "unset" | undefined) =>
     v === "granted" ? "İzin verildi" : v === "denied" ? "İzin verilmedi" : "Belirtilmedi";
   push(
@@ -120,6 +137,9 @@ export function diffContractRevision(prev: RevisionComparable, next: RevisionCom
     consentLabel(prev.photoVideoConsent),
     consentLabel(next.photoVideoConsent)
   );
+  if (prev.photoScopes !== undefined && next.photoScopes !== undefined) {
+    push("photoScopes", "Rıza kapsamı", [...prev.photoScopes].sort().join(", ") || "—", [...next.photoScopes].sort().join(", ") || "—");
+  }
   push(
     "kvkkNoticeDelivered",
     "KVKK bilgilendirme",
@@ -127,6 +147,58 @@ export function diffContractRevision(prev: RevisionComparable, next: RevisionCom
     next.kvkkNoticeDelivered ? "Yapıldı" : "Yapılmadı"
   );
   return out;
+}
+
+function maskId(value: string | undefined): string {
+  const t = (value ?? "").trim();
+  return t ? `•••••••••${t.slice(-2)}` : "—";
+}
+
+export type PlanRow = { sequence: number; amount: number; dueDate: string };
+
+/**
+ * 2026-10-04 KÖK NEDEN ("değişiklik yaptım ama değişiklik yok diyor"): revizyon farkı yalnız form başlık
+ * alanlarını karşılaştırıyordu; ödeme planındaki elle tutar/vade değişikliği, son dönem tutarı ve
+ * imzacı T.C./adresi hiç görülmüyordu. Bu fonksiyon önizlenen planı önceki sürümün dondurulmuş planıyla
+ * satır satır karşılaştırır (tutar + vade günü + satır sayısı).
+ */
+export function diffInstallmentPlan(prev: PlanRow[], next: PlanRow[]): RevisionDiffEntry[] {
+  const out: RevisionDiffEntry[] = [];
+  const bySeq = (rows: PlanRow[]) => new Map(rows.map((r) => [r.sequence, r]));
+  const a = bySeq(prev);
+  const b = bySeq(next);
+  const seqs = Array.from(new Set([...a.keys(), ...b.keys()])).sort((x, y) => x - y);
+  for (const seq of seqs) {
+    const p = a.get(seq);
+    const n = b.get(seq);
+    if (!p || !n) {
+      out.push({
+        key: `plan-${seq}`,
+        label: `${seq}. taksit`,
+        before: p ? `${formatTL(p.amount)} · ${formatDay(p.dueDate)}` : "yok",
+        after: n ? `${formatTL(n.amount)} · ${formatDay(n.dueDate)}` : "yok",
+      });
+      continue;
+    }
+    if (p.amount !== n.amount) {
+      out.push({ key: `plan-${seq}-amount`, label: `${seq}. taksit tutarı`, before: formatTL(p.amount), after: formatTL(n.amount) });
+    }
+    if (asDay(p.dueDate) !== asDay(n.dueDate)) {
+      out.push({ key: `plan-${seq}-due`, label: `${seq}. taksit vadesi`, before: formatDay(p.dueDate), after: formatDay(n.dueDate) });
+    }
+  }
+  return out;
+}
+
+/**
+ * Sunucu tarafı mükerrer sürüm kontrolü: önceki sürümle başlık alanları VE plan aynıysa revizyon anlamsızdır.
+ * İstemci farkı yanlış hesaplasa/atlansa bile aynı veriden ikinci sürüm üretilmez.
+ */
+export function isIdenticalRevision(
+  prev: RevisionComparable & { plan: PlanRow[] },
+  next: RevisionComparable & { plan: PlanRow[] }
+): boolean {
+  return diffContractRevision(prev, next).length === 0 && diffInstallmentPlan(prev.plan, next.plan).length === 0;
 }
 
 /**

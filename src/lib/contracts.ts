@@ -30,6 +30,7 @@ import {
   selectEligibleActiveTemplateForContract,
 } from "./contract-template-schema";
 import { formatDateTr } from "./timezone";
+import { logger } from "./logger";
 import type {
   CollectionsSettings,
   ContractAnnexSnapshot,
@@ -380,6 +381,45 @@ export function applyInstallmentAmountOverrides(
 }
 
 /**
+ * 2026-10-04 — REVİZYON MAHSUBU. Revize edilen sürümün taksitlerinde FİİLEN tahsil edilmiş para
+ * (`collectedAmountOf` toplamı) yeni sürümün Payment satırlarına sıra sırasıyla mahsup edilir:
+ * ödenmiş ilk aylar yeniden borç yazılmaz, eski tahsilat satırları değişmeden (yenilenmiş sözleşme
+ * altında) tahsilat toplamında kalır. Sözleşme belgesi/snapshot TAM planı gösterir; yalnız ödenecek
+ * kalan (Payment.amount) azalır ve satıra mahsup notu düşer. Mahsup sonrası 0 kalan satır yazılmaz.
+ * Kalan kredi (yeni plan, tahsil edilenden azsa) `leftover` olarak döner — iade otomatik YAPILMAZ.
+ */
+export function allocatePriorCollections(
+  rows: ContractInstallmentSnapshot[],
+  priorCollected: number,
+  previousContractNumber: string
+): { rows: ContractInstallmentSnapshot[]; applied: number; leftover: number } {
+  let remaining = Math.max(0, Math.trunc(priorCollected));
+  const out: ContractInstallmentSnapshot[] = [];
+  for (const row of [...rows].sort((a, b) => a.sequence - b.sequence)) {
+    const take = Math.min(row.amount, remaining);
+    remaining -= take;
+    if (take === 0) {
+      out.push(row);
+      continue;
+    }
+    const note = `${previousContractNumber} sürümünde tahsil edilen ${new Intl.NumberFormat("tr-TR").format(take)} TL mahsup edildi`;
+    out.push({ ...row, amount: row.amount - take, note: row.note ? `${row.note} · ${note}` : note });
+  }
+  const applied = Math.max(0, Math.trunc(priorCollected)) - remaining;
+  return { rows: out, applied, leftover: remaining };
+}
+
+/** Revize edilen sürümün taksit satırlarında fiilen tahsil edilmiş toplam (iptal satırı hariç). */
+export async function computePriorContractCollected(tenantId: string, contractId: string): Promise<number> {
+  const rows = await listInstallmentsForContract(tenantId, contractId);
+  return rows.reduce((sum, r) => {
+    if (r.status === "voided") return sum;
+    if (r.status === "paid") return sum + (r.paidAmount > 0 ? r.paidAmount : r.amount);
+    return sum + Math.max(0, r.paidAmount);
+  }, 0);
+}
+
+/**
  * 2026-09-19 — önizleme tablosunda elle değiştirilen VADE tarihleri (sıra no → yyyy-MM-dd).
  * Tutar override'ıyla aynı yol: önizleme, sözleşme snapshot'ı ve gerçek Payment satırları
  * HEP bu listeden üretilir; öğrenci detayı ve finans ekranları Payment.dueDate'i okur.
@@ -709,7 +749,12 @@ export type CreateContractInput = {
   lastPeriodPricing?: LastPeriodPricing;
 };
 
-export type CreateContractResult = { contract: StudentContract; installments: ContractInstallmentView[] };
+export type CreateContractResult = {
+  contract: StudentContract;
+  installments: ContractInstallmentView[];
+  /** Yalnız revizyonda: önceki sürümde tahsil edilen, yeni plana mahsup edilen ve artan (iade edilmeyen) tutar. */
+  amendmentCredit?: { collected: number; applied: number; leftover: number };
+};
 
 export const FIRST_PAYMENT_REQUIRED_MESSAGE =
   "İlk ödeme kayıt sırasında tahsil edilmeden kayıt tamamlanamaz.";
@@ -788,10 +833,12 @@ export async function createContract(input: CreateContractInput): Promise<Create
     if (!startsAfterPrevious && input.allowOverlap && !input.overlapReason?.trim()) {
       throw new Error("Örtüşen tarih için gerekçe (overlapReason) zorunludur.");
     }
-    const { outstandingAmount, unpaidInstallmentCount } = await computeOutstandingContractBalance(
-      input.tenantId,
-      previous.id
-    );
+    // 2026-10-04 — revizyon (amendment) AYNI dönemin yeni sürümüdür: önceki sürümün ödenmemiş taksitleri
+    // yeni planla yer değiştirir (tahsil edilen mahsup edilir), bu yüzden "yenileme borç bloğu" uygulanmaz.
+    const { outstandingAmount, unpaidInstallmentCount } =
+      input.contractType === "amendment"
+        ? { outstandingAmount: 0, unpaidInstallmentCount: 0 }
+        : await computeOutstandingContractBalance(input.tenantId, previous.id);
     if (outstandingAmount > 0) {
       if (!input.renewalDebtOverrideReason?.trim()) {
         throw new RenewalDebtBlockedError(outstandingAmount, unpaidInstallmentCount);
@@ -907,6 +954,61 @@ export async function createContract(input: CreateContractInput): Promise<Create
           `Girilen ilk ödeme (${new Intl.NumberFormat("tr-TR").format(input.firstPaymentCollected.amount)} TL) bu sözleşmenin 1. taksitiyle (${new Intl.NumberFormat("tr-TR").format(firstInstallmentAmount)} TL) aynı değil. Tahsil edilen tutarı veya aylık ücret/taksit sayısını düzeltin.`
         );
       }
+    }
+  }
+
+  // 2026-10-04 — sunucu tarafı mükerrer sürüm kontrolü: aynı veriden ikinci sürüm üretilmez (istemci farkı atlansa da).
+  if (input.contractType === "amendment" && previous) {
+    const { isIdenticalRevision } = await import("./contract-revision");
+    const snap = previous.contractDataSnapshot;
+    const consent = (c: CreateContractInput["photoVideoConsent"] | undefined) =>
+      c == null ? ("unset" as const) : c.granted ? ("granted" as const) : ("denied" as const);
+    const planOf = (rows: Pick<ContractInstallmentSnapshot, "sequence" | "amount" | "dueDate">[]) =>
+      rows.map((r) => ({ sequence: r.sequence, amount: r.amount, dueDate: r.dueDate }));
+    const identical = isIdenticalRevision(
+      {
+        programmeName: previous.programmeName,
+        monthlyAmount: previous.monthlyAmount,
+        durationMonths: previous.durationMonths,
+        installmentCount: previous.installmentCount,
+        enrollmentStartDate: previous.enrollmentStartDate,
+        enrollmentEndDate: previous.enrollmentEndDate,
+        paymentMethod: previous.paymentMethod,
+        depositAmount: previous.depositAmount,
+        lessonScheduleText: snap?.lessonScheduleText,
+        signatoryFullName: previous.signatoryFullName,
+        signatoryNationalId: previous.signatoryNationalId,
+        signatoryAddress: previous.signatoryAddress,
+        signatoryRelationship: previous.signatoryRelationship,
+        photoVideoConsent: consent(snap?.photoVideoConsent),
+        photoScopes: snap?.photoVideoConsent?.scopes ?? [],
+        kvkkNoticeDelivered: snap?.kvkkNoticeDelivered,
+        plan: planOf(snap?.installments ?? []),
+      },
+      {
+        programmeName: input.programmeName,
+        monthlyAmount: input.monthlyAmount,
+        durationMonths: input.durationMonths,
+        installmentCount: input.installmentCount,
+        enrollmentStartDate: input.enrollmentStartDate,
+        enrollmentEndDate: input.enrollmentEndDate,
+        paymentMethod: input.paymentMethod,
+        depositAmount: input.depositAmount,
+        lessonScheduleText: input.lessonScheduleText,
+        signatoryFullName: input.signatoryFullName,
+        signatoryNationalId: input.signatoryNationalId,
+        signatoryAddress: input.signatoryAddress,
+        signatoryRelationship: input.signatoryRelationship,
+        photoVideoConsent: consent(input.photoVideoConsent),
+        photoScopes: input.photoVideoConsent?.scopes ?? [],
+        kvkkNoticeDelivered: input.kvkkNoticeDelivered,
+        plan: planOf(installments),
+      }
+    );
+    if (identical) {
+      throw new Error(
+        `Bu revizyon önceki sürümle (${previous.contractNumber} · v${previous.versionNumber}) birebir aynı: hiçbir alan veya ödeme planı satırı değişmedi. Yeni sürüm oluşturulmadı; değiştirmek istediğiniz alanı düzenleyip tekrar kaydedin.`
+      );
     }
   }
 
@@ -1153,16 +1255,60 @@ export async function createContract(input: CreateContractInput): Promise<Create
       },
     });
     if (previous) {
-      await prisma.studentContract.update({ where: { id: previous.id }, data: { status: "superseded" } });
+      // 2026-10-04 — koşullu: aynı sürüm iki kez revize/yenilenemez (çift gönderim / eşzamanlı istek).
+      const claimed = await prisma.studentContract.updateMany({
+        where: { id: previous.id, tenantId: input.tenantId, status: { notIn: ["cancelled", "superseded"] } },
+        data: { status: "superseded" },
+      });
+      if (claimed.count === 0) {
+        await prisma.studentContract.delete({ where: { id: row.id } });
+        throw new Error(
+          "Bu sözleşme az önce başka bir işlemle revize edildi veya yenilendi; ikinci sürüm oluşturulmadı. Sayfayı yenileyip güncel sözleşmeyi kontrol edin."
+        );
+      }
     }
   } else {
     const all = await loadAll();
+    if (previous && all.some((c) => c.id === previous!.id && (c.status === "cancelled" || c.status === "superseded"))) {
+      throw new Error(
+        "Bu sözleşme az önce başka bir işlemle revize edildi veya yenilendi; ikinci sürüm oluşturulmadı. Sayfayı yenileyip güncel sözleşmeyi kontrol edin."
+      );
+    }
     const next = [...all, row];
     const finalRows = previous
       ? next.map((c) => (c.id === previous!.id ? { ...c, status: "superseded" as ContractStatus, updatedAt: now } : c))
       : next;
     await saveAll(finalRows);
   }
+  const rollbackContractRow = async (createdPaymentIds: string[]) => {
+    const store = await import("./store");
+    const current = await store.readData();
+    // Bu işlemde yazılan satırlar (taksitler + bu çağrıda alınan ilk tahsilat) silinir; önceden var olan
+    // kayıt anı tahsilatı yalnız sözleşmeden ayrılır (db) — gerçek tahsilat kaybolmaz.
+    for (const p of current.payments) {
+      const ownRow = p.contractId === row.id && p.paidAmount === 0;
+      if (ownRow || createdPaymentIds.includes(p.id)) await store.deletePaymentRow(p.id).catch(() => undefined);
+    }
+    if (isDbMode) {
+      const { prisma } = await import("./db");
+      await prisma.payment.updateMany({
+        where: { tenantId: input.tenantId, contractId: row.id },
+        data: { contractId: null, installmentSequence: null },
+      });
+      await prisma.studentContract.deleteMany({ where: { id: row.id, tenantId: input.tenantId } });
+      if (previous) {
+        await prisma.studentContract.updateMany({ where: { id: previous.id, tenantId: input.tenantId }, data: { status: previous.status } });
+      }
+    } else {
+      const all = await loadAll();
+      await saveAll(
+        all
+          .filter((c) => c.id !== row.id)
+          .map((c) => (previous && c.id === previous.id ? { ...c, status: previous.status, updatedAt: now } : c))
+      );
+    }
+  };
+
 
   // 2026-09-22 — TEK KANONİK İLK TAHSİLAT: kayıtta ilk tahsilatı alınmamış
   // öğrencinin (CSV ile gelen, eski kayıt) İLK sözleşmesinde formda girilen
@@ -1170,6 +1316,18 @@ export async function createContract(input: CreateContractInput): Promise<Create
   // ve 1. taksite bağlanır. Böylece kayıt özeti, "ilk tahsilatı düzelt"
   // (1 → 7000), iptal sonrası yeniden oluşturma ve finans ekranları CSV ile
   // normal öğrenci arasında AYNI satırı okur. Yenilemede (renewal) değişmez.
+  // 2026-10-04 — başarısız işlem yarım sözleşme/yarım plan bırakmaz: buradan sonraki her hata kaydı geri alır.
+  const createdPaymentIds: string[] = [];
+  let paymentRows = installments;
+  let amendmentCredit: { collected: number; applied: number; leftover: number } | undefined;
+  try {
+  if (input.contractType === "amendment" && previous) {
+    const collected = await computePriorContractCollected(input.tenantId, previous.id);
+    const allocated = allocatePriorCollections(installments, collected, previous.contractNumber);
+    // Mahsupla tamamen kapanan satır yazılmaz (0 TL "bekliyor" borcu üretilmez).
+    paymentRows = allocated.rows.filter((r) => r.amount > 0);
+    amendmentCredit = { collected, applied: allocated.applied, leftover: allocated.leftover };
+  }
   let reuseFirstPaymentId = registrationFirstPayment?.id;
   let firstPaymentForInstallments = registrationFirstPayment || fullyWaived ? undefined : input.firstPaymentCollected;
   if (input.contractType === "initial" && !registrationFirstPayment && !fullyWaived && input.firstPaymentCollected && requiresFirstPaymentAtRegistration) {
@@ -1186,6 +1344,7 @@ export async function createContract(input: CreateContractInput): Promise<Create
       firstCollectionIncludesNextMonth: input.mergeFirstCollectionWithNextMonth,
     });
     reuseFirstPaymentId = paymentId;
+    createdPaymentIds.push(paymentId);
     firstPaymentForInstallments = undefined;
   }
 
@@ -1194,12 +1353,18 @@ export async function createContract(input: CreateContractInput): Promise<Create
     studentId: input.studentId,
     contractId: row.id,
     // Burslu sözleşme: plan PDF/snapshot'ta 0 TL olarak görünür, ama Payment satırı üretilmez.
-    installments: fullyWaived ? [] : installments,
+    installments: fullyWaived ? [] : paymentRows,
     firstPaymentCollected: firstPaymentForInstallments,
     reuseFirstPaymentId,
   });
 
-  return { contract: toPublic(row), installments: installmentPayments };
+  return { contract: toPublic(row), installments: installmentPayments, amendmentCredit };
+  } catch (e) {
+    await rollbackContractRow(createdPaymentIds).catch((rollbackError) => {
+      logger.error("createContract rollback failed", rollbackError);
+    });
+    throw e;
+  }
 }
 
 /** Sözleşme taksitlerini gerçek `Payment` satırları olarak oluşturur — mode-parity için src/lib/store.ts üzerinden (json/db/memory hepsi). */

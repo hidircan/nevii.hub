@@ -1276,7 +1276,9 @@ describe("createStudentContractTool — per-lesson öğrenci (usePerLessonBillin
     ]);
     expect(second!.kind).toBe("period_fee");
     expect(second!.periodLabel).toBe("Kasım 2026");
-    expect(second!.amount).toBe(0); // Kasım'da hiç ders yok (seed'de) → 0, kopyalanmadı
+    // 2026-10-04 (Ela vakası) — Kasım'da program YOK (seri Ekim'de bitiyor): eskiden 0 TL yazılıyordu ("sebepsiz 0");
+    // artık programın bittiği yerden sonrası haftalık sıklıkla projekte edilir → tam dönem ücreti.
+    expect(second!.amount).toBe(monthlyFee);
 
     // Toplam sözleşme tutarı = taksit satırlarının toplamı (item 7 gereksinimi).
     const sum = res.data.installments.reduce((s, i) => s + i.amount, 0);
@@ -1359,9 +1361,10 @@ describe("createStudentContractTool — per-lesson öğrenci (usePerLessonBillin
       createdAt: "2026-09-01T00:00:00.000Z",
       lessonDurationMinutes: 40,
     } as unknown as (typeof data.students)[number]);
-    // Eylül: 4 ders (eşik üstü) → birleşmez.
+    // Eylül: 4 ders (eşik üstü) → birleşmez. Ekim: program ay sonuna kadar var ama 2 ders iptal → 2 ücretli ders.
     const septDates = ["2026-09-07", "2026-09-14", "2026-09-21", "2026-09-28"];
-    const octDates = ["2026-10-05", "2026-10-12"];
+    const octDates = ["2026-10-05", "2026-10-12", "2026-10-19", "2026-10-26"];
+    const cancelledOct = new Set(["2026-10-19", "2026-10-26"]);
     for (const [i, day] of [...septDates, ...octDates].entries()) {
       data.lessons.push({
         id: `les_pl2_${i}`,
@@ -1373,7 +1376,7 @@ describe("createStudentContractTool — per-lesson öğrenci (usePerLessonBillin
         startAt: `${day}T10:00:00.000Z`,
         endAt: `${day}T10:40:00.000Z`,
         type: "regular",
-        status: "scheduled",
+        status: cancelledOct.has(day) ? "cancelled" : "scheduled",
       } as unknown as (typeof data.lessons)[number]);
     }
     await writeData(data);

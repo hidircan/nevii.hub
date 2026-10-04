@@ -1664,9 +1664,10 @@ export async function getParentBalanceTool(
   if (!access.ok) return fail(access.code, access.message);
 
   const payments = data.payments.filter((p) => p.studentId === v.data.studentId);
-  const outstanding = payments
-    .filter((p) => p.status !== "paid")
-    .reduce((s, p) => s + (p.amount - p.paidAmount), 0);
+  // 2026-10-04 — TEK borç kuralı (panel/portal ile aynı): iptal edilmiş satır ve iptal/yenilenmiş sözleşme kalanı borç değil.
+  const { listTerminalContractIds } = await import("../contracts");
+  const { summarizeStudentDebt } = await import("../payment-profile");
+  const outstanding = summarizeStudentDebt(payments, await listTerminalContractIds(ctx.tenantId)).openTotal;
 
   return ok({ studentId: v.data.studentId, payments, outstanding });
 }
@@ -13681,6 +13682,9 @@ function resolveLastPeriodPricing(input: {
 }
 
 const contractInstallmentPlanSchema = z.object({
+  /** 2026-10-04 — revizyon önizlemesi: önceki sürümde tahsil edilen tutarın mahsubu gösterilir. */
+  previousContractId: z.string().min(1).optional(),
+  contractType: z.enum(["initial", "renewal", "amendment"]).optional(),
   durationMonths: z.number().int().min(1).max(12),
   monthlyAmount: z.number().int().min(0, "Aylık ücret negatif olamaz."),
   installmentCount: z.number().int().min(1).max(12),
@@ -13736,6 +13740,8 @@ export async function previewContractInstallmentPlanTool(
     firstDueDateInWindow: boolean;
     /** Sunucunun esas aldığı bitiş — birleşik ilk tahsilatta istemcinin gönderdiğinden farklı olabilir. */
     enrollmentEndDate?: string;
+    /** Yalnız revizyon: önceki sürümde tahsil edilen / yeni plana mahsup edilen / artan tutar ve kalan borç. */
+    amendmentCredit?: { collected: number; applied: number; leftover: number; remainingDue: number };
   }>
 > {
   const auth = requireRole(ctx, CONTRACT_STAFF);
@@ -13840,6 +13846,21 @@ export async function previewContractInstallmentPlanTool(
     const rule = resolveContractPaymentDueRule(v.data.paymentMethod, paymentPolicy);
     const firstDueDay = new Date(v.data.firstDueDate).getUTCDate();
     const firstDueDateInWindow = firstDueDay >= rule.windowStartDay && firstDueDay <= rule.windowEndDay;
+    let amendmentCredit: { collected: number; applied: number; leftover: number; remainingDue: number } | undefined;
+    if (v.data.contractType === "amendment" && v.data.previousContractId) {
+      const { computePriorContractCollected, allocatePriorCollections, getContract } = await import("../contracts");
+      const previous = await getContract(ctx.tenantId, v.data.previousContractId);
+      if (previous && (!v.data.studentId || previous.studentId === v.data.studentId)) {
+        const collected = await computePriorContractCollected(ctx.tenantId, previous.id);
+        const allocated = allocatePriorCollections(installments, collected, previous.contractNumber);
+        amendmentCredit = {
+          collected,
+          applied: allocated.applied,
+          leftover: allocated.leftover,
+          remainingDue: allocated.rows.reduce((s, r) => s + r.amount, 0),
+        };
+      }
+    }
     return ok({
       totalContractAmount,
       installments,
@@ -13847,6 +13868,7 @@ export async function previewContractInstallmentPlanTool(
       paymentDueRuleText: rule.ruleText,
       firstDueDateInWindow,
       enrollmentEndDate,
+      amendmentCredit,
     });
   } catch (e) {
     return fail("VALIDATION_ERROR", e instanceof Error ? e.message : "Taksit planı hesaplanamadı.");
@@ -14011,6 +14033,12 @@ const createStudentContractSchema = z.object({
   firstPaymentExceptionReason: z.string().max(500).optional(),
   /** Nilüfer Acar politikası §4 — önceki dönem borcu kapanmadan yenilemeyi tamamlamak için yetkili (CONTRACT_STAFF) gerekçesi zorunlu; audit'lenir. */
   renewalDebtOverrideReason: z.string().min(1).max(500).optional(),
+  /**
+   * 2026-10-04 — sözleşme DIŞI açık borçlardan (aylık plan / elle borç) kullanıcının AÇIKÇA seçtikleri:
+   * sözleşme planı bu dönemi zaten kapsadığı için yeniden borçlandırılmaz — satır silinmez, "sözleşmeye
+   * taşındı" notuyla iptal edilir (audit'li). Yalnız hiç tahsilat görmemiş canlı satırlar taşınabilir.
+   */
+  carryOverPaymentIds: z.array(z.string().min(1)).max(60).optional(),
   photoVideoConsent: z
     .object({
       granted: z.boolean(),
@@ -14080,7 +14108,14 @@ const createStudentContractSchema = z.object({
 export async function createStudentContractTool(
   ctx: ServiceContext,
   input: unknown
-): Promise<ServiceResult<{ contract: StudentContract; installments: ContractInstallmentView[] }>> {
+): Promise<
+  ServiceResult<{
+    contract: StudentContract;
+    installments: ContractInstallmentView[];
+    amendmentCredit?: { collected: number; applied: number; leftover: number };
+    carriedOverPaymentIds?: string[];
+  }>
+> {
   const auth = requireRole(ctx, CONTRACT_STAFF);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
   const v = parseOrFail(createStudentContractSchema, input);
@@ -14098,6 +14133,21 @@ export async function createStudentContractTool(
   const branch = data.settings.branches.find((b) => b.id === student.branchId);
 
   const isMinor = student.birthDate ? computeAge(student.birthDate) < 18 : false;
+
+  // 2026-10-04 — taşınacak sözleşme dışı borçlar ÖNCEDEN doğrulanır (sözleşme yazılmadan): yalnız bu öğrencinin,
+  // sözleşmeye bağlı olmayan, hiç tahsilat görmemiş canlı satırları. Uymayan seçim sözleşmeyi de durdurur.
+  const carryOver = Array.from(new Set(v.data.carryOverPaymentIds ?? [])).map((id) => data.payments.find((p) => p.id === id));
+  for (const [i, p] of carryOver.entries()) {
+    if (!p || p.studentId !== student.id) {
+      return fail("VALIDATION_ERROR", "Taşınmak üzere seçilen borçlardan biri bu öğrenciye ait değil veya silinmiş. Sayfayı yenileyip seçimi tekrar yapın.");
+    }
+    if (p.contractId || p.status === "paid" || p.status === "voided" || p.paidAmount > 0) {
+      return fail(
+        "VALIDATION_ERROR",
+        `Seçilen ${i + 1}. borç ("${p.description}") taşınamaz: tahsilat görmüş, iptal edilmiş veya zaten bir sözleşmeye bağlı. Bu satırı seçimden çıkarın; gerekiyorsa Ödemeler ekranında ayrıca düzeltin.`
+      );
+    }
+  }
 
   // 2026-2027 kaynağı Madde 1 — kurumun TÜM şubeleri arasından öğrencinin
   // şubesini işaretleyen hazır metin (renderer dinamik listeyi DESTEKLEMEDİĞİNDEN
@@ -14160,7 +14210,7 @@ export async function createStudentContractTool(
     v.data.mergeFirstCollection ?? registrationFirstPaymentRow?.firstCollectionIncludesNextMonth ?? false;
 
   try {
-    const { contract, installments } = await createContract({
+    const { contract, installments, amendmentCredit } = await createContract({
       tenantId: ctx.tenantId,
       studentId: student.id,
       contractType: v.data.contractType,
@@ -14176,7 +14226,11 @@ export async function createStudentContractTool(
       depositAmount: v.data.depositAmount,
       paymentMethod: v.data.paymentMethod,
       signatoryFullName: v.data.signatoryFullName,
-      signatoryNationalId: v.data.signatoryNationalId,
+      // 2026-10-04 — imzacı öğrencinin kendisiyse ve alan boşsa kayıttaki T.C. kullanılır; veli imzacıya
+      // öğrencinin T.C.'si ASLA yazılmaz (velinin T.C.'si sistemde tutulmuyor — boşsa boş kalır).
+      signatoryNationalId:
+        v.data.signatoryNationalId?.trim() ||
+        (v.data.signatoryRelationship === "öğrenci" ? studentNationalId : undefined),
       signatoryAddress: v.data.signatoryAddress,
       signatoryRelationship: v.data.signatoryRelationship,
       isMinor,
@@ -14215,6 +14269,36 @@ export async function createStudentContractTool(
       installmentDueDateOverrides: v.data.installmentDueDateOverrides,
       lastPeriodPricing: lastPeriodResolved.pricing,
     });
+
+    const carriedOverPaymentIds: string[] = [];
+    if (carryOver.length > 0) {
+      const { collectPayment } = await import("../payments/collect");
+      for (const p of carryOver) {
+        if (!p) continue;
+        try {
+          await collectPayment(p.id, {
+            voided: true,
+            paymentNote: `Sözleşme ${contract.contractNumber} planına taşındı (yeniden borçlandırılmadı).`,
+            actorUserId: ctx.userId,
+            tenantId: ctx.tenantId,
+          });
+          carriedOverPaymentIds.push(p.id);
+          audit(ctx, "payment.moved_to_contract", "Payment", p.id, {
+            contractId: contract.id,
+            contractNumber: contract.contractNumber,
+            before: { amount: p.amount, status: p.status, dueDate: p.dueDate, source: p.source, description: p.description },
+          });
+        } catch (e) {
+          logger.error("carry-over void failed", e);
+        }
+      }
+    }
+    if (amendmentCredit && amendmentCredit.collected > 0) {
+      audit(ctx, "contract.amendment_credit", "StudentContract", contract.id, {
+        previousContractId: v.data.previousContractId,
+        ...amendmentCredit,
+      });
+    }
 
     if (v.data.contractType !== "initial" && v.data.renewalDebtOverrideReason?.trim()) {
       audit(ctx, "contract.renewal_debt_override", "StudentContract", contract.id, {
@@ -14266,7 +14350,12 @@ export async function createStudentContractTool(
         reason: v.data.firstPaymentExceptionReason,
       });
     }
-    return ok({ contract, installments });
+    return ok({
+      contract,
+      installments,
+      amendmentCredit,
+      carriedOverPaymentIds: carriedOverPaymentIds.length ? carriedOverPaymentIds : undefined,
+    });
   } catch (e) {
     if (e instanceof ContractTemplateIncompleteError) {
       return fail("VALIDATION_ERROR", e.message);

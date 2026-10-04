@@ -24,6 +24,7 @@ import {
 import { prefillFromContract } from "@/lib/contract-prefill";
 import {
   diffContractRevision,
+  diffInstallmentPlan,
   previousContractUsesPerLessonBilling,
   type RevisionComparable,
 } from "@/lib/contract-revision";
@@ -225,6 +226,10 @@ export type RegistrationSummary = {
   signatoryName: string;
   signatoryRelationship: "veli" | "öğrenci";
   address?: string;
+  /** 2026-10-04 — öğrencinin kayıttaki T.C.'si var mı (yalnız son 2 hane; tam değer istemciye gönderilmez). */
+  studentNationalIdLast2?: string;
+  /** Sözleşmeye bağlı OLMAYAN, hiç tahsilat görmemiş açık borçlar — sözleşme planına taşınabilir (açık seçim). */
+  openStandaloneDebts?: { id: string; label: string; dueDate: string; amount: number; sourceLabel: string }[];
 };
 
 type FieldErrors = Record<string, string>;
@@ -789,6 +794,10 @@ function ContractForm({
     isAmendment ? (previousContract!.contractDataSnapshot?.kvkkNoticeDelivered ?? false) : false
   );
   const [allowOverlap, setAllowOverlap] = useContractDraft(draftKey, "allowOverlap", false);
+  // 2026-10-04 — sözleşme dışı açık borçlar: taşınacaklar + "kalanlar ayrı borç olarak kalsın" onayı.
+  const standaloneDebts = !isAmendment ? (registration?.openStandaloneDebts ?? []) : [];
+  const [carryOverIds, setCarryOverIds] = useState<ReadonlySet<string>>(new Set());
+  const [keepRestSeparate, setKeepRestSeparate] = useState(false);
   const [overlapReason, setOverlapReason] = useContractDraft(draftKey, "overlapReason", "");
   // 10. tur iş #4 — revizyon gerekçesi (zorunlu): denetim izidir ve sunucudaki
   // örtüşme gerekçesine eşlenir — revizyon aynı dönemi kapsar, örtüşme beklenen durumdur.
@@ -911,7 +920,11 @@ function ContractForm({
       depositAmount: previousContract.depositAmount,
       lessonScheduleText: previousContract.contractDataSnapshot?.lessonScheduleText,
       signatoryFullName: previousContract.signatoryFullName,
+      signatoryNationalId: previousContract.signatoryNationalId,
+      signatoryAddress: previousContract.signatoryAddress,
+      signatoryRelationship: previousContract.signatoryRelationship,
       photoVideoConsent: prevConsent == null ? "unset" : prevConsent.granted ? "granted" : "denied",
+      photoScopes: [...(prevConsent?.scopes ?? [])],
       kvkkNoticeDelivered: previousContract.contractDataSnapshot?.kvkkNoticeDelivered,
     };
     const next: RevisionComparable = {
@@ -926,7 +939,11 @@ function ContractForm({
       depositAmount,
       lessonScheduleText,
       signatoryFullName,
+      signatoryNationalId,
+      signatoryAddress,
+      signatoryRelationship,
       photoVideoConsent: photoConsent,
+      photoScopes: photoConsent === "granted" ? Array.from(photoScopes) : [...(prevConsent?.scopes ?? [])],
       kvkkNoticeDelivered,
     };
     return diffContractRevision(prev, next);
@@ -971,6 +988,7 @@ function ContractForm({
     installments: InstallmentPreviewRow[];
     paymentDueRuleText: string;
     enrollmentEndDate?: string;
+    amendmentCredit?: { collected: number; applied: number; leftover: number; remainingDue: number };
   } | null>(null);
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -1009,7 +1027,10 @@ function ContractForm({
       paymentDueRuleText: string;
       firstDueDateInWindow: boolean;
       enrollmentEndDate?: string;
+      amendmentCredit?: { collected: number; applied: number; leftover: number; remainingDue: number };
     }>("/api/v1/contracts/preview-plan", {
+      contractType: isAmendment ? "amendment" : isRenewal ? "renewal" : "initial",
+      previousContractId: previousContract?.id,
       durationMonths,
       monthlyAmount,
       installmentCount,
@@ -1080,6 +1101,10 @@ function ContractForm({
       errors.amounts = `${emptyAmountRows.sort((a, b) => a - b).join(", ")}. taksit tutarı boş. Tutarı yazın (ücretsiz ay için 0) veya ↺ ile otomatiğe döndürün.`;
     }
     if (!signatoryFullName.trim()) errors.signatoryFullName = "Yasal imza sahibi adı soyadı zorunludur.";
+    if (standaloneDebts.some((d) => !carryOverIds.has(d.id)) && !keepRestSeparate) {
+      errors.carryOver =
+        "Sözleşme dışı açık borçlar için karar verin: sözleşme planı aynı ayları kapsıyorsa borcu \"Sözleşmeye taşı\" ile işaretleyin, ayrı kalacaksa alttaki onay kutusunu işaretleyin.";
+    }
     if (isRenewal && hasOverlap) {
       if (!allowOverlap) {
         errors.overlap = "Yeni başlangıç tarihi önceki sözleşmenin bitişiyle çakışıyor — kasıtlı örtüşmeye izin verin veya tarihi düzeltin.";
@@ -1094,8 +1119,8 @@ function ContractForm({
         errors.revisionReason = "Revizyon gerekçesi en fazla 500 karakter olabilir.";
       }
       // Boş revizyon anlamsızdır: değişiklik yoksa yeni sürüm üretilmez.
-      if (revisionDiff.length === 0) {
-        errors.revisionDiff = "Hiçbir değişiklik yapılmadı — revize edilecek alanı değiştirin veya vazgeçin.";
+      if (allRevisionDiff.length === 0) {
+        errors.revisionDiff = "Hiçbir değişiklik yapılmadı — revize edilecek alanı (ödeme planı dahil) değiştirin veya vazgeçin.";
       }
     }
     return errors;
@@ -1171,6 +1196,7 @@ function ContractForm({
               scopes: photoConsent === "granted" ? Array.from(photoScopes) : undefined,
             },
       kvkkNoticeDelivered,
+      carryOverPaymentIds: carryOverIds.size > 0 ? Array.from(carryOverIds) : undefined,
     });
     setBusy(false);
     if (!res.ok) {
@@ -1205,6 +1231,19 @@ function ContractForm({
         };
       })
     : [];
+  // 2026-10-04 — revizyon farkı ödeme planını da kapsar (önizlenen satırlar ↔ önceki sürümün dondurulmuş planı).
+  const planDiff =
+    isAmendment && previousContract && preview
+      ? diffInstallmentPlan(
+          (previousContract.contractDataSnapshot?.installments ?? []).map((r) => ({
+            sequence: r.sequence ?? 0,
+            amount: r.amount ?? 0,
+            dueDate: r.dueDate ?? "",
+          })),
+          liveRows.map((r) => ({ sequence: r.sequence, amount: r.amount, dueDate: r.dueDate }))
+        )
+      : [];
+  const allRevisionDiff = [...revisionDiff, ...planDiff];
   const dateNotices = contractDateGuidance({
     registeredAt: registration?.registeredAt,
     lessonStartDay: registration?.contractStartDay,
@@ -1246,13 +1285,15 @@ function ContractForm({
       {isAmendment ? (
         <div className="mb-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3 text-xs">
           <p className="font-semibold text-[var(--color-text)]">Değişiklik özeti</p>
-          {revisionDiff.length === 0 ? (
+          {allRevisionDiff.length === 0 ? (
             <p className="mt-1 text-[var(--color-text-muted)]">
-              Henüz değişiklik yok — revize edilecek alanı değiştirin. Değişiklik yapmadan kaydedemezsiniz.
+              Henüz değişiklik yok — revize edilecek alanı değiştirin.{" "}
+              {preview ? "" : "Taksit tutarı/vadesi değiştirecekseniz önce \"Ödeme Planını Önizle\" ile planı açın."} Değişiklik
+              yapmadan kaydedemezsiniz.
             </p>
           ) : (
             <dl className="mt-1 space-y-1">
-              {revisionDiff.map((d) => (
+              {allRevisionDiff.map((d) => (
                 <div key={d.key} className="flex flex-wrap items-baseline gap-x-2">
                   <dt className="font-medium text-[var(--color-text)]">{d.label}:</dt>
                   <dd className="text-[var(--color-text-muted)]">
@@ -1557,19 +1598,51 @@ function ContractForm({
           </Select>
         </div>
         <div>
-          <Label>T.C. Kimlik No (opsiyonel)</Label>
-          <Input value={signatoryNationalId} onChange={(e) => setSignatoryNationalId(e.target.value)} />
+          <Label>İmzalayanın T.C. Kimlik No (opsiyonel)</Label>
+          <Input
+            value={signatoryNationalId}
+            inputMode="numeric"
+            maxLength={11}
+            onChange={(e) => setSignatoryNationalId(e.target.value.replace(/[^0-9]/g, ""))}
+            placeholder={signatoryRelationship === "öğrenci" && registration?.studentNationalIdLast2 ? "Boş bırakılırsa kayıttaki T.C. kullanılır" : undefined}
+          />
+          {/* 2026-10-04 — doğru alan eşlemesi: öğrencinin T.C.'si veli imzacının T.C.'si olarak KULLANILMAZ. */}
+          {!signatoryNationalId.trim() ? (
+            <p className="mt-1 text-[11px] text-[var(--color-warning)]">
+              {signatoryRelationship === "öğrenci"
+                ? registration?.studentNationalIdLast2
+                  ? `Öğrencinin kayıttaki T.C.'si (…${registration.studentNationalIdLast2}) imzacı T.C.'si olarak yazılacak.`
+                  : "Öğrencinin kayıtta T.C. kimlik numarası yok; sözleşmede bu alan boş kalır. Buraya yazın veya öğrenci bilgilerine ekleyin."
+                : "Velinin T.C. kimlik numarası sistemde tutulmuyor; sözleşmede bu alan boş kalır. Velinin T.C.'sini buraya yazın."}
+            </p>
+          ) : null}
+          {registration?.studentNationalIdLast2 ? (
+            <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">
+              Öğrencinin T.C. numarası (…{registration.studentNationalIdLast2}) sözleşmenin öğrenci bölümüne kayıttan otomatik yazılır.
+            </p>
+          ) : (
+            <p className="mt-1 text-[11px] text-[var(--color-warning)]">
+              Öğrencinin kayıtta T.C. kimlik numarası yok — sözleşmenin öğrenci bölümünde boş kalır (Öğrenci → Bilgiler ekranından ekleyin).
+            </p>
+          )}
         </div>
         <div>
           <Label>Adres (opsiyonel)</Label>
           <Input value={signatoryAddress} onChange={(e) => setSignatoryAddress(e.target.value)} />
+          {!signatoryAddress.trim() ? (
+            <p className="mt-1 text-[11px] text-[var(--color-warning)]">
+              {registration?.address
+                ? "Adres boş — sözleşmede adres alanı boş kalır."
+                : "Öğrencinin kayıtta adresi yok; sözleşmede adres boş kalır. Buraya yazın veya Öğrenci → Bilgiler ekranından ekleyin."}
+            </p>
+          ) : null}
         </div>
       </div>
 
       {isFormal && !needsFirstPaymentEntry ? (
         <div className="mt-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3 text-xs text-[var(--color-text-muted)]">
           {isAmendment
-            ? "Revizyon yeni bir tahsilat anı yaratmaz — önceki sürümdeki tahsilatlar aynen korunur; yeni sürümün taksit planı ödenmemiş olarak üretilir, tahsilatlar Ödemeler ekranından işlenir."
+            ? "Revizyon yeni bir tahsilat anı yaratmaz — önceki sürümdeki tahsilatlar silinmez ve tahsilat toplamında kalır; önceki sürümde tahsil edilen tutar yeni planın ilk taksitlerine mahsup edilir, yalnız kalan tutar borç olarak yazılır (önizlemede gösterilir)."
             : "İlk ödeme, öğrenci kaydı sırasında zaten tahsil edildi — bu sözleşme o ödeme kaydını kullanır, yeniden tahsilat girilmez."}
         </div>
       ) : null}
@@ -1657,6 +1730,49 @@ function ContractForm({
               />
             </div>
           ) : null}
+        </fieldset>
+      ) : null}
+
+      {standaloneDebts.length > 0 ? (
+        <fieldset className="mt-3 rounded-lg border border-amber-200 bg-amber-50/60 p-3 text-xs dark:border-amber-900 dark:bg-amber-950/30">
+          <legend className="px-1 font-semibold text-[var(--color-text)]">Sözleşme dışı açık borçlar ({standaloneDebts.length})</legend>
+          <p className="mb-2 text-[var(--color-text-muted)]">
+            Bu öğrencinin sözleşmeye bağlı olmayan, henüz tahsil edilmemiş borçları var. Sözleşme planı aynı ayı kapsıyorsa borcu
+            &quot;Sözleşmeye taşı&quot; ile işaretleyin: satır silinmez, &quot;sözleşmeye taşındı&quot; notuyla iptal edilir ve borç yalnız
+            sözleşme taksidinde kalır (çift borç oluşmaz). İşaretlemediğiniz borçlar ayrıca ödenmeye devam eder.
+          </p>
+          <ul className="space-y-1">
+            {standaloneDebts.map((d) => (
+              <li key={d.id}>
+                <label className="flex flex-wrap items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={carryOverIds.has(d.id)}
+                    onChange={(e) =>
+                      setCarryOverIds((prev) => {
+                        const next = new Set(prev);
+                        if (e.target.checked) next.add(d.id);
+                        else next.delete(d.id);
+                        return next;
+                      })
+                    }
+                  />
+                  <span className="font-medium text-[var(--color-text)]">{d.label}</span>
+                  <span className="text-[var(--color-text-muted)]">
+                    {d.sourceLabel} · vade {formatDateTr(d.dueDate)} · {formatTL(d.amount)}
+                  </span>
+                  <span className="text-[var(--color-text-muted)]">— Sözleşmeye taşı</span>
+                </label>
+              </li>
+            ))}
+          </ul>
+          {standaloneDebts.some((d) => !carryOverIds.has(d.id)) ? (
+            <label className="mt-2 flex items-center gap-2 font-medium text-[var(--color-text)]">
+              <input type="checkbox" checked={keepRestSeparate} onChange={(e) => setKeepRestSeparate(e.target.checked)} />
+              İşaretlemediğim borçlar sözleşmeden ayrı borç olarak kalsın
+            </label>
+          ) : null}
+          <FieldError message={fieldErrors.carryOver} />
         </fieldset>
       ) : null}
 
@@ -1788,6 +1904,22 @@ function ContractForm({
           <p className="mb-2 font-semibold text-[var(--color-text)]">
             Toplam sözleşme tutarı: {formatTL(liveTotal)}
           </p>
+          {isAmendment && preview.amendmentCredit ? (
+            <div className="mb-2 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] p-2.5">
+              <p className="font-semibold text-[var(--color-text)]">Bakiye farkı (revizyon)</p>
+              <p className="text-[var(--color-text-muted)]">
+                Önceki sürümde tahsil edilen: <strong>{formatTL(preview.amendmentCredit.collected)}</strong> · yeni plana mahsup:{" "}
+                <strong>{formatTL(preview.amendmentCredit.applied)}</strong> · yeni plana göre kalan borç:{" "}
+                <strong>{formatTL(preview.amendmentCredit.remainingDue)}</strong>
+              </p>
+              {preview.amendmentCredit.leftover > 0 ? (
+                <p className="mt-1 font-medium text-[var(--color-warning)]">
+                  Yeni plan, önceden tahsil edilenden {formatTL(preview.amendmentCredit.leftover)} daha az. Bu fazla tahsilat otomatik iade
+                  edilmez; iade/mahsup kararı ayrıca verilmelidir.
+                </p>
+              ) : null}
+            </div>
+          ) : null}
           {/* Sahibi onaylı NİHAİ karar (2026-08-29) — tüm müşteriye-görünür tutarlar KDV
               dahildir, "+ KDV" hiçbir yerde gösterilmez, oran icat edilmez. */}
           <p className="mb-2 text-[var(--color-text-muted)]">Tüm eğitim ücretleri KDV dahildir.</p>

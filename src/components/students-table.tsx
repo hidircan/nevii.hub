@@ -38,6 +38,9 @@ export type StudentRow = {
   educationMethod?: string;
   /** Öğrencinin en güncel/aciliyeti en yüksek ödeme durumu — tek etiket. */
   paymentStatus: "paid" | "overdue" | "partial" | "pending" | "none";
+  /** 2026-10-04 — açık (canlı) borç ve vadesi geçmiş kısmı; sözleşmeli/sözleşmesiz AYNI kural (`summarizeStudentDebt`). */
+  openDebt?: number;
+  overdueDebt?: number;
   /**
    * D — Sözleşme filtreleri (2026-09-20). Öğrencinin GÜNCEL sözleşmesinin
    * özeti; `getLatestContractForStudent` ile AYNI "güncel" tanımından gelir
@@ -1040,7 +1043,17 @@ export function StudentsTable({
                       ) : key === "method" ? (
                         <span className="text-[var(--color-text-muted)]">{s.educationMethod ?? "—"}</span>
                       ) : key === "payment" ? (
-                        <span className="text-[var(--color-text-muted)]">{PAYMENT_LABELS[s.paymentStatus]}</span>
+                        <span className="block text-[var(--color-text-muted)]">
+                          {PAYMENT_LABELS[s.paymentStatus]}
+                          {s.openDebt ? (
+                            <span className="block text-xs tabular-nums text-[var(--color-text)]">
+                              Açık {s.openDebt.toLocaleString("tr-TR")} ₺
+                              {s.overdueDebt ? (
+                                <span className="text-[var(--color-danger)]"> · gecikmiş {s.overdueDebt.toLocaleString("tr-TR")} ₺</span>
+                              ) : null}
+                            </span>
+                          ) : null}
+                        </span>
                       ) : key === "monthlyFee" ? (
                         <span className="text-[var(--color-text-muted)]">{s.monthlyFee.toLocaleString("tr-TR")} ₺</span>
                       ) : key === "contract" ? (

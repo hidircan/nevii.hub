@@ -17,6 +17,8 @@ import {
 import { addDays, isSameDay, parseISO } from "date-fns";
 import { requireSessionContext } from "@/lib/auth/session";
 import { readStudentScope } from "@/lib/store";
+import { listTerminalContractIds } from "@/lib/contracts";
+import { splitStudentDebt } from "@/lib/payment-profile";
 import { listAnnouncementsForUserTool, listCurriculumForStudentTool } from "@/lib/services";
 import { listNotificationsForUser } from "@/lib/notifications";
 import { listClosedDays } from "@/lib/closed-day-overrides";
@@ -171,9 +173,14 @@ export default async function OgrenciPortalPage({
   // Karma Öğrenci Portalı — ödemeler, KESİN olarak `student.id`'ye (session'dan
   // çözülen) filtrelenir; başka bir öğrencinin ödeme kaydı asla görünmez.
   const payments = data.payments.filter((p) => p.studentId === student.id);
-  const unpaidPayments = payments.filter((p) => p.status !== "paid");
-  const totalOutstanding = unpaidPayments.reduce((sum, p) => sum + Math.max(p.amount - p.paidAmount, 0), 0);
-  const hasOverduePayment = unpaidPayments.some((p) => p.status === "overdue");
+  // 2026-10-04 — panelle AYNI borç kuralı (payment-profile.ts): iptal edilmiş ödeme ve iptal/yenilenmiş
+  // sözleşmenin ödenmemiş taksiti borç değildir, "Öde" de gösterilmez; sözleşmesiz borç aynen sayılır.
+  const terminalContractIds = await listTerminalContractIds(session.tenantId);
+  const debt = splitStudentDebt(payments, terminalContractIds);
+  const liveIds = new Set(debt.open.map((p) => p.id));
+  const unpaidPayments = debt.open;
+  const totalOutstanding = debt.openTotal;
+  const hasOverduePayment = debt.overdueTotal > 0;
   const nextDuePayment = [...unpaidPayments].sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0] ?? null;
   const schoolPhone = data.settings.phone;
   const contactMessage = `Merhaba, ${student.name} için ödeme durumu hakkında bilgi almak istiyorum.`;
@@ -534,13 +541,15 @@ export default async function OgrenciPortalPage({
                             ? `Ödenen: ${formatMoney(p.paidAmount)} · Kalan: ${formatMoney(remaining)}`
                             : formatMoney(p.amount)}
                         </p>
-                        {p.status !== "paid" ? (
+                        {liveIds.has(p.id) ? (
                           <p className="mt-0.5 text-xs text-[var(--color-text-muted)]">Vade: {formatDate(p.dueDate)}</p>
+                        ) : p.status !== "paid" && p.status !== "voided" ? (
+                          <p className="mt-0.5 text-xs text-[var(--color-text-muted)]">Yenilenen/iptal edilen sözleşmeye ait — borç değildir.</p>
                         ) : null}
                       </div>
                       <Badge status={p.status} />
                     </div>
-                    {p.status !== "paid" && p.status !== "voided" ? (
+                    {liveIds.has(p.id) ? (
                       <div className="mt-3">
                         <PayNowButton paymentId={p.id} contactWaLink={contactWaLink} label="Öde" />
                       </div>

@@ -71,15 +71,15 @@ export function narrowToLessonWindow(data: AppData, from: Date, to: Date): Lesso
 }
 
 /**
- * ÖĞRENCİ LİSTESİ dilimi: referans veri + TÜM ödeme satırlarının yalnız ödeme durumu
- * rozetinin okuduğu üç alanı (satır sayısı aynı, genişlik ~6× dar). Tutar/tarih YOK —
- * bu dilimle tutar hesaplayan kod derlenmez.
+ * ÖĞRENCİ LİSTESİ dilimi: referans veri + TÜM ödeme satırlarının yalnız durum rozeti ve açık
+ * borç tutarı için gereken beş alanı (satır sayısı aynı, dar). Tarih/açıklama YOK.
  */
-export type PaymentStatusRow = Pick<Payment, "studentId" | "status" | "contractId">;
+export type PaymentStatusRow = Pick<Payment, "studentId" | "status" | "contractId" | "amount" | "paidAmount">;
 export type StudentListData = ReferenceData & { payments: PaymentStatusRow[] };
 
+/** 2026-10-04 — listede açık/gecikmiş borç TUTARI da gösterilir (tek kaynak `summarizeStudentDebt`): tutar alanları eklendi. */
 export function toPaymentStatusRow(p: PaymentStatusRow): PaymentStatusRow {
-  return { studentId: p.studentId, status: p.status, contractId: p.contractId };
+  return { studentId: p.studentId, status: p.status, contractId: p.contractId, amount: p.amount, paidAmount: p.paidAmount };
 }
 
 /**

@@ -5,6 +5,7 @@ import { getInstitutionContext, readScopedStudentData } from "@/lib/institution/
 import { listStudentContractsTool } from "@/lib/services";
 import { ContractPanel, type RegistrationSummary } from "@/components/contract-panel";
 import { paymentMethodLabelTr } from "@/lib/utils";
+import { DEBT_SOURCE_LABEL, debtSourceOf } from "@/lib/payment-profile";
 import { Card, EmptyState, PageHeader } from "@/components/ui";
 import { isFormalContractDuration } from "@/lib/contracts";
 import { selectCurrentContract } from "@/lib/contract-list-helpers";
@@ -97,6 +98,25 @@ export default async function StudentContractsCenterPage({
     signatoryName: selfManaged ? student.name : student.parentName,
     signatoryRelationship: selfManaged ? "öğrenci" : "veli",
     address: student.address,
+    // 2026-10-04 — T.C. tam değeri istemciye gönderilmez; yalnız kayıtta olup olmadığı (son 2 hane).
+    studentNationalIdLast2: student.nationalIdLast2 || undefined,
+    openStandaloneDebts: data.payments
+      .filter(
+        (p) =>
+          p.studentId === student.id &&
+          !p.contractId &&
+          (p.status === "pending" || p.status === "overdue") &&
+          p.paidAmount === 0 &&
+          p.amount > 0
+      )
+      .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
+      .map((p) => ({
+        id: p.id,
+        label: p.installmentPeriodLabel ?? p.description,
+        dueDate: p.dueDate,
+        amount: p.amount,
+        sourceLabel: DEBT_SOURCE_LABEL[debtSourceOf(p)],
+      })),
   };
   // Ön doldurma sözleşme geçmişine DEĞİL, öğrencinin kayıt verisine dayanır:
   // iptal edilmiş bir sözleşmeden sonra da form dolu açılır (boş önizleme kök nedeni).

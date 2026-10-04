@@ -1,4 +1,4 @@
-import { isLiveObligation } from "@/lib/payment-profile";
+import { summarizeStudentDebt } from "@/lib/payment-profile";
 import { canRunCriticalActions } from "@/lib/critical-action-password";
 import Link from "@/components/link";
 import { redirect } from "next/navigation";
@@ -64,22 +64,18 @@ export default async function OgrencilerPage({
     teachers: data.teachers,
   });
 
+  const paymentsByStudent = new Map<string, typeof data.payments>();
+  for (const p of data.payments) {
+    const list = paymentsByStudent.get(p.studentId);
+    if (list) list.push(p);
+    else paymentsByStudent.set(p.studentId, [p]);
+  }
   const rows: StudentRow[] = students.map((s) => {
     const contract = contractSummaries.get(s.id);
-    // İptal/yenilenmiş sözleşmenin ödenmemiş taksiti öğrenciyi "gecikmiş" göstermez.
-    const studentPayments = data.payments.filter(
-      (p) => p.studentId === s.id && (p.status === "paid" || p.status === "voided" || isLiveObligation(p, terminalContractIds))
-    );
-    const paymentStatus: StudentRow["paymentStatus"] =
-      studentPayments.length === 0
-        ? "none"
-        : studentPayments.some((p) => p.status === "overdue")
-          ? "overdue"
-          : studentPayments.some((p) => p.status === "partial")
-            ? "partial"
-            : studentPayments.every((p) => p.status === "paid")
-              ? "paid"
-              : "pending";
+    // TEK borç kuralı (payment-profile.ts): sözleşmesiz öğrencinin bağımsız borcu da sayılır; iptal edilmiş
+    // ödeme ve iptal/yenilenmiş sözleşmenin ödenmemiş taksiti borç/gecikme değildir.
+    const debt = summarizeStudentDebt(paymentsByStudent.get(s.id) ?? [], terminalContractIds);
+    const paymentStatus: StudentRow["paymentStatus"] = debt.status;
     return {
       id: s.id,
       name: s.name,
@@ -96,6 +92,8 @@ export default async function OgrencilerPage({
       targetExam: s.targetExam,
       educationMethod: s.educationMethod,
       paymentStatus,
+      openDebt: debt.openTotal,
+      overdueDebt: debt.overdueTotal,
       contractNumber: contract?.contractNumber,
       contractStartDate: contract?.enrollmentStartDate,
       contractEndDate: contract?.enrollmentEndDate,

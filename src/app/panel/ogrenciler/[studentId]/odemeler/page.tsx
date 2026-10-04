@@ -7,7 +7,7 @@ import { StudentPaymentProfileEditor } from "@/components/student-payment-profil
 import { StudentLessonPauseControl } from "@/components/student-lesson-pause-control";
 import { listStudentContractsTool } from "@/lib/services";
 import { isTerminalContractStatus } from "@/lib/contract-list-helpers";
-import { splitStudentDebt, computeStudentPaymentSummary, sortPaymentsForProfile } from "@/lib/payment-profile";
+import { splitStudentDebt, computeStudentPaymentSummary, sortPaymentsForProfile, debtSourceOf, DEBT_SOURCE_LABEL } from "@/lib/payment-profile";
 import { computeStudentMonthlyAmount, isPercentDiscount } from "@/lib/student-payment-profile";
 import { effectivePaymentDueRanges, formatPaymentDueRanges } from "@/lib/payment-due-ranges";
 import { formatDate, formatMoney } from "@/lib/utils";
@@ -144,6 +144,17 @@ export default async function StudentPaymentsTab({ params }: { params: Promise<{
           />
           <MiniStat label="Açık kayıt" value={String(debt.open.length)} />
         </div>
+        {debt.bySource.length > 0 ? (
+          <p className="mb-3 text-xs text-[var(--color-text-muted)]">
+            Borcun kaynağı:{" "}
+            {debt.bySource.map((x, i) => (
+              <span key={x.key}>
+                {i > 0 ? " · " : ""}
+                {x.label} {formatMoney(x.openTotal)} ({x.count})
+              </span>
+            ))}
+          </p>
+        ) : null}
 
         <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">Açık borçlar</h3>
         {debt.open.length === 0 ? (
@@ -155,6 +166,10 @@ export default async function StudentPaymentsTab({ params }: { params: Promise<{
                 <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
                   <div>
                     <p className="font-medium text-[var(--color-text)]">{p.installmentPeriodLabel ?? p.description}</p>
+                    <p className="text-[11px] font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
+                      {DEBT_SOURCE_LABEL[debtSourceOf(p)]}
+                      {p.contractId ? ` · ${contracts.find((c) => c.id === p.contractId)?.contractNumber ?? "sözleşme"}` : ""}
+                    </p>
                     <p className="text-xs text-[var(--color-text-muted)]">
                       Vade: {formatDate(p.dueDate)} · Tutar {formatMoney(p.amount)}
                       {p.paidAmount > 0 ? ` · Ödenen ${formatMoney(p.paidAmount)}` : ""}
