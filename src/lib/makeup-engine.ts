@@ -621,6 +621,8 @@ export function confirmMakeupSlot(
     status: "scheduled",
     makeupRequestId: requestId,
     notes: `Telafi · kaynak ders ${request.sourceLessonId}`,
+    // 2026-10-04 — telafi dersi kaçan dersin eğitimine bağlıdır.
+    enrollmentId: data.lessons.find((l) => l.id === request.sourceLessonId)?.enrollmentId,
     ...(slot.availabilityOverridden ? { availabilityOverride: { by: decision.decidedBy, at: now.toISOString() } } : {}),
   };
 

@@ -584,7 +584,8 @@ export const lessonSchema = z.object({
    */
   overrideAvailability: z.coerce.boolean().optional(),
   /** 2026-10-04 — müsaitlik istisnasının kısa gerekçesi (denetim kaydına yazılır). */
-  overrideReason: z.string().max(500).optional(),
+  overrideReason: z.string().max(500).optional(),  /** 2026-10-04 — dersin ait olduğu eğitim (Student.enrollments[].id). */
+  enrollmentId: z.string().max(100).optional(),
 });
 
 export const paymentRecordSchema = z.object({

@@ -2,6 +2,7 @@
 
 import { defaultLessonTeacherId, lessonTeacherOptions } from "@/lib/lesson-teacher-options";
 import { teacherServesBranch } from "@/lib/teacher-branches";
+import { effectiveEnrollments, enrollmentLabel, type EnrollmentView } from "@/lib/student-enrollments";
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
@@ -764,6 +765,8 @@ export function ProgramStudio({
   const [teacherId, setTeacherId] = useState("");
   const [roomId, setRoomId] = useState("");
   const [instrument, setInstrument] = useState<Instrument>("Piyano");
+  // 2026-10-04 — dersin ait olduğu eğitim (çoklu eğitimli öğrencide seçilir; süre/öğretmen o eğitimden gelir).
+  const [enrollmentId, setEnrollmentId] = useState("");
   const [startAt, setStartAt] = useState("");
   // `datetime-local` yıl yazılırken "0002-10-15T10:00" / "15092-…" gibi ara değerler üretir;
   // gün bazlı hesap ve müsaitlik isteği yalnız tamamlanmış tarihte çalışır.
@@ -982,27 +985,44 @@ export function ProgramStudio({
     openPlanner(format(dt, "yyyy-MM-dd'T'HH:mm"));
   }
 
+  function applyEnrollment(student: Student, e: EnrollmentView | undefined) {
+    const nextInstrument = e?.instrument ?? student.instruments[0] ?? "Piyano";
+    setEnrollmentId(e && !e.legacy ? e.id : "");
+    setInstrument(nextInstrument);
+    // Atanmış öğretmen (eğitimin öğretmeni) yalnız uygunsa önerilir; değilse boş kalır ve neden gösterilir.
+    setTeacherId(
+      defaultLessonTeacherId(
+        lessonTeacherOptions(teachers, {
+          instrument: nextInstrument,
+          branchId: student.branchId,
+          student: { ...student, teacherId: e?.teacherId ?? student.teacherId },
+        })
+      )
+    );
+    setLessonBranchId(student.branchId);
+    // Süre seçilen eğitimden; yoksa öğrencinin kayıtlı süresi; o da yoksa genel varsayılan.
+    setDurationMinutes(e?.lessonDurationMinutes ?? student.lessonDurationMinutes ?? DEFAULT_LESSON_DURATION_MINUTES);
+    setRoomId("");
+  }
+
   function selectStudent(id: string) {
     setStudentId(id);
     const student = students.find((s) => s.id === id);
     if (student) {
-      const nextInstrument = student.instruments[0] ?? "Piyano";
-      setInstrument(nextInstrument);
-      // Atanmış öğretmen yalnız uygunsa önerilir; değilse boş kalır ve neden gösterilir.
-      setTeacherId(
-        defaultLessonTeacherId(
-          lessonTeacherOptions(teachers, { instrument: nextInstrument, branchId: student.branchId, student })
-        )
-      );
-      setLessonBranchId(student.branchId);
-      // Öğrencinin kayıtlı ders süresi (30/40/50 dk) varsayılan gelir; tanımlı değilse genel varsayılan.
-      setDurationMinutes(student.lessonDurationMinutes ?? DEFAULT_LESSON_DURATION_MINUTES);
+      const active = effectiveEnrollments(student, teachers).filter((x) => x.active);
+      applyEnrollment(student, active.find((x) => x.primary) ?? active[0]);
+    } else {
+      setEnrollmentId("");
     }
   }
 
   function selectInstrument(value: string) {
     setInstrument(value as Instrument);
     setRoomId("");
+    // Enstrüman elle değişirse eğitim bağı o enstrümanın aktif eğitimine geçer (yoksa bağ kaldırılır).
+    const st = students.find((x) => x.id === studentId);
+    const match = st?.enrollments?.find((x) => x.active && x.instrument === value);
+    setEnrollmentId(match?.id ?? "");
   }
 
   function selectTeacher(id: string) {
@@ -1223,6 +1243,7 @@ export function ProgramStudio({
     fd.set("instrument", instrument);
     fd.set("startAt", startAt);
     fd.set("durationMinutes", String(durationMinutes));
+    if (enrollmentId) fd.set("enrollmentId", enrollmentId);
     // ÖNCELİK 4 (devam) — yeni tek ders, program ekranında seçili akademik yıl/dönemi devralır.
     if (selectedTerm) fd.set("term", selectedTerm);
     if (selectedAcademicYearStart) fd.set("academicYearStart", String(selectedAcademicYearStart));
@@ -1491,6 +1512,27 @@ export function ProgramStudio({
             ))}
           </Select>
         </div>
+        {(() => {
+          const st = students.find((x) => x.id === studentId);
+          const list = st ? effectiveEnrollments(st, teachers).filter((x) => x.active) : [];
+          if (!st || list.length < 2) return null;
+          return (
+            <div>
+              <Label>Eğitim</Label>
+              <Select
+                value={list.find((x) => x.id === enrollmentId)?.id ?? list.find((x) => x.instrument === instrument)?.id ?? ""}
+                onChange={(e) => applyEnrollment(st, list.find((x) => x.id === e.target.value))}
+              >
+                {list.map((x) => (
+                  <option key={x.id} value={x.id}>
+                    {enrollmentLabel(x, teachers)}
+                    {x.lessonDurationMinutes ? ` · ${x.lessonDurationMinutes} dk` : ""}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          );
+        })()}
         <div>
           <Label>Enstrüman</Label>
           <Select value={instrument} onChange={(e) => selectInstrument(e.target.value)}>

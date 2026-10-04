@@ -18,6 +18,7 @@ import { addDays, isSameDay, parseISO } from "date-fns";
 import { requireSessionContext } from "@/lib/auth/session";
 import { readStudentScope } from "@/lib/store";
 import { listTerminalContractIds } from "@/lib/contracts";
+import { effectiveEnrollments, enrollmentLabel } from "@/lib/student-enrollments";
 import { splitStudentDebt } from "@/lib/payment-profile";
 import { listAnnouncementsForUserTool, listCurriculumForStudentTool } from "@/lib/services";
 import { listNotificationsForUser } from "@/lib/notifications";
@@ -64,9 +65,9 @@ function phoneToWa(phone: string) {
 export default async function OgrenciPortalPage({
   searchParams,
 }: {
-  searchParams: Promise<{ week?: string }>;
+  searchParams: Promise<{ week?: string; egitim?: string }>;
 }) {
-  const { week } = await searchParams;
+  const { week, egitim } = await searchParams;
   let session;
   try {
     session = await requireSessionContext();
@@ -142,16 +143,21 @@ export default async function OgrenciPortalPage({
   const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)).filter(
     (d) => !closedWeekdays.includes(d.getDay())
   );
+  // 2026-10-04 — çoklu eğitim: hero'da her eğitim enstrüman + öğretmeniyle; program "Tümü"/enstrüman filtreli.
+  const educations = effectiveEnrollments(student, data.teachers).filter((e) => e.active);
+  const educationInstruments = Array.from(new Set(educations.map((e) => e.instrument)));
+  const filterInstrument = egitim && educationInstruments.includes(egitim as never) ? egitim : undefined;
+  const egitimQuery = filterInstrument ? `&egitim=${encodeURIComponent(filterInstrument)}` : "";
   const weekLessons = ownStudentWeekLessons(
     data.lessons,
     student.id,
     weekStart.toISOString(),
     weekEndExclusive.toISOString()
-  );
+  ).filter((l) => !filterInstrument || l.instrument === filterInstrument);
   const closedDayOverrides = await listClosedDays(session.tenantId);
-  const prevWeekHref = `/ogrenci?week=${previousWeekParam(weekStart)}`;
-  const nextWeekHref = `/ogrenci?week=${nextWeekParam(weekStart)}`;
-  const todayWeekHref = `/ogrenci?week=${todayWeekParam(now)}`;
+  const prevWeekHref = `/ogrenci?week=${previousWeekParam(weekStart)}${egitimQuery}`;
+  const nextWeekHref = `/ogrenci?week=${nextWeekParam(weekStart)}${egitimQuery}`;
+  const todayWeekHref = `/ogrenci?week=${todayWeekParam(now)}${egitimQuery}`;
 
   const past = data.lessons
     .filter((l) => l.studentId === student.id && new Date(l.startAt) < new Date())
@@ -210,8 +216,24 @@ export default async function OgrenciPortalPage({
           <p className="text-xs font-medium uppercase tracking-wide text-emerald-600">Merhaba</p>
           <h1 className="mt-1 text-xl font-semibold text-[var(--hero-text)]">{student.name}</h1>
           <p className="mt-1 text-sm text-[var(--hero-text-muted)]">
-            {student.instruments.join(", ")} · Öğretmen: {teacher?.name ?? "—"}
+            {educations.length > 0
+              ? educations.map((e) => enrollmentLabel(e, data.teachers)).join(" · ")
+              : `${student.instruments.join(", ")} · Öğretmen: ${teacher?.name ?? "—"}`}
           </p>
+          {educationInstruments.length > 1 ? (
+            <nav aria-label="Eğitim filtresi" className="mt-2 flex flex-wrap gap-1.5">
+              {[undefined, ...educationInstruments].map((ins) => (
+                <Link
+                  key={ins ?? "tumu"}
+                  href={`/ogrenci?week=${todayWeekParam(weekStart)}${ins ? `&egitim=${encodeURIComponent(ins)}` : ""}`}
+                  aria-current={(ins ?? "") === (filterInstrument ?? "") ? "page" : undefined}
+                  className={`rounded-full border px-2.5 py-0.5 text-xs font-medium ${(ins ?? "") === (filterInstrument ?? "") ? "border-emerald-600 bg-emerald-600 text-white" : "border-emerald-200 text-emerald-800"}`}
+                >
+                  {ins ?? "Tümü"}
+                </Link>
+              ))}
+            </nav>
+          ) : null}
           {siblings.length > 1 ? (
             <div className="mt-3 border-t border-emerald-100 pt-3">
               <PortalStudentSwitcher siblings={siblings} currentStudentId={student.id} />

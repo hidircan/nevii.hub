@@ -216,6 +216,7 @@ import {
   updateMebStudentTool,
   type MebEditImpact,
   type MebPanelRow,
+  upsertStudentEnrollmentTool,
 } from "./services/tools";
 import { runWithTenantAsync } from "./tenant-context";
 import { getSessionAppearancePolicy } from "./platform/access";
@@ -1132,6 +1133,26 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
       const created = createdResult.data;
       newStudentId = created.studentId;
 
+      // 2026-10-04 — kayıtta seçilen EK eğitimler (enstrüman + öğretmen + süre birlikte). Birincil eğitim
+      // formun ana alanlarıdır; ek eğitim yazılamazsa öğrenci yine oluşur, neden sözleşme ekranında gösterilir.
+      const extraRaw = String(formData.get("extraEnrollments") || "");
+      if (extraRaw) {
+        let extras: { instrument: string; teacherId: string; lessonDurationMinutes: number }[] = [];
+        try {
+          extras = JSON.parse(extraRaw);
+        } catch {
+          extras = [];
+        }
+        for (const extra of extras.slice(0, 6)) {
+          const res = await upsertStudentEnrollmentTool(ctx, { studentId: created.studentId, enrollment: extra });
+          if (!res.ok) {
+            inviteWarning = [inviteWarning, `Ek eğitim (${extra.instrument}) eklenemedi: ${res.error.message} Öğrenci → Bilgiler → Eğitimler ekranından ekleyin.`]
+              .filter(Boolean)
+              .join(" ");
+          }
+        }
+      }
+
       // T.C. kimlik — şifreli saklama, mevcut setNationalIdTool üzerinden
       // (asla düz metin Student.nationalIdCipher dışında bir yere yazılmaz).
       // Checksum yukarıda kayıt ÖNCESİ doğrulandı; burası yalnızca yazar.
@@ -1360,6 +1381,22 @@ export async function actionListMebStudents(input: {
     logger.error("actionListMebStudents failed", error);
     if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
     return { ok: false, message: "MEB listesi alınırken beklenmeyen bir hata oluştu." };
+  }
+}
+
+/** 2026-10-04 — öğrencinin eğitimini ekle/güncelle/kapat (bkz. upsertStudentEnrollmentTool). */
+export async function actionUpsertStudentEnrollment(input: {
+  studentId: string;
+  enrollment: { id?: string; instrument: string; teacherId: string; lessonDurationMinutes: number; active?: boolean; primary?: boolean };
+}): Promise<{ ok: true } | { ok: false; message: string }> {
+  try {
+    const result = await withAuthContext("actionUpsertStudentEnrollment", (ctx) => upsertStudentEnrollmentTool(ctx, input));
+    if (!result.ok) return { ok: false, message: result.error.message };
+    revalidatePath(`/panel/ogrenciler/${input.studentId}`, "layout");
+    return { ok: true };
+  } catch (e) {
+    logger.error("actionUpsertStudentEnrollment failed", e);
+    return { ok: false, message: "Eğitim kaydedilemedi; hiçbir değişiklik yapılmadı. Sayfayı yenileyip tekrar deneyin." };
   }
 }
 
@@ -3349,6 +3386,7 @@ export async function actionAddLesson(formData: FormData): Promise<LessonActionR
         academicYearStart: academicYearStartRaw ? Number(academicYearStartRaw) : undefined,
         overrideAvailability: formData.get("overrideAvailability") === "true",
         overrideReason: (formData.get("overrideReason") as string | null) ?? undefined,
+        enrollmentId: (formData.get("enrollmentId") as string | null) || undefined,
       });
       if (!created.ok) {
         const details = created.error.details as { overridable?: boolean } | undefined;

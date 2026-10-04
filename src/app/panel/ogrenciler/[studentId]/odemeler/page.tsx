@@ -12,6 +12,7 @@ import { computeStudentMonthlyAmount, isPercentDiscount } from "@/lib/student-pa
 import { effectivePaymentDueRanges, formatPaymentDueRanges } from "@/lib/payment-due-ranges";
 import { formatDate, formatMoney } from "@/lib/utils";
 import { loadStudentPageContext } from "../_context";
+import { effectiveEnrollments, enrollmentLabel } from "@/lib/student-enrollments";
 import { Field, MiniStat } from "../_components/fields";
 
 export const dynamic = "force-dynamic";
@@ -30,6 +31,22 @@ export default async function StudentPaymentsTab({ params }: { params: Promise<{
     payments,
     new Set(contracts.filter((c) => isTerminalContractStatus(c.status)).map((c) => c.id))
   );
+  // 2026-10-04 — çoklu eğitim: açık borç eğitim bazında (sözleşmenin eğitimi; eğitimsiz sözleşme = birincil eğitim;
+  // sözleşme dışı borç ayrı). Toplam her zaman öğrenci bazındaki açık borca eşittir.
+  const educationList = effectiveEnrollments(student, data.teachers);
+  const primaryEdu = educationList.find((e) => e.primary) ?? educationList[0];
+  const educationDebt = (() => {
+    const totals = new Map<string, number>();
+    for (const p of debt.open) {
+      const due = Math.max(p.amount - p.paidAmount, 0);
+      if (due <= 0) continue;
+      const contract = p.contractId ? contracts.find((c) => c.id === p.contractId) : undefined;
+      const edu = contract ? educationList.find((e) => e.id === contract.enrollmentId) ?? primaryEdu : undefined;
+      const label = edu ? enrollmentLabel(edu, data.teachers) : "Sözleşme dışı";
+      totals.set(label, (totals.get(label) ?? 0) + due);
+    }
+    return Array.from(totals, ([label, total]) => ({ label, total }));
+  })();
   const packages = data.packages ?? [];
   const studentPackage = packages.find((p) => p.id === student.packageId);
   const monthlyAmount = computeStudentMonthlyAmount(
@@ -144,6 +161,18 @@ export default async function StudentPaymentsTab({ params }: { params: Promise<{
           />
           <MiniStat label="Açık kayıt" value={String(debt.open.length)} />
         </div>
+        {educationDebt.length > 1 ? (
+          <p className="mb-1 text-xs text-[var(--color-text-muted)]">
+            Eğitim bazında:{" "}
+            {educationDebt.map((x, i) => (
+              <span key={x.label}>
+                {i > 0 ? " · " : ""}
+                {x.label} {formatMoney(x.total)}
+              </span>
+            ))}{" "}
+            (toplam {formatMoney(debt.openTotal)})
+          </p>
+        ) : null}
         {debt.bySource.length > 0 ? (
           <p className="mb-3 text-xs text-[var(--color-text-muted)]">
             Borcun kaynağı:{" "}

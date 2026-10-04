@@ -660,6 +660,10 @@ model Student {
   school                   School            @relation(fields: [schoolId], references: [id], onDelete: Cascade)
   schoolId                 String
   instruments              Json
+  /// 2026-10-04 — öğrencinin EĞİTİM kayıtları (bir öğrenci, N eğitim): her biri kalıcı `id`, enstrüman,
+  /// öğretmen, ders süresi, şube, aktiflik. NULL = eski tek eğitimli kayıt (instruments/teacherId/
+  /// lessonDurationMinutes alanlarından türetilir). Lesson/LessonSeries/StudentContract.enrollmentId bu id'ye bağlanır.
+  enrollments              Json?
   teacher                  Teacher           @relation(fields: [teacherId], references: [id])
   teacherId                String
   packageName              String
@@ -849,6 +853,8 @@ model Lesson {
   makeupRequestId         String?
   series                  LessonSeries? @relation(fields: [seriesId], references: [id])
   seriesId                String?
+  /// 2026-10-04 — dersin ait olduğu eğitim (Student.enrollments[].id); NULL = eski ders (enstrümandan çözülür).
+  enrollmentId            String?
   notes                   String?
   /// Dersi planlayan kullanıcı (User.id). Eski kayıtlarda null.
   createdByUserId         String?
@@ -941,6 +947,8 @@ model LessonSeries {
   school            School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
   schoolId          String
   instrument        String
+  /// 2026-10-04 — serinin ait olduğu eğitim (Student.enrollments[].id).
+  enrollmentId      String?
   /// 0=Pazar ... 6=Cumartesi (mevcut Teacher.availability ile aynı kural)
   weekday           Int
   /// "HH:mm" — mevcut workingHours alanlarıyla aynı biçim
@@ -2432,6 +2440,8 @@ model StudentContract {
   /// "initial" | "renewal" | "amendment"
   contractType          String
   previousContractId    String?
+  /// 2026-10-04 — sözleşmenin ait olduğu eğitim (Student.enrollments[].id); NULL = birincil/eski eğitim.
+  enrollmentId          String?
   previousContract      StudentContract?  @relation("ContractVersionChain", fields: [previousContractId], references: [id])
   nextVersions          StudentContract[] @relation("ContractVersionChain")
   /// Bu sözleşmenin PDF render/yazdırma/imzalı-tarama-yükleme'sini yürüten

@@ -21,6 +21,7 @@ import { useActionState, useEffect, useRef, useState } from "react";
 import { actionAddStudent, type NewStudentFormState } from "@/lib/actions";
 import { Button, Card, Input, Label, Select } from "@/components/ui";
 import { StudentInstrumentTeacherFields, type TeacherOption } from "@/components/student-instrument-teacher-fields";
+import { ExtraEnrollmentsFields } from "@/components/extra-enrollments-fields";
 import {
   StudentPackagePricingFields,
   type PackageAutofill,
@@ -657,6 +658,7 @@ export function NewStudentForm({
             />
           </div>
           <FieldError message={fieldErrors.instrument ?? fieldErrors.teacherId} />
+          <ExtraEnrollmentsFields instrumentOptions={instrumentOptions} teachers={teachers} />
           <div>
             <Label>Yoklama Takvimi dönemi</Label>
             <Select name="termType" defaultValue={v("termType") || "guz"}>

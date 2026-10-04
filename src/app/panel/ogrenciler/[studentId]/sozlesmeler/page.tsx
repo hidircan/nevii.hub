@@ -6,6 +6,7 @@ import { listStudentContractsTool } from "@/lib/services";
 import { ContractPanel, type RegistrationSummary } from "@/components/contract-panel";
 import { paymentMethodLabelTr } from "@/lib/utils";
 import { DEBT_SOURCE_LABEL, debtSourceOf } from "@/lib/payment-profile";
+import { effectiveEnrollments, enrollmentLabel } from "@/lib/student-enrollments";
 import { Card, EmptyState, PageHeader } from "@/components/ui";
 import { isFormalContractDuration } from "@/lib/contracts";
 import { selectCurrentContract } from "@/lib/contract-list-helpers";
@@ -100,6 +101,9 @@ export default async function StudentContractsCenterPage({
     address: student.address,
     // 2026-10-04 — T.C. tam değeri istemciye gönderilmez; yalnız kayıtta olup olmadığı (son 2 hane).
     studentNationalIdLast2: student.nationalIdLast2 || undefined,
+    educations: effectiveEnrollments(student, data.teachers)
+      .filter((e) => e.active)
+      .map((e) => ({ id: e.id, instrument: e.instrument, label: enrollmentLabel(e, data.teachers), primary: e.primary })),
     openStandaloneDebts: data.payments
       .filter(
         (p) =>

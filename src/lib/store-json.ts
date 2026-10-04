@@ -769,6 +769,7 @@ export async function addLesson(input: {
   /** Override uygulanırsa Lesson.availabilityOverride.by'a yazılan aktör. */
   overriddenByUserId?: string;
   createdByUserId?: string;
+  enrollmentId?: string;
 }): Promise<AppData> {
   const data = await readData();
   const validation = validateLessonSlot(
@@ -793,6 +794,7 @@ export async function addLesson(input: {
     type: "regular",
     status: "scheduled",
     createdByUserId: input.createdByUserId,
+    enrollmentId: input.enrollmentId,
     term: input.term,
     academicYearStart: input.academicYearStart,
     availabilityOverride:

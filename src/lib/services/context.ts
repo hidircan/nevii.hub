@@ -72,7 +72,7 @@ export function requireRole(
 export async function canAccessStudent(
   ctx: ServiceContext,
   studentId: string,
-  ownership?: { teacherId: string }
+  ownership?: { teacherId: string; enrollments?: import("../types").StudentEnrollment[] }
 ): Promise<boolean> {
   if (ctx.role === "SUPER_ADMIN" || ctx.role === "SCHOOL_ADMIN" || ctx.role === "AI_AGENT") {
     return true;
@@ -83,7 +83,9 @@ export async function canAccessStudent(
   if (ctx.role === "TEACHER") {
     if (!ctx.teacherId) return false;
     if (!ownership) return false;
-    return ownership.teacherId === ctx.teacherId;
+    // 2026-10-04 — çoklu eğitim: öğrencinin herhangi bir AKTİF eğitiminin öğretmeni de erişir (yalnız kendi
+    // dersleri/eğitimi ekranlarda süzülür — bkz. teacher-portal-scope.ts ownStudentLessons).
+    return ownership.teacherId === ctx.teacherId || Boolean(ownership.enrollments?.some((e) => e.active && e.teacherId === ctx.teacherId));
   }
   return false;
 }
@@ -94,13 +96,13 @@ export async function canAccessStudent(
  */
 export async function assertStudentAccess(
   ctx: ServiceContext,
-  student: { id: string; teacherId: string } | undefined | null,
+  student: { id: string; teacherId: string; enrollments?: import("../types").StudentEnrollment[] } | undefined | null,
   studentId: string
 ): Promise<{ ok: true } | { ok: false; code: "NOT_FOUND" | "FORBIDDEN"; message: string }> {
   if (!student || student.id !== studentId) {
     return { ok: false, code: "NOT_FOUND", message: "Öğrenci bulunamadı" };
   }
-  if (!(await canAccessStudent(ctx, studentId, { teacherId: student.teacherId }))) {
+  if (!(await canAccessStudent(ctx, studentId, { teacherId: student.teacherId, enrollments: student.enrollments }))) {
     return {
       ok: false,
       code: "FORBIDDEN",

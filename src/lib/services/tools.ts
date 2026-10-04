@@ -538,6 +538,7 @@ import { assertFeatureEnabled, getStudentFormConfig } from "../platform/access";
 import { assertBranchOperation } from "../platform/permissions";
 import { inBranchScope, resolveBranchScope } from "../platform/branch-scope";
 import { assertTeacherEarningsAccess } from "../platform/teacher-earnings-access";
+import { isOwnStudent } from "../teacher-portal-scope";
 
 /** NeviiOS — şube müdürünün öğrenci kaydında değiştirebileceği temel operasyonel alanlar. */
 const BRANCH_MANAGER_STUDENT_FIELDS = new Set([
@@ -2898,6 +2899,97 @@ export async function createStudentTool(
  * seviye, hedef sınav, özel not. Öğrencinin temel iletişim/paket bilgilerini
  * değiştirmez — o alanlar için ayrı bir yol yok (mevcut kapsam dışı).
  */
+/**
+ * 2026-10-04 — öğrencinin bir eğitimini ekler/günceller/kapatır (tek öğrenci, N eğitim). Eski tek eğitimli kayıtta
+ * ilk düzenlemede mevcut eğitim(ler) kalıcı kayda dönüşür (veri kaybı yok). Öğretmen değişikliği yalnız eğitimi
+ * etkiler; geçmiş derslerin öğretmeni DEĞİŞMEZ. Eğitim silinmez — `active:false`. Öğrencinin eski tekil alanları
+ * (instruments / teacherId / lessonDurationMinutes) birincil eğitimden senkronlanır.
+ */
+export async function upsertStudentEnrollmentTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ studentId: string; enrollmentId: string; enrollments: import("../types").StudentEnrollment[] }>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", "Eğitim kayıtlarını yalnız kurum yöneticisi veya kurum sahibi düzenleyebilir.");
+  const v = parseOrFail(
+    z.object({
+      studentId: z.string().min(1),
+      enrollment: z.object({
+        id: z.string().min(1).optional(),
+        instrument: z.string().min(1, "Enstrüman seçin."),
+        teacherId: z.string().min(1, "Öğretmen seçin."),
+        lessonDurationMinutes: z.coerce.number().refine((n) => [30, 40, 50].includes(n), "Ders süresi 30, 40 veya 50 dakika olmalı."),
+        weeklyLessonCount: z.coerce.number().int().min(1).max(7).optional(),
+        active: z.boolean().optional(),
+        primary: z.boolean().optional(),
+      }),
+    }),
+    input
+  );
+  if (!v.ok) return v;
+  const data = await readData();
+  const student = data.students.find((st) => st.id === v.data.studentId);
+  if (!student) return fail("NOT_FOUND", "Öğrenci bulunamadı. Sayfayı yenileyip tekrar deneyin.");
+  const e = v.data.enrollment;
+  const instruments = await resolveActiveInstrumentNames(ctx.tenantId);
+  if (!instruments.includes(e.instrument)) {
+    return fail("VALIDATION_ERROR", `"${e.instrument}" kurumun aktif enstrüman kataloğunda yok. Ayarlar → Enstrümanlar ekranından ekleyin veya listeden seçin.`);
+  }
+  const teacher = data.teachers.find((t) => t.id === e.teacherId);
+  if (!teacher || !isTeacherSchedulable(teacher)) {
+    return fail("VALIDATION_ERROR", "Seçilen öğretmen bulunamadı veya aktif değil. Aktif bir öğretmen seçin.");
+  }
+  if (!teacher.instruments.includes(e.instrument as Instrument)) {
+    return fail("VALIDATION_ERROR", `${teacher.name} "${e.instrument}" eğitimi vermiyor. Bu enstrümanı veren bir öğretmen seçin veya öğretmen kartına enstrümanı ekleyin.`);
+  }
+  const { effectiveEnrollments, primaryFieldsFromEnrollments } = await import("../student-enrollments");
+  const nowIso = new Date().toISOString();
+  // Eski kayıt → kalıcı eğitim kayıtlarına dönüşür (aynı değerlerle; dersler enstrümandan eşleşmeye devam eder).
+  let list: import("../types").StudentEnrollment[] = effectiveEnrollments(student, data.teachers).map(({ legacy, ...rest }) => {
+    void legacy;
+    return rest.id.startsWith("legacy:") ? { ...rest, id: uid("enr") } : rest;
+  });
+  const existing = e.id ? list.find((x) => x.id === e.id || (e.id!.startsWith("legacy:") && x.instrument === e.id!.split(":").pop())) : undefined;
+  if (e.id && !existing) return fail("NOT_FOUND", "Düzenlenen eğitim bulunamadı. Sayfayı yenileyip tekrar deneyin.");
+  const nextActive = e.active ?? true;
+  const duplicate = list.find(
+    (x) => x.id !== existing?.id && x.active && nextActive && x.instrument === e.instrument && x.teacherId === e.teacherId
+  );
+  if (duplicate) {
+    return fail("CONFLICT", `Bu öğrencinin ${teacher.name} ile aktif bir ${e.instrument} eğitimi zaten var. Mevcut eğitimi düzenleyin.`);
+  }
+  const record: import("../types").StudentEnrollment = {
+    ...(existing ?? { id: uid("enr"), createdAt: nowIso }),
+    instrument: e.instrument as Instrument,
+    teacherId: e.teacherId,
+    branchId: existing?.branchId ?? student.branchId,
+    lessonDurationMinutes: e.lessonDurationMinutes,
+    weeklyLessonCount: e.weeklyLessonCount ?? existing?.weeklyLessonCount,
+    active: nextActive,
+    primary: e.primary ?? existing?.primary ?? false,
+    updatedAt: nowIso,
+    ...(nextActive ? {} : { endDate: existing?.endDate ?? nowIso }),
+  };
+  list = existing ? list.map((x) => (x.id === existing.id ? record : x)) : [...list, record];
+  if (record.primary && record.active) list = list.map((x) => (x.id === record.id ? x : { ...x, primary: false }));
+  const active = list.filter((x) => x.active);
+  if (active.length === 0) {
+    return fail("VALIDATION_ERROR", "Öğrencinin en az bir aktif eğitimi kalmalı. Öğrenci ayrılıyorsa öğrenciyi pasife alın.");
+  }
+  if (!active.some((x) => x.primary)) list = list.map((x) => (x.id === active[0]!.id ? { ...x, primary: true } : x));
+  const primaryFields = primaryFieldsFromEnrollments(list, student);
+  await updateStudentProfile(student.id, { enrollments: list, ...primaryFields });
+  audit(ctx, existing ? "student.enrollment_update" : "student.enrollment_add", "Student", student.id, {
+    enrollmentId: record.id,
+    instrument: record.instrument,
+    teacherId: record.teacherId,
+    previousTeacherId: existing?.teacherId,
+    lessonDurationMinutes: record.lessonDurationMinutes,
+    active: record.active,
+  });
+  return ok({ studentId: student.id, enrollmentId: record.id, enrollments: list });
+}
+
 export async function updateStudentProfileTool(
   ctx: ServiceContext,
   input: unknown
@@ -6771,6 +6863,18 @@ export async function createLessonTool(
     return fail("VALIDATION_ERROR", creationDay.message);
   }
 
+  // 2026-10-04 — eğitim bağı: öğrencinin AKTİF eğitimi olmalı ve dersin enstrümanıyla eşleşmeli.
+  let lessonEnrollmentId: string | undefined;
+  if (v.data.enrollmentId) {
+    const st = settingsForClosedDays.students.find((x) => x.id === v.data.studentId);
+    const enr = st?.enrollments?.find((x) => x.id === v.data.enrollmentId);
+    if (!enr || !enr.active) return fail("VALIDATION_ERROR", "Seçilen eğitim bu öğrenciye ait değil veya kapatılmış. Eğitim listesini yenileyip tekrar seçin.");
+    if (enr.instrument !== v.data.instrument) {
+      return fail("VALIDATION_ERROR", `Seçilen eğitim ${enr.instrument}; ders enstrümanı ${v.data.instrument}. Eğitimi veya enstrümanı düzeltin.`);
+    }
+    lessonEnrollmentId = enr.id;
+  }
+
   try {
     const before = settingsForClosedDays;
     const ids = new Set(before.lessons.map((l) => l.id));
@@ -6786,6 +6890,7 @@ export async function createLessonTool(
       allowAvailabilityOverride: v.data.overrideAvailability,
       overriddenByUserId: v.data.overrideAvailability ? ctx.userId : undefined,
       createdByUserId: ctx.userId,
+      enrollmentId: lessonEnrollmentId,
     });
     const after = await readData();
     const created = after.lessons.find((l) => !ids.has(l.id));
@@ -9894,7 +9999,7 @@ export async function createPeriodicAssessmentTool(
   const data = await readData();
   const student = data.students.find((s) => s.id === v.data.studentId);
   if (!student) return fail("NOT_FOUND", "Öğrenci bulunamadı");
-  if (ctx.role === "TEACHER" && student.teacherId !== ctx.teacherId) {
+  if (ctx.role === "TEACHER" && !isOwnStudent(student, ctx.teacherId ?? "")) {
     return fail("FORBIDDEN", "Yalnızca kendi öğrenciniz için değerlendirme gönderebilirsiniz.");
   }
 
@@ -10210,7 +10315,7 @@ export async function createHomeworkTool(
   const data = await readData();
   const student = data.students.find((s) => s.id === v.data.studentId);
   if (!student) return fail("NOT_FOUND", "Öğrenci bulunamadı");
-  if (student.teacherId !== ctx.teacherId) {
+  if (!isOwnStudent(student, ctx.teacherId ?? "")) {
     return fail("FORBIDDEN", "Yalnızca kendi öğrenciniz için ödev oluşturabilirsiniz.");
   }
   if (v.data.lessonId) {
@@ -14115,6 +14220,8 @@ const createStudentContractSchema = z.object({
    * taşındı" notuyla iptal edilir (audit'li). Yalnız hiç tahsilat görmemiş canlı satırlar taşınabilir.
    */
   carryOverPaymentIds: z.array(z.string().min(1)).max(60).optional(),
+  /** 2026-10-04 — sözleşmenin ait olduğu eğitim (çoklu eğitimli öğrenci); boş/birincil = birincil eğitim. */
+  enrollmentId: z.string().max(100).optional(),
   photoVideoConsent: z
     .object({
       granted: z.boolean(),
@@ -14211,6 +14318,14 @@ export async function createStudentContractTool(
   const branch = data.settings.branches.find((b) => b.id === student.branchId);
 
   const isMinor = student.birthDate ? computeAge(student.birthDate) < 18 : false;
+
+  // Eğitim bağı: birincil eğitim (ve eski kayıt) NULL olarak saklanır — eski sözleşmelerle aynı anlam.
+  let contractEnrollmentId: string | undefined;
+  if (v.data.enrollmentId && !v.data.enrollmentId.startsWith("legacy:")) {
+    const enr = student.enrollments?.find((e) => e.id === v.data.enrollmentId);
+    if (!enr) return fail("VALIDATION_ERROR", "Seçilen eğitim bu öğrenciye ait değil. Sayfayı yenileyip eğitimi yeniden seçin.");
+    contractEnrollmentId = enr.primary ? undefined : enr.id;
+  }
 
   // 2026-10-04 — taşınacak sözleşme dışı borçlar ÖNCEDEN doğrulanır (sözleşme yazılmadan): yalnız bu öğrencinin,
   // sözleşmeye bağlı olmayan, hiç tahsilat görmemiş canlı satırları. Uymayan seçim sözleşmeyi de durdurur.
@@ -14346,6 +14461,7 @@ export async function createStudentContractTool(
       installmentAmountOverrides: v.data.installmentAmountOverrides,
       installmentDueDateOverrides: v.data.installmentDueDateOverrides,
       lastPeriodPricing: lastPeriodResolved.pricing,
+      enrollmentId: contractEnrollmentId,
     });
 
     const carriedOverPaymentIds: string[] = [];

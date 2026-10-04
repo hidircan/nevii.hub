@@ -294,6 +294,7 @@ function mapDbStudent(student: Prisma.StudentGetPayload<object>): Student {
     referralSourceDetail: (student as { referralSourceDetail?: string | null }).referralSourceDetail ?? undefined,
     branchId: student.branchId as BranchId,
     instruments: student.instruments as Instrument[],
+    enrollments: ((student as { enrollments?: unknown }).enrollments as import("./types").StudentEnrollment[] | null) ?? undefined,
     teacherId: student.teacherId,
     packageName: student.packageName,
     weeklyLessonCount: student.weeklyLessonCount,
@@ -500,6 +501,7 @@ function mapSchoolToAppData(school: PrismaSchoolWithRelations): AppData {
       status: lesson.status as "scheduled" | "in_progress" | "completed" | "cancelled" | "no_show",
       makeupRequestId: lesson.makeupRequestId ?? undefined,
       seriesId: lesson.seriesId ?? undefined,
+      enrollmentId: (lesson as { enrollmentId?: string | null }).enrollmentId ?? undefined,
       notes: lesson.notes ?? undefined,
       createdByUserId: (lesson as { createdByUserId?: string | null }).createdByUserId ?? undefined,
       studentAttended: (lesson as { studentAttended?: boolean }).studentAttended ?? undefined,
@@ -555,6 +557,7 @@ function mapSchoolToAppData(school: PrismaSchoolWithRelations): AppData {
     })),
     lessonSeries: school.lessonSeries.map((series) => ({
       id: series.id,
+      enrollmentId: (series as { enrollmentId?: string | null }).enrollmentId ?? undefined,
       studentId: series.studentId,
       teacherId: series.teacherId,
       roomId: series.roomId,
@@ -1630,6 +1633,7 @@ export async function confirmSlot(
         status: "scheduled",
         makeupRequestId: requestId,
         notes: `Telafi · kaynak ders ${request.sourceLessonId}`,
+        enrollmentId: data.lessons.find((l) => l.id === request.sourceLessonId)?.enrollmentId,
         // 2026-10-04 — müsaitlik dışı onaylı telafi: normal dersle aynı iz (kim, ne zaman).
         availabilityOverrideBy: validatedSlot.availabilityOverridden ? decision.decidedBy : undefined,
         availabilityOverrideAt: validatedSlot.availabilityOverridden ? decidedAt : undefined,
@@ -1700,6 +1704,7 @@ export async function addStudent(
   await prisma.student.create({
     data: {
       ...student,
+      enrollments: student.enrollments === undefined ? undefined : (student.enrollments as unknown as Prisma.InputJsonValue),
       // Faz 12 doğrulaması sırasında bulunan kök neden düzeltmesi: salt
       // `Date.now()` tabanlı id, gerçek eşzamanlı isteklerde (ör. Promise.all
       // ile 10 öğrenci) AYNI milisaniyede çakışıp `id` primary key ihlaliyle
@@ -1829,6 +1834,7 @@ export async function updateStudentProfile(
       // değildi (JSON/memory store generic spread ile zaten destekliyordu)
       // — burada eklenerek parity kapatıldı.
       lessonDurationMinutes: patch.lessonDurationMinutes,
+      enrollments: patch.enrollments === undefined ? undefined : (patch.enrollments as unknown as Prisma.InputJsonValue),
       paymentMethod: patch.paymentMethod,
       paymentAmount: patch.paymentAmount,
       paymentDueDay: patch.paymentDueDay,
@@ -2623,6 +2629,8 @@ export async function addLesson(input: {
   /** Override uygulanırsa Lesson.availabilityOverride.by'a yazılan aktör. */
   overriddenByUserId?: string;
   createdByUserId?: string;
+  /** 2026-10-04 — dersin ait olduğu eğitim. */
+  enrollmentId?: string;
 }): Promise<AppData> {
   const data = await readData();
   const tid = requireTenantId();
@@ -2647,6 +2655,7 @@ export async function addLesson(input: {
     await assertSlotFreeLockedTx(tx, tid, { teacherId: slot.teacherId, roomId: slot.roomId, studentId: input.studentId, startAt: slot.startAt, endAt: slot.endAt });
     await tx.lesson.create({
       data: {
+        enrollmentId: input.enrollmentId,
         id: `les_${Date.now().toString(36)}`,
         tenantId: tid,
         studentId: input.studentId,
@@ -3264,6 +3273,7 @@ export async function addLessonSeries(
         academicYearStart: params.academicYearStart,
         demoTag: params.demoTag,
         contractId: params.contractId,
+        enrollmentId: params.enrollmentId,
       },
     });
     for (const lesson of newLessons) {
@@ -3283,6 +3293,7 @@ export async function addLessonSeries(
           type: lesson.type,
           status: lesson.status,
           seriesId: result.seriesId,
+          enrollmentId: lesson.enrollmentId,
           createdByUserId: lesson.createdByUserId,
           term: lesson.term,
           academicYearStart: lesson.academicYearStart,

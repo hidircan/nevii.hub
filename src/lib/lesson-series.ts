@@ -21,6 +21,8 @@ function formatHm(totalMinutes: number) {
 export type SeriesOccurrence = { startAt: string; endAt: string };
 
 export type SeriesParams = {
+  /** 2026-10-04 — serinin ve üretilen derslerin ait olduğu eğitim (Student.enrollments[].id). */
+  enrollmentId?: string;
   studentId: string;
   teacherId: string;
   roomId: string;
@@ -248,10 +250,12 @@ export function createLessonSeriesData(
     academicYearStart: params.academicYearStart,
     demoTag: params.demoTag,
     contractId: params.contractId,
+    enrollmentId: params.enrollmentId,
   };
 
   const newLessons: Lesson[] = validChecks.map((c) => ({
     id: uid("les"),
+    enrollmentId: params.enrollmentId,
     studentId: params.studentId,
     teacherId: params.teacherId,
     roomId: params.roomId,

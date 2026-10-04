@@ -665,6 +665,7 @@ export async function addLesson(input: {
   allowAvailabilityOverride?: boolean;
   overriddenByUserId?: string;
   createdByUserId?: string;
+  enrollmentId?: string;
 }): Promise<AppData> {
   const data = load();
   const validation = validateLessonSlot(
@@ -689,6 +690,7 @@ export async function addLesson(input: {
     type: "regular",
     status: "scheduled",
     createdByUserId: input.createdByUserId,
+    enrollmentId: input.enrollmentId,
     term: input.term,
     academicYearStart: input.academicYearStart,
     availabilityOverride:

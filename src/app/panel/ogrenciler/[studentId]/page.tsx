@@ -11,6 +11,9 @@ import { computeStudentPaymentSummary, sortPaymentsForProfile, splitStudentDebt 
 import { resolveLessonFinalStatus } from "@/lib/lesson-live-status";
 import { formatDate, formatDateTime, formatMoney, formatTime } from "@/lib/utils";
 import { loadStudentPageContext } from "./_context";
+import { StudentEnrollmentsCard } from "@/components/student-enrollments-card";
+import { effectiveEnrollments } from "@/lib/student-enrollments";
+import { resolveActiveInstrumentNames } from "@/lib/instrument-catalog";
 import { MiniStat } from "./_components/fields";
 import { ContractReturnBanner } from "./_components/contract-return-banner";
 
@@ -33,7 +36,7 @@ export default async function StudentOverviewTab({
 }) {
   const { studentId } = await params;
   const { yeniKayit, sure, davetUyari, sozlesmeDon, sozlesmeSure } = await searchParams;
-  const { session, data, student } = await loadStudentPageContext(studentId);
+  const { session, data, student, kurum, canManage } = await loadStudentPageContext(studentId);
   if (!student) notFound();
 
   const rawIntendedDuration = Number(sure);
@@ -183,6 +186,15 @@ export default async function StudentOverviewTab({
           </ul>
         )}
       </section>
+
+      {/* 2026-10-04 — tek öğrenci, birden fazla eğitim: her eğitim enstrüman + öğretmen + süre olarak. */}
+      <StudentEnrollmentsCard
+        studentId={student.id}
+        enrollments={effectiveEnrollments(student, data.teachers)}
+        teachers={data.teachers.map((t) => ({ id: t.id, name: t.name, instruments: t.instruments, active: t.active }))}
+        instrumentOptions={kurum.scope.mode === "single" ? await resolveActiveInstrumentNames(kurum.scope.tenantId) : []}
+        canManage={canManage && kurum.scope.mode === "single"}
+      />
 
       <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <MiniStat

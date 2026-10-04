@@ -228,6 +228,8 @@ export type RegistrationSummary = {
   address?: string;
   /** 2026-10-04 — öğrencinin kayıttaki T.C.'si var mı (yalnız son 2 hane; tam değer istemciye gönderilmez). */
   studentNationalIdLast2?: string;
+  /** 2026-10-04 — öğrencinin aktif eğitimleri (çoklu eğitimde sözleşmenin hangi eğitime ait olduğu seçilir). */
+  educations?: { id: string; instrument: string; label: string; primary?: boolean }[];
   /** Sözleşmeye bağlı OLMAYAN, hiç tahsilat görmemiş açık borçlar — sözleşme planına taşınabilir (açık seçim). */
   openStandaloneDebts?: { id: string; label: string; dueDate: string; amount: number; sourceLabel: string }[];
 };
@@ -666,6 +668,10 @@ function ContractForm({
     return () => window.removeEventListener("beforeunload", warn);
   }, [draftKey]);
   const [programmeName, setProgrammeName] = useContractDraft(draftKey, "programmeName", previousContract?.programmeName ?? prefill?.programmeName ?? "");
+  const educations = registration?.educations ?? [];
+  const [contractEnrollmentId, setContractEnrollmentId] = useState<string>(
+    (educations.find((e) => e.primary) ?? educations[0])?.id ?? ""
+  );
   // P0 (2026-09-03) — yalnız YENİ (initial) kayıt akışından, per-lesson
   // fiyatlandırma kullanan bir öğrenci için gelir; yenilemede prefill zaten
   // undefined olduğundan bu her zaman false kalır — eski davranış korunur.
@@ -1197,6 +1203,7 @@ function ContractForm({
             },
       kvkkNoticeDelivered,
       carryOverPaymentIds: carryOverIds.size > 0 ? Array.from(carryOverIds) : undefined,
+      enrollmentId: !isAmendment && !isRenewal && contractEnrollmentId ? contractEnrollmentId : undefined,
     });
     setBusy(false);
     if (!res.ok) {
@@ -1346,6 +1353,28 @@ function ContractForm({
       ) : null}
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        {!isAmendment && !isRenewal && educations.length > 1 ? (
+          <div className="sm:col-span-2">
+            <Label>Sözleşmenin eğitimi</Label>
+            <Select
+              value={contractEnrollmentId}
+              onChange={(e) => {
+                setContractEnrollmentId(e.target.value);
+                const ed = educations.find((x) => x.id === e.target.value);
+                if (ed) setProgrammeName(ed.instrument);
+              }}
+            >
+              {educations.map((ed) => (
+                <option key={ed.id} value={ed.id}>
+                  {ed.label}
+                </option>
+              ))}
+            </Select>
+            <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">
+              Öğrencinin birden fazla eğitimi var; her eğitimin sözleşmesi ve taksitleri ayrı izlenir, ödemeler öğrenci bazında toplanır.
+            </p>
+          </div>
+        ) : null}
         <div>
           <Label>Program / Enstrüman</Label>
           <Input

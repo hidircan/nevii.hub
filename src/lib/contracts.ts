@@ -747,6 +747,8 @@ export type CreateContractInput = {
   installmentDueDateOverrides?: { sequence: number; dueDate: string }[];
   /** P0 (2026-09-04) — yalnız `perLessonBillingLines` ile birlikte anlamlı; bkz. `LastPeriodPricing`. */
   lastPeriodPricing?: LastPeriodPricing;
+  /** 2026-10-04 — sözleşmenin ait olduğu eğitim (yoksa birincil/eski eğitim). */
+  enrollmentId?: string;
 };
 
 export type CreateContractResult = {
@@ -850,8 +852,10 @@ export async function createContract(input: CreateContractInput): Promise<Create
   // borç iki kez yazıldı): aktif (iptal/yenilenmemiş) sözleşmesi olan öğrenciye ikinci bir İLK sözleşme açılmaz.
   // Planı düzeltmek için mevcut sözleşme revize edilir; yeniden başlamak için önce iptal edilir.
   if (input.contractType === "initial") {
+    // Çoklu eğitim: kural eğitim başınadır — eğitimi belirtilmemiş (eski) sözleşme birincil eğitime aittir.
+    const sameEnrollment = (c: StudentContract) => (c.enrollmentId ?? null) === (input.enrollmentId ?? null);
     const active = (await listContractsForStudent(input.tenantId, input.studentId)).filter(
-      (c) => c.status !== "cancelled" && c.status !== "superseded"
+      (c) => c.status !== "cancelled" && c.status !== "superseded" && sameEnrollment(c)
     );
     if (active.length > 0) {
       throw new Error(
@@ -1212,6 +1216,7 @@ export async function createContract(input: CreateContractInput): Promise<Create
     versionNumber,
     contractType: input.contractType,
     previousContractId: previous?.id,
+    enrollmentId: input.enrollmentId ?? previous?.enrollmentId,
     documentInstanceId: doc?.id,
     templateVersion: templateVersionUsed,
     status: isFormal ? "generated" : "recorded",
@@ -1246,6 +1251,7 @@ export async function createContract(input: CreateContractInput): Promise<Create
         versionNumber: row.versionNumber,
         contractType: row.contractType,
         previousContractId: row.previousContractId,
+        enrollmentId: row.enrollmentId,
         documentInstanceId: row.documentInstanceId,
         templateVersion: row.templateVersion,
         status: row.status,
@@ -1728,6 +1734,7 @@ type DbContractRow = {
   versionNumber: number;
   contractType: string;
   previousContractId: string | null;
+  enrollmentId?: string | null;
   documentInstanceId: string | null;
   templateVersion: number | null;
   status: string;
@@ -1762,6 +1769,7 @@ function mapDb(r: DbContractRow): StudentContract {
     versionNumber: r.versionNumber,
     contractType: r.contractType as ContractType,
     previousContractId: r.previousContractId ?? undefined,
+    enrollmentId: r.enrollmentId ?? undefined,
     documentInstanceId: r.documentInstanceId ?? undefined,
     templateVersion: r.templateVersion ?? undefined,
     status: r.status as ContractStatus,

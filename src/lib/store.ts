@@ -621,6 +621,7 @@ export async function addLesson(input: {
   allowAvailabilityOverride?: boolean;
   overriddenByUserId?: string;
   createdByUserId?: string;
+  enrollmentId?: string;
 }): Promise<AppData> {
   return withTenantScope(() => store.addLesson(input));
 }

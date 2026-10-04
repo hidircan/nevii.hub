@@ -191,7 +191,30 @@ export const STUDENT_TYPES: StudentType[] = [
   "Güzel Sanatlar Lisesi Hazırlık",
 ];
 
+/**
+ * 2026-10-04 — öğrencinin bir EĞİTİM kaydı (tek öğrenci kimliği, N eğitim). Enstrüman ile öğretmen aynı
+ * kayıtta tutulur — hangi öğretmenin hangi eğitimi verdiği açıktır. Öğretmen değişince yalnız bu kayıt
+ * değişir; geçmiş derslerin `teacherId`'si DEĞİŞMEZ. Eğitim silinmez, `active=false` ile kapanır.
+ */
+export interface StudentEnrollment {
+  id: string;
+  instrument: Instrument;
+  teacherId?: string;
+  branchId?: BranchId;
+  lessonDurationMinutes?: number;
+  weeklyLessonCount?: number;
+  active: boolean;
+  /** Birincil eğitim — öğrencinin eski tekil alanları (teacherId/lessonDurationMinutes) bunu yansıtır. */
+  primary?: boolean;
+  startDate?: string;
+  endDate?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
 export interface Student {
+  /** 2026-10-04 — eğitim kayıtları; yoksa eski tek eğitim (bkz. student-enrollments.ts effectiveEnrollments). */
+  enrollments?: StudentEnrollment[];
   id: string;
   /** Faz 12 — insan-okunur, değişmez kurum numarası (ör. "S00001"). */
   displayId?: string;
@@ -459,6 +482,9 @@ export interface Package {
 export type StudentProfilePatch = Partial<
   Pick<
     Student,
+    /** 2026-10-04 — yalnız upsertStudentEnrollmentTool yazar (birincil alanlarla birlikte senkron). */
+    | "enrollments"
+    | "lessonDurationMinutes"
     /** Yalnız toplu işlem (bulkStudentActionTool) yazar — tekil detay ekranı MT-003 gereği değiştirmez. */
     | "teacherId"
     | "instruments"
@@ -758,6 +784,8 @@ export interface Room {
 
 export interface Lesson {
   id: string;
+  /** 2026-10-04 — dersin ait olduğu eğitim (Student.enrollments[].id); yoksa enstrümandan çözülür. */
+  enrollmentId?: string;
   studentId: string;
   teacherId: string;
   roomId: string;
@@ -877,6 +905,7 @@ export type LessonSeriesStatus = "active" | "ended" | "cancelled";
  */
 export interface LessonSeries {
   id: string;
+  enrollmentId?: string;
   studentId: string;
   teacherId: string;
   roomId: string;
@@ -2349,6 +2378,8 @@ export interface ContractInstallmentView {
 
 export interface StudentContract {
   id: string;
+  /** 2026-10-04 — sözleşmenin ait olduğu eğitim; yoksa birincil/eski eğitim. */
+  enrollmentId?: string;
   studentId: string;
   contractNumber: string;
   versionNumber: number;
