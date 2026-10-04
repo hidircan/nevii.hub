@@ -846,6 +846,20 @@ export async function createContract(input: CreateContractInput): Promise<Create
     }
   }
 
+  // 2026-10-04 KÖK NEDEN (Ela vakası: aynı öğrencide 1,5 dk arayla iki "ilk kayıt" sözleşmesi, ikisi de aktif →
+  // borç iki kez yazıldı): aktif (iptal/yenilenmemiş) sözleşmesi olan öğrenciye ikinci bir İLK sözleşme açılmaz.
+  // Planı düzeltmek için mevcut sözleşme revize edilir; yeniden başlamak için önce iptal edilir.
+  if (input.contractType === "initial") {
+    const active = (await listContractsForStudent(input.tenantId, input.studentId)).filter(
+      (c) => c.status !== "cancelled" && c.status !== "superseded"
+    );
+    if (active.length > 0) {
+      throw new Error(
+        `Bu öğrencinin aktif sözleşmesi var (${active.map((c) => c.contractNumber).join(", ")}). Aynı öğrenciye ikinci bir ilk kayıt sözleşmesi açılamaz: ödeme planını veya bilgileri düzeltmek için mevcut sözleşmeyi "Revize et" ile güncelleyin; baştan oluşturmak gerekiyorsa önce mevcut sözleşmeyi iptal edin.`
+      );
+    }
+  }
+
   const paymentDueRule = resolveContractPaymentDueRule(input.paymentMethod, input.paymentPolicy);
   // P0 (2026-09-05) — kök neden düzeltmesi: kurumun düzenli aylık ödeme
   // penceresi (kredi kartı 1-5, nakit/EFT 1-15) yalnız SONRAKİ dönem

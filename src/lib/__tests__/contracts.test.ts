@@ -1150,6 +1150,8 @@ describe("Owner policy (2026-08-30, final) — İlk ödeme kayıt anında alın�
 
   it("regresyon — üç ödeme yönteminin (nakit/kart/EFT) HİÇBİRİNDE ilk tahsilat tarihi gerekçe gerektirmez", async () => {
     for (const paymentMethod of ["cash", "credit_card", "transfer"] as const) {
+      // 2026-10-04 — aynı öğrenciye ikinci AKTİF ilk sözleşme açılamaz; her yöntem bağımsız denenir.
+      await fs.rm(STUDENT_CONTRACTS_FILE, { force: true });
       const res = await createStudentContractTool(
         adminCtx(),
         await initialInput({

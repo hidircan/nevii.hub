@@ -15187,6 +15187,16 @@ async function planOpsChangeForPayout(
   const payout = findPayoutCoveringLesson(data.teacherPayouts, lesson);
   if (!payout) return ok({ mode: "none" });
   const teacherName = data.teachers.find((t) => t.id === payout.teacherId)?.name ?? "Öğretmen";
+  // Güvenlik: hakediş kaydını değiştiren her yol, hakediş ekranlarıyla AYNI kurum hakediş yetkisini ister —
+  // yoklama yetkisi tek başına hakedişi yeniden hesaplatamaz/düzeltemez.
+  const earnings = await assertTeacherEarningsAccess(ctx);
+  if (!earnings.ok) {
+    return fail(
+      "FORBIDDEN",
+      `Bu ders ${teacherName} adlı öğretmenin kayıtlı ${payoutPeriodLabel(payout)} hakedişine dahil ve değişiklik hakedişi etkiler; ` +
+        "hakediş işlem yetkiniz olmadığı için yoklama değiştirilmedi. Hakediş yetkisi olan bir yöneticiye başvurun."
+    );
+  }
   if (payoutPaidAmount(payout) <= 0.005) return ok({ mode: "recompute", payoutId: payout.id, teacherName });
 
   // Ödemeli kayıt: etki = bu değişikliğin dönem hesabına farkı (snapshot'ı olmayan eski kayıtta da çalışır).

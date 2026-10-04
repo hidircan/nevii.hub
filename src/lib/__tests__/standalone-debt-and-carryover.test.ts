@@ -119,4 +119,16 @@ describe("sözleşme dışı borcun sözleşmeye taşınması (çift borç yok, 
     const { listContractsForStudent } = await import("../contracts");
     expect(await listContractsForStudent(DEFAULT_TENANT_ID, "s1")).toHaveLength(0);
   });
+
+  it("2026-10-04 Ela vakası: aktif sözleşmesi olan öğrenciye ikinci ilk sözleşme açılamaz (çift borç yok)", async () => {
+    await seed();
+    const first = await createStudentContractTool(adminCtx(), input({ keepRestSeparate: undefined }));
+    expect(first.ok).toBe(true);
+    const second = await createStudentContractTool(adminCtx(), input({}));
+    expect(second.ok).toBe(false);
+    if (second.ok) return;
+    expect(second.error.message).toContain("aktif sözleşmesi var");
+    const { listContractsForStudent } = await import("../contracts");
+    expect(await listContractsForStudent(DEFAULT_TENANT_ID, "s1")).toHaveLength(1);
+  });
 });

@@ -310,8 +310,12 @@ describe("hakediş penceresi ve Panel özeti dilimleri — finans sonucu tam ver
     const created = await createTeacherPayoutTool(ctx(), { teacherId: "t1", periodStart: SEP.start, periodEnd: SEP.end });
     expect(created.ok).toBe(true);
     if (!created.ok) return;
-    // Kayıttan SONRA ikinci ders de Geldi → canlı hesap kayıttan farklılaşır (sessizce yeniden yazılmaz).
-    await setLessonOpsFlagTool(ctx(), { lessonId: "x2", flag: "attended", confirmSwitch: true });
+    // Kayıttan SONRA ikinci ders de Geldi → canlı hesap kayıttan farklılaşır. 2026-10-04'ten beri yoklama aracı
+    // ödenmemiş kaydı otomatik yeniden hesapladığı için fark, dilim eşliğini sınamak üzere doğrudan veriyle kurulur.
+    {
+      const d = await readData();
+      await writeData({ ...d, lessons: d.lessons.map((l) => (l.id === "x2" ? { ...l, studentAttended: true } : l)) });
+    }
     let full = await readData();
     let win = await sepWindow();
     const payout = full.teacherPayouts.find((p) => p.id === created.data.payout.id)!;
