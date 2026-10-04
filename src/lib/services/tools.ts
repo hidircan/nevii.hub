@@ -13673,8 +13673,9 @@ function resolveLastPeriodPricing(input: {
   if (input.mode === "regular_fee") {
     return { ok: true, pricing: { mode: "regular_fee", regularFeeAmount: input.monthlyAmount } };
   }
-  if (!input.manualAmount || input.manualAmount <= 0) {
-    return { ok: false, message: "Son dönem tutarı manuel seçildiğinde sıfırdan büyük bir tutar girilmelidir." };
+  // 2026-10-04 — boş ile gerçek 0 ayrı: 0 TL geçerli bir ücretsiz son dönemdir, yalnız boş reddedilir.
+  if (input.manualAmount === undefined || !Number.isInteger(input.manualAmount) || input.manualAmount < 0) {
+    return { ok: false, message: "Son dönem tutarını manuel seçtiniz ama tutar boş. Tutarı yazın (ücretsiz dönem için 0)." };
   }
   return { ok: true, pricing: { mode: "manual", manualAmount: input.manualAmount } };
 }
@@ -13693,7 +13694,8 @@ const contractInstallmentPlanSchema = z.object({
   enrollmentEndDate: z.string().min(1).optional(),
   /** P0 (2026-09-04) — "Sözleşmenin son döneminde eksik kalan dersler nasıl ücretlendirilsin?" tercihi; bkz. `resolveLastPeriodPricing`. */
   lastPeriodPricingMode: lastPeriodPricingModeSchema.optional(),
-  lastPeriodManualAmount: z.number().int().positive().optional(),
+  // 2026-10-04 — 0 geçerli (ücretsiz son dönem); boş = alan gönderilmez.
+  lastPeriodManualAmount: z.number().int().min(0).optional(),
   /** Sözleşme bitiş tercihi — bkz. contracts.ts `computeContractEndDate`; verilmezse "month_end". */
   endDatePreference: z.enum(["month_end", "date_based"]).optional(),
   /** Sahip kararı (2026-09-16) — ilk tahsilat takip eden ayı da kapsıyor mu; verilmezse kayıt anındaki seçim okunur. */
@@ -14051,7 +14053,8 @@ const createStudentContractSchema = z.object({
   usePerLessonBilling: z.boolean().optional(),
   /** P0 (2026-09-04) — "Sözleşmenin son döneminde eksik kalan dersler nasıl ücretlendirilsin?" tercihi; bkz. `resolveLastPeriodPricing`. Yalnız `usePerLessonBilling` ile birlikte anlamlı, undefined ise davranış DEĞİŞMEZ. */
   lastPeriodPricingMode: lastPeriodPricingModeSchema.optional(),
-  lastPeriodManualAmount: z.number().int().positive().optional(),
+  // 2026-10-04 — 0 geçerli (ücretsiz son dönem); boş = alan gönderilmez.
+  lastPeriodManualAmount: z.number().int().min(0).optional(),
   /** Sözleşme bitiş tercihi — bkz. contracts.ts `computeContractEndDate`; verilmezse "month_end". */
   endDatePreference: z.enum(["month_end", "date_based"]).optional(),
   /** Sahip kararı (2026-09-16) — ilk tahsilat takip eden ayı da kapsıyor mu; verilmezse kayıt anındaki seçim okunur. */

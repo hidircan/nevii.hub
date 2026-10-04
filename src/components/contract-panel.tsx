@@ -2,7 +2,7 @@
 import { withReturnTo, withQueryParam, withoutQueryParam } from "@/lib/safe-return-to";
 import { useCurrentPath } from "@/lib/use-current-path";
 
-import { parseAmountInput } from "@/lib/amount-input";
+import { MoneyInput } from "@/components/money-input";
 import { useEffect, useId, useRef, useState } from "react";
 import Link from "@/components/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -697,10 +697,22 @@ function ContractForm({
       : (registration?.firstCollectionIncludesNextMonth ?? false)
   );
   // Önizleme tablosunda elle düzenlenen taksit tutarları (sıra no → tutar).
-  const [amountOverrides, setAmountOverrides] = useContractDraft<Record<number, number>>(draftKey, "amountOverrides", {});
+  const [amountOverrides, setAmountOverrides] = useContractDraft<Record<number, number | "">>(draftKey, "amountOverrides", {});
   // 2026-09-19 — önizlemede elle değiştirilen vade tarihleri (sıra no → yyyy-MM-dd). Otomatik
   // hesap yeniden çalışsa da (tekrar önizleme) korunur; "↺" ile otomatiğe dönülür.
   const [dueDateOverrides, setDueDateOverrides] = useContractDraft<Record<number, string>>(draftKey, "dueDateOverrides", {});
+  // 2026-10-04 — geçersiz (kuruşlu/harfli) metin içeren tutar alanları; doluyken kaydetme durur.
+  const [invalidAmountFields, setInvalidAmountFields] = useState<ReadonlySet<string>>(new Set());
+  const amountInputInvalid = invalidAmountFields.size > 0;
+  function markAmountInvalid(field: string, bad: boolean) {
+    setInvalidAmountFields((prev) => {
+      if (prev.has(field) === bad) return prev;
+      const next = new Set(prev);
+      if (bad) next.add(field);
+      else next.delete(field);
+      return next;
+    });
+  }
   // Formdaki süre değişikliği öğrenci kaydına da yazılır (yeniden açınca/yenileyince aynı kalsın).
   const [durationSaveNote, setDurationSaveNote] = useState<string | null>(null);
   // C — ders süresi: öğrenci kaydındaki tek kanonik alan; burada seçilince anında öğrenciye yazılır.
@@ -944,7 +956,10 @@ function ContractForm({
     isValidDateOnlyInput(enrollmentStartDate) &&
     firstPaymentCollectedAt !== enrollmentStartDate;
 
+  // Boş satır (kullanıcı tutarı sildi, henüz yazmadı) gönderilmez; doğrulama ayrıca durdurur.
+  const emptyAmountRows = Object.entries(amountOverrides).filter(([, amount]) => amount === "").map(([sequence]) => Number(sequence));
   const installmentAmountOverrides = Object.entries(amountOverrides)
+    .filter((entry): entry is [string, number] => entry[1] !== "")
     .map(([sequence, amount]) => ({ sequence: Number(sequence), amount }))
     // 1. satır formdaki ilk tahsilattan gelir (kayıt anı tahsilatı yoksa) — ayrıca ezilmez.
     .filter((o) => !(o.sequence === 1 && needsFirstPaymentEntry && !isRenewal));
@@ -1055,8 +1070,14 @@ function ContractForm({
           "İlk ödeme sözleşme başlangıç tarihinden farklı — istisnai/gecikmeli kayıt gerekçesi zorunludur.";
       }
     }
-    if (usePerLessonBilling && lastPeriodPricingMode === "manual" && (!lastPeriodManualAmount || lastPeriodManualAmount <= 0)) {
-      errors.lastPeriodManualAmount = "Son dönem tutarı manuel seçildiğinde sıfırdan büyük bir tutar girilmelidir.";
+    if (usePerLessonBilling && lastPeriodPricingMode === "manual" && lastPeriodManualAmount === "") {
+      errors.lastPeriodManualAmount = "Son dönem tutarını yazın (ücretsiz dönem için 0).";
+    }
+    if (amountInputInvalid) {
+      errors.amounts = "Bir tutar alanında geçersiz değer var (kuruş veya harf). Altındaki uyarıya göre düzeltin.";
+    }
+    if (preview && emptyAmountRows.length > 0) {
+      errors.amounts = `${emptyAmountRows.sort((a, b) => a - b).join(", ")}. taksit tutarı boş. Tutarı yazın (ücretsiz ay için 0) veya ↺ ile otomatiğe döndürün.`;
     }
     if (!signatoryFullName.trim()) errors.signatoryFullName = "Yasal imza sahibi adı soyadı zorunludur.";
     if (isRenewal && hasOverlap) {
@@ -1168,15 +1189,21 @@ function ContractForm({
   // tabloda da, "İlk tahsilat" alanında da AYNI state düzenlenir, sunucu da aynı tutarı yazar.
   const firstRowFollowsEntry = needsFirstPaymentEntry && !isRenewal;
   const liveRows = preview
-    ? preview.installments.map((r) => ({
-        ...r,
-        amount:
+    ? preview.installments.map((r) => {
+        const override = amountOverrides[r.sequence];
+        const amount: number =
           r.sequence === 1 && firstRowFollowsEntry && firstPaymentAmount !== ""
             ? firstPaymentAmount
-            : amountOverrides[r.sequence] ?? r.amount,
+            : override === ""
+              ? 0
+              : (override ?? r.amount);
+        return {
+        ...r,
+        amount,
         dueDate: dueDateOverrides[r.sequence] ?? r.dueDate,
         dueDateManual: dueDateOverrides[r.sequence] !== undefined || r.dueDateSource === "manual",
-      }))
+        };
+      })
     : [];
   const dateNotices = contractDateGuidance({
     registeredAt: registration?.registeredAt,
@@ -1419,16 +1446,12 @@ function ContractForm({
             </div>
             {lastPeriodPricingMode === "manual" ? (
               <div className="mt-2">
-                <Input
-                  inputMode="numeric"
-                  pattern="[0-9]*"
+                <MoneyInput
                   placeholder="Son dönem tutarı (TL)"
-                  value={lastPeriodManualAmount === "" ? "" : String(lastPeriodManualAmount)}
-                  onChange={(e) => {
-                    const digits = e.target.value.replace(/[^0-9]/g, "");
-                    setLastPeriodManualAmount(digits === "" ? "" : Number(digits));
-                  }}
-                  aria-invalid={!!fieldErrors.lastPeriodManualAmount}
+                  value={lastPeriodManualAmount}
+                  onValueChange={setLastPeriodManualAmount}
+                  onInvalidChange={(bad) => markAmountInvalid("lastPeriodManualAmount", bad)}
+                  aria-invalid={!!fieldErrors.lastPeriodManualAmount || undefined}
                 />
                 <FieldError message={fieldErrors.lastPeriodManualAmount} />
               </div>
@@ -1458,13 +1481,12 @@ function ContractForm({
         </div>
         <div>
           <Label>Aylık ücret (TL)</Label>
-          <Input
-            inputMode="numeric"
-            pattern="[0-9]*"
-            placeholder="Örn. 3000"
-            value={monthlyAmount === "" ? "" : String(monthlyAmount)}
-            onChange={(e) => setMonthlyAmount(parseAmountInput(e.target.value) ?? "")}
-            aria-invalid={!!fieldErrors.monthlyAmount}
+          <MoneyInput
+            placeholder="Örn. 3.000"
+            value={monthlyAmount}
+            onValueChange={setMonthlyAmount}
+            onInvalidChange={(bad) => markAmountInvalid("monthlyAmount", bad)}
+            aria-invalid={!!fieldErrors.monthlyAmount || undefined}
           />
           <FieldError message={fieldErrors.monthlyAmount} />
           {isScholarship ? (
@@ -1511,15 +1533,11 @@ function ContractForm({
         </div>
         <div>
           <Label>Kaparo / depozito (opsiyonel, TL)</Label>
-          <Input
-            inputMode="numeric"
-            pattern="[0-9]*"
+          <MoneyInput
             placeholder="Opsiyonel"
-            value={depositAmount === "" ? "" : String(depositAmount)}
-            onChange={(e) => {
-              const digits = e.target.value.replace(/[^0-9]/g, "");
-              setDepositAmount(digits === "" ? "" : Number(digits));
-            }}
+            value={depositAmount}
+            onValueChange={setDepositAmount}
+            onInvalidChange={(bad) => markAmountInvalid("depositAmount", bad)}
           />
         </div>
         <div>
@@ -1583,17 +1601,13 @@ function ContractForm({
             </div>
             <div>
               <Label>Tahsil edilen tutar (TL)</Label>
-              <Input
+              <MoneyInput
                 id="firstPaymentAmount"
-                inputMode="numeric"
-                pattern="[0-9]*"
-                placeholder="Örn. 3000"
-                value={firstPaymentAmount === "" ? "" : String(firstPaymentAmount)}
-                onChange={(e) => {
-                  const digits = e.target.value.replace(/[^0-9]/g, "");
-                  setFirstPaymentAmount(digits === "" ? "" : Number(digits));
-                }}
-                aria-invalid={!!fieldErrors.firstPaymentAmount}
+                placeholder="Örn. 3.000"
+                value={firstPaymentAmount}
+                onValueChange={setFirstPaymentAmount}
+                onInvalidChange={(bad) => markAmountInvalid("firstPaymentAmount", bad)}
+                aria-invalid={!!fieldErrors.firstPaymentAmount || undefined}
               />
               <FieldError message={fieldErrors.firstPaymentAmount} />
             </div>
@@ -1816,6 +1830,7 @@ function ContractForm({
               </div>
             </dl>
           ) : null}
+          <FieldError message={fieldErrors.amounts} />
           <table className="w-full text-left">
             <thead>
               <tr className="text-[var(--color-text-muted)]">
@@ -1907,24 +1922,22 @@ function ContractForm({
                       : "—"}
                   </td>
                   <td className="py-1">
-                    <input
-                      type="number"
-                      min={0}
-                      step={1}
+                    <MoneyInput
                       value={
-                        row.sequence === 1 && firstRowFollowsEntry && firstPaymentAmount !== ""
+                        row.sequence === 1 && firstRowFollowsEntry
                           ? firstPaymentAmount
                           : amountOverrides[row.sequence] ?? row.amount
                       }
-                      onChange={(e) => {
-                        const raw = e.target.value.replace(/[^\d]/g, "");
+                      onValueChange={(v) => {
                         if (row.sequence === 1 && firstRowFollowsEntry) {
                           // 1. satır = gerçekten tahsil edilen ilk ödeme; tek alan düzenlenir.
-                          setFirstPaymentAmount(raw === "" ? "" : Number(raw));
+                          setFirstPaymentAmount(v);
                           return;
                         }
-                        setAmountOverrides((prev) => ({ ...prev, [row.sequence]: raw === "" ? 0 : Number(raw) }));
+                        // Boş ≠ 0: silinen tutar boş kalır (kaydetme "boş" uyarısıyla durur), 0 yazılırsa gerçek 0.
+                        setAmountOverrides((prev) => ({ ...prev, [row.sequence]: v }));
                       }}
+                      onInvalidChange={(bad) => markAmountInvalid(`row${row.sequence}`, bad)}
                       className="w-28 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-right text-xs text-[var(--color-text)]"
                       aria-label={`${row.sequence}. taksit tutarı`}
                     />
