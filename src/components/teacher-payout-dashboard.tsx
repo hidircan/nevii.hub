@@ -476,7 +476,15 @@ export function TeacherPayoutDashboard({
                         <td className="px-3 py-2">
                           <span className="font-medium">{line.studentName ?? "—"}</span>
                           <span className="block text-[11px] text-[var(--color-text-muted)]">
+                            {line.instrument ? `${line.instrument} · ` : ""}
                             {line.branchName ?? "Şube yok"}
+                            {src?.lessonType === "makeup" ? " · telafi dersi" : src?.lessonType === "trial" ? " · deneme" : ""}
+                          </span>
+                          <span className="block text-[11px] text-[var(--color-text-muted)]">
+                            Yoklama: {src?.attendanceLabel ?? "—"}
+                            {line.pricingPolicy
+                              ? ` · Politika: ${line.pricingPolicy === "fixed_duration" ? "süreye göre sabit (30/40/50 dk)" : "öğretmen dakika ücreti"}`
+                              : ""}
                           </span>
                           <span className="mt-0.5 flex flex-wrap gap-1">
                             {src?.state === "missing" ? <Tag tone="danger">Programda yok — yalnız hakediş kalemi</Tag> : null}

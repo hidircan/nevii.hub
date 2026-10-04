@@ -26,6 +26,7 @@ export function PayoutPolicyPanel({
   monthLabel,
   current,
   explicit,
+  inheritedFromLabel,
   setAtLabel,
   prefill,
   recordCount,
@@ -38,6 +39,8 @@ export function PayoutPolicyPanel({
   monthLabel: string;
   current: { policy: Policy } & Rates;
   explicit: boolean;
+  /** Bu ay açık seçim yoksa ve önceki bir aydaki seçim yürürlükteyse o ayın etiketi ("Eylül 2026"). */
+  inheritedFromLabel?: string;
   setAtLabel?: string;
   prefill: Rates;
   /** Bu ayla kesişen aktif hakediş kaydı sayısı. */
@@ -111,7 +114,11 @@ export function PayoutPolicyPanel({
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="font-semibold text-[var(--color-text)]">Hakediş politikası — {monthLabel}</h2>
         <span className="text-xs text-[var(--color-text-muted)]">
-          {explicit ? `Seçildi${setAtLabel ? ` · ${setAtLabel}` : ""}` : "Seçim yok — öğretmen bazlı ücret geçerli"}
+          {explicit
+            ? `Seçildi${setAtLabel ? ` · ${setAtLabel}` : ""}`
+            : inheritedFromLabel
+              ? `Bu ay için ayrı seçim yok — ${inheritedFromLabel} seçimi yürürlükte (devralındı)`
+              : "Seçim yok — öğretmen bazlı ücret geçerli"}
           {recordCount > 0 ? ` · ${recordCount} kayıt (${paidRecordCount} ödemeli)` : ""}
         </span>
       </div>

@@ -18,7 +18,7 @@ import {
 import { ScopeTabs } from "@/components/scope-tabs";
 import { PayoutThresholdCell } from "@/components/payout-threshold-cell";
 import { PayoutPolicyPanel } from "@/components/payout-policy-panel";
-import { payoutsOverlappingMonth, resolvePayoutPolicy } from "@/lib/teacher-payout";
+import { payoutsOverlappingMonth, resolvePayoutPolicyWithSource } from "@/lib/teacher-payout";
 import { formatMoney } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -98,7 +98,14 @@ export default async function TeacherPayoutOverviewPage({
   // 2026-09-29 — ayın hakediş politikası (kurum geneli). Birleşik görünümde yazma yok.
   const policies = data.teacherPayoutPolicies ?? [];
   const policyRecord = kurum.scope.mode === "all" ? undefined : policies.find((p) => p.month === monthParam);
-  const currentPolicy = policyRecord ? resolvePayoutPolicy(data, "", monthParam) : { policy: "per_teacher_rule" as const };
+  // 2026-10-04 — yürürlük tarihli politika: bu ay seçim yoksa önceki en son seçim devralınır (bkz. teacher-payout.ts).
+  const policyResolution =
+    kurum.scope.mode === "all" ? undefined : resolvePayoutPolicyWithSource({ teacherPayoutPolicies: policies.filter((p) => !p.teacherIds) }, "", monthParam);
+  const currentPolicy = policyResolution ? policyResolution.terms : { policy: "per_teacher_rule" as const };
+  const inheritedFromLabel =
+    policyResolution?.source === "inherited" && policyResolution.fromMonth
+      ? format(new Date(`${policyResolution.fromMonth}-15T12:00:00Z`), "MMMM yyyy", { locale: tr })
+      : undefined;
   const lastFixed = [...policies].filter((p) => p.policy === "fixed_duration").sort((a, b) => b.month.localeCompare(a.month))[0];
   const ratePrefill = currentPolicy.policy === "fixed_duration" ? currentPolicy : (lastFixed ?? {});
   const monthPayouts = payoutsOverlappingMonth(data.teacherPayouts, monthParam);
@@ -133,6 +140,7 @@ export default async function TeacherPayoutOverviewPage({
         monthLabel={monthLabel}
         current={currentPolicy}
         explicit={Boolean(policyRecord)}
+        inheritedFromLabel={inheritedFromLabel}
         setAtLabel={policyRecord ? format(parseISO(policyRecord.setAt), "d MMM yyyy HH:mm", { locale: tr }) : undefined}
         prefill={{ rate30: ratePrefill.rate30, rate40: ratePrefill.rate40, rate50: ratePrefill.rate50 }}
         recordCount={monthPayouts.length}

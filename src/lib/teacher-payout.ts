@@ -2,6 +2,7 @@ import { differenceInCalendarDays, differenceInMinutes, format, parseISO } from 
 import type {
   AppData,
   BranchId,
+  Lesson,
   Instrument,
   TeacherFeeRule,
   TeacherPayout,
@@ -217,15 +218,37 @@ export function payoutMonthKey(iso: string): string {
   return toDayKey(iso).slice(0, 7);
 }
 
+export type PayoutPolicyResolution = {
+  terms: TeacherPayoutPolicyTerms;
+  /** explicit: bu ay için seçildi · inherited: önceki bir aydaki seçimden yürürlükte · default: hiç seçim yok. */
+  source: "explicit" | "inherited" | "default";
+  /** inherited ise politikanın yürürlüğe girdiği ay ("yyyy-MM"). */
+  fromMonth?: string;
+};
+
 /**
- * Bir öğretmenin bir aydaki politikası. Kayıt yoksa mevcut politika (geçmiş aylar kendiliğinden değişmez).
+ * Bir öğretmenin bir aydaki politikası — YÜRÜRLÜK TARİHLİ model (2026-10-04, owner: "varsayılan yeni aylarda ve
+ * eksik aylık ayarlarda 30/40/50 olsun"): bir ay için açık seçim varsa o; yoksa o aydan ÖNCEKİ en son açık seçim
+ * (yürürlük ayından itibaren devam eder — ör. Eylül'de seçilen 30/40/50 Ekim'de de geçerlidir); hiç seçim yoksa
+ * eski davranış (öğretmen dakika ücreti). Geçmiş ayların hesabı değişmez: ilk seçimden önceki aylar varsayılanda
+ * kalır, kayıtlı hakedişler kendi `pricingSnapshot`'ını taşır ve toplu yeniden hesaplanmaz.
  * `teacherIds` yalnız birleşik ("Tüm kurumlar") görünümde doludur — başka kurumun kaydı uygulanmaz.
  */
+export function resolvePayoutPolicyWithSource(
+  data: Pick<AppData, "teacherPayoutPolicies">,
+  teacherId: string,
+  month: string
+): PayoutPolicyResolution {
+  const applicable = (data.teacherPayoutPolicies ?? []).filter((p) => !p.teacherIds || p.teacherIds.includes(teacherId));
+  const exact = applicable.find((p) => p.month === month);
+  if (exact) return { terms: termsOf(exact), source: "explicit" };
+  const prior = applicable.filter((p) => p.month < month).sort((a, b) => b.month.localeCompare(a.month))[0];
+  if (prior) return { terms: termsOf(prior), source: "inherited", fromMonth: prior.month };
+  return { terms: DEFAULT_TERMS, source: "default" };
+}
+
 export function resolvePayoutPolicy(data: Pick<AppData, "teacherPayoutPolicies">, teacherId: string, month: string): TeacherPayoutPolicyTerms {
-  const rec = (data.teacherPayoutPolicies ?? []).find(
-    (p) => p.month === month && (!p.teacherIds || p.teacherIds.includes(teacherId))
-  );
-  return rec ? termsOf(rec) : DEFAULT_TERMS;
+  return resolvePayoutPolicyWithSource(data, teacherId, month).terms;
 }
 
 function termsOf(p: TeacherPayoutPolicyTerms): TeacherPayoutPolicyTerms {
@@ -309,7 +332,8 @@ export function setPayoutPolicyForMonthData(
 
   const policies = data.teacherPayoutPolicies ?? [];
   const existing = policies.find((p) => p.month === input.month);
-  const previous = existing ? termsOf(existing) : DEFAULT_TERMS;
+  // Önceki politika = bu ay fiilen geçerli olan (açık seçim yoksa yürürlükteki devralınan seçim).
+  const previous = existing ? termsOf(existing) : resolvePayoutPolicy({ teacherPayoutPolicies: policies.filter((p) => !p.teacherIds) }, "", input.month);
   const changed = JSON.stringify(previous) !== JSON.stringify(terms);
 
   const record: TeacherPayoutPolicyPeriod = {
@@ -522,6 +546,24 @@ export type CreateTeacherPayoutResult =
   | { ok: false; code: "PAYOUT_ALREADY_EXISTS"; message: string; existingPayoutId: string };
 
 /** Hakediş dönemi kimliği gün bazındadır. DB ISO datetime ile formun yyyy-MM-dd değeri aynı dönemdir. */
+/**
+ * 2026-10-04 — dersin gününü kapsayan AKTİF (iptal edilmemiş) hakediş kaydı (aynı öğretmen). Gün anahtarı,
+ * hakediş hesabının (`computeTeacherEarningsForPeriod`) kullandığı anahtarla aynıdır.
+ */
+export function findPayoutCoveringLesson(
+  payouts: TeacherPayout[],
+  lesson: Pick<Lesson, "teacherId" | "startAt">
+): TeacherPayout | undefined {
+  const day = toDayKey(lesson.startAt);
+  return payouts.find(
+    (p) =>
+      p.teacherId === lesson.teacherId &&
+      p.status !== "cancelled" &&
+      payoutPeriodDayKey(p.periodStart) <= day &&
+      payoutPeriodDayKey(p.periodEnd) >= day
+  );
+}
+
 export function payoutPeriodDayKey(value: string): string {
   const match = /^(\d{4}-\d{2}-\d{2})/.exec(value);
   return match?.[1] ?? value.slice(0, 10);

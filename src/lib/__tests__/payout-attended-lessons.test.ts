@@ -87,10 +87,12 @@ describe("hakediş — Geldi ve tamamlanmış dersler (Tuçe vakası)", () => {
     expect(dup.ok).toBe(false);
     expect((await readData()).teacherPayouts.filter((p) => p.teacherId === "t1" && p.status !== "cancelled" && p.periodStart.startsWith("2026-11"))).toHaveLength(1);
 
-    // Kayıtlı hakedişteki dersin Geldi'si sessizce geri alınamaz.
+    // 2026-10-04 (owner, Turgay vakası): ödenmemiş (hesaplanmış) hakedişte Geldi geri alınabilir;
+    // hakediş kaydı sessizce eski kalmaz, güncel hesapla yeniden donar.
     const undo = await clearLessonOpsFlagTool(ctx(), { lessonId: "g1", expected: "attended" });
-    expect(undo.ok).toBe(false);
-    expect(!undo.ok && undo.error.message).toContain("Geldi");
+    expect(undo.ok ? "ok" : undo.error.message).toBe("ok");
+    const recalculated = (await readData()).teacherPayouts.find((p) => p.teacherId === "t1" && p.status !== "cancelled" && p.periodStart.startsWith("2026-11"))!;
+    expect(recalculated.totalAmount).toBe(600);
   });
 
   it("DB biçimi: Dersi bitir (completed, lessonProcessed=false) sayılır; Telafi/Gelmedi/Mazeretli/iptal/planlı sayılmaz", async () => {

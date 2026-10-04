@@ -208,6 +208,7 @@ import {
   setPayoutPolicyForMonthData,
   payoutPeriodDayKey,
   payoutsOverlappingMonth,
+  findPayoutCoveringLesson,
   type TeacherEarningsResult,
   type TeacherPayoutPaymentMethodInfo,
 } from "../teacher-payout";
@@ -7963,6 +7964,9 @@ export type PayoutLineSource = {
   /** Ders Programı'nda o haftaya giden bağlantı. */
   programHref?: string;
   excluded: boolean;
+  /** Dersin güncel yoklama işareti (İşlendi / Geldi / Dersi bitir …). */
+  attendanceLabel?: string;
+  lessonType?: string;
 };
 
 function describeLineSources(data: AppData, lessonIds: string[]): Record<string, PayoutLineSource> {
@@ -7976,6 +7980,23 @@ function describeLineSources(data: AppData, lessonIds: string[]): Record<string,
       demo: Boolean(series?.demoTag),
       programHref: lesson ? `/panel/program?studentId=${lesson.studentId}&week=${lesson.startAt.slice(0, 10)}` : undefined,
       excluded: excluded.has(id),
+      // 2026-10-04 — dökümde yoklama: hakedişe hangi işaretle girdiği (İşlendi / Geldi / Dersi bitir).
+      attendanceLabel: !lesson
+        ? undefined
+        : lesson.lessonProcessed
+          ? "İşlendi"
+          : lesson.studentAttended
+            ? "Geldi"
+            : lesson.opsMakeupFlag
+              ? "Telafi"
+              : lesson.studentAbsent
+                ? "Gelmedi"
+                : lesson.studentExcused
+                  ? "Mazeretli"
+                  : lesson.status === "completed"
+                    ? "Tamamlandı (Dersi bitir)"
+                    : "Yoklama girilmedi",
+      lessonType: lesson?.type,
     };
   }
   return out;
@@ -15010,6 +15031,7 @@ export async function setLessonOpsFlagTool(
       /** P0-2 — "İşlendi"/"Telafi" için zorunlu, gerçek kullanıcı gerekçesi (lesson-ops.ts uygular). */
       reason: z.string().optional(),
       ...disruptionInputShape,
+      ...payoutCorrectionShape,
     }),
     input
   );
@@ -15056,9 +15078,18 @@ export async function setLessonOpsFlagTool(
     });
   }
 
+  const payoutPlan = await planOpsChangeForPayout(
+    ctx,
+    v.data.lessonId,
+    { kind: "set", flag: v.data.flag, reason: v.data.reason, disruption },
+    v.data
+  );
+  if (!payoutPlan.ok) return payoutPlan;
+
   try {
     const result = await switchLessonOpsFlagLive(v.data.lessonId, v.data.flag, ctx.userId, v.data.reason, disruption);
     if (!result.ok) return fail("VALIDATION_ERROR", result.message);
+    const payoutWarning = result.alreadySet ? undefined : await settleOpsChangeForPayout(ctx, payoutPlan.data, v.data.lessonId);
     // Zaten Telafi olan derste kaynak sonradan veriliyorsa yalnız kaynak alanı güncellenir.
     if (result.alreadySet && disruption && result.lesson.disruptionSource !== disruption.source) {
       const { buildDisruptionPatch } = await import("../lesson-disruption");
@@ -15093,7 +15124,7 @@ export async function setLessonOpsFlagTool(
       flag: v.data.flag,
       alreadySet: result.alreadySet,
       message: result.message,
-      warning: attendanceWarning ?? undefined,
+      warning: [attendanceWarning, payoutWarning].filter(Boolean).join(" ") || undefined,
     });
   } catch (e) {
     const { isMakeupQuotaExceededError } = await import("../makeup-quota");
@@ -15102,6 +15133,116 @@ export async function setLessonOpsFlagTool(
     }
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "setLessonOpsFlag failed");
   }
+}
+
+
+/**
+ * 2026-10-04 — YOKLAMA DÜZELTMESİ ↔ HAKEDİŞ (Turgay vakası). Eskiden kayıtlı hakedişe düşen dersin
+ * İşlendi/Geldi'si hiç geri alınamıyordu. Artık:
+ * - Değişiklik dersin hakedişe girip girmemesini DEĞİŞTİRMİYORSA → serbest.
+ * - Kapsayan hakediş ÖDENMEMİŞ (hesaplanmış, bekliyor) → değişiklik yapılır, kayıt güncel hesapla yeniden donar.
+ * - Kapsayan hakedişte ÖDEME VARSA → mali etki gösterilir; yetkili kullanıcı gerekçe + kritik şifreyle onaylar.
+ *   Ödeme satırları değişmez (gerçekte ödenen ödenmiş görünür); fark "recalc" düzeltme kaydı (ters/ek) olarak eklenir.
+ */
+const payoutCorrectionShape = {
+  /** Ödenmiş hakedişi etkileyen yoklama düzeltmesini kullanıcı mali etkiyi görüp onayladı. */
+  paidPayoutConfirm: z.boolean().optional(),
+  payoutReason: z.string().max(500).optional(),
+  criticalPassword: z.string().max(200).optional(),
+};
+
+type OpsPayoutPlan =
+  | { mode: "none" }
+  | { mode: "recompute"; payoutId: string; teacherName: string }
+  | { mode: "adjust"; payoutId: string; teacherName: string; reason: string; delta: number };
+
+type OpsChange =
+  | { kind: "clear"; expected: import("../lesson-ops").LessonOpsFlag }
+  | { kind: "set"; flag: import("../lesson-ops").LessonOpsFlag; reason?: string; disruption?: import("../lesson-disruption").LessonDisruptionInput };
+
+async function planOpsChangeForPayout(
+  ctx: ServiceContext,
+  lessonId: string,
+  change: OpsChange,
+  confirm: { paidPayoutConfirm?: boolean; payoutReason?: string; criticalPassword?: string }
+): Promise<ServiceResult<OpsPayoutPlan>> {
+  const data = await readData();
+  const lesson = data.lessons.find((l) => l.id === lessonId);
+  if (!lesson) return fail("NOT_FOUND", "Ders bulunamadı. Sayfayı yenileyip tekrar deneyin.");
+  // Gerçek işlemin SAF karşılığıyla simüle edilir (ör. İşlendi geri alınınca completed → scheduled) — kural ikilenmez.
+  let simulated: AppData;
+  try {
+    const { clearLessonOpsFlag, switchLessonOpsFlag } = await import("../lesson-ops");
+    const r =
+      change.kind === "clear"
+        ? clearLessonOpsFlag(data, lessonId, change.expected, ctx.userId)
+        : switchLessonOpsFlag(data, lessonId, change.flag, ctx.userId, new Date(), change.reason, change.disruption);
+    if (!r.ok) return ok({ mode: "none" }); // gerçek çağrı aynı nedeni kullanıcıya söyler
+    simulated = r.data;
+  } catch {
+    return ok({ mode: "none" });
+  }
+  const next = simulated.lessons.find((l) => l.id === lessonId)!;
+  if (isLessonProcessedForPayout(lesson) === isLessonProcessedForPayout(next)) return ok({ mode: "none" });
+  const payout = findPayoutCoveringLesson(data.teacherPayouts, lesson);
+  if (!payout) return ok({ mode: "none" });
+  const teacherName = data.teachers.find((t) => t.id === payout.teacherId)?.name ?? "Öğretmen";
+  if (payoutPaidAmount(payout) <= 0.005) return ok({ mode: "recompute", payoutId: payout.id, teacherName });
+
+  // Ödemeli kayıt: etki = bu değişikliğin dönem hesabına farkı (snapshot'ı olmayan eski kayıtta da çalışır).
+  const periodTotal = (d: typeof data) =>
+    applyPayoutLineOverrides(computeTeacherEarningsForPeriod(d, payout.teacherId, payout.periodStart, payout.periodEnd), payout.lineOverrides)
+      .totalAmount;
+  const delta = round2Money(periodTotal(simulated) - periodTotal(data));
+  // Ders hakedişten hariç tutulmuşsa (veya satır düzeltmesiyle etkisizse) tutar değişmez → onay gerekmez.
+  if (Math.abs(delta) < 0.01) return ok({ mode: "none" });
+  const paid = payoutPaidAmount(payout);
+  const fmt = (n: number) => `${new Intl.NumberFormat("tr-TR", { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(n)} TL`;
+  if (!confirm.paidPayoutConfirm) {
+    return fail(
+      "CONFLICT",
+      `Bu ders, ${teacherName} adlı öğretmenin ${payoutPeriodLabel(payout)} hakedişinde ve bu hakedişe ${fmt(paid)} ödeme yapılmış. ` +
+        `Değişiklik hakedişi ${delta >= 0 ? "+" : "−"}${fmt(Math.abs(delta))} etkiler; ödenen tutar değişmez, fark düzeltme kaydı olarak eklenir. ` +
+        "Devam etmek için gerekçe ve kritik işlem şifresiyle onaylayın.",
+      { paidPayoutImpact: { payoutId: payout.id, period: payoutPeriodLabel(payout), teacherName, paidAmount: paid, delta } }
+    );
+  }
+  const reason = (confirm.payoutReason ?? "").trim();
+  if (reason.length < 5) return fail("VALIDATION_ERROR", "Ödenmiş hakedişi etkileyen düzeltme için en az 5 karakterlik gerekçe yazın.");
+  const gate = await passwordGate(ctx, "teacher_payout.attendance_correction", payout, teacherName, confirm.criticalPassword);
+  if (gate) return gate;
+  return ok({ mode: "adjust", payoutId: payout.id, teacherName, reason, delta });
+}
+
+/** Yoklama değişikliği YAPILDIKTAN sonra hakediş tarafını tutarlı hâle getirir; hata sessiz değil, uyarı döner. */
+async function settleOpsChangeForPayout(ctx: ServiceContext, plan: OpsPayoutPlan, lessonId: string): Promise<string | undefined> {
+  if (plan.mode === "none") return undefined;
+  const data = await readData();
+  const payout = data.teacherPayouts.find((p) => p.id === plan.payoutId);
+  if (!payout) return "Yoklama kaydedildi ama ilgili hakediş kaydı bulunamadı; Hakedişler ekranından dönemi kontrol edin.";
+  if (plan.mode === "recompute" && payoutPaidAmount(payout) <= 0.005) {
+    const next = recomputePayoutData(data, payout);
+    if ("error" in next) return `Yoklama kaydedildi ama hakediş yeniden hesaplanamadı: ${next.error}`;
+    const err = await savePayout(next);
+    if (err) return "Yoklama kaydedildi ama hakediş güncellenemedi; Hakedişler ekranında \"Güncel hesapla\" ile yenileyin.";
+    await payoutAudit(ctx, "teacher_payout.recalculate", payout, plan.teacherName, {
+      reason: "Yoklama düzeltmesi (ödenmemiş hakediş otomatik yeniden hesaplandı)",
+      lessonId,
+      changes: diffRecordFields({ totalAmount: payout.totalAmount }, { totalAmount: next.totalAmount }),
+    });
+    return undefined;
+  }
+  // Ödemeli (veya arada ödeme girilmiş) kayıt: fark düzeltme kaydı. Onaylı yolda tutar, onayda gösterilen
+  // bu değişikliğin etkisidir; arada ödeme girildiyse (recompute planı) güncel fark kullanılır.
+  const drift = plan.mode === "adjust" ? plan.delta : payoutDrift(data, payout);
+  if (Math.abs(drift) < 0.01) return undefined;
+  const reason = plan.mode === "adjust" ? plan.reason : "Yoklama düzeltmesi (hakedişe ödeme girilmişti)";
+  const res = addAdjustmentData(payout, { amount: drift, reason: `Yoklama düzeltmesi: ${reason}`, kind: "recalc" }, ctx.userId);
+  if (!res.ok) return `Yoklama kaydedildi ama hakediş farkı kaydedilemedi: ${res.message}`;
+  const err = await savePayout(res.payout);
+  if (err) return "Yoklama kaydedildi ama hakediş farkı kaydedilemedi; Hakedişler ekranında farkı düzeltme kaydıyla kapatın.";
+  await payoutAudit(ctx, "teacher_payout.adjust", payout, plan.teacherName, { amount: drift, kind: "recalc", reason, lessonId });
+  return undefined;
 }
 
 /**
@@ -15113,7 +15254,7 @@ export async function setLessonOpsFlagTool(
 export async function clearLessonOpsFlagTool(
   ctx: ServiceContext,
   input: unknown
-): Promise<ServiceResult<{ lessonId: string; cleared: string | null; alreadyClear: boolean; message: string }>> {
+): Promise<ServiceResult<{ lessonId: string; cleared: string | null; alreadyClear: boolean; message: string; warning?: string }>> {
   if (ctx.role === "TEACHER") return fail("FORBIDDEN", TEACHER_ATTENDANCE_FORBIDDEN_MESSAGE);
   const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
@@ -15121,47 +15262,31 @@ export async function clearLessonOpsFlagTool(
     z.object({
       lessonId: z.string().min(1),
       expected: z.enum(["attended", "processed", "makeup", "absent", "excused"]),
+      ...payoutCorrectionShape,
     }),
     input
   );
   if (!v.ok) return v;
 
-  // Geldi de hakediş kaynağı (2026-09-30) — kayıtlı hakedişteki dersin statüsü sessizce geri alınmaz.
-  if (v.data.expected === "processed" || v.data.expected === "attended") {
-    const data = await readData();
-    const lesson = data.lessons.find((l) => l.id === v.data.lessonId);
-    if (!lesson) return fail("NOT_FOUND", "Ders bulunamadı. Sayfayı yenileyip tekrar deneyin.");
-    const { payoutPeriodDayKey } = await import("../teacher-payout");
-    const day = lesson.startAt.slice(0, 10);
-    const payout = data.teacherPayouts.find(
-      (p) =>
-        p.teacherId === lesson.teacherId &&
-        p.status !== "cancelled" &&
-        payoutPeriodDayKey(p.periodStart) <= day &&
-        payoutPeriodDayKey(p.periodEnd) >= day
-    );
-    if (payout) {
-      return fail(
-        "CONFLICT",
-        `Bu ders, öğretmenin ${payoutPeriodDayKey(payout.periodStart)} – ${payoutPeriodDayKey(payout.periodEnd)} dönemi için oluşturulmuş ` +
-          `${payout.status === "paid" ? "ÖDENMİŞ" : "kayıtlı"} hakedişine dahil; "${v.data.expected === "processed" ? "İşlendi" : "Geldi"}" geri alınamaz. ` +
-          "Tutarı düzeltmek için öğretmenin hakediş detayındaki revizyonu kullanın."
-      );
-    }
-  }
+  // 2026-10-04 — hakediş kilidi kaldırıldı: ödenmemiş → yeniden hesap; ödenmiş → etki + gerekçe + kritik şifre + düzeltme kaydı.
+  const payoutPlan = await planOpsChangeForPayout(ctx, v.data.lessonId, { kind: "clear", expected: v.data.expected }, v.data);
+  if (!payoutPlan.ok) return payoutPlan;
 
   try {
     const result = await clearLessonOpsFlagLive(v.data.lessonId, v.data.expected, ctx.userId);
     if (!result.ok) {
       return fail(result.code === "NOT_FOUND" ? "NOT_FOUND" : result.code === "STALE" || result.code === "SLOT_TAKEN" ? "CONFLICT" : "VALIDATION_ERROR", result.message);
     }
+    let warning: string | undefined;
     if (!result.alreadyClear) {
       audit(ctx, "lesson.ops.clear", "Lesson", v.data.lessonId, {
         cleared: result.cleared,
         cancelledMakeupIds: result.cancelledMakeupIds.length ? result.cancelledMakeupIds : undefined,
+        payoutCorrection: payoutPlan.data.mode !== "none" ? payoutPlan.data.mode : undefined,
       });
+      warning = await settleOpsChangeForPayout(ctx, payoutPlan.data, v.data.lessonId);
     }
-    return ok({ lessonId: v.data.lessonId, cleared: result.cleared, alreadyClear: result.alreadyClear, message: result.message });
+    return ok({ lessonId: v.data.lessonId, cleared: result.cleared, alreadyClear: result.alreadyClear, message: result.message, warning });
   } catch (e) {
     logger.error("clearLessonOpsFlagTool failed", e);
     return fail("INTERNAL_ERROR", "Yoklama statüsü geri alınamadı; statü değişmedi. Sayfayı yenileyip tekrar deneyin.");
