@@ -193,7 +193,7 @@ export const ATTENDANCE_CALENDAR_COLORS = {
   attended: "#15803d", // green-700 — Geldi/tamamlandı
   processed: "#b91c1c", // red-700 — İşlendi
   makeup: "#ca8a04", // yellow-600 — Telafi (kaçırılan, telafiye alınan ders)
-  makeup_planned: "#ea580c", // orange-600 — Planlanan telafi (Telafi Merkezi'nden planlanan ders)
+  makeup_planned: "#e5fb57", // slate-600 — Planlanan telafi (Telafi Merkezi'nden planlanan ders)
   cancelled: "#475569", // slate-600 — İptal
   absent: "#57534e", // stone-600 — Gelmedi (mazeretsiz)
   excused: "#7c3aed", // violet-600 — Mazeretli

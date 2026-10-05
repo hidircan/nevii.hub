@@ -6,7 +6,7 @@ const PRESENTATION: Record<LessonFinalStatus, { label: string; className: string
   attended: { label: "Geldi", className: "bg-emerald-100 text-emerald-800", Icon: CheckCircle2 },
   processed: { label: "İşlendi", className: "bg-rose-100 text-rose-900", Icon: ClipboardCheck },
   makeup: { label: "Telafi", className: "bg-amber-100 text-amber-900", Icon: RefreshCcw },
-  makeup_planned: { label: "Planlanan telafi", className: "bg-orange-100 text-orange-900", Icon: RefreshCcw },
+  makeup_planned: { label: "Planlanan telafi", className: "bg-[#e5fb57] text-slate-900", Icon: RefreshCcw },
   cancelled: { label: "İptal", className: "bg-slate-700 text-white", Icon: XCircle },
 };
 

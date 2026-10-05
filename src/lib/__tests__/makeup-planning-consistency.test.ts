@@ -71,14 +71,14 @@ describe("telafi önerisi ↔ kayıt — aynı kural", () => {
 
 describe("planlanan telafi statüsü", () => {
   const base = { startAt: addDays(new Date(), 3).toISOString(), status: "scheduled" as const, studentAttended: false, lessonProcessed: false, opsMakeupFlag: false };
-  it("Telafi Merkezi'nden planlanan ders 'Planlanan telafi' (turuncu); işlenince yoklama statüsü; kaçan ders 'Telafi'", () => {
+  it("Telafi Merkezi'nden planlanan ders 'Planlanan telafi' (sarı); işlenince yoklama statüsü; kaçan ders 'Telafi'", () => {
     expect(resolveLessonFinalStatus({ ...base, type: "makeup" })).toBe("makeup_planned");
     expect(resolveLessonFinalStatus({ ...base, type: "makeup", lessonProcessed: true })).toBe("processed");
     expect(resolveLessonFinalStatus({ ...base, type: "makeup", studentAttended: true })).toBe("attended");
     expect(resolveLessonFinalStatus({ ...base, type: "regular", opsMakeupFlag: true })).toBe("makeup");
     expect(resolveLessonFinalStatus({ ...base, type: "makeup", status: "cancelled" })).toBe("cancelled");
     expect(lessonCardFillStyle("makeup_planned").backgroundColor).toBe(ATTENDANCE_CALENDAR_COLORS.makeup_planned);
-    expect(ATTENDANCE_CALENDAR_COLORS.makeup_planned).toBe("#ea580c");
+    expect(ATTENDANCE_CALENDAR_COLORS.makeup_planned).toBe("#e5fb57");
     expect(resolveDayFillSegments("open", [{ lessonId: "x", opsStatus: "makeup_planned" }])).toEqual(["makeup_planned"]);
   });
 });
