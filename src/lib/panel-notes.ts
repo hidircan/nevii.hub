@@ -13,8 +13,11 @@ import { requireRole, type ServiceContext } from "./services/context";
 export type PanelNote = { id: string; body: string; createdByUserId: string; createdByName: string; createdAt: string };
 
 export const PANEL_NOTES_FILE = path.join(resolveDataDir(path.join(process.cwd(), "data")), "panel-notes.json");
-/** Panel personeli (öğretmen portalı/öğrenci hariç); SUPER_ADMIN requireRole'da zaten geçer. */
-const NOTE_ROLES = ["SCHOOL_ADMIN", "BRANCH_MANAGER"] as ServiceContext["role"][];
+/**
+ * Kurum yöneticileri; SUPER_ADMIN requireRole'da zaten geçer. Şube müdürü YOK: notlar kurum genelidir,
+ * şube müdürü yalnız atandığı şubenin verisini görür (fail-closed).
+ */
+const NOTE_ROLES = ["SCHOOL_ADMIN"] as ServiceContext["role"][];
 export const PANEL_NOTE_MAX_LENGTH = 2000;
 
 type Stored = PanelNote & { tenantId: string };

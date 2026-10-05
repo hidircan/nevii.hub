@@ -28,5 +28,7 @@ describe("Günlük Özet notları (2026-10-05)", () => {
     expect(!long.ok && long.error.message).toContain("en fazla 2000");
     expect((await addPanelNoteTool(ctx("TEACHER"), { body: "x" })).ok).toBe(false);
     expect((await listPanelNotesTool(ctx("STUDENT"))).ok).toBe(false);
+    // Notlar kurum genelidir; şube müdürü yalnız atandığı şubeyi görür (fail-closed).
+    expect((await listPanelNotesTool(ctx("BRANCH_MANAGER"))).ok).toBe(false);
   });
 });

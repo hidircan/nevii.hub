@@ -134,7 +134,10 @@ export default async function DashboardPage({
     kurum.scope.mode === "single" ? listTasks(kurum.scope.tenantId) : Promise.resolve([]),
     listTerminalContractIdsForScope(kurum.scope),
     kurum.scope.mode === "single" && visibleKeys.has("trials") ? listTrialLessonsTool(session) : Promise.resolve(null),
-    kurum.scope.mode === "single" && visibleKeys.has("notes") ? listPanelNotesTool(session, { limit: 5 }) : Promise.resolve(null),
+    // Notlar yazımı oturumun kurumuna gider: başka kurum seçiliyken gösterilmez (okuma/yazma kurumu ayrışmasın).
+    kurum.scope.mode === "single" && kurum.scope.tenantId === session.tenantId && visibleKeys.has("notes")
+      ? listPanelNotesTool(session, { limit: 5 })
+      : Promise.resolve(null),
   ]);
   const trialDigest =
     trialsResult && trialsResult.ok

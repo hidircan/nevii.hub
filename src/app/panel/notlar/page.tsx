@@ -17,13 +17,14 @@ export default async function NotlarPage() {
     redirect("/login?next=/panel/notlar");
   }
   const kurum = await getInstitutionContext(session);
-  const result = kurum.scope.mode === "single" ? await listPanelNotesTool(session) : null;
+  // Yazım oturumun kurumuna gider; başka kurum seçiliyken o kurumun notları gösterilmez.
+  const result = kurum.scope.mode === "single" && kurum.scope.tenantId === session.tenantId ? await listPanelNotesTool(session) : null;
   return (
     <div>
       <KurumScopeNote scope={kurum.scope} />
       <PageHeader title="Notlar" description="Kuruma gelen bir sonraki kişi için bırakılan notlar — yazan ve zaman kayıtlı." />
       {!result ? (
-        <EmptyState title="Bir kurum seçin" description="Notlar kurum bazındadır. Üstteki kurum seçiciden tek bir kurum seçin." />
+        <EmptyState title="Kendi kurumunuzu seçin" description="Notlar kurum bazındadır ve yalnız kendi kurumunuzda görüntülenir. Üstteki kurum seçiciden kendi kurumunuzu seçin." />
       ) : !result.ok ? (
         <EmptyState title="Bu ekrana erişiminiz yok" description={result.error.message} />
       ) : (
