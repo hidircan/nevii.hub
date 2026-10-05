@@ -68,6 +68,19 @@ export interface CalendarPlanInstallment {
   installmentBreakdown?: { periodLabel: string; amount: number }[];
   /** Sözleşmesiz plan satırlarını ayırt etmek için (`Payment.source`). */
   source?: string;
+  /** Gerçek tahsilat anı ve şekli — ay kutusunda sabit gösterilir (2026-10-05). */
+  paidAt?: string;
+  method?: string;
+}
+
+/** Ayın tahsilatları: satır başına fiilen alınan tutar + tahsilat anı + şekli (en eski önce). */
+export type CalendarMonthCollection = { paidAt: string; method?: string; amount: number };
+
+function collectionsOf(rows: CalendarPlanInstallment[]): CalendarMonthCollection[] {
+  return rows
+    .filter((r) => r.paidAt && r.paidAmount > 0 && r.status !== "voided")
+    .map((r) => ({ paidAt: r.paidAt!, method: r.method, amount: Math.trunc(r.paidAmount) }))
+    .sort((a, b) => a.paidAt.localeCompare(b.paidAt));
 }
 
 /**
@@ -91,6 +104,7 @@ export type CalendarMonthPlan =
       status: PaymentStatus;
       /** "Ekim 2026" gibi — sözleşme satırından gelir, burada üretilmez. */
       periodLabel?: string;
+      collections: CalendarMonthCollection[];
     }
   | {
       /**
@@ -107,6 +121,7 @@ export type CalendarMonthPlan =
       status?: PaymentStatus;
       monthlyFee?: number;
       message: string;
+      collections: CalendarMonthCollection[];
     }
   | {
       state: "no_active_contract";
@@ -207,6 +222,7 @@ export function resolveContractPlanForMonth(input: {
       remaining: remainingAmount(amount, paidAmount),
       status: earliestDue ? resolveCollectionStatus({ amount, paidAmount, dueDate: earliestDue, now: input.now }) : undefined,
       monthlyFee: fee,
+      collections: collectionsOf(own),
       message:
         own.length > 0
           ? "Sözleşmesiz aylık plan (öğrenci kartındaki ödeme bilgisi)."
@@ -257,6 +273,7 @@ export function resolveContractPlanForMonth(input: {
     remaining: remainingAmount(amount, paidAmount),
     status: resolveCollectionStatus({ amount, paidAmount, dueDate: earliestDueDate, now: input.now }),
     periodLabel: rows.length === 1 ? (rows[0]!.installmentPeriodLabel ?? rows[0]!.periodLabel) : undefined,
+    collections: collectionsOf(rows),
   };
 }
 

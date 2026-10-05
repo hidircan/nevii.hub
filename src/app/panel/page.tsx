@@ -9,6 +9,7 @@ import {
   FileWarning,
   FlaskConical,
   Info,
+  StickyNote,
   Users,
 } from "lucide-react";
 import { Card, PageHeader } from "@/components/ui";
@@ -36,6 +37,8 @@ import {
 } from "@/lib/dashboard/screen-widgets";
 import { buildTrialDigest, type TrialDigestItem } from "@/lib/dashboard/trial-digest";
 import { listTrialLessonsTool } from "@/lib/services";
+import { listPanelNotesTool } from "@/lib/panel-notes";
+import { PanelNotes } from "@/components/panel-notes";
 import { canViewFinanceAndStaffSummary } from "@/lib/auth/platform-access";
 import { canAccessTeacherEarnings } from "@/lib/platform/teacher-earnings-access";
 import { computeSetupProgress } from "@/lib/setup-progress";
@@ -124,13 +127,14 @@ export default async function DashboardPage({
   // görünümünde sözleşme okuması tek tenant'a bağlı olduğu için atlanır.
   // Deneme listesi yalnız bölüm görünürken çekilir (tek ek sorgu); ekran
   // widget'ları ek sorgu yapmaz — hepsi aşağıdaki özetten türetilir.
-  const [contractsByStudent, tasks, terminalContractIds, trialsResult] = await Promise.all([
+  const [contractsByStudent, tasks, terminalContractIds, trialsResult, notesResult] = await Promise.all([
     kurum.scope.mode === "single"
       ? listContractSummariesByStudent(kurum.scope.tenantId)
       : Promise.resolve(new Map()),
     kurum.scope.mode === "single" ? listTasks(kurum.scope.tenantId) : Promise.resolve([]),
     listTerminalContractIdsForScope(kurum.scope),
     kurum.scope.mode === "single" && visibleKeys.has("trials") ? listTrialLessonsTool(session) : Promise.resolve(null),
+    kurum.scope.mode === "single" && visibleKeys.has("notes") ? listPanelNotesTool(session, { limit: 5 }) : Promise.resolve(null),
   ]);
   const trialDigest =
     trialsResult && trialsResult.ok
@@ -214,6 +218,14 @@ export default async function DashboardPage({
   }
 
   const sectionNodes: Partial<Record<DashboardSectionKey, React.ReactNode>> = {
+    // Notlar: yalnız yetkili rolde ve tek kurum görünümünde (yazım tek kuruma gider).
+    notes:
+      notesResult && notesResult.ok ? (
+        <Card>
+          <SectionHeader icon={<StickyNote className="h-4 w-4" />} title="Notlar" href="/panel/notlar" hrefLabel="Tümü" />
+          <PanelNotes initialNotes={notesResult.data} limit={5} />
+        </Card>
+      ) : null,
     ...widgetNodes,
     trials: trialDigest ? (
       <Card>

@@ -234,6 +234,46 @@ const PLAN_STATUS_LABEL: Record<string, string> = {
  * satırından beslenir. Burada hiçbir tutar HESAPLANMAZ; `plan` ne diyorsa o
  * gösterilir. Plan yoksa tutar UYDURULMAZ, açık durum yazılır.
  */
+/** 2026-10-05 — ayın tahsilatı sabit görünür: "Ödendi · 05.10.2026 · Nakit" (birden çok tahsilatta her biri). */
+function MonthCollections({ plan }: { plan: CalendarMonthPlan }) {
+  if (plan.state !== "ok" && plan.state !== "student_plan") return null;
+  if (plan.collections.length === 0) return null;
+  const fullyPaid = plan.remaining <= 0;
+  return (
+    <ul className="mt-1 space-y-0.5" aria-label="Bu ayın tahsilatları">
+      {plan.collections.map((c, i) => (
+        <li
+          key={`${c.paidAt}-${i}`}
+          className="flex items-center gap-1.5 rounded-md px-2 py-0.5 text-[11px] font-medium tabular-nums"
+          style={{
+            background: fullyPaid ? "var(--color-success-soft)" : "var(--color-warning-soft)",
+            color: fullyPaid ? "var(--color-success)" : "var(--color-warning)",
+          }}
+        >
+          <span aria-hidden="true">{fullyPaid ? "✓" : "◐"}</span>
+          <span>{fullyPaid ? "Ödendi" : "Kısmi"}</span>
+          <span>· {new Date(c.paidAt).toLocaleDateString("tr-TR", { timeZone: "Europe/Istanbul" })}</span>
+          <span>· {c.method ? PAYMENT_METHOD_LABEL[c.method] ?? c.method : "Şekil belirtilmemiş"}</span>
+          {plan.collections.length > 1 || !fullyPaid ? <span className="ml-auto">{formatMoneyTL(c.amount)}</span> : null}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** Tam ödenmiş ayda giriş alanları kapalı gelir (kutu sade kalır); gerekirse açılır. */
+function PaidMonthEntry({ collapsed, children }: { collapsed: boolean; children: React.ReactNode }) {
+  if (!collapsed) return <>{children}</>;
+  return (
+    <details className="mt-1 text-[11px]">
+      <summary className="cursor-pointer select-none text-[var(--color-text-muted)] hover:text-[var(--color-text)]">
+        Yeni tahsilat / düzelt
+      </summary>
+      {children}
+    </details>
+  );
+}
+
 function MonthPlanSummary({ plan }: { plan: CalendarMonthPlan }) {
   if (plan.state === "ok") {
     return (
@@ -782,7 +822,15 @@ export function AttendanceCalendarPanel({
                   {MONTH_LABELS[m.month - 1]} {m.year}
                 </h3>
                 {canEdit && !readOnly && data ? <MonthPlanSummary plan={data.plan} /> : null}
+                {data ? <MonthCollections plan={data.plan} /> : null}
                 {canEdit && !readOnly ? (
+                  <PaidMonthEntry
+                    collapsed={
+                      (data?.plan.state === "ok" || data?.plan.state === "student_plan") &&
+                      data.plan.collections.length > 0 &&
+                      data.plan.remaining <= 0
+                    }
+                  >
                   <div className="mt-1.5 space-y-1.5">
                     <div className="grid grid-cols-2 gap-1.5">
                       <input
@@ -844,6 +892,7 @@ export function AttendanceCalendarPanel({
                       </button>
                     </div>
                   </div>
+                  </PaidMonthEntry>
                 ) : null}
               </div>
 
