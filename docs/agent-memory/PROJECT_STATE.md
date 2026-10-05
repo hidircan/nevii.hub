@@ -4,6 +4,15 @@ Kısa tutulur (~50 satır): oturum sonunda yalnız "Güncel snapshot" bölümün
 `archive/`'e taşınır. Ayrıntı → ilgili `docs/testing/UAT_*.md`, `docs/operations/*`. Yönlendirici: `nevii-hub` skill.
 Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_2026-09-24.md`.
 
+## Güncel snapshot — 2026-10-05 (sözleşmesiz aylık tahakkuk CANLIDA)
+- Kök neden: sözleşmesiz öğrencinin aylık ücreti hiç borç yazılmıyordu (`monthly_plan` yalnız tahsilatta); liste doğru
+  ama gösterecek borç yoktu. Canlı: `d3d3212` (`dpl_3mn1hgk…`). `standalone-monthly-accrual.ts` + cron
+  `/api/v1/platform/jobs/monthly-accrual?apply=1` her gün 01:00 UTC (yalnız içinde bulunulan ay, idempotent, audit).
+- Karşılanmış ay: kayıt ilk tahsilatı (+sonraki ay işaretliyse), `monthly_plan` açıklama ayı VEYA vade ayı (iptal dahil).
+- Veri (owner onayı): ilk cron'da 14 öğrenciye Ekim borcu 96.605 TL. 4 öğrencinin ilk tahsilatı 1 TL — dokunulmadı, owner kontrol.
+- Açık: vadesi geçen satır hiç `overdue` olmuyor (listede "Gecikmiş" eksik; takvim doğru) — ayrı iş. Sıradaki: yoklama
+  takviminde ödeme tarihi/türü sabit, Özet Notlar, deneme başvuru, kulüp (tasarım önce).
+
 ## Güncel snapshot — 2026-10-03 akşam (ürün sürümü CANLIDA; açık kapandı; demo verisi kaldırıldı)
 - Canlı: `a35be2e` (`dpl_97iJbe28U2s7j214DD1wnXosHzHM`, fra1, 16:07Z): pasif öğretmen kaldırma, telafi saati boşaltır +
   eşzamanlı ders yazımında çift rezervasyon kapandı, enstrüman tek kaynak (Bas Gitar), öğrenci seçilince ders süresi,
