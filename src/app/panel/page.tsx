@@ -226,7 +226,7 @@ export default async function DashboardPage({
       notesResult && notesResult.ok ? (
         <Card>
           <SectionHeader icon={<StickyNote className="h-4 w-4" />} title="Notlar" href="/panel/notlar" hrefLabel="Tümü" />
-          <PanelNotes initialNotes={notesResult.data} limit={5} />
+          <PanelNotes viewer={{ userId: session.userId, isOwner: session.role === "SUPER_ADMIN" }} initialNotes={notesResult.data} limit={5} />
         </Card>
       ) : null,
     ...widgetNodes,

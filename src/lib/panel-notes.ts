@@ -150,6 +150,11 @@ export async function addPanelNoteTool(ctx: ServiceContext, input: unknown): Pro
 
 const updateSchema = z.object({ id: z.string().min(1), body: z.unknown() });
 
+/** Düzenleme yetkisi: notu yazan veya kurum sahibi (SUPER_ADMIN). UI da aynı kuralla "Düzenle" gösterir. */
+export function canEditPanelNote(ctx: Pick<ServiceContext, "role" | "userId">, note: Pick<PanelNote, "createdByUserId">): boolean {
+  return ctx.role === "SUPER_ADMIN" || note.createdByUserId === ctx.userId;
+}
+
 /** Notu revize eder; ilk yazan değişmez, son düzenleyen + zaman notta görünür. */
 export async function updatePanelNoteTool(ctx: ServiceContext, input: unknown): Promise<ServiceResult<PanelNote>> {
   const auth = requireRole(ctx, NOTE_ROLES);
@@ -160,6 +165,10 @@ export async function updatePanelNoteTool(ctx: ServiceContext, input: unknown): 
   if (!v.ok) return fail("VALIDATION_ERROR", v.message);
   const current = await findNote(ctx.tenantId, parsed.data.id);
   if (!current) return fail("NOT_FOUND", "Not bulunamadı; silinmiş olabilir. Sayfayı yenileyin.");
+  // Not, yazanın adıyla görünür: metni yalnız yazan (veya kurum sahibi) değiştirir — başkasının ağzından not yazılamaz.
+  if (!canEditPanelNote(ctx, current)) {
+    return fail("FORBIDDEN", `Bu notu ${current.createdByName} yazdı; yalnız notu yazan kişi veya kurum sahibi düzenleyebilir. Düzeltme için yeni bir not ekleyin.`);
+  }
   if (current.body === v.body) return ok(current);
   const updatedAt = new Date().toISOString();
   const updatedByName = await actorName(ctx);

@@ -29,7 +29,7 @@ export default async function NotlarPage() {
         <EmptyState title="Bu ekrana erişiminiz yok" description={result.error.message} />
       ) : (
         <Card className="max-w-3xl">
-          <PanelNotes initialNotes={result.data} />
+          <PanelNotes viewer={{ userId: session.userId, isOwner: session.role === "SUPER_ADMIN" }} initialNotes={result.data} />
         </Card>
       )}
     </div>

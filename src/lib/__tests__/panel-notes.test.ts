@@ -39,6 +39,10 @@ describe("Günlük Özet notları (2026-10-05)", () => {
     await withTestCriticalPassword("t1");
     const a = await addPanelNoteTool(ctx("SCHOOL_ADMIN"), { body: "Oda 3 klima arızalı" });
     const id = a.ok ? a.data.id : "";
+    // Başka bir yönetici yazanın adına metni değiştiremez; yazan ve kurum sahibi düzenleyebilir.
+    const other = await updatePanelNoteTool({ ...ctx("SCHOOL_ADMIN"), userId: "u-baska" }, { id, body: "uydurma" });
+    expect(!other.ok && other.error.message).toContain("yalnız notu yazan");
+    expect((await updatePanelNoteTool(ctx("SCHOOL_ADMIN"), { id, body: "Oda 3 klima arızalı (servis çağrıldı)" })).ok).toBe(true);
     const edited = await updatePanelNoteTool(ctx("SUPER_ADMIN"), { id, body: "Oda 3 klima tamir edildi" });
     expect(edited.ok && edited.data).toMatchObject({ body: "Oda 3 klima tamir edildi", createdByUserId: "u-SCHOOL_ADMIN" });
     expect(edited.ok && edited.data.updatedAt).toBeTruthy();

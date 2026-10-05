@@ -25,7 +25,16 @@ function stamp(iso: string): string {
  * 2026-10-06 — düzenle (son düzenleyen görünür) / sil (kritik işlem şifresi + gerekçe; not gizlenir).
  * `limit` verilirse yalnız en yeni N not gösterilir ve "Tüm notlar" bağlantısı çıkar.
  */
-export function PanelNotes({ initialNotes, limit }: { initialNotes: PanelNote[]; limit?: number }) {
+export function PanelNotes({
+  initialNotes,
+  limit,
+  viewer,
+}: {
+  initialNotes: PanelNote[];
+  limit?: number;
+  /** Düzenle yalnız notu yazana / kurum sahibine görünür (sunucu da aynı kuralı uygular). */
+  viewer: { userId: string; isOwner: boolean };
+}) {
   const [notes, setNotes] = useState(initialNotes);
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
@@ -172,6 +181,7 @@ export function PanelNotes({ initialNotes, limit }: { initialNotes: PanelNote[];
                       ) : null}
                     </span>
                     <span className="ml-auto flex items-center gap-2">
+                      {viewer.isOwner || n.createdByUserId === viewer.userId ? (
                       <button
                         type="button"
                         onClick={() => {
@@ -183,6 +193,7 @@ export function PanelNotes({ initialNotes, limit }: { initialNotes: PanelNote[];
                       >
                         Düzenle
                       </button>
+                      ) : null}
                       <CriticalDeleteDialog
                         triggerLabel="Sil"
                         title="Notu sil"
