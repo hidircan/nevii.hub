@@ -141,7 +141,11 @@ export function TrialApplicationForm({
         <CheckCircle2 className="mx-auto h-12 w-12" style={{ color: "var(--color-success)" }} aria-hidden="true" />
         <h2 className="mt-4 text-xl font-semibold">Başvurunuz alındı</h2>
         <p className="mt-2 text-sm text-[var(--color-text-muted)]">
-          Başvuru numaranız <span className="font-semibold tabular-nums text-[var(--color-text)]">{done.applicationNo}</span>.{" "}
+          {done.applicationNo ? (
+            <>
+              Başvuru numaranız <span className="font-semibold tabular-nums text-[var(--color-text)]">{done.applicationNo}</span>.{" "}
+            </>
+          ) : null}
           {institutionName} ekibi en kısa sürede sizi arayıp deneme dersinizin gününü ve saatini kesinleştirecek.
         </p>
       </div>

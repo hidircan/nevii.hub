@@ -48,7 +48,8 @@ describe("deneme dersi başvurusu (2026-10-05)", () => {
       preferredSlots: [{ startAt: pick.startAt, branchId: pick.branchId, teacherId: "uydurma" }],
       kvkkConsent: true,
     });
-    expect(res).toMatchObject({ ok: true, duplicate: false });
+    expect(res).toMatchObject({ ok: true });
+    expect(res.ok && res.applicationNo).toMatch(/^BD-\d{6}$/);
     const list = await listTrialApplicationsTool(admin);
     const app = list.ok ? list.data[0]! : undefined;
     expect(app?.status).toBe("new");
@@ -57,7 +58,10 @@ describe("deneme dersi başvurusu (2026-10-05)", () => {
 
     // Aynı telefon + enstrüman tekrar → yeni kayıt yok.
     const again = await submitPublicTrialApplication(tenant, { name: "Aday Deneme", phone: "05321112233", instrument, availabilityNote: "akşam", kvkkConsent: true });
-    expect(again).toMatchObject({ ok: true, duplicate: true });
+    // Yanıt numarasız ve genel: telefonla başkasının başvurusu sorgulanamaz; ikinci kayıt yok.
+    expect(again).toEqual({ ok: true });
+    const stillOne = await listTrialApplicationsTool(admin);
+    expect(stillOne.ok && stillOne.data.length).toBe(1);
 
     // "Planlandı" elle verilemez; planlama başvuruyu bağlar.
     const manual = await updateTrialApplicationTool(admin, { id: app!.id, status: "planned" });

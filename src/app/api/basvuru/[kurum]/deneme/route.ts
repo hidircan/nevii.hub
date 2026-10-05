@@ -44,7 +44,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ kurum: 
   } catch {
     return json(400, { ok: false, message: "Form okunamadı. Sayfayı yenileyip tekrar deneyin." });
   }
-  if (String(body.website ?? "").trim()) return json(200, { ok: true, applicationNo: "BD-000000", duplicate: false });
+  if (String(body.website ?? "").trim()) return json(200, { ok: true });
   try {
     const result = await submitPublicTrialApplication(tenant, body);
     return result.ok ? json(200, result) : json(result.status, result);

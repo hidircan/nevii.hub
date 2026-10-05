@@ -239,8 +239,9 @@ const publicSchema = z.object({
   source: z.string().trim().max(80).optional(),
 });
 
+/** Mükerrer başvuruda da AYNI genel yanıt (no yok): telefonla başkasının başvurusu sorgulanamaz. */
 export type PublicTrialSubmitResult =
-  | { ok: true; applicationNo: string; duplicate: boolean }
+  | { ok: true; applicationNo?: string }
   | { ok: false; status: number; message: string };
 
 export async function submitPublicTrialApplication(
@@ -268,7 +269,7 @@ export async function submitPublicTrialApplication(
         (a.status === "new" || a.status === "contacted") &&
         now.getTime() - new Date(a.createdAt).getTime() < 7 * 86_400_000
     );
-    if (dup) return { ok: true, applicationNo: dup.applicationNo, duplicate: true };
+    if (dup) return { ok: true };
 
     // Seçilen zamanlar SUNUCUDA güncel önerilerle eşlenir (öğretmen istemciden alınmaz; dolmuşsa tercih olarak kalır).
     const fresh = v.preferredSlots.length ? await loadTrialSlotSuggestions(tenant.tenantId, { instrument: v.instrument, branchId: v.branchId || undefined }, now) : [];
@@ -309,15 +310,16 @@ export async function submitPublicTrialApplication(
         tenant.tenantId,
         "trial_new_application",
         {
+          // Adayın yazdığı metin (ad, not) bildirime GİRMEZ: bağlantı gövdedeki yoldan çözülür (enjeksiyon yok).
           title: "Yeni deneme dersi başvurusu",
-          body: `${app.name} — ${app.instrument} için deneme dersi başvurusu yaptı (${app.applicationNo}). Detay: /panel/deneme?sekme=basvurular`,
+          body: `${app.applicationNo} — ${app.instrument} için yeni deneme dersi başvurusu var. Detay: /panel/deneme?sekme=basvurular`,
         },
         { dedupeKey: app.id }
       );
     } catch {
       // Bildirim hatası başvuruyu kaybettirmez; başvuru listede görünür.
     }
-    return { ok: true, applicationNo: app.applicationNo, duplicate: false };
+    return { ok: true, applicationNo: app.applicationNo };
   });
 }
 
