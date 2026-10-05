@@ -239,9 +239,12 @@ const publicSchema = z.object({
   source: z.string().trim().max(80).optional(),
 });
 
-/** Mükerrer başvuruda da AYNI genel yanıt (no yok): telefonla başkasının başvurusu sorgulanamaz. */
+/**
+ * Yeni, mükerrer ve bot (honeypot) başvuru için BİREBİR aynı yanıt `{ ok: true }` — başvuru no herkese açık
+ * yanıtta hiç dönmez; böylece telefonla başkasının başvurusu sorgulanamaz (no yalnız panelde görünür).
+ */
 export type PublicTrialSubmitResult =
-  | { ok: true; applicationNo?: string }
+  | { ok: true }
   | { ok: false; status: number; message: string };
 
 export async function submitPublicTrialApplication(
@@ -319,7 +322,7 @@ export async function submitPublicTrialApplication(
     } catch {
       // Bildirim hatası başvuruyu kaybettirmez; başvuru listede görünür.
     }
-    return { ok: true, applicationNo: app.applicationNo };
+    return { ok: true };
   });
 }
 

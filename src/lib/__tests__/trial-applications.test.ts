@@ -48,8 +48,7 @@ describe("deneme dersi başvurusu (2026-10-05)", () => {
       preferredSlots: [{ startAt: pick.startAt, branchId: pick.branchId, teacherId: "uydurma" }],
       kvkkConsent: true,
     });
-    expect(res).toMatchObject({ ok: true });
-    expect(res.ok && res.applicationNo).toMatch(/^BD-\d{6}$/);
+    expect(res).toEqual({ ok: true });
     const list = await listTrialApplicationsTool(admin);
     const app = list.ok ? list.data[0]! : undefined;
     expect(app?.status).toBe("new");

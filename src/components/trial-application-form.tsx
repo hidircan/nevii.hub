@@ -49,7 +49,7 @@ export function TrialApplicationForm({
   const [website, setWebsite] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState<{ applicationNo: string } | null>(null);
+  const [done, setDone] = useState(false);
 
   const req = useRef(0);
   /** Enstrüman/şube değişince uygun zamanlar yeniden yüklenir; geç gelen eski yanıt yok sayılır. */
@@ -125,9 +125,9 @@ export function TrialApplicationForm({
           website,
         }),
       });
-      const j = (await res.json()) as { ok: boolean; applicationNo?: string; message?: string };
+      const j = (await res.json()) as { ok: boolean; message?: string };
       if (!j.ok) setError(j.message ?? "Başvurunuz gönderilemedi. Bilgileri kontrol edip tekrar deneyin.");
-      else setDone({ applicationNo: j.applicationNo ?? "" });
+      else setDone(true);
     } catch {
       setError("Başvurunuz gönderilemedi: sunucuya ulaşılamadı. Bağlantınızı kontrol edip tekrar deneyin.");
     } finally {
@@ -141,11 +141,6 @@ export function TrialApplicationForm({
         <CheckCircle2 className="mx-auto h-12 w-12" style={{ color: "var(--color-success)" }} aria-hidden="true" />
         <h2 className="mt-4 text-xl font-semibold">Başvurunuz alındı</h2>
         <p className="mt-2 text-sm text-[var(--color-text-muted)]">
-          {done.applicationNo ? (
-            <>
-              Başvuru numaranız <span className="font-semibold tabular-nums text-[var(--color-text)]">{done.applicationNo}</span>.{" "}
-            </>
-          ) : null}
           {institutionName} ekibi en kısa sürede sizi arayıp deneme dersinizin gününü ve saatini kesinleştirecek.
         </p>
       </div>
