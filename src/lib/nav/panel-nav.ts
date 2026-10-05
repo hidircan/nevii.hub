@@ -88,6 +88,8 @@ export const PANEL_OPS_NAV: PanelNavItem[] = [
   { href: "/panel/finans-ozeti", label: "Finans Özeti", icon: CreditCard, roles: ["SUPER_ADMIN"] },
   { href: "/panel/evraklar", label: "Evraklar", icon: FileText },
   { href: "/panel/deneme", label: "Deneme Dersleri", icon: FlaskConical },
+  /** 2026-10-05 — Kulüpler (grup dersi, aylık sabit ücret). */
+  { href: "/panel/kulupler", label: "Kulüpler", icon: Users, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
   { href: "/panel/ders-duzeltme", label: "Ders düzeltme", icon: Wrench },
   { href: "/panel/duyurular", label: "Duyurular", icon: MessageCircle },
   { href: "/panel/bildirimler", label: "Bildirimler", icon: MessageCircle },

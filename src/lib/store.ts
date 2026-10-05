@@ -134,6 +134,10 @@ type StoreApi = {
     description: string;
     amount: number;
     dueDate: string;
+    id?: string;
+    source?: import("./types").PaymentSource;
+    clubMembershipId?: string;
+    installmentPeriodLabel?: string;
   }) => Promise<AppData | void>;
   /**
    * ÖNCELİK 4 — Yoklama Takvimi aylık planlanan tutar. studentId+month
@@ -631,6 +635,11 @@ export async function addPayment(input: {
   description: string;
   amount: number;
   dueDate: string;
+  /** 2026-10-05 — kulüp ücreti satırı için (opsiyonel; yoksa eski davranış). */
+  id?: string;
+  source?: import("./types").PaymentSource;
+  clubMembershipId?: string;
+  installmentPeriodLabel?: string;
 }): Promise<void> {
   await withTenantScope(() => store.addPayment(input));
 }

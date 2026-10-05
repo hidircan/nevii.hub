@@ -1396,11 +1396,16 @@ export async function addPayment(input: {
   description: string;
   amount: number;
   dueDate: string;
+  /** 2026-10-05 — kulüp ücreti satırı için (opsiyonel; yoksa eski davranış). */
+  id?: string;
+  source?: import("./types").PaymentSource;
+  clubMembershipId?: string;
+  installmentPeriodLabel?: string;
 }): Promise<AppData> {
   const data = await readData();
   const isOverdue = new Date(input.dueDate).getTime() < Date.now();
   const payment: Payment = {
-    id: uid("pay"),
+    id: input.id ?? uid("pay"),
     studentId: input.studentId,
     amount: input.amount,
     paidAmount: 0,
@@ -1408,6 +1413,9 @@ export async function addPayment(input: {
     dueDate: input.dueDate,
     description: input.description,
     createdAt: new Date().toISOString(),
+    ...(input.source ? { source: input.source } : {}),
+    ...(input.clubMembershipId ? { clubMembershipId: input.clubMembershipId } : {}),
+    ...(input.installmentPeriodLabel ? { installmentPeriodLabel: input.installmentPeriodLabel } : {}),
   };
   const next = { ...data, payments: [...data.payments, payment] };
   await writeData(next);

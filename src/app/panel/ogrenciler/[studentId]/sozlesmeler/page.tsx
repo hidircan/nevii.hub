@@ -109,6 +109,8 @@ export default async function StudentContractsCenterPage({
         (p) =>
           p.studentId === student.id &&
           !p.contractId &&
+          // Kulüp ücreti sözleşmeye hiçbir koşulda taşınmaz (2026-10-05).
+          p.source !== "club" &&
           (p.status === "pending" || p.status === "overdue") &&
           p.paidAmount === 0 &&
           p.amount > 0

@@ -22,6 +22,7 @@ import { actionAddStudent, type NewStudentFormState } from "@/lib/actions";
 import { Button, Card, Input, Label, Select } from "@/components/ui";
 import { StudentInstrumentTeacherFields, type TeacherOption } from "@/components/student-instrument-teacher-fields";
 import { ExtraEnrollmentsFields } from "@/components/extra-enrollments-fields";
+import { ClubRegistrationCard, type ClubOption } from "@/components/club-registration-card";
 import {
   StudentPackagePricingFields,
   type PackageAutofill,
@@ -94,7 +95,10 @@ export function NewStudentForm({
   termWeeklyClosedDays,
   prefill,
   trialSummary,
+  clubs = [],
 }: {
+  /** 2026-10-05 — aktif kulüpler (kayıt türü Kurs + Kulüp / Sadece kulüp). */
+  clubs?: ClubOption[];
   /** H — deneme dersinden dönüşümde formun ön değerleri (kullanıcı hâlâ düzenler). */
   prefill?: Record<string, string>;
   /** Ön doldurmanın kaynağı — formun üstünde bilgi bandı. */
@@ -125,6 +129,9 @@ export function NewStudentForm({
   const v = (key: string): string | undefined => values[key] ?? prefill?.[key];
   const selectedStudentTypes = new Set((values.studentTypes ?? "").split(",").filter(Boolean));
   const checkedVal = (key: string, expected: string): boolean => v(key) === expected;
+  // 2026-10-05 — Kayıt türü: kurs (varsayılan) | kurs + kulüp | sadece kulüp (kurs bölümleri devre dışı, gönderilmez).
+  const [registrationKind, setRegistrationKind] = useState(() => v("registrationKind") || "course");
+  const clubOnly = registrationKind === "club_only";
 
   // P0-1 (2026-09-02 düzeltme) — ders başı ücret yöneticinin girdiği/seçtiği
   // BİR ALAN DEĞİL: yönetici yalnız aylık ücret + haftalık ders sıklığı
@@ -448,6 +455,40 @@ export function NewStudentForm({
         </div>
       ) : null}
 
+      {clubs.length > 0 ? (
+        <Card>
+          <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-[var(--color-primary)]">Kayıt türü</h2>
+          <div className="grid gap-2 sm:grid-cols-3" role="radiogroup" aria-label="Kayıt türü">
+            {[
+              { key: "course", title: "Kurs", text: "Bireysel ders programı; sözleşme opsiyonel." },
+              { key: "course_club", title: "Kurs + Kulüp", text: "Bireysel derslere ek olarak kulübe katılır." },
+              { key: "club_only", title: "Sadece kulüp", text: "Bireysel ders ve sözleşme yok; yalnız kulüp ücreti." },
+            ].map((k) => (
+              <label
+                key={k.key}
+                className="cursor-pointer rounded-lg border px-3 py-2 text-sm"
+                style={
+                  registrationKind === k.key
+                    ? { borderColor: "var(--color-primary)", background: "var(--color-primary-soft)" }
+                    : { borderColor: "var(--color-border)" }
+                }
+              >
+                <input
+                  type="radio"
+                  name="registrationKind"
+                  value={k.key}
+                  checked={registrationKind === k.key}
+                  onChange={() => setRegistrationKind(k.key)}
+                  className="sr-only"
+                />
+                <span className="block font-semibold text-[var(--color-text)]">{k.title}</span>
+                <span className="block text-xs text-[var(--color-text-muted)]">{k.text}</span>
+              </label>
+            ))}
+          </div>
+        </Card>
+      ) : null}
+
       {/* 1. Temel Bilgiler — Öğrenci türü + Temel bilgiler + (eski ayrı "Kişisel bilgiler" başlığı KALDIRILDI, alanları buraya taşındı, yinelenmedi). */}
       <Card>
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-[var(--color-primary)]">
@@ -639,6 +680,8 @@ export function NewStudentForm({
         </div>
       </Card>
 
+      {/* 2026-10-05 — Sadece kulüp kaydında kurs bölümleri (2–4) devre dışı: gönderilmez, doğrulanmaz. */}
+      <fieldset disabled={clubOnly} className={clubOnly ? "hidden" : "m-0 min-w-0 space-y-6 border-0 p-0"}>
       {/* 2. Akademik Bilgiler — enstrüman/öğretmen BURADA, Temel Bilgiler'den hemen sonra; enstrüman burada değiştirilebilir (bkz. P0-A). Şube idari bir alan olduğu için Temel Bilgiler'e taşındı (2026-09-05). */}
       <Card>
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-[var(--color-primary)]">
@@ -1114,6 +1157,10 @@ export function NewStudentForm({
         </div>
       </Card>
 
+      </fieldset>
+
+      {registrationKind !== "course" ? <ClubRegistrationCard clubs={clubs} clubOnly={clubOnly} fieldErrors={fieldErrors} /> : null}
+
       {/* 5. KVKK açık rıza — yalnız yürürlükte bir metin varsa.
           P0 (2026-09-05) — "Sosyal medya paylaşım (fotoğraf/video) izni var"
           onay kutusu BURADAN KALDIRILDI: aynı rıza sözleşme ekranındaki
@@ -1223,9 +1270,11 @@ export function NewStudentForm({
         aynı kanonik akışla oluşturulur.
       */}
       <div className="grid gap-2 sm:grid-cols-2">
-        <Button type="submit" name="afterSave" value="contract" className="w-full" disabled={isPending}>
-          {isPending ? "Kaydediliyor…" : "Kaydet ve sözleşme oluştur"}
-        </Button>
+        {!clubOnly ? (
+          <Button type="submit" name="afterSave" value="contract" className="w-full" disabled={isPending}>
+            {isPending ? "Kaydediliyor…" : "Kaydet ve sözleşme oluştur"}
+          </Button>
+        ) : null}
         <Button type="submit" name="afterSave" value="student" variant="secondary" className="w-full" disabled={isPending}>
           {isPending ? "Kaydediliyor…" : "Sadece öğrenci kaydını oluştur"}
         </Button>

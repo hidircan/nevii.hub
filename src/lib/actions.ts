@@ -946,8 +946,23 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
       // öğrenci OLUŞMADAN burada alan-bazlı doğrulanır (hangi alanın eksik olduğu söylenir).
       // 2026-09-30 — %100 burslu kayıt: boş tutar ile geçerli "0" ayrı ele alınır;
       // 0 TL'de yöntem/tarih istenmez (tahsilat yok), > 0'da ikisi de zorunlu.
+      // 2026-10-05 — Kulüp: "course" | "course_club" | "club_only". Kulüp seçimi ÖĞRENCİ OLUŞMADAN doğrulanır.
+      const registrationKind = String(formData.get("registrationKind") || "course");
+      const clubOnly = registrationKind === "club_only";
+      let clubPlan: import("./clubs").ClubRegistrationPlan | null = null;
+      if (registrationKind !== "course") {
+        const { parseClubRegistration } = await import("./clubs");
+        const parsedClubs = await parseClubRegistration(ctx.tenantId, formData, true);
+        if (!parsedClubs.ok) {
+          throw new ToolValidationFailure({ code: "VALIDATION_ERROR", message: parsedClubs.message, details: { fieldErrors: parsedClubs.fieldErrors } });
+        }
+        clubPlan = parsedClubs.value;
+      }
       const { parseRegistrationFirstPaymentForm } = await import("./first-payment-adjustment");
-      const firstPaymentParsed = parseRegistrationFirstPaymentForm({
+      // Sadece kulüp: kurs tahsilatı yok (0) — kulüp ücreti ayrı kutudan.
+      const firstPaymentParsed = clubOnly
+        ? ({ ok: true, value: { amount: 0 } } as const)
+        : parseRegistrationFirstPaymentForm({
         method: String(formData.get("firstPaymentMethod") || ""),
         amount: String(formData.get("firstPaymentAmount") ?? ""),
         collectedAt: String(formData.get("firstPaymentDate") || ""),
@@ -970,7 +985,7 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
       // kesin zorunlu kılınır.
       const lessonDaysRaw = formData.getAll("lessonDays").map(Number).filter((n) => Number.isInteger(n));
       const weeklyLessonCountRaw = Number(formData.get("weeklyLessonCount") || 1);
-      if (lessonDaysRaw.length !== weeklyLessonCountRaw || new Set(lessonDaysRaw).size !== lessonDaysRaw.length) {
+      if (!clubOnly && (lessonDaysRaw.length !== weeklyLessonCountRaw || new Set(lessonDaysRaw).size !== lessonDaysRaw.length)) {
         const msg = `Haftalık ${weeklyLessonCountRaw} ders için ${weeklyLessonCountRaw} farklı ders günü seçmelisiniz.`;
         throw new ToolValidationFailure({
           code: "VALIDATION_ERROR",
@@ -997,7 +1012,7 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
         }
       }
 
-      const createdResult = await createStudentTool(ctx, {
+      const studentPayload = {
           name: String(formData.get("name") || ""),
           email: String(formData.get("email") || ""),
           phone: String(formData.get("phone") || ""),
@@ -1126,12 +1141,58 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
           // YALNIZCA düzenleme ekranındaki `actionProvisionStudentPortalAccess`
           // (şifreyi bir kez, React state'te gösteren) üzerinden verilir.
           createPortalAccess: false,
-        });
+        };
+      // Sadece kulüp: kurs alanları kullanılmaz — enstrüman/öğretmen ilk kulüpten, kurs ücreti 0 (kurs borcu ve
+      // sözleşme oluşmaz), ders günü/paket/indirim yok. Şube formdan; boşsa kulübün şubesi.
+      const firstClub = clubPlan?.clubs[0]?.club;
+      const clubOnlyTeacher = firstClub
+        ? (await readReferenceData()).teachers.find((t) => firstClub.teacherIds.includes(t.id) && t.active && t.instruments.includes(firstClub.instrument as never))
+        : undefined;
+      if (clubOnly && !clubOnlyTeacher) {
+        const msg = `${firstClub?.name ?? "Kulüp"} için "${firstClub?.instrument ?? ""}" branşında aktif öğretmen yok. Kulüpler ekranından öğretmen seçimini düzeltin.`;
+        throw new ToolValidationFailure({ code: "VALIDATION_ERROR", message: msg, details: { fieldErrors: { clubs: [msg] } } });
+      }
+      const createdResult = await createStudentTool(
+        ctx,
+        clubOnly && firstClub && clubOnlyTeacher
+          ? {
+              ...studentPayload,
+              instrument: firstClub.instrument,
+              teacherId: clubOnlyTeacher.id,
+              branchId: studentPayload.branchId || firstClub.branchId || "",
+              packageName: `Kulüp — ${firstClub.name}`,
+              // Kayıt tarihi kurs bölümünde (devre dışı) — kulüp kaydında bugün (kurum saati); üyelik de bugün başlar.
+              enrollmentStartDate:
+                studentPayload.enrollmentStartDate ??
+                (await import("./timezone")).toZonedYmd(new Date(), (await import("./timezone")).DEFAULT_APP_TIMEZONE),
+              lessonStartDate: undefined,
+              intendedDurationMonths: undefined,
+              packageId: undefined,
+              weeklyLessonCount: 1,
+              lessonDays: undefined,
+              monthlyFee: 0,
+              discountType: undefined,
+              discountValue: undefined,
+              campaignIds: undefined,
+              lessonDurationMinutes: undefined,
+              firstCollectionIncludesNextMonth: false,
+              firstPaymentCollected: { amount: 0 },
+              firstPaymentAdjustmentReason: undefined,
+            }
+          : studentPayload
+      );
       if (!createdResult.ok) {
         throw new ToolValidationFailure(createdResult.error);
       }
       const created = createdResult.data;
       newStudentId = created.studentId;
+
+      // 2026-10-05 — kulüp üyelikleri + ilk ay kulüp ücreti (ayrı kutudan tahsil). Hata kaydı geri almaz → uyarı.
+      if (clubPlan && clubPlan.clubs.length > 0) {
+        const { applyClubRegistration } = await import("./clubs");
+        const clubWarnings = await applyClubRegistration(ctx, created.studentId, clubPlan);
+        if (clubWarnings.length) inviteWarning = [inviteWarning, ...clubWarnings].filter(Boolean).join(" ");
+      }
 
       // 2026-10-04 — kayıtta seçilen EK eğitimler (enstrüman + öğretmen + süre birlikte). Birincil eğitim
       // formun ana alanlarıdır; ek eğitim yazılamazsa öğrenci yine oluşur, neden sözleşme ekranında gösterilir.
@@ -1294,7 +1355,8 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
     // üretim CTA'sı GÖSTERİLMEZ — bkz. RegistrationSuccessPanel).
     // 2026-09-22 — sözleşme opsiyonel: "Sadece öğrenci kaydını oluştur" seçildiyse
     // Sözleşme Merkezi'ne yönlendirilmez; öğrenci detayında "Sözleşme bekliyor" görünür.
-    const studentOnly = formData.get("afterSave") === "student";
+    // Sadece kulüp kaydında sözleşme yoktur (kulüp sözleşmeye girmez) → öğrenci detayı.
+    const studentOnly = formData.get("afterSave") === "student" || formData.get("registrationKind") === "club_only";
     const destination = !studentOnly && isFormalContractDuration(intendedDurationMonths)
       ? `/panel/ogrenciler/${newStudentId}/sozlesmeler`
       : `/panel/ogrenciler/${newStudentId}`;

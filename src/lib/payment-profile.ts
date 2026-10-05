@@ -120,12 +120,13 @@ export function collectedAmountOf(p: Pick<Payment, "status" | "amount" | "paidAm
  * kalanı borç değildir (`isLiveObligation`). İade ayrı bir satır türü değildir: yanlış tahsilat
  * ters kayıtla (tahsilatı geri alma) düzeltilir, borç yeniden canlanır.
  */
-export type DebtSourceKey = "contract" | "registration" | "monthly_plan" | "lesson" | "manual";
+export type DebtSourceKey = "contract" | "registration" | "monthly_plan" | "club" | "lesson" | "manual";
 
 export const DEBT_SOURCE_LABEL: Record<DebtSourceKey, string> = {
   contract: "Sözleşme taksidi",
   registration: "Kayıt ilk tahsilatı",
   monthly_plan: "Sözleşmesiz aylık plan",
+  club: "Kulüp ücreti",
   lesson: "Ders bazlı tahsilat",
   manual: "Elle girilen borç",
 };
@@ -134,6 +135,7 @@ export function debtSourceOf(p: Pick<Payment, "source" | "contractId" | "lessonI
   if (p.contractId) return "contract";
   if (p.source === "registration_first_payment") return "registration";
   if (p.source === "monthly_plan") return "monthly_plan";
+  if (p.source === "club") return "club";
   if (p.source === "lesson_ops" || p.lessonId) return "lesson";
   return "manual";
 }

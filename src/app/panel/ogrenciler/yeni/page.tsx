@@ -2,6 +2,8 @@ import { redirect } from "next/navigation";
 import { BackButton } from "@/components/back-button";
 import { Card, PageHeader } from "@/components/ui";
 import { NewStudentForm } from "@/components/new-student-form";
+import { isMembershipActive, listClubs, listClubMemberships } from "@/lib/clubs";
+import { DEFAULT_APP_TIMEZONE as CLUB_TZ, toZonedYmd as clubYmd } from "@/lib/timezone";
 import { activeInstrumentOptions } from "@/lib/instrument-options";
 import { requireSessionContext } from "@/lib/auth/session";
 import { getInstitutionContext, readScopedReferenceData } from "@/lib/institution/context";
@@ -56,6 +58,25 @@ export default async function NewStudentPage({
         }
       : undefined;
 
+  // 2026-10-05 — Kulüp seçimi yalnız kendi kurumunda (yazım oturumun kurumuna gider).
+  const clubOptions =
+    kurum.scope.mode === "single" && kurum.scope.tenantId === session.tenantId
+      ? await (async () => {
+          const [clubs, memberships] = await Promise.all([listClubs(session.tenantId), listClubMemberships(session.tenantId)]);
+          const t = clubYmd(new Date(), CLUB_TZ);
+          return clubs
+            .filter((c) => c.active)
+            .map((c) => ({
+              id: c.id,
+              name: c.name,
+              instrument: c.instrument,
+              monthlyFee: c.monthlyFee,
+              maxMembers: c.maxMembers,
+              activeMembers: memberships.filter((m) => m.clubId === c.id && isMembershipActive(m, t)).length,
+            }));
+        })()
+      : [];
+
   return (
     <div>
       <KurumScopeNote scope={kurum.scope} />
@@ -92,6 +113,7 @@ export default async function NewStudentPage({
         </Card>
       ) : (
         <NewStudentForm
+          clubs={clubOptions}
           branches={data.settings.branches.map((b) => ({ id: b.id, name: b.name }))}
           teachers={data.teachers.map((t) => ({
             id: t.id,

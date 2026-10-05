@@ -1108,6 +1108,7 @@ export function mapDbPayment(payment: Prisma.PaymentGetPayload<object>): import(
     // UAT 2026-09-25 — bu iki alan eksikti: db modunda hiçbir ödeme sözleşmeye bağlı görünmüyor,
     // yoklama takvimi her ay "aktif ödeme planı yok" diyor, takvim tahsilatı ayrı satır açıyordu.
     contractId: payment.contractId ?? undefined,
+    clubMembershipId: payment.clubMembershipId ?? undefined,
     installmentSequence: payment.installmentSequence ?? undefined,
     autoSuggestedAmount: payment.autoSuggestedAmount ?? undefined,
     firstCollectionIncludesNextMonth: payment.firstCollectionIncludesNextMonth ?? undefined,
@@ -3906,6 +3907,11 @@ export async function addPayment(input: {
   description: string;
   amount: number;
   dueDate: string;
+  /** 2026-10-05 — kulüp ücreti satırı için (opsiyonel; yoksa eski davranış). */
+  id?: string;
+  source?: import("./types").PaymentSource;
+  clubMembershipId?: string;
+  installmentPeriodLabel?: string;
 }): Promise<void> {
   logger.info("addPayment", input.studentId, input.amount);
   const tid = requireTenantId();
@@ -3916,7 +3922,7 @@ export async function addPayment(input: {
   const isOverdue = new Date(input.dueDate).getTime() < Date.now();
   await prisma.payment.create({
     data: {
-      id: `pay_${Date.now().toString(36)}`,
+      id: input.id ?? `pay_${Date.now().toString(36)}`,
       tenantId: tid,
       studentId: input.studentId,
       schoolId: student.schoolId,
@@ -3925,6 +3931,9 @@ export async function addPayment(input: {
       status: isOverdue ? "overdue" : "pending",
       dueDate: new Date(input.dueDate),
       description: input.description,
+      ...(input.source ? { source: input.source } : {}),
+      ...(input.clubMembershipId ? { clubMembershipId: input.clubMembershipId } : {}),
+      ...(input.installmentPeriodLabel ? { installmentPeriodLabel: input.installmentPeriodLabel } : {}),
     },
   });
   return;

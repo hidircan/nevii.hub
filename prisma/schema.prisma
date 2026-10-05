@@ -56,6 +56,8 @@ model Tenant {
   announcements               Announcement[]
   panelNotes                  PanelNote[]
   trialApplications           TrialApplication[]
+  clubs                       Club[]
+  clubMemberships             ClubMembership[]
   lessonAssessments           LessonAssessment[]
   periodicAssessments         PeriodicAssessment[]
   teacherAvailabilityRequests TeacherAvailabilityRequest[]
@@ -1209,6 +1211,9 @@ model Payment {
   /// sokmak iki farklı yaşam döngüsünü birbirine karıştırırdı).
   contractId          String?
   contract            StudentContract?      @relation(fields: [contractId], references: [id])
+  /// 2026-10-05 — kulüp aylık ücreti satırı (`source = "club"`); hangi üyeliğin hangi ayı (`installmentPeriodLabel`).
+  /// Sözleşmeye hiçbir koşulda bağlanmaz/taşınmaz.
+  clubMembershipId    String?
   /// 1-tabanlı taksit sırası — yalnızca contractId doluyken anlamlı.
   installmentSequence Int?
   /// P0-1B — bu ödeme, motorun ürettiği otomatik tutardan MANUEL olarak
@@ -2399,6 +2404,56 @@ model TrialApplication {
 
   @@index([tenantId, status])
   @@index([tenantId, createdAt])
+}
+
+/// 2026-10-05 — KULÜP (grup dersi mantığı): örn. "Solfej Kulübü". Ücret AYLIK sabittir ve sözleşmeye girmez.
+/// Oturumlar (2. aşama) ders programına üye başına ders satırı olarak yazılır; oda kapasitesi aranmaz.
+model Club {
+  id              String           @id
+  tenantId        String
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name            String
+  instrument      String
+  /// Kulübün şubesi (boş = şube bağımsız).
+  branchId        String?
+  maxMembers      Int              @default(10)
+  /// Üye başına aylık ücret (TL). Üyelik, katıldığı andaki ücreti dondurur.
+  monthlyFee      Int
+  /// Oturum süresi (dk) — hakediş mevcut süre kuralıyla.
+  durationMinutes Int
+  /// Kulüp derslerini veren öğretmenler: string[].
+  teacherIds      Json
+  description     String?
+  active          Boolean          @default(true)
+  createdByUserId String
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  memberships     ClubMembership[]
+
+  @@index([tenantId, active])
+}
+
+/// Öğrencinin kulüp üyeliği. Silinmez; ayrılınca `endDate` dolar (geçmiş ve tahsilat izi kalır).
+model ClubMembership {
+  id              String    @id
+  tenantId        String
+  tenant          Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  clubId          String
+  club            Club      @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  studentId       String
+  /// Katılma anındaki aylık ücret (kulüp ücreti sonradan değişse de bu üyelik bunu öder).
+  monthlyFee      Int
+  /// YYYY-MM-DD — ilk ücretli ay bu tarihin ayı.
+  startDate       String
+  /// YYYY-MM-DD — son ücretli ay bu tarihin ayı; boş = devam ediyor.
+  endDate         String?
+  createdByUserId String
+  createdAt       DateTime  @default(now())
+  endedByUserId   String?
+  endedAt         DateTime?
+
+  @@index([tenantId, clubId])
+  @@index([tenantId, studentId])
 }
 
 /// PRODUCT_BACKLOG §6 Faz 1

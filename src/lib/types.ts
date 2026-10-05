@@ -1005,10 +1005,13 @@ export interface MakeupSlot {
   reasons: string[];
 }
 
-export type PaymentSource = "manual" | "lesson_ops" | "monthly_plan" | "contract" | "registration_first_payment";
+/** "club" (2026-10-05) — kulüp aylık ücreti; sözleşmeye hiçbir koşulda bağlanmaz/taşınmaz. */
+export type PaymentSource = "manual" | "lesson_ops" | "monthly_plan" | "contract" | "registration_first_payment" | "club";
 
 export interface Payment {
   id: string;
+  /** 2026-10-05 — kulüp ücreti satırının üyeliği (`source: "club"`). */
+  clubMembershipId?: string;
   studentId: string;
   amount: number;
   paidAmount: number;
