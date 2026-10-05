@@ -12766,6 +12766,10 @@ export async function createTrialLessonTool(
       notes: v.data.notes,
     });
     audit(ctx, "trial.create", "TrialLesson", trial.id, {});
+    if (v.data.applicationId && ctx.role !== "TEACHER") {
+      const { markTrialApplicationPlanned } = await import("../trial-applications");
+      await markTrialApplicationPlanned(ctx, v.data.applicationId, trial.id);
+    }
     return ok({ trialId: trial.id });
   } catch (e) {
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "createTrial failed");

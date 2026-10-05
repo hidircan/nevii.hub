@@ -33,6 +33,7 @@ export type NotificationCategory =
   | "recruitment_new_application"
   // Öğrenci operasyonları
   | "student_new_registration"
+  | "trial_new_application"
   | "attendance_exception"
   | "student_attendance_risk"
   | "student_contract_expiring"
@@ -254,6 +255,15 @@ export const NOTIFICATION_CATEGORIES: NotificationCategoryDef[] = [
     group: "students",
     label: "Yeni öğrenci kaydı",
     description: "Yeni bir öğrenci kaydedildiğinde.",
+    implemented: true,
+    roles: ["SCHOOL_ADMIN", "SUPER_ADMIN"],
+    defaultInAppEnabled: true,
+  },
+  {
+    category: "trial_new_application",
+    group: "students",
+    label: "Yeni deneme dersi başvurusu",
+    description: "Aday, herkese açık başvuru formundan deneme dersi başvurusu yaptığında.",
     implemented: true,
     roles: ["SCHOOL_ADMIN", "SUPER_ADMIN"],
     defaultInAppEnabled: true,

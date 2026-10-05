@@ -55,6 +55,7 @@ model Tenant {
   notificationPreferences     NotificationPreference[]
   announcements               Announcement[]
   panelNotes                  PanelNote[]
+  trialApplications           TrialApplication[]
   lessonAssessments           LessonAssessment[]
   periodicAssessments         PeriodicAssessment[]
   teacherAvailabilityRequests TeacherAvailabilityRequest[]
@@ -2363,6 +2364,41 @@ model TrialLesson {
 
   @@index([tenantId, status])
   @@index([tenantId, teacherId])
+}
+
+/// 2026-10-05 — Herkese açık deneme dersi başvurusu (/basvuru/[kurum]/deneme). Rezervasyon DEĞİL, tercihtir:
+/// yönetici arayıp Deneme Dersleri > Başvurular'dan planlar (planlama mevcut çakışma kurallarıyla doğrulanır).
+model TrialApplication {
+  id               String    @id
+  tenantId         String
+  tenant           Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// "BD-000123" — kuruma özgü, insan-okunur başvuru no.
+  applicationNo    String
+  name             String
+  phone            String
+  email            String?
+  parentName       String?
+  age              Int?
+  instrument       String
+  /// Tercih edilen şube (boş = fark etmez).
+  branchId         String?
+  /// Adayın seçtiği uygun zamanlar: [{ startAt, branchId, teacherId }] (en fazla 3).
+  preferredSlots   Json?
+  /// Serbest uygunluk notu ("hafta içi 17:00 sonrası").
+  availabilityNote String?
+  note             String?
+  kvkkConsentAt    DateTime
+  /// "new" | "contacted" | "planned" | "declined"
+  status           String    @default("new")
+  staffNote        String?
+  trialLessonId    String?
+  handledByUserId  String?
+  handledAt        DateTime?
+  source           String?
+  createdAt        DateTime  @default(now())
+
+  @@index([tenantId, status])
+  @@index([tenantId, createdAt])
 }
 
 /// PRODUCT_BACKLOG §6 Faz 1

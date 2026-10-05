@@ -33,6 +33,8 @@ export function resolveNotificationHref(kind: string, body?: string): string | n
       return "/panel/personel/izinler";
     case "recruitment_new_application":
       return "/panel/ik/adaylar";
+    case "trial_new_application":
+      return "/panel/deneme?sekme=basvurular";
     case "task_assigned":
     case "task_new_assignment":
     case "task_due_soon":

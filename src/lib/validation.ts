@@ -1178,6 +1178,8 @@ export const createTrialLessonSchema = z.object({
   notes: z.string().max(2000).optional(),
   /** 8. tur — düzenlemedeki gibi: müsaitlik dışı planlama yalnız açık onayla. */
   allowAvailabilityOverride: z.boolean().optional(),
+  /** 2026-10-05 — deneme bir başvurudan planlanıyorsa; oluşunca başvuru "Planlandı" olur. */
+  applicationId: z.string().max(80).optional(),
 });
 
 /**

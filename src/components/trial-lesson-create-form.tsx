@@ -6,26 +6,46 @@ import { Button, Input, Label, Select } from "@/components/ui";
 import { apiFetchJson } from "@/lib/api/client-fetch";
 import { friendlyApiErrorMessage } from "@/lib/api/friendly-error";
 
+export type TrialCreateInitial = Partial<{
+  name: string;
+  phone: string;
+  parentName: string;
+  instrument: string;
+  branchId: string;
+  teacherId: string;
+  /** datetime-local değeri (kurum saatinde). */
+  startLocal: string;
+  notes: string;
+}>;
+
 export function TrialLessonCreateForm({
   teachers,
   branches,
   instrumentOptions,
+  initial,
+  applicationId,
 }: {
   teachers: { id: string; name: string }[];
   branches: { id: string; name: string }[];
   /** Kurum enstrüman kataloğu (aktif) — yeni öğrenci formuyla aynı kaynak. */
   instrumentOptions: string[];
+  /** 2026-10-05 — başvurudan planlarken ön doldurma. */
+  initial?: TrialCreateInitial;
+  /** Verilirse deneme oluşunca bu başvuru "Planlandı" olur (sunucuda). */
+  applicationId?: string;
 }) {
   const router = useRouter();
-  const [name, setName] = useState("");
-  const [phone, setPhone] = useState("");
-  const [parentName, setParentName] = useState("");
-  const [instrument, setInstrument] = useState(instrumentOptions[0] ?? "");
-  const [branchId, setBranchId] = useState(branches[0]?.id ?? "");
-  const [teacherId, setTeacherId] = useState(teachers[0]?.id ?? "");
-  const [startAt, setStartAt] = useState("");
+  const [name, setName] = useState(initial?.name ?? "");
+  const [phone, setPhone] = useState(initial?.phone ?? "");
+  const [parentName, setParentName] = useState(initial?.parentName ?? "");
+  const [instrument, setInstrument] = useState(
+    initial?.instrument && instrumentOptions.includes(initial.instrument) ? initial.instrument : (instrumentOptions[0] ?? "")
+  );
+  const [branchId, setBranchId] = useState(initial?.branchId ?? branches[0]?.id ?? "");
+  const [teacherId, setTeacherId] = useState(initial?.teacherId ?? teachers[0]?.id ?? "");
+  const [startAt, setStartAt] = useState(initial?.startLocal ?? "");
   const [durationMinutes, setDurationMinutes] = useState("15");
-  const [notes, setNotes] = useState("");
+  const [notes, setNotes] = useState(initial?.notes ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [override, setOverride] = useState(false);
@@ -49,6 +69,7 @@ export function TrialLessonCreateForm({
         durationMinutes: Number(durationMinutes),
         ...(notes.trim() ? { notes: notes.trim() } : {}),
         ...(override ? { allowAvailabilityOverride: true } : {}),
+        ...(applicationId ? { applicationId } : {}),
       }),
     });
     setBusy(false);
