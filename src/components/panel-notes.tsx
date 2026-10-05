@@ -5,6 +5,7 @@ import Link from "@/components/link";
 import { apiFetch } from "@/lib/api/client-fetch";
 import { friendlyApiErrorMessage } from "@/lib/api/friendly-error";
 import type { PanelNote } from "@/lib/panel-notes";
+import { CriticalDeleteDialog } from "@/components/critical-delete-dialog";
 
 const MAX = 2000;
 
@@ -20,7 +21,8 @@ function stamp(iso: string): string {
 }
 
 /**
- * 2026-10-05 — Günlük Özet "Notlar" (ve /panel/notlar). Not yalnız eklenir; yazan ve zaman sunucuda kaydedilir.
+ * 2026-10-05 — Günlük Özet "Notlar" (ve /panel/notlar). Yazan ve zaman sunucuda kaydedilir.
+ * 2026-10-06 — düzenle (son düzenleyen görünür) / sil (kritik işlem şifresi + gerekçe; not gizlenir).
  * `limit` verilirse yalnız en yeni N not gösterilir ve "Tüm notlar" bağlantısı çıkar.
  */
 export function PanelNotes({ initialNotes, limit }: { initialNotes: PanelNote[]; limit?: number }) {
@@ -28,6 +30,33 @@ export function PanelNotes({ initialNotes, limit }: { initialNotes: PanelNote[];
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState("");
+  const [editBusy, setEditBusy] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+
+  async function saveEdit(id: string) {
+    setEditBusy(true);
+    setEditError(null);
+    try {
+      const res = await apiFetch("/api/v1/panel-notes", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, body: editDraft }),
+      });
+      const json = (await res.json()) as { ok: boolean; data?: PanelNote; error?: { code?: string; message?: string } };
+      if (!json.ok || !json.data) {
+        setEditError(friendlyApiErrorMessage(json.error, "Not güncellenemedi. Sayfayı yenileyip tekrar deneyin."));
+        return;
+      }
+      setNotes((prev) => prev.map((n) => (n.id === id ? json.data! : n)));
+      setEditingId(null);
+    } catch {
+      setEditError("Not güncellenemedi: sunucuya ulaşılamadı. Bağlantınızı kontrol edip tekrar deneyin.");
+    } finally {
+      setEditBusy(false);
+    }
+  }
 
   async function save() {
     const body = draft.trim();
@@ -102,11 +131,92 @@ export function PanelNotes({ initialNotes, limit }: { initialNotes: PanelNote[];
       ) : (
         <ul className="divide-y divide-[var(--color-border)]">
           {shown.map((n) => (
-            <li key={n.id} className="py-2">
-              <p className="whitespace-pre-wrap break-words text-sm text-[var(--color-text)]">{n.body}</p>
-              <p className="mt-0.5 text-[11px] text-[var(--color-text-muted)]">
-                {n.createdByName} · <time dateTime={n.createdAt}>{stamp(n.createdAt)}</time>
-              </p>
+            <li key={n.id} className="group py-2">
+              {editingId === n.id ? (
+                <div className="space-y-1.5">
+                  <label htmlFor={`note-edit-${n.id}`} className="sr-only">Notu düzenle</label>
+                  <textarea
+                    id={`note-edit-${n.id}`}
+                    value={editDraft}
+                    maxLength={MAX}
+                    rows={3}
+                    autoFocus
+                    onChange={(e) => setEditDraft(e.target.value)}
+                    className="w-full resize-y rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text)]"
+                  />
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void saveEdit(n.id)}
+                      disabled={editBusy || !editDraft.trim()}
+                      className="rounded-md bg-[var(--color-primary)] px-2.5 py-1 text-xs font-semibold text-[var(--color-text-inverted)] disabled:opacity-60"
+                    >
+                      {editBusy ? "Kaydediliyor…" : "Kaydet"}
+                    </button>
+                    <button type="button" onClick={() => setEditingId(null)} className="text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)]">
+                      Vazgeç
+                    </button>
+                  </div>
+                  {editError ? <p role="alert" className="text-xs text-[var(--color-danger)]">{editError}</p> : null}
+                </div>
+              ) : (
+                <>
+                  <p className="whitespace-pre-wrap break-words text-sm text-[var(--color-text)]">{n.body}</p>
+                  <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-[var(--color-text-muted)]">
+                    <span>
+                      {n.createdByName} · <time dateTime={n.createdAt}>{stamp(n.createdAt)}</time>
+                      {n.updatedAt ? (
+                        <>
+                          {" "}· düzenlendi: {n.updatedByName ?? "Kayıtlı kullanıcı"}, <time dateTime={n.updatedAt}>{stamp(n.updatedAt)}</time>
+                        </>
+                      ) : null}
+                    </span>
+                    <span className="ml-auto flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingId(n.id);
+                          setEditDraft(n.body);
+                          setEditError(null);
+                        }}
+                        className="font-medium text-[var(--color-primary)] hover:underline"
+                      >
+                        Düzenle
+                      </button>
+                      <CriticalDeleteDialog
+                        triggerLabel="Sil"
+                        title="Notu sil"
+                        meaning="Not listeden kaldırılır. Kayıt silinmez; silen kişi, zaman ve gerekçe denetim için saklanır."
+                        confirmationName="SİL"
+                        confirmationLabel="Onay için kutuya yazın"
+                        submitLabel="Notu sil"
+                        loadImpact={async () => ({
+                          ok: true,
+                          data: { lines: [["Not", n.body.slice(0, 80)], ["Yazan", n.createdByName]], allowed: true, criticalPasswordConfigured: true },
+                        })}
+                        onSubmit={async ({ criticalPassword, reason, confirmation }) => {
+                          if (!["sil", "sıl"].includes(confirmation.trim().toLocaleLowerCase("tr"))) {
+                            return { ok: false, message: 'Onay için kutuya "SİL" yazın.' };
+                          }
+                          try {
+                            const res = await apiFetch("/api/v1/panel-notes", {
+                              method: "DELETE",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ id: n.id, criticalPassword, reason }),
+                            });
+                            const json = (await res.json()) as { ok: boolean; error?: { code?: string; message?: string } };
+                            if (!json.ok) return { ok: false, message: friendlyApiErrorMessage(json.error, "Not silinemedi; hiçbir şey değişmedi.") };
+                            setNotes((prev) => prev.filter((x) => x.id !== n.id));
+                            return { ok: true };
+                          } catch {
+                            return { ok: false, message: "Sunucuya ulaşılamadı; bağlantınızı kontrol edip tekrar deneyin." };
+                          }
+                        }}
+                      />
+                    </span>
+                  </div>
+                </>
+              )}
             </li>
           ))}
         </ul>

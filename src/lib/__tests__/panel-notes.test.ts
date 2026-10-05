@@ -1,6 +1,9 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { promises as fs } from "fs";
-import { addPanelNoteTool, listPanelNotesTool, PANEL_NOTES_FILE } from "../panel-notes";
+import { addPanelNoteTool, deletePanelNoteTool, listPanelNotesTool, PANEL_NOTES_FILE, updatePanelNoteTool } from "../panel-notes";
+import { CRIT, withTestCriticalPassword } from "./helpers/critical-delete";
+
+vi.mock("../audit/log", () => ({ recordAuditLog: vi.fn().mockResolvedValue({ id: "a", persisted: true }) }));
 import type { ServiceContext } from "../services/context";
 
 const ctx = (role: ServiceContext["role"], tenantId = "t1"): ServiceContext => ({ role, userId: `u-${role}`, tenantId, channel: "web" });
@@ -30,5 +33,29 @@ describe("Günlük Özet notları (2026-10-05)", () => {
     expect((await listPanelNotesTool(ctx("STUDENT"))).ok).toBe(false);
     // Notlar kurum genelidir; şube müdürü yalnız atandığı şubeyi görür (fail-closed).
     expect((await listPanelNotesTool(ctx("BRANCH_MANAGER"))).ok).toBe(false);
+  });
+
+  it("2026-10-06 — düzenleme ilk yazanı korur, son düzenleyeni gösterir; silme kritik şifre + gerekçe ister, not gizlenir", async () => {
+    await withTestCriticalPassword("t1");
+    const a = await addPanelNoteTool(ctx("SCHOOL_ADMIN"), { body: "Oda 3 klima arızalı" });
+    const id = a.ok ? a.data.id : "";
+    const edited = await updatePanelNoteTool(ctx("SUPER_ADMIN"), { id, body: "Oda 3 klima tamir edildi" });
+    expect(edited.ok && edited.data).toMatchObject({ body: "Oda 3 klima tamir edildi", createdByUserId: "u-SCHOOL_ADMIN" });
+    expect(edited.ok && edited.data.updatedAt).toBeTruthy();
+    const listed = await listPanelNotesTool(ctx("SCHOOL_ADMIN"));
+    expect(listed.ok && listed.data[0]!.updatedAt).toBeTruthy();
+    expect((await updatePanelNoteTool(ctx("SCHOOL_ADMIN"), { id, body: "  " })).ok).toBe(false);
+    // Başka kurumun notu düzenlenemez/silinemez.
+    expect((await updatePanelNoteTool(ctx("SCHOOL_ADMIN", "t2"), { id, body: "x" })).ok).toBe(false);
+    const wrong = await deletePanelNoteTool(ctx("SCHOOL_ADMIN"), { id, criticalPassword: "yanlis", reason: CRIT.reason });
+    expect(wrong.ok).toBe(false);
+    const noReason = await deletePanelNoteTool(ctx("SCHOOL_ADMIN"), { id, criticalPassword: CRIT.criticalPassword, reason: "kısa" });
+    expect(!noReason.ok && noReason.error.message).toContain("en az 5");
+    expect((await deletePanelNoteTool(ctx("SCHOOL_ADMIN"), { id, ...CRIT })).ok).toBe(true);
+    const after = await listPanelNotesTool(ctx("SCHOOL_ADMIN"));
+    expect(after.ok && after.data.length).toBe(0);
+    // Kayıt fiziksel olarak durur (gerekçe saklı).
+    const raw = JSON.parse(await fs.readFile(PANEL_NOTES_FILE, "utf8")) as { id: string; deletionReason?: string }[];
+    expect(raw.find((n) => n.id === id)?.deletionReason).toBe(CRIT.reason);
   });
 });

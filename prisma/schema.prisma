@@ -1459,6 +1459,14 @@ model PanelNote {
   createdByUserId String
   createdByName   String
   createdAt       DateTime @default(now())
+  /// 2026-10-06 — son düzenleme (kim/ne zaman); metin yerinde güncellenir.
+  updatedAt       DateTime?
+  updatedByUserId String?
+  updatedByName   String?
+  /// Silme = gizleme (kayıt kalır): kritik şifre + gerekçe ile (guardCriticalDelete).
+  deletedAt       DateTime?
+  deletedByUserId String?
+  deletionReason  String?
 
   @@index([tenantId, createdAt])
 }
