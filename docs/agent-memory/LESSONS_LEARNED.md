@@ -1453,3 +1453,10 @@ Aynı turda: `validateLessonSlot` oda `active`'ini hiç okumuyordu → telafi pa
   read-only transaction" (3 olay) oluştu. Aynı backend'de `SET ... = off` ile geri alındı.
 - Ders: ops/denetim bağlantısı 5432 (oturum modu) ya da `BEGIN TRANSACTION READ ONLY` / `SET LOCAL`; prod betiğinden sonra
   Vercel runtime hatalarına bak.
+
+## 2026-10-05 — "Sözleşmesiz borç görünür" (B, 83c12e1) gerçek veride hiç borç satırı olmadan teslim edildi
+- B yalnız GÖSTERİM kuralını düzeltti; canlıda sözleşmesiz öğrencilerin ilk tahsilattan sonraki ayları hiç `Payment`
+  satırı olarak yazılmıyordu (`monthly_plan` yalnız tahsilat anında açılıyordu). Liste doğruydu, gösterecek borç yoktu.
+  Kapanış: `standalone-monthly-accrual.ts` + günlük cron (owner onayı); 14 öğrenciye Ekim borcu (owner onayı). İlk prova bir öğrenciye ikinci Ekim borcu yazacaktı: takvim tahsilatı vadeyi tahsilat günü yazar, ay açıklamadadır — kural ikisini de kontrol eder.
+- Ders: "X görünür" düzeltmesini teslim etmeden önce gerçek veride (izole kopya) en az bir gerçek örnekte X'in
+  kaydının VAR olduğunu ve ekranda çıktığını göster; görünürlük kuralı ile kaydın üretilmesi ayrı iştir.
