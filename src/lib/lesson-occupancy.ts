@@ -33,7 +33,7 @@ export function lessonOccupiesSlot(lesson: SlotOccupancyInput): boolean {
 }
 
 export type SlotResource = "teacher" | "room" | "student";
-type SlotLesson = SlotOccupancyInput & Pick<Lesson, "id" | "teacherId" | "roomId" | "studentId" | "startAt" | "endAt">;
+type SlotLesson = SlotOccupancyInput & Pick<Lesson, "id" | "teacherId" | "roomId" | "studentId" | "startAt" | "endAt"> & { clubSessionId?: string };
 export type SlotConflict<L extends SlotLesson = SlotLesson> = { lesson: L; resource: SlotResource };
 
 const RESOURCE_KEY = { teacher: "teacherId", room: "roomId", student: "studentId" } as const;
@@ -44,7 +44,7 @@ const RESOURCE_KEY = { teacher: "teacherId", room: "roomId", student: "studentId
  */
 export function findSlotConflict<L extends SlotLesson>(
   lessons: readonly L[],
-  candidate: Pick<Lesson, "teacherId" | "roomId" | "studentId" | "startAt" | "endAt"> & { id?: string }
+  candidate: Pick<Lesson, "teacherId" | "roomId" | "studentId" | "startAt" | "endAt"> & { id?: string; clubSessionId?: string }
 ): SlotConflict<L> | null {
   const start = Date.parse(candidate.startAt);
   const end = Date.parse(candidate.endAt);
@@ -53,6 +53,8 @@ export function findSlotConflict<L extends SlotLesson>(
     const hit = lessons.find(
       (l) =>
         l.id !== candidate.id &&
+        // 2026-10-06 — aynı kulüp oturumunun satırları (aynı öğretmen/oda, farklı üye) birbirini doldurmaz.
+        !(candidate.clubSessionId && l.clubSessionId === candidate.clubSessionId) &&
         l[key] === candidate[key] &&
         lessonOccupiesSlot(l) &&
         Date.parse(l.startAt) < end &&

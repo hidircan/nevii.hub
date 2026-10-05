@@ -227,3 +227,196 @@ export function ClubMemberEnd({ membershipId, studentName }: { membershipId: str
     </span>
   );
 }
+
+/** 2. aşama — oturum planla (tek veya haftalık tekrar). Tümü doğrulanmadan hiçbiri yazılmaz (sunucu). */
+export function ClubSessionScheduler({
+  clubId,
+  teachers,
+  rooms,
+}: {
+  clubId: string;
+  teachers: { id: string; name: string }[];
+  rooms: { id: string; name: string }[];
+}) {
+  const router = useRouter();
+  const [teacherId, setTeacherId] = useState(teachers[0]?.id ?? "");
+  const [roomId, setRoomId] = useState(rooms[0]?.id ?? "");
+  const [startLocal, setStartLocal] = useState("");
+  const [weeks, setWeeks] = useState("1");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!startLocal) return setMsg({ ok: false, text: "İlk oturumun tarih ve saatini seçin." });
+    setBusy(true);
+    setMsg(null);
+    const r = await send("/api/v1/clubs/sessions", "POST", { clubId, teacherId, roomId, startLocal, weeks: Number(weeks) });
+    setBusy(false);
+    if (!r.ok) return setMsg({ ok: false, text: r.message });
+    const n = (r.data as { sessionIds: string[] }).sessionIds.length;
+    setMsg({ ok: true, text: `${n} oturum planlandı; ders programında "${n > 1 ? "haftalık" : "tek"}" kulüp kartı olarak görünür.` });
+    router.refresh();
+  }
+
+  return (
+    <form onSubmit={(e) => void submit(e)} className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+      <div>
+        <label htmlFor="cs-start" className={label}>İlk oturum</label>
+        <input id="cs-start" type="datetime-local" value={startLocal} onChange={(e) => setStartLocal(e.target.value)} className={field} required />
+      </div>
+      <div>
+        <label htmlFor="cs-weeks" className={label}>Haftalık tekrar</label>
+        <select id="cs-weeks" value={weeks} onChange={(e) => setWeeks(e.target.value)} className={field}>
+          {[1, 2, 4, 8, 12, 16].map((n) => (
+            <option key={n} value={n}>{n === 1 ? "Tek oturum" : `${n} hafta`}</option>
+          ))}
+        </select>
+      </div>
+      <div>
+        <label htmlFor="cs-teacher" className={label}>Öğretmen</label>
+        <select id="cs-teacher" value={teacherId} onChange={(e) => setTeacherId(e.target.value)} className={field}>
+          {teachers.map((t) => (
+            <option key={t.id} value={t.id}>{t.name}</option>
+          ))}
+        </select>
+      </div>
+      <div>
+        <label htmlFor="cs-room" className={label}>Oda</label>
+        <select id="cs-room" value={roomId} onChange={(e) => setRoomId(e.target.value)} className={field}>
+          {rooms.map((r) => (
+            <option key={r.id} value={r.id}>{r.name}</option>
+          ))}
+        </select>
+      </div>
+      <div className="flex items-end">
+        <button type="submit" disabled={busy || !teacherId || !roomId} className="w-full rounded-md bg-[var(--color-primary)] px-3 py-2 text-sm font-semibold text-[var(--color-text-inverted)] disabled:opacity-60">
+          {busy ? "Planlanıyor…" : "Oturum planla"}
+        </button>
+      </div>
+      <p className="sm:col-span-2 lg:col-span-5 text-[11px] text-[var(--color-text-muted)]">
+        Oda kapasitesi aranmaz; yalnız odanın ve öğretmenin o saatte boş olması, üyelerin başka dersinin olmaması kontrol edilir.
+      </p>
+      {msg ? (
+        <p role={msg.ok ? "status" : "alert"} className="sm:col-span-2 lg:col-span-5 rounded-md px-3 py-2 text-xs" style={{ background: msg.ok ? "var(--color-success-soft)" : "var(--color-danger-soft)", color: msg.ok ? "var(--color-success)" : "var(--color-danger)" }}>
+          {msg.text}
+        </p>
+      ) : null}
+    </form>
+  );
+}
+
+const TEACHER_OPTIONS: [string, string][] = [
+  ["geldi", "Geldi"],
+  ["gelmedi", "Gelmedi"],
+  ["mazeretli", "Mazeretli"],
+];
+
+/** Oturumun öğretmen yoklaması (tüm üye satırlarına birlikte yazılır; hakediş "Geldi" oturumu bir kez sayar). */
+export function ClubSessionTeacher({ sessionId, initial }: { sessionId: string; initial?: string }) {
+  const router = useRouter();
+  const [status, setStatus] = useState(initial ?? null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  async function mark(next: string) {
+    setBusy(next);
+    setError(null);
+    const r = await send("/api/v1/clubs/sessions", "PATCH", { action: "teacher", sessionId, status: next });
+    setBusy(null);
+    if (!r.ok) return setError(r.message);
+    setStatus(next);
+    router.refresh();
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="text-sm text-[var(--color-text-muted)]">Öğretmen yoklaması:</span>
+      <div role="group" aria-label="Öğretmen yoklaması" className="inline-flex gap-1">
+        {TEACHER_OPTIONS.map(([v, l]) => (
+          <button
+            key={v}
+            type="button"
+            aria-pressed={status === v}
+            disabled={busy !== null}
+            onClick={() => void mark(v)}
+            className="rounded-md border px-2.5 py-1 text-xs font-semibold disabled:opacity-60"
+            style={status === v ? { borderColor: "var(--color-primary)", background: "var(--color-primary-soft)", color: "var(--color-primary-soft-text)" } : { borderColor: "var(--color-border-strong)" }}
+          >
+            {busy === v ? "…" : l}
+          </button>
+        ))}
+      </div>
+      {!status ? <span className="text-xs text-[var(--color-text-muted)]">(girilmedi — hakedişe girmez)</span> : null}
+      {error ? <p role="alert" className="basis-full text-xs text-[var(--color-danger)]">{error}</p> : null}
+    </div>
+  );
+}
+
+/** Oturumu toptan ertele (Telafi): tüm üyeler için yeni tarihte yeni oturum; bireysel telafi girilmez. */
+export function ClubSessionPostpone({ sessionId, rooms, defaultRoomId, clubId }: { sessionId: string; rooms: { id: string; name: string }[]; defaultRoomId: string; clubId: string }) {
+  const router = useRouter();
+  const [startLocal, setStartLocal] = useState("");
+  const [roomId, setRoomId] = useState(defaultRoomId);
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    const r = await send("/api/v1/clubs/sessions", "PATCH", { action: "postpone", sessionId, startLocal, roomId, reason });
+    setBusy(false);
+    if (!r.ok) return setError(r.message);
+    router.push(`/panel/kulupler/${clubId}/oturum/${(r.data as { newSessionId: string }).newSessionId}`);
+    router.refresh();
+  }
+  return (
+    <form onSubmit={(e) => void submit(e)} className="grid gap-2 sm:grid-cols-4">
+      <div>
+        <label htmlFor="pp-start" className={label}>Yeni tarih / saat</label>
+        <input id="pp-start" type="datetime-local" value={startLocal} onChange={(e) => setStartLocal(e.target.value)} className={field} required />
+      </div>
+      <div>
+        <label htmlFor="pp-room" className={label}>Oda</label>
+        <select id="pp-room" value={roomId} onChange={(e) => setRoomId(e.target.value)} className={field}>
+          {rooms.map((r) => (
+            <option key={r.id} value={r.id}>{r.name}</option>
+          ))}
+        </select>
+      </div>
+      <div>
+        <label htmlFor="pp-reason" className={label}>Gerekçe</label>
+        <input id="pp-reason" value={reason} onChange={(e) => setReason(e.target.value)} maxLength={300} placeholder="Ör. öğretmen hastalandı" className={field} required />
+      </div>
+      <div className="flex items-end">
+        <button type="submit" disabled={busy} className="w-full rounded-md border border-[var(--color-warning)] px-3 py-2 text-sm font-semibold text-[var(--color-warning)] disabled:opacity-60">
+          {busy ? "Erteleniyor…" : "Oturumu ertele (Telafi)"}
+        </button>
+      </div>
+      {error ? <p role="alert" className="sm:col-span-4 text-xs text-[var(--color-danger)]">{error}</p> : null}
+    </form>
+  );
+}
+
+/** Yoklaması girilmemiş oturumu iptal et (satırlar silinmez, "İptal" olur). */
+export function ClubSessionCancel({ sessionId, clubId }: { sessionId: string; clubId: string }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  async function cancel() {
+    if (!window.confirm("Bu oturum iptal edilsin mi? Üyelerin programından kalkar; yoklama girilmiş oturum iptal edilemez.")) return;
+    setBusy(true);
+    const r = await send("/api/v1/clubs/sessions", "PATCH", { action: "cancel", sessionId });
+    setBusy(false);
+    if (!r.ok) return setError(r.message);
+    router.push(`/panel/kulupler/${clubId}`);
+    router.refresh();
+  }
+  return (
+    <span className="inline-flex flex-col">
+      <button type="button" onClick={() => void cancel()} disabled={busy} className="text-sm font-medium text-[var(--color-danger)] hover:underline disabled:opacity-60">
+        {busy ? "İptal ediliyor…" : "Oturumu iptal et"}
+      </button>
+      {error ? <span role="alert" className="text-xs text-[var(--color-danger)]">{error}</span> : null}
+    </span>
+  );
+}

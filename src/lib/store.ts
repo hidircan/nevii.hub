@@ -129,6 +129,8 @@ type StoreApi = {
     allowAvailabilityOverride?: boolean;
     overriddenByUserId?: string;
   }) => Promise<AppData>;
+  addClubSessionLessons: (rows: import("./types").Lesson[]) => Promise<void>;
+  patchClubLessons: (ids: string[], patch: import("./clubs").ClubLessonPatch) => Promise<number>;
   addPayment: (input: {
     studentId: string;
     description: string;
@@ -628,6 +630,15 @@ export async function addLesson(input: {
   enrollmentId?: string;
 }): Promise<AppData> {
   return withTenantScope(() => store.addLesson(input));
+}
+
+/** 2026-10-06 — kulüp oturumu satırları (bkz. clubs.ts). */
+export async function addClubSessionLessons(rows: import("./types").Lesson[]): Promise<void> {
+  return withTenantScope(() => store.addClubSessionLessons(rows));
+}
+
+export async function patchClubLessons(ids: string[], patch: import("./clubs").ClubLessonPatch): Promise<number> {
+  return withTenantScope(() => store.patchClubLessons(ids, patch));
 }
 
 export async function addPayment(input: {

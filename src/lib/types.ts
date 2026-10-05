@@ -786,6 +786,9 @@ export interface Lesson {
   id: string;
   /** 2026-10-04 — dersin ait olduğu eğitim (Student.enrollments[].id); yoksa enstrümandan çözülür. */
   enrollmentId?: string;
+  /** 2026-10-06 — kulüp oturumu satırı (`type: "group"`); aynı oturumun satırları `clubSessionId` ile bağlı. */
+  clubId?: string;
+  clubSessionId?: string;
   studentId: string;
   teacherId: string;
   roomId: string;

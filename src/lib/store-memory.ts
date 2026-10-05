@@ -653,6 +653,29 @@ export async function archiveTeacher(teacherId: string, archived: boolean): Prom
   return updated;
 }
 
+/** 2026-10-06 — bkz. store-db.ts addClubSessionLessons (mode parity). */
+export async function addClubSessionLessons(rows: Lesson[]): Promise<void> {
+  if (rows.length === 0) return;
+  const data = load();
+  save({ ...data, lessons: [...data.lessons, ...rows] });
+}
+
+/** 2026-10-06 — bkz. store-db.ts patchClubLessons (yalnız `type: "group"`). */
+export async function patchClubLessons(ids: string[], patch: import("./clubs").ClubLessonPatch): Promise<number> {
+  let count = 0;
+  const set = new Set(ids);
+  const data = load();
+  save({
+    ...data,
+    lessons: data.lessons.map((l) => {
+      if (!set.has(l.id) || l.type !== "group") return l;
+      count++;
+      return { ...l, ...patch };
+    }),
+  });
+  return count;
+}
+
 export async function addLesson(input: {
   studentId: string;
   teacherId: string;

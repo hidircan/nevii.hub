@@ -1,16 +1,18 @@
 import Link from "@/components/link";
 import { notFound, redirect } from "next/navigation";
 import { Card, EmptyState, PageHeader } from "@/components/ui";
-import { ClubForm, ClubMemberAdd, ClubMemberEnd } from "@/components/club-components";
+import { ClubForm, ClubMemberAdd, ClubMemberEnd, ClubSessionScheduler } from "@/components/club-components";
+import { ClubDeleteButton } from "@/components/club-delete-button";
 import { requireSessionContext } from "@/lib/auth/session";
 import { getInstitutionContext } from "@/lib/institution/context";
-import { clubPeriodLabel, findClubFeeRow, isMembershipActive, listClubsTool } from "@/lib/clubs";
+import { clubPeriodLabel, findClubFeeRow, groupClubSessions, isMembershipActive, listClubsTool } from "@/lib/clubs";
+import { readLessonWindow } from "@/lib/store";
 import { isLiveObligation } from "@/lib/payment-profile";
 import { listTerminalContractIds } from "@/lib/contracts";
 import { readPaymentsPageData } from "@/lib/store";
 import { resolveActiveInstrumentNames } from "@/lib/instrument-catalog";
 import { DEFAULT_APP_TIMEZONE, toZonedYmd } from "@/lib/timezone";
-import { formatMoney } from "@/lib/utils";
+import { formatDateTime, formatMoney } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
@@ -70,6 +72,27 @@ export default async function KulupDetayPage({ params }: { params: Promise<{ clu
   };
   const tone = { success: ["var(--color-success-soft)", "var(--color-success)"], warning: ["var(--color-warning-soft)", "var(--color-warning)"], muted: ["var(--color-surface-muted)", "var(--color-text-muted)"] };
   const monthlyTotal = active.reduce((s, m) => s + m.monthlyFee, 0);
+  // 2. aşama — oturumlar: 120 gün geri / 200 gün ileri pencere (DB egress: tüm dersler okunmaz).
+  const nowMs = new Date().getTime();
+  const win = await readLessonWindow(new Date(nowMs - 120 * 86_400_000).toISOString(), new Date(nowMs + 200 * 86_400_000).toISOString());
+  const sessions = groupClubSessions(win.lessons, club.id).filter((x) => !x.cancelled);
+  const upcoming = sessions.filter((x) => Date.parse(x.endAt) >= nowMs);
+  const pastSessions = sessions.filter((x) => Date.parse(x.endAt) < nowMs).reverse();
+  const clubTeachers = club.teacherIds.map((id) => ({ id, name: data.teachers.find((t) => t.id === id)?.name ?? "—" }));
+  const clubRooms = win.rooms
+    .filter((r) => r.active !== false && !r.deletedAt && (!club.branchId || r.branchId === club.branchId))
+    .map((r) => ({ id: r.id, name: `${r.name}${club.branchId ? "" : ` · ${branches.find((b) => b.id === r.branchId)?.name ?? ""}`}` }));
+  const sessionLine = (x: (typeof sessions)[number]) => (
+    <li key={x.sessionId}>
+      <Link href={`/panel/kulupler/${club.id}/oturum/${x.sessionId}`} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm hover:text-[var(--color-primary)]">
+        <span className="tabular-nums">{formatDateTime(x.startAt)}</span>
+        <span className="text-xs text-[var(--color-text-muted)]">
+          {win.rooms.find((r) => r.id === x.roomId)?.name ?? "—"} · {data.teachers.find((t) => t.id === x.teacherId)?.name ?? "—"} · {x.rows.length} üye
+          {x.postponed ? " · Ertelendi (Telafi)" : x.teacherAttendanceStatus === "geldi" ? " · Yapıldı" : x.teacherAttendanceStatus ? ` · Öğretmen ${x.teacherAttendanceStatus}` : ""}
+        </span>
+      </Link>
+    </li>
+  );
 
   return (
     <div className="space-y-5">
@@ -150,6 +173,31 @@ export default async function KulupDetayPage({ params }: { params: Promise<{ clu
         ) : null}
       </Card>
 
+      <Card>
+        <h2 className="mb-3 text-sm font-semibold">Oturumlar</h2>
+        {club.active && clubRooms.length > 0 ? (
+          <ClubSessionScheduler clubId={club.id} teachers={clubTeachers} rooms={clubRooms} />
+        ) : (
+          <p className="text-xs text-[var(--color-text-muted)]">
+            {club.active ? "Kulübün şubesinde aktif oda yok — Odalar ekranından oda ekleyin." : "Pasif kulüpte yeni oturum planlanmaz."}
+          </p>
+        )}
+        <div className="mt-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">Yaklaşan ({upcoming.length})</p>
+          {upcoming.length ? (
+            <ul className="divide-y divide-[var(--color-border)]">{upcoming.slice(0, 20).map(sessionLine)}</ul>
+          ) : (
+            <p className="mt-1 text-sm text-[var(--color-text-muted)]">Planlı oturum yok.</p>
+          )}
+        </div>
+        {pastSessions.length ? (
+          <details className="mt-3">
+            <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">Geçmiş oturumlar ({pastSessions.length})</summary>
+            <ul className="divide-y divide-[var(--color-border)]">{pastSessions.slice(0, 40).map(sessionLine)}</ul>
+          </details>
+        ) : null}
+      </Card>
+
       {past.length > 0 ? (
         <details className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
           <summary className="cursor-pointer text-sm font-semibold">Ayrılan üyeler ({past.length})</summary>
@@ -174,6 +222,9 @@ export default async function KulupDetayPage({ params }: { params: Promise<{ clu
         </div>
       </details>
       {club.description ? <p className="text-sm text-[var(--color-text-muted)]">{club.description}</p> : null}
+      <div className="flex justify-end border-t border-[var(--color-border)] pt-4">
+        <ClubDeleteButton clubId={club.id} clubName={club.name} />
+      </div>
     </div>
   );
 }

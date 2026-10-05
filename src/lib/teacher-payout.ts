@@ -445,9 +445,16 @@ export function computeTeacherEarningsForPeriod(
   const exclusions = new Map((data.teacherPayoutExclusions ?? []).map((x) => [x.lessonId, x]));
   const excludedLessons: NonNullable<TeacherEarningsResult["excludedLessons"]> = [];
 
+  const seenClubSessions = new Set<string>();
   for (const lesson of data.lessons) {
     if (lesson.teacherId !== teacherId) continue;
-    if (!isLessonProcessedForPayout(lesson)) continue;
+    if (lesson.type === "group") {
+      // 2026-10-06 (owner) — kulüp oturumu: üye satırı sayısından bağımsız, öğretmen yoklaması "geldi" olan
+      // her oturum TEK ders (süresine göre mevcut kural). Öğrenci statüsü (Geldi/Gelmedi/Telafi) etkilemez.
+      if (!lesson.clubSessionId || lesson.status === "cancelled" || lesson.teacherAttendanceStatus !== "geldi") continue;
+      if (seenClubSessions.has(lesson.clubSessionId)) continue;
+      seenClubSessions.add(lesson.clubSessionId);
+    } else if (!isLessonProcessedForPayout(lesson)) continue;
     const dayKey = toDayKey(lesson.startAt);
     if (dayKey < startKey || dayKey > endKey) continue;
     if (seen.has(lesson.id)) continue;
@@ -506,7 +513,7 @@ export function computeTeacherEarningsForPeriod(
       lessonId: lesson.id,
       lessonDate: lesson.startAt,
       studentId: lesson.studentId,
-      studentName: student?.name,
+      studentName: lesson.type === "group" ? "Kulüp oturumu" : student?.name,
       branchName: branch?.name,
       instrument: lesson.instrument,
       durationMinutes,

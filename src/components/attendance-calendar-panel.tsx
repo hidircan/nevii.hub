@@ -137,6 +137,8 @@ type MonthResponse = {
   plan: CalendarMonthPlan;
   /** YALNIZ BİLGİ — bu ayın ücretlendirilebilir ders sayısı; tutarla ilgisi YOKTUR. */
   billableLessonCount: number;
+  /** 2026-10-06 — bu ayın kulüp ücretleri (sözleşmeden ayrı satır). */
+  clubFees?: { paymentId: string; label: string; amount: number; paidAmount: number; paidAt?: string; method?: string }[];
   days: DayInfo[];
 };
 
@@ -271,6 +273,30 @@ function PaidMonthEntry({ collapsed, children }: { collapsed: boolean; children:
       </summary>
       {children}
     </details>
+  );
+}
+
+/** 2026-10-06 — ayın kulüp ücretleri: "Kulüp · Solfej Kulübü · 1.500 TL · ✓ 05.10.2026 · Nakit" (tahsilat Ödemeler'den). */
+function MonthClubFees({ fees }: { fees?: MonthResponse["clubFees"] }) {
+  if (!fees || fees.length === 0) return null;
+  return (
+    <ul className="mt-1 space-y-0.5" aria-label="Bu ayın kulüp ücretleri">
+      {fees.map((f) => {
+        const paid = f.paidAmount >= f.amount;
+        return (
+          <li key={f.paymentId} className="flex items-center gap-1.5 rounded-md border border-[var(--color-border)] px-2 py-0.5 text-[11px] tabular-nums">
+            <span className="rounded px-1 text-[9px] font-bold uppercase text-white" style={{ background: "var(--color-info)" }}>Kulüp</span>
+            <span className="truncate">{f.label}</span>
+            <span className="ml-auto shrink-0" style={{ color: paid ? "var(--color-success)" : "var(--color-warning)" }}>
+              {paid ? "✓ " : f.paidAmount > 0 ? "◐ " : ""}
+              {formatMoneyTL(f.amount)}
+              {f.paidAt ? ` · ${new Date(f.paidAt).toLocaleDateString("tr-TR", { timeZone: "Europe/Istanbul" })}` : paid ? "" : " · bekliyor"}
+              {f.paidAt && f.method ? ` · ${PAYMENT_METHOD_LABEL[f.method] ?? f.method}` : ""}
+            </span>
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 
@@ -823,6 +849,7 @@ export function AttendanceCalendarPanel({
                 </h3>
                 {canEdit && !readOnly && data ? <MonthPlanSummary plan={data.plan} /> : null}
                 {data ? <MonthCollections plan={data.plan} /> : null}
+                {data ? <MonthClubFees fees={data.clubFees} /> : null}
                 {canEdit && !readOnly ? (
                   <PaidMonthEntry
                     collapsed={

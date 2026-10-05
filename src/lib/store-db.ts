@@ -502,6 +502,8 @@ function mapSchoolToAppData(school: PrismaSchoolWithRelations): AppData {
       makeupRequestId: lesson.makeupRequestId ?? undefined,
       seriesId: lesson.seriesId ?? undefined,
       enrollmentId: (lesson as { enrollmentId?: string | null }).enrollmentId ?? undefined,
+      clubId: (lesson as { clubId?: string | null }).clubId ?? undefined,
+      clubSessionId: (lesson as { clubSessionId?: string | null }).clubSessionId ?? undefined,
       notes: lesson.notes ?? undefined,
       createdByUserId: (lesson as { createdByUserId?: string | null }).createdByUserId ?? undefined,
       studentAttended: (lesson as { studentAttended?: boolean }).studentAttended ?? undefined,
@@ -2614,6 +2616,64 @@ async function assertSlotFreeLockedTx(
       "Bu saat az önce başka bir derse verildi (aynı anda iki kayıt yapıldı). Ders oluşturulmadı; sayfayı yenileyip başka bir saat seçin."
     );
   }
+}
+
+/**
+ * 2026-10-06 — kulüp oturumu satırlarını TOPLU yazar (üye başına bir satır). Çakışma kontrolü çağıranda
+ * (clubs.ts, merkezi `findSlotConflict`) yapılmıştır; burada yalnız tek işlemde yazım.
+ */
+export async function addClubSessionLessons(rows: import("./types").Lesson[]): Promise<void> {
+  const tid = requireTenantId();
+  if (rows.length === 0) return;
+  const school = await prisma.school.findFirst({ where: { tenantId: tid }, select: { id: true } });
+  if (!school) throw new Error("Okul kaydı bulunamadı");
+  await prisma.lesson.createMany({
+    data: rows.map((l) => ({
+      id: l.id,
+      tenantId: tid,
+      schoolId: school.id,
+      studentId: l.studentId,
+      teacherId: l.teacherId,
+      roomId: l.roomId,
+      branchId: l.branchId,
+      instrument: l.instrument,
+      startAt: new Date(l.startAt),
+      endAt: new Date(l.endAt),
+      type: l.type,
+      status: l.status,
+      clubId: l.clubId ?? null,
+      clubSessionId: l.clubSessionId ?? null,
+      notes: l.notes ?? null,
+      createdByUserId: l.createdByUserId ?? null,
+      term: l.term ?? null,
+      academicYearStart: l.academicYearStart ?? null,
+    })),
+  });
+}
+
+/** 2026-10-06 — kulüp satırlarına (yalnız `type: "group"`) sınırlı yama: durum, telafi bayrağı, öğretmen yoklaması, not. */
+export async function patchClubLessons(ids: string[], patch: import("./clubs").ClubLessonPatch): Promise<number> {
+  const tid = requireTenantId();
+  if (ids.length === 0) return 0;
+  const toDate = (v: string | undefined) => (v ? new Date(v) : undefined);
+  const res = await prisma.lesson.updateMany({
+    where: { tenantId: tid, id: { in: ids }, type: "group" },
+    data: {
+      ...(patch.status ? { status: patch.status } : {}),
+      ...(patch.opsMakeupFlag !== undefined
+        ? { opsMakeupFlag: patch.opsMakeupFlag, opsMakeupFlagAt: toDate(patch.opsMakeupFlagAt) ?? null, opsMakeupFlagBy: patch.opsMakeupFlagBy ?? null }
+        : {}),
+      ...(patch.teacherAttendanceStatus !== undefined
+        ? {
+            teacherAttendanceStatus: patch.teacherAttendanceStatus,
+            teacherAttendanceAt: toDate(patch.teacherAttendanceAt) ?? null,
+            teacherAttendanceBy: patch.teacherAttendanceBy ?? null,
+          }
+        : {}),
+      ...(patch.notes !== undefined ? { notes: patch.notes } : {}),
+    },
+  });
+  return res.count;
 }
 
 export async function addLesson(input: {

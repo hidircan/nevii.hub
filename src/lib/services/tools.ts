@@ -6975,6 +6975,12 @@ export async function updateLessonScheduleTool(
   const normalizedStartAt = parsed.data.startAt === undefined ? undefined : wallDateTimeInputToIso(parsed.data.startAt);
   if (normalizedStartAt === null) return fail("VALIDATION_ERROR", "Geçerli bir ders tarihi ve saati seçin.");
   const v = ok({ ...parsed.data, startAt: normalizedStartAt });
+  {
+    // 2026-10-06 — kulüp oturumu satırı tek başına değiştirilmez (oturum ekranından yönetilir).
+    const { clubRowGuard } = await import("../clubs");
+    const clubBlock = await clubRowGuard(ctx.tenantId, v.data.lessonId);
+    if (clubBlock) return clubBlock;
+  }
 
   if (ctx.role === "BRANCH_MANAGER") {
     const lesson = (await readData()).lessons.find((l) => l.id === v.data.lessonId);
@@ -7066,6 +7072,12 @@ export async function cancelLessonTool(
 
   const v = parseOrFail(cancelLessonSchema.extend(disruptionInputShape), input);
   if (!v.ok) return v;
+  {
+    // 2026-10-06 — kulüp oturumu satırı tek başına değiştirilmez (oturum ekranından yönetilir).
+    const { clubRowGuard } = await import("../clubs");
+    const clubBlock = await clubRowGuard(ctx.tenantId, v.data.lessonId);
+    if (clubBlock) return clubBlock;
+  }
   const disruptionError = disruptionInputError(v.data);
   if (disruptionError) return fail("VALIDATION_ERROR", disruptionError);
 
@@ -7541,6 +7553,12 @@ export async function deleteLessonsTool(
 ): Promise<ServiceResult<{ deletedLessonIds: string[]; protectedLessons: { lessonId: string; startAt: string; reason: string }[] }>> {
   const v = parseOrFail(deleteLessonsSchema.extend(criticalDeleteFields), input);
   if (!v.ok) return v;
+  {
+    // 2026-10-06 — kulüp oturumu satırı tek başına değiştirilmez (oturum ekranından yönetilir).
+    const { clubRowGuard } = await import("../clubs");
+    const clubBlock = await clubRowGuard(ctx.tenantId, v.data.lessonId);
+    if (clubBlock) return clubBlock;
+  }
   const denied = await guardCriticalDelete(
     ctx,
     { action: "lesson.delete", entityType: "Lesson", entityId: v.data.lessonId },
@@ -7583,6 +7601,12 @@ export async function forceDeleteLessonTool(
     input
   );
   if (!v.ok) return v;
+  {
+    // 2026-10-06 — kulüp oturumu satırı tek başına değiştirilmez (oturum ekranından yönetilir).
+    const { clubRowGuard } = await import("../clubs");
+    const clubBlock = await clubRowGuard(ctx.tenantId, v.data.lessonId);
+    if (clubBlock) return clubBlock;
+  }
   const data = await readData();
   const lesson = data.lessons.find((l) => l.id === v.data.lessonId);
   if (!lesson) return fail("NOT_FOUND", "Ders bulunamadı. Sayfayı yenileyip tekrar deneyin.");
@@ -7648,6 +7672,12 @@ export async function reviseLessonsTool(
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
   const v = parseOrFail(reviseLessonsSchema, input);
   if (!v.ok) return v;
+  {
+    // 2026-10-06 — kulüp oturumu satırı tek başına değiştirilmez (oturum ekranından yönetilir).
+    const { clubRowGuard } = await import("../clubs");
+    const clubBlock = await clubRowGuard(ctx.tenantId, v.data.lessonId);
+    if (clubBlock) return clubBlock;
+  }
   if (v.data.scope === "single" && !v.data.startAt && v.data.durationMinutes === undefined) {
     return fail("VALIDATION_ERROR", "Yeni tarih-saat veya süre girin.");
   }
@@ -7699,6 +7729,12 @@ export async function changeLessonTeacherOrBranchTool(
 
   const v = parseOrFail(reassignLessonTeacherOrBranchSchema, input);
   if (!v.ok) return v;
+  {
+    // 2026-10-06 — kulüp oturumu satırı tek başına değiştirilmez (oturum ekranından yönetilir).
+    const { clubRowGuard } = await import("../clubs");
+    const clubBlock = await clubRowGuard(ctx.tenantId, v.data.lessonId);
+    if (clubBlock) return clubBlock;
+  }
 
   const data = await readData();
   const lesson = data.lessons.find((l) => l.id === v.data.lessonId);
@@ -15586,6 +15622,8 @@ export type AttendanceCalendarMonth = {
    * YOKTUR ve tutar türetmek için KULLANILAMAZ (bkz. `plan`).
    */
   billableLessonCount: number;
+  /** 2026-10-06 — bu ayın kulüp ücreti satırları (sözleşme planından ayrı). */
+  clubFees?: { paymentId: string; label: string; amount: number; paidAmount: number; paidAt?: string; method?: string }[];
   days: Array<{
     date: string;
     status: string;
@@ -15763,7 +15801,21 @@ async function buildAttendanceCalendarMonth(
     studentMonthlyFee: student.monthlyFee,
   });
 
-  return { year, month, term, withinTerm, plan, billableLessonCount: plannedLessonCount, days };
+  // 2026-10-06 — bu ayın kulüp ücretleri (sözleşme planından ayrı; ay kutusunda ayrı satır).
+  const { clubPeriodLabel } = await import("../clubs");
+  const clubLabel = clubPeriodLabel(monthPrefix);
+  const clubFees = data.payments
+    .filter((p) => p.studentId === student.id && p.source === "club" && p.status !== "voided" && p.installmentPeriodLabel === clubLabel)
+    .map((p) => ({
+      paymentId: p.id,
+      label: p.description.replace(/ — [^—]*kulüp ücreti$/, ""),
+      amount: p.amount,
+      paidAmount: p.paidAmount,
+      paidAt: p.paidAt,
+      method: p.method,
+    }));
+
+  return { year, month, term, withinTerm, plan, billableLessonCount: plannedLessonCount, days, clubFees };
 }
 
 export async function getAttendanceCalendarMonthTool(

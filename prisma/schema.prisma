@@ -859,6 +859,10 @@ model Lesson {
   seriesId                String?
   /// 2026-10-04 — dersin ait olduğu eğitim (Student.enrollments[].id); NULL = eski ders (enstrümandan çözülür).
   enrollmentId            String?
+  /// 2026-10-06 — kulüp oturumu satırı (`type = "group"`): üye başına bir satır, aynı oturumun satırları
+  /// `clubSessionId` ile bağlı (birbirleriyle çakışma saymaz; başka derslerle sayar). Hakediş oturum başına bir kez.
+  clubId                  String?
+  clubSessionId           String?
   notes                   String?
   /// Dersi planlayan kullanıcı (User.id). Eski kayıtlarda null.
   createdByUserId         String?
@@ -931,6 +935,8 @@ model Lesson {
   @@index([schoolId])
   @@index([seriesId])
   @@index([tenantId, term, academicYearStart])
+
+  @@index([tenantId, clubSessionId])
 }
 
 /// Haftalık tekrarlayan ders serisi — dönem boyunca üretilen Lesson
@@ -2433,6 +2439,10 @@ model Club {
   teacherIds      Json
   description     String?
   active          Boolean          @default(true)
+  /// 2026-10-06 — yanlışlıkla oluşturulan kulübü silme = gizleme (kritik şifre + gerekçe); kayıt ve ücret izi kalır.
+  deletedAt       DateTime?
+  deletedByUserId String?
+  deletionReason  String?
   createdByUserId String
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt

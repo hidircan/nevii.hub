@@ -226,7 +226,9 @@ function applyLessonOpsFlagUnguarded(
   const existingMk = makeupRequests.find(
     (m) => m.sourceLessonId === lessonId && m.status !== "cancelled" && m.status !== "expired"
   );
-  if (!existingMk) {
+  // 2026-10-06 (owner) — kulüp oturumunda öğrenci bazında Telafi yalnız statüdür; bireysel telafi talebi/kota
+  // YOK. Oturumun tamamı ertelenecekse kulüp oturum ekranındaki "Oturumu ertele" kullanılır.
+  if (!existingMk && lesson.type !== "group") {
     const quota = assertCanCreateMakeup({ ...data, lessons }, lesson.studentId, now, lesson.id);
     if (!quota.ok) return { ok: false, message: quota.message };
     const branch = data.settings.branches.find((b) => b.id === lesson.branchId);

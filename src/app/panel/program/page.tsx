@@ -84,9 +84,10 @@ export default async function ProgramPage({
     return `/panel/program?${params.toString()}`;
   };
 
+  // 2026-10-06 — kulüp satırları (üye başına) tek tek ders kartı olmaz: oturum başına TEK kart (aşağıda).
   const weekLessons = data.lessons.filter((l) => {
     const d = parseISO(l.startAt);
-    return d >= days[0] && d <= addDays(days[6], 1);
+    return l.type !== "group" && d >= days[0] && d <= addDays(days[6], 1);
   });
 
   const branchNames = Object.fromEntries(data.settings.branches.map((b) => [b.id, b.shortName]));
@@ -99,7 +100,7 @@ export default async function ProgramPage({
             const d = parseISO(t.startAt);
             return t.status !== "cancelled" && d >= days[0] && d <= addDays(days[6], 1);
           })
-          .map((t) => ({
+          .map((t): ProgramTrial => ({
             id: t.id,
             name: t.name,
             instrument: t.instrument,
@@ -109,6 +110,7 @@ export default async function ProgramPage({
             endAt: t.endAt,
             converted: Boolean(t.convertedStudentId),
           }))
+          .concat(await weekClubCardsFor(kurum.scope.tenantId, data.lessons, days[0]!, addDays(days[6]!, 1)))
       : [];
 
   /**
@@ -217,4 +219,29 @@ export default async function ProgramPage({
       </Card>
     </div>
   );
+}
+
+/** 2026-10-06 — haftanın kulüp oturumları: oturum başına tek kart (deneme kartı düzeninde), oturum ekranına gider. */
+async function weekClubCardsFor(tenantId: string, lessons: import("@/lib/types").Lesson[], from: Date, to: Date): Promise<ProgramTrial[]> {
+  const { groupClubSessions, listClubs } = await import("@/lib/clubs");
+  const clubs = await listClubs(tenantId);
+  return groupClubSessions(lessons.filter((l) => l.type === "group"))
+    .filter((x) => !x.cancelled && parseISO(x.startAt) >= from && parseISO(x.startAt) <= to)
+    .map((x) => {
+      const club = clubs.find((c) => c.id === x.clubId);
+      return {
+        id: x.sessionId,
+        name: `${club?.name ?? "Kulüp"} · ${x.rows.length} üye`,
+        instrument: club?.instrument ?? "",
+        teacherId: x.teacherId,
+        branchId: x.branchId,
+        startAt: x.startAt,
+        endAt: x.endAt,
+        converted: false,
+        kind: "club" as const,
+        href: `/panel/kulupler/${x.clubId}/oturum/${x.sessionId}`,
+        studentIds: x.rows.map((r) => r.studentId),
+        note: x.postponed ? "Ertelendi" : x.teacherAttendanceStatus === "geldi" ? "Yapıldı" : undefined,
+      };
+    });
 }

@@ -185,6 +185,8 @@ export function isBillableLesson(
   context: BillableLessonContext
 ): boolean {
   if (lesson.type === "trial") return false;
+  // 2026-10-06 — kulüp oturumu (aylık sabit kulüp ücreti ayrı; sözleşme/ders sayımına girmez).
+  if (lesson.type === "group") return false;
   if (lesson.status === "cancelled") return false;
   if (lesson.opsClosedFlag) return false;
   if (lesson.isFreeLesson) return false;
