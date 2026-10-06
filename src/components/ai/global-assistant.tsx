@@ -64,6 +64,9 @@ function clampPosition(pos: Position, width: number, height: number): Position {
   return { x: clamp(pos.x, VIEWPORT_MARGIN, maxX), y: clamp(pos.y, VIEWPORT_MARGIN, maxY) };
 }
 
+/** Asistanın hiç gösterilmediği herkese açık yüzeyler (ilk yol bölümü). */
+const PUBLIC_NO_ASSISTANT_PORTALS = new Set(["basvuru"]);
+
 export function GlobalAssistant() {
   const { entity, isOpen, close, toggle, takePrefill, activeConversationId, setActiveConversationId } =
     useAssistant();
@@ -84,12 +87,16 @@ export function GlobalAssistant() {
   // (Vercel Active CPU, 2026-10-01).
   const pathname = usePathname();
   const portal = pathname?.split("/")[1] ?? "";
+  // 2026-10-06 — herkese açık başvuru sayfalarında (aday/veli formu) asistan, başlatıcısı ve oturum isteği YOK;
+  // giriş yapmış bir yönetici formu açsa bile. Diğer portallarda davranış aynı.
+  const publicSurface = PUBLIC_NO_ASSISTANT_PORTALS.has(portal);
   // Sohbet gövdesi (konuşma listesi isteği) ilk açılışta mount edilir, sonra açık kalır;
   // asistanı hiç açmayan kullanıcı için her sayfa açılışında /api/v1/chat çağrılmaz.
   const [chatMounted, setChatMounted] = useState(isOpen);
   if (isOpen && !chatMounted) setChatMounted(true);
 
   useEffect(() => {
+    if (publicSurface) return;
     let cancelled = false;
     (async () => {
       try {
@@ -124,7 +131,7 @@ export function GlobalAssistant() {
     return () => {
       cancelled = true;
     };
-  }, [portal]);
+  }, [portal, publicSurface]);
 
   // Pick up any prefill queued via useAssistant().open({ prefill }) once open.
   // `takePrefill()` mutates a ref (one-shot consume) — a genuine external-system
@@ -213,7 +220,7 @@ export function GlobalAssistant() {
   }, [authChecked, session, pathname, entity]);
 
   // Auth bitmeden ne launcher ne chip — boş flicker yok.
-  if (!authChecked || !session) return null;
+  if (publicSurface || !authChecked || !session) return null;
 
   return (
     <>

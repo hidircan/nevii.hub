@@ -66,6 +66,22 @@ export function resolveLessonFinalStatus(
   return "planned";
 }
 
+/**
+ * 2026-10-06 — "Planlanan telafiye geldi". Telafi Merkezi'nden planlanan ders (`type: "makeup"`, kaynağı
+ * `makeupRequestId`) "Geldi" işaretlenince statü yine `attended`dır (aynı yeşil, aynı toplamlar); ayrım
+ * KALICI kaynaktan (ders tipi) hesaplanır — renk/etiket metninden asla çıkarılmaz. Kulüp oturumu (`group`)
+ * ve sıradan ders bu işareti hiçbir zaman almaz.
+ */
+export const ATTENDED_PLANNED_MAKEUP_LABEL = "Planlanan telafiye geldi";
+export const ATTENDED_PLANNED_MAKEUP_HINT = "T: Telafi Merkezi'nden planlanan telafi dersine geldi (kaçırılan dersin telafisi)";
+
+export function isAttendedPlannedMakeup(
+  lesson: LessonFinalStatusInput,
+  now: Date = new Date()
+): boolean {
+  return lesson.type === "makeup" && resolveLessonFinalStatus(lesson, now) === "attended";
+}
+
 export type LiveDisplayStatus =
   | "scheduled"
   | "delayed"

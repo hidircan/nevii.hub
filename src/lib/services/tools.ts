@@ -55,6 +55,7 @@ import {
   markTeacherPayoutPaid,
   updateTeacherPayoutPaymentMethod,
   readData,
+  readPayoutWindow,
   deletePaymentRow,
   readLessonScope,
   readStudentById,
@@ -7182,6 +7183,11 @@ export async function previewLessonSeriesTool(
     occurrenceCount: number;
     conflictCount: number;
     checks: SeriesOccurrenceCheck[];
+    /** Yalnız öğretmen müsaitliği nedeniyle uygun olmayan (istisnayla planlanabilir) tarih sayısı. */
+    availabilityConflictCount: number;
+    /** İstisnayla planlanacak tarih sayısı (overrideAvailability önizlemesinde). */
+    overriddenCount: number;
+    canOverrideAvailability: boolean;
   }>
 > {
   const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
@@ -7189,6 +7195,9 @@ export async function previewLessonSeriesTool(
 
   const v = parseOrFail(lessonSeriesParamsSchema, input);
   if (!v.ok) return v;
+  if (v.data.overrideAvailability && !canOverrideTeacherAvailability(ctx)) {
+    return fail("FORBIDDEN", AVAILABILITY_OVERRIDE_FORBIDDEN);
+  }
 
   const data = await readData();
   const student = data.students.find((s) => s.id === v.data.studentId);
@@ -7201,7 +7210,14 @@ export async function previewLessonSeriesTool(
   // Bkz. validation.ts studentSchema.instrument yorumu — schema artık katalog
   // uyumlu serbest metin; gerçek enstrüman/öğretmen/oda uyumu makeup-engine.ts'te
   // (checkSeriesOccurrences → validateLessonSlot) doğrulanır, burada YALNIZCA tip cast'i.
-  const checks = checkSeriesOccurrences(data, { ...v.data, instrument: v.data.instrument as Instrument }, occurrences);
+  // Önizleme ve oluşturma AYNI kural: aynı istisna bayrağı, aynı dönem (haftalık kapalı gün) bilgisi.
+  const checks = checkSeriesOccurrences(
+    data,
+    { ...v.data, instrument: v.data.instrument as Instrument },
+    occurrences,
+    new Date(),
+    Boolean(v.data.overrideAvailability)
+  );
   const previewText = buildSeriesPreviewText({
     studentName: student.name,
     weekday: v.data.weekday,
@@ -7218,6 +7234,9 @@ export async function previewLessonSeriesTool(
     // Kapalı gün oluşumları otomatik atlanır; kullanıcının çözmesi gereken çakışma sayılmaz.
     conflictCount: checks.filter((c) => !c.ok && c.code !== "DAY_CLOSED").length,
     checks,
+    availabilityConflictCount: checks.filter((c) => !c.ok && c.code === "TEACHER_UNAVAILABLE").length,
+    overriddenCount: checks.filter((c) => c.ok && c.availabilityOverridden).length,
+    canOverrideAvailability: canOverrideTeacherAvailability(ctx),
   });
 }
 
@@ -7236,14 +7255,51 @@ export async function createLessonSeriesTool(
 
   const v = parseOrFail(createLessonSeriesSchema, input);
   if (!v.ok) return v;
+  const override = Boolean(v.data.overrideAvailability);
+  if (override && !canOverrideTeacherAvailability(ctx)) return fail("FORBIDDEN", AVAILABILITY_OVERRIDE_FORBIDDEN);
+  const overrideReason = v.data.overrideReason?.trim() ?? "";
+  if (override && overrideReason.length < 3) {
+    return fail("VALIDATION_ERROR", "Müsaitlik dışı planlama için kısa bir gerekçe yazın (en az 3 karakter); gerekçe denetim kaydına işlenir.");
+  }
+
+  // Tekrar denemede mükerrer seri yok: aynı öğrenci/öğretmen/gün/saat/aralık için AKTİF seri varsa yeni seri yazılmaz.
+  const existing = (await readData()).lessonSeries.find(
+    (s) =>
+      s.status === "active" &&
+      s.studentId === v.data.studentId &&
+      s.teacherId === v.data.teacherId &&
+      s.weekday === v.data.weekday &&
+      s.startTime === v.data.startTime &&
+      s.startsOn.slice(0, 10) === v.data.startsOn.slice(0, 10) &&
+      s.endsOn.slice(0, 10) === v.data.endsOn.slice(0, 10)
+  );
+  if (existing) {
+    return fail(
+      "CONFLICT",
+      "Bu öğrenci için aynı gün, saat ve tarih aralığında bir ders serisi zaten oluşturulmuş; ikinci kez yazılmadı. Ders Programı'nı yenileyip mevcut seriyi kontrol edin."
+    );
+  }
 
   try {
-    const { skipConflicts, ...params } = v.data;
+    const { skipConflicts, overrideAvailability: _o, overrideReason: _r, ...params } = v.data;
     const result = await addLessonSeries(
       { ...params, instrument: params.instrument as Instrument },
-      { skipConflicts, createdByUserId: ctx.userId }
+      { skipConflicts, createdByUserId: ctx.userId, allowAvailabilityOverride: override, overriddenByUserId: override ? ctx.userId : undefined }
     );
     if (!result.ok) return fail("CONFLICT", result.message, result.conflicts);
+    if (override) {
+      const after = await readData();
+      const overridden = after.lessons.filter((l) => l.seriesId === result.seriesId && l.availabilityOverride);
+      if (overridden.length > 0) {
+        audit(ctx, "lesson_series.availability_override", "LessonSeries", result.seriesId, {
+          teacherId: v.data.teacherId,
+          studentId: v.data.studentId,
+          reason: overrideReason,
+          overriddenCount: overridden.length,
+          dates: overridden.map((l) => l.startAt),
+        });
+      }
+    }
 
     // İş 4A — seri için TEK özet bildirim (oluşum başına DEĞİL, spam yok).
     // Aynı Türkçe cümle üretimi `previewLessonSeriesTool` ile PAYLAŞILIR
@@ -8048,6 +8104,42 @@ export async function computeTeacherPayoutTool(
     : null;
 
   return ok({ ...shown, paymentMethodInfo, existingPayout, cancelledPayout, lineSources });
+}
+
+/**
+ * 2026-10-06 — Hakediş DÖKÜMÜ (aylık: year+month, yıllık: year). Hesap `buildTeacherEarningsStatement` —
+ * her ay hakediş ekranıyla (`computeTeacherPayoutTool`) aynı kayıt/canlı kuralı; yazma YOK.
+ * Yetki: hakediş ekranıyla aynı (SCHOOL_ADMIN/SUPER_ADMIN + kurum hakediş politikası); tenant ALS'den.
+ */
+export async function teacherEarningsStatementTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<import("../teacher-earnings-statement").TeacherEarningsStatement & { teacherName: string }>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", "Hakediş dökümünü yalnız kurum yöneticileri görüntüleyebilir.");
+  const earnings = await assertTeacherEarningsAccess(ctx);
+  if (!earnings.ok) return earnings;
+  const v = parseOrFail(
+    z.object({
+      teacherId: z.string().min(1),
+      year: z.number().int().min(2000).max(2100),
+      month: z.number().int().min(1).max(12).optional(),
+    }),
+    input
+  );
+  if (!v.ok) return v;
+  if (!canAccessTeacher(ctx, v.data.teacherId)) return fail("FORBIDDEN", "Bu öğretmenin hakediş dökümüne erişiminiz yok.");
+
+  const { buildTeacherEarningsStatement, statementMonthPeriod } = await import("../teacher-earnings-statement");
+  const first = statementMonthPeriod(v.data.year, v.data.month ?? 1).periodStart;
+  const last = statementMonthPeriod(v.data.year, v.data.month ?? 12).periodEnd;
+  // İstanbul gün sınırı için ±2 gün pay; kesin kesim gün anahtarıyla hesapta yapılır.
+  const from = new Date(Date.parse(`${first}T00:00:00Z`) - 2 * 86_400_000).toISOString();
+  const to = new Date(Date.parse(`${last}T23:59:59Z`) + 2 * 86_400_000).toISOString();
+  const data = await readPayoutWindow(from, to);
+  const teacher = data.teachers.find((t) => t.id === v.data.teacherId);
+  if (!teacher) return fail("NOT_FOUND", "Öğretmen bu kurumda bulunamadı; kurum seçimini kontrol edin.");
+  return ok({ ...buildTeacherEarningsStatement(data, v.data.teacherId, v.data.year, v.data.month), teacherName: teacher.name });
 }
 
 export type ExistingPayoutSummary = {
@@ -15599,6 +15691,8 @@ export type AttendanceCalendarLessonOpsInfo = {
   teacherName?: string;
   instrument: string;
   roomName?: string;
+  /** 2026-10-06 — Telafi Merkezi'nden planlanan ders (kalıcı kaynak: `type === "makeup"`); Geldi → T işareti. */
+  plannedMakeup: boolean;
   /** bkz. Lesson.availabilityOverride — öğretmen müsait olmadığı bir saatte, onaylı planlandı. */
   availabilityOverride: boolean;
 };
@@ -15735,6 +15829,7 @@ async function buildAttendanceCalendarMonth(
           instrument: l.instrument,
           roomName: room?.name,
           availabilityOverride: Boolean(l.availabilityOverride),
+          plannedMakeup: l.type === "makeup",
         };
       });
     // ÖNCELİK 4 (devam) — TEK kaynak: mevcut Payment modeli (source:"lesson_ops"),

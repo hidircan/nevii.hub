@@ -636,6 +636,13 @@ export const lessonSeriesParamsBaseSchema = z.object({
   academicYearStart: z.coerce.number().int().min(2000).max(2100).optional(),
   /** Faz 6 — demo/test amaçlı otomatik üretim etiketi (bkz. scripts/seed-demo-schedule.ts). */
   demoTag: z.string().min(1).optional(),
+  /**
+   * 2026-10-06 — kullanıcı önizlemedeki "öğretmen müsait değil" uyarısını görüp "Uyarıya rağmen planla" ile
+   * AÇIKÇA onayladıysa true. YALNIZ TEACHER_UNAVAILABLE aşılır (bkz. OVERRIDABLE_SLOT_CODES); çakışma, kapalı gün,
+   * pasif öğretmen, tenant sınırı asla aşılmaz. Yetki ve gerekçe sunucuda doğrulanır.
+   */
+  overrideAvailability: z.boolean().optional(),
+  overrideReason: z.string().trim().max(500).optional(),
 });
 
 /**

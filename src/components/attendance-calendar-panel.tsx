@@ -27,6 +27,8 @@ import type { CalendarMonthPlan } from "@/lib/attendance-calendar-plan";
 import { TriangleAlert } from "lucide-react";
 import { LessonOpsActions } from "./lesson-ops-actions";
 import { LessonStatusBadge } from "./lesson-status-badge";
+import { PlannedMakeupMarker } from "./planned-makeup-marker";
+import { ATTENDED_PLANNED_MAKEUP_LABEL } from "@/lib/lesson-live-status";
 import { AttendanceCalendarCollectPaymentButton } from "./attendance-calendar-collect-payment-button";
 import {
   currentAcademicAnchorYear,
@@ -93,6 +95,8 @@ type DayLessonOpsInfo = {
   instrument: string;
   roomName?: string;
   availabilityOverride: boolean;
+  /** Telafi Merkezi'nden planlanan ders — "Geldi" ise T işareti (aynı yeşil). */
+  plannedMakeup?: boolean;
 };
 
 type DayInfo = {
@@ -705,6 +709,10 @@ export function AttendanceCalendarPanel({
         <LegendDot color={ATTENDANCE_CALENDAR_COLORS.processed} label="İşlendi" />
         <LegendDot color={ATTENDANCE_CALENDAR_COLORS.makeup} label="Telafi (kaçırılan ders)" />
         <LegendDot color={ATTENDANCE_CALENDAR_COLORS.makeup_planned} label="Planlanan telafi" />
+        <span className="flex items-center gap-1.5">
+          <PlannedMakeupMarker />
+          {ATTENDED_PLANNED_MAKEUP_LABEL} (yeşil)
+        </span>
         <LegendDot color={ATTENDANCE_CALENDAR_COLORS.closed} label="Kapalı" />
         <LegendDot color={ATTENDANCE_CALENDAR_COLORS.open} label="Açık / işaretsiz" />
         <span className="flex items-center gap-1.5">
@@ -948,7 +956,8 @@ export function AttendanceCalendarPanel({
                   ))}
                   {data.days.map((day) => {
                     const { style, segmentCount } = dayFillStyle(day);
-                    const dayTitle = `${day.date} — ${weekdayFullNameFor(day.date)} — ${day.label}${day.lessonIds.length ? ` · ${day.lessonIds.length} ders` : ""}`;
+                    const attendedMakeup = day.status !== "closed" && day.lessons.some((l) => l.plannedMakeup && l.opsStatus === "attended");
+                    const dayTitle = `${day.date} — ${weekdayFullNameFor(day.date)} — ${day.label}${day.lessonIds.length ? ` · ${day.lessonIds.length} ders` : ""}${attendedMakeup ? ` · ${ATTENDED_PLANNED_MAKEUP_LABEL}` : ""}`;
                     return (
                       <button
                         key={day.date}
@@ -972,6 +981,7 @@ export function AttendanceCalendarPanel({
                             {segmentCount}
                           </span>
                         ) : null}
+                        {attendedMakeup ? <PlannedMakeupMarker className="absolute -bottom-1 -left-1 !h-3 !w-3 !text-[8px]" /> : null}
                       </button>
                     );
                   })}
@@ -1024,6 +1034,7 @@ function LessonSummaryLine({ lesson }: { lesson: DayLessonOpsInfo }) {
             ? lesson.opsStatus
             : "planned"
         }
+        plannedMakeup={lesson.plannedMakeup}
       />
       {lesson.availabilityOverride ? (
         <span

@@ -1,8 +1,10 @@
 /**
- * 2026-10-05 — Herkese açık DENEME DERSİ BAŞVURUSU. Aday /basvuru/[kurum]/deneme formunu doldurur; uygun
- * zaman seçenekleri öğretmen müsaitliği + mevcut ders/deneme çakışmalarından, deneme dersi planlamasının
- * KENDİ kuralıyla (`validateTrialSlot`) üretilir. Seçim rezervasyon DEĞİL, tercihtir: yönetici arar,
- * Deneme Dersleri > Başvurular'dan planlar (planlama yine aynı kuralla doğrulanır).
+ * 2026-10-05 — Herkese açık DENEME DERSİ BAŞVURUSU. Aday /basvuru/[kurum]/deneme formunu doldurur.
+ * 2026-10-06 — Sistem önerisi (öğretmen müsaitliğinden üretilen saatler) KALDIRILDI: aday 1–5 alternatif
+ * tarih/saati KENDİSİ yazar (Europe/Istanbul). Bunlar tercih, rezervasyon DEĞİL; kurum arayıp kesinleştirir ve
+ * Deneme Dersleri > Başvurular'dan planlar (planlama deneme kuralıyla doğrulanır). Birden fazla enstrüman seçilebilir
+ * (`instruments`; eski kayıtlarda yalnız `instrument`). `note` = "Adayın eğitim geçmişi bilgisi" (eski "Bize
+ * iletmek istedikleriniz" verisi aynı alanda korunur).
  * STORE_MODE=db → Prisma `TrialApplication`; json/memory → dosya (panel-notes.ts ile aynı desen).
  */
 import path from "path";
@@ -11,9 +13,10 @@ import { isDbMode, resolveDataDir } from "./config";
 import { uid } from "./utils";
 import { fail, ok, type ServiceResult } from "./services/result";
 import { requireRole, type ServiceContext } from "./services/context";
-import { DEFAULT_APP_TIMEZONE, toZonedYmd, zonedWallTimeToUtc, zonedWeekday } from "./timezone";
-import { availabilityForBranch, isTeacherSchedulable, teacherServesBranch } from "./teacher-branches";
-import type { AppData } from "./types";
+import { createHash } from "crypto";
+import { DEFAULT_APP_TIMEZONE, toZonedYmd, zonedWallTimeToUtc } from "./timezone";
+import { logger } from "./logger";
+import { applicationInstruments } from "./trial-application-instruments";
 import type { Prisma, TrialApplication as DbRow } from "@prisma/client";
 
 export type TrialApplicationStatus = "new" | "contacted" | "planned" | "declined";
@@ -24,8 +27,11 @@ export const TRIAL_APPLICATION_STATUS_LABEL: Record<TrialApplicationStatus, stri
   declined: "Kayıt olmayacak",
 };
 
-/** Adayın seçtiği zaman. `teacherId` sunucuda eşlenir (istemciden alınmaz); yoksa zaman artık boş değildir. */
-export type TrialPreferredSlot = { startAt: string; branchId: string; teacherId?: string };
+/**
+ * Adayın tercih ettiği tarih/saat (rezervasyon değil). Yeni başvurularda aday yazar; `branchId` başvurunun şubesi
+ * (fark etmez ise yok). `teacherId` yalnız 2026-10-06 öncesi (sistem önerisiyle) gelen eski kayıtlarda bulunur.
+ */
+export type TrialPreferredSlot = { startAt: string; branchId?: string; teacherId?: string };
 
 export type TrialApplication = {
   id: string;
@@ -35,7 +41,10 @@ export type TrialApplication = {
   email?: string;
   parentName?: string;
   age?: number;
+  /** Birincil (ilk seçilen) enstrüman — eski kayıtlar ve tek enstrüman bekleyen tüketiciler için. */
   instrument: string;
+  /** 2026-10-06 — seçilen tüm enstrümanlar (eski kayıtlarda yok → `applicationInstruments`). */
+  instruments?: string[];
   branchId?: string;
   preferredSlots: TrialPreferredSlot[];
   availabilityNote?: string;
@@ -50,74 +59,11 @@ export type TrialApplication = {
   createdAt: string;
 };
 
-/** Deneme dersi önerilen süresi (10/15/20 kuralının üst sınırı) ve öneri ufku. */
+/** Deneme dersi varsayılan süresi (planlama formu ön değeri). */
 export const TRIAL_SLOT_MINUTES = 20;
-const HORIZON_DAYS = 14;
-const STEP_MINUTES = 30;
-const PER_DAY = 3;
-const MAX_SLOTS = 15;
+export const TRIAL_MAX_ALTERNATIVES = 5;
 
-function addMinutesHm(hm: string, minutes: number): string {
-  const [h, m] = hm.split(":").map(Number) as [number, number];
-  const total = h * 60 + m + minutes;
-  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
-}
-
-/**
- * Saf: önümüzdeki 14 günde (yarından itibaren) bu enstrüman için boş deneme zamanları. Aynı saat+şubede
- * birden fazla öğretmen boşsa tek seçenek (ilk öğretmen). Gün başına en fazla 3 (sabah/orta/akşam), toplam 15.
- * ponytail: 30 dk adımlı tarama — öğretmen×gün×pencere başına O(n) doğrulama; kurum büyürse indeks.
- */
-export function suggestTrialSlots(
-  data: Pick<AppData, "teachers" | "lessons" | "settings" | "closedDayOverrides">,
-  trials: Array<{ id: string; teacherId: string; startAt: string; endAt: string; status: string }>,
-  input: { instrument: string; branchId?: string; now: Date },
-  validate: (typeof import("./makeup-engine"))["validateTrialSlot"]
-): TrialPreferredSlot[] {
-  const teachers = data.teachers.filter((t) => isTeacherSchedulable(t, input.now) && t.instruments.includes(input.instrument as never));
-  const out: TrialPreferredSlot[] = [];
-  for (let d = 1; d <= HORIZON_DAYS && out.length < MAX_SLOTS; d++) {
-    const ymd = toZonedYmd(new Date(input.now.getTime() + d * 86_400_000), DEFAULT_APP_TIMEZONE);
-    const dow = zonedWeekday(zonedWallTimeToUtc(ymd, "12:00"));
-    const day = new Map<string, TrialPreferredSlot>();
-    for (const t of teachers) {
-      const branches = input.branchId ? [input.branchId] : Array.from(new Set([t.branchId, ...(t.branchIds ?? [])]));
-      for (const branchId of branches) {
-        if (!teacherServesBranch(t, branchId)) continue;
-        for (const w of availabilityForBranch(t.availability, branchId).filter((a) => a.dayOfWeek === dow)) {
-          for (let hm = w.start; addMinutesHm(hm, TRIAL_SLOT_MINUTES) <= w.end; hm = addMinutesHm(hm, STEP_MINUTES)) {
-            const startAt = zonedWallTimeToUtc(ymd, hm).toISOString();
-            const key = `${startAt}|${branchId}`;
-            if (day.has(key)) continue;
-            const v = validate(data, { teacherId: t.id, branchId, instrument: input.instrument, startAt, durationMinutes: TRIAL_SLOT_MINUTES }, trials);
-            if (v.ok) day.set(key, { startAt, branchId, teacherId: t.id });
-          }
-        }
-      }
-    }
-    // Günün en erken, ortası ve en geç boş saati — okul/iş çıkışı gelecek adaylara da seçenek kalsın.
-    const sorted = [...day.values()].sort((a, b) => a.startAt.localeCompare(b.startAt));
-    const picks = sorted.length <= PER_DAY ? sorted : [sorted[0]!, sorted[Math.floor((sorted.length - 1) / 2)]!, sorted[sorted.length - 1]!];
-    out.push(...picks);
-  }
-  return out.slice(0, MAX_SLOTS);
-}
-
-/** Kurum kapsamında (ALS kurulmuş) güncel boş zamanlar — public form ve sunucu tarafı eşleme bunu kullanır. */
-export async function loadTrialSlotSuggestions(
-  tenantId: string,
-  input: { instrument: string; branchId?: string },
-  now = new Date()
-): Promise<TrialPreferredSlot[]> {
-  const [{ readLessonWindow }, { listTrialLessons }, { validateTrialSlot }] = await Promise.all([
-    import("./store"),
-    import("./trial-lessons"),
-    import("./makeup-engine"),
-  ]);
-  const data = await readLessonWindow(now.toISOString(), new Date(now.getTime() + (HORIZON_DAYS + 1) * 86_400_000).toISOString());
-  const trials = (await listTrialLessons(tenantId)).filter((t) => new Date(t.endAt) >= now);
-  return suggestTrialSlots(data, trials, { ...input, now }, validateTrialSlot);
-}
+export { applicationInstruments };
 
 // ── Depolama ────────────────────────────────────────────────────────────────
 
@@ -149,6 +95,7 @@ function fromDb(r: DbRow): TrialApplication {
     parentName: r.parentName ?? undefined,
     age: r.age ?? undefined,
     instrument: r.instrument,
+    instruments: Array.isArray(r.instruments) ? (r.instruments as string[]).filter((x) => typeof x === "string") : undefined,
     branchId: r.branchId ?? undefined,
     preferredSlots: Array.isArray(r.preferredSlots) ? (r.preferredSlots as TrialPreferredSlot[]) : [],
     availabilityNote: r.availabilityNote ?? undefined,
@@ -175,22 +122,32 @@ export async function listTrialApplications(tenantId: string): Promise<TrialAppl
     .map(({ tenantId: _ignored, ...a }) => a); // eslint-disable-line @typescript-eslint/no-unused-vars
 }
 
-async function insertApplication(tenantId: string, a: TrialApplication): Promise<void> {
+/** false = aynı kimlikli başvuru zaten var (tekrar deneme) — ikinci kayıt yazılmadı. */
+async function insertApplication(tenantId: string, a: TrialApplication): Promise<boolean> {
   if (isDbMode) {
     const { prisma } = await import("./db");
-    await prisma.trialApplication.create({
-      data: {
-        ...a,
-        tenantId,
-        preferredSlots: a.preferredSlots as unknown as Prisma.InputJsonValue,
-        kvkkConsentAt: new Date(a.kvkkConsentAt),
-        handledAt: undefined,
-        createdAt: new Date(a.createdAt),
-      },
-    });
-    return;
+    try {
+      await prisma.trialApplication.create({
+        data: {
+          ...a,
+          tenantId,
+          instruments: a.instruments as unknown as Prisma.InputJsonValue,
+          preferredSlots: a.preferredSlots as unknown as Prisma.InputJsonValue,
+          kvkkConsentAt: new Date(a.kvkkConsentAt),
+          handledAt: undefined,
+          createdAt: new Date(a.createdAt),
+        },
+      });
+      return true;
+    } catch (e) {
+      if ((e as { code?: string })?.code === "P2002") return false;
+      throw e;
+    }
   }
-  await saveAll([...(await loadAll()), { ...a, tenantId }]);
+  const all = await loadAll();
+  if (all.some((x) => x.id === a.id)) return false;
+  await saveAll([...all, { ...a, tenantId }]);
+  return true;
 }
 
 async function patchApplication(
@@ -220,6 +177,9 @@ async function patchApplication(
 
 const phoneDigits = (p: string) => p.replace(/\D/g, "");
 
+const ymdRe = /^\d{4}-\d{2}-\d{2}$/;
+const hmRe = /^([01]\d|2[0-3]):[0-5]\d$/;
+
 const publicSchema = z.object({
   name: z.string().trim().min(2, "Ad soyad en az 2 karakter olmalı.").max(120, "Ad soyad en fazla 120 karakter olabilir."),
   phone: z
@@ -230,14 +190,51 @@ const publicSchema = z.object({
   email: z.string().trim().max(160).email("E-posta adresi geçerli görünmüyor; düzeltin ya da boş bırakın.").optional().or(z.literal("")),
   parentName: z.string().trim().max(120).optional(),
   age: z.coerce.number().int().min(3, "Yaş 3 ile 99 arasında olmalı.").max(99, "Yaş 3 ile 99 arasında olmalı.").optional().or(z.literal("")),
-  instrument: z.string().trim().min(1, "Enstrüman seçin."),
+  /** 2026-10-06 — birden fazla enstrüman. Eski istemci uyumu: tek `instrument` da kabul edilir. */
+  instruments: z.array(z.string().trim().min(1).max(80)).max(10, "En fazla 10 enstrüman seçebilirsiniz.").optional(),
+  instrument: z.string().trim().max(80).optional(),
   branchId: z.string().trim().max(80).optional(),
-  preferredSlots: z.array(z.object({ startAt: z.string().max(40), branchId: z.string().max(80) })).max(3, "En fazla 3 zaman seçebilirsiniz.").default([]),
+  /** Adayın yazdığı 1–5 alternatif (İstanbul saati). */
+  alternatives: z
+    .array(z.object({ date: z.string().trim().max(10), time: z.string().trim().max(5) }))
+    .max(TRIAL_MAX_ALTERNATIVES, `En fazla ${TRIAL_MAX_ALTERNATIVES} alternatif tarih/saat yazabilirsiniz.`)
+    .default([]),
   availabilityNote: z.string().trim().max(300).optional(),
+  /** "Adayın eğitim geçmişi bilgisi". */
   note: z.string().trim().max(1000).optional(),
   kvkkConsent: z.literal(true, { message: "Başvurunun alınması için aydınlatma metnini onaylamanız gerekiyor." }),
   source: z.string().trim().max(80).optional(),
+  /** İstemcinin form başına ürettiği tekrar-deneme anahtarı (idempotans). */
+  submissionKey: z.string().trim().regex(/^[A-Za-z0-9_-]{8,64}$/).optional(),
 });
+
+/**
+ * Saf: aday alternatiflerini doğrular ve UTC ana çevirir (Europe/Istanbul duvar saati). Geçersiz takvim günü,
+ * geçmiş zaman ve aynı tarih+saatin tekrarı reddedilir.
+ */
+export function parseTrialAlternatives(
+  raw: { date: string; time: string }[],
+  now: Date
+): { ok: true; slots: { startAt: string }[] } | { ok: false; message: string } {
+  if (raw.length === 0) return { ok: false, message: "Size uygun en az bir tarih ve saat yazın." };
+  if (raw.length > TRIAL_MAX_ALTERNATIVES) return { ok: false, message: `En fazla ${TRIAL_MAX_ALTERNATIVES} alternatif tarih/saat yazabilirsiniz.` };
+  const seen = new Set<string>();
+  const slots: { startAt: string }[] = [];
+  for (const [i, r] of raw.entries()) {
+    const n = i + 1;
+    if (!ymdRe.test(r.date) || !hmRe.test(r.time)) return { ok: false, message: `${n}. alternatifin tarihini ve saatini eksiksiz seçin.` };
+    const start = zonedWallTimeToUtc(r.date, r.time, DEFAULT_APP_TIMEZONE);
+    if (Number.isNaN(start.getTime()) || toZonedYmd(start, DEFAULT_APP_TIMEZONE) !== r.date) {
+      return { ok: false, message: `${n}. alternatifin tarihi geçerli bir takvim günü değil; tarihi düzeltin.` };
+    }
+    if (start.getTime() <= now.getTime()) return { ok: false, message: `${n}. alternatif geçmiş bir zaman; ileri bir tarih ve saat seçin.` };
+    const key = `${r.date} ${r.time}`;
+    if (seen.has(key)) return { ok: false, message: `${n}. alternatif daha önce yazdığınız bir tarih/saatle aynı; farklı bir seçenek yazın ya da satırı kaldırın.` };
+    seen.add(key);
+    slots.push({ startAt: start.toISOString() });
+  }
+  return { ok: true, slots };
+}
 
 /**
  * Yeni, mükerrer ve bot (honeypot) başvuru için BİREBİR aynı yanıt `{ ok: true }` — başvuru no herkese açık
@@ -255,49 +252,48 @@ export async function submitPublicTrialApplication(
   const parsed = publicSchema.safeParse(input);
   if (!parsed.success) return { ok: false, status: 400, message: parsed.error.issues[0]?.message ?? "Formdaki bilgileri kontrol edin." };
   const v = parsed.data;
+  const requested = Array.from(new Set([...(v.instruments ?? []), ...(v.instrument ? [v.instrument] : [])].map((x) => x.trim()).filter(Boolean)));
+  if (requested.length === 0) return { ok: false, status: 400, message: "En az bir enstrüman seçin." };
+  const alternatives = parseTrialAlternatives(v.alternatives, now);
+  if (!alternatives.ok) return { ok: false, status: 400, message: alternatives.message };
+
   const { runWithTenantAsync } = await import("./tenant-context");
   return runWithTenantAsync(tenant.tenantId, async () => {
     const [{ resolveActiveInstrumentNames }, { readReferenceData }] = await Promise.all([import("./instrument-catalog"), import("./store")]);
-    const instruments = await resolveActiveInstrumentNames(tenant.tenantId);
-    if (!instruments.includes(v.instrument)) return { ok: false, status: 400, message: "Seçilen enstrüman listede yok. Listeden bir enstrüman seçin." };
+    const active = await resolveActiveInstrumentNames(tenant.tenantId);
+    const unknown = requested.filter((x) => !active.includes(x));
+    if (unknown.length > 0) return { ok: false, status: 400, message: "Seçilen enstrümanlardan biri listede yok. Listeden enstrüman seçin." };
     const branches = (await readReferenceData()).settings.branches;
     if (v.branchId && !branches.some((b) => b.id === v.branchId)) return { ok: false, status: 400, message: "Seçilen şube bulunamadı. Listeden bir şube seçin." };
 
-    // Mükerrer: aynı telefon + enstrüman, açık başvuru (7 gün) → yeni kayıt/bildirim yok.
+    // Mükerrer: aynı telefon + ortak enstrüman, açık başvuru (7 gün) → yeni kayıt/bildirim yok.
     const existing = await listTrialApplications(tenant.tenantId);
     const dup = existing.find(
       (a) =>
         phoneDigits(a.phone) === phoneDigits(v.phone) &&
-        a.instrument === v.instrument &&
+        applicationInstruments(a).some((x) => requested.includes(x)) &&
         (a.status === "new" || a.status === "contacted") &&
         now.getTime() - new Date(a.createdAt).getTime() < 7 * 86_400_000
     );
     if (dup) return { ok: true };
 
-    // Seçilen zamanlar SUNUCUDA güncel önerilerle eşlenir (öğretmen istemciden alınmaz; dolmuşsa tercih olarak kalır).
-    const fresh = v.preferredSlots.length ? await loadTrialSlotSuggestions(tenant.tenantId, { instrument: v.instrument, branchId: v.branchId || undefined }, now) : [];
-    const preferredSlots: TrialPreferredSlot[] = v.preferredSlots
-      .filter((s) => !Number.isNaN(Date.parse(s.startAt)) && Date.parse(s.startAt) > now.getTime() && branches.some((b) => b.id === s.branchId))
-      .map((s) => {
-        const match = fresh.find((f) => f.startAt === new Date(s.startAt).toISOString() && f.branchId === s.branchId);
-        return { startAt: new Date(s.startAt).toISOString(), branchId: s.branchId, ...(match?.teacherId ? { teacherId: match.teacherId } : {}) };
-      });
-    if (preferredSlots.length === 0 && !v.availabilityNote) {
-      return { ok: false, status: 400, message: "Size uygun en az bir zaman seçin ya da uygun olduğunuz zamanları kısaca yazın." };
-    }
-
+    // Tekrar deneme (ağ kesintisi / çift tıklama): form anahtarından türetilmiş kimlik → ikinci satır yazılamaz.
+    const id = v.submissionKey
+      ? `tapp_${createHash("sha256").update(`${tenant.tenantId}:${v.submissionKey}`).digest("hex").slice(0, 24)}`
+      : uid("tapp");
     // ponytail: başvuru no = kurumdaki sayı + 1; eşzamanlı iki başvuruda aynı no çıkabilir (yalnız görüntü).
     const app: TrialApplication = {
-      id: uid("tapp"),
+      id,
       applicationNo: `BD-${String(existing.length + 1).padStart(6, "0")}`,
       name: v.name,
       phone: v.phone,
       email: v.email || undefined,
       parentName: v.parentName || undefined,
       age: typeof v.age === "number" ? v.age : undefined,
-      instrument: v.instrument,
+      instrument: requested[0]!,
+      instruments: requested,
       branchId: v.branchId || undefined,
-      preferredSlots,
+      preferredSlots: alternatives.slots.map((x) => ({ startAt: x.startAt, ...(v.branchId ? { branchId: v.branchId } : {}) })),
       availabilityNote: v.availabilityNote || undefined,
       note: v.note || undefined,
       kvkkConsentAt: now.toISOString(),
@@ -305,25 +301,38 @@ export async function submitPublicTrialApplication(
       source: v.source || undefined,
       createdAt: now.toISOString(),
     };
-    await insertApplication(tenant.tenantId, app);
+    const inserted = await insertApplication(tenant.tenantId, app);
+    if (!inserted) return { ok: true };
 
-    try {
-      const { notifyAdmins } = await import("./manager-notifications");
-      await notifyAdmins(
-        tenant.tenantId,
-        "trial_new_application",
-        {
-          // Adayın yazdığı metin (ad, not) bildirime GİRMEZ: bağlantı gövdedeki yoldan çözülür (enjeksiyon yok).
-          title: "Yeni deneme dersi başvurusu",
-          body: `${app.applicationNo} — ${app.instrument} için yeni deneme dersi başvurusu var. Detay: /panel/deneme?sekme=basvurular`,
-        },
-        { dedupeKey: app.id }
-      );
-    } catch {
-      // Bildirim hatası başvuruyu kaybettirmez; başvuru listede görünür.
-    }
+    // Kayıt KALICI yazıldıktan HEMEN sonra bildirim. Hata başvuruyu kaybettirmez (liste kaynağı başvuru tablosu);
+    // ama sessiz de geçmez: hedefsiz/başarısız sonuç loglanır. dedupeKey = başvuru kimliği → tekrar denemede tek bildirim.
+    await notifyNewTrialApplication(tenant.tenantId, app);
     return { ok: true };
   });
+}
+
+/** Yeni başvuru bildirimi — kurumun başvuruları görmeye yetkili yöneticilerine (SCHOOL_ADMIN + SUPER_ADMIN). */
+export async function notifyNewTrialApplication(tenantId: string, app: Pick<TrialApplication, "id" | "applicationNo" | "instrument" | "instruments">) {
+  try {
+    const { notifyAdmins } = await import("./manager-notifications");
+    const outcomes = await notifyAdmins(
+      tenantId,
+      "trial_new_application",
+      {
+        // Adayın yazdığı serbest metin (ad, not) bildirime GİRMEZ: bağlantı gövdedeki yoldan çözülür (enjeksiyon yok).
+        // Enstrüman adları katalogdan doğrulanmıştır.
+        title: "Yeni deneme dersi başvurusu",
+        body: `${app.applicationNo} — ${applicationInstruments(app).join(", ")} için yeni deneme dersi başvurusu var. Detay: /panel/deneme?sekme=basvurular`,
+      },
+      { dedupeKey: app.id, windowMs: 30 * 86_400_000 }
+    );
+    if (outcomes.length === 0) logger.warn("trial application: bildirim hedefi yok", { tenantId, applicationId: app.id });
+    else if (outcomes.includes("failed")) logger.error("trial application: bildirim kısmen/tamamen başarısız", { tenantId, applicationId: app.id, outcomes });
+    return outcomes;
+  } catch (e) {
+    logger.error("trial application: bildirim gönderilemedi", { tenantId, applicationId: app.id, error: e instanceof Error ? e.message : String(e) });
+    return ["failed" as const];
+  }
 }
 
 // ── Yönetici araçları ───────────────────────────────────────────────────────

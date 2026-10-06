@@ -91,6 +91,7 @@ import {
   updateFeeRuleTool,
   setTeacherPayoutPolicyTool,
   computeTeacherPayoutTool,
+  teacherEarningsStatementTool,
   createTeacherPayoutTool,
   markTeacherPayoutPaidTool,
   updateTeacherPayoutPaymentMethodTool,
@@ -3597,7 +3598,16 @@ export type LessonSeriesParamsInput = {
 };
 
 export type PreviewLessonSeriesActionResult =
-  | { ok: true; previewText: string; occurrenceCount: number; conflictCount: number; checks: SeriesOccurrenceCheck[] }
+  | {
+      ok: true;
+      previewText: string;
+      occurrenceCount: number;
+      conflictCount: number;
+      checks: SeriesOccurrenceCheck[];
+      availabilityConflictCount: number;
+      overriddenCount: number;
+      canOverrideAvailability: boolean;
+    }
   | { ok: false; message: string };
 
 export async function actionPreviewLessonSeries(
@@ -4005,6 +4015,26 @@ export async function actionComputeTeacherPayout(input: {
     if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
     if (error instanceof WriteScopeDeniedError) return { ok: false, message: error.message };
     return { ok: false, message: "Hakediş hesaplanırken beklenmeyen bir hata oluştu." };
+  }
+}
+
+export type TeacherEarningsStatementActionResult =
+  | ({ ok: true } & import("./teacher-earnings-statement").TeacherEarningsStatement & { teacherName: string })
+  | { ok: false; message: string };
+
+export async function actionTeacherEarningsStatement(input: {
+  teacherId: string;
+  year: number;
+  month?: number;
+}): Promise<TeacherEarningsStatementActionResult> {
+  try {
+    const result = await withAuthContext("actionTeacherEarningsStatement", (ctx) => teacherEarningsStatementTool(ctx, input));
+    if (!result.ok) return { ok: false, message: result.error.message };
+    return { ok: true, ...result.data };
+  } catch (error) {
+    logger.error("actionTeacherEarningsStatement failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "Hakediş dökümü hazırlanırken beklenmeyen bir hata oluştu; sayfayı yenileyip tekrar deneyin." };
   }
 }
 

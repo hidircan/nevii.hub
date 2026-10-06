@@ -2399,9 +2399,12 @@ model TrialApplication {
   parentName       String?
   age              Int?
   instrument       String
+  /// 2026-10-06 — seçilen tüm enstrümanlar (JSON dizi). Boş = eski kayıt, yalnız `instrument`.
+  instruments      Json?
   /// Tercih edilen şube (boş = fark etmez).
   branchId         String?
-  /// Adayın seçtiği uygun zamanlar: [{ startAt, branchId, teacherId }] (en fazla 3).
+  /// Adayın tercih ettiği zamanlar: [{ startAt, branchId?, teacherId? }]. 2026-10-06'dan beri aday yazar (1–5);
+  /// eski kayıtlarda sistem önerisi (en fazla 3, teacherId'li).
   preferredSlots   Json?
   /// Serbest uygunluk notu ("hafta içi 17:00 sonrası").
   availabilityNote String?

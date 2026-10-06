@@ -355,7 +355,10 @@ export default async function AttendanceReportPage({
 
       <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-8">
         <StatCard label="Planlanan" value={summary.totalPlanned} />
-        <StatCard label="Geldi" value={summary.attended} />
+        <StatCard
+          label={summary.attendedPlannedMakeup > 0 ? `Geldi (${summary.attendedPlannedMakeup} planlanan telafi)` : "Geldi"}
+          value={summary.attended}
+        />
         <StatCard label="İşlendi" value={summary.processed} />
         <StatCard label="Telafi" value={summary.makeup} />
         <StatCard label="Planlanan telafi" value={summary.makeupPlanned} />
@@ -392,7 +395,7 @@ export default async function AttendanceReportPage({
                   <td className="px-4 py-2.5 text-[var(--color-text)]">{r.teacherName}</td>
                   <td className="px-4 py-2.5 text-[var(--color-text-muted)]">{r.branchName ?? "—"}</td>
                   <td className="px-4 py-2.5">
-                    <LessonStatusBadge status={r.status} />
+                    <LessonStatusBadge status={r.status} plannedMakeup={r.plannedMakeup} />
                   </td>
                   <td className="px-4 py-2.5 text-[var(--color-text-muted)]">
                     {r.processedReason ?? r.makeupReason ?? "—"}

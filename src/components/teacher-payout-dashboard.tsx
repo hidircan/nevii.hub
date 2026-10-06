@@ -285,6 +285,21 @@ export function TeacherPayoutDashboard({
             ))}
           </Select>
           {loading ? <Loader2 className="h-4 w-4 animate-spin text-[var(--color-text-muted)]" aria-label="Yükleniyor" /> : null}
+          {/* Döküm bağlantıları SEÇİLİ ay/yıldan üretilir (eskiden sunucu saatinin ayıydı — Eylül'e bakarken Ekim basılıyordu). */}
+          <Link
+            href={`/ogretmen-hakedis-yazdir/${teacherId}?year=${year}&month=${month}`}
+            className="inline-flex items-center rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-sm font-medium text-[var(--color-text)] hover:bg-[var(--color-surface-muted)]"
+            aria-label={`${periodLabel} aylık hakediş dökümü`}
+          >
+            Aylık döküm ({periodLabel})
+          </Link>
+          <Link
+            href={`/ogretmen-hakedis-yazdir/${teacherId}?year=${year}`}
+            className="inline-flex items-center rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-sm font-medium text-[var(--color-text)] hover:bg-[var(--color-surface-muted)]"
+            aria-label={`${year} yıllık hakediş dökümü`}
+          >
+            Yıllık döküm ({year})
+          </Link>
           <Link href={`/panel/ogretmenler/${teacherId}/odemeler`} className="ml-auto text-sm font-medium text-amber-700 hover:underline">
             Ödeme geçmişi →
           </Link>

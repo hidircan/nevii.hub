@@ -11,7 +11,7 @@ import { canRunCriticalActions } from "@/lib/critical-action-password";
 import { readReferenceData } from "@/lib/store";
 import { resolveActorLabels } from "@/lib/contract-payment-plan-view";
 import { DEFAULT_APP_TIMEZONE, isoToWallDateTimeInput, toZonedYmd } from "@/lib/timezone";
-import { listTrialApplicationsTool } from "@/lib/trial-applications";
+import { applicationInstruments, listTrialApplicationsTool } from "@/lib/trial-applications";
 import { TrialApplicationsList } from "@/components/trial-applications-list";
 import { CopyLink } from "@/components/recruitment/copy-link";
 import { careerSlugForTenant } from "@/lib/recruitment/institution";
@@ -123,7 +123,8 @@ export default async function TrialLessonsPage({
   const canPlan = !isBranchManager;
   const fromApp = planla && planla !== "1" ? applications.find((a) => a.id === planla) : undefined;
   const plannerOpen = canPlan && Boolean(planla) && (planla === "1" || Boolean(fromApp));
-  const slot = fromApp ? (fromApp.preferredSlots.find((x) => x.startAt === zaman) ?? fromApp.preferredSlots[0]) : undefined;
+  // Yalnız yöneticinin SEÇTİĞİ alternatif ön doldurulur; genel "Planla"da saat boş gelir (otomatik randevu ima edilmez).
+  const slot = fromApp && zaman ? fromApp.preferredSlots.find((x) => x.startAt === zaman) : undefined;
   const initial = fromApp
     ? {
         name: fromApp.name,
@@ -136,7 +137,8 @@ export default async function TrialLessonsPage({
         notes: [
           `Başvuru ${fromApp.applicationNo}`,
           fromApp.age ? `${fromApp.age} yaş` : "",
-          fromApp.note ?? "",
+          applicationInstruments(fromApp).length > 1 ? `Enstrümanlar: ${applicationInstruments(fromApp).join(", ")}` : "",
+          fromApp.note ? `Eğitim geçmişi: ${fromApp.note}` : "",
           fromApp.availabilityNote ? `Uygunluk: ${fromApp.availabilityNote}` : "",
         ]
           .filter(Boolean)
