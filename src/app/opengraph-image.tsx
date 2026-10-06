@@ -6,7 +6,7 @@ import { ImageResponse } from "next/og";
  * Harici tasarım aracı/asset gerektirmez; marka + TR sloganı.
  */
 export const runtime = "edge";
-export const alt = "NeviiHub — Müzik Okulları için Yönetim Platformu";
+export const alt = "NeviiHub - Okullar için Yönetim Platformu";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
@@ -46,10 +46,10 @@ export default function OpengraphImage() {
           <div style={{ fontSize: 44, fontWeight: 800, letterSpacing: -1 }}>NeviiHub</div>
         </div>
         <div style={{ marginTop: 32, fontSize: 72, fontWeight: 700, lineHeight: 1.1 }}>
-          Ders kaçmaz, aidat kalmaz.
+          Eğitim Kurumları için Yönetim Platformu
         </div>
         <div style={{ marginTop: 20, fontSize: 30, color: "#fcd34d" }}>
-          Müzik okulları için yönetim platformu
+          Okulunuzu tek panelden yönetin
         </div>
       </div>
     ),

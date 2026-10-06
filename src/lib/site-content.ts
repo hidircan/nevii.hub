@@ -24,9 +24,9 @@ export const SITE_NAV: NavItem[] = [
 ];
 
 export const SITE_HERO = {
-  headline: "Ders kaçmaz, aidat kalmaz.",
+  headline: "Eğitim Kurumları için Yönetim Platformu",
   subline:
-    "NeviiHub, müzik okulunuzun arka ofisidir: ders programı, yoklama, telafi, sözleşme ve tahsilat tek panelde; öğretmen ve veli portallarıyla birlikte. Yapay zekâ taslakları hazırlar, son onayı siz verirsiniz.",
+    "NeviiHub, kurumunuzun arka ofisidir: ders programı, yoklama, telafi, sözleşme ve tahsilat tek panelde; öğretmen ve veli portallarıyla birlikte. Yapay zekâ taslakları hazırlar, son onayı siz verirsiniz.",
   primaryCta: { label: "Ücretsiz Demo İste", href: "#iletisim" },
   secondaryCta: { label: "Giriş Yap", href: "/login" },
 };
