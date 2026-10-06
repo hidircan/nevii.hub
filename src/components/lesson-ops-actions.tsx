@@ -509,7 +509,10 @@ export function LessonOpsBadges({
   opsMakeupFlag,
   cancelled,
   missingHomework,
+  plannedMakeup,
 }: {
+  /** 2026-10-06 — Telafi Merkezi'nden planlanan ders (`type === "makeup"`): Geldi → "Planlanan telafiye geldi" + T. */
+  plannedMakeup?: boolean;
   studentAttended?: boolean;
   lessonProcessed?: boolean;
   opsMakeupFlag?: boolean;
@@ -533,7 +536,7 @@ export function LessonOpsBadges({
 
   return (
     <div className="flex flex-wrap gap-1">
-      <LessonStatusBadge status={finalStatus} />
+      <LessonStatusBadge status={finalStatus} plannedMakeup={plannedMakeup} />
       {missingHomework ? (
         <span className="rounded-full bg-stone-300 px-2 py-0.5 text-[10px] font-semibold text-stone-800 dark:bg-stone-700 dark:text-stone-100">
           Ödev yok

@@ -111,7 +111,7 @@ export default async function OgretmenPortalPage() {
                           {lesson.type === "makeup" ? " · Telafi" : ""}
                         </p>
                       </div>
-                      <LessonStatusBadge status={resolveLessonFinalStatus(lesson)} />
+                      <LessonStatusBadge status={resolveLessonFinalStatus(lesson)} plannedMakeup={lesson.type === "makeup"} />
                     </div>
                     {liveStatus === "in_progress" && lesson.actualStartAt ? (
                       <LessonCountdown actualStartAt={lesson.actualStartAt} plannedDurationMinutes={plannedMinutes} />

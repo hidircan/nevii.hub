@@ -1561,21 +1561,21 @@ export function getDashboardStats(data: AppData) {
   };
 }
 
+/**
+ * Sözleşmesiz aylık plan satırı — DÖNEM AYI (`month`) başına tek satır. 2026-10-06: tahsilat tarihi buraya
+ * GİRMEZ (yalnız `paidAt`); vade = dönem ayının 1'i, dönem `installmentPeriodLabel` ile kalıcı ("Ekim 2026").
+ */
 export async function upsertMonthlyPlanPayment(input: {
   studentId: string;
   month: string;
   amount: number;
-  dueDate?: string;
   method?: string;
 }): Promise<{ data: AppData; paymentId: string }> {
   const data = await readData();
   const student = data.students.find((s) => s.id === input.studentId);
   if (!student) throw new Error("Öğrenci bulunamadı");
-  const defaultDueDate = new Date(`${input.month}-01T12:00:00.000Z`).toISOString();
-  const dueDate = input.dueDate ? new Date(`${input.dueDate}T12:00:00.000Z`).toISOString() : defaultDueDate;
-  const existing = data.payments.find(
-    (p) => p.studentId === input.studentId && p.source === "monthly_plan" && p.dueDate.slice(0, 7) === input.month
-  );
+  const { isMonthlyPlanRowForMonth, monthlyPlanPeriodLabel } = await import("./attendance-calendar-plan");
+  const existing = data.payments.find((p) => p.studentId === input.studentId && isMonthlyPlanRowForMonth(p, input.month));
   let payments: Payment[];
   let paymentId: string;
   if (existing) {
@@ -1586,7 +1586,7 @@ export async function upsertMonthlyPlanPayment(input: {
             ...p,
             amount: input.amount,
             description: `Aylık plan — ${input.month} (${input.amount} TL)`,
-            dueDate: input.dueDate ? dueDate : p.dueDate,
+            installmentPeriodLabel: p.installmentPeriodLabel ?? monthlyPlanPeriodLabel(input.month),
             method: input.method ?? p.method,
           }
         : p
@@ -1598,8 +1598,9 @@ export async function upsertMonthlyPlanPayment(input: {
       amount: input.amount,
       paidAmount: 0,
       status: "pending",
-      dueDate,
+      dueDate: new Date(`${input.month}-01T12:00:00.000Z`).toISOString(),
       description: `Aylık plan — ${input.month} (${input.amount} TL)`,
+      installmentPeriodLabel: monthlyPlanPeriodLabel(input.month),
       source: "monthly_plan",
       method: input.method,
       createdAt: new Date().toISOString(),

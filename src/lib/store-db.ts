@@ -4142,11 +4142,11 @@ export async function getRegistrationFirstPayment(studentId: string): Promise<im
   };
 }
 
+/** Bkz. store-json.ts upsertMonthlyPlanPayment — dönem ayı başına tek satır; tahsilat tarihi vadeye yazılmaz. */
 export async function upsertMonthlyPlanPayment(input: {
   studentId: string;
   month: string;
   amount: number;
-  dueDate?: string;
   method?: string;
 }): Promise<{ data: AppData; paymentId: string }> {
   logger.info("upsertMonthlyPlanPayment", input.studentId, input.month, input.amount);
@@ -4155,19 +4155,28 @@ export async function upsertMonthlyPlanPayment(input: {
     where: { id: input.studentId, tenantId: tid },
   });
   if (!student) throw new Error("Öğrenci bulunamadı");
-  const rangeStart = new Date(`${input.month}-01T00:00:00.000Z`);
-  const rangeEnd = new Date(rangeStart);
-  rangeEnd.setUTCMonth(rangeEnd.getUTCMonth() + 1);
-  const existing = await prisma.payment.findFirst({
-    where: {
-      tenantId: tid,
-      studentId: input.studentId,
-      source: "monthly_plan",
-      dueDate: { gte: rangeStart, lt: rangeEnd },
-    },
+  const { isMonthlyPlanRowForMonth, monthlyPlanPeriodLabel } = await import("./attendance-calendar-plan");
+  // Öğrencinin sözleşmesiz aylık plan satırları azdır; dönem ayı tek kuralla (etiket → açıklama → vade) seçilir.
+  const candidates = await prisma.payment.findMany({
+    where: { tenantId: tid, studentId: input.studentId, source: "monthly_plan", contractId: null },
+    select: { id: true, description: true, dueDate: true, installmentPeriodLabel: true, source: true, amount: true, paidAmount: true, status: true },
   });
+  const existing = candidates.find((p) =>
+    isMonthlyPlanRowForMonth(
+      {
+        id: p.id,
+        source: p.source,
+        description: p.description,
+        dueDate: p.dueDate.toISOString(),
+        installmentPeriodLabel: p.installmentPeriodLabel ?? undefined,
+        amount: p.amount,
+        paidAmount: p.paidAmount,
+        status: p.status,
+      },
+      input.month
+    )
+  );
   const description = `Aylık plan — ${input.month} (${input.amount} TL)`;
-  const explicitDueDate = input.dueDate ? new Date(`${input.dueDate}T12:00:00.000Z`) : undefined;
   let paymentId: string;
   if (existing) {
     paymentId = existing.id;
@@ -4176,7 +4185,7 @@ export async function upsertMonthlyPlanPayment(input: {
       data: {
         amount: input.amount,
         description,
-        dueDate: explicitDueDate,
+        ...(existing.installmentPeriodLabel ? {} : { installmentPeriodLabel: monthlyPlanPeriodLabel(input.month) }),
         method: input.method,
       },
     });
@@ -4191,8 +4200,9 @@ export async function upsertMonthlyPlanPayment(input: {
         amount: input.amount,
         paidAmount: 0,
         status: "pending",
-        dueDate: explicitDueDate ?? new Date(`${input.month}-01T12:00:00.000Z`),
+        dueDate: new Date(`${input.month}-01T12:00:00.000Z`),
         description,
+        installmentPeriodLabel: monthlyPlanPeriodLabel(input.month),
         source: "monthly_plan",
         method: input.method,
       },

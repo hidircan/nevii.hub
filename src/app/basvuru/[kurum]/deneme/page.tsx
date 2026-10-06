@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
-import { CalendarCheck2, Music2, PhoneCall } from "lucide-react";
+import { CalendarCheck2, MapPin, Music2, PhoneCall } from "lucide-react";
 import { resolveCareerTenant, getInstitutionInfo } from "@/lib/recruitment/institution";
 import { runWithTenantAsync } from "@/lib/tenant-context";
 import { CareerLogo } from "@/components/recruitment/career-logo";
@@ -31,7 +31,8 @@ export default async function TrialApplicationPage({ params, searchParams }: Pro
     ]);
     return {
       instruments: await resolveActiveInstrumentNames(tenant.tenantId),
-      branches: (await readReferenceData()).settings.branches.map((b) => ({ id: b.id, name: b.shortName || b.name, address: b.address })),
+      // Herkese açık: yalnız şube adı + kurumun girdiği adres (iç kimlik/telefon dışında veri çıkmaz).
+      branches: (await readReferenceData()).settings.branches.map((b) => ({ id: b.id, name: b.shortName || b.name, address: b.address?.trim() || undefined })),
     };
   });
   const logo =
@@ -50,8 +51,8 @@ export default async function TrialApplicationPage({ params, searchParams }: Pro
           </span>
         </div>
       </header>
-      <main className="mx-auto grid max-w-5xl gap-8 px-4 py-8 sm:px-6 sm:py-12 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)]">
-        <section className="lg:pt-2">
+      <main className="mx-auto grid max-w-5xl gap-8 px-4 py-8 sm:px-6 sm:py-12 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)] lg:grid-rows-[auto_1fr] lg:gap-x-10 lg:gap-y-6">
+        <section className="lg:col-start-1 lg:row-start-1 lg:pt-2">
           <p className="text-xs font-semibold uppercase tracking-[0.14em]" style={{ color: "var(--color-trial)" }}>
             Ücretsiz deneme dersi
           </p>
@@ -59,13 +60,13 @@ export default async function TrialApplicationPage({ params, searchParams }: Pro
             Müziğe ilk adımı birlikte atalım.
           </h1>
           <p className="mt-3 text-[15px] leading-relaxed text-[var(--color-text-muted)]">
-            Enstrümanınızı ve size uygun zamanı seçin; ekibimiz sizi arayıp deneme dersinizi kesinleştirsin.
+            Enstrümanınızı ve size uygun birkaç zamanı yazın; ekibimiz sizi arayıp deneme dersinizi kesinleştirsin.
           </p>
           <ol className="mt-8 space-y-5">
             {[
-              { icon: Music2, title: "Enstrümanı seçin", text: "Öğrenmek istediğiniz enstrümanı ve size yakın şubeyi seçin." },
-              { icon: CalendarCheck2, title: "Uygun zamanı işaretleyin", text: "Öğretmenlerimizin boş saatlerinden size uyan en fazla üç seçeneği işaretleyin." },
-              { icon: PhoneCall, title: "Sizi arayalım", text: "Seçtiğiniz zamanı telefonla birlikte kesinleştiririz; hiçbir ücret alınmaz." },
+              { icon: Music2, title: "Enstrüman seçin", text: "Öğrenmek istediğiniz bir veya birden fazla enstrümanı ve size yakın şubeyi seçin." },
+              { icon: CalendarCheck2, title: "Uygun zamanlarınızı yazın", text: "Size uyan 1–5 alternatif tarih ve saat yazın. Bunlar tercihtir, kesin randevu değildir." },
+              { icon: PhoneCall, title: "Sizi arayalım", text: "Kurumumuz sizi arayıp uygun saati onaylar; deneme dersi bu onayla kesinleşir." },
             ].map((s, i) => (
               <li key={s.title} className="flex gap-3">
                 <span
@@ -94,6 +95,7 @@ export default async function TrialApplicationPage({ params, searchParams }: Pro
             </p>
           ) : null}
         </section>
+        <div className="lg:col-start-2 lg:row-span-2 lg:row-start-1">
         <TrialApplicationForm
           slug={tenant.slug}
           institutionName={institution.name}
@@ -101,6 +103,28 @@ export default async function TrialApplicationPage({ params, searchParams }: Pro
           branches={branches}
           source={source}
         />
+        </div>
+        {branches.some((b) => b.address) ? (
+          // Mobilde formdan SONRA (DOM sırası), masaüstünde sol sütunda adımların altında.
+          <section className="lg:col-start-1 lg:row-start-2" aria-labelledby="ta-branches-title">
+            <h2 id="ta-branches-title" className="text-sm font-semibold">
+              {branches.length > 1 ? "Şubelerimiz" : "Adresimiz"}
+            </h2>
+            <ul className="mt-3 space-y-3">
+              {branches
+                .filter((b) => b.address)
+                .map((b) => (
+                  <li key={b.id} className="flex gap-2.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-3.5 py-3">
+                    <MapPin className="mt-0.5 h-4 w-4 shrink-0" style={{ color: "var(--color-trial)" }} aria-hidden="true" />
+                    <span className="min-w-0">
+                      <span className="block text-sm font-semibold">{b.name}</span>
+                      <span className="mt-0.5 block whitespace-pre-line break-words text-sm text-[var(--color-text-muted)]">{b.address}</span>
+                    </span>
+                  </li>
+                ))}
+            </ul>
+          </section>
+        ) : null}
       </main>
       <footer className="border-t border-[var(--color-border)] py-6 text-center text-xs text-[var(--color-text-muted)]">
         {institution.name} · Kişisel verileriniz KVKK kapsamında korunur · Nevii Hub ile hazırlanmıştır

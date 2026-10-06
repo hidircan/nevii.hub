@@ -15,6 +15,7 @@ import type {
 import { addPaymentData } from "./payout-ledger";
 import { uid } from "./utils";
 import { isLessonProcessedForPayout } from "./lesson-ops";
+import { DEFAULT_APP_TIMEZONE, toZonedYmd } from "./timezone";
 
 /**
  * DB egress (2026-09-30) — hakediş hesabının OKUDUĞU alanlar. Dönem hesabı yalnız bu koleksiyonlara
@@ -28,8 +29,18 @@ export type PayoutComputationData = Pick<
 /** Kayıtlı hakedişlerle (donmuş satırlar / fark) birlikte hesap. */
 export type PayoutLedgerData = PayoutComputationData & Pick<AppData, "teacherPayouts">;
 
-/** ISO tarih/saat girdisinden gün-hassasiyetli, yerel takvim anahtarı üretir — saat dilimi kaymasına karşı güvenli. */
-function toDayKey(iso: string): string {
+/**
+ * ISO tarih/saat girdisinden gün anahtarı (yyyy-MM-dd) — Europe/Istanbul takvimi.
+ * 2026-10-06: önceden sunucu yerel saatiyle biçimleniyordu; Vercel UTC çalıştığı için İstanbul 00:00–03:00
+ * arasındaki bir ders bir önceki güne/aya düşebilirdi. Kural:
+ * - "yyyy-MM-dd" ve UTC gece yarısı (tarih alanlarının DB biçimi) → yazılı gün (tarih semantiği).
+ * - Ofsetli/Z'li an → İstanbul takvim günü.
+ * - Ofsetsiz duvar saati → yazılı gün (sunucu yerel biçimiyle aynı sonuç).
+ */
+export function toDayKey(iso: string): string {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso;
+  if (/^\d{4}-\d{2}-\d{2}T00:00(:00(\.0+)?)?(Z|[+-]00:?00)$/.test(iso)) return iso.slice(0, 10);
+  if (/(Z|[+-]\d{2}:?\d{2})$/.test(iso)) return toZonedYmd(parseISO(iso), DEFAULT_APP_TIMEZONE);
   return format(parseISO(iso), "yyyy-MM-dd");
 }
 

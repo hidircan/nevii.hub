@@ -262,7 +262,7 @@ export default async function TeacherStudentWorkspacePage({
                           {lesson.type === "makeup" ? " · Telafi" : ""}
                         </p>
                       </div>
-                      <LessonStatusBadge status={resolveLessonFinalStatus(lesson)} />
+                      <LessonStatusBadge status={resolveLessonFinalStatus(lesson)} plannedMakeup={lesson.type === "makeup"} />
                     </div>
                   </Card>
                 );

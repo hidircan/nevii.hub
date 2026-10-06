@@ -1,16 +1,39 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
-import { CheckCircle2, Loader2 } from "lucide-react";
+import { useState } from "react";
+import { CheckCircle2, Plus, Trash2 } from "lucide-react";
 
 type Branch = { id: string; name: string; address?: string };
-type Slot = { startAt: string; branchId: string };
+type Alternative = { key: number; date: string; time: string };
 
 const TZ = "Europe/Istanbul";
-const dayKey = (iso: string) => new Date(iso).toLocaleDateString("en-CA", { timeZone: TZ });
-const dayLabel = (iso: string) =>
-  new Date(iso).toLocaleDateString("tr-TR", { timeZone: TZ, weekday: "long", day: "numeric", month: "long" });
-const timeLabel = (iso: string) => new Date(iso).toLocaleTimeString("tr-TR", { timeZone: TZ, hour: "2-digit", minute: "2-digit" });
+const MAX_ALTERNATIVES = 5;
+/** İstanbul takvimine göre bugün (yyyy-MM-dd) ve şu an (HH:mm). */
+const istanbulNow = () => {
+  const now = new Date();
+  return {
+    ymd: now.toLocaleDateString("en-CA", { timeZone: TZ }),
+    hm: now.toLocaleTimeString("en-GB", { timeZone: TZ, hour: "2-digit", minute: "2-digit", hour12: false }),
+  };
+};
+const newKey = () =>
+  typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `k${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+
+/** İstemci ön kontrolü — sunucu aynı kuralları (İstanbul saati) ayrıca uygular. */
+function alternativesError(rows: Alternative[]): string | null {
+  if (rows.length === 0) return "Size uygun en az bir tarih ve saat yazın.";
+  const { ymd, hm } = istanbulNow();
+  const seen = new Set<string>();
+  for (const [i, r] of rows.entries()) {
+    const n = i + 1;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(r.date) || !/^\d{2}:\d{2}$/.test(r.time)) return `${n}. alternatifin tarihini ve saatini eksiksiz seçin.`;
+    if (r.date < ymd || (r.date === ymd && r.time <= hm)) return `${n}. alternatif geçmiş bir zaman; ileri bir tarih ve saat seçin.`;
+    const k = `${r.date} ${r.time}`;
+    if (seen.has(k)) return `${n}. alternatif daha önce yazdığınız bir tarih/saatle aynı; farklı bir seçenek yazın ya da satırı kaldırın.`;
+    seen.add(k);
+  }
+  return null;
+}
 
 const field =
   "w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--color-focus-ring)]";
@@ -30,13 +53,10 @@ export function TrialApplicationForm({
   branches: Branch[];
   source?: string;
 }) {
-  const [instrument, setInstrument] = useState("");
+  const [selected, setSelected] = useState<string[]>([]);
   const [branchId, setBranchId] = useState(branches.length === 1 ? branches[0]!.id : "");
-  const [slots, setSlots] = useState<Slot[] | null>(null);
-  const [slotsLoading, setSlotsLoading] = useState(false);
-  const [slotsError, setSlotsError] = useState<string | null>(null);
-  const [picked, setPicked] = useState<Slot[]>([]);
-  const [availabilityNote, setAvailabilityNote] = useState("");
+  const [alternatives, setAlternatives] = useState<Alternative[]>([{ key: 1, date: "", time: "" }]);
+  const [nextKey, setNextKey] = useState(2);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
@@ -50,59 +70,25 @@ export function TrialApplicationForm({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+  // Form başına tek anahtar: ağ kesintisinde yeniden gönderim aynı başvuru sayılır (ikinci kayıt/bildirim yok).
+  const [submissionKey] = useState(newKey);
+  const today = istanbulNow().ymd;
 
-  const req = useRef(0);
-  /** Enstrüman/şube değişince uygun zamanlar yeniden yüklenir; geç gelen eski yanıt yok sayılır. */
-  function loadSlots(nextInstrument: string, nextBranchId: string) {
-    setInstrument(nextInstrument);
-    setBranchId(nextBranchId);
-    setPicked([]);
-    setSlotsError(null);
-    if (!nextInstrument) {
-      setSlots(null);
-      return;
-    }
-    const id = ++req.current;
-    setSlotsLoading(true);
-    const qs = new URLSearchParams({ instrument: nextInstrument, ...(nextBranchId ? { branchId: nextBranchId } : {}) });
-    fetch(`/api/basvuru/${slug}/deneme?${qs}`)
-      .then((r) => r.json() as Promise<{ ok: boolean; slots?: Slot[]; message?: string }>)
-      .then((j) => {
-        if (id !== req.current) return;
-        setSlots(j.ok ? (j.slots ?? []) : []);
-        if (!j.ok) setSlotsError(j.message ?? "Uygun zamanlar getirilemedi.");
-      })
-      .catch(() => {
-        if (id !== req.current) return;
-        setSlots([]);
-        setSlotsError("Uygun zamanlar getirilemedi. Uygun olduğunuz zamanları aşağıya yazabilirsiniz.");
-      })
-      .finally(() => {
-        if (id === req.current) setSlotsLoading(false);
-      });
-  }
-
-  const byDay = useMemo(() => {
-    const m = new Map<string, Slot[]>();
-    for (const s of slots ?? []) m.set(dayKey(s.startAt), [...(m.get(dayKey(s.startAt)) ?? []), s]);
-    return [...m.values()];
-  }, [slots]);
-  const branchName = (id: string) => branches.find((b) => b.id === id)?.name ?? "";
-  const isPicked = (s: Slot) => picked.some((p) => p.startAt === s.startAt && p.branchId === s.branchId);
-
-  function toggle(s: Slot) {
-    setPicked((prev) =>
-      isPicked(s) ? prev.filter((p) => !(p.startAt === s.startAt && p.branchId === s.branchId)) : prev.length >= 3 ? prev : [...prev, s]
-    );
-  }
+  const toggleInstrument = (i: string) => setSelected((prev) => (prev.includes(i) ? prev.filter((x) => x !== i) : [...prev, i]));
+  const setAlt = (key: number, patch: Partial<Alternative>) => setAlternatives((rows) => rows.map((r) => (r.key === key ? { ...r, ...patch } : r)));
+  const addAlt = () => {
+    if (alternatives.length >= MAX_ALTERNATIVES) return;
+    setAlternatives((rows) => [...rows, { key: nextKey, date: "", time: "" }]);
+    setNextKey((k) => k + 1);
+  };
+  const removeAlt = (key: number) => setAlternatives((rows) => (rows.length <= 1 ? rows : rows.filter((r) => r.key !== key)));
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    if (!instrument) return setError("Önce öğrenmek istediğiniz enstrümanı seçin.");
-    if (picked.length === 0 && !availabilityNote.trim()) {
-      return setError("Size uygun en az bir zaman seçin ya da uygun olduğunuz zamanları kısaca yazın.");
-    }
+    if (selected.length === 0) return setError("Öğrenmek istediğiniz en az bir enstrüman seçin.");
+    const altError = alternativesError(alternatives);
+    if (altError) return setError(altError);
     if (!kvkk) return setError("Başvurunun alınması için aydınlatma metnini onaylamanız gerekiyor.");
     setBusy(true);
     try {
@@ -115,13 +101,13 @@ export function TrialApplicationForm({
           email,
           parentName: isChild ? parentName : undefined,
           age: age || undefined,
-          instrument,
+          instruments: selected,
           branchId: branchId || undefined,
-          preferredSlots: picked,
-          availabilityNote: availabilityNote || undefined,
+          alternatives: alternatives.map(({ date, time }) => ({ date, time })),
           note: note || undefined,
           kvkkConsent: true,
           source,
+          submissionKey,
           website,
         }),
       });
@@ -141,7 +127,8 @@ export function TrialApplicationForm({
         <CheckCircle2 className="mx-auto h-12 w-12" style={{ color: "var(--color-success)" }} aria-hidden="true" />
         <h2 className="mt-4 text-xl font-semibold">Başvurunuz alındı</h2>
         <p className="mt-2 text-sm text-[var(--color-text-muted)]">
-          {institutionName} ekibi en kısa sürede sizi arayıp deneme dersinizin gününü ve saatini kesinleştirecek.
+          {institutionName} ekibi en kısa sürede sizi arayıp deneme dersinizin gününü ve saatini kesinleştirecek. Yazdığınız
+          tarihler tercihtir; randevu, kurum onayladığında kesinleşir.
         </p>
       </div>
     );
@@ -153,21 +140,29 @@ export function TrialApplicationForm({
       noValidate
       className="space-y-6 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5 shadow-sm sm:p-7"
     >
-      <fieldset className="grid gap-3 sm:grid-cols-2">
-        <legend className="mb-2 text-sm font-semibold">1 · Enstrüman ve şube</legend>
-        <div>
-          <label htmlFor="ta-instrument" className={label}>Enstrüman</label>
-          <select id="ta-instrument" value={instrument} onChange={(e) => loadSlots(e.target.value, branchId)} className={field} required>
-            <option value="">Seçin…</option>
-            {instruments.map((i) => (
-              <option key={i} value={i}>{i}</option>
-            ))}
-          </select>
+      <fieldset>
+        <legend className="mb-1 text-sm font-semibold">1 · Enstrüman ve şube</legend>
+        <p className="mb-2 text-xs text-[var(--color-text-muted)]">Birden fazla enstrüman seçebilirsiniz.</p>
+        <div className="flex flex-wrap gap-2" role="group" aria-label="Enstrümanlar">
+          {instruments.map((i) => {
+            const on = selected.includes(i);
+            return (
+              <label
+                key={i}
+                className="inline-flex cursor-pointer items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition-colors focus-within:outline focus-within:outline-2 focus-within:outline-[var(--color-focus-ring)]"
+                style={on ? { background: "var(--color-trial)", borderColor: "var(--color-trial)", color: "#fff" } : { borderColor: "var(--color-border)" }}
+              >
+                <input type="checkbox" className="sr-only" checked={on} onChange={() => toggleInstrument(i)} />
+                <span aria-hidden="true">{on ? "✓" : "+"}</span>
+                {i}
+              </label>
+            );
+          })}
         </div>
         {branches.length > 1 ? (
-          <div>
+          <div className="mt-3 sm:max-w-xs">
             <label htmlFor="ta-branch" className={label}>Şube</label>
-            <select id="ta-branch" value={branchId} onChange={(e) => loadSlots(instrument, e.target.value)} className={field}>
+            <select id="ta-branch" value={branchId} onChange={(e) => setBranchId(e.target.value)} className={field}>
               <option value="">Fark etmez</option>
               {branches.map((b) => (
                 <option key={b.id} value={b.id}>{b.name}</option>
@@ -178,62 +173,47 @@ export function TrialApplicationForm({
       </fieldset>
 
       <fieldset>
-        <legend className="mb-1 text-sm font-semibold">2 · Size uygun zaman</legend>
+        <legend className="mb-1 text-sm font-semibold">2 · Size uygun tarih ve saatler</legend>
         <p className="mb-3 text-xs text-[var(--color-text-muted)]">
-          {instrument ? "En fazla 3 seçenek işaretleyin. Kesin saat sizi aradığımızda birlikte belirlenir." : "Uygun zamanları görmek için önce enstrüman seçin."}
+          Uygun olduğunuz 1–{MAX_ALTERNATIVES} alternatif yazın (Türkiye saati). Bunlar tercihinizdir, kesin randevu değildir;
+          kurumumuz sizi arayıp uygun bir saati onaylayacaktır.
         </p>
-        {slotsLoading ? (
-          <p className="flex items-center gap-2 text-sm text-[var(--color-text-muted)]">
-            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> Uygun zamanlar aranıyor…
-          </p>
-        ) : instrument && slots && slots.length === 0 ? (
-          <p className="rounded-lg bg-[var(--color-surface-muted)] px-3 py-2 text-sm text-[var(--color-text-muted)]">
-            {slotsError ?? "Önümüzdeki iki hafta için boş zaman görünmüyor. Size uygun zamanları aşağıya yazın; sizi arayalım."}
-          </p>
-        ) : (
-          <div className="space-y-3">
-            {byDay.map((day) => (
-              <div key={day[0]!.startAt}>
-                <p className="mb-1.5 text-xs font-medium capitalize text-[var(--color-text-muted)]">{dayLabel(day[0]!.startAt)}</p>
-                <div className="flex flex-wrap gap-2">
-                  {day.map((s) => {
-                    const on = isPicked(s);
-                    const full = !on && picked.length >= 3;
-                    return (
-                      <button
-                        key={`${s.startAt}-${s.branchId}`}
-                        type="button"
-                        aria-pressed={on}
-                        disabled={full}
-                        onClick={() => toggle(s)}
-                        className="rounded-full border px-3 py-1.5 text-sm tabular-nums transition-colors disabled:cursor-not-allowed disabled:opacity-40"
-                        style={
-                          on
-                            ? { background: "var(--color-trial)", borderColor: "var(--color-trial)", color: "#fff" }
-                            : { borderColor: "var(--color-border)", color: "var(--color-text)" }
-                        }
-                      >
-                        {timeLabel(s.startAt)}
-                        {branches.length > 1 ? <span className="ml-1 opacity-80">· {branchName(s.branchId)}</span> : null}
-                      </button>
-                    );
-                  })}
-                </div>
+        <ol className="space-y-2">
+          {alternatives.map((r, idx) => (
+            <li key={r.key} className="grid grid-cols-[1fr_auto_auto] items-end gap-2 sm:grid-cols-[auto_1fr_8rem_auto]">
+              <span className="hidden pb-2 text-xs font-semibold tabular-nums text-[var(--color-text-muted)] sm:block" aria-hidden="true">
+                {idx + 1}.
+              </span>
+              <div>
+                <label htmlFor={`ta-date-${r.key}`} className={label}>{idx + 1}. tercih — tarih</label>
+                <input id={`ta-date-${r.key}`} type="date" min={today} value={r.date} onChange={(e) => setAlt(r.key, { date: e.target.value })} className={field} required />
               </div>
-            ))}
-          </div>
-        )}
-        <label htmlFor="ta-availability" className={`${label} mt-4`}>
-          Bu saatler uymuyorsa ya da eklemek istedikleriniz (isteğe bağlı)
-        </label>
-        <input
-          id="ta-availability"
-          value={availabilityNote}
-          maxLength={300}
-          onChange={(e) => setAvailabilityNote(e.target.value)}
-          placeholder="Ör. hafta içi 17:00 sonrası, cumartesi öğleden önce"
-          className={field}
-        />
+              <div>
+                <label htmlFor={`ta-time-${r.key}`} className={label}>Saat</label>
+                <input id={`ta-time-${r.key}`} type="time" step={900} value={r.time} onChange={(e) => setAlt(r.key, { time: e.target.value })} className={field} required />
+              </div>
+              <button
+                type="button"
+                onClick={() => removeAlt(r.key)}
+                disabled={alternatives.length <= 1}
+                aria-label={`${idx + 1}. tercihi kaldır`}
+                title={alternatives.length <= 1 ? "En az bir tercih gerekli" : "Bu tercihi kaldır"}
+                className="mb-0.5 inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--color-border)] text-[var(--color-text-muted)] hover:text-[var(--color-danger)] disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <Trash2 className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </li>
+          ))}
+        </ol>
+        <button
+          type="button"
+          onClick={addAlt}
+          disabled={alternatives.length >= MAX_ALTERNATIVES}
+          className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-dashed border-[var(--color-border)] px-3 py-1.5 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <Plus className="h-4 w-4" aria-hidden="true" />
+          {alternatives.length >= MAX_ALTERNATIVES ? `En fazla ${MAX_ALTERNATIVES} alternatif` : "Alternatif ekle"}
+        </button>
       </fieldset>
 
       <fieldset className="grid gap-3 sm:grid-cols-2">
@@ -267,8 +247,8 @@ export function TrialApplicationForm({
           <input id="ta-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} maxLength={160} autoComplete="email" className={field} />
         </div>
         <div className="sm:col-span-2">
-          <label htmlFor="ta-note" className={label}>Bize iletmek istedikleriniz (isteğe bağlı)</label>
-          <textarea id="ta-note" value={note} onChange={(e) => setNote(e.target.value)} maxLength={1000} rows={2} placeholder="Ör. daha önce 1 yıl gitar çaldım" className={field} />
+          <label htmlFor="ta-note" className={label}>Adayın eğitim geçmişi bilgisi (isteğe bağlı)</label>
+          <textarea id="ta-note" value={note} onChange={(e) => setNote(e.target.value)} maxLength={1000} rows={2} placeholder="Ör. 1 yıl gitar dersi aldı, nota biliyor" className={field} />
         </div>
         {/* Bot tuzağı — gerçek kullanıcı görmez/doldurmaz. */}
         <div aria-hidden="true" className="absolute -left-[9999px] h-0 w-0 overflow-hidden">

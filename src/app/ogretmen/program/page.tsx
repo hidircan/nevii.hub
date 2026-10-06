@@ -157,7 +157,7 @@ export default async function TeacherOwnProgramPage({
                           {lesson.instrument} · {branch?.shortName ?? "—"} · {room?.name ?? "—"}
                         </p>
                         <div className="mt-1 flex flex-wrap items-center gap-1">
-                          <LessonStatusBadge status={resolveLessonFinalStatus(lesson, now)} />
+                          <LessonStatusBadge status={resolveLessonFinalStatus(lesson, now)} plannedMakeup={lesson.type === "makeup"} />
                         </div>
                         {today ? (
                           <>

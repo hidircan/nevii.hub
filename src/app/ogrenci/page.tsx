@@ -480,7 +480,7 @@ export default async function OgrenciPortalPage({
                               </p>
                               <p className="text-[var(--color-text-muted)]">{lessonTeacher?.name ?? "—"}</p>
                               <div className="mt-1 flex flex-wrap items-center gap-1">
-                                <LessonStatusBadge status={resolveLessonFinalStatus(l, now)} />
+                                <LessonStatusBadge status={resolveLessonFinalStatus(l, now)} plannedMakeup={l.type === "makeup"} />
                               </div>
                             </div>
                           );
@@ -606,7 +606,7 @@ export default async function OgrenciPortalPage({
                 <Card key={l.id} className="!p-4">
                   <div className="flex items-start justify-between gap-2">
                     <p className="font-medium text-[var(--color-text)]">{formatDateTime(l.startAt)}</p>
-                    <LessonStatusBadge status={resolveLessonFinalStatus(l, now)} />
+                    <LessonStatusBadge status={resolveLessonFinalStatus(l, now)} plannedMakeup={l.type === "makeup"} />
                   </div>
                   <p className="text-sm text-[var(--color-text-muted)]">{l.instrument}</p>
                 </Card>

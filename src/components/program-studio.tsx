@@ -45,6 +45,7 @@ import { disruptionSourceLabel, isDisruptedLesson } from "@/lib/lesson-disruptio
 import { friendlyApiErrorMessage } from "@/lib/api/friendly-error";
 import { apiFetchJson } from "@/lib/api/client-fetch";
 import { LessonStatusBadge } from "@/components/lesson-status-badge";
+import { PlannedMakeupMarker } from "@/components/planned-makeup-marker";
 import { lessonCancelBlockReason } from "@/lib/lesson-cancel-rules";
 import { LessonReassignmentModal } from "@/components/lesson-reassignment-modal";
 import { TeacherAvailabilityCard } from "@/components/teacher-availability-card";
@@ -65,7 +66,7 @@ import {
   lessonCardFillStyle,
   lessonCardMutedTextColor,
 } from "@/lib/attendance-calendar";
-import { resolveLessonFinalStatus, type LessonFinalStatus } from "@/lib/lesson-live-status";
+import { ATTENDED_PLANNED_MAKEUP_LABEL, resolveLessonFinalStatus, type LessonFinalStatus } from "@/lib/lesson-live-status";
 import {
   applyOpsOverride,
   pruneSettledOverrides,
@@ -336,6 +337,12 @@ const LESSON_CARD_STATUS_LABEL: Partial<Record<LessonCardStatusVisual, string>> 
   cancelled: "İptal",
 };
 
+/** Kart/hover/aria metni: planlanan telafi dersine "Geldi" → "Planlanan telafiye geldi" (kaynak: ders tipi). */
+function cardStatusLabel(lesson: Pick<Lesson, "type">, statusVisual?: LessonCardStatusVisual): string | undefined {
+  if (!statusVisual) return undefined;
+  return statusVisual === "attended" && lesson.type === "makeup" ? ATTENDED_PLANNED_MAKEUP_LABEL : LESSON_CARD_STATUS_LABEL[statusVisual];
+}
+
 /**
  * Ders hover kartındaki satırlar — saf fonksiyon, DOM'\''dan bağımsız birim
  * testlerinde kullanılır (bkz. `LessonHoverCard`, tek tüketicisi).
@@ -352,7 +359,7 @@ export function lessonHoverCardLines(
   const dateLabel = format(toWallClockDate(lesson.startAt), "d MMMM yyyy, EEEE", { locale: tr });
   const lines = [student?.name ?? "Öğrenci bilinmiyor", dateLabel, timeRange];
   // 9. tur: haftalık hücre yalnız adı gösterdiği için statü METNİ burada (renk körlüğü için).
-  const statusLabel = statusVisual ? LESSON_CARD_STATUS_LABEL[statusVisual] : undefined;
+  const statusLabel = cardStatusLabel(lesson, statusVisual);
   if (statusLabel) lines.push(`Durum: ${statusLabel}`);
   if (teacher?.name) lines.push(`Öğretmen: ${teacher.name}`);
   if (lesson.instrument) lines.push(`Enstrüman: ${lesson.instrument}`);
@@ -427,7 +434,7 @@ export function lessonAccessibleLabel(
   const parts = [
     student?.name ?? "Öğrenci bilinmiyor",
     timeRange,
-    statusVisual ? LESSON_CARD_STATUS_LABEL[statusVisual] : undefined,
+    cardStatusLabel(lesson, statusVisual),
     teacher?.name,
     lesson.instrument,
     room?.name,
@@ -492,9 +499,12 @@ function LessonCardBody({
     primary: lessonCardFillStyle(statusVisual).color,
     muted: lessonCardMutedTextColor(statusVisual),
   };
-  const statusLabel = LESSON_CARD_STATUS_LABEL[statusVisual];
+  const statusLabel = cardStatusLabel(lesson, statusVisual);
   return (
     <>
+      {statusVisual === "attended" && lesson.type === "makeup" ? (
+        <PlannedMakeupMarker className={`absolute top-1 ${lesson.availabilityOverride ? "right-5" : "right-1"}`} />
+      ) : null}
       {lesson.availabilityOverride ? (
         <TriangleAlert
           className="absolute right-1 top-1 h-3 w-3 text-amber-500"
@@ -924,7 +934,16 @@ export function ProgramStudio({
     occurrenceCount: number;
     conflictCount: number;
     checks: SeriesOccurrenceCheck[];
+    availabilityConflictCount: number;
+    overriddenCount: number;
+    canOverrideAvailability: boolean;
+    /** Bu önizleme "Uyarıya rağmen planla" onayıyla mı alındı. */
+    overrideApplied: boolean;
   } | null>(null);
+  // 2026-10-06 — "Uyarıya rağmen planla": yalnız öğretmen müsaitliği aşılır; onay önizlemenin parçasıdır, form
+  // değişince (önizleme sıfırlanınca) kendiliğinden düşer.
+  const seriesOverrideConfirmed = Boolean(seriesPreview?.overrideApplied);
+  const [seriesOverrideReason, setSeriesOverrideReason] = useState("");
   const [seriesPreviewLoading, setSeriesPreviewLoading] = useState(false);
   const [seriesError, setSeriesError] = useState<string | null>(null);
   const [seriesSubmitting, setSeriesSubmitting] = useState(false);
@@ -1095,7 +1114,7 @@ export function ProgramStudio({
     setSeriesPreview(null);
   }
 
-  async function handleSeriesPreview() {
+  async function handleSeriesPreview(override: boolean = seriesOverrideConfirmed) {
     setSeriesError(null);
     clearNotices();
     if (!seriesBranchId || !seriesStudentId || !seriesTeacherId || !seriesRoomId || !seriesStartsOn || !seriesEndsOn) {
@@ -1122,13 +1141,24 @@ export function ProgramStudio({
       durationMinutes: seriesDuration,
       startsOn: seriesStartsOn,
       endsOn: seriesEndsOn,
+      term: selectedTerm,
+      academicYearStart: selectedAcademicYearStart,
+      ...(override ? { overrideAvailability: true, overrideReason: seriesOverrideReason.trim() } : {}),
     });
     setSeriesPreviewLoading(false);
     if (!result.ok) {
       setSeriesError(result.message);
       return;
     }
-    setSeriesPreview(result);
+    setSeriesPreview({ ...result, overrideApplied: override });
+  }
+
+  async function confirmSeriesOverride() {
+    if (seriesOverrideReason.trim().length < 3) {
+      setSeriesError("Müsaitlik dışı planlama için kısa bir gerekçe yazın (en az 3 karakter).");
+      return;
+    }
+    await handleSeriesPreview(true);
   }
 
   async function handleSeriesCreate() {
@@ -1156,6 +1186,7 @@ export function ProgramStudio({
       // ÖNCELİK 4 (devam) — yeni seri, program ekranında seçili akademik yıl/dönemi devralır.
       term: selectedTerm,
       academicYearStart: selectedAcademicYearStart,
+      ...(seriesOverrideConfirmed ? { overrideAvailability: true, overrideReason: seriesOverrideReason.trim() } : {}),
     });
     setSeriesSubmitting(false);
     if (!result.ok) {
@@ -1164,10 +1195,16 @@ export function ProgramStudio({
     }
     setNotices(
       onlyNotice({
-        seriesSuccess: { createdCount: result.createdLessonIds.length, skippedCount: result.skippedOccurrences.length },
+        seriesSuccess: {
+          createdCount: result.createdLessonIds.length,
+          skippedCount: result.skippedOccurrences.length,
+          skipped: result.skippedOccurrences.map((o) => ({ startAt: o.startAt, message: o.message })),
+          overriddenCount: seriesOverrideConfirmed ? seriesPreview.overriddenCount : 0,
+        },
       })
     );
     setSeriesPreview(null);
+    setSeriesOverrideReason("");
     setActivePanel("none");
     router.refresh();
   }
@@ -1894,7 +1931,7 @@ export function ProgramStudio({
       ) : null}
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        <Button type="button" variant="secondary" onClick={handleSeriesPreview} disabled={seriesPreviewLoading}>
+        <Button type="button" variant="secondary" onClick={() => void handleSeriesPreview()} disabled={seriesPreviewLoading}>
           {seriesPreviewLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
           Tarihleri ve çakışmaları kontrol et
         </Button>
@@ -1915,6 +1952,61 @@ export function ProgramStudio({
       {seriesPreview ? (
         <div className="mt-4 border-t border-[var(--color-border)] pt-4">
           <p className="text-sm font-medium text-[var(--color-text-muted)] dark:text-slate-300">{seriesPreview.previewText}</p>
+          {seriesOverrideConfirmed && seriesPreview.overriddenCount > 0 ? (
+            <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100" role="status">
+              <p className="font-semibold">
+                Müsaitlik istisnası onaylandı: {seriesPreview.overriddenCount} tarih öğretmenin bildirdiği çalışma saatleri dışında planlanacak.
+              </p>
+              <ul className="mt-1 list-disc pl-5 text-xs">
+                {seriesPreview.checks
+                  .filter((c) => c.ok && c.availabilityOverridden)
+                  .map((c) => (
+                    <li key={c.startAt}>{format(toWallClockDate(c.startAt), "d MMM yyyy EEEE, HH:mm", { locale: tr })}</li>
+                  ))}
+              </ul>
+              <p className="mt-1 text-xs">Gerekçe: {seriesOverrideReason.trim()} — işlem sizin adınıza denetim kaydına yazılır.</p>
+              <button type="button" className="mt-1 text-xs font-semibold underline" onClick={() => void handleSeriesPreview(false)}>
+                İstisnayı geri al
+              </button>
+            </div>
+          ) : null}
+          {!seriesOverrideConfirmed && seriesPreview.availabilityConflictCount > 0 ? (
+            <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100">
+              <p className="font-semibold">
+                {seriesPreview.availabilityConflictCount} tarih öğretmenin bildirdiği müsaitlik saatleri dışında kalıyor.
+              </p>
+              <p className="mt-1 text-xs">
+                Etkilenen tarihler aşağıdaki listede &quot;müsait değil&quot; nedeniyle işaretli. Öğretmenle anlaştıysanız
+                gerekçe yazıp bu tarihleri de planlayabilirsiniz. Bu onay yalnız müsaitlik uyarısını aşar; başka derslerle
+                çakışma, kapalı gün veya pasif öğretmen engeli kalkmaz.
+              </p>
+              {seriesPreview.canOverrideAvailability ? (
+                <div className="mt-2 flex flex-wrap items-end gap-2">
+                  <label className="flex min-w-[16rem] flex-1 flex-col gap-1 text-xs font-medium">
+                    İstisna gerekçesi (zorunlu)
+                    <input
+                      type="text"
+                      value={seriesOverrideReason}
+                      maxLength={500}
+                      onChange={(e) => setSeriesOverrideReason(e.target.value)}
+                      placeholder="Örn. öğretmenle bu saat için ayrıca anlaşıldı"
+                      className="rounded-lg border border-amber-300 bg-white px-2 py-1.5 text-sm text-slate-900"
+                    />
+                  </label>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() => void confirmSeriesOverride()}
+                    disabled={seriesPreviewLoading || seriesOverrideReason.trim().length < 3}
+                  >
+                    Uyarıya rağmen planla
+                  </Button>
+                </div>
+              ) : (
+                <p className="mt-2 text-xs">Bu istisnayı yalnız kurum yöneticisi onaylayabilir.</p>
+              )}
+            </div>
+          ) : null}
           {seriesPreview.checks.some((c) => !c.ok) ? (
             <div className="mt-3">
               <p className="text-sm font-medium" style={{ color: "var(--color-warning)" }}>
@@ -1981,10 +2073,22 @@ export function ProgramStudio({
       {seriesSuccess ? (
         <Card className="mb-4 border-emerald-200 bg-emerald-50/50">
           <div className="flex items-start justify-between gap-3">
-            <p className="text-sm font-semibold text-emerald-800">
-              {seriesSuccess.createdCount} ders oluşturuldu
-              {seriesSuccess.skippedCount > 0 ? `, ${seriesSuccess.skippedCount} tarih çakışma nedeniyle atlandı` : ""}.
-            </p>
+            <div className="text-sm text-emerald-800">
+              <p className="font-semibold">
+                {seriesSuccess.createdCount} ders oluşturuldu
+                {seriesSuccess.overriddenCount ? ` (${seriesSuccess.overriddenCount} tanesi müsaitlik istisnasıyla)` : ""}
+                {seriesSuccess.skippedCount > 0 ? `, ${seriesSuccess.skippedCount} tarih atlandı (ders yazılmadı)` : ""}.
+              </p>
+              {seriesSuccess.skipped && seriesSuccess.skipped.length > 0 ? (
+                <ul className="mt-1 list-disc pl-5 text-xs">
+                  {seriesSuccess.skipped.map((o) => (
+                    <li key={o.startAt}>
+                      {format(toWallClockDate(o.startAt), "d MMM yyyy, HH:mm", { locale: tr })} — {o.message}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
             <button
               type="button"
               onClick={() => clearNotices()}
@@ -2349,6 +2453,9 @@ export function ProgramStudio({
                           heightPx={height}
                         />
                       </div>
+                      {statusVisual === "attended" && lesson.type === "makeup" ? (
+                        <PlannedMakeupMarker className={`absolute top-0.5 ${lesson.availabilityOverride ? "right-4" : "right-0.5"}`} />
+                      ) : null}
                       {lesson.availabilityOverride ? (
                         <TriangleAlert className="absolute right-0.5 top-0.5 h-3 w-3 text-amber-500" aria-hidden>
                           <title>Öğretmenin müsait olmadığı bir saatte, onayla planlandı</title>
@@ -2549,7 +2656,7 @@ function DetailPanel({
             {[lesson.instrument, teacher?.name, room?.name, branchName].filter(Boolean).join(" · ")}
           </p>
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-            <LessonStatusBadge status={resolveLessonFinalStatus(lesson, now)} />
+            <LessonStatusBadge status={resolveLessonFinalStatus(lesson, now)} plannedMakeup={lesson.type === "makeup"} />
             {lesson.type === "makeup" ? <Badge status="makeup">Telafi dersi</Badge> : null}
             {isSeriesMember ? <Badge status="scheduled">Tekrarlayan seri</Badge> : null}
           </div>

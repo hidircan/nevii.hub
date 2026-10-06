@@ -46,7 +46,7 @@ describe("yazdırma rotaları — ortak print altyapısı", () => {
       "utf-8"
     );
     const payoutPage = readFileSync(
-      path.join(ROOT, "src/app/panel/ogretmenler/[teacherId]/hakedis/page.tsx"),
+      path.join(ROOT, "src/components/teacher-payout-dashboard.tsx"),
       "utf-8"
     );
     expect(perfPage).toContain("/ogretmen-performans-yazdir/");

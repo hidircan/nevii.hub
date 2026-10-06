@@ -3,6 +3,7 @@ import { withReturnTo } from "@/lib/safe-return-to";
 import { notFound } from "next/navigation";
 import { AlertTriangle, ArrowRight, CalendarDays, CheckCircle2 } from "lucide-react";
 import { Badge, Card, EmptyState } from "@/components/ui";
+import { PlannedMakeupMarker } from "@/components/planned-makeup-marker";
 import { RegistrationSuccessPanel } from "@/components/registration-success-panel";
 import { listStudentContractsTool } from "@/lib/services";
 import { contractStatusLabel } from "@/lib/contracts";
@@ -244,7 +245,10 @@ export default async function StudentOverviewTab({
                         {l.instrument} · {teacher?.name ?? "—"} · {room?.name ?? "—"}
                       </span>
                     </span>
-                    <Badge status={resolveLessonFinalStatus(l)} />
+                    <span className="inline-flex items-center gap-1">
+                      <Badge status={resolveLessonFinalStatus(l)} />
+                      {l.type === "makeup" && resolveLessonFinalStatus(l) === "attended" ? <PlannedMakeupMarker /> : null}
+                    </span>
                   </li>
                 );
               })}

@@ -7,6 +7,7 @@ import { Phone, Mail, CalendarClock } from "lucide-react";
 import { apiFetch } from "@/lib/api/client-fetch";
 import { friendlyApiErrorMessage } from "@/lib/api/friendly-error";
 import type { TrialApplication, TrialApplicationStatus } from "@/lib/trial-applications";
+import { applicationInstruments } from "@/lib/trial-application-instruments";
 
 const STATUS: Record<TrialApplicationStatus, { label: string; bg: string; fg: string }> = {
   new: { label: "Yeni", bg: "var(--color-trial-soft)", fg: "var(--color-trial)" },
@@ -131,7 +132,7 @@ export function TrialApplicationsList({
                     <span className="text-[11px] tabular-nums text-[var(--color-text-muted)]">{a.applicationNo}</span>
                   </div>
                   <p className="mt-0.5 text-sm text-[var(--color-text)]">
-                    {a.instrument} · {branchName(a.branchId)}
+                    {applicationInstruments(a).join(", ")} · {branchName(a.branchId)}
                     {a.age ? ` · ${a.age} yaş` : ""}
                     {a.parentName ? ` · Veli: ${a.parentName}` : ""}
                   </p>
@@ -152,30 +153,48 @@ export function TrialApplicationsList({
                     {a.source ? ` · kaynak: ${a.source}` : ""}
                     {a.handledAt ? ` · son işlem: ${handlerNames[a.handledByUserId ?? ""] ?? "Kayıtlı kullanıcı"}, ${stamp(a.handledAt)}` : ""}
                   </p>
-                  {a.note ? <p className="mt-1.5 whitespace-pre-wrap text-xs text-[var(--color-text)]">“{a.note}”</p> : null}
+                  {a.note ? (
+                    <p className="mt-1.5 whitespace-pre-wrap text-xs text-[var(--color-text)]">
+                      <span className="font-semibold">Adayın eğitim geçmişi bilgisi:</span> {a.note}
+                    </p>
+                  ) : null}
                 </div>
 
                 <div className="min-w-0">
                   <p className="mb-1 flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
-                    <CalendarClock className="h-3.5 w-3.5" aria-hidden="true" /> Tercih edilen zaman
+                    <CalendarClock className="h-3.5 w-3.5" aria-hidden="true" /> Adayın tercihleri ({a.preferredSlots.length})
                   </p>
+                  <p className="mb-1 text-[11px] text-[var(--color-text-muted)]">Kesin randevu değildir; adayla görüşüp onaylanan saatle planlayın.</p>
                   {a.preferredSlots.length ? (
-                    <ul className="flex flex-wrap gap-1.5">
-                      {a.preferredSlots.map((s) => (
-                        <li key={`${s.startAt}-${s.branchId}`}>
-                          <Link
-                            href={`/panel/deneme?sekme=basvurular&planla=${encodeURIComponent(a.id)}&zaman=${encodeURIComponent(s.startAt)}&sube=${encodeURIComponent(s.branchId)}${s.teacherId ? `&ogretmen=${encodeURIComponent(s.teacherId)}` : ""}`}
-                            className="inline-block rounded-md border border-[var(--color-border)] px-2 py-1 text-xs tabular-nums hover:border-[var(--color-trial)]"
-                            title={a.status === "planned" ? undefined : "Bu zamanla planla"}
-                          >
-                            {slotLabel(s.startAt)} · {branchName(s.branchId)}
+                    <ol className="flex flex-wrap gap-1.5">
+                      {a.preferredSlots.map((s, i) => {
+                        const planned = a.status === "planned";
+                        const text = (
+                          <>
+                            <span className="text-[var(--color-text-muted)]">{i + 1}.</span> {slotLabel(s.startAt)}
+                            {s.branchId ? ` · ${branchName(s.branchId)}` : ""}
                             {teacherName(s.teacherId) ? <span className="text-[var(--color-text-muted)]"> · {teacherName(s.teacherId)}</span> : null}
-                          </Link>
-                        </li>
-                      ))}
-                    </ul>
+                          </>
+                        );
+                        return (
+                          <li key={`${s.startAt}-${s.branchId ?? ""}`}>
+                            {planned ? (
+                              <span className="inline-block rounded-md border border-[var(--color-border)] px-2 py-1 text-xs tabular-nums">{text}</span>
+                            ) : (
+                              <Link
+                                href={`/panel/deneme?sekme=basvurular&planla=${encodeURIComponent(a.id)}&zaman=${encodeURIComponent(s.startAt)}${s.branchId ? `&sube=${encodeURIComponent(s.branchId)}` : ""}${s.teacherId ? `&ogretmen=${encodeURIComponent(s.teacherId)}` : ""}`}
+                                className="inline-block rounded-md border border-[var(--color-border)] px-2 py-1 text-xs tabular-nums hover:border-[var(--color-trial)]"
+                                title="Bu tercihle planlama formunu aç (kayıt, formu onaylayınca oluşur)"
+                              >
+                                {text}
+                              </Link>
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ol>
                   ) : (
-                    <p className="text-xs text-[var(--color-text-muted)]">Zaman seçmedi.</p>
+                    <p className="text-xs text-[var(--color-text-muted)]">Zaman yazmadı.</p>
                   )}
                   {a.availabilityNote ? <p className="mt-1.5 text-xs text-[var(--color-text)]">Not: {a.availabilityNote}</p> : null}
                   <div className="mt-2 flex gap-1.5">

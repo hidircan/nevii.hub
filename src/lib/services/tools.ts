@@ -55,6 +55,7 @@ import {
   markTeacherPayoutPaid,
   updateTeacherPayoutPaymentMethod,
   readData,
+  readPayoutWindow,
   deletePaymentRow,
   readLessonScope,
   readStudentById,
@@ -187,7 +188,7 @@ import { getActiveAccessType } from "../student-portal-access";
 import { ownStudents, ownPayouts } from "../teacher-portal-scope";
 import { effectiveLessonOpsStatus, isLessonProcessedForPayout } from "../lesson-ops";
 import { resolveLessonFinalStatus, type LessonFinalStatus } from "../lesson-live-status";
-import { resolveContractPlanForMonth, type CalendarMonthPlan, type CalendarPlanContract } from "../attendance-calendar-plan";
+import { monthlyPlanPeriodLabel, resolveContractPlanForMonth, type CalendarMonthPlan, type CalendarPlanContract } from "../attendance-calendar-plan";
 import {
   academicTermMonths,
   isYmdWithinAcademicTerm,
@@ -7182,6 +7183,11 @@ export async function previewLessonSeriesTool(
     occurrenceCount: number;
     conflictCount: number;
     checks: SeriesOccurrenceCheck[];
+    /** Yalnız öğretmen müsaitliği nedeniyle uygun olmayan (istisnayla planlanabilir) tarih sayısı. */
+    availabilityConflictCount: number;
+    /** İstisnayla planlanacak tarih sayısı (overrideAvailability önizlemesinde). */
+    overriddenCount: number;
+    canOverrideAvailability: boolean;
   }>
 > {
   const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
@@ -7189,6 +7195,9 @@ export async function previewLessonSeriesTool(
 
   const v = parseOrFail(lessonSeriesParamsSchema, input);
   if (!v.ok) return v;
+  if (v.data.overrideAvailability && !canOverrideTeacherAvailability(ctx)) {
+    return fail("FORBIDDEN", AVAILABILITY_OVERRIDE_FORBIDDEN);
+  }
 
   const data = await readData();
   const student = data.students.find((s) => s.id === v.data.studentId);
@@ -7201,7 +7210,14 @@ export async function previewLessonSeriesTool(
   // Bkz. validation.ts studentSchema.instrument yorumu — schema artık katalog
   // uyumlu serbest metin; gerçek enstrüman/öğretmen/oda uyumu makeup-engine.ts'te
   // (checkSeriesOccurrences → validateLessonSlot) doğrulanır, burada YALNIZCA tip cast'i.
-  const checks = checkSeriesOccurrences(data, { ...v.data, instrument: v.data.instrument as Instrument }, occurrences);
+  // Önizleme ve oluşturma AYNI kural: aynı istisna bayrağı, aynı dönem (haftalık kapalı gün) bilgisi.
+  const checks = checkSeriesOccurrences(
+    data,
+    { ...v.data, instrument: v.data.instrument as Instrument },
+    occurrences,
+    new Date(),
+    Boolean(v.data.overrideAvailability)
+  );
   const previewText = buildSeriesPreviewText({
     studentName: student.name,
     weekday: v.data.weekday,
@@ -7218,6 +7234,9 @@ export async function previewLessonSeriesTool(
     // Kapalı gün oluşumları otomatik atlanır; kullanıcının çözmesi gereken çakışma sayılmaz.
     conflictCount: checks.filter((c) => !c.ok && c.code !== "DAY_CLOSED").length,
     checks,
+    availabilityConflictCount: checks.filter((c) => !c.ok && c.code === "TEACHER_UNAVAILABLE").length,
+    overriddenCount: checks.filter((c) => c.ok && c.availabilityOverridden).length,
+    canOverrideAvailability: canOverrideTeacherAvailability(ctx),
   });
 }
 
@@ -7236,14 +7255,51 @@ export async function createLessonSeriesTool(
 
   const v = parseOrFail(createLessonSeriesSchema, input);
   if (!v.ok) return v;
+  const override = Boolean(v.data.overrideAvailability);
+  if (override && !canOverrideTeacherAvailability(ctx)) return fail("FORBIDDEN", AVAILABILITY_OVERRIDE_FORBIDDEN);
+  const overrideReason = v.data.overrideReason?.trim() ?? "";
+  if (override && overrideReason.length < 3) {
+    return fail("VALIDATION_ERROR", "Müsaitlik dışı planlama için kısa bir gerekçe yazın (en az 3 karakter); gerekçe denetim kaydına işlenir.");
+  }
+
+  // Tekrar denemede mükerrer seri yok: aynı öğrenci/öğretmen/gün/saat/aralık için AKTİF seri varsa yeni seri yazılmaz.
+  const existing = (await readData()).lessonSeries.find(
+    (s) =>
+      s.status === "active" &&
+      s.studentId === v.data.studentId &&
+      s.teacherId === v.data.teacherId &&
+      s.weekday === v.data.weekday &&
+      s.startTime === v.data.startTime &&
+      s.startsOn.slice(0, 10) === v.data.startsOn.slice(0, 10) &&
+      s.endsOn.slice(0, 10) === v.data.endsOn.slice(0, 10)
+  );
+  if (existing) {
+    return fail(
+      "CONFLICT",
+      "Bu öğrenci için aynı gün, saat ve tarih aralığında bir ders serisi zaten oluşturulmuş; ikinci kez yazılmadı. Ders Programı'nı yenileyip mevcut seriyi kontrol edin."
+    );
+  }
 
   try {
-    const { skipConflicts, ...params } = v.data;
+    const { skipConflicts, overrideAvailability: _o, overrideReason: _r, ...params } = v.data;
     const result = await addLessonSeries(
       { ...params, instrument: params.instrument as Instrument },
-      { skipConflicts, createdByUserId: ctx.userId }
+      { skipConflicts, createdByUserId: ctx.userId, allowAvailabilityOverride: override, overriddenByUserId: override ? ctx.userId : undefined }
     );
     if (!result.ok) return fail("CONFLICT", result.message, result.conflicts);
+    if (override) {
+      const after = await readData();
+      const overridden = after.lessons.filter((l) => l.seriesId === result.seriesId && l.availabilityOverride);
+      if (overridden.length > 0) {
+        audit(ctx, "lesson_series.availability_override", "LessonSeries", result.seriesId, {
+          teacherId: v.data.teacherId,
+          studentId: v.data.studentId,
+          reason: overrideReason,
+          overriddenCount: overridden.length,
+          dates: overridden.map((l) => l.startAt),
+        });
+      }
+    }
 
     // İş 4A — seri için TEK özet bildirim (oluşum başına DEĞİL, spam yok).
     // Aynı Türkçe cümle üretimi `previewLessonSeriesTool` ile PAYLAŞILIR
@@ -8048,6 +8104,42 @@ export async function computeTeacherPayoutTool(
     : null;
 
   return ok({ ...shown, paymentMethodInfo, existingPayout, cancelledPayout, lineSources });
+}
+
+/**
+ * 2026-10-06 — Hakediş DÖKÜMÜ (aylık: year+month, yıllık: year). Hesap `buildTeacherEarningsStatement` —
+ * her ay hakediş ekranıyla (`computeTeacherPayoutTool`) aynı kayıt/canlı kuralı; yazma YOK.
+ * Yetki: hakediş ekranıyla aynı (SCHOOL_ADMIN/SUPER_ADMIN + kurum hakediş politikası); tenant ALS'den.
+ */
+export async function teacherEarningsStatementTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<import("../teacher-earnings-statement").TeacherEarningsStatement & { teacherName: string }>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", "Hakediş dökümünü yalnız kurum yöneticileri görüntüleyebilir.");
+  const earnings = await assertTeacherEarningsAccess(ctx);
+  if (!earnings.ok) return earnings;
+  const v = parseOrFail(
+    z.object({
+      teacherId: z.string().min(1),
+      year: z.number().int().min(2000).max(2100),
+      month: z.number().int().min(1).max(12).optional(),
+    }),
+    input
+  );
+  if (!v.ok) return v;
+  if (!canAccessTeacher(ctx, v.data.teacherId)) return fail("FORBIDDEN", "Bu öğretmenin hakediş dökümüne erişiminiz yok.");
+
+  const { buildTeacherEarningsStatement, statementMonthPeriod } = await import("../teacher-earnings-statement");
+  const first = statementMonthPeriod(v.data.year, v.data.month ?? 1).periodStart;
+  const last = statementMonthPeriod(v.data.year, v.data.month ?? 12).periodEnd;
+  // İstanbul gün sınırı için ±2 gün pay; kesin kesim gün anahtarıyla hesapta yapılır.
+  const from = new Date(Date.parse(`${first}T00:00:00Z`) - 2 * 86_400_000).toISOString();
+  const to = new Date(Date.parse(`${last}T23:59:59Z`) + 2 * 86_400_000).toISOString();
+  const data = await readPayoutWindow(from, to);
+  const teacher = data.teachers.find((t) => t.id === v.data.teacherId);
+  if (!teacher) return fail("NOT_FOUND", "Öğretmen bu kurumda bulunamadı; kurum seçimini kontrol edin.");
+  return ok({ ...buildTeacherEarningsStatement(data, v.data.teacherId, v.data.year, v.data.month), teacherName: teacher.name });
 }
 
 export type ExistingPayoutSummary = {
@@ -15599,6 +15691,8 @@ export type AttendanceCalendarLessonOpsInfo = {
   teacherName?: string;
   instrument: string;
   roomName?: string;
+  /** 2026-10-06 — Telafi Merkezi'nden planlanan ders (kalıcı kaynak: `type === "makeup"`); Geldi → T işareti. */
+  plannedMakeup: boolean;
   /** bkz. Lesson.availabilityOverride — öğretmen müsait olmadığı bir saatte, onaylı planlandı. */
   availabilityOverride: boolean;
 };
@@ -15735,6 +15829,7 @@ async function buildAttendanceCalendarMonth(
           instrument: l.instrument,
           roomName: room?.name,
           availabilityOverride: Boolean(l.availabilityOverride),
+          plannedMakeup: l.type === "makeup",
         };
       });
     // ÖNCELİK 4 (devam) — TEK kaynak: mevcut Payment modeli (source:"lesson_ops"),
@@ -16000,7 +16095,12 @@ export async function collectAttendanceCalendarPaymentTool(
       studentId: z.string().min(1),
       month: z.string().regex(/^\d{4}-\d{2}$/),
       amount: z.number().positive(),
-      /** Ödeme tarihi (yyyy-MM-dd) — tahsilat anının GERÇEK tarihi. Verilmezse bugün. */
+      /**
+       * TAHSİLAT TARİHİ (yyyy-MM-dd, İstanbul takvim günü) — paranın fiilen alındığı gün; yalnız `paidAt`.
+       * Dönem (hangi ay ödeniyor) DAİMA `month`'tur; tahsilat tarihi dönemi asla değiştirmez. Verilmezse bugün.
+       */
+      collectedAt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Tahsilat tarihi geçersiz; gün.ay.yıl olarak seçin.").optional(),
+      /** ESKİ ad (geriye uyum): takvim bu alanla tahsilat tarihini gönderiyordu — vade DEĞİLDİR. */
       dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
       /** Ödeme şekli — zorunlu değil, verilmezse markPaymentPaid'in mevcut varsayılan zinciri (öğrencinin kayıtlı yöntemi) kullanılır. */
       method: z.enum(["cash", "transfer", "credit_card"]).optional(),
@@ -16015,6 +16115,12 @@ export async function collectAttendanceCalendarPaymentTool(
     input
   );
   if (!v.ok) return v;
+
+  const collectedAt = v.data.collectedAt ?? v.data.dueDate;
+  const [cy, cm] = v.data.month.split("-").map(Number) as [number, number];
+  if (!(cm >= 1 && cm <= 12) || cy < 2000 || cy > 2100) {
+    return fail("VALIDATION_ERROR", "Ödenen dönem (ay) geçersiz; takvimde ilgili ay kutusundan tekrar deneyin.");
+  }
 
   const data = await readData();
   const student = data.students.find((s) => s.id === v.data.studentId);
@@ -16059,6 +16165,25 @@ export async function collectAttendanceCalendarPaymentTool(
       );
     }
 
+    // 2026-10-06 — sözleşmesiz plan, dönem ayı ZATEN tamamen tahsil edilmiş:
+    // - aylık plan satırıysa mevcut "düzeltme" davranışı korunur (aynı satır yeni tutara güncellenir; aynı değerle
+    //   tekrar gönderim sonucu değiştirmez),
+    // - yalnız kayıt ilk tahsilatı gibi başka bir satır karşılıyorsa ikinci bir aylık plan satırı AÇILMAZ (çift tahsilat).
+    const paidStudentMonth = plan.state === "student_plan" && plan.paymentIds.length > 0 && plan.remaining <= 0;
+    const paidRows = paidStudentMonth ? data.payments.filter((p) => plan.paymentIds.includes(p.id)) : [];
+    const correctionRow = paidRows.find((p) => p.source === "monthly_plan");
+    if (paidStudentMonth && !correctionRow) {
+      const day = collectedAt ?? toZonedYmd(new Date(), resolveAppTimezone());
+      const retry = paidRows.find(
+        (p) => p.paidAt && toZonedYmd(new Date(p.paidAt), resolveAppTimezone()) === day && Math.trunc(p.paidAmount) === Math.trunc(v.data.amount)
+      );
+      if (retry) return ok({ paymentId: retry.id, studentId: v.data.studentId, month: v.data.month, amount: v.data.amount, status: retry.status });
+      return fail(
+        "CONFLICT",
+        `${monthlyPlanPeriodLabel(v.data.month)} dönemi kayıt ilk tahsilatıyla zaten ödenmiş; ikinci tahsilat bu kutudan yazılmadı. Ek ödeme için Ödemeler ekranını kullanın.`
+      );
+    }
+
     let paymentId: string;
     // 8. tur — sözleşmesiz planda o ayın TEK açık satırı varsa (ör. ödenmemiş kayıt ilk
     // tahsilatı) ona yazılır; yanına ikinci bir "aylık plan" satırı açılmaz.
@@ -16069,14 +16194,14 @@ export async function collectAttendanceCalendarPaymentTool(
     } else if (openStudentRow) {
       paymentId = openStudentRow;
     } else {
-      // Sözleşme planı YOK (ör. sözleşmesiz/legacy öğrenci) — eski davranış
-      // korunur: serbest "aylık plan" ödeme satırı. `dueDate`/`method`
-      // verilmezse mevcut değerler KORUNUR.
+      // Sözleşme planı YOK ve bu dönem ayının satırı yok — dönem ayına (seçilen kutu) ait TEK "aylık plan"
+      // satırı açılır. Borç = anlaşılan aylık ücret (girilen tutar daha azsa kısmi ödeme olur, ay "ödendi"
+      // görünmez); ücret tanımsızsa girilen tutar.
       const upserted = await upsertMonthlyPlanPayment({
         studentId: v.data.studentId,
         month: v.data.month,
-        amount: v.data.amount,
-        dueDate: v.data.dueDate,
+        // Düzeltmede girilen tutar satırın tutarı olur (mevcut davranış); yeni satırda borç anlaşılan ücrettir.
+        amount: correctionRow ? Math.trunc(v.data.amount) : Math.max(Math.trunc(v.data.amount), student.monthlyFee > 0 ? Math.trunc(student.monthlyFee) : 0),
         method: v.data.method,
       });
       paymentId = upserted.paymentId;
@@ -16085,21 +16210,23 @@ export async function collectAttendanceCalendarPaymentTool(
     const collected = await collectPayment(paymentId, {
       amount: v.data.amount,
       method: v.data.method,
-      paidAt: v.data.dueDate,
+      // Tahsilat tarihi YALNIZ paidAt'e yazılır (İstanbul takvim günü, öğlen — gün kaymaz).
+      paidAt: collectedAt ? new Date(`${collectedAt}T12:00:00.000+03:00`).toISOString() : undefined,
       ...(v.data.note ? { paymentNote: v.data.note } : {}),
       receivedByUserId: ctx.userId,
       actorUserId: ctx.userId,
       tenantId: ctx.tenantId,
-      // Sözleşme taksitine yazılan tahsilat EKLENİR (kısmi + kalan = plan).
-      // monthly_plan fallback eski SET davranışını korur (upsert zaten satır tutarını yazar).
-      accumulate: plan.state === "ok" || Boolean(openStudentRow),
+      // Tahsilat satıra EKLENİR (kısmi + kalan = plan; yeni satırda önceki tahsilat 0). Tam ödenmiş aylık plan
+      // satırında düzeltme: tutar AYARLANIR (mevcut davranış).
+      accumulate: !correctionRow,
     });
     audit(ctx, "PAYMENT_COLLECTED_FROM_ATTENDANCE_CALENDAR", "Payment", paymentId, {
       studentId: v.data.studentId,
       month: v.data.month,
       amount: v.data.amount,
       method: v.data.method,
-      dueDate: v.data.dueDate,
+      // Dönem = month; tahsilat tarihi ayrı (eski kayıtlarda "dueDate" adıyla tutuluyordu).
+      collectedAt,
       hasNote: Boolean(v.data.note),
       // Hangi kaynağa yazıldığı audit'te GÖRÜNÜR olmalı — sözleşme taksiti mi,
       // sözleşmesiz serbest aylık plan satırı mı.
