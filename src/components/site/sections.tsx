@@ -222,6 +222,14 @@ export function AboutSection() {
         title="Kurumunuzun günlük işleyişi için tasarlandı"
         description="Ders planlamasından yoklamaya, sözleşmeden tahsilata kadar kurumun tüm operasyonu tek bir yerdedir. Her kurum yalnızca kendi verisini görür, her rol yalnızca yetkili olduğu kadarını."
       />
+      {/* Yabancı ziyaretçiler (yatırımcı, program başvuruları) için kısa İngilizce özet. */}
+      <p lang="en" className="mx-auto mt-6 max-w-3xl text-center text-sm leading-relaxed text-slate-500">
+        <span className="font-semibold text-slate-700">In English:</span> NeviiHub is an AI-first operating
+        system for music schools. Scheduling, attendance, makeup lessons, contracts, tuition collection and
+        parent and teacher portals live in one place. AI agents prepare reminders, payment follow-ups and
+        reports through the same permission checks as school staff, and a person approves every message before
+        it is sent. Live since October 2026 in İzmir, Türkiye.
+      </p>
     </Section>
   );
 }

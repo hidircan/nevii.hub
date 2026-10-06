@@ -140,7 +140,7 @@ Three execution surfaces share the same Tool Layer/Agent Runtime:
    voice, MCP).
 
 **Provider chain** (`src/lib/ai/provider-chain.ts`, `config.ts`, `provider-bridge.ts`): `auto`
-mode tries Gemini → Groq → NVIDIA NIM → Cerebras → heuristic, in that fixed order, skipping any
+mode tries Claude (Anthropic, `providers/claude.ts`, official `@anthropic-ai/sdk`) → Gemini → Groq → NVIDIA NIM → Cerebras → heuristic, in that fixed order, skipping any
 provider with a missing/blank key and never retrying a provider after an auth/key failure
 (`isAuthConfigError`); heuristic (`providers/heuristic.ts`, keyless, regex-based intent
 detection) is the deterministic final fallback and is always "configured". Gemini needs its own

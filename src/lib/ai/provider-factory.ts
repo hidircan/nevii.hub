@@ -3,6 +3,7 @@ import { getProviderConfig, resolveChainProviderConfig } from "./config";
 import { heuristicProvider } from "./providers/heuristic";
 import { createOpenAiCompatibleProvider } from "./providers/openai-compatible";
 import { createGeminiProvider } from "./providers/gemini";
+import { createClaudeProvider } from "./providers/claude";
 import { createCloudflareWorkersAiProvider } from "./providers/cloudflare-workers-ai";
 import type { ProviderId } from "./provider-chain";
 
@@ -26,6 +27,15 @@ export function getLlmProvider(): LlmProvider {
       return createOpenAiCompatibleProvider({
         name: cfg.name,
         baseUrl: cfg.baseUrl,
+        apiKey: cfg.apiKey,
+        model: cfg.model,
+        timeoutMs: cfg.timeoutMs,
+      });
+    }
+
+    if (cfg.name === "claude") {
+      if (!cfg.apiKey) return heuristicProvider;
+      return createClaudeProvider({
         apiKey: cfg.apiKey,
         model: cfg.model,
         timeoutMs: cfg.timeoutMs,
@@ -70,6 +80,8 @@ export function resolveLiveProvider(id: ProviderId): LlmProvider | null {
   switch (cfg.id) {
     case "heuristic":
       return heuristicProvider;
+    case "claude":
+      return createClaudeProvider({ apiKey: cfg.apiKey, model: cfg.model, timeoutMs: cfg.timeoutMs });
     case "gemini":
       return createGeminiProvider({ apiKey: cfg.apiKey, model: cfg.model, timeoutMs: cfg.timeoutMs });
     case "groq":

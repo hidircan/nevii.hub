@@ -53,7 +53,7 @@ describe("executeWithProvider — zincir boyunca sıradaki configured provider'a
     }));
   });
 
-  it("gemini hata verirse groq/nvidiaNim/cerebras (test ortamında unconfigured) atlanır, heuristic'e ulaşılır — triedProviders TÜM zinciri yansıtır (Gemini → Groq → NVIDIA NIM → Cerebras → Heuristic sırası)", async () => {
+  it("claude unconfigured, gemini hata verirse groq/nvidiaNim/cerebras (test ortamında unconfigured) atlanır, heuristic'e ulaşılır — triedProviders TÜM zinciri yansıtır (Claude → Gemini → Groq → NVIDIA NIM → Cerebras → Heuristic sırası)", async () => {
     vi.doMock("../ai/provider-factory", async () => {
       const actual =
         await vi.importActual<typeof import("../ai/provider-factory")>("../ai/provider-factory");
@@ -81,7 +81,7 @@ describe("executeWithProvider — zincir boyunca sıradaki configured provider'a
 
     expect(res.provider).toBe("heuristic");
     expect(res.usedFallback).toBe(true);
-    expect(res.triedProviders).toEqual(["gemini", "groq", "nvidiaNim", "cerebras", "heuristic"]);
+    expect(res.triedProviders).toEqual(["claude", "gemini", "groq", "nvidiaNim", "cerebras", "heuristic"]);
     expect(typeof res.result.text).toBe("string");
   });
 
@@ -166,7 +166,7 @@ describe("executeWithProvider — zincir boyunca sıradaki configured provider'a
       { callerRole: "SCHOOL_ADMIN", tenantId: TENANT, operation: "payments" }
     );
     expect(res.provider).toBe("heuristic");
-    expect(res.triedProviders[0]).toBe("gemini");
+    expect(res.triedProviders.slice(0, 2)).toEqual(["claude", "gemini"]);
   });
 });
 

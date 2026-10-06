@@ -159,12 +159,13 @@ export function describeIdentity(): string {
   if (cfg.name === "heuristic") {
     return (
       "Şu anda heuristic (kural tabanlı, LLM'siz) modda çalışıyorum. " +
-      "Hiçbir sağlayıcı için API anahtarı yapılandırılmamış (GEMINI_API_KEY / " +
+      "Hiçbir sağlayıcı için API anahtarı yapılandırılmamış (ANTHROPIC_API_KEY / GEMINI_API_KEY / " +
       "GROQ_API_KEY / NVIDIA_NIM_API_KEY / CEREBRAS_API_KEY), bu yüzden gerçek bir " +
       "dil modeli yerine anahtar kelimelere dayalı, deterministik bir asistanım."
     );
   }
   const providerLabel: Record<string, string> = {
+    claude: "Anthropic Claude",
     gemini: "Google Gemini",
     groq: "Groq Cloud",
     nvidiaNim: "NVIDIA NIM",
