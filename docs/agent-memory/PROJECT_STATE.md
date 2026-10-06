@@ -4,6 +4,17 @@ Kısa tutulur (~50 satır): oturum sonunda yalnız "Güncel snapshot" bölümün
 `archive/`'e taşınır. Ayrıntı → ilgili `docs/testing/UAT_*.md`, `docs/operations/*`. Yönlendirici: `nevii-hub` skill.
 Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_2026-09-24.md`.
 
+## Güncel snapshot — 2026-10-06 gece (program/telafi filtreleri; PR ile canlıya)
+- Ders programı: öğrenci filtresi yalnız aktif (`isActiveStudent`), öğretmen filtresi aktif + silinmemiş; ders kartı adları
+  tam listeden (geçmiş korunur). Eski `?studentId=` pasif öğrenci → devre dışı "(pasif)" seçenek; kapsam dışı id yok sayılır.
+- Telafi Merkezi: öneriler varsayılan kapalı (`makeup-suggestions-disclosure.tsx`, aria-expanded); kompakt kart; iptal
+  gerekçesi `<details>` içinde. Öğrenci otomatik tamamlama + şube + öğretmen filtresi (`makeup-filter-bar.tsx`,
+  `lib/makeup-filters.ts`, URL `?ogrenci=&sube=&ogretmen=`, AND, sayaç/sayfalamadan önce). Öğretmen = talebin öğretmeni.
+- Bilinçli karar: öneriler açılışta ayrı istekle yüklenmiyor — her açılış tam `readScopedData` (egress) demek; kayıtlı
+  öneriler sayfanın tek okumasında doğrulanıp yalnız açılınca DOM'a bağlanıyor.
+- CI `main`'de kırmızı: typecheck adımı runner'da OOM (heap ~2 GB) → testler CI'da çalışmıyor; önerilen düzeltme
+  `NODE_OPTIONS=--max-old-space-size=6144`. Yerelde 10 dosyada 19 test `main`'de de kırmızı (saat/tarih bağımlı) — ayrı iş.
+
 ## Güncel snapshot — 2026-10-05 (sözleşmesiz aylık tahakkuk CANLIDA)
 - Kök neden: sözleşmesiz öğrencinin aylık ücreti hiç borç yazılmıyordu (`monthly_plan` yalnız tahsilatta); liste doğru
   ama gösterecek borç yoktu. Canlı: `d3d3212` (`dpl_3mn1hgk…`). `standalone-monthly-accrual.ts` + cron

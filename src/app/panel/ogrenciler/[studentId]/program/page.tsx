@@ -105,7 +105,7 @@ export default async function StudentScheduleTab({
         <h2 id="telafi-baslik" className="mb-3 flex items-center justify-between text-sm font-semibold text-[var(--color-text)]">
           Telafiler
           <Link
-            href={`/panel/telafi?q=${encodeURIComponent(student.name)}`}
+            href={`/panel/telafi?ogrenci=${encodeURIComponent(student.id)}`}
             className="text-xs font-medium text-[var(--color-primary)] hover:text-[var(--color-primary-hover)]"
           >
             Telafi Merkezinde Aç →
