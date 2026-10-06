@@ -34,6 +34,7 @@ export function MakeupFilterBar({
   selectedStudent,
   selectedTeacher,
   durum,
+  pageSize,
   legacyQuery,
 }: {
   branches: { id: string; name: string }[];
@@ -43,6 +44,8 @@ export function MakeupFilterBar({
   selectedStudent: MakeupSelectedPerson | null;
   selectedTeacher: MakeupSelectedPerson | null;
   durum: string;
+  /** Sayfa başı satır — filtre değişince korunur (sayfa 1'e döner). */
+  pageSize: number;
   /** Eski `?q=` bağlantıları — yalnız "Filtreleri temizle" ile düşer. */
   legacyQuery: string;
 }) {
@@ -52,7 +55,7 @@ export function MakeupFilterBar({
 
   function apply(next: MakeupFilters, keepLegacyQuery = true) {
     startTransition(() => {
-      router.push(makeupFilterHref({ ...next, durum, q: keepLegacyQuery ? legacyQuery : "" }));
+      router.push(makeupFilterHref({ ...next, durum, adet: pageSize, q: keepLegacyQuery ? legacyQuery : "" }));
     });
   }
 

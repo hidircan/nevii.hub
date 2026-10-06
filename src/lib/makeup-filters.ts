@@ -108,15 +108,40 @@ export function filtersForBranchChange(
   };
 }
 
-/** Filtre + durum sekmesi + sayfa → URL. Filtre değişince çağıran `sayfa`yı vermez (1'e döner). */
-export function makeupFilterHref(params: Partial<MakeupFilters> & { durum?: string; q?: string; sayfa?: number }): string {
+/** 2026-10-07 — sayfa başı satır seçenekleri; varsayılan 10. Geçersiz değer varsayılana düşer. */
+export const MAKEUP_PAGE_SIZES = [10, 50, 100] as const;
+export type MakeupPageSize = (typeof MAKEUP_PAGE_SIZES)[number];
+export const DEFAULT_MAKEUP_PAGE_SIZE: MakeupPageSize = 10;
+
+export function parseMakeupPageSize(raw: string | undefined): MakeupPageSize {
+  const n = Number(raw);
+  return (MAKEUP_PAGE_SIZES as readonly number[]).includes(n) ? (n as MakeupPageSize) : DEFAULT_MAKEUP_PAGE_SIZE;
+}
+
+/** Filtrelenmiş listeyi sayfalar; sayfa 1..toplam aralığına kırpılır. */
+export function paginateMakeup<T>(items: T[], rawPage: string | undefined, pageSize: number) {
+  const totalPages = Math.max(1, Math.ceil(items.length / pageSize));
+  const n = Number.parseInt(rawPage ?? "1", 10);
+  const page = Math.min(totalPages, Math.max(1, Number.isFinite(n) ? n : 1));
+  return { page, totalPages, items: items.slice((page - 1) * pageSize, page * pageSize) };
+}
+
+/**
+ * Filtre + durum sekmesi + sayfa → URL. Filtre/sekme değişince çağıran `sayfa`/`gsayfa`yı vermez (1'e döner);
+ * sayfa başı (`adet`) korunur. `sayfa` = açık talepler, `gsayfa` = geçmiş tablosu.
+ */
+export function makeupFilterHref(
+  params: Partial<MakeupFilters> & { durum?: string; q?: string; sayfa?: number; gsayfa?: number; adet?: number }
+): string {
   const sp = new URLSearchParams();
   if (params.durum && params.durum !== "tumu") sp.set("durum", params.durum);
   if (params.studentId) sp.set("ogrenci", params.studentId);
   if (params.branchId) sp.set("sube", params.branchId);
   if (params.teacherId) sp.set("ogretmen", params.teacherId);
   if (params.q) sp.set("q", params.q);
+  if (params.adet && params.adet !== DEFAULT_MAKEUP_PAGE_SIZE) sp.set("adet", String(params.adet));
   if (params.sayfa && params.sayfa > 1) sp.set("sayfa", String(params.sayfa));
+  if (params.gsayfa && params.gsayfa > 1) sp.set("gsayfa", String(params.gsayfa));
   const qs = sp.toString();
   return qs ? `/panel/telafi?${qs}` : "/panel/telafi";
 }
