@@ -9,6 +9,7 @@
  */
 
 export type ProviderId =
+  | "claude"
   | "gemini"
   | "groq"
   | "cerebras"
@@ -31,13 +32,14 @@ export type ProviderMetadata = {
  * fully valid `ProviderId` (resolvable directly via `resolveChainProviderConfig`
  * / `resolveLiveProvider`), but is excluded from the default auto-fallback
  * order per the current provider-order spec, which fixes heuristic as the
- * final (5th) step with no slot after it.
+ * final (6th) step with no slot after it.
  */
 export const PROVIDER_CHAIN: readonly ProviderMetadata[] = [
-  { id: "gemini", strengths: "primary — tool-calling, Türkçe/ders bağlamı", isExternal: true },
-  { id: "groq", strengths: "secondary — short-fast, kısa/hızlı görevler", isExternal: true },
-  { id: "nvidiaNim", strengths: "tertiary — enterprise, uzun context/özel durumlar", isExternal: true },
-  { id: "cerebras", strengths: "quaternary — long-context, geniş bağlam işleri", isExternal: true },
+  { id: "claude", strengths: "primary — çok adımlı tool-calling, Türkçe talimat takibi", isExternal: true },
+  { id: "gemini", strengths: "secondary — tool-calling, Türkçe/ders bağlamı", isExternal: true },
+  { id: "groq", strengths: "tertiary — short-fast, kısa/hızlı görevler", isExternal: true },
+  { id: "nvidiaNim", strengths: "quaternary — enterprise, uzun context/özel durumlar", isExternal: true },
+  { id: "cerebras", strengths: "quinary — long-context, geniş bağlam işleri", isExternal: true },
   { id: "heuristic", strengths: "fallback — external LLM yokken deterministik", isExternal: false },
 ];
 

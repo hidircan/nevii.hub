@@ -4,12 +4,15 @@
 import type { ProviderId } from "./provider-chain";
 
 export type ResolvedProviderConfig = {
-  name: "openai" | "grok" | "gemini" | "local" | "heuristic" | "groq" | "cerebras" | "nvidiaNim";
+  name: "claude" | "openai" | "grok" | "gemini" | "local" | "heuristic" | "groq" | "cerebras" | "nvidiaNim";
   model: string;
   baseUrl?: string;
   apiKey?: string;
   timeoutMs: number;
 };
+
+/** Claude için varsayılan model; CLAUDE_MODEL (veya AI_MODEL) ile değiştirilebilir. */
+export const DEFAULT_CLAUDE_MODEL = "claude-opus-5-5";
 
 /** True for a real, non-blank key/value — env vars set to "" or whitespace count as missing. */
 function hasValue(v: string | undefined): v is string {
@@ -62,6 +65,7 @@ export function getProviderConfig(): ResolvedProviderConfig {
   const requested = requestedLower === "nvidianim" ? "nvidiaNim" : requestedLower;
   const timeoutMs = Number(process.env.AI_TIMEOUT_MS || 60_000);
 
+  const anthropicKey = process.env.ANTHROPIC_API_KEY;
   const openaiKey = process.env.OPENAI_API_KEY;
   const xaiKey = process.env.XAI_API_KEY || process.env.GROK_API_KEY;
   const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
@@ -71,6 +75,14 @@ export function getProviderConfig(): ResolvedProviderConfig {
   const nvidiaNimKey = process.env.NVIDIA_NIM_API_KEY;
 
   const pick = (name: ResolvedProviderConfig["name"]): ResolvedProviderConfig | null => {
+    if (name === "claude" && hasValue(anthropicKey)) {
+      return {
+        name: "claude",
+        model: process.env.AI_MODEL || process.env.CLAUDE_MODEL || DEFAULT_CLAUDE_MODEL,
+        apiKey: anthropicKey,
+        timeoutMs,
+      };
+    }
     if (name === "openai" && hasValue(openaiKey)) {
       return {
         name: "openai",
@@ -147,12 +159,13 @@ export function getProviderConfig(): ResolvedProviderConfig {
     };
   }
 
-  // auto: Gemini → Groq → NVIDIA NIM → Cerebras → heuristic (must stay in
+  // auto: Claude → Gemini → Groq → NVIDIA NIM → Cerebras → heuristic (must stay in
   // sync with PROVIDER_CHAIN in provider-chain.ts, which the capability
   // fallback chain in provider-bridge.ts walks). "openai"/"grok"(xAI)/"local"
   // remain selectable via an explicit AI_PROVIDER=... value, but are not part
   // of the auto priority.
   return (
+    pick("claude") ||
     pick("gemini") ||
     pick("groq") ||
     pick("nvidiaNim") ||
@@ -172,7 +185,7 @@ export function getProviderConfig(): ResolvedProviderConfig {
  */
 export type ChainProviderConfig =
   | { id: "heuristic"; configured: true }
-  | { id: "gemini"; configured: true; apiKey: string; model: string; timeoutMs: number }
+  | { id: "claude" | "gemini"; configured: true; apiKey: string; model: string; timeoutMs: number }
   | {
       id: "groq" | "cerebras" | "nvidiaNim";
       configured: true;
@@ -190,6 +203,12 @@ export function resolveChainProviderConfig(id: ProviderId): ChainProviderConfig 
   switch (id) {
     case "heuristic":
       return { id, configured: true };
+
+    case "claude": {
+      const apiKey = process.env.ANTHROPIC_API_KEY;
+      if (!hasValue(apiKey)) return { id, configured: false };
+      return { id, configured: true, apiKey, model: process.env.CLAUDE_MODEL || DEFAULT_CLAUDE_MODEL, timeoutMs };
+    }
 
     case "gemini": {
       const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;

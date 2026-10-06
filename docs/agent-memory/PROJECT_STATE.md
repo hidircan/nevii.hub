@@ -4,6 +4,13 @@ Kısa tutulur (~50 satır): oturum sonunda yalnız "Güncel snapshot" bölümün
 `archive/`'e taşınır. Ayrıntı → ilgili `docs/testing/UAT_*.md`, `docs/operations/*`. Yönlendirici: `nevii-hub` skill.
 Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_2026-09-24.md`.
 
+## Güncel snapshot — 2026-10-06 geç (Claude sağlayıcısı + ana sayfa İngilizce özet; PR bekliyor)
+- AI zinciri artık Claude → Gemini → Groq → NVIDIA NIM → Cerebras → heuristic (`providers/claude.ts`, resmî
+  `@anthropic-ai/sdk`, varsayılan `claude-opus-5-5`, `CLAUDE_MODEL` ile değişir). Anahtar yoksa davranış eskisiyle aynı.
+  `collectionsMessageDraft` tercihi claude (onay zorunluluğu değişmedi). Owner Vercel'e `ANTHROPIC_API_KEY` ekledi.
+- Ana sayfa "NeviiHub nedir?" altına İngilizce özet (Claude for Startups başvurusu için). Migration YOK.
+- Doğrulama: typecheck + hedef AI testleri (6 dosya, 74 test) geçti; tam `npm test` bu ortamda süre sınırına takıldı.
+
 ## Güncel snapshot — 2026-10-06 gece (program/telafi filtreleri; PR ile canlıya)
 - Ders programı: öğrenci filtresi yalnız aktif (`isActiveStudent`), öğretmen filtresi aktif + silinmemiş; ders kartı adları
   tam listeden (geçmiş korunur). Eski `?studentId=` pasif öğrenci → devre dışı "(pasif)" seçenek; kapsam dışı id yok sayılır.

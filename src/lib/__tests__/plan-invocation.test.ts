@@ -84,7 +84,7 @@ describe("planAiInvocation — doğru rol/tenant ile izin + provider seçimi", (
     expect(plan.allowed).toBe(true);
     if (plan.allowed) {
       expect(plan.capability.requiresApproval).toBe(true);
-      expect(plan.chosenProvider).toBe("gemini");
+      expect(plan.chosenProvider).toBe("claude");
     }
   });
 

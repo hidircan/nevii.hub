@@ -19,7 +19,7 @@ description: Provider chain, heuristic fallback, capability, tool invocation, ap
 - `requiresApproval` doğru işaretli mi — dış mesaj gönderen capability'ler
   taslak-only mu kalıyor (insan onayı zorunlu, PROJECT.md §8.3)?
 - `planAiInvocation` tenant/rol eksikliğinde fail-closed mi çalışıyor?
-- Provider zinciri sırası (Gemini→Groq→NVIDIA NIM→Cerebras→heuristic)
+- Provider zinciri sırası (Claude→Gemini→Groq→NVIDIA NIM→Cerebras→heuristic)
   korunuyor mu, auth-hatalı provider tekrar denenmiyor mu?
 
 ## Hangi testler
