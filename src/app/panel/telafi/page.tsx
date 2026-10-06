@@ -23,6 +23,19 @@ import { MakeupWindowDaysEditor } from "@/components/makeup-window-days-editor";
 import { MakeupPolicyDialog } from "@/components/makeup-policy-dialog";
 import { MakeupHistoryTable } from "@/components/makeup-history-table";
 import { resolveActorLabels } from "@/lib/contract-payment-plan-view";
+import { MakeupFilterBar, type MakeupSelectedPerson } from "@/components/makeup-filter-bar";
+import { MakeupSuggestionsDisclosure } from "@/components/makeup-suggestions-disclosure";
+import {
+  filterMakeupRequests,
+  isActiveTeacher,
+  makeupFilterHref,
+  makeupStudentOptions,
+  makeupTeacherOptions,
+  parseMakeupFilters,
+  studentBranchIds,
+  teacherBranchIds,
+} from "@/lib/makeup-filters";
+import { isActiveStudent } from "@/lib/payment-scope";
 
 const MORE_SUGGESTIONS_COUNT = 18;
 
@@ -52,16 +65,20 @@ function daysLeftLabel(days: number): string {
 const HISTORY_PAGE_SIZE = 25;
 const MAX_SUMMARY_STUDENTS = 10;
 
-export default async function TelafiPage({ searchParams }: { searchParams: Promise<{ durum?: string; q?: string; sayfa?: string }> }) {
+export default async function TelafiPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ durum?: string; q?: string; sayfa?: string; ogrenci?: string; sube?: string; ogretmen?: string }>;
+}) {
   let session;
   try {
     session = await requireSessionContext();
   } catch {
     redirect("/login?next=/panel/telafi");
   }
-  const { durum: durumParam, q: qParam, sayfa } = await searchParams;
-  // 2026-10-04 — isme göre arama: Türkçe harf katlamalı ("şule" = "Şule" = "sule"); sunucuda süzülür,
-  // istemciye yalnız eşleşen satırlar gider. Geçmiş liste sayfalıdır.
+  const { durum: durumParam, q: qParam, sayfa, ogrenci, sube, ogretmen } = await searchParams;
+  // 2026-10-04 — isme göre arama (eski `?q=` bağlantıları için korunur): Türkçe harf katlamalı; sunucuda süzülür.
+  // 2026-10-06 — yeni filtreler kimlikle: `?ogrenci=` `?sube=` `?ogretmen=` (bkz. makeup-filters.ts).
   const q = (qParam ?? "").trim().slice(0, 80);
   const qFold = q ? foldTurkishForSearch(q) : "";
   const durum: Durum = durumParam && durumParam in DURUM_LABEL ? (durumParam as Durum) : "tumu";
@@ -74,7 +91,12 @@ export default async function TelafiPage({ searchParams }: { searchParams: Promi
           .map((s) => s.id)
       )
     : null;
-  const requests = [...data.makeupRequests]
+  const filters = parseMakeupFilters(
+    { ogrenci, sube, ogretmen },
+    { students: data.students, teachers: data.teachers, branchIds: data.settings.branches.map((b) => b.id) }
+  );
+  // Filtreler sayaç ve sayfalamadan ÖNCE (AND). Filtre seçilmediğinde pasif kişilerin geçmiş talepleri GİZLENMEZ.
+  const requests = filterMakeupRequests(data.makeupRequests, filters)
     .filter((r) => !matchingStudentIds || matchingStudentIds.has(r.studentId))
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
@@ -98,20 +120,24 @@ export default async function TelafiPage({ searchParams }: { searchParams: Promi
   const historyPages = Math.max(1, Math.ceil(doneAll.length / HISTORY_PAGE_SIZE));
   const historyPage = Math.min(historyPages, Math.max(1, Number.parseInt(sayfa ?? "1", 10) || 1));
   const done = doneAll.slice((historyPage - 1) * HISTORY_PAGE_SIZE, historyPage * HISTORY_PAGE_SIZE);
-  const hrefWith = (params: { durum?: string; q?: string; sayfa?: number }) => {
-    const sp = new URLSearchParams();
-    if (params.durum && params.durum !== "tumu") sp.set("durum", params.durum);
-    if (params.q) sp.set("q", params.q);
-    if (params.sayfa && params.sayfa > 1) sp.set("sayfa", String(params.sayfa));
-    const qs = sp.toString();
-    return qs ? `/panel/telafi?${qs}` : "/panel/telafi";
-  };
-  const summaryStudents = matchingStudentIds
-    ? data.students
-        .filter((s) => matchingStudentIds.has(s.id))
-        .sort((a, b) => a.name.localeCompare(b.name, "tr"))
-        .slice(0, MAX_SUMMARY_STUDENTS)
-    : [];
+  // Durum sekmesi ve sayfa geçişlerinde filtreler korunur.
+  const hrefWith = (params: { durum?: string; sayfa?: number }) => makeupFilterHref({ ...filters, q, ...params });
+  const summaryStudents = filters.studentId
+    ? data.students.filter((s) => s.id === filters.studentId)
+    : matchingStudentIds
+      ? data.students
+          .filter((s) => matchingStudentIds.has(s.id))
+          .sort((a, b) => a.name.localeCompare(b.name, "tr"))
+          .slice(0, MAX_SUMMARY_STUDENTS)
+      : [];
+  const selectedStudentRow = data.students.find((s) => s.id === filters.studentId);
+  const selectedTeacherRow = data.teachers.find((t) => t.id === filters.teacherId);
+  const selectedStudent: MakeupSelectedPerson | null = selectedStudentRow
+    ? { id: selectedStudentRow.id, name: selectedStudentRow.name, branchIds: studentBranchIds(selectedStudentRow), inactive: !isActiveStudent(selectedStudentRow) }
+    : null;
+  const selectedTeacher: MakeupSelectedPerson | null = selectedTeacherRow
+    ? { id: selectedTeacherRow.id, name: selectedTeacherRow.name, branchIds: teacherBranchIds(selectedTeacherRow), inactive: !isActiveTeacher(selectedTeacherRow) }
+    : null;
   const canWrite = kurum.scope.mode === "single";
   const actorNames = await resolveActorLabels({
     tenantId: session.tenantId,
@@ -138,7 +164,7 @@ export default async function TelafiPage({ searchParams }: { searchParams: Promi
           return (
             <Link
               key={key}
-              href={hrefWith({ durum: key, q })}
+              href={hrefWith({ durum: key })}
               aria-current={active ? "page" : undefined}
               className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-medium transition-colors ${
                 active
@@ -155,27 +181,18 @@ export default async function TelafiPage({ searchParams }: { searchParams: Promi
         })}
       </nav>
 
-      <form method="get" action="/panel/telafi" role="search" className="mb-3 flex flex-wrap items-center gap-2">
-        {durum !== "tumu" ? <input type="hidden" name="durum" value={durum} /> : null}
-        <label htmlFor="telafi-ara" className="sr-only">Öğrenci veya veli adına göre ara</label>
-        <input
-          id="telafi-ara"
-          name="q"
-          defaultValue={q}
-          placeholder="Öğrenci veya veli adı ara…"
-          className="min-w-[14rem] flex-1 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text)]"
-        />
-        <button type="submit" className="rounded-[var(--radius-md)] bg-[var(--color-primary)] px-3 py-2 text-sm font-medium text-white">
-          Ara
-        </button>
-        {q ? (
-          <Link href={hrefWith({ durum })} className="text-sm font-medium text-[var(--color-text-muted)] hover:underline">
-            Aramayı temizle
-          </Link>
-        ) : null}
-      </form>
+      <MakeupFilterBar
+        branches={data.settings.branches.map((b) => ({ id: b.id, name: b.shortName }))}
+        studentOptions={makeupStudentOptions(data.students)}
+        teacherOptions={makeupTeacherOptions(data.teachers)}
+        filters={filters}
+        selectedStudent={selectedStudent}
+        selectedTeacher={selectedTeacher}
+        durum={durum}
+        legacyQuery={q}
+      />
 
-      {q ? (
+      {filters.studentId || q ? (
         <section aria-label="Öğrenci bazında telafi özeti" className="mb-5">
           {summaryStudents.length === 0 ? (
             <p className="text-sm text-[var(--color-text-muted)]">&quot;{q}&quot; ile eşleşen öğrenci yok.</p>
@@ -268,7 +285,7 @@ export default async function TelafiPage({ searchParams }: { searchParams: Promi
           }
         />
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-3">
           {visible.map((req) => {
             const student = data.students.find((s) => s.id === req.studentId);
             const teacher = data.teachers.find((t) => t.id === req.teacherId);
@@ -293,10 +310,11 @@ export default async function TelafiPage({ searchParams }: { searchParams: Promi
             }));
             return (
               <Card key={req.id} className="p-0">
-                <div className="flex flex-col gap-3 border-b border-[var(--color-border)] p-4 sm:flex-row sm:items-start sm:justify-between sm:p-5">
+                {/* 2026-10-06 — kompakt kart: kimlik/öğretmen/şube/durum/son gün üstte; öneriler varsayılan kapalı. */}
+                <div className="flex flex-col gap-2 p-3 sm:flex-row sm:items-start sm:justify-between sm:p-4">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="text-lg font-semibold text-[var(--color-text)]">
+                      <h3 className="text-base font-semibold text-[var(--color-text)]">
                         {student ? (
                           <Link href={`/panel/ogrenciler/${student.id}/program#telafiler`} className="hover:underline">
                             {student.name}
@@ -308,14 +326,16 @@ export default async function TelafiPage({ searchParams }: { searchParams: Promi
                       <Badge status="makeup">{req.instrument}</Badge>
                       <Badge status={req.status} />
                     </div>
-                    <p className="mt-1 text-sm text-[var(--color-text-muted)]">
-                      {sourceLesson ? <>Kaçan ders: {formatDateTime(sourceLesson.startAt)}. </> : null}
-                      Öğretmeni {teacher?.name ?? "—"}, {branchName(req.branchId)} şubesi.
+                    <p className="mt-0.5 text-sm text-[var(--color-text-muted)]">
+                      Öğretmen {teacher?.name ?? "—"} · {branchName(req.branchId)} şubesi
+                      {sourceLesson ? <> · Kaçan ders {formatDateTime(sourceLesson.startAt)}</> : null}
                     </p>
-                    <p className="mt-0.5 text-sm text-[var(--color-text-muted)]">Neden: {req.reason}</p>
+                    <p className="mt-0.5 line-clamp-2 text-xs text-[var(--color-text-muted)]" title={req.reason}>
+                      Neden: {req.reason}
+                    </p>
                   </div>
                   <div
-                    className={`shrink-0 rounded-[var(--radius-md)] border px-3 py-2 text-right ${
+                    className={`shrink-0 self-start rounded-[var(--radius-md)] border px-2.5 py-1.5 sm:text-right ${
                       left <= URGENT_DAYS ? "border-rose-300 bg-rose-50 text-rose-800" : "border-[var(--color-border)] text-[var(--color-text-muted)]"
                     }`}
                   >
@@ -324,101 +344,107 @@ export default async function TelafiPage({ searchParams }: { searchParams: Promi
                   </div>
                 </div>
 
-                <div className="p-4 sm:p-5">
-                  <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                    <h4 className="text-sm font-semibold text-[var(--color-text)]">Önerilen saatler</h4>
-                    <GenerateSuggestionsForm requestId={req.id} pendingLabel="Uygun saatler aranıyor..." disabled={!canWrite || Boolean(noRoomReason)}>
-                      <Sparkles className="h-4 w-4" />
-                      {req.suggestedSlots.length ? "Önerileri yenile" : "Uygun saatleri bul"}
-                    </GenerateSuggestionsForm>
-                  </div>
-
-                  {noRoomReason ? (
-                    <p className="mb-3 rounded-[var(--radius-md)] border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">{noRoomReason}</p>
-                  ) : null}
-
-                  {checked.length === 0 ? (
-                    <p className="text-sm text-[var(--color-text-muted)]">
-                      Henüz öneri yok. “Uygun saatleri bul” bugünden sonraki saatlerde öğretmenin çalışma saatlerini, bu
-                      şubenin aktif odalarını, açık günleri ve öğretmen/oda/öğrenci çakışmalarını tarar. Geçmiş bir tarihe
-                      planlamak için aşağıdaki “Başka bir saat planla” formunu kullanın.
-                    </p>
-                  ) : (
-                    <ol className="divide-y divide-[var(--color-border)] rounded-[var(--radius-md)] border border-[var(--color-border)]">
-                      {checked.map(({ slot, check }, idx) => {
-                        const slotTeacher = data.teachers.find((t) => t.id === slot.teacherId);
-                        const room = data.rooms.find((r) => r.id === slot.roomId);
-                        return (
-                          <li
-                            key={`${slot.startAt}-${slot.teacherId}-${idx}`}
-                            className={`grid gap-3 p-3 sm:p-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)_16rem] ${check.ok ? "" : "bg-[var(--color-surface-muted)]"}`}
-                          >
-                            <div>
-                              <p className="font-semibold text-[var(--color-text)]">
-                                {formatDateTime(slot.startAt)}
-                                {idx === 0 && check.ok ? (
-                                  <span className="ml-2 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-800">En uygun</span>
-                                ) : null}
-                              </p>
-                              <p className="text-sm text-[var(--color-text-muted)]">
-                                {formatTime(slot.startAt)}–{formatTime(slot.endAt)}, {slotTeacher?.name ?? "—"}
-                              </p>
-                              <p className="text-sm text-[var(--color-text-muted)]">
-                                {room?.name ?? "Oda bulunamadı"}, {branchName(slot.branchId)} şubesi
-                              </p>
-                            </div>
-                            {check.ok ? (
-                              <ul className="space-y-0.5 text-xs text-[var(--color-text-muted)]">
-                                {slot.reasons.map((r) => (
-                                  <li key={r} className="flex gap-1.5">
-                                    <CheckCircle2 className="mt-px h-3.5 w-3.5 shrink-0 text-emerald-600" aria-hidden="true" />
-                                    {r}
-                                  </li>
-                                ))}
-                              </ul>
-                            ) : (
-                              <p className="flex gap-1.5 text-sm text-rose-700">
-                                <X className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-                                Artık uygun değil: {check.message} “Önerileri yenile” ile güncel saatleri arayın.
-                              </p>
-                            )}
-                            <div>
-                              {check.ok ? (
-                                <MakeupDecisionForm
-                                  action={actionConfirmSlot}
-                                  hiddenFields={{ requestId: req.id, slot: JSON.stringify(slot) }}
-                                  pendingLabel="Planlanıyor..."
-                                  variant="success"
-                                  disabled={!canWrite}
-                                  placeholder="Planlama gerekçesi (isteğe bağlı)"
-                                  noteRequired={false}
-                                >
-                                  <CheckCircle2 className="h-4 w-4" />
-                                  Bu saate planla
-                                </MakeupDecisionForm>
-                              ) : null}
-                            </div>
-                          </li>
-                        );
-                      })}
-                    </ol>
-                  )}
-                  {checked.length > 0 ? (
-                    <GenerateSuggestionsForm
-                      requestId={req.id}
-                      maxSlots={MORE_SUGGESTIONS_COUNT}
-                      variant="ghost"
-                      pendingLabel="Uygun saatler aranıyor..."
-                      disabled={!canWrite}
-                      className="mt-2"
-                    >
-                      Daha fazla uygun saat göster
-                    </GenerateSuggestionsForm>
-                  ) : null}
-                  <p className="mt-2 text-xs text-[var(--color-text-muted)]">
-                    Planlanan ders programa ve yoklama takvimine turuncu “Planlanan telafi” olarak eklenir; veliye mesaj
-                    otomatik gönderilmez, taslak hazırlanır. Kayıt anında uygunluk yeniden kontrol edilir.
+                {noRoomReason ? (
+                  <p className="mx-3 mb-3 rounded-[var(--radius-md)] border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800 sm:mx-4">
+                    {noRoomReason}
                   </p>
+                ) : null}
+
+                <div className="flex flex-wrap items-center gap-2 border-t border-[var(--color-border)] px-3 py-2.5 sm:px-4">
+                  <MakeupSuggestionsDisclosure requestId={req.id} count={req.suggestedSlots.length}>
+                    <div className="pt-1">
+                      {checked.length === 0 ? (
+                        <p className="text-sm text-[var(--color-text-muted)]">
+                          Henüz öneri yok. “Uygun saatleri bul” bugünden sonraki saatlerde öğretmenin çalışma saatlerini, bu
+                          şubenin aktif odalarını, açık günleri ve öğretmen/oda/öğrenci çakışmalarını tarar. Geçmiş bir tarihe
+                          planlamak için “Başka bir saat planla”yı kullanın.
+                        </p>
+                      ) : (
+                        <ol className="divide-y divide-[var(--color-border)] rounded-[var(--radius-md)] border border-[var(--color-border)]">
+                          {checked.map(({ slot, check }, idx) => {
+                            const slotTeacher = data.teachers.find((t) => t.id === slot.teacherId);
+                            const room = data.rooms.find((r) => r.id === slot.roomId);
+                            return (
+                              <li
+                                key={`${slot.startAt}-${slot.teacherId}-${idx}`}
+                                className={`grid gap-2 p-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)_15rem] lg:items-start ${check.ok ? "" : "bg-[var(--color-surface-muted)]"}`}
+                              >
+                                <div className="min-w-0">
+                                  <p className="font-semibold text-[var(--color-text)]">
+                                    {formatDateTime(slot.startAt)}
+                                    {idx === 0 && check.ok ? (
+                                      <span className="ml-2 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-800">En uygun</span>
+                                    ) : null}
+                                  </p>
+                                  <p className="text-sm text-[var(--color-text-muted)]">
+                                    {formatTime(slot.startAt)}–{formatTime(slot.endAt)}, {slotTeacher?.name ?? "—"} · {room?.name ?? "Oda bulunamadı"},{" "}
+                                    {branchName(slot.branchId)}
+                                  </p>
+                                </div>
+                                {check.ok ? (
+                                  <ul className="space-y-0.5 text-xs text-[var(--color-text-muted)]">
+                                    {slot.reasons.map((r) => (
+                                      <li key={r} className="flex gap-1.5">
+                                        <CheckCircle2 className="mt-px h-3.5 w-3.5 shrink-0 text-emerald-600" aria-hidden="true" />
+                                        {r}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                ) : (
+                                  <p className="flex gap-1.5 text-sm text-rose-700">
+                                    <X className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                                    Artık uygun değil: {check.message} “Önerileri yenile” ile güncel saatleri arayın.
+                                  </p>
+                                )}
+                                <div>
+                                  {check.ok ? (
+                                    <MakeupDecisionForm
+                                      action={actionConfirmSlot}
+                                      hiddenFields={{ requestId: req.id, slot: JSON.stringify(slot) }}
+                                      pendingLabel="Planlanıyor..."
+                                      variant="success"
+                                      disabled={!canWrite}
+                                      placeholder="Planlama gerekçesi (isteğe bağlı)"
+                                      noteRequired={false}
+                                    >
+                                      <CheckCircle2 className="h-4 w-4" />
+                                      Bu saate planla
+                                    </MakeupDecisionForm>
+                                  ) : null}
+                                </div>
+                              </li>
+                            );
+                          })}
+                        </ol>
+                      )}
+                      <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-xs text-[var(--color-text-muted)]">
+                          Planlanan ders programa ve yoklama takvimine turuncu “Planlanan telafi” olarak eklenir; veliye mesaj
+                          otomatik gönderilmez. Kayıt anında uygunluk yeniden kontrol edilir.
+                        </p>
+                        {checked.length > 0 ? (
+                          <GenerateSuggestionsForm
+                            requestId={req.id}
+                            maxSlots={MORE_SUGGESTIONS_COUNT}
+                            variant="ghost"
+                            pendingLabel="Uygun saatler aranıyor..."
+                            disabled={!canWrite}
+                          >
+                            Daha fazla uygun saat göster
+                          </GenerateSuggestionsForm>
+                        ) : null}
+                      </div>
+                    </div>
+                  </MakeupSuggestionsDisclosure>
+                  <GenerateSuggestionsForm
+                    requestId={req.id}
+                    variant="secondary"
+                    pendingLabel="Uygun saatler aranıyor..."
+                    disabled={!canWrite || Boolean(noRoomReason)}
+                  >
+                    <Sparkles className="h-4 w-4" />
+                    {req.suggestedSlots.length ? "Önerileri yenile" : "Uygun saatleri bul"}
+                  </GenerateSuggestionsForm>
 
                   {(() => {
                     const teachers = data.teachers
@@ -428,23 +454,26 @@ export default async function TelafiPage({ searchParams }: { searchParams: Promi
                     const rooms = usableRooms.map((r) => ({ id: r.id, name: r.name, branchId: r.branchId }));
                     if (!student || teachers.length === 0 || rooms.length === 0) return null;
                     return (
-                      <div className="mt-4 border-t border-[var(--color-border)] pt-4">
-                        <ManualMakeupPlanForm
-                          requestId={req.id}
-                          preferredTeacherId={req.teacherId}
-                          sourceBranchId={req.branchId}
-                          lessonDurationMinutes={durationMinutes}
-                          teachers={teachers}
-                          rooms={rooms}
-                          canWrite={canWrite}
-                          expiresAt={req.expiresAt}
-                        />
-                      </div>
+                      <ManualMakeupPlanForm
+                        requestId={req.id}
+                        preferredTeacherId={req.teacherId}
+                        sourceBranchId={req.branchId}
+                        lessonDurationMinutes={durationMinutes}
+                        teachers={teachers}
+                        rooms={rooms}
+                        canWrite={canWrite}
+                        expiresAt={req.expiresAt}
+                      />
                     );
                   })()}
 
-                  <div className="mt-4 flex flex-wrap items-end gap-3 border-t border-[var(--color-border)] pt-4">
-                    <div className="w-full sm:w-72">
+                  {/* İptal/ret gerekçe kutusu yalnız istenince açılır (yerel <details>: klavye + aria hazır). */}
+                  <details className="group open:order-last open:basis-full">
+                    <summary className="inline-flex cursor-pointer list-none items-center gap-1.5 rounded-[var(--radius-md)] px-3 py-2 text-sm font-medium text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-text)] [&::-webkit-details-marker]:hidden">
+                      <X className="h-4 w-4" aria-hidden="true" />
+                      İptal / reddet
+                    </summary>
+                    <div className="mt-1 w-full sm:w-80">
                       <MakeupDecisionForm
                         action={actionCancelMakeup}
                         hiddenFields={{ requestId: req.id }}
@@ -457,18 +486,18 @@ export default async function TelafiPage({ searchParams }: { searchParams: Promi
                         Telafiyi iptal et / reddet
                       </MakeupDecisionForm>
                     </div>
-                    {canWrite ? (
-                      <QuickTaskLink
-                        relatedEntityType="makeup"
-                        relatedEntityId={req.id}
-                        relatedEntityLabel={student?.name ?? req.id}
-                        title={`Telafi planlama — ${student?.name ?? ""}`}
-                        label="Görev oluştur"
-                        returnTo="/panel/telafi"
-                        className="inline-flex items-center gap-1 rounded-md border border-[var(--color-border)] px-2 py-1 text-xs font-medium text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-text)]"
-                      />
-                    ) : null}
-                  </div>
+                  </details>
+                  {canWrite ? (
+                    <QuickTaskLink
+                      relatedEntityType="makeup"
+                      relatedEntityId={req.id}
+                      relatedEntityLabel={student?.name ?? req.id}
+                      title={`Telafi planlama — ${student?.name ?? ""}`}
+                      label="Görev oluştur"
+                      returnTo="/panel/telafi"
+                      className="inline-flex items-center gap-1 rounded-md border border-[var(--color-border)] px-2 py-1 text-xs font-medium text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-text)]"
+                    />
+                  ) : null}
                 </div>
               </Card>
             );
@@ -506,7 +535,7 @@ export default async function TelafiPage({ searchParams }: { searchParams: Promi
             };
           })}
         />
-        <Pagination page={historyPage} totalPages={historyPages} hrefForPage={(p) => hrefWith({ durum, q, sayfa: p })} />
+        <Pagination page={historyPage} totalPages={historyPages} hrefForPage={(p) => hrefWith({ durum, sayfa: p })} />
         </>
       ) : null}
     </div>

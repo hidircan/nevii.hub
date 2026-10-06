@@ -2,6 +2,7 @@
 
 import { defaultLessonTeacherId, lessonTeacherOptions } from "@/lib/lesson-teacher-options";
 import { teacherServesBranch } from "@/lib/teacher-branches";
+import { isActiveStudent } from "@/lib/payment-scope";
 import { effectiveEnrollments, enrollmentLabel, type EnrollmentView } from "@/lib/student-enrollments";
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
@@ -564,7 +565,7 @@ export function filterLessonsForCalendar(
 
 export function activeTeachersForBranch(teachers: Teacher[], filterBranchId: string): Teacher[] {
   return teachers
-    .filter((t) => t.active && (!filterBranchId || teacherServesBranch(t, filterBranchId)))
+    .filter((t) => t.active && !t.deletedAt && (!filterBranchId || teacherServesBranch(t, filterBranchId)))
     .sort((a, b) => a.name.localeCompare(b.name, "tr"));
 }
 
@@ -590,6 +591,22 @@ export function resolveRoomFilterForBranch(
   const room = rooms.find((r) => r.id === currentRoomId);
   if (!room || (nextBranchId && room.branchId !== nextBranchId)) return "";
   return currentRoomId;
+}
+
+/**
+ * 2026-10-06 — öğrenci FİLTRESİ seçenekleri yalnız aktif öğrenciler (TEK kural `isActiveStudent`: pasif/arşiv
+ * `active:false`, silinen `deletedAt`). Ders kartlarının adları tam `students` listesinden okunmaya devam eder —
+ * geçmiş dersler pasif öğrenci yüzünden kaybolmaz. Eski bir bağlantıyla (?studentId=) pasif öğrenci seçili
+ * gelirse sıradan seçenek olarak geri eklenmez; yalnız seçili değeri göstermek için `inactiveSelected` döner.
+ */
+export function studentFilterOptions(
+  students: Student[],
+  filterBranchId: string,
+  selectedStudentId: string
+): { options: Student[]; inactiveSelected: Student | null } {
+  const options = studentsForBranch(students.filter(isActiveStudent), filterBranchId);
+  const selected = selectedStudentId ? students.find((s) => s.id === selectedStudentId) : undefined;
+  return { options, inactiveSelected: selected && !isActiveStudent(selected) ? selected : null };
 }
 
 export function studentsForBranch(students: Student[], filterBranchId: string): Student[] {
@@ -868,7 +885,10 @@ export function ProgramStudio({
   // etkiler; sunucu/yetki/global şube bağlamı bu sprintin kapsamı dışında.
   const [filterBranchId, setFilterBranchId] = useState("");
   const [filterTeacherId, setFilterTeacherId] = useState("");
-  const [filterStudentId, setFilterStudentId] = useState(initialStudentFilter ?? "");
+  // Kapsamda olmayan/bilinmeyen ?studentId= sessizce başka bir filtreye dönüşmez: hiç uygulanmaz ("Tüm öğrenciler").
+  const [filterStudentId, setFilterStudentId] = useState(() =>
+    initialStudentFilter && students.some((s) => s.id === initialStudentFilter) ? initialStudentFilter : ""
+  );
   /** Denemeler şube/öğretmen filtresine uyar; öğrenci filtresi açıkken gizlenir (denemenin öğrencisi yok). */
   const trialsForDay = (day: Date) =>
     weekTrials
@@ -885,7 +905,11 @@ export function ProgramStudio({
     (branchNames[a] ?? "").localeCompare(branchNames[b] ?? "", "tr")
   );
   const filterableTeachers = activeTeachersForBranch(teachers, filterBranchId);
-  const filterableStudents = studentsForBranch(students, filterBranchId);
+  const { options: filterableStudents, inactiveSelected: inactiveFilterStudent } = studentFilterOptions(
+    students,
+    filterBranchId,
+    filterStudentId
+  );
 
   function selectFilterBranch(id: string) {
     setFilterBranchId(id);
@@ -2206,6 +2230,11 @@ export function ProgramStudio({
           </Select>
           <Select value={filterStudentId} onChange={(e) => setFilterStudentId(e.target.value)} className="w-auto">
             <option value="">Tüm öğrenciler</option>
+            {inactiveFilterStudent ? (
+              <option value={inactiveFilterStudent.id} disabled>
+                {inactiveFilterStudent.name} (pasif)
+              </option>
+            ) : null}
             {filterableStudents.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.name}

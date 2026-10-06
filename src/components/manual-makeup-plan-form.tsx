@@ -176,7 +176,7 @@ export function ManualMakeupPlanForm({
   return (
     <form
       onSubmit={(event) => void onSubmit(event)}
-      className="mt-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-muted)]/70 p-4"
+      className="order-last mt-1 w-full basis-full rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-muted)]/70 p-4"
     >
       <p className="text-sm font-medium text-[var(--color-text)] dark:text-slate-200">Başka bir saat planla</p>
       <p className="mb-3 mt-0.5 text-xs text-[var(--color-text-muted)]">
