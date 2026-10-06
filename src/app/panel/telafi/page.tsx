@@ -128,7 +128,6 @@ export default async function TelafiPage({ searchParams }: { searchParams: Promi
       <AssistantPageContext entity={{ kind: "page", label: "Telafi Merkezi" }} />
       <PageHeader
         title="Telafi Merkezi"
-        description="Kaçan derslerin telafisini planlayın. Süresi en yakın dolan talep en üstte."
         actions={<MakeupPolicyDialog />}
       />
 
