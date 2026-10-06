@@ -200,13 +200,13 @@ describe("Geçmiş lesson_ops Payment kayıtları — dokunulmadan okunabilir ka
 
 describe("monthly_plan ve manual Payment akışları — Package B'den etkilenmez", () => {
   it("Yoklama Takvimi ay kutusu tahsilat akışı çalışmaya devam eder", async () => {
-    const res = await collectAttendanceCalendarPaymentTool(ctx(), { studentId: "s1", month: "2026-09", amount: 3000 });
+    const res = await collectAttendanceCalendarPaymentTool(ctx(), { studentId: "s1", month: "2026-09", amount: 3200 });
     expect(res.ok).toBe(true);
 
     const data = await readData();
     const row = data.payments.find((p) => p.studentId === "s1" && p.source === "monthly_plan");
     expect(row).toBeDefined();
-    expect(row?.amount).toBe(3000);
+    expect(row?.amount).toBe(3200);
     expect(row?.status).toBe("paid");
   });
 });

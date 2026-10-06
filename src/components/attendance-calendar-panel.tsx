@@ -250,7 +250,7 @@ function MonthCollections({ plan }: { plan: CalendarMonthPlan }) {
       {plan.collections.map((c, i) => (
         <li
           key={`${c.paidAt}-${i}`}
-          className="flex items-center gap-1.5 rounded-md px-2 py-0.5 text-[11px] font-medium tabular-nums"
+          className="flex flex-wrap items-center gap-x-1.5 rounded-md px-2 py-0.5 text-[11px] font-medium tabular-nums"
           style={{
             background: fullyPaid ? "var(--color-success-soft)" : "var(--color-warning-soft)",
             color: fullyPaid ? "var(--color-success)" : "var(--color-warning)",
@@ -258,9 +258,12 @@ function MonthCollections({ plan }: { plan: CalendarMonthPlan }) {
         >
           <span aria-hidden="true">{fullyPaid ? "✓" : "◐"}</span>
           <span>{fullyPaid ? "Ödendi" : "Kısmi"}</span>
-          <span>· {new Date(c.paidAt).toLocaleDateString("tr-TR", { timeZone: "Europe/Istanbul" })}</span>
+          <span title="Tahsilat tarihi (paranın alındığı gün); ödeme bu kutunun ayına sayılır">
+            · Tahsilat {new Date(c.paidAt).toLocaleDateString("tr-TR", { timeZone: "Europe/Istanbul" })}
+          </span>
           <span>· {c.method ? PAYMENT_METHOD_LABEL[c.method] ?? c.method : "Şekil belirtilmemiş"}</span>
           {plan.collections.length > 1 || !fullyPaid ? <span className="ml-auto">{formatMoneyTL(c.amount)}</span> : null}
+          {c.note ? <span className="basis-full truncate font-normal" title={c.note}>Not: {c.note}</span> : null}
         </li>
       ))}
     </ul>
@@ -447,7 +450,7 @@ export function AttendanceCalendarPanel({
   }, [byMonth, defaultMonths]);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [amounts, setAmounts] = useState<Record<string, string>>({});
-  /** Ay kutusu — ödeme tarihi (yyyy-MM-dd). Tutar alanıyla AYNI ilkeyle: yalnızca yerel giriş arabelleği, sunucudan önceden doldurulmaz (mevcut Tutar davranışıyla tutarlı). */
+  /** Ay kutusu — TAHSİLAT tarihi (yyyy-MM-dd; dönem her zaman kutunun ayı). Tutar alanıyla AYNI ilkeyle: yalnızca yerel giriş arabelleği, sunucudan önceden doldurulmaz (mevcut Tutar davranışıyla tutarlı). */
   const [dueDates, setDueDates] = useState<Record<string, string>>({});
   /** Ay kutusu — ödeme şekli (nakit/kredi kartı/havale). */
   const [methods, setMethods] = useState<Record<string, string>>({});
@@ -667,7 +670,8 @@ export function AttendanceCalendarPanel({
           studentId,
           month: monthStr,
           amount,
-          ...(dueDate ? { dueDate } : {}),
+          // Kutunun ayı = ödenen dönem (`month`); girilen tarih yalnız TAHSİLAT tarihi.
+          ...(dueDate ? { collectedAt: dueDate } : {}),
           ...(method ? { method } : {}),
           ...(note ? { note } : {}),
         }),
@@ -867,6 +871,10 @@ export function AttendanceCalendarPanel({
                     }
                   >
                   <div className="mt-1.5 space-y-1.5">
+                    <div className="grid grid-cols-2 gap-x-1.5 text-[10px] font-medium text-[var(--color-text-muted)]" aria-hidden="true">
+                      <span>Tutar</span>
+                      <span>Tahsilat tarihi</span>
+                    </div>
                     <div className="grid grid-cols-2 gap-1.5">
                       <input
                         type="number"
@@ -890,7 +898,8 @@ export function AttendanceCalendarPanel({
                         value={dueDates[key] ?? ""}
                         onChange={(e) => setDueDates((prev) => ({ ...prev, [key]: e.target.value }))}
                         className="w-full min-w-0 rounded-md border border-[var(--color-border)] px-2 py-1 text-xs"
-                        aria-label={`${MONTH_LABELS[m.month - 1]} ödeme tarihi`}
+                        aria-label={`${MONTH_LABELS[m.month - 1]} dönemi — tahsilat tarihi`}
+                        title="Tahsilat tarihi: paranın alındığı gün. Ödeme her zaman bu kutunun ayına sayılır."
                       />
                     </div>
                     <div className="flex items-center gap-1.5">
@@ -1177,7 +1186,7 @@ function DayDetail({
                       </Link>
                     </div>
                     {p.paidAt ? (
-                      <p className="text-[var(--color-text-muted)]">Ödeme tarihi: {formatRecordedAt(p.paidAt)}</p>
+                      <p className="text-[var(--color-text-muted)]">Tahsilat tarihi: {formatRecordedAt(p.paidAt)}</p>
                     ) : null}
                   </div>
                 ) : (

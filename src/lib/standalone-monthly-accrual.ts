@@ -11,7 +11,7 @@
  * bulunulan ay; geçmiş aylar otomatik doldurulmaz. Mevcut satırlar değişmez; tekrar çalıştırmak ikinci
  * satır üretmez. Sözleşme açılınca mevcut "sözleşmeye taşı" akışı bu satırları devralır.
  */
-import { installmentMonthKeys } from "./attendance-calendar-plan";
+import { installmentMonthKeys, isMonthlyPlanRowForMonth } from "./attendance-calendar-plan";
 import { isTerminalContractStatus } from "./contract-list-helpers";
 import { DEFAULT_APP_TIMEZONE, toZonedYmd } from "./timezone";
 import type { Payment, Student } from "./types";
@@ -27,10 +27,10 @@ function nextMonthKey(monthKey: string): string {
 function coversMonth(p: Payment, month: string): boolean {
   if (p.contractId) return false;
   if (p.source === "monthly_plan") {
-    // Takvim tahsilatı vadeyi tahsilat günü yazar ("Aylık plan — 2026-10", vade 30.09): ay açıklamadadır.
-    // `upsertMonthlyPlanPayment` vade ayıyla eşleştirir — ikisinden biri tutarsa (iptal dahil) dokunulmaz,
-    // yoksa yazım mevcut satırı GÜNCELLER ya da aynı ayı ikinci kez borçlandırırdı.
-    return p.description.match(/^Aylık plan — (\d{4}-\d{2})/)?.[1] === month || p.dueDate.slice(0, 7) === month;
+    // 2026-10-06 — dönem ayı TEK kuraldan (etiket → açıklama ayı → vade; `isMonthlyPlanRowForMonth`), iptal dahil.
+    // Tahsilat tarihi (önceki ayda/yılda alınmış olsa bile) dönemi değiştirmez; `upsertMonthlyPlanPayment` da aynı kuralla
+    // eşleştirir, bu yüzden aynı dönem ikinci kez borçlandırılmaz.
+    return isMonthlyPlanRowForMonth(p, month);
   }
   if (p.status === "voided" || p.source !== "registration_first_payment") return false;
   const months = installmentMonthKeys(p);
