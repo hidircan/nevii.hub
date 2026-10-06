@@ -29,6 +29,9 @@ import {
   filterMakeupRequests,
   isActiveTeacher,
   makeupFilterHref,
+  MAKEUP_PAGE_SIZES,
+  paginateMakeup,
+  parseMakeupPageSize,
   makeupStudentOptions,
   makeupTeacherOptions,
   parseMakeupFilters,
@@ -62,13 +65,12 @@ function daysLeftLabel(days: number): string {
  * saat geçti…) — artık uygun olmayan öneri gerekçesiyle kilitlenir. Kayıt anında sunucu aynı
  * `validateLessonSlot` kuralını bir kez daha uygular.
  */
-const HISTORY_PAGE_SIZE = 25;
 const MAX_SUMMARY_STUDENTS = 10;
 
 export default async function TelafiPage({
   searchParams,
 }: {
-  searchParams: Promise<{ durum?: string; q?: string; sayfa?: string; ogrenci?: string; sube?: string; ogretmen?: string }>;
+  searchParams: Promise<{ durum?: string; q?: string; sayfa?: string; gsayfa?: string; adet?: string; ogrenci?: string; sube?: string; ogretmen?: string }>;
 }) {
   let session;
   try {
@@ -76,7 +78,9 @@ export default async function TelafiPage({
   } catch {
     redirect("/login?next=/panel/telafi");
   }
-  const { durum: durumParam, q: qParam, sayfa, ogrenci, sube, ogretmen } = await searchParams;
+  const { durum: durumParam, q: qParam, sayfa, gsayfa, adet, ogrenci, sube, ogretmen } = await searchParams;
+  // 2026-10-07 — sayfa başı satır (10/50/100) hem açık talepler hem geçmiş listesine uygulanır.
+  const pageSize = parseMakeupPageSize(adet);
   // 2026-10-04 — isme göre arama (eski `?q=` bağlantıları için korunur): Türkçe harf katlamalı; sunucuda süzülür.
   // 2026-10-06 — yeni filtreler kimlikle: `?ogrenci=` `?sube=` `?ogretmen=` (bkz. makeup-filters.ts).
   const q = (qParam ?? "").trim().slice(0, 80);
@@ -117,11 +121,13 @@ export default async function TelafiPage({
     durum === "acil" ? daysLeft(r) <= URGENT_DAYS : durum === "oneri-var" ? r.suggestedSlots.length > 0 : durum === "oneri-yok" ? r.suggestedSlots.length === 0 : true
   );
   const doneAll = requests.filter((r) => !OPEN_STATUSES.includes(r.status));
-  const historyPages = Math.max(1, Math.ceil(doneAll.length / HISTORY_PAGE_SIZE));
-  const historyPage = Math.min(historyPages, Math.max(1, Number.parseInt(sayfa ?? "1", 10) || 1));
-  const done = doneAll.slice((historyPage - 1) * HISTORY_PAGE_SIZE, historyPage * HISTORY_PAGE_SIZE);
-  // Durum sekmesi ve sayfa geçişlerinde filtreler korunur.
-  const hrefWith = (params: { durum?: string; sayfa?: number }) => makeupFilterHref({ ...filters, q, ...params });
+  // Sayfalama filtre + durum sekmesinden SONRA; sayaçlar filtre kapsamının tamamından gelir.
+  const openPaged = paginateMakeup(visible, sayfa, pageSize);
+  const historyPaged = paginateMakeup(doneAll, gsayfa, pageSize);
+  const done = historyPaged.items;
+  // Durum sekmesi, sayfa ve sayfa başı geçişlerinde filtreler korunur.
+  const hrefWith = (params: { durum?: string; sayfa?: number; gsayfa?: number; adet?: number }) =>
+    makeupFilterHref({ ...filters, q, adet: pageSize, ...params });
   const summaryStudents = filters.studentId
     ? data.students.filter((s) => s.id === filters.studentId)
     : matchingStudentIds
@@ -189,6 +195,7 @@ export default async function TelafiPage({
         selectedStudent={selectedStudent}
         selectedTeacher={selectedTeacher}
         durum={durum}
+        pageSize={pageSize}
         legacyQuery={q}
       />
 
@@ -275,6 +282,38 @@ export default async function TelafiPage({
         </p>
       ) : null}
 
+      {/* 2026-10-07 — satır limiti: sayfa başı 10/50/100 (bağlantı — JS gerektirmez), sayfalar arası geçiş altta. */}
+      {visible.length > 0 || doneAll.length > 0 ? (
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-sm text-[var(--color-text-muted)]">
+          <p aria-live="polite">
+            {visible.length} açık talep
+            {openPaged.totalPages > 1 ? ` · ${(openPaged.page - 1) * pageSize + 1}–${Math.min(openPaged.page * pageSize, visible.length)} gösteriliyor` : ""}
+          </p>
+          <nav aria-label="Sayfa başı satır sayısı" className="flex items-center gap-1.5">
+            <span>Sayfa başı</span>
+            <div className="inline-flex overflow-hidden rounded-[var(--radius-md)] border border-[var(--color-border)]">
+              {MAKEUP_PAGE_SIZES.map((size) => {
+                const current = size === pageSize;
+                return (
+                  <Link
+                    key={size}
+                    href={hrefWith({ durum, adet: size })}
+                    aria-current={current ? "true" : undefined}
+                    className={`px-2.5 py-1 text-sm font-medium tabular-nums transition-colors ${
+                      current
+                        ? "bg-[var(--color-text)] text-[var(--color-surface)]"
+                        : "bg-[var(--color-surface)] text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)]"
+                    }`}
+                  >
+                    {size}
+                  </Link>
+                );
+              })}
+            </div>
+          </nav>
+        </div>
+      ) : null}
+
       {visible.length === 0 ? (
         <EmptyState
           title={open.length === 0 ? "Açık telafi talebi yok" : "Bu filtrede talep yok"}
@@ -286,7 +325,7 @@ export default async function TelafiPage({
         />
       ) : (
         <div className="space-y-3">
-          {visible.map((req) => {
+          {openPaged.items.map((req) => {
             const student = data.students.find((s) => s.id === req.studentId);
             const teacher = data.teachers.find((t) => t.id === req.teacherId);
             const sourceLesson = data.lessons.find((l) => l.id === req.sourceLessonId);
@@ -504,6 +543,11 @@ export default async function TelafiPage({
           })}
         </div>
       )}
+      <Pagination
+        page={openPaged.page}
+        totalPages={openPaged.totalPages}
+        hrefForPage={(p) => hrefWith({ durum, sayfa: p, gsayfa: historyPaged.page })}
+      />
 
       <div className="mb-3 mt-10 flex items-center justify-between">
         <h2 className="text-lg font-semibold text-[var(--color-text)] dark:text-slate-50">Geçmiş / tamamlanan</h2>
@@ -535,7 +579,11 @@ export default async function TelafiPage({
             };
           })}
         />
-        <Pagination page={historyPage} totalPages={historyPages} hrefForPage={(p) => hrefWith({ durum, sayfa: p })} />
+        <Pagination
+          page={historyPaged.page}
+          totalPages={historyPaged.totalPages}
+          hrefForPage={(p) => hrefWith({ durum, sayfa: openPaged.page, gsayfa: p })}
+        />
         </>
       ) : null}
     </div>
