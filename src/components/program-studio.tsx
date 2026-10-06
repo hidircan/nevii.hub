@@ -2174,12 +2174,6 @@ export function ProgramStudio({
 
       <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
         <div className="flex flex-wrap items-center gap-3">
-          <div>
-            <h2 className="font-semibold text-[var(--color-text)] dark:text-slate-50">Haftalık program</h2>
-            <p className="mt-0.5 hidden text-xs text-[var(--color-text-muted)] lg:block">
-              Dersi taşımak için sürükleyin · Süreyi değiştirmek için kartın altından uzatın
-            </p>
-          </div>
           <div
             role="group"
             aria-label="Takvim görünümü"
