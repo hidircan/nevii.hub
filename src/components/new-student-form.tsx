@@ -429,6 +429,18 @@ export function NewStudentForm({
 
   return (
     <form ref={formRef} action={formAction} onChange={() => recomputePreview()} className="space-y-6" noValidate>
+      {v("clubApplicationId") ? (
+        <>
+          <input type="hidden" name="clubApplicationId" value={v("clubApplicationId")} />
+          <input type="hidden" name="clubApplicationClubId" value={v("clubApplicationClubId")} />
+          <div className="rounded-lg border border-[var(--color-primary)] bg-[var(--color-primary-soft)] px-4 py-3 text-sm text-[var(--color-text)]">
+            <p className="font-semibold">Grup dersi başvurusundan kayıt</p>
+            <p className="mt-0.5 text-xs text-[var(--color-text-muted)]">
+              {trialSummary ?? "Bilgiler başvurudan dolduruldu."} Eksik zorunlu alanları siz tamamlayın; boş alanlar için değer uydurulmaz.
+            </p>
+          </div>
+        </>
+      ) : null}
       {v("convertedFromTrialId") ? (
         <>
           <input type="hidden" name="convertedFromTrialId" value={v("convertedFromTrialId")} />
@@ -1159,7 +1171,9 @@ export function NewStudentForm({
 
       </fieldset>
 
-      {registrationKind !== "course" ? <ClubRegistrationCard clubs={clubs} clubOnly={clubOnly} fieldErrors={fieldErrors} /> : null}
+      {registrationKind !== "course" ? (
+        <ClubRegistrationCard clubs={clubs} clubOnly={clubOnly} fieldErrors={fieldErrors} lockedClubId={v("clubApplicationId") ? v("clubApplicationClubId") : undefined} />
+      ) : null}
 
       {/* 5. KVKK açık rıza — yalnız yürürlükte bir metin varsa.
           P0 (2026-09-05) — "Sosyal medya paylaşım (fotoğraf/video) izni var"

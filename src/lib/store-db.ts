@@ -2671,6 +2671,12 @@ export async function patchClubLessons(ids: string[], patch: import("./clubs").C
           }
         : {}),
       ...(patch.notes !== undefined ? { notes: patch.notes } : {}),
+      // 2026-10-07 — yoklamasız oturumun tarih/oda/öğretmen düzeltmesi (rescheduleClubSessionTool).
+      ...(patch.startAt ? { startAt: new Date(patch.startAt) } : {}),
+      ...(patch.endAt ? { endAt: new Date(patch.endAt) } : {}),
+      ...(patch.roomId ? { roomId: patch.roomId } : {}),
+      ...(patch.branchId ? { branchId: patch.branchId } : {}),
+      ...(patch.teacherId ? { teacherId: patch.teacherId } : {}),
     },
   });
   return res.count;

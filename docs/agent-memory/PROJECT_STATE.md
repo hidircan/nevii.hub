@@ -4,6 +4,19 @@ Kısa tutulur (~50 satır): oturum sonunda yalnız "Güncel snapshot" bölümün
 `archive/`'e taşınır. Ayrıntı → ilgili `docs/testing/UAT_*.md`, `docs/operations/*`. Yönlendirici: `nevii-hub` skill.
 Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_2026-09-24.md`.
 
+## Güncel snapshot — 2026-10-07 (grup dersi başvuru portalı; KOD HAZIR, canlı migration owner makinesinde bekliyor)
+- Dal `claude/clever-mayer-inc1h9`. Kulüp taslak/başvuruya açık ayrımı (öğretmen/üye zorunlu değil), yeni alanlar
+  (grup, yaş sınırı, dönem tarihleri, gün/saat, ücret niteliği aylık/dönemlik/toplam, dahil olanlar, yönetim notu,
+  bekleme listesi, dahil solfej). Portal `/basvuru/<slug>/kulup` (+`?kulup=`), Kulüpler → Başvurular, "Kulübe ekle"
+  (eşleştir → önizle → onay; `withClubMembershipLock` = advisory lock + tek transaction, idempotent), dahil solfej
+  hakları (`includedByMembershipIds`), oturum/üyelik tarih düzeltme, üye ekleme araması (50 sınırı kaldırıldı).
+- Migration `20261007120000_club_applications` (eklemeli). Canlıya bu konteynerden erişim yok → owner:
+  `scripts/ops/release-2026-10-07-club-applications.sh` (yedek+doğrulama+deploy) → sonra `main` push. UAT:
+  `docs/testing/UAT_2026_10_07_CLUB_APPLICATIONS.md`.
+- Doğrulama: typecheck/lint(0 hata)/prisma validate/build temiz; odaklı testler (kulüp/deneme/bildirim/kayıt/rol
+  ~170 test) geçti; yerel PostgreSQL'de STORE_MODE=db duman testi + tarayıcıda uçtan uca senaryo geçti. Tam `npm test`
+  owner talimatıyla çalıştırılmadı.
+
 ## Güncel snapshot — 2026-10-06 geç (Claude sağlayıcısı + ana sayfa İngilizce özet; PR bekliyor)
 - AI zinciri artık Claude → Gemini → Groq → NVIDIA NIM → Cerebras → heuristic (`providers/claude.ts`, resmî
   `@anthropic-ai/sdk`, varsayılan `claude-opus-5-5`, `CLAUDE_MODEL` ile değişir). Anahtar yoksa davranış eskisiyle aynı.

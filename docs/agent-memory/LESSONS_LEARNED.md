@@ -1460,3 +1460,10 @@ Aynı turda: `validateLessonSlot` oda `active`'ini hiç okumuyordu → telafi pa
   Kapanış: `standalone-monthly-accrual.ts` + günlük cron (owner onayı); 14 öğrenciye Ekim borcu (owner onayı). İlk prova bir öğrenciye ikinci Ekim borcu yazacaktı: takvim tahsilatı vadeyi tahsilat günü yazar, ay açıklamadadır — kural ikisini de kontrol eder.
 - Ders: "X görünür" düzeltmesini teslim etmeden önce gerçek veride (izole kopya) en az bir gerçek örnekte X'in
   kaydının VAR olduğunu ve ekranda çıktığını göster; görünürlük kuralı ile kaydın üretilmesi ayrı iştir.
+
+## 2026-10-07 — Prisma etkileşimli transaction'da `return fail(...)` geri ALMAZ
+- "Kulübe ekle" onayında dahil solfej dolu olunca araç `fail` döndürüyordu; geri çağrı normal döndüğü için Prisma
+  transaction'ı COMMIT etti ve ana üyelik yazılmış kaldı (json testinde yakalandı). Düzeltme: tüm kontroller yazımdan
+  önce kilit içinde; yazım başladıktan sonraki her ret `throw` (Abort) ile transaction'ı geri alır, dışarıda
+  `ServiceResult`'a çevrilir. Ders: `$transaction(async tx => …)` içinde iş hatası = throw; değer döndürmek commit'tir.
+

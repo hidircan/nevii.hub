@@ -915,6 +915,10 @@ const STUDENT_FORM_VALUE_KEYS = [
   "mebExamStatus",
   "notes",
   "kvkkConsent",
+  // 2026-10-07 — grup dersi başvurusundan kayıt: hata sonrası form başvuru modunda kalsın.
+  "registrationKind",
+  "clubApplicationId",
+  "clubApplicationClubId",
 ] as const;
 
 /** Aynı `name`'i birden çok checkbox paylaşan tek alan — virgülle birleştirilip taşınır (değerlerde virgül YOK, sabit STUDENT_TYPES enum'undan gelir). */
@@ -941,6 +945,9 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
   // ile forma ulaşır (bkz. new-student-form.tsx).
   let newStudentId: string | undefined;
   let inviteWarning: string | undefined;
+  // 2026-10-07 — grup dersi başvurusundan kayıt: üyelik/ücret burada AÇILMAZ; kayıttan sonra başvuruya dönülür.
+  const clubApplicationId = String(formData.get("clubApplicationId") || "").trim() || undefined;
+  let clubApplicationLinked = false;
   try {
     await withAuthContext("actionAddStudent", async (ctx) => {
       // P0-C (2026-09-02) — ilk ödeme alanları istemcinin `required`'ına GÜVENMEDEN,
@@ -953,7 +960,7 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
       let clubPlan: import("./clubs").ClubRegistrationPlan | null = null;
       if (registrationKind !== "course") {
         const { parseClubRegistration } = await import("./clubs");
-        const parsedClubs = await parseClubRegistration(ctx.tenantId, formData, true);
+        const parsedClubs = await parseClubRegistration(ctx.tenantId, formData, true, { skipCapacity: !!clubApplicationId });
         if (!parsedClubs.ok) {
           throw new ToolValidationFailure({ code: "VALIDATION_ERROR", message: parsedClubs.message, details: { fieldErrors: parsedClubs.fieldErrors } });
         }
@@ -1189,7 +1196,10 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
       newStudentId = created.studentId;
 
       // 2026-10-05 — kulüp üyelikleri + ilk ay kulüp ücreti (ayrı kutudan tahsil). Hata kaydı geri almaz → uyarı.
-      if (clubPlan && clubPlan.clubs.length > 0) {
+      if (clubApplicationId) {
+        const { linkStudentToClubApplication } = await import("./club-applications");
+        clubApplicationLinked = await linkStudentToClubApplication(ctx, clubApplicationId, created.studentId);
+      } else if (clubPlan && clubPlan.clubs.length > 0) {
         const { applyClubRegistration } = await import("./clubs");
         const clubWarnings = await applyClubRegistration(ctx, created.studentId, clubPlan);
         if (clubWarnings.length) inviteWarning = [inviteWarning, ...clubWarnings].filter(Boolean).join(" ");
@@ -1342,6 +1352,13 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
       formError: "Kayıt oluşturulurken beklenmeyen bir hata oluştu. Lütfen tekrar deneyin.",
       values: captureStudentFormValues(formData),
     };
+  }
+  if (newStudentId && clubApplicationId && clubApplicationLinked) {
+    // Başvuru ekranına dön: öğrenci önceden seçili, "Kulübe ekle" önizleme + onayla tamamlanır.
+    redirect(
+      `/panel/kulupler/basvurular/${encodeURIComponent(clubApplicationId)}?ogrenci=${encodeURIComponent(newStudentId)}`,
+      RedirectType.replace
+    );
   }
   if (newStudentId) {
     // Faz 3/4 (ENROLLMENT_PAYMENT_RENEWAL_VALIDATION_FIX) — Student modeline

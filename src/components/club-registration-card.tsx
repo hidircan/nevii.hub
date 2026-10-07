@@ -25,16 +25,46 @@ export function ClubRegistrationCard({
   clubs,
   clubOnly,
   fieldErrors,
+  lockedClubId,
 }: {
   clubs: ClubOption[];
   clubOnly: boolean;
   fieldErrors: Record<string, string | undefined>;
+  /**
+   * 2026-10-07 — grup dersi başvurusundan kayıt: kulüp başvurudaki kulübe kilitlidir ve bu ekranda üyelik/ücret
+   * YAZILMAZ (sunucu da yazmaz); kayıttan sonra başvuru ekranındaki "Kulübe ekle" önizleme + onayla tamamlanır.
+   */
+  lockedClubId?: string;
 }) {
-  const [selected, setSelected] = useState<string[]>([]);
+  const [selected, setSelected] = useState<string[]>(lockedClubId ? [lockedClubId] : []);
   const [fees, setFees] = useState<Record<string, string>>({});
   const chosen = clubs.filter((c) => selected.includes(c.id));
   const total = chosen.reduce((s, c) => s + (Number((fees[c.id] ?? String(c.monthlyFee)).replace(/[^\d]/g, "")) || 0), 0);
   const err = (k: string) => fieldErrors[k];
+
+  if (lockedClubId) {
+    const locked = clubs.find((c) => c.id === lockedClubId);
+    return (
+      <Card>
+        <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-[var(--color-primary)]">Başvurulan kulüp</h2>
+        <input type="hidden" name="clubIds" value={lockedClubId} />
+        <p className="text-sm">
+          {locked ? (
+            <>
+              <span className="font-medium">{locked.name}</span> <span className="text-xs text-[var(--color-text-muted)]">({locked.instrument} · {locked.activeMembers}/{locked.maxMembers} üye)</span>
+            </>
+          ) : (
+            "Başvurunun kulübü aktif değil."
+          )}
+        </p>
+        <p className="mt-1 text-xs text-[var(--color-text-muted)]">
+          Bu ekranda yalnız öğrenci kaydı oluşur — kulüp üyeliği, kulüp ücreti, tahsilat veya sözleşme yazılmaz. Kayıttan sonra başvuru
+          ekranına dönersiniz; “Kulübe ekle” önizlemesiyle (kapasite ve dahil solfej dahil) onaylayarak tamamlarsınız.
+        </p>
+        {err("clubs") ? <p role="alert" className="mt-2 text-xs font-medium text-rose-600">{err("clubs")}</p> : null}
+      </Card>
+    );
+  }
 
   return (
     <Card>

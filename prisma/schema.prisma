@@ -58,6 +58,7 @@ model Tenant {
   trialApplications           TrialApplication[]
   clubs                       Club[]
   clubMemberships             ClubMembership[]
+  clubApplications            ClubApplication[]
   lessonAssessments           LessonAssessment[]
   periodicAssessments         PeriodicAssessment[]
   teacherAvailabilityRequests TeacherAvailabilityRequest[]
@@ -2446,6 +2447,27 @@ model Club {
   deletedAt       DateTime?
   deletedByUserId String?
   deletionReason  String?
+  /// 2026-10-07 — Grup dersi başvuru portalı. Hepsi eklemeli; mevcut kulüpler başvuruya KAPALI kalır.
+  /// "child" | "adult" (boş = belirtilmemiş; başvuruya açmak için zorunlu).
+  audience              String?
+  minAge                Int?
+  maxAge                Int?
+  /// YYYY-MM-DD — kulüp döneminin başlangıcı / bitişi (başvuruya açmak için zorunlu; bitmiş dönem başvuru almaz).
+  startDate             String?
+  endDate               String?
+  /// Halka açık gün/saat metni (ör. "Cumartesi 10:00–11:00").
+  scheduleText          String?
+  /// "monthly" | "term" | "total" — `monthlyFee` alanındaki tutarın niteliği. Aylık tahakkuk yalnız "monthly".
+  feePeriod             String           @default("monthly")
+  /// Halka açık "pakete dahil olanlar" metni.
+  includesText          String?
+  /// Yalnız panelde görünen yönetim notu (halka açık yanıta ASLA girmez).
+  internalNote          String?
+  applicationsOpen      Boolean          @default(false)
+  /// Dolu kulüp başvuru alır mı (bekleme listesi). false = dolu kulüp başvuruya kapanır.
+  waitlistEnabled       Boolean          @default(false)
+  /// Ana kulübe dahil (ek ücretsiz) solfej kulübü — aynı kurumun kulübü.
+  includedSolfegeClubId String?
   createdByUserId String
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
@@ -2472,9 +2494,57 @@ model ClubMembership {
   createdAt       DateTime  @default(now())
   endedByUserId   String?
   endedAt         DateTime?
+  /// 2026-10-07 — üyeliği açan grup dersi başvurusu (varsa).
+  applicationId   String?
+  /// Dahil solfej üyeliğinde: bu hakkı veren ANA üyelik kimlikleri (string[]). Boş/null = bağımsız üyelik.
+  includedByMembershipIds Json?
 
   @@index([tenantId, clubId])
   @@index([tenantId, studentId])
+}
+
+/// 2026-10-07 — Herkese açık grup dersi (kulüp) başvurusu. Başvuru kesin kayıt değildir; ücret/borç/üyelik
+/// oluşturmaz. `clubSnapshot` başvuru anındaki halka açık kulüp/ücret bilgisidir (sonradan değişse de saklanır).
+model ClubApplication {
+  id                  String    @id
+  tenantId            String
+  tenant              Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// Adaya gösterilen rastgele referans (sıra numarası değil — başvuru hacmini ifşa etmez).
+  reference           String
+  clubId              String
+  branchId            String?
+  /// new | contacted | waitlisted | added | declined | withdrawn
+  status              String    @default("new")
+  /// Kulüp doluyken bekleme listesine yapılan başvuru.
+  waitlistRequested   Boolean   @default(false)
+  participantName     String
+  /// YYYY-MM-DD (isteğe bağlı; yaş uygunluğu için).
+  birthDate           String?
+  age                 Int?
+  /// İletişim telefonu (çocuk grubunda veli telefonu).
+  phone               String
+  email               String?
+  parentName          String?
+  note                String?
+  kvkkConsentAt       DateTime
+  kvkkTextVersionId   String?
+  clubSnapshot        Json
+  studentId           String?
+  membershipId        String?
+  solfegeMembershipId String?
+  /// Dahil solfej dolu olduğu için yöneticinin onayıyla bekleyen hak.
+  solfegePending      Boolean   @default(false)
+  staffNote           String?
+  handledByUserId     String?
+  handledAt           DateTime?
+  source              String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@index([tenantId, createdAt])
+  @@index([tenantId, clubId])
+  @@index([tenantId, status])
+  @@index([tenantId, phone])
 }
 
 /// PRODUCT_BACKLOG §6 Faz 1

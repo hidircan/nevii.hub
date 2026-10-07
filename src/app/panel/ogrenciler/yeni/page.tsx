@@ -26,9 +26,9 @@ export const dynamic = "force-dynamic";
 export default async function NewStudentPage({
   searchParams,
 }: {
-  searchParams: Promise<{ deneme?: string }>;
+  searchParams: Promise<{ deneme?: string; kulupBasvuru?: string }>;
 }) {
-  const { deneme } = await searchParams;
+  const { deneme, kulupBasvuru } = await searchParams;
   let session;
   try {
     session = await requireSessionContext();
@@ -58,6 +58,31 @@ export default async function NewStudentPage({
         }
       : undefined;
 
+  // 2026-10-07 — grup dersi başvurusundan kayıt: aday bilgileriyle ön doldurma (yalnız kendi kurumunda, eklenmemiş başvuru).
+  const clubApp =
+    kulupBasvuru && kurum.scope.mode === "single" && kurum.scope.tenantId === session.tenantId
+      ? await (async () => {
+          const { getClubApplicationTool } = await import("@/lib/club-applications");
+          const r = await getClubApplicationTool(session, { id: kulupBasvuru });
+          return r.ok && r.data.application.status !== "added" ? r.data.application : null;
+        })()
+      : null;
+  const clubAppPrefill = clubApp
+    ? {
+        clubApplicationId: clubApp.id,
+        clubApplicationClubId: clubApp.clubId,
+        registrationKind: "club_only",
+        name: clubApp.participantName,
+        ...(clubApp.parentName
+          ? { accountResponsibility: "PARENT_MANAGED", parentName: clubApp.parentName, parentPhone: clubApp.phone }
+          : { accountResponsibility: "SELF_MANAGED", phone: clubApp.phone }),
+        ...(clubApp.email ? { email: clubApp.email } : {}),
+        ...(clubApp.birthDate ? { birthDate: clubApp.birthDate } : {}),
+        ...(clubApp.branchId ? { branchId: clubApp.branchId } : {}),
+        notes: `Grup dersi başvurusu ${clubApp.reference} (${clubApp.clubSnapshot.name})${clubApp.note ? ` — ${clubApp.note}` : ""}`.slice(0, 500),
+      }
+    : undefined;
+
   // 2026-10-05 — Kulüp seçimi yalnız kendi kurumunda (yazım oturumun kurumuna gider).
   const clubOptions =
     kurum.scope.mode === "single" && kurum.scope.tenantId === session.tenantId
@@ -83,7 +108,7 @@ export default async function NewStudentPage({
       <div className="mb-4">
         <BackButton fallbackHref="/panel/ogrenciler" label="Öğrencilere dön" />
       </div>
-      <PageHeader title={trialPrefill ? "Deneme öğrencisini kayda dönüştür" : "Yeni Öğrenci Kaydı"} />
+      <PageHeader title={clubAppPrefill ? "Grup dersi başvurusundan öğrenci kaydı" : trialPrefill ? "Deneme öğrencisini kayda dönüştür" : "Yeni Öğrenci Kaydı"} />
       {trial?.convertedStudentId ? (
         <Card className="mb-4">
           <p className="text-sm text-[var(--color-text)]">
@@ -155,8 +180,14 @@ export default async function NewStudentPage({
           kvkkText={kvkkText}
           workDayOverrides={data.closedDayOverrides ?? []}
           termWeeklyClosedDays={data.settings.termWeeklyClosedDays}
-          prefill={trialPrefill}
-          trialSummary={trial ? `${trial.name} · ${trial.instrument} · ${formatDateTime(trial.startAt)}` : undefined}
+          prefill={clubAppPrefill ?? trialPrefill}
+          trialSummary={
+            clubApp
+              ? `${clubApp.reference} · ${clubApp.participantName} · ${clubApp.clubSnapshot.name}`
+              : trial
+                ? `${trial.name} · ${trial.instrument} · ${formatDateTime(trial.startAt)}`
+                : undefined
+          }
         />
       )}
     </div>

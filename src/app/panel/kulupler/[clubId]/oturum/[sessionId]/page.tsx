@@ -2,7 +2,8 @@ import Link from "@/components/link";
 import { notFound, redirect } from "next/navigation";
 import { Card, PageHeader } from "@/components/ui";
 import { LessonOpsActions } from "@/components/lesson-ops-actions";
-import { ClubSessionCancel, ClubSessionPostpone, ClubSessionTeacher } from "@/components/club-components";
+import { ClubSessionCancel, ClubSessionPostpone, ClubSessionReschedule, ClubSessionTeacher } from "@/components/club-components";
+import { DEFAULT_APP_TIMEZONE, toZonedYmd } from "@/lib/timezone";
 import { requireSessionContext } from "@/lib/auth/session";
 import { getInstitutionContext } from "@/lib/institution/context";
 import { groupClubSessions, listClubsTool } from "@/lib/clubs";
@@ -38,6 +39,13 @@ export default async function KulupOturumPage({ params }: { params: Promise<{ cl
     .filter((r) => r.active !== false && !r.deletedAt && (!club.branchId || r.branchId === club.branchId))
     .map((r) => ({ id: r.id, name: r.name }));
   const started = Date.parse(s.startAt) <= nowMs;
+  const touched = s.rows.some((r) => r.studentAttended || r.lessonProcessed || r.studentAbsent || r.studentExcused || r.opsMakeupFlag) || !!s.teacherAttendanceStatus;
+  const startD = new Date(s.startAt);
+  const initialLocal = `${toZonedYmd(startD, DEFAULT_APP_TIMEZONE)}T${startD.toLocaleTimeString("en-GB", { timeZone: DEFAULT_APP_TIMEZONE, hour: "2-digit", minute: "2-digit" })}`;
+  const clubTeachers = club.teacherIds
+    .map((id) => data.teachers.find((t) => t.id === id))
+    .filter((t): t is NonNullable<typeof t> => !!t && t.active)
+    .map((t) => ({ id: t.id, name: t.name }));
   const rows = [...s.rows].sort((a, b) => studentName(a.studentId).localeCompare(studentName(b.studentId), "tr"));
 
   return (
@@ -81,6 +89,20 @@ export default async function KulupOturumPage({ params }: { params: Promise<{ cl
           Kulüpte öğrenci bazında “Telafi” yalnız statüdür (bireysel telafi talebi açılmaz). Oturum tümüyle yapılamadıysa aşağıdan erteleyin.
         </p>
       </Card>
+      {!s.postponed && !touched ? (
+        <Card>
+          <h2 className="mb-1 text-sm font-semibold">Oturumu düzelt (yanlış girilen tarih/saat, oda, öğretmen)</h2>
+          <p className="mb-2 text-xs text-[var(--color-text-muted)]">Erteleme değildir: Telafi açılmaz, oturum doğru zamana taşınır. Çakışma ve kapalı gün kontrol edilir. Oturumu tamamen kaldırmak için aşağıdaki “Oturumu iptal et”i kullanın.</p>
+          <ClubSessionReschedule
+            sessionId={s.sessionId}
+            initialLocal={initialLocal}
+            rooms={rooms}
+            teachers={clubTeachers}
+            defaultRoomId={s.roomId}
+            defaultTeacherId={s.teacherId}
+          />
+        </Card>
+      ) : null}
       {!s.postponed && s.teacherAttendanceStatus !== "geldi" ? (
         <Card>
           <h2 className="mb-2 text-sm font-semibold">Oturumu ertele (tüm üyeler için Telafi)</h2>
