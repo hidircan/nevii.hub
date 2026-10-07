@@ -4,6 +4,20 @@ Kısa tutulur (~50 satır): oturum sonunda yalnız "Güncel snapshot" bölümün
 `archive/`'e taşınır. Ayrıntı → ilgili `docs/testing/UAT_*.md`, `docs/operations/*`. Yönlendirici: `nevii-hub` skill.
 Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_2026-09-24.md`.
 
+## Güncel snapshot — 2026-10-08 (kulüp düzeltmeleri; PR açık, MERGE/CANLI YOK, test çalıştırılmadı)
+- Dal `claude/festive-maxwell-5fntib` → PR (main). Owner merge edip canlıda test edecek. Yalnız statik kontrol:
+  typecheck + eslint (değişen dosyalar) + prisma validate temiz; `npm test`/build/tarayıcı owner talimatıyla ÇALIŞTIRILMADI.
+- Kök neden (üyelik sonlandırma): `isMembershipActive` `endDate >= bugün` diyordu; sonlandırma bitişi BUGÜNE yazınca
+  üye aktif listede kalıyor, hem "Üyeliği sonlandır" hem "zaten sonlanmış" görünüyordu. Artık `endDate` = sonlanma
+  günü (o günden itibaren aktif değil) — liste/sayaç/kontenjan/seçici/oturum kapsamı (`membershipCoversDay`) tek tanım;
+  sonlandırma idempotent. Yeni: "Üyeliği sil" (`deleteClubMembershipTool`; tahsilat/yoklama varsa ret → sonlandır).
+- Diğer: üye ekleme sunucu aramalı combobox; yaş grubu "Genç" (`club-audience.ts`); portal önce grup sonra bilgiler;
+  "Notlar"→"Eğitim geçmişi" zorunlu; `Club.totalLessons` (portalda "Toplam ders sayısı"), `Club.feeMonths` ("Ödeme
+  alınacak ay sayısı", aylık tahakkuku sınırlar); oturum "Haftalık tekrar sayısı" elle (ilk hafta dahil, 1–52, kilit +
+  aynı başlangıç mükerrer ret). UAT: `docs/testing/UAT_2026_10_08_CLUB_FIXES.md`.
+- Migration `20261008090000_club_total_lessons_fee_months` (2 nullable kolon). ÖNKOŞUL: `20261007120000_club_applications`
+  canlıda uygulanmış olmalı; ikisi de KODDAN ÖNCE canlıya (session pooler 5432) uygulanır.
+
 ## Güncel snapshot — 2026-10-07 (grup dersi başvuru portalı; KOD HAZIR, canlı migration owner makinesinde bekliyor)
 - Dal `claude/clever-mayer-inc1h9`. Kulüp taslak/başvuruya açık ayrımı (öğretmen/üye zorunlu değil), yeni alanlar
   (grup, yaş sınırı, dönem tarihleri, gün/saat, ücret niteliği aylık/dönemlik/toplam, dahil olanlar, yönetim notu,

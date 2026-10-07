@@ -78,7 +78,7 @@ describe("kulüp oturumları — 2. aşama (2026-10-06)", () => {
     expect(findSlotConflict(s0.rows, { teacherId: teacher.id, roomId: "baska", studentId: "x", startAt: s0.startAt, endAt: s0.endAt })?.resource).toBe("teacher");
     // Aynı saate ikinci planlama reddedilir (öğretmen dolu).
     const again = await scheduleClubSessionsTool(admin, { clubId: club.id, teacherId: teacher.id, roomId: room.id, startLocal, weeks: 1 });
-    expect(!again.ok && again.error.message).toContain("başka dersi var");
+    expect(!again.ok && again.error.message).toContain("zaten planlı");
     // Yeni üye gelecek oturumlara eklenir; ayrılan üyenin gelecek satırları iptal olur.
     const joined = await addClubMemberTool(admin, { clubId: club.id, studentId: students[2]!.id });
     expect(joined.ok).toBe(true);

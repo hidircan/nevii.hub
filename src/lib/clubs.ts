@@ -17,10 +17,11 @@ import { requireRole, type ServiceContext } from "./services/context";
 import { DEFAULT_APP_TIMEZONE, toZonedYmd } from "./timezone";
 import type { Payment, Student } from "./types";
 
-export type ClubAudience = "child" | "adult";
+import { CLUB_AUDIENCE_LABEL, isClubAudience, type ClubAudience } from "./club-audience";
+// Yaş grubu tek kaynağı `club-audience.ts` (istemci bileşenleri de okur; 2026-10-07 "Genç" eklendi).
+export { CLUB_AUDIENCES, CLUB_AUDIENCE_LABEL, isClubAudience, type ClubAudience } from "./club-audience";
 /** `monthlyFee` alanındaki tutarın niteliği. Aylık tahakkuk yalnız "monthly" kulüplerde çalışır. */
 export type ClubFeePeriod = "monthly" | "term" | "total";
-export const CLUB_AUDIENCE_LABEL: Record<ClubAudience, string> = { child: "Çocuk", adult: "Yetişkin" };
 export const CLUB_FEE_PERIOD_LABEL: Record<ClubFeePeriod, string> = { monthly: "aylık", term: "dönemlik", total: "toplam" };
 
 export type Club = {
@@ -49,6 +50,16 @@ export type Club = {
   /** Halka açık gün/saat (ör. "Cumartesi 10:00–11:00"). */
   scheduleText?: string;
   feePeriod: ClubFeePeriod;
+  /**
+   * 2026-10-07 — "Ödeme alınacak ay sayısı" (yalnız aylık ücrette). Üyeliğin başlangıç ayı 1. ay sayılır; bu kadar
+   * aydan sonra aylık tahakkuk yazılmaz. Boş = üyelik sonlanana kadar her ay (eski davranış). Yazılmış satırlar değişmez.
+   */
+  feeMonths?: number;
+  /**
+   * 2026-10-07 — "Toplam ders sayısı": başvuranlara gösterilen yetkili toplam (yönetici girer). Oturum planlamadaki
+   * "Haftalık tekrar sayısı" ilk hafta DAHİL toplam oturum sayısıdır; panel ikisini karşılaştırır.
+   */
+  totalLessons?: number;
   /** Halka açık "ücrete dahil olanlar". */
   includesText?: string;
   /** Yalnız panel — halka açık yanıta asla girmez. */
@@ -105,8 +116,24 @@ export function clubPeriodLabel(month: string): string {
   return `${TR_MONTHS[m - 1]} ${y}`;
 }
 
+/**
+ * TEK aktif üyelik tanımı (2026-10-07 kök düzeltme). `endDate` = SONLANMA tarihi: o günden itibaren üye değildir.
+ * Önceden `endDate >= bugün` aktif sayılıyordu; "Üyeliği sonlandır" bitişi BUGÜNE yazdığı için sonlanan üye gün
+ * boyunca aktif listede kalıyor, aynı satırda hem "Üyeliği sonlandır" hem "zaten sonlandırılmış" görünüyordu.
+ * Liste, sayaç, kontenjan, seçiciler, oturum kapsamı (`membershipCoversDay`) ve tahakkuk bu iki fonksiyonu kullanır.
+ */
 export function isMembershipActive(m: Pick<ClubMembership, "endDate">, todayYmd: string): boolean {
-  return !m.endDate || m.endDate >= todayYmd;
+  return !m.endDate || m.endDate > todayYmd;
+}
+
+/** Üyelik `dayYmd` gününü kapsar mı (oturum satırı açma/iptal). Başlangıç dahil, sonlanma günü HARİÇ. */
+export function membershipCoversDay(m: Pick<ClubMembership, "startDate" | "endDate">, dayYmd: string): boolean {
+  return m.startDate <= dayYmd && isMembershipActive(m, dayYmd);
+}
+
+/** Bitiş tarihi planlanmış ama henüz gelmemiş (aktif) üyelik — sonlandırma eylemi gösterilmez, tarih düzeltilir. */
+export function membershipEndScheduled(m: Pick<ClubMembership, "endDate">, todayYmd: string): boolean {
+  return !!m.endDate && m.endDate > todayYmd;
 }
 
 // ── Depolama ────────────────────────────────────────────────────────────────
@@ -138,7 +165,7 @@ function strip<T extends { tenantId: string }>(row: T): Omit<T, "tenantId"> {
 
 const strOrUndef = (v: string | null | undefined) => (v == null || v === "" ? undefined : v);
 const numOrUndef = (v: number | null | undefined) => (v == null ? undefined : v);
-const audienceOf = (v: unknown): ClubAudience | undefined => (v === "child" || v === "adult" ? v : undefined);
+const audienceOf = (v: unknown): ClubAudience | undefined => (isClubAudience(v) ? v : undefined);
 const feePeriodOf = (v: unknown): ClubFeePeriod => (v === "term" || v === "total" ? v : "monthly");
 const stringArray = (v: unknown): string[] | undefined =>
   Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : undefined;
@@ -165,6 +192,8 @@ function normalizeClub(r: Record<string, unknown>): Club {
     endDate: strOrUndef(r.endDate as string | null | undefined),
     scheduleText: strOrUndef(r.scheduleText as string | null | undefined),
     feePeriod: feePeriodOf(r.feePeriod),
+    feeMonths: numOrUndef(r.feeMonths as number | null | undefined),
+    totalLessons: numOrUndef(r.totalLessons as number | null | undefined),
     includesText: strOrUndef(r.includesText as string | null | undefined),
     internalNote: strOrUndef(r.internalNote as string | null | undefined),
     applicationsOpen: r.applicationsOpen === true,
@@ -240,6 +269,8 @@ async function writeClub(tenantId: string, club: Club, isNew: boolean): Promise<
       endDate: club.endDate ?? null,
       scheduleText: club.scheduleText ?? null,
       feePeriod: club.feePeriod,
+      feeMonths: club.feeMonths ?? null,
+      totalLessons: club.totalLessons ?? null,
       includesText: club.includesText ?? null,
       internalNote: club.internalNote ?? null,
       applicationsOpen: club.applicationsOpen,
@@ -306,18 +337,30 @@ async function writeMembership(tenantId: string, m: ClubMembership, isNew: boole
  * ders yuvası kilidiyle aynı desen); `fn` içindeki tüm okuma/yazmalar `tx` ile yapılmalı. json/memory: süreç içi kuyruk.
  */
 export async function withClubMembershipLock<T>(tenantId: string, fn: (tx: Tx | null) => Promise<T>): Promise<T> {
+  return withTenantClubLock(tenantId, "club-membership", `${CLUB_MEMBERSHIPS_FILE}.lock`, fn);
+}
+
+async function withTenantClubLock<T>(tenantId: string, key: string, lockFile: string, fn: (tx: Tx | null) => Promise<T>): Promise<T> {
   if (isDbMode) {
     const { prisma } = await import("./db");
     return prisma.$transaction(
       async (tx) => {
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${tenantId}), hashtext('club-membership'))`;
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${tenantId}), hashtext(${key}))`;
         return fn(tx);
       },
       { maxWait: 10_000, timeout: 20_000 }
     );
   }
   const { withFileLock } = await import("./atomic-json-file");
-  return withFileLock(`${CLUB_MEMBERSHIPS_FILE}.lock`, () => fn(null));
+  return withFileLock(lockFile, () => fn(null));
+}
+
+/**
+ * Oturum planlamayı kulüp bazında serileştirir (çift tıklama / iki sekme aynı planı aynı anda kaydedip mükerrer
+ * oturum açamasın). Kilit yalnız mutex'tir: içerideki okuma/yazmalar store'un normal yolunu kullanır.
+ */
+function withClubSessionLock<T>(tenantId: string, clubId: string, fn: () => Promise<T>): Promise<T> {
+  return withTenantClubLock(tenantId, `club-sessions:${clubId}`, path.join(DATA_DIR, `club-sessions-${clubId.replace(/[^\w-]/g, "_")}.lock`), () => fn());
 }
 
 export { writeMembership as writeClubMembershipRow };
@@ -395,6 +438,17 @@ export function clubApplicationIssues(club: Club, todayYmd: string): string[] {
   return issues;
 }
 
+/**
+ * Saf: kulübü başvuruya AÇMAK / açık kulübü kaydetmek için eksikler. `clubApplicationIssues` + toplam ders sayısı
+ * (başvuranlara "Toplam ders sayısı: X" gösterilir; yanıltıcı 0 yerine yönetici açıkça girer). Halka açık kabul
+ * (`clubAcceptance`) bunu ARAMAZ: bu sürümden önce açılmış kulüpler portaldan habersizce düşmez.
+ */
+export function clubOpeningIssues(club: Club, todayYmd: string): string[] {
+  const issues = clubApplicationIssues(club, todayYmd);
+  if (!club.totalLessons) issues.push("toplam ders sayısı girilmedi");
+  return issues;
+}
+
 /** Saf: ana kulübe bağlanabilecek dahil solfej kulübü uygun mu? Uygunsa null, değilse Türkçe neden. */
 export function includedSolfegeProblem(main: Pick<Club, "id" | "instrument" | "audience" | "branchId" | "startDate" | "endDate">, solfege: Club | undefined): string | null {
   if (!solfege) return "Seçilen dahil solfej kulübü bulunamadı veya silinmiş. Listeden yeniden seçin.";
@@ -446,13 +500,34 @@ const clubSchema = z.object({
   teacherIds: z.array(z.string().min(1)).max(10).default([]),
   description: z.string().trim().max(2000, "Açıklama en fazla 2000 karakter olabilir.").optional(),
   active: z.boolean().optional(),
-  audience: z.enum(["child", "adult", ""]).optional(),
+  audience: z.enum(["child", "youth", "adult", ""]).optional(),
   minAge: ageOpt,
   maxAge: ageOpt,
   startDate: ymdOpt,
   endDate: ymdOpt,
   scheduleText: z.string().trim().max(200, "Gün/saat metni en fazla 200 karakter olabilir.").optional(),
   feePeriod: z.enum(["monthly", "term", "total"]).optional(),
+  /** "" = boş (üyelik sonlanana kadar her ay). Tam sayı; ondalık/negatif reddedilir. */
+  feeMonths: z
+    .union([
+      z.literal(""),
+      z.coerce
+        .number({ error: "Ödeme alınacak ay sayısını tam sayı olarak girin." })
+        .int("Ödeme alınacak ay sayısı tam sayı olmalı (ör. 8).")
+        .min(1, "Ödeme alınacak ay sayısı en az 1 olmalı.")
+        .max(120, "Ödeme alınacak ay sayısı en fazla 120 olabilir."),
+    ])
+    .optional(),
+  totalLessons: z
+    .union([
+      z.literal(""),
+      z.coerce
+        .number({ error: "Toplam ders sayısını tam sayı olarak girin." })
+        .int("Toplam ders sayısı tam sayı olmalı.")
+        .min(1, "Toplam ders sayısı en az 1 olmalı.")
+        .max(500, "Toplam ders sayısı en fazla 500 olabilir."),
+    ])
+    .optional(),
   includesText: z.string().trim().max(1000, "Dahil olanlar metni en fazla 1000 karakter olabilir.").optional(),
   internalNote: z.string().trim().max(2000, "Yönetim notu en fazla 2000 karakter olabilir.").optional(),
   applicationsOpen: z.boolean().optional(),
@@ -519,6 +594,10 @@ export async function saveClubTool(ctx: ServiceContext, input: unknown): Promise
     );
   }
   const includedSolfegeClubId = v.includedSolfegeClubId || undefined;
+  // Alan gönderilmezse mevcut değer korunur; "" açıkça temizler. Ay sayısı yalnız aylık ücrette anlamlıdır.
+  const feeMonthsRaw = v.feeMonths === undefined ? current?.feeMonths : typeof v.feeMonths === "number" ? v.feeMonths : undefined;
+  const feeMonths = feePeriod === "monthly" ? feeMonthsRaw : undefined;
+  const totalLessons = v.totalLessons === undefined ? current?.totalLessons : typeof v.totalLessons === "number" ? v.totalLessons : undefined;
   const draft: Club = {
     id: current?.id ?? uid("club"),
     name: v.name,
@@ -540,6 +619,8 @@ export async function saveClubTool(ctx: ServiceContext, input: unknown): Promise
     endDate,
     scheduleText: v.scheduleText || undefined,
     feePeriod,
+    feeMonths,
+    totalLessons,
     includesText: v.includesText || undefined,
     internalNote: v.internalNote || undefined,
     // Yeni ve geçmiş kulüpler başvuruya KAPALI başlar; yönetici açıkça açar.
@@ -555,7 +636,7 @@ export async function saveClubTool(ctx: ServiceContext, input: unknown): Promise
     return fail("VALIDATION_ERROR", "Bu solfej kulübü farklı yaş grubundaki bir kulübe dahil olarak bağlı. Önce o kulübün dahil solfej seçimini değiştirin.");
   }
   if (draft.applicationsOpen) {
-    const issues = clubApplicationIssues(draft, today());
+    const issues = clubOpeningIssues(draft, today());
     if (issues.length) {
       return fail("VALIDATION_ERROR", `Kulüp başvuruya açılamaz: ${issues.join(", ")}. Eksikleri tamamlayın ya da "Başvuruya açık" seçimini kaldırarak taslak olarak kaydedin.`);
     }
@@ -573,6 +654,8 @@ export async function saveClubTool(ctx: ServiceContext, input: unknown): Promise
     meta: {
       monthlyFee: draft.monthlyFee,
       feePeriod: draft.feePeriod,
+      feeMonths: draft.feeMonths ?? null,
+      totalLessons: draft.totalLessons ?? null,
       maxMembers: draft.maxMembers,
       active: draft.active,
       applicationsOpen: draft.applicationsOpen,
@@ -593,7 +676,7 @@ export async function setClubApplicationsOpenTool(ctx: ServiceContext, input: un
   const club = (await listClubs(ctx.tenantId)).find((c) => c.id === parsed.data.clubId);
   if (!club) return fail("NOT_FOUND", "Kulüp bulunamadı; silinmiş olabilir. Sayfayı yenileyin.");
   if (parsed.data.open) {
-    const issues = clubApplicationIssues(club, today());
+    const issues = clubOpeningIssues(club, today());
     if (issues.length) return fail("VALIDATION_ERROR", `${club.name} başvuruya açılamaz: ${issues.join(", ")}. "Kulübü düzenle" bölümünden tamamlayın.`);
   }
   const next = { ...club, applicationsOpen: parsed.data.open };
@@ -734,24 +817,43 @@ export async function writeClubMemberStartFeeTool(ctx: ServiceContext, input: un
 const endSchema = z.object({ membershipId: z.string().min(1), endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() });
 
 /**
- * Üyeliği sonlandırır (silmez). Son ücretli ay = bitiş ayı; sonraki aylar tahakkuk etmez. Mevcut satırlar değişmez.
+ * Üyeliği sonlandırır (silmez). `endDate` (varsayılan bugün) = sonlanma günü: o günden itibaren aktif değildir
+ * (`isMembershipActive`). Sonlanma ayından sonraki aylar tahakkuk etmez; mevcut ücret satırları değişmez.
+ * İdempotent: zaten sonlanmış üyelikte yazım yapmadan `alreadyEnded: true` döner.
  * Öğrenci kaydı, geçmiş dersler, yoklama, tahsilat ve sözleşme DEĞİŞMEZ; yalnız bitişten sonraki planlı oturum
  * satırları iptal olur. Dahil solfej: bu ana üyeliğin verdiği hak geri alınır; başka hak yoksa ve solfej üyeliği
  * yalnız dahil (ücretsiz) ise o da aynı tarihte sonlanır — bağımsız/ücretli solfej üyeliğine dokunulmaz.
  */
-export async function endClubMembershipTool(ctx: ServiceContext, input: unknown): Promise<ServiceResult<ClubMembership & { endedIncluded: string[] }>> {
+export async function endClubMembershipTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<ClubMembership & { endedIncluded: string[]; alreadyEnded?: boolean }>> {
   const auth = requireRole(ctx, ADMIN_ROLES);
   if (!auth.ok) return fail("FORBIDDEN", "Kulüp üyeliğini yalnız kurum yöneticileri sonlandırabilir.");
   const parsed = endSchema.safeParse(input);
   if (!parsed.success) return fail("VALIDATION_ERROR", "Bitiş tarihi YYYY-AA-GG olmalı.");
   const t = today();
-  const result = await withClubMembershipLock(ctx.tenantId, async (tx) => {
+  type EndOutcome =
+    | { kind: "error"; error: ServiceResult<never> }
+    | { kind: "already"; membership: ClubMembership }
+    | { kind: "ended"; ended: ClubMembership; endedIncluded: ClubMembership[] };
+  const result = await withClubMembershipLock(ctx.tenantId, async (tx): Promise<EndOutcome> => {
     const all = await listClubMemberships(ctx.tenantId, tx);
     const m = all.find((x) => x.id === parsed.data.membershipId);
-    if (!m) return { error: fail("NOT_FOUND", "Üyelik bulunamadı. Sayfayı yenileyin.") } as const;
-    if (m.endDate) return { error: fail("CONFLICT", "Bu üyelik zaten sonlandırılmış.") } as const;
+    if (!m) return { kind: "error", error: fail("NOT_FOUND", "Üyelik bulunamadı; silinmiş olabilir. Sayfayı yenileyin.") };
+    // İdempotent: tekrar tıklama / iki sekme — zaten sonlanmış üyelik hata değil, mevcut durum döner (yazım yok).
+    if (m.endDate && !isMembershipActive(m, t)) return { kind: "already", membership: m };
+    if (m.endDate) {
+      return {
+        kind: "error",
+        error: fail(
+          "CONFLICT",
+          `Bu üyeliğin sonlanma tarihi zaten ${m.endDate.split("-").reverse().join(".")} olarak planlanmış. Değiştirmek için üye satırındaki "Tarihleri düzelt"i kullanın.`
+        ),
+      };
+    }
     const endDate = parsed.data.endDate ?? t;
-    if (endDate < m.startDate) return { error: fail("VALIDATION_ERROR", "Bitiş tarihi üyelik başlangıcından önce olamaz.") } as const;
+    if (endDate < m.startDate) return { kind: "error", error: fail("VALIDATION_ERROR", "Bitiş tarihi üyelik başlangıcından önce olamaz.") };
     const ended: ClubMembership = { ...m, endDate, endedByUserId: ctx.userId, endedAt: new Date().toISOString() };
     await writeMembership(ctx.tenantId, ended, false, tx);
     const endedIncluded: ClubMembership[] = [];
@@ -768,11 +870,12 @@ export async function endClubMembershipTool(ctx: ServiceContext, input: unknown)
       }
       await writeMembership(ctx.tenantId, next, false, tx);
     }
-    return { ended, endedIncluded } as const;
+    return { kind: "ended", ended, endedIncluded };
   });
-  if ("error" in result) return result.error!;
+  if (result.kind === "error") return result.error;
+  if (result.kind === "already") return ok({ ...result.membership, endedIncluded: [], alreadyEnded: true });
   const { ended, endedIncluded } = result;
-  // Bitiş gününden sonraki planlı oturum satırları iptal (yoklama/hakediş geçmişi korunur).
+  // Sonlanma gününden itibaren planlı (ileri tarihli, yoklamasız) oturum satırları iptal (geçmiş korunur).
   await syncFutureSessionsForMember(ctx, ended, "leave");
   for (const g of endedIncluded) await syncFutureSessionsForMember(ctx, g, "leave");
   const clubs = await listClubs(ctx.tenantId);
@@ -828,7 +931,7 @@ export async function updateClubMembershipTool(ctx: ServiceContext, input: unkno
         ),
       } as const;
     }
-    const reactivating = !!m.endDate && !isMembershipActive(m, t) && (!endDate || endDate >= t);
+    const reactivating = !!m.endDate && !isMembershipActive(m, t) && isMembershipActive({ endDate }, t);
     if (reactivating) {
       if (all.some((x) => x.id !== m.id && x.clubId === m.clubId && x.studentId === m.studentId && isMembershipActive(x, t))) {
         return { error: fail("CONFLICT", "Öğrencinin bu kulüpte zaten aktif bir üyeliği var; eski üyelik yeniden açılamaz.") } as const;
@@ -864,7 +967,265 @@ export async function updateClubMembershipTool(ctx: ServiceContext, input: unkno
   return ok(next);
 }
 
+// ── Üyeliği silme (yanlışlıkla eklenen üyelik) ──────────────────────────────
+
+export type ClubMembershipDeleteResult = {
+  membershipId: string;
+  /** Tekrar tıklama: üyelik zaten silinmişti (yazım yapılmadı). */
+  alreadyDeleted?: boolean;
+  /** İptal edilen (silinmeyen) ödenmemiş kulüp ücreti satırları. */
+  voidedFeeRows: number;
+  /** İptal edilen yoklamasız oturum satırları. */
+  cancelledSessionRows: number;
+  /** Bu üyeliğin verdiği hakla açılmış, aynı işlemde silinen/sonlanan dahil solfej üyelikleri (kulüp adları). */
+  removedIncluded: string[];
+};
+
+/**
+ * Saf: üyeliğin FİZİKSEL silinmesini engelleyen korunan kayıt (yoksa null). Korunanlar: tahsilat görmüş (kısmi dahil)
+ * kulüp ücreti, yoklama/öğretmen yoklaması girilmiş oturum satırı. Ödenmemiş ücret satırı SİLİNMEZ, iptal edilir.
+ */
+export function clubMembershipDeleteBlocker(
+  m: ClubMembership,
+  payments: Payment[],
+  lessons: import("./types").Lesson[],
+  memberships: ClubMembership[] = []
+): string | null {
+  const fees = payments.filter((p) => p.source === "club" && p.clubMembershipId === m.id && p.status !== "voided");
+  const paid = fees.filter((p) => p.paidAmount > 0);
+  if (paid.length) {
+    const total = paid.reduce((s, p) => s + p.paidAmount, 0);
+    return `Bu üyeliğe ait ${paid.length} kulüp ücretinde toplam ${total} TL tahsilat var; tahsilat kaydı korunduğu için üyelik silinemez. Yanlışlıkla eklendiyse önce Ödemeler ekranından tahsilatı geri alın; üye gerçekten kulübe katıldıysa silmek yerine "Üyeliği sonlandır"ı kullanın (geçmiş korunur).`;
+  }
+  const touched = membershipLessonRows(m, lessons, memberships).filter((r) => rowTouched(r) || !!r.teacherAttendanceStatus);
+  if (touched.length) {
+    return `Bu üyeliğin ${touched.length} oturumunda yoklama girilmiş; yoklama geçmişi korunduğu için üyelik silinemez. Yoklamaları geri alın ya da silmek yerine "Üyeliği sonlandır"ı kullanın.`;
+  }
+  return null;
+}
+
+/**
+ * Bu üyelik döneminde açılmış (iptal edilmemiş) kulüp oturum satırları. Sonlanma günü DAHİL taranır (sonlanmadan önce
+ * o güne açılmış satır olabilir); aynı öğrencinin aynı kulüpteki BAŞKA üyeliğinin kapsadığı günler hariç.
+ */
+function membershipLessonRows(m: ClubMembership, lessons: import("./types").Lesson[], memberships: ClubMembership[]): import("./types").Lesson[] {
+  const others = memberships.filter((o) => o.id !== m.id && o.clubId === m.clubId && o.studentId === m.studentId);
+  return lessons.filter((l) => {
+    if (l.type !== "group" || l.clubId !== m.clubId || l.studentId !== m.studentId || l.status === "cancelled") return false;
+    const ymd = toZonedYmd(new Date(l.startAt), DEFAULT_APP_TIMEZONE);
+    if (ymd < m.startDate || (m.endDate && ymd > m.endDate)) return false;
+    return !others.some((o) => membershipCoversDay(o, ymd));
+  });
+}
+
+async function deleteMembershipRow(tenantId: string, id: string, tx: Tx | null): Promise<boolean> {
+  if (isDbMode) {
+    const db = tx ?? (await import("./db")).prisma;
+    return (await db.clubMembership.deleteMany({ where: { id, tenantId } })).count > 0;
+  }
+  const all = await loadFile<ClubMembership>(CLUB_MEMBERSHIPS_FILE);
+  const next = all.filter((x) => !(x.id === id && x.tenantId === tenantId));
+  if (next.length === all.length) return false;
+  await saveFile(CLUB_MEMBERSHIPS_FILE, next);
+  return true;
+}
+
+/**
+ * "Üyeliği sil" — yanlışlıkla eklenen kulüp üyeliğini KALICI siler (sonlandırmadan ayrı işlem). Öğrenci ana kaydı,
+ * ödeme/tahsilat, sözleşme ve başvuru kayıtları SİLİNMEZ. Sıra: korunan kayıt varsa ret (alternatif: sonlandır) →
+ * ödenmemiş kulüp ücreti satırları iptal (silinmez, not düşülür) → yoklamasız oturum satırları iptal → kilit içinde
+ * üyelik satırı silinir; bu üyeliğin tek başına verdiği ücretsiz dahil solfej üyeliği de (korunan kaydı yoksa) silinir,
+ * varsa sonlandırılır; başvuru bağlantısı temizlenir (kişi sonra yeniden eklenebilir). Tekrar tıklama güvenli.
+ */
+export async function deleteClubMembershipTool(ctx: ServiceContext, input: unknown): Promise<ServiceResult<ClubMembershipDeleteResult>> {
+  const auth = requireRole(ctx, ADMIN_ROLES);
+  if (!auth.ok) return fail("FORBIDDEN", "Kulüp üyeliğini yalnız kurum yöneticileri silebilir.");
+  const parsed = z.object({ membershipId: z.string().min(1).max(80) }).safeParse(input);
+  if (!parsed.success) return fail("VALIDATION_ERROR", "Silinecek üyelik seçilmedi. Sayfayı yenileyin.");
+  const id = parsed.data.membershipId;
+  const memberships = await listClubMemberships(ctx.tenantId);
+  const m = memberships.find((x) => x.id === id);
+  if (!m) return ok({ membershipId: id, alreadyDeleted: true, voidedFeeRows: 0, cancelledSessionRows: 0, removedIncluded: [] });
+  const clubs = await listClubs(ctx.tenantId);
+  const club = clubs.find((c) => c.id === m.clubId);
+  const { readData, patchClubLessons } = await import("./store");
+  const data = await readData();
+  const blocker = clubMembershipDeleteBlocker(m, data.payments, data.lessons, memberships);
+  if (blocker) return fail("CONFLICT", blocker);
+  const t = today();
+  // Bu üyeliğin TEK hakkıyla açılmış ücretsiz dahil solfej üyelikleri de yanlışlıktır → birlikte kaldırılır.
+  const dependents = memberships.filter((g) => g.id !== m.id && g.includedByMembershipIds?.includes(m.id));
+  const soleIncluded = dependents.filter((g) => g.monthlyFee === 0 && (g.includedByMembershipIds ?? []).every((x) => x === m.id));
+  const includedDeletable = soleIncluded.filter((g) => !clubMembershipDeleteBlocker(g, data.payments, data.lessons, memberships));
+  const includedToEnd = soleIncluded.filter((g) => !includedDeletable.includes(g) && isMembershipActive(g, t));
+
+  // 1) Ödenmemiş ücret satırları: SİLİNMEZ, iptal edilir (eşzamanlı tahsilat olduysa collectPayment reddeder → dur).
+  const { collectPayment } = await import("./payments/collect");
+  const studentName = data.students.find((s) => s.id === m.studentId)?.name ?? "Öğrenci";
+  const clubName = club?.name ?? "Kulüp";
+  let voidedFeeRows = 0;
+  for (const p of data.payments.filter((x) => x.source === "club" && x.clubMembershipId === m.id && x.status !== "voided" && x.paidAmount === 0)) {
+    try {
+      await collectPayment(p.id, {
+        voided: true,
+        paymentNote: `Kulüp üyeliği silindi (${clubName}) — yanlışlıkla eklenen üyelik.`,
+        actorUserId: ctx.userId,
+        tenantId: ctx.tenantId,
+        onlyIfUntouchedOpenDebt: true,
+      });
+      voidedFeeRows++;
+    } catch {
+      // Eşzamanlı ikinci istek (iki sekme): ilk istek üyeliği zaten sildiyse bu bir hata değildir.
+      if (!(await listClubMemberships(ctx.tenantId)).some((x) => x.id === m.id)) {
+        return ok({ membershipId: id, alreadyDeleted: true, voidedFeeRows, cancelledSessionRows: 0, removedIncluded: [] });
+      }
+      return fail(
+        "CONFLICT",
+        `${studentName} için ${p.installmentPeriodLabel ?? ""} kulüp ücreti bu sırada değişti (tahsilat girilmiş olabilir); üyelik silinmedi. Sayfayı yenileyip tekrar deneyin.`
+      );
+    }
+  }
+  // 2) Yoklamasız oturum satırları iptal (ders programından kalkar; satır izi korunur).
+  const rowIds = [m, ...includedDeletable].flatMap((x) => membershipLessonRows(x, data.lessons, memberships).map((r) => r.id));
+  if (rowIds.length) await patchClubLessons(rowIds, { status: "cancelled" });
+
+  // 3) Üyelik satır(lar)ı kilit içinde: yeniden oku, sil; diğer dahil haklardan bu kimliği çıkar.
+  const removed = await withClubMembershipLock(ctx.tenantId, async (tx) => {
+    const all = await listClubMemberships(ctx.tenantId, tx);
+    if (!all.some((x) => x.id === m.id)) return false;
+    for (const g of all.filter((x) => x.id !== m.id && x.includedByMembershipIds?.includes(m.id))) {
+      if (includedDeletable.some((d) => d.id === g.id)) continue;
+      const next: ClubMembership = { ...g, includedByMembershipIds: (g.includedByMembershipIds ?? []).filter((x) => x !== m.id) };
+      if (includedToEnd.some((d) => d.id === g.id) && !g.endDate) {
+        Object.assign(next, { endDate: g.startDate > t ? g.startDate : t, endedByUserId: ctx.userId, endedAt: new Date().toISOString() });
+      }
+      await writeMembership(ctx.tenantId, next, false, tx);
+    }
+    for (const d of includedDeletable) await deleteMembershipRow(ctx.tenantId, d.id, tx);
+    return deleteMembershipRow(ctx.tenantId, m.id, tx);
+  });
+  if (!removed) return ok({ membershipId: id, alreadyDeleted: true, voidedFeeRows, cancelledSessionRows: rowIds.length, removedIncluded: [] });
+  for (const g of includedToEnd) await syncFutureSessionsForMember(ctx, { ...g, endDate: g.startDate > t ? g.startDate : t }, "leave");
+
+  // 4) Başvuru bağlantısı (başvuru kaydı SİLİNMEZ): "Kulübe eklendi" → "İletişime geçildi", üyelik kimliği temizlenir.
+  const { unlinkDeletedMembershipFromApplications } = await import("./club-applications");
+  const unlinked = await unlinkDeletedMembershipFromApplications(ctx.tenantId, [m.id, ...includedDeletable.map((d) => d.id)]);
+
+  const { recordAuditLog } = await import("./audit/log");
+  void recordAuditLog({
+    tenantId: ctx.tenantId,
+    actorUserId: ctx.userId,
+    actorRole: ctx.role,
+    action: "club.member_delete",
+    entityType: "ClubMembership",
+    entityId: m.id,
+    outcome: "success",
+    meta: {
+      clubId: m.clubId,
+      studentId: m.studentId,
+      startDate: m.startDate,
+      endDate: m.endDate ?? null,
+      monthlyFee: m.monthlyFee,
+      applicationId: m.applicationId ?? null,
+      voidedFeeRows,
+      cancelledSessionRows: rowIds.length,
+      deletedIncludedMembershipIds: includedDeletable.map((d) => d.id),
+      endedIncludedMembershipIds: includedToEnd.map((d) => d.id),
+      unlinkedApplicationIds: unlinked,
+    },
+  });
+  const nameOf = (g: ClubMembership) => clubs.find((c) => c.id === g.clubId)?.name ?? "Dahil solfej";
+  return ok({
+    membershipId: m.id,
+    voidedFeeRows,
+    cancelledSessionRows: rowIds.length,
+    removedIncluded: [...includedDeletable.map((g) => `${nameOf(g)} (silindi)`), ...includedToEnd.map((g) => `${nameOf(g)} (sonlandırıldı)`)],
+  });
+}
+
+// ── Üye ekleme araması ──────────────────────────────────────────────────────
+
+export type ClubMemberCandidate = {
+  id: string;
+  name: string;
+  /** Aynı adlı kişileri ayırmak için en az bilgi: şube · doğum yılı · telefonun son 4 hanesi. */
+  hint: string;
+  /** Bu kulüpte zaten aktif üyeliği var — seçilemez. */
+  alreadyMember: boolean;
+};
+
+type CandidateRow = { id: string; name: string; phone?: string | null; parentPhone?: string | null; birthYear?: string; branchId?: string | null };
+
+async function loadCandidateRows(tenantId: string): Promise<{ rows: CandidateRow[]; branches: { id: string; name: string }[] }> {
+  if (isDbMode) {
+    // DB egress: tam okuma yerine dar sütunlar (tuş başına çağrılır).
+    const { prisma } = await import("./db");
+    const [students, branches] = await Promise.all([
+      prisma.student.findMany({
+        where: { tenantId, active: true, deletedAt: null },
+        select: { id: true, name: true, phone: true, parentPhone: true, birthDate: true, branchId: true },
+      }),
+      prisma.branch.findMany({ where: { tenantId }, select: { id: true, name: true, shortName: true } }),
+    ]);
+    return {
+      rows: students.map((s) => ({ ...s, birthYear: s.birthDate ? String(s.birthDate.getUTCFullYear()) : undefined })),
+      branches: branches.map((b) => ({ id: b.id, name: b.shortName || b.name })),
+    };
+  }
+  const { readReferenceData } = await import("./store");
+  const ref = await readReferenceData();
+  return {
+    rows: ref.students
+      .filter((s) => s.active && !s.deletedAt)
+      .map((s) => ({ id: s.id, name: s.name, phone: s.phone, parentPhone: s.parentPhone, birthYear: s.birthDate ? String(s.birthDate).slice(0, 4) : undefined, branchId: s.branchId })),
+    branches: ref.settings.branches.map((b) => ({ id: b.id, name: b.shortName || b.name })),
+  };
+}
+
+/**
+ * Kulübe üye ekleme araması (yalnız kurum yöneticisi, yalnız oturumdaki kurum). Ad ile, Türkçe harf/büyük-küçük
+ * farkı gözetmeden (`foldTurkishForSearch`). Boş sorgu sonuç döndürmez. En fazla 20 sonuç; `total` toplam eşleşme.
+ */
+export async function searchClubMemberCandidatesTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ items: ClubMemberCandidate[]; total: number }>> {
+  const auth = requireRole(ctx, ADMIN_ROLES);
+  if (!auth.ok) return fail("FORBIDDEN", "Kulübe üye eklemeyi yalnız kurum yöneticileri yapabilir.");
+  const parsed = z.object({ clubId: z.string().min(1).max(80), q: z.string().max(80).default("") }).safeParse(input);
+  if (!parsed.success) return fail("VALIDATION_ERROR", "Arama okunamadı. Sayfayı yenileyip tekrar deneyin.");
+  const { foldTurkishForSearch } = await import("./normalize");
+  const q = foldTurkishForSearch(parsed.data.q.trim());
+  if (!q) return ok({ items: [], total: 0 });
+  const [clubs, memberships, { rows, branches }] = await Promise.all([listClubs(ctx.tenantId), listClubMemberships(ctx.tenantId), loadCandidateRows(ctx.tenantId)]);
+  const club = clubs.find((c) => c.id === parsed.data.clubId);
+  if (!club) return fail("NOT_FOUND", "Kulüp bulunamadı; silinmiş olabilir. Sayfayı yenileyin.");
+  const t = today();
+  const members = new Set(memberships.filter((m) => m.clubId === club.id && isMembershipActive(m, t)).map((m) => m.studentId));
+  const matches = rows
+    .map((r) => ({ r, key: foldTurkishForSearch(r.name) }))
+    .filter((x) => x.key.includes(q))
+    .sort((a, b) => Number(b.key.startsWith(q)) - Number(a.key.startsWith(q)) || a.r.name.localeCompare(b.r.name, "tr"));
+  const items = matches.slice(0, 20).map(({ r }) => {
+    const digits = String(r.parentPhone || r.phone || "").replace(/\D/g, "");
+    const parts = [
+      r.branchId ? branches.find((b) => b.id === r.branchId)?.name : undefined,
+      r.birthYear ? `d. ${r.birthYear}` : undefined,
+      digits.length >= 4 ? `tel. …${digits.slice(-4)}` : undefined,
+    ].filter(Boolean);
+    return { id: r.id, name: r.name, hint: parts.join(" · "), alreadyMember: members.has(r.id) };
+  });
+  return ok({ items, total: matches.length });
+}
+
 // ── Aylık tahakkuk (cron) ──────────────────────────────────────────────────
+
+/** Saf: üyeliğin kaçıncı ücret ayı (başlangıç ayı = 1). "Ödeme alınacak ay sayısı" bununla karşılaştırılır. */
+export function clubFeeMonthIndex(startDate: string, month: string): number {
+  const [sy, sm] = startDate.slice(0, 7).split("-").map(Number) as [number, number];
+  const [y, m] = month.split("-").map(Number) as [number, number];
+  return (y - sy) * 12 + (m - sm) + 1;
+}
 
 /** Saf: `month` için yazılması gereken kulüp ücreti satırları (başlangıç ayı katılınca yazıldığı için hariç). */
 export function planClubFeeAccruals(input: {
@@ -883,7 +1244,9 @@ export function planClubFeeAccruals(input: {
     if (club.feePeriod !== "monthly") return false;
     if (m.monthlyFee <= 0) return false;
     if (input.month <= m.startDate.slice(0, 7)) return false;
-    if (m.endDate && m.endDate.slice(0, 7) < input.month) return false;
+    // Sonlanma günü üyelik dışıdır: ayın 1'inde (veya önce) sonlanan üyelik o ayı borçlanmaz.
+    if (m.endDate && m.endDate <= `${input.month}-01`) return false;
+    if (club.feeMonths !== undefined && clubFeeMonthIndex(m.startDate, input.month) > club.feeMonths) return false;
     return !findClubFeeRow(input.payments, m.id, input.month);
   });
 }
@@ -1051,7 +1414,15 @@ const scheduleSchema = z.object({
   roomId: z.string().min(1, "Oda seçin."),
   /** Kurum saatiyle "YYYY-MM-DDTHH:mm" (datetime-local). */
   startLocal: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/, "Tarih ve saati seçin."),
-  weeks: z.coerce.number({ error: "Tekrar sayısını girin." }).int().min(1, "En az 1 oturum.").max(26, "Tek seferde en fazla 26 hafta planlanabilir."),
+  /**
+   * "Haftalık tekrar sayısı" = İLK HAFTA DAHİL toplam oturum sayısı (1 = yalnız ilk oturum, 8 = ilk oturum + 7 hafta).
+   * Elle yazılır; tam sayı olmalı (ondalık/negatif/boş reddedilir).
+   */
+  weeks: z.coerce
+    .number({ error: "Haftalık tekrar sayısını tam sayı olarak girin (ör. 8)." })
+    .int("Haftalık tekrar sayısı tam sayı olmalı (ör. 8).")
+    .min(1, "Haftalık tekrar sayısı en az 1 olmalı (1 = yalnız ilk oturum).")
+    .max(52, "Tek seferde en fazla 52 haftalık oturum planlanabilir."),
 });
 
 type ScheduleCheck = { ok: true; rows: import("./types").Lesson[] } | { ok: false; message: string };
@@ -1118,7 +1489,7 @@ async function buildSessionRows(
 
 function activeMemberIdsOn(memberships: ClubMembership[], clubId: string, dayYmd: string, students: Pick<Student, "id" | "active" | "deletedAt">[]): string[] {
   return memberships
-    .filter((m) => m.clubId === clubId && m.startDate <= dayYmd && (!m.endDate || m.endDate >= dayYmd))
+    .filter((m) => m.clubId === clubId && membershipCoversDay(m, dayYmd))
     .map((m) => m.studentId)
     .filter((id) => {
       const s = students.find((x) => x.id === id);
@@ -1143,7 +1514,11 @@ export async function scheduleClubSessionsTool(ctx: ServiceContext, input: unkno
   if (!auth.ok) return fail("FORBIDDEN", "Kulüp oturumunu yalnız kurum yöneticileri planlayabilir.");
   const parsed = scheduleSchema.safeParse(input);
   if (!parsed.success) return fail("VALIDATION_ERROR", parsed.error.issues[0]?.message ?? "Oturum bilgilerini kontrol edin.");
-  const v = parsed.data;
+  // Kulüp bazında kilit: aynı planın iki kez gönderilmesi (çift tıklama / iki sekme) ikinci kez yazamaz.
+  return withClubSessionLock(ctx.tenantId, parsed.data.clubId, () => scheduleClubSessionsLocked(ctx, parsed.data));
+}
+
+async function scheduleClubSessionsLocked(ctx: ServiceContext, v: z.infer<typeof scheduleSchema>): Promise<ServiceResult<{ sessionIds: string[] }>> {
   const { club, memberships, data, trials } = await loadClubAndData(ctx, v.clubId);
   if (!club) return fail("NOT_FOUND", "Kulüp bulunamadı. Sayfayı yenileyin.");
   if (!club.active) return fail("VALIDATION_ERROR", `${club.name} pasif; oturum planlamak için önce aktif yapın.`);
@@ -1158,12 +1533,22 @@ export async function scheduleClubSessionsTool(ctx: ServiceContext, input: unkno
   const [ymd0, hm] = v.startLocal.split("T") as [string, string];
   const rows: import("./types").Lesson[] = [];
   const sessionIds: string[] = [];
+  const existing = groupClubSessions(data.lessons, club.id).filter((x) => !x.cancelled && !x.postponed);
+  const { formatDateTime } = await import("./utils");
   for (let w = 0; w < v.weeks; w++) {
     const day = new Date(`${ymd0}T12:00:00Z`);
     day.setUTCDate(day.getUTCDate() + 7 * w);
     const ymd = day.toISOString().slice(0, 10);
     const startAt = zonedWallTimeToUtc(ymd, hm);
     if (startAt.getTime() < Date.now() - 60 * 60_000) return fail("VALIDATION_ERROR", "Geçmiş bir zamana oturum planlanamaz. Bugün veya ileri bir tarih seçin.");
+    // Aynı planı yeniden kaydetmek mükerrer oturum açmaz: bu kulübün aynı başlangıçlı oturumu varsa hiçbiri yazılmaz.
+    const dup = existing.find((x) => Date.parse(x.startAt) === startAt.getTime());
+    if (dup) {
+      return fail(
+        "CONFLICT",
+        `${formatDateTime(dup.startAt)} için bu kulübün oturumu zaten planlı; aynı oturum ikinci kez oluşturulmadı. Yalnız eksik haftaları planlamak için ilk oturumu ilk eksik tarihe alıp tekrar sayısını azaltın.`
+      );
+    }
     const members = activeMemberIdsOn(memberships, club.id, ymd, data.students);
     if (members.length === 0) return fail("VALIDATION_ERROR", `${ymd.split("-").reverse().join(".")} tarihinde kulübün aktif üyesi yok. Önce üye ekleyin.`);
     const sessionId = uid("cses");
@@ -1419,7 +1804,7 @@ export async function rescheduleClubSessionTool(ctx: ServiceContext, input: unkn
 
 /**
  * Üyelik değişince gelecek oturumlar: yeni üye → ileri tarihli, ertelenmemiş oturumlara satır (kendi dersiyle
- * çakışanlar atlanır, uyarı döner); ayrılan üye → bitiş gününden sonraki satırları "İptal".
+ * çakışanlar atlanır, uyarı döner); ayrılan üye → kapsam dışı kalan (sonlanma günü ve sonrası) satırları "İptal".
  */
 export async function syncFutureSessionsForMember(
   ctx: ServiceContext,
@@ -1432,7 +1817,7 @@ export async function syncFutureSessionsForMember(
   const sessions = groupClubSessions(data.lessons, m.clubId).filter((s) => !s.cancelled && !s.postponed && Date.parse(s.startAt) > now);
   if (mode === "leave") {
     // Bitişten sonraki ve (başlangıç düzeltildiyse) başlangıçtan önceki gelecek satırlar; yoklama girilmiş satıra dokunulmaz.
-    const outside = (ymd: string) => (m.endDate ? ymd > m.endDate : false) || ymd < m.startDate;
+    const outside = (ymd: string) => !membershipCoversDay(m, ymd);
     const ids = sessions
       .filter((s) => outside(toZonedYmd(new Date(s.startAt), DEFAULT_APP_TIMEZONE)))
       .flatMap((s) => s.rows.filter((r) => r.studentId === m.studentId && !rowTouched(r)).map((r) => r.id));
@@ -1448,7 +1833,7 @@ export async function syncFutureSessionsForMember(
   for (const s of sessions) {
     if (s.rows.some((r) => r.studentId === m.studentId)) continue;
     const ymd = toZonedYmd(new Date(s.startAt), DEFAULT_APP_TIMEZONE);
-    if (ymd < m.startDate || (m.endDate && ymd > m.endDate)) continue;
+    if (!membershipCoversDay(m, ymd)) continue;
     const clash = findSlotConflict(data.lessons, {
       teacherId: "__club_none__",
       roomId: "__club_none__",

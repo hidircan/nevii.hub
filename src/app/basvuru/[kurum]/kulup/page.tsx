@@ -17,7 +17,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 }
 
 const DEFAULT_KVKK = (name: string) =>
-  `Veri sorumlusu ${name}'dir. Bu formda paylaştığınız ad, doğum tarihi/yaş, iletişim ve not bilgileri yalnızca başvurunuzu değerlendirmek ve sizinle iletişime geçmek amacıyla, açık rızanıza dayanarak işlenir; üçüncü kişilerle paylaşılmaz. Başvurunuz sonuçlandıktan sonra makul süre saklanır. 6698 sayılı KVKK kapsamındaki haklarınız için kurumla iletişime geçebilirsiniz.`;
+  `Veri sorumlusu ${name}'dir. Bu formda paylaştığınız ad, doğum tarihi/yaş, iletişim ve eğitim geçmişi bilgileri yalnızca başvurunuzu değerlendirmek ve sizinle iletişime geçmek amacıyla, açık rızanıza dayanarak işlenir; üçüncü kişilerle paylaşılmaz. Başvurunuz sonuçlandıktan sonra makul süre saklanır. 6698 sayılı KVKK kapsamındaki haklarınız için kurumla iletişime geçebilirsiniz.`;
 
 /**
  * 2026-10-07 — Herkese açık, kuruma özel GRUP DERSİ başvuru portalı (oturum gerekmez; panel kabuğundan bağımsız).

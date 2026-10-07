@@ -79,7 +79,7 @@ export default async function NewStudentPage({
         ...(clubApp.email ? { email: clubApp.email } : {}),
         ...(clubApp.birthDate ? { birthDate: clubApp.birthDate } : {}),
         ...(clubApp.branchId ? { branchId: clubApp.branchId } : {}),
-        notes: `Grup dersi başvurusu ${clubApp.reference} (${clubApp.clubSnapshot.name})${clubApp.note ? ` — ${clubApp.note}` : ""}`.slice(0, 500),
+        notes: `Grup dersi başvurusu ${clubApp.reference} (${clubApp.clubSnapshot.name})${clubApp.note ? ` — Eğitim geçmişi: ${clubApp.note}` : ""}`.slice(0, 500),
       }
     : undefined;
 

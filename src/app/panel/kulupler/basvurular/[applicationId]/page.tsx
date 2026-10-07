@@ -17,7 +17,8 @@ const ymdTr = (ymd?: string) => (ymd ? ymd.split("-").reverse().join(".") : "—
 function OfferRows({ o }: { o: ClubOffer }) {
   const rows: [string, string][] = [
     ["Kulüp", `${o.name} · ${o.instrument}${o.audience ? ` · ${CLUB_AUDIENCE_LABEL[o.audience]}` : ""}`],
-    ["Ücret", `${formatMoney(o.fee)} / ${CLUB_FEE_PERIOD_LABEL[o.feePeriod]}`],
+    ["Ücret", `${formatMoney(o.fee)} / ${CLUB_FEE_PERIOD_LABEL[o.feePeriod]}${o.feeMonths !== undefined ? ` · ${o.feeMonths} ay` : ""}`],
+    ["Toplam ders sayısı", o.totalLessons !== undefined ? String(o.totalLessons) : "Belirtilmemiş"],
     ["Dönem", `${ymdTr(o.startDate)} – ${ymdTr(o.endDate)}`],
     ["Gün/saat · süre", `${o.scheduleText ? `${o.scheduleText} · ` : ""}${o.durationMinutes} dk`],
     ["Şube", o.branchName ?? "—"],
@@ -112,8 +113,8 @@ export default async function KulupBasvuruDetayPage({
               </dd>
               <dt className="text-xs text-[var(--color-text-muted)]">E-posta</dt>
               <dd>{a.email ? <a href={`mailto:${a.email}`} className="text-[var(--color-primary)] hover:underline">{a.email}</a> : "—"}</dd>
-              <dt className="text-xs text-[var(--color-text-muted)]">Not</dt>
-              <dd className="whitespace-pre-line break-words">{a.note ?? "—"}</dd>
+              <dt className="text-xs text-[var(--color-text-muted)]">Eğitim geçmişi</dt>
+              <dd className="whitespace-pre-line break-words">{a.note?.trim() ? a.note : <span className="text-[var(--color-text-muted)]">Belirtilmemiş</span>}</dd>
               <dt className="text-xs text-[var(--color-text-muted)]">KVKK onayı</dt>
               <dd className="text-xs">{formatDateTime(a.kvkkConsentAt)}{a.kvkkTextVersionId ? " (kurum metni)" : " (varsayılan metin)"}</dd>
               {a.source ? (
