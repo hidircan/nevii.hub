@@ -14,7 +14,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request, { params }: { params: Promise<{ kurum: string }> }) {
-  if (tooLarge(req, 20_000)) return json(413, { ok: false, message: "Form çok büyük. Not alanını kısaltıp tekrar deneyin." });
+  if (tooLarge(req, 20_000)) return json(413, { ok: false, message: "Form çok büyük. Eğitim geçmişi alanını kısaltıp tekrar deneyin." });
   if (limited("club-apply", req, 12, 60 * 60 * 1000)) {
     return json(429, { ok: false, message: "Kısa sürede çok fazla başvuru gönderildi. Lütfen daha sonra tekrar deneyin." });
   }

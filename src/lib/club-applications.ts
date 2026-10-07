@@ -56,6 +56,10 @@ export type ClubOffer = {
   branchPhone?: string;
   fee: number;
   feePeriod: ClubFeePeriod;
+  /** Aylık ücrette ödeme alınacak ay sayısı (yoksa belirtilmemiş = üyelik sürdükçe). */
+  feeMonths?: number;
+  /** Yöneticinin girdiği toplam ders sayısı (yetkili kaynak). Yoksa portal "belirtilmedi" der, 0 göstermez. */
+  totalLessons?: number;
   includesText?: string;
   includedSolfege?: {
     clubId: string;
@@ -64,6 +68,7 @@ export type ClubOffer = {
     startDate?: string;
     endDate?: string;
     durationMinutes: number;
+    totalLessons?: number;
     branchName?: string;
   };
 };
@@ -84,6 +89,10 @@ export type ClubApplication = {
   phone: string;
   email?: string;
   parentName?: string;
+  /**
+   * Ekranda "Eğitim geçmişi" (2026-10-07; eski etiket "Notlar"). Yeni başvuruda zorunlu; eski başvurularda boş
+   * olabilir — boş değer "Belirtilmemiş" gösterilir, hiçbir yönetici işlemini engellemez.
+   */
   note?: string;
   kvkkConsentAt: string;
   kvkkTextVersionId?: string;
@@ -159,6 +168,8 @@ export function buildClubOffer(club: Club, clubs: Club[], branches: Branch[]): C
       : {}),
     fee: club.monthlyFee,
     feePeriod: club.feePeriod,
+    ...(club.feePeriod === "monthly" && club.feeMonths !== undefined ? { feeMonths: club.feeMonths } : {}),
+    ...(club.totalLessons !== undefined ? { totalLessons: club.totalLessons } : {}),
     ...(club.includesText ? { includesText: club.includesText } : {}),
     ...(solfege
       ? {
@@ -169,6 +180,7 @@ export function buildClubOffer(club: Club, clubs: Club[], branches: Branch[]): C
             ...(solfege.startDate ? { startDate: solfege.startDate } : {}),
             ...(solfege.endDate ? { endDate: solfege.endDate } : {}),
             durationMinutes: solfege.durationMinutes,
+            ...(solfege.totalLessons !== undefined ? { totalLessons: solfege.totalLessons } : {}),
             ...(solfegeBranch ? { branchName: solfegeBranch.shortName || solfegeBranch.name } : {}),
           },
         }
@@ -184,6 +196,8 @@ export function diffOffers(then: ClubOffer, now: ClubOffer | undefined): { field
     ["Kulüp adı", then.name, now.name],
     ["Ücret (TL)", then.fee, now.fee],
     ["Ücret niteliği", then.feePeriod, now.feePeriod],
+    ["Ödeme alınacak ay sayısı", then.feeMonths, now.feeMonths],
+    ["Toplam ders sayısı", then.totalLessons, now.totalLessons],
     ["Başlangıç", then.startDate, now.startDate],
     ["Bitiş", then.endDate, now.endDate],
     ["Gün/saat", then.scheduleText, now.scheduleText],
@@ -473,6 +487,9 @@ export async function listPublicClubs(tenantId: string, now = new Date()): Promi
 
 const ymdRe = /^\d{4}-\d{2}-\d{2}$/;
 
+export const EDUCATION_HISTORY_REQUIRED =
+  "Eğitim geçmişi alanını doldurun. Daha önce müzik eğitimi almadıysanız “Daha önce eğitim almadım” yazmanız yeterli.";
+
 const publicSchema = z.object({
   clubId: z.string().trim().min(1, "Başvurmak istediğiniz kulübü seçin.").max(80),
   participantName: z.string().trim().min(2, "Katılımcının adını ve soyadını yazın.").max(120, "Ad soyad en fazla 120 karakter olabilir."),
@@ -481,7 +498,12 @@ const publicSchema = z.object({
   phone: z.string().trim().max(30),
   email: z.string().trim().max(160).email("E-posta adresi geçerli görünmüyor; düzeltin ya da boş bırakın.").optional().or(z.literal("")),
   parentName: z.string().trim().max(120).optional(),
-  note: z.string().trim().max(1000, "Not en fazla 1000 karakter olabilir.").optional(),
+  /** Ekrandaki "Eğitim geçmişi" — ZORUNLU; boş/yalnız boşluk reddedilir (eğitim almış olmak şart değildir). */
+  note: z
+    .string({ error: EDUCATION_HISTORY_REQUIRED })
+    .trim()
+    .min(1, EDUCATION_HISTORY_REQUIRED)
+    .max(1000, "Eğitim geçmişi en fazla 1000 karakter olabilir."),
   kvkkConsent: z.literal(true, { message: "Başvurunun alınması için aydınlatma metnini okuyup onaylamanız gerekiyor." }),
   source: z.string().trim().max(80).optional(),
   submissionKey: z.string().trim().regex(/^[A-Za-z0-9_-]{8,64}$/).optional(),
@@ -580,7 +602,7 @@ export async function submitPublicClubApplication(
     phone,
     ...(v.email ? { email: v.email } : {}),
     ...(v.parentName ? { parentName: v.parentName } : {}),
-    ...(v.note ? { note: v.note } : {}),
+    note: v.note,
     kvkkConsentAt: iso,
     ...(kvkkTextVersionId ? { kvkkTextVersionId } : {}),
     clubSnapshot: buildClubOffer(club, clubs, branches),
@@ -763,7 +785,8 @@ function feeNoteFor(club: Club, startDate: string): string {
   if (club.monthlyFee <= 0) return "Bu kulüp ücretsiz; borç yazılmaz.";
   const month = startDate.slice(0, 7);
   if (club.feePeriod === "monthly") {
-    return `Bu işlem tahsilat, borç veya sözleşme oluşturmaz. Aylık ${club.monthlyFee} TL kulüp ücreti, başlangıç ayından (${month}) SONRAKİ aylarda mevcut aylık kulüp tahakkukuyla yazılır; başlangıç ayının ücretini isterseniz Kulüp ekranındaki üye satırından "Başlangıç ücretini yaz" ile ayrıca ekleyin.`;
+    const span = club.feeMonths !== undefined ? ` (ödeme alınacak ay sayısı ${club.feeMonths}; başlangıç ayı 1. aydır)` : "";
+    return `Bu işlem tahsilat, borç veya sözleşme oluşturmaz. Aylık ${club.monthlyFee} TL kulüp ücreti${span}, başlangıç ayından (${month}) SONRAKİ aylarda mevcut aylık kulüp tahakkukuyla yazılır; başlangıç ayının ücretini isterseniz Kulüp ekranındaki üye satırından "Başlangıç ücretini yaz" ile ayrıca ekleyin.`;
   }
   return `Bu işlem tahsilat, borç veya sözleşme oluşturmaz. ${club.feePeriod === "term" ? "Dönemlik" : "Toplam"} ${club.monthlyFee} TL ücret otomatik borçlanmaz; Kulüp ekranındaki üye satırından "Başlangıç ücretini yaz" ile ya da Ödemeler ekranından ayrıca yazın.`;
 }
@@ -998,6 +1021,56 @@ export async function commitAddToClubTool(ctx: ServiceContext, input: unknown): 
     },
   });
   return ok({ ...result, warnings });
+}
+
+/**
+ * 2026-10-07 — "Üyeliği sil" sonrası: silinen üyelik kimliklerine bağlı başvurular SİLİNMEZ; bağlantı temizlenir ki
+ * kişi sonradan yeniden eklenebilsin. Ana üyeliği silinen "Kulübe eklendi" başvurusu "İletişime geçildi"ye döner
+ * (öğrenci bağlantısı korunur). Dönen değer: güncellenen başvuru kimlikleri.
+ */
+export async function unlinkDeletedMembershipFromApplications(tenantId: string, membershipIds: string[]): Promise<string[]> {
+  if (membershipIds.length === 0) return [];
+  const ids = new Set(membershipIds);
+  const now = new Date().toISOString();
+  if (isDbMode) {
+    const { prisma } = await import("./db");
+    const rows = await prisma.clubApplication.findMany({
+      where: { tenantId, OR: [{ membershipId: { in: membershipIds } }, { solfegeMembershipId: { in: membershipIds } }] },
+      select: { id: true, status: true, membershipId: true, solfegeMembershipId: true },
+    });
+    for (const r of rows) {
+      const mainGone = !!r.membershipId && ids.has(r.membershipId);
+      await prisma.clubApplication.updateMany({
+        where: { id: r.id, tenantId },
+        data: {
+          ...(mainGone ? { membershipId: null, ...(r.status === "added" ? { status: "contacted" } : {}) } : {}),
+          ...(r.solfegeMembershipId && ids.has(r.solfegeMembershipId) ? { solfegeMembershipId: null } : {}),
+          updatedAt: new Date(now),
+        },
+      });
+    }
+    return rows.map((r) => r.id);
+  }
+  return withFile(async () => {
+    const all = await loadAll();
+    const touched: string[] = [];
+    const next = all.map((a) => {
+      if (a.tenantId !== tenantId) return a;
+      const mainGone = !!a.membershipId && ids.has(a.membershipId);
+      const solGone = !!a.solfegeMembershipId && ids.has(a.solfegeMembershipId);
+      if (!mainGone && !solGone) return a;
+      touched.push(a.id);
+      const out: Stored = { ...a, updatedAt: now };
+      if (mainGone) {
+        delete out.membershipId;
+        if (a.status === "added") out.status = "contacted";
+      }
+      if (solGone) delete out.solfegeMembershipId;
+      return out;
+    });
+    if (touched.length) await saveAll(next);
+    return touched;
+  });
 }
 
 /** Yeni öğrenci kaydı başvurudan açıldıysa: öğrenciyi başvuruya bağlar (üyelik AÇMAZ; durum değişmez). */

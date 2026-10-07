@@ -73,6 +73,7 @@ async function openClub(over: Partial<Club> & { name: string; instrument: string
     audience: "child",
     startDate: today,
     endDate: plusDays(120),
+    totalLessons: 12,
     applicationsOpen: true,
     ...over,
   });
@@ -86,6 +87,7 @@ const childForm = (clubId: string, over: Record<string, unknown> = {}) => ({
   birthDate: "2016-05-01",
   parentName: "Veli Deneme",
   phone: "0532 111 22 33",
+  note: "Daha önce eğitim almadım",
   kvkkConsent: true,
   elapsedMs: 10_000,
   ...over,
@@ -109,7 +111,7 @@ describe("grup dersi başvuru portalı (2026-10-07)", () => {
     // Tarih yanlış girildiyse rahatça düzeltilir.
     const fixed = await saveClubTool(admin, { ...draft.data, audience: "adult", branchId, startDate: today, endDate: plusDays(30) });
     expect(fixed.ok).toBe(true);
-    const fixed2 = await saveClubTool(admin, { ...draft.data, audience: "adult", branchId, startDate: today, endDate: plusDays(60) });
+    const fixed2 = await saveClubTool(admin, { ...draft.data, audience: "adult", branchId, startDate: today, endDate: plusDays(60), totalLessons: 10 });
     expect(fixed2.ok && fixed2.data.endDate).toBe(plusDays(60));
     expect((await setClubApplicationsOpenTool(admin, { clubId: draft.data.id, open: true })).ok).toBe(true);
     // Bitiş başlangıçtan önce olamaz.

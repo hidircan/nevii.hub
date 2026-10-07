@@ -187,6 +187,9 @@ export default async function KuluplerPage({ searchParams }: { searchParams: Pro
                   {c.applicationsOpen && issues.length > 0 ? (
                     <span className="text-[11px] text-[var(--color-warning)]">Portalda görünmüyor: {issues.join(", ")}</span>
                   ) : null}
+                  {c.applicationsOpen && issues.length === 0 && c.totalLessons === undefined ? (
+                    <span className="text-[11px] text-[var(--color-warning)]">Toplam ders sayısı girilmedi — portalda “belirtilmedi” görünür.</span>
+                  ) : null}
                 </div>
               </div>
             );

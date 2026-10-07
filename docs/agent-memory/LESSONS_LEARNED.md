@@ -1467,3 +1467,10 @@ Aynı turda: `validateLessonSlot` oda `active`'ini hiç okumuyordu → telafi pa
   önce kilit içinde; yazım başladıktan sonraki her ret `throw` (Abort) ile transaction'ı geri alır, dışarıda
   `ServiceResult`'a çevrilir. Ders: `$transaction(async tx => …)` içinde iş hatası = throw; değer döndürmek commit'tir.
 
+
+## 2026-10-08 — Kapsayıcı bitiş tarihi + "bitiş = bugün" sonlandırma → sonlanan üye aktif listede kaldı
+- `isMembershipActive` `endDate >= bugün` (bitiş günü dahil) iken "Üyeliği sonlandır" `endDate = bugün` yazıyordu:
+  başarılı işlemden sonra üye aynı gün aktif listede, ikinci tıklama "zaten sonlandırılmış" hatası. Düzeltme: `endDate`
+  = sonlanma günü (hariç), tek tanım `isMembershipActive`/`membershipCoversDay`; sonlandırma idempotent.
+- Ders: "sonlandır/iptal" eylemi bir tarih yazıyorsa, aktiflik tanımının o tarihi yazıldığı GÜN nasıl yorumladığını
+  kontrol et; durum sözcüğü (aktif/sonlanmış) ile tarih karşılaştırması aynı fonksiyondan gelmeli.

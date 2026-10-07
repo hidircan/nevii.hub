@@ -1,19 +1,29 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { CalendarDays, CheckCircle2, Clock, MapPin, Music2, Phone, Users } from "lucide-react";
+import { BookOpen, CalendarDays, CheckCircle2, Clock, MapPin, Music2, Phone, Users } from "lucide-react";
 import type { PublicClub } from "@/lib/club-applications";
+import { CLUB_AUDIENCE_LABEL, CLUB_AUDIENCES, isClubAudience } from "@/lib/club-audience";
 
 const field =
   "w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--color-focus-ring)] aria-[invalid=true]:border-[var(--color-danger)]";
 const label = "mb-1 block text-xs font-semibold text-[var(--color-text)]";
-const AUDIENCE: Record<string, string> = { child: "Çocuk", adult: "Yetişkin" };
+const audienceText = (a?: string) => (a && isClubAudience(a) ? CLUB_AUDIENCE_LABEL[a] : a ?? "");
 const ymdTr = (ymd?: string) => (ymd ? ymd.split("-").reverse().join(".") : "");
 const money = (n: number) => `${n.toLocaleString("tr-TR")} ₺`;
 const feeText = (c: Pick<PublicClub, "fee" | "feePeriod">) =>
   c.fee <= 0 ? "Ücretsiz" : c.feePeriod === "monthly" ? `${money(c.fee)} / ay` : c.feePeriod === "term" ? `${money(c.fee)} / dönem` : `${money(c.fee)} (toplam)`;
-const feeNature = (c: Pick<PublicClub, "feePeriod">) =>
-  c.feePeriod === "monthly" ? "Aylık ücret — her ay ödenir." : c.feePeriod === "term" ? "Dönemlik ücret — dönem başına bir kez." : "Toplam ücret — tüm program için bir kez.";
+const feeNature = (c: Pick<PublicClub, "feePeriod" | "feeMonths">) =>
+  c.feePeriod === "monthly"
+    ? c.feeMonths !== undefined
+      ? `Aylık ücret — ${c.feeMonths} ay ödenir.`
+      : "Aylık ücret — her ay ödenir."
+    : c.feePeriod === "term"
+      ? "Dönemlik ücret — dönem başına bir kez."
+      : "Toplam ücret — tüm program için bir kez.";
+/** Yönetici toplam ders sayısını girmediyse 0 yerine açıkça "belirtilmedi" (yanıltıcı sıfır yok). */
+const totalLessonsText = (n?: number) => `Toplam ders sayısı: ${n !== undefined ? n : "kurum tarafından henüz belirtilmedi"}`;
+const EDUCATION_PLACEHOLDER = "Daha önce aldığınız müzik eğitimini yazın. Eğitim almadıysanız ‘Daha önce eğitim almadım’ yazabilirsiniz.";
 const newKey = () =>
   typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `k${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
 
@@ -39,7 +49,7 @@ function ClubSummary({ club }: { club: PublicClub }) {
         {club.audience ? (
           <div className="flex gap-2">
             <Users className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-text-muted)]" aria-hidden="true" />
-            <div><dt className="sr-only">Grup</dt><dd>{AUDIENCE[club.audience]} grubu{ages ? ` · ${ages}` : ""}</dd></div>
+            <div><dt className="sr-only">Grup</dt><dd>{audienceText(club.audience)} grubu{ages ? ` · ${ages}` : ""}</dd></div>
           </div>
         ) : null}
         {dates ? (
@@ -51,6 +61,10 @@ function ClubSummary({ club }: { club: PublicClub }) {
         <div className="flex gap-2">
           <Clock className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-text-muted)]" aria-hidden="true" />
           <div><dt className="sr-only">Gün, saat ve süre</dt><dd>{club.scheduleText ? `${club.scheduleText} · ` : ""}{club.durationMinutes} dk ders</dd></div>
+        </div>
+        <div className="flex gap-2">
+          <BookOpen className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-text-muted)]" aria-hidden="true" />
+          <div><dt className="sr-only">Toplam ders</dt><dd className="font-medium">{totalLessonsText(club.totalLessons)}</dd></div>
         </div>
         {club.branchName ? (
           <div className="flex gap-2">
@@ -83,6 +97,7 @@ function ClubSummary({ club }: { club: PublicClub }) {
                 ? ` · ${ymdTr(club.includedSolfege.startDate) || "—"} – ${ymdTr(club.includedSolfege.endDate) || "—"}`
                 : ""}
               {club.includedSolfege.branchName && club.includedSolfege.branchName !== club.branchName ? ` · ${club.includedSolfege.branchName}` : ""}
+              {club.includedSolfege.totalLessons !== undefined ? ` · toplam ${club.includedSolfege.totalLessons} ders` : ""}
             </p>
           ) : null}
         </div>
@@ -116,7 +131,9 @@ export function ClubApplicationPortal({
   const [branch, setBranch] = useState("");
   const [instrument, setInstrument] = useState("");
   const [audience, setAudience] = useState("");
-  const [clubId, setClubId] = useState(() => (preselectClubId && clubs.some((c) => c.clubId === preselectClubId) ? preselectClubId : clubs.length === 1 ? clubs[0]!.clubId : ""));
+  // Doğrudan bağlantı (?kulup=) geçerli bir gruba işaret ediyorsa seçim tamamlanmış sayılır; geçersiz kimlik yok sayılır.
+  const preselectValid = !!preselectClubId && clubs.some((c) => c.clubId === preselectClubId);
+  const [clubId, setClubId] = useState(() => (preselectValid ? preselectClubId! : clubs.length === 1 ? clubs[0]!.clubId : ""));
   const [participantName, setParticipantName] = useState("");
   const [birthDate, setBirthDate] = useState("");
   const [age, setAge] = useState("");
@@ -137,10 +154,21 @@ export function ClubApplicationPortal({
 
   const branches = useMemo(() => Array.from(new Map(clubs.filter((c) => c.branchId).map((c) => [c.branchId!, c.branchName ?? ""])).entries()), [clubs]);
   const instruments = useMemo(() => Array.from(new Set(clubs.map((c) => c.instrument))).sort((a, b) => a.localeCompare(b, "tr")), [clubs]);
-  const audiences = useMemo(() => Array.from(new Set(clubs.map((c) => c.audience).filter(Boolean))) as string[], [clubs]);
+  const audiences = useMemo(() => {
+    const present = new Set(clubs.map((c) => c.audience).filter(Boolean) as string[]);
+    return [...CLUB_AUDIENCES.filter((a) => present.has(a)), ...[...present].filter((a) => !isClubAudience(a))];
+  }, [clubs]);
   const visible = clubs.filter((c) => (!branch || c.branchId === branch) && (!instrument || c.instrument === instrument) && (!audience || c.audience === audience));
+  // Yalnız portal listesindeki (sunucunun başvuruya açık saydığı) grup geçerli seçimdir; sunucu gönderimde yeniden denetler.
   const selected = clubs.find((c) => c.clubId === clubId);
+  // Grup değişince bu türetilmiş değerler yeniden hesaplanır; gizlenen grup-özel alanlar GÖNDERİLMEZ (aşağıda).
   const isChild = selected?.audience === "child";
+
+  /** Grup seçimi / değişimi / kaldırma: yazılmış kişisel bilgiler ve eğitim geçmişi KORUNUR; grup-özel hatalar temizlenir. */
+  function selectClub(next: string) {
+    setClubId(next);
+    setErrors((p) => ({ ...p, clubId: undefined, birthDate: undefined, age: undefined, parentName: undefined, form: undefined }));
+  }
 
   function focusFirstError(errs: Errors) {
     const first = Object.keys(errs).find((k) => k !== "form");
@@ -154,12 +182,13 @@ export function ClubApplicationPortal({
     if (isChild) {
       if (!birthDate) e.birthDate = "Katılımcının doğum tarihini seçin.";
       if (parentName.trim().length < 2) e.parentName = "Veli adı ve soyadını yazın.";
-    } else if (selected && !birthDate && !age) {
+    } else if (selected && !age.trim()) {
       e.age = "Yaşınızı yazın.";
     }
     const digits = phone.replace(/\D/g, "");
     if (digits.length < 10 || digits.length > 12) e.phone = "Telefon numarasını alan koduyla eksiksiz yazın (ör. 0532 123 45 67).";
     if (email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) e.email = "E-posta adresi geçerli görünmüyor; düzeltin ya da boş bırakın.";
+    if (!note.trim()) e.note = "Eğitim geçmişi alanını doldurun. Daha önce müzik eğitimi almadıysanız “Daha önce eğitim almadım” yazmanız yeterli.";
     if (!kvkk) e.kvkkConsent = "Başvurunun alınması için aydınlatma metnini okuyup onaylayın.";
     return e;
   }
@@ -167,6 +196,10 @@ export function ClubApplicationPortal({
   async function submit(ev: React.FormEvent) {
     ev.preventDefault();
     if (busy) return;
+    if (!selected) {
+      setErrors({ clubId: "Başvurmak istediğiniz grubu seçin." });
+      return;
+    }
     const e = validate();
     setErrors(e);
     if (Object.keys(e).length) return focusFirstError(e);
@@ -178,12 +211,13 @@ export function ClubApplicationPortal({
         body: JSON.stringify({
           clubId,
           participantName,
-          birthDate: birthDate || undefined,
-          age: !isChild && !birthDate ? age : undefined,
+          // Yalnız seçili grubun gösterdiği alanlar gönderilir (önceki gruptan kalan gizli değer gitmez).
+          birthDate: isChild ? birthDate || undefined : undefined,
+          age: isChild ? undefined : age,
           parentName: isChild ? parentName : undefined,
           phone,
           email,
-          note: note || undefined,
+          note: note.trim(),
           kvkkConsent: true,
           source,
           submissionKey,
@@ -271,9 +305,9 @@ export function ClubApplicationPortal({
               ) : null}
               {audiences.length > 1 ? (
                 <select aria-label="Yaş grubu" value={audience} onChange={(e) => setAudience(e.target.value)} className={`${field} w-auto py-1.5 text-xs`}>
-                  <option value="">Çocuk ve yetişkin</option>
+                  <option value="">Tüm yaş grupları</option>
                   {audiences.map((a) => (
-                    <option key={a} value={a}>{AUDIENCE[a] ?? a}</option>
+                    <option key={a} value={a}>{audienceText(a)}</option>
                   ))}
                 </select>
               ) : null}
@@ -290,13 +324,13 @@ export function ClubApplicationPortal({
                 className="flex cursor-pointer flex-col rounded-xl border bg-[var(--color-surface)] px-3.5 py-3 transition-colors focus-within:outline focus-within:outline-2 focus-within:outline-[var(--color-focus-ring)]"
                 style={on ? { borderColor: "var(--color-primary)", boxShadow: "0 0 0 1px var(--color-primary)" } : { borderColor: "var(--color-border)" }}
               >
-                <input type="radio" name="clubId" value={c.clubId} checked={on} onChange={() => { setClubId(c.clubId); setErrors((p) => ({ ...p, clubId: undefined })); }} className="sr-only" />
+                <input type="radio" name="clubId" value={c.clubId} checked={on} onChange={() => selectClub(c.clubId)} className="sr-only" />
                 <span className="flex items-start justify-between gap-2">
                   <span className="text-sm font-semibold leading-snug">{c.name}</span>
                   {c.waitlistOnly ? <span className="shrink-0 rounded-full bg-[var(--color-warning-soft)] px-2 py-0.5 text-[10px] font-semibold text-[var(--color-warning)]">Bekleme listesi</span> : null}
                 </span>
                 <span className="mt-0.5 text-xs text-[var(--color-text-muted)]">
-                  {c.instrument}{c.audience ? ` · ${AUDIENCE[c.audience]}` : ""}{c.branchName ? ` · ${c.branchName}` : ""}
+                  {c.instrument}{c.audience ? ` · ${audienceText(c.audience)}` : ""}{c.branchName ? ` · ${c.branchName}` : ""}
                 </span>
                 <span className="mt-1.5 text-xs font-medium tabular-nums">{feeText(c)}</span>
               </label>
@@ -304,11 +338,39 @@ export function ClubApplicationPortal({
           })}
         </div>
         {err("clubId")}
-        {selected ? <ClubSummary club={selected} /> : <p className="rounded-xl border border-dashed border-[var(--color-border)] px-4 py-6 text-center text-sm text-[var(--color-text-muted)]">Ayrıntıları görmek için bir grup seçin.</p>}
+        {preselectClubId && !preselectValid && !selected ? (
+          <p role="status" className="rounded-lg bg-[var(--color-warning-soft)] px-3 py-2 text-xs text-[var(--color-warning)]">
+            Bağlantıdaki grup şu an başvuruya açık değil veya bulunamadı. Lütfen listeden bir grup seçin.
+          </p>
+        ) : null}
+        {selected ? (
+          <>
+            <ClubSummary club={selected} />
+            <button type="button" onClick={() => selectClub("")} className="text-xs font-medium text-[var(--color-text-muted)] underline underline-offset-2 hover:text-[var(--color-text)]">
+              Grup seçimini kaldır
+            </button>
+          </>
+        ) : (
+          <p className="rounded-xl border border-dashed border-[var(--color-border)] px-4 py-6 text-center text-sm text-[var(--color-text-muted)]">Ayrıntıları görmek için bir grup seçin.</p>
+        )}
       </section>
 
+      {/* 2026-10-07 — Bilgi alanları YALNIZ geçerli bir grup seçildikten sonra görünür; seçim kalkarsa gizlenir (yazılanlar korunur). */}
+      {!selected ? (
+        <section aria-labelledby="info-locked-title" className="rounded-2xl border border-dashed border-[var(--color-border)] bg-[var(--color-surface)] p-5 text-sm text-[var(--color-text-muted)] sm:p-6">
+          <h2 id="info-locked-title" className="text-base font-semibold text-[var(--color-text)]">2 · Bilgileriniz</h2>
+          <p className="mt-1">Önce soldaki listeden başvurmak istediğiniz grubu seçin; ardından bilgi alanları açılır.</p>
+        </section>
+      ) : (
       <form ref={formRef} onSubmit={(e) => void submit(e)} noValidate className="space-y-5 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5 shadow-sm sm:p-6 lg:sticky lg:top-6">
         <h2 className="text-base font-semibold">2 · Bilgileriniz</h2>
+        <div className="rounded-lg bg-[var(--color-surface-muted)] px-3 py-2 text-xs" aria-live="polite">
+          <p className="font-semibold text-[var(--color-text)]">Seçilen grup: {selected.name}</p>
+          <p className="mt-0.5 text-[var(--color-text-muted)]">
+            {feeText(selected)}
+            {selected.feePeriod === "monthly" && selected.feeMonths !== undefined && selected.fee > 0 ? ` × ${selected.feeMonths} ay` : ""} · {totalLessonsText(selected.totalLessons)}
+          </p>
+        </div>
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="sm:col-span-2">
             <label htmlFor="ca-name" className={label}>{isChild ? "Katılımcının (çocuğun) adı soyadı" : "Katılımcının adı soyadı"}</label>
@@ -347,8 +409,24 @@ export function ClubApplicationPortal({
             {err("email")}
           </div>
           <div className="sm:col-span-2">
-            <label htmlFor="ca-note" className={label}>Not (isteğe bağlı)</label>
-            <textarea id="ca-note" name="note" value={note} onChange={(e) => setNote(e.target.value)} maxLength={1000} rows={3} placeholder="Ör. daha önce 1 yıl keman çaldı" className={`${field} min-h-[4.5rem] resize-y`} {...inv("note")} />
+            <label htmlFor="ca-note" className={label}>Eğitim geçmişi <span aria-hidden="true" className="text-[var(--color-danger)]">*</span></label>
+            <textarea
+              id="ca-note"
+              name="note"
+              value={note}
+              onChange={(e) => {
+                setNote(e.target.value);
+                if (e.target.value.trim()) setErrors((p) => ({ ...p, note: undefined }));
+              }}
+              maxLength={1000}
+              rows={3}
+              required
+              aria-required="true"
+              placeholder={EDUCATION_PLACEHOLDER}
+              className={`${field} min-h-[4.5rem] resize-y`}
+              {...inv("note")}
+            />
+            <p className="mt-0.5 text-[11px] text-[var(--color-text-muted)]">Daha önce eğitim almış olmak şart değildir; yalnızca bu soruyu yanıtlamanız gerekir.</p>
             {err("note")}
           </div>
           {/* Bot tuzağı — gerçek kullanıcı görmez/doldurmaz. */}
@@ -385,10 +463,11 @@ export function ClubApplicationPortal({
             aria-busy={busy || undefined}
             className="w-full rounded-lg bg-[var(--color-primary)] px-4 py-3 text-sm font-semibold text-[var(--color-text-inverted)] transition-opacity hover:opacity-90 disabled:cursor-wait disabled:opacity-70"
           >
-            {busy ? "Gönderiliyor…" : selected ? `${selected.name} için başvur` : "Başvuruyu gönder"}
+            {busy ? "Gönderiliyor…" : `${selected.name} için başvur`}
           </button>
         </div>
       </form>
+      )}
     </div>
   );
 }

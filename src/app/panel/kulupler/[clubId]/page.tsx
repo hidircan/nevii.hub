@@ -1,11 +1,33 @@
 import Link from "@/components/link";
 import { notFound, redirect } from "next/navigation";
 import { Card, EmptyState, PageHeader } from "@/components/ui";
-import { ClubApplicationsToggle, ClubForm, ClubMemberAdd, ClubMemberDates, ClubMemberEnd, ClubMemberStartFee, ClubSessionScheduler, CopyLinkButton } from "@/components/club-components";
+import {
+  ClubApplicationsToggle,
+  ClubForm,
+  ClubMemberAdd,
+  ClubMemberDates,
+  ClubMemberDelete,
+  ClubMemberEnd,
+  ClubMemberStartFee,
+  ClubSessionScheduler,
+  CopyLinkButton,
+} from "@/components/club-components";
 import { ClubDeleteButton } from "@/components/club-delete-button";
 import { requireSessionContext } from "@/lib/auth/session";
 import { getInstitutionContext } from "@/lib/institution/context";
-import { CLUB_AUDIENCE_LABEL, CLUB_FEE_PERIOD_LABEL, clubApplicationIssues, clubPeriodLabel, findClubFeeRow, groupClubSessions, isMembershipActive, isSolfegeClub, listClubsTool } from "@/lib/clubs";
+import {
+  CLUB_AUDIENCE_LABEL,
+  CLUB_FEE_PERIOD_LABEL,
+  clubApplicationIssues,
+  clubOpeningIssues,
+  clubPeriodLabel,
+  findClubFeeRow,
+  groupClubSessions,
+  isMembershipActive,
+  isSolfegeClub,
+  listClubsTool,
+  membershipEndScheduled,
+} from "@/lib/clubs";
 import { careerSlugForTenant } from "@/lib/recruitment/institution";
 import { readLessonWindow } from "@/lib/store";
 import { isLiveObligation } from "@/lib/payment-profile";
@@ -50,21 +72,19 @@ export default async function KulupDetayPage({ params }: { params: Promise<{ clu
   const allClubs = result.data.clubs;
   const solfegeClubs = allClubs.filter(isSolfegeClub).map((c) => ({ id: c.id, name: c.name, audience: c.audience, branchId: c.branchId }));
   const includedSolfege = club.includedSolfegeClubId ? allClubs.find((c) => c.id === club.includedSolfegeClubId) : undefined;
-  const portalIssues = clubApplicationIssues(club, toZonedYmd(new Date(), DEFAULT_APP_TIMEZONE));
+  // Portalda görünürlük (halka açık kabul) ile açma/kaydetme eksikleri (toplam ders sayısı dahil) ayrı.
+  const portalVisibleIssues = clubApplicationIssues(club, toZonedYmd(new Date(), DEFAULT_APP_TIMEZONE));
+  const portalIssues = clubOpeningIssues(club, toZonedYmd(new Date(), DEFAULT_APP_TIMEZONE));
   const clubLink = `/basvuru/${slug}/kulup?kulup=${encodeURIComponent(club.id)}`;
   const today = toZonedYmd(new Date(), DEFAULT_APP_TIMEZONE);
   const month = today.slice(0, 7);
   const all = result.data.memberships.filter((m) => m.clubId === club.id);
+  // TEK aktif tanımı (isMembershipActive): sonlanan üyelik aynı gün aktif listeden çıkar, "Ayrılan üyeler"de görünür.
   const active = all.filter((m) => isMembershipActive(m, today));
   const past = all.filter((m) => !isMembershipActive(m, today));
   const studentName = (id: string) => data.students.find((s) => s.id === id)?.name ?? "Silinmiş öğrenci";
   const teachers = data.teachers.filter((t) => t.active).map((t) => ({ id: t.id, name: t.name }));
   const branches = data.settings.branches.map((b) => ({ id: b.id, name: b.shortName || b.name }));
-  const memberIds = new Set(active.map((m) => m.studentId));
-  const candidates = data.students
-    .filter((s) => s.active && !s.deletedAt && !memberIds.has(s.id))
-    .sort((a, b) => a.name.localeCompare(b.name, "tr"))
-    .map((s) => ({ id: s.id, name: s.name, phone: s.parentPhone || s.phone || undefined }));
   const clubDebt = (membershipId: string) =>
     data.payments
       .filter((p) => p.source === "club" && p.clubMembershipId === membershipId && isLiveObligation(p, terminal))
@@ -85,6 +105,8 @@ export default async function KulupDetayPage({ params }: { params: Promise<{ clu
   const sessions = groupClubSessions(win.lessons, club.id).filter((x) => !x.cancelled);
   const upcoming = sessions.filter((x) => Date.parse(x.endAt) >= nowMs);
   const pastSessions = sessions.filter((x) => Date.parse(x.endAt) < nowMs).reverse();
+  // Ertelenen oturumun yerine yeni oturum açıldığı için ertelenmiş (Telafi) olan sayılmaz — çift sayım yok.
+  const plannedLive = sessions.filter((x) => !x.postponed).length;
   const clubTeachers = club.teacherIds.map((id) => ({ id, name: data.teachers.find((t) => t.id === id)?.name ?? "—" }));
   const clubRooms = win.rooms
     .filter((r) => r.active !== false && !r.deletedAt && (!club.branchId || r.branchId === club.branchId))
@@ -110,19 +132,24 @@ export default async function KulupDetayPage({ params }: { params: Promise<{ clu
       />
       <div className="flex flex-wrap items-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
         <ClubApplicationsToggle clubId={club.id} open={club.applicationsOpen} />
-        {club.applicationsOpen && portalIssues.length === 0 ? (
+        {club.applicationsOpen && portalVisibleIssues.length === 0 ? (
           <>
             <a href={clubLink} target="_blank" rel="noopener noreferrer" className="text-xs font-semibold text-[var(--color-primary)] hover:underline">Portalda gör ↗</a>
             <CopyLinkButton path={clubLink} label="Kulübe özel başvuru bağlantısı" />
           </>
         ) : null}
-        {portalIssues.length ? <span className="text-[11px] text-[var(--color-text-muted)]">Başvuruya açmak için eksik: {portalIssues.join(", ")}.</span> : null}
+        {portalIssues.length ? (
+          <span className="text-[11px] text-[var(--color-text-muted)]">
+            {club.applicationsOpen ? "Eksik (kaydetmeden önce tamamlayın)" : "Başvuruya açmak için eksik"}: {portalIssues.join(", ")}.
+          </span>
+        ) : null}
         <Link href={`/panel/kulupler/basvurular?clubId=${encodeURIComponent(club.id)}`} className="ml-auto text-xs font-semibold text-[var(--color-primary)] hover:underline">Bu kulübün başvuruları →</Link>
       </div>
-      <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         {[
           ["Üye", `${active.length} / ${club.maxMembers}`],
-          ["Ücret", `${formatMoney(club.monthlyFee)} / ${CLUB_FEE_PERIOD_LABEL[club.feePeriod]}`],
+          ["Ücret", `${formatMoney(club.monthlyFee)} / ${CLUB_FEE_PERIOD_LABEL[club.feePeriod]}${club.feePeriod === "monthly" && club.feeMonths !== undefined ? ` · ${club.feeMonths} ay` : ""}`],
+          ["Toplam ders", club.totalLessons !== undefined ? `${club.totalLessons} · planlı ${plannedLive}` : `Belirtilmedi · planlı ${plannedLive}`],
           [club.feePeriod === "monthly" ? "Aylık kulüp geliri" : "Dönem", club.feePeriod === "monthly" ? formatMoney(monthlyTotal) : `${club.startDate ? ymdTr(club.startDate) : "—"} – ${club.endDate ? ymdTr(club.endDate) : "—"}`],
           ["Öğretmen", club.teacherIds.length ? club.teacherIds.map((id) => data.teachers.find((t) => t.id === id)?.name ?? "—").join(", ") : "Seçilmedi"],
         ].map(([k, v]) => (
@@ -133,6 +160,12 @@ export default async function KulupDetayPage({ params }: { params: Promise<{ clu
         ))}
       </dl>
 
+      {club.totalLessons !== undefined && plannedLive > 0 && plannedLive !== club.totalLessons ? (
+        <p className="rounded-md bg-[var(--color-warning-soft)] px-3 py-2 text-xs text-[var(--color-warning)]">
+          Planlı oturum sayısı ({plannedLive}, son 120 / önümüzdeki 200 gün) kulübün toplam ders sayısından ({club.totalLessons}) farklı. Başvuru portalı{" "}
+          {club.totalLessons} gösterir; farklıysa “Kulübü düzenle”den toplam ders sayısını ya da oturum planını düzeltin.
+        </p>
+      ) : null}
       <Card>
         <div className="mb-3 flex items-center justify-between gap-2">
           <h2 className="text-sm font-semibold">Üyeler ({active.length})</h2>
@@ -167,7 +200,8 @@ export default async function KulupDetayPage({ params }: { params: Promise<{ clu
                       </td>
                       <td className="py-2 pr-3 tabular-nums text-[var(--color-text-muted)]">
                         {ymdTr(m.startDate)}
-                        <div><ClubMemberDates membershipId={m.id} startDate={m.startDate} /></div>
+                        {m.endDate ? <span className="block text-[11px]">Sonlanma: {ymdTr(m.endDate)}</span> : null}
+                        <div><ClubMemberDates membershipId={m.id} startDate={m.startDate} endDate={m.endDate} /></div>
                       </td>
                       <td className="py-2 pr-3 tabular-nums">
                         {m.includedByMembershipIds?.length ? "Dahil (0 ₺)" : formatMoney(m.monthlyFee)}
@@ -183,7 +217,15 @@ export default async function KulupDetayPage({ params }: { params: Promise<{ clu
                         {debt > 0 ? formatMoney(debt) : "—"}
                       </td>
                       <td className="py-2 text-right">
-                        <ClubMemberEnd membershipId={m.id} studentName={studentName(m.studentId)} />
+                        <span className="inline-flex flex-col items-end gap-1">
+                          {/* Sonlanma tarihi planlı (gelecek) üyelikte sonlandırma eylemi yok — tarih "Tarihleri düzelt"ten değişir. */}
+                          {membershipEndScheduled(m, today) ? (
+                            <span className="text-[11px] text-[var(--color-text-muted)]">{ymdTr(m.endDate!)} tarihinde sona erecek</span>
+                          ) : (
+                            <ClubMemberEnd membershipId={m.id} studentName={studentName(m.studentId)} />
+                          )}
+                          <ClubMemberDelete membershipId={m.id} studentName={studentName(m.studentId)} clubName={club.name} />
+                        </span>
                       </td>
                     </tr>
                   );
@@ -194,7 +236,7 @@ export default async function KulupDetayPage({ params }: { params: Promise<{ clu
         )}
         {club.active ? (
           <div className="mt-4 border-t border-[var(--color-border)] pt-4">
-            <ClubMemberAdd clubId={club.id} candidates={candidates} full={active.length >= club.maxMembers} />
+            <ClubMemberAdd clubId={club.id} full={active.length >= club.maxMembers} />
           </div>
         ) : null}
       </Card>
@@ -229,13 +271,16 @@ export default async function KulupDetayPage({ params }: { params: Promise<{ clu
           <summary className="cursor-pointer text-sm font-semibold">Ayrılan üyeler ({past.length})</summary>
           <ul className="mt-2 divide-y divide-[var(--color-border)] text-sm">
             {past.map((m) => (
-              <li key={m.id} className="flex justify-between py-1.5">
-                <span>{studentName(m.studentId)}</span>
+              <li key={m.id} className="flex flex-wrap items-start justify-between gap-2 py-1.5">
+                <span>
+                  {studentName(m.studentId)} <span className="text-[11px] text-[var(--color-text-muted)]">· Sonlandı</span>
+                </span>
                 <span className="tabular-nums text-[var(--color-text-muted)]">
                   <ClubMemberDates membershipId={m.id} startDate={m.startDate} endDate={m.endDate} />{" "}
                   {ymdTr(m.startDate)} – {m.endDate ? ymdTr(m.endDate) : ""}
                   {clubDebt(m.id) > 0 ? <span style={{ color: "var(--color-danger)" }}> · açık {formatMoney(clubDebt(m.id))}</span> : null}
                 </span>
+                <ClubMemberDelete membershipId={m.id} studentName={studentName(m.studentId)} clubName={club.name} />
               </li>
             ))}
           </ul>

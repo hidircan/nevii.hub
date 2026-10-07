@@ -2448,7 +2448,8 @@ model Club {
   deletedByUserId String?
   deletionReason  String?
   /// 2026-10-07 — Grup dersi başvuru portalı. Hepsi eklemeli; mevcut kulüpler başvuruya KAPALI kalır.
-  /// "child" | "adult" (boş = belirtilmemiş; başvuruya açmak için zorunlu).
+  /// "child" | "youth" (Genç, 2026-10-07) | "adult" (boş = belirtilmemiş; başvuruya açmak için zorunlu). Serbest metin
+  /// kolon: geçerli değerler uygulama katmanında (clubs.ts CLUB_AUDIENCES) doğrulanır — DB enum/kısıt yok.
   audience              String?
   minAge                Int?
   maxAge                Int?
@@ -2459,6 +2460,11 @@ model Club {
   scheduleText          String?
   /// "monthly" | "term" | "total" — `monthlyFee` alanındaki tutarın niteliği. Aylık tahakkuk yalnız "monthly".
   feePeriod             String           @default("monthly")
+  /// 2026-10-07 — "Ödeme alınacak ay sayısı" (yalnız aylık): üyeliğin başlangıç ayı 1. ay; sonrası tahakkuk etmez.
+  /// NULL = üyelik sonlanana kadar her ay (önceki davranış). Yazılmış ücret satırlarını DEĞİŞTİRMEZ.
+  feeMonths             Int?
+  /// 2026-10-07 — Başvuranlara gösterilen "Toplam ders sayısı" (yönetici girer; NULL = belirtilmemiş, 0 gösterilmez).
+  totalLessons          Int?
   /// Halka açık "pakete dahil olanlar" metni.
   includesText          String?
   /// Yalnız panelde görünen yönetim notu (halka açık yanıta ASLA girmez).
@@ -2488,7 +2494,8 @@ model ClubMembership {
   monthlyFee      Int
   /// YYYY-MM-DD — ilk ücretli ay bu tarihin ayı.
   startDate       String
-  /// YYYY-MM-DD — son ücretli ay bu tarihin ayı; boş = devam ediyor.
+  /// YYYY-MM-DD — SONLANMA günü (2026-10-07): bu günden itibaren aktif değildir (clubs.ts isMembershipActive).
+  /// Sonlanma ayı, ayın 1'i değilse son ücretli aydır; boş = devam ediyor.
   endDate         String?
   createdByUserId String
   createdAt       DateTime  @default(now())
