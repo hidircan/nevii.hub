@@ -16,7 +16,8 @@ export const DEFAULT_STUDENT_CONTRACT_EXPIRY_DAYS = 15;
 /** Olay başına tek bildirim — pencere, en uzun sözleşmeden uzun. */
 const DEDUPE_WINDOW_MS = 400 * 24 * 60 * 60 * 1000;
 
-export type ContractSummaryLike = { contractId: string; status: string; enrollmentEndDate: string };
+/** 2026-10-09 — `branchLabel`: çok branşlı öğrencide sözleşmenin branşı (bildirim hangi sözleşme olduğunu söyler). */
+export type ContractSummaryLike = { contractId: string; status: string; enrollmentEndDate: string; branchLabel?: string };
 
 export type ContractExpiryCandidate = {
   studentId: string;
@@ -24,26 +25,39 @@ export type ContractExpiryCandidate = {
   contractId: string;
   endDate: string;
   daysLeft: number;
+  branchLabel?: string;
 };
 
-/** Saf: bitişine 0..windowDays gün kalan güncel sözleşmeler. Sözleşmesiz/bitişsiz/pasif öğrenci güvenle atlanır. */
+/**
+ * Saf: bitişine 0..windowDays gün kalan güncel sözleşmeler. Sözleşmesiz/bitişsiz/pasif öğrenci güvenle atlanır.
+ * 2026-10-09 — çok branşlı öğrencide değer BRANŞ başına güncel sözleşme listesidir; her biri ayrı değerlendirilir.
+ */
 export function findExpiringStudentContracts(
   students: Pick<Student, "id" | "name" | "active">[],
-  summaries: Map<string, ContractSummaryLike>,
+  summaries: Map<string, ContractSummaryLike | ContractSummaryLike[]>,
   todayYmd: string,
   windowDays: number
 ): ContractExpiryCandidate[] {
   const out: ContractExpiryCandidate[] = [];
   for (const student of students) {
     if (student.active === false) continue;
-    const c = summaries.get(student.id);
-    // Taslak henüz yürürlükte değil; iptal/yenilenmiş sözleşme güncel değil.
-    if (!c || c.status === "draft" || isTerminalContractStatus(c.status)) continue;
-    const endDate = /^\d{4}-\d{2}-\d{2}/.exec(c.enrollmentEndDate ?? "")?.[0];
-    if (!endDate) continue;
-    const daysLeft = calendarDaysBetween(todayYmd, endDate);
-    if (daysLeft < 0 || daysLeft > windowDays) continue;
-    out.push({ studentId: student.id, studentName: student.name, contractId: c.contractId, endDate, daysLeft });
+    const entry = summaries.get(student.id);
+    for (const c of Array.isArray(entry) ? entry : entry ? [entry] : []) {
+      // Taslak henüz yürürlükte değil; iptal/yenilenmiş sözleşme güncel değil.
+      if (c.status === "draft" || isTerminalContractStatus(c.status)) continue;
+      const endDate = /^\d{4}-\d{2}-\d{2}/.exec(c.enrollmentEndDate ?? "")?.[0];
+      if (!endDate) continue;
+      const daysLeft = calendarDaysBetween(todayYmd, endDate);
+      if (daysLeft < 0 || daysLeft > windowDays) continue;
+      out.push({
+        studentId: student.id,
+        studentName: student.name,
+        contractId: c.contractId,
+        endDate,
+        daysLeft,
+        ...(c.branchLabel ? { branchLabel: c.branchLabel } : {}),
+      });
+    }
   }
   return out;
 }
@@ -54,7 +68,7 @@ export function contractExpiryNotificationText(c: ContractExpiryCandidate): { ti
   return {
     title: "Öğrenci sözleşmesi bitiyor",
     body:
-      `${c.studentName} adlı öğrencinin sözleşmesi ${when}. Yenileme veya uzatma için öğrencinin sözleşme bölümünü kontrol edin. ` +
+      `${c.studentName} adlı öğrencinin ${c.branchLabel ? `${c.branchLabel} branşı ` : ""}sözleşmesi ${when}. Yenileme veya uzatma için öğrencinin sözleşme bölümünü kontrol edin. ` +
       `Detay: /panel/ogrenciler/${c.studentId}?sozlesme=${c.contractId}&bitis=${c.endDate}`,
   };
 }
@@ -77,7 +91,24 @@ export async function runStudentContractExpiryCheck(
   ]);
   const days = parseExpiryDays((await resolveSetting({ tenantId }, STUDENT_CONTRACT_EXPIRY_SETTING_KEY))?.effectiveValue);
   const data = await readReferenceData();
-  const summaries = await listContractSummariesByStudent(tenantId);
+  const summaries: Map<string, ContractSummaryLike | ContractSummaryLike[]> = await listContractSummariesByStudent(tenantId);
+  // 2026-10-09 — çok branşlı öğrencide her branşın güncel sözleşmesi ayrı değerlendirilir (biri diğerini gizlemez).
+  const { listContractSummaryRows } = await import("./contracts");
+  const { selectCurrentContract } = await import("./contract-list-helpers");
+  const { contractEnrollmentId, effectiveEnrollments, enrollmentDisplayName } = await import("./student-enrollments");
+  const rows = await listContractSummaryRows(tenantId);
+  for (const st of data.students) {
+    const branches = effectiveEnrollments(st, data.teachers);
+    if (branches.length < 2) continue;
+    const own = rows.filter((r) => r.studentId === st.id).map((r) => ({ ...r, id: r.contractId }));
+    const perBranch: ContractSummaryLike[] = [];
+    for (const e of branches) {
+      if (!e.active) continue;
+      const current = selectCurrentContract(own.filter((r) => contractEnrollmentId(st, r, data.teachers) === e.id));
+      if (current) perBranch.push({ ...current, branchLabel: enrollmentDisplayName(e, branches, data.teachers) });
+    }
+    summaries.set(st.id, perBranch);
+  }
   const candidates = findExpiringStudentContracts(data.students, summaries, toZonedYmd(now, DEFAULT_APP_TIMEZONE), days);
   const result = { candidates: candidates.length, created: 0, duplicates: 0, skipped: 0, failed: 0 };
   for (const c of candidates) {

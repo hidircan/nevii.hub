@@ -366,7 +366,15 @@ export function AttendanceCalendarPanel({
   readOnly = false,
   studentActive = true,
   showWeekdayLabels = true,
+  branches = [],
+  initialBranchId,
 }: {
+  /**
+   * 2026-10-09 — öğrencinin branş kayıtları. 2+ ise takvim, ay tutarı ve ay kutusu tahsilatı SEÇİLEN branşın
+   * dersleri/sözleşmesi/ödemeleriyle çalışır (Keman tahsilatı Piyano ayını kapatmaz). Tek branşta seçici görünmez.
+   */
+  branches?: { id: string; label: string }[];
+  initialBranchId?: string;
   studentId: string;
   /** Öğrencinin kayıtlı dönemi — ilk açılışta seçili dönem olarak kullanılır, kullanıcı değiştirebilir. */
   termType: string;
@@ -398,6 +406,12 @@ export function AttendanceCalendarPanel({
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const multiBranch = branches.length > 1;
+  const [branchId, setBranchId] = useState<string | undefined>(() =>
+    branches.some((b) => b.id === initialBranchId) ? initialBranchId : branches[0]?.id
+  );
+  /** Branş sorgu parametresi — branş listesi verildiyse her istekte gönderilir (sunucu doğrular). */
+  const branchQuery = branchId ? `&enrollmentId=${encodeURIComponent(branchId)}` : "";
 
   const studentDefaultTerm: AttendanceTerm = termType === "yaz" ? "yaz" : "guz";
   const urlTerm = searchParams.get("attTerm");
@@ -494,7 +508,7 @@ export function AttendanceCalendarPanel({
       setByMonth({});
       try {
         const res = await apiFetch(
-          `/api/v1/attendance-calendar/term?studentId=${studentId}&term=${term}&anchorYear=${anchorYear}`,
+          `/api/v1/attendance-calendar/term?studentId=${studentId}&term=${term}&anchorYear=${anchorYear}${branchQuery}`,
           { signal }
         );
         const json = (await res.json()) as { ok: boolean; data?: { months: MonthResponse[] } };
@@ -518,7 +532,7 @@ export function AttendanceCalendarPanel({
       }
       setLoading(false);
     },
-    [studentId, term, anchorYear]
+    [studentId, term, anchorYear, branchQuery]
   );
 
   const runLoadMonths = useCallback(() => {
@@ -583,7 +597,7 @@ export function AttendanceCalendarPanel({
       void (async () => {
         try {
           const res = await apiFetch(
-            `/api/v1/attendance-calendar/month?studentId=${studentId}&year=${month.year}&month=${month.month}`
+            `/api/v1/attendance-calendar/month?studentId=${studentId}&year=${month.year}&month=${month.month}${branchQuery}`
           );
           const json = (await res.json()) as { ok: boolean; data?: MonthResponse };
           if (json.ok && json.data) setByMonth((prev) => ({ ...prev, [key]: json.data! }));
@@ -592,7 +606,7 @@ export function AttendanceCalendarPanel({
         }
       })();
     },
-    [byMonth, studentId]
+    [byMonth, studentId, branchQuery]
   );
 
   async function onToggleOverride(day: DayInfo) {
@@ -615,7 +629,7 @@ export function AttendanceCalendarPanel({
       }
       const [y, m] = day.date.split("-");
       const res2 = await apiFetch(
-        `/api/v1/attendance-calendar/month?studentId=${studentId}&year=${y}&month=${Number(m)}`
+        `/api/v1/attendance-calendar/month?studentId=${studentId}&year=${y}&month=${Number(m)}${branchQuery}`
       );
       const json2 = (await res2.json()) as { ok: boolean; data?: MonthResponse };
       if (json2.ok && json2.data) {
@@ -674,6 +688,7 @@ export function AttendanceCalendarPanel({
           ...(dueDate ? { collectedAt: dueDate } : {}),
           ...(method ? { method } : {}),
           ...(note ? { note } : {}),
+          ...(branchId ? { enrollmentId: branchId } : {}),
         }),
       });
       const json = (await res.json()) as { ok: boolean; error?: { message: string } };
@@ -682,7 +697,7 @@ export function AttendanceCalendarPanel({
         return;
       }
       const res2 = await apiFetch(
-        `/api/v1/attendance-calendar/month?studentId=${studentId}&year=${year}&month=${month}`
+        `/api/v1/attendance-calendar/month?studentId=${studentId}&year=${year}&month=${month}${branchQuery}`
       );
       const json2 = (await res2.json()) as { ok: boolean; data?: MonthResponse };
       if (json2.ok && json2.data) {
@@ -699,6 +714,31 @@ export function AttendanceCalendarPanel({
 
   return (
     <div className="space-y-4">
+      {multiBranch ? (
+        <div role="group" aria-label="Branş" className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-medium text-[var(--color-text-muted)]">Branş:</span>
+          {branches.map((b) => (
+            <button
+              key={b.id}
+              type="button"
+              aria-pressed={b.id === branchId}
+              onClick={() => {
+                setBranchId(b.id);
+                setSelectedDay(null);
+                setError(null);
+              }}
+              className={`rounded-full border px-3 py-1 text-xs font-medium ${
+                b.id === branchId
+                  ? "border-[var(--color-primary)] bg-[var(--color-primary)] text-[var(--color-text-inverted)]"
+                  : "border-[var(--color-border)] text-[var(--color-text)] hover:border-[var(--color-primary)]"
+              }`}
+            >
+              {b.label}
+            </button>
+          ))}
+          <span className="text-[11px] text-[var(--color-text-muted)]">Dersler, ay tutarı ve ay kutusu tahsilatı yalnız seçilen branşa aittir.</span>
+        </div>
+      ) : null}
       {canEdit && !readOnly ? (
         <Link
           href={`/panel/odemeler/${studentId}`}

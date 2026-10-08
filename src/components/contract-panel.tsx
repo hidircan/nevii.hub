@@ -658,7 +658,10 @@ function ContractForm({
   const isAmendment = reviseMode === true && !!previousContract;
   const isRenewal = !!previousContract && !isAmendment;
   // Revizyon taslağı, AYNI sözleşmenin yenileme taslağıyla çakışmasın diye ayrı anahtar kullanır.
-  const draftKey = `${studentId}:${previousContract?.id ?? "initial"}${isAmendment ? ":revize" : ""}`;
+  // 2026-10-09 — branş da anahtarda: Keman'ın yarım taslağı Piyano'nun ilk sözleşme formunu doldurmaz.
+  const draftEducations = registration?.educations ?? [];
+  const draftBranchId = (draftEducations.find((e) => e.primary) ?? draftEducations[0])?.id ?? "-";
+  const draftKey = `${studentId}:${draftBranchId}:${previousContract?.id ?? "initial"}${isAmendment ? ":revize" : ""}`;
   // Taslak yalnız bellekte: yenileme/sekme kapatma onu siler → kaydedilmemiş girdi varken tarayıcı uyarır.
   useEffect(() => {
     const warn = (event: BeforeUnloadEvent) => {
@@ -1050,6 +1053,8 @@ function ContractForm({
       installmentDueDateOverrides,
       firstPaymentAmount: needsFirstPaymentEntry && firstPaymentAmount !== "" ? firstPaymentAmount : undefined,
       studentId,
+      // 2026-10-09 — branşın dersleri ve ilk tahsilatı (yenileme/revizyonda sunucu önceki sözleşmenin branşını alır).
+      enrollmentId: contractEnrollmentId || undefined,
       enrollmentStartDate: toIsoDateOrNull(enrollmentStartDate) ?? undefined,
       enrollmentEndDate: toIsoDateOrNull(enrollmentEndDate) ?? undefined,
       lastPeriodPricingMode: usePerLessonBilling ? lastPeriodPricingMode : undefined,
@@ -1355,7 +1360,7 @@ function ContractForm({
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {!isAmendment && !isRenewal && educations.length > 1 ? (
           <div className="sm:col-span-2">
-            <Label>Sözleşmenin eğitimi</Label>
+            <Label>Sözleşmenin branşı</Label>
             <Select
               value={contractEnrollmentId}
               onChange={(e) => {
@@ -1371,7 +1376,7 @@ function ContractForm({
               ))}
             </Select>
             <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">
-              Öğrencinin birden fazla eğitimi var; her eğitimin sözleşmesi ve taksitleri ayrı izlenir, ödemeler öğrenci bazında toplanır.
+              Öğrencinin birden fazla branş kaydı var; her branşın sözleşmesi, taksitleri ve tahsilatı ayrı izlenir.
             </p>
           </div>
         ) : null}

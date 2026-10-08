@@ -3,6 +3,7 @@ import { actionCancelMakeup, actionConfirmSlot } from "@/lib/actions";
 import { Badge, Card, EmptyState, PageHeader, Pagination } from "@/components/ui";
 import { foldTurkishForSearch } from "@/lib/normalize";
 import { buildStudentMakeupSummary, MAKEUP_STAGE_LABEL } from "@/lib/makeup-student-summary";
+import { effectiveEnrollments, enrollmentDisplayName } from "@/lib/student-enrollments";
 import { MakeupDecisionForm } from "@/components/makeup-decision-form";
 import { GenerateSuggestionsForm } from "@/components/generate-suggestions-form";
 import { ManualMakeupPlanForm } from "@/components/manual-makeup-plan-form";
@@ -217,14 +218,23 @@ export default async function TelafiPage({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[var(--color-border)]">
-                  {summaryStudents.map((st) => {
-                    const sum = buildStudentMakeupSummary(data, st.id, now);
+                  {summaryStudents.flatMap((st) => {
+                    // 2026-10-09 — telafi hakkı branş başınadır: çok branşlı öğrencide her branş ayrı satır.
+                    const studentRow = data.students.find((x) => x.id === st.id);
+                    const branches = studentRow ? effectiveEnrollments(studentRow, data.teachers) : [];
+                    const targets: { key: string; enrollmentId?: string; label?: string }[] =
+                      branches.length > 1
+                        ? branches.map((e) => ({ key: `${st.id}:${e.id}`, enrollmentId: e.id, label: enrollmentDisplayName(e, branches, data.teachers) }))
+                        : [{ key: st.id }];
+                    return targets.map((t) => ({ st, t, sum: buildStudentMakeupSummary(data, st.id, now, t.enrollmentId) }));
+                  }).map(({ st, t, sum }) => {
                     return (
-                      <tr key={st.id}>
+                      <tr key={t.key}>
                         <td className="px-3 py-2">
-                          <Link href={`/panel/ogrenciler/${st.id}/program#telafiler`} className="font-medium text-[var(--color-primary)] hover:underline">
+                          <Link href={`/panel/ogrenciler/${st.id}/program${t.enrollmentId ? `?brans=${encodeURIComponent(t.enrollmentId)}` : ""}#telafiler`} className="font-medium text-[var(--color-primary)] hover:underline">
                             {st.name}
                           </Link>
+                          {t.label ? <span className="ml-1 text-[var(--color-text-muted)]">· {t.label}</span> : null}
                         </td>
                         <td className="px-3 py-2">
                           {sum.quota.remaining} / {sum.quota.allowance}

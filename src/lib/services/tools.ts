@@ -20,6 +20,7 @@ import {
   addBranch,
   addLesson,
   addLessonSeries,
+  EnrollmentRequiredError,
   addPayment,
   addRoom,
   updateRoom,
@@ -478,6 +479,7 @@ import {
   type StudentFeedback,
   type StudentFeedbackStatus,
   type StudentType,
+  STUDENT_TYPES,
   type Teacher,
   type TeacherAvailabilityRequest,
   type TeacherFeedback,
@@ -2683,8 +2685,25 @@ export async function createStudentTool(
       ...studentInput
     } = v.data;
     const ids = new Set(before.students.map((s) => s.id));
+    // 2026-10-09 — ilk branş baştan KALICI branş kaydıdır (açık kimlik): kayıt ilk tahsilatı ve sonraki sözleşme/ders
+    // kayıtları buna açıkça bağlanır; sonradan eklenen branşlar onunla eşittir (ana/yedek ayrımı yok).
+    const firstEnrollmentId = uid("enr");
     await addStudent({
       ...studentInput,
+      enrollments: [
+        {
+          id: firstEnrollmentId,
+          instrument: v.data.instrument as Instrument,
+          teacherId: v.data.teacherId,
+          branchId: v.data.branchId as BranchId,
+          lessonDurationMinutes: v.data.lessonDurationMinutes,
+          weeklyLessonCount: v.data.weeklyLessonCount,
+          active: true,
+          primary: true,
+          startDate: v.data.enrollmentStartDate?.slice(0, 10),
+          createdAt: new Date().toISOString(),
+        },
+      ],
       instruments: [v.data.instrument as Instrument],
       // P0 (2026-09-05) — `accountResponsibility`e göre yalnız BİR taraf
       // (veli/öğrenci) telefon girmek zorunda (bkz. validation.ts studentSchema
@@ -2787,6 +2806,7 @@ export async function createStudentTool(
           note: firstPaymentCollected.note,
           receivedByUserId: ctx.userId,
           firstCollectionIncludesNextMonth: includesNextMonth,
+          enrollmentId: created.enrollments?.[0]?.id ?? firstEnrollmentId,
           // P0-1B — yalnız GERÇEK bir manuel düzeltme varsa dolu; otomatik
           // tutarla birebir eşleşen normal bir ilk ödemede bu dört alan da
           // undefined kalır (bkz. Payment.autoSuggestedAmount yorumu).
@@ -2901,32 +2921,57 @@ export async function createStudentTool(
  * değiştirmez — o alanlar için ayrı bir yol yok (mevcut kapsam dışı).
  */
 /**
- * 2026-10-04 — öğrencinin bir eğitimini ekler/günceller/kapatır (tek öğrenci, N eğitim). Eski tek eğitimli kayıtta
- * ilk düzenlemede mevcut eğitim(ler) kalıcı kayda dönüşür (veri kaybı yok). Öğretmen değişikliği yalnız eğitimi
- * etkiler; geçmiş derslerin öğretmeni DEĞİŞMEZ. Eğitim silinmez — `active:false`. Öğrencinin eski tekil alanları
- * (instruments / teacherId / lessonDurationMinutes) birincil eğitimden senkronlanır.
+ * 2026-10-04 — öğrencinin bir eğitimini ekler/günceller/kapatır (tek öğrenci, N eğitim).
+ * 2026-10-09 — BRANŞ KAYDI: her ek branş kendi öğrenci türü, paketi/ücreti, indirimi, ödeme yöntemi/günü, kayıt ve ders
+ * başlangıç tarihleri, ders gün/saati ve sözleşme süresiyle tutulur; birini değiştirmek diğerini EZMEZ. Ana kaydın
+ * (öğrenci satırındaki eski alanların sahibi) koşulları Bilgiler / Ödeme profili ekranlarından değişir; burada yalnız
+ * öğretmen/süre/haftalık ders. İkinci branş eklenmeden ÖNCE bağsız eski kayıtlar mevcut tek branşa bağlanır.
+ * Kayıt silinmez — sonlandırma `active:false` + bitiş tarihi + gerekçe; öğrencinin başka aktif branşı etkilenmez.
  */
+const ymdSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Tarihi takvimden seçin.");
+const enrollmentInputSchema = z.object({
+  id: z.string().min(1).optional(),
+  instrument: z.string().min(1, "Enstrüman seçin."),
+  teacherId: z.string().min(1, "Öğretmen seçin."),
+  lessonDurationMinutes: z.coerce.number().refine((n) => [30, 40, 50].includes(n), "Ders süresi 30, 40 veya 50 dakika olmalı."),
+  weeklyLessonCount: z.coerce.number().int().min(1, "Haftalık ders sayısı en az 1 olmalı.").max(7).optional(),
+  branchId: z.string().min(1).optional(),
+  active: z.boolean().optional(),
+  /** Geriye uyum — yok sayılır: ana kayıt sabittir (bkz. student-enrollments.ts primaryEnrollmentOf). */
+  primary: z.boolean().optional(),
+  studentTypes: z
+    .array(z.string())
+    .max(STUDENT_TYPES.length)
+    .refine((xs) => xs.every((x) => (STUDENT_TYPES as string[]).includes(x)), "Geçersiz öğrenci türü; listeden seçin.")
+    .optional(),
+  packageId: z.string().max(100).optional(),
+  monthlyFee: z.coerce.number().int("Aylık ücret tam TL olmalı.").min(0, "Aylık ücret negatif olamaz.").max(1_000_000).optional(),
+  /** "none" = mevcut indirimi kaldır. */
+  discountType: z.enum(["percent", "amount", "none"]).optional(),
+  discountValue: z.coerce.number().min(0).optional(),
+  monthlyFeeOverrideAmount: z.coerce.number().int().min(0).optional(),
+  /** true = mevcut elle girilmiş aylık ücreti kaldır (paket fiyatına dön). */
+  dropFeeOverride: z.boolean().optional(),
+  monthlyFeeOverrideReason: z.string().trim().max(300).optional(),
+  paymentMethod: z.enum(["credit_card", "cash", "transfer"]).optional(),
+  paymentDueDay: z.coerce.number().int().min(1).max(31).optional(),
+  startDate: ymdSchema.optional(),
+  lessonStartDate: ymdSchema.optional(),
+  lessonScheduleText: z.string().trim().max(200).optional(),
+  intendedDurationMonths: z.coerce.number().int().min(1).max(12).optional(),
+  endDate: ymdSchema.optional(),
+  endReason: z.string().trim().max(300).optional(),
+});
+
 export async function upsertStudentEnrollmentTool(
   ctx: ServiceContext,
   input: unknown
-): Promise<ServiceResult<{ studentId: string; enrollmentId: string; enrollments: import("../types").StudentEnrollment[] }>> {
+): Promise<
+  ServiceResult<{ studentId: string; enrollmentId: string; enrollments: import("../types").StudentEnrollment[]; warnings?: string[] }>
+> {
   const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
-  if (!auth.ok) return fail("FORBIDDEN", "Eğitim kayıtlarını yalnız kurum yöneticisi veya kurum sahibi düzenleyebilir.");
-  const v = parseOrFail(
-    z.object({
-      studentId: z.string().min(1),
-      enrollment: z.object({
-        id: z.string().min(1).optional(),
-        instrument: z.string().min(1, "Enstrüman seçin."),
-        teacherId: z.string().min(1, "Öğretmen seçin."),
-        lessonDurationMinutes: z.coerce.number().refine((n) => [30, 40, 50].includes(n), "Ders süresi 30, 40 veya 50 dakika olmalı."),
-        weeklyLessonCount: z.coerce.number().int().min(1).max(7).optional(),
-        active: z.boolean().optional(),
-        primary: z.boolean().optional(),
-      }),
-    }),
-    input
-  );
+  if (!auth.ok) return fail("FORBIDDEN", "Branş kayıtlarını yalnız kurum yöneticisi veya kurum sahibi düzenleyebilir.");
+  const v = parseOrFail(z.object({ studentId: z.string().min(1), enrollment: enrollmentInputSchema }), input);
   if (!v.ok) return v;
   const data = await readData();
   const student = data.students.find((st) => st.id === v.data.studentId);
@@ -2943,52 +2988,287 @@ export async function upsertStudentEnrollmentTool(
   if (!teacher.instruments.includes(e.instrument as Instrument)) {
     return fail("VALIDATION_ERROR", `${teacher.name} "${e.instrument}" eğitimi vermiyor. Bu enstrümanı veren bir öğretmen seçin veya öğretmen kartına enstrümanı ekleyin.`);
   }
-  const { effectiveEnrollments, primaryFieldsFromEnrollments } = await import("../student-enrollments");
+  if (e.branchId && !data.settings.branches.some((b) => b.id === e.branchId)) {
+    return fail("VALIDATION_ERROR", "Seçilen şube bulunamadı. Listeden geçerli bir şube seçin.");
+  }
+  const { primaryFieldsFromEnrollments, primaryEnrollmentOf, LEGACY_ENROLLMENT_PREFIX } = await import("../student-enrollments");
+  const { ensurePersistedEnrollments, linkStudentHistoryToEnrollment, materializedEnrollmentId } = await import("../enrollment-links");
   const nowIso = new Date().toISOString();
-  // Eski kayıt → kalıcı eğitim kayıtlarına dönüşür (aynı değerlerle; dersler enstrümandan eşleşmeye devam eder).
-  let list: import("../types").StudentEnrollment[] = effectiveEnrollments(student, data.teachers).map(({ legacy, ...rest }) => {
-    void legacy;
-    return rest.id.startsWith("legacy:") ? { ...rest, id: uid("enr") } : rest;
-  });
-  const existing = e.id ? list.find((x) => x.id === e.id || (e.id!.startsWith("legacy:") && x.instrument === e.id!.split(":").pop())) : undefined;
-  if (e.id && !existing) return fail("NOT_FOUND", "Düzenlenen eğitim bulunamadı. Sayfayı yenileyip tekrar deneyin.");
-  const nextActive = e.active ?? true;
+  const todayYmd = toZonedYmd(new Date(), resolveAppTimezone());
+  // Eski kayıt → kalıcı branş kayıtları (deterministik kimlik; tek branşlıysa bağsız kayıtlar ona bağlanır).
+  let list: import("../types").StudentEnrollment[] = await ensurePersistedEnrollments(ctx.tenantId, student, data.teachers);
+  const targetId = e.id?.startsWith(LEGACY_ENROLLMENT_PREFIX) ? materializedEnrollmentId(student.id, e.id.split(":").pop() ?? "") : e.id;
+  const existing = targetId ? list.find((x) => x.id === targetId) : undefined;
+  if (e.id && !existing) return fail("NOT_FOUND", "Düzenlenen branş kaydı bulunamadı. Sayfayı yenileyip tekrar deneyin.");
+  if (existing && existing.instrument !== e.instrument) {
+    return fail("VALIDATION_ERROR", "Mevcut branş kaydının enstrümanı değiştirilemez (geçmiş ders/sözleşme bu kayda bağlı). Yeni enstrüman için \"Branş kaydı ekle\" ile ayrı kayıt açın.");
+  }
+  const nextActive = e.active ?? existing?.active ?? true;
+  // Çift gönderim (aynı satır 60 sn içinde ikinci kez) ≠ meşru ek branş: ilki sessizce döner, ikinci kayıt açılmaz.
   const duplicate = list.find(
     (x) => x.id !== existing?.id && x.active && nextActive && x.instrument === e.instrument && x.teacherId === e.teacherId
   );
   if (duplicate) {
-    return fail("CONFLICT", `Bu öğrencinin ${teacher.name} ile aktif bir ${e.instrument} eğitimi zaten var. Mevcut eğitimi düzenleyin.`);
+    if (!existing && Date.now() - new Date(duplicate.createdAt).getTime() <= 60_000 && duplicate.lessonDurationMinutes === e.lessonDurationMinutes) {
+      return ok({ studentId: student.id, enrollmentId: duplicate.id, enrollments: list });
+    }
+    return fail("CONFLICT", `Bu öğrencinin ${teacher.name} ile aktif bir ${e.instrument} branş kaydı zaten var. Mevcut kaydı düzenleyin; farklı öğretmenle ayrı bir ${e.instrument} kaydı gerekiyorsa öğretmeni değiştirin.`);
   }
+  // İç depolama ayrıntısı (kullanıcıya görünmez): ilk branşın koşulları eski ekranlar bozulmasın diye öğrenci
+  // satırındaki alanlarda durur; diğer branşlarınki kendi kaydında. Tüm branşlar AYNI formdan, AYNI kuralla düzenlenir.
+  const anchor = primaryEnrollmentOf(list);
+  const isAnchor = !!existing && existing.id === anchor?.id;
+  const { enrollmentTerms } = await import("../student-enrollments");
+  const current = existing ? enrollmentTerms(student, existing, data.teachers) : undefined;
+
+  const weekly = e.weeklyLessonCount ?? current?.weeklyLessonCount ?? 1;
+  const packageId = e.packageId !== undefined ? e.packageId || undefined : current?.packageId;
+  let monthlyFee = e.monthlyFee ?? current?.monthlyFee ?? 0;
+  let packageName: string | undefined = packageId === current?.packageId ? current?.packageName : undefined;
+  let packageBaseMonthlyFee: number | undefined;
+  let discountType: Student["discountType"] = e.discountType === "none" ? undefined : (e.discountType ?? current?.discountType);
+  let discountValue = e.discountType === "none" ? undefined : (e.discountValue ?? current?.discountValue);
+  let manualOverride = false;
+  let overrideReason: string | undefined;
+  if (!packageId && ((e.discountType && e.discountType !== "none") || e.discountValue !== undefined || e.monthlyFeeOverrideAmount !== undefined)) {
+    return fail("VALIDATION_ERROR", "İndirim/manuel ücret yalnızca bir paket seçildiğinde uygulanabilir. Paket seçin veya aylık ücreti doğrudan yazın.");
+  }
+  if (packageId) {
+    const pkg = (data.packages ?? []).find((pk) => pk.id === packageId && (pk.status === "active" || pk.id === current?.packageId));
+    if (!pkg) return fail("VALIDATION_ERROR", "Seçilen paket bulunamadı veya aktif değil. Paketler ekranından aktif bir paket seçin.");
+    if (e.monthlyFeeOverrideAmount !== undefined && (e.monthlyFeeOverrideReason ?? "").length < 3) {
+      return fail("VALIDATION_ERROR", "Aylık ücreti elle değiştirirken gerekçe yazın (en az 3 karakter).");
+    }
+    const keepOverride =
+      !e.dropFeeOverride &&
+      e.monthlyFeeOverrideAmount === undefined &&
+      current?.monthlyFeeManualOverride &&
+      packageId === current?.packageId &&
+      e.lessonDurationMinutes === current?.lessonDurationMinutes;
+    const computation = computeMonthlyFee({
+      pkg,
+      durationMinutes: e.lessonDurationMinutes as LessonDurationMinutes,
+      discountType,
+      discountValue,
+      overrideAmount: e.monthlyFeeOverrideAmount ?? (keepOverride ? current?.monthlyFee : undefined),
+    });
+    monthlyFee = computation.finalMonthlyFee;
+    packageBaseMonthlyFee = computation.baseMonthlyFee;
+    packageName = pkg.title;
+    manualOverride = computation.source === "override";
+    overrideReason = manualOverride ? e.monthlyFeeOverrideReason || current?.monthlyFeeOverrideReason : undefined;
+  } else {
+    packageName = undefined;
+    discountType = undefined;
+    discountValue = undefined;
+  }
+  const { derivePerLessonAmount } = await import("../period-lesson-billing");
+  if (e.lessonScheduleText?.trim()) {
+    const { parseLessonScheduleText } = await import("../lesson-schedule-text");
+    if (parseLessonScheduleText(e.lessonScheduleText).length === 0) {
+      return fail("VALIDATION_ERROR", "Ders gün/saati okunamadı. \"Salı 15:00, Perşembe 16:00\" biçiminde yazın.");
+    }
+  }
+  const studentTypesNext = (e.studentTypes as StudentType[] | undefined) ?? current?.studentTypes ?? [];
+  const paymentDueDay = e.paymentDueDay ?? current?.paymentDueDay;
+  const termValues = {
+    weeklyLessonCount: weekly,
+    studentTypes: studentTypesNext,
+    packageId,
+    packageName,
+    monthlyFee,
+    packageBaseMonthlyFee,
+    discountType,
+    discountValue,
+    monthlyFeeManualOverride: manualOverride || undefined,
+    monthlyFeeOverrideReason: overrideReason,
+    derivedPerLessonAmount: monthlyFee > 0 ? derivePerLessonAmount(monthlyFee, weekly) : undefined,
+    paymentMethod: e.paymentMethod ?? current?.paymentMethod,
+    paymentDueDay,
+    lessonStartDate: e.lessonStartDate ?? current?.lessonStartDate,
+    lessonScheduleText: e.lessonScheduleText !== undefined ? e.lessonScheduleText || undefined : current?.lessonScheduleText,
+    intendedDurationMonths: e.intendedDurationMonths ?? current?.intendedDurationMonths,
+  };
+  // Kayda yazılacak koşullar (ilk branşta öğrenci satırına yazılır; kayıtta yalnız haftalık ders sayısı kalır).
+  const terms: Partial<import("../types").StudentEnrollment> = isAnchor ? { weeklyLessonCount: weekly } : termValues;
+  let anchorStudentPatch: StudentProfilePatch | undefined;
+  if (isAnchor) {
+    const dueChanged = e.paymentDueDay !== undefined && e.paymentDueDay !== current?.paymentDueDay;
+    anchorStudentPatch = {
+      studentTypes: termValues.studentTypes,
+      studentType: termValues.studentTypes[0],
+      monthlyFee: termValues.monthlyFee,
+      weeklyLessonCount: termValues.weeklyLessonCount,
+      packageName: termValues.packageName ?? "",
+      ...(termValues.packageId ? { packageId: termValues.packageId } : {}),
+      ...(termValues.packageBaseMonthlyFee !== undefined ? { packageBaseMonthlyFee: termValues.packageBaseMonthlyFee } : {}),
+      ...(termValues.discountType ? { discountType: termValues.discountType, discountValue: termValues.discountValue } : {}),
+      monthlyFeeManualOverride: manualOverride,
+      ...(overrideReason ? { monthlyFeeOverrideReason: overrideReason } : {}),
+      ...(termValues.derivedPerLessonAmount !== undefined ? { derivedPerLessonAmount: termValues.derivedPerLessonAmount } : {}),
+      ...(termValues.paymentMethod ? { paymentMethod: termValues.paymentMethod } : {}),
+      ...(dueChanged ? { paymentDueDay, paymentDueRanges: [{ start: paymentDueDay!, end: paymentDueDay! }] } : {}),
+      ...(termValues.lessonStartDate ? { lessonStartDate: termValues.lessonStartDate } : {}),
+      ...(termValues.lessonScheduleText ? { lessonScheduleText: termValues.lessonScheduleText } : {}),
+      ...(termValues.intendedDurationMonths ? { intendedDurationMonths: termValues.intendedDurationMonths } : {}),
+      ...(e.startDate ? { enrollmentStartDate: e.startDate } : {}),
+      clearFields: [
+        ...(termValues.packageId ? [] : (["packageId", "packageBaseMonthlyFee"] as const)),
+        ...(termValues.discountType ? [] : (["discountType", "discountValue"] as const)),
+        ...(overrideReason ? [] : (["monthlyFeeOverrideReason"] as const)),
+        ...(e.lessonScheduleText !== undefined && !termValues.lessonScheduleText ? (["lessonScheduleText"] as const) : []),
+      ],
+    };
+  }
+
+  const closing = !nextActive && (existing?.active ?? true);
+  const reopening = nextActive && existing && !existing.active;
+  const endDate = closing ? e.endDate ?? todayYmd : nextActive ? undefined : existing?.endDate;
   const record: import("../types").StudentEnrollment = {
     ...(existing ?? { id: uid("enr"), createdAt: nowIso }),
+    ...terms,
     instrument: e.instrument as Instrument,
     teacherId: e.teacherId,
-    branchId: existing?.branchId ?? student.branchId,
+    branchId: e.branchId ?? existing?.branchId ?? student.branchId,
     lessonDurationMinutes: e.lessonDurationMinutes,
-    weeklyLessonCount: e.weeklyLessonCount ?? existing?.weeklyLessonCount,
     active: nextActive,
-    primary: e.primary ?? existing?.primary ?? false,
+    primary: existing?.primary ?? (list.length === 0 ? true : false),
+    startDate: e.startDate ?? existing?.startDate ?? (existing ? undefined : todayYmd),
     updatedAt: nowIso,
-    ...(nextActive ? {} : { endDate: existing?.endDate ?? nowIso }),
+    endDate,
+    endReason: closing ? e.endReason || undefined : reopening ? undefined : existing?.endReason,
+    endedByUserId: closing ? ctx.userId : reopening ? undefined : existing?.endedByUserId,
   };
+  if (endDate && record.startDate && endDate < record.startDate) {
+    return fail("VALIDATION_ERROR", "Branş bitiş tarihi kayıt tarihinden önce olamaz. Bitiş tarihini düzeltin.");
+  }
+
+  // İkinci branş eklenmeden ÖNCE: bağsız eski kayıtlar mevcut TEK branşa bağlanır (o an belirsizlik yok).
+  if (!existing && list.length === 1) {
+    await linkStudentHistoryToEnrollment(ctx.tenantId, student.id, list[0]!);
+  }
   list = existing ? list.map((x) => (x.id === existing.id ? record : x)) : [...list, record];
-  if (record.primary && record.active) list = list.map((x) => (x.id === record.id ? x : { ...x, primary: false }));
   const active = list.filter((x) => x.active);
   if (active.length === 0) {
-    return fail("VALIDATION_ERROR", "Öğrencinin en az bir aktif eğitimi kalmalı. Öğrenci ayrılıyorsa öğrenciyi pasife alın.");
+    return fail("VALIDATION_ERROR", "Öğrencinin en az bir aktif branş kaydı kalmalı. Öğrenci kurumdan tamamen ayrılıyorsa öğrenciyi pasife alın.");
   }
-  if (!active.some((x) => x.primary)) list = list.map((x) => (x.id === active[0]!.id ? { ...x, primary: true } : x));
+  // Tek ana kayıt kuralı: hiç işaretli yoksa ilki (ana kayıt değişmez; kapansa da koşulları onda kalır).
+  if (!list.some((x) => x.primary)) list = list.map((x, i) => (i === 0 ? { ...x, primary: true } : x));
   const primaryFields = primaryFieldsFromEnrollments(list, student);
-  await updateStudentProfile(student.id, { enrollments: list, ...primaryFields });
-  audit(ctx, existing ? "student.enrollment_update" : "student.enrollment_add", "Student", student.id, {
+  await updateStudentProfile(student.id, { ...(anchorStudentPatch ?? {}), enrollments: list, ...primaryFields });
+
+  // Kapanan branşın açık işleri SESSİZCE iptal edilmez — kullanıcıya söylenir.
+  const warnings: string[] = [];
+  if (closing) {
+    const { lessonEnrollmentId } = await import("../student-enrollments");
+    const refreshed = { ...student, enrollments: list };
+    const futureLessons = data.lessons.filter(
+      (l) =>
+        l.studentId === student.id &&
+        l.status === "scheduled" &&
+        l.type !== "group" &&
+        l.startAt.slice(0, 10) > (endDate ?? todayYmd) &&
+        lessonEnrollmentId(refreshed, l, data.teachers) === record.id
+    ).length;
+    const liveContracts = (await listContractsForStudent(ctx.tenantId, student.id)).filter(
+      (c) => c.enrollmentId === record.id && c.status !== "cancelled" && c.status !== "superseded"
+    );
+    if (futureLessons > 0) {
+      warnings.push(`${record.instrument} branşının bitiş tarihinden sonra ${futureLessons} planlı dersi var; dersler otomatik iptal edilmedi. Ders Programı'ndan iptal edin.`);
+    }
+    if (liveContracts.length > 0) {
+      warnings.push(`${record.instrument} branşının aktif sözleşmesi var (${liveContracts.map((c) => c.contractNumber).join(", ")}); sözleşme ve taksitleri değişmedi. Gerekiyorsa Sözleşme Merkezi'nden iptal edin veya revize edin.`);
+    }
+  }
+  audit(ctx, existing ? (closing ? "student.enrollment_end" : "student.enrollment_update") : "student.enrollment_add", "Student", student.id, {
     enrollmentId: record.id,
     instrument: record.instrument,
     teacherId: record.teacherId,
     previousTeacherId: existing?.teacherId,
     lessonDurationMinutes: record.lessonDurationMinutes,
     active: record.active,
+    studentTypes: termValues.studentTypes,
+    packageId: termValues.packageId,
+    monthlyFee: termValues.monthlyFee,
+    previousMonthlyFee: current?.monthlyFee,
+    ...(closing ? { endDate: record.endDate, endReason: record.endReason } : {}),
   });
-  return ok({ studentId: student.id, enrollmentId: record.id, enrollments: list });
+  return ok({ studentId: student.id, enrollmentId: record.id, enrollments: list, ...(warnings.length ? { warnings } : {}) });
+}
+
+/**
+ * 2026-10-09 — "Branşa bağla": branşı belirtilmemiş (NULL) bir sözleşmeyi (tüm sürüm zinciriyle) veya sözleşmesiz
+ * bir ödeme satırını AÇIKÇA bir branş kaydına bağlar. Yalnız bağsız kayıt bağlanır; bir branşa bağlı kayıt başka
+ * branşa TAŞINMAZ (finansal geçmiş sessizce yer değiştirmez). Sözleşmenin taksitleri, serileri ve o serilerin
+ * dersleri de aynı branşa bağlanır.
+ */
+export async function assignRecordEnrollmentTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ contracts: number; payments: number; lessons: number; series: number }>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", "Kayıtları branşa yalnız kurum yöneticisi veya kurum sahibi bağlayabilir.");
+  const v = parseOrFail(
+    z
+      .object({
+        studentId: z.string().min(1),
+        enrollmentId: z.string().min(1, "Branş kaydını seçin."),
+        contractId: z.string().min(1).optional(),
+        paymentId: z.string().min(1).optional(),
+      })
+      .refine((x) => !!x.contractId !== !!x.paymentId, "Bağlanacak sözleşmeyi veya ödemeyi seçin."),
+    input
+  );
+  if (!v.ok) return v;
+  const data = await readData();
+  const student = data.students.find((st) => st.id === v.data.studentId);
+  if (!student) return fail("NOT_FOUND", "Öğrenci bulunamadı. Sayfayı yenileyip tekrar deneyin.");
+  const se = await import("../student-enrollments");
+  const view = se.effectiveEnrollments(student, data.teachers).find((x) => x.id === v.data.enrollmentId);
+  if (!view) return fail("VALIDATION_ERROR", "Seçilen branş kaydı bu öğrenciye ait değil. Sayfayı yenileyip yeniden seçin.");
+  let enrollment: Pick<import("../types").StudentEnrollment, "id" | "instrument"> = view;
+  if (!se.isPersistedEnrollmentId(view.id)) {
+    // Kalıcı kaydı olmayan eski öğrenci: branşlar önce kalıcı yapılır (deterministik kimlik).
+    const { ensurePersistedEnrollments, materializedEnrollmentId } = await import("../enrollment-links");
+    await ensurePersistedEnrollments(ctx.tenantId, student, data.teachers);
+    enrollment = { id: materializedEnrollmentId(student.id, view.instrument), instrument: view.instrument };
+  }
+  const { linkRecordsToEnrollment } = await import("../store");
+  const { linkUnassignedContracts } = await import("../contracts");
+  if (v.data.contractId) {
+    const all = await listContractsForStudent(ctx.tenantId, student.id);
+    const target = all.find((c) => c.id === v.data.contractId);
+    if (!target) return fail("NOT_FOUND", "Sözleşme bulunamadı veya bu öğrenciye ait değil.");
+    if (target.enrollmentId) return fail("CONFLICT", `${target.contractNumber} zaten bir branş kaydına bağlı; başka branşa taşınamaz.`);
+    // Sürüm zinciri (önceki/sonraki sürümler) birlikte bağlanır — bir sözleşmenin sürümleri iki branşa bölünmez.
+    const chain = new Set<string>([target.id]);
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (const c of all) {
+        if (chain.has(c.id) && c.previousContractId && !chain.has(c.previousContractId)) {
+          chain.add(c.previousContractId);
+          grew = true;
+        }
+        if (c.previousContractId && chain.has(c.previousContractId) && !chain.has(c.id)) {
+          chain.add(c.id);
+          grew = true;
+        }
+      }
+    }
+    const contractIds = await linkUnassignedContracts(ctx.tenantId, student.id, enrollment.id, [...chain]);
+    const rows = await linkRecordsToEnrollment({ studentId: student.id, enrollmentId: enrollment.id, contractIds });
+    audit(ctx, "contract.enrollment_assigned", "StudentContract", target.id, { enrollmentId: enrollment.id, instrument: enrollment.instrument, contractIds, ...rows });
+    return ok({ contracts: contractIds.length, ...rows });
+  }
+  const payment = data.payments.find((p) => p.id === v.data.paymentId && p.studentId === student.id);
+  if (!payment) return fail("NOT_FOUND", "Ödeme satırı bulunamadı veya bu öğrenciye ait değil.");
+  if (payment.source === "club" || payment.clubMembershipId) return fail("VALIDATION_ERROR", "Kulüp ücreti bir branş kaydına bağlanmaz.");
+  if (payment.contractId) return fail("VALIDATION_ERROR", "Sözleşme taksidi sözleşmesiyle birlikte bağlanır: Sözleşme Merkezi'nde sözleşmeyi \"Branşa bağla\" ile bağlayın.");
+  if (payment.enrollmentId) return fail("CONFLICT", "Bu ödeme zaten bir branş kaydına bağlı; başka branşa taşınamaz.");
+  const rows = await linkRecordsToEnrollment({ studentId: student.id, enrollmentId: enrollment.id, paymentIds: [payment.id] });
+  audit(ctx, "payment.enrollment_assigned", "Payment", payment.id, { enrollmentId: enrollment.id, instrument: enrollment.instrument });
+  return ok({ contracts: 0, ...rows });
 }
 
 export async function updateStudentProfileTool(
@@ -5386,7 +5666,25 @@ export async function getFinanceSummaryTool(
   const { computeFinanceSummary, computeAverageMonthlyFeePerStudent, computeAverageCollectedPerStudent, computeAverageFeeTrend } =
     await import("../finance-summary");
   const summary = computeFinanceSummary(data, staff, payroll, expenses, new Date(), budgets, v.data.month);
-  const contracts = [...contractSummaries.values()];
+  // 2026-10-09 — çok branşlı öğrencide her branşın güncel sözleşmesi ayrı (öğrencinin aylık ücreti = branşların toplamı).
+  const { listContractSummaryRows } = await import("../contracts");
+  const { selectCurrentContract } = await import("../contract-list-helpers");
+  const se = await import("../student-enrollments");
+  const summaryRows = await listContractSummaryRows(ctx.tenantId);
+  const contracts: import("../finance-summary").AverageFeeContractLike[] = [];
+  for (const st of data.students) {
+    const branches = se.effectiveEnrollments(st, data.teachers);
+    if (branches.length < 2) {
+      const single = contractSummaries.get(st.id);
+      if (single) contracts.push(single);
+      continue;
+    }
+    const own = summaryRows.filter((r) => r.studentId === st.id).map((r) => ({ ...r, id: r.contractId }));
+    for (const e of branches) {
+      const current = selectCurrentContract(own.filter((r) => se.contractEnrollmentId(st, r, data.teachers) === e.id));
+      if (current) contracts.push({ ...current, enrollmentId: e.id });
+    }
+  }
   const averageMonthlyFee = computeAverageMonthlyFeePerStudent({
     contracts,
     students: data.students,
@@ -6866,10 +7164,10 @@ export async function createLessonTool(
 
   // 2026-10-04 — eğitim bağı: öğrencinin AKTİF eğitimi olmalı ve dersin enstrümanıyla eşleşmeli.
   let lessonEnrollmentId: string | undefined;
-  if (v.data.enrollmentId) {
+  if (v.data.enrollmentId && !v.data.enrollmentId.startsWith("legacy:")) {
     const st = settingsForClosedDays.students.find((x) => x.id === v.data.studentId);
     const enr = st?.enrollments?.find((x) => x.id === v.data.enrollmentId);
-    if (!enr || !enr.active) return fail("VALIDATION_ERROR", "Seçilen eğitim bu öğrenciye ait değil veya kapatılmış. Eğitim listesini yenileyip tekrar seçin.");
+    if (!enr || !enr.active) return fail("VALIDATION_ERROR", "Seçilen branş kaydı bu öğrenciye ait değil veya sonlandırılmış. Branş listesini yenileyip tekrar seçin.");
     if (enr.instrument !== v.data.instrument) {
       return fail("VALIDATION_ERROR", `Seçilen eğitim ${enr.instrument}; ders enstrümanı ${v.data.instrument}. Eğitimi veya enstrümanı düzeltin.`);
     }
@@ -6954,6 +7252,7 @@ export async function createLessonTool(
     // İş 3 — TEACHER_UNAVAILABLE tek "soft warning" kodu: `details` içinde
     // yapılandırılmış olarak taşınır ki çağıran (actionAddLesson) mesaj
     // metnini ayrıştırmadan "override edilebilir mi" karar verebilsin.
+    if (e instanceof EnrollmentRequiredError) return fail("VALIDATION_ERROR", e.message);
     if (e instanceof LessonSlotValidationError) {
       return fail("VALIDATION_ERROR", e.message, {
         slotValidationCode: e.code,
@@ -7329,6 +7628,7 @@ export async function createLessonSeriesTool(
   } catch (e) {
     // Kilit altındaki yeniden kontrol: saat az önce başka derse verildi (bkz. store-db assertSlotFreeLockedTx).
     if (e instanceof LessonSlotValidationError) return fail("CONFLICT", e.message);
+    if (e instanceof EnrollmentRequiredError) return fail("VALIDATION_ERROR", e.message);
     return fail("NOT_FOUND", e instanceof Error ? e.message : "createLessonSeries failed");
   }
 }
@@ -7409,8 +7709,21 @@ export async function planContractLessonScheduleTool(
     );
   }
 
+  // 2026-10-09 — program sözleşmenin BRANŞINDAN üretilir (enstrüman/süre/gün-saat o branşın; öğrencinin ilk enstrümanı değil).
+  const se = await import("../student-enrollments");
+  const branchEnrollments = se.effectiveEnrollments(student, data.teachers);
+  const contractBranchId = se.contractEnrollmentId(student, contract, data.teachers);
+  const branchView = branchEnrollments.find((x) => x.id === contractBranchId);
+  if (!branchView && branchEnrollments.length > 1) {
+    return fail(
+      "VALIDATION_ERROR",
+      `${contract.contractNumber} sözleşmesinin branşı belirtilmemiş. Ders programı üretmeden önce Sözleşme Merkezi'nde "Branşa bağla" ile ilgili branş kaydına bağlayın.`
+    );
+  }
+  const branchTerms = branchView ? se.enrollmentTerms(student, branchView, data.teachers) : undefined;
   const { parseLessonScheduleText } = await import("../lesson-schedule-text");
-  const scheduleText = contract.contractDataSnapshot?.lessonScheduleText || student.lessonScheduleText || "";
+  const scheduleText =
+    contract.contractDataSnapshot?.lessonScheduleText || (branchTerms ? branchTerms.lessonScheduleText : student.lessonScheduleText) || "";
   const slots = parseLessonScheduleText(scheduleText);
   if (slots.length === 0) {
     return fail(
@@ -7421,8 +7734,9 @@ export async function planContractLessonScheduleTool(
 
   const startsOn = contract.enrollmentStartDate.slice(0, 10);
   const endsOn = contract.enrollmentEndDate.slice(0, 10);
-  const durationMinutes = v.data.durationMinutes ?? student.lessonDurationMinutes ?? data.settings.lessonDurationMinutes;
-  const instrument = (student.instruments[0] ?? contract.programmeName) as Instrument;
+  const durationMinutes =
+    v.data.durationMinutes ?? branchTerms?.lessonDurationMinutes ?? student.lessonDurationMinutes ?? data.settings.lessonDurationMinutes;
+  const instrument = (branchTerms?.instrument ?? student.instruments[0] ?? contract.programmeName) as Instrument;
 
   const allChecks: SeriesOccurrenceCheck[] = [];
   const slotSummaries: { weekday: number; time: string; occurrenceCount: number; conflictCount: number; skippedCount: number }[] = [];
@@ -7443,6 +7757,7 @@ export async function planContractLessonScheduleTool(
       endsOn,
       term: student.termType ?? ("guz" as const),
       contractId: contract.id,
+      enrollmentId: se.isPersistedEnrollmentId(branchView?.id) ? branchView!.id : undefined,
     };
     const occurrences = computeSeriesOccurrences(params);
     const checks = checkSeriesOccurrences(data, params, occurrences);
@@ -7890,12 +8205,38 @@ export async function createPaymentRecordTool(
 
   try {
     const before = await readData();
+    // 2026-10-09 — çok branşlı öğrencide borcun branşı AÇIKÇA seçilir (Keman borcu Piyano'ya yazılmaz);
+    // "" = bilinçli "branşa bağlı değil (genel)". Tek branşlı öğrencide eski davranış.
+    const student = before.students.find((st) => st.id === v.data.studentId);
+    if (!student) return fail("NOT_FOUND", "Öğrenci bulunamadı. Listeyi yenileyip tekrar seçin.");
+    const { effectiveEnrollments, isPersistedEnrollmentId } = await import("../student-enrollments");
+    const enrollments = effectiveEnrollments(student, before.teachers);
+    let enrollmentId: string | undefined;
+    if (enrollments.length > 1) {
+      if (v.data.enrollmentId === undefined) {
+        return fail("VALIDATION_ERROR", "Bu öğrencinin birden fazla branş kaydı var; borcun hangi branşa ait olduğunu seçin (veya \"Branşa bağlı değil\").", {
+          fieldErrors: { enrollmentId: ["Branş seçin."] },
+        });
+      }
+      if (v.data.enrollmentId) {
+        const hit = enrollments.find((x) => x.id === v.data.enrollmentId);
+        if (!hit) return fail("VALIDATION_ERROR", "Seçilen branş kaydı bu öğrenciye ait değil. Sayfayı yenileyip yeniden seçin.");
+        if (!isPersistedEnrollmentId(hit.id)) {
+          const { ensurePersistedEnrollments, materializedEnrollmentId } = await import("../enrollment-links");
+          await ensurePersistedEnrollments(ctx.tenantId, student, before.teachers);
+          enrollmentId = materializedEnrollmentId(student.id, hit.instrument);
+        } else enrollmentId = hit.id;
+      }
+    } else if (isPersistedEnrollmentId(enrollments[0]?.id)) {
+      enrollmentId = enrollments[0]!.id;
+    }
     const ids = new Set(before.payments.map((p) => p.id));
     await addPayment({
       studentId: v.data.studentId,
       description: v.data.description,
       amount: v.data.amount,
       dueDate: v.data.dueDate,
+      ...(enrollmentId ? { enrollmentId } : {}),
     });
     const after = await readData();
     const created = after.payments.find((p) => !ids.has(p.id));
@@ -9360,6 +9701,15 @@ export async function scanOverduePaymentsTool(
     const { listTerminalContractIds } = await import("../contracts");
     const { isLiveObligation } = await import("../payment-profile");
     const terminalContractIds = await listTerminalContractIds(ctx.tenantId);
+    // 2026-10-09 — çok branşlı öğrencide hatırlatma hangi branşın borcu olduğunu söyler (ödeme satırı başına, çift yok).
+    const { listContractEnrollmentLinks } = await import("../contracts");
+    const { makePaymentBranchLabeler } = await import("../student-enrollments");
+    const branchOf = makePaymentBranchLabeler({
+      students: data.students,
+      teachers: data.teachers,
+      lessons: data.lessons,
+      contracts: await listContractEnrollmentLinks(ctx.tenantId),
+    });
 
     let scanned = 0;
     let casesUpserted = 0;
@@ -9388,7 +9738,9 @@ export async function scanOverduePaymentsTool(
       }
 
       const remaining = Math.max(Number(payment.amount) - Number(payment.paidAmount), 0);
-      const messageDraft = `Merhaba, ${student.name} için ${formatMoney(remaining)} tutarında gecikmiş ödeme kaydı bulunmaktadır. Size uygun ödeme planı için bizimle iletişime geçebilirsiniz.`;
+      const branchLabel = branchOf(payment);
+      const branchText = branchLabel ? ` (${branchLabel})` : "";
+      const messageDraft = `Merhaba, ${student.name} için${branchText} ${formatMoney(remaining)} tutarında gecikmiş ödeme kaydı bulunmaktadır. Size uygun ödeme planı için bizimle iletişime geçebilirsiniz.`;
 
       const nextCase = await upsertFollowUpCase({
         id: openCase?.id,
@@ -9408,7 +9760,7 @@ export async function scanOverduePaymentsTool(
         targetStudentId: student.id,
         kind: "payment_overdue",
         title: "Gecikmiş ödeme hatırlatması",
-        body: `${payment.description} için ${formatMoney(remaining)} tutarında ödemeniz gecikmiştir.`,
+        body: `${branchLabel ? `${branchLabel} · ` : ""}${payment.description} için ${formatMoney(remaining)} tutarında ödemeniz gecikmiştir.`,
       });
       notificationsCreated++;
 
@@ -9420,7 +9772,7 @@ export async function scanOverduePaymentsTool(
           "payment_overdue",
           {
             title: "Vadesi geçmiş ödeme",
-            body: `${student.name}: ${payment.description} — ${formatMoney(remaining)} gecikmiş. Detay: /panel/odemeler`,
+            body: `${student.name}${branchText}: ${payment.description} — ${formatMoney(remaining)} gecikmiş. Detay: /panel/odemeler`,
           },
           { excludeUserId: ctx.userId, dedupeKey: payment.id }
         );
@@ -14007,6 +14359,8 @@ const contractInstallmentPlanSchema = z.object({
   /** Bkz. createStudentContractTool şema yorumu — AYNI opt-in, önizlemenin GERÇEK planla tutarlı kalması için. */
   usePerLessonBilling: z.boolean().optional(),
   studentId: z.string().min(1).optional(),
+  /** 2026-10-09 — sözleşmenin branş kaydı (çok branşlı öğrencide ders sayımı ve ilk tahsilat bu branştan). */
+  enrollmentId: z.string().max(100).optional(),
   enrollmentStartDate: z.string().min(1).optional(),
   enrollmentEndDate: z.string().min(1).optional(),
   /** P0 (2026-09-04) — "Sözleşmenin son döneminde eksik kalan dersler nasıl ücretlendirilsin?" tercihi; bkz. `resolveLastPeriodPricing`. */
@@ -14039,6 +14393,69 @@ const contractInstallmentPlanSchema = z.object({
     .max(24)
     .optional(),
 });
+
+/**
+ * 2026-10-09 — sözleşmenin BRANŞ bağlamı (önizleme ve oluşturma AYNI kuralı kullanır): hangi branş kaydı, o branşın
+ * koşullarıyla öğrenci görünümü (süre/haftalık ders/ücret), yalnız o branşın dersleri ve kayıt ilk tahsilatının
+ * aranacağı kapsam. Çok branşlı öğrencide branş AÇIKÇA seçilmelidir; yenileme/revizyon önceki sözleşmenin branşını alır.
+ * `persist` ise kalıcı kaydı olmayan eski öğrencinin branşları kalıcı yapılır (sözleşme açık kimlik taşısın diye).
+ */
+async function resolveContractBranchContext(
+  ctx: ServiceContext,
+  data: Pick<AppData, "students" | "teachers" | "lessons">,
+  student: Student,
+  opts: { enrollmentId?: string; previousContractId?: string; contractType?: "initial" | "renewal" | "amendment"; persist: boolean }
+): Promise<
+  ServiceResult<{
+    enrollmentId?: string;
+    label?: string;
+    branchStudent: Student;
+    lessons: Lesson[];
+    scope: import("../student-enrollments").EnrollmentScope;
+    multi: boolean;
+  }>
+> {
+  const se = await import("../student-enrollments");
+  const enrollments = se.effectiveEnrollments(student, data.teachers);
+  const multi = enrollments.length > 1;
+  let view: import("../student-enrollments").EnrollmentView | undefined;
+  if (opts.contractType && opts.contractType !== "initial" && opts.previousContractId) {
+    const prev = await getContract(ctx.tenantId, opts.previousContractId);
+    if (prev?.enrollmentId) view = enrollments.find((x) => x.id === prev.enrollmentId);
+    else if (multi) {
+      return fail(
+        "VALIDATION_ERROR",
+        `${prev?.contractNumber ?? "Önceki"} sözleşmesinin branşı belirtilmemiş. Yenileme veya revizyondan önce Sözleşme Merkezi'nde "Branşa bağla" ile ilgili branş kaydına bağlayın.`
+      );
+    } else view = enrollments[0];
+  } else if (opts.enrollmentId) {
+    view = enrollments.find((x) => x.id === opts.enrollmentId);
+    if (!view) return fail("VALIDATION_ERROR", "Seçilen branş kaydı bu öğrenciye ait değil. Sayfayı yenileyip branşı yeniden seçin.");
+  } else if (multi) {
+    return fail("VALIDATION_ERROR", "Bu öğrencinin birden fazla branş kaydı var; sözleşmenin hangi branşa (enstrümana) ait olduğunu seçin.");
+  } else view = enrollments[0];
+  if (!view) return ok({ branchStudent: student, lessons: data.lessons.filter((l) => l.studentId === student.id), scope: {}, multi });
+
+  let studentNext = student;
+  let viewNext = view;
+  if (opts.persist && !se.isPersistedEnrollmentId(view.id)) {
+    const { ensurePersistedEnrollments, materializedEnrollmentId } = await import("../enrollment-links");
+    const list = await ensurePersistedEnrollments(ctx.tenantId, student, data.teachers);
+    studentNext = { ...student, enrollments: list };
+    viewNext = list.find((x) => x.id === materializedEnrollmentId(student.id, view!.instrument)) ?? view;
+  }
+  const terms = se.enrollmentTerms(studentNext, viewNext, data.teachers);
+  const persistedId = se.isPersistedEnrollmentId(viewNext.id) ? viewNext.id : undefined;
+  return ok({
+    enrollmentId: persistedId,
+    label: viewNext.instrument,
+    branchStudent: se.studentWithEnrollmentTerms(studentNext, terms),
+    lessons: data.lessons.filter((l) => l.studentId === student.id && se.lessonEnrollmentId(studentNext, l, data.teachers) === viewNext.id),
+    // Tek branşlı öğrencide bağsız eski satır o branşındır; çok branşlıda bağsız satır HİÇBİR branşa sayılmaz.
+    scope: persistedId ? { enrollmentId: persistedId, includeUnlinked: !multi } : multi ? { enrollmentId: "__unassigned__" } : {},
+    multi,
+  });
+}
 
 /** Oluşturmadan ÖNCE taksit planı + toplam tutarı önizler — hiçbir kalıcı kayıt yazmaz. */
 export async function previewContractInstallmentPlanTool(
@@ -14074,7 +14491,22 @@ export async function previewContractInstallmentPlanTool(
     let totalContractAmount: number;
     // createStudentContractTool ile AYNI kural — birleşik ilk tahsilatta bitiş BİR AY kaymaz.
     let enrollmentEndDate = v.data.enrollmentEndDate;
-    const student = v.data.studentId ? data.students.find((s) => s.id === v.data.studentId) : undefined;
+    const rawStudent = v.data.studentId ? data.students.find((s) => s.id === v.data.studentId) : undefined;
+    let student = rawStudent;
+    let branchLessons = rawStudent ? data.lessons.filter((l) => l.studentId === rawStudent.id) : [];
+    let firstPaymentScope: import("../student-enrollments").EnrollmentScope | undefined;
+    if (rawStudent) {
+      const branch = await resolveContractBranchContext(ctx, data, rawStudent, {
+        enrollmentId: v.data.enrollmentId,
+        previousContractId: v.data.previousContractId,
+        contractType: v.data.contractType,
+        persist: false,
+      });
+      if (!branch.ok) return branch;
+      student = branch.data.branchStudent;
+      branchLessons = branch.data.lessons;
+      firstPaymentScope = branch.data.scope;
+    }
     if (
       v.data.usePerLessonBilling &&
       student &&
@@ -14096,7 +14528,8 @@ export async function previewContractInstallmentPlanTool(
         monthlyFee: v.data.monthlyAmount,
         weeklyLessonCount,
         studentId: student.id,
-        lessons: data.lessons.map((l) => ({
+        // 2026-10-09 — yalnız bu branşın dersleri (diğer branşın dersi bu sözleşmenin dönem tutarına girmez).
+        lessons: branchLessons.map((l) => ({
           id: l.id,
           studentId: l.studentId,
           startAt: l.startAt,
@@ -14119,7 +14552,7 @@ export async function previewContractInstallmentPlanTool(
       // Bu olmadan/koşulsuz kullanılırsa önizleme her zaman otomatik tutarı
       // gösterir ya da informal (Tanışma) sürede create'ten FARKLI davranır.
       const registrationFirstPayment = isFormalContractDuration(v.data.durationMonths)
-        ? await getRegistrationFirstPayment(student.id)
+        ? await getRegistrationFirstPayment(student.id, firstPaymentScope)
         : null;
       installments = buildPerLessonInstallmentSchedule({
         billingLines,
@@ -14451,20 +14884,35 @@ export async function createStudentContractTool(
 
   const isMinor = student.birthDate ? computeAge(student.birthDate) < 18 : false;
 
-  // Eğitim bağı: birincil eğitim (ve eski kayıt) NULL olarak saklanır — eski sözleşmelerle aynı anlam.
-  let contractEnrollmentId: string | undefined;
-  if (v.data.enrollmentId && !v.data.enrollmentId.startsWith("legacy:")) {
-    const enr = student.enrollments?.find((e) => e.id === v.data.enrollmentId);
-    if (!enr) return fail("VALIDATION_ERROR", "Seçilen eğitim bu öğrenciye ait değil. Sayfayı yenileyip eğitimi yeniden seçin.");
-    contractEnrollmentId = enr.primary ? undefined : enr.id;
-  }
+  // 2026-10-09 — branş bağı HER ZAMAN açık (ilk branş dahil); çok branşlı öğrencide branş seçimi zorunlu,
+  // yenileme/revizyon önceki sözleşmenin branşını alır. Ders sayımı, süre/haftalık ders ve ilk tahsilat o branştan.
+  const branchCtx = await resolveContractBranchContext(ctx, data, student, {
+    enrollmentId: v.data.enrollmentId,
+    previousContractId: v.data.previousContractId,
+    contractType: v.data.contractType,
+    persist: true,
+  });
+  if (!branchCtx.ok) return branchCtx;
+  const contractEnrollmentId = branchCtx.data.enrollmentId;
+  const branchStudent = branchCtx.data.branchStudent;
+  // Sözleşmedeki şube = branş kaydının şubesi (varsayılan öğrencinin şubesi).
+  const contractBranch = data.settings.branches.find((b) => b.id === branchStudent.branchId) ?? branch;
 
   // 2026-10-04 — taşınacak sözleşme dışı borçlar ÖNCEDEN doğrulanır (sözleşme yazılmadan): yalnız bu öğrencinin,
   // sözleşmeye bağlı olmayan, hiç tahsilat görmemiş canlı satırları. Uymayan seçim sözleşmeyi de durdurur.
   const carryOver = Array.from(new Set(v.data.carryOverPaymentIds ?? [])).map((id) => data.payments.find((p) => p.id === id));
+  const { paymentEnrollmentId } = await import("../student-enrollments");
+  const studentForRefs = { ...student, enrollments: branchStudent.enrollments };
   for (const [i, p] of carryOver.entries()) {
     if (!p || p.studentId !== student.id) {
       return fail("VALIDATION_ERROR", "Taşınmak üzere seçilen borçlardan biri bu öğrenciye ait değil veya silinmiş. Sayfayı yenileyip seçimi tekrar yapın.");
+    }
+    // 2026-10-09 — başka branşın borcu bu sözleşmeye taşınamaz (Keman borcu Piyano planına geçmez).
+    if (contractEnrollmentId && paymentEnrollmentId(studentForRefs, p, { lessons: data.lessons }, data.teachers) !== contractEnrollmentId) {
+      return fail(
+        "VALIDATION_ERROR",
+        `Seçilen ${i + 1}. borç ("${p.description}") bu sözleşmenin branşına (${branchCtx.data.label ?? "seçilen branş"}) ait değil. Yalnız aynı branşın sözleşmesiz borcu taşınabilir; satırı seçimden çıkarın.`
+      );
     }
     if (p.contractId || p.source === "club" || p.status === "paid" || p.status === "voided" || p.paidAmount > 0) {
       return fail(
@@ -14478,7 +14926,7 @@ export async function createStudentContractTool(
   // şubesini işaretleyen hazır metin (renderer dinamik listeyi DESTEKLEMEDİĞİNDEN
   // burada tools katmanında, gerçek Branch verisiyle, düz metne indirgenir).
   const branchOptionsText = data.settings.branches
-    .map((b) => `${b.id === student.branchId ? "☑" : "☐"} ${b.name}: ${b.address}`)
+    .map((b) => `${b.id === (contractBranch?.id ?? student.branchId) ? "☑" : "☐"} ${b.name}: ${b.address}`)
     .join("    ");
 
   let studentNationalId: string | undefined;
@@ -14498,9 +14946,9 @@ export async function createStudentContractTool(
   let perLessonBillingLines: import("../period-lesson-billing").PeriodBillingLine[] | undefined;
   // Bitiş sunucuda başlangıç + süreden (başlangıç ayı = 1. ay) — bkz. `computeContractEndDate`.
   let enrollmentEndDate = v.data.enrollmentEndDate;
-  if (v.data.usePerLessonBilling && studentUsesPerLessonBilling(student) && student.weeklyLessonCount > 0) {
+  if (v.data.usePerLessonBilling && studentUsesPerLessonBilling(branchStudent) && branchStudent.weeklyLessonCount > 0) {
     const { computePeriodBillingPreview } = await import("../period-lesson-billing");
-    const weeklyLessonCount = student.weeklyLessonCount;
+    const weeklyLessonCount = branchStudent.weeklyLessonCount;
     const computeLines = (enrollmentEndDay: string) => computePeriodBillingPreview({
       enrollmentStartDay: v.data.enrollmentStartDate,
       enrollmentEndDay,
@@ -14510,7 +14958,7 @@ export async function createStudentContractTool(
       monthlyFee: v.data.monthlyAmount,
       weeklyLessonCount,
       studentId: student.id,
-      lessons: data.lessons.map((l) => ({
+      lessons: branchCtx.data.lessons.map((l) => ({
         id: l.id,
         studentId: l.studentId,
         startAt: l.startAt,
@@ -14530,7 +14978,7 @@ export async function createStudentContractTool(
 
   // Sahip kararı (2026-09-16) — birleştirme kullanıcının AÇIK seçimi: istek söylüyorsa o,
   // söylemiyorsa kayıt anında verilen ve ödemeye yazılan seçim; ders sayısından TÜRETİLMEZ.
-  const registrationFirstPaymentRow = await getRegistrationFirstPayment(student.id);
+  const registrationFirstPaymentRow = await getRegistrationFirstPayment(student.id, branchCtx.data.scope);
   const mergeFirstCollection =
     v.data.mergeFirstCollection ?? registrationFirstPaymentRow?.firstCollectionIncludesNextMonth ?? false;
 
@@ -14564,17 +15012,17 @@ export async function createStudentContractTool(
       kvkkNoticeDelivered: v.data.kvkkNoticeDelivered,
       studentName: student.name,
       parentName: student.parentName,
-      branchName: branch?.name,
+      branchName: contractBranch?.name,
       branchOptionsText,
-      lessonDurationMinutes: student.lessonDurationMinutes,
-      weeklyLessonCount: student.weeklyLessonCount,
+      lessonDurationMinutes: branchStudent.lessonDurationMinutes,
+      weeklyLessonCount: branchStudent.weeklyLessonCount,
       vatInclusive: data.settings.collectionsSettings?.contractVatInclusive,
       studentNationalId,
       studentBirthDateText: student.birthDate ? formatDate(student.birthDate) : undefined,
       studentPhone: student.phone,
       studentEmail: student.email,
       institutionName: data.settings.name ?? "",
-      institutionAddress: branch?.address ?? "",
+      institutionAddress: contractBranch?.address ?? "",
       // P0-E (2026-09-02) — sözleşme oluşturma anındaki AKTİF kurum logosu
       // burada dondurulur (contractDataSnapshot.logoUrl); kurum daha sonra
       // logosunu değiştirse/kaldırsa bile bu sözleşme SESSİZCE değişmez
@@ -14594,6 +15042,9 @@ export async function createStudentContractTool(
       installmentDueDateOverrides: v.data.installmentDueDateOverrides,
       lastPeriodPricing: lastPeriodResolved.pricing,
       enrollmentId: contractEnrollmentId,
+      branchLabel: branchCtx.data.label,
+      blockOnUnassignedActive: branchCtx.data.multi,
+      registrationPaymentScope: branchCtx.data.scope,
     });
 
     const carriedOverPaymentIds: string[] = [];
@@ -14669,6 +15120,7 @@ export async function createStudentContractTool(
     audit(ctx, `contract.${v.data.contractType}`, "StudentContract", contract.id, {
       contractNumber: contract.contractNumber,
       studentId: student.id,
+      enrollmentId: contract.enrollmentId,
       totalContractAmount: contract.totalContractAmount,
       previousContractId: v.data.previousContractId,
       overlapAllowed: v.data.allowOverlap ?? false,
@@ -14789,14 +15241,22 @@ export async function getContractHtmlTool(
     const { getDocumentInstance } = await import("../documents");
     const doc = await getDocumentInstance(ctx.tenantId, contract.documentInstanceId);
     if (!doc) return fail("NOT_FOUND", "Sözleşme belgesi bulunamadı.");
+    const data = await readData();
+    // 2026-10-09 — sekme başlığı / "PDF olarak kaydet" adı branşı söyler (belge içeriği donmuş snapshot'tır, değişmez).
+    const { contractEnrollmentId, effectiveEnrollments } = await import("../student-enrollments");
+    const ownerStudent = data.students.find((s2) => s2.id === contract.studentId);
+    const contractBranchId = ownerStudent ? contractEnrollmentId(ownerStudent, contract, data.teachers) : contract.enrollmentId;
+    const branchLabel = ownerStudent
+      ? effectiveEnrollments(ownerStudent, data.teachers).find((x) => x.id === contractBranchId)?.instrument
+      : undefined;
     const titleFields = contractTitleFields({
       contractType: contract.contractType,
       studentName: contract.contractDataSnapshot.studentName,
       enrollmentStartDate: contract.enrollmentStartDate,
       durationMonths: contract.durationMonths,
       versionNumber: contract.versionNumber,
+      branchLabel,
     });
-    const data = await readData();
     const { prependInstitutionLogo } = await import("../institution-logo");
     // P0-E (2026-09-02) — kök neden: burada CANLI `data.settings.logoUrl`
     // okunuyordu, yani kurum logosunu DEĞİŞTİRDİĞİNDE (hatta imzalanmış)
@@ -15758,11 +16218,54 @@ async function loadCalendarPlanContracts(tenantId: string, studentId: string): P
   const rows = await listContractsForStudent(tenantId, studentId);
   return rows.map((c) => ({
     id: c.id,
+    enrollmentId: c.enrollmentId,
     contractNumber: c.contractNumber,
     status: c.status,
     enrollmentStartDate: c.enrollmentStartDate,
     enrollmentEndDate: c.enrollmentEndDate,
   }));
+}
+
+/**
+ * 2026-10-09 — Yoklama Takvimi BRANŞ bağlamı: çok branşlı öğrencide takvim, ay tutarı ve ay kutusu tahsilatı yalnız
+ * seçilen branşın dersleri, sözleşmesi ve ödeme satırlarıyla çalışır (Keman tahsilatı Piyano ayını kapatmaz).
+ * Tek branşlı öğrencide eski davranış birebir aynıdır.
+ */
+type CalendarBranch = {
+  enrollmentId: string;
+  terms: import("../student-enrollments").EnrollmentTerms;
+  lessonOf: (l: Lesson) => boolean;
+  paymentOf: (p: import("../types").Payment) => boolean;
+  contractOf: (c: CalendarPlanContract) => boolean;
+};
+
+async function resolveCalendarBranch(
+  student: Student,
+  data: Pick<AppData, "teachers" | "lessons">,
+  contracts: CalendarPlanContract[],
+  enrollmentId: string | undefined
+): Promise<ServiceResult<CalendarBranch | null>> {
+  const se = await import("../student-enrollments");
+  const list = se.effectiveEnrollments(student, data.teachers);
+  if (list.length === 0) return ok(null);
+  const view = enrollmentId ? list.find((x) => x.id === enrollmentId) : list.length === 1 ? list[0] : undefined;
+  if (!view) {
+    return fail(
+      enrollmentId ? "NOT_FOUND" : "VALIDATION_ERROR",
+      enrollmentId
+        ? "Seçilen branş kaydı bu öğrenciye ait değil. Sayfayı yenileyip branşı yeniden seçin."
+        : "Bu öğrencinin birden fazla branş kaydı var; Yoklama Takvimi'nde önce branşı (enstrümanı) seçin."
+    );
+  }
+  const terms = se.enrollmentTerms(student, view, data.teachers);
+  return ok({
+    enrollmentId: view.id,
+    terms,
+    lessonOf: (l) => l.studentId === student.id && se.lessonEnrollmentId(student, l, data.teachers) === view.id,
+    paymentOf: (p) =>
+      p.studentId === student.id && se.paymentEnrollmentId(student, p, { contracts, lessons: data.lessons }, data.teachers) === view.id,
+    contractOf: (c) => se.contractEnrollmentId(student, c, data.teachers) === view.id,
+  });
 }
 
 async function buildAttendanceCalendarMonth(
@@ -15778,9 +16281,15 @@ async function buildAttendanceCalendarMonth(
    * okunmaz: `data.payments` zaten elimizde ve `contractId`/
    * `installmentSequence` taşıyor.
    */
-  contracts: CalendarPlanContract[]
+  contracts: CalendarPlanContract[],
+  /** 2026-10-09 — branş bağlamı; null = öğrencinin branş kaydı yok (eski davranış). */
+  branch: CalendarBranch | null = null
 ): Promise<AttendanceCalendarMonth> {
   const term = student.termType ?? "guz";
+  const ownLesson = (l: Lesson) => (branch ? branch.lessonOf(l) : l.studentId === student.id);
+  const ownPayment = (p: import("../types").Payment) => (branch ? branch.paymentOf(p) : p.studentId === student.id);
+  const ownContracts = branch ? contracts.filter(branch.contractOf) : contracts;
+  const defaultMethod = branch ? branch.terms.paymentMethod : student.paymentMethod;
   const { resolveMonthStatuses } = await import("../attendance-calendar");
   const statuses = resolveMonthStatuses(year, month, term, overrides, data.settings.termWeeklyClosedDays);
   const timeZone = resolveAppTimezone();
@@ -15801,9 +16310,7 @@ async function buildAttendanceCalendarMonth(
     // Gün eşleşmesi kurum saat diliminde — Ders Programı günü de böyle
     // çözer. UTC `startAt.slice(0, 10)` 00:00–02:59 dersleri önceki güne
     // kaydırıp iki ekranı ayrıştırıyordu.
-    const dayLessons = data.lessons.filter(
-      (l) => l.studentId === student.id && toZonedYmd(new Date(l.startAt), timeZone) === s.date
-    );
+    const dayLessons = data.lessons.filter((l) => ownLesson(l) && toZonedYmd(new Date(l.startAt), timeZone) === s.date);
     const lessonIds = dayLessons.map((l) => l.id);
     // Gerçek Geldi/İşlendi/Telafi statüsü — TEK kaynak lesson-ops.ts'deki
     // effectiveLessonOpsStatus (aynı öncelik kuralı server tarafındaki
@@ -15844,8 +16351,8 @@ async function buildAttendanceCalendarMonth(
         paidAmount: p.paidAmount,
         recordedAt: p.createdAt ?? p.dueDate,
         paidAt: p.paidAt,
-        method: p.method ?? student.paymentMethod,
-        methodIsStudentDefault: !p.method && !!student.paymentMethod,
+        method: p.method ?? defaultMethod,
+        methodIsStudentDefault: !p.method && !!defaultMethod,
         status: p.status,
         source: p.source ?? "manual",
       }));
@@ -15872,7 +16379,7 @@ async function buildAttendanceCalendarMonth(
     data.makeupRequests.map((m) => ({ sourceLessonId: m.sourceLessonId, status: m.status }))
   );
   const plannedLessonCount = countBillableLessonsInRange(
-    data.lessons.map((l) => ({
+    data.lessons.filter(ownLesson).map((l) => ({
       id: l.id,
       studentId: l.studentId,
       startAt: l.startAt,
@@ -15889,11 +16396,11 @@ async function buildAttendanceCalendarMonth(
   // zaten okundu ve taksit satırları `contractId`/`installmentSequence`
   // taşıyor — plan için EK bir okuma/sorgu yapılmaz.
   const plan = resolveContractPlanForMonth({
-    contracts,
-    installments: data.payments.filter((p) => p.studentId === student.id),
+    contracts: ownContracts,
+    installments: data.payments.filter(ownPayment),
     year,
     month,
-    studentMonthlyFee: student.monthlyFee,
+    studentMonthlyFee: branch ? branch.terms.monthlyFee : student.monthlyFee,
   });
 
   // 2026-10-06 — bu ayın kulüp ücretleri (sözleşme planından ayrı; ay kutusunda ayrı satır).
@@ -15925,6 +16432,8 @@ export async function getAttendanceCalendarMonthTool(
       studentId: z.string().min(1),
       year: z.number().int(),
       month: z.number().int().min(1).max(12),
+      /** 2026-10-09 — çok branşlı öğrencide zorunlu: takvimin branş kaydı. */
+      enrollmentId: z.string().max(100).optional(),
     }),
     input
   );
@@ -15939,7 +16448,9 @@ export async function getAttendanceCalendarMonthTool(
 
   const overrides = await listClosedDays(ctx.tenantId);
   const contracts = await loadCalendarPlanContracts(ctx.tenantId, student.id);
-  return ok(await buildAttendanceCalendarMonth(data, overrides, student, v.data.year, v.data.month, contracts));
+  const branch = await resolveCalendarBranch(student, data, contracts, v.data.enrollmentId);
+  if (!branch.ok) return branch;
+  return ok(await buildAttendanceCalendarMonth(data, overrides, student, v.data.year, v.data.month, contracts, branch.data));
 }
 
 /**
@@ -15963,6 +16474,8 @@ export async function getAttendanceCalendarTermTool(
       studentId: z.string().min(1),
       term: z.enum(["guz", "yaz"]),
       anchorYear: z.number().int().min(1970).max(2999),
+      /** 2026-10-09 — çok branşlı öğrencide zorunlu: takvimin branş kaydı. */
+      enrollmentId: z.string().max(100).optional(),
     }),
     input
   );
@@ -15979,13 +16492,15 @@ export async function getAttendanceCalendarTermTool(
   // Sözleşmeler dönem başına TEK KEZ okunur — 10 ay için 10 okuma DEĞİL
   // (performans kuralı: yeni tam-tenant/AppData turu eklenmez).
   const contracts = await loadCalendarPlanContracts(ctx.tenantId, student.id);
+  const branch = await resolveCalendarBranch(student, data, contracts, v.data.enrollmentId);
+  if (!branch.ok) return branch;
   const { attendanceCalendarTermMonths } = await import("../attendance-calendar");
   const monthList = data.settings.academicTermDates
     ? academicTermMonths(v.data.term, v.data.anchorYear, data.settings.academicTermDates)
     : attendanceCalendarTermMonths(v.data.term, v.data.anchorYear);
   const months: AttendanceCalendarMonth[] = [];
   for (const m of monthList) {
-    months.push(await buildAttendanceCalendarMonth(data, overrides, student, m.year, m.month, contracts));
+    months.push(await buildAttendanceCalendarMonth(data, overrides, student, m.year, m.month, contracts, branch.data));
   }
   return ok({ term: v.data.term, anchorYear: v.data.anchorYear, months });
 }
@@ -16111,6 +16626,8 @@ export async function collectAttendanceCalendarPaymentTool(
        * kutusundan tahsil edilen bir ödeme not taşıyamıyor olamaz.
        */
       note: z.string().trim().max(200).optional(),
+      /** 2026-10-09 — çok branşlı öğrencide zorunlu: tahsilatın yazılacağı branş kaydı (ödeme planı o branşın). */
+      enrollmentId: z.string().max(100).optional(),
     }),
     input
   );
@@ -16137,12 +16654,16 @@ export async function collectAttendanceCalendarPaymentTool(
     // satır üzerinde tutulur, ikinci bir ödeme kaydı YARATILMAZ.
     const [y, mo] = v.data.month.split("-").map(Number) as [number, number];
     const planContracts = await loadCalendarPlanContracts(ctx.tenantId, student.id);
+    const branchResult = await resolveCalendarBranch(student, data, planContracts, v.data.enrollmentId);
+    if (!branchResult.ok) return branchResult;
+    const branch = branchResult.data;
+    const branchFee = branch ? branch.terms.monthlyFee : student.monthlyFee;
     const plan = resolveContractPlanForMonth({
-      contracts: planContracts,
-      installments: data.payments.filter((p) => p.studentId === student.id),
+      contracts: branch ? planContracts.filter(branch.contractOf) : planContracts,
+      installments: data.payments.filter((p) => (branch ? branch.paymentOf(p) : p.studentId === student.id)),
       year: y,
       month: mo,
-      studentMonthlyFee: student.monthlyFee,
+      studentMonthlyFee: branchFee,
     });
     if (plan.state === "multiple_active_contracts") {
       return fail("VALIDATION_ERROR", plan.message);
@@ -16197,12 +16718,27 @@ export async function collectAttendanceCalendarPaymentTool(
       // Sözleşme planı YOK ve bu dönem ayının satırı yok — dönem ayına (seçilen kutu) ait TEK "aylık plan"
       // satırı açılır. Borç = anlaşılan aylık ücret (girilen tutar daha azsa kısmi ödeme olur, ay "ödendi"
       // görünmez); ücret tanımsızsa girilen tutar.
+      // 2026-10-09 — yeni aylık plan satırı branş kaydına AÇIKÇA bağlanır (kalıcı kaydı olmayan çok branşlı eski
+      // öğrencide önce branşlar kalıcı yapılır); tek branşlı eski öğrencide bağsız satır o branşındır.
+      let planEnrollmentId: string | undefined;
+      const multiBranch = (await import("../student-enrollments")).effectiveEnrollments(student, data.teachers).length > 1;
+      if (branch) {
+        const { isPersistedEnrollmentId } = await import("../student-enrollments");
+        if (isPersistedEnrollmentId(branch.enrollmentId)) planEnrollmentId = branch.enrollmentId;
+        else if (multiBranch) {
+          const { ensurePersistedEnrollments, materializedEnrollmentId } = await import("../enrollment-links");
+          await ensurePersistedEnrollments(ctx.tenantId, student, data.teachers);
+          planEnrollmentId = materializedEnrollmentId(student.id, branch.terms.instrument);
+        }
+      }
       const upserted = await upsertMonthlyPlanPayment({
         studentId: v.data.studentId,
         month: v.data.month,
         // Düzeltmede girilen tutar satırın tutarı olur (mevcut davranış); yeni satırda borç anlaşılan ücrettir.
-        amount: correctionRow ? Math.trunc(v.data.amount) : Math.max(Math.trunc(v.data.amount), student.monthlyFee > 0 ? Math.trunc(student.monthlyFee) : 0),
+        amount: correctionRow ? Math.trunc(v.data.amount) : Math.max(Math.trunc(v.data.amount), branchFee > 0 ? Math.trunc(branchFee) : 0),
         method: v.data.method,
+        enrollmentId: planEnrollmentId,
+        includeUnlinked: !multiBranch,
       });
       paymentId = upserted.paymentId;
     }
@@ -16232,6 +16768,7 @@ export async function collectAttendanceCalendarPaymentTool(
       // sözleşmesiz serbest aylık plan satırı mı.
       planSource: plan.state === "ok" ? "contract_installment" : "monthly_plan_fallback",
       contractId: plan.state === "ok" ? plan.contractId : undefined,
+      enrollmentId: branch?.enrollmentId,
       receivedByUserId: ctx.userId,
     });
     return ok({
@@ -16249,7 +16786,7 @@ export async function collectAttendanceCalendarPaymentTool(
 export async function getStudentPaymentAttendanceStatementTool(
   ctx: ServiceContext,
   input: unknown
-): Promise<ServiceResult<import("../student-statement").StudentPaymentAttendanceStatement>> {
+): Promise<ServiceResult<import("../student-statement").StudentPaymentAttendanceStatement & { branchLabel?: string }>> {
   const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
 
@@ -16258,18 +16795,32 @@ export async function getStudentPaymentAttendanceStatementTool(
       studentId: z.string().min(1),
       term: z.enum(["guz", "yaz"]),
       anchorYear: z.number().int().min(1970).max(2999),
+      /** 2026-10-09 — çok branşlı öğrencide döküm branş başınadır. */
+      enrollmentId: z.string().max(100).optional(),
     }),
     input
   );
   if (!v.ok) return v;
 
-  const data = await readData();
-  const student = data.students.find((s) => s.id === v.data.studentId);
+  const fullData = await readData();
+  const student = fullData.students.find((s) => s.id === v.data.studentId);
   const access = await assertStudentAccess(ctx, student, v.data.studentId);
   if (!access.ok) return fail(access.code, access.message);
   if (!student) return fail("NOT_FOUND", "Öğrenci bulunamadı");
 
-  const contracts = await loadCalendarPlanContracts(ctx.tenantId, student.id);
+  const allContracts = await loadCalendarPlanContracts(ctx.tenantId, student.id);
+  const branchResult = await resolveCalendarBranch(student, fullData, allContracts, v.data.enrollmentId);
+  if (!branchResult.ok) return branchResult;
+  const branch = branchResult.data;
+  const contracts = branch ? allContracts.filter(branch.contractOf) : allContracts;
+  // Döküm yalnız seçilen branşın ders ve ödeme satırlarını okur (diğer öğrencilerin satırları zaten süzülür).
+  const data = branch
+    ? {
+        ...fullData,
+        lessons: fullData.lessons.filter((l) => l.studentId !== student.id || branch.lessonOf(l)),
+        payments: fullData.payments.filter((p) => p.studentId !== student.id || branch.paymentOf(p)),
+      }
+    : fullData;
   const collectorIds = [
     ...new Set(data.payments.filter((p) => p.studentId === student.id && p.receivedByUserId).map((p) => p.receivedByUserId!)),
   ];
@@ -16288,7 +16839,9 @@ export async function getStudentPaymentAttendanceStatementTool(
     collectorNames,
   });
   if ("error" in statement) return fail("NOT_FOUND", statement.error);
-  return ok(statement);
+  // 2026-10-09 — çok branşlı öğrencinin dökümü branşını söyler.
+  const multiBranch = (await import("../student-enrollments")).effectiveEnrollments(student, fullData.teachers).length > 1;
+  return ok({ ...statement, ...(branch && multiBranch ? { branchLabel: branch.terms.instrument } : {}) });
 }
 
 // ─── İş Takip (Task) modülü ──────────────────────────────────────────────

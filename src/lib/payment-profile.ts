@@ -212,3 +212,59 @@ export function splitStudentDebt(payments: Payment[], terminalContractIds: Reado
       .filter((x) => x.count > 0),
   };
 }
+
+/**
+ * 2026-10-09 — öğrenci düzeyi finans toplamının BRANŞ kırılımı. Her ödeme satırı tek branşa (veya "belirtilmemiş"
+ * gruba) düşer; toplamlar öğrenci bazındaki açık borç/tahsilatla birebir aynıdır (çift sayım yok). Güncel sözleşme
+ * branş başına `selectCurrentContract` ile seçilir.
+ */
+export type BranchPaymentRow = {
+  key: string;
+  label: string;
+  openTotal: number;
+  overdueTotal: number;
+  collected: number;
+  currentContractNumber: string | null;
+  currentContractBilled: number | null;
+};
+
+export function computeBranchPaymentBreakdown(input: {
+  payments: Payment[];
+  contracts: (SummaryContract & { enrollmentId?: string })[];
+  branches: { id: string; label: string }[];
+  paymentBranchOf: (p: Payment) => string | undefined;
+  contractBranchOf: (c: SummaryContract & { enrollmentId?: string }) => string | undefined;
+  unassignedLabel: string;
+}): BranchPaymentRow[] {
+  const terminalIds = new Set(input.contracts.filter((c) => isTerminalContractStatus(c.status)).map((c) => c.id));
+  const rows = new Map<string, BranchPaymentRow>();
+  const rowOf = (key: string, label: string) => {
+    let r = rows.get(key);
+    if (!r) {
+      r = { key, label, openTotal: 0, overdueTotal: 0, collected: 0, currentContractNumber: null, currentContractBilled: null };
+      rows.set(key, r);
+    }
+    return r;
+  };
+  for (const b of input.branches) {
+    const r = rowOf(b.id, b.label);
+    const current = selectCurrentContract(input.contracts.filter((c) => input.contractBranchOf(c) === b.id));
+    if (current) {
+      r.currentContractNumber = current.contractNumber ?? null;
+      r.currentContractBilled = input.payments
+        .filter((p) => p.contractId === current.id && p.status !== "voided")
+        .reduce((s, p) => s + p.amount, 0);
+    }
+  }
+  for (const p of input.payments) {
+    if (p.source === "club" || p.clubMembershipId) continue;
+    const key = input.paymentBranchOf(p) ?? "__unassigned__";
+    const r = rows.get(key) ?? rowOf("__unassigned__", input.unassignedLabel);
+    r.collected += collectedAmountOf(p);
+    if (!isLiveObligation(p, terminalIds)) continue;
+    const due = Math.max(p.amount - p.paidAmount, 0);
+    r.openTotal += due;
+    if (p.status === "overdue") r.overdueTotal += due;
+  }
+  return [...rows.values()];
+}

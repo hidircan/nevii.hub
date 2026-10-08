@@ -218,6 +218,7 @@ import {
   type MebEditImpact,
   type MebPanelRow,
   upsertStudentEnrollmentTool,
+  assignRecordEnrollmentTool,
 } from "./services/tools";
 import { runWithTenantAsync } from "./tenant-context";
 import { getSessionAppearancePolicy } from "./platform/access";
@@ -1209,7 +1210,7 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
       // formun ana alanlarıdır; ek eğitim yazılamazsa öğrenci yine oluşur, neden sözleşme ekranında gösterilir.
       const extraRaw = String(formData.get("extraEnrollments") || "");
       if (extraRaw) {
-        let extras: { instrument: string; teacherId: string; lessonDurationMinutes: number }[] = [];
+        let extras: ({ instrument: string; teacherId: string; lessonDurationMinutes: number } & Record<string, unknown>)[] = [];
         try {
           extras = JSON.parse(extraRaw);
         } catch {
@@ -1218,7 +1219,7 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
         for (const extra of extras.slice(0, 6)) {
           const res = await upsertStudentEnrollmentTool(ctx, { studentId: created.studentId, enrollment: extra });
           if (!res.ok) {
-            inviteWarning = [inviteWarning, `Ek eğitim (${extra.instrument}) eklenemedi: ${res.error.message} Öğrenci → Bilgiler → Eğitimler ekranından ekleyin.`]
+            inviteWarning = [inviteWarning, `Ek branş (${extra.instrument}) eklenemedi: ${res.error.message} Öğrenci → Özet → Branş kayıtları kartından "Branş kaydı ekle" ile ekleyin.`]
               .filter(Boolean)
               .join(" ");
           }
@@ -1467,16 +1468,40 @@ export async function actionListMebStudents(input: {
 /** 2026-10-04 — öğrencinin eğitimini ekle/güncelle/kapat (bkz. upsertStudentEnrollmentTool). */
 export async function actionUpsertStudentEnrollment(input: {
   studentId: string;
-  enrollment: { id?: string; instrument: string; teacherId: string; lessonDurationMinutes: number; active?: boolean; primary?: boolean };
-}): Promise<{ ok: true } | { ok: false; message: string }> {
+  /** 2026-10-09 — branş kaydı alanları (bkz. tools.ts enrollmentInputSchema; doğrulama sunucuda). */
+  enrollment: Record<string, unknown> & { instrument: string; teacherId: string; lessonDurationMinutes: number };
+}): Promise<{ ok: true; warnings?: string[] } | { ok: false; message: string }> {
   try {
     const result = await withAuthContext("actionUpsertStudentEnrollment", (ctx) => upsertStudentEnrollmentTool(ctx, input));
     if (!result.ok) return { ok: false, message: result.error.message };
     revalidatePath(`/panel/ogrenciler/${input.studentId}`, "layout");
-    return { ok: true };
+    return { ok: true, ...(result.data.warnings?.length ? { warnings: result.data.warnings } : {}) };
   } catch (e) {
     logger.error("actionUpsertStudentEnrollment failed", e);
-    return { ok: false, message: "Eğitim kaydedilemedi; hiçbir değişiklik yapılmadı. Sayfayı yenileyip tekrar deneyin." };
+    return { ok: false, message: "Branş kaydı kaydedilemedi; hiçbir değişiklik yapılmadı. Sayfayı yenileyip tekrar deneyin." };
+  }
+}
+
+/** 2026-10-09 — "Branşa bağla": branşı belirtilmemiş sözleşmeyi (zinciriyle) veya sözleşmesiz ödemeyi açıkça bağlar. */
+export async function actionAssignRecordEnrollment(input: {
+  studentId: string;
+  enrollmentId: string;
+  contractId?: string;
+  paymentId?: string;
+}): Promise<{ ok: true; message: string } | { ok: false; message: string }> {
+  try {
+    const result = await withAuthContext("actionAssignRecordEnrollment", (ctx) => assignRecordEnrollmentTool(ctx, input));
+    if (!result.ok) return { ok: false, message: result.error.message };
+    revalidatePath(`/panel/ogrenciler/${input.studentId}`, "layout");
+    revalidatePath(`/panel/odemeler/${input.studentId}`);
+    const d = result.data;
+    return {
+      ok: true,
+      message: `Branşa bağlandı: ${d.contracts} sözleşme, ${d.payments} ödeme satırı, ${d.series} ders serisi, ${d.lessons} ders.`,
+    };
+  } catch (e) {
+    logger.error("actionAssignRecordEnrollment failed", e);
+    return { ok: false, message: "Kayıt branşa bağlanamadı; hiçbir değişiklik yapılmadı. Sayfayı yenileyip tekrar deneyin." };
   }
 }
 
@@ -3839,11 +3864,14 @@ export type AddPaymentFormState = {
 export async function actionAddPayment(_prevState: AddPaymentFormState, formData: FormData): Promise<AddPaymentFormState> {
   try {
     await withAuthContext("actionAddPayment", async (ctx) => {
+      const enrollmentRaw = formData.get("enrollmentId");
       const result = await createPaymentRecordTool(ctx, {
         studentId: String(formData.get("studentId") || ""),
         description: String(formData.get("description") || ""),
         amount: Number(formData.get("amount") || 0),
         dueDate: String(formData.get("dueDate") || ""),
+        // 2026-10-09 — alan yalnız çok branşlı öğrencide formda bulunur ("" = branşa bağlı değil).
+        ...(enrollmentRaw === null || enrollmentRaw === "" ? {} : { enrollmentId: enrollmentRaw === "__none__" ? "" : String(enrollmentRaw) }),
       });
       if (!result.ok) {
         throw new ToolValidationFailure(result.error);

@@ -128,6 +128,8 @@ type StoreApi = {
     academicYearStart?: number;
     allowAvailabilityOverride?: boolean;
     overriddenByUserId?: string;
+    createdByUserId?: string;
+    enrollmentId?: string;
   }) => Promise<AppData>;
   addClubSessionLessons: (rows: import("./types").Lesson[]) => Promise<void>;
   patchClubLessons: (ids: string[], patch: import("./clubs").ClubLessonPatch) => Promise<number>;
@@ -140,6 +142,7 @@ type StoreApi = {
     source?: import("./types").PaymentSource;
     clubMembershipId?: string;
     installmentPeriodLabel?: string;
+    enrollmentId?: string;
   }) => Promise<AppData | void>;
   /**
    * ÖNCELİK 4 — Yoklama Takvimi aylık planlanan tutar. studentId+month
@@ -153,6 +156,9 @@ type StoreApi = {
     /** Ödeme tarihi (yyyy-MM-dd) — verilmezse ayın 1'i varsayılan kalır (mevcut davranış). */
     /** Ödeme şekli (nakit/kredi kartı/havale) — verilmezse mevcut/varsayılan değer korunur. */
     method?: string;
+    /** 2026-10-09 — dönem ayı satırı branş başınadır (bkz. student-enrollments.ts EnrollmentScope). */
+    enrollmentId?: string;
+    includeUnlinked?: boolean;
   }) => Promise<{ data: AppData; paymentId: string }>;
   /** Owner policy (2026-08-30) — kayıt tamamlanma anında tahsil edilen ilk ödeme; idempotent (bkz. store-json.ts). */
   addRegistrationFirstPayment: (input: {
@@ -165,6 +171,8 @@ type StoreApi = {
     receivedByUserId: string;
     /** Bkz. Payment.firstCollectionIncludesNextMonth — kayıt ekranındaki açık seçim. */
     firstCollectionIncludesNextMonth?: boolean;
+    /** 2026-10-09 — branş kaydı; idempotency öğrenci + branş başınadır. */
+    enrollmentId?: string;
   }) => Promise<{ data: AppData; paymentId: string }>;
   /**
    * FEATURE A — bir `StudentContract`'ın SABİT SAYIDA taksitini gerçek
@@ -181,9 +189,20 @@ type StoreApi = {
     firstPaymentCollected?: { method: string; amount: number; collectedAt: string; reference?: string; note?: string };
     /** P0 dedup fix (2026-08-30) — initial sözleşme için, kayıt sırasında zaten oluşturulan `registration_first_payment` Payment satırının id'si. Verilirse 1. taksit için YENİ satır yaratılmaz — mevcut satır contractId/installmentSequence ile bu sözleşmeye BAĞLANIR (tek gerçek Payment kaydı). */
     reuseFirstPaymentId?: string;
+    /** 2026-10-09 — sözleşmenin branş kaydı; taksit satırlarına aynen yazılır. */
+    enrollmentId?: string;
   }) => Promise<{ data: AppData; installments: ContractInstallmentView[] }>;
   /** P0 dedup fix (2026-08-30) — bir öğrencinin kayıt anında tahsil edilen ilk ödeme satırını bulur (bkz. addRegistrationFirstPayment). Sözleşme oluşturmanın bunu YENİDEN yaratması yerine BULUP yeniden kullanması için. */
-  getRegistrationFirstPayment: (studentId: string) => Promise<Payment | null>;
+  getRegistrationFirstPayment: (studentId: string, scope?: import("./student-enrollments").EnrollmentScope) => Promise<Payment | null>;
+  /** 2026-10-09 — bağsız (NULL) kayıtları tek branş kaydına bağlar (bkz. store-db.ts). */
+  linkRecordsToEnrollment: (input: {
+    studentId: string;
+    enrollmentId: string;
+    instrument?: string;
+    scope?: "student";
+    contractIds?: string[];
+    paymentIds?: string[];
+  }) => Promise<{ payments: number; lessons: number; series: number }>;
   /**
    * P0 mutasyon performansı (2026-09-07) — tam `AppData` DEĞİL, yalnız
    * güncellenmiş ders + önceki başlangıç döner (bkz. lesson-update.ts
@@ -628,7 +647,39 @@ export async function addLesson(input: {
   createdByUserId?: string;
   enrollmentId?: string;
 }): Promise<AppData> {
-  return withTenantScope(() => store.addLesson(input));
+  return withTenantScope(async () => {
+    const enrollmentId = input.enrollmentId ?? (await inferLessonEnrollmentId(input.studentId, input.instrument, input.teacherId));
+    return store.addLesson({ ...input, enrollmentId });
+  });
+}
+
+/** 2026-10-09 — çok branşlı öğrencide branşı belirlenemeyen ders yazılmaz (yanlış branşa yoklama/telafi/hakediş riski). */
+export class EnrollmentRequiredError extends Error {
+  readonly code = "ENROLLMENT_REQUIRED" as const;
+}
+
+/**
+ * TÜM ders/seri yazım yollarının (ekran, CSV, sözleşmeden program, AI) TEK branş kapısı: açık bağ verilmediyse
+ * öğrencinin AKTİF branş kayıtlarından enstrüman (gerekirse öğretmen) ile TEK eşleşme aranır. Kalıcı branş kaydı
+ * olmayan / tek branşlı öğrencide eski davranış (bağsız = öğrencinin tek branşı). Belirsizlik varsa hata — tahmin yok.
+ */
+async function inferLessonEnrollmentId(studentId: string, instrument: string, teacherId?: string): Promise<string | undefined> {
+  const student = await store.readStudentById(studentId);
+  const active = (student?.enrollments ?? []).filter((e) => e.active);
+  if (active.length === 0) return undefined;
+  const byInstrument = active.filter((e) => e.instrument === instrument);
+  if (byInstrument.length === 1) return byInstrument[0]!.id;
+  if (byInstrument.length > 1) {
+    const byTeacher = byInstrument.filter((e) => e.teacherId === teacherId);
+    if (byTeacher.length === 1) return byTeacher[0]!.id;
+    throw new EnrollmentRequiredError(
+      `Bu öğrencinin birden fazla aktif ${instrument} branş kaydı var ve seçilen öğretmen bunlardan birine ait değil. Dersi ilgili branş kaydının öğretmeniyle planlayın veya tekil ders planlamada "Eğitim" alanından branşı seçin.`
+    );
+  }
+  if (active.length === 1) return undefined;
+  throw new EnrollmentRequiredError(
+    `Öğrencinin aktif ${instrument} branş kaydı yok. Önce öğrenci kartından "Branş kaydı ekle" ile ${instrument} kaydını açın veya dersin enstrümanını düzeltin.`
+  );
 }
 
 /** 2026-10-06 — kulüp oturumu satırları (bkz. clubs.ts). */
@@ -650,6 +701,8 @@ export async function addPayment(input: {
   source?: import("./types").PaymentSource;
   clubMembershipId?: string;
   installmentPeriodLabel?: string;
+  /** 2026-10-09 — satırın branş kaydı. */
+  enrollmentId?: string;
 }): Promise<void> {
   await withTenantScope(() => store.addPayment(input));
 }
@@ -660,13 +713,29 @@ export async function addContractInstallments(input: {
   installments: ContractInstallmentSnapshot[];
   firstPaymentCollected?: { method: string; amount: number; collectedAt: string; reference?: string; note?: string };
   reuseFirstPaymentId?: string;
+  enrollmentId?: string;
 }): Promise<{ data: AppData; installments: ContractInstallmentView[] }> {
   return withTenantScope(() => store.addContractInstallments(input));
 }
 
-/** P0 dedup fix (2026-08-30) — bkz. StoreApi.getRegistrationFirstPayment. */
-export async function getRegistrationFirstPayment(studentId: string): Promise<Payment | null> {
-  return withTenantScope(() => store.getRegistrationFirstPayment(studentId));
+/** P0 dedup fix (2026-08-30) — bkz. StoreApi.getRegistrationFirstPayment. 2026-10-09: `scope` = branş kapsamı. */
+export async function getRegistrationFirstPayment(
+  studentId: string,
+  scope?: import("./student-enrollments").EnrollmentScope
+): Promise<Payment | null> {
+  return withTenantScope(() => store.getRegistrationFirstPayment(studentId, scope));
+}
+
+/** 2026-10-09 — bkz. StoreApi.linkRecordsToEnrollment. */
+export async function linkRecordsToEnrollment(input: {
+  studentId: string;
+  enrollmentId: string;
+  instrument?: string;
+  scope?: "student";
+  contractIds?: string[];
+  paymentIds?: string[];
+}): Promise<{ payments: number; lessons: number; series: number }> {
+  return withTenantScope(() => store.linkRecordsToEnrollment(input));
 }
 
 export async function upsertMonthlyPlanPayment(input: {
@@ -674,6 +743,8 @@ export async function upsertMonthlyPlanPayment(input: {
   month: string;
   amount: number;
   method?: string;
+  enrollmentId?: string;
+  includeUnlinked?: boolean;
 }): Promise<{ data: AppData; paymentId: string }> {
   return withTenantScope(() => store.upsertMonthlyPlanPayment(input));
 }
@@ -689,6 +760,8 @@ export async function addRegistrationFirstPayment(input: {
   receivedByUserId: string;
   /** Bkz. Payment.firstCollectionIncludesNextMonth — kayıt ekranındaki açık seçim. */
   firstCollectionIncludesNextMonth?: boolean;
+  /** 2026-10-09 — branş kaydı. */
+  enrollmentId?: string;
 }): Promise<{ data: AppData; paymentId: string }> {
   return withTenantScope(() => store.addRegistrationFirstPayment(input));
 }
@@ -811,7 +884,10 @@ export async function addLessonSeries(
   params: SeriesParams,
   options?: { skipConflicts?: boolean; allowAvailabilityOverride?: boolean; overriddenByUserId?: string; createdByUserId?: string }
 ): Promise<CreateSeriesResult> {
-  return withTenantScope(() => store.addLessonSeries(params, options));
+  return withTenantScope(async () => {
+    const enrollmentId = params.enrollmentId ?? (await inferLessonEnrollmentId(params.studentId, params.instrument, params.teacherId));
+    return store.addLessonSeries({ ...params, enrollmentId }, options);
+  });
 }
 
 export async function cancelLessonSeriesFromLesson(lessonId: string): Promise<SeriesCancelResult> {

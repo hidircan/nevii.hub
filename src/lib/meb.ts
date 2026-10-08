@@ -39,8 +39,12 @@ export const MEB_EXAM_STATUS_VALUES: MebExamStatus[] = ["unknown", "not_attended
  * Öğrenci MEB'li mi? Tür LİSTESİNE bakılır (tekil legacy alan yalnız
  * fallback). `studentTypes` boş + `studentType` boşsa MEB değildir.
  */
-export function isMebStudent(input: Pick<Student, "studentTypes" | "studentType">): boolean {
-  return hasMebStudentType(effectiveStudentTypes(input));
+/** 2026-10-09 — ek branşı (kendi kaydında türü tutulan) aktif ve MEB olan öğrenci de MEB öğrencisidir. */
+export function isMebStudent(input: Pick<Student, "studentTypes" | "studentType"> & { enrollments?: Student["enrollments"] }): boolean {
+  return (
+    hasMebStudentType(effectiveStudentTypes(input)) ||
+    Boolean(input.enrollments?.some((e) => e.active && hasMebStudentType(e.studentTypes ?? [])))
+  );
 }
 
 /** Sınav tarihi + katılım bayrağından ürün-dili durum türetir. */

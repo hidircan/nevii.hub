@@ -13,7 +13,13 @@ import { resolveLessonFinalStatus } from "@/lib/lesson-live-status";
 import { formatDate, formatDateTime, formatMoney, formatTime } from "@/lib/utils";
 import { loadStudentPageContext } from "./_context";
 import { StudentEnrollmentsCard } from "@/components/student-enrollments-card";
-import { effectiveEnrollments } from "@/lib/student-enrollments";
+import {
+  contractEnrollmentId,
+  effectiveEnrollments,
+  enrollmentDisplayName,
+  enrollmentTerms,
+  UNASSIGNED_ENROLLMENT_LABEL,
+} from "@/lib/student-enrollments";
 import { resolveActiveInstrumentNames } from "@/lib/instrument-catalog";
 import { MiniStat } from "./_components/fields";
 import { ContractReturnBanner } from "./_components/contract-return-banner";
@@ -46,7 +52,17 @@ export default async function StudentOverviewTab({
 
   const contractsResult = await listStudentContractsTool(session, { studentId: student.id });
   const contracts = contractsResult.ok ? contractsResult.data.contracts : [];
-  const currentContract = selectCurrentContract(contracts);
+  // 2026-10-09 — güncel sözleşme BRANŞ başınadır (tek branşlı öğrencide eski davranışla aynı tek sözleşme).
+  const branchList = effectiveEnrollments(student, data.teachers);
+  const multiBranch = branchList.length > 1;
+  const branchName = (id?: string) => {
+    const e = id ? branchList.find((x) => x.id === id) : undefined;
+    return e ? enrollmentDisplayName(e, branchList, data.teachers) : UNASSIGNED_ENROLLMENT_LABEL;
+  };
+  const contractsOfBranch = (id: string) => contracts.filter((c) => contractEnrollmentId(student, c, data.teachers) === id);
+  const branchContracts = branchList.map((e) => ({ enrollment: e, current: selectCurrentContract(contractsOfBranch(e.id)), all: contractsOfBranch(e.id) }));
+  const unassignedLive = multiBranch ? contracts.filter((c) => !contractEnrollmentId(student, c, data.teachers) && !isTerminalContractStatus(c.status)) : [];
+  const currentContract = multiBranch ? null : selectCurrentContract(contracts);
 
   const payments = sortPaymentsForProfile(data.payments.filter((p) => p.studentId === student.id));
   const paymentSummary = computeStudentPaymentSummary(payments, contracts);
@@ -85,7 +101,43 @@ export default async function StudentOverviewTab({
       tone: "danger",
     });
   }
-  if (contracts.length === 0) {
+  if (multiBranch) {
+    for (const bc of branchContracts) {
+      if (!bc.enrollment.active) continue;
+      const label = branchName(bc.enrollment.id);
+      const end = bc.current?.enrollmentEndDate?.slice(0, 10);
+      if (!bc.current) {
+        alerts.push({
+          key: `no-contract-${bc.enrollment.id}`,
+          label: `${label}: ${bc.all.length > 0 ? "aktif sözleşme yok (geçmiş kayıtlar iptal/yenilenmiş)" : "sözleşme bekliyor — henüz oluşturulmadı"}`,
+          href: `/panel/ogrenciler/${student.id}/sozlesmeler?brans=${encodeURIComponent(bc.enrollment.id)}`,
+          tone: "warning",
+        });
+      } else if (end !== undefined && end < todayYmd) {
+        alerts.push({
+          key: `expired-${bc.enrollment.id}`,
+          label: `${label}: sözleşme süresi doldu (${formatDate(end)}) — yenileme gerekiyor`,
+          href: `/panel/ogrenciler/${student.id}/sozlesmeler?brans=${encodeURIComponent(bc.enrollment.id)}`,
+          tone: "danger",
+        });
+      } else if (end !== undefined && (new Date(`${end}T00:00:00Z`).getTime() - new Date(`${todayYmd}T00:00:00Z`).getTime()) / 86_400_000 <= 30) {
+        alerts.push({
+          key: `expiring-${bc.enrollment.id}`,
+          label: `${label}: sözleşme ${formatDate(end)} tarihinde bitiyor`,
+          href: `/panel/ogrenciler/${student.id}/sozlesmeler?brans=${encodeURIComponent(bc.enrollment.id)}`,
+          tone: "warning",
+        });
+      }
+    }
+    if (unassignedLive.length > 0) {
+      alerts.push({
+        key: "unassigned-contract",
+        label: `Branşı belirtilmemiş aktif sözleşme: ${unassignedLive.map((c) => c.contractNumber).join(", ")} — Sözleşme Merkezi'nde "Branşa bağla"`,
+        href: `/panel/ogrenciler/${student.id}/sozlesmeler`,
+        tone: "warning",
+      });
+    }
+  } else if (contracts.length === 0) {
     alerts.push({
       key: "no-contract",
       // Sözleşme kayıtta zorunlu değil (2026-09-22) — hata değil, bekleyen iş.
@@ -191,17 +243,59 @@ export default async function StudentOverviewTab({
       {/* 2026-10-04 — tek öğrenci, birden fazla eğitim: her eğitim enstrüman + öğretmen + süre olarak. */}
       <StudentEnrollmentsCard
         studentId={student.id}
-        enrollments={effectiveEnrollments(student, data.teachers)}
+        studentBranchId={student.branchId}
+        enrollments={branchContracts.map(({ enrollment: e, current }) => {
+          const t = enrollmentTerms(student, e, data.teachers);
+          return {
+            id: e.id,
+            instrument: e.instrument,
+            teacherId: t.teacherId,
+            branchId: t.branchId,
+            lessonDurationMinutes: t.lessonDurationMinutes,
+            weeklyLessonCount: t.weeklyLessonCount,
+            active: e.active,
+            startDate: t.startDate,
+            endDate: e.endDate,
+            endReason: e.endReason,
+            studentTypes: t.studentTypes,
+            packageId: t.packageId,
+            packageName: t.packageName,
+            monthlyFee: t.monthlyFee,
+            discountType: t.discountType,
+            discountValue: t.discountValue,
+            monthlyFeeManualOverride: t.monthlyFeeManualOverride,
+            paymentMethod: t.paymentMethod,
+            paymentDueDay: t.paymentDueDay,
+            lessonStartDate: t.lessonStartDate,
+            lessonScheduleText: t.lessonScheduleText,
+            intendedDurationMonths: t.intendedDurationMonths,
+            currentContractNumber: current?.contractNumber,
+          };
+        })}
         teachers={data.teachers.map((t) => ({ id: t.id, name: t.name, instruments: t.instruments, active: t.active }))}
         instrumentOptions={kurum.scope.mode === "single" ? await resolveActiveInstrumentNames(kurum.scope.tenantId) : []}
+        packages={(data.packages ?? []).filter((p) => p.status === "active").map((p) => ({ id: p.id, title: p.title }))}
+        branches={data.settings.branches.map((b) => ({ id: b.id, name: b.shortName || b.name }))}
         canManage={canManage && kurum.scope.mode === "single"}
       />
 
       <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <MiniStat
-          label={paymentSummary.currentContractNumber ? `Sözleşme tahakkuku · ${paymentSummary.currentContractNumber}` : "Sözleşme tahakkuku — aktif sözleşme yok"}
-          value={paymentSummary.currentContractBilled === null ? "—" : formatMoney(paymentSummary.currentContractBilled)}
-        />
+        {multiBranch ? (
+          <MiniStat
+            label="Güncel sözleşmeler tahakkuku (tüm branşlar)"
+            value={formatMoney(
+              branchContracts.reduce(
+                (sum, bc) => sum + (bc.current ? payments.filter((p) => p.contractId === bc.current!.id && p.status !== "voided").reduce((s2, p) => s2 + p.amount, 0) : 0),
+                0
+              )
+            )}
+          />
+        ) : (
+          <MiniStat
+            label={paymentSummary.currentContractNumber ? `Sözleşme tahakkuku · ${paymentSummary.currentContractNumber}` : "Sözleşme tahakkuku — aktif sözleşme yok"}
+            value={paymentSummary.currentContractBilled === null ? "—" : formatMoney(paymentSummary.currentContractBilled)}
+          />
+        )}
         <MiniStat label="Tahsil edilen (tüm kayıtlar)" value={formatMoney(paymentSummary.totalCollected)} tone="success" />
         <MiniStat label="Kalan borç" value={formatMoney(paymentSummary.remaining)} />
         <MiniStat
@@ -266,7 +360,32 @@ export default async function StudentOverviewTab({
               Sözleşme Merkezi →
             </Link>
           </div>
-          {!currentContract ? (
+          {multiBranch ? (
+            <ul className="space-y-2 text-sm">
+              {branchContracts.map(({ enrollment: e, current }) => (
+                <li key={e.id} className="rounded-[var(--radius-md)] border border-[var(--color-border)] px-3 py-2">
+                  <p className="flex flex-wrap items-center gap-2">
+                    <span className="font-medium text-[var(--color-text)]">{branchName(e.id)}</span>
+                    {current ? (
+                      <>
+                        <span>{current.contractNumber}</span>
+                        <Badge status={current.status}>{contractStatusLabel(current.status)}</Badge>
+                      </>
+                    ) : (
+                      <span className="text-[var(--color-text-muted)]">Aktif sözleşme yok</span>
+                    )}
+                    {!e.active ? <span className="text-xs text-[var(--color-text-muted)]">(branş sonlandı)</span> : null}
+                  </p>
+                  {current ? (
+                    <p className="text-xs text-[var(--color-text-muted)]">
+                      {formatDate(current.enrollmentStartDate)} – {formatDate(current.enrollmentEndDate)} · Aylık{" "}
+                      {formatMoney(current.monthlyAmount)} · {current.installmentCount} taksit
+                    </p>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          ) : !currentContract ? (
             <EmptyState
               title={contracts.length > 0 ? "Aktif sözleşme yok" : "Sözleşme yok"}
               description={
