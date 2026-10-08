@@ -62,7 +62,7 @@ function clubDurationText(c: PublicClub): { headline: string; detail?: string } 
         : sol !== undefined
           ? `Ders süresi: ${c.instrument} süresi belirtilmedi + ${sol} dakika`
           : "Ders süresi: kurum tarafından henüz belirtilmedi";
-  return { headline, detail: `${mainPart} + ${solPart} — iki ayrı dersin süresidir; dersler art arda olmak zorunda değildir.` };
+  return { headline, detail: `${mainPart} + ${solPart}` };
 }
 const EDUCATION_PLACEHOLDER = "Daha önce aldığınız müzik eğitimini yazın. Eğitim almadıysanız ‘Daha önce eğitim almadım’ yazabilirsiniz.";
 const newKey = () =>
