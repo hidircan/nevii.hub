@@ -9,21 +9,22 @@
 
 import { useState, type ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Search } from "lucide-react";
-import { Card } from "@/components/ui";
+import { Search, UserX } from "lucide-react";
+import { TeacherPerformanceInfo } from "@/components/teacher-performance-info";
 import { PaginationControls, usePagination } from "@/components/pagination-controls";
 import {
   filterTeacherRows,
+  TEACHER_ROW_GRID,
   type TeacherListRow,
   type TeacherListSort,
   type TeacherListStatus,
 } from "@/lib/teacher-list-filter";
 
 const STATUS_PARAM: Record<string, TeacherListStatus> = { aktif: "active", pasif: "inactive", arsiv: "inactive", tumu: "all" };
-const STATUS_OPTIONS: { value: string; label: string }[] = [
-  { value: "aktif", label: "Aktif" },
-  { value: "pasif", label: "Pasif (arşiv)" },
-  { value: "tumu", label: "Tümü" },
+const STATUS_OPTIONS: { value: string; label: string; status: TeacherListStatus }[] = [
+  { value: "aktif", label: "Aktif", status: "active" },
+  { value: "pasif", label: "Pasif", status: "inactive" },
+  { value: "tumu", label: "Tümü", status: "all" },
 ];
 const SORT_OPTIONS: { value: TeacherListSort; label: string }[] = [
   { value: "name", label: "Ada göre (A → Z)" },
@@ -32,15 +33,17 @@ const SORT_OPTIONS: { value: TeacherListSort; label: string }[] = [
 ];
 
 const controlClass =
-  "rounded-[var(--radius-md)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2.5 py-1.5 text-sm text-[var(--color-text)]";
+  "h-9 rounded-[var(--radius-md)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2.5 text-sm text-[var(--color-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]";
 
 export function TeacherListView({
   rows,
   cards,
   branches,
   instruments,
+  showPerformance,
 }: {
   rows: TeacherListRow[];
+  showPerformance: boolean;
   cards: Record<string, ReactNode>;
   branches: { id: string; name: string }[];
   instruments: string[];
@@ -79,25 +82,57 @@ export function TeacherListView({
   });
   const anyFilter = Boolean(query || branchFilter.length || instrument || durum !== "aktif");
 
+  const statusCounts: Record<TeacherListStatus, number> = {
+    active: rows.filter((r) => r.active).length,
+    inactive: rows.filter((r) => !r.active).length,
+    all: rows.length,
+  };
+  const currentStatusValue = durum === "arsiv" ? "pasif" : durum;
+
   return (
     <div className="space-y-4">
-      <Card>
-        <div className="flex flex-wrap items-end gap-2">
-          <label className="relative min-w-[14rem] flex-1">
-            <span className="sr-only">Öğretmen ara</span>
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-muted)]" />
-            <input
-              type="search"
-              value={query}
-              onChange={(e) => {
-                setQuery(e.target.value);
-                setParam("q", e.target.value.trim());
-                setPage(1);
-              }}
-              placeholder="Ad, soyad, e-posta veya telefon ile ara…"
-              className={`${controlClass} w-full pl-8`}
-            />
-          </label>
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+        <div role="radiogroup" aria-label="Durum" className="inline-flex shrink-0 self-start rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-0.5">
+          {STATUS_OPTIONS.map((o) => {
+            const selected = currentStatusValue === o.value;
+            return (
+              <button
+                key={o.value}
+                type="button"
+                role="radio"
+                aria-checked={selected}
+                onClick={() => {
+                  setParam("durum", o.value, "aktif");
+                  setPage(1);
+                }}
+                className={`inline-flex h-8 items-center gap-1.5 rounded-[calc(var(--radius-md)-2px)] px-3 text-sm font-medium transition ${
+                  selected
+                    ? "bg-[var(--color-surface)] text-[var(--color-text)] shadow-[var(--shadow-sm)]"
+                    : "text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+                }`}
+              >
+                {o.label}
+                <span className="tabular-nums text-xs text-[var(--color-text-muted)]">{statusCounts[o.status]}</span>
+              </button>
+            );
+          })}
+        </div>
+        <label className="relative min-w-0 flex-1">
+          <span className="sr-only">Öğretmen ara</span>
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-muted)]" />
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setParam("q", e.target.value.trim());
+              setPage(1);
+            }}
+            placeholder="Ad, e-posta veya telefon ile ara"
+            className={`${controlClass} w-full pl-8`}
+          />
+        </label>
+        <div className="flex flex-wrap gap-2">
           <select
             aria-label="Enstrüman"
             value={instrument}
@@ -111,13 +146,6 @@ export function TeacherListView({
               </option>
             ))}
           </select>
-          <select aria-label="Durum" value={durum === "arsiv" ? "pasif" : durum} onChange={(e) => setParam("durum", e.target.value, "aktif")} className={controlClass}>
-            {STATUS_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
           <select aria-label="Sıralama" value={sort} onChange={(e) => setParam("sirala", e.target.value, "name")} className={controlClass}>
             {SORT_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>
@@ -126,30 +154,34 @@ export function TeacherListView({
             ))}
           </select>
         </div>
-        {branches.length > 1 ? (
-          <div className="mt-3 flex flex-wrap items-center gap-1.5">
-            <span className="text-[11px] font-medium uppercase tracking-wide text-[var(--color-text-muted)]">Şube</span>
-            {branches.map((b) => {
-              const active = branchFilter.includes(b.id);
-              return (
-                <button
-                  key={b.id}
-                  type="button"
-                  aria-pressed={active}
-                  onClick={() => toggleBranch(b.id)}
-                  className={`rounded-full border px-2.5 py-1 text-xs font-medium transition ${
-                    active
-                      ? "border-[var(--color-primary)] bg-[var(--color-primary-soft)] text-[var(--color-primary-soft-text)]"
-                      : "border-[var(--color-border-strong)] bg-[var(--color-surface)] text-[var(--color-text-muted)] hover:border-[var(--color-primary)]"
-                  }`}
-                >
-                  {b.name}
-                </button>
-              );
-            })}
-          </div>
-        ) : null}
-        <p className="mt-3 flex flex-wrap items-center gap-x-3 text-xs font-medium text-[var(--color-text-muted)]">
+      </div>
+
+      {branches.length > 1 ? (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="mr-1 text-xs font-medium text-[var(--color-text-muted)]">Şube:</span>
+          {branches.map((b) => {
+            const active = branchFilter.includes(b.id);
+            return (
+              <button
+                key={b.id}
+                type="button"
+                aria-pressed={active}
+                onClick={() => toggleBranch(b.id)}
+                className={`rounded-full border px-2.5 py-1 text-xs font-medium transition ${
+                  active
+                    ? "border-[var(--color-primary)] bg-[var(--color-primary-soft)] text-[var(--color-primary-soft-text)]"
+                    : "border-[var(--color-border-strong)] bg-[var(--color-surface)] text-[var(--color-text-muted)] hover:border-[var(--color-primary)]"
+                }`}
+              >
+                {b.name}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+
+      <div className="overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] shadow-[var(--shadow-sm)]">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--color-border)] px-5 py-3 text-xs font-medium text-[var(--color-text-muted)]">
           <span>{visible.length} öğretmen listeleniyor</span>
           {anyFilter ? (
             <button
@@ -163,18 +195,45 @@ export function TeacherListView({
               Filtreleri temizle
             </button>
           ) : null}
-        </p>
-      </Card>
+        </div>
 
-      {visible.length === 0 ? (
-        <Card>
-          <p className="text-sm text-[var(--color-text-muted)]">
-            {anyFilter ? "Bu filtrelere uyan öğretmen yok. Filtreleri gevşetin veya temizleyin." : "Henüz öğretmen yok."}
-          </p>
-        </Card>
-      ) : (
-        pageItems.map((r) => <div key={r.id}>{cards[r.id]}</div>)
-      )}
+        {visible.length === 0 ? (
+          <div className="flex flex-col items-center gap-2 px-5 py-14 text-center">
+            <UserX className="h-8 w-8 text-[var(--color-text-muted)]" />
+            <p className="text-sm font-medium text-[var(--color-text)]">
+              {anyFilter ? "Bu filtrelere uyan öğretmen yok." : "Henüz öğretmen eklenmemiş."}
+            </p>
+            <p className="max-w-sm text-xs text-[var(--color-text-muted)]">
+              {anyFilter
+                ? "Arama metnini kısaltın veya filtreleri temizleyin."
+                : "Sağ üstteki \"Yeni Öğretmen\" ile tek tek ekleyebilir ya da \"Toplu aktar\" ile CSV yükleyebilirsiniz."}
+            </p>
+          </div>
+        ) : (
+          <>
+            <div
+              className={`hidden gap-x-6 border-b border-[var(--color-border)] bg-[var(--color-surface-muted)] px-5 py-2 text-xs font-medium text-[var(--color-text-muted)] lg:grid ${TEACHER_ROW_GRID} lg:items-center`}
+            >
+              <span>Öğretmen</span>
+              <span>Şube ve enstrüman</span>
+              <span>Ders yükü</span>
+              {showPerformance ? (
+                <span className="inline-flex items-center gap-1">
+                  Performans <TeacherPerformanceInfo />
+                </span>
+              ) : (
+                <span />
+              )}
+              <span className="sr-only">İşlemler</span>
+            </div>
+            <div className="divide-y divide-[var(--color-border)]">
+              {pageItems.map((r) => (
+                <div key={r.id}>{cards[r.id]}</div>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
 
       <PaginationControls
         page={page}
