@@ -57,4 +57,4 @@ export function filterTeacherRows(rows: TeacherListRow[], f: TeacherListFilter):
 }
 
 /** Liste satırı ve başlığı aynı ızgarayı paylaşır (sunucu satırı + istemci başlığı). */
-export const TEACHER_ROW_GRID = "lg:grid-cols-[minmax(0,2.1fr)_minmax(0,1.5fr)_8.5rem_8rem_auto]";
+export const TEACHER_ROW_GRID = "lg:grid-cols-[minmax(0,2.1fr)_minmax(0,1.5fr)_8.5rem_8rem_10rem]";
