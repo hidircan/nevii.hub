@@ -61,7 +61,20 @@ export type StudentRow = {
   /** Denemeden dönüştüyse dönüşümü yapan kişi (kaydı açandan farklı olabilir). */
   convertedByName?: string;
   fromTrial?: boolean;
+  /** KVKK açık rıza (kvkk_general) — merged kurum görünümünde boş. */
+  kvkkConsent?: "Var" | "Yok";
+  /** Fotoğraf paylaşım izni — merged kurum görünümünde boş. */
+  photoConsent?: "Veriyor" | "Vermiyor" | "Kayıt yok";
 };
+
+/** Satır alanından okunan basit çoklu seçim filtreleri (URL anahtarı → etiket + değer). */
+const EXTRA_FILTERS: { key: string; label: string; chip: string; value: (r: StudentRow) => string[] }[] = [
+  { key: "kvkk", label: "KVKK izni", chip: "KVKK", value: (r) => (r.kvkkConsent ? [r.kvkkConsent] : []) },
+  { key: "photo", label: "Fotoğraf paylaşım izni", chip: "Fotoğraf izni", value: (r) => (r.photoConsent ? [r.photoConsent] : []) },
+  { key: "instrument", label: "Enstrüman", chip: "Enstrüman", value: (r) => r.instruments },
+  { key: "exam", label: "Hedef sınav", chip: "Hedef sınav", value: (r) => (r.targetExam ? [r.targetExam] : []) },
+  { key: "source", label: "Kayıt kaynağı", chip: "Kaynak", value: (r) => [r.fromTrial ? "Denemeden dönüşen" : "Doğrudan kayıt"] },
+];
 
 /**
  * Sözleşme durumu — OPERASYONEL kategoriler (ham sözleşme statüsü değil).
@@ -275,6 +288,7 @@ export function StudentsTable({
   const levelFilter = searchParams.getAll("level");
   const paymentFilter = searchParams.getAll("payment");
   const creatorFilter = searchParams.getAll("creator");
+  const extraFilters = EXTRA_FILTERS.map((f) => ({ ...f, selected: searchParams.getAll(f.key) }));
   const enrolledFrom = searchParams.get("from") ?? "";
   const enrolledTo = searchParams.get("to") ?? "";
   // D — sözleşme filtreleri
@@ -391,6 +405,12 @@ export function StudentsTable({
     { key: "level", label: "MEB/LCM seviye", type: "multi", options: levelOptions },
     { key: "payment", label: "Ödeme durumu", type: "multi", options: PAYMENT_VALUES.map((v) => PAYMENT_LABELS[v]) },
     { key: "creator", label: "Kaydı oluşturan", type: "multi", options: creatorOptions },
+    ...extraFilters.map((f): FilterGroup => ({
+      key: f.key,
+      label: f.label,
+      type: "multi",
+      options: uniqueSorted(rows.flatMap(f.value)),
+    })),
     { key: "enrollment", label: "Kayıt tarihi", type: "dateRange" },
     { key: "contract", label: "Sözleşme durumu", type: "multi", options: CONTRACT_FILTER_KEYS.map((k) => CONTRACT_FILTER_LABELS[k]) },
     { key: "contractStart", label: "Sözleşme başlangıcı", type: "contractStartRange" },
@@ -405,6 +425,8 @@ export function StudentsTable({
     if (key === "package") return packageFilter;
     if (key === "level") return levelFilter;
     if (key === "creator") return creatorFilter;
+    const extra = extraFilters.find((f) => f.key === key);
+    if (extra) return extra.selected;
     if (key === "payment") return paymentFilter.map((p) => PAYMENT_LABELS[p as StudentRow["paymentStatus"]] ?? p);
     if (key === "contract") return contractFilter.map((c) => CONTRACT_FILTER_LABELS[c] ?? c);
     return [];
@@ -454,6 +476,7 @@ export function StudentsTable({
     (levelFilter.length ? 1 : 0) +
     (paymentFilter.length ? 1 : 0) +
     (creatorFilter.length ? 1 : 0) +
+    extraFilters.filter((f) => f.selected.length).length +
     (enrolledFrom || enrolledTo ? 1 : 0) +
     (contractFilter.length ? 1 : 0) +
     (contractStartFrom || contractStartTo ? 1 : 0) +
@@ -480,6 +503,7 @@ export function StudentsTable({
     if (levelFilter.length && !(row.level && levelFilter.includes(row.level))) return false;
     if (paymentFilter.length && !paymentFilter.includes(row.paymentStatus)) return false;
     if (creatorFilter.length && !creatorFilter.includes(row.createdByName ?? LEGACY_CREATOR_LABEL)) return false;
+    if (extraFilters.some((f) => f.selected.length && !f.value(row).some((v) => f.selected.includes(v)))) return false;
     if (enrolledFrom && (!row.enrollmentStartDate || row.enrollmentStartDate < enrolledFrom)) return false;
     if (enrolledTo && (!row.enrollmentStartDate || row.enrollmentStartDate > enrolledTo)) return false;
     if (contractStartFrom && (!row.contractStartDate || row.contractStartDate < contractStartFrom)) return false;
@@ -512,6 +536,7 @@ export function StudentsTable({
     { key: "package", label: "Paket", values: packageFilter },
     { key: "level", label: "Seviye", values: levelFilter },
     { key: "creator", label: "Oluşturan", values: creatorFilter },
+    ...extraFilters.map((f) => ({ key: f.key, label: f.chip, values: f.selected })),
   ];
   const chips: Chip[] = [
     ...(statusFilter !== "active"

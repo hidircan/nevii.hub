@@ -13,8 +13,16 @@ import { listContractSummariesByStudent, type StudentContractSummary, listTermin
 import { AssistantPageContext } from "@/components/ai/assistant-page-context";
 import { resolveActorLabels } from "@/lib/contract-payment-plan-view";
 import { resolveActiveInstrumentNames } from "@/lib/instrument-catalog";
+import { listLatestSocialMediaConsentsByStudent } from "@/lib/social-media-consent";
+import { listKvkkConsentedSubjectIds } from "@/lib/kvkk-consent";
 
 export const dynamic = "force-dynamic";
+
+/** Fotoğraf paylaşım izni: en güncel kayıt "verildi" VE kapsamında fotoğraf varsa "Veriyor". */
+function photoConsentLabel(c: { status: string; scopes: string[] } | undefined): StudentRow["photoConsent"] {
+  if (!c) return "Kayıt yok";
+  return c.status === "granted" && c.scopes.includes("photo") ? "Veriyor" : "Vermiyor";
+}
 
 export default async function OgrencilerPage({
   searchParams,
@@ -56,6 +64,15 @@ export default async function OgrencilerPage({
     kurum.scope.mode === "single"
       ? await listContractSummariesByStudent(kurum.scope.tenantId)
       : new Map<string, StudentContractSummary>();
+
+  // İzin filtreleri — KVKK + fotoğraf izni, tenant başına TEK sorgu (merged görünümde atlanır).
+  const [photoConsents, kvkkConsented] =
+    kurum.scope.mode === "single"
+      ? await Promise.all([
+          listLatestSocialMediaConsentsByStudent(kurum.scope.tenantId),
+          listKvkkConsentedSubjectIds(kurum.scope.tenantId, "kvkk_general"),
+        ])
+      : [undefined, undefined];
 
   // F — kaydı oluşturan / denemeden dönüştüren kişi adları TEK sorguda (ham kimlik asla gösterilmez).
   const actorNames = await resolveActorLabels({
@@ -104,6 +121,8 @@ export default async function OgrencilerPage({
       createdByName: s.createdByUserId ? actorNames.get(s.createdByUserId) : undefined,
       convertedByName: s.convertedByUserId ? actorNames.get(s.convertedByUserId) : undefined,
       fromTrial: Boolean(s.convertedFromTrialId),
+      kvkkConsent: kvkkConsented ? (kvkkConsented.has(s.id) ? "Var" : "Yok") : undefined,
+      photoConsent: photoConsents ? photoConsentLabel(photoConsents.get(s.id)) : undefined,
     };
   });
 
