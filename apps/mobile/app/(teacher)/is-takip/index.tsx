@@ -25,7 +25,7 @@ export default function IsTakipIndex() {
   const res = useApiGet<TasksResponse>(buildTasksPath(segment));
   const [completingId, setCompletingId] = useState<string | null>(null);
 
-  useFocusRefetch(res.refresh);
+  useFocusRefetch(res.autoRefresh);
 
   const tasks = useMemo(() => (res.status === "success" ? res.data.tasks : []), [res]);
 

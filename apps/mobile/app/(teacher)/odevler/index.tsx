@@ -35,8 +35,8 @@ export default function OdevlerIndex() {
   const [studentFilter, setStudentFilter] = useState<string | null>(null);
   const res = useApiGet<HomeworkResponse>("/api/v1/homework/mine");
   const studentsRes = useApiGet<TeacherStudentsResponse>(user?.teacherId ? `/api/v1/teachers/${user.teacherId}/students` : "");
-  useFocusRefetch(res.refresh);
-  useAppForegroundRefetch(res.refresh);
+  useFocusRefetch(res.autoRefresh);
+  useAppForegroundRefetch(res.autoRefresh);
 
   const students = useMemo(() => {
     if (studentsRes.status !== "success") return [];

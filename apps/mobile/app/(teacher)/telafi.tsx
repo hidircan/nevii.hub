@@ -20,7 +20,7 @@ export default function TeacherTelafi() {
   const { t: tr } = useLocale();
   const { user } = useAuth();
   const res = useMakeupRequests();
-  useFocusRefetch(res.refresh);
+  useFocusRefetch(res.autoRefresh);
   const items = res.status === "success" ? teacherMakeupItems(res.data.makeupRequests, user?.teacherId) : [];
 
   return (

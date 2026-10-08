@@ -37,8 +37,8 @@ export function StudentScopeMakeupListScreen({ basePath }: { basePath: "/(parent
   const router = useRouter();
   const studentId = useSelectedStudentId();
   const res = useCachedApiGet<MakeupLedgerResponse>(studentId ? `/api/v1/students/${studentId}/makeup-ledger?limit=100` : "");
-  useFocusRefetch(res.refresh);
-  useAppForegroundRefetch(res.refresh);
+  useFocusRefetch(res.autoRefresh);
+  useAppForegroundRefetch(res.autoRefresh);
 
   if (!studentId) {
     return (
@@ -138,8 +138,8 @@ export function StudentScopeMakeupDetailScreen({
   const router = useRouter();
   const studentId = useSelectedStudentId();
   const res = useCachedApiGet<MakeupLedgerResponse>(studentId ? `/api/v1/students/${studentId}/makeup-ledger?limit=200` : "");
-  useFocusRefetch(res.refresh);
-  useAppForegroundRefetch(res.refresh);
+  useFocusRefetch(res.autoRefresh);
+  useAppForegroundRefetch(res.autoRefresh);
 
   if (res.status === "loading") {
     return (

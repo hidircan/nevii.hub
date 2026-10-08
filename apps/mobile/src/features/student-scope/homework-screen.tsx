@@ -25,8 +25,8 @@ export function StudentScopeHomeworkListScreen({ basePath }: { basePath: "/(pare
   const [filter, setFilter] = useState<Filter>("pending");
   const studentId = useSelectedStudentId();
   const res = useCachedApiGet<HomeworkResponse>(studentId ? `/api/v1/students/${studentId}/homework` : "");
-  useFocusRefetch(res.refresh);
-  useAppForegroundRefetch(res.refresh);
+  useFocusRefetch(res.autoRefresh);
+  useAppForegroundRefetch(res.autoRefresh);
 
   const filtered = useMemo(() => {
     if (res.status !== "success") return [];

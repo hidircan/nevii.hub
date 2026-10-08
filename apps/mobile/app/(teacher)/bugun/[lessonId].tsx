@@ -38,8 +38,8 @@ export default function LessonDetailScreen() {
   // Ders yalnız öğretmenin KENDİ programından bulunur (sunucu teacherId sahipliğini doğrular);
   // listede yoksa "bulunamadı" gösterilir — başka bir kaynaktan tahmin edilmez.
   const schedule = useApiGet<ScheduleResponse>(user?.teacherId ? `/api/v1/teachers/${user.teacherId}/schedule` : "");
-  useFocusRefetch(schedule.refresh);
-  useAppForegroundRefetch(schedule.refresh);
+  useFocusRefetch(schedule.autoRefresh);
+  useAppForegroundRefetch(schedule.autoRefresh);
   const lesson = schedule.status === "success" ? schedule.data.lessons.find((l) => l.id === lessonId) : undefined;
 
   const homework = useApiGet<HomeworkResponse>(lesson?.studentId ? `/api/v1/students/${lesson.studentId}/homework` : "");

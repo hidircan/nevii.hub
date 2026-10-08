@@ -16,6 +16,7 @@ import {
   SectionHeader,
 } from "../../../src/components/ui";
 import { useApiGet } from "../../../src/hooks/use-api";
+import { useDebouncedSearchQuery } from "../../../src/hooks/use-debounced-value";
 import { useLocale } from "../../../src/i18n/locale-context";
 import { useNow } from "../../../src/hooks/use-now";
 import { useTheme } from "../../../src/theme/theme-context";
@@ -39,9 +40,11 @@ export default function AdminYoklama() {
   const [opsError, setOpsError] = useState<string | null>(null);
   const [pendingSwitch, setPendingSwitch] = useState<{ lessonId: string; flag: "attended" | "absent" | "excused"; from: string } | null>(null);
 
-  const trimmed = query.trim();
+  // Sunucu araması: 400ms debounce + min 2 karakter (tuş başına istek yok).
+  const sentQuery = useDebouncedSearchQuery(query);
   const students = useApiGet<AdminStudentsResponse>(
-    trimmed ? `/api/v1/students?q=${encodeURIComponent(trimmed)}&limit=8` : ""
+    sentQuery ? `/api/v1/students?q=${encodeURIComponent(sentQuery)}&limit=8` : "",
+    { abortable: true }
   );
   const schedule = useApiGet<ScheduleResponse>(selectedId ? `/api/v1/students/${selectedId}/schedule` : "");
   const attendance = useApiGet<AttendanceSummary>(selectedId ? `/api/v1/students/${selectedId}/attendance-summary` : "");

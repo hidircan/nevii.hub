@@ -3,6 +3,7 @@ import { useState } from "react";
 import { FlatList, Text, View } from "react-native";
 import { AppHeader, Avatar, Button, Card, EmptyState, ErrorState, FilterChip, LoadingSkeleton, Screen, SearchInput, StatusBadge, StudentCard } from "../../../src/components/ui";
 import { useApiGet } from "../../../src/hooks/use-api";
+import { useDebouncedSearchQuery } from "../../../src/hooks/use-debounced-value";
 import { useLocale } from "../../../src/i18n/locale-context";
 import { useTheme } from "../../../src/theme/theme-context";
 import type { AdminStudentSummary, AdminStudentsResponse, TeacherSummary, TeachersResponse } from "../../../src/types/api";
@@ -34,12 +35,16 @@ export default function KisilerIndex() {
     setLimit(PAGE_SIZE);
   }
 
-  const qParam = query.trim() ? `?q=${encodeURIComponent(query.trim())}&limit=${limit}` : `?limit=${limit}`;
+  // Sunucu araması: 400ms debounce + min 2 karakter (tuş başına istek yok).
+  const sentQuery = useDebouncedSearchQuery(query);
+  const qParam = sentQuery ? `?q=${encodeURIComponent(sentQuery)}&limit=${limit}` : `?limit=${limit}`;
   const students = useApiGet<AdminStudentsResponse>(
-    segment === "teachers" ? "" : `/api/v1/students${qParam}`
+    segment === "teachers" ? "" : `/api/v1/students${qParam}`,
+    { abortable: true }
   );
   const teachers = useApiGet<TeachersResponse>(
-    segment === "teachers" ? `/api/v1/teachers${qParam}` : ""
+    segment === "teachers" ? `/api/v1/teachers${qParam}` : "",
+    { abortable: true }
   );
 
   const studentRows: AdminStudentSummary[] = students.status === "success" ? students.data.students : [];

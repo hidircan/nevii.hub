@@ -71,8 +71,8 @@ export function AttendanceReportScreen({
   const res = useCachedApiGet<AttendanceLedgerResponse>(
     studentId ? ledgerUrl(studentId, direction, status, limit) : ""
   );
-  useFocusRefetch(res.refresh);
-  useAppForegroundRefetch(res.refresh);
+  useFocusRefetch(res.autoRefresh);
+  useAppForegroundRefetch(res.autoRefresh);
 
   const counts = res.status === "success" ? res.data.counts : null;
   const total = res.status === "success" ? res.data.total : 0;

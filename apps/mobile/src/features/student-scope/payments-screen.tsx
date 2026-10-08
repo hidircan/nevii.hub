@@ -51,8 +51,8 @@ export function StudentScopePaymentsScreen({ basePath }: { basePath: "/(parent)"
   const studentId = useSelectedStudentId();
 
   const res = useCachedApiGet<PaymentLedgerResponse>(studentId ? `/api/v1/students/${studentId}/payment-ledger?limit=200` : "");
-  useFocusRefetch(res.refresh);
-  useAppForegroundRefetch(res.refresh);
+  useFocusRefetch(res.autoRefresh);
+  useAppForegroundRefetch(res.autoRefresh);
 
   const [exporting, setExporting] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
@@ -236,8 +236,8 @@ export function StudentScopePaymentDetailScreen({ paymentId }: { paymentId: stri
   const ledger = useCachedApiGet<PaymentLedgerResponse>(studentId ? `/api/v1/students/${studentId}/payment-ledger?limit=200` : "");
   const receipt = useCachedApiGet<PaymentReceiptResponse>(`/api/v1/payments/${paymentId}/receipt`);
   // Tarayıcıdan dönüşte (deep-link/payment-result) bakiye tazelenir.
-  useFocusRefetch(ledger.refresh);
-  useAppForegroundRefetch(ledger.refresh);
+  useFocusRefetch(ledger.autoRefresh);
+  useAppForegroundRefetch(ledger.autoRefresh);
 
   const [checkout, setCheckout] = useState<{ state: "idle" } | { state: "busy" } | { state: "message"; message: string }>({
     state: "idle",

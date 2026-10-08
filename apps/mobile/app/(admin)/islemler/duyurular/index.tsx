@@ -10,7 +10,7 @@ export default function AdminDuyurularIndex() {
   const router = useRouter();
   const { t: tr } = useLocale();
   const res = useApiGet<AnnouncementsResponse>("/api/v1/announcements/manage");
-  useFocusRefetch(res.refresh);
+  useFocusRefetch(res.autoRefresh);
   const announcements = res.status === "success" ? [...res.data.announcements].sort((a, b) => b.createdAt.localeCompare(a.createdAt)) : [];
 
   return (

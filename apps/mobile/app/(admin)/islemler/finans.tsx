@@ -19,7 +19,7 @@ export default function Finans() {
   const { t: tr } = useLocale();
   const router = useRouter();
   const res = useApiGet<CollectionSummaryResponse>("/api/v1/payments/summary");
-  useFocusRefetch(res.refresh);
+  useFocusRefetch(res.autoRefresh);
 
   return (
     <Screen onRefresh={res.refresh} refreshing={res.status === "loading"}>

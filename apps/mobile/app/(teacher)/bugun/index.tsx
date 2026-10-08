@@ -49,8 +49,12 @@ export default function TeacherBugun() {
     schedule.refresh();
     homework.refresh();
   }
-  useFocusRefetch(refreshAll);
-  useAppForegroundRefetch(refreshAll);
+  function refreshAllAuto() {
+    schedule.autoRefresh();
+    homework.autoRefresh();
+  }
+  useFocusRefetch(refreshAllAuto);
+  useAppForegroundRefetch(refreshAllAuto);
 
   const weekLessons = useMemo(
     () => (schedule.status === "success" ? schedule.data.lessons : []),

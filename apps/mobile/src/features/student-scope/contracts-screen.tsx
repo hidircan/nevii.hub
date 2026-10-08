@@ -54,8 +54,8 @@ export function StudentScopeContractsScreen({ basePath }: { basePath: "/(parent)
   const router = useRouter();
   const studentId = useSelectedStudentId();
   const res = useApiGet<StudentContractsResponse>(studentId ? `/api/v1/students/${studentId}/contracts` : "");
-  useFocusRefetch(res.refresh);
-  useAppForegroundRefetch(res.refresh);
+  useFocusRefetch(res.autoRefresh);
+  useAppForegroundRefetch(res.autoRefresh);
 
   return (
     <Screen onRefresh={res.refresh} refreshing={res.status === "loading"}>

@@ -15,7 +15,7 @@ export default function TeacherMateryaller() {
   const { t: tr } = useLocale();
   const router = useRouter();
   const res = useApiGet<TeachingMaterialsResponse>("/api/v1/teaching-materials/mine");
-  useFocusRefetch(res.refresh);
+  useFocusRefetch(res.autoRefresh);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
 

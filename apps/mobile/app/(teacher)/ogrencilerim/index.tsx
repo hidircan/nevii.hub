@@ -16,8 +16,8 @@ export default function OgrencilerimIndex() {
   const [query, setQuery] = useState("");
 
   const res = useApiGet<TeacherStudentsResponse>(user?.teacherId ? `/api/v1/teachers/${user.teacherId}/students` : "");
-  useFocusRefetch(res.refresh);
-  useAppForegroundRefetch(res.refresh);
+  useFocusRefetch(res.autoRefresh);
+  useAppForegroundRefetch(res.autoRefresh);
 
   const filtered = useMemo(() => {
     if (res.status !== "success") return [];

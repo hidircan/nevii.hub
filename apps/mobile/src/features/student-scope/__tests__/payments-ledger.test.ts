@@ -39,9 +39,13 @@ describe("ödeme ekranı sözleşmesi", () => {
     expect(content).toMatch(/canPayOnline/);
   });
 
-  it("tahsilat sonrası tazeleme bağlanır (focus + foreground)", async () => {
+  it("tahsilat sonrası tazeleme bağlanır (focus + foreground, TTL-bilinçli)", async () => {
     const content = await fs.readFile(SCREEN, "utf-8");
-    expect(content).toMatch(/useFocusRefetch\(ledger\.refresh\)/);
-    expect(content).toMatch(/useAppForegroundRefetch\(ledger\.refresh\)/);
+    // Otomatik tetikleyiciler TTL-bilinçli kanaldan (fresh ise istek yok);
+    // manuel kanallar (pull-to-refresh / tekrar-dene) zorla-yenilemede kalır.
+    expect(content).toMatch(/useFocusRefetch\(ledger\.autoRefresh\)/);
+    expect(content).toMatch(/useAppForegroundRefetch\(ledger\.autoRefresh\)/);
+    expect(content).toMatch(/onRetry=\{ledger\.refresh\}/);
+    expect(content).toMatch(/onRefresh=\{res\.refresh\}/);
   });
 });

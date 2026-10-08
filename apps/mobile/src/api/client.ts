@@ -2,6 +2,7 @@ import { Platform } from "react-native";
 import { clearTokens, getAccessToken, getRefreshToken, setTokens } from "../auth/token-storage";
 import { networkError, toApiResult, type ApiResult } from "./errors";
 import { getActiveLocale } from "../i18n/locale-store";
+import { API_TIMEOUT_MS, MAX_GET_RETRIES, isRetryableOutcome, retryDelayMs } from "./request-policy";
 
 export type { ApiResult };
 
@@ -86,8 +87,19 @@ export function setSessionExpiredHandler(fn: () => void): () => void {
   };
 }
 
+/**
+ * GET in-flight dedupe: aynı path'e eşzamanlı çağrılar (ev ekranı + bildirim
+ * zili + liste gibi) tek ağ isteğini paylaşır. Anahtar yalnız path'tir —
+ * cihazda aynı anda tek kullanıcı oturumu vardır; oturum sınırında
+ * (`endLocalSession`) harita temizlenir, eski kullanıcının yanıtı yeni
+ * kullanıcıya ASLA sızmaz. Arayan `signal` verirse (iptal edilebilir arama)
+ * paylaşılmaz — özel istek açılır.
+ */
+const inFlightGet = new Map<string, Promise<ApiResult<unknown>>>();
+
 export async function endLocalSession(): Promise<void> {
   sessionEpoch += 1;
+  inFlightGet.clear();
   await clearTokens();
 }
 
@@ -110,20 +122,49 @@ const NO_REFRESH_PATH = /^\/api\/v1\/auth\/(login|refresh|logout|forgot-password
 let refreshInFlight: Promise<boolean> | null = null;
 
 /** Web tarafı HttpOnly çerez kullanır; mobil HİÇBİR çerez mekanizmasına güvenmez — her istek Bearer token taşır. */
-async function authorizedFetch(path: string, init: RequestInit = {}, retry = true): Promise<Response> {
+async function authorizedFetch(
+  path: string,
+  init: RequestInit = {},
+  retry = true,
+  callerSignal?: AbortSignal
+): Promise<Response> {
   const accessToken = await getAccessToken();
   const headers = new Headers(init.headers);
   headers.set("Content-Type", "application/json");
   if (accessToken) headers.set("Authorization", `Bearer ${accessToken}`);
 
-  const res = await fetch(`${API_BASE_URL}${path}`, { ...init, headers });
+  const res = await fetchWithTimeout(`${API_BASE_URL}${path}`, { ...init, headers }, callerSignal);
 
   if (res.status === 401 && retry && !NO_REFRESH_PATH.test(path)) {
-    if (await refreshAccessToken()) return authorizedFetch(path, init, false);
+    if (await refreshAccessToken()) return authorizedFetch(path, init, false, callerSignal);
     await endLocalSession();
     onSessionExpired?.();
   }
   return res;
+}
+
+/** Deneme başına merkezi timeout; arayan sinyali de iç zamanlayıcıyla birleşir. */
+async function fetchWithTimeout(url: string, init: RequestInit, callerSignal?: AbortSignal): Promise<Response> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), API_TIMEOUT_MS);
+  const onCallerAbort = () => ctrl.abort();
+  if (callerSignal) {
+    if (callerSignal.aborted) {
+      clearTimeout(timer);
+      throw callerSignal.reason instanceof Error ? callerSignal.reason : new Error("aborted");
+    }
+    callerSignal.addEventListener("abort", onCallerAbort, { once: true });
+  }
+  try {
+    return await fetch(url, { ...init, signal: ctrl.signal });
+  } finally {
+    clearTimeout(timer);
+    callerSignal?.removeEventListener("abort", onCallerAbort);
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function refreshAccessToken(): Promise<boolean> {
@@ -155,30 +196,80 @@ async function refreshAccessToken(): Promise<boolean> {
   return refreshInFlight;
 }
 
-async function request<T>(path: string, init: RequestInit): Promise<ApiResult<T>> {
+async function request<T>(
+  path: string,
+  init: RequestInit,
+  opts: { retryable: boolean; signal?: AbortSignal }
+): Promise<ApiResult<T>> {
   const url = `${API_BASE_URL}${path}`;
-  try {
-    const res = await authorizedFetch(path, init);
-    return await parseApiResponse<T>(res, url);
-  } catch (err) {
-    return networkErrorResult<T>(url, err);
+  const signal = opts.signal;
+  let attempt = 0;
+  for (;;) {
+    if (signal?.aborted) return networkErrorResult<T>(url, signal.reason ?? new Error("aborted"));
+    try {
+      const res = await authorizedFetch(path, init, true, signal);
+      if (opts.retryable && isRetryableOutcome({ kind: "http", status: res.status }) && attempt < MAX_GET_RETRIES) {
+        attempt += 1;
+        await sleep(retryDelayMs(attempt - 1));
+        continue;
+      }
+      return await parseApiResponse<T>(res, url);
+    } catch (err) {
+      // Arayan iptal ettiyse (arama değişti / ekran kapandı): retry YOK.
+      if (signal?.aborted) return networkErrorResult<T>(url, err);
+      if (opts.retryable && isRetryableOutcome({ kind: "network-error" }) && attempt < MAX_GET_RETRIES) {
+        attempt += 1;
+        await sleep(retryDelayMs(attempt - 1));
+        continue;
+      }
+      return networkErrorResult<T>(url, err);
+    }
   }
 }
 
-export function apiGet<T>(path: string): Promise<ApiResult<T>> {
-  return request<T>(path, { method: "GET" });
+export type ApiGetOptions = {
+  /**
+   * İptal sinyali (yalnız arama gibi terk-edilebilir isteklerde): verilirse
+   * istek in-flight dedupe'a KATILMAZ — özel istek açılır ve sinyal ile
+   * gerçekten iptal edilir. Verilmezse aynı path paylaşılır.
+   */
+  signal?: AbortSignal;
+};
+
+export function apiGet<T>(path: string, opts: ApiGetOptions = {}): Promise<ApiResult<T>> {
+  if (opts.signal) return request<T>(path, { method: "GET" }, { retryable: true, signal: opts.signal });
+  const key = path;
+  const shared = inFlightGet.get(key);
+  if (shared) return shared as Promise<ApiResult<T>>;
+  const started: Promise<ApiResult<T>> = request<T>(path, { method: "GET" }, { retryable: true });
+  const tracked = started.then(
+    (res) => {
+      if (inFlightGet.get(key) === tracked) inFlightGet.delete(key);
+      return res;
+    },
+    (err: unknown) => {
+      if (inFlightGet.get(key) === tracked) inFlightGet.delete(key);
+      throw err;
+    }
+  ) as Promise<ApiResult<unknown>>;
+  inFlightGet.set(key, tracked);
+  return tracked as Promise<ApiResult<T>>;
 }
 
 export function apiPost<T>(path: string, body?: unknown): Promise<ApiResult<T>> {
-  return request<T>(path, { method: "POST", body: body ? JSON.stringify(body) : undefined });
+  return request<T>(
+    path,
+    { method: "POST", body: body ? JSON.stringify(body) : undefined },
+    { retryable: false }
+  );
 }
 
 export function apiDelete<T>(path: string): Promise<ApiResult<T>> {
-  return request<T>(path, { method: "DELETE" });
+  return request<T>(path, { method: "DELETE" }, { retryable: false });
 }
 
 export function apiPatch<T>(path: string, body?: unknown): Promise<ApiResult<T>> {
-  return request<T>(path, { method: "PATCH", body: body ? JSON.stringify(body) : undefined });
+  return request<T>(path, { method: "PATCH", body: body ? JSON.stringify(body) : undefined }, { retryable: false });
 }
 
 export { API_BASE_URL };

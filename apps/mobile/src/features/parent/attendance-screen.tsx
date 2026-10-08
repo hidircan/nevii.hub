@@ -37,8 +37,8 @@ export function ParentAttendanceScreen() {
 
   const profile = useApiGet<StudentProfile>(studentId ? `/api/v1/students/${studentId}` : "");
   const res = useApiGet<AttendanceLedgerResponse>(studentId ? `/api/v1/students/${studentId}/attendance-ledger?limit=1` : "");
-  useFocusRefetch(res.refresh);
-  useAppForegroundRefetch(res.refresh);
+  useFocusRefetch(res.autoRefresh);
+  useAppForegroundRefetch(res.autoRefresh);
 
   if (!studentId) {
     return (

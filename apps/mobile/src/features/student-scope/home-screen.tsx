@@ -53,8 +53,19 @@ export function StudentScopeHomeScreen({ basePath }: { basePath: "/(parent)" | "
   // eski öğrencinin verisi ASLA görünmez (URL'ler seçili ID'den kurulur).
   const studentId = useSelectedStudentId();
 
+  // Ev yalnız "sıradaki ders + bu hafta" gösterir — penceresiz program (tüm
+  // ders geçmişi) yerine 21 günlük pencere çekilir. Pencere gün-başına
+  // sabitlenir: render başına değişen URL sonsuz yeniden-istek yapardı.
+  const homeWindow = useMemo(() => {
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(start.getTime() + 14 * 86400000);
+    return { from: new Date(start.getTime() - 7 * 86400000).toISOString(), to: end.toISOString() };
+  }, []);
   const profile = useCachedApiGet<StudentProfile>(studentId ? `/api/v1/students/${studentId}` : "");
-  const schedule = useCachedApiGet<ScheduleResponse>(studentId ? `/api/v1/students/${studentId}/schedule` : "");
+  const schedule = useCachedApiGet<ScheduleResponse>(
+    studentId ? `/api/v1/students/${studentId}/schedule?from=${homeWindow.from}&to=${homeWindow.to}` : ""
+  );
   const homework = useCachedApiGet<HomeworkResponse>(studentId ? `/api/v1/students/${studentId}/homework` : "");
   const attendance = useCachedApiGet<AttendanceSummary>(studentId ? `/api/v1/students/${studentId}/attendance-summary` : "");
   const assessments = useApiGet<AssessmentsResponse>(studentId ? `/api/v1/assessments/${studentId}` : "");
@@ -79,8 +90,21 @@ export function StudentScopeHomeScreen({ basePath }: { basePath: "/(parent)" | "
     makeup.refresh();
     balance.refresh();
   }
+  function refreshAllAuto() {
+    // Erişim verisi (çocuk listesi) her zaman zorla doğrulanır; içerik
+    // TTL-bilinçli tazelenir (fresh ise istek atılmaz).
+    selection.refresh();
+    schedule.autoRefresh();
+    profile.autoRefresh();
+    homework.autoRefresh();
+    attendance.autoRefresh();
+    assessments.autoRefresh();
+    notifications.autoRefresh();
+    makeup.autoRefresh();
+    balance.autoRefresh();
+  }
   // Web'de admin değişikliği → foreground'a dönüşte yeniden doğrula.
-  useAppForegroundRefetch(refreshAll);
+  useAppForegroundRefetch(refreshAllAuto);
 
   const nextLesson = useMemo(() => {
     if (schedule.status !== "success") return null;

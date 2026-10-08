@@ -37,8 +37,8 @@ export function ParentChildScreen({ basePath }: { basePath: "/(parent)" }) {
   const studentId = useSelectedStudentId();
 
   const res = useApiGet<StudentProfile>(studentId ? `/api/v1/students/${studentId}` : "");
-  useFocusRefetch(res.refresh);
-  useAppForegroundRefetch(res.refresh);
+  useFocusRefetch(res.autoRefresh);
+  useAppForegroundRefetch(res.autoRefresh);
 
   if (!studentId) {
     return (

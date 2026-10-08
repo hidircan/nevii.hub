@@ -82,11 +82,11 @@ export default function StudentDetailScreen() {
   // eklenen kayıt ekrandan çıkıp tekrar girmeden görünmüyor" hatasının kök
   // neden düzeltmesi (bkz. useFocusRefetch).
   useFocusRefetch(() => {
-    assessments.refresh();
-    curriculum.refresh();
-    homework.refresh();
-    schedule.refresh();
-    score.refresh();
+    assessments.autoRefresh();
+    curriculum.autoRefresh();
+    homework.autoRefresh();
+    schedule.autoRefresh();
+    score.autoRefresh();
   });
 
   const [addingTopic, setAddingTopic] = useState(false);
