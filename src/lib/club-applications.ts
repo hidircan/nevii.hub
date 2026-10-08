@@ -71,6 +71,11 @@ export type ClubOffer = {
     totalLessons?: number;
     branchName?: string;
   };
+  /**
+   * 2026-10-09 — kulübe dahil solfej BAĞLI (`includedSolfegeClubId`) ama bağlı kulüp artık yok/pasif: süre UYDURULMAZ,
+   * portal "solfej süresi şu an belirtilemiyor" der (yanıltıcı "+ 0" yok).
+   */
+  includedSolfegeUnavailable?: true;
 };
 
 /** Portal listesi: teklif + doluluk DURUMU (sayı yok). */
@@ -184,7 +189,9 @@ export function buildClubOffer(club: Club, clubs: Club[], branches: Branch[]): C
             ...(solfegeBranch ? { branchName: solfegeBranch.shortName || solfegeBranch.name } : {}),
           },
         }
-      : {}),
+      : club.includedSolfegeClubId && !isSolfegeClub(club)
+        ? { includedSolfegeUnavailable: true as const }
+        : {}),
   };
 }
 

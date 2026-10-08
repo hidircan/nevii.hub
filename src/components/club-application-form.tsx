@@ -21,8 +21,49 @@ const feeNature = (c: Pick<PublicClub, "feePeriod" | "feeMonths">) =>
     : c.feePeriod === "term"
       ? "Dönemlik ücret — dönem başına bir kez."
       : "Toplam ücret — tüm program için bir kez.";
-/** Yönetici toplam ders sayısını girmediyse 0 yerine açıkça "belirtilmedi" (yanıltıcı sıfır yok). */
-const totalLessonsText = (n?: number) => `Toplam ders sayısı: ${n !== undefined ? n : "kurum tarafından henüz belirtilmedi"}`;
+/**
+ * 2026-10-09 — aylık ücretli grupta ödeme ayı sayısı biliniyorsa adayın ödeyeceği TOPLAM: "4 aylık toplam ücret: 6.000 ₺".
+ * Ay sayısı yoksa toplam UYDURULMAZ (null); dönemlik/toplam ücret zaten tek tutardır.
+ */
+const monthlyTotalText = (c: Pick<PublicClub, "fee" | "feePeriod" | "feeMonths">) =>
+  c.feePeriod === "monthly" && c.fee > 0 && c.feeMonths !== undefined && c.feeMonths > 0
+    ? `${c.feeMonths} aylık toplam ücret: ${money(c.fee * c.feeMonths)}`
+    : null;
+/** Ana kulübe BAĞLI dahil solfej var mı (seçilen kulüp zaten solfejse kendisi eklenmez). */
+const hasLinkedSolfege = (c: PublicClub) =>
+  !c.instrument.toLocaleLowerCase("tr").includes("solfej") && (!!c.includedSolfege || !!c.includedSolfegeUnavailable);
+/**
+ * 2026-10-09 — "Toplam ders sayısı: 16 ders Keman + 16 ders Solfej": yöneticinin kulüplere girdiği kayıtlı sayılar
+ * neyse o yazılır; girilmemişse 0 yerine açıkça "belirtilmedi" (yanıltıcı sıfır yok). Süreden (dakika) ayrı kavramdır.
+ */
+function clubLessonCountText(c: PublicClub): string {
+  const part = (label: string, n?: number) =>
+    n !== undefined && Number.isFinite(n) && n >= 0 ? `${n} ders ${label}` : `${label} ders sayısı kurum tarafından henüz belirtilmedi`;
+  const main = part(c.instrument, c.totalLessons);
+  return `Toplam ders sayısı: ${hasLinkedSolfege(c) ? `${main} + ${part("Solfej", c.includedSolfege?.totalLessons)}` : main}`;
+}
+const positiveMinutes = (n?: number) => (typeof n === "number" && Number.isFinite(n) && n > 0 ? Math.round(n) : undefined);
+/**
+ * 2026-10-09 — "Ders süresi: 30 + 40 dakika": ilk değer seçilen ana kulübün, ikinci değer ona BAĞLI dahil solfej
+ * kulübünün (`includedSolfegeClubId`) kayıtlı ders süresi. İki ayrı dersin süresidir — toplam gösterilmez, dersler
+ * art arda olmak zorunda değildir. Eksik süre uydurulmaz ("+ 0" yok); seçilen kulüp zaten solfejse eklenmez.
+ */
+function clubDurationText(c: PublicClub): { headline: string; detail?: string } {
+  const main = positiveMinutes(c.durationMinutes);
+  if (!hasLinkedSolfege(c)) return { headline: main !== undefined ? `Ders süresi: ${main} dakika` : "Ders süresi: kurum tarafından henüz belirtilmedi" };
+  const sol = positiveMinutes(c.includedSolfege?.durationMinutes);
+  const mainPart = main !== undefined ? `${c.instrument}: ${main} dk` : `${c.instrument}: süre henüz belirtilmedi`;
+  const solPart = sol !== undefined ? "Solfej: " + sol + " dk" : "Solfej: süre bilgisi şu an mevcut değil";
+  const headline =
+    main !== undefined && sol !== undefined
+      ? `Ders süresi: ${main} + ${sol} dakika`
+      : main !== undefined
+        ? `Ders süresi: ${main} dakika + solfej süresi belirtilmedi`
+        : sol !== undefined
+          ? `Ders süresi: ${c.instrument} süresi belirtilmedi + ${sol} dakika`
+          : "Ders süresi: kurum tarafından henüz belirtilmedi";
+  return { headline, detail: `${mainPart} + ${solPart} — iki ayrı dersin süresidir; dersler art arda olmak zorunda değildir.` };
+}
 const EDUCATION_PLACEHOLDER = "Daha önce aldığınız müzik eğitimini yazın. Eğitim almadıysanız ‘Daha önce eğitim almadım’ yazabilirsiniz.";
 const newKey = () =>
   typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `k${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
@@ -42,6 +83,7 @@ function ClubSummary({ club }: { club: PublicClub }) {
         </div>
         <div className="sm:text-right">
           <p className="text-lg font-semibold tabular-nums">{feeText(club)}</p>
+          {monthlyTotalText(club) ? <p className="text-sm font-semibold tabular-nums">{monthlyTotalText(club)}</p> : null}
           <p className="text-[11px] text-[var(--color-text-muted)]">{feeNature(club)}</p>
         </div>
       </div>
@@ -60,11 +102,16 @@ function ClubSummary({ club }: { club: PublicClub }) {
         ) : null}
         <div className="flex gap-2">
           <Clock className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-text-muted)]" aria-hidden="true" />
-          <div><dt className="sr-only">Gün, saat ve süre</dt><dd>{club.scheduleText ? `${club.scheduleText} · ` : ""}{club.durationMinutes} dk ders</dd></div>
+          <div>
+            <dt className="sr-only">Gün, saat ve süre</dt>
+            {club.scheduleText ? <dd>{club.scheduleText}</dd> : null}
+            <dd className="font-medium">{clubDurationText(club).headline}</dd>
+            {clubDurationText(club).detail ? <dd className="text-xs text-[var(--color-text-muted)]">{clubDurationText(club).detail}</dd> : null}
+          </div>
         </div>
         <div className="flex gap-2">
           <BookOpen className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-text-muted)]" aria-hidden="true" />
-          <div><dt className="sr-only">Toplam ders</dt><dd className="font-medium">{totalLessonsText(club.totalLessons)}</dd></div>
+          <div><dt className="sr-only">Toplam ders</dt><dd className="font-medium">{clubLessonCountText(club)}</dd></div>
         </div>
         {club.branchName ? (
           <div className="flex gap-2">
@@ -333,6 +380,7 @@ export function ClubApplicationPortal({
                   {c.instrument}{c.audience ? ` · ${audienceText(c.audience)}` : ""}{c.branchName ? ` · ${c.branchName}` : ""}
                 </span>
                 <span className="mt-1.5 text-xs font-medium tabular-nums">{feeText(c)}</span>
+                {monthlyTotalText(c) ? <span className="text-[11px] tabular-nums text-[var(--color-text-muted)]">{monthlyTotalText(c)}</span> : null}
               </label>
             );
           })}
@@ -368,8 +416,11 @@ export function ClubApplicationPortal({
           <p className="font-semibold text-[var(--color-text)]">Seçilen grup: {selected.name}</p>
           <p className="mt-0.5 text-[var(--color-text-muted)]">
             {feeText(selected)}
-            {selected.feePeriod === "monthly" && selected.feeMonths !== undefined && selected.fee > 0 ? ` × ${selected.feeMonths} ay` : ""} · {totalLessonsText(selected.totalLessons)}
+            {selected.feePeriod === "monthly" && selected.feeMonths !== undefined && selected.fee > 0 ? ` × ${selected.feeMonths} ay` : ""} · {clubLessonCountText(selected)}
           </p>
+          {monthlyTotalText(selected) ? <p className="mt-0.5 font-semibold text-[var(--color-text)]">{monthlyTotalText(selected)}</p> : null}
+          <p className="mt-0.5 text-[var(--color-text)]">{clubDurationText(selected).headline}</p>
+          {clubDurationText(selected).detail ? <p className="text-[var(--color-text-muted)]">{clubDurationText(selected).detail}</p> : null}
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="sm:col-span-2">

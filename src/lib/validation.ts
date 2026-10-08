@@ -593,6 +593,8 @@ export const paymentRecordSchema = z.object({
   description: z.string().min(1),
   amount: z.coerce.number().int().min(1),
   dueDate: z.string().min(1),
+  /** 2026-10-09 — borcun branş kaydı; çok branşlı öğrencide alan gönderilmelidir ("" = branşa bağlı değil/genel). */
+  enrollmentId: z.string().max(100).optional(),
 });
 
 export const updateLessonScheduleSchema = z

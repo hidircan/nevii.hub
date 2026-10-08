@@ -12,6 +12,6 @@ export const GET = withApiHandler(async ({ ctx, searchParams }) => {
   if (!studentId || !Number.isFinite(year) || !Number.isFinite(month)) {
     return jsonFail("VALIDATION_ERROR", "studentId, year, month gerekli");
   }
-  const result = await getAttendanceCalendarMonthTool(ctx, { studentId, year, month });
+  const result = await getAttendanceCalendarMonthTool(ctx, { studentId, year, month, enrollmentId: searchParams.get("enrollmentId") || undefined });
   return fromServiceResult(result);
 });

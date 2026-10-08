@@ -9,7 +9,7 @@
  */
 import { differenceInMinutes, parseISO } from "date-fns";
 import { resolveLessonFinalStatus } from "./lesson-live-status";
-import { getStudentMakeupQuota, type MakeupQuotaSnapshot } from "./makeup-quota";
+import { getStudentMakeupQuota, makeupEnrollmentKey, type MakeupQuotaSnapshot } from "./makeup-quota";
 import type { AppData, MakeupRequest } from "./types";
 
 export type MakeupStage = "pending" | "planned" | "completed" | "cancelled" | "expired";
@@ -58,12 +58,14 @@ export function makeupStageOf(req: MakeupRequest, data: Pick<AppData, "lessons">
 export function buildStudentMakeupSummary(
   data: Pick<AppData, "lessons" | "makeupRequests" | "students" | "teachers" | "settings">,
   studentId: string,
-  now: Date = new Date()
+  now: Date = new Date(),
+  /** 2026-10-09 — verilirse talepler ve hak yalnız bu branş kaydının (telafi hakkı branş başınadır). */
+  enrollmentId?: string
 ): StudentMakeupSummary {
   const teacherName = (id?: string) => (id ? data.teachers.find((t) => t.id === id)?.name : undefined);
   const counts: Record<MakeupStage, number> = { pending: 0, planned: 0, completed: 0, cancelled: 0, expired: 0 };
   const rows = data.makeupRequests
-    .filter((m) => m.studentId === studentId)
+    .filter((m) => m.studentId === studentId && (!enrollmentId || makeupEnrollmentKey(data, m.sourceLessonId) === enrollmentId))
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
     .map((m): StudentMakeupRow => {
       const stage = makeupStageOf(m, data, now);
@@ -87,5 +89,5 @@ export function buildStudentMakeupSummary(
         decisionNote: m.decisionNote,
       };
     });
-  return { quota: getStudentMakeupQuota(data as AppData, studentId, now), counts, rows };
+  return { quota: getStudentMakeupQuota(data as AppData, studentId, now, undefined, enrollmentId), counts, rows };
 }

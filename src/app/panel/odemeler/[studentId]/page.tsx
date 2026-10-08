@@ -15,6 +15,7 @@ import { resolveCollectorDisplayNames } from "@/lib/contract-payment-plan-view";
 import { QuickTaskLink } from "@/components/quick-task-link";
 import { requireSessionContext } from "@/lib/auth/session";
 import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
+import { effectiveEnrollments, enrollmentDisplayName, makePaymentBranchLabeler } from "@/lib/student-enrollments";
 
 export const dynamic = "force-dynamic";
 
@@ -75,10 +76,15 @@ export default async function StudentPaymentProfilePage({
     new Set(payments.map((p) => p.receivedByUserId).filter((id): id is string => Boolean(id)))
   );
   const receiverNames = await resolveCollectorDisplayNames({ userIds: receiverIds, teachers: data.teachers });
+  // 2026-10-09 — çok branşlı öğrencide her hareket branşını söyler; yeni borç eklerken branş seçilir.
+  const branchOf = makePaymentBranchLabeler({ students: [student], teachers: data.teachers, lessons: data.lessons, contracts });
   const historyPayments = filterPaymentHistory(payments).map((p) => ({
     ...p,
     receivedByName: p.receivedByUserId ? receiverNames.get(p.receivedByUserId) : undefined,
+    branchLabel: branchOf(p),
   }));
+  const activeBranches = effectiveEnrollments(student, data.teachers).filter((e) => e.active);
+  const branchOptions = activeBranches.map((e) => ({ id: e.id, label: enrollmentDisplayName(e, activeBranches, data.teachers) }));
 
   return (
     <div>
@@ -166,6 +172,7 @@ export default async function StudentPaymentProfilePage({
         </summary>
         <AddPaymentForm
           fixedStudentId={student.id}
+          fixedStudentBranches={branchOptions}
           defaultAmount={monthlyAmount.netAmount ?? student.monthlyFee}
           gridClassName="mt-4 grid gap-3 sm:grid-cols-3"
         />

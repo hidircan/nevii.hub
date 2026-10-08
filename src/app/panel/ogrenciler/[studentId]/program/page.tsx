@@ -6,7 +6,7 @@ import { StudentUpcomingLessons, StudentPastLessons, StudentAttendanceList } fro
 import { AttendanceCalendarPanel } from "@/components/attendance-calendar-panel";
 import { formatDateTime } from "@/lib/utils";
 import { loadStudentPageContext } from "../_context";
-import { effectiveEnrollments } from "@/lib/student-enrollments";
+import { effectiveEnrollments, enrollmentDisplayName, lessonEnrollmentId } from "@/lib/student-enrollments";
 
 export const dynamic = "force-dynamic";
 
@@ -21,42 +21,45 @@ export default async function StudentScheduleTab({
   searchParams,
 }: {
   params: Promise<{ studentId: string }>;
-  searchParams: Promise<{ egitim?: string }>;
+  searchParams: Promise<{ brans?: string }>;
 }) {
   const { studentId } = await params;
-  const { egitim } = await searchParams;
+  const { brans } = await searchParams;
   const { data, student, canManage } = await loadStudentPageContext(studentId);
   if (!student) notFound();
 
-  // 2026-10-04 — çoklu eğitim: "Tümü" veya tek enstrüman filtresi (dersler + telafiler).
-  const educationInstruments = Array.from(new Set(effectiveEnrollments(student, data.teachers).map((e) => e.instrument)));
-  const filterInstrument = egitim && educationInstruments.includes(egitim as never) ? egitim : undefined;
+  // 2026-10-09 — branş filtresi: "Tümü" (tüm branşlar, ders satırında enstrüman yazar) veya tek branş kaydı.
+  // Ders branşı açık bağdan (yoksa tek eşleşmeden) çözülür — aynı enstrümanda iki kayıt karışmaz.
+  const branchList = effectiveEnrollments(student, data.teachers);
+  const branchOptions = branchList.map((e) => ({
+    id: e.id,
+    label: `${enrollmentDisplayName(e, branchList, data.teachers)}${e.active ? "" : " (sonlandı)"}`,
+  }));
+  const filterBranch = branchList.length > 1 && brans && branchList.some((e) => e.id === brans) ? brans : undefined;
   const lessons = data.lessons
-    .filter((l) => l.studentId === student.id && (!filterInstrument || l.instrument === filterInstrument))
+    .filter((l) => l.studentId === student.id && (!filterBranch || lessonEnrollmentId(student, l, data.teachers) === filterBranch))
     .sort((a, b) => b.startAt.localeCompare(a.startAt));
   const now = new Date();
   const upcoming = lessons.filter((l) => new Date(l.startAt) >= now).reverse();
   const past = lessons.filter((l) => new Date(l.startAt) < now);
   const attendanceLessons = lessons.filter((l) => l.studentAttended || l.lessonProcessed || l.opsMakeupFlag);
-  const makeupsAll = buildStudentMakeupSummary(data, student.id);
-  const makeups = filterInstrument
-    ? { ...makeupsAll, rows: makeupsAll.rows.filter((r) => r.instrument === filterInstrument) }
-    : makeupsAll;
+  // Telafi hakkı branş başınadır: branş seçiliyse hak ve talepler o branşın; "Tümü"de tek branşlı öğrenciyle aynı.
+  const makeups = buildStudentMakeupSummary(data, student.id, undefined, filterBranch);
 
   return (
     <div className="space-y-8">
-      {educationInstruments.length > 1 ? (
-        <nav aria-label="Eğitim filtresi" className="flex flex-wrap gap-2">
-          {[undefined, ...educationInstruments].map((ins) => {
-            const activeTab = (ins ?? "") === (filterInstrument ?? "");
+      {branchList.length > 1 ? (
+        <nav aria-label="Branş filtresi" className="flex flex-wrap gap-2">
+          {[undefined, ...branchOptions].map((b) => {
+            const activeTab = (b?.id ?? "") === (filterBranch ?? "");
             return (
               <Link
-                key={ins ?? "tumu"}
-                href={ins ? `/panel/ogrenciler/${student.id}/program?egitim=${encodeURIComponent(ins)}` : `/panel/ogrenciler/${student.id}/program`}
+                key={b?.id ?? "tumu"}
+                href={b ? `/panel/ogrenciler/${student.id}/program?brans=${encodeURIComponent(b.id)}` : `/panel/ogrenciler/${student.id}/program`}
                 aria-current={activeTab ? "page" : undefined}
                 className={`rounded-full border px-3 py-1 text-xs font-medium ${activeTab ? "border-[var(--color-text)] bg-[var(--color-text)] text-[var(--color-surface)]" : "border-[var(--color-border)] text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)]"}`}
               >
-                {ins ?? "Tümü"}
+                {b?.label ?? "Tümü"}
               </Link>
             );
           })}
@@ -87,17 +90,24 @@ export default async function StudentScheduleTab({
         <h2 className="mb-3 flex items-center justify-between text-sm font-semibold text-[var(--color-text)]">
           Yoklama Takvimi
           <Link
-            href={`/ogrenci-dokum/${studentId}`}
+            href={`/ogrenci-dokum/${studentId}${
+              (filterBranch ?? (branchList.length > 1 ? branchList.find((e) => e.active)?.id : undefined))
+                ? `?brans=${encodeURIComponent(filterBranch ?? branchList.find((e) => e.active)!.id)}`
+                : ""
+            }`}
             className="text-xs font-medium text-[var(--color-primary)] hover:text-[var(--color-primary-hover)]"
           >
             Yazdır
           </Link>
         </h2>
         <AttendanceCalendarPanel
+          key={filterBranch ?? "tumu"}
           studentId={studentId}
           termType={student.termType ?? "guz"}
           canEdit={canManage}
           studentActive={student.active}
+          branches={branchOptions}
+          initialBranchId={filterBranch ?? branchList.find((e) => e.active)?.id}
         />
       </section>
 

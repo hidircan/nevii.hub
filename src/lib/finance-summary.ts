@@ -226,20 +226,25 @@ export function computeFinanceSummary(
  * için yenilenmiş/iptal sözleşme ikinci kez sayılmaz. Payda 0 → `average: null`.
  */
 export function computeAverageMonthlyFeePerStudent(input: {
-  contracts: Iterable<{ studentId: string; status: string; enrollmentStartDate: string; enrollmentEndDate: string; monthlyAmount: number }>;
+  /** 2026-10-09 — çok branşlı öğrencide branş başına güncel sözleşme (`enrollmentId`); öğrencinin ücreti branşların toplamıdır. */
+  contracts: Iterable<{ studentId: string; status: string; enrollmentStartDate: string; enrollmentEndDate: string; monthlyAmount: number; enrollmentId?: string }>;
   students: { id: string; branchId: string; deletedAt?: string }[];
   month: string; // yyyy-MM
   branchId?: string;
 }): { average: number | null; studentCount: number; totalMonthly: number; studentIds: string[] } {
   const studentBranch = new Map(input.students.filter((s) => !s.deletedAt).map((s) => [s.id, s.branchId]));
   const counted = new Set<string>();
+  const countedBranches = new Set<string>();
   let totalMonthly = 0;
   for (const c of input.contracts) {
     const branch = studentBranch.get(c.studentId);
     if (branch === undefined || (input.branchId && branch !== input.branchId)) continue;
     if (!isPlanEligibleContractStatus(c.status as ContractStatus)) continue;
     if (c.enrollmentStartDate.slice(0, 7) > input.month || c.enrollmentEndDate.slice(0, 7) < input.month) continue;
-    if (counted.has(c.studentId)) continue;
+    // Öğrenci paydada BİR kez; aynı branş ikinci kez toplanmaz, farklı branşların ücreti toplanır.
+    const branchKey = `${c.studentId}:${c.enrollmentId ?? ""}`;
+    if (countedBranches.has(branchKey)) continue;
+    countedBranches.add(branchKey);
     counted.add(c.studentId);
     totalMonthly += c.monthlyAmount;
   }
@@ -258,6 +263,7 @@ export type AverageFeeContractLike = {
   enrollmentStartDate: string;
   enrollmentEndDate: string;
   monthlyAmount: number;
+  enrollmentId?: string;
 };
 
 /**

@@ -38,6 +38,8 @@ export type PaymentRow = {
   createdAt?: string;
   source?: string;
   receivedByName?: string;
+  /** 2026-10-09 — çok branşlı öğrencide satırın branşı ("Keman" / "Branş belirtilmemiş"). */
+  branchLabel?: string;
 };
 
 type StatusFilter = "all" | PaymentStatus;
@@ -196,6 +198,11 @@ export function PaymentsTable({ rows, canWrite, canDelete = false }: { rows: Pay
                     </Link>
                   </td>
                   <td className="px-4 py-3 text-[var(--color-text-muted)]">
+                    {p.branchLabel ? (
+                      <span className="mr-1.5 inline-block rounded bg-[var(--color-surface-muted)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--color-text)]">
+                        {p.branchLabel}
+                      </span>
+                    ) : null}
                     {p.description}
                     {p.method ? (
                       <span className="block text-xs text-[var(--color-text-muted)]">

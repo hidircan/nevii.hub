@@ -556,7 +556,13 @@ export async function updateStudentProfile(
 ): Promise<AppData> {
   const data = await readData();
   if (!data.students.some((s) => s.id === studentId)) throw new Error("Öğrenci bulunamadı");
-  const students = data.students.map((s) => (s.id === studentId ? { ...s, ...patch } : s));
+  const { clearFields, ...rest } = patch;
+  const students = data.students.map((s) => {
+    if (s.id !== studentId) return s;
+    const next = { ...s, ...rest };
+    for (const k of clearFields ?? []) delete next[k];
+    return next;
+  });
   const next = { ...data, students };
   await writeData(next);
   return next;
@@ -1422,6 +1428,8 @@ export async function addPayment(input: {
   source?: import("./types").PaymentSource;
   clubMembershipId?: string;
   installmentPeriodLabel?: string;
+  /** 2026-10-09 — satırın branş kaydı (yoksa eski davranış: bağsız). */
+  enrollmentId?: string;
 }): Promise<AppData> {
   const data = await readData();
   const isOverdue = new Date(input.dueDate).getTime() < Date.now();
@@ -1437,6 +1445,7 @@ export async function addPayment(input: {
     ...(input.source ? { source: input.source } : {}),
     ...(input.clubMembershipId ? { clubMembershipId: input.clubMembershipId } : {}),
     ...(input.installmentPeriodLabel ? { installmentPeriodLabel: input.installmentPeriodLabel } : {}),
+    ...(input.enrollmentId ? { enrollmentId: input.enrollmentId } : {}),
   };
   const next = { ...data, payments: [...data.payments, payment] };
   await writeData(next);
@@ -1450,6 +1459,8 @@ export async function addContractInstallments(input: {
   installments: ContractInstallmentSnapshot[];
   firstPaymentCollected?: { method: string; amount: number; collectedAt: string; reference?: string; note?: string };
   reuseFirstPaymentId?: string;
+  /** 2026-10-09 — sözleşmenin branş kaydı; taksit satırlarına (ve bağlanan kayıt ödemesine) aynen yazılır. */
+  enrollmentId?: string;
 }): Promise<{ data: AppData; installments: ContractInstallmentView[] }> {
   const now = new Date().toISOString();
   const fp = input.firstPaymentCollected;
@@ -1477,6 +1488,7 @@ export async function addContractInstallments(input: {
         method: isFirstCollected ? fp!.method : inst.paymentMethod,
         source: "contract",
         contractId: input.contractId,
+        ...(input.enrollmentId ? { enrollmentId: input.enrollmentId } : {}),
         installmentSequence: inst.sequence,
         installmentKind: inst.kind,
         installmentPeriodLabel: inst.periodLabel,
@@ -1497,6 +1509,7 @@ export async function addContractInstallments(input: {
           ...p,
           amount: firstInst?.amount ?? p.amount,
           contractId: input.contractId,
+          ...(input.enrollmentId ? { enrollmentId: input.enrollmentId } : {}),
           installmentSequence: 1,
           description: `Sözleşme taksiti 1/${input.installments.at(-1)?.sequence ?? input.installments.length} — Kayıt anında tahsil edildi (kayıt ödemesi)`,
           installmentKind: firstInst?.kind,
@@ -1529,9 +1542,36 @@ export async function addContractInstallments(input: {
 }
 
 /** P0 dedup fix (2026-08-30) — bkz. store.ts StoreApi.getRegistrationFirstPayment. */
-export async function getRegistrationFirstPayment(studentId: string): Promise<Payment | null> {
+export async function getRegistrationFirstPayment(
+  studentId: string,
+  scope?: import("./student-enrollments").EnrollmentScope
+): Promise<Payment | null> {
   const data = await readData();
-  return data.payments.find((p) => p.studentId === studentId && p.source === "registration_first_payment") ?? null;
+  const { matchesEnrollmentScope } = await import("./student-enrollments");
+  return (
+    data.payments.find(
+      (p) => p.studentId === studentId && p.source === "registration_first_payment" && matchesEnrollmentScope(p.enrollmentId, scope)
+    ) ?? null
+  );
+}
+
+/** 2026-10-09 — bkz. store-db.ts `linkRecordsToEnrollment` (aynı kural; yalnız bağsız satırlar). */
+export async function linkRecordsToEnrollment(input: {
+  studentId: string;
+  enrollmentId: string;
+  instrument?: string;
+  scope?: "student";
+  contractIds?: string[];
+  paymentIds?: string[];
+}): Promise<{ payments: number; lessons: number; series: number }> {
+  const { linkRecordsInData } = await import("./student-enrollments");
+  let counts = { payments: 0, lessons: 0, series: 0 };
+  await mutateStoreUnderLock(async (d) => {
+    const r = linkRecordsInData(d, input);
+    counts = r.counts;
+    return r.data;
+  });
+  return counts;
 }
 
 export function getDashboardStats(data: AppData) {
@@ -1570,12 +1610,19 @@ export async function upsertMonthlyPlanPayment(input: {
   month: string;
   amount: number;
   method?: string;
+  /** 2026-10-09 — dönem ayı satırı BRANŞ başınadır (bkz. store-db.ts). */
+  enrollmentId?: string;
+  includeUnlinked?: boolean;
 }): Promise<{ data: AppData; paymentId: string }> {
   const data = await readData();
   const student = data.students.find((s) => s.id === input.studentId);
   if (!student) throw new Error("Öğrenci bulunamadı");
   const { isMonthlyPlanRowForMonth, monthlyPlanPeriodLabel } = await import("./attendance-calendar-plan");
-  const existing = data.payments.find((p) => p.studentId === input.studentId && isMonthlyPlanRowForMonth(p, input.month));
+  const { matchesEnrollmentScope } = await import("./student-enrollments");
+  const scope = { enrollmentId: input.enrollmentId, includeUnlinked: input.includeUnlinked };
+  const existing = data.payments.find(
+    (p) => p.studentId === input.studentId && isMonthlyPlanRowForMonth(p, input.month) && matchesEnrollmentScope(p.enrollmentId, scope)
+  );
   let payments: Payment[];
   let paymentId: string;
   if (existing) {
@@ -1604,6 +1651,7 @@ export async function upsertMonthlyPlanPayment(input: {
       source: "monthly_plan",
       method: input.method,
       createdAt: new Date().toISOString(),
+      ...(input.enrollmentId ? { enrollmentId: input.enrollmentId } : {}),
     };
     paymentId = payment.id;
     payments = [...data.payments, payment];
@@ -1634,11 +1682,16 @@ export async function addRegistrationFirstPayment(input: {
   adjustedAt?: string;
   /** Bkz. Payment.firstCollectionIncludesNextMonth. */
   firstCollectionIncludesNextMonth?: boolean;
+  /** 2026-10-09 — branş kaydı; idempotency öğrenci + branş başınadır. */
+  enrollmentId?: string;
 }): Promise<{ data: AppData; paymentId: string }> {
   let paymentId = "";
   const data = await mutateStoreUnderLock(async (d) => {
     const existing = d.payments.find(
-      (p) => p.studentId === input.studentId && p.source === "registration_first_payment"
+      (p) =>
+        p.studentId === input.studentId &&
+        p.source === "registration_first_payment" &&
+        (p.enrollmentId ?? null) === (input.enrollmentId ?? null)
     );
     if (existing) {
       paymentId = existing.id;
@@ -1666,6 +1719,7 @@ export async function addRegistrationFirstPayment(input: {
       adjustedBy: input.adjustedBy,
       adjustedAt: input.adjustedAt,
       firstCollectionIncludesNextMonth: input.firstCollectionIncludesNextMonth,
+      ...(input.enrollmentId ? { enrollmentId: input.enrollmentId } : {}),
     };
     paymentId = payment.id;
     return { ...d, payments: [...d.payments, payment] };

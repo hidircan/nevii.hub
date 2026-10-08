@@ -1474,3 +1474,12 @@ Aynı turda: `validateLessonSlot` oda `active`'ini hiç okumuyordu → telafi pa
   = sonlanma günü (hariç), tek tanım `isMembershipActive`/`membershipCoversDay`; sonlandırma idempotent.
 - Ders: "sonlandır/iptal" eylemi bir tarih yazıyorsa, aktiflik tanımının o tarihi yazıldığı GÜN nasıl yorumladığını
   kontrol et; durum sözcüğü (aktif/sonlanmış) ile tarih karşılaştırması aynı fonksiyondan gelmeli.
+
+## 2026-10-09 — "Çoklu eğitim" yalnız etiketti; finans hâlâ öğrenci başınaydı
+- 10-04 çoklu eğitimde ikinci branşın İLK sözleşmesi kayıt ilk tahsilatını öğrenci başına arıyordu
+  (`getRegistrationFirstPayment(studentId)`): birinci branşın tahsilatı ikinci sözleşmenin 1. taksitine yeniden
+  bağlanabiliyordu; takvim iki branşın sözleşmesini görünce "birden fazla aktif sözleşme" diyip tahsilatı durduruyordu;
+  birincil sözleşme `enrollmentId=NULL` saklandığı için birincil değişince geçmiş sözleşme başka branşa kayıyordu.
+- Ders: bir varlığı "çoklu" yaptığında ona bağlı HER kaydın (ödeme, ilk tahsilat, takvim planı, kota, cron) anahtarını
+  da aynı branşa taşı; "NULL = birincil" gibi örtük eşleme yerine açık kimlik yaz, belirsiz eskiyi raporla.
+

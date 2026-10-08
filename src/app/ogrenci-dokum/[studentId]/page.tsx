@@ -58,6 +58,8 @@ export default async function StudentStatementPrintPage({
     studentId,
     term,
     anchorYear,
+    // 2026-10-09 — çok branşlı öğrencide döküm branş başınadır (Program sekmesindeki branş seçimi taşınır).
+    ...(typeof sp.brans === "string" && sp.brans ? { enrollmentId: sp.brans } : {}),
   });
 
   if (!result.ok) {
@@ -117,6 +119,7 @@ export default async function StudentStatementPrintPage({
         institution={s.institutionName}
         rows={[
           ["Öğrenci", s.studentName],
+          ...(s.branchLabel ? [["Branş", s.branchLabel] as [string, string]] : []),
           ["Şube", s.branchName],
           ["Dönem", `${s.termLabel} · ${formatDate(s.termStart)} – ${formatDate(s.termEnd)}`],
           ...(s.contractNumber ? ([["Sözleşme", s.contractNumber]] as [string, string][]) : []),

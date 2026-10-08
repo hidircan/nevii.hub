@@ -124,6 +124,12 @@ export default async function ReceiptPage({
 
   const branch = data.settings.branches.find((b) => b.id === student.branchId);
   const model = buildReceiptViewModel(payment, student, data.settings, branch);
+  // 2026-10-09 — çok branşlı öğrencinin makbuzu hangi branşın (ve sözleşmenin) ödemesi olduğunu söyler.
+  const { makePaymentBranchLabeler } = await import("@/lib/student-enrollments");
+  const { listContractsForStudent } = await import("@/lib/contracts");
+  const studentContracts = await listContractsForStudent(session.tenantId, student.id);
+  const receiptBranch = makePaymentBranchLabeler({ students: [student], teachers: data.teachers, lessons: data.lessons, contracts: studentContracts })(payment);
+  const receiptContractNumber = payment.contractId ? studentContracts.find((c) => c.id === payment.contractId)?.contractNumber : undefined;
   const issuedAtIso = new Date().toISOString();
 
   return (
@@ -165,6 +171,13 @@ export default async function ReceiptPage({
               <div className="min-w-0">
                 <p className="text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">Açıklama</p>
                 <p className="mt-1 truncate text-[var(--color-text)]">{model.description}</p>
+                {receiptBranch || receiptContractNumber ? (
+                  <p className="mt-1 text-xs text-[var(--color-text-muted)]">
+                    {receiptBranch ? `Branş: ${receiptBranch}` : ""}
+                    {receiptBranch && receiptContractNumber ? " · " : ""}
+                    {receiptContractNumber ? `Sözleşme: ${receiptContractNumber}` : ""}
+                  </p>
+                ) : null}
                 {model.method ? (
                   <p className="mt-1 text-xs text-[var(--color-text-muted)]">Yöntem: {model.method}</p>
                 ) : null}

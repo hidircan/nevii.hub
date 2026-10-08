@@ -44,6 +44,8 @@ export function isPlanEligibleContractStatus(status: ContractStatus): boolean {
 /** Çözümleyicinin sözleşmeden ihtiyaç duyduğu minimal alanlar. */
 export interface CalendarPlanContract {
   id: string;
+  /** 2026-10-09 — sözleşmenin branş kaydı (takvim branş başına süzer). */
+  enrollmentId?: string;
   contractNumber: string;
   status: ContractStatus;
   /** ISO tarih ya da tam ISO datetime — yalnız "yyyy-MM" kısmı kullanılır. */

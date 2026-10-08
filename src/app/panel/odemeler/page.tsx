@@ -6,7 +6,8 @@ import { PageHeader, StatCard } from "@/components/ui";
 import { formatMoney } from "@/lib/utils";
 import { PAYMENT_SCOPE_LABEL, parsePaymentScope, scopePayments, type PaymentScope } from "@/lib/payment-scope";
 import { ScopeTabs } from "@/components/scope-tabs";
-import { listTerminalContractIdsForScope } from "@/lib/contracts";
+import { listContractEnrollmentLinksForScope, listTerminalContractIdsForScope } from "@/lib/contracts";
+import { effectiveEnrollments, enrollmentDisplayName, makePaymentBranchLabeler } from "@/lib/student-enrollments";
 import { PaymentsTable, type PaymentRow } from "@/components/payments-table";
 import { requireSessionContext } from "@/lib/auth/session";
 import { getInstitutionContext, readScopedPaymentsPageData } from "@/lib/institution/context";
@@ -40,11 +41,19 @@ export default async function OdemelerPage({ searchParams }: { searchParams: Pro
     teachers: data.teachers,
   });
 
+  // 2026-10-09 — çok branşlı öğrencinin satırı branşını söyler (Keman borcu ≠ Piyano borcu).
+  const branchOf = makePaymentBranchLabeler({
+    students: data.students,
+    teachers: data.teachers,
+    lessons: data.lessons,
+    contracts: await listContractEnrollmentLinksForScope(kurum.scope),
+  });
   const rows: PaymentRow[] = payments.map((p) => ({
     id: p.id,
     studentId: p.studentId,
     studentName: data.students.find((s) => s.id === p.studentId)?.name ?? "",
     description: p.description,
+    branchLabel: branchOf(p),
     method: p.method,
     dueDate: p.dueDate,
     amount: p.amount,
@@ -124,7 +133,12 @@ export default async function OdemelerPage({ searchParams }: { searchParams: Pro
             Yeni ödeme kaydı ekle
           </summary>
           <AddPaymentForm
-            students={data.students.filter((s) => s.active).map((s) => ({ id: s.id, name: s.name }))}
+            students={data.students
+              .filter((s) => s.active)
+              .map((s) => {
+                const list = effectiveEnrollments(s, data.teachers).filter((e) => e.active);
+                return { id: s.id, name: s.name, branches: list.map((e) => ({ id: e.id, label: enrollmentDisplayName(e, list, data.teachers) })) };
+              })}
             gridClassName="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4"
           />
         </details>

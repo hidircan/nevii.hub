@@ -1111,6 +1111,7 @@ export function mapDbPayment(payment: Prisma.PaymentGetPayload<object>): import(
     // yoklama takvimi her ay "aktif ödeme planı yok" diyor, takvim tahsilatı ayrı satır açıyordu.
     contractId: payment.contractId ?? undefined,
     clubMembershipId: payment.clubMembershipId ?? undefined,
+    enrollmentId: (payment as { enrollmentId?: string | null }).enrollmentId ?? undefined,
     installmentSequence: payment.installmentSequence ?? undefined,
     autoSuggestedAmount: payment.autoSuggestedAmount ?? undefined,
     firstCollectionIncludesNextMonth: payment.firstCollectionIncludesNextMonth ?? undefined,
@@ -1849,6 +1850,11 @@ export async function updateStudentProfile(
       monthlyFeeManualOverride: patch.monthlyFeeManualOverride,
       monthlyFeeOverrideReason: patch.monthlyFeeOverrideReason,
       accountResponsibility: patch.accountResponsibility,
+      // 2026-10-09 — branş formu (ilk branşın koşulları öğrenci satırında).
+      packageName: patch.packageName,
+      weeklyLessonCount: patch.weeklyLessonCount,
+      derivedPerLessonAmount: patch.derivedPerLessonAmount,
+      ...Object.fromEntries((patch.clearFields ?? []).map((k) => [k, null])),
       // 2026-09-17 — archiveStudentTool/setNationalIdTool bu alanları
       // gönderiyordu ama db modunda hiç yazılmıyordu: "Pasife Al" başarılı
       // dönüp öğrenci aktif kalıyordu (sessiz no-op). Aktifleştirmede
@@ -1890,6 +1896,8 @@ export async function listMebStudents(query: MebStudentQuery): Promise<MebStuden
       { studentTypes: { array_contains: "MEB" } },
       { studentType: "MEB", studentTypes: { equals: Prisma.DbNull } },
       { studentType: "MEB", studentTypes: { equals: [] as unknown as Prisma.InputJsonValue } },
+      // 2026-10-09 — aktif ek branşı MEB olan öğrenci (tür branş kaydında; jsonb içerme).
+      { enrollments: { array_contains: [{ active: true, studentTypes: ["MEB"] }] as unknown as Prisma.InputJsonValue } },
     ],
   };
   if (q.active !== undefined) where.active = q.active;
@@ -3978,6 +3986,8 @@ export async function addPayment(input: {
   source?: import("./types").PaymentSource;
   clubMembershipId?: string;
   installmentPeriodLabel?: string;
+  /** 2026-10-09 — satırın branş kaydı (yoksa eski davranış: NULL). */
+  enrollmentId?: string;
 }): Promise<void> {
   logger.info("addPayment", input.studentId, input.amount);
   const tid = requireTenantId();
@@ -4000,6 +4010,7 @@ export async function addPayment(input: {
       ...(input.source ? { source: input.source } : {}),
       ...(input.clubMembershipId ? { clubMembershipId: input.clubMembershipId } : {}),
       ...(input.installmentPeriodLabel ? { installmentPeriodLabel: input.installmentPeriodLabel } : {}),
+      ...(input.enrollmentId ? { enrollmentId: input.enrollmentId } : {}),
     },
   });
   return;
@@ -4012,6 +4023,8 @@ export async function addContractInstallments(input: {
   installments: ContractInstallmentSnapshot[];
   firstPaymentCollected?: { method: string; amount: number; collectedAt: string; reference?: string; note?: string };
   reuseFirstPaymentId?: string;
+  /** 2026-10-09 — sözleşmenin branş kaydı; taksit satırlarına (ve bağlanan kayıt ödemesine) aynen yazılır. */
+  enrollmentId?: string;
 }): Promise<{ data: AppData; installments: ContractInstallmentView[] }> {
   const tid = requireTenantId();
   const student = await prisma.student.findFirst({ where: { id: input.studentId, tenantId: tid } });
@@ -4039,6 +4052,7 @@ export async function addContractInstallments(input: {
         method: isFirstCollected ? fp!.method : inst.paymentMethod,
         source: "contract",
         contractId: input.contractId,
+        enrollmentId: input.enrollmentId ?? null,
         installmentSequence: inst.sequence,
         installmentKind: inst.kind,
         installmentPeriodLabel: inst.periodLabel,
@@ -4073,6 +4087,7 @@ export async function addContractInstallments(input: {
       data: {
         amount: firstInst?.amount,
         contractId: input.contractId,
+        ...(input.enrollmentId ? { enrollmentId: input.enrollmentId } : {}),
         installmentSequence: 1,
         description: `Sözleşme taksiti 1/${input.installments.at(-1)?.sequence ?? input.installments.length} — Kayıt anında tahsil edildi (kayıt ödemesi)`,
         installmentKind: firstInst?.kind,
@@ -4119,10 +4134,14 @@ export async function addContractInstallments(input: {
 }
 
 /** P0 dedup fix (2026-08-30) — bkz. store.ts StoreApi.getRegistrationFirstPayment. */
-export async function getRegistrationFirstPayment(studentId: string): Promise<import("./types").Payment | null> {
+export async function getRegistrationFirstPayment(
+  studentId: string,
+  scope?: import("./student-enrollments").EnrollmentScope
+): Promise<import("./types").Payment | null> {
   const tid = requireTenantId();
   const row = await prisma.payment.findFirst({
-    where: { tenantId: tid, studentId, source: "registration_first_payment" },
+    where: { tenantId: tid, studentId, source: "registration_first_payment", ...enrollmentScopeWhere(scope) },
+    orderBy: { createdAt: "asc" },
   });
   if (!row) return null;
   return {
@@ -4145,7 +4164,16 @@ export async function getRegistrationFirstPayment(studentId: string): Promise<im
     adjustmentReason: row.adjustmentReason ?? undefined,
     adjustedBy: row.adjustedBy ?? undefined,
     adjustedAt: row.adjustedAt?.toISOString() ?? undefined,
+    contractId: row.contractId ?? undefined,
+    enrollmentId: (row as { enrollmentId?: string | null }).enrollmentId ?? undefined,
   };
+}
+
+/** 2026-10-09 — branş kapsamı → Prisma `where` parçası (bkz. student-enrollments.ts `matchesEnrollmentScope`). */
+function enrollmentScopeWhere(scope?: import("./student-enrollments").EnrollmentScope): Prisma.PaymentWhereInput {
+  if (!scope) return {};
+  if (!scope.enrollmentId) return { enrollmentId: null };
+  return scope.includeUnlinked ? { OR: [{ enrollmentId: scope.enrollmentId }, { enrollmentId: null }] } : { enrollmentId: scope.enrollmentId };
 }
 
 /** Bkz. store-json.ts upsertMonthlyPlanPayment — dönem ayı başına tek satır; tahsilat tarihi vadeye yazılmaz. */
@@ -4154,6 +4182,9 @@ export async function upsertMonthlyPlanPayment(input: {
   month: string;
   amount: number;
   method?: string;
+  /** 2026-10-09 — branş kaydı: dönem ayı satırı BRANŞ başınadır (Keman Ekim ≠ Piyano Ekim). */
+  enrollmentId?: string;
+  includeUnlinked?: boolean;
 }): Promise<{ data: AppData; paymentId: string }> {
   logger.info("upsertMonthlyPlanPayment", input.studentId, input.month, input.amount);
   const tid = requireTenantId();
@@ -4164,7 +4195,13 @@ export async function upsertMonthlyPlanPayment(input: {
   const { isMonthlyPlanRowForMonth, monthlyPlanPeriodLabel } = await import("./attendance-calendar-plan");
   // Öğrencinin sözleşmesiz aylık plan satırları azdır; dönem ayı tek kuralla (etiket → açıklama → vade) seçilir.
   const candidates = await prisma.payment.findMany({
-    where: { tenantId: tid, studentId: input.studentId, source: "monthly_plan", contractId: null },
+    where: {
+      tenantId: tid,
+      studentId: input.studentId,
+      source: "monthly_plan",
+      contractId: null,
+      ...enrollmentScopeWhere({ enrollmentId: input.enrollmentId, includeUnlinked: input.includeUnlinked }),
+    },
     select: { id: true, description: true, dueDate: true, installmentPeriodLabel: true, source: true, amount: true, paidAmount: true, status: true },
   });
   const existing = candidates.find((p) =>
@@ -4211,6 +4248,7 @@ export async function upsertMonthlyPlanPayment(input: {
         installmentPeriodLabel: monthlyPlanPeriodLabel(input.month),
         source: "monthly_plan",
         method: input.method,
+        ...(input.enrollmentId ? { enrollmentId: input.enrollmentId } : {}),
       },
     });
   }
@@ -4233,12 +4271,14 @@ export async function addRegistrationFirstPayment(input: {
   adjustedAt?: string;
   /** Bkz. Payment.firstCollectionIncludesNextMonth. */
   firstCollectionIncludesNextMonth?: boolean;
+  /** 2026-10-09 — branş kaydı; idempotency öğrenci + branş başınadır (ikinci branşın ilk tahsilatı ayrı satır). */
+  enrollmentId?: string;
 }): Promise<{ data: AppData; paymentId: string }> {
   const tid = requireTenantId();
   const student = await prisma.student.findFirst({ where: { id: input.studentId, tenantId: tid } });
   if (!student) throw new Error("Öğrenci bulunamadı");
   const existing = await prisma.payment.findFirst({
-    where: { tenantId: tid, studentId: input.studentId, source: "registration_first_payment" },
+    where: { tenantId: tid, studentId: input.studentId, source: "registration_first_payment", enrollmentId: input.enrollmentId ?? null },
   });
   let paymentId: string;
   if (existing) {
@@ -4269,11 +4309,82 @@ export async function addRegistrationFirstPayment(input: {
         adjustmentReason: input.adjustmentReason,
         adjustedBy: input.adjustedBy,
         adjustedAt: input.adjustedAt ? new Date(input.adjustedAt) : undefined,
+        ...(input.enrollmentId ? { enrollmentId: input.enrollmentId } : {}),
       },
     });
   }
   const data = await readData();
   return { data, paymentId };
+}
+
+/**
+ * 2026-10-09 — branş bağı olmayan (NULL) kayıtları TEK bir branş kaydına bağlar; yalnız NULL satırlar yazılır,
+ * başka branşa bağlı satıra DOKUNULMAZ. Kulüp satırları ve grup (kulüp) dersleri branş kaydı değildir, atlanır.
+ * - `scope: "student"`: öğrencinin tüm bağsız ödemeleri + enstrümanı eşleşen ders/serileri (tek branşlı öğrenci).
+ * - `contractIds`: yalnız bu sözleşmelerin taksitleri, serileri ve o serilerin dersleri ("Branşa bağla").
+ * - `paymentIds`: yalnız bu ödemeler.
+ */
+export async function linkRecordsToEnrollment(input: {
+  studentId: string;
+  enrollmentId: string;
+  instrument?: string;
+  scope?: "student";
+  contractIds?: string[];
+  paymentIds?: string[];
+}): Promise<{ payments: number; lessons: number; series: number }> {
+  const tid = requireTenantId();
+  const base = { tenantId: tid, studentId: input.studentId, enrollmentId: null };
+  let payments = 0;
+  let lessons = 0;
+  let series = 0;
+  await prisma.$transaction(async (tx) => {
+    if (input.scope === "student") {
+      payments += (
+        await tx.payment.updateMany({
+          where: { ...base, clubMembershipId: null, source: { not: "club" } },
+          data: { enrollmentId: input.enrollmentId },
+        })
+      ).count;
+      if (input.instrument) {
+        lessons += (
+          await tx.lesson.updateMany({
+            where: { ...base, instrument: input.instrument, clubSessionId: null, type: { not: "group" } },
+            data: { enrollmentId: input.enrollmentId },
+          })
+        ).count;
+        series += (
+          await tx.lessonSeries.updateMany({ where: { ...base, instrument: input.instrument }, data: { enrollmentId: input.enrollmentId } })
+        ).count;
+      }
+    }
+    if (input.contractIds?.length) {
+      payments += (
+        await tx.payment.updateMany({ where: { ...base, contractId: { in: input.contractIds } }, data: { enrollmentId: input.enrollmentId } })
+      ).count;
+      const seriesRows = await tx.lessonSeries.findMany({
+        where: { tenantId: tid, studentId: input.studentId, contractId: { in: input.contractIds } },
+        select: { id: true },
+      });
+      const seriesIds = seriesRows.map((r) => r.id);
+      if (seriesIds.length) {
+        series += (
+          await tx.lessonSeries.updateMany({ where: { ...base, id: { in: seriesIds } }, data: { enrollmentId: input.enrollmentId } })
+        ).count;
+        lessons += (
+          await tx.lesson.updateMany({ where: { ...base, seriesId: { in: seriesIds } }, data: { enrollmentId: input.enrollmentId } })
+        ).count;
+      }
+    }
+    if (input.paymentIds?.length) {
+      payments += (
+        await tx.payment.updateMany({
+          where: { ...base, id: { in: input.paymentIds }, clubMembershipId: null },
+          data: { enrollmentId: input.enrollmentId },
+        })
+      ).count;
+    }
+  });
+  return { payments, lessons, series };
 }
 
 /**

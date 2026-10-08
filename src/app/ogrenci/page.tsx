@@ -183,6 +183,15 @@ export default async function OgrenciPortalPage({
   // sözleşmenin ödenmemiş taksiti borç değildir, "Öde" de gösterilmez; sözleşmesiz borç aynen sayılır.
   const terminalContractIds = await listTerminalContractIds(session.tenantId);
   const debt = splitStudentDebt(payments, terminalContractIds);
+  // 2026-10-09 — çok branşlı öğrencide her ödeme hangi branşın olduğunu söyler.
+  const { listContractsForStudent } = await import("@/lib/contracts");
+  const { makePaymentBranchLabeler } = await import("@/lib/student-enrollments");
+  const portalBranchOf = makePaymentBranchLabeler({
+    students: [student],
+    teachers: data.teachers,
+    lessons: data.lessons,
+    contracts: await listContractsForStudent(session.tenantId, student.id),
+  });
   const liveIds = new Set(debt.open.map((p) => p.id));
   const unpaidPayments = debt.open;
   const totalOutstanding = debt.openTotal;
@@ -506,6 +515,8 @@ export default async function OgrenciPortalPage({
               canEdit={false}
               readOnly
               showWeekdayLabels={false}
+              branches={educations.map((e) => ({ id: e.id, label: e.instrument }))}
+              initialBranchId={educations.find((e) => e.instrument === filterInstrument)?.id ?? educations[0]?.id}
             />
           </Card>
         </section>
@@ -557,7 +568,10 @@ export default async function OgrenciPortalPage({
                   <Card key={p.id} className="!p-4">
                     <div className="flex items-center justify-between gap-2">
                       <div>
-                        <p className="text-sm font-medium text-[var(--color-text)]">{p.description}</p>
+                        <p className="text-sm font-medium text-[var(--color-text)]">
+                          {portalBranchOf(p) ? `${portalBranchOf(p)} · ` : ""}
+                          {p.description}
+                        </p>
                         <p className="text-xs text-[var(--color-text-muted)]">
                           {p.status === "partial"
                             ? `Ödenen: ${formatMoney(p.paidAmount)} · Kalan: ${formatMoney(remaining)}`

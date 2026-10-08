@@ -570,16 +570,30 @@ function slugify(name: string): string {
   return ascii.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "ogrenci";
 }
 
+/**
+ * 2026-10-09 — branş biliniyorsa başlık ve dosya adı branşı söyler:
+ * "Ayşe Yılmaz — Keman — Öğrenci Sözleşmesi — 2026/2027" (alt başlıkta sürüm + başlangıç tarihi: aynı öğrenci/branş/
+ * dönemdeki sözleşmeler ayırt edilir). Branş bilinmiyorsa (eski kayıt) eski biçim aynen korunur.
+ */
 export function contractTitleFields(input: {
   contractType: ContractType;
   studentName: string;
   enrollmentStartDate: string;
   durationMonths: number;
   versionNumber: number;
+  branchLabel?: string;
 }): { titleMain: string; titleSub: string; academicYear: string; studentSlug: string; fileName: string } {
   const academicYear = turkishAcademicYear(input.enrollmentStartDate);
   const studentSlug = slugify(input.studentName);
   const isRenewal = input.contractType !== "initial";
+  const branch = input.branchLabel?.trim();
+  if (branch) {
+    const kind = isRenewal ? "Sözleşme Yenileme" : "Öğrenci Sözleşmesi";
+    const titleMain = `${input.studentName} — ${branch} — ${kind} — ${academicYear.replace("-", "/")}`;
+    const titleSub = `${academicYear} Eğitim Dönemi · ${input.durationMonths} Aylık ${isRenewal ? "Yenileme" : "Kayıt"} · Başlangıç ${formatDateTr(input.enrollmentStartDate)} · Sürüm ${input.versionNumber}`;
+    const fileName = `${studentSlug}-${slugify(branch)}-ogrenci-sozlesmesi-${academicYear}-v${input.versionNumber}.pdf`;
+    return { titleMain, titleSub, academicYear, studentSlug, fileName };
+  }
   const titleMain = `${isRenewal ? "Sözleşme Yenileme" : "Öğrenci Kayıt Sözleşmesi"} — ${input.studentName}`;
   const titleSub = `${academicYear} Eğitim Dönemi · ${input.durationMonths} Aylık ${isRenewal ? "Yenileme" : "Kayıt"} · Sürüm ${input.versionNumber}`;
   const fileName = `ogrenci-kayit-sozlesmesi-${studentSlug}-${academicYear}-v${input.versionNumber}.pdf`;
@@ -747,8 +761,20 @@ export type CreateContractInput = {
   installmentDueDateOverrides?: { sequence: number; dueDate: string }[];
   /** P0 (2026-09-04) — yalnız `perLessonBillingLines` ile birlikte anlamlı; bkz. `LastPeriodPricing`. */
   lastPeriodPricing?: LastPeriodPricing;
-  /** 2026-10-04 — sözleşmenin ait olduğu eğitim (yoksa birincil/eski eğitim). */
+  /**
+   * 2026-10-04 — sözleşmenin ait olduğu eğitim. 2026-10-09: kalıcı branş kaydı varsa HER ZAMAN açık yazılır
+   * (birincil dahil); yoksa (kalıcı kaydı açılmamış tek branşlı eski öğrenci) NULL = öğrencinin tek branşı.
+   */
   enrollmentId?: string;
+  /** 2026-10-09 — başlık/dosya adında görünen branş adı (ör. "Keman"). */
+  branchLabel?: string;
+  /**
+   * 2026-10-09 — çok branşlı öğrencide branşı belirtilmemiş AKTİF bir sözleşme varken yeni İLK sözleşme açılmaz
+   * (aynı branşa ikinci borç riski): önce o sözleşme "Branşa bağla" ile ilgili branşa bağlanır.
+   */
+  blockOnUnassignedActive?: boolean;
+  /** 2026-10-09 — kayıt ilk tahsilatının aranacağı branş kapsamı (yoksa eski davranış: öğrenci başına). */
+  registrationPaymentScope?: import("./student-enrollments").EnrollmentScope;
 };
 
 export type CreateContractResult = {
@@ -852,14 +878,20 @@ export async function createContract(input: CreateContractInput): Promise<Create
   // borç iki kez yazıldı): aktif (iptal/yenilenmemiş) sözleşmesi olan öğrenciye ikinci bir İLK sözleşme açılmaz.
   // Planı düzeltmek için mevcut sözleşme revize edilir; yeniden başlamak için önce iptal edilir.
   if (input.contractType === "initial") {
-    // Çoklu eğitim: kural eğitim başınadır — eğitimi belirtilmemiş (eski) sözleşme birincil eğitime aittir.
-    const sameEnrollment = (c: StudentContract) => (c.enrollmentId ?? null) === (input.enrollmentId ?? null);
-    const active = (await listContractsForStudent(input.tenantId, input.studentId)).filter(
-      (c) => c.status !== "cancelled" && c.status !== "superseded" && sameEnrollment(c)
+    // Çoklu branş (2026-10-09): kural BRANŞ başınadır — başka branşın aktif sözleşmesi engel değildir.
+    const live = (await listContractsForStudent(input.tenantId, input.studentId)).filter(
+      (c) => c.status !== "cancelled" && c.status !== "superseded"
     );
+    const unassigned = input.blockOnUnassignedActive ? live.filter((c) => !c.enrollmentId) : [];
+    if (unassigned.length > 0) {
+      throw new Error(
+        `Bu öğrencinin branşı belirtilmemiş aktif sözleşmesi var (${unassigned.map((c) => c.contractNumber).join(", ")}). Aynı branşa ikinci sözleşme açılmaması için önce Sözleşme Merkezi'nde bu sözleşmeyi "Branşa bağla" ile ilgili branş kaydına bağlayın, sonra yeni branşın sözleşmesini oluşturun.`
+      );
+    }
+    const active = live.filter((c) => (c.enrollmentId ?? null) === (input.enrollmentId ?? null));
     if (active.length > 0) {
       throw new Error(
-        `Bu öğrencinin aktif sözleşmesi var (${active.map((c) => c.contractNumber).join(", ")}). Aynı öğrenciye ikinci bir ilk kayıt sözleşmesi açılamaz: ödeme planını veya bilgileri düzeltmek için mevcut sözleşmeyi "Revize et" ile güncelleyin; baştan oluşturmak gerekiyorsa önce mevcut sözleşmeyi iptal edin.`
+        `Bu ${input.branchLabel ? `${input.branchLabel} branş kaydının` : "öğrencinin"} aktif sözleşmesi var (${active.map((c) => c.contractNumber).join(", ")}). Aynı branşa ikinci bir ilk kayıt sözleşmesi açılamaz: ödeme planını veya bilgileri düzeltmek için mevcut sözleşmeyi "Revize et" ile güncelleyin; baştan oluşturmak gerekiyorsa önce mevcut sözleşmeyi iptal edin. (Başka bir enstrüman için "Branş kaydı ekle" ile ayrı branş açıp onun sözleşmesini oluşturabilirsiniz.)`
       );
     }
   }
@@ -893,7 +925,7 @@ export async function createContract(input: CreateContractInput): Promise<Create
   let registrationFirstPayment: Payment | null = null;
   if (requiresFirstPaymentAtRegistration && input.contractType === "initial") {
     const { getRegistrationFirstPayment } = await import("./store");
-    registrationFirstPayment = await getRegistrationFirstPayment(input.studentId);
+    registrationFirstPayment = await getRegistrationFirstPayment(input.studentId, input.registrationPaymentScope);
   }
 
   // P0 (2026-09-03) — `perLessonBillingLines` verilmişse (öğrenci per-lesson
@@ -1072,6 +1104,7 @@ export async function createContract(input: CreateContractInput): Promise<Create
       enrollmentStartDate: input.enrollmentStartDate,
       durationMonths: input.durationMonths,
       versionNumber,
+      branchLabel: input.branchLabel,
     });
 
     const fieldValues: Record<string, string> = {
@@ -1369,6 +1402,7 @@ export async function createContract(input: CreateContractInput): Promise<Create
       note: fp.note,
       receivedByUserId: input.createdBy,
       firstCollectionIncludesNextMonth: input.mergeFirstCollectionWithNextMonth,
+      enrollmentId: row.enrollmentId,
     });
     reuseFirstPaymentId = paymentId;
     createdPaymentIds.push(paymentId);
@@ -1383,6 +1417,7 @@ export async function createContract(input: CreateContractInput): Promise<Create
     installments: fullyWaived ? [] : paymentRows,
     firstPaymentCollected: firstPaymentForInstallments,
     reuseFirstPaymentId,
+    enrollmentId: row.enrollmentId,
   });
 
   return { contract: toPublic(row), installments: installmentPayments, amendmentCredit };
@@ -1402,6 +1437,7 @@ async function createInstallmentPayments(input: {
   installments: ContractInstallmentSnapshot[];
   firstPaymentCollected?: CreateContractInput["firstPaymentCollected"];
   reuseFirstPaymentId?: string;
+  enrollmentId?: string;
 }): Promise<ContractInstallmentView[]> {
   void input.tenantId; // ALS tenant context zaten çağıran API handler tarafından kurulmuştur (bkz. store.ts withTenantScope).
   const { addContractInstallments } = await import("./store");
@@ -1411,6 +1447,7 @@ async function createInstallmentPayments(input: {
     installments: input.installments,
     firstPaymentCollected: input.firstPaymentCollected,
     reuseFirstPaymentId: input.reuseFirstPaymentId,
+    enrollmentId: input.enrollmentId,
   });
   return installments;
 }
@@ -1515,6 +1552,61 @@ export async function listContractsForStudent(tenantId: string, studentId: strin
     .map(toPublic);
 }
 
+/** 2026-10-09 — kurumun branşa bağlı sözleşmeleri (id → enrollmentId); ödeme satırının branşını çözmek için hafif okuma. */
+export async function listContractEnrollmentLinks(tenantId: string): Promise<{ id: string; enrollmentId?: string }[]> {
+  if (isDbMode) {
+    const { prisma } = await import("./db");
+    const rows = await prisma.studentContract.findMany({
+      where: { tenantId, NOT: { enrollmentId: null } },
+      select: { id: true, enrollmentId: true },
+    });
+    return rows.map((r) => ({ id: r.id, enrollmentId: r.enrollmentId ?? undefined }));
+  }
+  return (await loadAll()).filter((c) => c.tenantId === tenantId && c.enrollmentId).map((c) => ({ id: c.id, enrollmentId: c.enrollmentId }));
+}
+
+export async function listContractEnrollmentLinksForScope(
+  scope: { mode: "single"; tenantId: string } | { mode: "all"; tenantIds: string[] }
+): Promise<{ id: string; enrollmentId?: string }[]> {
+  const ids = scope.mode === "single" ? [scope.tenantId] : scope.tenantIds;
+  return (await Promise.all(ids.map((t) => listContractEnrollmentLinks(t)))).flat();
+}
+
+/**
+ * 2026-10-09 — branşı belirtilmemiş (NULL) sözleşmeleri bir branş kaydına bağlar. Yalnız NULL satırlar yazılır;
+ * başka branşa bağlı sözleşme taşınmaz. `contractIds` yoksa öğrencinin tüm bağsız sözleşmeleri (tek branşlı öğrenci).
+ */
+export async function linkUnassignedContracts(
+  tenantId: string,
+  studentId: string,
+  enrollmentId: string,
+  contractIds?: string[]
+): Promise<string[]> {
+  if (isDbMode) {
+    const { prisma } = await import("./db");
+    const rows = await prisma.studentContract.findMany({
+      where: { tenantId, studentId, enrollmentId: null, ...(contractIds ? { id: { in: contractIds } } : {}) },
+      select: { id: true },
+    });
+    if (rows.length === 0) return [];
+    await prisma.studentContract.updateMany({
+      where: { tenantId, studentId, enrollmentId: null, id: { in: rows.map((r) => r.id) } },
+      data: { enrollmentId },
+    });
+    return rows.map((r) => r.id);
+  }
+  const all = await loadAll();
+  const ids: string[] = [];
+  const next = all.map((c) => {
+    if (c.tenantId !== tenantId || c.studentId !== studentId || c.enrollmentId) return c;
+    if (contractIds && !contractIds.includes(c.id)) return c;
+    ids.push(c.id);
+    return { ...c, enrollmentId, updatedAt: new Date().toISOString() };
+  });
+  if (ids.length > 0) await saveAll(next);
+  return ids;
+}
+
 /**
  * D — Öğrenciler ekranı sözleşme filtreleri için, tenant'ın TÜM öğrencilerinin
  * sözleşme ÖZETİ (tek sorgu; öğrenci başına ayrı okuma YOK).
@@ -1533,11 +1625,12 @@ export type StudentContractSummary = {
   versionNumber: number;
   /** Sözleşmedeki "Aylık ücret" — ders sayısına göre değişen taksitlerden bağımsız birim ücret. */
   monthlyAmount: number;
+  /** 2026-10-09 — sözleşmenin branş kaydı (NULL = eski; tek branşlı öğrencide o branşın). */
+  enrollmentId?: string;
 };
 
-export async function listContractSummariesByStudent(
-  tenantId: string
-): Promise<Map<string, StudentContractSummary>> {
+/** 2026-10-09 — kurumun TÜM sözleşme özetleri (branş bağıyla); branş başına güncel seçim çağıranda yapılır. */
+export async function listContractSummaryRows(tenantId: string): Promise<StudentContractSummary[]> {
   let rows: StudentContractSummary[];
   if (isDbMode) {
     const { prisma } = await import("./db");
@@ -1552,10 +1645,12 @@ export async function listContractSummariesByStudent(
         enrollmentEndDate: true,
         versionNumber: true,
         monthlyAmount: true,
+        enrollmentId: true,
       },
       orderBy: [{ versionNumber: "desc" }, { createdAt: "desc" }],
     });
     rows = found.map((r) => ({
+      enrollmentId: r.enrollmentId ?? undefined,
       monthlyAmount: r.monthlyAmount,
       studentId: r.studentId,
       contractId: r.id,
@@ -1571,6 +1666,7 @@ export async function listContractSummariesByStudent(
       .filter((x) => x.tenantId === tenantId)
       .sort((a, b) => b.versionNumber - a.versionNumber)
       .map((x) => ({
+        enrollmentId: x.enrollmentId,
         monthlyAmount: x.monthlyAmount,
         studentId: x.studentId,
         contractId: x.id,
@@ -1581,6 +1677,13 @@ export async function listContractSummariesByStudent(
         versionNumber: x.versionNumber,
       }));
   }
+  return rows;
+}
+
+export async function listContractSummariesByStudent(
+  tenantId: string
+): Promise<Map<string, StudentContractSummary>> {
+  const rows = await listContractSummaryRows(tenantId);
 
   /**
    * Öğrenci başına TEK özet: `getLatestContractForStudent` ile AYNI kural —

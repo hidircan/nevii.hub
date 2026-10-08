@@ -5,6 +5,7 @@ import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { AssistantPageContext } from "@/components/ai/assistant-page-context";
 import { PageHeader, EmptyState } from "@/components/ui";
 import { AttendanceCalendarPanel } from "@/components/attendance-calendar-panel";
+import { effectiveEnrollments, enrollmentDisplayName } from "@/lib/student-enrollments";
 import { StudentAttendancePicker } from "@/components/student-attendance-picker";
 import { attendancePickerStudents, resolveAttendanceCalendarStudentId } from "@/lib/attendance-calendar";
 
@@ -73,10 +74,17 @@ export default async function YoklamaPage({
         <>
           <h2 className="mb-3 text-sm font-semibold text-[var(--color-text)]">{student.name}</h2>
           <AttendanceCalendarPanel
+            key={student.id}
             studentId={student.id}
             termType={student.termType ?? "guz"}
             canEdit={canEdit}
             studentActive={student.active}
+            branches={(() => {
+              // 2026-10-09 — çok branşlı öğrencide takvim/tahsilat branş başınadır.
+              const list = effectiveEnrollments(student, data.teachers);
+              return list.map((e) => ({ id: e.id, label: `${enrollmentDisplayName(e, list, data.teachers)}${e.active ? "" : " (sonlandı)"}` }));
+            })()}
+            initialBranchId={effectiveEnrollments(student, data.teachers).find((e) => e.active)?.id}
           />
         </>
       )}

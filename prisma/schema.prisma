@@ -1221,6 +1221,10 @@ model Payment {
   /// 2026-10-05 — kulüp aylık ücreti satırı (`source = "club"`); hangi üyeliğin hangi ayı (`installmentPeriodLabel`).
   /// Sözleşmeye hiçbir koşulda bağlanmaz/taşınmaz.
   clubMembershipId    String?
+  /// 2026-10-09 — satırın ait olduğu BRANŞ KAYDI (Student.enrollments[].id). Sözleşme taksidinde sözleşmenin
+  /// eğitimiyle aynıdır; sözleşmesiz satırda (kayıt ilk tahsilatı, aylık plan, ders bazlı, elle) tek açık bağdır.
+  /// NULL = eski kayıt: öğrencinin tek branşı varsa ona aittir, birden fazlaysa "branşı belirtilmemiş" sayılır.
+  enrollmentId        String?
   /// 1-tabanlı taksit sırası — yalnızca contractId doluyken anlamlı.
   installmentSequence Int?
   /// P0-1B — bu ödeme, motorun ürettiği otomatik tutardan MANUEL olarak
@@ -1253,6 +1257,7 @@ model Payment {
   @@index([tenantId])
   @@index([tenantId, lessonId])
   @@index([tenantId, contractId])
+  @@index([tenantId, studentId, enrollmentId])
 }
 
 /// Online kredi kartı checkout denemesi — provider-hosted (kart verisi asla

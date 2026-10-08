@@ -210,6 +210,29 @@ export interface StudentEnrollment {
   endDate?: string;
   createdAt: string;
   updatedAt?: string;
+  /**
+   * 2026-10-09 — BRANŞ KOŞULLARI (ek branş kayıtları için). Birincil kaydın koşulları ÖĞRENCİ satırındaki eski
+   * alanlarda durur (studentTypes, monthlyFee, packageId…); ek kaydın koşulları yalnız burada — birinin değişmesi
+   * diğerini ezmez. Okuma TEK kapıdan: `enrollmentTerms` (student-enrollments.ts).
+   */
+  studentTypes?: StudentType[];
+  packageId?: string;
+  packageName?: string;
+  monthlyFee?: number;
+  packageBaseMonthlyFee?: number;
+  discountType?: DiscountType;
+  discountValue?: number;
+  monthlyFeeManualOverride?: boolean;
+  monthlyFeeOverrideReason?: string;
+  derivedPerLessonAmount?: number;
+  paymentMethod?: StudentPaymentMethod;
+  paymentDueDay?: number;
+  lessonStartDate?: string;
+  lessonScheduleText?: string;
+  intendedDurationMonths?: number;
+  /** Sonlandırma izi (kayıt silinmez; `active:false` + `endDate`). */
+  endReason?: string;
+  endedByUserId?: string;
 }
 
 export interface Student {
@@ -538,8 +561,23 @@ export type StudentProfilePatch = Partial<
     | "monthlyFeeManualOverride"
     | "monthlyFeeOverrideReason"
     | "accountResponsibility"
+    /** 2026-10-09 — branş formu (ilk branşın koşulları öğrenci satırında) yazar. */
+    | "packageName"
+    | "weeklyLessonCount"
+    | "derivedPerLessonAmount"
   >
->;
+> & {
+  /** 2026-10-09 — açıkça TEMİZLENECEK alanlar (db: NULL, json/memory: anahtar silinir); `undefined` "dokunma" demektir. */
+  clearFields?: StudentClearableField[];
+};
+
+export type StudentClearableField =
+  | "packageId"
+  | "packageBaseMonthlyFee"
+  | "discountType"
+  | "discountValue"
+  | "monthlyFeeOverrideReason"
+  | "lessonScheduleText";
 
 /**
  * EPIC 1 (IMPLEMENTATION_PLAN.md) — okulun gecikmiş tahsilat otomasyon
@@ -1015,6 +1053,11 @@ export interface Payment {
   id: string;
   /** 2026-10-05 — kulüp ücreti satırının üyeliği (`source: "club"`). */
   clubMembershipId?: string;
+  /**
+   * 2026-10-09 — satırın ait olduğu branş kaydı (Student.enrollments[].id). Sözleşme taksidinde sözleşmenin eğitimi;
+   * sözleşmesiz satırda tek açık bağ. Yoksa (eski kayıt) bkz. student-enrollments.ts `paymentEnrollmentId`.
+   */
+  enrollmentId?: string;
   studentId: string;
   amount: number;
   paidAmount: number;

@@ -4,6 +4,13 @@ Kısa tutulur (~50 satır): oturum sonunda yalnız "Güncel snapshot" bölümün
 `archive/`'e taşınır. Ayrıntı → ilgili `docs/testing/UAT_*.md`, `docs/operations/*`. Yönlendirici: `nevii-hub` skill.
 Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_2026-09-24.md`.
 
+## Güncel snapshot — 2026-10-09 (çoklu branş kaydı + grup başvurusu süre; PR açık, MERGE/CANLI YOK, test çalıştırılmadı)
+- Dal `feat/multi-branch-enrollment` → PR (main). Statik kontrol: typecheck temiz, değişen dosyalarda lint 0 hata.
+- Branş kaydı = `Student.enrollments[]`; tüm branşlar eşit (ana/yedek yok), koşullar tek kapıdan `enrollmentTerms`.
+  Yeni `Payment.enrollmentId`; ders/seri yazımı branşı store cephesinde çözer (`inferLessonEnrollmentId`).
+- Migration `20261009120000_payment_enrollment_link` kod deploy'undan ÖNCE uygulanmalı. Backfill opsiyonel:
+  `scripts/backfill-enrollment-links.ts` (kuru çalıştırma → rapor → `--apply`). UAT: `docs/testing/UAT_2026_10_09_MULTI_BRANCH_ENROLLMENT.md`.
+
 ## Güncel snapshot — 2026-10-08 (kulüp düzeltmeleri; PR açık, MERGE/CANLI YOK, test çalıştırılmadı)
 - Dal `claude/festive-maxwell-5fntib` → PR (main). Owner merge edip canlıda test edecek. Yalnız statik kontrol:
   typecheck + eslint (değişen dosyalar) + prisma validate temiz; `npm test`/build/tarayıcı owner talimatıyla ÇALIŞTIRILMADI.
