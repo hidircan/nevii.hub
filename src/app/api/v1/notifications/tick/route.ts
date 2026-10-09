@@ -71,6 +71,8 @@ export async function POST(request: Request) {
         remindersPushSent: summary.reminders.pushSent,
         paymentPending: summary.paymentPending,
         leavePending: summary.leavePending,
+        paymentTenantErrors: summary.paymentTenantErrors,
+        leaveTenantErrors: summary.leaveTenantErrors,
       },
     });
     return Response.json({ ok: true, data: summary });
