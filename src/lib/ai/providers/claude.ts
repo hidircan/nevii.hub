@@ -34,7 +34,7 @@ const NARRATE_SYSTEM =
  * sunucu tarafı `fallbacks: "default"` ise yalnız aşağıdaki modellerde
  * kabul ediliyor. CLAUDE_MODEL ile başka bir model seçilirse ikisi de gönderilmez.
  */
-const EFFORT_MODEL_PATTERN = /^claude-(opus|sonnet|fable)-5/;
+const EFFORT_MODEL_PATTERN = /^claude-(opus|sonnet|fable|haiku)-5/;
 const SERVER_FALLBACK_MODELS = new Set([
   "claude-opus-5-5",
   "claude-opus-5",

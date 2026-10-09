@@ -58,9 +58,9 @@ run in the same worktree — can never wipe each other's store. If you still see
 **changes between runs**, that is cross-process interference, not a regression — a real regression
 is deterministic.
 
-**No `.env.example`** exists yet — copy the vars referenced in `src/lib/config.ts`,
+Copy `.env.example` into a local `.env`/`.env.local`; the vars are read in `src/lib/config.ts`,
 `src/lib/auth/config.ts`, and `src/lib/ai/config.ts` (`STORE_MODE`, `DATABASE_URL`, `JWT_SECRET`,
-`AI_PROVIDER` + per-provider API keys) into a local `.env`/`.env.local`.
+`AI_PROVIDER` + per-provider API keys).
 
 ## Architecture
 
@@ -134,7 +134,7 @@ Three execution surfaces share the same Tool Layer/Agent Runtime:
    within a turn, which matters when designing a new capability (a tool that needs a lookup
    *then* an action must do both internally, in one call, rather than assuming the model can
    chain two separate tool calls together).
-2. **Autonomous workflows** — `src/lib/workflows/*` (6 scheduled jobs; `engine.ts` ticks them,
+2. **Autonomous workflows** — `src/lib/workflows/*` (scheduled jobs listed in `WorkflowId`, `types.ts`; `engine.ts` ticks them,
    every step is a tool call through the same runtime).
 3. **Headless tool execution** — `/api/v1/agent/execute`, for any future channel (WhatsApp,
    voice, MCP).
