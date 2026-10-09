@@ -15,7 +15,7 @@ import { resolveCollectorDisplayNames } from "@/lib/contract-payment-plan-view";
 import { QuickTaskLink } from "@/components/quick-task-link";
 import { requireSessionContext } from "@/lib/auth/session";
 import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
-import { effectiveEnrollments, enrollmentDisplayName, makePaymentBranchLabeler } from "@/lib/student-enrollments";
+import { effectiveEnrollments, enrollmentDisplayName, enrollmentTerms, makePaymentBranchLabeler, studentWithEnrollmentTerms } from "@/lib/student-enrollments";
 
 export const dynamic = "force-dynamic";
 
@@ -59,12 +59,26 @@ export default async function StudentPaymentProfilePage({
   const contracts = contractsResult.ok ? contractsResult.data.contracts : [];
   const summary = computeStudentPaymentSummary(payments, contracts);
   const hasOpenPayment = summary.openCount > 0;
+  // 2026-10-10 — çok branşlı öğrencide "beklenen aylık tutar" ilk branştan (öğrenci satırı aynası) değil HER aktif branşın
+  // kendi paket/süre/indirim koşullarından hesaplanır; tek branşlıda eski tek tutar aynen durur.
+  const branchViews = effectiveEnrollments(student, data.teachers);
+  const multiBranch = branchViews.length > 1;
   const studentPackage = (data.packages ?? []).find((p) => p.id === student.packageId);
   const monthlyAmount = computeStudentMonthlyAmount(
     student,
     studentPackage,
     (student.lessonDurationMinutes as 30 | 40 | 50 | undefined) ?? 30
   );
+  const branchMonthly = multiBranch
+    ? branchViews
+        .filter((e) => e.active)
+        .map((e) => {
+          const t = enrollmentTerms(student, e, data.teachers);
+          const pkg = (data.packages ?? []).find((p) => p.id === t.packageId);
+          const m = computeStudentMonthlyAmount(studentWithEnrollmentTerms(student, t), pkg, (t.lessonDurationMinutes as 30 | 40 | 50 | undefined) ?? 30);
+          return { id: e.id, label: enrollmentDisplayName(e, branchViews, data.teachers), pkg, m, fee: t.monthlyFee };
+        })
+    : [];
 
   // "Tahsilatı alan" görüntü adı — Payment.receivedByUserId'den (kalıcı
   // kimlik) çözülür; yalnızca GÖRÜNTÜLEME içindir, Payment'a yazılmaz.
@@ -131,7 +145,23 @@ export default async function StudentPaymentProfilePage({
         <StatCard label="Açık ödeme kaydı" value={summary.openCount} accent="info" />
       </div>
 
-      {monthlyAmount.netAmount !== null ? (
+      {multiBranch ? (
+        <Card className="mb-6 !p-4">
+          <p className="text-sm font-medium text-slate-900 dark:text-slate-50">Beklenen aylık tutar — branş bazında</p>
+          <ul className="mt-2 space-y-1 text-xs text-slate-600 dark:text-slate-300">
+            {branchMonthly.map((b) => (
+              <li key={b.id}>
+                <span className="font-medium">{b.label}:</span> {formatMoney(b.m.netAmount ?? b.fee)}
+                {b.pkg ? ` · Paket: ${b.pkg.title}` : " · Paket seçilmedi"}
+                {b.m.discountAmount > 0 ? ` · İndirim: -${formatMoney(b.m.discountAmount)}` : ""}
+                {b.m.overrideAmount !== null ? " · Yönetici override'ı uygulanıyor" : ""}
+              </li>
+            ))}
+          </ul>
+        </Card>
+      ) : null}
+
+      {!multiBranch && monthlyAmount.netAmount !== null ? (
         <Card className="mb-6 !p-4">
           <p className="text-sm font-medium text-slate-900 dark:text-slate-50">
             Beklenen aylık tutar: {formatMoney(monthlyAmount.netAmount)}
@@ -173,7 +203,7 @@ export default async function StudentPaymentProfilePage({
         <AddPaymentForm
           fixedStudentId={student.id}
           fixedStudentBranches={branchOptions}
-          defaultAmount={monthlyAmount.netAmount ?? student.monthlyFee}
+          defaultAmount={multiBranch ? undefined : (monthlyAmount.netAmount ?? student.monthlyFee)}
           gridClassName="mt-4 grid gap-3 sm:grid-cols-3"
         />
       </details>

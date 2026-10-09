@@ -111,6 +111,7 @@ export function StudentProfileEditor({
   hasNationalId = false,
   onSaved,
   showPortalInvite = true,
+  branchScopedTerms = false,
 }: {
   studentId: string;
   branches: StudentProfileEditorBranch[];
@@ -156,6 +157,12 @@ export function StudentProfileEditor({
   onSaved?: () => void;
   /** Bu bileşen aynı sayfada birden fazla yerde render edilebiliyor — davet widget'ı yalnızca birinde gösterilsin. */
   showPortalInvite?: boolean;
+  /**
+   * 2026-10-10 — çok branşlı öğrencide branşa özgü bilgiler (ders süresi, öğrenci türü, MEB, kayıt/ders başlangıcı) bu kişi
+   * formunda DÜZENLENMEZ ve gönderilmez: öğrenci satırı yalnız bir uyumluluk aynasıdır, hangi branşın değeri olduğu belirsizdir.
+   * Her branş kendi kaydından ("Branş kayıtları" kartı → Düzenle) güncellenir.
+   */
+  branchScopedTerms?: boolean;
 }) {
   const router = useRouter();
   const [name, setName] = useState(initial.name);
@@ -233,7 +240,7 @@ export function StudentProfileEditor({
         email: email || undefined,
         branchId: branchId || undefined,
         educationMethod: educationMethod || undefined,
-        lessonDurationMinutes: lessonDurationMinutes ? Number(lessonDurationMinutes) : undefined,
+        ...(branchScopedTerms ? {} : { lessonDurationMinutes: lessonDurationMinutes ? Number(lessonDurationMinutes) : undefined }),
         phone,
         parentName,
         parentPhone,
@@ -246,23 +253,27 @@ export function StudentProfileEditor({
         birthPlace: birthPlace || undefined,
         schoolOrOccupation: schoolOrOccupation || undefined,
         communicationOptOut,
-        enrollmentStartDate: enrollmentStartDate || undefined,
-        lessonStartDate: lessonStartDate || undefined,
         accountResponsibility,
-        studentTypes,
-        // MEB Paneli — MEB seçiliyken bölüm değerleri, değilken `undefined`
-        // ("gönderilmedi": kayıtlı eski MEB verisi korunur, bkz. meb.ts).
-        level: mebSelected ? level || undefined : undefined,
-        mebLevelStartDate: mebSelected ? mebLevelStartDate || undefined : undefined,
-        mebLevelEndDate: mebSelected ? mebLevelEndDate || undefined : undefined,
-        mebExamDate: mebSelected ? mebExamDate || undefined : undefined,
-        mebExamAttended: mebSelected
-          ? mebExamStatus === "attended"
-            ? true
-            : mebExamStatus === "not_attended"
-              ? false
-              : undefined
-          : undefined,
+        ...(branchScopedTerms
+          ? {}
+          : {
+              enrollmentStartDate: enrollmentStartDate || undefined,
+              lessonStartDate: lessonStartDate || undefined,
+              studentTypes,
+              // MEB Paneli — MEB seçiliyken bölüm değerleri, değilken `undefined`
+              // ("gönderilmedi": kayıtlı eski MEB verisi korunur, bkz. meb.ts).
+              level: mebSelected ? level || undefined : undefined,
+              mebLevelStartDate: mebSelected ? mebLevelStartDate || undefined : undefined,
+              mebLevelEndDate: mebSelected ? mebLevelEndDate || undefined : undefined,
+              mebExamDate: mebSelected ? mebExamDate || undefined : undefined,
+              mebExamAttended: mebSelected
+                ? mebExamStatus === "attended"
+                  ? true
+                  : mebExamStatus === "not_attended"
+                    ? false
+                    : undefined
+                : undefined,
+            }),
       });
 
       if (!result.ok) {
@@ -347,6 +358,7 @@ export function StudentProfileEditor({
           {fieldErrors.educationMethod ? <p className="mt-1 text-xs text-red-600">{fieldErrors.educationMethod}</p> : null}
         </div>
 
+        {branchScopedTerms ? null : (
         <div>
           <Label>Ders süresi</Label>
           <Select value={lessonDurationMinutes} onChange={(e) => setLessonDurationMinutes(e.target.value)}>
@@ -362,8 +374,16 @@ export function StudentProfileEditor({
             süreye göre yeniden hesaplanır. Mevcut planlı dersler değişmez.
           </p>
         </div>
+        )}
       </div>
 
+      {branchScopedTerms ? (
+        <p className="rounded-md border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-3 py-2 text-xs text-[var(--color-text-muted)]">
+          Bu öğrencinin birden fazla branşı var. Öğrenci türü, MEB bilgileri, ders süresi, kayıt ve ders başlangıç tarihleri her branşın kendi kaydındadır —
+          Özet sekmesindeki &quot;Branş kayıtları&quot; kartından ilgili branşın &quot;Düzenle&quot; bağlantısıyla güncellenir.
+        </p>
+      ) : (
+        <>
       <div>
         <Label>Öğrenci türleri (birden fazla seçilebilir)</Label>
         <div className="flex flex-wrap gap-x-4 gap-y-1">
@@ -461,6 +481,8 @@ export function StudentProfileEditor({
           </p>
         </div>
       ) : null}
+        </>
+      )}
 
       <div className="grid grid-cols-2 gap-2">
         <div>
@@ -531,6 +553,7 @@ export function StudentProfileEditor({
         alandır; ilk tahsilat/sözleşme dönemi ders başlangıcından itibaren
         hesaplanır (bkz. resolveLessonStartDay, period-lesson-billing.ts).
       */}
+      {branchScopedTerms ? null : (
       <div className="grid grid-cols-2 gap-2">
         <div>
           <Label>Kayıt tarihi</Label>
@@ -544,6 +567,7 @@ export function StudentProfileEditor({
           </p>
         </div>
       </div>
+      )}
 
       <div className="grid grid-cols-2 gap-2">
         <div>

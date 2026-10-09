@@ -1483,3 +1483,13 @@ Aynı turda: `validateLessonSlot` oda `active`'ini hiç okumuyordu → telafi pa
 - Ders: bir varlığı "çoklu" yaptığında ona bağlı HER kaydın (ödeme, ilk tahsilat, takvim planı, kota, cron) anahtarını
   da aynı branşa taşı; "NULL = birincil" gibi örtük eşleme yerine açık kimlik yaz, belirsiz eskiyi raporla.
 
+## 2026-10-10 — "Ek branş" modeli ana kaydı ayrıcalıklı bıraktı; ayna "gerçek" sanıldı
+- 10-09 çoklu branşta yalnız ek kayıtlar kendi koşullarını taşıyordu; ana kaydın koşulu öğrenci satırındaydı. Sonuç: ek branşta MEB
+  alanları yoktu, liste/MEB paneli/öğretmen ekranları/banka/kota ilk branşın değerini gösteriyordu, ilk tahsilat yalnız ilk branşa aitti.
+- Düzeltme: her kayıt `termsVersion: 2` ile kendi koşulunu taşır, satır yalnız ayna; yazımda hedef branş zorunlu; tek ortak form/doğrulama.
+- Ders (1): ayna alanı olan her model için "kim okuyor?" taraması yap (`student.<alan>` grep'i `services/tools.ts` ve `store*`'u dışlamasın).
+- Ders (2): tek-seferlik dönüştürme betiği dar `select` ile okursa kopyalanacak alanları kaçırır → veri kaybı; tam satır oku, dönüşümden
+  önce/sonra değerleri birebir karşılaştır, fark varsa yazma. Tip dökümü (`as unknown as`) bu hatayı tsc'den gizler.
+- Ders (3): sunucu ve istemci aynı eşiği FARKLI nesneden okursa (`settings` vs `settings.collectionsSettings`) önizleme ≠ kayıt olur;
+  ortak saf fonksiyona verilen girdiyi iki tarafta da aynı kaynaktan al.
+

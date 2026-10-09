@@ -79,7 +79,7 @@ export function MebRowEditor({
     setBranchConfirmed(false);
     if (nextBranchId === row.branchId) return;
     startTransition(async () => {
-      const result = await actionGetMebStudentEditImpact({ studentId: row.id, branchId: nextBranchId });
+      const result = await actionGetMebStudentEditImpact({ studentId: row.id, enrollmentId: row.enrollmentId, branchId: nextBranchId });
       if (!result.ok) {
         setImpactError(result.message);
         return;
@@ -95,6 +95,8 @@ export function MebRowEditor({
     startTransition(async () => {
       const result = await actionUpdateMebStudent({
         studentId: row.id,
+        // MEB bilgisi branşa özgüdür: yalnız bu satırın branşı güncellenir (çok branşlıda diğer branşların MEB bilgisi değişmez).
+        enrollmentId: row.enrollmentId,
         level: level || undefined,
         mebLevelStartDate: startDate || undefined,
         mebLevelEndDate: endDate || undefined,
@@ -143,6 +145,7 @@ export function MebRowEditor({
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-semibold text-[var(--color-text)]">
                 {row.name}
+                {row.instrument ? <span className="ml-2 font-normal text-[var(--color-primary)]">· {row.instrument}</span> : null}
                 {row.displayId ? <span className="ml-2 font-normal text-[var(--color-text-muted)]">{row.displayId}</span> : null}
               </h3>
               <button

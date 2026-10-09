@@ -1,4 +1,5 @@
 import type { AppData } from "../types";
+import { isOwnStudent } from "../teacher-portal-scope";
 
 /**
  * Deterministic teacher performance score — NO AI/LLM involved in the
@@ -31,7 +32,7 @@ export function computeTeacherPerformanceScore(data: AppData, teacherId: string)
   const absentCount = graded.filter((a) => a.status === "absent").length;
   const schoolCancelledCount = graded.filter((a) => a.status === "cancelled_by_school").length;
   const gradedLessonCount = graded.length;
-  const activeStudentCount = data.students.filter((s) => s.teacherId === teacherId && s.active).length;
+  const activeStudentCount = data.students.filter((s) => isOwnStudent(s, teacherId) && s.active).length;
 
   let score: number | null = null;
   if (gradedLessonCount >= MIN_GRADED_LESSONS_FOR_SCORE) {

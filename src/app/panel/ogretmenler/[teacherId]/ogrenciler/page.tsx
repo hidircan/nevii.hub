@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { Badge, Card, EmptyState, Pagination, clampPage } from "@/components/ui";
 import { TeacherStudentsArchiveAction } from "@/components/teacher-students-archive-action";
 import { loadTeacherPageContext } from "../_context";
+import { isOwnStudent } from "@/lib/teacher-portal-scope";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +23,7 @@ export default async function TeacherStudentsTab({
   if (!teacher) notFound();
 
   const students = data.students
-    .filter((s) => s.teacherId === teacher.id)
+    .filter((s) => isOwnStudent(s, teacher.id))
     .sort((a, b) => a.name.localeCompare(b.name, "tr"));
   const totalPages = Math.max(1, Math.ceil(students.length / STUDENTS_PAGE_SIZE));
   const page = clampPage(sayfa, totalPages);
