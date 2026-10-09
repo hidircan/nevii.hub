@@ -46,7 +46,8 @@ export default function AdminYoklama() {
     sentQuery ? `/api/v1/students?q=${encodeURIComponent(sentQuery)}&limit=8` : "",
     { abortable: true }
   );
-  const schedule = useApiGet<ScheduleResponse>(selectedId ? `/api/v1/students/${selectedId}/schedule` : "");
+  // Bekleyen-yoklama birikimi geçmişin tamamını tarar — kesilme payı için üst sınırla çekilir.
+  const schedule = useApiGet<ScheduleResponse>(selectedId ? `/api/v1/students/${selectedId}/schedule?limit=2000` : "");
   const attendance = useApiGet<AttendanceSummary>(selectedId ? `/api/v1/students/${selectedId}/attendance-summary` : "");
 
   // Sunucu `q` ile filtreler — istemci tarafı filtreleme yok.

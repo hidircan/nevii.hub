@@ -73,7 +73,8 @@ export default function StudentDetailScreen() {
   const profile = useApiGet<StudentProfile>(`/api/v1/students/${studentId}`);
   const curriculum = useApiGet<CurriculumResponse>(`/api/v1/students/${studentId}/curriculum`);
   const homework = useApiGet<HomeworkResponse>(`/api/v1/students/${studentId}/homework`);
-  const schedule = useApiGet<ScheduleResponse>(`/api/v1/students/${studentId}/schedule`);
+  // "Son 3 geçmiş ders" tüm geçmişin kuyruğudur — kesilme payı için üst sınırla çekilir.
+  const schedule = useApiGet<ScheduleResponse>(`/api/v1/students/${studentId}/schedule?limit=2000`);
   const assessments = useApiGet<AssessmentsResponse>(`/api/v1/assessments/${studentId}`);
   const score = useApiGet<StudentScoreResponse>(`/api/v1/students/${studentId}/score`);
 

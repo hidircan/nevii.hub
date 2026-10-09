@@ -11,6 +11,8 @@ import type { ScheduleResponse, TasksResponse, TeacherPerformanceV2Response, Tea
 const now = new Date();
 const perfPeriodStart = format(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 30), "yyyy-MM-dd");
 const perfPeriodEnd = format(now, "yyyy-MM-dd");
+// Yaklaşan-ders sayacı yalnız geleceğe bakar — geçmiş taşınmaz (oturumda sabit).
+const upcomingFrom = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
 
 export default function TeacherDetailScreen() {
   const t = useTheme();
@@ -20,7 +22,9 @@ export default function TeacherDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
 
   const teachers = useApiGet<TeachersResponse>("/api/v1/teachers");
-  const schedule = useApiGet<ScheduleResponse>(`/api/v1/teachers/${id}/schedule`);
+  const schedule = useApiGet<ScheduleResponse>(
+    `/api/v1/teachers/${id}/schedule?from=${encodeURIComponent(upcomingFrom)}&limit=2000`
+  );
   const tasks = useApiGet<TasksResponse>(`/api/v1/tasks?assigneeId=${id}`);
   const perfV2 = useApiGet<TeacherPerformanceV2Response>(
     `/api/v1/teachers/${id}/performance-v2?periodStart=${perfPeriodStart}&periodEnd=${perfPeriodEnd}`

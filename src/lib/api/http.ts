@@ -11,8 +11,18 @@ const STATUS: Record<ServiceErrorCode, number> = {
   INTERNAL_ERROR: 500,
 };
 
+/**
+ * Tüm JSON API yanıtları kişiseldir: CDN/ara-proxy'nin yanlış cache'lemesini
+ * engellemek için merkezi `private, no-store` + `Vary: Authorization`.
+ * Dosya indirme uçları kendi header'larını zaten taşır (değişmez).
+ */
+const PRIVATE_JSON_HEADERS = {
+  "Cache-Control": "private, no-store",
+  Vary: "Authorization",
+} as const;
+
 export function jsonOk<T>(data: T, init?: { status?: number }) {
-  return NextResponse.json({ ok: true as const, data }, { status: init?.status ?? 200 });
+  return NextResponse.json({ ok: true as const, data }, { status: init?.status ?? 200, headers: PRIVATE_JSON_HEADERS });
 }
 
 export function jsonFail(
@@ -25,7 +35,7 @@ export function jsonFail(
       ok: false as const,
       error: details !== undefined ? { code, message, details } : { code, message },
     },
-    { status: STATUS[code] ?? 500 }
+    { status: STATUS[code] ?? 500, headers: PRIVATE_JSON_HEADERS }
   );
 }
 

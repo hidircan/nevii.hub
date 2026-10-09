@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { serverCacheGetOrCompute, tenantCacheKey } from "../http/server-cache";
 import { readData } from "../store";
 import { computeAllTeacherPerformanceScores, computeTeacherPerformanceScore } from "../insights/teacher-performance";
 import { INSTRUMENTS } from "../types";
@@ -334,6 +335,18 @@ export async function getDashboardSummaryTool(
   const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
 
+  // Pahalı özet (full-scan + tüm skorlar + görev/tahsilat): 60sn best-effort
+  // cache. Yetki DIŞARIDA (cache'e girmez); anahtar tenant-kapsamlı; her iki
+  // admin rolü de aynı girdiyi görür (tool içi kullanıcı ayrımı yok).
+  const { value } = await serverCacheGetOrCompute(
+    tenantCacheKey(ctx.tenantId, "dashboard-summary", "v1"),
+    60_000,
+    () => computeDashboardSummary(ctx)
+  );
+  return ok(value);
+}
+
+async function computeDashboardSummary(ctx: ServiceContext): Promise<DashboardSummary> {
   const data = await readData();
   const nowMs = Date.now();
   const today = new Date(nowMs).toISOString().slice(0, 10);
@@ -408,14 +421,14 @@ export async function getDashboardSummaryTool(
       insufficientData: p.score === null,
     }));
 
-  return ok({
+  return {
     upcomingLessonCount,
     pendingAttendanceCount,
     overdueTaskCount,
     followUpNeededCount: openCases.length,
     attentionItems,
     topTeachers,
-  });
+  };
 }
 
 export type HomeworkReport = {
@@ -434,6 +447,16 @@ export async function getHomeworkReportTool(
   const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
 
+  // Kurum geneli rapor (tüm ödev + tüm teslimler): 60sn best-effort cache.
+  const { value } = await serverCacheGetOrCompute(
+    tenantCacheKey(ctx.tenantId, "homework-report", "v1"),
+    60_000,
+    () => computeHomeworkReport(ctx)
+  );
+  return ok(value);
+}
+
+async function computeHomeworkReport(ctx: ServiceContext): Promise<HomeworkReport> {
   const { listAllHomework, listAllHomeworkSubmissions } = await import("../homework");
   const [all, subs] = await Promise.all([
     listAllHomework(ctx.tenantId),
@@ -463,14 +486,14 @@ export async function getHomeworkReportTool(
     }))
     .sort((a, b) => a.teacherName.localeCompare(b.teacherName, "tr") || a.teacherId.localeCompare(b.teacherId));
 
-  return ok({
+  return {
     totalCount: all.length,
     submittedCount: submittedIds.size,
     pendingCount: all.length - submittedIds.size,
     overdueCount,
     reviewedCount,
     byTeacher,
-  });
+  };
 }
 
 export type InstrumentsResponse = {

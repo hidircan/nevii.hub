@@ -53,7 +53,14 @@ export type Lesson = {
   opsMakeupFlag?: boolean | null;
   homeworkAssigned?: boolean;
 };
-export type ScheduleResponse = { lessons: Lesson[]; term?: "guz" | "yaz"; weeklyClosedDays?: number[] };
+export type ScheduleResponse = {
+  lessons: Lesson[];
+  term?: "guz" | "yaz";
+  weeklyClosedDays?: number[];
+  /** Sunucu tarafı pencere/limit meta'sı (eşleşen toplam + kesilme bayrağı). */
+  total?: number;
+  truncated?: boolean;
+};
 export type LessonsResponse = { lessons: Lesson[] };
 
 export type AttendanceDayStatus = {

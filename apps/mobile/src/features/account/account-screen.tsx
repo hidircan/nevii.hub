@@ -176,8 +176,9 @@ export function AccountScreen(
   // Session/user yanıtında isim alanı YOK; e-posta restore'da korunur
   // (token-storage). Kimlik çözülene kadar iskelet — rol etiketi ada konmaz.
   const isTeacher = user?.role === "TEACHER" && !!user?.teacherId;
+  // Yalnız öğretmen-adı çözümlemesi için: tek ders yeter (isim tüm kayıtlarda denormalize).
   const teacherSchedule = useApiGet<ScheduleResponse>(
-    isTeacher && user?.teacherId ? `/api/v1/teachers/${user.teacherId}/schedule` : ""
+    isTeacher && user?.teacherId ? `/api/v1/teachers/${user.teacherId}/schedule?limit=1` : ""
   );
   const teacherName =
     teacherSchedule.status === "success"

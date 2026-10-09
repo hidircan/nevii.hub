@@ -53,6 +53,13 @@ function telHref(phone: string): string {
   return `tel:${phone.replace(/[^+\d]/g, "")}`;
 }
 
+// Yaklaşan-ders sayacı yalnız geleceğe bakar — geçmiş taşınmaz (oturumda sabit).
+const upcomingFrom = (() => {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d.toISOString();
+})();
+
 export default function AdminStudentDetail() {
   const t = useTheme();
   const { t: tr } = useLocale();
@@ -60,7 +67,9 @@ export default function AdminStudentDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
 
   const profile = useApiGet<StudentProfile>(`/api/v1/students/${id}`);
-  const schedule = useApiGet<ScheduleResponse>(`/api/v1/students/${id}/schedule`);
+  const schedule = useApiGet<ScheduleResponse>(
+    `/api/v1/students/${id}/schedule?from=${encodeURIComponent(upcomingFrom)}&limit=2000`
+  );
   const attendance = useApiGet<AttendanceSummary>(`/api/v1/students/${id}/attendance-summary`);
   const curriculum = useApiGet<CurriculumResponse>(`/api/v1/students/${id}/curriculum`);
   const homework = useApiGet<HomeworkResponse>(`/api/v1/students/${id}/homework`);

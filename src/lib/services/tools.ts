@@ -6,6 +6,7 @@
 
 import { z } from "zod";
 import { differenceInCalendarDays, parseISO } from "date-fns";
+import { serverCacheGetOrCompute, tenantCacheKey } from "../http/server-cache";
 import { prisma } from "../db";
 import { foldTurkishForSearch } from "../normalize";
 import { checkFileMagicBytes } from "../storage/file-guards";
@@ -1057,7 +1058,7 @@ export async function getStudentProfileTool(
 export async function getStudentScheduleTool(
   ctx: ServiceContext,
   input: unknown
-): Promise<ServiceResult<{ studentId: string; lessons: unknown[] }>> {
+): Promise<ServiceResult<{ studentId: string; lessons: unknown[]; total: number; truncated: boolean }>> {
   const auth = requireRole(ctx, [
     "SCHOOL_ADMIN",
     "TEACHER",
@@ -1072,6 +1073,9 @@ export async function getStudentScheduleTool(
       studentId: z.string().min(1),
       from: z.string().optional(),
       to: z.string().optional(),
+      // Penceresiz çağrılar (ev özeti, ders detayı) tüm geçmişi çekmesin:
+      // üst sınır + kesilme bayrağı. İstemci dar pencere gönderir.
+      limit: z.coerce.number().int().min(1).max(2000).optional(),
     }),
     input
   );
@@ -1098,16 +1102,19 @@ export async function getStudentScheduleTool(
   // dersleri). Karşılaştırma gerçek zaman damgası (epoch ms) üzerinden yapılmalı.
   const fromTs = from ? new Date(from).getTime() : undefined;
   const toTs = to ? new Date(to).getTime() : undefined;
-  const lessons = data.lessons
+  const limit = v.data.limit ?? 500;
+  const matched = data.lessons
     .filter((l) => l.studentId === v.data.studentId)
     .filter((l) => {
       const startTs = new Date(l.startAt).getTime();
       return (fromTs === undefined || startTs >= fromTs) && (toTs === undefined || startTs <= toTs);
     })
-    .sort((a, b) => a.startAt.localeCompare(b.startAt))
+    .sort((a, b) => a.startAt.localeCompare(b.startAt));
+  const lessons = matched
+    .slice(0, limit)
     .map((l) => ({ ...l, teacherName: teacherNameById.get(l.teacherId), branchName: branchNameById.get(l.branchId) }));
 
-  return ok({ studentId: v.data.studentId, lessons });
+  return ok({ studentId: v.data.studentId, lessons, total: matched.length, truncated: matched.length > limit });
 }
 
 /**
@@ -1208,11 +1215,19 @@ export async function getStudentScoreTool(
 export async function getTeacherScheduleTool(
   ctx: ServiceContext,
   input: unknown
-): Promise<ServiceResult<{ teacherId: string; lessons: unknown[] }>> {
+): Promise<ServiceResult<{ teacherId: string; lessons: unknown[]; total: number; truncated: boolean }>> {
   const auth = requireRole(ctx, ["SCHOOL_ADMIN", "TEACHER", "AI_AGENT", "SUPER_ADMIN"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
 
-  const v = parseOrFail(z.object({ teacherId: z.string().min(1) }), input);
+  const v = parseOrFail(
+    z.object({
+      teacherId: z.string().min(1),
+      from: z.string().optional(),
+      to: z.string().optional(),
+      limit: z.coerce.number().int().min(1).max(2000).optional(),
+    }),
+    input
+  );
   if (!v.ok) return v;
   if (!canAccessTeacher(ctx, v.data.teacherId)) {
     return fail("FORBIDDEN", "Cannot access this teacher's schedule");
@@ -1231,12 +1246,22 @@ export async function getTeacherScheduleTool(
   const teacherBranchNameById = new Map(
     (data.settings.branches ?? []).map((b) => [b.id, b.shortName ?? b.name])
   );
-  const lessons = data.lessons
+  const fromTs = v.data.from ? Date.parse(v.data.from) : undefined;
+  const toTs = v.data.to ? Date.parse(v.data.to) : undefined;
+  const limit = v.data.limit ?? 500;
+  const matched = data.lessons
     .filter((l) => l.teacherId === v.data.teacherId)
-    .sort((a, b) => a.startAt.localeCompare(b.startAt))
+    .filter((l) => {
+      const startTs = Date.parse(l.startAt);
+      if (!Number.isFinite(startTs)) return true;
+      return (fromTs === undefined || startTs >= fromTs) && (toTs === undefined || startTs <= toTs);
+    })
+    .sort((a, b) => a.startAt.localeCompare(b.startAt));
+  const lessons = matched
+    .slice(0, limit)
     .map((l) => ({ ...l, studentName: studentNameById.get(l.studentId), branchName: teacherBranchNameById.get(l.branchId) }));
 
-  return ok({ teacherId: v.data.teacherId, lessons });
+  return ok({ teacherId: v.data.teacherId, lessons, total: matched.length, truncated: matched.length > limit });
 }
 
 export type TeacherStudentListItem = {
@@ -4071,13 +4096,22 @@ export async function getFinanceSummaryTool(
 ): Promise<ServiceResult<import("../finance-summary").FinanceSummary>> {
   const auth = requireStaffSensitiveAccess(ctx);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
-  const data = await readData();
-  const staff = await listStaff(ctx.tenantId);
-  const payroll = await listPayroll(ctx.tenantId);
-  const expenses = await listExpenses(ctx.tenantId);
-  const budgets = await listBudgets(ctx.tenantId);
-  const { computeFinanceSummary } = await import("../finance-summary");
-  return ok(computeFinanceSummary(data, staff, payroll, expenses, new Date(), budgets));
+  // 5 kaynaklı pahalı özet: 60sn best-effort cache (yetki dışarıda, anahtar
+  // tenant-kapsamlı; tüm yetkililer aynı girdiyi görür).
+  const { value } = await serverCacheGetOrCompute(
+    tenantCacheKey(ctx.tenantId, "finance-summary", "v1"),
+    60_000,
+    async () => {
+      const data = await readData();
+      const staff = await listStaff(ctx.tenantId);
+      const payroll = await listPayroll(ctx.tenantId);
+      const expenses = await listExpenses(ctx.tenantId);
+      const budgets = await listBudgets(ctx.tenantId);
+      const { computeFinanceSummary } = await import("../finance-summary");
+      return computeFinanceSummary(data, staff, payroll, expenses, new Date(), budgets);
+    }
+  );
+  return ok(value);
 }
 
 export async function createPackageTool(

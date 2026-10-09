@@ -43,7 +43,13 @@ export default function TeacherBugun() {
   const weekDays = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart]);
   const isCurrentWeek = isSameDay(weekStart, startOfWeek(now));
 
-  const schedule = useApiGet<ScheduleResponse>(user?.teacherId ? `/api/v1/teachers/${user.teacherId}/schedule` : "");
+  // Haftalık görünüm yalnız görünen haftayı çeker (sınırsız tüm-geçmiş yerine).
+  const weekEndExclusive = useMemo(() => addDays(weekStart, 7), [weekStart]);
+  const schedule = useApiGet<ScheduleResponse>(
+    user?.teacherId
+      ? `/api/v1/teachers/${user.teacherId}/schedule?from=${weekStart.toISOString()}&to=${weekEndExclusive.toISOString()}`
+      : ""
+  );
   const homework = useApiGet<HomeworkResponse>("/api/v1/homework/mine");
   function refreshAll() {
     schedule.refresh();

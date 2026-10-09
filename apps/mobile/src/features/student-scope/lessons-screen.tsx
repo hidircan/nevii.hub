@@ -200,7 +200,8 @@ export function StudentScopeLessonDetailScreen({ lessonId }: { lessonId: string 
   const { t: tr } = useLocale();
   const base = usePersonaBasePath();
   const studentId = useSelectedStudentId();
-  const res = useCachedApiGet<ScheduleResponse>(studentId ? `/api/v1/students/${studentId}/schedule` : "");
+  // Detay tek dersi ID ile bulur — kesilme payı için üst sınırla çekilir (15dk cache'li).
+  const res = useCachedApiGet<ScheduleResponse>(studentId ? `/api/v1/students/${studentId}/schedule?limit=2000` : "");
 
   if (res.status === "loading") {
     return (

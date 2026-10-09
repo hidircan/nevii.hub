@@ -29,7 +29,15 @@ export function StudentScopeGelisimScreen({ basePath }: { basePath: "/(parent)" 
     studentId ? `/api/v1/students/${studentId}/attendance-ledger?direction=past&limit=1` : ""
   );
   const assessments = useApiGet<AssessmentsResponse>(studentId ? `/api/v1/assessments/${studentId}` : "");
-  const schedule = useCachedApiGet<ScheduleResponse>(studentId ? `/api/v1/students/${studentId}/schedule` : "");
+  // Uygun-öğretmen hesabı son 90 güne bakar — pencere mount'ta sabitlenir
+  // (render başına değişen URL sonsuz yeniden-istek yapardı).
+  const eligibleWindow = useMemo(() => {
+    const from = new Date(new Date().getTime() - RECENT_LESSON_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString();
+    return { from };
+  }, []);
+  const schedule = useCachedApiGet<ScheduleResponse>(
+    studentId ? `/api/v1/students/${studentId}/schedule?from=${eligibleWindow.from}&limit=2000` : ""
+  );
 
   // Web parity (src/app/veli/degerlendirme/page.tsx, src/app/ogrenci/degerlendirme/page.tsx):
   // değerlendirilebilir öğretmenler = mevcut atanmış öğretmen + son 90 gün içinde
