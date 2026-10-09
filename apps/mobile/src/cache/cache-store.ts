@@ -1,4 +1,5 @@
 import { cacheClassForPath, cacheFileKey, cacheUserPrefix, isEntryFresh, CACHE_VERSION, type CacheEntry, type CacheKeyInput } from "./cache-keys";
+import { recordCachePurge, recordCacheRead, recordCacheWrite } from "./stats";
 
 /**
  * Read-cache deposu (Faz 7). Kalıcılık: uygulama-özel dosya dizini
@@ -166,17 +167,24 @@ export async function readCacheEntry<T>(
   const cls = cacheClassForPath(input.path);
   if (!cls) return { entry: null, fresh: false };
   const raw = await backend.readText(cacheFileKey(input));
-  if (!raw) return { entry: null, fresh: false };
+  if (!raw) {
+    recordCacheRead(false, false);
+    return { entry: null, fresh: false };
+  }
   try {
     const parsed = JSON.parse(raw) as CacheEntry<T>;
     if (parsed?.v !== CACHE_VERSION || parsed.path !== input.path || !parsed.savedAt) {
       await backend.remove(cacheFileKey(input));
+      recordCacheRead(false, false);
       return { entry: null, fresh: false };
     }
-    return { entry: parsed, fresh: isEntryFresh(parsed, cls, nowMs) };
+    const fresh = isEntryFresh(parsed, cls, nowMs);
+    recordCacheRead(true, fresh);
+    return { entry: parsed, fresh };
   } catch {
     // Bozuk kayıt: sil, miss say (eski/bozuk hassas veri gösterilmez).
     await backend.remove(cacheFileKey(input));
+    recordCacheRead(false, false);
     return { entry: null, fresh: false };
   }
 }
@@ -191,11 +199,13 @@ export async function writeCacheEntry<T>(
   if (!cacheClassForPath(input.path)) return;
   const entry: CacheEntry<T> = { v: CACHE_VERSION, path: input.path, savedAt: new Date(nowMs).toISOString(), data };
   await backend.writeText(cacheFileKey(input), JSON.stringify(entry));
+  recordCacheWrite();
 }
 
 export async function removeCacheEntry(backend: CacheBackend | null, input: CacheKeyInput): Promise<void> {
   if (!backend) return;
   await backend.remove(cacheFileKey(input));
+  recordCachePurge();
 }
 
 /** Logout/tenant-değişimi: kullanıcının TÜM cache'i silinir. */
@@ -203,6 +213,7 @@ export async function clearUserCache(tenantId: string, userId: string): Promise<
   const backend = getFileBackend();
   if (!backend) return;
   await backend.removePrefix(cacheUserPrefix(tenantId, userId));
+  recordCachePurge();
 }
 
 /** Üretim backend erişimi (hook içinden; testler memory backend verir). */
