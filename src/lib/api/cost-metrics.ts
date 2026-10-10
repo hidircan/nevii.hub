@@ -94,7 +94,7 @@ export function shouldSampleCostMetric(sampleRate: number, random: () => number 
 }
 
 /** Env'den oran okur (geçersizse varsayılan; değer loglanmaz). */
-export function costSampleRateFromEnv(env: NodeJS.ProcessEnv = process.env): number {
+export function costSampleRateFromEnv(env: Record<string, string | undefined> = process.env): number {
   const raw = env.COST_METRICS_SAMPLE_RATE;
   if (raw === undefined || raw === "") return DEFAULT_COST_SAMPLE_RATE;
   const n = Number(raw);

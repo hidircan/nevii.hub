@@ -83,7 +83,7 @@ async function checkAutoRefreshWiring(): Promise<void> {
     const content = (await readFile(rel)) ?? "";
     // useFocusRefetch(X.refresh) / useAppForegroundRefetch(X.refresh) — aynı
     // satırda veya çok-satırlı inline callback içinde.
-    const re = /(useFocusRefetch|useAppForegroundRefetch)\([^;]*?\.refresh\s*(\(|\)|,)/gs;
+    const re = /(useFocusRefetch|useAppForegroundRefetch)\([^;]*?\.refresh\s*(\(|\)|,)/g;
     let m: RegExpExecArray | null;
     while ((m = re.exec(content)) !== null) {
       bad += 1;
