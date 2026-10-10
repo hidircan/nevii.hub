@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { promises as fs } from "fs";
 import path from "path";
 import { resolveDataDir } from "../config";
-import { DEFAULT_TENANT_ID } from "../auth/config";
 import { createSeedData } from "../seed";
 import { writeData as writeJson } from "../store-json";
 

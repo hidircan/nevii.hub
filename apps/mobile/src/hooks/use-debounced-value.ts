@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { SEARCH_DEBOUNCE_MS, gateSearchQuery } from "../api/request-policy";
 
 /**
@@ -21,17 +21,15 @@ export function useDebouncedValue<T>(value: T, delayMs: number = SEARCH_DEBOUNCE
  * Sunucu araması için commit'lenmiş sorgu: debounce + minimum-karakter eşiği.
  * 1-karakter ara durumda ÖNCEKİ sorgu korunur (aynı path → yeniden istek yok,
  * liste flaş yapmaz); trim'lenmiş ≥2 karakter veya boş sorgu yayınlanır.
- * Ref yazımı effect içindedir (render'da ref/senkron setState yok).
+ * Render-sırasında türetme (React "derived state" deseni — koşullu setState
+ * commit öncesi anında yeniden-render üretir, flicker yok); effect/ref yok.
  */
 export function useDebouncedSearchQuery(raw: string, delayMs: number = SEARCH_DEBOUNCE_MS): string {
   const debounced = useDebouncedValue(raw, delayMs);
-  const lastFetchable = useRef<string>("");
-
-  useEffect(() => {
-    const gated = gateSearchQuery(debounced);
-    if (gated.fetch) lastFetchable.current = gated.q;
-  }, [debounced]);
-
+  const [committed, setCommitted] = useState<string>("");
   const gated = gateSearchQuery(debounced);
-  return gated.fetch ? gated.q : lastFetchable.current;
+  if (gated.fetch && gated.q !== committed) {
+    setCommitted(gated.q);
+  }
+  return committed;
 }

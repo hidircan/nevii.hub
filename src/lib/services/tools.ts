@@ -6,7 +6,6 @@
 
 import { z } from "zod";
 import { differenceInCalendarDays, parseISO } from "date-fns";
-import { serverCacheGetOrCompute, tenantCacheKey } from "../http/server-cache";
 import { prisma } from "../db";
 import { foldTurkishForSearch } from "../normalize";
 import { checkFileMagicBytes } from "../storage/file-guards";
@@ -4096,22 +4095,17 @@ export async function getFinanceSummaryTool(
 ): Promise<ServiceResult<import("../finance-summary").FinanceSummary>> {
   const auth = requireStaffSensitiveAccess(ctx);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
-  // 5 kaynaklı pahalı özet: 60sn best-effort cache (yetki dışarıda, anahtar
-  // tenant-kapsamlı; tüm yetkililer aynı girdiyi görür).
-  const { value } = await serverCacheGetOrCompute(
-    tenantCacheKey(ctx.tenantId, "finance-summary", "v1"),
-    60_000,
-    async () => {
-      const data = await readData();
-      const staff = await listStaff(ctx.tenantId);
-      const payroll = await listPayroll(ctx.tenantId);
-      const expenses = await listExpenses(ctx.tenantId);
-      const budgets = await listBudgets(ctx.tenantId);
-      const { computeFinanceSummary } = await import("../finance-summary");
-      return computeFinanceSummary(data, staff, payroll, expenses, new Date(), budgets);
-    }
-  );
-  return ok(value);
+  // Bilinçli olarak SUNUCU CACHE DIŞI: finans uyarıları read-your-write
+  // sözleşmelidir (ödeme işaretlenince uyarı aynı anda düşer —
+  // finance-expansion regresyonları). Özet ekranı kasıtlı açılır (düşük
+  // sıklık); dashboard/rapor cache'li, finans her zaman taze hesaplanır.
+  const data = await readData();
+  const staff = await listStaff(ctx.tenantId);
+  const payroll = await listPayroll(ctx.tenantId);
+  const expenses = await listExpenses(ctx.tenantId);
+  const budgets = await listBudgets(ctx.tenantId);
+  const { computeFinanceSummary } = await import("../finance-summary");
+  return ok(computeFinanceSummary(data, staff, payroll, expenses, new Date(), budgets));
 }
 
 export async function createPackageTool(

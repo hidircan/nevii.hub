@@ -8,7 +8,8 @@
 - **Vercel:** Next.js API (`force-dynamic` JSON) + dosya proxy indirmeleri.
   Tüm JSON yanıtlar `private, no-store` + `Vary: Authorization` (CDN yanlış-cache yok).
 - **Sunucu cache:** best-effort, instance-içi, 60sn TTL, tenant-kapsamlı anahtar
-  (`dashboard-summary`, `finance-summary`, `homework-report`). Miss = normal sorgu.
+  (`dashboard-summary`, `homework-report`). Miss = normal sorgu. Finans özeti
+  bilinçli olarak cache-DIŞIDIR (read-your-write uyarı sözleşmesi).
 - **Supabase:** Postgres (Prisma) + Storage (`announcement-attachments`, private).
   Dosya indirmeleri yetki kontrolü için sunucu proxy'sinden geçer (bayt Vercel'den
   akar — bilinçli güvenlik/maliyet takası). Realtime aboneliği YOK.
@@ -61,8 +62,9 @@ devre dışı bırakılmaz; yetki/audit/idempotency gevşetilmez.
 1. `COST_METRICS_SAMPLE_RATE` düşürün (0.1 → 0.02): ölçüm log maliyetini azaltır.
 2. Bildirim tick sıklığını gevşetin (10dk → 15dk): `.github/workflows/notification-tick.yml`
    cron'u + runbook güncelleyin. Hatırlatma pencereleri etkilenir (kabul edilebilir).
-3. Sunucu özet TTL'lerini uzatın (60sn → 5dk): `admin-lists.ts` + `tools.ts`
-   `serverCacheGetOrCompute` çağrıları; "canlı" etiketi olmadığı için güvenli.
+3. Sunucu özet TTL'lerini uzatın (60sn → 5dk): `admin-lists.ts`
+   `serverCacheGetOrCompute` çağrıları (dashboard + ödev raporu; finans
+   cache-dışıdır, dokunmayın); "canlı" etiketi olmadığı için güvenli.
 4. Mobil TTL'leri uzatın (örn. schedule 15dk → 30dk): `cache-keys.ts` + yeni
    mobil sürüm gerekir (mağaza süreci!).
 5. Non-kritik backfill/refresh işlerini durdurun; pull-to-refresh ve push

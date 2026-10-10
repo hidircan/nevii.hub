@@ -40,7 +40,7 @@
   e2e sayaç).
 - Tuş başına >0.2 arama isteği (7 gün ortalaması) → debounce/eşik regresyonu.
 - `truncated=true` oranlı program yanıtları (7 gün) → pencere stratejisi gözden geçirilir.
-- Sunucu cache hit oranı (dashboard/finans): <%50 (7 gün) → TTL/anahtar gözden geçirilir.
+- Sunucu cache hit oranı (dashboard/rapor): <%50 (7 gün) → TTL/anahtar gözden geçirilir (finans cache-dışıdır).
 
 ## 4. Ölçüm kaynakları
 
