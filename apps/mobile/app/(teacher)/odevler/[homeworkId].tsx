@@ -17,6 +17,7 @@ import {
 } from "../../../src/components/ui";
 import { useApiGet } from "../../../src/hooks/use-api";
 import { relativeDayLabel } from "../../../src/lib/date";
+import { useLocale } from "../../../src/i18n/locale-context";
 import { useTheme } from "../../../src/theme/theme-context";
 import type { HomeworkResponse } from "../../../src/types/api";
 
@@ -34,6 +35,7 @@ type SubmissionsResponse = { submissions: HomeworkSubmission[] };
 
 export default function OdevDetay() {
   const t = useTheme();
+  const { t: tr } = useLocale();
   const { homeworkId } = useLocalSearchParams<{ homeworkId: string }>();
   const homeworkRes = useApiGet<HomeworkResponse>("/api/v1/homework/mine");
   const submissionsRes = useApiGet<SubmissionsResponse>(`/api/v1/homework/${homeworkId}/submissions`);
@@ -59,7 +61,7 @@ export default function OdevDetay() {
     });
     setBusy(false);
     if (!res.ok) {
-      setError(res.error.message || "Geri bildirim gönderilemedi.");
+      setError(res.error.message || tr("teachHw.feedbackFailed"));
       return;
     }
     setFeedback("");
@@ -69,7 +71,7 @@ export default function OdevDetay() {
   if (homeworkRes.status === "loading" || submissionsRes.status === "loading") {
     return (
       <Screen>
-        <AppHeader title="Ödev" showBack showNotifications={false} />
+        <AppHeader title={tr("hwList.single")} showBack showNotifications={false} />
         <LoadingSkeleton rows={3} />
       </Screen>
     );
@@ -77,7 +79,7 @@ export default function OdevDetay() {
   if (homeworkRes.status === "error") {
     return (
       <Screen>
-        <AppHeader title="Ödev" showBack showNotifications={false} />
+        <AppHeader title={tr("hwList.single")} showBack showNotifications={false} />
         <ErrorState message={homeworkRes.message} onRetry={homeworkRes.refresh} />
       </Screen>
     );
@@ -85,8 +87,8 @@ export default function OdevDetay() {
   if (!homework) {
     return (
       <Screen>
-        <AppHeader title="Ödev" showBack showNotifications={false} />
-        <EmptyState icon="book-outline" title="Ödev bulunamadı" />
+        <AppHeader title={tr("hwList.single")} showBack showNotifications={false} />
+        <EmptyState icon="book-outline" title={tr("teachHw.detailMissing")} />
       </Screen>
     );
   }
@@ -105,7 +107,7 @@ export default function OdevDetay() {
           </View>
           {homework.status ? (
             <StatusBadge
-              label={homework.status === "REVIEWED" ? "İncelendi" : homework.status === "SUBMITTED" ? "Teslim edildi" : "Bekliyor"}
+              label={homework.status === "REVIEWED" ? tr("hw.reviewed") : homework.status === "SUBMITTED" ? tr("hw.submitted") : tr("hw.pending")}
               tone={homework.status === "REVIEWED" ? "success" : homework.status === "SUBMITTED" ? "info" : "warning"}
             />
           ) : null}
@@ -118,9 +120,9 @@ export default function OdevDetay() {
         ) : null}
       </Card>
 
-      <SectionHeader title="Öğrenci teslimi" />
+      <SectionHeader title={tr("teachHw.submissionTitle")} />
       {!latestSubmission ? (
-        <EmptyState icon="time-outline" title="Öğrenci henüz teslim etmedi" />
+        <EmptyState icon="time-outline" title={tr("teachHw.noSubmission")} />
       ) : (
         <>
           <Card>
@@ -138,7 +140,7 @@ export default function OdevDetay() {
             ) : null}
             {latestSubmission.teacherFeedback ? (
               <View style={{ marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: t.colors.divider }}>
-                <Text style={[t.typography.label, { color: t.colors.textMuted }]}>Geri bildiriminiz</Text>
+                <Text style={[t.typography.label, { color: t.colors.textMuted }]}>{tr("teachHw.feedbackYours")}</Text>
                 <Text style={[t.typography.body, { color: t.colors.text, marginTop: 4 }]}>{latestSubmission.teacherFeedback}</Text>
               </View>
             ) : null}
@@ -147,16 +149,16 @@ export default function OdevDetay() {
           {!latestSubmission.reviewedAt ? (
             <Card>
               <TextField
-                label="Geri bildirim yaz"
+                label={tr("teachHw.feedbackWrite")}
                 value={feedback}
                 onChangeText={setFeedback}
-                placeholder="Öğrenciye geri bildiriminizi yazın"
+                placeholder={tr("teachHw.feedbackPlaceholder")}
                 multiline
                 numberOfLines={3}
               />
-              {error ? <Text style={{ color: t.colors.danger, marginTop: 8 }}>{error}</Text> : null}
+              {error ? <Text style={[t.typography.caption, { color: t.colors.danger, marginTop: 8 }]}>{error}</Text> : null}
               <Button
-                label="Geri bildirimi gönder"
+                label={tr("teachHw.feedbackSend")}
                 onPress={onReview}
                 disabled={feedback.trim().length === 0 || busy}
                 loading={busy}

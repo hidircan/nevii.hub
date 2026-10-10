@@ -1,4 +1,5 @@
 import { StyleSheet, Text, View } from "react-native";
+import { useLocale } from "../../i18n/locale-context";
 import { isPast, relativeDayLabel } from "../../lib/date";
 import { useTheme } from "../../theme/theme-context";
 import { useNow } from "../../hooks/use-now";
@@ -7,10 +8,10 @@ import { Icon } from "./icon";
 import { StatusBadge, type BadgeTone } from "./status-badge";
 import type { Homework } from "../../types/api";
 
-const STATUS_MAP: Record<string, { label: string; tone: BadgeTone }> = {
-  PENDING: { label: "Bekliyor", tone: "warning" },
-  SUBMITTED: { label: "Teslim edildi", tone: "info" },
-  REVIEWED: { label: "İncelendi", tone: "success" },
+const STATUS_KEY: Record<string, { key: string; tone: BadgeTone }> = {
+  PENDING: { key: "hw.pending", tone: "warning" },
+  SUBMITTED: { key: "hw.submitted", tone: "info" },
+  REVIEWED: { key: "hw.reviewed", tone: "success" },
 };
 
 type Props = {
@@ -21,8 +22,12 @@ type Props = {
 
 export function HomeworkCard({ homework, showStudentName = true, onPress }: Props) {
   const t = useTheme();
+  const { t: tr } = useLocale();
   const now = useNow();
-  const status = STATUS_MAP[homework.status ?? "PENDING"] ?? { label: homework.status ?? "Bekliyor", tone: "neutral" as BadgeTone };
+  const statusEntry = STATUS_KEY[homework.status ?? "PENDING"];
+  const status = statusEntry
+    ? { label: tr(statusEntry.key), tone: statusEntry.tone }
+    : { label: homework.status ?? tr("hw.pending"), tone: "neutral" as BadgeTone };
   const overdue = homework.dueDate && homework.status !== "REVIEWED" && isPast(homework.dueDate, now);
 
   return (
@@ -31,7 +36,7 @@ export function HomeworkCard({ homework, showStudentName = true, onPress }: Prop
         <Text style={[t.typography.cardTitle, { color: t.colors.text, flex: 1 }]} numberOfLines={2}>
           {homework.title}
         </Text>
-        <StatusBadge label={overdue ? "Gecikti" : status.label} tone={overdue ? "danger" : status.tone} />
+        <StatusBadge label={overdue ? tr("hw.overdue") : status.label} tone={overdue ? "danger" : status.tone} />
       </View>
       <View style={styles.metaRow}>
         {showStudentName && homework.studentName ? (

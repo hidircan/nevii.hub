@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { classifyOpsResult, createInFlightGuard, pendingAttendance } from "../attendance";
+import { classifyOpsResult, createInFlightGuard, opsFlagLabel, pendingAttendance } from "../attendance";
 import type { Lesson } from "../../types/api";
 
 describe("classifyOpsResult — yoklama sonucu", () => {
@@ -19,6 +19,12 @@ describe("classifyOpsResult — yoklama sonucu", () => {
   it("yeni kayıt ve idempotent tekrar ayrı mesaj alır", () => {
     expect(classifyOpsResult({ ok: true, data: { alreadySet: false } })).toEqual({ kind: "saved", message: "Yoklama kaydedildi." });
     expect(classifyOpsResult({ ok: true, data: { alreadySet: true } })).toEqual({ kind: "saved", message: "Yoklama zaten bu şekilde kayıtlı." });
+  });
+
+  it("İngilizce yoklama mesajları ve bayrak etiketleri", () => {
+    expect(classifyOpsResult({ ok: true, data: { alreadySet: false } }, "en")).toEqual({ kind: "saved", message: "Attendance saved." });
+    expect(opsFlagLabel("attended", "en")).toBe("Attended");
+    expect(opsFlagLabel("excused", "tr")).toBe("İzinli");
   });
 });
 

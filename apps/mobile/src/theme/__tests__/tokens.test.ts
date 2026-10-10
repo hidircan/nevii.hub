@@ -64,4 +64,97 @@ describe("tek tema sözleşmesi — lightTheme/darkTheme", () => {
     expect((mod as Record<string, unknown>).colors).toBeUndefined();
     expect((mod as Record<string, unknown>).colorsDark).toBeUndefined();
   });
+
+  it("tipografi ölçeği — +2pt (display 32 / screen 28 / section 20 / card 18 / body 17 / caption 15 / label 13)", async () => {
+    const mod = await import("../tokens");
+    for (const theme of [mod.lightTheme, mod.darkTheme]) {
+      expect(theme.typography.display.fontSize).toBe(32);
+      expect(theme.typography.screenTitle.fontSize).toBe(28);
+      expect(theme.typography.sectionTitle.fontSize).toBe(20);
+      expect(theme.typography.cardTitle.fontSize).toBe(18);
+      expect(theme.typography.body.fontSize).toBe(17);
+      expect(theme.typography.bodyStrong.fontSize).toBe(17);
+      expect(theme.typography.caption.fontSize).toBe(15);
+      expect(theme.typography.label.fontSize).toBe(13);
+    }
+  });
+
+  it("tema varsayılanı AÇIK — sistem koyu modda bile ilk görünüm light (statik denetim)", async () => {
+    const fs = await import("node:fs/promises");
+    const path = await import("node:path");
+    const content = await fs.readFile(path.join(__dirname, "..", "theme-context.tsx"), "utf-8");
+    expect(content).toMatch(/useState<ThemePreference>\("light"\)/);
+    expect(content).not.toMatch(/useState<ThemePreference>\("system"\)/);
+  });
+
+  it("font sözleşmesi — display (Gloock) yalnız başlıklarda, gövde Noto Serif", async () => {
+    const mod = await import("../tokens");
+    expect(typeof mod.fonts.display).toBe("string");
+    expect(mod.fonts.display.length).toBeGreaterThan(0);
+    expect(mod.lightTheme.typography.display.fontFamily).toBe(mod.fonts.display);
+    expect(mod.darkTheme.typography.display.fontFamily).toBe(mod.fonts.display);
+    // Gloock tek kesit (400) — kalınlaştırma yok.
+    expect(mod.lightTheme.typography.display.fontWeight).toBe("400");
+    // Başlık hiyerarşisi (screen/section) sistem sans'ında kalır.
+    expect((mod.lightTheme.typography.screenTitle as { fontFamily?: string }).fontFamily).toBeUndefined();
+    expect((mod.lightTheme.typography.sectionTitle as { fontFamily?: string }).fontFamily).toBeUndefined();
+    // Başlık dışı her şey Noto Serif — kalınlık dosyayla eşleşir.
+    expect(mod.lightTheme.typography.body.fontFamily).toBe(mod.fonts.serif);
+    expect(mod.lightTheme.typography.bodyStrong.fontFamily).toBe(mod.fonts.serifSemibold);
+    expect(mod.lightTheme.typography.cardTitle.fontFamily).toBe(mod.fonts.serifSemibold);
+    expect(mod.lightTheme.typography.caption.fontFamily).toBe(mod.fonts.serifMedium);
+    expect(mod.lightTheme.typography.label.fontFamily).toBe(mod.fonts.serifBold);
+  });
+
+  it("platform serif eşlemesi — iOS ve Android AYNI Noto Serif ailesi, web CSS yığını", async () => {
+    const fs = await import("node:fs/promises");
+    const path = await import("node:path");
+    const ios = await fs.readFile(path.join(__dirname, "..", "serif-font.ios.ts"), "utf-8");
+    const android = await fs.readFile(path.join(__dirname, "..", "serif-font.android.ts"), "utf-8");
+    for (const name of ["NotoSerif_400Regular", "NotoSerif_500Medium", "NotoSerif_600SemiBold", "NotoSerif_700Bold"]) {
+      expect(ios, `ios/${name}`).toContain(name);
+      expect(android, `android/${name}`).toContain(name);
+    }
+    expect(ios).not.toContain("Tinos");
+    expect(android).not.toContain("Tinos");
+    const base = await fs.readFile(path.join(__dirname, "..", "serif-font.ts"), "utf-8");
+    expect(base).toContain("Noto Serif, Georgia, serif");
+    // Yükleyici 4 kesiti içerir (web hariç tüm platformlar).
+    const loader = await fs.readFile(path.join(__dirname, "..", "fonts.ts"), "utf-8");
+    expect(loader).toMatch(/NotoSerif_400Regular.*NotoSerif_500Medium.*NotoSerif_600SemiBold.*NotoSerif_700Bold/s);
+    expect(loader).not.toContain("Tinos");
+    // Paket bağımlılığı: noto-serif var, tinos yok.
+    const pkg = await fs.readFile(path.join(__dirname, "..", "..", "..", "package.json"), "utf-8");
+    expect(pkg).toContain("@expo-google-fonts/noto-serif");
+    expect(pkg).not.toContain("tinos");
+  });
+
+  it("yasaklı font referansı yok (Inter / Tinos / Times New Roman)", async () => {
+    const fs = await import("node:fs/promises");
+    const path = await import("node:path");
+    const root = path.join(__dirname, "..", "..");
+    const hits: string[] = [];
+    async function walk(dir: string): Promise<void> {
+      for (const e of await fs.readdir(dir, { withFileTypes: true })) {
+        if (e.name === "node_modules" || e.name === "__tests__") continue;
+        const full = path.join(dir, e.name);
+        if (e.isDirectory()) await walk(full);
+        else if (/\.(ts|tsx|json)$/.test(e.name)) {
+          const content = await fs.readFile(full, "utf-8");
+          // Yorumlar elenir (dokümantasyon yasaklı adı anabilir), sonra kelime
+          // sınırı aranır (interval/interaction gibi kelimeler elenir).
+          const code = content
+            .replace(/\/\*[\s\S]*?\*\//g, "")
+            .replace(/(^|\s)\/\/.*$/gm, "$1")
+            .replace(/\b(interval|interact\w*|internal|international|pointer|printer|winter|enter|interest\w*)\b/gi, "");
+          if (/\bInter\b/.test(code) || /\bTinos\b/.test(code) || /Times New Roman/.test(code)) {
+            hits.push(path.relative(root, full));
+          }
+        }
+      }
+    }
+    await walk(root);
+    await walk(path.join(root, "..", "app"));
+    expect(hits).toEqual([]);
+  });
 });

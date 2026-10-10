@@ -1,12 +1,22 @@
 import * as ImagePicker from "expo-image-picker";
 import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
+import { useRouter } from "expo-router";
 import { useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Linking, Pressable, StyleSheet, Text, View } from "react-native";
 import { apiDelete, apiPost } from "../../api/client";
 import { useAuth, type AppRole, type AuthUser } from "../../auth/auth-context";
+import { useChildSelection } from "../../student/student-context";
 import { AppHeader, Avatar, BottomSheet, Card, ConfirmDialog, Icon, Screen, SectionHeader, type IconName } from "../../components/ui";
+import { useApiGet } from "../../hooks/use-api";
 import { PHOTO_RESIZE_MAX_DIMENSION, PHOTO_JPEG_COMPRESS_QUALITY, buildPhotoUploadRequestBody } from "../../lib/photo-upload";
+import { getLegalLinks } from "../../legal/legal-links";
+import { lookup } from "../../i18n/locales";
+import { getActiveLocale } from "../../i18n/locale-store";
+import { useLocale } from "../../i18n/locale-context";
+import { LanguageSelector } from "../../components/language-selector";
 import { useTheme, useThemePreference, type ThemePreference } from "../../theme/theme-context";
+import type { ScheduleResponse, StudentProfile } from "../../types/api";
+import { resolveDisplayName } from "./display-name";
 
 type PhotoOwner = { ownerType: "student" | "teacher" | "user"; ownerId: string };
 
@@ -46,41 +56,113 @@ async function resizeForUpload(asset: ImagePicker.ImagePickerAsset): Promise<str
   }
   const rendered = await context.renderAsync();
   const saved = await rendered.saveAsync({ compress: PHOTO_JPEG_COMPRESS_QUALITY, format: SaveFormat.JPEG, base64: true });
-  if (!saved.base64) throw new Error("Fotoğraf işlenemedi");
+  if (!saved.base64) throw new Error(lookup(getActiveLocale(), "account.photoProcessFail"));
   return saved.base64;
 }
 
 export type AccountQuickLink = { key: string; icon: IconName; label: string; onPress: () => void };
 
-const ROLE_LABEL: Record<AppRole, string> = {
-  HYPER_ADMIN: "Platform Yöneticisi",
-  SUPER_ADMIN: "Kurum Sahibi",
-  SCHOOL_ADMIN: "Yönetici",
-  BRANCH_MANAGER: "Şube Müdürü",
-  TEACHER: "Öğretmen",
-  STUDENT: "Öğrenci",
-  AI_AGENT: "Sistem",
+const ROLE_LABEL_KEY: Record<AppRole, string> = {
+  HYPER_ADMIN: "account.rolePlatformAdmin",
+  SUPER_ADMIN: "account.roleOwner",
+  SCHOOL_ADMIN: "account.roleAdmin",
+  BRANCH_MANAGER: "account.roleBranchManager",
+  TEACHER: "account.roleTeacher",
+  STUDENT: "account.roleStudent",
+  AI_AGENT: "account.roleSystem",
 };
 
 /** Veli de STUDENT rolüyle girer — etiket sunucunun portal erişim türünden gelir. */
-function roleLabel(user: AuthUser): string {
-  return user.portalAccessType === "GUARDIAN" ? "Veli" : ROLE_LABEL[user.loginRole] ?? ROLE_LABEL[user.role];
+function roleLabel(user: AuthUser, tr: (path: string) => string): string {
+  if (user.portalAccessType === "GUARDIAN") return tr("account.roleGuardian");
+  return tr(ROLE_LABEL_KEY[user.loginRole] ?? ROLE_LABEL_KEY[user.role]);
 }
 
-const THEME_OPTIONS: Array<{ value: ThemePreference; label: string; icon: IconName }> = [
-  { value: "system", label: "Sistem", icon: "phone-portrait-outline" },
-  { value: "light", label: "Açık", icon: "sunny-outline" },
-  { value: "dark", label: "Koyu", icon: "moon-outline" },
+const THEME_OPTIONS: Array<{ value: ThemePreference; labelKey: string; icon: IconName }> = [
+  { value: "system", labelKey: "account.themeSystem", icon: "phone-portrait-outline" },
+  { value: "light", labelKey: "account.themeLight", icon: "sunny-outline" },
+  { value: "dark", labelKey: "account.themeDark", icon: "moon-outline" },
 ];
+
+/**
+ * Gizlilik/yasal bölüm — hukuki sayfalar uygulama dışında açılır
+ * (`legal-links.ts` tek kaynak). Hesap silme: uygulama-içi talep ekranı
+ * (`/hesap-silme-talebi`) + sunucu talebi + durum takibi; sahte "silindi"
+ * davranışı YOK.
+ */
+function LegalSection() {
+  const t = useTheme();
+  const { t: tr } = useLocale();
+  const router = useRouter();
+  const links = getLegalLinks();
+
+  const rows: Array<{ icon: IconName; label: string; hint: string; onPress: () => void }> = [
+    {
+      icon: "shield-checkmark-outline",
+      label: tr("account.privacy"),
+      hint: tr("account.openOutside"),
+      onPress: () => void Linking.openURL(links.privacyPolicyUrl),
+    },
+    {
+      icon: "document-text-outline",
+      label: tr("account.terms"),
+      hint: tr("account.openOutside"),
+      onPress: () => void Linking.openURL(links.termsUrl),
+    },
+    {
+      icon: "trash-outline",
+      label: tr("account.deleteRow"),
+      hint: tr("account.deleteHint"),
+      onPress: () => router.push("/hesap-silme-talebi"),
+    },
+  ];
+
+  return (
+    <Card>
+      {rows.map((row, i) => (
+        <View key={row.label}>
+          {i > 0 ? <View style={[styles.divider, { backgroundColor: t.colors.divider }]} /> : null}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={row.label}
+            accessibilityHint={row.hint}
+            onPress={row.onPress}
+            style={styles.deletionRow}
+          >
+            <View style={styles.optionLeft}>
+              <Icon name={row.icon} size={18} color={t.colors.textMuted} />
+              <View style={{ flex: 1 }}>
+                <Text style={[t.typography.body, { color: t.colors.text }]}>{row.label}</Text>
+                <Text style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 1 }]}>{row.hint}</Text>
+              </View>
+            </View>
+            <Icon name="chevron-forward" size={16} color={t.colors.textFaint} />
+          </Pressable>
+        </View>
+      ))}
+    </Card>
+  );
+}
 
 /**
  * Yönetici/Öğretmen/Veli/Öğrenci hesabım ekranlarının ortak içeriği. `links`
  * ile role özel kısayollar eklenebilir. `ownAccountPhotoOnly` veli (parent)
  * hesabım ekranından geçilir — bkz. resolvePhotoOwner yorumu.
  */
-export function AccountScreen({ links, ownAccountPhotoOnly }: { links?: AccountQuickLink[]; ownAccountPhotoOnly?: boolean } = {}) {
+export function AccountScreen(
+  { links, ownAccountPhotoOnly, showChildContext }: { links?: AccountQuickLink[]; ownAccountPhotoOnly?: boolean; showChildContext?: boolean } = {}
+) {
   const t = useTheme();
+  const { t: tr } = useLocale();
   const { user, logout } = useAuth();
+  const router = useRouter();
+  // Seçili öğrenci bağlam bandı — veli/öğrenci Hesabım hangi çocuğun
+  // müfredat/materyal/sözleşmesine bakıldığını açıkça gösterir. Hook'lar
+  // koşulsuz çağrılır; gösterim `showChildContext` ile sınırlıdır.
+  const selection = useChildSelection();
+  const contextProfile = useApiGet<StudentProfile>(
+    showChildContext && selection.selectedId ? `/api/v1/students/${selection.selectedId}` : ""
+  );
   const { preference, setPreference } = useThemePreference();
   const [confirmingLogout, setConfirmingLogout] = useState(false);
   const [photoVersion, setPhotoVersion] = useState(0);
@@ -89,7 +171,25 @@ export function AccountScreen({ links, ownAccountPhotoOnly }: { links?: AccountQ
   const [photoError, setPhotoError] = useState<string | null>(null);
   const [hasPhoto, setHasPhoto] = useState(false);
 
-  const displayName = user?.email || (user ? roleLabel(user) :"Hesap");
+  // Personel gerçek adı: öğretmenin KENDİ programındaki `teacherName`
+  // (sunucu teacherId sahipliğini doğrular — başka kaynaktan tahmin yok).
+  // Session/user yanıtında isim alanı YOK; e-posta restore'da korunur
+  // (token-storage). Kimlik çözülene kadar iskelet — rol etiketi ada konmaz.
+  const isTeacher = user?.role === "TEACHER" && !!user?.teacherId;
+  // Yalnız öğretmen-adı çözümlemesi için: tek ders yeter (isim tüm kayıtlarda denormalize).
+  const teacherSchedule = useApiGet<ScheduleResponse>(
+    isTeacher && user?.teacherId ? `/api/v1/teachers/${user.teacherId}/schedule?limit=1` : ""
+  );
+  const teacherName =
+    teacherSchedule.status === "success"
+      ? (teacherSchedule.data.lessons.find((l) => l.teacherName?.trim())?.teacherName?.trim() ?? null)
+      : null;
+  const resolvedName = user ? resolveDisplayName({ teacherName, email: user.email }) : null;
+  const teacherNamePending = isTeacher && teacherSchedule.status === "loading";
+  // Ad yerine rol etiketi ("Öğretmen") ASLA konmaz — çözülmediyse iskelet
+  // (pending) ya da nötr fallback; rol zaten alt satırda gösterilir.
+  const displayName = resolvedName;
+  const showSkeleton = !displayName && (!user || teacherNamePending);
   const photoOwner = resolvePhotoOwner(user, { forceUserPhoto: ownAccountPhotoOnly });
   const photoPath = photoOwner ? `/api/v1/${photoOwner.ownerType}s/${photoOwner.ownerId}/photo?v=${photoVersion}` : null;
 
@@ -99,11 +199,7 @@ export function AccountScreen({ links, ownAccountPhotoOnly }: { links?: AccountQ
 
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
-      setPhotoError(
-        permission.canAskAgain
-          ? "Fotoğraf seçmek için galeri erişimine izin verin."
-          : "Fotoğraf seçebilmek için Ayarlar > Nevii Hub > Fotoğraflar bölümünden erişim izni vermelisiniz."
-      );
+      setPhotoError(permission.canAskAgain ? tr("account.galleryAsk") : tr("account.gallerySettings"));
       return;
     }
 
@@ -115,7 +211,7 @@ export function AccountScreen({ links, ownAccountPhotoOnly }: { links?: AccountQ
     if (result.canceled) return;
     const asset = result.assets[0];
     if (!asset) {
-      setPhotoError("Fotoğraf okunamadı. Lütfen tekrar deneyin.");
+      setPhotoError(tr("account.photoUnreadable"));
       return;
     }
 
@@ -128,14 +224,14 @@ export function AccountScreen({ links, ownAccountPhotoOnly }: { links?: AccountQ
         buildPhotoUploadRequestBody(base64)
       );
       if (!res.ok) {
-        setPhotoError(res.error.message || "Fotoğraf yüklenemedi. Lütfen tekrar deneyin.");
+        setPhotoError(res.error.message || tr("account.photoUploadFail"));
         return;
       }
       setHasPhoto(true);
       setPhotoVersion((v) => v + 1);
       setPhotoSheetOpen(false);
     } catch {
-      setPhotoError("Fotoğraf yüklenemedi. Lütfen tekrar deneyin.");
+      setPhotoError(tr("account.photoUploadFail"));
     } finally {
       setPhotoBusy(false);
     }
@@ -148,7 +244,7 @@ export function AccountScreen({ links, ownAccountPhotoOnly }: { links?: AccountQ
     const res = await apiDelete(`/api/v1/${photoOwner.ownerType}s/${photoOwner.ownerId}/photo`);
     setPhotoBusy(false);
     if (!res.ok) {
-      setPhotoError(res.error.message || "Fotoğraf kaldırılamadı. Lütfen tekrar deneyin.");
+      setPhotoError(res.error.message || tr("account.photoRemoveFail"));
       return;
     }
     setHasPhoto(false);
@@ -158,17 +254,17 @@ export function AccountScreen({ links, ownAccountPhotoOnly }: { links?: AccountQ
 
   return (
     <Screen>
-      <AppHeader title="Hesabım" />
+      <AppHeader title={tr("account.title")} />
 
       <Card>
         <View style={styles.profileRow}>
           <Pressable
             onPress={() => (photoOwner ? setPhotoSheetOpen(true) : undefined)}
-            accessibilityLabel={photoOwner ? "Profil fotoğrafını değiştir" : undefined}
+            accessibilityLabel={photoOwner ? tr("account.photoChange") : undefined}
             style={{ position: "relative" }}
           >
             <Avatar
-              name={displayName}
+              name={displayName ?? tr("account.userFallback")}
               size={52}
               photoPath={photoPath}
               onPhotoLoad={() => setHasPhoto(true)}
@@ -181,30 +277,39 @@ export function AccountScreen({ links, ownAccountPhotoOnly }: { links?: AccountQ
             ) : null}
           </Pressable>
           <View style={{ flex: 1 }}>
-            <Text style={[t.typography.cardTitle, { color: t.colors.text }]} numberOfLines={1}>
-              {displayName}
-            </Text>
-            <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>
-              {user ? roleLabel(user) :""}
-            </Text>
+            {showSkeleton ? (
+              // Kimlik çözülürken yanlış metin gösterilmez — iskelet.
+              <View accessibilityLabel={tr("account.profileLoading")}>
+                <View style={[styles.nameSkeleton, { backgroundColor: t.colors.bgMuted }]} />
+                <View style={[styles.roleSkeleton, { backgroundColor: t.colors.bgMuted }]} />
+              </View>
+            ) : (
+              <>
+                <Text
+                  style={[t.typography.cardTitle, { color: t.colors.text }]}
+                  numberOfLines={1}
+                  accessibilityLabel={displayName ? undefined : tr("account.nameLoadFail")}
+                >
+                  {displayName ?? tr("account.userFallback")}
+                </Text>
+                <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>
+                  {user ? roleLabel(user, tr) : ""}
+                </Text>
+              </>
+            )}
           </View>
-        </View>
-        <View style={[styles.divider, { backgroundColor: t.colors.divider }]} />
-        <View style={styles.metaRow}>
-          <Icon name="business-outline" size={15} color={t.colors.textMuted} />
-          <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>Kurum: {user?.tenantId ?? "—"}</Text>
         </View>
       </Card>
 
       {photoOwner ? (
-        <BottomSheet visible={photoSheetOpen} title="Profil fotoğrafı" onClose={() => setPhotoSheetOpen(false)}>
+        <BottomSheet visible={photoSheetOpen} title={tr("account.photoTitle")} onClose={() => setPhotoSheetOpen(false)}>
           <View style={{ gap: 10, paddingBottom: 8 }}>
-            {photoError ? <Text style={{ color: t.colors.danger }}>{photoError}</Text> : null}
+            {photoError ? <Text style={[t.typography.caption, { color: t.colors.danger }]}>{photoError}</Text> : null}
             <Pressable onPress={pickAndUploadPhoto} disabled={photoBusy} style={styles.sheetOptionRow}>
               <View style={styles.optionLeft}>
                 <Icon name="image-outline" size={18} color={t.colors.primary} />
                 <Text style={[t.typography.body, { color: t.colors.primary }]}>
-                  {photoBusy ? "İşleniyor..." : hasPhoto ? "Fotoğrafı değiştir" : "Fotoğraf seç"}
+                  {photoBusy ? tr("account.photoProcessing") : hasPhoto ? tr("account.photoReplace") : tr("account.photoPick")}
                 </Text>
               </View>
             </Pressable>
@@ -212,22 +317,51 @@ export function AccountScreen({ links, ownAccountPhotoOnly }: { links?: AccountQ
               <Pressable onPress={removePhoto} disabled={photoBusy} style={styles.sheetOptionRow}>
                 <View style={styles.optionLeft}>
                   <Icon name="trash-outline" size={18} color={t.colors.danger} />
-                  <Text style={[t.typography.body, { color: t.colors.danger }]}>Fotoğrafı kaldır</Text>
+                  <Text style={[t.typography.body, { color: t.colors.danger }]}>{tr("account.photoRemove")}</Text>
                 </View>
               </Pressable>
             ) : null}
             <Pressable onPress={() => setPhotoSheetOpen(false)} disabled={photoBusy} style={styles.sheetOptionRow}>
               <View style={styles.optionLeft}>
-                <Text style={[t.typography.body, { color: t.colors.textMuted }]}>Vazgeç</Text>
+                <Text style={[t.typography.body, { color: t.colors.textMuted }]}>{tr("common.cancel")}</Text>
               </View>
             </Pressable>
           </View>
         </BottomSheet>
       ) : null}
 
+      {showChildContext ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={
+            contextProfile.status === "success"
+              ? tr("account.trackedA11y", { name: contextProfile.data.name })
+              : tr("account.trackedA11yLoading")
+          }
+          accessibilityHint={selection.isMulti ? tr("account.openStudentPicker") : undefined}
+          disabled={!selection.isMulti || !selection.ready}
+          onPress={() => router.push("/select-child")}
+          style={({ pressed }) => [
+            styles.deletionRow,
+            { backgroundColor: t.colors.bgRaised, borderColor: t.colors.border, borderWidth: StyleSheet.hairlineWidth, borderRadius: 14, paddingHorizontal: 12, marginBottom: 4, opacity: pressed ? 0.7 : 1 },
+          ]}
+        >
+          <View style={styles.optionLeft}>
+            <Icon name="people-outline" size={18} color={t.colors.primary} />
+            <View style={{ flex: 1 }}>
+              <Text style={[t.typography.label, { color: t.colors.textFaint }]}>{tr("account.trackedStudent")}</Text>
+              <Text style={[t.typography.bodyStrong, { color: t.colors.text, marginTop: 1 }]} numberOfLines={1}>
+                {contextProfile.status === "success" ? contextProfile.data.name : tr("account.trackedLoading")}
+              </Text>
+            </View>
+          </View>
+          {selection.isMulti ? <Icon name="swap-horizontal-outline" size={18} color={t.colors.textFaint} /> : null}
+        </Pressable>
+      ) : null}
+
       {links && links.length > 0 ? (
         <>
-          <SectionHeader title="Araçlar" />
+          <SectionHeader title={tr("account.tools")} />
           <Card>
             {links.map((link, i) => (
               <View key={link.key}>
@@ -245,7 +379,7 @@ export function AccountScreen({ links, ownAccountPhotoOnly }: { links?: AccountQ
         </>
       ) : null}
 
-      <SectionHeader title="Görünüm" />
+      <SectionHeader title={tr("account.appearance")} />
       <Card>
         {THEME_OPTIONS.map((opt, i) => (
           <View key={opt.value}>
@@ -258,7 +392,7 @@ export function AccountScreen({ links, ownAccountPhotoOnly }: { links?: AccountQ
             >
               <View style={styles.optionLeft}>
                 <Icon name={opt.icon} size={18} color={t.colors.textMuted} />
-                <Text style={[t.typography.body, { color: t.colors.text }]}>{opt.label}</Text>
+                <Text style={[t.typography.body, { color: t.colors.text }]}>{tr(opt.labelKey)}</Text>
               </View>
               <Icon
                 name={preference === opt.value ? "radio-button-on" : "radio-button-off"}
@@ -268,23 +402,33 @@ export function AccountScreen({ links, ownAccountPhotoOnly }: { links?: AccountQ
             </Pressable>
           </View>
         ))}
+        <View style={[styles.divider, { backgroundColor: t.colors.divider }]} />
+        <View style={styles.optionRow}>
+          <View style={[styles.optionLeft, { flex: 1 }]}>
+            <Icon name="language-outline" size={18} color={t.colors.textMuted} />
+            <Text style={[t.typography.body, { color: t.colors.text }]}>{tr("common.language")}</Text>
+          </View>
+        </View>
+        <LanguageSelector compact />
       </Card>
 
-      <SectionHeader title="Hesap" />
+      <SectionHeader title={tr("account.privacyData")} />
+      <LegalSection />
+      <SectionHeader title={tr("account.accountSection")} />
       <Card onPress={() => setConfirmingLogout(true)}>
         <View style={styles.optionRow}>
           <View style={styles.optionLeft}>
             <Icon name="log-out-outline" size={18} color={t.colors.danger} />
-            <Text style={[t.typography.body, { color: t.colors.danger }]}>Çıkış yap</Text>
+            <Text style={[t.typography.body, { color: t.colors.danger }]}>{tr("auth.logout")}</Text>
           </View>
         </View>
       </Card>
 
       <ConfirmDialog
         visible={confirmingLogout}
-        title="Çıkış yapılsın mı?"
-        message="Bu cihazda oturumunuz kapatılacak."
-        confirmLabel="Çıkış yap"
+        title={tr("account.logoutTitle")}
+        message={tr("account.logoutMessage")}
+        confirmLabel={tr("auth.logout")}
         danger
         onConfirm={() => {
           setConfirmingLogout(false);
@@ -310,9 +454,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   divider: { height: StyleSheet.hairlineWidth, marginVertical: 12 },
-  metaRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  nameSkeleton: { height: 18, width: "60%", borderRadius: 6 },
+  roleSkeleton: { height: 13, width: "35%", borderRadius: 6, marginTop: 6 },
   optionRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 4 },
   optionLeft: { flexDirection: "row", alignItems: "center", gap: 10 },
   /** 48pt dokunma hedefi — bkz. iPhone SE dahil erişilebilirlik gereksinimi. */
   sheetOptionRow: { flexDirection: "row", alignItems: "center", minHeight: 48 },
+  deletionRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", minHeight: 48 },
 });

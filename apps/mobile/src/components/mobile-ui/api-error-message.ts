@@ -15,6 +15,9 @@
  *   (`isAccessScopeError` + ErrorState `code` deseniyle nötr tonda gösterilir).
  */
 
+import type { Locale } from "../../i18n/locales";
+import { getActiveLocale } from "../../i18n/locale-store";
+
 export type PortalApiErrorCode =
   | "NETWORK_ERROR"
   | "UNEXPECTED_RESPONSE"
@@ -59,35 +62,44 @@ export function containsSensitiveText(value: string): boolean {
  * korur — çünkü o mesaj eyleme dönüktür; diğer kodlarda sabit, sakin,
  * suçlayıcı olmayan Türkçe metin döndürülür.
  */
-export function portalErrorMessage(code: string, fallbackMessage?: string): string {
+const GENERIC_TR = "Şu anda veriler yüklenemedi. Tekrar deneyin.";
+const GENERIC_EN = "Data could not be loaded right now. Please try again.";
+
+export function portalErrorMessage(
+  code: string,
+  fallbackMessage?: string,
+  locale: Locale = getActiveLocale(),
+): string {
+  const en = locale === "en";
+  const generic = en ? GENERIC_EN : GENERIC_TR;
   switch (code) {
     case "NETWORK_ERROR":
-      return "İnternet bağlantısı kurulamadı. Lütfen tekrar deneyin.";
+      return en ? "Could not connect to the internet. Please try again." : "İnternet bağlantısı kurulamadı. Lütfen tekrar deneyin.";
     case "UNAUTHORIZED":
-      return "Oturumunuz sona erdi. Tekrar giriş yapın.";
+      return en ? "Your session has expired. Please sign in again." : "Oturumunuz sona erdi. Tekrar giriş yapın.";
     case "FORBIDDEN":
-      return "Bu bilgiye erişim yetkiniz yok.";
+      return en ? "You are not authorized to view this information." : "Bu bilgiye erişim yetkiniz yok.";
     case "NOT_FOUND":
-      return "İstenen kayıt bulunamadı.";
+      return en ? "The requested record was not found." : "İstenen kayıt bulunamadı.";
     case "RATE_LIMITED":
-      return "Çok fazla istek gönderildi. Biraz bekleyip tekrar deneyin.";
+      return en ? "Too many requests were sent. Wait a little and try again." : "Çok fazla istek gönderildi. Biraz bekleyip tekrar deneyin.";
     case "INTERNAL_ERROR":
     case "SERVER_ERROR":
     case "UNEXPECTED_RESPONSE":
-      return "Şu anda veriler yüklenemedi. Tekrar deneyin.";
+      return generic;
     case "FEATURE_UNAVAILABLE":
       // Canonical: src/api/errors.ts FEATURE_UNAVAILABLE ile aynı metin.
-      return "Bu özellik şu anda mobil uygulamada kullanılamıyor.";
+      return en ? "This feature is not available in the mobile app right now." : "Bu özellik şu anda mobil uygulamada kullanılamıyor.";
     case "VALIDATION_ERROR":
     case "CONFLICT": {
       // Kullanıcı girdisi hataları backend'in eyleme dönük mesajını korur —
       // ama hassas kalıp içeriyorsa genel metne düşer.
       const fallback = fallbackMessage?.trim();
       if (fallback && !containsSensitiveText(fallback)) return fallback;
-      return "Şu anda veriler yüklenemedi. Tekrar deneyin.";
+      return generic;
     }
     default:
       // Bilinmeyen kod: ham backend mesajı ASLA gösterilmez (sızıntı riski).
-      return "Şu anda veriler yüklenemedi. Tekrar deneyin.";
+      return generic;
   }
 }

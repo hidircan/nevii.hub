@@ -16,7 +16,7 @@ export type NotificationsResponse = {
   unreadCount?: number;
 };
 
-export type AnnouncementAudienceType = "all" | "branch" | "teachers" | "parents" | "students" | "studentType" | "selected";
+export type AnnouncementAudienceType = "all" | "branch" | "teachers" | "parents" | "students" | "studentType" | "instrument" | "selected";
 export type AnnouncementStatus = "draft" | "published" | "archived";
 
 export type Announcement = {
@@ -53,7 +53,14 @@ export type Lesson = {
   opsMakeupFlag?: boolean | null;
   homeworkAssigned?: boolean;
 };
-export type ScheduleResponse = { lessons: Lesson[]; term?: "guz" | "yaz"; weeklyClosedDays?: number[] };
+export type ScheduleResponse = {
+  lessons: Lesson[];
+  term?: "guz" | "yaz";
+  weeklyClosedDays?: number[];
+  /** Sunucu tarafı pencere/limit meta'sı (eşleşen toplam + kesilme bayrağı). */
+  total?: number;
+  truncated?: boolean;
+};
 export type LessonsResponse = { lessons: Lesson[] };
 
 export type AttendanceDayStatus = {
@@ -126,7 +133,7 @@ export type TeacherSummary = {
   phone: string;
   email: string;
 };
-export type TeachersResponse = { teachers: TeacherSummary[] };
+export type TeachersResponse = { teachers: TeacherSummary[]; total?: number; limit?: number; offset?: number };
 
 export type TeacherStudentSummary = {
   id: string;
@@ -151,7 +158,73 @@ export type AdminStudentSummary = {
   parentName: string;
   parentPhone: string;
 };
-export type AdminStudentsResponse = { students: AdminStudentSummary[] };
+export type AdminStudentsResponse = { students: AdminStudentSummary[]; total?: number; limit?: number; offset?: number };
+
+/** GET /api/v1/lessons/:id/ops yanıtı — statü geçiş onayı dahil. */
+export type LessonOpsResponse = {
+  lessonId: string;
+  flag: string;
+  alreadySet: boolean;
+  message: string;
+  needsConfirmation?: boolean;
+  currentStatus?: string | null;
+};
+
+/** GET /api/v1/students/:id/portal-access — portal hesapları. */
+export type PortalAccessAccount = {
+  userId: string;
+  email: string;
+  accessType: "GUARDIAN" | "SELF";
+  status: "invited" | "active" | "revoked";
+  invitedAt: string;
+  activatedAt: string | null;
+  revokedAt: string | null;
+  lastPasswordResetRequestedAt: string | null;
+};
+export type PortalAccessResponse = { studentId: string; accounts: PortalAccessAccount[] };
+
+/** GET /api/v1/payments/summary — tahsilat özeti (tutarlar sunucu-hesaplı). */
+export type CollectionSummaryResponse = {
+  today: string;
+  todayCollected: number;
+  monthCollected: number;
+  pendingTotal: number;
+  overdueTotal: number;
+  pendingCount: number;
+  overdueCount: number;
+};
+
+/** GET /api/v1/leave — izin talepleri (kurum sahibi kapılı). */
+export type LeaveRequestItem = {
+  id: string;
+  staffId: string;
+  type: "annual" | "sick" | "unpaid" | "other";
+  startDate: string;
+  endDate: string;
+  dayCount: number;
+  description?: string;
+  status: "draft" | "pending_approval" | "approved" | "rejected";
+  approvedBy?: string;
+  approvedAt?: string;
+  createdAt: string;
+};
+export type LeaveResponse = { requests: LeaveRequestItem[] };
+
+/** Hesap silme talebi (Faz 6). */
+export type DeletionRequestStatus = "pending" | "approved" | "rejected" | "processed" | "cancelled";
+export type DeletionRequestItem = {
+  id: string;
+  status: DeletionRequestStatus;
+  reason?: string;
+  decisionNote?: string;
+  decidedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+export type MyDeletionResponse = { open: DeletionRequestItem | null; history: DeletionRequestItem[] };
+export type AdminDeletionResponse = {
+  requests: Array<DeletionRequestItem & { userId: string; email: string; role: string }>;
+};
 
 export type StudentProfile = {
   id: string;
@@ -309,6 +382,42 @@ export type Payment = {
 };
 export type BalanceResponse = { studentId: string; payments: Payment[]; outstanding: number };
 
+export type StudentContractSummary = {
+  id: string;
+  studentId: string;
+  contractNumber: string;
+  versionNumber: number;
+  contractType: "initial" | "renewal" | "amendment";
+  status: string;
+  programmeName: string;
+  enrollmentStartDate: string;
+  enrollmentEndDate: string;
+  durationMonths: number;
+  monthlyAmount: number;
+  installmentCount: number;
+  totalContractAmount: number;
+  documentInstanceId?: string;
+  signedAt?: string;
+  createdAt: string;
+};
+export type StudentContractsResponse = { studentId: string; contracts: StudentContractSummary[] };
+
+export type ContractInstallment = {
+  paymentId: string;
+  sequence: number;
+  dueDate: string;
+  amount: number;
+  paidAmount: number;
+  status: string;
+  paidAt?: string;
+  paymentMethod?: string;
+  periodLabel?: string;
+};
+export type StudentContractDetailResponse = {
+  contract: StudentContractSummary & { signatoryFullName: string; depositAmount?: number; paymentMethod?: string };
+  installments: ContractInstallment[];
+};
+
 export type PaymentReceipt = {
   reference: string;
   institutionName: string;
@@ -321,7 +430,8 @@ export type PaymentReceipt = {
   method?: string;
 };
 export type PaymentReceiptResponse = { eligible: boolean; ineligibleReason?: string; receipt?: PaymentReceipt };
-export type PaymentCheckoutResponse = { configured: false } | { configured: true; session: unknown };
+/** POST /api/v1/mobile/payments/:id/checkout — başarıda hosted checkout URL'i; sağlayıcı kapalıysa 409 CONFLICT. */
+export type PaymentCheckoutResponse = { checkoutUrl: string };
 
 export type RoomSummary = { id: string; name: string; branchId: string; capacity: number; instruments: string[]; active: boolean };
 export type RoomsResponse = { rooms: RoomSummary[] };
@@ -464,4 +574,119 @@ export type LessonReassignResponse = {
   newTeacherId: string;
   newBranchId: string;
   newRoomId: string;
+};
+
+/** Sunucu-otriteli ders görüntü statüsü — `GET .../attendance-ledger` sözleşmesi. */
+export type LedgerDisplayKey =
+  | "attended"
+  | "processed"
+  | "makeup"
+  | "absent"
+  | "excused"
+  | "cancelled"
+  | "in_progress"
+  | "pending"
+  | "upcoming";
+
+export type AttendanceLedgerItem = {
+  lessonId: string;
+  startAt: string;
+  endAt: string;
+  durationMinutes: number | null;
+  teacherId: string;
+  teacherName?: string;
+  branchName?: string;
+  roomName?: string;
+  instrument: string;
+  lessonType: string;
+  lessonStatus: LessonStatus;
+  opsStatus: "attended" | "processed" | "makeup" | "absent" | "excused" | null;
+  displayKey: LedgerDisplayKey;
+  statusChangedAt: string | null;
+  statusNote: string | null;
+  attendance: { id: string; status: string; markedAt: string } | null;
+  makeup: { requestId: string; role: "source" | "confirmed"; linkedLessonId: string | null } | null;
+};
+export type AttendanceLedgerResponse = {
+  studentId: string;
+  total: number;
+  limit: number;
+  offset: number;
+  counts: Record<LedgerDisplayKey, number>;
+  items: AttendanceLedgerItem[];
+};
+
+export type MakeupLedgerLessonRef = {
+  id: string;
+  startAt: string;
+  endAt: string;
+  teacherName?: string;
+  branchName?: string;
+  roomName?: string;
+  instrument: string;
+  displayKey: LedgerDisplayKey;
+} | null;
+
+export type MakeupLedgerItem = {
+  id: string;
+  studentId: string;
+  status: string;
+  reason: string;
+  policyNote: string;
+  decisionNote: string | null;
+  decidedAt: string | null;
+  expiresAt: string;
+  createdAt: string;
+  sourceLesson: MakeupLedgerLessonRef;
+  confirmedLesson: MakeupLedgerLessonRef;
+  attendanceId: string;
+  branchName?: string;
+  teacherName?: string;
+  instrument: string;
+};
+export type MakeupLedgerResponse = { studentId: string; total: number; limit: number; offset: number; items: MakeupLedgerItem[] };
+
+export type PaymentLedgerLessonRef = {
+  id: string;
+  startAt: string;
+  endAt: string;
+  teacherName?: string;
+  branchName?: string;
+  roomName?: string;
+  instrument: string;
+  displayKey: LedgerDisplayKey;
+} | null;
+
+export type PaymentLedgerItem = {
+  id: string;
+  description: string;
+  amount: number;
+  paidAmount: number;
+  remaining: number;
+  status: string;
+  source?: string;
+  dueDate: string;
+  paidAt?: string;
+  method?: string;
+  paymentNote?: string;
+  receiptAvailable: boolean;
+  contract: { id: string; contractNumber: string; programmeName: string; installmentSequence?: number } | null;
+  lesson: PaymentLedgerLessonRef;
+};
+export type PaymentLedgerMonth = {
+  month: string;
+  accrued: number;
+  paid: number;
+  remaining: number;
+  status: "paid" | "partial" | "pending" | "overdue" | "voided";
+  earliestUnpaidDueDate: string | null;
+  itemCount: number;
+};
+export type PaymentLedgerResponse = {
+  studentId: string;
+  outstanding: number;
+  onlinePayEnabled: boolean;
+  months: PaymentLedgerMonth[];
+  total: number;
+  items: PaymentLedgerItem[];
 };

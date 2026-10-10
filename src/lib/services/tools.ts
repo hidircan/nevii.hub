@@ -1296,7 +1296,7 @@ export async function getStudentProfileTool(
 export async function getStudentScheduleTool(
   ctx: ServiceContext,
   input: unknown
-): Promise<ServiceResult<{ studentId: string; lessons: unknown[] }>> {
+): Promise<ServiceResult<{ studentId: string; lessons: unknown[]; total: number; truncated: boolean }>> {
   const auth = requireRole(ctx, [
     "SCHOOL_ADMIN",
     "TEACHER",
@@ -1311,6 +1311,9 @@ export async function getStudentScheduleTool(
       studentId: z.string().min(1),
       from: z.string().optional(),
       to: z.string().optional(),
+      // Penceresiz çağrılar (ev özeti, ders detayı) tüm geçmişi çekmesin:
+      // üst sınır + kesilme bayrağı. İstemci dar pencere gönderir.
+      limit: z.coerce.number().int().min(1).max(2000).optional(),
     }),
     input
   );
@@ -1325,6 +1328,9 @@ export async function getStudentScheduleTool(
   // yalnızca `teacherId` taşır, isim BURADA denormalize edilir (bkz.
   // getTeacherScheduleTool'daki simetrik studentName zenginleştirmesi).
   const teacherNameById = new Map(data.teachers.map((t) => [t.id, t.name]));
+  const branchNameById = new Map(
+    (data.settings.branches ?? []).map((b) => [b.id, b.shortName ?? b.name])
+  );
   const { from, to } = v.data;
   // Kök neden: `from`/`to` ve depodaki `startAt` farklı UTC ofset gösterimleri
   // taşıyabiliyor (mobil istemci her zaman `.toISOString()` ile "Z" gönderirken,
@@ -1334,16 +1340,19 @@ export async function getStudentScheduleTool(
   // dersleri). Karşılaştırma gerçek zaman damgası (epoch ms) üzerinden yapılmalı.
   const fromTs = from ? new Date(from).getTime() : undefined;
   const toTs = to ? new Date(to).getTime() : undefined;
-  const lessons = data.lessons
+  const limit = v.data.limit ?? 500;
+  const matched = data.lessons
     .filter((l) => l.studentId === v.data.studentId)
     .filter((l) => {
       const startTs = new Date(l.startAt).getTime();
       return (fromTs === undefined || startTs >= fromTs) && (toTs === undefined || startTs <= toTs);
     })
-    .sort((a, b) => a.startAt.localeCompare(b.startAt))
-    .map((l) => ({ ...l, teacherName: teacherNameById.get(l.teacherId) }));
+    .sort((a, b) => a.startAt.localeCompare(b.startAt));
+  const lessons = matched
+    .slice(0, limit)
+    .map((l) => ({ ...l, teacherName: teacherNameById.get(l.teacherId), branchName: branchNameById.get(l.branchId) }));
 
-  return ok({ studentId: v.data.studentId, lessons });
+  return ok({ studentId: v.data.studentId, lessons, total: matched.length, truncated: matched.length > limit });
 }
 
 /**
@@ -1444,11 +1453,19 @@ export async function getStudentScoreTool(
 export async function getTeacherScheduleTool(
   ctx: ServiceContext,
   input: unknown
-): Promise<ServiceResult<{ teacherId: string; lessons: unknown[] }>> {
+): Promise<ServiceResult<{ teacherId: string; lessons: unknown[]; total: number; truncated: boolean }>> {
   const auth = requireRole(ctx, ["SCHOOL_ADMIN", "TEACHER", "AI_AGENT", "SUPER_ADMIN"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
 
-  const v = parseOrFail(z.object({ teacherId: z.string().min(1) }), input);
+  const v = parseOrFail(
+    z.object({
+      teacherId: z.string().min(1),
+      from: z.string().optional(),
+      to: z.string().optional(),
+      limit: z.coerce.number().int().min(1).max(2000).optional(),
+    }),
+    input
+  );
   if (!v.ok) return v;
   if (!canAccessTeacher(ctx, v.data.teacherId)) {
     return fail("FORBIDDEN", "Cannot access this teacher's schedule");
@@ -1464,12 +1481,25 @@ export async function getTeacherScheduleTool(
   // düşüyordu, bkz. getStudentScheduleTool'daki simetrik teacherName
   // zenginleştirmesi).
   const studentNameById = new Map(data.students.map((s) => [s.id, s.name]));
-  const lessons = data.lessons
+  const teacherBranchNameById = new Map(
+    (data.settings.branches ?? []).map((b) => [b.id, b.shortName ?? b.name])
+  );
+  const fromTs = v.data.from ? Date.parse(v.data.from) : undefined;
+  const toTs = v.data.to ? Date.parse(v.data.to) : undefined;
+  const limit = v.data.limit ?? 500;
+  const matched = data.lessons
     .filter((l) => l.teacherId === v.data.teacherId)
-    .sort((a, b) => a.startAt.localeCompare(b.startAt))
-    .map((l) => ({ ...l, studentName: studentNameById.get(l.studentId) }));
+    .filter((l) => {
+      const startTs = Date.parse(l.startAt);
+      if (!Number.isFinite(startTs)) return true;
+      return (fromTs === undefined || startTs >= fromTs) && (toTs === undefined || startTs <= toTs);
+    })
+    .sort((a, b) => a.startAt.localeCompare(b.startAt));
+  const lessons = matched
+    .slice(0, limit)
+    .map((l) => ({ ...l, studentName: studentNameById.get(l.studentId), branchName: teacherBranchNameById.get(l.branchId) }));
 
-  return ok({ teacherId: v.data.teacherId, lessons });
+  return ok({ teacherId: v.data.teacherId, lessons, total: matched.length, truncated: matched.length > limit });
 }
 
 export type TeacherStudentListItem = {
@@ -5655,6 +5685,10 @@ export async function getFinanceSummaryTool(
 > {
   const auth = requireStaffSensitiveAccess(ctx);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  // Bilinçli olarak SUNUCU CACHE DIŞI: finans uyarıları read-your-write
+  // sözleşmelidir (ödeme işaretlenince uyarı aynı anda düşer —
+  // finance-expansion regresyonları). Özet ekranı kasıtlı açılır (düşük
+  // sıklık); dashboard/rapor cache'li, finans her zaman taze hesaplanır.
   const v = parseOrFail(
     z.object({
       branchId: z.string().min(1).optional(),
@@ -7399,9 +7433,14 @@ export async function cancelLessonTool(
 
   try {
     const lesson = await readLessonById(v.data.lessonId);
+    if (!lesson) return fail("NOT_FOUND", "Ders bulunamadı");
+    // Idempotent: zaten iptal edilmiş ders tekrar iptal edilmez, bildirim
+    // tekrar gönderilmez — mobil retry/çift-tap güvenli.
+    if (lesson.status === "cancelled") return ok({ lessonId: v.data.lessonId });
     await cancelLesson(v.data.lessonId);
     // 9. tur — iptal artık denetim kaydında (kim/ne zaman/hangi kaynak); kaynak ayrı alana.
     audit(ctx, "lesson.cancel", "Lesson", v.data.lessonId, {
+      studentId: lesson.studentId,
       disruptionSource: v.data.disruptionSource ?? null,
       note: v.data.disruptionNote,
       teacherAttendance: v.data.teacherAttendance,
@@ -10719,8 +10758,24 @@ export async function listTeacherAvailabilityRequestsTool(
   }
 
   try {
-    const requests = await listAvailabilityRequestsForTeacher(ctx.tenantId, v.data.teacherId);
-    return ok({ requests });
+    const raw = await listAvailabilityRequestsForTeacher(ctx.tenantId, v.data.teacherId);
+    // Legacy/satır-kayıtlar `proposedAvailability` taşımayabilir — UI'ın
+    // `.map`/`.length` çağrıları çökmemesi için normalize edilir.
+    const requests = raw.map((r) => ({
+      ...r,
+      proposedAvailability: Array.isArray(r.proposedAvailability) ? r.proposedAvailability : [],
+    }));
+    // Öğretmenin güncel (onaylı) müsaitliği — kayıt yoksa [] (mobil UI
+    // `currentAvailability.length` çağırır; undefined dönmek render crash'ti).
+    let currentAvailability: Array<{ dayOfWeek: number; start: string; end: string; branchId?: string }> = [];
+    try {
+      const data = await readData();
+      const teacher = data.teachers.find((t) => t.id === v.data.teacherId);
+      if (Array.isArray(teacher?.availability)) currentAvailability = teacher.availability;
+    } catch {
+      currentAvailability = [];
+    }
+    return ok({ requests, currentAvailability });
   } catch (e) {
     return fail(
       "INTERNAL_ERROR",
@@ -18181,7 +18236,14 @@ export async function setNotificationPreferencesTool(
       if (def.criticalLocked && !u.inAppEnabled) {
         return fail("VALIDATION_ERROR", `"${def.label}" kapatılamaz.`);
       }
-      updates.push({ category: u.category, inAppEnabled: u.inAppEnabled, pushEnabled: false as const });
+      // pushEnabled yalnız push altyapısı aktifken kabul edilir; aksi halde
+      // önceki fail-closed davranış korunur (her zaman false).
+      const { isPushActive } = await import("../push/config");
+      updates.push({
+        category: u.category,
+        inAppEnabled: u.inAppEnabled,
+        pushEnabled: isPushActive() ? (u.pushEnabled ?? false) : (false as const),
+      });
     }
     await setNotificationPreferences(ctx.tenantId, ctx.userId, updates);
     audit(ctx, "notification.preference.update", "NotificationPreference", ctx.userId, {

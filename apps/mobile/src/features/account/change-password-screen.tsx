@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Text, View } from "react-native";
 import { apiPost } from "../../api/client";
 import { AppHeader, Button, Screen, TextField } from "../../components/ui";
+import { useLocale } from "../../i18n/locale-context";
 import { useTheme } from "../../theme/theme-context";
 
 /**
@@ -14,6 +15,7 @@ import { useTheme } from "../../theme/theme-context";
  */
 export function ChangePasswordScreen() {
   const t = useTheme();
+  const { t: tr } = useLocale();
 
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -31,7 +33,7 @@ export function ChangePasswordScreen() {
     const res = await apiPost("/api/v1/auth/change-password", { currentPassword, newPassword });
     setBusy(false);
     if (!res.ok) {
-      setError(res.error.message || "Şifre değiştirilemedi.");
+      setError(res.error.message || tr("password.changeFailed"));
       return;
     }
     setDone(true);
@@ -42,37 +44,37 @@ export function ChangePasswordScreen() {
 
   return (
     <Screen>
-      <AppHeader title="Şifre değiştir" showBack showNotifications={false} />
+      <AppHeader title={tr("account.changePassword")} showBack showNotifications={false} />
 
       <View style={{ gap: 16 }}>
         <TextField
-          label="Mevcut şifre"
+          label={tr("account.currentPassword")}
           value={currentPassword}
           onChangeText={setCurrentPassword}
           secureTextEntry
           autoCapitalize="none"
         />
         <TextField
-          label="Yeni şifre"
+          label={tr("account.newPassword")}
           value={newPassword}
           onChangeText={setNewPassword}
           secureTextEntry
           autoCapitalize="none"
-          placeholder="En az 8 karakter"
+          placeholder={tr("reset.minLengthHint")}
         />
         <TextField
-          label="Yeni şifre (tekrar)"
+          label={tr("account.newPasswordRepeat")}
           value={confirmPassword}
           onChangeText={setConfirmPassword}
           secureTextEntry
           autoCapitalize="none"
-          error={mismatch ? "Şifreler eşleşmiyor" : undefined}
+          error={mismatch ? tr("reset.mismatch") : undefined}
         />
 
-        {error ? <Text style={{ color: t.colors.danger }}>{error}</Text> : null}
-        {done ? <Text style={{ color: t.colors.success }}>Şifreniz güncellendi.</Text> : null}
+        {error ? <Text style={[t.typography.caption, { color: t.colors.danger }]}>{error}</Text> : null}
+        {done ? <Text style={[t.typography.caption, { color: t.colors.success }]}>{tr("account.passwordChanged")}</Text> : null}
 
-        <Button label="Şifreyi güncelle" onPress={onSubmit} disabled={!canSubmit} loading={busy} />
+        <Button label={tr("password.updateButton")} onPress={onSubmit} disabled={!canSubmit} loading={busy} />
       </View>
     </Screen>
   );

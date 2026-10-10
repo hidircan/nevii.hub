@@ -1,6 +1,6 @@
 import { StyleSheet, Text, View } from "react-native";
 import { format } from "../../lib/date";
-import { lessonStatusBadge } from "../../lib/lesson-status";
+import { lessonStatusBadge, studentFacingLessonStatus } from "../../lib/lesson-status";
 import { useTheme } from "../../theme/theme-context";
 import { Card } from "./card";
 import { Icon } from "./icon";
@@ -12,20 +12,27 @@ type Props = {
   /** Karşı taraf ismi — öğretmen ekranında öğrenci adı, veli/admin ekranında öğretmen adı. */
   personName: string;
   onPress?: () => void;
+  /**
+   * Öğretmen yüzeyinde `false` — yoklama durumu ne rozet ne CTA olarak
+   * görünmez (öğretmen yoklama almaz); yerine şube adı gösterilir.
+   */
+  showStatus?: boolean;
+  /** Öğrenci/veli yüzeyi — "Yoklama bekliyor" yerine nötr metin. */
+  studentFacing?: boolean;
 };
 
-export function LessonCard({ lesson, personName, onPress }: Props) {
+export function LessonCard({ lesson, personName, onPress, showStatus = true, studentFacing = false }: Props) {
   const t = useTheme();
-  const badge = lessonStatusBadge(lesson);
+  const badge = studentFacing ? studentFacingLessonStatus(lesson) : lessonStatusBadge(lesson);
   const start = new Date(lesson.startAt);
   const end = new Date(lesson.endAt);
 
   return (
     <Card onPress={onPress}>
       <View style={styles.row}>
-        <View style={[styles.timeBlock, { backgroundColor: t.colors.primarySoft }]}>
-          <Text style={[t.typography.cardTitle, { color: t.colors.primaryStrong }]}>{format(start, "HH:mm")}</Text>
-          <Text style={[t.typography.caption, { color: t.colors.primaryStrong }]}>{format(end, "HH:mm")}</Text>
+        <View style={[styles.timeBlock, { backgroundColor: t.colors.bgMuted }]}>
+          <Text style={[t.typography.cardTitle, { color: t.colors.text }]}>{format(start, "HH:mm")}</Text>
+          <Text style={[t.typography.caption, { color: t.colors.text }]}>{format(end, "HH:mm")}</Text>
         </View>
 
         <View style={styles.content}>
@@ -33,13 +40,19 @@ export function LessonCard({ lesson, personName, onPress }: Props) {
             <Text style={[t.typography.cardTitle, { color: t.colors.text }]} numberOfLines={1}>
               {personName}
             </Text>
-            <StatusBadge label={badge.label} tone={badge.tone} />
+            {showStatus ? <StatusBadge label={badge.label} tone={badge.tone} /> : null}
           </View>
           <View style={styles.metaRow}>
             {lesson.instrument ? (
               <View style={styles.metaItem}>
                 <Icon name="musical-notes-outline" size={13} color={t.colors.textMuted} />
                 <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>{lesson.instrument}</Text>
+              </View>
+            ) : null}
+            {lesson.branchName ? (
+              <View style={styles.metaItem}>
+                <Icon name="business-outline" size={13} color={t.colors.textMuted} />
+                <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>{lesson.branchName}</Text>
               </View>
             ) : null}
             {lesson.roomName ? (

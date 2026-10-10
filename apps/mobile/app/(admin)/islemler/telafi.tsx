@@ -4,22 +4,24 @@ import { apiPost } from "../../../src/api/client";
 import { AppHeader, Button, Card, EmptyState, ErrorState, FilterChip, LoadingSkeleton, Screen, StatusBadge, TextField } from "../../../src/components/ui";
 import { useApiGet } from "../../../src/hooks/use-api";
 import { format } from "../../../src/lib/date";
+import { useLocale } from "../../../src/i18n/locale-context";
 import { useTheme } from "../../../src/theme/theme-context";
 import type { MakeupRequest, MakeupResponse } from "../../../src/types/api";
 
 const OPEN_STATUSES = ["pending", "suggested", "awaiting_info"];
-const STATUS_LABEL: Record<string, string> = {
-  pending: "Bekliyor",
-  suggested: "Öneri var",
-  awaiting_info: "Bilgi bekleniyor",
-  confirmed: "Onaylandı",
-  completed: "Tamamlandı",
-  expired: "Süresi doldu",
-  cancelled: "İptal edildi",
+const STATUS_KEY: Record<string, string> = {
+  pending: "adm.mkStPending",
+  suggested: "adm.mkStSuggested",
+  awaiting_info: "adm.mkStAwaiting",
+  confirmed: "adm.mkStConfirmed",
+  completed: "adm.mkStCompleted",
+  expired: "adm.mkStExpired",
+  cancelled: "adm.mkStCancelled",
 };
 
 export default function Telafi() {
   const t = useTheme();
+  const { t: tr } = useLocale();
   const res = useApiGet<MakeupResponse>("/api/v1/makeup");
   const [tab, setTab] = useState<"open" | "all">("open");
   const [acting, setActing] = useState<{ request: MakeupRequest; kind: "confirm" | "cancel" } | null>(null);
@@ -41,7 +43,7 @@ export default function Telafi() {
   async function submitDecision() {
     if (!acting) return;
     if (!note.trim()) {
-      setError("Karar notu zorunludur.");
+      setError(tr("adm.mkNoteRequired"));
       return;
     }
     setBusy(true);
@@ -54,7 +56,7 @@ export default function Telafi() {
     const submitRes = await apiPost(path, body);
     setBusy(false);
     if (!submitRes.ok) {
-      setError(submitRes.error.message || "İşlem başarısız.");
+      setError(submitRes.error.message || tr("adm.mkFail"));
       return;
     }
     setActing(null);
@@ -64,11 +66,11 @@ export default function Telafi() {
 
   return (
     <Screen>
-      <AppHeader title="Telafi merkezi" showBack showNotifications={false} />
+      <AppHeader title={tr("adm.mkTitle")} showBack showNotifications={false} />
 
       <View style={{ flexDirection: "row", gap: 8, marginBottom: 12 }}>
-        <FilterChip label="Açık" selected={tab === "open"} onPress={() => setTab("open")} />
-        <FilterChip label="Tümü" selected={tab === "all"} onPress={() => setTab("all")} />
+        <FilterChip label={tr("adm.mkOpen")} selected={tab === "open"} onPress={() => setTab("open")} />
+        <FilterChip label={tr("adm.mkAll")} selected={tab === "all"} onPress={() => setTab("all")} />
       </View>
 
       {res.status === "loading" ? (
@@ -76,7 +78,7 @@ export default function Telafi() {
       ) : res.status === "error" ? (
         <ErrorState message={res.message} onRetry={res.refresh} />
       ) : requests.length === 0 ? (
-        <EmptyState icon="swap-horizontal-outline" title="Telafi talebi yok" />
+        <EmptyState icon="swap-horizontal-outline" title={tr("adm.mkEmpty")} />
       ) : (
         <View style={{ gap: 10 }}>
           {requests.map((r) => {
@@ -86,28 +88,28 @@ export default function Telafi() {
               <Card key={r.id}>
                 <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
                   <Text style={[t.typography.cardTitle, { color: t.colors.text, flex: 1 }]}>
-                    {r.studentName ?? "Öğrenci"} · {r.teacherName ?? "Öğretmen"}
+                    {r.studentName ?? tr("adm.mkStudentFb")} · {r.teacherName ?? tr("adm.mkTeacherFb")}
                   </Text>
-                  <StatusBadge label={STATUS_LABEL[r.status] ?? r.status} tone={r.status === "confirmed" ? "success" : "warning"} />
+                  <StatusBadge label={STATUS_KEY[r.status] ? tr(STATUS_KEY[r.status]) : r.status} tone={r.status === "confirmed" ? "success" : "warning"} />
                 </View>
                 <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 4 }]}>{r.instrument} · {r.reason}</Text>
                 <Text style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 4 }]}>
-                  Son geçerlilik: {format(new Date(r.expiresAt), "yyyy-MM-dd")}
+                  {tr("adm.mkValid", { d: format(new Date(r.expiresAt), "yyyy-MM-dd") })}
                 </Text>
                 {slot ? (
                   <Text style={[t.typography.caption, { color: t.colors.info, marginTop: 4 }]}>
-                    Önerilen: {format(new Date(slot.startAt), "yyyy-MM-dd")} {format(new Date(slot.startAt), "HH:mm")}
+                    {tr("adm.mkSuggested", { d: format(new Date(slot.startAt), "yyyy-MM-dd"), t: format(new Date(slot.startAt), "HH:mm") })}
                   </Text>
                 ) : null}
 
                 {isActingOnThis ? (
                   <View style={{ marginTop: 12, gap: 10 }}>
-                    <TextField label="Karar notu (zorunlu)" value={note} onChangeText={setNote} placeholder="Kısa açıklama" />
-                    {error ? <Text style={{ color: t.colors.danger }}>{error}</Text> : null}
+                    <TextField label={tr("adm.mkNoteLabel")} value={note} onChangeText={setNote} placeholder={tr("adm.mkNotePh")} />
+                    {error ? <Text style={[t.typography.caption, { color: t.colors.danger }]}>{error}</Text> : null}
                     <View style={{ flexDirection: "row", gap: 8 }}>
-                      <Button label="Vazgeç" variant="secondary" size="sm" onPress={() => setActing(null)} style={{ flex: 1 }} />
+                      <Button label={tr("ui.cancelDefault")} variant="secondary" size="sm" onPress={() => setActing(null)} style={{ flex: 1 }} />
                       <Button
-                        label={acting.kind === "confirm" ? "Onayı gönder" : "İptali gönder"}
+                        label={acting.kind === "confirm" ? tr("adm.mkSendConfirm") : tr("adm.mkSendCancel")}
                         size="sm"
                         variant={acting.kind === "cancel" ? "danger" : "primary"}
                         onPress={submitDecision}
@@ -118,8 +120,8 @@ export default function Telafi() {
                   </View>
                 ) : OPEN_STATUSES.includes(r.status) ? (
                   <View style={{ flexDirection: "row", gap: 8, marginTop: 10 }}>
-                    <Button label="Onayla" size="sm" disabled={!slot} onPress={() => startAction(r, "confirm")} style={{ flex: 1 }} />
-                    <Button label="İptal et" size="sm" variant="danger" onPress={() => startAction(r, "cancel")} style={{ flex: 1 }} />
+                    <Button label={tr("adm.mkApprove")} size="sm" disabled={!slot} onPress={() => startAction(r, "confirm")} style={{ flex: 1 }} />
+                    <Button label={tr("adm.mkCancel")} size="sm" variant="danger" onPress={() => startAction(r, "cancel")} style={{ flex: 1 }} />
                   </View>
                 ) : null}
               </Card>
