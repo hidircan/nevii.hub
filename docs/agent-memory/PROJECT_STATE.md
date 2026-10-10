@@ -4,6 +4,14 @@ Kısa tutulur (~50 satır): oturum sonunda yalnız "Güncel snapshot" bölümün
 `archive/`'e taşınır. Ayrıntı → ilgili `docs/testing/UAT_*.md`, `docs/operations/*`. Yönlendirici: `nevii-hub` skill.
 Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_2026-09-24.md`.
 
+## Güncel snapshot — 2026-10-10 geç (gece tahakkuk cron'u P2002; PR açık, MERGE/CANLI YOK)
+- Dal `claude/jovial-perlman-4440c2` (taban `origin/main` cf12bc0). Migration/şema/env değişikliği YOK.
+- `monthly-accrual` cron'u platform tenant'ını atlar; kurum başına try/catch + `logger.error`; yanıtta
+  `failed`/`failures`, hata varsa HTTP 500. `store-db.readData()` okul yoksa canlıda (`VERCEL_ENV`/
+  `NEVII_DEPLOYMENT_TIER`=production) seed etmez, Türkçe hata atar (tüm dilim okuyucular buraya düşer).
+- Owner kontrolü (salt okuma): 10-03..10 her gece seed silme transaction'ı okulsuz tenant'ta commit olmuş olabilir —
+  `tenant_platform` User satırları ve Tenant adı. Deploy sonrası ilk cron yanıtı `failed: 0` olmalı.
+
 ## Güncel snapshot — 2026-10-10 (P0 Supabase egress + UserSession kilidi; PR açık, MERGE/CANLI YOK)
 - Dal `fix/supabase-egress-p0` (taban `origin/main` a18c887) → PR. Migration/şema/env değişikliği YOK.
 - Kök neden (kanıt + yerel ölçüm): her yoklama işareti/geri alma (`planOpsChangeForPayout`), ders başlat/bitir, ders
