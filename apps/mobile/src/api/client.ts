@@ -2,6 +2,7 @@ import { Platform } from "react-native";
 import { clearTokens, getAccessToken, getRefreshToken, setTokens } from "../auth/token-storage";
 import { networkError, toApiResult, type ApiResult } from "./errors";
 import { getActiveLocale } from "../i18n/locale-store";
+import { assertProductionApiUrl } from "./api-url-policy";
 import { API_TIMEOUT_MS, MAX_GET_RETRIES, isRetryableOutcome, retryDelayMs } from "./request-policy";
 
 export type { ApiResult };
@@ -13,6 +14,10 @@ export type { ApiResult };
  * Sonda kalan "/" temizlenir — aksi halde `${base}${path}` çift "//" üretebilir.
  */
 function resolveApiBaseUrl(): string {
+  // Production (mağaza) build'i localhost/LAN/http'ye ASLA düşmez: varsayılan yok, fail-fast.
+  if (process.env.EXPO_PUBLIC_APP_VARIANT === "production") {
+    assertProductionApiUrl(process.env.EXPO_PUBLIC_API_URL);
+  }
   const raw = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:3000";
   const trimmed = raw.trim().replace(/\/+$/, "");
 
