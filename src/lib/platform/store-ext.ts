@@ -403,10 +403,20 @@ export async function saveUserSession(row: UserSessionRecord): Promise<void> {
 /**
  * Yalnız AÇIK (revokedAt=null) satırı kısmen günceller — presence/refresh
  * yazımı eşzamanlı bir sonlandırmayı asla ezmez (oku-yaz yarışı yok).
+ * `lastSeenBefore`/`expiresBefore` verilirse satır yalnız ilgili alan o andan eskiyse yazılır: koşul
+ * DB'de, atomik — çok sekme/istek/instance aynı oturumu aralık başına en fazla bir kez yazar.
+ * Dönüş: satır yazıldıysa true; yoksa, iptalse VEYA koşul sağlanmadıysa false.
+ *
+ * UserSession gecikmesi (2026-10-10, üretim: ort. 2,3 sn, uç 79 sn): Prisma 7 `updateMany`'yi
+ * BEGIN → UPDATE → COMMIT olarak üç gidiş-dönüşte çalıştırır. Yanıttan sonra çalışan presence
+ * yazımı UPDATE ile COMMIT arasında durdurulursa satır kilidi (ve havuz bağlantısı) açık kalıyor,
+ * aynı oturuma sonraki her UPDATE kilidi bekliyordu. `update` (genişletilmiş where) TEK ifadedir:
+ * açık transaction yok, RETURNING yalnız `id`.
  */
 export async function patchOpenUserSession(
   id: string,
-  patch: Partial<Pick<UserSessionRecord, "lastSeenAt" | "expiresAt" | "lastPath" | "lastAction">>
+  patch: Partial<Pick<UserSessionRecord, "lastSeenAt" | "expiresAt" | "lastPath" | "lastAction">>,
+  opts?: { lastSeenBefore?: Date; expiresBefore?: Date }
 ): Promise<boolean> {
   if (isDbMode) {
     try {
@@ -416,14 +426,28 @@ export async function patchOpenUserSession(
         ...(patch.lastPath !== undefined ? { lastPath: patch.lastPath } : {}),
         ...(patch.lastAction !== undefined ? { lastAction: patch.lastAction } : {}),
       };
-      return (await (await prisma()).userSession.updateMany({ where: { id, revokedAt: null }, data })).count === 1;
+      await (await prisma()).userSession.update({
+        where: {
+          id,
+          revokedAt: null,
+          ...(opts?.lastSeenBefore ? { lastSeenAt: { lt: opts.lastSeenBefore } } : {}),
+          ...(opts?.expiresBefore ? { expiresAt: { lt: opts.expiresBefore } } : {}),
+        },
+        data,
+        select: { id: true },
+      });
+      return true;
     } catch (e) {
+      // P2025: koşul eşleşmedi (kayıt yok / iptal / aralık dolmadı) — hata değil.
+      if ((e as { code?: string })?.code === "P2025") return false;
       dbFailClosed(e);
     }
   }
   return mutatePlatformState((s) => {
     const row = (s.sessions ?? []).find((x) => x.id === id);
     if (!row || row.revokedAt) return false;
+    if (opts?.lastSeenBefore && new Date(row.lastSeenAt) >= opts.lastSeenBefore) return false;
+    if (opts?.expiresBefore && new Date(row.expiresAt) >= opts.expiresBefore) return false;
     Object.assign(row, Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)));
     return true;
   });
