@@ -75,7 +75,7 @@ import {
   applyLessonCancel,
   type LessonScheduleUpdateOutcome,
 } from "./lesson-update";
-import { lessonScopeDays } from "./lesson-scope";
+import { lessonScopeDays, type SlotScopeTarget } from "./lesson-scope";
 import {
   narrowToDashboard,
   narrowToLessonWindow,
@@ -393,6 +393,111 @@ function mapDbStudent(student: Prisma.StudentGetPayload<object>): Student {
   };
 }
 
+/** Prisma `Lesson` satırı → `AppData.lessons` öğesi (tam okuma ve hedefli okumalar AYNI eşlemeyi kullanır). */
+function mapDbLesson(lesson: Prisma.LessonGetPayload<object>): import("./types").Lesson {
+  return {
+    id: lesson.id,
+    studentId: lesson.studentId,
+    teacherId: lesson.teacherId,
+    roomId: lesson.roomId,
+    branchId: lesson.branchId as BranchId,
+    instrument: lesson.instrument as Instrument,
+    startAt: lesson.startAt.toISOString(),
+    endAt: lesson.endAt.toISOString(),
+    type: lesson.type as import("./types").LessonType,
+    status: lesson.status as "scheduled" | "in_progress" | "completed" | "cancelled" | "no_show",
+    makeupRequestId: lesson.makeupRequestId ?? undefined,
+    seriesId: lesson.seriesId ?? undefined,
+    enrollmentId: (lesson as { enrollmentId?: string | null }).enrollmentId ?? undefined,
+    clubId: (lesson as { clubId?: string | null }).clubId ?? undefined,
+    clubSessionId: (lesson as { clubSessionId?: string | null }).clubSessionId ?? undefined,
+    notes: lesson.notes ?? undefined,
+    createdByUserId: (lesson as { createdByUserId?: string | null }).createdByUserId ?? undefined,
+    studentAttended: (lesson as { studentAttended?: boolean }).studentAttended ?? undefined,
+    studentAttendedAt: (lesson as { studentAttendedAt?: Date | null }).studentAttendedAt?.toISOString?.() ?? undefined,
+    studentAttendedBy: (lesson as { studentAttendedBy?: string | null }).studentAttendedBy ?? undefined,
+    lessonProcessed: (lesson as { lessonProcessed?: boolean }).lessonProcessed ?? undefined,
+    lessonProcessedAt: (lesson as { lessonProcessedAt?: Date | null }).lessonProcessedAt?.toISOString?.() ?? undefined,
+    lessonProcessedBy: (lesson as { lessonProcessedBy?: string | null }).lessonProcessedBy ?? undefined,
+    lessonProcessedReason:
+      (lesson as { lessonProcessedReason?: string | null }).lessonProcessedReason ?? undefined,
+    opsMakeupFlag: (lesson as { opsMakeupFlag?: boolean }).opsMakeupFlag ?? undefined,
+    opsMakeupFlagAt: (lesson as { opsMakeupFlagAt?: Date | null }).opsMakeupFlagAt?.toISOString?.() ?? undefined,
+    opsMakeupFlagBy: (lesson as { opsMakeupFlagBy?: string | null }).opsMakeupFlagBy ?? undefined,
+    studentAbsent: (lesson as { studentAbsent?: boolean }).studentAbsent ?? undefined,
+    studentAbsentAt: (lesson as { studentAbsentAt?: Date | null }).studentAbsentAt?.toISOString?.() ?? undefined,
+    studentAbsentBy: (lesson as { studentAbsentBy?: string | null }).studentAbsentBy ?? undefined,
+    studentExcused: (lesson as { studentExcused?: boolean }).studentExcused ?? undefined,
+    studentExcusedAt: (lesson as { studentExcusedAt?: Date | null }).studentExcusedAt?.toISOString?.() ?? undefined,
+    studentExcusedBy: (lesson as { studentExcusedBy?: string | null }).studentExcusedBy ?? undefined,
+    // ÖNCELİK 4 — bu satırlar eksikti (db modunda hiç map edilmiyordu); bu
+    // turda term/academicYearStart eklerken fark edildi, aynı satırda düzeltildi.
+    opsClosedFlag: (lesson as { opsClosedFlag?: boolean }).opsClosedFlag ?? undefined,
+    opsClosedFlagAt: (lesson as { opsClosedFlagAt?: Date | null }).opsClosedFlagAt?.toISOString?.() ?? undefined,
+    opsClosedFlagBy: (lesson as { opsClosedFlagBy?: string | null }).opsClosedFlagBy ?? undefined,
+    term: (lesson as { term?: string | null }).term as import("./types").StudentTermType | undefined ?? undefined,
+    academicYearStart: (lesson as { academicYearStart?: number | null }).academicYearStart ?? undefined,
+    teacherAttendanceStatus:
+      ((lesson as { teacherAttendanceStatus?: string | null }).teacherAttendanceStatus as
+        | import("./teacher-attendance").TeacherAttendanceStatus
+        | undefined) ?? undefined,
+    teacherAttendanceAt:
+      (lesson as { teacherAttendanceAt?: Date | null }).teacherAttendanceAt?.toISOString?.() ?? undefined,
+    teacherAttendanceBy: (lesson as { teacherAttendanceBy?: string | null }).teacherAttendanceBy ?? undefined,
+    teacherAttendanceNote: (lesson as { teacherAttendanceNote?: string | null }).teacherAttendanceNote ?? undefined,
+    disruptionSource: (() => {
+      const v = (lesson as { disruptionSource?: string | null }).disruptionSource;
+      return v === "teacher" || v === "institution" || v === "student" || v === "other" ? v : undefined;
+    })(),
+    disruptionNote: (lesson as { disruptionNote?: string | null }).disruptionNote ?? undefined,
+    disruptionAt: (lesson as { disruptionAt?: Date | null }).disruptionAt?.toISOString?.() ?? undefined,
+    disruptionBy: (lesson as { disruptionBy?: string | null }).disruptionBy ?? undefined,
+    availabilityOverride: (() => {
+      const by = (lesson as { availabilityOverrideBy?: string | null }).availabilityOverrideBy;
+      const at = (lesson as { availabilityOverrideAt?: Date | null }).availabilityOverrideAt;
+      return by && at ? { by, at: at.toISOString() } : undefined;
+    })(),
+    actualStartAt: lesson.actualStartAt?.toISOString() ?? undefined,
+    actualEndAt: lesson.actualEndAt?.toISOString() ?? undefined,
+    startCorrectedBy: lesson.startCorrectedBy ?? undefined,
+    startCorrectionNote: lesson.startCorrectionNote ?? undefined,
+    endCorrectedBy: lesson.endCorrectedBy ?? undefined,
+    endCorrectionNote: lesson.endCorrectionNote ?? undefined,
+  };
+}
+
+/** Prisma `TeacherPayout` satırı → `AppData.teacherPayouts` öğesi (tam okuma ve hedefli okumalar AYNI eşleme). */
+function mapDbTeacherPayout(payout: Prisma.TeacherPayoutGetPayload<object>): TeacherPayout {
+  return {
+    id: payout.id,
+    teacherId: payout.teacherId,
+    periodStart: payout.periodStart.toISOString().slice(0, 10),
+    periodEnd: payout.periodEnd.toISOString().slice(0, 10),
+    totalMinutes: payout.totalMinutes,
+    totalAmount: payout.totalAmount,
+    status: payout.status as TeacherPayout["status"],
+    paidAt: payout.paidAt?.toISOString() ?? undefined,
+    method: payout.method ?? undefined,
+    generatedAt: payout.generatedAt.toISOString(),
+    originalTotalMinutes: payout.originalTotalMinutes ?? undefined,
+    originalTotalAmount: payout.originalTotalAmount ?? undefined,
+    lineOverrides: (payout.lineOverrides as TeacherPayout["lineOverrides"] | null) ?? undefined,
+    revisionCount: payout.revisionCount ?? 0,
+    revisedAt: payout.revisedAt?.toISOString() ?? undefined,
+    revisedByUserId: payout.revisedByUserId ?? undefined,
+    revisionReason: payout.revisionReason ?? undefined,
+    pricingPolicy: (payout.pricingPolicy as TeacherPayout["pricingPolicy"] | null) ?? undefined,
+    pricingSnapshot: (payout.pricingSnapshot as TeacherPayout["pricingSnapshot"] | null) ?? undefined,
+    cancelledAt: payout.cancelledAt?.toISOString() ?? undefined,
+    cancelledByUserId: payout.cancelledByUserId ?? undefined,
+    cancelReason: payout.cancelReason ?? undefined,
+    lineSnapshot: (payout.lineSnapshot as TeacherPayout["lineSnapshot"] | null) ?? undefined,
+    payments: (payout.payments as TeacherPayout["payments"] | null) ?? undefined,
+    adjustments: (payout.adjustments as TeacherPayout["adjustments"] | null) ?? undefined,
+    version: payout.version,
+  };
+}
+
 function mapSchoolToAppData(school: PrismaSchoolWithRelations): AppData {
   return {
     settings: {
@@ -488,75 +593,7 @@ function mapSchoolToAppData(school: PrismaSchoolWithRelations): AppData {
       archivedAt: (room as { archivedAt?: Date | null }).archivedAt?.toISOString() ?? undefined,
       deletedAt: (room as { deletedAt?: Date | null }).deletedAt?.toISOString() ?? undefined,
     })),
-    lessons: school.lessons.map((lesson) => ({
-      id: lesson.id,
-      studentId: lesson.studentId,
-      teacherId: lesson.teacherId,
-      roomId: lesson.roomId,
-      branchId: lesson.branchId as BranchId,
-      instrument: lesson.instrument as Instrument,
-      startAt: lesson.startAt.toISOString(),
-      endAt: lesson.endAt.toISOString(),
-      type: lesson.type as import("./types").LessonType,
-      status: lesson.status as "scheduled" | "in_progress" | "completed" | "cancelled" | "no_show",
-      makeupRequestId: lesson.makeupRequestId ?? undefined,
-      seriesId: lesson.seriesId ?? undefined,
-      enrollmentId: (lesson as { enrollmentId?: string | null }).enrollmentId ?? undefined,
-      clubId: (lesson as { clubId?: string | null }).clubId ?? undefined,
-      clubSessionId: (lesson as { clubSessionId?: string | null }).clubSessionId ?? undefined,
-      notes: lesson.notes ?? undefined,
-      createdByUserId: (lesson as { createdByUserId?: string | null }).createdByUserId ?? undefined,
-      studentAttended: (lesson as { studentAttended?: boolean }).studentAttended ?? undefined,
-      studentAttendedAt: (lesson as { studentAttendedAt?: Date | null }).studentAttendedAt?.toISOString?.() ?? undefined,
-      studentAttendedBy: (lesson as { studentAttendedBy?: string | null }).studentAttendedBy ?? undefined,
-      lessonProcessed: (lesson as { lessonProcessed?: boolean }).lessonProcessed ?? undefined,
-      lessonProcessedAt: (lesson as { lessonProcessedAt?: Date | null }).lessonProcessedAt?.toISOString?.() ?? undefined,
-      lessonProcessedBy: (lesson as { lessonProcessedBy?: string | null }).lessonProcessedBy ?? undefined,
-      lessonProcessedReason:
-        (lesson as { lessonProcessedReason?: string | null }).lessonProcessedReason ?? undefined,
-      opsMakeupFlag: (lesson as { opsMakeupFlag?: boolean }).opsMakeupFlag ?? undefined,
-      opsMakeupFlagAt: (lesson as { opsMakeupFlagAt?: Date | null }).opsMakeupFlagAt?.toISOString?.() ?? undefined,
-      opsMakeupFlagBy: (lesson as { opsMakeupFlagBy?: string | null }).opsMakeupFlagBy ?? undefined,
-      studentAbsent: (lesson as { studentAbsent?: boolean }).studentAbsent ?? undefined,
-      studentAbsentAt: (lesson as { studentAbsentAt?: Date | null }).studentAbsentAt?.toISOString?.() ?? undefined,
-      studentAbsentBy: (lesson as { studentAbsentBy?: string | null }).studentAbsentBy ?? undefined,
-      studentExcused: (lesson as { studentExcused?: boolean }).studentExcused ?? undefined,
-      studentExcusedAt: (lesson as { studentExcusedAt?: Date | null }).studentExcusedAt?.toISOString?.() ?? undefined,
-      studentExcusedBy: (lesson as { studentExcusedBy?: string | null }).studentExcusedBy ?? undefined,
-      // ÖNCELİK 4 — bu satırlar eksikti (db modunda hiç map edilmiyordu); bu
-      // turda term/academicYearStart eklerken fark edildi, aynı satırda düzeltildi.
-      opsClosedFlag: (lesson as { opsClosedFlag?: boolean }).opsClosedFlag ?? undefined,
-      opsClosedFlagAt: (lesson as { opsClosedFlagAt?: Date | null }).opsClosedFlagAt?.toISOString?.() ?? undefined,
-      opsClosedFlagBy: (lesson as { opsClosedFlagBy?: string | null }).opsClosedFlagBy ?? undefined,
-      term: (lesson as { term?: string | null }).term as import("./types").StudentTermType | undefined ?? undefined,
-      academicYearStart: (lesson as { academicYearStart?: number | null }).academicYearStart ?? undefined,
-      teacherAttendanceStatus:
-        ((lesson as { teacherAttendanceStatus?: string | null }).teacherAttendanceStatus as
-          | import("./teacher-attendance").TeacherAttendanceStatus
-          | undefined) ?? undefined,
-      teacherAttendanceAt:
-        (lesson as { teacherAttendanceAt?: Date | null }).teacherAttendanceAt?.toISOString?.() ?? undefined,
-      teacherAttendanceBy: (lesson as { teacherAttendanceBy?: string | null }).teacherAttendanceBy ?? undefined,
-      teacherAttendanceNote: (lesson as { teacherAttendanceNote?: string | null }).teacherAttendanceNote ?? undefined,
-      disruptionSource: (() => {
-        const v = (lesson as { disruptionSource?: string | null }).disruptionSource;
-        return v === "teacher" || v === "institution" || v === "student" || v === "other" ? v : undefined;
-      })(),
-      disruptionNote: (lesson as { disruptionNote?: string | null }).disruptionNote ?? undefined,
-      disruptionAt: (lesson as { disruptionAt?: Date | null }).disruptionAt?.toISOString?.() ?? undefined,
-      disruptionBy: (lesson as { disruptionBy?: string | null }).disruptionBy ?? undefined,
-      availabilityOverride: (() => {
-        const by = (lesson as { availabilityOverrideBy?: string | null }).availabilityOverrideBy;
-        const at = (lesson as { availabilityOverrideAt?: Date | null }).availabilityOverrideAt;
-        return by && at ? { by, at: at.toISOString() } : undefined;
-      })(),
-      actualStartAt: lesson.actualStartAt?.toISOString() ?? undefined,
-      actualEndAt: lesson.actualEndAt?.toISOString() ?? undefined,
-      startCorrectedBy: lesson.startCorrectedBy ?? undefined,
-      startCorrectionNote: lesson.startCorrectionNote ?? undefined,
-      endCorrectedBy: lesson.endCorrectedBy ?? undefined,
-      endCorrectionNote: lesson.endCorrectionNote ?? undefined,
-    })),
+    lessons: school.lessons.map(mapDbLesson),
     lessonSeries: school.lessonSeries.map((series) => ({
       id: series.id,
       enrollmentId: (series as { enrollmentId?: string | null }).enrollmentId ?? undefined,
@@ -622,34 +659,7 @@ function mapSchoolToAppData(school: PrismaSchoolWithRelations): AppData {
       deactivatedByUserId: rule.deactivatedByUserId ?? undefined,
       deactivationReason: rule.deactivationReason ?? undefined,
     })),
-    teacherPayouts: school.teacherPayouts.map((payout) => ({
-      id: payout.id,
-      teacherId: payout.teacherId,
-      periodStart: payout.periodStart.toISOString().slice(0, 10),
-      periodEnd: payout.periodEnd.toISOString().slice(0, 10),
-      totalMinutes: payout.totalMinutes,
-      totalAmount: payout.totalAmount,
-      status: payout.status as TeacherPayout["status"],
-      paidAt: payout.paidAt?.toISOString() ?? undefined,
-      method: payout.method ?? undefined,
-      generatedAt: payout.generatedAt.toISOString(),
-      originalTotalMinutes: payout.originalTotalMinutes ?? undefined,
-      originalTotalAmount: payout.originalTotalAmount ?? undefined,
-      lineOverrides: (payout.lineOverrides as TeacherPayout["lineOverrides"] | null) ?? undefined,
-      revisionCount: payout.revisionCount ?? 0,
-      revisedAt: payout.revisedAt?.toISOString() ?? undefined,
-      revisedByUserId: payout.revisedByUserId ?? undefined,
-      revisionReason: payout.revisionReason ?? undefined,
-      pricingPolicy: (payout.pricingPolicy as TeacherPayout["pricingPolicy"] | null) ?? undefined,
-      pricingSnapshot: (payout.pricingSnapshot as TeacherPayout["pricingSnapshot"] | null) ?? undefined,
-      cancelledAt: payout.cancelledAt?.toISOString() ?? undefined,
-      cancelledByUserId: payout.cancelledByUserId ?? undefined,
-      cancelReason: payout.cancelReason ?? undefined,
-      lineSnapshot: (payout.lineSnapshot as TeacherPayout["lineSnapshot"] | null) ?? undefined,
-      payments: (payout.payments as TeacherPayout["payments"] | null) ?? undefined,
-      adjustments: (payout.adjustments as TeacherPayout["adjustments"] | null) ?? undefined,
-      version: payout.version,
-    })),
+    teacherPayouts: school.teacherPayouts.map(mapDbTeacherPayout),
   };
 }
 
@@ -1174,6 +1184,38 @@ export async function readStudentById(studentId: string): Promise<Student | unde
   const tid = tenantId();
   const row = await prisma.student.findFirst({ where: { id: studentId, tenantId: tid, school: { tenantId: tid } } });
   return row ? mapDbStudent(row) : undefined;
+}
+
+/**
+ * DB egress (2026-10-10) — tek ders satırı. `readData().lessons.find(id)` ile AYNI sonuç (aynı eşleme,
+ * okulun dersi) ama tenant'ın tüm ders/ödeme/öğrenci verisi okunmaz. Varlık/şube kontrolü ve bildirim
+ * metni için tam okuma yapan tool'lar içindir.
+ */
+export async function readLessonById(lessonId: string): Promise<import("./types").Lesson | undefined> {
+  // Boş id Prisma'da "filtre yok" demektir (ilk dersi döndürürdü) — `find` gibi undefined dön.
+  if (!lessonId) return undefined;
+  const tid = tenantId();
+  const row = await prisma.lesson.findFirst({ where: { id: lessonId, tenantId: tid, school: { tenantId: tid } } });
+  return row ? mapDbLesson(row) : undefined;
+}
+
+/** DB egress (2026-10-10) — tek ödeme satırı: `readData().payments.find(id)` ile aynı (makbuz). */
+export async function readPaymentById(paymentId: string): Promise<import("./types").Payment | undefined> {
+  if (!paymentId) return undefined;
+  const tid = tenantId();
+  const row = await prisma.payment.findFirst({ where: { id: paymentId, tenantId: tid, school: { tenantId: tid } } });
+  return row ? mapDbPayment(row) : undefined;
+}
+
+/**
+ * DB egress (2026-10-10) — bir öğretmenin TÜM kayıtlı hakedişleri (iptal dahil, readData ile aynı satırlar
+ * ve eşleme). Yoklama değişikliğinin hakedişe etkisi önce yalnız bunlarla kontrol edilir.
+ */
+export async function readTeacherPayoutsForTeacher(teacherId: string): Promise<TeacherPayout[]> {
+  if (!teacherId) return [];
+  const tid = tenantId();
+  const rows = await prisma.teacherPayout.findMany({ where: { tenantId: tid, teacherId, school: { tenantId: tid } } });
+  return rows.map(mapDbTeacherPayout);
 }
 
 /** Referans dilimi için School ilişkileri — ders/seri/yoklama/telafi/ödeme/hakediş satırları YOK. */
@@ -2137,8 +2179,8 @@ export async function markPaymentPaid(paymentId: string, opts?: string | MarkPay
   logger.info("markPaymentPaid", paymentId);
   const normalized: MarkPaymentPaidOptions = typeof opts === "string" ? { method: opts } : opts ?? {};
   const { collectPayment } = await import("./payments/collect");
-  const { data } = await collectPayment(paymentId, normalized);
-  return data;
+  await collectPayment(paymentId, normalized);
+  return readData();
 }
 
 /**
@@ -2706,9 +2748,12 @@ export async function addLesson(input: {
   createdByUserId?: string;
   /** 2026-10-04 — dersin ait olduğu eğitim. */
   enrollmentId?: string;
-}): Promise<AppData> {
-  const data = await readData();
+}): Promise<string> {
   const tid = requireTenantId();
+  // DB egress (2026-10-10): doğrulama yalnız bu öğretmen/oda/öğrenci ve gün penceresine bakar — tam okuma yok.
+  const data =
+    (await readSlotScope(tid, { studentId: input.studentId, teacherId: input.teacherId, roomId: input.roomId, startAt: input.startAt })) ??
+    (await readData());
   const validation = validateLessonSlot(
     data,
     // `term` verilmişse haftalık kapalı gün kuralı DERSİN dönemine göre
@@ -2726,12 +2771,14 @@ export async function addLesson(input: {
   if (!branch) throw new Error("Şube bulunamadı");
 
   const override = slot.availabilityOverridden && input.overriddenByUserId;
+  const lessonId = `les_${Date.now().toString(36)}`;
   await prisma.$transaction(async (tx) => {
     await assertSlotFreeLockedTx(tx, tid, { teacherId: slot.teacherId, roomId: slot.roomId, studentId: input.studentId, startAt: slot.startAt, endAt: slot.endAt });
     await tx.lesson.create({
+      select: { id: true },
       data: {
         enrollmentId: input.enrollmentId,
-        id: `les_${Date.now().toString(36)}`,
+        id: lessonId,
         tenantId: tid,
         studentId: input.studentId,
         teacherId: slot.teacherId,
@@ -2751,7 +2798,61 @@ export async function addLesson(input: {
       },
     });
   });
-  return readData();
+  return lessonId;
+}
+
+/** Dilimin ders kapsamı (bkz. lesson-scope.ts `isLessonInScope`): ders ∪ öğrencinin tüm dersleri ∪ öğretmen/oda gün penceresi. */
+function scopeLessonsWhere(
+  tid: string,
+  anchor: { id?: string; studentId: string; teacherId: string; roomId: string },
+  days: Date[]
+): Prisma.LessonWhereInput {
+  const windows = days.map((d) => ({
+    startAt: { gte: subDays(startOfDay(d), 1), lte: addDays(endOfDay(d), 1) },
+  }));
+  return {
+    tenantId: tid,
+    OR: [
+      ...(anchor.id ? [{ id: anchor.id }] : []),
+      { studentId: anchor.studentId },
+      ...windows.map((w) => ({ teacherId: anchor.teacherId, ...w })),
+      ...windows.map((w) => ({ roomId: anchor.roomId, ...w })),
+    ],
+  };
+}
+
+/**
+ * DB egress (2026-10-10) — YENİ ders doğrulaması için dar dilim (bkz. lesson-scope.ts `narrowSlotScope`;
+ * json/memory aynı dilimi tam veriden türetir). Okul yoksa null (çağıran tam okumaya düşer).
+ */
+export async function readSlotScope(tid: string, target: SlotScopeTarget): Promise<AppData | null> {
+  const school = await prisma.school.findFirst({
+    where: { tenantId: tid },
+    omit: { logoUrl: true },
+    include: {
+      branches: true,
+      teachers: { where: { tenantId: tid, id: target.teacherId } },
+      students: { where: { tenantId: tid, id: target.studentId } },
+      rooms: { where: { tenantId: tid, id: target.roomId } },
+      lessons: { where: scopeLessonsWhere(tid, target, lessonScopeDays(target)) },
+      makeupRequests: { where: { tenantId: tid, studentId: target.studentId } },
+    },
+  });
+  if (!school) return null;
+  return {
+    ...mapSchoolToAppData({
+      ...school,
+      logoUrl: "",
+      lessonSeries: [],
+      attendances: [],
+      payments: [],
+      teacherFeeRules: [],
+      teacherPayouts: [],
+    }),
+    packages: [],
+    discountCampaigns: [],
+    closedDayOverrides: await listClosedDays(tid).catch(() => []),
+  };
 }
 
 /**
@@ -2778,9 +2879,6 @@ export async function readLessonScope(
   if (!lessonRow) return null;
 
   const days = lessonScopeDays({ startAt: lessonRow.startAt.toISOString() }, targetStartAt);
-  const windows = days.map((d) => ({
-    startAt: { gte: subDays(startOfDay(d), 1), lte: addDays(endOfDay(d), 1) },
-  }));
 
   const school = await prisma.school.findFirst({
     where: { tenantId: tid },
@@ -2792,17 +2890,7 @@ export async function readLessonScope(
       teachers: { where: { tenantId: tid, id: lessonRow.teacherId } },
       students: { where: { tenantId: tid, id: lessonRow.studentId } },
       rooms: { where: { tenantId: tid, id: lessonRow.roomId } },
-      lessons: {
-        where: {
-          tenantId: tid,
-          OR: [
-            { id: lessonRow.id },
-            { studentId: lessonRow.studentId },
-            ...windows.map((w) => ({ teacherId: lessonRow.teacherId, ...w })),
-            ...windows.map((w) => ({ roomId: lessonRow.roomId, ...w })),
-          ],
-        },
-      },
+      lessons: { where: scopeLessonsWhere(tid, lessonRow, days) },
       attendances: { where: { tenantId: tid, lessonId: lessonRow.id } },
       makeupRequests: { where: { tenantId: tid, studentId: lessonRow.studentId } },
       payments: { where: { tenantId: tid, lessonId: lessonRow.id } },
@@ -2865,7 +2953,9 @@ export async function updateLessonSchedule(input: {
 export async function cancelLesson(lessonId: string): Promise<void> {
   logger.info("cancelLesson", lessonId);
   const tid = requireTenantId();
-  const data = await readData();
+  // DB egress (2026-10-10): kural yalnız dersi + aynı öğretmen/oda/öğrencinin gün penceresini okur — dar dilim (lesson-scope.ts).
+  const data = await readLessonScope(lessonId);
+  if (!data) throw new Error("Ders bulunamadı.");
   const original = data.lessons.find((l) => l.id === lessonId);
   const result = applyLessonCancel(data, lessonId);
   if (!result.ok) throw new Error(result.message);
@@ -2886,7 +2976,9 @@ export async function cancelLesson(lessonId: string): Promise<void> {
 }
 
 async function reloadLessonLiveResult(lessonId: string): Promise<LessonLiveUpdateResult> {
-  const next = await readData();
+  // Çağıranlar (start/end/correct tool'ları) yalnız `lesson`'ı kullanır — tam veri yeniden okunmaz.
+  const next = await readLessonScope(lessonId);
+  if (!next) return { ok: false, message: "Ders bulunamadı." };
   const nextLesson = next.lessons.find((l) => l.id === lessonId);
   if (!nextLesson) return { ok: false, message: "Ders bulunamadı." };
   return { ok: true, data: next, lesson: nextLesson };
@@ -2895,7 +2987,9 @@ async function reloadLessonLiveResult(lessonId: string): Promise<LessonLiveUpdat
 export async function startLessonLive(lessonId: string): Promise<LessonLiveUpdateResult> {
   logger.info("startLessonLive", lessonId);
   const tid = requireTenantId();
-  const data = await readData();
+  // DB egress (2026-10-10): kural yalnız dersi + aynı öğretmen/oda/öğrencinin gün penceresini okur — dar dilim (lesson-scope.ts).
+  const data = await readLessonScope(lessonId);
+  if (!data) return { ok: false, message: "Ders bulunamadı." };
   const original = data.lessons.find((l) => l.id === lessonId);
   const result = applyStartLesson(data, lessonId);
   if (!result.ok) return result;
@@ -2911,7 +3005,9 @@ export async function startLessonLive(lessonId: string): Promise<LessonLiveUpdat
 export async function endLessonLive(lessonId: string): Promise<LessonLiveUpdateResult> {
   logger.info("endLessonLive", lessonId);
   const tid = requireTenantId();
-  const data = await readData();
+  // DB egress (2026-10-10): kural yalnız dersi + aynı öğretmen/oda/öğrencinin gün penceresini okur — dar dilim (lesson-scope.ts).
+  const data = await readLessonScope(lessonId);
+  if (!data) return { ok: false, message: "Ders bulunamadı." };
   const original = data.lessons.find((l) => l.id === lessonId);
   const result = applyEndLesson(data, lessonId);
   if (!result.ok) return result;
@@ -3217,7 +3313,9 @@ export async function markTeacherAttendanceLive(
 ): Promise<ReturnType<typeof markTeacherAttendance>> {
   logger.info("markTeacherAttendanceLive", lessonId, status);
   const tid = requireTenantId();
-  const data = await readData();
+  // DB egress (2026-10-10): kural yalnız dersi + aynı öğretmen/oda/öğrencinin gün penceresini okur — dar dilim (lesson-scope.ts).
+  const data = await readLessonScope(lessonId);
+  if (!data) return { ok: false, message: "Ders bulunamadı." };
   const result = markTeacherAttendance(data, lessonId, status, actorUserId, note);
   if (!result.ok || result.alreadySet) return result;
 
@@ -3283,7 +3381,9 @@ export async function correctLessonTimesLive(
 ): Promise<LessonLiveUpdateResult> {
   logger.info("correctLessonTimesLive", lessonId);
   const tid = requireTenantId();
-  const data = await readData();
+  // DB egress (2026-10-10): kural yalnız dersi + aynı öğretmen/oda/öğrencinin gün penceresini okur — dar dilim (lesson-scope.ts).
+  const data = await readLessonScope(lessonId);
+  if (!data) return { ok: false, message: "Ders bulunamadı." };
   const result = applyCorrectLessonTimes(data, lessonId, correction);
   if (!result.ok) return result;
 

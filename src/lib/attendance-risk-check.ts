@@ -7,7 +7,7 @@
  * homework-lesson-check.ts — AYNI desen).
  */
 import type { Lesson } from "./types";
-import { readData } from "./store";
+import { readStudentScope } from "./store";
 import {
   evaluateAttendanceRisk,
   buildAttendanceRiskNotificationText,
@@ -20,7 +20,8 @@ export async function notifyAttendanceRiskIfThresholdCrossed(tenantId: string, l
   try {
     if (!lesson.lessonProcessed) return;
 
-    const data = await readData();
+    // DB egress (2026-10-10): kural yalnız bu öğrencinin derslerini sayar — tek öğrenci dilimi (eskiden tam okuma).
+    const data = await readStudentScope(lesson.studentId);
     const evaluation = evaluateAttendanceRisk(data.lessons, lesson.studentId, lesson);
     if (!evaluation.crossedThreshold) return;
 

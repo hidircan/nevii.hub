@@ -130,8 +130,11 @@ function inRange(iso: string, start: number, end: number): boolean {
   return t >= start && t <= end;
 }
 
+/** Rapor yalnız dönemin dersleri + öğrenci listesi + kurum ayarını okur (DB egress: ders penceresi yeterli). */
+type PerformanceData = Pick<AppData, "lessons" | "students" | "settings">;
+
 function computeAttendanceComponent(
-  data: AppData,
+  data: PerformanceData,
   teacherId: string,
   rangeStart: number,
   rangeEnd: number
@@ -279,7 +282,7 @@ function isEligibleLessonForHomework(lesson: Lesson, nowMs: number): boolean {
 }
 
 async function computeHomeworkComponent(
-  data: AppData,
+  data: PerformanceData,
   tenantId: string,
   teacherId: string,
   rangeStart: number,
@@ -367,7 +370,7 @@ function combineComponents(
 }
 
 export async function computeTeacherPerformanceReportV2(
-  data: AppData,
+  data: PerformanceData,
   tenantId: string,
   teacherId: string,
   periodStart: string,

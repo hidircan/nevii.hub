@@ -83,7 +83,7 @@ import {
   applyLessonCancel,
   type LessonScheduleUpdateOutcome,
 } from "./lesson-update";
-import { mergeLessonScope, narrowLessonScope } from "./lesson-scope";
+import { mergeLessonScope, narrowLessonScope, narrowSlotScope } from "./lesson-scope";
 import {
   applyStartLesson,
   applyEndLesson,
@@ -253,6 +253,21 @@ export async function readStudentListData(): Promise<StudentListData> {
 /** Bkz. store-db.readStudentById — tek dosya/süreç verisi zaten okunur; sonuç `readData()` ile aynı. */
 export async function readStudentById(studentId: string): Promise<Student | undefined> {
   return (await readData()).students.find((s) => s.id === studentId);
+}
+
+/** Bkz. store-db.readLessonById — sonuç `readData().lessons.find` ile aynı. */
+export async function readLessonById(lessonId: string): Promise<Lesson | undefined> {
+  return (await readData()).lessons.find((l) => l.id === lessonId);
+}
+
+/** Bkz. store-db.readPaymentById — sonuç `readData().payments.find` ile aynı. */
+export async function readPaymentById(paymentId: string): Promise<Payment | undefined> {
+  return (await readData()).payments.find((p) => p.id === paymentId);
+}
+
+/** Bkz. store-db.readTeacherPayoutsForTeacher — sonuç `readData().teacherPayouts` süzgeciyle aynı. */
+export async function readTeacherPayoutsForTeacher(teacherId: string): Promise<TeacherPayout[]> {
+  return (await readData()).teacherPayouts.filter((p) => p.teacherId === teacherId);
 }
 
 export async function markAttendance(input: {
@@ -588,8 +603,8 @@ export type MarkPaymentPaidOptions = {
 export async function markPaymentPaid(paymentId: string, opts?: string | MarkPaymentPaidOptions): Promise<AppData> {
   const normalized: MarkPaymentPaidOptions = typeof opts === "string" ? { method: opts } : opts ?? {};
   const { collectPayment } = await import("./payments/collect");
-  const { data } = await collectPayment(paymentId, normalized);
-  return data;
+  await collectPayment(paymentId, normalized);
+  return readData();
 }
 
 /** 2026-10-03 — yanlışlıkla oluşturulmuş BAĞIMSIZ ödeme satırını kaldırır (sözleşme taksidi asla). Kural/yetki tool'da. */
@@ -695,10 +710,11 @@ export async function addLesson(input: {
   overriddenByUserId?: string;
   createdByUserId?: string;
   enrollmentId?: string;
-}): Promise<AppData> {
+}): Promise<string> {
   const data = load();
+  // Doğrulama db moduyla AYNI dar dilimde (bkz. lesson-scope.ts narrowSlotScope); yazım tam veriye.
   const validation = validateLessonSlot(
-    data,
+    narrowSlotScope(data, input),
     // `term` verilmişse haftalık kapalı gün kuralı DERSİN dönemine göre
     // çözülür (öğrencinin varsayılan dönemine göre değil) — bkz. work-days.ts.
     { instrument: input.instrument, studentId: input.studentId, term: input.term },
@@ -727,7 +743,8 @@ export async function addLesson(input: {
         ? { by: input.overriddenByUserId, at: new Date().toISOString() }
         : undefined,
   };
-  return save({ ...data, lessons: [...data.lessons, lesson] });
+  save({ ...data, lessons: [...data.lessons, lesson] });
+  return lesson.id;
 }
 
 /** Dar okuma — bkz. lesson-scope.ts. */
@@ -756,23 +773,36 @@ export async function updateLessonSchedule(input: {
 
 export async function cancelLesson(lessonId: string): Promise<AppData> {
   const data = load();
-  const result = applyLessonCancel(data, lessonId);
+  // Mode parity (DB egress 2026-10-10): kural db'deki dar dilimin AYNISIYLA çalışır; sonuç bütüne birleştirilir.
+  const scope = narrowLessonScope(data, lessonId);
+  if (!scope) throw new Error("Ders bulunamadı.");
+  const result = applyLessonCancel(scope, lessonId);
   if (!result.ok) throw new Error(result.message);
-  return save(result.data);
+  return save(mergeLessonScope(data, result.data, lessonId));
 }
 
 export async function startLessonLive(lessonId: string): Promise<LessonLiveUpdateResult> {
   const data = load();
-  const result = applyStartLesson(data, lessonId);
-  if (result.ok) save(result.data);
-  return result;
+  // Mode parity (DB egress 2026-10-10): kural db'deki dar dilimin AYNISIYLA çalışır; sonuç bütüne birleştirilir.
+  const scope = narrowLessonScope(data, lessonId);
+  if (!scope) return { ok: false, message: "Ders bulunamadı." };
+  const result = applyStartLesson(scope, lessonId);
+  if (!result.ok) return result;
+  const next = mergeLessonScope(data, result.data, lessonId);
+  save(next);
+  return { ...result, data: next };
 }
 
 export async function endLessonLive(lessonId: string): Promise<LessonLiveUpdateResult> {
   const data = load();
-  const result = applyEndLesson(data, lessonId);
-  if (result.ok) save(result.data);
-  return result;
+  // Mode parity (DB egress 2026-10-10): kural db'deki dar dilimin AYNISIYLA çalışır; sonuç bütüne birleştirilir.
+  const scope = narrowLessonScope(data, lessonId);
+  if (!scope) return { ok: false, message: "Ders bulunamadı." };
+  const result = applyEndLesson(scope, lessonId);
+  if (!result.ok) return result;
+  const next = mergeLessonScope(data, result.data, lessonId);
+  save(next);
+  return { ...result, data: next };
 }
 
 export async function correctLessonTimesLive(
@@ -780,9 +810,14 @@ export async function correctLessonTimesLive(
   correction: LessonTimeCorrection
 ): Promise<LessonLiveUpdateResult> {
   const data = load();
-  const result = applyCorrectLessonTimes(data, lessonId, correction);
-  if (result.ok) save(result.data);
-  return result;
+  // Mode parity (DB egress 2026-10-10): kural db'deki dar dilimin AYNISIYLA çalışır; sonuç bütüne birleştirilir.
+  const scope = narrowLessonScope(data, lessonId);
+  if (!scope) return { ok: false, message: "Ders bulunamadı." };
+  const result = applyCorrectLessonTimes(scope, lessonId, correction);
+  if (!result.ok) return result;
+  const next = mergeLessonScope(data, result.data, lessonId);
+  save(next);
+  return { ...result, data: next };
 }
 
 function assertLessonSeriesRefsExist(data: AppData, params: SeriesParams) {
@@ -1589,8 +1624,11 @@ export async function markTeacherAttendanceLive(
   note: string | undefined
 ): Promise<ReturnType<typeof markTeacherAttendance>> {
   const data = load();
-  const result = markTeacherAttendance(data, lessonId, status, actorUserId, note);
-  if (result.ok && !result.alreadySet) save(result.data);
+  // Mode parity (DB egress 2026-10-10): kural db'deki dar dilimin AYNISIYLA çalışır; sonuç bütüne birleştirilir.
+  const scope = narrowLessonScope(data, lessonId);
+  if (!scope) return { ok: false, message: "Ders bulunamadı." };
+  const result = markTeacherAttendance(scope, lessonId, status, actorUserId, note);
+  if (result.ok && !result.alreadySet) save(mergeLessonScope(data, result.data, lessonId));
   return result;
 }
 

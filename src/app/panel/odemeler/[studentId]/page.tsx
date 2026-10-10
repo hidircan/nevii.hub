@@ -14,7 +14,7 @@ import { StudentPaymentHistoryTable } from "@/components/student-payment-history
 import { resolveCollectorDisplayNames } from "@/lib/contract-payment-plan-view";
 import { QuickTaskLink } from "@/components/quick-task-link";
 import { requireSessionContext } from "@/lib/auth/session";
-import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
+import { getInstitutionContext, readScopedStudentData } from "@/lib/institution/context";
 import { effectiveEnrollments, enrollmentDisplayName, makePaymentBranchLabeler } from "@/lib/student-enrollments";
 
 export const dynamic = "force-dynamic";
@@ -32,7 +32,8 @@ export default async function StudentPaymentProfilePage({
     redirect(`/login?next=/panel/odemeler/${studentId}`);
   }
   const kurum = await getInstitutionContext(session);
-  const data = await readScopedData(kurum.scope);
+  // DB egress (2026-10-10): ekran yalnız bu öğrencinin ödeme/ders satırlarını kullanır — tek öğrenci dilimi.
+  const data = await readScopedStudentData(kurum.scope, studentId);
   const student = data.students.find((s) => s.id === studentId);
   const canWrite =
     kurum.scope.mode === "single" && (session.role === "SCHOOL_ADMIN" || session.role === "SUPER_ADMIN");
