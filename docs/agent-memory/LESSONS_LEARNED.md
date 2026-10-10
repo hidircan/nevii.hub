@@ -1483,3 +1483,12 @@ Aynı turda: `validateLessonSlot` oda `active`'ini hiç okumuyordu → telafi pa
 - Ders: bir varlığı "çoklu" yaptığında ona bağlı HER kaydın (ödeme, ilk tahsilat, takvim planı, kota, cron) anahtarını
   da aynı branşa taşı; "NULL = birincil" gibi örtük eşleme yerine açık kimlik yaz, belirsiz eskiyi raporla.
 
+## 2026-10-10 — Prisma 7 `updateMany` bir transaction'dır; serverless'ta yanıttan sonra "fire-and-forget" yapma
+- UserSession presence yazımı `void (async () => updateMany(...))()` ile yanıttan sonra çalışıyordu. Prisma 7 +
+  adapter-pg `updateMany`'yi BEGIN → UPDATE → COMMIT (3 gidiş-dönüş) olarak yürütür (pg protokol logu ile görüldü);
+  Vercel örneği arada askıya alınınca satır kilidi + havuz bağlantısı açık kaldı → aynı oturuma UPDATE'ler 79 sn'ye kadar
+  bekledi. Düzeltme: tek ifade `update` (genişletilmiş where), DB'de koşullu aralık, yanıt sonrası iş `after()` ile.
+- Ders: yanıt sonrası DB işi `after()`'la; tek satır koşullu yazımda `updateMany` yerine `update`/tek ifade kullan.
+  Yeni "kontrol için" tam `readData()` ekleme — tek satır/dilim okuyucusu yoksa önce onu ekle (her yoklama tıklaması
+  ~1,8 MB okuyordu).
+

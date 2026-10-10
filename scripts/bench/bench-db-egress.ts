@@ -55,6 +55,10 @@ export const FLOWS: { name: string; path: string; as?: "teacher" | "student" }[]
   { name: "Öğretmen portalı — hakediş detayı", path: "/ogretmen/hakedis/tpb_1", as: "teacher" },
   { name: "Kariyer sayfası (herkese açık)", path: "/kariyer/tenant_nilufer_acar" },
   { name: "İK ayarları", path: "/panel/ik/ayarlar" },
+  // 2026-10-10 turu
+  { name: "Öğretmen portalı — ana sayfa", path: "/ogretmen", as: "teacher" },
+  { name: "Öğrenci ödeme profili", path: "/panel/odemeler/s1" },
+  { name: "Makbuz", path: "/makbuz/pbx_0" },
 ];
 
 async function sleep(ms: number) {
@@ -162,7 +166,7 @@ async function main() {
       await fetch(base + flow.path, { headers: { cookie }, redirect: "manual" }).then((r) => r.text());
       // Soğuk örnek: süreç içi 5 sn TTL önbellekleri (oturum/ayar) dolsun diye bekle.
       await sleep(5_500);
-      const samples: { queries: number; bytesIn: number; ms: number; status: number; byTable: Record<string, number> }[] = [];
+      const samples: { queries: number; bytesIn: number; ms: number; status: number; byTable: Record<string, number>; httpBytes: number }[] = [];
       let text = "";
       for (let i = 0; i < repeats + 1; i++) {
         await meter(meterPort, "reset");
@@ -171,7 +175,7 @@ async function main() {
         const body = await res.text();
         const ms = performance.now() - t0;
         const m = await meter(meterPort, "read");
-        samples.push({ queries: m.queries, bytesIn: m.bytesIn, ms, status: res.status, byTable: m.byTable });
+        samples.push({ queries: m.queries, bytesIn: m.bytesIn, ms, status: res.status, byTable: m.byTable, httpBytes: Buffer.byteLength(body) });
         text = visibleText(body, res.headers.get("content-type") ?? "");
       }
       const [cold, ...warm] = samples;
@@ -185,6 +189,8 @@ async function main() {
         warmQueries: med(warm.map((s) => s.queries)),
         warmKB: +(med(warm.map((s) => s.bytesIn)) / 1024).toFixed(1),
         warmMs: Math.round(med(warm.map((s) => s.ms))),
+        // HTTP yanıt gövdesi (sıkıştırmasız) — DB egress'ten AYRI bir ölçü.
+        httpKB: +(cold!.httpBytes / 1024).toFixed(1),
         coldTopTablesKB: topTables(cold!.byTable),
         textSha: createHash("sha256").update(text).digest("hex").slice(0, 12),
         // Sıradan bağımsız özet: Suspense akışında (panel/loading.tsx) parçaların HTML'deki sırası
