@@ -5,6 +5,7 @@ import { roleLabelTr } from "@/lib/auth/role-labels";
 import { getUserLifecycle } from "@/lib/platform/store-ext";
 import { isDbMode } from "@/lib/config";
 import { ChangePasswordForm } from "@/components/platform/change-password-form";
+import { AccountEmailChangeForm } from "@/components/account-email-change-form";
 
 export const dynamic = "force-dynamic";
 
@@ -25,12 +26,34 @@ export default async function PlatformProfilePage() {
         </dl>
       </Card>
       <Card>
+        <h2 id="eposta" className="text-sm font-semibold">E-posta değiştir</h2>
+        <p className="mt-1 text-xs text-[var(--color-text-muted)]">
+          Yeni adres doğrulanmadan değişmez. Mevcut adrese güvenlik bildirimi gider. Şifre ekranda gösterilmez.
+        </p>
+        <div className="mt-3 max-w-sm">
+          <AccountEmailChangeForm currentEmail={user?.email} />
+        </div>
+      </Card>
+      <Card>
         <h2 id="sifre" className="text-sm font-semibold">Şifre değiştir</h2>
         <p className="mt-1 text-xs text-[var(--color-text-muted)]">
           Başarılı değişiklikte diğer tüm cihazlardaki oturumlar kapatılır; bu oturum yeni token ile devam eder.
           {isDbMode ? "" : " (json/memory demo modunda şifre kalıcı değiştirilemez.)"}
         </p>
         <ChangePasswordForm />
+      </Card>
+      <Card>
+        <h2 className="text-sm font-semibold">Hesap kurtarma</h2>
+        <p className="mt-2 text-sm text-[var(--color-text)]">
+          Bu hesapta kayıtlı doğrulayıcı uygulaması, geçiş anahtarı veya kurtarma kodu yok.
+          Kayıtlı olmayan bir gizli adres kimlik doğrulaması sayılmaz.
+        </p>
+        <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-[var(--color-text-muted)]">
+          <li>Şifre unutulursa kayıtlı adrese tek kullanımlık sıfırlama bağlantısı gider. SMTP yapılandırılmamışsa bağlantı gönderilmez.</li>
+          <li>İkinci faktör ancak sahip oturum açtıktan sonra kaydedilebilir. Kayıt için kalıcı bir tablo ve doğrulanmış test veritabanı gerekir; bu turda o yazım kapalıdır.</li>
+          <li>Erişim tamamen kaybolduysa sahip kimliğini platformun dışında kanıtlar. Operatör, canlı veritabanının test projesi olduğu ayrıca doğrulanmışsa mevcut hesabın şifresini sıfırlar. İkinci bir platform sahibi hesabı açılmaz.</li>
+          <li>SMS tek başına yeterli faktör değildir.</li>
+        </ul>
       </Card>
     </div>
   );

@@ -51,23 +51,21 @@ next-env.d.ts
 
 /src/generated/prisma
 
-# local AI/tooling artifacts
+# local AI/tooling artifacts — proje skill'leri (.claude/skills) repoda izlenir:
+# worktree'ler, diğer makineler ve web oturumları aynı yönlendirmeyi görür.
 .agents/
-.claude/
+.claude/*
+!.claude/skills/
+.claude/skills/supabase*/
 dev.db
 skills-lock.json
 
-# local AI/tooling artifacts
-.agents/
-.claude/
-dev.db
-skills-lock.json
 
-# local AI/tooling artifacts
-.agents/
-.claude/
-dev.db
-skills-lock.json
 
 # Local generated reports and design artifacts
 .local-artifacts/
+
+# Uygulama dışı içerik (reklam/tanıtım/pazarlama materyalleri) repo'ya eklenmez —
+# repo dışında tutulur (bkz. docs/agent-memory/LESSONS_LEARNED.md 2026-09-28).
+reklam-paketi/
+pazarlama/

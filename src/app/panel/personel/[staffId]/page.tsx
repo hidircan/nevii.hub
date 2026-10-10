@@ -1,7 +1,7 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { redirect } from "next/navigation";
 import { requireSessionContext } from "@/lib/auth/session";
-import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
+import { getInstitutionContext, readScopedReferenceData } from "@/lib/institution/context";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { BackButton } from "@/components/back-button";
 import { listStaffTool, listLeaveTool, listStaffAdvancesTool } from "@/lib/services";
@@ -59,7 +59,7 @@ export default async function StaffDetailPage({ params }: { params: Promise<{ st
 
   const [staffResult, data, leaveResult, advancesResult] = await Promise.all([
     listStaffTool(session, {}),
-    readScopedData(kurum.scope),
+    readScopedReferenceData(kurum.scope),
     listLeaveTool(session, { staffId }),
     listStaffAdvancesTool(session, { staffId }),
   ]);
@@ -78,7 +78,35 @@ export default async function StaffDetailPage({ params }: { params: Promise<{ st
     <div>
       <KurumScopeNote scope={kurum.scope} />
       <BackButton fallbackHref="/panel/personel" label="Personele dön" className="mb-3" />
-      <PageHeader title={staff.name} description={staff.position} />
+      <PageHeader
+        title={staff.name}
+        description={staff.position}
+        actions={
+          <Link
+            href={`/panel/personel/${staff.id}/performans`}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-2 text-sm font-medium text-[var(--color-text)] hover:bg-[var(--color-surface-muted)]"
+          >
+            Performans
+          </Link>
+        }
+      />
+
+      <section className="mb-6">
+        <Card className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-medium text-[var(--color-text)]">Performans özeti</p>
+            <p className="mt-0.5 text-xs text-[var(--color-text-muted)]">
+              Görev, tahsilat ve dönem karşılaştırması — zam/prim değerlendirmesi için.
+            </p>
+          </div>
+          <Link
+            href={`/panel/personel/${staff.id}/performans`}
+            className="text-sm font-medium text-[var(--color-primary)] hover:underline"
+          >
+            Performansı görüntüle →
+          </Link>
+        </Card>
+      </section>
 
       <section className="mb-8">
         <h2 className="mb-3 text-sm font-semibold text-[var(--color-text)]">Özlük dosyası</h2>

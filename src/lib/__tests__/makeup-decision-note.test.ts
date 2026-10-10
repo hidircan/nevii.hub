@@ -24,7 +24,9 @@ beforeEach(async () => {
 });
 
 describe("EPIC 10 — karar notu zorunluluğu (kasıtlı sözleşme kırılması)", () => {
-  it("confirmMakeupLessonTool: decisionNote olmadan VALIDATION_ERROR döner, hiçbir şey yazmaz", async () => {
+  // 2026-09-30 (owner) — ONAYDA planlama gerekçesi isteğe bağlı (boş kayıt: makeup-past-date.test.ts);
+  // girilirse biçim kontrolü çalışır. İptal/ret notu aşağıda zorunlu kalır.
+  it("confirmMakeupLessonTool: gerekçe girilirse uzunluk kontrolü çalışır (1000 karakter üstü reddedilir, hiçbir şey yazılmaz)", async () => {
     const before = await readData();
     const request = before.makeupRequests.find((m) => m.status === "pending" || m.status === "suggested");
     expect(request).toBeDefined();
@@ -41,35 +43,12 @@ describe("EPIC 10 — karar notu zorunluluğu (kasıtlı sözleşme kırılması
         score: 90,
         reasons: [],
       },
-      // decisionNote kasıtlı olarak eksik
+      decisionNote: "x".repeat(1001),
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe("VALIDATION_ERROR");
-
     const after = await readData();
-    expect(after.makeupRequests.find((m) => m.id === request.id)?.status).toBe(request.status);
-  });
-
-  it("confirmMakeupLessonTool: boş string decisionNote da reddedilir", async () => {
-    const before = await readData();
-    const request = before.makeupRequests.find((m) => m.status === "pending" || m.status === "suggested");
-    if (!request) return;
-
-    const result = await confirmMakeupLessonTool(ctx(), {
-      requestId: request.id,
-      slot: {
-        startAt: "2026-08-10T10:00:00.000Z",
-        endAt: "2026-08-10T10:30:00.000Z",
-        teacherId: request.teacherId,
-        roomId: "r1",
-        branchId: request.branchId,
-        score: 90,
-        reasons: [],
-      },
-      decisionNote: "",
-    });
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error.code).toBe("VALIDATION_ERROR");
+    expect(after.makeupRequests.find((m) => m.id === request.id)!.status).toBe(request.status);
   });
 
   it("cancelMakeupLessonTool: decisionNote olmadan VALIDATION_ERROR döner, statüyü değiştirmez", async () => {

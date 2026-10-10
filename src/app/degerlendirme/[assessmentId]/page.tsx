@@ -1,7 +1,7 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { redirect } from "next/navigation";
 import { requireSessionContext, homePathForRole } from "@/lib/auth/session";
-import { readData } from "@/lib/store";
+import { readReferenceData } from "@/lib/store";
 import { getAssessmentTool } from "@/lib/services";
 import { ASSESSMENT_SECTIONS, ASSESSMENT_ITEM_LABELS, computeOverallScore } from "@/lib/assessment/score";
 import { formatDate } from "@/lib/utils";
@@ -48,13 +48,13 @@ export default async function AssessmentPage({
   }
   const assessment = result.data.assessment;
 
-  const data = await readData();
+  const data = await readReferenceData();
   const student = data.students.find((s) => s.id === assessment.studentId);
   const teacher = data.teachers.find((t) => t.id === assessment.teacherId);
   const overall = computeOverallScore(assessment);
 
   return (
-    <div className="min-h-screen bg-[#f4f2f8] px-4 py-8 print:bg-[var(--color-surface)] print:p-0 sm:px-6">
+    <div className="print-light-palette min-h-screen bg-[#f4f2f8] px-4 py-8 print:bg-[var(--color-surface)] print:p-0 sm:px-6">
       <style>{"@media print { @page { size: A4; margin: 14mm; } }"}</style>
       <div className="mx-auto max-w-2xl">
         <AssessmentActions backHref={backHref} />

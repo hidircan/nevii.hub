@@ -32,8 +32,8 @@ describe("ödeme dökümü — görünürlük sözleşmesi", () => {
     for (const field of ["paymentNote", "adjustmentReason", "receiverNames", "statusLabel", "createdAt"]) {
       expect(PRINT_SRC).toContain(field);
     }
-    // E-posta basılmaz — ad soyad çözümü kullanılır.
-    expect(PRINT_SRC).toContain("resolveCollectorDisplayNames");
+    // E-posta basılmaz — ad soyad çözümü kullanılır (personel adı → kullanıcı adı → öğretmen).
+    expect(PRINT_SRC).toContain("resolveActorLabels");
     expect(PRINT_SRC).not.toMatch(/receivedByEmail|collectorEmail/);
   });
 
@@ -56,7 +56,7 @@ describe("ödeme dökümü — görünürlük sözleşmesi", () => {
 
 describe("ödeme dökümü — toplam doğruluğu (tek kaynak)", () => {
   it("özet, detay ekranındaki fonksiyonun aynısıyla hesaplanır", () => {
-    expect(PRINT_SRC).toContain("computeStudentPaymentSummary(payments)");
+    expect(PRINT_SRC).toContain("computeStudentPaymentSummary(payments, contracts)");
     const data = createSeedData();
     const student = data.students.find((s) => data.payments.some((p) => p.studentId === s.id));
     if (!student) throw new Error("ödemeli seed öğrenci yok");

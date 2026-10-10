@@ -10,15 +10,17 @@ import {
   ErrorState,
   HomeworkCard,
   Icon,
+  LiveLessonTimer,
   LoadingSkeleton,
   Screen,
   SectionHeader,
   StatusBadge,
 } from "../../../src/components/ui";
 import { useApiGet } from "../../../src/hooks/use-api";
+import { useNow } from "../../../src/hooks/use-now";
 import { useAppForegroundRefetch } from "../../../src/hooks/use-app-foreground-refetch";
 import { useFocusRefetch } from "../../../src/hooks/use-focus-refetch";
-import { format } from "../../../src/lib/date";
+import { format, isPast } from "../../../src/lib/date";
 import { lessonStatusBadge } from "../../../src/lib/lesson-status";
 import { useLocale } from "../../../src/i18n/locale-context";
 import { useTheme } from "../../../src/theme/theme-context";
@@ -30,6 +32,7 @@ export default function LessonDetailScreen() {
   const router = useRouter();
   const { user } = useAuth();
   const { lessonId } = useLocalSearchParams<{ lessonId: string }>();
+  const now = useNow();
 
   // Salt-okunur ders detayı: öğretmen yalnız kendi programını görüntüler.
   // Yoklama, ders başlatma/bitirme bu yüzeyde YOK — mutasyonlar yalnız
@@ -71,6 +74,7 @@ export default function LessonDetailScreen() {
   }
 
   const badge = lessonStatusBadge(lesson);
+  const past = isPast(lesson.endAt, now);
 
   return (
     <Screen onRefresh={schedule.refresh} refreshing={false}>
@@ -90,6 +94,14 @@ export default function LessonDetailScreen() {
           <StatusBadge label={badge.label} tone={badge.tone} />
         </View>
       </Card>
+
+
+      {/* Canlı süre sayacı: yalnız görüntüleme (yoklama/başlat/bitir yalnız yöneticide — sunucu da TEACHER isteğini reddeder). */}
+      {!past && lesson.status === "in_progress" && lesson.actualStartAt ? (
+        <Card style={{ marginTop: 12 }}>
+          <LiveLessonTimer actualStartAt={lesson.actualStartAt} scheduledEndAt={lesson.endAt} />
+        </Card>
+      ) : null}
 
       <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 8, marginTop: 12 }}>
         <Icon name="information-circle-outline" size={16} color={t.colors.textMuted} />

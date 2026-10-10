@@ -16,18 +16,10 @@
  */
 import { createPasswordResetToken } from "./password-reset";
 import { getAppBaseUrl, getMobileAppLinks, sendEmail, type EmailSendResult } from "../email";
-import { institutionLogoHtml } from "../institution-logo";
+import { renderTransactionalEmail, type RenderValues } from "../email-templates/engine";
+import type { EmailTemplateKey } from "../email-templates/keys";
 
 const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 gün — davet e-postası hemen açılmayabilir.
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
 
 /**
  * P0 personel onboarding revizyonu — idari personele (`SCHOOL_ADMIN`)
@@ -43,10 +35,15 @@ export type SendInvitationInput = {
   recipientName: string;
   institutionName: string;
   role: InvitationRole;
+  /**
+   * 10. tur iş #2 — STUDENT davetlerinde öğrenci/veli şablon ayrımı.
+   * Verilmezse veli şablonu kullanılır (mevcut davranış).
+   */
+  portalAccessType?: "SELF" | "GUARDIAN";
   /** İsteğe bağlı — verilirse e-posta altbilgisinde kurum iletişim bilgisi gösterilir. */
   schoolPhone?: string;
   schoolWebsite?: string;
-  /** İsteğe bağlı — verilirse üst banner'da kurum ADI yerine gerçek logo gösterilir (bkz. institution-logo.ts). */
+  /** İsteğe bağlı — verilirse üst banner'da kurum ADI yerine gerçek logo gösterilir (e-postada CID eki olarak taşınır). */
   logoUrl?: string;
 };
 
@@ -70,84 +67,57 @@ export type InvitationSendResult = EmailSendResult & { activationLink: string };
 export async function sendAccountInvitationEmail(input: SendInvitationInput): Promise<InvitationSendResult> {
   const raw = await createPasswordResetToken(input.tenantId, input.userId, INVITATION_TTL_MS);
   const activationLink = `${getAppBaseUrl()}/hesap-aktivasyon?token=${encodeURIComponent(raw)}`;
-  const webPortalLink = getAppBaseUrl();
   const { appStoreUrl, playStoreUrl } = getMobileAppLinks();
-  const expiryText = "7 gün";
 
-  const institution = escapeHtml(input.institutionName);
-  const name = escapeHtml(input.recipientName);
+  // 10. tur iş #2 — içerik şablon motorundan gelir: kurumun yayınlanmış özel
+  // şablonu varsa o, yoksa varsayılan profesyonel metin. Logo, e-posta
+  // istemcilerinde çalışan CID eki + metin geri dönüşüyle taşınır.
+  const key: EmailTemplateKey =
+    input.role === "TEACHER"
+      ? "teacher_invite"
+      : input.role === "SCHOOL_ADMIN"
+        ? "staff_invite"
+        : input.portalAccessType === "SELF"
+          ? "student_invite"
+          : "parent_invite";
+  const values: RenderValues = {
+    kurum_adi: input.institutionName,
+    alici_adi: input.recipientName,
+    giris_epostasi: input.email,
+    gecerlilik_suresi: "7 gün",
+    yil: String(new Date().getFullYear()),
+    actionUrl: activationLink,
+    webPortalUrl: getAppBaseUrl(),
+    appStoreUrl,
+    playStoreUrl,
+  };
+  const contactBits: string[] = [];
+  if (input.schoolPhone) contactBits.push(`Telefon: ${input.schoolPhone}`);
+  if (input.schoolWebsite) contactBits.push(`Web sitesi: ${input.schoolWebsite}`);
+  const rendered = await renderTransactionalEmail({
+    key,
+    locale: "tr",
+    tenantId: input.tenantId,
+    values,
+    institutionName: input.institutionName,
+    logoUrl: input.logoUrl,
+    footerLines: [
+      "Bu bağlantı 7 gün içinde geçerliliğini yitirir ve yalnızca bir kez kullanılabilir.",
+      "Bu daveti siz talep etmediyseniz, bu e-postayı yok sayabilirsiniz.",
+      contactBits.length ? `${input.institutionName} — ${contactBits.join(" · ")}` : "Sorularınız için kurumunuzla iletişime geçebilirsiniz.",
+    ],
+  });
 
-  const isTeacher = input.role === "TEACHER";
-  const isStaff = input.role === "SCHOOL_ADMIN";
-  const welcomeLine = isTeacher
-    ? `${institution} ekibine hoş geldiniz! Sizi aramızda görmekten çok mutluyuz.`
-    : isStaff
-      ? `${institution} yönetim ekibine hoş geldiniz! Sizi aramızda görmekten çok mutluyuz.`
-      : `${institution} ailesine hoş geldiniz! Sizi aramızda görmekten çok mutluyuz.`;
-  const introLine = isTeacher
-    ? `Kurumumuzda öğretmen hesabınız oluşturuldu — ders programınızı, öğrencilerinizi ve tüm süreçlerinizi tek yerden yönetebileceksiniz.`
-    : isStaff
-      ? `Kurumumuzda sizin için bir yönetim paneli hesabı oluşturuldu — öğrenci, program, yoklama ve tahsilat süreçlerini yetkiniz ölçüsünde tek yerden yönetebileceksiniz.`
-      : `Öğrenciniz için kurumumuzda bir hesap oluşturuldu — program, yoklama, telafi ve ödeme bilgilerinizi tek yerden takip edebileceksiniz.`;
-
-  const contactLines: string[] = [];
-  if (input.schoolPhone) contactLines.push(`Telefon: ${escapeHtml(input.schoolPhone)}`);
-  if (input.schoolWebsite) contactLines.push(`Web sitesi: ${escapeHtml(input.schoolWebsite)}`);
-
-  const appLinksHtml =
-    appStoreUrl || playStoreUrl
-      ? `
-      <tr><td style="padding:0 32px 24px;">
-        <p style="margin:0 0 8px;font-size:13px;color:#6b7280;">Mobil uygulamamızı da indirebilirsiniz:</p>
-        <table role="presentation" cellpadding="0" cellspacing="0"><tr>
-          ${appStoreUrl ? `<td style="padding-right:8px;"><a href="${appStoreUrl}" style="display:inline-block;padding:8px 14px;border:1px solid #d1d5db;border-radius:6px;color:#111827;text-decoration:none;font-size:13px;">App Store</a></td>` : ""}
-          ${playStoreUrl ? `<td><a href="${playStoreUrl}" style="display:inline-block;padding:8px 14px;border:1px solid #d1d5db;border-radius:6px;color:#111827;text-decoration:none;font-size:13px;">Google Play</a></td>` : ""}
-        </tr></table>
-      </td></tr>`
-      : "";
-  const appLinksText =
-    appStoreUrl || playStoreUrl
-      ? `\nMobil uygulama:${appStoreUrl ? `\n- App Store: ${appStoreUrl}` : ""}${playStoreUrl ? `\n- Google Play: ${playStoreUrl}` : ""}\n`
-      : "";
-
-  const subject = `${institution} — Ailemize/Ekibimize Hoş Geldiniz, Hesabınızı Aktifleştirin`;
-
-  const html = `
-  <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;background:#f4f2f8;padding:32px 0;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
-    <tr><td align="center">
-      <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;max-width:520px;background:#ffffff;border-radius:12px;overflow:hidden;">
-        <tr><td style="background:#ffffff;padding:28px 32px 20px;text-align:center;border-bottom:1px solid #e5e7eb;">
-          ${institutionLogoHtml(input.logoUrl, input.institutionName)}
-        </td></tr>
-        <tr><td style="padding:32px 32px 8px;">
-          <h1 style="margin:0 0 12px;font-size:20px;color:#111827;">${welcomeLine}</h1>
-          <p style="margin:0 0 4px;font-size:15px;color:#374151;">Merhaba ${name},</p>
-          <p style="margin:0 0 16px;font-size:15px;color:#374151;line-height:1.6;">${introLine}</p>
-          <p style="margin:0 0 4px;font-size:14px;color:#6b7280;">Giriş e-postanız</p>
-          <p style="margin:0 0 20px;font-size:15px;color:#111827;font-weight:600;">${escapeHtml(input.email)}</p>
-        </td></tr>
-        <tr><td style="padding:0 32px 8px;">
-          <p style="margin:0 0 16px;font-size:14px;color:#374151;">Hesabınızı aktifleştirmek ve kendi şifrenizi belirlemek için:</p>
-          <p style="margin:0 0 20px;"><a href="${activationLink}" style="display:inline-block;padding:12px 24px;background:#d97706;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:600;font-size:15px;">Şifrenizi Oluşturun</a></p>
-          <p style="margin:0 0 24px;font-size:12px;color:#9ca3af;word-break:break-all;">Bağlantı çalışmıyorsa: ${activationLink}</p>
-        </td></tr>
-        <tr><td style="padding:0 32px 24px;">
-          <p style="margin:0 0 4px;font-size:13px;color:#6b7280;">Şifrenizi belirledikten sonra web portalımıza her zaman şuradan ulaşabilirsiniz:</p>
-          <p style="margin:0;font-size:14px;"><a href="${webPortalLink}" style="color:#4f46e5;text-decoration:none;">${webPortalLink}</a></p>
-        </td></tr>
-        ${appLinksHtml}
-        <tr><td style="padding:20px 32px;border-top:1px solid #e5e7eb;">
-          <p style="margin:0 0 4px;font-size:12px;color:#9ca3af;">Bu bağlantı ${expiryText} içinde geçerliliğini yitirir ve yalnızca bir kez kullanılabilir.</p>
-          <p style="margin:0 0 8px;font-size:12px;color:#9ca3af;">Bu daveti siz talep etmediyseniz, bu e-postayı yok sayabilirsiniz.</p>
-          ${contactLines.length ? `<p style="margin:0;font-size:12px;color:#9ca3af;">${institution} — ${contactLines.map(escapeHtml).join(" · ")}</p>` : `<p style="margin:0;font-size:12px;color:#9ca3af;">Sorularınız için kurumunuzla iletişime geçebilirsiniz.</p>`}
-        </td></tr>
-      </table>
-    </td></tr>
-  </table>`;
-
-  const text = `${institution}\n\n${welcomeLine}\n\nMerhaba ${input.recipientName},\n\n${introLine}\n\nGiriş e-postanız: ${input.email}\n\nHesabınızı aktifleştirmek için: ${activationLink}\n(${expiryText} içinde geçerli, tek kullanımlık)\n\nWeb portal: ${webPortalLink}\n${appLinksText}\nBu daveti siz talep etmediyseniz yok sayabilirsiniz.${contactLines.length ? `\n\n${institution} — ${contactLines.join(" · ")}` : ""}`;
-
-  return { ...(await sendEmail({ to: input.email, subject, html, text })), activationLink };
+  return {
+    ...(await sendEmail({
+      to: input.email,
+      subject: rendered.subject,
+      html: rendered.html,
+      text: rendered.text,
+      attachments: rendered.attachments,
+    })),
+    activationLink,
+  };
 }
 
 export type SendPasswordResetInput = {
@@ -162,6 +132,8 @@ export type SendPasswordResetInput = {
    * `createPasswordResetToken` çağırdıysa (ör. dev-mode token'ı yanıta da eklemek
    * için) token'ın İKİ KEZ üretilip birbirini geçersiz kılmasını önler. */
   rawToken?: string;
+  /** Kurumun kayıtlı uygulama dili. Yoksa Türkçe. */
+  locale?: "tr" | "en";
 };
 
 const PASSWORD_RESET_TTL_MS = 30 * 60 * 1000; // password-reset.ts TOKEN_TTL_MS ile AYNI (30 dk).
@@ -181,39 +153,42 @@ const PASSWORD_RESET_TTL_MS = 30 * 60 * 1000; // password-reset.ts TOKEN_TTL_MS 
  */
 export async function sendPasswordResetEmail(input: SendPasswordResetInput): Promise<EmailSendResult> {
   const raw = input.rawToken ?? (await createPasswordResetToken(input.tenantId, input.userId, PASSWORD_RESET_TTL_MS));
-  const resetLink = `${getAppBaseUrl()}/sifre-sifirla?token=${encodeURIComponent(raw)}`;
-  const expiryText = "30 dakika";
+  const { getPublicAppBaseUrl } = await import("../email/config");
+  const resetLink = `${getPublicAppBaseUrl()}/sifre-sifirla?token=${encodeURIComponent(raw)}`;
+  const locale = input.locale === "en" ? "en" : "tr";
 
-  const institution = escapeHtml(input.institutionName);
-  const name = escapeHtml(input.recipientName);
-  const subject = `${institution} — Şifre Sıfırlama Kodunuz`;
+  // 10. tur iş #2 — içerik şablon motorundan gelir (kurum özel şablonu ya da
+  // varsayılan; tr+en korunur). Kod etiketi varsayılan gövdede
+  // `passwordResetMail(...).codeLabel` ile BİREBİR aynı metindir (mevcut
+  // regresyon testleri buna dayanır).
+  const { passwordResetMail } = await import("../i18n/copy");
+  const copy = passwordResetMail(locale, input.institutionName);
+  const values: RenderValues = {
+    kurum_adi: input.institutionName,
+    alici_adi: input.recipientName,
+    giris_epostasi: input.email,
+    gecerlilik_suresi: locale === "en" ? "30 minutes" : "30 dakika",
+    yil: String(new Date().getFullYear()),
+    actionUrl: resetLink,
+    code: raw,
+  };
+  const rendered = await renderTransactionalEmail({
+    key: "password_reset",
+    locale,
+    tenantId: input.tenantId,
+    values,
+    institutionName: input.institutionName,
+    logoUrl: input.logoUrl,
+    footerLines: [copy.expiry, copy.ignore],
+  });
 
-  const html = `
-  <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;background:#f4f2f8;padding:32px 0;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
-    <tr><td align="center">
-      <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;max-width:520px;background:#ffffff;border-radius:12px;overflow:hidden;">
-        <tr><td style="background:#ffffff;padding:28px 32px 20px;text-align:center;border-bottom:1px solid #e5e7eb;">
-          ${institutionLogoHtml(input.logoUrl, input.institutionName)}
-        </td></tr>
-        <tr><td style="padding:32px 32px 8px;">
-          <h1 style="margin:0 0 12px;font-size:20px;color:#111827;">Şifre sıfırlama isteği</h1>
-          <p style="margin:0 0 4px;font-size:15px;color:#374151;">Merhaba ${name},</p>
-          <p style="margin:0 0 16px;font-size:15px;color:#374151;line-height:1.6;">${institution} hesabınız için bir şifre sıfırlama isteği alındı. Aşağıdaki koda ihtiyacınız olacak:</p>
-          <p style="margin:0 0 20px;padding:14px 20px;background:#f3f4f6;border-radius:8px;text-align:center;font-size:22px;font-weight:700;letter-spacing:0.08em;color:#111827;">${escapeHtml(raw)}</p>
-          <p style="margin:0 0 20px;"><a href="${resetLink}" style="display:inline-block;padding:12px 24px;background:#d97706;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:600;font-size:15px;">Şifremi Sıfırla</a></p>
-          <p style="margin:0 0 24px;font-size:12px;color:#9ca3af;word-break:break-all;">Bağlantı çalışmıyorsa: ${resetLink}</p>
-        </td></tr>
-        <tr><td style="padding:20px 32px;border-top:1px solid #e5e7eb;">
-          <p style="margin:0 0 4px;font-size:12px;color:#9ca3af;">Bu kod ${expiryText} içinde geçerliliğini yitirir ve yalnızca bir kez kullanılabilir.</p>
-          <p style="margin:0;font-size:12px;color:#9ca3af;">Bu isteği siz yapmadıysanız, bu e-postayı yok sayabilirsiniz — hesabınızda hiçbir değişiklik yapılmaz.</p>
-        </td></tr>
-      </table>
-    </td></tr>
-  </table>`;
-
-  const text = `${institution}\n\nMerhaba ${input.recipientName},\n\nŞifre sıfırlama isteği alındı.\n\nKodunuz: ${raw}\n(${expiryText} içinde geçerli, tek kullanımlık)\n\nSıfırlama sayfası: ${resetLink}\n\nBu isteği siz yapmadıysanız bu e-postayı yok sayabilirsiniz.`;
-
-  return sendEmail({ to: input.email, subject, html, text });
+  return sendEmail({
+    to: input.email,
+    subject: rendered.subject,
+    html: rendered.html,
+    text: rendered.text,
+    attachments: rendered.attachments,
+  });
 }
 
 /**

@@ -10,7 +10,7 @@
  */
 
 import { useRef, useState, type ChangeEvent, type DragEvent } from "react";
-import Link from "next/link";
+import Link from "@/components/link";
 import { Download, FileText, Loader2, Upload, UploadCloud, ArrowRight } from "lucide-react";
 import { Button, Card } from "@/components/ui";
 import { cn } from "@/lib/utils";

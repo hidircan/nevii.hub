@@ -148,6 +148,10 @@ export const SETTING_CATALOG: SettingDefinition[] = [
   s("notifications.inAppEnabled", "notifications", "boolean", true, "Uygulama içi bildirimler", {
     userPreference: true,
   }),
+  s("notifications.studentContractExpiryDays", "notifications", "number", 15, "Öğrenci sözleşmesi bitiş uyarısı (bitişten kaç gün önce)", {
+    min: 1,
+    max: 90,
+  }),
   s("messaging.announcementsEnabled", "messaging", "boolean", true, "Duyuru modülü"),
   s("messaging.smsEnabled", "messaging", "boolean", false, "SMS modülü", { critical: true }),
   s("messaging.whatsappEnabled", "messaging", "boolean", false, "WhatsApp modülü", { critical: true }),
@@ -316,6 +320,42 @@ const JSON_SETTING_SCHEMAS: Record<string, z.ZodType<unknown>> = {
 
 export const SETTING_BY_KEY = new Map(SETTING_CATALOG.map((d) => [d.key, d]));
 
+/**
+ * Control Center (2026-09-28) — anahtar-bazlı ek doğrulama: şema tipi
+ * `string` olan anahtarlar her şeyi kabul eder; kullanıcıdan gelen
+ * metin/görsel için burada daraltılır. Başarısızlık Türkçe mesajla döner
+ * (parseSettingValue üzerinden tüm yazım yollarına uygulanır).
+ */
+const MAX_LOGO_URL_LENGTH = 500;
+const MAX_LOGIN_MESSAGE_LENGTH = 500;
+
+function validateBrandKey(key: string, value: JsonValue): string | null {
+  if (key === "institution.logoUrl") {
+    if (typeof value !== "string") return "Logo adresi metin olmalı.";
+    const trimmed = value.trim();
+    if (trimmed.length === 0) return null; // boş = logo yok
+    if (trimmed.length > MAX_LOGO_URL_LENGTH) return `Logo adresi en fazla ${MAX_LOGO_URL_LENGTH} karakter olabilir.`;
+    if (/^data:/i.test(trimmed)) return "Logo adresi olarak data-URI kullanılamaz; https veya site-içi yol girin.";
+    if (/^javascript:/i.test(trimmed) || /[<>"']/.test(trimmed)) return "Logo adresi geçersiz karakter içeriyor.";
+    if (/^https?:\/\//i.test(trimmed)) return null;
+    if (trimmed.startsWith("/") && !trimmed.startsWith("//")) return null;
+    return "Logo adresi https ile başlamalı veya / ile başlayan site-içi yol olmalı.";
+  }
+  if (key === "institution.loginMessage") {
+    if (typeof value !== "string") return "Karşılama metni metin olmalı.";
+    if (value.length > MAX_LOGIN_MESSAGE_LENGTH) return `Karşılama metni en fazla ${MAX_LOGIN_MESSAGE_LENGTH} karakter olabilir.`;
+    if (/<[a-z][\s\S]*>/i.test(value)) return "Karşılama metni HTML içeremez; düz metin girin.";
+    return null;
+  }
+  if (key === "institution.name") {
+    if (typeof value !== "string") return "Kurum adı metin olmalı.";
+    if (value.length > 120) return "Kurum adı en fazla 120 karakter olabilir.";
+    if (/<[a-z][\s\S]*>/i.test(value)) return "Kurum adı HTML içeremez.";
+    return null;
+  }
+  return null;
+}
+
 export const SETTING_CATEGORY_LABELS: Record<SettingCategory, string> = {
   branding: "Marka ve görünüm",
   locale: "Dil, saat ve para birimi",
@@ -398,5 +438,7 @@ export function parseSettingValue(
       message: issue?.message ?? `Geçersiz değer: ${def.key}`,
     };
   }
+  const brandError = validateBrandKey(def.key, parsed.data as JsonValue);
+  if (brandError) return { ok: false, message: brandError };
   return { ok: true, value: parsed.data as JsonValue };
 }

@@ -1,3 +1,4 @@
+import { contractReadinessPatch } from "../student-contract-readiness";
 import type { AppData, Instrument, SocialMediaConsentStatus, StudentTermType } from "../types";
 import { INSTRUMENTS } from "../types";
 import type { CsvRecord } from "./csv";
@@ -34,7 +35,30 @@ export type StudentImportRow = {
   socialMediaConsentStatus?: SocialMediaConsentStatus;
   /** Bu turda kayıt akışına eklenmedi (yalnızca gelecekte termType ile ilişkilendirilebilir); şimdilik yok sayılır. */
   termType?: StudentTermType;
+  /**
+   * 2026-09-22 — CSV öğrencisini normal kayıtla AYNI sözleşme akışına sokan
+   * türetilmiş alanlar. CSV'den OKUNMAZ; commit anında sunucu hesaplar
+   * (bkz. `withContractReadyFields`). Finansal geçmiş (ilk tahsilat) UYDURULMAZ.
+   */
+  derivedPerLessonAmount?: number;
+  accountResponsibility?: "PARENT_MANAGED" | "SELF_MANAGED";
+  createdByUserId?: string;
 };
+
+/**
+ * CSV satırını normal öğrenci kaydının sözleşmeye hazır alanlarıyla tamamlar
+ * (kural `student-contract-readiness.ts`'te — onarım scriptiyle ortak) ve
+ * kaydı açan kullanıcıyı yazar.
+ */
+export function withContractReadyFields(row: StudentImportRow, input: { actorUserId: string }): StudentImportRow {
+  const patch = contractReadinessPatch({ ...row, id: "" });
+  return {
+    ...row,
+    derivedPerLessonAmount: patch.derivedPerLessonAmount,
+    accountResponsibility: patch.accountResponsibility,
+    createdByUserId: input.actorUserId,
+  };
+}
 
 /**
  * ÖNCELİK 4 (devam) — öğrenci CSV şablonu revizyonu. Kaldırılanlar: öğrenci

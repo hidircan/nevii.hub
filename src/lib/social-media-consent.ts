@@ -99,6 +99,37 @@ export async function setSocialMediaConsent(input: SetSocialMediaConsentInput): 
   return record;
 }
 
+/**
+ * "En güncel izin kaydı" TEK sıralama kuralı (2026-09-20 kök neden düzeltmesi).
+ *
+ * KÖK NEDEN: sıralama yalnız `grantedAt` (ISO, milisaniye) ile yapılıyordu.
+ * Aynı öğrenci için "granted" ve hemen ardından "withdrawn" kaydı AYNI
+ * milisaniyede oluşabiliyor (hızlı bir istek zincirinde veya hızlı bir
+ * makinede); bu durumda `localeCompare` 0 döner, sıralama kararsız kalır ve
+ * ÖNCE eklenen ("granted") kayıt "en güncel" sanılır. Sonuç: geri çekilmiş
+ * bir fotoğraf/video izni sistemde HÂLÂ VERİLMİŞ görünebilir — KVKK açısından
+ * kabul edilemez bir hata.
+ *
+ * Çözüm: eşitlikte EKLENME SIRASI belirler (dosya deposunda dizi sırası, db'de
+ * `createdAt` + `id`). Kayıtlar yalnız append edildiği için son eklenen her
+ * zaman en günceldir.
+ */
+function compareConsentRecency(a: Stored, b: Stored, aIndex: number, bIndex: number): number {
+  const byGranted = b.grantedAt.localeCompare(a.grantedAt);
+  if (byGranted !== 0) return byGranted;
+  const byCreated = (b.createdAt ?? "").localeCompare(a.createdAt ?? "");
+  if (byCreated !== 0) return byCreated;
+  return bIndex - aIndex; // sonradan eklenen önce
+}
+
+/** `Stored[]` → en güncelden eskiye, kararlı ve eşitlik-güvenli sıralama. */
+function sortByRecency(rows: Stored[]): Stored[] {
+  return rows
+    .map((row, index) => ({ row, index }))
+    .sort((x, y) => compareConsentRecency(x.row, y.row, x.index, y.index))
+    .map((x) => x.row);
+}
+
 /** Öğrencinin en güncel izin kaydı — yoksa undefined (henüz hiç izin girilmemiş). */
 export async function getLatestSocialMediaConsent(
   tenantId: string,
@@ -108,7 +139,8 @@ export async function getLatestSocialMediaConsent(
     const { prisma } = await import("./db");
     const row = await prisma.socialMediaConsent.findFirst({
       where: { tenantId, studentId },
-      orderBy: { grantedAt: "desc" },
+      // Eşit `grantedAt` (aynı milisaniye) durumunda kararlı tie-break — bkz. compareConsentRecency.
+      orderBy: [{ grantedAt: "desc" }, { createdAt: "desc" }, { id: "desc" }],
     });
     if (!row) return undefined;
     return {
@@ -128,9 +160,7 @@ export async function getLatestSocialMediaConsent(
   }
 
   const all = await loadAll();
-  const rows = all
-    .filter((r) => r.tenantId === tenantId && r.studentId === studentId)
-    .sort((a, b) => b.grantedAt.localeCompare(a.grantedAt));
+  const rows = sortByRecency(all.filter((r) => r.tenantId === tenantId && r.studentId === studentId));
   return rows[0] ? toPublic(rows[0]) : undefined;
 }
 
@@ -142,7 +172,7 @@ export async function listSocialMediaConsentHistory(
     const { prisma } = await import("./db");
     const rows = await prisma.socialMediaConsent.findMany({
       where: { tenantId, studentId },
-      orderBy: { grantedAt: "desc" },
+      orderBy: [{ grantedAt: "desc" }, { createdAt: "desc" }, { id: "desc" }],
     });
     return rows.map((row) => ({
       id: row.id,
@@ -160,8 +190,33 @@ export async function listSocialMediaConsentHistory(
     }));
   }
   const all = await loadAll();
-  return all
-    .filter((r) => r.tenantId === tenantId && r.studentId === studentId)
-    .sort((a, b) => b.grantedAt.localeCompare(a.grantedAt))
-    .map(toPublic);
+  return sortByRecency(all.filter((r) => r.tenantId === tenantId && r.studentId === studentId)).map(toPublic);
+}
+
+/**
+ * Öğrenci listesi filtresi — tenant'ın TÜM öğrencileri için en güncel izin kaydı TEK sorguda
+ * (öğrenci başına okuma yok). Sıralama `getLatestSocialMediaConsent` ile aynı kuraldır.
+ */
+export async function listLatestSocialMediaConsentsByStudent(
+  tenantId: string
+): Promise<Map<string, Pick<SocialMediaConsent, "status" | "scopes">>> {
+  const latest = new Map<string, Pick<SocialMediaConsent, "status" | "scopes">>();
+  if (isDbMode) {
+    const { prisma } = await import("./db");
+    const rows = await prisma.socialMediaConsent.findMany({
+      where: { tenantId },
+      select: { studentId: true, status: true, scopes: true },
+      orderBy: [{ grantedAt: "desc" }, { createdAt: "desc" }, { id: "desc" }],
+    });
+    for (const r of rows) {
+      if (!latest.has(r.studentId)) {
+        latest.set(r.studentId, { status: r.status as SocialMediaConsentStatus, scopes: r.scopes as SocialMediaScope[] });
+      }
+    }
+    return latest;
+  }
+  for (const r of sortByRecency((await loadAll()).filter((r) => r.tenantId === tenantId))) {
+    if (!latest.has(r.studentId)) latest.set(r.studentId, { status: r.status, scopes: r.scopes });
+  }
+  return latest;
 }

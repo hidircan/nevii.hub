@@ -111,15 +111,25 @@ export function CommandPalette({ role }: { role?: AppRole }) {
     setActiveIndex(0);
   }, []);
 
-  // Cmd+K / Ctrl+K açar, Escape kapatır — global, sayfa/route'tan bağımsız.
+  // Cmd+K / Ctrl+K açar/kapatır, Escape kapatır — global, sayfa/route'tan bağımsız.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
-        setOpen((prev) => !prev);
+        setOpen((prev) => {
+          if (prev) {
+            setQuery("");
+            setEntityItems([]);
+            setActiveIndex(0);
+          }
+          return !prev;
+        });
         return;
       }
-      if (e.key === "Escape" && open) close();
+      if (e.key === "Escape" && open) {
+        e.preventDefault();
+        close();
+      }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -242,6 +252,11 @@ export function CommandPalette({ role }: { role?: AppRole }) {
   }
 
   function onInputKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      close();
+      return;
+    }
     if (e.key === "ArrowDown") {
       e.preventDefault();
       setActiveIndex((i) => (flat.length === 0 ? 0 : (i + 1) % flat.length));
@@ -260,8 +275,10 @@ export function CommandPalette({ role }: { role?: AppRole }) {
     <>
       <button
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={() => (open ? close() : setOpen(true))}
         aria-label="Uygulamada ara"
+        aria-expanded={open}
+        aria-haspopup="dialog"
         className="flex h-9 w-9 shrink-0 items-center justify-center gap-2 rounded-full border text-left text-sm transition hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)] sm:h-9 sm:w-auto sm:justify-start sm:rounded-lg sm:px-3 sm:py-2"
         style={{ borderColor: "var(--color-border)", color: "var(--color-text-muted)", background: "var(--color-surface)" }}
       >
@@ -276,11 +293,17 @@ export function CommandPalette({ role }: { role?: AppRole }) {
       </button>
 
       {open ? (
-        <div className="fixed inset-0 z-50 flex items-start justify-center px-4 pt-[12vh]">
+        <div
+          className="fixed inset-0 z-50 flex items-start justify-center px-4 pt-[12vh]"
+          onMouseDown={(e) => {
+            // Boş alan (scrim/padding) — dialog paneli değilse kapat.
+            if (e.target === e.currentTarget) close();
+          }}
+        >
           {/* Scrim — burada KASITLI olarak tıklanınca kapatır (gerçek bir modal, GlobalAssistant'ın aksine). */}
           <div
             className="fixed inset-0 bg-slate-950/40"
-            onClick={close}
+            onMouseDown={close}
             aria-hidden="true"
           />
           <div
@@ -289,6 +312,7 @@ export function CommandPalette({ role }: { role?: AppRole }) {
             aria-label="Uygulamada ara"
             className="relative flex max-h-[70vh] w-full max-w-xl flex-col overflow-hidden rounded-2xl border shadow-2xl"
             style={{ background: "var(--color-surface)", borderColor: "var(--color-border)" }}
+            onMouseDown={(e) => e.stopPropagation()}
           >
             <div className="flex items-center gap-2 border-b px-4 py-3" style={{ borderColor: "var(--color-border)" }}>
               <Search className="h-4 w-4 shrink-0" style={{ color: "var(--color-text-muted)" }} />

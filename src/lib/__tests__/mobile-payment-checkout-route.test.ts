@@ -50,7 +50,8 @@ async function loginAsStudent() {
 async function createUnpaidPayment(studentId: string, amount = 1000): Promise<string> {
   const before = await readData();
   const ids = new Set(before.payments.map((p) => p.id));
-  const after = await addPayment({ studentId, description: "Mobil checkout test ödemesi", amount, dueDate: new Date().toISOString() });
+  await addPayment({ studentId, description: "Mobil checkout test ödemesi", amount, dueDate: new Date().toISOString() });
+  const after = await readData();
   const created = after.payments.find((p) => !ids.has(p.id));
   if (!created) throw new Error("test setup: payment not created");
   createdPaymentIds.add(created.id);

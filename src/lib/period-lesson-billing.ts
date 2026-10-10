@@ -6,8 +6,9 @@
  * gerçek takvime bakmaz), ama bu YALNIZ GÖSTERİM içindir. Dönem tahsilatı
  * (2026-09-09 düzeltmesi, bkz. `computePeriodAmount`) doğrudan AYLIK
  * ÜCRETTEN, tek yuvarlamayla oranlanır: referans kadar ders içeren TAM ay
- * HER ZAMAN tam aylık ücrettir; kısa dönemler orantılı olarak az, yoğun
- * aylar (referanstan fazla ders) orantılı olarak fazla tahsil eder. Bu dosyadaki her fonksiyon SAF'tır:
+ * HER ZAMAN tam aylık ücrettir; kısa dönemler orantılı olarak az tahsil eder;
+ * referanstan fazla ders içeren aylar (ör. 5 Salı) yine TAM aylık ücrettir
+ * (2026-09-17 sahip kararı: ücret en fazla haftalık × 4 ders üzerinden). Bu dosyadaki her fonksiyon SAF'tır:
  * I/O yok, store/DB yazmaz, aynı girişe her zaman aynı çıkışı verir. Kayıt
  * önizlemesi, ödeme simülasyonu, sözleşme ödeme tablosu ve gerçek tahsilat
  * planı — dördü de BU dosyadan `computePeriodBillingLines`'ı çağırmalı
@@ -18,6 +19,8 @@
  */
 
 import { toZonedYmd, DEFAULT_APP_TIMEZONE } from "./timezone";
+import { resolveWorkDay, type DayOverride, type TermWeeklyClosedDaysOverride } from "./work-days";
+import type { StudentTermType } from "./types";
 
 /**
  * P0 (2026-09-05) — İLK TAHSİLATIN BAŞLANGIÇ GÜNÜ.
@@ -92,7 +95,13 @@ export function computePeriodAmount(
   if (!Number.isFinite(monthlyFee) || monthlyFee < 0) return 0;
   if (billableLessonCount <= 0) return 0;
   const referenceCount = referenceMonthlyLessonCount(weeklyLessonCount);
-  return Math.round((monthlyFee * billableLessonCount) / referenceCount);
+  // Sahip kararı (2026-09-17): bir ayda ücretlendirilen ders sayısı EN FAZLA
+  // referanstır (haftada 1 ders → 4). Takvim 5 ders çıkarsa da ücret 4 ders
+  // üzerinden (= tam aylık ücret) hesaplanır; aylık ücret hiç aşılmaz.
+  const chargedLessonCount = Math.min(billableLessonCount, referenceCount);
+  // Sahip kararı (2026-09-16): küsurat AŞAĞI yuvarlanır — 4.950 × 3/4 = 3.712,5 → 3.712
+  // (Math.round yukarı yuvarlayıp 3.713 yazıyordu). `-Math.round(-x)` yarımı aşağı alır.
+  return -Math.round(-(monthlyFee * chargedLessonCount) / referenceCount);
 }
 
 export type BillableLessonType = "regular" | "makeup" | "trial" | "group";
@@ -176,6 +185,8 @@ export function isBillableLesson(
   context: BillableLessonContext
 ): boolean {
   if (lesson.type === "trial") return false;
+  // 2026-10-06 — kulüp oturumu (aylık sabit kulüp ücreti ayrı; sözleşme/ders sayımına girmez).
+  if (lesson.type === "group") return false;
   if (lesson.status === "cancelled") return false;
   if (lesson.opsClosedFlag) return false;
   if (lesson.isFreeLesson) return false;
@@ -375,14 +386,38 @@ function inclusiveDayCount(startDay: string, endDay: string): number {
  * `estimateBillableLessonCount` formülünü DEĞİŞTİRMEZ/yerine geçmez —
  * o formülün P0-1'de bilinçli olarak sabitlenen davranışı korunur.
  */
-export function countExactWeekdayLessons(periodStartDay: string, periodEndDay: string, weekdays: number[]): number {
+/**
+ * ÇALIŞMA GÜNÜ — TEK KAYNAK (2026-09-20). Kapalı bir güne ders planlanamaz,
+ * dolayısıyla ücrete de girmez. Eskiden burada YALNIZCA resmî tatil
+ * eleniyordu; yöneticinin "zorla kapalı" ettiği bir gün faturalanabilir
+ * sayılıyor, "zorla açtığı" bir tatil ise sayılmıyordu — yani sözleşme
+ * önizlemesi ile gerçekte oluşturulabilen ders programı ayrışıyordu.
+ *
+ * `workDays` ZORUNLUDUR (opsiyonel bırakılsa çağıran sessizce eksik kurala
+ * düşerdi — bkz. LESSONS_LEARNED 2026-09-16 "sessizce yanlış motor").
+ */
+export type WorkDayContext = {
+  term: StudentTermType;
+  overrides: DayOverride[];
+  weeklyClosedDays?: TermWeeklyClosedDaysOverride;
+};
+
+export function countExactWeekdayLessons(
+  periodStartDay: string,
+  periodEndDay: string,
+  weekdays: number[],
+  workDays: WorkDayContext
+): number {
   if (weekdays.length === 0 || periodEndDay < periodStartDay) return 0;
   const set = new Set(weekdays);
   let count = 0;
-  const cursor = new Date(`${periodStartDay}T00:00:00Z`);
-  const end = new Date(`${periodEndDay}T00:00:00Z`);
+  const cursor = new Date(`${periodStartDay}T09:00:00Z`);
+  const end = new Date(`${periodEndDay}T09:00:00Z`);
   while (cursor <= end) {
-    if (set.has(cursor.getUTCDay())) count++;
+    if (set.has(cursor.getUTCDay())) {
+      const day = resolveWorkDay(cursor, workDays.term, workDays.overrides, workDays.weeklyClosedDays);
+      if (day.schedulable) count++;
+    }
     cursor.setUTCDate(cursor.getUTCDate() + 1);
   }
   return count;
@@ -452,14 +487,50 @@ export type ComputePeriodBillingPreviewInput = ComputePeriodBillingLinesInput;
  * üretmemeli).
  */
 export function computePeriodBillingPreview(input: ComputePeriodBillingPreviewInput): PeriodBillingLine[] {
-  const hasRealLessons = input.lessons.some((l) => l.studentId === input.studentId);
-  if (hasRealLessons) return computePeriodBillingLines(input);
-  return estimatePeriodBillingLines({
-    enrollmentStartDay: input.enrollmentStartDay,
-    enrollmentEndDay: input.enrollmentEndDay,
-    monthlyFee: input.monthlyFee,
-    weeklyLessonCount: input.weeklyLessonCount,
+  const own = input.lessons.filter((l) => l.studentId === input.studentId);
+  if (own.length === 0) {
+    return estimatePeriodBillingLines({
+      enrollmentStartDay: input.enrollmentStartDay,
+      enrollmentEndDay: input.enrollmentEndDay,
+      monthlyFee: input.monthlyFee,
+      weeklyLessonCount: input.weeklyLessonCount,
+    });
+  }
+  /**
+   * 2026-10-04 KÖK NEDEN (Ela Özdoğan vakası): öğrencinin TEK bir gerçek dersi bile varsa TÜM dönemler
+   * yalnız gerçek derslerden sayılıyordu. Ders programı sözleşme sonundan önce bitiyorsa (seri 26 Haziran'a
+   * kadar üretilmiş, sözleşme 12 ay) programı olmayan son aylar 0 ders → 0 TL, programın ortasında biten
+   * ay da orantısız (alakasız) tutar alıyordu. Kural: gerçek programın KAPSADIĞI günler gerçek derslerden
+   * sayılır; programın son dersinden SONRAKİ günler projeksiyonla (haftalık sıklık) tamamlanır.
+   * Programın içindeki gerçek 0 (tatil, iptal, dondurma) aynen 0 kalır — geçerli ücretsiz ay engellenmez.
+   */
+  const coverageEnd = own.reduce((max, l) => {
+    const day = toZonedYmd(new Date(l.startAt), DEFAULT_APP_TIMEZONE);
+    return day > max ? day : max;
+  }, "");
+  const real = computePeriodBillingLines(input);
+  return real.map((line) => {
+    if (line.periodEnd <= coverageEnd) return line;
+    const projectedFrom = line.periodStart > coverageEnd ? line.periodStart : nextDay(coverageEnd);
+    // Son dersten sonra bir haftadan kısa kalan gün programın doğal aralığıdır (haftalık ders zaten düşmez);
+    // yalnız tam bir hafta ve üzeri programsız kalan kısım projekte edilir.
+    if (line.periodStart <= coverageEnd && inclusiveDayCount(projectedFrom, line.periodEnd) < 7) return line;
+    const projected = estimateBillableLessonCount(projectedFrom, line.periodEnd, input.weeklyLessonCount);
+    if (projected === 0) return line;
+    const billableLessonCount = line.billableLessonCount + projected;
+    return {
+      ...line,
+      billableLessonCount,
+      autoCalculatedAmount: computePeriodAmount(input.monthlyFee, input.weeklyLessonCount, billableLessonCount),
+      estimated: true,
+    };
   });
+}
+
+function nextDay(ymd: string): string {
+  const d = new Date(`${ymd}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
 }
 
 const PERIOD_LABELS: Record<PeriodKind, string> = {

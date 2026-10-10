@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 const ENV_KEYS = [
+  "ANTHROPIC_API_KEY",
+  "CLAUDE_MODEL",
   "GEMINI_API_KEY",
   "GOOGLE_API_KEY",
   "GEMINI_MODEL",
@@ -38,6 +40,20 @@ describe("resolveChainProviderConfig — her provider için env-tabanlı, hiç f
   it("heuristic her zaman configured döner (env gerekmez)", async () => {
     const { resolveChainProviderConfig } = await import("../ai/config");
     expect(resolveChainProviderConfig("heuristic")).toEqual({ id: "heuristic", configured: true });
+  });
+
+  it("claude: ANTHROPIC_API_KEY yoksa configured:false, varsa varsayılan model claude-opus-5-5 döner", async () => {
+    const { resolveChainProviderConfig } = await import("../ai/config");
+    expect(resolveChainProviderConfig("claude")).toEqual({ id: "claude", configured: false });
+    process.env.ANTHROPIC_API_KEY = "a-key";
+    expect(resolveChainProviderConfig("claude")).toMatchObject({
+      id: "claude",
+      configured: true,
+      apiKey: "a-key",
+      model: "claude-opus-5-5",
+    });
+    process.env.ANTHROPIC_API_KEY = "  ";
+    expect(resolveChainProviderConfig("claude").configured).toBe(false);
   });
 
   it("gemini: API anahtarı yoksa configured:false döner", async () => {
@@ -152,6 +168,13 @@ describe("resolveLiveProvider — chain provider'ları gerçek LlmProvider'a ç�
     expect(resolveLiveProvider("nvidiaNim")?.name).toBe("nvidiaNim");
   });
 
+  it("claude configured olduğunda kendi adapter'ına çözülür, değilse null döner", async () => {
+    const { resolveLiveProvider } = await import("../ai/provider-factory");
+    expect(resolveLiveProvider("claude")).toBeNull();
+    process.env.ANTHROPIC_API_KEY = "a-key";
+    expect(resolveLiveProvider("claude")?.name).toBe("claude");
+  });
+
   it("cloudflareAi configured olduğunda kendi adapter'ına çözülür", async () => {
     process.env.CLOUDFLARE_ACCOUNT_ID = "acc_1";
     process.env.CLOUDFLARE_API_TOKEN = "token_1";
@@ -161,11 +184,11 @@ describe("resolveLiveProvider — chain provider'ları gerçek LlmProvider'a ç�
 });
 
 describe("checkAllProviderHealth — hassas değer sızdırmadan tüm zinciri raporlar", () => {
-  it("PROVIDER_CHAIN'deki 5 provider için de bir kayıt döner (cloudflareAi auto zincirinde değil); unconfigured olanlar 'unconfigured', heuristic her zaman 'healthy'", async () => {
+  it("PROVIDER_CHAIN'deki 6 provider için de bir kayıt döner (cloudflareAi auto zincirinde değil); unconfigured olanlar 'unconfigured', heuristic her zaman 'healthy'", async () => {
     const { checkAllProviderHealth } = await import("../ai/metrics");
     const rows = await checkAllProviderHealth();
-    expect(rows).toHaveLength(5);
-    expect(rows.map((r) => r.id)).toEqual(["gemini", "groq", "nvidiaNim", "cerebras", "heuristic"]);
+    expect(rows).toHaveLength(6);
+    expect(rows.map((r) => r.id)).toEqual(["claude", "gemini", "groq", "nvidiaNim", "cerebras", "heuristic"]);
     const heuristic = rows.find((r) => r.id === "heuristic");
     expect(heuristic).toMatchObject({ configured: true, status: "healthy" });
     const gemini = rows.find((r) => r.id === "gemini");
@@ -186,10 +209,11 @@ describe("checkAllProviderHealth — hassas değer sızdırmadan tüm zinciri ra
   });
 });
 
-describe("PROVIDER_CHAIN sıralaması — auto mode order (Gemini → Groq → NVIDIA NIM → Cerebras → Heuristic)", () => {
-  it("PROVIDER_CHAIN tam olarak bu 5 adımı, bu sırayla içerir", async () => {
+describe("PROVIDER_CHAIN sıralaması — auto mode order (Claude → Gemini → Groq → NVIDIA NIM → Cerebras → Heuristic)", () => {
+  it("PROVIDER_CHAIN tam olarak bu 6 adımı, bu sırayla içerir", async () => {
     const { PROVIDER_CHAIN } = await import("../ai/provider-chain");
     expect(PROVIDER_CHAIN.map((p) => p.id)).toEqual([
+      "claude",
       "gemini",
       "groq",
       "nvidiaNim",
@@ -200,6 +224,7 @@ describe("PROVIDER_CHAIN sıralaması — auto mode order (Gemini → Groq → N
 
   it("nextProviderInChain zinciri baştan sona doğru sırayla ilerletir ve heuristic'te durur", async () => {
     const { nextProviderInChain } = await import("../ai/provider-chain");
+    expect(nextProviderInChain("claude")).toBe("gemini");
     expect(nextProviderInChain("gemini")).toBe("groq");
     expect(nextProviderInChain("groq")).toBe("nvidiaNim");
     expect(nextProviderInChain("nvidiaNim")).toBe("cerebras");

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { promises as fs } from "fs";
 import path from "path";
 import { resolveDataDir } from "../config";
@@ -265,6 +265,42 @@ describe("PORTAL-CONTRACT-001 — öğrenci/veli (STUDENT rolü) kendi fotoğraf
     expect(alreadyWithdrawn.ok).toBe(false);
     if (alreadyWithdrawn.ok) return;
     expect(alreadyWithdrawn.error.code).toBe("VALIDATION_ERROR");
+  });
+
+  /**
+   * 2026-09-20 KÖK NEDEN — "en güncel izin" yalnız `grantedAt` (milisaniye)
+   * ile seçiliyordu. Verilme ve geri çekilme AYNI milisaniyede olursa
+   * (hızlı istek zinciri / hızlı makine) sıralama kararsız kalıyor ve ÖNCE
+   * eklenen "granted" kaydı en güncel sanılıyordu: geri çekilmiş bir izin
+   * sistemde HÂLÂ VERİLMİŞ görünüyordu. KVKK açısından kabul edilemez.
+   */
+  it("aynı milisaniyede verilip geri çekilen izin GERİ ÇEKİLMİŞ okunur (tie-break)", async () => {
+    // Yalnız `Date` sahte — zamanlayıcılar gerçek kalır (dosya G/Ç asılmasın).
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-20T10:00:00.000Z"));
+    try {
+      await setSocialMediaConsentTool(ctx(), {
+        studentId: "s1",
+        status: "granted",
+        representativeName: "Selin Arslan",
+        relationship: "veli",
+        scopes: ["photo"],
+      });
+      await withdrawSocialMediaConsentTool(ctx(), { studentId: "s1" });
+    } finally {
+      vi.useRealTimers();
+    }
+
+    const latest = await getSocialMediaConsentTool(ctx(), { studentId: "s1" });
+    expect(latest.ok).toBe(true);
+    if (!latest.ok) return;
+    expect(latest.data.consent?.status).toBe("withdrawn");
+
+    // Tekrar geri çekme reddedilmeli — "zaten geri çekilmiş".
+    const again = await withdrawSocialMediaConsentTool(ctx(), { studentId: "s1" });
+    expect(again.ok).toBe(false);
+    if (again.ok) return;
+    expect(again.error.code).toBe("VALIDATION_ERROR");
   });
 
   it("başka öğrencinin rızasını geri çekmeye çalışan STUDENT FORBIDDEN alır", async () => {

@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
+import { CRIT, withTestCriticalPassword } from "./helpers/critical-delete";
 import { promises as fs } from "fs";
 import path from "path";
 import { resolveDataDir } from "../config";
@@ -36,6 +37,7 @@ function ctx(overrides?: Partial<ServiceContext>): ServiceContext {
 }
 
 beforeEach(async () => {
+  await withTestCriticalPassword();
   await fs.rm(DATA_FILE, { force: true });
   await fs.rm(TPL_FILE, { force: true });
   await fs.rm(INST_FILE, { force: true });
@@ -525,13 +527,25 @@ describe("İmzalı sürüm geçmişi — append-only + soft-delete + audit", () 
     expect(detail.data.document.signedVersions?.map((v) => v.fileName)).toEqual(["v1.pdf", "v2.pdf"]);
   });
 
+  it("kritik şifre yanlışsa sürüm kaldırılmaz", async () => {
+    const documentId = await seedDocWithSignedFile();
+    const detail = await getDocumentInstanceTool(ctx(), { documentId });
+    if (!detail.ok) throw new Error("detail failed");
+    const versionId = detail.data.document.signedVersions![0]!.id;
+    const del = await deleteSignedDocumentVersionTool(ctx(), { documentId, versionId, criticalPassword: "yanlis", reason: "Yanlış dosya" });
+    expect(del.ok).toBe(false);
+    const after = await getDocumentInstanceTool(ctx(), { documentId });
+    expect(after.ok && after.data.document.signedVersions![0]!.deletedAt).toBeFalsy();
+    expect(after.ok && after.data.document.fileName).toBeTruthy();
+  });
+
   it("sürüm silme soft-delete'tir — kayıt geçmişte 'deletedAt' ile kalır, hard delete olmaz", async () => {
     const documentId = await seedDocWithSignedFile();
     const detail = await getDocumentInstanceTool(ctx(), { documentId });
     if (!detail.ok) throw new Error("detail failed");
     const versionId = detail.data.document.signedVersions![0]!.id;
 
-    const del = await deleteSignedDocumentVersionTool(ctx(), { documentId, versionId });
+    const del = await deleteSignedDocumentVersionTool(ctx(), { documentId, versionId, ...CRIT });
     expect(del.ok).toBe(true);
 
     const after = await getDocumentInstanceTool(ctx(), { documentId });
@@ -547,7 +561,7 @@ describe("İmzalı sürüm geçmişi — append-only + soft-delete + audit", () 
     if (!detail.ok) throw new Error("detail failed");
     const currentVersionId = detail.data.document.signedVersions![0]!.id;
 
-    const del = await deleteSignedDocumentVersionTool(ctx(), { documentId, versionId: currentVersionId });
+    const del = await deleteSignedDocumentVersionTool(ctx(), { documentId, versionId: currentVersionId, ...CRIT });
     expect(del.ok).toBe(true);
     if (!del.ok) return;
     expect(del.data.status).toBe("sent_for_signature");
@@ -565,6 +579,7 @@ describe("İmzalı sürüm geçmişi — append-only + soft-delete + audit", () 
     const res = await deleteSignedDocumentVersionTool(ctx({ role: "TEACHER", teacherId: "t1" }), {
       documentId,
       versionId,
+      ...CRIT,
     });
     expect(res.ok).toBe(false);
     if (res.ok) return;

@@ -1,5 +1,9 @@
 # Test Database Safety — guard davranışı
 
+> ⚠️ **2026-10-01'den beri güncel değil:** canlı DB `wsbucznpujcfzhitzrbl`; `vxzewyiwfshobjizzetw` gerçek veri
+> taşıyan salt-okunur geri dönüş kaynağıdır (test hedefi DEĞİL); `uqkafczrplqitzumtrqy` artık erişilebilir değil.
+> Güncel model ve ortam haritası: `docs/operations/LOCAL_FIRST_DEPLOYMENT.md`.
+
 Tek kaynak: **`src/lib/env/test-target-guard.ts`**.
 Testleri: `src/lib/__tests__/test-target-guard.test.ts` (25 test).
 

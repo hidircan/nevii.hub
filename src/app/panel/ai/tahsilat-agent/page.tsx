@@ -1,4 +1,5 @@
-import Link from "next/link";
+import { listTerminalContractIdsForScope } from "@/lib/contracts";
+import Link from "@/components/link";
 import { redirect } from "next/navigation";
 import { AlertTriangle, ArrowRight, CircleDollarSign, Target, TrendingUp } from "lucide-react";
 import { Card, PageHeader, StatCard } from "@/components/ui";
@@ -18,7 +19,7 @@ export const dynamic = "force-dynamic";
 export default async function TahsilatAgentPage({
   searchParams,
 }: {
-  searchParams: Promise<{ studentId?: string }>;
+  searchParams: Promise<{ studentId?: string; returnTo?: string }>;
 }) {
   let session;
   try {
@@ -27,7 +28,14 @@ export default async function TahsilatAgentPage({
     redirect("/login?next=/panel/ai/tahsilat-agent");
   }
 
-  const { studentId: studentFilter } = await searchParams;
+  const { studentId: studentFilter, returnTo } = await searchParams;
+  // Entry point'e göre geri etiketi: Ödemeler'den gelindiyse AI Özet'e değil
+  // Ödemeler'e dönülür (BackButton returnTo önceliği + mantıklı fallback).
+  const fromPayments =
+    typeof returnTo === "string" &&
+    (returnTo === "/panel/odemeler" || returnTo.startsWith("/panel/odemeler/"));
+  const backFallbackHref = fromPayments ? "/panel/odemeler" : "/panel/ai";
+  const backLabel = fromPayments ? "Ödemelere dön" : "AI Özet'e dön";
   const kurum = await getInstitutionContext(session);
   const tenantIds = kurum.scope.mode === "all" ? kurum.scope.tenantIds : [kurum.scope.tenantId];
   const data = await readScopedData(kurum.scope);
@@ -41,7 +49,8 @@ export default async function TahsilatAgentPage({
     ? data.students.find((s) => s.id === studentFilter)
     : undefined;
 
-  const rows = buildTahsilatQueue(data, followUpCases, new Date(), studentFilter);
+  const terminalContractIds = await listTerminalContractIdsForScope(kurum.scope);
+  const rows = buildTahsilatQueue(data, followUpCases, new Date(), studentFilter, terminalContractIds);
   const overdueCount = rows.filter((r) => r.paymentStatus === "overdue").length;
   const trackedOutstanding = rows.reduce((sum, r) => sum + r.remaining, 0);
   const successRateLabel = roi.successRate === null ? "—" : `%${Math.round(roi.successRate * 100)}`;
@@ -49,7 +58,7 @@ export default async function TahsilatAgentPage({
   return (
     <div>
       <KurumScopeNote scope={kurum.scope} />
-      <BackButton fallbackHref="/panel/ai" label="AI Özet'e dön" className="mb-3" />
+      <BackButton fallbackHref={backFallbackHref} label={backLabel} className="mb-3" />
       <PageHeader
         title="Tahsilat"
         actions={
@@ -68,7 +77,11 @@ export default async function TahsilatAgentPage({
                 : "Bu öğrenci için kayıt bulunamadı — filtre boş sonuç veriyor."}
             </p>
             <Link
-              href="/panel/ai/tahsilat-agent"
+              href={
+                returnTo
+                  ? `/panel/ai/tahsilat-agent?returnTo=${encodeURIComponent(returnTo)}`
+                  : "/panel/ai/tahsilat-agent"
+              }
               className="text-sm font-medium text-amber-700 hover:text-amber-900"
             >
               Tümünü göster ×

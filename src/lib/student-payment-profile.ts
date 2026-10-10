@@ -28,9 +28,18 @@ export type StudentMonthlyAmount = {
   netAmount: number | null;
 };
 
+/**
+ * İki sözlük aynı kolonda yaşar: kayıt/kampanya motoru "percent"/"amount" (packages.ts),
+ * bu ekranın editörü "percentage"/"fixed" yazar. 2026-09-30 — "percent" burada TL sanılıyordu:
+ * %100 kampanyalı öğrenci "₺100 indirim, net 6.900" görünüyordu (gerçek ücret 0).
+ */
+export function isPercentDiscount(discountType?: DiscountType): boolean {
+  return discountType === "percent" || discountType === "percentage";
+}
+
 function computeDiscountAmount(basePrice: number, discountType?: DiscountType, discountValue?: number): number {
   if (!discountType || !discountValue || discountValue <= 0) return 0;
-  if (discountType === "percentage") {
+  if (isPercentDiscount(discountType)) {
     const pct = Math.min(discountValue, 100);
     return Math.round((basePrice * pct) / 100);
   }
@@ -72,7 +81,7 @@ export function validateDiscount(discountType: DiscountType | undefined, discoun
   if (!Number.isFinite(discountValue) || discountValue < 0) {
     return "İndirim değeri negatif olamaz.";
   }
-  if (discountType === "percentage" && discountValue > 100) {
+  if (isPercentDiscount(discountType) && discountValue > 100) {
     return "Yüzde indirim 100'ü geçemez.";
   }
   return null;

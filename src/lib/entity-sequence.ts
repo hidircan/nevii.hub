@@ -29,11 +29,22 @@ const DISPLAY_ID_PREFIX: Record<EntityTypeForSequence, string> = {
   student: "S",
   teacher: "T",
   staff: "P",
+  package: "PKT-",
+  campaign: "KMP-",
+};
+
+/** Paket/kampanya 3 hane (PKT-001), diğerleri 5 hane (S00001). Taşmada doğal genişler. */
+const DISPLAY_ID_WIDTH: Record<EntityTypeForSequence, number> = {
+  student: 5,
+  teacher: 5,
+  staff: 5,
+  package: 3,
+  campaign: 3,
 };
 
 /** "S" + 5 haneli sıfır-dolgulu numara (ör. S00001). 99999'u aşarsa doğal olarak genişler (S100000). */
 export function formatDisplayId(entityType: EntityTypeForSequence, value: number): string {
-  return `${DISPLAY_ID_PREFIX[entityType]}${String(value).padStart(5, "0")}`;
+  return `${DISPLAY_ID_PREFIX[entityType]}${String(value).padStart(DISPLAY_ID_WIDTH[entityType], "0")}`;
 }
 
 /**

@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { Card, EmptyState, PageHeader } from "@/components/ui";
 import { requireHyperAdminPage } from "@/lib/platform/session";
 import { getReleaseCenter } from "@/lib/platform/releases";

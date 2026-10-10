@@ -14,6 +14,51 @@
  * açan kök nedendi.
  */
 
-export function findLatestActiveContractForRenewal<T extends { status: string }>(contracts: T[]): T | null {
-  return contracts.find((c) => c.status !== "superseded" && c.status !== "cancelled") ?? null;
+/** İptal veya yenilenmiş sürüm — asla "güncel sözleşme" değildir. */
+export function isTerminalContractStatus(status: string): boolean {
+  return status === "cancelled" || status === "superseded";
+}
+
+/**
+ * Güncel sözleşme TEK kuralı:
+ * 1. cancelled / superseded elenir (iptal edilmiş kayıt asla güncel değildir).
+ * 2. Kalanlar arasında en yüksek `versionNumber`.
+ * 3. Versiyon eşitse en yeni `createdAt`, o da eşitse id.
+ * Hepsi terminal ise null — "son iptal edilen" güncel sayılmaz.
+ */
+export function selectCurrentContract<
+  T extends { status: string; versionNumber?: number; createdAt?: string; id?: string },
+>(contracts: T[]): T | null {
+  const live = contracts.filter((c) => !isTerminalContractStatus(c.status));
+  if (live.length === 0) return null;
+  return [...live].sort(compareContractRecency)[0] ?? null;
+}
+
+/** Liste sırası: güncel üstte, sonra geçmiş (en yeni önce). */
+export function sortContractsForDisplay<
+  T extends { status: string; versionNumber?: number; createdAt?: string; id?: string },
+>(contracts: T[]): T[] {
+  const current = selectCurrentContract(contracts);
+  const rest = contracts
+    .filter((c) => c !== current)
+    .sort(compareContractRecency);
+  return current ? [current, ...rest] : rest;
+}
+
+function compareContractRecency<
+  T extends { versionNumber?: number; createdAt?: string; id?: string },
+>(a: T, b: T): number {
+  const av = a.versionNumber ?? 0;
+  const bv = b.versionNumber ?? 0;
+  if (av !== bv) return bv - av;
+  const ac = a.createdAt ?? "";
+  const bc = b.createdAt ?? "";
+  if (ac !== bc) return bc.localeCompare(ac);
+  return (b.id ?? "").localeCompare(a.id ?? "");
+}
+
+export function findLatestActiveContractForRenewal<
+  T extends { status: string; versionNumber?: number; createdAt?: string; id?: string },
+>(contracts: T[]): T | null {
+  return selectCurrentContract(contracts);
 }

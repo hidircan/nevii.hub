@@ -19,6 +19,7 @@ import type {
   StudentCurriculumTopic,
   Task,
 } from "../types";
+import { MEB_EXAM_STATUS_LABELS, resolveMebExamStatus } from "../meb";
 
 export type ExportEntity =
   | "students"
@@ -126,6 +127,12 @@ export function buildInstitutionExport(
         "aktif",
         "notlar",
         "kayitTarihi",
+        // MEB Paneli — yedek/dışa aktarma MEB alanlarını da taşır (eksikse boş hücre).
+        "mebSeviye",
+        "mebDonemBaslangic",
+        "mebDonemBitis",
+        "mebSinavTarihi",
+        "mebSinavDurumu",
       ],
       data.students.map((s) => ({
         id: s.id,
@@ -143,6 +150,11 @@ export function buildInstitutionExport(
         aktif: s.active,
         notlar: s.notes,
         kayitTarihi: s.createdAt,
+        mebSeviye: s.level ?? "",
+        mebDonemBaslangic: s.mebLevelStartDate ?? "",
+        mebDonemBitis: s.mebLevelEndDate ?? "",
+        mebSinavTarihi: s.mebExamDate ?? "",
+        mebSinavDurumu: MEB_EXAM_STATUS_LABELS[resolveMebExamStatus(s)],
       }))
     );
   }

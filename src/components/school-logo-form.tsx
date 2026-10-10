@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Label } from "@/components/ui";
 import { actionImportSchoolLogoFromUrl, actionUpdateSchoolLogo } from "@/lib/actions";
+import { logoUrlStamp, withLogoVersion } from "@/lib/institution-logo";
 
 /**
  * P0 (2026-09-05) — bu üç sabit, sunucudaki gerçek doğrulamayla (tools.ts
@@ -22,7 +23,9 @@ export function SchoolLogoForm({ currentLogoUrl }: { currentLogoUrl?: string }) 
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
-  const [preview, setPreview] = useState<string | null>(currentLogoUrl || null);
+  const [preview, setPreview] = useState<string | null>(
+    currentLogoUrl ? withLogoVersion(currentLogoUrl, logoUrlStamp(currentLogoUrl)) ?? currentLogoUrl : null
+  );
   /** Kayıtlı logo yüklenemezse (bozuk/erişilemez veri) KIRIK GÖRSEL gösterilmez — güvenli metin geri dönüşü. */
   const [previewBroken, setPreviewBroken] = useState(false);
   /**
@@ -91,7 +94,7 @@ export function SchoolLogoForm({ currentLogoUrl }: { currentLogoUrl?: string }) 
         setError(result.message);
         return;
       }
-      setPreview(result.logoUrl);
+      setPreview(withLogoVersion(result.logoUrl, String(Date.now())) ?? result.logoUrl);
       setPreviewBroken(false);
       router.refresh();
     });
@@ -104,7 +107,7 @@ export function SchoolLogoForm({ currentLogoUrl }: { currentLogoUrl?: string }) 
         setError(result.message);
         return;
       }
-      setPreview(result.logoUrl);
+      setPreview(withLogoVersion(result.logoUrl, String(Date.now())) ?? result.logoUrl);
       setPreviewBroken(false);
       router.refresh();
     });
@@ -115,7 +118,7 @@ export function SchoolLogoForm({ currentLogoUrl }: { currentLogoUrl?: string }) 
       {preview && !previewBroken ? (
         // Beyaz güvenli alan — koyu temada koyu bir logo kaybolmaz (sözleşme/
         // e-posta çıktısındaki `institutionLogoHtml` ile AYNI yaklaşım).
-        <span className="inline-block rounded-lg bg-white p-2">
+        <span className="inline-block rounded-lg bg-[#fff] p-2">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={preview}

@@ -1,133 +1,48 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { Loader2 } from "lucide-react";
-import { actionMarkTeacherPayoutPaid } from "@/lib/actions";
-import { Badge, Button, Card, Input } from "@/components/ui";
+import { Card } from "@/components/ui";
 import { formatDate, formatMoney } from "@/lib/utils";
 import type { TeacherPayout } from "@/lib/types";
+import { payoutPaymentRows } from "@/lib/payout-ledger";
 
-function PendingPayoutRow({ payout }: { payout: TeacherPayout }) {
-  const router = useRouter();
-  const [method, setMethod] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+const METHOD_LABEL: Record<string, string> = {
+  cash: "Nakit",
+  transfer: "Havale",
+};
 
-  async function handleMarkPaid() {
-    setSubmitting(true);
-    setError(null);
-    const result = await actionMarkTeacherPayoutPaid({ payoutId: payout.id, method: method || undefined });
-    setSubmitting(false);
-    if (!result.ok) {
-      setError(result.message);
-      return;
-    }
-    router.refresh();
-  }
-
-  return (
-    <tr className="border-b border-slate-50 dark:border-slate-800">
-      <td className="px-4 py-3 text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
-        {formatDate(payout.periodStart)} – {formatDate(payout.periodEnd)}
-      </td>
-      <td className="px-4 py-3 text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">{payout.totalMinutes} dk</td>
-      <td className="px-4 py-3 font-medium text-[var(--color-text)] dark:text-slate-50">{formatMoney(payout.totalAmount)}</td>
-      <td className="px-4 py-3">
-        <Badge status={payout.status} />
-      </td>
-      <td className="px-4 py-3">
-        <div className="flex items-center gap-2">
-          <Input
-            type="text"
-            placeholder="Ödeme yöntemi (opsiyonel)"
-            value={method}
-            onChange={(e) => setMethod(e.target.value)}
-            className="w-40 !py-1.5 text-xs"
-          />
-          <Button
-            type="button"
-            variant="secondary"
-            className="!py-1.5 text-xs"
-            onClick={handleMarkPaid}
-            disabled={submitting}
-          >
-            {submitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-            Ödendi olarak işaretle
-          </Button>
-        </div>
-        {error ? <p className="mt-1 text-xs text-rose-600">{error}</p> : null}
-      </td>
-    </tr>
-  );
-}
-
+/** Gerçekleşen ödeme satırları (kısmi ödemeler ayrı satır; ters kaydı yapılanlar girmez). */
 export function TeacherPayoutHistory({ payouts }: { payouts: TeacherPayout[] }) {
-  const pending = payouts
-    .filter((p) => p.status === "pending")
-    .sort((a, b) => b.periodStart.localeCompare(a.periodStart));
-  const paid = payouts
-    .filter((p) => p.status === "paid")
-    .sort((a, b) => b.periodStart.localeCompare(a.periodStart));
+  const rows = payoutPaymentRows(payouts);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       <div>
-        <h2 className="mb-3 text-lg font-semibold text-[var(--color-text)] dark:text-slate-50">Bekleyen alacaklar</h2>
-        {pending.length === 0 ? (
+        {rows.length === 0 ? (
           <Card>
-            <p className="text-sm text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">Bekleyen hakediş kaydı yok.</p>
+            <p className="text-sm text-[var(--color-text-muted)]">Henüz yapılmış hakediş ödemesi yok.</p>
           </Card>
         ) : (
           <Card className="overflow-hidden p-0">
             <table className="w-full text-left text-sm">
-              <thead className="border-b border-[var(--color-border)] bg-[var(--color-surface-muted)] text-xs uppercase tracking-wide text-[var(--color-text-muted)] dark:border-slate-800 dark:bg-slate-900/60 dark:text-[var(--color-text-muted)]">
+              <thead className="border-b border-[var(--color-border)] bg-[var(--color-surface-muted)] text-xs uppercase tracking-wide text-[var(--color-text-muted)]">
                 <tr>
-                  <th className="px-4 py-3">Dönem</th>
-                  <th className="px-4 py-3">Dakika</th>
-                  <th className="px-4 py-3">Tutar</th>
-                  <th className="px-4 py-3">Durum</th>
-                  <th className="px-4 py-3">İşlem</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pending.map((p) => (
-                  <PendingPayoutRow key={p.id} payout={p} />
-                ))}
-              </tbody>
-            </table>
-          </Card>
-        )}
-      </div>
-
-      <div>
-        <h2 className="mb-3 text-lg font-semibold text-[var(--color-text)] dark:text-slate-50">Geçmiş ödemeler</h2>
-        {paid.length === 0 ? (
-          <Card>
-            <p className="text-sm text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">Henüz ödenmiş hakediş kaydı yok.</p>
-          </Card>
-        ) : (
-          <Card className="overflow-hidden p-0">
-            <table className="w-full text-left text-sm">
-              <thead className="border-b border-[var(--color-border)] bg-[var(--color-surface-muted)] text-xs uppercase tracking-wide text-[var(--color-text-muted)] dark:border-slate-800 dark:bg-slate-900/60 dark:text-[var(--color-text-muted)]">
-                <tr>
-                  <th className="px-4 py-3">Dönem</th>
-                  <th className="px-4 py-3">Dakika</th>
-                  <th className="px-4 py-3">Tutar</th>
                   <th className="px-4 py-3">Ödeme tarihi</th>
+                  <th className="px-4 py-3">Hakediş dönemi</th>
+                  <th className="px-4 py-3">Tutar</th>
                   <th className="px-4 py-3">Yöntem</th>
+                  <th className="px-4 py-3">Not</th>
                 </tr>
               </thead>
               <tbody>
-                {paid.map((p) => (
-                  <tr key={p.id} className="border-b border-slate-50 dark:border-slate-800">
-                    <td className="px-4 py-3 text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
-                      {formatDate(p.periodStart)} – {formatDate(p.periodEnd)}
+                {rows.map((r) => (
+                  <tr key={r.key} className="border-b border-[var(--color-border)]">
+                    <td className="px-4 py-3 text-[var(--color-text-muted)]">{formatDate(r.paidAt)}</td>
+                    <td className="px-4 py-3 text-[var(--color-text-muted)]">
+                      {formatDate(r.periodStart)} – {formatDate(r.periodEnd)}
                     </td>
-                    <td className="px-4 py-3 text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">{p.totalMinutes} dk</td>
-                    <td className="px-4 py-3 font-medium text-[var(--color-text)] dark:text-slate-50">{formatMoney(p.totalAmount)}</td>
-                    <td className="px-4 py-3 text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">{p.paidAt ? formatDate(p.paidAt) : "—"}</td>
-                    <td className="px-4 py-3 text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">{p.method ?? "—"}</td>
+                    <td className="px-4 py-3 font-medium text-[var(--color-text)]">{formatMoney(r.amount)}</td>
+                    <td className="px-4 py-3 text-[var(--color-text-muted)]">{r.method ? METHOD_LABEL[r.method] ?? r.method : "—"}</td>
+                    <td className="px-4 py-3 text-[var(--color-text-muted)]">{r.note ?? "—"}</td>
                   </tr>
                 ))}
               </tbody>

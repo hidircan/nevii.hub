@@ -73,6 +73,7 @@ export async function POST(request: Request) {
         leavePending: summary.leavePending,
         paymentTenantErrors: summary.paymentTenantErrors,
         leaveTenantErrors: summary.leaveTenantErrors,
+        contractExpiring: summary.contractExpiring,
       },
     });
     return Response.json({ ok: true, data: summary });

@@ -103,10 +103,10 @@ describe("Yoklama kapanışı — Gelmedi / Mazeretli", () => {
     if (second.ok) expect(second.data.alreadySet).toBe(true);
   });
 
-  it("TEACHER kendi dersinde Gelmedi/Mazeretli işaretleyebilir, başka öğretmenin dersinde işaretleyemez (RBAC/IDOR)", async () => {
+  it("TEACHER Gelmedi/Mazeretli işaretleyemez — kendi dersinde de, başkasınınkinde de (2026-09-17: yoklama yalnız yöneticide)", async () => {
     const lessonId = await createTestLesson();
     const own = await setLessonOpsFlagTool(ctx({ role: "TEACHER", teacherId: "t1" }), { lessonId, flag: "absent" });
-    expect(own.ok).toBe(true);
+    expect(own.ok).toBe(false);
 
     const lessonId2 = await createTestLesson();
     const other = await setLessonOpsFlagTool(ctx({ role: "TEACHER", teacherId: "t2", userId: "teacher2" }), {

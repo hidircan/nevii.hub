@@ -109,7 +109,7 @@ function PendingItemForm({ item, onSubmitted }: { item: PendingPeriodicItem; onS
               className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm outline-none ring-amber-200 focus:ring-2"
             />
           </div>
-          {error ? <p className="text-xs font-medium text-[#8b3a3a]">{error}</p> : null}
+          {error ? <p className="text-xs font-medium text-[var(--color-danger)]">{error}</p> : null}
           <div className="flex gap-2">
             <Button type="button" disabled={busy} onClick={() => void submit()}>
               {busy ? "Gönderiliyor…" : "Gönder"}

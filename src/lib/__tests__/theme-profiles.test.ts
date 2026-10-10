@@ -45,7 +45,7 @@ describe("normalizeFontChoice — varsayılan Inter", () => {
 });
 
 describe("Sabitler", () => {
-  it("THEME_PROFILE_VALUES tam olarak dokuz profili içerir", () => {
+  it("THEME_PROFILE_VALUES tam olarak on profili içerir (Control Center: homebrew)", () => {
     expect(THEME_PROFILE_VALUES).toEqual([
       "gold",
       "obsidian",
@@ -56,6 +56,7 @@ describe("Sabitler", () => {
       "lavender",
       "atolye",
       "murekkep",
+      "homebrew",
     ]);
   });
 
@@ -77,7 +78,7 @@ describe("Sabitler", () => {
     expect(new Set(FONT_VALUES).size).toBe(FONT_VALUES.length);
   });
 
-  it("yedi tema profilinin hepsi FARKLI değerlerdir", () => {
+  it("on tema profilinin hepsi FARKLI değerlerdir", () => {
     expect(new Set(THEME_PROFILE_VALUES).size).toBe(THEME_PROFILE_VALUES.length);
   });
 });
@@ -92,7 +93,7 @@ describe("Gold + Obsidian — kritik profil sözleşmesi (bu sprint)", () => {
     expect(normalizeThemeProfile("obsidian")).toBe("obsidian");
   });
 
-  it("yedi temanın tamamı için etiket tanımlıdır (eksik/undefined yok)", () => {
+  it("on temanın tamamı için etiket tanımlıdır (eksik/undefined yok)", () => {
     for (const profile of THEME_PROFILE_VALUES) {
       expect(typeof THEME_PROFILE_LABELS[profile]).toBe("string");
       expect(THEME_PROFILE_LABELS[profile].length).toBeGreaterThan(0);

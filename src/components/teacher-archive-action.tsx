@@ -69,7 +69,7 @@ export function TeacherArchiveAction({
         >
           <RotateCcw className="h-3.5 w-3.5" /> {pending ? "Aktifleştiriliyor…" : "Yeniden Aktifleştir"}
         </button>
-        {error ? <p className="mt-1 text-xs font-medium text-[#8b3a3a]">{error}</p> : null}
+        {error ? <p className="mt-1 text-xs font-medium text-[var(--color-danger)]">{error}</p> : null}
       </div>
     );
   }

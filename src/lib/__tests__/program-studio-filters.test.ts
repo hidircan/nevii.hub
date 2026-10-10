@@ -321,8 +321,8 @@ describe("lessonCardStatusVisual — ders programı tam-kutu durum renkleri (202
     expect(lessonCardStatusVisual(l, now)).toBe("processed");
   });
 
-  it("telafi dersi (type='makeup' veya opsMakeupFlag) → 'makeup'", () => {
-    expect(lessonCardStatusVisual(lesson({ type: "makeup" }), now)).toBe("makeup");
+  it("kaçan ders (opsMakeupFlag) → 'makeup'; Telafi Merkezi'nden planlanan ders (type='makeup') → 'makeup_planned' (2026-09-30)", () => {
+    expect(lessonCardStatusVisual(lesson({ type: "makeup" }), now)).toBe("makeup_planned");
     expect(lessonCardStatusVisual(lesson({ opsMakeupFlag: true }), now)).toBe("makeup");
   });
 

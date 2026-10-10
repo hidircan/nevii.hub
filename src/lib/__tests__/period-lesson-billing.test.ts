@@ -454,13 +454,59 @@ describe("computePeriodBillingPreview — TEK giriş noktası (kayıt önizlemes
     expect(lines[0].estimated).toBe(true);
   });
 
-  it("gerçek ders VARSA kesin sayar (estimated:false), tahmini YOK SAYAR", () => {
+  it("gerçek ders programı dönemi kapsıyorsa kesin sayar (estimated:false), tahmini YOK SAYAR", () => {
     const lines = computePeriodBillingPreview({
       ...previewBase,
-      lessons: [lesson("l1", "2026-09-15"), lesson("l2", "2026-09-17")],
+      lessons: [lesson("l1", "2026-09-15"), lesson("l2", "2026-09-17"), lesson("l3", "2026-09-22"), lesson("l4", "2026-09-24")],
     });
     expect(lines[0].estimated).toBe(false);
-    expect(lines[0].billableLessonCount).toBe(2);
+    expect(lines[0].billableLessonCount).toBe(4);
+  });
+
+  it("2026-10-04 Ela vakası: program sözleşme bitmeden biterse son aylar 0 TL OLMAZ, projeksiyonla tam ücret", () => {
+    // Haftada 1 ders (Salı), program 2026-09-01 → 2027-06-29; sözleşme 12 ay (Eylül 2026 – Ağustos 2027).
+    const lessons: ReturnType<typeof lesson>[] = [];
+    for (let d = new Date("2026-09-01T09:00:00Z"); d <= new Date("2027-06-29T09:00:00Z"); d.setUTCDate(d.getUTCDate() + 7)) {
+      lessons.push(lesson(`w${lessons.length}`, d.toISOString().slice(0, 10)));
+    }
+    const lines = computePeriodBillingPreview({
+      enrollmentStartDay: "2026-09-01",
+      enrollmentEndDay: "2027-08-31",
+      monthlyFee: 6000,
+      weeklyLessonCount: 1,
+      studentId: "s1",
+      makeupRequests: [],
+      lessons,
+    });
+    expect(lines).toHaveLength(12);
+    const july = lines.find((l) => l.periodStart === "2027-07-01")!;
+    const august = lines.find((l) => l.periodStart === "2027-08-01")!;
+    expect(july.autoCalculatedAmount).toBe(6000);
+    expect(august.autoCalculatedAmount).toBe(6000);
+    expect(july.estimated).toBe(true);
+    // Programın kapsadığı aylar gerçek dersten sayılır ve projeksiyon eklenmez.
+    const june = lines.find((l) => l.periodStart === "2027-06-01")!;
+    expect(june.estimated).toBe(false);
+    expect(june.autoCalculatedAmount).toBe(6000);
+  });
+
+  it("programın İÇİNDEKİ gerçek 0 (tüm dersler iptal) korunur — geçerli ücretsiz ay engellenmez", () => {
+    const lines = computePeriodBillingPreview({
+      enrollmentStartDay: "2026-09-01",
+      enrollmentEndDay: "2026-11-30",
+      monthlyFee: 4000,
+      weeklyLessonCount: 1,
+      studentId: "s1",
+      makeupRequests: [],
+      lessons: [
+        lesson("a", "2026-09-08"),
+        { ...lesson("b", "2026-10-06"), status: "cancelled" as const },
+        { ...lesson("c", "2026-10-13"), status: "cancelled" as const },
+        lesson("d", "2026-11-24"),
+      ],
+    });
+    expect(lines[1].autoCalculatedAmount).toBe(0);
+    expect(lines[1].estimated).toBe(false);
   });
 });
 
@@ -488,7 +534,7 @@ describe("derivePerLessonAmount — ACİL DÜZELTME (2026-09-02): yöneticinin g
     expect(Number.isFinite(derivePerLessonAmount(0, 1))).toBe(true);
   });
 
-  it("4) gerçek takvimde referanstan FAZLA ders varsa dönem tutarı da fazla olur (10 ders × 500 = 5.000)", () => {
+  it("4) gerçek takvimde referanstan FAZLA ders olsa da ücret en fazla referans kadar ders üzerinden (10 ders görünür, 8 ders = 4.000 TL) — sahip kararı 2026-09-17", () => {
     const derived = derivePerLessonAmount(4000, 2);
     const lessons = [1, 3, 5, 8, 10, 15, 17, 20, 24, 27].map((d, i) =>
       lesson(`d${i}`, `2026-09-${String(d).padStart(2, "0")}`)
@@ -503,7 +549,7 @@ describe("derivePerLessonAmount — ACİL DÜZELTME (2026-09-02): yöneticinin g
       makeupRequests: [],
     });
     expect(lines[0].billableLessonCount).toBe(10);
-    expect(lines[0].autoCalculatedAmount).toBe(5000);
+    expect(lines[0].autoCalculatedAmount).toBe(4000);
     // Ders başı tutar artık yalnız GÖSTERİM alanıdır; motor bunu aylık
     // ücretten kendisi türetir, çağırandan almaz.
     expect(lines[0].perLessonNetFee).toBe(derived);
@@ -511,20 +557,44 @@ describe("derivePerLessonAmount — ACİL DÜZELTME (2026-09-02): yöneticinin g
 });
 
 describe("countExactWeekdayLessons — P0-C seçilen ders günlerinin dönem içinde TAM sayısı", () => {
-  it("tek gün (Pazartesi=1), tam Eylül 2026 ayı: 4 Pazartesi", () => {
-    expect(countExactWeekdayLessons("2026-09-01", "2026-09-30", [1])).toBe(4);
+  /**
+   * 2026-09-20 — sayım artık ÇALIŞMA GÜNÜ tek kaynağından geçer: kapalı bir
+   * güne ders planlanamadığı için o gün ücrete de girmez. Bu yüzden
+   * senaryolar Güz döneminde AÇIK olan günlerle (Salı=2, Perşembe=4) kurulur;
+   * Pazartesi (kapalı gün) davranışı ayrıca aşağıda doğrulanır.
+   */
+  const GUZ = { term: "guz" as const, overrides: [] };
+
+  it("tek gün (Salı=2), tam Eylül 2026 ayı: 5 Salı (1, 8, 15, 22, 29)", () => {
+    expect(countExactWeekdayLessons("2026-09-01", "2026-09-30", [2], GUZ)).toBe(5);
   });
 
-  it("iki farklı gün (Pazartesi+Perşembe), tam Eylül 2026 ayı: 4+4=8", () => {
-    expect(countExactWeekdayLessons("2026-09-01", "2026-09-30", [1, 4])).toBe(8);
+  it("iki farklı gün (Salı+Perşembe), tam Eylül 2026 ayı: 5+4=9", () => {
+    expect(countExactWeekdayLessons("2026-09-01", "2026-09-30", [2, 4], GUZ)).toBe(9);
   });
 
-  it("kısa ilk dönem (15 Eylül - 30 Eylül), yalnız Pazartesi: 21 ve 28 → 2", () => {
-    expect(countExactWeekdayLessons("2026-09-15", "2026-09-30", [1])).toBe(2);
+  it("kısa ilk dönem (15 Eylül - 30 Eylül), yalnız Salı: 15, 22, 29 → 3", () => {
+    expect(countExactWeekdayLessons("2026-09-15", "2026-09-30", [2], GUZ)).toBe(3);
+  });
+
+  it("Güz döneminin kapalı günü (Pazartesi) ücretlendirilmez; zorla açılırsa sayılır", () => {
+    expect(countExactWeekdayLessons("2026-09-01", "2026-09-30", [1], GUZ)).toBe(0);
+    expect(
+      countExactWeekdayLessons("2026-09-01", "2026-09-30", [1], {
+        term: "guz",
+        overrides: [
+          {
+            date: "2026-09-07",
+            name: "Telafi günü",
+            isOpen: true,
+          },
+        ],
+      })
+    ).toBe(1);
   });
 
   it("boş gün listesi → 0, aralık ters ise → 0 (negatif/hatalı değer YOK)", () => {
-    expect(countExactWeekdayLessons("2026-09-01", "2026-09-30", [])).toBe(0);
-    expect(countExactWeekdayLessons("2026-09-30", "2026-09-01", [1])).toBe(0);
+    expect(countExactWeekdayLessons("2026-09-01", "2026-09-30", [], GUZ)).toBe(0);
+    expect(countExactWeekdayLessons("2026-09-30", "2026-09-01", [2], GUZ)).toBe(0);
   });
 });

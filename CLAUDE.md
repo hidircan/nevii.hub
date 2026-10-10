@@ -16,6 +16,11 @@ low-token "resume from here" snapshot of current focus and open work) **and
 them). Update `PROJECT_STATE.md`'s "Current focus"/"Open work" at the end of a work session, and
 append to `LESSONS_LEARNED.md` when a real mistake is found and fixed.
 
+**Task router:** `.claude/skills/nevii-hub/SKILL.md` — which topic skill/doc to read, where a change
+belongs, local→test→prod limits, finance single-source rule, validation/deploy order, session-end
+updates. Claude Code lists project skills from `.claude/skills/*/SKILL.md` automatically, but picking
+one is a model judgement, not guaranteed — start a session with `/nevii-hub <istek>` to force it.
+
 ## Commands
 
 ```bash
@@ -43,9 +48,15 @@ environment.
 `npm run typecheck` → `npm run lint` → `npm test` → `npx prisma validate` → `npm run build`.
 
 **Test gotcha:** `vitest.config.mts` sets `fileParallelism: false` — every test file shares the
-same on-disk `STORE_MODE=json` store (`/tmp/notaplan-data/store.json` in CI, `./data` locally),
-so running files in parallel produces flaky cross-test data corruption. Don't try to work around
-this; it's intentional. Tests always run with `STORE_MODE=json`, `VERCEL=1`.
+same on-disk `STORE_MODE=json` store and deletes it in `beforeEach`, so running files in parallel
+produces flaky cross-test data corruption. Don't try to work around this; it's intentional.
+Tests always run with `STORE_MODE=json`, `VERCEL=1`.
+
+Since 2026-09-20 **each run** gets its own data directory (`NOTAPLAN_DATA_DIR`, set per-process in
+`vitest.config.mts`), so concurrent runs — two worktrees, or a full-suite run plus a single-file
+run in the same worktree — can never wipe each other's store. If you still see a failing set that
+**changes between runs**, that is cross-process interference, not a regression — a real regression
+is deterministic.
 
 **No `.env.example`** exists yet — copy the vars referenced in `src/lib/config.ts`,
 `src/lib/auth/config.ts`, and `src/lib/ai/config.ts` (`STORE_MODE`, `DATABASE_URL`, `JWT_SECRET`,
@@ -129,7 +140,7 @@ Three execution surfaces share the same Tool Layer/Agent Runtime:
    voice, MCP).
 
 **Provider chain** (`src/lib/ai/provider-chain.ts`, `config.ts`, `provider-bridge.ts`): `auto`
-mode tries Gemini → Groq → NVIDIA NIM → Cerebras → heuristic, in that fixed order, skipping any
+mode tries Claude (Anthropic, `providers/claude.ts`, official `@anthropic-ai/sdk`) → Gemini → Groq → NVIDIA NIM → Cerebras → heuristic, in that fixed order, skipping any
 provider with a missing/blank key and never retrying a provider after an auth/key failure
 (`isAuthConfigError`); heuristic (`providers/heuristic.ts`, keyless, regex-based intent
 detection) is the deterministic final fallback and is always "configured". Gemini needs its own
@@ -167,6 +178,14 @@ cold start, serverless demo without disk). On Vercel/Lambda, `json` mode writes 
 the repo (`resolveDataDir`). The AI platform's own persistence (follow-up cases, workflow
 state/runs, conversations, memory) follows the same per-mode parity contract.
 
+**Read only what the screen needs (DB egress, 2026-09-30).** `readData()`/`readScopedData()` hydrate
+the tenant's ENTIRE `School` + relations (~1.8 MB per call on test data) and were the dominant Supabase
+egress. Prefer the typed slices in `src/lib/reference-data.ts` (`readReferenceData`, `readStudentScope`,
+`readLessonWindow`, `readStudentListData`, `readPaymentsPageData`, `readStudentById`; `readScoped*` in
+`institution/context.ts`) — slice types omit heavy collections so misuse fails to compile. Row-filtered
+slices (student/window) need a line-by-line audit of every access; never read `School.logoUrl` (~79 KB
+data-URI) where only the name is needed. Measure with `scripts/bench/` (docs/performance/DB_EGRESS_2026_09_30.md).
+
 ### Notable conventions
 
 - Turkish is the primary UI/UX language and much of the in-code commentary (variable/domain
@@ -180,6 +199,13 @@ state/runs, conversations, memory) follows the same per-mode parity contract.
 - `ServiceResult<T>` (`src/lib/services/result.ts`, `ok`/`fail`) is the uniform return shape for
   every service/tool function; API routes convert it via `fromServiceResult`
   (`src/lib/api/http.ts`). Don't throw from a tool for an expected failure — return `fail(...)`.
+- **Every error a user can see must be a clear Turkish sentence stating the real cause and how
+  to fix it** (owner rule, 2026-09-15 — one of the product's most important requirements). Never
+  surface raw/technical text ("Invalid or expired access token", stack/Prisma messages) or a
+  vague "İşlem başarısız." when the cause is known; name the conflicting values/field and the
+  screen where it is fixed. Client fetches use `friendlyApiErrorMessage`
+  (`src/lib/api/friendly-error.ts`) for auth codes and must retry once after
+  `/api/v1/auth/refresh` on `UNAUTHORIZED` (access token TTL is 15 min).
 
 <!-- BEGIN:nextjs-agent-rules -->
 

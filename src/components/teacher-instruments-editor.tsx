@@ -22,7 +22,7 @@ export function TeacherInstrumentsEditor({
 }: {
   teacherId: string;
   initialRows: InstrumentSkillRow[];
-  instrumentOptions?: Instrument[];
+  instrumentOptions: Instrument[];
   /** Called after a successful save (e.g. to collapse the section back to read-only). */
   onSaved?: () => void;
 }) {
@@ -61,13 +61,13 @@ export function TeacherInstrumentsEditor({
         onChange={setRows}
         instrumentOptions={instrumentOptions}
       />
-      {error ? <p className="mt-1 text-[11px] font-medium text-[#8b3a3a]">{error}</p> : null}
+      {error ? <p className="mt-1 text-[11px] font-medium text-[var(--color-danger)]">{error}</p> : null}
       {saved && !pending ? <p className="mt-1 text-[11px] text-emerald-700">Kaydedildi.</p> : null}
       <button
         type="button"
         disabled={pending || hasDuplicates}
         onClick={onSave}
-        className="mt-2 rounded-md border border-stone-300 bg-[var(--color-surface)] px-3 py-1.5 text-xs font-semibold text-stone-800 hover:border-[#A56A00] hover:bg-[#fbf6ee] disabled:opacity-50"
+        className="mt-2 rounded-md border border-stone-300 bg-[var(--color-surface)] px-3 py-1.5 text-xs font-semibold text-stone-800 hover:border-[var(--color-primary)] hover:bg-[var(--color-surface-muted)] disabled:opacity-50"
       >
         {pending ? "Kaydediliyor…" : "Enstrümanları kaydet"}
       </button>

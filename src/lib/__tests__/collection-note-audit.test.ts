@@ -15,6 +15,7 @@ import { promises as fs } from "fs";
 import path from "path";
 import { resolveDataDir } from "../config";
 import { collectAttendanceCalendarPaymentTool } from "../services/tools";
+import { STUDENT_CONTRACTS_FILE } from "../contracts";
 import { readData } from "../store";
 import { DEFAULT_TENANT_ID } from "../auth/config";
 import type { ServiceContext } from "../services/context";
@@ -27,6 +28,8 @@ function ctx(userId = "u1"): ServiceContext {
 
 beforeEach(async () => {
   await fs.rm(DATA_FILE, { force: true });
+  // Sözleşmesiz öğrenci senaryosu: önceki test dosyasının sözleşmeleri s1'e taşınmasın.
+  await fs.rm(STUDENT_CONTRACTS_FILE, { force: true });
 });
 
 async function monthlyPlanPayment(studentId = "s1") {
@@ -62,7 +65,7 @@ describe("§C.2 — ay kutusundan alınan tahsilatın notu KALICIDIR", () => {
 
   it("aynı ay yeniden tahsil edilirse not GÜNCELLENİR, eski not takılı kalmaz", async () => {
     await collectAttendanceCalendarPaymentTool(ctx(), {
-      studentId: "s1", month: "2026-09", amount: 3000, note: "İlk kayıt",
+      studentId: "s1", month: "2026-09", amount: 3200, note: "İlk kayıt",
     });
     await collectAttendanceCalendarPaymentTool(ctx(), {
       studentId: "s1", month: "2026-09", amount: 3500, note: "Düzeltildi — eksik tutar tamamlandı",

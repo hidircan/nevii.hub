@@ -2,10 +2,16 @@ import { redirect } from "next/navigation";
 import { BackButton } from "@/components/back-button";
 import { Card, PageHeader } from "@/components/ui";
 import { NewStudentForm } from "@/components/new-student-form";
+import { isMembershipActive, listClubs, listClubMemberships } from "@/lib/clubs";
+import { DEFAULT_APP_TIMEZONE as CLUB_TZ, toZonedYmd as clubYmd } from "@/lib/timezone";
+import { activeInstrumentOptions } from "@/lib/instrument-options";
 import { requireSessionContext } from "@/lib/auth/session";
-import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
+import { getInstitutionContext, readScopedReferenceData } from "@/lib/institution/context";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
-import { listInstrumentCatalogTool, getCurrentConsentTextVersionTool } from "@/lib/services";
+import { getCurrentConsentTextVersionTool } from "@/lib/services";
+import { getTrialLesson } from "@/lib/trial-lessons";
+import { formatDateTime } from "@/lib/utils";
+import Link from "@/components/link";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +23,12 @@ export const dynamic = "force-dynamic";
  * Veri modeli/validation (actionAddStudent, createStudentSchema) DEĞİŞMEDİ
  * — bu sadece formun kendi ekranı ve bölümlenmiş düzeni.
  */
-export default async function NewStudentPage() {
+export default async function NewStudentPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ deneme?: string; kulupBasvuru?: string }>;
+}) {
+  const { deneme, kulupBasvuru } = await searchParams;
   let session;
   try {
     session = await requireSessionContext();
@@ -25,13 +36,71 @@ export default async function NewStudentPage() {
     redirect("/login?next=/panel/ogrenciler/yeni");
   }
   const kurum = await getInstitutionContext(session);
-  const data = await readScopedData(kurum.scope);
-  const catalogResult = await listInstrumentCatalogTool(session, {});
-  const instrumentOptions = catalogResult.ok
-    ? catalogResult.data.entries.filter((e) => e.status === "active").map((e) => e.name)
-    : ["Piyano", "Yan Flüt", "Gitar", "Bateri", "Keman", "Şan", "Elektro Gitar", "Bağlama"];
+  const data = await readScopedReferenceData(kurum.scope);
+  const instrumentOptions = await activeInstrumentOptions(session);
   const kvkkTextResult = await getCurrentConsentTextVersionTool(session, { consentType: "kvkk_general" });
   const kvkkText = kvkkTextResult.ok ? kvkkTextResult.data.version : undefined;
+
+  // H — deneme dersinden dönüşüm: yalnız tek kurum görünümünde ve henüz dönüşmemiş denemeden ön doldurulur.
+  const trial =
+    deneme && kurum.scope.mode === "single" ? await getTrialLesson(kurum.scope.tenantId, deneme) : null;
+  const trialPrefill =
+    trial && !trial.convertedStudentId
+      ? {
+          convertedFromTrialId: trial.id,
+          name: trial.name,
+          parentPhone: trial.phone,
+          ...(trial.parentName ? { parentName: trial.parentName } : {}),
+          instrument: trial.instrument,
+          teacherId: trial.teacherId,
+          branchId: trial.branchId,
+          notes: `Deneme dersi: ${formatDateTime(trial.startAt)}${trial.notes ? ` — ${trial.notes}` : ""}`,
+        }
+      : undefined;
+
+  // 2026-10-07 — grup dersi başvurusundan kayıt: aday bilgileriyle ön doldurma (yalnız kendi kurumunda, eklenmemiş başvuru).
+  const clubApp =
+    kulupBasvuru && kurum.scope.mode === "single" && kurum.scope.tenantId === session.tenantId
+      ? await (async () => {
+          const { getClubApplicationTool } = await import("@/lib/club-applications");
+          const r = await getClubApplicationTool(session, { id: kulupBasvuru });
+          return r.ok && r.data.application.status !== "added" ? r.data.application : null;
+        })()
+      : null;
+  const clubAppPrefill = clubApp
+    ? {
+        clubApplicationId: clubApp.id,
+        clubApplicationClubId: clubApp.clubId,
+        registrationKind: "club_only",
+        name: clubApp.participantName,
+        ...(clubApp.parentName
+          ? { accountResponsibility: "PARENT_MANAGED", parentName: clubApp.parentName, parentPhone: clubApp.phone }
+          : { accountResponsibility: "SELF_MANAGED", phone: clubApp.phone }),
+        ...(clubApp.email ? { email: clubApp.email } : {}),
+        ...(clubApp.birthDate ? { birthDate: clubApp.birthDate } : {}),
+        ...(clubApp.branchId ? { branchId: clubApp.branchId } : {}),
+        notes: `Grup dersi başvurusu ${clubApp.reference} (${clubApp.clubSnapshot.name})${clubApp.note ? ` — Eğitim geçmişi: ${clubApp.note}` : ""}`.slice(0, 500),
+      }
+    : undefined;
+
+  // 2026-10-05 — Kulüp seçimi yalnız kendi kurumunda (yazım oturumun kurumuna gider).
+  const clubOptions =
+    kurum.scope.mode === "single" && kurum.scope.tenantId === session.tenantId
+      ? await (async () => {
+          const [clubs, memberships] = await Promise.all([listClubs(session.tenantId), listClubMemberships(session.tenantId)]);
+          const t = clubYmd(new Date(), CLUB_TZ);
+          return clubs
+            .filter((c) => c.active)
+            .map((c) => ({
+              id: c.id,
+              name: c.name,
+              instrument: c.instrument,
+              monthlyFee: c.monthlyFee,
+              maxMembers: c.maxMembers,
+              activeMembers: memberships.filter((m) => m.clubId === c.id && isMembershipActive(m, t)).length,
+            }));
+        })()
+      : [];
 
   return (
     <div>
@@ -39,7 +108,17 @@ export default async function NewStudentPage() {
       <div className="mb-4">
         <BackButton fallbackHref="/panel/ogrenciler" label="Öğrencilere dön" />
       </div>
-      <PageHeader title="Yeni Öğrenci Kaydı" />
+      <PageHeader title={clubAppPrefill ? "Grup dersi başvurusundan öğrenci kaydı" : trialPrefill ? "Deneme öğrencisini kayda dönüştür" : "Yeni Öğrenci Kaydı"} />
+      {trial?.convertedStudentId ? (
+        <Card className="mb-4">
+          <p className="text-sm text-[var(--color-text)]">
+            {trial.name} deneme kaydı zaten öğrenciye dönüştürülmüş.{" "}
+            <Link href={`/panel/ogrenciler/${trial.convertedStudentId}`} className="font-medium text-[var(--color-primary)] hover:underline">
+              Öğrenci kaydını aç →
+            </Link>
+          </p>
+        </Card>
+      ) : null}
 
       <Card className="mb-4 !border-cyan-200 !bg-cyan-50/70 dark:!border-cyan-900 dark:!bg-cyan-950/30">
         <p className="text-xs font-medium text-cyan-900 dark:text-cyan-200">
@@ -59,6 +138,7 @@ export default async function NewStudentPage() {
         </Card>
       ) : (
         <NewStudentForm
+          clubs={clubOptions}
           branches={data.settings.branches.map((b) => ({ id: b.id, name: b.name }))}
           teachers={data.teachers.map((t) => ({
             id: t.id,
@@ -75,8 +155,39 @@ export default async function NewStudentPage() {
               price30Min: p.price30Min,
               price40Min: p.price40Min,
               price50Min: p.price50Min,
+              defaultDurationMinutes: p.defaultDurationMinutes,
+              defaultPaymentDueDay: p.defaultPaymentDueDay,
+              monthlyLessonCount: p.monthlyLessonCount,
+            }))}
+          campaigns={(data.discountCampaigns ?? [])
+            .filter((c) => c.active)
+            .map((c) => ({
+              id: c.id,
+              name: c.name,
+              displayId: c.displayId,
+              discountPercent: c.discountPercent,
+              stackingRule: c.stackingRule ?? "none",
+              priority: c.priority ?? 0,
+              branchId: c.branchId,
+              applicableBranchIds: c.applicableBranchIds,
+              validFrom: c.validFrom,
+              validTo: c.validTo,
+              active: c.active,
+              maxUsageCount: c.maxUsageCount,
+              usageCount: c.usageCount ?? 0,
+              createdAt: c.createdAt,
             }))}
           kvkkText={kvkkText}
+          workDayOverrides={data.closedDayOverrides ?? []}
+          termWeeklyClosedDays={data.settings.termWeeklyClosedDays}
+          prefill={clubAppPrefill ?? trialPrefill}
+          trialSummary={
+            clubApp
+              ? `${clubApp.reference} · ${clubApp.participantName} · ${clubApp.clubSnapshot.name}`
+              : trial
+                ? `${trial.name} · ${trial.instrument} · ${formatDateTime(trial.startAt)}`
+                : undefined
+          }
         />
       )}
     </div>

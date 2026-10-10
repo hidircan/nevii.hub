@@ -32,5 +32,6 @@ export const BRAND = {
   logoMarkTransparentPath: null as string | null,
   sidebarLogoPath: "/icon.png",
   faviconPath: "/icon.png",
-  ogImagePath: null as string | null,
+  /** 10. tur iş #3 — `src/app/opengraph-image.tsx` konvansiyonu ile sunucu tarafında üretilir (1200×630 PNG). */
+  ogImagePath: "/opengraph-image" as string | null,
 } as const;

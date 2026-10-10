@@ -17,6 +17,8 @@ import { promises as fs } from "fs";
 import path from "path";
 import { resolveDataDir } from "../config";
 import { authenticateUser, findUserByEmail, updatePasswordHash } from "../auth/users";
+import { getUserLifecycle } from "../platform/store-ext";
+import { isSessionClaimValid } from "../auth/session-validity";
 import { createPasswordResetToken, consumePasswordResetToken, isRateLimited } from "../auth/password-reset";
 import { hashPassword } from "../auth/password";
 import { POST as forgotPassword } from "../../app/api/v1/auth/forgot-password/route";
@@ -144,6 +146,30 @@ describe("createPasswordResetToken / consumePasswordResetToken — domain katman
     await updatePasswordHash(user.userId, restoreHash);
     const restored = await authenticateUser(EMAIL, ORIGINAL_PASSWORD);
     expect(restored).not.toBeNull();
+  });
+
+  it("şifre yazımı eski oturumları düşürür", async () => {
+    const user = await findUserByEmail(EMAIL);
+    if (!user) return;
+    const newHash = await hashPassword("brand-new-reset-pass-2");
+    expect(await updatePasswordHash(user.userId, newHash)).toBe(true);
+    const life = await getUserLifecycle(user.userId);
+    expect(life?.sessionsRevokedAt).toBeTruthy();
+    const oldOk = await isSessionClaimValid({
+      sub: user.userId,
+      role: user.role,
+      tenantId: user.tenantId,
+      iat: Math.floor(Date.now() / 1000) - 120,
+    });
+    expect(oldOk).toBe(false);
+    const freshOk = await isSessionClaimValid({
+      sub: user.userId,
+      role: user.role,
+      tenantId: user.tenantId,
+      iat: Math.floor(Date.now() / 1000) + 30,
+    });
+    expect(freshOk).toBe(true);
+    await updatePasswordHash(user.userId, await hashPassword(ORIGINAL_PASSWORD));
   });
 
   it("bir kullanıcı için üretilen kod BAŞKA bir kullanıcının şifresini değiştiremez", async () => {

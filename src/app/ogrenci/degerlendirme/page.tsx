@@ -1,8 +1,9 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { redirect } from "next/navigation";
 import { PORTAL_RECORD_MISSING_REDIRECT } from "@/lib/auth/portal-record-missing";
 import { ArrowLeft } from "lucide-react";
 import { requireSessionContext } from "@/lib/auth/session";
+import { getPortalPageStudentId } from "@/lib/portal-context";
 import { readData } from "@/lib/store";
 import { getOwnTeacherFeedbackThisMonthTool } from "@/lib/services";
 import { TeacherFeedbackCards, type EligibleTeacher } from "@/components/teacher-feedback-cards";
@@ -25,11 +26,14 @@ export default async function StudentTeacherFeedbackPage() {
     redirect("/login?next=/ogrenci/degerlendirme");
   }
 
-  const data = await readData();
-  const studentId = session.studentId;
+  // 10. tur iş #1 — çözümlenmiş aktif öğrenci bağlamı.
+  const studentId = await getPortalPageStudentId(session);
   if (!studentId) redirect(PORTAL_RECORD_MISSING_REDIRECT);
+  const data = await readData();
   const student = data.students.find((s) => s.id === studentId);
-  if (!student) redirect(PORTAL_RECORD_MISSING_REDIRECT);
+  if (!student || (session.role === "STUDENT" && (!student.active || student.deletedAt))) {
+    redirect(PORTAL_RECORD_MISSING_REDIRECT);
+  }
 
   // Değerlendirilebilir öğretmenler: mevcut atanmış öğretmen + son
   // RECENT_LESSON_WINDOW_DAYS içinde bu öğrenciyle dersi olan öğretmenler.

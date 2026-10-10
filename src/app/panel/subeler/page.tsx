@@ -1,4 +1,4 @@
-import { readData } from "@/lib/store";
+import { readReferenceData } from "@/lib/store";
 import { Card, PageHeader } from "@/components/ui";
 import { QuickTaskLink } from "@/components/quick-task-link";
 import { NewBranchForm } from "@/components/new-branch-form";
@@ -7,7 +7,7 @@ import { UpdateBranchForm } from "@/components/update-branch-form";
 export const dynamic = "force-dynamic";
 
 export default async function SubelerPage() {
-  const data = await readData();
+  const data = await readReferenceData();
   const branches = [...data.settings.branches].sort((a, b) => a.name.localeCompare(b.name, "tr"));
 
   return (
@@ -27,7 +27,7 @@ export default async function SubelerPage() {
             branches.map((b) => {
               const teacherCount = data.teachers.filter((t) => t.branchId === b.id && t.active).length;
               const studentCount = data.students.filter((s) => s.branchId === b.id && s.active).length;
-              const roomCount = data.rooms.filter((r) => r.branchId === b.id).length;
+              const roomCount = data.rooms.filter((r) => r.branchId === b.id && !r.deletedAt).length;
               return (
                 <Card key={b.id}>
                   <div className="flex flex-wrap items-start justify-between gap-3">

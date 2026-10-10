@@ -1,7 +1,9 @@
 "use client";
+import { withReturnTo } from "@/lib/safe-return-to";
+import { useCurrentPath } from "@/lib/use-current-path";
 
 import { useState } from "react";
-import Link from "next/link";
+import Link from "@/components/link";
 import { Receipt } from "lucide-react";
 import { Badge, Card, EmptyState } from "@/components/ui";
 import {
@@ -20,7 +22,7 @@ import type { Payment, PaymentSource } from "@/lib/types";
  * Öğrenci "Ödeme geçmişi" tablosu — gerçekleşmiş hareketler.
  * Vade ile fiili tahsilat anı ayrı kolonlarda; yetkili düzenleme modalı.
  */
-type PaymentRow = Payment & { receivedByName?: string; studentName?: string };
+type PaymentRow = Payment & { receivedByName?: string; studentName?: string; /** 2026-10-09 — çok branşlı öğrencide branş. */ branchLabel?: string };
 
 export function StudentPaymentHistoryTable({
   payments,
@@ -31,6 +33,7 @@ export function StudentPaymentHistoryTable({
   canWrite?: boolean;
   studentName?: string;
 }) {
+  const currentPath = useCurrentPath();
   const { pageItems, page, setPage, pageSize, setPageSize, totalPages, totalCount } = usePagination(payments, 10);
   const [modalPayment, setModalPayment] = useState<PaymentRow | null>(null);
 
@@ -62,6 +65,11 @@ export function StudentPaymentHistoryTable({
                 return (
                   <tr key={p.id} className="border-b border-[var(--color-border)]">
                     <td className="px-4 py-3 font-medium text-[var(--color-text)]">
+                      {p.branchLabel ? (
+                        <span className="mr-1.5 inline-block rounded bg-[var(--color-surface-muted)] px-1.5 py-0.5 text-[10px] font-semibold">
+                          {p.branchLabel}
+                        </span>
+                      ) : null}
                       {p.description}
                       {p.paymentNote ? (
                         <span className="mt-0.5 block text-xs font-normal text-[var(--color-text-muted)]">
@@ -128,7 +136,7 @@ export function StudentPaymentHistoryTable({
                       <div className="flex flex-wrap items-center gap-2">
                         {p.status === "paid" ? (
                           <Link
-                            href={`/makbuz/${p.id}`}
+                            href={withReturnTo(`/makbuz/${p.id}`, currentPath)}
                             className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2.5 py-1.5 text-xs font-medium text-[var(--color-text)] hover:bg-[var(--color-surface-muted)]"
                           >
                             <Receipt className="h-3.5 w-3.5" /> Makbuz

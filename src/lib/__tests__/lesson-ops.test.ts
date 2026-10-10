@@ -152,8 +152,17 @@ describe("isLessonProcessedForPayout — hakediş/rapor kaynağı", () => {
     expect(isLessonProcessedForPayout({ status: "cancelled", lessonProcessed: true })).toBe(true);
   });
 
-  it("lessonProcessed=false iken status'tan bağımsız false döner (legacy completed'a düşmez)", () => {
-    expect(isLessonProcessedForPayout({ status: "completed", lessonProcessed: false })).toBe(false);
+  it("DB varsayılanı lessonProcessed=false iken 'Dersi bitir' ile tamamlanmış ders sayılır (json/db parity)", () => {
+    expect(isLessonProcessedForPayout({ status: "completed", lessonProcessed: false })).toBe(true);
+  });
+
+  it("Geldi (öğrenci katıldı) İşlendi olmadan da hakedişe girer; Telafi/Gelmedi/Mazeretli/iptal girmez", () => {
+    expect(isLessonProcessedForPayout({ status: "scheduled", lessonProcessed: false, studentAttended: true })).toBe(true);
+    expect(isLessonProcessedForPayout({ status: "completed", lessonProcessed: false, opsMakeupFlag: true })).toBe(false);
+    expect(isLessonProcessedForPayout({ status: "completed", lessonProcessed: false, studentAbsent: true })).toBe(false);
+    expect(isLessonProcessedForPayout({ status: "scheduled", lessonProcessed: false, studentExcused: true })).toBe(false);
+    expect(isLessonProcessedForPayout({ status: "cancelled", lessonProcessed: false, studentAttended: true })).toBe(false);
+    expect(isLessonProcessedForPayout({ status: "scheduled", lessonProcessed: false })).toBe(false);
   });
 
   it("lessonProcessed hiç set edilmemişse (undefined) legacy status='completed' esas alınır", () => {
@@ -196,13 +205,14 @@ describe("setLessonOpsFlagTool — RBAC ve sahiplik (API/tool katmanı)", () => 
     expect(res.error.code).toBe("FORBIDDEN");
   });
 
-  it("TEACHER kendi dersinde başarıyla işlem yapabilir", async () => {
+  it("TEACHER kendi dersinde bile yoklama işaretleyemez (2026-09-17 owner kararı: yoklama yalnız yöneticide)", async () => {
     const lessonId = await createTestLesson(); // t1'e ait
     const res = await setLessonOpsFlagTool(ctx({ role: "TEACHER", teacherId: "t1", userId: "teacher1" }), {
       lessonId,
       flag: "attended",
     });
-    expect(res.ok).toBe(true);
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error.code).toBe("FORBIDDEN");
   });
 
   it("SCHOOL_ADMIN/SUPER_ADMIN herhangi bir derste işlem yapabilir", async () => {

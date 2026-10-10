@@ -107,17 +107,17 @@ gerçek kurum (`Nevii Hub Demo Akademi`, `Nevii Hub Test Kampüs`) seed eder.
 ### 1) Veritabanı hazırla
 
 ```bash
-# PostgreSQL'in yerel/erişilebilir bir instance'ı olmalı
-createdb notaplan_demo
+# YEREL PostgreSQL; DATABASE_URL'i her zaman açıkça verin (.env başka hedefi gösterebilir)
+createdb -h 127.0.0.1 -T template0 notaplan_demo
 
-export DATABASE_URL="postgresql://postgres@localhost:5432/notaplan_demo"
-npx prisma migrate deploy
+export DATABASE_URL="postgresql://$USER@127.0.0.1:5432/notaplan_demo"
+npx prisma db push
 ```
 
-> **Legacy:** Bu adım eskiden `mysql -u root -e "CREATE DATABASE ... CHARACTER SET utf8mb4;"` +
-> `prisma db push --accept-data-loss` ile yapılıyordu (MySQL/MariaDB dönemi). Güncel runtime
-> PostgreSQL olduğu için şema artık `prisma migrate deploy` ile, migration geçmişi üzerinden
-> uygulanır — `db push` günlük/staging akışı değildir.
+> **Not (2026-10-01):** Boş bir DB'de `prisma migrate deploy` çalışmaz — 90 migration'ın 12'si eski MySQL
+> sözdizimindedir. Boş yerel DB'ye şema `db push` ile kurulur; yeni migration denemesi canlı şemasının verisiz bir
+> kopyasında yapılır. Ayrıntı: `docs/operations/LOCAL_FIRST_DEPLOYMENT.md`. Seed betikleri yalnız yerel veya açıkça
+> tanımlı test DB'sine yazar (`assertSeedTarget`); varsayılan tenant canlıdaki gerçek kurumdur.
 
 ### 2) İki kurumu seed et
 

@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { isLocalDevTooling } from "../config";
-import { resetDemoTool } from "../services/tools";
+import { resetDemoTool, resetToCleanTemplateTool } from "../services/tools";
 import type { ServiceContext } from "../services/context";
 
 /**
@@ -10,14 +10,15 @@ import type { ServiceContext } from "../services/context";
  * aracıdır ve test/preview/production kullanıcı arayüzünde HİÇ görünmez,
  * hiçbir tenant yöneticisi rolüyle ÇALIŞTIRILAMAZ.
  *
+ * 2026-09-22 — "Boş şablona sıfırla" AYNI kapıya alındı (önceden production
+ * UI'da açıktı ve tenant verisini siliyordu).
+ *
  * Bu dosya kapıyı İKİ katmanda da doğrular:
- *   1. Sunucu kapısı (`resetDemoTool` fail-closed) — asıl kontrol.
- *   2. Render noktaları — panel özetinde kontrol HİÇ yok, Kurulum
- *      Merkezi'ndeki tek giriş `isLocalDevTooling()` ile koşullu.
+ *   1. Sunucu kapısı (`resetDemoTool` / `resetToCleanTemplateTool` fail-closed).
+ *   2. Render noktaları — Kurulum Merkezi'nde `isLocalDevTooling()` ile koşullu.
  *
  * NOT: kapının AÇIK olduğu (yerel geliştirme) dal burada BİLEREK
- * çalıştırılmaz — `resetDemoTool` gerçekten store'u sıfırlar ve test suite'i
- * paylaşılan tek bir on-disk json store kullanır (bkz. CLAUDE.md "Test gotcha").
+ * çalıştırılmaz — araçlar gerçekten store'u sıfırlar.
  */
 
 const ADMIN: ServiceContext = { role: "SCHOOL_ADMIN", userId: "user_admin", tenantId: "tenant_nilufer_acar" };
@@ -77,6 +78,25 @@ describe("Demo reset — sunucu tarafı fail-closed", () => {
   });
 });
 
+describe("Boş şablona sıfırla — sunucu tarafı fail-closed", () => {
+  it("production'da SCHOOL_ADMIN FORBIDDEN — store'a dokunmaz", async () => {
+    setEnv("production", "1");
+    const result = await resetToCleanTemplateTool(ADMIN);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe("FORBIDDEN");
+      expect(result.error.message).toMatch(/yerel geliştirmede|ops prosedürü/i);
+    }
+  });
+
+  it("SUPER_ADMIN de aşamaz", async () => {
+    setEnv("production", "1");
+    const result = await resetToCleanTemplateTool(SUPER);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe("FORBIDDEN");
+  });
+});
+
 describe("Demo reset — render noktaları", () => {
   const read = (rel: string) => readFileSync(resolve(process.cwd(), rel), "utf8");
 
@@ -88,10 +108,11 @@ describe("Demo reset — render noktaları", () => {
     expect(source).not.toContain("triggerLabel");
   });
 
-  it("Kurulum Merkezi'ndeki tek giriş isLocalDevTooling() ile koşulludur", () => {
+  it("Kurulum Merkezi'nde demo + boş şablon isLocalDevTooling() ile koşulludur", () => {
     const source = read("src/app/panel/kurulum/page.tsx");
     expect(source).toContain("isLocalDevTooling()");
-    // Koşullu blok, demo reset aksiyonundan ÖNCE gelmeli.
     expect(source.indexOf("isLocalDevTooling()")).toBeLessThan(source.indexOf("action={actionResetDemo}"));
+    expect(source.indexOf("isLocalDevTooling()")).toBeLessThan(source.indexOf("action={actionResetToCleanTemplate}"));
+    expect(source).toContain('confirmPhrase="SIFIRLA"');
   });
 });

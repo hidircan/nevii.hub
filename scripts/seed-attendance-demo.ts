@@ -38,6 +38,7 @@
  * Kullanım: npm run seed:attendance-demo (== npx tsx scripts/seed-attendance-demo.ts)
  */
 import "dotenv/config";
+import { assertSeedTarget } from "../src/lib/env/test-target-guard";
 import { readData, seedDemoRecords } from "../src/lib/store";
 import { runWithTenantAsync } from "../src/lib/tenant-context";
 import { DEFAULT_TENANT_ID } from "../src/lib/auth/config";
@@ -85,6 +86,7 @@ async function requireOk<T>(label: string, promise: Promise<{ ok: true; data: T 
 }
 
 async function main() {
+  assertSeedTarget();
   // P0 (2026-09-03) — `NODE_ENV=production` tek başına Vercel prod'u
   // yakalamayabilir (Vercel preview deploy'ları da `NODE_ENV=production`
   // set edebilir, AMA gerçek prod ayrıca `VERCEL_ENV=production` taşır) —

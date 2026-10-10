@@ -488,7 +488,11 @@ export async function authenticateUser(
         studentId: row.studentId,
       });
     } catch {
-      // fall through to bootstrap if DB unavailable
+      // Güvenlik (2026-10-02): DB okunamazsa kaynak koddaki bootstrap şifrelerine GERİ DÜŞÜLMEZ.
+      // Eskiden geçici bir DB hatasında, DB'de şifresi değiştirilmiş/kilitlenmiş hesaplara (AI_AGENT,
+      // kurum sahibi…) koddaki demo şifreyle girilebiliyordu. db modunda tek kaynak DB'dir.
+      logAuthFailureReason(email, "db_unavailable");
+      return null;
     }
   }
 
@@ -660,6 +664,88 @@ export async function getUserIdByEmail(tenantId: string, email: string): Promise
   const { findDynamicUserByEmail } = await import("./dynamic-users");
   const dyn = await findDynamicUserByEmail(tenantId, normalized);
   return dyn && dyn.active ? dyn.userId : null;
+}
+
+/**
+ * 10. tur iş #1 — `getUserIdByEmail`'den FARKLI olarak `active`
+ * filtrelemez. Davet akışı, kapalı bir hesaba tekrar davet gönderildiğinde
+ * "Kullanıcı hesabı oluşturulamadı/bulunamadı" (provision null + lookup
+ * null) yerine "hesap kapalı, önce erişimi açın" diyebilmek için buna
+ * ihtiyaç duyar. YALNIZCA yetkili admin akışları kullanmalıdır (public
+ * ekranlarda hesap varlığı asla ifşa edilmez).
+ */
+export async function getUserIdByEmailIncludingInactive(tenantId: string, email: string): Promise<string | null> {
+  const normalized = email.trim().toLowerCase();
+  if (!normalized) return null;
+  if (isDbMode) {
+    try {
+      const { getPrisma } = await import("../db");
+      const prisma = getPrisma();
+      const row = await prisma.user.findFirst({ where: { tenantId, email: normalized } });
+      return row?.id ?? null;
+    } catch {
+      return null;
+    }
+  }
+  const row = HASHED.find((u) => u.tenantId === tenantId && effectiveHashedEmail(u)?.toLowerCase() === normalized);
+  if (row) return row.userId;
+  const { findDynamicUserByEmail } = await import("./dynamic-users");
+  const dyn = await findDynamicUserByEmail(tenantId, normalized);
+  return dyn?.userId ?? null;
+}
+
+/**
+ * 10. tur iş #1 — SELF davette mevcut kullanıcının boş `studentId`
+ * bağlamasını doldurur. DOLU bir bağlama ASLA üzerine yazılmaz (aynı
+ * e-posta ikinci bir öğrenciye bağlanıyorsa ilk bağ bozulmamalı — çoklu
+ * öğrenciye erişim `StudentPortalAccess` ile çözülür). Bootstrap
+ * (HASHED) kullanıcıları derleme-zamanı sabittir — değiştirilemez.
+ */
+export async function bindUserStudentIdIfEmpty(
+  userId: string,
+  studentId: string
+): Promise<"set" | "already-set" | "not-found" | "unsupported"> {
+  if (isDbMode) {
+    try {
+      const { getPrisma } = await import("../db");
+      const prisma = getPrisma();
+      const row = await prisma.user.findUnique({ where: { id: userId } });
+      if (!row) return "not-found";
+      if (row.studentId) return "already-set";
+      await prisma.user.update({ where: { id: userId }, data: { studentId } });
+      return "set";
+    } catch {
+      return "not-found";
+    }
+  }
+  if (HASHED.some((u) => u.userId === userId)) return "unsupported";
+  const { findDynamicUserById, setDynamicUserStudentId } = await import("./dynamic-users");
+  const dyn = await findDynamicUserById(userId);
+  if (!dyn) return "not-found";
+  if (dyn.studentId) return "already-set";
+  return (await setDynamicUserStudentId(userId, studentId)) ? "set" : "not-found";
+}
+
+/**
+ * 10. tur iş #1 — bayat `User.studentId` bağlamasını temizler (onarım
+ * aracı). GUARDIAN-çoklu-öğrenci kullanıcılarda bu alan boş olmalıdır;
+ * pasif kayda kilitlenmiş JWT'lerin kaynağıdır. Bootstrap (HASHED)
+ * kullanıcılarında desteklenmez.
+ */
+export async function clearUserStudentBinding(userId: string): Promise<boolean> {
+  if (isDbMode) {
+    try {
+      const { getPrisma } = await import("../db");
+      const prisma = getPrisma();
+      await prisma.user.update({ where: { id: userId }, data: { studentId: null } });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  if (HASHED.some((u) => u.userId === userId)) return false;
+  const { setDynamicUserStudentId } = await import("./dynamic-users");
+  return setDynamicUserStudentId(userId, null);
 }
 
 /**
@@ -945,6 +1031,8 @@ export type UserAccountStatus = {
   role: AppRole;
   tenantId: string;
   active: boolean;
+  /** Kullanıcının kayıtlı adı soyadı (db modu); yoksa undefined. */
+  displayName?: string;
 };
 
 /**
@@ -960,7 +1048,14 @@ export async function getUserAccountStatus(userId: string): Promise<UserAccountS
       const prisma = getPrisma();
       const row = await prisma.user.findUnique({ where: { id: userId } });
       if (!row || !isAppRole(row.role)) return null;
-      return { userId: row.id, email: row.email, role: row.role, tenantId: row.tenantId, active: row.active };
+      return {
+        userId: row.id,
+        email: row.email,
+        role: row.role,
+        tenantId: row.tenantId,
+        active: row.active,
+        displayName: row.displayName?.trim() || undefined,
+      };
     } catch {
       return null;
     }
@@ -1010,12 +1105,38 @@ export async function getUserAccountStatusForTeacher(tenantId: string, teacherId
   return { userId: dyn.userId, email: dyn.email, role: dyn.role, tenantId: dyn.tenantId, active: dyn.active };
 }
 
+async function revokeSessionsAfterPasswordChange(userId: string, tenantId: string | null, dbAlreadyStamped: boolean) {
+  if (!dbAlreadyStamped && tenantId) {
+    const { getUserLifecycle, saveUserLifecycle } = await import("../platform/store-ext");
+    const prev = await getUserLifecycle(userId);
+    const status = prev?.status === "deleted" || prev?.status === "deactivated" ? prev.status : "active";
+    await saveUserLifecycle({
+      userId,
+      tenantId,
+      status,
+      sessionsRevokedAt: new Date().toISOString(),
+      displayName: prev?.displayName ?? null,
+      updatedAt: new Date().toISOString(),
+      updatedBy: "password-change",
+    });
+  }
+  const { closeAllUserSessions } = await import("./session-registry");
+  await closeAllUserSessions(userId, userId, "password-changed").catch(() => 0);
+  const { invalidateSessionValidity } = await import("./session-validity");
+  invalidateSessionValidity(userId);
+}
+
 export async function updatePasswordHash(userId: string, newHash: string): Promise<boolean> {
   if (isDbMode) {
     try {
       const { getPrisma } = await import("../db");
       const prisma = getPrisma();
-      await prisma.user.update({ where: { id: userId }, data: { passwordHash: newHash } });
+      // Aynı saniyedeki yeni token geçerli kalır (`iat < revoked`). Daha eski token'lar düşer.
+      await prisma.user.update({
+        where: { id: userId },
+        data: { passwordHash: newHash, sessionsRevokedAt: new Date() },
+      });
+      await revokeSessionsAfterPasswordChange(userId, null, true);
       return true;
     } catch {
       return false;
@@ -1023,10 +1144,16 @@ export async function updatePasswordHash(userId: string, newHash: string): Promi
   }
   if (HASHED.some((u) => u.userId === userId)) {
     passwordOverrides.set(userId, newHash);
+    const tenantId = HASHED.find((u) => u.userId === userId)?.tenantId ?? null;
+    await revokeSessionsAfterPasswordChange(userId, tenantId, false);
     return true;
   }
-  const { setDynamicUserPasswordHash } = await import("./dynamic-users");
-  return setDynamicUserPasswordHash(userId, newHash);
+  const { setDynamicUserPasswordHash, findDynamicUserById } = await import("./dynamic-users");
+  const updated = await setDynamicUserPasswordHash(userId, newHash);
+  if (!updated) return false;
+  const dyn = await findDynamicUserById(userId);
+  await revokeSessionsAfterPasswordChange(userId, dyn?.tenantId ?? null, false);
+  return true;
 }
 
 /**
@@ -1182,7 +1309,9 @@ export async function findUserByEmail(emailInput: string): Promise<AuthUser | nu
         studentId: row.studentId,
       });
     } catch {
-      // fall through to bootstrap if DB unavailable
+      // Güvenlik (2026-10-02): db modunda DB okunamazsa bootstrap listesine düşülmez — aksi halde
+      // "şifremi unuttum" DB'de pasif bir hesap (ör. AI_AGENT) için de sıfırlama başlatabilirdi.
+      return null;
     }
   }
 

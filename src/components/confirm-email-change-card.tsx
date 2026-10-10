@@ -7,7 +7,7 @@
  * adres kullanılır).
  */
 import { useState } from "react";
-import Link from "next/link";
+import Link from "@/components/link";
 import { Button, Card, Input, Label } from "@/components/ui";
 
 export function ConfirmEmailChangeCard({ token }: { token?: string }) {

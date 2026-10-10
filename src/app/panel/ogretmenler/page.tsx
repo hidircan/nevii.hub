@@ -1,25 +1,37 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { redirect } from "next/navigation";
-import { subDays, format } from "date-fns";
-import { CreditCard, UserPlus, Wallet } from "lucide-react";
-import { Badge, Card, PageHeader } from "@/components/ui";
-import { dayName } from "@/lib/utils";
+import { addDays, subDays, format } from "date-fns";
+import { AlertTriangle, ChevronRight, CreditCard, Mail, Phone, Upload, UserPlus, Wallet } from "lucide-react";
+import { Badge, PageHeader } from "@/components/ui";
+import { cn } from "@/lib/utils";
 import { requireSessionContext } from "@/lib/auth/session";
-import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
+import { getInstitutionContext, readScopedLessonWindow } from "@/lib/institution/context";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { AssistantPageContext } from "@/components/ai/assistant-page-context";
 import { computeTeacherPerformanceReportV2 } from "@/lib/teacher-performance-v2";
 import { AiInsightTrigger } from "@/components/ai/ai-insight-trigger";
-import { TeacherArchiveAction } from "@/components/teacher-archive-action";
-import { TeacherPerformanceInfo } from "@/components/teacher-performance-info";
+import { TeacherListView } from "@/components/teacher-list-view";
+import { TEACHER_ROW_GRID } from "@/lib/teacher-list-filter";
 
 export const dynamic = "force-dynamic";
 
-export default async function OgretmenlerPage({
-  searchParams,
-}: {
-  searchParams?: Promise<{ durum?: string }>;
-} = {}) {
+const DAY_MS = 1000 * 60 * 60 * 24;
+
+function initials(name: string) {
+  const parts = name.trim().split(/\s+/);
+  return ((parts[0]?.[0] ?? "") + (parts.length > 1 ? parts[parts.length - 1][0] : "")).toLocaleUpperCase("tr");
+}
+
+function scoreTone(score: number) {
+  if (score >= 80) return "text-[var(--color-success)]";
+  if (score >= 60) return "text-[var(--color-warning)]";
+  return "text-[var(--color-danger)]";
+}
+
+const iconLinkClass =
+  "inline-flex h-8 w-8 items-center justify-center rounded-[var(--radius-md)] border border-[var(--color-border)] text-[var(--color-text-muted)] transition hover:border-[var(--color-primary)] hover:text-[var(--color-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]";
+
+export default async function OgretmenlerPage() {
   let session;
   try {
     session = await requireSessionContext();
@@ -27,36 +39,79 @@ export default async function OgretmenlerPage({
     redirect("/login?next=/panel/ogretmenler");
   }
   const kurum = await getInstitutionContext(session);
-  const data = await readScopedData(kurum.scope);
+  const now = new Date();
+  // Bu hafta (Pzt–Paz) — aşağıdaki planlı ders sayısı için.
+  const weekStart = new Date(now);
+  weekStart.setHours(0, 0, 0, 0);
+  weekStart.setDate(weekStart.getDate() + (now.getDay() === 0 ? -6 : 1 - now.getDay()));
+  // DB egress (2026-10-10): sayfa yalnız son 30 günün (performans) ve bu haftanın derslerine bakar — kurumun TÜM
+  // ders/ödeme geçmişi yerine bu aralığın ±2–3 günlük payla penceresi okunur (saat dilimi/gün sınırı payı).
+  const data = await readScopedLessonWindow(kurum.scope, subDays(now, 33), addDays(weekStart, 9));
   const canSeePerformance = session.role === "SUPER_ADMIN" || session.role === "SCHOOL_ADMIN";
   const canManage = session.role === "SCHOOL_ADMIN" || session.role === "SUPER_ADMIN";
+  // 2026-10-03 — listeden kaldırılan öğretmenler hiçbir listede görünmez; geçmiş kayıtlar ve raporlar adı korur.
+  const teachers = data.teachers.filter((t) => !t.deletedAt);
+  const removedTeachers = canManage ? data.teachers.filter((t) => t.deletedAt) : [];
 
-  // Liste görünümü artık eski (all-time) computeTeacherPerformanceScore yerine
-  // teacher-performance-v2 kullanır — aynı skor modeli/ağırlıklandırma detay
-  // ekranıyla (/panel/ogretmenler/[teacherId]/performans) birebir tutarlı olsun
-  // diye. Varsayılan dönem son 30 gün (detay ekranıyla aynı varsayılan).
-  // `readScopedData` zaten tüm öğretmenleri tek seferde getirdiği için, burada
-  // N+1 STORE okuması yok — yalnızca teacher başına v2'nin kendi iç
-  // feedback/task/homework sorguları paralel (`Promise.all`) çalışır.
-  const now = new Date();
+  // Skor modeli detay ekranıyla (/panel/ogretmenler/[teacherId]/performans) aynı: teacher-performance-v2,
+  // son 30 gün. `readScopedData` tek okuma; öğretmen başına v2 iç sorguları paralel çalışır.
   const periodStart = format(subDays(now, 30), "yyyy-MM-dd");
   const periodEnd = format(now, "yyyy-MM-dd");
   const performanceEntries = canSeePerformance
     ? await Promise.all(
-        data.teachers
+        teachers
           .filter((t) => t.active)
           .map(async (t) => [t.id, await computeTeacherPerformanceReportV2(data, session.tenantId, t.id, periodStart, periodEnd)] as const)
       )
     : [];
   const performanceById = new Map(performanceEntries);
 
-  // ÖNCELİK 4 (devam) — varsayılan yalnız Aktif Öğretmenler; "Arşivlenmiş
-  // Öğretmenler" ayrı bir sekme/filtre. Arşiv öğretmenler burada dahi (CSV
-  // eşleştirme, yeni ders/öğrenci öğretmen seçicisi vb.) hiç seçilebilir
-  // olarak sunulmaz — yalnız görüntüleme + "Yeniden Aktifleştir" amaçlıdır.
-  const { durum } = (await searchParams) ?? {};
-  const showArchived = durum === "arsiv";
-  const visibleTeachers = data.teachers.filter((t) => (showArchived ? !t.active : t.active));
+  // Bu hafta (Pzt–Paz) planlı ders sayısı — eski "tüm zamanlar kayıtlı ders" sayısının yerine.
+  const weekEnd = weekStart.getTime() + 7 * DAY_MS;
+  const weekLessonCount = new Map<string, number>();
+  for (const l of data.lessons) {
+    if (l.status === "cancelled") continue;
+    const t = new Date(l.startAt).getTime();
+    if (t >= weekStart.getTime() && t < weekEnd) weekLessonCount.set(l.teacherId, (weekLessonCount.get(l.teacherId) ?? 0) + 1);
+  }
+  const activeStudentCount = new Map<string, number>();
+  for (const s of data.students) if (s.active && s.teacherId) activeStudentCount.set(s.teacherId, (activeStudentCount.get(s.teacherId) ?? 0) + 1);
+  const teachersWithFee = new Set(data.teacherFeeRules.map((r) => r.teacherId));
+
+  // Detay "Özet" sekmesindeki uyarılarla aynı kurallar — listede yalnız aktif öğretmenler için.
+  function attentionFor(t: (typeof teachers)[number]) {
+    if (!t.active) return [];
+    const out: { label: string; href: string; tone: "danger" | "warning" }[] = [];
+    const daysLeft = t.contractEndDate ? Math.ceil((new Date(t.contractEndDate).getTime() - now.getTime()) / DAY_MS) : null;
+    if (daysLeft !== null && daysLeft < 0) out.push({ label: "Sözleşme süresi doldu", href: "bilgiler", tone: "danger" });
+    else if (daysLeft !== null && daysLeft <= 30) out.push({ label: `Sözleşme ${daysLeft} gün içinde bitiyor`, href: "bilgiler", tone: "warning" });
+    if (t.availability.length === 0) out.push({ label: "Müsaitlik tanımlı değil", href: "musaitlik", tone: "warning" });
+    if (canManage && !teachersWithFee.has(t.id)) out.push({ label: "Hakediş ücreti tanımlı değil", href: "hakedis", tone: "warning" });
+    return out;
+  }
+
+  const branchName = (id: string) => data.settings.branches.find((b) => b.id === id)?.shortName ?? id;
+  const listRows = teachers.map((t) => ({
+    id: t.id,
+    displayId: t.displayId,
+    name: t.name,
+    email: t.email,
+    phone: t.phone,
+    branchId: t.branchId,
+    branchIds: t.branchIds,
+    instruments: t.instruments,
+    active: t.active,
+    studentCount: activeStudentCount.get(t.id) ?? 0,
+  }));
+  const instrumentOptions = Array.from(new Set(teachers.flatMap((t) => t.instruments))).sort((a, b) => a.localeCompare(b, "tr"));
+
+  const activeTeachers = teachers.filter((t) => t.active);
+  const summary = [
+    { label: "Aktif öğretmen", value: activeTeachers.length },
+    { label: "Aktif öğrenci", value: activeTeachers.reduce((n, t) => n + (activeStudentCount.get(t.id) ?? 0), 0) },
+    { label: "Bu hafta ders", value: activeTeachers.reduce((n, t) => n + (weekLessonCount.get(t.id) ?? 0), 0) },
+    { label: "İlgilenilmesi gereken", value: activeTeachers.filter((t) => attentionFor(t).length > 0).length, warn: true },
+  ];
 
   return (
     <div>
@@ -64,162 +119,214 @@ export default async function OgretmenlerPage({
       <AssistantPageContext entity={{ kind: "page", label: "Öğretmenler" }} />
       <PageHeader
         title="Öğretmenler"
+        description="Öğretmen kadrosu, ders yükü ve dikkat gerektiren kayıtlar."
         actions={
-          <Link
-            href="/panel/ogretmenler/yeni"
-            className="inline-flex items-center gap-2 rounded-xl bg-[var(--color-primary)] px-3.5 py-2 text-sm font-medium text-white hover:bg-[var(--color-primary-hover)]"
-          >
-            <UserPlus className="h-4 w-4" /> Yeni Öğretmen
-          </Link>
+          <>
+            {canManage ? (
+              <Link
+                href="/panel/veri-aktar"
+                className="inline-flex items-center gap-2 rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3.5 py-2 text-sm font-medium text-[var(--color-text)] transition hover:bg-[var(--color-surface-muted)] active:scale-[0.98]"
+              >
+                <Upload className="h-4 w-4" /> Toplu aktar
+              </Link>
+            ) : null}
+            <Link
+              href="/panel/ogretmenler/yeni"
+              className="inline-flex items-center gap-2 rounded-xl bg-[var(--color-primary)] px-3.5 py-2 text-sm font-medium text-white transition hover:bg-[var(--color-primary-hover)] active:scale-[0.98]"
+            >
+              <UserPlus className="h-4 w-4" /> Yeni Öğretmen
+            </Link>
+          </>
         }
       />
 
-      <div className="mb-4 flex items-center gap-1 rounded-md border border-[var(--color-border)] p-0.5 dark:border-slate-700" role="tablist" aria-label="Öğretmen durumu">
-        <Link
-          href="/panel/ogretmenler"
-          role="tab"
-          aria-selected={!showArchived}
-          className={`rounded px-3 py-1.5 text-xs font-semibold transition ${
-            !showArchived ? "bg-amber-600 text-white" : "text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)] dark:text-[var(--color-text-muted)]"
-          }`}
-        >
-          Aktif Öğretmenler
-        </Link>
-        <Link
-          href="/panel/ogretmenler?durum=arsiv"
-          role="tab"
-          aria-selected={showArchived}
-          className={`rounded px-3 py-1.5 text-xs font-semibold transition ${
-            showArchived ? "bg-amber-600 text-white" : "text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)] dark:text-[var(--color-text-muted)]"
-          }`}
-        >
-          Arşivlenmiş Öğretmenler
-        </Link>
-      </div>
+      <dl className="mb-6 grid grid-cols-2 overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] shadow-[var(--shadow-sm)] sm:grid-cols-4">
+        {summary.map((s, i) => (
+          <div
+            key={s.label}
+            className={cn(
+              "px-5 py-4",
+              i % 2 === 1 && "border-l border-[var(--color-border)]",
+              i >= 2 && "border-t border-[var(--color-border)] sm:border-t-0",
+              i === 2 && "sm:border-l"
+            )}
+          >
+            <dt className="text-xs font-medium text-[var(--color-text-muted)]">{s.label}</dt>
+            <dd
+              className={cn(
+                "mt-1 text-2xl font-semibold tabular-nums tracking-tight",
+                s.warn && s.value > 0 ? "text-[var(--color-warning)]" : "text-[var(--color-text)]"
+              )}
+            >
+              {s.value}
+            </dd>
+          </div>
+        ))}
+      </dl>
 
-      <div className="space-y-4">
-          {visibleTeachers.length === 0 ? (
-            <Card>
-              <p className="text-sm text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
-                {showArchived ? "Arşivlenmiş öğretmen yok." : "Aktif öğretmen yok."}
-              </p>
-            </Card>
-          ) : null}
-          {visibleTeachers.map((t) => {
-            const studentCount = data.students.filter((s) => s.teacherId === t.id && s.active).length;
-            const weekLessons = data.lessons.filter((l) => l.teacherId === t.id && l.status !== "cancelled").length;
-            return (
-              <Card key={t.id}>
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <Link
-                      href={`/panel/ogretmenler/${t.id}`}
-                      className="font-semibold text-[var(--color-text)] hover:text-[var(--color-primary)] dark:text-slate-50"
-                    >
-                      {t.name}
-                    </Link>
-                    <p className="text-sm text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
-                      {data.settings.branches.find((b) => b.id === t.branchId)?.shortName} ·{" "}
-                      {t.email} · {t.phone}
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <div className="flex flex-wrap gap-1">
-                      {t.instruments.map((i) => (
-                        <Badge key={i}>{i}</Badge>
-                      ))}
+      <TeacherListView
+        rows={listRows}
+        showPerformance={canSeePerformance}
+        branches={data.settings.branches.map((b) => ({ id: b.id, name: b.shortName || b.name }))}
+        instruments={instrumentOptions}
+        cards={Object.fromEntries(
+          teachers.map((t) => {
+            const studentCount = activeStudentCount.get(t.id) ?? 0;
+            const weekLessons = weekLessonCount.get(t.id) ?? 0;
+            const perf = performanceById.get(t.id);
+            const attention = attentionFor(t);
+            const branchLabel = [t.branchId, ...(t.branchIds ?? []).filter((b) => b !== t.branchId)].map(branchName).join(", ");
+            const href = `/panel/ogretmenler/${t.id}`;
+            return [
+              t.id,
+              <div
+                key={t.id}
+                className={cn(
+                  "grid gap-x-6 gap-y-3 px-5 py-4 transition-colors hover:bg-[var(--color-surface-muted)]/60",
+                  TEACHER_ROW_GRID,
+                  "lg:items-center",
+                  !t.active && "opacity-70"
+                )}
+              >
+                <div className="flex min-w-0 items-center gap-3">
+                  <span
+                    aria-hidden
+                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--color-primary-soft)] text-sm font-semibold text-[var(--color-primary-soft-text)]"
+                  >
+                    {initials(t.name)}
+                  </span>
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Link href={href} className="truncate font-semibold text-[var(--color-text)] hover:text-[var(--color-primary)]">
+                        {t.name}
+                      </Link>
+                      {t.displayId ? <span className="text-xs tabular-nums text-[var(--color-text-muted)]">{t.displayId}</span> : null}
+                      {t.active ? null : <Badge status="cancelled">Pasif</Badge>}
                     </div>
-                    {canManage ? (
-                      <TeacherArchiveAction teacherId={t.id} teacherName={t.name} archived={!t.active} />
-                    ) : null}
+                    <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-[var(--color-text-muted)]">
+                      {t.phone ? (
+                        <a href={`tel:${t.phone.replace(/\s+/g, "")}`} className="inline-flex items-center gap-1 hover:text-[var(--color-primary)]">
+                          <Phone className="h-3 w-3" /> {t.phone}
+                        </a>
+                      ) : null}
+                      {t.email ? (
+                        <a href={`mailto:${t.email}`} className="inline-flex min-w-0 items-center gap-1 hover:text-[var(--color-primary)]">
+                          <Mail className="h-3 w-3 shrink-0" /> <span className="truncate">{t.email}</span>
+                        </a>
+                      ) : null}
+                    </div>
                   </div>
                 </div>
 
-                <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                  <div className="rounded-xl bg-[var(--color-surface-muted)] p-3">
-                    <p className="text-xs text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">Öğrenci</p>
-                    <p className="text-lg font-semibold">{studentCount}</p>
-                  </div>
-                  <div className="rounded-xl bg-[var(--color-surface-muted)] p-3">
-                    <p className="text-xs text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">Kayıtlı ders</p>
-                    <p className="text-lg font-semibold">{weekLessons}</p>
+                <div className="min-w-0 pl-[3.25rem] lg:pl-0">
+                  <p className="truncate text-sm text-[var(--color-text)]">{branchLabel || "Şube atanmamış"}</p>
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {t.instruments.length ? t.instruments.map((i) => <Badge key={i}>{i}</Badge>) : (
+                      <span className="text-xs text-[var(--color-text-muted)]">Enstrüman atanmamış</span>
+                    )}
                   </div>
                 </div>
 
-                <div className="mt-4">
-                  <p className="mb-2 text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
-                    Müsaitlik
+                <div className="flex gap-6 pl-[3.25rem] text-sm lg:block lg:pl-0">
+                  <p>
+                    <span className="font-semibold tabular-nums text-[var(--color-text)]">{studentCount}</span>{" "}
+                    <span className="text-[var(--color-text-muted)]">öğrenci</span>
                   </p>
-                  <div className="flex flex-wrap gap-2">
-                    {t.availability.map((a) => (
-                      <span
-                        key={`${a.dayOfWeek}-${a.start}`}
-                        className="rounded-lg bg-amber-50 px-2 py-1 text-xs text-amber-800"
-                      >
-                        {dayName(a.dayOfWeek)} {a.start}–{a.end}
-                      </span>
-                    ))}
-                  </div>
+                  <p>
+                    <span className="font-semibold tabular-nums text-[var(--color-text)]">{weekLessons}</span>{" "}
+                    <span className="text-[var(--color-text-muted)]">ders bu hafta</span>
+                  </p>
                 </div>
 
-                {canSeePerformance && performanceById.get(t.id) ? (
-                  <div className="mt-4 border-t border-[var(--color-border)] pt-4">
-                    {(() => {
-                      const perf = performanceById.get(t.id)!;
-                      return (
+                {canSeePerformance ? (
+                  <div className="flex items-center gap-1 pl-[3.25rem] lg:pl-0">
+                    {perf ? (
+                      <>
                         <Link
-                          href={`/panel/ogretmenler/${t.id}/performans`}
-                          className="flex flex-wrap items-start justify-between gap-2 rounded-lg -m-1 p-1 hover:bg-[var(--color-surface-muted)]"
+                          href={`${href}/performans`}
+                          className="rounded-[var(--radius-md)] px-1 text-sm hover:bg-[var(--color-surface-muted)]"
+                          title="Son 30 günün performans skoru, detay için tıklayın"
                         >
-                          <div className="min-w-0 flex-1">
-                            <div className="flex flex-wrap items-center gap-1.5">
-                              <p className="text-sm text-[var(--color-text-muted)]">
-                                Performans skoru:{" "}
-                                <span className="font-semibold text-[var(--color-text)]">
-                                  {perf.score === null ? "Yetersiz veri" : `${perf.score}/100`}
-                                </span>
-                              </p>
-                              <Badge status="scheduled">v2</Badge>
-                              <TeacherPerformanceInfo />
-                            </div>
-                            <p className="mt-0.5 text-xs text-[var(--color-text-muted)]">Son 30 gün · detay için tıklayın</p>
-                          </div>
-                          <AiInsightTrigger
-                            capabilityId="teacherPerformanceScore"
-                            label="AI ile performans yorumu"
-                            iconOnly
-                            payload={{ teacherName: t.name, ...perf }}
-                          />
+                          {perf.score === null ? (
+                            <span className="text-[var(--color-text-muted)]">Yetersiz veri</span>
+                          ) : (
+                            <>
+                              <span className={cn("text-lg font-semibold tabular-nums", scoreTone(perf.score))}>{perf.score}</span>
+                              <span className="text-xs text-[var(--color-text-muted)]">/100</span>
+                            </>
+                          )}
                         </Link>
-                      );
-                    })()}
+                        <AiInsightTrigger
+                          capabilityId="teacherPerformanceScore"
+                          label="AI ile performans yorumu"
+                          iconOnly
+                          payload={{ teacherName: t.name, ...perf }}
+                        />
+                      </>
+                    ) : (
+                      <span className="text-sm text-[var(--color-text-muted)]">Pasif</span>
+                    )}
                   </div>
                 ) : null}
 
-                <div className="mt-4 flex flex-wrap gap-2 border-t border-[var(--color-border)] pt-4">
-                  <Link
-                    href={`/panel/ogretmenler/${t.id}`}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-primary)]/40 bg-[var(--color-primary-soft)] px-3 py-1.5 text-xs font-medium text-[var(--color-primary-soft-text)] hover:bg-[var(--color-primary-soft)]/70"
-                  >
-                    Detay
+                <div className="flex items-center gap-1.5 pl-[3.25rem] lg:justify-end lg:pl-0">
+                  <Link href={`${href}/hakedis`} className={iconLinkClass} aria-label={`${t.name} hakediş`} title="Hakediş">
+                    <Wallet className="h-4 w-4" />
+                  </Link>
+                  <Link href={`${href}/odemeler`} className={iconLinkClass} aria-label={`${t.name} ödeme geçmişi`} title="Ödeme geçmişi">
+                    <CreditCard className="h-4 w-4" />
                   </Link>
                   <Link
-                    href={`/panel/ogretmenler/${t.id}/hakedis`}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-xs font-medium text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)]"
+                    href={href}
+                    className="inline-flex h-8 items-center gap-1 rounded-[var(--radius-md)] bg-[var(--color-primary-soft)] px-3 text-xs font-semibold text-[var(--color-primary-soft-text)] transition hover:brightness-95 active:scale-[0.98]"
                   >
-                    <Wallet className="h-3.5 w-3.5" /> Hakediş
-                  </Link>
-                  <Link
-                    href={`/panel/ogretmenler/${t.id}/odemeler`}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-xs font-medium text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)]"
-                  >
-                    <CreditCard className="h-3.5 w-3.5" /> Ödeme geçmişi
+                    Detay <ChevronRight className="h-3.5 w-3.5" />
                   </Link>
                 </div>
-              </Card>
-            );
-          })}
-      </div>
+
+                {attention.length ? (
+                  <ul className="col-span-full flex flex-wrap gap-2 pl-[3.25rem]">
+                    {attention.map((a) => (
+                      <li key={a.label}>
+                        <Link
+                          href={`${href}/${a.href}`}
+                          className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition hover:opacity-85"
+                          style={{ background: `var(--color-${a.tone}-soft)`, color: `var(--color-${a.tone})` }}
+                        >
+                          <AlertTriangle className="h-3 w-3" /> {a.label}
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>,
+            ];
+          })
+        )}
+      />
+
+      {removedTeachers.length > 0 ? (
+        <details className="mt-6 rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] px-5 py-3 text-sm">
+          <summary className="cursor-pointer font-medium text-[var(--color-text-muted)]">
+            Listeden kaldırılan öğretmenler ({removedTeachers.length})
+          </summary>
+          <p className="mt-1 text-xs text-[var(--color-text-muted)]">
+            Geçmiş ders, yoklama ve hakediş kayıtları korunur. Geri almak için öğretmenin sayfasını açın.
+          </p>
+          <ul className="mt-2 flex flex-wrap gap-2">
+            {removedTeachers.map((t) => (
+              <li key={t.id}>
+                <Link
+                  href={`/panel/ogretmenler/${t.id}`}
+                  className="inline-flex rounded-full border border-[var(--color-border)] px-2.5 py-1 text-xs hover:border-[var(--color-primary)] hover:text-[var(--color-primary)]"
+                >
+                  {t.name}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
     </div>
   );
 }

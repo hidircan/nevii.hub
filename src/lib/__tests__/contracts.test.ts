@@ -35,6 +35,8 @@ import { DEFAULT_TENANT_ID } from "../auth/config";
 import type { ServiceContext } from "../services/context";
 import { STUDENT_PORTAL_ACCESS_FILE } from "../student-portal-access";
 import { grantStudentAccess } from "./portal-access-test-helper";
+import { CRITICAL_ACTION_PASSWORD_FILE } from "../critical-action-password";
+import { setupCriticalPassword, secureCancelInput } from "./contract-cancel-test-helper";
 
 const DATA_FILE = path.join(resolveDataDir(path.join(process.cwd(), "data")), "store.json");
 
@@ -54,6 +56,7 @@ beforeEach(async () => {
   await fs.rm(DOCUMENT_TEMPLATES_FILE, { force: true });
   await fs.rm(DOCUMENT_INSTANCES_FILE, { force: true });
   await fs.rm(STUDENT_PORTAL_ACCESS_FILE, { force: true });
+  await fs.rm(CRITICAL_ACTION_PASSWORD_FILE, { force: true });
 });
 
 /**
@@ -790,7 +793,8 @@ describe("Faz 5 (ENROLLMENT_PAYMENT_RENEWAL_VALIDATION_FIX) — iptal edilmiş s
     expect(created.ok).toBe(true);
     if (!created.ok) return;
 
-    const cancelled = await cancelStudentContractTool(adminCtx(), { contractId: created.data.contract.id });
+    await setupCriticalPassword();
+    const cancelled = await cancelStudentContractTool(adminCtx(), secureCancelInput(created.data.contract));
     expect(cancelled.ok).toBe(true);
     if (!cancelled.ok) return;
     expect(cancelled.data.contract.status).toBe("cancelled");
@@ -999,7 +1003,7 @@ describe("2026-2027 sözleşme kaynağı — yeni checkbox/alan placeholder'lar�
       signatoryFullName: "Selin Arslan",
       isMinor: false,
       studentName: "Zeynep Arslan",
-      institutionName: "Nilüfer Acar Müzik Akademisi",
+      institutionName: "Nilüfer Acar Müzik Akademi",
       institutionAddress: "Erzene Mah.",
       createdBy: "u1",
       branchOptionsText: "☑ Merkez Şube: Erzene Mah.    ☐ Evka-3 Şube: 119/5 Sk.",
@@ -1036,13 +1040,21 @@ describe("2026-2027 sözleşme kaynağı — yeni checkbox/alan placeholder'lar�
 });
 
 describe("Owner policy (2026-08-30, final) — İlk ödeme kayıt anında alınır, normaldir, istisna değildir; initial sözleşme bu ödemeyi YENİDEN KULLANIR", () => {
-  it("FORMAL (>=3 ay) kayıt, öğrencinin kayıt anında tahsil edilmiş ödemesi (registration_first_payment) YOKSA REDDEDİLİR", async () => {
-    const input = buildInitialInput(); // kasıtlı: seedRegistrationFirstPayment ÇAĞRILMADI
+  // 2026-09-19 (owner: "ilk sözleşme" akışı) — kayıtta tahsilat yoksa ilk tahsilat
+  // sözleşme formunda girilir; HİÇBİR tahsilat yoksa hâlâ reddedilir.
+  it("FORMAL (>=3 ay) ilk sözleşme: kayıtta tahsilat YOK ve formda da girilmediyse REDDEDİLİR", async () => {
+    const { firstPaymentCollected: _omit, ...input } = buildInitialInput(); // kasıtlı: seedRegistrationFirstPayment ÇAĞRILMADI
+    void _omit;
     const res = await createStudentContractTool(adminCtx(), input);
     expect(res.ok).toBe(false);
     if (res.ok) return;
-    expect(res.error.code).toBe("VALIDATION_ERROR");
-    expect(res.error.message).toContain("İlk ödeme kayıt sırasında tahsil edilmeden kayıt tamamlanamaz.");
+    expect(res.error.message).toContain("kayıtta alınmış bir ilk tahsilatı yok");
+  });
+
+  it("FORMAL (>=3 ay) ilk sözleşme: kayıtta tahsilat yoksa formda girilen ilk tahsilatla oluşur", async () => {
+    const res = await createStudentContractTool(adminCtx(), buildInitialInput());
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.data.installments[0]!.status).toBe("paid");
   });
 
   it("registration first payment: kayıt anında tahsil edilen ödeme sözleşme oluşturunca YENİDEN KULLANILIR — tek gerçek Payment satırı, ikinci kez oluşmaz/paid yapılmaz/toplama iki kez eklenmez", async () => {
@@ -1094,7 +1106,7 @@ describe("Owner policy (2026-08-30, final) — İlk ödeme kayıt anında alın�
     expect(res.ok).toBe(false);
     if (res.ok) return;
     expect(res.error.code).toBe("VALIDATION_ERROR");
-    expect(res.error.message).toContain("eşleşmiyor");
+    expect(res.error.message).toContain("aynı değil");
   });
 
   it("TRIAL (<3 ay) kayıtta kayıt anı ödemesi ZORUNLU DEĞİLDİR — formal olmayan kayıt için politika kapsamı dışı", async () => {
@@ -1138,6 +1150,8 @@ describe("Owner policy (2026-08-30, final) — İlk ödeme kayıt anında alın�
 
   it("regresyon — üç ödeme yönteminin (nakit/kart/EFT) HİÇBİRİNDE ilk tahsilat tarihi gerekçe gerektirmez", async () => {
     for (const paymentMethod of ["cash", "credit_card", "transfer"] as const) {
+      // 2026-10-04 — aynı öğrenciye ikinci AKTİF ilk sözleşme açılamaz; her yöntem bağımsız denenir.
+      await fs.rm(STUDENT_CONTRACTS_FILE, { force: true });
       const res = await createStudentContractTool(
         adminCtx(),
         await initialInput({
@@ -1153,26 +1167,20 @@ describe("Owner policy (2026-08-30, final) — İlk ödeme kayıt anında alın�
   });
 });
 
-describe("computeContractEndDate — müşterinin sözleşme bitiş tercihi (tarih bazlı / takvim ayı sonu)", () => {
-  it("15 Eylül + 3 ay + tarih bazlı → 15 Aralık", () => {
-    expect(computeContractEndDate("2026-09-15", 3, "date_based")).toBe("2026-12-15");
+describe("computeContractEndDate — başlangıç ayı = 1. ay, bitiş N. ayın sonu", () => {
+  it("15 Eylül + 3 ay → 30 Kasım (Eylül, Ekim, Kasım)", () => {
+    expect(computeContractEndDate("2026-09-15", 3)).toBe("2026-11-30");
   });
 
-  it("15 Eylül + 3 ay + takvim ayı sonu → 31 Aralık", () => {
-    expect(computeContractEndDate("2026-09-15", 3, "month_end")).toBe("2026-12-31");
+  it("10 aylık Eylül sözleşmesi Haziran'da biter — Temmuz'a TAŞMAZ", () => {
+    expect(computeContractEndDate("2026-09-10", 10)).toBe("2027-06-30");
+    expect(computeContractEndDate("2026-09-01", 10)).toBe("2027-06-30");
   });
 
-  it("varsayılan tercih tarih bazlıdır (preference verilmezse)", () => {
-    expect(computeContractEndDate("2026-09-15", 3)).toBe("2026-12-15");
-  });
-
-  it("ay sonu taşması tarih bazlı modda hedef ayın son gününe kenetlenir (31 Ocak + 1 ay → 28/29 Şubat)", () => {
-    expect(computeContractEndDate("2026-01-31", 1, "date_based")).toBe("2026-02-28");
-  });
-
-  it("takvim ayı sonu modunda başlangıç günü sonucu etkilemez", () => {
-    expect(computeContractEndDate("2026-09-01", 3, "month_end")).toBe("2026-12-31");
-    expect(computeContractEndDate("2026-09-30", 3, "month_end")).toBe("2026-12-31");
+  it("ay sonu / Şubat / yıl sınırı", () => {
+    expect(computeContractEndDate("2026-01-31", 2)).toBe("2026-02-28");
+    expect(computeContractEndDate("2026-09-30", 3)).toBe("2026-11-30");
+    expect(computeContractEndDate("2026-11-15", 3)).toBe("2027-01-31");
   });
 });
 
@@ -1253,6 +1261,7 @@ describe("createStudentContractTool — per-lesson öğrenci (usePerLessonBillin
       signatoryFullName: "Veli Adı",
       signatoryRelationship: "veli",
       usePerLessonBilling: true,
+      mergeFirstCollection: true,
       firstPaymentExceptionReason: "Kayıt tarihi (17 Eylül) kurumun 1-15 ödeme penceresi dışında — normal kayıt anı tahsilatı.",
     });
     expect(res.ok).toBe(true);
@@ -1269,11 +1278,64 @@ describe("createStudentContractTool — per-lesson öğrenci (usePerLessonBillin
     ]);
     expect(second!.kind).toBe("period_fee");
     expect(second!.periodLabel).toBe("Kasım 2026");
-    expect(second!.amount).toBe(0); // Kasım'da hiç ders yok (seed'de) → 0, kopyalanmadı
+    // 2026-10-04 (Ela vakası) — Kasım'da program YOK (seri Ekim'de bitiyor): eskiden 0 TL yazılıyordu ("sebepsiz 0");
+    // artık programın bittiği yerden sonrası haftalık sıklıkla projekte edilir → tam dönem ücreti.
+    expect(second!.amount).toBe(monthlyFee);
 
     // Toplam sözleşme tutarı = taksit satırlarının toplamı (item 7 gereksinimi).
     const sum = res.data.installments.reduce((s, i) => s + i.amount, 0);
     expect(sum).toBe(res.data.contract.totalContractAmount);
+  });
+
+  it("hata düzeltmesi (2026-09-15): 10 ay, 17 Eylül, Eylül+Ekim birleşik → Haziran'da biter, Temmuz'a TAŞMAZ", async () => {
+    const { monthlyFee, derivedPerLessonAmount } = await seedPerLessonStudent();
+    const { addRegistrationFirstPayment } = await import("../store-json");
+    await addRegistrationFirstPayment({
+      studentId: "s_perlesson",
+      method: "cash",
+      amount: 5 * derivedPerLessonAmount,
+      collectedAt: "2026-09-17",
+      receivedByUserId: "u1",
+    });
+
+    const res = await createStudentContractTool(adminCtx(), {
+      studentId: "s_perlesson",
+      contractType: "initial",
+      programmeName: "Piyano",
+      enrollmentStartDate: "2026-09-17",
+      // İstemcinin (contract-panel) gönderdiği ham bitiş: 17 Eylül + 10 ay.
+      enrollmentEndDate: "2027-07-17",
+      durationMonths: 10,
+      monthlyAmount: monthlyFee,
+      installmentCount: 10,
+      firstDueDate: "2026-09-17",
+      signatoryFullName: "Veli Adı",
+      signatoryRelationship: "veli",
+      usePerLessonBilling: true,
+      mergeFirstCollection: true,
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+
+    expect(res.data.contract.enrollmentEndDate.slice(0, 10)).toBe("2027-06-30");
+    const labels = res.data.installments.map((i) => i.periodLabel);
+    // Eylül+Ekim birleşik + Kasım…Haziran (8) = 9 satır = 10 takvim ayı.
+    expect(labels).toHaveLength(9);
+    expect(res.data.installments[0]!.kind).toBe("first_collection_combined");
+    expect(labels.at(-1)).toBe("Haziran 2027");
+    expect(labels.some((l) => l?.includes("Temmuz"))).toBe(false);
+    // Birleştirilen Ekim kalan planda TEKRAR ücretlendirilmez.
+    expect(labels.slice(1).some((l) => l?.includes("Ekim"))).toBe(false);
+    // Taksit numarası = sözleşme ayı: birleşik satır 1–2, Kasım 3., Haziran 10.
+    expect(res.data.installments.map((i) => i.sequence)).toEqual([1, 3, 4, 5, 6, 7, 8, 9, 10]);
+    const { readData } = await import("../store-json");
+    const descriptions = (await readData()).payments
+      .filter((p) => p.contractId === res.data.contract.id)
+      .sort((a, b) => (a.installmentSequence ?? 0) - (b.installmentSequence ?? 0))
+      .map((p) => p.description);
+    expect(descriptions[0]).toContain("Sözleşme taksiti 1/10");
+    expect(descriptions[1]).toContain("Sözleşme taksiti 3/10");
+    expect(descriptions.at(-1)).toContain("Sözleşme taksiti 10/10");
   });
 
   it("kayıt ayında 4+ ders varsa birleşme OLMAZ, ilk ay kendi tutarında kalır, sonraki aya kopyalanmaz", async () => {
@@ -1301,9 +1363,10 @@ describe("createStudentContractTool — per-lesson öğrenci (usePerLessonBillin
       createdAt: "2026-09-01T00:00:00.000Z",
       lessonDurationMinutes: 40,
     } as unknown as (typeof data.students)[number]);
-    // Eylül: 4 ders (eşik üstü) → birleşmez.
+    // Eylül: 4 ders (eşik üstü) → birleşmez. Ekim: program ay sonuna kadar var ama 2 ders iptal → 2 ücretli ders.
     const septDates = ["2026-09-07", "2026-09-14", "2026-09-21", "2026-09-28"];
-    const octDates = ["2026-10-05", "2026-10-12"];
+    const octDates = ["2026-10-05", "2026-10-12", "2026-10-19", "2026-10-26"];
+    const cancelledOct = new Set(["2026-10-19", "2026-10-26"]);
     for (const [i, day] of [...septDates, ...octDates].entries()) {
       data.lessons.push({
         id: `les_pl2_${i}`,
@@ -1315,7 +1378,7 @@ describe("createStudentContractTool — per-lesson öğrenci (usePerLessonBillin
         startAt: `${day}T10:00:00.000Z`,
         endAt: `${day}T10:40:00.000Z`,
         type: "regular",
-        status: "scheduled",
+        status: cancelledOct.has(day) ? "cancelled" : "scheduled",
       } as unknown as (typeof data.lessons)[number]);
     }
     await writeData(data);
@@ -1333,14 +1396,15 @@ describe("createStudentContractTool — per-lesson öğrenci (usePerLessonBillin
       contractType: "initial",
       programmeName: "Piyano",
       enrollmentStartDate: "2026-09-01",
-      enrollmentEndDate: "2026-10-31",
-      durationMonths: 2,
+      enrollmentEndDate: "2027-07-01", // eski formül (1 Eylül + 10 ay)
+      durationMonths: 10,
       monthlyAmount: monthlyFee,
-      installmentCount: 2,
+      installmentCount: 10,
       firstDueDate: "2026-09-01",
       signatoryFullName: "Veli Adı",
       signatoryRelationship: "veli",
       usePerLessonBilling: true,
+      mergeFirstCollection: false,
     });
     expect(res.ok).toBe(true);
     if (!res.ok) return;
@@ -1349,6 +1413,9 @@ describe("createStudentContractTool — per-lesson öğrenci (usePerLessonBillin
     expect(first!.amount).toBe(septAmount);
     expect(second!.amount).toBe(2 * derivedPerLessonAmount); // Ekim kendi (farklı) tutarı, Eylül'e eşit KOPYALANMADI
     expect(second!.amount).not.toBe(first!.amount);
+    // Yalnız kayıt ayı tahsil edildi (birleşme yok): 10 satır, son Haziran, Temmuz yok.
+    expect(res.data.contract.enrollmentEndDate.slice(0, 10)).toBe("2027-06-30");
+    expect(res.data.installments.map((i) => i.sequence)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
   });
 
   it("önizleme (previewContractInstallmentPlanTool) ile oluşturulan sözleşmenin taksit planı BİREBİR aynıdır — iki ayrı hesaplama yok, tek motor", async () => {
@@ -1575,14 +1642,15 @@ describe("createStudentContractTool — per-lesson öğrenci (usePerLessonBillin
     expect(htmlRes.data.html).toContain("Dönem ücreti");
   });
 
-  it("legacy (sabit ücret, per-lesson DEĞİL) sözleşmelerin PDF/HTML çıktısı önceki gibi 'EĞİTİM' gösterir — bu değişiklik geriye dönük görünümü BOZMAZ", async () => {
+  it("sabit taksitli (per-lesson DEĞİL) yeni sözleşmede hizmet bedeli hücresi çıplak 'EĞİTİM' değil, taksitin ayını söyler (2026-09-22)", async () => {
     const createRes = await createStudentContractTool(adminCtx(), await initialInput());
     expect(createRes.ok).toBe(true);
     if (!createRes.ok) return;
     const htmlRes = await getContractHtmlTool(adminCtx(), { contractId: createRes.data.contract.id });
     expect(htmlRes.ok).toBe(true);
     if (!htmlRes.ok) return;
-    expect(htmlRes.data.html).toContain("EĞİTİM");
+    expect(htmlRes.data.html).not.toContain("<td>EĞİTİM</td>");
+    expect(htmlRes.data.html).toMatch(/Eğitim ücreti — [A-ZÇĞİÖŞÜ][a-zçğıöşü]+ \d{4}|İlk tahsilat — |Dönem ücreti — /);
   });
 
   describe("son dönem ücretlendirme tercihi (lastPeriodPricingMode)", () => {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
+import Link from "@/components/link";
 import { Button, Card, Input } from "@/components/ui";
 import { callApi } from "@/components/platform/api";
 

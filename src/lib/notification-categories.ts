@@ -33,10 +33,15 @@ export type NotificationCategory =
   // Personel ve izin
   | "leave_new_request"
   | "leave_pending_approval"
+  // İK / işe alım
+  | "recruitment_new_application"
   // Öğrenci operasyonları
   | "student_new_registration"
+  | "trial_new_application"
+  | "club_new_application"
   | "attendance_exception"
   | "student_attendance_risk"
+  | "student_contract_expiring"
   | "portal_request"
   | "teacher_feedback_submitted"
   | "student_feedback_submitted"
@@ -269,6 +274,15 @@ export const NOTIFICATION_CATEGORIES: NotificationCategoryDef[] = [
     defaultInAppEnabled: true,
   },
   {
+    category: "recruitment_new_application",
+    group: "staff",
+    label: "Yeni iş başvurusu",
+    description: "Kariyer sayfasından yeni bir aday başvurusu geldiğinde (İK ayarlarından da kapatılabilir).",
+    implemented: true,
+    roles: ["SCHOOL_ADMIN", "SUPER_ADMIN"],
+    defaultInAppEnabled: true,
+  },
+  {
     category: "leave_pending_approval",
     group: "staff",
     label: "Bekleyen izin onayı",
@@ -282,6 +296,24 @@ export const NOTIFICATION_CATEGORIES: NotificationCategoryDef[] = [
     group: "students",
     label: "Yeni öğrenci kaydı",
     description: "Yeni bir öğrenci kaydedildiğinde.",
+    implemented: true,
+    roles: ["SCHOOL_ADMIN", "SUPER_ADMIN"],
+    defaultInAppEnabled: true,
+  },
+  {
+    category: "trial_new_application",
+    group: "students",
+    label: "Yeni deneme dersi başvurusu",
+    description: "Aday, herkese açık başvuru formundan deneme dersi başvurusu yaptığında.",
+    implemented: true,
+    roles: ["SCHOOL_ADMIN", "SUPER_ADMIN"],
+    defaultInAppEnabled: true,
+  },
+  {
+    category: "club_new_application",
+    group: "students",
+    label: "Yeni grup dersi (kulüp) başvurusu",
+    description: "Aday, herkese açık grup dersi başvuru portalından bir kulübe başvurduğunda.",
     implemented: true,
     roles: ["SCHOOL_ADMIN", "SUPER_ADMIN"],
     defaultInAppEnabled: true,
@@ -302,6 +334,16 @@ export const NOTIFICATION_CATEGORIES: NotificationCategoryDef[] = [
     group: "students",
     label: "Öğrenci devam riski",
     description: "Aynı öğrenci, aynı ay içinde 2'den fazla 'İşlendi' ders aldığında.",
+    implemented: true,
+    roles: ["SCHOOL_ADMIN", "SUPER_ADMIN"],
+    defaultInAppEnabled: true,
+  },
+  {
+    // 2026-09-30 — yalnız uygulama içi, yalnız bu kurumun yöneticileri; öğrenciye/veliye SMS/e-posta YOK.
+    category: "student_contract_expiring",
+    group: "students",
+    label: "Öğrenci sözleşmesi bitiyor",
+    description: "Öğrencinin güncel sözleşmesinin bitişine, aşağıda seçilen gün sayısı kadar süre kaldığında (öğrenci başına bir kez).",
     implemented: true,
     roles: ["SCHOOL_ADMIN", "SUPER_ADMIN"],
     defaultInAppEnabled: true,

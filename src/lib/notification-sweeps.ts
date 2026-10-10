@@ -17,7 +17,21 @@ export type NotificationSweepSummary = {
   /** Tenant-bazlı hata sayaçları: bir tenant'ın hatası koşuyu durdurmaz. */
   paymentTenantErrors: number;
   leaveTenantErrors: number;
+  contractExpiring: number;
 };
+
+/** Öğrenci sözleşmesi bitiş uyarısı — tüm kurumlar (bkz. student-contract-expiry.ts). */
+export async function sweepStudentContractExpiry(now = new Date()): Promise<number> {
+  const { runStudentContractExpiryCheck } = await import("./student-contract-expiry");
+  let created = 0;
+  const tenants = await listTenants();
+  for (const t of tenants.slice(0, 200)) {
+    await runWithTenantAsync(t.tenantId, async () => {
+      created += (await runStudentContractExpiryCheck(t.tenantId, now)).created;
+    });
+  }
+  return created;
+}
 
 export async function sweepPaymentFailedOrPending(now = new Date()): Promise<{ created: number; tenantErrors: number }> {
   let created = 0;
@@ -92,6 +106,7 @@ export async function runNotificationSweeps(now = new Date()): Promise<Notificat
   const reminders = await sweepLessonReminders(now);
   const payment = await sweepPaymentFailedOrPending(now);
   const leave = await sweepLeavePendingApproval();
+  const contractExpiring = await sweepStudentContractExpiry(now);
   return {
     upcoming,
     reminders,
@@ -99,5 +114,6 @@ export async function runNotificationSweeps(now = new Date()): Promise<Notificat
     leavePending: leave.created,
     paymentTenantErrors: payment.tenantErrors,
     leaveTenantErrors: leave.tenantErrors,
+    contractExpiring,
   };
 }

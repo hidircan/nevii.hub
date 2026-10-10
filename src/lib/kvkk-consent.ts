@@ -411,3 +411,37 @@ export async function isFeatureRestrictedForSubject(
   const status = await getEffectiveConsentStatus(tenantId, subjectType, subjectId, feature, now);
   return status !== "valid";
 }
+
+/**
+ * Öğrenci listesi filtresi — bu tür için EN GÜNCEL kaydı geri çekilmemiş konu kimlikleri, TEK sorguda.
+ * Öğrenci kaydında rıza veli adına (`subjectType: "parent"`, subjectId = öğrenci) alınır; portal
+ * kapısında öğrencinin kendisi — ikisi de öğrenci kimliğine bağlıdır, bu yüzden ikisi de sayılır.
+ */
+export async function listKvkkConsentedSubjectIds(tenantId: string, consentType: string): Promise<Set<string>> {
+  const rows: { subjectType: string; subjectId: string; acceptedAt: string; withdrawn: boolean }[] = [];
+  if (isDbMode) {
+    const { prisma } = await import("./db");
+    const found = await prisma.kvkkConsent.findMany({
+      where: { tenantId, consentType, subjectType: { in: ["student", "parent"] } },
+      select: { subjectType: true, subjectId: true, acceptedAt: true, withdrawnAt: true },
+    });
+    for (const r of found) {
+      rows.push({ subjectType: r.subjectType, subjectId: r.subjectId, acceptedAt: r.acceptedAt.toISOString(), withdrawn: Boolean(r.withdrawnAt) });
+    }
+  } else {
+    for (const r of await loadAllConsent()) {
+      if (r.tenantId !== tenantId || r.consentType !== consentType) continue;
+      if (r.subjectType !== "student" && r.subjectType !== "parent") continue;
+      rows.push({ subjectType: r.subjectType, subjectId: r.subjectId, acceptedAt: r.acceptedAt, withdrawn: Boolean(r.withdrawnAt) });
+    }
+  }
+  const latest = new Map<string, (typeof rows)[number]>();
+  for (const r of rows) {
+    const key = `${r.subjectType}:${r.subjectId}`;
+    const prev = latest.get(key);
+    if (!prev || r.acceptedAt > prev.acceptedAt) latest.set(key, r);
+  }
+  const ids = new Set<string>();
+  for (const r of latest.values()) if (!r.withdrawn) ids.add(r.subjectId);
+  return ids;
+}

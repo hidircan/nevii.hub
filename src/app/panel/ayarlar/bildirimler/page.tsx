@@ -1,10 +1,13 @@
 import { redirect } from "next/navigation";
-import Link from "next/link";
+import Link from "@/components/link";
 import { requireSessionContext, notificationSettingsPathForRole } from "@/lib/auth/session";
 import { getNotificationPreferences } from "@/lib/notification-preferences";
 import { PageHeader } from "@/components/ui";
 import { NotificationPreferencesForm } from "@/components/notification-preferences-form";
 import { TaskReminderPreferencesModal } from "@/components/task-reminder-preferences-modal";
+import { ContractExpiryDaysSetting } from "@/components/contract-expiry-days-setting";
+import { resolveSetting } from "@/lib/platform/resolve";
+import { STUDENT_CONTRACT_EXPIRY_SETTING_KEY, parseExpiryDays } from "@/lib/student-contract-expiry";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +29,10 @@ export default async function BildirimAyarlariPage() {
   }
 
   const preferences = await getNotificationPreferences(session.tenantId, session.userId);
+  const isAdmin = session.role === "SCHOOL_ADMIN" || session.role === "SUPER_ADMIN";
+  const expiryDays = isAdmin
+    ? parseExpiryDays((await resolveSetting({ tenantId: session.tenantId }, STUDENT_CONTRACT_EXPIRY_SETTING_KEY))?.effectiveValue)
+    : null;
 
   return (
     <div className="mx-auto max-w-2xl">
@@ -35,6 +42,8 @@ export default async function BildirimAyarlariPage() {
       />
 
       <NotificationPreferencesForm role={session.role} initialPreferences={preferences} />
+
+      {expiryDays !== null ? <ContractExpiryDaysSetting initialDays={expiryDays} canEdit={isAdmin} /> : null}
 
       <div
         className="mt-8 rounded-[var(--radius-lg)] border p-4 sm:p-5"

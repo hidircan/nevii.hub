@@ -3,10 +3,11 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Pencil, X } from "lucide-react";
-import { actionCreateFeeRule, actionUpdateFeeRule } from "@/lib/actions";
+import { actionCreateFeeRule, actionRemoveFeeRule, actionUpdateFeeRule } from "@/lib/actions";
+import { ModalShell, modalButton } from "@/components/modal-shell";
 import { Badge, Button, Card, Input, Label, Select } from "@/components/ui";
 import { formatDate, formatMoney } from "@/lib/utils";
-import { INSTRUMENTS, type Instrument } from "@/lib/types";
+import type { Instrument } from "@/lib/types";
 import type { TeacherFeeRule } from "@/lib/types";
 
 type TeacherOption = { id: string; name: string };
@@ -36,10 +37,13 @@ export function FeeRuleManager({
   branches,
   rules,
   canWrite,
+  instrumentOptions,
 }: {
   teachers: TeacherOption[];
   branches: BranchOption[];
   rules: TeacherFeeRule[];
+  /** Kurumun AKTİF enstrüman kataloğu (activeInstrumentOptions); mevcut kurallardaki (pasif olabilir) adlar da listede kalır. */
+  instrumentOptions: string[];
   /** "Tüm kurumlar" görünümünde false — ücret kuralı eklenemez/güncellenemez. */
   canWrite: boolean;
 }) {
@@ -49,6 +53,36 @@ export function FeeRuleManager({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  // 2026-09-30 — kural kaldırma: kullanılmadıysa kalıcı sil, kullanıldıysa tarihten itibaren devre dışı.
+  const [removing, setRemoving] = useState<TeacherFeeRule | null>(null);
+  const [removeForm, setRemoveForm] = useState({ mode: "deactivate" as "delete" | "deactivate", fromDate: "", reason: "", password: "" });
+  const [removeBusy, setRemoveBusy] = useState(false);
+  const [removeError, setRemoveError] = useState<string | null>(null);
+
+  async function submitRemove() {
+    if (!removing) return;
+    setRemoveBusy(true);
+    setRemoveError(null);
+    const res = await actionRemoveFeeRule({
+      ruleId: removing.id,
+      mode: removeForm.mode,
+      fromDate: removeForm.mode === "deactivate" ? removeForm.fromDate || undefined : undefined,
+      reason: removeForm.reason,
+      criticalPassword: removeForm.mode === "delete" ? removeForm.password : undefined,
+    });
+    setRemoveBusy(false);
+    if (!res.ok) {
+      setRemoveError(res.message);
+      return;
+    }
+    setRemoving(null);
+    setSuccess(
+      res.data.mode === "deleted"
+        ? "Kural kalıcı olarak silindi."
+        : `Kural ${res.data.effectiveTo ? formatDate(res.data.effectiveTo) : ""} sonrasında devre dışı. ${res.data.affectedOpenLessons > 0 ? `${res.data.affectedOpenLessons} kayda geçmemiş ders artık başka bir kurala ihtiyaç duyuyor (Hakedişler ekranında "ücret kuralı eksik" görünür).` : ""}`
+    );
+    router.refresh();
+  }
 
   const teacherName = useMemo(() => {
     const map = new Map(teachers.map((t) => [t.id, t.name]));
@@ -164,6 +198,9 @@ export function FeeRuleManager({
                   <td className="px-4 py-3 text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
                     {formatDate(r.effectiveFrom)} –{" "}
                     {r.effectiveTo ? formatDate(r.effectiveTo) : "süresiz"}
+                    {r.deactivatedAt ? (
+                      <span className="block text-[11px]">Devre dışı bırakıldı: {r.deactivationReason ?? "—"}</span>
+                    ) : null}
                   </td>
                   <td className="px-4 py-3 text-right">
                     <Button
@@ -174,6 +211,19 @@ export function FeeRuleManager({
                       disabled={!canWrite}
                     >
                       <Pencil className="h-3.5 w-3.5" /> Düzenle
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      className="ml-1 !py-1.5 text-xs"
+                      onClick={() => {
+                        setRemoving(r);
+                        setRemoveError(null);
+                        setRemoveForm({ mode: "deactivate", fromDate: new Date().toISOString().slice(0, 10), reason: "", password: "" });
+                      }}
+                      disabled={!canWrite}
+                    >
+                      <X className="h-3.5 w-3.5" /> Kaldır
                     </Button>
                   </td>
                 </tr>
@@ -235,7 +285,7 @@ export function FeeRuleManager({
               onChange={(e) => setForm((f) => ({ ...f, instrument: e.target.value as Instrument | "" }))}
             >
               <option value={ALL_INSTRUMENTS}>Tüm enstrümanlar</option>
-              {INSTRUMENTS.map((i) => (
+              {Array.from(new Set([...instrumentOptions, ...rules.flatMap((r) => (r.instrument ? [r.instrument] : []))])).map((i) => (
                 <option key={i} value={i}>
                   {i}
                 </option>
@@ -285,6 +335,89 @@ export function FeeRuleManager({
           </Button>
         </form>
       </Card>
+      <ModalShell
+        open={!!removing}
+        busy={removeBusy}
+        tone="warning"
+        title={removing ? `${teacherName(removing.teacherId)} — ücret kuralını kaldır` : ""}
+        onClose={() => !removeBusy && setRemoving(null)}
+        footer={
+          <>
+            <button type="button" className={modalButton.secondary} onClick={() => setRemoving(null)} disabled={removeBusy}>
+              Vazgeç
+            </button>
+            <button
+              type="button"
+              className={removeForm.mode === "delete" ? modalButton.danger : modalButton.primary}
+              disabled={removeBusy || removeForm.reason.trim().length < 5 || (removeForm.mode === "delete" && !removeForm.password)}
+              onClick={() => void submitRemove()}
+            >
+              {removeBusy ? "Kaydediliyor…" : removeForm.mode === "delete" ? "Kalıcı sil" : "Devre dışı bırak"}
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-3 text-sm">
+          <label className="flex items-start gap-2">
+            <input type="radio" checked={removeForm.mode === "deactivate"} onChange={() => setRemoveForm({ ...removeForm, mode: "deactivate" })} />
+            <span>
+              <span className="font-medium">Bir tarihten itibaren devre dışı bırak</span>
+              <span className="block text-xs text-[var(--color-text-muted)]">
+                Tarihten önceki dersler ve kayıtlı hakedişler aynen kalır (kayıt, hangi kuralla hesaplandığını saklar). Tarihten
+                sonraki kayda geçmemiş dersler başka bir kurala ihtiyaç duyar.
+              </span>
+            </span>
+          </label>
+          {removeForm.mode === "deactivate" ? (
+            <label className="block pl-6 text-xs font-medium">
+              Devre dışı başlangıcı
+              <input
+                type="date"
+                value={removeForm.fromDate}
+                onChange={(e) => setRemoveForm({ ...removeForm, fromDate: e.target.value })}
+                className="mt-1 block rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 py-1.5 text-sm"
+              />
+            </label>
+          ) : null}
+          <label className="flex items-start gap-2">
+            <input type="radio" checked={removeForm.mode === "delete"} onChange={() => setRemoveForm({ ...removeForm, mode: "delete" })} />
+            <span>
+              <span className="font-medium">Kalıcı sil</span>
+              <span className="block text-xs text-[var(--color-text-muted)]">
+                Yalnız hiç kullanılmamış kural silinebilir (kayıtlı hakedişte veya işlenmiş derste kullanılıyorsa reddedilir). Kritik
+                işlem şifresi gerekir.
+              </span>
+            </span>
+          </label>
+          <label className="block text-xs font-medium">
+            Gerekçe (en az 5 karakter)
+            <textarea
+              value={removeForm.reason}
+              onChange={(e) => setRemoveForm({ ...removeForm, reason: e.target.value })}
+              rows={2}
+              maxLength={500}
+              className="mt-1 w-full rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 py-1.5 text-sm"
+            />
+          </label>
+          {removeForm.mode === "delete" ? (
+            <label className="block text-xs font-medium">
+              Kritik işlem şifresi
+              <input
+                type="password"
+                autoComplete="off"
+                value={removeForm.password}
+                onChange={(e) => setRemoveForm({ ...removeForm, password: e.target.value })}
+                className="mt-1 w-full rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 py-1.5 text-sm"
+              />
+            </label>
+          ) : null}
+          {removeError ? (
+            <p role="alert" className="text-xs font-medium text-[var(--color-danger)]">
+              {removeError}
+            </p>
+          ) : null}
+        </div>
+      </ModalShell>
     </div>
   );
 }

@@ -3,59 +3,89 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button, Input, Label, Select } from "@/components/ui";
+import { apiFetchJson } from "@/lib/api/client-fetch";
+import { friendlyApiErrorMessage } from "@/lib/api/friendly-error";
 
-const INSTRUMENTS = ["Piyano", "Yan Flüt", "Gitar", "Bateri", "Keman", "Şan"];
+export type TrialCreateInitial = Partial<{
+  name: string;
+  phone: string;
+  parentName: string;
+  instrument: string;
+  branchId: string;
+  teacherId: string;
+  /** datetime-local değeri (kurum saatinde). */
+  startLocal: string;
+  notes: string;
+}>;
 
 export function TrialLessonCreateForm({
   teachers,
   branches,
+  instrumentOptions,
+  initial,
+  applicationId,
 }: {
   teachers: { id: string; name: string }[];
   branches: { id: string; name: string }[];
+  /** Kurum enstrüman kataloğu (aktif) — yeni öğrenci formuyla aynı kaynak. */
+  instrumentOptions: string[];
+  /** 2026-10-05 — başvurudan planlarken ön doldurma. */
+  initial?: TrialCreateInitial;
+  /** Verilirse deneme oluşunca bu başvuru "Planlandı" olur (sunucuda). */
+  applicationId?: string;
 }) {
   const router = useRouter();
-  const [name, setName] = useState("");
-  const [phone, setPhone] = useState("");
-  const [instrument, setInstrument] = useState(INSTRUMENTS[0]);
-  const [branchId, setBranchId] = useState(branches[0]?.id ?? "");
-  const [teacherId, setTeacherId] = useState(teachers[0]?.id ?? "");
-  const [startAt, setStartAt] = useState("");
+  const [name, setName] = useState(initial?.name ?? "");
+  const [phone, setPhone] = useState(initial?.phone ?? "");
+  const [parentName, setParentName] = useState(initial?.parentName ?? "");
+  const [instrument, setInstrument] = useState(
+    initial?.instrument && instrumentOptions.includes(initial.instrument) ? initial.instrument : (instrumentOptions[0] ?? "")
+  );
+  const [branchId, setBranchId] = useState(initial?.branchId ?? branches[0]?.id ?? "");
+  const [teacherId, setTeacherId] = useState(initial?.teacherId ?? teachers[0]?.id ?? "");
+  const [startAt, setStartAt] = useState(initial?.startLocal ?? "");
   const [durationMinutes, setDurationMinutes] = useState("15");
+  const [notes, setNotes] = useState(initial?.notes ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [override, setOverride] = useState(false);
+  const [needsOverride, setNeedsOverride] = useState(false);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
     setError(null);
-    try {
-      const res = await fetch("/api/v1/trials", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: name.trim(),
-          phone: phone.trim(),
-          instrument,
-          branchId,
-          teacherId,
-          startAt: new Date(startAt).toISOString(),
-          durationMinutes: Number(durationMinutes),
-        }),
-      });
-      const json = (await res.json()) as { ok: boolean; error?: { message: string } };
-      if (!json.ok) {
-        setError(json.error?.message || "Planlanamadı");
-        setBusy(false);
-        return;
-      }
-      setName("");
-      setPhone("");
-      router.refresh();
-    } catch {
-      setError("Bağlantı hatası");
-    } finally {
-      setBusy(false);
+    const res = await apiFetchJson<{ trialId: string }>("/api/v1/trials", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: name.trim(),
+        phone: phone.trim(),
+        parentName: parentName.trim() || undefined,
+        instrument,
+        branchId,
+        teacherId,
+        startAt: new Date(startAt).toISOString(),
+        durationMinutes: Number(durationMinutes),
+        ...(notes.trim() ? { notes: notes.trim() } : {}),
+        ...(override ? { allowAvailabilityOverride: true } : {}),
+        ...(applicationId ? { applicationId } : {}),
+      }),
+    });
+    setBusy(false);
+    if (!res.ok) {
+      if (res.error?.code === "CONFLICT") setNeedsOverride(true);
+      setError(friendlyApiErrorMessage(res.error, "Deneme dersi planlanamadı. Bilgileri kontrol edip tekrar deneyin."));
+      return;
     }
+    setNeedsOverride(false);
+    setOverride(false);
+    setName("");
+    setPhone("");
+    setNotes("");
+    // Planlama sonrası dönüşüm sorusu liste bileşeninde açılır (URL ile — yenilemede tekrar sorulmaz).
+    router.replace(`/panel/deneme?planlandi=${encodeURIComponent(res.data.trialId)}`, { scroll: false });
+    router.refresh();
   }
 
   return (
@@ -69,9 +99,13 @@ export function TrialLessonCreateForm({
         <Input value={phone} onChange={(e) => setPhone(e.target.value)} required />
       </div>
       <div>
+        <Label>Veli adı (opsiyonel)</Label>
+        <Input value={parentName} onChange={(e) => setParentName(e.target.value)} maxLength={120} placeholder="Örn. Ayşe Yılmaz" />
+      </div>
+      <div>
         <Label>Branş</Label>
         <Select value={instrument} onChange={(e) => setInstrument(e.target.value)}>
-          {INSTRUMENTS.map((i) => (
+          {instrumentOptions.map((i) => (
             <option key={i} value={i}>
               {i}
             </option>
@@ -119,6 +153,22 @@ export function TrialLessonCreateForm({
           <option value="20">20 dk</option>
         </Select>
       </div>
+      <div className="sm:col-span-2">
+        <Label>Hazırlık notu (isteğe bağlı)</Label>
+        <textarea
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          maxLength={2000}
+          placeholder="Ör. adayın seviyesi, velinin beklentisi, hazırlanacak nota. Planlamadan sonra da düzenlenebilir."
+          className="min-h-[64px] w-full rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 py-1.5 text-sm text-[var(--color-text)]"
+        />
+      </div>
+      {needsOverride ? (
+        <label className="sm:col-span-2 flex items-start gap-2 text-xs text-[var(--color-text)]">
+          <input type="checkbox" checked={override} onChange={(e) => setOverride(e.target.checked)} className="mt-0.5" />
+          Öğretmenin müsaitlik penceresi dışında olduğunu biliyorum; yine de bu saate planla (denetim kaydına yazılır).
+        </label>
+      ) : null}
       {error ? (
         <p className="sm:col-span-2 text-xs font-medium text-rose-600" role="alert">
           {error}

@@ -24,12 +24,13 @@
 import path from "path";
 import { isDbMode, resolveDataDir } from "./config";
 import { paymentMethodLabelTr, uid } from "./utils";
-import { resolveFirstCollectionMergeThreshold } from "./types";
+import { resolveFirstCollectionMergeThreshold, shouldMergeFirstCollection } from "./types";
 import {
   findMissingRequiredContractPlaceholders,
   selectEligibleActiveTemplateForContract,
 } from "./contract-template-schema";
 import { formatDateTr } from "./timezone";
+import { logger } from "./logger";
 import type {
   CollectionsSettings,
   ContractAnnexSnapshot,
@@ -100,30 +101,60 @@ function addMonthsClamped(isoDate: string, months: number): string {
   return target.toISOString();
 }
 
-export type ContractEndDatePreference = "date_based" | "month_end";
+export type ContractEndDatePreference = "month_end" | "date_based";
 
 /**
- * P0 (2026-09-03) — müşteri, kayıt ortasında başlasa bile sözleşmenin nasıl
- * biteceğini seçebilir: "date_based" (başlangıçtan itibaren N ay, aynı
- * gün-of-month, ay sonu taşması kenetlenir — `addMonthsClamped` ile AYNI
- * kural) veya "month_end" (N. ayın takvim sonu). TEK kaynak — UI önizlemesi
- * (contract-panel.tsx) ve sözleşme oluşturma AYNI fonksiyonu çağırmalı.
- * yyyy-MM-dd (gün-yalnız) girer, yyyy-MM-dd döner — saat dilimi kayması yok.
+ * Sözleşme bitişi (2026-09-15, sahip kararı): başlangıç ayı sözleşmenin 1.
+ * ayıdır ve son taksit N. aydadır (10 aylık Eylül sözleşmesi → son taksit
+ * Haziran). Müşteri bitişi seçer:
+ *  - "month_end" (varsayılan): N. ayın takvim sonu — 10 Eylül + 10 → 30 Haziran.
+ *  - "date_based": başlangıçtan itibaren TAM N ay — 10 Eylül + 10 → 9 Temmuz.
+ *    Taksit sayısı yine N'dir: N. aydan taşan günler son taksite eklenir
+ *    (bkz. `foldBillingLinesIntoContractMonths`), Temmuz'a ayrı taksit açılmaz.
+ * Eski "başlangıç + N ay, aynı gün" (10 Temmuz) hem bir gün fazlaydı hem
+ * fazladan bir Temmuz taksiti üretiyordu. TEK kaynak — contract-panel.tsx
+ * aynısını yansıtır. yyyy-MM-dd girer, yyyy-MM-dd döner — saat dilimi kayması yok.
  */
 export function computeContractEndDate(
   startDay: string,
   durationMonths: number,
-  preference: ContractEndDatePreference = "date_based"
+  preference: ContractEndDatePreference = "month_end"
 ): string {
   const start = new Date(`${startDay}T00:00:00Z`);
-  const target = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + durationMonths, 1));
-  const lastDayOfTargetMonth = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)).getUTCDate();
-  if (preference === "month_end") {
-    target.setUTCDate(lastDayOfTargetMonth);
-  } else {
-    target.setUTCDate(Math.min(start.getUTCDate(), lastDayOfTargetMonth));
+  const y = start.getUTCFullYear();
+  const m = start.getUTCMonth();
+  if (preference === "date_based") {
+    // N ay sonrasının aynı günü (ay sonuna kenetlenir) − 1 gün.
+    const lastDay = new Date(Date.UTC(y, m + durationMonths + 1, 0)).getUTCDate();
+    return new Date(Date.UTC(y, m + durationMonths, Math.min(start.getUTCDate(), lastDay) - 1)).toISOString().slice(0, 10);
   }
-  return target.toISOString().slice(0, 10);
+  return new Date(Date.UTC(y, m + durationMonths, 0)).toISOString().slice(0, 10);
+}
+
+/**
+ * "date_based" bitişte sözleşme N. ayı birkaç gün aşar (10 Eylül → 9 Temmuz).
+ * Taksit sayısı N'yi aşmasın diye N. aydan sonraki dönemler N. ayın satırına
+ * eklenir: son satır "1 Haziran 2027 – 9 Temmuz 2027" olur. "month_end"
+ * bitişte hiçbir dönem N. ayı aşmadığından liste aynen döner.
+ */
+export function foldBillingLinesIntoContractMonths(
+  lines: import("./period-lesson-billing").PeriodBillingLine[],
+  startDay: string,
+  durationMonths: number
+): import("./period-lesson-billing").PeriodBillingLine[] {
+  const lastMonthEnd = computeContractEndDate(startDay, durationMonths, "month_end");
+  const inside = lines.filter((l) => l.periodStart <= lastMonthEnd);
+  const tail = lines.filter((l) => l.periodStart > lastMonthEnd);
+  if (tail.length === 0 || inside.length === 0) return lines;
+  const last = inside[inside.length - 1]!;
+  inside[inside.length - 1] = {
+    ...last,
+    kind: inside.length === 1 ? "single" : "end",
+    periodEnd: tail[tail.length - 1]!.periodEnd,
+    billableLessonCount: last.billableLessonCount + tail.reduce((s, l) => s + l.billableLessonCount, 0),
+    autoCalculatedAmount: last.autoCalculatedAmount + tail.reduce((s, l) => s + l.autoCalculatedAmount, 0),
+  };
+  return inside;
 }
 
 /** Aynı ay içinde `day`'e (ayın son gününe kenetlenerek) kaydırır — hedef ay `isoDate`'in ayıdır. */
@@ -330,12 +361,95 @@ function applyLastPeriodPricing(
   return rows;
 }
 
+/**
+ * Sahip kararı (2026-09-16) — sözleşme önizleme tablosunda elle düzenlenen
+ * taksit tutarlarını plana uygular (sıra no → tutar). Toplam sözleşme tutarı,
+ * PDF ve gerçek Payment satırları HEP bu listeden üretilir; ekranda görülen
+ * tutar ile kaydedilen tutar asla ayrışmaz.
+ */
+export function applyInstallmentAmountOverrides(
+  rows: ContractInstallmentSnapshot[],
+  overrides?: { sequence: number; amount: number }[]
+): ContractInstallmentSnapshot[] {
+  if (!overrides || overrides.length === 0) return rows;
+  const bySequence = new Map(overrides.map((o) => [o.sequence, o.amount]));
+  return rows.map((row) => {
+    const amount = bySequence.get(row.sequence);
+    if (amount === undefined || amount === row.amount) return row;
+    return { ...row, amount, computationSource: "manual" as const };
+  });
+}
+
+/**
+ * 2026-10-04 — REVİZYON MAHSUBU. Revize edilen sürümün taksitlerinde FİİLEN tahsil edilmiş para
+ * (`collectedAmountOf` toplamı) yeni sürümün Payment satırlarına sıra sırasıyla mahsup edilir:
+ * ödenmiş ilk aylar yeniden borç yazılmaz, eski tahsilat satırları değişmeden (yenilenmiş sözleşme
+ * altında) tahsilat toplamında kalır. Sözleşme belgesi/snapshot TAM planı gösterir; yalnız ödenecek
+ * kalan (Payment.amount) azalır ve satıra mahsup notu düşer. Mahsup sonrası 0 kalan satır yazılmaz.
+ * Kalan kredi (yeni plan, tahsil edilenden azsa) `leftover` olarak döner — iade otomatik YAPILMAZ.
+ */
+export function allocatePriorCollections(
+  rows: ContractInstallmentSnapshot[],
+  priorCollected: number,
+  previousContractNumber: string
+): { rows: ContractInstallmentSnapshot[]; applied: number; leftover: number } {
+  let remaining = Math.max(0, Math.trunc(priorCollected));
+  const out: ContractInstallmentSnapshot[] = [];
+  for (const row of [...rows].sort((a, b) => a.sequence - b.sequence)) {
+    const take = Math.min(row.amount, remaining);
+    remaining -= take;
+    if (take === 0) {
+      out.push(row);
+      continue;
+    }
+    const note = `${previousContractNumber} sürümünde tahsil edilen ${new Intl.NumberFormat("tr-TR").format(take)} TL mahsup edildi`;
+    out.push({ ...row, amount: row.amount - take, note: row.note ? `${row.note} · ${note}` : note });
+  }
+  const applied = Math.max(0, Math.trunc(priorCollected)) - remaining;
+  return { rows: out, applied, leftover: remaining };
+}
+
+/** Revize edilen sürümün taksit satırlarında fiilen tahsil edilmiş toplam (iptal satırı hariç). */
+export async function computePriorContractCollected(tenantId: string, contractId: string): Promise<number> {
+  const rows = await listInstallmentsForContract(tenantId, contractId);
+  return rows.reduce((sum, r) => {
+    if (r.status === "voided") return sum;
+    if (r.status === "paid") return sum + (r.paidAmount > 0 ? r.paidAmount : r.amount);
+    return sum + Math.max(0, r.paidAmount);
+  }, 0);
+}
+
+/**
+ * 2026-09-19 — önizleme tablosunda elle değiştirilen VADE tarihleri (sıra no → yyyy-MM-dd).
+ * Tutar override'ıyla aynı yol: önizleme, sözleşme snapshot'ı ve gerçek Payment satırları
+ * HEP bu listeden üretilir; öğrenci detayı ve finans ekranları Payment.dueDate'i okur.
+ * Geçersiz tarih sessizce yutulmaz — hata fırlatılır (çağıran Türkçe mesaj gösterir).
+ */
+export function applyInstallmentDueDateOverrides(
+  rows: ContractInstallmentSnapshot[],
+  overrides?: { sequence: number; dueDate: string }[]
+): ContractInstallmentSnapshot[] {
+  if (!overrides || overrides.length === 0) return rows;
+  const bySequence = new Map(overrides.map((o) => [o.sequence, o.dueDate.slice(0, 10)]));
+  return rows.map((row) => {
+    const ymd = bySequence.get(row.sequence);
+    if (!ymd || ymd === row.dueDate.slice(0, 10)) return row;
+    const [y, m, d] = ymd.split("-").map(Number);
+    const date = new Date(Date.UTC(y!, (m ?? 1) - 1, d ?? 1));
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd) || Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== ymd) {
+      throw new Error(`${row.sequence}. taksitin vade tarihi geçersiz (${ymd}). Takvimden geçerli bir gün seçin.`);
+    }
+    return { ...row, dueDate: date.toISOString(), dueDateSource: "manual" as const };
+  });
+}
+
 export function buildPerLessonInstallmentSchedule(input: {
   billingLines: import("./period-lesson-billing").PeriodBillingLine[];
   /** İlk dönem otomatik tutardan manuel olarak farklı girildiyse. */
   firstPeriodManualNetAmount?: number;
   /** "3 ders eşiği" — bkz. `resolveFirstCollectionMergeThreshold` (types.ts). */
-  mergeThresholdLessons: number;
+  /** Sahip kararı (2026-09-16) — kayıt ekranındaki AÇIK seçim (Payment.firstCollectionIncludesNextMonth); ders sayısından TÜRETİLMEZ. */
+  mergeFirstTwoPeriods: boolean;
   firstDueDate: string;
   paymentMethod?: string;
   paymentPolicy?: Pick<CollectionsSettings, "contractCardWindowEndDay" | "contractBankCashDueDay">;
@@ -346,7 +460,7 @@ export function buildPerLessonInstallmentSchedule(input: {
   const rule = resolveContractPaymentDueRule(input.paymentMethod, input.paymentPolicy);
   const [firstLine, secondLine, ...restLines] = input.billingLines;
   const firstMonthAutoAmount = firstLine!.autoCalculatedAmount;
-  const shouldMerge = firstLine!.billableLessonCount <= input.mergeThresholdLessons && !!secondLine;
+  const shouldMerge = input.mergeFirstTwoPeriods && !!secondLine;
 
   const rows: ContractInstallmentSnapshot[] = [];
   if (shouldMerge) {
@@ -373,7 +487,10 @@ export function buildPerLessonInstallmentSchedule(input: {
       ],
       computationSource: isCombinedManual ? "manual" : "auto",
     });
-    let seq = 2;
+    // Taksit numarası = sözleşme ayı (2026-09-15): birleşik ilk tahsilat 1. VE
+    // 2. ayı kapsar, bu yüzden sonraki satır 3'ten başlar (10 Eylül kayıt,
+    // Eylül+Ekim ilk tahsilatta → Kasım 3. taksit, Haziran 10. taksit).
+    let seq = 3;
     for (const line of restLines) {
       rows.push({
         sequence: seq,
@@ -453,16 +570,30 @@ function slugify(name: string): string {
   return ascii.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "ogrenci";
 }
 
+/**
+ * 2026-10-09 — branş biliniyorsa başlık ve dosya adı branşı söyler:
+ * "Ayşe Yılmaz — Keman — Öğrenci Sözleşmesi — 2026/2027" (alt başlıkta sürüm + başlangıç tarihi: aynı öğrenci/branş/
+ * dönemdeki sözleşmeler ayırt edilir). Branş bilinmiyorsa (eski kayıt) eski biçim aynen korunur.
+ */
 export function contractTitleFields(input: {
   contractType: ContractType;
   studentName: string;
   enrollmentStartDate: string;
   durationMonths: number;
   versionNumber: number;
+  branchLabel?: string;
 }): { titleMain: string; titleSub: string; academicYear: string; studentSlug: string; fileName: string } {
   const academicYear = turkishAcademicYear(input.enrollmentStartDate);
   const studentSlug = slugify(input.studentName);
   const isRenewal = input.contractType !== "initial";
+  const branch = input.branchLabel?.trim();
+  if (branch) {
+    const kind = isRenewal ? "Sözleşme Yenileme" : "Öğrenci Sözleşmesi";
+    const titleMain = `${input.studentName} — ${branch} — ${kind} — ${academicYear.replace("-", "/")}`;
+    const titleSub = `${academicYear} Eğitim Dönemi · ${input.durationMonths} Aylık ${isRenewal ? "Yenileme" : "Kayıt"} · Başlangıç ${formatDateTr(input.enrollmentStartDate)} · Sürüm ${input.versionNumber}`;
+    const fileName = `${studentSlug}-${slugify(branch)}-ogrenci-sozlesmesi-${academicYear}-v${input.versionNumber}.pdf`;
+    return { titleMain, titleSub, academicYear, studentSlug, fileName };
+  }
   const titleMain = `${isRenewal ? "Sözleşme Yenileme" : "Öğrenci Kayıt Sözleşmesi"} — ${input.studentName}`;
   const titleSub = `${academicYear} Eğitim Dönemi · ${input.durationMonths} Aylık ${isRenewal ? "Yenileme" : "Kayıt"} · Sürüm ${input.versionNumber}`;
   const fileName = `ogrenci-kayit-sozlesmesi-${studentSlug}-${academicYear}-v${input.versionNumber}.pdf`;
@@ -622,13 +753,36 @@ export type CreateContractInput = {
    * sözleşmeler/testler ETKİLENMEZ).
    */
   perLessonBillingLines?: import("./period-lesson-billing").PeriodBillingLine[];
-  /** Yalnız `perLessonBillingLines` ile birlikte anlamlı — bkz. `resolveFirstCollectionMergeThreshold`. */
-  firstCollectionMergeThresholdLessons?: number;
+  /** Sahip kararı (2026-09-16) — kayıt anındaki "takip eden ayı da ekle" seçimi (Payment.firstCollectionIncludesNextMonth). */
+  mergeFirstCollectionWithNextMonth?: boolean;
+  /** Önizleme tablosunda elle düzenlenen taksit tutarları (sıra no → tutar). */
+  installmentAmountOverrides?: { sequence: number; amount: number }[];
+  /** 2026-09-19 — önizlemede elle değiştirilen vade tarihleri (sıra no → yyyy-MM-dd). */
+  installmentDueDateOverrides?: { sequence: number; dueDate: string }[];
   /** P0 (2026-09-04) — yalnız `perLessonBillingLines` ile birlikte anlamlı; bkz. `LastPeriodPricing`. */
   lastPeriodPricing?: LastPeriodPricing;
+  /**
+   * 2026-10-04 — sözleşmenin ait olduğu eğitim. 2026-10-09: kalıcı branş kaydı varsa HER ZAMAN açık yazılır
+   * (birincil dahil); yoksa (kalıcı kaydı açılmamış tek branşlı eski öğrenci) NULL = öğrencinin tek branşı.
+   */
+  enrollmentId?: string;
+  /** 2026-10-09 — başlık/dosya adında görünen branş adı (ör. "Keman"). */
+  branchLabel?: string;
+  /**
+   * 2026-10-09 — çok branşlı öğrencide branşı belirtilmemiş AKTİF bir sözleşme varken yeni İLK sözleşme açılmaz
+   * (aynı branşa ikinci borç riski): önce o sözleşme "Branşa bağla" ile ilgili branşa bağlanır.
+   */
+  blockOnUnassignedActive?: boolean;
+  /** 2026-10-09 — kayıt ilk tahsilatının aranacağı branş kapsamı (yoksa eski davranış: öğrenci başına). */
+  registrationPaymentScope?: import("./student-enrollments").EnrollmentScope;
 };
 
-export type CreateContractResult = { contract: StudentContract; installments: ContractInstallmentView[] };
+export type CreateContractResult = {
+  contract: StudentContract;
+  installments: ContractInstallmentView[];
+  /** Yalnız revizyonda: önceki sürümde tahsil edilen, yeni plana mahsup edilen ve artan (iade edilmeyen) tutar. */
+  amendmentCredit?: { collected: number; applied: number; leftover: number };
+};
 
 export const FIRST_PAYMENT_REQUIRED_MESSAGE =
   "İlk ödeme kayıt sırasında tahsil edilmeden kayıt tamamlanamaz.";
@@ -639,6 +793,26 @@ const INSTALLMENT_KIND_LABELS_TR: Record<string, string> = {
   first_collection_combined: "İlk tahsilat (birleştirilmiş)",
   period_fee: "Dönem ücreti",
 };
+
+/**
+ * Sözleşme taksit tablosunun "HİZMET BEDELİ" hücresi — TEK kaynak.
+ * Ders-başı planda gerçek tür/dönem ("İlk tahsilat — 17–30 Eylül 2026").
+ * Tür/dönem bilgisi olmayan (sabit taksitli) satırda eskiden yalnız "EĞİTİM"
+ * basılıyordu; artık taksitin ayı açıkça yazılır ("Eğitim ücreti — Ekim 2026").
+ * Boş satır (taksit yok) boş kalır — sahte içerik üretilmez.
+ */
+export function describeInstallmentForContract(
+  row: Pick<ContractInstallmentSnapshot, "kind" | "periodLabel" | "dueDate"> | undefined,
+  mergedInto?: Pick<ContractInstallmentSnapshot, "breakdown">
+): string {
+  if (mergedInto) return `1. taksite dahil — ${mergedInto.breakdown?.[1]?.periodLabel ?? ""}`.trim();
+  if (!row) return "";
+  if (row.kind && row.periodLabel) return `${INSTALLMENT_KIND_LABELS_TR[row.kind]} — ${row.periodLabel}`;
+  const month = new Intl.DateTimeFormat("tr-TR", { month: "long", year: "numeric", timeZone: "Europe/Istanbul" }).format(
+    new Date(row.dueDate)
+  );
+  return `Eğitim ücreti — ${month.charAt(0).toLocaleUpperCase("tr") + month.slice(1)}`;
+}
 
 const CONTRACT_TYPE_LABELS: Record<ContractType, string> = {
   initial: "İlk Kayıt",
@@ -653,8 +827,9 @@ export async function createContract(input: CreateContractInput): Promise<Create
   if (input.installmentCount < 1 || input.installmentCount > 12) {
     throw new Error("Taksit sayısı 1-12 arasında olmalıdır.");
   }
-  if (input.monthlyAmount <= 0) {
-    throw new Error("Aylık ücret sıfırdan büyük olmalıdır.");
+  // 2026-09-30 — 0 geçerli: %100 indirimli/burslu öğrencinin sözleşmesi (tahsil edilecek taksit yok).
+  if (input.monthlyAmount < 0) {
+    throw new Error("Aylık ücret negatif olamaz.");
   }
   if (input.depositAmount !== undefined && input.depositAmount < 0) {
     throw new Error("Kaparo/depozito negatif olamaz.");
@@ -686,14 +861,38 @@ export async function createContract(input: CreateContractInput): Promise<Create
     if (!startsAfterPrevious && input.allowOverlap && !input.overlapReason?.trim()) {
       throw new Error("Örtüşen tarih için gerekçe (overlapReason) zorunludur.");
     }
-    const { outstandingAmount, unpaidInstallmentCount } = await computeOutstandingContractBalance(
-      input.tenantId,
-      previous.id
-    );
+    // 2026-10-04 — revizyon (amendment) AYNI dönemin yeni sürümüdür: önceki sürümün ödenmemiş taksitleri
+    // yeni planla yer değiştirir (tahsil edilen mahsup edilir), bu yüzden "yenileme borç bloğu" uygulanmaz.
+    const { outstandingAmount, unpaidInstallmentCount } =
+      input.contractType === "amendment"
+        ? { outstandingAmount: 0, unpaidInstallmentCount: 0 }
+        : await computeOutstandingContractBalance(input.tenantId, previous.id);
     if (outstandingAmount > 0) {
       if (!input.renewalDebtOverrideReason?.trim()) {
         throw new RenewalDebtBlockedError(outstandingAmount, unpaidInstallmentCount);
       }
+    }
+  }
+
+  // 2026-10-04 KÖK NEDEN (Ela vakası: aynı öğrencide 1,5 dk arayla iki "ilk kayıt" sözleşmesi, ikisi de aktif →
+  // borç iki kez yazıldı): aktif (iptal/yenilenmemiş) sözleşmesi olan öğrenciye ikinci bir İLK sözleşme açılmaz.
+  // Planı düzeltmek için mevcut sözleşme revize edilir; yeniden başlamak için önce iptal edilir.
+  if (input.contractType === "initial") {
+    // Çoklu branş (2026-10-09): kural BRANŞ başınadır — başka branşın aktif sözleşmesi engel değildir.
+    const live = (await listContractsForStudent(input.tenantId, input.studentId)).filter(
+      (c) => c.status !== "cancelled" && c.status !== "superseded"
+    );
+    const unassigned = input.blockOnUnassignedActive ? live.filter((c) => !c.enrollmentId) : [];
+    if (unassigned.length > 0) {
+      throw new Error(
+        `Bu öğrencinin branşı belirtilmemiş aktif sözleşmesi var (${unassigned.map((c) => c.contractNumber).join(", ")}). Aynı branşa ikinci sözleşme açılmaması için önce Sözleşme Merkezi'nde bu sözleşmeyi "Branşa bağla" ile ilgili branş kaydına bağlayın, sonra yeni branşın sözleşmesini oluşturun.`
+      );
+    }
+    const active = live.filter((c) => (c.enrollmentId ?? null) === (input.enrollmentId ?? null));
+    if (active.length > 0) {
+      throw new Error(
+        `Bu ${input.branchLabel ? `${input.branchLabel} branş kaydının` : "öğrencinin"} aktif sözleşmesi var (${active.map((c) => c.contractNumber).join(", ")}). Aynı branşa ikinci bir ilk kayıt sözleşmesi açılamaz: ödeme planını veya bilgileri düzeltmek için mevcut sözleşmeyi "Revize et" ile güncelleyin; baştan oluşturmak gerekiyorsa önce mevcut sözleşmeyi iptal edin. (Başka bir enstrüman için "Branş kaydı ekle" ile ayrı branş açıp onun sözleşmesini oluşturabilirsiniz.)`
+      );
     }
   }
 
@@ -724,21 +923,9 @@ export async function createContract(input: CreateContractInput): Promise<Create
   // ödemeden BAĞIMSIZ, gerçekten yeni bir Payment satırı yaratılır (eski davranış korunur).
   const requiresFirstPaymentAtRegistration = input.contractType !== "amendment" && isFormalContractDuration(input.durationMonths);
   let registrationFirstPayment: Payment | null = null;
-  if (requiresFirstPaymentAtRegistration) {
-    if (input.contractType === "initial") {
-      const { getRegistrationFirstPayment } = await import("./store");
-      registrationFirstPayment = await getRegistrationFirstPayment(input.studentId);
-      if (!registrationFirstPayment) {
-        throw new Error(FIRST_PAYMENT_REQUIRED_MESSAGE);
-      }
-    } else {
-      if (!input.firstPaymentCollected) {
-        throw new Error(FIRST_PAYMENT_REQUIRED_MESSAGE);
-      }
-      if (input.firstPaymentCollected.amount <= 0) {
-        throw new Error("Tahsil edilen ilk ödeme tutarı sıfırdan büyük olmalıdır.");
-      }
-    }
+  if (requiresFirstPaymentAtRegistration && input.contractType === "initial") {
+    const { getRegistrationFirstPayment } = await import("./store");
+    registrationFirstPayment = await getRegistrationFirstPayment(input.studentId, input.registrationPaymentScope);
   }
 
   // P0 (2026-09-03) — `perLessonBillingLines` verilmişse (öğrenci per-lesson
@@ -749,13 +936,11 @@ export async function createContract(input: CreateContractInput): Promise<Create
   // eşitlik kontrolü (aşağıdaki `else` dalı) burada GEREKSİZDİR: motor zaten
   // fiili tutarı satıra yazar, "eşleşmiyor" diye reddetmez.
   const firstPaymentActualAmount = registrationFirstPayment?.amount ?? input.firstPaymentCollected?.amount;
-  const installments = input.perLessonBillingLines
+  const builtInstallments = input.perLessonBillingLines
     ? buildPerLessonInstallmentSchedule({
         billingLines: input.perLessonBillingLines,
         firstPeriodManualNetAmount: firstPaymentActualAmount,
-        mergeThresholdLessons: resolveFirstCollectionMergeThreshold({
-          firstCollectionMergeThresholdLessons: input.firstCollectionMergeThresholdLessons,
-        }),
+        mergeFirstTwoPeriods: input.mergeFirstCollectionWithNextMonth ?? false,
         firstDueDate: input.firstDueDate,
         paymentMethod: input.paymentMethod,
         paymentPolicy: input.paymentPolicy,
@@ -769,29 +954,125 @@ export async function createContract(input: CreateContractInput): Promise<Create
         paymentMethod: input.paymentMethod,
         paymentPolicy: input.paymentPolicy,
       });
+  // Sahip kararı (2026-09-16) — önizlemede elle düzenlenen tutarlar burada uygulanır;
+  // toplam, sözleşme PDF'i ve gerçek Payment satırları HEP aynı listeden üretilir.
+  const installments = applyInstallmentDueDateOverrides(
+    applyInstallmentAmountOverrides(builtInstallments, input.installmentAmountOverrides),
+    input.installmentDueDateOverrides
+  );
   const totalContractAmount = installments.reduce((s, r) => s + r.amount, 0) + (input.depositAmount ?? 0);
+  // 2026-09-30 — %100 burslu (toplam 0 TL) sözleşmede tahsilat anı yoktur: ilk tahsilat
+  // istenmez, 0 TL'lik "ödendi"/"bekliyor" Payment satırı YAZILMAZ (sahte ödeme/borç yok).
+  // Kayıtta alınmış gerçek bir ilk tahsilat varsa eski davranış (1. taksite bağlanır) korunur.
+  const fullyWaived = totalContractAmount === 0 && !registrationFirstPayment;
+  if (requiresFirstPaymentAtRegistration && !fullyWaived) {
+    if (input.contractType === "initial") {
+      // 2026-09-19 — sistemde önceden kayıtlı, kayıtta ilk tahsilatı alınmamış öğrenci
+      // için İLK sözleşme: ilk tahsilat sözleşme ekranında girilir (yenilemedeki gibi).
+      if (!registrationFirstPayment) {
+        if (!input.firstPaymentCollected) {
+          throw new Error(
+            "Bu öğrencinin kayıtta alınmış bir ilk tahsilatı yok. Sözleşme formundaki \"İlk tahsilat\" bölümüne tahsil edilen tutarı, tarihi ve yöntemi girin."
+          );
+        }
+        if (input.firstPaymentCollected.amount <= 0) {
+          throw new Error("Tahsil edilen ilk ödeme tutarı sıfırdan büyük olmalıdır.");
+        }
+      }
+    } else {
+      if (!input.firstPaymentCollected) {
+        throw new Error(FIRST_PAYMENT_REQUIRED_MESSAGE);
+      }
+      if (input.firstPaymentCollected.amount <= 0) {
+        throw new Error("Tahsil edilen ilk ödeme tutarı sıfırdan büyük olmalıdır.");
+      }
+    }
+  }
 
   if (!input.perLessonBillingLines) {
     if (registrationFirstPayment) {
       const firstInstallmentAmount = installments[0]?.amount ?? 0;
       if (registrationFirstPayment.amount !== firstInstallmentAmount) {
         throw new Error(
-          `Kayıt sırasında tahsil edilen ilk ödeme tutarı (${registrationFirstPayment.amount}) hesaplanan 1. taksit tutarıyla (${firstInstallmentAmount}) eşleşmiyor.`
+          `Kayıtta tahsil edilen ilk ödeme (${new Intl.NumberFormat("tr-TR").format(registrationFirstPayment.amount)} TL) bu sözleşmenin 1. taksitiyle (${new Intl.NumberFormat("tr-TR").format(firstInstallmentAmount)} TL) aynı değil. Sözleşmedeki aylık ücret veya taksit sayısı kayıttakinden farklı olabilir: bu alanları kayıttaki değerlere eşitleyin ya da "Öğrenci Kaydını Düzenle" ile ilk ödemeyi düzeltin.`
         );
       }
-    } else if (requiresFirstPaymentAtRegistration && input.firstPaymentCollected) {
+    } else if (requiresFirstPaymentAtRegistration && input.firstPaymentCollected && !fullyWaived) {
       const firstInstallmentAmount = installments[0]?.amount ?? 0;
       if (input.firstPaymentCollected.amount !== firstInstallmentAmount) {
         throw new Error(
-          `Tahsil edilen ilk ödeme tutarı (${input.firstPaymentCollected.amount}) hesaplanan 1. taksit tutarıyla (${firstInstallmentAmount}) eşleşmiyor.`
+          `Girilen ilk ödeme (${new Intl.NumberFormat("tr-TR").format(input.firstPaymentCollected.amount)} TL) bu sözleşmenin 1. taksitiyle (${new Intl.NumberFormat("tr-TR").format(firstInstallmentAmount)} TL) aynı değil. Tahsil edilen tutarı veya aylık ücret/taksit sayısını düzeltin.`
         );
       }
     }
   }
 
+  // 2026-10-04 — sunucu tarafı mükerrer sürüm kontrolü: aynı veriden ikinci sürüm üretilmez (istemci farkı atlansa da).
+  if (input.contractType === "amendment" && previous) {
+    const { isIdenticalRevision } = await import("./contract-revision");
+    const snap = previous.contractDataSnapshot;
+    const consent = (c: CreateContractInput["photoVideoConsent"] | undefined) =>
+      c == null ? ("unset" as const) : c.granted ? ("granted" as const) : ("denied" as const);
+    const planOf = (rows: Pick<ContractInstallmentSnapshot, "sequence" | "amount" | "dueDate">[]) =>
+      rows.map((r) => ({ sequence: r.sequence, amount: r.amount, dueDate: r.dueDate }));
+    const identical = isIdenticalRevision(
+      {
+        programmeName: previous.programmeName,
+        monthlyAmount: previous.monthlyAmount,
+        durationMonths: previous.durationMonths,
+        installmentCount: previous.installmentCount,
+        enrollmentStartDate: previous.enrollmentStartDate,
+        enrollmentEndDate: previous.enrollmentEndDate,
+        paymentMethod: previous.paymentMethod,
+        depositAmount: previous.depositAmount,
+        lessonScheduleText: snap?.lessonScheduleText,
+        signatoryFullName: previous.signatoryFullName,
+        signatoryNationalId: previous.signatoryNationalId,
+        signatoryAddress: previous.signatoryAddress,
+        signatoryRelationship: previous.signatoryRelationship,
+        photoVideoConsent: consent(snap?.photoVideoConsent),
+        photoScopes: snap?.photoVideoConsent?.scopes ?? [],
+        kvkkNoticeDelivered: snap?.kvkkNoticeDelivered,
+        plan: planOf(snap?.installments ?? []),
+      },
+      {
+        programmeName: input.programmeName,
+        monthlyAmount: input.monthlyAmount,
+        durationMonths: input.durationMonths,
+        installmentCount: input.installmentCount,
+        enrollmentStartDate: input.enrollmentStartDate,
+        enrollmentEndDate: input.enrollmentEndDate,
+        paymentMethod: input.paymentMethod,
+        depositAmount: input.depositAmount,
+        lessonScheduleText: input.lessonScheduleText,
+        signatoryFullName: input.signatoryFullName,
+        signatoryNationalId: input.signatoryNationalId,
+        signatoryAddress: input.signatoryAddress,
+        signatoryRelationship: input.signatoryRelationship,
+        photoVideoConsent: consent(input.photoVideoConsent),
+        photoScopes: input.photoVideoConsent?.scopes ?? [],
+        kvkkNoticeDelivered: input.kvkkNoticeDelivered,
+        plan: planOf(installments),
+      }
+    );
+    if (identical) {
+      throw new Error(
+        `Bu revizyon önceki sürümle (${previous.contractNumber} · v${previous.versionNumber}) birebir aynı: hiçbir alan veya ödeme planı satırı değişmedi. Yeni sürüm oluşturulmadı; değiştirmek istediğiniz alanı düzenleyip tekrar kaydedin.`
+      );
+    }
+  }
+
   const isFormal = isFormalContractDuration(input.durationMonths);
   const nowTr = formatDateTr(new Date());
-  const versionNumber = previous ? previous.versionNumber + 1 : 1;
+  /**
+   * Sürüm, sözleşme TÜRÜNDEN bağımsız olarak öğrenci bazında artar.
+   * İptal sonrası yeni bir "initial" eskiden yine versionNumber=1 alıyordu;
+   * liste `versionNumber desc` ile sıralanınca iptal edilmiş kayıtla
+   * berabere kalıyor ve "güncel" rozeti yanlış satıra yapışıyordu.
+   */
+  const existingForStudent = await listContractsForStudent(input.tenantId, input.studentId);
+  const maxVersion = existingForStudent.reduce((max, c) => Math.max(max, c.versionNumber), 0);
+  const versionNumber = Math.max(maxVersion + 1, previous ? previous.versionNumber + 1 : 1);
 
   let doc: { id: string; reference: string } | undefined;
   let templateVersionUsed: number | undefined;
@@ -823,6 +1104,7 @@ export async function createContract(input: CreateContractInput): Promise<Create
       enrollmentStartDate: input.enrollmentStartDate,
       durationMonths: input.durationMonths,
       versionNumber,
+      branchLabel: input.branchLabel,
     });
 
     const fieldValues: Record<string, string> = {
@@ -870,9 +1152,13 @@ export async function createContract(input: CreateContractInput): Promise<Create
         : "",
   };
     for (let i = 1; i <= 12; i++) {
-      const row = installments[i - 1];
-      fieldValues[`taksit${i}Tarih`] = row ? formatDateTr(row.dueDate) : "";
-      fieldValues[`taksit${i}Tutar`] = row ? new Intl.NumberFormat("tr-TR").format(row.amount) : "";
+      // Slot = taksit sıra numarası (sözleşme ayı). Birleşik ilk tahsilatta
+      // 2. slot ayrı satır değildir — 1. taksite dahil olduğu açıkça yazılır.
+      const row = installments.find((r) => r.sequence === i);
+      const mergedInto =
+        !row && i === 2 && installments[0]?.kind === "first_collection_combined" ? installments[0] : undefined;
+      fieldValues[`taksit${i}Tarih`] = row ? formatDateTr(row.dueDate) : mergedInto ? formatDateTr(mergedInto.dueDate) : "";
+      fieldValues[`taksit${i}Tutar`] = row ? new Intl.NumberFormat("tr-TR").format(row.amount) : mergedInto ? "—" : "";
       // P0 (2026-09-03, genişletildi 2026-09-05) — her taksitin tür/dönem
       // açıklaması, ör. "İlk tahsilat (birleştirilmiş) — 17–30 Eylül 2026 +
       // Ekim 2026". Per-lesson sözleşmelerde gerçek tür/dönem gösterilir;
@@ -881,8 +1167,7 @@ export async function createContract(input: CreateContractInput): Promise<Create
       // BİREBİR aynı "EĞİTİM" değerine düşülür — mevcut sözleşmelerin PDF
       // çıktısı DEĞİŞMEZ, yalnız per-lesson sözleşmeler artık ilk tahsilatı
       // dönem ücretinden AYRI, kendi gerçek etiketiyle gösterir.
-      fieldValues[`taksit${i}Aciklama`] =
-        row?.kind && row.periodLabel ? `${INSTALLMENT_KIND_LABELS_TR[row.kind]} — ${row.periodLabel}` : "EĞİTİM";
+      fieldValues[`taksit${i}Aciklama`] = describeInstallmentForContract(row, mergedInto);
       // P0 revizyonu — "Ödeme Türü" sütunu: 1. satırda GERÇEK ilk tahsilatın
       // yöntemi (kayıt anı ödemesi initial'da reuse edilir, renewal'da bu
       // formda alınır; ikisi de yoksa — amendment — "—"). Sonraki satırların
@@ -924,6 +1209,9 @@ export async function createContract(input: CreateContractInput): Promise<Create
   const snapshot: ContractDataSnapshot = {
     studentName: input.studentName,
     programmeName: input.programmeName,
+    // K — ders gün/saati artık makine-okunur biçimde de dondurulur (ders
+    // programı üretimi bunu okur); metin çıktısı DEĞİŞMEDİ.
+    lessonScheduleText: input.lessonScheduleText,
     enrollmentStartDate: input.enrollmentStartDate,
     enrollmentEndDate: input.enrollmentEndDate,
     durationMonths: input.durationMonths,
@@ -961,6 +1249,7 @@ export async function createContract(input: CreateContractInput): Promise<Create
     versionNumber,
     contractType: input.contractType,
     previousContractId: previous?.id,
+    enrollmentId: input.enrollmentId ?? previous?.enrollmentId,
     documentInstanceId: doc?.id,
     templateVersion: templateVersionUsed,
     status: isFormal ? "generated" : "recorded",
@@ -995,6 +1284,7 @@ export async function createContract(input: CreateContractInput): Promise<Create
         versionNumber: row.versionNumber,
         contractType: row.contractType,
         previousContractId: row.previousContractId,
+        enrollmentId: row.enrollmentId,
         documentInstanceId: row.documentInstanceId,
         templateVersion: row.templateVersion,
         status: row.status,
@@ -1018,27 +1308,125 @@ export async function createContract(input: CreateContractInput): Promise<Create
       },
     });
     if (previous) {
-      await prisma.studentContract.update({ where: { id: previous.id }, data: { status: "superseded" } });
+      // 2026-10-04 — koşullu: aynı sürüm iki kez revize/yenilenemez (çift gönderim / eşzamanlı istek).
+      const claimed = await prisma.studentContract.updateMany({
+        where: { id: previous.id, tenantId: input.tenantId, status: { notIn: ["cancelled", "superseded"] } },
+        data: { status: "superseded" },
+      });
+      if (claimed.count === 0) {
+        await prisma.studentContract.delete({ where: { id: row.id } });
+        throw new Error(
+          "Bu sözleşme az önce başka bir işlemle revize edildi veya yenilendi; ikinci sürüm oluşturulmadı. Sayfayı yenileyip güncel sözleşmeyi kontrol edin."
+        );
+      }
     }
   } else {
     const all = await loadAll();
+    if (previous && all.some((c) => c.id === previous!.id && (c.status === "cancelled" || c.status === "superseded"))) {
+      throw new Error(
+        "Bu sözleşme az önce başka bir işlemle revize edildi veya yenilendi; ikinci sürüm oluşturulmadı. Sayfayı yenileyip güncel sözleşmeyi kontrol edin."
+      );
+    }
     const next = [...all, row];
     const finalRows = previous
       ? next.map((c) => (c.id === previous!.id ? { ...c, status: "superseded" as ContractStatus, updatedAt: now } : c))
       : next;
     await saveAll(finalRows);
   }
+  const rollbackContractRow = async (createdPaymentIds: string[]) => {
+    // Bu işlemde yazılan satırlar (taksitler + bu çağrıda alınan ilk tahsilat) kaldırılır; önceden var olan
+    // kayıt anı tahsilatı yalnız sözleşmeden ayrılır — gerçek tahsilat kaybolmaz. Önceki sürüm eski durumuna döner.
+    const created = new Set(createdPaymentIds);
+    if (isDbMode) {
+      const { prisma } = await import("./db");
+      await prisma.payment.deleteMany({
+        where: { tenantId: input.tenantId, OR: [{ contractId: row.id, paidAmount: 0 }, { id: { in: createdPaymentIds } }] },
+      });
+      await prisma.payment.updateMany({
+        where: { tenantId: input.tenantId, contractId: row.id },
+        data: { contractId: null, installmentSequence: null },
+      });
+      await prisma.studentContract.deleteMany({ where: { id: row.id, tenantId: input.tenantId } });
+      if (previous) {
+        await prisma.studentContract.updateMany({ where: { id: previous.id, tenantId: input.tenantId }, data: { status: previous.status } });
+      }
+      return;
+    }
+    const { isMemoryMode } = await import("./config");
+    const fileStore = isMemoryMode ? await import("./store-memory") : await import("./store-json");
+    await fileStore.mutateStoreUnderLock(async (current) => ({
+      ...current,
+      payments: current.payments
+        .filter((p) => !((p.contractId === row.id && p.paidAmount === 0) || created.has(p.id)))
+        .map((p) => (p.contractId === row.id ? { ...p, contractId: undefined, installmentSequence: undefined } : p)),
+    }));
+    const all = await loadAll();
+    await saveAll(
+      all
+        .filter((c) => c.id !== row.id)
+        .map((c) => (previous && c.id === previous.id ? { ...c, status: previous.status, updatedAt: now } : c))
+    );
+  };
+
+
+
+  // 2026-09-22 — TEK KANONİK İLK TAHSİLAT: kayıtta ilk tahsilatı alınmamış
+  // öğrencinin (CSV ile gelen, eski kayıt) İLK sözleşmesinde formda girilen
+  // tahsilat, normal kayıttaki gibi `registration_first_payment` olarak yazılır
+  // ve 1. taksite bağlanır. Böylece kayıt özeti, "ilk tahsilatı düzelt"
+  // (1 → 7000), iptal sonrası yeniden oluşturma ve finans ekranları CSV ile
+  // normal öğrenci arasında AYNI satırı okur. Yenilemede (renewal) değişmez.
+  // 2026-10-04 — başarısız işlem yarım sözleşme/yarım plan bırakmaz: buradan sonraki her hata kaydı geri alır.
+  const createdPaymentIds: string[] = [];
+  let paymentRows = installments;
+  let amendmentCredit: { collected: number; applied: number; leftover: number } | undefined;
+  try {
+  if (input.contractType === "amendment" && previous) {
+    const collected = await computePriorContractCollected(input.tenantId, previous.id);
+    const allocated = allocatePriorCollections(installments, collected, previous.contractNumber);
+    // Mahsupla tamamen kapanan satır yazılmaz (0 TL "bekliyor" borcu üretilmez).
+    paymentRows = allocated.rows.filter((r) => r.amount > 0);
+    amendmentCredit = { collected, applied: allocated.applied, leftover: allocated.leftover };
+  }
+  let reuseFirstPaymentId = registrationFirstPayment?.id;
+  let firstPaymentForInstallments = registrationFirstPayment || fullyWaived ? undefined : input.firstPaymentCollected;
+  if (input.contractType === "initial" && !registrationFirstPayment && !fullyWaived && input.firstPaymentCollected && requiresFirstPaymentAtRegistration) {
+    const { addRegistrationFirstPayment } = await import("./store");
+    const fp = input.firstPaymentCollected;
+    const { paymentId } = await addRegistrationFirstPayment({
+      studentId: input.studentId,
+      method: fp.method,
+      amount: fp.amount,
+      collectedAt: fp.collectedAt,
+      reference: fp.reference,
+      note: fp.note,
+      receivedByUserId: input.createdBy,
+      firstCollectionIncludesNextMonth: input.mergeFirstCollectionWithNextMonth,
+      enrollmentId: row.enrollmentId,
+    });
+    reuseFirstPaymentId = paymentId;
+    createdPaymentIds.push(paymentId);
+    firstPaymentForInstallments = undefined;
+  }
 
   const installmentPayments = await createInstallmentPayments({
     tenantId: input.tenantId,
     studentId: input.studentId,
     contractId: row.id,
-    installments,
-    firstPaymentCollected: registrationFirstPayment ? undefined : input.firstPaymentCollected,
-    reuseFirstPaymentId: registrationFirstPayment?.id,
+    // Burslu sözleşme: plan PDF/snapshot'ta 0 TL olarak görünür, ama Payment satırı üretilmez.
+    installments: fullyWaived ? [] : paymentRows,
+    firstPaymentCollected: firstPaymentForInstallments,
+    reuseFirstPaymentId,
+    enrollmentId: row.enrollmentId,
   });
 
-  return { contract: toPublic(row), installments: installmentPayments };
+  return { contract: toPublic(row), installments: installmentPayments, amendmentCredit };
+  } catch (e) {
+    await rollbackContractRow(createdPaymentIds).catch((rollbackError) => {
+      logger.error("createContract rollback failed", rollbackError);
+    });
+    throw e;
+  }
 }
 
 /** Sözleşme taksitlerini gerçek `Payment` satırları olarak oluşturur — mode-parity için src/lib/store.ts üzerinden (json/db/memory hepsi). */
@@ -1049,6 +1437,7 @@ async function createInstallmentPayments(input: {
   installments: ContractInstallmentSnapshot[];
   firstPaymentCollected?: CreateContractInput["firstPaymentCollected"];
   reuseFirstPaymentId?: string;
+  enrollmentId?: string;
 }): Promise<ContractInstallmentView[]> {
   void input.tenantId; // ALS tenant context zaten çağıran API handler tarafından kurulmuştur (bkz. store.ts withTenantScope).
   const { addContractInstallments } = await import("./store");
@@ -1058,6 +1447,7 @@ async function createInstallmentPayments(input: {
     installments: input.installments,
     firstPaymentCollected: input.firstPaymentCollected,
     reuseFirstPaymentId: input.reuseFirstPaymentId,
+    enrollmentId: input.enrollmentId,
   });
   return installments;
 }
@@ -1073,27 +1463,260 @@ export async function getContract(tenantId: string, id: string): Promise<Student
   return r ? toPublic(r) : null;
 }
 
+/**
+ * TEK KANONİK SÖZLEŞME GÖRÜNTÜLEYİCİ (2026-09-20).
+ *
+ * Kök sorun: bir sözleşme aynı anda iki kayıt olarak var — `StudentContract`
+ * (canlı veri + güncel render) ve ona bağlı `DocumentInstance` (üretildiği
+ * andaki dondurulmuş `renderedHtml`). Öğrenci ekranı sözleşmeyi
+ * `/sozlesme-yazdir/[contractId]` ile (GÜNCEL görünüm) açıyor, Evraklar
+ * Merkezi ise aynı sözleşmeyi `/evrak-yazdir/[documentId]` ile (ESKİ, jenerik
+ * evrak şablonu) açıyordu — kullanıcı bunu "eski UI geliyor" diye bildirdi.
+ *
+ * Bu eşleme sayesinde Evraklar da kanonik görüntüleyiciye yönlenir; dondurulmuş
+ * snapshot SİLİNMEZ (hukuki arşiv), yalnız varsayılan görüntüleme yolu tekleşir.
+ */
+export async function findContractIdsByDocumentInstanceIds(
+  tenantId: string,
+  documentInstanceIds: string[]
+): Promise<Record<string, string>> {
+  const ids = Array.from(new Set(documentInstanceIds.filter(Boolean)));
+  if (ids.length === 0) return {};
+  if (isDbMode) {
+    const { prisma } = await import("./db");
+    const rows = await prisma.studentContract.findMany({
+      where: { tenantId, documentInstanceId: { in: ids } },
+      select: { id: true, documentInstanceId: true },
+    });
+    return Object.fromEntries(
+      rows.filter((r) => r.documentInstanceId).map((r) => [r.documentInstanceId as string, r.id])
+    );
+  }
+  const all = await loadAll();
+  const wanted = new Set(ids);
+  return Object.fromEntries(
+    all
+      .filter((x) => x.tenantId === tenantId && x.documentInstanceId && wanted.has(x.documentInstanceId))
+      .map((x) => [x.documentInstanceId as string, x.id])
+  );
+}
+
+/** Tek belge için kanonik sözleşme kimliği (yoksa null — belge sözleşme değildir veya legacy kayıttır). */
+export async function findContractIdByDocumentInstanceId(
+  tenantId: string,
+  documentInstanceId: string
+): Promise<string | null> {
+  const map = await findContractIdsByDocumentInstanceIds(tenantId, [documentInstanceId]);
+  return map[documentInstanceId] ?? null;
+}
+
+/**
+ * UAT 2026-09-25 — tenant'ın iptal/yenilenmiş sözleşme kimlikleri (tek sorgu). Borç/gecikme/hatırlatma
+ * hesapları bununla `isLiveObligation` (payment-profile.ts) kuralını uygular.
+ */
+export async function listTerminalContractIds(tenantId: string): Promise<Set<string>> {
+  if (isDbMode) {
+    const { prisma } = await import("./db");
+    const rows = await prisma.studentContract.findMany({
+      where: { tenantId, status: { in: ["cancelled", "superseded"] } },
+      select: { id: true },
+    });
+    return new Set(rows.map((r) => r.id));
+  }
+  const all = await loadAll();
+  return new Set(all.filter((x) => x.tenantId === tenantId && (x.status === "cancelled" || x.status === "superseded")).map((x) => x.id));
+}
+
+/** Kurum kapsamındaki (tek veya birleşik görünüm) tenant'ların terminal sözleşme kimlikleri. */
+export async function listTerminalContractIdsForScope(
+  scope: { mode: "single"; tenantId: string } | { mode: "all"; tenantIds: string[] }
+): Promise<Set<string>> {
+  const ids = scope.mode === "single" ? [scope.tenantId] : scope.tenantIds;
+  const sets = await Promise.all(ids.map((t) => listTerminalContractIds(t)));
+  return new Set(sets.flatMap((s) => [...s]));
+}
+
 export async function listContractsForStudent(tenantId: string, studentId: string): Promise<StudentContract[]> {
   if (isDbMode) {
     const { prisma } = await import("./db");
     const rows = await prisma.studentContract.findMany({
       where: { tenantId, studentId },
-      orderBy: { versionNumber: "desc" },
+      orderBy: [{ versionNumber: "desc" }, { createdAt: "desc" }],
     });
     return rows.map(mapDb);
   }
   const all = await loadAll();
   return all
     .filter((x) => x.tenantId === tenantId && x.studentId === studentId)
-    .sort((a, b) => b.versionNumber - a.versionNumber)
+    .sort((a, b) => b.versionNumber - a.versionNumber || b.createdAt.localeCompare(a.createdAt))
     .map(toPublic);
 }
 
-/** "Güncel/aktif" sözleşme — cancelled/superseded HARİÇ en yüksek versiyon. */
+/** 2026-10-09 — kurumun branşa bağlı sözleşmeleri (id → enrollmentId); ödeme satırının branşını çözmek için hafif okuma. */
+export async function listContractEnrollmentLinks(tenantId: string): Promise<{ id: string; enrollmentId?: string }[]> {
+  if (isDbMode) {
+    const { prisma } = await import("./db");
+    const rows = await prisma.studentContract.findMany({
+      where: { tenantId, NOT: { enrollmentId: null } },
+      select: { id: true, enrollmentId: true },
+    });
+    return rows.map((r) => ({ id: r.id, enrollmentId: r.enrollmentId ?? undefined }));
+  }
+  return (await loadAll()).filter((c) => c.tenantId === tenantId && c.enrollmentId).map((c) => ({ id: c.id, enrollmentId: c.enrollmentId }));
+}
+
+export async function listContractEnrollmentLinksForScope(
+  scope: { mode: "single"; tenantId: string } | { mode: "all"; tenantIds: string[] }
+): Promise<{ id: string; enrollmentId?: string }[]> {
+  const ids = scope.mode === "single" ? [scope.tenantId] : scope.tenantIds;
+  return (await Promise.all(ids.map((t) => listContractEnrollmentLinks(t)))).flat();
+}
+
+/**
+ * 2026-10-09 — branşı belirtilmemiş (NULL) sözleşmeleri bir branş kaydına bağlar. Yalnız NULL satırlar yazılır;
+ * başka branşa bağlı sözleşme taşınmaz. `contractIds` yoksa öğrencinin tüm bağsız sözleşmeleri (tek branşlı öğrenci).
+ */
+export async function linkUnassignedContracts(
+  tenantId: string,
+  studentId: string,
+  enrollmentId: string,
+  contractIds?: string[]
+): Promise<string[]> {
+  if (isDbMode) {
+    const { prisma } = await import("./db");
+    const rows = await prisma.studentContract.findMany({
+      where: { tenantId, studentId, enrollmentId: null, ...(contractIds ? { id: { in: contractIds } } : {}) },
+      select: { id: true },
+    });
+    if (rows.length === 0) return [];
+    await prisma.studentContract.updateMany({
+      where: { tenantId, studentId, enrollmentId: null, id: { in: rows.map((r) => r.id) } },
+      data: { enrollmentId },
+    });
+    return rows.map((r) => r.id);
+  }
+  const all = await loadAll();
+  const ids: string[] = [];
+  const next = all.map((c) => {
+    if (c.tenantId !== tenantId || c.studentId !== studentId || c.enrollmentId) return c;
+    if (contractIds && !contractIds.includes(c.id)) return c;
+    ids.push(c.id);
+    return { ...c, enrollmentId, updatedAt: new Date().toISOString() };
+  });
+  if (ids.length > 0) await saveAll(next);
+  return ids;
+}
+
+/**
+ * D — Öğrenciler ekranı sözleşme filtreleri için, tenant'ın TÜM öğrencilerinin
+ * sözleşme ÖZETİ (tek sorgu; öğrenci başına ayrı okuma YOK).
+ *
+ * Yalnız filtre için gereken en küçük alan kümesi döner — tam
+ * `contractDataSnapshot` (büyük JSON) OKUNMAZ, böylece 500+ öğrencili bir
+ * kurumda liste ekranı ağırlaşmaz.
+ */
+export type StudentContractSummary = {
+  studentId: string;
+  contractId: string;
+  contractNumber: string;
+  status: ContractStatus;
+  enrollmentStartDate: string;
+  enrollmentEndDate: string;
+  versionNumber: number;
+  /** Sözleşmedeki "Aylık ücret" — ders sayısına göre değişen taksitlerden bağımsız birim ücret. */
+  monthlyAmount: number;
+  /** 2026-10-09 — sözleşmenin branş kaydı (NULL = eski; tek branşlı öğrencide o branşın). */
+  enrollmentId?: string;
+};
+
+/** 2026-10-09 — kurumun TÜM sözleşme özetleri (branş bağıyla); branş başına güncel seçim çağıranda yapılır. */
+export async function listContractSummaryRows(tenantId: string): Promise<StudentContractSummary[]> {
+  let rows: StudentContractSummary[];
+  if (isDbMode) {
+    const { prisma } = await import("./db");
+    const found = await prisma.studentContract.findMany({
+      where: { tenantId },
+      select: {
+        id: true,
+        studentId: true,
+        contractNumber: true,
+        status: true,
+        enrollmentStartDate: true,
+        enrollmentEndDate: true,
+        versionNumber: true,
+        monthlyAmount: true,
+        enrollmentId: true,
+      },
+      orderBy: [{ versionNumber: "desc" }, { createdAt: "desc" }],
+    });
+    rows = found.map((r) => ({
+      enrollmentId: r.enrollmentId ?? undefined,
+      monthlyAmount: r.monthlyAmount,
+      studentId: r.studentId,
+      contractId: r.id,
+      contractNumber: r.contractNumber,
+      status: r.status as ContractStatus,
+      enrollmentStartDate: r.enrollmentStartDate.toISOString().slice(0, 10),
+      enrollmentEndDate: r.enrollmentEndDate.toISOString().slice(0, 10),
+      versionNumber: r.versionNumber,
+    }));
+  } else {
+    const all = await loadAll();
+    rows = all
+      .filter((x) => x.tenantId === tenantId)
+      .sort((a, b) => b.versionNumber - a.versionNumber)
+      .map((x) => ({
+        enrollmentId: x.enrollmentId,
+        monthlyAmount: x.monthlyAmount,
+        studentId: x.studentId,
+        contractId: x.id,
+        contractNumber: x.contractNumber,
+        status: x.status,
+        enrollmentStartDate: x.enrollmentStartDate.slice(0, 10),
+        enrollmentEndDate: x.enrollmentEndDate.slice(0, 10),
+        versionNumber: x.versionNumber,
+      }));
+  }
+  return rows;
+}
+
+export async function listContractSummariesByStudent(
+  tenantId: string
+): Promise<Map<string, StudentContractSummary>> {
+  const rows = await listContractSummaryRows(tenantId);
+
+  /**
+   * Öğrenci başına TEK özet: `getLatestContractForStudent` ile AYNI kural —
+   * önce iptal/yenilenmiş olmayanların en yüksek versiyonu, hiç yoksa
+   * en yüksek versiyonlu kayıt. İki farklı "güncel sözleşme" tanımı
+   * bırakmamak için kural burada da birebir tekrarlanır, gevşetilmez.
+   */
+  const byStudent = new Map<string, StudentContractSummary>();
+  for (const row of rows) {
+    const current = byStudent.get(row.studentId);
+    if (!current) {
+      byStudent.set(row.studentId, row);
+      continue;
+    }
+    const rowActive = row.status !== "cancelled" && row.status !== "superseded";
+    const currentActive = current.status !== "cancelled" && current.status !== "superseded";
+    if (rowActive && !currentActive) byStudent.set(row.studentId, row);
+    else if (rowActive === currentActive && row.versionNumber > current.versionNumber) {
+      byStudent.set(row.studentId, row);
+    }
+  }
+  return byStudent;
+}
+
+/**
+ * Güncel sözleşme — cancelled/superseded HARİÇ en yüksek versiyon
+ * (eşitlikte en yeni createdAt). Hepsi iptal/yenilenmişse null.
+ * `selectCurrentContract` ile aynı kural; iptal edilmiş kayıt asla dönmez.
+ */
 export async function getLatestContractForStudent(tenantId: string, studentId: string): Promise<StudentContract | null> {
+  const { selectCurrentContract } = await import("./contract-list-helpers");
   const all = await listContractsForStudent(tenantId, studentId);
-  const active = all.filter((c) => c.status !== "cancelled" && c.status !== "superseded");
-  return active[0] ?? all[0] ?? null;
+  return selectCurrentContract(all);
 }
 
 export async function listInstallmentsForContract(tenantId: string, contractId: string): Promise<ContractInstallmentView[]> {
@@ -1214,6 +1837,7 @@ type DbContractRow = {
   versionNumber: number;
   contractType: string;
   previousContractId: string | null;
+  enrollmentId?: string | null;
   documentInstanceId: string | null;
   templateVersion: number | null;
   status: string;
@@ -1248,6 +1872,7 @@ function mapDb(r: DbContractRow): StudentContract {
     versionNumber: r.versionNumber,
     contractType: r.contractType as ContractType,
     previousContractId: r.previousContractId ?? undefined,
+    enrollmentId: r.enrollmentId ?? undefined,
     documentInstanceId: r.documentInstanceId ?? undefined,
     templateVersion: r.templateVersion ?? undefined,
     status: r.status as ContractStatus,

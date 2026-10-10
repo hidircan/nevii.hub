@@ -1,17 +1,17 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/link";
 import { ArrowLeft, Printer } from "lucide-react";
 
 /** Basılı çıktıda hiç görünmeyen ekran-only aksiyon çubuğu — ReceiptActions ile aynı desen. */
-export function DocumentPrintActions({ backHref }: { backHref: string }) {
+export function DocumentPrintActions({ backHref, backLabel = "Evrak detayına dön" }: { backHref: string; backLabel?: string }) {
   return (
     <div className="mb-4 flex items-center justify-between print:hidden">
       <Link
         href={backHref}
         className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-3.5 py-2 text-sm font-medium text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)]"
       >
-        <ArrowLeft className="h-4 w-4" /> Evrak detayına dön
+        <ArrowLeft className="h-4 w-4" /> {backLabel}
       </Link>
       <button
         type="button"

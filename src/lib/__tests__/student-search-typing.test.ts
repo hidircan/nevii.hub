@@ -39,11 +39,23 @@ describe("Öğrenci araması — yazma asla sunucuyu beklemez", () => {
 
   it("URL dışarıdan değişince (geri/ileri, derin bağlantı) input senkronlanır", () => {
     // Effect değil, React'in "prop değişince state ayarla" deseni.
-    expect(CODE).toMatch(/if \(urlSearch !== lastUrlSearch\)[\s\S]{0,120}setSearchInput\(urlSearch\)/);
+    expect(CODE).toMatch(/if \(urlSearch !== lastUrlSearch\)/);
+    expect(CODE).toMatch(/setSearchInput\(urlSearch\)/);
+  });
+
+  it("kendi debounced URL yankısı local input'u ezmez (filtre+yazma yarışı)", () => {
+    // Local hâlâ önceki URL ile aynıysa uygula; local öndeyse (yazıyor)
+    // stale `q=a` yankısı `ab`'yi silmesin.
+    expect(CODE).toMatch(/searchInput === previousUrlSearch/);
+    expect(CODE).toMatch(/previousUrlSearch/);
+  });
+
+  it("Temizle local aramayı da sıfırlar (debounce ortası)", () => {
+    expect(CODE).toMatch(/function clearAll\(\)[\s\S]{0,200}setSearchInput\(""\)/);
   });
 
   it("filtreleme yerel değerle yapılır — sonuç için sunucu turu beklenmez", () => {
     expect(CODE).toMatch(/const search = searchInput;/);
-    expect(CODE).toMatch(/const filterQuery = search\.trim\(\)\.toLowerCase\(\)/);
+    expect(CODE).toMatch(/const filterQuery = search\.trim\(\)\.toLocaleLowerCase\("tr"\)/);
   });
 });

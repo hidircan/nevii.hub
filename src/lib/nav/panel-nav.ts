@@ -11,6 +11,7 @@ import {
   Wallet,
   RefreshCcw,
   GraduationCap,
+  Award,
   Users,
   MessageCircle,
   ClipboardCheck,
@@ -32,6 +33,9 @@ import {
   Building2 as Building2Icon,
   Music as MusicIcon,
   CircleHelp,
+  Mail,
+  Briefcase,
+  StickyNote,
 } from "lucide-react";
 
 export type PanelNavItem = {
@@ -54,6 +58,8 @@ export const PANEL_MAIN_NAV: PanelNavItem[] = [
   { href: "/panel/yoklama", label: "Yoklama", icon: ClipboardCheck },
   { href: "/panel/telafi", label: "Telafi Merkezi", icon: RefreshCcw },
   { href: "/panel/ogrenciler", label: "Öğrenciler", icon: GraduationCap },
+  /** MEB Paneli — yalnız MEB öğrencileri; genişletilebilir yapı, bugün yalnız tablo + revizyon. */
+  { href: "/panel/meb", label: "MEB Paneli", icon: Award, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
   { href: "/panel/ogretmenler", label: "Öğretmenler", icon: Users },
   { href: "/panel/mufredat", label: "Müfredat", icon: MusicIcon },
 ];
@@ -74,10 +80,16 @@ export const PANEL_FINANCE_NAV: PanelNavItem[] = [
 export const PANEL_OPS_NAV: PanelNavItem[] = [
   /** İnsan-odaklı operasyon görev takibi — /panel/workflows (AI otomasyonu) ile İLGİSİZ, ayrı modül. */
   { href: "/panel/is-takip", label: "İş Takip", icon: ListChecks },
+  /** 2026-10-05 — Günlük Özet notlarının tamamı (kim/ne zaman). */
+  { href: "/panel/notlar", label: "Notlar", icon: StickyNote, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
   { href: "/panel/personel", label: "Personel", icon: UserCog, roles: ["SUPER_ADMIN"] },
+  /** İK / işe alım — ilanlar, aday havuzu, görüşme, e-posta (feat/ik-recruitment). */
+  { href: "/panel/ik", label: "İnsan Kaynakları", icon: Briefcase, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
   { href: "/panel/finans-ozeti", label: "Finans Özeti", icon: CreditCard, roles: ["SUPER_ADMIN"] },
   { href: "/panel/evraklar", label: "Evraklar", icon: FileText },
   { href: "/panel/deneme", label: "Deneme Dersleri", icon: FlaskConical },
+  /** 2026-10-05 — Kulüpler (grup dersi, aylık sabit ücret). */
+  { href: "/panel/kulupler", label: "Kulüpler", icon: Users, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
   { href: "/panel/ders-duzeltme", label: "Ders düzeltme", icon: Wrench },
   { href: "/panel/duyurular", label: "Duyurular", icon: MessageCircle },
   { href: "/panel/bildirimler", label: "Bildirimler", icon: MessageCircle },
@@ -106,9 +118,17 @@ export const PANEL_AI_NAV: PanelNavItem[] = [
 
 export const PANEL_SYSTEM_NAV: PanelNavItem[] = [
   { href: "/panel/ayarlar/kurum", label: "Kurum Ayarları", icon: Settings, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
+  /** 10. tur iş #2 — kurum bazlı davet/şifre-sıfırlama e-posta şablonları. */
+  { href: "/panel/e-posta-sablonlari", label: "E-posta Şablonları", icon: Mail, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
   { href: "/panel/ayarlar/ozellikler", label: "Kurum Özellikleri", icon: ShieldCheck, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
   { href: "/panel/ayarlar/entegrasyonlar", label: "Kurum Entegrasyonları", icon: Activity, roles: ["SUPER_ADMIN"] },
   { href: "/panel/kurulum", label: "Kurulum Merkezi", icon: Settings },
+  /** ÇALIŞMA GÜNÜ TEK KAYNAĞI — haftalık kural + resmî tatil + zorla aç/kapat istisnaları. */
+  { href: "/panel/ayarlar/calisma-gunleri", label: "Çalışma Günleri", icon: CalendarDays, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
+  /** Kurum sahibi — öğretmen/personel performans puanı ağırlıkları. */
+  { href: "/panel/ayarlar/performans", label: "Performans Ağırlıkları", icon: Activity, roles: ["SUPER_ADMIN"] },
+  /** Kurum sahibi — kritik işlem şifresi (öğrenci silme). */
+  { href: "/panel/ayarlar/guvenlik", label: "Güvenlik", icon: Settings, roles: ["SUPER_ADMIN"] },
   { href: "/panel/veri-aktar", label: "Veri Aktarım Merkezi", icon: Upload },
   /**
    * "Görünüm Ayarları" BİLİNÇLİ olarak burada YOK — kişisel bir tercih,

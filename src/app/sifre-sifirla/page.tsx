@@ -1,5 +1,7 @@
 import { ResetPasswordForm } from "@/components/reset-password-form";
 import { BRAND } from "@/lib/brand";
+import { cookies } from "next/headers";
+import { LOCALE_COOKIE, authCopy, readLocaleCookie } from "@/lib/i18n/copy";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +19,7 @@ export default async function ResetPasswordPage({
   searchParams: Promise<{ token?: string }>;
 }) {
   const { token } = await searchParams;
+  const copy = authCopy(readLocaleCookie((await cookies()).get(LOCALE_COOKIE)?.value));
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-[var(--color-bg)] px-4">
@@ -24,9 +27,9 @@ export default async function ResetPasswordPage({
         <div className="mb-6 text-center">
           {/* P1 revizyonu — marka "NeviiHub" aynen görünür (uppercase "NEVİİHUB" üretirdi). */}
           <p className="text-2xl font-extrabold tracking-wide text-[var(--color-primary)]">{BRAND.name}</p>
-          <h1 className="mt-1 text-2xl font-semibold text-[var(--color-text)]">Şifrenizi Sıfırlayın</h1>
+          <h1 className="mt-1 text-2xl font-semibold text-[var(--color-text)]">{copy.resetTitle}</h1>
           <p className="mt-2 text-sm text-[var(--color-text-muted)]">
-            E-postanızdaki kodu girin ve yeni şifrenizi belirleyin.
+            {copy.resetHelp}
           </p>
         </div>
         <ResetPasswordForm initialToken={token ?? ""} />

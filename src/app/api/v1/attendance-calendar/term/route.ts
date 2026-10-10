@@ -18,6 +18,6 @@ export const GET = withApiHandler(async ({ ctx, searchParams }) => {
   if (!studentId || (term !== "guz" && term !== "yaz") || !Number.isFinite(anchorYear)) {
     return jsonFail("VALIDATION_ERROR", "studentId, term (guz|yaz), anchorYear gerekli");
   }
-  const result = await getAttendanceCalendarTermTool(ctx, { studentId, term, anchorYear });
+  const result = await getAttendanceCalendarTermTool(ctx, { studentId, term, anchorYear, enrollmentId: searchParams.get("enrollmentId") || undefined });
   return fromServiceResult(result);
 });

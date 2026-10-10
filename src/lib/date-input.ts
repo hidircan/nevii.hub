@@ -28,10 +28,48 @@ export function parseDateOnlyInput(value: string | null | undefined): Date | nul
   return dt;
 }
 
+/**
+ * 2026-09-29 — kullanıcı `<input type="date">`'e yılı yazarken değer ara
+ * adımlarda "0002-10-15", "0020-10-15", "0202-10-15" olur. Bunlar biçimce
+ * geçerli ama TAMAMLANMAMIŞ girişlerdir: önizleme/müsaitlik hesabı, sunucu
+ * isteği veya tarih formatlama yalnız bu fonksiyon `true` dönünce yapılır.
+ * Takvimde gerçek gün + makul yıl aralığı (1900–2100).
+ */
+export function isCompleteDateOnlyInput(value: string | null | undefined): boolean {
+  const dt = parseDateOnlyInput(value);
+  if (!dt) return false;
+  const year = dt.getUTCFullYear();
+  return year >= 1900 && year <= 2100;
+}
+
+/** Alan yanında gösterilecek uyarı: boşsa `null`, yazılıyor/eksikse Türkçe açıklama. */
+export function incompleteDateHint(value: string | null | undefined): string | null {
+  if (!value || isCompleteDateOnlyInput(value)) return null;
+  return "Tarih henüz tamamlanmadı veya geçersiz — gün, ay ve 4 haneli yılı (ör. 15.10.2026) girin.";
+}
+
 /** "YYYY-MM-DD" → ISO string veya `null` — ASLA fırlatmaz, `.toISOString()` çağrısını güvenli hale getirir. */
 export function toIsoDateOrNull(value: string | null | undefined): string | null {
   const dt = parseDateOnlyInput(value);
   return dt ? dt.toISOString() : null;
+}
+
+/**
+ * Date-only bir alanı (ör. öğrenci doğum tarihi) Prisma `DateTime` kolonuna
+ * yazmak için. "YYYY-MM-DD" → UTC öğlen (`parseDateOnlyInput` ile AYNI kural —
+ * UTC−11..UTC+11 aralığındaki hiçbir saat diliminde önceki/sonraki güne
+ * düşmez). Zaten tam ISO bir değer gelirse (ör. okuma mapping'inin
+ * `toISOString()` çıktısı geri gönderilirse) aynen `Date`'e çevrilir.
+ * Boş/geçersiz → `undefined`: Prisma'ya ASLA `Invalid Date` gitmez.
+ */
+export function toDateOnlyDbValue(value: string | null | undefined): Date | undefined {
+  if (!value) return undefined;
+  const dateOnly = parseDateOnlyInput(value);
+  if (dateOnly) return dateOnly;
+  // Biçim date-only ama takvimde yok (ör. 2026-02-30) — `new Date` bunu sessizce kaydırırdı.
+  if (DATE_ONLY_PATTERN.test(value)) return undefined;
+  const dt = new Date(value);
+  return Number.isNaN(dt.getTime()) ? undefined : dt;
 }
 
 /** Girdi gerçekten geçerli bir "YYYY-MM-DD" tarihi mi (takvimde var mı)? */

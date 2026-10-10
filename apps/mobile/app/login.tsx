@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Redirect, useLocalSearchParams, useRouter } from "expo-router";
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "../src/auth/auth-context";
 import { BrandMark, Button, Icon, TextField } from "../src/components/ui";
@@ -19,7 +19,7 @@ function isEmailLike(value: string): boolean {
  * AuthProvider mesajlarından gelir, burada yeniden yorumlanmaz.
  */
 export default function LoginScreen() {
-  const { status, login } = useAuth();
+  const { status, login, notice } = useAuth();
   const t = useTheme();
   const router = useRouter();
   const { persona } = useLocalSearchParams<{ persona?: string }>();
@@ -48,14 +48,28 @@ export default function LoginScreen() {
   const emailValid = email.trim().length === 0 || isEmailLike(email);
   const canSubmit = isEmailLike(email) && password.length > 0 && !busy;
 
-  async function onSubmit() {
+  async function submit(takeover: boolean) {
+    setBusy(true);
+    setError(null);
+    const res = await login(email.trim(), password, takeover);
+    setBusy(false);
+    if (res.ok) return;
+    if (res.takeoverRequired) {
+      // Tek aktif oturum: web ile aynı onay — vazgeçilirse diğer cihaz etkilenmez.
+      Alert.alert("Bu hesap başka bir cihazda açık", res.message, [
+        { text: "Vazgeç", style: "cancel" },
+        { text: "Devam et ve diğer oturumu kapat", style: "destructive", onPress: () => void submit(true) },
+      ]);
+      return;
+    }
+    setError(res.message);
+  }
+
+  function onSubmit() {
     setTouched(true);
     setError(null);
     if (!isEmailLike(email) || password.length === 0) return;
-    setBusy(true);
-    const res = await login(email.trim(), password);
-    setBusy(false);
-    if (!res.ok) setError(res.message);
+    void submit(false);
   }
 
   return (
@@ -138,6 +152,13 @@ export default function LoginScreen() {
             >
               <Text style={[t.typography.caption, { color: t.colors.primary }]}>{tr("auth.forgotPassword")}</Text>
             </Pressable>
+
+            {notice && !error ? (
+              <View style={[styles.errorBox, { backgroundColor: t.colors.primarySoft }]}>
+                <Icon name="information-circle" size={16} color={t.colors.primary} />
+                <Text style={[t.typography.caption, { color: t.colors.text, flex: 1 }]}>{notice}</Text>
+              </View>
+            ) : null}
 
             {error ? (
               <View

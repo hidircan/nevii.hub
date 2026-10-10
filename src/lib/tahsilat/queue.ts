@@ -1,4 +1,5 @@
 import { parseISO } from "date-fns";
+import { isLiveObligation } from "../payment-profile";
 import type { AppData, Payment } from "../types";
 import { formatMoney } from "../utils";
 import { calendarDaysBetween, DEFAULT_APP_TIMEZONE, toZonedYmd } from "../timezone";
@@ -92,10 +93,12 @@ export function buildTahsilatQueue(
   data: AppData,
   cases: FollowUpCase[],
   now: Date = new Date(),
-  studentFilter?: string
+  studentFilter?: string,
+  /** İptal/yenilenmiş sözleşme taksitleri kuyruğa (ve hatırlatma taslağına) girmez. */
+  terminalContractIds: ReadonlySet<string> = new Set()
 ): TahsilatQueueRow[] {
   const rows = data.payments
-    .filter((payment) => payment.status !== "paid")
+    .filter((payment) => isLiveObligation(payment, terminalContractIds))
     .filter((payment) => !studentFilter || payment.studentId === studentFilter)
     .map((payment) => {
       const student = data.students.find((s) => s.id === payment.studentId);

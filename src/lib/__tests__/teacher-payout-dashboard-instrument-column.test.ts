@@ -9,10 +9,11 @@ import path from "path";
  * güvenilir bir statik kontrol yapılır: sütun başlığı/hücresi artık üretilmez.
  */
 describe("TeacherPayoutDashboard — Enstrüman sütunu kaldırıldı", () => {
-  it("'Enstrüman' başlığı veya line.instrument hücresi kaynak dosyada yer almaz", () => {
+  it("'Enstrüman' sütun başlığı kaynak dosyada yer almaz", () => {
     const filePath = path.join(process.cwd(), "src/components/teacher-payout-dashboard.tsx");
     const source = readFileSync(filePath, "utf8");
     expect(source).not.toContain("Enstrüman");
-    expect(source).not.toContain("line.instrument");
+    // 2026-10-04 (owner) — ayrı sütun yok, ama hakediş detayında dersin eğitimi/enstrümanı öğrenci hücresinde
+    // görünür ("öğrenci, eğitim/enstrüman, ders tarihi, yoklama … görünsün").
   });
 });

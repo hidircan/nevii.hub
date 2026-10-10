@@ -129,7 +129,12 @@ describe("updateLessonScheduleTool · store entegrasyonu", () => {
     expect(outcome.ok).toBe(false);
     if (!outcome.ok) {
       expect(outcome.code).toBe("CLOSED_DAY");
-      expect(outcome.message).toContain("kapalıdır");
+      // 2026-09-20 — mesaj artık çalışma günü TEK KAYNAĞINDAN gelir:
+      // gerçek neden + nasıl açılacağı (owner kuralı: her hata nedenini ve
+      // çözümünü söyler). Eski sabit "…kapalıdır" metni yerine bunu doğrula.
+      expect(outcome.message).toContain("Pazartesi");
+      expect(outcome.message).toContain("kapalı günü");
+      expect(outcome.message).toContain("Zorla açık");
     }
   });
 

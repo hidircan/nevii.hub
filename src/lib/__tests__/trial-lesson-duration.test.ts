@@ -51,6 +51,8 @@ const baseInput = {
   teacherId: "t1",
   startAt: openStartAt(3),
   notes: "",
+  // Bu dosya süre kuralını test eder; müsaitlik penceresi tarihe göre değişmesin.
+  allowAvailabilityOverride: true,
 };
 
 describe("createTrialLessonTool — süre sınırı (yalnızca 10/15/20 dk)", () => {

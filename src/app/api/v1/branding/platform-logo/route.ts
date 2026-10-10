@@ -16,7 +16,7 @@ export async function GET(request: Request) {
       "Content-Type": logo.mime,
       "X-Content-Type-Options": "nosniff",
       "Content-Security-Policy": "default-src 'none'; sandbox",
-      "Cache-Control": "public, max-age=300",
+      "Cache-Control": "public, max-age=0, must-revalidate",
       ETag: `"${logo.sha256.slice(0, 32)}"`,
     },
   });

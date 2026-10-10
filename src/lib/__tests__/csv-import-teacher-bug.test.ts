@@ -78,8 +78,10 @@ function extractText(node: unknown, out: string[] = []): string[] {
     return out;
   }
   if (typeof node === "object" && "props" in (node as Record<string, unknown>)) {
-    const props = (node as { props?: { children?: unknown } }).props;
+    const props = (node as { props?: { children?: unknown; cards?: Record<string, unknown> } }).props;
     if (props && "children" in props) extractText(props.children, out);
+    // 8. tur — öğretmen kartları `TeacherListView`'a `cards` prop'u ile sunucuda çizilip verilir.
+    if (props?.cards) extractText(Object.values(props.cards), out);
   }
   return out;
 }

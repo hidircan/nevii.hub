@@ -22,11 +22,15 @@
 import "dotenv/config";
 import { hashPasswordSync } from "../src/lib/auth/password";
 import { PLATFORM_TENANT_ID } from "../src/lib/auth/config";
+import { assertTestDatabaseTarget } from "../src/lib/env/test-target-guard";
 
 async function main() {
   if ((process.env.STORE_MODE ?? "json") !== "db") {
     throw new Error("Bu betik yalnız STORE_MODE=db ile çalışır.");
   }
+  // Belgelenmiş test projesinden başka bir hedefe yazmayı reddeder.
+  // Canlı deployment'ın bu URL'yi kullandığı ayrıca doğrulanmadan çalıştırmayın.
+  assertTestDatabaseTarget(process.env.DATABASE_URL);
   const email = (process.env.AUTH_HYPER_ADMIN_EMAIL ?? "").trim().toLowerCase();
   const password = process.env.AUTH_HYPER_ADMIN_PASSWORD ?? "";
   if (!email || password.length < 16) {

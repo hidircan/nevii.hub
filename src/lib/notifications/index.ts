@@ -318,6 +318,7 @@ export async function listNotificationsPageForUser(
   recipient: NotificationRecipient,
   page?: { cursor?: string; limit?: number }
 ): Promise<ListNotificationsPage> {
+  if (isDbMode) return listNotificationsPageForUserDb(recipient, page);
   const all = await listNotificationsForUser(recipient);
   const unreadCount = all.filter((n) => !n.readAt).length;
 
@@ -337,6 +338,51 @@ export async function listNotificationsPageForUser(
   const nextCursor =
     rows.length > limit ? encodeCursor(pageRows[pageRows.length - 1]) : null;
 
+  return { notifications: pageRows, nextCursor, unreadCount };
+}
+
+/**
+ * DB egress (2026-09-30) — zil her açılış/odakta kullanıcının TÜM bildirimlerini (testte ~600 satır)
+ * okuyup bellekte sayfalıyordu. Aynı sözleşme SQL'de: okunmamış sayısı `count`, sayfa
+ * `createdAt desc, id desc` + `take: limit + 1` (fazla satır = sonraki sayfa var). İmleç
+ * karşılaştırması json koluyla aynı bileşik sıralamadır.
+ */
+async function listNotificationsPageForUserDb(
+  recipient: NotificationRecipient,
+  page?: { cursor?: string; limit?: number }
+): Promise<ListNotificationsPage> {
+  if (!recipient.userId && !recipient.studentId) return { notifications: [], nextCursor: null, unreadCount: 0 };
+  const { prisma } = await db();
+  const where = {
+    tenantId: recipient.tenantId,
+    OR: [
+      ...(recipient.userId ? [{ targetUserId: recipient.userId }] : []),
+      ...(recipient.studentId ? [{ targetStudentId: recipient.studentId }] : []),
+    ],
+  };
+  const decoded = page?.cursor ? decodeCursor(page.cursor) : null;
+  const limit = page?.limit ?? DEFAULT_NOTIFICATIONS_PAGE_SIZE;
+  const unreadCountQuery = prisma.notification.count({ where: { ...where, readAt: null } });
+  if (page?.cursor && !decoded) return { notifications: [], nextCursor: null, unreadCount: await unreadCountQuery };
+  const after = decoded
+    ? {
+        OR: [
+          { createdAt: { lt: new Date(decoded.createdAt) } },
+          { createdAt: new Date(decoded.createdAt), id: { lt: decoded.id } },
+        ],
+      }
+    : {};
+  const [unreadCount, rows] = await Promise.all([
+    unreadCountQuery,
+    prisma.notification.findMany({
+      where: { AND: [where, after] },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: limit + 1,
+    }),
+  ]);
+  const mapped = rows.map((r) => toPublicNotification(mapDbNotification(r)));
+  const pageRows = mapped.slice(0, limit);
+  const nextCursor = mapped.length > limit ? encodeCursor(pageRows[pageRows.length - 1]) : null;
   return { notifications: pageRows, nextCursor, unreadCount };
 }
 

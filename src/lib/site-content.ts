@@ -24,48 +24,82 @@ export const SITE_NAV: NavItem[] = [
 ];
 
 export const SITE_HERO = {
-  headline: "Müzik kurumunuzun tamamı tek platformda",
+  headline: "Eğitim Kurumları için Yönetim Platformu",
   subline:
-    "Program, yoklama, telafi, sözleşme ve tahsilat yönetimi; öğretmen ve veli portallarıyla birlikte. Kuruma özel, çok şubeli ve güvenli.",
-  primaryCta: { label: "Giriş Yap", href: "/login" },
-  secondaryCta: { label: "Platformu Tanıyın", href: "#platform" },
+    "NeviiHub, kurumunuzun arka ofisidir: ders programı, yoklama, telafi, sözleşme ve tahsilat tek panelde; öğretmen ve veli portallarıyla birlikte. Yapay zekâ taslakları hazırlar, son onayı siz verirsiniz.",
+  primaryCta: { label: "Ücretsiz Demo İste", href: "#iletisim" },
+  secondaryCta: { label: "Giriş Yap", href: "/login" },
 };
+
+/** Hero altı güven satırı — her madde üründe GERÇEKTEN var (pazarlama 03 vaat sınırları). */
+export const SITE_HIGHLIGHTS: string[] = [
+  "Çok şubeli kurumlar için tek panel",
+  "KVKK + fotoğraf/video açık rıza akışları",
+  "Onaysız mesaj gitmez",
+  "Telefondan da kullanılır",
+];
+
+export type StepItem = { title: string; description: string };
+
+export const SITE_STEPS: StepItem[] = [
+  {
+    title: "Demo isteyin",
+    description: "İletişim bölümünden yazın; kurumunuza uygun kısa bir demo planlayalım.",
+  },
+  {
+    title: "Birlikte kurun",
+    description: "Mevcut öğrenci listeniz CSV ile taşınır; şube, öğretmen ve paketler tanımlanır.",
+  },
+  {
+    title: "Panelden yönetin",
+    description: "Programdan yoklamaya, sözleşmeden tahsilata tüm operasyon tek ekranda.",
+  },
+];
 
 export type FeatureItem = { title: string; description: string };
 
 export const SITE_FEATURES: FeatureItem[] = [
   {
     title: "Ders programı ve takvim",
-    description: "Şube, salon ve öğretmen bazında çakışmasız planlama; haftalık ve aylık görünüm.",
+    description: "Şube, salon ve öğretmen bazında çakışma kontrollü planlama; haftalık ve aylık görünüm.",
   },
   {
-    title: "Yoklama ve ders durumu",
-    description: "Geldi / İşlendi / Telafi durumları tek ekrandan; renk ve etiketle birlikte okunur.",
-  },
-  {
-    title: "Telafi yönetimi",
-    description: "Telafi hakkı, süre ve kota kuralları merkezî olarak uygulanır; uygun slot önerilir.",
+    title: "Yoklama ve telafi merkezi",
+    description: "Geldi / İşlendi / Telafi durumları tek ekranda; telafi hakkı ve süre kuralları merkezî uygulanır.",
   },
   {
     title: "Sözleşme merkezi",
-    description: "Kayıt sözleşmesi, KVKK ve fotoğraf/video rıza bölümleri tek çıktı olarak üretilir.",
+    description: "Kayıt sözleşmesi, KVKK ve fotoğraf/video rıza bölümleri tek çıktı; sürümlü revize ve güvenli iptal.",
   },
   {
     title: "Tahsilat ve ödeme takibi",
-    description: "İlk tahsilat, taksit planı, gecikme takibi ve makbuz çıktısı.",
+    description: "İlk tahsilat, taksit planı, gecikme takibi ve makbuz çıktısı; finans özeti tek ekranda.",
   },
   {
-    title: "Öğretmen ve veli portalları",
-    description: "Herkes yalnızca kendi verisini görür; yetkilendirme kurum sınırında zorunlu tutulur.",
+    title: "Yapay zekâ asistanı + onaylı mesajlar",
+    description: "Asistan taslakları hazırlar, siz onaylarsınız. Onaysız SMS/WhatsApp mesajı gitmez.",
+  },
+  {
+    title: "Öğretmen hakedişleri",
+    description: "Ders bazında hakediş hesabı, revizyon geçmişi ve ödeme takibi.",
   },
 ];
 
 export type PlatformSurface = { title: string; description: string };
 
 export const SITE_PLATFORM_SURFACES: PlatformSurface[] = [
-  { title: "Yönetim paneli", description: "Kurum yöneticisi ve ofis ekibi için tüm operasyon." },
-  { title: "Öğretmen portalı", description: "Kendi programı, yoklaması ve öğrencileri." },
-  { title: "Veli / öğrenci portalı", description: "Ders programı, devam durumu, ödemeler ve belgeler." },
+  {
+    title: "Yönetim paneli",
+    description: "Kayıt, program, yoklama, sözleşme, tahsilat ve raporlar — kurumun tüm operasyonu.",
+  },
+  {
+    title: "Öğretmen portalı",
+    description: "Kendi programı, yoklaması, öğrencileri ve hakediş dökümü.",
+  },
+  {
+    title: "Veli / öğrenci portalı",
+    description: "Ders programı, devam durumu, ödemeler ve belgeler — yalnızca kendi kaydı.",
+  },
 ];
 
 /**
@@ -130,6 +164,16 @@ export const SITE_FAQ: FaqItem[] = [
     question: "Mobil cihazlardan kullanılabiliyor mu?",
     answer: "Evet. Tüm portallar mobil tarayıcıda çalışacak şekilde tasarlanmıştır.",
   },
+  {
+    question: "Nasıl demo alabilirim?",
+    answer:
+      "İletişim bölümündeki e-posta adresinden yazın; kurumunuza uygun kısa bir demo planlayalım.",
+  },
+  {
+    question: "Mevcut öğrenci listemi taşıyabilir miyim?",
+    answer:
+      "Evet. CSV dosyanızdaki öğrenciler içe aktarılabilir; kayıt bilgileri ve ilk tahsilat kayıtları korunur.",
+  },
 ];
 
 /**
@@ -144,5 +188,6 @@ export const SITE_CONTACT: {
   mapEmbedUrl?: string;
   social: { label: string; href: string }[];
 } = {
+  email: "info@neviihub.com",
   social: [],
 };

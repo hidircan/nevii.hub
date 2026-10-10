@@ -110,3 +110,63 @@ export function buildFirstPaymentAdjustmentAuditEntry(
     adjustedAt: (actor.now ?? new Date()).toISOString(),
   };
 }
+
+export type RegistrationFirstPaymentInput = {
+  method?: "credit_card" | "cash" | "transfer";
+  amount: number;
+  collectedAt?: string;
+  reference?: string;
+  note?: string;
+};
+
+/**
+ * Kayıt formundaki "İlk Ödeme" alanlarını ayrıştırır (2026-09-30 — %100 burslu kayıt).
+ * Boş tutar ile geçerli "0" AYRI durumlardır: boş → alan hatası; 0 → tahsilat yok
+ * (yalnız ücret %100 indirimliyse geçerli — bunu `createStudentTool` önerilen tutarla
+ * karşılaştırıp karar verir), yöntem/tarih istenmez. Tutar > 0 ise yöntem + tarih zorunlu.
+ */
+export function parseRegistrationFirstPaymentForm(fields: {
+  method: string;
+  amount: string;
+  collectedAt: string;
+  reference?: string;
+  note?: string;
+}):
+  | { ok: true; value: RegistrationFirstPaymentInput }
+  | { ok: false; message: string; fieldErrors: Record<string, string[]> } {
+  const fieldErrors: Record<string, string[]> = {};
+  const rawAmount = fields.amount.trim();
+  // "3.000" / "3 000" gibi binlik ayraçlı girişler kabul edilir; rakam dışı her şey atılır.
+  const digits = rawAmount.replace(/[^\d]/g, "");
+  if (!rawAmount) {
+    fieldErrors.firstPaymentAmount = [
+      "Tahsil edilen tutarı girin. Ücret %100 indirimli/burslu ise ve ödeme alınmadıysa 0 yazın.",
+    ];
+  } else if (!digits || rawAmount.startsWith("-")) {
+    fieldErrors.firstPaymentAmount = ["Tahsil edilen tutar geçersiz — yalnız tam sayı TL girin (ör. 3000 veya 0)."];
+  }
+  const amount = digits ? Number(digits) : NaN;
+  const method = fields.method === "cash" || fields.method === "transfer" || fields.method === "credit_card"
+    ? fields.method
+    : undefined;
+  const collectedAt = fields.collectedAt.trim() || undefined;
+  if (!fieldErrors.firstPaymentAmount && amount > 0) {
+    if (!method) fieldErrors.firstPaymentMethod = ["İlk ödeme türü seçilmelidir."];
+    if (!collectedAt) fieldErrors.firstPaymentDate = ["Tahsilat tarihi zorunludur — tahsil edilen tutar 0'dan büyük."];
+  }
+  const keys = Object.keys(fieldErrors);
+  if (keys.length > 0) {
+    return { ok: false, message: fieldErrors[keys[0]!]![0]!, fieldErrors };
+  }
+  return {
+    ok: true,
+    value: {
+      amount,
+      // 0 TL'de gerçek tahsilat yoktur — yöntem/tarih seçilmiş olsa bile ödeme kaydına dönüşmez.
+      method: amount > 0 ? method : undefined,
+      collectedAt: amount > 0 ? collectedAt : undefined,
+      reference: fields.reference?.trim() || undefined,
+      note: fields.note?.trim() || undefined,
+    },
+  };
+}

@@ -38,6 +38,25 @@ export function getAppBaseUrl(): string {
 }
 
 /**
+ * Hesap e-postalarındaki bağlantı. neviihub.com http yazılmışsa https'e
+ * yükseltilir. localhost geliştirme adresi olduğu gibi kalır.
+ */
+export function getPublicAppBaseUrl(): string {
+  const raw = getAppBaseUrl();
+  try {
+    const url = new URL(raw);
+    const host = url.hostname.toLowerCase();
+    if (host === "localhost" || host === "127.0.0.1") return url.origin;
+    if (url.protocol === "http:" && (host === "neviihub.com" || host.endsWith(".neviihub.com"))) {
+      url.protocol = "https:";
+    }
+    return url.origin;
+  } catch {
+    return raw;
+  }
+}
+
+/**
  * P0 (2026-08-31, hoşgeldin e-postası) — mobil app mağaza linkleri. Uygulama
  * henüz YAYINLANMADI (bkz. apps/mobile — iskelet/geliştirme aşamasında);
  * env değişkeni set EDİLMEDİKÇE `undefined` döner ve e-posta şablonu bu

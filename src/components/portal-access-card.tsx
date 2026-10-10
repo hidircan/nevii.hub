@@ -146,7 +146,14 @@ export function StudentPortalAccessCard({ studentId, defaultEmail }: { studentId
       setInviteMessage({ tone: "error", text: result.message });
       return;
     }
-    if (result.delivered) {
+    // 10. tur iş #1 — mevcut kullanılabilir hesaba şifre daveti GÖNDERİLMEZ,
+    // erişim doğrudan bağlanır (şifre değişmez). Yetkili admin'e açıklayıcı bilgi.
+    if (result.linkedExistingAccount) {
+      setInviteMessage({
+        tone: "ok",
+        text: "Bu e-postaya ait portal hesabı mevcut; bu öğrenciye erişim bağlandı. Mevcut şifre değişmedi — kullanıcı aynı şifresiyle giriş yapıp öğrenciler arasında geçiş yapabilir.",
+      });
+    } else if (result.delivered) {
       setInviteMessage({ tone: "ok", text: "Davet e-postası gönderildi." });
     } else {
       setInviteMessage({

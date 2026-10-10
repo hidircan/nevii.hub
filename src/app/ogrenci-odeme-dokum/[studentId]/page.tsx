@@ -1,3 +1,4 @@
+import { collectedAmountOf } from "@/lib/payment-profile";
 import { redirect } from "next/navigation";
 import { requireSessionContext } from "@/lib/auth/session";
 import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
@@ -7,8 +8,10 @@ import { computeStudentPaymentSummary, sortPaymentsForProfile } from "@/lib/paym
 import {
   buildContractPlanViewRows,
   isCollectedPayment,
-  resolveCollectorDisplayNames,
+  resolveActorLabels,
+  resolvePrintStamp,
 } from "@/lib/contract-payment-plan-view";
+import { PrintReportMeta } from "@/components/print-report-meta";
 import { listContractsForStudent } from "@/lib/contracts";
 import { DocumentPrintActions } from "@/components/document-print-actions";
 
@@ -56,20 +59,26 @@ export default async function OgrenciOdemeDokumPage({
   }
 
   const payments = sortPaymentsForProfile(data.payments.filter((p) => p.studentId === studentId));
-  const summary = computeStudentPaymentSummary(payments);
   const contracts = await listContractsForStudent(session.tenantId, studentId);
+  const summary = computeStudentPaymentSummary(payments, contracts);
 
-  const receiverIds = Array.from(
-    new Set(payments.map((p) => p.receivedByUserId).filter((id): id is string => Boolean(id)))
-  );
-  const receiverNames = await resolveCollectorDisplayNames({ userIds: receiverIds, teachers: data.teachers });
+  const receiverNames = await resolveActorLabels({
+    tenantId: session.tenantId,
+    userIds: payments.map((p) => p.receivedByUserId),
+    teachers: data.teachers,
+  });
 
   const branchName = data.settings.branches.find((b) => b.id === student.branchId)?.shortName ?? "—";
-  const printedAt = formatDate(new Date().toISOString().slice(0, 10));
-  const viewer = session.userId;
+  const { viewer, printedAt } = await resolvePrintStamp({
+    tenantId: session.tenantId,
+    userId: session.userId,
+    teachers: data.teachers,
+  });
+  const activePayments = payments.filter((p) => p.status !== "voided");
+  const collectedOf = (p: (typeof payments)[number]) => collectedAmountOf(p);
 
   return (
-    <div className="min-h-screen bg-[#f4f2f8] px-4 py-8 print:bg-white print:p-0 sm:px-6">
+    <div className="print-light-palette min-h-screen bg-[#f4f2f8] px-4 py-8 print:bg-white print:p-0 sm:px-6">
       <style>{`@media print {
   @page { size: A4; margin: 14mm; }
   thead { display: table-header-group; }
@@ -80,23 +89,36 @@ export default async function OgrenciOdemeDokumPage({
 
         <div className="doc-print-surface rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-6 shadow-sm print:rounded-none print:border-0 print:p-0 print:shadow-none sm:p-10">
           <h1>Öğrenci Ödeme Dökümü</h1>
-          <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1 text-sm">
-            <div><dt className="inline font-semibold">Öğrenci: </dt><dd className="inline">{student.name}</dd></div>
-            <div><dt className="inline font-semibold">Öğrenci no: </dt><dd className="inline">{student.displayId ?? "—"}</dd></div>
-            <div><dt className="inline font-semibold">Kurum: </dt><dd className="inline">{data.settings.name}</dd></div>
-            <div><dt className="inline font-semibold">Şube: </dt><dd className="inline">{branchName}</dd></div>
-            <div><dt className="inline font-semibold">Rapor tarihi: </dt><dd className="inline">{printedAt}</dd></div>
-            <div><dt className="inline font-semibold">Raporu alan: </dt><dd className="inline">{viewer}</dd></div>
-          </dl>
+          <PrintReportMeta
+            institution={data.settings.name}
+            rows={[
+              ["Öğrenci", student.name],
+              ["Öğrenci no", student.displayId ?? "—"],
+              ["Şube", branchName],
+            ]}
+            viewer={viewer}
+            printedAt={printedAt}
+          />
 
           <h2>Özet</h2>
           <table>
+            <thead>
+              <tr>
+                <th className="num">Tahakkuk</th>
+                <th className="num">Tahsil edilen</th>
+                <th className="num">Kalan</th>
+                <th className="num">Gecikmiş kalan</th>
+                <th className="num">Açık kayıt</th>
+              </tr>
+            </thead>
             <tbody>
-              <tr><td>Toplam sözleşme/tahakkuk tutarı</td><td>{formatMoney(summary.totalBilled)}</td></tr>
-              <tr><td>Tahsil edilen toplam</td><td>{formatMoney(summary.totalCollected)}</td></tr>
-              <tr><td>Kalan toplam</td><td>{formatMoney(summary.remaining)}</td></tr>
-              <tr><td>Gecikmiş kalan</td><td>{formatMoney(summary.overdueRemaining)}</td></tr>
-              <tr><td>Açık ödeme kaydı</td><td>{summary.openCount}</td></tr>
+              <tr>
+                <td className="num">{formatMoney(summary.totalBilled)}</td>
+                <td className="num">{formatMoney(summary.totalCollected)}</td>
+                <td className="num">{formatMoney(summary.remaining)}</td>
+                <td className="num">{formatMoney(summary.overdueRemaining)}</td>
+                <td className="num">{summary.openCount}</td>
+              </tr>
             </tbody>
           </table>
 
@@ -109,35 +131,41 @@ export default async function OgrenciOdemeDokumPage({
             return (
               <div key={c.id}>
                 <h2>
-                  Sözleşme {c.contractNumber} — {c.programmeName} (toplam {formatMoney(c.totalContractAmount)})
+                  Sözleşme {c.contractNumber} — {c.programmeName}
                 </h2>
                 <table>
                   <thead>
                     <tr>
-                      <th>Sıra</th>
+                      <th className="num">Sıra</th>
                       <th>Vade</th>
                       <th>Dönem</th>
-                      <th>Tutar</th>
                       <th>Ödeme türü</th>
+                      <th className="num">Tutar</th>
                     </tr>
                   </thead>
                   <tbody>
                     {rows.map((r) => (
                       <tr key={r.sequence}>
-                        <td>{r.sequence}</td>
+                        <td className="num">{r.sequence}</td>
                         <td>{formatDate(r.dueDate)}</td>
                         <td>{r.periodLabel ?? "—"}</td>
-                        <td>{formatMoney(r.amount)}</td>
                         <td>{r.paymentMethodLabel}</td>
+                        <td className="num">{formatMoney(r.amount)}</td>
                       </tr>
                     ))}
                   </tbody>
+                  <tfoot>
+                    <tr>
+                      <th colSpan={4}>Sözleşme toplamı</th>
+                      <th className="num">{formatMoney(c.totalContractAmount)}</th>
+                    </tr>
+                  </tfoot>
                 </table>
               </div>
             );
           })}
 
-          <h2>Tüm ödeme işlemleri</h2>
+          <h2>Ödeme hareketleri</h2>
           {payments.length === 0 ? (
             <p>Kayıtlı ödeme işlemi yok.</p>
           ) : (
@@ -146,55 +174,60 @@ export default async function OgrenciOdemeDokumPage({
                 <tr>
                   <th>Açıklama</th>
                   <th>Vade</th>
+                  <th className="num">Tutar</th>
+                  <th className="num">Ödenen</th>
+                  <th className="num">Kalan</th>
                   <th>Tahsilat tarihi</th>
-                  <th>Tutar</th>
                   <th>Yöntem</th>
-                  <th>Durum</th>
                   <th>Tahsil eden</th>
+                  <th>Durum</th>
                 </tr>
               </thead>
               <tbody>
                 {payments.map((p) => {
                   const collected = isCollectedPayment(p);
-                  const partialDiff = p.paidAmount > 0 && p.paidAmount < p.amount ? p.amount - p.paidAmount : 0;
+                  const paidPart = collectedOf(p);
                   const contractRef = p.contractId
                     ? `${contracts.find((c) => c.id === p.contractId)?.contractNumber ?? "Sözleşme"}${p.installmentSequence != null ? ` · ${p.installmentSequence}. taksit` : ""}`
-                    : "—";
+                    : null;
                   return (
                     <tr key={p.id}>
                       <td>
                         {p.description}
+                        {contractRef ? <span className="block text-xs">{contractRef}</span> : null}
                         {p.paymentNote ? <span className="block text-xs">Not: {p.paymentNote}</span> : null}
                         {p.adjustmentReason ? (
                           <span className="block text-xs">Kısmi tahsilat gerekçesi: {p.adjustmentReason}</span>
                         ) : null}
-                        {partialDiff > 0 ? (
-                          <span className="block text-xs">Kısmi fark: {formatMoney(partialDiff)}</span>
-                        ) : null}
-                        <span className="block text-xs">Plan/sözleşme: {contractRef}</span>
-                        {p.createdAt ? (
-                          <span className="block text-xs">Kayıt: {formatDateTime(p.createdAt)}</span>
-                        ) : null}
+                        {p.createdAt ? <span className="block text-xs">Kayıt: {formatDateTime(p.createdAt)}</span> : null}
                       </td>
                       <td>{formatDate(p.dueDate)}</td>
+                      <td className="num">{formatMoney(p.amount)}</td>
+                      <td className="num">{formatMoney(paidPart)}</td>
+                      <td className="num">{formatMoney(Math.max(0, p.amount - paidPart))}</td>
                       <td>{collected && p.paidAt ? formatDateTime(p.paidAt) : "—"}</td>
-                      <td>{formatMoney(collected ? p.paidAmount || p.amount : p.amount)}</td>
                       <td>{collected ? paymentMethodLabelTr(p.method) : "—"}</td>
+                      <td>{collected && p.receivedByUserId ? receiverNames.get(p.receivedByUserId) ?? "—" : "—"}</td>
                       <td>{statusLabel(p.status)}</td>
-                      <td>
-                        {collected && p.receivedByUserId
-                          ? (receiverNames.get(p.receivedByUserId)?.trim() || "Kayıtlı değil")
-                          : "—"}
-                      </td>
                     </tr>
                   );
                 })}
               </tbody>
+              <tfoot>
+                <tr>
+                  <th colSpan={2}>Toplam (iptal edilenler hariç)</th>
+                  <th className="num">{formatMoney(activePayments.reduce((s, p) => s + p.amount, 0))}</th>
+                  <th className="num">{formatMoney(activePayments.reduce((s, p) => s + collectedOf(p), 0))}</th>
+                  <th className="num">
+                    {formatMoney(activePayments.reduce((s, p) => s + Math.max(0, p.amount - collectedOf(p)), 0))}
+                  </th>
+                  <th colSpan={4} />
+                </tr>
+              </tfoot>
             </table>
           )}
           <p className="mt-4 text-xs">
-            Tutarlar `computeStudentPaymentSummary` ile hesaplanır (ekrandaki özet kartlarla aynı kaynak);
-            tahmin veya örnek veri içermez. Void (iptal edilmiş) kayıtlar toplamlara girmez, listede görünür.
+            İptal edilen ödeme kayıtları listede görünür, toplamlara girmez. Özet tablo ekrandaki ödeme özetiyle aynı hesaplamayı kullanır.
           </p>
         </div>
       </div>

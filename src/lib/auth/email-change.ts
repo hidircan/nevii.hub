@@ -92,7 +92,7 @@ export async function requestEmailChange(input: {
   const { getUserById, getUserIdByEmail } = await import("./users");
   const { verifyPassword } = await import("./password");
   const { isRateLimited } = await import("./password-reset");
-  const { sendEmail, getAppBaseUrl } = await import("../email");
+  const { sendEmail, getPublicAppBaseUrl } = await import("../email");
   const { auditLog } = await import("./audit");
 
   const user = await getUserById(input.userId);
@@ -133,7 +133,7 @@ export async function requestEmailChange(input: {
     await saveAll(invalidated);
   }
 
-  const link = `${getAppBaseUrl()}/hesap-eposta-dogrula?token=${encodeURIComponent(raw)}`;
+  const link = `${getPublicAppBaseUrl()}/hesap-eposta-dogrula?token=${encodeURIComponent(raw)}`;
   const institution = input.institutionName ?? "NeviiHub";
   const escapeHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 

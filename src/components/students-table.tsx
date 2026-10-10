@@ -2,11 +2,13 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
-import Link from "next/link";
+import Link from "@/components/link";
 import { ChevronRight, SlidersHorizontal, X } from "lucide-react";
 import { Badge, Card } from "@/components/ui";
 import { PaginationControls, usePagination } from "@/components/pagination-controls";
 import { StudentArchiveAction } from "@/components/student-archive-action";
+import { StudentsBulkBar, type BulkOptions } from "@/components/students-bulk-bar";
+import { actionFindStudentsByNationalId } from "@/lib/actions";
 import {
   DEFAULT_STUDENT_COLUMNS,
   STUDENT_COLUMN_LABELS,
@@ -14,6 +16,9 @@ import {
   loadLastUsedStudentColumns,
   type StudentColumnKey,
 } from "@/components/student-column-view-manager";
+
+/** Oluşturan kullanıcısı kaydedilmemiş eski öğrenciler için ortak etiket (filtre + sütun). */
+export const LEGACY_CREATOR_LABEL = "Bilinmiyor (eski kayıt)";
 
 export type StudentRow = {
   id: string;
@@ -33,7 +38,118 @@ export type StudentRow = {
   educationMethod?: string;
   /** Öğrencinin en güncel/aciliyeti en yüksek ödeme durumu — tek etiket. */
   paymentStatus: "paid" | "overdue" | "partial" | "pending" | "none";
+  /** 2026-10-04 — açık (canlı) borç ve vadesi geçmiş kısmı; sözleşmeli/sözleşmesiz AYNI kural (`summarizeStudentDebt`). */
+  openDebt?: number;
+  overdueDebt?: number;
+  /**
+   * D — Sözleşme filtreleri (2026-09-20). Öğrencinin GÜNCEL sözleşmesinin
+   * özeti; `getLatestContractForStudent` ile AYNI "güncel" tanımından gelir
+   * (bkz. listContractSummariesByStudent). Sözleşmesi hiç yoksa hepsi boş.
+   */
+  contractNumber?: string;
+  contractStartDate?: string;
+  contractEndDate?: string;
+  contractStatus?: string;
+  /** Kayıtta seçilen süre (ay) — sözleşmesiz öğrencide "bekliyor" / "tanışma" ayrımı. */
+  intendedDurationMonths?: number;
+  /** Kayıt (öğrencinin sisteme eklendiği) zamanı — "oluşturulma tarihine göre" sıralama için. */
+  createdAt?: string;
+  /** F — kurum içi öğrenci numarası. */
+  displayId?: string;
+  /** F — kaydı oluşturan kişinin adı; eski kayıtlarda "Bilinmiyor (eski kayıt)". */
+  createdByName?: string;
+  /** Denemeden dönüştüyse dönüşümü yapan kişi (kaydı açandan farklı olabilir). */
+  convertedByName?: string;
+  fromTrial?: boolean;
+  /** KVKK açık rıza (kvkk_general) — merged kurum görünümünde boş. */
+  kvkkConsent?: "Var" | "Yok";
+  /** Fotoğraf paylaşım izni — merged kurum görünümünde boş. */
+  photoConsent?: "Veriyor" | "Vermiyor" | "Kayıt yok";
 };
+
+/** Satır alanından okunan basit çoklu seçim filtreleri (URL anahtarı → etiket + değer). */
+const EXTRA_FILTERS: { key: string; label: string; chip: string; value: (r: StudentRow) => string[] }[] = [
+  { key: "kvkk", label: "KVKK izni", chip: "KVKK", value: (r) => (r.kvkkConsent ? [r.kvkkConsent] : []) },
+  { key: "photo", label: "Fotoğraf paylaşım izni", chip: "Fotoğraf izni", value: (r) => (r.photoConsent ? [r.photoConsent] : []) },
+  { key: "instrument", label: "Enstrüman", chip: "Enstrüman", value: (r) => r.instruments },
+  { key: "exam", label: "Hedef sınav", chip: "Hedef sınav", value: (r) => (r.targetExam ? [r.targetExam] : []) },
+  { key: "source", label: "Kayıt kaynağı", chip: "Kaynak", value: (r) => [r.fromTrial ? "Denemeden dönüşen" : "Doğrudan kayıt"] },
+];
+
+/**
+ * Sözleşme durumu — OPERASYONEL kategoriler (ham sözleşme statüsü değil).
+ * Yöneticinin ekranda sorduğu soru "bu öğrencinin sözleşmesi tamam mı,
+ * bitiyor mu, bitti mi?" — bu yüzden filtre bu dile göre kurulur.
+ */
+export type ContractFilterKey = "none" | "pending" | "active" | "expiring" | "expired" | "cancelled";
+
+export const CONTRACT_FILTER_KEYS: ContractFilterKey[] = ["active", "expiring", "expired", "pending", "none", "cancelled"];
+
+/**
+ * Sözleşme kayıtta zorunlu değildir (2026-09-22). Sözleşmesiz öğrenci HATA değildir:
+ * - "pending"  → uzun dönemli (3+ ay) ya da süresi bilinmeyen kayıt, sözleşme henüz yapılmadı.
+ * - "none"     → tanışma paketi (1–2 ay); formal sözleşme gerekmiyor.
+ */
+export const CONTRACT_FILTER_LABELS: Record<ContractFilterKey, string> = {
+  pending: "Sözleşme bekliyor",
+  none: "Sözleşmesiz (tanışma)",
+  active: "Aktif sözleşmeli",
+  expiring: "Yakında bitecek (30 gün)",
+  expired: "Süresi geçmiş",
+  cancelled: "İptal/yenilenmiş",
+};
+
+/** Bir öğrencinin sözleşme durumunu tek kategoriye indirger. `today` yyyy-MM-dd. */
+export function resolveContractFilterKey(row: StudentRow, today: string): ContractFilterKey {
+  if (!row.contractNumber || !row.contractEndDate) {
+    const months = row.intendedDurationMonths;
+    return months !== undefined && months < 3 ? "none" : "pending";
+  }
+  if (row.contractStatus === "cancelled" || row.contractStatus === "superseded") return "cancelled";
+  if (row.contractEndDate < today) return "expired";
+  // 30 gün içinde bitiyorsa "yakında bitecek" — yenileme aksiyonu gerektirir.
+  const limit = new Date(`${today}T00:00:00Z`);
+  limit.setUTCDate(limit.getUTCDate() + 30);
+  return row.contractEndDate <= limit.toISOString().slice(0, 10) ? "expiring" : "active";
+}
+
+export const SORT_OPTIONS = [
+  { key: "name_asc", label: "İsim (A → Z)" },
+  { key: "name_desc", label: "İsim (Z → A)" },
+  { key: "created_desc", label: "Kayıt tarihi (yeniden eskiye)" },
+  { key: "created_asc", label: "Kayıt tarihi (eskiden yeniye)" },
+  { key: "contract_end_asc", label: "Sözleşme bitişi (en yakın önce)" },
+  { key: "contract_start_desc", label: "Sözleşme başlangıcı (en yeni önce)" },
+  { key: "fee_desc", label: "Aylık ücret (yüksekten düşüğe)" },
+  { key: "fee_asc", label: "Aylık ücret (düşükten yükseğe)" },
+] as const;
+
+export type SortKey = (typeof SORT_OPTIONS)[number]["key"];
+
+/** Türkçe alfabetik sıralama — `localeCompare(..., "tr")` İ/ı/ş/ğ sırasını doğru verir. */
+export function compareStudents(a: StudentRow, b: StudentRow, sort: SortKey): number {
+  switch (sort) {
+    case "name_asc":
+      return a.name.localeCompare(b.name, "tr");
+    case "name_desc":
+      return b.name.localeCompare(a.name, "tr");
+    case "created_desc":
+      return (b.createdAt ?? "").localeCompare(a.createdAt ?? "");
+    case "created_asc":
+      return (a.createdAt ?? "").localeCompare(b.createdAt ?? "");
+    case "contract_end_asc":
+      // Sözleşmesi olmayanlar en sona — "en yakın biten" listesi boşlarla dolmasın.
+      return (a.contractEndDate ?? "9999").localeCompare(b.contractEndDate ?? "9999");
+    case "contract_start_desc":
+      return (b.contractStartDate ?? "").localeCompare(a.contractStartDate ?? "");
+    case "fee_desc":
+      return b.monthlyFee - a.monthlyFee;
+    case "fee_asc":
+      return a.monthlyFee - b.monthlyFee;
+    default:
+      return 0;
+  }
+}
 
 type StatusFilter = "active" | "inactive" | "all";
 
@@ -50,7 +166,7 @@ const PAYMENT_VALUES: StudentRow["paymentStatus"][] = ["paid", "overdue", "parti
 type FilterGroup = {
   key: string;
   label: string;
-  type: "multi" | "status" | "dateRange";
+  type: "multi" | "status" | "dateRange" | "contractStartRange" | "contractEndRange";
   options?: string[];
 };
 
@@ -67,7 +183,13 @@ export function StudentsTable({
   tenantId,
   userId,
   canManage = false,
+  bulkOptions,
+  deletedView = false,
 }: {
+  /** E — verilirse satır seçimi + toplu işlem çubuğu açılır (kurum sahibi/yöneticisi, tek kurum görünümü). */
+  bulkOptions?: BulkOptions;
+  /** Silinen öğrenciler görünümü — toplu işlem yalnız "Geri al". */
+  deletedView?: boolean;
   rows: StudentRow[];
   /** Kolon görünüm tercihinin (localStorage) anahtarını oluşturmak için — kurum/tenant scope'undan bağımsız, yalnızca localStorage key izolasyonu içindir. */
   tenantId?: string;
@@ -84,6 +206,8 @@ export function StudentsTable({
   const [optionSearch, setOptionSearch] = useState("");
   const menuRef = useRef<HTMLDivElement>(null);
   const [columns, setColumns] = useState<StudentColumnKey[]>(DEFAULT_STUDENT_COLUMNS);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const canBulk = canManage && !!bulkOptions;
 
   useEffect(() => {
     if (!tenantId || !userId) return;
@@ -113,26 +237,44 @@ export function StudentsTable({
 
   /**
    * URL dışarıdan değişirse (geri/ileri, derin bağlantı, "Temizle") input'u
-   * izle. Effect DEĞİL, React'in "prop değişince state'i ayarla" deseni:
-   * effect içinde senkron setState zincirleme render tetikler (eslint kuralı).
+   * izle. Effect DEĞİL, React'in "prop değişince state'i ayarla" deseni.
+   *
+   * ÖNEMLİ: kendi debounced `router.replace` yankısını ASLA local input'un
+   * üstüne yazma. Filtre açıkken (`?contract=active`) her `q` yazımı ayrı bir
+   * soft nav olduğu için gecikme artar; kullanıcı `ab` yazmışken `q=a` yankısı
+   * gelirse kör `setSearchInput(urlSearch)` "b"yi siler (imleç zıplaması).
+   * Yalnız local hâlâ önceki URL ile aynıysa (gerçek dış değişiklik) uygula.
    */
   const [lastUrlSearch, setLastUrlSearch] = useState(urlSearch);
   if (urlSearch !== lastUrlSearch) {
+    const previousUrlSearch = lastUrlSearch;
     setLastUrlSearch(urlSearch);
-    setSearchInput(urlSearch);
+    if (searchInput === previousUrlSearch) {
+      setSearchInput(urlSearch);
+    }
   }
+
+  // Filtre toggle'ları searchParams kimliğini değiştirir; debounce effect'inin
+  // deps'inde tutmak yazma sırasında gereksiz yeniden zamanlama üretir.
+  // Güncel params'ı ref'ten oku — q senkronu yalnız searchInput değişince.
+  // Ref render sırasında yazılmaz (React 19 kuralı); effect'ler sırayla çalıştığı
+  // için aşağıdaki debounce effect'i her zaman güncel değeri görür.
+  const searchParamsRef = useRef(searchParams);
+  useEffect(() => {
+    searchParamsRef.current = searchParams;
+  }, [searchParams]);
 
   // Yazma bitince URL'i güncelle — tuş başına navigasyon YOK.
   useEffect(() => {
     if (searchInput === urlSearch) return;
     const id = setTimeout(() => {
-      const params = new URLSearchParams(searchParams.toString());
+      const params = new URLSearchParams(searchParamsRef.current.toString());
       if (searchInput) params.set("q", searchInput);
       else params.delete("q");
       router.replace(`${pathname}?${params.toString()}`, { scroll: false });
     }, 250);
     return () => clearTimeout(id);
-  }, [searchInput, urlSearch, searchParams, router, pathname]);
+  }, [searchInput, urlSearch, router, pathname]);
 
   /** Filtre ve "aktif filtre var mı" göstergeleri ANINDA yerel değeri kullanır. */
   const search = searchInput;
@@ -145,8 +287,20 @@ export function StudentsTable({
   const methodFilter = searchParams.getAll("method");
   const levelFilter = searchParams.getAll("level");
   const paymentFilter = searchParams.getAll("payment");
+  const creatorFilter = searchParams.getAll("creator");
+  const extraFilters = EXTRA_FILTERS.map((f) => ({ ...f, selected: searchParams.getAll(f.key) }));
   const enrolledFrom = searchParams.get("from") ?? "";
   const enrolledTo = searchParams.get("to") ?? "";
+  // D — sözleşme filtreleri
+  const contractFilter = searchParams.getAll("contract") as ContractFilterKey[];
+  const contractStartFrom = searchParams.get("csFrom") ?? "";
+  const contractStartTo = searchParams.get("csTo") ?? "";
+  const contractEndFrom = searchParams.get("ceFrom") ?? "";
+  const contractEndTo = searchParams.get("ceTo") ?? "";
+  // I — sıralama
+  const sort = (searchParams.get("sort") as SortKey | null) ?? "name_asc";
+  /** Sözleşme kategorileri "bugüne" göre çözülür; render başına tek kez hesaplanır. */
+  const today = new Date().toISOString().slice(0, 10);
 
   function updateParams(mutate: (params: URLSearchParams) => void) {
     const params = new URLSearchParams(searchParams.toString());
@@ -176,7 +330,39 @@ export function StudentsTable({
     });
   }
 
+  // UAT 2026-09-24 (B) — TC Kimlik No filtresi: değer yalnız bu bileşenin
+  // state'inde; URL'ye, localStorage'a veya loga yazılmaz. Eşleşme sunucuda
+  // (şifre çözülerek) yapılır, istemciye yalnız öğrenci kimlikleri döner.
+  const [tcInput, setTcInput] = useState("");
+  const [tcMatch, setTcMatch] = useState<{ ids: Set<string>; last2: string } | null>(null);
+  const [tcError, setTcError] = useState<string | null>(null);
+  const [tcPending, setTcPending] = useState(false);
+
+  async function applyTcFilter() {
+    const digits = tcInput.replace(/\D/g, "");
+    if (digits.length !== 11) {
+      setTcError("TC Kimlik No 11 haneli olmalı.");
+      return;
+    }
+    setTcPending(true);
+    setTcError(null);
+    const result = await actionFindStudentsByNationalId(digits);
+    setTcPending(false);
+    if (!result.ok) {
+      setTcError(result.message);
+      return;
+    }
+    setTcMatch({ ids: new Set(result.studentIds), last2: digits.slice(-2) });
+    setTcInput("");
+  }
+
   function clearAll() {
+    setTcMatch(null);
+    setTcError(null);
+    // Debounce ortasında "Temizle" — local q'yu da sıfırla; aksi halde stale
+    // echo koruması eski metni URL temizlendikten sonra bile tutardı.
+    setSearchInput("");
+    setLastUrlSearch("");
     router.replace(pathname, { scroll: false });
   }
 
@@ -207,6 +393,7 @@ export function StudentsTable({
   const teacherOptions = useMemo(() => uniqueSorted(rows.map((r) => r.teacherName)), [rows]);
   const methodOptions = useMemo(() => uniqueSorted(rows.map((r) => r.educationMethod)), [rows]);
   const levelOptions = useMemo(() => uniqueSorted(rows.map((r) => r.level)), [rows]);
+  const creatorOptions = useMemo(() => uniqueSorted(rows.map((r) => r.createdByName ?? LEGACY_CREATOR_LABEL)), [rows]);
 
   const groups: FilterGroup[] = [
     { key: "status", label: "Durum", type: "status" },
@@ -217,7 +404,17 @@ export function StudentsTable({
     { key: "package", label: "Paket", type: "multi", options: packageOptions },
     { key: "level", label: "MEB/LCM seviye", type: "multi", options: levelOptions },
     { key: "payment", label: "Ödeme durumu", type: "multi", options: PAYMENT_VALUES.map((v) => PAYMENT_LABELS[v]) },
+    { key: "creator", label: "Kaydı oluşturan", type: "multi", options: creatorOptions },
+    ...extraFilters.map((f): FilterGroup => ({
+      key: f.key,
+      label: f.label,
+      type: "multi",
+      options: uniqueSorted(rows.flatMap(f.value)),
+    })),
     { key: "enrollment", label: "Kayıt tarihi", type: "dateRange" },
+    { key: "contract", label: "Sözleşme durumu", type: "multi", options: CONTRACT_FILTER_KEYS.map((k) => CONTRACT_FILTER_LABELS[k]) },
+    { key: "contractStart", label: "Sözleşme başlangıcı", type: "contractStartRange" },
+    { key: "contractEnd", label: "Sözleşme bitişi", type: "contractEndRange" },
   ];
 
   function selectedFor(key: string): string[] {
@@ -227,7 +424,11 @@ export function StudentsTable({
     if (key === "method") return methodFilter;
     if (key === "package") return packageFilter;
     if (key === "level") return levelFilter;
+    if (key === "creator") return creatorFilter;
+    const extra = extraFilters.find((f) => f.key === key);
+    if (extra) return extra.selected;
     if (key === "payment") return paymentFilter.map((p) => PAYMENT_LABELS[p as StudentRow["paymentStatus"]] ?? p);
+    if (key === "contract") return contractFilter.map((c) => CONTRACT_FILTER_LABELS[c] ?? c);
     return [];
   }
 
@@ -236,6 +437,14 @@ export function StudentsTable({
     if (group.type === "dateRange") {
       if (!enrolledFrom && !enrolledTo) return "Tümü";
       return `${enrolledFrom || "…"} – ${enrolledTo || "…"}`;
+    }
+    if (group.type === "contractStartRange") {
+      if (!contractStartFrom && !contractStartTo) return "Tümü";
+      return `${contractStartFrom || "…"} – ${contractStartTo || "…"}`;
+    }
+    if (group.type === "contractEndRange") {
+      if (!contractEndFrom && !contractEndTo) return "Tümü";
+      return `${contractEndFrom || "…"} – ${contractEndTo || "…"}`;
     }
     const selected = selectedFor(group.key);
     if (selected.length === 0) return "Tümü";
@@ -247,6 +456,11 @@ export function StudentsTable({
     if (group.key === "payment") {
       const paymentValue = PAYMENT_VALUES.find((v) => PAYMENT_LABELS[v] === option) ?? option;
       toggleMulti("payment", paymentValue, paymentFilter);
+      return;
+    }
+    if (group.key === "contract") {
+      const contractValue = CONTRACT_FILTER_KEYS.find((v) => CONTRACT_FILTER_LABELS[v] === option) ?? option;
+      toggleMulti("contract", contractValue, contractFilter);
       return;
     }
     toggleMulti(group.key, option, selectedFor(group.key));
@@ -261,11 +475,24 @@ export function StudentsTable({
     (packageFilter.length ? 1 : 0) +
     (levelFilter.length ? 1 : 0) +
     (paymentFilter.length ? 1 : 0) +
-    (enrolledFrom || enrolledTo ? 1 : 0);
+    (creatorFilter.length ? 1 : 0) +
+    extraFilters.filter((f) => f.selected.length).length +
+    (enrolledFrom || enrolledTo ? 1 : 0) +
+    (contractFilter.length ? 1 : 0) +
+    (contractStartFrom || contractStartTo ? 1 : 0) +
+    (contractEndFrom || contractEndTo ? 1 : 0);
 
-  const filterQuery = search.trim().toLowerCase();
-  const filtered = rows.filter((row) => {
-    if (filterQuery && !row.name.toLowerCase().includes(filterQuery)) return false;
+  const filterQuery = search.trim().toLocaleLowerCase("tr");
+  // 8. tur (C) — sözleşme dışındaki tüm filtreler; chip sayıları bu kümeden
+  // sayılır ki "Aktif sözleşmeli (23)" seçilince listede gerçekten 23 satır olsun.
+  const matchesExceptContract = (row: StudentRow) => {
+    if (tcMatch && !tcMatch.ids.has(row.id)) return false;
+    if (
+      filterQuery &&
+      !row.name.toLocaleLowerCase("tr").includes(filterQuery) &&
+      !(row.displayId ?? "").toLocaleLowerCase("tr").includes(filterQuery)
+    )
+      return false;
     if (statusFilter === "active" && !row.active) return false;
     if (statusFilter === "inactive" && row.active) return false;
     if (typeFilter.length && !row.studentTypes.some((t) => typeFilter.includes(t))) return false;
@@ -275,13 +502,29 @@ export function StudentsTable({
     if (methodFilter.length && !(row.educationMethod && methodFilter.includes(row.educationMethod))) return false;
     if (levelFilter.length && !(row.level && levelFilter.includes(row.level))) return false;
     if (paymentFilter.length && !paymentFilter.includes(row.paymentStatus)) return false;
+    if (creatorFilter.length && !creatorFilter.includes(row.createdByName ?? LEGACY_CREATOR_LABEL)) return false;
+    if (extraFilters.some((f) => f.selected.length && !f.value(row).some((v) => f.selected.includes(v)))) return false;
     if (enrolledFrom && (!row.enrollmentStartDate || row.enrollmentStartDate < enrolledFrom)) return false;
     if (enrolledTo && (!row.enrollmentStartDate || row.enrollmentStartDate > enrolledTo)) return false;
+    if (contractStartFrom && (!row.contractStartDate || row.contractStartDate < contractStartFrom)) return false;
+    if (contractStartTo && (!row.contractStartDate || row.contractStartDate > contractStartTo)) return false;
+    if (contractEndFrom && (!row.contractEndDate || row.contractEndDate < contractEndFrom)) return false;
+    if (contractEndTo && (!row.contractEndDate || row.contractEndDate > contractEndTo)) return false;
     return true;
-  });
+  };
+  const baseRows = rows.filter(matchesExceptContract);
+  const filtered = contractFilter.length
+    ? baseRows.filter((row) => contractFilter.includes(resolveContractFilterKey(row, today)))
+    : baseRows;
+  // React Compiler zaten memoize ediyor; elle useMemo, `filtered`'ın her
+  // render'da yeniden üretilmesi nedeniyle korunamıyor (lint uyarısı).
+  const sorted = [...filtered].sort((a, b) => compareStudents(a, b, sort));
 
-  const anyFilterActive = Boolean(search) || activeGroupCount > 0;
-  const { pageItems, page, setPage, pageSize, setPageSize, totalPages, totalCount } = usePagination(filtered, 10);
+  const anyFilterActive = Boolean(search) || activeGroupCount > 0 || tcMatch !== null;
+  // H — sayfa başına 10/20/50/100; seçim URL'de saklanır (yenileme/geri-ileri korur).
+  const { pageItems, page, setPage, pageSize, setPageSize, totalPages, totalCount } = usePagination(sorted, 10, {
+    urlParam: "per",
+  });
 
   // Aktif filtreler için kaldırılabilir chip listesi.
   type Chip = { key: string; value: string; label: string; onRemove: () => void };
@@ -292,6 +535,8 @@ export function StudentsTable({
     { key: "method", label: "Metod", values: methodFilter },
     { key: "package", label: "Paket", values: packageFilter },
     { key: "level", label: "Seviye", values: levelFilter },
+    { key: "creator", label: "Oluşturan", values: creatorFilter },
+    ...extraFilters.map((f) => ({ key: f.key, label: f.chip, values: f.selected })),
   ];
   const chips: Chip[] = [
     ...(statusFilter !== "active"
@@ -305,6 +550,40 @@ export function StudentsTable({
         onRemove: () => removeOne(def.key, value, def.values),
       }))
     ),
+    ...contractFilter.map((value) => ({
+      key: "contract",
+      value,
+      label: `Sözleşme: ${CONTRACT_FILTER_LABELS[value] ?? value}`,
+      onRemove: () => removeOne("contract", value, contractFilter),
+    })),
+    ...(contractStartFrom || contractStartTo
+      ? [
+          {
+            key: "contractStart",
+            value: "range",
+            label: `Sözleşme başlangıcı: ${contractStartFrom || "…"} – ${contractStartTo || "…"}`,
+            onRemove: () =>
+              updateParams((params) => {
+                params.delete("csFrom");
+                params.delete("csTo");
+              }),
+          },
+        ]
+      : []),
+    ...(contractEndFrom || contractEndTo
+      ? [
+          {
+            key: "contractEnd",
+            value: "range",
+            label: `Sözleşme bitişi: ${contractEndFrom || "…"} – ${contractEndTo || "…"}`,
+            onRemove: () =>
+              updateParams((params) => {
+                params.delete("ceFrom");
+                params.delete("ceTo");
+              }),
+          },
+        ]
+      : []),
     ...paymentFilter.map((value) => ({
       key: "payment",
       value,
@@ -338,10 +617,56 @@ export function StudentsTable({
             type="text"
             value={searchInput}
             onChange={(event) => setSearchInput(event.target.value)}
-            placeholder="Ad soyada göre ara..."
-            aria-label="Ad soyada göre ara"
+            placeholder="Ad soyad veya öğrenci no ara..."
+            aria-label="Ad soyad veya öğrenci numarasına göre ara"
             className="w-full max-w-xs rounded-[var(--radius-md)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text)] outline-none focus:ring-2 focus:ring-[var(--color-focus-ring)]/30 sm:w-auto"
           />
+
+          {canManage ? (
+            <form
+              className="flex items-center gap-2"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void applyTcFilter();
+              }}
+            >
+              <input
+                type="text"
+                inputMode="numeric"
+                autoComplete="off"
+                maxLength={11}
+                value={tcInput}
+                onChange={(event) => {
+                  setTcInput(event.target.value.replace(/\D/g, ""));
+                  setTcError(null);
+                }}
+                placeholder="TC Kimlik No"
+                aria-label="TC Kimlik No ile filtrele (11 hane, tam eşleşme)"
+                aria-invalid={tcError ? true : undefined}
+                className="w-36 rounded-[var(--radius-md)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text)] outline-none focus:ring-2 focus:ring-[var(--color-focus-ring)]/30"
+              />
+              <button
+                type="submit"
+                disabled={tcPending}
+                className="rounded-[var(--radius-md)] border border-[var(--color-border-strong)] px-3 py-2 text-sm font-medium text-[var(--color-text)] hover:border-[var(--color-primary)] disabled:opacity-60"
+              >
+                {tcPending ? "Aranıyor…" : "TC ile ara"}
+              </button>
+            </form>
+          ) : null}
+          {tcMatch ? (
+            <span className="inline-flex items-center gap-1 rounded-full bg-[var(--color-primary-soft)] px-2.5 py-1 text-xs font-medium text-[var(--color-primary)]">
+              TC: •••••••••{tcMatch.last2} ({tcMatch.ids.size} eşleşme)
+              <button type="button" aria-label="TC Kimlik No filtresini kaldır" onClick={() => setTcMatch(null)}>
+                <X className="h-3 w-3" aria-hidden />
+              </button>
+            </span>
+          ) : null}
+          {tcError ? (
+            <p role="alert" className="w-full text-xs text-[var(--color-danger)]">
+              {tcError}
+            </p>
+          ) : null}
 
           <div className="relative" ref={menuRef}>
             <button
@@ -403,27 +728,42 @@ export function StudentsTable({
                           </li>
                         ))}
                       </ul>
-                    ) : openGroupDef.type === "dateRange" ? (
-                      <div className="space-y-2 p-3">
-                        <label className="block text-xs text-[var(--color-text-muted)]">
-                          Başlangıç
-                          <input
-                            type="date"
-                            value={enrolledFrom}
-                            onChange={(e) => setSingle("from", e.target.value)}
-                            className="mt-1 w-full rounded-[var(--radius-md)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 py-1.5 text-sm text-[var(--color-text)]"
-                          />
-                        </label>
-                        <label className="block text-xs text-[var(--color-text-muted)]">
-                          Bitiş
-                          <input
-                            type="date"
-                            value={enrolledTo}
-                            onChange={(e) => setSingle("to", e.target.value)}
-                            className="mt-1 w-full rounded-[var(--radius-md)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 py-1.5 text-sm text-[var(--color-text)]"
-                          />
-                        </label>
-                      </div>
+                    ) : openGroupDef.type === "dateRange" ||
+                      openGroupDef.type === "contractStartRange" ||
+                      openGroupDef.type === "contractEndRange" ? (
+                      (() => {
+                        // Üç tarih aralığı aynı UI'ı paylaşır; yalnız hangi
+                        // parametreyi yazdıkları ve Türkçe açıklamaları farklı.
+                        const range =
+                          openGroupDef.type === "dateRange"
+                            ? { fromKey: "from", toKey: "to", from: enrolledFrom, to: enrolledTo, hint: "Öğrencinin kuruma kayıt tarihi." }
+                            : openGroupDef.type === "contractStartRange"
+                              ? { fromKey: "csFrom", toKey: "csTo", from: contractStartFrom, to: contractStartTo, hint: "Güncel sözleşmenin başlangıç tarihi bu aralıkta olan öğrenciler." }
+                              : { fromKey: "ceFrom", toKey: "ceTo", from: contractEndFrom, to: contractEndTo, hint: "Güncel sözleşmenin bitiş tarihi bu aralıkta olan öğrenciler." };
+                        return (
+                          <div className="space-y-2 p-3">
+                            <p className="text-[11px] text-[var(--color-text-muted)]">{range.hint}</p>
+                            <label className="block text-xs text-[var(--color-text-muted)]">
+                              Şu tarihten sonra
+                              <input
+                                type="date"
+                                value={range.from}
+                                onChange={(e) => setSingle(range.fromKey, e.target.value)}
+                                className="mt-1 w-full rounded-[var(--radius-md)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 py-1.5 text-sm text-[var(--color-text)]"
+                              />
+                            </label>
+                            <label className="block text-xs text-[var(--color-text-muted)]">
+                              Şu tarihten önce
+                              <input
+                                type="date"
+                                value={range.to}
+                                onChange={(e) => setSingle(range.toKey, e.target.value)}
+                                className="mt-1 w-full rounded-[var(--radius-md)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 py-1.5 text-sm text-[var(--color-text)]"
+                              />
+                            </label>
+                          </div>
+                        );
+                      })()
                     ) : (
                       <div>
                         {(openGroupDef.options?.length ?? 0) > 6 ? (
@@ -508,6 +848,19 @@ export function StudentsTable({
             ) : null}
           </div>
 
+          <select
+            value={sort}
+            onChange={(e) => setSingle("sort", e.target.value === "name_asc" ? "" : e.target.value)}
+            aria-label="Sıralama"
+            className="rounded-[var(--radius-md)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text)]"
+          >
+            {SORT_OPTIONS.map((opt) => (
+              <option key={opt.key} value={opt.key}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+
           {canManage ? (
             <StudentColumnViewManager
               tenantId={tenantId ?? "default"}
@@ -555,8 +908,46 @@ export function StudentsTable({
           ) : null}
         </div>
 
-        <p className="mt-3 text-xs font-medium text-[var(--color-text-muted)]">
-          {anyFilterActive ? `${rows.length} öğrenciden ${filtered.length} öğrenci gösteriliyor` : `Toplam ${rows.length} öğrenci`}
+        {/* D — operasyonel hızlı filtreler: en sık sorulan dört soru tek tıkla. */}
+        <div className="mt-3 flex flex-wrap items-center gap-1.5">
+          <span className="text-[11px] font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
+            Sözleşme
+          </span>
+          {CONTRACT_FILTER_KEYS.map((key) => {
+            const active = contractFilter.includes(key);
+            const count = baseRows.filter((r) => resolveContractFilterKey(r, today) === key).length;
+            return (
+              <button
+                key={key}
+                type="button"
+                aria-pressed={active}
+                onClick={() => toggleMulti("contract", key, contractFilter)}
+                className={`rounded-full border px-2.5 py-1 text-xs font-medium transition ${
+                  active
+                    ? "border-[var(--color-primary)] bg-[var(--color-primary-soft)] text-[var(--color-primary-soft-text)]"
+                    : "border-[var(--color-border-strong)] bg-[var(--color-surface)] text-[var(--color-text-muted)] hover:border-[var(--color-primary)]"
+                }`}
+              >
+                {CONTRACT_FILTER_LABELS[key]}
+                <span className="ml-1 tabular-nums opacity-70">({count})</span>
+              </button>
+            );
+          })}
+        </div>
+
+        <p className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-medium text-[var(--color-text-muted)]">
+          <span>
+            {anyFilterActive ? `${rows.length} öğrenciden ${filtered.length} öğrenci gösteriliyor` : `Toplam ${rows.length} öğrenci`}
+          </span>
+          {canBulk && selectedIds.size > 0 && selectedIds.size < sorted.length ? (
+            <button
+              type="button"
+              onClick={() => setSelectedIds(new Set(sorted.map((r) => r.id)))}
+              className="text-[var(--color-primary)] hover:underline"
+            >
+              Listedeki {sorted.length} öğrencinin tümünü seç
+            </button>
+          ) : null}
         </p>
       </Card>
 
@@ -564,6 +955,27 @@ export function StudentsTable({
         <table className="w-full text-left text-sm">
           <thead className="border-b border-[var(--color-border)] bg-[var(--color-surface-muted)] text-xs uppercase tracking-wide text-[var(--color-text-muted)]">
             <tr>
+              {canBulk ? (
+                <th className="w-9 py-3 pl-4 pr-0">
+                  <input
+                    type="checkbox"
+                    aria-label="Bu sayfadaki tüm öğrencileri seç"
+                    checked={pageItems.length > 0 && pageItems.every((r) => selectedIds.has(r.id))}
+                    ref={(el) => {
+                      if (el) el.indeterminate = pageItems.some((r) => selectedIds.has(r.id)) && !pageItems.every((r) => selectedIds.has(r.id));
+                    }}
+                    onChange={(e) => {
+                      const next = new Set(selectedIds);
+                      for (const r of pageItems) {
+                        if (e.target.checked) next.add(r.id);
+                        else next.delete(r.id);
+                      }
+                      setSelectedIds(next);
+                    }}
+                    className="h-4 w-4 accent-[var(--color-primary)]"
+                  />
+                </th>
+              ) : null}
               <th className="px-4 py-3">Öğrenci</th>
               {columns.map((key) => (
                 <th key={key} className="px-4 py-3">
@@ -576,13 +988,35 @@ export function StudentsTable({
           <tbody>
             {pageItems.length === 0 ? (
               <tr>
-                <td colSpan={1 + columns.length + (canManage ? 1 : 0)} className="px-4 py-8 text-center text-sm text-[var(--color-text-muted)]">
+                <td colSpan={1 + columns.length + (canManage ? 1 : 0) + (canBulk ? 1 : 0)} className="px-4 py-8 text-center text-sm text-[var(--color-text-muted)]">
                   Bu filtreye uyan öğrenci bulunamadı.
                 </td>
               </tr>
             ) : (
               pageItems.map((s) => (
-                <tr key={s.id} className="border-b border-[var(--color-border)] align-top last:border-0">
+                <tr
+                  key={s.id}
+                  aria-selected={canBulk ? selectedIds.has(s.id) : undefined}
+                  className={`border-b border-[var(--color-border)] align-top last:border-0 ${
+                    selectedIds.has(s.id) ? "bg-[var(--color-primary-soft)]/40" : ""
+                  }`}
+                >
+                  {canBulk ? (
+                    <td className="w-9 py-3 pl-4 pr-0">
+                      <input
+                        type="checkbox"
+                        aria-label={`${s.name} öğrencisini seç`}
+                        checked={selectedIds.has(s.id)}
+                        onChange={(e) => {
+                          const next = new Set(selectedIds);
+                          if (e.target.checked) next.add(s.id);
+                          else next.delete(s.id);
+                          setSelectedIds(next);
+                        }}
+                        className="h-4 w-4 accent-[var(--color-primary)]"
+                      />
+                    </td>
+                  ) : null}
                   <td className="p-0">
                     <Link
                       href={`/panel/ogrenciler/${s.id}`}
@@ -594,7 +1028,21 @@ export function StudentsTable({
                   </td>
                   {columns.map((key) => (
                     <td key={key} className="px-4 py-3">
-                      {key === "branch" ? (
+                      {key === "displayId" ? (
+                        <span className="font-mono text-xs text-[var(--color-text)]">{s.displayId ?? "—"}</span>
+                      ) : key === "createdBy" ? (
+                        <span className="block text-[var(--color-text)]">
+                          {s.createdByName ?? LEGACY_CREATOR_LABEL}
+                          {s.fromTrial ? (
+                            <span
+                              className="mt-0.5 block text-[11px] font-medium"
+                              style={{ color: "var(--color-trial)" }}
+                            >
+                              Denemeden{s.convertedByName ? ` · dönüştüren: ${s.convertedByName}` : ""}
+                            </span>
+                          ) : null}
+                        </span>
+                      ) : key === "branch" ? (
                         <span className="text-[var(--color-text-muted)]">{s.branchName ?? "—"}</span>
                       ) : key === "type" ? (
                         <>
@@ -620,9 +1068,45 @@ export function StudentsTable({
                       ) : key === "method" ? (
                         <span className="text-[var(--color-text-muted)]">{s.educationMethod ?? "—"}</span>
                       ) : key === "payment" ? (
-                        <span className="text-[var(--color-text-muted)]">{PAYMENT_LABELS[s.paymentStatus]}</span>
+                        <span className="block text-[var(--color-text-muted)]">
+                          {PAYMENT_LABELS[s.paymentStatus]}
+                          {s.openDebt ? (
+                            <span className="block text-xs tabular-nums text-[var(--color-text)]">
+                              Açık {s.openDebt.toLocaleString("tr-TR")} ₺
+                              {s.overdueDebt ? (
+                                <span className="text-[var(--color-danger)]"> · gecikmiş {s.overdueDebt.toLocaleString("tr-TR")} ₺</span>
+                              ) : null}
+                            </span>
+                          ) : null}
+                        </span>
                       ) : key === "monthlyFee" ? (
                         <span className="text-[var(--color-text-muted)]">{s.monthlyFee.toLocaleString("tr-TR")} ₺</span>
+                      ) : key === "contract" ? (
+                        (() => {
+                          const state = resolveContractFilterKey(s, today);
+                          const tone =
+                            state === "active"
+                              ? { background: "var(--color-success-soft)", color: "var(--color-success)" }
+                              : state === "expiring"
+                                ? { background: "var(--color-warning-soft)", color: "var(--color-warning)" }
+                                : state === "expired"
+                                  ? { background: "var(--color-danger-soft)", color: "var(--color-danger)" }
+                                  : state === "pending"
+                                    ? { background: "var(--color-primary-soft)", color: "var(--color-primary-soft-text)" }
+                                  : { background: "var(--color-surface-muted)", color: "var(--color-text-muted)" };
+                          return (
+                            <span className="block">
+                              <span className="inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold" style={tone}>
+                                {CONTRACT_FILTER_LABELS[state]}
+                              </span>
+                              {s.contractEndDate ? (
+                                <span className="mt-1 block text-[11px] text-[var(--color-text-muted)]">
+                                  Bitiş: {s.contractEndDate.split("-").reverse().join(".")}
+                                </span>
+                              ) : null}
+                            </span>
+                          );
+                        })()
                       ) : null}
                     </td>
                   ))}
@@ -645,6 +1129,16 @@ export function StudentsTable({
           onPageSizeChange={setPageSize}
         />
       </Card>
+      {canBulk ? (
+        <StudentsBulkBar
+          selected={rows
+            .filter((r) => selectedIds.has(r.id))
+            .map((r) => ({ id: r.id, name: r.name, active: r.active }))}
+          options={bulkOptions!}
+          deletedView={deletedView}
+          onClear={() => setSelectedIds(new Set())}
+        />
+      ) : null}
     </>
   );
 }

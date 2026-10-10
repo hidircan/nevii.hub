@@ -1,4 +1,14 @@
 {
   "framework": "nextjs",
-  "buildCommand": "npm run build"
+  "buildCommand": "npm run build",
+  "crons": [
+    {
+      "path": "/api/v1/platform/jobs/retention?apply=1",
+      "schedule": "30 0 * * *"
+    },
+    {
+      "path": "/api/v1/platform/jobs/monthly-accrual?apply=1",
+      "schedule": "0 1 * * *"
+    }
+  ]
 }

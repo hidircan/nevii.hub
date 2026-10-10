@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { PortalShell } from "@/components/portal-shell";
 import { requireSessionContext } from "@/lib/auth/session";
+import { getPortalPageStudentId } from "@/lib/portal-context";
 import { getUserById } from "@/lib/auth/users";
 import { getActiveAccessType } from "@/lib/student-portal-access";
 import { getCurrentConsentTextVersionTool, getConsentStatusTool } from "@/lib/services";
@@ -30,15 +31,17 @@ export default async function OgrenciLayout({ children }: { children: React.Reac
   // tenant'ların girişi bu özellik eklendiği için SESSİZCE KİLİTLENMEZ).
   // Route guard'ı (middleware) bozmadan — kimliği zaten doğrulanmış bir
   // kullanıcı için layout seviyesinde içerik yerine onay ekranı gösterir.
-  if (session.role === "STUDENT" && session.studentId) {
+  // 10. tur iş #1 — KVKK kapısı da çözümlenmiş aktif öğrenci bağlamını kullanır.
+  const layoutStudentId = session.role === "STUDENT" ? await getPortalPageStudentId(session) : session.studentId;
+  if (session.role === "STUDENT" && layoutStudentId) {
     const textResult = await getCurrentConsentTextVersionTool(session, { consentType: FIRST_LOGIN_CONSENT_TYPE });
     const currentVersion = textResult.ok ? textResult.data.version : undefined;
     if (currentVersion) {
-      const accessType = await getActiveAccessType(session.tenantId, session.userId, session.studentId);
+      const accessType = await getActiveAccessType(session.tenantId, session.userId, layoutStudentId);
       const subjectType = accessType === "GUARDIAN" ? "parent" : "student";
       const statusResult = await getConsentStatusTool(session, {
         subjectType,
-        subjectId: session.studentId,
+        subjectId: layoutStudentId,
         consentType: FIRST_LOGIN_CONSENT_TYPE,
       });
       const status = statusResult.ok ? statusResult.data.status : "missing";
@@ -46,7 +49,7 @@ export default async function OgrenciLayout({ children }: { children: React.Reac
         return (
           <KvkkConsentGate
             subjectType={subjectType}
-            subjectId={session.studentId}
+            subjectId={layoutStudentId}
             consentType={FIRST_LOGIN_CONSENT_TYPE}
             bodyText={currentVersion.bodyText}
             version={currentVersion.version}

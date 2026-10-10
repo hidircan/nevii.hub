@@ -68,8 +68,24 @@ describe("validateLessonSlot · sıradan ders planlama (telafi dışı)", () => 
     const day = addDays(startOfDay(FIXED_NOW), mondayOffset);
     const startAt = setMinutes(setHours(day, 15), 0).toISOString();
 
+    // 2026-09-20 — Pazartesi Güz döneminin kapalı günü; senaryonun amacı
+    // ÖĞRETMEN müsaitliğini sınamak olduğu için gün "zorla açık" yapılır.
     const result = validateLessonSlot(
-      data,
+      {
+        ...data,
+        closedDayOverrides: [
+          {
+            id: "cld_test",
+            date: startAt.slice(0, 10),
+            name: "Test — zorla açık",
+            kind: "custom",
+            isOpen: true,
+            createdBy: "u_test",
+            createdAt: "2026-09-20T00:00:00.000Z",
+            updatedAt: "2026-09-20T00:00:00.000Z",
+          },
+        ],
+      },
       { instrument: "Piyano", studentId: "s4" },
       { teacherId: "t4", roomId: "r4", startAt },
       { now: FIXED_NOW }

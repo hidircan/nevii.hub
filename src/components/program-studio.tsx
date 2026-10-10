@@ -1,11 +1,15 @@
 "use client";
 
+import { defaultLessonTeacherId, lessonTeacherOptions } from "@/lib/lesson-teacher-options";
+import { teacherServesBranch } from "@/lib/teacher-branches";
+import { isActiveStudent } from "@/lib/payment-scope";
+import { effectiveEnrollments, enrollmentLabel, type EnrollmentView } from "@/lib/student-enrollments";
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { ExternalLink, Loader2, Sparkles, TriangleAlert, X } from "lucide-react";
-import { addMinutes, differenceInMinutes, format, isSameDay, parseISO, startOfDay } from "date-fns";
+import { addDays as addDaysDate, addMinutes, differenceInMinutes, format, isSameDay, parseISO, startOfDay } from "date-fns";
+import Link from "@/components/link";
 import { tr } from "date-fns/locale";
 import {
   actionAddLesson,
@@ -20,21 +24,50 @@ import {
 import type { LessonCommunicationMessage } from "@/lib/whatsapp-templates";
 import type { LessonSlotSuggestion } from "@/lib/lesson-scheduling";
 import type { SeriesOccurrenceCheck } from "@/lib/lesson-series";
-import { DEFAULT_APP_TIMEZONE, zonedHm } from "@/lib/timezone";
+import { LessonScopeEditor } from "@/components/lesson-scope-editor";
+import { emptyProgramNotices, onlyNotice } from "@/lib/program-notices";
+import {
+  DEFAULT_APP_TIMEZONE,
+  isoToWallDateTimeInput,
+  toWallClockDate,
+  wallDateTimeInputToIso,
+  zonedHm,
+  zonedWallTimeToUtc,
+} from "@/lib/timezone";
 import { Badge, Button, Card, Input, Label, Select } from "@/components/ui";
-import { LessonOpsActions, LessonOpsBadges } from "@/components/lesson-ops-actions";
+import { LessonOpsActions } from "@/components/lesson-ops-actions";
+import {
+  DisruptionSourceFields,
+  disruptionPayload,
+  isDisruptionFormComplete,
+  type DisruptionFormValue,
+} from "@/components/disruption-source-fields";
+import { disruptionSourceLabel, isDisruptedLesson } from "@/lib/lesson-disruption";
+import { friendlyApiErrorMessage } from "@/lib/api/friendly-error";
+import { apiFetchJson } from "@/lib/api/client-fetch";
+import { LessonStatusBadge } from "@/components/lesson-status-badge";
+import { PlannedMakeupMarker } from "@/components/planned-makeup-marker";
+import { lessonCancelBlockReason } from "@/lib/lesson-cancel-rules";
 import { LessonReassignmentModal } from "@/components/lesson-reassignment-modal";
-import { INSTRUMENTS, type Instrument, type Lesson, type Room, type Student, type Teacher } from "@/lib/types";
+import { TeacherAvailabilityCard } from "@/components/teacher-availability-card";
+import type { Instrument, Lesson, Room, Student, Teacher } from "@/lib/types";
 import { dayName } from "@/lib/utils";
 import { DEFAULT_LESSON_DURATION_MINUTES, LESSON_DURATION_OPTIONS } from "@/lib/lesson-duration";
-import { CALENDAR_START_HOUR, turkeyFixedPublicHolidays, toYmd } from "@/lib/closed-days";
+import { CALENDAR_START_HOUR, toYmd } from "@/lib/closed-days";
+import { incompleteDateHint, isCompleteDateOnlyInput } from "@/lib/date-input";
 import {
-  resolveLessonAcademicPeriod,
+  FORCE_OPEN_HINT,
+  resolveWorkDay,
+  type DayOverride,
+  type TermWeeklyClosedDaysOverride,
+  type WorkDayResolution,
+} from "@/lib/work-days";
+import {
   lessonMatchesAcademicPeriod,
   lessonCardFillStyle,
   lessonCardMutedTextColor,
 } from "@/lib/attendance-calendar";
-import { resolveLessonFinalStatus, type LessonFinalStatus } from "@/lib/lesson-live-status";
+import { ATTENDED_PLANNED_MAKEUP_LABEL, resolveLessonFinalStatus, type LessonFinalStatus } from "@/lib/lesson-live-status";
 import {
   applyOpsOverride,
   pruneSettledOverrides,
@@ -62,18 +95,56 @@ type ProgramStudioProps = {
   selectedTerm?: "guz" | "yaz";
   selectedAcademicYearStart?: number;
   /**
-   * ÖNCELİK 4 (devam) — Yönetilebilir Enstrüman Kataloğu. Sabit `INSTRUMENTS`
-   * yerine tenant'ın aktif katalog listesi (statik küme + kurumun eklediği
-   * enstrümanlar) — verilmezse `INSTRUMENTS`'a düşer (geriye dönük uyumlu).
+   * Kurumun AKTİF enstrüman kataloğu (activeInstrumentOptions) — ders/seri seçicilerinin TEK kaynağı.
+   * 2026-10-03: sabit `INSTRUMENTS` yedeği kaldırıldı (katalogdaki Bas Gitar vb. görünmüyordu).
    */
-  catalogInstruments?: string[];
+  catalogInstruments: string[];
+  /**
+   * ÇALIŞMA GÜNÜ — TEK KAYNAK (2026-09-20). `days` içindeki her gün için
+   * sunucuda `resolveWorkDay` ile çözülmüş durum (yyyy-MM-dd anahtarlı).
+   * Izgara kendi hafta günü kuralını UYDURMAZ: yöneticinin "zorla açık"
+   * işaretlediği Pazartesi burada sütun olarak GÖRÜNÜR, "zorla kapalı"
+   * işaretlediği Çarşamba GÖRÜNMEZ — Yoklama Takvimi ve ders planlama
+   * doğrulamasıyla birebir aynı cevap.
+   */
+  dayStatuses?: Record<string, WorkDayResolution>;
+  /** Formda seçilen gün (görünen haftanın dışında da olabilir) için aynı çözümleyiciye verilen istisnalar. */
+  workDayOverrides?: DayOverride[];
+  termWeeklyClosedDays?: TermWeeklyClosedDaysOverride;
+  /** I — haftanın deneme dersleri (ayrı TrialLesson kaydı); mor, kesikli, "DENEME" etiketli. */
+  weekTrials?: ProgramTrial[];
 };
+
+export type ProgramTrial = {
+  id: string;
+  name: string;
+  instrument: string;
+  teacherId: string;
+  branchId: string;
+  startAt: string;
+  endAt: string;
+  converted: boolean;
+  /** 2026-10-06 — "club": kulüp oturumu kartı (aynı yerleşim, farklı renk/etiket; oturum ekranına gider). */
+  kind?: "trial" | "club";
+  href?: string;
+  /** Kulüp oturumunun üyeleri — öğrenci filtresi açıkken yalnız o öğrencinin oturumları görünür. */
+  studentIds?: string[];
+  note?: string;
+};
+
+/**
+ * 2026-09-19 — SEÇİM vurgusu, statü dolgusundan (ATTENDANCE_CALENDAR_COLORS) tamamen
+ * ayrı bir kanal: kalın metin-renkli çerçeve + gölge + öne alma. Arka plan rengine
+ * DOKUNMAZ; böylece "seçili" hiçbir zaman "Geldi/İşlendi" gibi okunmaz.
+ */
+export const LESSON_SELECTED_CLASS =
+  "!z-[15] outline outline-[3px] outline-offset-2 outline-[var(--color-text)] shadow-[var(--shadow-lg)]";
 
 const SLOT_MINUTES = 30;
 const SLOT_HEIGHT_PX = 28;
 
 function toDatetimeLocalValue(iso: string) {
-  return format(parseISO(iso), "yyyy-MM-dd'T'HH:mm");
+  return isoToWallDateTimeInput(iso);
 }
 
 function parseHm(hm: string) {
@@ -91,18 +162,6 @@ function slotStarts(startMin: number, endMin: number) {
   const slots: number[] = [];
   for (let t = startMin; t < endMin; t += SLOT_MINUTES) slots.push(t);
   return slots;
-}
-
-/**
- * Türkiye'nin sabit tarihli resmî tatilleri — salt görsel bir işaret (kırmızı
- * gün başlığı). Dini tatiller (ay takvimine bağlı) ve yönetici özel kapalı
- * günleri henüz bir veri modeliyle desteklenmiyor (ClosedDay tipi var ama
- * store/tool/UI'ı yok) — bu yüzden yalnızca sabit millî günler işaretlenir.
- */
-function fixedHolidayName(day: Date): string | null {
-  const ymd = toYmd(day);
-  const holiday = turkeyFixedPublicHolidays(day.getFullYear()).find((h) => h.date === ymd);
-  return holiday?.name ?? null;
 }
 
 function minutesOfDay(iso: string) {
@@ -147,31 +206,6 @@ function canMoveOrResize(lesson: Lesson, now: Date) {
   return lesson.type === "regular" && lesson.status === "scheduled" && parseISO(lesson.startAt) > now;
 }
 
-/** İptal, geçmiş dersler için de mümkündür — yalnızca tür ve durum şartı aranır. */
-function canCancel(lesson: Lesson) {
-  return lesson.type === "regular" && lesson.status === "scheduled";
-}
-
-function ineligibilityReason(lesson: Lesson, now: Date): string | null {
-  if (lesson.type !== "regular") return "Telafi dersleri bu ekrandan taşınamaz, süresi değiştirilemez veya iptal edilemez.";
-  if (lesson.status !== "scheduled") return "Bu ders zaten tamamlanmış veya iptal edilmiş.";
-  if (!(parseISO(lesson.startAt) > now)) return "Geçmiş bir ders taşınamaz veya süresi değiştirilemez, ancak iptal edilebilir.";
-  return null;
-}
-
-/** Öğrenci varsa: mevcut öğretmeni ve aynı şubeyi öne alarak sıralar. */
-function teacherOptionsFor(teachers: Teacher[], instrument: Instrument, student?: Student): Teacher[] {
-  return [...teachers.filter((t) => t.active && t.instruments.includes(instrument))].sort((a, b) => {
-    if (student) {
-      if (a.id === student.teacherId && b.id !== student.teacherId) return -1;
-      if (b.id === student.teacherId && a.id !== student.teacherId) return 1;
-      if (a.branchId === student.branchId && b.branchId !== student.branchId) return -1;
-      if (b.branchId === student.branchId && a.branchId !== student.branchId) return 1;
-    }
-    return a.name.localeCompare(b.name, "tr");
-  });
-}
-
 /**
  * Seçili öğretmenin şubesiyle ve enstrümanla uyumlu, AKTİF odalarla daraltır.
  * ÖNCELİK 4 (devam) — pasife alınmış bir oda yeni ders planlamasında
@@ -180,20 +214,40 @@ function teacherOptionsFor(teachers: Teacher[], instrument: Instrument, student?
  */
 function roomOptionsFor(rooms: Room[], instrument: Instrument, teacher?: Teacher): Room[] {
   return rooms.filter(
-    (r) => r.active !== false && r.instruments.includes(instrument) && (!teacher || r.branchId === teacher.branchId)
+    // 8. tur — ek şubeler dahil (teacherServesBranch); eskiden yalnız birincil şubenin odaları geliyordu.
+    (r) => r.active !== false && r.instruments.includes(instrument) && (!teacher || teacherServesBranch(teacher, r.branchId))
   );
 }
 
 const WEEKDAYS = [0, 1, 2, 3, 4, 5, 6];
 
-/** Aynı gün çakışan (farklı öğretmen/oda) dersler için basit "lane" ataması — greedy interval scheduling. */
-function assignLanes(dayLessons: Lesson[]): { laneOf: Map<string, number>; laneCount: number } {
+/**
+ * Aynı gün çakışan dersler için şerit (lane) ataması — greedy interval
+ * scheduling, ÇAKIŞMA KÜMESİ bazında (9. tur). Eskiden şerit sayısı bütün
+ * gün için tekti: günün herhangi bir saatinde 3 ders çakışınca o günün
+ * çakışmayan dersleri de 1/3 genişliğe düşüyor ve adlar kesiliyordu.
+ * Artık yalnız birbirine (dolaylı da olsa) değen dersler aynı kümededir;
+ * her ders kendi kümesinin şerit sayısı kadar bölünür. Saf — testlerde kullanılır.
+ */
+export function assignLanes(dayLessons: { id: string; startAt: string; endAt: string }[]): {
+  laneOf: Map<string, number>;
+  lanesOf: Map<string, number>;
+} {
   const sorted = [...dayLessons].sort((a, b) => a.startAt.localeCompare(b.startAt));
-  const laneEndTimes: number[] = [];
   const laneOf = new Map<string, number>();
+  const lanesOf = new Map<string, number>();
+  let cluster: string[] = [];
+  let laneEndTimes: number[] = [];
+  let clusterEnd = -Infinity;
+  const closeCluster = () => {
+    for (const id of cluster) lanesOf.set(id, Math.max(laneEndTimes.length, 1));
+    cluster = [];
+    laneEndTimes = [];
+  };
   for (const lesson of sorted) {
     const start = parseISO(lesson.startAt).getTime();
     const end = parseISO(lesson.endAt).getTime();
+    if (start >= clusterEnd) closeCluster();
     let lane = laneEndTimes.findIndex((endTime) => endTime <= start);
     if (lane === -1) {
       lane = laneEndTimes.length;
@@ -202,8 +256,36 @@ function assignLanes(dayLessons: Lesson[]): { laneOf: Map<string, number>; laneC
       laneEndTimes[lane] = end;
     }
     laneOf.set(lesson.id, lane);
+    cluster.push(lesson.id);
+    clusterEnd = Math.max(clusterEnd === -Infinity ? end : clusterEnd, end);
   }
-  return { laneOf, laneCount: Math.max(laneEndTimes.length, 1) };
+  closeCluster();
+  return { laneOf, lanesOf };
+}
+
+/**
+ * Dar şeritte ad soyad sığmazsa "Ayşe Y." biçimi — ad tam, soyad baş harfi.
+ * Tek kelimelik ad olduğu gibi kalır. Tam ad her zaman hover kartında,
+ * `title`'da ve ekran okuyucu etiketinde durur. Saf — testlerde kullanılır.
+ */
+export function compactStudentName(name: string | undefined): string {
+  const parts = (name ?? "").trim().split(/\s+/).filter(Boolean);
+  if (parts.length <= 1) return parts[0] ?? "";
+  return `${parts.slice(0, -1).join(" ")} ${parts[parts.length - 1].charAt(0).toLocaleUpperCase("tr")}.`;
+}
+
+/** En dar şerit için baş harfler ("AY"). */
+export function studentInitials(name: string | undefined): string {
+  const parts = (name ?? "").trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  const first = parts[0].charAt(0);
+  const last = parts.length > 1 ? parts[parts.length - 1].charAt(0) : "";
+  return `${first}${last}`.toLocaleUpperCase("tr");
+}
+
+/** Haftalık kartta ad için ayrılacak satır sayısı; dikey dolgu 8px. Tam ad 16px, dar kademe 14px satır. */
+export function weekCardNameLines(heightPx: number, lineHeightPx = 16): number {
+  return Math.max(1, Math.floor((heightPx - 8) / lineHeightPx));
 }
 
 /**
@@ -252,8 +334,15 @@ const LESSON_CARD_STATUS_LABEL: Partial<Record<LessonCardStatusVisual, string>> 
   attended: "Geldi",
   processed: "İşlendi",
   makeup: "Telafi",
+  makeup_planned: "Planlanan telafi",
   cancelled: "İptal",
 };
+
+/** Kart/hover/aria metni: planlanan telafi dersine "Geldi" → "Planlanan telafiye geldi" (kaynak: ders tipi). */
+function cardStatusLabel(lesson: Pick<Lesson, "type">, statusVisual?: LessonCardStatusVisual): string | undefined {
+  if (!statusVisual) return undefined;
+  return statusVisual === "attended" && lesson.type === "makeup" ? ATTENDED_PLANNED_MAKEUP_LABEL : LESSON_CARD_STATUS_LABEL[statusVisual];
+}
 
 /**
  * Ders hover kartındaki satırlar — saf fonksiyon, DOM'\''dan bağımsız birim
@@ -264,11 +353,15 @@ export function lessonHoverCardLines(
   student?: Student,
   teacher?: Teacher,
   room?: Room,
-  branchName?: string
+  branchName?: string,
+  statusVisual?: LessonCardStatusVisual
 ): string[] {
   const timeRange = `${zonedHm(parseISO(lesson.startAt), DEFAULT_APP_TIMEZONE)}–${zonedHm(parseISO(lesson.endAt), DEFAULT_APP_TIMEZONE)}`;
-  const dateLabel = format(parseISO(lesson.startAt), "d MMMM yyyy, EEEE", { locale: tr });
+  const dateLabel = format(toWallClockDate(lesson.startAt), "d MMMM yyyy, EEEE", { locale: tr });
   const lines = [student?.name ?? "Öğrenci bilinmiyor", dateLabel, timeRange];
+  // 9. tur: haftalık hücre yalnız adı gösterdiği için statü METNİ burada (renk körlüğü için).
+  const statusLabel = cardStatusLabel(lesson, statusVisual);
+  if (statusLabel) lines.push(`Durum: ${statusLabel}`);
   if (teacher?.name) lines.push(`Öğretmen: ${teacher.name}`);
   if (lesson.instrument) lines.push(`Enstrüman: ${lesson.instrument}`);
   if (room?.name) lines.push(`Salon: ${room.name}`);
@@ -299,14 +392,16 @@ function LessonHoverCard({
   teacher,
   room,
   branchName,
+  statusVisual,
 }: {
   lesson: Lesson;
   student?: Student;
   teacher?: Teacher;
   room?: Room;
   branchName?: string;
+  statusVisual?: LessonCardStatusVisual;
 }) {
-  const [name, dateLabel, timeRange, ...rest] = lessonHoverCardLines(lesson, student, teacher, room, branchName);
+  const [name, dateLabel, timeRange, ...rest] = lessonHoverCardLines(lesson, student, teacher, room, branchName, statusVisual);
   return (
     <div
       role="tooltip"
@@ -333,12 +428,14 @@ export function lessonAccessibleLabel(
   student?: Student,
   teacher?: Teacher,
   room?: Room,
-  branchName?: string
+  branchName?: string,
+  statusVisual?: LessonCardStatusVisual
 ): string {
   const timeRange = `${zonedHm(parseISO(lesson.startAt), DEFAULT_APP_TIMEZONE)}–${zonedHm(parseISO(lesson.endAt), DEFAULT_APP_TIMEZONE)}`;
   const parts = [
     student?.name ?? "Öğrenci bilinmiyor",
     timeRange,
+    cardStatusLabel(lesson, statusVisual),
     teacher?.name,
     lesson.instrument,
     room?.name,
@@ -346,6 +443,41 @@ export function lessonAccessibleLabel(
     lesson.type === "makeup" ? "Telafi dersi" : undefined,
   ].filter(Boolean);
   return parts.join(" · ");
+}
+
+/**
+ * 9. tur (owner) — haftalık hücrenin ilk bakışta görünen TEK içeriği öğrenci
+ * adı soyadıdır; öğretmen/saat/oda/statü satırları hover kartına, tıklama
+ * paneline ve ekran okuyucu etiketine taşındı (statü kart dolgusunda da durur).
+ *
+ * Genişliğe göre üç kademe — kapsayıcı sorgusuyla, JS ölçümü yok:
+ *   ≥ 4.5rem: tam ad (14px), yüksekliğe göre 1–N satır (satır sonunda "…")
+ *   ≥ 2rem: "Ayşe Y." (11px, kelime içinden kırılmadan iki satır)
+ *   daha dar: baş harfler "AY" (tam ad hover/dokunma/ekran okuyucuda)
+ */
+function WeekLessonName({ name, color, heightPx }: { name?: string; color: string; heightPx: number }) {
+  const clamp = (lineHeight: number) => ({
+    display: "-webkit-box",
+    WebkitBoxOrient: "vertical" as const,
+    WebkitLineClamp: weekCardNameLines(heightPx, lineHeight),
+    overflow: "hidden",
+  });
+  return (
+    <div className="@container h-full min-w-0" style={{ color }} lang="tr">
+      <div className="hidden @[4.5rem]:block">
+        <p className="text-[14px] font-semibold leading-4 break-words hyphens-auto" style={clamp(16)}>
+          {name}
+        </p>
+      </div>
+      {/* Aynı saatte 2–3 ders: şerit daralır; ad + soyad baş harfi iki satıra kırılabilir. */}
+      <div className="hidden @[2rem]:block @[4.5rem]:hidden">
+        <p className="text-[11px] font-semibold leading-[13px] tracking-tight break-normal" style={clamp(13)}>
+          {compactStudentName(name)}
+        </p>
+      </div>
+      <p className="text-[11px] font-bold leading-[14px] @[2rem]:hidden">{studentInitials(name)}</p>
+    </div>
+  );
 }
 
 function LessonCardBody({
@@ -368,9 +500,12 @@ function LessonCardBody({
     primary: lessonCardFillStyle(statusVisual).color,
     muted: lessonCardMutedTextColor(statusVisual),
   };
-  const statusLabel = LESSON_CARD_STATUS_LABEL[statusVisual];
+  const statusLabel = cardStatusLabel(lesson, statusVisual);
   return (
     <>
+      {statusVisual === "attended" && lesson.type === "makeup" ? (
+        <PlannedMakeupMarker className={`absolute top-1 ${lesson.availabilityOverride ? "right-5" : "right-1"}`} />
+      ) : null}
       {lesson.availabilityOverride ? (
         <TriangleAlert
           className="absolute right-1 top-1 h-3 w-3 text-amber-500"
@@ -430,7 +565,7 @@ export function filterLessonsForCalendar(
 
 export function activeTeachersForBranch(teachers: Teacher[], filterBranchId: string): Teacher[] {
   return teachers
-    .filter((t) => t.active && (!filterBranchId || t.branchId === filterBranchId))
+    .filter((t) => t.active && !t.deletedAt && (!filterBranchId || teacherServesBranch(t, filterBranchId)))
     .sort((a, b) => a.name.localeCompare(b.name, "tr"));
 }
 
@@ -442,7 +577,7 @@ export function resolveTeacherFilterForBranch(
 ): string {
   if (!currentTeacherId) return currentTeacherId;
   const teacher = teachers.find((t) => t.id === currentTeacherId);
-  if (!teacher || (nextBranchId && teacher.branchId !== nextBranchId)) return "";
+  if (!teacher || (nextBranchId && !teacherServesBranch(teacher, nextBranchId))) return "";
   return currentTeacherId;
 }
 
@@ -456,6 +591,22 @@ export function resolveRoomFilterForBranch(
   const room = rooms.find((r) => r.id === currentRoomId);
   if (!room || (nextBranchId && room.branchId !== nextBranchId)) return "";
   return currentRoomId;
+}
+
+/**
+ * 2026-10-06 — öğrenci FİLTRESİ seçenekleri yalnız aktif öğrenciler (TEK kural `isActiveStudent`: pasif/arşiv
+ * `active:false`, silinen `deletedAt`). Ders kartlarının adları tam `students` listesinden okunmaya devam eder —
+ * geçmiş dersler pasif öğrenci yüzünden kaybolmaz. Eski bir bağlantıyla (?studentId=) pasif öğrenci seçili
+ * gelirse sıradan seçenek olarak geri eklenmez; yalnız seçili değeri göstermek için `inactiveSelected` döner.
+ */
+export function studentFilterOptions(
+  students: Student[],
+  filterBranchId: string,
+  selectedStudentId: string
+): { options: Student[]; inactiveSelected: Student | null } {
+  const options = studentsForBranch(students.filter(isActiveStudent), filterBranchId);
+  const selected = selectedStudentId ? students.find((s) => s.id === selectedStudentId) : undefined;
+  return { options, inactiveSelected: selected && !isActiveStudent(selected) ? selected : null };
 }
 
 export function studentsForBranch(students: Student[], filterBranchId: string): Student[] {
@@ -573,6 +724,10 @@ export function ProgramStudio({
   selectedTerm,
   selectedAcademicYearStart,
   catalogInstruments,
+  dayStatuses,
+  workDayOverrides,
+  termWeeklyClosedDays,
+  weekTrials = [],
 }: ProgramStudioProps) {
   const router = useRouter();
   const now = parseISO(todayIso);
@@ -611,14 +766,24 @@ export function ProgramStudio({
         })
       : effectiveWeekLessons;
 
-  // ÖNCELİK 4 (devam) — döneme göre kapalı gün seti: Güz'de Pazartesi (eski
-  // davranış, dönem seçili değilken de aynen korunur), Yaz'da Cumartesi+Pazar.
-  // Kapalı günler hiçbir koşulda takvimde gün sütunu olarak görünmez — slot/
-  // ders oluşturma/DnD/öneri o gün için mümkün değildir (sütun yoksa hedef de
-  // yok). Mevcut dersler SİLİNMEZ (weekLessons'ta kalır, veri kaybı yok);
-  // yalnızca haftalık grid'de gösterilmezler — aşağıdaki uyarı bunları listeler.
+  /**
+   * ÇALIŞMA GÜNÜ — TEK KAYNAK. Kapalı günler takvimde gün sütunu olarak
+   * GÖRÜNMEZ (slot/DnD/öneri o gün için mümkün değildir — sütun yoksa hedef
+   * de yok). Mevcut dersler SİLİNMEZ (weekLessons'ta kalır, veri kaybı yok);
+   * yalnızca ızgarada gösterilmezler ve aşağıdaki uyarı bunları listeler.
+   *
+   * 2026-09-20 — hafta günü artık BURADA hesaplanmıyor. Sunucudan gelen
+   * `dayStatuses` yöneticinin "zorla açık"/"zorla kapalı" istisnalarını ve
+   * resmî tatilleri de içerir. `dayStatuses` verilmediyse (eski çağıran)
+   * dönem kuralına düşülür — davranış değişmez.
+   */
   const closedWeekdaysForGrid = selectedTerm === "yaz" ? [0, 6] : [1];
-  const isClosedGridDay = (d: Date) => closedWeekdaysForGrid.includes(d.getDay());
+  const workDayOf = (dayIso: string): WorkDayResolution | undefined => dayStatuses?.[toYmd(parseISO(dayIso))];
+  const isClosedGridDay = (d: Date) => {
+    const resolved = dayStatuses?.[toYmd(d)];
+    if (resolved) return !resolved.schedulable;
+    return closedWeekdaysForGrid.includes(d.getDay());
+  };
   const visibleDays = days.filter((d) => !isClosedGridDay(parseISO(d)));
   const mondayLessons = scopedWeekLessons.filter((l) => isClosedGridDay(parseISO(l.startAt)));
   const gridWindow = computeGridWindow(workingHours, scopedWeekLessons);
@@ -627,12 +792,28 @@ export function ProgramStudio({
 
   const [activePanel, setActivePanel] = useState<ActivePanel>("none");
   const [calendarView, setCalendarView] = useState<CalendarView>("week");
+  const detailAsideRef = useRef<HTMLElement>(null);
 
   const [studentId, setStudentId] = useState("");
   const [teacherId, setTeacherId] = useState("");
   const [roomId, setRoomId] = useState("");
   const [instrument, setInstrument] = useState<Instrument>("Piyano");
+  // 2026-10-04 — dersin ait olduğu eğitim (çoklu eğitimli öğrencide seçilir; süre/öğretmen o eğitimden gelir).
+  const [enrollmentId, setEnrollmentId] = useState("");
   const [startAt, setStartAt] = useState("");
+  // `datetime-local` yıl yazılırken "0002-10-15T10:00" / "15092-…" gibi ara değerler üretir;
+  // gün bazlı hesap ve müsaitlik isteği yalnız tamamlanmış tarihte çalışır.
+  const startAtDay = /^\d{4}-\d{2}-\d{2}T/.test(startAt) && isCompleteDateOnlyInput(startAt.slice(0, 10)) ? startAt.slice(0, 10) : "";
+  const startAtComplete = startAtDay !== "" && /T\d{2}:\d{2}/.test(startAt);
+  // Sunucu (createLessonTool) ile AYNI çözümleyici ve dönem: seçili dönem > öğrencinin dönemi > Güz.
+  const formWorkDay = startAtDay
+    ? resolveWorkDay(
+        new Date(`${startAtDay}T09:00:00Z`),
+        selectedTerm ?? students.find((s) => s.id === studentId)?.termType ?? "guz",
+        workDayOverrides ?? [],
+        termWeeklyClosedDays
+      )
+    : null;
   const [lessonBranchId, setLessonBranchId] = useState("");
   const [durationMinutes, setDurationMinutes] = useState<number>(DEFAULT_LESSON_DURATION_MINUTES);
   const [submitting, setSubmitting] = useState(false);
@@ -646,19 +827,22 @@ export function ProgramStudio({
    * atlanmaz (bkz. actionAddLesson/createLessonTool).
    */
   const [availabilityWarningOpen, setAvailabilityWarningOpen] = useState(false);
+  const [availabilityWarningText, setAvailabilityWarningText] = useState("");
+  // 2026-10-04 — istisna gerekçesi (opsiyonel, denetim kaydına yazılır).
+  const [availabilityOverrideReason, setAvailabilityOverrideReason] = useState("");
+  const [availabilityWarningSlot, setAvailabilityWarningSlot] = useState<{ teacherId: string; startAt: string; durationMinutes: number } | null>(null);
   const pendingLessonFormData = useRef<FormData | null>(null);
-  const [lastCreated, setLastCreated] = useState<{
-    parent: LessonCommunicationMessage;
-    teacher: LessonCommunicationMessage;
-  } | null>(null);
+  const [notices, setNotices] = useState(() =>
+    emptyProgramNotices<{ parent: LessonCommunicationMessage; teacher: LessonCommunicationMessage }>()
+  );
+  const { gridError, actionSuccess, lastCreated, seriesSuccess } = notices;
+  const clearNotices = () => setNotices(emptyProgramNotices());
 
   const [suggestLoading, setSuggestLoading] = useState(false);
   const [suggestError, setSuggestError] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<LessonSlotSuggestion[] | null>(null);
   const [suggestLimit, setSuggestLimit] = useState(8);
 
-  const [gridError, setGridError] = useState<string | null>(null);
-  const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const [draggingLessonId, setDraggingLessonId] = useState<string | null>(null);
   const [dragOverKey, setDragOverKey] = useState<string | null>(null);
   const [resizePreview, setResizePreview] = useState<{ lessonId: string; duration: number } | null>(null);
@@ -686,9 +870,14 @@ export function ProgramStudio({
   const [opsOverride, setOpsOverride] = useState<Record<string, LessonOpsFlagValue>>({});
   const [opsPending, setOpsPending] = useState<Record<string, boolean>>({});
 
-  const [detailLesson, setDetailLesson] = useState<Lesson | null>(null);
-  const [detailMoveOpen, setDetailMoveOpen] = useState(false);
-  const [detailMoveStartAt, setDetailMoveStartAt] = useState("");
+  /**
+   * 2026-09-19 — seçili ders yalnız ID olarak tutulur; ders nesnesi HER render'da
+   * güncel sunucu verisinden (+ iyimser statü katmanından) türetilir. Eskiden
+   * tıklama anındaki kopya saklanıyordu: yenileme sonrası panel bayat veri
+   * gösteriyordu. Seçim, statü RENGİNE hiçbir koşulda dokunmaz (bkz. kart
+   * `selected` vurgusu — dolgudan bağımsız çerçeve).
+   */
+  const [detailLessonId, setDetailLessonId] = useState<string | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [detailSubmitting, setDetailSubmitting] = useState(false);
 
@@ -696,13 +885,31 @@ export function ProgramStudio({
   // etkiler; sunucu/yetki/global şube bağlamı bu sprintin kapsamı dışında.
   const [filterBranchId, setFilterBranchId] = useState("");
   const [filterTeacherId, setFilterTeacherId] = useState("");
-  const [filterStudentId, setFilterStudentId] = useState(initialStudentFilter ?? "");
+  // Kapsamda olmayan/bilinmeyen ?studentId= sessizce başka bir filtreye dönüşmez: hiç uygulanmaz ("Tüm öğrenciler").
+  const [filterStudentId, setFilterStudentId] = useState(() =>
+    initialStudentFilter && students.some((s) => s.id === initialStudentFilter) ? initialStudentFilter : ""
+  );
+  /** Denemeler şube/öğretmen filtresine uyar; öğrenci filtresi açıkken gizlenir (denemenin öğrencisi yok). */
+  const trialsForDay = (day: Date) =>
+    weekTrials
+      .filter(
+        (t) =>
+          isSameDay(parseISO(t.startAt), day) &&
+          (!filterStudentId || (t.kind === "club" && (t.studentIds ?? []).includes(filterStudentId))) &&
+          (!filterBranchId || t.branchId === filterBranchId) &&
+          (!filterTeacherId || t.teacherId === filterTeacherId)
+      )
+      .sort((a, b) => a.startAt.localeCompare(b.startAt));
 
   const branchIds = Object.keys(branchNames).sort((a, b) =>
     (branchNames[a] ?? "").localeCompare(branchNames[b] ?? "", "tr")
   );
   const filterableTeachers = activeTeachersForBranch(teachers, filterBranchId);
-  const filterableStudents = studentsForBranch(students, filterBranchId);
+  const { options: filterableStudents, inactiveSelected: inactiveFilterStudent } = studentFilterOptions(
+    students,
+    filterBranchId,
+    filterStudentId
+  );
 
   function selectFilterBranch(id: string) {
     setFilterBranchId(id);
@@ -717,15 +924,19 @@ export function ProgramStudio({
 
   const instrumentOptions = selectedStudent?.instruments.length
     ? selectedStudent.instruments
-    : (catalogInstruments?.length ? catalogInstruments : INSTRUMENTS) as Instrument[];
+    : (catalogInstruments as Instrument[]);
 
   const lessonStudentOptions = studentsForBranch(
     students.filter((s) => s.active),
     lessonBranchId
   );
-  const teacherOptions = teacherOptionsFor(teachers, instrument, selectedStudent).filter(
-    (t) => !lessonBranchId || t.branchId === lessonBranchId
-  );
+  const teacherOptions = lessonTeacherOptions(teachers, {
+    instrument,
+    branchId: lessonBranchId || undefined,
+    branchName: branchNames[lessonBranchId],
+    student: selectedStudent,
+  });
+  const assignedTeacherIssue = teacherOptions.find((t) => t.isAssigned && !t.eligible)?.reason;
   const roomOptions = roomOptionsFor(rooms, instrument, selectedTeacher).filter(
     (r) => !lessonBranchId || r.branchId === lessonBranchId
   );
@@ -747,29 +958,50 @@ export function ProgramStudio({
     occurrenceCount: number;
     conflictCount: number;
     checks: SeriesOccurrenceCheck[];
+    availabilityConflictCount: number;
+    overriddenCount: number;
+    canOverrideAvailability: boolean;
+    /** Bu önizleme "Uyarıya rağmen planla" onayıyla mı alındı. */
+    overrideApplied: boolean;
   } | null>(null);
+  // 2026-10-06 — "Uyarıya rağmen planla": yalnız öğretmen müsaitliği aşılır; onay önizlemenin parçasıdır, form
+  // değişince (önizleme sıfırlanınca) kendiliğinden düşer.
+  const seriesOverrideConfirmed = Boolean(seriesPreview?.overrideApplied);
+  const [seriesOverrideReason, setSeriesOverrideReason] = useState("");
   const [seriesPreviewLoading, setSeriesPreviewLoading] = useState(false);
   const [seriesError, setSeriesError] = useState<string | null>(null);
   const [seriesSubmitting, setSeriesSubmitting] = useState(false);
-  const [seriesSuccess, setSeriesSuccess] = useState<{ createdCount: number; skippedCount: number } | null>(null);
 
   const seriesSelectedStudent = students.find((s) => s.id === seriesStudentId);
   const seriesSelectedTeacher = teachers.find((t) => t.id === seriesTeacherId);
   const seriesInstrumentOptions = seriesSelectedStudent?.instruments.length
     ? seriesSelectedStudent.instruments
-    : (catalogInstruments?.length ? catalogInstruments : INSTRUMENTS) as Instrument[];
+    : (catalogInstruments as Instrument[]);
   const seriesStudentOptions = studentsForBranch(
     students.filter((s) => s.active),
     seriesBranchId
   );
-  const seriesTeacherOptions = teacherOptionsFor(teachers, seriesInstrument, seriesSelectedStudent).filter(
-    (t) => !seriesBranchId || t.branchId === seriesBranchId
-  );
+  /** Serinin ilk ders tarihi (başlangıç tarihinden itibaren seçilen haftanın günü). */
+  const seriesFirstDate = (() => {
+    // Yıl yazılırken değer "0002-10-15" gibi ara adımlardan geçer — yalnız tamamlanmış
+    // tarih hesaplanır (2026-09-29: yarım yıl `format` RangeError ile paneli düşürüyordu).
+    if (!isCompleteDateOnlyInput(seriesStartsOn)) return "";
+    const d = parseISO(`${seriesStartsOn}T12:00`);
+    return toYmd(addDaysDate(d, (seriesWeekday - d.getDay() + 7) % 7));
+  })();
+  const seriesTeacherOptions = lessonTeacherOptions(teachers, {
+    instrument: seriesInstrument,
+    branchId: seriesBranchId || undefined,
+    branchName: branchNames[seriesBranchId],
+    student: seriesSelectedStudent,
+  });
+  const seriesAssignedTeacherIssue = seriesTeacherOptions.find((t) => t.isAssigned && !t.eligible)?.reason;
   const seriesRoomOptions = roomOptionsFor(rooms, seriesInstrument, seriesSelectedTeacher).filter(
     (r) => !seriesBranchId || r.branchId === seriesBranchId
   );
 
   function resetPanelState() {
+    clearNotices();
     setFormError(null);
     setSuggestions(null);
     setSuggestError(null);
@@ -777,11 +1009,11 @@ export function ProgramStudio({
 
   function openPlanner(prefillStartAt?: string) {
     if (!canCreate) {
-      setGridError("Ders eklemek için üstteki kurum seçiciden tek bir kurum seçin.");
+      setNotices(onlyNotice({ gridError: "Ders eklemek için üstteki kurum seçiciden tek bir kurum seçin." }));
       return;
     }
     resetPanelState();
-    setDetailLesson(null);
+    setDetailLessonId(null);
     setActivePanel("create");
     if (prefillStartAt) setStartAt(prefillStartAt);
     if (filterBranchId) setLessonBranchId(filterBranchId);
@@ -802,19 +1034,44 @@ export function ProgramStudio({
     openPlanner(format(dt, "yyyy-MM-dd'T'HH:mm"));
   }
 
+  function applyEnrollment(student: Student, e: EnrollmentView | undefined) {
+    const nextInstrument = e?.instrument ?? student.instruments[0] ?? "Piyano";
+    setEnrollmentId(e && !e.legacy ? e.id : "");
+    setInstrument(nextInstrument);
+    // Atanmış öğretmen (eğitimin öğretmeni) yalnız uygunsa önerilir; değilse boş kalır ve neden gösterilir.
+    setTeacherId(
+      defaultLessonTeacherId(
+        lessonTeacherOptions(teachers, {
+          instrument: nextInstrument,
+          branchId: student.branchId,
+          student: { ...student, teacherId: e?.teacherId ?? student.teacherId },
+        })
+      )
+    );
+    setLessonBranchId(student.branchId);
+    // Süre seçilen eğitimden; yoksa öğrencinin kayıtlı süresi; o da yoksa genel varsayılan.
+    setDurationMinutes(e?.lessonDurationMinutes ?? student.lessonDurationMinutes ?? DEFAULT_LESSON_DURATION_MINUTES);
+    setRoomId("");
+  }
+
   function selectStudent(id: string) {
     setStudentId(id);
     const student = students.find((s) => s.id === id);
     if (student) {
-      setInstrument(student.instruments[0] ?? "Piyano");
-      setTeacherId(student.teacherId);
-      setLessonBranchId(student.branchId);
+      const active = effectiveEnrollments(student, teachers).filter((x) => x.active);
+      applyEnrollment(student, active.find((x) => x.primary) ?? active[0]);
+    } else {
+      setEnrollmentId("");
     }
   }
 
   function selectInstrument(value: string) {
     setInstrument(value as Instrument);
     setRoomId("");
+    // Enstrüman elle değişirse eğitim bağı o enstrümanın aktif eğitimine geçer (yoksa bağ kaldırılır).
+    const st = students.find((x) => x.id === studentId);
+    const match = st?.enrollments?.find((x) => x.active && x.instrument === value);
+    setEnrollmentId(match?.id ?? "");
   }
 
   function selectTeacher(id: string) {
@@ -832,13 +1089,13 @@ export function ProgramStudio({
 
   function openSeriesPanel() {
     if (!canCreate) {
-      setGridError("Ders eklemek için üstteki kurum seçiciden tek bir kurum seçin.");
+      setNotices(onlyNotice({ gridError: "Ders eklemek için üstteki kurum seçiciden tek bir kurum seçin." }));
       return;
     }
     setSeriesError(null);
     setSeriesPreview(null);
-    setSeriesSuccess(null);
-    setDetailLesson(null);
+    clearNotices();
+    setDetailLessonId(null);
     setActivePanel("series");
     if (filterBranchId) setSeriesBranchId(filterBranchId);
   }
@@ -857,8 +1114,14 @@ export function ProgramStudio({
     setSeriesPreview(null);
     const student = students.find((s) => s.id === id);
     if (student) {
-      setSeriesInstrument(student.instruments[0] ?? "Piyano");
-      setSeriesTeacherId(student.teacherId);
+      const nextInstrument = student.instruments[0] ?? "Piyano";
+      setSeriesInstrument(nextInstrument);
+      setSeriesDuration(student.lessonDurationMinutes ?? DEFAULT_LESSON_DURATION_MINUTES);
+      setSeriesTeacherId(
+        defaultLessonTeacherId(
+          lessonTeacherOptions(teachers, { instrument: nextInstrument, branchId: student.branchId, student })
+        )
+      );
       setSeriesBranchId(student.branchId);
     }
   }
@@ -875,11 +1138,19 @@ export function ProgramStudio({
     setSeriesPreview(null);
   }
 
-  async function handleSeriesPreview() {
+  async function handleSeriesPreview(override: boolean = seriesOverrideConfirmed) {
     setSeriesError(null);
-    setSeriesSuccess(null);
+    clearNotices();
     if (!seriesBranchId || !seriesStudentId || !seriesTeacherId || !seriesRoomId || !seriesStartsOn || !seriesEndsOn) {
       setSeriesError("Şube, öğrenci, öğretmen, oda ve tarih aralığı zorunludur.");
+      return;
+    }
+    if (!isCompleteDateOnlyInput(seriesStartsOn) || !isCompleteDateOnlyInput(seriesEndsOn)) {
+      setSeriesError("Başlangıç ve bitiş tarihini gün, ay ve 4 haneli yıl olarak tamamlayın.");
+      return;
+    }
+    if (seriesEndsOn < seriesStartsOn) {
+      setSeriesError("Bitiş tarihi başlangıç tarihinden önce olamaz; tarih aralığını düzeltin.");
       return;
     }
     setSeriesPreviewLoading(true);
@@ -894,20 +1165,31 @@ export function ProgramStudio({
       durationMinutes: seriesDuration,
       startsOn: seriesStartsOn,
       endsOn: seriesEndsOn,
+      term: selectedTerm,
+      academicYearStart: selectedAcademicYearStart,
+      ...(override ? { overrideAvailability: true, overrideReason: seriesOverrideReason.trim() } : {}),
     });
     setSeriesPreviewLoading(false);
     if (!result.ok) {
       setSeriesError(result.message);
       return;
     }
-    setSeriesPreview(result);
+    setSeriesPreview({ ...result, overrideApplied: override });
+  }
+
+  async function confirmSeriesOverride() {
+    if (seriesOverrideReason.trim().length < 3) {
+      setSeriesError("Müsaitlik dışı planlama için kısa bir gerekçe yazın (en az 3 karakter).");
+      return;
+    }
+    await handleSeriesPreview(true);
   }
 
   async function handleSeriesCreate() {
     if (!seriesPreview) return;
     if (seriesPreview.conflictCount > 0 && !seriesSkipConflicts) {
       setSeriesError(
-        "Çakışma var — devam etmek için \"yalnızca çakışmayan tarihleri oluştur\" seçeneğini işaretleyin."
+        "Bazı tarihler çakışıyor. Çakışmayı giderin (öğretmen, oda veya saat değiştirin) ya da \"Çakışan tarihleri atla\" seçeneğini işaretleyip kalan tarihleri oluşturun."
       );
       return;
     }
@@ -928,17 +1210,25 @@ export function ProgramStudio({
       // ÖNCELİK 4 (devam) — yeni seri, program ekranında seçili akademik yıl/dönemi devralır.
       term: selectedTerm,
       academicYearStart: selectedAcademicYearStart,
+      ...(seriesOverrideConfirmed ? { overrideAvailability: true, overrideReason: seriesOverrideReason.trim() } : {}),
     });
     setSeriesSubmitting(false);
     if (!result.ok) {
       setSeriesError(result.message);
       return;
     }
-    setSeriesSuccess({
-      createdCount: result.createdLessonIds.length,
-      skippedCount: result.skippedOccurrences.length,
-    });
+    setNotices(
+      onlyNotice({
+        seriesSuccess: {
+          createdCount: result.createdLessonIds.length,
+          skippedCount: result.skippedOccurrences.length,
+          skipped: result.skippedOccurrences.map((o) => ({ startAt: o.startAt, message: o.message })),
+          overriddenCount: seriesOverrideConfirmed ? seriesPreview.overriddenCount : 0,
+        },
+      })
+    );
     setSeriesPreview(null);
+    setSeriesOverrideReason("");
     setActivePanel("none");
     router.refresh();
   }
@@ -980,13 +1270,21 @@ export function ProgramStudio({
       if (result.overridable) {
         // Hard error göstermek yerine onay modalı aç — kullanıcı karar versin.
         pendingLessonFormData.current = fd;
+        setAvailabilityWarningSlot({
+          teacherId: String(fd.get("teacherId") ?? ""),
+          startAt: String(fd.get("startAt") ?? ""),
+          durationMinutes: Number(fd.get("durationMinutes") ?? 0),
+        });
+        setAvailabilityWarningText(result.message);
         setAvailabilityWarningOpen(true);
         return;
       }
       setFormError(result.message);
       return;
     }
-    if (result.communication) setLastCreated(result.communication);
+    setNotices(
+      result.communication ? onlyNotice({ lastCreated: result.communication }) : onlyNotice({ actionSuccess: "Ders planlandı." })
+    );
     setActivePanel("none");
     setSuggestions(null);
     setAvailabilityWarningOpen(false);
@@ -1001,6 +1299,10 @@ export function ProgramStudio({
       setFormError("Şube, öğrenci, öğretmen, oda ve tarih/saat seçimi zorunludur.");
       return;
     }
+    if (!startAtComplete) {
+      setFormError("Başlangıç tarihi/saatini gün, ay, 4 haneli yıl ve saat olarak tamamlayın.");
+      return;
+    }
     const fd = new FormData();
     fd.set("studentId", studentId);
     fd.set("teacherId", teacherId);
@@ -1008,6 +1310,7 @@ export function ProgramStudio({
     fd.set("instrument", instrument);
     fd.set("startAt", startAt);
     fd.set("durationMinutes", String(durationMinutes));
+    if (enrollmentId) fd.set("enrollmentId", enrollmentId);
     // ÖNCELİK 4 (devam) — yeni tek ders, program ekranında seçili akademik yıl/dönemi devralır.
     if (selectedTerm) fd.set("term", selectedTerm);
     if (selectedAcademicYearStart) fd.set("academicYearStart", String(selectedAcademicYearStart));
@@ -1018,7 +1321,9 @@ export function ProgramStudio({
     const fd = pendingLessonFormData.current;
     if (!fd) return;
     fd.set("overrideAvailability", "true");
+    if (availabilityOverrideReason.trim()) fd.set("overrideReason", availabilityOverrideReason.trim());
     setAvailabilityWarningOpen(false);
+    setAvailabilityOverrideReason("");
     await submitLessonForm(fd);
   }
 
@@ -1036,6 +1341,9 @@ export function ProgramStudio({
    */
   const prunedOverrides = pruneSettledOverrides(opsOverride, weekLessons);
   if (prunedOverrides !== opsOverride) setOpsOverride(prunedOverrides);
+
+  const detailLessonRaw = detailLessonId ? (effectiveWeekLessons.find((l) => l.id === detailLessonId) ?? null) : null;
+  const detailLesson = detailLessonRaw ? applyOpsOverride(detailLessonRaw, prunedOverrides[detailLessonRaw.id]) : null;
 
   function onOpsStatusChange(lessonId: string, flag: LessonOpsFlagValue) {
     setOpsOverride((prev) => ({ ...prev, [lessonId]: flag }));
@@ -1055,63 +1363,37 @@ export function ProgramStudio({
 
   function openDetail(lesson: Lesson) {
     setActivePanel("none");
-    setDetailLesson(lesson);
-    setDetailMoveOpen(false);
+    setDetailLessonId(lesson.id);
     setDetailError(null);
+    // Dar ekranda panel ızgaranın ÜSTÜNDE render edilir; dokunulan ders aşağıdaysa
+    // panel görünmez kalıyordu. Geniş ekranda panel yan yana ve sticky — kaydırma yok.
+    if (typeof window !== "undefined" && window.matchMedia("(max-width: 1023.98px)").matches) {
+      requestAnimationFrame(() => detailAsideRef.current?.scrollIntoView({ block: "start", behavior: "smooth" }));
+    }
   }
 
   function closeDetail() {
-    setDetailLesson(null);
-    setDetailMoveOpen(false);
+    setDetailLessonId(null);
     setDetailError(null);
   }
 
-  function openDetailMove() {
-    if (!detailLesson) return;
-    setDetailMoveStartAt(toDatetimeLocalValue(detailLesson.startAt));
-    setDetailMoveOpen(true);
-    setDetailError(null);
-  }
-
-  async function submitDetailMove(e: FormEvent) {
-    e.preventDefault();
-    if (!detailLesson) return;
-    if (!canCreate) {
-      setDetailError("Ders taşımak için üstteki kurum seçiciden tek bir kurum seçin.");
-      return;
-    }
-    setDetailSubmitting(true);
-    setDetailError(null);
-    const result = await actionUpdateLessonSchedule({
-      lessonId: detailLesson.id,
-      startAt: new Date(detailMoveStartAt).toISOString(),
-    });
-    setDetailSubmitting(false);
-    if (!result.ok) {
-      setDetailError(result.message);
-      return;
-    }
-    closeDetail();
-    setActionSuccess("Ders taşındı.");
-    router.refresh();
-  }
-
-  async function submitDetailCancel() {
+  async function submitDetailCancel(disruption: ReturnType<typeof disruptionPayload>) {
     if (!detailLesson) return;
     if (!canCreate) {
       setDetailError("Ders iptal etmek için üstteki kurum seçiciden tek bir kurum seçin.");
       return;
     }
-    if (!window.confirm("Bu dersi iptal etmek istediğinize emin misiniz?")) return;
+    // Onay artık DetailPanel içindeki kaynak sorusuyla birlikte alınır (window.confirm yok).
     setDetailSubmitting(true);
     setDetailError(null);
-    const result = await actionCancelLesson({ lessonId: detailLesson.id });
+    const result = await actionCancelLesson({ lessonId: detailLesson.id, ...disruption });
     setDetailSubmitting(false);
     if (!result.ok) {
       setDetailError(result.message);
       return;
     }
     closeDetail();
+    setNotices(onlyNotice({ actionSuccess: "Ders iptal edildi." }));
     router.refresh();
   }
 
@@ -1136,6 +1418,7 @@ export function ProgramStudio({
       return;
     }
     closeDetail();
+    setNotices(onlyNotice({ actionSuccess: "Bu ders ve sonraki seri dersleri iptal edildi." }));
     router.refresh();
   }
 
@@ -1160,15 +1443,16 @@ export function ProgramStudio({
       return;
     }
     closeDetail();
+    setNotices(onlyNotice({ actionSuccess: "Serinin kalan dersleri iptal edildi." }));
     router.refresh();
   }
 
   async function performMove(lessonId: string, newStartAtIso: string) {
     if (!canCreate) {
-      setGridError("Ders taşımak için üstteki kurum seçiciden tek bir kurum seçin.");
+      setNotices(onlyNotice({ gridError: "Ders taşımak için üstteki kurum seçiciden tek bir kurum seçin." }));
       return;
     }
-    setGridError(null);
+    clearNotices();
     const lesson = weekLessons.find((l) => l.id === lessonId);
     if (!lesson) return;
     // İyimser çizim — sunucu turunu BEKLEMEDEN. Süre korunur; yalnızca başlangıç taşınır.
@@ -1191,10 +1475,10 @@ export function ProgramStudio({
       return next;
     });
     if (!result.ok) {
-      setGridError(`Değişiklik uygulanmadı: ${result.message}`);
+      setNotices(onlyNotice({ gridError: `Değişiklik uygulanmadı: ${result.message}` }));
       return;
     }
-    setActionSuccess("Ders taşındı.");
+    setNotices(onlyNotice({ actionSuccess: "Ders taşındı." }));
     // `router.refresh()` YOK — `actionUpdateLessonSchedule` içindeki
     // `revalidatePath` zaten bu sayfanın RSC ağacını action yanıtıyla birlikte
     // tazeliyor (bkz. Next docs: revalidatePath > Server Functions). Ek
@@ -1206,8 +1490,7 @@ export function ProgramStudio({
     const lessonId = draggingLessonId;
     setDraggingLessonId(null);
     if (!lessonId) return;
-    const day = parseISO(dayIso);
-    const dt = addMinutes(startOfDay(day), slotMin);
+    const dt = zonedWallTimeToUtc(format(parseISO(dayIso), "yyyy-MM-dd"), formatMinutes(slotMin));
     void performMove(lessonId, dt.toISOString());
   }
 
@@ -1215,7 +1498,7 @@ export function ProgramStudio({
     e.preventDefault();
     e.stopPropagation();
     if (!canCreate) {
-      setGridError("Ders süresini değiştirmek için üstteki kurum seçiciden tek bir kurum seçin.");
+      setNotices(onlyNotice({ gridError: "Ders süresini değiştirmek için üstteki kurum seçiciden tek bir kurum seçin." }));
       return;
     }
     const duration = differenceInMinutes(parseISO(lesson.endAt), parseISO(lesson.startAt));
@@ -1240,7 +1523,7 @@ export function ProgramStudio({
       setResizePreview(null);
       if (!ref) return;
       if (ref.currentDuration === ref.initialDuration) return;
-      setGridError(null);
+      clearNotices();
       const moved = weekLessons.find((l) => l.id === ref.lessonId);
       if (moved) {
         setPendingLessonMoves((prev) => ({
@@ -1261,10 +1544,10 @@ export function ProgramStudio({
         return next;
       });
       if (!result.ok) {
-        setGridError(`Değişiklik uygulanmadı: ${result.message}`);
+        setNotices(onlyNotice({ gridError: `Değişiklik uygulanmadı: ${result.message}` }));
         return;
       }
-      setActionSuccess("Ders süresi güncellendi.");
+      setNotices(onlyNotice({ actionSuccess: "Ders süresi güncellendi." }));
     }
 
     window.addEventListener("mousemove", onMove);
@@ -1296,6 +1579,27 @@ export function ProgramStudio({
             ))}
           </Select>
         </div>
+        {(() => {
+          const st = students.find((x) => x.id === studentId);
+          const list = st ? effectiveEnrollments(st, teachers).filter((x) => x.active) : [];
+          if (!st || list.length < 2) return null;
+          return (
+            <div>
+              <Label>Eğitim</Label>
+              <Select
+                value={list.find((x) => x.id === enrollmentId)?.id ?? list.find((x) => x.instrument === instrument)?.id ?? ""}
+                onChange={(e) => applyEnrollment(st, list.find((x) => x.id === e.target.value))}
+              >
+                {list.map((x) => (
+                  <option key={x.id} value={x.id}>
+                    {enrollmentLabel(x, teachers)}
+                    {x.lessonDurationMinutes ? ` · ${x.lessonDurationMinutes} dk` : ""}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          );
+        })()}
         <div>
           <Label>Enstrüman</Label>
           <Select value={instrument} onChange={(e) => selectInstrument(e.target.value)}>
@@ -1311,12 +1615,18 @@ export function ProgramStudio({
           <Select value={teacherId} onChange={(e) => selectTeacher(e.target.value)} required>
             <option value="">Seçin…</option>
             {teacherOptions.map((t) => (
-              <option key={t.id} value={t.id}>
+              <option key={t.id} value={t.id} disabled={!t.eligible}>
                 {t.name}
-                {selectedStudent?.teacherId === t.id ? " · mevcut öğretmen" : ""}
+                {t.isAssigned ? " · öğrencinin öğretmeni" : ""}
+                {!t.eligible ? " (uygun değil)" : ""}
               </option>
             ))}
           </Select>
+          {assignedTeacherIssue ? (
+            <p role="alert" className="mt-1 text-xs font-medium" style={{ color: "var(--color-warning)" }}>
+              {assignedTeacherIssue}
+            </p>
+          ) : null}
         </div>
         <div>
           <Label>Oda</Label>
@@ -1342,7 +1652,30 @@ export function ProgramStudio({
         <div>
           <Label>Başlangıç tarihi/saati</Label>
           <Input type="datetime-local" value={startAt} onChange={(e) => setStartAt(e.target.value)} required />
+          <DateHint value={startAt.slice(0, 10)} />
+          <WorkDayNotice day={formWorkDay} />
+          {startAtComplete && (wallDateTimeInputToIso(startAt) ?? "") < now.toISOString() ? (
+            <p className="mt-1 text-xs font-medium text-amber-700">
+              Geçmiş tarihli ders planlıyorsunuz — ders programa ve yoklama takvimine bu tarihle eklenir.
+            </p>
+          ) : null}
         </div>
+        {lessonBranchId && studentId && startAtDay ? (
+          <div className="sm:col-span-2 lg:col-span-3">
+            <TeacherAvailabilityCard
+              date={startAtDay}
+              branchId={lessonBranchId}
+              dateLabel={format(parseISO(`${startAtDay}T12:00`), "d MMMM EEEE", { locale: tr })}
+              teachers={teacherOptions}
+              selectedTeacherId={teacherId}
+              startHm={startAt.slice(11, 16)}
+              durationMinutes={durationMinutes}
+              dataVersion={weekLessons}
+              onPickTeacher={selectTeacher}
+              onPickTime={(hm) => setStartAt(`${startAtDay}T${hm}`)}
+            />
+          </div>
+        ) : null}
         <div className="flex items-end gap-2">
           <Button type="button" variant="secondary" onClick={handleFindSlots} disabled={suggestLoading}>
             {suggestLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
@@ -1358,21 +1691,51 @@ export function ProgramStudio({
       </form>
 
       {availabilityWarningOpen ? (
-        <FormModal title="Öğretmen müsait görünmüyor" onClose={cancelAvailabilityOverride}>
+        <FormModal title="Öğretmenin çalışma saati dışında" onClose={cancelAvailabilityOverride}>
+          {(() => {
+            const t = teachers.find((x) => x.id === availabilityWarningSlot?.teacherId);
+            const wall = availabilityWarningSlot?.startAt ?? "";
+            const minutes = availabilityWarningSlot?.durationMinutes ?? 0;
+            const date = /^\d{4}-\d{2}-\d{2}/.test(wall) ? format(new Date(`${wall.slice(0, 10)}T12:00:00`), "d MMMM yyyy, EEEE", { locale: tr }) : "—";
+            const hm = wall.slice(11, 16);
+            const end = hm && minutes ? format(addMinutes(new Date(`2000-01-01T${hm}:00`), minutes), "HH:mm") : "";
+            return (
+              <dl className="mb-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3 text-sm">
+                <dt className="text-[var(--color-text-muted)]">Öğretmen</dt>
+                <dd className="font-medium text-[var(--color-text)]">{t?.name ?? "—"}</dd>
+                <dt className="text-[var(--color-text-muted)]">Tarih</dt>
+                <dd className="font-medium text-[var(--color-text)]">{date}</dd>
+                <dt className="text-[var(--color-text-muted)]">Saat</dt>
+                <dd className="font-medium text-[var(--color-text)]">{hm ? `${hm}${end ? `–${end}` : ""}` : "—"}</dd>
+              </dl>
+            );
+          })()}
           <p className="text-sm text-[var(--color-text)] dark:text-slate-200">
-            Öğretmen bu saatte müsait görünmüyor. Yine de planlamak istiyor musunuz?
+            <strong>Neden:</strong> {availabilityWarningText || "Öğretmen bu saatte müsait görünmüyor."}
           </p>
-          <p className="mt-1 text-xs text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
-            Seçilen saat, öğretmenin bildirdiği çalışma saatlerinin dışında. Bu ders yine de
-            oluşturulursa &quot;müsaitlik dışı&quot; olarak işaretlenir ve raporlarda görünür.
+          <p className="mt-2 text-xs text-[var(--color-text-muted)]">
+            Bu onay YALNIZ öğretmenin bildirdiği çalışma saatlerini aşar; ders &quot;müsaitlik dışı&quot; olarak işaretlenir ve
+            raporlarda görünür. Öğretmenin, odanın veya öğrencinin aynı saatteki başka dersi, kapalı gün, pasif oda ya da
+            öğretmen gibi gerçek çakışmalar bu onayla aşılamaz — onlar kayıtta yine reddedilir.
           </p>
+          <label className="mt-3 block text-xs font-medium text-[var(--color-text-muted)]">
+            Kısa gerekçe (önerilir — denetim kaydına yazılır)
+            <textarea
+              value={availabilityOverrideReason}
+              onChange={(e) => setAvailabilityOverrideReason(e.target.value.slice(0, 500))}
+              rows={2}
+              maxLength={500}
+              placeholder="Örn. Öğretmen bu hafta için ek saat verdi."
+              className="mt-1 w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text)]"
+            />
+          </label>
           <div className="mt-4 flex justify-end gap-2">
             <Button type="button" variant="secondary" onClick={cancelAvailabilityOverride} disabled={submitting}>
               Vazgeç
             </Button>
             <Button type="button" variant="danger" onClick={() => void confirmAvailabilityOverride()} disabled={submitting}>
               {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              Yine de planla
+              Çalışma saati dışında planla
             </Button>
           </div>
         </FormModal>
@@ -1399,8 +1762,8 @@ export function ProgramStudio({
                     onClick={() => applySuggestion(s)}
                     className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-3 text-left text-xs hover:border-amber-300 hover:bg-amber-50"
                   >
-                    <p className="font-semibold text-[var(--color-text)] dark:text-slate-50">{format(parseISO(s.startAt), "d MMM, EEEE", { locale: tr })}</p>
-                    <p className="text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">{format(parseISO(s.startAt), "HH:mm")}</p>
+                    <p className="font-semibold text-[var(--color-text)] dark:text-slate-50">{format(toWallClockDate(s.startAt), "d MMM, EEEE", { locale: tr })}</p>
+                    <p className="text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">{format(toWallClockDate(s.startAt), "HH:mm")}</p>
                     <p className="mt-1 text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
                       {teacher?.name} · {room?.name}
                     </p>
@@ -1465,12 +1828,18 @@ export function ProgramStudio({
           <Select value={seriesTeacherId} onChange={(e) => selectSeriesTeacher(e.target.value)} required>
             <option value="">Seçin…</option>
             {seriesTeacherOptions.map((t) => (
-              <option key={t.id} value={t.id}>
+              <option key={t.id} value={t.id} disabled={!t.eligible}>
                 {t.name}
-                {seriesSelectedStudent?.teacherId === t.id ? " · mevcut öğretmen" : ""}
+                {t.isAssigned ? " · öğrencinin öğretmeni" : ""}
+                {!t.eligible ? " (uygun değil)" : ""}
               </option>
             ))}
           </Select>
+          {seriesAssignedTeacherIssue ? (
+            <p role="alert" className="mt-1 text-xs font-medium" style={{ color: "var(--color-warning)" }}>
+              {seriesAssignedTeacherIssue}
+            </p>
+          ) : null}
         </div>
         <div>
           <Label>Oda</Label>
@@ -1545,6 +1914,7 @@ export function ProgramStudio({
             }}
             required
           />
+          <DateHint value={seriesStartsOn} />
         </div>
         <div>
           <Label>Bitiş tarihi</Label>
@@ -1557,13 +1927,37 @@ export function ProgramStudio({
             }}
             required
           />
+          <DateHint value={seriesEndsOn} />
+          {isCompleteDateOnlyInput(seriesStartsOn) && isCompleteDateOnlyInput(seriesEndsOn) && seriesEndsOn < seriesStartsOn ? (
+            <p className="mt-1 text-xs font-medium text-amber-700">Bitiş tarihi başlangıç tarihinden önce olamaz.</p>
+          ) : null}
         </div>
       </div>
 
+      {seriesBranchId && seriesStudentId && seriesFirstDate ? (
+        <div className="mt-3">
+          <TeacherAvailabilityCard
+            date={seriesFirstDate}
+            branchId={seriesBranchId}
+            dateLabel={`${format(parseISO(`${seriesFirstDate}T12:00`), "d MMMM EEEE", { locale: tr })} (ilk ders; seri her hafta aynı saatte)`}
+            teachers={seriesTeacherOptions}
+            selectedTeacherId={seriesTeacherId}
+            startHm={seriesStartTime}
+            durationMinutes={seriesDuration}
+            dataVersion={weekLessons}
+            onPickTeacher={selectSeriesTeacher}
+            onPickTime={(hm) => {
+              setSeriesStartTime(hm);
+              setSeriesPreview(null);
+            }}
+          />
+        </div>
+      ) : null}
+
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        <Button type="button" variant="secondary" onClick={handleSeriesPreview} disabled={seriesPreviewLoading}>
+        <Button type="button" variant="secondary" onClick={() => void handleSeriesPreview()} disabled={seriesPreviewLoading}>
           {seriesPreviewLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-          Önizle
+          Tarihleri ve çakışmaları kontrol et
         </Button>
         {seriesPreview ? (
           <Button
@@ -1582,15 +1976,74 @@ export function ProgramStudio({
       {seriesPreview ? (
         <div className="mt-4 border-t border-[var(--color-border)] pt-4">
           <p className="text-sm font-medium text-[var(--color-text-muted)] dark:text-slate-300">{seriesPreview.previewText}</p>
-          {seriesPreview.conflictCount > 0 ? (
+          {seriesOverrideConfirmed && seriesPreview.overriddenCount > 0 ? (
+            <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100" role="status">
+              <p className="font-semibold">
+                Müsaitlik istisnası onaylandı: {seriesPreview.overriddenCount} tarih öğretmenin bildirdiği çalışma saatleri dışında planlanacak.
+              </p>
+              <ul className="mt-1 list-disc pl-5 text-xs">
+                {seriesPreview.checks
+                  .filter((c) => c.ok && c.availabilityOverridden)
+                  .map((c) => (
+                    <li key={c.startAt}>{format(toWallClockDate(c.startAt), "d MMM yyyy EEEE, HH:mm", { locale: tr })}</li>
+                  ))}
+              </ul>
+              <p className="mt-1 text-xs">Gerekçe: {seriesOverrideReason.trim()} — işlem sizin adınıza denetim kaydına yazılır.</p>
+              <button type="button" className="mt-1 text-xs font-semibold underline" onClick={() => void handleSeriesPreview(false)}>
+                İstisnayı geri al
+              </button>
+            </div>
+          ) : null}
+          {!seriesOverrideConfirmed && seriesPreview.availabilityConflictCount > 0 ? (
+            <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100">
+              <p className="font-semibold">
+                {seriesPreview.availabilityConflictCount} tarih öğretmenin bildirdiği müsaitlik saatleri dışında kalıyor.
+              </p>
+              <p className="mt-1 text-xs">
+                Etkilenen tarihler aşağıdaki listede &quot;müsait değil&quot; nedeniyle işaretli. Öğretmenle anlaştıysanız
+                gerekçe yazıp bu tarihleri de planlayabilirsiniz. Bu onay yalnız müsaitlik uyarısını aşar; başka derslerle
+                çakışma, kapalı gün veya pasif öğretmen engeli kalkmaz.
+              </p>
+              {seriesPreview.canOverrideAvailability ? (
+                <div className="mt-2 flex flex-wrap items-end gap-2">
+                  <label className="flex min-w-[16rem] flex-1 flex-col gap-1 text-xs font-medium">
+                    İstisna gerekçesi (zorunlu)
+                    <input
+                      type="text"
+                      value={seriesOverrideReason}
+                      maxLength={500}
+                      onChange={(e) => setSeriesOverrideReason(e.target.value)}
+                      placeholder="Örn. öğretmenle bu saat için ayrıca anlaşıldı"
+                      className="rounded-lg border border-amber-300 bg-white px-2 py-1.5 text-sm text-slate-900"
+                    />
+                  </label>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() => void confirmSeriesOverride()}
+                    disabled={seriesPreviewLoading || seriesOverrideReason.trim().length < 3}
+                  >
+                    Uyarıya rağmen planla
+                  </Button>
+                </div>
+              ) : (
+                <p className="mt-2 text-xs">Bu istisnayı yalnız kurum yöneticisi onaylayabilir.</p>
+              )}
+            </div>
+          ) : null}
+          {seriesPreview.checks.some((c) => !c.ok) ? (
             <div className="mt-3">
-              <p className="text-sm font-medium text-rose-700">{seriesPreview.conflictCount} tarihte çakışma var:</p>
-              <div className="mt-2 max-h-40 space-y-1 overflow-y-auto rounded-lg bg-rose-50 p-2 text-xs text-rose-800">
+              <p className="text-sm font-medium" style={{ color: "var(--color-warning)" }}>
+                {seriesPreview.conflictCount > 0
+                  ? `${seriesPreview.conflictCount} tarihte çakışma var:`
+                  : "Resmî tatile denk gelen tarihler (ders oluşturulmayacak):"}
+              </p>
+              <div className="mt-2 max-h-40 space-y-1 overflow-y-auto rounded-lg bg-[var(--color-warning-soft)] p-2 text-xs text-[var(--color-text)]">
                 {seriesPreview.checks
                   .filter((c) => !c.ok)
                   .map((c) => (
                     <p key={c.startAt}>
-                      {format(parseISO(c.startAt), "d MMM yyyy, HH:mm", { locale: tr })} — {c.message}
+                      {format(toWallClockDate(c.startAt), "d MMM yyyy, HH:mm", { locale: tr })} — {c.message}
                     </p>
                   ))}
               </div>
@@ -1600,11 +2053,16 @@ export function ProgramStudio({
                   checked={seriesSkipConflicts}
                   onChange={(e) => setSeriesSkipConflicts(e.target.checked)}
                 />
-                Yalnızca çakışmayan tarihleri oluştur, çakışanları atla
+                Çakışan tarihleri atla, kalan tarihlere dersi oluştur
               </label>
+              <p className="mt-1 text-xs text-[var(--color-text-muted)]">
+                Çakışan veya kapalı güne denk gelen tarihe ders yazılmaz; bu seçenek çakışmayı aşmaz, yalnız o tarihleri atlar.
+              </p>
             </div>
           ) : (
-            <p className="mt-2 text-xs text-emerald-600">Çakışma yok — oluşturmaya hazır.</p>
+            <p className="mt-2 text-xs text-emerald-600">
+              Tüm tarihler uygun: öğretmen, oda ve öğrenci o saatlerde boş; gün kapalı değil. Oluşturmaya hazır.
+            </p>
           )}
         </div>
       ) : null}
@@ -1619,7 +2077,7 @@ export function ProgramStudio({
             <p className="font-semibold text-emerald-900">Ders planlandı. İletişim taslakları hazır.</p>
             <button
               type="button"
-              onClick={() => setLastCreated(null)}
+              onClick={() => clearNotices()}
               className="text-emerald-700 hover:text-emerald-900"
               aria-label="Kapat"
             >
@@ -1639,13 +2097,25 @@ export function ProgramStudio({
       {seriesSuccess ? (
         <Card className="mb-4 border-emerald-200 bg-emerald-50/50">
           <div className="flex items-start justify-between gap-3">
-            <p className="text-sm font-semibold text-emerald-800">
-              {seriesSuccess.createdCount} ders oluşturuldu
-              {seriesSuccess.skippedCount > 0 ? `, ${seriesSuccess.skippedCount} tarih çakışma nedeniyle atlandı` : ""}.
-            </p>
+            <div className="text-sm text-emerald-800">
+              <p className="font-semibold">
+                {seriesSuccess.createdCount} ders oluşturuldu
+                {seriesSuccess.overriddenCount ? ` (${seriesSuccess.overriddenCount} tanesi müsaitlik istisnasıyla)` : ""}
+                {seriesSuccess.skippedCount > 0 ? `, ${seriesSuccess.skippedCount} tarih atlandı (ders yazılmadı)` : ""}.
+              </p>
+              {seriesSuccess.skipped && seriesSuccess.skipped.length > 0 ? (
+                <ul className="mt-1 list-disc pl-5 text-xs">
+                  {seriesSuccess.skipped.map((o) => (
+                    <li key={o.startAt}>
+                      {format(toWallClockDate(o.startAt), "d MMM yyyy, HH:mm", { locale: tr })} — {o.message}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
             <button
               type="button"
-              onClick={() => setSeriesSuccess(null)}
+              onClick={() => clearNotices()}
               className="text-emerald-700 hover:text-emerald-900"
               aria-label="Kapat"
             >
@@ -1658,7 +2128,7 @@ export function ProgramStudio({
       {actionSuccess ? (
         <div className="mb-4 flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800">
           <span>{actionSuccess}</span>
-          <button type="button" onClick={() => setActionSuccess(null)} aria-label="Kapat">
+          <button type="button" onClick={() => clearNotices()} aria-label="Kapat">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -1667,7 +2137,7 @@ export function ProgramStudio({
       {gridError ? (
         <div className="mb-4 flex items-center justify-between rounded-xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-700">
           <span>{gridError}</span>
-          <button type="button" onClick={() => setGridError(null)} aria-label="Kapat">
+          <button type="button" onClick={() => clearNotices()} aria-label="Kapat">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -1676,12 +2146,22 @@ export function ProgramStudio({
       {mondayLessons.length > 0 ? (
         <div className="mb-3 rounded-[var(--radius-md)] border border-[var(--color-danger)]/30 bg-[var(--color-danger-soft)] px-3 py-2 text-xs text-[var(--color-danger)]">
           <p className="font-medium">
-            {selectedTerm === "yaz" ? "Okul Yaz döneminde Cumartesi/Pazar kapalı" : "Okul Güz döneminde Pazartesi kapalı"} —
-            bu haftada {mondayLessons.length} ders hâlâ kapalı bir güne planlanmış ve takvimde gösterilmiyor (veri silinmedi).
+            Bu haftada {mondayLessons.length} ders kapalı bir güne planlanmış; takvimde gösterilmiyor (veri silinmedi).
           </p>
+          {/* Her kapalı gün için GERÇEK nedeni yaz — "Pazartesi kapalı" varsayımı değil. */}
+          <ul className="mt-1 space-y-0.5 text-[var(--color-text-muted)]">
+            {Array.from(new Set(mondayLessons.map((l) => toYmd(parseISO(l.startAt)))))
+              .sort()
+              .map((ymd) => (
+                <li key={ymd}>
+                  {format(parseISO(`${ymd}T12:00:00`), "d MMMM EEEE", { locale: tr })} —{" "}
+                  {dayStatuses?.[ymd]?.explanation ?? "Kurumun kapalı günü."}
+                </li>
+              ))}
+          </ul>
           <p className="mt-1 text-[var(--color-text-muted)]">
-            Bu dersleri başka bir güne taşımak için öğrenci/öğretmen üzerinden ders detayını açın; yeni
-            kapalı gün planlaması artık engellenir.
+            Dersleri başka bir güne taşımak için ders detayını açın. Gerçekten o gün ders yapılacaksa
+            Ayarlar → Çalışma Günleri ekranından günü “Zorla açık” yapın; gün takvimde görünür hale gelir.
           </p>
         </div>
       ) : null}
@@ -1694,12 +2174,6 @@ export function ProgramStudio({
 
       <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
         <div className="flex flex-wrap items-center gap-3">
-          <div>
-            <h2 className="font-semibold text-[var(--color-text)] dark:text-slate-50">Haftalık program</h2>
-            <p className="mt-0.5 hidden text-xs text-[var(--color-text-muted)] lg:block">
-              Dersi taşımak için sürükleyin · Süreyi değiştirmek için kartın altından uzatın
-            </p>
-          </div>
           <div
             role="group"
             aria-label="Takvim görünümü"
@@ -1750,6 +2224,11 @@ export function ProgramStudio({
           </Select>
           <Select value={filterStudentId} onChange={(e) => setFilterStudentId(e.target.value)} className="w-auto">
             <option value="">Tüm öğrenciler</option>
+            {inactiveFilterStudent ? (
+              <option value={inactiveFilterStudent.id} disabled>
+                {inactiveFilterStudent.name} (pasif)
+              </option>
+            ) : null}
             {filterableStudents.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.name}
@@ -1789,24 +2268,34 @@ export function ProgramStudio({
         </FormModal>
       ) : null}
 
-      {detailLesson ? (
+
+      {/* Takvim + seçili ders paneli: geniş ekranda yan yana (tıklanan kart görünür kalır). */}
+      <div className="lg:flex lg:items-start lg:gap-4">
+        {detailLesson ? (
+          <aside
+            ref={detailAsideRef}
+            aria-label="Seçili ders"
+            className="mb-4 lg:order-2 lg:mb-0 lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:w-[400px] lg:shrink-0 lg:overflow-y-auto"
+          >
         <DetailPanel
+          key={detailLesson.id}
           lesson={detailLesson}
+          canCreate={canCreate}
           student={students.find((s) => s.id === detailLesson.studentId)}
           teacher={teachers.find((t) => t.id === detailLesson.teacherId)}
           room={rooms.find((r) => r.id === detailLesson.roomId)}
           branchName={branchNames[detailLesson.branchId]}
           now={now}
-          moveOpen={detailMoveOpen}
-          moveStartAt={detailMoveStartAt}
           submitting={detailSubmitting}
           error={detailError}
           onClose={closeDetail}
+          onEditDone={(message) => {
+            closeDetail();
+            setNotices(onlyNotice({ actionSuccess: message }));
+            router.refresh();
+          }}
           onOpsStatusChange={onOpsStatusChange}
           onOpsPendingChange={onOpsPendingChange}
-          onOpenMove={openDetailMove}
-          onChangeMoveStartAt={setDetailMoveStartAt}
-          onSubmitMove={submitDetailMove}
           onCancelLesson={submitDetailCancel}
           onCancelSeriesFromLesson={submitCancelSeriesFromLesson}
           onCancelEntireSeries={submitCancelEntireSeries}
@@ -1814,8 +2303,9 @@ export function ProgramStudio({
           allRooms={rooms}
           branchNames={branchNames}
         />
-      ) : null}
-
+          </aside>
+        ) : null}
+      <div className="min-w-0 lg:order-1 lg:flex-1">
       {calendarView === "week" ? (
       <div className="overflow-x-auto rounded-[var(--radius-lg)] border border-[var(--color-border-strong)] bg-[var(--color-surface)]">
         <div className="flex sticky top-0 z-10 bg-[var(--color-surface)]">
@@ -1823,22 +2313,28 @@ export function ProgramStudio({
           {visibleDays.map((dayIso) => {
             const day = parseISO(dayIso);
             const today = isSameDay(day, now);
-            const holidayName = fixedHolidayName(day);
+            // Görünür bir gün her zaman planlanabilirdir; buradaki tek özel
+            // durum "normalde kapalı ama yönetici zorla açtı" — kullanıcı
+            // neden ders planlayabildiğini görmeli.
+            const workDay = workDayOf(dayIso);
+            const forcedOpen = workDay?.reason === "manual_open";
             return (
               <div
                 key={dayIso}
-                className={`flex-1 border-b border-l border-[var(--color-border-strong)] px-2 py-2.5 text-[13px] font-bold ${
-                  holidayName
-                    ? "bg-[var(--color-danger-soft)] text-[var(--color-danger)]"
+                className={`min-w-[5.5rem] flex-1 border-b border-l border-[var(--color-border-strong)] px-2 py-2.5 text-[13px] font-bold ${
+                  forcedOpen
+                    ? "bg-[var(--color-warning-soft)] text-[var(--color-warning)]"
                     : today
                       ? "bg-[var(--color-primary-soft)] text-[var(--color-primary-soft-text)]"
                       : "text-[var(--color-text)]"
                 }`}
-                title={holidayName ?? undefined}
+                title={[workDay?.explanation, workDay?.normallyClosedExplanation && `Normalde: ${workDay.normallyClosedExplanation}`].filter(Boolean).join(" ")}
               >
                 {format(day, "EEEE", { locale: tr })}
                 <span className="ml-1 font-normal text-[var(--color-text-muted)]">{format(day, "d MMM", { locale: tr })}</span>
-                {holidayName ? <span className="ml-1 font-normal">· Resmî tatil</span> : null}
+                {forcedOpen ? (
+                  <span className="ml-1 font-normal">{workDay?.normallyClosedExplanation ? "· Normalde kapalı, zorla açık" : "· Zorla açık"}</span>
+                ) : null}
               </div>
             );
           })}
@@ -1868,13 +2364,15 @@ export function ProgramStudio({
             const day = parseISO(dayIso);
             const today = isSameDay(day, now);
             const dayLessons = visibleWeekLessons.filter((l) => isSameDay(parseISO(l.startAt), day));
-            const { laneOf, laneCount } = assignLanes(dayLessons);
+            const dayTrials = trialsForDay(day);
+            // Denemeler de aynı şeritlere girer: çakışan normal dersle üst üste binmez.
+            const { laneOf, lanesOf } = assignLanes([...dayLessons, ...dayTrials]);
             const totalHeight = slots.length * SLOT_HEIGHT_PX;
 
             return (
               <div
                 key={dayIso}
-                className={`relative flex-1 border-l border-[var(--color-border-strong)] ${today ? "bg-[var(--color-primary-soft)]/30" : ""}`}
+                className={`relative min-w-[5.5rem] flex-1 border-l border-[var(--color-border-strong)] ${today ? "bg-[var(--color-primary-soft)]/30" : ""}`}
                 style={{ height: totalHeight }}
               >
                 {slots.map((min, i) => {
@@ -1913,8 +2411,7 @@ export function ProgramStudio({
                 {dayLessons.map((lesson) => {
                   const student = students.find((s) => s.id === lesson.studentId);
                   const teacher = teachers.find((t) => t.id === lesson.teacherId);
-                  const startMin =
-                    parseISO(lesson.startAt).getHours() * 60 + parseISO(lesson.startAt).getMinutes();
+                  const startMin = minutesOfDay(lesson.startAt);
                   const duration =
                     resizePreview?.lessonId === lesson.id
                       ? resizePreview.duration
@@ -1922,16 +2419,18 @@ export function ProgramStudio({
                   const top = ((startMin - windowStartMin) / SLOT_MINUTES) * SLOT_HEIGHT_PX;
                   const height = Math.max((duration / SLOT_MINUTES) * SLOT_HEIGHT_PX - 2, SLOT_HEIGHT_PX - 2);
                   const lane = laneOf.get(lesson.id) ?? 0;
-                  const widthPct = 100 / laneCount;
+                  const widthPct = 100 / (lanesOf.get(lesson.id) ?? 1);
                   const editable = canMoveOrResize(lesson, now) && canCreate;
 
-                  const tier = lessonCardTier(height);
                   const room = rooms.find((r) => r.id === lesson.roomId);
                   const statusVisual = lessonCardStatusVisual(applyOpsOverride(lesson, prunedOverrides[lesson.id]), now);
+                  const selected = detailLessonId === lesson.id;
 
                   return (
                     <div
                       key={lesson.id}
+                      aria-current={selected ? "true" : undefined}
+                      data-selected={selected ? "true" : undefined}
                       draggable={editable}
                       onDragStart={() => setDraggingLessonId(lesson.id)}
                       onDragEnd={() => {
@@ -1950,13 +2449,14 @@ export function ProgramStudio({
                         // (UAT: "bilgi notu ekranda takılı kalıyor").
                         if (e.key === "Escape") e.currentTarget.blur();
                       }}
-                      aria-label={lessonAccessibleLabel(lesson, student, teacher, room, branchNames[lesson.branchId])}
+                      aria-label={lessonAccessibleLabel(lesson, student, teacher, room, branchNames[lesson.branchId], statusVisual)}
                       aria-busy={opsPending[lesson.id] ? true : undefined}
-                      className={`group absolute z-[1] flex flex-col rounded-md border border-[var(--color-border-strong)] p-1.5 text-[10px] shadow-[var(--shadow-sm)] transition-[filter] hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-focus-ring)] hover:z-[20] ${
+                      title={student?.name}
+                      className={`group absolute z-[1] flex flex-col rounded-md border border-[var(--color-border-strong)] px-1 py-1 shadow-[var(--shadow-sm)] transition-[filter] hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-focus-ring)] hover:z-[20] ${
                         opsPending[lesson.id] ? "animate-pulse ring-2 ring-[var(--color-focus-ring)] ring-offset-1" : ""
                       } ${
-                        editable ? "cursor-grab active:cursor-grabbing" : "cursor-pointer opacity-90"
-                      } ${draggingLessonId === lesson.id ? "opacity-60 ring-2 ring-[var(--color-primary)]" : ""}`}
+                        editable ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"
+                      } ${selected ? LESSON_SELECTED_CLASS : ""} ${draggingLessonId === lesson.id ? "opacity-60 ring-2 ring-[var(--color-primary)]" : ""}`}
                       style={{
                         top,
                         height,
@@ -1968,36 +2468,29 @@ export function ProgramStudio({
                         ...lessonCardFillStyle(statusVisual),
                       }}
                     >
-                      {/* `min-h-0` — flex çocukları varsayılan `min-height:auto` içerikten KÜÇÜK
-                          büzülemez; bu, sabit yükseklikli kartta dikey taşmanın gerçek nedeniydi.
-                          `overflow-hidden` son satırı gerekirse keser (metin `title`/hover kartıyla
-                          hâlâ tam erişilebilir), kutu sınırını asla BOZMAZ. */}
+                      {/* `min-h-0` + `overflow-hidden`: sabit yükseklikli kartta içerik kutuyu asla taşırmaz. */}
                       <div className="min-h-0 flex-1 overflow-hidden">
-                        <LessonCardBody
-                          student={student}
-                          teacher={teacher}
-                          lesson={lesson}
-                          branchName={branchNames[lesson.branchId]}
-                          tier={tier}
-                          statusVisual={statusVisual}
+                        <WeekLessonName
+                          name={student?.name}
+                          color={lessonCardFillStyle(statusVisual).color}
+                          heightPx={height}
                         />
-                        {tier === "full" &&
-                        (lesson.studentAttended || lesson.lessonProcessed || lesson.opsMakeupFlag) ? (
-                          <LessonOpsBadges
-                            studentAttended={lesson.studentAttended}
-                            lessonProcessed={lesson.lessonProcessed}
-                            opsMakeupFlag={lesson.opsMakeupFlag}
-                            studentAbsent={lesson.studentAbsent}
-                            studentExcused={lesson.studentExcused}
-                          />
-                        ) : null}
                       </div>
+                      {statusVisual === "attended" && lesson.type === "makeup" ? (
+                        <PlannedMakeupMarker className={`absolute top-0.5 ${lesson.availabilityOverride ? "right-4" : "right-0.5"}`} />
+                      ) : null}
+                      {lesson.availabilityOverride ? (
+                        <TriangleAlert className="absolute right-0.5 top-0.5 h-3 w-3 text-amber-500" aria-hidden>
+                          <title>Öğretmenin müsait olmadığı bir saatte, onayla planlandı</title>
+                        </TriangleAlert>
+                      ) : null}
                       <LessonHoverCard
                         lesson={lesson}
                         student={student}
                         teacher={teacher}
                         room={room}
                         branchName={branchNames[lesson.branchId]}
+                        statusVisual={statusVisual}
                       />
                       {editable ? (
                         <div
@@ -2009,6 +2502,23 @@ export function ProgramStudio({
                         />
                       ) : null}
                     </div>
+                  );
+                })}
+
+                {dayTrials.map((trial) => {
+                  const startMin = minutesOfDay(trial.startAt);
+                  const duration = differenceInMinutes(parseISO(trial.endAt), parseISO(trial.startAt));
+                  const top = ((startMin - windowStartMin) / SLOT_MINUTES) * SLOT_HEIGHT_PX;
+                  const height = Math.max((duration / SLOT_MINUTES) * SLOT_HEIGHT_PX - 2, SLOT_HEIGHT_PX - 2);
+                  const lane = laneOf.get(trial.id) ?? 0;
+                  const widthPct = 100 / (lanesOf.get(trial.id) ?? 1);
+                  return (
+                    <TrialCard
+                      key={trial.id}
+                      trial={trial}
+                      teacherName={teachers.find((t) => t.id === trial.teacherId)?.name}
+                      style={{ top, height, left: `${lane * widthPct}%`, width: `calc(${widthPct}% - 2px)` }}
+                    />
                   );
                 })}
               </div>
@@ -2027,6 +2537,7 @@ export function ProgramStudio({
             const dayLessons = visibleWeekLessons
               .filter((l) => isSameDay(parseISO(l.startAt), day))
               .sort((a, b) => a.startAt.localeCompare(b.startAt));
+            const dayTrials = trialsForDay(day);
             return (
               <Card
                 key={dayIso}
@@ -2036,6 +2547,18 @@ export function ProgramStudio({
                   <p className="text-[15px] font-bold text-[var(--color-text)]">{format(day, "EEEE d MMM", { locale: tr })}</p>
                   {today ? <Badge status="scheduled">Bugün</Badge> : null}
                 </div>
+                {dayTrials.length > 0 ? (
+                  <div className="mb-2 space-y-1.5">
+                    {dayTrials.map((trial) => (
+                      <TrialCard
+                        key={trial.id}
+                        trial={trial}
+                        teacherName={teachers.find((t) => t.id === trial.teacherId)?.name}
+                        inline
+                      />
+                    ))}
+                  </div>
+                ) : null}
                 {dayLessons.length === 0 ? (
                   <p className="text-sm text-[var(--color-text-muted)]">Bu gün için planlanmış ders yok.</p>
                 ) : (
@@ -2045,13 +2568,16 @@ export function ProgramStudio({
                       const teacher = teachers.find((t) => t.id === lesson.teacherId);
                       const room = rooms.find((r) => r.id === lesson.roomId);
                       const statusVisual = lessonCardStatusVisual(applyOpsOverride(lesson, prunedOverrides[lesson.id]), now);
+                      const selected = detailLessonId === lesson.id;
                       return (
                         <button
                           key={lesson.id}
                           type="button"
+                          aria-pressed={selected}
+                          data-selected={selected ? "true" : undefined}
                           onClick={() => openDetail(lesson)}
                           aria-label={lessonAccessibleLabel(lesson, student, teacher, room, branchNames[lesson.branchId])}
-                          className="block w-full rounded-[var(--radius-md)] border border-[var(--color-border-strong)] p-2.5 text-left text-xs transition-[filter] hover:brightness-110 hover:border-[var(--color-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-focus-ring)]"
+                          className={`relative block w-full rounded-[var(--radius-md)] border border-[var(--color-border-strong)] p-2.5 text-left text-xs transition-[filter] hover:brightness-110 hover:border-[var(--color-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-focus-ring)] ${selected ? LESSON_SELECTED_CLASS : ""}`}
                           style={{
                             borderLeft: `3px solid ${teacher?.color ?? "#A56A00"}`,
                             // Gün görünümünde de AYNI tam kart dolgusu (haftalık ızgarayla tek kaynak).
@@ -2066,18 +2592,6 @@ export function ProgramStudio({
                             tier="full"
                             statusVisual={statusVisual}
                           />
-                          <div className="mt-1.5 flex flex-wrap items-center gap-1">
-                            <Badge status={lesson.type === "makeup" ? "makeup" : lesson.status} />
-                          </div>
-                          {lesson.studentAttended || lesson.lessonProcessed || lesson.opsMakeupFlag ? (
-                            <LessonOpsBadges
-                              studentAttended={lesson.studentAttended}
-                              lessonProcessed={lesson.lessonProcessed}
-                              opsMakeupFlag={lesson.opsMakeupFlag}
-                              studentAbsent={lesson.studentAbsent}
-                              studentExcused={lesson.studentExcused}
-                            />
-                          ) : null}
                         </button>
                       );
                     })}
@@ -2089,25 +2603,24 @@ export function ProgramStudio({
         </div>
       </div>
       ) : null}
+      </div>
+      </div>
     </div>
   );
 }
 
 function DetailPanel({
   lesson,
+  canCreate,
   student,
   teacher,
   room,
   branchName,
   now,
-  moveOpen,
-  moveStartAt,
   submitting,
   error,
   onClose,
-  onOpenMove,
-  onChangeMoveStartAt,
-  onSubmitMove,
+  onEditDone,
   onCancelLesson,
   onCancelSeriesFromLesson,
   onCancelEntireSeries,
@@ -2118,20 +2631,19 @@ function DetailPanel({
   onOpsPendingChange,
 }: {
   lesson: Lesson;
+  /** "Tüm kurumlar" görünümünde false — yazma aksiyonları gösterilmez, nedeni yazılır. */
+  canCreate: boolean;
   student?: Student;
   teacher?: Teacher;
   room?: Room;
   branchName?: string;
   now: Date;
-  moveOpen: boolean;
-  moveStartAt: string;
   submitting: boolean;
   error: string | null;
   onClose: () => void;
-  onOpenMove: () => void;
-  onChangeMoveStartAt: (value: string) => void;
-  onSubmitMove: (e: FormEvent) => void;
-  onCancelLesson: () => void;
+  /** Revize/silme başarılı — panel kapanır, sayfa bildirimi gösterilir. */
+  onEditDone: (message: string) => void;
+  onCancelLesson: (disruption: ReturnType<typeof disruptionPayload>) => void;
   onCancelSeriesFromLesson: () => void;
   onCancelEntireSeries: () => void;
   /** Faz 13 — öğretmen/şube değiştirme formunun ihtiyaç duyduğu tam listeler. */
@@ -2142,143 +2654,313 @@ function DetailPanel({
   onOpsStatusChange: (lessonId: string, flag: LessonOpsFlagValue) => void;
   onOpsPendingChange: (lessonId: string, pending: boolean) => void;
 }) {
-  const canMove = canMoveOrResize(lesson, now);
-  const canCancelLesson = canCancel(lesson);
-  const reason = ineligibilityReason(lesson, now);
+  // İptal kuralının TEK kaynağı — sunucu (applyLessonCancel) aynı fonksiyonu çağırır.
+  const cancelBlockReason = lessonCancelBlockReason(lesson);
   const isSeriesMember = Boolean(lesson.seriesId);
+  const isPastScheduled = lesson.status === "scheduled" && !(parseISO(lesson.startAt) > now);
+  const timeRange = `${zonedHm(parseISO(lesson.startAt), DEFAULT_APP_TIMEZONE)}–${zonedHm(parseISO(lesson.endAt), DEFAULT_APP_TIMEZONE)}`;
+  // 9. tur — İptal onayı kaynak sorusuyla birlikte; kaynak sonradan düzeltilebilir.
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [cancelDraft, setCancelDraft] = useState<DisruptionFormValue>({});
+  const [cancelNote, setCancelNote] = useState("");
 
   return (
-    <Card className="mb-6 border-slate-300">
-      <div className="mb-3 flex items-center justify-between">
-        <h3 className="font-semibold text-[var(--color-text)] dark:text-slate-50">Ders detayı</h3>
-        <button type="button" onClick={onClose} className="text-[var(--color-text-muted)] hover:text-[var(--color-text-muted)] dark:text-slate-300" aria-label="Kapat">
+    <Card className="border-[var(--color-border-strong)] shadow-[var(--shadow-md)]">
+      <div className="mb-3 flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">Seçili ders</p>
+          <h3 className="truncate text-base font-bold text-[var(--color-text)]" title={student?.name}>
+            {student?.name ?? "Öğrenci bilinmiyor"}
+          </h3>
+          <p className="text-sm font-medium text-[var(--color-text)]">
+            {format(toWallClockDate(lesson.startAt), "d MMMM yyyy, EEEE", { locale: tr })} · {timeRange}
+          </p>
+          <p className="mt-0.5 text-xs text-[var(--color-text-muted)]">
+            {[lesson.instrument, teacher?.name, room?.name, branchName].filter(Boolean).join(" · ")}
+          </p>
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+            <LessonStatusBadge status={resolveLessonFinalStatus(lesson, now)} plannedMakeup={lesson.type === "makeup"} />
+            {lesson.type === "makeup" ? <Badge status="makeup">Telafi dersi</Badge> : null}
+            {isSeriesMember ? <Badge status="scheduled">Tekrarlayan seri</Badge> : null}
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-md p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-text)]"
+          aria-label="Seçili ders panelini kapat"
+        >
           <X className="h-4 w-4" />
         </button>
       </div>
 
-      <div className="mb-3 text-sm text-[var(--color-text-muted)] dark:text-slate-300">
-        <p className="font-medium text-[var(--color-text)] dark:text-slate-50">
-          {format(parseISO(lesson.startAt), "d MMMM yyyy · HH:mm", { locale: tr })} — {lesson.instrument}
-        </p>
-        <p className="mt-1 text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
-          {student?.name} · {teacher?.name} · {room?.name}
-          {branchName ? ` · ${branchName}` : ""}
-        </p>
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          <Badge status={lesson.type === "makeup" ? "makeup" : lesson.status} />
-          <LessonOpsBadges
+      {/* 2026-09-19 — en sık kullanılan işlem en üstte: "Yoklama durumu". */}
+      <section className="rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-2.5" aria-label="Yoklama durumu">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">Yoklama durumu</p>
+        {canCreate ? (
+          <LessonOpsActions
+            lessonId={lesson.id}
             studentAttended={lesson.studentAttended}
             lessonProcessed={lesson.lessonProcessed}
             opsMakeupFlag={lesson.opsMakeupFlag}
             studentAbsent={lesson.studentAbsent}
             studentExcused={lesson.studentExcused}
+            onStatusChange={onOpsStatusChange}
+            onPendingChange={onOpsPendingChange}
           />
-        </div>
-        <p className="mt-2 text-xs text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
-          {(() => {
-            const period = resolveLessonAcademicPeriod(lesson, student?.termType ?? "guz");
-            const label =
-              period.term === "yaz" ? `${period.academicYearStart} Yaz` : `${period.academicYearStart}–${period.academicYearStart + 1} Güz`;
-            return period.source === "explicit" ? `Akademik dönem: ${label}` : `Akademik dönem (tahmini — legacy kayıt): ${label}`;
-          })()}
-        </p>
-      </div>
+        ) : (
+          <p className="mt-1 text-xs text-[var(--color-text-muted)]">
+            Yoklama girmek için üstteki kurum seçiciden bu dersin kurumunu seçin.
+          </p>
+        )}
+        {canCreate ? <TeacherAttendanceControl key={lesson.id} lesson={lesson} /> : null}
+      </section>
 
-      <div className="mb-3 border-t border-[var(--color-border)] pt-3 dark:border-slate-700">
-        <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
-          Hızlı aksiyonlar
-        </p>
-        <LessonOpsActions
-          lessonId={lesson.id}
-          studentAttended={lesson.studentAttended}
-          lessonProcessed={lesson.lessonProcessed}
-          opsMakeupFlag={lesson.opsMakeupFlag}
-          studentAbsent={lesson.studentAbsent}
-          studentExcused={lesson.studentExcused}
-          onStatusChange={onOpsStatusChange}
-          onPendingChange={onOpsPendingChange}
-        />
-        <Link
-          href={`/panel/is-takip/liste?newTaskLessonId=${lesson.id}${student ? `&newTaskStudentId=${student.id}` : ""}${
-            teacher ? `&newTaskTeacherId=${teacher.id}` : ""
-          }&returnTo=${encodeURIComponent("/panel/program")}`}
-          className="mt-2 inline-block text-xs font-medium text-[var(--color-primary)] hover:underline"
-        >
-          Bu ders için görev oluştur →
-        </Link>
-        {student ? (
-          <Link
-            href={`/panel/evraklar?studentId=${student.id}`}
-            className="mt-1 block text-xs font-medium text-[var(--color-primary)] hover:underline"
-          >
-            Bu ders için evrak oluştur →
-          </Link>
-        ) : null}
-      </div>
-
-      {isSeriesMember ? (
-        <p className="mb-3 text-xs font-medium text-amber-600">
-          Bu ders tekrarlayan bir serinin parçası. Buradaki değişiklik yalnızca bu dersi etkiler.
-        </p>
-      ) : null}
-
-      {reason ? <p className="mb-3 text-xs text-amber-600">{reason}</p> : null}
-
-      <div className="flex flex-wrap gap-2">
-        {canMove ? (
-          <Button variant="secondary" onClick={onOpenMove} disabled={submitting}>
-            Bu dersi taşı
-          </Button>
-        ) : null}
-        {canCancelLesson && !isSeriesMember ? (
-          <Button variant="danger" onClick={onCancelLesson} disabled={submitting}>
-            Bu dersi iptal et
-          </Button>
-        ) : null}
-        {canCancelLesson && isSeriesMember ? (
-          <>
-            <Button variant="danger" onClick={onCancelLesson} disabled={submitting}>
-              Sadece bu dersi iptal et
-            </Button>
-            <Button variant="danger" onClick={onCancelSeriesFromLesson} disabled={submitting}>
-              Bu ders ve sonrasını iptal et
-            </Button>
-            <Button variant="danger" onClick={onCancelEntireSeries} disabled={submitting}>
-              Tüm seriyi iptal et
-            </Button>
-          </>
-        ) : null}
-      </div>
-
-      <div className="mt-2">
-        <LessonReassignmentModal lesson={lesson} teachers={allTeachers} rooms={allRooms} branchNames={branchNames} />
-      </div>
-
-      {moveOpen ? (
-        <form onSubmit={onSubmitMove} className="mt-4 flex flex-wrap items-end gap-2 border-t border-[var(--color-border)] pt-4">
-          <div>
-            <Label>Yeni tarih/saat</Label>
-            <Input
-              type="datetime-local"
-              value={moveStartAt}
-              onChange={(e) => onChangeMoveStartAt(e.target.value)}
-              required
-            />
+      {canCreate ? (
+        <section className="mt-3" aria-label="Ders işlemleri">
+          <div className="flex flex-wrap items-start gap-2">
+            {cancelBlockReason === null && !cancelOpen ? (
+              <Button
+                variant="danger"
+                onClick={() => {
+                  setCancelDraft({});
+                  setCancelNote("");
+                  setCancelOpen(true);
+                }}
+                disabled={submitting}
+              >
+                {isSeriesMember ? "Sadece bu dersi iptal et" : "Bu dersi iptal et"}
+              </Button>
+            ) : null}
+            <LessonReassignmentModal lesson={lesson} teachers={allTeachers} rooms={allRooms} branchNames={branchNames} />
           </div>
-          <Button type="submit" disabled={submitting}>
-            {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            Taşı
-          </Button>
-        </form>
-      ) : null}
+          {cancelOpen && cancelBlockReason === null ? (
+            <div
+              role="group"
+              aria-label="Ders iptali onayı"
+              className="mt-2 space-y-2 rounded-md border border-[var(--color-danger)] bg-[var(--color-surface)] p-2.5 text-xs"
+            >
+              <p className="font-semibold text-[var(--color-text)]">Bu dersi iptal etmek üzeresiniz.</p>
+              <DisruptionSourceFields idPrefix={`cancel-${lesson.id}`} kind="İptal" value={cancelDraft} onChange={setCancelDraft} />
+              <label className="block">
+                <span className="font-medium text-[var(--color-text)]">Açıklama (isteğe bağlı)</span>
+                <textarea
+                  value={cancelNote}
+                  onChange={(e) => setCancelNote(e.target.value.slice(0, 500))}
+                  rows={2}
+                  className="mt-1 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-xs"
+                  placeholder="Örn. Öğretmen hasta, veliye bildirildi"
+                />
+              </label>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="danger"
+                  disabled={submitting || !isDisruptionFormComplete(cancelDraft)}
+                  onClick={() => onCancelLesson(disruptionPayload(cancelDraft, cancelNote))}
+                >
+                  {submitting ? "İptal ediliyor…" : "İptali onayla"}
+                </Button>
+                <Button variant="secondary" disabled={submitting} onClick={() => setCancelOpen(false)}>
+                  Vazgeç
+                </Button>
+              </div>
+            </div>
+          ) : null}
+          {isDisruptedLesson(lesson) ? <DisruptionSourceEditor key={lesson.id} lesson={lesson} onDone={onEditDone} /> : null}
+          {cancelBlockReason !== null && lesson.status !== "cancelled" ? (
+            <p className="mt-2 rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5 text-xs text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
+              <strong>İptal edilemez:</strong> {cancelBlockReason}
+            </p>
+          ) : null}
+          {isSeriesMember ? (
+            <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-[var(--color-border)] pt-2">
+              <span className="text-xs font-medium text-[var(--color-text-muted)]">Seri:</span>
+              <Button variant="secondary" className="!py-1 text-xs" onClick={onCancelSeriesFromLesson} disabled={submitting}>
+                Bu ders ve sonrasını iptal et
+              </Button>
+              <Button variant="secondary" className="!py-1 text-xs" onClick={onCancelEntireSeries} disabled={submitting}>
+                Tüm seriyi iptal et
+              </Button>
+              <span className="basis-full text-[11px] text-[var(--color-text-muted)]">
+                Seri iptalinde İşlendi/Telafi işaretli ve geçmiş dersler korunur, yalnız planlı dersler iptal olur.
+              </span>
+            </div>
+          ) : null}
+          {isPastScheduled ? (
+            <p className="mt-2 text-[11px] text-[var(--color-text-muted)]">
+              Geçmiş ders takvimde sürüklenemez; tarih/saat için aşağıdaki &quot;Dersi düzenle / sil&quot; bölümünü kullanın.
+            </p>
+          ) : null}
 
-      {error ? <p className="mt-3 text-sm text-rose-600">{error}</p> : null}
+          <LessonScopeEditor key={lesson.id} lesson={lesson} onDone={onEditDone} />
+        </section>
+      ) : (
+        <p className="mt-3 text-xs text-[var(--color-text-muted)]">
+          İptal, öğretmen/şube değişikliği ve düzenleme için üstteki kurum seçiciden tek bir kurum seçin.
+        </p>
+      )}
+
+      {error ? (
+        <p className="mt-3 text-sm text-rose-600" role="alert">
+          {error}
+        </p>
+      ) : null}
     </Card>
   );
 }
 
+/**
+ * 9. tur — öğretmenin KENDİ katılımı (öğrenci yoklamasından ayrı alan). İsteğe bağlı,
+ * tek tık; günlük yoklama akışını uzatmaz. Kurum kaynaklı iptal buraya otomatik yazılmaz.
+ */
+const TEACHER_ATTENDANCE_OPTIONS = [
+  ["geldi", "Geldi"],
+  ["gelmedi", "Gelmedi"],
+  ["mazeretli", "Mazeretli"],
+] as const;
+
+function TeacherAttendanceControl({ lesson }: { lesson: Lesson }) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  // 11. tur iş #3 — iyimser yerel durum: kayıt sonrası router.refresh() ile
+  // tüm program sayfası yeniden ÇEKİLMEZ (her tıklamada ağır liste yenileme
+  // + odak kayboluyordu). Seçim anında görünür; ders değişince bileşen
+  // key={lesson.id} ile yeniden kurulduğundan prop senkronu yeterlidir.
+  const [status, setStatus] = useState(lesson.teacherAttendanceStatus ?? null);
+  async function mark(next: (typeof TEACHER_ATTENDANCE_OPTIONS)[number][0]) {
+    setBusy(next);
+    setError(null);
+    const res = await apiFetchJson(`/api/v1/lessons/${lesson.id}/teacher-attendance`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: next }),
+    });
+    setBusy(null);
+    if (!res.ok) {
+      setError(friendlyApiErrorMessage(res.error, "Öğretmen katılımı kaydedilemedi; tekrar deneyin."));
+      return;
+    }
+    setStatus(next);
+  }
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-[var(--color-border)] pt-2 text-xs">
+      <span className="text-[var(--color-text-muted)]">Öğretmen katılımı:</span>
+      <div role="group" aria-label="Öğretmen katılımı" className="inline-flex gap-1">
+        {TEACHER_ATTENDANCE_OPTIONS.map(([value, label]) => {
+          const active = status === value;
+          return (
+            <button
+              key={value}
+              type="button"
+              aria-pressed={active}
+              disabled={busy !== null}
+              onClick={() => void mark(value)}
+              className={`rounded-md border px-2 py-1 font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-focus-ring)] disabled:cursor-wait disabled:opacity-60 ${
+                active
+                  ? "border-[var(--color-primary)] bg-[var(--color-primary-soft)] text-[var(--color-primary-soft-text)]"
+                  : "border-[var(--color-border-strong)] bg-[var(--color-surface)] text-[var(--color-text)] hover:bg-[var(--color-surface-muted)]"
+              }`}
+            >
+              {busy === value ? "…" : label}
+            </button>
+          );
+        })}
+      </div>
+      {!status ? <span className="text-[var(--color-text-muted)]">(girilmedi)</span> : null}
+      {error ? (
+        <p className="basis-full font-medium text-[var(--color-danger)]" role="alert">
+          {error}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/** 9. tur — iptal/telafi edilmiş dersin kaynağı; "Belirtilmemiş" eski kayıtlar buradan sınıflandırılır. */
+function DisruptionSourceEditor({ lesson, onDone }: { lesson: Lesson; onDone: (message: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState<DisruptionFormValue>({ source: lesson.disruptionSource });
+  const [note, setNote] = useState(lesson.disruptionNote ?? "");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const attendance = lesson.teacherAttendanceStatus
+    ? { geldi: "Geldi", gelmedi: "Gelmedi", mazeretli: "Mazeretli" }[lesson.teacherAttendanceStatus]
+    : "Girilmedi";
+
+  async function save() {
+    setBusy(true);
+    setError(null);
+    const res = await apiFetchJson(`/api/v1/lessons/${lesson.id}/disruption`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(disruptionPayload(draft, note)),
+    });
+    setBusy(false);
+    if (!res.ok) {
+      setError(friendlyApiErrorMessage(res.error, "Kaynak kaydedilemedi; tekrar deneyin."));
+      return;
+    }
+    setOpen(false);
+    onDone("İptal/telafi kaynağı kaydedildi.");
+  }
+
+  return (
+    <div className="mt-2 rounded-md border border-[var(--color-border)] p-2 text-xs">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-[var(--color-text)]">
+          <span className="text-[var(--color-text-muted)]">{lesson.status === "cancelled" ? "İptal" : "Telafi"} kaynağı: </span>
+          <strong className={lesson.disruptionSource ? "" : "text-[var(--color-warning)]"}>
+            {disruptionSourceLabel(lesson.disruptionSource)}
+          </strong>
+          <span className="text-[var(--color-text-muted)]"> · Öğretmen katılımı: {attendance}</span>
+        </p>
+        {!open ? (
+          <button
+            type="button"
+            onClick={() => setOpen(true)}
+            className="font-semibold text-[var(--color-primary)] hover:underline"
+          >
+            Kaynağı {lesson.disruptionSource ? "düzenle" : "belirt"}
+          </button>
+        ) : null}
+      </div>
+      {lesson.disruptionNote && !open ? <p className="mt-1 text-[var(--color-text-muted)]">{lesson.disruptionNote}</p> : null}
+      {open ? (
+        <div className="mt-2 space-y-2">
+          <DisruptionSourceFields
+            idPrefix={`disruption-${lesson.id}`}
+            kind={lesson.status === "cancelled" ? "İptal" : "Telafi"}
+            value={draft}
+            onChange={setDraft}
+          />
+          <textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value.slice(0, 500))}
+            rows={2}
+            aria-label="Kaynak açıklaması"
+            className="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1"
+            placeholder="Açıklama (isteğe bağlı)"
+          />
+          <div className="flex gap-2">
+            <Button disabled={busy || !isDisruptionFormComplete(draft)} onClick={() => void save()}>
+              {busy ? "Kaydediliyor…" : "Kaydet"}
+            </Button>
+            <Button variant="secondary" disabled={busy} onClick={() => setOpen(false)}>
+              Vazgeç
+            </Button>
+          </div>
+        </div>
+      ) : null}
+      {error ? (
+        <p className="mt-1 font-medium text-[var(--color-danger)]" role="alert">
+          {error}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 function CommunicationDraftCard({ label, msg }: { label: string; msg: LessonCommunicationMessage }) {
-  const [markedSent, setMarkedSent] = useState(false);
   return (
     <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-3 dark:border-slate-700 dark:bg-slate-900">
       <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">{label}</p>
@@ -2299,15 +2981,122 @@ function CommunicationDraftCard({ label, msg }: { label: string; msg: LessonComm
       ) : (
         <p className="mt-2 text-xs text-rose-600">{msg.missingPhoneReason ?? "Telefon numarası eksik."}</p>
       )}
-      <label className="mt-2 flex items-center gap-2 text-[11px] text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
-        <input type="checkbox" checked={markedSent} onChange={(e) => setMarkedSent(e.target.checked)} />
-        Sistemde gönderildi olarak işaretle
-      </label>
-      {markedSent ? (
-        <p className="mt-1 text-[10px] text-amber-600">
-          Bu yalnızca bilgi amaçlıdır — WhatsApp üzerinden gerçekten gönderildiğinin kanıtı değildir.
-        </p>
-      ) : null}
+      <p className="mt-2 text-[11px] leading-relaxed text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
+        Gönderim ve “gönderdim” işareti İletişim Merkezi&apos;nden yapılır — kim/ne zaman bilgisi orada
+        kalıcı kaydedilir.
+      </p>
+      <Link
+        href="/panel/iletisim-merkezi"
+        className="mt-1.5 inline-block text-[11px] font-semibold text-[var(--color-primary)] underline"
+      >
+        İletişim Merkezi&apos;nde aç
+      </Link>
     </div>
+  );
+}
+
+/**
+ * Deneme dersi kartı — normal ders statü dolgularından (ATTENDANCE_CALENDAR_COLORS)
+ * bilinçli olarak ayrık: mor kesikli çerçeve + "DENEME" etiketi. Tıklayınca
+ * Deneme Dersleri ekranına gider (deneme kaydı Lesson değildir; yoklama/ücret akışına girmez).
+ */
+function TrialCard({
+  trial,
+  teacherName,
+  style,
+  inline = false,
+}: {
+  trial: ProgramTrial;
+  teacherName?: string;
+  style?: React.CSSProperties;
+  inline?: boolean;
+}) {
+  const time = `${format(parseISO(trial.startAt), "HH:mm")}–${format(parseISO(trial.endAt), "HH:mm")}`;
+  if (trial.kind === "club") {
+    return (
+      <Link
+        href={trial.href ?? "/panel/kulupler"}
+        aria-label={`Kulüp oturumu: ${trial.name}, ${time}${teacherName ? `, ${teacherName}` : ""}${trial.note ? `, ${trial.note}` : ""}`}
+        title={`Kulüp — ${trial.name} · ${time}${teacherName ? ` · ${teacherName}` : ""}`}
+        className={`${inline ? "relative block w-full p-2 text-xs" : "absolute z-[2] flex flex-col overflow-hidden p-1 text-[10px]"} rounded-md border hover:z-[20] hover:brightness-105 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--color-focus-ring)]`}
+        style={{
+          ...style,
+          borderColor: "var(--color-info)",
+          borderLeft: "3px solid var(--color-info)",
+          background: "var(--color-info-soft)",
+          color: "var(--color-text)",
+        }}
+      >
+        <span className="flex items-center gap-1">
+          <span className="shrink-0 rounded px-1 text-[9px] font-bold uppercase tracking-wide text-white" style={{ background: "var(--color-info)" }}>
+            Kulüp
+          </span>
+          <span className="truncate font-semibold">{trial.name}</span>
+        </span>
+        <span className="truncate opacity-80">
+          {time}
+          {inline && teacherName ? ` · ${teacherName}` : ""}
+          {trial.note ? ` · ${trial.note}` : ""}
+        </span>
+      </Link>
+    );
+  }
+  return (
+    <Link
+      href="/panel/deneme"
+      aria-label={`Deneme dersi: ${trial.name}, ${trial.instrument}, ${time}${teacherName ? `, ${teacherName}` : ""}${trial.converted ? ", kayda dönüştü" : ""}`}
+      title={`Deneme dersi — ${trial.name} · ${trial.instrument} · ${time}${teacherName ? ` · ${teacherName}` : ""}`}
+      className={`${inline ? "relative block w-full p-2 text-xs" : "absolute z-[2] flex flex-col overflow-hidden p-1 text-[10px]"} rounded-md border border-dashed hover:z-[20] hover:brightness-105 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--color-focus-ring)]`}
+      style={{
+        ...style,
+        borderColor: "var(--color-trial)",
+        borderLeft: "3px solid var(--color-trial)",
+        background: "repeating-linear-gradient(135deg, var(--color-trial-soft) 0 6px, var(--color-surface) 6px 12px)",
+        color: "var(--color-text)",
+      }}
+    >
+      <span className="flex items-center gap-1">
+        <span
+          className="shrink-0 rounded px-1 text-[9px] font-bold uppercase tracking-wide text-white"
+          style={{ background: "var(--color-trial)" }}
+        >
+          Deneme
+        </span>
+        <span className="truncate font-semibold">{trial.name}</span>
+      </span>
+      <span className="truncate opacity-80">
+        {time} · {trial.instrument}
+        {inline && teacherName ? ` · ${teacherName}` : ""}
+        {trial.converted ? " · Kayda dönüştü" : ""}
+      </span>
+    </Link>
+  );
+}
+
+function DateHint({ value }: { value: string }) {
+  const hint = incompleteDateHint(value);
+  return hint ? (
+    <p className="mt-1 text-xs font-medium text-amber-700" role="status">
+      {hint}
+    </p>
+  ) : null;
+}
+
+/** Formda seçilen günün durumu — kayıtta sunucunun uygulayacağı kuralın aynısı, önceden görünür. */
+function WorkDayNotice({ day }: { day: WorkDayResolution | null }) {
+  if (!day) return null;
+  if (!day.schedulable) {
+    return (
+      <p className="mt-1 text-xs font-medium text-rose-600">
+        {day.explanation} {FORCE_OPEN_HINT}
+      </p>
+    );
+  }
+  if (day.reason !== "manual_open" || !day.normallyClosedExplanation) return null;
+  return (
+    <p className="mt-1 rounded-md bg-[var(--color-warning-soft)] px-2 py-1 text-xs text-[var(--color-warning)]">
+      Bu gün normalde kapalı ({day.normallyClosedExplanation.replace(/\.$/, "")}); yönetici kararıyla ders planlamaya
+      açıldı. Öğretmen, oda ve öğrenci çakışmaları yine kontrol edilir.
+    </p>
   );
 }

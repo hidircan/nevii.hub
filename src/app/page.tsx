@@ -14,7 +14,9 @@ import {
   ReferencesSection,
   SiteFooter,
   SiteHeader,
+  StepsSection,
 } from "@/components/site/sections";
+import { SITE_FAQ } from "@/lib/site-content";
 
 export const dynamic = "force-dynamic";
 
@@ -25,12 +27,53 @@ export const dynamic = "force-dynamic";
  * bileşenidir (`src/components/site/sections.tsx`) ve içeriği
  * `src/lib/site-content.ts`ten gelir. Yeni bölüm eklemek/sıra değiştirmek
  * sayfayı yeniden yazmayı gerektirmez.
+ *
+ * 10. tur iş #3 — başlık ≤60 karakter (pazarlama 07), JSON-LD yapısal verisi
+ * (SSS bölümünden OTOMATİK üretilir — içerikle asla ayrışmaz), OG/Twitter
+ * kartı (`opengraph-image.tsx` konvansiyonu, harici asset yok).
  */
 export const metadata: Metadata = {
-  title: `${BRAND.name} — Müzik kurumları için yönetim platformu`,
+  title: "NeviiHub — Müzik Okulları için Yönetim Platformu",
   description: BRAND.description,
   alternates: { canonical: "/" },
+  openGraph: {
+    title: "NeviiHub — Müzik Okulları için Yönetim Platformu",
+    description: BRAND.description,
+    type: "website",
+    locale: "tr_TR",
+    siteName: BRAND.name,
+    images: [{ url: "/opengraph-image", width: 1200, height: 630, alt: BRAND.name }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "NeviiHub — Müzik Okulları için Yönetim Platformu",
+    description: BRAND.description,
+    images: ["/opengraph-image"],
+  },
 };
+
+function siteJsonLd() {
+  return [
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      name: BRAND.name,
+      applicationCategory: "BusinessApplication",
+      operatingSystem: "Web",
+      description: BRAND.description,
+      inLanguage: "tr-TR",
+    },
+    {
+      "@context": "https://schema.org",
+      "@type": "FAQPage",
+      mainEntity: SITE_FAQ.map((f) => ({
+        "@type": "Question",
+        name: f.question,
+        acceptedAnswer: { "@type": "Answer", text: f.answer },
+      })),
+    },
+  ];
+}
 
 export default async function LandingPage() {
   const session = await getSessionContext();
@@ -48,10 +91,15 @@ export default async function LandingPage() {
       >
         İçeriğe geç
       </a>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(siteJsonLd()) }}
+      />
       <SiteHeader />
       <main id="icerik">
         <HeroSection />
         <AboutSection />
+        <StepsSection />
         <FeaturesSection />
         <PlatformSection />
         <ReferencesSection />

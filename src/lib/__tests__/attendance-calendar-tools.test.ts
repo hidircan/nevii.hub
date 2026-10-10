@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { promises as fs } from "fs";
 import path from "path";
 import { resolveDataDir } from "../config";
+import { STUDENT_CONTRACTS_FILE } from "../contracts";
 import {
   createLessonTool,
   createStudentTool,
@@ -35,6 +36,9 @@ beforeEach(async () => {
   await fs.rm(DATA_FILE, { force: true });
   await fs.rm(CLOSED_DAYS_FILE, { force: true });
   await fs.rm(STUDENT_PORTAL_ACCESS_FILE, { force: true });
+  // Önceki test dosyalarının bıraktığı sözleşmeler (ör. s1 Eylül 2026) ay kutusu tahsilatını reddettiriyordu —
+  // paket sırasına bağlı dalgalanma (bkz. agent hafızası neviihub-test-baseline). Bu dosya sözleşmesiz öğrenci varsayar.
+  await fs.rm(STUDENT_CONTRACTS_FILE, { force: true });
 });
 
 async function findOpenSlot(): Promise<string> {
@@ -133,7 +137,8 @@ describe("ÖNCELİK 4 — kapalı gün mali/yoklama gate", () => {
 
 describe("Yoklama Takvimi ay kutusu — GERÇEK tahsilat (collectAttendanceCalendarPaymentTool)", () => {
   it("aynı öğrenci+ay için tekrar Kaydet demek yeni kayıt değil, AYNI Payment'ı günceller (idempotent)", async () => {
-    const r1 = await collectAttendanceCalendarPaymentTool(ctx(), { studentId: "s1", month: "2026-09", amount: 3000 });
+    // Tam ödenmiş ay (s1 ücreti 3200) tekrar kaydedilince aynı satır düzeltilir (mevcut davranış).
+    const r1 = await collectAttendanceCalendarPaymentTool(ctx(), { studentId: "s1", month: "2026-09", amount: 3200 });
     expect(r1.ok).toBe(true);
     const r2 = await collectAttendanceCalendarPaymentTool(ctx(), { studentId: "s1", month: "2026-09", amount: 3500 });
     expect(r2.ok).toBe(true);
@@ -147,14 +152,19 @@ describe("Yoklama Takvimi ay kutusu — GERÇEK tahsilat (collectAttendanceCalen
     expect(rows[0]!.status).toBe("paid");
   });
 
-  it("Kaydet sonrası ödeme 'paid' statüsündedir ve girilen tutar gerçek Payment.amount/paidAmount olur", async () => {
-    const res = await collectAttendanceCalendarPaymentTool(ctx(), { studentId: "s1", month: "2026-09", amount: 3000 });
+  it("aylık ücret kadar tahsilat 'paid'; ücretten az tahsilat KISMİ kalır (ay ödendi görünmez)", async () => {
+    const res = await collectAttendanceCalendarPaymentTool(ctx(), { studentId: "s1", month: "2026-09", amount: 3200 });
     expect(res.ok).toBe(true);
-    const data = await readData();
-    const row = data.payments.find((p) => p.studentId === "s1" && p.source === "monthly_plan");
-    expect(row?.status).toBe("paid");
-    expect(row?.amount).toBe(3000);
-    expect(row?.paidAmount).toBe(3000);
+    const full = (await readData()).payments.find((p) => p.studentId === "s1" && p.source === "monthly_plan");
+    expect(full?.status).toBe("paid");
+    expect(full?.amount).toBe(3200);
+    expect(full?.paidAmount).toBe(3200);
+
+    expect((await collectAttendanceCalendarPaymentTool(ctx(), { studentId: "s1", month: "2026-10", amount: 1000 })).ok).toBe(true);
+    const partial = (await readData()).payments.find((p) => p.studentId === "s1" && p.source === "monthly_plan" && p.description.includes("2026-10"));
+    expect(partial?.amount).toBe(3200);
+    expect(partial?.paidAmount).toBe(1000);
+    expect(partial?.status).not.toBe("paid");
   });
 
   it("Package B — Geldi/İşlendi/Telafi artık lesson_ops kaydı üretmez; ay kutusu tahsilatı bundan bağımsız çalışır", async () => {
@@ -189,18 +199,19 @@ describe("Yoklama Takvimi ay kutusu — GERÇEK tahsilat (collectAttendanceCalen
     if (!res.ok) expect(res.error.code).toBe("FORBIDDEN");
   });
 
-  it("ödeme tarihi ve ödeme şekli gerçek Payment alanlarına (dueDate/method) ve tahsilat tarihine (paidAt) yazılır", async () => {
+  it("girilen tarih yalnız TAHSİLAT tarihidir (paidAt); vade dönem ayının 1'i, şekil Payment.method", async () => {
     const res = await collectAttendanceCalendarPaymentTool(ctx(), {
       studentId: "s1",
       month: "2026-09",
-      amount: 3000,
-      dueDate: "2026-09-15",
+      amount: 3200,
+      dueDate: "2026-09-15", // eski istemci alan adı
       method: "transfer",
     });
     expect(res.ok).toBe(true);
     const data = await readData();
     const row = data.payments.find((p) => p.studentId === "s1" && p.source === "monthly_plan");
-    expect(row?.dueDate.slice(0, 10)).toBe("2026-09-15");
+    expect(row?.dueDate.slice(0, 10)).toBe("2026-09-01");
+    expect(row?.installmentPeriodLabel).toBe("Eylül 2026");
     expect(row?.method).toBe("transfer");
     expect(row?.paidAt?.slice(0, 10)).toBe("2026-09-15");
   });
@@ -218,21 +229,22 @@ describe("Yoklama Takvimi ay kutusu — GERÇEK tahsilat (collectAttendanceCalen
     expect(row?.receivedByUserId).toBe("u_admin_42");
   });
 
-  it("ödeme tarihi/şekli verilmeden ikinci kez Kaydet edilirse önceki dueDate/method değerleri korunur", async () => {
+  it("şekil verilmeden düzeltme kaydı önceki şekli korur; vade/dönem değişmez", async () => {
     await collectAttendanceCalendarPaymentTool(ctx(), {
       studentId: "s1",
       month: "2026-09",
-      amount: 3000,
-      dueDate: "2026-09-15",
+      amount: 3200,
+      collectedAt: "2026-09-15",
       method: "cash",
     });
-    const res2 = await collectAttendanceCalendarPaymentTool(ctx(), { studentId: "s1", month: "2026-09", amount: 3200 });
+    const res2 = await collectAttendanceCalendarPaymentTool(ctx(), { studentId: "s1", month: "2026-09", amount: 3300 });
     expect(res2.ok).toBe(true);
     const data = await readData();
-    const row = data.payments.find((p) => p.studentId === "s1" && p.source === "monthly_plan");
-    expect(row?.amount).toBe(3200);
-    expect(row?.dueDate.slice(0, 10)).toBe("2026-09-15");
-    expect(row?.method).toBe("cash");
+    const rows = data.payments.filter((p) => p.studentId === "s1" && p.source === "monthly_plan");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.amount).toBe(3300);
+    expect(rows[0]!.dueDate.slice(0, 10)).toBe("2026-09-01");
+    expect(rows[0]!.method).toBe("cash");
   });
 
   it("geçersiz ödeme şekli reddedilir", async () => {
@@ -435,7 +447,7 @@ describe("ÖNCELİK 4 (devam) — öğrenci dönemine göre varsayılan takvim",
       weeklyLessonCount: 1,
       monthlyFee: 3000,
       lessonDays: [2],
-      firstPaymentCollected: { method: "cash", amount: 3750, collectedAt: "2026-08-30" },
+      firstPaymentCollected: { method: "cash", amount: 3000, collectedAt: "2026-08-30" }, // 5 Salı → tavan 4 ders = tam aylık (2026-09-17)
       enrollmentStartDate: "2026-09-01",
       notes: "",
       termType: "yaz",
@@ -484,7 +496,7 @@ describe("ÖNCELİK 4 (devam) — öğrenci dönemine göre varsayılan takvim",
       weeklyLessonCount: 1,
       monthlyFee: 3000,
       lessonDays: [2],
-      firstPaymentCollected: { method: "cash", amount: 3750, collectedAt: "2026-08-30" },
+      firstPaymentCollected: { method: "cash", amount: 3000, collectedAt: "2026-08-30" }, // 5 Salı → tavan 4 ders = tam aylık (2026-09-17)
       enrollmentStartDate: "2026-09-01",
       notes: "",
       // termType verilmedi — legacy senaryo

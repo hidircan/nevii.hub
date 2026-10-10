@@ -4,6 +4,25 @@
  * anında öneklenir.
  */
 
+/**
+ * Aynı URL üzerine yazılan logonun tarayıcı önbelleğinde kalmaması için
+ * sürüm ekler. data-URI zaten içeriğin kendisidir; ona sorgu eklenmez.
+ */
+export function logoUrlStamp(logoUrl: string): string {
+  let hash = 0;
+  for (let i = 0; i < logoUrl.length; i++) hash = (hash * 33 + logoUrl.charCodeAt(i)) >>> 0;
+  return hash.toString(36);
+}
+
+export function withLogoVersion(logoUrl: string | undefined | null, version: string): string | null {
+  const safe = sanitizeLogoUrl(logoUrl);
+  if (!safe || safe.startsWith("data:")) return safe;
+  const stamp = version.trim();
+  if (!stamp) return safe;
+  const join = safe.includes("?") ? "&" : "?";
+  return `${safe}${join}v=${encodeURIComponent(stamp)}`;
+}
+
 export function sanitizeLogoUrl(logoUrl: string | undefined | null): string | null {
   if (!logoUrl) return null;
   const trimmed = logoUrl.trim();
@@ -70,4 +89,99 @@ export function prependInstitutionLogo(
 export function toLogoDataUrl(fileMimeType: string, fileData: string): string {
   const stripped = fileData.includes(",") ? fileData.slice(fileData.indexOf(",") + 1) : fileData;
   return `data:${fileMimeType};base64,${stripped.replace(/\s+/g, "")}`;
+}
+
+/**
+ * 10. tur iş #2 — E-POSTA kök nedeni: kurum logosu uygulamada `data:` URI
+ * olarak saklanır (kurulum merkezi yükleme akışı) ve bu değer e-posta
+ * HTML'ine AYNEN gömülüyordu. Gmail/Outlook `data:` URI görselleri
+ * ENGELLER/strip'ler → alıcı "yalnız kurum adı veya bozuk görsel" görür.
+ * Çözüm: e-postada logo, MIME satır-içi eki (CID) olarak taşınır; göreli
+ * URL ya da geçersiz veri durumunda KIRIK GÖRSEL yerine temiz kurum-adı
+ * metni gösterilir (bozuk resim ikonu/anlamsız dosya adı ASLA).
+ */
+export const INSTITUTION_LOGO_CID = "nevii-kurum-logo";
+
+export type ParsedLogoDataUri = { mime: string; extension: string; base64: string; byteSize: number };
+
+const LOGO_DATA_URI_MIME: Record<string, string> = {
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/jpg": "jpg",
+  "image/webp": "webp",
+};
+
+/** E-posta eki üst sınırı (çözülmüş bayt) — yükleme akışı zaten 500KB ile sınırlı, burada savunma amaçlı. */
+export const EMAIL_LOGO_MAX_BYTES = 750_000;
+
+/** Geçerli bir logo `data:` URI'sini e-posta ekine hazır parçalarına ayırır; değilse null. */
+export function parseLogoDataUri(logoUrl: string | undefined | null): ParsedLogoDataUri | null {
+  const safe = sanitizeLogoUrl(logoUrl);
+  if (!safe || !safe.startsWith("data:")) return null;
+  const match = safe.match(/^data:(image\/[a-z+]+);base64,([A-Za-z0-9+/=]+)$/i);
+  if (!match) return null;
+  const mime = match[1]!.toLowerCase();
+  const extension = LOGO_DATA_URI_MIME[mime];
+  if (!extension) return null;
+  const base64 = match[2]!;
+  const byteSize = Math.floor((base64.length * 3) / 4);
+  if (byteSize <= 0 || byteSize > EMAIL_LOGO_MAX_BYTES) return null;
+  return { mime: mime === "image/jpg" ? "image/jpeg" : mime, extension, base64, byteSize };
+}
+
+export type InstitutionLogoEmailBlock = {
+  html: string;
+  /** `html` CID referansı içeriyorsa gönderimde eklenmelidir, yoksa null. */
+  attachment: { cid: string; filename: string; contentType: string; contentBase64: string } | null;
+};
+
+function escapeInstitutionName(name: string): string {
+  return name.replace(/[<>&"]/g, (ch) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;" })[ch] ?? ch);
+}
+
+/**
+ * E-posta istemcilerinde çalışan logo bloğu (sade HTML, satır-içi stiller,
+ * CSS değişkeni YOK):
+ * - `data:` URI (kurulum merkezinin sakladığı biçim) → CID eki + `<img src="cid:…">`.
+ * - Mutlak `https:` URL → doğrudan `<img>` (istemci "görselleri göster" onayıyla yükler).
+ * - Diğer tüm durumlar (göreli URL, http, geçersiz, yok) → temiz kurum-adı metni.
+ */
+export function institutionLogoEmailBlock(
+  logoUrl: string | undefined | null,
+  institutionName: string
+): InstitutionLogoEmailBlock {
+  const alt = escapeInstitutionName(institutionName);
+  const parsed = parseLogoDataUri(logoUrl);
+  if (parsed) {
+    return {
+      html:
+        `<div style="text-align:center;margin:0 0 16px;">` +
+        `<img src="cid:${INSTITUTION_LOGO_CID}" alt="${alt}" width="180" ` +
+        `style="display:block;margin:0 auto;height:auto;max-height:72px;max-width:180px;border:0;outline:none;text-decoration:none;"/>` +
+        `</div>`,
+      attachment: {
+        cid: INSTITUTION_LOGO_CID,
+        filename: `kurum-logo.${parsed.extension}`,
+        contentType: parsed.mime,
+        contentBase64: parsed.base64,
+      },
+    };
+  }
+  const safe = sanitizeLogoUrl(logoUrl);
+  if (safe && /^https:\/\//i.test(safe)) {
+    return {
+      html:
+        `<div style="text-align:center;margin:0 0 16px;">` +
+        `<img src="${safe}" alt="${alt}" width="180" ` +
+        `style="display:block;margin:0 auto;height:auto;max-height:72px;max-width:180px;border:0;outline:none;text-decoration:none;"/>` +
+        `</div>`,
+      attachment: null,
+    };
+  }
+  if (!alt) return { html: "", attachment: null };
+  return {
+    html:
+      `<div style="text-align:center;margin:0 0 16px;font-weight:700;font-size:18px;line-height:1.4;color:#111827;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">${alt}</div>`,
+    attachment: null,
+  };
 }

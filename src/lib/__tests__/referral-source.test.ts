@@ -170,7 +170,12 @@ describe("Bizi nereden buldunuz? — form alanları mevcut", () => {
   });
 
   it("detay ekranında görüntülenir", () => {
-    const detail = readFileSync(path.join(ROOT, "src/app/panel/ogrenciler/[studentId]/page.tsx"), "utf-8");
+    // 2026-09-20 — öğrenci detayı sekmelere bölündü (J); "Bizi nereden
+    // buldunuz?" alanı artık Özet değil, "Bilgiler" sekmesindedir.
+    const detail = readFileSync(
+      path.join(ROOT, "src/app/panel/ogrenciler/[studentId]/bilgiler/page.tsx"),
+      "utf-8"
+    );
     expect(detail).toContain("Bizi nereden buldunuz?");
     expect(detail).toContain("REFERRAL_SOURCE_LABELS");
   });

@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { requireSessionContext } from "@/lib/auth/session";
-import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
+import { getInstitutionContext, readScopedReferenceData } from "@/lib/institution/context";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { EmptyState, PageHeader } from "@/components/ui";
 import { BackButton } from "@/components/back-button";
@@ -30,7 +30,7 @@ export default async function IsTakipDetailPage({
   }
 
   const kurum = await getInstitutionContext(session);
-  const data = await readScopedData(kurum.scope);
+  const data = await readScopedReferenceData(kurum.scope);
   const staff = await listAssignableStaff(session.tenantId, data.teachers);
 
   const detailRes = await getTaskDetailTool(session, { taskId });

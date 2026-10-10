@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { validateLessonSlot } from "../makeup-engine";
-import type { AppData } from "../types";
+import type { AppData, ClosedDay } from "../types";
+import { DEFAULT_APP_TIMEZONE, toZonedYmd } from "../timezone";
 
 /**
  * Okulun mesai saati Pzt–Cuma 09:00–18:00; Pazar ve mesai dışı saatlerde
@@ -75,6 +76,21 @@ function buildData(overrides?: { teacherAvailability?: AppData["teachers"][numbe
   };
 }
 
+/** Verilen ISO tarihi için "zorla açık" yönetici istisnası (bkz. src/lib/work-days.ts). */
+function forceOpen(iso: string): ClosedDay {
+  const date = toZonedYmd(new Date(iso), DEFAULT_APP_TIMEZONE);
+  return {
+    id: `cld_${date}`,
+    date,
+    name: "Test — zorla açık",
+    kind: "custom",
+    isOpen: true,
+    createdBy: "u_test",
+    createdAt: "2026-09-20T00:00:00.000Z",
+    updatedAt: "2026-09-20T00:00:00.000Z",
+  };
+}
+
 /** Önümüzdeki bir Pazar (dayOfWeek 0) tarihini ISO olarak döner. */
 function nextSunday(hour: number, minute = 0): string {
   const d = new Date();
@@ -107,10 +123,17 @@ describe("validateLessonSlot — okul mesai kısıtı kaldırıldı", () => {
     const data = buildData({
       teacherAvailability: [{ dayOfWeek: 1, start: "09:00", end: "22:00" }],
     });
+    /**
+     * 2026-09-20 — Pazartesi Güz döneminin KAPALI günü olduğu için artık
+     * planlamayı engeller (çalışma günü tek kaynağı). Testin amacı "mesai
+     * saati dışı engel değildir"i göstermek; bu yüzden gün yöneticinin
+     * "zorla açık" istisnasıyla açılır ve yalnız saat kısıtı sınanır.
+     */
+    const startAt = nextMondayEvening(20);
     const result = validateLessonSlot(
-      data,
+      { ...data, closedDayOverrides: [forceOpen(startAt)] },
       { instrument: "Piyano", studentId: "s1" },
-      { teacherId: "t1", roomId: "r1", startAt: nextMondayEvening(20) }
+      { teacherId: "t1", roomId: "r1", startAt }
     );
     expect(result.ok).toBe(true);
   });

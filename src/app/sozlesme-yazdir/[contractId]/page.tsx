@@ -1,8 +1,9 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { redirect } from "next/navigation";
 import type { Metadata } from "next";
 import { requireSessionContext } from "@/lib/auth/session";
 import { getContractHtmlTool } from "@/lib/services";
+import { resolveSafeReturnTo, returnToLabel } from "@/lib/safe-return-to";
 import { DocumentPrintActions } from "@/components/document-print-actions";
 import { CONTRACT_PRINT_PALETTE as P } from "@/lib/contract-print-theme";
 
@@ -38,10 +39,13 @@ export async function generateMetadata({
  */
 export default async function ContractPrintPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ contractId: string }>;
+  searchParams: Promise<{ returnTo?: string }>;
 }) {
   const { contractId } = await params;
+  const safeReturnTo = resolveSafeReturnTo((await searchParams).returnTo);
   let session;
   try {
     session = await requireSessionContext();
@@ -65,15 +69,20 @@ export default async function ContractPrintPage({
   }
 
   const isStaff = session.role === "SCHOOL_ADMIN" || session.role === "SUPER_ADMIN";
+  // 9. tur — geri dönüş sözleşmenin AÇILDIĞI ekrana (Evraklar filtreleriyle, öğrenci detayı…).
+  // `returnTo` yalnız allowlist'teki panel yollarını kabul eder; yoksa/güvensizse
+  // (ör. doğrudan URL) personel için öğrenci detayı varsayılandır. Portal kullanıcısı
+  // `returnTo`'dan bağımsız kendi sözleşmeler listesine döner.
   const backHref = isStaff
-    ? `/panel/ogrenciler/${result.data.studentId}`
+    ? safeReturnTo ?? `/panel/ogrenciler/${result.data.studentId}`
     : "/ogrenci/sozlesmelerim";
+  const backLabel = isStaff ? returnToLabel(backHref) : "Sözleşmelerime dön";
 
   return (
-    <div className="min-h-screen bg-[#f4f2f8] px-4 py-8 print:bg-white print:p-0 sm:px-6">
+    <div className="print-light-palette min-h-screen bg-[#f4f2f8] px-4 py-8 print:bg-white print:p-0 sm:px-6">
       <style>{CONTRACT_PRINT_CSS}</style>
       <div className="mx-auto max-w-2xl">
-        <DocumentPrintActions backHref={backHref} />
+        <DocumentPrintActions backHref={backHref} backLabel={backLabel} />
         <p className="mb-3 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800 print:hidden">
           Sayfa numarası ve tarih bilgisi için yazdırma penceresinde &quot;Üstbilgiler ve altbilgiler&quot;
           (Headers and footers) seçeneğini açık bırakın — tarayıcı bunu otomatik ekler.

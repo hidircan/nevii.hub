@@ -257,48 +257,41 @@ describe("applyStartLesson / applyEndLesson / applyCorrectLessonTimes (AppData s
   });
 });
 
-describe("startLessonTool / endLessonTool — TEACHER yalnızca kendi dersi", () => {
-  it("TEACHER kendi dersini (l8, teacherId=t2) başlatabilir ve bitirebilir", async () => {
+describe("startLessonTool / endLessonTool — yalnız yönetici (2026-09-19 owner kararı)", () => {
+  it("TEACHER kendi dersini bile başlatamaz/bitiremez: FORBIDDEN + Türkçe neden, ders değişmez", async () => {
     const startRes = await startLessonTool(ctx({ role: "TEACHER", teacherId: "t2" }), { lessonId: "l8" });
-    expect(startRes.ok).toBe(true);
-    if (!startRes.ok) return;
-    expect(startRes.data.status).toBe("in_progress");
-
-    const data = await readData();
-    const l8 = data.lessons.find((l) => l.id === "l8")!;
-    expect(l8.status).toBe("in_progress");
-    expect(l8.actualStartAt).toBeTruthy();
-
+    expect(startRes.ok).toBe(false);
+    if (!startRes.ok) {
+      expect(startRes.error.code).toBe("FORBIDDEN");
+      expect(startRes.error.message).toContain("yalnız kurum yöneticisi");
+    }
     const endRes = await endLessonTool(ctx({ role: "TEACHER", teacherId: "t2" }), { lessonId: "l8" });
+    expect(endRes.ok).toBe(false);
+    if (!endRes.ok) expect(endRes.error.code).toBe("FORBIDDEN");
+
+    const l8 = (await readData()).lessons.find((l) => l.id === "l8")!;
+    expect(l8.status).toBe("scheduled");
+    expect(l8.actualStartAt).toBeFalsy();
+  });
+
+  it("SCHOOL_ADMIN dersi başlatıp bitirebilir", async () => {
+    const admin = ctx({ role: "SCHOOL_ADMIN", teacherId: undefined });
+    const startRes = await startLessonTool(admin, { lessonId: "l8" });
+    expect(startRes.ok).toBe(true);
+    if (startRes.ok) expect(startRes.data.status).toBe("in_progress");
+    const endRes = await endLessonTool(admin, { lessonId: "l8" });
     expect(endRes.ok).toBe(true);
-    if (!endRes.ok) return;
-    expect(endRes.data.status).toBe("completed");
+    if (endRes.ok) expect(endRes.data.status).toBe("completed");
   });
 
-  it("TEACHER başka bir öğretmenin dersini (l8, teacherId=t2) başlatamaz", async () => {
-    const result = await startLessonTool(ctx({ role: "TEACHER", teacherId: "t1" }), { lessonId: "l8" });
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.error.code).toBe("FORBIDDEN");
-  });
-
-  it("SCHOOL_ADMIN herhangi bir dersi başlatabilir", async () => {
-    const result = await startLessonTool(ctx({ role: "SCHOOL_ADMIN", teacherId: undefined }), { lessonId: "l8" });
-    expect(result.ok).toBe(true);
-  });
-
-  it("PARENT/STUDENT dersi başlatamaz", async () => {
-    const asParent = await startLessonTool(ctx({ role: "STUDENT", teacherId: undefined }), { lessonId: "l8" });
-    expect(asParent.ok).toBe(false);
-    if (!asParent.ok) expect(asParent.error.code).toBe("FORBIDDEN");
-
-    const asStudent = await startLessonTool(ctx({ role: "STUDENT", teacherId: undefined }), { lessonId: "l8" });
-    expect(asStudent.ok).toBe(false);
-    if (!asStudent.ok) expect(asStudent.error.code).toBe("FORBIDDEN");
+  it("STUDENT dersi başlatamaz", async () => {
+    const res = await startLessonTool(ctx({ role: "STUDENT", teacherId: undefined }), { lessonId: "l8" });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error.code).toBe("FORBIDDEN");
   });
 
   it("zaten tamamlanmış bir dersi (l1) başlatmaya çalışmak VALIDATION_ERROR döner", async () => {
-    const result = await startLessonTool(ctx({ role: "TEACHER", teacherId: "t1" }), { lessonId: "l1" });
+    const result = await startLessonTool(ctx({ role: "SCHOOL_ADMIN", teacherId: undefined }), { lessonId: "l1" });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe("VALIDATION_ERROR");
   });

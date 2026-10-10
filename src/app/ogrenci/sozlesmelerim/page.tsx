@@ -1,9 +1,10 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { redirect } from "next/navigation";
 import { PORTAL_RECORD_MISSING_REDIRECT } from "@/lib/auth/portal-record-missing";
 import { ArrowLeft } from "lucide-react";
 import { requireSessionContext } from "@/lib/auth/session";
-import { readData } from "@/lib/store";
+import { getPortalPageStudentId } from "@/lib/portal-context";
+import { readReferenceData } from "@/lib/store";
 import { listStudentContractsTool, getStudentContractTool } from "@/lib/services";
 import { Badge, Card, EmptyState } from "@/components/ui";
 import { formatMoney, formatDate } from "@/lib/utils";
@@ -42,10 +43,15 @@ export default async function StudentContractsPage() {
   }
   if (session.role === "TEACHER") redirect("/ogretmen");
 
-  const data = await readData();
-  const studentId = session.studentId || "s1";
-  const student = data.students.find((s) => s.id === studentId) ?? data.students[0];
-  if (!student) redirect(PORTAL_RECORD_MISSING_REDIRECT);
+  // 10. tur iş #1 — çözümlenmiş aktif öğrenci bağlamı (cookie/JWT tercihi
+  // sunucuda doğrulanır); `|| "s1"` yedeği KALDIRILDI (başka öğrencinin verisi asla açılmaz).
+  const studentId = await getPortalPageStudentId(session);
+  if (!studentId) redirect(PORTAL_RECORD_MISSING_REDIRECT);
+  const data = await readReferenceData();
+  const student = data.students.find((s) => s.id === studentId);
+  if (!student || (session.role === "STUDENT" && (!student.active || student.deletedAt))) {
+    redirect(PORTAL_RECORD_MISSING_REDIRECT);
+  }
 
   const listResult = await listStudentContractsTool(session, { studentId: student.id });
   const contracts = listResult.ok ? listResult.data.contracts : [];

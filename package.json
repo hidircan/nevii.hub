@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "prebuild": "npx prisma generate",
+    "prebuild": "npx prisma generate && npx tsx scripts/check-pending-migrations.ts",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
@@ -25,9 +25,15 @@
     "seed:makeup-demo": "npx tsx scripts/seed-makeup-demo.ts",
     "backfill:display-ids": "npx tsx scripts/backfill-display-ids.ts",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "check:hygiene": "bash scripts/check-repo-hygiene.sh --tree",
+    "check:cache-headers": "node scripts/check-cache-headers.mjs",
+    "hooks:install": "git config core.hooksPath scripts/git-hooks && echo hooks: scripts/git-hooks",
+    "verify:durability": "npx tsx scripts/verify-data-durability.ts",
+    "ops:dashboard-default-branch": "npx tsx scripts/set-dashboard-default-branch.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.131.0",
     "@prisma/adapter-pg": "^7.9.1",
     "@prisma/client": "^7.8.0",
     "@supabase/ssr": "^0.12.4",
@@ -39,12 +45,13 @@
     "jose": "^6.2.4",
     "lucide-react": "^1.24.0",
     "mammoth": "^1.12.2",
-    "next": "^16.3.0",
+    "next": "^16.3.8",
     "nodemailer": "^9.0.6",
     "pg": "^8.23.0",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "tailwind-merge": "^3.6.0",
+    "unpdf": "^1.8.1",
     "zod": "^4.4.3"
   },
   "devDependencies": {

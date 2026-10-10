@@ -1,8 +1,8 @@
 "use client";
 
 /**
- * Package D — öğretmen özlük/idari alanları + ek şube ataması + T.C. kimlik
- * girişi. Yalnızca SCHOOL_ADMIN/SUPER_ADMIN render edilir (çağıran taraftan);
+ * Package D — öğretmen genel (ad, doğum tarihi, eğitim, günlük limit),
+ * iletişim, özlük/idari alanları + ek şube ataması + T.C. kimlik girişi. Yalnızca SCHOOL_ADMIN/SUPER_ADMIN render edilir (çağıran taraftan);
  * backend'de de yalnız bu roller yazabilir (`updateTeacherProfileTool`/
  * `setNationalIdTool` RBAC'ı) — bu bileşen ikinci bir savunma katmanıdır.
  */
@@ -41,6 +41,13 @@ export function TeacherProfileEditor({
     emergencyContactName?: string;
     emergencyContactPhone?: string;
     personnelNotes?: string;
+    birthDate?: string;
+    highSchool?: string;
+    university?: string;
+    graduationYear?: number;
+    maxDailyLessons?: number;
+    /** 10. tur iş #11 — öğretmene özel hakediş ödeme-yöntemi eşiği (haftalık saat). */
+    weeklyHoursThreshold?: number;
   };
   hasNationalId: boolean;
 }) {
@@ -48,6 +55,7 @@ export function TeacherProfileEditor({
   const [name, setName] = useState(initial.name);
   const [email, setEmail] = useState(initial.email ?? "");
   const [phone, setPhone] = useState(initial.phone ?? "");
+  const [primaryId, setPrimaryId] = useState(primaryBranchId);
   const [branchIds, setBranchIds] = useState<string[]>(initial.branchIds ?? []);
   const [employmentType, setEmploymentType] = useState(initial.employmentType ?? "");
   const [hireDate, setHireDate] = useState(initial.hireDate ?? "");
@@ -58,6 +66,14 @@ export function TeacherProfileEditor({
   const [emergencyContactName, setEmergencyContactName] = useState(initial.emergencyContactName ?? "");
   const [emergencyContactPhone, setEmergencyContactPhone] = useState(initial.emergencyContactPhone ?? "");
   const [personnelNotes, setPersonnelNotes] = useState(initial.personnelNotes ?? "");
+  const [birthDate, setBirthDate] = useState(initial.birthDate ?? "");
+  const [highSchool, setHighSchool] = useState(initial.highSchool ?? "");
+  const [university, setUniversity] = useState(initial.university ?? "");
+  const [graduationYear, setGraduationYear] = useState(initial.graduationYear ? String(initial.graduationYear) : "");
+  const [maxDailyLessons, setMaxDailyLessons] = useState(initial.maxDailyLessons ? String(initial.maxDailyLessons) : "");
+  const [weeklyHoursThreshold, setWeeklyHoursThreshold] = useState(
+    initial.weeklyHoursThreshold ? String(initial.weeklyHoursThreshold) : ""
+  );
   const [nationalId, setNationalId] = useState("");
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -76,7 +92,8 @@ export function TeacherProfileEditor({
         name,
         email: email || undefined,
         phone: phone || undefined,
-        branchIds,
+        branchId: primaryId,
+        branchIds: branchIds.filter((b) => b !== primaryId),
         employmentType: (employmentType || undefined) as
           | "tam_zamanli"
           | "yari_zamanli"
@@ -90,6 +107,12 @@ export function TeacherProfileEditor({
         emergencyContactName: emergencyContactName || undefined,
         emergencyContactPhone: emergencyContactPhone || undefined,
         personnelNotes: personnelNotes || undefined,
+        birthDate: birthDate || undefined,
+        highSchool: highSchool || undefined,
+        university: university || undefined,
+        graduationYear: graduationYear ? Number(graduationYear) : undefined,
+        maxDailyLessons: maxDailyLessons ? Number(maxDailyLessons) : undefined,
+        weeklyHoursThreshold: weeklyHoursThreshold ? Number(weeklyHoursThreshold) : undefined,
       });
       if (!result.ok) {
         setError(result.message);
@@ -109,7 +132,6 @@ export function TeacherProfileEditor({
     });
   }
 
-  const otherBranches = branches.filter((b) => b.id !== primaryBranchId);
 
   return (
     <div className="space-y-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
@@ -127,6 +149,45 @@ export function TeacherProfileEditor({
         <Label>Telefon</Label>
         <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="05xx xxx xxxx" />
       </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <Label>Doğum tarihi</Label>
+          <Input type="date" value={birthDate} onChange={(e) => setBirthDate(e.target.value)} />
+        </div>
+        <div>
+          <Label>Günlük ders limiti</Label>
+          <Input type="number" min={1} max={20} value={maxDailyLessons} onChange={(e) => setMaxDailyLessons(e.target.value)} />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <Label>Lise</Label>
+          <Input value={highSchool} onChange={(e) => setHighSchool(e.target.value)} />
+        </div>
+        <div>
+          <Label>Üniversite</Label>
+          <Input value={university} onChange={(e) => setUniversity(e.target.value)} />
+        </div>
+      </div>
+      <div>
+        <Label>Mezuniyet yılı</Label>
+        <Input type="number" min={1950} max={2100} value={graduationYear} onChange={(e) => setGraduationYear(e.target.value)} />
+      </div>
+      <div>
+        <Label>Hakediş ödeme eşiği — haftalık saat (1–80, boş bırakılabilir)</Label>
+        <Input
+          type="number"
+          min={1}
+          max={80}
+          value={weeklyHoursThreshold}
+          onChange={(e) => setWeeklyHoursThreshold(e.target.value)}
+          placeholder="Örn. 20"
+        />
+        <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">
+          Haftalık ortalamanın üstü nakit, altı havale varsayılır. Boşsa varsayılan yöntem üretilmez; kayıt anında elle
+          seçilir. Kayıtlı hakedişlerin yöntemini değiştirmez.
+        </p>
+      </div>
       {!hasNationalId ? (
         <div>
           <Label>T.C. kimlik no (opsiyonel — şifreli saklanır)</Label>
@@ -140,22 +201,51 @@ export function TeacherProfileEditor({
         </div>
       ) : null}
 
-      {otherBranches.length > 0 ? (
+      <div>
+        <Label>Birincil şube</Label>
+        <Select
+          value={primaryId}
+          onChange={(e) => {
+            // Eski birincil şube ek şube olarak kalır — mevcut dersleri sahipsiz kalmasın.
+            const prev = primaryId;
+            setBranchIds((ids) => (ids.includes(prev) ? ids : [...ids, prev]));
+            setPrimaryId(e.target.value);
+          }}
+        >
+          {branches.map((b) => (
+            <option key={b.id} value={b.id}>
+              {b.name}
+            </option>
+          ))}
+        </Select>
+      </div>
+      {branches.length > 1 ? (
         <div>
-          <Label>Ek atanmış şubeler (birincil şube her zaman dahildir)</Label>
+          <Label>Ders verdiği şubeler (birden fazla seçilebilir)</Label>
           <div className="flex flex-wrap gap-2">
-            {otherBranches.map((b) => (
-              <label key={b.id} className="flex items-center gap-1.5 text-xs">
-                <input
-                  type="checkbox"
-                  checked={branchIds.includes(b.id)}
-                  onChange={() => toggleBranch(b.id)}
-                  className="h-3.5 w-3.5"
-                />
-                {b.name}
-              </label>
-            ))}
+            {branches.map((b) => {
+              const isPrimary = b.id === primaryId;
+              return (
+                <label key={b.id} className="flex items-center gap-1.5 text-xs">
+                  <input
+                    type="checkbox"
+                    checked={isPrimary || branchIds.includes(b.id)}
+                    disabled={isPrimary}
+                    onChange={() => toggleBranch(b.id)}
+                    className="h-3.5 w-3.5"
+                  />
+                  {b.name}
+                  {isPrimary ? <span className="text-[var(--color-text-muted)]">(birincil)</span> : null}
+                </label>
+              );
+            })}
           </div>
+          {primaryId !== primaryBranchId ? (
+            <p className="mt-1 text-xs text-[var(--color-text-muted)]">
+              Birincil şube değişiyor. Eski şube ek şube olarak işaretli bırakıldı; öğretmen artık orada ders vermeyecekse
+              işaretini kaldırın (o şubedeki mevcut dersler silinmez).
+            </p>
+          ) : null}
         </div>
       ) : null}
 
@@ -214,7 +304,7 @@ export function TeacherProfileEditor({
       </div>
 
       <Button type="button" variant="secondary" disabled={pending} onClick={onSave}>
-        {pending ? "Kaydediliyor…" : "Özlük bilgilerini kaydet"}
+        {pending ? "Kaydediliyor…" : "Öğretmen bilgilerini kaydet"}
       </Button>
       {error ? <p className="text-xs font-medium text-rose-600">{error}</p> : null}
       {saved ? <p className="text-xs font-medium text-emerald-600">Kaydedildi.</p> : null}

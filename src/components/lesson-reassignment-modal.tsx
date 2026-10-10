@@ -92,13 +92,13 @@ export function LessonReassignmentModal({
   if (!open) {
     return (
       <Button variant="secondary" onClick={() => setOpen(true)}>
-        Öğretmen/Şube değiştir
+        Öğretmen / şube değiştir
       </Button>
     );
   }
 
   return (
-    <div className="mt-2 space-y-2 rounded-lg border border-[var(--color-border)] p-3">
+    <div className="w-full basis-full space-y-2 rounded-lg border border-[var(--color-border)] p-3">
       {isSeriesMember ? (
         <div>
           <Label>Kapsam</Label>
@@ -150,7 +150,7 @@ export function LessonReassignmentModal({
         </Select>
       </div>
 
-      {error ? <p className="text-xs font-medium text-[#8b3a3a]">{error}</p> : null}
+      {error ? <p className="text-xs font-medium text-[var(--color-danger)]">{error}</p> : null}
 
       <div className="flex gap-2">
         <Button

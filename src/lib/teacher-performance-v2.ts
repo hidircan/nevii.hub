@@ -31,8 +31,6 @@ export const TEACHER_PERFORMANCE_V2_WEIGHTS = {
   homework: 0.25,
 } as const;
 
-type ComponentKey = keyof typeof TEACHER_PERFORMANCE_V2_WEIGHTS;
-
 export type PerformanceComponentV2 = {
   weight: number;
   /** Bu dönemde bu bileşen için yeterli veri var mı (false ⇒ tüm alanlar null, "veri yok"). */
@@ -122,6 +120,8 @@ export type TeacherPerformanceReportV2 = {
       reviewedCount: number;
       rows: HomeworkDetailRow[];
     };
+    /** Dönemde bu öğretmene bağlanan yeni öğrenci kayıtları. Veri yoksa skordan düşer. */
+    enrollmentFromSchedule: PerformanceComponentV2 & { registrationCount: number };
   };
 };
 
@@ -130,8 +130,11 @@ function inRange(iso: string, start: number, end: number): boolean {
   return t >= start && t <= end;
 }
 
+/** Rapor yalnız dönemin dersleri + öğrenci listesi + kurum ayarını okur (DB egress: ders penceresi yeterli). */
+type PerformanceData = Pick<AppData, "lessons" | "students" | "settings">;
+
 function computeAttendanceComponent(
-  data: AppData,
+  data: PerformanceData,
   teacherId: string,
   rangeStart: number,
   rangeEnd: number
@@ -279,7 +282,7 @@ function isEligibleLessonForHomework(lesson: Lesson, nowMs: number): boolean {
 }
 
 async function computeHomeworkComponent(
-  data: AppData,
+  data: PerformanceData,
   tenantId: string,
   teacherId: string,
   rangeStart: number,
@@ -346,24 +349,28 @@ async function computeHomeworkComponent(
   };
 }
 
-/** Mevcut bileşenlerin ağırlıklarını 1'e yeniden normalize edip katkıları doldurur. Hiçbiri yoksa toplam skor null. */
-function combineComponents(components: Record<ComponentKey, PerformanceComponentV2>): number | null {
-  const present = (Object.keys(components) as ComponentKey[]).filter((k) => components[k].hasData);
+/** Mevcut bileşenlerin ağırlıklarını 1'e yeniden normalize edip katkıları doldurur. Hiçbiri yoksa toplam skor null. Ağırlığı 0 olan metrik pasiftir. */
+function combineComponents(
+  components: Record<string, PerformanceComponentV2>,
+  weights: Record<string, number>
+): number | null {
+  for (const k of Object.keys(components)) components[k]!.weight = (weights[k] ?? 0) / 100;
+  const present = Object.keys(components).filter((k) => components[k]?.hasData && (weights[k] ?? 0) > 0);
   if (present.length === 0) return null;
 
-  const totalWeight = present.reduce((s, k) => s + TEACHER_PERFORMANCE_V2_WEIGHTS[k], 0);
+  const totalWeight = present.reduce((s, k) => s + (weights[k] ?? 0), 0);
   let score = 0;
   for (const k of present) {
-    const effectiveWeight = TEACHER_PERFORMANCE_V2_WEIGHTS[k] / totalWeight;
-    const contribution = (components[k].normalizedValue ?? 0) * effectiveWeight;
-    components[k].contribution = Math.round(contribution * 10) / 10;
+    const effectiveWeight = (weights[k] ?? 0) / totalWeight;
+    const contribution = (components[k]!.normalizedValue ?? 0) * effectiveWeight;
+    components[k]!.contribution = Math.round(contribution * 10) / 10;
     score += contribution;
   }
   return Math.round(score);
 }
 
 export async function computeTeacherPerformanceReportV2(
-  data: AppData,
+  data: PerformanceData,
   tenantId: string,
   teacherId: string,
   periodStart: string,
@@ -376,8 +383,23 @@ export async function computeTeacherPerformanceReportV2(
   const feedback = await computeFeedbackComponent(tenantId, teacherId, periodStart, periodEnd);
   const tasks = await computeTasksComponent(tenantId, teacherId, periodStart, periodEnd);
   const homework = await computeHomeworkComponent(data, tenantId, teacherId, rangeStart, rangeEnd);
+  const registrationCount = data.students.filter((s) => {
+    if (s.teacherId !== teacherId) return false;
+    const created = new Date(s.createdAt).getTime();
+    return created >= rangeStart && created <= rangeEnd;
+  }).length;
+  const enrollmentFromSchedule: PerformanceComponentV2 & { registrationCount: number } = {
+    weight: 0,
+    hasData: registrationCount > 0,
+    rawValue: registrationCount,
+    normalizedValue: registrationCount > 0 ? Math.min(100, registrationCount * 25) : null,
+    contribution: null,
+    registrationCount,
+  };
 
-  const score = combineComponents({ attendance, feedback, tasks, homework });
+  const { resolvePerformanceWeights } = await import("./performance-weights");
+  const weights = resolvePerformanceWeights(data.settings.performanceWeights).teacher;
+  const score = combineComponents({ attendance, feedback, tasks, homework, enrollmentFromSchedule }, weights);
 
   return {
     version: TEACHER_PERFORMANCE_V2_SCORE_VERSION,
@@ -385,6 +407,6 @@ export async function computeTeacherPerformanceReportV2(
     periodStart,
     periodEnd,
     score,
-    components: { attendance, feedback, tasks, homework },
+    components: { attendance, feedback, tasks, homework, enrollmentFromSchedule },
   };
 }

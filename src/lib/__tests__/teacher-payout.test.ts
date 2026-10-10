@@ -9,6 +9,7 @@ import {
   updateTeacherPayoutPaymentMethodData,
   validateFeeRuleInput,
   markTeacherPayoutPaidData,
+  payoutPeriodDayKey,
 } from "../teacher-payout";
 import type { AppData, Lesson, Student, Teacher, TeacherFeeRule } from "../types";
 
@@ -830,5 +831,50 @@ describe("updateTeacherPayoutPaymentMethodData — yönetici override, sonraki h
     const result = updateTeacherPayoutPaymentMethodData(data, "does-not-exist", "cash");
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.code).toBe("NOT_FOUND");
+  });
+});
+
+describe("hakediş dönemi kimliği — gün bazında (2026-09-22 Hakediş oluştur hatası)", () => {
+  it("DB'den gelen ISO datetime ile formun yyyy-MM-dd değeri aynı dönemdir", () => {
+    expect(payoutPeriodDayKey("2026-08-01T00:00:00.000Z")).toBe("2026-08-01");
+    expect(payoutPeriodDayKey("2026-08-01")).toBe("2026-08-01");
+  });
+
+  it("ISO biçimde kayıtlı mevcut hakediş ikinci kez oluşturulmaz; açık Türkçe mesaj döner", () => {
+    const data = makeData({
+      lessons: [makeLesson()],
+      teacherFeeRules: [makeFeeRule()],
+      teacherPayouts: [
+        {
+          id: "po_existing",
+          teacherId: "t1",
+          periodStart: "2026-08-01T00:00:00.000Z",
+          periodEnd: "2026-08-31T00:00:00.000Z",
+          totalMinutes: 30,
+          totalAmount: 345,
+          status: "pending",
+          generatedAt: "2026-09-01T10:00:00.000Z",
+        },
+      ],
+    });
+    const again = createTeacherPayoutSnapshot(data, "t1", PERIOD_START, PERIOD_END);
+    expect(again.ok).toBe(false);
+    if (!again.ok) {
+      expect(again.code).toBe("PAYOUT_ALREADY_EXISTS");
+      expect(again.message).not.toMatch(/Unique|P2002|constraint/i);
+    }
+  });
+
+  it("oluşturulan hakediş hızlı ödeme ile ödendi olur", () => {
+    const data = makeData({ lessons: [makeLesson()], teacherFeeRules: [makeFeeRule()] });
+    const created = createTeacherPayoutSnapshot(data, "t1", PERIOD_START, PERIOD_END);
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    const paid = markTeacherPayoutPaidData(created.data, created.payout.id, "transfer");
+    expect(paid.ok).toBe(true);
+    if (paid.ok) {
+      expect(paid.payout.status).toBe("paid");
+      expect(paid.payout.method).toBe("transfer");
+    }
   });
 });

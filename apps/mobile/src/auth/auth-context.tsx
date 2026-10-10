@@ -1,5 +1,13 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { apiGet, apiPost, endLocalSession, revokeServerSession, setSessionExpiredHandler } from "../api/client";
+import {
+  apiGet,
+  apiPost,
+  endLocalSession,
+  revokeServerSession,
+  setSessionExpiredHandler,
+  type SessionEndReason,
+} from "../api/client";
+import { clearCachedPolicy } from "../api/policy";
 import { clearUserCache } from "../cache/cache-store";
 import { unregisterPushTokens } from "../push/push-registration";
 import { clearSelectedStudent } from "../student/selected-store";
@@ -34,14 +42,20 @@ export type MobileSession = {
 export type AuthUser = MobileSession & { email: string; resolution: PersonaResolution };
 
 type LoginResponse = { user: { email?: string }; accessToken: string; refreshToken: string };
-type Outcome = { ok: true } | { ok: false; message: string };
+type Outcome = { ok: true } | { ok: false; message: string; takeoverRequired?: boolean };
+
+/** Sunucunun tek aktif oturum uyarısı (web ile aynı metin). */
+export const TAKEOVER_NOTICE = "Oturumunuz başka bir cihazda açıldığı için kapatıldı. Devam etmek için yeniden giriş yapın.";
 
 type AuthState = {
   /** "error": token var ama oturum doğrulanamadı (ağ/sunucu) — token'lar KORUNUR, `retry` ile tekrar denenir. */
   status: "loading" | "signedOut" | "signedIn" | "error";
   user: AuthUser | null;
   error: string | null;
-  login: (email: string, password: string) => Promise<Outcome>;
+  /** Çıkışın nedeni kullanıcıya gösterilecekse (ör. oturum devralındı). */
+  notice: string | null;
+  /** takeover=true: "başka cihazda aktif" uyarısı onaylandı, diğer oturum kapatılır. */
+  login: (email: string, password: string, takeover?: boolean) => Promise<Outcome>;
   logout: () => Promise<void>;
   retry: () => void;
 };
@@ -57,10 +71,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<AuthState["status"]>("loading");
   const [user, setUser] = useState<AuthUser | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
-  const signOutLocally = useCallback(() => {
+  const signOutLocally = useCallback((reason?: SessionEndReason) => {
     setUser(null);
     setError(null);
+    setNotice(reason === "taken_over" ? TAKEOVER_NOTICE : null);
     setStatus("signedOut");
   }, []);
 
@@ -100,14 +116,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       status,
       user,
       error,
-      async login(email, password) {
-        const res = await apiPost<LoginResponse>("/api/v1/auth/login", { email, password });
+      notice,
+      async login(email, password, takeover = false) {
+        const res = await apiPost<LoginResponse>("/api/v1/auth/login", {
+          email,
+          password,
+          clientSupportsTakeover: true,
+          takeover,
+        });
         if (!res.ok) {
           const locale = getActiveLocale();
+          if (res.error.code === "SESSION_ACTIVE_ELSEWHERE") {
+            return { ok: false, message: res.error.message, takeoverRequired: true };
+          }
           if (res.error.code === "UNAUTHORIZED") return { ok: false, message: lookup(locale, "login.badCredentials") };
           if (res.error.code === "VALIDATION_ERROR") return { ok: false, message: lookup(locale, "login.badInput") };
           return { ok: false, message: res.error.message };
         }
+        setNotice(null);
         await setTokens(res.data.accessToken, res.data.refreshToken);
         const sessionEmail = res.data.user.email ?? email;
         await setStoredEmail(sessionEmail);
@@ -124,6 +150,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const signedOutUserId = user?.userId ?? null;
         // Önce bu cihazın push token'ları (oturum varken) devre dışı bırakılır.
         await unregisterPushTokens();
+        // Tenant-anahtarlı policy/marka önbelleği çıkışta silinir — sonraki
+        // kullanıcı (başka kurum dahil) önceki kararı/markayı göremez.
+        if (user) await clearCachedPolicy(user.tenantId, user.userId);
         await endLocalSession();
         await clearStoredEmail();
         // Veli çocuk-seçimi persist'i temizlenir (paylaşımlı cihaz hijyeni).
@@ -138,7 +167,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         void loadSession(user?.email ?? "");
       },
     }),
-    [status, user, error, loadSession, signOutLocally]
+    [status, user, error, notice, loadSession, signOutLocally]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -21,6 +21,8 @@ export type NotifyAdminsOptions = {
    * Örn. paymentId — tarama her çalıştığında spam engeli.
    */
   dedupeKey?: string;
+  /** Tekilleştirme penceresi (varsayılan 24 saat). Olay başına tek bildirim için uzun tutulur. */
+  windowMs?: number;
   /** Hedef roller (varsayılan SCHOOL_ADMIN + SUPER_ADMIN). Personel bildirimleri yalnız SUPER_ADMIN. */
   roles?: AppRole[];
 };
@@ -59,6 +61,7 @@ export async function notifyAdmins(
           title: notification.title,
           body: notification.body,
           dedupeKey: options?.dedupeKey,
+          windowMs: options?.windowMs,
         })
       )
     );

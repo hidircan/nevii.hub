@@ -30,6 +30,7 @@ export async function createTrialLesson(input: {
   tenantId: string;
   name: string;
   phone: string;
+  parentName?: string;
   instrument: Instrument;
   branchId: BranchId;
   teacherId: string;
@@ -45,6 +46,7 @@ export async function createTrialLesson(input: {
     tenantId: input.tenantId,
     name: input.name,
     phone: input.phone,
+    parentName: input.parentName?.trim() || undefined,
     instrument: input.instrument,
     branchId: input.branchId,
     teacherId: input.teacherId,
@@ -65,6 +67,7 @@ export async function createTrialLesson(input: {
         tenantId: input.tenantId,
         name: row.name,
         phone: row.phone,
+        parentName: row.parentName ?? null,
         instrument: row.instrument,
         branchId: row.branchId,
         teacherId: row.teacherId,
@@ -120,10 +123,66 @@ export async function updateTrialLessonStatus(
   return pub;
 }
 
+/** Düzenlenebilir alanlar — `undefined` alan dokunulmaz (kısmi güncelleme). */
+export type TrialLessonPatch = Partial<
+  Pick<TrialLesson, "name" | "phone" | "parentName" | "instrument" | "branchId" | "teacherId" | "startAt" | "endAt" | "durationMinutes" | "notes">
+> & { resultNotes?: string; resultNotesAt?: string; resultNotesByUserId?: string };
+
+/** Kısmi güncelleme; json/db aynı davranış. Dönüşüm/statü alanlarına dokunmaz. */
+export async function updateTrialLesson(tenantId: string, id: string, patch: TrialLessonPatch): Promise<TrialLesson | null> {
+  const defined = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)) as TrialLessonPatch;
+  if (isDbMode) {
+    const { prisma } = await import("./db");
+    const r = await prisma.trialLesson.findFirst({ where: { id, tenantId } });
+    if (!r) return null;
+    const u = await prisma.trialLesson.update({
+      where: { id },
+      data: {
+        ...defined,
+        ...(defined.startAt ? { startAt: new Date(defined.startAt) } : {}),
+        ...(defined.endAt ? { endAt: new Date(defined.endAt) } : {}),
+        ...(defined.resultNotesAt ? { resultNotesAt: new Date(defined.resultNotesAt) } : {}),
+      },
+    });
+    return mapDb(u);
+  }
+  const all = await loadAll();
+  const idx = all.findIndex((t) => t.id === id && t.tenantId === tenantId);
+  if (idx < 0) return null;
+  all[idx] = { ...all[idx], ...defined, updatedAt: new Date().toISOString() };
+  await saveAll(all);
+  const { tenantId: _t, ...pub } = all[idx];
+  void _t;
+  return pub;
+}
+
+/**
+ * Deneme dersini kalıcı siler (sahip emri 2026-09-28: satır her zaman
+ * silinebilir). json/db aynı davranış. Bağlı ÖĞRENCİ kaydına dokunmaz —
+ * yalnız deneme satırı gider; öğrencideki `convertedFromTrialId` iz olarak
+ * kalır. İmza nüshası olan evraklar (varsa) arşiv niteliğiyle korunur.
+ */
+export async function deleteTrialLesson(tenantId: string, id: string): Promise<boolean> {
+  if (isDbMode) {
+    const { prisma } = await import("./db");
+    const r = await prisma.trialLesson.findFirst({ where: { id, tenantId } });
+    if (!r) return false;
+    await prisma.trialLesson.delete({ where: { id } });
+    return true;
+  }
+  const all = await loadAll();
+  const idx = all.findIndex((t) => t.id === id && t.tenantId === tenantId);
+  if (idx < 0) return false;
+  all.splice(idx, 1);
+  await saveAll(all);
+  return true;
+}
+
 function mapDb(r: {
   id: string;
   name: string;
   phone: string;
+  parentName?: string | null;
   instrument: string;
   branchId: string;
   teacherId: string;
@@ -132,7 +191,12 @@ function mapDb(r: {
   durationMinutes: number;
   status: string;
   convertedStudentId: string | null;
+  convertedAt: Date | null;
+  convertedByUserId: string | null;
   notes: string | null;
+  resultNotes?: string | null;
+  resultNotesAt?: Date | null;
+  resultNotesByUserId?: string | null;
   createdBy: string;
   createdAt: Date;
   updatedAt: Date;
@@ -141,6 +205,7 @@ function mapDb(r: {
     id: r.id,
     name: r.name,
     phone: r.phone,
+    parentName: r.parentName ?? undefined,
     instrument: r.instrument as Instrument,
     branchId: r.branchId,
     teacherId: r.teacherId,
@@ -149,7 +214,12 @@ function mapDb(r: {
     durationMinutes: r.durationMinutes,
     status: r.status as TrialLessonStatus,
     convertedStudentId: r.convertedStudentId ?? undefined,
+    convertedAt: r.convertedAt?.toISOString() ?? undefined,
+    convertedByUserId: r.convertedByUserId ?? undefined,
     notes: r.notes ?? undefined,
+    resultNotes: r.resultNotes ?? undefined,
+    resultNotesAt: r.resultNotesAt?.toISOString() ?? undefined,
+    resultNotesByUserId: r.resultNotesByUserId ?? undefined,
     createdBy: r.createdBy,
     createdAt: r.createdAt.toISOString(),
     updatedAt: r.updatedAt.toISOString(),
@@ -187,4 +257,42 @@ export async function getTrialLesson(tenantId: string, id: string): Promise<Tria
   const { tenantId: _t, ...p } = t;
   void _t;
   return p;
+}
+
+/**
+ * Deneme → öğrenci dönüşümünü işaretler. Aynı deneme ikinci kez dönüştürülemez
+ * (ilk dönüşüm korunur, `false` döner) — çift kayıt/yanlış atıf olmaz.
+ */
+export async function markTrialConverted(
+  tenantId: string,
+  id: string,
+  input: { studentId: string; userId: string; at?: string }
+): Promise<boolean> {
+  const at = input.at ?? new Date().toISOString();
+  if (isDbMode) {
+    const { prisma } = await import("./db");
+    const res = await prisma.trialLesson.updateMany({
+      where: { id, tenantId, convertedStudentId: null },
+      data: {
+        convertedStudentId: input.studentId,
+        convertedAt: new Date(at),
+        convertedByUserId: input.userId,
+        status: "will_continue",
+      },
+    });
+    return res.count === 1;
+  }
+  const all = await loadAll();
+  const idx = all.findIndex((t) => t.id === id && t.tenantId === tenantId);
+  if (idx < 0 || all[idx].convertedStudentId) return false;
+  all[idx] = {
+    ...all[idx],
+    convertedStudentId: input.studentId,
+    convertedAt: at,
+    convertedByUserId: input.userId,
+    status: "will_continue",
+    updatedAt: at,
+  };
+  await saveAll(all);
+  return true;
 }

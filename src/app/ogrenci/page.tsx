@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { redirect } from "next/navigation";
 import { PORTAL_RECORD_MISSING_REDIRECT } from "@/lib/auth/portal-record-missing";
 import {
@@ -16,7 +16,10 @@ import {
 } from "lucide-react";
 import { addDays, isSameDay, parseISO } from "date-fns";
 import { requireSessionContext } from "@/lib/auth/session";
-import { readData } from "@/lib/store";
+import { readStudentScope } from "@/lib/store";
+import { listTerminalContractIds } from "@/lib/contracts";
+import { effectiveEnrollments, enrollmentLabel } from "@/lib/student-enrollments";
+import { splitStudentDebt } from "@/lib/payment-profile";
 import { listAnnouncementsForUserTool, listCurriculumForStudentTool } from "@/lib/services";
 import { listNotificationsForUser } from "@/lib/notifications";
 import { listClosedDays } from "@/lib/closed-day-overrides";
@@ -28,12 +31,15 @@ import { LessonStatusBadge } from "@/components/lesson-status-badge";
 import { AttendanceCalendarPanel } from "@/components/attendance-calendar-panel";
 import { AssistantPageContext } from "@/components/ai/assistant-page-context";
 import { PayNowButton } from "@/components/pay-now-button";
+import { PortalStudentSwitcher } from "@/components/portal-student-switcher";
+import { getPortalStudentContext, type PortalSibling } from "@/lib/portal-context";
 import { formatDateTime, formatDate, formatTime, formatMoney } from "@/lib/utils";
 import { resolveLessonFinalStatus } from "@/lib/lesson-live-status";
 import { ownStudentWeekLessons } from "@/lib/student-portal-scope";
 import { normalizeWeekStart, previousWeekParam, nextWeekParam, todayWeekParam, isCurrentWeek } from "@/lib/program-week";
 import { weeklyClosedDaysForTerm, resolveDayStatus } from "@/lib/attendance-calendar";
 import { ProgramLiveRefresh } from "@/components/program-live-refresh";
+import { liveRefreshIntervalMs } from "@/lib/env/live-refresh";
 
 export const dynamic = "force-dynamic";
 
@@ -59,9 +65,9 @@ function phoneToWa(phone: string) {
 export default async function OgrenciPortalPage({
   searchParams,
 }: {
-  searchParams: Promise<{ week?: string }>;
+  searchParams: Promise<{ week?: string; egitim?: string }>;
 }) {
-  const { week } = await searchParams;
+  const { week, egitim } = await searchParams;
   let session;
   try {
     session = await requireSessionContext();
@@ -75,15 +81,18 @@ export default async function OgrenciPortalPage({
     redirect("/login?next=/ogrenci");
   }
 
-  const data = await readData();
-  const studentId = session.studentId;
-  if (!studentId) redirect(PORTAL_RECORD_MISSING_REDIRECT);
-  const student = data.students.find((s) => s.id === studentId);
-  if (!student) redirect(PORTAL_RECORD_MISSING_REDIRECT);
-
-  // Pasif/arşivlenmiş öğrenci: portala girebilir ama HİÇBİR ders/ödev/materyal/
-  // rapor verisi görmez — yalnız güvenli, açıklayıcı bir ekran. Veri sızıntısı yok.
-  if (!student.active) {
+  // 10. tur iş #1 — portal bağlamı statik JWT `studentId`'den DEĞİL, aktif
+  // erişim + aktif öğrenci çözümleyiciden gelir. Aynı velinin aktif ve pasif
+  // öğrencileri birlikte varsa varsayılan AKTİF öğrencidir; bayat pasif
+  // tercih sessizce yok sayılır (pasif kilitlenme yok). Admin önizleme
+  // (SCHOOL_ADMIN/SUPER_ADMIN) eski yolu korur.
+  const isAdminPreview = session.role === "SCHOOL_ADMIN" || session.role === "SUPER_ADMIN";
+  let siblings: PortalSibling[] = [];
+  const resolution = isAdminPreview ? null : await getPortalStudentContext(session);
+  if (resolution && resolution.status === "no-access") redirect(PORTAL_RECORD_MISSING_REDIRECT);
+  if (resolution && resolution.status === "passive-only") {
+    // Pasif/arşivlenmiş öğrenci: portala girebilir ama HİÇBİR ders/ödev/materyal/
+    // rapor verisi görmez — yalnız güvenli, açıklayıcı bir ekran. Veri sızıntısı yok.
     return (
       <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-emerald-50 to-slate-50 px-4">
         <Card className="max-w-sm text-center">
@@ -100,15 +109,28 @@ export default async function OgrenciPortalPage({
       </div>
     );
   }
+  if (resolution) siblings = resolution.siblings;
+  const resolvedStudentId = resolution ? resolution.studentId : session.studentId;
+  if (!resolvedStudentId) redirect(PORTAL_RECORD_MISSING_REDIRECT);
+  // DB egress: yalnız bu öğrencinin dilimi (ders/ödeme/telafi satırları + referans veri). Aşağıdaki
+  // her ağır erişim zaten `student.id` ile süzülü; sayfa sekme açıkken 5 dk'da bir yenilenir
+  // (ProgramLiveRefresh) — eskiden her yenileme kurumun TÜM verisini okuyordu.
+  const data = await readStudentScope(resolvedStudentId);
+  const student = data.students.find((s) => s.id === resolvedStudentId);
+  // Savunma: çözümleyici aktif öğrenci garanti eder; yarış durumunda pasif
+  // veri ASLA açılmaz.
+  if (!student || (!isAdminPreview && (!student.active || student.deletedAt))) {
+    redirect(PORTAL_RECORD_MISSING_REDIRECT);
+  }
 
   const teacher = data.teachers.find((t) => t.id === student.teacherId);
 
   // ÖNCELİK 4 (devam) — öğrenci portalı haftalık ders programı. Kimlik
-  // KESİN olarak session'dan gelir (`student.id` === `session.studentId`,
-  // yukarıda çözüldü) — client'tan hiçbir studentId kabul edilmez, bu
-  // yüzden URL/API manipülasyonuyla başka bir öğrencinin (veya başka bir
-  // tenant'ın, zaten `readData()` tenant-scoped) programına erişim mümkün
-  // değildir. Dönem-bazlı gün seti mevcut ortak mantıktan (attendance-calendar.ts)
+  // KESİN olarak sunucu tarafında çözülür (aktif erişim + aktif öğrenci,
+  // yukarıda `getPortalStudentContext`) — client'tan hiçbir studentId kabul
+  // edilmez, bu yüzden URL/API manipülasyonuyla başka bir öğrencinin (veya
+  // başka bir tenant'ın, zaten `readData()` tenant-scoped) programına erişim
+  // mümkün değildir. Dönem-bazlı gün seti mevcut ortak mantıktan (attendance-calendar.ts)
   // gelir — tekrar yazılmadı: Güz'de Pazartesi kapalı/hafta sonu açık, Yaz'da
   // tersi. Resmî tatil/özel kapalı gün önceliği de aynı `resolveDayStatus`
   // ile, admin/veli/takvim ekranlarıyla birebir aynı kuraldan okunur.
@@ -121,16 +143,21 @@ export default async function OgrenciPortalPage({
   const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)).filter(
     (d) => !closedWeekdays.includes(d.getDay())
   );
+  // 2026-10-04 — çoklu eğitim: hero'da her eğitim enstrüman + öğretmeniyle; program "Tümü"/enstrüman filtreli.
+  const educations = effectiveEnrollments(student, data.teachers).filter((e) => e.active);
+  const educationInstruments = Array.from(new Set(educations.map((e) => e.instrument)));
+  const filterInstrument = egitim && educationInstruments.includes(egitim as never) ? egitim : undefined;
+  const egitimQuery = filterInstrument ? `&egitim=${encodeURIComponent(filterInstrument)}` : "";
   const weekLessons = ownStudentWeekLessons(
     data.lessons,
     student.id,
     weekStart.toISOString(),
     weekEndExclusive.toISOString()
-  );
+  ).filter((l) => !filterInstrument || l.instrument === filterInstrument);
   const closedDayOverrides = await listClosedDays(session.tenantId);
-  const prevWeekHref = `/ogrenci?week=${previousWeekParam(weekStart)}`;
-  const nextWeekHref = `/ogrenci?week=${nextWeekParam(weekStart)}`;
-  const todayWeekHref = `/ogrenci?week=${todayWeekParam(now)}`;
+  const prevWeekHref = `/ogrenci?week=${previousWeekParam(weekStart)}${egitimQuery}`;
+  const nextWeekHref = `/ogrenci?week=${nextWeekParam(weekStart)}${egitimQuery}`;
+  const todayWeekHref = `/ogrenci?week=${todayWeekParam(now)}${egitimQuery}`;
 
   const past = data.lessons
     .filter((l) => l.studentId === student.id && new Date(l.startAt) < new Date())
@@ -152,9 +179,23 @@ export default async function OgrenciPortalPage({
   // Karma Öğrenci Portalı — ödemeler, KESİN olarak `student.id`'ye (session'dan
   // çözülen) filtrelenir; başka bir öğrencinin ödeme kaydı asla görünmez.
   const payments = data.payments.filter((p) => p.studentId === student.id);
-  const unpaidPayments = payments.filter((p) => p.status !== "paid");
-  const totalOutstanding = unpaidPayments.reduce((sum, p) => sum + Math.max(p.amount - p.paidAmount, 0), 0);
-  const hasOverduePayment = unpaidPayments.some((p) => p.status === "overdue");
+  // 2026-10-04 — panelle AYNI borç kuralı (payment-profile.ts): iptal edilmiş ödeme ve iptal/yenilenmiş
+  // sözleşmenin ödenmemiş taksiti borç değildir, "Öde" de gösterilmez; sözleşmesiz borç aynen sayılır.
+  const terminalContractIds = await listTerminalContractIds(session.tenantId);
+  const debt = splitStudentDebt(payments, terminalContractIds);
+  // 2026-10-09 — çok branşlı öğrencide her ödeme hangi branşın olduğunu söyler.
+  const { listContractsForStudent } = await import("@/lib/contracts");
+  const { makePaymentBranchLabeler } = await import("@/lib/student-enrollments");
+  const portalBranchOf = makePaymentBranchLabeler({
+    students: [student],
+    teachers: data.teachers,
+    lessons: data.lessons,
+    contracts: await listContractsForStudent(session.tenantId, student.id),
+  });
+  const liveIds = new Set(debt.open.map((p) => p.id));
+  const unpaidPayments = debt.open;
+  const totalOutstanding = debt.openTotal;
+  const hasOverduePayment = debt.overdueTotal > 0;
   const nextDuePayment = [...unpaidPayments].sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0] ?? null;
   const schoolPhone = data.settings.phone;
   const contactMessage = `Merhaba, ${student.name} için ödeme durumu hakkında bilgi almak istiyorum.`;
@@ -178,14 +219,35 @@ export default async function OgrenciPortalPage({
   return (
     <div>
       <AssistantPageContext entity={{ kind: "student", id: student.id, label: student.name }} />
-      <ProgramLiveRefresh />
+      <ProgramLiveRefresh intervalMs={liveRefreshIntervalMs()} />
       <main className="mx-auto max-w-lg space-y-4 px-4 py-6">
         <Card className="glass-hero border-emerald-100 bg-[var(--hero-bg)]">
           <p className="text-xs font-medium uppercase tracking-wide text-emerald-600">Merhaba</p>
           <h1 className="mt-1 text-xl font-semibold text-[var(--hero-text)]">{student.name}</h1>
           <p className="mt-1 text-sm text-[var(--hero-text-muted)]">
-            {student.instruments.join(", ")} · Öğretmen: {teacher?.name ?? "—"}
+            {educations.length > 0
+              ? educations.map((e) => enrollmentLabel(e, data.teachers)).join(" · ")
+              : `${student.instruments.join(", ")} · Öğretmen: ${teacher?.name ?? "—"}`}
           </p>
+          {educationInstruments.length > 1 ? (
+            <nav aria-label="Eğitim filtresi" className="mt-2 flex flex-wrap gap-1.5">
+              {[undefined, ...educationInstruments].map((ins) => (
+                <Link
+                  key={ins ?? "tumu"}
+                  href={`/ogrenci?week=${todayWeekParam(weekStart)}${ins ? `&egitim=${encodeURIComponent(ins)}` : ""}`}
+                  aria-current={(ins ?? "") === (filterInstrument ?? "") ? "page" : undefined}
+                  className={`rounded-full border px-2.5 py-0.5 text-xs font-medium ${(ins ?? "") === (filterInstrument ?? "") ? "border-emerald-600 bg-emerald-600 text-white" : "border-emerald-200 text-emerald-800"}`}
+                >
+                  {ins ?? "Tümü"}
+                </Link>
+              ))}
+            </nav>
+          ) : null}
+          {siblings.length > 1 ? (
+            <div className="mt-3 border-t border-emerald-100 pt-3">
+              <PortalStudentSwitcher siblings={siblings} currentStudentId={student.id} />
+            </div>
+          ) : null}
         </Card>
 
         {/* Ödemelerim — Hero'nun hemen ardından, her zaman görünür (Karma Öğrenci Portalı kritik başarı kriteri). */}
@@ -401,7 +463,7 @@ export default async function OgrenciPortalPage({
                       <p className="text-sm font-semibold text-[var(--color-text)]">{formatDate(day.toISOString(), "EEEE d MMM")}</p>
                       <div className="flex items-center gap-1.5">
                         {dayStatus.status === "closed" ? (
-                          <span className="rounded-full bg-black px-2 py-0.5 text-[10px] font-semibold text-white" title={dayStatus.label}>
+                          <span className="rounded-full bg-black px-2 py-0.5 text-[10px] font-semibold text-[#fff]" title={dayStatus.label}>
                             Kapalı
                           </span>
                         ) : null}
@@ -427,7 +489,7 @@ export default async function OgrenciPortalPage({
                               </p>
                               <p className="text-[var(--color-text-muted)]">{lessonTeacher?.name ?? "—"}</p>
                               <div className="mt-1 flex flex-wrap items-center gap-1">
-                                <LessonStatusBadge status={resolveLessonFinalStatus(l, now)} />
+                                <LessonStatusBadge status={resolveLessonFinalStatus(l, now)} plannedMakeup={l.type === "makeup"} />
                               </div>
                             </div>
                           );
@@ -453,6 +515,8 @@ export default async function OgrenciPortalPage({
               canEdit={false}
               readOnly
               showWeekdayLabels={false}
+              branches={educations.map((e) => ({ id: e.id, label: e.instrument }))}
+              initialBranchId={educations.find((e) => e.instrument === filterInstrument)?.id ?? educations[0]?.id}
             />
           </Card>
         </section>
@@ -504,19 +568,24 @@ export default async function OgrenciPortalPage({
                   <Card key={p.id} className="!p-4">
                     <div className="flex items-center justify-between gap-2">
                       <div>
-                        <p className="text-sm font-medium text-[var(--color-text)]">{p.description}</p>
+                        <p className="text-sm font-medium text-[var(--color-text)]">
+                          {portalBranchOf(p) ? `${portalBranchOf(p)} · ` : ""}
+                          {p.description}
+                        </p>
                         <p className="text-xs text-[var(--color-text-muted)]">
                           {p.status === "partial"
                             ? `Ödenen: ${formatMoney(p.paidAmount)} · Kalan: ${formatMoney(remaining)}`
                             : formatMoney(p.amount)}
                         </p>
-                        {p.status !== "paid" ? (
+                        {liveIds.has(p.id) ? (
                           <p className="mt-0.5 text-xs text-[var(--color-text-muted)]">Vade: {formatDate(p.dueDate)}</p>
+                        ) : p.status !== "paid" && p.status !== "voided" ? (
+                          <p className="mt-0.5 text-xs text-[var(--color-text-muted)]">Yenilenen/iptal edilen sözleşmeye ait — borç değildir.</p>
                         ) : null}
                       </div>
                       <Badge status={p.status} />
                     </div>
-                    {p.status !== "paid" && p.status !== "voided" ? (
+                    {liveIds.has(p.id) ? (
                       <div className="mt-3">
                         <PayNowButton paymentId={p.id} contactWaLink={contactWaLink} label="Öde" />
                       </div>
@@ -551,7 +620,7 @@ export default async function OgrenciPortalPage({
                 <Card key={l.id} className="!p-4">
                   <div className="flex items-start justify-between gap-2">
                     <p className="font-medium text-[var(--color-text)]">{formatDateTime(l.startAt)}</p>
-                    <LessonStatusBadge status={resolveLessonFinalStatus(l, now)} />
+                    <LessonStatusBadge status={resolveLessonFinalStatus(l, now)} plannedMakeup={l.type === "makeup"} />
                   </div>
                   <p className="text-sm text-[var(--color-text-muted)]">{l.instrument}</p>
                 </Card>

@@ -76,12 +76,12 @@ export const TOOL_REGISTRY: Record<AgentToolName, ToolDefinition<any, any>> = {
   confirmMakeupLesson: {
     name: "confirmMakeupLesson",
     description:
-      "Confirm a suggested makeup slot and schedule the lesson. A non-empty decisionNote " +
-      "(why this slot/decision) is REQUIRED — starts the 30-day SLA clock.",
+      "Confirm a suggested makeup slot and schedule the lesson (past dates allowed up to the request's " +
+      "expiry). decisionNote (why this slot) is optional — starts the 30-day SLA clock.",
     inputSchema: z.object({
       requestId: z.string().min(1),
       slot: makeupSlotSchema,
-      decisionNote: z.string().min(1, "Karar notu zorunludur"),
+      decisionNote: z.string().max(1000).optional(),
     }),
     outputSchema: z.object({
       requestId: z.string(),

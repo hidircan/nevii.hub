@@ -1,8 +1,9 @@
-import Link from "next/link";
+import Link from "@/components/link";
+import { payoutNetAmount } from "@/lib/payout-ledger";
 import { redirect } from "next/navigation";
 import { PORTAL_RECORD_MISSING_REDIRECT } from "@/lib/auth/portal-record-missing";
 import { BackButton } from "@/components/back-button";
-import { readData } from "@/lib/store";
+import { readPayoutWindow } from "@/lib/store";
 import { requireSessionContext } from "@/lib/auth/session";
 import { ownPayouts } from "@/lib/teacher-portal-scope";
 import { Badge, Card } from "@/components/ui";
@@ -19,7 +20,9 @@ export default async function TeacherOwnPayoutsPage() {
     redirect("/login?next=/ogretmen/hakedis");
   }
 
-  const data = await readData();
+  // DB egress: yalnız öğretmenler + kayıtlı hakedişler gerekir — ders penceresi boş (tam readData yerine).
+  const now = new Date().toISOString();
+  const data = await readPayoutWindow(now, now);
   const teacherId = session.teacherId || "t2";
   const teacher = data.teachers.find((t) => t.id === teacherId) ?? data.teachers[0];
   if (!teacher) redirect(PORTAL_RECORD_MISSING_REDIRECT);
@@ -53,7 +56,7 @@ export default async function TeacherOwnPayoutsPage() {
                       {formatDate(p.periodStart)} – {formatDate(p.periodEnd)}
                     </p>
                     <p className="mt-1 text-xs text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
-                      {p.totalMinutes} dk · {formatMoney(p.totalAmount)}
+                      {p.totalMinutes} dk · {formatMoney(payoutNetAmount(p))}
                     </p>
                     {p.status === "paid" && p.paidAt ? (
                       <p className="mt-0.5 text-[11px] text-[var(--color-text-muted)]">

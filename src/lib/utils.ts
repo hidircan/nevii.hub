@@ -10,18 +10,20 @@ import {
   isWithinInterval,
 } from "date-fns";
 import { tr } from "date-fns/locale";
+import { toWallClockDate } from "./timezone";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+// Görünen tarih/saat HER ZAMAN kurum saat diliminde (sunucu UTC'de de) — bkz. toWallClockDate.
 export function formatDate(iso: string, pattern = "d MMM yyyy") {
-  return format(parseISO(iso), pattern, { locale: tr });
+  return format(toWallClockDate(parseISO(iso)), pattern, { locale: tr });
 }
 
 /** Türkçe okunur tarih+saat — örn. "12 Ağustos 2026, 18:35". */
 export function formatDateTime(iso: string) {
-  return format(parseISO(iso), "d MMMM yyyy, HH:mm", { locale: tr });
+  return format(toWallClockDate(parseISO(iso)), "d MMMM yyyy, HH:mm", { locale: tr });
 }
 
 /** Ödeme kaynağı — kullanıcıya görünen kısa etiket. */
@@ -91,7 +93,7 @@ export function formatPaymentCollectionSummary(input: {
 }
 
 export function formatTime(iso: string) {
-  return format(parseISO(iso), "HH:mm", { locale: tr });
+  return format(toWallClockDate(parseISO(iso)), "HH:mm", { locale: tr });
 }
 
 /** "voided" (ders iptaliyle geri alınmış otomatik tahsilat) asla bekleyen/borç sayılmaz — "paid" da değildir ama açık borç da değildir. */
@@ -134,7 +136,7 @@ export function statusLabel(status: string) {
     late: "Geç kaldı",
     cancelled_by_school: "Okul iptal",
     pending: "Bekliyor",
-    suggested: "Slot önerildi",
+    suggested: "Saat önerildi",
     awaiting_info: "Bilgi bekleniyor",
     confirmed: "Onaylandı",
     completed: "Tamamlandı",
@@ -150,6 +152,7 @@ export function statusLabel(status: string) {
     no_show: "Gelmedi",
     regular: "Normal",
     makeup: "Telafi",
+    makeup_planned: "Planlanan telafi",
     trial: "Deneme",
     group: "Grup",
     draft: "Taslak",
@@ -192,6 +195,7 @@ export function statusColor(status: string) {
     /* P0 (2026-09-05) — Telafi her yerde SARI, İşlendi KIRMIZI (owner talimatı;
        tek kaynak ATTENDANCE_CALENDAR_COLORS ile aynı anlam/renk dili). */
     makeup: "bg-amber-100 text-amber-900",
+    makeup_planned: "bg-orange-100 text-orange-900",
     processed: "bg-rose-100 text-rose-900",
     /**
      * P0-F (2026-09-02) — Yoklama Raporu'nda Gelmedi/Mazeretli, paylaşılan

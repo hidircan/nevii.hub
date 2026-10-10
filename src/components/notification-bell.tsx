@@ -9,12 +9,12 @@
  * Tıklanınca okundu + güvenli dahili rotaya gider (notification-href).
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/link";
 import { useRouter } from "next/navigation";
 import { Bell, Check, CheckCheck } from "lucide-react";
 import { formatDateTime } from "@/lib/utils";
 import { actionMarkNotificationRead } from "@/lib/actions";
-import { resolveNotificationHref } from "@/lib/notification-href";
+import { presentNotificationBody, resolveNotificationHref } from "@/lib/notification-href";
 import { notificationSettingsPathForRole, notificationListPathForRole } from "@/lib/auth/role-routes";
 import type { Notification } from "@/lib/types";
 import type { AppRole } from "@/lib/auth/types";
@@ -47,9 +47,13 @@ export function NotificationBell({ role }: { role: AppRole }) {
   }, []);
 
   useEffect(() => {
+    let last = Date.now();
     const timer = setTimeout(() => void refresh(), 0);
     function onFocus() {
-      if (document.visibilityState === "visible") void refresh();
+      // Sekmeye dönüşte visibilitychange + focus birlikte gelir; 60 sn içinde yeniden sorulmaz (Vercel Active CPU).
+      if (document.visibilityState !== "visible" || Date.now() - last < 60_000) return;
+      last = Date.now();
+      void refresh();
     }
     document.addEventListener("visibilitychange", onFocus);
     window.addEventListener("focus", onFocus);
@@ -117,7 +121,7 @@ export function NotificationBell({ role }: { role: AppRole }) {
         {unread.length > 0 ? (
           <span
             className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold"
-            style={{ background: "var(--color-primary)", color: "var(--color-primary-contrast, #fff)" }}
+            style={{ background: "var(--color-primary)", color: "var(--color-text-inverted)" }}
           >
             {unread.length > 9 ? "9+" : unread.length}
           </span>
@@ -181,7 +185,7 @@ export function NotificationBell({ role }: { role: AppRole }) {
                       {n.title}
                     </p>
                     <p className="mt-0.5 line-clamp-2 text-xs" style={{ color: "var(--color-text-muted)" }}>
-                      {n.body}
+                      {presentNotificationBody(n.body)}
                     </p>
                     <p className="mt-1 text-[11px]" style={{ color: "var(--color-text-muted)" }}>
                       {formatDateTime(n.createdAt)}

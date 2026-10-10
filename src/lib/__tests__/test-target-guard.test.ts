@@ -11,6 +11,7 @@ import {
   assertDbStoreMode,
   assertMigrationSafeConnection,
   assertNotProductionRuntime,
+  assertSeedTarget,
   assertTestDatabaseTarget,
   classifyDatabaseTarget,
   missingEnvNames,
@@ -18,6 +19,11 @@ import {
   TEST_SUPABASE_REF,
   productionLeakWarnings,
 } from "../env/test-target-guard";
+
+// Uzak test DB'si yok (local-first); varsayılan TEST_SUPABASE_REF boştur. Testler uydurma bir test ref'iyle çalışır.
+vi.hoisted(() => {
+  process.env.TEST_SUPABASE_REF = "testref0000000000000";
+});
 
 const PROD_POOLER = `postgresql://postgres.${PRODUCTION_SUPABASE_REF}:redacted@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres`;
 const TEST_POOLER_SESSION = `postgresql://postgres.${TEST_SUPABASE_REF}:redacted@aws-0-ap-south-1.pooler.supabase.com:5432/postgres`;
@@ -43,6 +49,21 @@ describe("classifyDatabaseTarget", () => {
   it("doğrudan db.<ref>.supabase.co host'undan da ref'i tanır", () => {
     expect(classifyDatabaseTarget(TEST_DIRECT).classification).toBe("test");
     expect(classifyDatabaseTarget(PROD_DIRECT).classification).toBe("production");
+  });
+
+  it("geçiş sonrası: canlı proje ve gerçek veri taşıyan eski test projesi production sayılır", () => {
+    const pooler = (ref: string) => `postgresql://postgres.${ref}:redacted@aws-1-eu-central-1.pooler.supabase.com:5432/postgres`;
+    expect(classifyDatabaseTarget(pooler("wsbucznpujcfzhitzrbl")).classification).toBe("production");
+    expect(classifyDatabaseTarget(pooler("vxzewyiwfshobjizzetw")).classification).toBe("production");
+    expect(() => assertTestDatabaseTarget(pooler("vxzewyiwfshobjizzetw"))).toThrow(/PRODUCTION/);
+  });
+
+  it("TEST_SUPABASE_REF verilmezse hiçbir uzak hedef 'test' sayılmaz", async () => {
+    vi.resetModules();
+    delete process.env.TEST_SUPABASE_REF;
+    const guard = await import("../env/test-target-guard");
+    expect(guard.TEST_SUPABASE_REF).toBe("");
+    expect(guard.classifyDatabaseTarget(TEST_POOLER_SESSION).classification).toBe("unknown");
   });
 
   it("bilinmeyen host'u 'unknown' sayar (güvenli varsayım yapmaz)", () => {
@@ -113,6 +134,19 @@ describe("assertTestDatabaseTarget — fail-closed", () => {
       expect(message).not.toContain("redacted");
       expect(message).not.toContain(PRODUCTION_SUPABASE_REF);
     }
+  });
+});
+
+describe("assertSeedTarget — demo/seed yalnız yerel/test DB'ye yazar", () => {
+  it("yerel, test ve DATABASE_URL'siz (json) çalışmayı kabul eder", () => {
+    expect(assertSeedTarget("postgresql://me@127.0.0.1:5432/neviihub_dev").classification).toBe("local");
+    expect(assertSeedTarget(TEST_POOLER_SESSION).classification).toBe("test");
+    expect(assertSeedTarget(undefined).classification).toBe("missing");
+  });
+  it("production, gerçek veri taşıyan eski test projesi ve belirsiz hedefi REDDEDER", () => {
+    expect(() => assertSeedTarget(PROD_POOLER)).toThrow(/REDDEDİLDİ/);
+    expect(() => assertSeedTarget("postgresql://postgres.vxzewyiwfshobjizzetw:redacted@aws-1-ap-south-1.pooler.supabase.com:6543/postgres")).toThrow(/REDDEDİLDİ/);
+    expect(() => assertSeedTarget("postgresql://u:redacted@some-other-db.example.com:5432/app")).toThrow(/REDDEDİLDİ/);
   });
 });
 

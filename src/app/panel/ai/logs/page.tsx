@@ -4,7 +4,7 @@ import { listAiAuditLogs } from "@/lib/ai/audit-hook";
 import { AiCapabilityLogTable, type CapabilityLogRow } from "@/components/ai/ai-capability-log-table";
 import { requireSessionContext } from "@/lib/auth/session";
 import { redirect } from "next/navigation";
-import Link from "next/link";
+import Link from "@/components/link";
 import { formatDateTime } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";

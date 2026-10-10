@@ -1,4 +1,13 @@
 import type { DemoSeedInput, DemoSeedResult } from "./demo-seed";
+import type {
+  DashboardData,
+  LessonWindowData,
+  PaymentsPageData,
+  PayoutWindowData,
+  ReferenceData,
+  StudentListData,
+  StudentScopeData,
+} from "./reference-data";
 import { STORE_MODE } from "./config";
 import * as jsonStore from "./store-json";
 import * as dbStore from "./store-db";
@@ -19,10 +28,13 @@ import type {
   Student,
   StudentPaymentPauseState,
   StudentProfilePatch,
+  StudentDeletionState,
+  TeacherDeletionState,
   StudentTermType,
   Teacher,
   TeacherFeeRule,
   TeacherProfilePatch,
+  TeacherPayout,
 } from "./types";
 import type { BranchImportRow } from "./import/branches";
 import type { TeacherImportRow } from "./import/teachers";
@@ -31,6 +43,7 @@ import type { StudentImportRow } from "./import/students";
 import type { ImportCommitResult } from "./import/commit-result";
 import type { AcademicTermDates } from "./academic-term-dates";
 import type { CreateSeriesResult, SeriesCancelResult, SeriesParams } from "./lesson-series";
+import type { LessonDeletionPlan, LessonEditScope, LessonRevisionInput, LessonRevisionResult } from "./lesson-scope-edit";
 import type {
   FeeRuleInput,
   FeeRuleMutationResult,
@@ -44,22 +57,27 @@ import type { LessonScheduleUpdateOutcome } from "./lesson-update";
 import type { LessonTimeCorrection, LessonLiveUpdateResult } from "./lesson-live-status";
 
 type StoreApi = {
+  // DB egress (2026-09-30): yazma sonucunu hiçbir çağıranın kullanmadığı mutasyonlar `AppData | void`
+  // döner — json/memory veriyi zaten elinde tuttuğu için döndürebilir, db yazmadan sonra kurumun
+  // tamamını YENİDEN OKUMAZ. Genel sarmalayıcılar (aşağıda) `void` döner; sonuca ihtiyaç varsa okuyun.
   readData: () => Promise<AppData>;
-  resetData: () => Promise<AppData>;
-  resetToCleanTemplate: () => Promise<AppData>;
+  resetData: () => Promise<AppData | void>;
+  resetToCleanTemplate: () => Promise<AppData | void>;
   markAttendance: (input: {
     lessonId: string;
     status: AttendanceStatus;
     reason?: string;
-  }) => Promise<AppData>;
+  }) => Promise<AppData | void>;
   generateSuggestions: (requestId: string, options?: { maxSlots?: number }) => Promise<AppData>;
-  confirmSlot: (requestId: string, slot: MakeupSlot, decision: MakeupDecision) => Promise<AppData>;
-  cancelMakeup: (requestId: string, decision: MakeupDecision) => Promise<AppData>;
-  updateMakeupSlaEscalation: (requestId: string, level: number) => Promise<AppData>;
-  addStudent: (student: Omit<Student, "id" | "createdAt" | "active">) => Promise<AppData>;
-  updateStudentProfile: (studentId: string, patch: StudentProfilePatch) => Promise<AppData>;
-  setStudentPaymentPause: (studentId: string, state: StudentPaymentPauseState) => Promise<AppData>;
-  addTeacher: (teacher: Omit<Teacher, "id" | "active" | "color">) => Promise<AppData>;
+  confirmSlot: (requestId: string, slot: MakeupSlot, decision: MakeupDecision) => Promise<AppData | void>;
+  cancelMakeup: (requestId: string, decision: MakeupDecision) => Promise<AppData | void>;
+  updateMakeupSlaEscalation: (requestId: string, level: number) => Promise<AppData | void>;
+  addStudent: (student: Omit<Student, "id" | "createdAt" | "active">) => Promise<AppData | void>;
+  updateStudentProfile: (studentId: string, patch: StudentProfilePatch) => Promise<AppData | void>;
+  /** MEB Paneli — sunucu-taraflı filtre/sıralama/sayfalama (üç modda AYNI semantik). */
+  listMebStudents: (query: import("./meb-list").MebStudentQuery) => Promise<import("./meb-list").MebStudentListResult>;
+  setStudentPaymentPause: (studentId: string, state: StudentPaymentPauseState) => Promise<AppData | void>;
+  addTeacher: (teacher: Omit<Teacher, "id" | "active" | "color">) => Promise<AppData | void>;
   updateTeacherAvailability: (
     teacherId: string,
     availability: Teacher["availability"]
@@ -77,6 +95,7 @@ type StoreApi = {
     packageId: string,
     patch: import("./packages").PackagePatch
   ) => Promise<import("./packages").PackageMutationResult>;
+  deletePackage: (packageId: string, expectedUpdatedAt: string) => Promise<import("./packages").PackageDeleteResult>;
   addDiscountCampaign: (
     input: import("./discount-campaigns").DiscountCampaignInput
   ) => Promise<import("./discount-campaigns").DiscountCampaignMutationResult>;
@@ -84,16 +103,17 @@ type StoreApi = {
     campaignId: string,
     patch: import("./discount-campaigns").DiscountCampaignPatch
   ) => Promise<import("./discount-campaigns").DiscountCampaignMutationResult>;
+  deletePaymentRow: (paymentId: string) => Promise<AppData>;
   markPaymentPaid: (
     paymentId: string,
     opts?: string | import("./store-json").MarkPaymentPaidOptions
   ) => Promise<AppData>;
   updatePayment: (paymentId: string, patch: import("./store-json").UpdatePaymentPatch) => Promise<AppData>;
-  addRoom: (room: Omit<Room, "id">) => Promise<AppData>;
+  addRoom: (room: Omit<Room, "id">) => Promise<AppData | void>;
   /** ÖNCELİK 4 (devam) — oda düzenleme. */
   updateRoom: (
     roomId: string,
-    patch: Partial<Pick<Room, "name" | "capacity" | "branchId" | "instruments" | "active" | "archivedAt">>
+    patch: Partial<Pick<Room, "name" | "capacity" | "branchId" | "instruments" | "active" | "archivedAt" | "deletedAt">>
   ) => Promise<Room | null>;
   /** ÖNCELİK 4 (devam) — öğretmen arşivleme/geri alma (hard delete YOK). */
   archiveTeacher: (teacherId: string, archived: boolean) => Promise<Teacher | null>;
@@ -108,13 +128,22 @@ type StoreApi = {
     academicYearStart?: number;
     allowAvailabilityOverride?: boolean;
     overriddenByUserId?: string;
-  }) => Promise<AppData>;
+    createdByUserId?: string;
+    enrollmentId?: string;
+  }) => Promise<string>;
+  addClubSessionLessons: (rows: import("./types").Lesson[]) => Promise<void>;
+  patchClubLessons: (ids: string[], patch: import("./clubs").ClubLessonPatch) => Promise<number>;
   addPayment: (input: {
     studentId: string;
     description: string;
     amount: number;
     dueDate: string;
-  }) => Promise<AppData>;
+    id?: string;
+    source?: import("./types").PaymentSource;
+    clubMembershipId?: string;
+    installmentPeriodLabel?: string;
+    enrollmentId?: string;
+  }) => Promise<AppData | void>;
   /**
    * ÖNCELİK 4 — Yoklama Takvimi aylık planlanan tutar. studentId+month
    * (yyyy-MM) başına TEK kayıt — idempotent upsert, asla "paid" yapmaz,
@@ -125,9 +154,11 @@ type StoreApi = {
     month: string; // yyyy-MM
     amount: number;
     /** Ödeme tarihi (yyyy-MM-dd) — verilmezse ayın 1'i varsayılan kalır (mevcut davranış). */
-    dueDate?: string;
     /** Ödeme şekli (nakit/kredi kartı/havale) — verilmezse mevcut/varsayılan değer korunur. */
     method?: string;
+    /** 2026-10-09 — dönem ayı satırı branş başınadır (bkz. student-enrollments.ts EnrollmentScope). */
+    enrollmentId?: string;
+    includeUnlinked?: boolean;
   }) => Promise<{ data: AppData; paymentId: string }>;
   /** Owner policy (2026-08-30) — kayıt tamamlanma anında tahsil edilen ilk ödeme; idempotent (bkz. store-json.ts). */
   addRegistrationFirstPayment: (input: {
@@ -138,6 +169,10 @@ type StoreApi = {
     reference?: string;
     note?: string;
     receivedByUserId: string;
+    /** Bkz. Payment.firstCollectionIncludesNextMonth — kayıt ekranındaki açık seçim. */
+    firstCollectionIncludesNextMonth?: boolean;
+    /** 2026-10-09 — branş kaydı; idempotency öğrenci + branş başınadır. */
+    enrollmentId?: string;
   }) => Promise<{ data: AppData; paymentId: string }>;
   /**
    * FEATURE A — bir `StudentContract`'ın SABİT SAYIDA taksitini gerçek
@@ -154,9 +189,20 @@ type StoreApi = {
     firstPaymentCollected?: { method: string; amount: number; collectedAt: string; reference?: string; note?: string };
     /** P0 dedup fix (2026-08-30) — initial sözleşme için, kayıt sırasında zaten oluşturulan `registration_first_payment` Payment satırının id'si. Verilirse 1. taksit için YENİ satır yaratılmaz — mevcut satır contractId/installmentSequence ile bu sözleşmeye BAĞLANIR (tek gerçek Payment kaydı). */
     reuseFirstPaymentId?: string;
+    /** 2026-10-09 — sözleşmenin branş kaydı; taksit satırlarına aynen yazılır. */
+    enrollmentId?: string;
   }) => Promise<{ data: AppData; installments: ContractInstallmentView[] }>;
   /** P0 dedup fix (2026-08-30) — bir öğrencinin kayıt anında tahsil edilen ilk ödeme satırını bulur (bkz. addRegistrationFirstPayment). Sözleşme oluşturmanın bunu YENİDEN yaratması yerine BULUP yeniden kullanması için. */
-  getRegistrationFirstPayment: (studentId: string) => Promise<Payment | null>;
+  getRegistrationFirstPayment: (studentId: string, scope?: import("./student-enrollments").EnrollmentScope) => Promise<Payment | null>;
+  /** 2026-10-09 — bağsız (NULL) kayıtları tek branş kaydına bağlar (bkz. store-db.ts). */
+  linkRecordsToEnrollment: (input: {
+    studentId: string;
+    enrollmentId: string;
+    instrument?: string;
+    scope?: "student";
+    contractIds?: string[];
+    paymentIds?: string[];
+  }) => Promise<{ payments: number; lessons: number; series: number }>;
   /**
    * P0 mutasyon performansı (2026-09-07) — tam `AppData` DEĞİL, yalnız
    * güncellenmiş ders + önceki başlangıç döner (bkz. lesson-update.ts
@@ -173,7 +219,26 @@ type StoreApi = {
    * (bkz. src/lib/lesson-scope.ts). Tenant'ın tamamını OKUMAZ.
    */
   readLessonScope: (lessonId: string, targetStartAt?: string) => Promise<AppData | null>;
-  cancelLesson: (lessonId: string) => Promise<AppData>;
+  /** Dar okuma — tek öğrenci satırı; `readData().students.find(id)` ile aynı sonuç. */
+  readStudentById: (studentId: string) => Promise<Student | undefined>;
+  readLessonById: (lessonId: string) => Promise<import("./types").Lesson | undefined>;
+  readTeacherPayoutsForTeacher: (teacherId: string) => Promise<import("./types").TeacherPayout[]>;
+  readPaymentById: (paymentId: string) => Promise<import("./types").Payment | undefined>;
+  /** Dar okuma — referans dilimi (bkz. src/lib/reference-data.ts); ders/ödeme/yoklama/telafi yok. */
+  readReferenceData: () => Promise<ReferenceData>;
+  /** Dar okuma — tek öğrenci dilimi (bkz. src/lib/reference-data.ts `narrowToStudentScope`). */
+  readStudentScope: (studentId: string) => Promise<StudentScopeData>;
+  /** Dar okuma — referans veri + [from, to] penceresindeki dersler (Ders Programı). */
+  readLessonWindow: (fromIso: string, toIso: string) => Promise<LessonWindowData>;
+  /** Dar okuma — referans veri + ödeme durum alanları (Öğrenciler listesi). */
+  readStudentListData: () => Promise<StudentListData>;
+  /** Dar okuma — referans veri + tüm ödemeler + yalnız ödemelere bağlı dersler (Ödemeler). */
+  readPaymentsPageData: () => Promise<PaymentsPageData>;
+  /** Dar okuma — hakediş penceresi: [from, to] dersleri + kayıtlı hakedişler + hariç tutmalar. */
+  readPayoutWindow: (fromIso: string, toIso: string) => Promise<PayoutWindowData>;
+  /** Dar okuma — Panel özeti (bkz. reference-data.ts `DashboardData`). */
+  readDashboardData: (fromIso: string, toIso: string, nowIso: string) => Promise<DashboardData>;
+  cancelLesson: (lessonId: string) => Promise<AppData | void>;
   startLessonLive: (lessonId: string) => Promise<LessonLiveUpdateResult>;
   endLessonLive: (lessonId: string) => Promise<LessonLiveUpdateResult>;
   applyLessonOpsFlagLive: (
@@ -186,8 +251,18 @@ type StoreApi = {
     lessonId: string,
     flag: import("./lesson-ops").LessonOpsFlag,
     actorUserId: string,
-    reason?: string
+    reason?: string,
+    disruption?: import("./lesson-disruption").LessonDisruptionInput
   ) => Promise<import("./lesson-ops").ApplyLessonOpsResult>;
+  clearLessonOpsFlagLive: (
+    lessonId: string,
+    expected: import("./lesson-ops").LessonOpsFlag,
+    actorUserId: string
+  ) => Promise<import("./lesson-ops").ClearLessonOpsResult>;
+  setLessonDisruptionLive: (
+    lessonId: string,
+    patch: import("./lesson-disruption").LessonDisruptionPatch
+  ) => Promise<import("./types").Lesson | null>;
   /** Faz 2 — öğretmen yoklaması, öğrenci ops bayraklarından tamamen ayrı bir yol. */
   markTeacherAttendanceLive: (
     lessonId: string,
@@ -203,8 +278,8 @@ type StoreApi = {
     lessonId: string,
     correction: LessonTimeCorrection
   ) => Promise<LessonLiveUpdateResult>;
-  addBranch: (branch: Omit<Branch, "id">) => Promise<AppData>;
-  updateBranch: (branchId: string, patch: Partial<Omit<Branch, "id">>) => Promise<AppData>;
+  addBranch: (branch: Omit<Branch, "id">) => Promise<AppData | void>;
+  updateBranch: (branchId: string, patch: Partial<Omit<Branch, "id">>) => Promise<AppData | void>;
   importBranches: (rows: BranchImportRow[]) => Promise<ImportCommitResult>;
   importTeachers: (rows: TeacherImportRow[]) => Promise<ImportCommitResult>;
   importRooms: (rows: RoomImportRow[]) => Promise<ImportCommitResult>;
@@ -215,6 +290,11 @@ type StoreApi = {
   ) => Promise<CreateSeriesResult>;
   cancelLessonSeriesFromLesson: (lessonId: string) => Promise<SeriesCancelResult>;
   cancelEntireLessonSeries: (seriesId: string) => Promise<SeriesCancelResult>;
+  /** 2026-09-17 — hatalı planlanmış dersleri kapsamla SİL (korunan dersler atlanır). */
+  deleteLessonsScoped: (lessonId: string, scope: LessonEditScope) => Promise<LessonDeletionPlan>;
+  forceDeleteLesson: (lessonId: string) => Promise<import("./lesson-scope-edit").ForcedLessonDeletionPlan>;
+  /** 2026-09-17 — dersleri kapsamla REVİZE ET (saat/gün/süre). */
+  reviseLessonsScoped: (input: LessonRevisionInput) => Promise<LessonRevisionResult>;
   addTeacherFeeRule: (input: FeeRuleInput) => Promise<FeeRuleMutationResult>;
   updateTeacherFeeRule: (
     ruleId: string,
@@ -227,17 +307,33 @@ type StoreApi = {
     paymentMethodOverride?: TeacherPayoutPaymentMethod
   ) => Promise<CreateTeacherPayoutResult>;
   markTeacherPayoutPaid: (payoutId: string, method?: string) => Promise<MarkPayoutPaidResult>;
+  replaceTeacherPayout: (payout: TeacherPayout) => Promise<AppData | void>;
+  deleteTeacherPayout: (payoutId: string) => Promise<boolean>;
+  deleteTeacherFeeRule: (ruleId: string) => Promise<boolean>;
+  addTeacherPayoutExclusion: (x: import("./types").TeacherPayoutExclusion) => Promise<void>;
+  removeTeacherPayoutExclusion: (lessonId: string) => Promise<boolean>;
+  setTeacherPayoutPolicy: (
+    input: import("./teacher-payout").SetPayoutPolicyInput,
+    actorUserId: string
+  ) => Promise<import("./teacher-payout").SetPayoutPolicyResult>;
   updateTeacherPayoutPaymentMethod: (
     payoutId: string,
     method: TeacherPayoutPaymentMethod
   ) => Promise<UpdateTeacherPayoutPaymentMethodResult>;
   updateFeeRoundingMode: (feeRoundingMode: FeeRoundingMode) => Promise<AppData>;
+  setStudentDeletion: (studentId: string, state: StudentDeletionState) => Promise<AppData | void>;
+  hardDeleteStudent: (studentId: string) => Promise<AppData | void>;
+  setTeacherDeletion: (teacherId: string, state: TeacherDeletionState) => Promise<AppData | void>;
+  hardDeleteTeacher: (teacherId: string) => Promise<AppData | void>;
+  updatePerformanceWeights: (
+    performanceWeights: import("./performance-weights").PerformanceWeightsConfig
+  ) => Promise<AppData>;
   updateMakeupWindowDays: (makeupWindowDays: number) => Promise<AppData>;
   updateMonthlyMakeupAllowance: (monthlyMakeupAllowance: number) => Promise<AppData>;
-  updateCollectionsSettings: (collectionsSettings: CollectionsSettings) => Promise<AppData>;
+  updateCollectionsSettings: (collectionsSettings: CollectionsSettings) => Promise<AppData | void>;
   updateTermWeeklyClosedDays: (termWeeklyClosedDays: { guz: number[]; yaz: number[] }) => Promise<AppData>;
-  updateAcademicTermDates: (academicTermDates: AcademicTermDates) => Promise<AppData>;
-  updateConsentSettings: (consentSettings: ConsentSettings) => Promise<AppData>;
+  updateAcademicTermDates: (academicTermDates: AcademicTermDates) => Promise<AppData | void>;
+  updateConsentSettings: (consentSettings: ConsentSettings) => Promise<AppData | void>;
   updateSchoolLogoUrl: (logoUrl: string) => Promise<AppData>;
   getDashboardStats: (data: AppData) => ReturnType<typeof jsonStore.getDashboardStats>;
   listTenants: () => Promise<{ tenantId: string; name: string }[]>;
@@ -286,6 +382,8 @@ async function withTenantScope<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 export async function readData(): Promise<AppData> {
+  // Çalışma günü istisnaları (closedDayOverrides) her store modunun kendi readData'sında eklenir
+  // (bkz. withClosedDayOverrides) — store içi doğrulama da aynı veriyi görsün diye.
   const data = await withTenantScope(() => store.readData());
   return applyMakeupExpiry(data);
 }
@@ -296,12 +394,85 @@ export async function listTenants(): Promise<{ tenantId: string; name: string }[
 }
 
 /**
+ * DB egress (2026-09-30) — yalnız tek öğrencinin kaydı (erişim kontrolü için). Sonuç
+ * `(await readData()).students.find((s) => s.id === studentId)` ile aynıdır; db modunda
+ * tenant'ın tüm ders/ödeme/öğrenci verisi OKUNMAZ.
+ */
+export async function readStudentById(studentId: string): Promise<Student | undefined> {
+  if (!studentId) return undefined;
+  return withTenantScope(() => store.readStudentById(studentId));
+}
+
+/**
+ * DB egress (2026-10-10) — tek ders: `(await readData()).lessons.find((l) => l.id === lessonId)` ile aynı;
+ * db modunda yalnız o satır okunur. Ders varlık/şube kontrolü ve bildirim metni içindir.
+ */
+export async function readLessonById(lessonId: string): Promise<import("./types").Lesson | undefined> {
+  if (!lessonId) return undefined;
+  return withTenantScope(() => store.readLessonById(lessonId));
+}
+
+/** DB egress (2026-10-10) — tek ödeme: `readData().payments.find(id)` ile aynı (makbuz). */
+export async function readPaymentById(paymentId: string): Promise<import("./types").Payment | undefined> {
+  if (!paymentId) return undefined;
+  return withTenantScope(() => store.readPaymentById(paymentId));
+}
+
+/** DB egress (2026-10-10) — bir öğretmenin kayıtlı hakedişleri: `readData().teacherPayouts` süzgeciyle aynı. */
+export async function readTeacherPayoutsForTeacher(teacherId: string): Promise<import("./types").TeacherPayout[]> {
+  if (!teacherId) return [];
+  return withTenantScope(() => store.readTeacherPayoutsForTeacher(teacherId));
+}
+
+/**
+ * DB egress (2026-09-30) — ders/ödeme/yoklama/telafi satırlarını GÖSTERMEYEN ekranlar ve
+ * yalnız öğrenci/öğretmen listesine bakan işler için (bkz. src/lib/reference-data.ts).
+ */
+export async function readReferenceData(): Promise<ReferenceData> {
+  return withTenantScope(() => store.readReferenceData());
+}
+
+/**
+ * DB egress (2026-09-30) — tek öğrencinin ekranları (öğrenci detayı, Yoklama Takvimi) için;
+ * `readData()` ile aynı telafi süre-dolumu türetmesi uygulanır.
+ */
+export async function readStudentScope(studentId: string): Promise<StudentScopeData> {
+  if (!studentId) throw new Error("readStudentScope: studentId gerekli");
+  return applyMakeupExpiry(await withTenantScope(() => store.readStudentScope(studentId)));
+}
+
+/** DB egress (2026-09-30) — Ders Programı: referans veri + penceredeki dersler (bkz. reference-data.ts). */
+export async function readLessonWindow(fromIso: string, toIso: string): Promise<LessonWindowData> {
+  return withTenantScope(() => store.readLessonWindow(fromIso, toIso));
+}
+
+/** DB egress (2026-09-30) — Öğrenciler listesi: referans veri + ödeme durum alanları. */
+export async function readStudentListData(): Promise<StudentListData> {
+  return withTenantScope(() => store.readStudentListData());
+}
+
+/** DB egress (2026-09-30) — Ödemeler: referans veri + tüm ödemeler + yalnız ödemelere bağlı dersler. */
+export async function readPaymentsPageData(): Promise<PaymentsPageData> {
+  return withTenantScope(() => store.readPaymentsPageData());
+}
+
+/** DB egress (2026-09-30) — Hakedişler / ay hakediş özeti (bkz. reference-data.ts `PayoutWindowData`). */
+export async function readPayoutWindow(fromIso: string, toIso: string): Promise<PayoutWindowData> {
+  return withTenantScope(() => store.readPayoutWindow(fromIso, toIso));
+}
+
+/** DB egress (2026-09-30) — Panel özeti; `readData()` ile aynı telafi süre-dolumu türetmesi uygulanır. */
+export async function readDashboardData(fromIso: string, toIso: string, nowIso: string): Promise<DashboardData> {
+  return applyMakeupExpiry(await withTenantScope(() => store.readDashboardData(fromIso, toIso, nowIso)));
+}
+
+/**
  * Süresi geçmiş (expiresAt < şimdi) ama hâlâ pending/suggested olan telafi
  * taleplerini "expired" olarak gösterir. Salt okunur türetme — kalıcı kaydı
  * değiştirmez, dashboard ve Telafi Merkezi'nin süresi dolmuş talepleri açık
  * talep gibi saymasını engeller.
  */
-function applyMakeupExpiry(data: AppData): AppData {
+function applyMakeupExpiry<T extends Pick<AppData, "makeupRequests">>(data: T): T {
   const now = Date.now();
   const makeupRequests = data.makeupRequests.map((m) =>
     (m.status === "pending" || m.status === "suggested" || m.status === "awaiting_info") &&
@@ -312,8 +483,8 @@ function applyMakeupExpiry(data: AppData): AppData {
   return { ...data, makeupRequests };
 }
 
-export async function resetData(): Promise<AppData> {
-  return withTenantScope(() => store.resetData());
+export async function resetData(): Promise<void> {
+  await withTenantScope(() => store.resetData());
 }
 
 /**
@@ -321,16 +492,16 @@ export async function resetData(): Promise<AppData> {
  * eylem: mevcut kurum kimliğini (tenantId/ad) korur ama tüm demo
  * öğretmen/öğrenci/ders/ödeme kayıtlarını temizler.
  */
-export async function resetToCleanTemplate(): Promise<AppData> {
-  return withTenantScope(() => store.resetToCleanTemplate());
+export async function resetToCleanTemplate(): Promise<void> {
+  await withTenantScope(() => store.resetToCleanTemplate());
 }
 
 export async function markAttendance(input: {
   lessonId: string;
   status: AttendanceStatus;
   reason?: string;
-}): Promise<AppData> {
-  return withTenantScope(() => store.markAttendance(input));
+}): Promise<void> {
+  await withTenantScope(() => store.markAttendance(input));
 }
 
 export async function generateSuggestions(
@@ -344,39 +515,61 @@ export async function confirmSlot(
   requestId: string,
   slot: MakeupSlot,
   decision: MakeupDecision
-): Promise<AppData> {
-  return withTenantScope(() => store.confirmSlot(requestId, slot, decision));
+): Promise<void> {
+  await withTenantScope(() => store.confirmSlot(requestId, slot, decision));
 }
 
-export async function cancelMakeup(requestId: string, decision: MakeupDecision): Promise<AppData> {
-  return withTenantScope(() => store.cancelMakeup(requestId, decision));
+export async function cancelMakeup(requestId: string, decision: MakeupDecision): Promise<void> {
+  await withTenantScope(() => store.cancelMakeup(requestId, decision));
 }
 
-export async function updateMakeupSlaEscalation(requestId: string, level: number): Promise<AppData> {
-  return withTenantScope(() => store.updateMakeupSlaEscalation(requestId, level));
+export async function updateMakeupSlaEscalation(requestId: string, level: number): Promise<void> {
+  await withTenantScope(() => store.updateMakeupSlaEscalation(requestId, level));
 }
 
 export async function addStudent(
   student: Omit<Student, "id" | "createdAt" | "active">
-): Promise<AppData> {
-  return withTenantScope(() => store.addStudent(student));
+): Promise<void> {
+  await withTenantScope(() => store.addStudent(student));
+}
+
+export async function setStudentDeletion(studentId: string, state: StudentDeletionState): Promise<void> {
+  await withTenantScope(() => store.setStudentDeletion(studentId, state));
+}
+
+export async function hardDeleteStudent(studentId: string): Promise<void> {
+  await withTenantScope(() => store.hardDeleteStudent(studentId));
+}
+
+export async function setTeacherDeletion(teacherId: string, state: TeacherDeletionState): Promise<void> {
+  await withTenantScope(() => store.setTeacherDeletion(teacherId, state));
+}
+
+export async function hardDeleteTeacher(teacherId: string): Promise<void> {
+  await withTenantScope(() => store.hardDeleteTeacher(teacherId));
 }
 
 export async function updateStudentProfile(
   studentId: string,
   patch: StudentProfilePatch
-): Promise<AppData> {
-  return withTenantScope(() => store.updateStudentProfile(studentId, patch));
+): Promise<void> {
+  await withTenantScope(() => store.updateStudentProfile(studentId, patch));
 }
 
-export async function setStudentPaymentPause(studentId: string, state: StudentPaymentPauseState): Promise<AppData> {
-  return withTenantScope(() => store.setStudentPaymentPause(studentId, state));
+export async function listMebStudents(
+  query: import("./meb-list").MebStudentQuery
+): Promise<import("./meb-list").MebStudentListResult> {
+  return withTenantScope(() => store.listMebStudents(query));
+}
+
+export async function setStudentPaymentPause(studentId: string, state: StudentPaymentPauseState): Promise<void> {
+  await withTenantScope(() => store.setStudentPaymentPause(studentId, state));
 }
 
 export async function addTeacher(
   teacher: Omit<Teacher, "id" | "active" | "color">
-): Promise<AppData> {
-  return withTenantScope(() => store.addTeacher(teacher));
+): Promise<void> {
+  await withTenantScope(() => store.addTeacher(teacher));
 }
 
 export async function updateTeacherAvailability(
@@ -414,6 +607,10 @@ export async function updatePackage(
   return withTenantScope(() => store.updatePackage(packageId, patch));
 }
 
+export async function deletePackage(packageId: string, expectedUpdatedAt: string): Promise<import("./packages").PackageDeleteResult> {
+  return withTenantScope(() => store.deletePackage(packageId, expectedUpdatedAt));
+}
+
 export async function addDiscountCampaign(
   input: import("./discount-campaigns").DiscountCampaignInput
 ): Promise<import("./discount-campaigns").DiscountCampaignMutationResult> {
@@ -434,6 +631,10 @@ export async function markPaymentPaid(
   return withTenantScope(() => store.markPaymentPaid(paymentId, opts));
 }
 
+export async function deletePaymentRow(paymentId: string): Promise<AppData> {
+  return withTenantScope(() => store.deletePaymentRow(paymentId));
+}
+
 export async function updatePayment(
   paymentId: string,
   patch: import("./store-json").UpdatePaymentPatch
@@ -441,13 +642,13 @@ export async function updatePayment(
   return withTenantScope(() => store.updatePayment(paymentId, patch));
 }
 
-export async function addRoom(room: Omit<Room, "id">): Promise<AppData> {
-  return withTenantScope(() => store.addRoom(room));
+export async function addRoom(room: Omit<Room, "id">): Promise<void> {
+  await withTenantScope(() => store.addRoom(room));
 }
 
 export async function updateRoom(
   roomId: string,
-  patch: Partial<Pick<Room, "name" | "capacity" | "branchId" | "instruments" | "active" | "archivedAt">>
+  patch: Partial<Pick<Room, "name" | "capacity" | "branchId" | "instruments" | "active" | "archivedAt" | "deletedAt">>
 ): Promise<Room | null> {
   return withTenantScope(() => store.updateRoom(roomId, patch));
 }
@@ -456,6 +657,7 @@ export async function archiveTeacher(teacherId: string, archived: boolean): Prom
   return withTenantScope(() => store.archiveTeacher(teacherId, archived));
 }
 
+/** Dersi doğrular ve yazar; oluşan dersin kimliğini döner (DB egress 2026-10-10: eskiden tüm veriyi yeniden okuyup dönerdi). */
 export async function addLesson(input: {
   studentId: string;
   teacherId: string;
@@ -467,8 +669,51 @@ export async function addLesson(input: {
   academicYearStart?: number;
   allowAvailabilityOverride?: boolean;
   overriddenByUserId?: string;
-}): Promise<AppData> {
-  return withTenantScope(() => store.addLesson(input));
+  createdByUserId?: string;
+  enrollmentId?: string;
+}): Promise<string> {
+  return withTenantScope(async () => {
+    const enrollmentId = input.enrollmentId ?? (await inferLessonEnrollmentId(input.studentId, input.instrument, input.teacherId));
+    return store.addLesson({ ...input, enrollmentId });
+  });
+}
+
+/** 2026-10-09 — çok branşlı öğrencide branşı belirlenemeyen ders yazılmaz (yanlış branşa yoklama/telafi/hakediş riski). */
+export class EnrollmentRequiredError extends Error {
+  readonly code = "ENROLLMENT_REQUIRED" as const;
+}
+
+/**
+ * TÜM ders/seri yazım yollarının (ekran, CSV, sözleşmeden program, AI) TEK branş kapısı: açık bağ verilmediyse
+ * öğrencinin AKTİF branş kayıtlarından enstrüman (gerekirse öğretmen) ile TEK eşleşme aranır. Kalıcı branş kaydı
+ * olmayan / tek branşlı öğrencide eski davranış (bağsız = öğrencinin tek branşı). Belirsizlik varsa hata — tahmin yok.
+ */
+async function inferLessonEnrollmentId(studentId: string, instrument: string, teacherId?: string): Promise<string | undefined> {
+  const student = await store.readStudentById(studentId);
+  const active = (student?.enrollments ?? []).filter((e) => e.active);
+  if (active.length === 0) return undefined;
+  const byInstrument = active.filter((e) => e.instrument === instrument);
+  if (byInstrument.length === 1) return byInstrument[0]!.id;
+  if (byInstrument.length > 1) {
+    const byTeacher = byInstrument.filter((e) => e.teacherId === teacherId);
+    if (byTeacher.length === 1) return byTeacher[0]!.id;
+    throw new EnrollmentRequiredError(
+      `Bu öğrencinin birden fazla aktif ${instrument} branş kaydı var ve seçilen öğretmen bunlardan birine ait değil. Dersi ilgili branş kaydının öğretmeniyle planlayın veya tekil ders planlamada "Eğitim" alanından branşı seçin.`
+    );
+  }
+  if (active.length === 1) return undefined;
+  throw new EnrollmentRequiredError(
+    `Öğrencinin aktif ${instrument} branş kaydı yok. Önce öğrenci kartından "Branş kaydı ekle" ile ${instrument} kaydını açın veya dersin enstrümanını düzeltin.`
+  );
+}
+
+/** 2026-10-06 — kulüp oturumu satırları (bkz. clubs.ts). */
+export async function addClubSessionLessons(rows: import("./types").Lesson[]): Promise<void> {
+  return withTenantScope(() => store.addClubSessionLessons(rows));
+}
+
+export async function patchClubLessons(ids: string[], patch: import("./clubs").ClubLessonPatch): Promise<number> {
+  return withTenantScope(() => store.patchClubLessons(ids, patch));
 }
 
 export async function addPayment(input: {
@@ -476,8 +721,15 @@ export async function addPayment(input: {
   description: string;
   amount: number;
   dueDate: string;
-}): Promise<AppData> {
-  return withTenantScope(() => store.addPayment(input));
+  /** 2026-10-05 — kulüp ücreti satırı için (opsiyonel; yoksa eski davranış). */
+  id?: string;
+  source?: import("./types").PaymentSource;
+  clubMembershipId?: string;
+  installmentPeriodLabel?: string;
+  /** 2026-10-09 — satırın branş kaydı. */
+  enrollmentId?: string;
+}): Promise<void> {
+  await withTenantScope(() => store.addPayment(input));
 }
 
 export async function addContractInstallments(input: {
@@ -486,21 +738,38 @@ export async function addContractInstallments(input: {
   installments: ContractInstallmentSnapshot[];
   firstPaymentCollected?: { method: string; amount: number; collectedAt: string; reference?: string; note?: string };
   reuseFirstPaymentId?: string;
+  enrollmentId?: string;
 }): Promise<{ data: AppData; installments: ContractInstallmentView[] }> {
   return withTenantScope(() => store.addContractInstallments(input));
 }
 
-/** P0 dedup fix (2026-08-30) — bkz. StoreApi.getRegistrationFirstPayment. */
-export async function getRegistrationFirstPayment(studentId: string): Promise<Payment | null> {
-  return withTenantScope(() => store.getRegistrationFirstPayment(studentId));
+/** P0 dedup fix (2026-08-30) — bkz. StoreApi.getRegistrationFirstPayment. 2026-10-09: `scope` = branş kapsamı. */
+export async function getRegistrationFirstPayment(
+  studentId: string,
+  scope?: import("./student-enrollments").EnrollmentScope
+): Promise<Payment | null> {
+  return withTenantScope(() => store.getRegistrationFirstPayment(studentId, scope));
+}
+
+/** 2026-10-09 — bkz. StoreApi.linkRecordsToEnrollment. */
+export async function linkRecordsToEnrollment(input: {
+  studentId: string;
+  enrollmentId: string;
+  instrument?: string;
+  scope?: "student";
+  contractIds?: string[];
+  paymentIds?: string[];
+}): Promise<{ payments: number; lessons: number; series: number }> {
+  return withTenantScope(() => store.linkRecordsToEnrollment(input));
 }
 
 export async function upsertMonthlyPlanPayment(input: {
   studentId: string;
   month: string;
   amount: number;
-  dueDate?: string;
   method?: string;
+  enrollmentId?: string;
+  includeUnlinked?: boolean;
 }): Promise<{ data: AppData; paymentId: string }> {
   return withTenantScope(() => store.upsertMonthlyPlanPayment(input));
 }
@@ -514,6 +783,10 @@ export async function addRegistrationFirstPayment(input: {
   reference?: string;
   note?: string;
   receivedByUserId: string;
+  /** Bkz. Payment.firstCollectionIncludesNextMonth — kayıt ekranındaki açık seçim. */
+  firstCollectionIncludesNextMonth?: boolean;
+  /** 2026-10-09 — branş kaydı. */
+  enrollmentId?: string;
 }): Promise<{ data: AppData; paymentId: string }> {
   return withTenantScope(() => store.addRegistrationFirstPayment(input));
 }
@@ -534,8 +807,8 @@ export async function readLessonScope(
   return withTenantScope(() => store.readLessonScope(lessonId, targetStartAt));
 }
 
-export async function cancelLesson(lessonId: string): Promise<AppData> {
-  return withTenantScope(() => store.cancelLesson(lessonId));
+export async function cancelLesson(lessonId: string): Promise<void> {
+  await withTenantScope(() => store.cancelLesson(lessonId));
 }
 
 export async function startLessonLive(lessonId: string): Promise<LessonLiveUpdateResult> {
@@ -558,9 +831,27 @@ export async function switchLessonOpsFlagLive(
   lessonId: string,
   flag: import("./lesson-ops").LessonOpsFlag,
   actorUserId: string,
-  reason?: string
+  reason?: string,
+  disruption?: import("./lesson-disruption").LessonDisruptionInput
 ): Promise<import("./lesson-ops").ApplyLessonOpsResult> {
-  return withTenantScope(() => store.switchLessonOpsFlagLive(lessonId, flag, actorUserId, reason));
+  return withTenantScope(() => store.switchLessonOpsFlagLive(lessonId, flag, actorUserId, reason, disruption));
+}
+
+/** 2026-09-29 — yoklama statüsünü geri alma (bkz. lesson-ops.ts clearLessonOpsFlag). */
+export async function clearLessonOpsFlagLive(
+  lessonId: string,
+  expected: import("./lesson-ops").LessonOpsFlag,
+  actorUserId: string
+): Promise<import("./lesson-ops").ClearLessonOpsResult> {
+  return withTenantScope(() => store.clearLessonOpsFlagLive(lessonId, expected, actorUserId));
+}
+
+/** 9. tur — İptal/Telafi kaynağı (öğretmen katılımından ve ders statüsünden ayrı alan). */
+export async function setLessonDisruptionLive(
+  lessonId: string,
+  patch: import("./lesson-disruption").LessonDisruptionPatch
+): Promise<import("./types").Lesson | null> {
+  return withTenantScope(() => store.setLessonDisruptionLive(lessonId, patch));
 }
 
 /** Faz 2 — öğretmen yoklaması, öğrenci ops bayraklarından tamamen ayrı bir yol. */
@@ -587,15 +878,15 @@ export async function correctLessonTimesLive(
   return withTenantScope(() => store.correctLessonTimesLive(lessonId, correction));
 }
 
-export async function addBranch(branch: Omit<Branch, "id">): Promise<AppData> {
-  return withTenantScope(() => store.addBranch(branch));
+export async function addBranch(branch: Omit<Branch, "id">): Promise<void> {
+  await withTenantScope(() => store.addBranch(branch));
 }
 
 export async function updateBranch(
   branchId: string,
   patch: Partial<Omit<Branch, "id">>
-): Promise<AppData> {
-  return withTenantScope(() => store.updateBranch(branchId, patch));
+): Promise<void> {
+  await withTenantScope(() => store.updateBranch(branchId, patch));
 }
 
 export async function importBranches(rows: BranchImportRow[]): Promise<ImportCommitResult> {
@@ -616,9 +907,12 @@ export async function importStudents(rows: StudentImportRow[]): Promise<ImportCo
 
 export async function addLessonSeries(
   params: SeriesParams,
-  options?: { skipConflicts?: boolean; allowAvailabilityOverride?: boolean; overriddenByUserId?: string }
+  options?: { skipConflicts?: boolean; allowAvailabilityOverride?: boolean; overriddenByUserId?: string; createdByUserId?: string }
 ): Promise<CreateSeriesResult> {
-  return withTenantScope(() => store.addLessonSeries(params, options));
+  return withTenantScope(async () => {
+    const enrollmentId = params.enrollmentId ?? (await inferLessonEnrollmentId(params.studentId, params.instrument, params.teacherId));
+    return store.addLessonSeries({ ...params, enrollmentId }, options);
+  });
 }
 
 export async function cancelLessonSeriesFromLesson(lessonId: string): Promise<SeriesCancelResult> {
@@ -627,6 +921,18 @@ export async function cancelLessonSeriesFromLesson(lessonId: string): Promise<Se
 
 export async function cancelEntireLessonSeries(seriesId: string): Promise<SeriesCancelResult> {
   return withTenantScope(() => store.cancelEntireLessonSeries(seriesId));
+}
+
+export async function forceDeleteLesson(lessonId: string): Promise<import("./lesson-scope-edit").ForcedLessonDeletionPlan> {
+  return withTenantScope(() => store.forceDeleteLesson(lessonId));
+}
+
+export async function deleteLessonsScoped(lessonId: string, scope: LessonEditScope): Promise<LessonDeletionPlan> {
+  return withTenantScope(() => store.deleteLessonsScoped(lessonId, scope));
+}
+
+export async function reviseLessonsScoped(input: LessonRevisionInput): Promise<LessonRevisionResult> {
+  return withTenantScope(() => store.reviseLessonsScoped(input));
 }
 
 export async function addTeacherFeeRule(input: FeeRuleInput): Promise<FeeRuleMutationResult> {
@@ -658,11 +964,44 @@ export async function updateTeacherPayoutPaymentMethod(
   return withTenantScope(() => store.updateTeacherPayoutPaymentMethod(payoutId, method));
 }
 
+export async function setTeacherPayoutPolicy(
+  input: import("./teacher-payout").SetPayoutPolicyInput,
+  actorUserId: string
+): Promise<import("./teacher-payout").SetPayoutPolicyResult> {
+  return withTenantScope(() => store.setTeacherPayoutPolicy(input, actorUserId));
+}
+
+export async function deleteTeacherPayout(payoutId: string): Promise<boolean> {
+  return withTenantScope(() => store.deleteTeacherPayout(payoutId));
+}
+
+export async function deleteTeacherFeeRule(ruleId: string): Promise<boolean> {
+  return withTenantScope(() => store.deleteTeacherFeeRule(ruleId));
+}
+
+export async function addTeacherPayoutExclusion(x: import("./types").TeacherPayoutExclusion): Promise<void> {
+  return withTenantScope(() => store.addTeacherPayoutExclusion(x));
+}
+
+export async function removeTeacherPayoutExclusion(lessonId: string): Promise<boolean> {
+  return withTenantScope(() => store.removeTeacherPayoutExclusion(lessonId));
+}
+
+export async function replaceTeacherPayout(payout: TeacherPayout): Promise<void> {
+  await withTenantScope(() => store.replaceTeacherPayout(payout));
+}
+
 export async function markTeacherPayoutPaid(
   payoutId: string,
   method?: string
 ): Promise<MarkPayoutPaidResult> {
   return withTenantScope(() => store.markTeacherPayoutPaid(payoutId, method));
+}
+
+export async function updatePerformanceWeights(
+  performanceWeights: import("./performance-weights").PerformanceWeightsConfig
+): Promise<AppData> {
+  return withTenantScope(() => store.updatePerformanceWeights(performanceWeights));
 }
 
 export async function updateFeeRoundingMode(feeRoundingMode: FeeRoundingMode): Promise<AppData> {
@@ -679,12 +1018,12 @@ export async function updateMonthlyMakeupAllowance(monthlyMakeupAllowance: numbe
 
 export async function updateCollectionsSettings(
   collectionsSettings: CollectionsSettings
-): Promise<AppData> {
-  return withTenantScope(() => store.updateCollectionsSettings(collectionsSettings));
+): Promise<void> {
+  await withTenantScope(() => store.updateCollectionsSettings(collectionsSettings));
 }
 
-export async function updateConsentSettings(consentSettings: ConsentSettings): Promise<AppData> {
-  return withTenantScope(() => store.updateConsentSettings(consentSettings));
+export async function updateConsentSettings(consentSettings: ConsentSettings): Promise<void> {
+  await withTenantScope(() => store.updateConsentSettings(consentSettings));
 }
 
 export async function updateSchoolLogoUrl(logoUrl: string): Promise<AppData> {
@@ -697,8 +1036,8 @@ export async function updateTermWeeklyClosedDays(
   return withTenantScope(() => store.updateTermWeeklyClosedDays(termWeeklyClosedDays));
 }
 
-export async function updateAcademicTermDates(academicTermDates: AcademicTermDates): Promise<AppData> {
-  return withTenantScope(() => store.updateAcademicTermDates(academicTermDates));
+export async function updateAcademicTermDates(academicTermDates: AcademicTermDates): Promise<void> {
+  await withTenantScope(() => store.updateAcademicTermDates(academicTermDates));
 }
 
 export function getDashboardStats(data: AppData) {

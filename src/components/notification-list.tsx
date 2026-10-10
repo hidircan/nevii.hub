@@ -1,5 +1,6 @@
 "use client";
 
+import { presentNotificationBody } from "@/lib/notification-href";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Bell, Check } from "lucide-react";
@@ -39,7 +40,7 @@ export function NotificationList({ notifications }: { notifications: Notificatio
               <Bell className="mt-0.5 h-4 w-4 shrink-0" style={{ color: "var(--color-primary)" }} />
               <div>
                 <p className="text-sm font-medium" style={{ color: "var(--color-text)" }}>{n.title}</p>
-                <p className="mt-0.5 text-sm" style={{ color: "var(--color-text-muted)" }}>{n.body}</p>
+                <p className="mt-0.5 text-sm" style={{ color: "var(--color-text-muted)" }}>{presentNotificationBody(n.body)}</p>
                 <p className="mt-1 text-xs" style={{ color: "var(--color-text-muted)" }}>{formatDateTime(n.createdAt)}</p>
               </div>
             </div>

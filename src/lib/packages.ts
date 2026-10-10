@@ -4,7 +4,7 @@
  * yok, yalnızca AppData -> AppData dönüşümü + doğrulama.
  */
 
-import type { AppData, DiscountType, LessonDurationPreference, Package, PackageStatus, StudentTermType } from "./types";
+import type { AppData, BranchId, DiscountType, LessonDurationPreference, Package, PackageStatus, StudentTermType } from "./types";
 import type { LessonDurationMinutes } from "./lesson-duration";
 import { uid } from "./utils";
 
@@ -19,8 +19,10 @@ export type PackageInput = {
   groupLessonCount?: number;
   defaultDurationMinutes?: LessonDurationPreference;
   defaultPaymentDueDay?: number;
+  applicableBranchIds?: BranchId[];
   notes?: string;
   createdBy: string;
+  createdByUserId?: string;
 };
 
 export type PackageMutationResult =
@@ -68,10 +70,14 @@ export function createPackageData(data: AppData, input: PackageInput, now: Date 
   if (countError) return { ok: false, message: countError };
 
   const nowIso = now.toISOString();
+  // displayId burada atanmaz — store katmanı atar (öğrenci deseniyle aynı:
+  // json/memory sayaçtan, db atomik sayaçtan). Bu dosya istemci paketine de
+  // girer (`computeMonthlyFee`), sunucu-only `entity-sequence` import YASAK.
   const pkg: Package = {
     id: uid("pkg"),
     title: input.title.trim(),
     description: input.description?.trim() || undefined,
+    applicableBranchIds: input.applicableBranchIds?.length ? [...input.applicableBranchIds] : undefined,
     status: "active",
     price30Min: input.price30Min,
     price40Min: input.price40Min,
@@ -83,6 +89,7 @@ export function createPackageData(data: AppData, input: PackageInput, now: Date 
     defaultPaymentDueDay: input.defaultPaymentDueDay,
     notes: input.notes?.trim() || undefined,
     createdBy: input.createdBy,
+    createdByUserId: input.createdByUserId,
     createdAt: nowIso,
     updatedAt: nowIso,
   };
@@ -103,6 +110,7 @@ export type PackagePatch = Partial<
     | "groupLessonCount"
     | "defaultDurationMinutes"
     | "defaultPaymentDueDay"
+    | "applicableBranchIds"
     | "notes"
   >
 >;
@@ -234,4 +242,85 @@ export function computeMonthlyFee(params: {
 /** Bir paketi aktif olarak kullanan (arşivlenmemiş) öğrenci sayısı — tenant-scoped `data` üzerinden. */
 export function activeStudentCountForPackage(data: Pick<AppData, "students">, packageId: string): number {
   return (data.students ?? []).filter((s) => s.packageId === packageId && s.active !== false && !s.archivedAt).length;
+}
+
+/**
+ * 9. tur (2026-09-27) — yanlışlıkla oluşturulmuş paketin güvenli silinmesi.
+ *
+ * Paket şu kayıtlardan referans alabilir (tek kaynak — silme kararı YALNIZ buradan):
+ *  - `Student.packageId` (FK) — aktif, pasif veya silinmiş fark etmez: geçmiş kayıt paketi gösterir.
+ *  - `Student.packageName` serbest metni paket başlığıyla aynıysa (FK öncesi eski kayıtlar) —
+ *    kesin eşleşme kanıtlanamasa da temkinli olarak "kullanılmış" sayılır.
+ * Ödeme/sözleşme/rapor satırları pakete canlı referans vermez (tutarlar oluşturma anında
+ * donmuştur); bu yüzden onlar silmeyi engellemez ve silmeden etkilenmez.
+ * Kullanılmış paket kalıcı silinmez — arşivlenir (yeni kayıtta seçilemez, geçmiş aynen kalır).
+ */
+export type PackageDeletionImpact = {
+  packageId: string;
+  title: string;
+  status: PackageStatus;
+  updatedAt: string;
+  /** packageId ile bağlı öğrenci (her durumda). */
+  linkedStudentCount: number;
+  linkedActiveStudentCount: number;
+  /** packageId'siz ama paket adını serbest metin olarak taşıyan öğrenci. */
+  nameMatchStudentCount: number;
+  hardDeleteEligible: boolean;
+  /** Kalıcı silme neden yapılamaz — kullanıcıya aynen gösterilir. */
+  blockReason?: string;
+};
+
+function normTitle(value: string | undefined): string {
+  return (value ?? "").trim().replace(/\s+/g, " ").toLocaleLowerCase("tr");
+}
+
+export function computePackageDeletionImpact(
+  data: Pick<AppData, "packages" | "students">,
+  packageId: string
+): PackageDeletionImpact | null {
+  const pkg = (data.packages ?? []).find((p) => p.id === packageId);
+  if (!pkg) return null;
+  const linked = data.students.filter((s) => s.packageId === packageId);
+  const title = normTitle(pkg.title);
+  const nameMatch = data.students.filter((s) => !s.packageId && title && normTitle(s.packageName) === title);
+  const linkedActive = linked.filter((s) => s.active !== false && !s.deletedAt).length;
+  const used = linked.length + nameMatch.length;
+  return {
+    packageId,
+    title: pkg.title,
+    status: pkg.status,
+    updatedAt: pkg.updatedAt,
+    linkedStudentCount: linked.length,
+    linkedActiveStudentCount: linkedActive,
+    nameMatchStudentCount: nameMatch.length,
+    hardDeleteEligible: used === 0,
+    blockReason:
+      used === 0
+        ? undefined
+        : `Bu paket ${used} öğrenci kaydında kullanılmış (${linkedActive} aktif). Geçmiş kayıtlar bu paketi gösterdiği için ` +
+          "kalıcı silinemez. Yeni kayıtlarda seçilmemesi için arşivleyin; arşivlenen paket geçmişi bozmaz.",
+  };
+}
+
+export type PackageDeleteResult =
+  | { ok: true; data: AppData }
+  | { ok: false; code: "NOT_FOUND" | "IN_USE" | "CHANGED"; message: string };
+
+/**
+ * Saf silme kararı — json/memory store'ları kilit altında bunu çağırır, db store aynı kuralı
+ * transaction içinde uygular. `expectedUpdatedAt`: kullanıcı onay kutusunu açtıktan sonra
+ * paket değiştiyse (eşzamanlı düzenleme) silme yapılmaz.
+ */
+export function deletePackageData(data: AppData, packageId: string, expectedUpdatedAt: string): PackageDeleteResult {
+  const impact = computePackageDeletionImpact(data, packageId);
+  if (!impact) return { ok: false, code: "NOT_FOUND", message: "Paket bulunamadı; başka biri silmiş olabilir. Listeyi yenileyin." };
+  if (impact.updatedAt !== expectedUpdatedAt) {
+    return {
+      ok: false,
+      code: "CHANGED",
+      message: "Paket, siz onaylarken başka biri tarafından değiştirildi. Silinmedi; sayfayı yenileyip yeniden inceleyin.",
+    };
+  }
+  if (!impact.hardDeleteEligible) return { ok: false, code: "IN_USE", message: impact.blockReason ?? "Paket kullanımda." };
+  return { ok: true, data: { ...data, packages: (data.packages ?? []).filter((p) => p.id !== packageId) } };
 }

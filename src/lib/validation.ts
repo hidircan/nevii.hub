@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { LESSON_DURATION_OPTIONS, TRIAL_LESSON_DURATION_OPTIONS } from "./lesson-duration";
-import { INSTRUMENTS, REFERRAL_SOURCES } from "./types";
+import { REFERRAL_SOURCES } from "./types";
+import { isValidDateOnlyInput } from "./date-input";
 
 /** Faz 1A — tek bir ödeme günü aralığı (1–31, dahil, start ≤ end). */
 export const paymentDueRangeSchema = z
@@ -88,6 +89,15 @@ const optionalTrimmed = z
   .optional()
   .transform((v) => (v && v.trim() ? v.trim() : undefined));
 
+/**
+ * Date-only (YYYY-MM-DD) opsiyonel alan — boş → undefined (`optionalTrimmed`
+ * ile AYNI sözleşme); dolu ama biçimsiz/takvimde olmayan değer alan hatası
+ * verir, Prisma'ya asla geçersiz tarih ulaşmaz.
+ */
+const optionalDateOnly = optionalTrimmed.refine((v) => v === undefined || isValidDateOnlyInput(v), {
+  message: "Geçerli bir tarih seçin (YYYY-MM-DD).",
+});
+
 export const studentSchema = z.object({
   name: z.string().min(1),
   email: optionalEmail,
@@ -161,6 +171,9 @@ export const studentSchema = z.object({
    * için davranış aynen korunur). İlk tahsilat bu tarihten itibaren sayar.
    */
   lessonStartDate: optionalTrimmed,
+  intendedDurationMonths: z.coerce.number().int().min(1, "Kayıt süresi 1-12 ay olmalıdır.").max(12, "Kayıt süresi 1-12 ay olmalıdır.").optional(),
+  /** K — kayıtta seçilen ders gün/saatleri ("Salı 15:00, Perşembe 16:00"). Kalıcı; sözleşme ve program üretimi bunu okur. */
+  lessonScheduleText: z.string().max(300).optional(),
   enrollmentEndDate: optionalTrimmed,
   /**
    * P0-C (2026-09-02) — haftalık ders sıklığına karşılık gelen GERÇEK ders
@@ -173,12 +186,22 @@ export const studentSchema = z.object({
   lessonDays: z.array(z.coerce.number().int().min(0).max(6)).optional(),
   level: optionalTrimmed,
   targetExam: optionalTrimmed,
+  /**
+   * MEB Paneli — MEB seviye dönemi + sınav. Biçim kontrolü burada
+   * (date-only); MEB-ise-zorunlu + tutarlılık `createStudentTool`'daki
+   * `validateMebFields` kapısında (birleştirilmiş görünüm gerekir).
+   * MEB seçili değilse tool katmanı bu değerleri STRIP eder (yazılmaz).
+   */
+  mebLevelStartDate: optionalDateOnly,
+  mebLevelEndDate: optionalDateOnly,
+  mebExamDate: optionalDateOnly,
+  mebExamAttended: z.boolean().optional(),
   specialNotes: optionalTrimmed,
   /** ÖNCELİK 4 (devam) — öğrencinin Yoklama Takvimi dönemi (Güz/Yaz). Verilmezse legacy (undefined) — kayıt akışı kırılmaz. */
   termType: z.enum(["guz", "yaz"]).optional(),
   /** ÖNCELİK 4 (devam) — Paket Yönetimi + ek profil alanları. Hepsi opsiyonel — legacy kayıt akışı kırılmaz. */
   packageId: z.string().optional(),
-  birthDate: optionalTrimmed,
+  birthDate: optionalDateOnly,
   birthPlace: optionalTrimmed,
   schoolOrOccupation: optionalTrimmed,
   address: optionalTrimmed,
@@ -188,6 +211,13 @@ export const studentSchema = z.object({
   /** Package C — paket seçildiğinde uygulanacak indirim + ödeme profili. Hepsi opsiyonel — legacy akış kırılmaz. */
   discountType: z.enum(["percent", "amount"]).optional(),
   discountValue: z.coerce.number().min(0).optional(),
+  /**
+   * Paket & Kampanya Motoru — kayıtta uygulanacak kampanya id'leri (çoklu seçim).
+   * Sunucu her birini (aktif + tarih + şube) doğrular, `resolveCampaignStack`
+   * ile nihai yüzdeyi türetir. Manuel indirim (discountType/discountValue) ile
+   * BİRLİKTE gönderilemez — tek indirim kaynağı kuralı (createStudentTool kapısı).
+   */
+  campaignIds: z.array(z.string().min(1)).max(10).optional(),
   paymentMethod: z.enum(["credit_card", "cash", "transfer"]).optional(),
   paymentDueDay: z.coerce.number().int().min(1).max(31).optional(),
   /** Verilirse tekil `paymentDueDay`'in YERİNE birincil kaynak olur (bkz. actionUpdateStudentProfile). */
@@ -217,11 +247,22 @@ export const studentSchema = z.object({
    */
   firstPaymentCollected: z
     .object({
-      method: z.enum(["credit_card", "cash", "transfer"]),
-      amount: z.coerce.number().int().positive(),
-      collectedAt: z.string().min(1),
+      // 2026-09-30 — 0 geçerli: %100 indirimli/burslu kayıtta tahsilat yoktur (Payment
+      // satırı yazılmaz). 0 yalnız önerilen tutar da 0 iken kabul edilir (createStudentTool);
+      // tutar > 0 ise yöntem + tarih zorunlu (aşağıdaki refine).
+      method: z.enum(["credit_card", "cash", "transfer"]).optional(),
+      amount: z.coerce.number().int().min(0),
+      collectedAt: optionalTrimmed,
       reference: optionalTrimmed,
       note: optionalTrimmed,
+    })
+    .refine((fp) => fp.amount === 0 || !!fp.method, {
+      message: "İlk ödeme türü seçilmelidir — tahsil edilen tutar 0'dan büyük.",
+      path: ["method"],
+    })
+    .refine((fp) => fp.amount === 0 || !!fp.collectedAt, {
+      message: "Tahsilat tarihi zorunludur — tahsil edilen tutar 0'dan büyük.",
+      path: ["collectedAt"],
     })
     .optional(),
   /** Yalnızca gerçekten istisnai/gecikmeli ilk tahsilat için — yetkili personel gerekçesi zorunlu, gün-of-ay tetiklemez (bkz. createStudentTool). */
@@ -241,6 +282,10 @@ export const studentSchema = z.object({
    * tutarla karşılaştırıp reddeder/kabul eder, asla sessizce geçmez.
    */
   firstPaymentAdjustmentReason: optionalTrimmed,
+  /** Sahip kararı (2026-09-16) — ilk tahsilata takip eden ayın tam ücreti de eklendi mi (kayıt ekranındaki AÇIK seçim). */
+  firstCollectionIncludesNextMonth: z.boolean().optional(),
+  /** H — deneme dersinden dönüşüm: kaynak TrialLesson.id (sunucu doğrular, dönüşümü yapan = oturum). */
+  convertedFromTrialId: z.string().min(1).max(80).optional(),
 }).refine((v) => v.monthlyFeeOverrideAmount === undefined || !!v.monthlyFeeOverrideReason, {
   message: "Manuel ücret girildiyse gerekçe zorunludur.",
   path: ["monthlyFeeOverrideReason"],
@@ -273,9 +318,22 @@ export const updateStudentProfileSchema = z
     studentTypes: studentTypesSchema,
     enrollmentStartDate: optionalTrimmed,
     lessonStartDate: optionalTrimmed,
+    intendedDurationMonths: z.coerce.number().int().min(1, "Kayıt süresi 1-12 ay olmalıdır.").max(12, "Kayıt süresi 1-12 ay olmalıdır.").optional(),
+  /** K — kayıtta seçilen ders gün/saatleri ("Salı 15:00, Perşembe 16:00"). Kalıcı; sözleşme ve program üretimi bunu okur. */
+  lessonScheduleText: z.string().max(300).optional(),
     enrollmentEndDate: optionalTrimmed,
     level: optionalTrimmed,
     targetExam: optionalTrimmed,
+    /**
+     * MEB Paneli — MEB seviye dönemi + sınav (biçim: date-only). MEB-ise-
+     * zorunlu + tutarlılık `updateStudentProfileTool`'daki `validateMebFields`
+     * kapısında (mevcut kayıtla birleştirilmiş görünüm gerekir). Tür
+     * kaldırılınca kayıtlı değerler SİLİNMEZ (kolonlar korunur).
+     */
+    mebLevelStartDate: optionalDateOnly,
+    mebLevelEndDate: optionalDateOnly,
+    mebExamDate: optionalDateOnly,
+    mebExamAttended: z.boolean().optional(),
     specialNotes: optionalTrimmed,
     /** ÖNCELİK 4 (devam) — öğrencinin Yoklama Takvimi dönemi (Güz/Yaz varsayılanı). */
     termType: z.enum(["guz", "yaz"]).optional(),
@@ -293,7 +351,7 @@ export const updateStudentProfileSchema = z
     motherName: optionalTrimmed,
     fatherName: optionalTrimmed,
     address: optionalTrimmed,
-    birthDate: optionalTrimmed,
+    birthDate: optionalDateOnly,
     birthPlace: optionalTrimmed,
     schoolOrOccupation: optionalTrimmed,
     /** P1 revizyonu — "Bizi nereden buldunuz?" sonradan düzeltilebilir (detay ekranı). */
@@ -395,6 +453,12 @@ export const teacherSchema = z
     phone: z.string().min(1),
     branchId: z.string().min(1),
     /**
+     * Ek atanmış şubeler (`Teacher.branchIds` — birincil `branchId` HER ZAMAN
+     * dahildir, bkz. teacher-branches.ts). Kayıt anında da seçilebilsin diye
+     * eklendi; verilmezse yalnız birincil şube (eski davranış).
+     */
+    branchIds: z.array(z.string().min(1)).optional(),
+    /**
      * P0-1 (2026-08-29) — `instrumentLevels[].instrument` gibi BİLİNÇLİ
      * OLARAK serbest string (yukarıdaki yorum) — bu tekil (legacy) alan da
      * AYNI sabit-enum/katalog senkron-dışılığı yaşıyordu (bkz.
@@ -457,12 +521,14 @@ export const updateTeacherProfileSchema = z
     /**
      * Bu sprint — kayıt kimliği alanları eklendi. Enstrüman/müsaitlik/ders
      * ücreti bilinçli olarak burada YOK — kendi özel akışları var
-     * (updateTeacherInstrumentsTool, proposeTeacherAvailabilityTool,
+     * (updateTeacherInstrumentsTool, updateTeacherAvailabilityTool,
      * createFeeRuleTool/updateFeeRuleTool) — tekrarlanmaz.
      */
     name: z.string().min(1).optional(),
     email: optionalEmail,
     phone: optionalTrimmed,
+    /** 8. tur — birincil şube de düzenlenebilir (ek şubeler `branchIds`). */
+    branchId: z.string().min(1).optional(),
     branchIds: z.array(z.string().min(1)).optional(),
     employmentType: z.enum(TEACHER_EMPLOYMENT_TYPE_ENUM).optional(),
     hireDate: optionalTrimmed,
@@ -471,6 +537,11 @@ export const updateTeacherProfileSchema = z
     contractEndDate: optionalTrimmed,
     birthDate: optionalTrimmed,
     address: optionalTrimmed,
+    highSchool: optionalTrimmed,
+    university: optionalTrimmed,
+    graduationYear: z.coerce.number().int().min(1950, "Mezuniyet yılı 1950'den önce olamaz.").max(2100, "Mezuniyet yılı geçerli değil.").optional(),
+    maxDailyLessons: z.coerce.number().int().min(1, "Günlük ders limiti en az 1 olmalı.").max(20, "Günlük ders limiti en fazla 20 olabilir.").optional(),
+    weeklyHoursThreshold: z.coerce.number().int().min(1, "Eşik en az 1 saat olmalı.").max(80, "Eşik en fazla 80 saat olabilir.").optional(),
     emergencyContactName: optionalTrimmed,
     emergencyContactPhone: optionalTrimmed,
     personnelNotes: optionalTrimmed,
@@ -512,6 +583,9 @@ export const lessonSchema = z.object({
    * olmadan hiçbir uyarı otomatik bypass edilmez.
    */
   overrideAvailability: z.coerce.boolean().optional(),
+  /** 2026-10-04 — müsaitlik istisnasının kısa gerekçesi (denetim kaydına yazılır). */
+  overrideReason: z.string().max(500).optional(),  /** 2026-10-04 — dersin ait olduğu eğitim (Student.enrollments[].id). */
+  enrollmentId: z.string().max(100).optional(),
 });
 
 export const paymentRecordSchema = z.object({
@@ -519,6 +593,8 @@ export const paymentRecordSchema = z.object({
   description: z.string().min(1),
   amount: z.coerce.number().int().min(1),
   dueDate: z.string().min(1),
+  /** 2026-10-09 — borcun branş kaydı; çok branşlı öğrencide alan gönderilmelidir ("" = branşa bağlı değil/genel). */
+  enrollmentId: z.string().max(100).optional(),
 });
 
 export const updateLessonScheduleSchema = z
@@ -562,6 +638,13 @@ export const lessonSeriesParamsBaseSchema = z.object({
   academicYearStart: z.coerce.number().int().min(2000).max(2100).optional(),
   /** Faz 6 — demo/test amaçlı otomatik üretim etiketi (bkz. scripts/seed-demo-schedule.ts). */
   demoTag: z.string().min(1).optional(),
+  /**
+   * 2026-10-06 — kullanıcı önizlemedeki "öğretmen müsait değil" uyarısını görüp "Uyarıya rağmen planla" ile
+   * AÇIKÇA onayladıysa true. YALNIZ TEACHER_UNAVAILABLE aşılır (bkz. OVERRIDABLE_SLOT_CODES); çakışma, kapalı gün,
+   * pasif öğretmen, tenant sınırı asla aşılmaz. Yetki ve gerekçe sunucuda doğrulanır.
+   */
+  overrideAvailability: z.boolean().optional(),
+  overrideReason: z.string().trim().max(500).optional(),
 });
 
 /**
@@ -594,6 +677,25 @@ export const createLessonSeriesSchema = refineWeekdayAgainstTerm(
 
 export const cancelSeriesFromLessonSchema = z.object({
   lessonId: z.string().min(1),
+});
+
+const lessonEditScopeSchema = z.enum(["single", "fromHereOnward", "entireSeries"]);
+
+export const deleteLessonsSchema = z.object({
+  lessonId: z.string().min(1),
+  scope: lessonEditScopeSchema,
+  /** Opsiyonel silme gerekçesi — denetim kaydına yazılır. */
+  reason: z.string().trim().max(500).optional(),
+});
+
+export const reviseLessonsSchema = z.object({
+  lessonId: z.string().min(1),
+  scope: lessonEditScopeSchema,
+  startAt: z.string().min(1).optional(),
+  startTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Saat SS:DD biçiminde olmalı (ör. 15:50).").optional(),
+  weekday: z.coerce.number().int().min(0).max(6).optional(),
+  durationMinutes: z.coerce.number().int().min(30, "Ders süresi en az 30 dakika olmalı.").max(240).optional(),
+  allowAvailabilityOverride: z.boolean().optional(),
 });
 
 export const cancelEntireSeriesSchema = z.object({
@@ -764,7 +866,8 @@ const ANNOUNCEMENT_AUDIENCE_TYPES = [
 const announcementAudienceRefSchema = z.union([
   z.object({ branchId: z.string().min(1) }),
   z.object({ studentType: z.enum(STUDENT_TYPE_FOR_AUDIENCE) }),
-  z.object({ instrument: z.array(z.enum(INSTRUMENTS as [string, ...string[]])).min(1) }),
+  // Kurumun katalog adları (Bas Gitar vb.) — sabit `INSTRUMENTS` enum'u katalog dışı adları reddediyordu (2026-10-03).
+  z.object({ instrument: z.array(z.string().trim().min(1)).min(1) }),
   z.object({ userIds: z.array(z.string().min(1)).min(1) }),
 ]);
 
@@ -888,6 +991,22 @@ export const proposeTeacherAvailabilitySchema = z.object({
   proposedAvailability: z.array(availabilityWindowSchema),
   exceptions: z.unknown().optional(),
 });
+
+/** 2026-09-17 — müsaitlik yalnız yönetici tarafından doğrudan düzenlenir (öğretmen öneri gönderemez). */
+export const updateTeacherAvailabilitySchema = z
+  .object({
+    teacherId: z.string().min(1),
+    availability: z.array(availabilityWindowSchema).min(1, "En az bir müsaitlik aralığı girin."),
+  })
+  .refine(
+    (v) =>
+      !v.availability.some((a, i) =>
+        v.availability.some(
+          (b, j) => j > i && a.dayOfWeek === b.dayOfWeek && a.branchId === b.branchId && a.start < b.end && b.start < a.end
+        )
+      ),
+    { message: "Aynı gün ve şubede çakışan müsaitlik aralıkları var; saatleri düzeltin.", path: ["availability"] }
+  );
 
 /** EPIC 9 — yalnızca SCHOOL_ADMIN/SUPER_ADMIN; not opsiyonel. */
 export const reviewTeacherAvailabilityRequestSchema = z.object({
@@ -1045,6 +1164,8 @@ export const LESSON_DURATION_PREF_ENUM = [30, 40, 50] as const;
 export const createTrialLessonSchema = z.object({
   name: z.string().min(1).max(120),
   phone: z.string().min(7).max(30),
+  /** Veli adı — opsiyonel (2026-09-30). */
+  parentName: z.string().trim().max(120).optional(),
   instrument: z.string().min(1),
   branchId: z.string().min(1),
   teacherId: z.string().min(1),
@@ -1064,6 +1185,35 @@ export const createTrialLessonSchema = z.object({
       message: "Deneme dersi süresi yalnızca 10, 15 veya 20 dakika olabilir.",
     }),
   notes: z.string().max(2000).optional(),
+  /** 8. tur — düzenlemedeki gibi: müsaitlik dışı planlama yalnız açık onayla. */
+  allowAvailabilityOverride: z.boolean().optional(),
+  /** 2026-10-05 — deneme bir başvurudan planlanıyorsa; oluşunca başvuru "Planlandı" olur. */
+  applicationId: z.string().max(80).optional(),
+});
+
+/**
+ * Deneme dersi düzenleme (2026-09-26). Tüm alanlar opsiyonel (kısmi). Hazırlık
+ * notu (`notes`) ile ders sonrası not (`resultNotes`) AYRI alanlardır.
+ */
+export const updateTrialLessonSchema = z.object({
+  trialId: z.string().min(1),
+  name: z.string().trim().min(1).max(120).optional(),
+  phone: z.string().trim().min(7).max(30).optional(),
+  /** Boş metin = veli adını temizle. */
+  parentName: z.string().trim().max(120).optional(),
+  instrument: z.string().min(1).optional(),
+  branchId: z.string().min(1).optional(),
+  teacherId: z.string().min(1).optional(),
+  startAt: z.string().min(1).optional(),
+  // 11. tur iş #1 (kayıp revize kök nedeni): 2026-09-01 öncesi 30/45/60 dk
+  // denemeler tarihsel kayıttır; düzenleme formu mevcut süreyi aynen geri
+  // gönderir. Burada refine YOK — 10/15/20 kuralı YALNIZCA süre gerçekten
+  // DEĞİŞTİRİLİRKEN `updateTrialLessonTool` içinde uygulanır (dede kuralı);
+  // aksi halde eski süreli hiçbir deneme kaydedilemezdi.
+  durationMinutes: z.coerce.number().int().min(1).max(240).optional(),
+  notes: z.string().max(2000).optional(),
+  resultNotes: z.string().max(4000).optional(),
+  allowAvailabilityOverride: z.boolean().optional(),
 });
 
 export const updateTrialLessonStatusSchema = z.object({
@@ -1081,6 +1231,8 @@ export const archiveStudentSchema = z.object({
 });
 
 /** ÖNCELİK 4 (devam) — öğretmen arşivleme (hard delete YOK). */
+export const archiveTeacherStudentsSchema = z.object({ teacherId: z.string().min(1) });
+
 export const archiveTeacherSchema = z.object({
   teacherId: z.string().min(1),
   archived: z.boolean(),
@@ -1092,6 +1244,8 @@ export const updateRoomSchema = z.object({
   name: z.string().min(1).optional(),
   capacity: z.coerce.number().int().min(1).optional(),
   branchId: z.string().min(1).optional(),
+  /** 9. tur — oda düzenlemede enstrüman listesi de revize edilebilir (en az bir). */
+  instruments: z.array(z.string().min(1)).min(1, "Odada en az bir enstrüman seçili olmalı.").optional(),
   active: z.boolean().optional(),
 });
 
@@ -1418,6 +1572,7 @@ export const createPackageSchema = z.object({
   groupLessonCount: packageLessonCountSchema.optional(),
   defaultDurationMinutes: packageDurationSchema.optional(),
   defaultPaymentDueDay: packageDueDaySchema.optional(),
+  applicableBranchIds: z.array(z.string().min(1)).optional(),
   notes: z.string().optional(),
 });
 
@@ -1434,26 +1589,41 @@ export const updatePackageSchema = z.object({
   groupLessonCount: packageLessonCountSchema.optional(),
   defaultDurationMinutes: packageDurationSchema.optional(),
   defaultPaymentDueDay: packageDueDaySchema.optional(),
+  applicableBranchIds: z.array(z.string().min(1)).optional(),
   notes: z.string().optional(),
 });
 
-/** Paket 5 — yüzde tabanlı kampanya/indirim (ör. "Kardeş Kampanyası"). */
+/** Paket 5 — yüzde tabanlı kampanya/indirim (ör. "Kardeş Kampanyası"). Paket & Kampanya Motoru ile genişletildi. */
 export const createDiscountCampaignSchema = z.object({
   name: z.string().min(1),
+  description: z.string().optional(),
   kind: z.enum(["sibling"]),
   discountPercent: z.coerce.number().int().min(1).max(100),
   validFrom: z.string().optional(),
   validTo: z.string().optional(),
   branchId: z.string().optional(),
+  applicableBranchIds: z.array(z.string().min(1)).optional(),
+  stackingRule: z.enum(["none", "additive", "override", "yield"]).optional(),
+  priority: z.coerce.number().int().min(0).optional(),
+  maxUsageCount: z.coerce.number().int().min(1).optional(),
+  conditions: z.record(z.string(), z.unknown()).optional(),
 });
 
 export const updateDiscountCampaignSchema = z.object({
   campaignId: z.string().min(1),
   name: z.string().min(1).optional(),
+  description: z.string().optional(),
   discountPercent: z.coerce.number().int().min(1).max(100).optional(),
   active: z.boolean().optional(),
   validFrom: z.string().optional(),
   validTo: z.string().optional(),
+  branchId: z.string().optional().nullable(),
+  applicableBranchIds: z.array(z.string().min(1)).optional(),
+  stackingRule: z.enum(["none", "additive", "override", "yield"]).optional(),
+  priority: z.coerce.number().int().min(0).optional(),
+  maxUsageCount: z.coerce.number().int().min(1).optional().nullable(),
+  usageCount: z.coerce.number().int().min(0).optional(),
+  conditions: z.record(z.string(), z.unknown()).optional(),
 });
 
 /** ÖNCELİK 4 (devam) — öğretmen çoklu enstrüman+seviye düzenleme (öğretmen detayı). */

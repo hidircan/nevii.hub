@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { PageHeader, Card, EmptyState, Badge } from "@/components/ui";
 import { requireHyperAdminPage } from "@/lib/platform/session";
 import { listInstitutions } from "@/lib/platform/service";

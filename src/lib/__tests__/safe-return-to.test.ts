@@ -4,6 +4,8 @@ import { resolveSafeReturnTo } from "../safe-return-to";
 describe("resolveSafeReturnTo — Ödemeler → Kaynak ders → güvenli geri dönüş", () => {
   it("allowlist edilmiş bir panel yolunu kabul eder", () => {
     expect(resolveSafeReturnTo("/panel/odemeler/s1")).toBe("/panel/odemeler/s1");
+    // Liste ekranı (trailing slash yok) — Tahsilat takibi geri dönüşü için gerekli.
+    expect(resolveSafeReturnTo("/panel/odemeler")).toBe("/panel/odemeler");
   });
 
   it("URL-encode edilmiş bir yolu doğru şekilde çözer", () => {

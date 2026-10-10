@@ -17,7 +17,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
+import Link from "@/components/link";
 import { actionChangeTaskStatus } from "@/lib/actions";
 import { Badge, Card } from "@/components/ui";
 import { formatDate, cn } from "@/lib/utils";
@@ -104,7 +104,7 @@ export function TaskKanbanBoard({
   return (
     <div className="space-y-3">
       {error ? (
-        <p className="rounded-md bg-[#f8ecec] px-3 py-2 text-xs font-medium text-[#6b2424]" role="alert">
+        <p className="rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-xs font-medium text-[var(--color-danger)]" role="alert">
           {error}
         </p>
       ) : null}

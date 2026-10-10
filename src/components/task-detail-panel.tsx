@@ -22,7 +22,10 @@ import {
   actionAddTaskFileAttachment,
   actionAddTaskLinkAttachment,
   actionDeleteTaskAttachment,
+  actionDeleteTask,
+  actionGetTaskDeletionImpact,
 } from "@/lib/actions";
+import { CriticalDeleteDialog } from "@/components/critical-delete-dialog";
 import { Badge, Button, Input, Label } from "@/components/ui";
 import { formatDateTime } from "@/lib/utils";
 import { TASK_PRIORITY_LABEL, type Task, type TaskChecklistItem, type TaskComment, type TaskActivity, type TaskAttachment, type TaskStatus } from "@/lib/types";
@@ -202,7 +205,7 @@ export function TaskDetailPanel({
       </div>
 
       {error ? (
-        <p className="rounded-md bg-[#f8ecec] px-3 py-2 text-xs font-medium text-[#6b2424]" role="alert">
+        <p className="rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-xs font-medium text-[var(--color-danger)]" role="alert">
           {error}
         </p>
       ) : null}
@@ -372,6 +375,42 @@ export function TaskDetailPanel({
           <Button type="button" variant="secondary" disabled={pending} onClick={() => setConfirmAction("archive")}>
             Arşivle
           </Button>
+        ) : null}
+        {isAdmin ? (
+          <CriticalDeleteDialog
+            triggerLabel="İşi sil"
+            title={`${task.title} — işi sil`}
+            meaning="İş tüm listelerden, raporlardan ve hatırlatmalardan kaldırılır. Yorumlar, kontrol listesi, ekler ve geçmiş SİLİNMEZ; bağlı öğrenci/ödeme/evrak kayıtları değişmez. Kurum yöneticisi “Silinen işler” ekranından geri alabilir."
+            confirmationName="SİL"
+            confirmationLabel="Onay için kutuya yazın"
+            submitLabel="İşi sil"
+            loadImpact={async () => {
+              const res = await actionGetTaskDeletionImpact(task.id);
+              if (!res.ok) return res;
+              const d = res.data;
+              return {
+                ok: true,
+                data: {
+                  allowed: true,
+                  criticalPasswordConfigured: d.criticalPasswordConfigured,
+                  lines: [
+                    ["Durum", STATUS_LABEL[d.status as TaskStatus] ?? d.status],
+                    ["Kontrol listesi", d.checklistCount],
+                    ["Yorum", d.commentCount],
+                    ["Ek", d.attachmentCount],
+                    ["Bağlı kayıt", d.relatedLabel ?? "—"],
+                  ],
+                },
+              };
+            }}
+            onSubmit={async ({ criticalPassword, reason, confirmation }) => {
+              const res = await actionDeleteTask({ taskId: task.id, criticalPassword, reason, confirmation });
+              if (!res.ok) return res;
+              router.push("/panel/is-takip");
+              router.refresh();
+              return { ok: true };
+            }}
+          />
         ) : null}
       </div>
 

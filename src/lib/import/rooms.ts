@@ -1,5 +1,5 @@
 import type { AppData, Instrument } from "../types";
-import { INSTRUMENTS } from "../types";
+import { resolveCanonicalValue } from "../normalize";
 import type { CsvRecord } from "./csv";
 import type { ImportPreview, ImportRowError, ImportReadRow } from "./types";
 import { IMPORT_READ_ROWS_PREVIEW_LIMIT } from "./types";
@@ -18,11 +18,12 @@ export const ROOM_CSV_SAMPLE = `ad,sube,kapasite,enstrumanlar
 Stüdyo 4 — Yaylı,Erzene,2,"Keman;Yan Flüt"
 `;
 
-function isInstrument(value: string): value is Instrument {
-  return (INSTRUMENTS as string[]).includes(value);
-}
-
-export function validateRoomRows(data: AppData, records: CsvRecord[]): ImportPreview<RoomImportRow> {
+/** `activeInstrumentNames`: kurumun aktif enstrüman kataloğu (resolveActiveInstrumentNames) — sabit liste DEĞİL. */
+export function validateRoomRows(
+  data: AppData,
+  records: CsvRecord[],
+  activeInstrumentNames: readonly string[]
+): ImportPreview<RoomImportRow> {
   const errors: ImportRowError[] = [];
   const valid: RoomImportRow[] = [];
   const readRows: ImportReadRow[] = [];
@@ -76,17 +77,18 @@ export function validateRoomRows(data: AppData, records: CsvRecord[]): ImportPre
         .split(";")
         .map((p) => p.trim())
         .filter((p) => p.length > 0);
-      const invalid = parts.filter((p) => !isInstrument(p));
+      const canonical = parts.map((p) => resolveCanonicalValue(p, activeInstrumentNames));
+      const invalid = parts.filter((_, i) => !canonical[i]);
       if (parts.length === 0) {
         errors.push({ row, field: "enstrumanlar", message: "En az bir enstrüman gerekli." });
       } else if (invalid.length > 0) {
         errors.push({
           row,
           field: "enstrumanlar",
-          message: `Geçersiz enstrüman(lar): ${invalid.join(", ")}. Geçerli değerler: ${INSTRUMENTS.join(", ")}.`,
+          message: `Kurumun aktif enstrüman listesinde olmayan enstrüman(lar): ${invalid.join(", ")}. Geçerli değerler: ${activeInstrumentNames.join(", ")}. Eksikse Kurulum Merkezi › Enstrümanlar ekranından ekleyin veya aktifleştirin.`,
         });
       } else {
-        instruments = parts as Instrument[];
+        instruments = canonical as Instrument[];
       }
     }
 

@@ -13,6 +13,10 @@ export const dynamic = "force-dynamic";
 const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1),
+  /** N — istemci "başka cihazda aktif" onay diyaloğunu gösterebiliyorsa true. */
+  clientSupportsTakeover: z.boolean().optional(),
+  /** N — kullanıcı onayladı: diğer oturumu kapat ve giriş yap. */
+  takeover: z.boolean().optional(),
 });
 
 const LOGIN_RATE_WINDOW_MS = 15 * 60_000;
@@ -27,7 +31,7 @@ export const POST = withApiHandler(
   async ({ body, ctx, request }) => {
     const parsed = loginSchema.safeParse(body);
     if (!parsed.success) {
-      return jsonFail("VALIDATION_ERROR", "Invalid login payload", parsed.error.flatten());
+      return jsonFail("VALIDATION_ERROR", "Geçerli bir e-posta adresi ve şifre girin.", parsed.error.flatten());
     }
 
     const ip = clientIp(request);
@@ -49,7 +53,7 @@ export const POST = withApiHandler(
         outcome: "denied",
         meta: { email: normalizedEmail },
       });
-      const res = jsonFail("RATE_LIMITED", "Too many login attempts. Please try again later.");
+      const res = jsonFail("RATE_LIMITED", "Çok fazla giriş denemesi yapıldı. Güvenlik için 15 dakika bekleyip tekrar deneyin.");
       res.headers.set("Retry-After", String(Math.ceil(LOGIN_RATE_WINDOW_MS / 1000)));
       return res;
     }
@@ -62,12 +66,83 @@ export const POST = withApiHandler(
         outcome: "denied",
         meta: { email: parsed.data.email },
       });
-      return jsonFail("UNAUTHORIZED", "Invalid email or password");
+      return jsonFail("UNAUTHORIZED", "E-posta veya şifre hatalı. Bilgileri kontrol edin; şifrenizi hatırlamıyorsanız “Şifremi unuttum” bağlantısını kullanın.");
+    }
+
+    // N — tek aktif oturum. Son 30 dk'da görülmüş başka oturum varsa ve istemci onay
+    // diyaloğunu destekliyorsa giriş durur; onaylanırsa (takeover) eski oturum kapatılır.
+    // Diyalog desteklemeyen istemcide (eski mobil sürüm) kural yine uygulanır: eski oturum kapanır.
+    const { listOpenSessions, closeOpenSessions, isRecentlyActive } = await import("@/lib/auth/session-concurrency");
+    let openSessions: Awaited<ReturnType<typeof listOpenSessions>> = [];
+    try {
+      openSessions = await listOpenSessions(user.userId);
+    } catch {
+      openSessions = []; // oturum kaydı okunamazsa giriş engellenmez (sid'siz akışla aynı davranış)
+    }
+    const activeElsewhere = openSessions.filter((row) => isRecentlyActive(row));
+    if (activeElsewhere.length > 0 && parsed.data.clientSupportsTakeover && !parsed.data.takeover) {
+      const latest = activeElsewhere[0]!;
+      return NextResponse.json(
+        {
+          ok: false as const,
+          error: {
+            code: "SESSION_ACTIVE_ELSEWHERE",
+            message: "Bu kullanıcı şu anda başka bir cihazda aktif. Devam ederseniz mevcut oturum kapatılacaktır.",
+            details: { device: latest.device, lastSeenAt: latest.lastSeenAt },
+          },
+        },
+        { status: 409 }
+      );
+    }
+    if (openSessions.length > 0) {
+      const closed = await closeOpenSessions(user.userId, openSessions);
+      if (activeElsewhere.length > 0) {
+        auditLog({
+          action: "auth.session_takeover",
+          requestId: ctx.requestId || "unknown",
+          userId: user.userId,
+          tenantId: user.tenantId,
+          role: user.role,
+          outcome: "success",
+          meta: { closedSessions: closed, previousDevice: activeElsewhere[0]!.device },
+        });
+      }
     }
 
     // NeviiOS: tekil oturum kaydı (sid) — canlı operasyon ekranından sonlandırılabilir.
     const sid = await startUserSession(user, request);
-    const tokens = await issueTokenPair({ ...user, sid });
+    // 10. tur iş #1 — veli/öğrenci JWT'si bayat bir pasif kayda kilitlenmesin:
+    // girişte varsayılan bağlam, aktif erişimi olan AKTİF öğrenciye çözülür.
+    // Çözümleme başarısız olursa eski davranış (user.studentId) korunur.
+    let loginStudentId = user.studentId;
+    if (user.role === "STUDENT") {
+      try {
+        const { resolvePortalStudent, PORTAL_STUDENT_COOKIE } = await import("@/lib/portal-context");
+        // Önceki oturumda seçilmiş öğrenci (HttpOnly cookie) varsa tercih edilir —
+        // çözümleyici erişim + aktiflik doğrulaması yapar, geçersizse yok sayar.
+        let cookiePreferred: string | null = null;
+        try {
+          const cookieHeader = request.headers.get("cookie") ?? "";
+          const match = cookieHeader
+            .split(";")
+            .map((p) => p.trim().split("="))
+            .find(([k]) => k === PORTAL_STUDENT_COOKIE);
+          const raw = match?.[1]?.trim();
+          cookiePreferred = raw ? decodeURIComponent(raw).slice(0, 128) : null;
+        } catch {
+          cookiePreferred = null;
+        }
+        const resolved = await resolvePortalStudent(
+          user.tenantId,
+          user.userId,
+          cookiePreferred || user.studentId || null
+        );
+        if (resolved.status === "ok") loginStudentId = resolved.studentId;
+      } catch {
+        loginStudentId = user.studentId;
+      }
+    }
+    const tokens = await issueTokenPair({ ...user, studentId: loginStudentId, sid });
     auditLog({
       action: "auth.login_success",
       requestId: ctx.requestId || "unknown",
@@ -116,14 +191,24 @@ export const POST = withApiHandler(
           role: user.role,
           tenantId: user.tenantId,
           teacherId: user.teacherId,
-          studentId: user.studentId,
+          studentId: loginStudentId,
         },
         resumeTo,
         ...tokens,
       },
     });
+    const year = 60 * 60 * 24 * 365;
+    let lang: "tr" | "en" = "tr";
+    if (user.role !== "HYPER_ADMIN") {
+      try {
+        const { resolveTenantLanguage } = await import("@/lib/i18n/locale");
+        lang = await resolveTenantLanguage(user.tenantId);
+      } catch {
+        lang = "tr";
+      }
+    }
+    res.cookies.set("nevii_lang", lang, { path: "/", maxAge: year, sameSite: "lax" });
     if (bootstrap) {
-      const year = 60 * 60 * 24 * 365;
       res.cookies.set("notaplan_theme_profile", bootstrap.theme, { path: "/", maxAge: year, sameSite: "lax" });
       res.cookies.set("notaplan_font", bootstrap.font, { path: "/", maxAge: year, sameSite: "lax" });
       res.cookies.set("notaplan_density", bootstrap.density, { path: "/", maxAge: year, sameSite: "lax" });

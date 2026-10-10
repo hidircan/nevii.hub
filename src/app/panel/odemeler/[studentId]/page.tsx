@@ -1,18 +1,21 @@
-import Link from "next/link";
+import { ChangeHistory } from "@/components/change-history";
+import Link from "@/components/link";
 import { redirect } from "next/navigation";
 import { ArrowRight } from "lucide-react";
 import { BackButton } from "@/components/back-button";
 import { AddPaymentForm } from "@/components/add-payment-form";
 import { Card, EmptyState, PageHeader, StatCard } from "@/components/ui";
 import { formatMoney } from "@/lib/utils";
+import { listStudentContractsTool } from "@/lib/services";
 import { computeStudentPaymentSummary, filterPaymentHistory, sortPaymentsForProfile } from "@/lib/payment-profile";
-import { computeStudentMonthlyAmount } from "@/lib/student-payment-profile";
+import { computeStudentMonthlyAmount, isPercentDiscount } from "@/lib/student-payment-profile";
 import { AssistantPageContext } from "@/components/ai/assistant-page-context";
 import { StudentPaymentHistoryTable } from "@/components/student-payment-history-table";
 import { resolveCollectorDisplayNames } from "@/lib/contract-payment-plan-view";
 import { QuickTaskLink } from "@/components/quick-task-link";
 import { requireSessionContext } from "@/lib/auth/session";
-import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
+import { getInstitutionContext, readScopedStudentData } from "@/lib/institution/context";
+import { effectiveEnrollments, enrollmentDisplayName, makePaymentBranchLabeler } from "@/lib/student-enrollments";
 
 export const dynamic = "force-dynamic";
 
@@ -29,7 +32,8 @@ export default async function StudentPaymentProfilePage({
     redirect(`/login?next=/panel/odemeler/${studentId}`);
   }
   const kurum = await getInstitutionContext(session);
-  const data = await readScopedData(kurum.scope);
+  // DB egress (2026-10-10): ekran yalnız bu öğrencinin ödeme/ders satırlarını kullanır — tek öğrenci dilimi.
+  const data = await readScopedStudentData(kurum.scope, studentId);
   const student = data.students.find((s) => s.id === studentId);
   const canWrite =
     kurum.scope.mode === "single" && (session.role === "SCHOOL_ADMIN" || session.role === "SUPER_ADMIN");
@@ -52,7 +56,9 @@ export default async function StudentPaymentProfilePage({
   }
 
   const payments = sortPaymentsForProfile(data.payments.filter((p) => p.studentId === studentId));
-  const summary = computeStudentPaymentSummary(payments);
+  const contractsResult = await listStudentContractsTool(session, { studentId: studentId });
+  const contracts = contractsResult.ok ? contractsResult.data.contracts : [];
+  const summary = computeStudentPaymentSummary(payments, contracts);
   const hasOpenPayment = summary.openCount > 0;
   const studentPackage = (data.packages ?? []).find((p) => p.id === student.packageId);
   const monthlyAmount = computeStudentMonthlyAmount(
@@ -71,10 +77,15 @@ export default async function StudentPaymentProfilePage({
     new Set(payments.map((p) => p.receivedByUserId).filter((id): id is string => Boolean(id)))
   );
   const receiverNames = await resolveCollectorDisplayNames({ userIds: receiverIds, teachers: data.teachers });
+  // 2026-10-09 — çok branşlı öğrencide her hareket branşını söyler; yeni borç eklerken branş seçilir.
+  const branchOf = makePaymentBranchLabeler({ students: [student], teachers: data.teachers, lessons: data.lessons, contracts });
   const historyPayments = filterPaymentHistory(payments).map((p) => ({
     ...p,
     receivedByName: p.receivedByUserId ? receiverNames.get(p.receivedByUserId) : undefined,
+    branchLabel: branchOf(p),
   }));
+  const activeBranches = effectiveEnrollments(student, data.teachers).filter((e) => e.active);
+  const branchOptions = activeBranches.map((e) => ({ id: e.id, label: enrollmentDisplayName(e, activeBranches, data.teachers) }));
 
   return (
     <div>
@@ -106,6 +117,7 @@ export default async function StudentPaymentProfilePage({
             <BackButton
               fallbackHref="/panel/odemeler"
               label="Tüm ödemeler"
+              dynamicLabel
               className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-3.5 py-2 hover:bg-[var(--color-surface-muted)]"
             />
           </div>
@@ -113,7 +125,7 @@ export default async function StudentPaymentProfilePage({
       />
 
       <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-        <StatCard label="Toplam tahakkuk" value={formatMoney(summary.totalBilled)} accent="primary" />
+        <StatCard label="Geçerli tahakkuk" value={formatMoney(summary.totalBilled)} accent="primary" />
         <StatCard label="Toplam tahsil edilen" value={formatMoney(summary.totalCollected)} accent="success" />
         <StatCard label="Kalan borç" value={formatMoney(summary.remaining)} accent="warning" />
         <StatCard label="Gecikmiş kalan" value={formatMoney(summary.overdueRemaining)} accent="danger" />
@@ -130,7 +142,7 @@ export default async function StudentPaymentProfilePage({
             {monthlyAmount.listPrice !== null ? ` · Liste fiyatı: ${formatMoney(monthlyAmount.listPrice)}` : ""}
             {monthlyAmount.discountAmount > 0
               ? ` · İndirim: -${formatMoney(monthlyAmount.discountAmount)}${
-                  monthlyAmount.discountType === "percentage" ? ` (%${monthlyAmount.discountValue})` : ""
+                  isPercentDiscount(monthlyAmount.discountType) ? ` (%${monthlyAmount.discountValue})` : ""
                 }`
               : ""}
             {monthlyAmount.overrideAmount !== null ? " · Yönetici override'ı uygulanıyor" : ""}
@@ -146,7 +158,7 @@ export default async function StudentPaymentProfilePage({
               iletişim taslağını hazırlayıp onaylayabilirsiniz.
             </p>
             <Link
-              href={`/panel/ai/tahsilat-agent?studentId=${student.id}`}
+              href={`/panel/ai/tahsilat-agent?studentId=${student.id}&returnTo=${encodeURIComponent(`/panel/odemeler/${student.id}`)}`}
               className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-amber-600 px-3 py-2 text-sm font-medium text-white hover:bg-amber-700"
             >
               Tahsilat takibini aç <ArrowRight className="h-4 w-4" />
@@ -161,6 +173,7 @@ export default async function StudentPaymentProfilePage({
         </summary>
         <AddPaymentForm
           fixedStudentId={student.id}
+          fixedStudentBranches={branchOptions}
           defaultAmount={monthlyAmount.netAmount ?? student.monthlyFee}
           gridClassName="mt-4 grid gap-3 sm:grid-cols-3"
         />
@@ -180,6 +193,18 @@ export default async function StudentPaymentProfilePage({
         canWrite={canWrite}
         studentName={student.name}
       />
+
+      {canWrite ? (
+        <div className="mt-6">
+          <ChangeHistory
+            title="Ödeme değişiklik geçmişi"
+            tenantId={session.tenantId}
+            entityType="Payment"
+            entityIds={payments.map((p) => p.id)}
+            teachers={data.teachers}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }

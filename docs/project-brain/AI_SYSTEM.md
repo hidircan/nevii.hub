@@ -9,7 +9,7 @@ Kaynak: `../../CLAUDE.md` §AI platform (DOĞRULANDI, kod-referanslı) +
 planlama YOK), otonom workflow'lar (`src/lib/workflows/*`, 6 zamanlanmış iş),
 headless tool execution (`/api/v1/agent/execute`).
 
-Provider zinciri (`provider-chain.ts`): Gemini → Groq → NVIDIA NIM →
+Provider zinciri (`provider-chain.ts`): Claude → Gemini → Groq → NVIDIA NIM →
 Cerebras → heuristic (anahtar yoksa atla, auth hatasından sonra o
 provider'ı tekrar deneme). Heuristic (`providers/heuristic.ts`) anahtarsız,
 deterministik son çare — her zaman "configured".

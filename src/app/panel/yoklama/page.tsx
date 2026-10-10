@@ -1,12 +1,13 @@
 import { redirect } from "next/navigation";
 import { requireSessionContext } from "@/lib/auth/session";
-import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
+import { getInstitutionContext, readScopedReferenceData } from "@/lib/institution/context";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { AssistantPageContext } from "@/components/ai/assistant-page-context";
 import { PageHeader, EmptyState } from "@/components/ui";
 import { AttendanceCalendarPanel } from "@/components/attendance-calendar-panel";
+import { effectiveEnrollments, enrollmentDisplayName } from "@/lib/student-enrollments";
 import { StudentAttendancePicker } from "@/components/student-attendance-picker";
-import { resolveAttendanceCalendarStudentId } from "@/lib/attendance-calendar";
+import { attendancePickerStudents, resolveAttendanceCalendarStudentId } from "@/lib/attendance-calendar";
 
 export const dynamic = "force-dynamic";
 
@@ -34,7 +35,7 @@ export default async function YoklamaPage({
   if (session.role === "STUDENT") redirect("/ogrenci");
 
   const kurum = await getInstitutionContext(session);
-  const data = await readScopedData(kurum.scope);
+  const data = await readScopedReferenceData(kurum.scope);
   const sp = await searchParams;
   const requestedStudentId = typeof sp.studentId === "string" ? sp.studentId : null;
 
@@ -42,13 +43,11 @@ export default async function YoklamaPage({
   const studentId = resolveAttendanceCalendarStudentId(requestedStudentId, scopedStudentIds);
   const student = studentId ? data.students.find((s) => s.id === studentId) ?? null : null;
 
-  const studentOptions = [...data.students]
-    .sort((a, b) => a.name.localeCompare(b.name, "tr"))
-    .map((s) => ({
-      id: s.id,
-      name: s.name,
-      branchName: data.settings.branches.find((b) => b.id === s.branchId)?.shortName,
-    }));
+  const studentOptions = attendancePickerStudents(data.students, studentId).map(({ student: s, inactive }) => ({
+    id: s.id,
+    name: inactive ? `${s.name} (pasif)` : s.name,
+    branchName: data.settings.branches.find((b) => b.id === s.branchId)?.shortName,
+  }));
 
   // "Tüm kurumlar" birleşik görünümde hiçbir yazma yapılamaz (bkz. CLAUDE.md
   // Multi-tenancy notu) — bu yalnızca UI'daki ikinci savunma, asıl engel
@@ -75,10 +74,17 @@ export default async function YoklamaPage({
         <>
           <h2 className="mb-3 text-sm font-semibold text-[var(--color-text)]">{student.name}</h2>
           <AttendanceCalendarPanel
+            key={student.id}
             studentId={student.id}
             termType={student.termType ?? "guz"}
             canEdit={canEdit}
             studentActive={student.active}
+            branches={(() => {
+              // 2026-10-09 — çok branşlı öğrencide takvim/tahsilat branş başınadır.
+              const list = effectiveEnrollments(student, data.teachers);
+              return list.map((e) => ({ id: e.id, label: `${enrollmentDisplayName(e, list, data.teachers)}${e.active ? "" : " (sonlandı)"}` }));
+            })()}
+            initialBranchId={effectiveEnrollments(student, data.teachers).find((e) => e.active)?.id}
           />
         </>
       )}

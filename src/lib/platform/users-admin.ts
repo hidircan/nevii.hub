@@ -6,7 +6,7 @@ import { permissionsForRole, type Permission } from "../auth/rbac";
 import { listBootstrapUsersForTenant } from "../auth/users";
 import { isDbMode } from "../config";
 import { runWithTenantAsync } from "../tenant-context";
-import { readData } from "../store";
+import { readReferenceData } from "../store";
 import { requireHyperAdmin } from "./access";
 import { appendPlatformAudit, getPlatformTenant, grantBranchAccess, listBranchAccess, revokeBranchAccess } from "./store";
 import { redactSecrets } from "./secrets";
@@ -77,7 +77,7 @@ export async function listTenantMembers(tenantId: string): Promise<TenantMember[
 
 async function tenantBranchIds(tenantId: string): Promise<string[]> {
   try {
-    const data = await runWithTenantAsync(tenantId, () => readData());
+    const data = await runWithTenantAsync(tenantId, () => readReferenceData());
     return data.settings.branches.map((b) => b.id);
   } catch {
     return [];
@@ -218,7 +218,7 @@ export async function getTenantMembers(ctx: ServiceContext, tenantId: string) {
 
 async function tenantBranchNames(tenantId: string): Promise<{ id: string; name: string }[]> {
   try {
-    const data = await runWithTenantAsync(tenantId, () => readData());
+    const data = await runWithTenantAsync(tenantId, () => readReferenceData());
     return data.settings.branches.map((b) => ({ id: b.id, name: b.name }));
   } catch {
     return [];

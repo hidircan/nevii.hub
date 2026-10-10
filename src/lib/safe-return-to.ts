@@ -20,9 +20,9 @@
  * yönlendirmenin uygulama dışına ÇIKMAMASINI garanti eder.
  */
 const ALLOWED_RETURN_TO_PREFIXES = [
-  "/panel/odemeler/",
-  "/panel/ogrenciler/",
-  "/panel/ogretmenler/",
+  "/panel/odemeler",
+  "/panel/ogrenciler",
+  "/panel/ogretmenler",
   "/panel/program",
   "/panel/is-takip",
   "/panel/telafi",
@@ -33,6 +33,8 @@ const ALLOWED_RETURN_TO_PREFIXES = [
   "/panel/personel",
   "/panel/bildirimler",
   "/panel/iletisim-merkezi",
+  "/panel/ai",
+  "/panel/yoklama",
 ] as const;
 
 export function resolveSafeReturnTo(raw: string | undefined | null): string | null {
@@ -51,4 +53,56 @@ export function resolveSafeReturnTo(raw: string | undefined | null): string | nu
   }
   if (!ALLOWED_RETURN_TO_PREFIXES.some((p) => decoded.startsWith(p))) return null;
   return decoded;
+}
+
+/**
+ * 9. tur — alt ekran linkine kaynak bağlamı ekler (`?returnTo=` / `&returnTo=`).
+ * `returnTo` önce doğrulanır; güvensizse link DEĞİŞMEDEN döner (hedef kendi varsayılanına düşer).
+ */
+export function withReturnTo(href: string, returnTo: string | null | undefined): string {
+  const safe = resolveSafeReturnTo(returnTo ? encodeURIComponent(returnTo) : null);
+  if (!safe) return href;
+  return `${href}${href.includes("?") ? "&" : "?"}returnTo=${encodeURIComponent(safe)}`;
+}
+
+/**
+ * 10. tur iş #10 — uygulama-içi yola sorgu parametresi ekler/değiştirir
+ * (mevcut parametreler korunur). Yalnızca `resolveSafeReturnTo`'dan geçen
+ * yollarda kullanılmalıdır; mutlak URL verilirse aynen geri döner
+ * (güvenlik: yeni bir yönlendirme yüzeyi açılmaz).
+ */
+export function withQueryParam(path: string, key: string, value: string): string {
+  if (!path.startsWith("/") || path.startsWith("//") || path.includes(":")) return path;
+  const [base, query] = path.split("?");
+  const params = new URLSearchParams(query ?? "");
+  params.set(key, value);
+  const next = params.toString();
+  return next ? `${base}?${next}` : (base ?? path);
+}
+
+/** `withQueryParam`'ın tersi — parametreyi kaldırır, diğerlerini korur. */
+export function withoutQueryParam(path: string, key: string): string {
+  if (!path.startsWith("/") || path.startsWith("//") || path.includes(":")) return path;
+  const [base, query] = path.split("?");
+  if (!query) return path;
+  const params = new URLSearchParams(query);
+  params.delete(key);
+  const next = params.toString();
+  return next ? `${base}?${next}` : (base ?? path);
+}
+
+/** Dönüş düğmesinin metni — kullanıcı nereye döneceğini görür. */
+export function returnToLabel(path: string): string {
+  const p = path.split(/[?#]/)[0];
+  if (p === "/panel/evraklar") return "Evraklara dön";
+  if (p.startsWith("/panel/evraklar/")) return "Evrak detayına dön";
+  if (/^\/panel\/ogrenciler\/[^/]+\/evraklar$/.test(p)) return "Öğrencinin evraklarına dön";
+  if (/^\/panel\/ogrenciler\/[^/]+\/sozlesmeler/.test(p)) return "Öğrencinin sözleşmelerine dön";
+  if (p === "/panel/yoklama") return "Yoklama takvimine dön";
+  if (p === "/panel/yoklama-raporu") return "Yoklama raporuna dön";
+  if (/^\/panel\/ogrenciler\/[^/]+\/program/.test(p)) return "Öğrencinin programına dön";
+  if (/^\/panel\/ogrenciler\/[^/]+\/odemeler/.test(p) || /^\/panel\/odemeler\/[^/]+/.test(p)) return "Öğrencinin ödemelerine dön";
+  if (/^\/panel\/ogrenciler\/[^/]+/.test(p)) return "Öğrenci detayına dön";
+  if (p === "/panel/odemeler") return "Ödemelere dön";
+  return "Geri dön";
 }

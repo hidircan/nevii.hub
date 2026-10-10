@@ -13,7 +13,8 @@
  * edilmemiş olsalar bile) simüle edilerek yakalanır.
  */
 import type { AppData, Instrument } from "../types";
-import { INSTRUMENTS } from "../types";
+import { zonedWallTimeToUtc } from "../timezone";
+import { resolveCanonicalValue } from "../normalize";
 import type { CsvRecord } from "./csv";
 import type { ImportPreview, ImportRowError, ImportReadRow } from "./types";
 import { IMPORT_READ_ROWS_PREVIEW_LIMIT } from "./types";
@@ -47,9 +48,6 @@ export const LESSON_CSV_SAMPLE = `ogrenci,ogretmen,sube,oda,enstruman,tarih,saat
 Zeynep Yıldız,Nilüfer Acar,Erzene,Stüdyo 1 — Piyano,Piyano,2026-09-07,14:00,40
 `;
 
-function isInstrument(value: string): value is Instrument {
-  return (INSTRUMENTS as string[]).includes(value);
-}
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -81,7 +79,12 @@ function findExactDuplicate(
   );
 }
 
-export function validateLessonRows(data: AppData, records: CsvRecord[]): ImportPreview<LessonImportRow> {
+/** `activeInstrumentNames`: kurumun aktif enstrüman kataloğu (resolveActiveInstrumentNames) — sabit liste DEĞİL. */
+export function validateLessonRows(
+  data: AppData,
+  records: CsvRecord[],
+  activeInstrumentNames: readonly string[]
+): ImportPreview<LessonImportRow> {
   const errors: ImportRowError[] = [];
   const valid: LessonImportRow[] = [];
   const readRows: ImportReadRow[] = [];
@@ -147,14 +150,17 @@ export function validateLessonRows(data: AppData, records: CsvRecord[]): ImportP
     let instrument: Instrument | null = null;
     if (!instrumentValue) {
       errors.push({ row, field: "enstruman", message: "Enstrüman boş olamaz." });
-    } else if (!isInstrument(instrumentValue)) {
-      errors.push({
-        row,
-        field: "enstruman",
-        message: `Geçersiz enstrüman: "${instrumentValue}". Geçerli değerler: ${INSTRUMENTS.join(", ")}.`,
-      });
     } else {
-      instrument = instrumentValue;
+      const canonical = resolveCanonicalValue(instrumentValue, activeInstrumentNames);
+      if (!canonical) {
+        errors.push({
+          row,
+          field: "enstruman",
+          message: `Kurumun aktif enstrüman listesinde yok: "${instrumentValue}". Geçerli değerler: ${activeInstrumentNames.join(", ")}. Eksikse Kurulum Merkezi › Enstrümanlar ekranından ekleyin veya aktifleştirin.`,
+        });
+      } else {
+        instrument = canonical as Instrument;
+      }
     }
 
     if (!dateValue) {
@@ -185,7 +191,7 @@ export function validateLessonRows(data: AppData, records: CsvRecord[]): ImportP
     const canComposeStartAt = DATE_RE.test(dateValue) && TIME_RE.test(timeValue);
     if (!studentId || !teacherId || !roomId || !instrument || !canComposeStartAt) return;
 
-    const startAtIso = new Date(`${dateValue}T${timeValue}:00`).toISOString();
+    const startAtIso = zonedWallTimeToUtc(dateValue, timeValue).toISOString();
 
     if (findExactDuplicate(simulatedLessons, teacherId, roomId, startAtIso)) {
       valid.push({ studentId, teacherId, roomId, instrument, startAt: startAtIso, durationMinutes, duplicate: true });

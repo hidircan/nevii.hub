@@ -1,7 +1,9 @@
-import { isDateClosed } from "./closed-days";
-import { addDays, addMinutes, getDay, isBefore, setHours, setMinutes, startOfDay } from "date-fns";
-import type { AppData, Instrument } from "./types";
+import { addMinutes, isBefore } from "date-fns";
+import { DEFAULT_APP_TIMEZONE, addDaysYmd, toZonedYmd, zonedWallTimeToUtc } from "./timezone";
+import type { AppData, Instrument, StudentTermType } from "./types";
+import { assertWorkDaySchedulable, isSuggestableWorkDay } from "./work-days";
 import { validateLessonSlot, type ValidatedSlot } from "./makeup-engine";
+import { teacherServesBranch } from "./teacher-branches";
 
 export type LessonSlotSuggestion = ValidatedSlot & {
   score: number;
@@ -15,11 +17,6 @@ export type SuggestLessonSlotsParams = {
   daysAhead?: number;
   maxSlots?: number;
 };
-
-function parseHm(hm: string) {
-  const [h, m] = hm.split(":").map(Number);
-  return { h, m };
-}
 
 /**
  * Sıradan ders planlama için "uygun saatleri bul" asistanı. Telafi motorundan
@@ -37,8 +34,6 @@ export function suggestLessonSlots(
   const maxSlots = params.maxSlots ?? 8;
   const duration = data.settings.lessonDurationMinutes;
   const { workingHours, workingDays } = data.settings;
-  const { h: whStartH, m: whStartM } = parseHm(workingHours.start);
-  const { h: whEndH, m: whEndM } = parseHm(workingHours.end);
 
   const student = data.students.find((s) => s.id === params.studentId);
 
@@ -59,17 +54,17 @@ export function suggestLessonSlots(
     return 0;
   });
 
-  const roomsForInstrument = data.rooms.filter((r) => r.instruments.includes(params.instrument));
+  const roomsForInstrument = data.rooms.filter((r) => r.active !== false && r.instruments.includes(params.instrument));
 
   const suggestions: LessonSlotSuggestion[] = [];
 
+  const todayYmd = toZonedYmd(now, DEFAULT_APP_TIMEZONE);
   for (let d = 1; d <= daysAhead; d++) {
-    const day = addDays(startOfDay(now), d);
-    const dow = getDay(day);
-    if (!workingDays.includes(dow)) continue;
+    const ymd = addDaysYmd(todayYmd, d);
+    if (!isSuggestableWorkDay(ymd, student?.termType ?? "guz", data.closedDayOverrides ?? [], data.settings.termWeeklyClosedDays, workingDays)) continue;
 
-    const dayStart = setMinutes(setHours(day, whStartH), whStartM);
-    const dayEnd = setMinutes(setHours(day, whEndH), whEndM);
+    const dayStart = zonedWallTimeToUtc(ymd, workingHours.start);
+    const dayEnd = zonedWallTimeToUtc(ymd, workingHours.end);
 
     for (let cursor = new Date(dayStart); cursor < dayEnd; cursor = addMinutes(cursor, 30)) {
       const previewEnd = addMinutes(cursor, duration);
@@ -77,7 +72,7 @@ export function suggestLessonSlots(
       if (isBefore(cursor, now)) continue;
 
       for (const teacher of candidates) {
-        const teacherRooms = roomsForInstrument.filter((r) => r.branchId === teacher.branchId);
+        const teacherRooms = roomsForInstrument.filter((r) => teacherServesBranch(teacher, r.branchId));
         let matched: ValidatedSlot | null = null;
         for (const room of teacherRooms) {
           const result = validateLessonSlot(
@@ -100,7 +95,7 @@ export function suggestLessonSlots(
           score += 30;
           reasons.push("Öğrencinin mevcut öğretmeni");
         }
-        if (student && teacher.branchId === student.branchId) {
+        if (student && teacherServesBranch(teacher, student.branchId)) {
           score += 15;
           reasons.push("Aynı şube");
         }
@@ -127,12 +122,29 @@ export function suggestLessonSlots(
 }
 
 
-/** PRODUCT_BACKLOG §4 — planlama kapalı gün/Pazartesi engeli */
+/**
+ * Planlama kapalı gün engeli — ÇALIŞMA GÜNÜ TEK KAYNAĞI (src/lib/work-days.ts).
+ *
+ * 2026-09-20 kök neden: burası `isDateClosed`'u çağırıyordu; o fonksiyon
+ * yalnız "Pazartesi" + verilen tarih listesine bakıyor, `ClosedDay.isOpen`
+ * bayrağını HİÇ okumuyordu — yani yöneticinin "zorla açık" ettiği bir gün
+ * yine reddediliyordu. Üstelik tek çağıranı (`createTrialLessonTool`) listeyi
+ * BOŞ geçiyordu, dolayısıyla istisnalar deneme dersi planlamasına hiç
+ * ulaşmıyordu. Artık ders planlama doğrulamasının (`validateLessonSlot`)
+ * kullandığı aynı çözümleyiciden geçer.
+ */
 export function assertSchedulableDate(
   startAtIso: string,
-  closedDays: { date: string }[] = []
+  data: Pick<AppData, "settings" | "closedDayOverrides">,
+  term: StudentTermType = "guz"
 ): { ok: true } | { ok: false; message: string } {
-  const r = isDateClosed(startAtIso, closedDays);
-  if (r.closed) return { ok: false, message: r.reason || "Bu tarihte planlama yapılamaz." };
-  return { ok: true };
+  const start = new Date(startAtIso);
+  if (Number.isNaN(start.getTime())) return { ok: false, message: "Geçerli bir tarih ve saat seçin." };
+  const result = assertWorkDaySchedulable(
+    start,
+    term,
+    data.closedDayOverrides ?? [],
+    data.settings.termWeeklyClosedDays
+  );
+  return result.ok ? { ok: true } : { ok: false, message: result.message };
 }

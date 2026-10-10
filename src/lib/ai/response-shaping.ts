@@ -67,7 +67,7 @@ function summarizeOne(result: ToolResultLike): string {
       const slots = asArray(data?.slots);
       return slots.length > 0
         ? `${slots.length} uygun telafi slotu bulundu — en yüksek puanlı seçenek en üstte listelenir.`
-        : "Uygun telafi slotu bulunamadı — öğretmen/oda müsaitliği veya çakışma olabilir.";
+        : "Uygun telafi saati bulunamadı — öğretmen/oda müsaitliği veya çakışma olabilir.";
     }
     case "findPersonSchedule": {
       const matchType = typeof data?.matchType === "string" ? data.matchType : undefined;
@@ -159,12 +159,13 @@ export function describeIdentity(): string {
   if (cfg.name === "heuristic") {
     return (
       "Şu anda heuristic (kural tabanlı, LLM'siz) modda çalışıyorum. " +
-      "Hiçbir sağlayıcı için API anahtarı yapılandırılmamış (GEMINI_API_KEY / " +
+      "Hiçbir sağlayıcı için API anahtarı yapılandırılmamış (ANTHROPIC_API_KEY / GEMINI_API_KEY / " +
       "GROQ_API_KEY / NVIDIA_NIM_API_KEY / CEREBRAS_API_KEY), bu yüzden gerçek bir " +
       "dil modeli yerine anahtar kelimelere dayalı, deterministik bir asistanım."
     );
   }
   const providerLabel: Record<string, string> = {
+    claude: "Anthropic Claude",
     gemini: "Google Gemini",
     groq: "Groq Cloud",
     nvidiaNim: "NVIDIA NIM",

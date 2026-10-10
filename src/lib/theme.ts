@@ -18,7 +18,8 @@ export type ThemeProfile =
   | "ocean"
   | "lavender"
   | "atolye"
-  | "murekkep";
+  | "murekkep"
+  | "homebrew";
 /**
  * P1 revizyonu — `gloock` GENEL font seçeneği olarak geri getirildi. Kök
  * neden: `layout.tsx` Gloock'u `next/font` ile YÜKLÜYORDU (`--font-gloock`
@@ -43,6 +44,7 @@ export const THEME_PROFILE_VALUES: readonly ThemeProfile[] = [
   "lavender",
   "atolye",
   "murekkep",
+  "homebrew",
 ];
 export const FONT_VALUES: readonly FontChoice[] = ["roboto_serif", "playfair_display", "inter", "noto_sans", "gloock"];
 
@@ -56,6 +58,7 @@ export const THEME_PROFILE_LABELS: Record<ThemeProfile, string> = {
   lavender: "Lavanta Grafit",
   atolye: "Atölye",
   murekkep: "Mürekkep",
+  homebrew: "Homebrew Hacker",
 };
 
 /** Görünüm ayarları ekranındaki 1 satırlık tema açıklamaları (İş 3C). */
@@ -69,6 +72,7 @@ export const THEME_PROFILE_DESCRIPTIONS: Record<ThemeProfile, string> = {
   lavender: "Grafit-lavanta vurgulu, nötr açık tema.",
   atolye: "Sıcak kağıt dokusu, toprak tonu vurgu — atölye/stüdyo hissi.",
   murekkep: "Gri-krem zemin, lacivert mürekkep metin — tablo/liste odaklı, resmi akademi karakteri.",
+  homebrew: "Koyu terminal yeşili vurgu — NeviiOS control room hissi.",
 };
 
 /**

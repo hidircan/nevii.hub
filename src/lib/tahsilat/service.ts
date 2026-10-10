@@ -1,7 +1,7 @@
 import { requireRole, type ServiceContext } from "../services/context";
 import { fail, ok, type ServiceResult } from "../services/result";
 import { recordAuditLog } from "../audit/log";
-import { readData } from "../store";
+import { readData, readReferenceData } from "../store";
 import { runWithTenantAsync } from "../tenant-context";
 import { getWhatsAppTransport } from "../whatsapp";
 import {
@@ -174,7 +174,7 @@ export async function sendFollowUpMessageTool(
 
   // bkz. approveFollowUpCaseTool'daki aynı yorum — ctx.tenantId (seçili
   // kurum) ile ambient ALS uyuşmayabilir, açıkça sarmalanır.
-  const data = await runWithTenantAsync(ctx.tenantId, () => readData());
+  const data = await runWithTenantAsync(ctx.tenantId, () => readReferenceData());
   const student = data.students.find((s) => s.id === current.studentId);
   if (!student) return fail("NOT_FOUND", "Öğrenci bulunamadı");
   if (student.communicationOptOut) {

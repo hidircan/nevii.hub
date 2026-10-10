@@ -5,9 +5,12 @@ import { remainingAmount, resolveCollectionStatus } from "./status";
 import type { AppData, Payment } from "../types";
 import type { MarkPaymentPaidOptions } from "../store-json";
 
+/**
+ * DB egress (2026-10-10): eskiden tahsilat sonunda tenant'ın TÜM verisi okunup döndürülüyordu (her "Ödendi"
+ * işaretinde); dönüşü yalnız güncel ödeme satırı kullanılıyordu. Artık yalnız o satır okunur.
+ */
 export type CollectPaymentResult = {
   payment: Payment;
-  data: AppData;
 };
 
 export type CollectPaymentOpts = MarkPaymentPaidOptions & {
@@ -20,13 +23,38 @@ export type CollectPaymentOpts = MarkPaymentPaidOptions & {
    * false/undefined: `paidAmount` verilen tutarla DEĞİŞTİRİLİR (düzeltme/edit).
    */
   accumulate?: boolean;
+  /**
+   * true: `opts.amount` yalnız tahsilatı değil fatura tutarını (`Payment.amount`)
+   * da düzeltir. Kayıt anı ilk tahsilatının 1 TL → 7000 TL revizyonu gibi
+   * senaryolarda zorunlu — aksi halde paidAmount güncellenir, amount yapışır kalır
+   * ve sözleşme/önizleme hâlâ eski tutarı okur.
+   */
+  reviseBilledAmount?: boolean;
+  /**
+   * 2026-10-03 — yanlış girilen tahsilatı geri alma: ödenen 0'a döner, tahsilat anı/alan kişi/not
+   * temizlenir; satır (borç/taksit) kalır, statü vadeye göre bekliyor/gecikmiş olur.
+   */
+  reverseCollection?: boolean;
+  /**
+   * 2026-10-04 — yalnız HÂLÂ tahsilat görmemiş, sözleşmeye bağlı olmayan açık satır değiştirilir. Doğrulama ile
+   * yazma arasında satıra tahsilat girildiyse (TOCTOU) işlem `PAYMENT_CHANGED` ile durur; gerçek tahsilat sıfırlanmaz.
+   * Kontrol, yazmayla AYNI kilit/serializable işlem içinde yapılır.
+   */
+  onlyIfUntouchedOpenDebt?: boolean;
 };
+
+function assertUntouchedOpenDebt(p: { paidAmount: number; status: string; contractId?: string | null }, opts: CollectPaymentOpts) {
+  if (!opts.onlyIfUntouchedOpenDebt) return;
+  if (p.paidAmount > 0 || p.contractId || (p.status !== "pending" && p.status !== "overdue")) {
+    throw new Error("PAYMENT_CHANGED");
+  }
+}
 
 function nextPaidAmount(
   previous: { amount: number; paidAmount: number },
-  opts: { amount?: number; voided?: boolean; accumulate?: boolean }
+  opts: { amount?: number; voided?: boolean; accumulate?: boolean; reverseCollection?: boolean }
 ): number {
-  if (opts.voided) return 0;
+  if (opts.voided || opts.reverseCollection) return 0;
   const incoming = Math.trunc(opts.amount ?? previous.amount);
   if (opts.accumulate) return Math.trunc(previous.paidAmount) + incoming;
   return incoming;
@@ -40,22 +68,32 @@ function applyPaymentPatch(
   const idx = data.payments.findIndex((p) => p.id === paymentId);
   if (idx < 0) throw new Error("Ödeme bulunamadı");
   const previous = data.payments[idx]!;
+  assertUntouchedOpenDebt(previous, opts);
   const student = data.students.find((s) => s.id === previous.studentId);
-  const paidAmount = nextPaidAmount(previous, opts);
+  const billedAmount =
+    opts.reviseBilledAmount && opts.amount !== undefined && !opts.voided
+      ? Math.trunc(opts.amount)
+      : previous.amount;
+  const paidAmount = nextPaidAmount(
+    { amount: billedAmount, paidAmount: previous.paidAmount },
+    opts
+  );
   const status = resolveCollectionStatus({
-    amount: previous.amount,
+    amount: billedAmount,
     paidAmount,
     dueDate: previous.dueDate,
     voided: opts.voided,
   });
   const payment: Payment = {
     ...previous,
+    amount: billedAmount,
     status,
     paidAmount,
-    paidAt: opts.voided ? undefined : opts.paidAt ?? new Date().toISOString(),
+    paidAt: opts.voided || opts.reverseCollection ? undefined : opts.paidAt ?? new Date().toISOString(),
     method: opts.method || previous.method || student?.paymentMethod || "transfer",
     ...(opts.paymentNote !== undefined ? { paymentNote: opts.paymentNote } : {}),
     ...(opts.receivedByUserId !== undefined ? { receivedByUserId: opts.receivedByUserId } : {}),
+    ...(opts.reverseCollection ? { paymentNote: undefined, receivedByUserId: undefined } : {}),
   };
   const payments = [...data.payments];
   payments[idx] = payment;
@@ -92,15 +130,20 @@ async function collectDb(
     async (tx) => {
       const payment = await tx.payment.findFirst({ where: { id: paymentId, tenantId } });
       if (!payment) throw new Error("Ödeme bulunamadı");
+      assertUntouchedOpenDebt(payment, opts);
       const student = payment.studentId
         ? await tx.student.findFirst({ where: { id: payment.studentId, tenantId } })
         : null;
+      const billedAmount =
+        opts.reviseBilledAmount && opts.amount !== undefined && !opts.voided
+          ? Math.trunc(opts.amount)
+          : payment.amount;
       const paidAmount = nextPaidAmount(
-        { amount: payment.amount, paidAmount: payment.paidAmount },
+        { amount: billedAmount, paidAmount: payment.paidAmount },
         opts
       );
       const status = resolveCollectionStatus({
-        amount: payment.amount,
+        amount: billedAmount,
         paidAmount,
         dueDate: payment.dueDate.toISOString(),
         voided: opts.voided,
@@ -109,11 +152,13 @@ async function collectDb(
         where: { id: paymentId, tenantId },
         data: {
           status,
+          amount: billedAmount,
           paidAmount,
-          paidAt: opts.voided ? null : opts.paidAt ? new Date(opts.paidAt) : new Date(),
+          paidAt: opts.voided || opts.reverseCollection ? null : opts.paidAt ? new Date(opts.paidAt) : new Date(),
           method: opts.method || payment.method || student?.paymentMethod || undefined,
           ...(opts.paymentNote !== undefined ? { paymentNote: opts.paymentNote } : {}),
           ...(opts.receivedByUserId !== undefined ? { receivedByUserId: opts.receivedByUserId } : {}),
+          ...(opts.reverseCollection ? { paymentNote: null, receivedByUserId: null } : {}),
         },
       });
       const updated = await tx.payment.findFirst({ where: { id: paymentId, tenantId } });
@@ -137,11 +182,10 @@ async function collectDb(
     },
     { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
   );
-  const { readData } = await import("../store");
-  const data = await readData();
-  const payment = data.payments.find((p) => p.id === paymentId);
-  if (!payment) throw new Error("Ödeme bulunamadı");
-  return { payment, data };
+  const { mapDbPayment } = await import("../store-db");
+  const row = await prisma.payment.findFirst({ where: { id: paymentId, tenantId } });
+  if (!row) throw new Error("Ödeme bulunamadı");
+  return { payment: mapDbPayment(row) };
 }
 
 async function collectFileBacked(
@@ -186,7 +230,7 @@ async function collectFileBacked(
   });
   const payment = data.payments.find((p) => p.id === paymentId);
   if (!payment) throw new Error("Ödeme bulunamadı");
-  return { payment, data };
+  return { payment };
 }
 
 export async function collectPayment(

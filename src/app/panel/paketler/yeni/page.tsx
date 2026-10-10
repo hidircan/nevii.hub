@@ -1,7 +1,7 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { redirect } from "next/navigation";
 import { requireSessionContext } from "@/lib/auth/session";
-import { getInstitutionContext } from "@/lib/institution/context";
+import { getInstitutionContext, readScopedReferenceData } from "@/lib/institution/context";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { PageHeader, Card } from "@/components/ui";
 import { BackButton } from "@/components/back-button";
@@ -33,6 +33,12 @@ export default async function YeniPaketPage() {
       </div>
     );
   }
+  // Paket & Kampanya Motoru — yazma yalnız SUPER_ADMIN (görüntüleme SCHOOL_ADMIN'e açık).
+  if (session.role !== "SUPER_ADMIN") {
+    redirect("/panel/paketler");
+  }
+
+  const data = await readScopedReferenceData(kurum.scope);
 
   return (
     <div className="mx-auto max-w-xl">
@@ -43,7 +49,7 @@ export default async function YeniPaketPage() {
         description="30/40/50 dk fiyatlarını tanımlayın. Oluşturduktan sonra listeye dönersiniz."
       />
       <Card>
-        <PackageCreateForm />
+        <PackageCreateForm branches={data.settings.branches.map((b) => ({ id: b.id, name: b.name }))} />
       </Card>
       <p className="mt-4 text-xs text-[var(--color-text-muted)]">
         <Link href="/panel/paketler" className="font-medium text-[var(--color-primary)] hover:underline">

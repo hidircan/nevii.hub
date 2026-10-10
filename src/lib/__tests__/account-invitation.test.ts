@@ -169,7 +169,7 @@ describe("sendAccountInvitationEmail — domain katmanı", () => {
     expect(sent.html).not.toContain("<img"); // logo verilmedi → gerçek <img> YOK, yalnız metin fallback
   });
 
-  it("regresyon (2026-09-05) — logoUrl verilirse banner'da gerçek <img> görünür (metin değil)", async () => {
+  it("10. tur iş #2 — data-URI logo e-postada CID satır-içi eki olarak taşınır (Gmail/Outlook data-URI'yi engeller)", async () => {
     const captured: EmailSendInput[] = [];
     setEmailTransportForTests({ name: "mock", async send(input) { captured.push(input); return { delivered: true }; } });
     const user = await findUserByEmail("turgay.hosbas@niluferacar.com.tr");
@@ -186,8 +186,14 @@ describe("sendAccountInvitationEmail — domain katmanı", () => {
       logoUrl: fakeLogo,
     });
     const sent = captured[0]!;
+    // Gerçek <img> var ama data-URI HTML'e gömülmez (istemciler strip'ler) — CID eki kullanılır.
     expect(sent.html).toContain("<img");
-    expect(sent.html).toContain(fakeLogo);
+    expect(sent.html).toContain("cid:");
+    expect(sent.html).not.toContain("data:image/png;base64");
+    expect(sent.attachments).toHaveLength(1);
+    expect(sent.attachments![0]!.contentType).toBe("image/png");
+    expect(sent.attachments![0]!.cid).toContain("nevii-kurum-logo");
+    expect(sent.html).toContain(sent.attachments![0]!.cid);
   });
 
   it("P0 (2026-08-31) — web portal linki her zaman içerilir (buton dışında düz metin de)", async () => {

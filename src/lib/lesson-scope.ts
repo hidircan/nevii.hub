@@ -11,7 +11,8 @@
  * SÖZLEŞMESİNİ, ama yalnız ilgili satırlarla doldurulmuş olarak vermektir.
  * Bu dosya o dilimin TEK tanımıdır:
  *
- * - `settings`            : tam (şubeler dahil — telafi/politika metinleri için)
+ * - `settings`            : tam (şubeler dahil — telafi/politika metinleri için); YALNIZ
+ *                           `logoUrl` boş (~79 KB data-URI; bu yollarda okunmuyor — db egress)
  * - `teachers`            : yalnız dersin öğretmeni      (validateLessonSlot)
  * - `rooms`               : yalnız dersin odası           (validateLessonSlot)
  * - `students`            : yalnız dersin öğrencisi       (termType, kota)
@@ -77,7 +78,8 @@ export function narrowLessonScope(
   if (!lesson) return null;
   const days = lessonScopeDays(lesson, targetStartAt);
   return {
-    settings: data.settings,
+    settings: { ...data.settings, logoUrl: "" },
+    closedDayOverrides: data.closedDayOverrides,
     teachers: data.teachers.filter((t) => t.id === lesson.teacherId),
     students: data.students.filter((s) => s.id === lesson.studentId),
     rooms: data.rooms.filter((r) => r.id === lesson.roomId),
@@ -86,6 +88,36 @@ export function narrowLessonScope(
     attendances: data.attendances.filter((a) => a.lessonId === lessonId),
     makeupRequests: data.makeupRequests.filter((m) => m.studentId === lesson.studentId),
     payments: data.payments.filter((p) => p.lessonId === lessonId),
+    teacherFeeRules: [],
+    teacherPayouts: [],
+    packages: [],
+    discountCampaigns: [],
+  };
+}
+
+/** Yeni ders (henüz satırı yok) — dilimin anahtarı ders kimliği yerine öğretmen/oda/öğrenci + başlangıç. */
+export type SlotScopeTarget = Pick<Lesson, "studentId" | "teacherId" | "roomId" | "startAt">;
+
+/**
+ * DB egress (2026-10-10) — YENİ ders doğrulaması (`addLesson` → `validateLessonSlot`) için aynı dilim:
+ * öğretmen/oda/öğrenci + öğrencinin TÜM dersleri + öğretmen/odanın hedef gün penceresi + öğrencinin
+ * telafi talepleri. Yoklama/ödeme yok (henüz ders yok). `store-db` aynı kapsamı Prisma ile üretir;
+ * json/memory doğrulamayı bu dar girdiyle çalıştırır (dilim yetersizse json testleri yakalar).
+ */
+export function narrowSlotScope(data: AppData, target: SlotScopeTarget): AppData {
+  const days = lessonScopeDays(target);
+  const probe = { ...target, id: "" };
+  return {
+    settings: { ...data.settings, logoUrl: "" },
+    closedDayOverrides: data.closedDayOverrides,
+    teachers: data.teachers.filter((t) => t.id === target.teacherId),
+    students: data.students.filter((s) => s.id === target.studentId),
+    rooms: data.rooms.filter((r) => r.id === target.roomId),
+    lessons: data.lessons.filter((l) => isLessonInScope(l, probe, days)),
+    lessonSeries: [],
+    attendances: [],
+    makeupRequests: data.makeupRequests.filter((m) => m.studentId === target.studentId),
+    payments: [],
     teacherFeeRules: [],
     teacherPayouts: [],
     packages: [],

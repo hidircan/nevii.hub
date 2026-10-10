@@ -12,7 +12,7 @@
  *   kaydın taşıdığı PLANLANAN yöntem bile olsa `—` gösterilir: o satırın
  *   ödeme türü henüz belirlenmemiştir, uydurulmaz.
  */
-import { paymentMethodLabelTr } from "./utils";
+import { formatDateTime, paymentMethodLabelTr } from "./utils";
 import type { ContractInstallmentSnapshot, Payment, Teacher } from "./types";
 
 /** Ödeme türü henüz belirlenmemiş/ödenmemiş plan satırı — ürün diliyle tutarlı boş durum. */
@@ -157,11 +157,14 @@ export function humanizeEmailLocalPart(email: string | undefined | null): string
  */
 export function resolveCollectorDisplayName(input: {
   teacherName?: string | null;
+  displayName?: string | null;
   email?: string | null;
   active: boolean;
 }): string {
   const teacherName = input.teacherName?.trim();
   if (teacherName) return teacherName;
+  const displayName = input.displayName?.trim();
+  if (displayName) return displayName;
   if (!input.active) return COLLECTOR_INACTIVE_LABEL;
   return humanizeEmailLocalPart(input.email) ?? "Kayıtlı kullanıcı";
 }
@@ -188,7 +191,59 @@ export async function resolveCollectorDisplayNames(input: {
       teacherId: user?.teacherId,
       email,
     });
-    names.set(userId, resolveCollectorDisplayName({ teacherName, email, active: status?.active ?? false }));
+    names.set(
+      userId,
+      resolveCollectorDisplayName({ teacherName, displayName: status?.displayName, email, active: status?.active ?? false })
+    );
   }
   return names;
+}
+
+/**
+ * İşlemi yapan / raporu alan kişilerin görünen adları (toplu).
+ * Önce personel kaydı (Ezgi Güçlü), sonra kullanıcı adı / öğretmen / e-posta tahmini.
+ * Ham kullanıcı kimliği asla basılmaz.
+ */
+export async function resolveActorLabels(input: {
+  tenantId: string;
+  userIds: (string | null | undefined)[];
+  teachers: Pick<Teacher, "id" | "name" | "email">[];
+}): Promise<Map<string, string>> {
+  const ids = Array.from(new Set(input.userIds.filter((id): id is string => Boolean(id))));
+  const out = new Map<string, string>();
+  if (ids.length === 0) return out;
+  try {
+    const { listStaff } = await import("./staff");
+    const staff = await listStaff(input.tenantId);
+    for (const s of staff) {
+      if (s.portalUserId && ids.includes(s.portalUserId) && s.name.trim()) out.set(s.portalUserId, s.name.trim());
+    }
+  } catch {
+    // personel listesi yoksa kullanıcı çözümlemesine düş.
+  }
+  const rest = ids.filter((id) => !out.has(id));
+  const names = await resolveCollectorDisplayNames({ userIds: rest, teachers: input.teachers });
+  for (const id of rest) out.set(id, names.get(id) ?? "Kayıtlı kullanıcı");
+  return out;
+}
+
+/** Tek kişi için `resolveActorLabels`. */
+export async function resolveActorLabel(input: {
+  tenantId: string;
+  userId: string;
+  teachers: Pick<Teacher, "id" | "name" | "email">[];
+}): Promise<string> {
+  const names = await resolveActorLabels({ tenantId: input.tenantId, userIds: [input.userId], teachers: input.teachers });
+  return names.get(input.userId) ?? "Kayıtlı kullanıcı";
+}
+
+/** Rapor baskısı künyesi — raporu alan kişinin adı ve alınma anı (tarih + saat). */
+export async function resolvePrintStamp(input: {
+  tenantId: string;
+  userId: string;
+  teachers: Pick<Teacher, "id" | "name" | "email">[];
+  now?: Date;
+}): Promise<{ viewer: string; printedAt: string }> {
+  const viewer = await resolveActorLabel(input);
+  return { viewer, printedAt: formatDateTime((input.now ?? new Date()).toISOString()) };
 }

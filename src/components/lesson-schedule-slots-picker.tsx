@@ -23,25 +23,9 @@ import {
   LESSON_SCHEDULE_WEEKDAY_LABELS as WEEKDAY_LABELS,
   LESSON_SCHEDULE_DISPLAY_ORDER as DISPLAY_ORDER,
   composeLessonScheduleText as composeText,
+  parseLessonScheduleText as parseSlots,
   type LessonScheduleSlot as Slot,
 } from "@/lib/lesson-schedule-text";
-
-function parseSlots(text: string): Slot[] {
-  if (!text.trim()) return [];
-  const byLabel = new Map(WEEKDAY_LABELS.map((label, idx) => [label.toLocaleLowerCase("tr-TR"), idx]));
-  return text
-    .split(",")
-    .map((part) => part.trim())
-    .filter(Boolean)
-    .map((part) => {
-      const m = /^(\S+)\s+(\d{1,2}:\d{2})$/.exec(part);
-      if (!m) return null;
-      const weekday = byLabel.get(m[1]!.toLocaleLowerCase("tr-TR"));
-      if (weekday === undefined) return null;
-      return { weekday, time: m[2]! };
-    })
-    .filter((s): s is Slot => s !== null);
-}
 
 export function LessonScheduleSlotsPicker({
   value,

@@ -1,19 +1,35 @@
-import Link from "next/link";
+import { summarizeStudentDebt } from "@/lib/payment-profile";
+import { canRunCriticalActions } from "@/lib/critical-action-password";
+import Link from "@/components/link";
 import { redirect } from "next/navigation";
 import { UserPlus } from "lucide-react";
-import { Card, PageHeader } from "@/components/ui";
+import { PageHeader } from "@/components/ui";
 import { StudentsTable, type StudentRow } from "@/components/students-table";
 import { requireSessionContext } from "@/lib/auth/session";
-import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
+import { getInstitutionContext, readScopedStudentListData } from "@/lib/institution/context";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
-import { computeAllStudentAttendanceRisks } from "@/lib/insights/attendance-risk";
 import { effectiveStudentTypes } from "@/lib/student-types";
-import { AiInsightTrigger } from "@/components/ai/ai-insight-trigger";
+import { listContractSummariesByStudent, type StudentContractSummary, listTerminalContractIdsForScope } from "@/lib/contracts";
 import { AssistantPageContext } from "@/components/ai/assistant-page-context";
+import { resolveActorLabels } from "@/lib/contract-payment-plan-view";
+import { resolveActiveInstrumentNames } from "@/lib/instrument-catalog";
+import { listLatestSocialMediaConsentsByStudent } from "@/lib/social-media-consent";
+import { listKvkkConsentedSubjectIds } from "@/lib/kvkk-consent";
 
 export const dynamic = "force-dynamic";
 
-export default async function OgrencilerPage() {
+/** Fotoğraf paylaşım izni: en güncel kayıt "verildi" VE kapsamında fotoğraf varsa "Veriyor". */
+function photoConsentLabel(c: { status: string; scopes: string[] } | undefined): StudentRow["photoConsent"] {
+  if (!c) return "Kayıt yok";
+  return c.status === "granted" && c.scopes.includes("photo") ? "Veriyor" : "Vermiyor";
+}
+
+export default async function OgrencilerPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ silinenler?: string }>;
+}) {
+  const { silinenler } = await searchParams;
   let session;
   try {
     session = await requireSessionContext();
@@ -21,29 +37,62 @@ export default async function OgrencilerPage() {
     redirect("/login?next=/panel/ogrenciler");
   }
   const kurum = await getInstitutionContext(session);
-  const data = await readScopedData(kurum.scope);
-  const students = [...data.students].sort((a, b) => a.name.localeCompare(b.name, "tr"));
+  // DB egress: ders/yoklama satırları yok; ödemelerden yalnız durum rozeti alanları (tüm satırlar).
+  const data = await readScopedStudentListData(kurum.scope);
+  // Geri alınabilir silinen öğrenciler varsayılan listede YOKTUR; yalnız silme yetkisi olanlar
+  // (kurum sahibi + kurum yöneticileri) "Silinenler" görünümünde görür (geri almak için detaya gider).
+  const isOwner = canRunCriticalActions(session.role);
+  const showDeleted = isOwner && silinenler === "1";
+  const deletedCount = data.students.filter((s) => s.deletedAt).length;
+  const students = data.students
+    .filter((s) => (showDeleted ? Boolean(s.deletedAt) : !s.deletedAt))
+    .sort((a, b) => a.name.localeCompare(b.name, "tr"));
   const canManage = (session.role === "SCHOOL_ADMIN" || session.role === "SUPER_ADMIN") && kurum.scope.mode === "single";
 
-  const risks = computeAllStudentAttendanceRisks(data);
-  const atRisk = risks
-    .filter((r) => r.riskLevel !== "low")
-    .map((r) => ({ ...r, student: data.students.find((s) => s.id === r.studentId) }))
-    .filter((r) => r.student)
-    .sort((a, b) => (a.riskLevel === b.riskLevel ? 0 : a.riskLevel === "high" ? -1 : 1));
+  /**
+   * D — Sözleşme filtreleri için tenant'ın tüm sözleşme ÖZETLERİ TEK sorguda
+   * (öğrenci başına okuma YOK; 500 öğrencide 500 sorgu olmaz).
+   * Merged "tüm kurumlar" görünümünde sözleşme okuması tek tenant'a bağlı
+   * olduğu için atlanır — filtre orada "sözleşmesi yok" göstermek yerine
+   * hiç çalışmaz (aşağıda boş map).
+   */
+  const activeInstruments =
+    kurum.scope.mode === "single" ? await resolveActiveInstrumentNames(kurum.scope.tenantId) : [];
 
+  const terminalContractIds = await listTerminalContractIdsForScope(kurum.scope);
+  const contractSummaries =
+    kurum.scope.mode === "single"
+      ? await listContractSummariesByStudent(kurum.scope.tenantId)
+      : new Map<string, StudentContractSummary>();
+
+  // İzin filtreleri — KVKK + fotoğraf izni, tenant başına TEK sorgu (merged görünümde atlanır).
+  const [photoConsents, kvkkConsented] =
+    kurum.scope.mode === "single"
+      ? await Promise.all([
+          listLatestSocialMediaConsentsByStudent(kurum.scope.tenantId),
+          listKvkkConsentedSubjectIds(kurum.scope.tenantId, "kvkk_general"),
+        ])
+      : [undefined, undefined];
+
+  // F — kaydı oluşturan / denemeden dönüştüren kişi adları TEK sorguda (ham kimlik asla gösterilmez).
+  const actorNames = await resolveActorLabels({
+    tenantId: session.tenantId,
+    userIds: students.flatMap((s) => [s.createdByUserId, s.convertedByUserId]),
+    teachers: data.teachers,
+  });
+
+  const paymentsByStudent = new Map<string, typeof data.payments>();
+  for (const p of data.payments) {
+    const list = paymentsByStudent.get(p.studentId);
+    if (list) list.push(p);
+    else paymentsByStudent.set(p.studentId, [p]);
+  }
   const rows: StudentRow[] = students.map((s) => {
-    const studentPayments = data.payments.filter((p) => p.studentId === s.id);
-    const paymentStatus: StudentRow["paymentStatus"] =
-      studentPayments.length === 0
-        ? "none"
-        : studentPayments.some((p) => p.status === "overdue")
-          ? "overdue"
-          : studentPayments.some((p) => p.status === "partial")
-            ? "partial"
-            : studentPayments.every((p) => p.status === "paid")
-              ? "paid"
-              : "pending";
+    const contract = contractSummaries.get(s.id);
+    // TEK borç kuralı (payment-profile.ts): sözleşmesiz öğrencinin bağımsız borcu da sayılır; iptal edilmiş
+    // ödeme ve iptal/yenilenmiş sözleşmenin ödenmemiş taksiti borç/gecikme değildir.
+    const debt = summarizeStudentDebt(paymentsByStudent.get(s.id) ?? [], terminalContractIds);
+    const paymentStatus: StudentRow["paymentStatus"] = debt.status;
     return {
       id: s.id,
       name: s.name,
@@ -60,6 +109,20 @@ export default async function OgrencilerPage() {
       targetExam: s.targetExam,
       educationMethod: s.educationMethod,
       paymentStatus,
+      openDebt: debt.openTotal,
+      overdueDebt: debt.overdueTotal,
+      contractNumber: contract?.contractNumber,
+      contractStartDate: contract?.enrollmentStartDate,
+      contractEndDate: contract?.enrollmentEndDate,
+      contractStatus: contract?.status,
+      intendedDurationMonths: s.intendedDurationMonths,
+      createdAt: s.createdAt,
+      displayId: s.displayId,
+      createdByName: s.createdByUserId ? actorNames.get(s.createdByUserId) : undefined,
+      convertedByName: s.convertedByUserId ? actorNames.get(s.convertedByUserId) : undefined,
+      fromTrial: Boolean(s.convertedFromTrialId),
+      kvkkConsent: kvkkConsented ? (kvkkConsented.has(s.id) ? "Var" : "Yok") : undefined,
+      photoConsent: photoConsents ? photoConsentLabel(photoConsents.get(s.id)) : undefined,
     };
   });
 
@@ -70,57 +133,59 @@ export default async function OgrencilerPage() {
       <PageHeader
         title="Öğrenciler"
         actions={
-          <Link
-            href="/panel/ogrenciler/yeni"
-            className="inline-flex items-center gap-2 rounded-xl bg-[var(--color-primary)] px-3.5 py-2 text-sm font-medium text-white hover:bg-[var(--color-primary-hover)]"
-          >
-            <UserPlus className="h-4 w-4" /> Yeni Öğrenci
-          </Link>
+          <div className="flex flex-wrap items-center gap-2">
+            {isOwner && (deletedCount > 0 || showDeleted) ? (
+              showDeleted ? (
+                <Link
+                  href="/panel/ogrenciler"
+                  className="inline-flex items-center gap-2 rounded-xl border border-[var(--color-border)] px-3.5 py-2 text-sm font-medium text-[var(--color-text)] hover:bg-[var(--color-surface-muted)]"
+                >
+                  ← Tüm öğrenciler
+                </Link>
+              ) : (
+                <Link
+                  href="/panel/ogrenciler?silinenler=1&status=all"
+                  className="inline-flex items-center gap-2 rounded-xl border border-[var(--color-border)] px-3.5 py-2 text-sm font-medium text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)]"
+                >
+                  Silinen öğrenciler ({deletedCount})
+                </Link>
+              )
+            ) : null}
+            <Link
+              href="/panel/ogrenciler/yeni"
+              className="inline-flex items-center gap-2 rounded-xl bg-[var(--color-primary)] px-3.5 py-2 text-sm font-medium text-white hover:bg-[var(--color-primary-hover)]"
+            >
+              <UserPlus className="h-4 w-4" /> Yeni Öğrenci
+            </Link>
+          </div>
         }
       />
 
-      {atRisk.length > 0 ? (
-        <Card className="mb-6 border-amber-200 bg-amber-50/40">
-          <p className="mb-2 text-sm font-medium text-[var(--color-text)] dark:text-slate-200">
-            Devamsızlık riski ({atRisk.length} öğrenci)
-          </p>
-          <ul className="mb-3 space-y-1 text-sm">
-            {atRisk.slice(0, 8).map((r) => (
-              <li key={r.studentId} className="flex items-center justify-between gap-2">
-                <span className="text-[var(--color-text-muted)] dark:text-slate-300">{r.student?.name}</span>
-                <span
-                  className={
-                    r.riskLevel === "high"
-                      ? "text-xs font-semibold text-rose-700"
-                      : "text-xs font-semibold text-amber-700"
-                  }
-                >
-                  {r.riskLevel === "high" ? "Yüksek risk" : "Orta risk"} · {r.absentCount} gelmedi
-                  {r.consecutiveAbsences >= 2 ? ` · ${r.consecutiveAbsences} art arda` : ""}
-                </span>
-              </li>
-            ))}
-          </ul>
-          <AiInsightTrigger
-            capabilityId="attendanceRiskAssessment"
-            label="AI ile yorumla"
-            payload={{
-              atRiskCount: atRisk.length,
-              highRiskCount: atRisk.filter((r) => r.riskLevel === "high").length,
-              topCases: atRisk.slice(0, 5).map((r) => ({
-                studentName: r.student?.name,
-                riskLevel: r.riskLevel,
-                absentCount: r.absentCount,
-                consecutiveAbsences: r.consecutiveAbsences,
-              })),
-            }}
-          />
-        </Card>
+      {showDeleted ? (
+        <p className="mb-3 text-sm text-[var(--color-text-muted)]">
+          <strong>Silinen öğrenciler ({deletedCount})</strong> — geri almak için öğrenciyi açın.
+        </p>
       ) : null}
 
       <StudentsTable
         rows={rows}
         canManage={canManage}
+        deletedView={showDeleted}
+        bulkOptions={
+          canManage && canRunCriticalActions(session.role)
+            ? {
+                branches: data.settings.branches.map((b) => ({ id: b.id, name: b.shortName || b.name })),
+                teachers: data.teachers
+                  .filter((t) => t.active)
+                  .map((t) => ({ id: t.id, name: t.name, instruments: t.instruments }))
+                  .sort((a, b) => a.name.localeCompare(b.name, "tr")),
+                instruments: activeInstruments,
+                packages: (data.packages ?? [])
+                  .filter((p) => p.status === "active")
+                  .map((p) => ({ id: p.id, title: p.title })),
+              }
+            : undefined
+        }
         tenantId={kurum.scope.mode === "single" ? kurum.scope.tenantId : undefined}
         userId={session.userId}
       />

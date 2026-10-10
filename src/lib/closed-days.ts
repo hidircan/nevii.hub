@@ -1,9 +1,11 @@
 /**
- * PRODUCT_BACKLOG §4.1–4.2 — Pazartesi kapalı + kapalı günler.
- * Saf yardımcılar; store katmanı ClosedDay listesini okur.
+ * PRODUCT_BACKLOG §4.1–4.2 — takvim sabitleri + Türkiye sabit tarihli tatiller.
+ *
+ * 2026-09-20: "bu gün açık mı?" kuralı BURADAN KALDIRILDI. Tek kaynak
+ * `src/lib/work-days.ts`'tir (yönetici istisnası > resmî tatil > dönemin
+ * haftalık kapalı günü > açık). Burada kalan `isMonday`/`toYmd` yalnız
+ * biçimsel yardımcılardır ve kapalı gün kararı VERMEZ.
  */
-
-import type { ClosedDay } from "./types";
 
 /** Pazartesi = 1 (date-fns / JS: 0=Pazar ... 6=Cumartesi) */
 export const SCHOOL_CLOSED_WEEKDAY = 1; // Monday
@@ -12,25 +14,10 @@ export function isMonday(date: Date): boolean {
   return date.getDay() === SCHOOL_CLOSED_WEEKDAY;
 }
 
-export function isDateClosed(
-  isoDateOrDateTime: string,
-  closedDays: Pick<ClosedDay, "date">[],
-  opts?: { allowMonday?: boolean }
-): { closed: boolean; reason?: string } {
-  const d = new Date(isoDateOrDateTime);
-  if (Number.isNaN(d.getTime())) return { closed: true, reason: "Geçersiz tarih" };
-  if (!opts?.allowMonday && isMonday(d)) {
-    return { closed: true, reason: "Pazartesi okul kapalıdır." };
-  }
-  const ymd = toYmd(d);
-  if (closedDays.some((c) => c.date === ymd)) {
-    return { closed: true, reason: "Bu gün kapalı gün / tatil." };
-  }
-  return { closed: false };
-}
-
 export function toYmd(d: Date): string {
-  const y = d.getFullYear();
+  // 4 haneye doldurulur: 1000 öncesi yıl "2-10-17" gibi ISO dışı bir değer üretip
+  // `parseISO` → Invalid Date → `format` RangeError zincirini başlatıyordu.
+  const y = String(d.getFullYear()).padStart(4, "0");
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
@@ -49,6 +36,8 @@ export function turkeyFixedPublicHolidays(year: number): Array<{ date: string; n
     { date: `${year}-05-19`, name: "Atatürk’ü Anma, Gençlik ve Spor Bayramı" },
     { date: `${year}-07-15`, name: "Demokrasi ve Millî Birlik Günü" },
     { date: `${year}-08-30`, name: "Zafer Bayramı" },
+    // 2429 s. Kanun — dini bayram arefeleriyle tutarlı: 13.00'ten itibaren yarım gün.
+    { date: `${year}-10-28`, name: "Cumhuriyet Bayramı Arefesi (yarım gün, 13.00'ten itibaren)" },
     { date: `${year}-10-29`, name: "Cumhuriyet Bayramı" },
   ];
 }

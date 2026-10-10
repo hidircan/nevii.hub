@@ -8,7 +8,9 @@ export async function requirePlatformSession(nextPath: string): Promise<ServiceC
   try {
     session = await requireSessionContext();
   } catch {
-    redirect(`/login?next=${encodeURIComponent(nextPath)}`);
+    // Control Center (2026-09-28) — platform oturumsuzluğu ayrı kapıya
+    // (/platform/giris) yönlenir; kurum girişi (/login) değişmez.
+    redirect(`/platform/giris?next=${encodeURIComponent(nextPath)}`);
   }
   return session;
 }

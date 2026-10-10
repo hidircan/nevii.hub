@@ -97,7 +97,8 @@ describe("Senaryo 4 — plan satırı olmayan ay", () => {
     });
     expect(plan.state).toBe("no_installment_for_month");
     if (plan.state !== "no_installment_for_month") return;
-    expect(plan.message).toBe("Bu ay için aktif ödeme planı bulunmuyor.");
+    // UAT 2026-09-25: plan VAR — "aktif plan yok" denmez, sözleşme adı verilir.
+    expect(plan.message).toBe("2026-2027-0001 numaralı sözleşmede bu aya düşen taksit yok. Taksit planını Sözleşme Merkezi'nde kontrol edin.");
   });
 
   it("hiç aktif sözleşme yoksa AÇIK durum döner — uydurma/sıfır tutar YOK", () => {
@@ -265,5 +266,57 @@ describe("contractCoversMonth — sınırlar dahil", () => {
       enrollmentEndDate: "2027-01-01T00:00:00.000Z",
     });
     expect(contractCoversMonth(c, "2026-11")).toBe(true);
+  });
+});
+
+describe("UAT 2026-09-24 (F) — taksit ayı vade ayına değil, kapsadığı döneme göre eşlenir", () => {
+  const ctr = contract({ enrollmentStartDate: "2026-09-17", enrollmentEndDate: "2027-06-30" });
+  // Kayıtta alınan birleşik ilk tahsilat: vadesi kayıt günü (Eylül), Ekim'i de kapsar.
+  const combined = installment({
+    id: "pay-combined",
+    amount: 9000,
+    paidAmount: 9000,
+    status: "paid",
+    dueDate: "2026-09-17T00:00:00.000Z",
+    installmentPeriodLabel: "17–30 Eylül 2026 + Ekim 2026",
+    installmentBreakdown: [
+      { periodLabel: "17–30 Eylül 2026", amount: 3000 },
+      { periodLabel: "Ekim 2026", amount: 6000 },
+    ],
+  });
+  // Önizlemede vadesi elle önceki ayın 28'ine alınmış Kasım taksiti.
+  const november = installment({
+    id: "pay-nov",
+    installmentSequence: 3,
+    amount: 6000,
+    dueDate: "2026-10-28T00:00:00.000Z",
+    installmentPeriodLabel: "Kasım 2026",
+  });
+
+  it("birleşik ilk tahsilat Ekim ayında da plan olarak görünür (önceden 'plan yok' diyordu)", () => {
+    const plan = resolveContractPlanForMonth({ contracts: [ctr], installments: [combined, november], year: 2026, month: 10 });
+    expect(plan.state).toBe("ok");
+    if (plan.state !== "ok") return;
+    expect(plan.paymentIds).toEqual(["pay-combined"]);
+    expect(plan.status).toBe("paid");
+    expect(plan.periodLabel).toBe("17–30 Eylül 2026 + Ekim 2026");
+  });
+
+  it("vadesi Ekim'e kaydırılmış Kasım taksiti Kasım'a düşer, Ekim'e karışmaz", () => {
+    const nov = resolveContractPlanForMonth({ contracts: [ctr], installments: [combined, november], year: 2026, month: 11 });
+    expect(nov.state === "ok" && nov.paymentIds).toEqual(["pay-nov"]);
+  });
+
+  it("etiketsiz legacy satır eski kural gibi vade ayına düşer", () => {
+    const legacy = installment({ id: "legacy", dueDate: "2026-12-05T00:00:00.000Z" });
+    const dec = resolveContractPlanForMonth({ contracts: [ctr], installments: [legacy], year: 2026, month: 12 });
+    expect(dec.state === "ok" && dec.paymentIds).toEqual(["legacy"]);
+  });
+
+  it("iptal edilen sözleşmenin satırları yeni sözleşmenin ayına karışmaz", () => {
+    const old = contract({ id: "old", status: "cancelled", enrollmentStartDate: "2026-09-01", enrollmentEndDate: "2027-06-30" });
+    const oldRow = installment({ id: "old-oct", contractId: "old", installmentPeriodLabel: "Ekim 2026", amount: 7000 });
+    const plan = resolveContractPlanForMonth({ contracts: [old, ctr], installments: [oldRow, combined], year: 2026, month: 10 });
+    expect(plan.state === "ok" && plan.paymentIds).toEqual(["pay-combined"]);
   });
 });

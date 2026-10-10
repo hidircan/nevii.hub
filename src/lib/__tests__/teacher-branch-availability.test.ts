@@ -65,8 +65,8 @@ describe("Package D — teacherServesBranch / availabilityForBranch / isTeacherS
 
   it("availabilityForBranch yalnız o şubeye özel + branchId'siz (tüm şubeler) pencereleri döner", () => {
     const windows = [
-      { dayOfWeek: 1, start: "10:00", end: "14:00", branchId: "erzene" },
-      { dayOfWeek: 1, start: "15:00", end: "18:00", branchId: "bostanli" },
+      { dayOfWeek: 2, start: "10:00", end: "14:00", branchId: "erzene" },
+      { dayOfWeek: 2, start: "15:00", end: "18:00", branchId: "bostanli" },
       { dayOfWeek: 2, start: "09:00", end: "12:00" }, // branchId yok — tüm şubeler
     ];
     const forErzene = availabilityForBranch(windows, "erzene");
@@ -97,8 +97,8 @@ describe("Package D — teacherServesBranch / availabilityForBranch / isTeacherS
 
 function buildFixture(): AppData {
   const now = new Date();
-  const nextMonday = new Date(now);
-  const add = ((1 - now.getDay() + 7) % 7) || 7;
+  const nextMonday = new Date(now); // 2026-09-20: artık SALI — Pazartesi Güz döneminin kapalı günü
+  const add = ((2 - now.getDay() + 7) % 7) || 7;
   nextMonday.setDate(now.getDate() + add);
   const startAt = new Date(nextMonday);
   startAt.setHours(11, 0, 0, 0);
@@ -133,10 +133,10 @@ function buildFixture(): AppData {
         branchId: "erzene",
         branchIds: ["bostanli"],
         instruments: ["Piyano"],
-        // Erzene: Pazartesi 10-14. Bostanlı: Pazartesi 15-18. Farklı pencereler.
+        // Erzene: Salı 10-14. Bostanlı: Salı 15-18. Farklı pencereler.
         availability: [
-          { dayOfWeek: 1, start: "10:00", end: "14:00", branchId: "erzene" },
-          { dayOfWeek: 1, start: "15:00", end: "18:00", branchId: "bostanli" },
+          { dayOfWeek: 2, start: "10:00", end: "14:00", branchId: "erzene" },
+          { dayOfWeek: 2, start: "15:00", end: "18:00", branchId: "bostanli" },
         ],
         maxDailyLessons: 8,
         active: true,
@@ -179,8 +179,8 @@ describe("Package D — validateLessonSlot şube-bazlı müsaitlik", () => {
   it("öğretmenin Erzene için tanımlı penceresi Bostanlı odasında GEÇERSİZDİR (TEACHER_UNAVAILABLE)", () => {
     const data = buildFixture();
     const now = new Date();
-    const nextMonday = new Date(now);
-    const add = ((1 - now.getDay() + 7) % 7) || 7;
+    const nextMonday = new Date(now); // 2026-09-20: artık SALI — Pazartesi Güz döneminin kapalı günü
+    const add = ((2 - now.getDay() + 7) % 7) || 7;
     nextMonday.setDate(now.getDate() + add);
     // Erzene penceresi saatinde (10-14) ama BOSTANLI odasında dene.
     const startAt = new Date(nextMonday);
@@ -198,8 +198,8 @@ describe("Package D — validateLessonSlot şube-bazlı müsaitlik", () => {
   it("öğretmenin Bostanlı için tanımlı penceresi Bostanlı odasında GEÇERLİDİR", () => {
     const data = buildFixture();
     const now = new Date();
-    const nextMonday = new Date(now);
-    const add = ((1 - now.getDay() + 7) % 7) || 7;
+    const nextMonday = new Date(now); // 2026-09-20: artık SALI — Pazartesi Güz döneminin kapalı günü
+    const add = ((2 - now.getDay() + 7) % 7) || 7;
     nextMonday.setDate(now.getDate() + add);
     const startAt = new Date(nextMonday);
     startAt.setHours(16, 0, 0, 0);
@@ -215,8 +215,8 @@ describe("Package D — validateLessonSlot şube-bazlı müsaitlik", () => {
   it("Erzene penceresi Erzene odasında da GEÇERLİDİR (kendi şubesi)", () => {
     const data = buildFixture();
     const now = new Date();
-    const nextMonday = new Date(now);
-    const add = ((1 - now.getDay() + 7) % 7) || 7;
+    const nextMonday = new Date(now); // 2026-09-20: artık SALI — Pazartesi Güz döneminin kapalı günü
+    const add = ((2 - now.getDay() + 7) % 7) || 7;
     nextMonday.setDate(now.getDate() + add);
     const startAt = new Date(nextMonday);
     startAt.setHours(11, 0, 0, 0);
@@ -240,8 +240,8 @@ describe("Package D — validateLessonSlot şube-bazlı müsaitlik", () => {
       active: true,
     });
     const now = new Date();
-    const nextMonday = new Date(now);
-    const add = ((1 - now.getDay() + 7) % 7) || 7;
+    const nextMonday = new Date(now); // 2026-09-20: artık SALI — Pazartesi Güz döneminin kapalı günü
+    const add = ((2 - now.getDay() + 7) % 7) || 7;
     nextMonday.setDate(now.getDate() + add);
     const startAt = new Date(nextMonday);
     startAt.setHours(11, 0, 0, 0);
@@ -261,8 +261,8 @@ describe("Package D — validateLessonSlot şube-bazlı müsaitlik", () => {
     past.setDate(past.getDate() - 5);
     data.teachers[0]!.terminationDate = past.toISOString();
     const now = new Date();
-    const nextMonday = new Date(now);
-    const add = ((1 - now.getDay() + 7) % 7) || 7;
+    const nextMonday = new Date(now); // 2026-09-20: artık SALI — Pazartesi Güz döneminin kapalı günü
+    const add = ((2 - now.getDay() + 7) % 7) || 7;
     nextMonday.setDate(now.getDate() + add);
     const startAt = new Date(nextMonday);
     startAt.setHours(11, 0, 0, 0);

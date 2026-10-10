@@ -25,8 +25,23 @@ export function resolveAppTimezone(settings?: { timezone?: string } | null): str
  * üretir (elle ms offset hesaplama YOK, bu tür hesaplar DST sınırlarında
  * kolayca 1 saat/1 gün kayar).
  */
+/**
+ * 8. tur (G) — `Intl.DateTimeFormat` oluşturmak pahalıdır (öneri motorlarında
+ * on binlerce çağrı). Biçimlendirici (dil, dilim, seçenek) başına BİR kez kurulur.
+ */
+const formatterCache = new Map<string, Intl.DateTimeFormat>();
+function cachedFormatter(locale: string, options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
+  const key = `${locale}|${JSON.stringify(options)}`;
+  let f = formatterCache.get(key);
+  if (!f) {
+    f = new Intl.DateTimeFormat(locale, options);
+    formatterCache.set(key, f);
+  }
+  return f;
+}
+
 export function toZonedYmd(date: Date, timeZone: string): string {
-  const parts = new Intl.DateTimeFormat("en-CA", {
+  const parts = cachedFormatter("en-CA", {
     timeZone,
     year: "numeric",
     month: "2-digit",
@@ -40,7 +55,7 @@ export function toZonedYmd(date: Date, timeZone: string): string {
 
 /** Verilen saat diliminde 0-23 arası saat — "sabah eşiği" gibi gün-içi kontroller için. */
 export function zonedHour(date: Date, timeZone: string): number {
-  const parts = new Intl.DateTimeFormat("en-US", {
+  const parts = cachedFormatter("en-US", {
     timeZone,
     hour: "numeric",
     hour12: false,
@@ -79,7 +94,7 @@ export function calendarDaysBetween(aYmd: string, bYmd: string): number {
  * çalışsın her zaman doğru saat.
  */
 export function zonedHm(date: Date, timeZone: string): string {
-  const parts = new Intl.DateTimeFormat("en-GB", {
+  const parts = cachedFormatter("en-GB", {
     timeZone,
     hour: "2-digit",
     minute: "2-digit",
@@ -122,4 +137,67 @@ export function formatDateTr(value: string | Date, timeZone: string = DEFAULT_AP
   const ymd = toZonedYmd(date, timeZone);
   const [y, m, d] = ymd.split("-");
   return `${d}.${m}.${y}`;
+}
+
+/**
+ * 2026-09-17 — KRİTİK saat kayması kök neden düzeltmesi (15:50 → 18:50).
+ * Yöneticinin seçtiği "yyyy-MM-dd" + "HH:mm" kurum saat diliminde bir DUVAR
+ * SAATİDİR. Önceden sunucu `new Date("2026-09-20T15:50")` / `setHours(15, 50)`
+ * ile ÇALIŞAN MAKİNENİN saat dilimini kullanıyordu; Vercel UTC olduğu için
+ * ders İstanbul'da 3 saat ileride (18:50) oluşuyordu. Bu fonksiyon makineden
+ * bağımsızdır: ofset `Intl` ile hedef dilimden okunur (DST dahil).
+ */
+export function zonedWallTimeToUtc(ymd: string, hm: string, timeZone: string = DEFAULT_APP_TIMEZONE): Date {
+  const [y, mo, d] = ymd.split("-").map(Number);
+  const [h, mi] = hm.split(":").map(Number);
+  const asUtc = Date.UTC(y ?? 1970, (mo ?? 1) - 1, d ?? 1, h ?? 0, mi ?? 0);
+  // İlk tahmin: aynı duvar saati UTC'deymiş gibi → hedef dilimdeki karşılığının farkı kadar düzelt (2 tur DST sınırı için yeterli).
+  let guess = asUtc;
+  for (let i = 0; i < 2; i++) {
+    const shown = new Date(guess);
+    const [sy, smo, sd] = toZonedYmd(shown, timeZone).split("-").map(Number);
+    const [sh, smi] = zonedHm(shown, timeZone).split(":").map(Number);
+    guess += asUtc - Date.UTC(sy!, smo! - 1, sd!, sh!, smi!);
+  }
+  return new Date(guess);
+}
+
+/**
+ * Formdan gelen tarih-saat değeri → UTC ISO. `datetime-local` biçimi
+ * ("yyyy-MM-ddTHH:mm", ofsetsiz) kurum saat dilimindeki duvar saati sayılır;
+ * açık ofset/Z taşıyan tam ISO değerler olduğu gibi korunur. Geçersizse null.
+ */
+export function wallDateTimeInputToIso(value: string, timeZone: string = DEFAULT_APP_TIMEZONE): string | null {
+  const naive = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})(?::\d{2}(?:\.\d+)?)?$/.exec(value.trim());
+  const date = naive ? zonedWallTimeToUtc(naive[1]!, naive[2]!, timeZone) : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+/** UTC ISO → `datetime-local` input değeri, kurum saat diliminde ("yyyy-MM-ddTHH:mm"). */
+export function isoToWallDateTimeInput(iso: string, timeZone: string = DEFAULT_APP_TIMEZONE): string {
+  const date = new Date(iso);
+  return `${toZonedYmd(date, timeZone)}T${zonedHm(date, timeZone)}`;
+}
+
+/** Kurum saat diliminde haftanın günü (0=Pazar..6=Cumartesi). */
+export function zonedWeekday(date: Date, timeZone: string = DEFAULT_APP_TIMEZONE): number {
+  return ymdToUtcNoon(toZonedYmd(date, timeZone)).getUTCDay();
+}
+
+/** "yyyy-MM-dd" + n gün (takvim aritmetiği, saat diliminden bağımsız). */
+export function addDaysYmd(ymd: string, days: number): string {
+  return new Date(ymdToUtcNoon(ymd).getTime() + days * 86_400_000).toISOString().slice(0, 10);
+}
+
+/**
+ * UTC ISO → kurum saat dilimindeki duvar saatini taşıyan YEREL Date. Yalnız
+ * `date-fns` `format` ile metne çevirmek içindir (format yerel alanları okur);
+ * böylece sunucu UTC'de de "15:50" dersi "15:50" yazılır. Hesaplamada kullanmayın.
+ */
+export function toWallClockDate(value: string | Date, timeZone: string = DEFAULT_APP_TIMEZONE): Date {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return date;
+  const [y, mo, d] = toZonedYmd(date, timeZone).split("-").map(Number);
+  const [h, mi] = zonedHm(date, timeZone).split(":").map(Number);
+  return new Date(y!, mo! - 1, d!, h!, mi!, date.getSeconds());
 }

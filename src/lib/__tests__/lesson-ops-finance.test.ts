@@ -4,6 +4,7 @@ import path from "path";
 import { resolveDataDir } from "../config";
 import { createLessonTool, setLessonOpsFlagTool, cancelLessonTool, collectAttendanceCalendarPaymentTool } from "../services/tools";
 import { readData } from "../store";
+import { STUDENT_CONTRACTS_FILE } from "../contracts";
 import { DEFAULT_TENANT_ID } from "../auth/config";
 import type { ServiceContext } from "../services/context";
 import { applyLessonOpsFlag } from "../lesson-ops";
@@ -22,6 +23,8 @@ function ctx(overrides?: Partial<ServiceContext>): ServiceContext {
 }
 
 beforeEach(async () => {
+  // Sözleşmesiz öğrenci varsayımı: önceki test dosyalarının sözleşmeleri taşınmasın (takvim tahsilatı sözleşme varken serbest satır açmaz).
+  await fs.rm(STUDENT_CONTRACTS_FILE, { force: true });
   await fs.rm(DATA_FILE, { force: true });
 });
 
@@ -197,13 +200,13 @@ describe("Geçmiş lesson_ops Payment kayıtları — dokunulmadan okunabilir ka
 
 describe("monthly_plan ve manual Payment akışları — Package B'den etkilenmez", () => {
   it("Yoklama Takvimi ay kutusu tahsilat akışı çalışmaya devam eder", async () => {
-    const res = await collectAttendanceCalendarPaymentTool(ctx(), { studentId: "s1", month: "2026-09", amount: 3000 });
+    const res = await collectAttendanceCalendarPaymentTool(ctx(), { studentId: "s1", month: "2026-09", amount: 3200 });
     expect(res.ok).toBe(true);
 
     const data = await readData();
     const row = data.payments.find((p) => p.studentId === "s1" && p.source === "monthly_plan");
     expect(row).toBeDefined();
-    expect(row?.amount).toBe(3000);
+    expect(row?.amount).toBe(3200);
     expect(row?.status).toBe("paid");
   });
 });

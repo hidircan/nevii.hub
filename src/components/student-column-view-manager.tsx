@@ -29,7 +29,13 @@ export type StudentColumnKey =
   | "level"
   | "method"
   | "payment"
-  | "monthlyFee";
+  | "monthlyFee"
+  /** D — güncel sözleşmenin durumu + bitiş tarihi (2026-09-20). */
+  | "contract"
+  /** F — kurum içi öğrenci numarası (displayId). */
+  | "displayId"
+  /** F — kaydı oluşturan kullanıcı (+ denemeden dönüştüyse dönüştüren). */
+  | "createdBy";
 
 export const STUDENT_COLUMN_LABELS: Record<StudentColumnKey, string> = {
   branch: "Şube",
@@ -41,6 +47,9 @@ export const STUDENT_COLUMN_LABELS: Record<StudentColumnKey, string> = {
   method: "Eğitim metodu",
   payment: "Ödeme durumu",
   monthlyFee: "Aylık ücret",
+  contract: "Sözleşme",
+  displayId: "Öğrenci no",
+  createdBy: "Kaydı oluşturan",
 };
 
 export const DEFAULT_STUDENT_COLUMNS: StudentColumnKey[] = ["branch", "type", "instruments", "teacher", "package"];
@@ -54,6 +63,9 @@ const ALL_STUDENT_COLUMNS: StudentColumnKey[] = [
   "method",
   "payment",
   "monthlyFee",
+  "contract",
+  "displayId",
+  "createdBy",
 ];
 
 function storageKey(tenantId: string, userId: string) {
@@ -249,7 +261,7 @@ export function StudentColumnViewManager({
                 Kaydet
               </button>
             </div>
-            {error ? <p className="mt-1 text-xs font-medium text-[#8b3a3a]">{error}</p> : null}
+            {error ? <p className="mt-1 text-xs font-medium text-[var(--color-danger)]">{error}</p> : null}
           </div>
 
           {views.length > 0 ? (

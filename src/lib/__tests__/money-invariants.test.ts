@@ -100,7 +100,7 @@ describe("P0-1 — kısmi dönemler orantılıdır ve TEK yuvarlama içerir", ()
     }
   });
 
-  it("referanstan FAZLA ders içeren yoğun ay orantılı olarak fazla tahsil eder", () => {
+  it("referanstan FAZLA ders içeren yoğun ay yine TAM aylık ücret (tavan haftalık×4 — sahip kararı 2026-09-17)", () => {
     const lessons = [...fullMonthLessons("2026-10", 2), lesson("extra", "2026-10-28")];
     const lines = computePeriodBillingLines({
       enrollmentStartDay: "2026-10-01",
@@ -112,6 +112,6 @@ describe("P0-1 — kısmi dönemler orantılıdır ve TEK yuvarlama içerir", ()
       makeupRequests: [],
     });
     expect(lines[0]!.billableLessonCount).toBe(9);
-    expect(lines[0]!.autoCalculatedAmount).toBe(Math.round((5950 * 9) / 8));
+    expect(lines[0]!.autoCalculatedAmount).toBe(5950);
   });
 });

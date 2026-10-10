@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatDateTime } from "@/lib/utils";
+import { CriticalDeleteDialog } from "@/components/critical-delete-dialog";
 
 export type SignedVersionRow = {
   id: string;
@@ -22,27 +22,34 @@ function formatSize(bytes: number): string {
 }
 
 /** İmzalı sürüm geçmişi — soft-delete edilenler "Kaldırıldı" olarak işaretli kalır (audit izi), listeden kaybolmaz. */
-export function DocumentSignedVersions({ documentId, versions }: { documentId: string; versions: SignedVersionRow[] }) {
+export function DocumentSignedVersions({
+  documentId,
+  versions,
+  canDelete = false,
+}: {
+  documentId: string;
+  versions: SignedVersionRow[];
+  /** 2026-09-29 — kaldırma yalnız kurum sahibi/yöneticisi + kritik şifre + gerekçe. */
+  canDelete?: boolean;
+}) {
   const router = useRouter();
-  const [pendingId, setPendingId] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [confirmId, setConfirmId] = useState<string | null>(null);
 
-  async function onDelete(versionId: string) {
-    setPendingId(versionId);
-    setError(null);
+  async function onDelete(
+    versionId: string,
+    input: { criticalPassword: string; reason: string }
+  ): Promise<{ ok: true } | { ok: false; message: string }> {
     try {
-      const res = await fetch(`/api/v1/documents/${documentId}/signed-versions/${versionId}`, { method: "DELETE" });
+      const res = await fetch(`/api/v1/documents/${documentId}/signed-versions/${versionId}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      });
       const json = (await res.json()) as { ok: boolean; error?: { message: string } };
-      if (!json.ok) {
-        setError(json.error?.message || "Kaldırılamadı.");
-        return;
-      }
+      if (!json.ok) return { ok: false, message: json.error?.message || "Sürüm kaldırılamadı; hiçbir kayıt değişmedi." };
       router.refresh();
+      return { ok: true };
     } catch {
-      setError("Bağlantı hatası.");
-    } finally {
-      setPendingId(null);
+      return { ok: false, message: "Sunucuya ulaşılamadı; bağlantınızı kontrol edip tekrar deneyin." };
     }
   }
 
@@ -52,11 +59,6 @@ export function DocumentSignedVersions({ documentId, versions }: { documentId: s
 
   return (
     <div className="space-y-1.5">
-      {error ? (
-        <p className="text-xs font-medium text-[var(--color-danger)]" role="alert">
-          {error}
-        </p>
-      ) : null}
       {versions.map((v) => (
         <div
           key={v.id}
@@ -72,35 +74,37 @@ export function DocumentSignedVersions({ documentId, versions }: { documentId: s
             ) : null}
             {v.deletedAt ? <span className="ml-2 italic">Kaldırıldı</span> : null}
           </div>
-          {!v.deletedAt ? (
-            confirmId === v.id ? (
-              <div className="flex items-center gap-2">
-                <span className="text-[var(--color-text-muted)]">Emin misiniz?</span>
-                <button
-                  type="button"
-                  disabled={pendingId === v.id}
-                  onClick={() => void onDelete(v.id)}
-                  className="font-medium text-[var(--color-danger)] hover:underline"
-                >
-                  {pendingId === v.id ? "…" : "Evet, kaldır"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setConfirmId(null)}
-                  className="font-medium text-[var(--color-text-muted)] hover:underline"
-                >
-                  Vazgeç
-                </button>
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setConfirmId(v.id)}
-                className="font-medium text-[var(--color-danger)] hover:underline"
-              >
-                Kaldır
-              </button>
-            )
+          {!v.deletedAt && canDelete ? (
+            <CriticalDeleteDialog
+              triggerLabel="Kaldır"
+              title="İmzalı sürümü kaldır"
+              meaning={
+                v.isCurrent
+                  ? "Güncel imzalı dosya kaldırılır: dosya içeriği artık indirilemez ve evrak 'İmzaya verildi' durumuna döner. Sürüm kaydı geçmişte 'Kaldırıldı' olarak kalır. Yanlış dosyayı düzeltmek için doğrusunu yeni sürüm olarak yüklemeyi tercih edin."
+                  : "Sürüm kaydı geçmişte 'Kaldırıldı' olarak işaretlenir; güncel dosya değişmez."
+              }
+              confirmationName="SİL"
+              confirmationLabel="Onay için kutuya yazın"
+              submitLabel="Sürümü kaldır"
+              loadImpact={async () => ({
+                ok: true,
+                data: {
+                  lines: [
+                    ["Dosya", v.fileName],
+                    ["Yüklenme", formatDateTime(v.uploadedAt)],
+                    ["Güncel sürüm", v.isCurrent ? "Evet" : "Hayır"],
+                  ],
+                  allowed: true,
+                  criticalPasswordConfigured: true,
+                },
+              })}
+              onSubmit={async ({ criticalPassword, reason, confirmation }) => {
+                if (!["sil", "sıl"].includes(confirmation.trim().toLocaleLowerCase("tr"))) {
+                  return { ok: false, message: 'Onay için kutuya "SİL" yazın.' };
+                }
+                return onDelete(v.id, { criticalPassword, reason });
+              }}
+            />
           ) : null}
         </div>
       ))}

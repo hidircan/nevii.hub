@@ -285,8 +285,10 @@ The cron route MUST validate the Vercel-provided `x-vercel-cron` header (and a `
 | `AUTH_TEACHER_PASSWORD` | ✓ prod | bootstrap teacher |
 | `AUTH_PARENT_PASSWORD` | ✓ prod | bootstrap parent |
 | `AUTH_AGENT_PASSWORD` | ✓ prod | bootstrap agent |
-| `AI_PROVIDER` | | `auto`/`openai`/`grok`/`gemini`/`local`/`heuristic` |
+| `AI_PROVIDER` | | `auto`/`claude`/`gemini`/`groq`/`nvidiaNim`/`cerebras`/`openai`/`grok`/`local`/`heuristic` |
 | `AI_MODEL` | | model override |
+| `ANTHROPIC_API_KEY` | by provider | Claude (auto zincirinde 1. sıra) |
+| `CLAUDE_MODEL` | | Claude modeli (varsayılan `claude-opus-5-5`) |
 | `OPENAI_API_KEY` | by provider | OpenAI |
 | `GEMINI_API_KEY` / `GOOGLE_API_KEY` | by provider | Gemini |
 | `XAI_API_KEY` / `GROK_API_KEY` | by provider | Grok/xAI |
