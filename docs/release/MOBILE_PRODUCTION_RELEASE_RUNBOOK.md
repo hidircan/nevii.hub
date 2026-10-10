@@ -25,8 +25,8 @@ Hesap: `nevii-production` (proje `@nevii-production/nevii-hub-mobile`, id `aa045
 
 ```bash
 npx eas-cli whoami
-# Production API (düz metin; EXPO_PUBLIC_* asla secret değildir)
-npx eas-cli env:create --environment production --name EXPO_PUBLIC_API_URL --value https://neviihub.com --visibility plaintext
+# Production API — 2026-10-10'da EAS'ta ZATEN tanımlı (`eas env:list production` → https://neviihub.com); yeniden oluşturmaya gerek yok.
+# (EXPO_PUBLIC_* asla secret değildir.) Değiştirmek istersen: eas env:update / --force
 # Preview (TEST API adresini sen ver; yoksa preview build alma)
 npx eas-cli env:create --environment preview --name EXPO_PUBLIC_API_URL --value https://<test-api-host> --visibility plaintext
 # Android push — Firebase google-services.json (secret dosya; repoya girmez)
@@ -37,6 +37,10 @@ npx eas-cli credentials --platform android
 
 `app.config.js`, `GOOGLE_SERVICES_JSON` varsa `android.googleServicesFile`'a bağlar; yoksa build alınır ama Android push çalışmaz.
 iOS APNs (ikinci öncelik): `npx eas-cli credentials --platform ios` (Apple Developer hesabı + 2FA).
+
+EAS durumu (2026-10-10): hiç build yok; preview/development env boş; Android keystore ve FCM kimlik bilgileri henüz üretilmedi.
+**İlk Android build'in keystore'u interaktif üretilir** (`--non-interactive` ile yapılamaz) → ilk build'i owner terminalinde
+interaktif çalıştırın: `npx eas-cli build --profile production --platform android` (soruya "Generate new keystore" → Yes).
 
 ## 3. Build komutları
 
@@ -147,4 +151,11 @@ Migration olmadan deploy edilirse yeni uçlar 500 verir (tablo yok) — sırayı
 ## 9. Doğrulama kayıtları (bu branch, merge sonrası)
 
 - Mobil: `typecheck` ✓ · `vitest` 66 dosya / 489 test ✓ · `eslint` ✓ · `verify:mobile-bundle` (iOS+Android) ✓ · `expo-doctor` 20/21 (1: paket sürüm kayması — önceden var, `npx expo install --check`).
-- Kök: `prisma validate` ✓ · `eslint` hata yok · `tsc`: yalnız commit'lenmemiş `src/lib/student-contract-reminder-tick.ts` (kullanıcının WIP dosyası; main'de `listContractsForTenant` yok).
+- Kök (temiz checkout, commit'lenmiş kod): `tsc` 0 hata · `eslint` 0 hata (37 uyarı) · `prisma validate` ✓ · `next build` ✓.
+- Kök `vitest` tam koşu: 4324 test, 4312 geçti, **12 başarısız**. Aynı 10 dosya `origin/main` (cf12bc0) üzerinde koşturuldu:
+  198 testte **aynı 11 hata** hem main'de hem bu branch'te (branch'e özgü hata YOK). 12.'si (`rbac-student-role` › `listAssessme…`)
+  tek başına koşunca iki tarafta da geçer → tam koşuya özgü sıra bağımlı hata. Dosyalar: attendance-month-simplification, clubs,
+  contract-duration-first-contract-due-date, contracts, lesson-schedule-single-source (2), lesson-series-tools, staff-onboarding,
+  trial-edit-notes-dashboard (2), trial-lesson-legacy-duration, rbac-student-role. Ayrı bir düzeltme turu gerekir.
+- Çalışma ağacındaki commit'lenmemiş `src/lib/student-contract-reminder-tick.ts` (+ `students/contracts/reminders` route'u) yerel `tsc`/`next build`'i
+  kırıyor (`listContractsForTenant` main'de yok); commit'lenmedi, temiz checkout etkilenmiyor.
