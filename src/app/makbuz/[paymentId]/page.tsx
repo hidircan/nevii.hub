@@ -1,7 +1,7 @@
 import Link from "@/components/link";
 import { redirect } from "next/navigation";
 import { requireSessionContext, homePathForRole } from "@/lib/auth/session";
-import { readData } from "@/lib/store";
+import { readPaymentById, readStudentScope } from "@/lib/store";
 import { assertStudentAccess } from "@/lib/services/context";
 import { buildReceiptViewModel, canViewReceipt, receiptIneligibleReason } from "@/lib/receipt";
 import { formatDate, formatMoney } from "@/lib/utils";
@@ -66,8 +66,8 @@ export default async function ReceiptPage({
     redirect(homePathForRole(session.role));
   }
 
-  const data = await readData();
-  const payment = data.payments.find((p) => p.id === paymentId);
+  // DB egress (2026-10-10): tek ödeme + yalnız o öğrencinin dilimi (makbuz logoyu ve başka öğrenciyi okumaz).
+  const payment = await readPaymentById(paymentId);
 
   if (!payment) {
     return (
@@ -80,6 +80,7 @@ export default async function ReceiptPage({
     );
   }
 
+  const data = await readStudentScope(payment.studentId);
   const student = data.students.find((s) => s.id === payment.studentId);
 
   if (!isStaff) {

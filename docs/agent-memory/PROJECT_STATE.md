@@ -4,6 +4,18 @@ Kısa tutulur (~50 satır): oturum sonunda yalnız "Güncel snapshot" bölümün
 `archive/`'e taşınır. Ayrıntı → ilgili `docs/testing/UAT_*.md`, `docs/operations/*`. Yönlendirici: `nevii-hub` skill.
 Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_2026-09-24.md`.
 
+## Güncel snapshot — 2026-10-10 (P0 Supabase egress + UserSession kilidi; PR açık, MERGE/CANLI YOK)
+- Dal `fix/supabase-egress-p0` (taban `origin/main` a18c887) → PR. Migration/şema/env değişikliği YOK.
+- Kök neden (kanıt + yerel ölçüm): her yoklama işareti/geri alma (`planOpsChangeForPayout`), ders başlat/bitir, ders
+  oluşturma, tahsilat, öğretmen ana sayfası, öğrenci ödeme profili, makbuz ve Öğretmenler listesi tenant'ın TÜM verisini
+  okuyordu → dar dilim/tek satır. Ölçüm: bu akışlarda DB→uygulama baytı −85…−98 %. Ayrıntı:
+  `docs/performance/DB_EGRESS_2026_10_10.md`.
+- UserSession: Prisma 7 `updateMany` = BEGIN/UPDATE/COMMIT; yanıt sonrası presence yazımı askıda kalınca satır kilidi
+  açık kalıyordu. Artık tek ifade `update`, DB'de koşullu 5 dk aralık, `after()` ile fonksiyon ömrü içinde.
+- Açık: Telafi Merkezi, öğretmen detay sekmeleri, telafi oluştur/onayla, seri işlemleri hâlâ tam okuma; Student
+  dilimleri tüm kolonları okur. Gece `monthly-accrual` cron'u okulsuz kurumda P2002 (ayrı görev).
+- Canlı doğrulama: deploy sonrası Supabase Usage günlük egress eğilimi + Query Performance (owner).
+
 ## Güncel snapshot — 2026-10-09 (çoklu branş kaydı + grup başvurusu süre; PR açık, MERGE/CANLI YOK, test çalıştırılmadı)
 - Dal `feat/multi-branch-enrollment` → PR (main). Statik kontrol: typecheck temiz, değişen dosyalarda lint 0 hata.
 - Branş kaydı = `Student.enrollments[]`; tüm branşlar eşit (ana/yedek yok), koşullar tek kapıdan `enrollmentTerms`.

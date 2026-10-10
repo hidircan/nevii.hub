@@ -1,6 +1,6 @@
 import { withApiHandler } from "@/lib/api/handler";
 import { createPaymentTool } from "@/lib/services";
-import { readData } from "@/lib/store";
+import { readPaymentById } from "@/lib/store";
 import { markPaymentCasesPaid } from "@/lib/tahsilat/cases";
 import { resolveWriteScope } from "@/lib/institution/write-scope";
 import { runWithTenantAsync } from "@/lib/tenant-context";
@@ -48,8 +48,8 @@ export const POST = withApiHandler(
       })
     );
     if (result.ok) {
-      const data = await runWithTenantAsync(writeScope.tenantId, () => readData());
-      const payment = data.payments.find((item) => item.id === params.paymentId);
+      // DB egress (2026-10-10): yalnız tahsil edilen satır okunur (eskiden tenant'ın tüm verisi).
+      const payment = await runWithTenantAsync(writeScope.tenantId, () => readPaymentById(params.paymentId));
       if (payment) {
         await markPaymentCasesPaid({
           tenantId: writeScope.tenantId,

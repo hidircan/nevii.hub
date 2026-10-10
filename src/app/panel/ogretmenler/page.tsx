@@ -1,11 +1,11 @@
 import Link from "@/components/link";
 import { redirect } from "next/navigation";
-import { subDays, format } from "date-fns";
+import { addDays, subDays, format } from "date-fns";
 import { AlertTriangle, ChevronRight, CreditCard, Mail, Phone, Upload, UserPlus, Wallet } from "lucide-react";
 import { Badge, PageHeader } from "@/components/ui";
 import { cn } from "@/lib/utils";
 import { requireSessionContext } from "@/lib/auth/session";
-import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
+import { getInstitutionContext, readScopedLessonWindow } from "@/lib/institution/context";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { AssistantPageContext } from "@/components/ai/assistant-page-context";
 import { computeTeacherPerformanceReportV2 } from "@/lib/teacher-performance-v2";
@@ -39,7 +39,14 @@ export default async function OgretmenlerPage() {
     redirect("/login?next=/panel/ogretmenler");
   }
   const kurum = await getInstitutionContext(session);
-  const data = await readScopedData(kurum.scope);
+  const now = new Date();
+  // Bu hafta (Pzt–Paz) — aşağıdaki planlı ders sayısı için.
+  const weekStart = new Date(now);
+  weekStart.setHours(0, 0, 0, 0);
+  weekStart.setDate(weekStart.getDate() + (now.getDay() === 0 ? -6 : 1 - now.getDay()));
+  // DB egress (2026-10-10): sayfa yalnız son 30 günün (performans) ve bu haftanın derslerine bakar — kurumun TÜM
+  // ders/ödeme geçmişi yerine bu aralığın ±2–3 günlük payla penceresi okunur (saat dilimi/gün sınırı payı).
+  const data = await readScopedLessonWindow(kurum.scope, subDays(now, 33), addDays(weekStart, 9));
   const canSeePerformance = session.role === "SUPER_ADMIN" || session.role === "SCHOOL_ADMIN";
   const canManage = session.role === "SCHOOL_ADMIN" || session.role === "SUPER_ADMIN";
   // 2026-10-03 — listeden kaldırılan öğretmenler hiçbir listede görünmez; geçmiş kayıtlar ve raporlar adı korur.
@@ -48,7 +55,6 @@ export default async function OgretmenlerPage() {
 
   // Skor modeli detay ekranıyla (/panel/ogretmenler/[teacherId]/performans) aynı: teacher-performance-v2,
   // son 30 gün. `readScopedData` tek okuma; öğretmen başına v2 iç sorguları paralel çalışır.
-  const now = new Date();
   const periodStart = format(subDays(now, 30), "yyyy-MM-dd");
   const periodEnd = format(now, "yyyy-MM-dd");
   const performanceEntries = canSeePerformance
@@ -61,9 +67,6 @@ export default async function OgretmenlerPage() {
   const performanceById = new Map(performanceEntries);
 
   // Bu hafta (Pzt–Paz) planlı ders sayısı — eski "tüm zamanlar kayıtlı ders" sayısının yerine.
-  const weekStart = new Date(now);
-  weekStart.setHours(0, 0, 0, 0);
-  weekStart.setDate(weekStart.getDate() + (now.getDay() === 0 ? -6 : 1 - now.getDay()));
   const weekEnd = weekStart.getTime() + 7 * DAY_MS;
   const weekLessonCount = new Map<string, number>();
   for (const l of data.lessons) {

@@ -95,6 +95,36 @@ export function narrowLessonScope(
   };
 }
 
+/** Yeni ders (henüz satırı yok) — dilimin anahtarı ders kimliği yerine öğretmen/oda/öğrenci + başlangıç. */
+export type SlotScopeTarget = Pick<Lesson, "studentId" | "teacherId" | "roomId" | "startAt">;
+
+/**
+ * DB egress (2026-10-10) — YENİ ders doğrulaması (`addLesson` → `validateLessonSlot`) için aynı dilim:
+ * öğretmen/oda/öğrenci + öğrencinin TÜM dersleri + öğretmen/odanın hedef gün penceresi + öğrencinin
+ * telafi talepleri. Yoklama/ödeme yok (henüz ders yok). `store-db` aynı kapsamı Prisma ile üretir;
+ * json/memory doğrulamayı bu dar girdiyle çalıştırır (dilim yetersizse json testleri yakalar).
+ */
+export function narrowSlotScope(data: AppData, target: SlotScopeTarget): AppData {
+  const days = lessonScopeDays(target);
+  const probe = { ...target, id: "" };
+  return {
+    settings: { ...data.settings, logoUrl: "" },
+    closedDayOverrides: data.closedDayOverrides,
+    teachers: data.teachers.filter((t) => t.id === target.teacherId),
+    students: data.students.filter((s) => s.id === target.studentId),
+    rooms: data.rooms.filter((r) => r.id === target.roomId),
+    lessons: data.lessons.filter((l) => isLessonInScope(l, probe, days)),
+    lessonSeries: [],
+    attendances: [],
+    makeupRequests: data.makeupRequests.filter((m) => m.studentId === target.studentId),
+    payments: [],
+    teacherFeeRules: [],
+    teacherPayouts: [],
+    packages: [],
+    discountCampaigns: [],
+  };
+}
+
 /**
  * Dar dilim üzerinde çalışan bir saf fonksiyonun sonucunu TAM veriye geri
  * yazar. `json`/`memory` store'ları tüm veriyi tek dosyada tuttuğu için,

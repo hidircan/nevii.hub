@@ -74,9 +74,11 @@ function buildTenantA(): AppData {
     } as Student);
   }
 
-  // 2 051 ders: 45 öğrenci × haftalık, 2026-08-10 → 2027-06-30.
+  // 3 200 ders (2026-10-10 üretim pg_stat_statements: ~2 750–3 210 ders/okuma): 70 öğrenci × haftalık,
+  // 2026-08-10 → 2027-06-30.
+  const LESSON_COUNT = 3200;
   const lessons: Lesson[] = [];
-  const weekly = students.slice(0, 45);
+  const weekly = students.slice(0, 70);
   const roomsByBranch = new Map<string, string[]>();
   for (const room of base.rooms) roomsByBranch.set(room.branchId, [...(roomsByBranch.get(room.branchId) ?? []), room.id]);
   weekly.forEach((s, idx) => {
@@ -86,7 +88,7 @@ function buildTenantA(): AppData {
     let d = addDays(TERM_START, weekday);
     d.setHours(hour, 0, 0, 0);
     let n = 0;
-    while (d <= TERM_END && lessons.length < 2051) {
+    while (d <= TERM_END && lessons.length < LESSON_COUNT) {
       const past = d < NOW;
       lessons.push({
         id: `lb_${idx}_${n}`,
@@ -140,7 +142,7 @@ function buildTenantA(): AppData {
     }
   }
 
-  // 1 222 ödeme: 114 öğrenci × Eylül–Haziran taksit (10) + 82 ek (kayıt/manuel).
+  // 1 300 ödeme (üretim: ~1 260–1 320 ödeme/okuma): 114 öğrenci × Eylül–Haziran taksit (10) + 160 ek.
   const payments: Payment[] = [];
   const payers = students.slice(0, 114);
   payers.forEach((s, idx) => {
@@ -162,7 +164,7 @@ function buildTenantA(): AppData {
       } as Payment);
     }
   });
-  for (let i = 0; payments.length < 1222; i++) {
+  for (let i = 0; payments.length < 1300; i++) {
     const s = students[(i * 7) % students.length]!;
     const due = addDays(TERM_START, i % 50);
     payments.push({

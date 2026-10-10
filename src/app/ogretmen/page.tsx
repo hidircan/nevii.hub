@@ -1,9 +1,9 @@
 import Link from "@/components/link";
 import { redirect } from "next/navigation";
 import { PORTAL_RECORD_MISSING_REDIRECT } from "@/lib/auth/portal-record-missing";
-import { startOfMonth, endOfMonth, format } from "date-fns";
+import { addDays, startOfMonth, endOfMonth, format } from "date-fns";
 import { tr } from "date-fns/locale";
-import { readData } from "@/lib/store";
+import { readPayoutWindow } from "@/lib/store";
 import { Badge, Card } from "@/components/ui";
 import { LessonStatusBadge } from "@/components/lesson-status-badge";
 import { formatDate, formatDateTime, formatMoney, formatTime } from "@/lib/utils";
@@ -27,7 +27,18 @@ export default async function OgretmenPortalPage() {
     redirect("/login?next=/ogretmen");
   }
 
-  const data = await readData();
+  // DB egress (2026-10-10): eskiden kurumun TÜM ders/ödeme verisi okunuyordu. Sayfa yalnız bugünü, önümüzdeki
+  // 5 günü ve bu ayın hakedişini gösterir → bu ay ∪ 5 gün penceresi (±2 gün pay; hakediş kendi gün anahtarıyla
+  // süzer) + kayıtlı hakedişler (readPayoutWindow — Hakedişlerim ekranıyla aynı dilim).
+  const now = new Date();
+  const fiveDaysAhead = new Date(now);
+  fiveDaysAhead.setDate(fiveDaysAhead.getDate() + 5);
+  fiveDaysAhead.setHours(23, 59, 59, 999);
+  const monthEnd = endOfMonth(now);
+  const data = await readPayoutWindow(
+    addDays(startOfMonth(now), -2).toISOString(),
+    addDays(fiveDaysAhead > monthEnd ? fiveDaysAhead : monthEnd, 2).toISOString()
+  );
   const teacherId = session.teacherId || "t2";
   const teacher = data.teachers.find((t) => t.id === teacherId) ?? data.teachers[0];
   if (!teacher) redirect(PORTAL_RECORD_MISSING_REDIRECT);
@@ -38,9 +49,6 @@ export default async function OgretmenPortalPage() {
     .filter((l) => l.teacherId === teacher.id && l.startAt.startsWith(today))
     .sort((a, b) => a.startAt.localeCompare(b.startAt));
 
-  const fiveDaysAhead = new Date();
-  fiveDaysAhead.setDate(fiveDaysAhead.getDate() + 5);
-  fiveDaysAhead.setHours(23, 59, 59, 999);
   const weekLessons = data.lessons
     .filter((l) => l.teacherId === teacher.id && l.status === "scheduled")
     .filter((l) => new Date(l.startAt) >= new Date() && new Date(l.startAt) <= fiveDaysAhead)
@@ -49,9 +57,8 @@ export default async function OgretmenPortalPage() {
 
   // Hakediş yalnızca oturumdaki (veya demo fallback) öğretmenin kendi
   // teacherId'siyle hesaplanır — başka bir öğretmenin verisine erişim yok.
-  const now = new Date();
   const periodStart = format(startOfMonth(now), "yyyy-MM-dd");
-  const periodEnd = format(endOfMonth(now), "yyyy-MM-dd");
+  const periodEnd = format(monthEnd, "yyyy-MM-dd");
   const currentMonthEarnings = computeTeacherEarningsWithRevisions(data, teacher.id, periodStart, periodEnd);
   const recentPayouts = data.teacherPayouts
     .filter((p) => p.teacherId === teacher.id && p.status !== "cancelled")

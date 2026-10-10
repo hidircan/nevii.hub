@@ -5,9 +5,12 @@ import { remainingAmount, resolveCollectionStatus } from "./status";
 import type { AppData, Payment } from "../types";
 import type { MarkPaymentPaidOptions } from "../store-json";
 
+/**
+ * DB egress (2026-10-10): eskiden tahsilat sonunda tenant'ın TÜM verisi okunup döndürülüyordu (her "Ödendi"
+ * işaretinde); dönüşü yalnız güncel ödeme satırı kullanılıyordu. Artık yalnız o satır okunur.
+ */
 export type CollectPaymentResult = {
   payment: Payment;
-  data: AppData;
 };
 
 export type CollectPaymentOpts = MarkPaymentPaidOptions & {
@@ -179,11 +182,10 @@ async function collectDb(
     },
     { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
   );
-  const { readData } = await import("../store");
-  const data = await readData();
-  const payment = data.payments.find((p) => p.id === paymentId);
-  if (!payment) throw new Error("Ödeme bulunamadı");
-  return { payment, data };
+  const { mapDbPayment } = await import("../store-db");
+  const row = await prisma.payment.findFirst({ where: { id: paymentId, tenantId } });
+  if (!row) throw new Error("Ödeme bulunamadı");
+  return { payment: mapDbPayment(row) };
 }
 
 async function collectFileBacked(
@@ -228,7 +230,7 @@ async function collectFileBacked(
   });
   const payment = data.payments.find((p) => p.id === paymentId);
   if (!payment) throw new Error("Ödeme bulunamadı");
-  return { payment, data };
+  return { payment };
 }
 
 export async function collectPayment(
