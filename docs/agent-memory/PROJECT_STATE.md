@@ -4,6 +4,16 @@ Kısa tutulur (~50 satır): oturum sonunda yalnız "Güncel snapshot" bölümün
 `archive/`'e taşınır. Ayrıntı → ilgili `docs/testing/UAT_*.md`, `docs/operations/*`. Yönlendirici: `nevii-hub` skill.
 Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_2026-09-24.md`.
 
+## Güncel snapshot — 2026-10-10 (çoklu branş v2: her branş eşit/bağımsız; KOMİT/PUSH/PR/DEPLOY YOK, test çalıştırılmadı)
+- Dal `claude/beautiful-gates-c4z4de` (HEAD a18c887 üstünde COMMİT EDİLMEMİŞ değişiklikler; owner inceleyip commit/push/PR yapacak).
+  Statik: `tsc` temiz, değişen dosyalarda eslint 0 hata. `npm test`/build/tarayıcı çalıştırılmadı.
+- Model: branş kaydı `termsVersion: 2` ile kendi koşullarını (tür, MEB, paket, ödeme, tarih) taşır; öğrenci satırı yalnız ayna.
+  Yazım tek kapı: `store.updateStudentProfile` cephesi → hedef branş; çok branşlıda hedef yoksa `EnrollmentRequiredError`.
+  Atomik: `registerStudent`, `changeStudentEnrollments` (json/memory/db). Ortak form: `enrollment-form.ts` + `enrollment-form-fields.tsx`.
+- Yeni migration YOK. Betikler: `scripts/reconcile-enrollment-terms.ts` (yeni, kuru varsayılan), `backfill-enrollment-links.ts` (güncel).
+- UAT + eşlik matrisi + açık kalanlar: `docs/testing/UAT_2026_10_10_MULTI_BRANCH_V2.md`. Release sırası: deploy → betikler kuru → yedek → `--apply`.
+- Açık: ilgili testlerin güncellenmesi (UAT §7), düzenlemede ödeme türü/günü temizleme, MEB db listesi bellekte sayfalama.
+
 ## Güncel snapshot — 2026-10-10 akşam (mobil production hazırlığı; PUSH/DEPLOY/SUBMIT YOK)
 - Dal `release/mobile-review`: `origin/main` (cf12bc0) merge edildi (9 çakışma anlamsal çözüldü, 32123e6); + pg pool `max 5` (3a05638);
   + production API URL fail-fast guard, app.config.js (FCM), blockedPermissions, eas submit internal/draft, runbook (48e9cd5, d770f35).

@@ -233,6 +233,27 @@ export interface StudentEnrollment {
   /** Sonlandırma izi (kayıt silinmez; `active:false` + `endDate`). */
   endReason?: string;
   endedByUserId?: string;
+  /**
+   * 2026-10-10 — SÜRÜM 2: bu kayıt KENDİ koşullarının tek sahibidir (öğrenci türü, ücret, ödeme, tarih, program, seviye
+   * ve MEB bilgileri). Öğrenci satırındaki aynı adlı alanlar yalnız UYUMLULUK AYNASIDIR (bkz. student-enrollments.ts
+   * `mirrorPatchFromEnrollments`) ve hiçbir branşın koşulunun kaynağı değildir. Alan yoksa kayıt eski (v1/legacy)
+   * düzendedir: ana kaydın koşulları öğrenci satırında durur ve okuma tek kapıdan (`enrollmentTerms`) yapılır.
+   */
+  termsVersion?: 2;
+  /** Ödeme günü aralıkları (v2) — tekil `paymentDueDay` geriye uyum için korunur. */
+  paymentDueRanges?: PaymentDueRange[];
+  /** Kayıtta uygulanan kampanya kimlikleri (kampanya raporu branş başına sayar). */
+  appliedCampaignIds?: string[];
+  /** Seviye: MEB branşında 1–8, diğerlerinde serbest metin. Branşa özgüdür (aynı kişi Piyano 3., Keman 1. seviyede olabilir). */
+  level?: string;
+  targetExam?: string;
+  /** MEB dönem/sınav bilgileri — BRANŞA özgüdür; kişi düzeyindeki kimlik/belgelerle karıştırılmaz. */
+  mebLevelStartDate?: string;
+  mebLevelEndDate?: string;
+  mebExamDate?: string;
+  mebExamAttended?: boolean;
+  /** Yeni öğrenci kaydını oluşturan gönderimin kimliği — çift tık/yeniden deneme koruması (bkz. store.registerStudent). */
+  registrationId?: string;
 }
 
 export interface Student {
@@ -565,10 +586,17 @@ export type StudentProfilePatch = Partial<
     | "packageName"
     | "weeklyLessonCount"
     | "derivedPerLessonAmount"
+    /** 2026-10-10 — uyumluluk aynası (bkz. student-enrollments.ts mirrorPatchFromEnrollments) yazar. */
+    | "appliedCampaignIds"
   >
 > & {
   /** 2026-10-09 — açıkça TEMİZLENECEK alanlar (db: NULL, json/memory: anahtar silinir); `undefined` "dokunma" demektir. */
   clearFields?: StudentClearableField[];
+  /**
+   * 2026-10-10 — YALNIZ girdi: branşa özgü bir alan (tür, ücret, tarih, MEB…) hangi BRANŞ kaydına yazılacak.
+   * Satıra YAZILMAZ (store facade ayıklar). Çok branşlı öğrencide verilmezse yazım reddedilir (tahmin yok).
+   */
+  enrollmentId?: string;
 };
 
 export type StudentClearableField =
@@ -577,7 +605,25 @@ export type StudentClearableField =
   | "discountType"
   | "discountValue"
   | "monthlyFeeOverrideReason"
-  | "lessonScheduleText";
+  | "lessonScheduleText"
+  // 2026-10-10 — uyumluluk aynası: kaynak branşta olmayan değer, önceki kaynaktan kalmasın.
+  | "studentType"
+  | "studentTypes"
+  | "level"
+  | "targetExam"
+  | "mebLevelStartDate"
+  | "mebLevelEndDate"
+  | "mebExamDate"
+  | "mebExamAttended"
+  | "paymentMethod"
+  | "paymentDueDay"
+  | "paymentDueRanges"
+  | "lessonStartDate"
+  | "intendedDurationMonths"
+  | "enrollmentEndDate"
+  | "derivedPerLessonAmount"
+  | "appliedCampaignIds"
+  | "lessonDurationMinutes";
 
 /**
  * EPIC 1 (IMPLEMENTATION_PLAN.md) — okulun gecikmiş tahsilat otomasyon

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "@/components/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import {
   BookOpen,
   CalendarDays,
@@ -40,7 +40,11 @@ const TABS = [
 
 export function StudentDetailTabs({ studentId }: { studentId: string }) {
   const pathname = usePathname();
+  const params = useSearchParams();
   const base = `/panel/ogrenciler/${studentId}`;
+  // 2026-10-10 — seçili branş sekmeler arasında korunur (yalnız `brans`; diğer sorgu parametreleri taşınmaz).
+  const brans = params.get("brans");
+  const carry = brans ? `?brans=${encodeURIComponent(brans)}` : "";
 
   return (
     <nav
@@ -49,8 +53,9 @@ export function StudentDetailTabs({ studentId }: { studentId: string }) {
     >
       <ul className="flex min-w-max gap-1">
         {TABS.map((tab) => {
-          const href = tab.segment ? `${base}/${tab.segment}` : base;
-          const active = tab.segment ? pathname.startsWith(href) : pathname === base;
+          const path = tab.segment ? `${base}/${tab.segment}` : base;
+          const href = `${path}${carry}`;
+          const active = tab.segment ? pathname.startsWith(path) : pathname === base;
           return (
             <li key={tab.segment || "ozet"}>
               <Link

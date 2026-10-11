@@ -14,6 +14,8 @@ export type BulkStudentOption = {
   branchId: string;
   branchName: string;
   active: boolean;
+  /** 2026-10-10 — çok branşlı öğrenci: öğretmen/enstrüman/seviye filtreleri AYNI branşın değerlerine birlikte uygulanır. */
+  enrollments?: { teacherId: string; instrument: string; level: string }[];
 };
 
 type ManualTopicRow = { sortOrder: number; title: string; description: string };
@@ -80,7 +82,10 @@ export function CurriculumBulkAssignWizard({
     [students]
   );
   const levelOptions = useMemo(
-    () => Array.from(new Set(students.map((s) => s.level).filter(Boolean))).sort((a, b) => a.localeCompare(b, "tr")),
+    () =>
+      Array.from(new Set(students.flatMap((s) => (s.enrollments && s.enrollments.length > 1 ? s.enrollments.map((e) => e.level) : [s.level])).filter(Boolean))).sort(
+        (a, b) => a.localeCompare(b, "tr")
+      ),
     [students]
   );
   const branchOptions = useMemo(
@@ -96,9 +101,16 @@ export function CurriculumBulkAssignWizard({
       students.filter(
         (s) =>
           (!activeOnly || s.active) &&
-          (!teacherFilter || s.teacherId === teacherFilter) &&
-          (!instrumentFilter || s.instruments.includes(instrumentFilter)) &&
-          (!levelFilter || s.level === levelFilter) &&
+          (s.enrollments && s.enrollments.length > 1
+            ? s.enrollments.some(
+                (e) =>
+                  (!teacherFilter || e.teacherId === teacherFilter) &&
+                  (!instrumentFilter || e.instrument === instrumentFilter) &&
+                  (!levelFilter || e.level === levelFilter)
+              )
+            : (!teacherFilter || s.teacherId === teacherFilter) &&
+              (!instrumentFilter || s.instruments.includes(instrumentFilter)) &&
+              (!levelFilter || s.level === levelFilter)) &&
           (!branchFilter || s.branchId === branchFilter)
       ),
     [students, activeOnly, teacherFilter, instrumentFilter, levelFilter, branchFilter]
@@ -370,7 +382,9 @@ export function CurriculumBulkAssignWizard({
                     {s.name}
                   </span>
                   <span className="text-[11px] text-[var(--color-text-muted)]">
-                    {s.instruments.join(", ")} {s.level ? `· ${s.level}` : ""}
+                    {s.enrollments && s.enrollments.length > 1
+                      ? s.enrollments.map((e) => `${e.instrument}${e.level ? ` (${e.level})` : ""}`).join(", ")
+                      : `${s.instruments.join(", ")} ${s.level ? `· ${s.level}` : ""}`}
                   </span>
                 </label>
               ))}

@@ -6,6 +6,7 @@ import { computeTeacherEarningsWithRevisions } from "@/lib/teacher-payout";
 import { formatDate, formatMoney, formatTime } from "@/lib/utils";
 import { loadTeacherPageContext } from "./_context";
 import { MiniStat } from "./_components/fields";
+import { isOwnStudent } from "@/lib/teacher-portal-scope";
 
 export const dynamic = "force-dynamic";
 
@@ -19,7 +20,7 @@ export default async function TeacherOverviewTab({ params }: { params: Promise<{
   if (!teacher) notFound();
 
   const branch = data.settings.branches.find((b) => b.id === teacher.branchId);
-  const students = data.students.filter((s) => s.teacherId === teacher.id);
+  const students = data.students.filter((s) => isOwnStudent(s, teacher.id));
   const activeStudents = students.filter((s) => s.active);
   const lessons = data.lessons.filter((l) => l.teacherId === teacher.id && l.status !== "cancelled");
 

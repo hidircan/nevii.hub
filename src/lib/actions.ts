@@ -27,6 +27,7 @@ import {
 import { clampPreferencesToPolicy } from "./appearance-policy";
 import { auditLog } from "./auth/audit";
 import { isFormalContractDuration } from "./contracts";
+import { parseEnrollmentDraftsJson } from "./enrollment-form";
 import { formatDate, formatTime, uid } from "./utils";
 import {
   cancelMakeupLessonTool,
@@ -34,6 +35,7 @@ import {
   createPaymentTool,
   updatePaymentTool,
   createStudentTool,
+  registerStudentWithEnrollmentsTool,
   updateStudentProfileTool,
   pauseStudentLessonScheduleTool,
   reactivateStudentLessonScheduleTool,
@@ -826,6 +828,8 @@ export type NewStudentFormState = {
   formError?: string;
   fieldErrors?: Record<string, string>;
   values?: Record<string, string>;
+  /** 2026-10-10 — branş taslağı anahtarı → alan → Türkçe hata. Hangi branşın hangi alanı hatalı olduğunu forma taşır. */
+  enrollmentErrors?: Record<string, Record<string, string>>;
 } | null;
 
 /**
@@ -916,6 +920,9 @@ const STUDENT_FORM_VALUE_KEYS = [
   "mebExamStatus",
   "notes",
   "kvkkConsent",
+  // 2026-10-10 — çoklu branş: tüm branş taslakları (JSON) + yeniden gönderim kimliği. Hata sonrası form branşları buradan kurar.
+  "enrollments",
+  "registrationId",
   // 2026-10-07 — grup dersi başvurusundan kayıt: hata sonrası form başvuru modunda kalsın.
   "registrationKind",
   "clubApplicationId",
@@ -949,6 +956,7 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
   // 2026-10-07 — grup dersi başvurusundan kayıt: üyelik/ücret burada AÇILMAZ; kayıttan sonra başvuruya dönülür.
   const clubApplicationId = String(formData.get("clubApplicationId") || "").trim() || undefined;
   let clubApplicationLinked = false;
+  let draftRedirectResult: { durationMonths: number; enrollmentId?: string } | undefined;
   try {
     await withAuthContext("actionAddStudent", async (ctx) => {
       // P0-C (2026-09-02) — ilk ödeme alanları istemcinin `required`'ına GÜVENMEDEN,
@@ -958,6 +966,9 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
       // 2026-10-05 — Kulüp: "course" | "course_club" | "club_only". Kulüp seçimi ÖĞRENCİ OLUŞMADAN doğrulanır.
       const registrationKind = String(formData.get("registrationKind") || "course");
       const clubOnly = registrationKind === "club_only";
+      // 2026-10-10 — yeni kayıt formu tüm branşları gizli `enrollments` JSON'unda gönderir (eşit branş kartları); ilk tahsilat,
+      // ders günü ve MEB doğrulaması BRANŞ BAŞINA ortak doğrulama modülünden geçer. Düz alanlar yalnız "sadece kulüp" kaydında kalır.
+      const draftMode = !clubOnly && formData.has("enrollments");
       let clubPlan: import("./clubs").ClubRegistrationPlan | null = null;
       if (registrationKind !== "course") {
         const { parseClubRegistration } = await import("./clubs");
@@ -969,7 +980,7 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
       }
       const { parseRegistrationFirstPaymentForm } = await import("./first-payment-adjustment");
       // Sadece kulüp: kurs tahsilatı yok (0) — kulüp ücreti ayrı kutudan.
-      const firstPaymentParsed = clubOnly
+      const firstPaymentParsed = clubOnly || draftMode
         ? ({ ok: true, value: { amount: 0 } } as const)
         : parseRegistrationFirstPaymentForm({
         method: String(formData.get("firstPaymentMethod") || ""),
@@ -994,7 +1005,7 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
       // kesin zorunlu kılınır.
       const lessonDaysRaw = formData.getAll("lessonDays").map(Number).filter((n) => Number.isInteger(n));
       const weeklyLessonCountRaw = Number(formData.get("weeklyLessonCount") || 1);
-      if (!clubOnly && (lessonDaysRaw.length !== weeklyLessonCountRaw || new Set(lessonDaysRaw).size !== lessonDaysRaw.length)) {
+      if (!clubOnly && !draftMode && (lessonDaysRaw.length !== weeklyLessonCountRaw || new Set(lessonDaysRaw).size !== lessonDaysRaw.length)) {
         const msg = `Haftalık ${weeklyLessonCountRaw} ders için ${weeklyLessonCountRaw} farklı ders günü seçmelisiniz.`;
         throw new ToolValidationFailure({
           code: "VALIDATION_ERROR",
@@ -1161,7 +1172,34 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
         const msg = `${firstClub?.name ?? "Kulüp"} için "${firstClub?.instrument ?? ""}" branşında aktif öğretmen yok. Kulüpler ekranından öğretmen seçimini düzeltin.`;
         throw new ToolValidationFailure({ code: "VALIDATION_ERROR", message: msg, details: { fieldErrors: { clubs: [msg] } } });
       }
-      const createdResult = await createStudentTool(
+      const createdResult = draftMode
+        ? await (async () => {
+            const parsedDrafts = parseEnrollmentDraftsJson(String(formData.get("enrollments") ?? ""));
+            if (!parsedDrafts.ok) {
+              throw new ToolValidationFailure({
+                code: "VALIDATION_ERROR",
+                message: parsedDrafts.message,
+                details: { fieldErrors: { enrollments: [parsedDrafts.message] } },
+              });
+            }
+            const registrationId = String(formData.get("registrationId") || "").trim() || undefined;
+            const reg = await registerStudentWithEnrollmentsTool(ctx, {
+              ...studentPayload,
+              enrollmentDrafts: parsedDrafts.drafts,
+              registrationId,
+            });
+            if (reg.ok) {
+              const formalIdx = parsedDrafts.drafts.findIndex((d) => isFormalContractDuration(Number(d.intendedDurationMonths)));
+              const pickIdx = formalIdx >= 0 ? formalIdx : 0;
+              draftRedirectResult = {
+                durationMonths: Number(parsedDrafts.drafts[pickIdx]?.intendedDurationMonths) || 3,
+                enrollmentId: formalIdx >= 0 ? reg.data.enrollmentIds[formalIdx] : undefined,
+              };
+              if (reg.data.warnings?.length) inviteWarning = [inviteWarning, ...reg.data.warnings].filter(Boolean).join(" ");
+            }
+            return reg;
+          })()
+        : await createStudentTool(
         ctx,
         clubOnly && firstClub && clubOnlyTeacher
           ? {
@@ -1208,7 +1246,7 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
 
       // 2026-10-04 — kayıtta seçilen EK eğitimler (enstrüman + öğretmen + süre birlikte). Birincil eğitim
       // formun ana alanlarıdır; ek eğitim yazılamazsa öğrenci yine oluşur, neden sözleşme ekranında gösterilir.
-      const extraRaw = String(formData.get("extraEnrollments") || "");
+      const extraRaw = draftMode ? "" : String(formData.get("extraEnrollments") || "");
       if (extraRaw) {
         let extras: ({ instrument: string; teacherId: string; lessonDurationMinutes: number } & Record<string, unknown>)[] = [];
         try {
@@ -1334,6 +1372,8 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
         message: error.serviceError.message,
       });
       const fieldErrors = fieldErrorsFromZodFlatten(error.serviceError.details);
+      const enrollmentErrors = (error.serviceError.details as { enrollmentErrors?: Record<string, Record<string, string>> } | undefined)
+        ?.enrollmentErrors;
       return {
         ok: false,
         formError:
@@ -1341,6 +1381,7 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
             ? "Formda düzeltilmesi gereken alanlar var — aşağıda işaretlendi."
             : error.serviceError.message,
         fieldErrors,
+        ...(enrollmentErrors ? { enrollmentErrors } : {}),
         values: captureStudentFormValues(formData),
       };
     }
@@ -1366,7 +1407,7 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
     // İŞLENMEZ (yeni bir kolon/migration YOK); yalnızca başarı banner'ının
     // trial/formal sınıflandırmasını ve sözleşme formunun süre ön-doldurmasını
     // belirlemek için redirect query'sinde taşınır.
-    const rawDuration = Number(formData.get("intendedDurationMonths") || 3);
+    const rawDuration = draftRedirectResult?.durationMonths ?? Number(formData.get("intendedDurationMonths") || 3);
     const intendedDurationMonths = Number.isInteger(rawDuration) && rawDuration >= 1 && rawDuration <= 12 ? rawDuration : 3;
     // FAZ (2026-2027 SÖZLEŞME KAYNAĞI) — formal kayıt (3-12 ay) doğrudan
     // Bağımsız Sözleşme Merkezi'ne (bkz. [studentId]/sozlesmeler) yönlendirilir;
@@ -1376,13 +1417,14 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
     // Sözleşme Merkezi'ne yönlendirilmez; öğrenci detayında "Sözleşme bekliyor" görünür.
     // Sadece kulüp kaydında sözleşme yoktur (kulüp sözleşmeye girmez) → öğrenci detayı.
     const studentOnly = formData.get("afterSave") === "student" || formData.get("registrationKind") === "club_only";
+    const branchQuery = draftRedirectResult?.enrollmentId ? `?brans=${encodeURIComponent(draftRedirectResult.enrollmentId)}` : "";
     const destination = !studentOnly && isFormalContractDuration(intendedDurationMonths)
-      ? `/panel/ogrenciler/${newStudentId}/sozlesmeler`
+      ? `/panel/ogrenciler/${newStudentId}/sozlesmeler${branchQuery}`
       : `/panel/ogrenciler/${newStudentId}`;
     const inviteWarningQuery = inviteWarning ? `&davetUyari=${encodeURIComponent(inviteWarning)}` : "";
     // UAT 2026-09-24 (D) — replace: kaydedilmiş formun geçmiş girdisi silinir; tarayıcı Geri
     // boş/eski "Yeni öğrenci" formuna dönüp aynı öğrenciyi İKİNCİ kez oluşturamaz.
-    redirect(`${destination}?yeniKayit=1&sure=${intendedDurationMonths}${inviteWarningQuery}`, RedirectType.replace);
+    redirect(`${destination}${destination.includes("?") ? "&" : "?"}yeniKayit=1&sure=${intendedDurationMonths}${inviteWarningQuery}`, RedirectType.replace);
   }
   return null;
 }
@@ -1393,6 +1435,8 @@ export type UpdateStudentProfileActionResult =
 
 export async function actionUpdateMebStudent(input: {
   studentId: string;
+  /** 2026-10-10 — MEB bilgisi branşa özgüdür; çok branşlı öğrencide düzenlenen satırın branşı. */
+  enrollmentId?: string;
   level?: string;
   mebLevelStartDate?: string;
   mebLevelEndDate?: string;
@@ -1424,6 +1468,7 @@ export async function actionUpdateMebStudent(input: {
 
 export async function actionGetMebStudentEditImpact(input: {
   studentId: string;
+  enrollmentId?: string;
   branchId?: string;
 }): Promise<{ ok: true; impact: MebEditImpact } | { ok: false; message: string }> {
   try {
@@ -1470,12 +1515,22 @@ export async function actionUpsertStudentEnrollment(input: {
   studentId: string;
   /** 2026-10-09 — branş kaydı alanları (bkz. tools.ts enrollmentInputSchema; doğrulama sunucuda). */
   enrollment: Record<string, unknown> & { instrument: string; teacherId: string; lessonDurationMinutes: number };
-}): Promise<{ ok: true; warnings?: string[] } | { ok: false; message: string }> {
+}): Promise<{ ok: true; warnings?: string[]; enrollmentId?: string } | { ok: false; message: string; fieldErrors?: Record<string, string> }> {
   try {
     const result = await withAuthContext("actionUpsertStudentEnrollment", (ctx) => upsertStudentEnrollmentTool(ctx, input));
-    if (!result.ok) return { ok: false, message: result.error.message };
+    if (!result.ok) {
+      const d = (result.error.details ?? {}) as { field?: string; fieldErrors?: Record<string, string[]> };
+      const fieldErrors: Record<string, string> = {};
+      for (const [k, msgs] of Object.entries(d.fieldErrors ?? {})) if (msgs?.[0]) fieldErrors[k] = msgs[0];
+      if (d.field && !fieldErrors[d.field]) fieldErrors[d.field] = result.error.message;
+      return { ok: false, message: result.error.message, ...(Object.keys(fieldErrors).length ? { fieldErrors } : {}) };
+    }
     revalidatePath(`/panel/ogrenciler/${input.studentId}`, "layout");
-    return { ok: true, ...(result.data.warnings?.length ? { warnings: result.data.warnings } : {}) };
+    return {
+      ok: true,
+      enrollmentId: result.data.enrollmentId,
+      ...(result.data.warnings?.length ? { warnings: result.data.warnings } : {}),
+    };
   } catch (e) {
     logger.error("actionUpsertStudentEnrollment failed", e);
     return { ok: false, message: "Branş kaydı kaydedilemedi; hiçbir değişiklik yapılmadı. Sayfayı yenileyip tekrar deneyin." };
@@ -1507,6 +1562,8 @@ export async function actionAssignRecordEnrollment(input: {
 
 export async function actionUpdateStudentProfile(input: {
   studentId: string;
+  /** 2026-10-10 — branş koşullarını (tür, seviye, MEB, süre, ödeme…) değiştirirken hedef branş. Çok branşlıda zorunlu. */
+  enrollmentId?: string;
   studentType?: string;
   /** Faz 1B — verilirse tekil studentType'ın YERİNE birincil kaynak olur. */
   studentTypes?: StudentType[];
@@ -2013,6 +2070,8 @@ export type UpdateStudentPaymentProfileActionResult =
  */
 export async function actionUpdateStudentPaymentProfile(input: {
   studentId: string;
+  /** 2026-10-10 — ödeme profili BRANŞA özgüdür; çok branşlıda hedef branş zorunlu. */
+  enrollmentId?: string;
   packageId?: string;
   lessonDurationMinutes?: number;
   discountType?: "percent" | "amount";

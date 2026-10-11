@@ -944,6 +944,7 @@ export function ProgramStudio({
   // Tekrarlayan ders serisi paneli — tek ders panelinden bağımsız state.
   const [seriesBranchId, setSeriesBranchId] = useState("");
   const [seriesStudentId, setSeriesStudentId] = useState("");
+  const [seriesEnrollmentId, setSeriesEnrollmentId] = useState("");
   const [seriesTeacherId, setSeriesTeacherId] = useState("");
   const [seriesRoomId, setSeriesRoomId] = useState("");
   const [seriesInstrument, setSeriesInstrument] = useState<Instrument>("Piyano");
@@ -1059,7 +1060,17 @@ export function ProgramStudio({
     const student = students.find((s) => s.id === id);
     if (student) {
       const active = effectiveEnrollments(student, teachers).filter((x) => x.active);
-      applyEnrollment(student, active.find((x) => x.primary) ?? active[0]);
+      if (active.length > 1) {
+        // 2026-10-10 — çok branşlı öğrenci: "ilk/ana branş" sessizce SEÇİLMEZ; ders hangi branşa ait AÇIKÇA seçilir
+        // (yanlış branşın öğretmeni/süresi/ücreti ile ders açılmasın). Öğretmen/oda seçimi temizlenir.
+        setEnrollmentId("");
+        setTeacherId("");
+        setRoomId("");
+        setLessonBranchId(student.branchId);
+        if (!student.instruments.includes(instrument)) setInstrument(student.instruments[0] ?? "Piyano");
+      } else {
+        applyEnrollment(student, active[0]);
+      }
     } else {
       setEnrollmentId("");
     }
@@ -1070,8 +1081,8 @@ export function ProgramStudio({
     setRoomId("");
     // Enstrüman elle değişirse eğitim bağı o enstrümanın aktif eğitimine geçer (yoksa bağ kaldırılır).
     const st = students.find((x) => x.id === studentId);
-    const match = st?.enrollments?.find((x) => x.active && x.instrument === value);
-    setEnrollmentId(match?.id ?? "");
+    const matches = (st?.enrollments ?? []).filter((x) => x.active && x.instrument === value);
+    setEnrollmentId(matches.length === 1 ? matches[0]!.id : "");
   }
 
   function selectTeacher(id: string) {
@@ -1113,23 +1124,47 @@ export function ProgramStudio({
     setSeriesStudentId(id);
     setSeriesPreview(null);
     const student = students.find((s) => s.id === id);
+    setSeriesEnrollmentId("");
     if (student) {
-      const nextInstrument = student.instruments[0] ?? "Piyano";
-      setSeriesInstrument(nextInstrument);
-      setSeriesDuration(student.lessonDurationMinutes ?? DEFAULT_LESSON_DURATION_MINUTES);
-      setSeriesTeacherId(
-        defaultLessonTeacherId(
-          lessonTeacherOptions(teachers, { instrument: nextInstrument, branchId: student.branchId, student })
-        )
-      );
+      const active = effectiveEnrollments(student, teachers).filter((x) => x.active);
       setSeriesBranchId(student.branchId);
+      if (active.length > 1) {
+        // 2026-10-10 — çok branşlı öğrencide enstrüman/öğretmen/süre ilk branştan DEVRALINMAZ; branş seçilince dolar.
+        setSeriesTeacherId("");
+        setSeriesRoomId("");
+        if (!student.instruments.includes(seriesInstrument)) setSeriesInstrument(student.instruments[0] ?? "Piyano");
+        return;
+      }
+      applySeriesEnrollment(student, active[0]);
     }
+  }
+
+  function applySeriesEnrollment(student: Student, e: EnrollmentView | undefined) {
+    const nextInstrument = e?.instrument ?? student.instruments[0] ?? "Piyano";
+    setSeriesEnrollmentId(e && !e.legacy ? e.id : "");
+    setSeriesInstrument(nextInstrument);
+    setSeriesDuration(e?.lessonDurationMinutes ?? student.lessonDurationMinutes ?? DEFAULT_LESSON_DURATION_MINUTES);
+    setSeriesTeacherId(
+      defaultLessonTeacherId(
+        lessonTeacherOptions(teachers, {
+          instrument: nextInstrument,
+          branchId: student.branchId,
+          student: { ...student, teacherId: e?.teacherId ?? student.teacherId },
+        })
+      )
+    );
+    setSeriesRoomId("");
+    setSeriesPreview(null);
   }
 
   function selectSeriesInstrument(value: string) {
     setSeriesInstrument(value as Instrument);
     setSeriesRoomId("");
     setSeriesPreview(null);
+    // Enstrüman elle değişirse branş bağı o enstrümanın TEK aktif branşına geçer; birden fazlaysa/yoksa seçim temizlenir.
+    const st = students.find((x) => x.id === seriesStudentId);
+    const matches = (st?.enrollments ?? []).filter((x) => x.active && x.instrument === value);
+    setSeriesEnrollmentId(matches.length === 1 ? matches[0]!.id : "");
   }
 
   function selectSeriesTeacher(id: string) {
@@ -1149,6 +1184,14 @@ export function ProgramStudio({
       setSeriesError("Başlangıç ve bitiş tarihini gün, ay ve 4 haneli yıl olarak tamamlayın.");
       return;
     }
+    {
+      const picked = students.find((x) => x.id === seriesStudentId);
+      const act = picked ? effectiveEnrollments(picked, teachers).filter((x) => x.active) : [];
+      if (act.length > 1 && !seriesEnrollmentId) {
+        setSeriesError("Bu öğrencinin birden fazla branşı var; serinin hangi branşa ait olduğunu \"Eğitim (branş)\" alanından seçin.");
+        return;
+      }
+    }
     if (seriesEndsOn < seriesStartsOn) {
       setSeriesError("Bitiş tarihi başlangıç tarihinden önce olamaz; tarih aralığını düzeltin.");
       return;
@@ -1160,6 +1203,7 @@ export function ProgramStudio({
       roomId: seriesRoomId,
       branchId: seriesBranchId,
       instrument: seriesInstrument,
+      ...(seriesEnrollmentId ? { enrollmentId: seriesEnrollmentId } : {}),
       weekday: seriesWeekday,
       startTime: seriesStartTime,
       durationMinutes: seriesDuration,
@@ -1201,6 +1245,7 @@ export function ProgramStudio({
       roomId: seriesRoomId,
       branchId: seriesBranchId,
       instrument: seriesInstrument,
+      ...(seriesEnrollmentId ? { enrollmentId: seriesEnrollmentId } : {}),
       weekday: seriesWeekday,
       startTime: seriesStartTime,
       durationMinutes: seriesDuration,
@@ -1302,6 +1347,14 @@ export function ProgramStudio({
     if (!startAtComplete) {
       setFormError("Başlangıç tarihi/saatini gün, ay, 4 haneli yıl ve saat olarak tamamlayın.");
       return;
+    }
+    {
+      const picked = students.find((x) => x.id === studentId);
+      const act = picked ? effectiveEnrollments(picked, teachers).filter((x) => x.active) : [];
+      if (act.length > 1 && !enrollmentId) {
+        setFormError("Bu öğrencinin birden fazla branşı var; dersin hangi branşa ait olduğunu \"Eğitim (branş)\" alanından seçin.");
+        return;
+      }
     }
     const fd = new FormData();
     fd.set("studentId", studentId);
@@ -1585,11 +1638,19 @@ export function ProgramStudio({
           if (!st || list.length < 2) return null;
           return (
             <div>
-              <Label>Eğitim</Label>
+              <Label>
+                Eğitim (branş)
+                <span className="text-rose-600" aria-hidden="true"> *</span>
+              </Label>
               <Select
-                value={list.find((x) => x.id === enrollmentId)?.id ?? list.find((x) => x.instrument === instrument)?.id ?? ""}
-                onChange={(e) => applyEnrollment(st, list.find((x) => x.id === e.target.value))}
+                value={list.find((x) => x.id === enrollmentId)?.id ?? ""}
+                onChange={(e) => {
+                  const picked = list.find((x) => x.id === e.target.value);
+                  if (picked) applyEnrollment(st, picked);
+                  else setEnrollmentId("");
+                }}
               >
+                <option value="">Branş seçin…</option>
                 {list.map((x) => (
                   <option key={x.id} value={x.id}>
                     {enrollmentLabel(x, teachers)}
@@ -1813,6 +1874,38 @@ export function ProgramStudio({
             ))}
           </Select>
         </div>
+        {(() => {
+          const st = students.find((x) => x.id === seriesStudentId);
+          const list = st ? effectiveEnrollments(st, teachers).filter((x) => x.active) : [];
+          if (!st || list.length < 2) return null;
+          return (
+            <div>
+              <Label>
+                Eğitim (branş)
+                <span className="text-rose-600" aria-hidden="true"> *</span>
+              </Label>
+              <Select
+                value={list.find((x) => x.id === seriesEnrollmentId)?.id ?? ""}
+                onChange={(e) => {
+                  const picked = list.find((x) => x.id === e.target.value);
+                  if (picked) applySeriesEnrollment(st, picked);
+                  else {
+                    setSeriesEnrollmentId("");
+                    setSeriesPreview(null);
+                  }
+                }}
+              >
+                <option value="">Branş seçin…</option>
+                {list.map((x) => (
+                  <option key={x.id} value={x.id}>
+                    {enrollmentLabel(x, teachers)}
+                    {x.lessonDurationMinutes ? ` · ${x.lessonDurationMinutes} dk` : ""}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          );
+        })()}
         <div>
           <Label>Enstrüman</Label>
           <Select value={seriesInstrument} onChange={(e) => selectSeriesInstrument(e.target.value)}>
