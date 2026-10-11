@@ -1,4 +1,5 @@
 import type { MakeupRequest } from "../../types/api";
+import { getActiveLocale } from "../../i18n/locale-store";
 
 const CLOSED = new Set(["completed", "expired", "cancelled"]);
 
@@ -19,6 +20,7 @@ export function toGuardianMakeupItems(list: MakeupRequest[] | null | undefined):
 
 /** Ekran okuyucu için tek kayıt özeti (sunucudan gelen alanlarla). */
 export function guardianMakeupA11yLabel(item: MakeupRequest, statusLabel: string): string {
-  const parts = ["Telafi kaydı", item.studentName ?? "", item.instrument ?? "", statusLabel].filter(Boolean);
+  const record = getActiveLocale() === "en" ? "Makeup record" : "Telafi kaydı";
+  const parts = [record, item.studentName ?? "", item.instrument ?? "", statusLabel].filter(Boolean);
   return parts.join(", ");
 }

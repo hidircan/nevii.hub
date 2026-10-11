@@ -4,6 +4,7 @@ import { Pressable, ScrollView, Text, View } from "react-native";
 import { AppHeader, EmptyState, ErrorState, FilterChip, Icon, LessonCard, LoadingSkeleton, Screen } from "../../../src/components/ui";
 import { useApiGet } from "../../../src/hooks/use-api";
 import { format, relativeDayLabel } from "../../../src/lib/date";
+import { useLocale } from "../../../src/i18n/locale-context";
 import { useTheme } from "../../../src/theme/theme-context";
 import type { LessonsResponse, TeachersResponse } from "../../../src/types/api";
 
@@ -16,6 +17,7 @@ function endOfDay(d: Date): Date {
 
 export default function AdminProgram() {
   const t = useTheme();
+  const { t: tr } = useLocale();
   const router = useRouter();
   const [day, setDay] = useState(() => new Date());
   const [teacherFilter, setTeacherFilter] = useState<string | null>(null);
@@ -32,7 +34,7 @@ export default function AdminProgram() {
 
   return (
     <Screen onRefresh={res.refresh} refreshing={res.status === "loading"}>
-      <AppHeader title="Program" />
+      <AppHeader title={tr("adm.progTitle")} />
 
       <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
         <Pressable onPress={() => setDay((d) => new Date(d.getTime() - 86400000))} hitSlop={8}>
@@ -50,7 +52,7 @@ export default function AdminProgram() {
       {teachers.status === "success" ? (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
           <View style={{ flexDirection: "row", gap: 8 }}>
-            <FilterChip label="Tüm öğretmenler" selected={!teacherFilter} onPress={() => setTeacherFilter(null)} />
+            <FilterChip label={tr("adm.progAllTeachers")} selected={!teacherFilter} onPress={() => setTeacherFilter(null)} />
             {teachers.data.teachers.map((tt) => (
               <FilterChip key={tt.id} label={tt.name} selected={teacherFilter === tt.id} onPress={() => setTeacherFilter(tt.id)} />
             ))}
@@ -63,7 +65,7 @@ export default function AdminProgram() {
       ) : res.status === "error" ? (
         <ErrorState message={res.message} onRetry={res.refresh} />
       ) : lessons.length === 0 ? (
-        <EmptyState icon="calendar-outline" title="Bu gün için ders yok" />
+        <EmptyState icon="calendar-outline" title={tr("adm.progEmpty")} />
       ) : (
         <View style={{ gap: 10 }}>
           {lessons
@@ -72,7 +74,7 @@ export default function AdminProgram() {
               <LessonCard
                 key={l.id}
                 lesson={l}
-                personName={`${l.studentName ?? "Öğrenci"} · ${l.teacherName ?? "Öğretmen"}`}
+                personName={`${l.studentName ?? tr("adm.progStudentFb")} · ${l.teacherName ?? tr("adm.progTeacherFb")}`}
                 onPress={() => router.push(`/(admin)/program/${l.id}?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`)}
               />
             ))}

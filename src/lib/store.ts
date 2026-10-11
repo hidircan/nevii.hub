@@ -143,7 +143,7 @@ type StoreApi = {
     overriddenByUserId?: string;
     createdByUserId?: string;
     enrollmentId?: string;
-  }) => Promise<AppData>;
+  }) => Promise<string>;
   addClubSessionLessons: (rows: import("./types").Lesson[]) => Promise<void>;
   patchClubLessons: (ids: string[], patch: import("./clubs").ClubLessonPatch) => Promise<number>;
   addPayment: (input: {
@@ -234,6 +234,9 @@ type StoreApi = {
   readLessonScope: (lessonId: string, targetStartAt?: string) => Promise<AppData | null>;
   /** Dar okuma — tek öğrenci satırı; `readData().students.find(id)` ile aynı sonuç. */
   readStudentById: (studentId: string) => Promise<Student | undefined>;
+  readLessonById: (lessonId: string) => Promise<import("./types").Lesson | undefined>;
+  readTeacherPayoutsForTeacher: (teacherId: string) => Promise<import("./types").TeacherPayout[]>;
+  readPaymentById: (paymentId: string) => Promise<import("./types").Payment | undefined>;
   /** Dar okuma — referans dilimi (bkz. src/lib/reference-data.ts); ders/ödeme/yoklama/telafi yok. */
   readReferenceData: () => Promise<ReferenceData>;
   /** Dar okuma — tek öğrenci dilimi (bkz. src/lib/reference-data.ts `narrowToStudentScope`). */
@@ -411,6 +414,27 @@ export async function listTenants(): Promise<{ tenantId: string; name: string }[
 export async function readStudentById(studentId: string): Promise<Student | undefined> {
   if (!studentId) return undefined;
   return withTenantScope(() => store.readStudentById(studentId));
+}
+
+/**
+ * DB egress (2026-10-10) — tek ders: `(await readData()).lessons.find((l) => l.id === lessonId)` ile aynı;
+ * db modunda yalnız o satır okunur. Ders varlık/şube kontrolü ve bildirim metni içindir.
+ */
+export async function readLessonById(lessonId: string): Promise<import("./types").Lesson | undefined> {
+  if (!lessonId) return undefined;
+  return withTenantScope(() => store.readLessonById(lessonId));
+}
+
+/** DB egress (2026-10-10) — tek ödeme: `readData().payments.find(id)` ile aynı (makbuz). */
+export async function readPaymentById(paymentId: string): Promise<import("./types").Payment | undefined> {
+  if (!paymentId) return undefined;
+  return withTenantScope(() => store.readPaymentById(paymentId));
+}
+
+/** DB egress (2026-10-10) — bir öğretmenin kayıtlı hakedişleri: `readData().teacherPayouts` süzgeciyle aynı. */
+export async function readTeacherPayoutsForTeacher(teacherId: string): Promise<import("./types").TeacherPayout[]> {
+  if (!teacherId) return [];
+  return withTenantScope(() => store.readTeacherPayoutsForTeacher(teacherId));
 }
 
 /**
@@ -694,6 +718,7 @@ export async function archiveTeacher(teacherId: string, archived: boolean): Prom
   return withTenantScope(() => store.archiveTeacher(teacherId, archived));
 }
 
+/** Dersi doğrular ve yazar; oluşan dersin kimliğini döner (DB egress 2026-10-10: eskiden tüm veriyi yeniden okuyup dönerdi). */
 export async function addLesson(input: {
   studentId: string;
   teacherId: string;
@@ -707,7 +732,7 @@ export async function addLesson(input: {
   overriddenByUserId?: string;
   createdByUserId?: string;
   enrollmentId?: string;
-}): Promise<AppData> {
+}): Promise<string> {
   return withTenantScope(async () => {
     const enrollmentId = input.enrollmentId ?? (await inferLessonEnrollmentId(input.studentId, input.instrument, input.teacherId));
     return store.addLesson({ ...input, enrollmentId });

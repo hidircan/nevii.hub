@@ -7,7 +7,8 @@
  *     npx tsx scripts/bench/verify-db-slices.ts
  *
  * Denetlenen: öğrenci/referans/ders penceresi/öğrenci listesi dilimleri ≡ `narrow*(readData())`;
- * `readStudentById` ≡ `students.find`; kurumlar arası kimlikle okuma → boş; bildirim sayfaları ≡
+ * `readStudentById` ≡ `students.find`; 2026-10-10: `readLessonById`/`readPaymentById`/`readTeacherPayoutsForTeacher`,
+ * ders dilimi ve yeni-ders dilimi (+ doğrulama kararı); kurumlar arası kimlikle okuma → boş; bildirim sayfaları ≡
  * eski bellek içi sayfalama; kurum listeleri ≡ eski `include: { schools: true }` sonucu.
  */
 import { isDeepStrictEqual } from "node:util";
@@ -148,6 +149,50 @@ async function main() {
           scope.payments.length === full.payments.filter((p) => p.studentId === s.id).length
         );
       }
+      // 2026-10-10 — tek satır okumaları ≡ tam okumadan bulma (her ders/ödeme, her öğretmen).
+      for (const l of full.lessons) expectEqual(`${tid} readLessonById(${l.id})`, norm(await db.readLessonById(l.id)), norm(l));
+      for (const p of full.payments) expectEqual(`${tid} readPaymentById(${p.id})`, norm(await db.readPaymentById(p.id)), norm(p));
+      for (const t of full.teachers) {
+        expectEqual(
+          `${tid} readTeacherPayoutsForTeacher(${t.id})`,
+          norm(await db.readTeacherPayoutsForTeacher(t.id)),
+          norm(full.teacherPayouts.filter((p) => p.teacherId === t.id))
+        );
+      }
+      expectEqual(`${tid} readLessonById("")`, await db.readLessonById(""), undefined);
+      expectEqual(`${tid} readPaymentById(bilinmeyen)`, await db.readPaymentById("yok"), undefined);
+
+      // 2026-10-10 — ders dilimi (yoklama/başlat/bitir/iptal) ve YENİ ders dilimi (ders oluştur) ≡ saf daraltma;
+      // doğrulama kararı (validateLessonSlot) tam veriyle aynı. Her 25. ders örneklenir (gece yarısı/gün sınırları dahil).
+      const { narrowLessonScope, narrowSlotScope } = await import("../../src/lib/lesson-scope");
+      const { validateLessonSlot } = await import("../../src/lib/makeup-engine");
+      const byId = <T extends { id: string }>(rows: T[]) => norm([...rows].sort((a, b) => a.id.localeCompare(b.id)));
+      const sample = full.lessons.filter((_, i) => i % 25 === 0);
+      for (const l of sample) {
+        const dbScope = await db.readLessonScope(l.id);
+        const pure = narrowLessonScope(full, l.id)!;
+        expectTrue(`${tid} readLessonScope(${l.id}) bulundu`, Boolean(dbScope));
+        if (!dbScope) continue;
+        for (const k of ["lessons", "students", "teachers", "rooms", "attendances", "makeupRequests", "payments"] as const) {
+          expectEqual(`${tid} readLessonScope(${l.id}).${k}`, byId(dbScope[k] as { id: string }[]), byId(pure[k] as { id: string }[]));
+        }
+        // Aynı öğretmen/oda/öğrenci, 2 saat sonrası: yeni ders dilimi + doğrulama kararı.
+        const target = { studentId: l.studentId, teacherId: l.teacherId, roomId: l.roomId, startAt: new Date(Date.parse(l.startAt) + 2 * 3_600_000).toISOString() };
+        for (const t of [target, { ...target, startAt: l.startAt }]) {
+          const slot = (await db.readSlotScope(tid, t))!;
+          const pureSlot = narrowSlotScope(full, t);
+          for (const k of ["lessons", "students", "teachers", "rooms", "makeupRequests"] as const) {
+            expectEqual(`${tid} readSlotScope(${l.id}@${t.startAt}).${k}`, byId(slot[k] as { id: string }[]), byId(pureSlot[k] as { id: string }[]));
+          }
+          const ctxSlot = { instrument: l.instrument, studentId: t.studentId };
+          expectEqual(
+            `${tid} validateLessonSlot dilim ≡ tam (${l.id}@${t.startAt})`,
+            norm(validateLessonSlot(slot, ctxSlot, t, { allowAvailabilityOverride: true })),
+            norm(validateLessonSlot(full, ctxSlot, t, { allowAvailabilityOverride: true }))
+          );
+        }
+      }
+
       expectEqual(`${tid} readStudentById(bilinmeyen)`, await db.readStudentById("yok-boyle-bir-ogrenci"), undefined);
       expectEqual(`${tid} readStudentById("")`, await db.readStudentById(""), undefined);
 
@@ -175,6 +220,13 @@ async function main() {
         expectEqual(`${tid} yabancı öğrenci ${id} görünmez`, await db.readStudentById(id), undefined);
         const scope = await db.readStudentScope(id);
         expectTrue(`${tid} yabancı öğrenci ${id} dilimi boş`, scope.students.length === 0 && scope.lessons.length === 0 && scope.payments.length === 0);
+      }
+      // 2026-10-10 — yabancı ders/ödeme kimliğiyle tek satır okuma boş döner.
+      const foreignRows = [...idsByTenant.get(other)!].filter((id) => /^(b_)?(l|p)/.test(id)).slice(0, 50);
+      for (const id of foreignRows) {
+        expectEqual(`${tid} yabancı ders ${id} görünmez`, await db.readLessonById(id), undefined);
+        expectEqual(`${tid} yabancı ödeme ${id} görünmez`, await db.readPaymentById(id), undefined);
+        expectEqual(`${tid} yabancı ders dilimi ${id} yok`, await db.readLessonScope(id), null);
       }
       const ref = await db.readReferenceData();
       const own = idsByTenant.get(tid)!;

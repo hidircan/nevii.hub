@@ -17,7 +17,9 @@ const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const systemScheme = useColorScheme();
-  const [preference, setPreferenceState] = useState<ThemePreference>("system");
+  // Varsayılan AÇIK tema: sistem koyu modda olsa bile ilk görünüm açıktır.
+  // Kullanıcı seçimi SecureStore'da saklanır ve geri yüklenir (açık kayıt).
+  const [preference, setPreferenceState] = useState<ThemePreference>("light");
 
   useEffect(() => {
     SecureStore.getItemAsync(PREFERENCE_KEY).then((stored) => {

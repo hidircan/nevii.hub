@@ -1,5 +1,13 @@
 import { NextResponse } from "next/server";
 import { logger } from "../logger";
+import {
+  COST_METRIC_SLOW_MS,
+  buildCostMetric,
+  costSampleRateFromEnv,
+  estimateServiceResultBytes,
+  formatCostMetric,
+  shouldSampleCostMetric,
+} from "./cost-metrics";
 import type { ServiceContext } from "../services/context";
 import { fromServiceResult, jsonFail, readJsonBody } from "./http";
 import { buildServiceContext } from "./context";
@@ -47,6 +55,35 @@ export function withApiHandler(handler: ApiHandler, options: ApiHandlerOptions =
       request.headers.get("x-request-id") ||
       request.headers.get("x-correlation-id") ||
       crypto.randomUUID();
+    const startedAt = Date.now();
+
+    /**
+     * PII-safe maliyet metriği: örneklemeli (%10 varsayılan) + yavaş/5xx'te
+     * zorunlu. `bytes` yalnız kayıt yazılırken hesaplanır (ölçümün kendisi
+     * maliyet üretmez). Test ortamında sessizdir.
+     */
+    const finish = (response: NextResponse, bytes: () => number): NextResponse => {
+      if (process.env.NODE_ENV !== "test") {
+        const durationMs = Date.now() - startedAt;
+        const forced = response.status >= 500 || durationMs >= COST_METRIC_SLOW_MS;
+        if (forced || shouldSampleCostMetric(costSampleRateFromEnv())) {
+          const pathname = new URL(request.url).pathname;
+          logger.info(
+            formatCostMetric(
+              buildCostMetric({
+                method: request.method,
+                pathname,
+                status: response.status,
+                durationMs,
+                responseBytes: bytes(),
+                forced,
+              })
+            )
+          );
+        }
+      }
+      return response;
+    };
 
     try {
       let ctx: ServiceContext;
@@ -63,7 +100,7 @@ export function withApiHandler(handler: ApiHandler, options: ApiHandlerOptions =
       } else {
         const auth = await authenticateRequest(request, requestId);
         if (!auth.ok) {
-          return jsonFail("UNAUTHORIZED", auth.message);
+          return finish(jsonFail("UNAUTHORIZED", auth.message), () => -1);
         }
 
         // CSRF defense-in-depth: only cookie-authenticated (browser) requests are at
@@ -80,7 +117,7 @@ export function withApiHandler(handler: ApiHandler, options: ApiHandlerOptions =
             method: request.method,
             outcome: "denied",
           });
-          return jsonFail("FORBIDDEN", "Cross-origin request rejected");
+          return finish(jsonFail("FORBIDDEN", "Cross-origin request rejected"), () => -1);
         }
 
         if (auth.user.role === "BRANCH_MANAGER" && !options.allowBranchManager) {
@@ -95,7 +132,7 @@ export function withApiHandler(handler: ApiHandler, options: ApiHandlerOptions =
             outcome: "denied",
             meta: { reason: "branch_manager_not_allowed" },
           });
-          return jsonFail("FORBIDDEN", "Şube müdürü bu kurum geneli işleme erişemez.");
+          return finish(jsonFail("FORBIDDEN", "Şube müdürü bu kurum geneli işleme erişemez."), () => -1);
         }
 
         if (options.hyperAdminOnly && auth.user.role !== "HYPER_ADMIN") {
@@ -110,7 +147,7 @@ export function withApiHandler(handler: ApiHandler, options: ApiHandlerOptions =
             outcome: "denied",
             meta: { reason: "hyper_admin_only" },
           });
-          return jsonFail("FORBIDDEN", "Bu alan yalnız NeviiHub platform yöneticisine açıktır.");
+          return finish(jsonFail("FORBIDDEN", "Bu alan yalnız NeviiHub platform yöneticisine açıktır."), () => -1);
         }
 
         if (options.permission) {
@@ -127,7 +164,7 @@ export function withApiHandler(handler: ApiHandler, options: ApiHandlerOptions =
               outcome: "denied",
               meta: { permission: options.permission },
             });
-            return jsonFail("FORBIDDEN", perm.message);
+            return finish(jsonFail("FORBIDDEN", perm.message), () => -1);
           }
         }
 
@@ -143,7 +180,7 @@ export function withApiHandler(handler: ApiHandler, options: ApiHandlerOptions =
       let body: unknown = {};
       if (request.method !== "GET" && request.method !== "HEAD") {
         const parsed = await readJsonBody(request);
-        if (!parsed.ok) return parsed.response;
+        if (!parsed.ok) return finish(parsed.response, () => -1);
         body = parsed.body;
       }
 
@@ -157,8 +194,8 @@ export function withApiHandler(handler: ApiHandler, options: ApiHandlerOptions =
         })
       );
 
-      if (result instanceof NextResponse) return result;
-      return fromServiceResult(result);
+      if (result instanceof NextResponse) return finish(result, () => -1);
+      return finish(fromServiceResult(result), () => estimateServiceResultBytes(result));
     } catch (error) {
       // Internal error detail (DB/provider/stack) is logged and audited server-side only —
       // never returned to the client, which would leak schema/infra/credential-adjacent info.
@@ -171,10 +208,13 @@ export function withApiHandler(handler: ApiHandler, options: ApiHandlerOptions =
         outcome: "error",
         meta: { message: error instanceof Error ? error.message : "unknown" },
       });
-      return jsonFail(
-        "INTERNAL_ERROR",
-        "Beklenmeyen bir hata oluştu. Sorun devam ederse destek ekibine başvurun.",
-        { requestId }
+      return finish(
+        jsonFail(
+          "INTERNAL_ERROR",
+          "Beklenmeyen bir hata oluştu. Sorun devam ederse destek ekibine başvurun.",
+          { requestId }
+        ),
+        () => -1
       );
     }
   };

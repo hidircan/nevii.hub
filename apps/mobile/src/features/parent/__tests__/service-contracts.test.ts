@@ -4,7 +4,7 @@ import path from "path";
 // NOTE: `api/hooks` RN zinciri çeker (client → react-native Platform),
 // node test env'inde import EDİLMEZ — hook sözleşmesi kaynak taramayla
 // doğrulanır. `api/errors` saf modüldür, import edilebilir.
-import { FEATURE_UNAVAILABLE, NETWORK_ERROR } from "../../../api/errors";
+import { featureUnavailable, networkError } from "../../../api/errors";
 
 /**
  * Absence-notices + receipt UI contract testleri (canonical).
@@ -13,7 +13,8 @@ import { FEATURE_UNAVAILABLE, NETWORK_ERROR } from "../../../api/errors";
  * - Absence: backend domain'i YOK → stale çağrı kaldırıldı; UI'da
  *   kırık çağrı kalamaz; gerekiyorsa FEATURE_UNAVAILABLE.
  * - Receipt: GET /api/v1/payments/:id/receipt read-only; eligible:false
- *   veya 403/404'te fake makbuz YOK; payment mutation YOK.
+ *   veya 403/404'te fake makbuz YOK; doğrudan payment mutation YOK
+ *   (online ödeme yalnız hosted-checkout helper'ıyla, kart verisi aparte).
  *
  * Ortak dosyalar (student-scope) yalnız read-only okunur, değiştirilmez.
  */
@@ -34,8 +35,8 @@ function stripComments(src: string): string {
 
 describe("absence notices contract", () => {
   it("FEATURE_UNAVAILABLE canonical güvenli mesajı taşır", () => {
-    expect(FEATURE_UNAVAILABLE.code).toBe("FEATURE_UNAVAILABLE");
-    expect(FEATURE_UNAVAILABLE.message).toBe("Bu özellik şu anda mobil uygulamada kullanılamıyor.");
+    expect(featureUnavailable("tr").code).toBe("FEATURE_UNAVAILABLE");
+    expect(featureUnavailable("tr").message).toBe("Bu özellik şu anda mobil uygulamada kullanılamıyor.");
   });
 
   it("lessons-screen'de stale absence-notices çağrısı yoktur", async () => {
@@ -78,14 +79,20 @@ describe("receipt contract", () => {
     expect(content).not.toMatch(/fake|mock|samplePdf|blob:|\.pdf(\?|"|')/i);
   });
 
-  it("payments-screen'de ödeme başlatma/mutasyon yoktur", async () => {
+  it("payments-screen'de doğrudan mutasyon yoktur; online ödeme yalnız hosted-checkout helper'ıyla", async () => {
+    // Kapsam değişikliği (mobil online ödeme): hosted checkout'a yönlendirme
+    // VAR, ama doğrudan apiPost/apiDelete/apiPatch YOK — tek çıkış
+    // `startOnlineCheckout` (sistem tarayıcısı, kart verisi uygulamaya girmez).
     const content = await readSource("payments-screen.tsx", STUDENT_SCOPE_DIR);
-    expect(content).not.toMatch(/\bapiPost\b|\bapiDelete\b|\bapiPatch\b|checkout|payout|card-payment/i);
+    const code = stripComments(content);
+    expect(code).not.toMatch(/\bapiPost\b|\bapiDelete\b|\bapiPatch\b/);
+    expect(code).not.toMatch(/payout|card-payment|cardNumber|\bcvv\b|\bcvc\b|expiry/i);
+    expect(code).toContain("startOnlineCheckout");
   });
 
   it("NETWORK_ERROR canonical mesajı Türkçe ve sızıntısızdır", () => {
-    expect(NETWORK_ERROR.code).toBe("NETWORK_ERROR");
-    expect(NETWORK_ERROR.message.length).toBeGreaterThan(0);
-    expect(NETWORK_ERROR.message).not.toMatch(/token|password|DATABASE_URL|stack/i);
+    expect(networkError("tr").code).toBe("NETWORK_ERROR");
+    expect(networkError("tr").message.length).toBeGreaterThan(0);
+    expect(networkError("tr").message).not.toMatch(/token|password|DATABASE_URL|stack/i);
   });
 });

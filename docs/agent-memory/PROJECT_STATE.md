@@ -14,6 +14,26 @@ Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_20
 - UAT + eşlik matrisi + açık kalanlar: `docs/testing/UAT_2026_10_10_MULTI_BRANCH_V2.md`. Release sırası: deploy → betikler kuru → yedek → `--apply`.
 - Açık: ilgili testlerin güncellenmesi (UAT §7), düzenlemede ödeme türü/günü temizleme, MEB db listesi bellekte sayfalama.
 
+## Güncel snapshot — 2026-10-10 akşam (mobil production hazırlığı; PUSH/DEPLOY/SUBMIT YOK)
+- Dal `release/mobile-review`: `origin/main` (cf12bc0) merge edildi (9 çakışma anlamsal çözüldü, 32123e6); + pg pool `max 5` (3a05638);
+  + production API URL fail-fast guard, app.config.js (FCM), blockedPermissions, eas submit internal/draft, runbook (48e9cd5, d770f35).
+- Runbook: `docs/release/MOBILE_PRODUCTION_RELEASE_RUNBOOK.md` (komutlar, Play checklist, yayın sırası, UAT, rollback, kota bulguları).
+- Owner bekleyen: (1) PR→main, (2) prod `migrate deploy` 2 additive migration (device_push_tokens, account_deletion_requests) — önce migrate sonra deploy,
+  (3) Vercel prod'a `NOTIFICATION_CRON_SECRET` (yoksa tick fail-closed) ve `SMS_TEST_MODE` kararı, (4) ilk Android build interaktif (keystore) + FCM, (5) Play formları/submit.
+- Test: tam koşu 4312/4324; 12 hatanın 11'i `origin/main`'de birebir aynı, 1'i sıra bağımlı (bkz. runbook §9). Production'a hiçbir yazma yapılmadı.
+
+## Güncel snapshot — 2026-10-10 (P0 Supabase egress + UserSession kilidi; PR açık, MERGE/CANLI YOK)
+- Dal `fix/supabase-egress-p0` (taban `origin/main` a18c887) → PR. Migration/şema/env değişikliği YOK.
+- Kök neden (kanıt + yerel ölçüm): her yoklama işareti/geri alma (`planOpsChangeForPayout`), ders başlat/bitir, ders
+  oluşturma, tahsilat, öğretmen ana sayfası, öğrenci ödeme profili, makbuz ve Öğretmenler listesi tenant'ın TÜM verisini
+  okuyordu → dar dilim/tek satır. Ölçüm: bu akışlarda DB→uygulama baytı −85…−98 %. Ayrıntı:
+  `docs/performance/DB_EGRESS_2026_10_10.md`.
+- UserSession: Prisma 7 `updateMany` = BEGIN/UPDATE/COMMIT; yanıt sonrası presence yazımı askıda kalınca satır kilidi
+  açık kalıyordu. Artık tek ifade `update`, DB'de koşullu 5 dk aralık, `after()` ile fonksiyon ömrü içinde.
+- Açık: Telafi Merkezi, öğretmen detay sekmeleri, telafi oluştur/onayla, seri işlemleri hâlâ tam okuma; Student
+  dilimleri tüm kolonları okur. Gece `monthly-accrual` cron'u okulsuz kurumda P2002 (ayrı görev).
+- Canlı doğrulama: deploy sonrası Supabase Usage günlük egress eğilimi + Query Performance (owner).
+
 ## Güncel snapshot — 2026-10-09 (çoklu branş kaydı + grup başvurusu süre; PR açık, MERGE/CANLI YOK, test çalıştırılmadı)
 - Dal `feat/multi-branch-enrollment` → PR (main). Statik kontrol: typecheck temiz, değişen dosyalarda lint 0 hata.
 - Branş kaydı = `Student.enrollments[]`; tüm branşlar eşit (ana/yedek yok), koşullar tek kapıdan `enrollmentTerms`.

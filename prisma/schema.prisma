@@ -53,6 +53,8 @@ model Tenant {
   teacherPayouts              TeacherPayout[]
   notifications               Notification[]
   notificationPreferences     NotificationPreference[]
+  devicePushTokens            DevicePushToken[]
+  accountDeletionRequests     AccountDeletionRequest[]
   announcements               Announcement[]
   panelNotes                  PanelNote[]
   trialApplications           TrialApplication[]
@@ -159,6 +161,29 @@ model StudentPortalAccess {
   @@unique([tenantId, userId, studentId])
   @@index([tenantId, studentId])
   @@index([tenantId, userId])
+}
+
+/// Hesap silme talebi (Faz 6) — kullanıcı kendi hesabı için TEK açık talep
+/// açabilir; karar admin'dedir. Fiziksel silme bu tabloda YOK — `processed`
+/// sonrası retention politikasına göre yapılır; finansal/audit kayıtları korunur.
+model AccountDeletionRequest {
+  id           String    @id
+  tenantId     String
+  tenant       Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId       String
+  email        String
+  role         String
+  reason       String?
+  /// "pending" | "approved" | "rejected" | "processed" | "cancelled"
+  status       String    @default("pending")
+  decidedBy    String?
+  decisionNote String?
+  decidedAt    DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([tenantId, userId])
+  @@index([tenantId, status])
 }
 
 /// 10. tur iş #2 — kurum bazlı işlem-e-postası şablonları (davet + şifre
@@ -1425,6 +1450,33 @@ model NotificationPreference {
 
   @@unique([tenantId, userId, category])
   @@index([tenantId, userId])
+}
+
+/// Push bildirim cihaz token'ı — Expo Push (APNs/FCM taşıyıcı) hedefi.
+/// Token DEĞERİ yanıtlarda/loglarda ASLA dönmez; sahiplik tenantId+userId.
+/// Aynı kullanıcı çok cihaz kullanabilir (tek token varsayımı YOK).
+/// Migration: prisma/migrations/20260920090000_device_push_tokens/
+model DevicePushToken {
+  id           String   @id
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId       String
+  platform     String
+  /// "ExponentPushToken[...]" — ham değer, yanıta/loga çıkmaz.
+  expoPushToken String
+  /// "development" | "preview" | "production"
+  appVariant   String   @default("production")
+  deviceId     String?
+  /// OS bildirimi: "granted" | "denied" | "undetermined"
+  permission   String   @default("undetermined")
+  enabled      Boolean  @default(true)
+  lastSeenAt   DateTime @default(now())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([tenantId, userId, expoPushToken])
+  @@index([tenantId, userId])
+  @@index([tenantId, userId, enabled])
 }
 
 /// EPIC 5 (IMPLEMENTATION_PLAN.md) — duyuru merkezi. `audienceType`:

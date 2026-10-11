@@ -11,6 +11,10 @@ export type NotificationCategory =
   // Ders — zamanlı/scheduler gerektirenler henüz etkin değil.
   | "lesson_started"
   | "lesson_upcoming"
+  | "lesson_reminder_1d"
+  | "lesson_reminder_1h"
+  | "lesson_reminder_15m"
+  | "push_include_student_name"
   | "lesson_cancelled"
   | "lesson_rescheduled"
   | "lesson_reassigned"
@@ -106,6 +110,42 @@ export const NOTIFICATION_CATEGORIES: NotificationCategoryDef[] = [
     implemented: true,
     roles: ["SCHOOL_ADMIN", "SUPER_ADMIN", "TEACHER", "STUDENT"],
     defaultInAppEnabled: true,
+  },
+  {
+    category: "lesson_reminder_1d",
+    group: "lessons",
+    label: "Ders hatırlatması: 1 gün önce",
+    description: "Her ders için 1 gün önce ayrı hatırlatma (iptal/geçmiş derslere gitmez).",
+    implemented: true,
+    roles: ["STUDENT"],
+    defaultInAppEnabled: true,
+  },
+  {
+    category: "lesson_reminder_1h",
+    group: "lessons",
+    label: "Ders hatırlatması: 1 saat önce",
+    description: "Her ders için 1 saat önce ayrı hatırlatma (iptal/geçmiş derslere gitmez).",
+    implemented: true,
+    roles: ["STUDENT", "TEACHER"],
+    defaultInAppEnabled: true,
+  },
+  {
+    category: "lesson_reminder_15m",
+    group: "lessons",
+    label: "Ders hatırlatması: 15 dakika önce",
+    description: "Her ders için 15 dakika önce ayrı hatırlatma (iptal/geçmiş derslere gitmez).",
+    implemented: true,
+    roles: ["STUDENT", "TEACHER"],
+    defaultInAppEnabled: true,
+  },
+  {
+    category: "push_include_student_name",
+    group: "lessons",
+    label: "Bildirimde öğrenci adını göster",
+    description: "Kapalıysa (varsayılan) push metni PII-minimize edilir, çocuk adı yer almaz.",
+    implemented: true,
+    roles: ["STUDENT"],
+    defaultInAppEnabled: false,
   },
   {
     category: "lesson_cancelled",

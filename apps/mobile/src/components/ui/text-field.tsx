@@ -1,5 +1,6 @@
 import { StyleSheet, Text, TextInput, View, type TextInputProps } from "react-native";
 import { useTheme } from "../../theme/theme-context";
+import { fonts } from "../../theme/tokens";
 
 type Props = TextInputProps & {
   label: string;
@@ -27,5 +28,5 @@ export function TextField({ label, error, style, ...inputProps }: Props) {
 
 const styles = StyleSheet.create({
   container: { gap: 6 },
-  input: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15 },
+  input: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontFamily: fonts.serif, fontSize: 17 },
 });

@@ -4,6 +4,7 @@ import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, View } fro
 import { SafeAreaView } from "react-native-safe-area-context";
 import { apiPost } from "../src/api/client";
 import { Button, Icon, TextField } from "../src/components/ui";
+import { useLocale } from "../src/i18n/locale-context";
 import { useTheme } from "../src/theme/theme-context";
 
 /**
@@ -14,6 +15,7 @@ import { useTheme } from "../src/theme/theme-context";
  */
 export default function ResetPasswordScreen() {
   const t = useTheme();
+  const { t: tr } = useLocale();
   const router = useRouter();
   const params = useLocalSearchParams<{ code?: string }>();
 
@@ -33,7 +35,7 @@ export default function ResetPasswordScreen() {
     const res = await apiPost("/api/v1/auth/reset-password", { token: code.trim(), newPassword });
     setBusy(false);
     if (!res.ok) {
-      setError(res.error.message || "Şifre sıfırlanamadı.");
+      setError(res.error.message || tr("reset.failed"));
       return;
     }
     setDone(true);
@@ -44,7 +46,7 @@ export default function ResetPasswordScreen() {
       <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <View style={styles.content}>
           {!done ? (
-            <Pressable accessibilityRole="button" accessibilityLabel="Geri" onPress={() => router.back()} hitSlop={8} style={styles.backButton}>
+            <Pressable accessibilityRole="button" accessibilityLabel={tr("common.back")} onPress={() => router.back()} hitSlop={8} style={styles.backButton}>
               <Icon name="chevron-back" size={22} color={t.colors.text} />
             </Pressable>
           ) : null}
@@ -55,43 +57,43 @@ export default function ResetPasswordScreen() {
 
           {done ? (
             <>
-              <Text style={[t.typography.screenTitle, { color: t.colors.text, marginTop: 20 }]}>Şifreniz güncellendi</Text>
+              <Text style={[t.typography.screenTitle, { color: t.colors.text, marginTop: 20 }]}>{tr("reset.updatedTitle")}</Text>
               <Text style={[t.typography.body, { color: t.colors.textMuted, marginTop: 8, marginBottom: 28 }]}>
-                Yeni şifrenizle giriş yapabilirsiniz.
+                {tr("reset.done")}
               </Text>
-              <Button label="Girişe dön" onPress={() => router.replace("/login")} />
+              <Button label={tr("forgot.backToLogin")} onPress={() => router.replace("/login")} />
             </>
           ) : (
             <>
-              <Text style={[t.typography.screenTitle, { color: t.colors.text, marginTop: 20 }]}>Yeni şifre belirle</Text>
+              <Text style={[t.typography.screenTitle, { color: t.colors.text, marginTop: 20 }]}>{tr("reset.title")}</Text>
               <Text style={[t.typography.body, { color: t.colors.textMuted, marginTop: 4, marginBottom: 24 }]}>
-                E-postanıza gönderilen 8 karakterli kodu ve yeni şifrenizi girin.
+                {tr("forgot.hint")}
               </Text>
 
               <View style={styles.form}>
                 <TextField
-                  label="Sıfırlama kodu"
+                  label={tr("reset.code")}
                   value={code}
                   onChangeText={setCode}
-                  placeholder="ör. AB3D9F2K"
+                  placeholder={tr("reset.codeExample")}
                   autoCapitalize="characters"
                   autoCorrect={false}
                 />
                 <TextField
-                  label="Yeni şifre"
+                  label={tr("reset.newPassword")}
                   value={newPassword}
                   onChangeText={setNewPassword}
                   secureTextEntry
                   autoCapitalize="none"
-                  placeholder="En az 8 karakter"
+                  placeholder={tr("reset.minLengthHint")}
                 />
                 <TextField
-                  label="Yeni şifre (tekrar)"
+                  label={tr("reset.repeatPassword")}
                   value={confirmPassword}
                   onChangeText={setConfirmPassword}
                   secureTextEntry
                   autoCapitalize="none"
-                  error={mismatch ? "Şifreler eşleşmiyor" : undefined}
+                  error={mismatch ? tr("reset.mismatch") : undefined}
                 />
 
                 {error ? (
@@ -101,7 +103,7 @@ export default function ResetPasswordScreen() {
                   </View>
                 ) : null}
 
-                <Button label="Şifreyi güncelle" onPress={onSubmit} disabled={!canSubmit} loading={busy} style={{ marginTop: 8 }} />
+                <Button label={tr("reset.submit")} onPress={onSubmit} disabled={!canSubmit} loading={busy} style={{ marginTop: 8 }} />
               </View>
             </>
           )}

@@ -71,6 +71,8 @@ export async function recordAuditLog(input: AuditLogInput): Promise<AuditLogResu
   const id = uid("audit");
   try {
     await prisma.auditLog.create({
+      // DB egress (2026-10-10): RETURNING yalnız id — satır (meta JSON dahil) geri okunmuyordu.
+      select: { id: true },
       data: {
         id,
         tenantId: input.tenantId,

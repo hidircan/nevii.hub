@@ -5,7 +5,7 @@
  */
 
 import { z } from "zod";
-import { differenceInCalendarDays, parseISO } from "date-fns";
+import { addDays, differenceInCalendarDays, parseISO } from "date-fns";
 import { prisma } from "../db";
 import { foldTurkishForSearch } from "../normalize";
 import { checkFileMagicBytes } from "../storage/file-guards";
@@ -59,7 +59,11 @@ import {
   deletePaymentRow,
   readLessonScope,
   readStudentById,
+  readLessonById,
+  readTeacherPayoutsForTeacher,
+  readPaymentById,
   readReferenceData,
+  readLessonWindow,
   readStudentScope,
   resetData,
   resetToCleanTemplate,
@@ -778,8 +782,7 @@ async function notifyAttendanceExceptionBestEffort(
   status: string
 ): Promise<void> {
   try {
-    const data = await readData();
-    const lesson = data.lessons.find((l) => l.id === lessonId);
+    const lesson = await readLessonById(lessonId);
     if (!lesson) return;
     const { getUserIdByTeacherId } = await import("../auth/users");
     const { isCategoryEnabledForUser } = await import("../notification-preferences");
@@ -836,7 +839,7 @@ export async function markAttendanceTool(
 
   // NeviiOS — şube müdürü yalnız atanmış şubesindeki dersin yoklamasını alır.
   if (ctx.role === "BRANCH_MANAGER") {
-    const lesson = (await readData()).lessons.find((l) => l.id === v.data.lessonId);
+    const lesson = await readLessonById(v.data.lessonId);
     if (!lesson) return fail("NOT_FOUND", "Ders bulunamadı");
     const gate = await assertBranchOperation(ctx, "attendance", "update", lesson.branchId);
     if (!gate.ok) return gate;
@@ -1192,7 +1195,13 @@ export async function teacherDayAvailabilityTool(
     input
   );
   if (!v.ok) return v;
-  const [data, trials] = await Promise.all([readData(), listTrialLessons(ctx.tenantId)]);
+  // DB egress (2026-10-10): yalnız o günün dersleri gerekir (kurum saatinde gün eşleşmesi saf fonksiyonda);
+  // tüm ders geçmişi yerine günün ±1–2 günlük penceresi okunur (saat dilimi payı).
+  const day = new Date(`${v.data.date}T00:00:00.000Z`);
+  const [data, trials] = await Promise.all([
+    readLessonWindow(addDays(day, -1).toISOString(), addDays(day, 2).toISOString()),
+    listTrialLessons(ctx.tenantId),
+  ]);
   const { buildTeacherDayAvailability } = await import("../teacher-day-availability");
   return ok({ ...v.data, teachers: buildTeacherDayAvailability(data, trials, v.data) });
 }
@@ -1217,7 +1226,7 @@ export async function findAvailableTeachersTool(
   );
   if (!v.ok) return v;
 
-  const data = await readData();
+  const data = await readReferenceData(); // yalnız öğretmen listesi (DB egress)
   // Package D — pasif/işten ayrılmış öğretmen aday olarak asla dönmez;
   // şube filtresi (verildiyse) birincil + ek atanmış şubeleri birlikte
   // değerlendirir (teacherServesBranch), yalnız tek `branchId` alanına değil.
@@ -1301,7 +1310,7 @@ export async function getStudentProfileTool(
 export async function getStudentScheduleTool(
   ctx: ServiceContext,
   input: unknown
-): Promise<ServiceResult<{ studentId: string; lessons: unknown[] }>> {
+): Promise<ServiceResult<{ studentId: string; lessons: unknown[]; total: number; truncated: boolean }>> {
   const auth = requireRole(ctx, [
     "SCHOOL_ADMIN",
     "TEACHER",
@@ -1316,6 +1325,9 @@ export async function getStudentScheduleTool(
       studentId: z.string().min(1),
       from: z.string().optional(),
       to: z.string().optional(),
+      // Penceresiz çağrılar (ev özeti, ders detayı) tüm geçmişi çekmesin:
+      // üst sınır + kesilme bayrağı. İstemci dar pencere gönderir.
+      limit: z.coerce.number().int().min(1).max(2000).optional(),
     }),
     input
   );
@@ -1330,6 +1342,9 @@ export async function getStudentScheduleTool(
   // yalnızca `teacherId` taşır, isim BURADA denormalize edilir (bkz.
   // getTeacherScheduleTool'daki simetrik studentName zenginleştirmesi).
   const teacherNameById = new Map(data.teachers.map((t) => [t.id, t.name]));
+  const branchNameById = new Map(
+    (data.settings.branches ?? []).map((b) => [b.id, b.shortName ?? b.name])
+  );
   const { from, to } = v.data;
   // Kök neden: `from`/`to` ve depodaki `startAt` farklı UTC ofset gösterimleri
   // taşıyabiliyor (mobil istemci her zaman `.toISOString()` ile "Z" gönderirken,
@@ -1339,16 +1354,19 @@ export async function getStudentScheduleTool(
   // dersleri). Karşılaştırma gerçek zaman damgası (epoch ms) üzerinden yapılmalı.
   const fromTs = from ? new Date(from).getTime() : undefined;
   const toTs = to ? new Date(to).getTime() : undefined;
-  const lessons = data.lessons
+  const limit = v.data.limit ?? 500;
+  const matched = data.lessons
     .filter((l) => l.studentId === v.data.studentId)
     .filter((l) => {
       const startTs = new Date(l.startAt).getTime();
       return (fromTs === undefined || startTs >= fromTs) && (toTs === undefined || startTs <= toTs);
     })
-    .sort((a, b) => a.startAt.localeCompare(b.startAt))
-    .map((l) => ({ ...l, teacherName: teacherNameById.get(l.teacherId) }));
+    .sort((a, b) => a.startAt.localeCompare(b.startAt));
+  const lessons = matched
+    .slice(0, limit)
+    .map((l) => ({ ...l, teacherName: teacherNameById.get(l.teacherId), branchName: branchNameById.get(l.branchId) }));
 
-  return ok({ studentId: v.data.studentId, lessons });
+  return ok({ studentId: v.data.studentId, lessons, total: matched.length, truncated: matched.length > limit });
 }
 
 /**
@@ -1449,11 +1467,19 @@ export async function getStudentScoreTool(
 export async function getTeacherScheduleTool(
   ctx: ServiceContext,
   input: unknown
-): Promise<ServiceResult<{ teacherId: string; lessons: unknown[] }>> {
+): Promise<ServiceResult<{ teacherId: string; lessons: unknown[]; total: number; truncated: boolean }>> {
   const auth = requireRole(ctx, ["SCHOOL_ADMIN", "TEACHER", "AI_AGENT", "SUPER_ADMIN"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
 
-  const v = parseOrFail(z.object({ teacherId: z.string().min(1) }), input);
+  const v = parseOrFail(
+    z.object({
+      teacherId: z.string().min(1),
+      from: z.string().optional(),
+      to: z.string().optional(),
+      limit: z.coerce.number().int().min(1).max(2000).optional(),
+    }),
+    input
+  );
   if (!v.ok) return v;
   if (!canAccessTeacher(ctx, v.data.teacherId)) {
     return fail("FORBIDDEN", "Cannot access this teacher's schedule");
@@ -1469,12 +1495,25 @@ export async function getTeacherScheduleTool(
   // düşüyordu, bkz. getStudentScheduleTool'daki simetrik teacherName
   // zenginleştirmesi).
   const studentNameById = new Map(data.students.map((s) => [s.id, s.name]));
-  const lessons = data.lessons
+  const teacherBranchNameById = new Map(
+    (data.settings.branches ?? []).map((b) => [b.id, b.shortName ?? b.name])
+  );
+  const fromTs = v.data.from ? Date.parse(v.data.from) : undefined;
+  const toTs = v.data.to ? Date.parse(v.data.to) : undefined;
+  const limit = v.data.limit ?? 500;
+  const matched = data.lessons
     .filter((l) => l.teacherId === v.data.teacherId)
-    .sort((a, b) => a.startAt.localeCompare(b.startAt))
-    .map((l) => ({ ...l, studentName: studentNameById.get(l.studentId) }));
+    .filter((l) => {
+      const startTs = Date.parse(l.startAt);
+      if (!Number.isFinite(startTs)) return true;
+      return (fromTs === undefined || startTs >= fromTs) && (toTs === undefined || startTs <= toTs);
+    })
+    .sort((a, b) => a.startAt.localeCompare(b.startAt));
+  const lessons = matched
+    .slice(0, limit)
+    .map((l) => ({ ...l, studentName: studentNameById.get(l.studentId), branchName: teacherBranchNameById.get(l.branchId) }));
 
-  return ok({ teacherId: v.data.teacherId, lessons });
+  return ok({ teacherId: v.data.teacherId, lessons, total: matched.length, truncated: matched.length > limit });
 }
 
 export type TeacherStudentListItem = {
@@ -1754,8 +1793,9 @@ export async function createPaymentTool(
   if (!v.ok) return v;
 
   try {
-    const data = await readData();
-    const existing = data.payments.find((p) => p.id === v.data.paymentId);
+    // DB egress (2026-10-10): her tahsilatta tenant'ın TÜM verisi iki kez okunuyordu; yalnız bu ödeme satırı
+    // ve bildirim metni için öğrenci adı/öğretmen listesi (referans dilimi) gerekir.
+    const existing = await readPaymentById(v.data.paymentId);
     if (!existing) return fail("NOT_FOUND", "Ödeme bulunamadı");
     // İdempotency: zaten "paid" ise sessizce mevcut durumu döner — çift tık/tekrar istek yeni bir yan etki yaratmaz.
     if (existing.status === "paid") {
@@ -1781,6 +1821,7 @@ export async function createPaymentTool(
     try {
       const { notifyAdmins } = await import("../manager-notifications");
       const { resolveActorLabel } = await import("../contract-payment-plan-view");
+      const data = await readReferenceData();
       const actorName = await resolveActorLabel({ tenantId: ctx.tenantId, userId: ctx.userId, teachers: data.teachers });
       const studentName = data.students.find((s) => s.id === existing.studentId)?.name ?? "Öğrenci";
       const collectedAmount = v.data.amount ?? existing.amount - (existing.paidAmount ?? 0);
@@ -1795,8 +1836,8 @@ export async function createPaymentTool(
       const { getUserIdByStudentId } = await import("../auth/users");
       const { isCategoryEnabledForUser } = await import("../notification-preferences");
       const { createNotification, listNotificationsForUser } = await import("../notifications");
-      const data = await readData();
-      const payment = data.payments.find((p) => p.id === v.data.paymentId);
+      // Tahsilat sonrası güncel satır (collectPayment işlem sonrası okudu) — ayrıca tam okuma yok.
+      const payment = collected.payment;
       const studentUserId = payment ? await getUserIdByStudentId(ctx.tenantId, payment.studentId) : null;
       if (studentUserId) {
         const enabled = await isCategoryEnabledForUser(ctx.tenantId, studentUserId, "payment_received");
@@ -6236,6 +6277,10 @@ export async function getFinanceSummaryTool(
 > {
   const auth = requireStaffSensitiveAccess(ctx);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  // Bilinçli olarak SUNUCU CACHE DIŞI: finans uyarıları read-your-write
+  // sözleşmelidir (ödeme işaretlenince uyarı aynı anda düşer —
+  // finance-expansion regresyonları). Özet ekranı kasıtlı açılır (düşük
+  // sıklık); dashboard/rapor cache'li, finans her zaman taze hesaplanır.
   const v = parseOrFail(
     z.object({
       branchId: z.string().min(1).optional(),
@@ -7373,13 +7418,12 @@ export async function commitLessonImportTool(
   try {
     let created = 0;
     let skipped = 0;
-    let latest = data;
     for (const row of preview.valid) {
       if (row.duplicate) {
         skipped++;
         continue;
       }
-      latest = await addLesson({
+      await addLesson({
         studentId: row.studentId,
         teacherId: row.teacherId,
         roomId: row.roomId,
@@ -7391,7 +7435,8 @@ export async function commitLessonImportTool(
       created++;
     }
     audit(ctx, "lessons.import", "Lesson", "bulk", { created, skipped });
-    return ok({ data: latest, created, updated: 0, skipped });
+    // DB egress (2026-10-10): addLesson artık tüm veriyi dönmüyor — güncel veri satır başına değil, sonda bir kez okunur.
+    return ok({ data: created > 0 ? await readData() : data, created, updated: 0, skipped });
   } catch (e) {
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "importLessons failed");
   }
@@ -7720,9 +7765,16 @@ export async function createLessonTool(
   if (!normalizedStartAt) return fail("VALIDATION_ERROR", "Geçerli bir ders tarihi ve saati seçin.");
   const v = ok({ ...parsed.data, startAt: normalizedStartAt });
 
+  /**
+   * DB egress (2026-10-10): eskiden tek ders oluşturma tenant'ın TÜM verisini dört kez okuyordu (burada
+   * önce/sonra + store'da doğrulama/dönüş). Bu tool yalnız öğrenci/oda/öğretmen/kurum ayarı ve kapalı günleri
+   * okur (referans dilimi — ders oluşturma bunları değiştirmez); oluşan ders kimliğiyle tek satır okunur.
+   */
+  const ref = await readReferenceData();
+
   // NeviiOS — şube müdürü: derslik ve öğrenci atanmış şubede olmalı.
   if (ctx.role === "BRANCH_MANAGER") {
-    const d = await readData();
+    const d = ref;
     const room = d.rooms.find((r) => r.id === v.data.roomId);
     const student = d.students.find((s) => s.id === v.data.studentId);
     if (!room || !student) return fail("NOT_FOUND", "Derslik veya öğrenci bulunamadı");
@@ -7741,7 +7793,7 @@ export async function createLessonTool(
    * Kontrol burada da KALIR (store'a inmeden önce) çünkü hata mesajı bu
    * katmanda `VALIDATION_ERROR` olarak, alan bazlı biçimde dönüyor.
    */
-  const settingsForClosedDays = await readData();
+  const settingsForClosedDays = ref;
   const creationTerm =
     v.data.term ?? settingsForClosedDays.students.find((s) => s.id === v.data.studentId)?.termType ?? "guz";
   const creationDay = assertWorkDaySchedulable(
@@ -7767,9 +7819,7 @@ export async function createLessonTool(
   }
 
   try {
-    const before = settingsForClosedDays;
-    const ids = new Set(before.lessons.map((l) => l.id));
-    await addLesson({
+    const createdId = await addLesson({
       studentId: v.data.studentId,
       teacherId: v.data.teacherId,
       roomId: v.data.roomId,
@@ -7783,8 +7833,8 @@ export async function createLessonTool(
       createdByUserId: ctx.userId,
       enrollmentId: lessonEnrollmentId,
     });
-    const after = await readData();
-    const created = after.lessons.find((l) => !ids.has(l.id));
+    const after = ref;
+    const created = await readLessonById(createdId);
     if (created?.availabilityOverride) {
       audit(ctx, "lesson.availability_override", "Lesson", created.id, {
         teacherId: created.teacherId,
@@ -7875,7 +7925,7 @@ export async function updateLessonScheduleTool(
   }
 
   if (ctx.role === "BRANCH_MANAGER") {
-    const lesson = (await readData()).lessons.find((l) => l.id === v.data.lessonId);
+    const lesson = await readLessonById(v.data.lessonId);
     if (!lesson) return fail("NOT_FOUND", "Ders bulunamadı");
     const gate = await assertBranchOperation(ctx, "schedule", "update", lesson.branchId);
     if (!gate.ok) return gate;
@@ -7974,11 +8024,15 @@ export async function cancelLessonTool(
   if (disruptionError) return fail("VALIDATION_ERROR", disruptionError);
 
   try {
-    const before = await readData();
-    const lesson = before.lessons.find((l) => l.id === v.data.lessonId);
+    const lesson = await readLessonById(v.data.lessonId);
+    if (!lesson) return fail("NOT_FOUND", "Ders bulunamadı");
+    // Idempotent: zaten iptal edilmiş ders tekrar iptal edilmez, bildirim
+    // tekrar gönderilmez — mobil retry/çift-tap güvenli.
+    if (lesson.status === "cancelled") return ok({ lessonId: v.data.lessonId });
     await cancelLesson(v.data.lessonId);
     // 9. tur — iptal artık denetim kaydında (kim/ne zaman/hangi kaynak); kaynak ayrı alana.
     audit(ctx, "lesson.cancel", "Lesson", v.data.lessonId, {
+      studentId: lesson.studentId,
       disruptionSource: v.data.disruptionSource ?? null,
       note: v.data.disruptionNote,
       teacherAttendance: v.data.teacherAttendance,
@@ -11168,8 +11222,7 @@ export async function startLessonTool(
   const v = parseOrFail(startLessonSchema, input);
   if (!v.ok) return v;
 
-  const data = await readData();
-  const lesson = data.lessons.find((l) => l.id === v.data.lessonId);
+  const lesson = await readLessonById(v.data.lessonId);
   if (!lesson) return fail("NOT_FOUND", "Ders bulunamadı");
 
   try {
@@ -11219,8 +11272,7 @@ export async function endLessonTool(
   const v = parseOrFail(endLessonSchema, input);
   if (!v.ok) return v;
 
-  const data = await readData();
-  const lesson = data.lessons.find((l) => l.id === v.data.lessonId);
+  const lesson = await readLessonById(v.data.lessonId);
   if (!lesson) return fail("NOT_FOUND", "Ders bulunamadı");
 
   try {
@@ -11298,8 +11350,24 @@ export async function listTeacherAvailabilityRequestsTool(
   }
 
   try {
-    const requests = await listAvailabilityRequestsForTeacher(ctx.tenantId, v.data.teacherId);
-    return ok({ requests });
+    const raw = await listAvailabilityRequestsForTeacher(ctx.tenantId, v.data.teacherId);
+    // Legacy/satır-kayıtlar `proposedAvailability` taşımayabilir — UI'ın
+    // `.map`/`.length` çağrıları çökmemesi için normalize edilir.
+    const requests = raw.map((r) => ({
+      ...r,
+      proposedAvailability: Array.isArray(r.proposedAvailability) ? r.proposedAvailability : [],
+    }));
+    // Öğretmenin güncel (onaylı) müsaitliği — kayıt yoksa [] (mobil UI
+    // `currentAvailability.length` çağırır; undefined dönmek render crash'ti).
+    let currentAvailability: Array<{ dayOfWeek: number; start: string; end: string; branchId?: string }> = [];
+    try {
+      const data = await readData();
+      const teacher = data.teachers.find((t) => t.id === v.data.teacherId);
+      if (Array.isArray(teacher?.availability)) currentAvailability = teacher.availability;
+    } catch {
+      currentAvailability = [];
+    }
+    return ok({ requests, currentAvailability });
   } catch (e) {
     return fail(
       "INTERNAL_ERROR",
@@ -16417,7 +16485,8 @@ export async function setLessonOpsFlagTool(
     ctx,
     v.data.lessonId,
     { kind: "set", flag: v.data.flag, reason: v.data.reason, disruption },
-    v.data
+    v.data,
+    data
   );
   if (!payoutPlan.ok) return payoutPlan;
 
@@ -16495,29 +16564,58 @@ type OpsChange =
   | { kind: "clear"; expected: import("../lesson-ops").LessonOpsFlag }
   | { kind: "set"; flag: import("../lesson-ops").LessonOpsFlag; reason?: string; disruption?: import("../lesson-disruption").LessonDisruptionInput };
 
-async function planOpsChangeForPayout(
-  ctx: ServiceContext,
+/**
+ * Gerçek işlemin SAF karşılığıyla simüle eder (ör. İşlendi geri alınınca completed → scheduled) — kural ikilenmez.
+ * Kural reddederse null: gerçek çağrı aynı nedeni kullanıcıya söyler.
+ */
+async function simulateOpsChange(
+  data: AppData,
   lessonId: string,
   change: OpsChange,
-  confirm: { paidPayoutConfirm?: boolean; payoutReason?: string; criticalPassword?: string }
-): Promise<ServiceResult<OpsPayoutPlan>> {
-  const data = await readData();
-  const lesson = data.lessons.find((l) => l.id === lessonId);
-  if (!lesson) return fail("NOT_FOUND", "Ders bulunamadı. Sayfayı yenileyip tekrar deneyin.");
-  // Gerçek işlemin SAF karşılığıyla simüle edilir (ör. İşlendi geri alınınca completed → scheduled) — kural ikilenmez.
-  let simulated: AppData;
+  userId: string
+): Promise<{ simulated: AppData; next: import("../types").Lesson } | null> {
   try {
     const { clearLessonOpsFlag, switchLessonOpsFlag } = await import("../lesson-ops");
     const r =
       change.kind === "clear"
-        ? clearLessonOpsFlag(data, lessonId, change.expected, ctx.userId)
-        : switchLessonOpsFlag(data, lessonId, change.flag, ctx.userId, new Date(), change.reason, change.disruption);
-    if (!r.ok) return ok({ mode: "none" }); // gerçek çağrı aynı nedeni kullanıcıya söyler
-    simulated = r.data;
+        ? clearLessonOpsFlag(data, lessonId, change.expected, userId)
+        : switchLessonOpsFlag(data, lessonId, change.flag, userId, new Date(), change.reason, change.disruption);
+    if (!r.ok) return null;
+    const next = r.data.lessons.find((l) => l.id === lessonId);
+    return next ? { simulated: r.data, next } : null;
   } catch {
-    return ok({ mode: "none" });
+    return null;
   }
-  const next = simulated.lessons.find((l) => l.id === lessonId)!;
+}
+
+async function planOpsChangeForPayout(
+  ctx: ServiceContext,
+  lessonId: string,
+  change: OpsChange,
+  confirm: { paidPayoutConfirm?: boolean; payoutReason?: string; criticalPassword?: string },
+  /** Çağıran dersin dar dilimini zaten okuduysa (setLessonOpsFlagTool) ikinci kez okunmaz. */
+  lessonScope?: AppData | null
+): Promise<ServiceResult<OpsPayoutPlan>> {
+  /**
+   * DB egress (2026-10-10) — eskiden HER yoklama işaretinde/geri almada tenant'ın TÜM verisi okunuyordu
+   * (üretimde en sık tam okuma yolu). Önce gerçek yazımın kullandığı AYNI dar dilimle (readLessonScope)
+   * simüle edilir ve hakediş kaydı yalnız o öğretmenin kayıtlarında aranır; çoğu işaretlemede (hakediş
+   * etkisi yok / kayıtlı hakediş yok) tam okuma yapılmaz. Ders kayıtlı bir hakedişe düşüyorsa (nadir)
+   * etki hesabı önceki gibi tam veriyle yapılır — mali sonuç aynı kalır.
+   */
+  const scope = lessonScope ?? (await readLessonScope(lessonId));
+  const scoped = scope?.lessons.find((l) => l.id === lessonId);
+  if (!scope || !scoped) return fail("NOT_FOUND", "Ders bulunamadı. Sayfayı yenileyip tekrar deneyin.");
+  const quick = await simulateOpsChange(scope, lessonId, change, ctx.userId);
+  if (!quick || isLessonProcessedForPayout(scoped) === isLessonProcessedForPayout(quick.next)) return ok({ mode: "none" });
+  if (!findPayoutCoveringLesson(await readTeacherPayoutsForTeacher(scoped.teacherId), scoped)) return ok({ mode: "none" });
+
+  const data = await readData();
+  const lesson = data.lessons.find((l) => l.id === lessonId);
+  if (!lesson) return fail("NOT_FOUND", "Ders bulunamadı. Sayfayı yenileyip tekrar deneyin.");
+  const full = await simulateOpsChange(data, lessonId, change, ctx.userId);
+  if (!full) return ok({ mode: "none" });
+  const { simulated, next } = full;
   if (isLessonProcessedForPayout(lesson) === isLessonProcessedForPayout(next)) return ok({ mode: "none" });
   const payout = findPayoutCoveringLesson(data.teacherPayouts, lesson);
   if (!payout) return ok({ mode: "none" });
@@ -17266,7 +17364,9 @@ export async function collectAttendanceCalendarPaymentTool(
     return fail("VALIDATION_ERROR", "Ödenen dönem (ay) geçersiz; takvimde ilgili ay kutusundan tekrar deneyin.");
   }
 
-  const data = await readData();
+  // DB egress (2026-10-10): tahsilat yalnız bu öğrencinin sözleşme/ödeme/ders satırlarına bakar (her ödeme ve
+  // plan satırı `studentId` ile süzülüyor) — tek öğrenci dilimi; eskiden her tahsilatta tenant'ın tüm verisi.
+  const data = await readStudentScope(v.data.studentId);
   const student = data.students.find((s) => s.id === v.data.studentId);
   if (!student) return fail("NOT_FOUND", "Öğrenci bulunamadı");
 
@@ -18766,7 +18866,14 @@ export async function setNotificationPreferencesTool(
       if (def.criticalLocked && !u.inAppEnabled) {
         return fail("VALIDATION_ERROR", `"${def.label}" kapatılamaz.`);
       }
-      updates.push({ category: u.category, inAppEnabled: u.inAppEnabled, pushEnabled: false as const });
+      // pushEnabled yalnız push altyapısı aktifken kabul edilir; aksi halde
+      // önceki fail-closed davranış korunur (her zaman false).
+      const { isPushActive } = await import("../push/config");
+      updates.push({
+        category: u.category,
+        inAppEnabled: u.inAppEnabled,
+        pushEnabled: isPushActive() ? (u.pushEnabled ?? false) : (false as const),
+      });
     }
     await setNotificationPreferences(ctx.tenantId, ctx.userId, updates);
     audit(ctx, "notification.preference.update", "NotificationPreference", ctx.userId, {

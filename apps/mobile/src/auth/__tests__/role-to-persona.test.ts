@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { resolveMobilePersona, UNSUPPORTED_COPY } from "../role-to-persona";
+import { resolveMobilePersona, unsupportedCopy, UNSUPPORTED_COPY } from "../role-to-persona";
 
 const persona = (p: string) => ({ kind: "persona", persona: p });
 const unsupported = (reason: string) => ({ kind: "unsupported", reason });
@@ -73,8 +73,11 @@ describe("resolveMobilePersona — sunucu oturum gerçeklerinden persona", () =>
   });
 
   it("her desteklenmeyen neden için Türkçe metin ve web yolu tanımlı", () => {
-    for (const copy of Object.values(UNSUPPORTED_COPY)) {
+    const tr = (p: string) => p;
+    for (const reason of Object.keys(UNSUPPORTED_COPY) as Array<keyof typeof UNSUPPORTED_COPY>) {
+      const copy = unsupportedCopy(reason, tr);
       expect(copy.title.length).toBeGreaterThan(0);
+      expect(copy.body.length).toBeGreaterThan(0);
       expect(copy.webPath.startsWith("/")).toBe(true);
     }
   });

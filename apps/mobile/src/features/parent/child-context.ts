@@ -1,4 +1,6 @@
 import type { IconName } from "../../components/ui";
+import type { Locale } from "../../i18n/locales";
+import { getActiveLocale } from "../../i18n/locale-store";
 import type { StudentProfile } from "../../types/api";
 
 /**
@@ -21,7 +23,10 @@ export type ChildContextView = {
   line2: string;
 };
 
-export function toChildContextView(profile: StudentProfile | null | undefined): ChildContextView | null {
+export function toChildContextView(
+  profile: StudentProfile | null | undefined,
+  locale: Locale = getActiveLocale(),
+): ChildContextView | null {
   const name = typeof profile?.name === "string" ? profile.name.trim() : "";
   if (!profile || !name) return null;
   const instruments = Array.isArray(profile.instruments) ? profile.instruments.filter(Boolean).join(", ") : "";
@@ -31,31 +36,31 @@ export function toChildContextView(profile: StudentProfile | null | undefined): 
   return {
     name,
     line1: [instruments, teacherName].filter(Boolean).join(" · "),
-    line2: packageName ? `${packageName} · haftada ${weekly} ders` : "",
+    line2: packageName ? (locale === "en" ? `${packageName} · ${weekly} lessons/week` : `${packageName} · haftada ${weekly} ders`) : "",
   };
 }
 
 export type ParentQuickLink = {
   key: string;
   icon: IconName;
-  label: string;
-  hint: string;
+  labelKey: string;
+  hintKey: string;
   /** `app/(parent)` altındaki gerçek route segmenti. */
   href: string;
 };
 
 /** Canonical veli route'ları — `app/(parent)/` altında her biri mevcuttur. */
 export const PARENT_QUICK_LINKS: ParentQuickLink[] = [
-  { key: "dersler", icon: "calendar-outline", label: "Ders programı", hint: "Haftalık program ve ders detayları", href: "dersler" },
-  { key: "odevler", icon: "book-outline", label: "Ödevler", hint: "Bekleyen ve tamamlanan ödevler", href: "odevler" },
+  { key: "dersler", icon: "calendar-outline", labelKey: "parent.qlSchedule", hintKey: "parent.qlScheduleHint", href: "dersler" },
+  { key: "odevler", icon: "book-outline", labelKey: "parent.qlHomework", hintKey: "parent.qlHomeworkHint", href: "odevler" },
   {
     key: "odemeler",
     icon: "card-outline",
-    label: "Ödemeler",
-    hint: "Bakiye ve ödeme geçmişi (salt görüntüleme)",
+    labelKey: "parent.qlPayments",
+    hintKey: "parent.qlPaymentsHint",
     href: "odemeler",
   },
-  { key: "gelisim", icon: "trending-up-outline", label: "Gelişim", hint: "Müfredat, notlar ve materyaller", href: "gelisim" },
-  { key: "yoklama", icon: "checkmark-circle-outline", label: "Yoklama özeti", hint: "Devam durumu", href: "yoklama" },
-  { key: "telafiler", icon: "swap-horizontal-outline", label: "Telafiler", hint: "Telafi kayıtları (salt görüntüleme)", href: "telafiler" },
+  { key: "gelisim", icon: "trending-up-outline", labelKey: "parent.qlGrowth", hintKey: "parent.qlGrowthHint", href: "gelisim" },
+  { key: "yoklama", icon: "checkmark-circle-outline", labelKey: "parent.qlAttendance", hintKey: "parent.qlAttendanceHint", href: "yoklama" },
+  { key: "telafiler", icon: "swap-horizontal-outline", labelKey: "parent.qlMakeup", hintKey: "parent.qlMakeupHint", href: "telafiler" },
 ];

@@ -1,6 +1,7 @@
 import { beforeEach } from "vitest";
 import { promises as fs } from "fs";
 import { INSTRUMENT_CATALOG_FILE } from "./src/lib/instrument-catalog";
+import { __resetServerCache } from "./src/lib/http/server-cache";
 
 /**
  * P0-A/P0-C (2026-09-02) — kök neden: `createStudentTool` artık her kayıtta
@@ -21,4 +22,8 @@ import { INSTRUMENT_CATALOG_FILE } from "./src/lib/instrument-catalog";
  */
 beforeEach(async () => {
   await fs.rm(INSTRUMENT_CATALOG_FILE, { force: true });
+  // Maliyet turu: best-effort sunucu cache'i (dashboard/finans/rapor, 60sn)
+  // aynı worker'da testler arası kirlenme yapmasın — her test taze hesaplar.
+  // Cache modülünün kendisi server-cache.test.ts ile ayrı kilitlidir.
+  __resetServerCache();
 });
