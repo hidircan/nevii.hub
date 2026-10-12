@@ -54,6 +54,7 @@ yeniden doğrula: `docs/performance/DB_EGRESS_2026_10_10.md` (§5 kalan yollar),
 ## 4. Ölçüm (önce/sonra) — yalnız yerel tek kullanımlık DB
 ```bash
 scripts/bench/reseed-bench-db.sh                    # her koşudan ÖNCE (3 200 ders · 1 300 ödeme · 228 öğrenci · 2 kurum)
+# (node_modules kurulu worktree'de; dışarıdan verilen DATABASE_URL'ü .env ezmez — doğrulandı 2026-10-12)
 export DATABASE_URL=postgresql://$USER@127.0.0.1:5432/neviihub_egress_bench_p0
 STORE_MODE=db npx tsx scripts/bench/bench-tool-egress.ts --label after     # tool/mutasyon + oturum
 npx tsx scripts/bench/bench-db-egress.ts --app . --label after --repeats 1   # sayfalar (önce `npx next build`)
