@@ -185,6 +185,11 @@ egress. Prefer the typed slices in `src/lib/reference-data.ts` (`readReferenceDa
 `institution/context.ts`) — slice types omit heavy collections so misuse fails to compile. Row-filtered
 slices (student/window) need a line-by-line audit of every access; never read `School.logoUrl` (~79 KB
 data-URI) where only the name is needed. Measure with `scripts/bench/` (docs/performance/DB_EGRESS_2026_09_30.md).
+Since 2026-10-10: never add a full `readData()` just to check that a row exists — use `readLessonById` /
+`readPaymentById` / `readTeacherPayoutsForTeacher` (or add a single-row reader in all three stores). Prisma 7
+`updateMany` runs as BEGIN/UPDATE/COMMIT — use `update` with an extended `where` for single-row conditional writes;
+DB work after the response goes through `after()` (next/server), never fire-and-forget. Method, slice catalog and
+bench recipe: skill `performance-db-egress` (docs/performance/DB_EGRESS_2026_10_10.md).
 
 ### Notable conventions
 
