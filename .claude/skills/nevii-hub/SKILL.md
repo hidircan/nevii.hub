@@ -25,6 +25,7 @@ description: NeviiHub'da her görevin başlangıç yönlendiricisi — "şu hata
 | Hata düzeltme süreci | `bug-fix` + `testing-regression` | — |
 | Yeni özellik süreci | `feature-delivery` | — |
 | Deploy/env/cron/Vercel | `production-readiness` | `vercel.json`, `docs/operations/*` |
+| Performans, Supabase egress/kota, yavaş sorgu, Vercel CPU, oturum gecikmesi | `performance-db-egress` | `src/lib/store-db.ts`, `reference-data.ts`, `scripts/bench/*` |
 | Oturum sonu | `session-handoff` | — |
 
 ## 2. Değişiklik nereye yapılır
