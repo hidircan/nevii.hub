@@ -4,23 +4,13 @@ Kısa tutulur (~50 satır): oturum sonunda yalnız "Güncel snapshot" bölümün
 `archive/`'e taşınır. Ayrıntı → ilgili `docs/testing/UAT_*.md`, `docs/operations/*`. Yönlendirici: `nevii-hub` skill.
 Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_2026-09-24.md`.
 
-## Güncel snapshot — 2026-10-10 (çoklu branş v2: her branş eşit/bağımsız; KOMİT/PUSH/PR/DEPLOY YOK, test çalıştırılmadı)
-- Dal `claude/beautiful-gates-c4z4de` (HEAD a18c887 üstünde COMMİT EDİLMEMİŞ değişiklikler; owner inceleyip commit/push/PR yapacak).
-  Statik: `tsc` temiz, değişen dosyalarda eslint 0 hata. `npm test`/build/tarayıcı çalıştırılmadı.
-- Model: branş kaydı `termsVersion: 2` ile kendi koşullarını (tür, MEB, paket, ödeme, tarih) taşır; öğrenci satırı yalnız ayna.
-  Yazım tek kapı: `store.updateStudentProfile` cephesi → hedef branş; çok branşlıda hedef yoksa `EnrollmentRequiredError`.
-  Atomik: `registerStudent`, `changeStudentEnrollments` (json/memory/db). Ortak form: `enrollment-form.ts` + `enrollment-form-fields.tsx`.
-- Yeni migration YOK. Betikler: `scripts/reconcile-enrollment-terms.ts` (yeni, kuru varsayılan), `backfill-enrollment-links.ts` (güncel).
-- UAT + eşlik matrisi + açık kalanlar: `docs/testing/UAT_2026_10_10_MULTI_BRANCH_V2.md`. Release sırası: deploy → betikler kuru → yedek → `--apply`.
-- Açık: ilgili testlerin güncellenmesi (UAT §7), düzenlemede ödeme türü/günü temizleme, MEB db listesi bellekte sayfalama.
-
-## Güncel snapshot — 2026-10-10 akşam (mobil production hazırlığı; PUSH/DEPLOY/SUBMIT YOK)
-- Dal `release/mobile-review`: `origin/main` (cf12bc0) merge edildi (9 çakışma anlamsal çözüldü, 32123e6); + pg pool `max 5` (3a05638);
-  + production API URL fail-fast guard, app.config.js (FCM), blockedPermissions, eas submit internal/draft, runbook (48e9cd5, d770f35).
-- Runbook: `docs/release/MOBILE_PRODUCTION_RELEASE_RUNBOOK.md` (komutlar, Play checklist, yayın sırası, UAT, rollback, kota bulguları).
-- Owner bekleyen: (1) PR→main, (2) prod `migrate deploy` 2 additive migration (device_push_tokens, account_deletion_requests) — önce migrate sonra deploy,
-  (3) Vercel prod'a `NOTIFICATION_CRON_SECRET` (yoksa tick fail-closed) ve `SMS_TEST_MODE` kararı, (4) ilk Android build interaktif (keystore) + FCM, (5) Play formları/submit.
-- Test: tam koşu 4312/4324; 12 hatanın 11'i `origin/main`'de birebir aynı, 1'i sıra bağımlı (bkz. runbook §9). Production'a hiçbir yazma yapılmadı.
+## Güncel snapshot — 2026-10-10 geç (gece tahakkuk cron'u P2002; PR açık, MERGE/CANLI YOK)
+- Dal `claude/jovial-perlman-4440c2` (taban `origin/main` cf12bc0). Migration/şema/env değişikliği YOK.
+- `monthly-accrual` cron'u platform tenant'ını atlar; kurum başına try/catch + `logger.error`; yanıtta
+  `failed`/`failures`, hata varsa HTTP 500. `store-db.readData()` okul yoksa canlıda (`VERCEL_ENV`/
+  `NEVII_DEPLOYMENT_TIER`=production) seed etmez, Türkçe hata atar (tüm dilim okuyucular buraya düşer).
+- Owner kontrolü (salt okuma): 10-03..10 her gece seed silme transaction'ı okulsuz tenant'ta commit olmuş olabilir —
+  `tenant_platform` User satırları ve Tenant adı. Deploy sonrası ilk cron yanıtı `failed: 0` olmalı.
 
 ## Güncel snapshot — 2026-10-10 (P0 Supabase egress + UserSession kilidi; PR açık, MERGE/CANLI YOK)
 - Dal `fix/supabase-egress-p0` (taban `origin/main` a18c887) → PR. Migration/şema/env değişikliği YOK.

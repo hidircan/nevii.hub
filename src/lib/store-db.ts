@@ -1175,6 +1175,15 @@ export async function readData(): Promise<AppData> {
   ]);
 
   if (!school) {
+    // 2026-10-10: gece monthly-accrual cron'u okulsuz tenant'ta buraya düşüp sabit demo id'leriyle seed
+    // ediyordu (P2002; seedDatabase'in silme transaction'ı create'ten ÖNCE commit olur). Canlıda asla seed yok.
+    // Bütün dilim okuyucular okul yoksa buraya düştüğü için tek kapı burası.
+    if (process.env.VERCEL_ENV === "production" || process.env.NEVII_DEPLOYMENT_TIER === "production") {
+      throw new Error(
+        `Kurum (${tid}) için okul kaydı bulunamadı. Canlı ortamda demo veri otomatik yazılmaz; ` +
+          "kurumun okul kaydını Platform → Kurumlar ekranından oluşturun."
+      );
+    }
     logger.info("readData", "no school for tenant, seeding", tid);
     const seed = createSeedData();
     seed.settings.tenantId = tid;

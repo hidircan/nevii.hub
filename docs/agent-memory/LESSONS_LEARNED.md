@@ -1502,3 +1502,12 @@ Aynı turda: `validateLessonSlot` oda `active`'ini hiç okumuyordu → telafi pa
   Yeni "kontrol için" tam `readData()` ekleme — tek satır/dilim okuyucusu yoksa önce onu ekle (her yoklama tıklaması
   ~1,8 MB okuyordu).
 
+
+## 2026-10-10 — Okuma yolunda "okul yoksa demo seed" canlıda tetiklendi (gece tahakkuk cron'u, P2002)
+- `monthly-accrual` cron'u `listTenants()`'ın TÜM aktif tenant'larını dolaşıyordu (sentetik platform tenant'ı dahil);
+  okulsuz tenant'ta `readPaymentsPageData` → `readData()` `seedDatabase(createSeedData())`'e düştü. Sabit demo id'leri
+  P2002 verdi; ama `seedDatabase`'in silme transaction'ı (o tenant'ın User satırları dahil) ve `tenant.upsert` (ad
+  değişimi) `school.create`'ten ÖNCE commit olur. İstisna döngüden kaçtığı için sonraki kurumlar her gece atlandı.
+- Ders: okuma yolunda yazan geri düşüş (seed/varsayılan oluştur) canlıda fail-closed olmalı (`readData` tek kapı).
+  Tenant döngüsü yapan her iş platform tenant'ını hariç tutar (`institution/context.ts` deseni) ve kurum başına
+  try/catch + log + yanıtta hata sayısı ile çalışır; hata varsa non-2xx döner ki cron başarısız görünsün.
