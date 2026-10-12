@@ -7,8 +7,13 @@ import {
   setSessionExpiredHandler,
   type SessionEndReason,
 } from "../api/client";
-import { getAccessToken, getRefreshToken, setTokens } from "./token-storage";
 import { clearCachedPolicy } from "../api/policy";
+import { clearUserCache } from "../cache/cache-store";
+import { unregisterPushTokens } from "../push/push-registration";
+import { clearSelectedStudent } from "../student/selected-store";
+import { clearStoredEmail, getAccessToken, getRefreshToken, getStoredEmail, setStoredEmail, setTokens } from "./token-storage";
+import { lookup } from "../i18n/locales";
+import { getActiveLocale } from "../i18n/locale-store";
 import { sessionStatusFor } from "./session-status";
 import {
   resolveMobilePersona,
@@ -101,7 +106,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     (async () => {
-      if (await getAccessToken()) await loadSession("");
+      if (await getAccessToken()) await loadSession((await getStoredEmail()) ?? "");
       else signOutLocally();
     })();
   }, [loadSession, signOutLocally]);
@@ -120,16 +125,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           takeover,
         });
         if (!res.ok) {
+          const locale = getActiveLocale();
           if (res.error.code === "SESSION_ACTIVE_ELSEWHERE") {
             return { ok: false, message: res.error.message, takeoverRequired: true };
           }
-          if (res.error.code === "UNAUTHORIZED") return { ok: false, message: "E-posta veya şifre hatalı." };
-          if (res.error.code === "VALIDATION_ERROR") return { ok: false, message: "Geçerli bir e-posta adresi ve şifre girin." };
+          if (res.error.code === "UNAUTHORIZED") return { ok: false, message: lookup(locale, "login.badCredentials") };
+          if (res.error.code === "VALIDATION_ERROR") return { ok: false, message: lookup(locale, "login.badInput") };
           return { ok: false, message: res.error.message };
         }
         setNotice(null);
         await setTokens(res.data.accessToken, res.data.refreshToken);
-        const session = await loadSession(res.data.user.email ?? email);
+        const sessionEmail = res.data.user.email ?? email;
+        await setStoredEmail(sessionEmail);
+        const session = await loadSession(sessionEmail);
         if (!session.ok) {
           await endLocalSession();
           signOutLocally();
@@ -139,10 +147,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       },
       async logout() {
         const refreshToken = await getRefreshToken();
+        const signedOutUserId = user?.userId ?? null;
+        // Önce bu cihazın push token'ları (oturum varken) devre dışı bırakılır.
+        await unregisterPushTokens();
         // Tenant-anahtarlı policy/marka önbelleği çıkışta silinir — sonraki
         // kullanıcı (başka kurum dahil) önceki kararı/markayı göremez.
         if (user) await clearCachedPolicy(user.tenantId, user.userId);
         await endLocalSession();
+        await clearStoredEmail();
+        // Veli çocuk-seçimi persist'i temizlenir (paylaşımlı cihaz hijyeni).
+        if (signedOutUserId) await clearSelectedStudent(signedOutUserId);
+        // Offline read-cache temizlenir (tenant+user ad-alanlı).
+        if (user?.tenantId && signedOutUserId) await clearUserCache(user.tenantId, signedOutUserId);
         signOutLocally();
         if (refreshToken) void revokeServerSession(refreshToken);
       },

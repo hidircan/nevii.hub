@@ -1,4 +1,5 @@
 import { collectedAmountOf } from "./payment-profile";
+import { mergeImportRowIntoStudent } from "./import/student-merge";
 import {
   applyLessonRevision,
   planLessonDeletion,
@@ -27,6 +28,16 @@ import { createSeedData, createEmptyTemplateData } from "./seed";
 import { tryTenantId } from "./tenant-context";
 import { withClosedDayOverrides, withoutClosedDayOverrides } from "./closed-day-overrides";
 import { DEFAULT_TENANT_ID } from "./auth/config";
+import {
+  applyEnrollmentChange,
+  applyProfilePatchToStudent,
+  mergeStudentPatches,
+  type ChangeStudentEnrollmentsInput,
+  type ChangeStudentEnrollmentsResult,
+  type RegisterStudentInput,
+  type RegisterStudentResult,
+} from "./student-enrollments";
+import { buildRegistrationFirstPayment, REGISTRATION_FIRST_PAYMENT_SOURCE, registrationPaymentIdsByEnrollment } from "./registration-payment";
 import {
   narrowToDashboard,
   narrowToLessonWindow,
@@ -427,6 +438,58 @@ export async function addStudent(
   return save({ ...data, students: [...data.students, s], entitySequences: records });
 }
 
+/** 2026-10-10 — bkz. store-json.ts `registerStudent` (aynı davranış; mode parity). */
+export async function registerStudent(input: RegisterStudentInput): Promise<RegisterStudentResult> {
+  const data = load();
+  if (input.registrationId) {
+    const dup = data.students.find((s) => s.enrollments?.some((e) => e.registrationId === input.registrationId));
+    if (dup) return { studentId: dup.id, duplicate: true, paymentIds: registrationPaymentIdsByEnrollment(data.payments, dup.id) };
+  }
+  assertBranchExists(data, input.student.branchId);
+  const { assigned, records } = allocateSequenceValue(data.entitySequences ?? [], DEFAULT_TENANT_ID, "student");
+  const nowIso = new Date().toISOString();
+  const studentId = uid("stu");
+  const s: Student = { ...input.student, id: studentId, active: true, createdAt: nowIso, displayId: formatDisplayId("student", assigned) };
+  const paymentIds: Record<string, string> = {};
+  const payments = input.firstPayments.map((fp) => {
+    const id = uid("pay");
+    paymentIds[fp.enrollmentId] = id;
+    return buildRegistrationFirstPayment(id, studentId, fp, nowIso);
+  });
+  save({ ...data, students: [...data.students, s], payments: [...data.payments, ...payments], entitySequences: records });
+  return { studentId, duplicate: false, paymentIds };
+}
+
+/** 2026-10-10 — bkz. store-json.ts `changeStudentEnrollments` (aynı davranış; mode parity). */
+export async function changeStudentEnrollments(input: ChangeStudentEnrollmentsInput): Promise<ChangeStudentEnrollmentsResult> {
+  const data = load();
+  const idx = data.students.findIndex((s) => s.id === input.studentId);
+  if (idx < 0) return { ok: false, code: "NOT_FOUND", message: "Öğrenci bulunamadı. Sayfayı yenileyip tekrar deneyin." };
+  const student = data.students[idx]!;
+  const applied = applyEnrollmentChange(student, input.change, input.teachers);
+  if (!applied.ok) return applied;
+  const nextStudent = applyProfilePatchToStudent(
+    { ...student, enrollments: applied.enrollments },
+    mergeStudentPatches(input.person, applied.mirror)
+  );
+  let payments = data.payments;
+  let paymentId: string | undefined;
+  const fp = input.firstPayment;
+  if (fp && input.change.kind === "add") {
+    const existing = data.payments.find(
+      (p) => p.studentId === student.id && p.source === REGISTRATION_FIRST_PAYMENT_SOURCE && (p.enrollmentId ?? null) === fp.enrollmentId
+    );
+    if (existing) {
+      paymentId = existing.id;
+    } else {
+      paymentId = uid("pay");
+      payments = [...payments, buildRegistrationFirstPayment(paymentId, student.id, fp, new Date().toISOString())];
+    }
+  }
+  save({ ...data, students: data.students.map((s, i) => (i === idx ? nextStudent : s)), payments });
+  return { ok: true, enrollments: applied.enrollments, changed: applied.changed, ...(paymentId ? { paymentId } : {}) };
+}
+
 /**
  * Geri alınabilir öğrenci silme (2026-09-22). Silmede öğrenci pasife alınır;
  * geri almada yalnız silme işareti kalkar (öğrenci pasif kalır, ayrıca aktifleştirilir).
@@ -477,7 +540,7 @@ export async function setTeacherDeletion(teacherId: string, state: TeacherDeleti
 export async function hardDeleteTeacher(teacherId: string): Promise<AppData> {
   const data = load();
   const linked =
-    data.students.some((s) => s.teacherId === teacherId) ||
+    data.students.some((s) => s.teacherId === teacherId || s.enrollments?.some((e) => e.teacherId === teacherId)) ||
     data.lessons.some((l) => l.teacherId === teacherId) ||
     data.lessonSeries.some((l) => l.teacherId === teacherId) ||
     data.makeupRequests.some((m) => m.teacherId === teacherId) ||
@@ -508,7 +571,7 @@ export async function updateStudentProfile(
 export async function listMebStudents(query: MebStudentQuery): Promise<MebStudentListResult> {
   const { applyMebStudentQuery } = await import("./meb-list");
   const data = load();
-  return applyMebStudentQuery(data.students, query);
+  return applyMebStudentQuery(data.students, query, data.teachers);
 }
 
 /** Nilüfer Acar politikası §1E — bkz. store-json.ts aynı adlı fonksiyon (aynı davranış, in-memory). */
@@ -1202,31 +1265,7 @@ export async function importStudents(rows: StudentImportRow[]): Promise<ImportCo
   for (const row of rows) {
     const idx = students.findIndex((s) => s.phone.trim() === row.phone.trim());
     if (idx >= 0) {
-      students[idx] = {
-        ...students[idx],
-        name: row.name,
-        email: row.email || students[idx].email,
-        parentName: row.parentName,
-        parentPhone: row.parentPhone,
-        branchId: row.branchId,
-        instruments: [row.instrument],
-        teacherId: row.teacherId,
-        packageName: row.packageName,
-        weeklyLessonCount: row.weeklyLessonCount,
-        monthlyFee: row.monthlyFee,
-        notes: row.notes || students[idx].notes,
-        lessonDurationMinutes: row.lessonDurationMinutes ?? students[idx].lessonDurationMinutes,
-        birthDate: row.birthDate ?? students[idx].birthDate,
-        birthPlace: row.birthPlace ?? students[idx].birthPlace,
-        schoolOrOccupation: row.schoolOrOccupation ?? students[idx].schoolOrOccupation,
-        address: row.address ?? students[idx].address,
-        nationalIdCipher: row.nationalIdCipher ?? students[idx].nationalIdCipher,
-        nationalIdLast2: row.nationalIdLast2 ?? students[idx].nationalIdLast2,
-        enrollmentStartDate: row.enrollmentStartDate ?? students[idx].enrollmentStartDate,
-        derivedPerLessonAmount: row.derivedPerLessonAmount ?? students[idx].derivedPerLessonAmount,
-        accountResponsibility: students[idx].accountResponsibility ?? row.accountResponsibility,
-        displayId: students[idx].displayId ?? nextDisplayId(),
-      };
+      students[idx] = mergeImportRowIntoStudent(students[idx], row, nextDisplayId);
       updated++;
     } else {
       students.push({

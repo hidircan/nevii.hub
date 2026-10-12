@@ -35,19 +35,21 @@ import { Field, MiniStat } from "../_components/fields";
 export const dynamic = "force-dynamic";
 
 /** Ödemeler sekmesi — ödeme profili (düzenlenebilir) + tahsilat özeti + geçmiş. */
-export default async function StudentPaymentsTab({ params }: { params: Promise<{ studentId: string }> }) {
+export default async function StudentPaymentsTab({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ studentId: string }>;
+  searchParams: Promise<{ brans?: string }>;
+}) {
   const { studentId } = await params;
+  const { brans } = await searchParams;
   const { session, data, student, canManage, kurum } = await loadStudentPageContext(studentId);
   if (!student) notFound();
 
-  const payments = sortPaymentsForProfile(data.payments.filter((p) => p.studentId === student.id));
+  const allPayments = sortPaymentsForProfile(data.payments.filter((p) => p.studentId === student.id));
   const contractsResult = await listStudentContractsTool(session, { studentId: student.id });
-  const contracts = contractsResult.ok ? contractsResult.data.contracts : [];
-  const paymentSummary = computeStudentPaymentSummary(payments, contracts);
-  const debt = splitStudentDebt(
-    payments,
-    new Set(contracts.filter((c) => isTerminalContractStatus(c.status)).map((c) => c.id))
-  );
+  const allContracts = contractsResult.ok ? contractsResult.data.contracts : [];
   // 2026-10-09 — çok branşlı öğrenci: her satır TEK branşa düşer (açık bağ → sözleşmesi → dersi; tahmin yok);
   // belirlenemeyen eski satır "Branş belirtilmemiş" grubunda kalır ve "Branşa bağla" ile açıkça bağlanır.
   const branchList = effectiveEnrollments(student, data.teachers);
@@ -56,12 +58,28 @@ export default async function StudentPaymentsTab({ params }: { params: Promise<{
     const e = id ? branchList.find((x) => x.id === id) : undefined;
     return e ? enrollmentDisplayName(e, branchList, data.teachers) : UNASSIGNED_ENROLLMENT_LABEL;
   };
-  const branchOfPayment = (p: (typeof payments)[number]) =>
-    paymentEnrollmentId(student, p, { contracts, lessons: data.lessons }, data.teachers);
+  const branchOfPayment = (p: (typeof allPayments)[number]) =>
+    paymentEnrollmentId(student, p, { contracts: allContracts, lessons: data.lessons }, data.teachers);
+  // 2026-10-10 — branş seçiciyle (`?brans=`) daraltılmış görünüm: özet, borç ve hareketler yalnız seçili branşın satırlarıdır.
+  // Seçim yok = tüm branşlar (genel bakış). Kulüp ücretleri branş değildir; yalnız "tüm branşlar" görünümünde yer alır.
+  const selectedBranchId = multiBranch && brans && branchList.some((e) => e.id === brans) ? brans : undefined;
+  const showUnassignedOnly = multiBranch && brans === "__unassigned__";
+  const payments = selectedBranchId
+    ? allPayments.filter((p) => p.source !== "club" && !p.clubMembershipId && branchOfPayment(p) === selectedBranchId)
+    : showUnassignedOnly
+      ? allPayments.filter((p) => p.source !== "club" && !p.clubMembershipId && !branchOfPayment(p))
+      : allPayments;
+  const contracts = selectedBranchId
+    ? allContracts.filter((c) => contractEnrollmentId(student, c, data.teachers) === selectedBranchId)
+    : showUnassignedOnly
+      ? allContracts.filter((c) => !contractEnrollmentId(student, c, data.teachers))
+      : allContracts;
+  const paymentSummary = computeStudentPaymentSummary(payments, contracts);
+  const debt = splitStudentDebt(payments, new Set(contracts.filter((c) => isTerminalContractStatus(c.status)).map((c) => c.id)));
   const branchBreakdown = multiBranch
     ? computeBranchPaymentBreakdown({
-        payments,
-        contracts,
+        payments: allPayments,
+        contracts: allContracts,
         branches: branchList.map((e) => ({ id: e.id, label: branchName(e.id) })),
         paymentBranchOf: branchOfPayment,
         contractBranchOf: (c) => contractEnrollmentId(student, c, data.teachers),
@@ -70,7 +88,7 @@ export default async function StudentPaymentsTab({ params }: { params: Promise<{
     : [];
   const canAssign = canManage && kurum.scope.mode === "single";
   const branchOptions = branchList.map((e) => ({ id: e.id, label: branchName(e.id) }));
-  const branchTag = (p: (typeof payments)[number]) =>
+  const branchTag = (p: (typeof allPayments)[number]) =>
     multiBranch && p.source !== "club" && !p.clubMembershipId ? `${branchName(branchOfPayment(p))} · ` : "";
   const packages = data.packages ?? [];
   const studentPackage = packages.find((p) => p.id === student.packageId);

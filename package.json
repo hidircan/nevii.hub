@@ -16,6 +16,8 @@
     "preflight:test-seed": "npx tsx scripts/preflight-test-seed.ts",
     "verify:test-schema": "npx tsx scripts/verify-test-schema.ts",
     "validate:mobile-review-env": "npx tsx scripts/release/validate-mobile-review-env.ts",
+    "preflight:push": "npx tsx scripts/release/validate-push-release.ts",
+    "preflight:cost-efficiency": "npx tsx scripts/release/validate-cost-efficiency.ts",
     "test:release": "npx tsx --test scripts/release/*.test.ts",
     "verify:mobile-bundle": "npm --prefix apps/mobile run verify:mobile-bundle",
     "seed:demo-schedule": "npx tsx scripts/seed-demo-schedule.ts",

@@ -11,7 +11,9 @@
 
 import { effectiveStudentTypes } from "./student-types";
 import { isMebStudent, resolveMebExamStatus, type MebExamStatus } from "./meb";
-import type { Student, StudentType } from "./types";
+import { enrollmentTerms } from "./student-enrollments";
+import { hasMebStudentType } from "./types";
+import type { Student, StudentType, Teacher } from "./types";
 
 export type MebStudentSortKey = "name" | "level" | "mebLevelStartDate" | "mebLevelEndDate" | "mebExamDate";
 
@@ -39,6 +41,13 @@ export interface MebStudentQuery {
 
 export interface MebStudentListItem {
   id: string;
+  /**
+   * 2026-10-10 — MEB bilgileri BRANŞA özgüdür: öğrencinin MEB olan her branş kaydı AYRI satırdır. Branş kaydı olmayan
+   * (eski) öğrencide boştur ve satır öğrenci kaydından okunur.
+   */
+  enrollmentId?: string;
+  /** Satırın branşı (tek enstrüman). Branş kaydı olmayan öğrencide boş. */
+  instrument?: string;
   displayId?: string;
   name: string;
   branchId: string;
@@ -96,15 +105,67 @@ function compareDateOnly(a: string | undefined, b: string | undefined, dir: 1 | 
   return (a < b ? -1 : 1) * dir;
 }
 
-/** Saf filtre + kararlı sıralama + sayfalama (json/memory yolu + testler). */
-export function applyMebStudentQuery(students: Student[], input: MebStudentQuery): MebStudentListResult {
+/**
+ * Öğrenci → MEB satırları. Branş kaydı (kalıcı) olan öğrencide MEB türündeki HER branş ayrı satırdır ve değerler o
+ * branşın kendi kaydından okunur (öğrenci satırı yalnız aynadır, başka branşın MEB bilgisi için kaynak değildir).
+ * Kayıt olmayan eski öğrencide tek satır, öğrenci kaydından.
+ */
+export function mebRowsForStudent(s: Student, teachers?: Pick<Teacher, "id" | "name" | "instruments">[]): MebStudentListItem[] {
+  if (s.deletedAt) return [];
+  const list = s.enrollments ?? [];
+  if (list.length === 0) {
+    if (!isMebStudent(s)) return [];
+    return [
+      {
+        id: s.id,
+        displayId: s.displayId,
+        name: s.name,
+        branchId: s.branchId,
+        instruments: s.instruments,
+        teacherId: s.teacherId,
+        active: s.active,
+        studentTypes: effectiveStudentTypes(s),
+        level: s.level,
+        mebLevelStartDate: s.mebLevelStartDate,
+        mebLevelEndDate: s.mebLevelEndDate,
+        mebExamDate: s.mebExamDate,
+        mebExamAttended: s.mebExamAttended,
+      },
+    ];
+  }
+  const rows: MebStudentListItem[] = [];
+  for (const e of list) {
+    const t = enrollmentTerms(s, e, teachers);
+    if (!hasMebStudentType(t.studentTypes)) continue;
+    rows.push({
+      id: s.id,
+      enrollmentId: e.id,
+      instrument: t.instrument,
+      displayId: s.displayId,
+      name: s.name,
+      branchId: t.branchId ?? s.branchId,
+      instruments: [t.instrument] as Student["instruments"],
+      teacherId: t.teacherId ?? s.teacherId,
+      // Pasif öğrenci ya da sonlandırılmış branş → pasif satır (başka branşın durumu etkilenmez).
+      active: s.active && e.active,
+      studentTypes: t.studentTypes,
+      level: t.level,
+      mebLevelStartDate: t.mebLevelStartDate,
+      mebLevelEndDate: t.mebLevelEndDate,
+      mebExamDate: t.mebExamDate,
+      mebExamAttended: t.mebExamAttended,
+    });
+  }
+  return rows;
+}
+
+/** Satır kümesine filtre + kararlı sıralama + sayfalama (üç store modu AYNI fonksiyonu kullanır). */
+export function applyMebRowQuery(candidates: MebStudentListItem[], input: MebStudentQuery): MebStudentListResult {
   const q = normalizeMebQuery(input);
   const dir: 1 | -1 = q.sortDir === "desc" ? -1 : 1;
   const searchLower = q.search?.toLocaleLowerCase("tr");
 
-  const filtered = students.filter((s) => {
-    if (s.deletedAt) return false;
-    if (!isMebStudent(s)) return false;
+  const filtered = candidates.filter((s) => {
     if (q.active !== undefined && s.active !== q.active) return false;
     if (q.branchId && s.branchId !== q.branchId) return false;
     if (q.teacherId && s.teacherId !== q.teacherId) return false;
@@ -137,28 +198,23 @@ export function applyMebStudentQuery(students: Student[], input: MebStudentQuery
         primary = compareText(a.name, b.name, dir);
         break;
     }
-    // Kararlı sıralama: eşitlikte id tiebreak (sayfalar arası kayma yok).
+    // Kararlı sıralama: eşitlikte öğrenci + branş kimliği tiebreak (sayfalar arası kayma yok).
     if (primary !== 0) return primary;
-    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+    const ka = `${a.id}:${a.enrollmentId ?? ""}`;
+    const kb = `${b.id}:${b.enrollmentId ?? ""}`;
+    return ka < kb ? -1 : ka > kb ? 1 : 0;
   });
 
   const total = sorted.length;
   const start = (q.page - 1) * q.pageSize;
-  const rows = sorted.slice(start, start + q.pageSize).map((s) => ({
-    id: s.id,
-    displayId: s.displayId,
-    name: s.name,
-    branchId: s.branchId,
-    instruments: s.instruments,
-    teacherId: s.teacherId,
-    active: s.active,
-    studentTypes: effectiveStudentTypes(s),
-    level: s.level,
-    mebLevelStartDate: s.mebLevelStartDate,
-    mebLevelEndDate: s.mebLevelEndDate,
-    mebExamDate: s.mebExamDate,
-    mebExamAttended: s.mebExamAttended,
-  }));
+  return { rows: sorted.slice(start, start + q.pageSize), total, page: q.page, pageSize: q.pageSize };
+}
 
-  return { rows, total, page: q.page, pageSize: q.pageSize };
+/** Saf filtre + kararlı sıralama + sayfalama (json/memory yolu + testler). */
+export function applyMebStudentQuery(
+  students: Student[],
+  input: MebStudentQuery,
+  teachers?: Pick<Teacher, "id" | "name" | "instruments">[]
+): MebStudentListResult {
+  return applyMebRowQuery(students.flatMap((s) => mebRowsForStudent(s, teachers)), input);
 }

@@ -1,11 +1,11 @@
 export type TaskSegment = "open" | "today" | "week" | "overdue" | "completed";
 
-export const TASK_SEGMENTS: Array<{ key: TaskSegment; label: string }> = [
-  { key: "open", label: "Açık" },
-  { key: "today", label: "Bugün" },
-  { key: "week", label: "Yaklaşan" },
-  { key: "overdue", label: "Gecikmiş" },
-  { key: "completed", label: "Tamamlanan" },
+export const TASK_SEGMENTS: Array<{ key: TaskSegment; labelKey: string }> = [
+  { key: "open", labelKey: "tasks.segOpen" },
+  { key: "today", labelKey: "tasks.segToday" },
+  { key: "week", labelKey: "tasks.segWeek" },
+  { key: "overdue", labelKey: "tasks.segOverdue" },
+  { key: "completed", labelKey: "tasks.segCompleted" },
 ];
 
 const OPEN_STATUSES = ["TODO", "IN_PROGRESS", "BLOCKED"];

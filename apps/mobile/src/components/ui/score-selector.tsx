@@ -28,7 +28,7 @@ export function ScoreSelector({ label, value, onChange, max = 5 }: Props) {
                 { backgroundColor: selected ? t.colors.primary : t.colors.bgMuted, borderColor: selected ? t.colors.primary : t.colors.border },
               ]}
             >
-              <Text style={{ color: selected ? t.colors.primaryOn : t.colors.textMuted, fontWeight: "700" }}>{n}</Text>
+              <Text style={[t.typography.bodyStrong, { color: selected ? t.colors.primaryOn : t.colors.textMuted }]}>{n}</Text>
             </Pressable>
           );
         })}

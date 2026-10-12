@@ -4,11 +4,13 @@ import { apiPatch } from "../../../src/api/client";
 import { AppHeader, Card, EmptyState, ErrorState, Icon, LoadingSkeleton, Screen, StatusBadge } from "../../../src/components/ui";
 import { useApiGet } from "../../../src/hooks/use-api";
 import { relativeDayLabel } from "../../../src/lib/date";
+import { useLocale } from "../../../src/i18n/locale-context";
 import { useTheme } from "../../../src/theme/theme-context";
 import type { WorkflowsResponse } from "../../../src/types/api";
 
 export default function Workflows() {
   const t = useTheme();
+  const { t: tr } = useLocale();
   const res = useApiGet<WorkflowsResponse>("/api/v1/workflows");
   const [busyId, setBusyId] = useState<string | null>(null);
 
@@ -21,14 +23,14 @@ export default function Workflows() {
 
   return (
     <Screen>
-      <AppHeader title="Otomasyonlar" showBack showNotifications={false} />
+      <AppHeader title={tr("adm.wfTitle")} showBack showNotifications={false} />
 
       {res.status === "loading" ? (
         <LoadingSkeleton rows={4} />
       ) : res.status === "error" ? (
         <ErrorState message={res.message} onRetry={res.refresh} />
       ) : res.data.workflows.length === 0 ? (
-        <EmptyState icon="sync-outline" title="Otomasyon bulunamadı" />
+        <EmptyState icon="sync-outline" title={tr("adm.wfEmpty")} />
       ) : (
         <View style={{ gap: 10 }}>
           {res.data.workflows.map((w) => (
@@ -44,9 +46,9 @@ export default function Workflows() {
               ) : null}
               <View style={{ flexDirection: "row", gap: 8, marginTop: 8, alignItems: "center" }}>
                 {w.lastRunAt ? (
-                  <StatusBadge label={`Son çalışma: ${relativeDayLabel(new Date(w.lastRunAt))}`} tone={w.lastSuccess ? "success" : "danger"} />
+                  <StatusBadge label={tr("adm.wfLastRun", { v: relativeDayLabel(new Date(w.lastRunAt)) })} tone={w.lastSuccess ? "success" : "danger"} />
                 ) : (
-                  <StatusBadge label="Henüz çalışmadı" tone="neutral" />
+                  <StatusBadge label={tr("adm.wfNever")} tone="neutral" />
                 )}
               </View>
             </Card>

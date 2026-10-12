@@ -24,6 +24,7 @@ import type { AppData, Lesson, Payment, Student, Task } from "../types";
 import { isLiveObligation } from "../payment-profile";
 import { resolveLessonFinalStatus } from "../lesson-live-status";
 import { DEFAULT_APP_TIMEZONE, toZonedYmd } from "../timezone";
+import { isOwnStudent } from "../teacher-portal-scope";
 
 /**
  * DB egress (2026-09-30) — özetin OKUDUĞU alanlar. Ödemelerden yalnız toplam/vade/tahsilat için gereken
@@ -273,7 +274,7 @@ export function buildDashboardSummary(
   const teacherAttention: TeacherAttentionRow[] = [];
   for (const t of data.teachers) {
     if (!inBranch(t)) continue;
-    const assignedStudents = activeStudents.filter((s) => s.teacherId === t.id);
+    const assignedStudents = activeStudents.filter((s) => isOwnStudent(s, t.id));
     if (!t.active && assignedStudents.length > 0) {
       teacherAttention.push({
         teacherId: t.id,

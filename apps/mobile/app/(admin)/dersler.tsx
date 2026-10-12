@@ -1,10 +1,12 @@
 import { PlaceholderScreen } from "../../src/components/placeholder-screen";
+import { useLocale } from "../../src/i18n/locale-context";
 
 export default function AdminDersler() {
+  const { t: tr } = useLocale();
   return (
     <PlaceholderScreen
-      title="Yaklaşan dersler"
-      note="Admin için tüm şube/öğretmenler genelinde 'yaklaşan dersler' listesi, web panelinde program-studio.tsx içinde doğrudan store'dan üretiliyor. Mobil için bunu göstermek üzere yeni bir GET /api/v1/lessons?from=&to= (tenant-scoped, sayfalı) endpoint'i gerekiyor — henüz yok."
+      title={tr("adm.upcomingTitle")}
+      note={tr("adm.upcomingNote")}
     />
   );
 }

@@ -7,6 +7,7 @@
 import type { AppData, BranchId, DiscountType, LessonDurationPreference, Package, PackageStatus, StudentTermType } from "./types";
 import type { LessonDurationMinutes } from "./lesson-duration";
 import { uid } from "./utils";
+import { studentUsesPackage } from "./student-enrollments";
 
 export type PackageInput = {
   title: string;
@@ -241,7 +242,8 @@ export function computeMonthlyFee(params: {
 
 /** Bir paketi aktif olarak kullanan (arşivlenmemiş) öğrenci sayısı — tenant-scoped `data` üzerinden. */
 export function activeStudentCountForPackage(data: Pick<AppData, "students">, packageId: string): number {
-  return (data.students ?? []).filter((s) => s.packageId === packageId && s.active !== false && !s.archivedAt).length;
+  // 2026-10-10 — branşlı öğrencide paket BRANŞ kaydından okunur (aktif bir branşı bu paketi kullanıyorsa sayılır).
+  return (data.students ?? []).filter((s) => s.active !== false && !s.archivedAt && studentUsesPackage(s, packageId, { activeOnly: true })).length;
 }
 
 /**
@@ -280,7 +282,7 @@ export function computePackageDeletionImpact(
 ): PackageDeletionImpact | null {
   const pkg = (data.packages ?? []).find((p) => p.id === packageId);
   if (!pkg) return null;
-  const linked = data.students.filter((s) => s.packageId === packageId);
+  const linked = data.students.filter((s) => studentUsesPackage(s, packageId));
   const title = normTitle(pkg.title);
   const nameMatch = data.students.filter((s) => !s.packageId && title && normTitle(s.packageName) === title);
   const linkedActive = linked.filter((s) => s.active !== false && !s.deletedAt).length;

@@ -4,8 +4,9 @@
  * Kural (tahmin YOK):
  * - Kalıcı branş kaydı olmayan öğrencinin branşları eski alanlarından türetilip kalıcı yapılır (kimlik öğrenci +
  *   enstrümandan DETERMİNİSTİK — uygulama içi `ensurePersistedEnrollments` ile aynı kimlik).
- * - Öğrencinin TEK branşı varsa: tüm bağsız sözleşmeler, (kulüp dışı) ödemeler ve enstrümanı eşleşen ders/seriler o
- *   branşa bağlanır — belirsizlik yoktur.
+ * - Öğrencinin TEK branşı varsa: tüm bağsız sözleşmeler, yapısal sahibi belli ödemeler (kayıt ilk tahsilatı, sözleşme taksidi,
+ *   aylık plan, derse bağlı tahsilat) ve enstrümanı eşleşen ders/seriler o branşa bağlanır. Elle girilmiş genel ödemeler
+ *   (kitap, kira, cezai işlem…) OTOMATİK bağlanmaz (2026-10-10) — "genel" kalır, "Branşa bağla" ile açıkça bağlanır.
  * - Birden fazla branşı varsa YALNIZ açık ilişkiden bağlanır: ders/seri → enstrümanı (gerekirse öğretmeni) TEK branşla
  *   eşleşiyorsa; sözleşme → kendisinden üretilmiş serilerin hepsi aynı branşa çözülüyorsa (sürüm zinciriyle);
  *   ödeme → sözleşmesinin veya kaynak dersinin branşı. Kalan her şey "belirsiz" olarak RAPORLANIR ve değişmez;
@@ -24,9 +25,9 @@ import "dotenv/config";
 import { writeFileSync } from "fs";
 import { prisma } from "../src/lib/db";
 import { materializedEnrollmentId } from "../src/lib/enrollment-links";
-import { effectiveEnrollments, lessonEnrollmentId, primaryFieldsFromEnrollments } from "../src/lib/student-enrollments";
+import { effectiveEnrollments, isAutoLinkablePaymentSource, lessonEnrollmentId, primaryFieldsFromEnrollments } from "../src/lib/student-enrollments";
 import type { Prisma } from "@prisma/client";
-import type { Instrument, Student, StudentEnrollment } from "../src/lib/types";
+import type { Instrument, Payment, Student, StudentEnrollment } from "../src/lib/types";
 
 type Ambiguous = { tenantId: string; studentId: string; studentName: string; kind: "contract" | "payment" | "lesson" | "series"; id: string; detail: string };
 
@@ -118,7 +119,12 @@ async function main() {
       if (list.length === 1) {
         const only = list[0]!;
         for (const c of myContracts) if (!c.enrollmentId) add(only.id, "contracts", c.id);
-        for (const p of myPayments) add(only.id, "payments", p.id);
+        // 2026-10-10 — yalnız YAPISAL olarak sahibi belli ödeme kaynakları (sözleşme taksidi, kayıt ilk tahsilatı, aylık plan, derse
+        // bağlı tahsilat) otomatik bağlanır; elle girilmiş genel satırlar (kitap, kira, cezai işlem…) bir branşa ait olmayabilir:
+        // "genel" kalır ve uygulamada "Branşa bağla" ile AÇIKÇA bağlanır (finansal tahmin yok).
+        for (const p of myPayments) {
+          if (isAutoLinkablePaymentSource(p.source as Payment["source"])) add(only.id, "payments", p.id);
+        }
         for (const l of myLessons) {
           if (l.enrollmentId || l.type === "group" || l.clubSessionId) continue;
           if (l.instrument === only.instrument) add(only.id, "lessons", l.id);

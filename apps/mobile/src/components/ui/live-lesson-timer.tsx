@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Text, View } from "react-native";
+import { useLocale } from "../../i18n/locale-context";
 import { useTheme } from "../../theme/theme-context";
 import { Icon } from "./icon";
 
@@ -23,6 +24,7 @@ type Props = {
 /** Devam eden bir ders için canlı geçen süre — saniyede bir yerel olarak tikler, kaynak HER ZAMAN sunucu actualStartAt'ıdır. */
 export function LiveLessonTimer({ actualStartAt, scheduledEndAt }: Props) {
   const t = useTheme();
+  const { t: tr } = useLocale();
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
@@ -45,7 +47,7 @@ export function LiveLessonTimer({ actualStartAt, scheduledEndAt }: Props) {
         {formatElapsed(now - startMs)}
       </Text>
       {overtime ? (
-        <Text style={[t.typography.caption, { color: t.colors.warning }]}>Planlanan süre doldu</Text>
+        <Text style={[t.typography.caption, { color: t.colors.warning }]}>{tr("ui.overtimeDone")}</Text>
       ) : null}
     </View>
   );

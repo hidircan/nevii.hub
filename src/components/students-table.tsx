@@ -25,9 +25,16 @@ export type StudentRow = {
   name: string;
   branchName?: string;
   instruments: string[];
+  /** Öğretmen/paket/ücret/seviye: çok branşlı öğrencide ilk branşın değil TÜM aktif branşların özeti. */
   teacherName?: string;
   packageName: string;
   monthlyFee: number;
+  /** Filtreler için aktif branşların öğretmen/paket/seviye listeleri (tek branşlıda tek elemanlı). */
+  teacherNames?: string[];
+  packageNames?: string[];
+  levels?: string[];
+  /** Çok branşlı öğrenci: her aktif branşın tek satırlık özeti (liste hücresinde alt alta). */
+  branchLines?: string[];
   active: boolean;
   /** Faz 1B — öğrenci birden fazla türe sahip olabilir; boş dizi = belirtilmemiş. */
   studentTypes: string[];
@@ -389,10 +396,10 @@ export function StudentsTable({
 
   const branchOptions = useMemo(() => uniqueSorted(rows.map((r) => r.branchName)), [rows]);
   const typeOptions = useMemo(() => uniqueSorted(rows.flatMap((r) => r.studentTypes)), [rows]);
-  const packageOptions = useMemo(() => uniqueSorted(rows.map((r) => r.packageName)), [rows]);
-  const teacherOptions = useMemo(() => uniqueSorted(rows.map((r) => r.teacherName)), [rows]);
+  const packageOptions = useMemo(() => uniqueSorted(rows.flatMap((r) => r.packageNames ?? [r.packageName])), [rows]);
+  const teacherOptions = useMemo(() => uniqueSorted(rows.flatMap((r) => r.teacherNames ?? [r.teacherName])), [rows]);
   const methodOptions = useMemo(() => uniqueSorted(rows.map((r) => r.educationMethod)), [rows]);
-  const levelOptions = useMemo(() => uniqueSorted(rows.map((r) => r.level)), [rows]);
+  const levelOptions = useMemo(() => uniqueSorted(rows.flatMap((r) => r.levels ?? [r.level])), [rows]);
   const creatorOptions = useMemo(() => uniqueSorted(rows.map((r) => r.createdByName ?? LEGACY_CREATOR_LABEL)), [rows]);
 
   const groups: FilterGroup[] = [
@@ -497,10 +504,10 @@ export function StudentsTable({
     if (statusFilter === "inactive" && row.active) return false;
     if (typeFilter.length && !row.studentTypes.some((t) => typeFilter.includes(t))) return false;
     if (branchFilter.length && !(row.branchName && branchFilter.includes(row.branchName))) return false;
-    if (packageFilter.length && !packageFilter.includes(row.packageName)) return false;
-    if (teacherFilter.length && !(row.teacherName && teacherFilter.includes(row.teacherName))) return false;
+    if (packageFilter.length && !(row.packageNames ?? [row.packageName]).some((n) => packageFilter.includes(n))) return false;
+    if (teacherFilter.length && !(row.teacherNames ?? [row.teacherName]).some((n) => n && teacherFilter.includes(n))) return false;
     if (methodFilter.length && !(row.educationMethod && methodFilter.includes(row.educationMethod))) return false;
-    if (levelFilter.length && !(row.level && levelFilter.includes(row.level))) return false;
+    if (levelFilter.length && !(row.levels ?? [row.level]).some((l) => l && levelFilter.includes(l))) return false;
     if (paymentFilter.length && !paymentFilter.includes(row.paymentStatus)) return false;
     if (creatorFilter.length && !creatorFilter.includes(row.createdByName ?? LEGACY_CREATOR_LABEL)) return false;
     if (extraFilters.some((f) => f.selected.length && !f.value(row).some((v) => f.selected.includes(v)))) return false;
@@ -1055,16 +1062,28 @@ export function StudentsTable({
                           ) : (
                             <span className="text-xs text-[var(--color-text-muted)]">Belirtilmemiş</span>
                           )}
-                          {s.level ? <p className="mt-1 text-xs text-[var(--color-text-muted)]">Seviye: {s.level}</p> : null}
+                          {s.branchLines ? (
+                            <ul className="mt-1 space-y-0.5 text-xs text-[var(--color-text-muted)]">
+                              {s.branchLines.map((l) => (
+                                <li key={l}>{l}</li>
+                              ))}
+                            </ul>
+                          ) : s.level ? (
+                            <p className="mt-1 text-xs text-[var(--color-text-muted)]">Seviye: {s.level}</p>
+                          ) : null}
                         </>
                       ) : key === "instruments" ? (
                         s.instruments.map((i) => <Badge key={i}>{i}</Badge>)
                       ) : key === "teacher" ? (
-                        <span className="text-[var(--color-text)]">{s.teacherName}</span>
+                        <span className="text-[var(--color-text)]">{(s.teacherNames ?? [s.teacherName]).filter(Boolean).join(", ")}</span>
                       ) : key === "package" ? (
-                        <span className="text-[var(--color-text-muted)]">{s.packageName.split("—")[0]?.trim() ?? s.packageName}</span>
+                        <span className="text-[var(--color-text-muted)]">
+                          {s.packageNames && s.packageNames.length > 1
+                            ? s.packageNames.map((n) => n.split("—")[0]?.trim() ?? n).join(", ")
+                            : (s.packageName.split("—")[0]?.trim() ?? s.packageName)}
+                        </span>
                       ) : key === "level" ? (
-                        <span className="text-[var(--color-text-muted)]">{s.level ?? "—"}</span>
+                        <span className="text-[var(--color-text-muted)]">{(s.levels ?? [s.level]).filter(Boolean).join(", ") || "—"}</span>
                       ) : key === "method" ? (
                         <span className="text-[var(--color-text-muted)]">{s.educationMethod ?? "—"}</span>
                       ) : key === "payment" ? (
@@ -1080,7 +1099,9 @@ export function StudentsTable({
                           ) : null}
                         </span>
                       ) : key === "monthlyFee" ? (
-                        <span className="text-[var(--color-text-muted)]">{s.monthlyFee.toLocaleString("tr-TR")} ₺</span>
+                        <span className="text-[var(--color-text-muted)]" title={s.branchLines?.join("\n")}>
+                          {s.monthlyFee.toLocaleString("tr-TR")} ₺{s.branchLines ? ` (${s.branchLines.length} branş toplamı)` : ""}
+                        </span>
                       ) : key === "contract" ? (
                         (() => {
                           const state = resolveContractFilterKey(s, today);

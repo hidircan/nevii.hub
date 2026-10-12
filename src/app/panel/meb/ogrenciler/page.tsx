@@ -109,7 +109,7 @@ export default async function MebOgrencilerPage({
       <KurumScopeNote scope={kurum.scope} />
       <PageHeader
         title="MEB Öğrenci Listesi"
-        description="Yalnız MEB öğrencileri — seviye, dönem tarihleri ve sınav bilgileri."
+        description="Yalnız MEB olan branş kayıtları — seviye, dönem tarihleri ve sınav bilgileri. Birden fazla branşı MEB olan öğrenci her branşı için ayrı satırda görünür."
         actions={
           <Link
             href="/panel/meb"

@@ -1,4 +1,5 @@
 import { StyleSheet, Text, View } from "react-native";
+import { useLocale } from "../../i18n/locale-context";
 import { format } from "../../lib/date";
 import { useTheme } from "../../theme/theme-context";
 import { Avatar } from "./avatar";
@@ -19,6 +20,7 @@ function scoreTone(score: number): "success" | "info" | "warning" {
 
 export function StudentCard({ student, onPress }: Props) {
   const t = useTheme();
+  const { t: tr } = useLocale();
   const subtitleParts = [student.studentType, student.instrument, student.level].filter(Boolean);
 
   return (
@@ -36,13 +38,13 @@ export function StudentCard({ student, onPress }: Props) {
           ) : null}
           <View style={styles.badgeRow}>
             {typeof student.score === "number" ? (
-              <StatusBadge label={`Skor: ${student.score}`} tone={scoreTone(student.score)} />
+              <StatusBadge label={tr("cards.score", { n: student.score })} tone={scoreTone(student.score)} />
             ) : null}
             {student.nextLessonAt ? (
-              <StatusBadge label={`Sonraki ders: ${format(new Date(student.nextLessonAt), "HH:mm")}`} tone="info" />
+              <StatusBadge label={tr("cards.nextLesson", { t: format(new Date(student.nextLessonAt), "HH:mm") })} tone="info" />
             ) : null}
             {student.homeworkPendingCount ? (
-              <StatusBadge label={`${student.homeworkPendingCount} bekleyen ödev`} tone="warning" />
+              <StatusBadge label={tr("ui.pendingHomework", { n: student.homeworkPendingCount })} tone="warning" />
             ) : null}
           </View>
         </View>
