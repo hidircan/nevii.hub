@@ -4,7 +4,16 @@ Kısa tutulur (~50 satır): oturum sonunda yalnız "Güncel snapshot" bölümün
 `archive/`'e taşınır. Ayrıntı → ilgili `docs/testing/UAT_*.md`, `docs/operations/*`. Yönlendirici: `nevii-hub` skill.
 Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_2026-09-24.md`.
 
-## Güncel snapshot — 2026-10-10 geç (gece tahakkuk cron'u P2002; PR #22 MERGE + CANLIDA, prod `78d81bb`)
+## Güncel snapshot — 2026-10-13 (kota denetimi + `perf/quota-p1`; PR açık, MERGE/CANLI YOK — owner sürüm onayı bekliyor)
+- Rapor: `docs/performance/QUOTA_AUDIT_2026_10_12.md`. Vercel Active CPU 3 sa 53 dk / 4 sa; Supabase 8,79 / 5 GB, 11 Ekim tek gün
+  1,185 GB (PR #21 sonrası, öncesinden YÜKSEK → etkisi kanıtsız). Kasım bütçesi ≈ 170 MB/gün; Supabase'te ikinci grace yok.
+- Owner SQL: dosya kolonları canlıda ~boş (yalnız DocumentInstance 126 / 2,6 MB); Student 233 × 459 B ama her dilimde okunuyor.
+- Dal `perf/quota-p1` (taban `origin/main` 174bb2b): `store-db.readData()` ölçüm satırı `egress:readData:full`; evrak listeleri
+  `fileData`/`renderedHtml` okumuyor; 3 portal sayfası `readStudentScope`. Migration/şema/env değişikliği YOK.
+- Sıradaki: deploy sonrası okul saatinde `get_runtime_logs group_by requestPath query egress:readData:full` → en sık 3 rota dilime;
+  Student kolon daraltma; `notification-tick` secret'ları sweep daraltılmadan EKLENMEZ; mobil yayın öncesi `admin-lists` daraltılır.
+
+## Snapshot — 2026-10-10 geç (gece tahakkuk cron'u P2002; PR #22 MERGE + CANLIDA, prod `78d81bb`)
 - Dal `claude/jovial-perlman-4440c2` (taban `origin/main` cf12bc0). Migration/şema/env değişikliği YOK.
 - `monthly-accrual` cron'u platform tenant'ını atlar; kurum başına try/catch + `logger.error`; yanıtta
   `failed`/`failures`, hata varsa HTTP 500. `store-db.readData()` okul yoksa canlıda (`VERCEL_ENV`/
