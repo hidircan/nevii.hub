@@ -2,7 +2,7 @@ import Link from "@/components/link";
 import { redirect } from "next/navigation";
 import { FileText } from "lucide-react";
 import { BackButton } from "@/components/back-button";
-import { readData } from "@/lib/store";
+import { readStudentScope } from "@/lib/store";
 import { requireSessionContext } from "@/lib/auth/session";
 import { listAssessmentsForStudentTool } from "@/lib/services";
 import { computeOverallScore } from "@/lib/assessment/score";
@@ -26,7 +26,8 @@ export default async function TeacherAssessmentFormPage({
     redirect(`/login?next=/ogretmen/degerlendirme/${studentId}`);
   }
 
-  const data = await readData();
+  // Kota (2026-10-13): yalnız bu öğrencinin dersleri gerekir → tek öğrenci dilimi (tam okuma değil).
+  const data = await readStudentScope(studentId);
   const teacherId = session.teacherId || "t1";
   const teacher = data.teachers.find((t) => t.id === teacherId);
   const student = data.students.find((s) => s.id === studentId);

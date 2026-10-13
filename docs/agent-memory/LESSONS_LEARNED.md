@@ -1511,3 +1511,11 @@ Aynı turda: `validateLessonSlot` oda `active`'ini hiç okumuyordu → telafi pa
 - Ders: okuma yolunda yazan geri düşüş (seed/varsayılan oluştur) canlıda fail-closed olmalı (`readData` tek kapı).
   Tenant döngüsü yapan her iş platform tenant'ını hariç tutar (`institution/context.ts` deseni) ve kurum başına
   try/catch + log + yanıtta hata sayısı ile çalışır; hata varsa non-2xx döner ki cron başarısız görünsün.
+
+## 2026-10-13 — Kota denetimi yerel `main` üzerinde başladı; canlı kod 433 dosya ilerideydi
+- Yerel `main` (cf12bc0) güncellenmemişti; canlı `origin/main` 174bb2b'de 11 Ekim'de çoklu branş v2, mobil uçlar ve yeni tam okumalar vardı.
+  İlk bulgu taraması yanlış kod tabanında yapıldı, Vercel `list_deployments` ile fark edildi.
+- Bench fixture'ında ödev/teslim/materyal satırı 0 olduğu için dosya kolonlu tablolar ölçümde görünmüyordu; `pg_stat_statements`
+  satır sayısıyla sıraladığı için az ama büyük satırlar da gizleniyordu. Varsayım yerine owner'a boyut SQL'i çalıştırıldı.
+- Ders: performans/kota denetiminden önce `list_deployments target=production` ile canlı commit'i bul ve `git fetch` + o commit'te çalış;
+  "büyük satır" şüphesini `sum(octet_length(...))` ile canlıda doğrulamadan öncelik verme.

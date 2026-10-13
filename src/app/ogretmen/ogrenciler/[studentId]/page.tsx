@@ -9,7 +9,7 @@ import {
   User,
 } from "lucide-react";
 import { BackButton } from "@/components/back-button";
-import { readData } from "@/lib/store";
+import { readStudentScope } from "@/lib/store";
 import { requireSessionContext } from "@/lib/auth/session";
 import { findOwnStudent, ownStudentLessons } from "@/lib/teacher-portal-scope";
 import {
@@ -61,7 +61,8 @@ export default async function TeacherStudentWorkspacePage({
   }
   if (session.role === "STUDENT") redirect("/ogrenci");
 
-  const data = await readData();
+  // Kota (2026-10-13): ekran yalnız bu öğrencinin ders/yoklama satırlarına bakar → tek öğrenci dilimi (tam okuma değil).
+  const data = await readStudentScope(studentId);
   // Oturum teacherId yoksa (admin demo) rastgele öğretmen düşme — erişim yok.
   const teacherId = session.teacherId;
   if (!teacherId) {
