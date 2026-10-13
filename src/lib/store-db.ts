@@ -1161,6 +1161,9 @@ export function mapDbPayment(payment: Prisma.PaymentGetPayload<object>): import(
 }
 
 export async function readData(): Promise<AppData> {
+  // Kota ölçümü (2026-10-13): tenant'ın TÜM verisini okuyan her çağrı tek sabit satır yazar (PII yok). Vercel runtime
+  // log'larında `requestPath`'e göre sayılarak hangi ekranın tam okuma yaptığı bulunur (docs/performance/QUOTA_AUDIT_2026_10_12.md).
+  logger.info("egress:readData:full");
   const tid = tenantId();
   const [school, packages, discountCampaigns, teacherPayoutPolicies, teacherPayoutExclusions, closedDayOverrides] = await Promise.all([
     prisma.school.findFirst({ where: { tenantId: tid }, include: schoolInclude }),

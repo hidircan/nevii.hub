@@ -815,7 +815,7 @@ type DbInstanceRow = {
   trialLessonId: string | null;
   branchId: string | null;
   fieldValues: unknown;
-  renderedHtml: string | null;
+  renderedHtml?: string | null; // liste sorgularında okunmaz (LIST_OMIT)
   printCount: number;
   createdBy: string;
   createdAt: Date;
@@ -885,17 +885,25 @@ export type DocumentInstanceFilters = {
 
 /** Evraklar Merkezi ana tablosu — kurumun TÜM evrak örnekleri, isteğe bağlı filtrelerle. */
 /**
- * Ham dosya baytını (`fileData`) YANITTAN ÇIKARIR — liste görünümü yalnızca
+ * Ham dosya baytını (`fileData`) ve belge gövdesini (`renderedHtml`) YANITTAN ÇIKARIR — liste görünümü yalnızca
  * metadata'ya (fileName/fileMimeType/fileSize/signedUploadedAt) ihtiyaç
  * duyar; ham içerik yalnızca tekil `getDocumentInstance` (dosya indirme
  * rotasının okuduğu AYNI fonksiyon) üzerinden, sahiplik kontrolü geçtikten
  * sonra erişilebilir olmalı (kural E).
  */
 function stripFileData(doc: DocumentInstance): DocumentInstance {
-  const { fileData: _fd, ...rest } = doc;
+  const { fileData: _fd, renderedHtml: _html, ...rest } = doc;
   void _fd;
+  void _html;
   return rest;
 }
+
+/**
+ * Kota (2026-10-13): liste sorguları ağır kolonları DB'den hiç OKUMAZ — `fileData` (imzalı dosya) ve `renderedHtml`
+ * (belge gövdesi) yalnız tekil `getDocumentInstance` (detay/yazdırma/indirme) içindir; hiçbir liste tüketicisi
+ * kullanmıyor. Canlıda 126 belge ≈ 2,6 MB idi (QUOTA_AUDIT_2026_10_12.md).
+ */
+const LIST_OMIT = { fileData: true, renderedHtml: true } as const;
 
 export async function listDocumentInstances(
   tenantId: string,
@@ -916,6 +924,7 @@ export async function listDocumentInstances(
           : {}),
       },
       orderBy: { createdAt: "desc" },
+      omit: LIST_OMIT,
     });
     return rows.map(mapDbInstance).map(stripFileData);
   }
@@ -1146,6 +1155,7 @@ export async function listDocumentsForStudent(
     const rows = await prisma.documentInstance.findMany({
       where: { tenantId, studentId, status: { not: DELETED_DOCUMENT_STATUS } },
       orderBy: { createdAt: "desc" },
+      omit: LIST_OMIT,
     });
     return rows.map(mapDbInstance).map(stripFileData);
   }

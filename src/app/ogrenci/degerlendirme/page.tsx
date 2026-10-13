@@ -4,7 +4,7 @@ import { PORTAL_RECORD_MISSING_REDIRECT } from "@/lib/auth/portal-record-missing
 import { ArrowLeft } from "lucide-react";
 import { requireSessionContext } from "@/lib/auth/session";
 import { getPortalPageStudentId } from "@/lib/portal-context";
-import { readData } from "@/lib/store";
+import { readStudentScope } from "@/lib/store";
 import { getOwnTeacherFeedbackThisMonthTool } from "@/lib/services";
 import { TeacherFeedbackCards, type EligibleTeacher } from "@/components/teacher-feedback-cards";
 import { formatDate } from "@/lib/utils";
@@ -29,7 +29,8 @@ export default async function StudentTeacherFeedbackPage() {
   // 10. tur iş #1 — çözümlenmiş aktif öğrenci bağlamı.
   const studentId = await getPortalPageStudentId(session);
   if (!studentId) redirect(PORTAL_RECORD_MISSING_REDIRECT);
-  const data = await readData();
+  // Kota (2026-10-13): sayfa yalnız bu öğrencinin derslerine bakar → tek öğrenci dilimi (tam okuma değil).
+  const data = await readStudentScope(studentId);
   const student = data.students.find((s) => s.id === studentId);
   if (!student || (session.role === "STUDENT" && (!student.active || student.deletedAt))) {
     redirect(PORTAL_RECORD_MISSING_REDIRECT);
