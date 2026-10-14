@@ -51,6 +51,7 @@ import {
   reactivateStudentPortalAccessTool,
   sendStudentPortalPasswordResetTool,
   getTeacherAccountStatusTool,
+  changeTeacherPortalEmailTool,
   setTeacherAccountActiveTool,
   sendTeacherPasswordResetTool,
   getStaffAccountStatusTool,
@@ -2036,6 +2037,24 @@ export async function actionSendStudentPortalPasswordReset(input: { studentId: s
 export type TeacherAccountStatusResult =
   | { ok: true; status: import("./services/tools").TeacherAccountStatusSummary }
   | { ok: false; message: string };
+
+/** 2026-10-14 — öğretmen portal giriş e-postası (yalnız kurum sahibi; yetki tool'da). */
+export async function actionChangeTeacherPortalEmail(input: {
+  teacherId: string;
+  newEmail: string;
+  confirm: true;
+}): Promise<{ ok: true; mode: "pending_invitation_updated" | "verification_sent"; newEmail: string; delivered: boolean } | { ok: false; message: string }> {
+  try {
+    const result = await withAuthContext("actionChangeTeacherPortalEmail", (ctx) => changeTeacherPortalEmailTool(ctx, input));
+    if (!result.ok) return { ok: false, message: result.error.message };
+    revalidateAll();
+    return { ok: true, mode: result.data.mode, newEmail: result.data.newEmail, delivered: result.data.delivered };
+  } catch (error) {
+    logger.error("actionChangeTeacherPortalEmail failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "Portal e-postası değiştirilirken beklenmeyen bir hata oluştu. Sayfayı yenileyip tekrar deneyin." };
+  }
+}
 
 export async function actionGetTeacherAccountStatus(input: { teacherId: string }): Promise<TeacherAccountStatusResult> {
   try {
