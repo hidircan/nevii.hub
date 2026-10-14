@@ -12,6 +12,8 @@ import { computeTeacherPerformanceReportV2 } from "@/lib/teacher-performance-v2"
 import { AiInsightTrigger } from "@/components/ai/ai-insight-trigger";
 import { TeacherListView } from "@/components/teacher-list-view";
 import { TEACHER_ROW_GRID } from "@/lib/teacher-list-filter";
+import { isActiveStudent } from "@/lib/payment-scope";
+import { activeTeacherIdsOf } from "@/lib/teacher-portal-scope";
 
 export const dynamic = "force-dynamic";
 
@@ -75,7 +77,12 @@ export default async function OgretmenlerPage() {
     if (t >= weekStart.getTime() && t < weekEnd) weekLessonCount.set(l.teacherId, (weekLessonCount.get(l.teacherId) ?? 0) + 1);
   }
   const activeStudentCount = new Map<string, number>();
-  for (const s of data.students) if (s.active && s.teacherId) activeStudentCount.set(s.teacherId, (activeStudentCount.get(s.teacherId) ?? 0) + 1);
+  // 2026-10-14 — detaydaki Öğrenciler sekmesiyle AYNI kural: aktif + silinmemiş öğrenci, aktif eğitim ilişkisi (çok branşlı
+  // öğrenci her aktif öğretmeninde bir kez sayılır; yalnız öğrenci satırındaki `teacherId` aynasına bakılmaz).
+  for (const s of data.students) {
+    if (!isActiveStudent(s)) continue;
+    for (const tid of activeTeacherIdsOf(s)) activeStudentCount.set(tid, (activeStudentCount.get(tid) ?? 0) + 1);
+  }
   const teachersWithFee = new Set(data.teacherFeeRules.map((r) => r.teacherId));
 
   // Detay "Özet" sekmesindeki uyarılarla aynı kurallar — listede yalnız aktif öğretmenler için.

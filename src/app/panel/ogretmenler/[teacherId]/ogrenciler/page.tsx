@@ -3,13 +3,13 @@ import { notFound } from "next/navigation";
 import { Badge, Card, EmptyState, Pagination, clampPage } from "@/components/ui";
 import { TeacherStudentsArchiveAction } from "@/components/teacher-students-archive-action";
 import { loadTeacherPageContext } from "../_context";
-import { isOwnStudent } from "@/lib/teacher-portal-scope";
+import { isActiveOwnStudent } from "@/lib/teacher-portal-scope";
 
 export const dynamic = "force-dynamic";
 
 const STUDENTS_PAGE_SIZE = 10;
 
-/** Bu öğretmene atanmış öğrenci listesi. */
+/** Bu öğretmenin AKTİF öğrencileri (2026-10-14: pasif/arşivli/silinmiş ve kapanmış branş ilişkisi listelenmez; sayaç ve sayfalama aynı listeden). */
 export default async function TeacherStudentsTab({
   params,
   searchParams,
@@ -23,7 +23,7 @@ export default async function TeacherStudentsTab({
   if (!teacher) notFound();
 
   const students = data.students
-    .filter((s) => isOwnStudent(s, teacher.id))
+    .filter((s) => isActiveOwnStudent(s, teacher.id))
     .sort((a, b) => a.name.localeCompare(b.name, "tr"));
   const totalPages = Math.max(1, Math.ceil(students.length / STUDENTS_PAGE_SIZE));
   const page = clampPage(sayfa, totalPages);
@@ -39,12 +39,12 @@ export default async function TeacherStudentsTab({
         <TeacherStudentsArchiveAction
           teacherId={teacher.id}
           teacherName={teacher.name}
-          activeStudentCount={students.filter((s) => s.active).length}
+          activeStudentCount={students.length}
         />
       ) : null}
 
       {students.length === 0 ? (
-        <EmptyState title="Atanmış öğrenci yok" />
+        <EmptyState title="Aktif öğrenci yok" />
       ) : (
         <>
           <div className="space-y-2">
@@ -58,7 +58,7 @@ export default async function TeacherStudentsTab({
                         {s.instruments.join(", ") || s.packageName.split("—")[0]?.trim() || "—"}
                       </p>
                     </div>
-                    <Badge status={s.active ? "confirmed" : "cancelled"}>{s.active ? "Aktif" : "Pasif"}</Badge>
+                    <Badge status="confirmed">Aktif</Badge>
                   </div>
                 </Card>
               </Link>
