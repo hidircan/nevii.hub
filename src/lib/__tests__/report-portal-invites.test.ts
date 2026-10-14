@@ -8,7 +8,8 @@ import {
   describeFeedbackInviteTool,
   submitTeacherFeedbackViaInviteTool,
 } from "../services/tools";
-import { FEEDBACK_INVITES_FILE, createInvite, resolveInvite } from "../feedback-invites";
+import { FEEDBACK_INVITES_FILE, createInvite, resolveInvite, maskStudentName } from "../feedback-invites";
+import { submitTeacherFeedback } from "../teacher-feedback";
 import { TEACHER_FEEDBACK_FILE_PATH, findTeacherFeedbackThisMonth } from "../teacher-feedback";
 import { __resetRateLimitForTests } from "../rate-limit";
 import { NOTIFICATIONS_FILE, listNotificationsForUser } from "../notifications";
@@ -106,5 +107,29 @@ describe("bağlantıyla değerlendirme", () => {
     let last;
     for (let i = 0; i < 11; i++) last = await submitTeacherFeedbackViaInviteTool(code, { teacherId: "t_yok", scores: SCORES }, "ip3");
     expect(last && !last.ok && last.error.code).toBe("RATE_LIMITED");
+  });
+});
+
+describe("güvenlik incelemesi düzeltmeleri", () => {
+  it("portaldan bu ay gelmiş değerlendirmenin üzerine yazılmaz", async () => {
+    await submitTeacherFeedback({
+      tenantId: DEFAULT_TENANT_ID, teacherId: "t1", studentId: "s1", submittedBy: "u_veli", submitterRole: "PARENT",
+      scores: { clarity: 1, communication: 1, effectiveness: 1, motivation: 1, punctuality: 1 },
+    });
+    const code = codeOf((await newLink()).url);
+    const r = await submitTeacherFeedbackViaInviteTool(code, { teacherId: "t1", scores: SCORES }, "ip4");
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.message).toMatch(/portal/);
+    const fb = await findTeacherFeedbackThisMonth(DEFAULT_TENANT_ID, "s1", "t1");
+    expect(fb?.submittedBy).toBe("u_veli");
+    expect(fb?.scores.clarity).toBe(1);
+  });
+
+  it("bağlantı sayfası soyadı maskeler", async () => {
+    expect(maskStudentName("Zeynep Ayşe Arslan")).toBe("Zeynep Ayşe A.");
+    expect(maskStudentName("Ali")).toBe("Ali");
+    const code = codeOf((await newLink()).url);
+    const d = await describeFeedbackInviteTool(code);
+    if (d.ok && "studentName" in d.data) expect(d.data.studentName).toMatch(/ [A-ZÇĞİÖŞÜ]\.$/);
   });
 });

@@ -12065,7 +12065,8 @@ async function loadInviteTeachers(
     .filter((t): t is NonNullable<typeof t> => Boolean(t))
     .map((t) => ({ id: t.id, name: t.name, instruments: t.instruments as string[], done: invite.completedTeacherIds.includes(t.id) }))
     .sort((a, b) => a.name.localeCompare(b.name, "tr"));
-  return { studentName: student.name, teachers };
+  const { maskStudentName } = await import("../feedback-invites");
+  return { studentName: maskStudentName(student.name), teachers };
 }
 
 const inviteFeedbackSchema = submitTeacherFeedbackSchema.omit({ studentId: true }).extend({ teacherId: z.string().min(1) });
@@ -12080,7 +12081,7 @@ export async function submitTeacherFeedbackViaInviteTool(
   clientKey: string
 ): Promise<ServiceResult<{ feedbackId: string; remaining: number }>> {
   const { consumeRateLimit } = await import("../rate-limit");
-  const { resolveInvite, hashInviteCode, markInviteTeacherCompleted } = await import("../feedback-invites");
+  const { resolveInvite, hashInviteCode, markInviteTeacherCompleted, releaseInviteTeacher } = await import("../feedback-invites");
   if (!consumeRateLimit("feedback-invite", `${clientKey}:${hashInviteCode(code).slice(0, 16)}`, { windowMs: 600_000, max: 10 })) {
     return fail("RATE_LIMITED", "Kısa sürede çok fazla deneme yapıldı. Lütfen 10 dakika sonra tekrar deneyin.");
   }
@@ -12099,7 +12100,15 @@ export async function submitTeacherFeedbackViaInviteTool(
     if (!target) {
       return fail("FORBIDDEN", "Bu öğretmeni bu bağlantıyla değerlendiremezsiniz: öğrencinin kayıtlı branş öğretmeni değil ve son 90 günde dersi yok.");
     }
-    if (target.done) return fail("CONFLICT", `${target.name} için değerlendirmeniz zaten alındı. Teşekkür ederiz.`);
+    const alreadyDone = `${target.name} için değerlendirmeniz zaten alındı. Teşekkür ederiz.`;
+    if (target.done) return fail("CONFLICT", alreadyDone);
+    // Güvenlik incelemesi: önce atomik yer ayırtma (eşzamanlı iki gönderimden yalnız biri geçer).
+    if (!(await markInviteTeacherCompleted(invite.id, target.id))) return fail("CONFLICT", alreadyDone);
+    // Bu ay portaldan (öğrenci/veli oturumuyla) gelmiş değerlendirmenin ÜZERİNE YAZILMAZ.
+    const existing = await findTeacherFeedbackThisMonth(invite.tenantId, invite.studentId, target.id);
+    if (existing && !existing.submittedBy.startsWith("invite:")) {
+      return fail("CONFLICT", `${target.name} için bu ay öğrenci portalından bir değerlendirme zaten gönderilmiş; tekrar göndermenize gerek yok.`);
+    }
 
     try {
       const { feedback } = await submitTeacherFeedback({
@@ -12112,7 +12121,6 @@ export async function submitTeacherFeedbackViaInviteTool(
         continueWithTeacher: v.data.continueWithTeacher,
         comment: v.data.comment,
       });
-      await markInviteTeacherCompleted(invite.id, target.id);
       audit(
         { role: "STUDENT", userId: `invite:${invite.id}`, tenantId: invite.tenantId, channel: "web" },
         "teacher_feedback.submit_via_invite",
@@ -12137,7 +12145,10 @@ export async function submitTeacherFeedbackViaInviteTool(
       const remaining = view.teachers.filter((t) => !t.done && t.id !== target.id).length;
       return ok({ feedbackId: feedback.id, remaining });
     } catch (e) {
-      return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "submitTeacherFeedbackViaInvite failed");
+      await releaseInviteTeacher(invite.id, target.id).catch(() => undefined);
+      // Oturumsuz uç: iç hata metni dışarı verilmez (güvenlik incelemesi); ayrıntı sunucu log'unda.
+      logger.error("submitTeacherFeedbackViaInvite", e instanceof Error ? e.message : String(e));
+      return fail("INTERNAL_ERROR", "Değerlendirmeniz kaydedilemedi. Lütfen birkaç dakika sonra tekrar deneyin; sorun sürerse kurumla iletişime geçin.");
     }
   });
 }

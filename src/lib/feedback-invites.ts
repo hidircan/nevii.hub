@@ -159,6 +159,29 @@ export async function markInviteTeacherCompleted(inviteId: string, teacherId: st
   return true;
 }
 
+/** Talep geri alınır (yazım başarısız olursa yer ayırtma bırakılır). */
+export async function releaseInviteTeacher(inviteId: string, teacherId: string): Promise<void> {
+  if (isDbMode) {
+    const { prisma } = await import("./db");
+    await prisma.$executeRaw`
+      UPDATE "FeedbackInvite" SET "completedTeacherIds" = "completedTeacherIds" - ${teacherId}::text WHERE "id" = ${inviteId}`;
+    return;
+  }
+  const all = await loadAll();
+  const row = all.find((r) => r.id === inviteId);
+  if (!row) return;
+  row.completedTeacherIds = row.completedTeacherIds.filter((t) => t !== teacherId);
+  await saveAll(all);
+}
+
+/** Bağlantı sayfasında tam ad yerine "Ad S." (bağlantı başkasına geçerse kişisel veri en aza iner). */
+export function maskStudentName(fullName: string): string {
+  const parts = fullName.trim().split(/\s+/).filter(Boolean);
+  if (parts.length <= 1) return parts[0] ?? "";
+  const last = parts[parts.length - 1];
+  return `${parts.slice(0, -1).join(" ")} ${last.charAt(0).toLocaleUpperCase("tr")}.`;
+}
+
 export async function revokeInvite(tenantId: string, inviteId: string, now: Date = new Date()): Promise<boolean> {
   if (isDbMode) {
     const { prisma } = await import("./db");
