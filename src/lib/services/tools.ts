@@ -1180,7 +1180,13 @@ async function runMakeupLifecycleTool(
       if (!preview.ok) return lifecycleFail(preview.code, preview.message);
       const payoutPlan = await planMakeupPayoutFlips(ctx, preview.payoutTouches, confirm);
       if (!payoutPlan.ok) return payoutPlan;
-      const applied = await applyMakeupLifecycle(op);
+      const moveBlock = await blockPayoutCountedMove(preview.changedLessons, op.kind);
+      if (moveBlock) return moveBlock;
+      // Önizlemede kapıdan geçen çevrilmeler; uygulamada taze durumda başkası çıkarsa yazılmadan reddedilir.
+      const expectedPayoutFlipIds = preview.payoutTouches
+        .filter((touch) => isLessonProcessedForPayout(touch.before) !== isLessonProcessedForPayout(touch.after))
+        .map((touch) => touch.before.id);
+      const applied = await applyMakeupLifecycle({ ...op, expectedPayoutFlipIds });
       if (!applied.ok) return lifecycleFail(applied.code, applied.message);
       const warnings: string[] = [];
       for (const plan of payoutPlan.data) {
@@ -17254,6 +17260,37 @@ async function planOpsChangeForPayout(
   const gate = await passwordGate(ctx, "teacher_payout.attendance_correction", payout, teacherName, confirm.criticalPassword);
   if (gate) return gate;
   return ok({ mode: "adjust", payoutId: payout.id, teacherName, reason, delta });
+}
+
+/**
+ * Plan revizyonu (öğretmen/tarih değişimi) hakedişte sayılan bir dersi başka öğretmenin/dönemin hakedişine taşıyabilir;
+ * sayılma durumu değişmediği için `planMakeupPayoutFlips` bunu görmez. Eski veya yeni konum kayıtlı bir hakedişe düşüyorsa
+ * sessizce taşımak yerine reddedilir (hakediş düzeltmesi Hakedişler ekranından, yetkili ve izli yapılır).
+ */
+async function blockPayoutCountedMove(
+  changed: { before: Lesson; after: Lesson }[],
+  kind: MakeupLifecycleOp["kind"]
+): Promise<ServiceFailure | null> {
+  if (kind !== "revise") return null;
+  for (const { before, after } of changed) {
+    if (!isLessonProcessedForPayout(before)) continue;
+    if (before.teacherId === after.teacherId && before.startAt === after.startAt) continue;
+    const [fromPayouts, toPayouts] = await Promise.all([
+      readTeacherPayoutsForTeacher(before.teacherId),
+      before.teacherId === after.teacherId ? Promise.resolve(null) : readTeacherPayoutsForTeacher(after.teacherId),
+    ]);
+    const from = findPayoutCoveringLesson(fromPayouts, before);
+    const to = findPayoutCoveringLesson(toPayouts ?? fromPayouts, after);
+    if (from || to) {
+      return fail(
+        "CONFLICT",
+        "Bu telafi dersi hakedişte sayılıyor ve eski ya da yeni öğretmen/tarih kayıtlı bir hakedişin dönemine düşüyor. " +
+          "Öğretmen veya tarih değişirse hakediş sessizce kayardığı için işlem yapılmadı. Önce Hakedişler ekranından ilgili " +
+          "hakedişi düzeltin ya da yeniden hesaplayın; sonra planı revize edin."
+      );
+    }
+  }
+  return null;
 }
 
 /** Telafi düzeltmesinin hakediş etkisi. Kapsayan kayıt yoksa tam okuma yapılmaz. */

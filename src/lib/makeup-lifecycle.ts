@@ -16,6 +16,7 @@
  * yalnız bu kapanışa özeldir (lesson-occupancy.ts): telafi saati yeniden dolmaz.
  */
 import type { AppData, Lesson, MakeupRequest } from "./types";
+import { isLessonProcessedForPayout } from "./lesson-ops";
 import { makeupDurationMinutes, validateLessonSlot, type MakeupDecision } from "./makeup-engine";
 import {
   MAKEUP_PLANNING_EXPIRED_REASON,
@@ -120,7 +121,7 @@ export type MakeupLifecycleResult =
     }
   | { ok: false; code: MakeupLifecycleCode; message: string };
 
-export type MakeupLifecycleOp =
+type MakeupLifecycleOpBody =
   | {
       kind: "extend";
       requestId: string;
@@ -160,6 +161,13 @@ export type MakeupLifecycleOp =
       acknowledgeCorrection?: boolean;
       correctionNote?: string;
     };
+
+/**
+ * `expectedPayoutFlipIds`: önizlemede hakediş kapısından geçirilen (sayılma durumu değişen) ders id'leri.
+ * Verilirse uygulama anındaki taze durum bunların DIŞINDA bir ders çevirirse işlem yazılmadan reddedilir
+ * (önizleme ile yazma arasında veri değişti → onaylanmamış hakediş etkisi).
+ */
+export type MakeupLifecycleOp = MakeupLifecycleOpBody & { expectedPayoutFlipIds?: string[] };
 
 export class MakeupLifecycleError extends Error {
   code: MakeupLifecycleCode;
@@ -266,10 +274,27 @@ export function applyMakeupLifecycle(data: AppData, op: MakeupLifecycleOp): Make
   if (!request) {
     return fail("NOT_FOUND", "Telafi talebi bulunamadı. Telafi Merkezi'ni yenileyip kaydın durduğunu kontrol edin.");
   }
-  if (op.kind === "extend") return extendDeadline(data, request, op);
-  if (op.kind === "revise") return revisePlan(data, request, op);
-  if (op.kind === "deletePlan") return deletePlan(data, request, op);
-  return cancelRight(data, request, op);
+  const result =
+    op.kind === "extend"
+      ? extendDeadline(data, request, op)
+      : op.kind === "revise"
+        ? revisePlan(data, request, op)
+        : op.kind === "deletePlan"
+          ? deletePlan(data, request, op)
+          : cancelRight(data, request, op);
+  if (result.ok && op.expectedPayoutFlipIds) {
+    const expected = new Set(op.expectedPayoutFlipIds);
+    const unexpected = result.payoutTouches.some(
+      (touch) => isLessonProcessedForPayout(touch.before) !== isLessonProcessedForPayout(touch.after) && !expected.has(touch.before.id)
+    );
+    if (unexpected) {
+      return fail(
+        "CONFLICT",
+        "Telafi kaydı onay ekranını açtığınızdan beri değişti ve bu işlem hakedişe farklı etki eder. Hiçbir şey kaydedilmedi; Telafi Merkezi'ni yenileyip işlemi tekrar başlatın."
+      );
+    }
+  }
+  return result;
 }
 
 function extendDeadline(
