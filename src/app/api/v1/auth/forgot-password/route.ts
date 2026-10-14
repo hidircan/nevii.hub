@@ -3,6 +3,16 @@ import { withApiHandler } from "@/lib/api/handler";
 import { jsonOk, jsonFail } from "@/lib/api/http";
 import { findUserByEmail, createPasswordResetToken, isRateLimited, auditLog } from "@/lib/auth";
 import { logger } from "@/lib/logger";
+import { maskEmailForLog } from "@/lib/email/transport";
+
+/**
+ * 2026-10-14 — iç teşhis: dışarıya her durumda AYNI nötr yanıt gider; neden yalnız sunucu loguna, güvenli kod + istek
+ * kimliği + maskeli alıcıyla yazılır (yerel kısım, token, sıfırlama bağlantısı ve SMTP bilgisi YAZILMAZ). Canlıda
+ * "şifremi unuttum e-postası gelmiyor" olayında hesap hiç yoktu ve hiçbir iz kalmıyordu.
+ */
+function logResetOutcome(reason: "no_eligible_account" | "service_account" | "rate_limited" | "requested", requestId: string, email: string) {
+  logger.warn("forgot-password", JSON.stringify({ reason, requestId, to: maskEmailForLog(email) }));
+}
 
 export const dynamic = "force-dynamic";
 
@@ -31,10 +41,13 @@ export const POST = withApiHandler(
       isRateLimited(`forgot-password:ip:${ip}`, 20, 15 * 60 * 1000)
     ) {
       // Nötr yanıt — limit aşıldığını dahi sızdırma.
+      logResetOutcome("rate_limited", ctx.requestId || "unknown", email);
       return jsonOk({ message: NEUTRAL_MESSAGE });
     }
 
     const user = await findUserByEmail(email);
+    if (!user) logResetOutcome("no_eligible_account", ctx.requestId || "unknown", email);
+    else if (user.role === "AI_AGENT") logResetOutcome("service_account", ctx.requestId || "unknown", email);
     let devResetToken: string | undefined;
     // AI_AGENT bir servis hesabıdır, insan girişi yoktur: sıfırlama başlatılmaz (yanıt yine nötr).
     // Aksi halde e-posta alan adını ele geçiren biri hesabın şifresini belirleyebilirdi (2026-10-02).
@@ -72,7 +85,7 @@ export const POST = withApiHandler(
             outcome: "denied",
             meta: { reason: sent.reason, blocked: sent.blocked },
           });
-          logger.error("forgot-password — e-posta teslim edilmedi", { reason: sent.reason, blocked: sent.blocked });
+          logger.error("forgot-password — e-posta teslim edilmedi", { reason: sent.reason, blocked: sent.blocked, requestId: ctx.requestId || "unknown" });
         }
       } catch (error) {
         logger.error("forgot-password — sendPasswordResetEmail failed", error);
@@ -86,6 +99,7 @@ export const POST = withApiHandler(
           meta: { reason: "SEND_THREW" },
         });
       }
+      logResetOutcome("requested", ctx.requestId || "unknown", email);
       auditLog({
         action: "auth.password_reset_requested",
         requestId: ctx.requestId || "unknown",

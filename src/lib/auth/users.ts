@@ -408,6 +408,14 @@ export function getBootstrapUsersForSeed(tenantId: string) {
  * returned to the client (see /api/v1/auth/login).
  */
 function logAuthFailureReason(email: string, reason: string, tenantId?: string) {
+  if (!tenantId) {
+    // 2026-10-14 — kurumu belli olmayan ret (hesap yok / DB okunamadı) denetim kaydına YAZILAMAZ (`auditLog` tenant'sız
+    // olayı düşürür) — canlıda "info@… ile giremiyorum" teşhisinde hiç iz yoktu. Güvenli kod + maskeli alıcı loglanır;
+    // e-postanın yerel kısmı, şifre veya token loglanmaz.
+    const at = email.lastIndexOf("@");
+    console.warn("[nevii-hub] auth.login_failure", JSON.stringify({ reason, email: at > 0 ? `***@${email.slice(at + 1)}` : "***" }));
+    return;
+  }
   auditLog({
     action: "auth.login_failure_reason",
     requestId: "n/a",
