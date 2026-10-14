@@ -238,7 +238,7 @@ import {
   resolveAcademicTermDatesForAnchor,
   validateAcademicTermDates,
 } from "../academic-term-dates";
-import { canViewFinanceAndStaffSummary } from "../auth/platform-access";
+import { canViewFinanceAndStaffSummary, isInstitutionOwner } from "../auth/platform-access";
 import {
   computeTeacherEarningsForPeriod,
   applyPayoutLineOverrides,
@@ -4796,6 +4796,14 @@ export async function inviteTeacherAccountTool(
         `Öğretmenin aktif portal giriş e-postası ${account.email}. Giriş adresi profil düzenlemesinden değişmez; öğretmen kendi hesabındaki e-posta doğrulama akışını kullanmalıdır.`
       );
     }
+    if (account.email.trim().toLowerCase() !== email && !isInstitutionOwner({ userId: ctx.userId, role: ctx.role })) {
+      // 2026-10-14 — bekleyen davetin giriş adresini başka adrese taşımak = portal giriş e-postasını değiştirmek:
+      // yalnız kurum sahibi (iletişim adresi düzenlemesi + yeniden davet bu kısıtı aşamaz).
+      return fail(
+        "FORBIDDEN",
+        `Bekleyen davetin giriş adresi ${account.email}, iletişim e-postası ${email}. Portal giriş e-postasını yalnız kurum sahibi değiştirebilir: kurum sahibinden Portal Erişimi → "Portal e-postasını değiştir" ile güncellemesini isteyin.`
+      );
+    }
     if (!account.invitationPending) {
       await setTeacherInvitationPending(ctx.tenantId, account.userId, true);
     }
@@ -5247,6 +5255,8 @@ export type TeacherAccountStatusSummary = {
   invitationPending: boolean;
   invitationLinkActive: boolean;
   lastPasswordResetRequestedAt: string | null;
+  /** 2026-10-14 — doğrulanmayı bekleyen yeni giriş adresi (değişiklik henüz GERÇEKLEŞMEDİ). */
+  pendingEmailChange?: { newEmail: string; expiresAt: string } | null;
 };
 
 /** Öğretmen detay ekranındaki "Portal erişimi" kartının okuma tarafı — RBAC: admin. */
@@ -5276,6 +5286,7 @@ export async function getTeacherAccountStatusTool(
     ? account.invitationPending || await hasUnacceptedInvitationToken(ctx.tenantId, account.userId)
     : false;
   const lastPasswordResetRequestedAt = await getLatestPasswordResetRequestAt(account.userId);
+  const { getPendingEmailChange } = await import("../auth/email-change");
   return ok({
     exists: true,
     userId: account.userId,
@@ -5284,7 +5295,127 @@ export async function getTeacherAccountStatusTool(
     invitationPending,
     invitationLinkActive: invitationPending && await hasActiveInvitationToken(ctx.tenantId, account.userId),
     lastPasswordResetRequestedAt,
+    pendingEmailChange: invitationPending ? null : await getPendingEmailChange(account.userId),
   });
+}
+
+const changeTeacherPortalEmailSchema = z.object({
+  teacherId: z.string().min(1),
+  newEmail: z.string().trim().min(3).max(254),
+  /** Kurum sahibi eski/yeni adresi ve girişe etkisini gördü ve AÇIKÇA onayladı. */
+  confirm: z.literal(true),
+});
+
+/**
+ * 2026-10-14 — Öğretmenin PORTAL GİRİŞ e-postasını değiştirir. YALNIZ kurum sahibi (`isInstitutionOwner`, etkin rol
+ * SUPER_ADMIN; kurum yöneticisi/şube yöneticisi/öğretmen yetmez). Yalnız oturumun kurumu (öğretmen ve hesap
+ * `ctx.tenantId` ile aranır; başka kurumun öğretmeni "bulunamadı").
+ *
+ * - Bekleyen davetli hesap: giriş adresi ve iletişim adresi (davet alıcısı) birlikte yeni adrese geçer, eski davet
+ *   bağlantıları geçersizleşir; yeni davet kurum sahibinin AYRI onayıyla ("Davet gönder") gider.
+ * - Aktif hesap: değişiklik HEMEN yapılmaz — yeni adrese tek kullanımlık doğrulama bağlantısı, eski adrese güvenlik
+ *   bildirimi gider; bağlantı açılınca giriş adresi değişir, açık oturumlar kapanır, eski sıfırlama/davet bağlantıları
+ *   geçersizleşir. O zamana kadar ekranda "bekleyen yeni adres" görünür.
+ * - Adres başka bir hesaba (herhangi bir kurumda, pasif dahil) aitse REDDEDİLİR: hesap birleştirme/devri yapılmaz.
+ * Öğretmen kimliği, ders ilişkileri ve yetkileri değişmez (yalnız `User.email`, bekleyen davette `Teacher.email`).
+ */
+export async function changeTeacherPortalEmailTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ teacherId: string; mode: "pending_invitation_updated" | "verification_sent"; newEmail: string; delivered: boolean }>> {
+  if (!isInstitutionOwner({ userId: ctx.userId, role: ctx.role })) {
+    return fail(
+      "FORBIDDEN",
+      "Öğretmenin portal giriş e-postasını yalnız kurum sahibi değiştirebilir. Değişiklik için kurum sahibinden Öğretmenler → Bilgiler → Portal Erişimi bölümünü kullanmasını isteyin."
+    );
+  }
+  const v = parseOrFail(changeTeacherPortalEmailSchema, input);
+  if (!v.ok) {
+    return fail("VALIDATION_ERROR", "Yeni portal e-postasını girin ve değişikliği onaylayın (eski/yeni adres ve girişe etkisi gösterildikten sonra).");
+  }
+  const newEmail = v.data.newEmail.trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(newEmail)) {
+    return fail("VALIDATION_ERROR", `"${v.data.newEmail}" geçerli bir e-posta adresi değil. Adresi kontrol edip tekrar girin.`);
+  }
+
+  const details = await readTeacherPortalDetails(v.data.teacherId);
+  if (!details) return fail("NOT_FOUND", "Öğretmen bu kurumda bulunamadı. Sayfayı yenileyip öğretmeni listeden yeniden açın.");
+  const account = await getUserAccountStatusForTeacher(ctx.tenantId, details.teacherId);
+  if (!account) {
+    return fail(
+      "VALIDATION_ERROR",
+      "Bu öğretmenin henüz portal hesabı yok; değiştirilecek bir giriş e-postası bulunmuyor. Önce Portal Erişimi'nden davet gönderin (davet iletişim e-postasına gider)."
+    );
+  }
+  if (account.role !== "TEACHER") {
+    return fail("VALIDATION_ERROR", "Öğretmen kaydına bağlı portal hesabının rolü uyumsuz. Hesap ilişkisini platform yöneticisi kontrol etmelidir.");
+  }
+  const currentEmail = account.email.trim().toLowerCase();
+  if (newEmail === currentEmail) {
+    return fail("VALIDATION_ERROR", `Portal giriş e-postası zaten ${currentEmail}. Farklı bir adres girin.`);
+  }
+  const { getAnyUserIdByEmail } = await import("../auth/users");
+  const takenBy = await getAnyUserIdByEmail(newEmail);
+  if (takenBy && takenBy !== account.userId) {
+    return fail(
+      "VALIDATION_ERROR",
+      `${newEmail} başka bir portal hesabına ait. Hesaplar birleştirilmez veya devredilmez; öğretmen için başka bir adres girin.`
+    );
+  }
+
+  const invitationPending = account.invitationPending || await hasUnacceptedInvitationToken(ctx.tenantId, account.userId);
+  if (invitationPending) {
+    if (!account.invitationPending) await setTeacherInvitationPending(ctx.tenantId, account.userId, true);
+    const res = await updatePendingTeacherInvitationEmail({ tenantId: ctx.tenantId, userId: account.userId, teacherId: details.teacherId, email: newEmail });
+    if (res === "email_taken") {
+      return fail("VALIDATION_ERROR", `${newEmail} başka bir portal hesabına ait. Hesaplar birleştirilmez veya devredilmez; başka bir adres girin.`);
+    }
+    if (res !== "updated") {
+      return fail("CONFLICT", "Davet bu sırada kabul edilmiş görünüyor; sayfayı yenileyin — aktif hesapta değişiklik yeni adres doğrulamasıyla yapılır.");
+    }
+    await revokeInvitationTokensForUser(ctx.tenantId, account.userId);
+    // Bekleyen davette davet alıcısı = iletişim adresi: ikisi aynı adreste tutulur (UI, giriş adresi ve davet tutarlı).
+    await updateTeacherProfile(details.teacherId, { email: newEmail });
+    audit(ctx, "teacher.portal_email_changed", "Teacher", details.teacherId, {
+      userId: account.userId,
+      mode: "pending_invitation",
+      previousEmail: currentEmail,
+      newEmail,
+      changedByUserId: ctx.userId,
+    });
+    return ok({ teacherId: details.teacherId, mode: "pending_invitation_updated", newEmail, delivered: false });
+  }
+
+  if (!account.active) {
+    return fail("VALIDATION_ERROR", "Öğretmenin portal erişimi kapalı. Giriş e-postasını değiştirmeden önce Portal Erişimi'nden erişimi açın.");
+  }
+  const { requestEmailChangeByOwner } = await import("../auth/email-change");
+  const req = await requestEmailChangeByOwner({
+    tenantId: ctx.tenantId,
+    userId: account.userId,
+    newEmail,
+    actorUserId: ctx.userId,
+    institutionName: details.institutionName,
+  });
+  if (!req.ok) {
+    const msg: Record<typeof req.code, string> = {
+      USER_NOT_FOUND: "Öğretmenin portal hesabı bulunamadı veya kapalı. Sayfayı yenileyip Portal Erişimi durumunu kontrol edin.",
+      SAME_EMAIL: `Portal giriş e-postası zaten ${currentEmail}. Farklı bir adres girin.`,
+      INVALID_EMAIL: `"${v.data.newEmail}" geçerli bir e-posta adresi değil.`,
+      TAKEN: `${newEmail} başka bir portal hesabına ait. Hesaplar birleştirilmez veya devredilmez; başka bir adres girin.`,
+      RATE_LIMITED: "Bu hesap için son bir saatte çok fazla değişiklik istendi. Bir süre sonra tekrar deneyin.",
+    };
+    return fail(req.code === "RATE_LIMITED" ? "RATE_LIMITED" : "VALIDATION_ERROR", msg[req.code]);
+  }
+  audit(ctx, "teacher.portal_email_change_requested", "Teacher", details.teacherId, {
+    userId: account.userId,
+    mode: "verification",
+    previousEmail: currentEmail,
+    newEmail,
+    changedByUserId: ctx.userId,
+    delivered: req.sentToNew,
+  });
+  return ok({ teacherId: details.teacherId, mode: "verification_sent", newEmail, delivered: req.sentToNew });
 }
 
 /**

@@ -695,6 +695,26 @@ export async function getUserIdByEmailIncludingInactive(tenantId: string, email:
 }
 
 /**
+ * 2026-10-14 — giriş e-postası çakışma kontrolü KURUMLAR ARASI: `authenticateUser` girişte e-postayı tenant'tan
+ * bağımsız arar (`findFirst({ email })`), bu yüzden aynı adres başka kurumda (pasif/silinmiş dahil) varsa giriş
+ * belirsizleşir. Giriş e-postası değişikliğinde bu fonksiyon kullanılır; hesap birleştirme/devri YAPILMAZ.
+ */
+export async function getAnyUserIdByEmail(email: string): Promise<string | null> {
+  const normalized = email.trim().toLowerCase();
+  if (!normalized) return null;
+  if (isDbMode) {
+    const { getPrisma } = await import("../db");
+    const row = await getPrisma().user.findFirst({ where: { email: normalized }, select: { id: true } });
+    return row?.id ?? null;
+  }
+  const row = HASHED.find((u) => effectiveHashedEmail(u)?.toLowerCase() === normalized);
+  if (row) return row.userId;
+  const { findDynamicUserByEmailAnyTenant } = await import("./dynamic-users");
+  const dyn = await findDynamicUserByEmailAnyTenant(normalized);
+  return dyn?.userId ?? null;
+}
+
+/**
  * 10. tur iş #1 — SELF davette mevcut kullanıcının boş `studentId`
  * bağlamasını doldurur. DOLU bir bağlama ASLA üzerine yazılmaz (aynı
  * e-posta ikinci bir öğrenciye bağlanıyorsa ilk bağ bozulmamalı — çoklu
@@ -1187,7 +1207,12 @@ export async function setTeacherInvitationPending(
   return setDynamicTeacherInvitationPending(tenantId, userId, invitationPending);
 }
 
-async function revokeSessionsAfterPasswordChange(userId: string, tenantId: string | null, dbAlreadyStamped: boolean) {
+async function revokeSessionsAfterPasswordChange(
+  userId: string,
+  tenantId: string | null,
+  dbAlreadyStamped: boolean,
+  reason: "password-changed" | "email-changed" = "password-changed"
+) {
   if (!dbAlreadyStamped && tenantId) {
     const { getUserLifecycle, saveUserLifecycle } = await import("../platform/store-ext");
     const prev = await getUserLifecycle(userId);
@@ -1199,11 +1224,11 @@ async function revokeSessionsAfterPasswordChange(userId: string, tenantId: strin
       sessionsRevokedAt: new Date().toISOString(),
       displayName: prev?.displayName ?? null,
       updatedAt: new Date().toISOString(),
-      updatedBy: "password-change",
+      updatedBy: reason === "email-changed" ? "email-change" : "password-change",
     });
   }
   const { closeAllUserSessions } = await import("./session-registry");
-  await closeAllUserSessions(userId, userId, "password-changed").catch(() => 0);
+  await closeAllUserSessions(userId, userId, reason).catch(() => 0);
   const { invalidateSessionValidity } = await import("./session-validity");
   invalidateSessionValidity(userId);
 }
@@ -1265,6 +1290,9 @@ export async function getPasswordHashForVerify(userId: string): Promise<string |
  * çağırır (doğrudan UI/API'den çağrılmaz). `db` modunda gerçek
  * `User.email` sütunu; json/memory'de dynamic satır ya da bootstrap için
  * `emailOverrides` (süreç-ömürlü — kalıcı DEĞİL, bkz. yukarı).
+ *
+ * 2026-10-14 — giriş adresi değişince açık oturumlar kapanır (`sessionsRevokedAt`): eski adresle açılmış bir oturum
+ * değişiklikten sonra hesabı kullanmaya devam edemez. (Kullanılmamış sıfırlama/davet bağlantıları çağıranda iptal edilir.)
  */
 export async function updateUserEmail(userId: string, newEmail: string): Promise<boolean> {
   const normalized = newEmail.trim().toLowerCase();
@@ -1273,7 +1301,8 @@ export async function updateUserEmail(userId: string, newEmail: string): Promise
     try {
       const { getPrisma } = await import("../db");
       const prisma = getPrisma();
-      await prisma.user.update({ where: { id: userId }, data: { email: normalized } });
+      await prisma.user.update({ where: { id: userId }, data: { email: normalized, sessionsRevokedAt: new Date() } });
+      await revokeSessionsAfterPasswordChange(userId, null, true, "email-changed");
       return true;
     } catch {
       return false;
@@ -1281,10 +1310,16 @@ export async function updateUserEmail(userId: string, newEmail: string): Promise
   }
   if (HASHED.some((u) => u.userId === userId)) {
     emailOverrides.set(userId, normalized);
+    await revokeSessionsAfterPasswordChange(userId, HASHED.find((u) => u.userId === userId)?.tenantId ?? null, false, "email-changed");
     return true;
   }
-  const { setDynamicUserEmail } = await import("./dynamic-users");
-  return setDynamicUserEmail(userId, normalized);
+  const { setDynamicUserEmail, findDynamicUserById } = await import("./dynamic-users");
+  const updated = await setDynamicUserEmail(userId, normalized);
+  if (updated) {
+    const dyn = await findDynamicUserById(userId);
+    await revokeSessionsAfterPasswordChange(userId, dyn?.tenantId ?? null, false, "email-changed");
+  }
+  return updated;
 }
 
 /**

@@ -194,6 +194,21 @@ export async function revokeInvitationTokensForUser(tenantId: string, userId: st
   await saveAll(next);
 }
 
+/**
+ * 2026-10-14 — giriş e-postası değişince kullanıcının kullanılmamış TÜM sıfırlama/davet bağlantıları geçersizleşir:
+ * eski adrese gitmiş bir bağlantı hesabın şifresini belirleyip hesabı geri alamaz.
+ */
+export async function revokeAllResetTokensForUser(tenantId: string, userId: string): Promise<void> {
+  const now = new Date();
+  if (isDbMode) {
+    const { getPrisma } = await import("../db");
+    await getPrisma().passwordResetToken.updateMany({ where: { tenantId, userId, usedAt: null }, data: { usedAt: now } });
+    return;
+  }
+  const all = await loadAll();
+  await saveAll(all.map((t) => (t.tenantId === tenantId && t.userId === userId && t.usedAt === null ? { ...t, usedAt: now.toISOString() } : t)));
+}
+
 /** Ham token'ı doğrular, geçerliyse "kullanıldı" işaretler (tek kullanımlık) ve sahibinin userId/tenantId'sini döner. */
 export async function consumePasswordResetToken(
   rawToken: string

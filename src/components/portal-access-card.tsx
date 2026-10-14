@@ -23,6 +23,7 @@ import {
   actionSetTeacherAccountActive,
   actionSendTeacherPasswordReset,
   actionInviteTeacherAccount,
+  actionChangeTeacherPortalEmail,
   actionGetStaffAccountStatus,
   actionSetStaffAccountActive,
   actionSendStaffPasswordReset,
@@ -304,8 +305,20 @@ export function StudentPortalAccessCard({ studentId, defaultEmail }: { studentId
 
 /* --------------------------- Öğretmen --------------------------- */
 
-export function TeacherPortalAccessCard({ teacherId, defaultEmail }: { teacherId: string; defaultEmail?: string }) {
+export function TeacherPortalAccessCard({
+  teacherId,
+  defaultEmail,
+  canChangePortalEmail = false,
+}: {
+  teacherId: string;
+  defaultEmail?: string;
+  /** 2026-10-14 — yalnız kurum sahibi (sunucu da ayrıca doğrular). */
+  canChangePortalEmail?: boolean;
+}) {
   const [status, setStatus] = useState<TeacherAccountStatusSummary | null>(null);
+  const [emailChangeOpen, setEmailChangeOpen] = useState(false);
+  const [newPortalEmail, setNewPortalEmail] = useState("");
+  const [emailChangeConfirmed, setEmailChangeConfirmed] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
@@ -349,6 +362,29 @@ export function TeacherPortalAccessCard({ teacherId, defaultEmail }: { teacherId
     } else {
       setMessage({ tone: "error", text: "Davet kaydı oluşturuldu ama e-posta GÖNDERİLEMEDİ — bu ortamda e-posta sağlayıcısı yapılandırılmamış." });
     }
+    await load();
+  }
+
+  async function onChangePortalEmail() {
+    if (!emailChangeConfirmed) return;
+    setPending(true);
+    setMessage(null);
+    const result = await actionChangeTeacherPortalEmail({ teacherId, newEmail: newPortalEmail.trim(), confirm: true });
+    setPending(false);
+    if (!result.ok) {
+      setMessage({ tone: "error", text: result.message });
+      return;
+    }
+    setEmailChangeOpen(false);
+    setNewPortalEmail("");
+    setEmailChangeConfirmed(false);
+    setMessage(
+      result.mode === "pending_invitation_updated"
+        ? { tone: "ok", text: `Bekleyen davetin adresi ${result.newEmail} oldu; eski davet bağlantısı geçersiz. Yeni daveti "Davet gönder" ile iletin.` }
+        : result.delivered
+          ? { tone: "ok", text: `Doğrulama bağlantısı ${result.newEmail} adresine gönderildi. Öğretmen bağlantıyı açana kadar giriş adresi DEĞİŞMEZ.` }
+          : { tone: "error", text: `Değişiklik isteği kaydedildi ama doğrulama e-postası ${result.newEmail} adresine GÖNDERİLEMEDİ — e-posta sağlayıcısını kontrol edip isteği yeniden gönderin. Giriş adresi değişmedi.` }
+    );
     await load();
   }
 
@@ -404,6 +440,12 @@ export function TeacherPortalAccessCard({ teacherId, defaultEmail }: { teacherId
               </dd>
             </div>
           </dl>
+          {status.pendingEmailChange ? (
+            <p className="rounded-md bg-amber-50 px-2 py-1 text-xs font-medium text-amber-900" role="status">
+              Bekleyen yeni giriş adresi: {status.pendingEmailChange.newEmail} — doğrulanmadı, giriş hâlâ {status.email} ile yapılır
+              (bağlantı {formatDateTime(status.pendingEmailChange.expiresAt)} tarihine kadar geçerli).
+            </p>
+          ) : null}
           {status.invitationPending ? (
             <p className="text-xs text-amber-800">
               {status.invitationLinkActive
@@ -412,7 +454,8 @@ export function TeacherPortalAccessCard({ teacherId, defaultEmail }: { teacherId
             </p>
           ) : status.email.toLowerCase() !== (defaultEmail ?? "").trim().toLowerCase() ? (
             <p className="text-xs text-[var(--color-text-muted)]">
-              Profildeki iletişim adresi giriş adresini değiştirmez. Giriş e-postası, öğretmenin hesabındaki doğrulama akışıyla değiştirilir.
+              İletişim e-postası ile portal giriş e-postası ayrı kayıtlardır; profildeki iletişim adresini değiştirmek giriş adresini
+              değiştirmez. Giriş e-postasını yalnız kurum sahibi &quot;Portal e-postasını değiştir&quot; ile değiştirir.
             </p>
           ) : null}
           <dl className="grid grid-cols-1 gap-1 text-xs text-[var(--color-text-muted)] sm:grid-cols-2">
@@ -438,7 +481,59 @@ export function TeacherPortalAccessCard({ teacherId, defaultEmail }: { teacherId
                 Şifre sıfırlama bağlantısı gönder
               </Button>
             ) : null}
+            {canChangePortalEmail && !emailChangeOpen ? (
+              <Button variant="ghost" disabled={pending} onClick={() => setEmailChangeOpen(true)}>
+                Portal e-postasını değiştir
+              </Button>
+            ) : null}
           </div>
+          {canChangePortalEmail && emailChangeOpen ? (
+            <div className="space-y-2 rounded-md border border-[var(--color-border)] p-3">
+              <Label>Yeni portal giriş e-postası</Label>
+              <Input
+                aria-label="Yeni portal giriş e-postası"
+                type="email"
+                autoComplete="off"
+                value={newPortalEmail}
+                onChange={(e) => {
+                  setNewPortalEmail(e.target.value);
+                  setEmailChangeConfirmed(false);
+                }}
+              />
+              {newPortalEmail.trim() ? (
+                <div className="space-y-1 text-xs text-[var(--color-text)]">
+                  <p>
+                    Eski: <span className="font-medium">{status.email}</span> → Yeni: <span className="font-medium">{newPortalEmail.trim().toLowerCase()}</span>
+                  </p>
+                  <p className="text-[var(--color-text-muted)]">
+                    {status.invitationPending
+                      ? "Davet henüz kabul edilmedi: giriş ve davet adresi hemen yeni adres olur, eski davet bağlantısı geçersizleşir; yeni daveti ayrıca gönderirsiniz."
+                      : "Giriş adresi hemen DEĞİŞMEZ: yeni adrese doğrulama bağlantısı, eski adrese güvenlik bildirimi gider. Bağlantı açılınca öğretmen yeni adresle girer, açık oturumları kapanır ve eski sıfırlama/davet bağlantıları geçersizleşir. Öğretmenin dersleri ve yetkileri değişmez."}
+                  </p>
+                  <label className="flex items-start gap-2">
+                    <input type="checkbox" checked={emailChangeConfirmed} onChange={(e) => setEmailChangeConfirmed(e.target.checked)} />
+                    <span>Eski/yeni adresi ve girişe etkisini okudum; değişikliği onaylıyorum.</span>
+                  </label>
+                </div>
+              ) : null}
+              <div className="flex gap-2">
+                <Button disabled={pending || !newPortalEmail.trim() || !emailChangeConfirmed} onClick={onChangePortalEmail}>
+                  {pending ? "Gönderiliyor…" : "Değişikliği başlat"}
+                </Button>
+                <Button
+                  variant="ghost"
+                  disabled={pending}
+                  onClick={() => {
+                    setEmailChangeOpen(false);
+                    setNewPortalEmail("");
+                    setEmailChangeConfirmed(false);
+                  }}
+                >
+                  Vazgeç
+                </Button>
+              </div>
+            </div>
+          ) : null}
         </div>
       ) : null}
 

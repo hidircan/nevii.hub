@@ -579,7 +579,7 @@ describe("Kök neden düzeltmesi (2026-08-31, CEO bildirdi) — User kaydı olma
     }
   });
 
-  it("profil e-postası değişikliği eski bekleyen daveti iptal eder; yönetici yeni adrese elle yeniden davet eder", async () => {
+  it("profil e-postası değişikliği eski bekleyen daveti iptal eder; yeni adrese daveti yalnız kurum sahibi yönlendirir", async () => {
     const { readData } = await import("../store");
     const oldEmail = (await readData()).teachers.find((teacher) => teacher.id === REAL_TEACHER_ID)?.email ?? "";
     const newEmail = "teacher.pending-update@ornek.test";
@@ -605,7 +605,13 @@ describe("Kök neden düzeltmesi (2026-08-31, CEO bildirdi) — User kaydı olma
         expect(pendingStatus.data.invitationLinkActive).toBe(false);
       }
 
-      const secondInvite = await inviteTeacherAccountTool(adminCtx(), { teacherId: REAL_TEACHER_ID });
+      // 2026-10-14 — bekleyen davetin giriş adresini başka adrese taşımak portal e-postasını değiştirmektir: kurum
+      // yöneticisi yapamaz (açık neden + yol), kurum sahibi yapar.
+      const byManager = await inviteTeacherAccountTool(adminCtx(), { teacherId: REAL_TEACHER_ID });
+      expect(byManager.ok).toBe(false);
+      if (!byManager.ok) expect(byManager.error.message).toContain("yalnız kurum sahibi");
+      expect(sent).toHaveLength(1);
+      const secondInvite = await inviteTeacherAccountTool(adminCtx({ role: "SUPER_ADMIN" }), { teacherId: REAL_TEACHER_ID });
       expect(secondInvite.ok).toBe(true);
       expect(sent).toHaveLength(2);
       expect(sent[1]?.to).toBe(newEmail);

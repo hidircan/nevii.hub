@@ -7,6 +7,7 @@ import { TeacherPortalAccessCard } from "@/components/portal-access-card";
 import { NationalIdReveal } from "@/components/national-id-reveal";
 import { maskNationalId } from "@/lib/pii/tc-identity";
 import { canViewFullNationalId } from "@/lib/pii";
+import { isInstitutionOwner } from "@/lib/auth/platform-access";
 import { activeInstrumentOptions } from "@/lib/instrument-options";
 import type { Instrument } from "@/lib/types";
 import { computeAge, formatDate } from "@/lib/utils";
@@ -143,7 +144,11 @@ export default async function TeacherInfoTab({ params }: { params: Promise<{ tea
       {canManage ? (
         <section>
           <h2 className="mb-3 text-sm font-semibold text-[var(--color-text)]">Portal Erişimi</h2>
-          <TeacherPortalAccessCard teacherId={teacher.id} defaultEmail={teacher.email || undefined} />
+          <TeacherPortalAccessCard
+            teacherId={teacher.id}
+            defaultEmail={teacher.email || undefined}
+            canChangePortalEmail={isInstitutionOwner({ userId: session.userId, role: session.role })}
+          />
         </section>
       ) : null}
 
