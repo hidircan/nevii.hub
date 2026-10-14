@@ -100,3 +100,37 @@ developers.cloudflare.com/workers/platform/pricing · developers.cloudflare.com/
 docs.oracle.com/en-us/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm
 
 Bu turdaki dış çağrılar (salt-okunur): Vercel deployment listesi + 55 dk runtime-log sayımı; GitHub Actions koşu listesi + bir log.
+
+## 7. Güncelleme — 2026-10-14
+
+**Vercel Active CPU (owner ekran görüntüsü, 3 sa 55 dk / 4 sa).** Günlük çubuklar gözle okundu (±0,5 dk). 1–12 Ekim ortalaması
+≈ 5,8 dk/gün; 4 sa / 30 gün = 8 dk/gün bütçe → kalıcı durum sürdürülebilir, ama pencere doluyken her gün **düşen gün kadar**
+harcanabilir. Kayan pencereden düşecek günler: 14 Eyl 4,0 · 15 Eyl 7,5 · 16 Eyl 3,4 · 17 Eyl 6,8 · 18 Eyl 4,9 · 19 Eyl 9,4 ·
+20 Eyl 5,2 · 21 Eyl 1,9 · 22 Eyl 12,7 · … · 26–30 Eyl 17,5/12,7/15,6/23,2/18,6 dk. Hesap: 14–21 Ekim arası **toplam ≈ 46 dk**
+(ortalama ≈ 5,8 dk/gün) harcanırsa limit aşılmaz; tek bir 9–11 dk'lık gün (ör. 6 Eki 11,4 · 11 Eki 8,7) erken günlerde sınırı
+aşabilir. 26 Ekim'den sonra yoğun Eylül günleri düşer ve rahatlar. → Önümüzdeki ~7 gün kritik.
+
+**Tam okuma boyutu (owner SQL'i, disk boyutu):** Lesson 4 672 × 240 B ≈ 1,12 MB · Payment 1 369 × 267 B ≈ 0,37 MB ·
+Attendance 634 × 147 B ≈ 0,09 MB · MakeupRequest 110 × 320 B ≈ 0,04 MB · Student 233 × 459 B ≈ 0,11 MB → ≈ 1,7 MB disk;
+telde (metin protokolü, kolon başına uzunluk öneki) ≈ 2,2–3,1 MB (hesap). 1,185 GB ÷ ≈ 2,6 MB ≈ **en çok ~450 tam okuma/gün**
+(tüm egress tam okumadan gelseydi). Tam okuma olmayan sayfalar da referans dilimini (tüm öğrenciler ~80 kolon + öğretmenler +
+ayarlar) okur ≈ 0,15–0,2 MB; günde ~1 000 istekle ≈ 150–200 MB → **Kasım bütçesini (≈ 170 MB/gün) tek başına doldurur** (hesap).
+Sonuç: tam okumaları kapatmak gerekli ama yeterli değil; referans diliminin küçültülmesi veya kiracı-anahtarlı kısa önbelleği şart.
+
+**Supabase paneli:** Database servis sağlığı "%98,0 errors" (çubuklar saatten bağımsız düzgün), PostgREST 13 215 istek (düzgün),
+Storage 8, Realtime 2. Uygulama Data API'yi (PostgREST) HİÇ kullanmaz (Prisma + Storage). Eski test projesinde Data API
+`503 PGRST002` (şema önbelleği yüklenemiyor) veriyordu; düzgün hata akışı PostgREST'in şema önbelleği yeniden deneme döngüsüyle
+tutarlı (**KANIT YETERSİZ** — panelde "98.0% errors"a tıklayıp en sık mesaj doğrulanmalı). Öneri: **Data API'yi kapat**
+(Project Settings → Data API). Uygulamaya etkisi yok; ayrıca anon anahtarla tablo erişimi riskini kapatır. Bu ortamdaki Supabase
+bağlantısı canlı organizasyonu görmediği için değişikliği owner yapar.
+
+**Yapılanlar (2026-10-14):** PR #26 canlıda (`ca9acb6`, owner merge 10-13 21:27Z). `NEVII_LIVE_REFRESH_MS=0` production env'e
+eklendi ve aynı commit yeniden deploy edildi (`dpl_6KooL5Wc…`, READY; `/api/v1/health`, `/ready`, `/login` 200; 24 sa runtime
+hata yok). Firewall (Bot Protection + AI bots log modu) bu oturumun izin denetleyicisince engellendi → owner panelden açar.
+Dal `perf/quota-p2`: ödev/teslim/materyal/görev eki listeleri dosya gövdesini DB'den okumaz (`omit`; "dosya var" göstergesi dosya
+adından), kurum geneli teslim listesi React `cache` ile istek başına tek okuma (Öğretmenler öğretmen başına okuyordu).
+Gizli sekmede yoklama yok: `session-watcher` ve bildirim zili `visibilityState` kontrol ediyor, canlı yenileme artık kapalı.
+
+**Sıradaki (ölçümle):** okul saatinde (≈ 12:00–18:00Z) `get_runtime_logs group_by requestPath query egress:readData:full` →
+en sık 2–3 tam okuma rotası dilime; ardından referans dilimi (Student kolonları) veya kiracı + sürüm anahtarlı kısa sunucu önbelleği
+(yazımda geçersizleşen; finans/yetki verisi dahil edilmez) tasarımı.

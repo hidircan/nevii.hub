@@ -12,6 +12,9 @@ import { uid } from "./utils";
 import type { TeachingMaterial as DbTeachingMaterial } from "@prisma/client";
 import type { Instrument, StudentType, TeachingMaterial } from "./types";
 
+/** Kota (2026-10-14): liste sorguları dosya gövdesini okumaz; "dosya var" göstergesi dosya adından (bkz. homework.ts). */
+const LIST_OMIT = { fileData: true } as const;
+
 const FILE = path.join(resolveDataDir(path.join(process.cwd(), "data")), "teaching-materials.json");
 export const TEACHING_MATERIALS_FILE_PATH = FILE;
 
@@ -33,7 +36,7 @@ async function saveAll(rows: StoredMaterial[]): Promise<void> {
   await fs.writeFile(FILE, JSON.stringify(rows, null, 2));
 }
 
-function mapDb(m: DbTeachingMaterial): StoredMaterial {
+function mapDb(m: Omit<DbTeachingMaterial, "fileData"> & { fileData?: string | null }): StoredMaterial {
   return {
     id: m.id,
     tenantId: m.tenantId,
@@ -61,7 +64,7 @@ function toPublicSummary(m: StoredMaterial): TeachingMaterial {
     targetLevel: m.targetLevel,
     fileName: m.fileName,
     fileMimeType: m.fileMimeType,
-    fileData: m.fileData ? "1" : undefined,
+    fileData: m.fileData || m.fileName ? "1" : undefined,
     createdAt: m.createdAt,
   };
 }
@@ -143,6 +146,7 @@ async function listForTenantDb(tenantId: string): Promise<TeachingMaterial[]> {
   const rows = await prisma.teachingMaterial.findMany({
     where: { tenantId },
     orderBy: { createdAt: "desc" },
+    omit: LIST_OMIT,
   });
   return rows.map((r) => toPublicSummary(mapDb(r)));
 }
@@ -162,6 +166,7 @@ async function listForTeacherDb(tenantId: string, teacherId: string): Promise<Te
   const rows = await prisma.teachingMaterial.findMany({
     where: { tenantId, teacherId },
     orderBy: { createdAt: "desc" },
+    omit: LIST_OMIT,
   });
   return rows.map((r) => toPublicSummary(mapDb(r)));
 }
