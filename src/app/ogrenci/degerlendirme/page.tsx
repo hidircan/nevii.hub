@@ -40,7 +40,7 @@ export default async function StudentTeacherFeedbackPage() {
   // RECENT_LESSON_WINDOW_DAYS içinde bu öğrenciyle dersi olan öğretmenler.
   // URL/ID manipülasyonuyla ilişkisiz bir öğretmen asla bu listeye giremez
   // — liste tamamen sunucuda, öğrencinin GERÇEK ders kayıtlarından türetilir.
-  const nowMs = Date.now();
+  const nowMs = new Date().getTime();
   const cutoffMs = nowMs - RECENT_LESSON_WINDOW_DAYS * 86_400_000;
   const recentLessons = data.lessons.filter((l) => l.studentId === student.id && Date.parse(l.startAt) >= cutoffMs);
   // 2026-10-14 — tek kural (kişiye özel link ile ortak): atanmış + aktif branş + son 90 gün ders öğretmenleri.
