@@ -49,6 +49,19 @@ Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_20
 - Owner kontrolü (salt okuma): 10-03..10 her gece seed silme transaction'ı okulsuz tenant'ta commit olmuş olabilir —
   `tenant_platform` User satırları ve Tenant adı. Deploy sonrası ilk cron yanıtı `failed: 0` olmalı.
 
+## Güncel snapshot — 2026-10-14 (dört düzeltme; 4 PR açık, MERGE/CANLI YOK, migration YOK)
+- PR'lar (taban `origin/main` 937ed5a): ileri ay tahsilatı (`fix/forward-month-attendance`), öğretmenin aktif
+  öğrencileri (`fix/teacher-active-students`), öğretmen portal e-postası yalnız kurum sahibi
+  (`feat/teacher-portal-email-owner`), NeviiOS platform hesabı teşhis + kurtarma (`fix/neviios-hyper-admin-recovery`).
+- Kapı (yerel birleşim dalı): typecheck/lint(0 hata)/prisma validate temiz; tam paket 4425 geçti / 15 kırmızı —
+  hepsi `origin/main`'de de kırmızı (taban 16). Build owner talimatıyla çalıştırılmadı; owner canlıda test edecek.
+- Kanıtlı canlı durum: (1) 8 sözleşmesiz "takip eden ay" kayıt tahsilatı kırılımsız — 3 kesin/5 belirsiz, backfill
+  çalıştırılmadı; (3) Turgay iletişim e-postası yeni, giriş e-postası eski (hesap aktif) — yayından sonra kurum sahibi
+  akışıyla doğrulama; (4) canlı DB'de HİÇ HYPER_ADMIN yok, prod env'de AUTH_HYPER_ADMIN_* yok — kurtarma
+  `scripts/recover-hyper-admin.ts` owner onayıyla. Kaybolma nedeni bilinmiyor (10-03…10-06 dump'ları bakılmadı).
+- Açık: owner onayları (merge/deploy, backfill, Turgay doğrulama e-postası, HYPER_ADMIN kurtarma + reset e-postası).
+  UAT: `docs/testing/UAT_2026_10_14_FOUR_FIXES.md`.
+
 ## Güncel snapshot — 2026-10-10 (P0 Supabase egress + UserSession kilidi; PR #21 MERGE + CANLIDA `cf12bc0`, ~10:42Z)
 - Yöntem/kurallar: skill `performance-db-egress`; kalan tam okumalar `docs/performance/DB_EGRESS_2026_10_10.md` §5.
 - Dal `fix/supabase-egress-p0` (taban `origin/main` a18c887) → PR. Migration/şema/env değişikliği YOK.
