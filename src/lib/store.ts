@@ -536,7 +536,7 @@ export async function readDashboardData(fromIso: string, toIso: string, nowIso: 
  */
 function applyMakeupExpiry<T extends { makeupRequests: AppData["makeupRequests"]; lessons?: AppData["lessons"] }>(data: T): T {
   if (!data.lessons) return data;
-  const closed = closeExpiredUnplannedMakeups({ ...data, lessons: data.lessons }, new Date());
+  const closed = closeExpiredUnplannedMakeups({ ...data, lessons: data.lessons }, new Date(), "system", { legacyView: true });
   if (!closed.changed) return data;
   return { ...data, makeupRequests: closed.data.makeupRequests, lessons: closed.data.lessons };
 }

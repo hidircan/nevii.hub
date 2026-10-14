@@ -90,6 +90,7 @@ import {
   applyMakeupLifecycle as applyMakeupLifecyclePure,
   MakeupLifecycleError,
   normalizeAttendanceNote,
+  isLegacyMakeupExpiry,
   isPastMakeupPlanningDeadline,
   type MakeupLifecycleOp,
   type MakeupLifecycleResult,
@@ -4872,7 +4873,9 @@ export async function commitMakeupPlanningExpiry(now: Date = new Date()): Promis
       changeLog: true,
     },
   });
-  const due = rows.filter((row) => isPastMakeupPlanningDeadline(row.expiresAt.toISOString(), now));
+  const due = rows.filter(
+    (row) => isPastMakeupPlanningDeadline(row.expiresAt.toISOString(), now) && !isLegacyMakeupExpiry(row.expiresAt.toISOString())
+  );
   if (due.length === 0) return;
   const lessons = await prisma.lesson.findMany({
     where: { tenantId: tid, id: { in: due.map((row) => row.sourceLessonId) } },

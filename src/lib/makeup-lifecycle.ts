@@ -22,6 +22,7 @@ import {
   MAKEUP_PLANNING_EXPIRED_REASON,
   activeMakeupLessonForRequest,
   expiresAtForLastLocalDay,
+  isLegacyMakeupExpiry,
   isMakeupPlanningExpiryClosure,
   isPastMakeupPlanningDeadline,
   isUnplannedMakeup,
@@ -33,6 +34,7 @@ export {
   MAKEUP_PLANNING_EXPIRED_REASON,
   activeMakeupLessonForRequest,
   expiresAtForLastLocalDay,
+  isLegacyMakeupExpiry,
   isMakeupPlanningExpiryClosure,
   isPastMakeupPlanningDeadline,
   isUnplannedMakeup,
@@ -78,7 +80,9 @@ function patchSourceForExpiry(lesson: Lesson, nowIso: string, actor: string): vo
 export function closeExpiredUnplannedMakeups<T extends { lessons: Lesson[]; makeupRequests: MakeupRequest[] }>(
   data: T,
   now: Date,
-  actor = "system"
+  actor = "system",
+  /** true: kesme tarihinden önceki (legacy) talepler yalnız GÖRÜNÜMDE `expired` olur (ders/hakediş/DB'ye dokunulmaz). */
+  options: { legacyView?: boolean } = {}
 ): { data: T; changed: boolean } {
   const lessons = data.lessons.map((lesson) => ({ ...lesson }));
   const byId = new Map(lessons.map((lesson) => [lesson.id, lesson]));
@@ -86,6 +90,11 @@ export function closeExpiredUnplannedMakeups<T extends { lessons: Lesson[]; make
   const makeupRequests = data.makeupRequests.map((request) => {
     if (!isUnplannedMakeup(request)) return request;
     if (!isPastMakeupPlanningDeadline(request.expiresAt, now)) return request;
+    if (isLegacyMakeupExpiry(request.expiresAt)) {
+      if (!options.legacyView) return request;
+      changed = true;
+      return { ...request, status: "expired" as const };
+    }
     changed = true;
     const source = byId.get(request.sourceLessonId);
     if (source) patchSourceForExpiry(source, now.toISOString(), actor);

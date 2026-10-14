@@ -32,6 +32,25 @@ export function makeupPlanningDeadline(expiresAtIso: string, timeZone = resolveA
   return zonedWallTimeToUtc(addDaysYmd(ymd, 1), "00:00", timeZone);
 }
 
+/**
+ * Otomatik kapatma kesme tarihi (OWNER KARARI, hakediş korunur): planlama sınırı bu andan ÖNCE olan talepler
+ * "legacy"dir — ekranda eskisi gibi yalnız `expired` görünür, kaynak derse/hakedişe dokunulmaz ve DB'ye yazılmaz.
+ * Sınırı bu andan sonra olanlar tam kapatılır (kaynak ders İşlendi). Deploy günü için `MAKEUP_EXPIRY_CLOSURE_FROM`
+ * (ISO, örn. 2026-10-20T00:00:00+03:00) ortam değişkeniyle ayarlayın; yoksa varsayılan kullanılır.
+ */
+const DEFAULT_MAKEUP_EXPIRY_CLOSURE_FROM = "2026-10-15T00:00:00+03:00";
+
+export function makeupExpiryClosureFrom(): Date {
+  const raw = process.env.MAKEUP_EXPIRY_CLOSURE_FROM?.trim();
+  const parsed = raw ? new Date(raw) : new Date(NaN);
+  return Number.isNaN(parsed.getTime()) ? new Date(DEFAULT_MAKEUP_EXPIRY_CLOSURE_FROM) : parsed;
+}
+
+/** Planlama sınırı kesme tarihinden önceyse true: otomatik kapatma (ders/hakediş) uygulanmaz. */
+export function isLegacyMakeupExpiry(expiresAtIso: string, timeZone = resolveAppTimezone()): boolean {
+  return makeupPlanningDeadline(expiresAtIso, timeZone).getTime() < makeupExpiryClosureFrom().getTime();
+}
+
 export function isPastMakeupPlanningDeadline(expiresAtIso: string, now: Date, timeZone = resolveAppTimezone()): boolean {
   const expires = new Date(expiresAtIso);
   if (Number.isNaN(expires.getTime())) return false;

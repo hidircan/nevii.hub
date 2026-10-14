@@ -4,7 +4,7 @@
  * `commitMakeupPlanningExpiry`'ye verilir. 2099 tarihleri bugünün okuma
  * commit'inin kaydı erken kapatmaması için seçildi.
  */
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { promises as fs } from "fs";
 import path from "path";
 import { resolveDataDir } from "../config";
@@ -225,7 +225,27 @@ describe("telafi planlama süresi — sınır", () => {
 });
 
 describe("süresi dolanı uzatma ve planı silme", () => {
+  afterEach(() => {
+    delete process.env.MAKEUP_EXPIRY_CLOSURE_FROM;
+  });
+
+  it("kesme tarihinden ÖNCE dolan talep yalnız görünümde expired olur; kaynak ders ve DB'ye dokunulmaz", async () => {
+    // Varsayılan kesme 2026-10-15: 2026-01-01 sınırı legacy sayılır (hakediş geçmişi korunur).
+    const { req } = await seed({ id: "mk_legacy", status: "pending", expiresAt: "2026-01-01T09:00:00.000Z" });
+    const view = await readData();
+    expect(view.makeupRequests.find((m) => m.id === req.id)!.status).toBe("expired");
+    expect(view.lessons.find((l) => l.id === "l_src_life")!.lessonProcessed).not.toBe(true);
+    await commitMakeupPlanningExpiry(new Date());
+    const stored = await readStored();
+    expect(stored.makeupRequests.find((m) => m.id === req.id)!.status).toBe("pending");
+    expect(stored.makeupRequests.find((m) => m.id === req.id)!.changeLog ?? []).toHaveLength(0);
+    const src = stored.lessons.find((l) => l.id === "l_src_life")!;
+    expect(src.lessonProcessed).not.toBe(true);
+    expect(src.lessonProcessedReason).toBeUndefined();
+  });
+
   it("süre uzanınca hak yeniden planlanır; onaysız uzatma reddedilir", async () => {
+    process.env.MAKEUP_EXPIRY_CLOSURE_FROM = "2020-01-01T00:00:00+03:00";
     const { req, slot } = await seed({ id: "mk_ext", status: "pending", expiresAt: "2026-01-01T09:00:00.000Z" });
     await readData();
     const closed = await readStored();
