@@ -4,8 +4,8 @@ Kısa tutulur (~50 satır): oturum sonunda yalnız "Güncel snapshot" bölümün
 `archive/`'e taşınır. Ayrıntı → ilgili `docs/testing/UAT_*.md`, `docs/operations/*`. Yönlendirici: `nevii-hub` skill.
 Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_2026-09-24.md`.
 
-## Güncel snapshot — 2026-10-14 (öğretmen e-posta / portal davet senkronizasyonu)
-- Dal `fix/teacher-email-portal-sync`, `origin/main` (`2706825e`) tabanlı ayrı worktree. PR açılacak; merge/canlı değişikliği yok.
+## Güncel snapshot — 2026-10-14 (öğretmen e-posta / portal davet senkronizasyonu; PR #29 açık, merge/canlı yok)
+- Dal `fix/teacher-email-portal-sync`, `origin/main` (`2706825e`) tabanlı ayrı worktree.
 - `Teacher.email` iletişim, bağlı `User.email` portal giriş adresi olarak ayrıldı; öğretmen hesabı yalnız tenant + `teacherId` ile bulunur.
 - Profil e-postası değişikliği bekleyen davet token'larını iptal eder; yeniden davet kendiliğinden gönderilmez. Yönetici eylemi yeni alıcıyı güncel iletişim adresine taşır.
 - Aktif hesabın giriş adresi profil güncellemesinde değişmez; iletişim/giriş adresleri UI'da ayrı gösterilir. Etkin/kapalı başka hesaba ait adresler çakışma sayılır.
