@@ -190,7 +190,7 @@ export async function loadPurgeSnapshotFiles(io: StoreIo, kind: PurgeKind, id: s
         communicationMessages: idsWhere(await side("communicationMessages"), tid, (r) => (r.recipientType === "PARENT" || r.recipientType === "STUDENT") && r.recipientId === id),
       },
       detach: {
-        tasks: idsWhere(tasks.tasks, tid, (r) => r.studentId === id),
+        tasks: idsWhere(tasks.tasks, tid, (r) => r.studentId === id || (r.relatedEntityType === "student" && r.relatedEntityId === id)),
         clubApplications: await own("clubApplications" as PurgeTableKey),
         trialConversions: await own("trialLessons", "convertedStudentId"),
       },
@@ -242,7 +242,7 @@ export async function loadPurgeSnapshotFiles(io: StoreIo, kind: PurgeKind, id: s
       trialLessons: await own("trialLessons"),
     },
     detach: {
-      tasks: idsWhere(tasks.tasks, tid, (r) => r.teacherId === id),
+      tasks: idsWhere(tasks.tasks, tid, (r) => r.teacherId === id || (r.relatedEntityType === "teacher" && r.relatedEntityId === id)),
       clubs: idsWhere(await side("clubs"), tid, (r) => Array.isArray(r.teacherIds) && (r.teacherIds as string[]).includes(id)),
     },
     accounts: await loadAccounts(tid, { teacherId: id }),
@@ -292,7 +292,14 @@ async function executeUnlocked(io: StoreIo, kind: PurgeKind, id: string, expecte
   const taskTargets = new Set(bucketIds(plan.detach, "tasks"));
   if (taskTargets.size) {
     const { shape, tasks } = await readTasks();
-    await fs.writeFile(filePath("tasks.json"), JSON.stringify({ ...shape, tasks: tasks.map((r) => (taskTargets.has(r.id) ? { ...r, [field]: null } : r)) }, null, 2));
+    await fs.writeFile(filePath("tasks.json"), JSON.stringify({ ...shape, tasks: tasks.map((r) => {
+      if (!taskTargets.has(r.id)) return r;
+      const next: Row = r[field] === id ? { ...r, [field]: null } : { ...r };
+      if (r.relatedEntityType === kind && r.relatedEntityId === id) {
+        Object.assign(next, { relatedEntityType: undefined, relatedEntityId: undefined, relatedEntityLabel: undefined });
+      }
+      return next;
+    }) }, null, 2));
   }
 
   const now = new Date().toISOString();

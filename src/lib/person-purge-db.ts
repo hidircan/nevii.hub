@@ -78,7 +78,7 @@ async function loadStudentSnapshot(db: Db, tenantId: string, studentId: string, 
       db.communicationMessage.findMany({ where: { tenantId, recipientType: { in: ["PARENT", "STUDENT"] }, recipientId: studentId }, select: { id: true } }),
     ]);
   const [tasks, clubApplications, trialConversions] = await Promise.all([
-    db.task.findMany({ where, select: { id: true } }),
+    db.task.findMany({ where: taskWhere(tenantId, "student", studentId), select: { id: true } }),
     db.clubApplication.findMany({ where, select: { id: true } }),
     db.trialLesson.findMany({ where: { tenantId, convertedStudentId: studentId }, select: { id: true } }),
   ]);
@@ -159,7 +159,7 @@ async function loadTeacherSnapshot(db: Db, tenantId: string, teacherId: string, 
       db.trialLesson.findMany({ where, select: { id: true } }),
     ]);
   const [tasks, clubs] = await Promise.all([
-    db.task.findMany({ where, select: { id: true } }),
+    db.task.findMany({ where: taskWhere(tenantId, "teacher", teacherId), select: { id: true } }),
     db.club.findMany({ where: { tenantId, teacherIds: { array_contains: [teacherId] } }, select: { id: true } }),
   ]);
   const accounts = await loadAccounts(db, tenantId, { teacherId });
@@ -202,6 +202,12 @@ async function loadTeacherSnapshot(db: Db, tenantId: string, teacherId: string, 
     accounts,
     nowIso,
   };
+}
+
+/** Görev kişiye iki yoldan bağlanır: özel alan (studentId/teacherId) ve genel bağ (relatedEntityType/Id + ad etiketi). */
+function taskWhere(tenantId: string, kind: PurgeKind, id: string) {
+  const field = kind === "student" ? { studentId: id } : { teacherId: id };
+  return { tenantId, OR: [field, { relatedEntityType: kind, relatedEntityId: id }] };
 }
 
 /**
@@ -340,7 +346,14 @@ export async function executePurgeDb(kind: PurgeKind, id: string, expectedFinger
 
         const detach = (key: Parameters<typeof bucketIds>[1]) => bucketIds(plan.detach, key);
         const field = kind === "student" ? "studentId" : "teacherId";
-        if (detach("tasks").length) await tx.task.updateMany({ where: { tenantId: tid, id: { in: detach("tasks") } }, data: { [field]: null } });
+        if (detach("tasks").length) {
+          const taskIds = { tenantId: tid, id: { in: detach("tasks") } };
+          await tx.task.updateMany({ where: { ...taskIds, [field]: id }, data: { [field]: null } });
+          await tx.task.updateMany({
+            where: { ...taskIds, relatedEntityType: kind, relatedEntityId: id },
+            data: { relatedEntityType: null, relatedEntityId: null, relatedEntityLabel: null },
+          });
+        }
         if (detach("clubApplications").length) {
           await tx.clubApplication.updateMany({ where: { tenantId: tid, id: { in: detach("clubApplications") } }, data: { studentId: null } });
         }

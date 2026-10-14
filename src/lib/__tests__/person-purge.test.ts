@@ -159,6 +159,24 @@ describe("öğrenci kalıcı silme — ilişkili demo kayıt", () => {
     if (!again.ok) expect(again.error.code).toBe("NOT_FOUND");
   });
 
+  it("görev silinmez; öğrenciyle iki yoldan bağı (studentId ve genel bağ + ad etiketi) kaldırılır", async () => {
+    await seedDemo();
+    const task = (id: string, extra: Record<string, unknown>) => ({ id, tenantId: DEFAULT_TENANT_ID, title: "Takip", status: "TODO", createdById: "u", ...extra });
+    await fs.writeFile(
+      path.join(DIR, "tasks.json"),
+      JSON.stringify({ tasks: [task("tk1", { studentId: DEMO }), task("tk2", { relatedEntityType: "student", relatedEntityId: DEMO, relatedEntityLabel: "Demo Silinecek" }), task("tk3", { studentId: OTHER })] })
+    );
+    const preview = await previewOf("student", DEMO);
+    expect(preview.detach.find((b) => b.key === "tasks")?.ids).toEqual(["tk1", "tk2"]);
+    expect((await purgePersonTool(admin, purgeInput(preview.fingerprint))).ok).toBe(true);
+    const { tasks } = JSON.parse(await fs.readFile(path.join(DIR, "tasks.json"), "utf8")) as { tasks: Record<string, unknown>[] };
+    expect(tasks.map((t) => t.id)).toEqual(["tk1", "tk2", "tk3"]);
+    expect(tasks[0]!.studentId).toBeNull();
+    expect(tasks[1]!.relatedEntityId).toBeUndefined();
+    expect(JSON.stringify(tasks[1])).not.toContain("Demo Silinecek");
+    expect(tasks[2]!.studentId).toBe(OTHER);
+  });
+
   it("kesinleşmiş tahsilat varsa satır silinmez, anonimleştirilir; tahsilat korunur; listede ve geri almada yok; tekrar istek güvenli", async () => {
     await seedDemo({ collected: true });
     const preview = await previewOf("student", DEMO);
