@@ -6,7 +6,7 @@ import { computeTeacherEarningsWithRevisions } from "@/lib/teacher-payout";
 import { formatDate, formatMoney, formatTime } from "@/lib/utils";
 import { loadTeacherPageContext } from "./_context";
 import { MiniStat } from "./_components/fields";
-import { isOwnStudent } from "@/lib/teacher-portal-scope";
+import { isActiveOwnStudent } from "@/lib/teacher-portal-scope";
 
 export const dynamic = "force-dynamic";
 
@@ -20,8 +20,8 @@ export default async function TeacherOverviewTab({ params }: { params: Promise<{
   if (!teacher) notFound();
 
   const branch = data.settings.branches.find((b) => b.id === teacher.branchId);
-  const students = data.students.filter((s) => isOwnStudent(s, teacher.id));
-  const activeStudents = students.filter((s) => s.active);
+  // 2026-10-14 — sekme etiketi ve "Öğrenci" kutusu Öğrenciler sekmesiyle AYNI kural (yalnız aktif ilişki).
+  const activeStudents = data.students.filter((s) => isActiveOwnStudent(s, teacher.id));
   const lessons = data.lessons.filter((l) => l.teacherId === teacher.id && l.status !== "cancelled");
 
   const now = new Date();
@@ -98,7 +98,7 @@ export default async function TeacherOverviewTab({ params }: { params: Promise<{
     { href: `/panel/ogretmenler/${teacher.id}/bilgiler`, label: "Bilgiler" },
     { href: `/panel/ogretmenler/${teacher.id}/program`, label: "Program" },
     { href: `/panel/ogretmenler/${teacher.id}/musaitlik`, label: "Müsaitlik" },
-    { href: `/panel/ogretmenler/${teacher.id}/ogrenciler`, label: `Öğrenciler (${students.length})` },
+    { href: `/panel/ogretmenler/${teacher.id}/ogrenciler`, label: `Öğrenciler (${activeStudents.length})` },
     { href: `/panel/ogretmenler/${teacher.id}/yoklama`, label: "Yoklama" },
     { href: `/panel/ogretmenler/${teacher.id}/performans`, label: "Performans" },
     { href: `/panel/ogretmenler/${teacher.id}/hakedis`, label: "Hakediş" },
