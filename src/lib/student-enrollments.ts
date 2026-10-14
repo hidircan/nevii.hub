@@ -865,6 +865,9 @@ export type RegistrationFirstPaymentRecord = {
   adjustedBy?: string;
   adjustedAt?: string;
   firstCollectionIncludesNextMonth?: boolean;
+  /** 2026-10-14 — sözleşmesiz ilk tahsilatın dönem(ler)i (`registrationFirstCollectionPeriods`). */
+  installmentPeriodLabel?: string;
+  installmentBreakdown?: { periodLabel: string; amount: number }[];
 };
 
 export type RegisterStudentInput = {

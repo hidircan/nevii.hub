@@ -299,7 +299,12 @@ describe("UAT 2026-09-24 (F) — taksit ayı vade ayına değil, kapsadığı d�
     if (plan.state !== "ok") return;
     expect(plan.paymentIds).toEqual(["pay-combined"]);
     expect(plan.status).toBe("paid");
-    expect(plan.periodLabel).toBe("17–30 Eylül 2026 + Ekim 2026");
+    // 2026-10-14 — her ay yalnız KENDİ kırılım payını gösterir (eskiden her iki ayda 9.000 TL görünüyordu).
+    expect(plan.periodLabel).toBe("Ekim 2026");
+    expect(plan.amount).toBe(6000);
+    expect(plan.paidAmount).toBe(6000);
+    const sep = resolveContractPlanForMonth({ contracts: [ctr], installments: [combined, november], year: 2026, month: 9 });
+    expect(sep.state === "ok" && [sep.amount, sep.paidAmount, sep.periodLabel]).toEqual([3000, 3000, "17–30 Eylül 2026"]);
   });
 
   it("vadesi Ekim'e kaydırılmış Kasım taksiti Kasım'a düşer, Ekim'e karışmaz", () => {

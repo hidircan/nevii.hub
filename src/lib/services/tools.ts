@@ -669,6 +669,7 @@ import {
   computeOutstandingContractBalance,
   contractTitleFields,
   resolveContractPaymentDueRule,
+  registrationFirstCollectionPeriods,
 } from "../contracts";
 import { selectActiveTemplateOfKind, findMissingRequiredContractPlaceholders } from "../contract-template-schema";
 import { encryptNationalId, maskNationalId, canViewFullNationalId, normalizeNationalId } from "../pii";
@@ -2670,6 +2671,8 @@ type PreparedBranch = {
   firstPaymentGiven: boolean;
   autoSuggestedAmount: number;
   includesNextMonth: boolean;
+  /** 2026-10-14 — ilk tahsilatın kapsadığı dönem(ler) (etiket + kırılım; kayıt satırına yazılır). */
+  firstCollectionPeriods: ReturnType<typeof registrationFirstCollectionPeriods>;
   firstPaymentCollected?: NonNullable<StudentInput["firstPaymentCollected"]>;
   adjustment?: Extract<ReturnType<typeof resolveFirstPaymentAdjustment>, { ok: true }>["result"];
   appliedCampaignIds?: string[];
@@ -2919,6 +2922,7 @@ async function prepareBranchRegistration(
     firstPaymentGiven: !!firstPaymentCollected,
     autoSuggestedAmount,
     includesNextMonth,
+    firstCollectionPeriods: registrationFirstCollectionPeriods(suggestion, pricing.monthlyFee),
     firstPaymentCollected,
     adjustment,
     appliedCampaignIds,
@@ -3107,6 +3111,7 @@ async function registerStudentCore(
         note: fp.note,
         receivedByUserId: ctx.userId,
         firstCollectionIncludesNextMonth: p.includesNextMonth,
+        ...p.firstCollectionPeriods,
         // P0-1B — yalnız GERÇEK bir manuel düzeltme varsa dolu.
         ...(p.adjustment?.isManualOverride
           ? { autoSuggestedAmount: p.adjustment.autoSuggestedAmount, adjustmentReason: p.adjustment.reason, adjustedBy: ctx.userId, adjustedAt: nowIso }
@@ -3664,6 +3669,7 @@ export async function upsertStudentEnrollmentTool(
             note: fp.note,
             receivedByUserId: ctx.userId,
             firstCollectionIncludesNextMonth: p.includesNextMonth,
+            ...p.firstCollectionPeriods,
             ...(p.adjustment?.isManualOverride
               ? { autoSuggestedAmount: p.adjustment.autoSuggestedAmount, adjustmentReason: p.adjustment.reason, adjustedBy: ctx.userId, adjustedAt: nowIso }
               : {}),
@@ -18029,7 +18035,7 @@ export async function removeDayOverrideTool(
 export async function collectAttendanceCalendarPaymentTool(
   ctx: ServiceContext,
   input: unknown
-): Promise<ServiceResult<{ paymentId: string; studentId: string; month: string; amount: number; status: string }>> {
+): Promise<ServiceResult<{ paymentId: string; studentId: string; month: string; amount: number; status: string; /** 2026-10-14 — tahsilatın mahsup edildiği dönemler (seçilen ay ilk). */ months?: string[] }>> {
   const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
 
@@ -18129,63 +18135,168 @@ export async function collectAttendanceCalendarPaymentTool(
         (p) => p.paidAt && toZonedYmd(new Date(p.paidAt), resolveAppTimezone()) === day && Math.trunc(p.paidAmount) === Math.trunc(v.data.amount)
       );
       if (retry) return ok({ paymentId: retry.id, studentId: v.data.studentId, month: v.data.month, amount: v.data.amount, status: retry.status });
+      if (plan.state === "student_plan" && plan.coveredByCombinedFirstCollection && plan.amount === 0) {
+        return fail(
+          "CONFLICT",
+          `${monthlyPlanPeriodLabel(v.data.month)} dönemi, kayıtta "takip eden ayı da ekle" seçilerek alınan ilk tahsilata dahil; bu kutudan ayrı tahsilat yazılmadı. İlk tahsilatta eksik kalan bir tutar varsa onu Ödemeler ekranında kayıt ilk tahsilatı satırından tahsil edin.`
+        );
+      }
       return fail(
         "CONFLICT",
         `${monthlyPlanPeriodLabel(v.data.month)} dönemi kayıt ilk tahsilatıyla zaten ödenmiş; ikinci tahsilat bu kutudan yazılmadı. Ek ödeme için Ödemeler ekranını kullanın.`
       );
     }
 
-    let paymentId: string;
     // 8. tur — sözleşmesiz planda o ayın TEK açık satırı varsa (ör. ödenmemiş kayıt ilk
     // tahsilatı) ona yazılır; yanına ikinci bir "aylık plan" satırı açılmaz.
     const openStudentRow =
       plan.state === "student_plan" && plan.paymentIds.length === 1 && plan.remaining > 0 ? plan.paymentIds[0] : undefined;
-    if (plan.state === "ok") {
-      paymentId = plan.paymentIds[0]!;
-    } else if (openStudentRow) {
-      paymentId = openStudentRow;
-    } else {
-      // Sözleşme planı YOK ve bu dönem ayının satırı yok — dönem ayına (seçilen kutu) ait TEK "aylık plan"
-      // satırı açılır. Borç = anlaşılan aylık ücret (girilen tutar daha azsa kısmi ödeme olur, ay "ödendi"
-      // görünmez); ücret tanımsızsa girilen tutar.
-      // 2026-10-09 — yeni aylık plan satırı branş kaydına AÇIKÇA bağlanır (kalıcı kaydı olmayan çok branşlı eski
-      // öğrencide önce branşlar kalıcı yapılır); tek branşlı eski öğrencide bağsız satır o branşındır.
-      let planEnrollmentId: string | undefined;
-      const multiBranch = (await import("../student-enrollments")).effectiveEnrollments(student, data.teachers).length > 1;
-      if (branch) {
-        const { isPersistedEnrollmentId } = await import("../student-enrollments");
-        if (isPersistedEnrollmentId(branch.enrollmentId)) planEnrollmentId = branch.enrollmentId;
-        else if (multiBranch) {
-          const { ensurePersistedEnrollments, materializedEnrollmentId } = await import("../enrollment-links");
-          await ensurePersistedEnrollments(ctx.tenantId, student, data.teachers);
-          planEnrollmentId = materializedEnrollmentId(student.id, branch.terms.instrument);
-        }
+    // 2026-10-09 — yeni aylık plan satırı branş kaydına AÇIKÇA bağlanır (kalıcı kaydı olmayan çok branşlı eski
+    // öğrencide önce branşlar kalıcı yapılır); tek branşlı eski öğrencide bağsız satır o branşındır.
+    const multiBranch = (await import("../student-enrollments")).effectiveEnrollments(student, data.teachers).length > 1;
+    const resolvePlanEnrollmentId = async (): Promise<string | undefined> => {
+      if (!branch) return undefined;
+      const { isPersistedEnrollmentId } = await import("../student-enrollments");
+      if (isPersistedEnrollmentId(branch.enrollmentId)) return branch.enrollmentId;
+      if (!multiBranch) return undefined;
+      const { ensurePersistedEnrollments, materializedEnrollmentId } = await import("../enrollment-links");
+      await ensurePersistedEnrollments(ctx.tenantId, student, data.teachers);
+      return materializedEnrollmentId(student.id, branch.terms.instrument);
+    };
+    const fee = branchFee > 0 ? Math.trunc(branchFee) : 0;
+    const entered = Math.trunc(v.data.amount);
+
+    // 2026-10-14 — TEK tahsilat birden çok dönemi karşılayabilir. Seçilen ayın KALANINI aşan kısım, sonraki
+    // dönemlere sırayla mahsup edilir (sözleşme taksiti → o satır; sözleşmesiz ay → o ayın TEK aylık plan satırı,
+    // yoksa anlaşılan ücretle açılır — gece tahakkuku aynı dönemi bir daha borçlandırmaz). Hepsi önce DOĞRULANIR,
+    // sonra yazılır; dağıtılamayan bir tutar varsa hiçbir şey yazılmaz. Eskiden fazla tutar seçilen ayın satırına
+    // yazılıyordu (sözleşmesiz yeni satırda borç = girilen tutar): Ekim "6.000 ödendi" görünür, Kasım yine borçlanırdı.
+    if (correctionRow && entered > Math.trunc(correctionRow.amount)) {
+      // Çok aylı bir tahsilatın tekrar gönderimi (çift tık): seçilen ay + sonraki aylar aynı gün, toplam aynı tutarla
+      // zaten tahsil edilmişse sonuç aynen döner — "düzeltme" sanılıp seçilen ayın satırı büyütülmez (çift sayım).
+      // Diğer durumlarda ödenmiş ayın düzeltmesi mevcut davranışla sürer.
+      const day = collectedAt ?? toZonedYmd(new Date(), resolveAppTimezone());
+      const sameDay = data.payments.filter(
+        (p) =>
+          (branch ? branch.paymentOf(p) : p.studentId === student.id) &&
+          !p.contractId &&
+          p.paidAt &&
+          p.status !== "voided" &&
+          toZonedYmd(new Date(p.paidAt), resolveAppTimezone()) === day
+      );
+      if (
+        sameDay.length > 1 &&
+        sameDay.some((p) => p.id === correctionRow.id) &&
+        sameDay.reduce((t, p) => t + Math.trunc(p.paidAmount), 0) === entered
+      ) {
+        return ok({ paymentId: correctionRow.id, studentId: v.data.studentId, month: v.data.month, amount: v.data.amount, status: correctionRow.status });
       }
-      const upserted = await upsertMonthlyPlanPayment({
-        studentId: v.data.studentId,
-        month: v.data.month,
-        // Düzeltmede girilen tutar satırın tutarı olur (mevcut davranış); yeni satırda borç anlaşılan ücrettir.
-        amount: correctionRow ? Math.trunc(v.data.amount) : Math.max(Math.trunc(v.data.amount), branchFee > 0 ? Math.trunc(branchFee) : 0),
-        method: v.data.method,
-        enrollmentId: planEnrollmentId,
-        includeUnlinked: !multiBranch,
-      });
-      paymentId = upserted.paymentId;
     }
+    type CollectTarget = { month: string; paymentId?: string; newRowAmount?: number; take: number };
+    const capacityOfSelected =
+      plan.state === "ok" ? (plan.remaining > 0 ? plan.remaining : Infinity)
+      : openStudentRow && plan.state === "student_plan" ? plan.remaining
+      : correctionRow ? Infinity
+      : fee > 0 ? fee : Infinity;
+    const targets: CollectTarget[] = [
+      plan.state === "ok"
+        ? { month: v.data.month, paymentId: plan.paymentIds[0]!, take: Math.min(entered, capacityOfSelected) }
+        : openStudentRow
+          ? { month: v.data.month, paymentId: openStudentRow, take: Math.min(entered, capacityOfSelected) }
+          : {
+              month: v.data.month,
+              // Düzeltmede girilen tutar satırın tutarı olur (mevcut davranış); yeni satırda borç anlaşılan ücrettir.
+              newRowAmount: correctionRow ? entered : fee > 0 ? fee : entered,
+              take: Math.min(entered, capacityOfSelected),
+            },
+    ];
+    let excess = entered - targets[0]!.take;
+    if (excess > 0) {
+      const endDate = branch ? branch.terms.endDate : student.enrollmentEndDate;
+      const endMonth = endDate ? endDate.slice(0, 7) : undefined;
+      const scopedContracts = branch ? planContracts.filter(branch.contractOf) : planContracts;
+      const scopedPayments = data.payments.filter((p) => (branch ? branch.paymentOf(p) : p.studentId === student.id));
+      let cursor = v.data.month;
+      for (let i = 0; i < 24 && excess > 0; i++) {
+        const [cy2, cm2] = cursor.split("-").map(Number) as [number, number];
+        cursor = cm2 === 12 ? `${cy2 + 1}-01` : `${cy2}-${String(cm2 + 1).padStart(2, "0")}`;
+        const label = monthlyPlanPeriodLabel(cursor);
+        const notDistributable = (why: string) =>
+          fail(
+            "VALIDATION_ERROR",
+            `Girilen ${entered.toLocaleString("tr-TR")} TL, ${monthlyPlanPeriodLabel(v.data.month)} kalanını aşıyor ve fazlası ${label} dönemine dağıtılamadı: ${why} Tahsilat yazılmadı — yalnız bu ayın kalanını girin, sonraki ayları kendi kutusundan tahsil edin.`
+          );
+        const [ny, nm] = cursor.split("-").map(Number) as [number, number];
+        const next = resolveContractPlanForMonth({ contracts: scopedContracts, installments: scopedPayments, year: ny, month: nm, studentMonthlyFee: branchFee });
+        if (next.state === "multiple_active_contracts" || next.state === "no_installment_for_month") return notDistributable(next.message);
+        if (next.state === "no_active_contract") return notDistributable("bu ay için ödeme planı yok.");
+        if (next.remaining <= 0 && next.paymentIds.length > 0) continue; // zaten ödenmiş/karşılanmış dönem
+        if (next.paymentIds.length > 1) return notDistributable("bu ayda birden fazla açık ödeme satırı var.");
+        if (next.paymentIds.length === 1) {
+          const take = Math.min(excess, next.remaining);
+          targets.push({ month: cursor, paymentId: next.paymentIds[0]!, take });
+          excess -= take;
+          continue;
+        }
+        if (endMonth && cursor > endMonth) return notDistributable("öğrencinin kayıt bitişi bu aydan önce.");
+        if (fee <= 0) return notDistributable("anlaşılan aylık ücret tanımlı değil.");
+        const take = Math.min(excess, fee);
+        targets.push({ month: cursor, newRowAmount: fee, take });
+        excess -= take;
+      }
+      if (excess > 0) {
+        return fail(
+          "VALIDATION_ERROR",
+          `Girilen ${entered.toLocaleString("tr-TR")} TL, sonraki 24 ayın toplam borcunu aşıyor; tahsilat yazılmadı. Tutarı kontrol edin.`
+        );
+      }
+    }
+
     const { collectPayment } = await import("../payments/collect");
-    const collected = await collectPayment(paymentId, {
-      amount: v.data.amount,
-      method: v.data.method,
-      // Tahsilat tarihi YALNIZ paidAt'e yazılır (İstanbul takvim günü, öğlen — gün kaymaz).
-      paidAt: collectedAt ? new Date(`${collectedAt}T12:00:00.000+03:00`).toISOString() : undefined,
-      ...(v.data.note ? { paymentNote: v.data.note } : {}),
-      receivedByUserId: ctx.userId,
-      actorUserId: ctx.userId,
-      tenantId: ctx.tenantId,
-      // Tahsilat satıra EKLENİR (kısmi + kalan = plan; yeni satırda önceki tahsilat 0). Tam ödenmiş aylık plan
-      // satırında düzeltme: tutar AYARLANIR (mevcut davranış).
-      accumulate: !correctionRow,
-    });
+    const planEnrollmentId = targets.some((t) => t.newRowAmount !== undefined) ? await resolvePlanEnrollmentId() : undefined;
+    // Aynı satır birden çok aya düşüyorsa (birleşik sözleşme taksiti) tek tahsilat olarak yazılır.
+    const byPayment = new Map<string, { take: number; months: string[] }>();
+    const order: string[] = [];
+    for (const t of targets) {
+      let id = t.paymentId;
+      if (!id) {
+        const upserted = await upsertMonthlyPlanPayment({
+          studentId: v.data.studentId,
+          month: t.month,
+          amount: t.newRowAmount!,
+          method: v.data.method,
+          enrollmentId: planEnrollmentId,
+          includeUnlinked: !multiBranch,
+        });
+        id = upserted.paymentId;
+      }
+      const cur = byPayment.get(id);
+      if (cur) {
+        cur.take += t.take;
+        cur.months.push(t.month);
+      } else {
+        byPayment.set(id, { take: t.take, months: [t.month] });
+        order.push(id);
+      }
+    }
+    const paymentId = order[0]!;
+    let collected: Awaited<ReturnType<typeof collectPayment>> | undefined;
+    for (const id of order) {
+      const res = await collectPayment(id, {
+        amount: byPayment.get(id)!.take,
+        method: v.data.method,
+        // Tahsilat tarihi YALNIZ paidAt'e yazılır (İstanbul takvim günü, öğlen — gün kaymaz).
+        paidAt: collectedAt ? new Date(`${collectedAt}T12:00:00.000+03:00`).toISOString() : undefined,
+        ...(v.data.note ? { paymentNote: v.data.note } : {}),
+        receivedByUserId: ctx.userId,
+        actorUserId: ctx.userId,
+        tenantId: ctx.tenantId,
+        // Tahsilat satıra EKLENİR (kısmi + kalan = plan; yeni satırda önceki tahsilat 0). Tam ödenmiş aylık plan
+        // satırında düzeltme: tutar AYARLANIR (mevcut davranış; yalnız seçilen ay).
+        accumulate: id === paymentId ? !correctionRow : true,
+      });
+      if (id === paymentId) collected = res;
+    }
     audit(ctx, "PAYMENT_COLLECTED_FROM_ATTENDANCE_CALENDAR", "Payment", paymentId, {
       studentId: v.data.studentId,
       month: v.data.month,
@@ -18198,6 +18309,8 @@ export async function collectAttendanceCalendarPaymentTool(
       // sözleşmesiz serbest aylık plan satırı mı.
       planSource: plan.state === "ok" ? "contract_installment" : "monthly_plan_fallback",
       contractId: plan.state === "ok" ? plan.contractId : undefined,
+      // 2026-10-14 — tek tahsilatın dönemlere dağılımı (izlenebilirlik): satır → tutar → kapsadığı ay(lar).
+      ...(order.length > 1 ? { allocations: order.map((id) => ({ paymentId: id, amount: byPayment.get(id)!.take, months: byPayment.get(id)!.months })) } : {}),
       enrollmentId: branch?.enrollmentId,
       receivedByUserId: ctx.userId,
     });
@@ -18206,7 +18319,8 @@ export async function collectAttendanceCalendarPaymentTool(
       studentId: v.data.studentId,
       month: v.data.month,
       amount: v.data.amount,
-      status: collected.payment.status,
+      status: collected!.payment.status,
+      months: targets.map((t) => t.month),
     });
   } catch (e) {
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "collectAttendanceCalendarPayment failed");
