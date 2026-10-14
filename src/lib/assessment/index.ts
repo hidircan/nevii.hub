@@ -228,6 +228,21 @@ export async function getAssessment(tenantId: string, id: string): Promise<Lesso
   return found ? toPublicAssessment(found) : null;
 }
 
+/** Rapor portalı (2026-10-14): verilen derslerden raporu YAZILMIŞ olanlar — yalnız `lessonId` okunur (bekleyen hesabı). */
+export async function listAssessedLessonIds(tenantId: string, lessonIds: string[]): Promise<Set<string>> {
+  if (lessonIds.length === 0) return new Set();
+  if (isDbMode) {
+    const { prisma } = await import("../db");
+    const rows = await prisma.lessonAssessment.findMany({
+      where: { tenantId, lessonId: { in: lessonIds } },
+      select: { lessonId: true },
+    });
+    return new Set(rows.map((r) => r.lessonId));
+  }
+  const wanted = new Set(lessonIds);
+  return new Set((await loadAll()).filter((a) => a.tenantId === tenantId && wanted.has(a.lessonId)).map((a) => a.lessonId));
+}
+
 async function listAllAssessmentsDb(tenantId: string): Promise<LessonAssessment[]> {
   const { prisma } = await import("../db");
   const rows = await prisma.lessonAssessment.findMany({
