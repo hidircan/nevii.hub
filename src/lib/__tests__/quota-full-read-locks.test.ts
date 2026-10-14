@@ -47,6 +47,20 @@ describe("evrak listeleri — ağır kolon yok, detay tam", () => {
     const src = readFileSync(path.join(process.cwd(), "src/lib/documents/index.ts"), "utf8");
     expect(src.match(/omit: LIST_OMIT/g)?.length).toBe(2);
   });
+
+  it.each([
+    ["src/lib/homework.ts", /omit: LIST_OMIT/g, 5],
+    ["src/lib/teaching-materials.ts", /omit: LIST_OMIT/g, 2],
+    ["src/lib/tasks.ts", /omit: \{ fileData: true \}/g, 1],
+  ] as const)("%s liste sorguları dosya gövdesini okumaz", (rel, re, n) => {
+    const src = readFileSync(path.join(process.cwd(), rel), "utf8");
+    expect(src.match(re)?.length).toBe(n);
+  });
+
+  it("kurum geneli teslim listesi istek başına tek okuma (React cache)", () => {
+    const src = readFileSync(path.join(process.cwd(), "src/lib/homework.ts"), "utf8");
+    expect(src).toMatch(/export const listAllHomeworkSubmissions = cache\(/);
+  });
 });
 
 describe("portal sayfaları — tam okuma yok", () => {
