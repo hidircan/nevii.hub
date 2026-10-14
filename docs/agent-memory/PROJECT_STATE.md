@@ -4,7 +4,15 @@ Kısa tutulur (~50 satır): oturum sonunda yalnız "Güncel snapshot" bölümün
 `archive/`'e taşınır. Ayrıntı → ilgili `docs/testing/UAT_*.md`, `docs/operations/*`. Yönlendirici: `nevii-hub` skill.
 Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_2026-09-24.md`.
 
-## Güncel snapshot — 2026-10-13 (kota denetimi + `perf/quota-p1`; PR açık, MERGE/CANLI YOK — owner sürüm onayı bekliyor)
+## Güncel snapshot — 2026-10-14 (rapor portalı; dal `feat/report-portal`, PR açık, MERGE/CANLI YOK)
+- Spec/plan: `docs/superpowers/specs|plans/2026-10-14-report-portal*`. UAT: `docs/testing/UAT_2026_10_14_REPORT_PORTAL.md`.
+- `/gelisim` (öğretmen mobil rapor sitesi), `/degerlendir` + `/degerlendir/<kod>` (öğrenci değerlendirmesi, 14 gün kişiye özel
+  link, yeni tablo `FeedbackInvite`), `/panel/raporlar` (yönetici takibi), rapor gönderiminde yönetici bildirimi.
+- Düzeltilen hatalar: çoklu branşta değerlendirme/rapor yanlış (ilk) öğretmene yazılıyordu; rapor kaydı tam okuma yapıyordu.
+- Migration `20261014120000_feedback_invites` (eklemeli, RLS) canlıya KODDAN ÖNCE, owner onayıyla.
+- Kota tarafı: PR #27 açık (merge onayı bekliyor); Firewall Bot Protection + Supabase Data API kapatma owner'da.
+
+## Snapshot — 2026-10-13 (kota denetimi + `perf/quota-p1`; PR açık, MERGE/CANLI YOK — owner sürüm onayı bekliyor)
 - Rapor: `docs/performance/QUOTA_AUDIT_2026_10_12.md`. Vercel Active CPU 3 sa 53 dk / 4 sa; Supabase 8,79 / 5 GB, 11 Ekim tek gün
   1,185 GB (PR #21 sonrası, öncesinden YÜKSEK → etkisi kanıtsız). Kasım bütçesi ≈ 170 MB/gün; Supabase'te ikinci grace yok.
 - Owner SQL: dosya kolonları canlıda ~boş (yalnız DocumentInstance 126 / 2,6 MB); Student 233 × 459 B ama her dilimde okunuyor.

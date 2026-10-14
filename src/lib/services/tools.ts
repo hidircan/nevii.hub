@@ -8,6 +8,7 @@ import { z } from "zod";
 import { addDays, differenceInCalendarDays, parseISO } from "date-fns";
 import { prisma } from "../db";
 import { foldTurkishForSearch } from "../normalize";
+import { runWithTenantAsync } from "../tenant-context";
 import { checkFileMagicBytes } from "../storage/file-guards";
 import { computeStudentScore, type StudentScoreReport } from "../student-score";
 import { provisionEntityLogin, provisionStaffLogin, getUserIdByTeacherId, getUserById, getUserAccountStatus, getUserAccountStatusForTeacher, setUserActive } from "../auth/users";
@@ -10910,6 +10911,21 @@ export async function listAnnouncementReadersTool(
   }
 }
 
+/** Rapor portalı (2026-10-14): rapor gönderiminde yöneticilere bildirim; bildirim hatası kaydı geri almaz. */
+async function notifyReportSubmitted(
+  tenantId: string,
+  category: "lesson_assessment_submitted" | "periodic_assessment_submitted",
+  recordId: string,
+  notification: { title: string; body: string }
+): Promise<void> {
+  try {
+    const { notifyAdmins } = await import("../manager-notifications");
+    await notifyAdmins(tenantId, category, notification, { dedupeKey: recordId });
+  } catch {
+    // bildirim en iyi çaba — rapor kaydedildi
+  }
+}
+
 /**
  * EPIC 7 (IMPLEMENTATION_PLAN.md) — TEACHER yalnızca kendi öğrencisi için
  * değerlendirme oluşturabilir (mevcut `canAccessStudent`'ın TEACHER için
@@ -10928,12 +10944,12 @@ export async function createAssessmentTool(
   const v = parseOrFail(createAssessmentSchema, input);
   if (!v.ok) return v;
 
-  const data = await readData();
-  const student = data.students.find((s) => s.id === v.data.studentId);
+  // Kota (2026-10-14): tam okuma yerine tek satır okumalar.
+  const student = await readStudentById(v.data.studentId);
   const access = await assertStudentAccess(ctx, student, v.data.studentId);
   if (!access.ok) return fail(access.code, access.message);
   if (!student) return fail("NOT_FOUND", "Öğrenci bulunamadı");
-  const lesson = data.lessons.find((l) => l.id === v.data.lessonId);
+  const lesson = await readLessonById(v.data.lessonId);
   if (!lesson) return fail("NOT_FOUND", "Ders bulunamadı");
   if (lesson.studentId !== student.id) {
     return fail("VALIDATION_ERROR", "Seçilen ders bu öğrenciye ait değil.");
@@ -10947,7 +10963,8 @@ export async function createAssessmentTool(
       tenantId: ctx.tenantId,
       lessonId: v.data.lessonId,
       studentId: v.data.studentId,
-      teacherId: student.teacherId,
+      // 2026-10-14 — çoklu branş: rapor dersin öğretmenine aittir (öğrencinin "ilk" öğretmenine değil).
+      teacherId: lesson.teacherId,
       teknikBecerisi: v.data.teknikBecerisi,
       notaOkuma: v.data.notaOkuma,
       muzikalite: v.data.muzikalite,
@@ -10972,6 +10989,10 @@ export async function createAssessmentTool(
     audit(ctx, "assessment.create", "LessonAssessment", assessment.id, {
       studentId: v.data.studentId,
       lessonId: v.data.lessonId,
+    });
+    await notifyReportSubmitted(ctx.tenantId, "lesson_assessment_submitted", assessment.id, {
+      title: "Yeni ders gelişim raporu",
+      body: `${student.name} için ders gelişim raporu gönderildi. Detay: /panel/raporlar?sekme=gelisim (ref:${assessment.id})`,
     });
     return ok({ assessmentId: assessment.id });
   } catch (e) {
@@ -11122,14 +11143,17 @@ export async function createPeriodicAssessmentTool(
   const v = parseOrFail(createPeriodicAssessmentSchema, input);
   if (!v.ok) return v;
 
-  const data = await readData();
+  // Kota (2026-10-14): tek öğrenci dilimi (yalnız bu öğrencinin dersleri) — tam okuma değil.
+  const data = await readStudentScope(v.data.studentId);
   const student = data.students.find((s) => s.id === v.data.studentId);
   if (!student) return fail("NOT_FOUND", "Öğrenci bulunamadı");
   if (ctx.role === "TEACHER" && !isOwnStudent(student, ctx.teacherId ?? "")) {
     return fail("FORBIDDEN", "Yalnızca kendi öğrenciniz için değerlendirme gönderebilirsiniz.");
   }
+  // 2026-10-14 — çoklu branş: öğretmen kendi branşı adına yazar; yönetici atanmış öğretmen adına (eski davranış).
+  const reportTeacherId = ctx.role === "TEACHER" && ctx.teacherId ? ctx.teacherId : student.teacherId;
 
-  const submitted = await listPeriodicAssessmentsForTeacher(ctx.tenantId, student.teacherId);
+  const submitted = await listPeriodicAssessmentsForTeacher(ctx.tenantId, reportTeacherId);
   const submittedForStudent = submitted
     .filter((s) => s.studentId === student.id)
     .map((s) => ({ periodStart: s.periodStart, periodEnd: s.periodEnd }));
@@ -11155,7 +11179,7 @@ export async function createPeriodicAssessmentTool(
     const result = await createPeriodicAssessment({
       tenantId: ctx.tenantId,
       studentId: student.id,
-      teacherId: student.teacherId,
+      teacherId: reportTeacherId,
       periodStart: v.data.periodStart,
       periodEnd: v.data.periodEnd,
       relatedLessonIds,
@@ -11170,6 +11194,10 @@ export async function createPeriodicAssessmentTool(
       studentId: student.id,
       periodStart: v.data.periodStart,
       periodEnd: v.data.periodEnd,
+    });
+    await notifyReportSubmitted(ctx.tenantId, "periodic_assessment_submitted", result.assessment.id, {
+      title: "Yeni 4 haftalık gelişim raporu",
+      body: `${student.name} için 4 haftalık genel değerlendirme gönderildi. Detay: /panel/raporlar?sekme=donemsel (ref:${result.assessment.id})`,
     });
     return ok({ id: result.assessment.id });
   } catch (e) {
@@ -11890,9 +11918,19 @@ export async function submitTeacherFeedbackTool(
     return fail("FORBIDDEN", "Yalnızca kendi çocuğunuz/kendiniz için geri bildirim gönderebilirsiniz.");
   }
 
-  const data = await readReferenceData();
+  // Tek öğrenci dilimi: öğretmenler + yalnız bu öğrencinin dersleri (uygunluk kuralı için).
+  const data = await readStudentScope(v.data.studentId);
   const student = data.students.find((s) => s.id === v.data.studentId);
   if (!student) return fail("NOT_FOUND", "Öğrenci bulunamadı");
+  // 2026-10-14 — çoklu branş: değerlendirme seçilen öğretmene yazılır; yalnız uygun öğretmen kabul edilir.
+  const { eligibleFeedbackTeacherIds } = await import("../teacher-feedback-eligibility");
+  const teacherId = v.data.teacherId ?? student.teacherId;
+  if (v.data.teacherId && !eligibleFeedbackTeacherIds(student, data.lessons, Date.now()).includes(v.data.teacherId)) {
+    return fail(
+      "FORBIDDEN",
+      "Bu öğretmeni değerlendiremezsiniz: kayıtlı branşlarınızın öğretmeni değil ve son 90 günde birlikte dersiniz yok."
+    );
+  }
 
   try {
     // Karma Öğrenci Portalı — ctx.role artık HER ZAMAN "STUDENT" (veli de
@@ -11903,7 +11941,7 @@ export async function submitTeacherFeedbackTool(
     const submitterRole = accessType === "GUARDIAN" ? "PARENT" : "STUDENT";
     const { feedback, updated } = await submitTeacherFeedback({
       tenantId: ctx.tenantId,
-      teacherId: student.teacherId,
+      teacherId,
       studentId: v.data.studentId,
       submittedBy: ctx.userId,
       submitterRole,
@@ -11912,10 +11950,10 @@ export async function submitTeacherFeedbackTool(
       comment: v.data.comment,
     });
     audit(ctx, updated ? "teacher_feedback.update" : "teacher_feedback.submit", "TeacherFeedback", feedback.id, {
-      teacherId: student.teacherId,
+      teacherId,
     });
     try {
-      const teacher = data.teachers.find((t) => t.id === student.teacherId);
+      const teacher = data.teachers.find((t) => t.id === teacherId);
       const { notifyAdmins } = await import("../manager-notifications");
       // dedupeKey = feedback.id: aynı ay içindeki tekrar submit (update) aynı
       // satırı güncellediği için aynı id kalır — 24 saat içinde ikinci kez
@@ -11925,7 +11963,7 @@ export async function submitTeacherFeedbackTool(
         "teacher_feedback_submitted",
         {
           title: "Yeni öğretmen değerlendirmesi",
-          body: `${teacher?.name ?? "Bir öğretmen"} için yeni bir değerlendirme geldi. Detay: /panel/ogretmenler/${student.teacherId}/geri-bildirim (ref:${feedback.id})`,
+          body: `${teacher?.name ?? "Bir öğretmen"} için yeni bir değerlendirme geldi. Detay: /panel/ogretmenler/${teacherId}/geri-bildirim (ref:${feedback.id})`,
         },
         { dedupeKey: feedback.id }
       );
@@ -11936,6 +11974,247 @@ export async function submitTeacherFeedbackTool(
   } catch (e) {
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "submitTeacherFeedback failed");
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* Rapor portalı (2026-10-14) — yönetici "Raporlar" ekranı              */
+/* ------------------------------------------------------------------ */
+
+const reportPageSchema = z.object({
+  teacherId: z.string().min(1).optional(),
+  studentId: z.string().min(1).optional(),
+  from: z.string().min(1),
+  to: z.string().min(1),
+  page: z.number().int().min(1).max(10_000).default(1),
+  pageSize: z.number().int().min(5).max(100).default(25),
+});
+
+/** Ders gelişimi raporları — yalnız yönetici; filtreli, sayfalı (tüm tablo okunmaz). */
+export async function listLessonAssessmentsForAdminTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ rows: LessonAssessment[]; total: number }>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const v = parseOrFail(reportPageSchema, input);
+  if (!v.ok) return v;
+  const { listAssessmentsPage } = await import("../assessment");
+  return ok(await listAssessmentsPage(ctx.tenantId, { ...v.data, fromIso: v.data.from, toIso: v.data.to }));
+}
+
+/** 4 haftalık değerlendirmeler — yalnız yönetici; filtreli, sayfalı. */
+export async function listPeriodicAssessmentsForAdminTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ rows: PeriodicAssessment[]; total: number }>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const v = parseOrFail(reportPageSchema, input);
+  if (!v.ok) return v;
+  const { listPeriodicAssessmentsPage } = await import("../periodic-assessment");
+  return ok(await listPeriodicAssessmentsPage(ctx.tenantId, { ...v.data, fromIso: v.data.from, toIso: v.data.to }));
+}
+
+/** Üst kartlar: raporu bekleyen dersler (öğretmen bazında, son 14 gün) + etkin değerlendirme bağlantısı sayısı. */
+export async function getReportsOverviewTool(
+  ctx: ServiceContext
+): Promise<ServiceResult<{ pendingByTeacher: { teacherId: string; count: number }[]; pendingTotal: number; activeInvites: number }>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const { pendingLessonAssessments, PENDING_LESSON_WINDOW_DAYS } = await import("../reports/pending");
+  const { listAssessedLessonIds } = await import("../assessment");
+  const { countActiveInvites } = await import("../feedback-invites");
+  const now = new Date();
+  const win = await readLessonWindow(
+    new Date(now.getTime() - (PENDING_LESSON_WINDOW_DAYS + 1) * 86_400_000).toISOString(),
+    now.toISOString()
+  );
+  const assessed = await listAssessedLessonIds(ctx.tenantId, win.lessons.map((l) => l.id));
+  const pending = pendingLessonAssessments(win.lessons, assessed, null, now.getTime());
+  const byTeacher = new Map<string, number>();
+  for (const l of pending) byTeacher.set(l.teacherId, (byTeacher.get(l.teacherId) ?? 0) + 1);
+  return ok({
+    pendingByTeacher: [...byTeacher].map(([teacherId, count]) => ({ teacherId, count })).sort((a, b) => b.count - a.count),
+    pendingTotal: pending.length,
+    activeInvites: await countActiveInvites(ctx.tenantId),
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/* Rapor portalı (2026-10-14) — kişiye özel değerlendirme bağlantısı     */
+/* ------------------------------------------------------------------ */
+
+const FEEDBACK_INVITE_STATUS_MESSAGES = {
+  not_found: "Bu değerlendirme bağlantısı geçersiz. Bağlantıyı eksiksiz kopyaladığınızdan emin olun veya kurumdan yeni bağlantı isteyin.",
+  expired: "Bu bağlantının süresi doldu (14 gün). Kurumdan yeni bir değerlendirme bağlantısı isteyin.",
+  revoked: "Bu bağlantı kurum tarafından iptal edildi veya yenisiyle değiştirildi. Size gönderilen en son bağlantıyı kullanın.",
+} as const;
+
+/** Yönetici: öğrenci için 14 gün geçerli kişiye özel bağlantı üretir; öğrencinin önceki etkin bağlantısı iptal olur. */
+export async function createFeedbackInviteTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ inviteId: string; url: string; expiresAt: string }>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const moduleGate = await assertFeatureEnabled(ctx.tenantId, "teacherFeedback");
+  if (!moduleGate.ok) return moduleGate;
+  const v = parseOrFail(z.object({ studentId: z.string().min(1) }), input);
+  if (!v.ok) return v;
+
+  const student = await readStudentById(v.data.studentId);
+  if (!student || student.deletedAt) {
+    return fail("NOT_FOUND", "Öğrenci bulunamadı. Öğrenciler listesinden kaydın silinmediğini kontrol edin.");
+  }
+  try {
+    const { createInvite } = await import("../feedback-invites");
+    const { getPublicAppBaseUrl } = await import("../email/config");
+    const { invite, code } = await createInvite(ctx.tenantId, student.id, ctx.userId);
+    audit(ctx, "feedback_invite.create", "FeedbackInvite", invite.id, { studentId: student.id });
+    return ok({ inviteId: invite.id, url: `${getPublicAppBaseUrl()}/degerlendir/${code}`, expiresAt: invite.expiresAt });
+  } catch (e) {
+    return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "createFeedbackInvite failed");
+  }
+}
+
+export async function revokeFeedbackInviteTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ revoked: true }>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const v = parseOrFail(z.object({ inviteId: z.string().min(1) }), input);
+  if (!v.ok) return v;
+  const { revokeInvite } = await import("../feedback-invites");
+  if (!(await revokeInvite(ctx.tenantId, v.data.inviteId))) {
+    return fail("NOT_FOUND", "İptal edilecek etkin bağlantı bulunamadı; zaten iptal edilmiş veya süresi dolmuş olabilir.");
+  }
+  audit(ctx, "feedback_invite.revoke", "FeedbackInvite", v.data.inviteId);
+  return ok({ revoked: true });
+}
+
+type InviteTeacherView = { id: string; name: string; instruments: string[]; done: boolean };
+
+/** `/degerlendir/<kod>` sayfası: bağlantının durumu + öğrencinin adı + değerlendirebileceği öğretmenler (oturum yok). */
+export async function describeFeedbackInviteTool(
+  code: string
+): Promise<
+  ServiceResult<
+    | { status: "ok" | "completed"; studentName: string; expiresAt: string; teachers: InviteTeacherView[] }
+    | { status: "not_found" | "expired" | "revoked"; message: string }
+  >
+> {
+  const { resolveInvite } = await import("../feedback-invites");
+  const r = await resolveInvite(code);
+  if (r.status !== "ok") return ok({ status: r.status, message: FEEDBACK_INVITE_STATUS_MESSAGES[r.status] });
+  const invite = r.invite;
+  return runWithTenantAsync(invite.tenantId, async () => {
+    const view = await loadInviteTeachers(invite);
+    if (!view) return ok({ status: "not_found" as const, message: FEEDBACK_INVITE_STATUS_MESSAGES.not_found });
+    const status = view.teachers.length > 0 && view.teachers.every((t) => t.done) ? ("completed" as const) : ("ok" as const);
+    return ok({ status, studentName: view.studentName, expiresAt: invite.expiresAt, teachers: view.teachers });
+  });
+}
+
+async function loadInviteTeachers(
+  invite: import("../feedback-invites").FeedbackInviteRow
+): Promise<{ studentName: string; teachers: InviteTeacherView[] } | null> {
+  const scope = await readStudentScope(invite.studentId);
+  const student = scope.students.find((s) => s.id === invite.studentId);
+  if (!student || student.deletedAt) return null;
+  const { eligibleFeedbackTeacherIds } = await import("../teacher-feedback-eligibility");
+  const ids = eligibleFeedbackTeacherIds(student, scope.lessons, Date.now());
+  const teachers = ids
+    .map((id) => scope.teachers.find((t) => t.id === id))
+    .filter((t): t is NonNullable<typeof t> => Boolean(t))
+    .map((t) => ({ id: t.id, name: t.name, instruments: t.instruments as string[], done: invite.completedTeacherIds.includes(t.id) }))
+    .sort((a, b) => a.name.localeCompare(b.name, "tr"));
+  const { maskStudentName } = await import("../feedback-invites");
+  return { studentName: maskStudentName(student.name), teachers };
+}
+
+const inviteFeedbackSchema = submitTeacherFeedbackSchema.omit({ studentId: true }).extend({ teacherId: z.string().min(1) });
+
+/**
+ * `/degerlendir/<kod>` gönderimi (oturum YOK): tenant ve öğrenci kodun satırından gelir; yalnız uygun ve henüz
+ * değerlendirilmemiş öğretmen kabul edilir. Kayıt mevcut aylık öğretmen değerlendirmesi kuralıyla yazılır.
+ */
+export async function submitTeacherFeedbackViaInviteTool(
+  code: string,
+  input: unknown,
+  clientKey: string
+): Promise<ServiceResult<{ feedbackId: string; remaining: number }>> {
+  const { consumeRateLimit } = await import("../rate-limit");
+  const { resolveInvite, hashInviteCode, markInviteTeacherCompleted, releaseInviteTeacher } = await import("../feedback-invites");
+  if (!consumeRateLimit("feedback-invite", `${clientKey}:${hashInviteCode(code).slice(0, 16)}`, { windowMs: 600_000, max: 10 })) {
+    return fail("RATE_LIMITED", "Kısa sürede çok fazla deneme yapıldı. Lütfen 10 dakika sonra tekrar deneyin.");
+  }
+  const r = await resolveInvite(code);
+  if (r.status !== "ok") return fail(r.status === "not_found" ? "NOT_FOUND" : "CONFLICT", FEEDBACK_INVITE_STATUS_MESSAGES[r.status]);
+  const v = parseOrFail(inviteFeedbackSchema, input);
+  if (!v.ok) return v;
+  const invite = r.invite;
+
+  return runWithTenantAsync(invite.tenantId, async () => {
+    const moduleGate = await assertFeatureEnabled(invite.tenantId, "teacherFeedback");
+    if (!moduleGate.ok) return moduleGate;
+    const view = await loadInviteTeachers(invite);
+    if (!view) return fail("NOT_FOUND", FEEDBACK_INVITE_STATUS_MESSAGES.not_found);
+    const target = view.teachers.find((t) => t.id === v.data.teacherId);
+    if (!target) {
+      return fail("FORBIDDEN", "Bu öğretmeni bu bağlantıyla değerlendiremezsiniz: öğrencinin kayıtlı branş öğretmeni değil ve son 90 günde dersi yok.");
+    }
+    const alreadyDone = `${target.name} için değerlendirmeniz zaten alındı. Teşekkür ederiz.`;
+    if (target.done) return fail("CONFLICT", alreadyDone);
+    // Güvenlik incelemesi: önce atomik yer ayırtma (eşzamanlı iki gönderimden yalnız biri geçer).
+    if (!(await markInviteTeacherCompleted(invite.id, target.id))) return fail("CONFLICT", alreadyDone);
+    // Bu ay portaldan (öğrenci/veli oturumuyla) gelmiş değerlendirmenin ÜZERİNE YAZILMAZ.
+    const existing = await findTeacherFeedbackThisMonth(invite.tenantId, invite.studentId, target.id);
+    if (existing && !existing.submittedBy.startsWith("invite:")) {
+      return fail("CONFLICT", `${target.name} için bu ay öğrenci portalından bir değerlendirme zaten gönderilmiş; tekrar göndermenize gerek yok.`);
+    }
+
+    try {
+      const { feedback } = await submitTeacherFeedback({
+        tenantId: invite.tenantId,
+        teacherId: target.id,
+        studentId: invite.studentId,
+        submittedBy: `invite:${invite.id}`,
+        submitterRole: "STUDENT_LINK",
+        scores: v.data.scores,
+        continueWithTeacher: v.data.continueWithTeacher,
+        comment: v.data.comment,
+      });
+      audit(
+        { role: "STUDENT", userId: `invite:${invite.id}`, tenantId: invite.tenantId, channel: "web" },
+        "teacher_feedback.submit_via_invite",
+        "TeacherFeedback",
+        feedback.id,
+        { teacherId: target.id, inviteId: invite.id }
+      );
+      try {
+        const { notifyAdmins } = await import("../manager-notifications");
+        await notifyAdmins(
+          invite.tenantId,
+          "teacher_feedback_submitted",
+          {
+            title: "Yeni öğretmen değerlendirmesi",
+            body: `${target.name} için değerlendirme bağlantısından yeni bir değerlendirme geldi. Detay: /panel/raporlar?sekme=degerlendirme (ref:${feedback.id})`,
+          },
+          { dedupeKey: feedback.id }
+        );
+      } catch {
+        // bildirim en iyi çaba
+      }
+      const remaining = view.teachers.filter((t) => !t.done && t.id !== target.id).length;
+      return ok({ feedbackId: feedback.id, remaining });
+    } catch (e) {
+      await releaseInviteTeacher(invite.id, target.id).catch(() => undefined);
+      // Oturumsuz uç: iç hata metni dışarı verilmez (güvenlik incelemesi); ayrıntı sunucu log'unda.
+      logger.error("submitTeacherFeedbackViaInvite", e instanceof Error ? e.message : String(e));
+      return fail("INTERNAL_ERROR", "Değerlendirmeniz kaydedilemedi. Lütfen birkaç dakika sonra tekrar deneyin; sorun sürerse kurumla iletişime geçin.");
+    }
+  });
 }
 
 /**
@@ -11992,7 +12271,7 @@ export type MaskedTeacherFeedback = Omit<TeacherFeedback, "studentId" | "submitt
 const feedbackReviewFiltersSchema = z.object({
   teacherId: z.string().min(1).optional(),
   status: z.enum(["pending", "reviewed", "actioned", "archived"]).optional(),
-  sourceType: z.enum(["STUDENT", "PARENT"]).optional(),
+  sourceType: z.enum(["STUDENT", "PARENT", "STUDENT_LINK"]).optional(),
   from: z.string().optional(),
   to: z.string().optional(),
 });

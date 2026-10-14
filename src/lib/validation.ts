@@ -1146,6 +1146,8 @@ const teacherFeedbackScoreSchema = z.number().int().min(1).max(5);
 
 export const submitTeacherFeedbackSchema = z.object({
   studentId: z.string().min(1),
+  /** 2026-10-14 — değerlendirilen öğretmen (çoklu branş). Yoksa atanmış öğretmen; varsa uygunluk kümesinde doğrulanır. */
+  teacherId: z.string().min(1).optional(),
   scores: z.object({
     clarity: teacherFeedbackScoreSchema,
     communication: teacherFeedbackScoreSchema,

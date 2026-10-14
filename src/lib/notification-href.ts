@@ -63,6 +63,10 @@ export function resolveNotificationHref(kind: string, body?: string): string | n
       return "/panel/yoklama";
     case "portal_request":
       return "/panel";
+    case "lesson_assessment_submitted":
+      return "/panel/raporlar?sekme=gelisim";
+    case "periodic_assessment_submitted":
+      return "/panel/raporlar?sekme=donemsel";
     case "teacher_feedback_submitted":
     case "student_feedback_submitted":
       // Body always carries "Detay: /panel/ogretmenler/<id>/geri-bildirim" —

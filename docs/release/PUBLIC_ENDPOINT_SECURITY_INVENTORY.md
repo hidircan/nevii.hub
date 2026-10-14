@@ -74,3 +74,10 @@ Beklenmeyen hata: `withApiHandler` hata detayını yalnız sunucuda loglar; publ
 | `/tmp/notaplan-data`, `__notaplanByTenant`, PII KDF salt | İç | Korunur (salt değişirse şifreli IBAN'lar çözülemez) |
 | `notaplan.vercel.app` (guard production host listesi) | Dış (Vercel proje adı) | Manuel follow-up: Vercel proje adı bu turda değiştirilmedi |
 | Kullanıcıya görünen UI/metadata/mobil app adı | Public | Legacy ad yok (`BRAND.name`, app.json `Nevii Hub`) |
+
+## Ek — 2026-10-14 rapor portalı (oturumsuz form uçları, `/api/basvuru/*` deseni)
+
+| Endpoint / Surface | Public mi? | Amaç | Koruma | Final Public Contract | Test |
+|---|---|---|---|---|---|
+| `POST /api/degerlendir/[kod]` | Evet (kişiye özel kod) | Öğrenci/veli öğretmen değerlendirmesi | Kod 32 bayt, DB'de sha256; 14 gün; iptal; öğretmen başına tek gönderim (atomik); portal kaydının üzerine yazmaz; hız sınırı IP+kod 10/10 dk; gövde ≤ 20 KB | `{ok, remaining}` / `{ok:false, code, message}` — Türkçe nedenli, iç hata yok | `report-portal-student-pages.test.ts`, `report-portal-invites.test.ts` |
+| `GET /degerlendir/[kod]` (sayfa) | Evet | Değerlendirme formu | `noindex`; yalnız maskeli öğrenci adı + öğretmen adları | — | aynı |

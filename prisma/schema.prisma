@@ -57,6 +57,7 @@ model Tenant {
   accountDeletionRequests     AccountDeletionRequest[]
   announcements               Announcement[]
   panelNotes                  PanelNote[]
+  feedbackInvites             FeedbackInvite[]
   trialApplications           TrialApplication[]
   clubs                       Club[]
   clubMemberships             ClubMembership[]
@@ -1515,6 +1516,23 @@ model Announcement {
 
 /// 2026-10-05 — Günlük Özet "Notlar": personelin sonraki vardiyaya bıraktığı serbest not. Yalnız eklenir;
 /// kim (userId + yazıldığı andaki ad) ve ne zaman kalıcıdır.
+/// 2026-10-14 — Rapor portalı: öğrenciye/veliye yöneticinin gönderdiği kişiye özel, 14 gün geçerli değerlendirme
+/// bağlantısı. Kod düz metin SAKLANMAZ (yalnız sha256). Her uygun öğretmen bir kez değerlendirilir; hepsi bitince kapanır.
+model FeedbackInvite {
+  id                  String    @id
+  tenantId            String
+  tenant              Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  studentId           String
+  tokenHash           String    @unique
+  createdBy           String
+  createdAt           DateTime  @default(now())
+  expiresAt           DateTime
+  revokedAt           DateTime?
+  completedTeacherIds Json      @default("[]")
+
+  @@index([tenantId, studentId])
+}
+
 model PanelNote {
   id              String   @id
   tenantId        String

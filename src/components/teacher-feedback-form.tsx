@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui";
 import type { TeacherFeedbackCriterionKey, TeacherFeedbackContinuePreference } from "@/lib/types";
 
-const CRITERIA: { key: TeacherFeedbackCriterionKey; label: string }[] = [
+export const CRITERIA: { key: TeacherFeedbackCriterionKey; label: string }[] = [
   { key: "clarity", label: "Dersi anlaşılır anlatma" },
   { key: "communication", label: "İletişim ve saygı" },
   { key: "effectiveness", label: "Ders verimliliği" },
@@ -20,7 +20,7 @@ const SCORE_LABELS: Record<number, string> = {
   5: "Çok iyi",
 };
 
-const CONTINUE_OPTIONS: { value: TeacherFeedbackContinuePreference; label: string }[] = [
+export const CONTINUE_OPTIONS: { value: TeacherFeedbackContinuePreference; label: string }[] = [
   { value: "yes", label: "Evet" },
   { value: "unsure", label: "Kararsızım" },
   { value: "no", label: "Hayır" },
@@ -36,11 +36,14 @@ export type InitialFeedback = {
 
 export function TeacherFeedbackForm({
   studentId,
+  teacherId,
   teacherName,
   initialFeedback,
   onSubmitted,
 }: {
   studentId: string;
+  /** 2026-10-14 — değerlendirilen öğretmen (çoklu branş); sunucu uygunluğu doğrular. */
+  teacherId?: string;
   teacherName: string;
   initialFeedback?: InitialFeedback | null;
   onSubmitted?: (updated: boolean) => void;
@@ -67,6 +70,7 @@ export function TeacherFeedbackForm({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           studentId,
+          teacherId,
           scores,
           continueWithTeacher: continueWithTeacher || undefined,
           comment: comment.trim() || undefined,

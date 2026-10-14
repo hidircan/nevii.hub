@@ -24,7 +24,7 @@ import { Badge, Card, EmptyState } from "@/components/ui";
 import { LessonStatusBadge } from "@/components/lesson-status-badge";
 import { HomeworkCreateForm } from "@/components/homework-create-form";
 import { HomeworkReviewForm } from "@/components/homework-review-form";
-import { LessonAssessmentForm } from "@/components/lesson-assessment-form";
+import { LessonAssessmentMobileForm } from "@/components/reports/lesson-assessment-mobile-form";
 import { CurriculumTopicForm } from "@/components/curriculum-topic-form";
 import { CurriculumTopicUpdateForm } from "@/components/curriculum-topic-update-form";
 import { StudentFeedbackForm } from "@/components/student-feedback-form";
@@ -578,10 +578,11 @@ export default async function TeacherStudentWorkspacePage({
                 Bu öğrenciyle henüz ders kaydı yok; değerlendirme bir derse bağlanır.
               </p>
             ) : (
-              <LessonAssessmentForm
+              <LessonAssessmentMobileForm
                 studentId={student.id}
                 lessons={assessmentLessons}
-                defaultTeacherName={teacher.name}
+                teacherName={teacher.name}
+                draftOwner={teacher.id}
               />
             )}
           </Card>

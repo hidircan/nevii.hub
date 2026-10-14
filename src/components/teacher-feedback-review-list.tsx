@@ -112,7 +112,7 @@ export function TeacherFeedbackReviewList({ rows }: { rows: ReviewFeedbackRow[] 
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div>
               <p className="text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
-                {row.submitterRole === "STUDENT" ? "Öğrenci" : "Veli"} · {formatDateTime(row.createdAt)}
+                {row.submitterRole === "STUDENT" ? "Öğrenci" : row.submitterRole === "STUDENT_LINK" ? "Değerlendirme bağlantısı" : "Veli"} · {formatDateTime(row.createdAt)}
               </p>
               {revealed[row.id] ? (
                 <p className="mt-0.5 text-sm font-semibold text-[var(--color-danger)]">

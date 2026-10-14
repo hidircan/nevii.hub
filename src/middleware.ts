@@ -4,7 +4,7 @@ import { jwtVerify } from "jose";
 import { ACCESS_COOKIE, REFRESH_COOKIE } from "@/lib/auth/cookies";
 import { getJwtSecret } from "@/lib/auth/config";
 
-const PROTECTED = ["/panel", "/veli", "/ogretmen", "/ogrenci", "/platform", "/sube"];
+const PROTECTED = ["/panel", "/veli", "/ogretmen", "/ogrenci", "/platform", "/sube", "/gelisim"];
 
 async function hasValidAccess(request: NextRequest): Promise<boolean> {
   const token = request.cookies.get(ACCESS_COOKIE)?.value;
@@ -66,11 +66,13 @@ export const config = {
     "/ogrenci/:path*",
     "/platform/:path*",
     "/sube/:path*",
+    "/gelisim/:path*",
     "/panel",
     "/veli",
     "/ogretmen",
     "/ogrenci",
     "/platform",
     "/sube",
+    "/gelisim",
   ],
 };
