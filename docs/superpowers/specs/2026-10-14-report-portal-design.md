@@ -81,9 +81,8 @@ Kapsam dışı (YAGNI): PDF çıktısı, öğretmene otomatik hatırlatma, çokl
 
 ## 3. Veri erişimi ve kota (zorunlu)
 - Yeni sayfalar ve tool'lar `readData()` / `readScopedData()` çağırmaz (kilit testi). Okumalar:
-  - Öğretmenin öğrencileri: referans dilimi yerine yeni dar okuyucu `readTeacherPortalScope(teacherId, fromIso, toIso)` —
-    öğretmenin aktif öğrencileri (yalnız liste için gereken kolonlar) + pencere içindeki kendi dersleri; db'de Prisma filtresi,
-    json/memory'de tam veriden `narrow*` (mod paritesi, `verify-db-slices` deseni).
+  - Öğretmenin öğrencileri ve bekleyen dersleri: mevcut `readLessonWindow(now−15g, now+1g)` (referans + pencere dersleri;
+    sayfa öğretmene süzer). Yeni okuyucu YAZILMAZ (plan sırasında sadeleştirildi; ölçüm gerekirse sonra).
   - Tek öğrenci formu: `readStudentScope(studentId)` (mevcut).
   - Raporlar ekranı: yalnız rapor tablolarından sayfalı sorgu + id listesiyle öğretmen/öğrenci adları (`select` ad).
 - `createAssessmentTool`: `readData()` → `readStudentById` + `readLessonById`; `teacherId` artık `lesson.teacherId`
