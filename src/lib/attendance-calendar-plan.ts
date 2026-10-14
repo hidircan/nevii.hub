@@ -77,16 +77,34 @@ export interface CalendarPlanInstallment {
   paymentNote?: string;
   /** Sözleşmesiz aylık plan satırının açıklaması ("Aylık plan — 2026-10 (…)") — eski satırlarda dönem ayı burada. */
   description?: string;
+  /** Kayıt ekranındaki AÇIK "takip eden ayı da ekle" seçimi (`Payment.firstCollectionIncludesNextMonth`). */
+  firstCollectionIncludesNextMonth?: boolean;
 }
 
 /** Ayın tahsilatları: satır başına fiilen alınan tutar + tahsilat anı + şekli (en eski önce). */
 /** `paidAt` = TAHSİLAT TARİHİ (paranın alındığı gün); hangi aya sayıldığı satırın dönem ayıdır. */
 export type CalendarMonthCollection = { paidAt: string; method?: string; amount: number; note?: string };
 
-function collectionsOf(rows: CalendarPlanInstallment[]): CalendarMonthCollection[] {
-  return rows
-    .filter((r) => r.paidAt && r.paidAmount > 0 && r.status !== "voided")
-    .map((r) => ({ paidAt: r.paidAt!, method: r.method, amount: Math.trunc(r.paidAmount), ...(r.paymentNote ? { note: r.paymentNote } : {}) }))
+/** Bir satırın verilen aya düşen payı (satır + pay). */
+type RowShare = { row: CalendarPlanInstallment; share: InstallmentMonthShare };
+
+function sharesForMonth(rows: CalendarPlanInstallment[], monthKey: string): RowShare[] {
+  return rows.flatMap((row) => {
+    const share = installmentMonthShares(row).find((s) => s.month === monthKey);
+    return share ? [{ row, share }] : [];
+  });
+}
+
+/** Tahsilat satırı: gerçek tahsilat tarihi + o aya MAHSUP edilen pay (çok aylı tahsilat her ayda yalnız kendi payıyla). */
+function collectionsOf(items: RowShare[]): CalendarMonthCollection[] {
+  return items
+    .filter(({ row, share }) => row.paidAt && share.paidAmount > 0 && row.status !== "voided")
+    .map(({ row, share }) => ({
+      paidAt: row.paidAt!,
+      method: row.method,
+      amount: share.paidAmount,
+      ...(row.paymentNote ? { note: row.paymentNote } : {}),
+    }))
     .sort((a, b) => a.paidAt.localeCompare(b.paidAt));
 }
 
@@ -129,6 +147,11 @@ export type CalendarMonthPlan =
       monthlyFee?: number;
       message: string;
       collections: CalendarMonthCollection[];
+      /**
+       * 2026-10-14 — bu ay, kırılımı kayda işlenmemiş eski bir birleşik kayıt tahsilatına dahil (açık "takip eden ay"
+       * seçimi): ay karşılanmış sayılır, tutarı tahmin edilmez. Ekranda açıkça yazılır; kırılım yazılınca kaybolur.
+       */
+      coveredByCombinedFirstCollection?: { paymentId: string; paidAt?: string };
     }
   | {
       state: "no_active_contract";
@@ -170,16 +193,74 @@ function monthKeyOfPeriodLabel(label: string | undefined): string | undefined {
  * kendi dönemine aittir. Önce dönem etiketi/kırılımı, yoksa (legacy) vade ayı.
  */
 export function installmentMonthKeys(p: CalendarPlanInstallment): string[] {
-  const fromBreakdown = (p.installmentBreakdown ?? [])
-    .map((b) => monthKeyOfPeriodLabel(b.periodLabel))
-    .filter((k): k is string => !!k);
-  if (fromBreakdown.length > 0) return fromBreakdown;
-  const fromLabel = monthKeyOfPeriodLabel(p.installmentPeriodLabel ?? p.periodLabel);
+  return installmentMonthShares(p).map((s) => s.month);
+}
+
+/**
+ * 2026-10-14 — bir ödeme satırının dönem(ler)e dağılımı: TEK kural. Takvim ay kutusu, öğrenci dökümü ve sözleşmesiz
+ * tahakkuk (`standalone-monthly-accrual.ts`) aynı fonksiyonu okur; böylece "bu ay karşılandı mı" ve "bu aya ne kadar
+ * mahsup edildi" sorularının iki ayrı cevabı olmaz.
+ *
+ * - `amount`: satırın o döneme düşen BORCU; `paidAmount`: o döneme MAHSUP edilen tahsilat. Toplamlar satırın kendi
+ *   `amount`/`paidAmount`'ına eşittir — aynı para iki ayda sayılmaz, mahsup tahsilatı aşmaz.
+ * - Dönem kırılımı (`installmentBreakdown`) varsa borç, kırılım tutarları sırayla doldurularak dağıtılır; satır tutarı
+ *   kırılım toplamından farklıysa (manuel tutar) fark/eksik SON döneme düşer. Tahsilat en eski dönemden başlayarak
+ *   mahsup edilir (kısmi ödeme / iade sonrası eksik kalan, en yeni dönemdir).
+ * - Kırılımı OLMAYAN eski kayıt ilk tahsilatında "takip eden ayı da ekle" seçiliyse (açık seçim), sonraki ay
+ *   KARŞILANMIŞ sayılır ama tutarı kayda işlenmemiştir: o ayın payı 0'dır ve `unsplit` işaretlenir. Tutar TAHMİN
+ *   edilmez (öğrencinin bugünkü ücretinden türetilmez); kırılım `scripts/backfill-first-collection-periods.ts` ile,
+ *   onaydan sonra yazılır.
+ */
+export type InstallmentMonthShare = {
+  month: string;
+  amount: number;
+  paidAmount: number;
+  /** Kırılımdaki dönem etiketi ("24–30 Eylül 2026" / "Ekim 2026"); yoksa satırın etiketi. */
+  periodLabel?: string;
+  /** Birleşik eski tahsilatın tutarı kayda işlenmemiş ikinci ayı. */
+  unsplit?: true;
+};
+
+/** `total`'ı sırayla `caps`'e doldurur; artan son paya eklenir. Saf, deterministik. */
+export function allocateInOrder(total: number, caps: number[]): number[] {
+  let left = Math.max(0, Math.trunc(total));
+  const out = caps.map((c) => {
+    const take = Math.min(left, Math.max(0, Math.trunc(c)));
+    left -= take;
+    return take;
+  });
+  if (out.length > 0) out[out.length - 1]! += left;
+  return out;
+}
+
+function nextMonthKeyOf(monthKey: string): string {
+  const [y, m] = monthKey.split("-").map(Number) as [number, number];
+  return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, "0")}`;
+}
+
+export function installmentMonthShares(p: CalendarPlanInstallment): InstallmentMonthShare[] {
+  const amount = Math.trunc(p.amount);
+  const paid = Math.trunc(p.paidAmount);
+  const parts = (p.installmentBreakdown ?? [])
+    .map((b) => ({ month: monthKeyOfPeriodLabel(b.periodLabel), cap: b.amount, label: b.periodLabel }))
+    .filter((b): b is { month: string; cap: number; label: string } => !!b.month);
+  if (parts.length > 0) {
+    const amounts = allocateInOrder(amount, parts.map((b) => b.cap));
+    const paids = allocateInOrder(paid, amounts);
+    return parts.map((b, i) => ({ month: b.month, amount: amounts[i]!, paidAmount: paids[i]!, periodLabel: b.label }));
+  }
+  const label = p.installmentPeriodLabel ?? p.periodLabel;
+  const fromLabel = monthKeyOfPeriodLabel(label);
   // 2026-10-06 — sözleşmesiz aylık plan: dönem ayı, kullanıcının SEÇTİĞİ ay kutusudur (açıklamaya yazılan ay).
   // Eski takvim tahsilatı vadeye TAHSİLAT günü yazıyordu (Ekim kutusu + 30.09 → Eylül'de görünüyordu);
   // tahsilat tarihi asla dönem ayını belirlemez.
   const fromDescription = p.source === "monthly_plan" ? monthlyPlanMonthOfDescription(p.description) : undefined;
-  return [fromLabel ?? fromDescription ?? monthKeyOf(p.dueDate)];
+  const month = fromLabel ?? fromDescription ?? monthKeyOf(p.dueDate);
+  const own: InstallmentMonthShare = { month, amount, paidAmount: paid, ...(label ? { periodLabel: label } : {}) };
+  if (p.source === "registration_first_payment" && !p.contractId && p.firstCollectionIncludesNextMonth && !fromLabel) {
+    return [own, { month: nextMonthKeyOf(month), amount: 0, paidAmount: 0, unsplit: true }];
+  }
+  return [own];
 }
 
 const TR_MONTH_NAMES = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"];
@@ -230,8 +311,9 @@ export function resolveContractPlanForMonth(input: {
     .filter((c) => contractCoversMonth(c, monthKey));
 
   if (covering.length === 0) {
-    const own = input.installments.filter(
-      (p) => !p.contractId && STUDENT_PLAN_SOURCES.has(p.source ?? "") && p.status !== "voided" && installmentMonthKeys(p).includes(monthKey)
+    const own = sharesForMonth(
+      input.installments.filter((p) => !p.contractId && STUDENT_PLAN_SOURCES.has(p.source ?? "") && p.status !== "voided"),
+      monthKey
     );
     const fee = input.studentMonthlyFee && input.studentMonthlyFee > 0 ? input.studentMonthlyFee : undefined;
     if (own.length === 0 && !fee) {
@@ -240,18 +322,20 @@ export function resolveContractPlanForMonth(input: {
         message: "Bu ay için aktif ödeme planı bulunmuyor.",
       };
     }
-    const amount = own.reduce((sum, r) => sum + Math.trunc(r.amount), 0);
-    const paidAmount = own.reduce((sum, r) => sum + Math.trunc(r.paidAmount), 0);
-    const earliestDue = own.reduce<string | undefined>((min, r) => (!min || r.dueDate < min ? r.dueDate : min), undefined);
+    const amount = own.reduce((sum, r) => sum + r.share.amount, 0);
+    const paidAmount = own.reduce((sum, r) => sum + r.share.paidAmount, 0);
+    const earliestDue = own.reduce<string | undefined>((min, r) => (!min || r.row.dueDate < min ? r.row.dueDate : min), undefined);
+    const combined = own.find((r) => r.share.unsplit);
     return {
       state: "student_plan",
-      paymentIds: own.map((r) => r.id),
+      paymentIds: own.map((r) => r.row.id),
       amount,
       paidAmount,
       remaining: remainingAmount(amount, paidAmount),
       status: earliestDue ? resolveCollectionStatus({ amount, paidAmount, dueDate: earliestDue, now: input.now }) : undefined,
       monthlyFee: fee,
       collections: collectionsOf(own),
+      ...(combined ? { coveredByCombinedFirstCollection: { paymentId: combined.row.id, ...(combined.row.paidAt ? { paidAt: combined.row.paidAt } : {}) } } : {}),
       message:
         own.length > 0
           ? "Sözleşmesiz aylık plan (öğrenci kartındaki ödeme bilgisi)."
@@ -271,10 +355,10 @@ export function resolveContractPlanForMonth(input: {
   }
 
   const contract = covering[0]!;
-  const rows = input.installments
-    .filter((p) => p.contractId === contract.id && p.installmentSequence != null)
-    .filter((p) => installmentMonthKeys(p).includes(monthKey))
-    .sort((a, b) => (a.installmentSequence ?? 0) - (b.installmentSequence ?? 0));
+  const rows = sharesForMonth(
+    input.installments.filter((p) => p.contractId === contract.id && p.installmentSequence != null),
+    monthKey
+  ).sort((a, b) => (a.row.installmentSequence ?? 0) - (b.row.installmentSequence ?? 0));
 
   if (rows.length === 0) {
     return {
@@ -286,22 +370,23 @@ export function resolveContractPlanForMonth(input: {
     };
   }
 
-  // YALNIZCA dondurulmuş tutarların TOPLAMI — oranlama/yuvarlama YOK.
-  const amount = rows.reduce((s, r) => s + Math.trunc(r.amount), 0);
-  const paidAmount = rows.reduce((s, r) => s + Math.trunc(r.paidAmount), 0);
-  const earliestDueDate = rows.reduce((min, r) => (r.dueDate < min ? r.dueDate : min), rows[0]!.dueDate);
+  // Dondurulmuş tutarların bu aya düşen PAYLARI — birleşik ilk tahsilat (Eylül + Ekim) her ayda yalnız kendi
+  // kırılım tutarıyla görünür; yeni oranlama/yuvarlama YOK (pay = kırılımın kendisi).
+  const amount = rows.reduce((s, r) => s + r.share.amount, 0);
+  const paidAmount = rows.reduce((s, r) => s + r.share.paidAmount, 0);
+  const earliestDueDate = rows.reduce((min, r) => (r.row.dueDate < min ? r.row.dueDate : min), rows[0]!.row.dueDate);
 
   return {
     state: "ok",
     contractId: contract.id,
     contractNumber: contract.contractNumber,
-    installmentSequences: rows.map((r) => r.installmentSequence!),
-    paymentIds: rows.map((r) => r.id),
+    installmentSequences: rows.map((r) => r.row.installmentSequence!),
+    paymentIds: rows.map((r) => r.row.id),
     amount,
     paidAmount,
     remaining: remainingAmount(amount, paidAmount),
     status: resolveCollectionStatus({ amount, paidAmount, dueDate: earliestDueDate, now: input.now }),
-    periodLabel: rows.length === 1 ? (rows[0]!.installmentPeriodLabel ?? rows[0]!.periodLabel) : undefined,
+    periodLabel: rows.length === 1 ? rows[0]!.share.periodLabel : undefined,
     collections: collectionsOf(rows),
   };
 }

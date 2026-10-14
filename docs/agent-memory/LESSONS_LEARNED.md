@@ -1530,3 +1530,13 @@ Aynı turda: `validateLessonSlot` oda `active`'ini hiç okumuyordu → telafi pa
   satır sayısıyla sıraladığı için az ama büyük satırlar da gizleniyordu. Varsayım yerine owner'a boyut SQL'i çalıştırıldı.
 - Ders: performans/kota denetiminden önce `list_deployments target=production` ile canlı commit'i bul ve `git fetch` + o commit'te çalış;
   "büyük satır" şüphesini `sum(octet_length(...))` ile canlıda doğrulamadan öncelik verme.
+
+## 2026-10-14 — "Bu ay karşılandı mı?" sorusunun iki cevabı vardı (ileri ay tahsilatı)
+- Sözleşmesiz kayıt ilk tahsilatında "takip eden ayı da ekle" yalnız bayraktı (dönem etiketi/kırılımı yok). Gece tahakkuku
+  bayrağı okuyup sonraki ayı borçlandırmıyor, yoklama takvimi okumuyordu → ay "ödeme kaydı yok" görünüyor ve ikinci tahsilata
+  açıktı. Sözleşmeli birleşik taksit ise iki ayda da TAM tutarla sayılıyordu (döküm toplamı çift). Ay kutusuna iki aylık tutar
+  girilince sözleşmesiz yeni satırın borcu girilen tutar oluyor, sonraki ay yine borçlanıyordu.
+- Düzeltme: tek kural `installmentMonthShares` (ay → borç payı + mahsup payı; takvim, döküm, tahakkuk aynı fonksiyon); yeni
+  kayıt satırı kırılımı kalıcı yazar; fazla tutar önce doğrulanıp sonraki dönemlere mahsup edilir.
+- Ders: "kapsam" kuralı (hangi ay) ile "tutar" kuralı (ne kadar) tek fonksiyonda olmalı; bir bayrağı okuyan her yeri `grep`
+  ile bul. Geçmiş kayıtta tutarı bugünkü ücretten TAHMİN etme — kırılımı kayıtta tut, eskiyi kuru çalıştırmayla ayır.

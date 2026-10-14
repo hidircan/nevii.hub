@@ -285,6 +285,34 @@ function formatDayTr(day: string): string {
   return `${d} ${TR_MONTHS[m - 1]} ${y}`;
 }
 
+/**
+ * 2026-10-14 — SÖZLEŞMESİZ kayıt ilk tahsilatının dönem etiketi + kırılımı. Sözleşmenin birleşik ilk taksitiyle
+ * (`buildPerLessonInstallmentSchedule`) AYNI biçim: "24–30 Eylül 2026 + Ekim 2026", kırılım = otomatik bileşenler.
+ * Böylece "takip eden ay" seçiminin hangi aya ne kadar mahsup edildiği kayıtta durur; takvim/tahakkuk tahsilat
+ * tarihinden ya da öğrencinin sonradan değişen ücretinden TAHMİN etmez. Tahsil edilen tutar kırılımdan farklıysa
+ * (manuel tutar) satır tutarı yine fiilen alınan tutardır; dağılım `installmentMonthShares` kuralıyla yapılır.
+ */
+export function registrationFirstCollectionPeriods(
+  s: { startDay: string; firstPeriodEnd: string; firstPeriodAmount: number; includesNextMonth: boolean },
+  monthlyFee: number
+): { installmentPeriodLabel: string; installmentBreakdown?: { periodLabel: string; amount: number }[] } {
+  const first = formatPeriodLabel({ periodStart: s.startDay, periodEnd: s.firstPeriodEnd });
+  if (!s.includesNextMonth) return { installmentPeriodLabel: first };
+  const [y, m] = s.startDay.slice(0, 7).split("-").map(Number) as [number, number];
+  const ny = m === 12 ? y + 1 : y;
+  const nm = m === 12 ? 1 : m + 1;
+  const nextStart = `${ny}-${String(nm).padStart(2, "0")}-01`;
+  const nextEnd = `${ny}-${String(nm).padStart(2, "0")}-${String(new Date(Date.UTC(ny, nm, 0)).getUTCDate()).padStart(2, "0")}`;
+  const second = formatPeriodLabel({ periodStart: nextStart, periodEnd: nextEnd });
+  return {
+    installmentPeriodLabel: `${first} + ${second}`,
+    installmentBreakdown: [
+      { periodLabel: first, amount: s.firstPeriodAmount },
+      { periodLabel: second, amount: monthlyFee },
+    ],
+  };
+}
+
 /** Bir `PeriodBillingLine` için okunabilir dönem etiketi — tam bir takvim ayını kapsıyorsa "Ekim 2026", kısmi ise "17–30 Eylül 2026". */
 function formatPeriodLabel(line: Pick<import("./period-lesson-billing").PeriodBillingLine, "periodStart" | "periodEnd">): string {
   const start = ymdParts(line.periodStart);

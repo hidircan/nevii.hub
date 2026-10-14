@@ -44,6 +44,8 @@ export function buildRegistrationFirstPayment(
     adjustedAt: fp.adjustedAt,
     firstCollectionIncludesNextMonth: fp.firstCollectionIncludesNextMonth,
     enrollmentId: fp.enrollmentId,
+    ...(fp.installmentPeriodLabel ? { installmentPeriodLabel: fp.installmentPeriodLabel } : {}),
+    ...(fp.installmentBreakdown ? { installmentBreakdown: fp.installmentBreakdown } : {}),
   };
 }
 

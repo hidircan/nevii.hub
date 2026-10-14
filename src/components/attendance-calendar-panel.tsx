@@ -336,6 +336,17 @@ function MonthPlanSummary({ plan }: { plan: CalendarMonthPlan }) {
   if (plan.state === "student_plan") {
     // 8. tur — sözleşmesiz öğrencinin kendi planı: gerçek satırlar varsa onların toplamı,
     // yoksa yalnız anlaşılan aylık ücret bilgi olarak (borç gibi gösterilmez).
+    const combined = plan.coveredByCombinedFirstCollection;
+    if (combined && plan.amount === 0) {
+      // 2026-10-14 — kayıtta "takip eden ayı da ekle" ile peşin alınmış ay: borç değil, ikinci tahsilat istenmez.
+      return (
+        <p className="text-[10px] font-medium text-[var(--color-success)]">
+          Bu ay kayıt ilk tahsilatına dahil
+          {combined.paidAt ? ` (tahsilat ${new Date(combined.paidAt).toLocaleDateString("tr-TR", { timeZone: "Europe/Istanbul" })})` : ""}
+          {" — ayrıca tahsilat gerekmez. Ayın tutarı kayda ayrı işlenmemiş; tutar ilk tahsilat satırındadır."}
+        </p>
+      );
+    }
     return (
       <p className="text-[10px] text-[var(--color-text-muted)]">
         {plan.paymentIds.length > 0 ? (
@@ -693,17 +704,25 @@ export function AttendanceCalendarPanel({
           ...(branchId ? { enrollmentId: branchId } : {}),
         }),
       });
-      const json = (await res.json()) as { ok: boolean; error?: { message: string } };
+      const json = (await res.json()) as { ok: boolean; data?: { months?: string[] }; error?: { message: string } };
       if (!json.ok) {
         setError(json.error?.message ?? "Tutar kaydedilemedi.");
         return;
       }
-      const res2 = await apiFetch(
-        `/api/v1/attendance-calendar/month?studentId=${studentId}&year=${year}&month=${month}${branchQuery}`
-      );
-      const json2 = (await res2.json()) as { ok: boolean; data?: MonthResponse };
-      if (json2.ok && json2.data) {
-        setByMonth((prev) => ({ ...prev, [key]: json2.data! }));
+      // 2026-10-14 — tek tahsilat sonraki aylara da mahsup edildiyse o ayların kutuları da sunucudan yenilenir.
+      const touched = [...new Set([monthStr, ...(json.data?.months ?? [])])];
+      const loadedKeys = new Set(Object.keys(byMonth));
+      for (const mk of touched) {
+        const [ty, tm] = mk.split("-").map(Number) as [number, number];
+        const k = `${ty}-${tm}`;
+        if (mk !== monthStr && !loadedKeys.has(k)) continue;
+        const res2 = await apiFetch(
+          `/api/v1/attendance-calendar/month?studentId=${studentId}&year=${ty}&month=${tm}${branchQuery}`
+        );
+        const json2 = (await res2.json()) as { ok: boolean; data?: MonthResponse };
+        if (json2.ok && json2.data) {
+          setByMonth((prev) => ({ ...prev, [k]: json2.data! }));
+        }
       }
     } catch {
       setError("Bağlantı hatası.");
@@ -908,7 +927,8 @@ export function AttendanceCalendarPanel({
                   <PaidMonthEntry
                     collapsed={
                       (data?.plan.state === "ok" || data?.plan.state === "student_plan") &&
-                      data.plan.collections.length > 0 &&
+                      (data.plan.collections.length > 0 ||
+                        (data.plan.state === "student_plan" && !!data.plan.coveredByCombinedFirstCollection)) &&
                       data.plan.remaining <= 0
                     }
                   >

@@ -24,11 +24,6 @@ import type { Lesson, Payment, Student, Teacher } from "./types";
  */
 export type StandaloneAccrual = { studentId: string; month: string; amount: number; enrollmentId?: string };
 
-function nextMonthKey(monthKey: string): string {
-  const [y, m] = monthKey.split("-").map(Number) as [number, number];
-  return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, "0")}`;
-}
-
 /** Bu öğrenci satırı (sözleşmesiz plan) verilen ayı karşılıyor mu? */
 function coversMonth(p: Payment, month: string): boolean {
   if (p.contractId) return false;
@@ -39,11 +34,10 @@ function coversMonth(p: Payment, month: string): boolean {
     return isMonthlyPlanRowForMonth(p, month);
   }
   if (p.status === "voided" || p.source !== "registration_first_payment") return false;
-  const months = installmentMonthKeys(p);
-  if (p.firstCollectionIncludesNextMonth) {
-    months.push(nextMonthKey(p.dueDate.slice(0, 7)));
-  }
-  return months.includes(month);
+  // 2026-10-14 — "takip eden ayı da ekle" kapsamı TEK kuraldan (`installmentMonthShares`): takvim ve döküm de aynı
+  // fonksiyonu okur. Eskiden burada vade (tahsilat) ayı + 1 ayrıca hesaplanıyordu; takvim bu bayrağı hiç okumadığı
+  // için sözleşmesiz öğrencide sonraki ay tahakkuk edilmiyor ama takvimde "ödeme kaydı yok" görünüyordu.
+  return installmentMonthKeys(p).includes(month);
 }
 
 /** Saf: verilen ay için yazılması gereken sözleşmesiz aylık plan satırları. */

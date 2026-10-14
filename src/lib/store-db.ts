@@ -1915,6 +1915,8 @@ function registrationPaymentCreateData(id: string, tenantId: string, studentId: 
     adjustedBy: fp.adjustedBy,
     adjustedAt: fp.adjustedAt ? new Date(fp.adjustedAt) : undefined,
     enrollmentId: fp.enrollmentId,
+    installmentPeriodLabel: fp.installmentPeriodLabel,
+    installmentBreakdown: fp.installmentBreakdown as unknown as Prisma.InputJsonValue | undefined,
   };
 }
 
@@ -4373,7 +4375,11 @@ export async function addContractInstallments(input: {
         description: `Sözleşme taksiti 1/${input.installments.at(-1)?.sequence ?? input.installments.length} — Kayıt anında tahsil edildi (kayıt ödemesi)`,
         installmentKind: firstInst?.kind,
         installmentPeriodLabel: firstInst?.periodLabel,
-        installmentBreakdown: firstInst?.breakdown as unknown as import("@prisma/client").Prisma.InputJsonValue | undefined,
+        // 2026-10-14 — kayıt satırı artık kendi kırılımını taşıyabilir; sözleşmenin ilk taksiti birleşik DEĞİLSE eski
+        // kırılım temizlenir (undefined Prisma'da "dokunma" demektir; json/memory'de alan zaten silinir).
+        installmentBreakdown: firstInst?.breakdown
+          ? (firstInst.breakdown as unknown as import("@prisma/client").Prisma.InputJsonValue)
+          : Prisma.DbNull,
         installmentComputationSource: firstInst?.computationSource,
         installmentNote: firstInst?.note,
       },
