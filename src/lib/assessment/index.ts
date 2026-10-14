@@ -243,6 +243,49 @@ export async function listAssessedLessonIds(tenantId: string, lessonIds: string[
   return new Set((await loadAll()).filter((a) => a.tenantId === tenantId && wanted.has(a.lessonId)).map((a) => a.lessonId));
 }
 
+
+/** Rapor portalı (2026-10-14) — yönetici "Raporlar" ekranı: filtreli + sayfalı liste (tüm tablo okunmaz). */
+export type ReportPageFilter = {
+  teacherId?: string;
+  studentId?: string;
+  fromIso: string;
+  toIso: string;
+  page: number;
+  pageSize: number;
+};
+
+export async function listAssessmentsPage(
+  tenantId: string,
+  f: ReportPageFilter
+): Promise<{ rows: LessonAssessment[]; total: number }> {
+  const skip = Math.max(0, (f.page - 1) * f.pageSize);
+  if (isDbMode) {
+    const { prisma } = await import("../db");
+    const where = {
+      tenantId,
+      ...(f.teacherId ? { teacherId: f.teacherId } : {}),
+      ...(f.studentId ? { studentId: f.studentId } : {}),
+      createdAt: { gte: new Date(f.fromIso), lte: new Date(f.toIso) },
+    };
+    const [rows, total] = await Promise.all([
+      prisma.lessonAssessment.findMany({ where, orderBy: { createdAt: "desc" }, skip, take: f.pageSize }),
+      prisma.lessonAssessment.count({ where }),
+    ]);
+    return { rows: rows.map((r) => toPublicAssessment(mapDbAssessment(r))), total };
+  }
+  const all = (await loadAll())
+    .filter(
+      (a) =>
+        a.tenantId === tenantId &&
+        (!f.teacherId || a.teacherId === f.teacherId) &&
+        (!f.studentId || a.studentId === f.studentId) &&
+        a.createdAt >= f.fromIso &&
+        a.createdAt <= f.toIso
+    )
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  return { rows: all.slice(skip, skip + f.pageSize).map(toPublicAssessment), total: all.length };
+}
+
 async function listAllAssessmentsDb(tenantId: string): Promise<LessonAssessment[]> {
   const { prisma } = await import("../db");
   const rows = await prisma.lessonAssessment.findMany({

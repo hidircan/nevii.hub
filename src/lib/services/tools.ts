@@ -11977,6 +11977,70 @@ export async function submitTeacherFeedbackTool(
 }
 
 /* ------------------------------------------------------------------ */
+/* Rapor portalı (2026-10-14) — yönetici "Raporlar" ekranı              */
+/* ------------------------------------------------------------------ */
+
+const reportPageSchema = z.object({
+  teacherId: z.string().min(1).optional(),
+  studentId: z.string().min(1).optional(),
+  from: z.string().min(1),
+  to: z.string().min(1),
+  page: z.number().int().min(1).max(10_000).default(1),
+  pageSize: z.number().int().min(5).max(100).default(25),
+});
+
+/** Ders gelişimi raporları — yalnız yönetici; filtreli, sayfalı (tüm tablo okunmaz). */
+export async function listLessonAssessmentsForAdminTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ rows: LessonAssessment[]; total: number }>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const v = parseOrFail(reportPageSchema, input);
+  if (!v.ok) return v;
+  const { listAssessmentsPage } = await import("../assessment");
+  return ok(await listAssessmentsPage(ctx.tenantId, { ...v.data, fromIso: v.data.from, toIso: v.data.to }));
+}
+
+/** 4 haftalık değerlendirmeler — yalnız yönetici; filtreli, sayfalı. */
+export async function listPeriodicAssessmentsForAdminTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<{ rows: PeriodicAssessment[]; total: number }>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const v = parseOrFail(reportPageSchema, input);
+  if (!v.ok) return v;
+  const { listPeriodicAssessmentsPage } = await import("../periodic-assessment");
+  return ok(await listPeriodicAssessmentsPage(ctx.tenantId, { ...v.data, fromIso: v.data.from, toIso: v.data.to }));
+}
+
+/** Üst kartlar: raporu bekleyen dersler (öğretmen bazında, son 14 gün) + etkin değerlendirme bağlantısı sayısı. */
+export async function getReportsOverviewTool(
+  ctx: ServiceContext
+): Promise<ServiceResult<{ pendingByTeacher: { teacherId: string; count: number }[]; pendingTotal: number; activeInvites: number }>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const { pendingLessonAssessments, PENDING_LESSON_WINDOW_DAYS } = await import("../reports/pending");
+  const { listAssessedLessonIds } = await import("../assessment");
+  const { countActiveInvites } = await import("../feedback-invites");
+  const now = new Date();
+  const win = await readLessonWindow(
+    new Date(now.getTime() - (PENDING_LESSON_WINDOW_DAYS + 1) * 86_400_000).toISOString(),
+    now.toISOString()
+  );
+  const assessed = await listAssessedLessonIds(ctx.tenantId, win.lessons.map((l) => l.id));
+  const pending = pendingLessonAssessments(win.lessons, assessed, null, now.getTime());
+  const byTeacher = new Map<string, number>();
+  for (const l of pending) byTeacher.set(l.teacherId, (byTeacher.get(l.teacherId) ?? 0) + 1);
+  return ok({
+    pendingByTeacher: [...byTeacher].map(([teacherId, count]) => ({ teacherId, count })).sort((a, b) => b.count - a.count),
+    pendingTotal: pending.length,
+    activeInvites: await countActiveInvites(ctx.tenantId),
+  });
+}
+
+/* ------------------------------------------------------------------ */
 /* Rapor portalı (2026-10-14) — kişiye özel değerlendirme bağlantısı     */
 /* ------------------------------------------------------------------ */
 
@@ -12207,7 +12271,7 @@ export type MaskedTeacherFeedback = Omit<TeacherFeedback, "studentId" | "submitt
 const feedbackReviewFiltersSchema = z.object({
   teacherId: z.string().min(1).optional(),
   status: z.enum(["pending", "reviewed", "actioned", "archived"]).optional(),
-  sourceType: z.enum(["STUDENT", "PARENT"]).optional(),
+  sourceType: z.enum(["STUDENT", "PARENT", "STUDENT_LINK"]).optional(),
   from: z.string().optional(),
   to: z.string().optional(),
 });
