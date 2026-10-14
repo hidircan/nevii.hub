@@ -8,11 +8,11 @@ import { readStudentScope } from "@/lib/store";
 import { getOwnTeacherFeedbackThisMonthTool } from "@/lib/services";
 import { TeacherFeedbackCards, type EligibleTeacher } from "@/components/teacher-feedback-cards";
 import { formatDate } from "@/lib/utils";
+import { eligibleFeedbackTeacherIds, FEEDBACK_RECENT_LESSON_WINDOW_DAYS } from "@/lib/teacher-feedback-eligibility";
 
 export const dynamic = "force-dynamic";
 
-/** Değerlendirmeye "yakın geçmiş" sayılan pencere. */
-const RECENT_LESSON_WINDOW_DAYS = 90;
+const RECENT_LESSON_WINDOW_DAYS = FEEDBACK_RECENT_LESSON_WINDOW_DAYS;
 
 export default async function StudentTeacherFeedbackPage() {
   let session;
@@ -40,13 +40,11 @@ export default async function StudentTeacherFeedbackPage() {
   // RECENT_LESSON_WINDOW_DAYS içinde bu öğrenciyle dersi olan öğretmenler.
   // URL/ID manipülasyonuyla ilişkisiz bir öğretmen asla bu listeye giremez
   // — liste tamamen sunucuda, öğrencinin GERÇEK ders kayıtlarından türetilir.
-  const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - RECENT_LESSON_WINDOW_DAYS);
-  const recentLessons = data.lessons.filter(
-    (l) => l.studentId === student.id && new Date(l.startAt) >= cutoff
-  );
-  const teacherIds = new Set<string>(recentLessons.map((l) => l.teacherId));
-  if (student.teacherId) teacherIds.add(student.teacherId);
+  const nowMs = Date.now();
+  const cutoffMs = nowMs - RECENT_LESSON_WINDOW_DAYS * 86_400_000;
+  const recentLessons = data.lessons.filter((l) => l.studentId === student.id && Date.parse(l.startAt) >= cutoffMs);
+  // 2026-10-14 — tek kural (kişiye özel link ile ortak): atanmış + aktif branş + son 90 gün ders öğretmenleri.
+  const teacherIds = eligibleFeedbackTeacherIds(student, data.lessons, nowMs, RECENT_LESSON_WINDOW_DAYS);
 
   const eligibleTeachers: EligibleTeacher[] = [];
   for (const teacherId of teacherIds) {

@@ -36,11 +36,14 @@ export type InitialFeedback = {
 
 export function TeacherFeedbackForm({
   studentId,
+  teacherId,
   teacherName,
   initialFeedback,
   onSubmitted,
 }: {
   studentId: string;
+  /** 2026-10-14 — değerlendirilen öğretmen (çoklu branş); sunucu uygunluğu doğrular. */
+  teacherId?: string;
   teacherName: string;
   initialFeedback?: InitialFeedback | null;
   onSubmitted?: (updated: boolean) => void;
@@ -67,6 +70,7 @@ export function TeacherFeedbackForm({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           studentId,
+          teacherId,
           scores,
           continueWithTeacher: continueWithTeacher || undefined,
           comment: comment.trim() || undefined,

@@ -11890,9 +11890,19 @@ export async function submitTeacherFeedbackTool(
     return fail("FORBIDDEN", "Yalnızca kendi çocuğunuz/kendiniz için geri bildirim gönderebilirsiniz.");
   }
 
-  const data = await readReferenceData();
+  // Tek öğrenci dilimi: öğretmenler + yalnız bu öğrencinin dersleri (uygunluk kuralı için).
+  const data = await readStudentScope(v.data.studentId);
   const student = data.students.find((s) => s.id === v.data.studentId);
   if (!student) return fail("NOT_FOUND", "Öğrenci bulunamadı");
+  // 2026-10-14 — çoklu branş: değerlendirme seçilen öğretmene yazılır; yalnız uygun öğretmen kabul edilir.
+  const { eligibleFeedbackTeacherIds } = await import("../teacher-feedback-eligibility");
+  const teacherId = v.data.teacherId ?? student.teacherId;
+  if (v.data.teacherId && !eligibleFeedbackTeacherIds(student, data.lessons, Date.now()).includes(v.data.teacherId)) {
+    return fail(
+      "FORBIDDEN",
+      "Bu öğretmeni değerlendiremezsiniz: kayıtlı branşlarınızın öğretmeni değil ve son 90 günde birlikte dersiniz yok."
+    );
+  }
 
   try {
     // Karma Öğrenci Portalı — ctx.role artık HER ZAMAN "STUDENT" (veli de
@@ -11903,7 +11913,7 @@ export async function submitTeacherFeedbackTool(
     const submitterRole = accessType === "GUARDIAN" ? "PARENT" : "STUDENT";
     const { feedback, updated } = await submitTeacherFeedback({
       tenantId: ctx.tenantId,
-      teacherId: student.teacherId,
+      teacherId,
       studentId: v.data.studentId,
       submittedBy: ctx.userId,
       submitterRole,
@@ -11912,10 +11922,10 @@ export async function submitTeacherFeedbackTool(
       comment: v.data.comment,
     });
     audit(ctx, updated ? "teacher_feedback.update" : "teacher_feedback.submit", "TeacherFeedback", feedback.id, {
-      teacherId: student.teacherId,
+      teacherId,
     });
     try {
-      const teacher = data.teachers.find((t) => t.id === student.teacherId);
+      const teacher = data.teachers.find((t) => t.id === teacherId);
       const { notifyAdmins } = await import("../manager-notifications");
       // dedupeKey = feedback.id: aynı ay içindeki tekrar submit (update) aynı
       // satırı güncellediği için aynı id kalır — 24 saat içinde ikinci kez
@@ -11925,7 +11935,7 @@ export async function submitTeacherFeedbackTool(
         "teacher_feedback_submitted",
         {
           title: "Yeni öğretmen değerlendirmesi",
-          body: `${teacher?.name ?? "Bir öğretmen"} için yeni bir değerlendirme geldi. Detay: /panel/ogretmenler/${student.teacherId}/geri-bildirim (ref:${feedback.id})`,
+          body: `${teacher?.name ?? "Bir öğretmen"} için yeni bir değerlendirme geldi. Detay: /panel/ogretmenler/${teacherId}/geri-bildirim (ref:${feedback.id})`,
         },
         { dedupeKey: feedback.id }
       );
