@@ -395,6 +395,7 @@ export function mapDbStudent(student: Prisma.StudentGetPayload<object>): Student
     deletedAt: student.deletedAt?.toISOString() ?? undefined,
     deletedByUserId: student.deletedByUserId ?? undefined,
     deletionReason: student.deletionReason ?? undefined,
+    purgedAt: (student as { purgedAt?: Date | null }).purgedAt?.toISOString() ?? undefined,
     // Package C — ödeme profili + paket fiyatlandırma. Bu alanlar
     // öncesinde db modunda hiç OKUNMUYORDU (yalnızca updateStudentProfile
     // parametresi olarak kabul ediliyordu, satıra hiç yazılmıyordu/geri
@@ -591,6 +592,7 @@ function mapSchoolToAppData(school: PrismaSchoolWithRelations): AppData {
       deletedAt: (teacher as { deletedAt?: Date | null }).deletedAt?.toISOString() ?? undefined,
       deletedByUserId: (teacher as { deletedByUserId?: string | null }).deletedByUserId ?? undefined,
       deletionReason: (teacher as { deletionReason?: string | null }).deletionReason ?? undefined,
+      purgedAt: (teacher as { purgedAt?: Date | null }).purgedAt?.toISOString() ?? undefined,
       color: teacher.color,
       // ÖNCELİK 4 (devam) — öğretmen CSV çoklu enstrüman revizyonu: bu 5 alan
       // db modunda daha önce hiç okunmuyordu (Prisma şemasında yoktu).
@@ -2013,20 +2015,6 @@ export async function setStudentDeletion(studentId: string, state: StudentDeleti
   return;
 }
 
-/** Kalıcı silme — yalnız bağlı kaydı olmayan öğrenci (FK ilişkileri boş olmalı). */
-export async function hardDeleteStudent(studentId: string): Promise<void> {
-  const tid = requireTenantId();
-  const counts = await prisma.student.findFirst({
-    where: { id: studentId, tenantId: tid },
-    select: {
-      _count: { select: { payments: true, lessons: true, lessonSeries: true, attendances: true, makeupRequests: true, contracts: true } },
-    },
-  });
-  if (!counts) throw new Error("Öğrenci bulunamadı");
-  if (Object.values(counts._count).some((n) => n > 0)) throw new Error("STUDENT_HAS_LINKED_RECORDS");
-  await prisma.student.deleteMany({ where: { id: studentId, tenantId: tid } });
-  return;
-}
 
 const JSON_COLUMNS_TO_CLEAR = new Set<string>(["paymentDueRanges", "appliedCampaignIds", "studentTypes"]);
 
@@ -2770,24 +2758,6 @@ export async function setTeacherDeletion(teacherId: string, state: TeacherDeleti
   });
 }
 
-/** Kalıcı silme — yalnız hiçbir bağlı kaydı olmayan öğretmen (FK ilişkileri boş olmalı). */
-export async function hardDeleteTeacher(teacherId: string): Promise<void> {
-  const tid = requireTenantId();
-  const row = await prisma.teacher.findFirst({
-    where: { id: teacherId, tenantId: tid },
-    select: {
-      _count: { select: { students: true, lessons: true, lessonSeries: true, makeupRequests: true, teacherFeeRules: true, teacherPayouts: true } },
-    },
-  });
-  if (!row) throw new Error("Öğretmen bulunamadı");
-  if (Object.values(row._count).some((n) => n > 0)) throw new Error("TEACHER_HAS_LINKED_RECORDS");
-  // 2026-10-10 — branş kaydında (JSON) öğretmen olarak geçen kişi de "bağlı kayıt"tır (geçmişte kalan sonlandırılmış branş dahil).
-  const viaEnrollment = await prisma.student.count({
-    where: { tenantId: tid, enrollments: { array_contains: [{ teacherId }] as unknown as Prisma.InputJsonValue } },
-  });
-  if (viaEnrollment > 0) throw new Error("TEACHER_HAS_LINKED_RECORDS");
-  await prisma.teacher.deleteMany({ where: { id: teacherId, tenantId: tid } });
-}
 
 const SLOT_CONFLICT_CODE: Record<SlotResource, "TEACHER_CONFLICT" | "ROOM_CONFLICT" | "STUDENT_CONFLICT"> = {
   teacher: "TEACHER_CONFLICT",
@@ -5058,3 +5028,6 @@ export async function deletePackage(packageId: string, expectedUpdatedAt: string
     throw e;
   }
 }
+
+/** 2026-10-15 — kalıcı silme (plan + yürütme): kurallar `person-purge.ts`, transaction `person-purge-db.ts`. */
+export { loadPurgeSnapshotDb as loadPurgeSnapshot, executePurgeDb as executePurge } from "./person-purge-db";

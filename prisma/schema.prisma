@@ -594,6 +594,8 @@ model Teacher {
   deletedAt             DateTime?
   deletedByUserId       String?
   deletionReason        String?
+  /// 2026-10-15 — kalıcı silindi, geçmiş için anonimleştirilerek tutuldu (bkz. Student.purgedAt).
+  purgedAt              DateTime?
   /// ÖNCELİK 4 (devam) — öğretmen CSV çoklu enstrüman revizyonu: bu 5 alan
   /// TS tipinde (Teacher) zaten vardı ama hiçbir zaman DB'de karşılığı yoktu
   /// (db modunda hep sessizce kayboluyordu) — CSV'nin `lise/universite/
@@ -800,6 +802,9 @@ model Student {
   deletedAt                DateTime?
   deletedByUserId          String?
   deletionReason           String?
+  /// 2026-10-15 — kalıcı silindi; korunan finans/hakediş geçmişi için satır anonimleştirilerek tutuldu.
+  /// Doluysa kişi hiçbir listede (Silinenler dahil) görünmez, geri alınamaz. Bkz. src/lib/person-purge.ts.
+  purgedAt                 DateTime?
   /// ÖNCELİK 4 — "guz" (Eylül-Haziran) | "yaz" (Temmuz-Ağustos). Boşsa "guz"
   /// varsayılır (mevcut kayıtların çoğu normal dönem öğrencisi).
   termType                 String?

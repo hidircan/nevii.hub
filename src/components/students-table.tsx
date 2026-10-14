@@ -7,6 +7,8 @@ import { ChevronRight, SlidersHorizontal, X } from "lucide-react";
 import { Badge, Card } from "@/components/ui";
 import { PaginationControls, usePagination } from "@/components/pagination-controls";
 import { StudentArchiveAction } from "@/components/student-archive-action";
+import { PersonPurgeDialog } from "@/components/person-purge-dialog";
+import { StudentSearchCombobox } from "@/components/student-search-combobox";
 import { StudentsBulkBar, type BulkOptions } from "@/components/students-bulk-bar";
 import { actionFindStudentsByNationalId } from "@/lib/actions";
 import {
@@ -261,6 +263,19 @@ export function StudentsTable({
     }
   }
 
+  /**
+   * 2026-10-15 — arama dropdown'undan seçilen öğrenci (`?studentId=`). Arama metniyle AYNI desen: yerel state anında
+   * filtreler, URL'e q ile birlikte TEK debounced yazımda gider (iki ayrı replace birbirinin parametresini ezmesin).
+   */
+  const urlStudentId = searchParams.get("studentId") ?? "";
+  const [selectedStudentId, setSelectedStudentId] = useState(urlStudentId);
+  const [lastUrlStudentId, setLastUrlStudentId] = useState(urlStudentId);
+  if (urlStudentId !== lastUrlStudentId) {
+    const previous = lastUrlStudentId;
+    setLastUrlStudentId(urlStudentId);
+    if (selectedStudentId === previous) setSelectedStudentId(urlStudentId);
+  }
+
   // Filtre toggle'ları searchParams kimliğini değiştirir; debounce effect'inin
   // deps'inde tutmak yazma sırasında gereksiz yeniden zamanlama üretir.
   // Güncel params'ı ref'ten oku — q senkronu yalnız searchInput değişince.
@@ -273,15 +288,17 @@ export function StudentsTable({
 
   // Yazma bitince URL'i güncelle — tuş başına navigasyon YOK.
   useEffect(() => {
-    if (searchInput === urlSearch) return;
+    if (searchInput === urlSearch && selectedStudentId === urlStudentId) return;
     const id = setTimeout(() => {
       const params = new URLSearchParams(searchParamsRef.current.toString());
       if (searchInput) params.set("q", searchInput);
       else params.delete("q");
+      if (selectedStudentId) params.set("studentId", selectedStudentId);
+      else params.delete("studentId");
       router.replace(`${pathname}?${params.toString()}`, { scroll: false });
     }, 250);
     return () => clearTimeout(id);
-  }, [searchInput, urlSearch, router, pathname]);
+  }, [searchInput, urlSearch, selectedStudentId, urlStudentId, router, pathname]);
 
   /** Filtre ve "aktif filtre var mı" göstergeleri ANINDA yerel değeri kullanır. */
   const search = searchInput;
@@ -370,6 +387,8 @@ export function StudentsTable({
     // echo koruması eski metni URL temizlendikten sonra bile tutardı.
     setSearchInput("");
     setLastUrlSearch("");
+    setSelectedStudentId("");
+    setLastUrlStudentId("");
     router.replace(pathname, { scroll: false });
   }
 
@@ -492,14 +511,18 @@ export function StudentsTable({
   const filterQuery = search.trim().toLocaleLowerCase("tr");
   // 8. tur (C) — sözleşme dışındaki tüm filtreler; chip sayıları bu kümeden
   // sayılır ki "Aktif sözleşmeli (23)" seçilince listede gerçekten 23 satır olsun.
+  // Tablo ve arama dropdown'u AYNI eşleşmeyi kullanır (Türkçe küçük harf; ad soyad veya öğrenci no).
+  const matchesQuery = (row: StudentRow) =>
+    !filterQuery ||
+    row.name.toLocaleLowerCase("tr").includes(filterQuery) ||
+    (row.displayId ?? "").toLocaleLowerCase("tr").includes(filterQuery);
   const matchesExceptContract = (row: StudentRow) => {
+    if (selectedStudentId ? row.id !== selectedStudentId : !matchesQuery(row)) return false;
+    return matchesFilters(row);
+  };
+  /** Arama metni ve öğrenci seçimi DIŞINDAKİ tüm filtreler (sözleşme hariç; o ayrıca uygulanır). */
+  const matchesFilters = (row: StudentRow) => {
     if (tcMatch && !tcMatch.ids.has(row.id)) return false;
-    if (
-      filterQuery &&
-      !row.name.toLocaleLowerCase("tr").includes(filterQuery) &&
-      !(row.displayId ?? "").toLocaleLowerCase("tr").includes(filterQuery)
-    )
-      return false;
     if (statusFilter === "active" && !row.active) return false;
     if (statusFilter === "inactive" && row.active) return false;
     if (typeFilter.length && !row.studentTypes.some((t) => typeFilter.includes(t))) return false;
@@ -527,7 +550,17 @@ export function StudentsTable({
   // render'da yeniden üretilmesi nedeniyle korunamıyor (lint uyarısı).
   const sorted = [...filtered].sort((a, b) => compareStudents(a, b, sort));
 
-  const anyFilterActive = Boolean(search) || activeGroupCount > 0 || tcMatch !== null;
+  const anyFilterActive = Boolean(search) || Boolean(selectedStudentId) || activeGroupCount > 0 || tcMatch !== null;
+  // Dropdown: mevcut filtrelere (durum/şube/öğretmen/sözleşme…) ve kapsamdaki TÜM satırlara uyan öğrenciler — tablonun
+  // yalnız yüklü sayfası değil. Sunucu isteği yok: `rows` kullanıcının yetkili olduğu kapsamın tamamıdır.
+  const searchOptions = rows
+    .filter((r) => matchesQuery(r) && matchesFilters(r) && (!contractFilter.length || contractFilter.includes(resolveContractFilterKey(r, today))))
+    .sort((a, b) => a.name.localeCompare(b.name, "tr"))
+    .map((r) => ({
+      id: r.id,
+      name: r.name,
+      hint: [r.displayId, r.branchName, statusFilter !== "active" && !r.active ? "Pasif" : undefined].filter(Boolean).join(" · ") || undefined,
+    }));
   // H — sayfa başına 10/20/50/100; seçim URL'de saklanır (yenileme/geri-ileri korur).
   const { pageItems, page, setPage, pageSize, setPageSize, totalPages, totalCount } = usePagination(sorted, 10, {
     urlParam: "per",
@@ -620,13 +653,34 @@ export function StudentsTable({
     <>
       <Card className="mb-4">
         <div className="flex flex-wrap items-center gap-3">
-          <input
-            type="text"
-            value={searchInput}
-            onChange={(event) => setSearchInput(event.target.value)}
+          <StudentSearchCombobox
+            idPrefix="students-search"
+            className="sm:max-w-xs"
+            label="Ad soyad veya öğrenci numarasına göre ara"
             placeholder="Ad soyad veya öğrenci no ara..."
-            aria-label="Ad soyad veya öğrenci numarasına göre ara"
-            className="w-full max-w-xs rounded-[var(--radius-md)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text)] outline-none focus:ring-2 focus:ring-[var(--color-focus-ring)]/30 sm:w-auto"
+            query={searchInput}
+            onQueryChange={(v) => {
+              setSearchInput(v);
+              // Yeniden yazmak seçimi bırakır; liste yazılan metne göre süzülür.
+              if (selectedStudentId) setSelectedStudentId("");
+            }}
+            options={searchOptions}
+            selectedId={selectedStudentId || null}
+            onSelect={(o) => {
+              setSearchInput(o.name);
+              setSelectedStudentId(o.id);
+            }}
+            onClear={() => {
+              setSearchInput("");
+              setSelectedStudentId("");
+            }}
+            statusText={
+              selectedStudentId
+                ? "Liste seçilen öğrenciye göre süzüldü"
+                : search
+                  ? `${searchOptions.length} öğrenci eşleşiyor`
+                  : `Filtrelere uyan ${searchOptions.length} öğrenci`
+            }
           />
 
           {canManage ? (
@@ -1133,7 +1187,11 @@ export function StudentsTable({
                   ))}
                   {canManage ? (
                     <td className="px-4 py-3">
-                      <StudentArchiveAction studentId={s.id} studentName={s.name} archived={!s.active} />
+                      {deletedView ? (
+                        <PersonPurgeDialog kind="student" id={s.id} name={s.name} compact />
+                      ) : (
+                        <StudentArchiveAction studentId={s.id} studentName={s.name} archived={!s.active} />
+                      )}
                     </td>
                   ) : null}
                 </tr>

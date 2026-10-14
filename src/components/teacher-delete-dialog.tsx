@@ -168,21 +168,10 @@ export function TeacherDeleteDialog({ teacherId, teacherName }: { teacherId: str
                       Öğretmenler ekranındaki &quot;Listeden kaldırılanlar&quot;dan geri alınabilir.
                     </span>
                   </label>
-                  <label className={`flex items-start gap-2 ${impact.hardDeleteEligible ? "" : "opacity-50"}`}>
-                    <input
-                      type="radio"
-                      name="teacher-delete-mode"
-                      disabled={!impact.hardDeleteEligible}
-                      checked={mode === "hard"}
-                      onChange={() => setMode("hard")}
-                    />
-                    <span>
-                      <strong>Kalıcı sil — GERİ ALINAMAZ.</strong>{" "}
-                      {impact.hardDeleteEligible
-                        ? "Bu öğretmenin hiçbir bağlı kaydı yok; kayıt tamamen silinir."
-                        : "Kullanılamaz: ders, öğrenci, hakediş, ücret kuralı, telafi veya deneme dersi kaydı olan öğretmen kalıcı silinemez."}
-                    </span>
-                  </label>
+                  <p className="text-[var(--color-text-muted)]">
+                    <strong>Kalıcı silme</strong> ayrı bir adımdır: önce bu silmeyi yapın, sonra Listeden kaldırılanlar bölümünde kişinin
+                    yanındaki &quot;Kalıcı sil&quot; ile neyin silineceğini, neyin korunacağını önizleyerek geri alınamaz biçimde silin.
+                  </p>
                 </fieldset>
                 <p className="text-[var(--color-text-muted)]">
                   <strong>Kişisel veri silme</strong> (KVKK — iletişim ve kimlik bilgilerinin silinmesi) bu işlemlerden ayrıdır:

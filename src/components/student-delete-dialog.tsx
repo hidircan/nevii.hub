@@ -163,21 +163,10 @@ export function StudentDeleteDialog({ studentId, studentName }: { studentId: str
                       Sözleşme, ödeme, evrak ve audit kayıtları korunur; kurum sahibi veya kurum yöneticisi Silinenler&apos;den geri alabilir.
                     </span>
                   </label>
-                  <label className={`flex items-start gap-2 ${impact.hardDeleteEligible ? "" : "opacity-50"}`}>
-                    <input
-                      type="radio"
-                      name="mode"
-                      disabled={!impact.hardDeleteEligible}
-                      checked={mode === "hard"}
-                      onChange={() => setMode("hard")}
-                    />
-                    <span>
-                      <strong>Kalıcı silme — GERİ ALINAMAZ.</strong>{" "}
-                      {impact.hardDeleteEligible
-                        ? "Bu öğrencinin hiçbir bağlı kaydı yok; kayıt tamamen silinir."
-                        : "Kullanılamaz: sözleşme, ödeme, ders, yoklama veya evrak kaydı olan öğrenci kalıcı silinemez."}
-                    </span>
-                  </label>
+                  <p className="text-[var(--color-text-muted)]">
+                    <strong>Kalıcı silme</strong> ayrı bir adımdır: önce bu silmeyi yapın, sonra Silinenler listesinde kişinin
+                    yanındaki &quot;Kalıcı sil&quot; ile neyin silineceğini, neyin korunacağını önizleyerek geri alınamaz biçimde silin.
+                  </p>
                 </fieldset>
 
                 {!impact.criticalPasswordConfigured ? (

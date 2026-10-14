@@ -111,6 +111,8 @@ export interface Teacher {
   deletedAt?: string;
   deletedByUserId?: string;
   deletionReason?: string;
+  /** 2026-10-15 — kalıcı silindi; korunan geçmiş için anonimleştirilerek tutuluyor (bkz. person-purge.ts). Geri alınamaz. */
+  purgedAt?: string;
   /** Package D — özlük alanları. Hepsi opsiyonel; legacy kayıtlar kırılmaz. */
   employmentType?: TeacherEmploymentType;
   /** ISO tarih — işe giriş. */
@@ -439,6 +441,8 @@ export interface Student {
   deletedAt?: string;
   deletedByUserId?: string;
   deletionReason?: string;
+  /** 2026-10-15 — kalıcı silindi; korunan finans/hakediş geçmişi için anonimleştirilerek tutuluyor. Geri alınamaz. */
+  purgedAt?: string;
   /** ÖNCELİK 4 — Yoklama Takvimi dönemi. Boşsa "guz" varsayılır. */
   termType?: StudentTermType;
   /**

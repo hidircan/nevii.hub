@@ -102,9 +102,9 @@ import {
   updateStudentProfile,
   listMebStudents,
   setStudentDeletion,
-  hardDeleteStudent,
   setTeacherDeletion,
-  hardDeleteTeacher,
+  loadPurgeSnapshot,
+  executePurge,
   setStudentPaymentPause,
   updateTeacherAvailability,
   updateTeacherInstruments,
@@ -13436,8 +13436,6 @@ export type StudentDeletionImpact = {
   upcomingLessonCount: number;
   documentCount: number;
   attendanceCount: number;
-  /** Yalnız hiçbir bağlı kaydı yoksa (boş/deneme öğrenci) kalıcı silme mümkündür. */
-  hardDeleteEligible: boolean;
   criticalPasswordConfigured: boolean;
 };
 
@@ -13460,14 +13458,6 @@ async function computeStudentDeletionImpact(tenantId: string, studentId: string)
   const lessons = data.lessons.filter((l) => l.studentId === studentId);
   const nowMs = Date.now();
   const attendanceCount = data.attendances.filter((a) => a.studentId === studentId).length;
-  const linked =
-    contracts.length +
-    payments.length +
-    lessons.length +
-    documents.length +
-    attendanceCount +
-    data.lessonSeries.filter((l) => l.studentId === studentId).length +
-    data.makeupRequests.filter((m) => m.studentId === studentId).length;
   return {
     studentId,
     name: student.name,
@@ -13485,7 +13475,6 @@ async function computeStudentDeletionImpact(tenantId: string, studentId: string)
     upcomingLessonCount: lessons.filter((l) => l.status === "scheduled" && new Date(l.startAt).getTime() > nowMs).length,
     documentCount: documents.length,
     attendanceCount,
-    hardDeleteEligible: linked === 0,
     criticalPasswordConfigured: pw.configured,
   };
 }
@@ -13506,8 +13495,9 @@ export async function getStudentDeletionImpactTool(
 
 const deleteStudentSchema = z.object({
   studentId: z.string().min(1),
-  /** "soft" = geri alınabilir silme (varsayılan). "hard" = kalıcı, yalnız bağlı kaydı olmayan öğrenci. */
+  /** "soft" = geri alınabilir silme (varsayılan). "hard" = kalıcı silme → `purgePersonTool` (önizleme parmak izi zorunlu). */
   mode: z.enum(["soft", "hard"]),
+  expectedFingerprint: z.string().max(100).optional(),
   /** Kullanıcı öğrencinin ad soyadını AYNEN yazar — yanlış öğrenciyi silmeye karşı. */
   confirmationName: z.string().max(200),
   criticalPassword: z.string().max(200),
@@ -13522,8 +13512,8 @@ function sameName(a: string, b: string): boolean {
 /**
  * Kurum sahibi — öğrenci silme. İki kapı: ad soyad teyidi + kritik işlem şifresi.
  * "soft": öğrenci pasife alınır ve silindi işaretlenir; sözleşme/ödeme/evrak/audit
- * korunur, Silinenler'den geri alınabilir. "hard": yalnız hiçbir bağlı kaydı olmayan
- * öğrenci için; geri alınamaz. Her deneme (başarılı/reddedilen) audit'e yazılır.
+ * korunur, Silinenler'den geri alınabilir. "hard": `purgePersonTool` (Silinenler'deki
+ * öğrenci, önizleme parmak izi zorunlu); geri alınamaz. Her deneme audit'e yazılır.
  */
 export async function deleteStudentTool(
   ctx: ServiceContext,
@@ -13533,6 +13523,10 @@ export async function deleteStudentTool(
   if (!auth.ok) return fail("FORBIDDEN", "Öğrenci silme yalnız kurum sahibi ve kurum yöneticileri tarafından başlatılabilir.");
   const v = parseOrFail(deleteStudentSchema, input);
   if (!v.ok) return v;
+  if (v.data.mode === "hard") {
+    const r = await purgePersonTool(ctx, { ...v.data, kind: "student", id: v.data.studentId });
+    return r.ok ? ok({ studentId: v.data.studentId, mode: "hard" }) : r;
+  }
   const impact = await computeStudentDeletionImpact(ctx.tenantId, v.data.studentId);
   if (!impact) return fail("NOT_FOUND", "Öğrenci bulunamadı.");
 
@@ -13555,12 +13549,6 @@ export async function deleteStudentTool(
   }
   const gate = await checkCriticalPassword(ctx, v.data.criticalPassword);
   if (!gate.ok) return deny(gate.reasonCode, gate.message);
-  if (v.data.mode === "hard" && !impact.hardDeleteEligible) {
-    return deny(
-      "hard_delete_blocked",
-      "Bu öğrencinin sözleşme, ödeme, ders, yoklama veya evrak kaydı var; kalıcı silinemez. Geri alınabilir silmeyi kullanın."
-    );
-  }
 
   const meta = {
     mode: v.data.mode,
@@ -13575,19 +13563,12 @@ export async function deleteStudentTool(
     entityName: impact.name,
   };
   try {
-    if (v.data.mode === "hard") {
-      await hardDeleteStudent(v.data.studentId);
-    } else {
-      await setStudentDeletion(v.data.studentId, {
-        deletedAt: new Date().toISOString(),
-        deletedByUserId: ctx.userId,
-        deletionReason: v.data.reason,
-      });
-    }
+    await setStudentDeletion(v.data.studentId, {
+      deletedAt: new Date().toISOString(),
+      deletedByUserId: ctx.userId,
+      deletionReason: v.data.reason,
+    });
   } catch (e) {
-    if (e instanceof Error && e.message === "STUDENT_HAS_LINKED_RECORDS") {
-      return fail("CONFLICT", "Öğrencinin bağlı kayıtları var; kalıcı silinemez. Geri alınabilir silmeyi kullanın.");
-    }
     logger.error("deleteStudentTool failed", e);
     return fail("INTERNAL_ERROR", "Öğrenci silinemedi; hiçbir kayıt değişmedi. Tekrar deneyin.");
   }
@@ -13617,6 +13598,7 @@ export async function restoreDeletedStudentTool(
   const student = await readStudentById(v.data.studentId);
   if (!student) return fail("NOT_FOUND", "Öğrenci bulunamadı.");
   if (!student.deletedAt) return fail("VALIDATION_ERROR", "Bu öğrenci silinmiş değil.");
+  if (student.purgedAt) return fail("VALIDATION_ERROR", "Bu öğrenci kalıcı silinmiş (anonimleştirilmiş); geri alınamaz.");
   await setStudentDeletion(v.data.studentId, null);
   await recordAuditLog({
     tenantId: ctx.tenantId,
@@ -13635,8 +13617,8 @@ export async function restoreDeletedStudentTool(
  * 2026-10-03 (owner) — pasif öğretmeni sistemden kaldırma. Üç işlem AYRIDIR:
  * - "Listeden kaldırma" (soft, varsayılan): öğretmen tüm listelerden ve yeni seçimlerden çıkar, giriş hesabı
  *   kapanır; satır kalır → geçmiş ders/yoklama/hakediş ve raporlar adı göstermeye devam eder; geri alınabilir.
- * - "Kalıcı silme" (hard): yalnız hiçbir bağlı kaydı (ders, seri, telafi, öğrenci, ücret kuralı, hakediş,
- *   deneme dersi) olmayan öğretmen; geri alınamaz.
+ * - "Kalıcı silme" (hard): Kaldırılanlar listesinden, `purgePersonTool` ile — geçmişi olmayan öğretmen silinir,
+ *   geçmişi olan anonimleştirilir (bkz. person-purge.ts); geri alınamaz.
  * - "Kişisel veri silme" (KVKK — iletişim/kimlik alanlarının silinmesi/anonimleştirilmesi) BU İŞLEM DEĞİLDİR;
  *   yasal saklama yükümlülükleri (hakediş/ödeme kayıtları) değerlendirilerek ayrı talep ve onayla yapılır.
  */
@@ -13662,7 +13644,6 @@ export type TeacherDeletionImpact = {
   hasLoginAccount: boolean;
   /** Listeden kaldırmayı engelleyen nedenler (boşsa kaldırılabilir). */
   blockers: string[];
-  hardDeleteEligible: boolean;
   criticalPasswordConfigured: boolean;
 };
 
@@ -13713,9 +13694,6 @@ async function computeTeacherDeletionImpact(tenantId: string, teacherId: string)
     trialLessonCount,
     hasLoginAccount: userId !== null,
     blockers,
-    hardDeleteEligible:
-      blockers.length === 0 &&
-      lessons.length + data.lessonSeries.filter((s) => s.teacherId === teacherId).length + students.length + payouts.length + feeRuleCount + makeupRequestCount + trialLessonCount === 0,
     criticalPasswordConfigured: pw.configured,
   };
 }
@@ -13734,6 +13712,7 @@ export async function getTeacherDeletionImpactTool(ctx: ServiceContext, input: u
 const deleteTeacherSchema = z.object({
   teacherId: z.string().min(1),
   mode: z.enum(["soft", "hard"]),
+  expectedFingerprint: z.string().max(100).optional(),
   confirmationName: z.string().max(200),
   criticalPassword: z.string().max(200),
   reason: z.string().trim().min(5, "Silme gerekçesi en az 5 karakter olmalı.").max(500),
@@ -13752,6 +13731,10 @@ export async function deleteTeacherTool(
   if (!auth.ok) return fail("FORBIDDEN", "Öğretmen silme yalnız kurum sahibi ve kurum yöneticileri tarafından başlatılabilir.");
   const v = parseOrFail(deleteTeacherSchema, input);
   if (!v.ok) return v;
+  if (v.data.mode === "hard") {
+    const r = await purgePersonTool(ctx, { ...v.data, kind: "teacher", id: v.data.teacherId });
+    return r.ok ? ok({ teacherId: v.data.teacherId, mode: "hard" }) : r;
+  }
   const impact = await computeTeacherDeletionImpact(ctx.tenantId, v.data.teacherId);
   if (!impact || impact.deletedAt) return fail("NOT_FOUND", "Öğretmen bulunamadı veya zaten listeden kaldırılmış; sayfayı yenileyin.");
 
@@ -13775,23 +13758,10 @@ export async function deleteTeacherTool(
   const gate = await checkCriticalPassword(ctx, v.data.criticalPassword);
   if (!gate.ok) return deny(gate.reasonCode, gate.message);
   if (impact.blockers.length > 0) return deny("blocked_by_dependencies", impact.blockers.join(" "));
-  if (v.data.mode === "hard" && !impact.hardDeleteEligible) {
-    return deny(
-      "hard_delete_blocked",
-      "Bu öğretmenin geçmiş ders, öğrenci, hakediş, ücret kuralı, telafi veya deneme dersi kaydı var; kalıcı silinemez. Listeden kaldırmayı kullanın — kayıtlar ve raporlardaki adı korunur."
-    );
-  }
 
   try {
-    if (v.data.mode === "hard") {
-      await hardDeleteTeacher(v.data.teacherId);
-    } else {
-      await setTeacherDeletion(v.data.teacherId, { deletedAt: new Date().toISOString(), deletedByUserId: ctx.userId, deletionReason: v.data.reason });
-    }
+    await setTeacherDeletion(v.data.teacherId, { deletedAt: new Date().toISOString(), deletedByUserId: ctx.userId, deletionReason: v.data.reason });
   } catch (e) {
-    if (e instanceof Error && e.message === "TEACHER_HAS_LINKED_RECORDS") {
-      return fail("CONFLICT", "Öğretmenin bağlı kayıtları var; kalıcı silinemez. Listeden kaldırmayı kullanın.");
-    }
     logger.error("deleteTeacherTool failed", e);
     return fail("INTERNAL_ERROR", "Öğretmen kaldırılamadı; hiçbir kayıt değişmedi. Tekrar deneyin.");
   }
@@ -13839,6 +13809,7 @@ export async function restoreDeletedTeacherTool(ctx: ServiceContext, input: unkn
   const teacher = (await readData()).teachers.find((t) => t.id === v.data.teacherId);
   if (!teacher) return fail("NOT_FOUND", "Öğretmen bulunamadı.");
   if (!teacher.deletedAt) return fail("VALIDATION_ERROR", "Bu öğretmen listeden kaldırılmış değil.");
+  if (teacher.purgedAt) return fail("VALIDATION_ERROR", "Bu öğretmen kalıcı silinmiş (anonimleştirilmiş); geri alınamaz.");
   await setTeacherDeletion(v.data.teacherId, null);
   await recordAuditLog({
     tenantId: ctx.tenantId,
@@ -13851,6 +13822,128 @@ export async function restoreDeletedTeacherTool(ctx: ServiceContext, input: unkn
     meta: { displayId: teacher.displayId, deletedAt: teacher.deletedAt, entityName: teacher.name },
   });
   return ok({ teacherId: v.data.teacherId });
+}
+
+/**
+ * 2026-10-15 (owner) — kalıcı silme önizlemesi: sunucudaki GERÇEK kayıtlardan plan (silinecek / bağlantısı
+ * kaldırılacak / korunacak kayıtlar, hesaplar, engeller) + parmak izi. Silme aynı planı kilit altında yeniden kurar.
+ */
+export type PersonPurgePreview = import("../person-purge").PurgePlan & { criticalPasswordConfigured: boolean };
+
+const purgeTargetSchema = z.object({ kind: z.enum(["student", "teacher"]), id: z.string().min(1) });
+
+export async function getPersonPurgePreviewTool(ctx: ServiceContext, input: unknown): Promise<ServiceResult<PersonPurgePreview>> {
+  const auth = requireRole(ctx, CRITICAL_ROLES_FOR_TOOLS);
+  if (!auth.ok) return fail("FORBIDDEN", "Kalıcı silme yalnız kurum sahibi ve kurum yöneticileri tarafından yapılabilir.");
+  const v = parseOrFail(purgeTargetSchema, input);
+  if (!v.ok) return v;
+  const snap = await loadPurgeSnapshot(v.data.kind, v.data.id);
+  if (!snap) return fail("NOT_FOUND", "Kayıt bulunamadı veya zaten kalıcı silinmiş; listeyi yenileyin.");
+  const { planPersonPurge } = await import("../person-purge");
+  const { getCriticalActionPasswordStatus } = await import("../critical-action-password");
+  const pw = await getCriticalActionPasswordStatus(ctx.tenantId);
+  return ok({ ...planPersonPurge(snap), criticalPasswordConfigured: pw.configured });
+}
+
+const purgePersonSchema = purgeTargetSchema.extend({
+  expectedFingerprint: z.string().max(100).optional(),
+  confirmationName: z.string().max(200),
+  criticalPassword: z.string().max(200),
+  reason: z.string().trim().min(5, "Silme gerekçesi en az 5 karakter olmalı.").max(500),
+});
+
+export type PersonPurgeResult = {
+  kind: "student" | "teacher";
+  id: string;
+  outcome: "delete" | "anonymize";
+  alreadyPurged: boolean;
+  removedCount: number;
+  accountsClosed: number;
+  /** Veritabanı işlemi tamamlandı ama sonrasındaki adım (oturum önbelleği) tamamlanamadıysa — kullanıcıya gösterilir. */
+  warnings: string[];
+};
+
+const PURGE_STALE_MESSAGE =
+  "Önizlemeden sonra bu kişiye bağlı kayıtlar değişti; hiçbir şey silinmedi. Önizleme yenilendi — değişiklikleri inceleyip yeniden onaylayın.";
+
+/**
+ * Kalıcı silme — öğrenci veya öğretmen (Silinenler/Kaldırılanlar'daki kişi). Kapılar: rol, ad soyad teyidi, kritik
+ * işlem şifresi, engel yok, önizleme parmak izi aynı. Yürütme store'da (db: tek transaction + advisory lock).
+ * Tekrar istek güvenli: anonimleştirilmiş kişi için `alreadyPurged`, tamamen silinmiş kişi için NOT_FOUND döner.
+ * Audit'te ad ve serbest metin gerekçe TUTULMAZ — yalnız numara, sonuç ve sayılar.
+ */
+export async function purgePersonTool(ctx: ServiceContext, input: unknown): Promise<ServiceResult<PersonPurgeResult>> {
+  const auth = requireRole(ctx, CRITICAL_ROLES_FOR_TOOLS);
+  if (!auth.ok) return fail("FORBIDDEN", "Kalıcı silme yalnız kurum sahibi ve kurum yöneticileri tarafından yapılabilir.");
+  const v = parseOrFail(purgePersonSchema, input);
+  if (!v.ok) return v;
+  const { kind, id } = v.data;
+  const entityType = kind === "student" ? "Student" : "Teacher";
+  const action = `${kind}.purge`;
+  const snap = await loadPurgeSnapshot(kind, id);
+  if (!snap) return fail("NOT_FOUND", "Kayıt bulunamadı veya zaten kalıcı silinmiş; listeyi yenileyin.");
+  const result = (outcome: "delete" | "anonymize", extra: Partial<PersonPurgeResult> = {}): PersonPurgeResult => ({
+    kind, id, outcome, alreadyPurged: false, removedCount: 0, accountsClosed: 0, warnings: [], ...extra,
+  });
+  if (snap.person.purgedAt) return ok(result("anonymize", { alreadyPurged: true }));
+  const { planPersonPurge, PurgeConflictError } = await import("../person-purge");
+  const plan = planPersonPurge(snap);
+
+  const deny = async (reasonCode: string, message: string, code: "FORBIDDEN" | "CONFLICT" | "VALIDATION_ERROR" = "FORBIDDEN") => {
+    await recordAuditLog({
+      tenantId: ctx.tenantId, actorUserId: ctx.userId, actorRole: ctx.role, action, entityType, entityId: id,
+      outcome: "denied", meta: { reasonCode, displayId: plan.displayId },
+    });
+    return fail(code, message);
+  };
+  if (!sameName(v.data.confirmationName, plan.personName)) {
+    return deny("confirmation_mismatch", `Onay için kişinin adını aynen yazın: "${plan.personName}".`);
+  }
+  const gate = await checkCriticalPassword(ctx, v.data.criticalPassword);
+  if (!gate.ok) return deny(gate.reasonCode, gate.message);
+  if (!plan.eligible) {
+    return deny("blocked", plan.blockers.map((b) => `${b.reason} ${b.fix}`).join(" "), "VALIDATION_ERROR");
+  }
+  if (!v.data.expectedFingerprint) {
+    return deny("no_preview", "Kalıcı silmeden önce etki önizlemesi yüklenmeli. Pencereyi kapatıp yeniden açın.", "VALIDATION_ERROR");
+  }
+  if (v.data.expectedFingerprint !== plan.fingerprint) return deny("preview_stale", PURGE_STALE_MESSAGE, "CONFLICT");
+
+  let exec: Awaited<ReturnType<typeof executePurge>>;
+  try {
+    exec = await executePurge(kind, id, plan.fingerprint);
+  } catch (e) {
+    if (e instanceof PurgeConflictError) return deny("preview_stale_locked", PURGE_STALE_MESSAGE, "CONFLICT");
+    logger.error("purgePersonTool failed", e);
+    return fail("INTERNAL_ERROR", "Kalıcı silme tamamlanamadı; işlem geri alındı, hiçbir kayıt silinmedi. Birkaç dakika sonra tekrar deneyin.");
+  }
+  if (exec.status === "not_found") return fail("NOT_FOUND", "Kayıt bulunamadı veya zaten kalıcı silinmiş; listeyi yenileyin.");
+  if (exec.status === "already_purged") return ok(result("anonymize", { alreadyPurged: true }));
+
+  // DB commit'i tamamlandı; oturum önbelleği süreç içidir — kapatılan hesabın açık oturumu bir sonraki istekte düşer.
+  const warnings: string[] = [];
+  try {
+    const { invalidateSessionValidity } = await import("../auth/session-validity");
+    for (const userId of exec.closedUserIds) invalidateSessionValidity(userId);
+  } catch (e) {
+    logger.error("purgePersonTool: oturum önbelleği temizlenemedi", e);
+    warnings.push("Kayıtlar silindi; kapatılan hesabın açık oturumu en geç birkaç dakika içinde kendiliğinden düşer.");
+  }
+  const count = (bs: { key: string; ids: string[] }[]) => Object.fromEntries(bs.map((b) => [b.key, b.ids.length]));
+  const removedCount = exec.plan.remove.reduce((n, b) => n + b.ids.length, 0);
+  await recordAuditLog({
+    tenantId: ctx.tenantId, actorUserId: ctx.userId, actorRole: ctx.role, action, entityType, entityId: id, outcome: "success",
+    meta: {
+      outcome: exec.plan.outcome,
+      displayId: exec.plan.displayId,
+      removed: count(exec.plan.remove),
+      detached: count(exec.plan.detach),
+      kept: count(exec.plan.keep),
+      accountsClosed: exec.closedUserIds.length,
+      accountsUnlinked: exec.plan.accounts.length - exec.closedUserIds.length,
+    },
+  });
+  return ok(result(exec.plan.outcome, { removedCount, accountsClosed: exec.closedUserIds.length, warnings }));
 }
 
 const bulkStudentActionSchema = z.discriminatedUnion("action", [
