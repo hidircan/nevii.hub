@@ -80,6 +80,7 @@ export default async function KulupOturumPage({ params }: { params: Promise<{ cl
                 opsMakeupFlag={r.opsMakeupFlag}
                 studentAbsent={r.studentAbsent}
                 studentExcused={r.studentExcused}
+                attendanceNote={r.studentAttendanceNote}
                 compact
               />
             </li>

@@ -16,6 +16,7 @@ import { DEFAULT_APP_TIMEZONE, addDaysYmd, toZonedYmd, zonedHm, zonedWallTimeToU
 import { assertWorkDaySchedulable, isSuggestableWorkDay, type DayStatusReason } from "./work-days";
 import { buildTeacherDayAvailability, nearestFreeStart, slotAdvice } from "./teacher-day-availability";
 import { lessonOccupiesSlot } from "./lesson-occupancy";
+import { activeMakeupLessonForRequest, isPastMakeupPlanningDeadline, makeupPlanningDeadline } from "./makeup-deadline";
 
 function overlaps(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date) {
   return aStart < bEnd && bStart < aEnd;
@@ -130,11 +131,11 @@ export type SlotValidationCode =
 export const SLOT_ERROR_MESSAGES: Record<SlotValidationCode, string> = {
   REQUEST_NOT_OPEN: "Bu telafi talebi zaten sonuçlandırılmış.",
   REQUEST_EXPIRED:
-    "Bu telafi talebinin son kullanım tarihi geçmiş; süresi dolmuş talep planlanamaz. Gerekirse talebi iptal edip yeni telafi hakkı açın.",
+    "Bu telafi talebinin planlama süresi doldu (son gün, kurum saatinde gün bitiminde kapanır). Süresi dolmuş talep planlanamaz. Yetkili yönetici Telafi Merkezi'nden son günü uzatabilir.",
   INVALID_START: "Geçerli bir tarih ve saat seçin.",
   INVALID_DURATION: "Ders süresi en az 30 dakika olmalı.",
   PAST_START: "Başlangıç saati geçmişte olamaz.",
-  AFTER_EXPIRY: "Ders, telafi son kullanım tarihini aşıyor.",
+  AFTER_EXPIRY: "Ders, telafi planlama süresinin son gününü aşıyor. Yetkili yönetici son tarihi uzatabilir.",
   TEACHER_NOT_FOUND: "Seçilen öğretmen bulunamadı.",
   TEACHER_INACTIVE: "Seçilen öğretmen aktif değil.",
   TEACHER_INSTRUMENT_MISMATCH: "Seçilen öğretmen bu enstrümanı vermiyor.",
@@ -298,6 +299,13 @@ export function validateLessonSlot(
     message: SLOT_ERROR_MESSAGES[code],
   });
 
+  const now = options?.now ?? new Date();
+  if (
+    context.status === "expired" ||
+    (context.expiresAt !== undefined && context.status !== undefined && isPastMakeupPlanningDeadline(context.expiresAt, now))
+  ) {
+    return fail("REQUEST_EXPIRED");
+  }
   if (
     context.status !== undefined &&
     context.status !== "pending" &&
@@ -339,17 +347,12 @@ export function validateLessonSlot(
   // Öneri motoru yalnız gelecekteki saatleri önerir (bkz. suggestMakeupSlots).
   // Süre dolumu burada da kontrol edilir: `applyMakeupExpiry` yalnız store.ts okumasında çalışır, store içi
   // kayıt (confirmSlot) ham statüyü görür. Eskiden "geçmiş saat yasak" kuralı bunu dolaylı kapatıyordu.
-  const now = options?.now ?? new Date();
-  if (context.expiresAt !== undefined && context.status !== undefined && parseISO(context.expiresAt) < now) {
-    return fail("REQUEST_EXPIRED");
-  }
-
   const duration = options?.durationMinutes ?? data.settings.lessonDurationMinutes;
   const end = addMinutes(start, duration);
 
   if (context.expiresAt !== undefined) {
-    const expire = parseISO(context.expiresAt);
-    if (end > expire) return fail("AFTER_EXPIRY");
+    const deadline = makeupPlanningDeadline(context.expiresAt);
+    if (end.getTime() > deadline.getTime()) return fail("AFTER_EXPIRY");
   }
 
   // Okulun genel çalışma günü/saati artık ders planlamayı engellemez — talep
@@ -597,6 +600,16 @@ export function confirmMakeupSlot(
 ): { data: AppData; lessonId: string; slot: ValidatedSlot } {
   const request = data.makeupRequests.find((m) => m.id === requestId);
   if (!request) throw new Error("Telafi talebi bulunamadı");
+  // Yalnız hâlâ açık talepte. Onaylı/kapanmış talep eski "sonuçlandırılmış" mesajını korur.
+  if (
+    (request.status === "pending" || request.status === "suggested") &&
+    activeMakeupLessonForRequest(data, request)
+  ) {
+    throw new LessonSlotValidationError(
+      "REQUEST_NOT_OPEN",
+      "Bu telafi hakkının aktif bir dersi zaten var. Aynı haktan ikinci ders açılamaz. Önce Telafi Merkezi'nden planı silin."
+    );
+  }
 
   const validation = validateLessonSlot(data, request, input, {
     now,

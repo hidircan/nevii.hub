@@ -51,6 +51,13 @@ import {
   type StudentScopeData,
 } from "./reference-data";
 import { applyLessonOpsFlag, switchLessonOpsFlag, type LessonOpsFlag } from "./lesson-ops";
+import {
+  applyMakeupLifecycleOnFull,
+  closeExpiredUnplannedMakeups,
+  normalizeAttendanceNote,
+  type MakeupLifecycleOp,
+  type MakeupLifecycleResult,
+} from "./makeup-lifecycle";
 import { allocateSequenceValue, formatDisplayId } from "./entity-sequence";
 import { markTeacherAttendance, type TeacherAttendanceStatus } from "./teacher-attendance";
 import { reassignLessonTeacherOrBranch, type ReassignLessonInput, type ReassignLessonResult } from "./lesson-reassignment";
@@ -453,10 +460,12 @@ export async function confirmSlot(
   slot: MakeupSlot,
   decision: MakeupDecision
 ): Promise<AppData> {
-  const data = await readData();
-  const { data: next } = confirmMakeupSlot(data, requestId, slot, decision);
-  await writeData(next);
-  return next;
+  // Okuma ve yazma aynı kilitte: iki sekme aynı hakkı farklı saatlere planlarsa
+  // ikincisi aktif dersi görür ve REQUEST_NOT_OPEN ile durur.
+  return mutateStoreUnderLock(async (data) => {
+    const { data: next } = confirmMakeupSlot(data, requestId, slot, decision);
+    return next;
+  });
 }
 
 export async function cancelMakeup(requestId: string, decision: MakeupDecision): Promise<AppData> {
@@ -1845,7 +1854,8 @@ async function persistLessonOpsUnderLock(
   actorUserId: string,
   apply: typeof applyLessonOpsFlag | typeof switchLessonOpsFlag,
   reason?: string,
-  disruption?: import("./lesson-disruption").LessonDisruptionInput
+  disruption?: import("./lesson-disruption").LessonDisruptionInput,
+  attendanceNote?: string | null
 ): Promise<ReturnType<typeof applyLessonOpsFlag>> {
   await ensureDataFile();
   return withFileLock(DATA_FILE, async () => {
@@ -1860,7 +1870,7 @@ async function persistLessonOpsUnderLock(
      */
     const scope = narrowLessonScope(data, lessonId);
     if (!scope) return { ok: false, message: "Ders bulunamadı." };
-    const result = apply(scope, lessonId, _flag, actorUserId, undefined, reason, disruption);
+    const result = apply(scope, lessonId, _flag, actorUserId, undefined, reason, disruption, attendanceNote);
     if (result.ok && !result.alreadySet) {
       await writeJsonFileAtomic(DATA_FILE, mergeLessonScope(data, result.data, lessonId));
     }
@@ -1883,9 +1893,10 @@ export async function switchLessonOpsFlagLive(
   flag: LessonOpsFlag,
   actorUserId: string,
   reason?: string,
-  disruption?: import("./lesson-disruption").LessonDisruptionInput
+  disruption?: import("./lesson-disruption").LessonDisruptionInput,
+  attendanceNote?: string | null
 ): Promise<ReturnType<typeof switchLessonOpsFlag>> {
-  return persistLessonOpsUnderLock(lessonId, flag, actorUserId, switchLessonOpsFlag, reason, disruption);
+  return persistLessonOpsUnderLock(lessonId, flag, actorUserId, switchLessonOpsFlag, reason, disruption, attendanceNote);
 }
 
 /** 2026-09-29 — yoklama statüsünü geri alma (bkz. lesson-ops.ts clearLessonOpsFlag); dar dilim + dosya kilidi. */
@@ -1975,4 +1986,60 @@ export async function deletePackage(packageId: string, expectedUpdatedAt: string
     return result.ok ? result.data : data;
   });
   return result;
+}
+
+async function readJsonRaw(): Promise<AppData> {
+  const raw = await fs.readFile(DATA_FILE, "utf-8");
+  const data = JSON.parse(raw) as AppData;
+  if (!data.settings.tenantId) data.settings.tenantId = DEFAULT_TENANT_ID;
+  assertTenant(data);
+  return data;
+}
+
+/** Planlanmamış telafi süresi dolduysa kaynak dersi İşlendi yapar. Değişiklik yoksa dosyaya yazılmaz. */
+export async function commitMakeupPlanningExpiry(now: Date = new Date()): Promise<void> {
+  await ensureDataFile();
+  await withFileLock(DATA_FILE, async () => {
+    const data = await readJsonRaw();
+    const closed = closeExpiredUnplannedMakeups(data, now);
+    if (!closed.changed) return;
+    await writeJsonFileAtomic(DATA_FILE, withoutClosedDayOverrides(closed.data));
+  });
+}
+
+export async function previewMakeupLifecycle(op: MakeupLifecycleOp): Promise<MakeupLifecycleResult> {
+  const data = await readData();
+  return applyMakeupLifecycleOnFull(data, op);
+}
+
+export async function applyMakeupLifecycle(op: MakeupLifecycleOp): Promise<MakeupLifecycleResult> {
+  await ensureDataFile();
+  return withFileLock(DATA_FILE, async () => {
+    const raw = await readJsonRaw();
+    const overlaid = await withClosedDayOverrides(raw, raw.settings.tenantId);
+    const result = applyMakeupLifecycleOnFull(overlaid, op);
+    if (!result.ok) return result;
+    await writeJsonFileAtomic(DATA_FILE, withoutClosedDayOverrides(result.data));
+    return result;
+  });
+}
+
+/** Yalnız Geldi dersinin notunu yazar. Statü ve hakediş alanlarına dokunmaz. */
+export async function setLessonAttendanceNoteLive(
+  lessonId: string,
+  note: string | null
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  const stored = normalizeAttendanceNote(note) ?? null;
+  await ensureDataFile();
+  return withFileLock(DATA_FILE, async () => {
+    const data = await readJsonRaw();
+    const lesson = data.lessons.find((row) => row.id === lessonId);
+    if (!lesson) return { ok: false, message: "Ders bulunamadı. Sayfayı yenileyip tekrar deneyin." };
+    if (lesson.studentAttended !== true) {
+      return { ok: false, message: "Not yalnız Geldi yoklamasına yazılır. Önce Geldi'yi işaretleyin, sonra notu kaydedin." };
+    }
+    const lessons = data.lessons.map((row) => (row.id === lessonId ? { ...row, studentAttendanceNote: stored } : row));
+    await writeJsonFileAtomic(DATA_FILE, { ...data, lessons });
+    return { ok: true };
+  });
 }

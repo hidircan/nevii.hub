@@ -97,6 +97,8 @@ type DayLessonOpsInfo = {
   availabilityOverride: boolean;
   /** Telafi Merkezi'nden planlanan ders — "Geldi" ise T işareti (aynı yeşil). */
   plannedMakeup?: boolean;
+  attendanceNote?: string | null;
+  processedReason?: string | null;
 };
 
 type DayInfo = {
@@ -1085,6 +1087,7 @@ function LessonSummaryLine({ lesson }: { lesson: DayLessonOpsInfo }) {
         }
         plannedMakeup={lesson.plannedMakeup}
       />
+      {lesson.processedReason ? <span className="text-[var(--color-text-muted)]">· {lesson.processedReason}</span> : null}
       {lesson.availabilityOverride ? (
         <span
           title="Öğretmen bu saatte müsait görünmüyordu — onaylı planlandı"
@@ -1184,6 +1187,7 @@ function DayDetail({
                   opsMakeupFlag={opsStatus === "makeup"}
                   studentAbsent={opsStatus === "absent"}
                   studentExcused={opsStatus === "excused"}
+                  attendanceNote={lessonInfo?.attendanceNote}
                   onStatusChange={onLessonStatusChange}
                   onSettled={onLessonOpsSettled}
                 />

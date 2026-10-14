@@ -52,6 +52,8 @@ export default function AdminLessonDetail() {
   const [confirmingCancel, setConfirmingCancel] = useState(false);
   const [reasonPrompt, setReasonPrompt] = useState<string | null>(null);
   const [reason, setReason] = useState("");
+  const [attendedNote, setAttendedNote] = useState("");
+  const [noteLessonId, setNoteLessonId] = useState<string | null>(null);
 
   const teachers = useApiGet<TeachersResponse>(reassignOpen ? "/api/v1/teachers" : "");
   const branches = useApiGet<BranchesResponse>(reassignOpen ? "/api/v1/branches" : "");
@@ -75,6 +77,10 @@ export default function AdminLessonDetail() {
   }
 
   const lesson = res.data.lessons.find((l) => l.id === lessonId);
+  if (lesson && noteLessonId !== lesson.id) {
+    setNoteLessonId(lesson.id);
+    setAttendedNote(lesson.studentAttendanceNote ?? "");
+  }
   if (!lesson) {
     return (
       <Screen>
@@ -104,13 +110,14 @@ export default function AdminLessonDetail() {
   const selectedBranchName = branchOptions.find((b) => b.id === newBranchId)?.name;
   const selectedRoomName = roomsInBranch.find((r) => r.id === newRoomId)?.name;
 
-  async function markOps(flag: string, confirmSwitch = false, reasonText?: string) {
+  async function markOps(flag: string, confirmSwitch = false, reasonText?: string, attendanceNote?: string) {
     setOpsBusy(flag);
     setOpsError(null);
     const result = await apiPost<LessonOpsResponse>(`/api/v1/lessons/${lessonId}/ops`, {
       flag,
       confirmSwitch,
       ...(reasonText !== undefined ? { reason: reasonText } : {}),
+      ...(flag === "attended" && attendanceNote !== undefined ? { attendanceNote } : {}),
     });
     setOpsBusy(null);
     if (!result.ok) {
@@ -201,8 +208,13 @@ export default function AdminLessonDetail() {
         <EmptyState icon="ban-outline" title={tr("adm.lesCancelled")} />
       ) : (
         <View style={{ gap: 8 }}>
+          <TextField
+            label="Geldi notu (isteğe bağlı)"
+            value={attendedNote}
+            onChangeText={setAttendedNote}
+          />
           <View style={{ flexDirection: "row", gap: 8 }}>
-            <Button label={tr("attFlag.flagAttended")} size="sm" loading={opsBusy === "attended"} onPress={() => markOps("attended")} style={{ flex: 1 }} />
+            <Button label={tr("attFlag.flagAttended")} size="sm" loading={opsBusy === "attended"} onPress={() => markOps("attended", false, undefined, attendedNote)} style={{ flex: 1 }} />
             <Button label={tr("attFlag.flagAbsent")} size="sm" variant="danger" loading={opsBusy === "absent"} onPress={() => markOps("absent")} style={{ flex: 1 }} />
             <Button label={tr("attFlag.flagExcused")} size="sm" variant="secondary" loading={opsBusy === "excused"} onPress={() => markOps("excused")} style={{ flex: 1 }} />
           </View>

@@ -90,7 +90,8 @@ function applyLessonOpsFlagUnguarded(
   actorUserId: string,
   now: Date = new Date(),
   reason?: string,
-  disruption?: LessonDisruptionInput
+  disruption?: LessonDisruptionInput,
+  attendanceNote?: string | null
 ): ApplyLessonOpsResult {
   const lesson = data.lessons.find((l) => l.id === lessonId);
   if (!lesson) return { ok: false, message: "Ders bulunamadı." };
@@ -130,7 +131,11 @@ function applyLessonOpsFlagUnguarded(
       createsMakeupCredit: false,
     };
     attendances = [...attendances, attendance];
-    const lessons = data.lessons.map((l) => (l.id === lessonId ? { ...l, ...patch } : l));
+    const lessons = data.lessons.map((l) =>
+      l.id === lessonId
+        ? { ...l, ...patch, ...(attendanceNote !== undefined ? { studentAttendanceNote: attendanceNote } : {}) }
+        : l
+    );
     const next = { ...data, lessons, attendances };
     const nextLesson = lessons.find((l) => l.id === lessonId)!;
     return {
@@ -138,7 +143,7 @@ function applyLessonOpsFlagUnguarded(
       alreadySet: false,
       data: next,
       lesson: nextLesson,
-      message: "Geldi işaretlendi.",
+      message: attendanceNote ? "Geldi işaretlendi. Not kaydedildi." : "Geldi işaretlendi.",
     };
   }
 
@@ -314,7 +319,8 @@ function switchLessonOpsFlagUnguarded(
   actorUserId: string,
   now: Date = new Date(),
   reason?: string,
-  disruption?: LessonDisruptionInput
+  disruption?: LessonDisruptionInput,
+  attendanceNote?: string | null
 ): ApplyLessonOpsResult {
   const lesson = data.lessons.find((l) => l.id === lessonId);
   if (!lesson) return { ok: false, message: "Ders bulunamadı." };
@@ -322,11 +328,11 @@ function switchLessonOpsFlagUnguarded(
   const current = effectiveLessonOpsStatus(lesson);
   if (current === flag) {
     // Zaten bu statüde — applyLessonOpsFlag kendi "alreadySet" mesajını üretir.
-    return applyLessonOpsFlag(data, lessonId, flag, actorUserId, now, reason, disruption);
+    return applyLessonOpsFlag(data, lessonId, flag, actorUserId, now, reason, disruption, attendanceNote);
   }
   if (current === null) {
     // Hiçbir statü etkin değil — ilk tıklama, doğrudan set.
-    return applyLessonOpsFlag(data, lessonId, flag, actorUserId, now, reason, disruption);
+    return applyLessonOpsFlag(data, lessonId, flag, actorUserId, now, reason, disruption, attendanceNote);
   }
 
   // Farklı bir statüden geçiş — önce diğer bayrakları temizle (mali kayıt DOKUNULMAZ).
@@ -353,7 +359,7 @@ function switchLessonOpsFlagUnguarded(
     ...data,
     lessons: data.lessons.map((l) => (l.id === lessonId ? cleared : l)),
   };
-  return applyLessonOpsFlag(clearedData, lessonId, flag, actorUserId, now, reason, disruption);
+  return applyLessonOpsFlag(clearedData, lessonId, flag, actorUserId, now, reason, disruption, attendanceNote);
 }
 
 export type ClearLessonOpsResult =

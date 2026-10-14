@@ -15,6 +15,14 @@ export type MakeupHistoryRow = {
   decidedAtLabel: string;
   /** İşlemi yapan kişinin ad soyadı (ham kullanıcı kimliği değil). */
   actorName: string;
+  expiresAt?: string;
+  hasActivePlan?: boolean;
+  sourceClosedByExpiry?: boolean;
+  hasConductMark?: boolean;
+  teacherId?: string;
+  roomId?: string;
+  planStartAt?: string;
+  changeSummary?: string;
 };
 
 export type MakeupHistoryFilter = { query: string; status: string; actor: string; from: string; to: string };

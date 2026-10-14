@@ -897,6 +897,11 @@ export interface Lesson {
   endCorrectedBy?: string;
   endCorrectionNote?: string;
   notes?: string;
+  /**
+   * Geldi yoklamasının isteğe bağlı notu. Boş bırakılabilir; statü değişince
+   * silinmez. Hakediş/ücret hesabına girmez. Planlama notu (`notes`) değildir.
+   */
+  studentAttendanceNote?: string | null;
   /** Dersi planlayan kullanıcı. Eski derslerde yok. */
   createdByUserId?: string;
   /**
@@ -1080,6 +1085,8 @@ export interface MakeupRequest {
   slaDeadline?: string;
   /** 0=yok 1=15gün 2=7gün 3=3gün 4=1gün 5=aşıldı */
   slaEscalationLevel?: number;
+  /** Süre uzatma, revizyon, plan silme ve hak iptali — kim, ne zaman, eski/yeni. */
+  changeLog?: import("./makeup-deadline").MakeupChangeEntry[];
 }
 
 export interface MakeupSlot {

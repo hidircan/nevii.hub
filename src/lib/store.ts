@@ -9,6 +9,7 @@ import type {
   StudentScopeData,
 } from "./reference-data";
 import { STORE_MODE } from "./config";
+import { closeExpiredUnplannedMakeups } from "./makeup-lifecycle";
 import { patchTouchesEnrollmentTerms, routeTermPatch, splitTermPatch } from "./student-enrollments";
 import * as jsonStore from "./store-json";
 import * as dbStore from "./store-db";
@@ -276,8 +277,20 @@ type StoreApi = {
     flag: import("./lesson-ops").LessonOpsFlag,
     actorUserId: string,
     reason?: string,
-    disruption?: import("./lesson-disruption").LessonDisruptionInput
+    disruption?: import("./lesson-disruption").LessonDisruptionInput,
+    attendanceNote?: string | null
   ) => Promise<import("./lesson-ops").ApplyLessonOpsResult>;
+  setLessonAttendanceNoteLive: (
+    lessonId: string,
+    note: string | null
+  ) => Promise<{ ok: true } | { ok: false; message: string }>;
+  commitMakeupPlanningExpiry: (now?: Date) => Promise<void>;
+  previewMakeupLifecycle: (
+    op: import("./makeup-lifecycle").MakeupLifecycleOp
+  ) => Promise<import("./makeup-lifecycle").MakeupLifecycleResult>;
+  applyMakeupLifecycle: (
+    op: import("./makeup-lifecycle").MakeupLifecycleOp
+  ) => Promise<import("./makeup-lifecycle").MakeupLifecycleResult>;
   clearLessonOpsFlagLive: (
     lessonId: string,
     expected: import("./lesson-ops").LessonOpsFlag,
@@ -408,7 +421,10 @@ async function withTenantScope<T>(fn: () => Promise<T>): Promise<T> {
 export async function readData(): Promise<AppData> {
   // Çalışma günü istisnaları (closedDayOverrides) her store modunun kendi readData'sında eklenir
   // (bkz. withClosedDayOverrides) — store içi doğrulama da aynı veriyi görsün diye.
-  const data = await withTenantScope(() => store.readData());
+  const data = await withTenantScope(async () => {
+    await store.commitMakeupPlanningExpiry(new Date());
+    return store.readData();
+  });
   return applyMakeupExpiry(data);
 }
 
@@ -468,12 +484,20 @@ export async function readReferenceData(): Promise<ReferenceData> {
  */
 export async function readStudentScope(studentId: string): Promise<StudentScopeData> {
   if (!studentId) throw new Error("readStudentScope: studentId gerekli");
-  return applyMakeupExpiry(await withTenantScope(() => store.readStudentScope(studentId)));
+  return applyMakeupExpiry(
+    await withTenantScope(async () => {
+      await store.commitMakeupPlanningExpiry(new Date());
+      return store.readStudentScope(studentId);
+    })
+  );
 }
 
 /** DB egress (2026-09-30) — Ders Programı: referans veri + penceredeki dersler (bkz. reference-data.ts). */
 export async function readLessonWindow(fromIso: string, toIso: string): Promise<LessonWindowData> {
-  return withTenantScope(() => store.readLessonWindow(fromIso, toIso));
+  return withTenantScope(async () => {
+    await store.commitMakeupPlanningExpiry(new Date());
+    return store.readLessonWindow(fromIso, toIso);
+  });
 }
 
 /** DB egress (2026-09-30) — Öğrenciler listesi: referans veri + ödeme durum alanları. */
@@ -488,29 +512,33 @@ export async function readPaymentsPageData(): Promise<PaymentsPageData> {
 
 /** DB egress (2026-09-30) — Hakedişler / ay hakediş özeti (bkz. reference-data.ts `PayoutWindowData`). */
 export async function readPayoutWindow(fromIso: string, toIso: string): Promise<PayoutWindowData> {
-  return withTenantScope(() => store.readPayoutWindow(fromIso, toIso));
+  return withTenantScope(async () => {
+    await store.commitMakeupPlanningExpiry(new Date());
+    return store.readPayoutWindow(fromIso, toIso);
+  });
 }
 
 /** DB egress (2026-09-30) — Panel özeti; `readData()` ile aynı telafi süre-dolumu türetmesi uygulanır. */
 export async function readDashboardData(fromIso: string, toIso: string, nowIso: string): Promise<DashboardData> {
-  return applyMakeupExpiry(await withTenantScope(() => store.readDashboardData(fromIso, toIso, nowIso)));
+  return applyMakeupExpiry(
+    await withTenantScope(async () => {
+      await store.commitMakeupPlanningExpiry(new Date());
+      return store.readDashboardData(fromIso, toIso, nowIso);
+    })
+  );
 }
 
 /**
- * Süresi geçmiş (expiresAt < şimdi) ama hâlâ pending/suggested olan telafi
- * taleplerini "expired" olarak gösterir. Salt okunur türetme — kalıcı kaydı
- * değiştirmez, dashboard ve Telafi Merkezi'nin süresi dolmuş talepleri açık
- * talep gibi saymasını engeller.
+ * Planlanmamış telafinin son yerel günü bittiyse talebi expired, kaynak dersi
+ * "Telafi planlama süresi doldu" İşlendi olarak gösterir. Kalıcı yazım
+ * `commitMakeupPlanningExpiry` ile aynı saf fonksiyondur; bu katman okuma
+ * anında da uygular ki ekran commit'ten önce de aynı statüyü görsün.
  */
-function applyMakeupExpiry<T extends Pick<AppData, "makeupRequests">>(data: T): T {
-  const now = Date.now();
-  const makeupRequests = data.makeupRequests.map((m) =>
-    (m.status === "pending" || m.status === "suggested" || m.status === "awaiting_info") &&
-    new Date(m.expiresAt).getTime() < now
-      ? { ...m, status: "expired" as const }
-      : m
-  );
-  return { ...data, makeupRequests };
+function applyMakeupExpiry<T extends { makeupRequests: AppData["makeupRequests"]; lessons?: AppData["lessons"] }>(data: T): T {
+  if (!data.lessons) return data;
+  const closed = closeExpiredUnplannedMakeups({ ...data, lessons: data.lessons }, new Date());
+  if (!closed.changed) return data;
+  return { ...data, makeupRequests: closed.data.makeupRequests, lessons: closed.data.lessons };
 }
 
 export async function resetData(): Promise<void> {
@@ -910,9 +938,35 @@ export async function switchLessonOpsFlagLive(
   flag: import("./lesson-ops").LessonOpsFlag,
   actorUserId: string,
   reason?: string,
-  disruption?: import("./lesson-disruption").LessonDisruptionInput
+  disruption?: import("./lesson-disruption").LessonDisruptionInput,
+  attendanceNote?: string | null
 ): Promise<import("./lesson-ops").ApplyLessonOpsResult> {
-  return withTenantScope(() => store.switchLessonOpsFlagLive(lessonId, flag, actorUserId, reason, disruption));
+  return withTenantScope(() =>
+    store.switchLessonOpsFlagLive(lessonId, flag, actorUserId, reason, disruption, attendanceNote)
+  );
+}
+
+export async function setLessonAttendanceNoteLive(
+  lessonId: string,
+  note: string | null
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  return withTenantScope(() => store.setLessonAttendanceNoteLive(lessonId, note));
+}
+
+export async function commitMakeupPlanningExpiry(now?: Date): Promise<void> {
+  return withTenantScope(() => store.commitMakeupPlanningExpiry(now));
+}
+
+export async function previewMakeupLifecycle(
+  op: import("./makeup-lifecycle").MakeupLifecycleOp
+): Promise<import("./makeup-lifecycle").MakeupLifecycleResult> {
+  return withTenantScope(() => store.previewMakeupLifecycle(op));
+}
+
+export async function applyMakeupLifecycle(
+  op: import("./makeup-lifecycle").MakeupLifecycleOp
+): Promise<import("./makeup-lifecycle").MakeupLifecycleResult> {
+  return withTenantScope(() => store.applyMakeupLifecycle(op));
 }
 
 /** 2026-09-29 — yoklama statüsünü geri alma (bkz. lesson-ops.ts clearLessonOpsFlag). */

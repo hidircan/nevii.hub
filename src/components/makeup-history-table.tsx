@@ -5,13 +5,26 @@ import { Badge, Card } from "@/components/ui";
 import { PaginationControls, usePagination } from "@/components/pagination-controls";
 import { statusLabel } from "@/lib/utils";
 import { filterMakeupHistory, type MakeupHistoryRow } from "@/lib/makeup-history-filter";
+import { MakeupLifecycleActions } from "@/components/makeup-lifecycle-actions";
 
 export type { MakeupHistoryRow };
 
 const FIELD = "mt-1 block rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-sm text-[var(--color-text)]";
 
+type PersonOption = { id: string; name: string; branchId: string; branchIds?: string[]; active?: boolean; deletedAt?: string };
+
 /** Sonuçlanan telafi talepleri — filtre, sayfalama ve işlemi yapan kişi. */
-export function MakeupHistoryTable({ rows }: { rows: MakeupHistoryRow[] }) {
+export function MakeupHistoryTable({
+  rows,
+  canManage = false,
+  teachers = [],
+  rooms = [],
+}: {
+  rows: MakeupHistoryRow[];
+  canManage?: boolean;
+  teachers?: PersonOption[];
+  rooms?: PersonOption[];
+}) {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("all");
   const [actor, setActor] = useState("all");
@@ -59,11 +72,12 @@ export function MakeupHistoryTable({ rows }: { rows: MakeupHistoryRow[] }) {
               <th className="px-3 py-2">İşlemi yapan</th>
               <th className="px-3 py-2">Karar notu</th>
               <th className="px-3 py-2">Karar tarihi</th>
+              {canManage ? <th className="px-3 py-2">İşlem</th> : null}
             </tr>
           </thead>
           <tbody>
             {pageItems.length === 0 ? (
-              <tr><td colSpan={7} className="px-3 py-6 text-center text-[var(--color-text-muted)]">Bu filtreye uyan telafi kaydı yok.</td></tr>
+              <tr><td colSpan={canManage ? 8 : 7} className="px-3 py-6 text-center text-[var(--color-text-muted)]">Bu filtreye uyan telafi kaydı yok.</td></tr>
             ) : pageItems.map((req) => (
               <tr key={req.id} className="border-b border-[var(--color-border)] last:border-0">
                 <td className="px-3 py-2 font-medium text-[var(--color-text)]">{req.studentName}</td>
@@ -73,9 +87,16 @@ export function MakeupHistoryTable({ rows }: { rows: MakeupHistoryRow[] }) {
                 <td className="px-3 py-2 text-[var(--color-text)]">{req.actorName}</td>
                 <td className="px-3 py-2 text-xs text-[var(--color-text-muted)]">
                   {req.decisionNote}
+                  {req.sourceClosedByExpiry ? <span className="mt-1 block font-semibold text-[var(--color-text)]">İşlendi — Telafi planlama süresi doldu</span> : null}
+                  {req.changeSummary ? <span className="mt-1 block">{req.changeSummary}</span> : null}
                   {req.slaBreached ? <span className="ml-1 font-semibold text-rose-600">SLA aşıldı</span> : null}
                 </td>
                 <td className="px-3 py-2 text-xs text-[var(--color-text-muted)]">{req.decidedAtLabel || "—"}</td>
+                {canManage ? (
+                  <td className="px-3 py-2">
+                    <MakeupLifecycleActions row={req} teachers={teachers} rooms={rooms} />
+                  </td>
+                ) : null}
               </tr>
             ))}
           </tbody>

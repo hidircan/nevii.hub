@@ -17,6 +17,13 @@ import {
   type DemoSeedResult,
 } from "./demo-seed";
 import { applyLessonOpsFlag, switchLessonOpsFlag, type LessonOpsFlag } from "./lesson-ops";
+import {
+  applyMakeupLifecycleOnFull,
+  closeExpiredUnplannedMakeups,
+  normalizeAttendanceNote,
+  type MakeupLifecycleOp,
+  type MakeupLifecycleResult,
+} from "./makeup-lifecycle";
 import { allocateSequenceValue, formatDisplayId } from "./entity-sequence";
 import { markTeacherAttendance, type TeacherAttendanceStatus } from "./teacher-attendance";
 import { reassignLessonTeacherOrBranch, type ReassignLessonInput, type ReassignLessonResult } from "./lesson-reassignment";
@@ -393,9 +400,10 @@ export async function confirmSlot(
   slot: MakeupSlot,
   decision: MakeupDecision
 ): Promise<AppData> {
-  const data = load();
-  const { data: next } = confirmMakeupSlot(data, requestId, slot, decision);
-  return save(next);
+  return mutateStoreUnderLock(async (data) => {
+    const { data: next } = confirmMakeupSlot(data, requestId, slot, decision);
+    return next;
+  });
 }
 
 export async function cancelMakeup(requestId: string, decision: MakeupDecision): Promise<AppData> {
@@ -1611,7 +1619,8 @@ async function persistLessonOpsUnderLock(
   actorUserId: string,
   apply: typeof applyLessonOpsFlag | typeof switchLessonOpsFlag,
   reason?: string,
-  disruption?: import("./lesson-disruption").LessonDisruptionInput
+  disruption?: import("./lesson-disruption").LessonDisruptionInput,
+  attendanceNote?: string | null
 ): Promise<ReturnType<typeof applyLessonOpsFlag>> {
   const pre = load();
   const preLesson = pre.lessons.find((l) => l.id === lessonId);
@@ -1625,7 +1634,7 @@ async function persistLessonOpsUnderLock(
     const data = load();
     const scope = narrowLessonScope(data, lessonId);
     if (!scope) return { ok: false, message: "Ders bulunamadı." };
-    const result = apply(scope, lessonId, _flag, actorUserId, undefined, reason, disruption);
+    const result = apply(scope, lessonId, _flag, actorUserId, undefined, reason, disruption, attendanceNote);
     if (result.ok && !result.alreadySet) {
       save(mergeLessonScope(data, result.data, lessonId));
     }
@@ -1647,9 +1656,10 @@ export async function switchLessonOpsFlagLive(
   flag: LessonOpsFlag,
   actorUserId: string,
   reason?: string,
-  disruption?: import("./lesson-disruption").LessonDisruptionInput
+  disruption?: import("./lesson-disruption").LessonDisruptionInput,
+  attendanceNote?: string | null
 ): Promise<ReturnType<typeof switchLessonOpsFlag>> {
-  return persistLessonOpsUnderLock(lessonId, flag, actorUserId, switchLessonOpsFlag, reason, disruption);
+  return persistLessonOpsUnderLock(lessonId, flag, actorUserId, switchLessonOpsFlag, reason, disruption, attendanceNote);
 }
 
 /** 2026-09-29 — yoklama statüsünü geri alma (bkz. lesson-ops.ts clearLessonOpsFlag). */
@@ -1724,4 +1734,51 @@ export async function deletePackage(packageId: string, expectedUpdatedAt: string
   const result = deletePackageData(load(), packageId, expectedUpdatedAt);
   if (result.ok) save(result.data);
   return result;
+}
+
+/** Planlanmamış telafi süresi dolduysa kaynak dersi İşlendi yapar. Değişiklik yoksa yazılmaz. */
+export async function commitMakeupPlanningExpiry(now: Date = new Date()): Promise<void> {
+  await withKeyLock(`memory-store:${tenantKey()}`, async () => {
+    const data = load();
+    const closed = closeExpiredUnplannedMakeups(data, now);
+    if (!closed.changed) return;
+    save(closed.data);
+  });
+}
+
+export async function previewMakeupLifecycle(op: MakeupLifecycleOp): Promise<MakeupLifecycleResult> {
+  const data = await withClosedDayOverrides(load(), load().settings.tenantId);
+  return applyMakeupLifecycleOnFull(data, op);
+}
+
+export async function applyMakeupLifecycle(op: MakeupLifecycleOp): Promise<MakeupLifecycleResult> {
+  return withKeyLock(`memory-store:${tenantKey()}`, async () => {
+    const raw = load();
+    const overlaid = await withClosedDayOverrides(raw, raw.settings.tenantId);
+    const result = applyMakeupLifecycleOnFull(overlaid, op);
+    if (!result.ok) return result;
+    save(result.data);
+    return result;
+  });
+}
+
+/** Yalnız Geldi dersinin notunu yazar. Statü ve hakediş alanlarına dokunmaz. */
+export async function setLessonAttendanceNoteLive(
+  lessonId: string,
+  note: string | null
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  const stored = normalizeAttendanceNote(note) ?? null;
+  return withKeyLock(`memory-store:${tenantKey()}`, async () => {
+    const data = load();
+    const lesson = data.lessons.find((row) => row.id === lessonId);
+    if (!lesson) return { ok: false, message: "Ders bulunamadı. Sayfayı yenileyip tekrar deneyin." };
+    if (lesson.studentAttended !== true) {
+      return { ok: false, message: "Not yalnız Geldi yoklamasına yazılır. Önce Geldi'yi işaretleyin, sonra notu kaydedin." };
+    }
+    save({
+      ...data,
+      lessons: data.lessons.map((row) => (row.id === lessonId ? { ...row, studentAttendanceNote: stored } : row)),
+    });
+    return { ok: true };
+  });
 }
