@@ -10910,6 +10910,21 @@ export async function listAnnouncementReadersTool(
   }
 }
 
+/** Rapor portalı (2026-10-14): rapor gönderiminde yöneticilere bildirim; bildirim hatası kaydı geri almaz. */
+async function notifyReportSubmitted(
+  tenantId: string,
+  category: "lesson_assessment_submitted" | "periodic_assessment_submitted",
+  recordId: string,
+  notification: { title: string; body: string }
+): Promise<void> {
+  try {
+    const { notifyAdmins } = await import("../manager-notifications");
+    await notifyAdmins(tenantId, category, notification, { dedupeKey: recordId });
+  } catch {
+    // bildirim en iyi çaba — rapor kaydedildi
+  }
+}
+
 /**
  * EPIC 7 (IMPLEMENTATION_PLAN.md) — TEACHER yalnızca kendi öğrencisi için
  * değerlendirme oluşturabilir (mevcut `canAccessStudent`'ın TEACHER için
@@ -10928,12 +10943,12 @@ export async function createAssessmentTool(
   const v = parseOrFail(createAssessmentSchema, input);
   if (!v.ok) return v;
 
-  const data = await readData();
-  const student = data.students.find((s) => s.id === v.data.studentId);
+  // Kota (2026-10-14): tam okuma yerine tek satır okumalar.
+  const student = await readStudentById(v.data.studentId);
   const access = await assertStudentAccess(ctx, student, v.data.studentId);
   if (!access.ok) return fail(access.code, access.message);
   if (!student) return fail("NOT_FOUND", "Öğrenci bulunamadı");
-  const lesson = data.lessons.find((l) => l.id === v.data.lessonId);
+  const lesson = await readLessonById(v.data.lessonId);
   if (!lesson) return fail("NOT_FOUND", "Ders bulunamadı");
   if (lesson.studentId !== student.id) {
     return fail("VALIDATION_ERROR", "Seçilen ders bu öğrenciye ait değil.");
@@ -10947,7 +10962,8 @@ export async function createAssessmentTool(
       tenantId: ctx.tenantId,
       lessonId: v.data.lessonId,
       studentId: v.data.studentId,
-      teacherId: student.teacherId,
+      // 2026-10-14 — çoklu branş: rapor dersin öğretmenine aittir (öğrencinin "ilk" öğretmenine değil).
+      teacherId: lesson.teacherId,
       teknikBecerisi: v.data.teknikBecerisi,
       notaOkuma: v.data.notaOkuma,
       muzikalite: v.data.muzikalite,
@@ -10972,6 +10988,10 @@ export async function createAssessmentTool(
     audit(ctx, "assessment.create", "LessonAssessment", assessment.id, {
       studentId: v.data.studentId,
       lessonId: v.data.lessonId,
+    });
+    await notifyReportSubmitted(ctx.tenantId, "lesson_assessment_submitted", assessment.id, {
+      title: "Yeni ders gelişim raporu",
+      body: `${student.name} için ders gelişim raporu gönderildi. Detay: /panel/raporlar?sekme=gelisim (ref:${assessment.id})`,
     });
     return ok({ assessmentId: assessment.id });
   } catch (e) {
@@ -11122,14 +11142,17 @@ export async function createPeriodicAssessmentTool(
   const v = parseOrFail(createPeriodicAssessmentSchema, input);
   if (!v.ok) return v;
 
-  const data = await readData();
+  // Kota (2026-10-14): tek öğrenci dilimi (yalnız bu öğrencinin dersleri) — tam okuma değil.
+  const data = await readStudentScope(v.data.studentId);
   const student = data.students.find((s) => s.id === v.data.studentId);
   if (!student) return fail("NOT_FOUND", "Öğrenci bulunamadı");
   if (ctx.role === "TEACHER" && !isOwnStudent(student, ctx.teacherId ?? "")) {
     return fail("FORBIDDEN", "Yalnızca kendi öğrenciniz için değerlendirme gönderebilirsiniz.");
   }
+  // 2026-10-14 — çoklu branş: öğretmen kendi branşı adına yazar; yönetici atanmış öğretmen adına (eski davranış).
+  const reportTeacherId = ctx.role === "TEACHER" && ctx.teacherId ? ctx.teacherId : student.teacherId;
 
-  const submitted = await listPeriodicAssessmentsForTeacher(ctx.tenantId, student.teacherId);
+  const submitted = await listPeriodicAssessmentsForTeacher(ctx.tenantId, reportTeacherId);
   const submittedForStudent = submitted
     .filter((s) => s.studentId === student.id)
     .map((s) => ({ periodStart: s.periodStart, periodEnd: s.periodEnd }));
@@ -11155,7 +11178,7 @@ export async function createPeriodicAssessmentTool(
     const result = await createPeriodicAssessment({
       tenantId: ctx.tenantId,
       studentId: student.id,
-      teacherId: student.teacherId,
+      teacherId: reportTeacherId,
       periodStart: v.data.periodStart,
       periodEnd: v.data.periodEnd,
       relatedLessonIds,
@@ -11170,6 +11193,10 @@ export async function createPeriodicAssessmentTool(
       studentId: student.id,
       periodStart: v.data.periodStart,
       periodEnd: v.data.periodEnd,
+    });
+    await notifyReportSubmitted(ctx.tenantId, "periodic_assessment_submitted", result.assessment.id, {
+      title: "Yeni 4 haftalık gelişim raporu",
+      body: `${student.name} için 4 haftalık genel değerlendirme gönderildi. Detay: /panel/raporlar?sekme=donemsel (ref:${result.assessment.id})`,
     });
     return ok({ id: result.assessment.id });
   } catch (e) {
