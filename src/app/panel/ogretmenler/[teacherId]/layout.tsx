@@ -88,7 +88,7 @@ export default async function TeacherDetailLayout({
                 <TeacherArchiveAction teacherId={teacher.id} teacherName={teacher.name} archived={!teacher.active} />
               )}
               {!teacher.active && !teacher.deletedAt ? <TeacherDeleteDialog teacherId={teacher.id} teacherName={teacher.name} /> : null}
-              {teacher.deletedAt && !teacher.purgedAt ? <PersonPurgeDialog kind="teacher" id={teacher.id} name={teacher.name} /> : null}
+              {teacher.deletedAt && !teacher.purgedAt && kurum.scope.mode === "single" ? <PersonPurgeDialog kind="teacher" id={teacher.id} name={teacher.name} /> : null}
             </div>
           ) : undefined
         }

@@ -169,7 +169,7 @@ describe("öğrenci kalıcı silme — ilişkili demo kayıt", () => {
     const task = (id: string, extra: Record<string, unknown>) => ({ id, tenantId: DEFAULT_TENANT_ID, title: "Takip", status: "TODO", createdById: "u", ...extra });
     await fs.writeFile(
       path.join(DIR, "tasks.json"),
-      JSON.stringify({ tasks: [task("tk1", { studentId: DEMO }), task("tk2", { relatedEntityType: "student", relatedEntityId: DEMO, relatedEntityLabel: "Demo Silinecek" }), task("tk3", { studentId: OTHER })] })
+      JSON.stringify({ tasks: [task("tk1", { studentId: DEMO, title: "Öğrenci takibi — Demo Silinecek" }), task("tk2", { relatedEntityType: "student", relatedEntityId: DEMO, relatedEntityLabel: "Demo Silinecek" }), task("tk3", { studentId: OTHER })] })
     );
     const preview = await previewOf("student", DEMO);
     expect(preview.detach.find((b) => b.key === "tasks")?.ids).toEqual(["tk1", "tk2"]);
@@ -177,7 +177,9 @@ describe("öğrenci kalıcı silme — ilişkili demo kayıt", () => {
     const { tasks } = JSON.parse(await fs.readFile(path.join(DIR, "tasks.json"), "utf8")) as { tasks: Record<string, unknown>[] };
     expect(tasks.map((t) => t.id)).toEqual(["tk1", "tk2", "tk3"]);
     expect(tasks[0]!.studentId).toBeNull();
+    expect(tasks[0]!.title).toBe("Öğrenci takibi — Silinmiş öğrenci (Ö-9001)");
     expect(tasks[1]!.relatedEntityId).toBeUndefined();
+    expect(tasks[1]!.title).toBe("Takip");
     expect(JSON.stringify(tasks[1])).not.toContain("Demo Silinecek");
     expect(tasks[2]!.studentId).toBe(OTHER);
   });
@@ -335,6 +337,28 @@ describe("planlayıcı (saf) — paylaşılan hesap, hakediş, açık borç, ö�
     expect(plan.keep.find((b) => b.key === "lessons")?.ids).toEqual(["in"]);
     expect(plan.remove.find((b) => b.key === "lessons")?.ids).toEqual(["out"]);
     expect(plan.effects.join(" ")).toContain("Ayşe Hoca");
+  });
+
+  it("hakediş dönemi kurum saatine göre (yalnız tarih saklanır): son günün geç saati ve ilk günün gece yarısı sonrası korunur", () => {
+    const l = (id: string, startAt: string) => ({ id, studentId: "s1", teacherId: "t1", startAt, status: "completed" });
+    const plan = planStudentPurge({
+      ...base,
+      lessons: [
+        l("last_day_evening", "2026-09-30T18:30:00.000Z"), // İstanbul 30 Eylül 21:30 → dönem içi
+        l("first_day_0030", "2026-08-31T21:30:00.000Z"), // İstanbul 1 Eylül 00:30 → dönem içi
+        l("next_day_0030", "2026-09-30T21:30:00.000Z"), // İstanbul 1 Ekim 00:30 → dönem dışı
+        l("snapshot_only", "2026-10-02T10:00:00.000Z"), // dönem dışı ama hakedişin dondurulmuş satırında
+      ],
+      payouts: [{ id: "po", teacherId: "t1", periodStart: "2026-09-01", periodEnd: "2026-09-30", status: "paid", lessonIds: ["snapshot_only"] }],
+    });
+    expect(plan.keep.find((b) => b.key === "lessons")?.ids).toEqual(["first_day_0030", "last_day_evening", "snapshot_only"]);
+    expect(plan.remove.find((b) => b.key === "lessons")?.ids).toEqual(["next_day_0030"]);
+  });
+
+  it("grup oturumunun tek üyesiyse oturumun programdan kalkacağı söylenir", () => {
+    const g = { id: "g1", studentId: "s1", teacherId: "t1", startAt: "2026-10-01T10:00:00.000Z", status: "completed", clubSessionId: "cs" };
+    expect(planStudentPurge({ ...base, lessons: [g], groupSessionOthers: { cs: 0 } }).effects.join(" ")).toContain("tek üyesi");
+    expect(planStudentPurge({ ...base, lessons: [g], groupSessionOthers: { cs: 3 } }).effects.join(" ")).not.toContain("tek üyesi");
   });
 
   it("imzalı sözleşmenin açık taksidi kalıcı silmeyi engeller ve çözüm ekranını söyler; parmak izi deterministik", () => {

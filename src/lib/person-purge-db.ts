@@ -56,7 +56,7 @@ async function loadStudentSnapshot(db: Db, tenantId: string, studentId: string, 
   const [payouts, teachers] = await Promise.all([
     db.teacherPayout.findMany({
       where: { tenantId, teacherId: { in: teacherIds } },
-      select: { id: true, teacherId: true, periodStart: true, periodEnd: true, status: true },
+      select: { id: true, teacherId: true, periodStart: true, periodEnd: true, status: true, lineSnapshot: true },
     }),
     db.teacher.findMany({ where: { tenantId, id: { in: teacherIds } }, select: { id: true, name: true } }),
   ]);
@@ -77,6 +77,15 @@ async function loadStudentSnapshot(db: Db, tenantId: string, studentId: string, 
       db.profilePhoto.findMany({ where: { tenantId, ownerType: "student", ownerId: studentId }, select: { id: true } }),
       db.communicationMessage.findMany({ where: { tenantId, recipientType: { in: ["PARENT", "STUDENT"] }, recipientId: studentId }, select: { id: true } }),
     ]);
+  const [callLogs, messageLogs, groupRows] = await Promise.all([
+    db.callLog.findMany({ where: { tenantId, contactType: { in: ["student", "parent"] }, contactId: studentId }, select: { id: true } }),
+    db.messageLog.findMany({ where: { tenantId, contactType: { in: ["student", "parent"] }, contactId: studentId }, select: { id: true } }),
+    db.lesson.groupBy({
+      by: ["clubSessionId"],
+      where: { tenantId, clubSessionId: { in: lessons.map((l) => l.clubSessionId).filter((x): x is string => !!x) }, NOT: { studentId } },
+      _count: { _all: true },
+    }),
+  ]);
   const [tasks, clubApplications, trialConversions] = await Promise.all([
     db.task.findMany({ where: taskWhere(tenantId, "student", studentId), select: { id: true } }),
     db.clubApplication.findMany({ where, select: { id: true } }),
@@ -95,7 +104,14 @@ async function loadStudentSnapshot(db: Db, tenantId: string, studentId: string, 
     // Süresi geçmiş "pending" deneme artık sürmüyor — engel sayılmaz.
     checkouts: checkouts.map((c) => ({ id: c.id, paymentId: c.paymentId, status: c.status === "pending" && c.expiresAt && c.expiresAt.toISOString() < nowIso ? "expired" : c.status })),
     followUps,
-    payouts: payouts.map((p) => ({ ...p, periodStart: p.periodStart.toISOString(), periodEnd: p.periodEnd.toISOString() })),
+    payouts: payouts.map((p) => ({
+      id: p.id,
+      teacherId: p.teacherId,
+      status: p.status,
+      periodStart: p.periodStart.toISOString(),
+      periodEnd: p.periodEnd.toISOString(),
+      lessonIds: ((p.lineSnapshot as { lessonId?: string }[] | null) ?? []).map((x) => x.lessonId).filter((x): x is string => !!x),
+    })),
     documents,
     clubMemberships,
     owned: {
@@ -114,7 +130,14 @@ async function loadStudentSnapshot(db: Db, tenantId: string, studentId: string, 
       notifications: ids(notifications),
       profilePhotos: ids(profilePhotos),
       communicationMessages: ids(communicationMessages),
+      callLogs: ids(callLogs),
+      messageLogs: ids(messageLogs),
     },
+    groupSessionOthers: Object.fromEntries(
+      lessons
+        .filter((l) => l.clubSessionId)
+        .map((l) => [l.clubSessionId!, groupRows.find((g) => g.clubSessionId === l.clubSessionId)?._count._all ?? 0])
+    ),
     detach: { tasks: ids(tasks), clubApplications: ids(clubApplications), trialConversions: ids(trialConversions) },
     accounts,
     teacherNames: Object.fromEntries(teachers.map((t) => [t.id, t.name])),
@@ -281,6 +304,8 @@ async function deleteByIds(tx: Prisma.TransactionClient, tenantId: string, key: 
     case "notifications": r = await tx.notification.deleteMany({ where }); break;
     case "profilePhotos": r = await tx.profilePhoto.deleteMany({ where }); break;
     case "communicationMessages": r = await tx.communicationMessage.deleteMany({ where }); break;
+    case "callLogs": r = await tx.callLog.deleteMany({ where }); break;
+    case "messageLogs": r = await tx.messageLog.deleteMany({ where }); break;
     case "availabilityRequests": r = await tx.teacherAvailabilityRequest.deleteMany({ where }); break;
     case "teachingMaterials": r = await tx.teachingMaterial.deleteMany({ where }); break;
     case "trialLessons": r = await tx.trialLesson.deleteMany({ where }); break;
@@ -320,6 +345,8 @@ const DELETE_ORDER: PurgeTableKey[] = [
   "notifications",
   "profilePhotos",
   "communicationMessages",
+  "callLogs",
+  "messageLogs",
   "availabilityRequests",
   "teachingMaterials",
   "trialLessons",
@@ -353,6 +380,10 @@ export async function executePurgeDb(kind: PurgeKind, id: string, expectedFinger
             where: { ...taskIds, relatedEntityType: kind, relatedEntityId: id },
             data: { relatedEntityType: null, relatedEntityId: null, relatedEntityLabel: null },
           });
+          // Görev başlığındaki kişi adı (ör. "Öğrenci takibi — Ad Soyad") anonim adla değiştirilir.
+          for (const t of await tx.task.findMany({ where: { ...taskIds, title: { contains: snap.person.name } }, select: { id: true, title: true } })) {
+            await tx.task.update({ where: { id: t.id }, data: { title: t.title.split(snap.person.name).join(plan.anonymizedName) } });
+          }
         }
         if (detach("clubApplications").length) {
           await tx.clubApplication.updateMany({ where: { tenantId: tid, id: { in: detach("clubApplications") } }, data: { studentId: null } });

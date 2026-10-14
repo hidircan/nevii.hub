@@ -49,6 +49,8 @@ const FILES: Partial<Record<PurgeTableKey | PurgeDetachKey, string>> = {
   notifications: "notifications.json",
   profilePhotos: "profile-photos.json",
   communicationMessages: "communication-messages.json",
+  callLogs: "call-logs.json",
+  messageLogs: "message-logs.json",
   availabilityRequests: "teacher-availability-requests.json",
   teachingMaterials: "teaching-materials.json",
   trialLessons: "trial-lessons.json",
@@ -169,7 +171,14 @@ export async function loadPurgeSnapshotFiles(io: StoreIo, kind: PurgeKind, id: s
       followUps: followUps.filter((f) => inTenant(tid)(f) && f.studentId === id).map((f) => ({ id: f.id, paymentId: String(f.paymentId) })),
       payouts: data.teacherPayouts
         .filter((p) => teacherIds.has(p.teacherId))
-        .map((p) => ({ id: p.id, teacherId: p.teacherId, periodStart: p.periodStart, periodEnd: p.periodEnd, status: p.status })),
+        .map((p) => ({
+          id: p.id,
+          teacherId: p.teacherId,
+          periodStart: p.periodStart,
+          periodEnd: p.periodEnd,
+          status: p.status,
+          lessonIds: (p.lineSnapshot ?? []).map((x) => x.lessonId),
+        })),
       documents: (await own("documents")).map((x) => ({ id: x })),
       clubMemberships: (await own("clubMemberships")).map((x) => ({ id: x })),
       owned: {
@@ -188,7 +197,14 @@ export async function loadPurgeSnapshotFiles(io: StoreIo, kind: PurgeKind, id: s
         notifications: await own("notifications", "targetStudentId"),
         profilePhotos: idsWhere(await side("profilePhotos"), tid, (r) => r.ownerType === "student" && r.ownerId === id),
         communicationMessages: idsWhere(await side("communicationMessages"), tid, (r) => (r.recipientType === "PARENT" || r.recipientType === "STUDENT") && r.recipientId === id),
+        callLogs: idsWhere(await side("callLogs"), tid, (r) => (r.contactType === "student" || r.contactType === "parent") && r.contactId === id),
+        messageLogs: idsWhere(await side("messageLogs"), tid, (r) => (r.contactType === "student" || r.contactType === "parent") && r.contactId === id),
       },
+      groupSessionOthers: Object.fromEntries(
+        lessons
+          .filter((l) => l.clubSessionId)
+          .map((l) => [l.clubSessionId!, data.lessons.filter((o) => o.clubSessionId === l.clubSessionId && o.studentId !== id).length])
+      ),
       detach: {
         tasks: idsWhere(tasks.tasks, tid, (r) => r.studentId === id || (r.relatedEntityType === "student" && r.relatedEntityId === id)),
         clubApplications: await own("clubApplications" as PurgeTableKey),
@@ -295,6 +311,7 @@ async function executeUnlocked(io: StoreIo, kind: PurgeKind, id: string, expecte
     await fs.writeFile(filePath("tasks.json"), JSON.stringify({ ...shape, tasks: tasks.map((r) => {
       if (!taskTargets.has(r.id)) return r;
       const next: Row = r[field] === id ? { ...r, [field]: null } : { ...r };
+      if (typeof next.title === "string") next.title = next.title.split(snap.person.name).join(plan.anonymizedName);
       if (r.relatedEntityType === kind && r.relatedEntityId === id) {
         Object.assign(next, { relatedEntityType: undefined, relatedEntityId: undefined, relatedEntityLabel: undefined });
       }

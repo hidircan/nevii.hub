@@ -330,7 +330,7 @@ export default async function OgretmenlerPage() {
                 >
                   {t.name}
                 </Link>
-                <PersonPurgeDialog kind="teacher" id={t.id} name={t.name} compact />
+                {kurum.scope.mode === "single" ? <PersonPurgeDialog kind="teacher" id={t.id} name={t.name} compact /> : null}
               </li>
             ))}
           </ul>

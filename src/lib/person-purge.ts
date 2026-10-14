@@ -15,6 +15,7 @@
  * öğrenci/öğretmen, ortak veli hesabı) silinmez; yalnız bu kişiyle bağlantısı kaldırılır.
  */
 import { createHash } from "node:crypto";
+import { toDayKey } from "./teacher-payout";
 
 export type PurgeKind = "student" | "teacher";
 export type PurgeOutcome = "delete" | "anonymize";
@@ -46,6 +47,8 @@ export type PurgeTableKey =
   | "notifications"
   | "profilePhotos"
   | "communicationMessages"
+  | "callLogs"
+  | "messageLogs"
   | "availabilityRequests"
   | "teachingMaterials"
   | "trialLessons"
@@ -82,6 +85,8 @@ export const PURGE_TABLE_LABELS: Record<PurgeTableKey | PurgeDetachKey, string> 
   notifications: "Bildirim",
   profilePhotos: "Profil fotoğrafı",
   communicationMessages: "Mesaj taslağı/kaydı",
+  callLogs: "Arama kaydı (CRM)",
+  messageLogs: "Gelen mesaj kaydı (CRM)",
   availabilityRequests: "Müsaitlik talebi",
   teachingMaterials: "Ders materyali",
   trialLessons: "Deneme dersi",
@@ -123,7 +128,8 @@ export type PurgePaymentRow = {
   clubMembershipId?: string;
 };
 export type PurgeContractRow = { id: string; status: string; signedAt?: string; documentInstanceId?: string };
-export type PurgePayoutRow = { id: string; teacherId: string; periodStart: string; periodEnd: string; status: string };
+/** `lessonIds`: hakedişin dondurulmuş satırlarındaki dersler (`lineSnapshot`); yoksa dönem kapsaması kullanılır. */
+export type PurgePayoutRow = { id: string; teacherId: string; periodStart: string; periodEnd: string; status: string; lessonIds?: string[] };
 /** Kişiye bağlı giriş hesabı. `otherLinks` > 0 ise hesap başka öğrenci/rol için de kullanılıyor — kapatılmaz. */
 export type PurgeAccountRow = {
   userId: string;
@@ -153,6 +159,8 @@ export type StudentPurgeSnapshot = {
   detach: Partial<Record<PurgeDetachKey, string[]>>;
   accounts: PurgeAccountRow[];
   teacherNames: Record<string, string>;
+  /** Grup oturumu → bu öğrenci dışındaki üye satırı sayısı (0 ise oturum programdan kalkar). */
+  groupSessionOthers?: Record<string, number>;
   nowIso: string;
 };
 
@@ -283,11 +291,15 @@ export function planStudentPurge(s: StudentPurgeSnapshot): PurgePlan {
   // 1) Kesin koruma tetikleyicileri.
   const keepPayments = new Set(s.payments.filter((p) => collected(p) > 0).map((p) => p.id));
   const keepContracts = new Set(s.contracts.filter((c) => c.signedAt || c.status === "signed" || c.status === "recorded").map((c) => c.id));
-  const keepLessons = new Set(
-    s.lessons
-      .filter((l) => activePayouts.some((p) => p.teacherId === l.teacherId && p.periodStart <= l.startAt && l.startAt <= p.periodEnd))
-      .map((l) => l.id)
-  );
+  // Hakediş hesabıyla AYNI dahil etme kuralı: kurum saat dilimindeki gün anahtarı (`toDayKey`) dönem içinde mi.
+  // Dondurulmuş satırı olan hakedişte o satırlardaki dersler de ayrıca korunur (ikisinin birleşimi — güvenli taraf).
+  const coveredBy = (l: PurgeLessonRow, p: PurgePayoutRow) => {
+    if (p.teacherId !== l.teacherId) return false;
+    if (p.lessonIds?.includes(l.id)) return true;
+    const day = toDayKey(l.startAt);
+    return toDayKey(p.periodStart) <= day && day <= toDayKey(p.periodEnd);
+  };
+  const keepLessons = new Set(s.lessons.filter((l) => activePayouts.some((p) => coveredBy(l, p))).map((l) => l.id));
   const succeededCheckout = new Set(s.checkouts.filter((c) => c.status === "succeeded" || c.status === "paid").map((c) => c.paymentId));
   for (const id of succeededCheckout) keepPayments.add(id);
   const keepMakeups = new Set<string>();
@@ -361,7 +373,11 @@ export function planStudentPurge(s: StudentPurgeSnapshot): PurgePlan {
   const group = s.lessons.filter((l) => !keepLessons.has(l.id) && l.clubSessionId);
   const effects: string[] = [];
   if (upcoming.length) effects.push(`${upcoming.length} gelecek ders silinir; öğretmen ve oda programında o saatler boşalır. Başka öğretmen atanmaz.`);
-  if (group.length) effects.push(`${group.length} grup dersi kaydında yalnız bu öğrencinin satırı silinir; grup dersi, öğretmeni ve diğer üyeler etkilenmez.`);
+  if (group.length) {
+    effects.push(`${group.length} grup dersi kaydında yalnız bu öğrencinin satırı silinir; grup dersi, öğretmeni ve diğer üyeler etkilenmez.`);
+    const solo = new Set(group.filter((l) => (s.groupSessionOthers?.[l.clubSessionId!] ?? 1) === 0).map((l) => l.clubSessionId!));
+    if (solo.size) effects.push(`${solo.size} grup oturumunun tek üyesi bu öğrenci; o oturumlar programdan kalkar.`);
+  }
   const realizedByTeacher = new Map<string, number>();
   for (const l of s.lessons) {
     if (keepLessons.has(l.id) || ACTIVE_LESSON.has(l.status) || l.status === "cancelled") continue;
