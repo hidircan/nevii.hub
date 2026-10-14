@@ -107,6 +107,8 @@ import {
   getStudentDeletionImpactTool,
   getTeacherDeletionImpactTool,
   deleteTeacherTool,
+  getPersonPurgePreviewTool,
+  purgePersonTool,
   restoreDeletedTeacherTool,
   getPaymentDeletionPlanTool,
   deletePaymentTool,
@@ -141,6 +143,8 @@ import {
   setCriticalActionPasswordTool,
   type StudentDeletionImpact,
   type TeacherDeletionImpact,
+  type PersonPurgePreview,
+  type PersonPurgeResult,
   type PaymentDeletionPlan,
   updateMakeupWindowDaysTool,
   updateSchoolLogoTool,
@@ -4504,6 +4508,32 @@ export async function actionRestoreDeletedStudent(studentId: string): Promise<Si
     "actionRestoreDeletedStudent",
     (ctx) => restoreDeletedStudentTool(ctx, { studentId }),
     "Öğrenci geri alınamadı. Tekrar deneyin."
+  );
+  if (res.ok) revalidateAll();
+  return res;
+}
+
+/** 2026-10-15 — öğrenci/öğretmen kalıcı silme; önizleme ve silme aynı planı kullanır (`purgePersonTool`). */
+export async function actionGetPersonPurgePreview(kind: "student" | "teacher", id: string): Promise<SimpleActionResult<PersonPurgePreview>> {
+  return runSimpleAction(
+    "actionGetPersonPurgePreview",
+    (ctx) => getPersonPurgePreviewTool(ctx, { kind, id }),
+    "Kalıcı silme önizlemesi yüklenemedi. Sayfayı yenileyip tekrar deneyin."
+  );
+}
+
+export async function actionPurgePerson(input: {
+  kind: "student" | "teacher";
+  id: string;
+  expectedFingerprint: string;
+  confirmationName: string;
+  criticalPassword: string;
+  reason: string;
+}): Promise<SimpleActionResult<PersonPurgeResult>> {
+  const res = await runSimpleAction(
+    "actionPurgePerson",
+    (ctx) => purgePersonTool(ctx, input),
+    "Kalıcı silme tamamlanamadı; hiçbir kayıt silinmedi. Tekrar deneyin."
   );
   if (res.ok) revalidateAll();
   return res;

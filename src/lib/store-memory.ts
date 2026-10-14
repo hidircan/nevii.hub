@@ -529,22 +529,6 @@ export async function setStudentDeletion(studentId: string, state: StudentDeleti
   return save(next);
 }
 
-/**
- * Kalıcı silme — YALNIZ bağlı kaydı olmayan (boş/deneme) öğrenci. Çağıran tool
- * uygunluğu doğrular; burada da ikinci kez kontrol edilir (savunma derinliği).
- */
-export async function hardDeleteStudent(studentId: string): Promise<AppData> {
-  const data = load();
-  const linked =
-    data.payments.some((p) => p.studentId === studentId) ||
-    data.lessons.some((l) => l.studentId === studentId) ||
-    data.lessonSeries.some((l) => l.studentId === studentId) ||
-    data.attendances.some((a) => a.studentId === studentId) ||
-    data.makeupRequests.some((m) => m.studentId === studentId);
-  if (linked) throw new Error("STUDENT_HAS_LINKED_RECORDS");
-  const next = { ...data, students: data.students.filter((s) => s.id !== studentId) };
-  return save(next);
-}
 
 /** 2026-10-03 — öğretmeni listeden kaldırma (geri alınabilir); kaldırmada pasife alınır. `null` = geri al. */
 export async function setTeacherDeletion(teacherId: string, state: TeacherDeletionState): Promise<AppData> {
@@ -559,20 +543,6 @@ export async function setTeacherDeletion(teacherId: string, state: TeacherDeleti
   return save(next);
 }
 
-/** Kalıcı silme — YALNIZ bağlı kaydı olmayan öğretmen; tool uygunluğu doğrular, burada ikinci kez kontrol edilir. */
-export async function hardDeleteTeacher(teacherId: string): Promise<AppData> {
-  const data = load();
-  const linked =
-    data.students.some((s) => s.teacherId === teacherId || s.enrollments?.some((e) => e.teacherId === teacherId)) ||
-    data.lessons.some((l) => l.teacherId === teacherId) ||
-    data.lessonSeries.some((l) => l.teacherId === teacherId) ||
-    data.makeupRequests.some((m) => m.teacherId === teacherId) ||
-    data.teacherFeeRules.some((r) => r.teacherId === teacherId) ||
-    data.teacherPayouts.some((p) => p.teacherId === teacherId);
-  if (linked) throw new Error("TEACHER_HAS_LINKED_RECORDS");
-  const next = { ...data, teachers: data.teachers.filter((t) => t.id !== teacherId) };
-  return save(next);
-}
 
 export async function updateStudentProfile(
   studentId: string,
@@ -1781,4 +1751,15 @@ export async function setLessonAttendanceNoteLive(
     });
     return { ok: true };
   });
+}
+
+/** 2026-10-15 — kalıcı silme (plan + yürütme): kurallar `person-purge.ts`, dosya tabloları `person-purge-files.ts`. */
+export async function loadPurgeSnapshot(kind: import("./person-purge").PurgeKind, id: string) {
+  const { loadPurgeSnapshotFiles } = await import("./person-purge-files");
+  return loadPurgeSnapshotFiles({ readData, writeData }, kind, id);
+}
+
+export async function executePurge(kind: import("./person-purge").PurgeKind, id: string, expectedFingerprint: string) {
+  const { executePurgeFiles } = await import("./person-purge-files");
+  return executePurgeFiles({ readData, writeData }, kind, id, expectedFingerprint);
 }

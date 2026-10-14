@@ -22,17 +22,19 @@
  * seçimi (mevcut davranışla birebir aynı) `?studentId=` param'ına yazılır
  * — mevcut `attTerm`/`attYear` parametrelerine dokunulmaz.
  *
+ * 2026-10-15 — etkileşim (combobox/listbox, klavye, kademeli liste) `StudentSearchCombobox`'a taşındı; Öğrenciler
+ * ekranı aynı bileşeni kullanır.
+ *
  * İş 2 — iki aşamalı arama-kutusu + ayrı `<select>` deneyimi, tek adımlı bir
  * combobox + anlık dropdown'a dönüştürüldü (`role="combobox"` + `listbox`).
  * Yine TEK kaynak `foldTurkishForSearch`; yeni fetch/veri erişimi yok — aynı
  * `students` prop'u üzerinde filtrelenmeye devam eder.
  */
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
-import { X } from "lucide-react";
 import { foldTurkishForSearch } from "@/lib/normalize";
-import { cn } from "@/lib/utils";
+import { StudentSearchCombobox } from "@/components/student-search-combobox";
 
 export type AttendanceStudentOption = { id: string; name: string; branchName?: string };
 
@@ -65,202 +67,45 @@ export function StudentAttendancePicker({
     () => students.find((s) => s.id === selectedStudentId) ?? null,
     [students, selectedStudentId]
   );
-
   const [query, setQuery] = useState(selectedStudent?.name ?? "");
-  const [isOpen, setIsOpen] = useState(false);
   /**
-   * P0 performans (2026-09-07) — öğrenci seçimi bir SUNUCU gezinmesidir
-   * (`?studentId=` -> server component yeniden render). Ölçümde bu ~1,2 sn
-   * sürüyordu ve o süre boyunca kullanıcıya HİÇBİR geri bildirim yoktu:
-   * eski öğrencinin adı ve takvimi ekranda kalıyordu. `useTransition`, tıklama
-   * anında (aynı kare içinde) bekleme durumunu verir — gerçek süreyi
-   * kısaltmaz, onu Phase 3'teki dönem uç noktası yapar; bu yalnızca
-   * "tıkladım, bir şey oluyor" geri bildirimidir.
+   * P0 performans (2026-09-07) — öğrenci seçimi bir SUNUCU gezinmesidir (`?studentId=` → server component yeniden
+   * render). `useTransition` tıklama anında bekleme geri bildirimi verir; gerçek süreyi kısaltmaz.
    */
   const [isPending, startTransition] = useTransition();
-  const [activeIndex, setActiveIndex] = useState(0);
-  const rootRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
 
-  // Seçili öğrenci sayfa dışından (ör. tarayıcı geri/ileri, ?studentId
-  // değişimi) değişirse input metni senkron kalsın.
+  // Seçili öğrenci DIŞARIDAN (tarayıcı geri/ileri, ?studentId) değiştiğinde input metnini senkronlamak KASITLI.
   useEffect(() => {
-    // Seçili öğrenci DIŞARIDAN (tarayıcı geri/ileri, ?studentId) değiştiğinde
-    // input metnini senkronlamak KASITLI — kontrollü input'un tek doğruluk
-    // kaynağı burasıdır.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setQuery(selectedStudent?.name ?? "");
   }, [selectedStudent]);
 
   const filtered = useMemo(() => filterAttendanceStudents(students, query), [students, query]);
 
-  // İş 3 — önceden ilk 10 sonuçla sınırlıydı (RESULT_LIMIT); kaydırılabilir
-  // listbox (aşağıda `max-h-80 overflow-y-auto`) zaten performans/kullanılabilirlik
-  // sınırını sağlıyor, artık ayrı bir üst sınır YOK — tüm eşleşenler (veya
-  // arama boşsa tüm öğrenciler) kaydırarak erişilebilir.
-  const visible = filtered;
-
-  useEffect(() => {
-    // Arama metni/açık-kapalı durumu değişince vurgulanan satırı sıfırla — KASITLI.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setActiveIndex(0);
-  }, [query, isOpen]);
-
-  // Dışarı tıklanınca kapat.
-  useEffect(() => {
-    if (!isOpen) return;
-    function onPointerDown(e: PointerEvent) {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
-        setIsOpen(false);
-      }
-    }
-    document.addEventListener("pointerdown", onPointerDown);
-    return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, [isOpen]);
-
-  function select(student: AttendanceStudentOption) {
+  function select(student: { id: string; name: string }) {
     const params = new URLSearchParams(searchParams.toString());
     params.set("studentId", student.id);
     setQuery(student.name);
-    setIsOpen(false);
     startTransition(() => {
       router.push(`${pathname}?${params.toString()}`);
     });
   }
 
-  function clear() {
-    setQuery("");
-    setIsOpen(true);
-    inputRef.current?.focus();
-  }
-
-  function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "ArrowDown") {
-      e.preventDefault();
-      if (!isOpen) {
-        setIsOpen(true);
-        return;
-      }
-      setActiveIndex((i) => (visible.length === 0 ? 0 : (i + 1) % visible.length));
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      if (!isOpen) return;
-      setActiveIndex((i) => (visible.length === 0 ? 0 : (i - 1 + visible.length) % visible.length));
-    } else if (e.key === "Enter") {
-      if (isOpen && visible[activeIndex]) {
-        e.preventDefault();
-        select(visible[activeIndex]);
-      }
-    } else if (e.key === "Escape") {
-      if (isOpen) {
-        e.preventDefault();
-        setIsOpen(false);
-      }
-    }
-  }
-
-  const activeOptionId = isOpen && visible[activeIndex] ? `attendance-student-option-${visible[activeIndex].id}` : undefined;
-
   return (
-    <div ref={rootRef} className="relative max-w-xs space-y-1.5">
-      <label htmlFor="attendance-student-search" className="sr-only">
-        Öğrenci ara ve seç
-      </label>
-      <div className="relative">
-        <input
-          id="attendance-student-search"
-          type="text"
-          role="combobox"
-          aria-expanded={isOpen}
-          aria-controls="attendance-student-listbox"
-          aria-activedescendant={activeOptionId}
-          aria-autocomplete="list"
-          autoComplete="off"
-          aria-busy={isPending}
-          value={query}
-          onChange={(e) => {
-            setQuery(e.target.value);
-            setIsOpen(true);
-          }}
-          onFocus={() => setIsOpen(true)}
-          onKeyDown={onKeyDown}
-          placeholder="Öğrenci ara… (ör. Çağla, Şule)"
-          aria-describedby="attendance-student-search-count"
-          className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 pr-8 text-sm text-[var(--color-text)] outline-none focus:ring-2 focus:ring-[var(--color-focus-ring)]"
-        />
-        {query ? (
-          <button
-            type="button"
-            onClick={clear}
-            aria-label="Aramayı temizle"
-            className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        ) : null}
-
-        {isOpen ? (
-          <div
-            id="attendance-student-listbox"
-            role="listbox"
-            aria-label="Öğrenci sonuçları"
-            className="absolute left-0 right-0 top-full z-20 mt-1 max-h-80 overflow-y-auto rounded-lg border shadow-lg"
-            style={{ background: "var(--color-surface)", borderColor: "var(--color-border)" }}
-          >
-            {visible.length === 0 ? (
-              <p className="px-3 py-3 text-xs" style={{ color: "var(--color-text-muted)" }}>
-                &quot;Bu aramayla eşleşen öğrenci bulunamadı.&quot;
-              </p>
-            ) : (
-              visible.map((s, idx) => {
-                const active = idx === activeIndex;
-                const selected = s.id === selectedStudentId;
-                return (
-                  <button
-                    key={s.id}
-                    id={`attendance-student-option-${s.id}`}
-                    type="button"
-                    role="option"
-                    aria-selected={selected}
-                    onMouseEnter={() => setActiveIndex(idx)}
-                    onClick={() => select(s)}
-                    className={cn(
-                      "flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm transition"
-                    )}
-                    style={
-                      active
-                        ? { background: "var(--color-primary-soft)", color: "var(--color-primary-soft-text)" }
-                        : { color: "var(--color-text)" }
-                    }
-                  >
-                    <span className="min-w-0 truncate">
-                      {s.name}
-                      {s.branchName ? (
-                        <span className="ml-1 text-xs" style={{ color: "var(--color-text-muted)" }}>
-                          — {s.branchName}
-                        </span>
-                      ) : null}
-                    </span>
-                    {selected ? (
-                      <span className="shrink-0 text-xs font-medium" style={{ color: "var(--color-primary)" }}>
-                        Seçili
-                      </span>
-                    ) : null}
-                  </button>
-                );
-              })
-            )}
-          </div>
-        ) : null}
-      </div>
-
-      <p id="attendance-student-search-count" className="text-xs text-[var(--color-text-muted)]" aria-live="polite">
-        {isPending
-          ? "Öğrenci açılıyor…"
-          : query
-            ? `${filtered.length} öğrenci bulundu`
-            : `${students.length} öğrenci`}
-      </p>
+    <div className="max-w-xs space-y-1.5">
+      <StudentSearchCombobox
+        idPrefix="attendance-student"
+        label="Öğrenci ara ve seç"
+        placeholder="Öğrenci ara… (ör. Çağla, Şule)"
+        query={query}
+        onQueryChange={setQuery}
+        options={filtered.map((s) => ({ id: s.id, name: s.name, hint: s.branchName }))}
+        selectedId={selectedStudentId}
+        onSelect={select}
+        onClear={() => setQuery("")}
+        busy={isPending}
+        statusText={isPending ? "Öğrenci açılıyor…" : query ? `${filtered.length} öğrenci bulundu` : `${students.length} öğrenci`}
+      />
     </div>
   );
 }

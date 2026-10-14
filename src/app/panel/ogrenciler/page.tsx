@@ -44,9 +44,10 @@ export default async function OgrencilerPage({
   // (kurum sahibi + kurum yöneticileri) "Silinenler" görünümünde görür (geri almak için detaya gider).
   const isOwner = canRunCriticalActions(session.role);
   const showDeleted = isOwner && silinenler === "1";
-  const deletedCount = data.students.filter((s) => s.deletedAt).length;
+  // Kalıcı silinip anonimleştirilen kayıt (purgedAt) hiçbir listede — Silinenler dahil — görünmez.
+  const deletedCount = data.students.filter((s) => s.deletedAt && !s.purgedAt).length;
   const students = data.students
-    .filter((s) => (showDeleted ? Boolean(s.deletedAt) : !s.deletedAt))
+    .filter((s) => (showDeleted ? Boolean(s.deletedAt) && !s.purgedAt : !s.deletedAt))
     .sort((a, b) => a.name.localeCompare(b.name, "tr"));
   const canManage = (session.role === "SCHOOL_ADMIN" || session.role === "SUPER_ADMIN") && kurum.scope.mode === "single";
 
@@ -187,7 +188,7 @@ export default async function OgrencilerPage({
 
       {showDeleted ? (
         <p className="mb-3 text-sm text-[var(--color-text-muted)]">
-          <strong>Silinen öğrenciler ({deletedCount})</strong> — geri almak için öğrenciyi açın.
+          <strong>Silinen öğrenciler ({deletedCount})</strong> — geri almak için öğrenciyi açın; kalıcı silmek için satırdaki &quot;Kalıcı sil&quot;.
         </p>
       ) : null}
 

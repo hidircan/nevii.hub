@@ -4,6 +4,17 @@ Kısa tutulur (~50 satır): oturum sonunda yalnız "Güncel snapshot" bölümün
 `archive/`'e taşınır. Ayrıntı → ilgili `docs/testing/UAT_*.md`, `docs/operations/*`. Yönlendirici: `nevii-hub` skill.
 Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_2026-09-24.md`.
 
+## Güncel snapshot — 2026-10-15 (kalıcı silme + öğrenci arama dropdown'u; dal `feat/permanent-delete-and-student-search`, PR açık, MERGE/CANLI YOK)
+- Kalıcı silme: tek saf planlayıcı `src/lib/person-purge.ts` (önizleme = silme kuralı, parmak izi). DB yürütücü
+  `person-purge-db.ts` (tek transaction + advisory lock + satır sayısı + P2003→çatışma), json/memory `person-purge-files.ts`.
+  Sonuç: geçmiş yoksa silme; tahsilat/imzalı sözleşme/hakedişe giren ders/öğrenci geçmişi varsa anonimleştirme (`purgedAt`).
+  Tool: `getPersonPurgePreviewTool` / `purgePersonTool` (deleteStudent/TeacherTool `mode:"hard"` buna gider). Eski
+  "yalnız ilişkisizse sil" (`hardDelete*`) kaldırıldı. UI: `person-purge-dialog.tsx` (Silinenler, detay, Kaldırılanlar).
+- Migration `20261015090000_person_purged_at` (2 nullable kolon) KODDAN ÖNCE canlıya — owner onayı bekliyor.
+- Arama: ortak `student-search-combobox.tsx` (Yoklama + Öğrenciler); seçim `?studentId=`, 50'şer kademeli liste.
+- Doğrulama: hedef testler + json uçtan uca + izole yerel PostgreSQL (db push) duman testi + tarayıcıda UI. UAT:
+  `docs/testing/UAT_2026_10_15_PERMANENT_DELETE_AND_STUDENT_SEARCH.md`. Açık: /panel 375px'te kenar menü daralmıyor (eski).
+
 ## Güncel snapshot — 2026-10-14 (öğretmen e-posta / portal davet senkronizasyonu; PR #29 açık, merge/canlı yok)
 - Dal `fix/teacher-email-portal-sync`, `origin/main` (`2706825e`) tabanlı ayrı worktree.
 - `Teacher.email` iletişim, bağlı `User.email` portal giriş adresi olarak ayrıldı; öğretmen hesabı yalnız tenant + `teacherId` ile bulunur.

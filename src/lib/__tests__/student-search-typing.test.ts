@@ -25,8 +25,9 @@ const CODE = SRC.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
 
 describe("Öğrenci araması — yazma asla sunucuyu beklemez", () => {
   it("arama input'u YEREL state ile sürülür, searchParams ile DEĞİL", () => {
-    expect(CODE).toMatch(/value=\{searchInput\}/);
-    expect(CODE).toMatch(/onChange=\{\(event\) => setSearchInput\(event\.target\.value\)\}/);
+    // 2026-10-15 — input ortak `StudentSearchCombobox`'ta; değer ve değişim yine YEREL state'ten.
+    expect(CODE).toMatch(/query=\{searchInput\}/);
+    expect(CODE).toMatch(/onQueryChange=\{\(v\) => \{\s*setSearchInput\(v\);/);
     // Regresyon: input'un URL'e doğrudan yazması.
     expect(CODE).not.toMatch(/onChange=\{\(event\) => setSingle\("q"/);
   });

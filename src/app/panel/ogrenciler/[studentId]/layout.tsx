@@ -1,4 +1,5 @@
 import { canRunCriticalActions } from "@/lib/critical-action-password";
+import { PersonPurgeDialog } from "@/components/person-purge-dialog";
 import Link from "@/components/link";
 import { redirect } from "next/navigation";
 import { Badge, Card, EmptyState, PageHeader } from "@/components/ui";
@@ -105,11 +106,19 @@ export default async function StudentDetailLayout({
             {isOwner && !student.deletedAt && kurum.scope.mode === "single" ? (
               <StudentDeleteDialog studentId={student.id} studentName={student.name} />
             ) : null}
+            {isOwner && student.deletedAt && !student.purgedAt && kurum.scope.mode === "single" ? (
+              <PersonPurgeDialog kind="student" id={student.id} name={student.name} />
+            ) : null}
           </div>
         }
       />
 
-      {student.deletedAt ? (
+      {student.purgedAt ? (
+        <p className="mb-4 rounded-[var(--radius-md)] border border-[var(--color-border)] px-3 py-2 text-sm text-[var(--color-text-muted)]">
+          Bu kayıt kalıcı silindi. Kişisel bilgiler silindi; korunan ödeme, sözleşme ve ders geçmişi için anonim olarak tutuluyor.
+          Geri alınamaz.
+        </p>
+      ) : student.deletedAt ? (
         <StudentDeletedBanner
           studentId={student.id}
           deletedAtLabel={formatDateTime(student.deletedAt)}

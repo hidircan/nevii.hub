@@ -359,9 +359,13 @@ type StoreApi = {
   ) => Promise<UpdateTeacherPayoutPaymentMethodResult>;
   updateFeeRoundingMode: (feeRoundingMode: FeeRoundingMode) => Promise<AppData>;
   setStudentDeletion: (studentId: string, state: StudentDeletionState) => Promise<AppData | void>;
-  hardDeleteStudent: (studentId: string) => Promise<AppData | void>;
   setTeacherDeletion: (teacherId: string, state: TeacherDeletionState) => Promise<AppData | void>;
-  hardDeleteTeacher: (teacherId: string) => Promise<AppData | void>;
+  loadPurgeSnapshot: (kind: import("./person-purge").PurgeKind, id: string) => Promise<import("./person-purge").PurgeSnapshot | null>;
+  executePurge: (
+    kind: import("./person-purge").PurgeKind,
+    id: string,
+    expectedFingerprint: string
+  ) => Promise<import("./person-purge-db").PurgeExecResult>;
   updatePerformanceWeights: (
     performanceWeights: import("./performance-weights").PerformanceWeightsConfig
   ) => Promise<AppData>;
@@ -595,16 +599,18 @@ export async function setStudentDeletion(studentId: string, state: StudentDeleti
   await withTenantScope(() => store.setStudentDeletion(studentId, state));
 }
 
-export async function hardDeleteStudent(studentId: string): Promise<void> {
-  await withTenantScope(() => store.hardDeleteStudent(studentId));
-}
-
 export async function setTeacherDeletion(teacherId: string, state: TeacherDeletionState): Promise<void> {
   await withTenantScope(() => store.setTeacherDeletion(teacherId, state));
 }
 
-export async function hardDeleteTeacher(teacherId: string): Promise<void> {
-  await withTenantScope(() => store.hardDeleteTeacher(teacherId));
+/** Kalıcı silme önizlemesi için anlık görüntü (tenant kapsamlı). Plan: `planPersonPurge` (person-purge.ts). */
+export async function loadPurgeSnapshot(kind: import("./person-purge").PurgeKind, id: string) {
+  return withTenantScope(() => store.loadPurgeSnapshot(kind, id));
+}
+
+/** Kalıcı silme — kilit altında planı yeniden kurar; parmak izi önizlemeyle aynı değilse PurgeConflictError. */
+export async function executePurge(kind: import("./person-purge").PurgeKind, id: string, expectedFingerprint: string) {
+  return withTenantScope(() => store.executePurge(kind, id, expectedFingerprint));
 }
 
 /**

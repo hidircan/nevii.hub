@@ -1,4 +1,5 @@
 import Link from "@/components/link";
+import { PersonPurgeDialog } from "@/components/person-purge-dialog";
 import { redirect } from "next/navigation";
 import { Badge, Card, EmptyState, PageHeader } from "@/components/ui";
 import { BackButton } from "@/components/back-button";
@@ -87,12 +88,18 @@ export default async function TeacherDetailLayout({
                 <TeacherArchiveAction teacherId={teacher.id} teacherName={teacher.name} archived={!teacher.active} />
               )}
               {!teacher.active && !teacher.deletedAt ? <TeacherDeleteDialog teacherId={teacher.id} teacherName={teacher.name} /> : null}
+              {teacher.deletedAt && !teacher.purgedAt && kurum.scope.mode === "single" ? <PersonPurgeDialog kind="teacher" id={teacher.id} name={teacher.name} /> : null}
             </div>
           ) : undefined
         }
       />
 
-      {teacher.deletedAt ? (
+      {teacher.purgedAt ? (
+        <p className="mb-4 rounded-[var(--radius-md)] border border-[var(--color-border)] px-3 py-2 text-sm text-[var(--color-text-muted)]">
+          Bu öğretmen kalıcı silindi. Kişisel bilgiler silindi; öğrencilerin ders, yoklama ve hakediş geçmişi için anonim olarak
+          tutuluyor. Geri alınamaz.
+        </p>
+      ) : teacher.deletedAt ? (
         <TeacherDeletedBanner
           teacherId={teacher.id}
           deletedAtLabel={formatDate(teacher.deletedAt)}

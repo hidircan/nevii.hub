@@ -7,7 +7,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { promises as fs } from "fs";
 import path from "path";
 import { resolveDataDir } from "../config";
-import { deleteTeacherTool, getTeacherDeletionImpactTool, restoreDeletedTeacherTool } from "../services/tools";
+import { deleteTeacherTool, getPersonPurgePreviewTool, getTeacherDeletionImpactTool, restoreDeletedTeacherTool } from "../services/tools";
 import { readData } from "../store";
 import { writeData } from "../store-json";
 import { lessonTeacherOptions } from "../lesson-teacher-options";
@@ -89,7 +89,7 @@ describe("listeden kaldırma (geri alınabilir)", () => {
     const { past } = await seedLeaver();
     const hard = await deleteTeacherTool(admin, softInput({ mode: "hard" }));
     expect(hard.ok).toBe(false);
-    if (!hard.ok) expect(hard.error.message).toContain("Listeden kaldırmayı kullanın");
+    if (!hard.ok) expect(hard.error.message).toContain("Listeden kaldır");
 
     const r = await deleteTeacherTool(admin, softInput());
     expect(r.ok, r.ok ? "" : r.error.message).toBe(true);
@@ -113,12 +113,14 @@ describe("listeden kaldırma (geri alınabilir)", () => {
   });
 });
 
-describe("kalıcı silme (yalnız ilişkisiz öğretmen)", () => {
-  it("hiç kaydı olmayan pasif öğretmen kalıcı silinir", async () => {
+describe("kalıcı silme (Kaldırılanlar'dan, önizleme parmak iziyle)", () => {
+  it("hiç kaydı olmayan kaldırılmış öğretmen tamamen silinir", async () => {
     await seedLeaver((d) => ({ lessons: d.lessons.filter((l) => l.teacherId !== LEAVER), teacherPayouts: d.teacherPayouts.filter((p) => p.teacherId !== LEAVER) }));
-    const impact = await getTeacherDeletionImpactTool(admin, { teacherId: LEAVER });
-    expect(impact.ok && impact.data.hardDeleteEligible).toBe(true);
-    const r = await deleteTeacherTool(admin, softInput({ mode: "hard" }));
+    expect((await deleteTeacherTool(admin, softInput())).ok).toBe(true);
+    const preview = await getPersonPurgePreviewTool(admin, { kind: "teacher", id: LEAVER });
+    expect(preview.ok && preview.data.outcome).toBe("delete");
+    if (!preview.ok) return;
+    const r = await deleteTeacherTool(admin, softInput({ mode: "hard", expectedFingerprint: preview.data.fingerprint }));
     expect(r.ok, r.ok ? "" : r.error.message).toBe(true);
     expect((await readData()).teachers.some((t) => t.id === LEAVER)).toBe(false);
   });
