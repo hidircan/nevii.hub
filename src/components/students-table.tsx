@@ -655,7 +655,7 @@ export function StudentsTable({
         <div className="flex flex-wrap items-center gap-3">
           <StudentSearchCombobox
             idPrefix="students-search"
-            className="sm:max-w-xs"
+            className="shrink-0 sm:w-80"
             label="Ad soyad veya öğrenci numarasına göre ara"
             placeholder="Ad soyad veya öğrenci no ara..."
             query={searchInput}
