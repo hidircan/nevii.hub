@@ -35,6 +35,7 @@ function PendingItemForm({ item }: { item: PendingPeriodicItem }) {
           {/* 2026-10-14 — /gelisim ile aynı ortak form (taslak + sade mobil tasarım). */}
           <PeriodicAssessmentMobileForm
             studentId={item.studentId}
+            draftOwner={item.teacherId}
             period={{ periodStart: item.periodStart, periodEnd: item.periodEnd }}
           />
         </div>

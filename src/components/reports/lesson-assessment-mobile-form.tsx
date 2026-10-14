@@ -58,9 +58,12 @@ export function LessonAssessmentMobileForm({
   lessons,
   defaultLessonId,
   teacherName,
+  draftOwner,
   doneHref,
 }: {
   studentId: string;
+  /** Taslak anahtarı için öğretmen kimliği (ortak cihazda başka öğretmene geri yüklenmez). */
+  draftOwner: string;
   lessons: AssessableLesson[];
   defaultLessonId?: string;
   teacherName: string;
@@ -69,7 +72,7 @@ export function LessonAssessmentMobileForm({
 }) {
   const router = useRouter();
   const firstLessonId = defaultLessonId && lessons.some((l) => l.id === defaultLessonId) ? defaultLessonId : (lessons[0]?.id ?? "");
-  const { value: d, update, clear, restored } = useFormDraft<Draft>(`nevii:rapor:ders:${studentId}`, {
+  const { value: d, update, clear, restored } = useFormDraft<Draft>(`nevii:rapor:ders:${draftOwner}:${studentId}`, {
     lessonId: firstLessonId,
     scores: DEFAULT_SCORES,
     strengthNote: "",
@@ -82,7 +85,7 @@ export function LessonAssessmentMobileForm({
     parentPrivateNote: "",
     parentNoteVisibleToStudent: false,
     teacherSignedName: teacherName,
-  });
+  }, { exclude: ["parentPrivateNote"] });
   const lessonId = lessons.some((l) => l.id === d.lessonId) ? d.lessonId : firstLessonId;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -206,7 +209,7 @@ export function LessonAssessmentMobileForm({
         <FieldTextarea
           id={`veli-${studentId}`}
           label="Not"
-          hint="Varsayılan olarak yalnız veli görür."
+          hint="Varsayılan olarak yalnız veli görür. Gizlilik için bu not taslakta saklanmaz."
           rows={2}
           value={d.parentPrivateNote}
           onChange={(v) => update({ parentPrivateNote: v })}

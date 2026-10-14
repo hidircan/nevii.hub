@@ -31,7 +31,18 @@ describe("ortak gelişim formları", () => {
     for (const rel of ["src/components/reports/lesson-assessment-mobile-form.tsx", "src/components/reports/periodic-assessment-mobile-form.tsx"]) {
       const src = read(rel);
       expect(src).toContain("useFormDraft");
+      expect(src).toContain("draftOwner");
       expect(src).toMatch(/clear\(\);\s*\n\s*setDone\(true\)/);
     }
+  });
+});
+
+describe("taslak gizliliği (commit güvenlik incelemesi)", () => {
+  it("taslak sekmeyle biten depolamada, süreli; veliye özel not saklanmaz", () => {
+    const hook = read("src/components/reports/use-form-draft.ts");
+    expect(hook).toContain("sessionStorage");
+    expect(hook).not.toMatch(/window\.localStorage/);
+    expect(hook).toMatch(/DRAFT_TTL_MS/);
+    expect(read("src/components/reports/lesson-assessment-mobile-form.tsx")).toMatch(/exclude: \["parentPrivateNote"\]/);
   });
 });

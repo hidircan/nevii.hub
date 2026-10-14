@@ -61,6 +61,7 @@ export default async function TeacherAssessmentFormPage({
             studentId={studentId}
             lessons={lessons}
             teacherName={teacher?.name ?? ""}
+            draftOwner={teacherId}
           />
         </Card>
 

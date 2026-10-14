@@ -582,6 +582,7 @@ export default async function TeacherStudentWorkspacePage({
                 studentId={student.id}
                 lessons={assessmentLessons}
                 teacherName={teacher.name}
+                draftOwner={teacher.id}
               />
             )}
           </Card>

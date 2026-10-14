@@ -22,17 +22,20 @@ type Draft = {
 export function PeriodicAssessmentMobileForm({
   studentId,
   period,
+  draftOwner,
   doneHref,
   onSubmitted,
 }: {
   studentId: string;
+  /** Taslak anahtarı için öğretmen kimliği. */
+  draftOwner: string;
   period: { periodStart: string; periodEnd: string };
   doneHref?: { href: string; label: string };
   onSubmitted?: () => void;
 }) {
   const router = useRouter();
   const { value: d, update, clear, restored } = useFormDraft<Draft>(
-    `nevii:rapor:donem:${studentId}:${period.periodStart}`,
+    `nevii:rapor:donem:${draftOwner}:${studentId}:${period.periodStart}`,
     { overallProgressNote: "", strengthsNote: "", areasForImprovementNote: "", recommendationNote: "" }
   );
   const [busy, setBusy] = useState(false);
