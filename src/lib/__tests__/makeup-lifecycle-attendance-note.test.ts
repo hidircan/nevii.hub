@@ -405,6 +405,17 @@ describe("Geldi yoklama notu", () => {
     expect(isLessonProcessedForPayout({ ...lesson, studentAttended: true, studentAbsent: false })).toBe(true);
   });
 
+  it("Gelmedi'den tekrar Geldi'ye dönerken not alanı gönderilmezse mevcut not silinmez", async () => {
+    const id = await lessonId();
+    await setLessonOpsFlagTool(ctx, { lessonId: id, flag: "attended", attendanceNote: "Web'de yazılan not" });
+    await setLessonOpsFlagTool(ctx, { lessonId: id, flag: "absent", confirmSwitch: true });
+    const back = await setLessonOpsFlagTool(ctx, { lessonId: id, flag: "attended", confirmSwitch: true });
+    expect(back.ok ? "ok" : back.error.message).toBe("ok");
+    const lesson = (await readStored()).lessons.find((l) => l.id === id)!;
+    expect(lesson.studentAttended).toBe(true);
+    expect(lesson.studentAttendanceNote).toBe("Web'de yazılan not");
+  });
+
   it("öğretmen not yazamaz; başka kurumun dersine yazılmaz", async () => {
     const id = await lessonId();
     const teacher = await setLessonOpsFlagTool({ ...ctx, role: "TEACHER", teacherId: "t1" }, { lessonId: id, flag: "attended", attendanceNote: "gizli" });

@@ -35,3 +35,29 @@ Her uzatma/revizyon/silme/iptal `MakeupRequest.changeLog` içine (kim, ne zaman,
 13. Geldi → Gelmedi/Mazeretli → tekrar Geldi: not statü değişiminde sessizce silinmez.
 14. Mobil (Yoklama + Ders detayı): "Geldi notu (isteğe bağlı)" alanı; aynı API (`/api/v1/lessons/<id>/ops`, `attendanceNote`).
 15. Not eklemek hakediş/ücreti değiştirmez.
+
+## Deploy öncesi finansal etki (OWNER karar verir)
+Süre kapatma bugüne kadar yalnız okuma anında türetiliyordu; DB'de bu talepler hâlâ `pending/suggested/awaiting_info`.
+Deploy sonrası ilk okumada **geçmişte** süresi dolmuş her planlanmamış talebin kaynak dersi tek seferde "İşlendi" olur.
+"İşlendi" = ders fiilen verildi sayılır (`isLessonProcessedForPayout`): öğretmen hakedişine girer (Telafi bayrağı dersleri girmiyordu).
+Kayıtlı hakedişlerin ders kalemleri `lineSnapshot` ile donmuştur; etki esas olarak henüz kaydedilmemiş dönemlerin canlı hesabıdır.
+Eski (snapshot'sız) kayıtlı hakedişler dersten yeniden hesaplanabilir — owner bu kayıtlara bakmalı.
+
+Salt-okunur sayım (hiçbir şey yazmaz; Supabase SQL editöründe):
+```sql
+SELECT m."tenantId", count(*) AS kapanacak_talep,
+       count(*) FILTER (WHERE EXISTS (
+         SELECT 1 FROM "TeacherPayout" p
+         WHERE p."teacherId" = l."teacherId" AND p.status <> 'cancelled'
+           AND l."startAt" >= p."periodStart" AND l."startAt" <= p."periodEnd")) AS kayitli_hakedise_dusen
+FROM "MakeupRequest" m
+JOIN "Lesson" l ON l.id = m."sourceLessonId"
+WHERE m.status IN ('pending','suggested','awaiting_info')
+  AND m."confirmedLessonId" IS NULL
+  AND m."expiresAt" < now() - interval '1 day'
+  AND l.status <> 'cancelled'
+  AND l."studentAttended" IS NOT TRUE
+GROUP BY 1;
+```
+Seçenek: yalnız deploy SONRASI dolan süreleri kapatmak (geçmişe dokunmadan) istenirse kod tek bir kesme tarihi eklenerek
+değiştirilir — owner kararı beklenir; varsayılan şu an geçmişi de kapatır.
