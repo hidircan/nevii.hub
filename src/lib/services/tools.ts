@@ -11,8 +11,26 @@ import { foldTurkishForSearch } from "../normalize";
 import { runWithTenantAsync } from "../tenant-context";
 import { checkFileMagicBytes } from "../storage/file-guards";
 import { computeStudentScore, type StudentScoreReport } from "../student-score";
-import { provisionEntityLogin, provisionStaffLogin, getUserIdByTeacherId, getUserById, getUserAccountStatus, getUserAccountStatusForTeacher, setUserActive } from "../auth/users";
-import { isRateLimited, getLatestPasswordResetRequestAt } from "../auth/password-reset";
+import {
+  provisionEntityLogin,
+  provisionStaffLogin,
+  getUserIdByTeacherId,
+  getUserIdByEmail,
+  getUserIdByEmailIncludingInactive,
+  getUserById,
+  getUserAccountStatus,
+  getUserAccountStatusForTeacher,
+  setUserActive,
+  setTeacherInvitationPending,
+  updatePendingTeacherInvitationEmail,
+} from "../auth/users";
+import {
+  isRateLimited,
+  getLatestPasswordResetRequestAt,
+  hasActiveInvitationToken,
+  hasUnacceptedInvitationToken,
+  revokeInvitationTokensForUser,
+} from "../auth/password-reset";
 import { logger } from "../logger";
 import { isLocalDevTooling } from "../config";
 import { studentUsesPerLessonBilling } from "../contract-prefill";
@@ -91,6 +109,7 @@ import {
   updateTeacherAvailability,
   updateTeacherInstruments,
   updateTeacherProfile,
+  readTeacherPortalDetails,
   updateTeacherFeeRule,
   switchLessonOpsFlagLive,
   upsertMonthlyPlanPayment,
@@ -4555,62 +4574,103 @@ export async function inviteTeacherAccountTool(
   const v = parseOrFail(inviteTeacherAccountSchema, input);
   if (!v.ok) return v;
 
-  const data = await readData();
-  const teacher = data.teachers.find((t) => t.id === v.data.teacherId);
-  if (!teacher) return fail("NOT_FOUND", "Öğretmen bulunamadı");
-  if (!teacher.email) return fail("VALIDATION_ERROR", "Öğretmenin e-posta adresi tanımlı değil.");
+  const details = await readTeacherPortalDetails(v.data.teacherId);
+  if (!details) return fail("NOT_FOUND", "Öğretmen bulunamadı");
+  const email = details.contactEmail.trim().toLowerCase();
+  if (!email) return fail("VALIDATION_ERROR", "Öğretmenin iletişim e-postası tanımlı değil.");
 
-  if (isRateLimited(`invite:${ctx.tenantId}:${teacher.email.toLowerCase()}`, 5, 60 * 60 * 1000)) {
+  if (isRateLimited(`invite:${ctx.tenantId}:${email}`, 5, 60 * 60 * 1000)) {
     return fail("RATE_LIMITED", "Bu e-posta adresine çok fazla davet gönderildi. Lütfen bir süre sonra tekrar deneyin.");
   }
 
-  // Portal erişim yönetimi görevi — "aynı e-posta başka aktif kullanıcı hesabına
-  // bağlıysa hesap eşlemesini bozmadan net bir yönetici uyarısı ver". Öğretmenler
-  // (öğrenci/veli'nin aksine — orada aynı e-postanın birden çok çocuğa bağlanması
-  // BEKLENEN bir durumdur) birbirinden AYRI hesaplara sahip olmalı; bu e-posta
-  // ZATEN BAŞKA bir öğretmene/kullanıcıya bağlıysa engelleriz — hesap eşlemesini
-  // BOZMADAN (hiçbir yazma işlemi yapılmadan) net bir hata döneriz.
-  {
-    const { getUserIdByEmail } = await import("../auth/users");
-    const existingUserId = await getUserIdByEmail(ctx.tenantId, teacher.email);
-    if (existingUserId) {
-      const existingUser = await getUserById(existingUserId);
-      if (existingUser && existingUser.teacherId && existingUser.teacherId !== teacher.id) {
+  const account = await getUserAccountStatusForTeacher(ctx.tenantId, details.teacherId);
+  if (account && account.role !== "TEACHER") {
+    return fail("VALIDATION_ERROR", "Öğretmen kaydına bağlı portal hesabının rolü uyumsuz. Hesap ilişkisini yöneticiniz kontrol etmelidir.");
+  }
+  const invitationPending = account
+    ? account.invitationPending || await hasUnacceptedInvitationToken(ctx.tenantId, account.userId)
+    : false;
+  const emailOwnerId = await getUserIdByEmailIncludingInactive(ctx.tenantId, email);
+  if (emailOwnerId && emailOwnerId !== account?.userId) {
+    return fail(
+      "VALIDATION_ERROR",
+      "Bu e-posta adresi başka bir portal hesabına ait. Hesaplar birleştirilmedi veya değiştirilmedi; öğretmen için farklı bir e-posta kullanın."
+    );
+  }
+
+  let userId: string;
+  if (account) {
+    if (!invitationPending) {
+      return fail(
+        "VALIDATION_ERROR",
+        `Öğretmenin aktif portal giriş e-postası ${account.email}. Giriş adresi profil düzenlemesinden değişmez; öğretmen kendi hesabındaki e-posta doğrulama akışını kullanmalıdır.`
+      );
+    }
+    if (!account.invitationPending) {
+      await setTeacherInvitationPending(ctx.tenantId, account.userId, true);
+    }
+    const updateResult = await updatePendingTeacherInvitationEmail({
+      tenantId: ctx.tenantId,
+      userId: account.userId,
+      teacherId: details.teacherId,
+      email,
+    });
+    if (updateResult === "email_taken") {
+      return fail("VALIDATION_ERROR", "Bu e-posta adresi başka bir portal hesabına ait. Öğretmen profili değiştirilmedi; farklı bir adres girin.");
+    }
+    if (updateResult !== "updated") {
+      return fail("VALIDATION_ERROR", "Bekleyen öğretmen daveti artık güncellenemiyor. Sayfayı yenileyip portal erişimini tekrar kontrol edin.");
+    }
+    userId = account.userId;
+  } else {
+    if (emailOwnerId) {
+      return fail(
+        "VALIDATION_ERROR",
+        "Bu e-posta adresi başka bir portal hesabına ait. Hesaplar birleştirilmedi veya değiştirilmedi; öğretmen için farklı bir e-posta kullanın."
+      );
+    }
+    let provisioned: Awaited<ReturnType<typeof provisionEntityLogin>>;
+    try {
+      provisioned = await provisionEntityLogin({
+        tenantId: ctx.tenantId,
+        email,
+        role: "TEACHER",
+        teacherId: details.teacherId,
+        invitationPending: true,
+      });
+    } catch (error) {
+      const conflictingUserId = await getUserIdByEmailIncludingInactive(ctx.tenantId, email);
+      if (conflictingUserId) {
         return fail(
           "VALIDATION_ERROR",
-          "Bu e-posta adresi zaten BAŞKA bir öğretmenin portal hesabına bağlı. Hesap eşlemesini bozmamak için davet gönderilmedi — lütfen e-postayı kontrol edin."
+          "Bu e-posta adresi başka bir portal hesabına ait. Hesaplar birleştirilmedi veya değiştirilmedi; öğretmen için farklı bir e-posta kullanın."
         );
       }
+      throw error;
     }
+    if (!provisioned) {
+      return fail("VALIDATION_ERROR", "Portal hesabı oluşturulamadı; e-posta başka bir hesaba bağlanmış olabilir. Adresi kontrol edin.");
+    }
+    userId = provisioned.userId;
   }
 
   try {
-    const provisioned = await provisionEntityLogin({
-      tenantId: ctx.tenantId,
-      email: teacher.email,
-      role: "TEACHER",
-      teacherId: teacher.id,
-    });
-    const { getUserIdByEmail } = await import("../auth/users");
-    const userId = provisioned?.userId ?? (await getUserIdByEmail(ctx.tenantId, teacher.email));
-    if (!userId) return fail("INTERNAL_ERROR", "Kullanıcı hesabı oluşturulamadı/bulunamadı");
-
     const { sendAccountInvitationEmail } = await import("../auth/invitation");
     const result = await sendAccountInvitationEmail({
       tenantId: ctx.tenantId,
       userId,
-      email: teacher.email,
-      recipientName: teacher.name,
-      institutionName: data.settings.name ?? "NeviiHub",
+      email,
+      recipientName: details.teacherName,
+      institutionName: details.institutionName || "NeviiHub",
       role: "TEACHER",
-      schoolPhone: data.settings.phone || undefined,
-      schoolWebsite: data.settings.website || undefined,
-      logoUrl: data.settings.logoUrl || undefined,
+      schoolPhone: details.schoolPhone || undefined,
+      schoolWebsite: details.schoolWebsite || undefined,
+      logoUrl: details.logoUrl || undefined,
     });
 
-    audit(ctx, "teacher.invitation_sent", "Teacher", teacher.id, { delivered: result.delivered });
+    audit(ctx, "teacher.invitation_sent", "Teacher", details.teacherId, { delivered: result.delivered });
 
-    return ok({ teacherId: teacher.id, delivered: result.delivered, blocked: result.delivered ? undefined : result.blocked });
+    return ok({ teacherId: details.teacherId, delivered: result.delivered, blocked: result.delivered ? undefined : result.blocked });
   } catch (e) {
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "inviteTeacherAccount failed");
   }
@@ -4994,6 +5054,8 @@ export type TeacherAccountStatusSummary = {
   userId: string | null;
   email: string;
   active: boolean;
+  invitationPending: boolean;
+  invitationLinkActive: boolean;
   lastPasswordResetRequestedAt: string | null;
 };
 
@@ -5010,10 +5072,29 @@ export async function getTeacherAccountStatusTool(
 
   const account = await getUserAccountStatusForTeacher(ctx.tenantId, v.data.teacherId);
   if (!account) {
-    return ok({ exists: false, userId: null, email: "", active: false, lastPasswordResetRequestedAt: null });
+    return ok({
+      exists: false,
+      userId: null,
+      email: "",
+      active: false,
+      invitationPending: false,
+      invitationLinkActive: false,
+      lastPasswordResetRequestedAt: null,
+    });
   }
+  const invitationPending = account
+    ? account.invitationPending || await hasUnacceptedInvitationToken(ctx.tenantId, account.userId)
+    : false;
   const lastPasswordResetRequestedAt = await getLatestPasswordResetRequestAt(account.userId);
-  return ok({ exists: true, userId: account.userId, email: account.email, active: account.active, lastPasswordResetRequestedAt });
+  return ok({
+    exists: true,
+    userId: account.userId,
+    email: account.email,
+    active: account.active,
+    invitationPending,
+    invitationLinkActive: invitationPending && await hasActiveInvitationToken(ctx.tenantId, account.userId),
+    lastPasswordResetRequestedAt,
+  });
 }
 
 /**
@@ -5374,6 +5455,35 @@ export async function updateTeacherProfileTool(
 
   try {
     const { teacherId, ...patch } = v.data;
+    const account = patch.email !== undefined
+      ? await getUserAccountStatusForTeacher(ctx.tenantId, teacherId)
+      : null;
+    if (account && account.role !== "TEACHER") {
+      return fail("VALIDATION_ERROR", "Öğretmen kaydına bağlı portal hesabının rolü uyumsuz. Hesap ilişkisini yöneticiniz kontrol etmelidir.");
+    }
+    const normalizedEmail = patch.email?.trim().toLowerCase();
+    const emailChanged = normalizedEmail !== undefined && normalizedEmail !== teacher.email.trim().toLowerCase();
+    if (normalizedEmail) {
+      const ownerId = await getUserIdByEmailIncludingInactive(ctx.tenantId, normalizedEmail);
+      if (ownerId && ownerId !== account?.userId) {
+        return fail(
+          "VALIDATION_ERROR",
+          "Bu e-posta adresi başka bir portal hesabına ait. Öğretmen profili değiştirilmedi; farklı bir adres girin."
+        );
+      }
+      patch.email = normalizedEmail;
+    } else if (patch.email !== undefined) {
+      patch.email = "";
+    }
+    const invitationPending = account
+      ? account.invitationPending || await hasUnacceptedInvitationToken(ctx.tenantId, account.userId)
+      : false;
+    if (emailChanged && account && invitationPending) {
+      if (!account.invitationPending) {
+        await setTeacherInvitationPending(ctx.tenantId, account.userId, true);
+      }
+      await revokeInvitationTokensForUser(ctx.tenantId, account.userId);
+    }
     // 8. tur — birincil şube değişebilir; ek şubeler listesi birincili asla
     // tekrar içermez (teacherServesBranch birincili zaten dahil sayar).
     if (patch.branchId !== undefined || patch.branchIds !== undefined) {

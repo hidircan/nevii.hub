@@ -126,7 +126,7 @@ export default async function TeacherInfoTab({ params }: { params: Promise<{ tea
           canEdit={canManage}
           readOnly={
             <dl className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
-              <Field label="E-posta" value={teacher.email || "Eklenmemiş"} />
+              <Field label="İletişim e-postası" value={teacher.email || "Eklenmemiş"} />
               <Field label="Telefon" value={teacher.phone || "Eklenmemiş"} />
               <Field
                 label="Adres"
