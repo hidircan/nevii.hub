@@ -4,7 +4,15 @@ Kısa tutulur (~50 satır): oturum sonunda yalnız "Güncel snapshot" bölümün
 `archive/`'e taşınır. Ayrıntı → ilgili `docs/testing/UAT_*.md`, `docs/operations/*`. Yönlendirici: `nevii-hub` skill.
 Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_2026-09-24.md`.
 
-## Güncel snapshot — 2026-10-14 (rapor portalı; dal `feat/report-portal`, PR açık, MERGE/CANLI YOK)
+## Güncel snapshot — 2026-10-14 (öğretmen e-posta / portal davet senkronizasyonu)
+- Dal `fix/teacher-email-portal-sync`, `origin/main` (`2706825e`) tabanlı ayrı worktree. PR açılacak; merge/canlı değişikliği yok.
+- `Teacher.email` iletişim, bağlı `User.email` portal giriş adresi olarak ayrıldı; öğretmen hesabı yalnız tenant + `teacherId` ile bulunur.
+- Profil e-postası değişikliği bekleyen davet token'larını iptal eder; yeniden davet kendiliğinden gönderilmez. Yönetici eylemi yeni alıcıyı güncel iletişim adresine taşır.
+- Aktif hesabın giriş adresi profil güncellemesinde değişmez; iletişim/giriş adresleri UI'da ayrı gösterilir. Etkin/kapalı başka hesaba ait adresler çakışma sayılır.
+- Migration `20261014150000_teacher_invitation_email_sync` yalnızca dosya olarak mevcut; DB'ye uygulanmadı. Production verisi, merge ve deploy yok.
+- `typecheck`, lint, `prisma validate`, build ve odak davet testleri (2 dosya / 44 test) geçti. Tam suite gereksiz süre nedeniyle durduruldu; başlangıç çıktısında bu iş dışındaki test hataları da vardı.
+
+## Snapshot — 2026-10-14 (rapor portalı; dal `feat/report-portal`, PR açık, MERGE/CANLI YOK)
 - Spec/plan: `docs/superpowers/specs|plans/2026-10-14-report-portal*`. UAT: `docs/testing/UAT_2026_10_14_REPORT_PORTAL.md`.
 - `/gelisim` (öğretmen mobil rapor sitesi), `/degerlendir` + `/degerlendir/<kod>` (öğrenci değerlendirmesi, 14 gün kişiye özel
   link, yeni tablo `FeedbackInvite`), `/panel/raporlar` (yönetici takibi), rapor gönderiminde yönetici bildirimi.
@@ -306,6 +314,7 @@ Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_20
 - Vercel Cron: günlük 00:30 UTC retention (`vercel.json`, `CRON_SECRET`).
 
 ## Açık iş
+- Öğretmen e-posta senkronizasyonu PR'ı için owner incelemesi; migration ve yayın ayrıca onay bekler.
 - Owner UAT: 9. tur (`UAT_2026_09_28_ROUND_9.md`).
 - Mobil panel: yan menü 390 px'te de 256 px sabit (çekmece yok) — ayrı tur önerisi.
 - Açık temada 10 eski kontrast ihlali (Evraklar küçük altın link, Öğrenciler soluk sayfalama, Özet gri alt yazı).

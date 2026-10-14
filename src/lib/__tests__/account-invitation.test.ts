@@ -288,12 +288,13 @@ describe("inviteStudentPortalAccessTool / inviteTeacherAccountTool — RBAC ve r
     expect(asStudent.error.code).toBe("FORBIDDEN");
   });
 
-  it("admin, mevcut bootstrap öğretmen hesabına davet gönderebilir (BLOKE ama işlem başarılı)", async () => {
+  it("admin, aktif bootstrap öğretmen hesabına yeniden davet göndererek giriş adresini değiştiremez", async () => {
+    const captured: EmailSendInput[] = [];
+    setEmailTransportForTests({ name: "mock", async send(input) { captured.push(input); return { delivered: true }; } });
     const res = await inviteTeacherAccountTool(adminCtx(), { teacherId: "t1" });
-    expect(res.ok).toBe(true);
-    if (!res.ok) return;
-    expect(res.data.delivered).toBe(false);
-    expect(res.data.blocked).toBe(true);
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error.code).toBe("VALIDATION_ERROR");
+    expect(captured).toHaveLength(0);
   });
 
   it("aynı e-postaya kısa sürede çok fazla davet — RATE_LIMITED", async () => {

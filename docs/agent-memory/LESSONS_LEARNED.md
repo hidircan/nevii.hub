@@ -101,6 +101,17 @@ Correct approach:
 Files involved:
 ```
 
+## 2026-10-14 — teacher contact email is not portal login email
+What was wrong: teacher profile updates and portal invitations treated the
+teacher's contact address as if it were always the linked account's login
+address, leaving stale invitations valid or risking an account handoff.
+Correct approach: resolve accounts only by tenant + `teacherId`; show contact
+and login addresses separately; revoke pending invitation tokens on contact
+changes and only retarget/resend after an explicit admin action. Check email
+ownership including inactive accounts before accepting a new address.
+Files involved: `src/lib/services/tools.ts`, `src/lib/auth/*`,
+`src/components/portal-access-card.tsx`.
+
 ---
 
 ## 2026-08-30 — generic document template PATCH mutated active templates in place

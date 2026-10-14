@@ -312,6 +312,21 @@ export async function readStudentById(studentId: string): Promise<Student | unde
   return (await readData()).students.find((s) => s.id === studentId);
 }
 
+export async function readTeacherPortalDetails(teacherId: string) {
+  const data = await readData();
+  const teacher = data.teachers.find((item) => item.id === teacherId);
+  if (!teacher) return null;
+  return {
+    teacherId: teacher.id,
+    teacherName: teacher.name,
+    contactEmail: teacher.email,
+    institutionName: data.settings.name,
+    schoolPhone: data.settings.phone,
+    schoolWebsite: data.settings.website,
+    logoUrl: data.settings.logoUrl,
+  };
+}
+
 /** Bkz. store-db.readLessonById — sonuç `readData().lessons.find` ile aynı. */
 export async function readLessonById(lessonId: string): Promise<Lesson | undefined> {
   return (await readData()).lessons.find((l) => l.id === lessonId);

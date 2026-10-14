@@ -32,11 +32,20 @@ export type PasswordResetTokenRow = {
   id: string;
   tenantId: string;
   userId: string;
+  purpose?: "password_reset" | "invitation";
   tokenHash: string;
   expiresAt: string;
   usedAt: string | null;
   createdAt: string;
 };
+
+const LEGACY_INVITATION_TTL_MS = 6 * 24 * 60 * 60 * 1000;
+
+function isInvitationToken(token: PasswordResetTokenRow): boolean {
+  if (token.purpose === "invitation") return true;
+  if (token.purpose) return false;
+  return new Date(token.expiresAt).getTime() - new Date(token.createdAt).getTime() > LEGACY_INVITATION_TTL_MS;
+}
 
 const FILE = path.join(resolveDataDir(path.join(process.cwd(), "data")), "password-reset-tokens.json");
 
@@ -69,7 +78,12 @@ async function saveAll(rows: PasswordResetTokenRow[]): Promise<void> {
  * süre farklı, ayrı bir tablo/mekanizma DEĞİL (kural: mevcut şifre
  * sıfırlama/davet altyapısı yeniden kullanılmalı, tekrar edilmemeli).
  */
-export async function createPasswordResetToken(tenantId: string, userId: string, ttlMs: number = TOKEN_TTL_MS): Promise<string> {
+export async function createPasswordResetToken(
+  tenantId: string,
+  userId: string,
+  ttlMs: number = TOKEN_TTL_MS,
+  purpose: "password_reset" | "invitation" = "password_reset"
+): Promise<string> {
   const raw = generateResetCode();
   const tokenHash = hashToken(raw);
   const expiresAt = new Date(Date.now() + ttlMs).toISOString();
@@ -82,7 +96,7 @@ export async function createPasswordResetToken(tenantId: string, userId: string,
       data: { usedAt: new Date() },
     });
     await prisma.passwordResetToken.create({
-      data: { id: uid("pwreset"), tenantId, userId, tokenHash, expiresAt: new Date(expiresAt) },
+      data: { id: uid("pwreset"), tenantId, userId, purpose, tokenHash, expiresAt: new Date(expiresAt) },
     });
     return raw;
   }
@@ -93,6 +107,7 @@ export async function createPasswordResetToken(tenantId: string, userId: string,
     id: uid("pwreset"),
     tenantId,
     userId,
+    purpose,
     tokenHash,
     expiresAt,
     usedAt: null,
@@ -100,6 +115,83 @@ export async function createPasswordResetToken(tenantId: string, userId: string,
   });
   await saveAll(invalidated);
   return raw;
+}
+
+/** Daveti kabul edilmemiş öğretmenin geçerli davet bağlantısı var mı? */
+export async function hasActiveInvitationToken(tenantId: string, userId: string): Promise<boolean> {
+  const now = new Date();
+  if (isDbMode) {
+    const { getPrisma } = await import("../db");
+    const row = await getPrisma().passwordResetToken.findFirst({
+      where: { tenantId, userId, purpose: "invitation", usedAt: null, expiresAt: { gt: now } },
+      select: { id: true },
+    });
+    return Boolean(row);
+  }
+  const all = await loadAll();
+  return all.some((token) =>
+    token.tenantId === tenantId &&
+    token.userId === userId &&
+    isInvitationToken(token) &&
+    token.usedAt === null &&
+    new Date(token.expiresAt) > now
+  );
+}
+
+/** Eski dosya tabanlı davetlerde purpose alanı yoktur; uzun TTL ayırt edicidir. */
+export async function hasUnacceptedInvitationToken(tenantId: string, userId: string): Promise<boolean> {
+  if (isDbMode) {
+    const { getPrisma } = await import("../db");
+    const row = await getPrisma().passwordResetToken.findFirst({
+      where: { tenantId, userId, purpose: "invitation", usedAt: null },
+      select: { id: true },
+    });
+    return Boolean(row);
+  }
+  const all = await loadAll();
+  return all.some(
+    (token) =>
+      token.tenantId === tenantId &&
+      token.userId === userId &&
+      isInvitationToken(token) &&
+      token.usedAt === null
+  );
+}
+
+/** Profil iletişim adresi değişince yalnızca davet token'larını geçersiz kılar. */
+export async function revokeInvitationTokensForUser(tenantId: string, userId: string): Promise<void> {
+  const now = new Date();
+  if (isDbMode) {
+    const { getPrisma } = await import("../db");
+    const prisma = getPrisma();
+    const legacyRows = await prisma.passwordResetToken.findMany({
+      where: { tenantId, userId, usedAt: null },
+      select: { id: true, purpose: true, expiresAt: true, createdAt: true },
+    });
+    const legacyIds = legacyRows
+      .filter((token) =>
+        token.purpose === "invitation" ||
+        (!token.purpose && token.expiresAt.getTime() - token.createdAt.getTime() > LEGACY_INVITATION_TTL_MS)
+      )
+      .map((token) => token.id);
+    if (legacyIds.length) {
+      await prisma.passwordResetToken.updateMany({
+        where: { tenantId, userId, id: { in: legacyIds }, usedAt: null },
+        data: { usedAt: now },
+      });
+    }
+    return;
+  }
+  const all = await loadAll();
+  const next = all.map((token) =>
+    token.tenantId === tenantId &&
+    token.userId === userId &&
+    isInvitationToken(token) &&
+    token.usedAt === null
+      ? { ...token, usedAt: now.toISOString() }
+      : token
+  );
+  await saveAll(next);
 }
 
 /** Ham token'ı doğrular, geçerliyse "kullanıldı" işaretler (tek kullanımlık) ve sahibinin userId/tenantId'sini döner. */

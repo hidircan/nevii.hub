@@ -57,6 +57,16 @@ import type { MakeupDecision } from "./makeup-engine";
 import type { LessonScheduleUpdateOutcome } from "./lesson-update";
 import type { LessonTimeCorrection, LessonLiveUpdateResult } from "./lesson-live-status";
 
+export type TeacherPortalDetails = {
+  teacherId: string;
+  teacherName: string;
+  contactEmail: string;
+  institutionName: string;
+  schoolPhone: string;
+  schoolWebsite: string;
+  logoUrl: string;
+};
+
 type StoreApi = {
   // DB egress (2026-09-30): yazma sonucunu hiçbir çağıranın kullanmadığı mutasyonlar `AppData | void`
   // döner — json/memory veriyi zaten elinde tuttuğu için döndürebilir, db yazmadan sonra kurumun
@@ -237,6 +247,7 @@ type StoreApi = {
   readLessonById: (lessonId: string) => Promise<import("./types").Lesson | undefined>;
   readTeacherPayoutsForTeacher: (teacherId: string) => Promise<import("./types").TeacherPayout[]>;
   readPaymentById: (paymentId: string) => Promise<import("./types").Payment | undefined>;
+  readTeacherPortalDetails: (teacherId: string) => Promise<TeacherPortalDetails | null>;
   /** Dar okuma — referans dilimi (bkz. src/lib/reference-data.ts); ders/ödeme/yoklama/telafi yok. */
   readReferenceData: () => Promise<ReferenceData>;
   /** Dar okuma — tek öğrenci dilimi (bkz. src/lib/reference-data.ts `narrowToStudentScope`). */
@@ -429,6 +440,12 @@ export async function readLessonById(lessonId: string): Promise<import("./types"
 export async function readPaymentById(paymentId: string): Promise<import("./types").Payment | undefined> {
   if (!paymentId) return undefined;
   return withTenantScope(() => store.readPaymentById(paymentId));
+}
+
+/** Portal daveti için tek öğretmen + kurum iletişim alanları; DB'de tam readData gerekmez. */
+export async function readTeacherPortalDetails(teacherId: string): Promise<TeacherPortalDetails | null> {
+  if (!teacherId) return null;
+  return withTenantScope(() => store.readTeacherPortalDetails(teacherId));
 }
 
 /** DB egress (2026-10-10) — bir öğretmenin kayıtlı hakedişleri: `readData().teacherPayouts` süzgeciyle aynı. */

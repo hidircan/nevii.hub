@@ -115,6 +115,7 @@ model User {
   passwordHash String
   role         String
   teacherId    String?
+  invitationPending Boolean @default(false)
   /// DEPRECATED — Karma Öğrenci Portalı öncesi tekil öğrenci bağlantısı.
   /// Geriye dönük uyumluluk/migration kaynağı olarak korunuyor; yeni
   /// authorization kodu bunu OKUMAZ (bkz. StudentPortalAccess).
@@ -447,6 +448,7 @@ model PasswordResetToken {
   tenantId  String
   tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   userId    String
+  purpose   String    @default("password_reset")
   tokenHash String
   expiresAt DateTime
   /// NeviiOS — yönetici başlatmalı sıfırlamada başlatan kullanıcı; kendi talebinde (şifremi unuttum) null.

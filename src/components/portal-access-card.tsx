@@ -326,7 +326,7 @@ export function TeacherPortalAccessCard({ teacherId, defaultEmail }: { teacherId
     // set-state-in-effect kuralı async fetch-on-mount deseninde yanlış pozitif verir.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     load();
-  }, [load]);
+  }, [load, defaultEmail]);
 
   async function onToggle(active: boolean) {
     setPending(true);
@@ -376,6 +376,9 @@ export function TeacherPortalAccessCard({ teacherId, defaultEmail }: { teacherId
 
       {status && !status.exists ? (
         <div className="space-y-2">
+          <p className="text-sm text-[var(--color-text)]">
+            İletişim e-postası: <span className="font-medium">{defaultEmail || "Eklenmemiş"}</span>
+          </p>
           <p className="text-sm text-[var(--color-text-muted)]">
             Bu öğretmen için henüz portal erişimi oluşturulmadı{defaultEmail ? "" : " — önce bir e-posta adresi ekleyin"}.
           </p>
@@ -388,14 +391,39 @@ export function TeacherPortalAccessCard({ teacherId, defaultEmail }: { teacherId
 
       {status && status.exists ? (
         <div className="space-y-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm font-medium text-[var(--color-text)]">{status.email}</span>
-            <StatusBadge tone={status.active ? "green" : "red"}>{status.active ? "Erişim açık" : "Erişim kapalı"}</StatusBadge>
-          </div>
+          <dl className="grid grid-cols-1 gap-1 text-sm sm:grid-cols-2">
+            <div>
+              <dt className="text-xs text-[var(--color-text-muted)]">İletişim e-postası</dt>
+              <dd className="font-medium text-[var(--color-text)]">{defaultEmail || "Eklenmemiş"}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-[var(--color-text-muted)]">Portal giriş e-postası</dt>
+              <dd className="flex flex-wrap items-center gap-2 font-medium text-[var(--color-text)]">
+                {status.email || "Bilinmiyor"}
+                <StatusBadge tone={status.active ? "green" : "red"}>{status.active ? "Erişim açık" : "Erişim kapalı"}</StatusBadge>
+              </dd>
+            </div>
+          </dl>
+          {status.invitationPending ? (
+            <p className="text-xs text-amber-800">
+              {status.invitationLinkActive
+                ? "Davet kabul edilmeyi bekliyor."
+                : "Eski davet bağlantısı geçersiz; yeni davet yönetici tarafından gönderilmelidir."}
+            </p>
+          ) : status.email.toLowerCase() !== (defaultEmail ?? "").trim().toLowerCase() ? (
+            <p className="text-xs text-[var(--color-text-muted)]">
+              Profildeki iletişim adresi giriş adresini değiştirmez. Giriş e-postası, öğretmenin hesabındaki doğrulama akışıyla değiştirilir.
+            </p>
+          ) : null}
           <dl className="grid grid-cols-1 gap-1 text-xs text-[var(--color-text-muted)] sm:grid-cols-2">
-            <div>Şifre sıfırlama son istek: {formatDateTime(status.lastPasswordResetRequestedAt)}</div>
+            <div>Son davet/şifre bağlantısı isteği: {formatDateTime(status.lastPasswordResetRequestedAt)}</div>
           </dl>
           <div className="flex flex-wrap gap-2">
+            {status.invitationPending ? (
+              <Button variant="secondary" disabled={pending || !defaultEmail} onClick={onInvite}>
+                {pending ? "Gönderiliyor…" : status.invitationLinkActive ? "Davet e-postasını yeniden gönder" : "Davet gönder"}
+              </Button>
+            ) : null}
             {status.active ? (
               <Button variant="secondary" disabled={pending} onClick={() => onToggle(false)}>
                 Portal erişimini kapat
@@ -405,7 +433,7 @@ export function TeacherPortalAccessCard({ teacherId, defaultEmail }: { teacherId
                 Portal erişimini aç
               </Button>
             )}
-            {status.active ? (
+            {status.active && !status.invitationPending ? (
               <Button variant="ghost" disabled={pending} onClick={onSendReset}>
                 Şifre sıfırlama bağlantısı gönder
               </Button>

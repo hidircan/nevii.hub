@@ -1221,6 +1221,31 @@ export async function readStudentById(studentId: string): Promise<Student | unde
   return row ? mapDbStudent(row) : undefined;
 }
 
+/** Portal daveti için tenant-scope'lu öğretmen/kurum alanları; ağır koleksiyonlar okunmaz. */
+export async function readTeacherPortalDetails(teacherId: string) {
+  if (!teacherId) return null;
+  const tid = tenantId();
+  const row = await prisma.teacher.findFirst({
+    where: { id: teacherId, tenantId: tid, school: { tenantId: tid } },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      school: { select: { name: true, phone: true, website: true, logoUrl: true } },
+    },
+  });
+  if (!row) return null;
+  return {
+    teacherId: row.id,
+    teacherName: row.name,
+    contactEmail: row.email,
+    institutionName: row.school.name,
+    schoolPhone: row.school.phone,
+    schoolWebsite: row.school.website,
+    logoUrl: row.school.logoUrl,
+  };
+}
+
 /**
  * DB egress (2026-10-10) — tek ders satırı. `readData().lessons.find(id)` ile AYNI sonuç (aynı eşleme,
  * okulun dersi) ama tenant'ın tüm ders/ödeme/öğrenci verisi okunmaz. Varlık/şube kontrolü ve bildirim
