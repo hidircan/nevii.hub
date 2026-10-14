@@ -141,7 +141,7 @@ export function TeacherProfileEditor({
           <Input value={name} onChange={(e) => setName(e.target.value)} />
         </div>
         <div>
-          <Label>E-posta</Label>
+          <Label>İletişim e-postası</Label>
           <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
         </div>
       </div>

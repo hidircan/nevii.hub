@@ -6,14 +6,16 @@ import { useApiGet } from "../../../src/hooks/use-api";
 import { useFocusRefetch } from "../../../src/hooks/use-focus-refetch";
 import { shortDayMonth } from "../../../src/lib/date";
 import { downloadAndOpenFile } from "../../../src/lib/open-file";
+import { useLocale } from "../../../src/i18n/locale-context";
 import { useTheme } from "../../../src/theme/theme-context";
 import type { TeachingMaterialsResponse } from "../../../src/types/api";
 
 export default function TeacherMateryaller() {
   const t = useTheme();
+  const { t: tr } = useLocale();
   const router = useRouter();
   const res = useApiGet<TeachingMaterialsResponse>("/api/v1/teaching-materials/mine");
-  useFocusRefetch(res.refresh);
+  useFocusRefetch(res.autoRefresh);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
 
@@ -27,19 +29,19 @@ export default function TeacherMateryaller() {
 
   return (
     <Screen
-      floatingAction={<FloatingActionButton icon="add" accessibilityLabel="Yeni materyal" onPress={() => router.push("/(teacher)/hesabim/materyaller-yeni")} />}
+      floatingAction={<FloatingActionButton icon="add" accessibilityLabel={tr("teachMat.addA11y")} onPress={() => router.push("/(teacher)/hesabim/materyaller-yeni")} />}
     >
-      <AppHeader title="Materyallerim" showBack showNotifications={false} />
+      <AppHeader title={tr("teachMat.mine")} showBack showNotifications={false} />
 
       {res.status === "loading" ? (
         <LoadingSkeleton rows={4} />
       ) : res.status === "error" ? (
         <ErrorState message={res.message} onRetry={res.refresh} />
       ) : res.data.materials.length === 0 ? (
-        <EmptyState icon="folder-open-outline" title="Henüz materyal paylaşmadınız" actionLabel="Yeni materyal" onAction={() => router.push("/(teacher)/hesabim/materyaller-yeni")} />
+        <EmptyState icon="folder-open-outline" title={tr("teachMat.noneShared")} actionLabel={tr("teachMat.new")} onAction={() => router.push("/(teacher)/hesabim/materyaller-yeni")} />
       ) : (
         <View style={{ gap: 10 }}>
-          {downloadError ? <Text style={{ color: t.colors.danger }}>{downloadError}</Text> : null}
+          {downloadError ? <Text style={[t.typography.caption, { color: t.colors.danger }]}>{downloadError}</Text> : null}
           {res.data.materials.map((m) => (
             <Card key={m.id}>
               <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}>
@@ -50,13 +52,13 @@ export default function TeacherMateryaller() {
                     {m.description}
                   </Text>
                   <View style={{ flexDirection: "row", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
-                    {m.targetInstrument ? <StatusBadge label={m.targetInstrument} tone="info" /> : <StatusBadge label="Tüm öğrenciler" tone="neutral" />}
+                    {m.targetInstrument ? <StatusBadge label={m.targetInstrument} tone="info" /> : <StatusBadge label={tr("teachMat.allStudents")} tone="neutral" />}
                   </View>
                   <Text style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 6 }]}>{shortDayMonth(new Date(m.createdAt))}</Text>
                   {m.fileName ? (
                     <View style={{ marginTop: 10 }}>
                       <Button
-                        label={downloadingId === m.id ? "İndiriliyor…" : `Dosyayı aç · ${m.fileName}`}
+                        label={downloadingId === m.id ? tr("teachMat.downloading") : tr("teachMat.openFile", { name: m.fileName ?? "" })}
                         icon="download-outline"
                         variant="secondary"
                         size="sm"

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Text, View } from "react-native";
 import { AppHeader, Card, EmptyState, ErrorState, FilterChip, LoadingSkeleton, Screen } from "../../../src/components/ui";
 import { useApiGet } from "../../../src/hooks/use-api";
+import { useLocale } from "../../../src/i18n/locale-context";
 import { useTheme } from "../../../src/theme/theme-context";
 import type { BranchesResponse, InstrumentsResponse, RoomsResponse } from "../../../src/types/api";
 
@@ -9,6 +10,7 @@ type Segment = "branches" | "rooms" | "instruments";
 
 export default function Katalog() {
   const t = useTheme();
+  const { t: tr } = useLocale();
   const [segment, setSegment] = useState<Segment>("branches");
   const branches = useApiGet<BranchesResponse>("/api/v1/branches");
   const rooms = useApiGet<RoomsResponse>("/api/v1/rooms");
@@ -16,12 +18,12 @@ export default function Katalog() {
 
   return (
     <Screen>
-      <AppHeader title="Şube / Oda / Enstrüman" showBack showNotifications={false} />
+      <AppHeader title={tr("adm.catTitle")} showBack showNotifications={false} />
 
       <View style={{ flexDirection: "row", gap: 8, marginBottom: 12 }}>
-        <FilterChip label="Şubeler" selected={segment === "branches"} onPress={() => setSegment("branches")} />
-        <FilterChip label="Odalar" selected={segment === "rooms"} onPress={() => setSegment("rooms")} />
-        <FilterChip label="Enstrümanlar" selected={segment === "instruments"} onPress={() => setSegment("instruments")} />
+        <FilterChip label={tr("adm.catBranches")} selected={segment === "branches"} onPress={() => setSegment("branches")} />
+        <FilterChip label={tr("adm.catRooms")} selected={segment === "rooms"} onPress={() => setSegment("rooms")} />
+        <FilterChip label={tr("adm.catInstruments")} selected={segment === "instruments"} onPress={() => setSegment("instruments")} />
       </View>
 
       {segment === "branches" ? (
@@ -30,7 +32,7 @@ export default function Katalog() {
         ) : branches.status === "error" ? (
           <ErrorState message={branches.message} onRetry={branches.refresh} />
         ) : branches.data.branches.length === 0 ? (
-          <EmptyState icon="business-outline" title="Şube bulunamadı" />
+          <EmptyState icon="business-outline" title={tr("adm.catNoBranch")} />
         ) : (
           <View style={{ gap: 10 }}>
             {branches.data.branches.map((b) => (
@@ -51,14 +53,14 @@ export default function Katalog() {
         ) : rooms.status === "error" ? (
           <ErrorState message={rooms.message} onRetry={rooms.refresh} />
         ) : rooms.data.rooms.length === 0 ? (
-          <EmptyState icon="grid-outline" title="Oda bulunamadı" />
+          <EmptyState icon="grid-outline" title={tr("adm.catNoRoom")} />
         ) : (
           <View style={{ gap: 10 }}>
             {rooms.data.rooms.map((r) => (
               <Card key={r.id}>
                 <Text style={[t.typography.cardTitle, { color: t.colors.text }]}>{r.name}</Text>
                 <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 4 }]}>
-                  Kapasite {r.capacity} · {r.instruments.join(", ") || "Tüm enstrümanlar"}
+                  {tr("adm.catCapacity", { n: r.capacity })} · {r.instruments.join(", ") || tr("adm.catAllInst")}
                 </Text>
               </Card>
             ))}
@@ -88,7 +90,7 @@ export default function Katalog() {
       ) : null}
 
       <Text style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 16, textAlign: "center" }]}>
-        Ekleme/arşivleme işlemleri için web panelini kullanın.
+        {tr("adm.catFootnote")}
       </Text>
     </Screen>
   );

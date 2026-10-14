@@ -5,25 +5,27 @@ import { apiPost } from "../../src/api/client";
 import { useAuth } from "../../src/auth/auth-context";
 import { AppHeader, Button, Screen, ScoreSelector, TextField } from "../../src/components/ui";
 import { useApiGet } from "../../src/hooks/use-api";
+import { useLocale } from "../../src/i18n/locale-context";
 import { useTheme } from "../../src/theme/theme-context";
 import type { TeachersResponse } from "../../src/types/api";
 
-const CRITERIA: Array<{ key: string; label: string }> = [
-  { key: "teknikBecerisi", label: "Teknik beceri" },
-  { key: "notaOkuma", label: "Nota okuma" },
-  { key: "muzikalite", label: "Müzikalite" },
-  { key: "ritimDuyusu", label: "Ritim duyusu" },
-  { key: "calismaDuzeni", label: "Çalışma düzeni" },
-  { key: "evOdeviTamamlama", label: "Ev ödevi tamamlama" },
-  { key: "dersKatilimi", label: "Ders katılımı" },
-  { key: "motivasyon", label: "Motivasyon" },
-  { key: "genelIlerleme", label: "Genel ilerleme" },
-  { key: "hedefeUlasma", label: "Hedefe ulaşma" },
+const CRITERIA: Array<{ key: string; labelKey: string }> = [
+  { key: "teknikBecerisi", labelKey: "assess.critTechnique" },
+  { key: "notaOkuma", labelKey: "assess.critSightReading" },
+  { key: "muzikalite", labelKey: "assess.critMusicality" },
+  { key: "ritimDuyusu", labelKey: "assess.critRhythm" },
+  { key: "calismaDuzeni", labelKey: "assess.critStudyHabit" },
+  { key: "evOdeviTamamlama", labelKey: "assess.critHomework" },
+  { key: "dersKatilimi", labelKey: "assess.critParticipation" },
+  { key: "motivasyon", labelKey: "assess.critMotivation" },
+  { key: "genelIlerleme", labelKey: "assess.critProgress" },
+  { key: "hedefeUlasma", labelKey: "assess.critGoal" },
 ];
 
 /** Ders sonrası gelişim değerlendirmesi — TEACHER, herhangi bir sekmeden (kök seviyede) erişilebilir. */
 export default function AssessmentScreen() {
   const t = useTheme();
+  const { t: tr } = useLocale();
   const router = useRouter();
   const { user } = useAuth();
   const params = useLocalSearchParams<{ lessonId: string; studentId?: string; studentName?: string }>();
@@ -55,11 +57,11 @@ export default function AssessmentScreen() {
       strengthNote,
       improvementNote,
       nextStepsNote,
-      teacherSignedName: teacherName || user?.email || "Öğretmen",
+      teacherSignedName: teacherName || user?.email || tr("assess.teacherFallback"),
     });
     setBusy(false);
     if (!res.ok) {
-      setError(res.error.message || "Değerlendirme kaydedilemedi.");
+      setError(res.error.message || tr("assess.saveFailed"));
       return;
     }
     setDone(true);
@@ -68,13 +70,13 @@ export default function AssessmentScreen() {
   if (done) {
     return (
       <Screen>
-        <AppHeader title="Değerlendirme" showBack showNotifications={false} />
+        <AppHeader title={tr("assess.title")} showBack showNotifications={false} />
         <View style={styles.doneBox}>
-          <Text style={[t.typography.sectionTitle, { color: t.colors.success }]}>Kaydedildi</Text>
+          <Text style={[t.typography.sectionTitle, { color: t.colors.success }]}>{tr("assess.saved")}</Text>
           <Text style={[t.typography.body, { color: t.colors.textMuted, marginTop: 6, textAlign: "center" }]}>
-            Gelişim değerlendirmesi öğrenci kaydına eklendi.
+            {tr("assess.savedBody")}
           </Text>
-          <Button label="Kapat" onPress={() => router.back()} variant="secondary" style={{ marginTop: 16 }} fullWidth={false} />
+          <Button label={tr("eval.close")} onPress={() => router.back()} variant="secondary" style={{ marginTop: 16 }} fullWidth={false} />
         </View>
       </Screen>
     );
@@ -82,20 +84,20 @@ export default function AssessmentScreen() {
 
   return (
     <Screen>
-      <AppHeader title="Gelişim değerlendirmesi" subtitle={params.studentName} showBack showNotifications={false} />
+      <AppHeader title={tr("assess.formTitle")} subtitle={params.studentName} showBack showNotifications={false} />
 
       <View style={{ gap: 20 }}>
         {CRITERIA.map((c) => (
-          <ScoreSelector key={c.key} label={c.label} value={scores[c.key] ?? null} onChange={(v) => setScores((s) => ({ ...s, [c.key]: v }))} />
+          <ScoreSelector key={c.key} label={tr(c.labelKey)} value={scores[c.key] ?? null} onChange={(v) => setScores((s) => ({ ...s, [c.key]: v }))} />
         ))}
 
-        <TextField label="Güçlü yönler" value={strengthNote} onChangeText={setStrengthNote} multiline numberOfLines={3} />
-        <TextField label="Geliştirilmesi gerekenler" value={improvementNote} onChangeText={setImprovementNote} multiline numberOfLines={3} />
-        <TextField label="Sonraki adımlar" value={nextStepsNote} onChangeText={setNextStepsNote} multiline numberOfLines={3} />
+        <TextField label={tr("assess.strengths")} value={strengthNote} onChangeText={setStrengthNote} multiline numberOfLines={3} />
+        <TextField label={tr("assess.improvements")} value={improvementNote} onChangeText={setImprovementNote} multiline numberOfLines={3} />
+        <TextField label={tr("assess.nextSteps")} value={nextStepsNote} onChangeText={setNextStepsNote} multiline numberOfLines={3} />
 
-        {error ? <Text style={{ color: t.colors.danger }}>{error}</Text> : null}
+        {error ? <Text style={[t.typography.caption, { color: t.colors.danger }]}>{error}</Text> : null}
 
-        <Button label="Değerlendirmeyi kaydet" onPress={onSubmit} disabled={!canSubmit} loading={busy} />
+        <Button label={tr("assess.save")} onPress={onSubmit} disabled={!canSubmit} loading={busy} />
       </View>
     </Screen>
   );

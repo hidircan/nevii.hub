@@ -9,7 +9,7 @@ import {
   User,
 } from "lucide-react";
 import { BackButton } from "@/components/back-button";
-import { readData } from "@/lib/store";
+import { readStudentScope } from "@/lib/store";
 import { requireSessionContext } from "@/lib/auth/session";
 import { findOwnStudent, ownStudentLessons } from "@/lib/teacher-portal-scope";
 import {
@@ -24,7 +24,7 @@ import { Badge, Card, EmptyState } from "@/components/ui";
 import { LessonStatusBadge } from "@/components/lesson-status-badge";
 import { HomeworkCreateForm } from "@/components/homework-create-form";
 import { HomeworkReviewForm } from "@/components/homework-review-form";
-import { LessonAssessmentForm } from "@/components/lesson-assessment-form";
+import { LessonAssessmentMobileForm } from "@/components/reports/lesson-assessment-mobile-form";
 import { CurriculumTopicForm } from "@/components/curriculum-topic-form";
 import { CurriculumTopicUpdateForm } from "@/components/curriculum-topic-update-form";
 import { StudentFeedbackForm } from "@/components/student-feedback-form";
@@ -34,6 +34,7 @@ import { formatDate, formatDateTime, formatTime } from "@/lib/utils";
 import { resolveLessonFinalStatus } from "@/lib/lesson-live-status";
 import type { StudentCurriculumTopic } from "@/lib/types";
 import { effectiveStudentTypes, formatStudentTypes } from "@/lib/student-types";
+import { effectiveEnrollments, enrollmentTerms } from "@/lib/student-enrollments";
 
 export const dynamic = "force-dynamic";
 
@@ -60,7 +61,8 @@ export default async function TeacherStudentWorkspacePage({
   }
   if (session.role === "STUDENT") redirect("/ogrenci");
 
-  const data = await readData();
+  // Kota (2026-10-13): ekran yalnız bu öğrencinin ders/yoklama satırlarına bakar → tek öğrenci dilimi (tam okuma değil).
+  const data = await readStudentScope(studentId);
   // Oturum teacherId yoksa (admin demo) rastgele öğretmen düşme — erişim yok.
   const teacherId = session.teacherId;
   if (!teacherId) {
@@ -89,6 +91,37 @@ export default async function TeacherStudentWorkspacePage({
 
   const branch = data.settings.branches.find((b) => b.id === student.branchId);
   const lessons = ownStudentLessons(data.lessons, teacherId, student.id);
+  // 2026-10-10 — çok branşlı öğrencide öğretmen YALNIZ kendi branşının/branşlarının bilgisini görür (tür, seviye, MEB seviyesi,
+  // paket, haftalık ders…). Öğrenci satırındaki değerler başka öğretmenin branşına ait olabilir ve sızdırılmaz.
+  const allBranches = effectiveEnrollments(student, data.teachers);
+  const ownTerms =
+    allBranches.length > 1
+      ? allBranches
+          .filter((e) => e.active)
+          .map((e) => enrollmentTerms(student, e, data.teachers))
+          .filter((t) => t.teacherId === teacherId)
+      : [];
+  const uniq = (xs: (string | undefined)[]) => [...new Set(xs.filter((x): x is string => !!x))];
+  const view =
+    ownTerms.length > 0
+      ? {
+          instruments: uniq(ownTerms.map((t) => t.instrument)),
+          types: uniq(ownTerms.flatMap((t) => t.studentTypes)) as ReturnType<typeof effectiveStudentTypes>,
+          level: uniq(ownTerms.map((t) => t.level)).join(", ") || undefined,
+          targetExam: uniq(ownTerms.map((t) => t.targetExam)).join(", ") || undefined,
+          weekly: ownTerms.map((t) => (ownTerms.length > 1 ? `${t.instrument}: ${t.weeklyLessonCount}` : String(t.weeklyLessonCount))).join(" · "),
+          start: ownTerms.map((t) => t.startDate).filter(Boolean).sort()[0],
+          packageLabel: uniq(ownTerms.map((t) => t.packageName?.split("—")[0]?.trim())).join(", ") || "—",
+        }
+      : {
+          instruments: student.instruments as string[],
+          types: effectiveStudentTypes(student),
+          level: student.level,
+          targetExam: student.targetExam,
+          weekly: String(student.weeklyLessonCount),
+          start: student.enrollmentStartDate,
+          packageLabel: student.packageName.split("—")[0]?.trim() ?? "—",
+        };
   // Aktif/yaklaşan: in_progress + scheduled (gelecek veya son 6 saatte gecikmiş).
   // Eşik ISO string karşılaştırması — sunucu render anında sabit.
   const delayedCutoffIso = new Date(Date.parse(new Date().toISOString()) - 6 * 60 * 60 * 1000).toISOString();
@@ -175,14 +208,14 @@ export default async function TeacherStudentWorkspacePage({
             <div className="min-w-0 flex-1">
               <h1 className="text-lg font-semibold text-[var(--color-text)] dark:text-slate-50">{student.name}</h1>
               <p className="text-sm text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
-                {student.instruments.join(", ")}
+                {view.instruments.join(", ")}
                 {branch ? ` · ${branch.shortName}` : ""}
               </p>
               <p className="mt-0.5 text-xs text-[var(--color-text-muted)]">
                 Veli: {student.parentName} · {student.parentPhone}
               </p>
             </div>
-            <Badge>{student.packageName.split("—")[0]?.trim()}</Badge>
+            <Badge>{view.packageLabel}</Badge>
           </div>
         </Card>
 
@@ -201,24 +234,24 @@ export default async function TeacherStudentWorkspacePage({
           </h2>
           <Card className="!p-4">
             <dl className="grid grid-cols-2 gap-3 text-sm">
-              <ProfileField label="Eğitim türü" value={formatStudentTypes(effectiveStudentTypes(student))} />
-              <ProfileField label="Seviye" value={student.level ?? "Belirtilmemiş"} />
-              <ProfileField label="Hedef" value={student.targetExam ?? "—"} />
+              <ProfileField label="Eğitim türü" value={formatStudentTypes(view.types)} />
+              <ProfileField label="Seviye" value={view.level ?? "Belirtilmemiş"} />
+              <ProfileField label="Hedef" value={view.targetExam ?? "—"} />
               <ProfileField
                 label="Haftalık ders"
-                value={`${student.weeklyLessonCount} seans`}
+                value={`${view.weekly} seans`}
               />
               <ProfileField
                 label="Kayıt başlangıcı"
                 value={
-                  student.enrollmentStartDate
-                    ? formatDate(student.enrollmentStartDate)
+                  view.start
+                    ? formatDate(view.start)
                     : "—"
                 }
               />
               <ProfileField
                 label="Paket"
-                value={student.packageName.split("—")[0]?.trim() ?? "—"}
+                value={view.packageLabel}
               />
             </dl>
             {student.specialNotes || student.notes ? (
@@ -387,10 +420,10 @@ export default async function TeacherStudentWorkspacePage({
           <Card className="mb-3 !p-4">
             <p className="text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">Profil</p>
             <dl className="mt-2 grid grid-cols-2 gap-3 text-sm">
-              <ProfileField label="Program türü" value={formatStudentTypes(effectiveStudentTypes(student))} />
-              <ProfileField label="Seviye" value={student.level ?? "Belirtilmemiş"} />
-              <ProfileField label="Hedef sınav" value={student.targetExam ?? "—"} />
-              <ProfileField label="Enstrüman" value={student.instruments.join(", ") || "—"} />
+              <ProfileField label="Program türü" value={formatStudentTypes(view.types)} />
+              <ProfileField label="Seviye" value={view.level ?? "Belirtilmemiş"} />
+              <ProfileField label="Hedef sınav" value={view.targetExam ?? "—"} />
+              <ProfileField label="Enstrüman" value={view.instruments.join(", ") || "—"} />
             </dl>
           </Card>
 
@@ -545,10 +578,11 @@ export default async function TeacherStudentWorkspacePage({
                 Bu öğrenciyle henüz ders kaydı yok; değerlendirme bir derse bağlanır.
               </p>
             ) : (
-              <LessonAssessmentForm
+              <LessonAssessmentMobileForm
                 studentId={student.id}
                 lessons={assessmentLessons}
-                defaultTeacherName={teacher.name}
+                teacherName={teacher.name}
+                draftOwner={teacher.id}
               />
             )}
           </Card>

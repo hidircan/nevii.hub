@@ -1,27 +1,31 @@
 import { useRouter } from "expo-router";
 import { useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { useAuth } from "../../auth/auth-context";
 import { AppHeader, Avatar, Card, EmptyState, ErrorState, Icon, LessonCard, LoadingSkeleton, Screen, StatusBadge } from "../../components/ui";
-import { useApiGet } from "../../hooks/use-api";
-import { addDays, format, isSameDay, shortDayMonth, startOfDay, startOfWeek } from "../../lib/date";
-import { lessonStatusBadge } from "../../lib/lesson-status";
+import { CacheStatus } from "../../cache/cache-status";
+import { useCachedApiGet } from "../../cache/use-cached-api";
+import { useSelectedStudentId } from "../../student/student-context";
+import { addDays, format, isSameDay, shortDayMonth, startOfDay, startOfWeek, weekdayName } from "../../lib/date";
+import { studentFacingLessonStatus } from "../../lib/lesson-status";
+import { lookup } from "../../i18n/locales";
+import { getActiveLocale } from "../../i18n/locale-store";
+import { useLocale } from "../../i18n/locale-context";
 import { useTheme } from "../../theme/theme-context";
+import { listFallback, usePersonaBasePath } from "../../lib/navigation";
 import type { AttendanceCalendarMonthResponse, ScheduleResponse, StudentProfile } from "../../types/api";
-
-const DAY_NAMES = ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi", "Pazar"];
 
 /** Öğrenci kaydı artık erişilemez/pasif olduğunda genel teknik mesaj yerine anlaşılır bir açıklama gösterir. */
 function friendlyAccessMessage(code: string, message: string): string {
   if (code === "NOT_FOUND" || code === "FORBIDDEN") {
-    return "Hesabınız artık aktif değil veya bu kayda erişiminiz kaldırılmış. Lütfen okulunuzla iletişime geçin.";
+    return lookup(getActiveLocale(), "lessons.accessGone");
   }
   return message;
 }
 
 export function StudentScopeLessonsScreen({ basePath }: { basePath: "/(parent)" | "/(student)" }) {
   const t = useTheme();
-  const { user } = useAuth();
+  const { t: tr } = useLocale();
+  const studentId = useSelectedStudentId();
   const router = useRouter();
   const now = new Date();
   const today = startOfDay(now);
@@ -31,15 +35,15 @@ export function StudentScopeLessonsScreen({ basePath }: { basePath: "/(parent)" 
   const weekEndExclusive = useMemo(() => addDays(weekStart, 7), [weekStart]);
   const isCurrentWeek = isSameDay(weekStart, startOfWeek(now));
 
-  const profile = useApiGet<StudentProfile>(user?.studentId ? `/api/v1/students/${user.studentId}` : "");
-  const res = useApiGet<ScheduleResponse>(
-    user?.studentId
-      ? `/api/v1/students/${user.studentId}/schedule?from=${weekStart.toISOString()}&to=${weekEndExclusive.toISOString()}`
+  const profile = useCachedApiGet<StudentProfile>(studentId ? `/api/v1/students/${studentId}` : "");
+  const res = useCachedApiGet<ScheduleResponse>(
+    studentId
+      ? `/api/v1/students/${studentId}/schedule?from=${weekStart.toISOString()}&to=${weekEndExclusive.toISOString()}`
       : ""
   );
-  const calendar = useApiGet<AttendanceCalendarMonthResponse>(
-    user?.studentId
-      ? `/api/v1/attendance-calendar/month?studentId=${user.studentId}&year=${weekStart.getFullYear()}&month=${weekStart.getMonth() + 1}`
+  const calendar = useCachedApiGet<AttendanceCalendarMonthResponse>(
+    studentId
+      ? `/api/v1/attendance-calendar/month?studentId=${studentId}&year=${weekStart.getFullYear()}&month=${weekStart.getMonth() + 1}`
       : ""
   );
 
@@ -81,23 +85,24 @@ export function StudentScopeLessonsScreen({ basePath }: { basePath: "/(parent)" 
 
   return (
     <Screen onRefresh={refreshAll} refreshing={res.status === "loading"}>
-      <AppHeader title="Program" subtitle={studentName ? `${studentName} — haftalık ders programı` : "Haftalık ders programı"} />
+      <AppHeader title={tr("lessons.programTitle")} subtitle={studentName ? tr("lessons.weeklySubtitle", { name: studentName }) : tr("lessons.weeklyDefault")} showAccount={`${basePath}/hesabim`} />
+      <CacheStatus cachedAt={res.cachedAt} isStale={res.isStale} />
 
       <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-        <Pressable accessibilityRole="button" accessibilityLabel="Önceki hafta" hitSlop={8} onPress={() => setWeekStart((d) => addDays(d, -7))} style={{ padding: 6 }}>
+        <Pressable accessibilityRole="button" accessibilityLabel={tr("lessons.prevWeek")} hitSlop={8} onPress={() => setWeekStart((d) => addDays(d, -7))} style={{ padding: 6 }}>
           <Icon name="chevron-back" size={20} color={t.colors.text} />
         </Pressable>
         <View style={{ flex: 1, alignItems: "center" }}>
           <Text style={[t.typography.bodyStrong, { color: t.colors.text }]}>{weekLabel}</Text>
           {!isCurrentWeek ? (
             <Pressable accessibilityRole="button" onPress={() => setWeekStart(startOfWeek(now))} hitSlop={6} style={{ marginTop: 4 }}>
-              <Text style={[t.typography.caption, { color: t.colors.primary, fontWeight: "700" }]}>Bu haftaya dön</Text>
+              <Text style={[t.typography.caption, { color: t.colors.primary, fontFamily: t.fonts.serifBold, fontWeight: "700" }]}>{tr("lessons.backToWeek")}</Text>
             </Pressable>
           ) : (
-            <Text style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 2 }]}>Bu hafta</Text>
+            <Text style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 2 }]}>{tr("lessons.thisWeek")}</Text>
           )}
         </View>
-        <Pressable accessibilityRole="button" accessibilityLabel="Sonraki hafta" hitSlop={8} onPress={() => setWeekStart((d) => addDays(d, 7))} style={{ padding: 6 }}>
+        <Pressable accessibilityRole="button" accessibilityLabel={tr("lessons.nextWeek")} hitSlop={8} onPress={() => setWeekStart((d) => addDays(d, 7))} style={{ padding: 6 }}>
           <Icon name="chevron-forward" size={20} color={t.colors.text} />
         </Pressable>
       </View>
@@ -111,10 +116,10 @@ export function StudentScopeLessonsScreen({ basePath }: { basePath: "/(parent)" 
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={[t.typography.caption, { color: t.colors.textFaint }]}>
-                  {new Date(currentOrNextTodayLesson.startAt).getTime() <= nowTs ? "Şu anki ders" : "Bugünün sıradaki dersi"}
+                  {new Date(currentOrNextTodayLesson.startAt).getTime() <= nowTs ? tr("lessons.nowLesson") : tr("lessons.nextToday")}
                 </Text>
                 <Text style={[t.typography.cardTitle, { color: t.colors.text, marginTop: 2 }]}>
-                  {currentOrNextTodayLesson.teacherName ?? "Öğretmen"}
+                  {currentOrNextTodayLesson.teacherName ?? tr("home.teacherFallback")}
                 </Text>
                 <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>
                   {[currentOrNextTodayLesson.instrument, currentOrNextTodayLesson.roomName].filter(Boolean).join(" · ")}
@@ -125,7 +130,7 @@ export function StudentScopeLessonsScreen({ basePath }: { basePath: "/(parent)" 
           ) : (
             <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
               <Icon name="checkmark-circle-outline" size={20} color={t.colors.textMuted} />
-              <Text style={[t.typography.body, { color: t.colors.textMuted }]}>Bugün için planlanmış ders yok</Text>
+              <Text style={[t.typography.body, { color: t.colors.textMuted }]}>{tr("lessons.noLessonToday")}</Text>
             </View>
           )}
         </Card>
@@ -137,7 +142,7 @@ export function StudentScopeLessonsScreen({ basePath }: { basePath: "/(parent)" 
         <ErrorState message={friendlyAccessMessage(res.code, res.message)} onRetry={refreshAll} />
       ) : weekHasNoLessons ? (
         <View style={{ marginTop: 12 }}>
-          <EmptyState icon="calendar-outline" title="Bu hafta ders yok" description="Bu hafta için planlanmış bir ders bulunmuyor." />
+          <EmptyState icon="calendar-outline" title={tr("lessons.noWeekTitle")} description={tr("lessons.noWeekBody")} />
         </View>
       ) : (
         <View style={{ marginTop: 16, gap: 14 }}>
@@ -149,25 +154,25 @@ export function StudentScopeLessonsScreen({ basePath }: { basePath: "/(parent)" 
               <View key={day.toISOString()}>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 }}>
                   <Text style={[t.typography.bodyStrong, { color: isToday ? t.colors.primary : t.colors.text }]}>
-                    {DAY_NAMES[i]}
+                    {weekdayName(day)}
                   </Text>
                   <Text style={[t.typography.caption, { color: t.colors.textFaint }]}>{shortDayMonth(day)}</Text>
                   {isToday ? (
                     <View style={[styles.todayPill, { backgroundColor: t.colors.primary }]}>
-                      <Text style={[t.typography.label, { color: t.colors.primaryOn }]}>BUGÜN</Text>
+                      <Text style={[t.typography.label, { color: t.colors.primaryOn }]}>{tr("lessons.todayPill")}</Text>
                     </View>
                   ) : null}
                 </View>
                 {dayLessons.length > 0 ? (
                   <View style={{ gap: 10 }}>
                     {dayLessons.map((l) => (
-                      <LessonCard key={l.id} lesson={l} personName={l.teacherName ?? "Öğretmen"} onPress={() => router.push(`${basePath}/dersler/${l.id}`)} />
+                      <LessonCard key={l.id} lesson={l} studentFacing personName={l.teacherName ?? tr("home.teacherFallback")} onPress={() => router.push(`${basePath}/dersler/${l.id}`)} />
                     ))}
                   </View>
                 ) : (
                   <View style={[styles.emptyDayRow, { borderColor: t.colors.border }]}>
                     <Text style={[t.typography.caption, { color: t.colors.textFaint }]}>
-                      {dayStatus?.status === "closed" ? dayStatus.label : "Ders yok"}
+                      {dayStatus?.status === "closed" ? dayStatus.label : tr("lessons.noLessonDay")}
                     </Text>
                   </View>
                 )}
@@ -192,13 +197,16 @@ const styles = StyleSheet.create({
 
 export function StudentScopeLessonDetailScreen({ lessonId }: { lessonId: string }) {
   const t = useTheme();
-  const { user } = useAuth();
-  const res = useApiGet<ScheduleResponse>(user?.studentId ? `/api/v1/students/${user.studentId}/schedule` : "");
+  const { t: tr } = useLocale();
+  const base = usePersonaBasePath();
+  const studentId = useSelectedStudentId();
+  // Detay tek dersi ID ile bulur — kesilme payı için üst sınırla çekilir (15dk cache'li).
+  const res = useCachedApiGet<ScheduleResponse>(studentId ? `/api/v1/students/${studentId}/schedule?limit=2000` : "");
 
   if (res.status === "loading") {
     return (
       <Screen>
-        <AppHeader title="Ders" showBack showNotifications={false} />
+        <AppHeader title={tr("lessons.lessonTitle")} showBack backFallback={listFallback(base, "dersler")} showNotifications={false} />
         <LoadingSkeleton rows={3} />
       </Screen>
     );
@@ -206,7 +214,7 @@ export function StudentScopeLessonDetailScreen({ lessonId }: { lessonId: string 
   if (res.status === "error") {
     return (
       <Screen>
-        <AppHeader title="Ders" showBack showNotifications={false} />
+        <AppHeader title={tr("lessons.lessonTitle")} showBack backFallback={listFallback(base, "dersler")} showNotifications={false} />
         <ErrorState message={friendlyAccessMessage(res.code, res.message)} onRetry={res.refresh} />
       </Screen>
     );
@@ -216,23 +224,23 @@ export function StudentScopeLessonDetailScreen({ lessonId }: { lessonId: string 
   if (!lesson) {
     return (
       <Screen>
-        <AppHeader title="Ders" showBack showNotifications={false} />
-        <EmptyState icon="alert-circle-outline" title="Ders bulunamadı" />
+        <AppHeader title={tr("lessons.lessonTitle")} showBack backFallback={listFallback(base, "dersler")} showNotifications={false} />
+        <EmptyState icon="alert-circle-outline" title={tr("lessons.lessonMissing")} />
       </Screen>
     );
   }
 
-  const badge = lessonStatusBadge(lesson);
+  const badge = studentFacingLessonStatus(lesson);
 
   return (
     <Screen>
-      <AppHeader title={lesson.teacherName ?? "Öğretmen"} showBack showNotifications={false} />
+      <AppHeader title={lesson.teacherName ?? tr("home.teacherFallback")} showBack backFallback={listFallback(base, "dersler")} showNotifications={false} />
 
       <Card>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
           <Avatar name={lesson.teacherName ?? "?"} size={48} />
           <View style={{ flex: 1 }}>
-            <Text style={[t.typography.cardTitle, { color: t.colors.text }]}>{lesson.teacherName ?? "Öğretmen"}</Text>
+            <Text style={[t.typography.cardTitle, { color: t.colors.text }]}>{lesson.teacherName ?? tr("home.teacherFallback")}</Text>
             <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>
               {format(new Date(lesson.startAt), "yyyy-MM-dd")} · {format(new Date(lesson.startAt), "HH:mm")}–{format(new Date(lesson.endAt), "HH:mm")}
             </Text>
@@ -244,9 +252,9 @@ export function StudentScopeLessonDetailScreen({ lessonId }: { lessonId: string 
       <Card style={{ marginTop: 12 }}>
         <View style={{ gap: 8 }}>
           {lesson.instrument ? (
-            <Text style={[t.typography.body, { color: t.colors.text }]}>Enstrüman: {lesson.instrument}</Text>
+            <Text style={[t.typography.body, { color: t.colors.text }]}>{tr("lessons.instrument", { v: lesson.instrument })}</Text>
           ) : null}
-          {lesson.roomName ? <Text style={[t.typography.body, { color: t.colors.text }]}>Oda: {lesson.roomName}</Text> : null}
+          {lesson.roomName ? <Text style={[t.typography.body, { color: t.colors.text }]}>{tr("lessons.room", { v: lesson.roomName })}</Text> : null}
         </View>
       </Card>
     </Screen>

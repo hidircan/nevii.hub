@@ -1,84 +1,33 @@
 name: Production DB Migration
 
-# Runs when prisma/migrations/** changes land on main, OR on-demand via the
-# Actions tab (workflow_dispatch) for an auditable manual trigger. App code
-# changes alone never fire this. Kept fully separate from
-# .github/workflows/ci.yml (build/lint/test/typecheck) and from app
-# deployment (handled by Vercel's own GitHub integration, outside GitHub
-# Actions — this repo has no app-deploy job to separate from) — a migration
-# failure here never blocks or is blocked by the app build/deploy path.
 on:
   push:
     branches: [main]
     paths:
       - "prisma/migrations/**"
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      expected_migration:
+        description: Migration to apply (must be the only pending migration)
+        required: true
+        default: 20261014150000_teacher_invitation_email_sync
+        type: string
 
 permissions:
   contents: read
 
-# Never run two migration deploys against production at the same time; never
-# cancel one mid-flight (a cancelled `prisma migrate deploy` can leave the
-# _prisma_migrations table in a partial state).
 concurrency:
   group: production-migrations
   cancel-in-progress: false
 
 jobs:
-  safety-check:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Block destructive SQL without an explicit override
-        # Scans every migration.sql in the repo (not just ones changed by
-        # this push) — cheap at this repo's size, and robust across both
-        # trigger types (push diffing is fragile for workflow_dispatch,
-        # which has no "before" commit). Any migration.sql containing a
-        # genuinely dangerous statement fails the job by default. To ship an
-        # intentionally destructive migration, add a comment line
-        # "-- migration-safety: acknowledged <short reason>" inside that
-        # specific migration.sql — a deliberate, reviewable opt-out, never a
-        # silent bypass.
-        run: |
-          fail=0
-          shopt -s globstar nullglob
-          for f in prisma/migrations/**/migration.sql; do
-            [ -f "$f" ] || continue
-            acknowledged=0
-            grep -qi 'migration-safety: acknowledged' "$f" && acknowledged=1
-
-            if grep -Eqi 'DROP[[:space:]]+TABLE|DROP[[:space:]]+COLUMN|TRUNCATE|DELETE[[:space:]]+FROM|ALTER[[:space:]]+TABLE.*DROP' "$f"; then
-              if [ "$acknowledged" = "1" ]; then
-                echo "$f: destructive statement found, but explicitly acknowledged — allowing."
-              else
-                echo "$f: BLOCKED — destructive statement (DROP TABLE/COLUMN, ALTER TABLE ... DROP,"
-                echo "  TRUNCATE, or DELETE FROM) with no '-- migration-safety: acknowledged <reason>' comment."
-                fail=1
-              fi
-            fi
-
-            if grep -Eqi 'ALTER[[:space:]]+TABLE.*ALTER COLUMN.*SET NOT NULL' "$f" && [ "$acknowledged" != "1" ]; then
-              echo "$f: BLOCKED — SET NOT NULL on an existing column with no explicit backfill/default"
-              echo "  and no '-- migration-safety: acknowledged <reason>' comment (can fail on existing NULL rows)."
-              fail=1
-            fi
-          done
-          if [ "$fail" = "1" ]; then
-            echo ""
-            echo "One or more migrations look potentially destructive. Review manually, then add"
-            echo "'-- migration-safety: acknowledged <short reason>' to the specific migration.sql"
-            echo "file(s) and push (or re-run) again."
-            exit 1
-          fi
-          echo "No unacknowledged destructive statements found."
-
   deploy:
-    needs: safety-check
     runs-on: ubuntu-latest
     environment: production
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -87,16 +36,184 @@ jobs:
 
       - run: npm ci
 
-      - name: Deploy pending migrations
-        run: npx prisma migrate deploy
+      - name: Determine expected migrations
+        id: expected
         env:
-          # Add DATABASE_URL as a Secret on the "production" GitHub
-          # Environment (Settings → Environments → production → Secrets).
-          # Never put the connection string in this file, a commit, or any
-          # workflow log — and never echo/print this env var in any step.
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_BEFORE: ${{ github.event.before }}
+          EVENT_SHA: ${{ github.sha }}
+          INPUT_MIGRATION: ${{ inputs.expected_migration }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            [[ "$INPUT_MIGRATION" =~ ^[0-9]{14}_[a-z0-9_]+$ ]] || {
+              echo "Invalid expected migration name."
+              exit 1
+            }
+            expected="$INPUT_MIGRATION"
+          else
+            expected=""
+            while IFS= read -r path; do
+              [[ "$path" == prisma/migrations/*/migration.sql ]] || continue
+              name="${path#prisma/migrations/}"
+              name="${name%/migration.sql}"
+              expected+="${name}"$'\n'
+            done < <(git diff --name-only "$EVENT_BEFORE" "$EVENT_SHA" -- prisma/migrations)
+            expected="$(printf '%s' "$expected" | sed '/^$/d' | sort -u)"
+          fi
 
-      - name: Verify migration status
-        run: npx prisma migrate status
+          [ -n "$expected" ] || {
+            echo "No expected migration was identified."
+            exit 1
+          }
+          while IFS= read -r name; do
+            [ -f "prisma/migrations/$name/migration.sql" ] || {
+              echo "Expected migration file is missing: $name"
+              exit 1
+            }
+          done <<< "$expected"
+
+          {
+            echo "names<<EXPECTED_MIGRATIONS"
+            printf '%s\n' "$expected"
+            echo "EXPECTED_MIGRATIONS"
+          } >> "$GITHUB_OUTPUT"
+          printf 'Expected migration(s):\n%s\n' "$expected"
+
+      - name: Verify production endpoint and pending migration set
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          EXPECTED_MIGRATIONS: ${{ steps.expected.outputs.names }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const expectedRef = "wsbucznpujcfzhitzrbl";
+          try {
+            const url = new URL(process.env.DATABASE_URL);
+            const username = decodeURIComponent(url.username);
+            const isDirect = url.hostname === `db.${expectedRef}.supabase.co`;
+            const isSessionPooler =
+              url.hostname.endsWith(".pooler.supabase.com") &&
+              username.endsWith(`.${expectedRef}`);
+            if (
+              url.port !== "5432" ||
+              url.pathname !== "/postgres" ||
+              (!isDirect && !isSessionPooler)
+            ) {
+              console.error(
+                "Production DB target rejected; expected the configured Supabase project, postgres database, and port 5432."
+              );
+              process.exit(1);
+            }
+            console.log(
+              `Production DB target verified: ${url.hostname}:5432/postgres (${expectedRef}).`
+            );
+          } catch {
+            console.error("Production DATABASE_URL is missing or invalid.");
+            process.exit(1);
+          }
+          NODE
+
+          command -v psql >/dev/null
+          failed="$(psql "$DATABASE_URL" --no-psqlrc -v ON_ERROR_STOP=1 -Atqc \
+            'SELECT count(*) FROM public."_prisma_migrations" WHERE finished_at IS NULL AND rolled_back_at IS NULL')"
+          [ "$failed" = "0" ] || {
+            echo "Unresolved migration records exist; refusing to continue."
+            exit 1
+          }
+
+          applied="$(psql "$DATABASE_URL" --no-psqlrc -v ON_ERROR_STOP=1 -Atqc \
+            'SELECT migration_name FROM public."_prisma_migrations" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL ORDER BY migration_name')"
+          declare -A applied_set=()
+          while IFS= read -r name; do
+            [ -z "$name" ] || applied_set["$name"]=1
+          done <<< "$applied"
+
+          pending=()
+          for path in prisma/migrations/*; do
+            [ -f "$path/migration.sql" ] || continue
+            name="${path#prisma/migrations/}"
+            if [[ ! ${applied_set[$name]+present} ]]; then
+              pending+=("$name")
+            fi
+          done
+          mapfile -t expected <<< "$EXPECTED_MIGRATIONS"
+          mapfile -t pending < <(printf '%s\n' "${pending[@]}" | sed '/^$/d' | sort)
+          mapfile -t expected < <(printf '%s\n' "${expected[@]}" | sed '/^$/d' | sort)
+          if [ "${pending[*]}" != "${expected[*]}" ]; then
+            echo "Pending migration set does not exactly match the expected set."
+            printf 'Expected: %s\nPending: %s\n' "${expected[*]}" "${pending[*]}"
+            exit 1
+          fi
+
+          for name in "${pending[@]}"; do
+            sql="prisma/migrations/$name/migration.sql"
+            acknowledged="$(grep -qi 'migration-safety: acknowledged' "$sql" && echo yes || echo no)"
+            if grep -Eqi 'DROP[[:space:]]+TABLE|DROP[[:space:]]+COLUMN|TRUNCATE|DELETE[[:space:]]+FROM|ALTER[[:space:]]+TABLE.*DROP' "$sql" && [ "$acknowledged" != "yes" ]; then
+              echo "$name: blocked by destructive SQL safety check."
+              exit 1
+            fi
+            if grep -Eqi 'ALTER[[:space:]]+TABLE.*ALTER COLUMN.*SET NOT NULL' "$sql" && [ "$acknowledged" != "yes" ]; then
+              echo "$name: blocked by SET NOT NULL safety check."
+              exit 1
+            fi
+          done
+          printf 'Verified exact pending migration set:\n%s\n' "${pending[*]}"
+
+      - name: Back up production database
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          BACKUP_PUBLIC_KEY: ${{ secrets.MIGRATION_BACKUP_PUBLIC_KEY }}
+        run: |
+          set -euo pipefail
+          [ -n "$BACKUP_PUBLIC_KEY" ] || {
+            echo "MIGRATION_BACKUP_PUBLIC_KEY is not configured in the production environment."
+            exit 1
+          }
+          command -v pg_dump >/dev/null
+          command -v pg_restore >/dev/null
+          command -v openssl >/dev/null
+
+          backup_dir="$RUNNER_TEMP/production-db-backup"
+          mkdir -m 700 "$backup_dir"
+          trap 'rm -f "$backup_dir/production.dump" "$backup_dir/backup.key" "$backup_dir/recipient.pem"' EXIT
+
+          pg_dump --format=custom --no-owner --no-acl \
+            --file="$backup_dir/production.dump" "$DATABASE_URL"
+          pg_restore --list "$backup_dir/production.dump" >/dev/null
+
+          printf '%s\n' "$BACKUP_PUBLIC_KEY" > "$backup_dir/recipient.pem"
+          openssl pkey -pubin -in "$backup_dir/recipient.pem" -noout
+          openssl rand -out "$backup_dir/backup.key" 32
+          openssl enc -aes-256-cbc -salt -pbkdf2 -iter 600000 \
+            -in "$backup_dir/production.dump" \
+            -out "$backup_dir/production.dump.enc" \
+            -pass file:"$backup_dir/backup.key"
+          openssl pkeyutl -encrypt -pubin -inkey "$backup_dir/recipient.pem" \
+            -in "$backup_dir/backup.key" \
+            -out "$backup_dir/production.dump.key.enc" \
+            -pkeyopt rsa_padding_mode:oaep -pkeyopt rsa_oaep_md:sha256
+          (
+            cd "$backup_dir"
+            sha256sum production.dump.enc production.dump.key.enc > SHA256SUMS
+          )
+          rm -f "$backup_dir/recipient.pem"
+          echo "Production backup completed, verified, and encrypted for artifact storage."
+
+      - name: Store encrypted production backup
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-db-backup-${{ github.run_id }}
+          path: ${{ runner.temp }}/production-db-backup/
+          retention-days: 1
+          if-no-files-found: error
+
+      - name: Apply production migrations
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: npx prisma migrate deploy
+
+      - name: Verify production migration status
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: npx prisma migrate status

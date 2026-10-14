@@ -861,6 +861,7 @@ export async function provisionEntityLogin(params: {
   role: Extract<AppRole, "STUDENT" | "TEACHER">;
   studentId?: string;
   teacherId?: string;
+  invitationPending?: boolean;
 }): Promise<{ tempPassword: string; userId: string } | null> {
   const email = params.email.trim().toLowerCase();
   if (!email) return null;
@@ -885,6 +886,7 @@ export async function provisionEntityLogin(params: {
         role: params.role,
         teacherId: params.teacherId,
         studentId: params.studentId,
+        invitationPending: params.invitationPending ?? false,
         active: true,
       },
     });
@@ -909,6 +911,7 @@ export async function provisionEntityLogin(params: {
     role: params.role,
     teacherId: params.teacherId,
     studentId: params.studentId,
+    invitationPending: params.invitationPending,
   });
   return { tempPassword, userId: created.userId };
 }
@@ -1031,6 +1034,7 @@ export type UserAccountStatus = {
   role: AppRole;
   tenantId: string;
   active: boolean;
+  invitationPending: boolean;
   /** Kullanıcının kayıtlı adı soyadı (db modu); yoksa undefined. */
   displayName?: string;
 };
@@ -1054,6 +1058,7 @@ export async function getUserAccountStatus(userId: string): Promise<UserAccountS
         role: row.role,
         tenantId: row.tenantId,
         active: row.active,
+        invitationPending: row.invitationPending,
         displayName: row.displayName?.trim() || undefined,
       };
     } catch {
@@ -1068,26 +1073,37 @@ export async function getUserAccountStatus(userId: string): Promise<UserAccountS
       role: row.role,
       tenantId: row.tenantId,
       active: bootstrapLoginEnabled(userId),
+      invitationPending: false,
     };
   }
   const { findDynamicUserById } = await import("./dynamic-users");
   const dyn = await findDynamicUserById(userId);
   if (!dyn) return null;
-  return { userId: dyn.userId, email: dyn.email, role: dyn.role, tenantId: dyn.tenantId, active: dyn.active };
+  return {
+    userId: dyn.userId,
+    email: dyn.email,
+    role: dyn.role,
+    tenantId: dyn.tenantId,
+    active: dyn.active,
+    invitationPending: dyn.invitationPending === true,
+  };
 }
 
 /** `getUserIdByTeacherId`'den FARKLI olarak `active` filtrelemez — kapalı bir öğretmen hesabını da bulabilmek için (durum kartı + yeniden açma). */
 export async function getUserAccountStatusForTeacher(tenantId: string, teacherId: string): Promise<UserAccountStatus | null> {
   if (isDbMode) {
-    try {
-      const { getPrisma } = await import("../db");
-      const prisma = getPrisma();
-      const row = await prisma.user.findFirst({ where: { tenantId, teacherId } });
-      if (!row || !isAppRole(row.role)) return null;
-      return { userId: row.id, email: row.email, role: row.role, tenantId: row.tenantId, active: row.active };
-    } catch {
-      return null;
-    }
+    const { getPrisma } = await import("../db");
+    const prisma = getPrisma();
+    const row = await prisma.user.findFirst({ where: { tenantId, teacherId } });
+    if (!row || !isAppRole(row.role)) return null;
+    return {
+      userId: row.id,
+      email: row.email,
+      role: row.role,
+      tenantId: row.tenantId,
+      active: row.active,
+      invitationPending: row.invitationPending,
+    };
   }
   const row = HASHED.find((u) => u.tenantId === tenantId && u.teacherId === teacherId);
   if (row) {
@@ -1097,12 +1113,78 @@ export async function getUserAccountStatusForTeacher(tenantId: string, teacherId
       role: row.role,
       tenantId: row.tenantId,
       active: bootstrapLoginEnabled(row.userId),
+      invitationPending: false,
     };
   }
   const { findDynamicUserByTeacherId } = await import("./dynamic-users");
   const dyn = await findDynamicUserByTeacherId(tenantId, teacherId);
   if (!dyn) return null;
-  return { userId: dyn.userId, email: dyn.email, role: dyn.role, tenantId: dyn.tenantId, active: dyn.active };
+  return {
+    userId: dyn.userId,
+    email: dyn.email,
+    role: dyn.role,
+    tenantId: dyn.tenantId,
+    active: dyn.active,
+    invitationPending: dyn.invitationPending === true,
+  };
+}
+
+/** Giriş adresini yalnızca aynı öğretmenin henüz kabul etmediği davette değiştirir. */
+export async function updatePendingTeacherInvitationEmail(input: {
+  tenantId: string;
+  userId: string;
+  teacherId: string;
+  email: string;
+}): Promise<"updated" | "not_pending" | "email_taken"> {
+  const normalized = input.email.trim().toLowerCase();
+  if (!normalized) return "not_pending";
+  const owner = await getUserIdByEmailIncludingInactive(input.tenantId, normalized);
+  if (owner && owner !== input.userId) return "email_taken";
+
+  if (isDbMode) {
+    const { getPrisma } = await import("../db");
+    try {
+      const result = await getPrisma().user.updateMany({
+        where: {
+          id: input.userId,
+          tenantId: input.tenantId,
+          teacherId: input.teacherId,
+          role: "TEACHER",
+          invitationPending: true,
+        },
+        data: { email: normalized },
+      });
+      return result.count === 1 ? "updated" : "not_pending";
+    } catch (error) {
+      const currentOwner = await getUserIdByEmailIncludingInactive(input.tenantId, normalized);
+      if (currentOwner && currentOwner !== input.userId) return "email_taken";
+      throw error;
+    }
+  }
+
+  const { updatePendingTeacherInvitationEmail: updateDynamic } = await import("./dynamic-users");
+  return updateDynamic(input.tenantId, input.userId, input.teacherId, normalized);
+}
+
+/** Davet kabul edildikten sonra hesabı aktif giriş hesabı olarak işaretler. */
+export async function setTeacherInvitationPending(
+  tenantId: string,
+  userId: string,
+  invitationPending: boolean
+): Promise<boolean> {
+  if (isDbMode) {
+    const { getPrisma } = await import("../db");
+    const result = await getPrisma().user.updateMany({
+      where: { id: userId, tenantId, role: "TEACHER" },
+      data: { invitationPending },
+    });
+    return result.count === 1;
+  }
+  if (HASHED.some((user) => user.userId === userId && user.tenantId === tenantId && user.role === "TEACHER")) {
+    return !invitationPending;
+  }
+  const { setDynamicTeacherInvitationPending } = await import("./dynamic-users");
+  return setDynamicTeacherInvitationPending(tenantId, userId, invitationPending);
 }
 
 async function revokeSessionsAfterPasswordChange(userId: string, tenantId: string | null, dbAlreadyStamped: boolean) {

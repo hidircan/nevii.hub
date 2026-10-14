@@ -1,12 +1,15 @@
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
+import { useLocale } from "../i18n/locale-context";
 import { useTheme } from "../theme/theme-context";
+import { fonts } from "../theme/tokens";
 
-export function LoadingState({ label = "Yükleniyor…" }: { label?: string }) {
+export function LoadingState({ label }: { label?: string }) {
   const t = useTheme();
+  const { t: tr } = useLocale();
   return (
     <View style={[styles.center, { backgroundColor: t.colors.bg }]}>
       <ActivityIndicator color={t.colors.primary} />
-      <Text style={[styles.muted, { color: t.colors.textMuted }]}>{label}</Text>
+      <Text style={[styles.muted, { color: t.colors.textMuted }]}>{label ?? tr("ui.loading")}</Text>
     </View>
   );
 }
@@ -23,13 +26,14 @@ export function EmptyState({ title, description }: { title: string; description?
 
 export function ErrorState({ message, onRetry }: { message: string; onRetry?: () => void }) {
   const t = useTheme();
+  const { t: tr } = useLocale();
   return (
     <View style={[styles.center, { backgroundColor: t.colors.bg }]}>
-      <Text style={[styles.title, { color: t.colors.danger }]}>Bir şeyler ters gitti</Text>
+      <Text style={[styles.title, { color: t.colors.danger }]}>{tr("ui.wentWrong")}</Text>
       <Text style={[styles.muted, { color: t.colors.textMuted }]}>{message}</Text>
       {onRetry ? (
         <Text onPress={onRetry} style={[styles.retry, { color: t.colors.primary }]}>
-          Tekrar dene
+          {tr("ui.retry")}
         </Text>
       ) : null}
     </View>
@@ -39,12 +43,12 @@ export function ErrorState({ message, onRetry }: { message: string; onRetry?: ()
 /** Backend'e ulaşılamıyorsa (dev sırasında API_BASE_URL yanlış/kapalı) anlaşılır bir geliştirme ekranı. */
 export function DevUnreachableState({ apiBaseUrl }: { apiBaseUrl: string }) {
   const t = useTheme();
+  const { t: tr } = useLocale();
   return (
     <View style={[styles.center, { backgroundColor: t.colors.bg, padding: 24 }]}>
-      <Text style={[styles.title, { color: t.colors.text }]}>Sunucuya ulaşılamıyor</Text>
+      <Text style={[styles.title, { color: t.colors.text }]}>{tr("ui.unreachableTitle")}</Text>
       <Text style={[styles.muted, { color: t.colors.textMuted, textAlign: "center" }]}>
-        {apiBaseUrl} adresine bağlanılamadı. Web uygulamasının (npm run dev) çalıştığından ve
-        EXPO_PUBLIC_API_BASE_URL değerinin doğru olduğundan emin olun (bkz. README).
+        {tr("ui.unreachableBody", { url: apiBaseUrl })}
       </Text>
     </View>
   );
@@ -52,7 +56,7 @@ export function DevUnreachableState({ apiBaseUrl }: { apiBaseUrl: string }) {
 
 const styles = StyleSheet.create({
   center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 8, padding: 16 },
-  title: { fontSize: 16, fontWeight: "600" },
-  muted: { fontSize: 13, marginTop: 4 },
-  retry: { marginTop: 12, fontSize: 14, fontWeight: "600" },
+  title: { fontFamily: fonts.serifBold, fontSize: 18, fontWeight: "600" },
+  muted: { fontFamily: fonts.serif, fontSize: 15, marginTop: 4 },
+  retry: { marginTop: 12, fontFamily: fonts.serifBold, fontSize: 16, fontWeight: "600" },
 });

@@ -787,7 +787,7 @@ function mapDbAttachment(r: {
   fileName: string | null;
   fileMimeType: string | null;
   fileSize: number | null;
-  fileData: string | null;
+  fileData?: string | null; // liste sorgusunda okunmaz (listAttachments)
   createdById: string;
   createdAt: Date;
   deletedAt: Date | null;
@@ -905,6 +905,7 @@ export async function listAttachments(tenantId: string, taskId: string): Promise
     const rows = await prisma.taskAttachment.findMany({
       where: { tenantId, taskId, deletedAt: null },
       orderBy: { createdAt: "asc" },
+      omit: { fileData: true }, // Kota (2026-10-14): toPublicAttachment zaten atıyordu; artık DB'den hiç okunmaz.
     });
     return rows.map((r) => toPublicAttachment(mapDbAttachment(r)));
   }

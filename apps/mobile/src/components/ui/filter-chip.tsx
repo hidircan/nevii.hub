@@ -1,5 +1,6 @@
 import { Pressable, StyleSheet, Text } from "react-native";
 import { useTheme } from "../../theme/theme-context";
+import { fonts } from "../../theme/tokens";
 
 type Props = {
   label: string;
@@ -13,7 +14,10 @@ export function FilterChip({ label, selected, onPress }: Props) {
     <Pressable
       accessibilityRole="button"
       accessibilityState={{ selected: !!selected }}
+      accessibilityLabel={label}
       onPress={onPress}
+      // Görsel yükseklik korunur; dokunma alanı 44pt kuralına hitSlop ile ulaşır.
+      hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }}
       style={[
         styles.chip,
         {
@@ -38,5 +42,5 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     borderWidth: StyleSheet.hairlineWidth,
   },
-  label: { fontSize: 13, fontWeight: "600" },
+  label: { fontFamily: fonts.serifSemibold, fontSize: 15, fontWeight: "600" },
 });

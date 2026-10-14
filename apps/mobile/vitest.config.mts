@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 
 /**
@@ -8,6 +9,12 @@ import { defineConfig } from "vitest/config";
  * genişletilmedi (bkz. MOBILE_PARITY.md).
  */
 export default defineConfig({
+  resolve: {
+    alias: {
+      // Node testlerinde cihaz deposu yerine bellek sazı (bkz. src/test-stubs).
+      "expo-secure-store": fileURLToPath(new URL("./src/test-stubs/expo-secure-store.ts", import.meta.url)),
+    },
+  },
   test: {
     environment: "node",
     include: ["src/**/*.test.ts"],

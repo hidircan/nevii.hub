@@ -11,6 +11,15 @@ const globalForPrisma = global as unknown as { prisma?: PrismaClient };
  */
 const CONNECTION_TIMEOUT_MS = Number(process.env.DATABASE_CONNECT_TIMEOUT_MS ?? 10_000);
 
+/**
+ * Serverless instance başına bağlantı tavanı (pg varsayılanı 10). Çok sayıda
+ * eşzamanlı instance × 10 Supabase pooler istemci limitini tüketir; Fluid'de
+ * tek instance çok isteği paylaştığı için 5 yeterlidir. Boştaki bağlantılar
+ * kısa sürede bırakılır.
+ */
+const POOL_MAX = Math.max(1, Number(process.env.DATABASE_POOL_MAX ?? 5) || 5);
+const POOL_IDLE_MS = 10_000;
+
 export function getPrisma(): PrismaClient {
   if (globalForPrisma.prisma) return globalForPrisma.prisma;
 
@@ -24,6 +33,8 @@ export function getPrisma(): PrismaClient {
   const pool = new Pool({
     ...resolvePgConnection(databaseUrl),
     connectionTimeoutMillis: CONNECTION_TIMEOUT_MS,
+    max: POOL_MAX,
+    idleTimeoutMillis: POOL_IDLE_MS,
   });
 
   const client = new PrismaClient({

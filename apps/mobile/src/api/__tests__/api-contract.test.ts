@@ -17,18 +17,9 @@ const API_ROOT = path.join(MOBILE_ROOT, "../../src/app/api/v1");
  * Backend'de route'u OLMAYAN, bilinen ve raporlanmış yollar (docs/mobile/MOBILE_P0_RECOVERY_MANIFEST.md §4.1).
  * Hiçbiri öğretmen portalında değil. Yeni eksik eklenmemeli; route gelince buradan silinmeli.
  */
-const KNOWN_MISSING = new Set([
-  // Yönetici mobil — post-launch (öğrenci/veli/öğretmen yollarının TAMAMI backend'de mevcut)
-  "branches",
-  "dashboard/summary",
-  "homework/report",
-  "instruments",
-  "lessons",
-  "lessons/:p/reassign",
-  "rooms",
-  "students/:p/documents",
-  "students/:p/social-media-consent",
-  "teachers/payouts/:p/mark-paid",
+const KNOWN_MISSING = new Set<string>([
+  // Faz 4 sonunda BOŞ — mobilin kullandığı TÜM /api/v1 yollarının
+  // backend karşılığı var. Yeni eksik eklenmemeli.
 ]);
 
 async function walk(dir: string, pick: (name: string) => boolean): Promise<string[]> {

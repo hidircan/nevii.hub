@@ -1,5 +1,7 @@
 import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { useLocale } from "../i18n/locale-context";
 import { useTheme } from "../theme/theme-context";
+import { fonts } from "../theme/tokens";
 
 /**
  * Bu ekranın verisi web tarafında yalnız server component + doğrudan tool
@@ -9,11 +11,12 @@ import { useTheme } from "../theme/theme-context";
  */
 export function PlaceholderScreen({ title, note }: { title: string; note: string }) {
   const t = useTheme();
+  const { t: tr } = useLocale();
   return (
     <ScrollView contentContainerStyle={[styles.container, { backgroundColor: t.colors.bg }]}>
       <Text style={[styles.title, { color: t.colors.text }]}>{title}</Text>
       <View style={[styles.card, { backgroundColor: t.colors.bgMuted, borderColor: t.colors.border }]}>
-        <Text style={[styles.badge, { color: t.colors.primary }]}>Yakında</Text>
+        <Text style={[styles.badge, { color: t.colors.primary }]}>{tr("ui.comingSoon")}</Text>
         <Text style={[styles.note, { color: t.colors.textMuted }]}>{note}</Text>
       </View>
     </ScrollView>
@@ -22,8 +25,8 @@ export function PlaceholderScreen({ title, note }: { title: string; note: string
 
 const styles = StyleSheet.create({
   container: { flexGrow: 1, padding: 16 },
-  title: { fontSize: 22, fontWeight: "700", marginBottom: 12 },
+  title: { fontSize: 24, fontWeight: "700", marginBottom: 12 },
   card: { borderWidth: 1, borderRadius: 12, padding: 16, gap: 6 },
-  badge: { fontSize: 12, fontWeight: "700", textTransform: "uppercase" },
-  note: { fontSize: 14, lineHeight: 20 },
+  badge: { fontFamily: fonts.serifBold, fontSize: 14, fontWeight: "700", textTransform: "uppercase" },
+  note: { fontFamily: fonts.serif, fontSize: 16, lineHeight: 22 },
 });

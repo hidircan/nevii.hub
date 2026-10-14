@@ -9,6 +9,7 @@ import { requireSessionContext } from "@/lib/auth/session";
 import { getInstitutionContext, readScopedStudentListData } from "@/lib/institution/context";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { effectiveStudentTypes } from "@/lib/student-types";
+import { effectiveEnrollments, enrollmentTerms } from "@/lib/student-enrollments";
 import { listContractSummariesByStudent, type StudentContractSummary, listTerminalContractIdsForScope } from "@/lib/contracts";
 import { AssistantPageContext } from "@/components/ai/assistant-page-context";
 import { resolveActorLabels } from "@/lib/contract-payment-plan-view";
@@ -93,6 +94,28 @@ export default async function OgrencilerPage({
     // ödeme ve iptal/yenilenmiş sözleşmenin ödenmemiş taksiti borç/gecikme değildir.
     const debt = summarizeStudentDebt(paymentsByStudent.get(s.id) ?? [], terminalContractIds);
     const paymentStatus: StudentRow["paymentStatus"] = debt.status;
+    // 2026-10-10 — çok branşlı öğrencide öğretmen/paket/ücret/seviye ilk branştan değil TÜM aktif branşlardan okunur.
+    const branches = effectiveEnrollments(s, data.teachers);
+    const multi = branches.length > 1;
+    const live = multi ? branches.filter((e) => e.active) : [];
+    const liveTerms = live.map((e) => ({ e, t: enrollmentTerms(s, e, data.teachers) }));
+    const names = (xs: (string | undefined)[]) => [...new Set(xs.filter((x): x is string => !!x))];
+    const multiExtras: Partial<StudentRow> = multi
+      ? {
+          teacherNames: names(liveTerms.map(({ t }) => data.teachers.find((x) => x.id === t.teacherId)?.name)),
+          packageNames: names(liveTerms.map(({ t }) => t.packageName || "Paketsiz")),
+          levels: names(liveTerms.map(({ t }) => t.level)),
+          teacherName: names(liveTerms.map(({ t }) => data.teachers.find((x) => x.id === t.teacherId)?.name)).join(", "),
+          packageName: liveTerms.length > 1 ? "Birden fazla paket" : (liveTerms[0]?.t.packageName ?? s.packageName),
+          monthlyFee: liveTerms.reduce((sum, { t }) => sum + t.monthlyFee, 0),
+          studentTypes: names(liveTerms.flatMap(({ t }) => t.studentTypes)),
+          branchLines: liveTerms.map(({ e, t }) => {
+            const teacher = data.teachers.find((x) => x.id === t.teacherId)?.name;
+            const types = t.studentTypes.length ? t.studentTypes.join("+") : "tür yok";
+            return `${e.instrument}${teacher ? ` · ${teacher}` : ""} · ${types}${t.level ? ` · seviye ${t.level}` : ""} · ${t.monthlyFee.toLocaleString("tr-TR")} ₺`;
+          }),
+        }
+      : {};
     return {
       id: s.id,
       name: s.name,
@@ -121,6 +144,7 @@ export default async function OgrencilerPage({
       createdByName: s.createdByUserId ? actorNames.get(s.createdByUserId) : undefined,
       convertedByName: s.convertedByUserId ? actorNames.get(s.convertedByUserId) : undefined,
       fromTrial: Boolean(s.convertedFromTrialId),
+      ...multiExtras,
       kvkkConsent: kvkkConsented ? (kvkkConsented.has(s.id) ? "Var" : "Yok") : undefined,
       photoConsent: photoConsents ? photoConsentLabel(photoConsents.get(s.id)) : undefined,
     };

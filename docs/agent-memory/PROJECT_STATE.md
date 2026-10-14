@@ -4,7 +4,41 @@ Kısa tutulur (~50 satır): oturum sonunda yalnız "Güncel snapshot" bölümün
 `archive/`'e taşınır. Ayrıntı → ilgili `docs/testing/UAT_*.md`, `docs/operations/*`. Yönlendirici: `nevii-hub` skill.
 Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_2026-09-24.md`.
 
-## Güncel snapshot — 2026-10-10 (P0 Supabase egress + UserSession kilidi; PR açık, MERGE/CANLI YOK)
+## Güncel snapshot — 2026-10-14 (öğretmen e-posta / portal davet senkronizasyonu; PR #29 açık, merge/canlı yok)
+- Dal `fix/teacher-email-portal-sync`, `origin/main` (`2706825e`) tabanlı ayrı worktree.
+- `Teacher.email` iletişim, bağlı `User.email` portal giriş adresi olarak ayrıldı; öğretmen hesabı yalnız tenant + `teacherId` ile bulunur.
+- Profil e-postası değişikliği bekleyen davet token'larını iptal eder; yeniden davet kendiliğinden gönderilmez. Yönetici eylemi yeni alıcıyı güncel iletişim adresine taşır.
+- Aktif hesabın giriş adresi profil güncellemesinde değişmez; iletişim/giriş adresleri UI'da ayrı gösterilir. Etkin/kapalı başka hesaba ait adresler çakışma sayılır.
+- Migration `20261014150000_teacher_invitation_email_sync` yalnızca dosya olarak mevcut; DB'ye uygulanmadı. Production verisi, merge ve deploy yok.
+- `typecheck`, lint, `prisma validate`, build ve odak davet testleri (2 dosya / 44 test) geçti. Tam suite gereksiz süre nedeniyle durduruldu; başlangıç çıktısında bu iş dışındaki test hataları da vardı.
+
+## Snapshot — 2026-10-14 (rapor portalı; dal `feat/report-portal`, PR açık, MERGE/CANLI YOK)
+- Spec/plan: `docs/superpowers/specs|plans/2026-10-14-report-portal*`. UAT: `docs/testing/UAT_2026_10_14_REPORT_PORTAL.md`.
+- `/gelisim` (öğretmen mobil rapor sitesi), `/degerlendir` + `/degerlendir/<kod>` (öğrenci değerlendirmesi, 14 gün kişiye özel
+  link, yeni tablo `FeedbackInvite`), `/panel/raporlar` (yönetici takibi), rapor gönderiminde yönetici bildirimi.
+- Düzeltilen hatalar: çoklu branşta değerlendirme/rapor yanlış (ilk) öğretmene yazılıyordu; rapor kaydı tam okuma yapıyordu.
+- Migration `20261014120000_feedback_invites` (eklemeli, RLS) canlıya KODDAN ÖNCE, owner onayıyla.
+- Kota tarafı: PR #27 açık (merge onayı bekliyor); Firewall Bot Protection + Supabase Data API kapatma owner'da.
+
+## Snapshot — 2026-10-13 (kota denetimi + `perf/quota-p1`; PR açık, MERGE/CANLI YOK — owner sürüm onayı bekliyor)
+- Rapor: `docs/performance/QUOTA_AUDIT_2026_10_12.md`. Vercel Active CPU 3 sa 53 dk / 4 sa; Supabase 8,79 / 5 GB, 11 Ekim tek gün
+  1,185 GB (PR #21 sonrası, öncesinden YÜKSEK → etkisi kanıtsız). Kasım bütçesi ≈ 170 MB/gün; Supabase'te ikinci grace yok.
+- Owner SQL: dosya kolonları canlıda ~boş (yalnız DocumentInstance 126 / 2,6 MB); Student 233 × 459 B ama her dilimde okunuyor.
+- Dal `perf/quota-p1` (taban `origin/main` 174bb2b): `store-db.readData()` ölçüm satırı `egress:readData:full`; evrak listeleri
+  `fileData`/`renderedHtml` okumuyor; 3 portal sayfası `readStudentScope`. Migration/şema/env değişikliği YOK.
+- Sıradaki: deploy sonrası okul saatinde `get_runtime_logs group_by requestPath query egress:readData:full` → en sık 3 rota dilime;
+  Student kolon daraltma; `notification-tick` secret'ları sweep daraltılmadan EKLENMEZ; mobil yayın öncesi `admin-lists` daraltılır.
+
+## Snapshot — 2026-10-10 geç (gece tahakkuk cron'u P2002; PR #22 MERGE + CANLIDA, prod `78d81bb`)
+- Dal `claude/jovial-perlman-4440c2` (taban `origin/main` cf12bc0). Migration/şema/env değişikliği YOK.
+- `monthly-accrual` cron'u platform tenant'ını atlar; kurum başına try/catch + `logger.error`; yanıtta
+  `failed`/`failures`, hata varsa HTTP 500. `store-db.readData()` okul yoksa canlıda (`VERCEL_ENV`/
+  `NEVII_DEPLOYMENT_TIER`=production) seed etmez, Türkçe hata atar (tüm dilim okuyucular buraya düşer).
+- Owner kontrolü (salt okuma): 10-03..10 her gece seed silme transaction'ı okulsuz tenant'ta commit olmuş olabilir —
+  `tenant_platform` User satırları ve Tenant adı. Deploy sonrası ilk cron yanıtı `failed: 0` olmalı.
+
+## Güncel snapshot — 2026-10-10 (P0 Supabase egress + UserSession kilidi; PR #21 MERGE + CANLIDA `cf12bc0`, ~10:42Z)
+- Yöntem/kurallar: skill `performance-db-egress`; kalan tam okumalar `docs/performance/DB_EGRESS_2026_10_10.md` §5.
 - Dal `fix/supabase-egress-p0` (taban `origin/main` a18c887) → PR. Migration/şema/env değişikliği YOK.
 - Kök neden (kanıt + yerel ölçüm): her yoklama işareti/geri alma (`planOpsChangeForPayout`), ders başlat/bitir, ders
   oluşturma, tahsilat, öğretmen ana sayfası, öğrenci ödeme profili, makbuz ve Öğretmenler listesi tenant'ın TÜM verisini
@@ -280,6 +314,7 @@ Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_20
 - Vercel Cron: günlük 00:30 UTC retention (`vercel.json`, `CRON_SECRET`).
 
 ## Açık iş
+- Öğretmen e-posta senkronizasyonu PR'ı için owner incelemesi; migration ve yayın ayrıca onay bekler.
 - Owner UAT: 9. tur (`UAT_2026_09_28_ROUND_9.md`).
 - Mobil panel: yan menü 390 px'te de 256 px sabit (çekmece yok) — ayrı tur önerisi.
 - Açık temada 10 eski kontrast ihlali (Evraklar küçük altın link, Öğrenciler soluk sayfalama, Özet gri alt yazı).

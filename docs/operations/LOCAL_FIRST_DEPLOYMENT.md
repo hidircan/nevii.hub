@@ -106,7 +106,11 @@ Yüksek riskli işler için açılır, iş bitince kapatılır. Gerçek kişisel
 2. Yerelde canlı şemasının **verisiz** bir kopyasına uygulanır (`_prisma_migrations` geçmişi dahil şema dump'ı).
    `prisma migrate deploy` yalnız yeni migration'ı uygular. Ardından uygulama DB modunda denenir.
 3. Canlıya: owner onayı → canlı yedeği (`pg_dump -Fc`) → `prisma migrate deploy`, **session pooler 5432** üzerinden.
-   Transaction pooler 6543'te `migrate` sessizce asılı kalır. Sonra kod `main`'e itilir.
+   Transaction pooler 6543'te `migrate` sessizce asılı kalır. GitHub Actions `production` environment'ındaki
+   `DATABASE_URL` bu hedefi göstermeli. Migration workflow'u yalnızca beklenen migration kümesi canlıda bekliyorsa
+   ilerler; SQL güvenlik taraması da yalnızca bu bekleyen migration'lara uygulanır. Migration öncesi dump, geçici
+   RSA alıcı anahtarıyla şifrelenip 1 günlük Actions artifact'ı olarak saklanır (`MIGRATION_BACKUP_PUBLIC_KEY`);
+   özel anahtar repo dışında tutulur. Sonra migration deploy edilir.
 4. Sıra önemlidir: önce migration, sonra kod. `main` build'indeki migration kapısı
    (`scripts/check-pending-migrations.ts`) uygulanmamış migration görürse build'i durdurur; canlıda önceki sürüm
    çalışmaya devam eder. Acil durumda `SKIP_MIGRATION_GATE=1` (owner kararı).

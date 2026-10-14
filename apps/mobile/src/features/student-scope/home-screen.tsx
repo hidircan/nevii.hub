@@ -1,7 +1,8 @@
 import { useRouter } from "expo-router";
 import { useMemo } from "react";
 import { Text, View } from "react-native";
-import { useAuth } from "../../auth/auth-context";
+import { ChildSwitcher } from "../../student/child-switcher";
+import { useChildSelection, useSelectedStudentId } from "../../student/student-context";
 import {
   AppHeader,
   Card,
@@ -9,26 +10,33 @@ import {
   ErrorState,
   Icon,
   LessonCard,
+  ListGroup,
+  ListRow,
   LoadingSkeleton,
   NotificationCard,
   ProgressBar,
   Screen,
   SectionHeader,
 } from "../../components/ui";
+import { useAppForegroundRefetch } from "../../hooks/use-app-foreground-refetch";
 import { useApiGet } from "../../hooks/use-api";
+import { CacheStatus } from "../../cache/cache-status";
+import { useCachedApiGet } from "../../cache/use-cached-api";
 import { useNow } from "../../hooks/use-now";
-import { format, formatCurrency, isPast, relativeDayLabel } from "../../lib/date";
+import { format, formatCurrency, isPast, relativeDayLabel, weekdayName } from "../../lib/date";
+import { useLocale } from "../../i18n/locale-context";
 import { useTheme } from "../../theme/theme-context";
 import type {
   AssessmentsResponse,
   AttendanceSummary,
   BalanceResponse,
   HomeworkResponse,
-  MakeupResponse,
+  MakeupLedgerResponse,
   NotificationsResponse,
   ScheduleResponse,
   StudentProfile,
 } from "../../types/api";
+import { isOpenMakeup } from "./makeup-view";
 
 /**
  * Veli ve öğrenci "Ana Sayfa" ekranı — ikisi de aynı öğrenci-scoped veriye
@@ -37,22 +45,66 @@ import type {
  * dosyaları ayrı, ama iş mantığı/bileşen burada paylaşılıyor.
  */
 export function StudentScopeHomeScreen({ basePath }: { basePath: "/(parent)" | "/(student)" }) {
-  const { user } = useAuth();
   const t = useTheme();
+  const { t: tr } = useLocale();
   const router = useRouter();
   const now = useNow();
-  const studentId = user?.studentId;
+  // Aktif öğrenci bağlamı — seçim beklenirken null: ekranlar skeleton gösterir,
+  // eski öğrencinin verisi ASLA görünmez (URL'ler seçili ID'den kurulur).
+  const studentId = useSelectedStudentId();
 
-  const profile = useApiGet<StudentProfile>(studentId ? `/api/v1/students/${studentId}` : "");
-  const schedule = useApiGet<ScheduleResponse>(studentId ? `/api/v1/students/${studentId}/schedule` : "");
-  const homework = useApiGet<HomeworkResponse>(studentId ? `/api/v1/students/${studentId}/homework` : "");
-  const attendance = useApiGet<AttendanceSummary>(studentId ? `/api/v1/students/${studentId}/attendance-summary` : "");
+  // Ev yalnız "sıradaki ders + bu hafta" gösterir — penceresiz program (tüm
+  // ders geçmişi) yerine 21 günlük pencere çekilir. Pencere gün-başına
+  // sabitlenir: render başına değişen URL sonsuz yeniden-istek yapardı.
+  const homeWindow = useMemo(() => {
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(start.getTime() + 14 * 86400000);
+    return { from: new Date(start.getTime() - 7 * 86400000).toISOString(), to: end.toISOString() };
+  }, []);
+  const profile = useCachedApiGet<StudentProfile>(studentId ? `/api/v1/students/${studentId}` : "");
+  const schedule = useCachedApiGet<ScheduleResponse>(
+    studentId ? `/api/v1/students/${studentId}/schedule?from=${homeWindow.from}&to=${homeWindow.to}` : ""
+  );
+  const homework = useCachedApiGet<HomeworkResponse>(studentId ? `/api/v1/students/${studentId}/homework` : "");
+  const attendance = useCachedApiGet<AttendanceSummary>(studentId ? `/api/v1/students/${studentId}/attendance-summary` : "");
   const assessments = useApiGet<AssessmentsResponse>(studentId ? `/api/v1/assessments/${studentId}` : "");
-  const notifications = useApiGet<NotificationsResponse>("/api/v1/notifications");
-  const makeup = useApiGet<MakeupResponse>(studentId ? "/api/v1/makeup" : "");
+  const notifications = useCachedApiGet<NotificationsResponse>("/api/v1/notifications");
+  // Seçili öğrenci kapsamlı telafi kayıtları — guardian başka çocuğun telafisini görmez.
+  const makeup = useCachedApiGet<MakeupLedgerResponse>(studentId ? `/api/v1/students/${studentId}/makeup-ledger?limit=50` : "");
   // Öğrenci de kendi ödeme geçmişini görebilmeli (Bölüm D) — yalnızca veliye
   // özel değil, bkz. getParentBalanceTool'daki STUDENT genişletmesi.
-  const balance = useApiGet<BalanceResponse>(studentId ? `/api/v1/students/${studentId}/balance` : "");
+  const balance = useCachedApiGet<BalanceResponse>(studentId ? `/api/v1/students/${studentId}/balance` : "");
+  // Hook'lar erken return'ün ÜSTÜNDE (rules-of-hooks) — studentId yokken
+  // refresh'ler no-op URL'lerle zararsızdır.
+  const selection = useChildSelection();
+  function refreshAll() {
+    // Çocuk listesi dahil — erişim iptali pull-to-refresh/foreground'da düşer.
+    selection.refresh();
+    schedule.refresh();
+    profile.refresh();
+    homework.refresh();
+    attendance.refresh();
+    assessments.refresh();
+    notifications.refresh();
+    makeup.refresh();
+    balance.refresh();
+  }
+  function refreshAllAuto() {
+    // Erişim verisi (çocuk listesi) her zaman zorla doğrulanır; içerik
+    // TTL-bilinçli tazelenir (fresh ise istek atılmaz).
+    selection.refresh();
+    schedule.autoRefresh();
+    profile.autoRefresh();
+    homework.autoRefresh();
+    attendance.autoRefresh();
+    assessments.autoRefresh();
+    notifications.autoRefresh();
+    makeup.autoRefresh();
+    balance.autoRefresh();
+  }
+  // Web'de admin değişikliği → foreground'a dönüşte yeniden doğrula.
+  useAppForegroundRefetch(refreshAllAuto);
 
   const nextLesson = useMemo(() => {
     if (schedule.status !== "success") return null;
@@ -71,16 +123,13 @@ export function StudentScopeHomeScreen({ basePath }: { basePath: "/(parent)" | "
   const pendingHomework = homework.status === "success" ? homework.data.homework.filter((h) => h.status !== "REVIEWED") : [];
   const latestAssessment = assessments.status === "success" ? assessments.data.assessments[assessments.data.assessments.length - 1] : null;
   const latestNotifications = notifications.status === "success" ? notifications.data.notifications.slice(0, 3) : [];
-  const openMakeups =
-    makeup.status === "success"
-      ? makeup.data.makeupRequests.filter((m) => !["completed", "expired", "cancelled"].includes(m.status))
-      : [];
+  const openMakeups = makeup.status === "success" ? makeup.data.items.filter((m) => isOpenMakeup(m.status)) : [];
 
   if (!studentId) {
     return (
       <Screen>
-        <AppHeader title="Ana Sayfa" />
-        <EmptyState icon="alert-circle-outline" title="Öğrenci bilgisi bulunamadı" description="Bu hesapta bir öğrenci kaydı bağlı değil." />
+        <AppHeader title={tr("tabs.home")} />
+        <EmptyState icon="alert-circle-outline" title={tr("home.noStudentTitle")} description={tr("home.noStudentBody")} />
       </Screen>
     );
   }
@@ -90,86 +139,115 @@ export function StudentScopeHomeScreen({ basePath }: { basePath: "/(parent)" | "
   const headerContext =
     profile.status === "success"
       ? nextLesson
-        ? `${profile.data.name} · sıradaki ders ${format(new Date(nextLesson.startAt), "HH:mm")}`
+        ? `${profile.data.name} · ${tr("home.nextLessonAt")} ${format(new Date(nextLesson.startAt), "HH:mm")}`
         : profile.data.name
       : undefined;
 
-  return (
-    <Screen onRefresh={schedule.refresh} refreshing={schedule.status === "loading"}>
-      <AppHeader title="Nevii Hub" subtitle={headerContext} />
+  const refreshing =
+    schedule.status === "loading" ||
+    profile.status === "loading" ||
+    homework.status === "loading" ||
+    notifications.status === "loading";
 
-      <SectionHeader title="Sıradaki ders" />
+  return (
+    <Screen onRefresh={refreshAll} refreshing={refreshing}>
+      <AppHeader title="Nevii Hub" subtitle={headerContext} showAccount={`${basePath}/hesabim`} />
+      <CacheStatus cachedAt={schedule.cachedAt} isStale={schedule.isStale} />
+      <ChildSwitcher childName={profile.status === "success" ? profile.data.name : undefined} />
+
+      <SectionHeader title={tr("home.nextLesson")} />
       {schedule.status === "loading" ? (
         <LoadingSkeleton rows={1} />
       ) : schedule.status === "error" ? (
         <ErrorState message={schedule.message} onRetry={schedule.refresh} />
       ) : nextLesson ? (
-        <LessonCard lesson={nextLesson} personName={nextLesson.teacherName ?? "Öğretmen"} onPress={() => router.push(`${basePath}/dersler/${nextLesson.id}`)} />
+        <LessonCard lesson={nextLesson} studentFacing personName={nextLesson.teacherName ?? tr("home.teacherFallback")} onPress={() => router.push(`${basePath}/dersler/${nextLesson.id}`)} />
       ) : (
-        <EmptyState icon="calendar-outline" title="Planlanmış ders yok" />
+        <EmptyState icon="calendar-outline" title={tr("home.noPlanned")}  compact />
       )}
 
-      <SectionHeader title="Bu haftanın dersleri" actionLabel="Tümü" onAction={() => router.push(`${basePath}/dersler`)} />
-      {thisWeekLessons.length === 0 ? (
-        <EmptyState icon="calendar-outline" title="Bu hafta ders yok" />
+      <SectionHeader title={tr("home.thisWeek")} actionLabel={tr("home.all")} onAction={() => router.push(`${basePath}/dersler`)} />
+      {schedule.status === "loading" ? (
+        <LoadingSkeleton rows={1} />
+      ) : schedule.status === "error" ? (
+        <ErrorState message={schedule.message} onRetry={schedule.refresh} />
+      ) : thisWeekLessons.length === 0 ? (
+        <EmptyState icon="calendar-outline" title={tr("home.noWeekLessons")}  compact />
       ) : (
-        <View style={{ gap: 10 }}>
-          {thisWeekLessons.slice(0, 3).map((l) => (
-            <LessonCard key={l.id} lesson={l} personName={l.teacherName ?? "Öğretmen"} onPress={() => router.push(`${basePath}/dersler/${l.id}`)} />
-          ))}
-        </View>
+        <ListGroup>
+          {thisWeekLessons.slice(0, 3).map((l) => {
+            const day = weekdayName(new Date(l.startAt));
+            const time = format(new Date(l.startAt), "HH:mm");
+            return (
+              <ListRow
+                key={l.id}
+                icon="calendar-outline"
+                title={l.teacherName ?? tr("home.teacherFallback")}
+                subtitle={`${day} ${time}${l.instrument ? ` · ${l.instrument}` : ""}${l.roomName ? ` · ${l.roomName}` : ""}`}
+                onPress={() => router.push(`${basePath}/dersler/${l.id}`)}
+              />
+            );
+          })}
+        </ListGroup>
       )}
 
-      <SectionHeader title="Bekleyen ödevler" actionLabel="Tümü" onAction={() => router.push(`${basePath}/odevler`)} />
+      <SectionHeader title={tr("home.pendingHomework")} actionLabel={tr("home.all")} onAction={() => router.push(`${basePath}/odevler`)} />
       {homework.status === "loading" ? (
         <LoadingSkeleton rows={1} />
+      ) : homework.status === "error" ? (
+        <ErrorState message={homework.message} onRetry={homework.refresh} />
       ) : pendingHomework.length === 0 ? (
-        <EmptyState icon="checkmark-circle-outline" title="Bekleyen ödev yok" />
+        <EmptyState icon="checkmark-circle-outline" title={tr("home.noPendingHomework")}  compact />
       ) : (
-        <Card>
-          <Text style={[t.typography.cardTitle, { color: t.colors.text }]}>{pendingHomework.length} bekleyen ödev</Text>
-          <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 4 }]} numberOfLines={2}>
-            {pendingHomework.map((h) => h.title).join(", ")}
-          </Text>
-        </Card>
+        <ListGroup>
+          <ListRow
+            icon="book-outline"
+            title={tr("home.pendingCount", { n: pendingHomework.length })}
+            subtitle={pendingHomework.map((h) => h.title).join(", ")}
+            onPress={() => router.push(`${basePath}/odevler`)}
+          />
+        </ListGroup>
       )}
 
-      <SectionHeader title="Devam durumu" />
+      <SectionHeader title={tr("home.attendance")} />
       {attendance.status === "loading" ? (
         <LoadingSkeleton rows={1} />
       ) : attendance.status === "error" ? (
         <ErrorState message={attendance.message} onRetry={attendance.refresh} />
       ) : (
-        <Card>
-          <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 8 }}>
+        <Card onPress={() => router.push(`${basePath}/devam-raporu`)}>
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
             <Text style={[t.typography.bodyStrong, { color: t.colors.text }]}>
-              {attendance.data.attended}/{attendance.data.totalLessons} derse katıldı
+              {tr("home.attendedOf", { a: attendance.data.attended, t: attendance.data.totalLessons })}
             </Text>
+            <Icon name="chevron-forward" size={16} color={t.colors.textFaint} />
           </View>
           <ProgressBar
             progress={attendance.data.totalLessons ? (attendance.data.attended / attendance.data.totalLessons) * 100 : 0}
             tone="success"
           />
+          <Text style={[t.typography.caption, { color: t.colors.primary, marginTop: 8 }]}>{tr("home.seeReport")}</Text>
         </Card>
       )}
 
-      {openMakeups.length > 0 ? (
+      {makeup.status === "success" && openMakeups.length > 0 ? (
         <>
-          <SectionHeader title="Telafi hakları" />
-          <View style={{ gap: 8 }}>
+          <SectionHeader title={tr("home.makeupRights")} actionLabel={tr("home.all")} onAction={() => router.push(`${basePath}/telafiler`)} />
+          <ListGroup>
             {openMakeups.slice(0, 3).map((m) => (
-              <Card key={m.id}>
-                <Text style={[t.typography.bodyStrong, { color: t.colors.text }]}>{m.teacherName ?? "Öğretmen"} — {m.instrument}</Text>
-                <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 4 }]}>
-                  {m.status === "confirmed" ? "Telafi dersi planlandı" : "Yönetici tarafından değerlendiriliyor"}
-                </Text>
-              </Card>
+              <ListRow
+                key={m.id}
+                icon="swap-horizontal-outline"
+                title={`${m.teacherName ?? tr("home.teacherFallback")}${m.instrument ? ` — ${m.instrument}` : ""}`}
+                subtitle={m.confirmedLesson ? tr("home.makeupScheduled") : tr("home.makeupReview")}
+                onPress={() => router.push(`${basePath}/telafiler/${m.id}`)}
+              />
             ))}
-          </View>
+          </ListGroup>
         </>
       ) : null}
 
-      <SectionHeader title="Ödeme özeti" />
+      <SectionHeader title={tr("home.paymentSummary")} />
       {balance.status === "loading" ? (
         <LoadingSkeleton rows={1} />
       ) : balance.status === "error" ? (
@@ -177,21 +255,23 @@ export function StudentScopeHomeScreen({ basePath }: { basePath: "/(parent)" | "
       ) : (
         <Card onPress={() => router.push(`${basePath}/odemeler`)}>
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-            <Text style={[t.typography.body, { color: t.colors.text }]}>Bekleyen bakiye</Text>
+            <Text style={[t.typography.body, { color: t.colors.text }]}>{tr("home.outstanding")}</Text>
             <Text style={[t.typography.cardTitle, { color: balance.data.outstanding > 0 ? t.colors.danger : t.colors.success }]}>
               {formatCurrency(balance.data.outstanding)}
             </Text>
           </View>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 8 }}>
-            <Text style={[t.typography.caption, { color: t.colors.primary }]}>Tüm ödemeleri gör</Text>
+            <Text style={[t.typography.caption, { color: t.colors.primary }]}>{tr("home.seeAllPayments")}</Text>
             <Icon name="chevron-forward" size={13} color={t.colors.primary} />
           </View>
         </Card>
       )}
 
-      <SectionHeader title="Öğretmen notu" />
+      <SectionHeader title={tr("home.teacherNote")} />
       {assessments.status === "loading" ? (
         <LoadingSkeleton rows={1} />
+      ) : assessments.status === "error" ? (
+        <ErrorState message={assessments.message} onRetry={assessments.refresh} />
       ) : latestAssessment ? (
         <Card>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 }}>
@@ -201,12 +281,16 @@ export function StudentScopeHomeScreen({ basePath }: { basePath: "/(parent)" | "
           <Text style={[t.typography.body, { color: t.colors.text }]}>{latestAssessment.strengthNote}</Text>
         </Card>
       ) : (
-        <EmptyState icon="chatbubble-outline" title="Henüz öğretmen notu yok" />
+        <EmptyState icon="chatbubble-outline" title={tr("home.noTeacherNote")}  compact />
       )}
 
-      <SectionHeader title="Bildirimler" actionLabel="Tümü" onAction={() => router.push("/notifications")} />
-      {latestNotifications.length === 0 ? (
-        <EmptyState icon="notifications-outline" title="Bildirim yok" />
+      <SectionHeader title={tr("home.notifications")} actionLabel={tr("home.all")} onAction={() => router.push("/notifications")} />
+      {notifications.status === "loading" ? (
+        <LoadingSkeleton rows={1} />
+      ) : notifications.status === "error" ? (
+        <ErrorState message={notifications.message} onRetry={notifications.refresh} />
+      ) : latestNotifications.length === 0 ? (
+        <EmptyState icon="notifications-outline" title={tr("home.noNotifications")}  compact />
       ) : (
         <View style={{ gap: 8 }}>
           {latestNotifications.map((n) => (

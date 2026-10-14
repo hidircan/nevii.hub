@@ -4,6 +4,7 @@
  * için ayrı, kontrastı test edilmiş bir palet tanımlı (aynı tonların koyulaştırılmış
  * hali değil — koyu zeminde okunabilirlik için ayrıca ayarlandı).
  */
+import { serifBoldFontFamily, serifFontFamily, serifMediumFontFamily, serifSemiboldFontFamily } from "./serif-font";
 
 export const spacing = {
   xs: 4,
@@ -22,6 +23,26 @@ export const radius = {
   lg: 16,
   xl: 20,
   pill: 999,
+} as const;
+
+/**
+ * Font ailesi token'ları — tek kaynak.
+ * - `display`: marka ve anlamlı ekran başlıkları (Gloock 400, tek ağırlık).
+ * - `sans`: başlık hiyerarşisi (screen/section title) — sistem sans'ı.
+ * - `serif`/`serifMedium`/`serifSemibold`/`serifBold`: başlık DIŞI tüm
+ *   yazılar (Noto Serif; iOS ve Android'de AYNI gömülü aile, bkz.
+ *   `theme/serif-font.*`). Kalınlık DOSYA adıyla seçilir — regular dosya
+ *   üzerine 600/700 override YOK. Eski gövde fontları YOK —
+ *   aramayla doğrulanır, yeniden eklenmez.
+ */
+export const fonts = {
+  display: "Gloock_400Regular",
+  displayFallback: "Georgia",
+  sans: "System",
+  serif: serifFontFamily,
+  serifMedium: serifMediumFontFamily,
+  serifSemibold: serifSemiboldFontFamily,
+  serifBold: serifBoldFontFamily,
 } as const;
 
 export type ThemeColors = {
@@ -103,13 +124,20 @@ const darkColors: ThemeColors = {
 };
 
 export const typography = {
-  screenTitle: { fontSize: 24, lineHeight: 30, fontWeight: "700" as const },
-  sectionTitle: { fontSize: 17, lineHeight: 22, fontWeight: "700" as const },
-  cardTitle: { fontSize: 15, lineHeight: 20, fontWeight: "600" as const },
-  body: { fontSize: 14, lineHeight: 20, fontWeight: "400" as const },
-  bodyStrong: { fontSize: 14, lineHeight: 20, fontWeight: "600" as const },
-  caption: { fontSize: 12, lineHeight: 16, fontWeight: "500" as const },
-  label: { fontSize: 11, lineHeight: 14, fontWeight: "700" as const, textTransform: "uppercase" as const, letterSpacing: 0.4 },
+  /** Marka + anlamlı ekran başlıkları — Gloock. Ağırlık YOK (tek 400 kesit); kalınlaştırma yapılmaz. */
+  display: { fontFamily: fonts.display, fontSize: 32, lineHeight: 40, fontWeight: "400" as const },
+  /** Ekran/section başlıkları — başlık stratejisini korur (sistem sans). */
+  screenTitle: { fontSize: 28, lineHeight: 34, fontWeight: "700" as const },
+  sectionTitle: { fontSize: 20, lineHeight: 26, fontWeight: "700" as const },
+  /**
+   * Kart/liste içerik başlıkları (ad, açıklama, tutar satırları) — gövde
+   * serif'i. Gerçek ekran/section hiyerarşisi screenTitle/sectionTitle'dadır.
+   */
+  cardTitle: { fontFamily: fonts.serifSemibold, fontSize: 18, lineHeight: 24, fontWeight: "600" as const },
+  body: { fontFamily: fonts.serif, fontSize: 17, lineHeight: 24, fontWeight: "400" as const },
+  bodyStrong: { fontFamily: fonts.serifSemibold, fontSize: 17, lineHeight: 24, fontWeight: "600" as const },
+  caption: { fontFamily: fonts.serifMedium, fontSize: 15, lineHeight: 20, fontWeight: "500" as const },
+  label: { fontFamily: fonts.serifBold, fontSize: 13, lineHeight: 16, fontWeight: "700" as const, textTransform: "uppercase" as const, letterSpacing: 0.4 },
 };
 
 export const shadow = {
@@ -135,8 +163,9 @@ export type Theme = {
   spacing: typeof spacing;
   radius: typeof radius;
   typography: typeof typography;
+  fonts: typeof fonts;
   shadow: typeof shadow;
 };
 
-export const lightTheme: Theme = { mode: "light", colors: lightColors, spacing, radius, typography, shadow };
-export const darkTheme: Theme = { mode: "dark", colors: darkColors, spacing, radius, typography, shadow };
+export const lightTheme: Theme = { mode: "light", colors: lightColors, spacing, radius, typography, fonts, shadow };
+export const darkTheme: Theme = { mode: "dark", colors: darkColors, spacing, radius, typography, fonts, shadow };

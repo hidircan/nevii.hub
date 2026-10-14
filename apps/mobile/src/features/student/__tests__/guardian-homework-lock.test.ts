@@ -20,13 +20,13 @@ describe("guardian homework contract (canonical)", () => {
   it("teslim kapısı personaOf(user) === \"student\" ile kurulur", async () => {
     const content = await fs.readFile(HOMEWORK_SCREEN, "utf-8");
     expect(content).toContain('personaOf(user) === "student"');
-    expect(content).toContain("Teslim et");
+    expect(content).toContain("hwList.submitButton");
   });
 
   it("guardian dalı personaOf(user) === \"parent\" ile salt-görünümdür", async () => {
     const content = await fs.readFile(HOMEWORK_SCREEN, "utf-8");
     expect(content).toContain('personaOf(user) === "parent"');
-    expect(content).toMatch(/yalnızca öğrencinin kendi hesabından yapılabilir/i);
+    expect(content).toContain("hwList.guardianBlock");
   });
 
   it("legacy PARENT role kontrolü yoktur", async () => {

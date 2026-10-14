@@ -101,6 +101,17 @@ Correct approach:
 Files involved:
 ```
 
+## 2026-10-14 — teacher contact email is not portal login email
+What was wrong: teacher profile updates and portal invitations treated the
+teacher's contact address as if it were always the linked account's login
+address, leaving stale invitations valid or risking an account handoff.
+Correct approach: resolve accounts only by tenant + `teacherId`; show contact
+and login addresses separately; revoke pending invitation tokens on contact
+changes and only retarget/resend after an explicit admin action. Check email
+ownership including inactive accounts before accepting a new address.
+Files involved: `src/lib/services/tools.ts`, `src/lib/auth/*`,
+`src/components/portal-access-card.tsx`.
+
 ---
 
 ## 2026-08-30 — generic document template PATCH mutated active templates in place
@@ -1483,6 +1494,16 @@ Aynı turda: `validateLessonSlot` oda `active`'ini hiç okumuyordu → telafi pa
 - Ders: bir varlığı "çoklu" yaptığında ona bağlı HER kaydın (ödeme, ilk tahsilat, takvim planı, kota, cron) anahtarını
   da aynı branşa taşı; "NULL = birincil" gibi örtük eşleme yerine açık kimlik yaz, belirsiz eskiyi raporla.
 
+## 2026-10-10 — "Ek branş" modeli ana kaydı ayrıcalıklı bıraktı; ayna "gerçek" sanıldı
+- 10-09 çoklu branşta yalnız ek kayıtlar kendi koşullarını taşıyordu; ana kaydın koşulu öğrenci satırındaydı. Sonuç: ek branşta MEB
+  alanları yoktu, liste/MEB paneli/öğretmen ekranları/banka/kota ilk branşın değerini gösteriyordu, ilk tahsilat yalnız ilk branşa aitti.
+- Düzeltme: her kayıt `termsVersion: 2` ile kendi koşulunu taşır, satır yalnız ayna; yazımda hedef branş zorunlu; tek ortak form/doğrulama.
+- Ders (1): ayna alanı olan her model için "kim okuyor?" taraması yap (`student.<alan>` grep'i `services/tools.ts` ve `store*`'u dışlamasın).
+- Ders (2): tek-seferlik dönüştürme betiği dar `select` ile okursa kopyalanacak alanları kaçırır → veri kaybı; tam satır oku, dönüşümden
+  önce/sonra değerleri birebir karşılaştır, fark varsa yazma. Tip dökümü (`as unknown as`) bu hatayı tsc'den gizler.
+- Ders (3): sunucu ve istemci aynı eşiği FARKLI nesneden okursa (`settings` vs `settings.collectionsSettings`) önizleme ≠ kayıt olur;
+  ortak saf fonksiyona verilen girdiyi iki tarafta da aynı kaynaktan al.
+
 ## 2026-10-10 — Prisma 7 `updateMany` bir transaction'dır; serverless'ta yanıttan sonra "fire-and-forget" yapma
 - UserSession presence yazımı `void (async () => updateMany(...))()` ile yanıttan sonra çalışıyordu. Prisma 7 +
   adapter-pg `updateMany`'yi BEGIN → UPDATE → COMMIT (3 gidiş-dönüş) olarak yürütür (pg protokol logu ile görüldü);
@@ -1492,3 +1513,20 @@ Aynı turda: `validateLessonSlot` oda `active`'ini hiç okumuyordu → telafi pa
   Yeni "kontrol için" tam `readData()` ekleme — tek satır/dilim okuyucusu yoksa önce onu ekle (her yoklama tıklaması
   ~1,8 MB okuyordu).
 
+
+## 2026-10-10 — Okuma yolunda "okul yoksa demo seed" canlıda tetiklendi (gece tahakkuk cron'u, P2002)
+- `monthly-accrual` cron'u `listTenants()`'ın TÜM aktif tenant'larını dolaşıyordu (sentetik platform tenant'ı dahil);
+  okulsuz tenant'ta `readPaymentsPageData` → `readData()` `seedDatabase(createSeedData())`'e düştü. Sabit demo id'leri
+  P2002 verdi; ama `seedDatabase`'in silme transaction'ı (o tenant'ın User satırları dahil) ve `tenant.upsert` (ad
+  değişimi) `school.create`'ten ÖNCE commit olur. İstisna döngüden kaçtığı için sonraki kurumlar her gece atlandı.
+- Ders: okuma yolunda yazan geri düşüş (seed/varsayılan oluştur) canlıda fail-closed olmalı (`readData` tek kapı).
+  Tenant döngüsü yapan her iş platform tenant'ını hariç tutar (`institution/context.ts` deseni) ve kurum başına
+  try/catch + log + yanıtta hata sayısı ile çalışır; hata varsa non-2xx döner ki cron başarısız görünsün.
+
+## 2026-10-13 — Kota denetimi yerel `main` üzerinde başladı; canlı kod 433 dosya ilerideydi
+- Yerel `main` (cf12bc0) güncellenmemişti; canlı `origin/main` 174bb2b'de 11 Ekim'de çoklu branş v2, mobil uçlar ve yeni tam okumalar vardı.
+  İlk bulgu taraması yanlış kod tabanında yapıldı, Vercel `list_deployments` ile fark edildi.
+- Bench fixture'ında ödev/teslim/materyal satırı 0 olduğu için dosya kolonlu tablolar ölçümde görünmüyordu; `pg_stat_statements`
+  satır sayısıyla sıraladığı için az ama büyük satırlar da gizleniyordu. Varsayım yerine owner'a boyut SQL'i çalıştırıldı.
+- Ders: performans/kota denetiminden önce `list_deployments target=production` ile canlı commit'i bul ve `git fetch` + o commit'te çalış;
+  "büyük satır" şüphesini `sum(octet_length(...))` ile canlıda doğrulamadan öncelik verme.

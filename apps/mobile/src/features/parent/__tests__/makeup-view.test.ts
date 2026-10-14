@@ -5,7 +5,7 @@ import { guardianMakeupA11yLabel, toGuardianMakeupItems } from "../makeup-view";
 import type { MakeupRequest } from "../../../types/api";
 
 const APP_PARENT_DIR = path.join(__dirname, "../../../../app/(parent)");
-const MAKEUP_SCREEN = path.join(__dirname, "../makeup-screen.tsx");
+const SHARED_SCREEN = path.join(__dirname, "../../student-scope/makeup-screen.tsx");
 
 function item(overrides: Partial<MakeupRequest> = {}): MakeupRequest {
   return {
@@ -52,37 +52,33 @@ describe("guardianMakeupA11yLabel", () => {
 });
 
 describe("guardian makeup route/ekran kilitleri", () => {
-  it("telafiler route'u ParentMakeupScreen render eder", async () => {
-    const content = await fs.readFile(path.join(APP_PARENT_DIR, "telafiler.tsx"), "utf-8");
-    expect(content).toContain("ParentMakeupScreen");
-    expect(content).toContain("features/parent/makeup-screen");
+  it("telafiler stack'i paylaşılan listeyi render eder", async () => {
+    const content = await fs.readFile(path.join(APP_PARENT_DIR, "telafiler", "index.tsx"), "utf-8");
+    expect(content).toContain("StudentScopeMakeupListScreen");
+    const detail = await fs.readFile(path.join(APP_PARENT_DIR, "telafiler", "[makeupId].tsx"), "utf-8");
+    expect(detail).toContain("StudentScopeMakeupDetailScreen");
   });
 
-  it("ekran canonical useMakeupRequests hook'unu kullanır", async () => {
-    const content = await fs.readFile(MAKEUP_SCREEN, "utf-8");
-    expect(content).toContain("useMakeupRequests");
-    expect(content).toContain("api/hooks");
+  it("liste seçili öğrenci ledger'ından beslenir", async () => {
+    const content = await fs.readFile(SHARED_SCREEN, "utf-8");
+    expect(content).toContain("useSelectedStudentId");
+    expect(content).toContain("makeup-ledger");
   });
 
   it("istemcide kapsam parametresi üretilmez (ID tahmini yok)", async () => {
-    const content = await fs.readFile(MAKEUP_SCREEN, "utf-8");
+    const content = await fs.readFile(SHARED_SCREEN, "utf-8");
     expect(content).not.toMatch(/studentId=|teacherId=|tenantId=|branchId=/);
     expect(content).not.toMatch(/\/api\/v1\/makeup\?/);
   });
 
   it("mutation/teacher CTA yoktur (read-only)", async () => {
-    const content = await fs.readFile(MAKEUP_SCREEN, "utf-8");
+    const content = await fs.readFile(SHARED_SCREEN, "utf-8");
     expect(content).not.toMatch(/\bapiPost\b|\bapiDelete\b|\bapiPatch\b/);
     expect(content).not.toMatch(/<Button[^>]*label="[^"]*(Onayla|İptal|Oluştur|Planla|Düzenle)/);
   });
 
-  it("empty state canonical metni kullanır", async () => {
-    const content = await fs.readFile(MAKEUP_SCREEN, "utf-8");
-    expect(content).toContain("Gösterilecek telafi dersi bulunmuyor.");
-  });
-
   it("fake kayıt/statü üretilmez", async () => {
-    const content = await fs.readFile(MAKEUP_SCREEN, "utf-8");
+    const content = await fs.readFile(SHARED_SCREEN, "utf-8");
     expect(content).not.toMatch(/fake|mock|placeholder|örnek veri|sample/i);
   });
 });

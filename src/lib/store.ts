@@ -9,6 +9,7 @@ import type {
   StudentScopeData,
 } from "./reference-data";
 import { STORE_MODE } from "./config";
+import { patchTouchesEnrollmentTerms, routeTermPatch, splitTermPatch } from "./student-enrollments";
 import * as jsonStore from "./store-json";
 import * as dbStore from "./store-db";
 import * as memoryStore from "./store-memory";
@@ -56,6 +57,16 @@ import type { MakeupDecision } from "./makeup-engine";
 import type { LessonScheduleUpdateOutcome } from "./lesson-update";
 import type { LessonTimeCorrection, LessonLiveUpdateResult } from "./lesson-live-status";
 
+export type TeacherPortalDetails = {
+  teacherId: string;
+  teacherName: string;
+  contactEmail: string;
+  institutionName: string;
+  schoolPhone: string;
+  schoolWebsite: string;
+  logoUrl: string;
+};
+
 type StoreApi = {
   // DB egress (2026-09-30): yazma sonucunu hiçbir çağıranın kullanmadığı mutasyonlar `AppData | void`
   // döner — json/memory veriyi zaten elinde tuttuğu için döndürebilir, db yazmadan sonra kurumun
@@ -74,6 +85,18 @@ type StoreApi = {
   updateMakeupSlaEscalation: (requestId: string, level: number) => Promise<AppData | void>;
   addStudent: (student: Omit<Student, "id" | "createdAt" | "active">) => Promise<AppData | void>;
   updateStudentProfile: (studentId: string, patch: StudentProfilePatch) => Promise<AppData | void>;
+  /**
+   * 2026-10-10 — YENİ ÖĞRENCİ KAYDI TEK İŞLEMDE: öğrenci + tüm branş kayıtları + her branşın ilk tahsilatı. Yarım kayıt
+   * bırakmaz (db: tek transaction; json/memory: tek kilitli yazım). Aynı `registrationId` ikinci öğrenci/ödeme yaratmaz.
+   */
+  registerStudent: (input: import("./student-enrollments").RegisterStudentInput) => Promise<import("./student-enrollments").RegisterStudentResult>;
+  /**
+   * 2026-10-10 — branş listesinde ATOMİK değişiklik (ekle / değiştir / koşul yaz) + öğrenci satırı aynası (+ eklemede ilk
+   * tahsilat). db'de öğrenci başına advisory kilit + taze okuma: eşzamanlı iki işlem birbirini ezmez.
+   */
+  changeStudentEnrollments: (
+    input: import("./student-enrollments").ChangeStudentEnrollmentsInput
+  ) => Promise<import("./student-enrollments").ChangeStudentEnrollmentsResult>;
   /** MEB Paneli — sunucu-taraflı filtre/sıralama/sayfalama (üç modda AYNI semantik). */
   listMebStudents: (query: import("./meb-list").MebStudentQuery) => Promise<import("./meb-list").MebStudentListResult>;
   setStudentPaymentPause: (studentId: string, state: StudentPaymentPauseState) => Promise<AppData | void>;
@@ -224,6 +247,7 @@ type StoreApi = {
   readLessonById: (lessonId: string) => Promise<import("./types").Lesson | undefined>;
   readTeacherPayoutsForTeacher: (teacherId: string) => Promise<import("./types").TeacherPayout[]>;
   readPaymentById: (paymentId: string) => Promise<import("./types").Payment | undefined>;
+  readTeacherPortalDetails: (teacherId: string) => Promise<TeacherPortalDetails | null>;
   /** Dar okuma — referans dilimi (bkz. src/lib/reference-data.ts); ders/ödeme/yoklama/telafi yok. */
   readReferenceData: () => Promise<ReferenceData>;
   /** Dar okuma — tek öğrenci dilimi (bkz. src/lib/reference-data.ts `narrowToStudentScope`). */
@@ -418,6 +442,12 @@ export async function readPaymentById(paymentId: string): Promise<import("./type
   return withTenantScope(() => store.readPaymentById(paymentId));
 }
 
+/** Portal daveti için tek öğretmen + kurum iletişim alanları; DB'de tam readData gerekmez. */
+export async function readTeacherPortalDetails(teacherId: string): Promise<TeacherPortalDetails | null> {
+  if (!teacherId) return null;
+  return withTenantScope(() => store.readTeacherPortalDetails(teacherId));
+}
+
 /** DB egress (2026-10-10) — bir öğretmenin kayıtlı hakedişleri: `readData().teacherPayouts` süzgeciyle aynı. */
 export async function readTeacherPayoutsForTeacher(teacherId: string): Promise<import("./types").TeacherPayout[]> {
   if (!teacherId) return [];
@@ -549,11 +579,59 @@ export async function hardDeleteTeacher(teacherId: string): Promise<void> {
   await withTenantScope(() => store.hardDeleteTeacher(teacherId));
 }
 
+/**
+ * Öğrenci yaması TEK kapısı. Kişi düzeyi alanlar satıra yazılır. BRANŞA özgü koşullar (tür, ücret, tarih, MEB…) için:
+ * - kalıcı branş kaydı olmayan TEK branşlı eski öğrenci: satır o branşın kendisidir → satıra yazılır (davranış aynı);
+ * - aksi halde yazım `patch.enrollmentId` ile belirtilen (veya tek aktif) branşın KAYDINA gider, öğrenci satırı aynası
+ *   yenilenir. Çok branşlı öğrencide hedef belirsizse yazım REDDEDİLİR — tahmin yok (`EnrollmentRequiredError`).
+ */
 export async function updateStudentProfile(
   studentId: string,
   patch: StudentProfilePatch
 ): Promise<void> {
-  await withTenantScope(() => store.updateStudentProfile(studentId, patch));
+  const { enrollmentId, ...rest } = patch;
+  await withTenantScope(async () => {
+    // Branş listesini BİLİNÇLİ olarak bütün yazan dahili çağıran (ör. eski kaydın kalıcılaştırılması) tutarlılığı kendisi
+    // sağlar; kullanıcı düzenlemeleri bu yoldan değil `changeStudentEnrollments` / branş araçlarından geçer.
+    if (rest.enrollments !== undefined || !patchTouchesEnrollmentTerms(rest)) {
+      await store.updateStudentProfile(studentId, rest);
+      return;
+    }
+    const student = await store.readStudentById(studentId);
+    if (!student) throw new Error("Öğrenci bulunamadı");
+    const route = routeTermPatch(student, enrollmentId);
+    if (route.mode === "error") throw new EnrollmentRequiredError(route.message);
+    if (route.mode === "row") {
+      await store.updateStudentProfile(studentId, rest);
+      return;
+    }
+    if (route.needsPersist) {
+      throw new EnrollmentRequiredError(
+        "Bu öğrencinin branş kayıtları henüz oluşturulmamış. Öğrenci → Özet → Branş kayıtları kartını açıp kayıtları oluşturduktan sonra tekrar deneyin."
+      );
+    }
+    const { person, terms, clear } = splitTermPatch(rest);
+    const res = await store.changeStudentEnrollments({
+      studentId,
+      change: { kind: "patchTerms", enrollmentId: route.enrollmentId, terms, clear },
+      person,
+    });
+    if (!res.ok) throw new Error(res.message);
+  });
+}
+
+/** 2026-10-10 — bkz. StoreApi.registerStudent. */
+export async function registerStudent(
+  input: import("./student-enrollments").RegisterStudentInput
+): Promise<import("./student-enrollments").RegisterStudentResult> {
+  return withTenantScope(() => store.registerStudent(input));
+}
+
+/** 2026-10-10 — bkz. StoreApi.changeStudentEnrollments. */
+export async function changeStudentEnrollments(
+  input: import("./student-enrollments").ChangeStudentEnrollmentsInput
+): Promise<import("./student-enrollments").ChangeStudentEnrollmentsResult> {
+  return withTenantScope(() => store.changeStudentEnrollments(input));
 }
 
 export async function listMebStudents(

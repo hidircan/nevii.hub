@@ -48,23 +48,6 @@ export default async function StudentScheduleTab({
 
   return (
     <div className="space-y-8">
-      {branchList.length > 1 ? (
-        <nav aria-label="Branş filtresi" className="flex flex-wrap gap-2">
-          {[undefined, ...branchOptions].map((b) => {
-            const activeTab = (b?.id ?? "") === (filterBranch ?? "");
-            return (
-              <Link
-                key={b?.id ?? "tumu"}
-                href={b ? `/panel/ogrenciler/${student.id}/program?brans=${encodeURIComponent(b.id)}` : `/panel/ogrenciler/${student.id}/program`}
-                aria-current={activeTab ? "page" : undefined}
-                className={`rounded-full border px-3 py-1 text-xs font-medium ${activeTab ? "border-[var(--color-text)] bg-[var(--color-text)] text-[var(--color-surface)]" : "border-[var(--color-border)] text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)]"}`}
-              >
-                {b?.label ?? "Tümü"}
-              </Link>
-            );
-          })}
-        </nav>
-      ) : null}
       <section>
         <h2 className="mb-3 flex items-center justify-between text-sm font-semibold text-[var(--color-text)]">
           Dersler ve Ders Programı

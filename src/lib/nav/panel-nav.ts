@@ -15,6 +15,7 @@ import {
   Users,
   MessageCircle,
   ClipboardCheck,
+  ClipboardList,
   FileText,
   FlaskConical,
   Sparkles,
@@ -94,6 +95,8 @@ export const PANEL_OPS_NAV: PanelNavItem[] = [
   { href: "/panel/duyurular", label: "Duyurular", icon: MessageCircle },
   { href: "/panel/bildirimler", label: "Bildirimler", icon: MessageCircle },
   { href: "/panel/iletisim-merkezi", label: "İletişim Merkezi", icon: MessageCircle, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
+  /** 2026-10-14 — rapor portalı: gelişim raporları + öğrenci değerlendirmeleri takibi. */
+  { href: "/panel/raporlar", label: "Raporlar", icon: ClipboardList, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
   /** Paket 7 — ödev atama/teslim raporu. */
   { href: "/panel/odev-raporu", label: "Ödev Raporu", icon: FileText, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
   /**

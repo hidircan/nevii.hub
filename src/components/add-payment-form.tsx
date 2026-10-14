@@ -102,7 +102,16 @@ export function AddPaymentForm({
       </div>
       <div>
         <Label>Tutar (₺)</Label>
-        <Input name="amount" type="number" min={1} defaultValue={defaultAmount ?? 3000} required aria-invalid={!!fieldErrors.amount} />
+        {/* Çok branşlı öğrencide varsayılan tutar YOK: her branşın ücreti farklıdır, ilk branşınki varsayılmaz. */}
+        <Input
+          name="amount"
+          type="number"
+          min={1}
+          defaultValue={branches.length > 1 ? undefined : (defaultAmount ?? 3000)}
+          placeholder={branches.length > 1 ? "Branşın tutarını yazın" : undefined}
+          required
+          aria-invalid={!!fieldErrors.amount}
+        />
         <FieldError message={fieldErrors.amount} />
       </div>
       <div>

@@ -13,6 +13,9 @@ import { resolveLessonFinalStatus } from "@/lib/lesson-live-status";
 import { formatDate, formatDateTime, formatMoney, formatTime } from "@/lib/utils";
 import { loadStudentPageContext } from "./_context";
 import { StudentEnrollmentsCard } from "@/components/student-enrollments-card";
+import { draftFromTerms } from "@/lib/enrollment-form";
+import { buildEnrollmentFormContext } from "@/lib/enrollment-form-context";
+import { DEFAULT_APP_TIMEZONE, toZonedYmd } from "@/lib/timezone";
 import {
   contractEnrollmentId,
   effectiveEnrollments,
@@ -39,10 +42,10 @@ export default async function StudentOverviewTab({
   searchParams,
 }: {
   params: Promise<{ studentId: string }>;
-  searchParams: Promise<{ yeniKayit?: string; sure?: string; davetUyari?: string; sozlesmeDon?: string; sozlesmeSure?: string }>;
+  searchParams: Promise<{ yeniKayit?: string; sure?: string; davetUyari?: string; sozlesmeDon?: string; sozlesmeSure?: string; duzenleBrans?: string }>;
 }) {
   const { studentId } = await params;
-  const { yeniKayit, sure, davetUyari, sozlesmeDon, sozlesmeSure } = await searchParams;
+  const { yeniKayit, sure, davetUyari, sozlesmeDon, sozlesmeSure, duzenleBrans } = await searchParams;
   const { session, data, student, kurum, canManage } = await loadStudentPageContext(studentId);
   if (!student) notFound();
 
@@ -190,12 +193,26 @@ export default async function StudentOverviewTab({
         <RegistrationSuccessPanel
           studentId={student.id}
           studentName={student.name}
-          packageLabel={student.packageName.split("—")[0]?.trim() ?? student.packageName}
-          monthlyFee={student.monthlyFee}
-          paymentMethod={student.paymentMethod}
-          enrollmentStartDate={student.enrollmentStartDate}
-          intendedDurationMonths={student.intendedDurationMonths ?? intendedDurationMonths}
           inviteWarning={davetUyari}
+          branches={branchContracts.map(({ enrollment: e, all }) => {
+            const t = enrollmentTerms(student, e, data.teachers);
+            const firstPay = payments.find((p) => p.source === "registration_first_payment" && p.enrollmentId === e.id && p.status !== "voided");
+            return {
+              enrollmentId: e.id,
+              label: branchName(e.id),
+              packageLabel: t.packageName?.split("—")[0]?.trim() || "Paketsiz",
+              monthlyFee: t.monthlyFee,
+              paymentMethod: t.paymentMethod,
+              startDate: t.startDate,
+              durationMonths: t.intendedDurationMonths ?? intendedDurationMonths,
+              firstCollection: firstPay
+                ? { kind: "paid" as const, amount: firstPay.paidAmount ?? firstPay.amount, method: firstPay.method, date: firstPay.paidAt?.slice(0, 10) }
+                : t.monthlyFee === 0
+                  ? { kind: "waived" as const }
+                  : { kind: "none" as const },
+              hasContract: all.some((c) => !isTerminalContractStatus(c.status)),
+            };
+          })}
         />
       ) : null}
 
@@ -243,7 +260,6 @@ export default async function StudentOverviewTab({
       {/* 2026-10-04 — tek öğrenci, birden fazla eğitim: her eğitim enstrüman + öğretmen + süre olarak. */}
       <StudentEnrollmentsCard
         studentId={student.id}
-        studentBranchId={student.branchId}
         enrollments={branchContracts.map(({ enrollment: e, current }) => {
           const t = enrollmentTerms(student, e, data.teachers);
           return {
@@ -254,29 +270,27 @@ export default async function StudentOverviewTab({
             lessonDurationMinutes: t.lessonDurationMinutes,
             weeklyLessonCount: t.weeklyLessonCount,
             active: e.active,
+            updatedAt: e.updatedAt,
             startDate: t.startDate,
             endDate: e.endDate,
             endReason: e.endReason,
             studentTypes: t.studentTypes,
-            packageId: t.packageId,
             packageName: t.packageName,
             monthlyFee: t.monthlyFee,
-            discountType: t.discountType,
-            discountValue: t.discountValue,
-            monthlyFeeManualOverride: t.monthlyFeeManualOverride,
             paymentMethod: t.paymentMethod,
             paymentDueDay: t.paymentDueDay,
-            lessonStartDate: t.lessonStartDate,
-            lessonScheduleText: t.lessonScheduleText,
-            intendedDurationMonths: t.intendedDurationMonths,
             currentContractNumber: current?.contractNumber,
+            draft: draftFromTerms(t, { personBranchId: student.branchId }),
           };
         })}
-        teachers={data.teachers.map((t) => ({ id: t.id, name: t.name, instruments: t.instruments, active: t.active }))}
-        instrumentOptions={kurum.scope.mode === "single" ? await resolveActiveInstrumentNames(kurum.scope.tenantId) : []}
-        packages={(data.packages ?? []).filter((p) => p.status === "active").map((p) => ({ id: p.id, title: p.title }))}
-        branches={data.settings.branches.map((b) => ({ id: b.id, name: b.shortName || b.name }))}
+        formContext={buildEnrollmentFormContext(data, {
+          instrumentOptions: kurum.scope.mode === "single" ? await resolveActiveInstrumentNames(kurum.scope.tenantId) : [],
+          personBranchId: student.branchId,
+          todayYmd: toZonedYmd(new Date(), DEFAULT_APP_TIMEZONE),
+        })}
+        termType={student.termType ?? "guz"}
         canManage={canManage && kurum.scope.mode === "single"}
+        initialEditId={duzenleBrans}
       />
 
       <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">

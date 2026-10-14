@@ -192,6 +192,38 @@ export async function listPeriodicAssessmentsForTeacher(
     .map(toPublic);
 }
 
+export async function listPeriodicAssessmentsPage(
+  tenantId: string,
+  f: import("../assessment").ReportPageFilter
+): Promise<{ rows: PeriodicAssessment[]; total: number }> {
+  const skip = Math.max(0, (f.page - 1) * f.pageSize);
+  if (isDbMode) {
+    const { prisma } = await import("../db");
+    const where = {
+      tenantId,
+      ...(f.teacherId ? { teacherId: f.teacherId } : {}),
+      ...(f.studentId ? { studentId: f.studentId } : {}),
+      submittedAt: { gte: new Date(f.fromIso), lte: new Date(f.toIso) },
+    };
+    const [rows, total] = await Promise.all([
+      prisma.periodicAssessment.findMany({ where, orderBy: { submittedAt: "desc" }, skip, take: f.pageSize }),
+      prisma.periodicAssessment.count({ where }),
+    ]);
+    return { rows: rows.map((r) => toPublic(mapDb(r))), total };
+  }
+  const all = (await loadAll())
+    .filter(
+      (a) =>
+        a.tenantId === tenantId &&
+        (!f.teacherId || a.teacherId === f.teacherId) &&
+        (!f.studentId || a.studentId === f.studentId) &&
+        a.submittedAt >= f.fromIso &&
+        a.submittedAt <= f.toIso
+    )
+    .sort((a, b) => b.submittedAt.localeCompare(a.submittedAt));
+  return { rows: all.slice(skip, skip + f.pageSize).map(toPublic), total: all.length };
+}
+
 /** Demo reset için — tenant'ın tüm dönemsel değerlendirmelerini siler. */
 export async function clearPeriodicAssessments(tenantId: string): Promise<void> {
   if (isDbMode) {

@@ -20,6 +20,8 @@ import type {
   Task,
 } from "../types";
 import { MEB_EXAM_STATUS_LABELS, resolveMebExamStatus } from "../meb";
+import { effectiveEnrollments, enrollmentTerms, isPersistedEnrollmentId } from "../student-enrollments";
+import { effectiveStudentTypes } from "../student-types";
 
 export type ExportEntity =
   | "students"
@@ -110,6 +112,65 @@ export function buildInstitutionExport(
   const out = {} as Record<ExportEntity, string>;
 
   if (entities.includes("students")) {
+    // 2026-10-10 — BRANŞ BAŞINA SATIR: kalıcı branş kaydı olan öğrenci her branşı için ayrı satırdır (ücret, paket, öğretmen,
+    // tür ve MEB bilgileri o branşın kendi kaydından; öğrenci satırındaki uyumluluk aynası değil). Branş kaydı olmayan
+    // eski öğrenci tek satırdır ve branş sütunları boştur. Kişi sütunları (ad, iletişim, şube…) her satırda tekrarlanır.
+    const rows: Record<string, unknown>[] = [];
+    for (const s of data.students) {
+      const person = {
+        id: s.id,
+        ad: s.name,
+        email: s.email,
+        telefon: s.phone,
+        veliAdi: s.parentName,
+        veliTelefon: s.parentPhone,
+        sube: branchName(data, s.branchId),
+        notlar: s.notes,
+        kayitTarihi: s.createdAt,
+      };
+      const list = effectiveEnrollments(s, data.teachers).filter((e) => isPersistedEnrollmentId(e.id));
+      if (list.length === 0) {
+        rows.push({
+          ...person,
+          bransId: "",
+          enstrumanlar: s.instruments,
+          ogrenciTurleri: effectiveStudentTypes(s),
+          ogretmenId: s.teacherId,
+          paket: s.packageName,
+          haftalikDersSayisi: s.weeklyLessonCount,
+          aylikUcret: s.monthlyFee,
+          aktif: s.active,
+          bransAktif: "",
+          mebSeviye: s.level ?? "",
+          mebDonemBaslangic: s.mebLevelStartDate ?? "",
+          mebDonemBitis: s.mebLevelEndDate ?? "",
+          mebSinavTarihi: s.mebExamDate ?? "",
+          mebSinavDurumu: MEB_EXAM_STATUS_LABELS[resolveMebExamStatus(s)],
+        });
+        continue;
+      }
+      for (const e of list) {
+        const t = enrollmentTerms(s, e, data.teachers);
+        const isMeb = t.studentTypes.includes("MEB");
+        rows.push({
+          ...person,
+          bransId: e.id,
+          enstrumanlar: [t.instrument],
+          ogrenciTurleri: t.studentTypes,
+          ogretmenId: t.teacherId ?? "",
+          paket: t.packageName ?? "",
+          haftalikDersSayisi: t.weeklyLessonCount,
+          aylikUcret: t.monthlyFee,
+          aktif: s.active,
+          bransAktif: e.active,
+          mebSeviye: isMeb ? (t.level ?? "") : "",
+          mebDonemBaslangic: isMeb ? (t.mebLevelStartDate ?? "") : "",
+          mebDonemBitis: isMeb ? (t.mebLevelEndDate ?? "") : "",
+          mebSinavTarihi: isMeb ? (t.mebExamDate ?? "") : "",
+          mebSinavDurumu: isMeb ? MEB_EXAM_STATUS_LABELS[resolveMebExamStatus({ mebExamDate: t.mebExamDate, mebExamAttended: t.mebExamAttended })] : "",
+        });
+      }
+    }
     out.students = toCsv(
       [
         "id",
@@ -119,43 +180,25 @@ export function buildInstitutionExport(
         "veliAdi",
         "veliTelefon",
         "sube",
+        "bransId",
         "enstrumanlar",
+        "ogrenciTurleri",
         "ogretmenId",
         "paket",
         "haftalikDersSayisi",
         "aylikUcret",
         "aktif",
+        "bransAktif",
         "notlar",
         "kayitTarihi",
-        // MEB Paneli — yedek/dışa aktarma MEB alanlarını da taşır (eksikse boş hücre).
+        // MEB Paneli — yedek/dışa aktarma MEB alanlarını da taşır (eksikse boş hücre); çok branşlıda yalnız MEB branşının satırında.
         "mebSeviye",
         "mebDonemBaslangic",
         "mebDonemBitis",
         "mebSinavTarihi",
         "mebSinavDurumu",
       ],
-      data.students.map((s) => ({
-        id: s.id,
-        ad: s.name,
-        email: s.email,
-        telefon: s.phone,
-        veliAdi: s.parentName,
-        veliTelefon: s.parentPhone,
-        sube: branchName(data, s.branchId),
-        enstrumanlar: s.instruments,
-        ogretmenId: s.teacherId,
-        paket: s.packageName,
-        haftalikDersSayisi: s.weeklyLessonCount,
-        aylikUcret: s.monthlyFee,
-        aktif: s.active,
-        notlar: s.notes,
-        kayitTarihi: s.createdAt,
-        mebSeviye: s.level ?? "",
-        mebDonemBaslangic: s.mebLevelStartDate ?? "",
-        mebDonemBitis: s.mebLevelEndDate ?? "",
-        mebSinavTarihi: s.mebExamDate ?? "",
-        mebSinavDurumu: MEB_EXAM_STATUS_LABELS[resolveMebExamStatus(s)],
-      }))
+      rows
     );
   }
 

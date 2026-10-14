@@ -55,6 +55,6 @@ export function ListScreen<T>({
 
 const styles = StyleSheet.create({
   container: { flex: 1, paddingTop: 12 },
-  header: { fontSize: 20, fontWeight: "700", paddingHorizontal: 16, marginBottom: 8 },
+  header: { fontSize: 22, fontWeight: "700", paddingHorizontal: 16, marginBottom: 8 },
   row: { paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth },
 });

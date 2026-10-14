@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { NETWORK_ERROR, toApiResult } from "../errors";
+import { networkError, featureUnavailable, toApiResult } from "../errors";
 
 describe("toApiResult — sunucu zarfı ve HTTP hata eşlemesi", () => {
   it("2xx + ok:true → data", () => {
@@ -52,7 +52,16 @@ describe("toApiResult — sunucu zarfı ve HTTP hata eşlemesi", () => {
   });
 
   it("ağ hatası mesajı Türkçe ve yönlendirici", () => {
-    expect(NETWORK_ERROR.code).toBe("NETWORK_ERROR");
-    expect(NETWORK_ERROR.message).toContain("İnternet bağlantınızı");
+    expect(networkError("tr").code).toBe("NETWORK_ERROR");
+    expect(networkError("tr").message).toContain("İnternet bağlantınızı");
+  });
+
+  it("hata mesajları İngilizce de üretilir (varsayılan dil etkilenmez)", () => {
+    expect(networkError("en").message).toContain("internet connection");
+    expect(featureUnavailable("en").message).toContain("mobile app");
+    expect(featureUnavailable("tr").message).toContain("mobil uygulamada");
+    const res = toApiResult(401, { ok: false, error: { code: "UNAUTHORIZED", message: "Invalid" } }, "en");
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error.message).toContain("expired");
   });
 });

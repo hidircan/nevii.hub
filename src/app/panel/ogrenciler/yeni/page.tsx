@@ -4,6 +4,8 @@ import { Card, PageHeader } from "@/components/ui";
 import { NewStudentForm } from "@/components/new-student-form";
 import { isMembershipActive, listClubs, listClubMemberships } from "@/lib/clubs";
 import { DEFAULT_APP_TIMEZONE as CLUB_TZ, toZonedYmd as clubYmd } from "@/lib/timezone";
+import { DEFAULT_APP_TIMEZONE, toZonedYmd } from "@/lib/timezone";
+import { buildEnrollmentFormContext } from "@/lib/enrollment-form-context";
 import { activeInstrumentOptions } from "@/lib/instrument-options";
 import { requireSessionContext } from "@/lib/auth/session";
 import { getInstitutionContext, readScopedReferenceData } from "@/lib/institution/context";
@@ -139,47 +141,12 @@ export default async function NewStudentPage({
       ) : (
         <NewStudentForm
           clubs={clubOptions}
-          branches={data.settings.branches.map((b) => ({ id: b.id, name: b.name }))}
-          teachers={data.teachers.map((t) => ({
-            id: t.id,
-            name: t.name,
-            active: t.active,
-            instruments: t.instruments,
-          }))}
-          instrumentOptions={instrumentOptions}
-          packages={(data.packages ?? [])
-            .filter((p) => p.status === "active")
-            .map((p) => ({
-              id: p.id,
-              title: p.title,
-              price30Min: p.price30Min,
-              price40Min: p.price40Min,
-              price50Min: p.price50Min,
-              defaultDurationMinutes: p.defaultDurationMinutes,
-              defaultPaymentDueDay: p.defaultPaymentDueDay,
-              monthlyLessonCount: p.monthlyLessonCount,
-            }))}
-          campaigns={(data.discountCampaigns ?? [])
-            .filter((c) => c.active)
-            .map((c) => ({
-              id: c.id,
-              name: c.name,
-              displayId: c.displayId,
-              discountPercent: c.discountPercent,
-              stackingRule: c.stackingRule ?? "none",
-              priority: c.priority ?? 0,
-              branchId: c.branchId,
-              applicableBranchIds: c.applicableBranchIds,
-              validFrom: c.validFrom,
-              validTo: c.validTo,
-              active: c.active,
-              maxUsageCount: c.maxUsageCount,
-              usageCount: c.usageCount ?? 0,
-              createdAt: c.createdAt,
-            }))}
+          enrollmentContext={buildEnrollmentFormContext(data, {
+            instrumentOptions,
+            personBranchId: data.settings.branches[0]?.id ?? "",
+            todayYmd: toZonedYmd(new Date(), DEFAULT_APP_TIMEZONE),
+          })}
           kvkkText={kvkkText}
-          workDayOverrides={data.closedDayOverrides ?? []}
-          termWeeklyClosedDays={data.settings.termWeeklyClosedDays}
           prefill={clubAppPrefill ?? trialPrefill}
           trialSummary={
             clubApp

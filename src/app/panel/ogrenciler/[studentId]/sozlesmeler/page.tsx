@@ -86,9 +86,55 @@ export default async function StudentContractsCenterPage({
   };
   const unassignedContracts = multiBranch ? allContracts.filter((c) => !contractEnrollmentId(student, c, data.teachers)) : [];
   const showUnassigned = brans === "__unassigned__" && unassignedContracts.length > 0;
+  // 2026-10-10 — çok branşlı öğrencide branş seçilmeden sözleşme önizlemesi/oluşturması YOK: "ilk aktif branş" sessizce seçilmez
+  // (yanlış branşın ücret/öğretmen/MEB bilgisiyle sözleşme çıkmasın). Tek branşlıda eski davranış aynıdır.
+  const mustChooseBranch = multiBranch && !showUnassigned && !branchList.some((e) => e.id === brans);
   const selected = showUnassigned
     ? undefined
-    : (branchList.find((e) => e.id === brans) ?? branchList.find((e) => e.active) ?? branchList[0]);
+    : multiBranch
+      ? branchList.find((e) => e.id === brans)
+      : branchList[0];
+  if (mustChooseBranch) {
+    return (
+      <div>
+        <h2 className="mb-1 text-sm font-semibold text-[var(--color-text)]">Sözleşme Merkezi</h2>
+        <p className="mb-4 text-xs text-[var(--color-text-muted)]">
+          Bu öğrencinin {branchList.length} branş kaydı var ve her branşın sözleşmesi, ödeme planı ve tahsilatı ayrıdır. Sözleşme önizlemesi veya oluşturma için önce branşı seçin.
+        </p>
+        <ul className="grid gap-3 sm:grid-cols-2">
+          {branchList.map((e) => {
+            const t = enrollmentTerms(student, e, data.teachers);
+            const own = allContracts.filter((c) => contractEnrollmentId(student, c, data.teachers) === e.id);
+            const cur = selectCurrentContract(own);
+            return (
+              <li key={e.id}>
+                <Link
+                  href={`/panel/ogrenciler/${student.id}/sozlesmeler?brans=${encodeURIComponent(e.id)}`}
+                  className="block rounded-lg border border-[var(--color-border)] p-3 text-sm transition hover:border-[var(--color-primary)]"
+                >
+                  <p className="font-semibold text-[var(--color-text)]">
+                    {branchName(e.id)}
+                    {!e.active ? " (sonlandı)" : ""}
+                  </p>
+                  <p className="mt-0.5 text-xs text-[var(--color-text-muted)]">
+                    {t.packageName?.split("—")[0]?.trim() || "Paketsiz"} · Aylık {t.monthlyFee.toLocaleString("tr-TR")} ₺ ·{" "}
+                    {cur ? `Güncel sözleşme ${cur.contractNumber} (${contractStatusLabel(cur.status)})` : own.length > 0 ? "Aktif sözleşme yok" : "Sözleşme bekliyor"}
+                  </p>
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+        {unassignedContracts.length > 0 ? (
+          <p className="mt-4 text-xs">
+            <Link href={`/panel/ogrenciler/${student.id}/sozlesmeler?brans=__unassigned__`} className="font-medium text-amber-800 underline dark:text-amber-300">
+              {UNASSIGNED_ENROLLMENT_LABEL} ({unassignedContracts.length}) — bir branşa bağlamak için açın
+            </Link>
+          </p>
+        ) : null}
+      </div>
+    );
+  }
   const terms = selected ? enrollmentTerms(student, selected, data.teachers) : undefined;
   const branchStudent = terms ? studentWithEnrollmentTerms(student, terms) : student;
   const contracts = selected ? allContracts.filter((c) => contractEnrollmentId(student, c, data.teachers) === selected.id) : allContracts;
@@ -185,38 +231,18 @@ export default async function StudentContractsCenterPage({
           gelir (bkz. `[studentId]/layout.tsx`) — burada tekrarlanmaz. */}
       <h2 className="mb-4 text-sm font-semibold text-[var(--color-text)]">Sözleşme Merkezi</h2>
 
-      {multiBranch ? (
-        <nav aria-label="Branşlar" className="mb-4 flex flex-wrap gap-2">
-          {branchList.map((e) => {
-            const on = !showUnassigned && selected?.id === e.id;
-            return (
-              <Link
-                key={e.id}
-                href={`/panel/ogrenciler/${student.id}/sozlesmeler?brans=${encodeURIComponent(e.id)}`}
-                aria-current={on ? "page" : undefined}
-                className={`rounded-full border px-3 py-1 text-xs font-medium ${
-                  on
-                    ? "border-[var(--color-primary)] bg-[var(--color-primary)] text-[var(--color-text-inverted)]"
-                    : "border-[var(--color-border)] text-[var(--color-text)] hover:border-[var(--color-primary)]"
-                }`}
-              >
-                {branchName(e.id)}
-                {!e.active ? " (sonlandı)" : ""}
-              </Link>
-            );
-          })}
-          {unassignedContracts.length > 0 ? (
-            <Link
-              href={`/panel/ogrenciler/${student.id}/sozlesmeler?brans=__unassigned__`}
-              aria-current={showUnassigned ? "page" : undefined}
-              className={`rounded-full border px-3 py-1 text-xs font-medium ${
-                showUnassigned ? "border-amber-600 bg-amber-600 text-white" : "border-amber-400 text-amber-800 dark:text-amber-300"
-              }`}
-            >
-              {UNASSIGNED_ENROLLMENT_LABEL} ({unassignedContracts.length})
-            </Link>
-          ) : null}
-        </nav>
+      {multiBranch && unassignedContracts.length > 0 ? (
+        <p className="mb-4 text-xs">
+          <Link
+            href={`/panel/ogrenciler/${student.id}/sozlesmeler?brans=__unassigned__`}
+            aria-current={showUnassigned ? "page" : undefined}
+            className={`rounded-full border px-3 py-1 font-medium ${
+              showUnassigned ? "border-amber-600 bg-amber-600 text-white" : "border-amber-400 text-amber-800 dark:text-amber-300"
+            }`}
+          >
+            {UNASSIGNED_ENROLLMENT_LABEL} ({unassignedContracts.length})
+          </Link>
+        </p>
       ) : null}
 
       {showUnassigned ? (

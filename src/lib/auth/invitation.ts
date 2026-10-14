@@ -65,7 +65,7 @@ export type SendInvitationInput = {
 export type InvitationSendResult = EmailSendResult & { activationLink: string };
 
 export async function sendAccountInvitationEmail(input: SendInvitationInput): Promise<InvitationSendResult> {
-  const raw = await createPasswordResetToken(input.tenantId, input.userId, INVITATION_TTL_MS);
+  const raw = await createPasswordResetToken(input.tenantId, input.userId, INVITATION_TTL_MS, "invitation");
   const activationLink = `${getAppBaseUrl()}/hesap-aktivasyon?token=${encodeURIComponent(raw)}`;
   const { appStoreUrl, playStoreUrl } = getMobileAppLinks();
 

@@ -53,8 +53,11 @@ model Tenant {
   teacherPayouts              TeacherPayout[]
   notifications               Notification[]
   notificationPreferences     NotificationPreference[]
+  devicePushTokens            DevicePushToken[]
+  accountDeletionRequests     AccountDeletionRequest[]
   announcements               Announcement[]
   panelNotes                  PanelNote[]
+  feedbackInvites             FeedbackInvite[]
   trialApplications           TrialApplication[]
   clubs                       Club[]
   clubMemberships             ClubMembership[]
@@ -112,6 +115,7 @@ model User {
   passwordHash String
   role         String
   teacherId    String?
+  invitationPending Boolean @default(false)
   /// DEPRECATED — Karma Öğrenci Portalı öncesi tekil öğrenci bağlantısı.
   /// Geriye dönük uyumluluk/migration kaynağı olarak korunuyor; yeni
   /// authorization kodu bunu OKUMAZ (bkz. StudentPortalAccess).
@@ -159,6 +163,29 @@ model StudentPortalAccess {
   @@unique([tenantId, userId, studentId])
   @@index([tenantId, studentId])
   @@index([tenantId, userId])
+}
+
+/// Hesap silme talebi (Faz 6) — kullanıcı kendi hesabı için TEK açık talep
+/// açabilir; karar admin'dedir. Fiziksel silme bu tabloda YOK — `processed`
+/// sonrası retention politikasına göre yapılır; finansal/audit kayıtları korunur.
+model AccountDeletionRequest {
+  id           String    @id
+  tenantId     String
+  tenant       Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId       String
+  email        String
+  role         String
+  reason       String?
+  /// "pending" | "approved" | "rejected" | "processed" | "cancelled"
+  status       String    @default("pending")
+  decidedBy    String?
+  decisionNote String?
+  decidedAt    DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([tenantId, userId])
+  @@index([tenantId, status])
 }
 
 /// 10. tur iş #2 — kurum bazlı işlem-e-postası şablonları (davet + şifre
@@ -421,6 +448,7 @@ model PasswordResetToken {
   tenantId  String
   tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   userId    String
+  purpose   String    @default("password_reset")
   tokenHash String
   expiresAt DateTime
   /// NeviiOS — yönetici başlatmalı sıfırlamada başlatan kullanıcı; kendi talebinde (şifremi unuttum) null.
@@ -1427,6 +1455,33 @@ model NotificationPreference {
   @@index([tenantId, userId])
 }
 
+/// Push bildirim cihaz token'ı — Expo Push (APNs/FCM taşıyıcı) hedefi.
+/// Token DEĞERİ yanıtlarda/loglarda ASLA dönmez; sahiplik tenantId+userId.
+/// Aynı kullanıcı çok cihaz kullanabilir (tek token varsayımı YOK).
+/// Migration: prisma/migrations/20260920090000_device_push_tokens/
+model DevicePushToken {
+  id           String   @id
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId       String
+  platform     String
+  /// "ExponentPushToken[...]" — ham değer, yanıta/loga çıkmaz.
+  expoPushToken String
+  /// "development" | "preview" | "production"
+  appVariant   String   @default("production")
+  deviceId     String?
+  /// OS bildirimi: "granted" | "denied" | "undetermined"
+  permission   String   @default("undetermined")
+  enabled      Boolean  @default(true)
+  lastSeenAt   DateTime @default(now())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([tenantId, userId, expoPushToken])
+  @@index([tenantId, userId])
+  @@index([tenantId, userId, enabled])
+}
+
 /// EPIC 5 (IMPLEMENTATION_PLAN.md) — duyuru merkezi. `audienceType`:
 /// "all" | "branch" | "teachers" | "parents" | "students" | "studentType" |
 /// "selected". `audienceRef` yalnızca branch/studentType/selected için
@@ -1463,6 +1518,23 @@ model Announcement {
 
 /// 2026-10-05 — Günlük Özet "Notlar": personelin sonraki vardiyaya bıraktığı serbest not. Yalnız eklenir;
 /// kim (userId + yazıldığı andaki ad) ve ne zaman kalıcıdır.
+/// 2026-10-14 — Rapor portalı: öğrenciye/veliye yöneticinin gönderdiği kişiye özel, 14 gün geçerli değerlendirme
+/// bağlantısı. Kod düz metin SAKLANMAZ (yalnız sha256). Her uygun öğretmen bir kez değerlendirilir; hepsi bitince kapanır.
+model FeedbackInvite {
+  id                  String    @id
+  tenantId            String
+  tenant              Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  studentId           String
+  tokenHash           String    @unique
+  createdBy           String
+  createdAt           DateTime  @default(now())
+  expiresAt           DateTime
+  revokedAt           DateTime?
+  completedTeacherIds Json      @default("[]")
+
+  @@index([tenantId, studentId])
+}
+
 model PanelNote {
   id              String   @id
   tenantId        String

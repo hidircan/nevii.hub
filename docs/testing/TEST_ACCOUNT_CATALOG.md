@@ -48,7 +48,13 @@ Etiketler kasadaki kayıt adlarıdır; e-posta adresleri de kasada tutulur.
 - Bir test hesabının parolası sızdıysa: kasadan rotasyon + ilgili ortam
   değişkeninin güncellenmesi (aşağıdaki açık maddeye bakın).
 
-## Açık operatör aksiyonu (bu turda YAPILMADI)
+## Açık operatör aksiyonu — durum güncellemesi (2026-10-10)
+
+> **Production için kapandı:** `STORE_MODE=db` iken giriş yalnız veritabanına bakar; DB okunamazsa kaynak koddaki
+> bootstrap parolalarına **düşülmez** (`authenticateUser`, 2026-10-02). Production'da `AUTH_HYPER_ADMIN_*` yoksa
+> HYPER_ADMIN hesabı üretilmez. Aşağıdaki madde yalnız `json`/`memory` (yerel/demo) modları için geçerlidir.
+
+## Açık operatör aksiyonu (json/memory modları için; bu turda YAPILMADI)
 
 `src/lib/auth/users.ts` bootstrap hesapları için
 `process.env.AUTH_* || "<sabit varsayılan>"` biçiminde **kod içi yedek

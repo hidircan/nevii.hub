@@ -1,5 +1,7 @@
 export * from "./icon";
 export * from "./button";
+export * from "./list-row";
+export * from "./brand-mark";
 export * from "./screen";
 export * from "./app-header";
 export * from "./section-header";
@@ -28,3 +30,4 @@ export * from "./select-field";
 export * from "./due-date-field";
 export * from "./live-lesson-timer";
 export * from "./score-selector";
+export * from "./tab-bar-label";
