@@ -124,7 +124,7 @@ describe("aktif hesap: yeni adres doğrulanana kadar değişiklik GERÇEKLEŞMEZ
     expect(other.userId).toBeTruthy();
     const res = await changeTeacherPortalEmailTool(owner(), { teacherId: TEACHER_ID, newEmail: NEW, confirm: true });
     expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.error.message).toContain("başka bir portal hesabına ait");
+    if (!res.ok) expect(res.error.message).toContain("başka bir hesaba kayıtlı");
     expect(sent).toHaveLength(0);
   });
 
@@ -174,5 +174,33 @@ describe("öğretmen self-servis giriş e-postası değişikliği sunucuda kapal
     expect(json.ok).toBe(false);
     expect(json.error?.message).toContain("yalnız kurum sahibi");
     expect(sent).toHaveLength(0);
+  });
+});
+
+describe("güvenlik: aktif hesapta kalmış eski davet token'ı 'bekleyen davet' sayılmaz", () => {
+  it("kurum sahibi aracı da davet aracı da giriş adresini DOĞRULAMASIZ değiştiremez", async () => {
+    const acc = await activeTeacherAccount();
+    await createPasswordResetToken(DEFAULT_TENANT_ID, acc.userId, 7 * 24 * 60 * 60 * 1000, "invitation"); // eski, kullanılmamış davet
+    expect((await updateTeacherProfileTool(owner(), { teacherId: TEACHER_ID, email: NEW })).ok).toBe(true);
+
+    const viaInvite = await inviteTeacherAccountTool(owner(), { teacherId: TEACHER_ID });
+    expect(viaInvite.ok).toBe(false);
+    expect((await findDynamicUserByTeacherId(DEFAULT_TENANT_ID, TEACHER_ID))?.email).toBe(OLD);
+
+    const res = await changeTeacherPortalEmailTool(owner(), { teacherId: TEACHER_ID, newEmail: "ogretmen.ucuncu@ornek.test", confirm: true });
+    expect(res.ok && res.data.mode).toBe("verification_sent");
+    expect((await findDynamicUserByTeacherId(DEFAULT_TENANT_ID, TEACHER_ID))?.email).toBe(OLD);
+    expect((await findDynamicUserByTeacherId(DEFAULT_TENANT_ID, TEACHER_ID))?.invitationPending).not.toBe(true);
+  });
+
+  it("çakışma mesajı adresin hangi kurumda/rolde olduğunu söylemez", async () => {
+    await activeTeacherAccount();
+    await createDynamicUser({ tenantId: DEFAULT_TENANT_ID, email: NEW, passwordHash: "x", role: "STUDENT", studentId: "s1" });
+    const res = await changeTeacherPortalEmailTool(owner(), { teacherId: TEACHER_ID, newEmail: NEW, confirm: true });
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.error.message).not.toContain(NEW);
+      expect(res.error.message).not.toMatch(/öğrenci|STUDENT|kurum:/i);
+    }
   });
 });

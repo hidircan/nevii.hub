@@ -4796,6 +4796,14 @@ export async function inviteTeacherAccountTool(
         `Öğretmenin aktif portal giriş e-postası ${account.email}. Giriş adresi profil düzenlemesinden değişmez; öğretmen kendi hesabındaki e-posta doğrulama akışını kullanmalıdır.`
       );
     }
+    if (account.email.trim().toLowerCase() !== email && !account.invitationPending) {
+      // 2026-10-14 güvenlik — hesap bayrağı "bekleyen" değil (aktif hesapta yalnız eski, kullanılmamış bir davet token'ı
+      // kalmış): davetle giriş adresini değiştirmek yeni adres doğrulamasını atlatırdı. Değişiklik doğrulamalı akıştan yapılır.
+      return fail(
+        "VALIDATION_ERROR",
+        `Öğretmenin portal hesabı etkin (giriş e-postası ${account.email}); davetle başka adrese taşınamaz. Kurum sahibi Portal Erişimi → "Portal e-postasını değiştir" ile yeni adrese doğrulama bağlantısı gönderir.`
+      );
+    }
     if (account.email.trim().toLowerCase() !== email && !isInstitutionOwner({ userId: ctx.userId, role: ctx.role })) {
       // 2026-10-14 — bekleyen davetin giriş adresini başka adrese taşımak = portal giriş e-postasını değiştirmek:
       // yalnız kurum sahibi (iletişim adresi düzenlemesi + yeniden davet bu kısıtı aşamaz).
@@ -5299,6 +5307,15 @@ export async function getTeacherAccountStatusTool(
   });
 }
 
+const PORTAL_EMAIL_TAKEN_MESSAGE =
+  "Bu e-posta adresi portal girişi için kullanılamıyor: başka bir hesaba kayıtlı. Hesaplar birleştirilmez veya devredilmez; öğretmen için başka bir adres girin.";
+
+/** Denetim kaydı için: alan adı + yerel kısmın ilk harfi ("o***@ornek.test"). Tam adres denetim tablosuna yazılmaz. */
+function maskEmailForAudit(email: string): string {
+  const at = email.lastIndexOf("@");
+  return at > 0 ? `${email[0]}***@${email.slice(at + 1)}` : "***";
+}
+
 const changeTeacherPortalEmailSchema = z.object({
   teacherId: z.string().min(1),
   newEmail: z.string().trim().min(3).max(254),
@@ -5354,21 +5371,24 @@ export async function changeTeacherPortalEmailTool(
   if (newEmail === currentEmail) {
     return fail("VALIDATION_ERROR", `Portal giriş e-postası zaten ${currentEmail}. Farklı bir adres girin.`);
   }
+  // Kurumlar arası çakışma kontrolü bir adresin başka hesapta olup olmadığını söyler: kurum sahibi başına sınırlı
+  // deneme (adres taraması yapılamaz); mesaj hangi kurum/rol olduğunu söylemez.
+  if (isRateLimited(`teacher-portal-email:${ctx.tenantId}:${ctx.userId}`, 10, 60 * 60 * 1000)) {
+    return fail("RATE_LIMITED", "Son bir saatte çok fazla portal e-postası değişikliği denendi. Bir süre sonra tekrar deneyin.");
+  }
   const { getAnyUserIdByEmail } = await import("../auth/users");
   const takenBy = await getAnyUserIdByEmail(newEmail);
   if (takenBy && takenBy !== account.userId) {
-    return fail(
-      "VALIDATION_ERROR",
-      `${newEmail} başka bir portal hesabına ait. Hesaplar birleştirilmez veya devredilmez; öğretmen için başka bir adres girin.`
-    );
+    return fail("VALIDATION_ERROR", PORTAL_EMAIL_TAKEN_MESSAGE);
   }
 
-  const invitationPending = account.invitationPending || await hasUnacceptedInvitationToken(ctx.tenantId, account.userId);
-  if (invitationPending) {
-    if (!account.invitationPending) await setTeacherInvitationPending(ctx.tenantId, account.userId, true);
+  // GÜVENLİK: "bekleyen davet" yalnız hesabın KENDİ bayrağıdır (davet henüz kabul edilmedi). Aktif bir hesapta eski,
+  // kullanılmamış bir davet token'ı kalmış olabilir; onu "bekleyen" sayıp giriş adresini doğrulamasız değiştirmek
+  // (ve hesabı bekleyen işaretlemek) yeni adres sahipliği kanıtını atlatırdı.
+  if (account.invitationPending) {
     const res = await updatePendingTeacherInvitationEmail({ tenantId: ctx.tenantId, userId: account.userId, teacherId: details.teacherId, email: newEmail });
     if (res === "email_taken") {
-      return fail("VALIDATION_ERROR", `${newEmail} başka bir portal hesabına ait. Hesaplar birleştirilmez veya devredilmez; başka bir adres girin.`);
+      return fail("VALIDATION_ERROR", PORTAL_EMAIL_TAKEN_MESSAGE);
     }
     if (res !== "updated") {
       return fail("CONFLICT", "Davet bu sırada kabul edilmiş görünüyor; sayfayı yenileyin — aktif hesapta değişiklik yeni adres doğrulamasıyla yapılır.");
@@ -5379,8 +5399,8 @@ export async function changeTeacherPortalEmailTool(
     audit(ctx, "teacher.portal_email_changed", "Teacher", details.teacherId, {
       userId: account.userId,
       mode: "pending_invitation",
-      previousEmail: currentEmail,
-      newEmail,
+      previousEmail: maskEmailForAudit(currentEmail),
+      newEmail: maskEmailForAudit(newEmail),
       changedByUserId: ctx.userId,
     });
     return ok({ teacherId: details.teacherId, mode: "pending_invitation_updated", newEmail, delivered: false });
@@ -5402,7 +5422,7 @@ export async function changeTeacherPortalEmailTool(
       USER_NOT_FOUND: "Öğretmenin portal hesabı bulunamadı veya kapalı. Sayfayı yenileyip Portal Erişimi durumunu kontrol edin.",
       SAME_EMAIL: `Portal giriş e-postası zaten ${currentEmail}. Farklı bir adres girin.`,
       INVALID_EMAIL: `"${v.data.newEmail}" geçerli bir e-posta adresi değil.`,
-      TAKEN: `${newEmail} başka bir portal hesabına ait. Hesaplar birleştirilmez veya devredilmez; başka bir adres girin.`,
+      TAKEN: PORTAL_EMAIL_TAKEN_MESSAGE,
       RATE_LIMITED: "Bu hesap için son bir saatte çok fazla değişiklik istendi. Bir süre sonra tekrar deneyin.",
     };
     return fail(req.code === "RATE_LIMITED" ? "RATE_LIMITED" : "VALIDATION_ERROR", msg[req.code]);
@@ -5410,8 +5430,8 @@ export async function changeTeacherPortalEmailTool(
   audit(ctx, "teacher.portal_email_change_requested", "Teacher", details.teacherId, {
     userId: account.userId,
     mode: "verification",
-    previousEmail: currentEmail,
-    newEmail,
+    previousEmail: maskEmailForAudit(currentEmail),
+    newEmail: maskEmailForAudit(newEmail),
     changedByUserId: ctx.userId,
     delivered: req.sentToNew,
   });
@@ -5796,13 +5816,10 @@ export async function updateTeacherProfileTool(
     } else if (patch.email !== undefined) {
       patch.email = "";
     }
-    const invitationPending = account
-      ? account.invitationPending || await hasUnacceptedInvitationToken(ctx.tenantId, account.userId)
-      : false;
-    if (emailChanged && account && invitationPending) {
-      if (!account.invitationPending) {
-        await setTeacherInvitationPending(ctx.tenantId, account.userId, true);
-      }
+    // 2026-10-14 güvenlik — yalnız hesabın KENDİ "bekleyen davet" bayrağı: aktif bir hesapta kalmış eski davet token'ı
+    // hesabı bekleyen işaretlemez (aksi halde iletişim adresi düzenlemesi + davet, giriş adresini doğrulamasız taşırdı).
+    // Aktif hesapta kullanılmamış eski davet bağlantıları yine iptal edilir (eski adrese gitmiş link işe yaramaz).
+    if (emailChanged && account && (account.invitationPending || await hasUnacceptedInvitationToken(ctx.tenantId, account.userId))) {
       await revokeInvitationTokensForUser(ctx.tenantId, account.userId);
     }
     // 8. tur — birincil şube değişebilir; ek şubeler listesi birincili asla
