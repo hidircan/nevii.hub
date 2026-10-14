@@ -3,7 +3,7 @@
  * demo kayıt temizlenebilir; tahsilat/hakediş/başkasının kaydı korunur; önizlemeden sonra veri değişirse silme
  * yapılmaz; yetkisiz rol reddedilir; tekrar istek güvenlidir; şemaya eklenen yeni kişi FK'si sınıflandırılmadan geçemez.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { promises as fs } from "fs";
 import path from "path";
 import { resolveDataDir } from "../config";
@@ -42,6 +42,11 @@ beforeEach(async () => {
     await fs.rm(path.join(DIR, f), { force: true });
   }
   await withTestCriticalPassword();
+});
+
+// Bu dosyanın yazdığı yan dosyalar sonraki test dosyalarına sızmasın.
+afterEach(async () => {
+  for (const f of ["clubs.json", "tasks.json"]) await fs.rm(path.join(DIR, f), { force: true });
 });
 
 function lessonAt(tpl: Lesson, id: string, studentId: string, offsetDays: number, extra: Partial<Lesson> = {}): Lesson {
