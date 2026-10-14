@@ -13,6 +13,18 @@ Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_20
 - `typecheck`, lint, `prisma validate`, build ve odak davet testleri (2 dosya / 44 test) geçti. Tam suite gereksiz süre nedeniyle durduruldu; başlangıç çıktısında bu iş dışındaki test hataları da vardı.
 
 ## Snapshot — 2026-10-14 (rapor portalı; dal `feat/report-portal`, PR açık, MERGE/CANLI YOK)
+
+## Güncel snapshot — 2026-10-14 akşam (telafi yaşam döngüsü + "Geldi" notu; dal `feat/makeup-lifecycle-attendance-note`, PR açık, MERGE/CANLI YOK)
+- Planlanmamış telafi son yerel günün ertesi 00:00'ında (kurum saat dilimi) `expired` + kaynak ders "İşlendi — Telafi planlama
+  süresi doldu" (Geldi/gerçekleşmiş telafi YOK; yeni finansal kural YOK). Kapatma: `commitMakeupPlanningExpiry` (tenant'a dar,
+  indeksli, idempotent; okuma yolunda, yeni cron/polling yok). Planlanmış talep eski süreyle kapanmaz.
+- Yönetici: süre uzat, plan revize, "Planı sil" (hak+kaynak ders korunur), "Telafi hakkını iptal et" (ayrı onay); yoklamalı/finansal
+  kayıtta açık onay+gerekçe; iz `MakeupRequest.changeLog`. "Geldi" isteğe bağlı notu (`Lesson.studentAttendanceNote`, web+mobil).
+- Migration `20261014160000_makeup_lifecycle_note` (eklemeli) KODDAN ÖNCE, owner onayıyla. UAT: `docs/testing/UAT_2026_10_14_MAKEUP_LIFECYCLE.md`.
+- Doğrulama: typecheck/lint(0 hata)/prisma validate/odaklı testler temiz; tam suite'te yeni regresyon yok (baseline kırmızıları aynı).
+- Not: grok (başka araç) işi yarıda bırakmıştı; Claude tamamladı.
+
+## Güncel snapshot — 2026-10-14 (rapor portalı; dal `feat/report-portal`, PR açık, MERGE/CANLI YOK)
 - Spec/plan: `docs/superpowers/specs|plans/2026-10-14-report-portal*`. UAT: `docs/testing/UAT_2026_10_14_REPORT_PORTAL.md`.
 - `/gelisim` (öğretmen mobil rapor sitesi), `/degerlendir` + `/degerlendir/<kod>` (öğrenci değerlendirmesi, 14 gün kişiye özel
   link, yeni tablo `FeedbackInvite`), `/panel/raporlar` (yönetici takibi), rapor gönderiminde yönetici bildirimi.

@@ -253,6 +253,7 @@ export async function listLessonsTool(
       studentExcused: l.studentExcused ?? null,
       lessonProcessed: l.lessonProcessed ?? null,
       opsMakeupFlag: l.opsMakeupFlag ?? null,
+      studentAttendanceNote: l.studentAttendanceNote ?? null,
       homeworkAssigned: homeworkByLesson.has(l.id),
     }));
   return ok({ lessons });

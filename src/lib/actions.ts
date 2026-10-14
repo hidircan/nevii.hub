@@ -31,6 +31,10 @@ import { parseEnrollmentDraftsJson } from "./enrollment-form";
 import { formatDate, formatTime, uid } from "./utils";
 import {
   cancelMakeupLessonTool,
+  extendMakeupDeadlineTool,
+  reviseMakeupPlanTool,
+  deleteMakeupPlanTool,
+  cancelMakeupRightTool,
   confirmMakeupLessonTool,
   createPaymentTool,
   updatePaymentTool,
@@ -721,6 +725,78 @@ export async function actionCancelMakeup(_prevState: SimpleActionFormState, form
     return { ok: false, message: "Telafi iptal edilirken beklenmeyen bir hata oluştu. Lütfen tekrar deneyin." };
   }
   return null;
+}
+
+function lifecycleForm(formData: FormData) {
+  const acknowledge = String(formData.get("acknowledgeCorrection") || "") === "1";
+  const correctionNote = String(formData.get("correctionNote") || "");
+  const paidPayoutConfirm = String(formData.get("paidPayoutConfirm") || "") === "1";
+  return {
+    requestId: String(formData.get("requestId") || ""),
+    acknowledgeCorrection: acknowledge,
+    correctionNote,
+    paidPayoutConfirm,
+    payoutReason: String(formData.get("payoutReason") || ""),
+    criticalPassword: String(formData.get("criticalPassword") || ""),
+  };
+}
+
+async function runLifecycleAction(
+  label: string,
+  formData: FormData,
+  run: (
+    ctx: import("./services/context").ServiceContext
+  ) => Promise<{ ok: true } | { ok: false; error: { code: string; message: string; details?: unknown } }>
+): Promise<SimpleActionFormState> {
+  try {
+    await withAuthContext(label, async (ctx) => {
+      const result = await run(ctx);
+      if (!result.ok) throw new ToolValidationFailure(result.error);
+    });
+    revalidateAll();
+  } catch (error) {
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    if (error instanceof WriteScopeDeniedError) return { ok: false, message: error.message };
+    if (error instanceof ToolValidationFailure) return { ok: false, message: error.serviceError.message };
+    logger.error(`${label} failed`, error);
+    return { ok: false, message: "Telafi kaydı güncellenemedi. Sayfayı yenileyip tekrar deneyin." };
+  }
+  return null;
+}
+
+export async function actionExtendMakeupDeadline(_prev: SimpleActionFormState, formData: FormData): Promise<SimpleActionFormState> {
+  const common = lifecycleForm(formData);
+  return runLifecycleAction("actionExtendMakeupDeadline", formData, (ctx) =>
+    extendMakeupDeadlineTool(ctx, { ...common, lastDayYmd: String(formData.get("lastDayYmd") || "") })
+  );
+}
+
+export async function actionReviseMakeupPlan(_prev: SimpleActionFormState, formData: FormData): Promise<SimpleActionFormState> {
+  const common = lifecycleForm(formData);
+  return runLifecycleAction("actionReviseMakeupPlan", formData, (ctx) =>
+    reviseMakeupPlanTool(ctx, {
+      ...common,
+      teacherId: String(formData.get("teacherId") || ""),
+      roomId: String(formData.get("roomId") || ""),
+      startAt: String(formData.get("startAt") || ""),
+      allowAvailabilityOverride: String(formData.get("allowAvailabilityOverride") || "") === "1",
+    })
+  );
+}
+
+export async function actionDeleteMakeupPlan(_prev: SimpleActionFormState, formData: FormData): Promise<SimpleActionFormState> {
+  return runLifecycleAction("actionDeleteMakeupPlan", formData, (ctx) => deleteMakeupPlanTool(ctx, lifecycleForm(formData)));
+}
+
+export async function actionCancelMakeupRight(_prev: SimpleActionFormState, formData: FormData): Promise<SimpleActionFormState> {
+  const common = lifecycleForm(formData);
+  return runLifecycleAction("actionCancelMakeupRight", formData, (ctx) =>
+    cancelMakeupRightTool(ctx, {
+      ...common,
+      decisionNote: String(formData.get("decisionNote") || ""),
+      alsoCancelPlan: String(formData.get("alsoCancelPlan") || "") === "1",
+    })
+  );
 }
 
 

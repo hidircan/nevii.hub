@@ -2773,6 +2773,9 @@ function DetailPanel({
           </p>
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
             <LessonStatusBadge status={resolveLessonFinalStatus(lesson, now)} plannedMakeup={lesson.type === "makeup"} />
+            {lesson.lessonProcessedReason ? (
+              <span className="text-[11px] text-[var(--color-text-muted)]">{lesson.lessonProcessedReason}</span>
+            ) : null}
             {lesson.type === "makeup" ? <Badge status="makeup">Telafi dersi</Badge> : null}
             {isSeriesMember ? <Badge status="scheduled">Tekrarlayan seri</Badge> : null}
           </div>
@@ -2798,6 +2801,7 @@ function DetailPanel({
             opsMakeupFlag={lesson.opsMakeupFlag}
             studentAbsent={lesson.studentAbsent}
             studentExcused={lesson.studentExcused}
+            attendanceNote={lesson.studentAttendanceNote}
             onStatusChange={onOpsStatusChange}
             onPendingChange={onOpsPendingChange}
           />

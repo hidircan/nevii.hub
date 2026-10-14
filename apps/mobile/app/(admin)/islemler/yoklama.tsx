@@ -6,6 +6,7 @@ import {
   AppHeader,
   Button,
   Card,
+  TextField,
   ConfirmDialog,
   EmptyState,
   ErrorState,
@@ -39,6 +40,7 @@ export default function AdminYoklama() {
   const [busyLessonId, setBusyLessonId] = useState<string | null>(null);
   const [opsError, setOpsError] = useState<string | null>(null);
   const [pendingSwitch, setPendingSwitch] = useState<{ lessonId: string; flag: "attended" | "absent" | "excused"; from: string } | null>(null);
+  const [attendedNotes, setAttendedNotes] = useState<Record<string, string>>({});
 
   // Sunucu araması: 400ms debounce + min 2 karakter (tuş başına istek yok).
   const sentQuery = useDebouncedSearchQuery(query);
@@ -61,7 +63,11 @@ export default function AdminYoklama() {
   async function markAttendance(lessonId: string, flag: "attended" | "absent" | "excused", confirmSwitch = false) {
     setBusyLessonId(lessonId);
     setOpsError(null);
-    const res = await apiPost<LessonOpsResponse>(`/api/v1/lessons/${lessonId}/ops`, { flag, confirmSwitch });
+    const res = await apiPost<LessonOpsResponse>(`/api/v1/lessons/${lessonId}/ops`, {
+      flag,
+      confirmSwitch,
+      ...(flag === "attended" && attendedNotes[lessonId] !== undefined ? { attendanceNote: attendedNotes[lessonId] } : {}),
+    });
     setBusyLessonId(null);
     if (!res.ok) {
       setOpsError(res.error.message || tr("adm.yokSaveFail"));
@@ -146,6 +152,11 @@ export default function AdminYoklama() {
               {pendingLessons.map((l) => (
                 <View key={l.id}>
                   <LessonCard lesson={l} personName={l.teacherName ?? tr("adm.progTeacherFb")} />
+                  <TextField
+                    label="Geldi notu (isteğe bağlı)"
+                    value={attendedNotes[l.id] ?? ""}
+                    onChangeText={(value) => setAttendedNotes((current) => ({ ...current, [l.id]: value }))}
+                  />
                   <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
                     <Button label={tr("attFlag.flagAttended")} size="sm" loading={busyLessonId === l.id} onPress={() => markAttendance(l.id, "attended")} style={{ flex: 1 }} />
                     <Button label={tr("attFlag.flagAbsent")} size="sm" variant="danger" loading={busyLessonId === l.id} onPress={() => markAttendance(l.id, "absent")} style={{ flex: 1 }} />

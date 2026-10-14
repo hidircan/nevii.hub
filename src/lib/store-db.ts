@@ -83,6 +83,19 @@ import {
 } from "./makeup-engine";
 import { findSlotConflict, type SlotResource } from "./lesson-occupancy";
 import {
+  MAKEUP_PLANNING_EXPIRED_REASON,
+  type MakeupChangeEntry,
+} from "./makeup-deadline";
+import {
+  applyMakeupLifecycle as applyMakeupLifecyclePure,
+  MakeupLifecycleError,
+  normalizeAttendanceNote,
+  isLegacyMakeupExpiry,
+  isPastMakeupPlanningDeadline,
+  type MakeupLifecycleOp,
+  type MakeupLifecycleResult,
+} from "./makeup-lifecycle";
+import {
   applyLessonScheduleUpdate,
   applyLessonCancel,
   type LessonScheduleUpdateOutcome,
@@ -435,6 +448,7 @@ function mapDbLesson(lesson: Prisma.LessonGetPayload<object>): import("./types")
     clubId: (lesson as { clubId?: string | null }).clubId ?? undefined,
     clubSessionId: (lesson as { clubSessionId?: string | null }).clubSessionId ?? undefined,
     notes: lesson.notes ?? undefined,
+    studentAttendanceNote: lesson.studentAttendanceNote ?? null,
     createdByUserId: (lesson as { createdByUserId?: string | null }).createdByUserId ?? undefined,
     studentAttended: (lesson as { studentAttended?: boolean }).studentAttended ?? undefined,
     studentAttendedAt: (lesson as { studentAttendedAt?: Date | null }).studentAttendedAt?.toISOString?.() ?? undefined,
@@ -667,6 +681,7 @@ function mapSchoolToAppData(school: PrismaSchoolWithRelations): AppData {
       decidedAt: request.decidedAt?.toISOString() ?? undefined,
       slaDeadline: request.slaDeadline?.toISOString() ?? undefined,
       slaEscalationLevel: request.slaEscalationLevel,
+      changeLog: Array.isArray(request.changeLog) ? (request.changeLog as unknown as MakeupChangeEntry[]) : [],
     })),
     payments: school.payments.map(mapDbPayment),
     teacherFeeRules: school.teacherFeeRules.map((rule) => ({
@@ -2798,10 +2813,30 @@ async function assertSlotFreeLockedTx(
       endAt: { gt: new Date(candidate.startAt) },
       OR: [{ teacherId: candidate.teacherId }, { roomId: candidate.roomId }, { studentId: candidate.studentId }],
     },
-    select: { id: true, teacherId: true, roomId: true, studentId: true, startAt: true, endAt: true, status: true, opsMakeupFlag: true, lessonProcessed: true, studentAttended: true },
+    select: {
+      id: true,
+      teacherId: true,
+      roomId: true,
+      studentId: true,
+      startAt: true,
+      endAt: true,
+      status: true,
+      opsMakeupFlag: true,
+      lessonProcessed: true,
+      lessonProcessedReason: true,
+      studentAttended: true,
+      actualStartAt: true,
+    },
   });
   const conflict = findSlotConflict(
-    rows.map((r) => ({ ...r, startAt: r.startAt.toISOString(), endAt: r.endAt.toISOString(), status: r.status as Lesson["status"] })),
+    rows.map((r) => ({
+      ...r,
+      startAt: r.startAt.toISOString(),
+      endAt: r.endAt.toISOString(),
+      status: r.status as Lesson["status"],
+      lessonProcessedReason: r.lessonProcessedReason ?? undefined,
+      actualStartAt: r.actualStartAt?.toISOString(),
+    })),
     candidate
   );
   if (conflict) {
@@ -3194,6 +3229,7 @@ async function persistLessonOpsResult(
     studentExcusedBy: L.studentExcusedBy ?? null,
     status: L.status,
     actualEndAt: L.actualEndAt ? new Date(L.actualEndAt) : undefined,
+    studentAttendanceNote: L.studentAttendanceNote ?? null,
     // 9. tur — Telafi ile birlikte gelen kaynak AYNI transaction'da yazılır; kota
     // kontrolü (assertStudentMakeupQuotaTx) bu satırdan sonra okur.
     ...(L.disruptionSource
@@ -3365,13 +3401,14 @@ export async function switchLessonOpsFlagLive(
   flag: LessonOpsFlag,
   actorUserId: string,
   reason?: string,
-  disruption?: import("./lesson-disruption").LessonDisruptionInput
+  disruption?: import("./lesson-disruption").LessonDisruptionInput,
+  attendanceNote?: string | null
 ): Promise<ApplyLessonOpsResult> {
   logger.info("switchLessonOpsFlagLive", lessonId, flag);
   // Tam tenant okuması yerine DAR dilim (bkz. readLessonScope / lesson-scope.ts).
   const data = await readLessonScope(lessonId);
   if (!data) return { ok: false, message: "Ders bulunamadı." };
-  const result = switchLessonOpsFlag(data, lessonId, flag, actorUserId, undefined, reason, disruption);
+  const result = switchLessonOpsFlag(data, lessonId, flag, actorUserId, undefined, reason, disruption, attendanceNote);
   return persistLessonOpsResult(lessonId, flag, result);
 }
 
@@ -4681,6 +4718,270 @@ export async function seedDemoRecords(input: DemoSeedInput): Promise<DemoSeedRes
   }
 
   return { lessonIds };
+}
+
+const MAKEUP_LIFECYCLE_CONFLICT =
+  "Bu telafi kaydı az önce değişti. Telafi Merkezi'ni yenileyip güncel durumu kontrol edin.";
+
+function makeupRequestPersistData(request: import("./types").MakeupRequest): Prisma.MakeupRequestUncheckedUpdateManyInput {
+  return {
+    status: request.status,
+    expiresAt: new Date(request.expiresAt),
+    confirmedLessonId: request.confirmedLessonId ?? null,
+    decisionNote: request.decisionNote ?? null,
+    decidedBy: request.decidedBy ?? null,
+    decidedAt: request.decidedAt ? new Date(request.decidedAt) : null,
+    slaDeadline: request.slaDeadline ? new Date(request.slaDeadline) : null,
+    slaEscalationLevel: request.slaEscalationLevel ?? 0,
+    teacherId: request.teacherId,
+    changeLog: (request.changeLog ?? []) as unknown as Prisma.InputJsonValue,
+  };
+}
+
+function lessonLifecycleData(after: Lesson): Prisma.LessonUncheckedUpdateManyInput {
+  return {
+    status: after.status,
+    teacherId: after.teacherId,
+    roomId: after.roomId,
+    branchId: after.branchId,
+    startAt: new Date(after.startAt),
+    endAt: new Date(after.endAt),
+    lessonProcessed: after.lessonProcessed ?? false,
+    lessonProcessedAt: after.lessonProcessedAt ? new Date(after.lessonProcessedAt) : null,
+    lessonProcessedBy: after.lessonProcessedBy ?? null,
+    lessonProcessedReason: after.lessonProcessedReason ?? null,
+    opsMakeupFlag: after.opsMakeupFlag ?? false,
+    opsMakeupFlagAt: after.opsMakeupFlagAt ? new Date(after.opsMakeupFlagAt) : null,
+    opsMakeupFlagBy: after.opsMakeupFlagBy ?? null,
+    studentAbsent: after.studentAbsent ?? false,
+    studentExcused: after.studentExcused ?? false,
+  };
+}
+
+/** Telafi yaşam döngüsü için dar dilim: talep, bağlı dersler ve hedef öğretmen/oda gün penceresi. */
+async function readMakeupBundleDb(op: MakeupLifecycleOp): Promise<AppData | null> {
+  const tid = requireTenantId();
+  const request = await prisma.makeupRequest.findFirst({
+    where: { id: op.requestId, tenantId: tid },
+    select: { id: true, studentId: true, teacherId: true, sourceLessonId: true, confirmedLessonId: true, expiresAt: true },
+  });
+  if (!request) return null;
+  const slot = op.kind === "revise" ? { teacherId: op.teacherId, roomId: op.roomId, startAt: op.startAt } : undefined;
+  const related = await prisma.lesson.findMany({
+    where: {
+      tenantId: tid,
+      OR: [
+        { id: { in: [request.sourceLessonId, request.confirmedLessonId].filter((id): id is string => !!id) } },
+        { makeupRequestId: request.id },
+      ],
+    },
+    select: { id: true, teacherId: true, roomId: true, startAt: true },
+  });
+  const teacherIds = [...new Set([request.teacherId, ...related.map((row) => row.teacherId), slot?.teacherId].filter((id): id is string => !!id))];
+  const roomIds = [...new Set([...related.map((row) => row.roomId), slot?.roomId].filter((id): id is string => !!id))];
+  const anchors = [request.expiresAt, ...related.map((row) => row.startAt), slot?.startAt ? new Date(slot.startAt) : undefined].filter(
+    (value): value is Date => value instanceof Date && !Number.isNaN(value.getTime())
+  );
+  const lessonOr: Prisma.LessonWhereInput[] = [{ makeupRequestId: request.id }];
+  if (related.length) lessonOr.push({ id: { in: related.map((row) => row.id) } });
+  for (const anchor of anchors) {
+    const gte = new Date(anchor.getTime() - 36 * 3_600_000);
+    const lte = new Date(anchor.getTime() + 36 * 3_600_000);
+    lessonOr.push({ teacherId: { in: teacherIds }, startAt: { gte, lte } });
+    if (roomIds.length) lessonOr.push({ roomId: { in: roomIds }, startAt: { gte, lte } });
+    lessonOr.push({ studentId: request.studentId, startAt: { gte, lte } });
+  }
+  const school = await prisma.school.findFirst({
+    where: { tenantId: tid },
+    omit: { logoUrl: true },
+    include: {
+      branches: true,
+      teachers: { where: { tenantId: tid, id: { in: teacherIds } } },
+      students: { where: { tenantId: tid, id: request.studentId } },
+      rooms: { where: { tenantId: tid, id: { in: roomIds.length ? roomIds : ["__none__"] } } },
+      lessons: { where: { tenantId: tid, OR: lessonOr } },
+      makeupRequests: { where: { tenantId: tid, studentId: request.studentId } },
+      attendances: { where: { tenantId: tid, lesson: { studentId: request.studentId } } },
+      lessonSeries: { where: { id: "__none__" } },
+      payments: { where: { id: "__none__" } },
+      teacherFeeRules: { where: { id: "__none__" } },
+      teacherPayouts: { where: { id: "__none__" } },
+    },
+  });
+  if (!school) return null;
+  return {
+    ...mapSchoolToAppData({ ...school, logoUrl: "" }),
+    packages: [],
+    discountCampaigns: [],
+    closedDayOverrides: await listClosedDays(tid).catch(() => []),
+  };
+}
+
+async function persistMakeupLifecycleResult(
+  before: AppData,
+  result: Extract<MakeupLifecycleResult, { ok: true }>
+): Promise<void> {
+  const tid = requireTenantId();
+  const beforeRequest = before.makeupRequests.find((row) => row.id === result.requestId);
+  const afterRequest = result.data.makeupRequests.find((row) => row.id === result.requestId);
+  if (!beforeRequest || !afterRequest) {
+    throw new MakeupLifecycleError("NOT_FOUND", "Telafi talebi bulunamadı. Telafi Merkezi'ni yenileyip kaydın durduğunu kontrol edin.");
+  }
+  await prisma.$transaction(async (tx) => {
+    const reqRes = await tx.makeupRequest.updateMany({
+      where: {
+        id: beforeRequest.id,
+        tenantId: tid,
+        status: beforeRequest.status,
+        expiresAt: new Date(beforeRequest.expiresAt),
+      },
+      data: makeupRequestPersistData(afterRequest),
+    });
+    if (reqRes.count === 0) throw new MakeupLifecycleError("CONFLICT", MAKEUP_LIFECYCLE_CONFLICT);
+    for (const change of result.changedLessons) {
+      const lesRes = await tx.lesson.updateMany({
+        where: {
+          id: change.before.id,
+          tenantId: tid,
+          status: change.before.status,
+          startAt: new Date(change.before.startAt),
+        },
+        data: lessonLifecycleData(change.after),
+      });
+      if (lesRes.count === 0) throw new MakeupLifecycleError("CONFLICT", MAKEUP_LIFECYCLE_CONFLICT);
+    }
+  });
+}
+
+/** Süresi dolmuş planlanmamış telafi. Dar sorgu; değişiklik yoksa yazılmaz. */
+export async function commitMakeupPlanningExpiry(now: Date = new Date()): Promise<void> {
+  const tid = requireTenantId();
+  const rows = await prisma.makeupRequest.findMany({
+    where: {
+      tenantId: tid,
+      status: { in: ["pending", "suggested", "awaiting_info"] },
+      confirmedLessonId: null,
+      expiresAt: { lte: now },
+    },
+    select: {
+      id: true,
+      sourceLessonId: true,
+      expiresAt: true,
+      decisionNote: true,
+      decidedBy: true,
+      decidedAt: true,
+      changeLog: true,
+    },
+  });
+  const due = rows.filter(
+    (row) => isPastMakeupPlanningDeadline(row.expiresAt.toISOString(), now) && !isLegacyMakeupExpiry(row.expiresAt.toISOString())
+  );
+  if (due.length === 0) return;
+  const lessons = await prisma.lesson.findMany({
+    where: { tenantId: tid, id: { in: due.map((row) => row.sourceLessonId) } },
+  });
+  const byId = new Map(lessons.map((lesson) => [lesson.id, lesson]));
+  await prisma.$transaction(async (tx) => {
+    for (const row of due) {
+      const existingLog = Array.isArray(row.changeLog) ? (row.changeLog as unknown as MakeupChangeEntry[]) : [];
+      const updated = await tx.makeupRequest.updateMany({
+        where: {
+          id: row.id,
+          tenantId: tid,
+          status: { in: ["pending", "suggested", "awaiting_info"] },
+          confirmedLessonId: null,
+        },
+        data: {
+          status: "expired",
+          decisionNote: row.decisionNote?.trim() ? row.decisionNote : MAKEUP_PLANNING_EXPIRED_REASON,
+          decidedBy: row.decidedBy ?? "system",
+          decidedAt: row.decidedAt ?? now,
+          changeLog: [
+            ...existingLog,
+            { action: "planning_expired", at: now.toISOString(), by: "system", to: MAKEUP_PLANNING_EXPIRED_REASON },
+          ] as Prisma.InputJsonValue,
+        },
+      });
+      if (updated.count === 0) continue;
+      const lesson = byId.get(row.sourceLessonId);
+      if (!lesson || lesson.status === "cancelled" || lesson.studentAttended === true) continue;
+      const human =
+        lesson.lessonProcessed === true &&
+        !!lesson.lessonProcessedReason &&
+        lesson.lessonProcessedReason !== MAKEUP_PLANNING_EXPIRED_REASON;
+      if (human) continue;
+      const already = lesson.lessonProcessedReason === MAKEUP_PLANNING_EXPIRED_REASON;
+      await tx.lesson.updateMany({
+        where: {
+          id: lesson.id,
+          tenantId: tid,
+          status: { not: "cancelled" },
+          NOT: { studentAttended: true },
+          OR: [{ lessonProcessed: false }, { lessonProcessedReason: null }, { lessonProcessedReason: MAKEUP_PLANNING_EXPIRED_REASON }],
+        },
+        data: {
+          lessonProcessed: true,
+          lessonProcessedAt: already && lesson.lessonProcessedAt ? lesson.lessonProcessedAt : now,
+          lessonProcessedBy: already && lesson.lessonProcessedBy ? lesson.lessonProcessedBy : "system",
+          lessonProcessedReason: MAKEUP_PLANNING_EXPIRED_REASON,
+          opsMakeupFlag: false,
+          opsMakeupFlagAt: null,
+          opsMakeupFlagBy: null,
+          studentAbsent: false,
+          studentExcused: false,
+        },
+      });
+    }
+  });
+}
+
+export async function previewMakeupLifecycle(op: MakeupLifecycleOp): Promise<MakeupLifecycleResult> {
+  const bundle = await readMakeupBundleDb(op);
+  if (!bundle) {
+    return { ok: false, code: "NOT_FOUND", message: "Telafi talebi bulunamadı. Telafi Merkezi'ni yenileyip kaydın durduğunu kontrol edin." };
+  }
+  return applyMakeupLifecyclePure(bundle, op);
+}
+
+export async function applyMakeupLifecycle(op: MakeupLifecycleOp): Promise<MakeupLifecycleResult> {
+  const bundle = await readMakeupBundleDb(op);
+  if (!bundle) {
+    return { ok: false, code: "NOT_FOUND", message: "Telafi talebi bulunamadı. Telafi Merkezi'ni yenileyip kaydın durduğunu kontrol edin." };
+  }
+  const result = applyMakeupLifecyclePure(bundle, op);
+  if (!result.ok) return result;
+  try {
+    await persistMakeupLifecycleResult(bundle, result);
+  } catch (error) {
+    if (error instanceof MakeupLifecycleError) return { ok: false, code: error.code, message: error.message };
+    throw error;
+  }
+  return result;
+}
+
+/** Yalnız Geldi dersinin notunu yazar. Statü ve hakediş alanlarına dokunmaz. */
+export async function setLessonAttendanceNoteLive(
+  lessonId: string,
+  note: string | null
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  const tid = requireTenantId();
+  const stored = normalizeAttendanceNote(note) ?? null;
+  const lesson = await prisma.lesson.findFirst({
+    where: { id: lessonId, tenantId: tid },
+    select: { id: true, studentAttended: true },
+  });
+  if (!lesson) return { ok: false, message: "Ders bulunamadı. Sayfayı yenileyip tekrar deneyin." };
+  if (lesson.studentAttended !== true) {
+    return { ok: false, message: "Not yalnız Geldi yoklamasına yazılır. Önce Geldi'yi işaretleyin, sonra notu kaydedin." };
+  }
+  const updated = await prisma.lesson.updateMany({
+    where: { id: lessonId, tenantId: tid, studentAttended: true },
+    data: { studentAttendanceNote: stored },
+  });
+  if (updated.count === 0) {
+    return { ok: false, message: "Dersin yoklaması az önce değişti. Sayfayı yenileyip Geldi durumunu kontrol edin." };
+  }
+  return { ok: true };
 }
 
 /** 9. tur — İptal/Telafi kaynağını sonradan belirleme/düzeltme. */

@@ -893,6 +893,9 @@ model Lesson {
   clubId                  String?
   clubSessionId           String?
   notes                   String?
+  /// Geldi yoklamasının isteğe bağlı notu. Boş/null serbest; statü değişimi silmez.
+  /// Hakediş ve ücret hesabı bu alanı okumaz.
+  studentAttendanceNote   String?
   /// Dersi planlayan kullanıcı (User.id). Eski kayıtlarda null.
   createdByUserId         String?
   /// EPIC 8 — öğretmenin "Dersi başlat"/"Dersi bitir" ile damgaladığı GERÇEK
@@ -1201,9 +1204,12 @@ model MakeupRequest {
   decidedAt          DateTime?
   slaDeadline        DateTime?
   slaEscalationLevel Int        @default(0)
+  /// Telafi süre uzatma / revizyon / plan silme / hak iptali izi (kim, ne zaman, eski/yeni).
+  changeLog          Json       @default("[]")
 
   @@index([tenantId])
   @@index([sourceLessonId])
+  @@index([tenantId, status, expiresAt])
 }
 
 model Payment {

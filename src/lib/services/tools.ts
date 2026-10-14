@@ -112,6 +112,9 @@ import {
   readTeacherPortalDetails,
   updateTeacherFeeRule,
   switchLessonOpsFlagLive,
+  setLessonAttendanceNoteLive,
+  previewMakeupLifecycle,
+  applyMakeupLifecycle,
   upsertMonthlyPlanPayment,
   getRegistrationFirstPayment,
   registerStudent,
@@ -225,6 +228,7 @@ import { uploadProfilePhotoSchema, deleteProfilePhotoSchema } from "../validatio
 import { getActiveAccessType } from "../student-portal-access";
 import { ownStudents, ownPayouts } from "../teacher-portal-scope";
 import { effectiveLessonOpsStatus, isLessonProcessedForPayout } from "../lesson-ops";
+import { normalizeAttendanceNote, type MakeupLifecycleOp } from "../makeup-lifecycle";
 import { resolveLessonFinalStatus, type LessonFinalStatus } from "../lesson-live-status";
 import { monthlyPlanPeriodLabel, resolveContractPlanForMonth, type CalendarMonthPlan, type CalendarPlanContract } from "../attendance-calendar-plan";
 import {
@@ -1151,6 +1155,192 @@ export async function cancelMakeupLessonTool(
   } catch (e) {
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "cancelMakeup failed");
   }
+}
+
+function lifecycleFail(code: "NOT_FOUND" | "VALIDATION" | "CONFLICT" | "ACK_REQUIRED", message: string): ServiceFailure {
+  if (code === "NOT_FOUND") return fail("NOT_FOUND", message);
+  if (code === "VALIDATION") return fail("VALIDATION_ERROR", message);
+  return fail("CONFLICT", message);
+}
+
+/**
+ * Telafi süre uzatma, plan revizyonu, plan silme ve hak iptali.
+ * Önizleme yazmaz. Hakedişe etkisi olan geçiş, mevcut ödenmiş-hakediş kapısını kullanır.
+ */
+async function runMakeupLifecycleTool(
+  ctx: ServiceContext,
+  op: MakeupLifecycleOp,
+  confirm: { paidPayoutConfirm?: boolean; payoutReason?: string; criticalPassword?: string }
+): Promise<ServiceResult<{ requestId: string; warning?: string }>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  try {
+    return await runWithTenantAsync(ctx.tenantId, async () => {
+      const preview = await previewMakeupLifecycle(op);
+      if (!preview.ok) return lifecycleFail(preview.code, preview.message);
+      const payoutPlan = await planMakeupPayoutFlips(ctx, preview.payoutTouches, confirm);
+      if (!payoutPlan.ok) return payoutPlan;
+      const moveBlock = await blockPayoutCountedMove(preview.changedLessons, op.kind);
+      if (moveBlock) return moveBlock;
+      // Önizlemede kapıdan geçen çevrilmeler; uygulamada taze durumda başkası çıkarsa yazılmadan reddedilir.
+      const expectedPayoutFlipIds = preview.payoutTouches
+        .filter((touch) => isLessonProcessedForPayout(touch.before) !== isLessonProcessedForPayout(touch.after))
+        .map((touch) => touch.before.id);
+      const applied = await applyMakeupLifecycle({ ...op, expectedPayoutFlipIds });
+      if (!applied.ok) return lifecycleFail(applied.code, applied.message);
+      const warnings: string[] = [];
+      for (const plan of payoutPlan.data) {
+        const lessonId = applied.changedLessons.find((row) => row.after.teacherId)?.after.id ?? applied.requestId;
+        const warning = await settleOpsChangeForPayout(ctx, plan, lessonId);
+        if (warning) warnings.push(warning);
+      }
+      for (const lesson of applied.notifyCancelled) {
+        const { notifyLessonCancelled } = await import("../lesson-notifications");
+        await notifyLessonCancelled({
+          tenantId: ctx.tenantId,
+          lesson,
+          actorUserId: ctx.userId,
+          reason: op.kind === "cancelRight" ? op.decisionNote : "Planlanan telafi silindi",
+        });
+      }
+      if (applied.rescheduled) {
+        const { notifyLessonRescheduled } = await import("../lesson-notifications");
+        await notifyLessonRescheduled({
+          tenantId: ctx.tenantId,
+          lesson: applied.rescheduled.after,
+          previousStartAt: applied.rescheduled.before.startAt,
+          actorUserId: ctx.userId,
+        });
+      }
+      audit(ctx, `makeup.${op.kind}`, "MakeupRequest", applied.requestId, {
+        kind: op.kind,
+        correctionNote: "correctionNote" in op ? op.correctionNote : undefined,
+      });
+      return ok({ requestId: applied.requestId, warning: warnings.join(" ") || undefined });
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("Cross-tenant")) {
+      return fail("NOT_FOUND", "Telafi talebi bulunamadı. Telafi Merkezi'ni yenileyip kaydın bu kurumda durduğunu kontrol edin.");
+    }
+    return fail("INTERNAL_ERROR", error instanceof Error ? error.message : "Telafi işlemi tamamlanamadı. Sayfayı yenileyip tekrar deneyin.");
+  }
+}
+
+export async function extendMakeupDeadlineTool(ctx: ServiceContext, input: unknown) {
+  const v = parseOrFail(
+    z.object({
+      requestId: z.string().min(1),
+      lastDayYmd: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Son gün yyyy-AA-gg biçiminde olmalı."),
+      acknowledgeCorrection: z.boolean().optional(),
+      correctionNote: z.string().max(500).optional(),
+      ...payoutCorrectionShape,
+    }),
+    input
+  );
+  if (!v.ok) return v;
+  return runMakeupLifecycleTool(
+    ctx,
+    {
+      kind: "extend",
+      requestId: v.data.requestId,
+      lastDayYmd: v.data.lastDayYmd,
+      actorUserId: ctx.userId,
+      now: new Date(),
+      acknowledgeCorrection: v.data.acknowledgeCorrection,
+      correctionNote: v.data.correctionNote,
+    },
+    v.data
+  );
+}
+
+export async function reviseMakeupPlanTool(ctx: ServiceContext, input: unknown) {
+  const v = parseOrFail(
+    z.object({
+      requestId: z.string().min(1),
+      teacherId: z.string().min(1),
+      roomId: z.string().min(1),
+      startAt: z.string().min(1),
+      allowAvailabilityOverride: z.boolean().optional(),
+      acknowledgeCorrection: z.boolean().optional(),
+      correctionNote: z.string().max(500).optional(),
+      ...payoutCorrectionShape,
+    }),
+    input
+  );
+  if (!v.ok) return v;
+  if (v.data.allowAvailabilityOverride && !canOverrideTeacherAvailability(ctx)) {
+    return fail("FORBIDDEN", AVAILABILITY_OVERRIDE_FORBIDDEN);
+  }
+  return runMakeupLifecycleTool(
+    ctx,
+    {
+      kind: "revise",
+      requestId: v.data.requestId,
+      teacherId: v.data.teacherId,
+      roomId: v.data.roomId,
+      startAt: v.data.startAt,
+      actorUserId: ctx.userId,
+      now: new Date(),
+      acknowledgeCorrection: v.data.acknowledgeCorrection,
+      correctionNote: v.data.correctionNote,
+      allowAvailabilityOverride: v.data.allowAvailabilityOverride,
+    },
+    v.data
+  );
+}
+
+export async function deleteMakeupPlanTool(ctx: ServiceContext, input: unknown) {
+  const v = parseOrFail(
+    z.object({
+      requestId: z.string().min(1),
+      acknowledgeCorrection: z.boolean().optional(),
+      correctionNote: z.string().max(500).optional(),
+      ...payoutCorrectionShape,
+    }),
+    input
+  );
+  if (!v.ok) return v;
+  return runMakeupLifecycleTool(
+    ctx,
+    {
+      kind: "deletePlan",
+      requestId: v.data.requestId,
+      actorUserId: ctx.userId,
+      now: new Date(),
+      acknowledgeCorrection: v.data.acknowledgeCorrection,
+      correctionNote: v.data.correctionNote,
+    },
+    v.data
+  );
+}
+
+export async function cancelMakeupRightTool(ctx: ServiceContext, input: unknown) {
+  const v = parseOrFail(
+    z.object({
+      requestId: z.string().min(1),
+      decisionNote: z.string().min(1, "Telafi hakkını iptal etmek için gerekçe yazın."),
+      alsoCancelPlan: z.boolean().optional(),
+      acknowledgeCorrection: z.boolean().optional(),
+      correctionNote: z.string().max(500).optional(),
+      ...payoutCorrectionShape,
+    }),
+    input
+  );
+  if (!v.ok) return v;
+  return runMakeupLifecycleTool(
+    ctx,
+    {
+      kind: "cancelRight",
+      requestId: v.data.requestId,
+      decisionNote: v.data.decisionNote,
+      alsoCancelPlan: v.data.alsoCancelPlan,
+      actorUserId: ctx.userId,
+      now: new Date(),
+      acknowledgeCorrection: v.data.acknowledgeCorrection,
+      correctionNote: v.data.correctionNote,
+    },
+    v.data
+  );
 }
 
 /**
@@ -16822,6 +17012,8 @@ export async function setLessonOpsFlagTool(
       confirmSwitch: z.boolean().optional(),
       /** P0-2 — "İşlendi"/"Telafi" için zorunlu, gerçek kullanıcı gerekçesi (lesson-ops.ts uygular). */
       reason: z.string().optional(),
+      /** Geldi notu. Boş veya null temizler. Alan yoksa mevcut not durur. */
+      attendanceNote: z.string().max(500).nullable().optional(),
       ...disruptionInputShape,
       ...payoutCorrectionShape,
     }),
@@ -16859,6 +17051,18 @@ export async function setLessonOpsFlagTool(
   }
 
   const current = effectiveLessonOpsStatus(lesson);
+  if (v.data.flag === "attended" && current === "attended" && v.data.attendanceNote !== undefined) {
+    const note = normalizeAttendanceNote(v.data.attendanceNote) ?? null;
+    const saved = await setLessonAttendanceNoteLive(v.data.lessonId, note);
+    if (!saved.ok) return fail("VALIDATION_ERROR", saved.message);
+    audit(ctx, "lesson.ops.attendance_note", "Lesson", v.data.lessonId, { note });
+    return ok({
+      lessonId: v.data.lessonId,
+      flag: v.data.flag,
+      alreadySet: false,
+      message: note ? "Not kaydedildi." : "Not temizlendi.",
+    });
+  }
   if (current !== null && current !== v.data.flag && !v.data.confirmSwitch) {
     return ok({
       lessonId: v.data.lessonId,
@@ -16880,7 +17084,18 @@ export async function setLessonOpsFlagTool(
   if (!payoutPlan.ok) return payoutPlan;
 
   try {
-    const result = await switchLessonOpsFlagLive(v.data.lessonId, v.data.flag, ctx.userId, v.data.reason, disruption);
+    const attendanceNote =
+      v.data.flag === "attended" && v.data.attendanceNote !== undefined
+        ? normalizeAttendanceNote(v.data.attendanceNote)
+        : undefined;
+    const result = await switchLessonOpsFlagLive(
+      v.data.lessonId,
+      v.data.flag,
+      ctx.userId,
+      v.data.reason,
+      disruption,
+      attendanceNote
+    );
     if (!result.ok) return fail("VALIDATION_ERROR", result.message);
     const payoutWarning = result.alreadySet ? undefined : await settleOpsChangeForPayout(ctx, payoutPlan.data, v.data.lessonId);
     // Zaten Telafi olan derste kaynak sonradan veriliyorsa yalnız kaynak alanı güncellenir.
@@ -16898,6 +17113,7 @@ export async function setLessonOpsFlagTool(
         flag: v.data.flag,
         switchedFrom: current !== v.data.flag ? current : undefined,
         reason: v.data.reason,
+        attendanceNote: attendanceNote === undefined ? undefined : attendanceNote,
         disruptionSource: disruption?.source,
       });
       // Faz 3C — ders "İşlendi" olduğunda ödev eksikse tek seferlik hatırlatma.
@@ -17044,6 +17260,100 @@ async function planOpsChangeForPayout(
   const gate = await passwordGate(ctx, "teacher_payout.attendance_correction", payout, teacherName, confirm.criticalPassword);
   if (gate) return gate;
   return ok({ mode: "adjust", payoutId: payout.id, teacherName, reason, delta });
+}
+
+/**
+ * Plan revizyonu (öğretmen/tarih değişimi) hakedişte sayılan bir dersi başka öğretmenin/dönemin hakedişine taşıyabilir;
+ * sayılma durumu değişmediği için `planMakeupPayoutFlips` bunu görmez. Eski veya yeni konum kayıtlı bir hakedişe düşüyorsa
+ * sessizce taşımak yerine reddedilir (hakediş düzeltmesi Hakedişler ekranından, yetkili ve izli yapılır).
+ */
+async function blockPayoutCountedMove(
+  changed: { before: Lesson; after: Lesson }[],
+  kind: MakeupLifecycleOp["kind"]
+): Promise<ServiceFailure | null> {
+  if (kind !== "revise") return null;
+  for (const { before, after } of changed) {
+    if (!isLessonProcessedForPayout(before)) continue;
+    if (before.teacherId === after.teacherId && before.startAt === after.startAt) continue;
+    const [fromPayouts, toPayouts] = await Promise.all([
+      readTeacherPayoutsForTeacher(before.teacherId),
+      before.teacherId === after.teacherId ? Promise.resolve(null) : readTeacherPayoutsForTeacher(after.teacherId),
+    ]);
+    const from = findPayoutCoveringLesson(fromPayouts, before);
+    const to = findPayoutCoveringLesson(toPayouts ?? fromPayouts, after);
+    if (from || to) {
+      return fail(
+        "CONFLICT",
+        "Bu telafi dersi hakedişte sayılıyor ve eski ya da yeni öğretmen/tarih kayıtlı bir hakedişin dönemine düşüyor. " +
+          "Öğretmen veya tarih değişirse hakediş sessizce kayardığı için işlem yapılmadı. Önce Hakedişler ekranından ilgili " +
+          "hakedişi düzeltin ya da yeniden hesaplayın; sonra planı revize edin."
+      );
+    }
+  }
+  return null;
+}
+
+/** Telafi düzeltmesinin hakediş etkisi. Kapsayan kayıt yoksa tam okuma yapılmaz. */
+async function planMakeupPayoutFlips(
+  ctx: ServiceContext,
+  touches: { before: Lesson; after: Lesson }[],
+  confirm: { paidPayoutConfirm?: boolean; payoutReason?: string; criticalPassword?: string }
+): Promise<ServiceResult<OpsPayoutPlan[]>> {
+  const flipping = touches.filter((touch) => isLessonProcessedForPayout(touch.before) !== isLessonProcessedForPayout(touch.after));
+  if (flipping.length === 0) return ok([]);
+  const teacherIds = [...new Set(flipping.map((touch) => touch.before.teacherId))];
+  const listed = (await Promise.all(teacherIds.map((teacherId) => readTeacherPayoutsForTeacher(teacherId)))).flat();
+  if (!flipping.some((touch) => findPayoutCoveringLesson(listed, touch.before))) return ok([]);
+
+  const data = await readData();
+  const afterById = new Map(flipping.map((touch) => [touch.after.id, touch.after]));
+  const simulated = { ...data, lessons: data.lessons.map((lesson) => afterById.get(lesson.id) ?? lesson) };
+  const plans: OpsPayoutPlan[] = [];
+  const seen = new Set<string>();
+  for (const touch of flipping) {
+    const lesson = data.lessons.find((row) => row.id === touch.before.id) ?? touch.before;
+    const payout = findPayoutCoveringLesson(data.teacherPayouts, lesson);
+    if (!payout || seen.has(payout.id)) continue;
+    seen.add(payout.id);
+    const teacherName = data.teachers.find((teacher) => teacher.id === payout.teacherId)?.name ?? "Öğretmen";
+    const earnings = await assertTeacherEarningsAccess(ctx);
+    if (!earnings.ok) {
+      return fail(
+        "FORBIDDEN",
+        `Bu ders ${teacherName} adlı öğretmenin kayıtlı ${payoutPeriodLabel(payout)} hakedişine dahil ve değişiklik hakedişi etkiler; ` +
+          "hakediş işlem yetkiniz olmadığı için işlem yapılmadı. Hakediş yetkisi olan bir yöneticiye başvurun."
+      );
+    }
+    if (payoutPaidAmount(payout) <= 0.005) {
+      plans.push({ mode: "recompute", payoutId: payout.id, teacherName });
+      continue;
+    }
+    const periodTotal = (snapshot: typeof data) =>
+      applyPayoutLineOverrides(
+        computeTeacherEarningsForPeriod(snapshot, payout.teacherId, payout.periodStart, payout.periodEnd),
+        payout.lineOverrides
+      ).totalAmount;
+    const delta = round2Money(periodTotal(simulated) - periodTotal(data));
+    if (Math.abs(delta) < 0.01) continue;
+    const paid = payoutPaidAmount(payout);
+    const fmt = (n: number) =>
+      `${new Intl.NumberFormat("tr-TR", { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(n)} TL`;
+    if (!confirm.paidPayoutConfirm) {
+      return fail(
+        "CONFLICT",
+        `Bu ders, ${teacherName} adlı öğretmenin ${payoutPeriodLabel(payout)} hakedişinde ve bu hakedişe ${fmt(paid)} ödeme yapılmış. ` +
+          `Değişiklik hakedişi ${delta >= 0 ? "+" : "−"}${fmt(Math.abs(delta))} etkiler; ödenen tutar değişmez, fark düzeltme kaydı olarak eklenir. ` +
+          "Devam etmek için gerekçe ve kritik işlem şifresiyle onaylayın.",
+        { paidPayoutImpact: { payoutId: payout.id, period: payoutPeriodLabel(payout), teacherName, paidAmount: paid, delta } }
+      );
+    }
+    const reason = (confirm.payoutReason ?? "").trim();
+    if (reason.length < 5) return fail("VALIDATION_ERROR", "Ödenmiş hakedişi etkileyen düzeltme için en az 5 karakterlik gerekçe yazın.");
+    const gate = await passwordGate(ctx, "teacher_payout.attendance_correction", payout, teacherName, confirm.criticalPassword);
+    if (gate) return gate;
+    plans.push({ mode: "adjust", payoutId: payout.id, teacherName, reason, delta });
+  }
+  return ok(plans);
 }
 
 /** Yoklama değişikliği YAPILDIKTAN sonra hakediş tarafını tutarlı hâle getirir; hata sessiz değil, uyarı döner. */
@@ -17269,6 +17579,8 @@ export type AttendanceCalendarLessonOpsInfo = {
   plannedMakeup: boolean;
   /** bkz. Lesson.availabilityOverride — öğretmen müsait olmadığı bir saatte, onaylı planlandı. */
   availabilityOverride: boolean;
+  attendanceNote?: string | null;
+  processedReason?: string | null;
 };
 
 /** Takvimin TEK ay yükünün (gün statüleri + ders/ödeme bilgisi + ücretlendirme) ortak şekli. */
@@ -17451,6 +17763,8 @@ async function buildAttendanceCalendarMonth(
           roomName: room?.name,
           availabilityOverride: Boolean(l.availabilityOverride),
           plannedMakeup: l.type === "makeup",
+          attendanceNote: l.studentAttendanceNote ?? null,
+          processedReason: l.lessonProcessedReason ?? null,
         };
       });
     // ÖNCELİK 4 (devam) — TEK kaynak: mevcut Payment modeli (source:"lesson_ops"),

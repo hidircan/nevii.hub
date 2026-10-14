@@ -11,6 +11,7 @@ import Link from "@/components/link";
 import { differenceInCalendarDays, parseISO } from "date-fns";
 import { formatDateTime, formatTime } from "@/lib/utils";
 import { isRoomSchedulable, makeupDurationMinutes, validateLessonSlot } from "@/lib/makeup-engine";
+import { isMakeupPlanningExpiryClosure, lessonHasConductMark } from "@/lib/makeup-lifecycle";
 import { isTeacherSchedulable } from "@/lib/teacher-branches";
 import type { Instrument } from "@/lib/types";
 import { CheckCircle2, Download, Sparkles, X } from "lucide-react";
@@ -571,9 +572,32 @@ export default async function TelafiPage({
       {doneAll.length > 0 ? (
         <>
         <MakeupHistoryTable
+          canManage={canWrite}
+          teachers={data.teachers.map((teacher) => ({
+            id: teacher.id,
+            name: teacher.name,
+            branchId: teacher.branchId,
+            branchIds: teacher.branchIds,
+            active: teacher.active,
+          }))}
+          rooms={data.rooms.map((room) => ({
+            id: room.id,
+            name: room.name,
+            branchId: room.branchId,
+            active: room.active,
+            deletedAt: room.deletedAt,
+          }))}
           rows={done.map((req) => {
             const student = data.students.find((s) => s.id === req.studentId);
-            const lesson = data.lessons.find((l) => l.id === req.confirmedLessonId);
+            const plans = data.lessons.filter(
+              (lesson) =>
+                lesson.type === "makeup" &&
+                lesson.status !== "cancelled" &&
+                (lesson.id === req.confirmedLessonId || lesson.makeupRequestId === req.id)
+            );
+            const lesson = plans[0] ?? data.lessons.find((row) => row.id === req.confirmedLessonId);
+            const source = data.lessons.find((row) => row.id === req.sourceLessonId);
+            const lastChange = req.changeLog?.at(-1);
             return {
               id: req.id,
               studentName: student?.name ?? "—",
@@ -586,6 +610,16 @@ export default async function TelafiPage({
               decidedAt: req.decidedAt ?? "",
               decidedAtLabel: req.decidedAt ? formatDateTime(req.decidedAt) : "",
               actorName: actorLabel(req.decidedBy),
+              expiresAt: req.expiresAt,
+              hasActivePlan: plans.length > 0,
+              sourceClosedByExpiry: !!source && isMakeupPlanningExpiryClosure(source),
+              hasConductMark: plans.some((row) => lessonHasConductMark(row)),
+              teacherId: lesson?.teacherId ?? req.teacherId,
+              roomId: lesson?.roomId,
+              planStartAt: lesson?.startAt,
+              changeSummary: lastChange
+                ? `${lastChange.action} · ${lastChange.by} · ${formatDateTime(lastChange.at)}`
+                : undefined,
             };
           })}
         />

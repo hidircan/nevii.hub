@@ -51,6 +51,7 @@ export type Lesson = {
   studentExcused?: boolean | null;
   lessonProcessed?: boolean | null;
   opsMakeupFlag?: boolean | null;
+  studentAttendanceNote?: string | null;
   homeworkAssigned?: boolean;
 };
 export type ScheduleResponse = {

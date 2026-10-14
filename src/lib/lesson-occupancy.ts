@@ -13,6 +13,7 @@
  * | Telafi (opsMakeupFlag) — ders yapılmamış            | HAYIR           | asıl saatinde yapılmayacak               |
  * | Telafi + İşlendi/Geldi/başladı/tamamlandı (eski çift bayrak) | Evet   | ders fiilen yapılmış; saat boşaltılmaz   |
  * | İptal (status "cancelled")                          | HAYIR           | (önceden de böyleydi)                    |
+ * | Süre dolumu kapanışı (İşlendi + gerekçe tam metin, Geldi/actualStart yok) | HAYIR | telafi saati yeniden dolmasın |
  *
  * Telafi'ye alınan ders SİLİNMEZ, programda görünmeye devam eder; kaydı, telafi talebi/hakkı, yoklama ve
  * hakediş hesabı aynen kalır — yalnız saati başka bir derse verilebilir. Saati verildikten sonra dersi
@@ -20,12 +21,19 @@
  * engellenir (`reoccupyBlockMessage`).
  */
 import type { AppData, Lesson } from "./types";
+import { isMakeupPlanningExpiryClosure } from "./makeup-deadline";
 import { formatDate, formatTime } from "./utils";
 
-export type SlotOccupancyInput = Pick<Lesson, "status" | "opsMakeupFlag" | "lessonProcessed" | "studentAttended">;
+export type SlotOccupancyInput = Pick<
+  Lesson,
+  "status" | "opsMakeupFlag" | "lessonProcessed" | "studentAttended" | "lessonProcessedReason" | "actualStartAt"
+>;
 
 export function lessonOccupiesSlot(lesson: SlotOccupancyInput): boolean {
   if (lesson.status === "cancelled") return false;
+  // Süre dolumu "İşlendi" yazar ama saati yeniden doldurmaz (2026-10-03: telafi saati boşalır).
+  // Normal İşlendi (başka gerekçe) doldurmaya devam eder. Hakediş kuralı değişmez.
+  if (isMakeupPlanningExpiryClosure(lesson)) return false;
   if (lesson.lessonProcessed || lesson.studentAttended || lesson.status === "in_progress" || lesson.status === "completed") {
     return true;
   }
