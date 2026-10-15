@@ -19,6 +19,7 @@ import {
   type PurgeAccountRow,
   type PurgeDetachKey,
   type PurgeKind,
+  type PurgeMode,
   type PurgeSnapshot,
   type PurgeTableKey,
 } from "./person-purge";
@@ -177,8 +178,12 @@ export async function loadPurgeSnapshotFiles(io: StoreIo, kind: PurgeKind, id: s
           periodStart: p.periodStart,
           periodEnd: p.periodEnd,
           status: p.status,
+          totalAmount: p.totalAmount,
           lessonIds: (p.lineSnapshot ?? []).map((x) => x.lessonId),
         })),
+      paymentTasks: tasks.tasks
+        .filter((r) => inTenant(tid)(r) && typeof r.paymentId === "string" && data.payments.some((p) => p.studentId === id && p.id === r.paymentId))
+        .map((r) => ({ id: r.id, paymentId: String(r.paymentId) })),
       documents: (await own("documents")).map((x) => ({ id: x })),
       clubMemberships: (await own("clubMemberships")).map((x) => ({ id: x })),
       owned: {
@@ -229,7 +234,7 @@ export async function loadPurgeSnapshotFiles(io: StoreIo, kind: PurgeKind, id: s
     makeups: data.makeupRequests.filter((m) => m.teacherId === id).map((m) => ({ id: m.id })),
     payouts: data.teacherPayouts
       .filter((p) => p.teacherId === id)
-      .map((p) => ({ id: p.id, teacherId: p.teacherId, periodStart: p.periodStart, periodEnd: p.periodEnd, status: p.status })),
+      .map((p) => ({ id: p.id, teacherId: p.teacherId, periodStart: p.periodStart, periodEnd: p.periodEnd, status: p.status, totalAmount: p.totalAmount })),
     feeRules: data.teacherFeeRules.filter((r) => r.teacherId === id).map((r) => r.id),
     payoutExclusions: (data.teacherPayoutExclusions ?? []).filter((r) => r.teacherId === id).map((r) => r.id),
     students: data.students
@@ -269,17 +274,23 @@ export async function loadPurgeSnapshotFiles(io: StoreIo, kind: PurgeKind, id: s
 // ponytail: süreç içi tek kuyruk — json/memory tek süreçli demo içindir; çok süreçte db modu kullanılır.
 let queue: Promise<unknown> = Promise.resolve();
 
-export async function executePurgeFiles(io: StoreIo, kind: PurgeKind, id: string, expectedFingerprint: string): Promise<PurgeExecResult> {
-  const run = queue.then(() => executeUnlocked(io, kind, id, expectedFingerprint));
+export async function executePurgeFiles(
+  io: StoreIo,
+  kind: PurgeKind,
+  id: string,
+  expectedFingerprint: string,
+  mode: PurgeMode = "standard"
+): Promise<PurgeExecResult> {
+  const run = queue.then(() => executeUnlocked(io, kind, id, expectedFingerprint, mode));
   queue = run.catch(() => undefined);
   return run;
 }
 
-async function executeUnlocked(io: StoreIo, kind: PurgeKind, id: string, expectedFingerprint: string): Promise<PurgeExecResult> {
+async function executeUnlocked(io: StoreIo, kind: PurgeKind, id: string, expectedFingerprint: string, mode: PurgeMode): Promise<PurgeExecResult> {
   const snap = await loadPurgeSnapshotFiles(io, kind, id);
   if (!snap) return { status: "not_found" };
   if (snap.person.purgedAt) return { status: "already_purged" };
-  const plan = planPersonPurge(snap);
+  const plan = planPersonPurge(snap, mode);
   if (plan.fingerprint !== expectedFingerprint || !plan.eligible) throw new PurgeConflictError();
 
   const data = await io.readData();
@@ -306,11 +317,13 @@ async function executeUnlocked(io: StoreIo, kind: PurgeKind, id: string, expecte
   await patchFile("trialConversions", (r) => ({ ...r, convertedStudentId: undefined }));
   await patchFile("clubs", (r) => ({ ...r, teacherIds: ((r.teacherIds as string[]) ?? []).filter((t) => t !== id) }));
   const taskTargets = new Set(bucketIds(plan.detach, "tasks"));
-  if (taskTargets.size) {
+  const paymentTaskTargets = new Set(bucketIds(plan.detach, "paymentTasks"));
+  if (taskTargets.size || paymentTaskTargets.size) {
     const { shape, tasks } = await readTasks();
     await fs.writeFile(filePath("tasks.json"), JSON.stringify({ ...shape, tasks: tasks.map((r) => {
-      if (!taskTargets.has(r.id)) return r;
-      const next: Row = r[field] === id ? { ...r, [field]: null } : { ...r };
+      const unpaid: Row = paymentTaskTargets.has(r.id) ? { ...r, paymentId: null } : r;
+      if (!taskTargets.has(r.id)) return unpaid;
+      const next: Row = unpaid[field] === id ? { ...unpaid, [field]: null } : { ...unpaid };
       if (typeof next.title === "string") next.title = next.title.split(snap.person.name).join(plan.anonymizedName);
       if (r.relatedEntityType === kind && r.relatedEntityId === id) {
         Object.assign(next, { relatedEntityType: undefined, relatedEntityId: undefined, relatedEntityLabel: undefined });

@@ -13,12 +13,21 @@
  *   `purgedAt` ile işaretlenir — Silinenler listesinden de çıkar, geri alınamaz.
  * Foreign key'ler RESTRICT kalır; geniş CASCADE yok. Paylaşılan kayıtlar (grup dersi, oda, başka
  * öğrenci/öğretmen, ortak veli hesabı) silinmez; yalnız bu kişiyle bağlantısı kaldırılır.
+ *
+ * Mod "wipe" (2026-10-15, owner): "Yanlış oluşturuldu — her şeyi sil". Finans kuralının ("ödeme satırları
+ * silinmez") BİLİNÇLİ, owner onaylı tek istisnası: kişinin KENDİ tahsilat/borç/sözleşme/hakediş satırları da
+ * silinir, kişi satırı silinir (anonimleştirme yok). Başka kişinin kaydı yine silinmez/değişmez: başka
+ * öğretmenin hakedişine girmiş ders, sağlayıcıda tahsil edilmiş online ödeme, öğretmenin öğrenci geçmişi →
+ * ENGEL (önizlemede somut çözümüyle). Yalnız kurum sahibi; önizlemede finansal özet ayrı gösterilir.
  */
 import { createHash } from "node:crypto";
 import { toDayKey } from "./teacher-payout";
+import { formatMoney } from "./utils";
 
 export type PurgeKind = "student" | "teacher";
 export type PurgeOutcome = "delete" | "anonymize";
+/** "standard": korunması gereken geçmiş varsa anonimleştir. "wipe": yanlış oluşturulmuş kayıt — kişinin finansı dahil her şeyi sil. */
+export type PurgeMode = "standard" | "wipe";
 
 /** Silme/bağlantı kaldırma için tablo anahtarları — DB ve dosya yürütücüleri bu anahtarları eşler. */
 export type PurgeTableKey =
@@ -57,7 +66,7 @@ export type PurgeTableKey =
   | "payouts"
   | "students";
 
-export type PurgeDetachKey = "tasks" | "clubApplications" | "trialConversions" | "clubs";
+export type PurgeDetachKey = "tasks" | "paymentTasks" | "clubApplications" | "trialConversions" | "clubs";
 
 export const PURGE_TABLE_LABELS: Record<PurgeTableKey | PurgeDetachKey, string> = {
   lessons: "Ders kaydı",
@@ -95,6 +104,7 @@ export const PURGE_TABLE_LABELS: Record<PurgeTableKey | PurgeDetachKey, string> 
   payouts: "Hakediş kaydı",
   students: "Öğrenci kaydı (öğretmeni bu kişi)",
   tasks: "Görev (iş takibi)",
+  paymentTasks: "Görev (silinen ödeme satırına bağlı)",
   clubApplications: "Grup dersi başvurusu",
   trialConversions: "Deneme dersi dönüşüm bağı",
   clubs: "Grup dersi öğretmen listesi",
@@ -129,7 +139,15 @@ export type PurgePaymentRow = {
 };
 export type PurgeContractRow = { id: string; status: string; signedAt?: string; documentInstanceId?: string };
 /** `lessonIds`: hakedişin dondurulmuş satırlarındaki dersler (`lineSnapshot`); yoksa dönem kapsaması kullanılır. */
-export type PurgePayoutRow = { id: string; teacherId: string; periodStart: string; periodEnd: string; status: string; lessonIds?: string[] };
+export type PurgePayoutRow = {
+  id: string;
+  teacherId: string;
+  periodStart: string;
+  periodEnd: string;
+  status: string;
+  lessonIds?: string[];
+  totalAmount?: number;
+};
 /** Kişiye bağlı giriş hesabı. `otherLinks` > 0 ise hesap başka öğrenci/rol için de kullanılıyor — kapatılmaz. */
 export type PurgeAccountRow = {
   userId: string;
@@ -154,6 +172,8 @@ export type StudentPurgeSnapshot = {
   payouts: PurgePayoutRow[];
   documents: { id: string }[];
   clubMemberships: { id: string }[];
+  /** Ödeme satırına `Task.paymentId` ile bağlı görevler (FK yok — silinen ödemede bağ kaldırılır). */
+  paymentTasks?: { id: string; paymentId: string }[];
   /** Kişiye ait, başka kayda bağlı olmayan tablolar — her zaman silinir (kvkkConsents hariç: anonimleştirmede korunur). */
   owned: Partial<Record<PurgeTableKey, string[]>>;
   detach: Partial<Record<PurgeDetachKey, string[]>>;
@@ -189,8 +209,24 @@ export type PurgeSnapshot = StudentPurgeSnapshot | TeacherPurgeSnapshot;
 export type PurgeBucket = { key: PurgeTableKey | PurgeDetachKey; label: string; ids: string[]; note?: string };
 export type PurgeAccountAction = { userId: string; role: string; maskedEmail: string; action: "close" | "unlink"; portalAccessIds: string[] };
 
+/** Önizlemedeki finansal özet (yalnız "wipe"). "Tahsil edilen" ile "borç" ayrı alan — finans kuralı. */
+export type PurgeFinancialSummary = {
+  collectedCount: number;
+  collectedTotal: number;
+  debtCount: number;
+  debtTotal: number;
+  contractCount: number;
+  signedContractCount: number;
+  payoutCount: number;
+  payoutTotal: number;
+  paidPayoutCount: number;
+};
+
 export type PurgePlan = {
   kind: PurgeKind;
+  mode: PurgeMode;
+  /** Yalnız "wipe": silinecek finansal kayıtların sayı + tutar özeti. */
+  financial?: PurgeFinancialSummary;
   personId: string;
   personName: string;
   displayId?: string;
@@ -253,10 +289,11 @@ function accountActions(accounts: PurgeAccountRow[]): PurgeAccountAction[] {
     }));
 }
 
-function fingerprintOf(plan: Omit<PurgePlan, "fingerprint" | "effects" | "personName">): string {
+function fingerprintOf(plan: Omit<PurgePlan, "fingerprint" | "effects" | "personName" | "financial">): string {
   const ser = (bs: PurgeBucket[]) => bs.map((b) => [b.key, b.ids]).sort((a, b) => String(a[0]).localeCompare(String(b[0])));
   const payload = JSON.stringify({
     k: plan.kind,
+    m: plan.mode,
     id: plan.personId,
     o: plan.outcome,
     e: plan.eligible,
@@ -283,7 +320,48 @@ function precondition(kind: PurgeKind, person: PurgePerson): { reason: string; f
   return [];
 }
 
-export function planStudentPurge(s: StudentPurgeSnapshot): PurgePlan {
+/**
+ * Hakediş hesabıyla AYNI dahil etme kuralı: kurum saat dilimindeki gün anahtarı (`toDayKey`) dönem içinde mi.
+ * Dondurulmuş satırı olan hakedişte o satırlardaki dersler de ayrıca sayılır (ikisinin birleşimi — güvenli taraf).
+ */
+function payoutCoversLesson(p: PurgePayoutRow, l: PurgeLessonRow): boolean {
+  if (p.teacherId !== l.teacherId) return false;
+  if (p.lessonIds?.includes(l.id)) return true;
+  const day = toDayKey(l.startAt);
+  return toDayKey(p.periodStart) <= day && day <= toDayKey(p.periodEnd);
+}
+
+const trDay = (iso: string) => toDayKey(iso).split("-").reverse().join(".");
+
+/** Silinen derslerin programa/hakedişe/grup dersine somut etkileri (iki modda aynı metin). */
+function studentLessonEffects(s: StudentPurgeSnapshot, keepLessons: Set<string>): { effects: string[]; upcoming: number } {
+  const upcoming = s.lessons.filter((l) => !keepLessons.has(l.id) && ACTIVE_LESSON.has(l.status) && l.startAt > s.nowIso);
+  const group = s.lessons.filter((l) => !keepLessons.has(l.id) && l.clubSessionId);
+  const effects: string[] = [];
+  if (upcoming.length) effects.push(`${upcoming.length} gelecek ders silinir; öğretmen ve oda programında o saatler boşalır. Başka öğretmen atanmaz.`);
+  if (group.length) {
+    effects.push(`${group.length} grup dersi kaydında yalnız bu öğrencinin satırı silinir; grup dersi, öğretmeni ve diğer üyeler etkilenmez.`);
+    const solo = new Set(group.filter((l) => (s.groupSessionOthers?.[l.clubSessionId!] ?? 1) === 0).map((l) => l.clubSessionId!));
+    if (solo.size) effects.push(`${solo.size} grup oturumunun tek üyesi bu öğrenci; o oturumlar programdan kalkar.`);
+  }
+  const realizedByTeacher = new Map<string, number>();
+  for (const l of s.lessons) {
+    if (keepLessons.has(l.id) || ACTIVE_LESSON.has(l.status) || l.status === "cancelled") continue;
+    realizedByTeacher.set(l.teacherId, (realizedByTeacher.get(l.teacherId) ?? 0) + 1);
+  }
+  for (const [tid, n] of realizedByTeacher) {
+    effects.push(`${s.teacherNames[tid] ?? "Öğretmen"}: henüz hakedişi oluşturulmamış ${n} geçmiş ders silinir ve sonraki hakediş hesabında sayılmaz.`);
+  }
+  return { effects, upcoming: upcoming.length };
+}
+
+/** Silinen ödeme satırına `Task.paymentId` ile bağlı görevler — görev silinmez, yalnız ödeme bağı kalkar. */
+function paymentTaskIds(s: StudentPurgeSnapshot, removedPayments: Set<string>): string[] {
+  return (s.paymentTasks ?? []).filter((t) => removedPayments.has(t.paymentId)).map((t) => t.id);
+}
+
+export function planStudentPurge(s: StudentPurgeSnapshot, mode: PurgeMode = "standard"): PurgePlan {
+  if (mode === "wipe") return planStudentWipe(s);
   const blockers = precondition("student", s.person);
   const lessonById = new Map(s.lessons.map((l) => [l.id, l]));
   const activePayouts = s.payouts.filter((p) => p.status !== "cancelled");
@@ -291,15 +369,7 @@ export function planStudentPurge(s: StudentPurgeSnapshot): PurgePlan {
   // 1) Kesin koruma tetikleyicileri.
   const keepPayments = new Set(s.payments.filter((p) => collected(p) > 0).map((p) => p.id));
   const keepContracts = new Set(s.contracts.filter((c) => c.signedAt || c.status === "signed" || c.status === "recorded").map((c) => c.id));
-  // Hakediş hesabıyla AYNI dahil etme kuralı: kurum saat dilimindeki gün anahtarı (`toDayKey`) dönem içinde mi.
-  // Dondurulmuş satırı olan hakedişte o satırlardaki dersler de ayrıca korunur (ikisinin birleşimi — güvenli taraf).
-  const coveredBy = (l: PurgeLessonRow, p: PurgePayoutRow) => {
-    if (p.teacherId !== l.teacherId) return false;
-    if (p.lessonIds?.includes(l.id)) return true;
-    const day = toDayKey(l.startAt);
-    return toDayKey(p.periodStart) <= day && day <= toDayKey(p.periodEnd);
-  };
-  const keepLessons = new Set(s.lessons.filter((l) => activePayouts.some((p) => coveredBy(l, p))).map((l) => l.id));
+  const keepLessons = new Set(s.lessons.filter((l) => activePayouts.some((p) => payoutCoversLesson(p, l))).map((l) => l.id));
   const succeededCheckout = new Set(s.checkouts.filter((c) => c.status === "succeeded" || c.status === "paid").map((c) => c.paymentId));
   for (const id of succeededCheckout) keepPayments.add(id);
   const keepMakeups = new Set<string>();
@@ -369,23 +439,7 @@ export function planStudentPurge(s: StudentPurgeSnapshot): PurgePlan {
     delete owned.kvkkConsents;
   }
 
-  const upcoming = s.lessons.filter((l) => !keepLessons.has(l.id) && ACTIVE_LESSON.has(l.status) && l.startAt > s.nowIso);
-  const group = s.lessons.filter((l) => !keepLessons.has(l.id) && l.clubSessionId);
-  const effects: string[] = [];
-  if (upcoming.length) effects.push(`${upcoming.length} gelecek ders silinir; öğretmen ve oda programında o saatler boşalır. Başka öğretmen atanmaz.`);
-  if (group.length) {
-    effects.push(`${group.length} grup dersi kaydında yalnız bu öğrencinin satırı silinir; grup dersi, öğretmeni ve diğer üyeler etkilenmez.`);
-    const solo = new Set(group.filter((l) => (s.groupSessionOthers?.[l.clubSessionId!] ?? 1) === 0).map((l) => l.clubSessionId!));
-    if (solo.size) effects.push(`${solo.size} grup oturumunun tek üyesi bu öğrenci; o oturumlar programdan kalkar.`);
-  }
-  const realizedByTeacher = new Map<string, number>();
-  for (const l of s.lessons) {
-    if (keepLessons.has(l.id) || ACTIVE_LESSON.has(l.status) || l.status === "cancelled") continue;
-    realizedByTeacher.set(l.teacherId, (realizedByTeacher.get(l.teacherId) ?? 0) + 1);
-  }
-  for (const [tid, n] of realizedByTeacher) {
-    effects.push(`${s.teacherNames[tid] ?? "Öğretmen"}: henüz hakedişi oluşturulmamış ${n} geçmiş ders silinir ve sonraki hakediş hesabında sayılmaz.`);
-  }
+  const { effects, upcoming } = studentLessonEffects(s, keepLessons);
   if (keepLessons.size) effects.push(`${keepLessons.size} ders kesinleşmiş hakedişe veya korunan ödemeye bağlı olduğu için korunur; öğretmen hakedişi değişmez.`);
   if (outcome === "anonymize") {
     effects.push(
@@ -396,6 +450,7 @@ export function planStudentPurge(s: StudentPurgeSnapshot): PurgePlan {
 
   return finish({
     kind: "student",
+    mode: "standard",
     personId: s.person.id,
     personName: s.person.name,
     displayId: s.person.displayId,
@@ -403,7 +458,7 @@ export function planStudentPurge(s: StudentPurgeSnapshot): PurgePlan {
     eligible: blockers.length === 0,
     blockers,
     remove: compact([
-      bucket("lessons", removeLessons, upcoming.length ? `${upcoming.length} tanesi gelecek tarihli` : undefined),
+      bucket("lessons", removeLessons, upcoming ? `${upcoming} tanesi gelecek tarihli` : undefined),
       bucket("attendances", s.attendances.map((a) => a.id).filter(not(keepAttendances))),
       bucket("makeups", s.makeups.map((m) => m.id).filter(not(keepMakeups))),
       bucket("series", s.series.map((x) => x.id).filter(not(keepSeries))),
@@ -415,7 +470,10 @@ export function planStudentPurge(s: StudentPurgeSnapshot): PurgePlan {
       bucket("clubMemberships", s.clubMemberships.map((m) => m.id).filter(not(keepMemberships))),
       ...(Object.entries(owned) as [PurgeTableKey, string[]][]).map(([k, ids]) => bucket(k, ids)),
     ]),
-    detach: compact((Object.entries(s.detach) as [PurgeDetachKey, string[]][]).map(([k, ids]) => bucket(k, ids))),
+    detach: compact([
+      ...(Object.entries(s.detach) as [PurgeDetachKey, string[]][]).map(([k, ids]) => bucket(k, ids)),
+      bucket("paymentTasks", paymentTaskIds(s, removedPaymentSet)),
+    ]),
     keep: compact([
       bucket("payments", keepPayments, "Tahsilatı olan veya korunan sözleşmeye bağlı"),
       bucket("contracts", keepContracts, "İmzalı veya tahsilatı olan"),
@@ -435,7 +493,163 @@ export function planStudentPurge(s: StudentPurgeSnapshot): PurgePlan {
   });
 }
 
-export function planTeacherPurge(s: TeacherPurgeSnapshot): PurgePlan {
+/**
+ * "Yanlış oluşturuldu — her şeyi sil" (öğrenci). Kişinin TÜM kayıtları silinir — tahsil edilmiş ödeme, imzalı
+ * sözleşme ve belgesi dahil; kişi satırı silinir. Başka kişiye dokunan iki durum ENGELDİR (sessizce değiştirmez):
+ * başka bir öğretmenin aktif hakedişine girmiş ders (önce o hakediş iptal edilir, silmeden sonra yeniden
+ * hesaplanır) ve sağlayıcıda tahsil edilmiş online ödeme (gerçek para; iade sağlayıcıdan yapılır).
+ */
+function planStudentWipe(s: StudentPurgeSnapshot): PurgePlan {
+  const blockers = precondition("student", s.person);
+  for (const p of s.payouts.filter((x) => x.status !== "cancelled")) {
+    const n = s.lessons.filter((l) => payoutCoversLesson(p, l)).length;
+    if (!n) continue;
+    blockers.push({
+      reason: `${s.teacherNames[p.teacherId] ?? "Öğretmen"} — ${trDay(p.periodStart)}–${trDay(p.periodEnd)} hakedişi (${p.status === "paid" ? "ödenmiş" : "ödenmemiş"}${p.totalAmount !== undefined ? `, ${formatMoney(p.totalAmount)}` : ""}) bu öğrencinin ${n} dersini içeriyor; tam silme başka kişinin hakedişini kendiliğinden değiştirmez.`,
+      fix: "Hakedişler ekranında bu hakedişi iptal edin (ödendiyse önce ödemesini geri alın) ve önizlemeyi yenileyin. Silmeden sonra dönemi yeniden hesaplatın; yeni hesap bu öğrencinin derslerini içermez.",
+    });
+  }
+  const online = s.checkouts.filter((c) => c.status === "succeeded" || c.status === "paid");
+  if (online.length) {
+    blockers.push({
+      reason: `Bu öğrenci adına ${online.length} online ödeme sağlayıcıda tahsil edilmiş; kayıt gerçek bir ödemeye bağlı.`,
+      fix: "Bu durumda tam silme yapılamaz. Ödemeyi sağlayıcı panelinden iade edin ve standart kalıcı silmeyi kullanın (tahsilat izi anonim olarak korunur).",
+    });
+  }
+  const pendingCheckouts = s.checkouts.filter((c) => c.status === "pending" || c.status === "processing").length;
+  if (pendingCheckouts > 0) {
+    blockers.push({
+      reason: `${pendingCheckouts} online ödeme işlemi hâlâ sürüyor.`,
+      fix: "Ödeme sonuçlanana kadar bekleyin (birkaç dakika) ve önizlemeyi yenileyin.",
+    });
+  }
+
+  const paid = s.payments.filter((p) => collected(p) > 0);
+  const open = s.payments.filter((p) => p.status !== "paid" && p.status !== "voided" && p.amount - p.paidAmount > 0);
+  const signed = s.contracts.filter((c) => c.signedAt || c.status === "signed" || c.status === "recorded");
+  const financial: PurgeFinancialSummary = {
+    collectedCount: paid.length,
+    collectedTotal: paid.reduce((n, p) => n + collected(p), 0),
+    debtCount: open.length,
+    debtTotal: open.reduce((n, p) => n + Math.max(0, p.amount - p.paidAmount), 0),
+    contractCount: s.contracts.length,
+    signedContractCount: signed.length,
+    payoutCount: 0,
+    payoutTotal: 0,
+    paidPayoutCount: 0,
+  };
+  const { effects, upcoming } = studentLessonEffects(s, new Set());
+  effects.unshift(
+    `Finansal kayıtlar da silinecek: ${financial.collectedCount} tahsilatlı satır (tahsil edilen ${formatMoney(financial.collectedTotal)}), ${financial.debtCount} ödenmemiş borç satırı (kalan ${formatMoney(financial.debtTotal)}), ${financial.contractCount} sözleşme (${financial.signedContractCount} imzalı) ve belgeleri. Bu tutarlar tahsilat/finans raporlarından ve makbuzlardan kalkar; geri alınamaz.`
+  );
+  effects.push("Öğrenci satırı da silinir (anonimleştirilmez); kayıt hiçbir listede görünmez.");
+  const all = <T extends { id: string }>(rows: T[]) => rows.map((r) => r.id);
+
+  return finish({
+    kind: "student",
+    mode: "wipe",
+    financial,
+    personId: s.person.id,
+    personName: s.person.name,
+    displayId: s.person.displayId,
+    outcome: "delete",
+    eligible: blockers.length === 0,
+    blockers,
+    remove: compact([
+      bucket("lessons", all(s.lessons), upcoming ? `${upcoming} tanesi gelecek tarihli` : undefined),
+      bucket("attendances", all(s.attendances)),
+      bucket("makeups", all(s.makeups)),
+      bucket("series", all(s.series)),
+      bucket("payments", all(s.payments), "Tahsilatlı ve tahsilatsız TÜM satırlar"),
+      bucket("contracts", all(s.contracts), signed.length ? `${signed.length} tanesi imzalı` : undefined),
+      bucket("documents", all(s.documents)),
+      bucket("checkouts", all(s.checkouts)),
+      bucket("followUps", all(s.followUps)),
+      bucket("clubMemberships", all(s.clubMemberships)),
+      ...(Object.entries(s.owned) as [PurgeTableKey, string[]][]).map(([k, ids]) => bucket(k, ids)),
+    ]),
+    detach: compact([
+      ...(Object.entries(s.detach) as [PurgeDetachKey, string[]][]).map(([k, ids]) => bucket(k, ids)),
+      bucket("paymentTasks", paymentTaskIds(s, new Set(all(s.payments)))),
+    ]),
+    keep: [],
+    accounts: accountActions(s.accounts),
+    effects,
+    anonymizedName: anonymizedPersonName("student", s.person.displayId),
+  });
+}
+
+/**
+ * "Yanlış oluşturuldu — her şeyi sil" (öğretmen). Silinen: öğretmenin KENDİ kayıtları — tüm hakedişleri (ödenmiş
+ * dahil), ücret kuralları, hariç tutmalar, evrak/fotoğraf/mesaj; öğretmen satırı. Ders/seri/telafi, öğrenci kaydı
+ * ve değerlendirme/ödev/deneme dersi öğrencilerin geçmişidir → ENGEL (öğretmen silmesi başka kişinin geçmişini silmez).
+ */
+function planTeacherWipe(s: TeacherPurgeSnapshot): PurgePlan {
+  const blockers = precondition("teacher", s.person);
+  const lessonStudents = new Set(s.lessons.map((l) => l.studentId)).size;
+  if (s.lessons.length || s.series.length || s.makeups.length) {
+    blockers.push({
+      reason: `Öğretmenin ${s.lessons.length} ders, ${s.series.length} seri ve ${s.makeups.length} telafi kaydı ${lessonStudents} öğrencinin geçmişinde.`,
+      fix: "Öğretmen silmesi öğrencilerin ders/yoklama geçmişini silmez. Önce Ders Programı'nda bu dersleri doğru öğretmene taşıyın ya da hatalı planlanan dersleri \"Planı sil\" ile silin, sonra önizlemeyi yenileyin.",
+    });
+  }
+  if (s.students.length) {
+    blockers.push({
+      reason: `${s.students.length} öğrenci kaydında öğretmen olarak görünüyor (pasif/silinmiş dahil).`,
+      fix: "Öğrenciler ekranında bu öğrencileri doğru öğretmene atayın, sonra önizlemeyi yenileyin.",
+    });
+  }
+  const historyCount = Object.values(s.history).reduce((n, ids) => n + (ids?.length ?? 0), 0);
+  if (historyCount) {
+    blockers.push({
+      reason: `${historyCount} öğrenci değerlendirmesi/ödev/geri bildirim/deneme dersi kaydı var.`,
+      fix: "Bunlar öğrencilerin geçmişidir; bu öğretmen için standart kalıcı silmeyi kullanın (öğretmen anonimleştirilir).",
+    });
+  }
+  const paidPayouts = s.payouts.filter((p) => p.status === "paid");
+  const financial: PurgeFinancialSummary = {
+    collectedCount: 0,
+    collectedTotal: 0,
+    debtCount: 0,
+    debtTotal: 0,
+    contractCount: 0,
+    signedContractCount: 0,
+    payoutCount: s.payouts.length,
+    payoutTotal: s.payouts.filter((p) => p.status !== "cancelled").reduce((n, p) => n + (p.totalAmount ?? 0), 0),
+    paidPayoutCount: paidPayouts.length,
+  };
+  const effects = [
+    `Finansal kayıtlar da silinecek: ${financial.payoutCount} hakediş kaydı (iptal olmayanların toplamı ${formatMoney(financial.payoutTotal)}, ${financial.paidPayoutCount} tanesi ödenmiş), ${s.feeRules.length} ücret kuralı ve ${s.payoutExclusions.length} hariç tutma kaydı. Ödeme geçmişi ve muhasebe izi de kalkar; geri alınamaz.`,
+    "Öğretmen satırı da silinir (anonimleştirilmez).",
+  ];
+  if (s.detach.clubs?.length) effects.push(`${s.detach.clubs.length} grup dersinin öğretmen listesinden çıkarılır; grup dersi ve üyeleri silinmez, yerine kimse atanmaz.`);
+
+  return finish({
+    kind: "teacher",
+    mode: "wipe",
+    financial,
+    personId: s.person.id,
+    personName: s.person.name,
+    displayId: s.person.displayId,
+    outcome: "delete",
+    eligible: blockers.length === 0,
+    blockers,
+    remove: compact([
+      ...(Object.entries(s.owned) as [PurgeTableKey, string[]][]).map(([k, ids]) => bucket(k, ids)),
+      bucket("feeRules", s.feeRules),
+      bucket("payoutExclusions", s.payoutExclusions),
+      bucket("payouts", s.payouts.map((p) => p.id), paidPayouts.length ? `${paidPayouts.length} tanesi ödenmiş` : undefined),
+    ]),
+    detach: compact((Object.entries(s.detach) as [PurgeDetachKey, string[]][]).map(([k, ids]) => bucket(k, ids))),
+    keep: [],
+    accounts: accountActions(s.accounts),
+    effects,
+    anonymizedName: anonymizedPersonName("teacher", s.person.displayId),
+  });
+}
+
+export function planTeacherPurge(s: TeacherPurgeSnapshot, mode: PurgeMode = "standard"): PurgePlan {
+  if (mode === "wipe") return planTeacherWipe(s);
   const blockers = precondition("teacher", s.person);
   // Listeden kaldırmadaki kapılar kalıcı silmede de geçerli (kaldırıldıktan sonra veri değişmiş olabilir).
   const upcoming = s.lessons.filter((l) => ACTIVE_LESSON.has(l.status) && l.startAt > s.nowIso).length;
@@ -474,6 +688,7 @@ export function planTeacherPurge(s: TeacherPurgeSnapshot): PurgePlan {
   const keepIfAnon = (key: PurgeTableKey, ids: string[], note?: string) => (outcome === "anonymize" ? bucket(key, ids, note) : null);
   return finish({
     kind: "teacher",
+    mode: "standard",
     personId: s.person.id,
     personName: s.person.name,
     displayId: s.person.displayId,
@@ -504,8 +719,8 @@ export function planTeacherPurge(s: TeacherPurgeSnapshot): PurgePlan {
   });
 }
 
-export function planPersonPurge(s: PurgeSnapshot): PurgePlan {
-  return s.kind === "student" ? planStudentPurge(s) : planTeacherPurge(s);
+export function planPersonPurge(s: PurgeSnapshot, mode: PurgeMode = "standard"): PurgePlan {
+  return s.kind === "student" ? planStudentPurge(s, mode) : planTeacherPurge(s, mode);
 }
 
 /** Planın bucket'larından tablo → id listesi (yürütücüler için). */

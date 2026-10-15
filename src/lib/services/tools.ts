@@ -13524,7 +13524,7 @@ export async function deleteStudentTool(
   const v = parseOrFail(deleteStudentSchema, input);
   if (!v.ok) return v;
   if (v.data.mode === "hard") {
-    const r = await purgePersonTool(ctx, { ...v.data, kind: "student", id: v.data.studentId });
+    const r = await purgePersonTool(ctx, { ...v.data, mode: "standard", kind: "student", id: v.data.studentId });
     return r.ok ? ok({ studentId: v.data.studentId, mode: "hard" }) : r;
   }
   const impact = await computeStudentDeletionImpact(ctx.tenantId, v.data.studentId);
@@ -13732,7 +13732,7 @@ export async function deleteTeacherTool(
   const v = parseOrFail(deleteTeacherSchema, input);
   if (!v.ok) return v;
   if (v.data.mode === "hard") {
-    const r = await purgePersonTool(ctx, { ...v.data, kind: "teacher", id: v.data.teacherId });
+    const r = await purgePersonTool(ctx, { ...v.data, mode: "standard", kind: "teacher", id: v.data.teacherId });
     return r.ok ? ok({ teacherId: v.data.teacherId, mode: "hard" }) : r;
   }
   const impact = await computeTeacherDeletionImpact(ctx.tenantId, v.data.teacherId);
@@ -13828,24 +13828,39 @@ export async function restoreDeletedTeacherTool(ctx: ServiceContext, input: unkn
  * 2026-10-15 (owner) — kalıcı silme önizlemesi: sunucudaki GERÇEK kayıtlardan plan (silinecek / bağlantısı
  * kaldırılacak / korunacak kayıtlar, hesaplar, engeller) + parmak izi. Silme aynı planı kilit altında yeniden kurar.
  */
-export type PersonPurgePreview = import("../person-purge").PurgePlan & { criticalPasswordConfigured: boolean };
+export type PersonPurgePreview = import("../person-purge").PurgePlan & {
+  criticalPasswordConfigured: boolean;
+  /** "Yanlış oluşturuldu — her şeyi sil" (finans dahil) yalnız kurum sahibine açık. */
+  canWipe: boolean;
+};
 
-const purgeTargetSchema = z.object({ kind: z.enum(["student", "teacher"]), id: z.string().min(1) });
+const purgeTargetSchema = z.object({
+  kind: z.enum(["student", "teacher"]),
+  id: z.string().min(1),
+  mode: z.enum(["standard", "wipe"]).default("standard"),
+});
+
+/** Finansal kayıtları da silen mod yalnız kurum sahibi (SUPER_ADMIN) — kurum yöneticisi standart modu kullanır. */
+const canWipePerson = (ctx: ServiceContext) => ctx.role === "SUPER_ADMIN";
+const WIPE_FORBIDDEN = "Finansal kayıtlar dahil tam silme (\"Yanlış oluşturuldu — her şeyi sil\") yalnız kurum sahibi tarafından yapılabilir. Standart kalıcı silmeyi kullanın veya kurum sahibinden isteyin.";
 
 export async function getPersonPurgePreviewTool(ctx: ServiceContext, input: unknown): Promise<ServiceResult<PersonPurgePreview>> {
   const auth = requireRole(ctx, CRITICAL_ROLES_FOR_TOOLS);
   if (!auth.ok) return fail("FORBIDDEN", "Kalıcı silme yalnız kurum sahibi ve kurum yöneticileri tarafından yapılabilir.");
   const v = parseOrFail(purgeTargetSchema, input);
   if (!v.ok) return v;
+  if (v.data.mode === "wipe" && !canWipePerson(ctx)) return fail("FORBIDDEN", WIPE_FORBIDDEN);
   const snap = await loadPurgeSnapshot(v.data.kind, v.data.id);
   if (!snap) return fail("NOT_FOUND", "Kayıt bulunamadı veya zaten kalıcı silinmiş; listeyi yenileyin.");
   const { planPersonPurge } = await import("../person-purge");
   const { getCriticalActionPasswordStatus } = await import("../critical-action-password");
   const pw = await getCriticalActionPasswordStatus(ctx.tenantId);
-  return ok({ ...planPersonPurge(snap), criticalPasswordConfigured: pw.configured });
+  return ok({ ...planPersonPurge(snap, v.data.mode), criticalPasswordConfigured: pw.configured, canWipe: canWipePerson(ctx) });
 }
 
 const purgePersonSchema = purgeTargetSchema.extend({
+  /** Yalnız "wipe": "finansal kayıtlar da silinecek" kutusu işaretlendi. */
+  financialAcknowledged: z.boolean().optional(),
   expectedFingerprint: z.string().max(100).optional(),
   confirmationName: z.string().max(200),
   criticalPassword: z.string().max(200),
@@ -13877,9 +13892,10 @@ export async function purgePersonTool(ctx: ServiceContext, input: unknown): Prom
   if (!auth.ok) return fail("FORBIDDEN", "Kalıcı silme yalnız kurum sahibi ve kurum yöneticileri tarafından yapılabilir.");
   const v = parseOrFail(purgePersonSchema, input);
   if (!v.ok) return v;
-  const { kind, id } = v.data;
+  const { kind, id, mode } = v.data;
   const entityType = kind === "student" ? "Student" : "Teacher";
-  const action = `${kind}.purge`;
+  const action = mode === "wipe" ? `${kind}.purge_wipe` : `${kind}.purge`;
+  if (mode === "wipe" && !canWipePerson(ctx)) return fail("FORBIDDEN", WIPE_FORBIDDEN);
   const snap = await loadPurgeSnapshot(kind, id);
   if (!snap) return fail("NOT_FOUND", "Kayıt bulunamadı veya zaten kalıcı silinmiş; listeyi yenileyin.");
   const result = (outcome: "delete" | "anonymize", extra: Partial<PersonPurgeResult> = {}): PersonPurgeResult => ({
@@ -13887,17 +13903,20 @@ export async function purgePersonTool(ctx: ServiceContext, input: unknown): Prom
   });
   if (snap.person.purgedAt) return ok(result("anonymize", { alreadyPurged: true }));
   const { planPersonPurge, PurgeConflictError } = await import("../person-purge");
-  const plan = planPersonPurge(snap);
+  const plan = planPersonPurge(snap, mode);
 
   const deny = async (reasonCode: string, message: string, code: "FORBIDDEN" | "CONFLICT" | "VALIDATION_ERROR" = "FORBIDDEN") => {
     await recordAuditLog({
       tenantId: ctx.tenantId, actorUserId: ctx.userId, actorRole: ctx.role, action, entityType, entityId: id,
-      outcome: "denied", meta: { reasonCode, displayId: plan.displayId },
+      outcome: "denied", meta: { reasonCode, mode, displayId: plan.displayId },
     });
     return fail(code, message);
   };
   if (!sameName(v.data.confirmationName, plan.personName)) {
     return deny("confirmation_mismatch", `Onay için kişinin adını aynen yazın: "${plan.personName}".`);
+  }
+  if (mode === "wipe" && v.data.financialAcknowledged !== true) {
+    return deny("financial_not_acknowledged", "Tahsilat, borç, sözleşme ve hakediş kayıtlarının da silineceğini onaylayan kutuyu işaretleyin.", "VALIDATION_ERROR");
   }
   const gate = await checkCriticalPassword(ctx, v.data.criticalPassword);
   if (!gate.ok) return deny(gate.reasonCode, gate.message);
@@ -13911,7 +13930,7 @@ export async function purgePersonTool(ctx: ServiceContext, input: unknown): Prom
 
   let exec: Awaited<ReturnType<typeof executePurge>>;
   try {
-    exec = await executePurge(kind, id, plan.fingerprint);
+    exec = await executePurge(kind, id, plan.fingerprint, mode);
   } catch (e) {
     if (e instanceof PurgeConflictError) return deny("preview_stale_locked", PURGE_STALE_MESSAGE, "CONFLICT");
     logger.error("purgePersonTool failed", e);
@@ -13933,9 +13952,12 @@ export async function purgePersonTool(ctx: ServiceContext, input: unknown): Prom
   const removedCount = exec.plan.remove.reduce((n, b) => n + b.ids.length, 0);
   await recordAuditLog({
     tenantId: ctx.tenantId, actorUserId: ctx.userId, actorRole: ctx.role, action, entityType, entityId: id, outcome: "success",
+    // Ad ve gerekçe metni YOK: numara, mod, sayılar, tutarlar, aktör.
     meta: {
       outcome: exec.plan.outcome,
+      mode,
       displayId: exec.plan.displayId,
+      ...(exec.plan.financial ? { financial: exec.plan.financial } : {}),
       removed: count(exec.plan.remove),
       detached: count(exec.plan.detach),
       kept: count(exec.plan.keep),
