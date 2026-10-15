@@ -108,6 +108,22 @@ your school enables.
 3. **Veri güvenliği formunda "isteğe bağlı mı":** fotoğraf/dosya isteğe bağlı; hesap verileri zorunlu (kurum tutar).
 4. **Veri saklama süresi:** gizlilik metnindeki süreler Play formuna aynen aktarılmalı (owner/hukuk).
 
+## 3b. Play Console'daki gerçek durum (2026-10-15, `nevii.production@gmail.com` → "Nevii Production")
+- Uygulama `com.neviihub.mobile` **Taslak**; tek paket sürüm kodu 2 / **0.1.0** (11 Eki) dahili testte; üretim etkin değil.
+  Kapalı test (Alpha) 3/5: kanal, Türkiye, test kullanıcı listesi hazır; "sürümü önizle/onayla" ve "incelemeye gönder" kalmış.
+- 11–12 Eki'de 9 beyan tamamlanmıştı. Bu oturumda (owner kararıyla) değişenler — hepsi KAYDEDİLDİ, **incelemeye GÖNDERİLMEDİ**:
+  - **Reklam Kimliği: Hayır** — paket izinlerinde `AD_ID` yok (29 izin incelendi), reklam/analitik SDK'sı yok.
+  - **Hedef yaş: 13–15, 16–17, 18+** (önceden yalnız 18+; öğrenciler kendileri giriş yapıyor, 13 altı yok — owner).
+    Console uyarısı: bazı ülkelerde bu yaşlar "çocuk" sayılabilir → o kullanıcılar için Aileler politikası geçerli olabilir.
+  - **Veri güvenliği (taslak):** önceki beyan Ad/E-posta/Telefon'u "kısa süreli işleniyor" işaretlediği için mağaza
+    etiketi "veri toplanmıyor" gösterecekti. Düzeltildi: Ad, E-posta, Kullanıcı kimlikleri, Telefon (zorunlu; uygulama
+    işlevi + hesap yönetimi), İşlem geçmişi (zorunlu), Fotoğraflar, Dosyalar, Kullanıcı tarafından oluşturulan içerik,
+    Cihaz kimlikleri/push jetonu (isteğe bağlı) — toplandı, paylaşılmadı, kısa süreli değil. Önceki "Kilitlenme günlükleri"
+    satırına dokunulmadı.
+- Mağaza kategorisi Console'da **İş** seçili (bu belgedeki öneri Eğitim) — owner kararı.
+- **Android push:** EAS production ortamında `GOOGLE_SERVICES_JSON` yok → bu ve önceki build'lerde Android push çalışmaz
+  (`app.config.js`). FCM için google-services.json EAS'a "file" env olarak eklenmeli.
+
 ## 4. İnceleme test hesabı
 Canlı API'ye bağlanan sürüm için **canlıda sentetik bir test öğrencisi + test öğretmeni** gerekir (gerçek kişi verisi
 olmadan). Canlı veri değişikliği owner onayı ister — bu oturumda oluşturulmadı. Kimlik bilgileri bu repoya YAZILMAZ;
