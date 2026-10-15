@@ -83,6 +83,8 @@ type ProgramStudioProps = {
   todayIso: string;
   /** Öğrenci detayından "Programda Aç" ile gelinirse başlangıç öğrenci filtresi. */
   initialStudentFilter?: string;
+  /** Bildirimden gelinirse (`?ders=`) açılışta seçili ders paneli. */
+  initialDetailLessonId?: string;
   /**
    * ÖNCELİK 4 (devam) — /panel/program üstündeki akademik yıl/dönem seçici
    * (progTerm/progYear). Yeni tek ders VEYA yeni seri oluşturulurken otomatik
@@ -717,6 +719,7 @@ export function ProgramStudio({
   weekLessons,
   todayIso,
   initialStudentFilter,
+  initialDetailLessonId,
   selectedTerm,
   selectedAcademicYearStart,
   catalogInstruments,
@@ -873,7 +876,7 @@ export function ProgramStudio({
    * gösteriyordu. Seçim, statü RENGİNE hiçbir koşulda dokunmaz (bkz. kart
    * `selected` vurgusu — dolgudan bağımsız çerçeve).
    */
-  const [detailLessonId, setDetailLessonId] = useState<string | null>(null);
+  const [detailLessonId, setDetailLessonId] = useState<string | null>(initialDetailLessonId ?? null);
   const [detailError, setDetailError] = useState<string | null>(null);
 
   // Program ekranına özel hızlı filtreler — istemci tarafında görünürlüğü

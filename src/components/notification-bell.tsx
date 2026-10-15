@@ -93,7 +93,8 @@ export function NotificationBell({ role }: { role: AppRole }) {
 
   async function openNotification(n: Notification) {
     if (!n.readAt) await markRead(n.id);
-    const href = resolveNotificationHref(n.kind, n.body);
+    // API okunur metni + sunucuda çözülmüş hedefi döner (bkz. /api/v1/notifications).
+    const href = (n as Notification & { href?: string | null }).href ?? resolveNotificationHref(n.kind, n.body);
     setOpen(false);
     if (href) router.push(href);
   }

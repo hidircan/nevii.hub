@@ -3,7 +3,8 @@ import { readData } from "./store";
 import { notifyAdmins } from "./manager-notifications";
 import { listLeave } from "./leave";
 import { forEachSchoolTenant, sweepLessonReminders, sweepUpcomingLessons } from "./lesson-notifications";
-import { formatMoney } from "./utils";
+import { formatDate, formatMoney } from "./utils";
+import { paymentTargetHref } from "./notification-href";
 import { safeErrorFields } from "./logger";
 
 const PENDING_DAYS = 7;
@@ -43,12 +44,16 @@ export async function sweepPaymentFailedOrPending(now = new Date()): Promise<{ c
       const age = differenceInCalendarDays(now, parseISO(anchor));
       if (age < PENDING_DAYS) continue;
       const remaining = Math.max(p.amount - p.paidAmount, 0);
+      // 2026-10-15 — kimden/ne için/ne kadar/vade; teknik kimlik yalnız "Detay:" hedefinde (ekranda gizlenir,
+      // tekilleştirme `body.includes(p.id)` ile aynen çalışır). Push yok — yalnız yönetici uygulama içi bildirimi.
+      const who = data.students.find((st) => st.id === p.studentId)?.name ?? "Öğrenci kaydı bulunamadı";
+      const what = p.installmentPeriodLabel ?? p.description ?? "Ödeme";
       await notifyAdmins(
         tenantId,
         "payment_failed_or_pending",
         {
           title: "Bekleyen ödeme",
-          body: `Ödeme ${p.id} ${age} gündür beklemede (${formatMoney(remaining)}). Detay: /panel/odemeler`,
+          body: `${who} — ${what}: ${formatMoney(remaining)} ödeme bekliyor (vade ${formatDate(p.dueDate)}, ${age} gündür açık). Detay: ${paymentTargetHref(p.studentId, p.id)}`,
         },
         { dedupeKey: p.id }
       );

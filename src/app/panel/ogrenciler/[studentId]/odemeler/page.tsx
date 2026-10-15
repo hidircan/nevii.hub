@@ -40,10 +40,10 @@ export default async function StudentPaymentsTab({
   searchParams,
 }: {
   params: Promise<{ studentId: string }>;
-  searchParams: Promise<{ brans?: string }>;
+  searchParams: Promise<{ brans?: string; odeme?: string }>;
 }) {
   const { studentId } = await params;
-  const { brans } = await searchParams;
+  const { brans, odeme } = await searchParams;
   const { session, data, student, canManage, kurum } = await loadStudentPageContext(studentId);
   if (!student) notFound();
 
@@ -281,13 +281,19 @@ export default async function StudentPaymentsTab({
           </p>
         ) : null}
 
+        {odeme && !payments.some((p) => p.id === odeme) ? (
+          <p role="status" className="mb-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
+            Bildirimdeki ödeme kaydı bu listede yok: silinmiş, başka bir branş filtresinde ya da artık bu öğrenciye ait değil.
+            {brans ? " Branş filtresini \"Tüm branşlar\" yapıp tekrar bakın." : ""}
+          </p>
+        ) : null}
         <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">Açık borçlar</h3>
         {debt.open.length === 0 ? (
           <EmptyState title="Açık borç yok" description="Bu öğrencinin ödenmemiş geçerli bir borç kaydı yok." />
         ) : (
           <div className="space-y-2">
             {debt.open.map((p) => (
-              <Card key={p.id} className="!p-3">
+              <Card key={p.id} id={`odeme-${p.id}`} className={`!p-3 scroll-mt-24${p.id === odeme ? " ring-2 ring-[var(--color-primary)]" : ""}`}>
                 <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
                   <div>
                     <p className="font-medium text-[var(--color-text)]">
@@ -332,7 +338,11 @@ export default async function StudentPaymentsTab({
         ) : (
           <ul className="divide-y divide-[var(--color-border)] rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] text-sm">
             {debt.movements.map((p) => (
-              <li key={p.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
+              <li
+                key={p.id}
+                id={`odeme-${p.id}`}
+                className={`flex scroll-mt-24 flex-wrap items-center justify-between gap-2 px-3 py-2${p.id === odeme ? " ring-2 ring-inset ring-[var(--color-primary)]" : ""}`}
+              >
                 <span className="text-[var(--color-text)]">
                   {branchTag(p)}
                   {p.installmentPeriodLabel ?? p.description}
@@ -353,7 +363,7 @@ export default async function StudentPaymentsTab({
             </summary>
             <ul className="mt-2 space-y-1 text-xs text-[var(--color-text-muted)]">
               {debt.closedByContract.map((p) => (
-                <li key={p.id}>
+                <li key={p.id} id={`odeme-${p.id}`} className={p.id === odeme ? "font-semibold text-[var(--color-text)]" : undefined}>
                   {p.installmentPeriodLabel ?? p.description} · vade {formatDate(p.dueDate)} · {formatMoney(p.amount - p.paidAmount)}
                 </li>
               ))}
