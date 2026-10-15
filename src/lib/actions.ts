@@ -4514,10 +4514,14 @@ export async function actionRestoreDeletedStudent(studentId: string): Promise<Si
 }
 
 /** 2026-10-15 — öğrenci/öğretmen kalıcı silme; önizleme ve silme aynı planı kullanır (`purgePersonTool`). */
-export async function actionGetPersonPurgePreview(kind: "student" | "teacher", id: string): Promise<SimpleActionResult<PersonPurgePreview>> {
+export async function actionGetPersonPurgePreview(
+  kind: "student" | "teacher",
+  id: string,
+  mode: "standard" | "wipe" = "standard"
+): Promise<SimpleActionResult<PersonPurgePreview>> {
   return runSimpleAction(
     "actionGetPersonPurgePreview",
-    (ctx) => getPersonPurgePreviewTool(ctx, { kind, id }),
+    (ctx) => getPersonPurgePreviewTool(ctx, { kind, id, mode }),
     "Kalıcı silme önizlemesi yüklenemedi. Sayfayı yenileyip tekrar deneyin."
   );
 }
@@ -4529,6 +4533,9 @@ export async function actionPurgePerson(input: {
   confirmationName: string;
   criticalPassword: string;
   reason: string;
+  /** "wipe": yanlış oluşturulmuş kayıt — finans dahil her şey silinir (yalnız kurum sahibi). */
+  mode?: "standard" | "wipe";
+  financialAcknowledged?: boolean;
 }): Promise<SimpleActionResult<PersonPurgeResult>> {
   const res = await runSimpleAction(
     "actionPurgePerson",

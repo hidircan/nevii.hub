@@ -7,13 +7,16 @@ import { AlertTriangle, Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui";
 import { actionGetPersonPurgePreview, actionPurgePerson } from "@/lib/actions";
 import type { PersonPurgePreview } from "@/lib/services/tools";
-import type { PurgeBucket } from "@/lib/person-purge";
+import type { PurgeBucket, PurgeFinancialSummary, PurgeMode } from "@/lib/person-purge";
+import { formatMoney } from "@/lib/utils";
 
 /**
  * 2026-10-15 (owner) — öğrenci/öğretmen KALICI SİLME. Silinenler / Kaldırılanlar'dan açılır.
  * Sunucudaki gerçek kayıtlardan önizleme yüklenmeden onay açılmaz; kişi adı yazılır, "geri alınamaz" kutusu
  * işaretlenir, kritik işlem şifresi girilir. Sunucu aynı planı kilit altında yeniden kurar: önizlemeden sonra
  * kayıtlar değiştiyse hiçbir şey silinmez, burada önizleme yenilenir ve onay sıfırlanır.
+ * Kurum sahibine ayrıca "Yanlış oluşturuldu — her şeyi sil" modu açılır (finansal kayıtlar dahil); mod değişince
+ * önizleme yeniden yüklenir ve tüm onaylar sıfırlanır.
  */
 export function PersonPurgeDialog({
   kind,
@@ -34,6 +37,9 @@ export function PersonPurgeDialog({
   const [reason, setReason] = useState("");
   const [confirmationName, setConfirmationName] = useState("");
   const [understood, setUnderstood] = useState(false);
+  const [mode, setMode] = useState<PurgeMode>("standard");
+  const [canWipe, setCanWipe] = useState(false);
+  const [financialAck, setFinancialAck] = useState(false);
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -60,29 +66,46 @@ export function PersonPurgeDialog({
     };
   }, [open]);
 
-  async function loadPreview(): Promise<PersonPurgePreview | null> {
+  async function loadPreview(m: PurgeMode = mode): Promise<PersonPurgePreview | null> {
     setLoading(true);
-    const res = await actionGetPersonPurgePreview(kind, id);
+    const res = await actionGetPersonPurgePreview(kind, id, m);
     setLoading(false);
     if (!res.ok) {
       setError(res.message);
       return null;
     }
     setPreview(res.data);
+    setCanWipe(res.data.canWipe);
     return res.data;
+  }
+
+  function resetConfirmations() {
+    setConfirmationName("");
+    setUnderstood(false);
+    setFinancialAck(false);
+    setPassword("");
+  }
+
+  async function switchMode(next: PurgeMode) {
+    if (next === mode || busy) return;
+    setMode(next);
+    setPreview(null);
+    setError(null);
+    setChangedNotice(false);
+    resetConfirmations();
+    await loadPreview(next);
   }
 
   async function openDialog() {
     setOpen(true);
     setPreview(null);
     setReason("");
-    setConfirmationName("");
-    setUnderstood(false);
-    setPassword("");
+    resetConfirmations();
+    setMode("standard");
     setError(null);
     setChangedNotice(false);
     setWarnings([]);
-    await loadPreview();
+    await loadPreview("standard");
   }
 
   async function submit() {
@@ -96,6 +119,8 @@ export function PersonPurgeDialog({
       confirmationName,
       criticalPassword: password,
       reason,
+      mode: preview.mode,
+      financialAcknowledged: preview.mode === "wipe" ? financialAck : undefined,
     });
     setPassword("");
     if (!res.ok) {
@@ -108,6 +133,7 @@ export function PersonPurgeDialog({
         setChangedNotice(true);
         setConfirmationName("");
         setUnderstood(false);
+        setFinancialAck(false);
       }
       return;
     }
@@ -126,11 +152,13 @@ export function PersonPurgeDialog({
   }
 
   const who = kind === "student" ? "öğrenci" : "öğretmen";
+  const wipe = preview?.mode === "wipe";
   const canSubmit =
     !!preview &&
     preview.eligible &&
     preview.criticalPasswordConfigured &&
     understood &&
+    (!wipe || financialAck) &&
     reason.trim().length >= 5 &&
     confirmationName.trim().length > 0 &&
     password.length > 0 &&
@@ -199,10 +227,48 @@ export function PersonPurgeDialog({
                   </p>
                 ) : null}
 
+                {canWipe ? (
+                  <fieldset className="rounded-md border border-[var(--color-border)] px-3 py-2">
+                    <legend className="px-1 font-semibold text-[var(--color-text)]">Silme türü</legend>
+                    <label className="flex items-start gap-2 py-0.5">
+                      <input
+                        type="radio"
+                        name={`purge-mode-${id}`}
+                        checked={mode === "standard"}
+                        disabled={busy || loading}
+                        onChange={() => void switchMode("standard")}
+                        className="mt-0.5"
+                      />
+                      <span>
+                        <strong>Kalıcı sil</strong> — tahsilat, imzalı sözleşme ve hakediş geçmişi varsa korunur, kişi anonimleştirilir.
+                      </span>
+                    </label>
+                    <label className="flex items-start gap-2 py-0.5">
+                      <input
+                        type="radio"
+                        name={`purge-mode-${id}`}
+                        checked={mode === "wipe"}
+                        disabled={busy || loading}
+                        onChange={() => void switchMode("wipe")}
+                        className="mt-0.5"
+                      />
+                      <span>
+                        <strong style={{ color: "var(--color-danger)" }}>Yanlış oluşturuldu — her şeyi sil</strong> — kişi ve ona bağlı
+                        TÜM kayıtlar, <strong>finansal kayıtlar dahil</strong>, silinir. Yalnız hatalı açılmış kayıtlar için.
+                      </span>
+                    </label>
+                  </fieldset>
+                ) : null}
+
                 <p className="rounded-md px-3 py-2" style={{ background: "var(--color-surface-muted)" }}>
                   <strong>{preview.personName}</strong>
                   {preview.displayId ? ` · ${preview.displayId}` : ""} —{" "}
-                  {preview.outcome === "delete" ? (
+                  {wipe ? (
+                    <>
+                      yanlış oluşturulmuş kayıt: {who} kaydı ve ona bağlı tüm kayıtlar — <strong>finansal kayıtlar dahil</strong> —{" "}
+                      <strong>tamamen silinir</strong>. Anonim iz kalmaz.
+                    </>
+                  ) : preview.outcome === "delete" ? (
                     <>korunması gereken geçmişi yok; {who} kaydı ve aşağıdaki bağlı kayıtlar <strong>tamamen silinir</strong>.</>
                   ) : (
                     <>
@@ -226,6 +292,8 @@ export function PersonPurgeDialog({
                     </ul>
                   </div>
                 ) : null}
+
+                {wipe && preview.financial ? <FinancialSummary kind={kind} f={preview.financial} /> : null}
 
                 <BucketList title="Kalıcı silinecek" buckets={preview.remove} empty="Bağlı kayıt yok." tone="danger" />
                 <BucketList title="Silinmeyecek, yalnız bağlantısı kaldırılacak" buckets={preview.detach} />
@@ -306,6 +374,15 @@ export function PersonPurgeDialog({
                       <input type="checkbox" checked={understood} onChange={(e) => setUnderstood(e.target.checked)} className="mt-0.5" />
                       <span>Yukarıdaki önizlemeyi okudum; kayıtların kalıcı silineceğini ve geri alınamayacağını anlıyorum.</span>
                     </label>
+                    {wipe ? (
+                      <label className="flex items-start gap-2 font-medium" style={{ color: "var(--color-danger)" }}>
+                        <input type="checkbox" checked={financialAck} onChange={(e) => setFinancialAck(e.target.checked)} className="mt-0.5" />
+                        <span>
+                          Tahsilat, borç, sözleşme ve hakediş kayıtlarının da kalıcı silineceğini; tahsilat/finans raporlarının ve
+                          makbuzların bu tutarlar olmadan görüneceğini anlıyorum.
+                        </span>
+                      </label>
+                    ) : null}
                     <label className="block">
                       <span className="font-medium text-[var(--color-text)]">Kritik işlem şifresi</span>
                       <input
@@ -320,7 +397,7 @@ export function PersonPurgeDialog({
                 ) : null}
 
                 <div className="flex flex-wrap justify-between gap-2">
-                  <Button type="button" variant="ghost" disabled={busy || loading} onClick={() => void loadPreview()}>
+                  <Button type="button" variant="ghost" disabled={busy || loading} onClick={() => void loadPreview(mode)}>
                     <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} aria-hidden /> Önizlemeyi yenile
                   </Button>
                   <div className="flex gap-2">
@@ -329,7 +406,7 @@ export function PersonPurgeDialog({
                     </Button>
                     <Button type="button" variant="danger" disabled={!canSubmit || busy} onClick={() => void submit()}>
                       {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
-                      Kalıcı olarak sil
+                      {wipe ? "Her şeyi kalıcı olarak sil" : "Kalıcı olarak sil"}
                     </Button>
                   </div>
                 </div>
@@ -345,6 +422,33 @@ export function PersonPurgeDialog({
         </div>
       ) : null}
     </>
+  );
+}
+
+/** "Tahsil edilen" ile "ödenmemiş borç" ayrı satır (finans kuralı); tutarlar sunucudaki gerçek satırlardan. */
+function FinancialSummary({ kind, f }: { kind: "student" | "teacher"; f: PurgeFinancialSummary }) {
+  const rows: [string, string][] =
+    kind === "student"
+      ? [
+          ["Tahsil edilen", `${f.collectedCount} satır · ${formatMoney(f.collectedTotal)}`],
+          ["Ödenmemiş borç", `${f.debtCount} satır · ${formatMoney(f.debtTotal)}`],
+          ["Sözleşme", `${f.contractCount} (${f.signedContractCount} imzalı)`],
+        ]
+      : [["Hakediş", `${f.payoutCount} kayıt · ${formatMoney(f.payoutTotal)} (${f.paidPayoutCount} ödenmiş)`]];
+  return (
+    <section className="rounded-md border px-3 py-2" style={{ borderColor: "var(--color-danger)", background: "var(--color-danger-soft)" }}>
+      <h4 className="font-semibold" style={{ color: "var(--color-danger)" }}>
+        Finansal kayıtlar da silinecek
+      </h4>
+      <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5">
+        {rows.map(([k, v]) => (
+          <div key={k} className="contents">
+            <dt className="text-[var(--color-text-muted)]">{k}</dt>
+            <dd className="font-semibold tabular-nums text-[var(--color-text)]">{v}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
   );
 }
 

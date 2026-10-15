@@ -365,7 +365,8 @@ type StoreApi = {
   executePurge: (
     kind: import("./person-purge").PurgeKind,
     id: string,
-    expectedFingerprint: string
+    expectedFingerprint: string,
+    mode?: import("./person-purge").PurgeMode
   ) => Promise<import("./person-purge-db").PurgeExecResult>;
   updatePerformanceWeights: (
     performanceWeights: import("./performance-weights").PerformanceWeightsConfig
@@ -619,8 +620,13 @@ export async function loadPurgeSnapshot(kind: import("./person-purge").PurgeKind
 }
 
 /** Kalıcı silme — kilit altında planı yeniden kurar; parmak izi önizlemeyle aynı değilse PurgeConflictError. */
-export async function executePurge(kind: import("./person-purge").PurgeKind, id: string, expectedFingerprint: string) {
-  return withTenantScope(() => store.executePurge(kind, id, expectedFingerprint));
+export async function executePurge(
+  kind: import("./person-purge").PurgeKind,
+  id: string,
+  expectedFingerprint: string,
+  mode: import("./person-purge").PurgeMode = "standard"
+) {
+  return withTenantScope(() => store.executePurge(kind, id, expectedFingerprint, mode));
 }
 
 /**

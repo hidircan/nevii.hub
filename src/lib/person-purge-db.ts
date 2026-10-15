@@ -20,6 +20,7 @@ import {
   planPersonPurge,
   type PurgeAccountRow,
   type PurgeKind,
+  type PurgeMode,
   type PurgePlan,
   type PurgeSnapshot,
   type PurgeTableKey,
@@ -56,7 +57,7 @@ async function loadStudentSnapshot(db: Db, tenantId: string, studentId: string, 
   const [payouts, teachers] = await Promise.all([
     db.teacherPayout.findMany({
       where: { tenantId, teacherId: { in: teacherIds } },
-      select: { id: true, teacherId: true, periodStart: true, periodEnd: true, status: true, lineSnapshot: true },
+      select: { id: true, teacherId: true, periodStart: true, periodEnd: true, status: true, lineSnapshot: true, totalAmount: true },
     }),
     db.teacher.findMany({ where: { tenantId, id: { in: teacherIds } }, select: { id: true, name: true } }),
   ]);
@@ -86,10 +87,13 @@ async function loadStudentSnapshot(db: Db, tenantId: string, studentId: string, 
       _count: { _all: true },
     }),
   ]);
-  const [tasks, clubApplications, trialConversions] = await Promise.all([
+  const [tasks, clubApplications, trialConversions, paymentTasks] = await Promise.all([
     db.task.findMany({ where: taskWhere(tenantId, "student", studentId), select: { id: true } }),
     db.clubApplication.findMany({ where, select: { id: true } }),
     db.trialLesson.findMany({ where: { tenantId, convertedStudentId: studentId }, select: { id: true } }),
+    payments.length
+      ? db.task.findMany({ where: { tenantId, paymentId: { in: ids(payments) } }, select: { id: true, paymentId: true } })
+      : Promise.resolve([]),
   ]);
   const accounts = await loadAccounts(db, tenantId, { studentId, portalUserIds: portal.map((p) => p.userId) });
   return {
@@ -108,12 +112,14 @@ async function loadStudentSnapshot(db: Db, tenantId: string, studentId: string, 
       id: p.id,
       teacherId: p.teacherId,
       status: p.status,
+      totalAmount: p.totalAmount,
       periodStart: p.periodStart.toISOString(),
       periodEnd: p.periodEnd.toISOString(),
       lessonIds: ((p.lineSnapshot as { lessonId?: string }[] | null) ?? []).map((x) => x.lessonId).filter((x): x is string => !!x),
     })),
     documents,
     clubMemberships,
+    paymentTasks: paymentTasks.map((t) => ({ id: t.id, paymentId: t.paymentId ?? "" })),
     owned: {
       portalAccess: ids(portal),
       feedbackInvites: ids(feedbackInvites),
@@ -156,7 +162,7 @@ async function loadTeacherSnapshot(db: Db, tenantId: string, teacherId: string, 
     db.lesson.findMany({ where, select: { id: true, studentId: true, teacherId: true, startAt: true, status: true, seriesId: true, clubSessionId: true } }),
     db.lessonSeries.findMany({ where, select: { id: true, status: true } }),
     db.makeupRequest.findMany({ where, select: { id: true } }),
-    db.teacherPayout.findMany({ where, select: { id: true, teacherId: true, periodStart: true, periodEnd: true, status: true } }),
+    db.teacherPayout.findMany({ where, select: { id: true, teacherId: true, periodStart: true, periodEnd: true, status: true, totalAmount: true } }),
     db.teacherFeeRule.findMany({ where, select: { id: true } }),
     db.teacherPayoutExclusion.findMany({ where, select: { id: true } }),
     db.student.findMany({
@@ -357,7 +363,12 @@ const DELETE_ORDER: PurgeTableKey[] = [
 
 export type PurgeExecResult = { status: "done"; plan: PurgePlan; closedUserIds: string[] } | { status: "already_purged" } | { status: "not_found" };
 
-export async function executePurgeDb(kind: PurgeKind, id: string, expectedFingerprint: string): Promise<PurgeExecResult> {
+export async function executePurgeDb(
+  kind: PurgeKind,
+  id: string,
+  expectedFingerprint: string,
+  mode: PurgeMode = "standard"
+): Promise<PurgeExecResult> {
   const tid = requireTenantId();
   try {
     return await prisma.$transaction(
@@ -366,7 +377,7 @@ export async function executePurgeDb(kind: PurgeKind, id: string, expectedFinger
         const snap = await loadPurgeSnapshotDb(kind, id, tx);
         if (!snap) return { status: "not_found" as const };
         if (snap.person.purgedAt) return { status: "already_purged" as const };
-        const plan = planPersonPurge(snap);
+        const plan = planPersonPurge(snap, mode);
         if (plan.fingerprint !== expectedFingerprint || !plan.eligible) throw new PurgeConflictError();
 
         for (const key of DELETE_ORDER) await deleteByIds(tx, tid, key, bucketIds(plan.remove, key));
@@ -384,6 +395,12 @@ export async function executePurgeDb(kind: PurgeKind, id: string, expectedFinger
           for (const t of await tx.task.findMany({ where: { ...taskIds, title: { contains: snap.person.name } }, select: { id: true, title: true } })) {
             await tx.task.update({ where: { id: t.id }, data: { title: t.title.split(snap.person.name).join(plan.anonymizedName) } });
           }
+        }
+        if (detach("paymentTasks").length) {
+          await tx.task.updateMany({
+            where: { tenantId: tid, id: { in: detach("paymentTasks") }, paymentId: { in: bucketIds(plan.remove, "payments") } },
+            data: { paymentId: null },
+          });
         }
         if (detach("clubApplications").length) {
           await tx.clubApplication.updateMany({ where: { tenantId: tid, id: { in: detach("clubApplications") } }, data: { studentId: null } });

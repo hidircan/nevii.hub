@@ -424,3 +424,122 @@ describe("şema kapsama kilidi", () => {
     expect(models.filter((m) => !CLASSIFIED.has(m))).toEqual([]);
   });
 });
+
+describe("yanlış oluşturuldu — her şeyi sil (wipe)", () => {
+  const owner: ServiceContext = { ...admin, role: "SUPER_ADMIN", userId: "u_owner" };
+
+  it("tahsilatlı öğrenci: yalnız kurum sahibi + finansal onayla; tahsilat ve borç dahil her şey silinir; grup dersinin diğer üyesi kalır; audit'te ad yok", async () => {
+    await seedDemo({ collected: true });
+    expect((await getPersonPurgePreviewTool(admin, { kind: "student", id: DEMO, mode: "wipe" })).ok).toBe(false);
+    const r0 = await getPersonPurgePreviewTool(owner, { kind: "student", id: DEMO, mode: "wipe" });
+    if (!r0.ok) throw new Error(r0.error.message);
+    const p = r0.data;
+    expect(p.mode).toBe("wipe");
+    expect(p.outcome).toBe("delete");
+    expect(p.keep).toEqual([]);
+    expect(p.remove.find((b) => b.key === "payments")?.ids).toEqual(["pay_demo_debt", "pay_demo_paid"]);
+    expect(p.financial).toMatchObject({ collectedCount: 1, collectedTotal: 3000, debtCount: 1, debtTotal: 3000 });
+    expect(p.effects[0]).toContain("Finansal kayıtlar da silinecek");
+    expect((await previewOf("student", DEMO)).fingerprint).not.toBe(p.fingerprint);
+
+    // Kurum yöneticisi ve finansal onay kutusu olmadan reddedilir.
+    expect((await purgePersonTool(admin, purgeInput(p.fingerprint, { mode: "wipe", financialAcknowledged: true }))).ok).toBe(false);
+    expect((await purgePersonTool(owner, purgeInput(p.fingerprint, { mode: "wipe" }))).ok).toBe(false);
+    expect((await readData()).payments.some((x) => x.id === "pay_demo_paid")).toBe(true);
+
+    const r = await purgePersonTool(owner, purgeInput(p.fingerprint, { mode: "wipe", financialAcknowledged: true }));
+    expect(r.ok, r.ok ? "" : r.error.message).toBe(true);
+    const after = await readData();
+    expect(after.students.some((s) => s.id === DEMO)).toBe(false);
+    expect(after.payments.some((x) => x.studentId === DEMO)).toBe(false);
+    expect(after.lessons.some((l) => l.studentId === DEMO)).toBe(false);
+    expect(after.attendances.some((a) => a.studentId === DEMO)).toBe(false);
+    expect(after.lessons.some((l) => l.id === "les_group_other")).toBe(true);
+    expect(after.students.some((s) => s.id === OTHER)).toBe(true);
+
+    const audit = auditCalls.find((a) => a.action === "student.purge_wipe" && a.outcome === "success");
+    expect(audit?.meta).toMatchObject({ mode: "wipe", outcome: "delete", financial: { collectedTotal: 3000, debtTotal: 3000 } });
+    expect(JSON.stringify(audit?.meta)).not.toContain("Demo Silinecek");
+    expect(JSON.stringify(audit?.meta)).not.toContain("Test amaçlı");
+  });
+
+  const person = { id: "s1", name: "A B", displayId: "Ö-1", active: false, deletedAt: "2026-10-01T00:00:00.000Z" };
+  const base: StudentPurgeSnapshot = {
+    kind: "student",
+    person,
+    lessons: [{ id: "l1", studentId: "s1", teacherId: "t1", startAt: "2026-09-10T10:00:00.000Z", status: "completed" }],
+    attendances: [{ id: "a1", lessonId: "l1" }],
+    series: [],
+    makeups: [],
+    payments: [{ id: "p1", amount: 5000, paidAmount: 5000, status: "paid", contractId: "c1" }],
+    contracts: [{ id: "c1", status: "signed", signedAt: "2026-09-01T00:00:00.000Z", documentInstanceId: "d1" }],
+    checkouts: [],
+    followUps: [],
+    payouts: [],
+    documents: [{ id: "d1" }],
+    clubMemberships: [],
+    paymentTasks: [{ id: "task_pay", paymentId: "p1" }],
+    owned: { kvkkConsents: ["k1"] },
+    detach: {},
+    accounts: [{ userId: "u_shared", role: "PARENT", email: "veli@example.com", otherLinks: 1, portalAccessIds: ["pa1"] }],
+    teacherNames: { t1: "Ayşe Hoca" },
+    nowIso: "2026-10-15T00:00:00.000Z",
+  };
+
+  it("planlayıcı: imzalı sözleşme + tahsilat + KVKK silinir; ortak veli hesabı kapatılmaz; ödeme görevi yalnız bağdan çıkar", () => {
+    const plan = planStudentPurge(base, "wipe");
+    expect(plan.eligible).toBe(true);
+    expect(plan.outcome).toBe("delete");
+    const removed = Object.fromEntries(plan.remove.map((b) => [b.key, b.ids]));
+    expect(removed).toMatchObject({ payments: ["p1"], contracts: ["c1"], documents: ["d1"], lessons: ["l1"], kvkkConsents: ["k1"] });
+    expect(plan.detach.find((b) => b.key === "paymentTasks")?.ids).toEqual(["task_pay"]);
+    expect(plan.accounts[0]!.action).toBe("unlink");
+    expect(plan.financial).toMatchObject({ signedContractCount: 1, collectedTotal: 5000 });
+    expect(planStudentPurge(base).outcome).toBe("anonymize");
+  });
+
+  it("planlayıcı: başka öğretmenin aktif hakedişine giren ders ve sağlayıcıda tahsil edilmiş online ödeme engeller", () => {
+    const plan = planStudentPurge(
+      {
+        ...base,
+        payouts: [{ id: "po1", teacherId: "t1", periodStart: "2026-09-01T00:00:00.000Z", periodEnd: "2026-09-30T00:00:00.000Z", status: "paid", totalAmount: 12000 }],
+        checkouts: [{ id: "ch1", paymentId: "p1", status: "succeeded" }],
+      },
+      "wipe"
+    );
+    expect(plan.eligible).toBe(false);
+    const text = plan.blockers.map((b) => `${b.reason} ${b.fix}`).join(" ");
+    expect(text).toContain("Ayşe Hoca — 01.09.2026–30.09.2026 hakedişi");
+    expect(text).toContain("iptal edin");
+    expect(text).toContain("online ödeme");
+  });
+
+  it("öğretmen: yalnız kendi finans satırları silinir (ödenmiş hakediş dahil); öğrenci geçmişi varsa engel", () => {
+    const t: TeacherPurgeSnapshot = {
+      kind: "teacher",
+      person: { ...person, id: "t9", name: "Hoca" },
+      lessons: [],
+      series: [],
+      makeups: [],
+      payouts: [{ id: "po9", teacherId: "t9", periodStart: "2026-09-01T00:00:00.000Z", periodEnd: "2026-09-30T00:00:00.000Z", status: "paid", totalAmount: 800 }],
+      feeRules: ["fr1"],
+      payoutExclusions: [],
+      students: [],
+      owned: {},
+      history: {},
+      detach: {},
+      accounts: [],
+      nowIso: "2026-10-15T00:00:00.000Z",
+    };
+    expect(planTeacherPurge(t).outcome).toBe("anonymize");
+    const wipe = planTeacherPurge(t, "wipe");
+    expect(wipe.eligible).toBe(true);
+    expect(wipe.outcome).toBe("delete");
+    expect(wipe.remove.find((b) => b.key === "payouts")?.ids).toEqual(["po9"]);
+    expect(wipe.financial).toMatchObject({ payoutCount: 1, payoutTotal: 800, paidPayoutCount: 1 });
+
+    const blocked = planTeacherPurge({ ...t, lessons: [{ id: "l9", studentId: "s2", teacherId: "t9", startAt: "2026-09-02T10:00:00.000Z", status: "completed" }] }, "wipe");
+    expect(blocked.eligible).toBe(false);
+    expect(blocked.blockers.map((b) => b.fix).join(" ")).toContain("Ders Programı");
+  });
+});
