@@ -4,7 +4,18 @@ Kısa tutulur (~50 satır): oturum sonunda yalnız "Güncel snapshot" bölümün
 `archive/`'e taşınır. Ayrıntı → ilgili `docs/testing/UAT_*.md`, `docs/operations/*`. Yönlendirici: `nevii-hub` skill.
 Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_2026-09-24.md`.
 
-## Güncel snapshot — 2026-10-15 akşam (telafi/silme + operasyonel UX; 4 PR açık, MERGE/CANLI YOK, migration YOK)
+## Güncel snapshot — 2026-10-16 (tam silme + iptal emekliliği + hareketsiz oturum; 3 PR açık, MERGE/CANLI YOK, migration YOK)
+- Worktree `../nevii-hub-full-purge`. Canlı `ba031de` (#46–#50 READY). Ayrıntı/UAT: `docs/testing/UAT_2026_10_16_FULL_PURGE_CANCEL_IDLE.md`.
+- `feat/full-purge-financial`: tam silmede hakediş engeli kalktı (bekleyen → satır çıkar + yeniden hesap; ödenmiş → tutar
+  korunur, satırdaki ad silinir); öğretmen için "dersleri sil / devret" + zorunlu öğrenci devri; başka dersten doğan telafi
+  silinmez, planı kalkar. Önizleme 7 grup + "tümünü seç" (parmak izinde). İzole yerel PostgreSQL'de db modu UAT geçti.
+- `fix/retire-lesson-cancel-mobile`: mobil iptal düğmesi yok, uç nokta 409 ile emekli; mobil 1.0.1 (versionCode 5) EAS
+  derlemesi alındı, mağazaya GÖNDERİLMEDİ. `apps/mobile/app.json` #45 ile sürüm satırında çakışır → 1.0.1 kalsın.
+- `feat/idle-session`: JWT `act` (yalnız tarayıcı girişi) ile 30 dk hareketsizlik sunucuda; istemci uyarı/çıkış; hareketsizken
+  yoklama durur. Mobil muaf.
+- Açık: canlı Zehra Çiçek kaydı salt-okunur SQL ile owner'da (`UAT_2026_10_15_MAKEUP_DELETE.md`); gerçek kişi silme ayrı onay.
+
+## Snapshot — 2026-10-15 akşam (telafi/silme + operasyonel UX; 4 PR açık, MERGE/CANLI YOK, migration YOK)
 - Worktree `../nevii-hub-ops-ux`. Owner merge edip canlıda test edecek; tam `npm test`/build çalıştırılmadı (owner talimatı).
 - #46 telafi: yeniden Telafi kapanmış talebi yeniden açar (db'de eskiden hiç yazılmıyordu); pasif (iptal/süresi dolmuş,
   canlı dersi yok) telafi izi kritik silmeyi engellemez, aktif telafi engeller. Tek kural `makeup-deadline.ts`.

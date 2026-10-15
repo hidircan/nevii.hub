@@ -19,6 +19,10 @@ yoklama, telafi, bekleyen hakediş ₺1.000 ve ödenmiş hakediş ₺800 satırl
 dersi silinen öğretmende olan talep SİLİNMEDİ: planı kalktı, talep `pending` (Telafi Merkezi'nde açık), changeLog
 `plan_deleted`, kaynak ders yerinde — kaynak dersi "Telafi" işaretli ama talepsiz bırakmaz.
 
+Arayüz (yerel json, tarayıcıda): Kaldırılanlar → Kalıcı sil → tam silme: hedefsiz engel + çözüm; öğretmen seçilince
+önizleme yenilendi, engel kalktı; "tümünü seç" işaretlenmeden gönder pasif; silme sonrası öğretmen ve dersi yok,
+öğrenci seçilen öğretmende.
+
 **Owner UAT (canlıda, önce SENTETİK kayıtla):**
 1. Test öğrencisi aç → ders + yoklama + Telafi + borç + tahsilat ekle → öğretmenin o ay için hakediş kaydı oluştur
    (ödenmemiş bırak). Öğrenciyi sil (Silinenler'e taşı).
@@ -43,7 +47,7 @@ kritik silme ders + yoklama + talebi birlikte kaldırdı. Canlı örnek kayıt i
 
 ## 3. İptal — `fix/retire-lesson-cancel-mobile`
 - Mobil admin ders detayında "İptal et" düğmesi/onayı kaldırıldı; eski iptal kayıtları "Bu ders iptal edilmiş".
-- `POST /api/v1/lessons/:id/cancel` yazmaz; eski derlemeye Türkçe yönlendirme (403). Mağazada herkese açık eski
+- `POST /api/v1/lessons/:id/cancel` yazmaz; eski derlemeye Türkçe yönlendirme (409 — mobil istemci 403'te sunucu mesajı yerine genel "yetkiniz yok" gösteriyor). Mağazada herkese açık eski
   sürüm yok → minVersion DEĞİŞMEDİ.
 - Mobil derleme: **1.0.1 (versionCode 5)**, EAS build `e04760ec-b973-47af-80e3-a47b233f1753` (mağazaya gönderilmedi).
 - #50 takip: yalnız iptal dersi + ödemesi olan gün "Bu gün ders yok" yerine "dersi iptal edilmiş; ödeme kaydı aşağıda";
