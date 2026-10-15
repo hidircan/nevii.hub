@@ -11,6 +11,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button, Input, Label, Select } from "@/components/ui";
 import { actionUpdateTeacherProfile, actionSetNationalId, actionInviteTeacherAccount } from "@/lib/actions";
+import { TEACHER_PROFILE_SECTIONS, pickSectionFields, sectionHas, type TeacherProfileSection } from "@/lib/profile-sections";
 
 export type TeacherProfileEditorBranch = { id: string; name: string };
 
@@ -21,8 +22,11 @@ export function TeacherProfileEditor({
   initial,
   hasNationalId,
   onSaved,
+  section,
 }: {
   teacherId: string;
+  /** Bilgiler kartının bölümü: yalnız o bölümün alanları gösterilir ve gönderilir. Verilmezse tam form. */
+  section?: TeacherProfileSection;
   primaryBranchId: string;
   branches: TeacherProfileEditorBranch[];
   /** Called after a successful save (e.g. to collapse the section back to read-only). */
@@ -78,6 +82,8 @@ export function TeacherProfileEditor({
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const fields = section ? TEACHER_PROFILE_SECTIONS[section] : undefined;
+  const show = (key: string) => sectionHas(fields, key);
 
   function toggleBranch(branchId: string) {
     setBranchIds((prev) => (prev.includes(branchId) ? prev.filter((b) => b !== branchId) : [...prev, branchId]));
@@ -87,8 +93,7 @@ export function TeacherProfileEditor({
     setError(null);
     setSaved(false);
     startTransition(async () => {
-      const result = await actionUpdateTeacherProfile({
-        teacherId,
+      const full = {
         name,
         email: email || undefined,
         phone: phone || undefined,
@@ -113,12 +118,13 @@ export function TeacherProfileEditor({
         graduationYear: graduationYear ? Number(graduationYear) : undefined,
         maxDailyLessons: maxDailyLessons ? Number(maxDailyLessons) : undefined,
         weeklyHoursThreshold: weeklyHoursThreshold ? Number(weeklyHoursThreshold) : undefined,
-      });
+      };
+      const result = await actionUpdateTeacherProfile({ teacherId, ...pickSectionFields(full, fields) });
       if (!result.ok) {
         setError(result.message);
         return;
       }
-      if (nationalId.trim()) {
+      if (show("nationalId") && nationalId.trim()) {
         const idResult = await actionSetNationalId({ entity: "teacher", entityId: teacherId, nationalId });
         if (!idResult.ok) {
           setError(idResult.message);
@@ -135,20 +141,26 @@ export function TeacherProfileEditor({
 
   return (
     <div className="space-y-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
-      <div className="grid grid-cols-2 gap-2">
+      {show("name") ? (
         <div>
           <Label>Ad soyad</Label>
           <Input value={name} onChange={(e) => setName(e.target.value)} />
         </div>
-        <div>
-          <Label>İletişim e-postası</Label>
-          <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+      ) : null}
+      {show("email") ? (
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <Label>İletişim e-postası</Label>
+            <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+          </div>
+          <div>
+            <Label>Telefon</Label>
+            <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="05xx xxx xxxx" />
+          </div>
         </div>
-      </div>
-      <div>
-        <Label>Telefon</Label>
-        <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="05xx xxx xxxx" />
-      </div>
+      ) : null}
+      {show("birthDate") ? (
+      <>
       <div className="grid grid-cols-2 gap-2">
         <div>
           <Label>Doğum tarihi</Label>
@@ -188,7 +200,9 @@ export function TeacherProfileEditor({
           seçilir. Kayıtlı hakedişlerin yöntemini değiştirmez.
         </p>
       </div>
-      {!hasNationalId ? (
+      </>
+      ) : null}
+      {show("nationalId") && !hasNationalId ? (
         <div>
           <Label>T.C. kimlik no (opsiyonel — şifreli saklanır)</Label>
           <Input
@@ -201,6 +215,8 @@ export function TeacherProfileEditor({
         </div>
       ) : null}
 
+      {show("branchId") ? (
+      <>
       <div>
         <Label>Birincil şube</Label>
         <Select
@@ -248,7 +264,11 @@ export function TeacherProfileEditor({
           ) : null}
         </div>
       ) : null}
+      </>
+      ) : null}
 
+      {show("employmentType") ? (
+      <>
       <div className="grid grid-cols-2 gap-2">
         <div>
           <Label>Çalışma türü</Label>
@@ -285,6 +305,14 @@ export function TeacherProfileEditor({
         </div>
       </div>
       <div>
+        <Label>Özlük notu</Label>
+        <Input value={personnelNotes} onChange={(e) => setPersonnelNotes(e.target.value)} />
+      </div>
+      </>
+      ) : null}
+      {show("address") ? (
+      <>
+      <div>
         <Label>Adres</Label>
         <Input value={address} onChange={(e) => setAddress(e.target.value)} />
       </div>
@@ -298,18 +326,16 @@ export function TeacherProfileEditor({
           <Input value={emergencyContactPhone} onChange={(e) => setEmergencyContactPhone(e.target.value)} />
         </div>
       </div>
-      <div>
-        <Label>Özlük notu</Label>
-        <Input value={personnelNotes} onChange={(e) => setPersonnelNotes(e.target.value)} />
-      </div>
+      </>
+      ) : null}
 
       <Button type="button" variant="secondary" disabled={pending} onClick={onSave}>
-        {pending ? "Kaydediliyor…" : "Öğretmen bilgilerini kaydet"}
+        {pending ? "Kaydediliyor…" : section ? "Bu bölümü kaydet" : "Öğretmen bilgilerini kaydet"}
       </Button>
       {error ? <p className="text-xs font-medium text-rose-600">{error}</p> : null}
       {saved ? <p className="text-xs font-medium text-emerald-600">Kaydedildi.</p> : null}
 
-      {initial.email ? <TeacherAccountInvite teacherId={teacherId} /> : null}
+      {initial.email && show("email") ? <TeacherAccountInvite teacherId={teacherId} /> : null}
     </div>
   );
 }
