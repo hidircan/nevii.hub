@@ -86,8 +86,16 @@ describe("E — ders detay paneli sadeleşti", () => {
     expect(code).toMatch(/Yoklama durumu/);
   });
 
-  it("iptal ve öğretmen/şube değiştir aynı satırda", () => {
-    expect(code).toMatch(/Bu dersi iptal et"\}[\s\S]{0,200}<LessonReassignmentModal/);
+  // 2026-10-15 (owner): tek birincil eylem "Dersi düzenle" + ikincil öğretmen/şube; iptal ve "hatalı oluşturuldu"
+  // silmesi EN ALTTA ayrı "Riskli işlemler" bölümünde, iptal onay penceresiyle.
+  it("birincil eylem Dersi düzenle; iptal ve silme en altta ayrı bölümde, iptal onay penceresi ders bilgisini yazar", () => {
+    expect(code).toMatch(/"Dersi düzenle"[\s\S]{0,400}<LessonReassignmentModal/);
+    const risk = code.indexOf("Riskli işlemler");
+    expect(risk).toBeGreaterThan(code.indexOf("<LessonReassignmentModal"));
+    expect(code.indexOf('"Dersi iptal et…"')).toBeGreaterThan(risk);
+    expect(code.indexOf("<LessonDeleteAction")).toBeGreaterThan(risk);
+    expect(code).toMatch(/<ModalShell[\s\S]{0,300}title=\{isSeriesMember \? "Sadece bu dersi iptal et" : "Dersi iptal et"\}[\s\S]{0,2500}\{lessonLabel\}/);
+    expect(code).not.toMatch(/variant="danger"[\s\S]{0,200}Bu dersi iptal et/);
   });
 });
 

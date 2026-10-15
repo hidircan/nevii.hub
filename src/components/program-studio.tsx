@@ -7,7 +7,7 @@ import { effectiveEnrollments, enrollmentLabel, type EnrollmentView } from "@/li
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { ExternalLink, Loader2, Sparkles, TriangleAlert, X } from "lucide-react";
+import { ExternalLink, Loader2, Pencil, Sparkles, TriangleAlert, X } from "lucide-react";
 import { addDays as addDaysDate, addMinutes, differenceInMinutes, format, isSameDay, parseISO, startOfDay } from "date-fns";
 import Link from "@/components/link";
 import { tr } from "date-fns/locale";
@@ -24,7 +24,8 @@ import {
 import type { LessonCommunicationMessage } from "@/lib/whatsapp-templates";
 import type { LessonSlotSuggestion } from "@/lib/lesson-scheduling";
 import type { SeriesOccurrenceCheck } from "@/lib/lesson-series";
-import { LessonScopeEditor } from "@/components/lesson-scope-editor";
+import { LessonDeleteAction, LessonScopeEditor } from "@/components/lesson-scope-editor";
+import { ModalShell, modalButton } from "@/components/modal-shell";
 import { emptyProgramNotices, onlyNotice } from "@/lib/program-notices";
 import {
   DEFAULT_APP_TIMEZONE,
@@ -2756,6 +2757,9 @@ function DetailPanel({
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelDraft, setCancelDraft] = useState<DisruptionFormValue>({});
   const [cancelNote, setCancelNote] = useState("");
+  // 2026-10-15 — tek birincil eylem "Dersi düzenle"; form istenince açılır (panel kısa kalır).
+  const [editOpen, setEditOpen] = useState(false);
+  const lessonLabel = `${student?.name ?? "Öğrenci"} · ${format(toWallClockDate(lesson.startAt), "d MMMM yyyy EEEE", { locale: tr })} · ${timeRange}`;
 
   return (
     <Card className="border-[var(--color-border-strong)] shadow-[var(--shadow-md)]">
@@ -2814,30 +2818,126 @@ function DetailPanel({
       </section>
 
       {canCreate ? (
-        <section className="mt-3" aria-label="Ders işlemleri">
-          <div className="flex flex-wrap items-start gap-2">
-            {cancelBlockReason === null && !cancelOpen ? (
+        <>
+          {/* Ders işlemleri: tek birincil eylem (Dersi düzenle) + ikincil (öğretmen/şube). */}
+          <section className="mt-3" aria-label="Ders işlemleri">
+            <div className="flex flex-wrap items-start gap-2">
               <Button
-                variant="danger"
-                onClick={() => {
-                  setCancelDraft({});
-                  setCancelNote("");
-                  setCancelOpen(true);
-                }}
+                aria-expanded={editOpen}
+                aria-controls={`lesson-edit-${lesson.id}`}
+                onClick={() => setEditOpen((v) => !v)}
                 disabled={submitting}
               >
-                {isSeriesMember ? "Sadece bu dersi iptal et" : "Bu dersi iptal et"}
+                <Pencil className="h-3.5 w-3.5" aria-hidden />
+                {editOpen ? "Düzenlemeyi kapat" : "Dersi düzenle"}
               </Button>
+              <LessonReassignmentModal lesson={lesson} teachers={allTeachers} rooms={allRooms} branchNames={branchNames} />
+            </div>
+            {editOpen ? (
+              <div id={`lesson-edit-${lesson.id}`} className="mt-3 rounded-md border border-[var(--color-border)] p-2.5">
+                <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">Tarih, saat ve süre</p>
+                <LessonScopeEditor key={lesson.id} lesson={lesson} onDone={onEditDone} />
+              </div>
             ) : null}
-            <LessonReassignmentModal lesson={lesson} teachers={allTeachers} rooms={allRooms} branchNames={branchNames} />
-          </div>
-          {cancelOpen && cancelBlockReason === null ? (
-            <div
-              role="group"
-              aria-label="Ders iptali onayı"
-              className="mt-2 space-y-2 rounded-md border border-[var(--color-danger)] bg-[var(--color-surface)] p-2.5 text-xs"
-            >
-              <p className="font-semibold text-[var(--color-text)]">Bu dersi iptal etmek üzeresiniz.</p>
+            {isPastScheduled ? (
+              <p className="mt-2 text-[11px] text-[var(--color-text-muted)]">
+                Geçmiş ders takvimde sürüklenemez; tarih/saat için &quot;Dersi düzenle&quot;yi kullanın.
+              </p>
+            ) : null}
+            {isDisruptedLesson(lesson) ? <DisruptionSourceEditor key={lesson.id} lesson={lesson} onDone={onEditDone} /> : null}
+          </section>
+
+          {/* Riskli işlemler EN ALTTA ve ayrı: küçük, metin tonlu; her biri onay ister. İptal ≠ silme. */}
+          <section className="mt-4 border-t border-[var(--color-border)] pt-3" aria-labelledby={`risk-${lesson.id}`}>
+            <h4 id={`risk-${lesson.id}`} className="text-[11px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
+              Riskli işlemler
+            </h4>
+            <div className="mt-1 flex flex-col items-start gap-0.5">
+              {cancelBlockReason === null ? (
+                <button
+                  type="button"
+                  className="rounded-md px-1.5 py-1 text-xs font-medium text-[var(--color-danger)] underline-offset-2 hover:bg-[var(--color-danger-soft)] hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-focus-ring)] disabled:opacity-50"
+                  onClick={() => {
+                    setCancelDraft({});
+                    setCancelNote("");
+                    setCancelOpen(true);
+                  }}
+                  disabled={submitting}
+                >
+                  {isSeriesMember ? "Sadece bu dersi iptal et…" : "Dersi iptal et…"}
+                </button>
+              ) : lesson.status !== "cancelled" ? (
+                <p className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5 text-xs text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
+                  <strong>İptal edilemez:</strong> {cancelBlockReason}
+                </p>
+              ) : null}
+              {isSeriesMember ? (
+                <>
+                  <button
+                    type="button"
+                    className="rounded-md px-1.5 py-1 text-xs font-medium text-[var(--color-danger)] underline-offset-2 hover:bg-[var(--color-danger-soft)] hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-focus-ring)] disabled:opacity-50"
+                    onClick={onCancelSeriesFromLesson}
+                    disabled={submitting}
+                  >
+                    Seriyi bu dersten itibaren iptal et…
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-md px-1.5 py-1 text-xs font-medium text-[var(--color-danger)] underline-offset-2 hover:bg-[var(--color-danger-soft)] hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-focus-ring)] disabled:opacity-50"
+                    onClick={onCancelEntireSeries}
+                    disabled={submitting}
+                  >
+                    Tüm seriyi iptal et…
+                  </button>
+                </>
+              ) : null}
+              <LessonDeleteAction key={lesson.id} lesson={lesson} onDone={onEditDone} />
+            </div>
+            <p className="mt-1.5 text-[11px] leading-snug text-[var(--color-text-muted)]">
+              <strong>İptal</strong>: ders programda &quot;İptal&quot; olarak kalır, bildirim gider, telafi kuralları işler.{" "}
+              <strong>Hatalı oluşturuldu</strong>: yanlış planlanan ders programdan kaldırılır.
+              {isSeriesMember ? " Seri iptalinde İşlendi/Telafi işaretli ve geçmiş dersler korunur." : ""}
+            </p>
+          </section>
+
+          <ModalShell
+            open={cancelOpen && cancelBlockReason === null}
+            tone="danger"
+            busy={submitting}
+            title={isSeriesMember ? "Sadece bu dersi iptal et" : "Dersi iptal et"}
+            onClose={() => setCancelOpen(false)}
+            footer={
+              <>
+                <button type="button" className={modalButton.secondary} onClick={() => setCancelOpen(false)} disabled={submitting}>
+                  Vazgeç
+                </button>
+                <button
+                  type="button"
+                  className={modalButton.danger}
+                  disabled={submitting || !isDisruptionFormComplete(cancelDraft)}
+                  onClick={() => onCancelLesson(disruptionPayload(cancelDraft, cancelNote))}
+                >
+                  {submitting ? "İptal ediliyor…" : "Dersi iptal et"}
+                </button>
+              </>
+            }
+          >
+            <div className="space-y-3 text-xs">
+              <p className="rounded-md border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-2.5 py-2 text-sm font-medium text-[var(--color-text)]">
+                {lessonLabel}
+                <span className="block text-xs font-normal text-[var(--color-text-muted)]">
+                  {[lesson.instrument, teacher?.name, room?.name].filter(Boolean).join(" · ")}
+                </span>
+              </p>
+              <ul className="list-disc space-y-1 pl-4 text-[var(--color-text)]">
+                <li>Ders programdan silinmez; &quot;İptal&quot; olarak görünür ve öğretmenin/odanın saati boşalır.</li>
+                <li>Öğretmene, öğrenciye/veliye ve yöneticilere iptal bildirimi gider.</li>
+                <li>Telafi hakkı aşağıda seçtiğiniz iptal kaynağına göre işler.</li>
+                {isSeriesMember ? <li>Serinin diğer dersleri değişmez.</li> : null}
+              </ul>
+              <p className="text-[var(--color-text-muted)]">
+                Ders yanlışlıkla planlandıysa iptal etmeyin; &quot;Hatalı oluşturuldu — programdan sil&quot;i kullanın.
+              </p>
               <DisruptionSourceFields idPrefix={`cancel-${lesson.id}`} kind="İptal" value={cancelDraft} onChange={setCancelDraft} />
               <label className="block">
                 <span className="font-medium text-[var(--color-text)]">Açıklama (isteğe bağlı)</span>
@@ -2849,48 +2949,14 @@ function DetailPanel({
                   placeholder="Örn. Öğretmen hasta, veliye bildirildi"
                 />
               </label>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  variant="danger"
-                  disabled={submitting || !isDisruptionFormComplete(cancelDraft)}
-                  onClick={() => onCancelLesson(disruptionPayload(cancelDraft, cancelNote))}
-                >
-                  {submitting ? "İptal ediliyor…" : "İptali onayla"}
-                </Button>
-                <Button variant="secondary" disabled={submitting} onClick={() => setCancelOpen(false)}>
-                  Vazgeç
-                </Button>
-              </div>
+              {error ? (
+                <p role="alert" className="font-medium" style={{ color: "var(--color-danger)" }}>
+                  {error}
+                </p>
+              ) : null}
             </div>
-          ) : null}
-          {isDisruptedLesson(lesson) ? <DisruptionSourceEditor key={lesson.id} lesson={lesson} onDone={onEditDone} /> : null}
-          {cancelBlockReason !== null && lesson.status !== "cancelled" ? (
-            <p className="mt-2 rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5 text-xs text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
-              <strong>İptal edilemez:</strong> {cancelBlockReason}
-            </p>
-          ) : null}
-          {isSeriesMember ? (
-            <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-[var(--color-border)] pt-2">
-              <span className="text-xs font-medium text-[var(--color-text-muted)]">Seri:</span>
-              <Button variant="secondary" className="!py-1 text-xs" onClick={onCancelSeriesFromLesson} disabled={submitting}>
-                Bu ders ve sonrasını iptal et
-              </Button>
-              <Button variant="secondary" className="!py-1 text-xs" onClick={onCancelEntireSeries} disabled={submitting}>
-                Tüm seriyi iptal et
-              </Button>
-              <span className="basis-full text-[11px] text-[var(--color-text-muted)]">
-                Seri iptalinde İşlendi/Telafi işaretli ve geçmiş dersler korunur, yalnız planlı dersler iptal olur.
-              </span>
-            </div>
-          ) : null}
-          {isPastScheduled ? (
-            <p className="mt-2 text-[11px] text-[var(--color-text-muted)]">
-              Geçmiş ders takvimde sürüklenemez; tarih/saat için aşağıdaki &quot;Dersi düzenle / sil&quot; bölümünü kullanın.
-            </p>
-          ) : null}
-
-          <LessonScopeEditor key={lesson.id} lesson={lesson} onDone={onEditDone} />
-        </section>
+          </ModalShell>
+        </>
       ) : (
         <p className="mt-3 text-xs text-[var(--color-text-muted)]">
           İptal, öğretmen/şube değişikliği ve düzenleme için üstteki kurum seçiciden tek bir kurum seçin.
