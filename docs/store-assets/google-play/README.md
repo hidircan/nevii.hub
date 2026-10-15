@@ -91,7 +91,7 @@ your school enables.
 | Reklam | Uygulamada reklam **yok** | `apps/mobile/package.json` — reklam SDK'sı yok | Kesin |
 | Uygulama erişimi | Bazı işlevler giriş ister → inceleme için test hesabı verilecek; kayıt ekranı yok | `app/login.tsx`, kurum hesabı modeli | Kesin (hesap owner'dan) |
 | Hesap silme | Uygulama içi + web URL'si | `apps/mobile/app/hesap-silme-talebi.tsx`, `src/app/hesap-silme-talebi/page.tsx` | Kesin |
-| Veri güvenliği — toplanan | Ad, e-posta, telefon (hesap); eğitim kayıtları (ders, yoklama, ödev, gelişim); ödeme **durumu/tutarı** (kart yok); isteğe bağlı fotoğraf/dosya (profil, ödev/materyal); uygulama içi push jetonu | `app.json` plugin'leri (image-picker yalnız galeri, document-picker), `src/push/*` | Kesin |
+| Veri güvenliği — toplanan | Kişisel bilgiler → Ad, E-posta adresi, Telefon numarası; Finansal bilgiler → Satın alma geçmişi (ödeme durumu/tutarı; kart YOK); Fotoğraflar ve videolar → Fotoğraflar (isteğe bağlı profil/ödev); Dosyalar ve dokümanlar (isteğe bağlı ödev/materyal); Cihaz veya diğer kimlikler → push jetonu; Uygulama etkinliği → eğitim kayıtları (ders, yoklama, ödev, gelişim — "Diğer kullanıcı tarafından oluşturulan içerik"/"Diğer" altında) | `app.json` plugin'leri (image-picker yalnız galeri, document-picker), `src/push/*` | Kesin (kategori eşlemesi owner teyidi) |
 | Veri güvenliği — konum, kişiler, mikrofon, kamera | **Toplanmaz** (kamera/mikrofon/kayıt izinleri engelli) | `app.json` `blockedPermissions`, image-picker `cameraPermission: false` | Kesin |
 | Analitik / çökme raporu | Üçüncü taraf analitik/çökme SDK'sı **yok** | bağımlılık listesi | Kesin |
 | Şifreleme (aktarım) | Evet, HTTPS | `api-url-policy` (production https zorunlu) | Kesin |
@@ -100,9 +100,9 @@ your school enables.
 | Sağlık / haber / devlet | Hayır | — | Kesin |
 
 ### Belirsiz — varsayılmadı, owner kararı gerekiyor
-1. **Hedef kitle ve çocuklar:** öğrenciler reşit olmayabilir (veli hesabıyla kapsanır). 13 yaş altı hedef kitle seçilirse
-   Aileler politikası devreye girer. Öneri: hedef yaş **18+** (hesap yetişkin veli/öğretmen/yönetici; çocuk erişimi kurum
-   ve veli üzerinden) — hukuki karar owner'ın.
+1. **Hedef kitle ve çocuklar:** öğrenciler uygulamaya KENDİLERİ de giriş yapar ("Öğrenci / Veli girişi", SELF hesaplar)
+   ve reşit olmayabilir. 13 yaş altı kullanıcı varsa hedef kitleye bu yaş grubu eklenmeli ve Aileler politikası
+   (çocuklara uygun içerik, veri işleme kısıtları) uygulanır. Kurumun gerçek öğrenci yaş aralığına göre owner/hukuk karar verir.
 2. **İçerik derecelendirmesi (IARC):** kullanıcılar arası etkileşim var mı? Ödev teslimi/materyal yalnız öğretmen–öğrenci
    arasında; herkese açık sohbet yok. Öneri: "kullanıcı etkileşimi: sınırlı/yok" — owner teyidi.
 3. **Veri güvenliği formunda "isteğe bağlı mı":** fotoğraf/dosya isteğe bağlı; hesap verileri zorunlu (kurum tutar).
@@ -114,6 +114,12 @@ olmadan). Canlı veri değişikliği owner onayı ister — bu oturumda oluştur
 Play Console → Uygulama erişimi formuna girilir.
 
 ## 5. Durum ve sonraki adımlar
+- **ENGEL — canlıda mobil erişim kapalı (2026-10-15, salt-okunur canlı sorgu):** `tenant_nilufer_acar` paketi `standard`
+  (`features.ts` → `mobileApp: false` → "Paket mobil uygulamayı içermiyor"); `mobile.appEnabled` override YOK (varsayılan
+  `false` → "Mobil portal kapalı"); `mobile.minVersion` override YOK (varsayılan 1.0.0) ve uygulama sürümü `app.json`'da
+  0.1.0 idi → "Güncelleme gerekli". Yani yüklü her sürüm ve Play incelemecisi "Mobil erişim kapalı" görür.
+  Bu PR `app.json` sürümünü **1.0.0** yapar (yeni AAB bununla alınmalı). Ayrıca owner NeviiOS platform kontrolünden
+  kurum için mobil modülü + `mobile.appEnabled`'ı açmalı (platform hesabı canlıda yok — önce `recover-hyper-admin.ts`).
 - Play Console'a erişim: oturum `hidircanyagiz@gmail.com`'da açık ama bu hesapta geliştirici hesabı yok (ilk sürüm başka
   bir Google hesabında). Owner doğru hesapla giriş yapınca: mağaza girişi + görseller + beyanlar taslak olarak girilir,
   gerekiyorsa yeni AAB (`eas build -p android --profile production`, sürüm kodu EAS'ta otomatik artar) iç teste gönderilir.
