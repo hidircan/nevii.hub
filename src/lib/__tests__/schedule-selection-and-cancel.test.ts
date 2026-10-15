@@ -86,16 +86,15 @@ describe("E — ders detay paneli sadeleşti", () => {
     expect(code).toMatch(/Yoklama durumu/);
   });
 
-  // 2026-10-15 (owner): tek birincil eylem "Dersi düzenle" + ikincil öğretmen/şube; iptal ve "hatalı oluşturuldu"
-  // silmesi EN ALTTA ayrı "Riskli işlemler" bölümünde, iptal onay penceresiyle.
-  it("birincil eylem Dersi düzenle; iptal ve silme en altta ayrı bölümde, iptal onay penceresi ders bilgisini yazar", () => {
+  // 2026-10-15 (owner): tek birincil eylem "Dersi düzenle" + ikincil öğretmen/şube; en altta yalnız "hatalı oluşturuldu"
+  // silmesi. Web programında iptal eylemi YOK (iş birimi silmek isterken iptale basıyordu); mobil API'si korunur.
+  it("birincil eylem Dersi düzenle; en altta yalnız silme, iptal eylemi ve server action'ı yok", () => {
     expect(code).toMatch(/"Dersi düzenle"[\s\S]{0,400}<LessonReassignmentModal/);
     const risk = code.indexOf("Riskli işlemler");
     expect(risk).toBeGreaterThan(code.indexOf("<LessonReassignmentModal"));
-    expect(code.indexOf('"Dersi iptal et…"')).toBeGreaterThan(risk);
     expect(code.indexOf("<LessonDeleteAction")).toBeGreaterThan(risk);
-    expect(code).toMatch(/<ModalShell[\s\S]{0,300}title=\{isSeriesMember \? "Sadece bu dersi iptal et" : "Dersi iptal et"\}[\s\S]{0,2500}\{lessonLabel\}/);
-    expect(code).not.toMatch(/variant="danger"[\s\S]{0,200}Bu dersi iptal et/);
+    expect(code).not.toMatch(/iptal et…|actionCancelLesson|actionCancelSeriesFromLesson|actionCancelEntireSeries/);
+    expect(read("../actions.ts")).not.toMatch(/export async function actionCancel(Lesson|SeriesFromLesson|EntireSeries)\b/);
   });
 });
 
@@ -125,9 +124,8 @@ describe("F — iptal kuralı tek kaynak", () => {
     expect(ok.ok).toBe(true);
   });
 
-  it("UI kendi kuralını yazmaz; paylaşılan fonksiyonu kullanır", () => {
+  it("web programında iptal kuralı kopyalanmaz (iptal yalnız sunucu/mobil yolunda, paylaşılan fonksiyonla)", () => {
     const code = read("../../components/program-studio.tsx");
-    expect(code).toMatch(/lessonCancelBlockReason\(lesson\)/);
     expect(code).not.toMatch(/function canCancel\(/);
   });
 

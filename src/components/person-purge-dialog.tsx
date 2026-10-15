@@ -227,7 +227,8 @@ export function PersonPurgeDialog({
                   </p>
                 ) : null}
 
-                {canWipe ? (
+                {/* 2026-10-15 — mod herkese görünür; yalnız kurum sahibi seçebilir (sunucu da aynı kuralı uygular). */}
+                {preview ? (
                   <fieldset className="rounded-md border border-[var(--color-border)] px-3 py-2">
                     <legend className="px-1 font-semibold text-[var(--color-text)]">Silme türü</legend>
                     <label className="flex items-start gap-2 py-0.5">
@@ -248,13 +249,19 @@ export function PersonPurgeDialog({
                         type="radio"
                         name={`purge-mode-${id}`}
                         checked={mode === "wipe"}
-                        disabled={busy || loading}
+                        disabled={busy || loading || !canWipe}
                         onChange={() => void switchMode("wipe")}
                         className="mt-0.5"
                       />
-                      <span>
-                        <strong style={{ color: "var(--color-danger)" }}>Yanlış oluşturuldu — her şeyi sil</strong> — kişi ve ona bağlı
-                        TÜM kayıtlar, <strong>finansal kayıtlar dahil</strong>, silinir. Yalnız hatalı açılmış kayıtlar için.
+                      <span className={canWipe ? undefined : "opacity-70"}>
+                        <strong style={{ color: "var(--color-danger)" }}>Yanlış oluşturuldu — bağlı finansallarıyla kalıcı sil</strong> — kişi
+                        ve ona bağlı TÜM kayıtlar, <strong>tahsilat, borç ve sözleşmeler dahil</strong>, silinir. Yalnız hatalı açılmış
+                        kayıtlar için.
+                        {canWipe ? null : (
+                          <span className="mt-0.5 block text-[var(--color-text-muted)]">
+                            Bu seçeneği yalnız kurum sahibi kullanabilir. Kurum sahibi hesabıyla giriş yapıp aynı pencereyi açın.
+                          </span>
+                        )}
                       </span>
                     </label>
                   </fieldset>
@@ -278,6 +285,12 @@ export function PersonPurgeDialog({
                   )}
                 </p>
 
+                {preview.blockers.length && !wipe ? (
+                  <p className="rounded-md border px-3 py-2 font-medium" style={{ borderColor: "var(--color-warning)" }}>
+                    Kayıt yanlışlıkla oluşturulduysa yukarıdan &quot;Yanlış oluşturuldu — bağlı finansallarıyla kalıcı sil&quot;i seçin;
+                    borç ve ödeme kayıtları da birlikte silinir.{canWipe ? "" : " Bu seçenek yalnız kurum sahibinde açıktır."}
+                  </p>
+                ) : null}
                 {preview.blockers.length ? (
                   <div className="rounded-md border px-3 py-2" role="alert" style={{ borderColor: "var(--color-danger)" }}>
                     <p className="font-semibold" style={{ color: "var(--color-danger)" }}>

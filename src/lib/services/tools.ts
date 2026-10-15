@@ -17847,6 +17847,8 @@ export type AttendanceCalendarLessonOpsInfo = {
   teacherName?: string;
   instrument: string;
   roomName?: string;
+  /** Dersin kendi şubesi (Lesson.branchId → kurum şube kaydı); ekran filtresinden tahmin edilmez. */
+  branchName?: string;
   /** 2026-10-06 — Telafi Merkezi'nden planlanan ders (kalıcı kaynak: `type === "makeup"`); Geldi → T işareti. */
   plannedMakeup: boolean;
   /** bkz. Lesson.availabilityOverride — öğretmen müsait olmadığı bir saatte, onaylı planlandı. */
@@ -18033,6 +18035,7 @@ async function buildAttendanceCalendarMonth(
           teacherName: teacher?.name,
           instrument: l.instrument,
           roomName: room?.name,
+          branchName: data.settings.branches.find((b) => b.id === l.branchId)?.name,
           availabilityOverride: Boolean(l.availabilityOverride),
           plannedMakeup: l.type === "makeup",
           attendanceNote: l.studentAttendanceNote ?? null,
