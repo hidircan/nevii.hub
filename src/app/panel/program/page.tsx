@@ -88,7 +88,9 @@ export default async function ProgramPage({
   // 2026-10-06 — kulüp satırları (üye başına) tek tek ders kartı olmaz: oturum başına TEK kart (aşağıda).
   const weekLessons = data.lessons.filter((l) => {
     const d = parseISO(l.startAt);
-    return l.type !== "group" && d >= days[0] && d <= addDays(days[6], 1);
+    // 2026-10-15 (owner) — iptal artık üretilmiyor; eski iptal edilmiş dersler programda gösterilmez (kayıt DB'de kalır,
+    // raporlar/telafi/mobil okur). İptal dersin saati zaten dolu sayılmaz.
+    return l.type !== "group" && l.status !== "cancelled" && d >= days[0] && d <= addDays(days[6], 1);
   });
 
   const branchNames = Object.fromEntries(data.settings.branches.map((b) => [b.id, b.shortName]));
@@ -147,8 +149,8 @@ export default async function ProgramPage({
       <PageHeader title="Ders programı" />
       {ders && !weekLessons.some((l) => l.id === ders) ? (
         <p role="status" className="mb-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
-          Bildirimdeki ders bu haftanın programında yok: silinmiş, taşınmış ya da bu kurumda değil. Ders taşındıysa yeni tarihine
-          ait bildirime bakın.
+          Bildirimdeki ders bu haftanın programında yok: silinmiş, iptal edilmiş (iptal edilen dersler programda gösterilmez),
+          taşınmış ya da bu kurumda değil. Ders taşındıysa yeni tarihine ait bildirime bakın.
         </p>
       ) : null}
 
