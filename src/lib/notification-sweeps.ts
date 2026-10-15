@@ -100,13 +100,50 @@ export async function sweepLeavePendingApproval(): Promise<{ created: number; te
   return { created, tenantErrors };
 }
 
-export async function runNotificationSweeps(now = new Date()): Promise<NotificationSweepSummary> {
-  const upcoming = await sweepUpcomingLessons(now);
-  // Per-offset hatırlatmalar (1g/1s/15dk): in-app + push, idempotent.
-  const reminders = await sweepLessonReminders(now);
-  const payment = await sweepPaymentFailedOrPending(now);
-  const leave = await sweepLeavePendingApproval();
-  const contractExpiring = await sweepStudentContractExpiry(now);
+export async function runNotificationSweeps(
+  now = new Date()
+): Promise<NotificationSweepSummary> {
+  async function runStage<T>(
+    stage: string,
+    task: () => Promise<T>
+  ): Promise<T> {
+    try {
+      return await task();
+    } catch (error: unknown) {
+      console.error("[notifications.sweep.stage.failed]", {
+        stage,
+        errorName:
+          error instanceof Error ? error.name : "UnknownError",
+      });
+      throw error;
+    }
+  }
+
+  const upcoming = await runStage(
+    "upcomingLessons",
+    () => sweepUpcomingLessons(now)
+  );
+
+  const reminders = await runStage(
+    "lessonReminders",
+    () => sweepLessonReminders(now)
+  );
+
+  const payment = await runStage(
+    "paymentPending",
+    () => sweepPaymentFailedOrPending(now)
+  );
+
+  const leave = await runStage(
+    "leavePending",
+    () => sweepLeavePendingApproval()
+  );
+
+  const contractExpiring = await runStage(
+    "contractExpiry",
+    () => sweepStudentContractExpiry(now)
+  );
+
   return {
     upcoming,
     reminders,
