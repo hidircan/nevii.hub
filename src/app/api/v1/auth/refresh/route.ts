@@ -59,9 +59,9 @@ export const POST = withApiHandler(
 
     try {
       const claims = await verifyRefreshToken(token);
-      // Web hareketsizlik (çerezli akış): son gerçek etkileşim süreyi aştıysa yenilenmez. Mobil (gövde) muaf.
+      // Web hareketsizlik: act token'a gömülüdür (yalnız tarayıcı girişinde) — taşıma yolundan bağımsız uygulanır.
       const browser = !parsed.data.refreshToken;
-      if (browser && isIdleExpired(claims.act)) {
+      if (isIdleExpired(claims.act)) {
         auditLog({ action: "auth.refresh_idle_expired", requestId: ctx.requestId || "unknown", userId: claims.sub, outcome: "denied" });
         return jsonFail("UNAUTHORIZED", IDLE_LOGOUT_MESSAGE);
       }
@@ -91,7 +91,8 @@ export const POST = withApiHandler(
         studentId: claims.studentId ?? user.studentId,
         sid: claims.sid,
         // Yenileme etkinlik sayılmaz: `act` korunur; yalnız tarayıcının açık etkinlik isteği ilerletir.
-        act: browser && parsed.data.activity ? nowSec() : (claims.act ?? nowSec()),
+        // act'siz eski tarayıcı token'ında saat şimdi başlar; mobil (gövde) token'ı act'siz kalır.
+        act: claims.act === undefined ? (browser ? nowSec() : undefined) : parsed.data.activity ? nowSec() : claims.act,
       });
 
       auditLog({

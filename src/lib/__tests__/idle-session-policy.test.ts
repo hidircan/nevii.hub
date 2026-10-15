@@ -64,13 +64,27 @@ describe("hareketsiz oturum — sunucu kapısı", () => {
     expect(isIdleExpired(stale())).toBe(true);
   });
 
-  it("tarayıcı yenilemesi süre aşılınca reddedilir; mobil (gövdeden) yenileme muaf", async () => {
+  it("süre aşılınca yenileme reddedilir — çerezden de gövdeden de (taşıma yolu kontrolü atlatmaz)", async () => {
     const t = await pairWithAct(stale());
     const web = await refresh({ cookie: `np_refresh=${t.refreshToken}` });
     expect(web.status).toBe(401);
     expect((await web.json()).error.message).toContain("oturumunuz kapatıldı");
-    const mobile = await refresh({ body: { refreshToken: t.refreshToken } });
-    expect(mobile.status).toBe(200);
+    expect((await refresh({ body: { refreshToken: t.refreshToken } })).status).toBe(401);
+  });
+
+  it("mobil giriş (Origin yok) token'ında act yok: hareketsizlik uygulanmaz, yenileme act eklemez", async () => {
+    const { POST } = await import("../../app/api/v1/auth/login/route");
+    const res = await POST(
+      new Request("http://localhost/api/v1/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json", "user-agent": "okhttp/4.9" },
+        body: JSON.stringify({ email: "ezgi.guclu@niluferacar.com.tr", password: "demo-manager-ezgi" }),
+      })
+    );
+    const json = await res.json();
+    expect((await verifyRefreshToken(json.data.refreshToken)).act).toBeUndefined();
+    const again = await (await refresh({ body: { refreshToken: json.data.refreshToken } })).json();
+    expect((await verifyRefreshToken(again.data.refreshToken)).act).toBeUndefined();
   });
 
   it("yenileme etkinlik sayılmaz (act korunur); açık etkinlik isteği act'i şimdiye çeker", async () => {
@@ -82,11 +96,11 @@ describe("hareketsiz oturum — sunucu kapısı", () => {
     expect((await verifyRefreshToken(active.data.refreshToken)).act).toBeGreaterThan(old + 500);
   });
 
-  it("API: çerezli istek süre aşılınca reddedilir, Bearer (mobil) aynı token'la geçer", async () => {
+  it("API: süre aşılmış tarayıcı token'ı çerezle de Bearer ile de reddedilir; taze token geçer", async () => {
     const t = await pairWithAct(stale());
-    const viaCookie = await authenticateRequest(new Request("http://localhost/api/v1/x", { headers: { cookie: `np_access=${t.accessToken}` } }), "r");
-    expect(viaCookie.ok).toBe(false);
-    const viaBearer = await authenticateRequest(new Request("http://localhost/api/v1/x", { headers: { authorization: `Bearer ${t.accessToken}` } }), "r");
-    expect(viaBearer.ok).toBe(true);
+    expect((await authenticateRequest(new Request("http://localhost/api/v1/x", { headers: { cookie: `np_access=${t.accessToken}` } }), "r")).ok).toBe(false);
+    expect((await authenticateRequest(new Request("http://localhost/api/v1/x", { headers: { authorization: `Bearer ${t.accessToken}` } }), "r")).ok).toBe(false);
+    const fresh = await pairWithAct(nowSec());
+    expect((await authenticateRequest(new Request("http://localhost/api/v1/x", { headers: { authorization: `Bearer ${fresh.accessToken}` } }), "r")).ok).toBe(true);
   });
 });

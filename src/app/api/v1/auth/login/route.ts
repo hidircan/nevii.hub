@@ -143,7 +143,10 @@ export const POST = withApiHandler(
         loginStudentId = user.studentId;
       }
     }
-    const tokens = await issueTokenPair({ ...user, studentId: loginStudentId, sid, act: nowSec() });
+    // Web hareketsizlik politikası yalnız tarayıcı oturumuna: tarayıcı POST'ta Origin gönderir, mobil (React Native)
+    // göndermez. act token'a gömülür ve hangi yoldan gelirse gelsin uygulanır (çerez/Bearer ayrımı yok).
+    const browserLogin = Boolean(request.headers.get("origin"));
+    const tokens = await issueTokenPair({ ...user, studentId: loginStudentId, sid, ...(browserLogin ? { act: nowSec() } : {}) });
     auditLog({
       action: "auth.login_success",
       requestId: ctx.requestId || "unknown",

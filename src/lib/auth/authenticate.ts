@@ -46,8 +46,8 @@ export async function authenticateRequest(
       via = "cookie";
     }
 
-    // Web hareketsizlik: çerezli (tarayıcı) istekte son gerçek etkileşim süreyi aştıysa red. Bearer (mobil) muaf.
-    if (via === "cookie" && isIdleExpired(claims.act)) throw new Error("Session idle");
+    // Web hareketsizlik: act yalnız tarayıcı oturumu token'ında var; varsa her yolda (çerez/Bearer) uygulanır.
+    if (isIdleExpired(claims.act)) throw new Error("Session idle");
     // NeviiOS: pasif/silinmiş kullanıcı, iptal edilmiş oturum, değişmiş rol/tenant → red.
     if (!(await isSessionClaimValid(claims))) throw new Error("Session revoked");
 

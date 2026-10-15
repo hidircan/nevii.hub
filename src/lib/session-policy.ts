@@ -3,7 +3,8 @@
  * duraklatma) ve sunucu (JWT `act` talebiyle çerezli istek/yenileme reddi) aynı süreleri kullanır.
  * `act` = son GERÇEK kullanıcı etkileşimi (epoch sn). API yanıtı, yoklama ve token yenileme `act`'i ilerletmez; yalnız
  * istemcinin etkileşim sonrası seyrek "etkinlik" isteği (`/api/v1/auth/refresh` `{ activity: true }`) ilerletir.
- * Mobil uygulama (Bearer / gövdeden refresh) bu politikaya tabi DEĞİL — arka plan ve push davranışı değişmez.
+ * `act` yalnız tarayıcı girişinde (Origin başlığı) token'a gömülür ve varsa HER yolda uygulanır; mobil giriş token'ında
+ * `act` yoktur — mobil arka plan ve push davranışı değişmez.
  * Süre `NEXT_PUBLIC_IDLE_LOGOUT_MINUTES` ile değiştirilebilir (varsayılan 30).
  */
 const minutes = (v: string | undefined, d: number) => {
