@@ -1,10 +1,13 @@
 import { redirect } from "next/navigation";
+import type { ReactNode } from "react";
 import { requireSessionContext } from "@/lib/auth/session";
-import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
+import { getInstitutionContext, readScopedReferenceData } from "@/lib/institution/context";
 import {
   AUDIT_CATEGORY_ENTITY_TYPES,
   AUDIT_CATEGORY_LABELS,
   AUDIT_SCREEN_LABELS,
+  AUDIT_SCREEN_UNKNOWN,
+  auditActionOptions,
   auditBreadcrumb,
   auditCategoryOf,
   auditClientInfo,
@@ -17,9 +20,10 @@ import {
 } from "@/lib/audit/humanize";
 import { resolveActorLabels } from "@/lib/contract-payment-plan-view";
 import { AUDITLOG_DELETE_ALLOWLIST, RETENTION_POLICIES } from "@/lib/platform/retention";
-import { listAuditLogs, type AuditOutcome } from "@/lib/audit/log";
+import { listAuditActorIds, listAuditLogPage, resolveAuditRowLinks, type AuditOutcome } from "@/lib/audit/log";
+import { foldTurkishForSearch } from "@/lib/normalize";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
-import { Card, Input, Label, PageHeader, Select } from "@/components/ui";
+import { Card, Input, PageHeader, Select } from "@/components/ui";
 import { formatDateTime } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -31,35 +35,43 @@ const OUTCOME_LABEL: Record<string, string> = {
 };
 
 const ROLE_OPTIONS = ["SUPER_ADMIN", "SCHOOL_ADMIN", "TEACHER", "PARENT", "STUDENT", "AI_AGENT"];
+const PAGE_SIZE = 50;
+
+type SearchParams = {
+  from?: string;
+  to?: string;
+  actorUserId?: string;
+  actorRole?: string;
+  action?: string;
+  islem?: string;
+  entityType?: string;
+  outcome?: string;
+  q?: string;
+  kategori?: string;
+  ozne?: string;
+  ozneTuru?: string;
+  sayfa?: string;
+};
+
+/** Etiket + kontrol tek `<label>` içinde: ekran okuyucu her filtreyi adıyla okur. */
+function Field({ label, children, className }: { label: string; children: ReactNode; className?: string }) {
+  return (
+    <label className={`block ${className ?? ""}`}>
+      <span className="mb-1 block text-xs font-medium text-[var(--color-text-muted)]">{label}</span>
+      {children}
+    </label>
+  );
+}
 
 /**
- * Denetim Kaydı — kim, ne zaman, hangi ekranda/varlıkta hangi kritik
- * işlemi yaptı (audit trail). Veri kaynağı `src/lib/audit/log.ts`
- * (recordAuditLog/listAuditLogs) — tüm kritik yazma işlemlerinde zaten
- * çağrılıyordu. Yalnızca STORE_MODE=db'de kalıcı olur; json/memory modda
- * boş liste döner, hata fırlatmaz.
- *
- * Filtreler URL query param'larında tutulur (?from=&to=&actorUserId=&
- * actorRole=&action=&entityType=&outcome=&q=) — kalıcı, paylaşılabilir ve
- * geri/ileri tuşlarıyla uyumlu (theme/sidebar tercihi gibi localStorage
- * değil, bilinçli olarak URL — bir denetim sorgusu link olarak
- * paylaşılabilmeli).
+ * Denetim Kaydı — kim (işlemi yapan), kimin kaydı (özne), hangi ekranda, ne yaptı, sonuç, ne zaman.
+ * 2026-10-15: görünen her sütunun filtresi; saatler İstanbul saatiyle girilir, sunucuda UTC'ye çevrilir
+ * (`auditRangeUtc`); filtre + sayfalama sunucuda TEK sorgu (`listAuditLogPage`). Tam kurum okuması yok — adlar
+ * referans dilimden, ders/ödeme bağları yalnız görünen satırlar için. Özne yalnız GÜNCEL, bu kapsamdaki
+ * öğrenci/öğretmenden aranır — kalıcı silinmiş kişinin adı eski kayıttan seçenek olarak yeniden üretilmez.
+ * Filtreler URL'de (paylaşılabilir); "Filtreleri temizle" hepsini kaldırır. Mevcut kayıtlar yeniden yazılmaz.
  */
-export default async function AuditLogPage({
-  searchParams,
-}: {
-  searchParams: Promise<{
-    from?: string;
-    to?: string;
-    actorUserId?: string;
-    actorRole?: string;
-    action?: string;
-    entityType?: string;
-    outcome?: string;
-    q?: string;
-    kategori?: string;
-  }>;
-}) {
+export default async function AuditLogPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
   let session;
   try {
     session = await requireSessionContext();
@@ -73,67 +85,94 @@ export default async function AuditLogPage({
   const kurum = await getInstitutionContext(session);
   const sp = await searchParams;
   const tenantIds = kurum.scope.mode === "all" ? kurum.scope.tenantIds : [kurum.scope.tenantId];
+  const data = await readScopedReferenceData(kurum.scope);
 
   const category = sp.kategori && sp.kategori in AUDIT_CATEGORY_LABELS ? (sp.kategori as AuditCategory) : undefined;
-  const filters = {
-    entityTypes: category && category !== "system" ? AUDIT_CATEGORY_ENTITY_TYPES[category] : undefined,
-    excludeEntityTypes: category === "system" ? Object.values(AUDIT_CATEGORY_ENTITY_TYPES).flat() : undefined,
-    from: sp.from || undefined,
-    to: sp.to || undefined,
-    actorUserId: sp.actorUserId || undefined,
-    actorRole: sp.actorRole || undefined,
-    action: sp.action || undefined,
-    entityType: sp.entityType || undefined,
-    outcome: (sp.outcome as AuditOutcome) || undefined,
-    search: sp.q || undefined,
-    // Her kimlik doğrulamalı istekte yazılan teknik telemetri (auth.success/refresh) iş kaydı değildir;
-    // yalnız işlem kodu açıkça seçilirse gösterilir.
-    excludeActions: [...(AUDITLOG_DELETE_ALLOWLIST.api_telemetry ?? [])],
-    limit: 200,
-  };
+  const actionOptions = auditActionOptions();
+  const pickedActions = (sp.islem || sp.action || "").split(",").map((a) => a.trim()).filter(Boolean);
+  const pickedActionValue = pickedActions.join(",");
 
-  const perTenantLogs = await Promise.all(tenantIds.map((tid) => listAuditLogs(tid, filters)));
-  const logs = perTenantLogs.flat().sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()).slice(0, 200);
+  // Özne: ad ile sunucuda aranır; seçili tür yoksa öğrenci + öğretmen. "İşlemi yapan" filtresinden bağımsız.
+  const subjectQuery = sp.ozne?.trim() ?? "";
+  const subjectFold = foldTurkishForSearch(subjectQuery);
+  const subjectMatches = subjectFold
+    ? [
+        ...(sp.ozneTuru !== "Teacher"
+          ? data.students
+              .filter((s) => foldTurkishForSearch(s.name).includes(subjectFold))
+              .map((s) => ({ id: s.id, name: s.name, kind: "öğrenci" }))
+          : []),
+        ...(sp.ozneTuru !== "Student"
+          ? data.teachers
+              .filter((t) => foldTurkishForSearch(t.name).includes(subjectFold))
+              .map((t) => ({ id: t.id, name: t.name, kind: "öğretmen" }))
+          : []),
+      ]
+    : [];
+  const page = Math.max(1, Number.parseInt(sp.sayfa ?? "1", 10) || 1);
 
-  // İnsan okunur: kişi adı + varlık adı çözümü (ham kimlik gösterilmez).
-  const data = await readScopedData(kurum.scope);
+  const { rows: logs, hasMore } =
+    subjectFold && subjectMatches.length === 0
+      ? { rows: [], hasMore: false }
+      : await listAuditLogPage(tenantIds, {
+          entityTypes: category && category !== "system" ? AUDIT_CATEGORY_ENTITY_TYPES[category] : undefined,
+          excludeEntityTypes: category === "system" ? Object.values(AUDIT_CATEGORY_ENTITY_TYPES).flat() : undefined,
+          entityType: sp.entityType || undefined,
+          from: sp.from || undefined,
+          to: sp.to || undefined,
+          actorUserId: sp.actorUserId || undefined,
+          actorRole: sp.actorRole || undefined,
+          actions: pickedActions.length ? pickedActions : undefined,
+          // Her istekte yazılan teknik telemetri (auth.success/refresh) iş kaydı değildir; yalnız açıkça seçilirse gösterilir.
+          excludeActions: [...(AUDITLOG_DELETE_ALLOWLIST.api_telemetry ?? [])],
+          outcome: (sp.outcome as AuditOutcome) || undefined,
+          subjectIds: subjectMatches.map((m) => m.id),
+          search: sp.q || undefined,
+          page,
+          pageSize: PAGE_SIZE,
+        });
+
+  const [actorIds, rowLinks] = await Promise.all([listAuditActorIds(tenantIds), resolveAuditRowLinks(tenantIds, logs)]);
   const actorNames = await resolveActorLabels({
     tenantId: session.tenantId,
-    userIds: logs.map((l) => l.actorUserId),
+    userIds: [...actorIds, ...logs.map((l) => l.actorUserId)],
     teachers: data.teachers,
   });
-  const entityNameOf = (entityType: string, entityId: string, meta: Record<string, unknown> | null): string | undefined => {
-    if (typeof meta?.entityName === "string") return meta.entityName;
-    if (entityType === "Student") return data.students.find((st) => st.id === entityId)?.name;
-    if (entityType === "Teacher") return data.teachers.find((t) => t.id === entityId)?.name;
-    if (entityType === "Room") return data.rooms.find((r) => r.id === entityId)?.name;
-    return undefined;
-  };
-  // 8. tur (F) — Özne + şube: kaydın bağlı olduğu öğrenci/öğretmen (meta'dan ya da
-  // ders/ödeme satırından). Bulunamayan parça gösterilmez, uydurulmaz.
   const branchName = (id?: string) => (id ? data.settings.branches.find((b) => b.id === id)?.shortName : undefined);
+  // Özne + şube: kaydın bağlı olduğu güncel öğrenci/öğretmen; bulunamazsa o satırın meta adı (seçenek olmaz), yoksa "—".
   const subjectOf = (entityType: string, entityId: string, meta: Record<string, unknown> | null) => {
+    const link = rowLinks.get(entityId);
     const metaStudentId = typeof meta?.studentId === "string" ? meta.studentId : undefined;
-    const lesson = entityType === "Lesson" ? data.lessons.find((l) => l.id === entityId) : undefined;
-    const payment = entityType === "Payment" ? data.payments.find((p) => p.id === entityId) : undefined;
-    const studentId = entityType === "Student" ? entityId : (metaStudentId ?? lesson?.studentId ?? payment?.studentId);
+    const metaTeacherId = typeof meta?.teacherId === "string" ? meta.teacherId : undefined;
+    const studentId = entityType === "Student" ? entityId : (metaStudentId ?? link?.studentId);
     const student = studentId ? data.students.find((st) => st.id === studentId) : undefined;
-    const teacher = entityType === "Teacher" ? data.teachers.find((t) => t.id === entityId) : undefined;
-    const contractNo =
-      typeof meta?.contractNumber === "string" ? meta.contractNumber : undefined;
+    const teacherId = entityType === "Teacher" ? entityId : metaTeacherId;
+    const teacher = teacherId ? data.teachers.find((t) => t.id === teacherId) : undefined;
+    const room = entityType === "Room" ? data.rooms.find((r) => r.id === entityId) : undefined;
+    const contractNo = typeof meta?.contractNumber === "string" ? meta.contractNumber : undefined;
     return {
-      name: student?.name ?? teacher?.name ?? entityNameOf(entityType, entityId, meta),
+      name: student?.name ?? teacher?.name ?? room?.name ?? (typeof meta?.entityName === "string" ? meta.entityName : undefined),
+      kind: student ? "öğrenci" : teacher ? "öğretmen" : ENTITY_LABELS[entityType],
       contract: contractNo ? `Sözleşme #${contractNo}` : undefined,
       branch: branchName(
-        typeof meta?.branchId === "string" ? meta.branchId : (lesson?.branchId ?? student?.branchId ?? teacher?.branchId)
+        typeof meta?.branchId === "string" ? meta.branchId : (link?.branchId ?? student?.branchId ?? teacher?.branchId)
       ),
     };
   };
-  const actorOptions = Array.from(new Set(logs.map((l) => l.actorUserId)))
+  const actorOptions = Array.from(new Set(actorIds))
     .map((id) => ({ id, name: actorNames.get(id) ?? "Bilinmeyen kullanıcı" }))
     .sort((a, b) => a.name.localeCompare(b.name, "tr"));
+  const cap = (s: string) => s.charAt(0).toLocaleUpperCase("tr") + s.slice(1);
+  const entityTypeOptions = Object.keys(ENTITY_LABELS).sort((a, b) => ENTITY_LABELS[a]!.localeCompare(ENTITY_LABELS[b]!, "tr"));
 
-  const entityTypeOptions = Array.from(new Set(logs.map((l) => l.entityType))).sort();
+  const pageHref = (p: number) => {
+    const params = new URLSearchParams();
+    for (const [k, v] of Object.entries(sp)) if (typeof v === "string" && v && k !== "sayfa") params.set(k, v);
+    if (p > 1) params.set("sayfa", String(p));
+    const qs = params.toString();
+    return qs ? `/panel/denetim-kaydi?${qs}` : "/panel/denetim-kaydi";
+  };
+  const hasFilters = Object.entries(sp).some(([k, v]) => k !== "sayfa" && Boolean(v));
 
   return (
     <div>
@@ -142,16 +181,13 @@ export default async function AuditLogPage({
 
       <Card className="mb-6">
         <form method="get" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <div>
-            <Label>Başlangıç tarihi</Label>
-            <Input type="date" name="from" defaultValue={sp.from ?? ""} />
-          </div>
-          <div>
-            <Label>Bitiş tarihi</Label>
-            <Input type="date" name="to" defaultValue={sp.to ?? ""} />
-          </div>
-          <div>
-            <Label>Kişi</Label>
+          <Field label="Başlangıç (İstanbul saati)">
+            <Input type="datetime-local" name="from" defaultValue={sp.from ?? ""} />
+          </Field>
+          <Field label="Bitiş (İstanbul saati, dahil)">
+            <Input type="datetime-local" name="to" defaultValue={sp.to ?? ""} />
+          </Field>
+          <Field label="İşlemi yapan">
             <Select name="actorUserId" defaultValue={sp.actorUserId ?? ""}>
               <option value="">Tümü</option>
               {actorOptions.map((a) => (
@@ -160,9 +196,8 @@ export default async function AuditLogPage({
                 </option>
               ))}
             </Select>
-          </div>
-          <div>
-            <Label>Rol</Label>
+          </Field>
+          <Field label="İşlemi yapanın rolü">
             <Select name="actorRole" defaultValue={sp.actorRole ?? ""}>
               <option value="">Tümü</option>
               {ROLE_OPTIONS.map((r) => (
@@ -171,9 +206,28 @@ export default async function AuditLogPage({
                 </option>
               ))}
             </Select>
-          </div>
-          <div>
-            <Label>İşlem türü</Label>
+          </Field>
+          <Field label="Özne türü">
+            <Select name="ozneTuru" defaultValue={sp.ozneTuru ?? ""}>
+              <option value="">Öğrenci veya öğretmen</option>
+              <option value="Student">Öğrenci</option>
+              <option value="Teacher">Öğretmen</option>
+            </Select>
+          </Field>
+          <Field label="Özne (kimin kaydı)">
+            <Input name="ozne" defaultValue={sp.ozne ?? ""} placeholder="Öğrenci/öğretmen adı" />
+          </Field>
+          <Field label="Kayıt türü">
+            <Select name="entityType" defaultValue={sp.entityType ?? ""}>
+              <option value="">Tümü</option>
+              {entityTypeOptions.map((e) => (
+                <option key={e} value={e}>
+                  {cap(ENTITY_LABELS[e]!)}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Ekran/modül">
             <Select name="kategori" defaultValue={category ?? ""}>
               <option value="">Tümü</option>
               {(Object.keys(AUDIT_CATEGORY_LABELS) as AuditCategory[]).map((c) => (
@@ -182,63 +236,75 @@ export default async function AuditLogPage({
                 </option>
               ))}
             </Select>
-            {sp.action ? <input type="hidden" name="action" value={sp.action} /> : null}
-          </div>
-          <div>
-            <Label>Kayıt türü</Label>
-            <Select name="entityType" defaultValue={sp.entityType ?? ""}>
+          </Field>
+          <Field label="İşlem">
+            <Select name="islem" defaultValue={pickedActionValue}>
               <option value="">Tümü</option>
-              {Array.from(new Set([...entityTypeOptions, ...(sp.entityType ? [sp.entityType] : [])])).map((e) => (
-                <option key={e} value={e}>
-                  {ENTITY_LABELS[e] ? ENTITY_LABELS[e].charAt(0).toLocaleUpperCase("tr") + ENTITY_LABELS[e].slice(1) : e}
+              {pickedActionValue && !actionOptions.some((o) => o.value === pickedActionValue) ? (
+                <option value={pickedActionValue}>Bağlantıdaki işlem</option>
+              ) : null}
+              {actionOptions.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
                 </option>
               ))}
             </Select>
-          </div>
-          <div>
-            <Label>Durum</Label>
+          </Field>
+          <Field label="Sonuç">
             <Select name="outcome" defaultValue={sp.outcome ?? ""}>
               <option value="">Tümü</option>
               <option value="success">Başarılı</option>
               <option value="denied">Reddedildi</option>
               <option value="error">Hata</option>
             </Select>
-          </div>
-          <div>
-            <Label>Ara</Label>
-            <Input name="q" defaultValue={sp.q ?? ""} placeholder="Kayıt no veya kişi kimliği..." />
-          </div>
-          <div className="col-span-full flex items-center gap-2">
+          </Field>
+          <Field label="Ara (kayıt numarası)" className="sm:col-span-2">
+            <Input name="q" defaultValue={sp.q ?? ""} placeholder="Kayıt numarası" />
+          </Field>
+          <div className="col-span-full flex flex-wrap items-center gap-2">
             <button
               type="submit"
               className="rounded-xl bg-[var(--color-primary)] px-3.5 py-2 text-sm font-medium text-white hover:bg-[var(--color-primary-hover)]"
             >
               Filtrele
             </button>
-            <a
-              href="/panel/denetim-kaydi"
-              className="rounded-xl border border-[var(--color-border)] px-3.5 py-2 text-sm font-medium text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)]"
-            >
-              Temizle
-            </a>
+            {hasFilters ? (
+              <a
+                href="/panel/denetim-kaydi"
+                className="rounded-xl border border-[var(--color-border)] px-3.5 py-2 text-sm font-medium text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)]"
+              >
+                Filtreleri temizle
+              </a>
+            ) : null}
+            <span className="text-xs text-[var(--color-text-muted)]">Tüm saatler İstanbul saatidir (TSİ, UTC+3).</span>
           </div>
         </form>
+        {subjectFold ? (
+          <p className="mt-3 text-xs text-[var(--color-text-muted)]" role="status">
+            {subjectMatches.length === 0
+              ? `"${subjectQuery}" adında bu kurumda güncel bir öğrenci/öğretmen bulunamadı.`
+              : `Özne: ${subjectMatches
+                  .slice(0, 5)
+                  .map((m) => `${m.name} (${m.kind})`)
+                  .join(", ")}${subjectMatches.length > 5 ? ` ve ${subjectMatches.length - 5} kişi daha` : ""}.${subjectMatches.length > 50 ? " İlk 50 kişi aranır; adı daraltın." : ""}`}
+          </p>
+        ) : null}
       </Card>
 
       <p className="mb-2 text-xs text-[var(--color-text-muted)]">
-        Son {logs.length} kayıt gösteriliyor. İş kayıtları (öğrenci, ödeme, sözleşme, hakediş, silme) kalıcı saklanır; giriş/oturum
-        kayıtları {RETENTION_POLICIES.security_events.defaultDays} gün, teknik telemetri {RETENTION_POLICIES.api_telemetry.defaultDays} gün
-        sonra platform saklama işiyle temizlenir.
+        Sayfa {page} · sayfa başına en çok {PAGE_SIZE} kayıt. İş kayıtları (öğrenci, ödeme, sözleşme, hakediş, silme) kalıcı
+        saklanır; giriş/oturum kayıtları {RETENTION_POLICIES.security_events.defaultDays} gün, teknik telemetri{" "}
+        {RETENTION_POLICIES.api_telemetry.defaultDays} gün sonra platform saklama işiyle temizlenir.
       </p>
       <Card className="overflow-x-auto p-0">
         <table className="w-full text-left text-sm">
           <thead className="border-b border-[var(--color-border)] bg-[var(--color-surface-muted)] text-xs uppercase tracking-wide text-[var(--color-text-muted)]">
             <tr>
-              <th className="px-3 py-3">Tarih/Saat</th>
-              <th className="px-3 py-3">Kullanıcı</th>
+              <th className="px-3 py-3">Tarih/Saat (TSİ)</th>
+              <th className="px-3 py-3">İşlemi yapan</th>
               <th className="px-3 py-3">Rol</th>
               <th className="px-3 py-3">Şube</th>
-              <th className="px-3 py-3">Ekran/Bölüm</th>
+              <th className="px-3 py-3">Ekran/Modül</th>
               <th className="px-3 py-3">İşlem</th>
               <th className="px-3 py-3">Özne</th>
               <th className="px-3 py-3">Önceki → Sonraki</th>
@@ -263,7 +329,8 @@ export default async function AuditLogPage({
                   entityType: log.entityType,
                   outcome: log.outcome,
                   actorName,
-                  entityName: entityNameOf(log.entityType, log.entityId, log.meta),
+                  entityName: subject.name,
+                  changes,
                 });
                 const diff = compactAuditDiff(changes);
                 return (
@@ -274,8 +341,8 @@ export default async function AuditLogPage({
                     <td className="px-3 py-2.5 font-medium text-[var(--color-text)]">{actorName}</td>
                     <td className="px-3 py-2.5 text-xs text-[var(--color-text-muted)]">{ROLE_LABELS_TR[log.actorRole] ?? log.actorRole}</td>
                     <td className="px-3 py-2.5 text-xs text-[var(--color-text-muted)]">{subject.branch ?? "—"}</td>
-                    <td className="px-3 py-2.5 text-xs text-[var(--color-text-muted)]">{screen ?? "—"}</td>
-                    <td className="min-w-[16rem] px-3 py-2.5 text-[var(--color-text)]" title={`Teknik kod: ${log.action} · ${log.entityType}`}>
+                    <td className="px-3 py-2.5 text-xs text-[var(--color-text-muted)]">{screen ?? AUDIT_SCREEN_UNKNOWN}</td>
+                    <td className="min-w-[16rem] px-3 py-2.5 text-[var(--color-text)]">
                       <span className="block text-[11px] font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
                         {AUDIT_CATEGORY_LABELS[auditCategoryOf(log.entityType)]}
                         {log.outcome !== "success" ? (
@@ -285,10 +352,11 @@ export default async function AuditLogPage({
                           </span>
                         ) : null}
                       </span>
-                      {auditBreadcrumb([screen, subject.name, subject.contract, sentence])}
+                      {auditBreadcrumb([screen, subject.contract, sentence])}
                     </td>
                     <td className="px-3 py-2.5 text-xs text-[var(--color-text)]">
                       {subject.name ?? "—"}
+                      {subject.kind ? <span className="block text-[var(--color-text-muted)]">{cap(subject.kind)}</span> : null}
                       {subject.contract ? <span className="block text-[var(--color-text-muted)]">{subject.contract}</span> : null}
                     </td>
                     <td className="min-w-[12rem] px-3 py-2.5 text-xs text-[var(--color-text-muted)]">{diff || "—"}</td>
@@ -300,6 +368,22 @@ export default async function AuditLogPage({
           </tbody>
         </table>
       </Card>
+      {page > 1 || hasMore ? (
+        <nav className="mt-3 flex items-center justify-between text-sm" aria-label="Sayfalama">
+          {page > 1 ? (
+            <a href={pageHref(page - 1)} className="font-medium text-[var(--color-primary)] hover:underline">
+              ← Önceki sayfa
+            </a>
+          ) : (
+            <span />
+          )}
+          {hasMore ? (
+            <a href={pageHref(page + 1)} className="font-medium text-[var(--color-primary)] hover:underline">
+              Sonraki sayfa →
+            </a>
+          ) : null}
+        </nav>
+      ) : null}
     </div>
   );
 }
