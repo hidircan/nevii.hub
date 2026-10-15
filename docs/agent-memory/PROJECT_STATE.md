@@ -82,6 +82,8 @@ Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_20
   işlemler altta, iptal onay penceresi). PR #45 Google Play mağaza paketi (`docs/store-assets/google-play/`).
 - AÇIK (owner): canlıda HİÇ HYPER_ADMIN yok, `info@neviihub.com` hesabı yok → şifre sıfırlama `no_eligible_account`
   (canlı log 10-14). PR #37 kurtarma betiği hiç uygulanmadı. Owner: `scripts/recover-hyper-admin.ts` (kuru → `--apply`).
+- AÇIK (owner): canlıda mobil erişim kapalı — paket `standard` (`mobileApp: false`), `mobile.appEnabled` override yok;
+  PR #45 `app.json` sürümünü 1.0.0 yaptı (minVersion kapısı). Mobil modülü + `mobile.appEnabled` NeviiOS'tan açılmalı.
 - AÇIK (owner): Play Console doğru Google hesabıyla giriş; canlıda sentetik inceleme test hesabı; hedef kitle/IARC kararları.
 - Bilinen: `/panel` telefon genişliğinde kenar menü daralmıyor (içerik ~57px) — ayrı iş.
 
