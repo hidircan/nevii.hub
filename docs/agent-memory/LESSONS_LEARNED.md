@@ -1540,3 +1540,12 @@ Aynı turda: `validateLessonSlot` oda `active`'ini hiç okumuyordu → telafi pa
   kayıt satırı kırılımı kalıcı yazar; fazla tutar önce doğrulanıp sonraki dönemlere mahsup edilir.
 - Ders: "kapsam" kuralı (hangi ay) ile "tutar" kuralı (ne kadar) tek fonksiyonda olmalı; bir bayrağı okuyan her yeri `grep`
   ile bul. Geçmiş kayıtta tutarı bugünkü ücretten TAHMİN etme — kırılımı kayıtta tut, eskiyi kuru çalıştırmayla ayır.
+
+## 2026-10-15 — Okulsuz platform tenant'ı her 10 dakikada notification-tick'i 500'e düşürdü
+- 10-10'da `readData()` canlıda okulsuz kurumda bilerek fırlatır hale geldi (demo seed yerine). `tenant_platform` (NeviiOS,
+  okul kaydı yok) `listTenants()`'te aktifti; `sweepUpcomingLessons` kurum bazında yakalamadığı için tüm tick 500. Teşhis
+  log'u yalnız `errorName` taşıdığından mesaj görünmedi; kök neden canlı DB sorgusu (okul sayısı 0) + kod yoluyla bulundu.
+- Düzeltme (PR #41): `listSchoolTenants()` + `forEachSchoolTenant()` (kurum hatası sayılır, diğerleri sürer, >0 ise tick 500).
+- Ders: kurum başına `readData` yapan her zamanlanmış iş platform tenant'ını dışlamalı; bir fonksiyonu fırlatır hale getirince
+  tüm çağıranlarını `grep` et. Log'a stack yazarken yalnız `at ...` satırları (çok satırlı mesaj stack'in başına girer).
+- Ayrıca: özel `Button`'a verilen `aria-*` JSX'te TS hatası vermeden düşer — ortak bileşen iletmiyorsa erişilebilirlik kaybolur.
