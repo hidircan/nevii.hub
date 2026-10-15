@@ -120,6 +120,9 @@ your school enables.
     işlevi + hesap yönetimi), İşlem geçmişi (zorunlu), Fotoğraflar, Dosyalar, Kullanıcı tarafından oluşturulan içerik,
     Cihaz kimlikleri/push jetonu (isteğe bağlı) — toplandı, paylaşılmadı, kısa süreli değil. Önceki "Kilitlenme günlükleri"
     satırına dokunulmadı.
+- **Yeni paket:** EAS build `1f00d0fa…` → **3 (1.0.0)**; EAS'ta Google servis hesabı anahtarı olmadığı için `eas submit`
+  çalışmadı, AAB Console'a elle yüklendi → **Dahili test sürümü TASLAK** (kullanıma sunulmadı). Sonraki: önizle → kullanıma
+  sun (dahili test incelemesizdir); kapalı test/üretim ayrı karar.
 - Mağaza kategorisi Console'da **İş** seçili (bu belgedeki öneri Eğitim) — owner kararı.
 - **Android push:** EAS production ortamında `GOOGLE_SERVICES_JSON` yok → bu ve önceki build'lerde Android push çalışmaz
   (`app.config.js`). FCM için google-services.json EAS'a "file" env olarak eklenmeli.
