@@ -19,6 +19,7 @@ import {
   closedAccountEmail,
   planPersonPurge,
   purgePayoutRewrite,
+  unplanMakeupForPurge,
   type PurgeAccountRow,
   type PurgeKind,
   type PurgeMode,
@@ -214,7 +215,7 @@ async function loadTeacherSnapshot(db: Db, tenantId: string, teacherId: string, 
             NOT: { teacherId },
             OR: [{ attendanceId: { in: ids(attendances) } }, { sourceLessonId: { in: lessonIds } }, { confirmedLessonId: { in: lessonIds } }],
           },
-          select: { id: true },
+          select: { id: true, attendanceId: true, sourceLessonId: true },
         })
       : Promise.resolve([]),
     lessonIds.length ? db.payment.findMany({ where: { tenantId, lessonId: { in: lessonIds } }, select: { id: true } }) : Promise.resolve([]),
@@ -258,7 +259,18 @@ async function loadTeacherSnapshot(db: Db, tenantId: string, teacherId: string, 
     },
     detach: { tasks: ids(tasks), clubs: ids(clubs) },
     accounts,
-    lessonLinks: { attendances: ids(attendances), makeups: ids(linkedMakeups), payments: ids(lessonPayments), seriesLessons: ids(seriesLessons) },
+    lessonLinks: (() => {
+      // Yoklaması/kaynağı silinen derste olan talep silinir; yalnız planı bu öğretmende olan talep planı kaldırılır.
+      const attSet = new Set(ids(attendances));
+      const owned = (m: { attendanceId: string; sourceLessonId: string }) => attSet.has(m.attendanceId) || lessonIds.includes(m.sourceLessonId);
+      return {
+        attendances: ids(attendances),
+        makeups: ids(linkedMakeups.filter(owned)),
+        makeupPlans: ids(linkedMakeups.filter((m) => !owned(m))),
+        payments: ids(lessonPayments),
+        seriesLessons: ids(seriesLessons),
+      };
+    })(),
     teachers: teachers.map((t) => ({ id: t.id, name: t.name, active: t.active, deletedAt: iso(t.deletedAt) })),
     nowIso,
   };
@@ -413,6 +425,16 @@ export async function executePurgeDb(
         if (plan.fingerprint !== expectedFingerprint || !plan.eligible) throw new PurgeConflictError();
 
         await applyReassign(tx, tid, id, plan);
+        // Planı silinen öğretmende olan telafi talepleri: plan kalkar (ders silinmeden önce — bağ tutarlı kalsın).
+        const nowIso = new Date().toISOString();
+        for (const mid of bucketIds(plan.detach, "makeupPlans")) {
+          const m = await tx.makeupRequest.findFirst({ where: { id: mid, tenantId: tid }, select: { status: true, changeLog: true, confirmedLessonId: true } });
+          if (!m?.confirmedLessonId) throw new PurgeConflictError();
+          await tx.makeupRequest.updateMany({
+            where: { id: mid, tenantId: tid },
+            data: unplanMakeupForPurge(m, m.confirmedLessonId, nowIso) as unknown as Prisma.MakeupRequestUpdateManyMutationInput,
+          });
+        }
         const seriesLessons = bucketIds(plan.detach, "seriesLessons");
         if (seriesLessons.length) await expectCount(tx.lesson.updateMany({ where: { tenantId: tid, id: { in: seriesLessons } }, data: { seriesId: null } }), seriesLessons.length);
         for (const key of DELETE_ORDER) await deleteByIds(tx, tid, key, bucketIds(plan.remove, key));
@@ -532,6 +554,7 @@ async function applyReassign(tx: Prisma.TransactionClient, tid: string, fromId: 
       case "studentFeedback": res = await tx.studentFeedback.updateMany({ where, data: to }); break;
       case "curriculumTopics": res = await tx.studentCurriculumTopic.updateMany({ where, data: to }); break;
       case "trialLessons": res = await tx.trialLesson.updateMany({ where, data: to }); break;
+      case "payoutExclusions": res = await tx.teacherPayoutExclusion.updateMany({ where, data: to }); break;
       default: throw new Error(`Devir tanımsız: ${key}`);
     }
     if (res.count !== list.length) throw new PurgeConflictError();

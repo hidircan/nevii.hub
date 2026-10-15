@@ -67,7 +67,15 @@ export type PurgeTableKey =
   | "payouts"
   | "students";
 
-export type PurgeDetachKey = "tasks" | "paymentTasks" | "clubApplications" | "trialConversions" | "clubs" | "lessonPayments" | "seriesLessons";
+export type PurgeDetachKey =
+  | "tasks"
+  | "paymentTasks"
+  | "clubApplications"
+  | "trialConversions"
+  | "clubs"
+  | "lessonPayments"
+  | "seriesLessons"
+  | "makeupPlans";
 
 export const PURGE_TABLE_LABELS: Record<PurgeTableKey | PurgeDetachKey, string> = {
   lessons: "Ders kaydı",
@@ -111,6 +119,7 @@ export const PURGE_TABLE_LABELS: Record<PurgeTableKey | PurgeDetachKey, string> 
   clubs: "Grup dersi öğretmen listesi",
   lessonPayments: "Derse bağlı ödeme satırı (öğrencinin borcu/tahsilatı korunur)",
   seriesLessons: "Başka öğretmene taşınmış seri dersi",
+  makeupPlans: "Telafi planı kaldırılır (hak ve kaynak ders korunur, talep Telafi Merkezi'nde yeniden açık)",
 };
 
 export type PurgePerson = {
@@ -239,7 +248,7 @@ export type TeacherPurgeSnapshot = {
    * Tam silme için derslerine bağlı başka kayıtlar (FK sırası): yoklamalar, bu derslere bağlı başka öğretmenin telafi
    * talepleri, derse bağlı ödeme satırları (FK yok — bağ kaldırılır), seriye ait ama başka öğretmene taşınmış dersler.
    */
-  lessonLinks?: { attendances: string[]; makeups: string[]; payments: string[]; seriesLessons: string[] };
+  lessonLinks?: { attendances: string[]; makeups: string[]; payments: string[]; seriesLessons: string[]; makeupPlans?: string[] };
   /** Devir hedefi adayları (kurumdaki diğer öğretmenler). */
   teachers?: { id: string; name: string; active: boolean; deletedAt?: string }[];
   /** Öğretmene ait, kimseyle paylaşılmayan kayıtlar — her zaman silinir. */
@@ -791,7 +800,12 @@ function planTeacherWipe(s: TeacherPurgeSnapshot, opts: WipeOptions = {}): Purge
         series: del ? [] : ids(s.series).sort(),
         makeups: del ? [] : ids(s.makeups).sort(),
         students: ids(s.students).sort(),
-        history: del ? {} : Object.fromEntries(Object.entries(s.history).filter(([, v]) => v?.length).map(([k, v]) => [k, [...v!].sort()])),
+        // Devirde hakediş hariç tutmaları da hedefe geçer ("hariç" anlamı korunur); silmede öğretmenle silinir.
+        history: del
+          ? {}
+          : Object.fromEntries(
+              Object.entries({ ...s.history, payoutExclusions: s.payoutExclusions }).filter(([, v]) => v?.length).map(([k, v]) => [k, [...v!].sort()])
+            ),
       }
     : undefined;
   const effects = [
@@ -840,13 +854,14 @@ function planTeacherWipe(s: TeacherPurgeSnapshot, opts: WipeOptions = {}): Purge
       ...history,
       ...(Object.entries(s.owned) as [PurgeTableKey, string[]][]).map(([k, v]) => bucket(k, v)),
       bucket("feeRules", s.feeRules),
-      bucket("payoutExclusions", s.payoutExclusions),
+      reassign && !del ? null : bucket("payoutExclusions", s.payoutExclusions),
       bucket("payouts", s.payouts.map((p) => p.id), paidPayouts.length ? `${paidPayouts.length} tanesi ödenmiş` : undefined),
     ]),
     detach: compact([
       ...(Object.entries(s.detach) as [PurgeDetachKey, string[]][]).map(([k, v]) => bucket(k, v)),
       del ? bucket("lessonPayments", links.payments) : null,
       del ? bucket("seriesLessons", links.seriesLessons) : null,
+      del ? bucket("makeupPlans", links.makeupPlans ?? []) : null,
     ]),
     keep: [],
     accounts: accountActions(s.accounts),
@@ -995,6 +1010,22 @@ export class PurgeConflictError extends Error {
   constructor(message = "PURGE_CONFLICT") {
     super(message);
   }
+}
+
+/**
+ * Öğretmen tam silme ("Dersleri sil"): kaynak dersi BAŞKA öğretmende olan, yalnız planlanan telafi dersi silinen
+ * öğretmende olan talep SİLİNMEZ — Telafi Merkezi "Planı sil" ile aynı geçiş: plan kalkar, hak ve kaynak ders
+ * korunur, açık talep yeniden "bekliyor"; kapanmış talepte yalnız plan bağı temizlenir. Silmek kaynak dersi
+ * "Telafi" işaretli ama talepsiz bırakırdı (2026-10-15 telafi hatasının aynısı).
+ */
+export function unplanMakeupForPurge<T extends { status: string; changeLog?: unknown }>(row: T, lessonId: string, nowIso: string) {
+  const closed = row.status === "cancelled" || row.status === "expired";
+  const entry = { action: "plan_deleted", at: nowIso, by: "kalici-silme", from: lessonId, note: "Planlanan telafi dersinin öğretmeni kalıcı silindi." };
+  return {
+    confirmedLessonId: null,
+    ...(closed ? {} : { status: "pending", slaDeadline: null, slaEscalationLevel: 0 }),
+    changeLog: [...(Array.isArray(row.changeLog) ? row.changeLog : []), entry],
+  };
 }
 
 /** Öğrenci anonimleştirmede silinen/boşaltılan kişisel alanlar (DB ve dosya yürütücüsü AYNI listeyi kullanır). */

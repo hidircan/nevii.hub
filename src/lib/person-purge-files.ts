@@ -17,6 +17,7 @@ import {
   bucketIds,
   planPersonPurge,
   purgePayoutRewrite,
+  unplanMakeupForPurge,
   type PurgeAccountRow,
   type PurgeDetachKey,
   type PurgeKind,
@@ -278,11 +279,14 @@ export async function loadPurgeSnapshotFiles(io: StoreIo, kind: PurgeKind, id: s
       const seriesIds = new Set(data.lessonSeries.filter((x) => x.teacherId === id).map((x) => x.id));
       const atts = data.attendances.filter((a) => lessonIds.has(a.lessonId)).map((a) => a.id);
       const attSet = new Set(atts);
+      const linked = data.makeupRequests.filter(
+        (m) => m.teacherId !== id && (attSet.has(m.attendanceId) || lessonIds.has(m.sourceLessonId) || (!!m.confirmedLessonId && lessonIds.has(m.confirmedLessonId)))
+      );
+      const owned = (m: { attendanceId: string; sourceLessonId: string }) => attSet.has(m.attendanceId) || lessonIds.has(m.sourceLessonId);
       return {
         attendances: atts,
-        makeups: data.makeupRequests
-          .filter((m) => m.teacherId !== id && (attSet.has(m.attendanceId) || lessonIds.has(m.sourceLessonId) || (!!m.confirmedLessonId && lessonIds.has(m.confirmedLessonId))))
-          .map((m) => m.id),
+        makeups: linked.filter(owned).map((m) => m.id),
+        makeupPlans: linked.filter((m) => !owned(m)).map((m) => m.id),
         payments: data.payments.filter((p) => p.lessonId && lessonIds.has(p.lessonId)).map((p) => p.id),
         seriesLessons: data.lessons.filter((l) => l.seriesId && seriesIds.has(l.seriesId) && l.teacherId !== id).map((l) => l.id),
       };
@@ -332,13 +336,19 @@ async function executeUnlocked(
   const reStudents = set(ra?.students);
   const unSeries = set(bucketIds(plan.detach, "seriesLessons"));
   const unPay = set(bucketIds(plan.detach, "lessonPayments"));
+  const unPlan = set(bucketIds(plan.detach, "makeupPlans"));
   const to = ra?.targetTeacherId ?? "";
   const changes = new Map(plan.payoutChanges.filter((c) => c.action !== "legacy").map((c) => [c.payoutId, c]));
   const data: AppData = {
     ...raw,
     lessons: raw.lessons.map((l) => (reLessons.has(l.id) ? { ...l, teacherId: to } : unSeries.has(l.id) ? { ...l, seriesId: undefined } : l)),
     lessonSeries: raw.lessonSeries.map((x) => (reSeries.has(x.id) ? { ...x, teacherId: to } : x)),
-    makeupRequests: raw.makeupRequests.map((m) => (reMakeups.has(m.id) ? { ...m, teacherId: to } : m)),
+    makeupRequests: raw.makeupRequests.map((m) => {
+      if (reMakeups.has(m.id)) return { ...m, teacherId: to };
+      if (!unPlan.has(m.id) || !m.confirmedLessonId) return m;
+      const patch = unplanMakeupForPurge(m, m.confirmedLessonId, new Date().toISOString());
+      return { ...m, ...patch, confirmedLessonId: undefined, slaDeadline: undefined } as typeof m;
+    }),
     payments: raw.payments.map((p) => (unPay.has(p.id) ? { ...p, lessonId: undefined } : p)),
     students: raw.students.map((s) =>
       reStudents.has(s.id)
@@ -362,7 +372,12 @@ async function executeUnlocked(
       };
     }),
   };
+  const reExcl = set(ra?.history.payoutExclusions);
+  if (reExcl.size) {
+    data.teacherPayoutExclusions = (data.teacherPayoutExclusions ?? []).map((x) => (reExcl.has(x.id) ? { ...x, teacherId: to } : x));
+  }
   for (const [key, list] of Object.entries(ra?.history ?? {}) as [PurgeTableKey, string[]][]) {
+    if (key === "payoutExclusions") continue;
     const targets = new Set(list);
     const rows = await readRows(FILES[key]!);
     await writeRows(FILES[key]!, rows.map((x) => (targets.has(x.id) && x.teacherId === id ? { ...x, teacherId: to } : x)));

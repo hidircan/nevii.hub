@@ -624,13 +624,16 @@ describe("tam silme uçtan uca — sentetik öğrenci ve öğretmen (finans + ha
     const mk = { id: "mk_wt", studentId: ST, teacherId: T, attendanceId: att.id, sourceLessonId: les.id, status: "pending" } as MakeupRequest;
     const pay = { ...data.payments[0]!, id: "pay_wt", studentId: ST, lessonId: les.id, contractId: undefined, amount: 500, paidAmount: 500, status: "paid" } as Payment;
     const po = { ...((data.teacherPayouts[0] ?? {}) as TeacherPayout), id: "po_wt", teacherId: T, status: "paid", totalAmount: 900 } as TeacherPayout;
+    // Başka öğretmenin dersinden doğan telafi; planlanan telafi dersi yanlış öğretmende.
+    const mkLesson = lessonAt(tpl, "les_wt_mk", tpl.studentId, 3, { teacherId: T, type: "makeup" });
+    const foreignMk = { id: "mk_foreign", studentId: tpl.studentId, teacherId: tpl.teacherId, attendanceId: "att_foreign", sourceLessonId: tpl.id, confirmedLessonId: mkLesson.id, status: "confirmed", changeLog: [] } as unknown as MakeupRequest;
     await writeData({
       ...data,
       teachers: [...data.teachers, t],
       students: [...data.students, st],
-      lessons: [...data.lessons, les],
+      lessons: [...data.lessons, les, mkLesson],
       attendances: [...data.attendances, att],
-      makeupRequests: [...data.makeupRequests, mk],
+      makeupRequests: [...data.makeupRequests, mk, foreignMk],
       payments: [...data.payments, pay],
       teacherPayouts: [...data.teacherPayouts, po],
     });
@@ -665,6 +668,13 @@ describe("tam silme uçtan uca — sentetik öğrenci ve öğretmen (finans + ha
     expect(pay.paidAmount).toBe(500);
     expect(pay.lessonId).toBeUndefined();
     expect(after.students.find((s) => s.id === ST)?.teacherId).toBe(target);
+    // Kaynağı başka derste olan telafi SİLİNMEZ: planı kalkar, talep yeniden açık, kaynak ders yerinde.
+    expect(r0.data.detach.find((b) => b.key === "makeupPlans")?.ids).toEqual(["mk_foreign"]);
+    const fm = after.makeupRequests.find((m) => m.id === "mk_foreign")!;
+    expect(fm).toMatchObject({ status: "pending" });
+    expect(fm.confirmedLessonId).toBeUndefined();
+    expect(fm.changeLog?.at(-1)).toMatchObject({ action: "plan_deleted", from: "les_wt_mk" });
+    expect(after.lessons.some((l) => l.id === "les_wt_mk")).toBe(false);
   });
 
   it("öğretmen — grup dersi silinemez, devredilir: ders/telafi/öğrenci hedef öğretmene geçer, grup listesinde yerine yazılır", async () => {
