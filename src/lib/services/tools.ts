@@ -18012,7 +18012,10 @@ async function buildAttendanceCalendarMonth(
     // Gün eşleşmesi kurum saat diliminde — Ders Programı günü de böyle
     // çözer. UTC `startAt.slice(0, 10)` 00:00–02:59 dersleri önceki güne
     // kaydırıp iki ekranı ayrıştırıyordu.
-    const dayLessons = data.lessons.filter((l) => ownLesson(l) && toZonedYmd(new Date(l.startAt), timeZone) === s.date);
+    const dayAllLessons = data.lessons.filter((l) => ownLesson(l) && toZonedYmd(new Date(l.startAt), timeZone) === s.date);
+    // 2026-10-15 (owner) — iptal artık üretilmiyor; eski iptal edilmiş dersler takvimde GÖSTERİLMEZ (kayıt silinmez,
+    // raporlar/telafi/sayım okur). Ödeme satırları ise tüm derslerden gelir — tahsilat görünürlüğü kaybolmasın.
+    const dayLessons = dayAllLessons.filter((l) => l.status !== "cancelled");
     const lessonIds = dayLessons.map((l) => l.id);
     // Gerçek Geldi/İşlendi/Telafi statüsü — TEK kaynak lesson-ops.ts'deki
     // effectiveLessonOpsStatus (aynı öncelik kuralı server tarafındaki
@@ -18046,7 +18049,7 @@ async function buildAttendanceCalendarMonth(
       });
     // ÖNCELİK 4 (devam) — TEK kaynak: mevcut Payment modeli (source:"lesson_ops"),
     // ikinci/çelişkili bir kayıt yaratılmaz — yalnızca OKUNUR ve gösterilir.
-    const payments: AttendanceCalendarLessonPaymentInfo[] = dayLessons
+    const payments: AttendanceCalendarLessonPaymentInfo[] = dayAllLessons
       .map((l) => data.payments.find((p) => p.lessonId === l.id))
       .filter((p): p is NonNullable<typeof p> => !!p)
       .map((p) => ({
