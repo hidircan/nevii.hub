@@ -9113,6 +9113,9 @@ export async function forceDeleteLessonTool(
       reason: v.data.reason,
       protectionReason: result.protectionReason,
       removedAttendanceIds: result.removedAttendanceIds,
+      // Pasif (iptal/süresi dolmuş) telafi izleri — yalnız kimlik; içerik kopyalanmaz.
+      ...(result.removedMakeupRequestIds.length ? { removedMakeupRequestIds: result.removedMakeupRequestIds } : {}),
+      ...(result.detachedMakeupLessonIds.length ? { detachedMakeupLessonIds: result.detachedMakeupLessonIds } : {}),
       // Geri alınamaz silme — dersin dökümü denetim kaydında kalır.
       snapshot: {
         studentId: lesson.studentId,

@@ -24,6 +24,7 @@ import { uid } from "./utils";
 import { reoccupyBlockMessage } from "./lesson-occupancy";
 import { addDays, formatISO } from "date-fns";
 import { assertCanCreateMakeup } from "./makeup-quota";
+import { closedMakeupToReopen, reopenMakeupRequest } from "./makeup-deadline";
 
 export type LessonOpsFlag = "attended" | "processed" | "makeup" | "absent" | "excused";
 
@@ -237,6 +238,22 @@ function applyLessonOpsFlagUnguarded(
     const quota = assertCanCreateMakeup({ ...data, lessons }, lesson.studentId, now, lesson.id);
     if (!quota.ok) return { ok: false, message: quota.message };
     const branch = data.settings.branches.find((b) => b.id === lesson.branchId);
+    /**
+     * 2026-10-15 — Telafi → Geri al/hak iptali → yeniden Telafi: ders başına tek yoklama, yoklama başına tek telafi
+     * talebi (şemada ikisi de @unique). İkinci talep açılamaz; kapanmış talep YENİDEN AÇILIR. Eskiden burada aynı
+     * yoklamaya ikinci talep kuruluyordu: db modunda hiç yazılmıyordu (ders "Telafi" görünüyor, Telafi Merkezi'nde
+     * açık talep yok), ders silme ise kapanmış eski talebi "bağlı telafi var" diye engelliyordu.
+     */
+    const closed = closedMakeupToReopen(data, lessonId);
+    if (closed) {
+      makeupRequests = makeupRequests.map((m) =>
+        m.id === closed.id
+          ? reopenMakeupRequest(m, { reason: reason!.trim(), now, actorUserId, windowDays: data.settings.makeupWindowDays })
+          : m
+      );
+      const next = { ...data, lessons, makeupRequests, attendances };
+      return { ok: true, alreadySet: false, data: next, lesson: lessons.find((l) => l.id === lessonId)!, message: "Telafi işaretlendi." };
+    }
     /**
      * `MakeupRequest.attendanceId` GERÇEK bir `Attendance` kaydına işaret
      * ETMELİDİR (şemada zorunlu FK + @unique). Burada eskiden yoklama kaydı

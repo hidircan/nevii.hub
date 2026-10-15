@@ -3215,7 +3215,11 @@ async function persistLessonOpsResult(
   };
 
   if (flag === "makeup") {
-    const mk = result.data.makeupRequests.find((m) => m.sourceLessonId === lessonId);
+    // Açık (veya bu istekte yeniden açılan) talep — eskiden ilk eşleşen alınıyordu; kapanmış eski talep seçilip
+    // "zaten var" diye hiçbir şey yazılmıyordu (ders Telafi, Telafi Merkezi'nde talep yok).
+    const mk = result.data.makeupRequests.find(
+      (m) => m.sourceLessonId === lessonId && m.status !== "cancelled" && m.status !== "expired"
+    );
     const maxRetries = 3;
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
@@ -3225,11 +3229,38 @@ async function persistLessonOpsResult(
             if (!mk) return;
             const exists = await tx.makeupRequest.findFirst({
               where: { sourceLessonId: lessonId, tenantId: tid },
+              orderBy: { createdAt: "desc" },
+              select: { id: true, status: true, changeLog: true },
             });
-            if (exists) return;
+            if (exists && exists.status !== "cancelled" && exists.status !== "expired") return; // zaten açık — idempotent
             const les = await tx.lesson.findFirst({ where: { id: lessonId, tenantId: tid } });
             if (!les) throw new Error("Ders bulunamadı");
             await assertStudentMakeupQuotaTx(tx, tid, mk.studentId, les.schoolId, lessonId);
+            if (exists) {
+              // Ders başına tek yoklama + yoklama başına tek talep (@unique): kapanmış talep yeniden açılır.
+              // Koşullu güncelleme — eşzamanlı ikinci istek 0 satır günceller, çift açma olmaz.
+              const changeLog = [
+                ...((exists.changeLog as unknown as MakeupChangeEntry[] | null) ?? []),
+                { action: "reopened", at: new Date().toISOString(), by: L.opsMakeupFlagBy ?? "system", from: exists.status, to: "pending" },
+              ];
+              await tx.makeupRequest.updateMany({
+                where: { id: exists.id, tenantId: tid, status: { in: ["cancelled", "expired"] } },
+                data: {
+                  status: "pending",
+                  reason: mk.reason,
+                  expiresAt: new Date(mk.expiresAt),
+                  suggestedSlots: [],
+                  confirmedLessonId: null,
+                  decisionNote: null,
+                  decidedBy: null,
+                  decidedAt: null,
+                  slaDeadline: null,
+                  slaEscalationLevel: 0,
+                  changeLog: changeLog as object,
+                },
+              });
+              return;
+            }
             // `MakeupRequest.attendanceId` zorunlu bir FK — saf fonksiyon
             // (lesson-ops.ts) yoklama kaydı yoksa onu da üretir, burada AYNI
             // transaction içinde yazılmazsa `MakeupRequest_attendanceId_fkey`
@@ -3678,13 +3709,38 @@ export async function forceDeleteLesson(lessonId: string): Promise<ForcedLessonD
   const result = planForcedLessonDeletion(data, lessonId);
   if (!result.ok) return result;
   const seriesClosed = result.data.lessonSeries.find((s) => s.id === result.lesson.seriesId && s.status === "cancelled");
-  await prisma.$transaction(async (tx) => {
-    await tx.attendance.deleteMany({ where: { lessonId, tenantId: tid } });
-    await tx.lesson.deleteMany({ where: { id: lessonId, tenantId: tid } });
-    if (seriesClosed) {
-      await tx.lessonSeries.updateMany({ where: { id: seriesClosed.id, tenantId: tid }, data: { status: "cancelled" } });
+  const REOPENED = "makeup_reopened";
+  try {
+    await prisma.$transaction(async (tx) => {
+      // Telafi kotası/yeniden Telafi ile aynı kilit (tenant, öğrenci): eşzamanlı "Telafi" ile silme sıraya girer.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${tid}), hashtext(${result.lesson.studentId}))`;
+      const live = await tx.makeupRequest.count({
+        where: { tenantId: tid, sourceLessonId: lessonId, status: { notIn: ["cancelled", "expired"] } },
+      });
+      if (live > 0) throw new Error(REOPENED);
+      if (result.detachedMakeupLessonIds.length) {
+        await tx.lesson.updateMany({
+          where: { id: { in: result.detachedMakeupLessonIds }, tenantId: tid, status: "cancelled" },
+          data: { makeupRequestId: null },
+        });
+      }
+      if (result.removedMakeupRequestIds.length) {
+        await tx.makeupRequest.deleteMany({
+          where: { id: { in: result.removedMakeupRequestIds }, tenantId: tid, status: { in: ["cancelled", "expired"] } },
+        });
+      }
+      await tx.attendance.deleteMany({ where: { lessonId, tenantId: tid } });
+      await tx.lesson.deleteMany({ where: { id: lessonId, tenantId: tid } });
+      if (seriesClosed) {
+        await tx.lessonSeries.updateMany({ where: { id: seriesClosed.id, tenantId: tid }, data: { status: "cancelled" } });
+      }
+    });
+  } catch (e) {
+    if (e instanceof Error && e.message === REOPENED) {
+      return { ok: false, message: "Bu ders için az önce telafi yeniden açıldı; ders silinmedi. Sayfayı yenileyip Telafi Merkezi'ni kontrol edin." };
     }
-  });
+    throw e;
+  }
   return { ...result, data: await readData() };
 }
 
