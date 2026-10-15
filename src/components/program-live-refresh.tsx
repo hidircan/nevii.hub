@@ -14,26 +14,34 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { LIVE_REFRESH_MS } from "@/lib/env/live-refresh";
+import { isUserIdle } from "@/lib/user-activity";
 
 export function ProgramLiveRefresh({ intervalMs = LIVE_REFRESH_MS }: { intervalMs?: number }) {
   const router = useRouter();
 
   useEffect(() => {
+    // 2026-10-16 — gizli sekmede ve 5 dk gerçek etkileşim yokken yenilenmez; kullanıcı dönünce (sekmeye dönüş veya
+    // ilk etkileşim) TEK yenileme — 60 sn içinde ikincisi yapılmaz (istek fırtınası yok).
+    let last = Date.now();
+    function refresh() {
+      if (document.visibilityState !== "visible" || Date.now() - last < 60_000) return;
+      last = Date.now();
+      router.refresh();
+    }
     const interval =
       intervalMs > 0
         ? setInterval(() => {
-            if (document.visibilityState === "visible") router.refresh();
+            if (!isUserIdle()) refresh();
           }, intervalMs)
         : undefined;
 
-    function onFocus() {
-      if (document.visibilityState === "visible") router.refresh();
-    }
-    document.addEventListener("visibilitychange", onFocus);
+    document.addEventListener("visibilitychange", refresh);
+    window.addEventListener("nh:active-again", refresh);
 
     return () => {
       if (interval) clearInterval(interval);
-      document.removeEventListener("visibilitychange", onFocus);
+      document.removeEventListener("visibilitychange", refresh);
+      window.removeEventListener("nh:active-again", refresh);
     };
   }, [router, intervalMs]);
 

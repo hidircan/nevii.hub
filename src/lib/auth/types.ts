@@ -35,6 +35,8 @@ export type JwtClaims = {
   email?: string;
   /** NeviiOS oturum kimliği (tekil oturum sonlandırma). Eski token'larda yok. */
   sid?: string;
+  /** Son gerçek kullanıcı etkinliği (epoch sn) — web hareketsizlik politikası (`session-policy.ts`). */
+  act?: number;
   /** issued at / exp set by jose */
   iat?: number;
   exp?: number;
@@ -51,6 +53,7 @@ export type AuthUser = {
   teacherId?: string;
   studentId?: string;
   sid?: string;
+  act?: number;
 };
 
 export type AuditEvent = {

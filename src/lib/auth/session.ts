@@ -1,6 +1,7 @@
 import { cache } from "react";
 import { cookies, headers } from "next/headers";
 import { verifyAccessToken, verifyRefreshToken, issueTokenPair } from "./jwt";
+import { isIdleExpired, nowSec } from "../session-policy";
 import { getUserById, tenantAllowsLogin } from "./users";
 import { isSessionClaimValid } from "./session-validity";
 import { touchSessionPresence } from "./session-registry";
@@ -55,6 +56,7 @@ export async function getSessionContext(): Promise<ServiceContext | null> {
     try {
       const claims = await verifyAccessToken(access);
       if (!isAppRole(claims.role)) return null;
+      if (isIdleExpired(claims.act)) return null;
       if (!(await isSessionClaimValid(claims))) return null;
       return await claimsToContext(claims);
     } catch {
@@ -67,6 +69,8 @@ export async function getSessionContext(): Promise<ServiceContext | null> {
 
   try {
     const claims = await verifyRefreshToken(refresh);
+    // Web hareketsizlik: süre aşıldıysa yenilenmez (sunucu tarafı kapı; istemci zamanlayıcısına güvenilmez).
+    if (isIdleExpired(claims.act)) return null;
     if (!(await isSessionClaimValid(claims, { ignoreRole: true }))) return null;
     const user = await getUserById(claims.sub);
     if (!user) return null;
@@ -84,6 +88,7 @@ export async function getSessionContext(): Promise<ServiceContext | null> {
       teacherId: claims.teacherId ?? user.teacherId,
       studentId: claims.studentId ?? user.studentId,
       sid: claims.sid,
+      act: claims.act ?? nowSec(),
     });
 
     // Refresh cookies in Server Components is limited; set via jar if mutable

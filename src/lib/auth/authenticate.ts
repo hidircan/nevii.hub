@@ -4,6 +4,7 @@ import { auditLog } from "./audit";
 import { isSessionClaimValid } from "./session-validity";
 import { ACCESS_COOKIE, parseCookieHeader } from "./cookies";
 import { touchSessionPresence } from "./session-registry";
+import { isIdleExpired } from "../session-policy";
 
 export type AuthMethod = "bearer" | "cookie";
 
@@ -45,6 +46,8 @@ export async function authenticateRequest(
       via = "cookie";
     }
 
+    // Web hareketsizlik: çerezli (tarayıcı) istekte son gerçek etkileşim süreyi aştıysa red. Bearer (mobil) muaf.
+    if (via === "cookie" && isIdleExpired(claims.act)) throw new Error("Session idle");
     // NeviiOS: pasif/silinmiş kullanıcı, iptal edilmiş oturum, değişmiş rol/tenant → red.
     if (!(await isSessionClaimValid(claims))) throw new Error("Session revoked");
 

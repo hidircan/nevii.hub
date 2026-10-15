@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { ModalShell, modalButton } from "@/components/modal-shell";
+import { isUserIdle } from "@/lib/user-activity";
 
 const PROTECTED_PREFIXES = ["/panel", "/ogretmen", "/veli", "/ogrenci", "/sube", "/platform"];
 // Vercel Active CPU (2026-10-01): 30 sn, açık her sekme için günde ~2.900 fonksiyon çağrısıydı.
@@ -23,7 +24,8 @@ export function SessionWatcher() {
     let stopped = false;
     let last = 0;
     async function check() {
-      if (document.visibilityState !== "visible") return;
+      // Gizli sekmede veya 5 dk etkileşim yoksa sorulmaz (hareketsiz çıkışı ayrıca sunucu uygular).
+      if (document.visibilityState !== "visible" || isUserIdle()) return;
       last = Date.now();
       try {
         const res = await fetch("/api/v1/auth/session-status", { credentials: "include", cache: "no-store" });

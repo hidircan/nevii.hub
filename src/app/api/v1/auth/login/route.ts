@@ -4,6 +4,7 @@ import { withApiHandler } from "@/lib/api/handler";
 import { jsonFail } from "@/lib/api/http";
 import { authenticateUser, issueTokenPair, auditLog } from "@/lib/auth";
 import { applyAuthCookies } from "@/lib/auth/cookies";
+import { nowSec } from "@/lib/session-policy";
 import { clientIp } from "@/lib/http/client-ip";
 import { consumeRateLimit } from "@/lib/rate-limit";
 import { startUserSession } from "@/lib/auth/session-registry";
@@ -142,7 +143,7 @@ export const POST = withApiHandler(
         loginStudentId = user.studentId;
       }
     }
-    const tokens = await issueTokenPair({ ...user, studentId: loginStudentId, sid });
+    const tokens = await issueTokenPair({ ...user, studentId: loginStudentId, sid, act: nowSec() });
     auditLog({
       action: "auth.login_success",
       requestId: ctx.requestId || "unknown",
