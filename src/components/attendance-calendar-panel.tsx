@@ -1175,7 +1175,11 @@ function DayDetail({
           Kapalı gün — yoklama/tahsilat işlemi yapılamaz.
         </p>
       ) : day.lessonIds.length === 0 ? (
-        <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">Bu gün ders yok.</p>
+        <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">
+          {day.payments.length
+            ? "Bu günün dersi iptal edilmiş (iptal edilen eski dersler takvimde gösterilmez); dersin ödeme kaydı aşağıda."
+            : "Bu gün ders yok."}
+        </p>
       ) : readOnly ? (
         <div className="mt-2 space-y-2">
           {day.lessons.map((l) => (

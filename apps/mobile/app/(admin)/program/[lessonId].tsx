@@ -49,7 +49,6 @@ export default function AdminLessonDetail() {
   const [opsBusy, setOpsBusy] = useState<string | null>(null);
   const [opsError, setOpsError] = useState<string | null>(null);
   const [pendingSwitch, setPendingSwitch] = useState<{ flag: string; from: string; reason?: string } | null>(null);
-  const [confirmingCancel, setConfirmingCancel] = useState(false);
   const [reasonPrompt, setReasonPrompt] = useState<string | null>(null);
   const [reason, setReason] = useState("");
   const [attendedNote, setAttendedNote] = useState("");
@@ -131,19 +130,6 @@ export default function AdminLessonDetail() {
     res.refresh();
   }
 
-  async function cancelLesson() {
-    setConfirmingCancel(false);
-    setOpsBusy("cancel");
-    setOpsError(null);
-    const result = await apiPost(`/api/v1/lessons/${lessonId}/cancel`, {});
-    setOpsBusy(null);
-    if (!result.ok) {
-      setOpsError(result.error.message || tr("adm.lesCancelFail"));
-      return;
-    }
-    res.refresh();
-  }
-
   async function submitReassign() {
     setConfirming(false);
     setSubmitting(true);
@@ -204,6 +190,7 @@ export default function AdminLessonDetail() {
           <Text style={[t.typography.body, { color: t.colors.danger }]}>{opsError}</Text>
         </Card>
       ) : null}
+      {/* 2026-10-16 (owner) — iptal artık üretilmez (web #47, mobil bu sürüm); eski iptal kayıtları okunur. */}
       {lesson.status === "cancelled" ? (
         <EmptyState icon="ban-outline" title={tr("adm.lesCancelled")} />
       ) : (
@@ -221,7 +208,6 @@ export default function AdminLessonDetail() {
           <View style={{ flexDirection: "row", gap: 8 }}>
             <Button label={tr("attFlag.flagMakeup")} size="sm" variant="secondary" loading={opsBusy === "makeup"} onPress={() => { setReason(""); setReasonPrompt("makeup"); }} style={{ flex: 1 }} />
             <Button label={tr("attFlag.flagProcessed")} size="sm" variant="secondary" loading={opsBusy === "processed"} onPress={() => { setReason(""); setReasonPrompt("processed"); }} style={{ flex: 1 }} />
-            <Button label={tr("adm.lesCancelConfirm")} size="sm" variant="danger" loading={opsBusy === "cancel"} onPress={() => setConfirmingCancel(true)} style={{ flex: 1 }} />
           </View>
           {reasonPrompt ? (
             <Card>
@@ -333,16 +319,6 @@ export default function AdminLessonDetail() {
           void markOps(flag, true, savedReason);
         }}
         onCancel={() => setPendingSwitch(null)}
-      />
-
-      <ConfirmDialog
-        visible={confirmingCancel}
-        title={tr("adm.lesCancelTitle")}
-        message={tr("adm.lesCancelMsg")}
-        confirmLabel={tr("adm.lesCancelConfirm")}
-        danger
-        onConfirm={cancelLesson}
-        onCancel={() => setConfirmingCancel(false)}
       />
 
       <ConfirmDialog
