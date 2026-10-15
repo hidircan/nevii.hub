@@ -32,7 +32,8 @@ vi.mock("../store", async (importOriginal) => {
     readData: async () => {
       const tid = tryTenantId() ?? "";
       visitedReads.push(tid);
-      if (tid === "t-broken" || tid === platform) throw new Error(`Kurum (${tid}) için okul kaydı bulunamadı.`);
+      // Çok satırlı mesaj (Prisma doğrulama hatası gibi): devam satırı stack'te çerçevelerden önce gelir.
+      if (tid === "t-broken" || tid === platform) throw new Error(`Kurum (${tid}) için okul kaydı bulunamadı.\n  where: { name: "Ayşe Yılmaz" }`);
       return orig.readData();
     },
   };
@@ -118,6 +119,8 @@ describe("bildirim süpürmeleri — tenant izolasyonu", () => {
     for (const call of logged) {
       expect(call[2]).toMatchObject({ tenantId: "t-broken", errorName: "Error" });
       expect(JSON.stringify(call[2])).not.toContain("okul kaydı bulunamadı");
+      expect(JSON.stringify(call[2])).not.toContain("Ayşe");
+      expect((call[2] as { stackFrames: string[] }).stackFrames.every((f) => f.startsWith("at "))).toBe(true);
     }
   });
 });

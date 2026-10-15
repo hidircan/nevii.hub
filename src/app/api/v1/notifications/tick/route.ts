@@ -3,6 +3,7 @@ import { jsonFail } from "@/lib/api/http";
 import { recordAuditLog } from "@/lib/audit/log";
 import { uid } from "@/lib/utils";
 import { runNotificationSweeps } from "@/lib/notification-sweeps";
+import { safeErrorFields } from "@/lib/logger";
 
 export const dynamic = "force-dynamic";
 
@@ -94,21 +95,8 @@ export async function POST(request: Request) {
     }
     return Response.json({ ok: true, data: summary });
   } catch (error: unknown) {
-    const err = error instanceof Error ? error : null;
-    const code =
-      typeof error === "object" &&
-      error !== null &&
-      "code" in error &&
-      typeof error.code === "string"
-        ? error.code
-        : undefined;
-
-    console.error("[notifications.tick.failed]", {
-      requestId,
-      errorName: err?.name ?? "UnknownError",
-      errorCode: code,
-      stackFrames: err?.stack?.split("\n").slice(1, 7),
-    });
+    // Mesaj/stack ilk satırı log'a girmez (sorgu argümanı, kişi verisi taşıyabilir) — bkz. safeErrorFields.
+    console.error("[notifications.tick.failed]", { requestId, ...safeErrorFields(error) });
 
     return jsonFail("INTERNAL_ERROR", "Bildirim taraması başarısız.");
   }

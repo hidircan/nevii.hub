@@ -19,10 +19,15 @@ export const logger = {
  */
 export function safeErrorFields(error: unknown): { errorName: string; errorCode?: string; stackFrames?: string[] } {
   const err = error as { name?: unknown; code?: unknown; stack?: unknown } | null | undefined;
-  const code = typeof err?.code === "string" && err.code.length <= 64 ? err.code : undefined;
+  const short = (v: unknown) => (typeof v === "string" && v.length <= 64 ? v : undefined);
   return {
-    errorName: typeof err?.name === "string" ? err.name : "UnknownError",
-    errorCode: code,
-    stackFrames: typeof err?.stack === "string" ? err.stack.split("\n").slice(1, 5).map((l) => l.trim()) : undefined,
+    errorName: short(err?.name) ?? "UnknownError",
+    errorCode: short(err?.code),
+    // Yalnız "at ..." çerçeveleri: çok satırlı mesajın (ör. Prisma doğrulama hatası sorgu argümanlarını içerir)
+    // devam satırları stack'te çerçevelerden ÖNCE gelir ve asla log'a girmemeli.
+    stackFrames:
+      typeof err?.stack === "string"
+        ? err.stack.split("\n").map((l) => l.trim()).filter((l) => l.startsWith("at ")).slice(0, 4)
+        : undefined,
   };
 }
