@@ -18,6 +18,7 @@ import {
   bucketIds,
   closedAccountEmail,
   planPersonPurge,
+  purgePayoutRewrite,
   type PurgeAccountRow,
   type PurgeKind,
   type PurgeMode,
@@ -26,7 +27,9 @@ import {
   type PurgeTableKey,
   type StudentPurgeSnapshot,
   type TeacherPurgeSnapshot,
+  type WipeOptions,
 } from "./person-purge";
+import type { TeacherPayoutLineOverride, TeacherPayoutSnapshotLine } from "./types";
 
 type Db = PrismaClient | Prisma.TransactionClient;
 const iso = (d: Date | null | undefined) => d?.toISOString();
@@ -57,10 +60,14 @@ async function loadStudentSnapshot(db: Db, tenantId: string, studentId: string, 
   const [payouts, teachers] = await Promise.all([
     db.teacherPayout.findMany({
       where: { tenantId, teacherId: { in: teacherIds } },
-      select: { id: true, teacherId: true, periodStart: true, periodEnd: true, status: true, lineSnapshot: true, totalAmount: true },
+      select: { id: true, teacherId: true, periodStart: true, periodEnd: true, status: true, lineSnapshot: true, lineOverrides: true, totalAmount: true, version: true },
     }),
     db.teacher.findMany({ where: { tenantId, id: { in: teacherIds } }, select: { id: true, name: true } }),
   ]);
+  // Hariç tutma kaydı derse FK'siz bağlı (lessonId) — ders silinince yetim kalmasın.
+  const exclusions = lessons.length
+    ? await db.teacherPayoutExclusion.findMany({ where: { tenantId, lessonId: { in: ids(lessons) } }, select: { id: true } })
+    : [];
   const [feedbackInvites, lessonAssessments, periodicAssessments, homeworkSubmissions, homework, teacherFeedback, studentFeedback, curriculumTopics, socialMediaConsents, kvkkConsents, riskLogs, notifications, profilePhotos, communicationMessages] =
     await Promise.all([
       db.feedbackInvite.findMany({ where, select: { id: true } }),
@@ -116,6 +123,9 @@ async function loadStudentSnapshot(db: Db, tenantId: string, studentId: string, 
       periodStart: p.periodStart.toISOString(),
       periodEnd: p.periodEnd.toISOString(),
       lessonIds: ((p.lineSnapshot as { lessonId?: string }[] | null) ?? []).map((x) => x.lessonId).filter((x): x is string => !!x),
+      lineSnapshot: (p.lineSnapshot as TeacherPayoutSnapshotLine[] | null) ?? undefined,
+      lineOverrides: (p.lineOverrides as Record<string, TeacherPayoutLineOverride> | null) ?? undefined,
+      version: p.version,
     })),
     documents,
     clubMemberships,
@@ -138,6 +148,7 @@ async function loadStudentSnapshot(db: Db, tenantId: string, studentId: string, 
       communicationMessages: ids(communicationMessages),
       callLogs: ids(callLogs),
       messageLogs: ids(messageLogs),
+      payoutExclusions: ids(exclusions),
     },
     groupSessionOthers: Object.fromEntries(
       lessons
@@ -192,6 +203,24 @@ async function loadTeacherSnapshot(db: Db, tenantId: string, teacherId: string, 
     db.club.findMany({ where: { tenantId, teacherIds: { array_contains: [teacherId] } }, select: { id: true } }),
   ]);
   const accounts = await loadAccounts(db, tenantId, { teacherId });
+  const lessonIds = ids(lessons);
+  const seriesIds = ids(series);
+  const attendances = lessonIds.length ? await db.attendance.findMany({ where: { tenantId, lessonId: { in: lessonIds } }, select: { id: true } }) : [];
+  const [linkedMakeups, lessonPayments, seriesLessons, teachers] = await Promise.all([
+    lessonIds.length
+      ? db.makeupRequest.findMany({
+          where: {
+            tenantId,
+            NOT: { teacherId },
+            OR: [{ attendanceId: { in: ids(attendances) } }, { sourceLessonId: { in: lessonIds } }, { confirmedLessonId: { in: lessonIds } }],
+          },
+          select: { id: true },
+        })
+      : Promise.resolve([]),
+    lessonIds.length ? db.payment.findMany({ where: { tenantId, lessonId: { in: lessonIds } }, select: { id: true } }) : Promise.resolve([]),
+    seriesIds.length ? db.lesson.findMany({ where: { tenantId, seriesId: { in: seriesIds }, NOT: { teacherId } }, select: { id: true } }) : Promise.resolve([]),
+    db.teacher.findMany({ where: { tenantId, purgedAt: null }, select: { id: true, name: true, active: true, deletedAt: true } }),
+  ]);
   return {
     kind: "teacher",
     person: { id: teacher.id, name: teacher.name, displayId: teacher.displayId ?? undefined, active: teacher.active, deletedAt: iso(teacher.deletedAt), purgedAt: iso(teacher.purgedAt) },
@@ -229,6 +258,8 @@ async function loadTeacherSnapshot(db: Db, tenantId: string, teacherId: string, 
     },
     detach: { tasks: ids(tasks), clubs: ids(clubs) },
     accounts,
+    lessonLinks: { attendances: ids(attendances), makeups: ids(linkedMakeups), payments: ids(lessonPayments), seriesLessons: ids(seriesLessons) },
+    teachers: teachers.map((t) => ({ id: t.id, name: t.name, active: t.active, deletedAt: iso(t.deletedAt) })),
     nowIso,
   };
 }
@@ -367,7 +398,8 @@ export async function executePurgeDb(
   kind: PurgeKind,
   id: string,
   expectedFingerprint: string,
-  mode: PurgeMode = "standard"
+  mode: PurgeMode = "standard",
+  opts: WipeOptions = {}
 ): Promise<PurgeExecResult> {
   const tid = requireTenantId();
   try {
@@ -377,9 +409,12 @@ export async function executePurgeDb(
         const snap = await loadPurgeSnapshotDb(kind, id, tx);
         if (!snap) return { status: "not_found" as const };
         if (snap.person.purgedAt) return { status: "already_purged" as const };
-        const plan = planPersonPurge(snap, mode);
+        const plan = planPersonPurge(snap, mode, opts);
         if (plan.fingerprint !== expectedFingerprint || !plan.eligible) throw new PurgeConflictError();
 
+        await applyReassign(tx, tid, id, plan);
+        const seriesLessons = bucketIds(plan.detach, "seriesLessons");
+        if (seriesLessons.length) await expectCount(tx.lesson.updateMany({ where: { tenantId: tid, id: { in: seriesLessons } }, data: { seriesId: null } }), seriesLessons.length);
         for (const key of DELETE_ORDER) await deleteByIds(tx, tid, key, bucketIds(plan.remove, key));
 
         const detach = (key: Parameters<typeof bucketIds>[1]) => bucketIds(plan.detach, key);
@@ -402,15 +437,22 @@ export async function executePurgeDb(
             data: { paymentId: null },
           });
         }
+        const lessonPayments = detach("lessonPayments");
+        if (lessonPayments.length) {
+          await expectCount(tx.payment.updateMany({ where: { tenantId: tid, id: { in: lessonPayments } }, data: { lessonId: null } }), lessonPayments.length);
+        }
+        await applyPayoutChanges(tx, tid, plan);
         if (detach("clubApplications").length) {
           await tx.clubApplication.updateMany({ where: { tenantId: tid, id: { in: detach("clubApplications") } }, data: { studentId: null } });
         }
         if (detach("trialConversions").length) {
           await tx.trialLesson.updateMany({ where: { tenantId: tid, id: { in: detach("trialConversions") } }, data: { convertedStudentId: null } });
         }
+        const clubSubstitute = plan.reassign && plan.reassign.lessons.length ? plan.reassign.targetTeacherId : undefined;
         for (const clubId of detach("clubs")) {
           const club = await tx.club.findFirst({ where: { id: clubId, tenantId: tid }, select: { teacherIds: true } });
-          const next = ((club?.teacherIds as string[] | null) ?? []).filter((t) => t !== id);
+          const rest = ((club?.teacherIds as string[] | null) ?? []).filter((t) => t !== id);
+          const next = clubSubstitute && !rest.includes(clubSubstitute) ? [...rest, clubSubstitute] : rest;
           await tx.club.updateMany({ where: { id: clubId, tenantId: tid }, data: { teacherIds: next } });
         }
 
@@ -461,5 +503,80 @@ export async function executePurgeDb(
     // Araya giren yeni bağlı kayıt (ör. bu kişiye ders yazıldı) FK'ye takılır → çatışma; hiçbir şey yazılmadı.
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2003") throw new PurgeConflictError();
     throw e;
+  }
+}
+
+async function expectCount(p: Promise<{ count: number }>, n: number) {
+  if ((await p).count !== n) throw new PurgeConflictError();
+}
+
+/** Öğretmen tam silme — açıkça seçilen öğretmene devir (silmeden ÖNCE; FK RESTRICT kalır). */
+async function applyReassign(tx: Prisma.TransactionClient, tid: string, fromId: string, plan: PurgePlan) {
+  const r = plan.reassign;
+  if (!r) return;
+  const to = { teacherId: r.targetTeacherId };
+  const w = (list: string[]) => ({ tenantId: tid, id: { in: list }, teacherId: fromId });
+  if (r.lessons.length) await expectCount(tx.lesson.updateMany({ where: w(r.lessons), data: to }), r.lessons.length);
+  if (r.series.length) await expectCount(tx.lessonSeries.updateMany({ where: w(r.series), data: to }), r.series.length);
+  if (r.makeups.length) await expectCount(tx.makeupRequest.updateMany({ where: w(r.makeups), data: to }), r.makeups.length);
+  for (const [key, list] of Object.entries(r.history) as [PurgeTableKey, string[]][]) {
+    if (!list.length) continue;
+    const where = w(list);
+    let res: { count: number };
+    switch (key) {
+      case "lessonAssessments": res = await tx.lessonAssessment.updateMany({ where, data: to }); break;
+      case "periodicAssessments": res = await tx.periodicAssessment.updateMany({ where, data: to }); break;
+      case "homework": res = await tx.homework.updateMany({ where, data: to }); break;
+      case "teachingMaterials": res = await tx.teachingMaterial.updateMany({ where, data: to }); break;
+      case "teacherFeedback": res = await tx.teacherFeedback.updateMany({ where, data: to }); break;
+      case "studentFeedback": res = await tx.studentFeedback.updateMany({ where, data: to }); break;
+      case "curriculumTopics": res = await tx.studentCurriculumTopic.updateMany({ where, data: to }); break;
+      case "trialLessons": res = await tx.trialLesson.updateMany({ where, data: to }); break;
+      default: throw new Error(`Devir tanımsız: ${key}`);
+    }
+    if (res.count !== list.length) throw new PurgeConflictError();
+  }
+  for (const studentId of r.students) {
+    const st = await tx.student.findFirst({ where: { id: studentId, tenantId: tid }, select: { teacherId: true, enrollments: true } });
+    if (!st) throw new PurgeConflictError();
+    const enr = st.enrollments as { teacherId?: string }[] | null;
+    await tx.student.updateMany({
+      where: { id: studentId, tenantId: tid },
+      data: {
+        ...(st.teacherId === fromId ? to : {}),
+        ...(enr ? { enrollments: enr.map((e) => (e.teacherId === fromId ? { ...e, teacherId: r.targetTeacherId } : e)) as Prisma.InputJsonValue } : {}),
+      },
+    });
+  }
+}
+
+/** Öğrenci tam silme — başka öğretmenin hakedişi: bekleyende satır çıkar + yeniden hesap, diğerlerinde yalnız kimlik silinir. */
+async function applyPayoutChanges(tx: Prisma.TransactionClient, tid: string, plan: PurgePlan) {
+  for (const c of plan.payoutChanges) {
+    if (c.action === "legacy") continue;
+    const row = await tx.teacherPayout.findFirst({ where: { id: c.payoutId, tenantId: tid }, select: { lineSnapshot: true, lineOverrides: true, version: true } });
+    if (!row || row.version !== c.version) throw new PurgeConflictError();
+    const next = purgePayoutRewrite(
+      { lineSnapshot: row.lineSnapshot as TeacherPayoutSnapshotLine[] | null, lineOverrides: row.lineOverrides as Record<string, TeacherPayoutLineOverride> | null },
+      { action: c.action, lessonIds: c.lessonIds },
+      plan.anonymizedName
+    );
+    const amounts =
+      c.action === "recalc"
+        ? {
+            lineOverrides: next.lineOverrides ? (next.lineOverrides as Prisma.InputJsonValue) : Prisma.DbNull,
+            totalAmount: next.totalAmount!,
+            totalMinutes: next.totalMinutes!,
+            originalTotalAmount: next.originalTotalAmount ?? null,
+            originalTotalMinutes: next.originalTotalMinutes ?? null,
+          }
+        : {};
+    await expectCount(
+      tx.teacherPayout.updateMany({
+        where: { id: c.payoutId, tenantId: tid, version: c.version },
+        data: { lineSnapshot: next.lineSnapshot as unknown as Prisma.InputJsonValue, ...amounts, version: { increment: 1 } },
+      }),
+      1
+    );
   }
 }

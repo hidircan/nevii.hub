@@ -4466,11 +4466,12 @@ export async function actionRestoreDeletedStudent(studentId: string): Promise<Si
 export async function actionGetPersonPurgePreview(
   kind: "student" | "teacher",
   id: string,
-  mode: "standard" | "wipe" = "standard"
+  mode: "standard" | "wipe" = "standard",
+  opts: { lessonAction?: "delete" | "reassign"; targetTeacherId?: string } = {}
 ): Promise<SimpleActionResult<PersonPurgePreview>> {
   return runSimpleAction(
     "actionGetPersonPurgePreview",
-    (ctx) => getPersonPurgePreviewTool(ctx, { kind, id, mode }),
+    (ctx) => getPersonPurgePreviewTool(ctx, { kind, id, mode, ...opts }),
     "Kalıcı silme önizlemesi yüklenemedi. Sayfayı yenileyip tekrar deneyin."
   );
 }
@@ -4485,6 +4486,9 @@ export async function actionPurgePerson(input: {
   /** "wipe": yanlış oluşturulmuş kayıt — finans dahil her şey silinir (yalnız kurum sahibi). */
   mode?: "standard" | "wipe";
   financialAcknowledged?: boolean;
+  scopeAll?: boolean;
+  lessonAction?: "delete" | "reassign";
+  targetTeacherId?: string;
 }): Promise<SimpleActionResult<PersonPurgeResult>> {
   const res = await runSimpleAction(
     "actionPurgePerson",

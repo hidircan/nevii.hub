@@ -366,7 +366,8 @@ type StoreApi = {
     kind: import("./person-purge").PurgeKind,
     id: string,
     expectedFingerprint: string,
-    mode?: import("./person-purge").PurgeMode
+    mode?: import("./person-purge").PurgeMode,
+    opts?: import("./person-purge").WipeOptions
   ) => Promise<import("./person-purge-db").PurgeExecResult>;
   updatePerformanceWeights: (
     performanceWeights: import("./performance-weights").PerformanceWeightsConfig
@@ -624,9 +625,10 @@ export async function executePurge(
   kind: import("./person-purge").PurgeKind,
   id: string,
   expectedFingerprint: string,
-  mode: import("./person-purge").PurgeMode = "standard"
+  mode: import("./person-purge").PurgeMode = "standard",
+  opts: import("./person-purge").WipeOptions = {}
 ) {
-  return withTenantScope(() => store.executePurge(kind, id, expectedFingerprint, mode));
+  return withTenantScope(() => store.executePurge(kind, id, expectedFingerprint, mode, opts));
 }
 
 /**

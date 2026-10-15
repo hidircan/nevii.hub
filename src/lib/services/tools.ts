@@ -13843,6 +13843,13 @@ const purgeTargetSchema = z.object({
   kind: z.enum(["student", "teacher"]),
   id: z.string().min(1),
   mode: z.enum(["standard", "wipe"]).default("standard"),
+  /** Öğretmen tam silme: dersler silinsin mi, seçilen öğretmene mi devredilsin; öğrenci ataması hedefe devredilir. */
+  lessonAction: z.enum(["delete", "reassign"]).optional(),
+  targetTeacherId: z.string().min(1).max(100).optional(),
+});
+const wipeOptionsOf = (d: { lessonAction?: "delete" | "reassign"; targetTeacherId?: string }) => ({
+  ...(d.lessonAction ? { lessonAction: d.lessonAction } : {}),
+  ...(d.targetTeacherId ? { targetTeacherId: d.targetTeacherId } : {}),
 });
 
 /** Finansal kayıtları da silen mod yalnız kurum sahibi (SUPER_ADMIN) — kurum yöneticisi standart modu kullanır. */
@@ -13860,12 +13867,14 @@ export async function getPersonPurgePreviewTool(ctx: ServiceContext, input: unkn
   const { planPersonPurge } = await import("../person-purge");
   const { getCriticalActionPasswordStatus } = await import("../critical-action-password");
   const pw = await getCriticalActionPasswordStatus(ctx.tenantId);
-  return ok({ ...planPersonPurge(snap, v.data.mode), criticalPasswordConfigured: pw.configured, canWipe: canWipePerson(ctx) });
+  return ok({ ...planPersonPurge(snap, v.data.mode, wipeOptionsOf(v.data)), criticalPasswordConfigured: pw.configured, canWipe: canWipePerson(ctx) });
 }
 
 const purgePersonSchema = purgeTargetSchema.extend({
   /** Yalnız "wipe": "finansal kayıtlar da silinecek" kutusu işaretlendi. */
   financialAcknowledged: z.boolean().optional(),
+  /** Yalnız "wipe": "Seçili kişiye ait tüm silinebilir kayıtları seç" — onaylanan kapsam önizlemenin tamamı. */
+  scopeAll: z.boolean().optional(),
   expectedFingerprint: z.string().max(100).optional(),
   confirmationName: z.string().max(200),
   criticalPassword: z.string().max(200),
@@ -13908,7 +13917,8 @@ export async function purgePersonTool(ctx: ServiceContext, input: unknown): Prom
   });
   if (snap.person.purgedAt) return ok(result("anonymize", { alreadyPurged: true }));
   const { planPersonPurge, PurgeConflictError } = await import("../person-purge");
-  const plan = planPersonPurge(snap, mode);
+  const opts = wipeOptionsOf(v.data);
+  const plan = planPersonPurge(snap, mode, opts);
 
   const deny = async (reasonCode: string, message: string, code: "FORBIDDEN" | "CONFLICT" | "VALIDATION_ERROR" = "FORBIDDEN") => {
     await recordAuditLog({
@@ -13923,6 +13933,9 @@ export async function purgePersonTool(ctx: ServiceContext, input: unknown): Prom
   if (mode === "wipe" && v.data.financialAcknowledged !== true) {
     return deny("financial_not_acknowledged", "Tahsilat, borç, sözleşme ve hakediş kayıtlarının da silineceğini onaylayan kutuyu işaretleyin.", "VALIDATION_ERROR");
   }
+  if (mode === "wipe" && v.data.scopeAll !== true) {
+    return deny("scope_not_selected", "\"Seçili kişiye ait tüm silinebilir kayıtları seç\" kutusunu işaretleyin; tam silme önizlemedeki kapsamın tamamıyla yapılır.", "VALIDATION_ERROR");
+  }
   const gate = await checkCriticalPassword(ctx, v.data.criticalPassword);
   if (!gate.ok) return deny(gate.reasonCode, gate.message);
   if (!plan.eligible) {
@@ -13935,9 +13948,16 @@ export async function purgePersonTool(ctx: ServiceContext, input: unknown): Prom
 
   let exec: Awaited<ReturnType<typeof executePurge>>;
   try {
-    exec = await executePurge(kind, id, plan.fingerprint, mode);
+    exec = await executePurge(kind, id, plan.fingerprint, mode, opts);
   } catch (e) {
     if (e instanceof PurgeConflictError) return deny("preview_stale_locked", PURGE_STALE_MESSAGE, "CONFLICT");
+    if ((e as { code?: string })?.code === "P2002") {
+      return deny(
+        "reassign_unique",
+        `${plan.reassign?.targetTeacherName ?? "Seçilen öğretmen"} öğretmeninde aynı öğrenci ve dönem için zaten bir kayıt (ör. dönem raporu) var; hiçbir şey silinmedi. Başka bir öğretmen seçin veya "Dersleri sil"i kullanın.`,
+        "CONFLICT"
+      );
+    }
     logger.error("purgePersonTool failed", e);
     return fail("INTERNAL_ERROR", "Kalıcı silme tamamlanamadı; işlem geri alındı, hiçbir kayıt silinmedi. Birkaç dakika sonra tekrar deneyin.");
   }
@@ -13945,7 +13965,10 @@ export async function purgePersonTool(ctx: ServiceContext, input: unknown): Prom
   if (exec.status === "already_purged") return ok(result("anonymize", { alreadyPurged: true }));
 
   // DB commit'i tamamlandı; oturum önbelleği süreç içidir — kapatılan hesabın açık oturumu bir sonraki istekte düşer.
-  const warnings: string[] = [];
+  // Tam silinmeyen kısım başarı mesajında gizlenmez: tutarı korunan hakedişler açıkça yazılır.
+  const warnings: string[] = exec.plan.payoutChanges
+    .filter((c) => c.action !== "recalc")
+    .map((c) => `${c.teacherName} — ${c.period} hakedişi ödenmiş/eski kayıt olduğu için tutarı (${formatMoney(c.before)}) korundu; satırlardaki öğrenci adı silindi.`);
   try {
     const { invalidateSessionValidity } = await import("../auth/session-validity");
     for (const userId of exec.closedUserIds) invalidateSessionValidity(userId);
@@ -13968,6 +13991,12 @@ export async function purgePersonTool(ctx: ServiceContext, input: unknown): Prom
       kept: count(exec.plan.keep),
       accountsClosed: exec.closedUserIds.length,
       accountsUnlinked: exec.plan.accounts.length - exec.closedUserIds.length,
+      ...(exec.plan.reassign
+        ? { reassigned: { lessons: exec.plan.reassign.lessons.length, students: exec.plan.reassign.students.length, targetTeacherId: exec.plan.reassign.targetTeacherId } }
+        : {}),
+      ...(exec.plan.payoutChanges.length
+        ? { payoutChanges: exec.plan.payoutChanges.map((c) => ({ payoutId: c.payoutId, action: c.action, lines: c.lessonIds.length, before: c.before, after: c.after })) }
+        : {}),
     },
   });
   return ok(result(exec.plan.outcome, { removedCount, accountsClosed: exec.closedUserIds.length, warnings }));

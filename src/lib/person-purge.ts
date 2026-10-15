@@ -21,7 +21,8 @@
  * ENGEL (önizlemede somut çözümüyle). Yalnız kurum sahibi; önizlemede finansal özet ayrı gösterilir.
  */
 import { createHash } from "node:crypto";
-import { toDayKey } from "./teacher-payout";
+import { applyPayoutLineOverrides, toDayKey, type TeacherEarningsResult } from "./teacher-payout";
+import type { TeacherPayoutLineOverride, TeacherPayoutSnapshotLine } from "./types";
 import { formatMoney } from "./utils";
 
 export type PurgeKind = "student" | "teacher";
@@ -66,7 +67,7 @@ export type PurgeTableKey =
   | "payouts"
   | "students";
 
-export type PurgeDetachKey = "tasks" | "paymentTasks" | "clubApplications" | "trialConversions" | "clubs";
+export type PurgeDetachKey = "tasks" | "paymentTasks" | "clubApplications" | "trialConversions" | "clubs" | "lessonPayments" | "seriesLessons";
 
 export const PURGE_TABLE_LABELS: Record<PurgeTableKey | PurgeDetachKey, string> = {
   lessons: "Ders kaydı",
@@ -108,6 +109,8 @@ export const PURGE_TABLE_LABELS: Record<PurgeTableKey | PurgeDetachKey, string> 
   clubApplications: "Grup dersi başvurusu",
   trialConversions: "Deneme dersi dönüşüm bağı",
   clubs: "Grup dersi öğretmen listesi",
+  lessonPayments: "Derse bağlı ödeme satırı (öğrencinin borcu/tahsilatı korunur)",
+  seriesLessons: "Başka öğretmene taşınmış seri dersi",
 };
 
 export type PurgePerson = {
@@ -147,6 +150,43 @@ export type PurgePayoutRow = {
   status: string;
   lessonIds?: string[];
   totalAmount?: number;
+  /** Tam silmede hakediş yeniden yazımı için: dondurulmuş satırlar, satır düzeltmeleri, eşzamanlılık sayacı. */
+  lineSnapshot?: TeacherPayoutSnapshotLine[];
+  lineOverrides?: Record<string, TeacherPayoutLineOverride>;
+  version?: number;
+};
+
+/**
+ * Tam silmede başka öğretmenin hakedişine etkisi (sessiz değişiklik yok — önizlemede tutarıyla gösterilir):
+ * - "recalc": ödemesi olmayan (bekleyen) kayıt — yalnız bu kişinin satırları çıkarılır, toplam kalan satırlardan
+ *   (satır düzeltmeleri dahil, `recomputePayoutData` ile aynı formül) yeniden hesaplanır. Diğer satırlar değişmez.
+ * - "scrub": ödemeli/kısmi/iptal kayıt — tutar DEĞİŞMEZ (para ödenmiş); satırlardaki öğrenci adı/kimliği silinir.
+ * - "legacy": satır dökümü olmayan eski kayıt — tutar değişmez, dökümde silinen dersler artık görünmez.
+ */
+export type PurgePayoutChange = {
+  payoutId: string;
+  teacherId: string;
+  teacherName: string;
+  period: string;
+  status: string;
+  action: "recalc" | "scrub" | "legacy";
+  lessonIds: string[];
+  before: number;
+  after: number;
+  version: number;
+};
+
+/** Öğretmen tam silmede seçenekler: dersleri sil veya başka öğretmene devret; öğrenci ataması her durumda hedefe devredilir. */
+export type WipeOptions = { lessonAction?: "delete" | "reassign"; targetTeacherId?: string };
+
+export type PurgeReassign = {
+  targetTeacherId: string;
+  targetTeacherName: string;
+  lessons: string[];
+  series: string[];
+  makeups: string[];
+  students: string[];
+  history: Partial<Record<PurgeTableKey, string[]>>;
 };
 /** Kişiye bağlı giriş hesabı. `otherLinks` > 0 ise hesap başka öğrenci/rol için de kullanılıyor — kapatılmaz. */
 export type PurgeAccountRow = {
@@ -195,6 +235,13 @@ export type TeacherPurgeSnapshot = {
   payoutExclusions: string[];
   /** Bu öğretmeni ana öğretmen veya branş öğretmeni olarak taşıyan öğrenciler (silinmiş/anonim dahil). */
   students: { id: string; name: string; active: boolean; deletedAt?: string; activeLink: boolean }[];
+  /**
+   * Tam silme için derslerine bağlı başka kayıtlar (FK sırası): yoklamalar, bu derslere bağlı başka öğretmenin telafi
+   * talepleri, derse bağlı ödeme satırları (FK yok — bağ kaldırılır), seriye ait ama başka öğretmene taşınmış dersler.
+   */
+  lessonLinks?: { attendances: string[]; makeups: string[]; payments: string[]; seriesLessons: string[] };
+  /** Devir hedefi adayları (kurumdaki diğer öğretmenler). */
+  teachers?: { id: string; name: string; active: boolean; deletedAt?: string }[];
   /** Öğretmene ait, kimseyle paylaşılmayan kayıtlar — her zaman silinir. */
   owned: Partial<Record<PurgeTableKey, string[]>>;
   /** Öğrencilerin geçmişinde kalan kayıtlar — varsa öğretmen satırı korunur (anonimleştirilir). */
@@ -245,8 +292,21 @@ export type PurgePlan = {
   effects: string[];
   /** Anonimleştirmede kişinin yeni görünen adı. */
   anonymizedName: string;
+  /** Tam silme: başka öğretmenlerin hakedişlerine etkisi (öğretmen/dönem/tutar). */
+  payoutChanges: PurgePayoutChange[];
+  /** Öğretmen tam silme: devredilen kayıtlar (açık hedef öğretmen). */
+  reassign?: PurgeReassign;
+  options?: WipeOptions;
+  /** Önizleme için 7 ürün grubu (türetilmiş; parmak izine planın kendisi girer). */
+  groups: PurgeGroup[];
+  /** Öğretmen tam silmede devir hedefi seçimi için. */
+  targetCandidates?: { id: string; name: string }[];
   fingerprint: string;
 };
+
+export type PurgeGroupAction = "delete" | "detach" | "recalc" | "keep" | "exception" | "reassign";
+export type PurgeGroupItem = { label: string; count: number; action: PurgeGroupAction; note?: string };
+export type PurgeGroup = { key: string; title: string; items: PurgeGroupItem[] };
 
 const ACTIVE_LESSON = new Set(["scheduled", "in_progress"]);
 
@@ -289,7 +349,9 @@ function accountActions(accounts: PurgeAccountRow[]): PurgeAccountAction[] {
     }));
 }
 
-function fingerprintOf(plan: Omit<PurgePlan, "fingerprint" | "effects" | "personName" | "financial">): string {
+type PlanCore = Omit<PurgePlan, "fingerprint" | "groups" | "payoutChanges" | "targetCandidates"> & { payoutChanges?: PurgePayoutChange[] };
+
+function fingerprintOf(plan: PlanCore): string {
   const ser = (bs: PurgeBucket[]) => bs.map((b) => [b.key, b.ids]).sort((a, b) => String(a[0]).localeCompare(String(b[0])));
   const payload = JSON.stringify({
     k: plan.kind,
@@ -302,12 +364,17 @@ function fingerprintOf(plan: Omit<PurgePlan, "fingerprint" | "effects" | "person
     d: ser(plan.detach),
     keep: ser(plan.keep),
     a: plan.accounts.map((a) => [a.userId, a.action, a.portalAccessIds]),
+    // Onaylanan kapsam: seçenekler, devir ve hakediş etkisi (sürüm dahil) — biri değişirse silme yazmaz.
+    ...(plan.options ? { opt: [plan.options.lessonAction ?? null, plan.options.targetTeacherId ?? null] } : {}),
+    ...(plan.reassign ? { ra: plan.reassign } : {}),
+    ...(plan.payoutChanges?.length ? { pc: plan.payoutChanges.map((c) => [c.payoutId, c.action, c.lessonIds, c.after, c.version]) } : {}),
   });
   return createHash("sha256").update(payload).digest("hex").slice(0, 32);
 }
 
-function finish(p: Omit<PurgePlan, "fingerprint">): PurgePlan {
-  return { ...p, fingerprint: fingerprintOf(p) };
+function finish(p: PlanCore & { targetCandidates?: PurgePlan["targetCandidates"] }): PurgePlan {
+  const full = { ...p, payoutChanges: p.payoutChanges ?? [] };
+  return { ...full, groups: planGroups(full), fingerprint: fingerprintOf(full) };
 }
 
 function precondition(kind: PurgeKind, person: PurgePerson): { reason: string; fix: string }[] {
@@ -332,6 +399,14 @@ function payoutCoversLesson(p: PurgePayoutRow, l: PurgeLessonRow): boolean {
 }
 
 const trDay = (iso: string) => toDayKey(iso).split("-").reverse().join(".");
+
+/** Ders kovası notu: tarih aralığı + gelecek tarihli adet. */
+function lessonScope(lessons: PurgeLessonRow[], nowIso: string): string | undefined {
+  if (!lessons.length) return undefined;
+  const days = lessons.map((l) => l.startAt).sort();
+  const upcoming = lessons.filter((l) => ACTIVE_LESSON.has(l.status) && l.startAt > nowIso).length;
+  return `${trDay(days[0]!)}–${trDay(days[days.length - 1]!)}${upcoming ? `, ${upcoming} tanesi gelecek tarihli` : ""}`;
+}
 
 /** Silinen derslerin programa/hakedişe/grup dersine somut etkileri (iki modda aynı metin). */
 function studentLessonEffects(s: StudentPurgeSnapshot, keepLessons: Set<string>): { effects: string[]; upcoming: number } {
@@ -495,25 +570,22 @@ export function planStudentPurge(s: StudentPurgeSnapshot, mode: PurgeMode = "sta
 
 /**
  * "Yanlış oluşturuldu — her şeyi sil" (öğrenci). Kişinin TÜM kayıtları silinir — tahsil edilmiş ödeme, imzalı
- * sözleşme ve belgesi dahil; kişi satırı silinir. Başka kişiye dokunan iki durum ENGELDİR (sessizce değiştirmez):
- * başka bir öğretmenin aktif hakedişine girmiş ders (önce o hakediş iptal edilir, silmeden sonra yeniden
- * hesaplanır) ve sağlayıcıda tahsil edilmiş online ödeme (gerçek para; iade sağlayıcıdan yapılır).
+ * sözleşme ve belgesi dahil; kişi satırı silinir. Öğretmen hakedişleri AYNI işlemde ele alınır (`studentPayoutChanges`):
+ * bekleyen kayıttan yalnız bu öğrencinin satırları çıkar ve toplam yeniden hesaplanır; ödenmiş kaydın tutarı
+ * değişmez, satırlardaki öğrenci kimliği silinir. Tek somut istisna: sağlayıcıda tahsil edilmiş online ödeme (gerçek
+ * para — DB'den silmek dış işlemi yok etmez; iade sağlayıcıdan yapılır).
  */
 function planStudentWipe(s: StudentPurgeSnapshot): PurgePlan {
   const blockers = precondition("student", s.person);
-  for (const p of s.payouts.filter((x) => x.status !== "cancelled")) {
-    const n = s.lessons.filter((l) => payoutCoversLesson(p, l)).length;
-    if (!n) continue;
-    blockers.push({
-      reason: `${s.teacherNames[p.teacherId] ?? "Öğretmen"} — ${trDay(p.periodStart)}–${trDay(p.periodEnd)} hakedişi (${p.status === "paid" ? "ödenmiş" : "ödenmemiş"}${p.totalAmount !== undefined ? `, ${formatMoney(p.totalAmount)}` : ""}) bu öğrencinin ${n} dersini içeriyor; tam silme başka kişinin hakedişini kendiliğinden değiştirmez.`,
-      fix: "Hakedişler ekranında bu hakedişi iptal edin (ödendiyse önce ödemesini geri alın) ve önizlemeyi yenileyin. Silmeden sonra dönemi yeniden hesaplatın; yeni hesap bu öğrencinin derslerini içermez.",
-    });
-  }
+  const payoutChanges = studentPayoutChanges(s);
   const online = s.checkouts.filter((c) => c.status === "succeeded" || c.status === "paid");
   if (online.length) {
+    // Somut istisna: yalnız sağlayıcıda gerçekleşmiş online tahsilat. Manuel/demo tahsilat bu kurala girmez.
+    const onlinePayments = new Set(online.map((c) => c.paymentId));
+    const amount = s.payments.filter((p) => onlinePayments.has(p.id)).reduce((n, p) => n + collected(p), 0);
     blockers.push({
-      reason: `Bu öğrenci adına ${online.length} online ödeme sağlayıcıda tahsil edilmiş; kayıt gerçek bir ödemeye bağlı.`,
-      fix: "Bu durumda tam silme yapılamaz. Ödemeyi sağlayıcı panelinden iade edin ve standart kalıcı silmeyi kullanın (tahsilat izi anonim olarak korunur).",
+      reason: `Somut istisna — bu öğrenci adına ${online.length} online ödeme (${formatMoney(amount)}) ödeme sağlayıcısında tahsil edilmiş. Veritabanından silmek sağlayıcıdaki gerçek işlemi geri almaz.`,
+      fix: "Gerekli işlem: ödemeyi sağlayıcı panelinden iade edin; ardından standart kalıcı silmeyi kullanın (online tahsilat izi anonim olarak korunur, diğer her şey silinir). Elle girilen tahsilatlar bu istisnaya girmez.",
     });
   }
   const pendingCheckouts = s.checkouts.filter((c) => c.status === "pending" || c.status === "processing").length;
@@ -538,7 +610,7 @@ function planStudentWipe(s: StudentPurgeSnapshot): PurgePlan {
     payoutTotal: 0,
     paidPayoutCount: 0,
   };
-  const { effects, upcoming } = studentLessonEffects(s, new Set());
+  const { effects } = studentLessonEffects(s, new Set());
   effects.unshift(
     `Finansal kayıtlar da silinecek: ${financial.collectedCount} tahsilatlı satır (tahsil edilen ${formatMoney(financial.collectedTotal)}), ${financial.debtCount} ödenmemiş borç satırı (kalan ${formatMoney(financial.debtTotal)}), ${financial.contractCount} sözleşme (${financial.signedContractCount} imzalı) ve belgeleri. Bu tutarlar tahsilat/finans raporlarından ve makbuzlardan kalkar; geri alınamaz.`
   );
@@ -556,11 +628,11 @@ function planStudentWipe(s: StudentPurgeSnapshot): PurgePlan {
     eligible: blockers.length === 0,
     blockers,
     remove: compact([
-      bucket("lessons", all(s.lessons), upcoming ? `${upcoming} tanesi gelecek tarihli` : undefined),
+      bucket("lessons", all(s.lessons), lessonScope(s.lessons, s.nowIso)),
       bucket("attendances", all(s.attendances)),
       bucket("makeups", all(s.makeups)),
       bucket("series", all(s.series)),
-      bucket("payments", all(s.payments), "Tahsilatlı ve tahsilatsız TÜM satırlar"),
+      bucket("payments", all(s.payments), `Tahsil edilen ${formatMoney(financial.collectedTotal)} · kalan borç ${formatMoney(financial.debtTotal)}`),
       bucket("contracts", all(s.contracts), signed.length ? `${signed.length} tanesi imzalı` : undefined),
       bucket("documents", all(s.documents)),
       bucket("checkouts", all(s.checkouts)),
@@ -574,36 +646,127 @@ function planStudentWipe(s: StudentPurgeSnapshot): PurgePlan {
     ]),
     keep: [],
     accounts: accountActions(s.accounts),
-    effects,
+    effects: [...effects, ...payoutChangeEffects(payoutChanges)],
     anonymizedName: anonymizedPersonName("student", s.person.displayId),
+    payoutChanges,
+  });
+}
+
+/** Öğrencinin derslerini içeren öğretmen hakedişleri → ne olacağı (öğretmen/dönem/tutar). */
+function studentPayoutChanges(s: StudentPurgeSnapshot): PurgePayoutChange[] {
+  const mine = new Set(s.lessons.map((l) => l.id));
+  const out: PurgePayoutChange[] = [];
+  for (const p of [...s.payouts].sort((a, b) => a.id.localeCompare(b.id))) {
+    const base = {
+      payoutId: p.id,
+      teacherId: p.teacherId,
+      teacherName: s.teacherNames[p.teacherId] ?? "Öğretmen",
+      period: `${trDay(p.periodStart)}–${trDay(p.periodEnd)}`,
+      status: p.status,
+      before: p.totalAmount ?? 0,
+      version: p.version ?? 0,
+    };
+    if (!p.lineSnapshot) {
+      const covered = s.lessons.filter((l) => payoutCoversLesson(p, l)).map((l) => l.id).sort();
+      if (covered.length && p.status !== "cancelled") out.push({ ...base, action: "legacy", lessonIds: covered, after: base.before });
+      continue;
+    }
+    const lessonIds = p.lineSnapshot.filter((l) => mine.has(l.lessonId)).map((l) => l.lessonId).sort();
+    if (!lessonIds.length) continue;
+    if (p.status === "pending") {
+      const next = purgePayoutRewrite(p, { action: "recalc", lessonIds }, "");
+      out.push({ ...base, action: "recalc", lessonIds, after: next.totalAmount ?? base.before });
+    } else {
+      out.push({ ...base, action: "scrub", lessonIds, after: base.before });
+    }
+  }
+  return out;
+}
+
+const PAYOUT_STATUS_TR: Record<string, string> = { pending: "ödenmemiş", partial: "kısmen ödenmiş", paid: "ödenmiş", cancelled: "iptal edilmiş" };
+
+function payoutChangeEffects(changes: PurgePayoutChange[]): string[] {
+  return changes.map((c) => {
+    const head = `${c.teacherName} — ${c.period} hakedişi (${PAYOUT_STATUS_TR[c.status] ?? c.status}), bu öğrencinin ${c.lessonIds.length} dersi`;
+    if (c.action === "recalc") return `${head}: satırlar çıkarılır, toplam ${formatMoney(c.before)} → ${formatMoney(c.after)} olarak yeniden hesaplanır. Diğer satırlar değişmez.`;
+    if (c.action === "scrub") return `${head}: ödeme yapılmış olduğu için tutar (${formatMoney(c.before)}) DEĞİŞMEZ; satırlardaki öğrenci adı silinir. Fazla ödeme varsa Hakedişler ekranında düzeltme kaydıyla kapatılır.`;
+    return `${head}: satır dökümü olmayan eski kayıt — tutar (${formatMoney(c.before)}) değişmez, dökümde bu dersler artık görünmez.`;
   });
 }
 
 /**
- * "Yanlış oluşturuldu — her şeyi sil" (öğretmen). Silinen: öğretmenin KENDİ kayıtları — tüm hakedişleri (ödenmiş
- * dahil), ücret kuralları, hariç tutmalar, evrak/fotoğraf/mesaj; öğretmen satırı. Ders/seri/telafi, öğrenci kaydı
- * ve değerlendirme/ödev/deneme dersi öğrencilerin geçmişidir → ENGEL (öğretmen silmesi başka kişinin geçmişini silmez).
+ * Hakediş satırlarını tam silme için yeniden yazar (önizleme ve iki yürütücü AYNI fonksiyonu kullanır).
+ * "recalc": satırlar çıkar, düzeltmeler süzülür, toplam `recomputePayoutData` ile aynı formülle kalan satırlardan.
+ * "scrub": yalnız kimlik alanları — tutar alanları döndürülmez.
  */
-function planTeacherWipe(s: TeacherPurgeSnapshot): PurgePlan {
+export function purgePayoutRewrite(
+  p: { lineSnapshot?: TeacherPayoutSnapshotLine[] | null; lineOverrides?: Record<string, TeacherPayoutLineOverride> | null },
+  change: { action: "recalc" | "scrub"; lessonIds: string[] },
+  anonymizedName: string
+): {
+  lineSnapshot: TeacherPayoutSnapshotLine[];
+  lineOverrides?: Record<string, TeacherPayoutLineOverride> | null;
+  totalAmount?: number;
+  totalMinutes?: number;
+  originalTotalAmount?: number | null;
+  originalTotalMinutes?: number | null;
+} {
+  const drop = new Set(change.lessonIds);
+  const lines = p.lineSnapshot ?? [];
+  if (change.action === "scrub") {
+    return { lineSnapshot: lines.map((l) => (drop.has(l.lessonId) ? { ...l, studentId: "", studentName: anonymizedName } : l)) };
+  }
+  const kept = lines.filter((l) => !drop.has(l.lessonId));
+  const overrides = Object.fromEntries(Object.entries(p.lineOverrides ?? {}).filter(([id]) => !drop.has(id)));
+  const has = Object.keys(overrides).length > 0;
+  const asResult = { lines: kept } as unknown as TeacherEarningsResult;
+  const base = applyPayoutLineOverrides(asResult, undefined);
+  const revised = applyPayoutLineOverrides(asResult, has ? overrides : undefined);
+  return {
+    lineSnapshot: kept,
+    lineOverrides: has ? overrides : null,
+    totalAmount: revised.totalAmount,
+    totalMinutes: revised.totalMinutes,
+    originalTotalAmount: has ? base.totalAmount : null,
+    originalTotalMinutes: has ? base.totalMinutes : null,
+  };
+}
+
+/**
+ * "Yanlış oluşturuldu — her şeyi sil" (öğretmen). Silinen: öğretmenin KENDİ kayıtları — tüm hakedişleri (ödenmiş
+ * dahil), ücret kuralları, hariç tutmalar, evrak/fotoğraf/mesaj; öğretmen satırı. Ders/seri/telafi ve öğretmenin
+ * yazdığı öğrenci kayıtları (değerlendirme, ödev, geri bildirim, deneme dersi) önizlemede seçilen işlemle:
+ * - "delete": silinir (yoklamaları, bu derslere bağlı telafiler dahil); derse bağlı ödeme satırı SİLİNMEZ, yalnız
+ *   ders bağı kalkar. Grup dersi satırı silinmez (diğer öğrencilerin programı) → devir gerekir.
+ * - "reassign": açıkça seçilen öğretmene devredilir.
+ * Öğrenci ataması (öğrenci.öğretmen zorunlu alan + branş kayıtları) her iki durumda seçilen öğretmene devredilir;
+ * öğrenci silinmez, öğretmen sessizce değiştirilmez — hedef seçilmeden silme açılmaz.
+ */
+function planTeacherWipe(s: TeacherPurgeSnapshot, opts: WipeOptions = {}): PurgePlan {
   const blockers = precondition("teacher", s.person);
-  const lessonStudents = new Set(s.lessons.map((l) => l.studentId)).size;
-  if (s.lessons.length || s.series.length || s.makeups.length) {
+  const action = opts.lessonAction ?? "delete";
+  const candidates = (s.teachers ?? []).filter((t) => t.id !== s.person.id && !t.deletedAt);
+  const target = opts.targetTeacherId ? candidates.find((t) => t.id === opts.targetTeacherId) : undefined;
+  if (opts.targetTeacherId && !target) {
+    blockers.push({ reason: "Seçilen devir öğretmeni bulunamadı veya listeden kaldırılmış.", fix: "Aşağıdaki listeden başka bir öğretmen seçin." });
+  }
+  const links = s.lessonLinks ?? { attendances: [], makeups: [], payments: [], seriesLessons: [] };
+  const historyIds = Object.values(s.history).reduce((n, ids) => n + (ids?.length ?? 0), 0);
+  const teaching = s.lessons.length + s.series.length + s.makeups.length + historyIds;
+  const groupLessons = s.lessons.filter((l) => l.clubSessionId);
+  if (teaching && action === "reassign" && !target) {
+    blockers.push({ reason: `${s.lessons.length} ders, ${s.series.length} seri, ${s.makeups.length} telafi ve ${historyIds} öğrenci kaydı devredilecek.`, fix: "Aşağıdan devredilecek öğretmeni seçin." });
+  }
+  if (action === "delete" && groupLessons.length) {
     blockers.push({
-      reason: `Öğretmenin ${s.lessons.length} ders, ${s.series.length} seri ve ${s.makeups.length} telafi kaydı ${lessonStudents} öğrencinin geçmişinde.`,
-      fix: "Öğretmen silmesi öğrencilerin ders/yoklama geçmişini silmez. Önce Ders Programı'nda bu dersleri doğru öğretmene taşıyın ya da hatalı planlanan dersleri \"Planı sil\" ile silin, sonra önizlemeyi yenileyin.",
+      reason: `${groupLessons.length} grup dersi satırı başka öğrencilerle ortak oturumda; silmek diğer öğrencilerin programını bozar.`,
+      fix: "\"Dersleri başka öğretmene devret\"i seçip hedef öğretmeni belirleyin.",
     });
   }
-  if (s.students.length) {
+  if (s.students.length && !target) {
     blockers.push({
-      reason: `${s.students.length} öğrenci kaydında öğretmen olarak görünüyor (pasif/silinmiş dahil).`,
-      fix: "Öğrenciler ekranında bu öğrencileri doğru öğretmene atayın, sonra önizlemeyi yenileyin.",
-    });
-  }
-  const historyCount = Object.values(s.history).reduce((n, ids) => n + (ids?.length ?? 0), 0);
-  if (historyCount) {
-    blockers.push({
-      reason: `${historyCount} öğrenci değerlendirmesi/ödev/geri bildirim/deneme dersi kaydı var.`,
-      fix: "Bunlar öğrencilerin geçmişidir; bu öğretmen için standart kalıcı silmeyi kullanın (öğretmen anonimleştirilir).",
+      reason: `${s.students.length} öğrencinin kaydında öğretmen olarak bu kişi var (pasif/silinmiş dahil); öğrenciler silinmez ve öğretmensiz kalamaz.`,
+      fix: "Aşağıdan öğrencilerin devredileceği öğretmeni seçin.",
     });
   }
   const paidPayouts = s.payouts.filter((p) => p.status === "paid");
@@ -618,11 +781,46 @@ function planTeacherWipe(s: TeacherPurgeSnapshot): PurgePlan {
     payoutTotal: s.payouts.filter((p) => p.status !== "cancelled").reduce((n, p) => n + (p.totalAmount ?? 0), 0),
     paidPayoutCount: paidPayouts.length,
   };
+  const del = action === "delete";
+  const ids = <T extends { id: string }>(rows: T[]) => rows.map((r) => r.id);
+  const reassign: PurgeReassign | undefined = target
+    ? {
+        targetTeacherId: target.id,
+        targetTeacherName: target.name,
+        lessons: del ? [] : ids(s.lessons).sort(),
+        series: del ? [] : ids(s.series).sort(),
+        makeups: del ? [] : ids(s.makeups).sort(),
+        students: ids(s.students).sort(),
+        history: del ? {} : Object.fromEntries(Object.entries(s.history).filter(([, v]) => v?.length).map(([k, v]) => [k, [...v!].sort()])),
+      }
+    : undefined;
   const effects = [
     `Finansal kayıtlar da silinecek: ${financial.payoutCount} hakediş kaydı (iptal olmayanların toplamı ${formatMoney(financial.payoutTotal)}, ${financial.paidPayoutCount} tanesi ödenmiş), ${s.feeRules.length} ücret kuralı ve ${s.payoutExclusions.length} hariç tutma kaydı. Ödeme geçmişi ve muhasebe izi de kalkar; geri alınamaz.`,
     "Öğretmen satırı da silinir (anonimleştirilmez).",
   ];
-  if (s.detach.clubs?.length) effects.push(`${s.detach.clubs.length} grup dersinin öğretmen listesinden çıkarılır; grup dersi ve üyeleri silinmez, yerine kimse atanmaz.`);
+  const upcoming = s.lessons.filter((l) => ACTIVE_LESSON.has(l.status) && l.startAt > s.nowIso).length;
+  if (teaching && del) {
+    effects.push(
+      `${s.lessons.length} ders (${upcoming} gelecek tarihli), yoklamaları, ${s.makeups.length + links.makeups.length} telafi kaydı ve ${s.series.length} seri silinir; öğrenciler silinmez. Başka öğretmen atanmaz, saatler programda boşalır.`
+    );
+    if (links.payments.length) effects.push(`${links.payments.length} ödeme satırı derse bağlıydı: satır ve tutarı öğrencide KALIR, yalnız ders bağı kaldırılır.`);
+    if (historyIds) effects.push(`Bu öğretmenin yazdığı ${historyIds} öğrenci kaydı (değerlendirme, ödev, geri bildirim, deneme dersi) silinir.`);
+  }
+  if (reassign && !del && teaching) {
+    effects.push(
+      `${s.lessons.length} ders (${upcoming} gelecek tarihli), ${s.series.length} seri, ${s.makeups.length} telafi ve ${historyIds} öğrenci kaydı ${reassign.targetTeacherName} öğretmenine devredilir. Gelecek derslerde ${reassign.targetTeacherName} öğretmeninin programıyla çakışma olabilir — Ders Programı'nda kontrol edin.`,
+      `${reassign.targetTeacherName} öğretmeninin kayıtlı hakedişleri kendiliğinden DEĞİŞMEZ; devredilen geçmiş dersler Hakedişler ekranında fark olarak görünür.`
+    );
+  }
+  if (reassign && s.students.length) effects.push(`${s.students.length} öğrencinin öğretmeni (ana kayıt ve branş kayıtları) ${reassign.targetTeacherName} olarak değişir.`);
+  if (s.detach.clubs?.length) {
+    effects.push(
+      reassign && !del
+        ? `${s.detach.clubs.length} grup dersinin öğretmen listesinde bu kişinin yerine ${reassign.targetTeacherName} yazılır.`
+        : `${s.detach.clubs.length} grup dersinin öğretmen listesinden çıkarılır; grup dersi ve üyeleri silinmez, yerine kimse atanmaz.`
+    );
+  }
+  const history = (Object.entries(s.history) as [PurgeTableKey, string[]][]).map(([k, v]) => (del ? bucket(k, v) : null));
 
   return finish({
     kind: "teacher",
@@ -635,21 +833,33 @@ function planTeacherWipe(s: TeacherPurgeSnapshot): PurgePlan {
     eligible: blockers.length === 0,
     blockers,
     remove: compact([
-      ...(Object.entries(s.owned) as [PurgeTableKey, string[]][]).map(([k, ids]) => bucket(k, ids)),
+      del ? bucket("lessons", ids(s.lessons), lessonScope(s.lessons, s.nowIso)) : null,
+      del ? bucket("attendances", links.attendances) : null,
+      del ? bucket("makeups", [...ids(s.makeups), ...links.makeups]) : null,
+      del ? bucket("series", ids(s.series)) : null,
+      ...history,
+      ...(Object.entries(s.owned) as [PurgeTableKey, string[]][]).map(([k, v]) => bucket(k, v)),
       bucket("feeRules", s.feeRules),
       bucket("payoutExclusions", s.payoutExclusions),
       bucket("payouts", s.payouts.map((p) => p.id), paidPayouts.length ? `${paidPayouts.length} tanesi ödenmiş` : undefined),
     ]),
-    detach: compact((Object.entries(s.detach) as [PurgeDetachKey, string[]][]).map(([k, ids]) => bucket(k, ids))),
+    detach: compact([
+      ...(Object.entries(s.detach) as [PurgeDetachKey, string[]][]).map(([k, v]) => bucket(k, v)),
+      del ? bucket("lessonPayments", links.payments) : null,
+      del ? bucket("seriesLessons", links.seriesLessons) : null,
+    ]),
     keep: [],
     accounts: accountActions(s.accounts),
     effects,
     anonymizedName: anonymizedPersonName("teacher", s.person.displayId),
+    options: { lessonAction: action, ...(opts.targetTeacherId ? { targetTeacherId: opts.targetTeacherId } : {}) },
+    reassign,
+    targetCandidates: candidates.map((t) => ({ id: t.id, name: t.name })).sort((x, y) => x.name.localeCompare(y.name, "tr")),
   });
 }
 
-export function planTeacherPurge(s: TeacherPurgeSnapshot, mode: PurgeMode = "standard"): PurgePlan {
-  if (mode === "wipe") return planTeacherWipe(s);
+export function planTeacherPurge(s: TeacherPurgeSnapshot, mode: PurgeMode = "standard", opts: WipeOptions = {}): PurgePlan {
+  if (mode === "wipe") return planTeacherWipe(s, opts);
   const blockers = precondition("teacher", s.person);
   // Listeden kaldırmadaki kapılar kalıcı silmede de geçerli (kaldırıldıktan sonra veri değişmiş olabilir).
   const upcoming = s.lessons.filter((l) => ACTIVE_LESSON.has(l.status) && l.startAt > s.nowIso).length;
@@ -719,8 +929,61 @@ export function planTeacherPurge(s: TeacherPurgeSnapshot, mode: PurgeMode = "sta
   });
 }
 
-export function planPersonPurge(s: PurgeSnapshot, mode: PurgeMode = "standard"): PurgePlan {
-  return s.kind === "student" ? planStudentPurge(s, mode) : planTeacherPurge(s, mode);
+export function planPersonPurge(s: PurgeSnapshot, mode: PurgeMode = "standard", opts: WipeOptions = {}): PurgePlan {
+  return s.kind === "student" ? planStudentPurge(s, mode) : planTeacherPurge(s, mode, opts);
+}
+
+/** Önizleme grupları (ürün dili). Planın bucket'larından türetilir — yeni anahtar eklenirse "Diğer"e düşer. */
+const GROUPS: { key: string; title: string; keys: (PurgeTableKey | PurgeDetachKey)[] }[] = [
+  { key: "schedule", title: "Ders programı / seri dersler", keys: ["lessons", "series", "seriesLessons", "clubMemberships", "clubs"] },
+  { key: "attendance", title: "Yoklama ve telafi", keys: ["attendances", "makeups", "riskLogs"] },
+  { key: "finance", title: "Borç/tahakkuk / tahsilat", keys: ["payments", "checkouts", "followUps", "paymentTasks", "lessonPayments"] },
+  { key: "payout", title: "Hakediş satırları ve etkilenen dönemler", keys: ["payouts", "feeRules", "payoutExclusions"] },
+  { key: "documents", title: "Sözleşme, evrak ve dosyalar", keys: ["contracts", "documents", "profilePhotos", "teachingMaterials", "socialMediaConsents", "kvkkConsents"] },
+  { key: "access", title: "Portal erişimi, hesap ve oturumlar", keys: ["portalAccess", "feedbackInvites"] },
+];
+
+export function planGroups(plan: Pick<PurgePlan, "remove" | "detach" | "keep" | "accounts" | "payoutChanges" | "reassign" | "blockers">): PurgeGroup[] {
+  const groupOf = (k: string) => GROUPS.find((g) => (g.keys as string[]).includes(k))?.key ?? "other";
+  const out = new Map<string, PurgeGroupItem[]>([...GROUPS.map((g) => [g.key, []] as [string, PurgeGroupItem[]]), ["other", []]]);
+  const push = (k: string, item: PurgeGroupItem) => out.get(groupOf(k))!.push(item);
+  for (const b of plan.remove) push(b.key, { label: b.label, count: b.ids.length, action: "delete", note: b.note });
+  for (const b of plan.detach) push(b.key, { label: b.label, count: b.ids.length, action: "detach", note: b.note });
+  for (const b of plan.keep) push(b.key, { label: b.label, count: b.ids.length, action: "keep", note: b.note });
+  for (const c of plan.payoutChanges) {
+    out.get("payout")!.push({
+      label: `${c.teacherName} — ${c.period}`,
+      count: c.lessonIds.length,
+      action: c.action === "recalc" ? "recalc" : "exception",
+      note:
+        c.action === "recalc"
+          ? `Bekleyen hakediş: ${formatMoney(c.before)} → ${formatMoney(c.after)}`
+          : `${PAYOUT_STATUS_TR[c.status] ?? c.status}: tutar ${formatMoney(c.before)} değişmez${c.action === "scrub" ? ", satırdaki öğrenci adı silinir" : " (eski kayıt)"}`,
+    });
+  }
+  if (plan.reassign) {
+    const r = plan.reassign;
+    const to = `→ ${r.targetTeacherName}`;
+    if (r.lessons.length) out.get("schedule")!.push({ label: "Ders kaydı", count: r.lessons.length, action: "reassign", note: to });
+    if (r.series.length) out.get("schedule")!.push({ label: "Ders serisi", count: r.series.length, action: "reassign", note: to });
+    if (r.makeups.length) out.get("attendance")!.push({ label: "Telafi kaydı", count: r.makeups.length, action: "reassign", note: to });
+    if (r.students.length) out.get("other")!.push({ label: "Öğrenci ataması (öğrenciler silinmez)", count: r.students.length, action: "reassign", note: to });
+    const h = Object.values(r.history).reduce((n, v) => n + (v?.length ?? 0), 0);
+    if (h) out.get("other")!.push({ label: "Değerlendirme/ödev/geri bildirim/deneme dersi", count: h, action: "reassign", note: to });
+  }
+  for (const a of plan.accounts) {
+    out.get("access")!.push({
+      label: `Giriş hesabı ${a.maskedEmail}`,
+      count: 1,
+      action: a.action === "close" ? "delete" : "keep",
+      note: a.action === "close" ? "Hesap kapatılır, oturumlar ve bekleyen linkler geçersiz olur" : "Başka öğrenci/rol için de kullanılıyor — yalnız bu kişiye erişim kalkar",
+    });
+  }
+  for (const b of plan.blockers.filter((x) => x.reason.startsWith("Somut istisna"))) {
+    out.get("finance")!.push({ label: b.reason, count: 0, action: "exception", note: b.fix });
+  }
+  const titles: Record<string, string> = Object.fromEntries([...GROUPS.map((g) => [g.key, g.title]), ["other", "CRM, görev, not ve diğer ilişkiler"]]);
+  return [...out].filter(([, items]) => items.length).map(([key, items]) => ({ key, title: titles[key]!, items }));
 }
 
 /** Planın bucket'larından tablo → id listesi (yürütücüler için). */

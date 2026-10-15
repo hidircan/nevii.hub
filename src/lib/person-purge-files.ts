@@ -16,12 +16,14 @@ import {
   TEACHER_PII_CLEAR,
   bucketIds,
   planPersonPurge,
+  purgePayoutRewrite,
   type PurgeAccountRow,
   type PurgeDetachKey,
   type PurgeKind,
   type PurgeMode,
   type PurgeSnapshot,
   type PurgeTableKey,
+  type WipeOptions,
 } from "./person-purge";
 import type { PurgeExecResult } from "./person-purge-db";
 
@@ -180,6 +182,9 @@ export async function loadPurgeSnapshotFiles(io: StoreIo, kind: PurgeKind, id: s
           status: p.status,
           totalAmount: p.totalAmount,
           lessonIds: (p.lineSnapshot ?? []).map((x) => x.lessonId),
+          lineSnapshot: p.lineSnapshot,
+          lineOverrides: p.lineOverrides,
+          version: p.version ?? 0,
         })),
       paymentTasks: tasks.tasks
         .filter((r) => inTenant(tid)(r) && typeof r.paymentId === "string" && data.payments.some((p) => p.studentId === id && p.id === r.paymentId))
@@ -204,6 +209,7 @@ export async function loadPurgeSnapshotFiles(io: StoreIo, kind: PurgeKind, id: s
         communicationMessages: idsWhere(await side("communicationMessages"), tid, (r) => (r.recipientType === "PARENT" || r.recipientType === "STUDENT") && r.recipientId === id),
         callLogs: idsWhere(await side("callLogs"), tid, (r) => (r.contactType === "student" || r.contactType === "parent") && r.contactId === id),
         messageLogs: idsWhere(await side("messageLogs"), tid, (r) => (r.contactType === "student" || r.contactType === "parent") && r.contactId === id),
+        payoutExclusions: (data.teacherPayoutExclusions ?? []).filter((x) => lessons.some((l) => l.id === x.lessonId)).map((x) => x.id),
       },
       groupSessionOthers: Object.fromEntries(
         lessons
@@ -267,6 +273,21 @@ export async function loadPurgeSnapshotFiles(io: StoreIo, kind: PurgeKind, id: s
       clubs: idsWhere(await side("clubs"), tid, (r) => Array.isArray(r.teacherIds) && (r.teacherIds as string[]).includes(id)),
     },
     accounts: await loadAccounts(tid, { teacherId: id }),
+    lessonLinks: (() => {
+      const lessonIds = new Set(data.lessons.filter((l) => l.teacherId === id).map((l) => l.id));
+      const seriesIds = new Set(data.lessonSeries.filter((x) => x.teacherId === id).map((x) => x.id));
+      const atts = data.attendances.filter((a) => lessonIds.has(a.lessonId)).map((a) => a.id);
+      const attSet = new Set(atts);
+      return {
+        attendances: atts,
+        makeups: data.makeupRequests
+          .filter((m) => m.teacherId !== id && (attSet.has(m.attendanceId) || lessonIds.has(m.sourceLessonId) || (!!m.confirmedLessonId && lessonIds.has(m.confirmedLessonId))))
+          .map((m) => m.id),
+        payments: data.payments.filter((p) => p.lessonId && lessonIds.has(p.lessonId)).map((p) => p.id),
+        seriesLessons: data.lessons.filter((l) => l.seriesId && seriesIds.has(l.seriesId) && l.teacherId !== id).map((l) => l.id),
+      };
+    })(),
+    teachers: data.teachers.filter((x) => !x.purgedAt).map((x) => ({ id: x.id, name: x.name, active: x.active !== false, deletedAt: x.deletedAt })),
     nowIso,
   };
 }
@@ -279,21 +300,73 @@ export async function executePurgeFiles(
   kind: PurgeKind,
   id: string,
   expectedFingerprint: string,
-  mode: PurgeMode = "standard"
+  mode: PurgeMode = "standard",
+  opts: WipeOptions = {}
 ): Promise<PurgeExecResult> {
-  const run = queue.then(() => executeUnlocked(io, kind, id, expectedFingerprint, mode));
+  const run = queue.then(() => executeUnlocked(io, kind, id, expectedFingerprint, mode, opts));
   queue = run.catch(() => undefined);
   return run;
 }
 
-async function executeUnlocked(io: StoreIo, kind: PurgeKind, id: string, expectedFingerprint: string, mode: PurgeMode): Promise<PurgeExecResult> {
+async function executeUnlocked(
+  io: StoreIo,
+  kind: PurgeKind,
+  id: string,
+  expectedFingerprint: string,
+  mode: PurgeMode,
+  opts: WipeOptions
+): Promise<PurgeExecResult> {
   const snap = await loadPurgeSnapshotFiles(io, kind, id);
   if (!snap) return { status: "not_found" };
   if (snap.person.purgedAt) return { status: "already_purged" };
-  const plan = planPersonPurge(snap, mode);
+  const plan = planPersonPurge(snap, mode, opts);
   if (plan.fingerprint !== expectedFingerprint || !plan.eligible) throw new PurgeConflictError();
 
-  const data = await io.readData();
+  // Devir, bağ kaldırma ve hakediş yeniden yazımı silmeden ÖNCE (db yürütücüsüyle aynı sıra).
+  const raw = await io.readData();
+  const ra = plan.reassign;
+  const set = (list: string[] | undefined) => new Set(list ?? []);
+  const reLessons = set(ra?.lessons);
+  const reSeries = set(ra?.series);
+  const reMakeups = set(ra?.makeups);
+  const reStudents = set(ra?.students);
+  const unSeries = set(bucketIds(plan.detach, "seriesLessons"));
+  const unPay = set(bucketIds(plan.detach, "lessonPayments"));
+  const to = ra?.targetTeacherId ?? "";
+  const changes = new Map(plan.payoutChanges.filter((c) => c.action !== "legacy").map((c) => [c.payoutId, c]));
+  const data: AppData = {
+    ...raw,
+    lessons: raw.lessons.map((l) => (reLessons.has(l.id) ? { ...l, teacherId: to } : unSeries.has(l.id) ? { ...l, seriesId: undefined } : l)),
+    lessonSeries: raw.lessonSeries.map((x) => (reSeries.has(x.id) ? { ...x, teacherId: to } : x)),
+    makeupRequests: raw.makeupRequests.map((m) => (reMakeups.has(m.id) ? { ...m, teacherId: to } : m)),
+    payments: raw.payments.map((p) => (unPay.has(p.id) ? { ...p, lessonId: undefined } : p)),
+    students: raw.students.map((s) =>
+      reStudents.has(s.id)
+        ? { ...s, teacherId: s.teacherId === id ? to : s.teacherId, enrollments: s.enrollments?.map((e) => (e.teacherId === id ? { ...e, teacherId: to } : e)) }
+        : s
+    ),
+    teacherPayouts: raw.teacherPayouts.map((p) => {
+      const c = changes.get(p.id);
+      if (!c) return p;
+      if ((p.version ?? 0) !== c.version) throw new PurgeConflictError();
+      const w = purgePayoutRewrite(p, { action: c.action as "recalc" | "scrub", lessonIds: c.lessonIds }, plan.anonymizedName);
+      const out = { ...p, lineSnapshot: w.lineSnapshot, version: (p.version ?? 0) + 1 };
+      if (c.action !== "recalc") return out;
+      return {
+        ...out,
+        lineOverrides: w.lineOverrides ?? undefined,
+        totalAmount: w.totalAmount!,
+        totalMinutes: w.totalMinutes!,
+        originalTotalAmount: w.originalTotalAmount ?? undefined,
+        originalTotalMinutes: w.originalTotalMinutes ?? undefined,
+      };
+    }),
+  };
+  for (const [key, list] of Object.entries(ra?.history ?? {}) as [PurgeTableKey, string[]][]) {
+    const targets = new Set(list);
+    const rows = await readRows(FILES[key]!);
+    await writeRows(FILES[key]!, rows.map((x) => (targets.has(x.id) && x.teacherId === id ? { ...x, teacherId: to } : x)));
+  }
   const next: AppData = { ...data };
   for (const [key, collection] of Object.entries(APPDATA) as [PurgeTableKey, keyof AppData][]) {
     const drop = new Set(bucketIds(plan.remove, key));
@@ -315,7 +388,11 @@ async function executeUnlocked(io: StoreIo, kind: PurgeKind, id: string, expecte
   };
   await patchFile("clubApplications", (r) => ({ ...r, studentId: null }));
   await patchFile("trialConversions", (r) => ({ ...r, convertedStudentId: undefined }));
-  await patchFile("clubs", (r) => ({ ...r, teacherIds: ((r.teacherIds as string[]) ?? []).filter((t) => t !== id) }));
+  const clubSubstitute = ra && ra.lessons.length ? ra.targetTeacherId : undefined;
+  await patchFile("clubs", (row) => {
+    const rest = ((row.teacherIds as string[]) ?? []).filter((t) => t !== id);
+    return { ...row, teacherIds: clubSubstitute && !rest.includes(clubSubstitute) ? [...rest, clubSubstitute] : rest };
+  });
   const taskTargets = new Set(bucketIds(plan.detach, "tasks"));
   const paymentTaskTargets = new Set(bucketIds(plan.detach, "paymentTasks"));
   if (taskTargets.size || paymentTaskTargets.size) {
