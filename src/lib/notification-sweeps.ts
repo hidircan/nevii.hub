@@ -1,11 +1,10 @@
 import { differenceInCalendarDays, parseISO } from "date-fns";
-import { listTenants, readData } from "./store";
-import { runWithTenantAsync } from "./tenant-context";
+import { readData } from "./store";
 import { notifyAdmins } from "./manager-notifications";
 import { listLeave } from "./leave";
-import { sweepLessonReminders, sweepUpcomingLessons } from "./lesson-notifications";
+import { forEachSchoolTenant, sweepLessonReminders, sweepUpcomingLessons } from "./lesson-notifications";
 import { formatMoney } from "./utils";
-import { logger } from "./logger";
+import { safeErrorFields } from "./logger";
 
 const PENDING_DAYS = 7;
 
@@ -18,88 +17,72 @@ export type NotificationSweepSummary = {
   paymentTenantErrors: number;
   leaveTenantErrors: number;
   contractExpiring: number;
+  contractTenantErrors: number;
+  /** Tüm aşamalarda hata veren kurum sayısı toplamı; > 0 ise tick 200 DÖNMEZ (bkz. tick route). */
+  tenantErrors: number;
 };
 
 /** Öğrenci sözleşmesi bitiş uyarısı — tüm kurumlar (bkz. student-contract-expiry.ts). */
-export async function sweepStudentContractExpiry(now = new Date()): Promise<number> {
+export async function sweepStudentContractExpiry(now = new Date()): Promise<{ created: number; tenantErrors: number }> {
   const { runStudentContractExpiryCheck } = await import("./student-contract-expiry");
   let created = 0;
-  const tenants = await listTenants();
-  for (const t of tenants.slice(0, 200)) {
-    await runWithTenantAsync(t.tenantId, async () => {
-      created += (await runStudentContractExpiryCheck(t.tenantId, now)).created;
-    });
-  }
-  return created;
+  const tenantErrors = await forEachSchoolTenant("contractExpiry", async (tenantId) => {
+    created += (await runStudentContractExpiryCheck(tenantId, now)).created;
+  });
+  return { created, tenantErrors };
 }
 
 export async function sweepPaymentFailedOrPending(now = new Date()): Promise<{ created: number; tenantErrors: number }> {
   let created = 0;
-  let tenantErrors = 0;
-  const tenants = await listTenants();
-  for (const t of tenants.slice(0, 200)) {
-    try {
-      await runWithTenantAsync(t.tenantId, async () => {
-        const data = await readData();
-        for (const p of data.payments) {
-          if (p.status !== "pending") continue;
-          const anchor = p.createdAt || p.dueDate;
-          if (!anchor) continue;
-          const age = differenceInCalendarDays(now, parseISO(anchor));
-          if (age < PENDING_DAYS) continue;
-          const remaining = Math.max(p.amount - p.paidAmount, 0);
-          await notifyAdmins(
-            t.tenantId,
-            "payment_failed_or_pending",
-            {
-              title: "Bekleyen ödeme",
-              body: `Ödeme ${p.id} ${age} gündür beklemede (${formatMoney(remaining)}). Detay: /panel/odemeler`,
-            },
-            { dedupeKey: p.id }
-          );
-          created++;
-        }
-      });
-    } catch (err) {
-      // Tek tenant'ın bozuk verisi/hatası diğer 199 tenant'ı engellemez;
-      // neden sunucu log'unda (PII: yalnız tenantId + hata mesajı).
-      tenantErrors++;
-      logger.error(`notification-sweep payment tenant hatası [${t.tenantId}]`, err);
+  const tenantErrors = await forEachSchoolTenant("paymentPending", async (tenantId) => {
+    const data = await readData();
+    for (const p of data.payments) {
+      if (p.status !== "pending") continue;
+      const anchor = p.createdAt || p.dueDate;
+      if (!anchor) continue;
+      const age = differenceInCalendarDays(now, parseISO(anchor));
+      if (age < PENDING_DAYS) continue;
+      const remaining = Math.max(p.amount - p.paidAmount, 0);
+      await notifyAdmins(
+        tenantId,
+        "payment_failed_or_pending",
+        {
+          title: "Bekleyen ödeme",
+          body: `Ödeme ${p.id} ${age} gündür beklemede (${formatMoney(remaining)}). Detay: /panel/odemeler`,
+        },
+        { dedupeKey: p.id }
+      );
+      created++;
     }
-  }
+  });
   return { created, tenantErrors };
 }
 
 export async function sweepLeavePendingApproval(): Promise<{ created: number; tenantErrors: number }> {
   let created = 0;
-  let tenantErrors = 0;
-  const tenants = await listTenants();
-  for (const t of tenants.slice(0, 200)) {
-    try {
-      await runWithTenantAsync(t.tenantId, async () => {
-        const leaves = await listLeave(t.tenantId);
-        for (const leave of leaves) {
-          if (leave.status !== "pending_approval") continue;
-          await notifyAdmins(
-            t.tenantId,
-            "leave_pending_approval",
-            {
-              title: "Bekleyen izin onayı",
-              body: `Onay bekleyen izin talebi var. Detay: /panel/personel/izinler`,
-            },
-            { dedupeKey: leave.id, roles: ["SUPER_ADMIN"] }
-          );
-          created++;
-        }
-      });
-    } catch (err) {
-      tenantErrors++;
-      logger.error(`notification-sweep leave tenant hatası [${t.tenantId}]`, err);
+  const tenantErrors = await forEachSchoolTenant("leavePending", async (tenantId) => {
+    const leaves = await listLeave(tenantId);
+    for (const leave of leaves) {
+      if (leave.status !== "pending_approval") continue;
+      await notifyAdmins(
+        tenantId,
+        "leave_pending_approval",
+        {
+          title: "Bekleyen izin onayı",
+          body: `Onay bekleyen izin talebi var. Detay: /panel/personel/izinler`,
+        },
+        { dedupeKey: leave.id, roles: ["SUPER_ADMIN"] }
+      );
+      created++;
     }
-  }
+  });
   return { created, tenantErrors };
 }
 
+/**
+ * Tüm süpürmeler sırayla. Kurum hatası aşama içinde sayılır (diğer kurumlar/aşamalar sürer);
+ * aşamanın KENDİSİ çökerse (ör. kurum listesi okunamadı) hata yukarı fırlar → tick 500.
+ */
 export async function runNotificationSweeps(
   now = new Date()
 ): Promise<NotificationSweepSummary> {
@@ -110,39 +93,16 @@ export async function runNotificationSweeps(
     try {
       return await task();
     } catch (error: unknown) {
-      console.error("[notifications.sweep.stage.failed]", {
-        stage,
-        errorName:
-          error instanceof Error ? error.name : "UnknownError",
-      });
+      console.error("[notifications.sweep.stage.failed]", { stage, ...safeErrorFields(error) });
       throw error;
     }
   }
 
-  const upcoming = await runStage(
-    "upcomingLessons",
-    () => sweepUpcomingLessons(now)
-  );
-
-  const reminders = await runStage(
-    "lessonReminders",
-    () => sweepLessonReminders(now)
-  );
-
-  const payment = await runStage(
-    "paymentPending",
-    () => sweepPaymentFailedOrPending(now)
-  );
-
-  const leave = await runStage(
-    "leavePending",
-    () => sweepLeavePendingApproval()
-  );
-
-  const contractExpiring = await runStage(
-    "contractExpiry",
-    () => sweepStudentContractExpiry(now)
-  );
+  const upcoming = await runStage("upcomingLessons", () => sweepUpcomingLessons(now));
+  const reminders = await runStage("lessonReminders", () => sweepLessonReminders(now));
+  const payment = await runStage("paymentPending", () => sweepPaymentFailedOrPending(now));
+  const leave = await runStage("leavePending", () => sweepLeavePendingApproval());
+  const contract = await runStage("contractExpiry", () => sweepStudentContractExpiry(now));
 
   return {
     upcoming,
@@ -151,6 +111,9 @@ export async function runNotificationSweeps(
     leavePending: leave.created,
     paymentTenantErrors: payment.tenantErrors,
     leaveTenantErrors: leave.tenantErrors,
-    contractExpiring,
+    contractExpiring: contract.created,
+    contractTenantErrors: contract.tenantErrors,
+    tenantErrors:
+      upcoming.tenantErrors + reminders.tenantErrors + payment.tenantErrors + leave.tenantErrors + contract.tenantErrors,
   };
 }

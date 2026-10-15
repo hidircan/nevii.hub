@@ -9,6 +9,7 @@ import type {
   StudentScopeData,
 } from "./reference-data";
 import { STORE_MODE } from "./config";
+import { PLATFORM_TENANT_ID } from "./auth/config";
 import { closeExpiredUnplannedMakeups } from "./makeup-lifecycle";
 import { patchTouchesEnrollmentTerms, routeTermPatch, splitTermPatch } from "./student-enrollments";
 import * as jsonStore from "./store-json";
@@ -435,6 +436,15 @@ export async function readData(): Promise<AppData> {
 /** Platformda erişilebilir tüm kurumları (tenant) listeler — kurum seçici bunu kullanır. */
 export async function listTenants(): Promise<{ tenantId: string; name: string }[]> {
   return store.listTenants();
+}
+
+/**
+ * Okul verisi olan kurumlar — kurum başına `readData()` yapan zamanlanmış işler bunu kullanır.
+ * NeviiOS platform tenant'ının (`PLATFORM_TENANT_ID`) okul kaydı YOKTUR; canlıda onun için
+ * `readData()` bilerek hata fırlatır (2026-10-15: notification-tick her turda 500).
+ */
+export async function listSchoolTenants(): Promise<{ tenantId: string; name: string }[]> {
+  return (await store.listTenants()).filter((t) => t.tenantId !== PLATFORM_TENANT_ID);
 }
 
 /**

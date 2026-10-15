@@ -1,12 +1,12 @@
 import { format } from "date-fns";
 import { tr } from "date-fns/locale";
-import { readData, listTenants } from "./store";
+import { readData, listSchoolTenants } from "./store";
 import { runWithTenantAsync } from "./tenant-context";
 import { getUserIdByTeacherId, getUserIdByStudentId } from "./auth/users";
 import { hasActiveStudentAccess, listActiveAccessForTenant } from "./student-portal-access";
 import { notifyAdmins } from "./manager-notifications";
 import { notifyStudentIfEnabled, notifyUserIfEnabled, type NotifyOutcome } from "./notification-dispatch";
-import { logger } from "./logger";
+import { logger, safeErrorFields } from "./logger";
 import type { Lesson } from "./types";
 
 /**
@@ -320,7 +320,27 @@ export type UpcomingSweepSummary = {
   evaluated: number;
   created: number;
   skipped: number;
+  /** Hata veren kurum sayısı — o kurum atlanır, diğerleri işlenir. */
+  tenantErrors: number;
 };
+
+/**
+ * Zamanlanmış süpürmelerin TEK kurum döngüsü: yalnız okul kurumları (platform tenant'ı hariç),
+ * her kurum kendi ALS kapsamında. Bir kurumun hatası diğerlerini DURDURMAZ; sayılır ve PII'siz
+ * loglanır (kurum id + aşama + hata adı/kodu/çerçeveleri). Döner: hata veren kurum sayısı.
+ */
+export async function forEachSchoolTenant(stage: string, fn: (tenantId: string) => Promise<void>): Promise<number> {
+  let tenantErrors = 0;
+  for (const t of (await listSchoolTenants()).slice(0, 200)) {
+    try {
+      await runWithTenantAsync(t.tenantId, () => fn(t.tenantId));
+    } catch (err) {
+      tenantErrors++;
+      logger.error("[notifications.sweep.tenant.failed]", { stage, tenantId: t.tenantId, ...safeErrorFields(err) });
+    }
+  }
+  return tenantErrors;
+}
 
 export function isLessonInUpcomingWindow(lesson: Pick<Lesson, "startAt" | "status">, now: Date): boolean {
   if (lesson.status === "cancelled" || lesson.status === "completed" || lesson.status === "no_show") {
@@ -332,10 +352,9 @@ export function isLessonInUpcomingWindow(lesson: Pick<Lesson, "startAt" | "statu
 }
 
 export async function sweepUpcomingLessons(now: Date = new Date()): Promise<UpcomingSweepSummary> {
-  const summary: UpcomingSweepSummary = { tenants: 0, evaluated: 0, created: 0, skipped: 0 };
-  const tenants = await listTenants();
-  for (const t of tenants.slice(0, 200)) {
-    await runWithTenantAsync(t.tenantId, async () => {
+  const summary: UpcomingSweepSummary = { tenants: 0, evaluated: 0, created: 0, skipped: 0, tenantErrors: 0 };
+  summary.tenantErrors = await forEachSchoolTenant("upcomingLessons", async (tenantId) => {
+      const t = { tenantId };
       const data = await readData();
       summary.tenants++;
       for (const lesson of data.lessons) {
@@ -369,12 +388,11 @@ export async function sweepUpcomingLessons(now: Date = new Date()): Promise<Upco
         if (created) summary.created++;
         else summary.skipped++;
       }
-    });
-  }
+  });
   return summary;
 }
 
-export type ReminderSweepSummary = LessonNotificationSummary & { pushSent: number; pushSkipped: number };
+export type ReminderSweepSummary = LessonNotificationSummary & { pushSent: number; pushSkipped: number; tenantErrors: number };
 
 /**
  * Per-offset ders hatırlatma sweep'i — `POST /api/v1/notifications/tick`
@@ -392,12 +410,11 @@ export type ReminderSweepSummary = LessonNotificationSummary & { pushSent: numbe
  * - PII-minimize: çocuk adı varsayılan kapalı (`push_include_student_name`).
  */
 export async function sweepLessonReminders(now: Date = new Date()): Promise<ReminderSweepSummary> {
-  const summary: ReminderSweepSummary = { created: 0, duplicate: 0, skipped: 0, failed: 0, pushSent: 0, pushSkipped: 0 };
+  const summary: ReminderSweepSummary = { created: 0, duplicate: 0, skipped: 0, failed: 0, pushSent: 0, pushSkipped: 0, tenantErrors: 0 };
   const { deliverPushForUser } = await import("./push/sender");
   const { isPushEnabledForUser } = await import("./notification-preferences");
-  const tenants = await listTenants();
-  for (const t of tenants.slice(0, 200)) {
-    await runWithTenantAsync(t.tenantId, async () => {
+  summary.tenantErrors = await forEachSchoolTenant("lessonReminders", async (tenantId) => {
+      const t = { tenantId };
       const data = await readData();
       const access = await listActiveAccessForTenant(t.tenantId);
       // Alıcı havuzu: yalnız `active` satırlar (invited/revoked ASLA).
@@ -503,7 +520,6 @@ export async function sweepLessonReminders(now: Date = new Date()): Promise<Remi
           }
         }
       }
-    });
-  }
+  });
   return summary;
 }
