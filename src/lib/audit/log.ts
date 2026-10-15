@@ -222,6 +222,10 @@ export type AuditLogPageFilters = {
   to?: string;
   /** Özne: kaydın kendisi VEYA meta'sındaki öğrenci/öğretmen bu kişilerden biri (en çok 50). */
   subjectIds?: string[];
+  /** "Önceki → Sonraki" sütunu: bu alanı değiştiren kayıtlar (meta.changes[].field). */
+  changedField?: string;
+  /** "IP/Cihaz" sütunu: meta.ip içinde geçen metin. */
+  ip?: string;
   search?: string;
   page: number;
   pageSize: number;
@@ -252,6 +256,8 @@ export async function listAuditLogPage(
         ],
       });
     }
+    if (f.changedField) and.push({ meta: { path: ["changes"], array_contains: [{ field: f.changedField }] } });
+    if (f.ip?.trim()) and.push({ meta: { path: ["ip"], string_contains: f.ip.trim() } });
     if (search) {
       and.push({
         OR: [

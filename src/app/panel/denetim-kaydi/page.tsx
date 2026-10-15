@@ -14,6 +14,7 @@ import {
   compactAuditDiff,
   describeAuditEvent,
   ENTITY_LABELS,
+  FIELD_LABELS,
   readAuditChanges,
   ROLE_LABELS_TR,
   type AuditCategory,
@@ -50,6 +51,8 @@ type SearchParams = {
   kategori?: string;
   ozne?: string;
   ozneTuru?: string;
+  alan?: string;
+  ip?: string;
   sayfa?: string;
 };
 
@@ -127,6 +130,8 @@ export default async function AuditLogPage({ searchParams }: { searchParams: Pro
           excludeActions: [...(AUDITLOG_DELETE_ALLOWLIST.api_telemetry ?? [])],
           outcome: (sp.outcome as AuditOutcome) || undefined,
           subjectIds: subjectMatches.map((m) => m.id),
+          changedField: sp.alan && sp.alan in FIELD_LABELS ? sp.alan : undefined,
+          ip: sp.ip || undefined,
           search: sp.q || undefined,
           page,
           pageSize: PAGE_SIZE,
@@ -257,6 +262,21 @@ export default async function AuditLogPage({ searchParams }: { searchParams: Pro
               <option value="denied">Reddedildi</option>
               <option value="error">Hata</option>
             </Select>
+          </Field>
+          <Field label="Değişen bilgi (Önceki → Sonraki)">
+            <Select name="alan" defaultValue={sp.alan ?? ""}>
+              <option value="">Tümü</option>
+              {Object.entries(FIELD_LABELS)
+                .sort((a, b) => a[1].localeCompare(b[1], "tr"))
+                .map(([field, label]) => (
+                  <option key={field} value={field}>
+                    {label}
+                  </option>
+                ))}
+            </Select>
+          </Field>
+          <Field label="IP adresi">
+            <Input name="ip" defaultValue={sp.ip ?? ""} placeholder="Örn. 85.105" />
           </Field>
           <Field label="Ara (kayıt numarası)" className="sm:col-span-2">
             <Input name="q" defaultValue={sp.q ?? ""} placeholder="Kayıt numarası" />
