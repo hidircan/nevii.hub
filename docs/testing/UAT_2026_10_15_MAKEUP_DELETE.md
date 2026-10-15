@@ -50,10 +50,12 @@ ROLLBACK;
 Beklenen (1): `opsMakeupFlag = true`, 1 yoklama satırı, tek talep `status = cancelled`. Farklıysa (ör. `confirmed` /
 `completed`) bu gerçek bir telafidir — silmeyin, sonucu paylaşın.
 
-## UAT (deploy sonrası, canlı)
-1. Ders Programı → örnek ders → "Hatalı oluşturuldu — programdan sil" → gerekçe + kritik şifre → "korunan" mesajı sonrası
-   pencere "Tamamen sil" moduna geçer → onay. Ders, yoklaması ve iptal edilmiş eski telafi izi silinir; denetim kaydında
-   `lesson.delete_protected` (`removedMakeupRequestIds`).
-2. Sentetik eşdeğer (test öğrencisi): ders → Telafi → Geri al → Telafi → Telafi Merkezi'nde talep "bekliyor" görünür
-   (eskiden görünmüyordu) → aynı dersi silmeyi dene → "geçerli bir telafi var (planlanmayı bekliyor…)" reddi.
-3. Telafi Merkezi'nden talebi iptal et → "Tamamen sil" başarılı.
+## UAT (deploy sonrası, canlı) — SIRA ÖNEMLİ
+Not: db modundaki yeniden açma (koşullu güncelleme), kilit ve FK sıralı silme yalnız saf fonksiyon testleriyle (json)
+doğrulandı; PostgreSQL FK/transaction koşusu owner talimatıyla yapılmadı. Bu yüzden önce sentetik kayıt:
+1. Test öğrencisi + tek ders: Telafi → Geri al → Telafi → Telafi Merkezi'nde talep "açık talepler" listesinde görünür
+   (eskiden görünmüyordu) → dersi silmeyi dene → "geçerli bir telafi var…" reddi + "Telafi Merkezi'nde aç" bağlantısı.
+2. Telafi Merkezi'nden talebi iptal et → aynı dersi "Hatalı oluşturuldu — programdan sil" → "Tamamen sil" (kritik şifre)
+   başarılı; denetim kaydında `lesson.delete_protected` + `removedMakeupRequestIds`.
+3. Yukarıdaki salt-okunur SQL ile gerçek örneğin beklenen durumda olduğunu doğrula (tek talep `cancelled`).
+4. Ancak bundan sonra ve açık onayla gerçek ders: "Tamamen sil". Geri alınamaz.

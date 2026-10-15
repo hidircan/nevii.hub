@@ -52,7 +52,9 @@ const MAKEUP_STATE_LABEL: Record<MakeupRequest["status"], string> = {
 /** Aktif telafi bağının açıklaması — durum + talep tarihi + nerede görüleceği. */
 function activeMakeupMessage(m: MakeupRequest): string {
   const day = m.createdAt.slice(0, 10).split("-").reverse().join(".");
-  return `derse bağlı geçerli bir telafi var (${MAKEUP_STATE_LABEL[m.status] ?? m.status}, talep ${day}). Telafi Merkezi'nde öğrenciyi seçerek görebilirsiniz; önce telafiyi orada iptal edin`;
+  // Telafi Merkezi'nde planlanmamış talep "Açık" listede, planlı/gerçekleşmiş olan "Geçmiş / tamamlanan" bölümündedir.
+  const where = m.status === "confirmed" || m.status === "completed" ? "\"Geçmiş / tamamlanan\" bölümünde" : "açık talepler listesinde";
+  return `derse bağlı geçerli bir telafi var (${MAKEUP_STATE_LABEL[m.status] ?? m.status}, talep ${day}). Telafi Merkezi'nde öğrenci filtresiyle ${where} görünür; önce telafiyi orada iptal edin`;
 }
 
 /**

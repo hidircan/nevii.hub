@@ -9,6 +9,7 @@
  */
 
 import { useState, useTransition } from "react";
+import Link from "@/components/link";
 import { actionDeleteLessons, actionForceDeleteLesson, actionReviseLessons, type LessonEditScopeInput } from "@/lib/actions";
 import { ModalShell, modalButton } from "@/components/modal-shell";
 import { Button, Input, Label, Select } from "@/components/ui";
@@ -290,6 +291,11 @@ export function LessonDeleteAction({ lesson, onDone }: { lesson: Lesson; onDone:
           {deleteError ? (
             <p role="alert" className="text-xs font-medium" style={{ color: "var(--color-danger)" }}>
               {deleteError}
+              {deleteError.includes("geçerli bir telafi var") ? (
+                <Link href={`/panel/telafi?ogrenci=${encodeURIComponent(lesson.studentId)}`} className="mt-1 block underline">
+                  Telafi Merkezi&apos;nde bu öğrencinin telafilerini aç →
+                </Link>
+              ) : null}
             </p>
           ) : null}
         </div>
