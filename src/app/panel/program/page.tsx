@@ -44,9 +44,10 @@ export default async function ProgramPage({
     progTerm?: string;
     progYear?: string;
     returnTo?: string;
+    ders?: string;
   }>;
 }) {
-  const { week, studentId, progTerm, progYear, returnTo } = await searchParams;
+  const { week, studentId, progTerm, progYear, returnTo, ders } = await searchParams;
   // Ödemeler → Kaynak ders → Ödemelere geri dön: yalnızca allowlist edilmiş,
   // uygulama-içi bir panel yoluysa (bkz. resolveSafeReturnTo) geri dönüş
   // butonu render edilir — sahte/harici bir returnTo sessizce yok sayılır.
@@ -144,6 +145,12 @@ export default async function ProgramPage({
         </Link>
       ) : null}
       <PageHeader title="Ders programı" />
+      {ders && !weekLessons.some((l) => l.id === ders) ? (
+        <p role="status" className="mb-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
+          Bildirimdeki ders bu haftanın programında yok: silinmiş, taşınmış ya da bu kurumda değil. Ders taşındıysa yeni tarihine
+          ait bildirime bakın.
+        </p>
+      ) : null}
 
       <ProgramTermYearNav term={selectedTerm} academicYearStart={selectedAcademicYearStart}>
         {/* 9. tur — hafta gezinmesi dönem seçicinin sağındaki boşlukta; ayrı alt satır kaldırıldı. */}
@@ -194,6 +201,7 @@ export default async function ProgramPage({
         weekLessons={weekLessons}
         todayIso={new Date().toISOString()}
         initialStudentFilter={studentId}
+        initialDetailLessonId={ders && weekLessons.some((l) => l.id === ders) ? ders : undefined}
         selectedTerm={selectedTerm}
         selectedAcademicYearStart={selectedAcademicYearStart}
         catalogInstruments={catalogInstruments}

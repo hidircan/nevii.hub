@@ -8,6 +8,7 @@ import { notifyAdmins } from "./manager-notifications";
 import { notifyStudentIfEnabled, notifyUserIfEnabled, type NotifyOutcome } from "./notification-dispatch";
 import { logger, safeErrorFields } from "./logger";
 import type { Lesson } from "./types";
+import { resolveAppTimezone, toZonedYmd } from "./timezone";
 
 /**
  * Bir ders olayının bildirim turunun ÖLÇÜLEBİLİR sonucu. Çağıran (tool)
@@ -116,6 +117,12 @@ function lessonHref(role: "teacher" | "admin" | "student"): string {
   return "/panel/program";
 }
 
+/** 2026-10-15 — yönetici hedefi: dersin haftası açılır ve ders paneli seçili gelir (`?ders=`; bkz. panel/program). */
+function lessonAdminHref(lesson: Lesson): string {
+  const week = toZonedYmd(new Date(lesson.startAt), resolveAppTimezone());
+  return `/panel/program?week=${week}&ders=${encodeURIComponent(lesson.id)}`;
+}
+
 export async function notifyLessonCancelled(input: {
   tenantId: string;
   lesson: Lesson;
@@ -124,7 +131,7 @@ export async function notifyLessonCancelled(input: {
 }): Promise<LessonNotificationSummary> {
   const reasonBit = input.reason ? ` ${input.reason.slice(0, 80)}` : "";
   const title = "Ders iptal edildi";
-  const bodyAdmin = `"${input.lesson.instrument}" dersi iptal edildi (${fmt(input.lesson.startAt)}).${reasonBit} Detay: ${lessonHref("admin")}`;
+  const bodyAdmin = `"${input.lesson.instrument}" dersi iptal edildi (${fmt(input.lesson.startAt)}).${reasonBit} Detay: ${lessonAdminHref(input.lesson)}`;
   const bodyParty = `"${input.lesson.instrument}" dersiniz iptal edildi (${fmt(input.lesson.startAt)}). Detay: ${lessonHref("student")}`;
   return settleNotifications(
     "notifyLessonCancelled",
@@ -200,7 +207,7 @@ export async function notifyLessonRescheduled(input: {
         "lesson_rescheduled",
         {
           title,
-          body: `"${input.lesson.instrument}" dersi taşındı (${when}). Detay: ${lessonHref("admin")}`,
+          body: `"${input.lesson.instrument}" dersi taşındı (${when}). Detay: ${lessonAdminHref(input.lesson)}`,
         },
         { excludeUserId: input.actorUserId, dedupeKey }
       ),
@@ -263,7 +270,7 @@ export async function notifyLessonReassigned(input: {
       "lesson_reassigned",
       {
         title,
-        body: `"${input.lesson.instrument}" dersi (${fmt(input.lesson.startAt)}) yeniden atandı. Detay: ${lessonHref("admin")}`,
+        body: `"${input.lesson.instrument}" dersi (${fmt(input.lesson.startAt)}) yeniden atandı. Detay: ${lessonAdminHref(input.lesson)}`,
       },
       { excludeUserId: input.actorUserId, dedupeKey }
     );
@@ -306,7 +313,7 @@ export async function notifyMakeupLessonScheduled(input: {
       "lesson_rescheduled",
       {
         title,
-        body: `Telafi dersi planlandı: ${input.lesson.instrument} · ${when}. Detay: /panel/telafi`,
+        body: `Telafi dersi planlandı: ${input.lesson.instrument} · ${when}. Detay: ${lessonAdminHref(input.lesson)}`,
       },
       { excludeUserId: input.actorUserId, dedupeKey: key }
     );

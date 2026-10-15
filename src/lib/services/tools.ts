@@ -357,6 +357,7 @@ import {
   updateStudentFeedbackStatus,
 } from "../student-feedback";
 import { formatMoney, formatDate, formatTime, uid, computeAge, paymentMethodLabelTr } from "../utils";
+import { paymentTargetHref } from "../notification-href";
 import type { AppRole } from "../auth/types";
 import { parseCsv, rowsToRecords } from "../import/csv";
 import { validateBranchRows, type BranchImportRow } from "../import/branches";
@@ -2038,7 +2039,7 @@ export async function createPaymentTool(
       const collectedAmount = v.data.amount ?? existing.amount - (existing.paidAmount ?? 0);
       await notifyAdmins(ctx.tenantId, "payment_received", {
         title: "Ödeme alındı",
-        body: `${studentName} için ${formatMoney(collectedAmount)} tahsilat ${actorName} tarafından alındı. Detay: /panel/odemeler/${v.data.paymentId}`,
+        body: `${studentName} için ${formatMoney(collectedAmount)} tahsilat ${actorName} tarafından alındı. Detay: ${paymentTargetHref(existing.studentId, v.data.paymentId)}`,
       }, { excludeUserId: ctx.userId, dedupeKey: v.data.paymentId });
     } catch {
       // best-effort
@@ -2062,7 +2063,8 @@ export async function createPaymentTool(
               targetUserId: studentUserId,
               kind: "payment_received",
               title: "Ödemeniz alındı",
-              body: `Ödeme (${payment.amount} TL) kaydedildi. Detay: /panel/odemeler/${payment.id}`,
+              // Öğrenci/veli /panel'i açamaz → kendi makbuzu. Kimlik URL'de kalır (yukarıdaki tekilleştirme buna bakar).
+              body: `${formatMoney(payment.amount)} tutarındaki ödemeniz kaydedildi. Detay: /makbuz/${payment.id}`,
             });
           }
         }
@@ -10876,7 +10878,7 @@ export async function scanOverduePaymentsTool(
           "payment_overdue",
           {
             title: "Vadesi geçmiş ödeme",
-            body: `${student.name}${branchText}: ${payment.description} — ${formatMoney(remaining)} gecikmiş. Detay: /panel/odemeler`,
+            body: `${student.name}${branchText}: ${payment.description} — ${formatMoney(remaining)} gecikmiş. Detay: ${paymentTargetHref(student.id, payment.id)}`,
           },
           { excludeUserId: ctx.userId, dedupeKey: payment.id }
         );
