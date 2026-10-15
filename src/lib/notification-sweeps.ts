@@ -48,12 +48,14 @@ export async function sweepPaymentFailedOrPending(now = new Date()): Promise<{ c
       // tekilleştirme `body.includes(p.id)` ile aynen çalışır). Push yok — yalnız yönetici uygulama içi bildirimi.
       const who = data.students.find((st) => st.id === p.studentId)?.name ?? "Öğrenci kaydı bulunamadı";
       const what = p.installmentPeriodLabel ?? p.description ?? "Ödeme";
+      // Bozuk/boş vade tarihi tick'i düşürmesin (kurum hatası = tick 500): yalnız geçerliyse yazılır.
+      const due = p.dueDate && !Number.isNaN(Date.parse(p.dueDate)) ? `vade ${formatDate(p.dueDate)}, ` : "";
       await notifyAdmins(
         tenantId,
         "payment_failed_or_pending",
         {
           title: "Bekleyen ödeme",
-          body: `${who} — ${what}: ${formatMoney(remaining)} ödeme bekliyor (vade ${formatDate(p.dueDate)}, ${age} gündür açık). Detay: ${paymentTargetHref(p.studentId, p.id)}`,
+          body: `${who} — ${what}: ${formatMoney(remaining)} ödeme bekliyor (${due}${age} gündür açık). Detay: ${paymentTargetHref(p.studentId, p.id)}`,
         },
         { dedupeKey: p.id }
       );
