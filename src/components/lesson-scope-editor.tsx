@@ -162,8 +162,8 @@ export function LessonScopeEditor({ lesson, onDone }: { lesson: Lesson; onDone: 
 }
 
 /**
- * "Hatalı oluşturuldu — programdan sil": yanlış planlanmış ders(ler)i kaldırır (iptal DEĞİL — iptalde ders "İptal"
- * olarak kalır). Kapsam seçimi pencerenin içinde; gerekçe + kritik işlem şifresi zorunlu (sunucu kuralı değişmedi).
+ * "Hatalı oluşturuldu — programdan sil": yanlış planlanmış ders(ler)i kaldırır. Gerçekten SİLER — arka planda
+ * iptal etmez (2026-10-15: web programından iptal eylemi kaldırıldı). Kapsam seçimi pencerenin içinde; gerekçe + kritik işlem şifresi zorunlu (sunucu kuralı değişmedi).
  */
 export function LessonDeleteAction({ lesson, onDone }: { lesson: Lesson; onDone: (message: string) => void }) {
   const [scope, setScope] = useState<LessonEditScopeInput>("single");
@@ -255,10 +255,6 @@ export function LessonDeleteAction({ lesson, onDone }: { lesson: Lesson; onDone:
             </div>
           ) : null}
           <ul className="space-y-1.5 rounded-md border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-2.5 text-xs">
-            <li>
-              <strong>İptal et</strong> — ders programda &quot;İptal&quot; olarak kalır; telafi ve yoklama kuralları işler. (Bu
-              pencereyi kapatıp &quot;Dersi iptal et&quot;i kullanın.)
-            </li>
             <li className={forceMode ? "opacity-60" : ""}>
               <strong>Programdan sil</strong> — yanlış girilmiş, henüz statüsü olmayan ders(ler) kaldırılır.{" "}
               {scope === "single" ? "Yalnız bu ders." : scope === "fromHereOnward" ? "Bu ders ve serinin sonrakileri." : "Serinin tamamı."}{" "}
@@ -267,7 +263,8 @@ export function LessonDeleteAction({ lesson, onDone }: { lesson: Lesson; onDone:
             <li className={forceMode ? "" : "opacity-60"}>
               <strong>Tamamen sil (kritik)</strong> — statüsü girilmiş tek ders yoklamasıyla birlikte silinir.{" "}
               <strong>Geri alınamaz</strong>; kurum sahibinin kritik işlem şifresi gerekir, dersin dökümü denetim kaydında kalır.
-              Tahsilat veya telafi bağlı derste yapılamaz.
+              Tahsilatı veya geçerli (açık, planlı ya da gerçekleşmiş) telafisi olan derste yapılamaz; iptal edilmiş/süresi dolmuş
+              eski telafi izi dersle birlikte silinir.
             </li>
           </ul>
           <label className="block text-xs font-medium text-[var(--color-text)]">

@@ -14,6 +14,7 @@ import { addMinutes, differenceInMinutes, parseISO } from "date-fns";
 import type { AppData, AttendanceStatus, Lesson, LessonSeriesStatus, MakeupRequest } from "./types";
 import { OPS_LABEL, effectiveLessonOpsStatus } from "./lesson-ops";
 import { validateLessonSlot, type SlotValidationCode } from "./makeup-engine";
+import { isPassiveMakeup, makeupLinksOfLesson } from "./makeup-deadline";
 import { assertWorkDaySchedulable } from "./work-days";
 import {
   DEFAULT_APP_TIMEZONE,
@@ -38,7 +39,21 @@ const LESSON_DONE_LABEL: Partial<Record<Lesson["status"], string>> = {
   in_progress: "Devam ediyor",
   no_show: "Gelmedi",
 };
-const isOpenMakeup = (m: MakeupRequest) => m.status !== "cancelled" && m.status !== "expired";
+const MAKEUP_STATE_LABEL: Record<MakeupRequest["status"], string> = {
+  pending: "planlanmayı bekliyor",
+  suggested: "planlanmayı bekliyor",
+  awaiting_info: "planlanmayı bekliyor",
+  confirmed: "telafi dersi planlandı",
+  completed: "telafi gerçekleşti",
+  cancelled: "iptal edildi",
+  expired: "süresi doldu",
+};
+
+/** Aktif telafi bağının açıklaması — durum + talep tarihi + nerede görüleceği. */
+function activeMakeupMessage(m: MakeupRequest): string {
+  const day = m.createdAt.slice(0, 10).split("-").reverse().join(".");
+  return `derse bağlı geçerli bir telafi var (${MAKEUP_STATE_LABEL[m.status] ?? m.status}, talep ${day}). Telafi Merkezi'nde öğrenciyi seçerek görebilirsiniz; önce telafiyi orada iptal edin`;
+}
 
 /**
  * Yoklama/işlem/tahsilat/telafi bağı olan ders — silinmez, revize edilmez. Neden, bağı ve
@@ -62,15 +77,17 @@ export function lessonProtectionReason(
     return "derse bağlı tahsilat var. Önce Ödemeler ekranından tahsilatı iptal edin";
   }
   if (lesson.type === "makeup" || lesson.makeupRequestId) return "bu bir telafi dersi. Telafi ekranından yönetin";
-  const linkedMakeup = data.makeupRequests.find(
-    (m) => (m.sourceLessonId === lesson.id || m.confirmedLessonId === lesson.id) && (!opts.forRevision || isOpenMakeup(m))
-  );
-  if (linkedMakeup) return "derse bağlı bir telafi talebi var. Önce Telafi ekranından talebi iptal edin";
+  // Tek kural (makeup-deadline.ts): aktif telafi korunur; iptal/süresi dolmuş ve canlı dersi olmayan talep geçmiş izidir.
+  const links = makeupLinksOfLesson(data, lesson.id);
+  if (links.active[0]) return activeMakeupMessage(links.active[0]);
+  if (!opts.forRevision && links.passive.length) {
+    return "derste geri alınmış/iptal edilmiş eski bir telafi kaydı var (geçerli telafi değil). Bu geçmiş kayıt dersle birlikte yalnız kritik işlem şifreli \"Tamamen sil\" ile kaldırılır";
+  }
   const attendance = data.attendances.find((a) => {
     if (a.lessonId !== lesson.id) return false;
     if (!opts.forRevision) return true;
     const anchors = data.makeupRequests.filter((m) => m.attendanceId === a.id);
-    return anchors.length === 0 || anchors.some(isOpenMakeup);
+    return anchors.length === 0 || anchors.some((m) => !isPassiveMakeup(data, m));
   });
   if (attendance) {
     return `derste "${ATTENDANCE_LABEL[attendance.status] ?? attendance.status}" yoklama kaydı var. Yoklama menüsünden "Geldi" işaretleyip hemen "Geri al" derseniz kayıt kaldırılır`;
@@ -89,14 +106,26 @@ export function lessonHardBlockReason(data: AppData, lesson: Lesson): string | n
   if (lesson.type === "makeup" || lesson.makeupRequestId) {
     return "Bu bir telafi dersi. Telafi ekranından telafiyi iptal edin; ders otomatik olarak programdan düşer.";
   }
-  if (data.makeupRequests.some((m) => m.sourceLessonId === lesson.id || m.confirmedLessonId === lesson.id)) {
-    return "Derse bağlı bir telafi talebi var. Önce Telafi ekranından talebi iptal edin.";
+  const active = makeupLinksOfLesson(data, lesson.id).active[0];
+  if (active) {
+    const msg = activeMakeupMessage(active);
+    return `${msg.charAt(0).toLocaleUpperCase("tr")}${msg.slice(1)}, sonra dersi silin.`;
   }
   return null;
 }
 
 export type ForcedLessonDeletionPlan =
-  | { ok: true; data: AppData; lesson: Lesson; removedAttendanceIds: string[]; protectionReason: string }
+  | {
+      ok: true;
+      data: AppData;
+      lesson: Lesson;
+      removedAttendanceIds: string[];
+      /** Dersle birlikte kaldırılan pasif (iptal/süresi dolmuş, canlı dersi yok) telafi talepleri. */
+      removedMakeupRequestIds: string[];
+      /** Bu taleplere bağlı, zaten İPTAL edilmiş telafi derslerinin talep bağı kaldırılır (ders kaydı kalır). */
+      detachedMakeupLessonIds: string[];
+      protectionReason: string;
+    }
   | { ok: false; message: string };
 
 /**
@@ -110,7 +139,15 @@ export function planForcedLessonDeletion(data: AppData, lessonId: string, now: D
   if (block) return { ok: false, message: block };
   const protectionReason = lessonProtectionReason(data, lesson) ?? "statü yok";
   const removedAttendanceIds = data.attendances.filter((a) => a.lessonId === lessonId).map((a) => a.id);
-  const lessons = data.lessons.filter((l) => l.id !== lessonId);
+  // Yoklama satırı silinir → ona FK ile bağlı pasif talepler de gider (aktif talep yukarıda engellendi).
+  const removedMk = new Set(makeupLinksOfLesson(data, lessonId).passive.map((m) => m.id));
+  for (const m of data.makeupRequests) if (removedAttendanceIds.includes(m.attendanceId)) removedMk.add(m.id);
+  const detachedMakeupLessonIds = data.lessons
+    .filter((l) => l.id !== lessonId && l.makeupRequestId && removedMk.has(l.makeupRequestId))
+    .map((l) => l.id);
+  const lessons = data.lessons
+    .filter((l) => l.id !== lessonId)
+    .map((l) => (detachedMakeupLessonIds.includes(l.id) ? { ...l, makeupRequestId: undefined } : l));
   const seriesId = lesson.seriesId;
   const lessonSeries =
     seriesId && !lessons.some((l) => l.seriesId === seriesId)
@@ -120,9 +157,17 @@ export function planForcedLessonDeletion(data: AppData, lessonId: string, now: D
       : data.lessonSeries;
   return {
     ok: true,
-    data: { ...data, lessons, lessonSeries, attendances: data.attendances.filter((a) => a.lessonId !== lessonId) },
+    data: {
+      ...data,
+      lessons,
+      lessonSeries,
+      attendances: data.attendances.filter((a) => a.lessonId !== lessonId),
+      makeupRequests: data.makeupRequests.filter((m) => !removedMk.has(m.id)),
+    },
     lesson,
     removedAttendanceIds,
+    removedMakeupRequestIds: [...removedMk],
+    detachedMakeupLessonIds,
     protectionReason,
   };
 }
@@ -164,7 +209,7 @@ export function planLessonDeletion(data: AppData, lessonId: string, scope: Lesso
     return {
       ok: false,
       allProtected: true,
-      message: `Seçilen ders(ler) normal silmeyle silinemez: ${protectedLessons[0]?.reason ?? "korunan kayıt"}. Dersi iptal edebilir ya da (tek ders için) kritik işlem şifresiyle tamamen silebilirsiniz.`,
+      message: `Seçilen ders(ler) normal silmeyle silinemez: ${protectedLessons[0]?.reason ?? "korunan kayıt"}. Tek ders için kritik işlem şifresiyle "Tamamen sil"i kullanabilirsiniz.`,
     };
   }
   const lessons = data.lessons.filter((l) => !deleteIds.has(l.id));

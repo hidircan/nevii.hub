@@ -13,7 +13,8 @@ export type MakeupChangeAction =
   | "deadline_extended"
   | "plan_revised"
   | "plan_deleted"
-  | "right_cancelled";
+  | "right_cancelled"
+  | "reopened";
 
 export interface MakeupChangeEntry {
   action: MakeupChangeAction;
@@ -87,4 +88,61 @@ export function activeMakeupLessonForRequest(
       lesson.status !== "cancelled" &&
       (lesson.makeupRequestId === request.id || lesson.id === request.confirmedLessonId)
   );
+}
+
+const CLOSED = new Set(["cancelled", "expired"]);
+
+/**
+ * 2026-10-15 — TEK kural (Telafi Merkezi, ders silme önizlemesi/yürütücüsü, yeniden Telafi): kapanmış (iptal/süresi
+ * dolmuş) ve canlı (iptal edilmemiş) telafi dersi olmayan talep "pasif bağ"dır — geçmiş izi, gerçek telafi değil.
+ * Açık, planlı veya gerçekleşmiş talep "aktif"tir ve korunur.
+ */
+export function isPassiveMakeup(data: Pick<AppData, "lessons">, request: MakeupRequest): boolean {
+  return CLOSED.has(request.status) && !activeMakeupLessonForRequest(data, request);
+}
+
+/** Dersin kaynak veya onaylı ders olduğu telafi talepleri, aktif/pasif ayrımıyla. */
+export function makeupLinksOfLesson(
+  data: Pick<AppData, "lessons" | "makeupRequests">,
+  lessonId: string
+): { active: MakeupRequest[]; passive: MakeupRequest[] } {
+  const links = data.makeupRequests.filter((m) => m.sourceLessonId === lessonId || m.confirmedLessonId === lessonId);
+  return {
+    active: links.filter((m) => !isPassiveMakeup(data, m)),
+    passive: links.filter((m) => isPassiveMakeup(data, m)),
+  };
+}
+
+/** Yeniden Telafi işaretlenen dersin yeniden açılacak kapanmış talebi (en yenisi). */
+export function closedMakeupToReopen(
+  data: Pick<AppData, "lessons" | "makeupRequests">,
+  lessonId: string
+): MakeupRequest | undefined {
+  return data.makeupRequests
+    .filter((m) => m.sourceLessonId === lessonId && isPassiveMakeup(data, m))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+}
+
+/** Kapanmış talebi bekleyen hâle döndürür; süre bugünden yeniden başlar, karar/SLA/plan izleri temizlenir. */
+export function reopenMakeupRequest(
+  request: MakeupRequest,
+  op: { reason: string; now: Date; actorUserId: string; windowDays: number }
+): MakeupRequest {
+  return {
+    ...request,
+    status: "pending",
+    reason: op.reason,
+    expiresAt: new Date(op.now.getTime() + op.windowDays * 86_400_000).toISOString(),
+    suggestedSlots: [],
+    confirmedLessonId: undefined,
+    decisionNote: undefined,
+    decidedBy: undefined,
+    decidedAt: undefined,
+    slaDeadline: undefined,
+    slaEscalationLevel: 0,
+    changeLog: [
+      ...(request.changeLog ?? []),
+      { action: "reopened", at: op.now.toISOString(), by: op.actorUserId, from: request.status, to: "pending" },
+    ],
+  };
 }
