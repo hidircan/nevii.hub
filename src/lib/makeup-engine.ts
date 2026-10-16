@@ -282,7 +282,8 @@ function guidedTeacherMessage(
 }
 
 export function validateLessonSlot(
-  data: AppData,
+  // Yalnız bu koleksiyonlar okunur — dar dilimler (Telafi Merkezi) tam veri olmadan doğrulayabilsin.
+  data: Pick<AppData, "lessons" | "students" | "teachers" | "rooms" | "settings" | "closedDayOverrides">,
   context: SlotValidationContext,
   input: { teacherId: string; roomId: string; startAt: string },
   options?: {

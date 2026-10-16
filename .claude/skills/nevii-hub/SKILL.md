@@ -64,3 +64,11 @@ UI (`src/app/panel/*`, `src/components/*`) → server action (`src/lib/actions.t
 ## 6. Oturum sonu (kısa tut)
 - `PROJECT_STATE.md`: yalnız "Güncel snapshot" bölümünü ÜZERİNE yaz (commit, ortam, açık iş, riskler — ~40 satır). Ayrıntı → `docs/testing/UAT_*.md` / `docs/operations/*`; eski snapshot → `docs/agent-memory/archive/`.
 - `LESSONS_LEARNED.md`: yalnız bu oturumda KANITLANIP düzeltilen yeni hata için 3–5 satır; var olan maddeyi tekrar etme.
+
+## 7. Supabase egress kuralı (2026-10-16, zorunlu)
+- Yeni `readData()`/`readScopedData(` = `egress-full-read-ratchet.test.ts` kırmızı. Dar dilim kullan
+  (`reference-data.ts`, `readScoped*`, `read*ById`, `readLessonsStartingBetween`, `readMakeupCenterData`).
+- Döngü/satır başına "hepsini listele + JS'te süz" yasak → SQL `where`/`select`/`take`.
+- Cron/tick: tur başına okuma × günlük tur sayısını PR'a yaz; 10 dk'lık iş yalnız penceresini okur.
+- Büyük kolon (logo, sözleşme snapshot'ı, dosya/HTML) yalnız onu gösteren tekil ekranda seçilir.
+- Ayrıntı: CLAUDE.md "Egress rules — enforced".

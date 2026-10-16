@@ -71,6 +71,17 @@ export function narrowToLessonWindow(data: AppData, from: Date, to: Date): Lesso
 }
 
 /**
+ * TELAFİ MERKEZİ dilimi (2026-10-16): referans veri + TÜM dersler + TÜM telafi talepleri. Öneri doğrulama
+ * (`validateLessonSlot`), dönem hakkı (`getStudentMakeupQuota`) ve aşama türetmesi yalnız bunlara bakar;
+ * ödeme/yoklama/seri/hakediş satırları okunmaz (sayfanın tam okumasının ~yarısı).
+ */
+export type MakeupCenterData = ReferenceData & Pick<AppData, "lessons" | "makeupRequests">;
+
+export function narrowToMakeupCenter(data: AppData): MakeupCenterData {
+  return { ...toReferenceData(data), lessons: data.lessons, makeupRequests: data.makeupRequests };
+}
+
+/**
  * ÖĞRENCİ LİSTESİ dilimi: referans veri + TÜM ödeme satırlarının yalnız durum rozeti ve açık
  * borç tutarı için gereken beş alanı (satır sayısı aynı, dar). Tarih/açıklama YOK.
  */

@@ -91,9 +91,14 @@ export async function sweepLeavePendingApproval(): Promise<{ created: number; te
 /**
  * Tüm süpürmeler sırayla. Kurum hatası aşama içinde sayılır (diğer kurumlar/aşamalar sürer);
  * aşamanın KENDİSİ çökerse (ör. kurum listesi okunamadı) hata yukarı fırlar → tick 500.
+ *
+ * `stages: "lessons"` (DB egress, 2026-10-16): her 10 dk'lık tur yalnız ders hatırlatmalarını çalıştırır (dakika
+ * hassasiyeti gerekir). Ödeme/izin/sözleşme süpürmeleri 24 saatlik tekilleştirmeli olduğu için günde bir kez (tam tur)
+ * yeterlidir; her turda çalışmaları yeni bildirim üretmeden tüm ödemeleri okumak demekti.
  */
 export async function runNotificationSweeps(
-  now = new Date()
+  now = new Date(),
+  options: { stages?: "all" | "lessons" } = {}
 ): Promise<NotificationSweepSummary> {
   async function runStage<T>(
     stage: string,
@@ -109,9 +114,11 @@ export async function runNotificationSweeps(
 
   const upcoming = await runStage("upcomingLessons", () => sweepUpcomingLessons(now));
   const reminders = await runStage("lessonReminders", () => sweepLessonReminders(now));
-  const payment = await runStage("paymentPending", () => sweepPaymentFailedOrPending(now));
-  const leave = await runStage("leavePending", () => sweepLeavePendingApproval());
-  const contract = await runStage("contractExpiry", () => sweepStudentContractExpiry(now));
+  const daily = options.stages !== "lessons";
+  const none = { created: 0, tenantErrors: 0 };
+  const payment = daily ? await runStage("paymentPending", () => sweepPaymentFailedOrPending(now)) : none;
+  const leave = daily ? await runStage("leavePending", () => sweepLeavePendingApproval()) : none;
+  const contract = daily ? await runStage("contractExpiry", () => sweepStudentContractExpiry(now)) : none;
 
   return {
     upcoming,

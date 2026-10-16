@@ -5,6 +5,7 @@ import {
   readData,
   readDashboardData,
   readLessonWindow,
+  readMakeupCenterData,
   readPaymentsPageData,
   readPayoutWindow,
   readReferenceData,
@@ -15,6 +16,8 @@ import {
 import {
   narrowToDashboard,
   narrowToLessonWindow,
+  narrowToMakeupCenter,
+  type MakeupCenterData,
   narrowToPaymentsPage,
   narrowToPayoutWindow,
   narrowToStudentScope,
@@ -108,7 +111,12 @@ export const getInstitutionContext = cache(async function getInstitutionContext(
  * nesnesini kurar, nesne kimliğine göre memoize etmek hiç isabet etmezdi.
  */
 function scopeCacheKey(scope: InstitutionScope): string {
-  return scope.mode === "single" ? `single:${scope.tenantId}` : `all:${[...scope.tenantIds].sort().join(",")}`;
+  if (scope.mode === "single") return `single:${scope.tenantId}`;
+  // DB egress (2026-10-16): tek kurumlu "Tüm kurumlar" görünümü o kurumun verisinin AYNISIDIR (`mergeAppData` tek
+  // seti aynen döner) — okuma dar dilim yoluna gider. Canlıda tek okul varken bu görünüm program/ödeme/öğrenci
+  // dahil her sayfayı tam okumaya düşürüyordu. Yazma kapısı `scope.mode`'a bakar; bu yalnız OKUMA anahtarıdır.
+  if (scope.tenantIds.length === 1) return `single:${scope.tenantIds[0]}`;
+  return `all:${[...scope.tenantIds].sort().join(",")}`;
 }
 
 const readScopedDataByKey = cache(async (key: string): Promise<AppData> => {
@@ -165,6 +173,18 @@ const readScopedLessonWindowByKey = cache(async (key: string, fromIso: string, t
   }
   return narrowToLessonWindow(await readScopedDataByKey(key), new Date(fromIso), new Date(toIso));
 });
+
+const readScopedMakeupCenterDataByKey = cache(async (key: string): Promise<MakeupCenterData> => {
+  if (key.startsWith("single:")) {
+    return runWithTenantAsync(key.slice("single:".length), () => readMakeupCenterData());
+  }
+  return narrowToMakeupCenter(await readScopedDataByKey(key));
+});
+
+/** DB egress (2026-10-16) — Telafi Merkezi (bkz. reference-data.ts `MakeupCenterData`). */
+export async function readScopedMakeupCenterData(scope: InstitutionScope): Promise<MakeupCenterData> {
+  return readScopedMakeupCenterDataByKey(scopeCacheKey(scope));
+}
 
 /** DB egress (2026-09-30) — Ders Programı haftası (bkz. reference-data.ts `LessonWindowData`). */
 export async function readScopedLessonWindow(scope: InstitutionScope, from: Date, to: Date): Promise<LessonWindowData> {
