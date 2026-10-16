@@ -1,5 +1,5 @@
 import { differenceInCalendarDays, parseISO } from "date-fns";
-import { readData } from "./store";
+import { readPaymentsPageData } from "./store";
 import { notifyAdmins } from "./manager-notifications";
 import { listLeave } from "./leave";
 import { forEachSchoolTenant, sweepLessonReminders, sweepUpcomingLessons } from "./lesson-notifications";
@@ -36,7 +36,8 @@ export async function sweepStudentContractExpiry(now = new Date()): Promise<{ cr
 export async function sweepPaymentFailedOrPending(now = new Date()): Promise<{ created: number; tenantErrors: number }> {
   let created = 0;
   const tenantErrors = await forEachSchoolTenant("paymentPending", async (tenantId) => {
-    const data = await readData();
+    // DB egress (2026-10-16): ödeme dilimi (ödemeler + referans veri); ders/yoklama/telafi okunmaz.
+    const data = await readPaymentsPageData();
     for (const p of data.payments) {
       if (p.status !== "pending") continue;
       const anchor = p.createdAt || p.dueDate;
@@ -50,7 +51,7 @@ export async function sweepPaymentFailedOrPending(now = new Date()): Promise<{ c
       const what = p.installmentPeriodLabel ?? p.description ?? "Ödeme";
       // Bozuk/boş vade tarihi tick'i düşürmesin (kurum hatası = tick 500): yalnız geçerliyse yazılır.
       const due = p.dueDate && !Number.isNaN(Date.parse(p.dueDate)) ? `vade ${formatDate(p.dueDate)}, ` : "";
-      await notifyAdmins(
+      const outcomes = await notifyAdmins(
         tenantId,
         "payment_failed_or_pending",
         {
@@ -59,7 +60,8 @@ export async function sweepPaymentFailedOrPending(now = new Date()): Promise<{ c
         },
         { dedupeKey: p.id }
       );
-      created++;
+      // Yalnız gerçekten yazılan bildirim sayılır (eskiden yinelenen/atlanan da "created" sayılıyordu).
+      if (outcomes.includes("created")) created++;
     }
   });
   return { created, tenantErrors };

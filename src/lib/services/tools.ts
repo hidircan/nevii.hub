@@ -999,11 +999,24 @@ export async function confirmMakeupLessonTool(
       decidedBy: ctx.userId,
       allowAvailabilityOverride: Boolean(v.data.overrideAvailability),
     });
-    const data = await readData();
-    const req = data.makeupRequests.find((m) => m.id === v.data.requestId);
-    const lesson = req?.confirmedLessonId
-      ? data.lessons.find((l) => l.id === req.confirmedLessonId)
-      : undefined;
+    // DB egress (2026-10-16): yeni telafi dersi, slot gününün ders penceresinden bulunur (tam kurum okuması değil);
+    // pencere öğrenci/öğretmen/ayarları da taşır. Bulunamazsa (beklenmez) eski tam okumaya düşer.
+    const slotMs = new Date(v.data.slot.startAt).getTime();
+    const windowData = await readLessonWindow(
+      new Date(slotMs - 86_400_000).toISOString(),
+      new Date(slotMs + 86_400_000).toISOString()
+    );
+    const isNewMakeupLesson = (l: Lesson) =>
+      l.makeupRequestId === v.data.requestId && l.status !== "cancelled" && new Date(l.startAt).getTime() === slotMs;
+    let data: Pick<AppData, "students" | "teachers" | "settings"> = windowData;
+    let lesson = windowData.lessons.find(isNewMakeupLesson);
+    if (!lesson) {
+      const full = await readData();
+      const confirmedId = full.makeupRequests.find((m) => m.id === v.data.requestId)?.confirmedLessonId;
+      lesson = confirmedId ? full.lessons.find((l) => l.id === confirmedId) : undefined;
+      data = full;
+    }
+    const req = { confirmedLessonId: lesson?.id };
     audit(ctx, "makeup.confirm", "MakeupRequest", v.data.requestId, {
       lessonId: req?.confirmedLessonId,
       decisionNote: v.data.decisionNote,
@@ -18676,8 +18689,8 @@ export async function getStudentPaymentAttendanceStatementTool(
   ];
   // P0 revizyonu: e-posta DEĞİL ad soyad (öğretmen kaydından; yoksa zarif
   // fallback) — kimlik `receivedByUserId`de aynen korunur (audit bütünlüğü).
-  const { resolveCollectorDisplayNames } = await import("../contract-payment-plan-view");
-  const collectorNames = await resolveCollectorDisplayNames({ userIds: collectorIds, teachers: data.teachers });
+  const { resolveActorLabels } = await import("../contract-payment-plan-view");
+  const collectorNames = await resolveActorLabels({ tenantId: ctx.tenantId, userIds: collectorIds, teachers: data.teachers });
 
   const { buildStudentPaymentAttendanceStatement } = await import("../student-statement");
   const statement = buildStudentPaymentAttendanceStatement({

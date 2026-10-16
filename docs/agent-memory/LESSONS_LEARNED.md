@@ -1549,3 +1549,11 @@ Aynı turda: `validateLessonSlot` oda `active`'ini hiç okumuyordu → telafi pa
 - Ders: kurum başına `readData` yapan her zamanlanmış iş platform tenant'ını dışlamalı; bir fonksiyonu fırlatır hale getirince
   tüm çağıranlarını `grep` et. Log'a stack yazarken yalnız `at ...` satırları (çok satırlı mesaj stack'in başına girer).
 - Ayrıca: özel `Button`'a verilen `aria-*` JSX'te TS hatası vermeden düşer — ortak bileşen iletmiyorsa erişilebilirlik kaybolur.
+
+## 2026-10-16 — Bildirim tekilleştirmesi biriken bildirimle karesel okuma yaptı (egress)
+- `notifyUserIfEnabled` tekilleştirmek için kullanıcının TÜM bildirimlerini (`findMany`, limit/select yok) okuyordu. Ödeme
+  taraması bunu bekleyen ödeme × yönetici kez çağırdı; her tur bildirim eklediği için okunan satır her gün büyüdü. Tick 500
+  verdiği sürece (platform tenant'ı) görünmedi; #41 tick'i düzelttiği gün egress zirvesi başladı.
+- Düzeltme: aynı kural SQL'de (`hasRecentNotification`: kind + createdAt ≥ since + body contains, `select id`).
+- Ders: döngü içinde çağrılan yardımcıda "listele + bellekte ara" yasak; bir işi düzeltip ilk kez çalışır hale getirince
+  çağırdığı okumaların döngü başına maliyetini hesapla. Actions kotası tick'in sağlıklı çalıştığını kanıtlamaz.

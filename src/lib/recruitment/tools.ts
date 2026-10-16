@@ -97,10 +97,9 @@ function audit(ctx: ServiceContext, action: string, entityType: string, entityId
 
 async function actorName(ctx: ServiceContext): Promise<string> {
   try {
-    const { getUserById } = await import("../auth/users");
-    const u = await getUserById(ctx.userId);
-    const name = (u as { name?: string } | null)?.name;
-    return name || u?.email || "Yönetici";
+    // Personel kaydındaki ad soyad (e-posta asla ad olarak yazılmaz) — tüm işlem kayıtlarıyla aynı çözümleyici.
+    const { resolveActorLabel } = await import("../contract-payment-plan-view");
+    return await resolveActorLabel({ tenantId: ctx.tenantId, userId: ctx.userId, teachers: [] });
   } catch {
     return "Yönetici";
   }

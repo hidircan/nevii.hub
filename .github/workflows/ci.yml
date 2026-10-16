@@ -1,11 +1,31 @@
 name: CI
+# Actions dakika bütçesi (2026-10-16): yalnız doküman değişikliğinde kapı çalışmaz (hiçbir kontrol .md okumaz;
+# testlerin okuduğu tek belge aşağıda yeniden dahil). Aynı PR/dalda yeni push eski koşuyu iptal eder — kapılar
+# (lint/typecheck/test/build) aynen çalışır. Repo'da zorunlu (required) kontrol yok; atlanan koşu beklemede kalmaz.
 on:
   push:
     branches: [main]
+    paths:
+      - "**"
+      - "!docs/**"
+      - "!**/*.md"
+      - "docs/release/PUBLIC_ENDPOINT_SECURITY_INVENTORY.md"
   pull_request:
+    paths:
+      - "**"
+      - "!docs/**"
+      - "!**/*.md"
+      - "docs/release/PUBLIC_ENDPOINT_SECURITY_INVENTORY.md"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 jobs:
   verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

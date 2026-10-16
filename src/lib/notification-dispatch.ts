@@ -1,5 +1,5 @@
 import type { NotificationCategory } from "./notification-categories";
-import { createNotification, listNotificationsForUser } from "./notifications";
+import { createNotification, hasRecentNotification } from "./notifications";
 import { isCategoryEnabledForUser } from "./notification-preferences";
 import { logger } from "./logger";
 
@@ -36,14 +36,13 @@ export async function notifyUserIfEnabled(input: {
     if (!enabled) return "skipped";
 
     if (input.dedupeKey !== undefined) {
-      const since = Date.now() - (input.windowMs ?? DEFAULT_WINDOW_MS);
-      const existing = await listNotificationsForUser({ tenantId: input.tenantId, userId: input.userId });
-      const dup = existing.some(
-        (n) =>
-          n.kind === input.category &&
-          n.body.includes(input.dedupeKey!) &&
-          new Date(n.createdAt).getTime() >= since
-      );
+      const dup = await hasRecentNotification({
+        tenantId: input.tenantId,
+        userId: input.userId,
+        kind: input.category,
+        bodyIncludes: input.dedupeKey,
+        since: new Date(Date.now() - (input.windowMs ?? DEFAULT_WINDOW_MS)),
+      });
       if (dup) return "duplicate";
     }
 
