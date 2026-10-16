@@ -26,16 +26,20 @@ vi.mock("../store", async (importOriginal) => {
   const orig = await importOriginal<typeof import("../store")>();
   const { tryTenantId } = await import("../tenant-context");
   const { PLATFORM_TENANT_ID: platform } = await import("../auth/config");
+  // Canlı db store'u okulsuz kurumda böyle fırlatır (store-db.ts readData). Süpürmeler 2026-10-16'dan beri
+  // dar dilim (ders penceresi / ödeme dilimi) okur — aynı kurum-içi okuma hatası onlarda da üretilir.
+  const guard = <A extends unknown[], R>(read: (...a: A) => Promise<R>) => async (...a: A): Promise<R> => {
+    const tid = tryTenantId() ?? "";
+    visitedReads.push(tid);
+    // Çok satırlı mesaj (Prisma doğrulama hatası gibi): devam satırı stack'te çerçevelerden önce gelir.
+    if (tid === "t-broken" || tid === platform) throw new Error(`Kurum (${tid}) için okul kaydı bulunamadı.\n  where: { name: "Ayşe Yılmaz" }`);
+    return read(...a);
+  };
   return {
     ...orig,
-    // Canlı db store'u okulsuz kurumda böyle fırlatır (store-db.ts readData).
-    readData: async () => {
-      const tid = tryTenantId() ?? "";
-      visitedReads.push(tid);
-      // Çok satırlı mesaj (Prisma doğrulama hatası gibi): devam satırı stack'te çerçevelerden önce gelir.
-      if (tid === "t-broken" || tid === platform) throw new Error(`Kurum (${tid}) için okul kaydı bulunamadı.\n  where: { name: "Ayşe Yılmaz" }`);
-      return orig.readData();
-    },
+    readData: guard(orig.readData),
+    readLessonWindow: guard(orig.readLessonWindow),
+    readPaymentsPageData: guard(orig.readPaymentsPageData),
   };
 });
 

@@ -4,7 +4,23 @@ Kısa tutulur (~50 satır): oturum sonunda yalnız "Güncel snapshot" bölümün
 `archive/`'e taşınır. Ayrıntı → ilgili `docs/testing/UAT_*.md`, `docs/operations/*`. Yönlendirici: `nevii-hub` skill.
 Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_2026-09-24.md`.
 
-## Güncel snapshot — 2026-10-16 (tam silme + iptal emekliliği + hareketsiz oturum; 3 PR açık, MERGE/CANLI YOK, migration YOK)
+## Güncel snapshot — 2026-10-16 öğleden sonra (CI/Actions kotası + egress + personel adları; PR açık, MERGE/CANLI YOK, migration YOK)
+- Worktree `../nevii-hub-ci-egress`, dal `fix/ci-egress-staff-names` (taban `origin/main` 0fa37e8 = canlı).
+- CI `main` 2026-09-15'ten beri kırmızı; 9e39d8b (#53) kırık seti #52 ile BİREBİR aynı (30 test, 20 dosya) → #53 kaynaklı değil.
+  Yerelde 17'si üretildi: eskimiş kaynak-metin iddiaları + tarih/sıra bağımlı testler. Onarım ayrı iş.
+- Actions (Ekim, `nevii.hub`; diğer özel repolarda 0 koşu): ~2.000 faturalı dk'nın ~%97'si CI (126 koşu × ~20–27 dk);
+  notification-tick 32 koşu (~32 dk) — GitHub `*/10`'un çoğunu düşürüyor (günde ~5 koşu) → 1s/15dk hatırlatmaları güvenilmez.
+  Production DB Migration 16/16 hata: GitHub secret `DATABASE_URL` parolası yanlış (owner düzeltmeli).
+- Egress kök neden adayı (kod + zaman çakışması; Supabase kırılımı henüz yok): tick 15 Ekim 15:33'te ilk kez başarılı oldu;
+  ödeme taraması her bekleyen ödeme (1153) × yönetici için kullanıcının TÜM bildirimlerini sınırsız okuyordu (karesel).
+  Düzeltme: `hasRecentNotification` (SQL'de, ≤1 satır), ders taramaları pencere dilimi, ödeme taraması ödeme dilimi;
+  telafi onayı tam okuma yerine slot günü penceresi.
+- Personel adı: `resolveActorLabels` portal hesabı bağlı olmayan personeli e-postayla eşler; tüm tahsilatçı/işe alım yolları
+  bu çözümleyiciden geçer (e-postadan "Ezgi Guclu" tahmini yerine kayıttaki ad).
+- Vercel Hobby cron günde 1 → 10 dk tick Vercel Cron'a TAŞINAMAZ (Pro veya harici zamanlayıcı = owner kararı).
+- Açık: Telafi Merkezi `readScopedData`, `confirmSlot` (store-db) tam okuma; Supabase ürün bazlı egress ölçümü (owner).
+
+## Snapshot — 2026-10-16 (tam silme + iptal emekliliği + hareketsiz oturum; 3 PR açık, MERGE/CANLI YOK, migration YOK)
 - Worktree `../nevii-hub-full-purge`. Canlı `ba031de` (#46–#50 READY). Ayrıntı/UAT: `docs/testing/UAT_2026_10_16_FULL_PURGE_CANCEL_IDLE.md`.
 - `feat/full-purge-financial`: tam silmede hakediş engeli kalktı (bekleyen → satır çıkar + yeniden hesap; ödenmiş → tutar
   korunur, satırdaki ad silinir); öğretmen için "dersleri sil / devret" + zorunlu öğrenci devri; başka dersten doğan telafi

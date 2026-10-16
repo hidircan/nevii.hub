@@ -6,6 +6,7 @@ import { requireRecruitmentPage } from "@/lib/recruitment/page-context";
 import { getApplicationDetailTool } from "@/lib/recruitment/tools";
 import { runWithTenantAsync } from "@/lib/tenant-context";
 import { readReferenceData } from "@/lib/store";
+import { resolveActorLabels } from "@/lib/contract-payment-plan-view";
 import { HIRE_PENDING } from "@/lib/recruitment/store";
 import {
   applicationNumber,
@@ -55,6 +56,8 @@ export default async function CandidateDetailPage({ params }: { params: Promise<
   }
   const { application: a, job, activities, interviews, evaluations, cv, templates, settings } = res.data;
   const data = await runWithTenantAsync(ctx.tenantId, () => readReferenceData());
+  // İşlemi yapan: kayıttaki metin değil, personel kaydındaki ad soyad (eski satırlar e-posta taşıyabilir).
+  const actorNames = await resolveActorLabels({ tenantId: ctx.tenantId, userIds: activities.map((x) => x.actorUserId), teachers: data.teachers });
   const branches = data.settings.branches.map((b) => ({ id: b.id, name: b.name }));
   let instruments: string[] = [];
   try {
@@ -216,7 +219,7 @@ export default async function CandidateDetailPage({ params }: { params: Promise<
                     </span>
                     <div className="min-w-0">
                       <p className="whitespace-pre-line break-words">{act.body}</p>
-                      <p className="text-xs text-[var(--color-text-muted)]">{act.actorName || "Sistem"} · {dt(act.createdAt)}</p>
+                      <p className="text-xs text-[var(--color-text-muted)]">{(act.actorUserId && actorNames.get(act.actorUserId)) || act.actorName || "Sistem"} · {dt(act.createdAt)}</p>
                     </div>
                   </li>
                 );

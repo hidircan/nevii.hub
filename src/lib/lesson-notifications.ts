@@ -1,6 +1,6 @@
 import { format } from "date-fns";
 import { tr } from "date-fns/locale";
-import { readData, listSchoolTenants } from "./store";
+import { readLessonWindow, listSchoolTenants } from "./store";
 import { runWithTenantAsync } from "./tenant-context";
 import { getUserIdByTeacherId, getUserIdByStudentId } from "./auth/users";
 import { hasActiveStudentAccess, listActiveAccessForTenant } from "./student-portal-access";
@@ -362,7 +362,8 @@ export async function sweepUpcomingLessons(now: Date = new Date()): Promise<Upco
   const summary: UpcomingSweepSummary = { tenants: 0, evaluated: 0, created: 0, skipped: 0, tenantErrors: 0 };
   summary.tenantErrors = await forEachSchoolTenant("upcomingLessons", async (tenantId) => {
       const t = { tenantId };
-      const data = await readData();
+      // DB egress (2026-10-16): yalnız pencereye girebilecek dersler (tam kurum okuması değil); kesin süzgeç aşağıda.
+      const data = await readLessonWindow(now.toISOString(), new Date(now.getTime() + (UPCOMING_WINDOW_MAX + 30) * 60000).toISOString());
       summary.tenants++;
       for (const lesson of data.lessons) {
         if (!isLessonInUpcomingWindow(lesson, now)) continue;
@@ -422,7 +423,8 @@ export async function sweepLessonReminders(now: Date = new Date()): Promise<Remi
   const { isPushEnabledForUser } = await import("./notification-preferences");
   summary.tenantErrors = await forEachSchoolTenant("lessonReminders", async (tenantId) => {
       const t = { tenantId };
-      const data = await readData();
+      // DB egress (2026-10-16): en geniş offset (1g, 25 sa) + pay kadar ders penceresi; kesin süzgeç `reminderOffsetForLesson`.
+      const data = await readLessonWindow(now.toISOString(), new Date(now.getTime() + 26 * 60 * 60000).toISOString());
       const access = await listActiveAccessForTenant(t.tenantId);
       // Alıcı havuzu: yalnız `active` satırlar (invited/revoked ASLA).
       // GUARDIAN → tüm aktif çocukları; SELF → kendi studentId'si.

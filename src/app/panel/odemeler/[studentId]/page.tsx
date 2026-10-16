@@ -13,7 +13,7 @@ import { computeStudentPaymentSummary, filterPaymentHistory, sortPaymentsForProf
 import { computeStudentMonthlyAmount, isPercentDiscount } from "@/lib/student-payment-profile";
 import { AssistantPageContext } from "@/components/ai/assistant-page-context";
 import { StudentPaymentHistoryTable } from "@/components/student-payment-history-table";
-import { resolveCollectorDisplayNames } from "@/lib/contract-payment-plan-view";
+import { resolveActorLabels } from "@/lib/contract-payment-plan-view";
 import { QuickTaskLink } from "@/components/quick-task-link";
 import { requireSessionContext } from "@/lib/auth/session";
 import { getInstitutionContext, readScopedStudentData } from "@/lib/institution/context";
@@ -96,7 +96,7 @@ export default async function StudentPaymentProfilePage({
   const receiverIds = Array.from(
     new Set(payments.map((p) => p.receivedByUserId).filter((id): id is string => Boolean(id)))
   );
-  const receiverNames = await resolveCollectorDisplayNames({ userIds: receiverIds, teachers: data.teachers });
+  const receiverNames = await resolveActorLabels({ tenantId: session.tenantId, userIds: receiverIds, teachers: data.teachers });
   // 2026-10-09 — çok branşlı öğrencide her hareket branşını söyler; yeni borç eklerken branş seçilir.
   const branchOf = makePaymentBranchLabeler({ students: [student], teachers: data.teachers, lessons: data.lessons, contracts });
   const historyPayments = filterPaymentHistory(payments).map((p) => ({
