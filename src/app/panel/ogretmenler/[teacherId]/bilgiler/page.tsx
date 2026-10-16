@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { Card, EmptyState } from "@/components/ui";
 import { SectionEditCard } from "@/components/section-edit-card";
 import { TeacherProfileEditor } from "@/components/teacher-profile-editor";
+import type { TeacherProfileSection } from "@/lib/profile-sections";
 import { TeacherInstrumentsEditor } from "@/components/teacher-instruments-editor";
 import { TeacherPortalAccessCard } from "@/components/portal-access-card";
 import { NationalIdReveal } from "@/components/national-id-reveal";
@@ -56,13 +57,15 @@ export default async function TeacherInfoTab({ params }: { params: Promise<{ tea
     maxDailyLessons: teacher.maxDailyLessons,
     weeklyHoursThreshold: teacher.weeklyHoursThreshold,
   };
-  const profileEditor = (
+  // Her kart YALNIZ kendi bölümünün alanlarını açar/gönderir (bkz. lib/profile-sections.ts).
+  const profileEditor = (section: TeacherProfileSection) => (
     <TeacherProfileEditor
       teacherId={teacher.id}
       primaryBranchId={teacher.branchId}
       branches={data.settings.branches.map((b) => ({ id: b.id, name: b.name }))}
       hasNationalId={!!teacher.nationalIdCipher}
       initial={profileEditorInitial}
+      section={section}
     />
   );
 
@@ -72,7 +75,7 @@ export default async function TeacherInfoTab({ params }: { params: Promise<{ tea
         <h2 className="mb-3 text-sm font-semibold text-[var(--color-text)]">Genel Bilgiler</h2>
         <SectionEditCard
           canEdit={canManage}
-          edit={profileEditor}
+          edit={profileEditor("general")}
           readOnly={
             <dl className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
               <Field
@@ -137,7 +140,7 @@ export default async function TeacherInfoTab({ params }: { params: Promise<{ tea
               <Field label="Acil durum telefonu" value={teacher.emergencyContactPhone || "Eklenmemiş"} />
             </dl>
           }
-          edit={profileEditor}
+          edit={profileEditor("contact")}
         />
       </section>
 
@@ -215,7 +218,7 @@ export default async function TeacherInfoTab({ params }: { params: Promise<{ tea
               <Field label="Özlük notu" value={teacher.personnelNotes || "Eklenmemiş"} />
             </dl>
           }
-          edit={profileEditor}
+          edit={profileEditor("employment")}
         />
       </section>
 

@@ -12,6 +12,7 @@ import {
 import { EDUCATION_METHODS, STUDENT_TYPES, REFERRAL_SOURCES, REFERRAL_SOURCE_LABELS } from "@/lib/types";
 import type { ReferralSource, StudentType } from "@/lib/types";
 import { MEB_LEVEL_OPTIONS, isValidMebLevel } from "@/lib/student-level-rules";
+import { STUDENT_PROFILE_SECTIONS, pickSectionFields, sectionHas, type StudentProfileSection } from "@/lib/profile-sections";
 
 export type StudentProfileEditorBranch = { id: string; name: string };
 
@@ -112,8 +113,11 @@ export function StudentProfileEditor({
   onSaved,
   showPortalInvite = true,
   branchScopedTerms = false,
+  section,
 }: {
   studentId: string;
+  /** Bilgiler kartının bölümü: yalnız o bölümün alanları gösterilir, doğrulanır ve gönderilir. Verilmezse tam form. */
+  section?: StudentProfileSection;
   branches: StudentProfileEditorBranch[];
   initial: {
     name: string;
@@ -208,12 +212,15 @@ export function StudentProfileEditor({
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
+  const fields = section ? STUDENT_PROFILE_SECTIONS[section] : undefined;
+  const show = (key: string) => sectionHas(fields, key);
 
   function onSave() {
     setError(null);
     setSaved(false);
 
-    const nextErrors = validateStudentForm({
+    // Yalnız bu bölümün alanları doğrulanır: gizli alan (gönderilmeyen) kullanıcının düzeltemeyeceği bir hata vermesin.
+    const allErrors = validateStudentForm({
       name,
       email,
       branchId,
@@ -225,6 +232,7 @@ export function StudentProfileEditor({
       nationalId,
       accountResponsibility,
     });
+    const nextErrors = Object.fromEntries(Object.entries(allErrors).filter(([k]) => show(k))) as FieldErrors;
 
     setFieldErrors(nextErrors);
 
@@ -234,8 +242,7 @@ export function StudentProfileEditor({
     }
 
     startTransition(async () => {
-      const result = await actionUpdateStudentProfile({
-        studentId,
+      const full = {
         name,
         email: email || undefined,
         branchId: branchId || undefined,
@@ -274,7 +281,8 @@ export function StudentProfileEditor({
                     : undefined
                 : undefined,
             }),
-      });
+      };
+      const result = await actionUpdateStudentProfile({ studentId, ...pickSectionFields(full, fields) });
 
       if (!result.ok) {
         // MEB alan hataları ilgili alanın altında, kalanı genel özet olarak gösterilir.
@@ -290,7 +298,7 @@ export function StudentProfileEditor({
         return;
       }
 
-      if (nationalId.trim()) {
+      if (show("nationalId") && nationalId.trim()) {
         const idResult = await actionSetNationalId({
           entity: "student",
           entityId: studentId,
@@ -319,18 +327,24 @@ export function StudentProfileEditor({
   return (
     <div className="space-y-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
       <div className="grid grid-cols-2 gap-2">
+        {show("name") ? (
         <div>
           <Label>Ad soyad</Label>
           <Input className={inputClassName(!!fieldErrors.name)} value={name} onChange={(e) => setName(e.target.value)} />
           {fieldErrors.name ? <p className="mt-1 text-xs text-red-600">{fieldErrors.name}</p> : null}
         </div>
+        ) : null}
+        {show("email") ? (
         <div>
           <Label>E-posta</Label>
           <Input className={inputClassName(!!fieldErrors.email)} type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
           {fieldErrors.email ? <p className="mt-1 text-xs text-red-600">{fieldErrors.email}</p> : null}
         </div>
+        ) : null}
       </div>
 
+      {show("branchId") ? (
+      <>
       <div className="grid grid-cols-2 gap-2">
         <div>
           <Label>Şube</Label>
@@ -483,21 +497,29 @@ export function StudentProfileEditor({
       ) : null}
         </>
       )}
+      </>
+      ) : null}
 
       <div className="grid grid-cols-2 gap-2">
+        {show("phone") ? (
         <div>
           <Label>Öğrenci telefonu{accountResponsibility === "PARENT_MANAGED" ? " (opsiyonel)" : ""}</Label>
           <Input className={inputClassName(!!fieldErrors.phone)} value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="05xx xxx xxxx" />
           {fieldErrors.phone ? <p className="mt-1 text-xs text-red-600">{fieldErrors.phone}</p> : null}
         </div>
+        ) : null}
 
+        {show("birthDate") ? (
         <div>
           <Label>Doğum tarihi</Label>
           <Input className={inputClassName(!!fieldErrors.birthDate)} type="date" value={birthDate} onChange={(e) => setBirthDate(e.target.value)} />
           {fieldErrors.birthDate ? <p className="mt-1 text-xs text-red-600">{fieldErrors.birthDate}</p> : null}
         </div>
+        ) : null}
       </div>
 
+      {show("parentName") ? (
+      <>
       <div className="grid grid-cols-2 gap-2">
         <div>
           <Label>Veli adı{accountResponsibility === "SELF_MANAGED" ? " (opsiyonel)" : ""}</Label>
@@ -522,7 +544,11 @@ export function StudentProfileEditor({
           <Input value={fatherName} onChange={(e) => setFatherName(e.target.value)} />
         </div>
       </div>
+      </>
+      ) : null}
 
+      {show("referralSource") ? (
+      <>
       <div>
         <Label>Bizi nereden buldunuz? (opsiyonel)</Label>
         <Select
@@ -602,7 +628,11 @@ export function StudentProfileEditor({
             : "T.C. kimlik numarası şifreli olarak saklanır."}
         </p>
       </div>
+      </>
+      ) : null}
 
+      {show("accountResponsibility") ? (
+      <>
       <div>
         <Label>Ödeme/iletişim muhatabı</Label>
         <Select
@@ -618,13 +648,15 @@ export function StudentProfileEditor({
         <input type="checkbox" checked={communicationOptOut} onChange={(e) => setCommunicationOptOut(e.target.checked)} />
         Tahsilat / hatırlatma mesajlarından çıkar
       </label>
+      </>
+      ) : null}
 
       {error ? <p className="text-xs text-red-600">{error}</p> : null}
       {saved ? <p className="text-xs text-emerald-600">Kaydedildi.</p> : null}
 
       <div>
         <Button onClick={onSave} disabled={pending}>
-          {pending ? "Kaydediliyor..." : "Bilgileri Kaydet"}
+          {pending ? "Kaydediliyor..." : section ? "Bu bölümü kaydet" : "Bilgileri Kaydet"}
         </Button>
       </div>
 

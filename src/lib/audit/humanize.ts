@@ -182,17 +182,23 @@ export function describeAuditEvent(input: {
   outcome?: string;
   actorName: string;
   entityName?: string | null;
+  /** 2026-10-15 — kayıtlı alan değişiklikleri: güncellemede "hangi bilgi" somut yazılır (değer değil, alan adı). */
+  changes?: AuditFieldChange[];
 }): string {
   const entityWord = ENTITY_LABELS[input.entityType] ?? "kayıt";
   const entity = input.entityName?.trim() || entityWord;
   const template = ACTION_SENTENCES[input.action];
+  const verbKey = input.action.split(".").pop()?.split("_")[0] ?? "";
   let sentence: string;
-  if (template) {
+  if (input.changes?.length && (verbKey === "update" || verbKey === "profile" || !template)) {
+    const fields = Array.from(new Set(input.changes.map((c) => fieldLabel(c.field).toLocaleLowerCase("tr"))));
+    const list = fields.length > 3 ? `${fields.slice(0, 3).join(", ")} ve ${fields.length - 3} alan daha` : fields.join(", ");
+    sentence = `${input.actorName}, ${entity}${input.entityName ? ` (${entityWord})` : ""} kaydında ${list} bilgisini güncelledi.`;
+  } else if (template) {
     sentence = template.replace("{actor}", input.actorName).replace("{entity}", entity);
     // "{entity} öğrencisini" kalıbında ad yoksa "öğrenci öğrencisini" olmasın.
     if (!input.entityName) sentence = sentence.replace(`${entityWord} ${entityWord}`, entityWord);
   } else {
-    const verbKey = input.action.split(".").pop()?.split("_")[0] ?? "";
     const verb = VERB_FALLBACK[verbKey] ?? "üzerinde işlem yaptı";
     sentence = `${input.actorName}, ${entity}${input.entityName ? ` (${entityWord})` : ""} kaydını ${verb}.`;
   }
@@ -341,4 +347,27 @@ export function auditClientInfo(meta: Record<string, unknown> | null | undefined
   const ua = typeof meta?.userAgent === "string" ? meta.userAgent : typeof meta?.device === "string" ? meta.device : undefined;
   const device = ua ? (/(iphone|android|mobile)/i.test(ua) ? "Mobil" : /expo|okhttp/i.test(ua) ? "Mobil uygulama" : "Tarayıcı") : undefined;
   return [ip, device].filter(Boolean).join(" · ") || undefined;
+}
+
+/** Eski kayıtta ekran bilgisi yoksa uydurulmaz. */
+export const AUDIT_SCREEN_UNKNOWN = "Kaynak ekran kaydedilmemiş";
+
+function actionLabelFromTemplate(template: string): string {
+  const s = template.replace(/^\{actor\},?\s*/, "").replace(/\{entity\}\s*/g, "").replace(/\.$/, "").trim();
+  return s.charAt(0).toLocaleUpperCase("tr") + s.slice(1);
+}
+
+/**
+ * "İşlem" filtresi: bilinen işlem kodları Türkçe adla; aynı adı taşıyan kodlar tek seçenekte (virgülle) birleşir.
+ * Teknik kod kullanıcıya gösterilmez; listede olmayan eski kodlar "Ara" ile bulunur.
+ */
+export function auditActionOptions(): { value: string; label: string }[] {
+  const byLabel = new Map<string, string[]>();
+  for (const [code, template] of Object.entries(ACTION_SENTENCES)) {
+    const label = actionLabelFromTemplate(template);
+    byLabel.set(label, [...(byLabel.get(label) ?? []), code]);
+  }
+  return Array.from(byLabel, ([label, codes]) => ({ label, value: codes.join(",") })).sort((a, b) =>
+    a.label.localeCompare(b.label, "tr")
+  );
 }

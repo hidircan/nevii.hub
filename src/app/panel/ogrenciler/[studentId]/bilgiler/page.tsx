@@ -4,6 +4,7 @@ import { getSocialMediaConsentTool } from "@/lib/services";
 import { Card } from "@/components/ui";
 import { SectionEditCard } from "@/components/section-edit-card";
 import { StudentProfileEditor } from "@/components/student-profile-editor";
+import type { StudentProfileSection } from "@/lib/profile-sections";
 import { StudentPortalAccessCard } from "@/components/portal-access-card";
 import { StudentTermTypeEditor } from "@/components/student-term-type-editor";
 import { NationalIdReveal } from "@/components/national-id-reveal";
@@ -86,8 +87,10 @@ export default async function StudentInfoTab({
   const mebIncomplete =
     mebStudent && (!student.level || !student.mebLevelStartDate || !student.mebLevelEndDate);
 
-  const editor = (
+  // Her kart YALNIZ kendi bölümünün alanlarını açar/gönderir (bkz. lib/profile-sections.ts).
+  const editor = (section: StudentProfileSection) => (
     <StudentProfileEditor
+      section={section}
       studentId={student.id}
       branches={data.settings.branches.map((b) => ({ id: b.id, name: b.name }))}
       hasNationalId={!!student.nationalIdCipher}
@@ -164,7 +167,7 @@ export default async function StudentInfoTab({
               />
             </dl>
           }
-          edit={editor}
+          edit={editor("basic")}
           defaultEditing={duzenle === "kayit"}
         />
       </section>
@@ -279,7 +282,7 @@ export default async function StudentInfoTab({
               />
             </dl>
           }
-          edit={editor}
+          edit={editor("contact")}
         />
       </section>
 

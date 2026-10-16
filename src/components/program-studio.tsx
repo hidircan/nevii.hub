@@ -7,15 +7,12 @@ import { effectiveEnrollments, enrollmentLabel, type EnrollmentView } from "@/li
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { ExternalLink, Loader2, Sparkles, TriangleAlert, X } from "lucide-react";
+import { ExternalLink, Loader2, Pencil, Sparkles, TriangleAlert, X } from "lucide-react";
 import { addDays as addDaysDate, addMinutes, differenceInMinutes, format, isSameDay, parseISO, startOfDay } from "date-fns";
 import Link from "@/components/link";
 import { tr } from "date-fns/locale";
 import {
   actionAddLesson,
-  actionCancelEntireSeries,
-  actionCancelLesson,
-  actionCancelSeriesFromLesson,
   actionCreateLessonSeries,
   actionPreviewLessonSeries,
   actionSuggestLessonSlots,
@@ -24,7 +21,7 @@ import {
 import type { LessonCommunicationMessage } from "@/lib/whatsapp-templates";
 import type { LessonSlotSuggestion } from "@/lib/lesson-scheduling";
 import type { SeriesOccurrenceCheck } from "@/lib/lesson-series";
-import { LessonScopeEditor } from "@/components/lesson-scope-editor";
+import { LessonDeleteAction, LessonScopeEditor } from "@/components/lesson-scope-editor";
 import { emptyProgramNotices, onlyNotice } from "@/lib/program-notices";
 import {
   DEFAULT_APP_TIMEZONE,
@@ -47,7 +44,6 @@ import { friendlyApiErrorMessage } from "@/lib/api/friendly-error";
 import { apiFetchJson } from "@/lib/api/client-fetch";
 import { LessonStatusBadge } from "@/components/lesson-status-badge";
 import { PlannedMakeupMarker } from "@/components/planned-makeup-marker";
-import { lessonCancelBlockReason } from "@/lib/lesson-cancel-rules";
 import { LessonReassignmentModal } from "@/components/lesson-reassignment-modal";
 import { TeacherAvailabilityCard } from "@/components/teacher-availability-card";
 import type { Instrument, Lesson, Room, Student, Teacher } from "@/lib/types";
@@ -87,6 +83,8 @@ type ProgramStudioProps = {
   todayIso: string;
   /** Öğrenci detayından "Programda Aç" ile gelinirse başlangıç öğrenci filtresi. */
   initialStudentFilter?: string;
+  /** Bildirimden gelinirse (`?ders=`) açılışta seçili ders paneli. */
+  initialDetailLessonId?: string;
   /**
    * ÖNCELİK 4 (devam) — /panel/program üstündeki akademik yıl/dönem seçici
    * (progTerm/progYear). Yeni tek ders VEYA yeni seri oluşturulurken otomatik
@@ -721,6 +719,7 @@ export function ProgramStudio({
   weekLessons,
   todayIso,
   initialStudentFilter,
+  initialDetailLessonId,
   selectedTerm,
   selectedAcademicYearStart,
   catalogInstruments,
@@ -877,9 +876,8 @@ export function ProgramStudio({
    * gösteriyordu. Seçim, statü RENGİNE hiçbir koşulda dokunmaz (bkz. kart
    * `selected` vurgusu — dolgudan bağımsız çerçeve).
    */
-  const [detailLessonId, setDetailLessonId] = useState<string | null>(null);
+  const [detailLessonId, setDetailLessonId] = useState<string | null>(initialDetailLessonId ?? null);
   const [detailError, setDetailError] = useState<string | null>(null);
-  const [detailSubmitting, setDetailSubmitting] = useState(false);
 
   // Program ekranına özel hızlı filtreler — istemci tarafında görünürlüğü
   // etkiler; sunucu/yetki/global şube bağlamı bu sprintin kapsamı dışında.
@@ -1428,76 +1426,6 @@ export function ProgramStudio({
   function closeDetail() {
     setDetailLessonId(null);
     setDetailError(null);
-  }
-
-  async function submitDetailCancel(disruption: ReturnType<typeof disruptionPayload>) {
-    if (!detailLesson) return;
-    if (!canCreate) {
-      setDetailError("Ders iptal etmek için üstteki kurum seçiciden tek bir kurum seçin.");
-      return;
-    }
-    // Onay artık DetailPanel içindeki kaynak sorusuyla birlikte alınır (window.confirm yok).
-    setDetailSubmitting(true);
-    setDetailError(null);
-    const result = await actionCancelLesson({ lessonId: detailLesson.id, ...disruption });
-    setDetailSubmitting(false);
-    if (!result.ok) {
-      setDetailError(result.message);
-      return;
-    }
-    closeDetail();
-    setNotices(onlyNotice({ actionSuccess: "Ders iptal edildi." }));
-    router.refresh();
-  }
-
-  async function submitCancelSeriesFromLesson() {
-    if (!detailLesson) return;
-    if (!canCreate) {
-      setDetailError("Seri iptali için üstteki kurum seçiciden tek bir kurum seçin.");
-      return;
-    }
-    if (
-      !window.confirm(
-        "Bu ders ve bu tarihten sonraki tüm seri dersleri iptal edilecek. Geçmiş dersler etkilenmez. Emin misiniz?"
-      )
-    )
-      return;
-    setDetailSubmitting(true);
-    setDetailError(null);
-    const result = await actionCancelSeriesFromLesson({ lessonId: detailLesson.id });
-    setDetailSubmitting(false);
-    if (!result.ok) {
-      setDetailError(result.message);
-      return;
-    }
-    closeDetail();
-    setNotices(onlyNotice({ actionSuccess: "Bu ders ve sonraki seri dersleri iptal edildi." }));
-    router.refresh();
-  }
-
-  async function submitCancelEntireSeries() {
-    if (!detailLesson?.seriesId) return;
-    if (!canCreate) {
-      setDetailError("Seri iptali için üstteki kurum seçiciden tek bir kurum seçin.");
-      return;
-    }
-    if (
-      !window.confirm(
-        "Bu serinin tamamı iptal edilecek (geçmiş dersler korunur, gelecekteki tüm dersler iptal olur). Emin misiniz?"
-      )
-    )
-      return;
-    setDetailSubmitting(true);
-    setDetailError(null);
-    const result = await actionCancelEntireSeries({ seriesId: detailLesson.seriesId });
-    setDetailSubmitting(false);
-    if (!result.ok) {
-      setDetailError(result.message);
-      return;
-    }
-    closeDetail();
-    setNotices(onlyNotice({ actionSuccess: "Serinin kalan dersleri iptal edildi." }));
-    router.refresh();
   }
 
   async function performMove(lessonId: string, newStartAtIso: string) {
@@ -2379,7 +2307,6 @@ export function ProgramStudio({
           room={rooms.find((r) => r.id === detailLesson.roomId)}
           branchName={branchNames[detailLesson.branchId]}
           now={now}
-          submitting={detailSubmitting}
           error={detailError}
           onClose={closeDetail}
           onEditDone={(message) => {
@@ -2389,9 +2316,6 @@ export function ProgramStudio({
           }}
           onOpsStatusChange={onOpsStatusChange}
           onOpsPendingChange={onOpsPendingChange}
-          onCancelLesson={submitDetailCancel}
-          onCancelSeriesFromLesson={submitCancelSeriesFromLesson}
-          onCancelEntireSeries={submitCancelEntireSeries}
           allTeachers={teachers}
           allRooms={rooms}
           branchNames={branchNames}
@@ -2710,13 +2634,9 @@ function DetailPanel({
   room,
   branchName,
   now,
-  submitting,
   error,
   onClose,
   onEditDone,
-  onCancelLesson,
-  onCancelSeriesFromLesson,
-  onCancelEntireSeries,
   allTeachers,
   allRooms,
   branchNames,
@@ -2731,14 +2651,10 @@ function DetailPanel({
   room?: Room;
   branchName?: string;
   now: Date;
-  submitting: boolean;
   error: string | null;
   onClose: () => void;
   /** Revize/silme başarılı — panel kapanır, sayfa bildirimi gösterilir. */
   onEditDone: (message: string) => void;
-  onCancelLesson: (disruption: ReturnType<typeof disruptionPayload>) => void;
-  onCancelSeriesFromLesson: () => void;
-  onCancelEntireSeries: () => void;
   /** Faz 13 — öğretmen/şube değiştirme formunun ihtiyaç duyduğu tam listeler. */
   allTeachers: Teacher[];
   allRooms: Room[];
@@ -2747,15 +2663,11 @@ function DetailPanel({
   onOpsStatusChange: (lessonId: string, flag: LessonOpsFlagValue) => void;
   onOpsPendingChange: (lessonId: string, pending: boolean) => void;
 }) {
-  // İptal kuralının TEK kaynağı — sunucu (applyLessonCancel) aynı fonksiyonu çağırır.
-  const cancelBlockReason = lessonCancelBlockReason(lesson);
   const isSeriesMember = Boolean(lesson.seriesId);
   const isPastScheduled = lesson.status === "scheduled" && !(parseISO(lesson.startAt) > now);
   const timeRange = `${zonedHm(parseISO(lesson.startAt), DEFAULT_APP_TIMEZONE)}–${zonedHm(parseISO(lesson.endAt), DEFAULT_APP_TIMEZONE)}`;
-  // 9. tur — İptal onayı kaynak sorusuyla birlikte; kaynak sonradan düzeltilebilir.
-  const [cancelOpen, setCancelOpen] = useState(false);
-  const [cancelDraft, setCancelDraft] = useState<DisruptionFormValue>({});
-  const [cancelNote, setCancelNote] = useState("");
+  // 2026-10-15 — tek birincil eylem "Dersi düzenle"; form istenince açılır (panel kısa kalır).
+  const [editOpen, setEditOpen] = useState(false);
 
   return (
     <Card className="border-[var(--color-border-strong)] shadow-[var(--shadow-md)]">
@@ -2814,86 +2726,51 @@ function DetailPanel({
       </section>
 
       {canCreate ? (
-        <section className="mt-3" aria-label="Ders işlemleri">
-          <div className="flex flex-wrap items-start gap-2">
-            {cancelBlockReason === null && !cancelOpen ? (
+        <>
+          {/* Ders işlemleri: tek birincil eylem (Dersi düzenle) + ikincil (öğretmen/şube). */}
+          <section className="mt-3" aria-label="Ders işlemleri">
+            <div className="flex flex-wrap items-start gap-2">
               <Button
-                variant="danger"
-                onClick={() => {
-                  setCancelDraft({});
-                  setCancelNote("");
-                  setCancelOpen(true);
-                }}
-                disabled={submitting}
+                aria-expanded={editOpen}
+                aria-controls={`lesson-edit-${lesson.id}`}
+                onClick={() => setEditOpen((v) => !v)}
               >
-                {isSeriesMember ? "Sadece bu dersi iptal et" : "Bu dersi iptal et"}
+                <Pencil className="h-3.5 w-3.5" aria-hidden />
+                {editOpen ? "Düzenlemeyi kapat" : "Dersi düzenle"}
               </Button>
-            ) : null}
-            <LessonReassignmentModal lesson={lesson} teachers={allTeachers} rooms={allRooms} branchNames={branchNames} />
-          </div>
-          {cancelOpen && cancelBlockReason === null ? (
-            <div
-              role="group"
-              aria-label="Ders iptali onayı"
-              className="mt-2 space-y-2 rounded-md border border-[var(--color-danger)] bg-[var(--color-surface)] p-2.5 text-xs"
-            >
-              <p className="font-semibold text-[var(--color-text)]">Bu dersi iptal etmek üzeresiniz.</p>
-              <DisruptionSourceFields idPrefix={`cancel-${lesson.id}`} kind="İptal" value={cancelDraft} onChange={setCancelDraft} />
-              <label className="block">
-                <span className="font-medium text-[var(--color-text)]">Açıklama (isteğe bağlı)</span>
-                <textarea
-                  value={cancelNote}
-                  onChange={(e) => setCancelNote(e.target.value.slice(0, 500))}
-                  rows={2}
-                  className="mt-1 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-xs"
-                  placeholder="Örn. Öğretmen hasta, veliye bildirildi"
-                />
-              </label>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  variant="danger"
-                  disabled={submitting || !isDisruptionFormComplete(cancelDraft)}
-                  onClick={() => onCancelLesson(disruptionPayload(cancelDraft, cancelNote))}
-                >
-                  {submitting ? "İptal ediliyor…" : "İptali onayla"}
-                </Button>
-                <Button variant="secondary" disabled={submitting} onClick={() => setCancelOpen(false)}>
-                  Vazgeç
-                </Button>
+              <LessonReassignmentModal lesson={lesson} teachers={allTeachers} rooms={allRooms} branchNames={branchNames} />
+            </div>
+            {editOpen ? (
+              <div id={`lesson-edit-${lesson.id}`} className="mt-3 rounded-md border border-[var(--color-border)] p-2.5">
+                <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">Tarih, saat ve süre</p>
+                <LessonScopeEditor key={lesson.id} lesson={lesson} onDone={onEditDone} />
               </div>
-            </div>
-          ) : null}
-          {isDisruptedLesson(lesson) ? <DisruptionSourceEditor key={lesson.id} lesson={lesson} onDone={onEditDone} /> : null}
-          {cancelBlockReason !== null && lesson.status !== "cancelled" ? (
-            <p className="mt-2 rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5 text-xs text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
-              <strong>İptal edilemez:</strong> {cancelBlockReason}
-            </p>
-          ) : null}
-          {isSeriesMember ? (
-            <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-[var(--color-border)] pt-2">
-              <span className="text-xs font-medium text-[var(--color-text-muted)]">Seri:</span>
-              <Button variant="secondary" className="!py-1 text-xs" onClick={onCancelSeriesFromLesson} disabled={submitting}>
-                Bu ders ve sonrasını iptal et
-              </Button>
-              <Button variant="secondary" className="!py-1 text-xs" onClick={onCancelEntireSeries} disabled={submitting}>
-                Tüm seriyi iptal et
-              </Button>
-              <span className="basis-full text-[11px] text-[var(--color-text-muted)]">
-                Seri iptalinde İşlendi/Telafi işaretli ve geçmiş dersler korunur, yalnız planlı dersler iptal olur.
-              </span>
-            </div>
-          ) : null}
-          {isPastScheduled ? (
-            <p className="mt-2 text-[11px] text-[var(--color-text-muted)]">
-              Geçmiş ders takvimde sürüklenemez; tarih/saat için aşağıdaki &quot;Dersi düzenle / sil&quot; bölümünü kullanın.
-            </p>
-          ) : null}
+            ) : null}
+            {isPastScheduled ? (
+              <p className="mt-2 text-[11px] text-[var(--color-text-muted)]">
+                Geçmiş ders takvimde sürüklenemez; tarih/saat için &quot;Dersi düzenle&quot;yi kullanın.
+              </p>
+            ) : null}
+            {isDisruptedLesson(lesson) ? <DisruptionSourceEditor key={lesson.id} lesson={lesson} onDone={onEditDone} /> : null}
+          </section>
 
-          <LessonScopeEditor key={lesson.id} lesson={lesson} onDone={onEditDone} />
-        </section>
+          {/* Riskli işlem EN ALTTA ve ayrı; onay ister. 2026-10-15: iptal eylemi web programından kaldırıldı (silme ile karışıyordu). */}
+          <section className="mt-4 border-t border-[var(--color-border)] pt-3" aria-labelledby={`risk-${lesson.id}`}>
+            <h4 id={`risk-${lesson.id}`} className="text-[11px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
+              Riskli işlemler
+            </h4>
+            <div className="mt-1 flex flex-col items-start gap-0.5">
+              <LessonDeleteAction key={lesson.id} lesson={lesson} onDone={onEditDone} />
+            </div>
+            <p className="mt-1.5 text-[11px] leading-snug text-[var(--color-text-muted)]">
+              <strong>Hatalı oluşturuldu</strong>: yanlış planlanan ders programdan kaldırılır (iptal olarak kalmaz).
+            </p>
+          </section>
+
+        </>
       ) : (
         <p className="mt-3 text-xs text-[var(--color-text-muted)]">
-          İptal, öğretmen/şube değişikliği ve düzenleme için üstteki kurum seçiciden tek bir kurum seçin.
+          Öğretmen/şube değişikliği, düzenleme ve silme için üstteki kurum seçiciden tek bir kurum seçin.
         </p>
       )}
 

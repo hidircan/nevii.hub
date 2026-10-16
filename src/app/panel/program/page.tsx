@@ -44,9 +44,10 @@ export default async function ProgramPage({
     progTerm?: string;
     progYear?: string;
     returnTo?: string;
+    ders?: string;
   }>;
 }) {
-  const { week, studentId, progTerm, progYear, returnTo } = await searchParams;
+  const { week, studentId, progTerm, progYear, returnTo, ders } = await searchParams;
   // Ödemeler → Kaynak ders → Ödemelere geri dön: yalnızca allowlist edilmiş,
   // uygulama-içi bir panel yoluysa (bkz. resolveSafeReturnTo) geri dönüş
   // butonu render edilir — sahte/harici bir returnTo sessizce yok sayılır.
@@ -87,8 +88,13 @@ export default async function ProgramPage({
   // 2026-10-06 — kulüp satırları (üye başına) tek tek ders kartı olmaz: oturum başına TEK kart (aşağıda).
   const weekLessons = data.lessons.filter((l) => {
     const d = parseISO(l.startAt);
-    return l.type !== "group" && d >= days[0] && d <= addDays(days[6], 1);
+    // 2026-10-15 (owner) — iptal artık üretilmiyor; eski iptal edilmiş dersler programda gösterilmez (kayıt DB'de kalır,
+    // raporlar/telafi/mobil okur). İptal dersin saati zaten dolu sayılmaz.
+    return l.type !== "group" && l.status !== "cancelled" && d >= days[0] && d <= addDays(days[6], 1);
   });
+
+  // Derin bağlantıdaki ders iptal edilmişse (programda gizli) kullanıcı çıkmazda kalmasın: kayıt nerede görünür.
+  const cancelledTarget = ders ? data.lessons.find((l) => l.id === ders && l.status === "cancelled") : undefined;
 
   const branchNames = Object.fromEntries(data.settings.branches.map((b) => [b.id, b.shortName]));
 
@@ -144,6 +150,29 @@ export default async function ProgramPage({
         </Link>
       ) : null}
       <PageHeader title="Ders programı" />
+      {ders && !weekLessons.some((l) => l.id === ders) ? (
+        <p role="status" className="mb-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
+          {cancelledTarget ? (
+            <>
+              Bildirimdeki ders iptal edilmiş; iptal edilen eski dersler programda gösterilmez. Kayıt silinmedi: ödeme ve telafi
+              bağları{" "}
+              <Link href={`/panel/ogrenciler/${cancelledTarget.studentId}/odemeler`} className="font-semibold underline">
+                öğrencinin Ödemeler sekmesinde
+              </Link>{" "}
+              ve{" "}
+              <Link href={`/panel/telafi?ogrenci=${cancelledTarget.studentId}`} className="font-semibold underline">
+                Telafi Merkezi&apos;nde
+              </Link>{" "}
+              görünür.
+            </>
+          ) : (
+            <>
+              Bildirimdeki ders bu haftanın programında yok: silinmiş, taşınmış ya da bu kurumda değil. Ders taşındıysa yeni tarihine
+              ait bildirime bakın.
+            </>
+          )}
+        </p>
+      ) : null}
 
       <ProgramTermYearNav term={selectedTerm} academicYearStart={selectedAcademicYearStart}>
         {/* 9. tur — hafta gezinmesi dönem seçicinin sağındaki boşlukta; ayrı alt satır kaldırıldı. */}
@@ -194,6 +223,7 @@ export default async function ProgramPage({
         weekLessons={weekLessons}
         todayIso={new Date().toISOString()}
         initialStudentFilter={studentId}
+        initialDetailLessonId={ders && weekLessons.some((l) => l.id === ders) ? ders : undefined}
         selectedTerm={selectedTerm}
         selectedAcademicYearStart={selectedAcademicYearStart}
         catalogInstruments={catalogInstruments}

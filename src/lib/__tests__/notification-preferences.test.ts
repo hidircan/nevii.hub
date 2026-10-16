@@ -19,7 +19,7 @@ import { notifyAdmins } from "../manager-notifications";
 import { listAllNotifications, NOTIFICATIONS_FILE } from "../notifications";
 import { DEFAULT_TENANT_ID } from "../auth/config";
 import type { ServiceContext } from "../services/context";
-import { resolveNotificationHref } from "../notification-href";
+import { paymentTargetHref, presentNotificationBody, resolveNotificationHref } from "../notification-href";
 import { LEAVE_FILE } from "../leave";
 import { STAFF_FILE } from "../staff";
 
@@ -230,5 +230,15 @@ describe("resolveNotificationHref", () => {
     expect(resolveNotificationHref("payment_overdue")).toBe("/panel/odemeler");
     expect(resolveNotificationHref("x", "Detay: https://evil.com")).toBeNull();
     expect(resolveNotificationHref("x", "Detay: //evil.com")).toBeNull();
+  });
+
+  it("2026-10-15 — ödeme hedefi satıra gider; eski 'Ödeme pay_… beklemede' metni kimliksiz gösterilir", () => {
+    const href = paymentTargetHref("stu_1", "pay_9");
+    expect(href).toBe("/panel/ogrenciler/stu_1/odemeler?odeme=pay_9#odeme-pay_9");
+    expect(resolveNotificationHref("payment_failed_or_pending", `Deniz — Ekim: 1.250 TL ödeme bekliyor. Detay: ${href}`)).toBe(href);
+    const legacy = "Ödeme pay_bto1 9 gündür beklemede (1.250 TL). Detay: /panel/odemeler";
+    expect(presentNotificationBody(legacy)).toBe("Bir ödeme 9 gündür beklemede (1.250 TL).");
+    expect(resolveNotificationHref("payment_failed_or_pending", legacy)).toBe("/panel/odemeler/pay_bto1");
+    expect(presentNotificationBody("Yeni değerlendirme geldi. Detay: /panel/x (ref:fb_1)")).toBe("Yeni değerlendirme geldi.");
   });
 });

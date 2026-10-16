@@ -9,6 +9,7 @@ import type {
   StudentScopeData,
 } from "./reference-data";
 import { STORE_MODE } from "./config";
+import { PLATFORM_TENANT_ID } from "./auth/config";
 import { closeExpiredUnplannedMakeups } from "./makeup-lifecycle";
 import { patchTouchesEnrollmentTerms, routeTermPatch, splitTermPatch } from "./student-enrollments";
 import * as jsonStore from "./store-json";
@@ -364,7 +365,9 @@ type StoreApi = {
   executePurge: (
     kind: import("./person-purge").PurgeKind,
     id: string,
-    expectedFingerprint: string
+    expectedFingerprint: string,
+    mode?: import("./person-purge").PurgeMode,
+    opts?: import("./person-purge").WipeOptions
   ) => Promise<import("./person-purge-db").PurgeExecResult>;
   updatePerformanceWeights: (
     performanceWeights: import("./performance-weights").PerformanceWeightsConfig
@@ -435,6 +438,15 @@ export async function readData(): Promise<AppData> {
 /** Platformda erişilebilir tüm kurumları (tenant) listeler — kurum seçici bunu kullanır. */
 export async function listTenants(): Promise<{ tenantId: string; name: string }[]> {
   return store.listTenants();
+}
+
+/**
+ * Okul verisi olan kurumlar — kurum başına `readData()` yapan zamanlanmış işler bunu kullanır.
+ * NeviiOS platform tenant'ının (`PLATFORM_TENANT_ID`) okul kaydı YOKTUR; canlıda onun için
+ * `readData()` bilerek hata fırlatır (2026-10-15: notification-tick her turda 500).
+ */
+export async function listSchoolTenants(): Promise<{ tenantId: string; name: string }[]> {
+  return (await store.listTenants()).filter((t) => t.tenantId !== PLATFORM_TENANT_ID);
 }
 
 /**
@@ -609,8 +621,14 @@ export async function loadPurgeSnapshot(kind: import("./person-purge").PurgeKind
 }
 
 /** Kalıcı silme — kilit altında planı yeniden kurar; parmak izi önizlemeyle aynı değilse PurgeConflictError. */
-export async function executePurge(kind: import("./person-purge").PurgeKind, id: string, expectedFingerprint: string) {
-  return withTenantScope(() => store.executePurge(kind, id, expectedFingerprint));
+export async function executePurge(
+  kind: import("./person-purge").PurgeKind,
+  id: string,
+  expectedFingerprint: string,
+  mode: import("./person-purge").PurgeMode = "standard",
+  opts: import("./person-purge").WipeOptions = {}
+) {
+  return withTenantScope(() => store.executePurge(kind, id, expectedFingerprint, mode, opts));
 }
 
 /**

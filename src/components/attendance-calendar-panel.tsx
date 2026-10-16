@@ -94,6 +94,7 @@ type DayLessonOpsInfo = {
   teacherName?: string;
   instrument: string;
   roomName?: string;
+  branchName?: string;
   availabilityOverride: boolean;
   /** Telafi Merkezi'nden planlanan ders — "Geldi" ise T işareti (aynı yeşil). */
   plannedMakeup?: boolean;
@@ -1095,6 +1096,7 @@ function LessonSummaryLine({ lesson }: { lesson: DayLessonOpsInfo }) {
       {lesson.teacherName ? <span className="text-[var(--color-text-muted)]">· {lesson.teacherName}</span> : null}
       <span className="text-[var(--color-text-muted)]">· {lesson.instrument}</span>
       {lesson.roomName ? <span className="text-[var(--color-text-muted)]">· {lesson.roomName}</span> : null}
+      <span className="min-w-0 break-words text-[var(--color-text-muted)]">· Şube: {lesson.branchName ?? "belirtilmemiş"}</span>
       <LessonStatusBadge
         status={
           lesson.opsStatus === "attended" ||
@@ -1173,7 +1175,11 @@ function DayDetail({
           Kapalı gün — yoklama/tahsilat işlemi yapılamaz.
         </p>
       ) : day.lessonIds.length === 0 ? (
-        <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">Bu gün ders yok.</p>
+        <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">
+          {day.payments.length
+            ? "Bu günün dersi iptal edilmiş (iptal edilen eski dersler takvimde gösterilmez); dersin ödeme kaydı aşağıda."
+            : "Bu gün ders yok."}
+        </p>
       ) : readOnly ? (
         <div className="mt-2 space-y-2">
           {day.lessons.map((l) => (

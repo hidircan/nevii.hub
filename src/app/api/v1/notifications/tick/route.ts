@@ -3,6 +3,7 @@ import { jsonFail } from "@/lib/api/http";
 import { recordAuditLog } from "@/lib/audit/log";
 import { uid } from "@/lib/utils";
 import { runNotificationSweeps } from "@/lib/notification-sweeps";
+import { safeErrorFields } from "@/lib/logger";
 
 export const dynamic = "force-dynamic";
 
@@ -63,8 +64,9 @@ export async function POST(request: Request) {
       action: "notifications.tick",
       entityType: "NotificationSweep",
       entityId: requestId,
-      outcome: "success",
+      outcome: summary.tenantErrors > 0 ? "error" : "success",
       meta: {
+        tenantErrors: summary.tenantErrors,
         upcomingCreated: summary.upcoming.created,
         remindersCreated: summary.reminders.created,
         remindersDuplicate: summary.reminders.duplicate,
@@ -76,23 +78,25 @@ export async function POST(request: Request) {
         contractExpiring: summary.contractExpiring,
       },
     });
+    if (summary.tenantErrors > 0) {
+      // Diğer kurumlar işlendi ama koşu "başarılı" sayılmaz: cron kırmızı görünsün, sayaçlar gövdede.
+      // Kurum id + aşama + hata adı log'da: [notifications.sweep.tenant.failed].
+      return Response.json(
+        {
+          ok: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: `Bildirim taraması ${summary.tenantErrors} kurumda tamamlanamadı; diğer kurumlar işlendi. Ayrıntı sunucu log'unda.`,
+          },
+          data: summary,
+        },
+        { status: 500 }
+      );
+    }
     return Response.json({ ok: true, data: summary });
-    } catch (error: unknown) {
-    const err = error instanceof Error ? error : null;
-    const code =
-      typeof error === "object" &&
-      error !== null &&
-      "code" in error &&
-      typeof error.code === "string"
-        ? error.code
-        : undefined;
-
-    console.error("[notifications.tick.failed]", {
-      requestId,
-      errorName: err?.name ?? "UnknownError",
-      errorCode: code,
-      stackFrames: err?.stack?.split("\n").slice(1, 7),
-    });
+  } catch (error: unknown) {
+    // Mesaj/stack ilk satırı log'a girmez (sorgu argümanı, kişi verisi taşıyabilir) — bkz. safeErrorFields.
+    console.error("[notifications.tick.failed]", { requestId, ...safeErrorFields(error) });
 
     return jsonFail("INTERNAL_ERROR", "Bildirim taraması başarısız.");
   }

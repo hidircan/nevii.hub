@@ -1,6 +1,8 @@
 import { ChangeHistory } from "@/components/change-history";
 import Link from "@/components/link";
 import { redirect } from "next/navigation";
+import { readPaymentById } from "@/lib/store";
+import { paymentTargetHref } from "@/lib/notification-href";
 import { ArrowRight } from "lucide-react";
 import { BackButton } from "@/components/back-button";
 import { AddPaymentForm } from "@/components/add-payment-form";
@@ -39,12 +41,16 @@ export default async function StudentPaymentProfilePage({
     kurum.scope.mode === "single" && (session.role === "SCHOOL_ADMIN" || session.role === "SUPER_ADMIN");
 
   if (!student) {
+    // 2026-10-15 — eski bildirim bağlantıları ödeme kimliğiyle gelir (/panel/odemeler/<ödeme>): aynı kurumdaki
+    // ödemenin öğrencisine, ilgili satıra yönlendir. Kurum dışı/silinmiş kayıtta aşağıdaki açıklama gösterilir.
+    const payment = kurum.scope.mode === "single" ? await readPaymentById(studentId) : undefined;
+    if (payment) redirect(paymentTargetHref(payment.studentId, payment.id));
     return (
       <div>
         <PageHeader title="Ödeme profili" description="Öğrenci bulunamadı." />
         <EmptyState
-          title="Öğrenci bulunamadı"
-          description="Bu öğrenci mevcut okulunuza kayıtlı değil veya kaldırılmış olabilir."
+          title="Kayıt bulunamadı"
+          description="Bu öğrenci veya ödeme kaydı mevcut kurumunuzda yok; silinmiş ya da kaldırılmış olabilir."
         />
         <BackButton
           fallbackHref="/panel/odemeler"

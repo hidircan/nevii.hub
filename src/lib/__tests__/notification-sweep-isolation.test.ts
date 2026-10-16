@@ -5,15 +5,37 @@ import { resolveDataDir } from "../config";
 import { createSeedData } from "../seed";
 import { writeData as writeJson } from "../store-json";
 
-vi.mock("../store", async (importOriginal) => {
-  const orig = await importOriginal<typeof import("../store")>();
-  const { DEFAULT_TENANT_ID: def } = await import("../auth/config");
+// Canlı tablo (2026-10-15): aktif kurumlar = gerçek okul + okul kaydı OLMAYAN NeviiOS platform tenant'ı.
+// `t-broken` her kurum-içi okumada hata veren bir kurumu temsil eder.
+const visitedReads: string[] = [];
+
+vi.mock("../store-json", async (importOriginal) => {
+  const orig = await importOriginal<typeof import("../store-json")>();
+  const { DEFAULT_TENANT_ID: def, PLATFORM_TENANT_ID: platform } = await import("../auth/config");
   return {
     ...orig,
     listTenants: async () => [
       { tenantId: def, name: "gerçek" },
+      { tenantId: platform, name: "NeviiOS" },
       { tenantId: "t-broken", name: "bozuk" },
     ],
+  };
+});
+
+vi.mock("../store", async (importOriginal) => {
+  const orig = await importOriginal<typeof import("../store")>();
+  const { tryTenantId } = await import("../tenant-context");
+  const { PLATFORM_TENANT_ID: platform } = await import("../auth/config");
+  return {
+    ...orig,
+    // Canlı db store'u okulsuz kurumda böyle fırlatır (store-db.ts readData).
+    readData: async () => {
+      const tid = tryTenantId() ?? "";
+      visitedReads.push(tid);
+      // Çok satırlı mesaj (Prisma doğrulama hatası gibi): devam satırı stack'te çerçevelerden önce gelir.
+      if (tid === "t-broken" || tid === platform) throw new Error(`Kurum (${tid}) için okul kaydı bulunamadı.\n  where: { name: "Ayşe Yılmaz" }`);
+      return orig.readData();
+    },
   };
 });
 
@@ -39,13 +61,15 @@ vi.mock("../leave", async (importOriginal) => {
   };
 });
 
-import { sweepLeavePendingApproval, sweepPaymentFailedOrPending } from "../notification-sweeps";
+import { runNotificationSweeps, sweepLeavePendingApproval, sweepPaymentFailedOrPending } from "../notification-sweeps";
+import { PLATFORM_TENANT_ID } from "../auth/config";
 
 const DATA_FILE = path.join(resolveDataDir(path.join(process.cwd(), "data")), "store.json");
 
 describe("bildirim süpürmeleri — tenant izolasyonu", () => {
   beforeEach(async () => {
     await fs.rm(DATA_FILE, { force: true });
+    visitedReads.length = 0;
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     return () => vi.restoreAllMocks();
   });
@@ -74,5 +98,29 @@ describe("bildirim süpürmeleri — tenant izolasyonu", () => {
     const res = await sweepLeavePendingApproval();
     expect(res.created).toBe(0);
     expect(res.tenantErrors).toBe(1);
+  });
+
+  it("tick: okulsuz platform tenant'ı hiç okunmaz; bozuk kurum tüm koşuyu düşürmez, sayaçta görünür", async () => {
+    await writeJson(createSeedData());
+    const summary = await runNotificationSweeps(new Date());
+
+    expect(visitedReads).not.toContain(PLATFORM_TENANT_ID);
+    // Sağlam kurum her aşamada işlendi; bozuk kurum yalnız sayıldı.
+    expect(summary.upcoming.tenants).toBe(1);
+    expect(summary.upcoming.tenantErrors).toBe(1);
+    expect(summary.reminders.tenantErrors).toBe(1);
+    expect(summary.paymentTenantErrors).toBe(1);
+    expect(summary.leaveTenantErrors).toBe(1);
+    expect(summary.tenantErrors).toBeGreaterThanOrEqual(4);
+
+    // Teşhis log'u: kurum id + aşama + hata adı; mesaj (kişi verisi taşıyabilir) YOK.
+    const logged = vi.mocked(console.error).mock.calls.filter((c) => c[1] === "[notifications.sweep.tenant.failed]");
+    expect(logged.length).toBe(summary.tenantErrors);
+    for (const call of logged) {
+      expect(call[2]).toMatchObject({ tenantId: "t-broken", errorName: "Error" });
+      expect(JSON.stringify(call[2])).not.toContain("okul kaydı bulunamadı");
+      expect(JSON.stringify(call[2])).not.toContain("Ayşe");
+      expect((call[2] as { stackFrames: string[] }).stackFrames.every((f) => f.startsWith("at "))).toBe(true);
+    }
   });
 });

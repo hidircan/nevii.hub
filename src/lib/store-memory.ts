@@ -1759,7 +1759,13 @@ export async function loadPurgeSnapshot(kind: import("./person-purge").PurgeKind
   return loadPurgeSnapshotFiles({ readData, writeData }, kind, id);
 }
 
-export async function executePurge(kind: import("./person-purge").PurgeKind, id: string, expectedFingerprint: string) {
+export async function executePurge(
+  kind: import("./person-purge").PurgeKind,
+  id: string,
+  expectedFingerprint: string,
+  mode: import("./person-purge").PurgeMode = "standard",
+  opts: import("./person-purge").WipeOptions = {}
+) {
   const { executePurgeFiles } = await import("./person-purge-files");
-  return executePurgeFiles({ readData, writeData }, kind, id, expectedFingerprint);
+  return executePurgeFiles({ readData, writeData }, kind, id, expectedFingerprint, mode, opts);
 }

@@ -87,11 +87,8 @@ import {
   suggestLessonSlotsTool,
   teacherDayAvailabilityTool,
   updateLessonScheduleTool,
-  cancelLessonTool,
   previewLessonSeriesTool,
   createLessonSeriesTool,
-  cancelSeriesFromLessonTool,
-  cancelEntireSeriesTool,
   changeLessonTeacherOrBranchTool,
   createPaymentRecordTool,
   createFeeRuleTool,
@@ -3759,27 +3756,9 @@ export async function actionUpdateLessonSchedule(input: {
   }
 }
 
-export type CancelLessonActionResult = { ok: true } | { ok: false; message: string };
-
-export async function actionCancelLesson(input: {
-  lessonId: string;
-  /** 9. tur — iptal kaynağı; öğretmen katılımı yalnız öğretmen kaynaklıysa ve açıkça seçildiyse. */
-  disruptionSource?: "teacher" | "institution" | "student" | "other";
-  disruptionNote?: string;
-  teacherAttendance?: "gelmedi" | "mazeretli";
-}): Promise<CancelLessonActionResult> {
-  try {
-    const result = await withAuthContext("actionCancelLesson", (ctx) => cancelLessonTool(ctx, input));
-    if (!result.ok) return { ok: false, message: result.error.message };
-    revalidateLessonSurfaces();
-    return { ok: true };
-  } catch (error) {
-    logger.error("actionCancelLesson failed", error);
-    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
-    if (error instanceof WriteScopeDeniedError) return { ok: false, message: error.message };
-    return { ok: false, message: "Ders iptal edilirken beklenmeyen bir hata oluştu." };
-  }
-}
+// 2026-10-15 — web Ders Programı'ndan "iptal et" eylemi kaldırıldı (iş birimi silmek isterken iptale basıyordu).
+// Geçmiş iptal kayıtları korunur; yayımlanmış mobil admin uygulaması için POST /api/v1/lessons/:id/cancel ve
+// cancelLessonTool kalır (mobil arayüzden kaldırma ayrı sürüm işi).
 
 export type LessonSeriesParamsInput = {
   studentId: string;
@@ -3853,36 +3832,6 @@ export async function actionCreateLessonSeries(
     if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
     if (error instanceof WriteScopeDeniedError) return { ok: false, message: error.message };
     return { ok: false, message: "Seri oluşturulurken beklenmeyen bir hata oluştu." };
-  }
-}
-
-export type SeriesCancelActionResult = { ok: true; cancelledLessonIds: string[] } | { ok: false; message: string };
-
-export async function actionCancelSeriesFromLesson(input: { lessonId: string }): Promise<SeriesCancelActionResult> {
-  try {
-    const result = await withAuthContext("actionCancelSeriesFromLesson", (ctx) => cancelSeriesFromLessonTool(ctx, input));
-    if (!result.ok) return { ok: false, message: result.error.message };
-    revalidateAll();
-    return { ok: true, cancelledLessonIds: result.data.cancelledLessonIds };
-  } catch (error) {
-    logger.error("actionCancelSeriesFromLesson failed", error);
-    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
-    if (error instanceof WriteScopeDeniedError) return { ok: false, message: error.message };
-    return { ok: false, message: "Seri iptal edilirken beklenmeyen bir hata oluştu." };
-  }
-}
-
-export async function actionCancelEntireSeries(input: { seriesId: string }): Promise<SeriesCancelActionResult> {
-  try {
-    const result = await withAuthContext("actionCancelEntireSeries", (ctx) => cancelEntireSeriesTool(ctx, input));
-    if (!result.ok) return { ok: false, message: result.error.message };
-    revalidateAll();
-    return { ok: true, cancelledLessonIds: result.data.cancelledLessonIds };
-  } catch (error) {
-    logger.error("actionCancelEntireSeries failed", error);
-    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
-    if (error instanceof WriteScopeDeniedError) return { ok: false, message: error.message };
-    return { ok: false, message: "Seri iptal edilirken beklenmeyen bir hata oluştu." };
   }
 }
 
@@ -4514,10 +4463,15 @@ export async function actionRestoreDeletedStudent(studentId: string): Promise<Si
 }
 
 /** 2026-10-15 — öğrenci/öğretmen kalıcı silme; önizleme ve silme aynı planı kullanır (`purgePersonTool`). */
-export async function actionGetPersonPurgePreview(kind: "student" | "teacher", id: string): Promise<SimpleActionResult<PersonPurgePreview>> {
+export async function actionGetPersonPurgePreview(
+  kind: "student" | "teacher",
+  id: string,
+  mode: "standard" | "wipe" = "standard",
+  opts: { lessonAction?: "delete" | "reassign"; targetTeacherId?: string } = {}
+): Promise<SimpleActionResult<PersonPurgePreview>> {
   return runSimpleAction(
     "actionGetPersonPurgePreview",
-    (ctx) => getPersonPurgePreviewTool(ctx, { kind, id }),
+    (ctx) => getPersonPurgePreviewTool(ctx, { kind, id, mode, ...opts }),
     "Kalıcı silme önizlemesi yüklenemedi. Sayfayı yenileyip tekrar deneyin."
   );
 }
@@ -4529,6 +4483,12 @@ export async function actionPurgePerson(input: {
   confirmationName: string;
   criticalPassword: string;
   reason: string;
+  /** "wipe": yanlış oluşturulmuş kayıt — finans dahil her şey silinir (yalnız kurum sahibi). */
+  mode?: "standard" | "wipe";
+  financialAcknowledged?: boolean;
+  scopeAll?: boolean;
+  lessonAction?: "delete" | "reassign";
+  targetTeacherId?: string;
 }): Promise<SimpleActionResult<PersonPurgeResult>> {
   const res = await runSimpleAction(
     "actionPurgePerson",
