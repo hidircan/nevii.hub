@@ -22,6 +22,13 @@ const dataDirForThisRun = path.join(
   `notaplan-test-${process.pid}-${Date.now().toString(36)}`
 );
 
+/**
+ * 2026-10-16 — SAAT DİLİMİ. Testler yerel saati (setHours(11) vb.) kurumun iş saat dilimi varsayar; uygulama da
+ * müsaitlik/kapalı gün/ders saatini Europe/Istanbul'a göre değerlendirir. GitHub runner'ı UTC olduğu için aynı
+ * testler yerelde geçip CI'da kırılıyordu (13 test, yalnız CI). Worker'lar bu süreçten TZ'yi devralır.
+ */
+process.env.TZ = "Europe/Istanbul";
+
 export default defineConfig({
   test: {
     environment: "node",

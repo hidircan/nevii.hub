@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { promises as fs } from "fs";
 import path from "path";
 import { resolveDataDir } from "../config";
@@ -12,6 +12,17 @@ import { DEFAULT_TENANT_ID } from "../auth/config";
 import type { ServiceContext } from "../services/context";
 import { resolveLessonAcademicPeriod, lessonMatchesAcademicPeriod } from "../attendance-calendar";
 import { validateLessonSlot } from "../makeup-engine";
+
+
+// Seed dersleri ve göreli tarihler "bugün"e göre üretilir; gün kapalı güne/geçmişe/müsaitlik dışına düşünce test
+// takvime bağlı kırılıyordu (2026-10 CI baseline). Saat sabit bir SALI sabahına dondurulur — yalnız Date sahte.
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-09-15T06:00:00.000Z"));
+});
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 const DATA_FILE = path.join(resolveDataDir(path.join(process.cwd(), "data")), "store.json");
 const CLOSED_DAYS_FILE = path.join(resolveDataDir(path.join(process.cwd(), "data")), "closed-days.json");
@@ -42,13 +53,9 @@ beforeEach(async () => {
  * aralarındaki gün farkları (0/4/7/14/18) korunuyor, yalnızca taban
  * kayıyor. 2027 Yaz senaryoları zaten güvenle gelecekte, dokunulmadı.
  */
-function guzAnchorDate(daysFromToday: number): Date {
-  const d = new Date();
-  d.setDate(d.getDate() + daysFromToday);
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
-const GUZ_2026_ANCHOR = guzAnchorDate(8);
+// Sabit, tatil içermeyen bir güz haftası (5–12 Ekim 2026; saat 15 Eylül'e dondurulduğu için gelecekte). Eskiden
+// "bugün + 8 gün" idi — modül yüklenirken gerçek saatle hesaplanıp 28 Ekim (bayram arifesi) gibi kapalı güne düşüyordu.
+const GUZ_2026_ANCHOR = new Date(2026, 9, 5);
 function guzDay(offsetDays: number): string {
   const d = new Date(GUZ_2026_ANCHOR);
   d.setDate(d.getDate() + offsetDays);

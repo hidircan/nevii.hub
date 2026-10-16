@@ -13,6 +13,7 @@ import {
 import { DEFAULT_TENANT_ID } from "../auth/config";
 import type { ServiceContext } from "../services/context";
 import { HOMEWORK_FILE_PATH, HOMEWORK_SUBMISSIONS_FILE_PATH } from "../homework";
+import { STUDENT_PORTAL_ACCESS_FILE } from "../student-portal-access";
 
 /**
  * Production hardening — own / cross-teacher / unauthorized erişim.
@@ -36,6 +37,9 @@ beforeEach(async () => {
   await fs.rm(DATA_FILE, { force: true });
   await fs.rm(HOMEWORK_FILE_PATH, { force: true });
   await fs.rm(HOMEWORK_SUBMISSIONS_FILE_PATH, { force: true });
+  // STUDENT rolü erişimi portal erişim tablosundan gelir (hasActiveStudentAccess). Önceki bir test dosyası aynı
+  // `u1` için s1 erişimi bırakınca bu suite yalnız tam koşuda kırılıyordu (ürün sızıntısı değil, kalıntı veri).
+  await fs.rm(STUDENT_PORTAL_ACCESS_FILE, { force: true });
 });
 
 describe("getStudentScheduleTool — teacher ownership", () => {
