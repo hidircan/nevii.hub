@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { promises as fs } from "fs";
 import path from "path";
 import { resolveDataDir } from "../config";
@@ -52,9 +52,17 @@ function pickConflictSeedLesson(data: AppData): Lesson {
   return found;
 }
 
+// Seed dersleri "bugün"e göre üretilir; çakışma tohumu (l14) gün/saat'e göre öğretmen müsaitliği dışına veya
+// geçmişe düşünce test takvime bağlı kırılıyordu (2026-10 baseline). Saat, testin yazıldığı haftanın SALI
+// sabahına sabitlenir — yalnız Date sahte, zamanlayıcılar gerçek (async store kilitleri etkilenmez).
 beforeEach(async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-09-15T06:00:00.000Z"));
   await fs.rm(DATA_FILE, { force: true });
   await fs.rm(NOTIFICATIONS_FILE, { force: true });
+});
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 /**

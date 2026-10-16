@@ -16495,17 +16495,19 @@ export async function createStudentContractTool(
     if (!p || p.studentId !== student.id) {
       return fail("VALIDATION_ERROR", "Taşınmak üzere seçilen borçlardan biri bu öğrenciye ait değil veya silinmiş. Sayfayı yenileyip seçimi tekrar yapın.");
     }
+    // Satırın kendi durumu (kulüp ücreti, tahsilatlı, iptal, sözleşmeli) önce: branşı olmayan kulüp ücreti için
+    // "başka branşa ait" yerine gerçek neden söylenir.
+    if (p.contractId || p.source === "club" || p.status === "paid" || p.status === "voided" || p.paidAmount > 0) {
+      return fail(
+        "VALIDATION_ERROR",
+        `Seçilen ${i + 1}. borç ("${p.description}") taşınamaz: tahsilat görmüş, iptal edilmiş veya zaten bir sözleşmeye bağlı. Bu satırı seçimden çıkarın; gerekiyorsa Ödemeler ekranında ayrıca düzeltin.`
+      );
+    }
     // 2026-10-09 — başka branşın borcu bu sözleşmeye taşınamaz (Keman borcu Piyano planına geçmez).
     if (contractEnrollmentId && paymentEnrollmentId(studentForRefs, p, { lessons: data.lessons }, data.teachers) !== contractEnrollmentId) {
       return fail(
         "VALIDATION_ERROR",
         `Seçilen ${i + 1}. borç ("${p.description}") bu sözleşmenin branşına (${branchCtx.data.label ?? "seçilen branş"}) ait değil. Yalnız aynı branşın sözleşmesiz borcu taşınabilir; satırı seçimden çıkarın.`
-      );
-    }
-    if (p.contractId || p.source === "club" || p.status === "paid" || p.status === "voided" || p.paidAmount > 0) {
-      return fail(
-        "VALIDATION_ERROR",
-        `Seçilen ${i + 1}. borç ("${p.description}") taşınamaz: tahsilat görmüş, iptal edilmiş veya zaten bir sözleşmeye bağlı. Bu satırı seçimden çıkarın; gerekiyorsa Ödemeler ekranında ayrıca düzeltin.`
       );
     }
   }

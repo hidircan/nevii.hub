@@ -782,8 +782,9 @@ describe("Faz 6 — sözleşme başlığı ve dosya adı", () => {
     expect(html.ok).toBe(true);
     if (!html.ok) return;
     expect(html.data.titleMain).toContain("Zeynep Arslan");
-    expect(html.data.fileName).toMatch(/^ogrenci-kayit-sozlesmesi-.*\.pdf$/);
-    expect(html.data.html).toContain("Öğrenci Kayıt Sözleşmesi — Zeynep Arslan");
+    // 5f71941 (branş kaydı): branşlı sözleşmede başlık/dosya adı öğrenci + branşla başlar (contractTitleFields).
+    expect(html.data.fileName).toMatch(/^zeynep-arslan-piyano-ogrenci-sozlesmesi-.*\.pdf$/);
+    expect(html.data.html).toContain("Zeynep Arslan — Piyano — Öğrenci Sözleşmesi");
   });
 });
 

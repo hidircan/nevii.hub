@@ -565,7 +565,8 @@ describe("Paket & Kampanya Motoru — kampanya raporu", () => {
     const data = await readData();
     const report = buildCampaignReport(data.students, data.discountCampaigns ?? [], data.packages, () => "Erzene Şube");
     const entry = report.find((e) => e.campaign.id === k1)!;
-    expect(entry.beneficiaries.map((b) => b.studentName)).toEqual(["Rapor A"]);
+    // Çoklu branş v2 (9500a0c): yararlanan satırı hangi branş kaydından geldiğini adın yanında söyler.
+    expect(entry.beneficiaries.map((b) => b.studentName)).toEqual(["Rapor A (Piyano)"]);
     expect(entry.beneficiaries[0]?.finalMonthlyFee).toBe(2000);
     expect(entry.beneficiaries[0]?.baseMonthlyFee).toBe(2500);
     expect(entry.totalDiscountAmount).toBe(500);

@@ -72,7 +72,8 @@ describe("I — kayıt süresi (10 ay) her akışta korunur", () => {
   it("Sözleşme Merkezi düzenle linki süreyi URL'de taşımaz; sayfa süreyi kayıttan okur", () => {
     const page = read("../../app/panel/ogrenciler/[studentId]/sozlesmeler/page.tsx");
     expect(page).not.toMatch(/sozlesmeSure=\$\{/);
-    expect(page).toMatch(/student\.intendedDurationMonths/);
+    // Çoklu branş v2: süre seçilen branşın kalıcı kaydından (`branchStudent`).
+    expect(page).toMatch(/branchStudent\.intendedDurationMonths/);
     const detail = read("../../app/panel/ogrenciler/[studentId]/page.tsx");
     expect(detail).not.toMatch(/sure=\$\{encodeURIComponent\(sozlesmeSure\)\}/);
   });

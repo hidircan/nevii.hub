@@ -46,7 +46,8 @@ describe("Yoklama takvimi ay kutusu sadeleştirmesi", () => {
       expect(CODE).toContain(key);
     }
     expect(CODE).toContain("tutar\u0131");
-    expect(CODE).toContain("ödeme tarihi");
+    // ec8efd7: girilen tarih ödeme (vade) değil TAHSİLAT tarihidir — etiket buna göre değişti.
+    expect(CODE).toContain("tahsilat tarihi");
     expect(CODE).toContain("ödeme \u015fekli");
     expect(CODE).toContain("tahsilat notu");
     // Dar ekranda taşma yok: esnek alanlarda min-w-0.
