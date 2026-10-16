@@ -7,7 +7,7 @@ import { AlertTriangle, Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui";
 import { actionGetPersonPurgePreview, actionPurgePerson } from "@/lib/actions";
 import type { PersonPurgePreview } from "@/lib/services/tools";
-import type { PurgeBucket, PurgeFinancialSummary, PurgeMode } from "@/lib/person-purge";
+import type { PurgeFinancialSummary, PurgeGroup, PurgeGroupAction, PurgeMode, WipeOptions } from "@/lib/person-purge";
 import { formatMoney } from "@/lib/utils";
 
 /**
@@ -40,6 +40,8 @@ export function PersonPurgeDialog({
   const [mode, setMode] = useState<PurgeMode>("standard");
   const [canWipe, setCanWipe] = useState(false);
   const [financialAck, setFinancialAck] = useState(false);
+  const [scopeAll, setScopeAll] = useState(false);
+  const [wipeOpts, setWipeOpts] = useState<WipeOptions>({ lessonAction: "delete" });
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -66,9 +68,9 @@ export function PersonPurgeDialog({
     };
   }, [open]);
 
-  async function loadPreview(m: PurgeMode = mode): Promise<PersonPurgePreview | null> {
+  async function loadPreview(m: PurgeMode = mode, o: WipeOptions = wipeOpts): Promise<PersonPurgePreview | null> {
     setLoading(true);
-    const res = await actionGetPersonPurgePreview(kind, id, m);
+    const res = await actionGetPersonPurgePreview(kind, id, m, kind === "teacher" && m === "wipe" ? o : {});
     setLoading(false);
     if (!res.ok) {
       setError(res.message);
@@ -83,7 +85,17 @@ export function PersonPurgeDialog({
     setConfirmationName("");
     setUnderstood(false);
     setFinancialAck(false);
+    setScopeAll(false);
     setPassword("");
+  }
+
+  /** Öğretmen tam silme seçeneği değişti → önizleme ve parmak izi yeniden, onaylar sıfır. */
+  async function changeWipeOpts(next: WipeOptions) {
+    if (busy) return;
+    setWipeOpts(next);
+    setError(null);
+    resetConfirmations();
+    await loadPreview("wipe", next);
   }
 
   async function switchMode(next: PurgeMode) {
@@ -102,6 +114,7 @@ export function PersonPurgeDialog({
     setReason("");
     resetConfirmations();
     setMode("standard");
+    setWipeOpts({ lessonAction: "delete" });
     setError(null);
     setChangedNotice(false);
     setWarnings([]);
@@ -121,6 +134,8 @@ export function PersonPurgeDialog({
       reason,
       mode: preview.mode,
       financialAcknowledged: preview.mode === "wipe" ? financialAck : undefined,
+      scopeAll: preview.mode === "wipe" ? scopeAll : undefined,
+      ...(kind === "teacher" && preview.mode === "wipe" ? wipeOpts : {}),
     });
     setPassword("");
     if (!res.ok) {
@@ -134,6 +149,7 @@ export function PersonPurgeDialog({
         setConfirmationName("");
         setUnderstood(false);
         setFinancialAck(false);
+        setScopeAll(false);
       }
       return;
     }
@@ -158,7 +174,7 @@ export function PersonPurgeDialog({
     preview.eligible &&
     preview.criticalPasswordConfigured &&
     understood &&
-    (!wipe || financialAck) &&
+    (!wipe || (financialAck && scopeAll)) &&
     reason.trim().length >= 5 &&
     confirmationName.trim().length > 0 &&
     password.length > 0 &&
@@ -306,29 +322,58 @@ export function PersonPurgeDialog({
                   </div>
                 ) : null}
 
+                {wipe && kind === "teacher" ? (
+                  <fieldset className="rounded-md border border-[var(--color-border)] px-3 py-2">
+                    <legend className="px-1 font-semibold text-[var(--color-text)]">Ders, telafi ve öğrenci kayıtları</legend>
+                    {(["delete", "reassign"] as const).map((a) => (
+                      <label key={a} className="flex items-start gap-2 py-0.5">
+                        <input
+                          type="radio"
+                          name={`purge-lesson-action-${id}`}
+                          checked={(wipeOpts.lessonAction ?? "delete") === a}
+                          disabled={busy || loading}
+                          onChange={() => void changeWipeOpts({ ...wipeOpts, lessonAction: a })}
+                          className="mt-0.5"
+                        />
+                        <span>
+                          {a === "delete" ? (
+                            <>
+                              <strong>Dersleri sil</strong> — bu öğretmenin dersleri, yoklamaları, telafileri ve yazdığı öğrenci kayıtları silinir.
+                              Grup dersi satırları silinmez (devir gerekir).
+                            </>
+                          ) : (
+                            <>
+                              <strong>Dersleri başka öğretmene devret</strong> — ders, seri, telafi ve öğrenci kayıtları aşağıda seçilen öğretmene geçer.
+                            </>
+                          )}
+                        </span>
+                      </label>
+                    ))}
+                    <label className="mt-1 block">
+                      <span className="font-medium text-[var(--color-text)]">
+                        Devredilecek öğretmen <span className="font-normal text-[var(--color-text-muted)]">(öğrenci ataması her iki seçenekte buraya geçer)</span>
+                      </span>
+                      <select
+                        value={wipeOpts.targetTeacherId ?? ""}
+                        disabled={busy || loading}
+                        onChange={(e) => void changeWipeOpts({ ...wipeOpts, targetTeacherId: e.target.value || undefined })}
+                        className="mt-1 w-full rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-sm"
+                      >
+                        <option value="">— Seçilmedi —</option>
+                        {(preview.targetCandidates ?? []).map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {t.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </fieldset>
+                ) : null}
+
                 {wipe && preview.financial ? <FinancialSummary kind={kind} f={preview.financial} /> : null}
 
-                <BucketList title="Kalıcı silinecek" buckets={preview.remove} empty="Bağlı kayıt yok." tone="danger" />
-                <BucketList title="Silinmeyecek, yalnız bağlantısı kaldırılacak" buckets={preview.detach} />
-                <BucketList title="Korunacak" buckets={preview.keep} />
-
-                {preview.accounts.length ? (
-                  <section>
-                    <h4 className="font-semibold text-[var(--color-text)]">Giriş hesapları</h4>
-                    <ul className="mt-1 space-y-1">
-                      {preview.accounts.map((a) => (
-                        <li key={a.userId}>
-                          {a.maskedEmail}:{" "}
-                          {a.action === "close"
-                            ? "yalnız bu kişiye ait — hesap kapatılır, açık oturumlar ve bekleyen davet/şifre linkleri geçersiz olur."
-                            : "başka öğrenci/rol için de kullanılıyor — hesap SİLİNMEZ, yalnız bu kişiye erişimi kaldırılır."}
-                        </li>
-                      ))}
-                    </ul>
-                  </section>
-                ) : (
-                  <p className="text-[var(--color-text-muted)]">Bu kişiye bağlı giriş hesabı yok.</p>
-                )}
+                <GroupList groups={preview.groups} />
+                {!preview.accounts.length ? <p className="text-[var(--color-text-muted)]">Bu kişiye bağlı giriş hesabı yok.</p> : null}
 
                 {preview.effects.length ? (
                   <section>
@@ -387,6 +432,18 @@ export function PersonPurgeDialog({
                       <input type="checkbox" checked={understood} onChange={(e) => setUnderstood(e.target.checked)} className="mt-0.5" />
                       <span>Yukarıdaki önizlemeyi okudum; kayıtların kalıcı silineceğini ve geri alınamayacağını anlıyorum.</span>
                     </label>
+                    {wipe ? (
+                      <label className="flex items-start gap-2 font-medium">
+                        <input type="checkbox" checked={scopeAll} onChange={(e) => setScopeAll(e.target.checked)} className="mt-0.5" />
+                        <span>
+                          Seçili kişiye ait tüm silinebilir kayıtları seç
+                          <span className="block font-normal text-[var(--color-text-muted)]">
+                            Kişi satırı silindiği için yukarıdaki gruplar birbirine bağlıdır ve birlikte seçilir (ders → yoklama → telafi; ödeme →
+                            sözleşme → evrak). Yalnız bir kısmını silmek için &quot;Kalıcı sil&quot; (standart) türünü kullanın.
+                          </span>
+                        </span>
+                      </label>
+                    ) : null}
                     {wipe ? (
                       <label className="flex items-start gap-2 font-medium" style={{ color: "var(--color-danger)" }}>
                         <input type="checkbox" checked={financialAck} onChange={(e) => setFinancialAck(e.target.checked)} className="mt-0.5" />
@@ -465,38 +522,47 @@ function FinancialSummary({ kind, f }: { kind: "student" | "teacher"; f: PurgeFi
   );
 }
 
-function BucketList({
-  title,
-  buckets,
-  empty,
-  tone,
-}: {
-  title: string;
-  buckets: PurgeBucket[];
-  empty?: string;
-  tone?: "danger";
-}) {
-  if (!buckets.length && !empty) return null;
+const ACTION_TONE: Record<PurgeGroupAction, string> = {
+  delete: "var(--color-danger)",
+  detach: "var(--color-text)",
+  recalc: "var(--color-warning)",
+  keep: "var(--color-text-muted)",
+  exception: "var(--color-warning)",
+  reassign: "var(--color-text)",
+};
+const ACTION_LABEL: Record<PurgeGroupAction, string> = {
+  delete: "Silinecek",
+  detach: "Bağı kaldırılacak",
+  recalc: "Yeniden hesaplanacak",
+  keep: "Korunacak",
+  exception: "Somut istisna",
+  reassign: "Devredilecek",
+};
+
+/** Önizleme — 7 ürün grubu; her satır: işlem, adet, kapsam/tutar notu (sunucudaki gerçek kayıtlardan). */
+function GroupList({ groups }: { groups: PurgeGroup[] }) {
+  if (!groups.length) return <p className="text-[var(--color-text-muted)]">Bağlı kayıt yok.</p>;
   return (
-    <section>
-      <h4 className="font-semibold" style={{ color: tone === "danger" ? "var(--color-danger)" : "var(--color-text)" }}>
-        {title}
-      </h4>
-      {buckets.length ? (
-        <ul className="mt-1 grid gap-x-4 gap-y-0.5 sm:grid-cols-2">
-          {buckets.map((b) => (
-            <li key={`${title}-${b.key}`} className="flex justify-between gap-2">
-              <span className="min-w-0">
-                {b.label}
-                {b.note ? <span className="block text-[var(--color-text-muted)]">{b.note}</span> : null}
-              </span>
-              <span className="shrink-0 font-semibold tabular-nums">{b.ids.length}</span>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className="mt-1 text-[var(--color-text-muted)]">{empty}</p>
-      )}
-    </section>
+    <div className="space-y-2">
+      {groups.map((g) => (
+        <section key={g.key} className="rounded-md border border-[var(--color-border)] px-3 py-2">
+          <h4 className="font-semibold text-[var(--color-text)]">{g.title}</h4>
+          <ul className="mt-1 space-y-1">
+            {g.items.map((it, i) => (
+              <li key={`${g.key}-${i}`} className="flex justify-between gap-2">
+                <span className="min-w-0">
+                  <span className="font-medium" style={{ color: ACTION_TONE[it.action] }}>
+                    {ACTION_LABEL[it.action]}:
+                  </span>{" "}
+                  {it.label}
+                  {it.note ? <span className="block text-[var(--color-text-muted)]">{it.note}</span> : null}
+                </span>
+                {it.count ? <span className="shrink-0 font-semibold tabular-nums">{it.count}</span> : null}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))}
+    </div>
   );
 }
