@@ -48,6 +48,8 @@ import { buildRegistrationFirstPayment, REGISTRATION_FIRST_PAYMENT_SOURCE, regis
 import {
   narrowToDashboard,
   narrowToLessonWindow,
+  narrowToMakeupCenter,
+  type MakeupCenterData,
   narrowToPaymentsPage,
   narrowToPayoutWindow,
   narrowToStudentScope,
@@ -242,6 +244,11 @@ export async function readStudentScope(studentId: string): Promise<StudentScopeD
   return narrowToStudentScope(await readData(), studentId);
 }
 
+/** Bkz. src/lib/reference-data.ts `narrowToMakeupCenter`. */
+export async function readMakeupCenterData(): Promise<MakeupCenterData> {
+  return narrowToMakeupCenter(await readData());
+}
+
 /** Bkz. src/lib/reference-data.ts `narrowToLessonWindow`. */
 export async function readLessonWindow(fromIso: string, toIso: string): Promise<LessonWindowData> {
   return narrowToLessonWindow(await readData(), new Date(fromIso), new Date(toIso));
@@ -291,6 +298,16 @@ export async function readTeacherPortalDetails(teacherId: string) {
 /** Bkz. store-db.readLessonById — sonuç `readData().lessons.find` ile aynı. */
 export async function readLessonById(lessonId: string): Promise<Lesson | undefined> {
   return (await readData()).lessons.find((l) => l.id === lessonId);
+}
+
+/** Bkz. store-db.readLessonsStartingBetween — sonuç `readData().lessons` [from, to] süzgeciyle aynı. */
+export async function readLessonsStartingBetween(fromIso: string, toIso: string): Promise<Lesson[]> {
+  const lo = new Date(fromIso).getTime();
+  const hi = new Date(toIso).getTime();
+  return (await readData()).lessons.filter((l) => {
+    const t = new Date(l.startAt).getTime();
+    return t >= lo && t <= hi;
+  });
 }
 
 /** Bkz. store-db.readPaymentById — sonuç `readData().payments.find` ile aynı. */

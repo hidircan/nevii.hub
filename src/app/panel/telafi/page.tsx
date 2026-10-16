@@ -16,7 +16,7 @@ import { isTeacherSchedulable } from "@/lib/teacher-branches";
 import type { Instrument } from "@/lib/types";
 import { CheckCircle2, Download, Sparkles, X } from "lucide-react";
 import { requireSessionContext } from "@/lib/auth/session";
-import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
+import { getInstitutionContext, readScopedMakeupCenterData } from "@/lib/institution/context";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { AiInsightTrigger } from "@/components/ai/ai-insight-trigger";
 import { AssistantPageContext } from "@/components/ai/assistant-page-context";
@@ -89,7 +89,8 @@ export default async function TelafiPage({
   const qFold = q ? foldTurkishForSearch(q) : "";
   const durum: Durum = durumParam && durumParam in DURUM_LABEL ? (durumParam as Durum) : "tumu";
   const kurum = await getInstitutionContext(session);
-  const data = await readScopedData(kurum.scope);
+  // DB egress (2026-10-16): referans + dersler + telafi talepleri; ödeme/yoklama/seri/hakediş okunmaz.
+  const data = await readScopedMakeupCenterData(kurum.scope);
   const matchingStudentIds = qFold
     ? new Set(
         data.students

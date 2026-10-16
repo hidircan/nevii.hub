@@ -2,6 +2,7 @@ import type { DemoSeedInput, DemoSeedResult } from "./demo-seed";
 import type {
   DashboardData,
   LessonWindowData,
+  MakeupCenterData,
   PaymentsPageData,
   PayoutWindowData,
   ReferenceData,
@@ -247,6 +248,7 @@ type StoreApi = {
   /** Dar okuma — tek öğrenci satırı; `readData().students.find(id)` ile aynı sonuç. */
   readStudentById: (studentId: string) => Promise<Student | undefined>;
   readLessonById: (lessonId: string) => Promise<import("./types").Lesson | undefined>;
+  readLessonsStartingBetween: (fromIso: string, toIso: string) => Promise<import("./types").Lesson[]>;
   readTeacherPayoutsForTeacher: (teacherId: string) => Promise<import("./types").TeacherPayout[]>;
   readPaymentById: (paymentId: string) => Promise<import("./types").Payment | undefined>;
   readTeacherPortalDetails: (teacherId: string) => Promise<TeacherPortalDetails | null>;
@@ -256,6 +258,8 @@ type StoreApi = {
   readStudentScope: (studentId: string) => Promise<StudentScopeData>;
   /** Dar okuma — referans veri + [from, to] penceresindeki dersler (Ders Programı). */
   readLessonWindow: (fromIso: string, toIso: string) => Promise<LessonWindowData>;
+  /** Dar okuma — referans veri + tüm dersler + tüm telafi talepleri (Telafi Merkezi). */
+  readMakeupCenterData: () => Promise<MakeupCenterData>;
   /** Dar okuma — referans veri + ödeme durum alanları (Öğrenciler listesi). */
   readStudentListData: () => Promise<StudentListData>;
   /** Dar okuma — referans veri + tüm ödemeler + yalnız ödemelere bağlı dersler (Ödemeler). */
@@ -468,6 +472,11 @@ export async function readLessonById(lessonId: string): Promise<import("./types"
   return withTenantScope(() => store.readLessonById(lessonId));
 }
 
+/** DB egress (2026-10-16) — yalnız penceredeki ders satırları (referans veri yok); bildirim tick'i. */
+export async function readLessonsStartingBetween(fromIso: string, toIso: string): Promise<import("./types").Lesson[]> {
+  return withTenantScope(() => store.readLessonsStartingBetween(fromIso, toIso));
+}
+
 /** DB egress (2026-10-10) — tek ödeme: `readData().payments.find(id)` ile aynı (makbuz). */
 export async function readPaymentById(paymentId: string): Promise<import("./types").Payment | undefined> {
   if (!paymentId) return undefined;
@@ -504,6 +513,16 @@ export async function readStudentScope(studentId: string): Promise<StudentScopeD
     await withTenantScope(async () => {
       await store.commitMakeupPlanningExpiry(new Date());
       return store.readStudentScope(studentId);
+    })
+  );
+}
+
+/** DB egress (2026-10-16) — Telafi Merkezi; `readData()` ile aynı telafi süre-dolumu türetmesi uygulanır. */
+export async function readMakeupCenterData(): Promise<MakeupCenterData> {
+  return applyMakeupExpiry(
+    await withTenantScope(async () => {
+      await store.commitMakeupPlanningExpiry(new Date());
+      return store.readMakeupCenterData();
     })
   );
 }

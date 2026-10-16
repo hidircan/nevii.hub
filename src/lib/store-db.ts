@@ -104,6 +104,8 @@ import { lessonScopeDays, type SlotScopeTarget } from "./lesson-scope";
 import {
   narrowToDashboard,
   narrowToLessonWindow,
+  narrowToMakeupCenter,
+  type MakeupCenterData,
   narrowToPaymentsPage,
   narrowToPayoutWindow,
   narrowToStudentScope,
@@ -1276,6 +1278,18 @@ export async function readLessonById(lessonId: string): Promise<import("./types"
   return row ? mapDbLesson(row) : undefined;
 }
 
+/**
+ * DB egress (2026-10-16) — yalnız `startAt`'i [from, to] aralığındaki ders satırları (referans veri YOK).
+ * Bildirim tick'i her 10 dakikada bunu okur; eşleşen ders yoksa başka hiçbir şey okunmaz.
+ */
+export async function readLessonsStartingBetween(fromIso: string, toIso: string): Promise<import("./types").Lesson[]> {
+  const tid = tenantId();
+  const rows = await prisma.lesson.findMany({
+    where: { tenantId: tid, school: { tenantId: tid }, startAt: { gte: new Date(fromIso), lte: new Date(toIso) } },
+  });
+  return rows.map(mapDbLesson);
+}
+
 /** DB egress (2026-10-10) — tek ödeme satırı: `readData().payments.find(id)` ile aynı (makbuz). */
 export async function readPaymentById(paymentId: string): Promise<import("./types").Payment | undefined> {
   if (!paymentId) return undefined;
@@ -1390,6 +1404,29 @@ export async function readLessonWindow(fromIso: string, toIso: string): Promise<
     teacherPayouts: [],
   });
   return narrowToLessonWindow({ ...mapped, packages, discountCampaigns, teacherPayoutPolicies, closedDayOverrides }, from, to);
+}
+
+/** DB egress (2026-10-16) — Telafi Merkezi: referans veri + tüm dersler + tüm telafi talepleri (bkz. reference-data.ts). */
+export async function readMakeupCenterData(): Promise<MakeupCenterData> {
+  const tid = tenantId();
+  const [school, packages, discountCampaigns, teacherPayoutPolicies, closedDayOverrides] = await Promise.all([
+    prisma.school.findFirst({
+      where: { tenantId: tid },
+      omit: { logoUrl: true },
+      include: {
+        ...referenceSchoolInclude,
+        lessons: { where: { tenantId: tid } },
+        makeupRequests: { where: { tenantId: tid } },
+      },
+    }),
+    readPackages(tid),
+    readDiscountCampaigns(tid),
+    readTeacherPayoutPolicies(tid),
+    listClosedDays(tid).catch(() => []),
+  ]);
+  if (!school) return narrowToMakeupCenter(await readData());
+  const mapped = mapSchoolToAppData({ ...school, logoUrl: "", lessonSeries: [], attendances: [], payments: [], teacherPayouts: [] });
+  return narrowToMakeupCenter({ ...mapped, packages, discountCampaigns, teacherPayoutPolicies, closedDayOverrides });
 }
 
 /** readData ile aynı hariç tutma eşlemesi (hakediş penceresi / panel özeti dilimleri). */
@@ -1718,6 +1755,46 @@ export async function generateSuggestions(
   return readData();
 }
 
+/**
+ * DB egress (2026-10-16) — telafi slot onayı için dar veri (eskiden tam `readData()`, günde ~100+ çağrı).
+ * Doğrulayıcının (`confirmMakeupSlot` → `validateLessonSlot`, `activeMakeupLessonForRequest`,
+ * `makeupDurationMinutes`) baktığı her şey: referans veri + slot gününün ±8 günündeki TÜM dersler (öğretmen/oda/
+ * öğrenci çakışması, günlük sınır, yönlendirici mesaj) + kaynak ders + bu talebe bağlı dersler + talebin kendisi.
+ * Çakışma için son söz yine kilit altındaki `assertSlotFreeLockedTx`'tedir.
+ */
+async function readMakeupConfirmData(requestId: string, slotStartAt: string): Promise<import("./types").AppData | null> {
+  const tid = tenantId();
+  const request = await prisma.makeupRequest.findFirst({ where: { id: requestId, tenantId: tid }, select: { sourceLessonId: true } });
+  if (!request) return null;
+  const at = new Date(slotStartAt).getTime();
+  if (Number.isNaN(at)) return null;
+  const from = new Date(at - 8 * 86_400_000);
+  const to = new Date(at + 8 * 86_400_000);
+  const [school, packages, discountCampaigns, teacherPayoutPolicies, closedDayOverrides] = await Promise.all([
+    prisma.school.findFirst({
+      where: { tenantId: tid },
+      omit: { logoUrl: true },
+      include: {
+        ...referenceSchoolInclude,
+        lessons: {
+          where: {
+            tenantId: tid,
+            OR: [{ startAt: { gte: from, lte: to } }, { id: request.sourceLessonId }, { makeupRequestId: requestId }],
+          },
+        },
+        makeupRequests: { where: { tenantId: tid, id: requestId } },
+      },
+    }),
+    readPackages(tid),
+    readDiscountCampaigns(tid),
+    readTeacherPayoutPolicies(tid),
+    listClosedDays(tid).catch(() => []),
+  ]);
+  if (!school) return null;
+  const mapped = mapSchoolToAppData({ ...school, logoUrl: "", lessonSeries: [], attendances: [], payments: [], teacherPayouts: [] });
+  return { ...mapped, packages, discountCampaigns, teacherPayoutPolicies, closedDayOverrides };
+}
+
 export async function confirmSlot(
   requestId: string,
   slot: MakeupSlot,
@@ -1725,7 +1802,8 @@ export async function confirmSlot(
 ): Promise<void> {
   logger.info("confirmSlot", requestId, slot.startAt, slot.teacherId, slot.roomId);
   const tid = requireTenantId();
-  const data = await readData();
+  // Dar veri bulunamazsa (talep/okul yok) eski tam okuma aynı hata mesajını üretir.
+  const data = (await readMakeupConfirmData(requestId, slot.startAt)) ?? (await readData());
   const request = data.makeupRequests.find((m) => m.id === requestId);
   if (!request) throw new Error("Telafi talebi bulunamadı");
 

@@ -39,6 +39,8 @@ vi.mock("../store", async (importOriginal) => {
     ...orig,
     readData: guard(orig.readData),
     readLessonWindow: guard(orig.readLessonWindow),
+    readLessonsStartingBetween: guard(orig.readLessonsStartingBetween),
+    readReferenceData: guard(orig.readReferenceData),
     readPaymentsPageData: guard(orig.readPaymentsPageData),
   };
 });

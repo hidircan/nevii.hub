@@ -21,13 +21,16 @@ function extractBearer(request: Request): string | null {
 }
 
 /**
- * POST /api/v1/notifications/tick — yaklaşan ders, bekleyen ödeme, bekleyen izin.
- * Secret: NOTIFICATION_CRON_SECRET (fail-closed). JWT kabul edilmez.
+ * POST|GET /api/v1/notifications/tick — yaklaşan ders, bekleyen ödeme, bekleyen izin.
+ * Secret (fail-closed, JWT kabul edilmez): NOTIFICATION_CRON_SECRET (eski GitHub Actions POST'u) veya
+ * Vercel'in `CRON_SECRET`'ı. 2026-10-16: zamanlayıcı Vercel Cron'a taşındı (vercel.json: her 10 dk `?stages=lessons`,
+ * günde bir tam tur).
+ * Çift tetiklenme güvenli: bildirimler tekilleştirme anahtarı + günlük satır kimliğiyle idempotent.
  */
-export async function POST(request: Request) {
+async function tick(request: Request) {
   const requestId = uid("audit");
-  const configured = process.env.NOTIFICATION_CRON_SECRET;
-  if (!configured) {
+  const configured = [process.env.NOTIFICATION_CRON_SECRET, process.env.CRON_SECRET].filter((s): s is string => Boolean(s));
+  if (configured.length === 0) {
     void recordAuditLog({
       tenantId: "system",
       actorUserId: "cron",
@@ -42,7 +45,7 @@ export async function POST(request: Request) {
     return jsonFail("FORBIDDEN", "Geçersiz tick kimliği.");
   }
   const provided = extractBearer(request);
-  if (!provided || !timingSafeStringEqual(provided, configured)) {
+  if (!provided || !configured.some((secret) => timingSafeStringEqual(provided, secret))) {
     void recordAuditLog({
       tenantId: "system",
       actorUserId: "cron",
@@ -56,7 +59,9 @@ export async function POST(request: Request) {
     return jsonFail("FORBIDDEN", "Geçersiz tick kimliği.");
   }
   try {
-    const summary = await runNotificationSweeps();
+    // `?stages=lessons` → yalnız ders hatırlatmaları (10 dk'lık Vercel Cron); parametresiz → tam tur (günlük cron, elle POST).
+    const stages = new URL(request.url).searchParams.get("stages") === "lessons" ? "lessons" : "all";
+    const summary = await runNotificationSweeps(new Date(), { stages });
     void recordAuditLog({
       tenantId: "system",
       actorUserId: "cron",
@@ -101,3 +106,7 @@ export async function POST(request: Request) {
     return jsonFail("INTERNAL_ERROR", "Bildirim taraması başarısız.");
   }
 }
+
+export const POST = tick;
+/** Vercel Cron GET gönderir (`Authorization: Bearer $CRON_SECRET`). Yanıt önbelleğe alınmaz (force-dynamic). */
+export const GET = tick;

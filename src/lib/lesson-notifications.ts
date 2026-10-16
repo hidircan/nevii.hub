@@ -1,6 +1,6 @@
 import { format } from "date-fns";
 import { tr } from "date-fns/locale";
-import { readLessonWindow, listSchoolTenants } from "./store";
+import { readLessonsStartingBetween, readReferenceData, listSchoolTenants } from "./store";
 import { runWithTenantAsync } from "./tenant-context";
 import { getUserIdByTeacherId, getUserIdByStudentId } from "./auth/users";
 import { hasActiveStudentAccess, listActiveAccessForTenant } from "./student-portal-access";
@@ -362,10 +362,11 @@ export async function sweepUpcomingLessons(now: Date = new Date()): Promise<Upco
   const summary: UpcomingSweepSummary = { tenants: 0, evaluated: 0, created: 0, skipped: 0, tenantErrors: 0 };
   summary.tenantErrors = await forEachSchoolTenant("upcomingLessons", async (tenantId) => {
       const t = { tenantId };
-      // DB egress (2026-10-16): yalnız pencereye girebilecek dersler (tam kurum okuması değil); kesin süzgeç aşağıda.
-      const data = await readLessonWindow(now.toISOString(), new Date(now.getTime() + (UPCOMING_WINDOW_MAX + 30) * 60000).toISOString());
+      // DB egress (2026-10-16): her 10 dk çalışır — yalnız pencereye girebilecek ders satırları (referans veri yok);
+      // kesin süzgeç aşağıda.
+      const lessons = await readLessonsStartingBetween(now.toISOString(), new Date(now.getTime() + (UPCOMING_WINDOW_MAX + 30) * 60000).toISOString());
       summary.tenants++;
-      for (const lesson of data.lessons) {
+      for (const lesson of lessons) {
         if (!isLessonInUpcomingWindow(lesson, now)) continue;
         summary.evaluated++;
         const title = "Yaklaşan ders";
@@ -423,8 +424,13 @@ export async function sweepLessonReminders(now: Date = new Date()): Promise<Remi
   const { isPushEnabledForUser } = await import("./notification-preferences");
   summary.tenantErrors = await forEachSchoolTenant("lessonReminders", async (tenantId) => {
       const t = { tenantId };
-      // DB egress (2026-10-16): en geniş offset (1g, 25 sa) + pay kadar ders penceresi; kesin süzgeç `reminderOffsetForLesson`.
-      const data = await readLessonWindow(now.toISOString(), new Date(now.getTime() + 26 * 60 * 60000).toISOString());
+      // DB egress (2026-10-16): her 10 dk çalışır — en geniş offset (1g, 25 sa) + pay kadar ders satırı; bu turda
+      // offset'e giren ders yoksa referans veri / erişim listesi HİÇ okunmaz.
+      const due = (await readLessonsStartingBetween(now.toISOString(), new Date(now.getTime() + 26 * 60 * 60000).toISOString())).filter(
+        (l) => reminderOffsetForLesson(l, now) !== null
+      );
+      if (due.length === 0) return;
+      const data = await readReferenceData();
       const access = await listActiveAccessForTenant(t.tenantId);
       // Alıcı havuzu: yalnız `active` satırlar (invited/revoked ASLA).
       // GUARDIAN → tüm aktif çocukları; SELF → kendi studentId'si.
@@ -438,11 +444,11 @@ export async function sweepLessonReminders(now: Date = new Date()): Promise<Remi
       const studentNameById = new Map(data.students.map((s) => [s.id, s.name]));
       const branchNameById = new Map((data.settings.branches ?? []).map((b) => [b.id, b.shortName ?? b.name]));
 
-      for (const lesson of data.lessons) {
+      for (const lesson of due) {
         const offset = reminderOffsetForLesson(lesson, now);
         if (!offset) continue;
         // Gönderim-öncesi taze doğrulama: kayıt sweep sırasında değişmiş olabilir.
-        const fresh = data.lessons.find((l) => l.id === lesson.id);
+        const fresh = due.find((l) => l.id === lesson.id);
         if (!fresh || fresh.status === "cancelled" || fresh.startAt !== lesson.startAt) continue;
         if (new Date(fresh.startAt).getTime() <= Date.now()) continue;
 
