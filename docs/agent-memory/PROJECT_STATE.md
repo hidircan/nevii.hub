@@ -96,6 +96,20 @@ Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_20
 - Açık: owner onayları (merge/deploy, backfill, Turgay doğrulama e-postası, HYPER_ADMIN kurtarma + reset e-postası).
   UAT: `docs/testing/UAT_2026_10_14_FOUR_FIXES.md`.
 
+## Güncel snapshot — 2026-10-15 (6 iş; 5 PR açık, MERGE/CANLI YOK)
+- PR #41 notification-tick 500: kök neden okulsuz `tenant_platform`; `listSchoolTenants` + kurum izolasyonu. Migration yok.
+  Merge sonrası GitHub Actions `notification-tick` 200 dönmeli; dönmezse `[notifications.sweep.tenant.failed]` log'u.
+- PR #42 "Yanlış oluşturuldu — her şeyi sil" (finans dahil, yalnız kurum sahibi). Migration yok. UAT:
+  `docs/testing/UAT_2026_10_15_PURGE_WIPE_MISTAKEN_RECORD.md`.
+- PR #43 Bilgiler kartı bölüm-bazlı düzenleme (öğretmen + öğrenci). PR #44 ders yan paneli (birincil Düzenle, riskli
+  işlemler altta, iptal onay penceresi). PR #45 Google Play mağaza paketi (`docs/store-assets/google-play/`).
+- AÇIK (owner): canlıda HİÇ HYPER_ADMIN yok, `info@neviihub.com` hesabı yok → şifre sıfırlama `no_eligible_account`
+  (canlı log 10-14). PR #37 kurtarma betiği hiç uygulanmadı. Owner: `scripts/recover-hyper-admin.ts` (kuru → `--apply`).
+- AÇIK (owner): canlıda mobil erişim kapalı — paket `standard` (`mobileApp: false`), `mobile.appEnabled` override yok;
+  PR #45 `app.json` sürümünü 1.0.0 yaptı (minVersion kapısı). Mobil modülü + `mobile.appEnabled` NeviiOS'tan açılmalı.
+- AÇIK (owner): Play Console doğru Google hesabıyla giriş; canlıda sentetik inceleme test hesabı; hedef kitle/IARC kararları.
+- Bilinen: `/panel` telefon genişliğinde kenar menü daralmıyor (içerik ~57px) — ayrı iş.
+
 ## Güncel snapshot — 2026-10-10 (P0 Supabase egress + UserSession kilidi; PR #21 MERGE + CANLIDA `cf12bc0`, ~10:42Z)
 - Yöntem/kurallar: skill `performance-db-egress`; kalan tam okumalar `docs/performance/DB_EGRESS_2026_10_10.md` §5.
 - Dal `fix/supabase-egress-p0` (taban `origin/main` a18c887) → PR. Migration/şema/env değişikliği YOK.
