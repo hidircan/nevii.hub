@@ -93,6 +93,9 @@ export default async function ProgramPage({
     return l.type !== "group" && l.status !== "cancelled" && d >= days[0] && d <= addDays(days[6], 1);
   });
 
+  // Derin bağlantıdaki ders iptal edilmişse (programda gizli) kullanıcı çıkmazda kalmasın: kayıt nerede görünür.
+  const cancelledTarget = ders ? data.lessons.find((l) => l.id === ders && l.status === "cancelled") : undefined;
+
   const branchNames = Object.fromEntries(data.settings.branches.map((b) => [b.id, b.shortName]));
 
   // I — deneme dersleri ayrı tabloda (TrialLesson); programda ayrı renk/etiketle görünür.
@@ -149,8 +152,25 @@ export default async function ProgramPage({
       <PageHeader title="Ders programı" />
       {ders && !weekLessons.some((l) => l.id === ders) ? (
         <p role="status" className="mb-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
-          Bildirimdeki ders bu haftanın programında yok: silinmiş, iptal edilmiş (iptal edilen dersler programda gösterilmez),
-          taşınmış ya da bu kurumda değil. Ders taşındıysa yeni tarihine ait bildirime bakın.
+          {cancelledTarget ? (
+            <>
+              Bildirimdeki ders iptal edilmiş; iptal edilen eski dersler programda gösterilmez. Kayıt silinmedi: ödeme ve telafi
+              bağları{" "}
+              <Link href={`/panel/ogrenciler/${cancelledTarget.studentId}/odemeler`} className="font-semibold underline">
+                öğrencinin Ödemeler sekmesinde
+              </Link>{" "}
+              ve{" "}
+              <Link href={`/panel/telafi?ogrenci=${cancelledTarget.studentId}`} className="font-semibold underline">
+                Telafi Merkezi&apos;nde
+              </Link>{" "}
+              görünür.
+            </>
+          ) : (
+            <>
+              Bildirimdeki ders bu haftanın programında yok: silinmiş, taşınmış ya da bu kurumda değil. Ders taşındıysa yeni tarihine
+              ait bildirime bakın.
+            </>
+          )}
         </p>
       ) : null}
 
