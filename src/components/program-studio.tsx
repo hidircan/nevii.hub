@@ -3,7 +3,7 @@
 import { defaultLessonTeacherId, lessonTeacherOptions } from "@/lib/lesson-teacher-options";
 import { teacherServesBranch } from "@/lib/teacher-branches";
 import { isActiveStudent } from "@/lib/payment-scope";
-import { effectiveEnrollments, enrollmentLabel, type EnrollmentView } from "@/lib/student-enrollments";
+import { effectiveEnrollments, enrollmentLabel, studentBranchIds, type EnrollmentView } from "@/lib/student-enrollments";
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
@@ -609,7 +609,7 @@ export function studentFilterOptions(
 
 export function studentsForBranch(students: Student[], filterBranchId: string): Student[] {
   return students
-    .filter((s) => !filterBranchId || s.branchId === filterBranchId)
+    .filter((s) => !filterBranchId || studentBranchIds(s).includes(filterBranchId))
     .sort((a, b) => a.name.localeCompare(b.name, "tr"));
 }
 
@@ -621,7 +621,7 @@ export function resolveStudentFilterForBranch(
 ): string {
   if (!currentStudentId) return currentStudentId;
   const student = students.find((s) => s.id === currentStudentId);
-  if (!student || (nextBranchId && student.branchId !== nextBranchId)) return "";
+  if (!student || (nextBranchId && !studentBranchIds(student).includes(nextBranchId))) return "";
   return currentStudentId;
 }
 
@@ -1037,17 +1037,19 @@ export function ProgramStudio({
     const nextInstrument = e?.instrument ?? student.instruments[0] ?? "Piyano";
     setEnrollmentId(e && !e.legacy ? e.id : "");
     setInstrument(nextInstrument);
+    // 2026-10-17 — ders, branş kaydının şubesinde açılır (ek şube); kayıtta şube yoksa ana şube.
+    const branchId = e?.branchId ?? student.branchId;
     // Atanmış öğretmen (eğitimin öğretmeni) yalnız uygunsa önerilir; değilse boş kalır ve neden gösterilir.
     setTeacherId(
       defaultLessonTeacherId(
         lessonTeacherOptions(teachers, {
           instrument: nextInstrument,
-          branchId: student.branchId,
+          branchId,
           student: { ...student, teacherId: e?.teacherId ?? student.teacherId },
         })
       )
     );
-    setLessonBranchId(student.branchId);
+    setLessonBranchId(branchId);
     // Süre seçilen eğitimden; yoksa öğrencinin kayıtlı süresi; o da yoksa genel varsayılan.
     setDurationMinutes(e?.lessonDurationMinutes ?? student.lessonDurationMinutes ?? DEFAULT_LESSON_DURATION_MINUTES);
     setRoomId("");
@@ -1142,11 +1144,14 @@ export function ProgramStudio({
     setSeriesEnrollmentId(e && !e.legacy ? e.id : "");
     setSeriesInstrument(nextInstrument);
     setSeriesDuration(e?.lessonDurationMinutes ?? student.lessonDurationMinutes ?? DEFAULT_LESSON_DURATION_MINUTES);
+    // 2026-10-17 — seri, branş kaydının şubesinde açılır (ek şube); kayıtta şube yoksa ana şube.
+    const branchId = e?.branchId ?? student.branchId;
+    setSeriesBranchId(branchId);
     setSeriesTeacherId(
       defaultLessonTeacherId(
         lessonTeacherOptions(teachers, {
           instrument: nextInstrument,
-          branchId: student.branchId,
+          branchId,
           student: { ...student, teacherId: e?.teacherId ?? student.teacherId },
         })
       )
@@ -1583,6 +1588,7 @@ export function ProgramStudio({
                   <option key={x.id} value={x.id}>
                     {enrollmentLabel(x, teachers)}
                     {x.lessonDurationMinutes ? ` · ${x.lessonDurationMinutes} dk` : ""}
+                    {branchIds.length > 1 ? ` · Şube: ${branchNames[x.branchId ?? st.branchId] ?? "—"}` : ""}
                   </option>
                 ))}
               </Select>
@@ -1828,6 +1834,7 @@ export function ProgramStudio({
                   <option key={x.id} value={x.id}>
                     {enrollmentLabel(x, teachers)}
                     {x.lessonDurationMinutes ? ` · ${x.lessonDurationMinutes} dk` : ""}
+                    {branchIds.length > 1 ? ` · Şube: ${branchNames[x.branchId ?? st.branchId] ?? "—"}` : ""}
                   </option>
                 ))}
               </Select>

@@ -9,7 +9,7 @@ import { requireSessionContext } from "@/lib/auth/session";
 import { getInstitutionContext, readScopedStudentListData } from "@/lib/institution/context";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { effectiveStudentTypes } from "@/lib/student-types";
-import { effectiveEnrollments, enrollmentTerms } from "@/lib/student-enrollments";
+import { effectiveEnrollments, enrollmentTerms, studentBranchIds } from "@/lib/student-enrollments";
 import { listContractSummariesByStudent, type StudentContractSummary, listTerminalContractIdsForScope } from "@/lib/contracts";
 import { AssistantPageContext } from "@/components/ai/assistant-page-context";
 import { resolveActorLabels } from "@/lib/contract-payment-plan-view";
@@ -121,6 +121,9 @@ export default async function OgrencilerPage({
       id: s.id,
       name: s.name,
       branchName: data.settings.branches.find((b) => b.id === s.branchId)?.shortName,
+      branchNames: studentBranchIds(s)
+        .map((id) => data.settings.branches.find((b) => b.id === id)?.shortName)
+        .filter((x): x is string => !!x),
       instruments: s.instruments,
       teacherName: data.teachers.find((t) => t.id === s.teacherId)?.name,
       packageName: s.packageName,

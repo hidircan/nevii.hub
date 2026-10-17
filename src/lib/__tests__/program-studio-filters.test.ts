@@ -378,3 +378,24 @@ describe("program-studio.tsx — kart dolgusu tek kaynaktan (kaynak seviyesi reg
     expect(fill.color).not.toBe("#ffffff");
   });
 });
+
+describe("2026-10-17 — ek şube (branş kaydının şubesi)", () => {
+  it("şube filtresi ana şubeyi VE aktif branş kaydının şubesini eşler; pasif kayıt eşlemez", () => {
+    const base = { active: true, name: "Çok Şubeli", instruments: ["Piyano", "Keman"] } as unknown as Student;
+    const s = {
+      ...base,
+      id: "s_multi",
+      branchId: "br_a",
+      enrollments: [
+        { id: "e1", instrument: "Piyano", active: true, createdAt: "" },
+        { id: "e2", instrument: "Keman", branchId: "br_b", active: true, createdAt: "" },
+        { id: "e3", instrument: "Gitar", branchId: "br_c", active: false, createdAt: "" },
+      ],
+    } as Student;
+    expect(studentsForBranch([s], "br_a")).toHaveLength(1);
+    expect(studentsForBranch([s], "br_b")).toHaveLength(1);
+    expect(studentsForBranch([s], "br_c")).toHaveLength(0);
+    expect(resolveStudentFilterForBranch([s], "br_b", "s_multi")).toBe("s_multi");
+    expect(resolveStudentFilterForBranch([s], "br_c", "s_multi")).toBe("");
+  });
+});

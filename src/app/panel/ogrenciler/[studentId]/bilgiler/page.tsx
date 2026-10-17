@@ -1,4 +1,5 @@
 import { ChangeHistory } from "@/components/change-history";
+import { studentBranchIds } from "@/lib/student-enrollments";
 import { notFound } from "next/navigation";
 import { getSocialMediaConsentTool } from "@/lib/services";
 import { Card } from "@/components/ui";
@@ -133,7 +134,15 @@ export default async function StudentInfoTab({
                 }
               />
               <Field label="Adres" value={canManage ? student.address || "Eklenmemiş" : "Yalnız yetkili rol görebilir"} />
-              <Field label="Şube" value={branch?.name ?? "Eklenmemiş"} />
+              <Field label="Ana şube" value={branch?.name ?? "Eklenmemiş"} />
+              {studentBranchIds(student).length > 1 ? (
+                <Field
+                  label="Şubeler"
+                  value={studentBranchIds(student)
+                    .map((id) => data.settings.branches.find((b) => b.id === id)?.name ?? id)
+                    .join(", ")}
+                />
+              ) : null}
               <Field label="Eğitim metodu" value={student.educationMethod ?? "Eklenmemiş"} />
               {multi ? null : (
                 <>

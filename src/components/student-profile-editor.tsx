@@ -347,7 +347,7 @@ export function StudentProfileEditor({
       <>
       <div className="grid grid-cols-2 gap-2">
         <div>
-          <Label>Şube</Label>
+          <Label>Ana şube</Label>
           <Select className={inputClassName(!!fieldErrors.branchId)} value={branchId} onChange={(e) => setBranchId(e.target.value)}>
             <option value="">Şube seçin</option>
             {branches.map((b) => (
@@ -357,6 +357,11 @@ export function StudentProfileEditor({
             ))}
           </Select>
           {fieldErrors.branchId ? <p className="mt-1 text-xs text-red-600">{fieldErrors.branchId}</p> : null}
+          {branches.length > 1 ? (
+            <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">
+              Başka şubede alınan branş için Branşlar kartında o branşın şubesini seçin (ek şube).
+            </p>
+          ) : null}
         </div>
 
         <div>

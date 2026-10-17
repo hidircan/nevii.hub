@@ -499,7 +499,7 @@ export function NewStudentForm({
           ) : null}
           <div>
             <Label>
-              Şube
+              Ana şube
               <RequiredMark />
             </Label>
             <Select
@@ -516,6 +516,11 @@ export function NewStudentForm({
               ))}
             </Select>
             <FieldError message={fieldErrors.branchId} />
+            {branches.length > 1 ? (
+              <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">
+                Bir branşı başka şubede alıyorsa aşağıda o branşın kaydında şubesini seçin (ek şube).
+              </p>
+            ) : null}
           </div>
         </div>
       </Card>

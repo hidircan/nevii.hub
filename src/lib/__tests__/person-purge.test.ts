@@ -16,6 +16,8 @@ import {
   getPersonPurgePreviewTool,
   purgePersonTool,
   restoreDeletedStudentTool,
+  getBulkStudentPurgePreviewTool,
+  bulkPurgeStudentsTool,
 } from "../services/tools";
 import { planStudentPurge, planTeacherPurge, type StudentPurgeSnapshot, type TeacherPurgeSnapshot } from "../person-purge";
 import type { ServiceContext } from "../services/context";
@@ -696,5 +698,44 @@ describe("tam silme uçtan uca — sentetik öğrenci ve öğretmen (finans + ha
     expect(after.students.find((s) => s.id === ST)?.teacherId).toBe(target);
     const clubs = JSON.parse(await fs.readFile(path.join(DIR, "clubs.json"), "utf8")) as { teacherIds: string[] }[];
     expect(clubs[0]!.teacherIds).toEqual([target]);
+  });
+});
+
+describe("2026-10-17 — Silinen öğrenciler: toplu kalıcı silme", () => {
+  it("şifre bir kez doğrulanır (10+ öğrenci hız sınırına takılmaz); aktif öğrenci engellenir, diğerleri silinir", async () => {
+    const data = await readData();
+    const tpl = data.students[0]!;
+    const active = data.students.find((s) => !s.deletedAt)!;
+    const gone: Student[] = Array.from({ length: 12 }, (_, i) => ({
+      ...tpl,
+      id: `s_bulk_${i}`,
+      displayId: `Ö-95${String(i).padStart(2, "0")}`,
+      name: `Toplu Silinecek ${i}`,
+      enrollments: undefined,
+      active: false,
+      deletedAt: new Date().toISOString(),
+      deletionReason: "demo kaydı",
+    }));
+    await writeData({ ...data, students: [...data.students, ...gone] });
+    const ids = [...gone.map((s) => s.id), active.id];
+
+    const p = await getBulkStudentPurgePreviewTool(admin, { studentIds: ids });
+    expect(p.ok, p.ok ? "" : p.error.message).toBe(true);
+    if (!p.ok) return;
+    expect(p.data.students.filter((s) => s.eligible)).toHaveLength(12);
+    expect(p.data.students.find((s) => s.id === active.id)?.eligible).toBe(false);
+
+    const base = { studentIds: ids, fingerprints: p.data.fingerprints, ...CRIT };
+    expect((await bulkPurgeStudentsTool(admin, { ...base, confirmationCount: "12" })).ok).toBe(false);
+    expect((await bulkPurgeStudentsTool({ ...admin, role: "TEACHER" }, { ...base, confirmationCount: "13" })).ok).toBe(false);
+
+    const r = await bulkPurgeStudentsTool(admin, { ...base, confirmationCount: "13" });
+    expect(r.ok, r.ok ? "" : r.error.message).toBe(true);
+    if (!r.ok) return;
+    expect(r.data.results.filter((x) => x.status === "success")).toHaveLength(12);
+    expect(r.data.results.find((x) => x.id === active.id)?.status).toBe("blocked");
+    const after = await readData();
+    expect(after.students.some((s) => s.id.startsWith("s_bulk_"))).toBe(false);
+    expect(after.students.some((s) => s.id === active.id)).toBe(true);
   });
 });

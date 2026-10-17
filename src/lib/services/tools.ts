@@ -13919,10 +13919,24 @@ export async function purgePersonTool(ctx: ServiceContext, input: unknown): Prom
   if (!auth.ok) return fail("FORBIDDEN", "Kalıcı silme yalnız kurum sahibi ve kurum yöneticileri tarafından yapılabilir.");
   const v = parseOrFail(purgePersonSchema, input);
   if (!v.ok) return v;
-  const { kind, id, mode } = v.data;
+  if (v.data.mode === "wipe" && !canWipePerson(ctx)) return fail("FORBIDDEN", WIPE_FORBIDDEN);
+  return purgePersonCore(ctx, v.data, { confirmName: true, checkPassword: true });
+}
+
+/**
+ * Kalıcı silmenin domain çekirdeği — tekli (`purgePersonTool`) ve toplu (`bulkPurgeStudentsTool`) AYNI yoldan geçer:
+ * snapshot → plan → engel → parmak izi → `executePurge` → audit. Toplu akış ad teyidi yerine toplu onay ifadesi alır
+ * ve kritik şifreyi BİR kez doğrular (şifre denemesi hız sınırı kişi başına tüketilmesin).
+ */
+async function purgePersonCore(
+  ctx: ServiceContext,
+  data: z.infer<typeof purgePersonSchema>,
+  gates: { confirmName: boolean; checkPassword: boolean }
+): Promise<ServiceResult<PersonPurgeResult>> {
+  const { kind, id, mode } = data;
+  const v = { data };
   const entityType = kind === "student" ? "Student" : "Teacher";
   const action = mode === "wipe" ? `${kind}.purge_wipe` : `${kind}.purge`;
-  if (mode === "wipe" && !canWipePerson(ctx)) return fail("FORBIDDEN", WIPE_FORBIDDEN);
   const snap = await loadPurgeSnapshot(kind, id);
   if (!snap) return fail("NOT_FOUND", "Kayıt bulunamadı veya zaten kalıcı silinmiş; listeyi yenileyin.");
   const result = (outcome: "delete" | "anonymize", extra: Partial<PersonPurgeResult> = {}): PersonPurgeResult => ({
@@ -13940,7 +13954,7 @@ export async function purgePersonTool(ctx: ServiceContext, input: unknown): Prom
     });
     return fail(code, message);
   };
-  if (!sameName(v.data.confirmationName, plan.personName)) {
+  if (gates.confirmName && !sameName(v.data.confirmationName, plan.personName)) {
     return deny("confirmation_mismatch", `Onay için kişinin adını aynen yazın: "${plan.personName}".`);
   }
   if (mode === "wipe" && v.data.financialAcknowledged !== true) {
@@ -13949,8 +13963,10 @@ export async function purgePersonTool(ctx: ServiceContext, input: unknown): Prom
   if (mode === "wipe" && v.data.scopeAll !== true) {
     return deny("scope_not_selected", "\"Seçili kişiye ait tüm silinebilir kayıtları seç\" kutusunu işaretleyin; tam silme önizlemedeki kapsamın tamamıyla yapılır.", "VALIDATION_ERROR");
   }
-  const gate = await checkCriticalPassword(ctx, v.data.criticalPassword);
-  if (!gate.ok) return deny(gate.reasonCode, gate.message);
+  if (gates.checkPassword) {
+    const gate = await checkCriticalPassword(ctx, v.data.criticalPassword);
+    if (!gate.ok) return deny(gate.reasonCode, gate.message);
+  }
   if (!plan.eligible) {
     return deny("blocked", plan.blockers.map((b) => `${b.reason} ${b.fix}`).join(" "), "VALIDATION_ERROR");
   }
@@ -14013,6 +14029,119 @@ export async function purgePersonTool(ctx: ServiceContext, input: unknown): Prom
     },
   });
   return ok(result(exec.plan.outcome, { removedCount, accountsClosed: exec.closedUserIds.length, warnings }));
+}
+
+/** Toplu kalıcı silme tek seferde en fazla bu kadar öğrenci (her biri ayrı transaction; istek süresi sınırı). */
+export const BULK_PURGE_MAX = 25;
+const BULK_PURGE_TOO_MANY = `Toplu kalıcı silme tek seferde en fazla ${BULK_PURGE_MAX} öğrenciyle yapılabilir. Seçimi azaltıp işlemi parça parça yapın.`;
+const bulkPurgeIdsSchema = z.array(z.string().min(1).max(100)).min(1, "En az bir öğrenci seçin.").max(BULK_PURGE_MAX, BULK_PURGE_TOO_MANY);
+
+export type BulkPurgePreview = {
+  criticalPasswordConfigured: boolean;
+  students: { id: string; name: string; displayId?: string; eligible: boolean; outcome: "delete" | "anonymize"; blockers: { reason: string; fix: string }[] }[];
+  /** Uygun öğrencilerin plan gruplarının toplamı: kayıt tipi + işlem + adet. */
+  totals: { label: string; action: import("../person-purge").PurgeGroupAction; count: number }[];
+  missing: string[];
+  fingerprints: Record<string, string>;
+};
+
+/**
+ * 2026-10-17 — Silinen öğrenciler için toplu kalıcı silme önizlemesi. Her öğrenci için tekli önizlemeyle AYNI plan
+ * (`planPersonPurge`, standart mod); yalnız Silinenler'deki öğrenci uygun çıkar (aktif öğrenci engellenir).
+ */
+export async function getBulkStudentPurgePreviewTool(ctx: ServiceContext, input: unknown): Promise<ServiceResult<BulkPurgePreview>> {
+  const auth = requireRole(ctx, CRITICAL_ROLES_FOR_TOOLS);
+  if (!auth.ok) return fail("FORBIDDEN", "Kalıcı silme yalnız kurum sahibi ve kurum yöneticileri tarafından yapılabilir.");
+  const v = parseOrFail(z.object({ studentIds: bulkPurgeIdsSchema }), input);
+  if (!v.ok) return v;
+  const { planPersonPurge } = await import("../person-purge");
+  const { getCriticalActionPasswordStatus } = await import("../critical-action-password");
+  const out: BulkPurgePreview = { criticalPasswordConfigured: (await getCriticalActionPasswordStatus(ctx.tenantId)).configured, students: [], totals: [], missing: [], fingerprints: {} };
+  const totals = new Map<string, BulkPurgePreview["totals"][number]>();
+  for (const id of Array.from(new Set(v.data.studentIds))) {
+    const snap = await loadPurgeSnapshot("student", id);
+    if (!snap) { out.missing.push(id); continue; }
+    const plan = planPersonPurge(snap, "standard", {});
+    out.students.push({ id, name: plan.personName, displayId: plan.displayId, eligible: plan.eligible, outcome: plan.outcome, blockers: plan.blockers });
+    out.fingerprints[id] = plan.fingerprint;
+    if (!plan.eligible) continue;
+    for (const item of plan.groups.flatMap((g) => g.items)) {
+      const key = `${item.action}|${item.label}`;
+      const t = totals.get(key) ?? { label: item.label, action: item.action, count: 0 };
+      t.count += item.count;
+      totals.set(key, t);
+    }
+  }
+  out.totals = Array.from(totals.values()).filter((t) => t.count > 0);
+  return ok(out);
+}
+
+export type BulkPurgeItemResult = {
+  id: string;
+  name: string;
+  status: "success" | "blocked" | "error";
+  message: string;
+  outcome?: "delete" | "anonymize";
+  warnings?: string[];
+};
+
+/**
+ * 2026-10-17 — Toplu kalıcı silme (yalnız Silinenler'deki öğrenciler, standart mod). Onay: gerekçe + kritik şifre
+ * (bir kez) + seçili öğrenci sayısının yazılması. Her öğrenci tekli silmeyle AYNI çekirdekten (`purgePersonCore`)
+ * kendi transaction'ında geçer; biri engellenir/hata verirse diğerleri etkilenmez, sonuç kayıt bazında döner.
+ */
+export async function bulkPurgeStudentsTool(ctx: ServiceContext, input: unknown): Promise<ServiceResult<{ results: BulkPurgeItemResult[] }>> {
+  const auth = requireRole(ctx, CRITICAL_ROLES_FOR_TOOLS);
+  if (!auth.ok) return fail("FORBIDDEN", "Kalıcı silme yalnız kurum sahibi ve kurum yöneticileri tarafından yapılabilir.");
+  const v = parseOrFail(
+    z.object({
+      studentIds: bulkPurgeIdsSchema,
+      fingerprints: z.record(z.string(), z.string().max(100)),
+      confirmationCount: z.string().max(10),
+      criticalPassword: z.string().max(200),
+      reason: z.string().trim().min(5, "Silme gerekçesi en az 5 karakter olmalı.").max(500),
+    }),
+    input
+  );
+  if (!v.ok) return v;
+  const ids = Array.from(new Set(v.data.studentIds));
+  if (v.data.confirmationCount.trim() !== String(ids.length)) {
+    return fail("VALIDATION_ERROR", `Onay için seçili öğrenci sayısını aynen yazın: ${ids.length}.`);
+  }
+  const gate = await checkCriticalPassword(ctx, v.data.criticalPassword);
+  if (!gate.ok) {
+    await recordAuditLog({
+      tenantId: ctx.tenantId, actorUserId: ctx.userId, actorRole: ctx.role, action: "student.purge_bulk", entityType: "Student", entityId: "bulk",
+      outcome: "denied", meta: { reasonCode: gate.reasonCode, count: ids.length },
+    });
+    return fail("FORBIDDEN", gate.message);
+  }
+  const results: BulkPurgeItemResult[] = [];
+  for (const id of ids) {
+    const name = (await readStudentById(id).catch(() => undefined))?.name ?? id;
+    try {
+      const r = await purgePersonCore(
+        ctx,
+        {
+          kind: "student", id, mode: "standard", reason: v.data.reason, criticalPassword: "", confirmationName: "",
+          expectedFingerprint: v.data.fingerprints[id],
+        },
+        { confirmName: false, checkPassword: false }
+      );
+      if (r.ok) {
+        results.push({
+          id, name, status: "success", outcome: r.data.outcome, warnings: r.data.warnings,
+          message: r.data.alreadyPurged ? "Zaten kalıcı silinmişti." : r.data.outcome === "delete" ? "Kalıcı silindi." : "Geçmişi olduğu için anonimleştirildi.",
+        });
+      } else {
+        results.push({ id, name, status: r.error.code === "INTERNAL_ERROR" ? "error" : "blocked", message: r.error.message });
+      }
+    } catch (e) {
+      logger.error("bulkPurgeStudentsTool item failed", e);
+      results.push({ id, name, status: "error", message: "Beklenmeyen hata; bu öğrenci için hiçbir kayıt silinmedi. Tekrar deneyin." });
+    }
+  }
+  return ok({ results });
 }
 
 const bulkStudentActionSchema = z.discriminatedUnion("action", [
