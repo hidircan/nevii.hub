@@ -153,6 +153,8 @@ import type { RoomImportRow } from "./import/rooms";
 import type { StudentImportRow } from "./import/students";
 import type { ImportCommitResult } from "./import/commit-result";
 import { uid, isOutstandingPaymentStatus } from "./utils";
+import { teacherAttendanceRows } from "./insights/teacher-performance";
+import { mobileDashboardCounts } from "./dashboard/mobile-counts";
 import { addDays, formatISO } from "date-fns";
 import { withKeyLock } from "./keyed-lock";
 import { calendarMonthKey, assertCanCreateMakeup, MakeupQuotaExceededError } from "./makeup-quota";
@@ -322,6 +324,16 @@ export async function readSlotScopeData(target: SlotScopeTarget, days?: Date[]):
 /** Bkz. store-db.readLessonsForTeacher — `readData().lessons` öğretmen süzgeciyle aynı. */
 export async function readLessonsForTeacher(teacherId: string): Promise<Lesson[]> {
   return (await readData()).lessons.filter((l) => l.teacherId === teacherId);
+}
+
+/** Bkz. store-db.readTeacherAttendanceRows. */
+export async function readTeacherAttendanceRows() {
+  return teacherAttendanceRows(await readData());
+}
+
+/** Bkz. store-db.readMobileDashboardCounts. */
+export async function readMobileDashboardCounts(now: Date) {
+  return mobileDashboardCounts(await readData(), now);
 }
 
 export async function readLessonsStartingBetween(fromIso: string, toIso: string): Promise<Lesson[]> {

@@ -174,6 +174,8 @@ import type { TeacherImportRow } from "./import/teachers";
 import type { RoomImportRow } from "./import/rooms";
 import type { StudentImportRow } from "./import/students";
 import type { ImportCommitResult } from "./import/commit-result";
+import type { TeacherAttendanceRow } from "./insights/teacher-performance";
+import { OPEN_MAKEUP_STATUSES, type MobileDashboardCounts } from "./dashboard/mobile-counts";
 import { addDays, endOfDay, startOfDay, subDays } from "date-fns";
 import { requireTenantId, tryTenantId } from "./tenant-context";
 import { listClosedDays } from "./closed-day-overrides";
@@ -1321,6 +1323,42 @@ export async function readLessonsForTeacher(teacherId: string): Promise<import("
   return rows.map(mapDbLesson);
 }
 
+/** DB egress (2026-10-18) — öğretmen puanı için yalnız (dersin öğretmeni, yoklama statüsü); eskiden tam okuma. */
+export async function readTeacherAttendanceRows(): Promise<TeacherAttendanceRow[]> {
+  const tid = tenantId();
+  const rows = await prisma.attendance.findMany({
+    where: { tenantId: tid, school: { tenantId: tid } },
+    select: { status: true, lesson: { select: { teacherId: true } } },
+  });
+  return rows.map((r) => ({ teacherId: r.lesson.teacherId, status: r.status }));
+}
+
+/** DB egress (2026-10-18) — mobil ana sayfa sayaçları; `mobileDashboardCounts` ile aynı kural, count sorguları. */
+export async function readMobileDashboardCounts(now: Date): Promise<MobileDashboardCounts> {
+  const tid = tenantId();
+  const own = { tenantId: tid, school: { tenantId: tid } };
+  const todayStart = new Date(`${now.toISOString().slice(0, 10)}T00:00:00.000Z`);
+  const [pendingAttendanceCount, overduePaymentCount, openMakeupCount] = await Promise.all([
+    prisma.lesson.count({
+      where: {
+        ...own,
+        status: { not: "cancelled" },
+        endAt: { lt: now },
+        studentAttended: false,
+        lessonProcessed: false,
+        studentAbsent: false,
+        studentExcused: false,
+        opsMakeupFlag: false,
+      },
+    }),
+    prisma.payment.count({
+      where: { ...own, status: { notIn: ["paid", "voided"] }, OR: [{ status: "overdue" }, { dueDate: { lt: todayStart } }] },
+    }),
+    prisma.makeupRequest.count({ where: { ...own, status: { in: OPEN_MAKEUP_STATUSES } } }),
+  ]);
+  return { pendingAttendanceCount, overduePaymentCount, openMakeupCount };
+}
+
 /** DB egress (2026-10-10) — tek ödeme satırı: `readData().payments.find(id)` ile aynı (makbuz). */
 export async function readPaymentById(paymentId: string): Promise<import("./types").Payment | undefined> {
   if (!paymentId) return undefined;
@@ -1769,7 +1807,10 @@ export async function generateSuggestions(
 ): Promise<AppData> {
   logger.info("generateSuggestions", requestId);
   const tid = requireTenantId();
-  const data = await readData();
+  // DB egress (2026-10-18): öneri motoru yalnız referans veri + dersler + telafi taleplerine bakar (Telafi Merkezi
+  // dilimi); sondaki tam okuma yerine yazılan öneri bellekteki veriye işlenir (çağıran yalnız suggestedSlots okur).
+  const center = await readMakeupCenterData();
+  const data: AppData = { ...center, lessonSeries: [], attendances: [], payments: [], teacherPayouts: [] };
   const request = data.makeupRequests.find((m) => m.id === requestId);
   if (!request) throw new Error("Telafi talebi bulunamadı");
 
@@ -1783,7 +1824,10 @@ export async function generateSuggestions(
     where: { id: existing.id },
     data: { status: "suggested", suggestedSlots: slotsJson },
   });
-  return readData();
+  return {
+    ...data,
+    makeupRequests: data.makeupRequests.map((m) => (m.id === requestId ? { ...m, status: "suggested" as const, suggestedSlots: slots } : m)),
+  };
 }
 
 /**

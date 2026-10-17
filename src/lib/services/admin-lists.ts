@@ -1,7 +1,13 @@
 import { z } from "zod";
 import { serverCacheGetOrCompute, tenantCacheKey } from "../http/server-cache";
-import { readData, readLessonWindow, readPaymentsPageData, readReferenceData } from "../store";
-import { computeAllTeacherPerformanceScores, computeTeacherPerformanceScore } from "../insights/teacher-performance";
+import {
+  readLessonWindow,
+  readMobileDashboardCounts,
+  readPaymentsPageData,
+  readReferenceData,
+  readTeacherAttendanceRows,
+} from "../store";
+import { scoreTeacherFromRows } from "../insights/teacher-performance";
 import { INSTRUMENTS } from "../types";
 import { requireRole, type ServiceContext } from "./context";
 import { fail, fromZodError, ok, type ServiceResult } from "./result";
@@ -125,7 +131,8 @@ export async function listTeachersTool(
   const offset = v.data.offset ?? 0;
   const q = normalize(v.data.q);
 
-  const data = await readData();
+  // DB egress (2026-10-18): referans veri + (öğretmen, yoklama statüsü) çiftleri — eskiden tam okuma.
+  const [data, attendanceRows] = await Promise.all([readReferenceData(), readTeacherAttendanceRows()]);
   const filtered = data.teachers
     .filter((t) => (ctx.role === "TEACHER" ? t.id === ctx.teacherId : true))
     .filter((t) => (v.data.active === undefined ? true : v.data.active === "true" ? t.active : !t.active))
@@ -135,7 +142,7 @@ export async function listTeachersTool(
   const page = paginate(filtered, limit, offset);
   return ok({
     teachers: page.rows.map((t) => {
-      const perf = computeTeacherPerformanceScore(data, t.id);
+      const perf = scoreTeacherFromRows(attendanceRows, data.students, t.id);
       return {
         id: t.id,
         name: t.name,
@@ -351,23 +358,22 @@ export async function getDashboardSummaryTool(
 }
 
 async function computeDashboardSummary(ctx: ServiceContext): Promise<DashboardSummary> {
-  const data = await readData();
-  const nowMs = Date.now();
-  const today = new Date(nowMs).toISOString().slice(0, 10);
+  // DB egress (2026-10-18): bugünün ders penceresi + count sayaçları + puan çiftleri — eskiden tam okuma.
+  const now = new Date();
+  const nowMs = now.getTime();
+  const today = now.toISOString().slice(0, 10);
+  const dayStart = new Date(`${today}T00:00:00.000Z`);
+  const [window, counts, attendanceRows] = await Promise.all([
+    readLessonWindow(new Date(dayStart.getTime() - 86_400_000).toISOString(), new Date(dayStart.getTime() + 2 * 86_400_000).toISOString()),
+    readMobileDashboardCounts(now),
+    readTeacherAttendanceRows(),
+  ]);
+  const data = window;
 
   const upcomingLessonCount = data.lessons.filter(
     (l) => l.status !== "cancelled" && Date.parse(l.startAt) >= nowMs && l.startAt.slice(0, 10) === today
   ).length;
-  const pendingAttendanceCount = data.lessons.filter(
-    (l) =>
-      l.status !== "cancelled" &&
-      Date.parse(l.endAt) < nowMs &&
-      !l.studentAttended &&
-      !l.lessonProcessed &&
-      !l.studentAbsent &&
-      !l.studentExcused &&
-      !l.opsMakeupFlag
-  ).length;
+  const { pendingAttendanceCount } = counts;
 
   const { listTasks } = await import("../tasks");
   const tasks = await listTasks(ctx.tenantId);
@@ -382,26 +388,21 @@ async function computeDashboardSummary(ctx: ServiceContext): Promise<DashboardSu
   const { isOpenFollowUpStatus } = await import("../tahsilat/status");
   const openCases = (await listFollowUpCases(ctx.tenantId)).filter((c) => isOpenFollowUpStatus(c.status));
 
-  const pendingPayments = data.payments.filter((p) => p.status !== "paid" && p.status !== "voided");
-  const overduePayments = pendingPayments.filter((p) => p.status === "overdue" || p.dueDate.slice(0, 10) < today);
-  const openMakeup = (data.makeupRequests ?? []).filter((m) =>
-    ["pending", "suggested", "awaiting_info"].includes(m.status)
-  );
 
   const attentionItems: DashboardSummary["attentionItems"] = [];
-  if (overduePayments.length > 0) {
+  if (counts.overduePaymentCount > 0) {
     attentionItems.push({
       id: "overdue-payments",
       kind: "payments",
-      label: `${overduePayments.length} gecikmiş ödeme`,
+      label: `${counts.overduePaymentCount} gecikmiş ödeme`,
       detail: "Tahsilat takibinden inceleyin",
     });
   }
-  if (openMakeup.length > 0) {
+  if (counts.openMakeupCount > 0) {
     attentionItems.push({
       id: "open-makeup",
       kind: "makeup",
-      label: `${openMakeup.length} bekleyen telafi talebi`,
+      label: `${counts.openMakeupCount} bekleyen telafi talebi`,
       detail: "Telafi merkezinden karara bağlayın",
     });
   }
@@ -415,7 +416,8 @@ async function computeDashboardSummary(ctx: ServiceContext): Promise<DashboardSu
   }
 
   const teacherNameById = new Map(data.teachers.map((t) => [t.id, t.name]));
-  const topTeachers = computeAllTeacherPerformanceScores(data)
+  const topTeachers = data.teachers
+    .map((t) => scoreTeacherFromRows(attendanceRows, data.students, t.id))
     .sort((a, b) => (b.score ?? -1) - (a.score ?? -1))
     .slice(0, 5)
     .map((p) => ({
@@ -466,7 +468,7 @@ async function computeHomeworkReport(ctx: ServiceContext): Promise<HomeworkRepor
     listAllHomework(ctx.tenantId),
     listAllHomeworkSubmissions(ctx.tenantId),
   ]);
-  const data = await readData();
+  const data = await readReferenceData(); // DB egress (2026-10-18): yalnız öğretmen adları
   const teacherNameById = new Map(data.teachers.map((t) => [t.id, t.name]));
   const nowMs = Date.now();
 

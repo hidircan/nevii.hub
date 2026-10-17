@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { Card } from "@/components/ui";
 import { computeLessonDurationRow } from "@/lib/lesson-duration-report";
 import { formatDate, formatTime } from "@/lib/utils";
-import { loadTeacherFullData, loadTeacherPageContext } from "../_context";
+import { loadTeacherLessonsData, loadTeacherPageContext } from "../_context";
 import { MiniStat } from "../_components/fields";
 
 export const dynamic = "force-dynamic";
@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 /** Ders programı özeti + fiili süre kayıtları; tam ızgara /panel/program'da. */
 export default async function TeacherProgramTab({ params }: { params: Promise<{ teacherId: string }> }) {
   const { teacherId } = await params;
-  const [{ teacher, canManage }, data] = await Promise.all([loadTeacherPageContext(teacherId), loadTeacherFullData(teacherId)]);
+  const [{ teacher, canManage }, data] = await Promise.all([loadTeacherPageContext(teacherId), loadTeacherLessonsData(teacherId)]);
   if (!teacher) notFound();
 
   const lessons = data.lessons

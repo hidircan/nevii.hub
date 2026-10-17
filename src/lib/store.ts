@@ -259,6 +259,8 @@ type StoreApi = {
   readLessonById: (lessonId: string) => Promise<import("./types").Lesson | undefined>;
   readLessonsStartingBetween: (fromIso: string, toIso: string) => Promise<import("./types").Lesson[]>;
   readLessonsForTeacher: (teacherId: string) => Promise<import("./types").Lesson[]>;
+  readTeacherAttendanceRows: () => Promise<import("./insights/teacher-performance").TeacherAttendanceRow[]>;
+  readMobileDashboardCounts: (now: Date) => Promise<import("./dashboard/mobile-counts").MobileDashboardCounts>;
   readTeacherPayoutsForTeacher: (teacherId: string) => Promise<import("./types").TeacherPayout[]>;
   readPaymentById: (paymentId: string) => Promise<import("./types").Payment | undefined>;
   readTeacherPortalDetails: (teacherId: string) => Promise<TeacherPortalDetails | null>;
@@ -495,6 +497,20 @@ export async function readLessonsForTeacher(teacherId: string): Promise<import("
   return withTenantScope(async () => {
     await store.commitMakeupPlanningExpiry(new Date());
     return store.readLessonsForTeacher(teacherId);
+  });
+}
+
+/** DB egress (2026-10-18) — öğretmen performans puanı girdisi: (dersin öğretmeni, yoklama statüsü) çiftleri. */
+export async function readTeacherAttendanceRows(): Promise<import("./insights/teacher-performance").TeacherAttendanceRow[]> {
+  return withTenantScope(() => store.readTeacherAttendanceRows());
+}
+
+/** DB egress (2026-10-18) — mobil ana sayfa sayaçları (count sorguları; bkz. dashboard/mobile-counts.ts). */
+export async function readMobileDashboardCounts(now: Date): Promise<import("./dashboard/mobile-counts").MobileDashboardCounts> {
+  // readData() ile aynı: süresi dolan telafi planı önce işlenir (açık telafi sayısı bayat görünmesin).
+  return withTenantScope(async () => {
+    await store.commitMakeupPlanningExpiry(now);
+    return store.readMobileDashboardCounts(now);
   });
 }
 

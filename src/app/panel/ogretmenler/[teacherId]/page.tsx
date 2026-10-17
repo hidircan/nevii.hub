@@ -4,7 +4,8 @@ import { AlertTriangle, ArrowRight, CalendarDays, CheckCircle2 } from "lucide-re
 import { Badge, Card } from "@/components/ui";
 import { computeTeacherEarningsWithRevisions } from "@/lib/teacher-payout";
 import { formatDate, formatMoney, formatTime } from "@/lib/utils";
-import { loadTeacherFullData, loadTeacherPageContext } from "./_context";
+import { loadTeacherLessonsData, loadTeacherPageContext } from "./_context";
+import { readScopedPayoutWindow } from "@/lib/institution/context";
 import { MiniStat } from "./_components/fields";
 import { isActiveOwnStudent } from "@/lib/teacher-portal-scope";
 
@@ -16,7 +17,7 @@ export const dynamic = "force-dynamic";
  */
 export default async function TeacherOverviewTab({ params }: { params: Promise<{ teacherId: string }> }) {
   const { teacherId } = await params;
-  const [{ teacher, canManage }, data] = await Promise.all([loadTeacherPageContext(teacherId), loadTeacherFullData(teacherId)]);
+  const [{ teacher, canManage }, data] = await Promise.all([loadTeacherPageContext(teacherId), loadTeacherLessonsData(teacherId)]);
   if (!teacher) notFound();
 
   const branch = data.settings.branches.find((b) => b.id === teacher.branchId);
@@ -46,7 +47,14 @@ export default async function TeacherOverviewTab({ params }: { params: Promise<{
 
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
   const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
-  const earnings = computeTeacherEarningsWithRevisions(data, teacher.id, monthStart, monthEnd);
+  // DB egress (2026-10-18): ayın hakediş penceresi (öğretmen ana sayfasıyla aynı dilim) — eskiden tam okuma.
+  const { kurum } = await loadTeacherPageContext(teacherId);
+  const payoutWindow = await readScopedPayoutWindow(
+    kurum.scope,
+    new Date(new Date(`${monthStart}T00:00:00.000Z`).getTime() - 2 * 86_400_000),
+    new Date(new Date(`${monthEnd}T23:59:59.999Z`).getTime() + 2 * 86_400_000)
+  );
+  const earnings = computeTeacherEarningsWithRevisions(payoutWindow, teacher.id, monthStart, monthEnd);
   const teacherFeeRules = data.teacherFeeRules.filter((r) => r.teacherId === teacher.id);
 
   const contractDaysLeft = teacher.contractEndDate

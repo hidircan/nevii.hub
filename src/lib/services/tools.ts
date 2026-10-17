@@ -1109,15 +1109,14 @@ export async function createMakeupLessonTool(
   if (!v.ok) return v;
 
   if (ctx.role === "BRANCH_MANAGER") {
-    const lesson = (await readData()).lessons.find((l) => l.id === v.data.lessonId);
+    const lesson = await readLessonById(v.data.lessonId);
     if (!lesson) return fail("NOT_FOUND", "Ders bulunamadı");
     const gate = await assertBranchOperation(ctx, "makeup", "create", lesson.branchId);
     if (!gate.ok) return gate;
   }
 
   if (ctx.role === "TEACHER") {
-    const data = await readData();
-    const lesson = data.lessons.find((l) => l.id === v.data.lessonId);
+    const lesson = await readLessonById(v.data.lessonId);
     if (!lesson) return fail("NOT_FOUND", "Ders bulunamadı");
     if (!canAccessTeacher(ctx, lesson.teacherId)) {
       return fail("FORBIDDEN", "Yalnızca kendi dersiniz için telafi oluşturabilirsiniz.");
@@ -1126,16 +1125,16 @@ export async function createMakeupLessonTool(
 
   try {
     // Kota (pending/suggested/awaiting_info/confirmed sayılır) — store da korur.
-    const before = await readData();
-    const lesson = before.lessons.find((l) => l.id === v.data.lessonId);
+    // DB egress (2026-10-18): kota yalnız öğrencinin ders/telafi satırlarına bakar → öğrenci dilimi (eskiden 2 tam okuma).
+    const lesson = await readLessonById(v.data.lessonId);
     if (!lesson) return fail("NOT_FOUND", "Ders bulunamadı");
+    const before = await readStudentScope(lesson.studentId);
     const { assertCanCreateMakeup } = await import("../makeup-quota");
-    const quota = assertCanCreateMakeup(before, lesson.studentId, new Date(), lesson.id);
+    const quota = assertCanCreateMakeup({ ...before, teacherPayouts: [] }, lesson.studentId, new Date(), lesson.id);
     if (!quota.ok) return fail("VALIDATION_ERROR", quota.message);
 
     await markAttendance(v.data);
-    const data = await readData();
-    const req = data.makeupRequests.find((m) => m.sourceLessonId === v.data.lessonId);
+    const req = (await readStudentScope(lesson.studentId)).makeupRequests.find((m) => m.sourceLessonId === v.data.lessonId);
     if (!req) return fail("CONFLICT", "Makeup request was not created");
     await notifyAttendanceExceptionBestEffort(ctx, v.data.lessonId, v.data.status);
     return ok({ requestId: req.id });
