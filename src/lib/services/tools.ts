@@ -1682,7 +1682,8 @@ export async function getStudentScoreTool(
   );
   if (!v.ok) return v;
 
-  const data = await readData();
+  // DB egress (2026-10-18): öğrenci dilimi (puan yalnız öğrencinin derslerine bakar).
+  const data = await readStudentScope(v.data.studentId);
   const student = data.students.find((s) => s.id === v.data.studentId);
   const access = await assertStudentAccess(ctx, student, v.data.studentId);
   if (!access.ok) return fail(access.code, access.message);
@@ -2385,13 +2386,13 @@ export async function initiateStudentPaymentCheckoutTool(
   );
   if (!v.ok) return v;
 
-  const data = await readData();
-  const payment = data.payments.find((p) => p.id === v.data.paymentId);
+  // DB egress (2026-10-18): tek ödeme + tek öğrenci + referans ayarlar (eskiden tam okuma).
+  const [payment, data] = await Promise.all([readPaymentById(v.data.paymentId), readReferenceData()]);
   if (!payment) return fail("NOT_FOUND", "Ödeme bulunamadı");
 
   // Öğrenci sahipliği + AKTİF StudentPortalAccess (GUARDIAN veya SELF) —
   // tek gerçek kaynak assertStudentAccess/canAccessStudent (async).
-  const student = data.students.find((s) => s.id === payment.studentId);
+  const student = await readStudentById(payment.studentId);
   const access = await assertStudentAccess(ctx, student, payment.studentId);
   if (!access.ok) return fail(access.code, access.message);
 
@@ -9488,8 +9489,8 @@ export async function listTeacherPayoutsTool(
     return fail("FORBIDDEN", "Bu öğretmenin hakediş kayıtlarına erişiminiz yok.");
   }
 
-  const data = await readData();
-  const payouts = ownPayouts(data.teacherPayouts, v.data.teacherId).sort((a, b) =>
+  // DB egress (2026-10-18): yalnız bu öğretmenin hakedişleri (mobil Hakedişlerim; eskiden tam okuma).
+  const payouts = ownPayouts(await readTeacherPayoutsForTeacher(v.data.teacherId), v.data.teacherId).sort((a, b) =>
     b.periodStart.localeCompare(a.periodStart)
   );
   return ok({ payouts });
@@ -11895,8 +11896,8 @@ export async function listTeacherAvailabilityRequestsTool(
     // `currentAvailability.length` çağırır; undefined dönmek render crash'ti).
     let currentAvailability: Array<{ dayOfWeek: number; start: string; end: string; branchId?: string }> = [];
     try {
-      const data = await readData();
-      const teacher = data.teachers.find((t) => t.id === v.data.teacherId);
+      // DB egress (2026-10-18): yalnız öğretmen satırları (referans veri) — eskiden tam okuma.
+      const teacher = (await readReferenceData()).teachers.find((t) => t.id === v.data.teacherId);
       if (Array.isArray(teacher?.availability)) currentAvailability = teacher.availability;
     } catch {
       currentAvailability = [];
@@ -11986,14 +11987,14 @@ export async function createHomeworkTool(
   const fileCheck = validateUploadedFile(v.data);
   if (!fileCheck.ok) return fail("VALIDATION_ERROR", fileCheck.message);
 
-  const data = await readData();
-  const student = data.students.find((s) => s.id === v.data.studentId);
+  // DB egress (2026-10-18): tek öğrenci + tek ders satırı (eskiden tam okuma).
+  const student = await readStudentById(v.data.studentId);
   if (!student) return fail("NOT_FOUND", "Öğrenci bulunamadı");
   if (!isOwnStudent(student, ctx.teacherId ?? "")) {
     return fail("FORBIDDEN", "Yalnızca kendi öğrenciniz için ödev oluşturabilirsiniz.");
   }
   if (v.data.lessonId) {
-    const lesson = data.lessons.find((l) => l.id === v.data.lessonId);
+    const lesson = await readLessonById(v.data.lessonId);
     if (!lesson) return fail("NOT_FOUND", "Seçilen ders bulunamadı.");
     if (lesson.studentId !== v.data.studentId || lesson.teacherId !== ctx.teacherId) {
       return fail("VALIDATION_ERROR", "Seçilen ders bu öğrenci/öğretmen ile eşleşmiyor.");

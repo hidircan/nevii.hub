@@ -4058,7 +4058,7 @@ export async function addPackage(input: PackageInput): Promise<PackageMutationRe
       updatedAt: new Date(result.pkg.updatedAt),
     },
   });
-  return { ok: true, data: await readData(), pkg: { ...result.pkg, displayId } };
+  return { ok: true, data: result.data, pkg: { ...result.pkg, displayId } };
 }
 
 export async function updatePackage(packageId: string, patch: PackagePatch): Promise<PackageMutationResult> {
@@ -4087,7 +4087,7 @@ export async function updatePackage(packageId: string, patch: PackagePatch): Pro
     },
   });
   if (updateResult.count === 0) return { ok: false, message: "Paket bulunamadı." };
-  return { ok: true, data: await readData(), pkg: result.pkg };
+  return { ok: true, data: result.data, pkg: result.pkg };
 }
 
 export async function addDiscountCampaign(input: DiscountCampaignInput): Promise<DiscountCampaignMutationResult> {
@@ -4124,7 +4124,7 @@ export async function addDiscountCampaign(input: DiscountCampaignInput): Promise
       updatedAt: new Date(result.campaign.updatedAt),
     },
   });
-  return { ok: true, data: await readData(), campaign: { ...result.campaign, displayId } };
+  return { ok: true, data: result.data, campaign: { ...result.campaign, displayId } };
 }
 
 export async function updateDiscountCampaign(
@@ -4160,7 +4160,7 @@ export async function updateDiscountCampaign(
     },
   });
   if (updateResult.count === 0) return { ok: false, message: "Kampanya bulunamadı." };
-  return { ok: true, data: await readData(), campaign: result.campaign };
+  return { ok: true, data: result.data, campaign: result.campaign };
 }
 
 export async function addTeacherFeeRule(input: FeeRuleInput): Promise<FeeRuleMutationResult> {
@@ -4186,7 +4186,7 @@ export async function addTeacherFeeRule(input: FeeRuleInput): Promise<FeeRuleMut
     },
   });
 
-  return { ok: true, data: await readData(), rule: result.rule };
+  return { ok: true, data: result.data, rule: result.rule };
 }
 
 export async function updateTeacherFeeRule(
@@ -4214,7 +4214,7 @@ export async function updateTeacherFeeRule(
     },
   });
 
-  return { ok: true, data: await readData(), rule: result.rule };
+  return { ok: true, data: result.data, rule: result.rule };
 }
 
 export const STALE_PAYOUT_ERROR = "STALE_PAYOUT";
@@ -4293,7 +4293,7 @@ export async function createTeacherPayout(
     if (res.count === 0) {
       return { ok: false, code: "PAYOUT_ALREADY_EXISTS", message: "Bu dönemin kaydı az önce değişti; sayfayı yenileyip tekrar deneyin.", existingPayoutId: result.reusedCancelledId };
     }
-    return { ok: true, data: await readData(), payout: { ...result.payout, version: (result.payout.version ?? 0) + 1 } };
+    return { ok: true, data: result.data, payout: { ...result.payout, version: (result.payout.version ?? 0) + 1 } };
   }
   const schoolId = await requireTeacherSchoolId(tid, teacherId);
   try {
@@ -4332,7 +4332,7 @@ export async function createTeacherPayout(
     throw error;
   }
 
-  return { ok: true, data: await readData(), payout: result.payout };
+  return { ok: true, data: result.data, payout: result.payout };
 }
 
 export async function updateTeacherPayoutPaymentMethod(
@@ -4350,7 +4350,7 @@ export async function updateTeacherPayoutPaymentMethod(
     data: { method },
   });
 
-  return { ok: true, data: await readData(), payout: result.payout };
+  return { ok: true, data: result.data, payout: result.payout };
 }
 
 /** 2026-09-29/30 — ay bazlı hakediş politikası (kilit yok; kayıtların yeniden hesabı tool katmanında). */
@@ -4406,7 +4406,7 @@ export async function markTeacherPayoutPaid(
     data: { status: "paid", paidAt: new Date(result.payout.paidAt!), method },
   });
 
-  return { ok: true, data: await readData(), payout: result.payout };
+  return { ok: true, data: result.data, payout: result.payout };
 }
 
 export async function updatePerformanceWeights(
