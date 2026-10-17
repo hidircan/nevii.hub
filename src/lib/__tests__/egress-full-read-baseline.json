@@ -18,7 +18,7 @@
   "src/lib/platform/service.ts": 1,
   "src/lib/platform/support-access.ts": 1,
   "src/lib/recruitment/institution.ts": 1,
-  "src/lib/services/tools.ts": 66,
+  "src/lib/services/tools.ts": 62,
   "src/lib/sms/inbound.ts": 1,
   "src/lib/store-db.ts": 47,
   "src/lib/store-json.ts": 80,

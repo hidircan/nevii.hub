@@ -2134,8 +2134,8 @@ export async function updatePaymentTool(
   if (!v.ok) return v;
 
   try {
-    const data = await readData();
-    const existing = data.payments.find((p) => p.id === v.data.paymentId);
+    // DB egress (2026-10-18): tek ödeme satırı (eskiden tam okuma).
+    const existing = await readPaymentById(v.data.paymentId);
     if (!existing) return fail("NOT_FOUND", "Ödeme bulunamadı");
     if (existing.status !== "paid" && existing.status !== "partial") {
       return fail("VALIDATION_ERROR", "Yalnızca tahsil edilmiş (paid/partial) ödemeler düzenlenebilir.");
@@ -2169,7 +2169,7 @@ export async function updatePaymentTool(
       voided: v.data.amount === 0,
       reviseBilledAmount,
     });
-    const studentName = data.students.find((st) => st.id === existing.studentId)?.name;
+    const studentName = (await readStudentById(existing.studentId))?.name;
     audit(ctx, "payment.update", "Payment", v.data.paymentId, {
       method: v.data.method,
       amount: v.data.amount,
@@ -2295,7 +2295,7 @@ export async function deletePaymentTool(
           : "Sözleşme taksidi silinemez; yanlış girilen tahsilat için \"Tahsilatı geri al\" kullanın.")
     );
   }
-  const before = (await readData()).payments.find((p) => p.id === plan.paymentId);
+  const before = await readPaymentById(plan.paymentId); // DB egress (2026-10-18): tek satır
   const { collectPayment } = await import("../payments/collect");
   let result: "reversed" | "deleted" | "voided";
   try {
@@ -9358,7 +9358,8 @@ export async function createPaymentRecordTool(
   if (!v.ok) return v;
 
   try {
-    const before = await readData();
+    // DB egress (2026-10-18): öğrenci dilimi (yeni borç da bu öğrencinin; eskiden 2 tam okuma).
+    const before = await readStudentScope(v.data.studentId);
     // 2026-10-09 — çok branşlı öğrencide borcun branşı AÇIKÇA seçilir (Keman borcu Piyano'ya yazılmaz);
     // "" = bilinçli "branşa bağlı değil (genel)". Tek branşlı öğrencide eski davranış.
     const student = before.students.find((st) => st.id === v.data.studentId);
@@ -9392,7 +9393,7 @@ export async function createPaymentRecordTool(
       dueDate: v.data.dueDate,
       ...(enrollmentId ? { enrollmentId } : {}),
     });
-    const after = await readData();
+    const after = await readStudentScope(v.data.studentId);
     const created = after.payments.find((p) => !ids.has(p.id));
     return ok({ paymentId: created?.id ?? "unknown" });
   } catch (e) {
