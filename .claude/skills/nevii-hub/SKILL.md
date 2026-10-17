@@ -71,4 +71,6 @@ UI (`src/app/panel/*`, `src/components/*`) → server action (`src/lib/actions.t
 - Döngü/satır başına "hepsini listele + JS'te süz" yasak → SQL `where`/`select`/`take`.
 - Cron/tick: tur başına okuma × günlük tur sayısını PR'a yaz; 10 dk'lık iş yalnız penceresini okur.
 - Büyük kolon (logo, sözleşme snapshot'ı, dosya/HTML) yalnız onu gösteren tekil ekranda seçilir.
+- Mobil/API ucu ekliyorsan: tek öğrenci → `readStudentScope`, tarih aralığı → `readLessonWindow`, liste → `readReferenceData`;
+  `readData()` önüne önbellek koyma (instance'lar arası bayat finans verisi). Ölçüm/yöntem: `performance-db-egress` skill.
 - Ayrıntı: CLAUDE.md "Egress rules — enforced".
