@@ -307,7 +307,8 @@ export async function readLessonSeriesForStudent(studentId: string): Promise<App
 
 /** Bkz. store-db.readSlotScopeData — tam veriden aynı dilim (lesson-scope.ts `narrowSlotScope`). */
 export async function readSlotScopeData(target: SlotScopeTarget, days?: Date[]): Promise<AppData> {
-  return narrowSlotScope(load(), target, days);
+  // readData: kapalı/zorla-açık gün istisnaları yalnız orada eklenir (load() ham veridir) — db/json ile aynı doğrulama.
+  return narrowSlotScope(await readData(), target, days);
 }
 
 /** Bkz. store-db.readLessonsStartingBetween — sonuç `readData().lessons` [from, to] süzgeciyle aynı. */
@@ -919,7 +920,8 @@ export async function addLessonSeries(
   params: SeriesParams,
   options?: { skipConflicts?: boolean; allowAvailabilityOverride?: boolean; overriddenByUserId?: string; createdByUserId?: string }
 ): Promise<CreateSeriesResult> {
-  const data = load();
+  // readData: doğrulama kapalı-gün istisnalarını da görsün (db/json ile aynı); save() istisnaları ayıklar.
+  const data = await readData();
   assertLessonSeriesRefsExist(data, params);
   const result = createLessonSeriesOnFullData(data, params, options);
   if (result.ok) save(result.data);

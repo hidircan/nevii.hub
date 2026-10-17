@@ -1717,11 +1717,11 @@ export async function getTeacherScheduleTool(
 
   // DB egress (2026-10-17) — mobil öğretmen programı from/to ile gelir: tüm ders geçmişi yerine o pencere (±1 gün pay;
   // kesin süzgeç aşağıda aynen). Aralıksız çağrıda (hesap ekranı `limit=1`) yalnız bu öğretmenin dersleri.
-  const fromMs = v.data.from ? Date.parse(v.data.from) : NaN;
-  const toMs = v.data.to ? Date.parse(v.data.to) : NaN;
+  const windowFrom = new Date((v.data.from ? Date.parse(v.data.from) : NaN) - 86_400_000);
+  const windowTo = new Date((v.data.to ? Date.parse(v.data.to) : NaN) + 86_400_000);
   const data =
-    Number.isFinite(fromMs) && Number.isFinite(toMs)
-      ? await readLessonWindow(new Date(fromMs - 86_400_000).toISOString(), new Date(toMs + 86_400_000).toISOString())
+    Number.isFinite(windowFrom.getTime()) && Number.isFinite(windowTo.getTime())
+      ? await readLessonWindow(windowFrom.toISOString(), windowTo.toISOString())
       : await Promise.all([readReferenceData(), readLessonsForTeacher(v.data.teacherId)]).then(([ref, lessons]) => ({ ...ref, lessons }));
   const teacher = data.teachers.find((t) => t.id === v.data.teacherId);
   if (!teacher) return fail("NOT_FOUND", "Teacher not found");

@@ -18,13 +18,13 @@ export const dynamic = "force-dynamic";
 export default async function TeacherPayoutTab({ params }: { params: Promise<{ teacherId: string }> }) {
   const { teacherId } = await params;
   const { session, kurum, data, teacher, canManage } = await loadTeacherPageContext(teacherId);
-  const teacherPayouts = await readScopedTeacherPayouts(kurum.scope, teacherId);
 
   const { canAccessTeacherEarnings } = await import("@/lib/platform/teacher-earnings-access");
   if (!(await canAccessTeacherEarnings(session))) {
     redirect("/panel");
   }
   if (!teacher) notFound();
+  const teacherPayouts = await readScopedTeacherPayouts(kurum.scope, teacherId);
 
   // İstanbul takvimine göre içinde bulunulan ay (sunucu UTC çalışır; ayın ilk saatlerinde önceki ay seçiliyordu).
   const today = toZonedYmd(new Date(), DEFAULT_APP_TIMEZONE);

@@ -487,7 +487,11 @@ export async function readLessonsStartingBetween(fromIso: string, toIso: string)
 /** DB egress (2026-10-17) — bir öğretmenin tüm dersleri (mobil öğretmen programı, aralıksız çağrı). */
 export async function readLessonsForTeacher(teacherId: string): Promise<import("./types").Lesson[]> {
   if (!teacherId) return [];
-  return withTenantScope(() => store.readLessonsForTeacher(teacherId));
+  // readData() ile aynı: süresi dolan telafi planı önce işlenir (dersin durumu bayat görünmesin).
+  return withTenantScope(async () => {
+    await store.commitMakeupPlanningExpiry(new Date());
+    return store.readLessonsForTeacher(teacherId);
+  });
 }
 
 /** DB egress (2026-10-10) — tek ödeme: `readData().payments.find(id)` ile aynı (makbuz). */
