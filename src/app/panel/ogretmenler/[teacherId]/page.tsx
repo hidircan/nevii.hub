@@ -4,7 +4,7 @@ import { AlertTriangle, ArrowRight, CalendarDays, CheckCircle2 } from "lucide-re
 import { Badge, Card } from "@/components/ui";
 import { computeTeacherEarningsWithRevisions } from "@/lib/teacher-payout";
 import { formatDate, formatMoney, formatTime } from "@/lib/utils";
-import { loadTeacherPageContext } from "./_context";
+import { loadTeacherFullData, loadTeacherPageContext } from "./_context";
 import { MiniStat } from "./_components/fields";
 import { isActiveOwnStudent } from "@/lib/teacher-portal-scope";
 
@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
  */
 export default async function TeacherOverviewTab({ params }: { params: Promise<{ teacherId: string }> }) {
   const { teacherId } = await params;
-  const { data, teacher, canManage } = await loadTeacherPageContext(teacherId);
+  const [{ teacher, canManage }, data] = await Promise.all([loadTeacherPageContext(teacherId), loadTeacherFullData(teacherId)]);
   if (!teacher) notFound();
 
   const branch = data.settings.branches.find((b) => b.id === teacher.branchId);

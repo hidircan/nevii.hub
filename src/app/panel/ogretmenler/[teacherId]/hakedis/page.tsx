@@ -6,6 +6,7 @@ import { TeacherPayoutDashboard } from "@/components/teacher-payout-dashboard";
 import { FeeRuleManager } from "@/components/fee-rule-manager";
 import { activeInstrumentOptions } from "@/lib/instrument-options";
 import { loadTeacherPageContext } from "../_context";
+import { readScopedTeacherPayouts } from "@/lib/institution/context";
 import { ChangeHistory } from "@/components/change-history";
 
 export const dynamic = "force-dynamic";
@@ -17,6 +18,7 @@ export const dynamic = "force-dynamic";
 export default async function TeacherPayoutTab({ params }: { params: Promise<{ teacherId: string }> }) {
   const { teacherId } = await params;
   const { session, kurum, data, teacher, canManage } = await loadTeacherPageContext(teacherId);
+  const teacherPayouts = await readScopedTeacherPayouts(kurum.scope, teacherId);
 
   const { canAccessTeacherEarnings } = await import("@/lib/platform/teacher-earnings-access");
   if (!(await canAccessTeacherEarnings(session))) {
@@ -65,7 +67,7 @@ export default async function TeacherPayoutTab({ params }: { params: Promise<{ t
         title="Hakediş değişiklik geçmişi"
         tenantId={session.tenantId}
         entityType="TeacherPayout"
-        entityIds={data.teacherPayouts.filter((p) => p.teacherId === teacher.id).map((p) => p.id)}
+        entityIds={teacherPayouts.filter((p) => p.teacherId === teacher.id).map((p) => p.id)}
         teachers={data.teachers}
       />
     </div>

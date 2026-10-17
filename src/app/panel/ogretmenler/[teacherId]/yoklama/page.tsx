@@ -3,7 +3,7 @@ import { redirect, notFound } from "next/navigation";
 import { Card } from "@/components/ui";
 import { formatDate, formatTime } from "@/lib/utils";
 import { withReturnTo } from "@/lib/safe-return-to";
-import { loadTeacherPageContext } from "../_context";
+import { loadTeacherFullData, loadTeacherPageContext } from "../_context";
 
 export const dynamic = "force-dynamic";
 
@@ -32,7 +32,7 @@ const STATUS_LABEL: Record<string, string> = {
 
 export default async function TeacherAttendanceTab({ params }: { params: Promise<{ teacherId: string }> }) {
   const { teacherId } = await params;
-  const { session, data, teacher } = await loadTeacherPageContext(teacherId);
+  const [{ session, teacher }, data] = await Promise.all([loadTeacherPageContext(teacherId), loadTeacherFullData(teacherId)]);
   if (session.role !== "SCHOOL_ADMIN" && session.role !== "SUPER_ADMIN" && session.role !== "TEACHER") {
     redirect("/panel");
   }

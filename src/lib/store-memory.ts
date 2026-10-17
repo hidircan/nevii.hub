@@ -103,7 +103,7 @@ import {
   applyLessonCancel,
   type LessonScheduleUpdateOutcome,
 } from "./lesson-update";
-import { mergeLessonScope, narrowLessonScope, narrowSlotScope } from "./lesson-scope";
+import { mergeLessonScope, narrowLessonScope, narrowSlotScope, type SlotScopeTarget } from "./lesson-scope";
 import {
   applyStartLesson,
   applyEndLesson,
@@ -112,7 +112,7 @@ import {
   type LessonLiveUpdateResult,
 } from "./lesson-live-status";
 import {
-  createLessonSeriesData,
+  createLessonSeriesOnFullData,
   cancelSeriesFromLesson,
   cancelEntireSeries,
   type SeriesParams,
@@ -298,6 +298,16 @@ export async function readTeacherPortalDetails(teacherId: string) {
 /** Bkz. store-db.readLessonById — sonuç `readData().lessons.find` ile aynı. */
 export async function readLessonById(lessonId: string): Promise<Lesson | undefined> {
   return (await readData()).lessons.find((l) => l.id === lessonId);
+}
+
+/** Bkz. store-db.readLessonSeriesForStudent. */
+export async function readLessonSeriesForStudent(studentId: string): Promise<AppData["lessonSeries"]> {
+  return load().lessonSeries.filter((s) => s.studentId === studentId);
+}
+
+/** Bkz. store-db.readSlotScopeData — tam veriden aynı dilim (lesson-scope.ts `narrowSlotScope`). */
+export async function readSlotScopeData(target: SlotScopeTarget, days?: Date[]): Promise<AppData> {
+  return narrowSlotScope(load(), target, days);
 }
 
 /** Bkz. store-db.readLessonsStartingBetween — sonuç `readData().lessons` [from, to] süzgeciyle aynı. */
@@ -906,7 +916,7 @@ export async function addLessonSeries(
 ): Promise<CreateSeriesResult> {
   const data = load();
   assertLessonSeriesRefsExist(data, params);
-  const result = createLessonSeriesData(data, params, options);
+  const result = createLessonSeriesOnFullData(data, params, options);
   if (result.ok) save(result.data);
   return result;
 }

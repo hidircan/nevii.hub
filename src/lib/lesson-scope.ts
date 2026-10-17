@@ -104,8 +104,12 @@ export type SlotScopeTarget = Pick<Lesson, "studentId" | "teacherId" | "roomId" 
  * telafi talepleri. Yoklama/ödeme yok (henüz ders yok). `store-db` aynı kapsamı Prisma ile üretir;
  * json/memory doğrulamayı bu dar girdiyle çalıştırır (dilim yetersizse json testleri yakalar).
  */
-export function narrowSlotScope(data: AppData, target: SlotScopeTarget): AppData {
-  const days = lessonScopeDays(target);
+export function narrowSlotScope(
+  data: AppData,
+  target: SlotScopeTarget,
+  /** Öğretmen/oda pencere günleri — seri doğrulaması tüm oluşum günlerini verir (bkz. `seriesScopeDays`). */
+  days: Date[] = lessonScopeDays(target)
+): AppData {
   const probe = { ...target, id: "" };
   return {
     settings: { ...data.settings, logoUrl: "" },

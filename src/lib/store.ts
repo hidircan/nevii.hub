@@ -246,6 +246,12 @@ type StoreApi = {
    */
   readLessonScope: (lessonId: string, targetStartAt?: string) => Promise<AppData | null>;
   /** Dar okuma — tek öğrenci satırı; `readData().students.find(id)` ile aynı sonuç. */
+  /**
+   * Dar okuma — YENİ ders/seri doğrulaması (`validateLessonSlot`) dilimi: öğrenci/öğretmen/oda + öğrencinin
+   * tüm dersleri + öğretmen/odanın verilen günlerdeki (±1) dersleri (bkz. lesson-scope.ts `narrowSlotScope`).
+   */
+  readLessonSeriesForStudent: (studentId: string) => Promise<import("./types").LessonSeries[]>;
+  readSlotScopeData: (target: import("./lesson-scope").SlotScopeTarget, days?: Date[]) => Promise<AppData>;
   readStudentById: (studentId: string) => Promise<Student | undefined>;
   readLessonById: (lessonId: string) => Promise<import("./types").Lesson | undefined>;
   readLessonsStartingBetween: (fromIso: string, toIso: string) => Promise<import("./types").Lesson[]>;
@@ -946,6 +952,20 @@ export async function updateLessonSchedule(input: {
   durationMinutes?: number;
 }): Promise<LessonScheduleUpdateOutcome> {
   return withTenantScope(() => store.updateLessonSchedule(input));
+}
+
+/** DB egress (2026-10-17) — öğrencinin ders serileri: `readData().lessonSeries` süzgeciyle aynı. */
+export async function readLessonSeriesForStudent(studentId: string): Promise<import("./types").LessonSeries[]> {
+  if (!studentId) return [];
+  return withTenantScope(() => store.readLessonSeriesForStudent(studentId));
+}
+
+/** DB egress (2026-10-17) — bkz. StoreApi.readSlotScopeData (seri önizleme/oluşturma, uygun saat önerisi). */
+export async function readSlotScopeData(
+  target: import("./lesson-scope").SlotScopeTarget,
+  days?: Date[]
+): Promise<AppData> {
+  return withTenantScope(() => store.readSlotScopeData(target, days));
 }
 
 /** Dar okuma — bkz. StoreApi.readLessonScope / src/lib/lesson-scope.ts. */

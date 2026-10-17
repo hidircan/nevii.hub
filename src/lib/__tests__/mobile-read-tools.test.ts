@@ -12,10 +12,18 @@ import { grantStudentAccess } from "./portal-access-test-helper";
  * student-portal-access modülünden (json test store'u).
  */
 const fixture = vi.hoisted(() => ({ data: null as unknown }));
-vi.mock("../store", async (orig) => ({
-  ...(await orig<typeof import("../store")>()),
-  readData: vi.fn(async () => fixture.data),
-}));
+vi.mock("../store", async (orig) => {
+  // DB egress (2026-10-17): tool'lar dar dilim okur — dilimler aynı fixture'dan json/memory ile AYNI kuralla türetilir.
+  const { narrowToMakeupCenter, toReferenceData } = await import("../reference-data");
+  const data = () => fixture.data as import("../types").AppData;
+  return {
+    ...(await orig<typeof import("../store")>()),
+    readData: vi.fn(async () => fixture.data),
+    readMakeupCenterData: vi.fn(async () => narrowToMakeupCenter(data())),
+    readReferenceData: vi.fn(async () => toReferenceData(data())),
+    readPaymentById: vi.fn(async (id: string) => data().payments.find((p) => p.id === id)),
+  };
+});
 
 const { listMakeupRequestsTool, getPaymentReceiptTool } = await import("../services/mobile-read");
 
@@ -175,7 +183,7 @@ describe("getPaymentReceiptTool — GET /api/v1/payments/:id/receipt", () => {
 describe("salt-okunur sınır", () => {
   it("tool modülü store'a yazan hiçbir şey import etmez", () => {
     const src = readFileSync(path.join(__dirname, "../services/mobile-read.ts"), "utf8");
-    expect(src).toMatch(/import \{ readData \} from "\.\.\/store"/);
+    expect(src).toMatch(/import \{ readMakeupCenterData, readPaymentById, readReferenceData \} from "\.\.\/store"/);
     expect(src).not.toMatch(/writeData|mutate|\.push\(|confirmSlot|cancelMakeup|markPaymentPaid/);
   });
 });

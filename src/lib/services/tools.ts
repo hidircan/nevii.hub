@@ -79,6 +79,8 @@ import {
   readLessonScope,
   readStudentById,
   readLessonById,
+  readLessonSeriesForStudent,
+  readSlotScopeData,
   readTeacherPayoutsForTeacher,
   readPaymentById,
   readReferenceData,
@@ -8179,7 +8181,14 @@ export async function suggestLessonSlotsTool(
   const v = parseOrFail(suggestLessonSlotsSchema, input);
   if (!v.ok) return v;
 
-  const data = await readData();
+  // DB egress (2026-10-17) — öneri yalnız bugünden `daysAhead` gün sonrasına kadar bakar: tüm ders geçmişi yerine
+  // o pencerenin dersleri (±2 gün saat dilimi payı). `validateLessonSlot` seri/yoklama/ödeme/telafi okumaz.
+  const now = new Date();
+  const win = await readLessonWindow(
+    addDays(now, -2).toISOString(),
+    addDays(now, (v.data.daysAhead ?? 14) + 2).toISOString()
+  );
+  const data: AppData = { ...win, lessonSeries: [], attendances: [], makeupRequests: [], payments: [], teacherPayouts: [] };
   const suggestions = suggestLessonSlots(data, {
     studentId: v.data.studentId,
     instrument: v.data.instrument as Instrument,
@@ -8614,14 +8623,19 @@ export async function previewLessonSeriesTool(
     return fail("FORBIDDEN", AVAILABILITY_OVERRIDE_FORBIDDEN);
   }
 
-  const data = await readData();
+  const occurrences = computeSeriesOccurrences(v.data);
+  // DB egress (2026-10-17) — tam kurum verisi yerine oluşturmayla AYNI dar dilim (öğrenci/öğretmen/oda +
+  // oluşum günleri; bkz. store-db addLessonSeries). Önizleme ve oluşturma aynı veriyle aynı sonucu verir.
+  const data = await readSlotScopeData(
+    { ...v.data, startAt: v.data.startsOn },
+    occurrences.map((o) => new Date(o.startAt))
+  );
   const student = data.students.find((s) => s.id === v.data.studentId);
   if (!student) return fail("NOT_FOUND", "Öğrenci bulunamadı.");
   if (!data.teachers.some((t) => t.id === v.data.teacherId)) return fail("NOT_FOUND", "Öğretmen bulunamadı.");
   if (!data.rooms.some((r) => r.id === v.data.roomId)) return fail("NOT_FOUND", "Oda bulunamadı.");
   if (!data.settings.branches.some((b) => b.id === v.data.branchId)) return fail("NOT_FOUND", "Şube bulunamadı.");
 
-  const occurrences = computeSeriesOccurrences(v.data);
   // Bkz. validation.ts studentSchema.instrument yorumu — schema artık katalog
   // uyumlu serbest metin; gerçek enstrüman/öğretmen/oda uyumu makeup-engine.ts'te
   // (checkSeriesOccurrences → validateLessonSlot) doğrulanır, burada YALNIZCA tip cast'i.
@@ -8678,7 +8692,7 @@ export async function createLessonSeriesTool(
   }
 
   // Tekrar denemede mükerrer seri yok: aynı öğrenci/öğretmen/gün/saat/aralık için AKTİF seri varsa yeni seri yazılmaz.
-  const existing = (await readData()).lessonSeries.find(
+  const existing = (await readLessonSeriesForStudent(v.data.studentId)).find(
     (s) =>
       s.status === "active" &&
       s.studentId === v.data.studentId &&
@@ -8703,8 +8717,8 @@ export async function createLessonSeriesTool(
     );
     if (!result.ok) return fail("CONFLICT", result.message, result.conflicts);
     if (override) {
-      const after = await readData();
-      const overridden = after.lessons.filter((l) => l.seriesId === result.seriesId && l.availabilityOverride);
+      // Yazılan derslerin aynısı (store sonucu; tam okuma yok).
+      const overridden = result.data.lessons.filter((l) => l.seriesId === result.seriesId && l.availabilityOverride);
       if (overridden.length > 0) {
         audit(ctx, "lesson_series.availability_override", "LessonSeries", result.seriesId, {
           teacherId: v.data.teacherId,
@@ -14900,6 +14914,17 @@ export async function revealStaffIbanTool(
   }
 }
 
+/**
+ * DB egress (2026-10-17) — deneme dersi doğrulamasının (`assertSchedulableDate`, `validateTrialSlot`) okuduğu
+ * tek şey o anın çevresindeki dersler + ayarlar/öğretmenler/istisnalar: ±2 gün ders penceresi.
+ * Geçersiz tarihte pencere boş (doğrulama tarihi zaten reddeder).
+ */
+async function readLessonsAroundForTrial(startAtIso: string) {
+  const at = new Date(startAtIso);
+  if (Number.isNaN(at.getTime())) return { ...(await readReferenceData()), lessons: [] };
+  return readLessonWindow(addDays(at, -2).toISOString(), addDays(at, 2).toISOString());
+}
+
 export async function createTrialLessonTool(
   ctx: ServiceContext,
   input: unknown
@@ -14913,7 +14938,9 @@ export async function createTrialLessonTool(
   }
   // Çalışma günü tek kaynağı — deneme dersi de yöneticinin kapalı/zorla-açık
   // istisnalarına uyar (eskiden boş liste geçiliyordu, istisnalar hiç okunmuyordu).
-  const trialData = await readData();
+  // DB egress (2026-10-17) — deneme dersi doğrulaması (çalışma günü + öğretmen çakışması) yalnız o günün
+  // dersleri + referans veriyle; tüm ders geçmişi okunmaz.
+  const trialData = await readLessonsAroundForTrial(v.data.startAt);
   const sched = assertSchedulableDate(v.data.startAt, trialData);
   if (!sched.ok) return fail("VALIDATION_ERROR", sched.message);
   if (ctx.role === "TEACHER" && v.data.teacherId !== ctx.teacherId) {
@@ -15056,8 +15083,8 @@ export async function updateTrialLessonTool(
     startAt: d.startAt ? new Date(d.startAt).toISOString() : existing.startAt,
     durationMinutes: d.durationMinutes ?? existing.durationMinutes,
   };
-  const data = await readData();
   if (scheduleChanged) {
+    const data = await readLessonsAroundForTrial(next.startAt);
     const { validateTrialSlot } = await import("../makeup-engine");
     const all = await listTrialLessons(ctx.tenantId);
     const slot = validateTrialSlot(data, next, all, {

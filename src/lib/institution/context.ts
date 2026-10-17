@@ -11,6 +11,7 @@ import {
   readReferenceData,
   readStudentListData,
   readStudentScope,
+  readTeacherPayoutsForTeacher,
   listTenants,
 } from "../store";
 import {
@@ -180,6 +181,18 @@ const readScopedMakeupCenterDataByKey = cache(async (key: string): Promise<Makeu
   }
   return narrowToMakeupCenter(await readScopedDataByKey(key));
 });
+
+const readScopedTeacherPayoutsByKey = cache(async (key: string, teacherId: string): Promise<AppData["teacherPayouts"]> => {
+  if (key.startsWith("single:")) {
+    return runWithTenantAsync(key.slice("single:".length), () => readTeacherPayoutsForTeacher(teacherId));
+  }
+  return (await readScopedDataByKey(key)).teacherPayouts.filter((p) => p.teacherId === teacherId);
+});
+
+/** DB egress (2026-10-17) — bir öğretmenin kayıtlı hakedişleri (öğretmen detayı Hakediş / Ödeme Geçmişi). */
+export async function readScopedTeacherPayouts(scope: InstitutionScope, teacherId: string): Promise<AppData["teacherPayouts"]> {
+  return readScopedTeacherPayoutsByKey(scopeCacheKey(scope), teacherId);
+}
 
 /** DB egress (2026-10-16) — Telafi Merkezi (bkz. reference-data.ts `MakeupCenterData`). */
 export async function readScopedMakeupCenterData(scope: InstitutionScope): Promise<MakeupCenterData> {
