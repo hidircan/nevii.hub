@@ -25,7 +25,10 @@ export const LEGACY_CREATOR_LABEL = "Bilinmiyor (eski kayıt)";
 export type StudentRow = {
   id: string;
   name: string;
+  /** Ana şube (öğrenci kartındaki). */
   branchName?: string;
+  /** 2026-10-17 — ana şube + aktif branş kayıtlarının şubeleri (filtre/sütun). */
+  branchNames?: string[];
   instruments: string[];
   /** Öğretmen/paket/ücret/seviye: çok branşlı öğrencide ilk branşın değil TÜM aktif branşların özeti. */
   teacherName?: string;
@@ -413,7 +416,7 @@ export function StudentsTable({
     };
   }, []);
 
-  const branchOptions = useMemo(() => uniqueSorted(rows.map((r) => r.branchName)), [rows]);
+  const branchOptions = useMemo(() => uniqueSorted(rows.flatMap((r) => r.branchNames ?? [r.branchName])), [rows]);
   const typeOptions = useMemo(() => uniqueSorted(rows.flatMap((r) => r.studentTypes)), [rows]);
   const packageOptions = useMemo(() => uniqueSorted(rows.flatMap((r) => r.packageNames ?? [r.packageName])), [rows]);
   const teacherOptions = useMemo(() => uniqueSorted(rows.flatMap((r) => r.teacherNames ?? [r.teacherName])), [rows]);
@@ -424,7 +427,7 @@ export function StudentsTable({
   const groups: FilterGroup[] = [
     { key: "status", label: "Durum", type: "status" },
     { key: "type", label: "Öğrenci türü", type: "multi", options: typeOptions },
-    { key: "branch", label: "Şube", type: "multi", options: branchOptions },
+    { key: "branch", label: "Şubeler", type: "multi", options: branchOptions },
     { key: "teacher", label: "Öğretmen", type: "multi", options: teacherOptions },
     { key: "method", label: "Eğitim metodu", type: "multi", options: methodOptions },
     { key: "package", label: "Paket", type: "multi", options: packageOptions },
@@ -526,7 +529,7 @@ export function StudentsTable({
     if (statusFilter === "active" && !row.active) return false;
     if (statusFilter === "inactive" && row.active) return false;
     if (typeFilter.length && !row.studentTypes.some((t) => typeFilter.includes(t))) return false;
-    if (branchFilter.length && !(row.branchName && branchFilter.includes(row.branchName))) return false;
+    if (branchFilter.length && !(row.branchNames ?? [row.branchName]).some((b) => b && branchFilter.includes(b))) return false;
     if (packageFilter.length && !(row.packageNames ?? [row.packageName]).some((n) => packageFilter.includes(n))) return false;
     if (teacherFilter.length && !(row.teacherNames ?? [row.teacherName]).some((n) => n && teacherFilter.includes(n))) return false;
     if (methodFilter.length && !(row.educationMethod && methodFilter.includes(row.educationMethod))) return false;
@@ -1104,7 +1107,7 @@ export function StudentsTable({
                           ) : null}
                         </span>
                       ) : key === "branch" ? (
-                        <span className="text-[var(--color-text-muted)]">{s.branchName ?? "—"}</span>
+                        <span className="text-[var(--color-text-muted)]">{(s.branchNames?.length ? s.branchNames.join(", ") : s.branchName) ?? "—"}</span>
                       ) : key === "type" ? (
                         <>
                           {s.studentTypes.length > 0 ? (

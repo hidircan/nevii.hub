@@ -106,6 +106,8 @@ import {
   deleteTeacherTool,
   getPersonPurgePreviewTool,
   purgePersonTool,
+  getBulkStudentPurgePreviewTool,
+  bulkPurgeStudentsTool,
   restoreDeletedTeacherTool,
   getPaymentDeletionPlanTool,
   deletePaymentTool,
@@ -142,6 +144,8 @@ import {
   type TeacherDeletionImpact,
   type PersonPurgePreview,
   type PersonPurgeResult,
+  type BulkPurgePreview,
+  type BulkPurgeItemResult,
   type PaymentDeletionPlan,
   updateMakeupWindowDaysTool,
   updateSchoolLogoTool,
@@ -4498,6 +4502,31 @@ export async function actionGetPersonPurgePreview(
     (ctx) => getPersonPurgePreviewTool(ctx, { kind, id, mode, ...opts }),
     "Kalıcı silme önizlemesi yüklenemedi. Sayfayı yenileyip tekrar deneyin."
   );
+}
+
+/** 2026-10-17 — Silinen öğrenciler: toplu kalıcı silme (önizleme + yürütme; çekirdek tekli silmeyle aynı). */
+export async function actionGetBulkStudentPurgePreview(studentIds: string[]): Promise<SimpleActionResult<BulkPurgePreview>> {
+  return runSimpleAction(
+    "actionGetBulkStudentPurgePreview",
+    (ctx) => getBulkStudentPurgePreviewTool(ctx, { studentIds }),
+    "Toplu kalıcı silme önizlemesi yüklenemedi. Sayfayı yenileyip tekrar deneyin."
+  );
+}
+
+export async function actionBulkPurgeStudents(input: {
+  studentIds: string[];
+  fingerprints: Record<string, string>;
+  confirmationCount: string;
+  criticalPassword: string;
+  reason: string;
+}): Promise<SimpleActionResult<{ results: BulkPurgeItemResult[] }>> {
+  const res = await runSimpleAction(
+    "actionBulkPurgeStudents",
+    (ctx) => bulkPurgeStudentsTool(ctx, input),
+    "Toplu kalıcı silme tamamlanamadı. Silinen öğrenciler listesini yenileyip sonucu kontrol edin."
+  );
+  if (res.ok) revalidateAll();
+  return res;
 }
 
 export async function actionPurgePerson(input: {

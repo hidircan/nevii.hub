@@ -17,6 +17,7 @@
  * error'dur — override bunları asla atlatmaz (bkz. makeup-engine.ts
  * OVERRIDABLE_SLOT_CODES).
  */
+import { studentBranchIds } from "../student-enrollments";
 import type { AppData, Instrument, StudentTermType } from "../types";
 import { zonedWallTimeToUtc } from "../timezone";
 import type { CsvRecord } from "./csv";
@@ -270,7 +271,7 @@ export function validateLessonScheduleRows(
     // Şube tutarlılığı (kod/ad ile çözülen kişi CSV şubesiyle uyumlu mu?)
     if (branchId && studentId) {
       const student = data.students.find((s) => s.id === studentId);
-      if (student && student.branchId !== branchId) {
+      if (student && !studentBranchIds(student).includes(branchId)) {
         errors.push({
           row,
           field: "sube",

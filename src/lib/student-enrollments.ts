@@ -45,6 +45,15 @@ export function effectiveEnrollments(
   }));
 }
 
+/**
+ * 2026-10-17 — öğrencinin bağlı olduğu TÜM şubeler: ana şube (`Student.branchId`, her zaman ilk) + aktif branş
+ * kayıtlarının şubeleri. Branş kaydında şube boşsa ana şubeyi devralır. Liste/filtre/ders planlama bunu okur.
+ */
+export function studentBranchIds(student: Pick<Student, "branchId" | "enrollments">): string[] {
+  const extra = (student.enrollments ?? []).filter((e) => e.active && e.branchId).map((e) => e.branchId as string);
+  return Array.from(new Set([student.branchId, ...extra].filter(Boolean)));
+}
+
 /** Dersin eğitimi: önce açık bağ (`enrollmentId`), yoksa enstrüman (+ öğretmen) eşleşmesi. */
 export function enrollmentForLesson(
   enrollments: EnrollmentView[],

@@ -1028,8 +1028,13 @@ export function AttendanceCalendarPanel({
                   ))}
                   {data.days.map((day) => {
                     const { style, segmentCount } = dayFillStyle(day);
-                    const attendedMakeup = day.status !== "closed" && day.lessons.some((l) => l.plannedMakeup && l.opsStatus === "attended");
-                    const dayTitle = `${day.date} — ${weekdayFullNameFor(day.date)} — ${day.label}${day.lessonIds.length ? ` · ${day.lessonIds.length} ders` : ""}${attendedMakeup ? ` · ${ATTENDED_PLANNED_MAKEUP_LABEL}` : ""}`;
+                    // T işareti ders bazında: şerit i = day.lessons[i] (ikisi de başlangıç saatine göre sıralı, bkz.
+                    // dayFillStyle). Gün bazında tek bayrak, aynı gün iki telafiye gelişte yalnız bir T gösteriyordu.
+                    const makeupIdx =
+                      day.status === "closed"
+                        ? []
+                        : day.lessons.flatMap((l, i) => (l.plannedMakeup && l.opsStatus === "attended" ? [i] : []));
+                    const dayTitle = `${day.date} — ${weekdayFullNameFor(day.date)} — ${day.label}${day.lessonIds.length ? ` · ${day.lessonIds.length} ders` : ""}${makeupIdx.length ? ` · ${makeupIdx.length > 1 ? `${makeupIdx.length} ders ` : ""}${ATTENDED_PLANNED_MAKEUP_LABEL}` : ""}`;
                     return (
                       <button
                         key={day.date}
@@ -1053,7 +1058,15 @@ export function AttendanceCalendarPanel({
                             {segmentCount}
                           </span>
                         ) : null}
-                        {attendedMakeup ? <PlannedMakeupMarker className="absolute -bottom-1 -left-1 !h-3 !w-3 !text-[8px]" /> : null}
+                        {makeupIdx.map((i) => (
+                          <span
+                            key={day.lessons[i]!.lessonId}
+                            className="absolute -bottom-1"
+                            style={{ left: segmentCount > 1 ? `calc(${((i + 0.5) / segmentCount) * 100}% - 6px)` : "-4px" }}
+                          >
+                            <PlannedMakeupMarker className="!h-3 !w-3 !text-[8px]" />
+                          </span>
+                        ))}
                       </button>
                     );
                   })}
