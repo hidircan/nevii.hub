@@ -175,7 +175,7 @@ import type { RoomImportRow } from "./import/rooms";
 import type { StudentImportRow } from "./import/students";
 import type { ImportCommitResult } from "./import/commit-result";
 import type { TeacherAttendanceRow } from "./insights/teacher-performance";
-import { OPEN_MAKEUP_STATUSES, type MobileDashboardCounts } from "./dashboard/mobile-counts";
+import { OPEN_MAKEUP_STATUSES, isOpenMakeupInView, type MobileDashboardCounts } from "./dashboard/mobile-counts";
 import { addDays, endOfDay, startOfDay, subDays } from "date-fns";
 import { requireTenantId, tryTenantId } from "./tenant-context";
 import { listClosedDays } from "./closed-day-overrides";
@@ -1338,7 +1338,7 @@ export async function readMobileDashboardCounts(now: Date): Promise<MobileDashbo
   const tid = tenantId();
   const own = { tenantId: tid, school: { tenantId: tid } };
   const todayStart = new Date(`${now.toISOString().slice(0, 10)}T00:00:00.000Z`);
-  const [pendingAttendanceCount, overduePaymentCount, openMakeupCount] = await Promise.all([
+  const [pendingAttendanceCount, overduePaymentCount, openMakeups] = await Promise.all([
     prisma.lesson.count({
       where: {
         ...own,
@@ -1354,8 +1354,14 @@ export async function readMobileDashboardCounts(now: Date): Promise<MobileDashbo
     prisma.payment.count({
       where: { ...own, status: { notIn: ["paid", "voided"] }, OR: [{ status: "overdue" }, { dueDate: { lt: todayStart } }] },
     }),
-    prisma.makeupRequest.count({ where: { ...own, status: { in: OPEN_MAKEUP_STATUSES } } }),
+    prisma.makeupRequest.findMany({
+      where: { ...own, status: { in: OPEN_MAKEUP_STATUSES } },
+      select: { status: true, confirmedLessonId: true, expiresAt: true },
+    }),
   ]);
+  const openMakeupCount = openMakeups.filter((m) =>
+    isOpenMakeupInView({ status: m.status as import("./types").MakeupRequest["status"], confirmedLessonId: m.confirmedLessonId ?? undefined, expiresAt: m.expiresAt.toISOString() }, now)
+  ).length;
   return { pendingAttendanceCount, overduePaymentCount, openMakeupCount };
 }
 
