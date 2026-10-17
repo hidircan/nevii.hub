@@ -236,7 +236,8 @@ import { runWithTenantAsync } from "./tenant-context";
 import { getSessionAppearancePolicy } from "./platform/access";
 import { isProfileAllowed } from "./platform/policies";
 import { getSessionContext, requireSessionContext } from "./auth/session";
-import { readData, readReferenceData } from "./store";
+import { readData, readLessonById, readReferenceData } from "./store";
+import { withEgressLabel } from "./egress-label";
 import { buildLessonCommunicationDraft, type LessonCommunicationDraft } from "./whatsapp-templates";
 import type { LessonSlotSuggestion } from "./lesson-scheduling";
 import type { SeriesOccurrenceCheck } from "./lesson-series";
@@ -346,7 +347,7 @@ async function withAuthContext<T>(
   }
 
   try {
-    const result = await runWithTenantAsync(writeScope.tenantId, () => fn(ctx));
+    const result = await runWithTenantAsync(writeScope.tenantId, () => withEgressLabel(actionName, () => fn(ctx)));
     auditLog({
       action: actionName,
       requestId,
@@ -3681,8 +3682,8 @@ export async function actionAddLesson(formData: FormData): Promise<LessonActionR
         return { ok: false as const, message: created.error.message, overridable: details?.overridable };
       }
 
-      const data = await readData();
-      const lesson = data.lessons.find((l) => l.id === created.data.lessonId);
+      // DB egress (2026-10-17) — mesaj taslağı için yalnız yeni ders + referans veri (tam kurum okuması yok).
+      const [lesson, data] = await Promise.all([readLessonById(created.data.lessonId), readReferenceData()]);
       const student = data.students.find((s) => s.id === lesson?.studentId);
       const teacher = data.teachers.find((t) => t.id === lesson?.teacherId);
       const branch = data.settings.branches.find((b) => b.id === lesson?.branchId);

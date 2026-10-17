@@ -4,7 +4,15 @@ Kısa tutulur (~50 satır): oturum sonunda yalnız "Güncel snapshot" bölümün
 `archive/`'e taşınır. Ayrıntı → ilgili `docs/testing/UAT_*.md`, `docs/operations/*`. Yönlendirici: `nevii-hub` skill.
 Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_2026-09-24.md`.
 
-## Güncel snapshot — 2026-10-16 öğleden sonra (CI/Actions kotası + egress + personel adları; PR açık, MERGE/CANLI YOK, migration YOK)
+## Güncel snapshot — 2026-10-17 akşam (Supabase egress 3. dalga; PR açık, MERGE/CANLI YOK, migration/env YOK)
+- Worktree `../nevii-hub-egress-p3`, dal `perf/egress-p3` (taban canlı 33feac2). Rapor: `docs/performance/DB_EGRESS_2026_10_17.md`.
+- Canlı kanıt (#56 sonrası 33 sa): ~280 tam okuma ≈ 500 MB/gün (tahmin) > Kasım bütçesi ~170 MB/gün. En büyükler Ders
+  Programı seri önizle/oluştur, mobil listeler, öğretmen detay sekmeleri; Play yayını (10-17) ile veli defterleri.
+- Bu dal: bu yollar dar dilime (yerel ölçüm −85…−98 %); `egress:readData:full <ServerAction>`; `apps/cloudflare-cron`
+  (Vercel Pro bırakılırken ücretsiz cron, owner deploy eder). R2/D1 taşıma YOK (kanıt: egress Postgres satırları).
+- Açık: kalan tam okumalar (rapor §2), Supabase Data API kapatma (owner), canlı `pg_stat_statements` toplamları (owner).
+
+## Snapshot — 2026-10-16 öğleden sonra (CI/Actions kotası + egress + personel adları; PR açık, MERGE/CANLI YOK, migration YOK)
 - Worktree `../nevii-hub-ci-egress`, dal `fix/ci-egress-staff-names` (taban `origin/main` 0fa37e8 = canlı).
 - CI `main` 2026-09-15'ten beri kırmızı; 9e39d8b (#53) kırık seti #52 ile BİREBİR aynı (30 test, 20 dosya) → #53 kaynaklı değil.
   Yerelde 17'si üretildi: eskimiş kaynak-metin iddiaları + tarih/sıra bağımlı testler. Onarım ayrı iş.

@@ -41,6 +41,7 @@ import {
   formatEducationPeriodLabel,
 } from "./makeup-quota";
 import { logger } from "./logger";
+import { egressLabel } from "./egress-label";
 import {
   parseTermCalendarJson,
   mergeTermCalendarJson,
@@ -128,6 +129,7 @@ import {
 } from "./lesson-live-status";
 import {
   createLessonSeriesData,
+  seriesScopeDays,
   cancelSeriesFromLesson,
   cancelEntireSeries,
   type SeriesParams,
@@ -432,6 +434,31 @@ export function mapDbStudent(student: Prisma.StudentGetPayload<object>): Student
   };
 }
 
+/** Prisma `LessonSeries` satırı → `AppData.lessonSeries` öğesi (tam okuma ve hedefli okuma AYNI eşleme). */
+function mapDbLessonSeries(series: Prisma.LessonSeriesGetPayload<object>): import("./types").LessonSeries {
+  return {
+    id: series.id,
+    enrollmentId: (series as { enrollmentId?: string | null }).enrollmentId ?? undefined,
+    studentId: series.studentId,
+    teacherId: series.teacherId,
+    roomId: series.roomId,
+    branchId: series.branchId as BranchId,
+    instrument: series.instrument as Instrument,
+    weekday: series.weekday,
+    startTime: series.startTime,
+    durationMinutes: series.durationMinutes,
+    startsOn: series.startsOn.toISOString(),
+    endsOn: series.endsOn.toISOString(),
+    status: series.status as LessonSeriesStatus,
+    createdAt: series.createdAt.toISOString(),
+    updatedAt: series.updatedAt.toISOString(),
+    term: (series as { term?: string | null }).term as import("./types").StudentTermType | undefined ?? undefined,
+    academicYearStart: (series as { academicYearStart?: number | null }).academicYearStart ?? undefined,
+    demoTag: (series as { demoTag?: string | null }).demoTag ?? undefined,
+    contractId: (series as { contractId?: string | null }).contractId ?? undefined,
+  };
+}
+
 /** Prisma `Lesson` satırı → `AppData.lessons` öğesi (tam okuma ve hedefli okumalar AYNI eşlemeyi kullanır). */
 function mapDbLesson(lesson: Prisma.LessonGetPayload<object>): import("./types").Lesson {
   return {
@@ -635,27 +662,7 @@ function mapSchoolToAppData(school: PrismaSchoolWithRelations): AppData {
       deletedAt: (room as { deletedAt?: Date | null }).deletedAt?.toISOString() ?? undefined,
     })),
     lessons: school.lessons.map(mapDbLesson),
-    lessonSeries: school.lessonSeries.map((series) => ({
-      id: series.id,
-      enrollmentId: (series as { enrollmentId?: string | null }).enrollmentId ?? undefined,
-      studentId: series.studentId,
-      teacherId: series.teacherId,
-      roomId: series.roomId,
-      branchId: series.branchId as BranchId,
-      instrument: series.instrument as Instrument,
-      weekday: series.weekday,
-      startTime: series.startTime,
-      durationMinutes: series.durationMinutes,
-      startsOn: series.startsOn.toISOString(),
-      endsOn: series.endsOn.toISOString(),
-      status: series.status as LessonSeriesStatus,
-      createdAt: series.createdAt.toISOString(),
-      updatedAt: series.updatedAt.toISOString(),
-      term: (series as { term?: string | null }).term as import("./types").StudentTermType | undefined ?? undefined,
-      academicYearStart: (series as { academicYearStart?: number | null }).academicYearStart ?? undefined,
-      demoTag: (series as { demoTag?: string | null }).demoTag ?? undefined,
-      contractId: (series as { contractId?: string | null }).contractId ?? undefined,
-    })),
+    lessonSeries: school.lessonSeries.map(mapDbLessonSeries),
     attendances: school.attendances.map((attendance) => ({
       id: attendance.id,
       lessonId: attendance.lessonId,
@@ -1182,7 +1189,8 @@ export function mapDbPayment(payment: Prisma.PaymentGetPayload<object>): import(
 export async function readData(): Promise<AppData> {
   // Kota ölçümü (2026-10-13): tenant'ın TÜM verisini okuyan her çağrı tek sabit satır yazar (PII yok). Vercel runtime
   // log'larında `requestPath`'e göre sayılarak hangi ekranın tam okuma yaptığı bulunur (docs/performance/QUOTA_AUDIT_2026_10_12.md).
-  logger.info("egress:readData:full");
+  // Server Action içindeyse eylem adı da yazılır (ör. `egress:readData:full actionCreateLessonSeries`).
+  logger.info("egress:readData:full", egressLabel());
   const tid = tenantId();
   const [school, packages, discountCampaigns, teacherPayoutPolicies, teacherPayoutExclusions, closedDayOverrides] = await Promise.all([
     prisma.school.findFirst({ where: { tenantId: tid }, include: schoolInclude }),
@@ -1287,6 +1295,14 @@ export async function readLessonsStartingBetween(fromIso: string, toIso: string)
   const rows = await prisma.lesson.findMany({
     where: { tenantId: tid, school: { tenantId: tid }, startAt: { gte: new Date(fromIso), lte: new Date(toIso) } },
   });
+  return rows.map(mapDbLesson);
+}
+
+/** DB egress (2026-10-17) — bir öğretmenin TÜM dersleri (`readData().lessons` öğretmen süzgeciyle aynı satırlar/eşleme). */
+export async function readLessonsForTeacher(teacherId: string): Promise<import("./types").Lesson[]> {
+  if (!teacherId) return [];
+  const tid = tenantId();
+  const rows = await prisma.lesson.findMany({ where: { tenantId: tid, teacherId, school: { tenantId: tid } } });
   return rows.map(mapDbLesson);
 }
 
@@ -3054,7 +3070,11 @@ function scopeLessonsWhere(
  * DB egress (2026-10-10) — YENİ ders doğrulaması için dar dilim (bkz. lesson-scope.ts `narrowSlotScope`;
  * json/memory aynı dilimi tam veriden türetir). Okul yoksa null (çağıran tam okumaya düşer).
  */
-export async function readSlotScope(tid: string, target: SlotScopeTarget): Promise<AppData | null> {
+export async function readSlotScope(
+  tid: string,
+  target: SlotScopeTarget,
+  days: Date[] = lessonScopeDays(target)
+): Promise<AppData | null> {
   const school = await prisma.school.findFirst({
     where: { tenantId: tid },
     omit: { logoUrl: true },
@@ -3063,7 +3083,7 @@ export async function readSlotScope(tid: string, target: SlotScopeTarget): Promi
       teachers: { where: { tenantId: tid, id: target.teacherId } },
       students: { where: { tenantId: tid, id: target.studentId } },
       rooms: { where: { tenantId: tid, id: target.roomId } },
-      lessons: { where: scopeLessonsWhere(tid, target, lessonScopeDays(target)) },
+      lessons: { where: scopeLessonsWhere(tid, target, days) },
       makeupRequests: { where: { tenantId: tid, studentId: target.studentId } },
     },
   });
@@ -3082,6 +3102,19 @@ export async function readSlotScope(tid: string, target: SlotScopeTarget): Promi
     discountCampaigns: [],
     closedDayOverrides: await listClosedDays(tid).catch(() => []),
   };
+}
+
+/** DB egress (2026-10-17) — bir öğrencinin TÜM ders serileri (`readData().lessonSeries` süzgeciyle aynı satırlar). */
+export async function readLessonSeriesForStudent(studentId: string): Promise<import("./types").LessonSeries[]> {
+  if (!studentId) return [];
+  const tid = requireTenantId();
+  const rows = await prisma.lessonSeries.findMany({ where: { tenantId: tid, studentId, school: { tenantId: tid } } });
+  return rows.map(mapDbLessonSeries);
+}
+
+/** Bkz. StoreApi.readSlotScopeData — okul yoksa tam okumaya düşer (seed davranışı readData'da). */
+export async function readSlotScopeData(target: SlotScopeTarget, days?: Date[]): Promise<AppData> {
+  return (await readSlotScope(requireTenantId(), target, days)) ?? readData();
 }
 
 /**
@@ -3676,7 +3709,10 @@ export async function addLessonSeries(
 ): Promise<CreateSeriesResult> {
   logger.info("addLessonSeries", params.studentId, params.teacherId);
   const tid = requireTenantId();
-  const data = await readData();
+  // DB egress (2026-10-17) — seri doğrulaması tam kurum verisi yerine oluşum günlerinin dar diliminde
+  // (json/memory aynı dilimi narrowSlotScope ile türetir). Kilitli çakışma kontrolü (assertSlotFreeLockedTx) aynen.
+  const data =
+    (await readSlotScope(tid, { ...params, startAt: params.startsOn }, seriesScopeDays(params))) ?? (await readData());
 
   if (!data.students.some((s) => s.id === params.studentId)) throw new Error("Öğrenci bulunamadı");
   if (!data.teachers.some((t) => t.id === params.teacherId)) throw new Error("Öğretmen bulunamadı");
@@ -3743,7 +3779,8 @@ export async function addLessonSeries(
 
   return {
     ok: true,
-    data: await readData(),
+    // Dilim + yeni seri (çağıranların hiçbiri `data`yı okumuyor; tam okuma yapılmaz).
+    data: result.data,
     seriesId: result.seriesId,
     createdLessonIds: result.createdLessonIds,
     skippedOccurrences: result.skippedOccurrences,

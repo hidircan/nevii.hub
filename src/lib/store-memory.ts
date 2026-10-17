@@ -103,7 +103,7 @@ import {
   applyLessonCancel,
   type LessonScheduleUpdateOutcome,
 } from "./lesson-update";
-import { mergeLessonScope, narrowLessonScope, narrowSlotScope } from "./lesson-scope";
+import { mergeLessonScope, narrowLessonScope, narrowSlotScope, type SlotScopeTarget } from "./lesson-scope";
 import {
   applyStartLesson,
   applyEndLesson,
@@ -112,7 +112,7 @@ import {
   type LessonLiveUpdateResult,
 } from "./lesson-live-status";
 import {
-  createLessonSeriesData,
+  createLessonSeriesOnFullData,
   cancelSeriesFromLesson,
   cancelEntireSeries,
   type SeriesParams,
@@ -300,7 +300,23 @@ export async function readLessonById(lessonId: string): Promise<Lesson | undefin
   return (await readData()).lessons.find((l) => l.id === lessonId);
 }
 
+/** Bkz. store-db.readLessonSeriesForStudent. */
+export async function readLessonSeriesForStudent(studentId: string): Promise<AppData["lessonSeries"]> {
+  return load().lessonSeries.filter((s) => s.studentId === studentId);
+}
+
+/** Bkz. store-db.readSlotScopeData — tam veriden aynı dilim (lesson-scope.ts `narrowSlotScope`). */
+export async function readSlotScopeData(target: SlotScopeTarget, days?: Date[]): Promise<AppData> {
+  // readData: kapalı/zorla-açık gün istisnaları yalnız orada eklenir (load() ham veridir) — db/json ile aynı doğrulama.
+  return narrowSlotScope(await readData(), target, days);
+}
+
 /** Bkz. store-db.readLessonsStartingBetween — sonuç `readData().lessons` [from, to] süzgeciyle aynı. */
+/** Bkz. store-db.readLessonsForTeacher — `readData().lessons` öğretmen süzgeciyle aynı. */
+export async function readLessonsForTeacher(teacherId: string): Promise<Lesson[]> {
+  return (await readData()).lessons.filter((l) => l.teacherId === teacherId);
+}
+
 export async function readLessonsStartingBetween(fromIso: string, toIso: string): Promise<Lesson[]> {
   const lo = new Date(fromIso).getTime();
   const hi = new Date(toIso).getTime();
@@ -904,9 +920,10 @@ export async function addLessonSeries(
   params: SeriesParams,
   options?: { skipConflicts?: boolean; allowAvailabilityOverride?: boolean; overriddenByUserId?: string; createdByUserId?: string }
 ): Promise<CreateSeriesResult> {
-  const data = load();
+  // readData: doğrulama kapalı-gün istisnalarını da görsün (db/json ile aynı); save() istisnaları ayıklar.
+  const data = await readData();
   assertLessonSeriesRefsExist(data, params);
-  const result = createLessonSeriesData(data, params, options);
+  const result = createLessonSeriesOnFullData(data, params, options);
   if (result.ok) save(result.data);
   return result;
 }

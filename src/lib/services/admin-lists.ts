@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { serverCacheGetOrCompute, tenantCacheKey } from "../http/server-cache";
-import { readData } from "../store";
+import { readData, readLessonWindow, readPaymentsPageData, readReferenceData } from "../store";
 import { computeAllTeacherPerformanceScores, computeTeacherPerformanceScore } from "../insights/teacher-performance";
 import { INSTRUMENTS } from "../types";
 import { requireRole, type ServiceContext } from "./context";
@@ -70,7 +70,8 @@ export async function listStudentsTool(
   const offset = v.data.offset ?? 0;
   const q = normalize(v.data.q);
 
-  const data = await readData();
+  // DB egress (2026-10-17) — mobil Kişiler/arama her tuşta çağırır: yalnız öğrenci/öğretmen (referans) dilimi.
+  const data = await readReferenceData();
   const teacherNameOf = new Map(data.teachers.map((t) => [t.id, t.name]));
   const filtered = data.students
     .filter((s) => (ctx.role === "TEACHER" ? s.teacherId === ctx.teacherId : true))
@@ -165,7 +166,7 @@ export type BranchRow = {
 export async function listBranchesTool(ctx: ServiceContext): Promise<ServiceResult<{ branches: BranchRow[] }>> {
   const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN", "TEACHER"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
-  const data = await readData();
+  const data = await readReferenceData();
   const branches = [...(data.settings.branches ?? [])]
     .sort((a, b) => a.name.localeCompare(b.name, "tr") || String(a.id).localeCompare(String(b.id)))
     .map((b) => ({ id: String(b.id), name: b.name, shortName: b.shortName, address: b.address, phone: b.phone, city: b.city }));
@@ -219,7 +220,8 @@ export async function listLessonsTool(
     return fail("VALIDATION_ERROR", "Geçersiz tarih aralığı (from < to, en fazla 62 gün).");
   }
 
-  const data = await readData();
+  // DB egress (2026-10-17) — yalnız istenen aralığın dersleri (+1 gün pay; kesin süzgeç aşağıda aynen).
+  const data = await readLessonWindow(new Date(fromMs - 86400000).toISOString(), new Date(toMs + 86400000).toISOString());
   const studentNameById = new Map(data.students.map((s) => [s.id, s.name]));
   const teacherNameById = new Map(data.teachers.map((t) => [t.id, t.name]));
   const roomNameById = new Map((data.rooms ?? []).map((r) => [r.id, r.name]));
@@ -286,7 +288,8 @@ export async function getCollectionSummaryTool(
   const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
 
-  const data = await readData();
+  // DB egress (2026-10-17) — yalnız ödeme satırları gerekir (ders/yoklama/telafi okunmaz).
+  const data = await readPaymentsPageData();
   const now = new Date();
   const today = now.toISOString().slice(0, 10);
   const month = now.toISOString().slice(0, 7);
@@ -530,7 +533,7 @@ export type RoomRow = {
 export async function listRoomsTool(ctx: ServiceContext): Promise<ServiceResult<{ rooms: RoomRow[] }>> {
   const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN", "TEACHER"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
-  const data = await readData();
+  const data = await readReferenceData();
   const rooms = [...(data.rooms ?? [])]
     .sort((a, b) => a.name.localeCompare(b.name, "tr") || a.id.localeCompare(b.id))
     .map((r) => ({
