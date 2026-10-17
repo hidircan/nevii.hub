@@ -4,7 +4,13 @@ Kısa tutulur (~50 satır): oturum sonunda yalnız "Güncel snapshot" bölümün
 `archive/`'e taşınır. Ayrıntı → ilgili `docs/testing/UAT_*.md`, `docs/operations/*`. Yönlendirici: `nevii-hub` skill.
 Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_2026-09-24.md`.
 
-## Güncel snapshot — 2026-10-17 akşam (Supabase egress 3. dalga; PR açık, MERGE/CANLI YOK, migration/env YOK)
+## Güncel snapshot — 2026-10-18 (Supabase egress 4. dalga; PR açık, MERGE/CANLI YOK, migration/env YOK)
+- #60 merge + canlı (10-17 20:20Z). Worktree `../nevii-hub-egress-p4`, dal `perf/egress-p4`. Rapor `docs/performance/DB_EGRESS_2026_10_18.md`.
+- Ders sil/revize/değişim/seri iptal, öğrenci kaydı, sözleşmeler, e-postalar, mobil ana sayfa/öğretmenler/Hakedişlerim,
+  Telafi oluştur/öneri, öğretmen Özet/Program/Yoklama, ödeme yazımları dar okumaya (yerel −59…−100 %). tools.ts 93→62 tam okuma.
+- Açık: #60 sonrası canlı log sayımı (ilk iş günü) → rapor §4 kalanları sırala; Data API kapatma (owner); CF cron (Hobby'ye geçerken).
+
+## Snapshot — 2026-10-17 akşam (Supabase egress 3. dalga; PR açık, MERGE/CANLI YOK, migration/env YOK)
 - Worktree `../nevii-hub-egress-p3`, dal `perf/egress-p3` (taban canlı 33feac2). Rapor: `docs/performance/DB_EGRESS_2026_10_17.md`.
 - Canlı kanıt (#56 sonrası 33 sa): ~280 tam okuma ≈ 500 MB/gün (tahmin) > Kasım bütçesi ~170 MB/gün. En büyükler Ders
   Programı seri önizle/oluştur, mobil listeler, öğretmen detay sekmeleri; Play yayını (10-17) ile veli defterleri.
