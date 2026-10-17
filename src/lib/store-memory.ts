@@ -296,6 +296,12 @@ export async function readTeacherPortalDetails(teacherId: string) {
   };
 }
 
+/** E-posta şablonları için kurum adı/iletişim/logo (db tek satır okur). */
+export async function readSchoolBranding() {
+  const { settings } = await readData();
+  return { name: settings.name, phone: settings.phone, website: settings.website, logoUrl: settings.logoUrl };
+}
+
 /** Bkz. store-db.readLessonById — sonuç `readData().lessons.find` ile aynı. */
 export async function readLessonById(lessonId: string): Promise<Lesson | undefined> {
   return (await readData()).lessons.find((l) => l.id === lessonId);

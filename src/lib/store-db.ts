@@ -1279,6 +1279,15 @@ export async function readTeacherPortalDetails(teacherId: string) {
   };
 }
 
+/** DB egress (2026-10-18) — e-posta şablonları için kurum adı/iletişim/logo; tek `School` satırı (eskiden tam okuma). */
+export async function readSchoolBranding() {
+  const tid = tenantId();
+  const school = await prisma.school.findFirst({ where: { tenantId: tid }, select: { name: true, phone: true, website: true, logoUrl: true } });
+  if (school) return school;
+  const { settings } = await readData();
+  return { name: settings.name, phone: settings.phone, website: settings.website, logoUrl: settings.logoUrl };
+}
+
 /**
  * DB egress (2026-10-10) — tek ders satırı. `readData().lessons.find(id)` ile AYNI sonuç (aynı eşleme,
  * okulun dersi) ama tenant'ın tüm ders/ödeme/öğrenci verisi okunmaz. Varlık/şube kontrolü ve bildirim
