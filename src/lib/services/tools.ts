@@ -80,6 +80,7 @@ import {
   readStudentById,
   readLessonById,
   readLessonSeriesForStudent,
+  readLessonsForTeacher,
   readSlotScopeData,
   readTeacherPayoutsForTeacher,
   readPaymentById,
@@ -1560,7 +1561,8 @@ export async function getStudentScheduleTool(
   );
   if (!v.ok) return v;
 
-  const data = await readData();
+  // DB egress (2026-10-17) — mobil öğrenci/veli: yalnız bu öğrencinin dilimi (tüm süzgeçler studentId ile).
+  const data = await readStudentScope(v.data.studentId);
   const student = data.students.find((s) => s.id === v.data.studentId);
   const access = await assertStudentAccess(ctx, student, v.data.studentId);
   if (!access.ok) return fail(access.code, access.message);
@@ -1624,7 +1626,8 @@ export async function getStudentAttendanceSummaryTool(
   const v = parseOrFail(z.object({ studentId: z.string().min(1) }), input);
   if (!v.ok) return v;
 
-  const data = await readData();
+  // DB egress (2026-10-17) — mobil öğrenci/veli: yalnız bu öğrencinin dilimi (tüm süzgeçler studentId ile).
+  const data = await readStudentScope(v.data.studentId);
   const student = data.students.find((s) => s.id === v.data.studentId);
   const access = await assertStudentAccess(ctx, student, v.data.studentId);
   if (!access.ok) return fail(access.code, access.message);
@@ -1712,7 +1715,14 @@ export async function getTeacherScheduleTool(
     return fail("FORBIDDEN", "Cannot access this teacher's schedule");
   }
 
-  const data = await readData();
+  // DB egress (2026-10-17) — mobil öğretmen programı from/to ile gelir: tüm ders geçmişi yerine o pencere (±1 gün pay;
+  // kesin süzgeç aşağıda aynen). Aralıksız çağrıda (hesap ekranı `limit=1`) yalnız bu öğretmenin dersleri.
+  const fromMs = v.data.from ? Date.parse(v.data.from) : NaN;
+  const toMs = v.data.to ? Date.parse(v.data.to) : NaN;
+  const data =
+    Number.isFinite(fromMs) && Number.isFinite(toMs)
+      ? await readLessonWindow(new Date(fromMs - 86_400_000).toISOString(), new Date(toMs + 86_400_000).toISOString())
+      : await Promise.all([readReferenceData(), readLessonsForTeacher(v.data.teacherId)]).then(([ref, lessons]) => ({ ...ref, lessons }));
   const teacher = data.teachers.find((t) => t.id === v.data.teacherId);
   if (!teacher) return fail("NOT_FOUND", "Teacher not found");
 
@@ -1981,7 +1991,8 @@ export async function getParentBalanceTool(
   const v = parseOrFail(z.object({ studentId: z.string().min(1) }), input);
   if (!v.ok) return v;
 
-  const data = await readData();
+  // DB egress (2026-10-17) — mobil öğrenci/veli: yalnız bu öğrencinin dilimi (tüm süzgeçler studentId ile).
+  const data = await readStudentScope(v.data.studentId);
   const student = data.students.find((s) => s.id === v.data.studentId);
   const access = await assertStudentAccess(ctx, student, v.data.studentId);
   if (!access.ok) return fail(access.code, access.message);

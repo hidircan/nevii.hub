@@ -357,6 +357,11 @@ export async function readSlotScopeData(target: SlotScopeTarget, days?: Date[]):
 }
 
 /** Bkz. store-db.readLessonsStartingBetween — sonuç `readData().lessons` [from, to] süzgeciyle aynı. */
+/** Bkz. store-db.readLessonsForTeacher — `readData().lessons` öğretmen süzgeciyle aynı. */
+export async function readLessonsForTeacher(teacherId: string): Promise<Lesson[]> {
+  return (await readData()).lessons.filter((l) => l.teacherId === teacherId);
+}
+
 export async function readLessonsStartingBetween(fromIso: string, toIso: string): Promise<Lesson[]> {
   const lo = new Date(fromIso).getTime();
   const hi = new Date(toIso).getTime();

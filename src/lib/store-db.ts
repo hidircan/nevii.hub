@@ -1298,6 +1298,14 @@ export async function readLessonsStartingBetween(fromIso: string, toIso: string)
   return rows.map(mapDbLesson);
 }
 
+/** DB egress (2026-10-17) — bir öğretmenin TÜM dersleri (`readData().lessons` öğretmen süzgeciyle aynı satırlar/eşleme). */
+export async function readLessonsForTeacher(teacherId: string): Promise<import("./types").Lesson[]> {
+  if (!teacherId) return [];
+  const tid = tenantId();
+  const rows = await prisma.lesson.findMany({ where: { tenantId: tid, teacherId, school: { tenantId: tid } } });
+  return rows.map(mapDbLesson);
+}
+
 /** DB egress (2026-10-10) — tek ödeme satırı: `readData().payments.find(id)` ile aynı (makbuz). */
 export async function readPaymentById(paymentId: string): Promise<import("./types").Payment | undefined> {
   if (!paymentId) return undefined;

@@ -255,6 +255,7 @@ type StoreApi = {
   readStudentById: (studentId: string) => Promise<Student | undefined>;
   readLessonById: (lessonId: string) => Promise<import("./types").Lesson | undefined>;
   readLessonsStartingBetween: (fromIso: string, toIso: string) => Promise<import("./types").Lesson[]>;
+  readLessonsForTeacher: (teacherId: string) => Promise<import("./types").Lesson[]>;
   readTeacherPayoutsForTeacher: (teacherId: string) => Promise<import("./types").TeacherPayout[]>;
   readPaymentById: (paymentId: string) => Promise<import("./types").Payment | undefined>;
   readTeacherPortalDetails: (teacherId: string) => Promise<TeacherPortalDetails | null>;
@@ -481,6 +482,12 @@ export async function readLessonById(lessonId: string): Promise<import("./types"
 /** DB egress (2026-10-16) — yalnız penceredeki ders satırları (referans veri yok); bildirim tick'i. */
 export async function readLessonsStartingBetween(fromIso: string, toIso: string): Promise<import("./types").Lesson[]> {
   return withTenantScope(() => store.readLessonsStartingBetween(fromIso, toIso));
+}
+
+/** DB egress (2026-10-17) — bir öğretmenin tüm dersleri (mobil öğretmen programı, aralıksız çağrı). */
+export async function readLessonsForTeacher(teacherId: string): Promise<import("./types").Lesson[]> {
+  if (!teacherId) return [];
+  return withTenantScope(() => store.readLessonsForTeacher(teacherId));
 }
 
 /** DB egress (2026-10-10) — tek ödeme: `readData().payments.find(id)` ile aynı (makbuz). */
