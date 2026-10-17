@@ -248,6 +248,7 @@ import type { HistoricalContractImportRow } from "./import/historical-contracts"
 import type { LessonImportRow } from "./import/lessons";
 import type { LessonScheduleImportPreview } from "./import/lesson-schedule";
 import type { ServiceContext } from "./services/context";
+import type { AppRole } from "./auth/types";
 import type { ServiceResult } from "./services/result";
 
 function revalidateAll() {
@@ -1978,15 +1979,32 @@ export async function actionInviteTeacherAccount(input: { teacherId: string }): 
 /* Portal erişim yönetimi kartı — öğrenci/öğretmen detay ekranı         */
 /* ------------------------------------------------------------------ */
 
+/** Kartta gösterilen efektif MOBİL erişim — tek kaynak getMobilePolicy (salt-okur). */
+export type MobileAccessSummary = { allowed: boolean; reasons: string[] } | null;
+
+/**
+ * Kişinin rolü için bu kurumdaki mobil kararı. Tenant yalnız oturumdan gelir;
+ * yönetici ctx'i yayılmaz (loginRole sızmasın), yeni ctx kurulur.
+ */
+async function mobileAccessFor(ctx: ServiceContext, role: string | null): Promise<MobileAccessSummary> {
+  if (!role) return null;
+  const { getMobilePolicy } = await import("./platform/mobile-policy");
+  const r = await getMobilePolicy({ role: role as AppRole, userId: "portal_access_card", tenantId: ctx.tenantId, channel: "mobile" });
+  return r.ok ? { allowed: r.data.allowed, reasons: r.data.reasons } : null;
+}
+
 export type StudentPortalAccessListResult =
-  | { ok: true; accounts: import("./services/tools").StudentPortalAccessSummaryRow[] }
+  | { ok: true; accounts: import("./services/tools").StudentPortalAccessSummaryRow[]; mobile: MobileAccessSummary }
   | { ok: false; message: string };
 
 export async function actionGetStudentPortalAccess(input: { studentId: string }): Promise<StudentPortalAccessListResult> {
   try {
-    const result = await withAuthContext("actionGetStudentPortalAccess", (ctx) => getStudentPortalAccessTool(ctx, input));
+    const result = await withAuthContext("actionGetStudentPortalAccess", async (ctx) => {
+      const r = await getStudentPortalAccessTool(ctx, input);
+      return r.ok ? { ...r, mobile: await mobileAccessFor(ctx, "STUDENT") } : r;
+    });
     if (!result.ok) return { ok: false, message: result.error.message };
-    return { ok: true, accounts: result.data.accounts };
+    return { ok: true, accounts: result.data.accounts, mobile: result.mobile };
   } catch (error) {
     logger.error("actionGetStudentPortalAccess failed", error);
     if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
@@ -2036,7 +2054,7 @@ export async function actionSendStudentPortalPasswordReset(input: { studentId: s
 }
 
 export type TeacherAccountStatusResult =
-  | { ok: true; status: import("./services/tools").TeacherAccountStatusSummary }
+  | { ok: true; status: import("./services/tools").TeacherAccountStatusSummary; mobile: MobileAccessSummary }
   | { ok: false; message: string };
 
 /** 2026-10-14 — öğretmen portal giriş e-postası (yalnız kurum sahibi; yetki tool'da). */
@@ -2059,9 +2077,12 @@ export async function actionChangeTeacherPortalEmail(input: {
 
 export async function actionGetTeacherAccountStatus(input: { teacherId: string }): Promise<TeacherAccountStatusResult> {
   try {
-    const result = await withAuthContext("actionGetTeacherAccountStatus", (ctx) => getTeacherAccountStatusTool(ctx, input));
+    const result = await withAuthContext("actionGetTeacherAccountStatus", async (ctx) => {
+      const r = await getTeacherAccountStatusTool(ctx, input);
+      return r.ok ? { ...r, mobile: await mobileAccessFor(ctx, "TEACHER") } : r;
+    });
     if (!result.ok) return { ok: false, message: result.error.message };
-    return { ok: true, status: result.data };
+    return { ok: true, status: result.data, mobile: result.mobile };
   } catch (error) {
     logger.error("actionGetTeacherAccountStatus failed", error);
     if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
@@ -2101,14 +2122,17 @@ export async function actionSendTeacherPasswordReset(input: { teacherId: string 
 /* ------------------------------------------------------------------ */
 
 export type StaffAccountStatusResult =
-  | { ok: true; status: import("./services/tools").StaffAccountStatusSummary }
+  | { ok: true; status: import("./services/tools").StaffAccountStatusSummary; mobile: MobileAccessSummary }
   | { ok: false; message: string };
 
 export async function actionGetStaffAccountStatus(input: { staffId: string }): Promise<StaffAccountStatusResult> {
   try {
-    const result = await withAuthContext("actionGetStaffAccountStatus", (ctx) => getStaffAccountStatusTool(ctx, input));
+    const result = await withAuthContext("actionGetStaffAccountStatus", async (ctx) => {
+      const r = await getStaffAccountStatusTool(ctx, input);
+      return r.ok ? { ...r, mobile: await mobileAccessFor(ctx, r.data.exists ? r.data.role : null) } : r;
+    });
     if (!result.ok) return { ok: false, message: result.error.message };
-    return { ok: true, status: result.data };
+    return { ok: true, status: result.data, mobile: result.mobile };
   } catch (error) {
     logger.error("actionGetStaffAccountStatus failed", error);
     if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
