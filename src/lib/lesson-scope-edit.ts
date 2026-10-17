@@ -10,7 +10,8 @@
  * edilir — bu veriler bozulmasın diye "korunan" olarak raporlanır, kalanlar işlenir.
  * Saatler kurum saat diliminde duvar saatidir (bkz. zonedWallTimeToUtc).
  */
-import { addMinutes, differenceInMinutes, parseISO } from "date-fns";
+import { addDays, addMinutes, differenceInMinutes, parseISO } from "date-fns";
+import type { ConflictWindow } from "./lesson-scope";
 import type { AppData, AttendanceStatus, Lesson, LessonSeriesStatus, MakeupRequest } from "./types";
 import { OPS_LABEL, effectiveLessonOpsStatus } from "./lesson-ops";
 import { validateLessonSlot, type SlotValidationCode } from "./makeup-engine";
@@ -362,4 +363,28 @@ export function applyLessonRevision(data: AppData, input: LessonRevisionInput): 
     );
   }
   return { ok: true, data: { ...data, lessons, lessonSeries }, updatedLessons, protectedLessons, seriesPatch };
+}
+
+/**
+ * DB egress (2026-10-18) — revizyonun çakışma penceresi (bkz. lesson-scope.ts `narrowLessonEditScope`): hedef
+ * derslerin öğretmen/odaları × yeni günler. `applyLessonRevision` ile aynı hedef/gün kaydırma kuralı; saat
+ * değişimi ±1 gün penceresinde kalır.
+ */
+export function revisionConflictWindow(data: AppData, input: LessonRevisionInput): ConflictWindow | undefined {
+  const resolved = resolveScopeLessons(data, input.lessonId, input.scope);
+  if (!resolved.ok) return undefined;
+  const { anchor, targets } = resolved;
+  const days: Date[] = [];
+  if (input.scope === "single") {
+    const iso = input.startAt ? wallDateTimeInputToIso(input.startAt) : anchor.startAt;
+    if (iso) days.push(parseISO(iso));
+  } else {
+    const shift = input.weekday === undefined ? 0 : input.weekday - zonedWeekday(parseISO(anchor.startAt));
+    for (const l of targets) days.push(addDays(parseISO(l.startAt), shift));
+  }
+  return {
+    teacherIds: [...new Set(targets.map((l) => l.teacherId))],
+    roomIds: [...new Set(targets.map((l) => l.roomId))],
+    days: days.filter((d) => !Number.isNaN(d.getTime())),
+  };
 }

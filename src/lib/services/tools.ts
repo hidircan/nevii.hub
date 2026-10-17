@@ -9119,10 +9119,10 @@ export async function forceDeleteLessonTool(
     const clubBlock = await clubRowGuard(ctx.tenantId, v.data.lessonId);
     if (clubBlock) return clubBlock;
   }
-  const data = await readData();
-  const lesson = data.lessons.find((l) => l.id === v.data.lessonId);
+  // DB egress (2026-10-18): tek ders + tek öğrenci satırı (eskiden tam okuma).
+  const lesson = await readLessonById(v.data.lessonId);
   if (!lesson) return fail("NOT_FOUND", "Ders bulunamadı. Sayfayı yenileyip tekrar deneyin.");
-  const studentName = data.students.find((st) => st.id === lesson.studentId)?.name ?? "Öğrenci";
+  const studentName = (await readStudentById(lesson.studentId))?.name ?? "Öğrenci";
   const entityName = `${studentName} · ${formatDate(lesson.startAt)} ${formatTime(lesson.startAt)} dersi`;
   const gate = await checkCriticalPassword(ctx, v.data.criticalPassword);
   if (!gate.ok) {
@@ -9251,8 +9251,8 @@ export async function changeLessonTeacherOrBranchTool(
     if (clubBlock) return clubBlock;
   }
 
-  const data = await readData();
-  const lesson = data.lessons.find((l) => l.id === v.data.lessonId);
+  // DB egress (2026-10-18): ders satırı + referans veri (öğretmen/oda) — eskiden tam okuma.
+  const [lesson, data] = await Promise.all([readLessonById(v.data.lessonId), readReferenceData()]);
   if (!lesson) return fail("NOT_FOUND", "Ders bulunamadı.");
 
   if (v.data.newTeacherId) {

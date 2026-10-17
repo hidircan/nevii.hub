@@ -1,6 +1,7 @@
 import { collectedAmountOf } from "./payment-profile";
 import {
   applyLessonRevision,
+  revisionConflictWindow,
   planLessonDeletion,
   planForcedLessonDeletion,
   type ForcedLessonDeletionPlan,
@@ -30,7 +31,12 @@ import {
 } from "./student-enrollments";
 import { registrationFirstPaymentDescription, REGISTRATION_FIRST_PAYMENT_SOURCE } from "./registration-payment";
 import { markTeacherAttendance, type TeacherAttendanceStatus } from "./teacher-attendance";
-import { reassignLessonTeacherOrBranch, type ReassignLessonInput, type ReassignLessonResult } from "./lesson-reassignment";
+import {
+  reassignConflictWindow,
+  reassignLessonTeacherOrBranch,
+  type ReassignLessonInput,
+  type ReassignLessonResult,
+} from "./lesson-reassignment";
 import { prisma } from "./db";
 import { Prisma } from "@prisma/client";
 import type { MebStudentListResult, MebStudentQuery } from "./meb-list";
@@ -101,7 +107,7 @@ import {
   applyLessonCancel,
   type LessonScheduleUpdateOutcome,
 } from "./lesson-update";
-import { lessonScopeDays, type SlotScopeTarget } from "./lesson-scope";
+import { lessonScopeDays, type ConflictWindow, type SlotScopeTarget } from "./lesson-scope";
 import {
   narrowToDashboard,
   narrowToLessonWindow,
@@ -3632,6 +3638,43 @@ export async function markTeacherAttendanceLive(
 }
 
 /**
+ * DB egress (2026-10-18) — ders DÜZENLEME dilimi (bkz. lesson-scope.ts `narrowLessonEditScope`; json/memory
+ * `editOnScope` ile aynı dilimi türetir): öğrenci dilimi + `windowOf` pencere verirse diğer öğrencilerin o
+ * öğretmen/oda/gün dersleri. Eskiden her sil/revize/değişim/seri iptali 2 tam okuma yapıyordu.
+ */
+export async function readLessonEditScope(
+  studentId: string,
+  windowOf?: (scope: AppData) => ConflictWindow | undefined
+): Promise<AppData> {
+  const tid = tenantId();
+  const scope: AppData = { ...(await readStudentScope(studentId)), teacherPayouts: [] };
+  const win = windowOf?.(scope);
+  if (!win || win.days.length === 0) return scope;
+  const windows = win.days.map((d) => ({ startAt: { gte: subDays(startOfDay(d), 1), lte: addDays(endOfDay(d), 1) } }));
+  const rows = await prisma.lesson.findMany({
+    where: {
+      tenantId: tid,
+      school: { tenantId: tid },
+      studentId: { not: studentId },
+      OR: [
+        ...windows.map((w) => ({ teacherId: { in: win.teacherIds }, ...w })),
+        ...windows.map((w) => ({ roomId: { in: win.roomIds }, ...w })),
+      ],
+    },
+  });
+  return { ...scope, lessons: [...scope.lessons, ...rows.map(mapDbLesson)] };
+}
+
+/** Düzenlenecek dersin öğrencisinin dilimi (ders yoksa boş dilim → kural "Ders bulunamadı" döner). */
+async function readEditScopeForLesson(
+  lessonId: string,
+  windowOf?: (scope: AppData) => ConflictWindow | undefined
+): Promise<AppData> {
+  const lesson = await readLessonById(lessonId);
+  return readLessonEditScope(lesson?.studentId ?? "", windowOf);
+}
+
+/**
  * Faz 13 — ders öğretmeni/şube değişimi. Çakışma hesabı `reassignLessonTeacherOrBranch`
  * (saf fonksiyon) ile yapılır; burada yalnızca sonucun TEK `$transaction` içinde
  * (kısmi yazım riski olmadan) Prisma'ya yazılması vardır.
@@ -3639,7 +3682,7 @@ export async function markTeacherAttendanceLive(
 export async function reassignLessonTeacherOrBranchLive(input: ReassignLessonInput): Promise<ReassignLessonResult> {
   logger.info("reassignLessonTeacherOrBranchLive", input.lessonId, input.scope);
   const tid = requireTenantId();
-  const data = await readData();
+  const data = await readEditScopeForLesson(input.lessonId, (scope) => reassignConflictWindow(scope, input));
   const result = reassignLessonTeacherOrBranch(data, input);
   if (!result.ok) return result;
 
@@ -3667,7 +3710,7 @@ export async function reassignLessonTeacherOrBranchLive(input: ReassignLessonInp
     }
   });
 
-  return { ...result, data: await readData() };
+  return result;
 }
 
 export async function correctLessonTimesLive(
@@ -3791,7 +3834,7 @@ export async function addLessonSeries(
 export async function cancelLessonSeriesFromLesson(lessonId: string): Promise<SeriesCancelResult> {
   logger.info("cancelLessonSeriesFromLesson", lessonId);
   const tid = requireTenantId();
-  const data = await readData();
+  const data = await readEditScopeForLesson(lessonId);
   const result = cancelSeriesFromLesson(data, lessonId);
   if (!result.ok) return result;
 
@@ -3813,14 +3856,14 @@ export async function cancelLessonSeriesFromLesson(lessonId: string): Promise<Se
     });
   });
 
-  return { ok: true, data: await readData(), cancelledLessonIds: result.cancelledLessonIds };
+  return result;
 }
 
 /** 2026-09-17 — bkz. lesson-scope-edit.ts planLessonDeletion; korunan dersler (yoklama FK dahil) plana hiç girmez. */
 /** M — kritik şifreyle statülü tek ders silme; yoklama satırı aynı transaction'da silinir. */
 export async function forceDeleteLesson(lessonId: string): Promise<ForcedLessonDeletionPlan> {
   const tid = requireTenantId();
-  const data = await readData();
+  const data = await readEditScopeForLesson(lessonId);
   const result = planForcedLessonDeletion(data, lessonId);
   if (!result.ok) return result;
   const seriesClosed = result.data.lessonSeries.find((s) => s.id === result.lesson.seriesId && s.status === "cancelled");
@@ -3856,13 +3899,13 @@ export async function forceDeleteLesson(lessonId: string): Promise<ForcedLessonD
     }
     throw e;
   }
-  return { ...result, data: await readData() };
+  return result;
 }
 
 export async function deleteLessonsScoped(lessonId: string, scope: LessonEditScope): Promise<LessonDeletionPlan> {
   logger.info("deleteLessonsScoped", lessonId, scope);
   const tid = requireTenantId();
-  const data = await readData();
+  const data = await readEditScopeForLesson(lessonId);
   const result = planLessonDeletion(data, lessonId, scope);
   if (!result.ok) return result;
   const seriesClosed = result.data.lessonSeries.find((s) => s.id === result.seriesId && s.status === "cancelled");
@@ -3872,14 +3915,14 @@ export async function deleteLessonsScoped(lessonId: string, scope: LessonEditSco
       await tx.lessonSeries.updateMany({ where: { id: seriesClosed.id, tenantId: tid }, data: { status: "cancelled" } });
     }
   });
-  return { ...result, data: await readData() };
+  return result;
 }
 
 /** 2026-09-17 — bkz. lesson-scope-edit.ts applyLessonRevision. */
 export async function reviseLessonsScoped(input: LessonRevisionInput): Promise<LessonRevisionResult> {
   logger.info("reviseLessonsScoped", input.lessonId, input.scope);
   const tid = requireTenantId();
-  const data = await readData();
+  const data = await readEditScopeForLesson(input.lessonId, (scope) => revisionConflictWindow(scope, input));
   const result = applyLessonRevision(data, input);
   if (!result.ok) return result;
   await prisma.$transaction(async (tx) => {
@@ -3895,14 +3938,15 @@ export async function reviseLessonsScoped(input: LessonRevisionInput): Promise<L
     }
     // ponytail: ders başına tek UPDATE; dönemlik seri (~40 ders) için yeterli, yüzlerce derste toplu SQL'e geçilir.
   }, { timeout: 30_000 });
-  return { ...result, data: await readData() };
+  return result;
 }
 
 /** "Tüm seri": geçmiş dersler korunur, gelecekteki tüm seri dersleri iptal edilir, seri cancelled olur. */
 export async function cancelEntireLessonSeries(seriesId: string): Promise<SeriesCancelResult> {
   logger.info("cancelEntireLessonSeries", seriesId);
   const tid = requireTenantId();
-  const data = await readData();
+  const series = await prisma.lessonSeries.findFirst({ where: { id: seriesId, tenantId: tid }, select: { studentId: true } });
+  const data = await readLessonEditScope(series?.studentId ?? "");
   const result = cancelEntireSeries(data, seriesId);
   if (!result.ok) return result;
 
@@ -3919,7 +3963,7 @@ export async function cancelEntireLessonSeries(seriesId: string): Promise<Series
     });
   });
 
-  return { ok: true, data: await readData(), cancelledLessonIds: result.cancelledLessonIds };
+  return result;
 }
 
 async function requireTeacherSchoolId(tid: string, teacherId: string): Promise<string> {

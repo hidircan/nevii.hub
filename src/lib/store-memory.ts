@@ -2,6 +2,7 @@ import { collectedAmountOf } from "./payment-profile";
 import { mergeImportRowIntoStudent } from "./import/student-merge";
 import {
   applyLessonRevision,
+  revisionConflictWindow,
   planLessonDeletion,
   planForcedLessonDeletion,
   type ForcedLessonDeletionPlan,
@@ -26,7 +27,7 @@ import {
 } from "./makeup-lifecycle";
 import { allocateSequenceValue, formatDisplayId } from "./entity-sequence";
 import { markTeacherAttendance, type TeacherAttendanceStatus } from "./teacher-attendance";
-import { reassignLessonTeacherOrBranch, type ReassignLessonInput, type ReassignLessonResult } from "./lesson-reassignment";
+import { reassignConflictWindow, reassignLessonTeacherOrBranch, type ReassignLessonInput, type ReassignLessonResult } from "./lesson-reassignment";
 /**
  * Serverless / demo memory store.
  * Process warm olduğu sürece veri kalır; cold start'ta seed yeniden yüklenir.
@@ -103,7 +104,7 @@ import {
   applyLessonCancel,
   type LessonScheduleUpdateOutcome,
 } from "./lesson-update";
-import { mergeLessonScope, narrowLessonScope, narrowSlotScope, type SlotScopeTarget } from "./lesson-scope";
+import { editOnScope, mergeLessonScope, narrowLessonScope, narrowSlotScope, type SlotScopeTarget } from "./lesson-scope";
 import {
   applyStartLesson,
   applyEndLesson,
@@ -929,38 +930,43 @@ export async function addLessonSeries(
 }
 
 export async function cancelLessonSeriesFromLesson(lessonId: string): Promise<SeriesCancelResult> {
-  const data = load();
-  const result = cancelSeriesFromLesson(data, lessonId);
-  if (result.ok) save(result.data);
+  // DB egress paritesi (2026-10-18): kural db ile aynı dilimde çalışır (lesson-scope.ts `editOnScope`).
+  const full = await readData();
+  const { result, next } = editOnScope(full, full.lessons.find((l) => l.id === lessonId)?.studentId, (d) => cancelSeriesFromLesson(d, lessonId));
+  if (next) save(next);
   return result;
 }
 
 export async function cancelEntireLessonSeries(seriesId: string): Promise<SeriesCancelResult> {
-  const data = load();
-  const result = cancelEntireSeries(data, seriesId);
-  if (result.ok) save(result.data);
+  // DB egress paritesi (2026-10-18): kural db ile aynı dilimde çalışır (lesson-scope.ts `editOnScope`).
+  const full = await readData();
+  const { result, next } = editOnScope(full, full.lessonSeries.find((x) => x.id === seriesId)?.studentId, (d) => cancelEntireSeries(d, seriesId));
+  if (next) save(next);
   return result;
 }
 
 /** M — kritik şifreyle statülü tek ders silme (bkz. planForcedLessonDeletion). */
 export async function forceDeleteLesson(lessonId: string): Promise<ForcedLessonDeletionPlan> {
-  const data = load();
-  const result = planForcedLessonDeletion(data, lessonId);
-  if (result.ok) save(result.data);
+  // DB egress paritesi (2026-10-18): kural db ile aynı dilimde çalışır (lesson-scope.ts `editOnScope`).
+  const full = await readData();
+  const { result, next } = editOnScope(full, full.lessons.find((l) => l.id === lessonId)?.studentId, (d) => planForcedLessonDeletion(d, lessonId));
+  if (next) save(next);
   return result;
 }
 
 export async function deleteLessonsScoped(lessonId: string, scope: LessonEditScope): Promise<LessonDeletionPlan> {
-  const data = load();
-  const result = planLessonDeletion(data, lessonId, scope);
-  if (result.ok) save(result.data);
+  // DB egress paritesi (2026-10-18): kural db ile aynı dilimde çalışır (lesson-scope.ts `editOnScope`).
+  const full = await readData();
+  const { result, next } = editOnScope(full, full.lessons.find((l) => l.id === lessonId)?.studentId, (d) => planLessonDeletion(d, lessonId, scope));
+  if (next) save(next);
   return result;
 }
 
 export async function reviseLessonsScoped(input: LessonRevisionInput): Promise<LessonRevisionResult> {
-  const data = load();
-  const result = applyLessonRevision(data, input);
-  if (result.ok) save(result.data);
+  // DB egress paritesi (2026-10-18): kural db ile aynı dilimde çalışır (lesson-scope.ts `editOnScope`).
+  const full = await readData();
+  const { result, next } = editOnScope(full, full.lessons.find((l) => l.id === input.lessonId)?.studentId, (d) => applyLessonRevision(d, input), (d) => revisionConflictWindow(d, input));
+  if (next) save(next);
   return result;
 }
 
@@ -1702,9 +1708,10 @@ export async function markTeacherAttendanceLive(
 
 /** Faz 13 — ders öğretmeni/şube değişimi (tek/bundan sonrası/tüm seri). */
 export async function reassignLessonTeacherOrBranchLive(input: ReassignLessonInput): Promise<ReassignLessonResult> {
-  const data = load();
-  const result = reassignLessonTeacherOrBranch(data, input);
-  if (result.ok) save(result.data);
+  // DB egress paritesi (2026-10-18): kural db ile aynı dilimde çalışır (lesson-scope.ts `editOnScope`).
+  const full = await readData();
+  const { result, next } = editOnScope(full, full.lessons.find((l) => l.id === input.lessonId)?.studentId, (d) => reassignLessonTeacherOrBranch(d, input), (d) => reassignConflictWindow(d, input));
+  if (next) save(next);
   return result;
 }
 
