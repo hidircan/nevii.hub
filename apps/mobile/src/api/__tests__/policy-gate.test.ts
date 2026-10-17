@@ -101,9 +101,13 @@ describe("refreshMobilePolicy — taze karar + tenant-anahtarlı önbellek", () 
 });
 
 describe("blockedCopyFor — persona'ya göre kapanma metni", () => {
-  it("öğretmen ve yönetici web paneline yönlendirilir", () => {
-    expect(policy.blockedCopyFor("teacher", ["Kapalı."]).title).toContain("Öğretmen");
-    expect(policy.blockedCopyFor("admin", ["Kapalı."]).body).toContain("Web panelini");
+  it("başlık her persona/nedende genel 'Mobil erişim kapalı' — sunucu nedeniyle çelişmez", () => {
+    const reason = "Kurum paketinde mobil uygulama hakkı yok.";
+    for (const p of ["teacher", "admin", "student", "parent", null] as const) {
+      expect(policy.blockedCopyFor(p, [reason]).title).toBe("Mobil erişim kapalı");
+    }
+    expect(policy.blockedCopyFor("teacher", [reason]).body).toContain(reason);
+    expect(policy.blockedCopyFor("admin", ["Kapalı."]).body).toContain("web panelini");
   });
   it("nedenler korunur", () => {
     expect(policy.blockedCopyFor("student", ["Mobil portal kapalı."]).body).toContain("Mobil portal kapalı.");

@@ -28,6 +28,7 @@ import {
   actionSetStaffAccountActive,
   actionSendStaffPasswordReset,
   actionInviteStaffAccount,
+  type MobileAccessSummary,
 } from "@/lib/actions";
 import type {
   StudentPortalAccessSummaryRow,
@@ -56,16 +57,27 @@ function StatusBadge({ tone, children }: { tone: "green" | "amber" | "gray" | "r
   return <span className={`inline-block rounded-full border px-2 py-0.5 text-xs font-medium ${cls}`}>{children}</span>;
 }
 
+/** Efektif MOBİL erişim satırı — sunucudaki getMobilePolicy kararı (giriş hesabından ayrı). */
+function MobileAccessLine({ mobile }: { mobile: MobileAccessSummary }) {
+  if (!mobile) return null;
+  return mobile.allowed ? (
+    <p className="text-xs font-medium text-emerald-700">Mobil uygulama: izinli</p>
+  ) : (
+    <p className="text-xs font-medium text-rose-700">Mobil uygulama: kapalı — {mobile.reasons.join(" ")}</p>
+  );
+}
+
 function inviteStatusLabel(status: "invited" | "active" | "revoked"): { label: string; tone: "green" | "amber" | "gray" | "red" } {
-  if (status === "active") return { label: "Kabul edildi / Aktif", tone: "green" };
+  if (status === "active") return { label: "Giriş hesabı açık", tone: "green" };
   if (status === "invited") return { label: "Gönderildi (kabul bekleniyor)", tone: "amber" };
-  return { label: "Erişim kapalı", tone: "red" };
+  return { label: "Giriş hesabı kapalı", tone: "red" };
 }
 
 /* --------------------------- Öğrenci --------------------------- */
 
 export function StudentPortalAccessCard({ studentId, defaultEmail }: { studentId: string; defaultEmail?: string }) {
   const [accounts, setAccounts] = useState<StudentPortalAccessSummaryRow[] | null>(null);
+  const [mobile, setMobile] = useState<MobileAccessSummary>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busyUserId, setBusyUserId] = useState<string | null>(null);
   const [rowMessage, setRowMessage] = useState<Record<string, { tone: "ok" | "error"; text: string }>>({});
@@ -87,6 +99,7 @@ export function StudentPortalAccessCard({ studentId, defaultEmail }: { studentId
     }
     setLoadError(null);
     setAccounts(result.accounts);
+    setMobile(result.mobile);
   }, [studentId]);
 
   useEffect(() => {
@@ -195,6 +208,12 @@ export function StudentPortalAccessCard({ studentId, defaultEmail }: { studentId
               Davet göndermek için önce öğrenci/veli e-posta adresi ekleyin.
             </p>
           ) : null}
+        </div>
+      ) : null}
+
+      {accounts && accounts.length > 0 ? (
+        <div className="mb-2">
+          <MobileAccessLine mobile={mobile} />
         </div>
       ) : null}
 
@@ -316,6 +335,7 @@ export function TeacherPortalAccessCard({
   canChangePortalEmail?: boolean;
 }) {
   const [status, setStatus] = useState<TeacherAccountStatusSummary | null>(null);
+  const [mobile, setMobile] = useState<MobileAccessSummary>(null);
   const [emailChangeOpen, setEmailChangeOpen] = useState(false);
   const [newPortalEmail, setNewPortalEmail] = useState("");
   const [emailChangeConfirmed, setEmailChangeConfirmed] = useState(false);
@@ -331,6 +351,7 @@ export function TeacherPortalAccessCard({
     }
     setLoadError(null);
     setStatus(result.status);
+    setMobile(result.mobile);
   }, [teacherId]);
 
   useEffect(() => {
@@ -436,10 +457,11 @@ export function TeacherPortalAccessCard({
               <dt className="text-xs text-[var(--color-text-muted)]">Portal giriş e-postası</dt>
               <dd className="flex flex-wrap items-center gap-2 font-medium text-[var(--color-text)]">
                 {status.email || "Bilinmiyor"}
-                <StatusBadge tone={status.active ? "green" : "red"}>{status.active ? "Erişim açık" : "Erişim kapalı"}</StatusBadge>
+                <StatusBadge tone={status.active ? "green" : "red"}>{status.active ? "Giriş hesabı açık" : "Giriş hesabı kapalı"}</StatusBadge>
               </dd>
             </div>
           </dl>
+          <MobileAccessLine mobile={mobile} />
           {status.pendingEmailChange ? (
             <p className="rounded-md bg-amber-50 px-2 py-1 text-xs font-medium text-amber-900" role="status">
               Bekleyen yeni giriş adresi: {status.pendingEmailChange.newEmail} — doğrulanmadı, giriş hâlâ {status.email} ile yapılır
@@ -552,6 +574,7 @@ export function TeacherPortalAccessCard({
  */
 export function StaffPortalAccessCard({ staffId, defaultEmail }: { staffId: string; defaultEmail?: string }) {
   const [status, setStatus] = useState<StaffAccountStatusSummary | null>(null);
+  const [mobile, setMobile] = useState<MobileAccessSummary>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
@@ -564,6 +587,7 @@ export function StaffPortalAccessCard({ staffId, defaultEmail }: { staffId: stri
     }
     setLoadError(null);
     setStatus(result.status);
+    setMobile(result.mobile);
   }, [staffId]);
 
   useEffect(() => {
@@ -633,9 +657,10 @@ export function StaffPortalAccessCard({ staffId, defaultEmail }: { staffId: stri
         <div className="space-y-3">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-medium text-[var(--color-text)]">{status.email}</span>
-            <StatusBadge tone={status.active ? "green" : "red"}>{status.active ? "Erişim açık" : "Erişim kapalı"}</StatusBadge>
+            <StatusBadge tone={status.active ? "green" : "red"}>{status.active ? "Giriş hesabı açık" : "Giriş hesabı kapalı"}</StatusBadge>
             {status.role ? <StatusBadge tone="gray">{status.role === "SCHOOL_ADMIN" ? "Yönetim paneli" : status.role}</StatusBadge> : null}
           </div>
+          <MobileAccessLine mobile={mobile} />
           <dl className="grid grid-cols-1 gap-1 text-xs text-[var(--color-text-muted)] sm:grid-cols-2">
             <div>Son davet gönderimi: {formatDateTime(status.lastInvitedAt)}</div>
             <div>Şifre sıfırlama son istek: {formatDateTime(status.lastPasswordResetRequestedAt)}</div>
