@@ -225,26 +225,77 @@ export function fieldLabel(field: string): string {
 }
 
 /**
- * Yama ile önceki kaydı karşılaştırır; yalnız gerçekten değişen alanları döner.
- * Kimlik/teknik alanlar ve kişisel veri şifreleri (…Cipher) asla yazılmaz.
+ * Karşılaştırma için kanonik değer. KÖK NEDEN (2026-10-19): formlar bölümün TÜM alanlarını gönderir ve eski
+ * karşılaştırma ham `JSON.stringify` idi — yalnız ad değişse bile kayıtlı `undefined` ↔ formdan gelen `""`/`false`,
+ * DB'nin `2026-01-05T00:00:00.000Z`'si ↔ formun `2026-01-05`'i, `12` ↔ `"12"` ve anahtar sırası farklı nesneler
+ * "değişti" sayılıyordu. Boşlar (undefined/null/""/[]) eşittir; gece yarısı ISO tarih = tarih; nesne anahtarı sıralı.
+ */
+function canonicalAuditValue(value: unknown): unknown {
+  if (value instanceof Date) value = value.toISOString();
+  if (typeof value === "string") {
+    const t = value.trim();
+    if (!t) return null;
+    return /^(\d{4}-\d{2}-\d{2})T00:00:00(?:\.000)?Z$/.exec(t)?.[1] ?? t;
+  }
+  if (value === undefined || value === null || (Array.isArray(value) && value.length === 0)) return null;
+  return value;
+}
+
+function stableAuditJson(value: unknown): string {
+  return JSON.stringify(canonicalAuditValue(value), (_k, v: unknown) =>
+    v && typeof v === "object" && !Array.isArray(v)
+      ? Object.fromEntries(Object.entries(v as Record<string, unknown>).sort(([x], [y]) => x.localeCompare(y)))
+      : v
+  );
+}
+
+/** İki değer kullanıcı açısından AYNI mı (boş ≡ boş, kaydedilmemiş boolean ≡ false, 12 ≡ "12"). */
+export function sameAuditValue(a: unknown, b: unknown): boolean {
+  const x = canonicalAuditValue(a);
+  const y = canonicalAuditValue(b);
+  if ((x === null && y === false) || (x === false && y === null)) return true;
+  if ((typeof x === "number" && typeof y === "string") || (typeof x === "string" && typeof y === "number")) {
+    return String(x) === String(y);
+  }
+  return stableAuditJson(x) === stableAuditJson(y);
+}
+
+/** Kimlik/teknik alanlar ve gizli/şifreli veriler (…Cipher, şifre, hash, token) denetim farkına asla girmez. */
+const AUDIT_DIFF_DENY = /^(id|studentId|tenantId|createdAt|updatedAt)$|Cipher|password|Hash|token|secret/i;
+/** Uzun metin / data-URI (logo, fotoğraf) farkı şişirmesin — denetim kaydı ne değiştiğini söyler, içeriği arşivlemez. */
+const AUDIT_VALUE_MAX = 300;
+
+function compactAuditValue(value: unknown): unknown {
+  if (typeof value !== "string") return value ?? null;
+  if (value.startsWith("data:")) return "[dosya]";
+  return value.length > AUDIT_VALUE_MAX ? `${value.slice(0, AUDIT_VALUE_MAX - 1)}…` : value;
+}
+
+/**
+ * Yama ile önceki kaydı karşılaştırır; YALNIZ gerçekten değişen alanları döner (değişmeyen hiç yazılmaz).
+ * Saklanan şey minimal fark: `{ field, from, to }` — tam önce/sonra nesnesi değil.
  */
 export function diffRecordFields(before: Record<string, unknown>, patch: Record<string, unknown>): AuditFieldChange[] {
   const out: AuditFieldChange[] = [];
   for (const [field, to] of Object.entries(patch)) {
-    if (to === undefined || field === "studentId" || field === "id" || /Cipher|password|Hash/i.test(field)) continue;
+    if (to === undefined || AUDIT_DIFF_DENY.test(field)) continue;
     const from = before[field];
-    if (JSON.stringify(from ?? null) === JSON.stringify(to ?? null)) continue;
-    out.push({ field, from: from ?? null, to });
+    if (sameAuditValue(from, to)) continue;
+    out.push({ field, from: compactAuditValue(from), to: compactAuditValue(to) });
   }
   return out;
 }
 
-/** meta.changes'i güvenle okur (eski kayıtlarda yok). */
+/** meta.changes'i güvenle okur (eski kayıtlarda yok). Eski satırlardaki sahte "değişiklikler" de (boş→boş vb.) ayıklanır. */
 export function readAuditChanges(meta: Record<string, unknown> | null | undefined): AuditFieldChange[] {
   const raw = meta?.changes;
   if (!Array.isArray(raw)) return [];
   return raw.filter(
-    (c): c is AuditFieldChange => !!c && typeof c === "object" && typeof (c as { field?: unknown }).field === "string"
+    (c): c is AuditFieldChange =>
+      !!c &&
+      typeof c === "object" &&
+      typeof (c as { field?: unknown }).field === "string" &&
+      !sameAuditValue((c as AuditFieldChange).from, (c as AuditFieldChange).to)
   );
 }
 

@@ -11,6 +11,7 @@ import { PersonPurgeDialog } from "@/components/person-purge-dialog";
 import { StudentSearchCombobox } from "@/components/student-search-combobox";
 import { StudentsBulkBar, type BulkOptions } from "@/components/students-bulk-bar";
 import { actionFindStudentsByNationalId } from "@/lib/actions";
+import { KVKK_CONSENT_LABELS, PHOTO_CONSENT_LABELS, type KvkkConsentLabel, type PhotoConsentLabel } from "@/lib/student-consent-labels";
 import {
   DEFAULT_STUDENT_COLUMNS,
   STUDENT_COLUMN_LABELS,
@@ -74,21 +75,21 @@ export type StudentRow = {
   convertedByName?: string;
   fromTrial?: boolean;
   /** KVKK açık rıza (kvkk_general) — merged kurum görünümünde boş. */
-  kvkkConsent?: "Var" | "Yok";
+  kvkkConsent?: KvkkConsentLabel;
   /** Fotoğraf paylaşım izni — merged kurum görünümünde boş. */
-  photoConsent?: "Veriyor" | "Vermiyor" | "Kayıt yok";
+  photoConsent?: PhotoConsentLabel;
 };
 
 /** Satır alanından okunan basit çoklu seçim filtreleri (URL anahtarı → etiket + değer). */
 /** `options` sabitse filtre veride o değer olmasa da tüm seçenekleri sunar (izinler: "var" da "yok" da seçilebilir). */
 const EXTRA_FILTERS: { key: string; label: string; chip: string; value: (r: StudentRow) => string[]; options?: string[] }[] = [
-  { key: "kvkk", label: "KVKK izni", chip: "KVKK", value: (r) => (r.kvkkConsent ? [r.kvkkConsent] : []), options: ["Var", "Yok"] },
+  { key: "kvkk", label: "KVKK izni", chip: "KVKK", value: (r) => (r.kvkkConsent ? [r.kvkkConsent] : []), options: [...KVKK_CONSENT_LABELS] },
   {
     key: "photo",
     label: "Fotoğraf paylaşım izni",
     chip: "Fotoğraf izni",
     value: (r) => (r.photoConsent ? [r.photoConsent] : []),
-    options: ["Veriyor", "Vermiyor", "Kayıt yok"],
+    options: [...PHOTO_CONSENT_LABELS],
   },
   { key: "instrument", label: "Enstrüman", chip: "Enstrüman", value: (r) => r.instruments },
   { key: "exam", label: "Hedef sınav", chip: "Hedef sınav", value: (r) => (r.targetExam ? [r.targetExam] : []) },
@@ -340,7 +341,12 @@ export function StudentsTable({
   const levelFilter = searchParams.getAll("level");
   const paymentFilter = searchParams.getAll("payment");
   const creatorFilter = searchParams.getAll("creator");
-  const extraFilters = EXTRA_FILTERS.map((f) => ({ ...f, selected: searchParams.getAll(f.key) }));
+  // İzin alanı hiç dolmamışsa (merged kurum görünümü) sabit seçenekli grup YOK sayılır: hem gizlenir hem de
+  // URL'de kalmış `?kvkk=Var` gibi bir değer listeyi sessizce 0'a indirmez (grup, sayaç, çip ve eşleşme aynı küme).
+  const extraFilters = EXTRA_FILTERS.filter((f) => !f.options || rows.some((r) => f.value(r).length > 0)).map((f) => ({
+    ...f,
+    selected: searchParams.getAll(f.key),
+  }));
   const enrolledFrom = searchParams.get("from") ?? "";
   const enrolledTo = searchParams.get("to") ?? "";
   // D — sözleşme filtreleri
@@ -459,15 +465,12 @@ export function StudentsTable({
     { key: "level", label: "MEB/LCM seviye", type: "multi", options: levelOptions },
     { key: "payment", label: "Ödeme durumu", type: "multi", options: PAYMENT_VALUES.map((v) => PAYMENT_LABELS[v]) },
     { key: "creator", label: "Kaydı oluşturan", type: "multi", options: creatorOptions },
-    // İzin alanı hiç dolmamışsa (merged kurum görünümü) sabit seçenekler hep 0 döndürürdü — grup gizlenir.
-    ...extraFilters
-      .filter((f) => !f.options || rows.some((r) => f.value(r).length > 0))
-      .map((f): FilterGroup => ({
-        key: f.key,
-        label: f.label,
-        type: "multi",
-        options: f.options ?? uniqueSorted(rows.flatMap(f.value)),
-      })),
+    ...extraFilters.map((f): FilterGroup => ({
+      key: f.key,
+      label: f.label,
+      type: "multi",
+      options: f.options ?? uniqueSorted(rows.flatMap(f.value)),
+    })),
     { key: "enrollment", label: "Kayıt tarihi", type: "dateRange" },
     { key: "contract", label: "Sözleşme durumu", type: "multi", options: CONTRACT_FILTER_KEYS.map((k) => CONTRACT_FILTER_LABELS[k]) },
     { key: "contractStart", label: "Sözleşme başlangıcı", type: "contractStartRange" },
