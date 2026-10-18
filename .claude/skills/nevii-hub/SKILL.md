@@ -41,7 +41,7 @@ UI (`src/app/panel/*`, `src/components/*`) → server action (`src/lib/actions.t
 - "Ödenmesi gereken" ile "tahsil edilen" ayrı alan ve ayrı başlık.
 
 ## 4. Ortam sınırı (2026-10-01'den beri local-first — `docs/operations/LOCAL_FIRST_DEPLOYMENT.md`)
-- Canlı: `main` → Vercel → `neviihub.com`, DB Supabase `wsbucznpujcfzhitzrbl`. Sürekli açık test ortamı YOK:
+- Canlı: `main` → Vercel → `neviihub.com`, DB Supabase `ddskhtirzywbuucxeovz` (2026-10-18; önceki `wsbucznpujcfzhitzrbl` donmuş geri dönüş kaynağı). Sürekli açık test ortamı YOK:
   `test.neviihub.com` geçici olarak canlıya yönlenir; eski test DB'si (`vxzewyiwfshobjizzetw`) gerçek veri taşıyan
   salt-okunur geri dönüş kaynağıdır, test hedefi DEĞİL.
 - Düşük riskli, migration'sız iş: yerel doğrulama → `main`. Migration/finans/silme/auth/tenant/toplu veri/dış mesaj:

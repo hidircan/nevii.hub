@@ -22,7 +22,8 @@ tanımlar. Altyapı kimlikleri değişirse önce bu belge ve `src/lib/env/test-t
 | Bileşen | Kimlik | Rol | Not |
 |---|---|---|---|
 | Canlı site | `neviihub.com` | KORU | Vercel projesi `neviihub` (Hobby, Fluid, fonksiyon bölgesi `fra1`), dal `main` |
-| Canlı DB | Supabase `wsbucznpujcfzhitzrbl` (eu-central-1, org `neviihub-prod-org`, Free) | KORU | Uygulama transaction pooler 6543; dump/migration session pooler 5432 |
+| Canlı DB | Supabase `ddskhtirzywbuucxeovz` (eu-central-1, org `NeviiHub-October`, Free; 2026-10-18'den beri) | KORU | Uygulama transaction pooler 6543; dump/migration session pooler 5432 |
+| Önceki canlı DB | Supabase `wsbucznpujcfzhitzrbl` (eu-central-1, org `neviihub-prod-org`, Free, kota kısıtı) | PASİF TUT | 2026-10-18 07:04Z anındaki veri; DB düzeyinde salt-okunur. Geri dönüş kaynağı; owner onayı olmadan silinmez/pause edilmez. Korumalar production gibi davranır |
 | Eski test DB | Supabase `vxzewyiwfshobjizzetw` (ap-south-1, org `neviihub-test-org`, Free) | PASİF TUT | Geçiş anındaki GERÇEK veri; DB düzeyinde salt-okunur, Data API erişimi kapalı. Geri dönüş kaynağı. 2026-10-31 yalnız YENİDEN DEĞERLENDİRME tarihidir, silme tarihi değildir; geri yükleme doğrulanmadan ve owner onayı olmadan kaldırılmaz. Test hedefi DEĞİL; korumalar production gibi davranır |
 | `test.neviihub.com` | Vercel alan adı | PASİF TUT | Geçici olarak 307 ile `neviihub.com`'a yönlenir |
 | `test` dalı preview'ları | Vercel preview | PASİF TUT | Dal bazlı preview değişkenleri hâlâ eski test DB'sini (salt-okunur) gösterir. 2026-10-02'den beri tüm preview'lar Vercel Authentication ile korunur (yalnız ekip üyeleri); bu, uygulamanın kendi yetkilendirmesinin yerine geçmez |
