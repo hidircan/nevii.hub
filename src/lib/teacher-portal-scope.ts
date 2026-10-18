@@ -26,7 +26,7 @@ export function findOwnPayout(
 }
 
 /** Yalnızca bu öğretmene atanmış öğrenciler (aktif filtre çağıran tarafta). */
-export function ownStudents(students: Student[], teacherId: string): Student[] {
+export function ownStudents<S extends Pick<Student, "teacherId" | "enrollments">>(students: S[], teacherId: string): S[] {
   return students.filter((s) => isOwnStudent(s, teacherId));
 }
 

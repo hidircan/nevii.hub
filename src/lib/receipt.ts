@@ -1,4 +1,4 @@
-import type { Branch, Payment, SchoolSettings, Student } from "./types";
+import type { Branch, Payment, SchoolSettings, StudentRef } from "./types";
 
 /**
  * Tamamen ödenmiş kayıtlar dışında makbuz üretilmez — kısmi/bekleyen/gecikmiş
@@ -64,7 +64,7 @@ export type ReceiptViewModel = {
  */
 export function buildReceiptViewModel(
   payment: Payment,
-  student: Student,
+  student: StudentRef,
   settings: Pick<SchoolSettings, "name">,
   branch: Branch | undefined
 ): ReceiptViewModel {

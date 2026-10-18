@@ -1,4 +1,4 @@
-import type { AppData, Lesson } from "./types";
+import type { AppData, Lesson, StudentRef } from "./types";
 
 export type SetupStepId = "school" | "teachers" | "rooms" | "students" | "firstLesson";
 
@@ -28,7 +28,8 @@ export type SetupProgress = {
  * okur) DB'nin kesin cevabıdır — aynı kural: `status === "scheduled"` ve `startAt > now`. Verilmezse
  * (tam `AppData`) `lessons` taranır; davranış aynıdır.
  */
-export type SetupProgressInput = Pick<AppData, "settings" | "teachers" | "rooms" | "students"> & {
+export type SetupProgressInput = Pick<AppData, "settings" | "teachers" | "rooms"> & {
+  students: StudentRef[];
   lessons: ReadonlyArray<Pick<Lesson, "status" | "startAt">>;
   payments: ReadonlyArray<unknown>;
   hasFutureScheduledLesson?: boolean;

@@ -46,7 +46,7 @@ import { LessonStatusBadge } from "@/components/lesson-status-badge";
 import { PlannedMakeupMarker } from "@/components/planned-makeup-marker";
 import { LessonReassignmentModal } from "@/components/lesson-reassignment-modal";
 import { TeacherAvailabilityCard } from "@/components/teacher-availability-card";
-import type { Instrument, Lesson, Room, Student, Teacher } from "@/lib/types";
+import type { Instrument, Lesson, Room, StudentRef, Teacher } from "@/lib/types";
 import { dayName } from "@/lib/utils";
 import { DEFAULT_LESSON_DURATION_MINUTES, LESSON_DURATION_OPTIONS } from "@/lib/lesson-duration";
 import { CALENDAR_START_HOUR, toYmd } from "@/lib/closed-days";
@@ -71,7 +71,7 @@ import {
 } from "@/lib/lesson-ops-override";
 
 type ProgramStudioProps = {
-  students: Student[];
+  students: StudentRef[];
   teachers: Teacher[];
   rooms: Room[];
   branchNames: Record<string, string>;
@@ -348,7 +348,7 @@ function cardStatusLabel(lesson: Pick<Lesson, "type">, statusVisual?: LessonCard
  */
 export function lessonHoverCardLines(
   lesson: Lesson,
-  student?: Student,
+  student?: StudentRef,
   teacher?: Teacher,
   room?: Room,
   branchName?: string,
@@ -393,7 +393,7 @@ function LessonHoverCard({
   statusVisual,
 }: {
   lesson: Lesson;
-  student?: Student;
+  student?: StudentRef;
   teacher?: Teacher;
   room?: Room;
   branchName?: string;
@@ -423,7 +423,7 @@ function LessonHoverCard({
 /** Ders kartının erişilebilir açıklaması — ekran okuyucu için tüm bağlamı tek cümlede verir. */
 export function lessonAccessibleLabel(
   lesson: Lesson,
-  student?: Student,
+  student?: StudentRef,
   teacher?: Teacher,
   room?: Room,
   branchName?: string,
@@ -486,7 +486,7 @@ function LessonCardBody({
   tier,
   statusVisual = "planned",
 }: {
-  student?: Student;
+  student?: StudentRef;
   teacher?: Teacher;
   lesson: Lesson;
   branchName?: string;
@@ -598,16 +598,16 @@ export function resolveRoomFilterForBranch(
  * gelirse sıradan seçenek olarak geri eklenmez; yalnız seçili değeri göstermek için `inactiveSelected` döner.
  */
 export function studentFilterOptions(
-  students: Student[],
+  students: StudentRef[],
   filterBranchId: string,
   selectedStudentId: string
-): { options: Student[]; inactiveSelected: Student | null } {
+): { options: StudentRef[]; inactiveSelected: StudentRef | null } {
   const options = studentsForBranch(students.filter(isActiveStudent), filterBranchId);
   const selected = selectedStudentId ? students.find((s) => s.id === selectedStudentId) : undefined;
   return { options, inactiveSelected: selected && !isActiveStudent(selected) ? selected : null };
 }
 
-export function studentsForBranch(students: Student[], filterBranchId: string): Student[] {
+export function studentsForBranch(students: StudentRef[], filterBranchId: string): StudentRef[] {
   return students
     .filter((s) => !filterBranchId || studentBranchIds(s).includes(filterBranchId))
     .sort((a, b) => a.name.localeCompare(b.name, "tr"));
@@ -615,7 +615,7 @@ export function studentsForBranch(students: Student[], filterBranchId: string): 
 
 /** Şube filtresi değişince geçersiz kalan öğrenci filtresini "Tüm öğrenciler"e döndürür. */
 export function resolveStudentFilterForBranch(
-  students: Student[],
+  students: StudentRef[],
   nextBranchId: string,
   currentStudentId: string
 ): string {
@@ -1033,7 +1033,7 @@ export function ProgramStudio({
     openPlanner(format(dt, "yyyy-MM-dd'T'HH:mm"));
   }
 
-  function applyEnrollment(student: Student, e: EnrollmentView | undefined) {
+  function applyEnrollment(student: StudentRef, e: EnrollmentView | undefined) {
     const nextInstrument = e?.instrument ?? student.instruments[0] ?? "Piyano";
     setEnrollmentId(e && !e.legacy ? e.id : "");
     setInstrument(nextInstrument);
@@ -1139,7 +1139,7 @@ export function ProgramStudio({
     }
   }
 
-  function applySeriesEnrollment(student: Student, e: EnrollmentView | undefined) {
+  function applySeriesEnrollment(student: StudentRef, e: EnrollmentView | undefined) {
     const nextInstrument = e?.instrument ?? student.instruments[0] ?? "Piyano";
     setSeriesEnrollmentId(e && !e.legacy ? e.id : "");
     setSeriesInstrument(nextInstrument);
@@ -2653,7 +2653,7 @@ function DetailPanel({
   lesson: Lesson;
   /** "Tüm kurumlar" görünümünde false — yazma aksiyonları gösterilmez, nedeni yazılır. */
   canCreate: boolean;
-  student?: Student;
+  student?: StudentRef;
   teacher?: Teacher;
   room?: Room;
   branchName?: string;

@@ -6,7 +6,7 @@
  * için "hedefte olan görür, olmayan görmez" matrisini doğrular.
  */
 
-import type { Announcement, AudienceRule, Student, StudentType, Teacher } from "../types";
+import type { Announcement, AudienceRule, StudentRef, StudentType, Teacher } from "../types";
 import { effectiveStudentTypes } from "../student-types";
 
 export type AnnouncementRecipient = {
@@ -24,7 +24,7 @@ export type AnnouncementRecipient = {
 };
 
 export type AudienceContext = {
-  students: Student[];
+  students: StudentRef[];
   teachers: Teacher[];
 };
 

@@ -20,7 +20,7 @@
  */
 
 import { collectedAmountOf } from "../payment-profile";
-import type { AppData, Lesson, Payment, Student, Task } from "../types";
+import type { AppData, Lesson, Payment, StudentRef, Task } from "../types";
 import { isLiveObligation } from "../payment-profile";
 import { resolveLessonFinalStatus } from "../lesson-live-status";
 import { DEFAULT_APP_TIMEZONE, toZonedYmd } from "../timezone";
@@ -35,7 +35,8 @@ export type DashboardPaymentRow = Pick<
   Payment,
   "id" | "studentId" | "amount" | "paidAmount" | "status" | "dueDate" | "paidAt" | "contractId"
 >;
-export type DashboardSummaryInput = Pick<AppData, "settings" | "students" | "teachers" | "rooms" | "lessons" | "makeupRequests"> & {
+export type DashboardSummaryInput = Pick<AppData, "settings" | "teachers" | "rooms" | "lessons" | "makeupRequests"> & {
+  students: StudentRef[];
   payments: DashboardPaymentRow[];
 };
 
@@ -167,7 +168,7 @@ export function buildDashboardSummary(
 
   const students = data.students.filter((s) => inBranch(s));
   const activeStudents = students.filter((s) => s.active !== false);
-  const studentById = new Map<string, Student>(data.students.map((s) => [s.id, s]));
+  const studentById = new Map<string, StudentRef>(data.students.map((s) => [s.id, s]));
 
   /** Ödeme satırının şubesi ÖĞRENCİDEN gelir — Payment'ta branchId yok. */
   const paymentInScope = (p: DashboardPaymentRow) =>

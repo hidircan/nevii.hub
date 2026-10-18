@@ -24,8 +24,8 @@ import { DEFAULT_APP_TIMEZONE, toZonedYmd } from "./timezone";
  */
 export type PayoutComputationData = Pick<
   AppData,
-  "students" | "settings" | "lessons" | "teacherFeeRules" | "teacherPayoutPolicies" | "teacherPayoutExclusions"
->;
+  "settings" | "lessons" | "teacherFeeRules" | "teacherPayoutPolicies" | "teacherPayoutExclusions"
+> & { students: import("./types").StudentRef[] };
 /** Kayıtlı hakedişlerle (donmuş satırlar / fark) birlikte hesap. */
 export type PayoutLedgerData = PayoutComputationData & Pick<AppData, "teacherPayouts">;
 
