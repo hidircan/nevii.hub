@@ -60,14 +60,21 @@ export function narrowToStudentScope(data: AppData, studentId: string): StudentS
  */
 export type LessonWindowData = ReferenceData & Pick<AppData, "lessons">;
 
-export function narrowToLessonWindow(data: AppData, from: Date, to: Date): LessonWindowData {
+/**
+ * DB egress (2026-10-19) — kulüp ekranları/araçları: `clubOnly` yalnız kulüp satırlarını (`clubId`/`clubSessionId` dolu,
+ * prod ~%3) / kulüp ücretlerini (`source = "club"`, prod ~%1) okur. db aynı koşulu SQL'de uygular (json/memory parity).
+ * Bilerek TÜM kulüpler: dahil solfej üyeliği başka kulübün satırlarına bakar (silme engeli).
+ */
+export type ClubOnlyOptions = { clubOnly?: boolean };
+
+export function narrowToLessonWindow(data: AppData, from: Date, to: Date, opts?: ClubOnlyOptions): LessonWindowData {
   const lo = from.getTime();
   const hi = to.getTime();
   return {
     ...toReferenceData(data),
     lessons: data.lessons.filter((l) => {
       const t = new Date(l.startAt).getTime();
-      return t >= lo && t <= hi;
+      return t >= lo && t <= hi && (!opts?.clubOnly || Boolean(l.clubId || l.clubSessionId));
     }),
   };
 }
@@ -168,9 +175,10 @@ export function toPaymentStatusRows(payments: readonly PaymentStatusRow[]): Paym
  */
 export type PaymentsPageData = ReferenceData & Pick<AppData, "payments" | "lessons">;
 
-export function narrowToPaymentsPage(data: AppData): PaymentsPageData {
-  const lessonIds = new Set(data.payments.map((p) => p.lessonId).filter((id): id is string => Boolean(id)));
-  return { ...toReferenceData(data), payments: data.payments, lessons: data.lessons.filter((l) => lessonIds.has(l.id)) };
+export function narrowToPaymentsPage(data: AppData, opts?: ClubOnlyOptions): PaymentsPageData {
+  const payments = opts?.clubOnly ? data.payments.filter((p) => p.source === "club") : data.payments;
+  const lessonIds = new Set(payments.map((p) => p.lessonId).filter((id): id is string => Boolean(id)));
+  return { ...toReferenceData(data), payments, lessons: data.lessons.filter((l) => lessonIds.has(l.id)) };
 }
 
 /**

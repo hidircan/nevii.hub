@@ -747,9 +747,10 @@ export async function addClubMemberTool(
   const club = clubs.find((c) => c.id === v.clubId);
   if (!club) return fail("NOT_FOUND", "Kulüp bulunamadı; silinmiş olabilir. Sayfayı yenileyin.");
   if (!club.active) return fail("VALIDATION_ERROR", `${club.name} pasif; önce kulübü aktif yapın.`);
-  const { readData } = await import("./store");
-  const data = await readData();
-  const student: Student | undefined = data.students.find((s) => s.id === v.studentId);
+  // DB egress (2026-10-19): öğrenci referansı + yalnız kulüp ücretleri (tam kurum okuması değil).
+  const { readPaymentsPageData } = await import("./store");
+  const data = await readPaymentsPageData({ clubOnly: true });
+  const student = data.students.find((s) => s.id === v.studentId);
   if (!student || student.deletedAt) return fail("NOT_FOUND", "Öğrenci bulunamadı veya silinmiş. Öğrenci listesinden yeniden seçin.");
   if (!student.active) return fail("VALIDATION_ERROR", `${student.name} pasif; kulübe eklemek için önce öğrenciyi aktif yapın.`);
   const inserted = await withClubMembershipLock(ctx.tenantId, (tx) =>
@@ -798,7 +799,7 @@ export async function writeClubMemberStartFeeTool(ctx: ServiceContext, input: un
   if (m.monthlyFee <= 0) return fail("VALIDATION_ERROR", "Bu üyeliğin ücreti 0 TL (ücretsiz/dahil üyelik); borç yazılmaz.");
   const { readPaymentsPageData } = await import("./store");
   const month = m.startDate.slice(0, 7);
-  const fee = await ensureClubFeeRow(club, m, month, (await readPaymentsPageData()).payments);
+  const fee = await ensureClubFeeRow(club, m, month, (await readPaymentsPageData({ clubOnly: true })).payments);
   if (!fee.created) return fail("CONFLICT", `${clubPeriodLabel(month)} ücret satırı zaten var; Ödemeler ekranından görebilirsiniz.`);
   const { recordAuditLog } = await import("./audit/log");
   void recordAuditLog({
@@ -912,7 +913,7 @@ export async function updateClubMembershipTool(ctx: ServiceContext, input: unkno
   if (!parsed.success) return fail("VALIDATION_ERROR", parsed.error.issues[0]?.message ?? "Üyelik tarihlerini kontrol edin.");
   const v = parsed.data;
   const [clubs, { readPaymentsPageData }] = await Promise.all([listClubs(ctx.tenantId), import("./store")]);
-  const payments = (await readPaymentsPageData()).payments;
+  const payments = (await readPaymentsPageData({ clubOnly: true })).payments;
   const t = today();
   const result = await withClubMembershipLock(ctx.tenantId, async (tx) => {
     const all = await listClubMemberships(ctx.tenantId, tx);
@@ -985,6 +986,19 @@ export type ClubMembershipDeleteResult = {
  * Saf: üyeliğin FİZİKSEL silinmesini engelleyen korunan kayıt (yoksa null). Korunanlar: tahsilat görmüş (kısmi dahil)
  * kulüp ücreti, yoklama/öğretmen yoklaması girilmiş oturum satırı. Ödenmemiş ücret satırı SİLİNMEZ, iptal edilir.
  */
+/**
+ * DB egress (2026-10-19) — silme/etki araçları için: referans veri + TÜM kulüp ücretleri + TÜM zamanların TÜM kulüp
+ * satırları (dahil solfej üyeliği başka kulübün satırlarına bakar). Tam `readData()` yerine (~%3 ders, ~%1 ödeme).
+ */
+async function readClubRows() {
+  const { readPaymentsPageData, readLessonWindow } = await import("./store");
+  const [pay, win] = await Promise.all([
+    readPaymentsPageData({ clubOnly: true }),
+    readLessonWindow("1970-01-01T00:00:00.000Z", "2100-01-01T00:00:00.000Z", { clubOnly: true }),
+  ]);
+  return { students: pay.students, payments: pay.payments, lessons: win.lessons };
+}
+
 export function clubMembershipDeleteBlocker(
   m: ClubMembership,
   payments: Payment[],
@@ -1048,8 +1062,8 @@ export async function deleteClubMembershipTool(ctx: ServiceContext, input: unkno
   if (!m) return ok({ membershipId: id, alreadyDeleted: true, voidedFeeRows: 0, cancelledSessionRows: 0, removedIncluded: [] });
   const clubs = await listClubs(ctx.tenantId);
   const club = clubs.find((c) => c.id === m.clubId);
-  const { readData, patchClubLessons } = await import("./store");
-  const data = await readData();
+  const { patchClubLessons } = await import("./store");
+  const data = await readClubRows();
   const blocker = clubMembershipDeleteBlocker(m, data.payments, data.lessons, memberships);
   if (blocker) return fail("CONFLICT", blocker);
   const t = today();
@@ -1254,7 +1268,7 @@ export function planClubFeeAccruals(input: {
 /** Tek kurum — ALS kurulmuş olmalı. Günlük tahakkuk işi (standalone-monthly-accrual ile aynı rota) çağırır. */
 export async function runClubFeeAccrual(tenantId: string, opts: { apply: boolean; month: string }): Promise<{ planned: number; created: number }> {
   const { readPaymentsPageData } = await import("./store");
-  const [clubs, memberships, data] = await Promise.all([listClubs(tenantId), listClubMemberships(tenantId), readPaymentsPageData()]);
+  const [clubs, memberships, data] = await Promise.all([listClubs(tenantId), listClubMemberships(tenantId), readPaymentsPageData({ clubOnly: true })]);
   const planned = planClubFeeAccruals({ clubs, memberships, students: data.students, payments: data.payments, month: opts.month });
   let created = 0;
   if (opts.apply) {
@@ -1892,8 +1906,7 @@ export type ClubDeleteImpact = {
 };
 
 async function clubDeleteImpact(tenantId: string, club: Club): Promise<ClubDeleteImpact> {
-  const { readData } = await import("./store");
-  const [data, memberships] = await Promise.all([readData(), listClubMemberships(tenantId)]);
+  const [data, memberships] = await Promise.all([readClubRows(), listClubMemberships(tenantId)]);
   const mine = memberships.filter((m) => m.clubId === club.id);
   const ids = new Set(mine.map((m) => m.id));
   const fees = data.payments.filter((p) => p.source === "club" && p.clubMembershipId && ids.has(p.clubMembershipId) && p.status !== "voided");
@@ -1947,8 +1960,8 @@ export async function deleteClubTool(ctx: ServiceContext, input: unknown): Promi
   const impact = await clubDeleteImpact(ctx.tenantId, club);
   if (impact.blocker) return fail("CONFLICT", impact.blocker);
 
-  const { readData, patchClubLessons } = await import("./store");
-  const data = await readData();
+  const { patchClubLessons } = await import("./store");
+  const data = await readClubRows();
   const memberships = (await listClubMemberships(ctx.tenantId)).filter((m) => m.clubId === club.id);
   const ids = new Set(memberships.map((m) => m.id));
   const { collectPayment } = await import("./payments/collect");

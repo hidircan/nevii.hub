@@ -112,6 +112,14 @@ yeniden doğrula: en yeni `docs/performance/DB_EGRESS_*.md` (şu an `DB_EGRESS_2
    doğrulamasız readData önbelleği bu değil). Ödeme/ders/yoklama gibi sık değişen tabloları önbelleğe ALMA. Yeni dilim
    `referenceSchoolInclude` kullanıyorsa `prisma.school.findFirst` yerine `findSchoolWithCachedRefs(tid, …)` çağır.
    Kapatma `NEVII_REF_CACHE=0`; kontrol `scripts/bench/check-ref-cache.ts` (kapalı=ıska=isabet + geçersiz kılma).
+26. **Alt kümeyi gösteren ekran alt kümeyi SQL'de süzer, zaman penceresini JS'de değil** (2026-10-19). Kulüp detayı
+   320 günlük pencerenin TÜM derslerini (prod 4.701 × 432 B) + tüm ödemeleri okuyup JS'de `clubId` ile süzüyordu → akşamın
+   1 numaralı kalemi. Dilime seçenek ekle (`readLessonWindow(…, { clubOnly: true })`, `readPaymentsPageData({ clubOnly })`),
+   db'de `where`, json/memory'de aynı kural (`narrowTo*` içinde). Yüklemi kimlik değil SINIF yap (tüm kulüpler): dahil
+   solfej üyeliği BAŞKA kulübün satırına bakar — `clubId = X` silme engelini sessizce kaçırır. Çakışma denetimi
+   (`findSlotConflict`) alan araçları DARALTMA: hedef saatteki tüm öğretmen/oda/öğrenci dersleri gerekir.
+   Bul: `grep -rn "readLessonWindow(" src | grep -E "[0-9]{3} \* 86_400_000"` (≥100 günlük pencere). Kontrol
+   `scripts/bench/check-club-slices.ts` (süzgeçli = süzgeçsiz+aynı kural).
 
 ## 3. Kanıt toplama (erişim sınırları)
 - **2026-10-18'den beri canlı DB `ddskhtirzywbuucxeovz`** (org NeviiHub-October; `wsbucz…` donmuş geri dönüş, DOKUNMA).
@@ -143,6 +151,12 @@ yeniden doğrula: en yeni `docs/performance/DB_EGRESS_*.md` (şu an `DB_EGRESS_2
 - **Skew'i ayır:** `vercel metrics … --group-by deploymentId --since <snapshot>` — eski deploy'un payı yüksekse
   pgss farkındaki eski sorgu biçimleri (ör. dar dilimden önceki tam kolon `Student`) yeni kodun maliyeti DEĞİL.
   Ara anlık görüntüleri `egress-snapshots/pgss-<ISO>.csv` olarak sakla (taban 14:28Z, deploy sonrası 17:11Z).
+- **`vercel metrics` tuzakları:** `-g 1d` ile `--since` YOK SAYILIR (gün kovası tüm günü sayar) → `-g 1h --json` al,
+  `summary` toplamını oku. Worktree bağlı değil: `--project prj_hmg2Nu2GtPs0JrfEcllpeUIbWpIG --scope team_2B4…` ver;
+  zsh `$P` gibi değişkeni kelimelere BÖLMEZ (komutu açık yaz).
+- **Tahmin kalibre (2026-10-19):** pgss `Σ rows × (pg_stats genişliği + 4 B/kolon)` 06:14→22:48Z = 378 MB; Usage 18 Ekim
+  çubuğu 363 MB → çarpan ≈ 1,0. pgss farkı MB olarak doğrudan bütçeyle (≈ 161 MB/gün) karşılaştırılabilir.
+- **Önbellek isabeti:** md5 parmak izi sorgusu çağrısı vs `Student WHERE schoolId = $1` (ıska) çağrısı (#69 sonrası %91).
 - **POST ≠ yeniden çizim:** sayfa rotasına `serverActionName` boş POST'lar `LastRouteTracker` (`actionSaveLastRoute`,
   her gezinme, ~500 B upsert) — CPU GET'in ~1/4'ü ise sayfa yeniden çizilmiyor; egress kaynağı değil.
 

@@ -112,6 +112,7 @@ import { lessonScopeDays, type ConflictWindow, type SlotScopeTarget } from "./le
 import {
   narrowToDashboard,
   narrowToLessonWindow,
+  type ClubOnlyOptions,
   narrowToMakeupCenter,
   makeupLinkedLessonIds,
   makeupPlanningWindow,
@@ -1579,7 +1580,7 @@ export async function readStudentScope(studentId: string): Promise<StudentScopeD
 }
 
 /** DB egress (2026-09-30) — Ders Programı haftası: referans veri + penceredeki dersler (bkz. reference-data.ts). */
-export async function readLessonWindow(fromIso: string, toIso: string): Promise<LessonWindowData> {
+export async function readLessonWindow(fromIso: string, toIso: string, opts?: ClubOnlyOptions): Promise<LessonWindowData> {
   const tid = tenantId();
   const from = new Date(fromIso);
   const to = new Date(toIso);
@@ -1587,14 +1588,17 @@ export async function readLessonWindow(fromIso: string, toIso: string): Promise<
     findSchoolWithCachedRefs(tid, {
       where: { tenantId: tid },
       omit: { logoUrl: true },
-      include: { ...referenceSchoolInclude, lessons: { where: { tenantId: tid, startAt: { gte: from, lte: to } } } },
+      include: {
+        ...referenceSchoolInclude,
+        lessons: { where: { tenantId: tid, startAt: { gte: from, lte: to }, ...(opts?.clubOnly ? { OR: [{ clubId: { not: null } }, { clubSessionId: { not: null } }] } : {}) } },
+      },
     }),
     readPackages(tid),
     readDiscountCampaigns(tid),
     readTeacherPayoutPolicies(tid),
     listClosedDays(tid).catch(() => []),
   ]);
-  if (!school) return narrowToLessonWindow(await readData(), from, to);
+  if (!school) return narrowToLessonWindow(await readData(), from, to, opts);
   const mapped = mapSchoolToAppData({
     ...school,
     logoUrl: "",
@@ -1604,7 +1608,7 @@ export async function readLessonWindow(fromIso: string, toIso: string): Promise<
     payments: [],
     teacherPayouts: [],
   });
-  return narrowToLessonWindow({ ...mapped, packages, discountCampaigns, teacherPayoutPolicies, closedDayOverrides }, from, to);
+  return narrowToLessonWindow({ ...mapped, packages, discountCampaigns, teacherPayoutPolicies, closedDayOverrides }, from, to, opts);
 }
 
 /** DB egress (2026-10-16) — Telafi Merkezi: referans veri + tüm dersler + tüm telafi talepleri (bkz. reference-data.ts). */
@@ -1766,20 +1770,20 @@ export async function readDashboardData(fromIso: string, toIso: string, nowIso: 
 }
 
 /** DB egress (2026-09-30) — Ödemeler: referans veri + tüm ödemeler + yalnız ödemelere bağlı dersler. */
-export async function readPaymentsPageData(): Promise<PaymentsPageData> {
+export async function readPaymentsPageData(opts?: ClubOnlyOptions): Promise<PaymentsPageData> {
   const tid = tenantId();
   const [school, packages, discountCampaigns, teacherPayoutPolicies, closedDayOverrides] = await Promise.all([
     findSchoolWithCachedRefs(tid, {
       where: { tenantId: tid },
       omit: { logoUrl: true },
-      include: { ...referenceSchoolInclude, payments: true },
+      include: { ...referenceSchoolInclude, payments: opts?.clubOnly ? { where: { source: "club" } } : true },
     }),
     readPackages(tid),
     readDiscountCampaigns(tid),
     readTeacherPayoutPolicies(tid),
     listClosedDays(tid).catch(() => []),
   ]);
-  if (!school) return narrowToPaymentsPage(await readData());
+  if (!school) return narrowToPaymentsPage(await readData(), opts);
   const lessonIds = [...new Set(school.payments.map((p) => p.lessonId).filter((id): id is string => Boolean(id)))];
   const lessons = lessonIds.length
     ? await prisma.lesson.findMany({ where: { tenantId: tid, schoolId: school.id, id: { in: lessonIds } } })
@@ -1793,7 +1797,7 @@ export async function readPaymentsPageData(): Promise<PaymentsPageData> {
     makeupRequests: [],
     teacherPayouts: [],
   });
-  return narrowToPaymentsPage({ ...mapped, packages, discountCampaigns, teacherPayoutPolicies, closedDayOverrides });
+  return narrowToPaymentsPage({ ...mapped, packages, discountCampaigns, teacherPayoutPolicies, closedDayOverrides }, opts);
 }
 
 /** DB egress (2026-09-30) — Öğrenciler listesi: referans veri + tüm ödemelerin yalnız durum alanları. */
