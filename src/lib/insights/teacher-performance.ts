@@ -41,7 +41,7 @@ export function computeTeacherPerformanceScore(data: AppData, teacherId: string)
 
 export function scoreTeacherFromRows(
   rows: TeacherAttendanceRow[],
-  students: AppData["students"],
+  students: import("../types").StudentRef[],
   teacherId: string
 ): TeacherPerformanceScore {
   const graded = rows.filter((a) => a.teacherId === teacherId);

@@ -55,7 +55,7 @@ import {
   narrowToPaymentsPage,
   narrowToPayoutWindow,
   narrowToStudentScope,
-  toPaymentStatusRow,
+  toPaymentStatusRows,
   toReferenceData,
   type DashboardData,
   type LessonWindowData,
@@ -276,7 +276,7 @@ export async function readPaymentsPageData(): Promise<PaymentsPageData> {
 /** Bkz. src/lib/reference-data.ts `StudentListData`. */
 export async function readStudentListData(): Promise<StudentListData> {
   const data = await readData();
-  return { ...toReferenceData(data), payments: data.payments.map(toPaymentStatusRow) };
+  return { ...toReferenceData(data), payments: toPaymentStatusRows(data.payments) };
 }
 
 /** Bkz. store-db.readStudentById — tek dosya/süreç verisi zaten okunur; sonuç `readData()` ile aynı. */
@@ -328,6 +328,13 @@ export async function readSlotScopeData(target: SlotScopeTarget, days?: Date[]):
 }
 
 /** Bkz. store-db.readLessonsStartingBetween — sonuç `readData().lessons` [from, to] süzgeciyle aynı. */
+/** Bkz. store-db.readNationalIdCandidates. */
+export async function readNationalIdCandidates(last2: string) {
+  return (await readData()).students.flatMap((s) =>
+    s.nationalIdCipher && s.nationalIdLast2 === last2 ? [{ id: s.id, nationalIdCipher: s.nationalIdCipher }] : []
+  );
+}
+
 /** Bkz. store-db.readBranches. */
 export async function readBranches() {
   return (await readData()).settings.branches;

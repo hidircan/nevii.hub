@@ -88,6 +88,7 @@ import {
   readTeacherPayoutsForTeacher,
   readPaymentById,
   readReferenceData,
+  readNationalIdCandidates,
   readLessonWindow,
   readStudentScope,
   readSchoolBranding,
@@ -169,7 +170,7 @@ import {
 import { createPeriodicAssessmentSchema } from "../validation";
 import type { PeriodicAssessment } from "../types";
 import type { ClosedDay } from "../types";
-import type { Lesson } from "../types";
+import type { Lesson, WithStudentRefs } from "../types";
 import { checkAndNotifyMissingHomework } from "../homework-lesson-check";
 import { notifyAttendanceRiskIfThresholdCrossed } from "../attendance-risk-check";
 import { setClosedDay, listClosedDays } from "../closed-day-overrides";
@@ -915,7 +916,7 @@ export async function findAvailableSlotsTool(
     // Ölçüm (6000 ders, 8 öğretmen, 6 oda): 41 sn → ~150 ms (bkz. makeup-engine indeksi).
     const t0 = performance.now();
     const options = v.data.maxSlots ? { maxSlots: v.data.maxSlots } : undefined;
-    let after: AppData;
+    let after: Pick<AppData, "makeupRequests">;
     try {
       after = await generateSuggestions(v.data.requestId, options);
     } catch {
@@ -1016,7 +1017,7 @@ export async function confirmMakeupLessonTool(
     );
     const isNewMakeupLesson = (l: Lesson) =>
       l.makeupRequestId === v.data.requestId && l.status !== "cancelled" && new Date(l.startAt).getTime() === slotMs;
-    let data: Pick<AppData, "students" | "teachers" | "settings"> = windowData;
+    let data: WithStudentRefs<Pick<AppData, "students" | "teachers" | "settings">> = windowData;
     let lesson = windowData.lessons.find(isNewMakeupLesson);
     if (!lesson) {
       const full = await readData();
@@ -8211,7 +8212,7 @@ export async function suggestLessonSlotsTool(
     addDays(now, -2).toISOString(),
     addDays(now, (v.data.daysAhead ?? 14) + 2).toISOString()
   );
-  const data: AppData = { ...win, lessonSeries: [], attendances: [], makeupRequests: [], payments: [], teacherPayouts: [] };
+  const data: WithStudentRefs<AppData> = { ...win, lessonSeries: [], attendances: [], makeupRequests: [], payments: [], teacherPayouts: [] };
   const suggestions = suggestLessonSlots(data, {
     studentId: v.data.studentId,
     instrument: v.data.instrument as Instrument,
@@ -14920,12 +14921,11 @@ export async function findStudentsByNationalIdTool(
     return fail("VALIDATION_ERROR", "TC Kimlik No 11 haneli olmalı. Rakamları eksiksiz girip tekrar arayın.");
   }
   const { decryptNationalId } = await import("../pii");
-  const data = await readReferenceData();
-  const studentIds = data.students
-    .filter((s) => s.nationalIdCipher && s.nationalIdLast2 === wanted.slice(-2))
+  // DB egress (2026-10-18): referans dilimi TC kolonlarını okumaz — yalnız son iki hanesi eşleşen satırlar.
+  const studentIds = (await readNationalIdCandidates(wanted.slice(-2)))
     .filter((s) => {
       try {
-        return decryptNationalId(s.nationalIdCipher!) === wanted;
+        return decryptNationalId(s.nationalIdCipher) === wanted;
       } catch {
         return false; // bozuk/eski anahtarlı kayıt eşleşme sayılmaz
       }
@@ -16189,7 +16189,7 @@ const contractInstallmentPlanSchema = z.object({
  */
 async function resolveContractBranchContext(
   ctx: ServiceContext,
-  data: Pick<AppData, "students" | "teachers" | "lessons">,
+  data: WithStudentRefs<Pick<AppData, "students" | "teachers" | "lessons">>,
   student: Student,
   opts: { enrollmentId?: string; previousContractId?: string; contractType?: "initial" | "renewal" | "amendment"; persist: boolean }
 ): Promise<
@@ -16273,15 +16273,14 @@ export async function previewContractInstallmentPlanTool(
   if (!lastPeriodResolved.ok) return fail("VALIDATION_ERROR", lastPeriodResolved.message);
   try {
     // DB egress (2026-10-18): öğrenci dilimi (öğrenci yoksa yalnız referans).
-    const data = v.data.studentId
-      ? await readStudentScope(v.data.studentId)
-      : { ...(await readReferenceData()), lessons: [], makeupRequests: [] };
+    const scope = v.data.studentId ? await readStudentScope(v.data.studentId) : undefined;
+    const data = scope ?? { ...(await readReferenceData()), lessons: [], makeupRequests: [] };
     const paymentPolicy = data.settings.collectionsSettings;
     let installments: import("../types").ContractInstallmentSnapshot[];
     let totalContractAmount: number;
     // createStudentContractTool ile AYNI kural — birleşik ilk tahsilatta bitiş BİR AY kaymaz.
     let enrollmentEndDate = v.data.enrollmentEndDate;
-    const rawStudent = v.data.studentId ? data.students.find((s) => s.id === v.data.studentId) : undefined;
+    const rawStudent = scope?.students.find((s) => s.id === v.data.studentId);
     let student = rawStudent;
     let branchLessons = rawStudent ? data.lessons.filter((l) => l.studentId === rawStudent.id) : [];
     let firstPaymentScope: import("../student-enrollments").EnrollmentScope | undefined;

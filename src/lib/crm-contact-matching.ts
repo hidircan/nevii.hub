@@ -4,7 +4,7 @@
  * Birden fazla eşleşme varsa "belirsiz" — otomatik atama YAPILMAZ, manuel
  * çözüme düşer (`assignCallContactTool`/`assignMessageContactTool`).
  */
-import type { Student, Teacher, CrmContactType } from "./types";
+import type { StudentRef, Teacher, CrmContactType } from "./types";
 
 export type ContactMatch = { contactType: CrmContactType; contactId: string; label: string };
 export type MatchContactResult =
@@ -17,7 +17,7 @@ export function normalizePhone(phone: string): string {
   return phone.replace(/\D/g, "");
 }
 
-export function matchContactByPhone(phone: string, students: Student[], teachers: Teacher[]): MatchContactResult {
+export function matchContactByPhone(phone: string, students: StudentRef[], teachers: Teacher[]): MatchContactResult {
   const normalized = normalizePhone(phone);
   if (!normalized) return { status: "none" };
 

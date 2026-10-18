@@ -26,7 +26,7 @@ export type SuggestLessonSlotsParams = {
  * kopyalanmaz veya yeniden yazılmaz.
  */
 export function suggestLessonSlots(
-  data: AppData,
+  data: import("./types").WithStudentRefs<AppData>,
   params: SuggestLessonSlotsParams,
   now: Date = new Date()
 ): LessonSlotSuggestion[] {

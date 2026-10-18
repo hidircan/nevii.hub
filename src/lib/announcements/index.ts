@@ -19,7 +19,6 @@ import type {
   AnnouncementAudienceType,
   AnnouncementStatus,
   AudienceRule,
-  Student,
   Teacher,
 } from "../types";
 import type { AnnouncementRecipient } from "./audience";
@@ -400,7 +399,7 @@ export async function setAnnouncementRecipientCount(tenantId: string, id: string
 export async function buildAnnouncementRecipientCandidates(
   tenantId: string,
   teachers: Teacher[],
-  students: Student[]
+  students: import("../types").StudentRef[]
 ): Promise<AnnouncementRecipient[]> {
   const { getUserIdByTeacherId } = await import("../auth/users");
   const { listActiveAccessForTenant } = await import("../student-portal-access");

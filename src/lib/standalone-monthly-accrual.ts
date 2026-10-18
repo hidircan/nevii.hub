@@ -15,7 +15,7 @@ import { installmentMonthKeys, isMonthlyPlanRowForMonth } from "./attendance-cal
 import { isTerminalContractStatus } from "./contract-list-helpers";
 import { effectiveEnrollments, enrollmentTerms, isPersistedEnrollmentId, paymentEnrollmentId } from "./student-enrollments";
 import { DEFAULT_APP_TIMEZONE, toZonedYmd } from "./timezone";
-import type { Lesson, Payment, Student, Teacher } from "./types";
+import type { Lesson, Payment, StudentRef, Teacher } from "./types";
 
 /**
  * 2026-10-09 — ÇOK BRANŞ: tahakkuk BRANŞ başınadır — her aktif branş kendi aylık ücreti, kayıt/bitiş tarihi ve kendi
@@ -42,7 +42,7 @@ function coversMonth(p: Payment, month: string): boolean {
 
 /** Saf: verilen ay için yazılması gereken sözleşmesiz aylık plan satırları. */
 export function planStandaloneMonthlyAccruals(input: {
-  students: Student[];
+  students: StudentRef[];
   payments: Payment[];
   /** Öğrenci başına güncel sözleşme durumu (`listContractSummariesByStudent`) — tek branşlı/eski öğrenci. */
   contractStatusByStudent: ReadonlyMap<string, string>;

@@ -204,7 +204,7 @@ export function isOverridableSlotCode(code: SlotValidationCode): boolean {
  * kaynak ders bulunamazsa öğrencinin kayıtlı ders süresi, o da yoksa kurum varsayılanı.
  */
 export function makeupDurationMinutes(
-  data: Pick<AppData, "lessons" | "settings"> & { students?: AppData["students"] },
+  data: Pick<AppData, "lessons" | "settings"> & { students?: import("./types").StudentRef[] },
   request: Pick<MakeupRequest, "sourceLessonId" | "studentId">
 ): number {
   const source = data.lessons.find((l) => l.id === request.sourceLessonId);
@@ -283,7 +283,7 @@ function guidedTeacherMessage(
 
 export function validateLessonSlot(
   // Yalnız bu koleksiyonlar okunur — dar dilimler (Telafi Merkezi) tam veri olmadan doğrulayabilsin.
-  data: Pick<AppData, "lessons" | "students" | "teachers" | "rooms" | "settings" | "closedDayOverrides">,
+  data: import("./types").WithStudentRefs<Pick<AppData, "lessons" | "students" | "teachers" | "rooms" | "settings" | "closedDayOverrides">>,
   context: SlotValidationContext,
   input: { teacherId: string; roomId: string; startAt: string },
   options?: {
@@ -424,7 +424,7 @@ export function validateLessonSlot(
  * - Skor: öğretmen uyumu, yakınlık, yoğunluk, okul kaynaklı öncelik
  */
 export function suggestMakeupSlots(
-  data: AppData,
+  data: import("./types").WithStudentRefs<AppData>,
   request: MakeupRequest,
   options?: { maxSlots?: number; daysAhead?: number }
 ): MakeupSlot[] {
@@ -592,13 +592,13 @@ export type MakeupSlaEscalation = {
   slaDeadline: string;
 };
 
-export function confirmMakeupSlot(
-  data: AppData,
+export function confirmMakeupSlot<D extends import("./types").WithStudentRefs<AppData>>(
+  data: D,
   requestId: string,
   input: { teacherId: string; roomId: string; startAt: string },
   decision: MakeupDecision,
   now: Date = new Date()
-): { data: AppData; lessonId: string; slot: ValidatedSlot } {
+): { data: D; lessonId: string; slot: ValidatedSlot } {
   const request = data.makeupRequests.find((m) => m.id === requestId);
   if (!request) throw new Error("Telafi talebi bulunamadı");
   // Yalnız hâlâ açık talepte. Onaylı/kapanmış talep eski "sonuçlandırılmış" mesajını korur.

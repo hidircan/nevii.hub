@@ -298,7 +298,7 @@ export function enrollmentTerms(student: TermsStudent, enrollment: EnrollmentVie
  * Öğrenci şekilli eski yardımcılara (sözleşme ön doldurma, ders başı faturalama…) branşın koşullarıyla verilecek
  * görünüm. Kimlik, iletişim ve veli bilgileri PAYLAŞILIR; yalnız branşa özgü alanlar branştan gelir.
  */
-export function studentWithEnrollmentTerms<S extends Student>(student: S, terms: EnrollmentTerms): S {
+export function studentWithEnrollmentTerms<S extends import("./types").StudentRef>(student: S, terms: EnrollmentTerms): S {
   return {
     ...student,
     instruments: [terms.instrument],
@@ -487,12 +487,12 @@ export function enrollmentDisplayName(
  * Belirlenemeyen eski satır "Branş belirtilmemiş" — tahmin yapılmaz. Kulüp ücreti branş değildir (undefined).
  */
 export function makePaymentBranchLabeler(input: {
-  students: Student[];
+  students: import("./types").StudentRef[];
   teachers: Pick<Teacher, "id" | "name" | "instruments">[];
   lessons?: Pick<Lesson, "id" | "enrollmentId" | "instrument" | "teacherId">[];
   contracts?: Pick<StudentContract, "id" | "enrollmentId">[];
 }): (p: Pick<Payment, "studentId" | "enrollmentId" | "contractId" | "lessonId" | "source" | "clubMembershipId">) => string | undefined {
-  const byStudent = new Map<string, { student: Student; list: EnrollmentView[] }>();
+  const byStudent = new Map<string, { student: import("./types").StudentRef; list: EnrollmentView[] }>();
   for (const st of input.students) byStudent.set(st.id, { student: st, list: effectiveEnrollments(st, input.teachers) });
   return (p) => {
     const hit = byStudent.get(p.studentId);

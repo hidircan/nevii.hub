@@ -15,10 +15,12 @@
  * `store-db` bu dilimi filtreli Prisma sorgusuyla ÜRETİR; json/memory tam veriden bu
  * fonksiyonla TÜRETİR — üç mod aynı şekli görür.
  */
-import type { AppData, Payment } from "./types";
+import type { AppData, Payment, StudentRef } from "./types";
+import { REFERENCE_STUDENT_OMIT } from "./types";
 import type { DashboardPaymentRow } from "./dashboard/daily-summary";
 
-export type ReferenceData = Pick<AppData, "settings" | "teachers" | "students" | "rooms" | "teacherFeeRules"> & {
+export type ReferenceData = Pick<AppData, "settings" | "teachers" | "rooms" | "teacherFeeRules"> & {
+  students: StudentRef[];
   packages: NonNullable<AppData["packages"]>;
   discountCampaigns: NonNullable<AppData["discountCampaigns"]>;
   teacherPayoutPolicies: NonNullable<AppData["teacherPayoutPolicies"]>;
@@ -124,8 +126,8 @@ export function narrowToMakeupCenter(data: AppData, opts?: MakeupCenterOptions):
 }
 
 /**
- * ÖĞRENCİ LİSTESİ dilimi: referans veri + TÜM ödeme satırlarının yalnız durum rozeti ve açık
- * borç tutarı için gereken beş alanı (satır sayısı aynı, dar). Tarih/açıklama YOK.
+ * ÖĞRENCİ LİSTESİ dilimi: referans veri + ödemelerin durum rozeti ve açık/gecikmiş borç tutarı için ÖZETİ
+ * (`toPaymentStatusRows`). Tarih/açıklama YOK.
  */
 export type PaymentStatusRow = Pick<Payment, "studentId" | "status" | "contractId" | "amount" | "paidAmount">;
 export type StudentListData = ReferenceData & { payments: PaymentStatusRow[] };
@@ -133,6 +135,31 @@ export type StudentListData = ReferenceData & { payments: PaymentStatusRow[] };
 /** 2026-10-04 — listede açık/gecikmiş borç TUTARI da gösterilir (tek kaynak `summarizeStudentDebt`): tutar alanları eklendi. */
 export function toPaymentStatusRow(p: PaymentStatusRow): PaymentStatusRow {
   return { studentId: p.studentId, status: p.status, contractId: p.contractId, amount: p.amount, paidAmount: p.paidAmount };
+}
+
+/**
+ * DB egress (2026-10-18) — öğrenci listesi ödeme özeti: kalan tutarı olan canlı satırlar (öğrenci, durum, sözleşme)
+ * başına TEK satırda toplanır (`amount` = kalanların toplamı, `paidAmount` = 0), ödenmiş satırlar öğrenci başına tek
+ * işaret satırıdır. `summarizeStudentDebt`'in `status`/`openTotal`/`overdueTotal` sonucu ham satırlarla AYNIDIR
+ * (`openCount` grup sayısıdır — listede yalnız > 0 olup olmadığı kullanılır). Prod'da 1.445 satır → ~200. İdempotenttir;
+ * store-db aynı gruplamayı SQL'de yapar, json/memory bunu çağırır.
+ */
+export function toPaymentStatusRows(payments: readonly PaymentStatusRow[]): PaymentStatusRow[] {
+  const groups = new Map<string, PaymentStatusRow>();
+  for (const p of payments) {
+    if (p.status === "paid") {
+      const key = `${p.studentId}|paid`;
+      if (!groups.has(key)) groups.set(key, { studentId: p.studentId, status: "paid", contractId: undefined, amount: 0, paidAmount: 0 });
+      continue;
+    }
+    const due = p.amount - p.paidAmount;
+    if (p.status === "voided" || due <= 0) continue;
+    const key = `${p.studentId}|${p.status}|${p.contractId ?? ""}`;
+    const g = groups.get(key);
+    if (g) g.amount += due;
+    else groups.set(key, { studentId: p.studentId, status: p.status, contractId: p.contractId, amount: due, paidAmount: 0 });
+  }
+  return [...groups.values()];
 }
 
 /**
@@ -194,11 +221,18 @@ export function narrowToDashboard(data: AppData, from: Date, to: Date, now: Date
   };
 }
 
+/** `StudentRef` — tek-öğrenci kolonları SİLİNİR (DB bunları hiç okumaz; json/memory aynı şekli görsün). */
+export function toStudentRef(student: StudentRef): StudentRef {
+  const ref: Record<string, unknown> = { ...student };
+  for (const key of REFERENCE_STUDENT_OMIT) delete ref[key];
+  return ref as StudentRef;
+}
+
 export function toReferenceData(data: AppData): ReferenceData {
   return {
     settings: { ...data.settings, logoUrl: "" },
     teachers: data.teachers,
-    students: data.students,
+    students: data.students.map(toStudentRef),
     rooms: data.rooms,
     teacherFeeRules: data.teacherFeeRules,
     packages: data.packages ?? [],

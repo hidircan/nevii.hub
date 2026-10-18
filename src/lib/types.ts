@@ -464,6 +464,24 @@ export interface Student {
   paymentPausedBy?: string;
 }
 
+/**
+ * DB egress (2026-10-18) — çok-öğrencili dilimlerin (referans/ders penceresi/telafi/panel özeti) öğrenci satırı:
+ * yalnız tek-öğrenci ekranlarının (detay, sözleşme, düzenleme) okuduğu kolonlar SQL'de okunmaz (prod'da satırın
+ * ~%25'i). `notes` zorunlu alan olduğu için `StudentRef` → `Student` ATANAMAZ (tam öğrenci bekleyen yardımcı derlenmez).
+ * AMA `Pick<Student, …>` gibi opsiyonel alan kabul eden parametreler bunu YAKALAMAZ (eksik opsiyonel alan geçerlidir):
+ * listeye kolon eklemeden önce `StudentRef`'i geçici olarak `& { readonly [P in Omitted]-?: { __omitted: true } }` ile
+ * değiştirip `tsc` çalıştırın; dilim üreticileri dışındaki her hata gerçek bir okumadır (2026-10-18: TermsStudent
+ * indirim/MEB alanlarını okuduğu için onlar listede DEĞİL). Bu alanlardan birine ihtiyaç varsa tek satır okuyun.
+ */
+export const REFERENCE_STUDENT_OMIT = [
+  "notes", "address", "nationalIdCipher", "nationalIdLast2", "motherName", "fatherName", "referralSource",
+  "referralSourceDetail", "specialNotes", "deletedByUserId", "deletionReason", "birthPlace", "schoolOrOccupation",
+  "paymentPauseReason", "paymentPausedBy", "paymentPausedAt",
+] as const satisfies readonly (keyof Student)[];
+export type StudentRef = Omit<Student, (typeof REFERENCE_STUDENT_OMIT)[number]>;
+/** `students` alanı `StudentRef[]` olan veri şekli — dar dilimleri kabul eden yardımcıların parametresi. */
+export type WithStudentRefs<T extends { students?: unknown }> = Omit<T, "students"> & { students: StudentRef[] };
+
 /** null = reactivate (tüm alanlar temizlenir). */
 export type StudentPaymentPauseState = { reason: string; pausedBy: string; pausedAt: string } | null;
 

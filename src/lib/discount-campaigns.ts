@@ -8,7 +8,7 @@
  * modeli (ör. `familyId`) eklenmesi ayrı bir karardır.
  */
 import { enrollmentTermsList } from "./student-enrollments";
-import type { AppData, BranchId, CampaignStackingRule, DiscountCampaign, Student } from "./types";
+import type { AppData, BranchId, CampaignStackingRule, DiscountCampaign, Student, StudentRef } from "./types";
 import { uid } from "./utils";
 
 /** Aynı veli telefonuna kayıtlı AKTİF öğrenci sayısı (kendisi dahil). */
@@ -389,7 +389,7 @@ export type CampaignReportFilter = {
  * listelenmez (sessizce atlanır, raporu bozmaz).
  */
 export function buildCampaignReport(
-  students: Student[],
+  students: StudentRef[],
   campaigns: DiscountCampaign[],
   packages: AppData["packages"],
   branchNameOf: (branchId: string) => string,

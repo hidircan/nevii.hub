@@ -37,7 +37,7 @@ import {
   narrowToPaymentsPage,
   narrowToPayoutWindow,
   narrowToStudentScope,
-  toPaymentStatusRow,
+  toPaymentStatusRows,
   toReferenceData,
 } from "../reference-data";
 import { computeTeacherEarningsForPeriod, computeTeacherEarningsWithRevisions, payoutDrift } from "../teacher-payout";
@@ -150,7 +150,7 @@ describe("DB egress dilimleri — tam okumayla aynı sonuç", () => {
     const from = new Date("2026-09-01T00:00:00Z");
     const to = new Date("2026-10-10T00:00:00Z");
     expect(await readLessonWindow(from.toISOString(), to.toISOString())).toEqual(narrowToLessonWindow(full, from, to));
-    expect(await readStudentListData()).toEqual({ ...toReferenceData(full), payments: full.payments.map(toPaymentStatusRow) });
+    expect(await readStudentListData()).toEqual({ ...toReferenceData(full), payments: toPaymentStatusRows(full.payments) });
     expect(await readPaymentsPageData()).toEqual(narrowToPaymentsPage(full));
   });
 
@@ -275,10 +275,8 @@ describe("finans semantiği dilimlerle değişmez", () => {
     expect(fromScope.overdueRemaining).toBeGreaterThanOrEqual(3200);
 
     const list = await readStudentListData();
-    expect(list.payments.filter((p) => p.studentId === "s1")).toEqual(
-      full.payments.filter((p) => p.studentId === "s1").map(toPaymentStatusRow)
-    );
-    expect(list.payments.length).toBe(full.payments.length);
+    // 2026-10-18 — liste ödemeleri özettir (öğrenci/durum/sözleşme başına kalan); borç sonucu ham satırlarla aynı.
+    expect(list.payments).toEqual(toPaymentStatusRows(full.payments));
   });
 });
 

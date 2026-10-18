@@ -93,6 +93,13 @@ yeniden doğrula: en yeni `docs/performance/DB_EGRESS_*.md` (şu an `DB_EGRESS_2
    yalnız tür), liste `listNotificationsPageForUser` (limit). `listNotificationsForUser` yalnız testler/küçük json modu.
 21. **Cron sıklığı = iş saatleri.** 10 dk'lık tick gece de çalışırsa CPU+egress boşa gider; aralık `vercel.json` ve
    `apps/cloudflare-cron` (index.js + wrangler.jsonc) üçünde birlikte değişir; ders saatleri genişlerse aralığı genişlet.
+22. **Çok-öğrencili dilimde öğrenci = `StudentRef`.** Tek-öğrenci kolonları (`REFERENCE_STUDENT_OMIT`) SQL'de okunmaz.
+   Listede/dilimde yeni bir öğrenci alanı okuyacaksan: alan listede ise ya listeden çıkar ya tek satır oku
+   (`readStudentById`). Listeye kolon EKLEMEDEN önce sonda: `StudentRef`'i geçici olarak
+   `& { readonly [P in Omitted]-?: { __omitted: true } }` yap, `tsc` — dilim üreticileri (reference-data/store-*/context)
+   dışındaki her hata gerçek okumadır (`Pick<Student,…>` opsiyonel alanı sessizce `undefined` alır, `notes` koruması yakalamaz).
+23. **Özet yeterse satır taşıma.** Liste rozeti/toplamı için tüm satırları okuma — SQL'de grupla (`groupBy` + alan
+   referansı `prisma.payment.fields.paidAmount`), json/memory aynı saf fonksiyonla (`toPaymentStatusRows`) özetlesin.
 
 ## 3. Kanıt toplama (erişim sınırları)
 - **2026-10-18'den beri canlı DB `ddskhtirzywbuucxeovz`** (org NeviiHub-October; `wsbucz…` donmuş geri dönüş, DOKUNMA).

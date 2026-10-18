@@ -85,7 +85,7 @@ type StoreApi = {
     status: AttendanceStatus;
     reason?: string;
   }) => Promise<AppData | void>;
-  generateSuggestions: (requestId: string, options?: { maxSlots?: number }) => Promise<AppData>;
+  generateSuggestions: (requestId: string, options?: { maxSlots?: number }) => Promise<Pick<AppData, "makeupRequests">>;
   confirmSlot: (requestId: string, slot: MakeupSlot, decision: MakeupDecision) => Promise<AppData | void>;
   cancelMakeup: (requestId: string, decision: MakeupDecision) => Promise<AppData | void>;
   updateMakeupSlaEscalation: (requestId: string, level: number) => Promise<AppData | void>;
@@ -259,6 +259,7 @@ type StoreApi = {
   readStudentById: (studentId: string) => Promise<Student | undefined>;
   /** DB egress (2026-10-18) — yalnız şube satırları (`readData().settings.branches` ile aynı). */
   readBranches: () => Promise<AppData["settings"]["branches"]>;
+  readNationalIdCandidates: (last2: string) => Promise<{ id: string; nationalIdCipher: string }[]>;
   readLessonById: (lessonId: string) => Promise<import("./types").Lesson | undefined>;
   readLessonsStartingBetween: (fromIso: string, toIso: string) => Promise<import("./types").Lesson[]>;
   readLessonsForTeacher: (teacherId: string) => Promise<import("./types").Lesson[]>;
@@ -493,6 +494,10 @@ export async function readBranches(): Promise<AppData["settings"]["branches"]> {
   return withTenantScope(() => store.readBranches());
 }
 
+export async function readNationalIdCandidates(last2: string): Promise<{ id: string; nationalIdCipher: string }[]> {
+  return withTenantScope(() => store.readNationalIdCandidates(last2));
+}
+
 export async function readLessonsStartingBetween(fromIso: string, toIso: string): Promise<import("./types").Lesson[]> {
   return withTenantScope(() => store.readLessonsStartingBetween(fromIso, toIso));
 }
@@ -648,7 +653,7 @@ export async function markAttendance(input: {
 export async function generateSuggestions(
   requestId: string,
   options?: { maxSlots?: number }
-): Promise<AppData> {
+): Promise<Pick<AppData, "makeupRequests">> {
   return withTenantScope(() => store.generateSuggestions(requestId, options));
 }
 

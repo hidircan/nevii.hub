@@ -131,7 +131,7 @@ function inRange(iso: string, start: number, end: number): boolean {
 }
 
 /** Rapor yalnız dönemin dersleri + öğrenci listesi + kurum ayarını okur (DB egress: ders penceresi yeterli). */
-type PerformanceData = Pick<AppData, "lessons" | "students" | "settings">;
+type PerformanceData = Pick<AppData, "lessons" | "settings"> & { students: import("./types").StudentRef[] };
 
 function computeAttendanceComponent(
   data: PerformanceData,

@@ -23,7 +23,7 @@ import {
   narrowToPaymentsPage,
   narrowToPayoutWindow,
   narrowToStudentScope,
-  toPaymentStatusRow,
+  toPaymentStatusRows,
   toReferenceData,
   type DashboardData,
   type LessonWindowData,
@@ -222,7 +222,7 @@ const readScopedStudentListDataByKey = cache(async (key: string): Promise<Studen
     return runWithTenantAsync(key.slice("single:".length), () => readStudentListData());
   }
   const full = await readScopedDataByKey(key);
-  return { ...toReferenceData(full), payments: full.payments.map(toPaymentStatusRow) };
+  return { ...toReferenceData(full), payments: toPaymentStatusRows(full.payments) };
 });
 
 /** DB egress (2026-09-30) — Öğrenciler listesi (bkz. reference-data.ts `StudentListData`). */

@@ -54,6 +54,7 @@ import {
   type AcademicTermDates,
 } from "./academic-term-dates";
 import { createSeedData, createEmptyTemplateData } from "./seed";
+import { REFERENCE_STUDENT_OMIT } from "./types";
 import type {
   AppData,
   AttendanceStatus,
@@ -119,7 +120,7 @@ import {
   narrowToPaymentsPage,
   narrowToPayoutWindow,
   narrowToStudentScope,
-  toPaymentStatusRow,
+  toPaymentStatusRows,
   toReferenceData,
   type DashboardData,
   type LessonWindowData,
@@ -190,7 +191,7 @@ function tenantId(): string {
   return tryTenantId() ?? DEFAULT_TENANT_ID;
 }
 
-type PrismaSchoolWithRelations = Prisma.SchoolGetPayload<{
+type PrismaSchoolWithAllRelations = Prisma.SchoolGetPayload<{
   include: {
     branches: true;
     teachers: true;
@@ -205,6 +206,10 @@ type PrismaSchoolWithRelations = Prisma.SchoolGetPayload<{
     teacherPayouts: true;
   };
 }>;
+/** Çok-öğrencili dilimler öğrenci satırını `referenceStudentOmit` kolonları olmadan okur (eşleme eksikleri `undefined` yapar). */
+type PrismaSchoolWithRelations = Omit<PrismaSchoolWithAllRelations, "students"> & {
+  students: Partial<PrismaSchoolWithAllRelations["students"][number]>[];
+};
 
 function sleepMs(ms: number) {
   return new Promise((res) => setTimeout(res, ms));
@@ -661,7 +666,7 @@ function mapSchoolToAppData(school: PrismaSchoolWithRelations): AppData {
         (teacher as { emergencyContactPhone?: string | null }).emergencyContactPhone ?? undefined,
       personnelNotes: (teacher as { personnelNotes?: string | null }).personnelNotes ?? undefined,
     })),
-    students: school.students.map(mapDbStudent),
+    students: school.students.map((st) => mapDbStudent(st as Prisma.StudentGetPayload<object>)),
     rooms: school.rooms.map((room) => ({
       id: room.id,
       name: room.name,
@@ -1259,6 +1264,16 @@ export async function readStudentById(studentId: string): Promise<Student | unde
   return row ? mapDbStudent(row) : undefined;
 }
 
+/** DB egress (2026-10-18) — TC araması: son iki hanesi eşleşen, şifreli TC'si olan öğrenciler (yalnız id + şifreli değer). */
+export async function readNationalIdCandidates(last2: string): Promise<{ id: string; nationalIdCipher: string }[]> {
+  const tid = tenantId();
+  const rows = await prisma.student.findMany({
+    where: { tenantId: tid, school: { tenantId: tid }, nationalIdLast2: last2, nationalIdCipher: { not: null } },
+    select: { id: true, nationalIdCipher: true },
+  });
+  return rows.flatMap((r) => (r.nationalIdCipher ? [{ id: r.id, nationalIdCipher: r.nationalIdCipher }] : []));
+}
+
 /** DB egress (2026-10-18) — yalnız şube satırları; eşleme `mapSchoolToAppData` ile aynı. */
 export async function readBranches(): Promise<AppData["settings"]["branches"]> {
   const tid = tenantId();
@@ -1401,11 +1416,22 @@ export async function readTeacherPayoutsForTeacher(teacherId: string): Promise<T
   return rows.map(mapDbTeacherPayout);
 }
 
+/**
+ * DB egress (2026-10-18) — çok-öğrencili dilimlerin öğrenci kolonları: `REFERENCE_STUDENT_OMIT` (tek-öğrenci
+ * ekranlarının alanları) + eşlemenin kullanmadığı `tenantId`/`schoolId` okunmaz (prod'da öğrenci satırının ~%40'ı).
+ * Eşleme eksik kolonları `undefined` üretir; `toReferenceData` onları siler, tip `StudentRef`'tir.
+ */
+const referenceStudentOmit = {
+  ...(Object.fromEntries(REFERENCE_STUDENT_OMIT.map((k: string) => [k, true])) as Record<(typeof REFERENCE_STUDENT_OMIT)[number], true>),
+  tenantId: true,
+  schoolId: true,
+} as const;
+
 /** Referans dilimi için School ilişkileri — ders/seri/yoklama/telafi/ödeme/hakediş satırları YOK. */
 const referenceSchoolInclude = {
   branches: true,
   teachers: true,
-  students: true,
+  students: { omit: referenceStudentOmit },
   rooms: true,
   teacherFeeRules: true,
 } as const;
@@ -1690,27 +1716,27 @@ export async function readPaymentsPageData(): Promise<PaymentsPageData> {
 /** DB egress (2026-09-30) — Öğrenciler listesi: referans veri + tüm ödemelerin yalnız durum alanları. */
 export async function readStudentListData(): Promise<StudentListData> {
   const tid = tenantId();
-  const [school, packages, discountCampaigns, teacherPayoutPolicies, closedDayOverrides] = await Promise.all([
-    prisma.school.findFirst({
-      where: { tenantId: tid },
-      omit: { logoUrl: true },
-      include: {
-        ...referenceSchoolInclude,
-        payments: { select: { studentId: true, status: true, contractId: true, amount: true, paidAmount: true } },
-      },
-    }),
+  const tenantPayments = { tenantId: tid, school: { tenantId: tid } };
+  const [school, packages, discountCampaigns, teacherPayoutPolicies, closedDayOverrides, openGroups, paidStudents] = await Promise.all([
+    prisma.school.findFirst({ where: { tenantId: tid }, omit: { logoUrl: true }, include: referenceSchoolInclude }),
     readPackages(tid),
     readDiscountCampaigns(tid),
     readTeacherPayoutPolicies(tid),
     listClosedDays(tid).catch(() => []),
+    // DB egress (2026-10-18) — `toPaymentStatusRows` ile aynı gruplama SQL'de: kalanı olan canlı satırlar grup başına tek satır.
+    prisma.payment.groupBy({
+      by: ["studentId", "status", "contractId"],
+      where: { ...tenantPayments, status: { notIn: ["paid", "voided"] }, amount: { gt: prisma.payment.fields.paidAmount } },
+      _sum: { amount: true, paidAmount: true },
+    }),
+    prisma.payment.groupBy({ by: ["studentId"], where: { ...tenantPayments, status: "paid" } }),
   ]);
   if (!school) {
     const full = await readData();
-    return { ...toReferenceData(full), payments: full.payments.map(toPaymentStatusRow) };
+    return { ...toReferenceData(full), payments: toPaymentStatusRows(full.payments) };
   }
-  const { payments, ...rest } = school;
   const mapped = mapSchoolToAppData({
-    ...rest,
+    ...school,
     logoUrl: "",
     lessons: [],
     lessonSeries: [],
@@ -1721,16 +1747,16 @@ export async function readStudentListData(): Promise<StudentListData> {
   });
   return {
     ...toReferenceData({ ...mapped, packages, discountCampaigns, teacherPayoutPolicies, closedDayOverrides }),
-    // mapDbPayment ile aynı dönüşüm (status tipi, contractId null → undefined).
-    payments: payments.map((p) =>
-      toPaymentStatusRow({
-        studentId: p.studentId,
-        status: p.status as import("./types").PaymentStatus,
-        contractId: p.contractId ?? undefined,
-        amount: p.amount,
-        paidAmount: p.paidAmount,
-      })
-    ),
+    payments: toPaymentStatusRows([
+      ...paidStudents.map((p) => ({ studentId: p.studentId, status: "paid" as const, contractId: undefined, amount: 0, paidAmount: 0 })),
+      ...openGroups.map((g) => ({
+        studentId: g.studentId,
+        status: g.status as import("./types").PaymentStatus,
+        contractId: g.contractId ?? undefined,
+        amount: (g._sum.amount ?? 0) - (g._sum.paidAmount ?? 0),
+        paidAmount: 0,
+      })),
+    ]),
   };
 }
 
@@ -1856,13 +1882,13 @@ export async function markAttendance(input: {
 export async function generateSuggestions(
   requestId: string,
   options?: { maxSlots?: number }
-): Promise<AppData> {
+): Promise<Pick<AppData, "makeupRequests">> {
   logger.info("generateSuggestions", requestId);
   const tid = requireTenantId();
   // DB egress (2026-10-18): öneri motoru yalnız referans veri + dersler + telafi taleplerine bakar (Telafi Merkezi
   // dilimi); sondaki tam okuma yerine yazılan öneri bellekteki veriye işlenir (çağıran yalnız suggestedSlots okur).
   const center = await readMakeupCenterData();
-  const data: AppData = { ...center, lessonSeries: [], attendances: [], payments: [], teacherPayouts: [] };
+  const data: import("./types").WithStudentRefs<AppData> = { ...center, lessonSeries: [], attendances: [], payments: [], teacherPayouts: [] };
   const request = data.makeupRequests.find((m) => m.id === requestId);
   if (!request) throw new Error("Telafi talebi bulunamadı");
 
@@ -1889,7 +1915,7 @@ export async function generateSuggestions(
  * öğrenci çakışması, günlük sınır, yönlendirici mesaj) + kaynak ders + bu talebe bağlı dersler + talebin kendisi.
  * Çakışma için son söz yine kilit altındaki `assertSlotFreeLockedTx`'tedir.
  */
-async function readMakeupConfirmData(requestId: string, slotStartAt: string): Promise<import("./types").AppData | null> {
+async function readMakeupConfirmData(requestId: string, slotStartAt: string): Promise<import("./types").WithStudentRefs<AppData> | null> {
   const tid = tenantId();
   const request = await prisma.makeupRequest.findFirst({ where: { id: requestId, tenantId: tid }, select: { sourceLessonId: true } });
   if (!request) return null;

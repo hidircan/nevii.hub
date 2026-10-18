@@ -13,7 +13,7 @@ import { CriticalDeleteDialog } from "@/components/critical-delete-dialog";
 import { Badge, Button, Card, Input, Label, Select } from "@/components/ui";
 import { formatMoney } from "@/lib/utils";
 import { activeStudentCountForPackage, packageStatusLabel } from "@/lib/packages";
-import type { Package, Student } from "@/lib/types";
+import type { Package, StudentRef } from "@/lib/types";
 
 /** Odaklı oluşturma formu — `/panel/paketler/yeni` ve testler için paylaşılır. */
 export function PackageCreateForm({
@@ -140,7 +140,7 @@ export function PackageManager({
   isSuperAdmin = false,
 }: {
   packages: Package[];
-  students: Student[];
+  students: StudentRef[];
   canWrite: boolean;
   /** 9. tur — kalıcı silme (kritik işlem şifresi) yalnız SUPER_ADMIN; sunucu ayrıca uygular. */
   canDeletePackages?: boolean;

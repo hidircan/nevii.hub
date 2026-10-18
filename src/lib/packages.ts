@@ -241,7 +241,7 @@ export function computeMonthlyFee(params: {
 }
 
 /** Bir paketi aktif olarak kullanan (arşivlenmemiş) öğrenci sayısı — tenant-scoped `data` üzerinden. */
-export function activeStudentCountForPackage(data: Pick<AppData, "students">, packageId: string): number {
+export function activeStudentCountForPackage(data: { students: import("./types").StudentRef[] }, packageId: string): number {
   // 2026-10-10 — branşlı öğrencide paket BRANŞ kaydından okunur (aktif bir branşı bu paketi kullanıyorsa sayılır).
   return (data.students ?? []).filter((s) => s.active !== false && !s.archivedAt && studentUsesPackage(s, packageId, { activeOnly: true })).length;
 }
