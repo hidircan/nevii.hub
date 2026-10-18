@@ -8,7 +8,7 @@
  */
 
 import { useState, type ReactNode } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { Search, UserX } from "lucide-react";
 import { TeacherPerformanceInfo } from "@/components/teacher-performance-info";
 import { PaginationControls, usePagination } from "@/components/pagination-controls";
@@ -48,7 +48,6 @@ export function TeacherListView({
   branches: { id: string; name: string }[];
   instruments: string[];
 }) {
-  const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [query, setQuery] = useState(searchParams.get("q") ?? "");
@@ -63,7 +62,8 @@ export function TeacherListView({
     const params = new URLSearchParams(searchParams.toString());
     mutate(params);
     const qs = params.toString();
-    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    // DB egress (2026-10-18): sunucu sayfası bu parametreleri okumaz — native history, sunucu turu YOK (bkz. students-table).
+    window.history.replaceState(null, "", qs ? `${pathname}?${qs}` : pathname);
   }
   const setParam = (key: string, value: string, fallback = "") =>
     update((p) => (value && value !== fallback ? p.set(key, value) : p.delete(key)));
@@ -188,7 +188,7 @@ export function TeacherListView({
               type="button"
               onClick={() => {
                 setQuery("");
-                router.replace(pathname, { scroll: false });
+                window.history.replaceState(null, "", pathname);
               }}
               className="text-[var(--color-primary)] hover:underline"
             >

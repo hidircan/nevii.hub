@@ -33,9 +33,14 @@ describe("Öğrenci araması — yazma asla sunucuyu beklemez", () => {
   });
 
   it("URL senkronu GECİKMELİDİR (tuş başına navigasyon yok)", () => {
-    expect(CODE).toMatch(/setTimeout\([\s\S]{0,400}?router\.replace/);
+    expect(CODE).toMatch(/setTimeout\([\s\S]{0,400}?replaceUrl\(/);
     expect(CODE).toMatch(/\}, 250\)/);
     expect(CODE).toMatch(/clearTimeout\(id\)/);
+  });
+
+  it("filtre URL yazımı sunucu turu değildir (DB egress 2026-10-18) — yalnız `silinenler` değişirse router", () => {
+    expect(CODE).toMatch(/window\.history\.replaceState\(null, "", url\)/);
+    expect(CODE).toMatch(/get\("silinenler"\)[\s\S]{0,300}?router\.replace\(url/);
   });
 
   it("URL dışarıdan değişince (geri/ileri, derin bağlantı) input senkronlanır", () => {
