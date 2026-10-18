@@ -4,7 +4,17 @@ Kısa tutulur (~50 satır): oturum sonunda yalnız "Güncel snapshot" bölümün
 `archive/`'e taşınır. Ayrıntı → ilgili `docs/testing/UAT_*.md`, `docs/operations/*`. Yönlendirici: `nevii-hub` skill.
 Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_2026-09-24.md`.
 
-## Güncel snapshot — 2026-10-18 öğle (Supabase egress 5. dalga; PR açık, MERGE/CANLI YOK, migration/env YOK)
+## Güncel snapshot — 2026-10-18 sabah (CANLI DB YENİ SUPABASE PROJESİNE TAŞINDI)
+- Neden: eski org `neviihub-prod-org` egress 15.83/5.5 GB, 19 Ekim'den sonra 402; transfer grace period'da reddedildi.
+- 07:04Z eski `wsbucz…` donduruldu → kilitli son dump (106 tablo, 37 518 satır) → yeni `ddskhtirzywbuucxeovz`
+  (org NeviiHub-October, eu-central-1, PG17) yükleme 71 sn, özet/parmak izi/iş kontrolleri EŞİT, RLS 106/106, anon 0.
+- Vercel production env (DATABASE_URL, SUPABASE_SERVICE_ROLE_KEY, NEXT_PUBLIC_SUPABASE_URL/PUBLISHABLE_KEY,
+  PROD_SUPABASE_REF) + GitHub `production` secret DATABASE_URL yeni projeye; redeploy 07:12:59Z. Betikler/log:
+  `~/NeviiHub-Backups/2026-10-18-oct/`, `OPS_LOG.txt`. Eski proje salt-okunur geri dönüş kaynağı (silme/pause YOK).
+- Storage: iki projede de bucket YOK (`announcement-attachments` hiç oluşturulmamış → duyuru eki yüklemesi canlıda çalışmaz).
+- Asıl çare yine tüketim: yeni 5 GB da ~170 MB/gün üstünde biter. Açık: ilk iş günü `egress:readData:full` sayımı.
+
+## Snapshot — 2026-10-18 öğle (Supabase egress 5. dalga; #62 merge + canlı 05:13Z)
 - #61 merge + canlı. Worktree `../nevii-hub-egress-p5`, dal `perf/egress-p5`. Rapor `DB_EGRESS_2026_10_18.md` §6.
 - Uçtan uca akış sayacı (`scripts/bench/bench-flow-full-reads.ts`) iki gizli tam okuma buldu: ders taşıma sonrası mesaj
   taslağı kancası ve gece tahakkuk cron'unun öğrenci başına plan satırı yazımı. + hakediş ekranı, finans özeti, mobil telafi.
