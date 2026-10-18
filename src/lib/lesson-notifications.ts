@@ -1,6 +1,6 @@
 import { format } from "date-fns";
 import { tr } from "date-fns/locale";
-import { readLessonsStartingBetween, readReferenceData, listSchoolTenants } from "./store";
+import { readBranches, readLessonsStartingBetween, readStudentById, listSchoolTenants } from "./store";
 import { runWithTenantAsync } from "./tenant-context";
 import { getUserIdByTeacherId, getUserIdByStudentId } from "./auth/users";
 import { hasActiveStudentAccess, listActiveAccessForTenant } from "./student-portal-access";
@@ -430,7 +430,12 @@ export async function sweepLessonReminders(now: Date = new Date()): Promise<Remi
         (l) => reminderOffsetForLesson(l, now) !== null
       );
       if (due.length === 0) return;
-      const data = await readReferenceData();
+      // DB egress (2026-10-18): gündüz neredeyse her turda bir ders offset'e girer — tüm öğrenci listesi yerine
+      // yalnız bu turdaki öğrencilerin adları + şube adları okunur.
+      const [dueStudents, branches] = await Promise.all([
+        Promise.all([...new Set(due.map((l) => l.studentId))].map((id) => readStudentById(id))),
+        readBranches(),
+      ]);
       const access = await listActiveAccessForTenant(t.tenantId);
       // Alıcı havuzu: yalnız `active` satırlar (invited/revoked ASLA).
       // GUARDIAN → tüm aktif çocukları; SELF → kendi studentId'si.
@@ -441,8 +446,8 @@ export async function sweepLessonReminders(now: Date = new Date()): Promise<Remi
         list.push(r.userId);
         recipientsByStudent.set(r.studentId, list);
       }
-      const studentNameById = new Map(data.students.map((s) => [s.id, s.name]));
-      const branchNameById = new Map((data.settings.branches ?? []).map((b) => [b.id, b.shortName ?? b.name]));
+      const studentNameById = new Map(dueStudents.flatMap((s) => (s ? [[s.id, s.name] as const] : [])));
+      const branchNameById = new Map(branches.map((b) => [b.id, b.shortName ?? b.name]));
 
       for (const lesson of due) {
         const offset = reminderOffsetForLesson(lesson, now);

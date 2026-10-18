@@ -27,6 +27,11 @@ yeniden doğrula: en yeni `docs/performance/DB_EGRESS_*.md` (şu an `DB_EGRESS_2
 - 2026-10-18 (`perf/egress-p5`): uçtan uca akış sayacı iki gizli tam okuma buldu — ders taşıma sonrası mesaj taslağı
   kancası ve gece tahakkuk cron'unun öğrenci başına çağırdığı plan satırı yazımı; + hakediş ekranı, finans özeti,
   mobil telafi listesi (yalnız bağlı dersler).
+- 2026-10-18 (`perf/quota-p6`, canlı DB yeni projede `ddsk…`): ÜRETİM `pg_stat_statements` + `scripts/ops/egress-top-queries.sql`
+  ile sıralandı (log satırına düşmeyen dilimler de görünür). Telafi Merkezi tüm dersleri okuyordu (dilim "tam okuma"
+  logu basmaz; 1 309 → 179 KB), kullanıcının TÜM bildirimleri (yöneticide 2 605 satır ≈ 0,7 MB: Bildirimler sayfası,
+  öğretmen sözleşme uyarısı tekilleştirmesi, ders başladı/ödeme alındı tekilleştirmesi), tick hatırlatmasında tüm öğrenci
+  listesi; 10 dk tick yalnız 04–18 UTC. Kalan en büyük kalem: referans dilimindeki öğrenci satırları (~140 KB/sayfa).
 
 ## 2. Kalıcı kurallar (kod yazarken)
 1. **"Var mı" kontrolü için tam `readData()` YAZMA.** Tek satır okuyucu kullan; yoksa önce onu ekle (3 store modu).
@@ -81,10 +86,23 @@ yeniden doğrula: en yeni `docs/performance/DB_EGRESS_*.md` (şu an `DB_EGRESS_2
 18. **Zamanlanmış işin satır başı çağrısı okuma YAPMAZ.** Cron/tick döngüsünde çağrılan store yazımı (ör.
    `upsertMonthlyPlanPayment`) tam okuma yaparsa maliyet satır sayısıyla çarpılır; dönüşte yalnız kimlik.
 
+19. **Dilim ≠ dar.** Yeni dilim `egress:readData:full` basmaz ama tüm dersleri/ödemeleri okuyorsa yine tam okumadır —
+   log'da görünmez; `egress-top-queries.sql` (satır × kolon genişliği) görür. Dilime koleksiyon eklerken satır sınırını yaz
+   (pencere / kimlik listesi / `makeupRequestId` gibi), "tüm X" bırakma.
+20. **Kullanıcının tüm bildirimlerini okuma.** Tekilleştirme `hasRecentNotification` (SQL, ≤1 satır; `bodyIncludes: ""` =
+   yalnız tür), liste `listNotificationsPageForUser` (limit). `listNotificationsForUser` yalnız testler/küçük json modu.
+21. **Cron sıklığı = iş saatleri.** 10 dk'lık tick gece de çalışırsa CPU+egress boşa gider; aralık `vercel.json` ve
+   `apps/cloudflare-cron` (index.js + wrangler.jsonc) üçünde birlikte değişir; ders saatleri genişlerse aralığı genişlet.
+
 ## 3. Kanıt toplama (erişim sınırları)
-- Üretim Supabase (`wsbucz…`, org `neviihub-prod-org`) bu ortamdaki Supabase MCP'de GÖRÜNMEZ (yalnız eski org).
-  Usage, Query Performance, `pg_stat_statements`, hata dökümü → owner'dan ekran görüntüsü iste. Sayaç başlangıcı bilinmez:
-  "son 24 saat" deme; satır sayısını GB'a çevirme; Auth MAU 0 normal (kendi UserSession auth'u).
+- **2026-10-18'den beri canlı DB `ddskhtirzywbuucxeovz`** (org NeviiHub-October; `wsbucz…` donmuş geri dönüş, DOKUNMA).
+  SALT OKUMA sıralama: `source ~/NeviiHub-Backups/2026-10-18-oct/scripts/target-env.sh && psql -XAq -F' | ' -f
+  scripts/ops/egress-top-queries.sql` (session 5432; `stats_reset` = sayaç başlangıcı, sütunda yazar). Tahmin sıralama
+  içindir; günlük gerçek değer owner'ın Usage → Egress çubuğu. COPY satırları geri yüklemedendir. Auth MAU 0 normal.
+- Vercel rota başına Active CPU / çağrı (Pro + Observability Plus): `npx vercel metrics
+  vercel.function_invocation.function_cpu_time_ms -a sum --group-by route --group-by requestMethod --prod -s <ISO>
+  --order-by value -l 40 --scope hidircans-projects -p prj_hmg2Nu2GtPs0JrfEcllpeUIbWpIG --json` (sayı için
+  `vercel.function_invocation.count`); günlük/fatura: `npx vercel api "/v1/billing/charges?from=…&to=…"` (JSONL).
 - Vercel (team `team_2B4OtczujC3syAAg8SWmvGS6`, project `prj_hmg2Nu2GtPs0JrfEcllpeUIbWpIG`): `get_runtime_errors`
   7 gün. **En hızlı kanıt:** `get_runtime_logs` `environment=production` `query="egress:readData:full"`
   `group_by=requestPath` `since="3d"` (Pro'da 3 gün çalıştı; Hobby'de yalnız 1 saat) → tam okuma yapan rotalar;
@@ -120,6 +138,11 @@ STORE_MODE=db npx tsx scripts/bench/bench-flow-full-reads.ts                # ak
   yeniden yazımı). Hosting değişimi egress'i değiştirmez; Workers Free 10 ms CPU → bcrypt girişi sığmaz (Paid $5/ay).
 - Vercel Pro → Hobby: `*/10` cron Hobby'de deploy'u reddeder → `apps/cloudflare-cron` (Workers Free Cron Trigger) +
   `vercel.json` crons kaldır, aynı PR.
+- **Vercel'i yeni team/hesaba taşıyıp kota sıfırlama ÖNERME/YAPMA** (2026-10-18 owner sordu): Hobby yalnız ticari olmayan
+  kişisel kullanım (Fair Use) → ücretli müşteriye hizmet eden NeviiHub için kural ihlali; yeni Hobby = yeni hesap = limit
+  aşmak için çoklu hesap. Team Pro (dönem 14 Eki–14 Kas): Active CPU 0,62 sa/4,5 gün, ek ücret $0. Ücretsiz çıkış yolu
+  yalnız platform değişimi (Cloudflare Workers + OpenNext; Free 10 ms CPU sınırı → pratikte Workers Paid $5/ay) — ayrı
+  değerlendirme, owner kararı.
 
 ## 6. Teslim
 - Rapor: kanıt → dosya/fonksiyon → değişiklik → test → ölçülen kazanım tablosu; önce/sonra; kalan yollar; deploy/rollback;

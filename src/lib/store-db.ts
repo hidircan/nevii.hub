@@ -113,6 +113,7 @@ import {
   narrowToLessonWindow,
   narrowToMakeupCenter,
   makeupLinkedLessonIds,
+  makeupPlanningWindow,
   type MakeupCenterOptions,
   type MakeupCenterData,
   narrowToPaymentsPage,
@@ -1258,6 +1259,20 @@ export async function readStudentById(studentId: string): Promise<Student | unde
   return row ? mapDbStudent(row) : undefined;
 }
 
+/** DB egress (2026-10-18) — yalnız şube satırları; eşleme `mapSchoolToAppData` ile aynı. */
+export async function readBranches(): Promise<AppData["settings"]["branches"]> {
+  const tid = tenantId();
+  const rows = await prisma.branch.findMany({ where: { tenantId: tid, school: { tenantId: tid } } });
+  return rows.map((branch) => ({
+    id: branch.id as BranchId,
+    name: branch.name,
+    shortName: branch.shortName,
+    address: branch.address,
+    phone: branch.phone,
+    city: branch.city,
+  }));
+}
+
 /** Portal daveti için tenant-scope'lu öğretmen/kurum alanları; ağır koleksiyonlar okunmaz. */
 export async function readTeacherPortalDetails(teacherId: string) {
   if (!teacherId) return null;
@@ -1486,19 +1501,42 @@ export async function readLessonWindow(fromIso: string, toIso: string): Promise<
 /** DB egress (2026-10-16) — Telafi Merkezi: referans veri + tüm dersler + tüm telafi talepleri (bkz. reference-data.ts). */
 export async function readMakeupCenterData(opts?: MakeupCenterOptions): Promise<MakeupCenterData> {
   const tid = tenantId();
-  const linkedIds =
-    opts?.lessons === "linked"
-      ? makeupLinkedLessonIds(
-          await prisma.makeupRequest.findMany({ where: { tenantId: tid }, select: { sourceLessonId: true, confirmedLessonId: true } })
+  const mode = opts?.lessons ?? "all";
+  const refs =
+    mode === "all"
+      ? null
+      : await prisma.makeupRequest.findMany({
+          where: { tenantId: tid },
+          select: { sourceLessonId: true, confirmedLessonId: true, ...(mode === "planning" ? { status: true, suggestedSlots: true } : {}) },
+        });
+  // Kural reference-data.ts `narrowToMakeupCenter` ile aynı (json/memory parity).
+  const window =
+    mode === "planning" && refs
+      ? makeupPlanningWindow(
+          refs.map((r) => ({
+            status: String((r as { status?: unknown }).status ?? ""),
+            suggestedSlots: (r as { suggestedSlots?: unknown }).suggestedSlots as { startAt: string }[] | null,
+          }))
         )
       : null;
+  const lessonsWhere: Prisma.LessonWhereInput = !refs
+    ? {}
+    : mode === "planning"
+      ? {
+          OR: [
+            { id: { in: makeupLinkedLessonIds(refs) } },
+            { makeupRequestId: { not: null } },
+            ...(window ? [{ startAt: { gte: window.from, lte: window.to } }] : []),
+          ],
+        }
+      : { id: { in: makeupLinkedLessonIds(refs) } };
   const [school, packages, discountCampaigns, teacherPayoutPolicies, closedDayOverrides] = await Promise.all([
     prisma.school.findFirst({
       where: { tenantId: tid },
       omit: { logoUrl: true },
       include: {
         ...referenceSchoolInclude,
-        lessons: { where: { tenantId: tid, ...(linkedIds ? { id: { in: linkedIds } } : {}) } },
+        lessons: { where: { tenantId: tid, ...lessonsWhere } },
         makeupRequests: { where: { tenantId: tid } },
       },
     }),

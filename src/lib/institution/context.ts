@@ -178,9 +178,9 @@ const readScopedLessonWindowByKey = cache(async (key: string, fromIso: string, t
 
 const readScopedMakeupCenterDataByKey = cache(async (key: string): Promise<MakeupCenterData> => {
   if (key.startsWith("single:")) {
-    return runWithTenantAsync(key.slice("single:".length), () => readMakeupCenterData());
+    return runWithTenantAsync(key.slice("single:".length), () => readMakeupCenterData({ lessons: "planning" }));
   }
-  return narrowToMakeupCenter(await readScopedDataByKey(key));
+  return narrowToMakeupCenter(await readScopedDataByKey(key), { lessons: "planning" });
 });
 
 const readScopedTeacherPayoutsByKey = cache(async (key: string, teacherId: string): Promise<AppData["teacherPayouts"]> => {
@@ -207,7 +207,7 @@ export async function readScopedTeacherPayouts(scope: InstitutionScope, teacherI
   return readScopedTeacherPayoutsByKey(scopeCacheKey(scope), teacherId);
 }
 
-/** DB egress (2026-10-16) — Telafi Merkezi (bkz. reference-data.ts `MakeupCenterData`). */
+/** DB egress (2026-10-16) — Telafi Merkezi (bkz. reference-data.ts `MakeupCenterData`); 2026-10-18: `"planning"` dersleri. */
 export async function readScopedMakeupCenterData(scope: InstitutionScope): Promise<MakeupCenterData> {
   return readScopedMakeupCenterDataByKey(scopeCacheKey(scope));
 }

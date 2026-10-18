@@ -4,7 +4,7 @@
  * yalnız saat gelince uygulamanın kendi uç noktasını çağırır.
  */
 const JOBS = {
-  "*/10 * * * *": "/api/v1/notifications/tick?stages=lessons",
+  "*/10 4-18 * * *": "/api/v1/notifications/tick?stages=lessons",
   "0 6 * * *": "/api/v1/notifications/tick",
   "30 0 * * *": "/api/v1/platform/jobs/retention?apply=1",
   "0 1 * * *": "/api/v1/platform/jobs/monthly-accrual?apply=1",
