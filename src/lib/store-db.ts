@@ -1885,12 +1885,17 @@ export async function generateSuggestions(
 ): Promise<Pick<AppData, "makeupRequests">> {
   logger.info("generateSuggestions", requestId);
   const tid = requireTenantId();
-  // DB egress (2026-10-18): öneri motoru yalnız referans veri + dersler + telafi taleplerine bakar (Telafi Merkezi
-  // dilimi); sondaki tam okuma yerine yazılan öneri bellekteki veriye işlenir (çağıran yalnız suggestedSlots okur).
-  const center = await readMakeupCenterData();
-  const data: import("./types").WithStudentRefs<AppData> = { ...center, lessonSeries: [], attendances: [], payments: [], teacherPayouts: [] };
-  const request = data.makeupRequests.find((m) => m.id === requestId);
-  if (!request) throw new Error("Telafi talebi bulunamadı");
+  // DB egress (2026-10-18, 8. dalga): eskiden tüm dersler (prod 5.606 satır ≈ 2,4 MB/çağrı). Öneri döngüsü yarından
+  // talebin son gününe kadar slot dener (`suggestMakeupSlots`, expiresAt'te durur); doğrulayıcı slotun ±8 gününe
+  // bakar (onay dilimiyle aynı kural) → [şimdi − 8 gün, expiresAt + 9 gün] + kaynak ders + bağlı dersler yeter.
+  // Çağıran yalnız bu talebin suggestedSlots'unu okur.
+  const now = Date.now();
+  const data = await readMakeupRequestWindowData(requestId, (r) => ({
+    from: new Date(now - 8 * 86_400_000),
+    to: new Date(r.expiresAt.getTime() + 9 * 86_400_000),
+  }));
+  const request = data?.makeupRequests.find((m) => m.id === requestId);
+  if (!data || !request) throw new Error("Telafi talebi bulunamadı");
 
   const slots = suggestMakeupSlots(data, request, options);
   const slotsJson = JSON.parse(JSON.stringify(slots)) as Prisma.JsonArray;
@@ -1902,10 +1907,7 @@ export async function generateSuggestions(
     where: { id: existing.id },
     data: { status: "suggested", suggestedSlots: slotsJson },
   });
-  return {
-    ...data,
-    makeupRequests: data.makeupRequests.map((m) => (m.id === requestId ? { ...m, status: "suggested" as const, suggestedSlots: slots } : m)),
-  };
+  return { makeupRequests: [{ ...request, status: "suggested" as const, suggestedSlots: slots }] };
 }
 
 /**
@@ -1916,13 +1918,23 @@ export async function generateSuggestions(
  * Çakışma için son söz yine kilit altındaki `assertSlotFreeLockedTx`'tedir.
  */
 async function readMakeupConfirmData(requestId: string, slotStartAt: string): Promise<import("./types").WithStudentRefs<AppData> | null> {
-  const tid = tenantId();
-  const request = await prisma.makeupRequest.findFirst({ where: { id: requestId, tenantId: tid }, select: { sourceLessonId: true } });
-  if (!request) return null;
   const at = new Date(slotStartAt).getTime();
   if (Number.isNaN(at)) return null;
-  const from = new Date(at - 8 * 86_400_000);
-  const to = new Date(at + 8 * 86_400_000);
+  return readMakeupRequestWindowData(requestId, () => ({ from: new Date(at - 8 * 86_400_000), to: new Date(at + 8 * 86_400_000) }));
+}
+
+/** Referans veri + `range` içindeki TÜM dersler + kaynak ders + talebe bağlı dersler + yalnız bu talep. */
+async function readMakeupRequestWindowData(
+  requestId: string,
+  range: (request: { expiresAt: Date }) => { from: Date; to: Date }
+): Promise<import("./types").WithStudentRefs<AppData> | null> {
+  const tid = tenantId();
+  const request = await prisma.makeupRequest.findFirst({
+    where: { id: requestId, tenantId: tid },
+    select: { sourceLessonId: true, expiresAt: true },
+  });
+  if (!request) return null;
+  const { from, to } = range(request);
   const [school, packages, discountCampaigns, teacherPayoutPolicies, closedDayOverrides] = await Promise.all([
     prisma.school.findFirst({
       where: { tenantId: tid },
@@ -2457,7 +2469,7 @@ export async function updateTeacherAvailability(
     data: { availability: availability === undefined ? undefined : (availability as unknown as Prisma.InputJsonValue) },
   });
   if (result.count === 0) return null;
-  const data = await readData();
+  const data = await readReferenceData();
   return data.teachers.find((t) => t.id === teacherId) ?? null;
 }
 
@@ -2482,7 +2494,7 @@ export async function updateTeacherInstruments(
     },
   });
   if (result.count === 0) return null;
-  const data = await readData();
+  const data = await readReferenceData();
   return data.teachers.find((t) => t.id === teacherId) ?? null;
 }
 
@@ -2528,7 +2540,7 @@ export async function updateTeacherProfile(
     },
   });
   if (result.count === 0) return null;
-  const data = await readData();
+  const data = await readReferenceData();
   return data.teachers.find((t) => t.id === teacherId) ?? null;
 }
 
@@ -2953,7 +2965,7 @@ export async function updateRoom(
     },
   });
   if (result.count === 0) return null;
-  const data = await readData();
+  const data = await readReferenceData();
   return data.rooms.find((r) => r.id === roomId) ?? null;
 }
 
@@ -2966,7 +2978,7 @@ export async function archiveTeacher(teacherId: string, archived: boolean): Prom
     data: { active: !archived, archivedAt: archived ? new Date() : null },
   });
   if (result.count === 0) return null;
-  const data = await readData();
+  const data = await readReferenceData();
   return data.teachers.find((t) => t.id === teacherId) ?? null;
 }
 
