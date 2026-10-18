@@ -73,4 +73,6 @@ UI (`src/app/panel/*`, `src/components/*`) → server action (`src/lib/actions.t
 - Büyük kolon (logo, sözleşme snapshot'ı, dosya/HTML) yalnız onu gösteren tekil ekranda seçilir.
 - Mobil/API ucu ekliyorsan: tek öğrenci → `readStudentScope`, tarih aralığı → `readLessonWindow`, liste → `readReferenceData`;
   `readData()` önüne önbellek koyma (instance'lar arası bayat finans verisi). Ölçüm/yöntem: `performance-db-egress` skill.
+- Yazım sonrası tüm veriyi yeniden okuma (`data: await readData()`); ders düzenleme → `readLessonEditScope`, e-posta logosu
+  → `readSchoolBranding`, sayaç → `count` sorgusu. Kalan yollar: son `docs/performance/DB_EGRESS_*.md` "Kalan" bölümü.
 - Ayrıntı: CLAUDE.md "Egress rules — enforced".

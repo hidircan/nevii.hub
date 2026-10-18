@@ -60,6 +60,9 @@ import type { MakeupDecision } from "./makeup-engine";
 import type { LessonScheduleUpdateOutcome } from "./lesson-update";
 import type { LessonTimeCorrection, LessonLiveUpdateResult } from "./lesson-live-status";
 
+/** E-posta/davet şablonları için kurum adı + iletişim + logo (DB egress 2026-10-18: tam okuma yerine tek satır). */
+export type SchoolBranding = { name: string; phone: string; website: string; logoUrl: string };
+
 export type TeacherPortalDetails = {
   teacherId: string;
   teacherName: string;
@@ -256,9 +259,12 @@ type StoreApi = {
   readLessonById: (lessonId: string) => Promise<import("./types").Lesson | undefined>;
   readLessonsStartingBetween: (fromIso: string, toIso: string) => Promise<import("./types").Lesson[]>;
   readLessonsForTeacher: (teacherId: string) => Promise<import("./types").Lesson[]>;
+  readTeacherAttendanceRows: () => Promise<import("./insights/teacher-performance").TeacherAttendanceRow[]>;
+  readMobileDashboardCounts: (now: Date) => Promise<import("./dashboard/mobile-counts").MobileDashboardCounts>;
   readTeacherPayoutsForTeacher: (teacherId: string) => Promise<import("./types").TeacherPayout[]>;
   readPaymentById: (paymentId: string) => Promise<import("./types").Payment | undefined>;
   readTeacherPortalDetails: (teacherId: string) => Promise<TeacherPortalDetails | null>;
+  readSchoolBranding: () => Promise<SchoolBranding>;
   /** Dar okuma — referans dilimi (bkz. src/lib/reference-data.ts); ders/ödeme/yoklama/telafi yok. */
   readReferenceData: () => Promise<ReferenceData>;
   /** Dar okuma — tek öğrenci dilimi (bkz. src/lib/reference-data.ts `narrowToStudentScope`). */
@@ -494,6 +500,20 @@ export async function readLessonsForTeacher(teacherId: string): Promise<import("
   });
 }
 
+/** DB egress (2026-10-18) — öğretmen performans puanı girdisi: (dersin öğretmeni, yoklama statüsü) çiftleri. */
+export async function readTeacherAttendanceRows(): Promise<import("./insights/teacher-performance").TeacherAttendanceRow[]> {
+  return withTenantScope(() => store.readTeacherAttendanceRows());
+}
+
+/** DB egress (2026-10-18) — mobil ana sayfa sayaçları (count sorguları; bkz. dashboard/mobile-counts.ts). */
+export async function readMobileDashboardCounts(now: Date): Promise<import("./dashboard/mobile-counts").MobileDashboardCounts> {
+  // readData() ile aynı: süresi dolan telafi planı önce işlenir (açık telafi sayısı bayat görünmesin).
+  return withTenantScope(async () => {
+    await store.commitMakeupPlanningExpiry(now);
+    return store.readMobileDashboardCounts(now);
+  });
+}
+
 /** DB egress (2026-10-10) — tek ödeme: `readData().payments.find(id)` ile aynı (makbuz). */
 export async function readPaymentById(paymentId: string): Promise<import("./types").Payment | undefined> {
   if (!paymentId) return undefined;
@@ -504,6 +524,10 @@ export async function readPaymentById(paymentId: string): Promise<import("./type
 export async function readTeacherPortalDetails(teacherId: string): Promise<TeacherPortalDetails | null> {
   if (!teacherId) return null;
   return withTenantScope(() => store.readTeacherPortalDetails(teacherId));
+}
+
+export async function readSchoolBranding(): Promise<SchoolBranding> {
+  return withTenantScope(() => store.readSchoolBranding());
 }
 
 /** DB egress (2026-10-10) — bir öğretmenin kayıtlı hakedişleri: `readData().teacherPayouts` süzgeciyle aynı. */

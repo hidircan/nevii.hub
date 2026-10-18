@@ -87,6 +87,7 @@ import {
   readReferenceData,
   readLessonWindow,
   readStudentScope,
+  readSchoolBranding,
   resetData,
   resetToCleanTemplate,
   startLessonLive,
@@ -1108,15 +1109,14 @@ export async function createMakeupLessonTool(
   if (!v.ok) return v;
 
   if (ctx.role === "BRANCH_MANAGER") {
-    const lesson = (await readData()).lessons.find((l) => l.id === v.data.lessonId);
+    const lesson = await readLessonById(v.data.lessonId);
     if (!lesson) return fail("NOT_FOUND", "Ders bulunamadı");
     const gate = await assertBranchOperation(ctx, "makeup", "create", lesson.branchId);
     if (!gate.ok) return gate;
   }
 
   if (ctx.role === "TEACHER") {
-    const data = await readData();
-    const lesson = data.lessons.find((l) => l.id === v.data.lessonId);
+    const lesson = await readLessonById(v.data.lessonId);
     if (!lesson) return fail("NOT_FOUND", "Ders bulunamadı");
     if (!canAccessTeacher(ctx, lesson.teacherId)) {
       return fail("FORBIDDEN", "Yalnızca kendi dersiniz için telafi oluşturabilirsiniz.");
@@ -1125,16 +1125,16 @@ export async function createMakeupLessonTool(
 
   try {
     // Kota (pending/suggested/awaiting_info/confirmed sayılır) — store da korur.
-    const before = await readData();
-    const lesson = before.lessons.find((l) => l.id === v.data.lessonId);
+    // DB egress (2026-10-18): kota yalnız öğrencinin ders/telafi satırlarına bakar → öğrenci dilimi (eskiden 2 tam okuma).
+    const lesson = await readLessonById(v.data.lessonId);
     if (!lesson) return fail("NOT_FOUND", "Ders bulunamadı");
+    const before = await readStudentScope(lesson.studentId);
     const { assertCanCreateMakeup } = await import("../makeup-quota");
-    const quota = assertCanCreateMakeup(before, lesson.studentId, new Date(), lesson.id);
+    const quota = assertCanCreateMakeup({ ...before, teacherPayouts: [] }, lesson.studentId, new Date(), lesson.id);
     if (!quota.ok) return fail("VALIDATION_ERROR", quota.message);
 
     await markAttendance(v.data);
-    const data = await readData();
-    const req = data.makeupRequests.find((m) => m.sourceLessonId === v.data.lessonId);
+    const req = (await readStudentScope(lesson.studentId)).makeupRequests.find((m) => m.sourceLessonId === v.data.lessonId);
     if (!req) return fail("CONFLICT", "Makeup request was not created");
     await notifyAttendanceExceptionBestEffort(ctx, v.data.lessonId, v.data.status);
     return ok({ requestId: req.id });
@@ -1682,7 +1682,8 @@ export async function getStudentScoreTool(
   );
   if (!v.ok) return v;
 
-  const data = await readData();
+  // DB egress (2026-10-18): öğrenci dilimi (puan yalnız öğrencinin derslerine bakar).
+  const data = await readStudentScope(v.data.studentId);
   const student = data.students.find((s) => s.id === v.data.studentId);
   const access = await assertStudentAccess(ctx, student, v.data.studentId);
   if (!access.ok) return fail(access.code, access.message);
@@ -2133,8 +2134,8 @@ export async function updatePaymentTool(
   if (!v.ok) return v;
 
   try {
-    const data = await readData();
-    const existing = data.payments.find((p) => p.id === v.data.paymentId);
+    // DB egress (2026-10-18): tek ödeme satırı (eskiden tam okuma).
+    const existing = await readPaymentById(v.data.paymentId);
     if (!existing) return fail("NOT_FOUND", "Ödeme bulunamadı");
     if (existing.status !== "paid" && existing.status !== "partial") {
       return fail("VALIDATION_ERROR", "Yalnızca tahsil edilmiş (paid/partial) ödemeler düzenlenebilir.");
@@ -2168,7 +2169,7 @@ export async function updatePaymentTool(
       voided: v.data.amount === 0,
       reviseBilledAmount,
     });
-    const studentName = data.students.find((st) => st.id === existing.studentId)?.name;
+    const studentName = (await readStudentById(existing.studentId))?.name;
     audit(ctx, "payment.update", "Payment", v.data.paymentId, {
       method: v.data.method,
       amount: v.data.amount,
@@ -2294,7 +2295,7 @@ export async function deletePaymentTool(
           : "Sözleşme taksidi silinemez; yanlış girilen tahsilat için \"Tahsilatı geri al\" kullanın.")
     );
   }
-  const before = (await readData()).payments.find((p) => p.id === plan.paymentId);
+  const before = await readPaymentById(plan.paymentId); // DB egress (2026-10-18): tek satır
   const { collectPayment } = await import("../payments/collect");
   let result: "reversed" | "deleted" | "voided";
   try {
@@ -2385,13 +2386,13 @@ export async function initiateStudentPaymentCheckoutTool(
   );
   if (!v.ok) return v;
 
-  const data = await readData();
-  const payment = data.payments.find((p) => p.id === v.data.paymentId);
+  // DB egress (2026-10-18): tek ödeme + tek öğrenci + referans ayarlar (eskiden tam okuma).
+  const [payment, data] = await Promise.all([readPaymentById(v.data.paymentId), readReferenceData()]);
   if (!payment) return fail("NOT_FOUND", "Ödeme bulunamadı");
 
   // Öğrenci sahipliği + AKTİF StudentPortalAccess (GUARDIAN veya SELF) —
   // tek gerçek kaynak assertStudentAccess/canAccessStudent (async).
-  const student = data.students.find((s) => s.id === payment.studentId);
+  const student = await readStudentById(payment.studentId);
   const access = await assertStudentAccess(ctx, student, payment.studentId);
   if (!access.ok) return fail(access.code, access.message);
 
@@ -2718,7 +2719,7 @@ function compactRecord<T extends object>(o: T): T {
  */
 async function prepareBranchRegistration(
   ctx: ServiceContext,
-  before: Awaited<ReturnType<typeof readData>>,
+  before: Pick<AppData, "settings" | "teachers" | "closedDayOverrides" | "discountCampaigns" | "packages">,
   person: { branchId: string; termType?: import("../types").StudentTermType },
   b: BranchRegistrationInput,
   opts: { enrollmentId: string; nowIso: string; firstPaymentOptional?: boolean }
@@ -2959,7 +2960,7 @@ async function prepareBranchRegistration(
 
 /** Kayıt anı öğretmen/enstrüman uygunluğu (createStudentTool'un mesajları — mevcut testler bunlara dayanır). */
 function checkBranchRosterForRegistration(
-  before: Awaited<ReturnType<typeof readData>>,
+  before: Pick<AppData, "teachers" | "settings">,
   activeInstrumentNames: string[],
   b: Pick<BranchRegistrationInput, "instrument" | "teacherId" | "branchId">
 ): ServiceResult<true> {
@@ -3006,7 +3007,8 @@ async function registerStudentCore(
   branches: { key?: string; input: BranchRegistrationInput }[],
   opts: { registrationId?: string }
 ): Promise<ServiceResult<RegisterCoreResult>> {
-  const before = await readData();
+  // DB egress (2026-10-18): kayıt yalnız referans veriye bakar (öğrenci sayısı/tekrar, öğretmen, paket, kampanya).
+  const before = await readReferenceData();
   // Paket limiti yalnız YENİ kaydı engeller; mevcut öğrenciler etkilenmez.
   const limit = await assertWithinLimit(
     ctx.tenantId,
@@ -3174,7 +3176,7 @@ async function registerStudentCore(
   for (const p of prepared) {
     for (const cid of p.appliedCampaignIds ?? []) {
       try {
-        const latest = (await readData()).discountCampaigns?.find((c) => c.id === cid);
+        const latest = (await readReferenceData()).discountCampaigns.find((c) => c.id === cid);
         if (!latest) continue;
         const next = (latest.usageCount ?? 0) + 1;
         await updateDiscountCampaign(cid, { usageCount: next });
@@ -3576,7 +3578,8 @@ export async function upsertStudentEnrollmentTool(
   if (!auth.ok) return fail("FORBIDDEN", "Branş kayıtlarını yalnız kurum yöneticisi veya kurum sahibi düzenleyebilir.");
   const v = parseOrFail(z.object({ studentId: z.string().min(1), enrollment: enrollmentInputSchema }), input);
   if (!v.ok) return v;
-  const data = await readData();
+  // DB egress (2026-10-18): öğrenci dilimi (öğrencinin dersleri + referans veri) — eskiden tam okuma.
+  const data = await readStudentScope(v.data.studentId);
   const student = data.students.find((st) => st.id === v.data.studentId);
   if (!student) return fail("NOT_FOUND", "Öğrenci bulunamadı. Sayfayı yenileyip tekrar deneyin.");
   const e = v.data.enrollment;
@@ -3769,7 +3772,7 @@ export async function upsertStudentEnrollmentTool(
     }
     for (const cid of p.appliedCampaignIds ?? []) {
       try {
-        const latest = (await readData()).discountCampaigns?.find((c) => c.id === cid);
+        const latest = (await readReferenceData()).discountCampaigns.find((c) => c.id === cid);
         if (!latest) continue;
         await updateDiscountCampaign(cid, { usageCount: (latest.usageCount ?? 0) + 1 });
       } catch {
@@ -4635,8 +4638,8 @@ export async function inviteStudentPortalAccessTool(
   const v = parseOrFail(provisionStudentPortalAccessSchema, input);
   if (!v.ok) return v;
 
-  const data = await readData();
-  const student = data.students.find((s) => s.id === v.data.studentId);
+  // DB egress (2026-10-18): kurum adı/logo tek satır (readSchoolBranding) — eskiden tam okuma.
+  const [branding, student] = await Promise.all([readSchoolBranding(), readStudentById(v.data.studentId)]);
   if (!student) return fail("NOT_FOUND", "Öğrenci bulunamadı");
 
   if (isRateLimited(`invite:${ctx.tenantId}:${v.data.email.toLowerCase()}`, 5, 60 * 60 * 1000)) {
@@ -4758,12 +4761,12 @@ export async function inviteStudentPortalAccessTool(
       userId,
       email: v.data.email,
       recipientName: v.data.accessType === "SELF" ? student.name : `${student.name} velisi`,
-      institutionName: data.settings.name ?? "NeviiHub",
+      institutionName: branding.name ?? "NeviiHub",
       role: "STUDENT",
       portalAccessType: v.data.accessType,
-      schoolPhone: data.settings.phone || undefined,
-      schoolWebsite: data.settings.website || undefined,
-      logoUrl: data.settings.logoUrl || undefined,
+      schoolPhone: branding.phone || undefined,
+      schoolWebsite: branding.website || undefined,
+      logoUrl: branding.logoUrl || undefined,
     });
 
     audit(ctx, "student.portal_invitation_sent", "Student", v.data.studentId, {
@@ -5269,8 +5272,8 @@ export async function sendStudentPortalPasswordResetTool(
     return fail("RATE_LIMITED", "Bu hesaba çok fazla şifre sıfırlama isteği gönderildi. Lütfen bir süre sonra tekrar deneyin.");
   }
 
-  const data = await readData();
-  const student = data.students.find((s) => s.id === v.data.studentId);
+  // DB egress (2026-10-18): kurum adı/logo tek satır (readSchoolBranding) — eskiden tam okuma.
+  const [branding, student] = await Promise.all([readSchoolBranding(), readStudentById(v.data.studentId)]);
 
   try {
     const { sendPasswordResetEmail } = await import("../auth/invitation");
@@ -5279,8 +5282,8 @@ export async function sendStudentPortalPasswordResetTool(
       userId: v.data.userId,
       email: account.email,
       recipientName: student?.name ?? "",
-      institutionName: data.settings.name ?? "NeviiHub",
-      logoUrl: data.settings.logoUrl || undefined,
+      institutionName: branding.name ?? "NeviiHub",
+      logoUrl: branding.logoUrl || undefined,
     });
     audit(ctx, "student.portal_password_reset_sent", "Student", v.data.studentId, { userId: v.data.userId, delivered: result.delivered });
     return ok({ studentId: v.data.studentId, userId: v.data.userId, delivered: result.delivered, blocked: result.delivered ? undefined : result.blocked });
@@ -5525,8 +5528,8 @@ export async function sendTeacherPasswordResetTool(
     return fail("RATE_LIMITED", "Bu hesaba çok fazla şifre sıfırlama isteği gönderildi. Lütfen bir süre sonra tekrar deneyin.");
   }
 
-  const data = await readData();
-  const teacher = data.teachers.find((t) => t.id === v.data.teacherId);
+  // DB egress (2026-10-18): kurum adı/logo tek satır (readSchoolBranding) — eskiden tam okuma.
+  const [branding, teacher] = await Promise.all([readSchoolBranding(), readTeacherPortalDetails(v.data.teacherId)]);
 
   try {
     const { sendPasswordResetEmail } = await import("../auth/invitation");
@@ -5534,9 +5537,9 @@ export async function sendTeacherPasswordResetTool(
       tenantId: ctx.tenantId,
       userId: account.userId,
       email: account.email,
-      recipientName: teacher?.name ?? "",
-      institutionName: data.settings.name ?? "NeviiHub",
-      logoUrl: data.settings.logoUrl || undefined,
+      recipientName: teacher?.teacherName ?? "",
+      institutionName: branding.name ?? "NeviiHub",
+      logoUrl: branding.logoUrl || undefined,
     });
     audit(ctx, "teacher.portal_password_reset_sent", "Teacher", v.data.teacherId, { delivered: result.delivered });
     return ok({ teacherId: v.data.teacherId, delivered: result.delivered, blocked: result.delivered ? undefined : result.blocked });
@@ -6115,18 +6118,19 @@ async function sendStaffInvitation(
   staff: { id: string; name: string; email?: string },
   userId: string
 ): Promise<{ delivered: boolean; blocked?: boolean }> {
-  const data = await readData();
+  // DB egress (2026-10-18): kurum adı/logo tek satır (readSchoolBranding) — eskiden tam okuma.
+  const branding = await readSchoolBranding();
   const { sendAccountInvitationEmail } = await import("../auth/invitation");
   const result = await sendAccountInvitationEmail({
     tenantId: ctx.tenantId,
     userId,
     email: staff.email!,
     recipientName: staff.name,
-    institutionName: data.settings.name ?? "NeviiHub",
+    institutionName: branding.name ?? "NeviiHub",
     role: "SCHOOL_ADMIN",
-    schoolPhone: data.settings.phone || undefined,
-    schoolWebsite: data.settings.website || undefined,
-    logoUrl: data.settings.logoUrl || undefined,
+    schoolPhone: branding.phone || undefined,
+    schoolWebsite: branding.website || undefined,
+    logoUrl: branding.logoUrl || undefined,
   });
   await updateStaffMember(ctx.tenantId, staff.id, { portalInvitedAt: new Date().toISOString() });
   audit(ctx, "staff.portal_invitation_sent", "StaffMember", staff.id, { delivered: result.delivered });
@@ -6412,7 +6416,8 @@ export async function sendStaffPasswordResetTool(
     return fail("RATE_LIMITED", "Bu hesaba çok fazla şifre sıfırlama isteği gönderildi. Lütfen bir süre sonra tekrar deneyin.");
   }
 
-  const data = await readData();
+  // DB egress (2026-10-18): kurum adı/logo tek satır (readSchoolBranding) — eskiden tam okuma.
+  const branding = await readSchoolBranding();
 
   try {
     const { sendPasswordResetEmail } = await import("../auth/invitation");
@@ -6421,8 +6426,8 @@ export async function sendStaffPasswordResetTool(
       userId: account.userId,
       email: account.email,
       recipientName: staff.name,
-      institutionName: data.settings.name ?? "NeviiHub",
-      logoUrl: data.settings.logoUrl || undefined,
+      institutionName: branding.name ?? "NeviiHub",
+      logoUrl: branding.logoUrl || undefined,
     });
     audit(ctx, "staff.portal_password_reset_sent", "StaffMember", v.data.staffId, { delivered: result.delivered });
     return ok({ staffId: v.data.staffId, delivered: result.delivered, blocked: result.delivered ? undefined : result.blocked });
@@ -8832,7 +8837,8 @@ export async function planContractLessonScheduleTool(
     return fail("VALIDATION_ERROR", "İptal edilmiş bir sözleşmeden ders programı üretilemez. Önce yeni bir sözleşme oluşturun.");
   }
 
-  const data = await readData();
+  // DB egress (2026-10-18): referans veri + her slot için oluşum günlerinin dar slot dilimi (eskiden tam okuma).
+  const data = await readReferenceData();
   const student = data.students.find((s) => s.id === contract.studentId);
   if (!student) return fail("NOT_FOUND", "Sözleşmenin öğrencisi bulunamadı.");
   const teacher = data.teachers.find((t) => t.id === v.data.teacherId);
@@ -8901,7 +8907,8 @@ export async function planContractLessonScheduleTool(
       enrollmentId: se.isPersistedEnrollmentId(branchView?.id) ? branchView!.id : undefined,
     };
     const occurrences = computeSeriesOccurrences(params);
-    const checks = checkSeriesOccurrences(data, params, occurrences);
+    const slotScope = await readSlotScopeData({ ...params, startAt: params.startsOn }, occurrences.map((o) => new Date(o.startAt)));
+    const checks = checkSeriesOccurrences(slotScope, params, occurrences);
     allChecks.push(...checks);
     const conflicts = checks.filter((c) => !c.ok);
     slotSummaries.push({
@@ -8975,7 +8982,10 @@ export async function countContractLessonsTool(
   const v = parseOrFail(z.object({ contractId: z.string().min(1) }), input);
   if (!v.ok) return v;
 
-  const data = await readData();
+  // DB egress (2026-10-18): sözleşmenin serileri öğrencisinindir → öğrenci dilimi (eskiden tam okuma).
+  const { getContract } = await import("../contracts");
+  const contract = await getContract(ctx.tenantId, v.data.contractId);
+  const data = contract ? await readStudentScope(contract.studentId) : { lessonSeries: [], lessons: [] };
   const future = collectContractFutureLessons(data, v.data.contractId);
   const { lessonCancelBlockReason } = await import("../lesson-cancel-rules");
   const lockedReasons = Array.from(
@@ -9000,7 +9010,7 @@ export async function countContractLessonsTool(
  * İptal edilmiş dersler ve geçmiş dersler hariçtir.
  */
 function collectContractFutureLessons(
-  data: AppData,
+  data: Pick<AppData, "lessonSeries" | "lessons">,
   contractId: string,
   now: Date = new Date()
 ): { seriesIds: string[]; lessons: Lesson[] } {
@@ -9119,10 +9129,10 @@ export async function forceDeleteLessonTool(
     const clubBlock = await clubRowGuard(ctx.tenantId, v.data.lessonId);
     if (clubBlock) return clubBlock;
   }
-  const data = await readData();
-  const lesson = data.lessons.find((l) => l.id === v.data.lessonId);
+  // DB egress (2026-10-18): tek ders + tek öğrenci satırı (eskiden tam okuma).
+  const lesson = await readLessonById(v.data.lessonId);
   if (!lesson) return fail("NOT_FOUND", "Ders bulunamadı. Sayfayı yenileyip tekrar deneyin.");
-  const studentName = data.students.find((st) => st.id === lesson.studentId)?.name ?? "Öğrenci";
+  const studentName = (await readStudentById(lesson.studentId))?.name ?? "Öğrenci";
   const entityName = `${studentName} · ${formatDate(lesson.startAt)} ${formatTime(lesson.startAt)} dersi`;
   const gate = await checkCriticalPassword(ctx, v.data.criticalPassword);
   if (!gate.ok) {
@@ -9251,8 +9261,8 @@ export async function changeLessonTeacherOrBranchTool(
     if (clubBlock) return clubBlock;
   }
 
-  const data = await readData();
-  const lesson = data.lessons.find((l) => l.id === v.data.lessonId);
+  // DB egress (2026-10-18): ders satırı + referans veri (öğretmen/oda) — eskiden tam okuma.
+  const [lesson, data] = await Promise.all([readLessonById(v.data.lessonId), readReferenceData()]);
   if (!lesson) return fail("NOT_FOUND", "Ders bulunamadı.");
 
   if (v.data.newTeacherId) {
@@ -9348,7 +9358,8 @@ export async function createPaymentRecordTool(
   if (!v.ok) return v;
 
   try {
-    const before = await readData();
+    // DB egress (2026-10-18): öğrenci dilimi (yeni borç da bu öğrencinin; eskiden 2 tam okuma).
+    const before = await readStudentScope(v.data.studentId);
     // 2026-10-09 — çok branşlı öğrencide borcun branşı AÇIKÇA seçilir (Keman borcu Piyano'ya yazılmaz);
     // "" = bilinçli "branşa bağlı değil (genel)". Tek branşlı öğrencide eski davranış.
     const student = before.students.find((st) => st.id === v.data.studentId);
@@ -9382,7 +9393,7 @@ export async function createPaymentRecordTool(
       dueDate: v.data.dueDate,
       ...(enrollmentId ? { enrollmentId } : {}),
     });
-    const after = await readData();
+    const after = await readStudentScope(v.data.studentId);
     const created = after.payments.find((p) => !ids.has(p.id));
     return ok({ paymentId: created?.id ?? "unknown" });
   } catch (e) {
@@ -9479,8 +9490,8 @@ export async function listTeacherPayoutsTool(
     return fail("FORBIDDEN", "Bu öğretmenin hakediş kayıtlarına erişiminiz yok.");
   }
 
-  const data = await readData();
-  const payouts = ownPayouts(data.teacherPayouts, v.data.teacherId).sort((a, b) =>
+  // DB egress (2026-10-18): yalnız bu öğretmenin hakedişleri (mobil Hakedişlerim; eskiden tam okuma).
+  const payouts = ownPayouts(await readTeacherPayoutsForTeacher(v.data.teacherId), v.data.teacherId).sort((a, b) =>
     b.periodStart.localeCompare(a.periodStart)
   );
   return ok({ payouts });
@@ -11886,8 +11897,8 @@ export async function listTeacherAvailabilityRequestsTool(
     // `currentAvailability.length` çağırır; undefined dönmek render crash'ti).
     let currentAvailability: Array<{ dayOfWeek: number; start: string; end: string; branchId?: string }> = [];
     try {
-      const data = await readData();
-      const teacher = data.teachers.find((t) => t.id === v.data.teacherId);
+      // DB egress (2026-10-18): yalnız öğretmen satırları (referans veri) — eskiden tam okuma.
+      const teacher = (await readReferenceData()).teachers.find((t) => t.id === v.data.teacherId);
       if (Array.isArray(teacher?.availability)) currentAvailability = teacher.availability;
     } catch {
       currentAvailability = [];
@@ -11977,14 +11988,14 @@ export async function createHomeworkTool(
   const fileCheck = validateUploadedFile(v.data);
   if (!fileCheck.ok) return fail("VALIDATION_ERROR", fileCheck.message);
 
-  const data = await readData();
-  const student = data.students.find((s) => s.id === v.data.studentId);
+  // DB egress (2026-10-18): tek öğrenci + tek ders satırı (eskiden tam okuma).
+  const student = await readStudentById(v.data.studentId);
   if (!student) return fail("NOT_FOUND", "Öğrenci bulunamadı");
   if (!isOwnStudent(student, ctx.teacherId ?? "")) {
     return fail("FORBIDDEN", "Yalnızca kendi öğrenciniz için ödev oluşturabilirsiniz.");
   }
   if (v.data.lessonId) {
-    const lesson = data.lessons.find((l) => l.id === v.data.lessonId);
+    const lesson = await readLessonById(v.data.lessonId);
     if (!lesson) return fail("NOT_FOUND", "Seçilen ders bulunamadı.");
     if (lesson.studentId !== v.data.studentId || lesson.teacherId !== ctx.teacherId) {
       return fail("VALIDATION_ERROR", "Seçilen ders bu öğrenci/öğretmen ile eşleşmiyor.");
@@ -16240,7 +16251,10 @@ export async function previewContractInstallmentPlanTool(
   });
   if (!lastPeriodResolved.ok) return fail("VALIDATION_ERROR", lastPeriodResolved.message);
   try {
-    const data = await readData();
+    // DB egress (2026-10-18): öğrenci dilimi (öğrenci yoksa yalnız referans).
+    const data = v.data.studentId
+      ? await readStudentScope(v.data.studentId)
+      : { ...(await readReferenceData()), lessons: [], makeupRequests: [] };
     const paymentPolicy = data.settings.collectionsSettings;
     let installments: import("../types").ContractInstallmentSnapshot[];
     let totalContractAmount: number;
@@ -16632,7 +16646,9 @@ export async function createStudentContractTool(
   });
   if (!lastPeriodResolved.ok) return fail("VALIDATION_ERROR", lastPeriodResolved.message);
 
-  const data = await readData();
+  // DB egress (2026-10-18): öğrenci dilimi + logo tek satır (borç taşıma/branş/ders/telafi hep öğrencinin).
+  const [scope, branding] = await Promise.all([readStudentScope(v.data.studentId), readSchoolBranding()]);
+  const data = { ...scope, settings: { ...scope.settings, logoUrl: branding.logoUrl } };
   const student = data.students.find((s) => s.id === v.data.studentId);
   if (!student) return fail("VALIDATION_ERROR", "Seçilen öğrenci bulunamadı veya bu kuruma ait değil.");
   const branch = data.settings.branches.find((b) => b.id === student.branchId);
@@ -16998,7 +17014,9 @@ export async function getContractHtmlTool(
     const { getDocumentInstance } = await import("../documents");
     const doc = await getDocumentInstance(ctx.tenantId, contract.documentInstanceId);
     if (!doc) return fail("NOT_FOUND", "Sözleşme belgesi bulunamadı.");
-    const data = await readData();
+    // DB egress (2026-10-18): referans veri + logo tek satır (eskiden tam okuma).
+    const [scope, branding] = await Promise.all([readReferenceData(), readSchoolBranding()]);
+    const data = { ...scope, settings: { ...scope.settings, logoUrl: branding.logoUrl } };
     // 2026-10-09 — sekme başlığı / "PDF olarak kaydet" adı branşı söyler (belge içeriği donmuş snapshot'tır, değişmez).
     const { contractEnrollmentId, effectiveEnrollments } = await import("../student-enrollments");
     const ownerStudent = data.students.find((s2) => s2.id === contract.studentId);
@@ -17256,7 +17274,8 @@ export async function getContractCancellationImpactTool(
   const { getCriticalActionPasswordStatus } = await import("../critical-action-password");
   const { selectCurrentContract } = await import("../contract-list-helpers");
   const { lessonCancelBlockReason } = await import("../lesson-cancel-rules");
-  const data = await readData();
+  // DB egress (2026-10-18): öğrenci dilimi (seriler/dersler öğrencinin).
+  const data = await readStudentScope(contract.studentId);
   const [contracts, installments, pw, debt] = await Promise.all([
     listContractsForStudent(ctx.tenantId, contract.studentId),
     listInstallmentsForContract(ctx.tenantId, contract.id),
@@ -17372,7 +17391,8 @@ export async function cancelStudentContractTool(
     const cancelledLessonIds: string[] = [];
     const keptLessons: { lessonId: string; reason: string }[] = [];
     if (v.data.cancelFutureLessons) {
-      const before = await readData();
+      // DB egress (2026-10-18): öğrenci dilimi.
+      const before = await readStudentScope(contract.studentId);
       const future = collectContractFutureLessons(before, v.data.contractId);
       const { lessonCancelBlockReason } = await import("../lesson-cancel-rules");
       for (const lesson of future.lessons) {

@@ -21,6 +21,9 @@ yeniden doğrula: en yeni `docs/performance/DB_EGRESS_*.md` (şu an `DB_EGRESS_2
   ders penceresi + günde 1 tam tur; Telafi Merkezi dilimi; tek kurumlu "Tüm kurumlar" dar yolda; cırcır testi.
 - 2026-10-17 (`perf/egress-p3`): canlı log (33 sa ~280 tam okuma ≈ 500 MB/gün) → Ders Programı seri önizle/oluştur
   (istek başına 1+3 tam okuma), mobil listeler/defterler/programlar, öğretmen detay sekmeleri dar dilime (−85…−98 %).
+- 2026-10-18 (`perf/egress-p4`): Ders Programı sil/revize/öğretmen değişimi/seri iptal (işlem başına 2–3 tam okuma),
+  öğrenci kaydı, sözleşmeler, davet/şifre e-postaları, mobil ana sayfa/öğretmenler/Hakedişlerim/ödeme başlat, Telafi
+  oluştur/öneri, öğretmen Özet/Program/Yoklama, ödeme oluştur/düzenle/sil dar okumaya (−59…−100 %).
 
 ## 2. Kalıcı kurallar (kod yazarken)
 1. **"Var mı" kontrolü için tam `readData()` YAZMA.** Tek satır okuyucu kullan; yoksa önce onu ekle (3 store modu).
@@ -30,7 +33,11 @@ yeniden doğrula: en yeni `docs/performance/DB_EGRESS_*.md` (şu an `DB_EGRESS_2
    `readStudentListData`, `readPaymentsPageData`, `readLessonScope` (tek ders mutasyonu), yeni ders için
    `store-db.readSlotScope` ≡ `lesson-scope.ts narrowSlotScope`; seri/tool için `readSlotScopeData(target, days)`
    (seri: `seriesScopeDays`), `readLessonSeriesForStudent`, `readLessonsForTeacher`, `readLessonsStartingBetween`,
-   `readMakeupCenterData`. Panel sayfaları `institution/context.ts readScoped*` (+ `readScopedTeacherPayouts`).
+   `readMakeupCenterData`; ders DÜZENLEME (sil/revize/değişim/seri iptal) için `store-db.readLessonEditScope(studentId,
+   windowOf)` ≡ `lesson-scope.ts narrowLessonEditScope` (json/memory `editOnScope` — dilimde çalışır, `replaceRows` ile
+   birleştirir); e-posta şablonu için `readSchoolBranding` (ad/iletişim/LOGO tek satır); sayaç/puan için
+   `readMobileDashboardCounts` (count) ve `readTeacherAttendanceRows` (öğretmen×statü çiftleri). Panel sayfaları
+   `institution/context.ts readScoped*` (+ `readScopedTeacherPayouts`, `readScopedTeacherLessons`).
    Saf doğrulayıcı `AppData` istiyorsa pencere dilimine boş koleksiyon ekle (`{ ...win, payments: [], … }`) — yalnız
    o fonksiyonun gerçekten okumadığı koleksiyonlar (ör. `validateLessonSlot`: ayarlar/öğretmen/oda/öğrenci/ders).
 2. **Mod paritesi:** db dilimi Prisma filtresiyle üretilir; json/memory aynı dilimi `narrow*` ile tam veriden türetir ve
@@ -56,6 +63,14 @@ yeniden doğrula: en yeni `docs/performance/DB_EGRESS_*.md` (şu an `DB_EGRESS_2
 12. Server Action tam okuması log'da `POST <sayfa yolu>` görünür; eylem adı satırın sonunda (`egress-label.ts`).
 13. Cırcır (`egress-full-read-ratchet.test.ts`): json/memory'de yeni okuyucu `readData()` kullanır (yerel, egress yok) —
    taban çizgisini PR'da gerekçeyle yükselt; db/tool/sayfa dosyasında sayı yalnız AZALIR.
+14. **Yazım sonrası `data: await readData()` YAZMA.** Saf kural sonucu (`result.data`) zaten yazılan durumu taşır; yeni
+   satırın DB kimliği gerekiyorsa yalnız onu dön (`{ ...result.pkg, displayId }`). Çağıranlar çoğunlukla `.data` okumaz —
+   önce `grep` ile doğrula.
+15. Koruma kuralı (`lessonProtectionReason`: tahsilat/yoklama/telafi bağı) bakan yolda `narrowSlotScope`/`readSlotScope`
+   KULLANMA — ödeme/yoklama koleksiyonları boştur, korunan ders sessizce silinir/taşınır. Öğrenci dilimi kullan.
+16. `store.readStudentScope("")` FIRLATIR (wrapper kuralı) — öğrenci isteğe bağlıysa `id ? readStudentScope(id) :
+   { ...readReferenceData(), lessons: [], … }`. Smoke'ta referans veri `store-db.readData()` (HAM) olmalı: `store.readData`
+   sanal telafi süre-dolumu uygular, store içi kurallar ham veriyle çalışır (sahte "fark" üretir).
 
 ## 3. Kanıt toplama (erişim sınırları)
 - Üretim Supabase (`wsbucz…`, org `neviihub-prod-org`) bu ortamdaki Supabase MCP'de GÖRÜNMEZ (yalnız eski org).

@@ -21,18 +21,37 @@ export type TeacherPerformanceScore = {
 
 const MIN_GRADED_LESSONS_FOR_SCORE = 3;
 
+/**
+ * DB egress (2026-10-18) — puan yalnız (dersin öğretmeni, yoklama statüsü) çiftlerine bakar; db bunu tam okuma
+ * yerine tek dar sorguyla üretir (`store.readTeacherAttendanceRows`), json/memory bu fonksiyonla.
+ */
+export type TeacherAttendanceRow = { teacherId: string; status: string };
+
+export function teacherAttendanceRows(data: Pick<AppData, "lessons" | "attendances">): TeacherAttendanceRow[] {
+  const teacherByLesson = new Map(data.lessons.map((l) => [l.id, l.teacherId]));
+  return data.attendances.flatMap((a) => {
+    const teacherId = teacherByLesson.get(a.lessonId);
+    return teacherId ? [{ teacherId, status: a.status }] : [];
+  });
+}
+
 export function computeTeacherPerformanceScore(data: AppData, teacherId: string): TeacherPerformanceScore {
-  const lessonIdsForTeacher = new Set(
-    data.lessons.filter((l) => l.teacherId === teacherId).map((l) => l.id)
-  );
-  const graded = data.attendances.filter((a) => lessonIdsForTeacher.has(a.lessonId));
+  return scoreTeacherFromRows(teacherAttendanceRows(data), data.students, teacherId);
+}
+
+export function scoreTeacherFromRows(
+  rows: TeacherAttendanceRow[],
+  students: AppData["students"],
+  teacherId: string
+): TeacherPerformanceScore {
+  const graded = rows.filter((a) => a.teacherId === teacherId);
 
   const presentCount = graded.filter((a) => a.status === "present").length;
   const lateCount = graded.filter((a) => a.status === "late").length;
   const absentCount = graded.filter((a) => a.status === "absent").length;
   const schoolCancelledCount = graded.filter((a) => a.status === "cancelled_by_school").length;
   const gradedLessonCount = graded.length;
-  const activeStudentCount = data.students.filter((s) => isOwnStudent(s, teacherId) && s.active).length;
+  const activeStudentCount = students.filter((s) => isOwnStudent(s, teacherId) && s.active).length;
 
   let score: number | null = null;
   if (gradedLessonCount >= MIN_GRADED_LESSONS_FOR_SCORE) {

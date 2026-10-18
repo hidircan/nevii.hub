@@ -12,6 +12,7 @@ import {
   readStudentListData,
   readStudentScope,
   readTeacherPayoutsForTeacher,
+  readLessonsForTeacher,
   listTenants,
 } from "../store";
 import {
@@ -188,6 +189,18 @@ const readScopedTeacherPayoutsByKey = cache(async (key: string, teacherId: strin
   }
   return (await readScopedDataByKey(key)).teacherPayouts.filter((p) => p.teacherId === teacherId);
 });
+
+const readScopedTeacherLessonsByKey = cache(async (key: string, teacherId: string): Promise<AppData["lessons"]> => {
+  if (key.startsWith("single:")) {
+    return runWithTenantAsync(key.slice("single:".length), () => readLessonsForTeacher(teacherId));
+  }
+  return (await readScopedDataByKey(key)).lessons.filter((l) => l.teacherId === teacherId);
+});
+
+/** DB egress (2026-10-18) — bir öğretmenin tüm dersleri (öğretmen detayı Özet / Program / Yoklama). */
+export async function readScopedTeacherLessons(scope: InstitutionScope, teacherId: string): Promise<AppData["lessons"]> {
+  return readScopedTeacherLessonsByKey(scopeCacheKey(scope), teacherId);
+}
 
 /** DB egress (2026-10-17) — bir öğretmenin kayıtlı hakedişleri (öğretmen detayı Hakediş / Ödeme Geçmişi). */
 export async function readScopedTeacherPayouts(scope: InstitutionScope, teacherId: string): Promise<AppData["teacherPayouts"]> {
