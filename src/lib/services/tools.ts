@@ -8356,41 +8356,8 @@ export async function createLessonTool(
         title: "Yeni ders planlandı",
         body: `${student?.name ?? "Öğrenci"} — ${formatDate(created.startAt)} ${formatTime(created.startAt)}, ${durationMinutes} dk, ${created.instrument}${locationLabel ? ` (${locationLabel})` : ""}.`,
       });
-      // P1 (2026-09-11) — ders planı → İletişim Merkezi kayıtları (veli +
-      // öğretmen). Best-effort: taslak oluşmasa bile ders AKIŞI ASLA
-      // bozulmaz; idempotency ile tekrar çağrıda duplicate YOK.
-      try {
-        const teacher = after.teachers.find((t) => t.id === created.teacherId);
-        const { createLessonPlanCommunicationDrafts } = await import("../communications/service");
-        await createLessonPlanCommunicationDrafts({
-          tenantId: ctx.tenantId,
-          lessonId: created.id,
-          createdBy: ctx.userId,
-          vars: {
-            veliAdi: student?.parentName ?? "",
-            ogrenciAdi: student?.name ?? "Öğrenci",
-            ogretmenAdi: teacher?.name ?? "Öğretmen",
-            dersAdi: created.instrument,
-            tarih: formatDate(created.startAt),
-            saat: formatTime(created.startAt),
-            sube: branch?.shortName ?? "",
-            kurum: after.settings.name ?? "NeviiHub",
-          },
-          parent: {
-            name: student?.parentName || student?.name || "Veli",
-            phone: student?.parentPhone || student?.phone || "",
-            studentId: student?.id,
-            optOut: student?.communicationOptOut,
-          },
-          teacher: {
-            name: teacher?.name || "Öğretmen",
-            phone: teacher?.phone || "",
-            teacherId: teacher?.id,
-          },
-        });
-      } catch {
-        // best-effort — ders oluşturma başarılı sayılır.
-      }
+      // Ders planlama İletişim Merkezi'nde mesaj taslağı OLUŞTURMAZ (sahip kararı 2026-10-18);
+      // öğretmen yalnız yukarıdaki uygulama içi bildirimle haberdar edilir.
     }
     return ok({ lessonId: created?.id ?? "unknown" });
   } catch (e) {

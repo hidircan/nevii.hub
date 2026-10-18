@@ -236,9 +236,8 @@ import { runWithTenantAsync } from "./tenant-context";
 import { getSessionAppearancePolicy } from "./platform/access";
 import { isProfileAllowed } from "./platform/policies";
 import { getSessionContext, requireSessionContext } from "./auth/session";
-import { readData, readLessonById, readReferenceData } from "./store";
+import { readData, readReferenceData } from "./store";
 import { withEgressLabel } from "./egress-label";
-import { buildLessonCommunicationDraft, type LessonCommunicationDraft } from "./whatsapp-templates";
 import type { LessonSlotSuggestion } from "./lesson-scheduling";
 import type { SeriesOccurrenceCheck } from "./lesson-series";
 import type { RevisedEarningsLine, TeacherEarningsResult, TeacherPayoutPaymentMethodInfo } from "./teacher-payout";
@@ -3647,14 +3646,13 @@ export async function actionAddRoom(_prevState: AddRoomFormState, formData: Form
 }
 
 export type LessonActionResult =
-  | { ok: true; lessonId: string; communication: LessonCommunicationDraft | null }
+  | { ok: true; lessonId: string }
   | { ok: false; message: string; overridable?: boolean };
 
 /**
  * Hata durumunda fırlatmaz — Program Stüdyosu client bileşeni sonucu
  * doğrudan gösterip forma bağlamında Türkçe bir hata göstersin diye
- * `{ ok: false, message }` döner. Başarıda, ders için otomatik gönderim
- * yapılmayan veli/öğretmen iletişim taslağını da birlikte döndürür.
+ * `{ ok: false, message }` döner. Ders planlama mesaj taslağı ÜRETMEZ (sahip kararı 2026-10-18).
  */
 export async function actionAddLesson(formData: FormData): Promise<LessonActionResult> {
   try {
@@ -3682,23 +3680,7 @@ export async function actionAddLesson(formData: FormData): Promise<LessonActionR
         return { ok: false as const, message: created.error.message, overridable: details?.overridable };
       }
 
-      // DB egress (2026-10-17) — mesaj taslağı için yalnız yeni ders + referans veri (tam kurum okuması yok).
-      const [lesson, data] = await Promise.all([readLessonById(created.data.lessonId), readReferenceData()]);
-      const student = data.students.find((s) => s.id === lesson?.studentId);
-      const teacher = data.teachers.find((t) => t.id === lesson?.teacherId);
-      const branch = data.settings.branches.find((b) => b.id === lesson?.branchId);
-      const communication =
-        lesson && student && teacher
-          ? buildLessonCommunicationDraft(
-              data.settings.name,
-              student,
-              teacher,
-              lesson,
-              branch?.shortName ?? ""
-            )
-          : null;
-
-      return { ok: true as const, lessonId: created.data.lessonId, communication };
+      return { ok: true as const, lessonId: created.data.lessonId };
     });
     if (result.ok) revalidateAll();
     return result;
